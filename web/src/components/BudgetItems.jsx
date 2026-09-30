@@ -155,10 +155,11 @@ export function BudgetItemsEditor({ activities, items, onItems, feePct, onFee })
   );
 }
 
-/** Read-only FLA budget from the server's computed view. */
-export function BudgetItemsView({ budget, monthlyCeiling }) {
-  const { sections, activities, direct, managementFee, total } = budget;
-  const single = activities.length <= 1;
+/** One section's detail table (lines → postes → sous-totaux), like a section
+ * sheet of the FLA workbook. */
+function SectionSheet({ sec, activities, single }) {
+  const cols = single ? 4 : 5;
+  const hasItems = sec.lines.some((l) => l.items.length > 0);
   return (
     <div className="table-wrap">
       <table className="table matrix">
@@ -171,49 +172,126 @@ export function BudgetItemsView({ budget, monthlyCeiling }) {
             <th scope="col" className="num">Montant</th>
           </tr>
         </thead>
-        {sections.filter((s) => s.total > 0).map((sec) => (
-          <tbody key={sec.code}>
-            <tr className="subrow-head">
-              <td colSpan={single ? 4 : 5}>{sec.code} — {sec.label}</td>
-            </tr>
-            {sec.lines.filter((l) => l.total > 0).map((line) => (
-              <React.Fragment key={line.lineCode}>
-                {line.items.length > 1 && (
-                  <tr className="subrow"><td className="indent" colSpan={single ? 4 : 5}><strong>{line.label}</strong>{line.lineCode === MONITORING_LINE && <span className="tag" style={{ marginLeft: 8 }}>TPM</span>}</td></tr>
-                )}
-                {line.items.map((it) => {
-                  const actId = Object.keys(it.byActivity).find((k) => it.byActivity[k] > 0);
-                  const act = activities.find((a) => a.id === actId);
-                  return (
-                    <tr key={it.id} className={line.lineCode === MONITORING_LINE ? 'row-highlight' : ''}>
-                      <td className="indent">{it.description}{line.items.length === 1 && line.lineCode === MONITORING_LINE && <span className="tag" style={{ marginLeft: 8 }}>TPM</span>}</td>
-                      <td className="num tabular">{it.unitCount}</td>
-                      <td className="num tabular">{formatAr(it.unitCost)}</td>
-                      {!single && <td>{act ? act.label : '—'}</td>}
-                      <td className="num tabular">{formatAr(it.amount)}</td>
-                    </tr>
-                  );
-                })}
-                <tr className="subrow-foot">
-                  <td className="indent" colSpan={single ? 3 : 4} style={{ textAlign: 'right' }}>Sous-total {line.label}</td>
-                  <td className="num tabular"><strong>{formatAr(line.total)}</strong></td>
-                </tr>
-              </React.Fragment>
-            ))}
-          </tbody>
-        ))}
+        <tbody>
+          {!hasItems && (
+            <tr><td colSpan={cols} className="muted" style={{ textAlign: 'center', padding: 22 }}>
+              Aucun poste budgétisé dans cette section.
+            </td></tr>
+          )}
+          {sec.lines.filter((l) => l.items.length > 0).map((line) => (
+            <React.Fragment key={line.lineCode}>
+              {line.items.length > 1 && (
+                <tr className="subrow"><td className="indent" colSpan={cols}><strong>{line.label}</strong>{line.lineCode === MONITORING_LINE && <span className="tag" style={{ marginLeft: 8 }}>TPM</span>}</td></tr>
+              )}
+              {line.items.map((it) => {
+                const actId = Object.keys(it.byActivity).find((k) => it.byActivity[k] > 0);
+                const act = activities.find((a) => a.id === actId);
+                return (
+                  <tr key={it.id} className={line.lineCode === MONITORING_LINE ? 'row-highlight' : ''}>
+                    <td className="indent">{it.description}{line.items.length === 1 && line.lineCode === MONITORING_LINE && <span className="tag" style={{ marginLeft: 8 }}>TPM</span>}</td>
+                    <td className="num tabular">{it.unitCount}</td>
+                    <td className="num tabular">{formatAr(it.unitCost)}</td>
+                    {!single && <td>{act ? act.label : '—'}</td>}
+                    <td className="num tabular">{formatAr(it.amount)}</td>
+                  </tr>
+                );
+              })}
+              <tr className="subrow-foot">
+                <td className="indent" colSpan={cols - 1} style={{ textAlign: 'right' }}>Sous-total {line.label}</td>
+                <td className="num tabular"><strong>{formatAr(line.total)}</strong></td>
+              </tr>
+            </React.Fragment>
+          ))}
+        </tbody>
         <tfoot>
           {!single && activities.map((a) => (
-            <tr key={a.id}><td colSpan={4} style={{ textAlign: 'right' }} className="muted">Total {a.label}</td><td className="num tabular">{formatAr(direct.byActivity[a.id] || 0)}</td></tr>
+            <tr key={a.id}><td colSpan={cols - 1} style={{ textAlign: 'right' }} className="muted">Total {a.label}</td><td className="num tabular">{formatAr(sec.byActivity[a.id] || 0)}</td></tr>
           ))}
-          <tr><td colSpan={single ? 3 : 4} style={{ textAlign: 'right' }}>Total des coûts directs (I–V)</td><td className="num tabular">{formatAr(direct.total)}</td></tr>
-          <tr><td colSpan={single ? 3 : 4} style={{ textAlign: 'right' }}>Commission de gestion ({Math.round(managementFee.pct * 1000) / 10} %)</td><td className="num tabular">{formatAr(managementFee.amount)}</td></tr>
-          <tr className="grand-row"><td colSpan={single ? 3 : 4} style={{ textAlign: 'right' }}><strong>Total de l'accord</strong></td><td className="num tabular"><strong>{formatAr(total.grand)}</strong></td></tr>
+          <tr className="grand-row"><td colSpan={cols - 1} style={{ textAlign: 'right' }}><strong>Total section {sec.code}</strong></td><td className="num tabular"><strong>{formatAr(sec.total)}</strong></td></tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+/** Synthesis sheet: one row per section + the agreement totals, like the FLA
+ * workbook's overview tab. */
+function OverviewSheet({ budget, monthlyCeiling }) {
+  const { sections, activities, direct, managementFee, total } = budget;
+  const single = activities.length <= 1;
+  const cols = single ? 2 : 2 + activities.length;
+  return (
+    <div className="table-wrap">
+      <table className="table matrix">
+        <thead>
+          <tr>
+            <th scope="col" style={{ minWidth: 300 }}>Section</th>
+            {!single && activities.map((a) => <th key={a.id} scope="col" className="num">{a.label}</th>)}
+            <th scope="col" className="num">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sections.map((sec) => (
+            <tr key={sec.code} className={sec.total > 0 ? '' : 'muted'}>
+              <td><strong>{sec.code}</strong> — {sec.label}</td>
+              {!single && activities.map((a) => <td key={a.id} className="num tabular">{formatAr(sec.byActivity[a.id] || 0)}</td>)}
+              <td className="num tabular">{formatAr(sec.total)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr><td style={{ textAlign: 'right' }}>Total des coûts directs (I–V)</td>{!single && activities.map((a) => <td key={a.id} className="num tabular">{formatAr(direct.byActivity[a.id] || 0)}</td>)}<td className="num tabular"><strong>{formatAr(direct.total)}</strong></td></tr>
+          <tr><td colSpan={cols - 1} style={{ textAlign: 'right' }}>Commission de gestion ({Math.round(managementFee.pct * 1000) / 10} %)</td><td className="num tabular">{formatAr(managementFee.amount)}</td></tr>
+          <tr className="grand-row"><td colSpan={cols - 1} style={{ textAlign: 'right' }}><strong>Total de l'accord</strong></td><td className="num tabular"><strong>{formatAr(total.grand)}</strong></td></tr>
           {monthlyCeiling != null && (
-            <tr><td colSpan={single ? 3 : 4} style={{ textAlign: 'right' }}>Barème mensuel (total ÷ mois)</td><td className="num tabular">{formatAr(monthlyCeiling)}</td></tr>
+            <tr><td colSpan={cols - 1} style={{ textAlign: 'right' }}>Barème mensuel (total ÷ mois)</td><td className="num tabular">{formatAr(monthlyCeiling)}</td></tr>
           )}
         </tfoot>
       </table>
+    </div>
+  );
+}
+
+/**
+ * Read-only FLA budget, laid out like the workbook: a « Vue d'ensemble »
+ * synthesis sheet plus one page per section (I–V), navigated with a tab bar —
+ * so each section is read page by page, exactly as in the Excel.
+ */
+export function BudgetItemsView({ budget, monthlyCeiling }) {
+  const { sections, activities } = budget;
+  const single = activities.length <= 1;
+  const [view, setView] = React.useState('overview');
+  const activeSec = sections.find((s) => s.code === view);
+
+  return (
+    <div className="budget-sheets">
+      <div className="seg budget-nav" role="tablist" aria-label="Sections du budget" style={{ marginBottom: 14 }}>
+        <button type="button" role="tab" aria-selected={view === 'overview'} className={view === 'overview' ? 'is-active' : ''} onClick={() => setView('overview')}>
+          Vue d'ensemble
+        </button>
+        {sections.map((s) => (
+          <button
+            key={s.code} type="button" role="tab" aria-selected={view === s.code}
+            className={view === s.code ? 'is-active' : ''}
+            title={`${s.code} — ${s.label}`}
+            onClick={() => setView(s.code)}
+          >
+            {s.code}{s.total > 0 ? '' : ' ·'}
+          </button>
+        ))}
+      </div>
+
+      {view === 'overview' ? (
+        <OverviewSheet budget={budget} monthlyCeiling={monthlyCeiling} />
+      ) : activeSec ? (
+        <>
+          <div className="sheet-title" style={{ margin: '2px 0 10px' }}>
+            <span className="sheet-code">{activeSec.code}</span>
+            <span className="sheet-label">{activeSec.label}</span>
+          </div>
+          <SectionSheet sec={activeSec} activities={activities} single={single} />
+        </>
+      ) : null}
     </div>
   );
 }

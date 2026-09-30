@@ -1584,6 +1584,12 @@ h1, h2, h3, h4 { letter-spacing: -0.018em; }
 .facture-totals { border-radius: var(--radius-lg); }
 .facture-totals .stat-value { color: var(--text-strong); }
 
+/* ---- Budget: overview + one page per section (like the FLA workbook) ----- */
+.budget-nav { display: inline-flex; flex-wrap: wrap; max-width: 100%; }
+.sheet-title { display: flex; align-items: baseline; gap: 10px; }
+.sheet-code { font-family: var(--font-mono); font-weight: 600; color: var(--blue-700); background: var(--blue-50); border-radius: var(--radius-sm); padding: 1px 8px; font-size: 13px; }
+.sheet-label { font-size: 15px; font-weight: 620; color: var(--text-strong); letter-spacing: -0.01em; }
+
 /* ---- Dark theme --------------------------------------------------------- */
 :root[data-theme="dark"] {
   --surface: #14161b;

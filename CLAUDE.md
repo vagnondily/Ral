@@ -145,8 +145,13 @@ or navy rail.
   intentionally NO active-count badge) + a disk icon for **saved views**
   (permanent in localStorage / temporary in sessionStorage).
 - **Détail** (`ContractDetailPage.jsx`): overview + tabs (Détail budgétaire /
-  Avenants / Historique). **Avenants tab is a table**; click a row to expand a
-  full **before→after diff** (dates, commission, total, zones, postes).
+  Avenants / Historique). The **Détail budgétaire** tab reproduces the FLA
+  workbook layout: a **« Vue d'ensemble »** synthesis sheet (one row per section
+  I–V + direct total, commission, total de l'accord, barème mensuel) plus **one
+  page per section**, navigated by a tab bar — read section by section like the
+  Excel sheets (`BudgetItemsView` in `web/src/components/BudgetItems.jsx`).
+  **Avenants tab is a table**; click a row to expand a full **before→after
+  diff** (dates, commission, total, zones, postes).
 - **Avenant = same full process as a new contract**; stored as
   `{ before, after }` snapshot (backward-compatible with the old flat format).
 - **Excel**: import a real FLA `.xlsx` to auto-fill postes
