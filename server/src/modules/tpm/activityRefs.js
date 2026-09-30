@@ -19,7 +19,7 @@ async function loadActivityMap(client, tenantId) {
  * Throws a client-facing Error otherwise. Returns the activity map for reuse.
  */
 async function assertItemActivities(client, tenantId, items) {
-  const ids = [...new Set(items.map((it) => it.activityId).filter(Boolean))];
+  const ids = [...new Set(items.flatMap((it) => [it.activityId, it.activity2Id]).filter(Boolean))];
   const map = await loadActivityMap(client, tenantId);
   for (const id of ids) {
     if (!map.has(id)) throw new Error('Activité inconnue (ou hors de ce compte).');

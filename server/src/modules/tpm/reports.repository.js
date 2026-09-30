@@ -45,10 +45,13 @@ function cast(r) {
 async function loadItems(client, tenantId, reportId) {
   const { rows } = await client.query(
     `SELECT i.id, i.line_code AS "lineCode", i.designation, i.unit, i.unit_count AS "unitCount",
-            i.unit_cost AS "unitCost", i.pay_by AS "payBy", i.activity_id AS "activityId",
-            a.label AS "activityLabel", i.site, i.observation, i.sort_order AS "sortOrder"
+            i.unit_cost AS "unitCost", i.pay_by AS "payBy", i.bailleur_pct AS "bailleurPct",
+            i.activity_id AS "activityId", a.label AS "activityLabel",
+            i.activity2_id AS "activity2Id", a2.label AS "activity2Label", i.activity1_pct AS "activity1Pct",
+            i.site, i.observation, i.sort_order AS "sortOrder"
        FROM contract_report_items i
        LEFT JOIN activities a ON a.id = i.activity_id
+       LEFT JOIN activities a2 ON a2.id = i.activity2_id
       WHERE i.tenant_id = $1 AND i.report_id = $2
       ORDER BY i.sort_order, i.id`,
     [tenantId, reportId]
@@ -57,13 +60,15 @@ async function loadItems(client, tenantId, reportId) {
     ...it,
     unitCount: num(it.unitCount),
     unitCost: num(it.unitCost),
+    bailleurPct: it.bailleurPct == null ? 1 : num(it.bailleurPct),
+    activity1Pct: it.activity1Pct == null ? null : num(it.activity1Pct),
     amount: Math.round(Number(it.unitCount || 0) * Number(it.unitCost || 0) * 100) / 100,
     lineLabel: LINE_LABELS[it.lineCode] || it.lineCode,
     section: SECTION_OF[it.lineCode] || String(it.lineCode || '').split('.')[0],
   }));
 }
 
-const ITEM_COLS = 12; // tenant_id, report_id, line_code, designation, unit, unit_count, unit_cost, pay_by, activity_id, site, observation, sort_order
+const ITEM_COLS = 15; // tenant_id, report_id, line_code, designation, unit, unit_count, unit_cost, pay_by, bailleur_pct, activity_id, activity2_id, activity1_pct, site, observation, sort_order
 
 /**
  * Insert the given items for a report in a single multi-row INSERT (assumes
@@ -79,12 +84,14 @@ async function insertItems(client, tenantId, reportId, items) {
   const tuples = clean.map((it, i) => {
     const b = i * ITEM_COLS;
     params.push(tenantId, reportId, it.lineCode, it.designation, it.unit,
-      it.unitCount, it.unitCost, it.payBy, it.activityId, it.site, it.observation, it.sortOrder);
-    return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10},$${b + 11},$${b + 12})`;
+      it.unitCount, it.unitCost, it.payBy, it.bailleurPct, it.activityId, it.activity2Id, it.activity1Pct,
+      it.site, it.observation, it.sortOrder);
+    const p = Array.from({ length: ITEM_COLS }, (_, k) => `$${b + k + 1}`).join(',');
+    return `(${p})`;
   });
   await client.query(
     `INSERT INTO contract_report_items
-       (tenant_id, report_id, line_code, designation, unit, unit_count, unit_cost, pay_by, activity_id, site, observation, sort_order)
+       (tenant_id, report_id, line_code, designation, unit, unit_count, unit_cost, pay_by, bailleur_pct, activity_id, activity2_id, activity1_pct, site, observation, sort_order)
      VALUES ${tuples.join(',')}`,
     params
   );
