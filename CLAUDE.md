@@ -226,9 +226,10 @@ or navy rail.
 - **Suivi terrain — sites & visites** (`server/src/modules/tpm/field.*`,
   `web/src/pages/monitoring/FieldVisitsPage.jsx`, migration 020): the S&E
   officer's field-monitoring tool. Two-stage workflow — (1) **planification
-  générale** : the bureau lists the sites (`mon_sites`: district › commune ›
-  établissement › activité) to visit in the month (`site_visits`, unique per
-  site+month+activity); (2) **affectation** (done AFTER planning): each visit is
+  générale** : the bureau lists the sites to visit in the month, reusing the
+  **shared `sites` registry** (migration 001, also used by RBM/assignments — no
+  duplicate table; migration 020 only adds `sites.fokontany` + the `site_visits`
+  table, unique per site+month+activity); (2) **affectation** (done AFTER planning): each visit is
   assigned to a prestataire TPM and a **generic role** (Agent 1 / Superviseur 1
   — never nominative). Status planifie→realise→annule; coverage =
   réalisées / (planifiées+réalisées), cancelled excluded. Pure math in

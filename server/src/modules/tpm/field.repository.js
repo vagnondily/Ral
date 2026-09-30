@@ -2,12 +2,21 @@ const { withTenantTransaction } = require('../../config/db');
 const { summarizeVisits } = require('./fieldMath');
 
 /**
- * Suivi terrain — sites (établissements) + planification/réalisation des
- * visites, affectées aux prestataires TPM. Only this repository writes SQL;
- * every query filters tenant_id and runs inside withTenantTransaction (RLS).
+ * Suivi terrain — planification/réalisation des visites, affectées aux
+ * prestataires TPM. Réutilise le registre de sites partagé (`sites`) — un seul
+ * référentiel de sites pour tout le suivi (RBM, affectations, visites). Only
+ * this repository writes SQL; every query filters tenant_id (RLS).
  */
 
-const SITE_COLS = 'id, district, commune, fokontany, name, activity, active';
+const SITE_COLS = 'id, district, commune, fokontany, name, activity';
+
+// Deterministic slug used as the site `code` so an import dedups on
+// (district, commune, name) via the (tenant_id, code) unique constraint.
+function siteCode(s) {
+  const slug = (x) => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  return `${slug(s.district)}--${slug(s.commune)}--${slug(s.name)}`.slice(0, 120) || `site-${Date.now()}`;
+}
 
 async function listSites(tenantId, { q } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
@@ -15,7 +24,7 @@ async function listSites(tenantId, { q } = {}) {
     const where = ['tenant_id = $1'];
     if (q) { params.push(`%${q}%`); where.push(`(name ILIKE $${params.length} OR commune ILIKE $${params.length} OR district ILIKE $${params.length})`); }
     const { rows } = await client.query(
-      `SELECT ${SITE_COLS} FROM mon_sites WHERE ${where.join(' AND ')} ORDER BY district, commune, name`,
+      `SELECT ${SITE_COLS} FROM sites WHERE ${where.join(' AND ')} ORDER BY district, commune, name`,
       params
     );
     return rows;
@@ -25,9 +34,12 @@ async function listSites(tenantId, { q } = {}) {
 async function createSite(tenantId, s) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      `INSERT INTO mon_sites (tenant_id, district, commune, fokontany, name, activity)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-      [tenantId, s.district, s.commune, s.fokontany || null, s.name, s.activity || null]
+      `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (tenant_id, code) DO UPDATE SET fokontany = EXCLUDED.fokontany,
+         activity = COALESCE(EXCLUDED.activity, sites.activity)
+       RETURNING id`,
+      [tenantId, siteCode(s), s.district, s.commune, s.fokontany || null, s.name, s.activity || null]
     );
     return rows[0].id;
   });
@@ -36,28 +48,28 @@ async function createSite(tenantId, s) {
 async function updateSite(tenantId, id, s) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rowCount } = await client.query(
-      `UPDATE mon_sites SET district = COALESCE($3, district), commune = COALESCE($4, commune),
-         fokontany = $5, name = COALESCE($6, name), activity = $7, active = COALESCE($8, active)
+      `UPDATE sites SET district = COALESCE($3, district), commune = COALESCE($4, commune),
+         fokontany = $5, name = COALESCE($6, name), activity = $7
        WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id, s.district ?? null, s.commune ?? null, s.fokontany ?? null, s.name ?? null, s.activity ?? null, s.active ?? null]
+      [tenantId, id, s.district ?? null, s.commune ?? null, s.fokontany ?? null, s.name ?? null, s.activity ?? null]
     );
     return rowCount > 0;
   });
 }
 
-/** Bulk upsert sites from an import; returns the number inserted/kept, and a
- * name→id map for linking visits. */
+/** Bulk upsert sites (shared registry) from an import; returns a code→id map. */
 async function upsertSites(client, tenantId, sites) {
   const map = new Map();
   let inserted = 0;
   for (const s of sites) {
+    const code = siteCode(s);
     const { rows } = await client.query(
-      `INSERT INTO mon_sites (tenant_id, district, commune, fokontany, name, activity)
-       VALUES ($1,$2,$3,$4,$5,$6)
-       ON CONFLICT (tenant_id, district, commune, name)
-       DO UPDATE SET fokontany = EXCLUDED.fokontany, activity = COALESCE(EXCLUDED.activity, mon_sites.activity)
+      `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (tenant_id, code)
+       DO UPDATE SET fokontany = EXCLUDED.fokontany, activity = COALESCE(EXCLUDED.activity, sites.activity)
        RETURNING id, (xmax = 0) AS inserted`,
-      [tenantId, s.district, s.commune, s.fokontany || null, s.name, s.activity || null]
+      [tenantId, code, s.district, s.commune, s.fokontany || null, s.name, s.activity || null]
     );
     map.set(`${s.district}|${s.commune}|${s.name}`, rows[0].id);
     if (rows[0].inserted) inserted += 1;
@@ -81,7 +93,7 @@ async function listVisits(tenantId, { month, providerId, status } = {}) {
     const { rows } = await client.query(
       `SELECT ${VISIT_COLS}
          FROM site_visits v
-         JOIN mon_sites s ON s.id = v.site_id
+         JOIN sites s ON s.id = v.site_id
          LEFT JOIN partners p ON p.id = v.provider_id
         WHERE ${where.join(' AND ')}
         ORDER BY s.district, s.commune, s.name`,
@@ -98,7 +110,7 @@ async function summary(tenantId, { month } = {}) {
     if (month) { params.push(`${String(month).slice(0, 7)}-01`); where.push(`v.period_month = $${params.length}`); }
     const { rows } = await client.query(
       `SELECT v.status, v.provider_id AS "providerId", p.name AS "providerName", s.district, v.activity
-         FROM site_visits v JOIN mon_sites s ON s.id = v.site_id
+         FROM site_visits v JOIN sites s ON s.id = v.site_id
          LEFT JOIN partners p ON p.id = v.provider_id
         WHERE ${where.join(' AND ')}`,
       params
@@ -149,9 +161,10 @@ async function deleteVisit(tenantId, id) {
 }
 
 /**
- * Import a planning: create/keep the sites and plan their visits for a month.
- * `rows`: [{ district, commune, fokontany, name, activity, agent }]. One visit
- * per (site, activity) for the month; existing ones are skipped (idempotent).
+ * Import a planning: create/keep the sites (shared registry) and plan their
+ * visits for a month. `rows`: [{ district, commune, fokontany, name, activity,
+ * agent }]. One visit per (site, activity) for the month; existing ones are
+ * skipped (idempotent).
  */
 async function importPlanning(tenantId, userId, month, rows) {
   return withTenantTransaction(tenantId, async (client) => {
