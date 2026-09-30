@@ -60,7 +60,10 @@ const itemSchema = z.object({
   unitCount: z.number().nonnegative().max(1e9),
   unitCost: z.number().nonnegative().max(1e13),
   payBy: z.enum(['bailleur', 'ong']).optional(),
+  bailleurPct: z.number().min(0).max(1).optional(),
   activityId: z.string().uuid().optional().or(z.literal('').transform(() => undefined)),
+  activity2Id: z.string().uuid().optional().or(z.literal('').transform(() => undefined)),
+  activity1Pct: z.number().min(0).max(1).optional(),
   site: z.string().trim().max(120).optional().or(z.literal('').transform(() => undefined)),
   observation: z.string().trim().max(400).optional().or(z.literal('').transform(() => undefined)),
 });
