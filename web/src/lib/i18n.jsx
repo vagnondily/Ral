@@ -39,6 +39,7 @@ const DICT = {
     'nav.dashboard': 'Decision dashboard',
     'nav.reporting': 'Reporting',
     'nav.alertes': 'Alerts',
+    'nav.alertes.centre': 'Alert center',
     'nav.parametrage': 'Settings',
     'nav.parametrage.partenaires': 'Partners',
     'nav.parametrage.activites': 'Activities',

@@ -61,7 +61,7 @@ export const NAV = [
         ],
       },
       { id: 'reporting', label: 'Reporting', icon: ChartColumn },
-      { id: 'alertes', label: 'Alertes', icon: Bell },
+      { id: 'alertes', label: 'Alertes', icon: Bell, subs: [{ id: 'centre', label: "Centre d'alertes" }] },
     ],
   },
   {
