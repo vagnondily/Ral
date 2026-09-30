@@ -248,6 +248,60 @@ npm run dev          REM ou « npm run build » pour un livrable statique
 > **Vérifier l'état des migrations** à tout moment :
 > `psql -U postgres -d mems2_tpm -c "SELECT filename, applied_at FROM schema_migrations ORDER BY filename;"`
 
+### Passer de la version hors-ligne (zip) à la version GitHub — en gardant vos données
+
+Vous aviez installé la **version hors-ligne (dossier extrait du zip)** et votre
+base `mems2_tpm` contient déjà des données ? Vous pouvez basculer sur la version
+GitHub **sans rien perdre** : c'est la **même base** (`mems2_tpm`) et le **même
+rôle** (`mems2_app`), on récupère juste le nouveau code puis on applique les
+migrations manquantes.
+
+**Étape 0 — mettez de côté vos `.env`** (ils contiennent vos identifiants
+PostgreSQL) : copiez `server\.env` (et `web\.env` s'il existe) de l'ancien
+dossier hors-ligne quelque part.
+
+**Option A — récupérer le code avec Git** (recommandé)
+
+```cmd
+REM Dans le dossier parent où vous voulez la copie GitHub
+git clone https://github.com/vagnondily/Ral.git
+cd Ral
+REM Tant que la Pull Request n'est pas fusionnée, prenez la branche de travail :
+git checkout claude/friendly-carson-ze6mtp
+REM (après fusion de la PR : restez simplement sur « main »)
+```
+
+**Option B — sans Git** : sur la page GitHub, bouton **Code ▸ Download ZIP**
+(en ayant sélectionné la bonne branche), puis décompressez dans un nouveau
+dossier.
+
+**Ensuite, dans le nouveau dossier GitHub :**
+
+```cmd
+REM 1) Remettre vos identifiants de base : recopiez votre ancien server\.env
+REM    dans server\  (ou : copy .env.example .env puis renseignez
+REM    DATABASE_URL / APP_DATABASE_URL comme sur votre install hors-ligne)
+cd server
+npm install
+npm run migrate      REM applique 013→017 sur VOTRE base existante — données gardées
+REM  ⚠ ne PAS lancer « npm run seed » : il n'ajoute que le jeu de démonstration
+npm start
+
+REM 2) Interface (nouvelle fenêtre, à la racine)
+cd web
+npm install
+npm run dev
+```
+
+Vos contrats, prestataires, rapports, etc. sont intacts. La bascule ne fait
+qu'**ajouter** les nouvelles fonctionnalités (consolidation, plans de collecte,
+facture fidèle + export, activité par poste, terminologie neutre…). Pour
+repartir de l'ancien dossier hors-ligne, il suffit de le rouvrir : il pointe
+sur la même base.
+
+> Astuce : gardez **un seul** des deux dossiers actif à la fois (ils utilisent
+> le même port `9000` et la même base) pour éviter toute confusion.
+
 ## Démarrer sur macOS / Linux (sans Docker)
 
 Identique, en remplaçant `copy` par `cp` :
