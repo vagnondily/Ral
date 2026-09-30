@@ -242,6 +242,13 @@ or navy rail.
   consumption gauges and alerts — dependency-free inline SVG with hover
   tooltips, legends and direct labels; series colours validated with the dataviz
   palette checker. Fed live from the consolidation API.
+- **Centre d'alertes** (`web/src/pages/dashboard/AlertsPage.jsx`, nav
+  « Alertes › Centre d'alertes ») : agrège en direct (aucun stockage) ce qui
+  demande attention pour le responsable S&E — dépassements/​projections
+  budgétaires (consolidation), rapports à valider, avenants/contrats en
+  validation, contrats à échéance ≤ 90 j, couverture terrain faible et visites
+  non affectées. Trois niveaux (critique/à surveiller/à traiter), chaque ligne
+  navigue vers le module concerné.
 - **Shell**: left sidebar, collapsible (rail mode), header with notifications +
   user menu (FR/EN language, light/dark theme), no office filter.
 
