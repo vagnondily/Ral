@@ -1223,10 +1223,10 @@ body { background: var(--canvas); }
 :root[data-theme="dark"] .logo-mark { filter: drop-shadow(0 4px 10px rgba(0,0,0,.5)); }
 .login-head .logo-mark { border-radius: 14px; }
 
-/* Collapsible left sidebar (minimize / expand) */
-.header .collapse-toggle { display: inline-flex; }
+/* Collapsible left sidebar (minimize / expand). The toggle lives ON the rail,
+   inside the brand row, not in the header. */
 .shell.is-collapsed { --sidebar-w: 76px; }
-.is-collapsed .brand { justify-content: center; padding: 0 12px; }
+.is-collapsed .brand { flex-direction: column; height: auto; gap: 8px; padding: 14px 0; justify-content: center; }
 .is-collapsed .brand-text { display: none; }
 .is-collapsed .nav { padding: 12px 10px 24px; }
 .is-collapsed .nav-group-label { display: none; }
@@ -1246,7 +1246,9 @@ body { background: var(--canvas); }
 .filters-empty { font-size: var(--fs-sm); color: var(--text-muted); padding-bottom: 8px; }
 
 @media (max-width: 960px) {
-  .header .collapse-toggle { display: none; }
+  /* Mobile uses the slide-in drawer (menu-toggle); the rail collapse toggle
+     is not meaningful there. */
+  .sidebar .collapse-toggle { display: none; }
   .shell.is-collapsed { --sidebar-w: 272px; }
 }
 
@@ -1429,13 +1431,22 @@ h1, h2, h3, h4 { letter-spacing: -0.018em; }
 
 /* ---- Rail ---------------------------------------------------------------- */
 .sidebar { background: var(--rail); border-right: 1px solid var(--rail-line); }
-.brand { border-bottom: 1px solid var(--rail-line); padding: 18px 18px 16px; }
+.brand { border-bottom: 1px solid var(--rail-line); padding: 14px 14px 13px 18px; gap: 11px; }
 .brand-name { color: #fff; font-weight: 650; letter-spacing: -0.02em; }
 .brand-sub { color: var(--rail-muted); }
+/* Collapse toggle: sits at the far end of the brand row, tinted for the dark
+   rail; when collapsed the brand stacks and it sits under the logo. */
+.sidebar .collapse-toggle { margin-left: auto; flex-shrink: 0; color: var(--rail-muted); }
+.sidebar .collapse-toggle:hover:not(:disabled) { background: var(--rail-2); color: #fff; }
+.is-collapsed .sidebar .collapse-toggle { margin-left: 0; }
 .nav { padding: 10px 10px 20px; }
 .nav-group-label { color: var(--rail-muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; padding: 14px 10px 6px; }
+/* Hover feels immediate but soft; the whole row is the target and the cursor
+   confirms it is clickable (disabled placeholders opt out). */
+.nav-item, .nav-subitem { transition: background-color .13s var(--ease), color .13s var(--ease); cursor: pointer; }
+.nav-item:disabled, .nav-subitem:disabled { cursor: default; }
 .nav-item { color: var(--rail-text); border-radius: 8px; padding: 7px 10px; font-size: 13.5px; font-weight: 500; gap: 11px; }
-.nav-item svg { color: var(--rail-muted); }
+.nav-item svg { color: var(--rail-muted); transition: color .13s var(--ease); }
 .nav-item:hover:not(:disabled) { background: var(--rail-2); color: #fff; }
 .nav-item:hover:not(:disabled) svg { color: #9db4ff; }
 .nav-item.is-open { background: var(--rail-2); color: #fff; }
@@ -1444,9 +1455,10 @@ h1, h2, h3, h4 { letter-spacing: -0.018em; }
 .nav-item:disabled svg { color: #40444f; }
 .nav-sub { margin: 2px 0 4px 16px; padding-left: 12px; border-left: 1px solid var(--rail-line); }
 .nav-subitem { color: #969ba7; border-radius: 7px; padding: 6px 10px; font-size: 13px; font-weight: 500; }
-.nav-subitem:hover { background: var(--rail-2); color: #fff; }
+.nav-subitem:hover:not(:disabled) { background: var(--rail-2); color: #fff; }
 .nav-subitem.is-active { background: transparent; color: #fff; font-weight: 600; }
 .nav-subitem.is-active::before { content: ''; position: absolute; left: -13px; top: 7px; bottom: 7px; width: 2px; border-radius: 2px; background: var(--blue-500); }
+.nav-subitem:disabled { color: #565b68; opacity: 1; }
 .sidebar-foot { color: var(--rail-muted); border-top: 1px solid var(--rail-line); }
 .soon-dot { background: #3a3f4b; }
 .is-collapsed .nav-group + .nav-group { border-top-color: var(--rail-line); }
@@ -1483,8 +1495,8 @@ h1, h2, h3, h4 { letter-spacing: -0.018em; }
 .header-tools { gap: 4px; }
 .header-tools .btn-icon { color: var(--text-muted); }
 .header-tools .btn-icon:hover:not(:disabled) { background: var(--canvas-sunken); color: var(--text-strong); }
-.header .collapse-toggle, .header .menu-toggle { color: var(--text-muted); }
-.header .collapse-toggle:hover, .header .menu-toggle:hover { background: var(--canvas-sunken); color: var(--text-strong); }
+.header .menu-toggle { color: var(--text-muted); }
+.header .menu-toggle:hover { background: var(--canvas-sunken); color: var(--text-strong); }
 
 /* ---- Cards -------------------------------------------------------------- */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-sm); }
