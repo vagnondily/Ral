@@ -60,17 +60,30 @@ async function loadItems(client, tenantId, reportId) {
   }));
 }
 
-/** Insert the given items for a report (assumes the report row is locked). */
+const ITEM_COLS = 11; // tenant_id, report_id, line_code, designation, unit, unit_count, unit_cost, pay_by, site, observation, sort_order
+
+/**
+ * Insert the given items for a report in a single multi-row INSERT (assumes
+ * the report row is locked). One round-trip whatever the number of postes —
+ * a 500-line facture must not become 500 queries under load.
+ */
 async function insertItems(client, tenantId, reportId, items) {
   const clean = normalizeItems(items);
-  for (const it of clean) {
-    await client.query(
-      `INSERT INTO contract_report_items
-         (tenant_id, report_id, line_code, designation, unit, unit_count, unit_cost, pay_by, site, observation, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [tenantId, reportId, it.lineCode, it.designation, it.unit, it.unitCount, it.unitCost, it.payBy, it.site, it.observation, it.sortOrder]
-    );
-  }
+  if (clean.length === 0) return clean;
+
+  const params = [];
+  const tuples = clean.map((it, i) => {
+    const b = i * ITEM_COLS;
+    params.push(tenantId, reportId, it.lineCode, it.designation, it.unit,
+      it.unitCount, it.unitCost, it.payBy, it.site, it.observation, it.sortOrder);
+    return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10},$${b + 11})`;
+  });
+  await client.query(
+    `INSERT INTO contract_report_items
+       (tenant_id, report_id, line_code, designation, unit, unit_count, unit_cost, pay_by, site, observation, sort_order)
+     VALUES ${tuples.join(',')}`,
+    params
+  );
   return clean;
 }
 

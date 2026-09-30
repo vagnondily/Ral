@@ -58,13 +58,16 @@ async function consolidation(tenantId, { today } = {}) {
       [tenantId]
     );
 
+    // DATE columns come back as exact 'YYYY-MM-DD' strings (see the OID-1082
+    // type parser in config/db.js) — pass them through, never round-trip
+    // through a JS Date, which would reintroduce a timezone shift.
     const shaped = contracts.map((c) => ({
       id: c.id,
       numero: c.numero,
       partnerId: null,
       partnerName: c.partnerName,
-      dateDebut: c.dateDebut ? new Date(c.dateDebut).toISOString().slice(0, 10) : null,
-      dateFin: c.dateFin ? new Date(c.dateFin).toISOString().slice(0, 10) : null,
+      dateDebut: c.dateDebut || null,
+      dateFin: c.dateFin || null,
       periodMonths: c.periodMonths,
       monitoringBudget: num(c.monitoringBudget),
     }));

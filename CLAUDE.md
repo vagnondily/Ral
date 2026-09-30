@@ -12,6 +12,45 @@ maintainability are the explicit priorities.
 - `server/` — API + background worker (Node/Express/pg/BullMQ)
 - `web/`    — React SPA (Vite, hash routing)
 
+## Engineering priorities (ranked — enforce on every change)
+The owner has stated these are the most critical properties of the app. When a
+trade-off arises, decide in this order:
+
+1. **Reliability first.** Correctness over features. No partial writes: any
+   change spanning >1 statement runs inside `withTenantTransaction`
+   (BEGIN/COMMIT/ROLLBACK). Money is integer-cent maths, never float sums
+   (see `contracts.domain.js`, `reportMath.js`, `consolidation.js`). Derived
+   figures are recomputed from their inputs, never trusted from the client
+   (e.g. a facture's « Réalisé » = PAM share computed server-side; monitoring
+   spend recomputed by the worker). Validate every input at the edge (zod in
+   routes) AND enforce it in the DB (CHECK / UNIQUE / FK) — the central error
+   handler maps 23505→409, 23514/23503/22P02→400, everything else→500 with no
+   leak. Never weaken a constraint to make a test pass.
+2. **Maintainability.** Keep the layering `routes → controller → service →
+   repository`; only the repository writes SQL. Put business rules in **pure,
+   unit-tested** modules with no I/O (the `*.domain.js` / `*Math.js` /
+   `consolidation.js` pattern) — that is what keeps the CPU-heavy logic
+   testable and, if ever needed, movable to a worker thread. Small functions,
+   names matching the surrounding code, a test for every rule.
+3. **Multitenant isolation is non-negotiable.** Every business table has
+   `tenant_id` + RLS; every query filters `tenant_id = $1` **and** runs inside
+   `withTenantTransaction` (which sets the `app.tenant_id` GUC so RLS is the
+   safety net). Never read/​write across tenants; never take a tenant id from
+   the request body — only from `req.auth`.
+4. **CPU-intensive / concurrency.** Node is single-threaded per process:
+   - Do aggregation in SQL (`GROUP BY`, `SUM … FILTER`), not JS loops over big
+     row sets; the JS layer only shapes bounded results.
+   - Batch writes into a single multi-row statement — never N queries in a loop
+     (see `insertItems`).
+   - Anything genuinely heavy or long-running goes through the **BullMQ worker
+     + transactional outbox** (at-least-once), never inline in a request. Keep
+     handlers making heavy compute **pure** so they can run in a worker.
+   - Guard concurrent edits with row locks (`SELECT … FOR UPDATE`) + the
+     unique constraint as the real backstop; make writes idempotent where a
+     retry could double-apply.
+   - One shared pg `Pool` (never per-request); size it with `PG_POOL_MAX`.
+   - Index the columns you filter/group on for the queries that run hot.
+
 ## Run it (Windows, PostgreSQL already installed, no Docker)
 The API runs on **port 9000** (4000 was taken on the target machine). Use `copy`
 (not `cp`). Full step-by-step is in `README.md` → « Démarrer sur Windows ».
