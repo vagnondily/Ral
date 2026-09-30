@@ -9,7 +9,8 @@ import { formatAr } from '../../lib/format.js';
 
 let seq = 0;
 export const newPoste = (lineCode = 'IV.suivi') => ({
-  key: `p${seq++}`, lineCode, designation: '', unit: '', unitCount: '', unitCost: '', payBy: 'bailleur', activityId: '', observation: '',
+  key: `p${seq++}`, lineCode, designation: '', unit: '', unitCount: '', unitCost: '',
+  bailleurPct: 100, activityId: '', activity2Id: '', activity1Pct: '', observation: '',
 });
 
 export const posteAmount = (r) => {
@@ -17,16 +18,26 @@ export const posteAmount = (r) => {
   return Number.isFinite(q) && Number.isFinite(c) ? Math.round(q * c * 100) / 100 : 0;
 };
 
+// Funder share fraction (0..1) of a row; blank « % bailleur » means 100 %.
+const funderFrac = (r) => {
+  const p = r.bailleurPct === '' || r.bailleurPct == null ? 100 : Number(r.bailleurPct);
+  return Math.min(1, Math.max(0, (Number.isFinite(p) ? p : 100) / 100));
+};
+/** « À payer par le bailleur » d'un poste = montant × % bailleur. */
+export const posteFunder = (r) => Math.round(posteAmount(r) * funderFrac(r) * 100) / 100;
+
 /** Cent-safe totals of a list of postes: by section + bailleur/ONG split. */
 export function postesTotals(rows) {
   const bySec = {};
   let total = 0; let funder = 0; let ong = 0;
   for (const r of rows) {
     const amt = posteAmount(r);
+    const f = posteFunder(r);
     const sec = SECTION_OF[r.lineCode] || '?';
     bySec[sec] = (bySec[sec] || 0) + amt;
     total += amt;
-    if (r.payBy === 'ong') ong += amt; else funder += amt;
+    funder += f;
+    ong += amt - f;
   }
   return { bySec, total, funder, ong };
 }
@@ -35,8 +46,12 @@ export function postesTotals(rows) {
 export function rowsFromItems(items) {
   return (items || []).map((it) => ({
     key: `p${seq++}`, lineCode: it.lineCode, designation: it.designation, unit: it.unit || '',
-    unitCount: it.unitCount ?? '', unitCost: it.unitCost ?? '', payBy: it.payBy || 'bailleur',
-    activityId: it.activityId || '', observation: it.observation || '',
+    unitCount: it.unitCount ?? '', unitCost: it.unitCost ?? '',
+    bailleurPct: it.bailleurPct != null ? Math.round(Number(it.bailleurPct) * 100) : (it.payBy === 'ong' ? 0 : 100),
+    activityId: it.activityId || '',
+    activity2Id: it.activity2Id || '',
+    activity1Pct: it.activity1Pct != null ? Math.round(Number(it.activity1Pct) * 100) : '',
+    observation: it.observation || '',
   }));
 }
 
@@ -46,8 +61,11 @@ export function itemsFromRows(rows) {
     .filter((r) => r.designation.trim().length >= 2)
     .map((r) => ({
       lineCode: r.lineCode, designation: r.designation.trim(), unit: r.unit.trim() || undefined,
-      unitCount: Number(r.unitCount) || 0, unitCost: Number(r.unitCost) || 0, payBy: r.payBy,
+      unitCount: Number(r.unitCount) || 0, unitCost: Number(r.unitCost) || 0,
+      bailleurPct: funderFrac(r),
       activityId: r.activityId || undefined,
+      activity2Id: r.activity2Id || undefined,
+      activity1Pct: r.activity2Id ? (r.activity1Pct === '' ? 1 : Math.min(1, Math.max(0, Number(r.activity1Pct) / 100))) : undefined,
       observation: r.observation.trim() || undefined,
     }));
 }
@@ -90,7 +108,7 @@ export default function PostesEditor({ rows, onChange, readOnly = false, funderL
           <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={handleImport} />
           <Button size="sm" variant="secondary" icon={Upload} loading={importing} onClick={() => fileRef.current?.click()}>Importer Excel</Button>
           <Button size="sm" variant="ghost" icon={Download} onClick={() => api.downloadPostesTemplate().catch((e) => toast.error(e.message))}>Modèle</Button>
-          <span className="hint">Remplissez le modèle hors ligne puis importez — les règles du système sont appliquées (lignes valides, montants ≥ 0, bailleur/ONG).</span>
+          <span className="hint">Remplissez le modèle hors ligne puis importez — les règles du système sont appliquées (lignes valides, montants ≥ 0). Le « % bailleur » fixe la part à payer par le bailleur (100 % par défaut).</span>
         </div>
       )}
       {SECTIONS.map((sec) => {
@@ -111,8 +129,9 @@ export default function PostesEditor({ rows, onChange, readOnly = false, funderL
                     <th scope="col" className="num">Qté</th>
                     <th scope="col" className="num">Coût unit.</th>
                     <th scope="col" className="num">Montant</th>
-                    <th scope="col">Activité</th>
-                    <th scope="col">À la charge de</th>
+                    <th scope="col">Activité(s)</th>
+                    <th scope="col" className="num">% bailleur</th>
+                    <th scope="col" className="num">À payer bailleur</th>
                     <th scope="col">Observation</th>
                     {!readOnly && <th scope="col" aria-label="Actions" />}
                   </tr></thead>
@@ -130,16 +149,28 @@ export default function PostesEditor({ rows, onChange, readOnly = false, funderL
                         <td className="num" style={{ minWidth: 130 }}><MoneyInput value={r.unitCost === '' ? '' : Number(r.unitCost)} onChange={(v) => setRow(r.key, { unitCost: v })} /></td>
                         <td className="num mono">{formatAr(posteAmount(r))}</td>
                         <td>
-                          <select className={`select ${r.activityId ? '' : 'is-empty'}`} style={{ minWidth: 130 }} value={r.activityId} disabled={readOnly} onChange={(e) => setRow(r.key, { activityId: e.target.value })} aria-label="Activité">
+                          <select className={`select ${r.activityId ? '' : 'is-empty'}`} style={{ minWidth: 130 }} value={r.activityId} disabled={readOnly} onChange={(e) => setRow(r.key, { activityId: e.target.value })} aria-label="Activité 1">
                             <option value="">— Activité —</option>
                             {activities.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
                           </select>
+                          {(r.activity2Id || (!readOnly && r.activityId)) && (
+                            <div style={{ display: 'flex', gap: 4, marginTop: 4, alignItems: 'center' }}>
+                              <select className="select" style={{ minWidth: 110, flex: 1 }} value={r.activity2Id} disabled={readOnly} onChange={(e) => setRow(r.key, { activity2Id: e.target.value })} aria-label="Activité 2">
+                                <option value="">— 2ᵉ activité —</option>
+                                {activities.filter((a) => a.id !== r.activityId).map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                              </select>
+                              {r.activity2Id && (
+                                <span className="hint" style={{ whiteSpace: 'nowrap' }} title="Part du montant sur l'activité 1 (le reste sur la 2ᵉ)">
+                                  <input className="input tabular" style={{ width: 52, textAlign: 'right' }} inputMode="decimal" value={r.activity1Pct} placeholder="100" disabled={readOnly} onChange={(e) => setRow(r.key, { activity1Pct: e.target.value })} aria-label="% sur activité 1" /> %
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
-                        <td>
-                          <select className="select" style={{ minWidth: 110 }} value={r.payBy} disabled={readOnly} onChange={(e) => setRow(r.key, { payBy: e.target.value })} aria-label="À la charge de">
-                            <option value="bailleur">Bailleur</option><option value="ong">ONG</option>
-                          </select>
+                        <td className="num">
+                          <input className="input tabular" style={{ width: 64, textAlign: 'right' }} inputMode="decimal" value={r.bailleurPct} placeholder="100" disabled={readOnly} onChange={(e) => setRow(r.key, { bailleurPct: e.target.value })} aria-label="Pourcentage à la charge du bailleur" />
                         </td>
+                        <td className="num mono">{formatAr(posteFunder(r))}</td>
                         <td><input className="input" value={r.observation} disabled={readOnly} onChange={(e) => setRow(r.key, { observation: e.target.value })} /></td>
                         {!readOnly && <td><Button size="sm" variant="ghost" icon={Trash2} aria-label="Supprimer le poste" onClick={() => removeRow(r.key)} /></td>}
                       </tr>

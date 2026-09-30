@@ -46,9 +46,9 @@ test('summarize groups by FLA section and splits bailleur / ONG', () => {
 
 test('sections come back in catalogue order I…V', () => {
   const items = [
-    { lineCode: 'V.materiel', designation: 'x', unitCount: 1, unitCost: 1 },
-    { lineCode: 'I.transport_mt', designation: 'y', unitCount: 1, unitCost: 1 },
-    { lineCode: 'IV.suivi', designation: 'z', unitCount: 1, unitCost: 1 },
+    { lineCode: 'V.materiel', designation: 'xx', unitCount: 1, unitCost: 1 },
+    { lineCode: 'I.transport_mt', designation: 'yy', unitCount: 1, unitCost: 1 },
+    { lineCode: 'IV.suivi', designation: 'zz', unitCount: 1, unitCost: 1 },
   ];
   assert.deepEqual(summarize(items).sections.map((s) => s.code), ['I', 'IV', 'V']);
 });
@@ -66,4 +66,38 @@ test('normalizeItems validates the line, designation, quantities and payer', () 
 test('unknown payer falls back to bailleur', () => {
   const [it] = normalizeItems([{ lineCode: 'IV.suivi', designation: 'Suivi', unitCount: 1, unitCost: 1, payBy: 'X' }]);
   assert.equal(it.payBy, 'bailleur');
+});
+
+test('bailleur share is a per-line percentage (montant × %)', () => {
+  // A salary line split 90 % funder / 10 % ONG, plus a 100 % funder line.
+  const items = [
+    { lineCode: 'IV.suivi', designation: 'Salaire', unitCount: 1, unitCost: 1000000, bailleurPct: 0.9 },
+    { lineCode: 'IV.suivi', designation: 'Indemnité', unitCount: 1, unitCost: 500000, bailleurPct: 1 },
+  ];
+  const s = summarize(items);
+  assert.equal(s.total, 1500000);
+  assert.equal(s.funder, 1400000); // 900 000 + 500 000
+  assert.equal(s.ong, 100000);     // 100 000 + 0
+  assert.equal(billedToFunder(items), 1400000);
+});
+
+test('bailleurPct tolerates a percent value and normalizes/clamps', () => {
+  const [a] = normalizeItems([{ lineCode: 'IV.suivi', designation: 'xx', unitCount: 1, unitCost: 1, bailleurPct: 90 }]);
+  assert.equal(a.bailleurPct, 0.9);       // 90 → 0.9
+  assert.equal(a.payBy, 'bailleur');
+  const [b] = normalizeItems([{ lineCode: 'IV.suivi', designation: 'yy', unitCount: 1, unitCost: 1, bailleurPct: 0 }]);
+  assert.equal(b.bailleurPct, 0);
+  assert.equal(b.payBy, 'ong');            // 0 % funder → legacy payBy ong
+  // legacy binary still works
+  const [c] = normalizeItems([{ lineCode: 'IV.suivi', designation: 'zz', unitCount: 1, unitCost: 1, payBy: 'ong' }]);
+  assert.equal(c.bailleurPct, 0);
+});
+
+test('a poste can split across two activities (activity1Pct)', () => {
+  const [it] = normalizeItems([{ lineCode: 'IV.suivi', designation: 'xx', unitCount: 1, unitCost: 1, activityId: 'a1', activity2Id: 'a2', activity1Pct: 60 }]);
+  assert.equal(it.activity2Id, 'a2');
+  assert.equal(it.activity1Pct, 0.6);
+  // no second activity → activity1Pct stays null (all on activity 1)
+  const [j] = normalizeItems([{ lineCode: 'IV.suivi', designation: 'yy', unitCount: 1, unitCost: 1, activityId: 'a1' }]);
+  assert.equal(j.activity1Pct, null);
 });

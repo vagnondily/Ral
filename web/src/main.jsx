@@ -1,12 +1,12 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 // Fonts are self-hosted (bundled) rather than loaded from a CDN, so the app
-// renders identically on restricted or offline networks. IBM Plex Sans for
-// the UI, IBM Plex Mono for figures (a precise, data-oriented pairing).
-import '@fontsource/ibm-plex-sans/400.css';
-import '@fontsource/ibm-plex-sans/500.css';
-import '@fontsource/ibm-plex-sans/600.css';
-import '@fontsource/ibm-plex-sans/700.css';
+// renders identically on restricted or offline networks. Inter for the UI
+// (the modern SaaS standard), IBM Plex Mono for codes/IDs.
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
 import '@fontsource/ibm-plex-mono/500.css';
 import '@fontsource/ibm-plex-mono/600.css';
 import App from './App.jsx';

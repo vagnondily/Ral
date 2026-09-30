@@ -4,7 +4,7 @@ const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound, conflict } = require('../../middleware/errors');
 const repo = require('./reports.repository');
-const { buildFactureWorkbook } = require('./factureXlsx');
+const { buildInvoiceWorkbook } = require('./factureXlsx');
 
 const router = Router();
 router.use(requireAuth);
@@ -31,11 +31,20 @@ router.get('/:id', asyncHandler(async (req, res) => {
   res.json(report);
 }));
 
-// Export the facture (état des dépenses) as a real .xlsx.
+// Per-line budget + cumulative funder spend for the on-screen invoice view
+// (Budget · Dépenses du mois · Cumulé · Restant).
+router.get('/:id/invoice', asyncHandler(async (req, res) => {
+  const invoice = await repo.invoiceData(t(req), req.params.id);
+  if (!invoice) throw notFound('Rapport introuvable');
+  res.json({ budgetByLine: invoice.budgetByLine, cumulByLine: invoice.cumulByLine });
+}));
+
+// Export the facture (formal invoice + detailed état des dépenses) as .xlsx.
 router.get('/:id/facture.xlsx', asyncHandler(async (req, res) => {
-  const report = await repo.getReport(t(req), req.params.id);
-  if (!report) throw notFound('Rapport introuvable');
-  const wb = buildFactureWorkbook(report);
+  const invoice = await repo.invoiceData(t(req), req.params.id);
+  if (!invoice) throw notFound('Rapport introuvable');
+  const { report } = invoice;
+  const wb = buildInvoiceWorkbook(invoice);
   const safe = (report.invoiceNo || `${report.partnerName}_${String(report.periodMonth).slice(0, 7)}`).replace(/[^\w.-]+/g, '_');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="Facture_${safe}.xlsx"`);
@@ -51,7 +60,10 @@ const itemSchema = z.object({
   unitCount: z.number().nonnegative().max(1e9),
   unitCost: z.number().nonnegative().max(1e13),
   payBy: z.enum(['bailleur', 'ong']).optional(),
+  bailleurPct: z.number().min(0).max(1).optional(),
   activityId: z.string().uuid().optional().or(z.literal('').transform(() => undefined)),
+  activity2Id: z.string().uuid().optional().or(z.literal('').transform(() => undefined)),
+  activity1Pct: z.number().min(0).max(1).optional(),
   site: z.string().trim().max(120).optional().or(z.literal('').transform(() => undefined)),
   observation: z.string().trim().max(400).optional().or(z.literal('').transform(() => undefined)),
 });

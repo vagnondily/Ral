@@ -74,6 +74,80 @@ function readCommission(wb) {
   return found;
 }
 
+// Section-code marker at the start of a cell, e.g. "IV — Services techniques".
+// Order matters: IV before V before I so the longest code wins.
+const SECTION_MARKER = /^\s*(IV|V|III|II|I)\s*[—–-]/;
+
+/**
+ * Parse the workbook produced by our own export (`budgetXlsx.js`): a single
+ * « Budget de l'accord » sheet whose columns are
+ *   Ligne budgétaire | Désignation (poste) | Nb unités | Coût unitaire | Montant | Activité
+ * with merged « I — … » section headers and « Sous-total / Total / Commission »
+ * rows. This closes the download → edit offline → re-upload round-trip. Column
+ * positions are detected from the header row so a lightly edited file still
+ * parses.
+ */
+function parseBudgetAccord(wb) {
+  const ws = wb.getWorksheet("Budget de l'accord") || wb.worksheets.find((w) => /budget.*accord/i.test(w.name));
+  if (!ws) return [];
+
+  let headerRow = null;
+  const col = { ligne: 1, desc: 2, qty: 3, cost: 4 };
+  ws.eachRow((row, idx) => {
+    if (headerRow) return;
+    const labels = {};
+    row.eachCell((cell, c) => { labels[c] = norm(cellVal(cell)); });
+    const vals = Object.values(labels);
+    const hasUnits = vals.some((v) => v.includes('nb unites') || v.includes('unites') || v.includes('quantite'));
+    const hasCost = vals.some((v) => v.includes('cout'));
+    if (hasUnits && hasCost) {
+      headerRow = idx;
+      for (const [c, v] of Object.entries(labels)) {
+        if (v.includes('ligne')) col.ligne = Number(c);
+        else if (v.includes('designation') || v.includes('poste') || v.includes('description')) col.desc = Number(c);
+        else if (v.includes('nb unites') || v.includes('unites') || v.includes('quantite')) col.qty = Number(c);
+        else if (v.includes('cout')) col.cost = Number(c);
+      }
+    }
+  });
+  if (!headerRow) return [];
+
+  const items = [];
+  let currentSection = null;
+  let currentLine = null;
+  ws.eachRow((row, idx) => {
+    if (idx <= headerRow) return;
+    const ligne = String(cellVal(row.getCell(col.ligne))).trim();
+    const desc = String(cellVal(row.getCell(col.desc))).trim();
+    const qtyRaw = cellVal(row.getCell(col.qty));
+    const costRaw = cellVal(row.getCell(col.cost));
+
+    // Merged section header (e.g. "IV — Services techniques"). The section code
+    // only ever appears in the « ligne » column; a data row carries a line
+    // label there instead. (Merged cells report the master value in every
+    // column, so we must key off this column alone, not on an empty quantity.)
+    const secM = ligne.match(SECTION_MARKER);
+    if (secM) { currentSection = secM[1]; currentLine = null; return; }
+    if (!currentSection || !desc) return;
+
+    const nd = norm(desc);
+    if (nd.startsWith('sous-total') || nd.startsWith('total') || nd.includes('commission') || nd.includes('bareme')) return;
+
+    const qty = num(qtyRaw);
+    const cost = num(costRaw);
+    const isData = desc.length > 1 && Number.isFinite(qty) && qty > 0 && Number.isFinite(cost) && cost >= 0
+      && String(qtyRaw).trim() !== '' && String(costRaw).trim() !== '';
+    if (!isData) return;
+
+    const label = ligne.replace(/\[.*?\]/g, '').trim(); // strip "[Suivi/TPM]"
+    const sec = SECTIONS.find((s) => s.code === currentSection);
+    const mapped = lineForTitle(currentSection, label) || currentLine || `${currentSection}.${sec.lines[0][0]}`;
+    currentLine = mapped;
+    items.push({ lineCode: mapped, description: desc.slice(0, 240), unitCount: qty, unitCost: cost });
+  });
+  return items;
+}
+
 async function parseFlaBudget(buffer) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
@@ -109,7 +183,10 @@ async function parseFlaBudget(buffer) {
     });
   }
 
+  // Fallback: our own exported « Budget de l'accord » sheet (round-trip).
+  if (items.length === 0) items.push(...parseBudgetAccord(wb));
+
   return { items, feePct: readCommission(wb) };
 }
 
-module.exports = { parseFlaBudget };
+module.exports = { parseFlaBudget, parseBudgetAccord };

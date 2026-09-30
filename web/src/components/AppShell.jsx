@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  FileSignature, Handshake, Wallet, Map, ShieldAlert, MapPin, ClipboardCheck,
+  FileSignature, Handshake, Wallet, ClipboardCheck,
   LayoutDashboard, ChartColumn, Bell, Settings, Menu, ChevronRight, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { IconButton } from './ui.jsx';
@@ -23,7 +23,7 @@ export const NAV = [
     ],
   },
   {
-    group: 'Suivi & planification',
+    group: 'Suivi & évaluation',
     items: [
       {
         id: 'tpm', label: 'Partenaires & TPM', icon: Handshake,
@@ -36,15 +36,17 @@ export const NAV = [
         ],
       },
       {
+        id: 'processus', label: 'Suivi de processus', icon: ClipboardCheck,
+        subs: [
+          { id: 'donnees', label: 'Données & indicateurs' },
+          { id: 'sites', label: 'Sites suivis', soon: true },
+          { id: 'carte', label: 'Carte des sites', soon: true },
+          { id: 'rbm', label: 'Risk-Based Monitoring', soon: true },
+        ],
+      },
+      {
         id: 'planification', label: 'Planification & budget', icon: Wallet,
         subs: [{ id: 'budget', label: 'Budget prévisionnel' }],
-      },
-      { id: 'carte', label: 'Carte des sites', icon: Map },
-      { id: 'rbm', label: 'Risk-Based Monitoring', icon: ShieldAlert },
-      { id: 'sites', label: 'Sites suivis', icon: MapPin },
-      {
-        id: 'processus', label: 'Suivi de processus', icon: ClipboardCheck,
-        subs: [{ id: 'donnees', label: 'Données & indicateurs' }],
       },
     ],
   },
@@ -53,7 +55,10 @@ export const NAV = [
     items: [
       {
         id: 'dashboard', label: 'Dashboard décisionnel', icon: LayoutDashboard,
-        subs: [{ id: 'consolidation', label: 'Suivi budgétaire consolidé' }],
+        subs: [
+          { id: 'apercu', label: "Vue d'ensemble" },
+          { id: 'consolidation', label: 'Suivi budgétaire consolidé' },
+        ],
       },
       { id: 'reporting', label: 'Reporting', icon: ChartColumn },
       { id: 'alertes', label: 'Alertes', icon: Bell },
@@ -79,7 +84,9 @@ export function findRoute(moduleId, subId) {
   for (const g of NAV) {
     const mod = g.items.find((i) => i.id === moduleId);
     const sub = mod?.subs?.find((s) => s.id === subId);
-    if (mod && sub) return { mod, sub };
+    // « soon » sub-modules are placeholders with no page — a deep link to one
+    // falls back to the default route rather than showing a blank page.
+    if (mod && sub && !sub.soon) return { mod, sub };
   }
   return null;
 }
@@ -101,11 +108,18 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
     <div className={`shell ${navOpen ? 'nav-open' : ''} ${collapsed ? 'is-collapsed' : ''}`}>
       <aside className="sidebar" aria-label="Navigation principale">
         <div className="brand">
-          <LogoMark size={36} />
+          <LogoMark size={34} />
           <div className="brand-text">
             <div className="brand-name">MEMS 2.0</div>
             <div className="brand-sub">Suivi &amp; évaluation</div>
           </div>
+          <IconButton
+            icon={collapsed ? PanelLeftOpen : PanelLeftClose}
+            label={collapsed ? t('shell.expandMenu', 'Agrandir le menu') : t('shell.collapseMenu', 'Réduire le menu')}
+            size="sm"
+            className="collapse-toggle"
+            onClick={() => setCollapsed((c) => !c)}
+          />
         </div>
 
         <nav className="nav">
@@ -116,6 +130,8 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
                 const Icon = item.icon;
                 const available = Boolean(item.subs);
                 const open = route.module === item.id;
+                // Land on the first real sub-module (skip « soon » placeholders).
+                const firstSub = available ? (item.subs.find((s) => !s.soon) || item.subs[0]) : null;
                 return (
                   <div key={item.id}>
                     <button
@@ -124,7 +140,7 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
                       disabled={!available}
                       title={available ? t(`nav.${item.id}`, item.label) : t('shell.comingSoon', 'Bientôt disponible')}
                       aria-expanded={available ? open : undefined}
-                      onClick={() => available && onNavigate(item.id, item.subs[0].id)}
+                      onClick={() => available && onNavigate(item.id, firstSub.id)}
                     >
                       <Icon size={18} aria-hidden="true" />
                       <span className="nav-label">{t(`nav.${item.id}`, item.label)}</span>
@@ -137,10 +153,13 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
                             key={s.id}
                             type="button"
                             className={`nav-subitem ${route.sub === s.id ? 'is-active' : ''}`}
+                            disabled={s.soon}
+                            title={s.soon ? t('shell.comingSoon', 'Bientôt disponible') : undefined}
                             aria-current={route.sub === s.id ? 'page' : undefined}
-                            onClick={() => onNavigate(item.id, s.id)}
+                            onClick={() => !s.soon && onNavigate(item.id, s.id)}
                           >
                             {t(`nav.${item.id}.${s.id}`, s.label)}
+                            {s.soon && <span className="sr-only"> ({t('shell.comingSoon', 'bientôt disponible')})</span>}
                           </button>
                         ))}
                       </div>
@@ -162,12 +181,6 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
       <div className="main">
         <header className="header">
           <IconButton icon={Menu} label={t('shell.openMenu', 'Ouvrir le menu')} className="menu-toggle" onClick={() => setNavOpen(true)} />
-          <IconButton
-            icon={collapsed ? PanelLeftOpen : PanelLeftClose}
-            label={collapsed ? t('shell.expandMenu', 'Agrandir le menu') : t('shell.collapseMenu', 'Réduire le menu')}
-            className="collapse-toggle"
-            onClick={() => setCollapsed((c) => !c)}
-          />
           <nav className="breadcrumb" aria-label="Fil d'Ariane">
             <span>{current ? t(`nav.${current.mod.id}`, current.mod.label) : ''}</span>
             <ChevronRight size={14} aria-hidden="true" />

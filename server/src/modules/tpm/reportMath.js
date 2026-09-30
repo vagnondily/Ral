@@ -13,7 +13,9 @@ const { SECTIONS, LINE_LABELS, SECTION_OF, isValidLine } = require('../contracts
 const SECTION_LABEL = Object.fromEntries(SECTIONS.map((s) => [s.code, s.label]));
 
 // Who bears a cost line. 'bailleur' = the funder (booked as « Réalisé »),
-// 'ong' = the partner NGO.
+// 'ong' = the partner NGO. Kept for backward compatibility; the real split is
+// now a per-line percentage (bailleurPct, 0..1) — « à payer par le bailleur »
+// = montant × bailleurPct — faithful to the invoice template's ×90 % / ×1.
 const PAYERS = ['bailleur', 'ong'];
 
 function round2(cents) {
@@ -31,6 +33,27 @@ function itemAmount(item) {
 }
 
 /**
+ * Share of a poste borne by the funder (bailleur), 0..1. Prefers the explicit
+ * `bailleurPct`; falls back to the legacy binary `payBy` (ong → 0, else → 1).
+ * Tolerates a percentage (e.g. 90) as well as a fraction (0.9).
+ */
+function bailleurPctOf(item) {
+  const raw = item.bailleurPct;
+  if (raw != null && raw !== '') {
+    let p = Number(raw);
+    if (!Number.isFinite(p)) return item.payBy === 'ong' ? 0 : 1;
+    if (p > 1 && p <= 100) p /= 100; // tolerate a percent value
+    return Math.min(1, Math.max(0, p));
+  }
+  return item.payBy === 'ong' ? 0 : 1;
+}
+
+/** « À payer par le bailleur » d'un poste, en centimes = montant × bailleurPct. */
+function funderCentsOf(item) {
+  return Math.round(itemCents(item) * bailleurPctOf(item));
+}
+
+/**
  * Summarize an invoice's line items into section subtotals and grand totals,
  * with the bailleur / ONG split. `payBy` defaults to 'bailleur'.
  *
@@ -44,12 +67,15 @@ function summarize(items) {
 
   for (const it of items || []) {
     const cents = itemCents(it);
+    const fCents = funderCentsOf(it);        // part bailleur = montant × %
+    const oCents = cents - fCents;           // le reste est à la charge de l'ONG
     const code = SECTION_OF[it.lineCode] || String(it.lineCode || '').split('.')[0] || '?';
     if (!secMap.has(code)) secMap.set(code, { total: 0, funder: 0, ong: 0, count: 0 });
     const s = secMap.get(code);
     s.total += cents;
     s.count += 1;
-    if (it.payBy === 'ong') { s.ong += cents; ongCents += cents; } else { s.funder += cents; funderCents += cents; }
+    s.funder += fCents; funderCents += fCents;
+    s.ong += oCents; ongCents += oCents;
     totalCents += cents;
   }
 
@@ -94,15 +120,31 @@ function normalizeItems(rawItems) {
     const unitCost = Number(it.unitCost);
     if (!Number.isFinite(unitCount) || unitCount < 0) throw new Error(`Quantité invalide pour « ${designation} ».`);
     if (!Number.isFinite(unitCost) || unitCost < 0) throw new Error(`Coût unitaire invalide pour « ${designation} ».`);
-    const payBy = it.payBy === 'ong' ? 'ong' : 'bailleur';
+    const bailleurPct = bailleurPctOf(it);
+    // Legacy binary field kept in sync so old readers still work.
+    const payBy = bailleurPct <= 0 ? 'ong' : 'bailleur';
+    const activityId = it.activityId ? String(it.activityId).trim() : null;
+    const activity2Id = it.activity2Id ? String(it.activity2Id).trim() : null;
+    // Share of the montant on activity 1 (rest on activity 2). Only meaningful
+    // when a second activity is set; otherwise everything is on activity 1.
+    let activity1Pct = null;
+    if (activity2Id) {
+      let p = Number(it.activity1Pct);
+      if (!Number.isFinite(p)) p = 1;
+      if (p > 1 && p <= 100) p /= 100;
+      activity1Pct = Math.min(1, Math.max(0, p));
+    }
     out.push({
       lineCode: it.lineCode,
       designation,
       unit: it.unit ? String(it.unit).trim().slice(0, 40) : null,
       unitCount,
       unitCost,
+      bailleurPct,
       payBy,
-      activityId: it.activityId ? String(it.activityId).trim() : null,
+      activityId,
+      activity2Id,
+      activity1Pct,
       site: it.site ? String(it.site).trim().slice(0, 120) : null,
       observation: it.observation ? String(it.observation).trim().slice(0, 400) : null,
       sortOrder: order,
@@ -112,4 +154,7 @@ function normalizeItems(rawItems) {
   return out;
 }
 
-module.exports = { itemCents, itemAmount, summarize, billedToFunder, normalizeItems, PAYERS, LINE_LABELS, SECTION_LABEL };
+module.exports = {
+  itemCents, itemAmount, bailleurPctOf, funderCentsOf, summarize, billedToFunder,
+  normalizeItems, PAYERS, LINE_LABELS, SECTION_LABEL,
+};

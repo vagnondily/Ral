@@ -11,6 +11,7 @@ import ContractDetailPage from './pages/contracts/ContractDetailPage.jsx';
 import ContractFormPage from './pages/contracts/ContractFormPage.jsx';
 import ReportsPage from './pages/tpm/ReportsPage.jsx';
 import ConsolidationPage from './pages/dashboard/ConsolidationPage.jsx';
+import DashboardBIPage from './pages/dashboard/DashboardBIPage.jsx';
 import PlanningPage from './pages/tpm/PlanningPage.jsx';
 import ProcessMonitoringPage from './pages/monitoring/ProcessMonitoringPage.jsx';
 import FormationsPage from './pages/tpm/FormationsPage.jsx';
@@ -86,6 +87,7 @@ function Workspace() {
       {route.module === 'tpm' && route.sub === 'evaluation' && <EvaluationPage canEdit={canEdit} />}
       {route.sub === 'affectation' && <AssignmentPage canEdit={canEdit} />}
       {route.module === 'tpm' && route.sub === 'rapports' && <ReportsPage canEdit={canEdit} onOpenContract={openContract} />}
+      {route.module === 'dashboard' && route.sub === 'apercu' && <DashboardBIPage onOpenContract={openContract} />}
       {route.module === 'dashboard' && route.sub === 'consolidation' && <ConsolidationPage onOpenContract={openContract} />}
       {route.module === 'planification' && route.sub === 'budget' && <PlanningPage canEdit={canEdit} />}
       {route.module === 'processus' && route.sub === 'donnees' && <ProcessMonitoringPage canEdit={canEdit} />}

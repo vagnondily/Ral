@@ -99,18 +99,39 @@ Demo login: `admin@mems.mg` / `changeme123` (validator: `validateur@mems.mg`).
   by hand). Monthly ceiling = total ÷ period_months. See
   `server/src/modules/contracts/contracts.domain.js`.
 
-## Design system (current direction: "Cockpit")
-Chosen by the user after comparing three directions. Do NOT revert to indigo.
-- **Dark navy sidebar** (`#0e1a2b`) in both light and dark themes; light content.
-- Accent **electric blue** `#2f6bff` (hover `#1f4fd6`).
-- Typography **IBM Plex Sans** (UI) + **IBM Plex Mono** (all figures: amounts,
-  KPI values, FLA/contract numbers). Bundled via `@fontsource`, no CDN.
-- Flat surfaces, soft shadows. KPI tiles have a left accent tick + mono value
-  (no sparklines — the user explicitly declined them).
-- Tokens live in `web/src/styles.css` `:root` (light) + `:root[data-theme="dark"]`
-  (dark) + a "Cockpit direction (v5)" block near the end (the permanent dark
-  rail). The MEMS logo is inline SVG in `web/src/components/Logo.jsx` (swap the
-  SVG for an `<img>` to use an official logo file — every placement follows).
+## Design system (current direction: "Enterprise sobre — Fiori/Fluent")
+Sober, institutional enterprise look (SAP Fiori / Microsoft Fluent): **light
+rail**, cool greys, restrained blue accent, crisp corners, dense legible tables.
+This supersedes the earlier near-black-rail "v6" and the older "Cockpit"
+directions. The authoritative layer is still the **"REFONTE PROFESSIONNELLE
+(v6)"** block at the END of `web/src/styles.css` (it comes last, so it overrides
+the older Cockpit/polish layers) — its tokens have been re-tuned to this
+direction. Edit the tokens/components **there**; do not resurrect the near-black
+or navy rail.
+- **Typography: Inter** (UI, all text) + **IBM Plex Mono** (codes/IDs only).
+  Figures use Inter with `font-variant-numeric: tabular-nums`, NOT mono.
+  Bundled via `@fontsource` (see `web/src/main.jsx`), no CDN. Headings carry
+  negative tracking (`letter-spacing: -0.018em`).
+- **Neutrals: cool institutional grey.** Canvas `#f2f3f5`, surface `#fff`,
+  surface-2 `#f7f8fa`, hairline border `#e3e5ea`, strong border `#cbd0d9`,
+  text-strong `#14181f`, text `#3a4150`, muted `#616a7a`, faint `#8b93a1`.
+- **Accent: enterprise blue** `#0f6cbd` (hover `#0b5394`); `--blue-50 #eff6fc`
+  for tints. Used sparingly (primary buttons, active nav, links, bars).
+- **Rail: LIGHT (white `#fff`)** with a hairline right border; dark-text nav,
+  active route = blue-50 tint + blue text + 2px blue left marker. Driven by
+  **semantic tokens** (`--rail`, `--rail-line` = `--border`, `--rail-text` =
+  `--text`, …) so the dark theme follows the same rail rules from its own
+  token values — no hardcoded rail colours. The collapse toggle lives **on the
+  rail** (brand row), not the header.
+- **Header:** solid white, hairline bottom + `--shadow-sm` (no glass blur).
+- **Corners: crisp Fluent scale** — radii 4/6/8 (`--radius-sm`/`--radius`/
+  `--radius-lg`). Buttons/inputs 36px tall, radius 6.
+- **Elevation: restrained** — hairline + a shallow `--shadow-sm`, never floaty.
+- KPI/stat tiles are clean (no accent tick, tabular Inter value, muted
+  label/foot). Tables: light-grey (`--canvas`) uppercase header band, hairline
+  separators, `surface-2` row hover, tabular numerics.
+- Base font-size 14.5px; header height 52px, sidebar 256px.
+- The MEMS logo is inline SVG in `web/src/components/Logo.jsx`.
 
 ## What's implemented
 - **Contrats**: full lifecycle (brouillon → en validation → actif → résilié +
@@ -124,13 +145,25 @@ Chosen by the user after comparing three directions. Do NOT revert to indigo.
   intentionally NO active-count badge) + a disk icon for **saved views**
   (permanent in localStorage / temporary in sessionStorage).
 - **Détail** (`ContractDetailPage.jsx`): overview + tabs (Détail budgétaire /
-  Avenants / Historique). **Avenants tab is a table**; click a row to expand a
-  full **before→after diff** (dates, commission, total, zones, postes).
+  Avenants / Historique). The **Détail budgétaire** tab reproduces the FLA
+  workbook layout: a **« Vue d'ensemble »** synthesis sheet (one row per section
+  I–V + direct total, commission, total de l'accord, barème mensuel) plus **one
+  page per section**, navigated by a tab bar — read section by section like the
+  Excel sheets (`BudgetItemsView` in `web/src/components/BudgetItems.jsx`).
+  **Avenants tab is a table**; click a row to expand a full **before→after
+  diff** (dates, commission, total, zones, postes).
 - **Avenant = same full process as a new contract**; stored as
   `{ before, after }` snapshot (backward-compatible with the old flat format).
-- **Excel**: import a real FLA `.xlsx` to auto-fill postes
-  (`server/src/modules/contracts/budgetImport.js`), and export the budget with
-  live formulas (`budgetXlsx.js`).
+- **Excel (round-trip)**: import a real FLA `.xlsx` to auto-fill postes AND
+  re-import the workbook the app itself exports — so the offline loop
+  *download → edit in Excel → re-upload* works for create / edit / amend
+  (`server/src/modules/contracts/budgetImport.js`: `parseFlaBudget` reads the
+  real « Détails Section … » template and falls back to `parseBudgetAccord` for
+  our own « Budget de l'accord » sheet; column positions are detected from the
+  header row; locked by `server/test/budgetRoundtrip.test.js`). Export with live
+  formulas is `budgetXlsx.js`. Note: an **active** contract's budget is updated
+  through an **avenant** (same form, same import), not edited in place — by
+  design for audit.
 - **Zones**: cascading Région → District selectors (no free text); admin
   breakdown (adm1–adm4) is per-tenant, importable from `.csv`/`.dbf`/`.zip`
   shapefile in Paramétrage › Localités.

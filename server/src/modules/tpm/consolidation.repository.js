@@ -62,8 +62,7 @@ async function consolidation(tenantId, { today } = {}) {
     const { rows: plannedRows } = await client.query(
       `SELECT p.contract_id AS "contractId",
               to_char(p.period_month, 'YYYY-MM') AS month,
-              COALESCE(SUM(i.unit_count * i.unit_cost)
-                       FILTER (WHERE i.pay_by = 'bailleur'), 0) AS planned
+              COALESCE(SUM(i.unit_count * i.unit_cost * i.bailleur_pct), 0) AS planned
          FROM tpm_collection_plans p
          JOIN tpm_collection_plan_items i ON i.plan_id = p.id
         WHERE p.tenant_id = $1

@@ -7,7 +7,8 @@ import MoneyInput from '../../components/MoneyInput.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatAr } from '../../lib/format.js';
 import { openFacturePrint } from '../../lib/facturePrint.js';
-import PostesEditor, { newPoste, rowsFromItems, itemsFromRows } from './PostesEditor.jsx';
+import { SECTIONS } from '../../lib/budgetCatalog.js';
+import PostesEditor, { newPoste, rowsFromItems, itemsFromRows, posteFunder } from './PostesEditor.jsx';
 
 /**
  * Facture fidèle — éditeur/visualiseur de l'état des dépenses TPM.
@@ -29,6 +30,7 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
     invoiceNo: '', periodEnd: '', advanceDeducted: '', partnerName: '', contractNumero: '',
   });
   const [rows, setRows] = useState(editing ? [] : [newPoste()]);
+  const [invoice, setInvoice] = useState(null); // { budgetByLine, cumulByLine }
 
   const partners = context?.partners || [];
   const contracts = context?.contracts || [];
@@ -49,6 +51,7 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
       setRows(rowsFromItems(r.items));
       setLoading(false);
     }).catch((e) => { if (alive) { toast.error(e.message); setLoading(false); } });
+    api.reportInvoice(reportId).then((inv) => { if (alive) setInvoice(inv); }).catch(() => {});
     return () => { alive = false; };
   }, [editing, reportId, toast]);
 
@@ -159,8 +162,71 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
             advance={head.advanceDeducted !== '' ? Number(head.advanceDeducted) : 0}
             activities={context?.activities || []}
           />
+
+          {invoice && <InvoiceBudgetTable invoice={invoice} rows={rows} />}
         </div>
       )}
     </Modal>
+  );
+}
+
+/**
+ * « Suivi budgétaire (cumulé) » — like the INVOICE tab: per FLA section the
+ * Budget (contribution bailleur), les dépenses du mois (part bailleur), le
+ * cumulé et le restant (budget − cumulé). Everything read from the server
+ * (budget + cumulé) and the current postes (mois).
+ */
+function InvoiceBudgetTable({ invoice, rows }) {
+  const monthByLine = {};
+  for (const r of rows) monthByLine[r.lineCode] = (monthByLine[r.lineCode] || 0) + posteFunder(r);
+
+  const sum = (obj, lines) => lines.reduce((n, lc) => n + (obj[lc] || 0), 0);
+  const secs = SECTIONS.map((sec) => {
+    const lines = sec.lines.map(([code]) => `${sec.code}.${code}`);
+    const budget = sum(invoice.budgetByLine, lines);
+    const cumul = sum(invoice.cumulByLine, lines);
+    const month = sum(monthByLine, lines);
+    return { code: sec.code, label: sec.label, budget, month, cumul, restant: budget - cumul };
+  }).filter((s) => s.budget || s.month || s.cumul);
+  if (secs.length === 0) return null;
+
+  const tot = secs.reduce((a, s) => ({
+    budget: a.budget + s.budget, month: a.month + s.month, cumul: a.cumul + s.cumul, restant: a.restant + s.restant,
+  }), { budget: 0, month: 0, cumul: 0, restant: 0 });
+
+  return (
+    <div className="card" style={{ marginTop: 4 }}>
+      <div className="card-header"><div className="card-title">Suivi budgétaire (cumulé)</div>
+        <div className="card-sub">Budget contribution bailleur · dépenses du mois · cumulé · restant, par section FLA.</div></div>
+      <div className="table-wrap">
+        <table className="table">
+          <thead><tr>
+            <th scope="col">Section</th>
+            <th scope="col" className="num">Budget</th>
+            <th scope="col" className="num">Dépenses du mois</th>
+            <th scope="col" className="num">Cumulé</th>
+            <th scope="col" className="num">Restant</th>
+          </tr></thead>
+          <tbody>
+            {secs.map((s) => (
+              <tr key={s.code}>
+                <td><strong>{s.code}</strong> — {s.label}</td>
+                <td className="num tabular">{formatAr(s.budget)}</td>
+                <td className="num tabular">{formatAr(s.month)}</td>
+                <td className="num tabular">{formatAr(s.cumul)}</td>
+                <td className="num tabular" style={s.restant < 0 ? { color: 'var(--red)' } : undefined}>{formatAr(s.restant)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot><tr>
+            <td style={{ textAlign: 'right' }}><strong>Total</strong></td>
+            <td className="num tabular"><strong>{formatAr(tot.budget)}</strong></td>
+            <td className="num tabular"><strong>{formatAr(tot.month)}</strong></td>
+            <td className="num tabular"><strong>{formatAr(tot.cumul)}</strong></td>
+            <td className="num tabular" style={tot.restant < 0 ? { color: 'var(--red)' } : undefined}><strong>{formatAr(tot.restant)}</strong></td>
+          </tr></tfoot>
+        </table>
+      </div>
+    </div>
   );
 }

@@ -236,6 +236,7 @@ export const api = {
   reportsContext: () => request('/api/tpm/reports/context'),
   listReports: (query) => request('/api/tpm/reports', { query }),
   getReport: (id) => request(`/api/tpm/reports/${id}`),
+  reportInvoice: (id) => request(`/api/tpm/reports/${id}/invoice`),
   createReport: (input) => request('/api/tpm/reports', { method: 'POST', body: input }),
   saveReportItems: (id, input) => request(`/api/tpm/reports/${id}/items`, { method: 'PUT', body: input }),
   approveReport: (id, input) => request(`/api/tpm/reports/${id}/approve`, { method: 'POST', body: input }),
