@@ -1351,3 +1351,18 @@ body { background: var(--canvas); }
 
 :root[data-theme="dark"] .stat::before { background: var(--blue-500); }
 :root[data-theme="dark"] .table tfoot td { background: var(--canvas-sunken); }
+
+/* ---- Facture fidèle : éditeur de l'état des dépenses ---------------------- */
+.facture-sec { display: grid; gap: 8px; }
+.facture-sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-bottom: 2px; border-bottom: 1px solid var(--border); }
+.facture-sec-title { font-size: var(--fs-base); font-weight: 700; color: var(--text-strong); }
+.facture-table th { background: transparent; box-shadow: none; text-transform: none; letter-spacing: 0; font-size: 12px; }
+.facture-table td { padding: 8px 10px; vertical-align: top; }
+.facture-table td.num { font-family: var(--font-mono); }
+.facture-totals {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1px;
+  background: var(--border); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;
+}
+.facture-totals > div { display: flex; flex-direction: column; gap: 4px; padding: 14px 18px; background: var(--surface); }
+.facture-totals .stat-value { font-family: var(--font-mono); font-size: var(--fs-lg); letter-spacing: -0.01em; }
+.facture-totals > div:nth-child(2) .stat-value { color: var(--blue-700); }

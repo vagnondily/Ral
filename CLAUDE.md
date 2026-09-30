@@ -98,9 +98,14 @@ Chosen by the user after comparing three directions. Do NOT revert to indigo.
 - **Partenaires & TPM**: providers + agents (count-only, modal for detail),
   Formations and Évaluation as separate pages.
 - **Rapports & dépenses**: monthly financial/technical reports per partner ×
-  contract × month (metadata + planned/reported amounts, submit → validate/
-  reject workflow). Faithful line-item invoices (`contract_report_items`) are
-  the next step (see open items).
+  contract × month (submit → validate/reject workflow). Financial reports carry
+  a **faithful facture** — an « état des dépenses » of line items
+  (`contract_report_items`) reproducing the real YPA invoice: each poste =
+  quantité × coût unitaire = montant, flagged PAM / ONG, grouped in FLA
+  sections I–V, with sub-totals and PAM/ONG split. The « Réalisé » booked
+  against the budget is the PAM share, computed from the postes (never typed).
+  Editor: `web/src/pages/tpm/FactureDrawer.jsx`; pure math (unit-tested against
+  the real 5 600 800 Ar Bekily invoice) in `server/src/modules/tpm/reportMath.js`.
 - **Dashboard décisionnel › Suivi budgétaire consolidé** (`web/src/pages/
   dashboard/ConsolidationPage.jsx`, `server/src/modules/tpm/consolidation*.js`):
   faithful reproduction of `Suivi_Budget_TPM_BT.xlsx` and the **interliaison
@@ -115,10 +120,11 @@ Chosen by the user after comparing three directions. Do NOT revert to indigo.
   user menu (FR/EN language, light/dark theme), no office filter.
 
 ## Known / open items
-- **Rapportage fidèle à la facture** is NOT rebuilt yet — the user flagged « le
-  rapportage est fausse » and wants financial reports matching the real invoices
-  (e.g. the YPA facture). The `contract_report_items` table exists (migration
-  008) but the UI/service are not built. This is the main pending feature.
+- **Rapportage fidèle à la facture** — DONE. Financial reports now hold a
+  line-item « état des dépenses » (facture) faithful to the real YPA invoice
+  (see the Rapports bullet above). Possible follow-ups: an .xlsx/PDF export of
+  the facture in the invoice's exact layout, and real file upload of the signed
+  invoice (currently metadata only: `document_name`).
 - `web/` has no lint setup; `server/` lint works (`cd server && npm run lint`,
   flat config in `server/eslint.config.js`).
 - A few harmless dead CSS rules remain inside grouped selectors in

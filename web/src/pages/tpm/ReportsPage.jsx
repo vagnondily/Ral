@@ -5,6 +5,7 @@ import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, 
 import Modal from '../../components/Modal.jsx';
 import MoneyInput from '../../components/MoneyInput.jsx';
 import MonthPicker from '../../components/MonthPicker.jsx';
+import FactureDrawer from './FactureDrawer.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatAr, formatInt, formatDateTime } from '../../lib/format.js';
 import { REPORT_KIND, REPORT_STATUS, formatDate } from '../../lib/contracts.js';
@@ -16,6 +17,7 @@ export default function ReportsPage({ canEdit, onOpenContract }) {
   const [reports, setReports] = useState(null);
   const [error, setError] = useState(null);
   const [modal, setModal] = useState(false);
+  const [facture, setFacture] = useState(null); // {reportId?} — null when closed
   const [decide, setDecide] = useState(null); // {report, approve}
 
   async function reload() {
@@ -48,7 +50,8 @@ export default function ReportsPage({ canEdit, onOpenContract }) {
     <div className="section-gap">
       <PageHeader title="Rapports & dépenses" description="L'assignation des dépenses du suivi tiers se fait ici : chaque mois, les prestataires TPM produisent des rapports financiers (montant justifié) et techniques, rattachés au budget mensuel planifié — à faire avant le rapportage.">
         <MonthPicker value={month} onChange={setMonth} />
-        {canEdit && <Button icon={Plus} onClick={() => setModal(true)}>Nouveau rapport</Button>}
+        {canEdit && <Button variant="secondary" icon={Plus} onClick={() => setModal(true)}>Rapport</Button>}
+        {canEdit && <Button icon={FileText} onClick={() => setFacture({})}>Nouvelle facture</Button>}
       </PageHeader>
 
       <Stats items={[
@@ -85,6 +88,7 @@ export default function ReportsPage({ canEdit, onOpenContract }) {
                     <td>{r.documentName ? <span className="agent" style={{ gap: 6 }}><Paperclip size={14} aria-hidden="true" />{r.documentName}</span> : <span className="cell-empty">—</span>}{r.reference && <div className="site-meta mono">{r.reference}</div>}</td>
                     <td><Badge tone={REPORT_STATUS[r.status].tone} dot>{REPORT_STATUS[r.status].label}</Badge></td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {r.kind === 'financier' && <Button size="sm" variant="ghost" icon={FileText} onClick={() => setFacture({ reportId: r.id })}>Facture</Button>}
                       {canEdit && r.status === 'soumis' && <>
                         <Button size="sm" variant="ghost" icon={ShieldCheck} onClick={() => setDecide({ report: r, approve: true })}>Valider</Button>
                         <Button size="sm" variant="ghost" icon={X} onClick={() => setDecide({ report: r, approve: false })}>Rejeter</Button>
@@ -98,9 +102,10 @@ export default function ReportsPage({ canEdit, onOpenContract }) {
         )}
       </Card>
 
-      <div className="note"><Info size={18} aria-hidden="true" /><span>Les rapports financiers validés alimentent la consommation du budget « Suivi/TPM » (section IV) du contrat. L'upload réel des fichiers viendra dans une itération ultérieure (métadonnées d'abord).</span></div>
+      <div className="note"><Info size={18} aria-hidden="true" /><span>Les rapports financiers validés alimentent la consommation du budget « Suivi/TPM » (section IV) du contrat. Une <strong>facture</strong> détaille l'état des dépenses poste par poste (quantité × coût unitaire, part PAM / ONG) : le montant « Réalisé » est la part PAM, calculée depuis les postes.</span></div>
 
       {modal && <ReportModal month={month} context={context} onClose={() => setModal(false)} onSaved={() => { setModal(false); reload(); }} />}
+      {facture && <FactureDrawer reportId={facture.reportId} initial={facture.initial} context={context} month={month} onClose={() => setFacture(null)} onSaved={() => { setFacture(null); reload(); }} />}
       {decide && <DecideModal decide={decide} onClose={() => setDecide(null)} onConfirm={runDecision} />}
     </div>
   );
