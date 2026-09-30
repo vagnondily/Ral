@@ -99,18 +99,28 @@ Demo login: `admin@mems.mg` / `changeme123` (validator: `validateur@mems.mg`).
   by hand). Monthly ceiling = total ÷ period_months. See
   `server/src/modules/contracts/contracts.domain.js`.
 
-## Design system (current direction: "Cockpit")
-Chosen by the user after comparing three directions. Do NOT revert to indigo.
-- **Dark navy sidebar** (`#0e1a2b`) in both light and dark themes; light content.
-- Accent **electric blue** `#2f6bff` (hover `#1f4fd6`).
-- Typography **IBM Plex Sans** (UI) + **IBM Plex Mono** (all figures: amounts,
-  KPI values, FLA/contract numbers). Bundled via `@fontsource`, no CDN.
-- Flat surfaces, soft shadows. KPI tiles have a left accent tick + mono value
-  (no sparklines — the user explicitly declined them).
-- Tokens live in `web/src/styles.css` `:root` (light) + `:root[data-theme="dark"]`
-  (dark) + a "Cockpit direction (v5)" block near the end (the permanent dark
-  rail). The MEMS logo is inline SVG in `web/src/components/Logo.jsx` (swap the
-  SVG for an `<img>` to use an official logo file — every placement follows).
+## Design system (current direction: "Refonte professionnelle v6")
+Full redesign to a modern enterprise-SaaS look (Linear/Stripe-grade). This
+supersedes the earlier "Cockpit" direction. The authoritative layer is the
+**"REFONTE PROFESSIONNELLE (v6)"** block at the END of `web/src/styles.css`
+(it comes last, so it overrides the older Cockpit/polish layers — edit the
+tokens/components there, do not resurrect the old navy/electric-blue look).
+- **Typography: Inter** (UI, all text) + **IBM Plex Mono** (codes/IDs only).
+  Figures use Inter with `font-variant-numeric: tabular-nums`, NOT mono.
+  Bundled via `@fontsource` (see `web/src/main.jsx`), no CDN. Headings carry
+  negative tracking (`letter-spacing: -0.018em`).
+- **Neutrals: cool slate.** Canvas `#f5f6f8`, surface `#fff`, hairline border
+  `#e7e9ee`, text-strong `#0d1220`, text `#3d4453`, muted `#6a7180`, faint
+  `#99a0ad`.
+- **Accent: calm blue** `#2563eb` (hover `#1d4ed8`); `--blue-50 #eef4ff` for
+  tints. Used sparingly (primary buttons, active nav, links, bars).
+- **Rail: near-black neutral** `#14161d` (NOT navy) with hairline dividers and
+  a thin blue active indicator; light content area.
+- KPI/stat tiles are clean (no accent tick, tabular Inter value, muted
+  label/foot); subtle layered shadows; radii 7/9/13. No sparklines.
+- Base font-size 14.5px (denser, enterprise). Tables: uppercase muted headers,
+  hairline separators, `surface-2` row hover, tabular numerics.
+- The MEMS logo is inline SVG in `web/src/components/Logo.jsx`.
 
 ## What's implemented
 - **Contrats**: full lifecycle (brouillon → en validation → actif → résilié +
