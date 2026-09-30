@@ -1,0 +1,3 @@
+-- MEMS 2.0 — fonction (rôle de terrain) des agents TPM : coordinateur,
+-- superviseur, agent de collecte, enquêteur…
+ALTER TABLE tpm_agents ADD COLUMN fonction text;

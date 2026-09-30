@@ -1,0 +1,78 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mems
+      POSTGRES_PASSWORD: mems
+      POSTGRES_DB: mems2_tpm
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mems -d mems2_tpm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./server
+    restart: unless-stopped
+    env_file: ./server/.env
+    environment:
+      DATABASE_URL: postgres://mems:mems@postgres:5432/mems2_tpm
+      APP_DATABASE_URL: postgres://mems2_app:mems2_app_change_me@postgres:5432/mems2_tpm
+      REDIS_URL: redis://redis:6379
+      PORT: 9000
+    ports:
+      - "9000:9000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: sh -c "node src/db/migrate.js && node src/db/seed.js && node src/server.js"
+
+  worker:
+    build: ./server
+    restart: unless-stopped
+    env_file: ./server/.env
+    environment:
+      APP_DATABASE_URL: postgres://mems2_app:mems2_app_change_me@postgres:5432/mems2_tpm
+      REDIS_URL: redis://redis:6379
+      WORKER_CONCURRENCY: 4
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: node src/jobs/worker-entry.js
+    deploy:
+      replicas: 2
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://localhost:9000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

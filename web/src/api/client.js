@@ -1,0 +1,198 @@
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:9000';
+const TOKEN_KEY = 'mems2_tpm_token';
+const USER_KEY = 'mems2_tpm_user';
+
+// Storage can throw (private mode, blocked site data) — never let that
+// break the app; the session then simply lives in memory.
+function safeGet(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function safeSet(key, value) {
+  try {
+    if (value == null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch { /* ignore */ }
+}
+
+let memoryToken = safeGet(TOKEN_KEY);
+let unauthorizedHandler = null;
+
+export function getToken() {
+  return memoryToken;
+}
+
+export function getStoredUser() {
+  try { return JSON.parse(safeGet(USER_KEY)); } catch { return null; }
+}
+
+export function setSession(token, user) {
+  memoryToken = token || null;
+  safeSet(TOKEN_KEY, token || null);
+  safeSet(USER_KEY, user ? JSON.stringify(user) : null);
+}
+
+/** App registers this so an expired/invalid token sends the user back to
+ * the login screen instead of leaving every request failing silently. */
+export function onUnauthorized(handler) {
+  unauthorizedHandler = handler;
+}
+
+export class ApiError extends Error {
+  constructor(status, message, details) {
+    super(message);
+    this.status = status;
+    this.details = details;
+  }
+}
+
+async function request(path, { method = 'GET', body, query, auth = true } = {}) {
+  const url = new URL(API_URL + path);
+  if (query) {
+    Object.entries(query).forEach(([k, v]) => {
+      if (v !== undefined && v !== null) url.searchParams.set(k, v);
+    });
+  }
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(auth && memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new ApiError(0, 'Serveur injoignable. Vérifiez votre connexion et réessayez.');
+  }
+
+  const data = await res.json().catch(() => ({}));
+
+  if (res.status === 401 && auth) {
+    setSession(null, null);
+    unauthorizedHandler?.();
+    throw new ApiError(401, 'Votre session a expiré. Veuillez vous reconnecter.');
+  }
+  if (!res.ok) {
+    throw new ApiError(res.status, data.error || `Erreur ${res.status}`, data.details);
+  }
+  return data;
+}
+
+export const api = {
+  login: (email, password) =>
+    request('/api/auth/login', { method: 'POST', body: { email, password }, auth: false }),
+  listProviders: () => request('/api/tpm/providers'),
+  createProvider: (input) => request('/api/tpm/providers', { method: 'POST', body: input }),
+  createAgent: (providerId, input) =>
+    request(`/api/tpm/providers/${providerId}/agents`, { method: 'POST', body: input }),
+  getMonthlyPlan: (month) => request('/api/tpm/plans', { query: { month } }),
+  upsertAssignment: (planId, input) =>
+    request(`/api/tpm/plans/${planId}/assignments`, { method: 'PUT', body: input }),
+  advancePlan: (planId) => request(`/api/tpm/plans/${planId}/advance`, { method: 'POST' }),
+  listMissionDays: (planId) => request(`/api/tpm/plans/${planId}/mission-days`),
+  listExpenses: (planId) => request(`/api/tpm/plans/${planId}/expenses`),
+  // Contrats
+  listContracts: () => request('/api/contracts'),
+  listValidators: () => request('/api/contracts/validators'),
+  getContract: (id) => request(`/api/contracts/${id}`),
+  getContractHistory: (id) => request(`/api/contracts/${id}/history`),
+  createContract: (input) => request('/api/contracts', { method: 'POST', body: input }),
+  updateContract: (id, input) => request(`/api/contracts/${id}`, { method: 'PUT', body: input }),
+  submitContract: (id, input) => request(`/api/contracts/${id}/submit`, { method: 'POST', body: input }),
+  approveContract: (id, input) => request(`/api/contracts/${id}/approve`, { method: 'POST', body: input }),
+  rejectContract: (id, input) => request(`/api/contracts/${id}/reject`, { method: 'POST', body: input }),
+  requestAmendment: (id, input) => request(`/api/contracts/${id}/amendments`, { method: 'POST', body: input }),
+  approveAmendment: (id, amendmentId, input) =>
+    request(`/api/contracts/${id}/amendments/${amendmentId}/approve`, { method: 'POST', body: input }),
+  rejectAmendment: (id, amendmentId, input) =>
+    request(`/api/contracts/${id}/amendments/${amendmentId}/reject`, { method: 'POST', body: input }),
+  renewContract: (id, input) => request(`/api/contracts/${id}/renew`, { method: 'POST', body: input }),
+  terminateContract: (id, input) => request(`/api/contracts/${id}/terminate`, { method: 'POST', body: input }),
+
+  // Découpage administratif (localités) — référentiel par tenant/pays
+  listAdminLevels: () => request('/api/settings/admin-levels'),
+  listAdminAreas: (query) => request('/api/settings/admin-areas', { query }),
+  adminBreakdownSummary: () => request('/api/settings/admin-breakdown/summary'),
+  importAdminBreakdown: async (file) => {
+    const buf = await file.arrayBuffer();
+    let res;
+    try {
+      res = await fetch(new URL(`${API_URL}/api/settings/admin-breakdown/import`), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-Filename': file.name,
+          ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}),
+        },
+        body: buf,
+      });
+    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, data.error || `Erreur ${res.status}`, data.details);
+    return data;
+  },
+
+  // Import d'un budget FLA (.xlsx) → postes pour pré-remplir le formulaire
+  importBudget: async (file) => {
+    const buf = await file.arrayBuffer();
+    let res;
+    try {
+      res = await fetch(new URL(`${API_URL}/api/contracts/import-budget`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+        body: buf,
+      });
+    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, data.error || `Erreur ${res.status}`, data.details);
+    return data;
+  },
+
+  // Export Excel du budget (template avec formules) — téléchargement authentifié
+  downloadBudgetXlsx: async (id) => {
+    let res;
+    try {
+      res = await fetch(new URL(`${API_URL}/api/contracts/${id}/budget.xlsx`), {
+        headers: memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {},
+      });
+    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+    if (!res.ok) throw new ApiError(res.status, `Erreur ${res.status}`);
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="?([^"]+)"?/);
+    const filename = m ? m[1] : `Budget_${id}.xlsx`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+    a.remove(); URL.revokeObjectURL(url);
+  },
+
+  // Paramètres
+  listPartnerTypes: () => request('/api/settings/partner-types'),
+  createPartnerType: (input) => request('/api/settings/partner-types', { method: 'POST', body: input }),
+  listActivities: () => request('/api/settings/activities'),
+  createActivity: (input) => request('/api/settings/activities', { method: 'POST', body: input }),
+  setActivityActive: (id, active) => request(`/api/settings/activities/${id}`, { method: 'PATCH', body: { active } }),
+  listPartners: (type) => request('/api/settings/partners', { query: type ? { type } : undefined }),
+  createPartner: (input) => request('/api/settings/partners', { method: 'POST', body: input }),
+  updatePartner: (id, input) => request(`/api/settings/partners/${id}`, { method: 'PATCH', body: input }),
+  createPartnerAgent: (id, input) => request(`/api/settings/partners/${id}/agents`, { method: 'POST', body: input }),
+  deletePartnerAgent: (id, agentId) => request(`/api/settings/partners/${id}/agents/${agentId}`, { method: 'DELETE' }),
+  createAgentFormation: (id, agentId, input) => request(`/api/settings/partners/${id}/agents/${agentId}/formations`, { method: 'POST', body: input }),
+  deleteAgentFormation: (id, agentId, formationId) => request(`/api/settings/partners/${id}/agents/${agentId}/formations/${formationId}`, { method: 'DELETE' }),
+  listAgentsEvaluation: () => request('/api/tpm/agents-evaluation'),
+  createAgentEvaluation: (id, agentId, input) => request(`/api/settings/partners/${id}/agents/${agentId}/evaluations`, { method: 'POST', body: input }),
+  deleteAgentEvaluation: (id, agentId, evaluationId) => request(`/api/settings/partners/${id}/agents/${agentId}/evaluations/${evaluationId}`, { method: 'DELETE' }),
+
+  // Rapports & dépenses TPM
+  reportsContext: () => request('/api/tpm/reports/context'),
+  listReports: (query) => request('/api/tpm/reports', { query }),
+  createReport: (input) => request('/api/tpm/reports', { method: 'POST', body: input }),
+  approveReport: (id, input) => request(`/api/tpm/reports/${id}/approve`, { method: 'POST', body: input }),
+  rejectReport: (id, input) => request(`/api/tpm/reports/${id}/reject`, { method: 'POST', body: input }),
+
+  toggleMissionDay: (assignmentId, date) =>
+    request(`/api/tpm/assignments/${assignmentId}/mission-days`, { method: 'POST', body: { date } }),
+};
