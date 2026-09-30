@@ -237,6 +237,30 @@ export const api = {
   listReports: (query) => request('/api/tpm/reports', { query }),
   getReport: (id) => request(`/api/tpm/reports/${id}`),
   reportInvoice: (id) => request(`/api/tpm/reports/${id}/invoice`),
+
+  // Suivi terrain — sites & visites
+  fieldSites: (q) => request('/api/tpm/field/sites', { query: q ? { q } : undefined }),
+  fieldCreateSite: (input) => request('/api/tpm/field/sites', { method: 'POST', body: input }),
+  fieldUpdateSite: (id, input) => request(`/api/tpm/field/sites/${id}`, { method: 'PATCH', body: input }),
+  fieldVisits: (query) => request('/api/tpm/field/visits', { query }),
+  fieldSummary: (month) => request('/api/tpm/field/summary', { query: month ? { month } : undefined }),
+  fieldCreateVisit: (input) => request('/api/tpm/field/visits', { method: 'POST', body: input }),
+  fieldUpdateVisit: (id, input) => request(`/api/tpm/field/visits/${id}`, { method: 'PATCH', body: input }),
+  fieldDeleteVisit: (id) => request(`/api/tpm/field/visits/${id}`, { method: 'DELETE' }),
+  fieldImportPlanning: async (file, month) => {
+    const buf = await file.arrayBuffer();
+    let res;
+    try {
+      res = await fetch(new URL(`${API_URL}/api/tpm/field/import?month=${encodeURIComponent(month)}`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+        body: buf,
+      });
+    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, data.error || `Erreur ${res.status}`, data.details);
+    return data;
+  },
   createReport: (input) => request('/api/tpm/reports', { method: 'POST', body: input }),
   saveReportItems: (id, input) => request(`/api/tpm/reports/${id}/items`, { method: 'PUT', body: input }),
   approveReport: (id, input) => request(`/api/tpm/reports/${id}/approve`, { method: 'POST', body: input }),

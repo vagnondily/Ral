@@ -14,6 +14,7 @@ import ConsolidationPage from './pages/dashboard/ConsolidationPage.jsx';
 import DashboardBIPage from './pages/dashboard/DashboardBIPage.jsx';
 import PlanningPage from './pages/tpm/PlanningPage.jsx';
 import ProcessMonitoringPage from './pages/monitoring/ProcessMonitoringPage.jsx';
+import FieldVisitsPage from './pages/monitoring/FieldVisitsPage.jsx';
 import FormationsPage from './pages/tpm/FormationsPage.jsx';
 import EvaluationPage from './pages/tpm/EvaluationPage.jsx';
 import SettingsPage from './pages/settings/SettingsPage.jsx';
@@ -91,6 +92,7 @@ function Workspace() {
       {route.module === 'dashboard' && route.sub === 'consolidation' && <ConsolidationPage onOpenContract={openContract} />}
       {route.module === 'planification' && route.sub === 'budget' && <PlanningPage canEdit={canEdit} />}
       {route.module === 'processus' && route.sub === 'donnees' && <ProcessMonitoringPage canEdit={canEdit} />}
+      {route.module === 'processus' && route.sub === 'sites' && <FieldVisitsPage canEdit={canEdit} />}
       {route.module === 'parametrage' && <SettingsPage tab={route.sub} isAdmin={user.role === 'admin'} onNavigate={navigate} />}
     </AppShell>
   );
