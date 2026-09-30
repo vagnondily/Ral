@@ -1,7 +1,7 @@
 const ExcelJS = require('exceljs');
 const { SECTIONS } = require('./budgetCatalog');
 
-// Parse an uploaded FLA budget workbook (the WFP "Contrat-budget-...xlsx"
+// Parse an uploaded FLA budget workbook (the standard FLA budget
 // template) and extract its cost items (postes), so the contract form can be
 // pre-filled. Reads the "Détails Section X" sheets, whose columns are:
 //   Description | # unités | Coût/unité | Montant | Activité 1..4 (allocation %)

@@ -9,8 +9,8 @@ const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
  *
  * A financial report can hold a faithful « état des dépenses » (facture):
  * line items (contract_report_items) reproducing the real invoice, each a
- * quantité × coût unitaire = montant flagged PAM / ONG. When items are
- * present the reported amount is derived from them (PAM share), never typed.
+ * quantité × coût unitaire = montant flagged bailleur / ONG. When items are
+ * present the reported amount is derived from them (funder share), never typed.
  */
 
 const num = (v) => (v == null ? v : Number(v));
@@ -180,10 +180,10 @@ async function insertReport(tenantId, r) {
     if (existing) { const e = new Error('duplicate'); e.code = 'DUP'; throw e; }
 
     // A financial report with an état des dépenses derives its reported
-    // amount from the items (the PAM share) — never the typed figure.
+    // amount from the items (the funder (bailleur) share) — never the typed figure.
     const hasItems = r.kind === 'financier' && Array.isArray(r.items) && r.items.length > 0;
     const cleanItems = hasItems ? normalizeItems(r.items) : null;
-    const reportedAmount = hasItems ? summarize(cleanItems).pam : (r.reportedAmount ?? null);
+    const reportedAmount = hasItems ? summarize(cleanItems).funder : (r.reportedAmount ?? null);
 
     const { rows } = await client.query(
       `INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, period_end, invoice_no,
@@ -214,7 +214,7 @@ async function replaceReportItems(tenantId, id, items, { invoiceNo, periodEnd, a
 
     await client.query('DELETE FROM contract_report_items WHERE tenant_id = $1 AND report_id = $2', [tenantId, id]);
     const clean = await insertItems(client, tenantId, id, items);
-    const reported = summarize(clean).pam;
+    const reported = summarize(clean).funder;
 
     await client.query(
       `UPDATE tpm_reports

@@ -10,7 +10,7 @@ import { formatAr } from '../../lib/format.js';
 
 let seq = 0;
 const newRow = (lineCode = 'IV.suivi') => ({
-  key: `r${seq++}`, lineCode, designation: '', unit: '', unitCount: '', unitCost: '', payBy: 'PAM', observation: '',
+  key: `r${seq++}`, lineCode, designation: '', unit: '', unitCount: '', unitCost: '', payBy: 'bailleur', observation: '',
 });
 
 const rowAmount = (r) => {
@@ -21,8 +21,8 @@ const rowAmount = (r) => {
 /**
  * Facture fidèle — éditeur/visualiseur de l'état des dépenses TPM.
  * Reproduit la facture réelle : postes (quantité × coût unitaire = montant),
- * payés par le PAM ou l'ONG, groupés par section FLA I–V. Le « Réalisé »
- * comptabilisé est la part PAM.
+ * à la charge du bailleur ou de l'ONG, groupés par section FLA I–V. Le
+ * « Réalisé » comptabilisé est la part bailleur.
  */
 export default function FactureDrawer({ reportId, initial, context, month, onClose, onSaved }) {
   const toast = useToast();
@@ -57,7 +57,7 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
       }));
       setRows((r.items || []).map((it) => ({
         key: `r${seq++}`, lineCode: it.lineCode, designation: it.designation, unit: it.unit || '',
-        unitCount: it.unitCount ?? '', unitCost: it.unitCost ?? '', payBy: it.payBy || 'PAM', observation: it.observation || '',
+        unitCount: it.unitCount ?? '', unitCost: it.unitCost ?? '', payBy: it.payBy || 'bailleur', observation: it.observation || '',
       })));
       setLoading(false);
     }).catch((e) => { if (alive) { toast.error(e.message); setLoading(false); } });
@@ -66,15 +66,15 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
 
   const totals = useMemo(() => {
     const bySec = {};
-    let total = 0; let pam = 0; let ong = 0;
+    let total = 0; let funder = 0; let ong = 0;
     for (const r of rows) {
       const amt = rowAmount(r);
       const sec = SECTION_OF[r.lineCode] || '?';
       bySec[sec] = (bySec[sec] || 0) + amt;
       total += amt;
-      if (r.payBy === 'ONG') ong += amt; else pam += amt;
+      if (r.payBy === 'ong') ong += amt; else funder += amt;
     }
-    return { bySec, total, pam, ong };
+    return { bySec, total, funder, ong };
   }, [rows]);
 
   function setRow(key, patch) { setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r))); }
@@ -126,7 +126,7 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
   const title = editing ? 'État des dépenses (facture)' : 'Nouvelle facture — état des dépenses';
   const subtitle = editing
     ? `${head.partnerName || ''} · ${head.contractNumero || ''}${readOnly ? ' · validée (lecture seule)' : ''}`
-    : 'Postes quantité × coût unitaire, payés par le PAM ou l\'ONG, groupés par section FLA.';
+    : 'Postes quantité × coût unitaire, à la charge du bailleur ou de l\'ONG, groupés par section FLA.';
 
   return (
     <Modal
@@ -184,7 +184,7 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
                         <th scope="col" className="num">Qté</th>
                         <th scope="col" className="num">Coût unit.</th>
                         <th scope="col" className="num">Montant</th>
-                        <th scope="col">Payé par</th>
+                        <th scope="col">À la charge de</th>
                         <th scope="col">Observation</th>
                         {!readOnly && <th scope="col" aria-label="Actions" />}
                       </tr></thead>
@@ -202,8 +202,8 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
                             <td className="num" style={{ minWidth: 130 }}><MoneyInput value={r.unitCost === '' ? '' : Number(r.unitCost)} onChange={(v) => setRow(r.key, { unitCost: v })} /></td>
                             <td className="num mono">{formatAr(rowAmount(r))}</td>
                             <td>
-                              <select className="select" style={{ minWidth: 84 }} value={r.payBy} disabled={readOnly} onChange={(e) => setRow(r.key, { payBy: e.target.value })} aria-label="Payé par">
-                                <option value="PAM">PAM</option><option value="ONG">ONG</option>
+                              <select className="select" style={{ minWidth: 110 }} value={r.payBy} disabled={readOnly} onChange={(e) => setRow(r.key, { payBy: e.target.value })} aria-label="À la charge de">
+                                <option value="bailleur">Bailleur</option><option value="ong">ONG</option>
                               </select>
                             </td>
                             <td><input className="input" value={r.observation} disabled={readOnly} onChange={(e) => setRow(r.key, { observation: e.target.value })} /></td>
@@ -222,10 +222,10 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
           {/* Totaux */}
           <div className="facture-totals">
             <div><span className="stat-label">Total des dépenses</span><span className="stat-value">{formatAr(totals.total)}</span></div>
-            <div><span className="stat-label">À payer par le PAM (Réalisé)</span><span className="stat-value">{formatAr(totals.pam)}</span></div>
-            <div><span className="stat-label">À payer par l'ONG</span><span className="stat-value">{formatAr(totals.ong)}</span></div>
+            <div><span className="stat-label">À la charge du bailleur (Réalisé)</span><span className="stat-value">{formatAr(totals.funder)}</span></div>
+            <div><span className="stat-label">À la charge de l'ONG</span><span className="stat-value">{formatAr(totals.ong)}</span></div>
             {head.advanceDeducted !== '' && Number(head.advanceDeducted) > 0 && (
-              <div><span className="stat-label">Net après avance déduite</span><span className="stat-value">{formatAr(totals.pam - Number(head.advanceDeducted))}</span></div>
+              <div><span className="stat-label">Net après avance déduite</span><span className="stat-value">{formatAr(totals.funder - Number(head.advanceDeducted))}</span></div>
             )}
           </div>
         </div>

@@ -45,7 +45,7 @@ router.get('/:id/history', asyncHandler(async (req, res) => {
   res.json(await service.getHistory(t(req), req.params.id));
 }));
 
-// Import d'un budget FLA (.xlsx du template WFP) → postes extraits pour
+// Import d'un budget FLA (.xlsx du template) → postes extraits pour
 // pré-remplir le formulaire de contrat (aucune écriture en base).
 router.post('/import-budget', WRITE, express.raw({ type: '*/*', limit: '20mb' }),
   asyncHandler(async (req, res) => {

@@ -1,6 +1,6 @@
 /**
- * Official WFP FLA budget structure, reconstructed from the real file
- * "Contrat-budget-WFP-MDG-2025-AIN-MULTI-003-AM02-V1.xlsx".
+ * Official FLA budget structure, reconstructed from the real budget
+ * workbook (feuille « Budget de l'accord »).
  *
  * Five cost blocks, each a fixed catalogue of cost lines. Amounts are
  * captured per line AND per activity (an FLA budget is allocated across the

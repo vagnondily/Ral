@@ -1,16 +1,20 @@
 /**
  * État des dépenses — pure math for a faithful TPM invoice (facture).
  *
- * Reproduces the real invoice "Facture_YPA_TPM_Novembre_Janvier.pdf":
- * each poste = quantité × coût unitaire = montant, flagged « à payer par le
- * PAM » or « à payer par l'ONG », grouped in the FLA sections I–V. The amount
- * that justifies payment (what MEMS books as « Réalisé ») is the PAM share.
+ * Reproduces the real expense statement: each poste = quantité × coût
+ * unitaire = montant, flagged « à la charge du bailleur » or « à la charge de
+ * l'ONG », grouped in the FLA sections I–V. The amount that justifies payment
+ * (what the app books as « Réalisé ») is the funder (bailleur) share.
  *
  * Cent-safe like contracts.domain.js — never trust raw float sums.
  */
 const { SECTIONS, LINE_LABELS, SECTION_OF, isValidLine } = require('../contracts/budgetCatalog');
 
 const SECTION_LABEL = Object.fromEntries(SECTIONS.map((s) => [s.code, s.label]));
+
+// Who bears a cost line. 'bailleur' = the funder (booked as « Réalisé »),
+// 'ong' = the partner NGO.
+const PAYERS = ['bailleur', 'ong'];
 
 function round2(cents) {
   return Math.round(cents) / 100;
@@ -28,24 +32,24 @@ function itemAmount(item) {
 
 /**
  * Summarize an invoice's line items into section subtotals and grand totals,
- * with the PAM / ONG split. `payBy` defaults to 'PAM'.
+ * with the bailleur / ONG split. `payBy` defaults to 'bailleur'.
  *
- * Returns { sections:[{code,label,total,pam,ong,count}], total, pam, ong }.
+ * Returns { sections:[{code,label,total,funder,ong,count}], total, funder, ong }.
  */
 function summarize(items) {
-  const secMap = new Map(); // code -> { total, pam, ong, count }
+  const secMap = new Map(); // code -> { total, funder, ong, count }
   let totalCents = 0;
-  let pamCents = 0;
+  let funderCents = 0;
   let ongCents = 0;
 
   for (const it of items || []) {
     const cents = itemCents(it);
     const code = SECTION_OF[it.lineCode] || String(it.lineCode || '').split('.')[0] || '?';
-    if (!secMap.has(code)) secMap.set(code, { total: 0, pam: 0, ong: 0, count: 0 });
+    if (!secMap.has(code)) secMap.set(code, { total: 0, funder: 0, ong: 0, count: 0 });
     const s = secMap.get(code);
     s.total += cents;
     s.count += 1;
-    if (it.payBy === 'ONG') { s.ong += cents; ongCents += cents; } else { s.pam += cents; pamCents += cents; }
+    if (it.payBy === 'ong') { s.ong += cents; ongCents += cents; } else { s.funder += cents; funderCents += cents; }
     totalCents += cents;
   }
 
@@ -56,7 +60,7 @@ function summarize(items) {
       code: s.code,
       label: SECTION_LABEL[s.code] || s.code,
       total: round2(v.total),
-      pam: round2(v.pam),
+      funder: round2(v.funder),
       ong: round2(v.ong),
       count: v.count,
     };
@@ -65,14 +69,14 @@ function summarize(items) {
   return {
     sections,
     total: round2(totalCents),
-    pam: round2(pamCents),
+    funder: round2(funderCents),
     ong: round2(ongCents),
   };
 }
 
-/** The amount an invoice bills to the PAM (booked as « Réalisé »). */
-function billedToPam(items) {
-  return summarize(items).pam;
+/** The amount an invoice bills to the funder / bailleur (booked as « Réalisé »). */
+function billedToFunder(items) {
+  return summarize(items).funder;
 }
 
 /**
@@ -90,7 +94,7 @@ function normalizeItems(rawItems) {
     const unitCost = Number(it.unitCost);
     if (!Number.isFinite(unitCount) || unitCount < 0) throw new Error(`Quantité invalide pour « ${designation} ».`);
     if (!Number.isFinite(unitCost) || unitCost < 0) throw new Error(`Coût unitaire invalide pour « ${designation} ».`);
-    const payBy = it.payBy === 'ONG' ? 'ONG' : 'PAM';
+    const payBy = it.payBy === 'ong' ? 'ong' : 'bailleur';
     out.push({
       lineCode: it.lineCode,
       designation,
@@ -107,4 +111,4 @@ function normalizeItems(rawItems) {
   return out;
 }
 
-module.exports = { itemCents, itemAmount, summarize, billedToPam, normalizeItems, LINE_LABELS, SECTION_LABEL };
+module.exports = { itemCents, itemAmount, summarize, billedToFunder, normalizeItems, PAYERS, LINE_LABELS, SECTION_LABEL };

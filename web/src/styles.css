@@ -1041,7 +1041,7 @@ th.sortable.num .th-inner { justify-content: flex-end; }
 /* ==========================================================================
    Premium polish layer (v2) — additive refinements for a modern, crisp UI.
    Purely presentational: refines tokens, depth, motion and accents on top
-   of the WFP kit above. Nothing here changes layout or class contracts.
+   of the base kit above. Nothing here changes layout or class contracts.
    ========================================================================== */
 :root {
   --radius-sm: 8px;

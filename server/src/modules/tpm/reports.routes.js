@@ -37,7 +37,7 @@ const itemSchema = z.object({
   unit: z.string().trim().max(40).optional().or(z.literal('').transform(() => undefined)),
   unitCount: z.number().nonnegative().max(1e9),
   unitCost: z.number().nonnegative().max(1e13),
-  payBy: z.enum(['PAM', 'ONG']).optional(),
+  payBy: z.enum(['bailleur', 'ong']).optional(),
   site: z.string().trim().max(120).optional().or(z.literal('').transform(() => undefined)),
   observation: z.string().trim().max(400).optional().or(z.literal('').transform(() => undefined)),
 });
