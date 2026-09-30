@@ -1,5 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
 const { normalizeItems, summarize } = require('./reportMath');
+const { assertItemActivities } = require('./activityRefs');
 const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
 
 /**
@@ -15,15 +16,17 @@ const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
 
 const num = (v) => (v == null ? v : Number(v));
 
-const ITEM_COLS = 10; // tenant_id, plan_id, line_code, designation, unit, unit_count, unit_cost, pay_by, site, observation ... + sort_order = 11
+const ITEM_COLS = 11; // + sort_order = 12 columns total (see INSERT below)
 
 async function loadItems(client, tenantId, planId) {
   const { rows } = await client.query(
-    `SELECT id, line_code AS "lineCode", designation, unit, unit_count AS "unitCount",
-            unit_cost AS "unitCost", pay_by AS "payBy", site, observation, sort_order AS "sortOrder"
-       FROM tpm_collection_plan_items
-      WHERE tenant_id = $1 AND plan_id = $2
-      ORDER BY sort_order, id`,
+    `SELECT i.id, i.line_code AS "lineCode", i.designation, i.unit, i.unit_count AS "unitCount",
+            i.unit_cost AS "unitCost", i.pay_by AS "payBy", i.activity_id AS "activityId",
+            a.label AS "activityLabel", i.site, i.observation, i.sort_order AS "sortOrder"
+       FROM tpm_collection_plan_items i
+       LEFT JOIN activities a ON a.id = i.activity_id
+      WHERE i.tenant_id = $1 AND i.plan_id = $2
+      ORDER BY i.sort_order, i.id`,
     [tenantId, planId]
   );
   return rows.map((it) => ({
@@ -40,17 +43,18 @@ async function loadItems(client, tenantId, planId) {
 async function insertItems(client, tenantId, planId, items) {
   const clean = normalizeItems(items);
   if (clean.length === 0) return clean;
+  await assertItemActivities(client, tenantId, clean); // activities must be the tenant's
   const params = [];
-  const cols = ITEM_COLS + 1;
+  const cols = ITEM_COLS + 1; // 12
   const tuples = clean.map((it, i) => {
     const b = i * cols;
     params.push(tenantId, planId, it.lineCode, it.designation, it.unit,
-      it.unitCount, it.unitCost, it.payBy, it.site, it.observation, it.sortOrder);
-    return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10},$${b + 11})`;
+      it.unitCount, it.unitCost, it.payBy, it.activityId, it.site, it.observation, it.sortOrder);
+    return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10},$${b + 11},$${b + 12})`;
   });
   await client.query(
     `INSERT INTO tpm_collection_plan_items
-       (tenant_id, plan_id, line_code, designation, unit, unit_count, unit_cost, pay_by, site, observation, sort_order)
+       (tenant_id, plan_id, line_code, designation, unit, unit_count, unit_cost, pay_by, activity_id, site, observation, sort_order)
      VALUES ${tuples.join(',')}`,
     params
   );

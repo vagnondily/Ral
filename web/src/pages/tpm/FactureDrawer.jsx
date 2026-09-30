@@ -157,6 +157,7 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
             readOnly={readOnly}
             funderLabel="À la charge du bailleur (Réalisé)"
             advance={head.advanceDeducted !== '' ? Number(head.advanceDeducted) : 0}
+            activities={context?.activities || []}
           />
         </div>
       )}

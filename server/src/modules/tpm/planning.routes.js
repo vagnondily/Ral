@@ -26,11 +26,12 @@ const itemSchema = z.object({
   unitCount: z.number().nonnegative().max(1e9),
   unitCost: z.number().nonnegative().max(1e13),
   payBy: z.enum(['bailleur', 'ong']).optional(),
+  activityId: z.string().uuid().optional().or(z.literal('').transform(() => undefined)),
   site: z.string().trim().max(120).optional().or(z.literal('').transform(() => undefined)),
   observation: z.string().trim().max(400).optional().or(z.literal('').transform(() => undefined)),
 });
 
-const isPgText = (msg) => /Ligne budgétaire|désignation|invalide/.test(msg);
+const isPgText = (msg) => /Ligne budgétaire|désignation|invalide|Activité inconnue/.test(msg);
 
 router.get('/', asyncHandler(async (req, res) =>
   res.json(await repo.listPlans(t(req), { month: req.query.month, contractId: req.query.contractId }))));

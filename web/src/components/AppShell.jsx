@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  FileSignature, Handshake, Wallet, Map, ShieldAlert, MapPin, ClipboardCheck, CalendarDays,
+  FileSignature, Handshake, Wallet, Map, ShieldAlert, MapPin, ClipboardCheck,
   LayoutDashboard, ChartColumn, Bell, Settings, Menu, ChevronRight, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { IconButton } from './ui.jsx';
@@ -43,7 +43,6 @@ export const NAV = [
       { id: 'rbm', label: 'Risk-Based Monitoring', icon: ShieldAlert },
       { id: 'sites', label: 'Sites suivis', icon: MapPin },
       { id: 'processus', label: 'Suivi de processus', icon: ClipboardCheck },
-      { id: 'planning', label: 'Planning', icon: CalendarDays },
     ],
   },
   {

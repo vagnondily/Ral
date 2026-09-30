@@ -102,6 +102,7 @@ function normalizeItems(rawItems) {
       unitCount,
       unitCost,
       payBy,
+      activityId: it.activityId ? String(it.activityId).trim() : null,
       site: it.site ? String(it.site).trim().slice(0, 120) : null,
       observation: it.observation ? String(it.observation).trim().slice(0, 400) : null,
       sortOrder: order,

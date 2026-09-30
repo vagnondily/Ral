@@ -104,7 +104,7 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
 
           {touched && errors.length > 0 && <Alert tone="error" icon={AlertCircle}>{errors[0]}</Alert>}
 
-          <PostesEditor rows={rows} onChange={setRows} funderLabel="Part bailleur (Planifié)" />
+          <PostesEditor rows={rows} onChange={setRows} funderLabel="Part bailleur (Planifié)" activities={context?.activities || []} />
         </div>
       )}
     </Modal>

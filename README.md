@@ -208,6 +208,46 @@ npm run worker
 > automatiquement si vous démarrez l'API sur ce nouveau port et lancez le web
 > avec `set VITE_API_URL=http://localhost:VOTRE_PORT`).
 
+### Mettre à jour une installation existante (base PostgreSQL déjà remplie)
+
+Vous avez **déjà la base `mems2_tpm` avec vos données** ? La mise à jour est
+sûre et ne perd aucune donnée : les migrations sont **suivies par nom de
+fichier** dans la table `schema_migrations` et **seules les nouvelles**
+s'appliquent ; elles sont **additives et idempotentes** (`ADD COLUMN IF NOT
+EXISTS`, `CREATE … IF NOT EXISTS`, conversions rejouables).
+
+```cmd
+REM 1) Récupérer le nouveau code
+git pull
+
+REM 2) Appliquer UNIQUEMENT les nouvelles migrations (ne touche pas aux données)
+cd server
+npm install
+npm run migrate
+
+REM 3) NE PAS relancer « npm run seed » sur une base de production :
+REM    le seed n'insère que le jeu de démonstration. Ne l'exécutez que sur
+REM    une base vierge.
+
+REM 4) Redémarrer l'API
+npm start
+
+REM 5) Reconstruire / relancer l'interface (nouvelle fenêtre, à la racine)
+cd web
+npm install
+npm run dev          REM ou « npm run build » pour un livrable statique
+```
+
+> **Ce que la mise à jour ajoute côté base** (rien à faire manuellement, tout
+> passe par `npm run migrate`) : colonnes de la facture fidèle (`013`),
+> index de consolidation (`014`), terminologie neutre bailleur/ONG (`015`),
+> plans de collecte (`016`), et l'**activité par poste** rattachée au
+> référentiel « Paramétrage › Activités » (`017`). Aucune migration ne
+> supprime ni ne réécrit vos lignes existantes.
+
+> **Vérifier l'état des migrations** à tout moment :
+> `psql -U postgres -d mems2_tpm -c "SELECT filename, applied_at FROM schema_migrations ORDER BY filename;"`
+
 ## Démarrer sur macOS / Linux (sans Docker)
 
 Identique, en remplaçant `copy` par `cp` :

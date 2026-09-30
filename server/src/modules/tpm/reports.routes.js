@@ -51,6 +51,7 @@ const itemSchema = z.object({
   unitCount: z.number().nonnegative().max(1e9),
   unitCost: z.number().nonnegative().max(1e13),
   payBy: z.enum(['bailleur', 'ong']).optional(),
+  activityId: z.string().uuid().optional().or(z.literal('').transform(() => undefined)),
   site: z.string().trim().max(120).optional().or(z.literal('').transform(() => undefined)),
   observation: z.string().trim().max(400).optional().or(z.literal('').transform(() => undefined)),
 });
@@ -86,7 +87,7 @@ router.post('/', WRITE, body(createSchema), asyncHandler(async (req, res) => {
     res.status(201).json({ id });
   } catch (err) {
     if (err.code === 'DUP') throw conflict('Un rapport de ce type existe déjà pour ce partenaire, ce contrat et ce mois.');
-    if (err instanceof Error && /Ligne budgétaire|désignation|invalide/.test(err.message)) throw badRequest(err.message);
+    if (err instanceof Error && /Ligne budgétaire|désignation|invalide|Activité inconnue/.test(err.message)) throw badRequest(err.message);
     throw err;
   }
 }));
@@ -111,7 +112,7 @@ router.put('/:id/items', WRITE, body(itemsSchema), asyncHandler(async (req, res)
   } catch (err) {
     if (err.code === 'KIND') throw badRequest('Seul un rapport financier porte un état des dépenses.');
     if (err.code === 'LOCKED') throw conflict('Un rapport validé ne peut plus être modifié.');
-    if (err instanceof Error && /Ligne budgétaire|désignation|invalide/.test(err.message)) throw badRequest(err.message);
+    if (err instanceof Error && /Ligne budgétaire|désignation|invalide|Activité inconnue/.test(err.message)) throw badRequest(err.message);
     throw err;
   }
 }));

@@ -9,7 +9,7 @@ import { formatAr } from '../../lib/format.js';
 
 let seq = 0;
 export const newPoste = (lineCode = 'IV.suivi') => ({
-  key: `p${seq++}`, lineCode, designation: '', unit: '', unitCount: '', unitCost: '', payBy: 'bailleur', observation: '',
+  key: `p${seq++}`, lineCode, designation: '', unit: '', unitCount: '', unitCost: '', payBy: 'bailleur', activityId: '', observation: '',
 });
 
 export const posteAmount = (r) => {
@@ -35,7 +35,8 @@ export function postesTotals(rows) {
 export function rowsFromItems(items) {
   return (items || []).map((it) => ({
     key: `p${seq++}`, lineCode: it.lineCode, designation: it.designation, unit: it.unit || '',
-    unitCount: it.unitCount ?? '', unitCost: it.unitCost ?? '', payBy: it.payBy || 'bailleur', observation: it.observation || '',
+    unitCount: it.unitCount ?? '', unitCost: it.unitCost ?? '', payBy: it.payBy || 'bailleur',
+    activityId: it.activityId || '', observation: it.observation || '',
   }));
 }
 
@@ -46,6 +47,7 @@ export function itemsFromRows(rows) {
     .map((r) => ({
       lineCode: r.lineCode, designation: r.designation.trim(), unit: r.unit.trim() || undefined,
       unitCount: Number(r.unitCount) || 0, unitCost: Number(r.unitCost) || 0, payBy: r.payBy,
+      activityId: r.activityId || undefined,
       observation: r.observation.trim() || undefined,
     }));
 }
@@ -56,7 +58,7 @@ export function itemsFromRows(rows) {
  * the `rows` array. Used by the facture (réalisé) and the plan de collecte
  * (prévu) so both stay identical in shape and maintenance.
  */
-export default function PostesEditor({ rows, onChange, readOnly = false, funderLabel = 'À la charge du bailleur', advance = 0 }) {
+export default function PostesEditor({ rows, onChange, readOnly = false, funderLabel = 'À la charge du bailleur', advance = 0, activities = [] }) {
   const totals = useMemo(() => postesTotals(rows), [rows]);
   const toast = useToast();
   const fileRef = useRef(null);
@@ -109,6 +111,7 @@ export default function PostesEditor({ rows, onChange, readOnly = false, funderL
                     <th scope="col" className="num">Qté</th>
                     <th scope="col" className="num">Coût unit.</th>
                     <th scope="col" className="num">Montant</th>
+                    <th scope="col">Activité</th>
                     <th scope="col">À la charge de</th>
                     <th scope="col">Observation</th>
                     {!readOnly && <th scope="col" aria-label="Actions" />}
@@ -126,6 +129,12 @@ export default function PostesEditor({ rows, onChange, readOnly = false, funderL
                         <td className="num"><input className="input tabular" style={{ width: 72, textAlign: 'right' }} inputMode="decimal" value={r.unitCount} disabled={readOnly} onChange={(e) => setRow(r.key, { unitCount: e.target.value })} /></td>
                         <td className="num" style={{ minWidth: 130 }}><MoneyInput value={r.unitCost === '' ? '' : Number(r.unitCost)} onChange={(v) => setRow(r.key, { unitCost: v })} /></td>
                         <td className="num mono">{formatAr(posteAmount(r))}</td>
+                        <td>
+                          <select className={`select ${r.activityId ? '' : 'is-empty'}`} style={{ minWidth: 130 }} value={r.activityId} disabled={readOnly} onChange={(e) => setRow(r.key, { activityId: e.target.value })} aria-label="Activité">
+                            <option value="">— Activité —</option>
+                            {activities.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                          </select>
+                        </td>
                         <td>
                           <select className="select" style={{ minWidth: 110 }} value={r.payBy} disabled={readOnly} onChange={(e) => setRow(r.key, { payBy: e.target.value })} aria-label="À la charge de">
                             <option value="bailleur">Bailleur</option><option value="ong">ONG</option>
