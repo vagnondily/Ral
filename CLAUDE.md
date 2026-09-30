@@ -223,6 +223,25 @@ or navy rail.
   API pull (implemented); SPSS .sav → export to CSV for now. Values are computed
   live by the pure, unit-tested `monitoringMath.js`. Nav: « Suivi de processus ›
   Données & indicateurs ».
+- **Suivi terrain — sites & visites** (`server/src/modules/tpm/field.*`,
+  `web/src/pages/monitoring/FieldVisitsPage.jsx`, migration 020): the S&E
+  officer's field-monitoring tool. Two-stage workflow — (1) **planification
+  générale** : the bureau lists the sites (`mon_sites`: district › commune ›
+  établissement › activité) to visit in the month (`site_visits`, unique per
+  site+month+activity); (2) **affectation** (done AFTER planning): each visit is
+  assigned to a prestataire TPM and a **generic role** (Agent 1 / Superviseur 1
+  — never nominative). Status planifie→realise→annule; coverage =
+  réalisées / (planifiées+réalisées), cancelled excluded. Pure math in
+  `fieldMath.js` (`server/test/fieldMath.test.js`). Excel import of the real
+  « Planning » sheet (District | PDF | Commune | Établissement | Activité |
+  agents) creates sites + plans visits idempotently. Nav: « Suivi de processus ›
+  Sites & visites ».
+- **Dashboard « façon Power BI »** (`web/src/pages/dashboard/DashboardBIPage.jsx`,
+  nav « Dashboard décisionnel › Vue d'ensemble ») : KPI tiles, grouped
+  Budget/Planifié/Réalisé bars, réalisé-by-partner donut, monthly trend line,
+  consumption gauges and alerts — dependency-free inline SVG with hover
+  tooltips, legends and direct labels; series colours validated with the dataviz
+  palette checker. Fed live from the consolidation API.
 - **Shell**: left sidebar, collapsible (rail mode), header with notifications +
   user menu (FR/EN language, light/dark theme), no office filter.
 

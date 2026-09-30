@@ -31,7 +31,7 @@ const DICT = {
     'nav.planification.budget': 'Forecast budget',
     'nav.processus': 'Process monitoring',
     'nav.processus.donnees': 'Data & indicators',
-    'nav.processus.sites': 'Monitored sites',
+    'nav.processus.sites': 'Sites & visits',
     'nav.processus.carte': 'Site map',
     'nav.processus.rbm': 'Risk-Based Monitoring',
     'nav.dashboard.apercu': 'Overview',
