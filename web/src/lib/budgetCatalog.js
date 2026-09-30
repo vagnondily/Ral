@@ -26,7 +26,8 @@ const SECTIONS = [
       ['transport_mt', 'Transport (basé sur la MT)'],
       ['entreposage_mt', 'Entreposage (basé sur la MT)'],
       ['entreposage_non_mt', 'Entreposage (non basé sur la MT)'],
-      ['transformation', 'Services de transformation et de gestion des marchandises'],
+      ['transformation_mt', 'Services de transformation et de gestion des produits alimentaires (basés sur la MT)'],
+      ['transformation_non_mt', 'Services de transformation et de gestion des produits alimentaires (non basés sur la MT)'],
     ],
   },
   {
@@ -67,12 +68,13 @@ const SECTIONS = [
   },
   {
     code: 'V',
-    label: "Coûts directs d'appui du partenaire",
+    label: "Coûts d'appui directs du partenaire coopérant",
     short: 'Coûts directs',
     lines: [
-      ['personnel', 'Autres dépenses liées au personnel'],
-      ['locaux', 'Coûts de location des locaux et autres'],
-      ['vehicules', 'Coûts relatifs aux véhicules et autres'],
+      ['salaires', 'Salaires du personnel'],
+      ['depenses', 'Dépenses de personnel'],
+      ['locaux', 'Coûts de location des locaux et autres frais de fonctionnement'],
+      ['vehicules', 'Coûts relatifs aux véhicules et autres frais de fonctionnement'],
       ['materiel', 'Matériel et fournitures'],
     ],
   },
