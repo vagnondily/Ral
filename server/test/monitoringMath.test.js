@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { computeIndicator, computeAll, rate } = require('../src/modules/monitoring/monitoringMath');
+const { computeIndicator, computeAll, rate, overallIndex } = require('../src/modules/monitoring/monitoringMath');
 
 const subs = (field, values) => values.map((v) => ({ data: { [field]: v } }));
 
@@ -42,6 +42,18 @@ test('rating against a higher-better target', () => {
 test('rating against a lower-better target (e.g. % de fraude)', () => {
   assert.equal(rate(2, { target: 5, direction: 'lower_better' }), 'exc');
   assert.equal(rate(30, { target: 5, direction: 'lower_better' }), 'imp');
+});
+
+test('overallIndex averages only the percentage indicators that computed', () => {
+  const results = [
+    { agg: 'percent_yes', value: 80 },
+    { agg: 'percent_value', value: 60 },
+    { agg: 'mean', value: 12 },      // excluded (not a percentage)
+    { agg: 'percent_yes', value: null }, // excluded (na)
+  ];
+  assert.equal(overallIndex(results), 70);
+  assert.equal(overallIndex([{ agg: 'mean', value: 5 }]), null);
+  assert.equal(overallIndex([]), null);
 });
 
 test('computeAll returns one result per indicator', () => {

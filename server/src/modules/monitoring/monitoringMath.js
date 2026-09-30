@@ -93,4 +93,16 @@ function computeAll(indicators, submissions) {
   }));
 }
 
-module.exports = { computeIndicator, computeAll, rate, toNumber, isYes };
+/**
+ * Overall performance index = average of the percentage-type indicator values
+ * that could be computed (percent_yes / percent_value). Null when none apply.
+ */
+function overallIndex(indicatorResults) {
+  const vals = (indicatorResults || [])
+    .filter((i) => (i.agg === 'percent_yes' || i.agg === 'percent_value') && i.value != null)
+    .map((i) => i.value);
+  if (!vals.length) return null;
+  return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+}
+
+module.exports = { computeIndicator, computeAll, rate, overallIndex, toNumber, isYes };

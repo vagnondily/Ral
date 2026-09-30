@@ -1,5 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
-const { computeAll } = require('./monitoringMath');
+const { computeAll, overallIndex } = require('./monitoringMath');
 
 /**
  * Suivi de processus — data access. Forms + configurable indicators (the
@@ -160,8 +160,45 @@ async function computeValues(tenantId, formId, { month } = {}) {
   });
 }
 
+/** Dashboard restitution: coverage counts + per-bureau split + indicator values. */
+async function dashboard(tenantId, formId, { month } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const params = [tenantId, formId];
+    let where = 's.tenant_id = $1 AND s.form_id = $2';
+    if (month) { params.push(`${month.slice(0, 7)}-01`); where += ` AND s.period_month = $${params.length}`; }
+
+    const { rows: cov } = await client.query(
+      `SELECT count(*)::int AS submissions,
+              count(DISTINCT NULLIF(site, ''))::int AS sites,
+              count(DISTINCT NULLIF(agent, ''))::int AS agents,
+              count(DISTINCT NULLIF(partner, ''))::int AS partners,
+              count(DISTINCT NULLIF(field_office, ''))::int AS "fieldOffices"
+         FROM monitoring_submissions s WHERE ${where}`,
+      params
+    );
+    const { rows: byBureau } = await client.query(
+      `SELECT COALESCE(NULLIF(field_office, ''), '(non renseigné)') AS bureau,
+              count(*)::int AS submissions,
+              count(DISTINCT NULLIF(site, ''))::int AS sites
+         FROM monitoring_submissions s WHERE ${where}
+        GROUP BY 1 ORDER BY submissions DESC`,
+      params
+    );
+    const { rows: subs } = await client.query(`SELECT data FROM monitoring_submissions s WHERE ${where}`, params);
+    const { rows: inds } = await client.query(
+      `SELECT id, code, label, module, source_field AS "sourceField", agg,
+              positive_value AS "positiveValue", target, direction, sort_order
+         FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2 AND active = true
+        ORDER BY sort_order, label`,
+      [tenantId, formId]
+    );
+    const indicators = computeAll(inds, subs);
+    return { coverage: cov[0], byBureau, indicators, overallIndex: overallIndex(indicators) };
+  });
+}
+
 module.exports = {
   listForms, createForm, updateForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,
-  formFields, importSubmissions, computeValues,
+  formFields, importSubmissions, computeValues, dashboard,
 };

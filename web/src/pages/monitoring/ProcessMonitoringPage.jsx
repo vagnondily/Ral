@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Upload, Trash2, Pencil, AlertCircle, ClipboardCheck, Link2, RefreshCw } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton } from '../../components/ui.jsx';
+import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton, Stats, Usage } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import MonthPicker from '../../components/MonthPicker.jsx';
 import { useToast } from '../../components/Toast.jsx';
@@ -264,7 +264,7 @@ function DataTab({ form, canEdit, onChanged }) {
   );
 }
 
-// ---- Results -------------------------------------------------------------
+// ---- Results / dashboard -------------------------------------------------
 function ResultsTab({ form }) {
   const toast = useToast();
   const [month, setMonth] = useState('');
@@ -273,8 +273,8 @@ function ResultsTab({ form }) {
   async function reload() {
     if (!form) return;
     setData(null);
-    try { setData(await api.monValues(form.id, month || undefined)); }
-    catch (e) { toast.error(e.message); setData({ count: 0, indicators: [] }); }
+    try { setData(await api.monDashboard(form.id, month || undefined)); }
+    catch (e) { toast.error(e.message); setData({ coverage: {}, byBureau: [], indicators: [], overallIndex: null }); }
   }
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [form?.id, month]);
 
@@ -284,26 +284,38 @@ function ResultsTab({ form }) {
     return g;
   }, [data]);
 
+  const cov = data?.coverage || {};
+  const fmtVal = (i) => (i.value == null ? '—' : (i.agg === 'percent_yes' || i.agg === 'percent_value' ? `${i.value} %` : i.value));
+
   return (
-    <Card>
-      <CardHeader title="Résultats des indicateurs" subtitle={data ? `${data.count} soumission(s) prises en compte` : '…'}>
+    <div className="section-gap">
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <MonthPicker value={month || currentMonth()} onChange={setMonth} />
-      </CardHeader>
-      {data === null ? <div className="card-body"><Skeleton height={120} /></div>
-        : data.indicators.length === 0 ? (
-          <EmptyState icon={ClipboardCheck} title="Rien à calculer">Définissez des indicateurs et importez des données.</EmptyState>
+      </div>
+
+      {data === null ? <Card><div className="card-body"><Skeleton height={120} /></div></Card>
+        : (data.indicators.length === 0 && (cov.submissions || 0) === 0) ? (
+          <Card><EmptyState icon={ClipboardCheck} title="Rien à afficher">Définissez des indicateurs et importez des données réelles.</EmptyState></Card>
         ) : (
-          <div className="card-body" style={{ display: 'grid', gap: 18 }}>
+          <>
+            <Stats items={[
+              { label: 'Soumissions', value: cov.submissions ?? 0, foot: `${cov.fieldOffices ?? 0} bureau(x)` },
+              { label: 'Sites suivis', value: cov.sites ?? 0, foot: 'sites distincts' },
+              { label: 'Agents', value: cov.agents ?? 0, foot: `${cov.partners ?? 0} prestataire(s)` },
+              { label: 'Indice moyen', value: data.overallIndex == null ? '—' : data.overallIndex, suffix: data.overallIndex == null ? '' : '%', foot: 'moyenne des indicateurs %' },
+            ]} />
+
             {Object.entries(grouped).map(([mod, list]) => (
-              <div key={mod} className="facture-sec">
-                <div className="facture-sec-head"><h3 className="facture-sec-title">{mod}</h3></div>
+              <Card key={mod} aria-label={mod}>
+                <CardHeader title={mod} subtitle={`${list.length} indicateur(s)`} />
                 <div className="table-wrap"><table className="table">
-                  <thead><tr><th>Indicateur</th><th className="num">Valeur</th><th className="num">Base</th><th className="num">Cible</th><th>Appréciation</th></tr></thead>
+                  <thead><tr><th>Indicateur</th><th className="num">Valeur</th><th style={{ minWidth: 140 }}>Niveau</th><th className="num">Base</th><th className="num">Cible</th><th>Appréciation</th></tr></thead>
                   <tbody>
                     {list.map((i) => (
                       <tr key={i.id}>
                         <td><strong>{i.label}</strong><div className="site-meta mono">{i.sourceField}</div></td>
-                        <td className="num mono">{i.value == null ? '—' : (i.agg === 'percent_yes' || i.agg === 'percent_value' ? `${i.value} %` : i.value)}</td>
+                        <td className="num mono">{fmtVal(i)}</td>
+                        <td>{(i.agg === 'percent_yes' || i.agg === 'percent_value') && i.value != null ? <Usage rate={i.value / 100} /> : <span className="cell-empty">—</span>}</td>
                         <td className="num mono">{i.base}</td>
                         <td className="num mono">{i.target ?? '—'}</td>
                         <td>{i.value == null ? <span className="cell-empty">—</span> : <Badge tone={RATING[i.rating]?.tone} dot>{RATING[i.rating]?.label}</Badge>}</td>
@@ -311,10 +323,24 @@ function ResultsTab({ form }) {
                     ))}
                   </tbody>
                 </table></div>
-              </div>
+              </Card>
             ))}
-          </div>
+
+            {data.byBureau?.length > 0 && (
+              <Card aria-label="Par bureau">
+                <CardHeader title="Couverture par bureau" subtitle="Répartition des soumissions et des sites suivis." />
+                <div className="table-wrap"><table className="table">
+                  <thead><tr><th>Bureau</th><th className="num">Soumissions</th><th className="num">Sites suivis</th></tr></thead>
+                  <tbody>
+                    {data.byBureau.map((b) => (
+                      <tr key={b.bureau}><td><strong>{b.bureau}</strong></td><td className="num mono">{b.submissions}</td><td className="num mono">{b.sites}</td></tr>
+                    ))}
+                  </tbody>
+                </table></div>
+              </Card>
+            )}
+          </>
         )}
-    </Card>
+    </div>
   );
 }

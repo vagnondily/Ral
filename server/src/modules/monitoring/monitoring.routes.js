@@ -121,4 +121,10 @@ router.get('/forms/:id/values', asyncHandler(async (req, res) => {
   res.json(await repo.computeValues(t(req), req.params.id, { month }));
 }));
 
+// Dashboard restitution: coverage + per-bureau + indicator values + index.
+router.get('/forms/:id/dashboard', asyncHandler(async (req, res) => {
+  const month = /^\d{4}-\d{2}/.test(req.query.month || '') ? req.query.month : undefined;
+  res.json(await repo.dashboard(t(req), req.params.id, { month }));
+}));
+
 module.exports = router;
