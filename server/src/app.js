@@ -7,8 +7,12 @@ const { errorHandler, notFound } = require('./middleware/errors');
 const authRoutes = require('./modules/auth/auth.routes');
 const tpmRoutes = require('./modules/tpm/tpm.routes');
 const tpmReportsRoutes = require('./modules/tpm/reports.routes');
+const tpmConsolidationRoutes = require('./modules/tpm/consolidation.routes');
+const tpmPlanningRoutes = require('./modules/tpm/planning.routes');
+const tpmPostesRoutes = require('./modules/tpm/postes.routes');
 const contractsRoutes = require('./modules/contracts/contracts.routes');
 const settingsRoutes = require('./modules/settings/settings.routes');
+const monitoringRoutes = require('./modules/monitoring/monitoring.routes');
 
 function createApp() {
   const app = express();
@@ -25,9 +29,13 @@ function createApp() {
 
   app.use('/api/auth', authRoutes);
   app.use('/api/tpm/reports', tpmReportsRoutes);
+  app.use('/api/tpm/consolidation', tpmConsolidationRoutes);
+  app.use('/api/tpm/planning', tpmPlanningRoutes);
+  app.use('/api/tpm/postes', tpmPostesRoutes);
   app.use('/api/tpm', tpmRoutes);
   app.use('/api/contracts', contractsRoutes);
   app.use('/api/settings', settingsRoutes);
+  app.use('/api/monitoring', monitoringRoutes);
 
   // Anything else is a routing mistake, not a server error.
   app.use((req, res, next) => next(notFound('Route introuvable')));

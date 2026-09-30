@@ -45,7 +45,7 @@ router.get('/:id/history', asyncHandler(async (req, res) => {
   res.json(await service.getHistory(t(req), req.params.id));
 }));
 
-// Import d'un budget FLA (.xlsx du template WFP) → postes extraits pour
+// Import d'un budget FLA (.xlsx du template) → postes extraits pour
 // pré-remplir le formulaire de contrat (aucune écriture en base).
 router.post('/import-budget', WRITE, express.raw({ type: '*/*', limit: '20mb' }),
   asyncHandler(async (req, res) => {
@@ -53,7 +53,7 @@ router.post('/import-budget', WRITE, express.raw({ type: '*/*', limit: '20mb' })
     let parsed;
     try {
       parsed = await parseFlaBudget(req.body);
-    } catch (err) {
+    } catch {
       throw badRequest('Fichier Excel illisible ou format non reconnu.');
     }
     if (!parsed.items.length) throw badRequest('Aucun poste budgétaire trouvé dans le fichier (feuilles « Détails Section … »).');

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  FileSignature, Handshake, Wallet, Map, ShieldAlert, MapPin, ClipboardCheck, CalendarDays,
+  FileSignature, Handshake, Wallet, Map, ShieldAlert, MapPin, ClipboardCheck,
   LayoutDashboard, ChartColumn, Bell, Settings, Menu, ChevronRight, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { IconButton } from './ui.jsx';
@@ -35,18 +35,26 @@ export const NAV = [
           { id: 'rapports', label: 'Rapports & dépenses' },
         ],
       },
-      { id: 'planification', label: 'Planification & budget', icon: Wallet },
+      {
+        id: 'planification', label: 'Planification & budget', icon: Wallet,
+        subs: [{ id: 'budget', label: 'Budget prévisionnel' }],
+      },
       { id: 'carte', label: 'Carte des sites', icon: Map },
       { id: 'rbm', label: 'Risk-Based Monitoring', icon: ShieldAlert },
       { id: 'sites', label: 'Sites suivis', icon: MapPin },
-      { id: 'processus', label: 'Suivi de processus', icon: ClipboardCheck },
-      { id: 'planning', label: 'Planning', icon: CalendarDays },
+      {
+        id: 'processus', label: 'Suivi de processus', icon: ClipboardCheck,
+        subs: [{ id: 'donnees', label: 'Données & indicateurs' }],
+      },
     ],
   },
   {
     group: 'Pilotage',
     items: [
-      { id: 'dashboard', label: 'Dashboard décisionnel', icon: LayoutDashboard },
+      {
+        id: 'dashboard', label: 'Dashboard décisionnel', icon: LayoutDashboard,
+        subs: [{ id: 'consolidation', label: 'Suivi budgétaire consolidé' }],
+      },
       { id: 'reporting', label: 'Reporting', icon: ChartColumn },
       { id: 'alertes', label: 'Alertes', icon: Bell },
     ],

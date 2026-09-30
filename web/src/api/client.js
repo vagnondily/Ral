@@ -169,6 +169,52 @@ export const api = {
     a.remove(); URL.revokeObjectURL(url);
   },
 
+  // Export Excel d'une facture (état des dépenses) — téléchargement authentifié
+  downloadReportXlsx: async (id) => {
+    let res;
+    try {
+      res = await fetch(new URL(`${API_URL}/api/tpm/reports/${id}/facture.xlsx`), {
+        headers: memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {},
+      });
+    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+    if (!res.ok) throw new ApiError(res.status, `Erreur ${res.status}`);
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="?([^"]+)"?/);
+    const filename = m ? m[1] : `Facture_${id}.xlsx`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+    a.remove(); URL.revokeObjectURL(url);
+  },
+
+  // Suivi de processus — formulaires, indicateurs (mapping), soumissions réelles
+  monForms: () => request('/api/monitoring/forms'),
+  monCreateForm: (input) => request('/api/monitoring/forms', { method: 'POST', body: input }),
+  monUpdateForm: (id, input) => request(`/api/monitoring/forms/${id}`, { method: 'PATCH', body: input }),
+  monFields: (id) => request(`/api/monitoring/forms/${id}/fields`),
+  monIndicators: (id) => request(`/api/monitoring/forms/${id}/indicators`),
+  monCreateIndicator: (id, input) => request(`/api/monitoring/forms/${id}/indicators`, { method: 'POST', body: input }),
+  monUpdateIndicator: (indId, input) => request(`/api/monitoring/indicators/${indId}`, { method: 'PATCH', body: input }),
+  monDeleteIndicator: (indId) => request(`/api/monitoring/indicators/${indId}`, { method: 'DELETE' }),
+  monValues: (id, month) => request(`/api/monitoring/forms/${id}/values`, { query: month ? { month } : undefined }),
+  monDashboard: (id, month) => request(`/api/monitoring/forms/${id}/dashboard`, { query: month ? { month } : undefined }),
+  monKoboPull: (id, input) => request(`/api/monitoring/forms/${id}/kobo-pull`, { method: 'POST', body: input }),
+  monImport: async (id, file) => {
+    const buf = await file.arrayBuffer();
+    let res;
+    try {
+      res = await fetch(new URL(`${API_URL}/api/monitoring/forms/${id}/import`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+        body: buf,
+      });
+    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, data.error || `Erreur ${res.status}`, data.details);
+    return data;
+  },
+
   // Paramètres
   listPartnerTypes: () => request('/api/settings/partner-types'),
   createPartnerType: (input) => request('/api/settings/partner-types', { method: 'POST', body: input }),
@@ -189,9 +235,55 @@ export const api = {
   // Rapports & dépenses TPM
   reportsContext: () => request('/api/tpm/reports/context'),
   listReports: (query) => request('/api/tpm/reports', { query }),
+  getReport: (id) => request(`/api/tpm/reports/${id}`),
   createReport: (input) => request('/api/tpm/reports', { method: 'POST', body: input }),
+  saveReportItems: (id, input) => request(`/api/tpm/reports/${id}/items`, { method: 'PUT', body: input }),
   approveReport: (id, input) => request(`/api/tpm/reports/${id}/approve`, { method: 'POST', body: input }),
   rejectReport: (id, input) => request(`/api/tpm/reports/${id}/reject`, { method: 'POST', body: input }),
+
+  // Suivi budgétaire consolidé (Dashboard décisionnel) — interliaison
+  // Budget (contrat) ↔ Planifié (plans) ↔ Réalisé (factures).
+  consolidation: (today) => request('/api/tpm/consolidation', { query: today ? { today } : undefined }),
+
+  // Planification & budget — budget prévisionnel des vagues de collecte
+  listPlans: (query) => request('/api/tpm/planning', { query }),
+  getPlan: (id) => request(`/api/tpm/planning/${id}`),
+  createPlan: (input) => request('/api/tpm/planning', { method: 'POST', body: input }),
+  updatePlan: (id, input) => request(`/api/tpm/planning/${id}`, { method: 'PUT', body: input }),
+  deletePlan: (id) => request(`/api/tpm/planning/${id}`, { method: 'DELETE' }),
+  // Liaison : postes du plan pour pré-remplir une facture (même contrat + mois)
+  planningPrefill: (contractId, month) => request('/api/tpm/planning/prefill', { query: { contractId, month } }),
+
+  // Import Excel de postes (facture / plan) — validé côté serveur, non persisté
+  importPostes: async (file) => {
+    const buf = await file.arrayBuffer();
+    let res;
+    try {
+      res = await fetch(new URL(`${API_URL}/api/tpm/postes/import`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+        body: buf,
+      });
+    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, data.error || `Erreur ${res.status}`, data.details);
+    return data;
+  },
+  // Modèle Excel vierge (avec listes déroulantes)
+  downloadPostesTemplate: async () => {
+    let res;
+    try {
+      res = await fetch(new URL(`${API_URL}/api/tpm/postes/template.xlsx`), {
+        headers: memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {},
+      });
+    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+    if (!res.ok) throw new ApiError(res.status, `Erreur ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'Modele_postes_MEMS2.xlsx'; document.body.appendChild(a); a.click();
+    a.remove(); URL.revokeObjectURL(url);
+  },
 
   toggleMissionDay: (assignmentId, date) =>
     request(`/api/tpm/assignments/${assignmentId}/mission-days`, { method: 'POST', body: { date } }),

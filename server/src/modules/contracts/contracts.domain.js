@@ -1,8 +1,8 @@
 /**
  * Pure business rules of the Contrats module — no I/O, fully unit-tested.
  *
- * Budget model = faithful reproduction of the WFP FLA file
- * ("Contrat-budget-WFP-MDG-2025-AIN-MULTI-003-AM02-V1.xlsx"):
+ * Budget model = faithful reproduction of the FLA budget workbook
+ * (feuille « Budget de l'accord »):
  * each cost line holds a list of budget ITEMS (poste) with
  *   quantité (unitCount) × coût unitaire (unitCost) = montant,
  * allocated across the contract's activities by percentage.

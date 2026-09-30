@@ -3,7 +3,7 @@ const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
-const { badRequest, notFound } = require('../../middleware/errors');
+const { badRequest } = require('../../middleware/errors');
 const repo = require('./settings.repository');
 const { parseUpload } = require('./adminImport');
 

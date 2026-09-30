@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Idempotent demo seed for MEMS 2.0 (WFP Madagascar).
+ * Idempotent demo seed for MEMS 2.0.
  * Provisions one tenant with its configuration registries (partner types,
  * activities), partners (TPM + cooperating), sites, contracts whose budget is
  * the REAL FLA structure at item level (poste = qté × coût unitaire, réparti

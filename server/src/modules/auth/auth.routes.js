@@ -18,7 +18,7 @@ const loginSchema = z.object({
 // by email alone. Multitenancy here means "this email belongs to exactly
 // one tenant", enforced by the UNIQUE (tenant_id, email) constraint plus
 // application logic: emails are expected to be unique enough in practice
-// (WFP staff / partner email addresses) that a plain lookup is safe; if two
+// (staff / partner email addresses) that a plain lookup is safe; if two
 // tenants ever needed the same email, this would move to a
 // tenant-subdomain-first login flow instead.
 router.post(

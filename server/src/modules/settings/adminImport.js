@@ -27,7 +27,7 @@ function detectDelimiter(line) {
 }
 
 function parseCsv(text) {
-  const clean = text.replace(/^﻿/, '');
+  const clean = text.replace(/^\uFEFF/, '');
   const lines = clean.split(/\r?\n/).filter((l) => l.trim().length);
   if (lines.length < 2) throw new Error('Fichier CSV vide ou sans données.');
   const delim = detectDelimiter(lines[0]);

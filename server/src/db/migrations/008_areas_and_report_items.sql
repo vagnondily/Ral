@@ -58,7 +58,7 @@ CREATE TABLE contract_report_items (
   unit         text,
   unit_count   numeric(16, 4) NOT NULL DEFAULT 0 CHECK (unit_count >= 0),
   unit_cost    numeric(16, 2) NOT NULL DEFAULT 0 CHECK (unit_cost >= 0),
-  pay_by       text NOT NULL DEFAULT 'PAM' CHECK (pay_by IN ('PAM', 'ONG')),
+  pay_by       text NOT NULL DEFAULT 'bailleur' CHECK (pay_by IN ('bailleur', 'ong')),
   site         text,
   sort_order   integer NOT NULL DEFAULT 0,
   created_at   timestamptz NOT NULL DEFAULT now()

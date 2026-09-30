@@ -19,7 +19,7 @@ function requireAuth(req, res, next) {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     req.auth = { userId: payload.sub, tenantId: payload.tenantId, role: payload.role };
     return next();
-  } catch (err) {
+  } catch {
     return next(unauthorized('Jeton invalide ou expiré'));
   }
 }
