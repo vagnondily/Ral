@@ -97,6 +97,20 @@ Chosen by the user after comparing three directions. Do NOT revert to indigo.
   shapefile in Paramétrage › Localités.
 - **Partenaires & TPM**: providers + agents (count-only, modal for detail),
   Formations and Évaluation as separate pages.
+- **Rapports & dépenses**: monthly financial/technical reports per partner ×
+  contract × month (metadata + planned/reported amounts, submit → validate/
+  reject workflow). Faithful line-item invoices (`contract_report_items`) are
+  the next step (see open items).
+- **Dashboard décisionnel › Suivi budgétaire consolidé** (`web/src/pages/
+  dashboard/ConsolidationPage.jsx`, `server/src/modules/tpm/consolidation*.js`):
+  faithful reproduction of `Suivi_Budget_TPM_BT.xlsx` and the **interliaison
+  layer** — for every active monitoring contract it puts side by side the
+  **Budget** (ligne « IV.suivi » du contrat), the **Planifié** and the
+  **Réalisé** (rapports), and derives taux de consommation, écart plan/réel,
+  mois restants, restant and projection de fin. Overview table + monthly
+  matrix (Réalisé/Planifié/Écart) + CSV export. Everything is recomputed live
+  from contracts + reports (nothing stored). Pure logic in `consolidation.js`
+  is unit-tested (`server/test/consolidation.test.js`).
 - **Shell**: left sidebar, collapsible (rail mode), header with notifications +
   user menu (FR/EN language, light/dark theme), no office filter.
 
@@ -114,6 +128,8 @@ Chosen by the user after comparing three directions. Do NOT revert to indigo.
   `server/src/db/seed.js` (not shown in the UI).
 
 ## Testing
-`cd server && npm test` (19 unit tests on the pure business logic: budget/expense
-math, plan-month normalization, workflow state machine). Frontend has no test
-suite yet.
+`cd server && npm test` (29 unit tests on the pure business logic: budget/expense
+math, plan-month normalization, workflow state machine, and the consolidation
+engine — month maths, per-partner/grand-total roll-ups, month matrix,
+projection). Frontend has no test suite yet, but `cd web && npm run build`
+type-checks imports/JSX.

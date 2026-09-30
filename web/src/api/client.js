@@ -193,6 +193,10 @@ export const api = {
   approveReport: (id, input) => request(`/api/tpm/reports/${id}/approve`, { method: 'POST', body: input }),
   rejectReport: (id, input) => request(`/api/tpm/reports/${id}/reject`, { method: 'POST', body: input }),
 
+  // Suivi budgétaire consolidé (Dashboard décisionnel) — interliaison
+  // Budget (contrat) ↔ Planifié (rapports) ↔ Réalisé (rapports).
+  consolidation: (today) => request('/api/tpm/consolidation', { query: today ? { today } : undefined }),
+
   toggleMissionDay: (assignmentId, date) =>
     request(`/api/tpm/assignments/${assignmentId}/mission-days`, { method: 'POST', body: { date } }),
 };
