@@ -4,7 +4,7 @@ const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound, conflict } = require('../../middleware/errors');
 const repo = require('./reports.repository');
-const { buildFactureWorkbook } = require('./factureXlsx');
+const { buildInvoiceWorkbook } = require('./factureXlsx');
 
 const router = Router();
 router.use(requireAuth);
@@ -31,11 +31,12 @@ router.get('/:id', asyncHandler(async (req, res) => {
   res.json(report);
 }));
 
-// Export the facture (état des dépenses) as a real .xlsx.
+// Export the facture (formal invoice + detailed état des dépenses) as .xlsx.
 router.get('/:id/facture.xlsx', asyncHandler(async (req, res) => {
-  const report = await repo.getReport(t(req), req.params.id);
-  if (!report) throw notFound('Rapport introuvable');
-  const wb = buildFactureWorkbook(report);
+  const invoice = await repo.invoiceData(t(req), req.params.id);
+  if (!invoice) throw notFound('Rapport introuvable');
+  const { report } = invoice;
+  const wb = buildInvoiceWorkbook(invoice);
   const safe = (report.invoiceNo || `${report.partnerName}_${String(report.periodMonth).slice(0, 7)}`).replace(/[^\w.-]+/g, '_');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="Facture_${safe}.xlsx"`);

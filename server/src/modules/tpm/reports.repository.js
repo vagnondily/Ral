@@ -136,6 +136,55 @@ async function getReport(tenantId, id) {
   });
 }
 
+/**
+ * All the data the formal invoice (INVOICE Mx) needs: the report + its items,
+ * the contract identity/fee, the FLA budget per line (contribution bailleur),
+ * and the cumulative funder spend per line up to and including this month —
+ * so the .xlsx can show Budget · Dépenses du mois · Cumulé · Restant like the
+ * real template. Everything derived from primary data, never trusted.
+ */
+async function invoiceData(tenantId, id) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT ${REPORT_COLUMNS}, c.numero_fla AS "numeroFla", c.numero_po AS "numeroPo",
+              c.numero_vendor AS "numeroVendor", c.date_debut AS "dateDebut", c.date_fin AS "dateFin",
+              c.management_fee_pct AS "managementFeePct"
+         ${FROM} WHERE r.tenant_id = $1 AND r.id = $2`,
+      [tenantId, id]
+    );
+    if (!rows[0]) return null;
+    const report = cast(rows[0]);
+    report.numeroFla = rows[0].numeroFla || null;
+    report.numeroPo = rows[0].numeroPo || null;
+    report.numeroVendor = rows[0].numeroVendor || null;
+    report.dateDebut = rows[0].dateDebut || null;
+    report.dateFin = rows[0].dateFin || null;
+    report.managementFeePct = rows[0].managementFeePct == null ? 0.07 : num(rows[0].managementFeePct);
+    const items = await loadItems(client, tenantId, id);
+
+    const { rows: bud } = await client.query(
+      `SELECT line_code AS "lineCode", SUM(unit_count * unit_cost) AS amount
+         FROM contract_budget_items WHERE tenant_id = $1 AND contract_id = $2 GROUP BY line_code`,
+      [tenantId, report.contractId]
+    );
+    // Cumulative funder spend per line across this contract+partner's financial
+    // reports (soumis/valide) up to and including this report's month.
+    const { rows: cum } = await client.query(
+      `SELECT i.line_code AS "lineCode", SUM(i.unit_count * i.unit_cost * i.bailleur_pct) AS amount
+         FROM contract_report_items i
+         JOIN tpm_reports r ON r.id = i.report_id
+        WHERE i.tenant_id = $1 AND r.contract_id = $2 AND r.partner_id = $3
+          AND r.kind = 'financier' AND r.status IN ('soumis', 'valide')
+          AND r.period_month <= (SELECT period_month FROM tpm_reports WHERE id = $4)
+        GROUP BY i.line_code`,
+      [tenantId, report.contractId, report.partnerId, id]
+    );
+    const budgetByLine = Object.fromEntries(bud.map((r) => [r.lineCode, num(r.amount)]));
+    const cumulByLine = Object.fromEntries(cum.map((r) => [r.lineCode, num(r.amount)]));
+    return { report: { ...report, items, summary: summarize(items) }, budgetByLine, cumulByLine };
+  });
+}
+
 /** TPM partners + monitoring contracts (active, with a Suivi budget) for the pickers. */
 async function reportContext(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
@@ -259,4 +308,4 @@ async function setStatus(tenantId, id, status, userId, comment) {
   });
 }
 
-module.exports = { listReports, getReport, reportContext, insertReport, setStatus, replaceReportItems };
+module.exports = { listReports, getReport, invoiceData, reportContext, insertReport, setStatus, replaceReportItems };
