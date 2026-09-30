@@ -1353,6 +1353,8 @@ body { background: var(--canvas); }
 :root[data-theme="dark"] .table tfoot td { background: var(--canvas-sunken); }
 
 /* ---- Facture fidèle : éditeur de l'état des dépenses ---------------------- */
+.postes-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; background: var(--canvas-sunken); border: 1px solid var(--border); border-radius: var(--radius); }
+.postes-toolbar .hint { flex: 1; min-width: 200px; }
 .facture-sec { display: grid; gap: 8px; }
 .facture-sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-bottom: 2px; border-bottom: 1px solid var(--border); }
 .facture-sec-title { font-size: var(--fs-base); font-weight: 700; color: var(--text-strong); }

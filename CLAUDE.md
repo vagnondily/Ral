@@ -158,6 +158,14 @@ Chosen by the user after comparing three directions. Do NOT revert to indigo.
   (`server/src/modules/tpm/factureXlsx.js`, `GET …/reports/:id/facture.xlsx`)
   and a dependency-free **PDF** via a print-optimized view
   (`web/src/lib/facturePrint.js`).
+- **Import/export Excel des postes** (`server/src/modules/tpm/postesXlsx.js`,
+  routes `/api/tpm/postes/template.xlsx` + `/api/tpm/postes/import`): a fillable
+  template with Excel data-validation dropdowns (valid budget lines, bailleur/
+  ONG, amounts ≥ 0) — so restrictions apply at fill time — and an import that
+  re-runs the SAME `reportMath.normalizeItems` rules and returns the parsed
+  items for review (nothing persisted until the normal save). Shared by the
+  facture and the plan via the toolbar in `PostesEditor.jsx`. Round-trip
+  locked by `server/test/postesXlsx.test.js`.
 - **Terminologie neutre** : aucun « PAM »/« WFP » ; le payeur est « bailleur »
   (funder) vs « ONG ». `pay_by` ∈ (bailleur, ong).
 - The shared postes grid is `web/src/pages/tpm/PostesEditor.jsx` (used by both

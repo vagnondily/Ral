@@ -1,7 +1,9 @@
-import React, { useMemo } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import { Plus, Trash2, Upload, Download } from 'lucide-react';
+import { api } from '../../api/client.js';
 import { Button } from '../../components/ui.jsx';
 import MoneyInput from '../../components/MoneyInput.jsx';
+import { useToast } from '../../components/Toast.jsx';
 import { SECTIONS, SECTION_OF } from '../../lib/budgetCatalog.js';
 import { formatAr } from '../../lib/format.js';
 
@@ -56,6 +58,21 @@ export function itemsFromRows(rows) {
  */
 export default function PostesEditor({ rows, onChange, readOnly = false, funderLabel = 'À la charge du bailleur', advance = 0 }) {
   const totals = useMemo(() => postesTotals(rows), [rows]);
+  const toast = useToast();
+  const fileRef = useRef(null);
+  const [importing, setImporting] = useState(false);
+
+  async function handleImport(e) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    setImporting(true);
+    try {
+      const { items, skipped } = await api.importPostes(f);
+      onChange(rowsFromItems(items));
+      toast.success(`${items.length} poste(s) importé(s)${skipped?.length ? ` · ${skipped.length} ligne(s) ignorée(s)` : ''}.`);
+    } catch (err) { toast.error(err.message); } finally { setImporting(false); }
+  }
 
   const setRow = (key, patch) => onChange(rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const removeRow = (key) => onChange(rows.filter((r) => r.key !== key));
@@ -66,6 +83,14 @@ export default function PostesEditor({ rows, onChange, readOnly = false, funderL
 
   return (
     <>
+      {!readOnly && (
+        <div className="postes-toolbar">
+          <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={handleImport} />
+          <Button size="sm" variant="secondary" icon={Upload} loading={importing} onClick={() => fileRef.current?.click()}>Importer Excel</Button>
+          <Button size="sm" variant="ghost" icon={Download} onClick={() => api.downloadPostesTemplate().catch((e) => toast.error(e.message))}>Modèle</Button>
+          <span className="hint">Remplissez le modèle hors ligne puis importez — les règles du système sont appliquées (lignes valides, montants ≥ 0, bailleur/ONG).</span>
+        </div>
+      )}
       {SECTIONS.map((sec) => {
         const secRows = rows.filter((r) => (SECTION_OF[r.lineCode] || '?') === sec.code);
         if (readOnly && secRows.length === 0) return null;

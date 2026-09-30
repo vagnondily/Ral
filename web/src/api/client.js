@@ -227,6 +227,37 @@ export const api = {
   // Liaison : postes du plan pour pré-remplir une facture (même contrat + mois)
   planningPrefill: (contractId, month) => request('/api/tpm/planning/prefill', { query: { contractId, month } }),
 
+  // Import Excel de postes (facture / plan) — validé côté serveur, non persisté
+  importPostes: async (file) => {
+    const buf = await file.arrayBuffer();
+    let res;
+    try {
+      res = await fetch(new URL(`${API_URL}/api/tpm/postes/import`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+        body: buf,
+      });
+    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, data.error || `Erreur ${res.status}`, data.details);
+    return data;
+  },
+  // Modèle Excel vierge (avec listes déroulantes)
+  downloadPostesTemplate: async () => {
+    let res;
+    try {
+      res = await fetch(new URL(`${API_URL}/api/tpm/postes/template.xlsx`), {
+        headers: memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {},
+      });
+    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+    if (!res.ok) throw new ApiError(res.status, `Erreur ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'Modele_postes_MEMS2.xlsx'; document.body.appendChild(a); a.click();
+    a.remove(); URL.revokeObjectURL(url);
+  },
+
   toggleMissionDay: (assignmentId, date) =>
     request(`/api/tpm/assignments/${assignmentId}/mission-days`, { method: 'POST', body: { date } }),
 };
