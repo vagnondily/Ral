@@ -1,43 +1,34 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, Coins, AlertCircle, FileText } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Coins, AlertCircle, FileText, Wand2, Printer, FileSpreadsheet } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, Field, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import MoneyInput from '../../components/MoneyInput.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import { SECTIONS, SECTION_OF } from '../../lib/budgetCatalog.js';
 import { formatAr } from '../../lib/format.js';
-
-let seq = 0;
-const newRow = (lineCode = 'IV.suivi') => ({
-  key: `r${seq++}`, lineCode, designation: '', unit: '', unitCount: '', unitCost: '', payBy: 'bailleur', observation: '',
-});
-
-const rowAmount = (r) => {
-  const q = Number(r.unitCount); const c = Number(r.unitCost);
-  return Number.isFinite(q) && Number.isFinite(c) ? Math.round(q * c * 100) / 100 : 0;
-};
+import { openFacturePrint } from '../../lib/facturePrint.js';
+import PostesEditor, { newPoste, rowsFromItems, itemsFromRows } from './PostesEditor.jsx';
 
 /**
  * Facture fidèle — éditeur/visualiseur de l'état des dépenses TPM.
- * Reproduit la facture réelle : postes (quantité × coût unitaire = montant),
- * à la charge du bailleur ou de l'ONG, groupés par section FLA I–V. Le
- * « Réalisé » comptabilisé est la part bailleur.
+ * Postes quantité × coût unitaire, à la charge du bailleur ou de l'ONG,
+ * groupés par section FLA I–V. Le « Réalisé » comptabilisé est la part
+ * bailleur. Peut être pré-rempli depuis le plan de collecte du mois.
  */
 export default function FactureDrawer({ reportId, initial, context, month, onClose, onSaved }) {
   const toast = useToast();
   const editing = Boolean(reportId);
   const [loading, setLoading] = useState(editing);
   const [saving, setSaving] = useState(false);
+  const [prefilling, setPrefilling] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
   const [touched, setTouched] = useState(false);
 
   const [head, setHead] = useState({
     partnerId: initial?.partnerId || '', contractId: initial?.contractId || '',
-    invoiceNo: '', periodEnd: '', advanceDeducted: '', plannedAmount: '',
-    partnerName: '', contractNumero: '',
+    invoiceNo: '', periodEnd: '', advanceDeducted: '', partnerName: '', contractNumero: '',
   });
-  const [rows, setRows] = useState(editing ? [] : [newRow()]);
+  const [rows, setRows] = useState(editing ? [] : [newPoste()]);
 
   const partners = context?.partners || [];
   const contracts = context?.contracts || [];
@@ -53,53 +44,34 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
         ...h,
         partnerId: r.partnerId, contractId: r.contractId, partnerName: r.partnerName, contractNumero: r.contractNumero,
         invoiceNo: r.invoiceNo || '', periodEnd: r.periodEnd ? r.periodEnd.slice(0, 7) : '',
-        advanceDeducted: r.advanceDeducted || '', plannedAmount: r.plannedAmount || '',
+        advanceDeducted: r.advanceDeducted || '',
       }));
-      setRows((r.items || []).map((it) => ({
-        key: `r${seq++}`, lineCode: it.lineCode, designation: it.designation, unit: it.unit || '',
-        unitCount: it.unitCount ?? '', unitCost: it.unitCost ?? '', payBy: it.payBy || 'bailleur', observation: it.observation || '',
-      })));
+      setRows(rowsFromItems(r.items));
       setLoading(false);
     }).catch((e) => { if (alive) { toast.error(e.message); setLoading(false); } });
     return () => { alive = false; };
   }, [editing, reportId, toast]);
 
-  const totals = useMemo(() => {
-    const bySec = {};
-    let total = 0; let funder = 0; let ong = 0;
-    for (const r of rows) {
-      const amt = rowAmount(r);
-      const sec = SECTION_OF[r.lineCode] || '?';
-      bySec[sec] = (bySec[sec] || 0) + amt;
-      total += amt;
-      if (r.payBy === 'ong') ong += amt; else funder += amt;
-    }
-    return { bySec, total, funder, ong };
-  }, [rows]);
-
-  function setRow(key, patch) { setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r))); }
-  function addRow(sectionCode) {
-    const sec = SECTIONS.find((s) => s.code === sectionCode);
-    setRows((rs) => [...rs, newRow(sec ? `${sec.code}.${sec.lines[0][0]}` : 'IV.suivi')]);
+  async function prefillFromPlan() {
+    if (!head.contractId) { toast.info('Choisissez d\'abord le contrat.'); return; }
+    setPrefilling(true);
+    try {
+      const { items } = await api.planningPrefill(head.contractId, month);
+      if (!items.length) { toast.info('Aucun plan de collecte pour ce contrat et ce mois.'); return; }
+      setRows(rowsFromItems(items));
+      toast.success(`${items.length} poste(s) repris du plan de collecte.`);
+    } catch (e) { toast.error(e.message); } finally { setPrefilling(false); }
   }
-  function removeRow(key) { setRows((rs) => rs.filter((r) => r.key !== key)); }
 
   const errors = [];
   if (!editing && !head.partnerId) errors.push('Choisissez un prestataire.');
   if (!editing && !head.contractId) errors.push('Choisissez un contrat.');
-  const validRows = rows.filter((r) => r.designation.trim().length >= 2 && Number(r.unitCount) >= 0 && Number(r.unitCost) >= 0);
-  if (validRows.length === 0) errors.push('Ajoutez au moins un poste (désignation, quantité, coût).');
+  if (itemsFromRows(rows).length === 0) errors.push('Ajoutez au moins un poste (désignation, quantité, coût).');
 
   async function save() {
     setTouched(true);
     if (errors.length) return;
-    const items = rows
-      .filter((r) => r.designation.trim().length >= 2)
-      .map((r) => ({
-        lineCode: r.lineCode, designation: r.designation.trim(), unit: r.unit.trim() || undefined,
-        unitCount: Number(r.unitCount) || 0, unitCost: Number(r.unitCost) || 0, payBy: r.payBy,
-        observation: r.observation.trim() || undefined,
-      }));
+    const items = itemsFromRows(rows);
     setSaving(true);
     try {
       if (editing) {
@@ -114,13 +86,21 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
           partnerId: head.partnerId, contractId: head.contractId, periodMonth: month, kind: 'financier',
           invoiceNo: head.invoiceNo.trim() || undefined, periodEnd: head.periodEnd || undefined,
           advanceDeducted: head.advanceDeducted !== '' ? Number(head.advanceDeducted) : undefined,
-          plannedAmount: head.plannedAmount !== '' ? Number(head.plannedAmount) : undefined,
           items,
         });
       }
       toast.success('Facture enregistrée.');
       onSaved();
     } catch (e) { toast.error(e.message); } finally { setSaving(false); }
+  }
+
+  function printPdf() {
+    const partnerName = head.partnerName || partners.find((p) => p.id === head.partnerId)?.name || '';
+    const contractNumero = head.contractNumero || contract?.numero || '';
+    openFacturePrint({
+      head: { ...head, partnerName, contractNumero, periodMonth: month, advanceDeducted: Number(head.advanceDeducted) || 0 },
+      rows, contract,
+    });
   }
 
   const title = editing ? 'État des dépenses (facture)' : 'Nouvelle facture — état des dépenses';
@@ -133,13 +113,16 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
       open variant="drawer" size="xl" title={title} subtitle={subtitle}
       onClose={() => !saving && onClose()}
       footer={readOnly
-        ? <Button variant="secondary" onClick={onClose}>Fermer</Button>
+        ? <><Button variant="secondary" onClick={onClose}>Fermer</Button>
+          <Button variant="secondary" icon={Printer} onClick={printPdf}>PDF</Button>
+          <Button icon={FileSpreadsheet} onClick={() => api.downloadReportXlsx(reportId)}>Exporter (Excel)</Button></>
         : <><Button variant="secondary" onClick={onClose} disabled={saving}>Annuler</Button>
-          <Button onClick={save} loading={saving} icon={FileText}>Enregistrer la facture</Button></>}
+          <Button variant="secondary" icon={Printer} onClick={printPdf}>PDF</Button>
+          {editing && <Button variant="secondary" icon={FileSpreadsheet} onClick={() => api.downloadReportXlsx(reportId)}>Excel</Button>}
+          <Button onClick={save} loading={saving} icon={FileText}>Enregistrer</Button></>}
     >
       {loading ? <Skeleton height={240} /> : (
         <div style={{ display: 'grid', gap: 18 }}>
-          {/* En-tête de la facture */}
           <div className="form-grid">
             {!editing && (
               <>
@@ -155,79 +138,26 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
                 </Field>
               </>
             )}
-            <Field label="N° de facture"><input className="input mono" value={head.invoiceNo} disabled={readOnly} onChange={(e) => setHead({ ...head, invoiceNo: e.target.value })} placeholder="FAC-YPA-2025-11" /></Field>
+            <Field label="N° de facture"><input className="input mono" value={head.invoiceNo} disabled={readOnly} onChange={(e) => setHead({ ...head, invoiceNo: e.target.value })} placeholder="FAC-2025-11" /></Field>
             <Field label="Fin de période" hint="Facture pluri-mensuelle (optionnel)."><input className="input" type="month" value={head.periodEnd} disabled={readOnly} onChange={(e) => setHead({ ...head, periodEnd: e.target.value })} /></Field>
             <Field label="Avance déduite (Ar)"><MoneyInput value={head.advanceDeducted} onChange={(v) => setHead({ ...head, advanceDeducted: v })} /></Field>
-            {!editing && <Field label="Budget prévu du mois (Ar)" hint={contract ? `Barème mensuel ${formatAr(contract.monthlyCeiling)}` : undefined}><MoneyInput value={head.plannedAmount} onChange={(v) => setHead({ ...head, plannedAmount: v })} /></Field>}
           </div>
 
           {contract && <div className="note"><Coins size={18} aria-hidden="true" /><span>Budget Suivi/TPM du contrat : <strong>{formatAr(contract.monitoringBudget)}</strong> · barème mensuel <strong>{formatAr(contract.monthlyCeiling)}</strong></span></div>}
 
+          {!readOnly && !editing && (
+            <div><Button variant="secondary" size="sm" icon={Wand2} loading={prefilling} onClick={prefillFromPlan}>Pré-remplir depuis le plan de collecte</Button></div>
+          )}
+
           {touched && errors.length > 0 && <Alert tone="error" icon={AlertCircle}>{errors[0]}</Alert>}
 
-          {/* Sections FLA */}
-          {SECTIONS.map((sec) => {
-            const secRows = rows.filter((r) => (SECTION_OF[r.lineCode] || '?') === sec.code);
-            if (readOnly && secRows.length === 0) return null;
-            return (
-              <div key={sec.code} className="facture-sec">
-                <div className="facture-sec-head">
-                  <h3 className="facture-sec-title">{sec.code}. {sec.label}</h3>
-                  <span className="mono muted">{formatAr(totals.bySec[sec.code] || 0)}</span>
-                </div>
-                {secRows.length > 0 && (
-                  <div className="table-wrap">
-                    <table className="table facture-table">
-                      <thead><tr>
-                        <th scope="col">Ligne / Désignation</th>
-                        <th scope="col">Unité</th>
-                        <th scope="col" className="num">Qté</th>
-                        <th scope="col" className="num">Coût unit.</th>
-                        <th scope="col" className="num">Montant</th>
-                        <th scope="col">À la charge de</th>
-                        <th scope="col">Observation</th>
-                        {!readOnly && <th scope="col" aria-label="Actions" />}
-                      </tr></thead>
-                      <tbody>
-                        {secRows.map((r) => (
-                          <tr key={r.key}>
-                            <td>
-                              <select className="select" value={r.lineCode} disabled={readOnly} onChange={(e) => setRow(r.key, { lineCode: e.target.value })} aria-label="Ligne budgétaire">
-                                {sec.lines.map(([code, label]) => <option key={code} value={`${sec.code}.${code}`}>{label}</option>)}
-                              </select>
-                              <input className="input" style={{ marginTop: 6 }} value={r.designation} disabled={readOnly} placeholder="Désignation du poste" onChange={(e) => setRow(r.key, { designation: e.target.value })} />
-                            </td>
-                            <td><input className="input" style={{ width: 90 }} value={r.unit} disabled={readOnly} placeholder="jour" onChange={(e) => setRow(r.key, { unit: e.target.value })} /></td>
-                            <td className="num"><input className="input tabular" style={{ width: 72, textAlign: 'right' }} inputMode="decimal" value={r.unitCount} disabled={readOnly} onChange={(e) => setRow(r.key, { unitCount: e.target.value })} /></td>
-                            <td className="num" style={{ minWidth: 130 }}><MoneyInput value={r.unitCost === '' ? '' : Number(r.unitCost)} onChange={(v) => setRow(r.key, { unitCost: v })} /></td>
-                            <td className="num mono">{formatAr(rowAmount(r))}</td>
-                            <td>
-                              <select className="select" style={{ minWidth: 110 }} value={r.payBy} disabled={readOnly} onChange={(e) => setRow(r.key, { payBy: e.target.value })} aria-label="À la charge de">
-                                <option value="bailleur">Bailleur</option><option value="ong">ONG</option>
-                              </select>
-                            </td>
-                            <td><input className="input" value={r.observation} disabled={readOnly} onChange={(e) => setRow(r.key, { observation: e.target.value })} /></td>
-                            {!readOnly && <td><Button size="sm" variant="ghost" icon={Trash2} aria-label="Supprimer le poste" onClick={() => removeRow(r.key)} /></td>}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {!readOnly && <Button size="sm" variant="ghost" icon={Plus} onClick={() => addRow(sec.code)}>Ajouter un poste — {sec.short}</Button>}
-              </div>
-            );
-          })}
-
-          {/* Totaux */}
-          <div className="facture-totals">
-            <div><span className="stat-label">Total des dépenses</span><span className="stat-value">{formatAr(totals.total)}</span></div>
-            <div><span className="stat-label">À la charge du bailleur (Réalisé)</span><span className="stat-value">{formatAr(totals.funder)}</span></div>
-            <div><span className="stat-label">À la charge de l'ONG</span><span className="stat-value">{formatAr(totals.ong)}</span></div>
-            {head.advanceDeducted !== '' && Number(head.advanceDeducted) > 0 && (
-              <div><span className="stat-label">Net après avance déduite</span><span className="stat-value">{formatAr(totals.funder - Number(head.advanceDeducted))}</span></div>
-            )}
-          </div>
+          <PostesEditor
+            rows={rows}
+            onChange={setRows}
+            readOnly={readOnly}
+            funderLabel="À la charge du bailleur (Réalisé)"
+            advance={head.advanceDeducted !== '' ? Number(head.advanceDeducted) : 0}
+          />
         </div>
       )}
     </Modal>

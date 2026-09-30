@@ -11,6 +11,7 @@ import ContractDetailPage from './pages/contracts/ContractDetailPage.jsx';
 import ContractFormPage from './pages/contracts/ContractFormPage.jsx';
 import ReportsPage from './pages/tpm/ReportsPage.jsx';
 import ConsolidationPage from './pages/dashboard/ConsolidationPage.jsx';
+import PlanningPage from './pages/tpm/PlanningPage.jsx';
 import FormationsPage from './pages/tpm/FormationsPage.jsx';
 import EvaluationPage from './pages/tpm/EvaluationPage.jsx';
 import SettingsPage from './pages/settings/SettingsPage.jsx';
@@ -85,6 +86,7 @@ function Workspace() {
       {route.sub === 'affectation' && <AssignmentPage canEdit={canEdit} />}
       {route.module === 'tpm' && route.sub === 'rapports' && <ReportsPage canEdit={canEdit} onOpenContract={openContract} />}
       {route.module === 'dashboard' && route.sub === 'consolidation' && <ConsolidationPage onOpenContract={openContract} />}
+      {route.module === 'planification' && route.sub === 'budget' && <PlanningPage canEdit={canEdit} />}
       {route.module === 'parametrage' && <SettingsPage tab={route.sub} isAdmin={user.role === 'admin'} onNavigate={navigate} />}
     </AppShell>
   );

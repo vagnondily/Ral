@@ -169,6 +169,25 @@ export const api = {
     a.remove(); URL.revokeObjectURL(url);
   },
 
+  // Export Excel d'une facture (état des dépenses) — téléchargement authentifié
+  downloadReportXlsx: async (id) => {
+    let res;
+    try {
+      res = await fetch(new URL(`${API_URL}/api/tpm/reports/${id}/facture.xlsx`), {
+        headers: memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {},
+      });
+    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+    if (!res.ok) throw new ApiError(res.status, `Erreur ${res.status}`);
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="?([^"]+)"?/);
+    const filename = m ? m[1] : `Facture_${id}.xlsx`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+    a.remove(); URL.revokeObjectURL(url);
+  },
+
   // Paramètres
   listPartnerTypes: () => request('/api/settings/partner-types'),
   createPartnerType: (input) => request('/api/settings/partner-types', { method: 'POST', body: input }),
@@ -196,8 +215,17 @@ export const api = {
   rejectReport: (id, input) => request(`/api/tpm/reports/${id}/reject`, { method: 'POST', body: input }),
 
   // Suivi budgétaire consolidé (Dashboard décisionnel) — interliaison
-  // Budget (contrat) ↔ Planifié (rapports) ↔ Réalisé (rapports).
+  // Budget (contrat) ↔ Planifié (plans) ↔ Réalisé (factures).
   consolidation: (today) => request('/api/tpm/consolidation', { query: today ? { today } : undefined }),
+
+  // Planification & budget — budget prévisionnel des vagues de collecte
+  listPlans: (query) => request('/api/tpm/planning', { query }),
+  getPlan: (id) => request(`/api/tpm/planning/${id}`),
+  createPlan: (input) => request('/api/tpm/planning', { method: 'POST', body: input }),
+  updatePlan: (id, input) => request(`/api/tpm/planning/${id}`, { method: 'PUT', body: input }),
+  deletePlan: (id) => request(`/api/tpm/planning/${id}`, { method: 'DELETE' }),
+  // Liaison : postes du plan pour pré-remplir une facture (même contrat + mois)
+  planningPrefill: (contractId, month) => request('/api/tpm/planning/prefill', { query: { contractId, month } }),
 
   toggleMissionDay: (assignmentId, date) =>
     request(`/api/tpm/assignments/${assignmentId}/mission-days`, { method: 'POST', body: { date } }),

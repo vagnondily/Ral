@@ -8,6 +8,7 @@ const authRoutes = require('./modules/auth/auth.routes');
 const tpmRoutes = require('./modules/tpm/tpm.routes');
 const tpmReportsRoutes = require('./modules/tpm/reports.routes');
 const tpmConsolidationRoutes = require('./modules/tpm/consolidation.routes');
+const tpmPlanningRoutes = require('./modules/tpm/planning.routes');
 const contractsRoutes = require('./modules/contracts/contracts.routes');
 const settingsRoutes = require('./modules/settings/settings.routes');
 
@@ -27,6 +28,7 @@ function createApp() {
   app.use('/api/auth', authRoutes);
   app.use('/api/tpm/reports', tpmReportsRoutes);
   app.use('/api/tpm/consolidation', tpmConsolidationRoutes);
+  app.use('/api/tpm/planning', tpmPlanningRoutes);
   app.use('/api/tpm', tpmRoutes);
   app.use('/api/contracts', contractsRoutes);
   app.use('/api/settings', settingsRoutes);

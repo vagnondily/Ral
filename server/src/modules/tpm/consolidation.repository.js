@@ -41,22 +41,47 @@ async function consolidation(tenantId, { today } = {}) {
       [tenantId, MONITORING_LINE]
     );
 
-    // Monthly planned / actual per contract, from the financial reports.
-    // « Réalisé » counts amounts that are at least submitted (soumis) or
-    // validated (valide); rejected drafts do not consume the budget.
-    const { rows: monthly } = await client.query(
+    // Monthly « Réalisé » per contract, from the financial reports (factures):
+    // amounts at least submitted (soumis) or validated (valide) — rejected
+    // drafts do not consume the budget. The funder (bailleur) share is what
+    // draws down the monitoring budget.
+    const { rows: actualRows } = await client.query(
       `SELECT r.contract_id AS "contractId",
               to_char(r.period_month, 'YYYY-MM') AS month,
-              COALESCE(SUM(r.planned_amount), 0) AS planned,
               COALESCE(SUM(r.reported_amount)
                        FILTER (WHERE r.kind = 'financier'
                                AND r.status IN ('soumis', 'valide')), 0) AS actual
          FROM tpm_reports r
         WHERE r.tenant_id = $1
-        GROUP BY r.contract_id, r.period_month
-        ORDER BY r.period_month`,
+        GROUP BY r.contract_id, r.period_month`,
       [tenantId]
     );
+
+    // Monthly « Planifié » per contract, from the collection plans
+    // (Planification & budget) — the funder share of the planned postes.
+    const { rows: plannedRows } = await client.query(
+      `SELECT p.contract_id AS "contractId",
+              to_char(p.period_month, 'YYYY-MM') AS month,
+              COALESCE(SUM(i.unit_count * i.unit_cost)
+                       FILTER (WHERE i.pay_by = 'bailleur'), 0) AS planned
+         FROM tpm_collection_plans p
+         JOIN tpm_collection_plan_items i ON i.plan_id = p.id
+        WHERE p.tenant_id = $1
+        GROUP BY p.contract_id, p.period_month`,
+      [tenantId]
+    );
+
+    // Merge planned + actual by (contract, month).
+    const byKey = new Map();
+    const keyOf = (cId, m) => `${cId}|${m}`;
+    for (const r of actualRows) byKey.set(keyOf(r.contractId, r.month), { contractId: r.contractId, month: r.month, planned: 0, actual: num(r.actual) });
+    for (const r of plannedRows) {
+      const k = keyOf(r.contractId, r.month);
+      const cur = byKey.get(k) || { contractId: r.contractId, month: r.month, planned: 0, actual: 0 };
+      cur.planned = num(r.planned);
+      byKey.set(k, cur);
+    }
+    const monthly = [...byKey.values()];
 
     // DATE columns come back as exact 'YYYY-MM-DD' strings (see the OID-1082
     // type parser in config/db.js) — pass them through, never round-trip
@@ -72,14 +97,7 @@ async function consolidation(tenantId, { today } = {}) {
       monitoringBudget: num(c.monitoringBudget),
     }));
 
-    const shapedMonthly = monthly.map((m) => ({
-      contractId: m.contractId,
-      month: m.month,
-      planned: num(m.planned),
-      actual: num(m.actual),
-    }));
-
-    return buildConsolidation(shaped, shapedMonthly, { today });
+    return buildConsolidation(shaped, monthly, { today });
   });
 }
 

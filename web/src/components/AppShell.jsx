@@ -35,7 +35,10 @@ export const NAV = [
           { id: 'rapports', label: 'Rapports & dépenses' },
         ],
       },
-      { id: 'planification', label: 'Planification & budget', icon: Wallet },
+      {
+        id: 'planification', label: 'Planification & budget', icon: Wallet,
+        subs: [{ id: 'budget', label: 'Budget prévisionnel' }],
+      },
       { id: 'carte', label: 'Carte des sites', icon: Map },
       { id: 'rbm', label: 'Risk-Based Monitoring', icon: ShieldAlert },
       { id: 'sites', label: 'Sites suivis', icon: MapPin },

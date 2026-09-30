@@ -145,16 +145,33 @@ Chosen by the user after comparing three directions. Do NOT revert to indigo.
   against the budget is the PAM share, computed from the postes (never typed).
   Editor: `web/src/pages/tpm/FactureDrawer.jsx`; pure math (unit-tested against
   the real 5 600 800 Ar Bekily invoice) in `server/src/modules/tpm/reportMath.js`.
+- **Planification & budget** (`web/src/pages/tpm/PlanningPage.jsx` +
+  `PlanBudgetDrawer.jsx`, `server/src/modules/tpm/planning.*`): the provisional
+  collection budget (planning workbook's « Budget » sheet) — planned postes per
+  prestataire × contrat × mois, same shape as the facture. Its funder
+  (bailleur) share is the **Planifié** of the consolidation. Tables
+  `tpm_collection_plans` + `tpm_collection_plan_items` (migration 016).
+- **Liaison pré-remplissage** : a facture can be pre-filled from the month's
+  collection plan (`GET /api/tpm/planning/prefill`), copying its postes into the
+  état des dépenses. Plan (prévu) → Facture (réalisé) → Consolidation.
+- **Export facture** : real `.xlsx` with live formulas
+  (`server/src/modules/tpm/factureXlsx.js`, `GET …/reports/:id/facture.xlsx`)
+  and a dependency-free **PDF** via a print-optimized view
+  (`web/src/lib/facturePrint.js`).
+- **Terminologie neutre** : aucun « PAM »/« WFP » ; le payeur est « bailleur »
+  (funder) vs « ONG ». `pay_by` ∈ (bailleur, ong).
+- The shared postes grid is `web/src/pages/tpm/PostesEditor.jsx` (used by both
+  the facture and the plan — one editor, one place to maintain).
 - **Dashboard décisionnel › Suivi budgétaire consolidé** (`web/src/pages/
   dashboard/ConsolidationPage.jsx`, `server/src/modules/tpm/consolidation*.js`):
   faithful reproduction of `Suivi_Budget_TPM_BT.xlsx` and the **interliaison
   layer** — for every active monitoring contract it puts side by side the
-  **Budget** (ligne « IV.suivi » du contrat), the **Planifié** and the
-  **Réalisé** (rapports), and derives taux de consommation, écart plan/réel,
-  mois restants, restant and projection de fin. Overview table + monthly
-  matrix (Réalisé/Planifié/Écart) + CSV export. Everything is recomputed live
-  from contracts + reports (nothing stored). Pure logic in `consolidation.js`
-  is unit-tested (`server/test/consolidation.test.js`).
+  **Budget** (ligne « IV.suivi » du contrat), the **Planifié** (collection
+  plans) and the **Réalisé** (factures), and derives taux de consommation,
+  écart plan/réel, mois restants, restant and projection de fin. Overview table
+  + monthly matrix (Réalisé/Planifié/Écart) + CSV export. Everything is
+  recomputed live from contracts + plans + factures (nothing stored). Pure
+  logic in `consolidation.js` is unit-tested (`server/test/consolidation.test.js`).
 - **Shell**: left sidebar, collapsible (rail mode), header with notifications +
   user menu (FR/EN language, light/dark theme), no office filter.
 
