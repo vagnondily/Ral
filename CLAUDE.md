@@ -99,27 +99,38 @@ Demo login: `admin@mems.mg` / `changeme123` (validator: `validateur@mems.mg`).
   by hand). Monthly ceiling = total ÷ period_months. See
   `server/src/modules/contracts/contracts.domain.js`.
 
-## Design system (current direction: "Refonte professionnelle v6")
-Full redesign to a modern enterprise-SaaS look (Linear/Stripe-grade). This
-supersedes the earlier "Cockpit" direction. The authoritative layer is the
-**"REFONTE PROFESSIONNELLE (v6)"** block at the END of `web/src/styles.css`
-(it comes last, so it overrides the older Cockpit/polish layers — edit the
-tokens/components there, do not resurrect the old navy/electric-blue look).
+## Design system (current direction: "Enterprise sobre — Fiori/Fluent")
+Sober, institutional enterprise look (SAP Fiori / Microsoft Fluent): **light
+rail**, cool greys, restrained blue accent, crisp corners, dense legible tables.
+This supersedes the earlier near-black-rail "v6" and the older "Cockpit"
+directions. The authoritative layer is still the **"REFONTE PROFESSIONNELLE
+(v6)"** block at the END of `web/src/styles.css` (it comes last, so it overrides
+the older Cockpit/polish layers) — its tokens have been re-tuned to this
+direction. Edit the tokens/components **there**; do not resurrect the near-black
+or navy rail.
 - **Typography: Inter** (UI, all text) + **IBM Plex Mono** (codes/IDs only).
   Figures use Inter with `font-variant-numeric: tabular-nums`, NOT mono.
   Bundled via `@fontsource` (see `web/src/main.jsx`), no CDN. Headings carry
   negative tracking (`letter-spacing: -0.018em`).
-- **Neutrals: cool slate.** Canvas `#f5f6f8`, surface `#fff`, hairline border
-  `#e7e9ee`, text-strong `#0d1220`, text `#3d4453`, muted `#6a7180`, faint
-  `#99a0ad`.
-- **Accent: calm blue** `#2563eb` (hover `#1d4ed8`); `--blue-50 #eef4ff` for
-  tints. Used sparingly (primary buttons, active nav, links, bars).
-- **Rail: near-black neutral** `#14161d` (NOT navy) with hairline dividers and
-  a thin blue active indicator; light content area.
+- **Neutrals: cool institutional grey.** Canvas `#f2f3f5`, surface `#fff`,
+  surface-2 `#f7f8fa`, hairline border `#e3e5ea`, strong border `#cbd0d9`,
+  text-strong `#14181f`, text `#3a4150`, muted `#616a7a`, faint `#8b93a1`.
+- **Accent: enterprise blue** `#0f6cbd` (hover `#0b5394`); `--blue-50 #eff6fc`
+  for tints. Used sparingly (primary buttons, active nav, links, bars).
+- **Rail: LIGHT (white `#fff`)** with a hairline right border; dark-text nav,
+  active route = blue-50 tint + blue text + 2px blue left marker. Driven by
+  **semantic tokens** (`--rail`, `--rail-line` = `--border`, `--rail-text` =
+  `--text`, …) so the dark theme follows the same rail rules from its own
+  token values — no hardcoded rail colours. The collapse toggle lives **on the
+  rail** (brand row), not the header.
+- **Header:** solid white, hairline bottom + `--shadow-sm` (no glass blur).
+- **Corners: crisp Fluent scale** — radii 4/6/8 (`--radius-sm`/`--radius`/
+  `--radius-lg`). Buttons/inputs 36px tall, radius 6.
+- **Elevation: restrained** — hairline + a shallow `--shadow-sm`, never floaty.
 - KPI/stat tiles are clean (no accent tick, tabular Inter value, muted
-  label/foot); subtle layered shadows; radii 7/9/13. No sparklines.
-- Base font-size 14.5px (denser, enterprise). Tables: uppercase muted headers,
-  hairline separators, `surface-2` row hover, tabular numerics.
+  label/foot). Tables: light-grey (`--canvas`) uppercase header band, hairline
+  separators, `surface-2` row hover, tabular numerics.
+- Base font-size 14.5px; header height 52px, sidebar 256px.
 - The MEMS logo is inline SVG in `web/src/components/Logo.jsx`.
 
 ## What's implemented
