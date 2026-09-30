@@ -31,6 +31,14 @@ router.get('/:id', asyncHandler(async (req, res) => {
   res.json(report);
 }));
 
+// Per-line budget + cumulative funder spend for the on-screen invoice view
+// (Budget · Dépenses du mois · Cumulé · Restant).
+router.get('/:id/invoice', asyncHandler(async (req, res) => {
+  const invoice = await repo.invoiceData(t(req), req.params.id);
+  if (!invoice) throw notFound('Rapport introuvable');
+  res.json({ budgetByLine: invoice.budgetByLine, cumulByLine: invoice.cumulByLine });
+}));
+
 // Export the facture (formal invoice + detailed état des dépenses) as .xlsx.
 router.get('/:id/facture.xlsx', asyncHandler(async (req, res) => {
   const invoice = await repo.invoiceData(t(req), req.params.id);
