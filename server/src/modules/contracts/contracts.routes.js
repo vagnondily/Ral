@@ -53,7 +53,7 @@ router.post('/import-budget', WRITE, express.raw({ type: '*/*', limit: '20mb' })
     let parsed;
     try {
       parsed = await parseFlaBudget(req.body);
-    } catch (err) {
+    } catch {
       throw badRequest('Fichier Excel illisible ou format non reconnu.');
     }
     if (!parsed.items.length) throw badRequest('Aucun poste budgétaire trouvé dans le fichier (feuilles « Détails Section … »).');

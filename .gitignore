@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Local environment (use .env.example as the template)
+.env
+server/.env
+web/.env
+
+# Build output
+web/dist/
+dist/
+
+# Logs & OS files
+*.log
+.DS_Store

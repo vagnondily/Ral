@@ -103,11 +103,6 @@ button:disabled { cursor: not-allowed; }
   height: var(--header-h); padding: 0 20px;
   border-bottom: 1px solid var(--border); flex-shrink: 0;
 }
-.brand-mark {
-  width: 36px; height: 36px; border-radius: var(--radius);
-  background: var(--blue-600); color: #fff; display: grid; place-items: center;
-  font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: -0.02em; flex-shrink: 0;
-}
 .brand-name { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-lg); color: var(--text-strong); line-height: 1.2; }
 .brand-sub { font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.3; white-space: nowrap; }
 
@@ -991,11 +986,6 @@ button:disabled { cursor: not-allowed; }
    Contracts list — professional data grid (filters + toolbar + sortable + pager)
    ========================================================================== */
 .filters-bar { padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--canvas); }
-.filters-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); margin-bottom: 10px; }
-.filters-grid { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: flex-end; }
-.filter-field { display: flex; flex-direction: column; gap: 4px; min-width: 160px; flex: 1 1 160px; max-width: 240px; }
-.filter-field > span { font-size: 12px; font-weight: 600; color: var(--text-muted); }
-.filter-field .input-wrap { display: flex; align-items: center; gap: 6px; }
 .filter-check { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text); white-space: nowrap; padding-bottom: 8px; }
 .filter-check input { width: 16px; height: 16px; }
 
@@ -1141,27 +1131,7 @@ body { background: var(--canvas); }
 /* ==========================================================================
    Configurable filters (add / remove / save views) + amendments table
    ========================================================================== */
-.filters-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
-.filters-head .filters-title { margin-bottom: 0; }
-.filters-head-actions { display: flex; align-items: center; gap: 8px; }
-
-/* Removable filter fields */
-.filter-field-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.filter-field-head > span { font-size: 12px; font-weight: 600; color: var(--text-muted); }
-.filter-remove {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 18px; height: 18px; padding: 0; border: 0; border-radius: 5px;
-  background: transparent; color: var(--text-muted); opacity: .65; flex-shrink: 0;
-  transition: background-color .12s var(--ease), color .12s var(--ease), opacity .12s var(--ease);
-}
-.filter-remove:hover { opacity: 1; background: var(--red-bg); color: var(--red-text); }
-.filter-field-check { flex-direction: row; align-items: center; gap: 6px; max-width: none; flex: 0 0 auto; min-width: 0;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 8px 6px 12px; }
-.filter-field-check .filter-check { padding-bottom: 0; }
-
-.filter-tools { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; padding-bottom: 2px; margin-left: auto; }
-
-/* Popover menus (add filter, saved views, save form) */
+/* Popover menus (saved views, filter chooser) */
 .pop-menu {
   position: absolute; left: 0; top: calc(100% + 6px); z-index: 40; min-width: 240px;
   padding: 8px; background: var(--surface); border: 1px solid var(--border);
@@ -1188,11 +1158,8 @@ body { background: var(--canvas); }
 }
 .view-row-del:hover { opacity: 1; background: var(--red-bg); color: var(--red-text); }
 
-.save-pop { min-width: 280px; display: grid; gap: 10px; }
-.save-pop .input { width: 100%; }
 .save-temp { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text); }
 .save-temp input { width: 16px; height: 16px; }
-.save-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* Amendments table (click a row → detail) */
 .amend-wrap { padding: 20px; display: grid; gap: 12px; }
@@ -1210,7 +1177,6 @@ body { background: var(--canvas); }
 :root[data-theme="dark"] .amend-detail-row > td { background: var(--canvas-sunken); }
 
 @media (max-width: 640px) {
-  .filter-tools { margin-left: 0; width: 100%; }
   .amend-just-cell { display: none; }
 }
 
@@ -1226,30 +1192,12 @@ body { background: var(--canvas); }
 
 .cfilter { display: flex; flex-direction: column; gap: 4px; min-width: 150px; flex: 0 1 190px; }
 .cfilter-label { font-size: 12px; font-weight: 600; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cfilter-off { font-style: normal; color: var(--orange-text); font-size: 11px; font-weight: 700; }
 .cfilter .input-wrap { display: flex; align-items: center; gap: 6px; }
-.cfilter.is-off { cursor: pointer; }
-.cfilter.is-off .cfilter-label { color: var(--text-muted); }
-.cfilter.is-off .input, .cfilter.is-off .select { background: var(--canvas-sunken); color: var(--text-muted); border-style: dashed; pointer-events: none; }
 .cfilter-check { flex-direction: row; align-items: center; min-width: 0; flex: 0 0 auto; padding-bottom: 8px; }
 .cfilter-check .filter-check { padding-bottom: 0; }
-.cfilter-check.is-off .filter-check { opacity: .55; }
 
-/* On/off switch */
-.switch { position: relative; width: 34px; height: 20px; flex-shrink: 0; border: 0; padding: 0; border-radius: 999px; background: var(--border-strong); cursor: pointer; transition: background-color .15s var(--ease); }
-.switch.is-on { background: var(--blue-600); }
-.switch:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.switch-knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(16,24,40,.35); transition: left .15s var(--ease); }
-.switch.is-on .switch-knob { left: 16px; }
-
-/* Manage (funnel) popover */
-.pop-menu.manage-menu, .pop-menu.add-menu, .pop-menu.view-menu { right: 0; left: auto; }
-.manage-menu { min-width: 280px; }
-.manage-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; }
-.manage-name { flex: 1; min-width: 0; font-size: var(--fs-sm); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.manage-name.is-off { color: var(--text-muted); text-decoration: line-through; }
-.manage-del { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: var(--radius); background: transparent; color: var(--text-muted); opacity: .6; flex-shrink: 0; }
-.manage-del:hover { opacity: 1; background: var(--red-bg); color: var(--red-text); }
+/* Filter manager / saved-views popovers */
+.pop-menu.view-menu { right: 0; left: auto; }
 .manage-foot { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 8px; }
 
 /* Saved views (disk) popover */
@@ -1295,13 +1243,6 @@ body { background: var(--canvas); }
 .filter-pick:hover { background: var(--blue-50); }
 .filter-pick input { width: 16px; height: 16px; flex-shrink: 0; }
 .filters-empty { font-size: var(--fs-sm); color: var(--text-muted); padding-bottom: 8px; }
-.comet-icons .has-badge { position: relative; }
-.comet-icons .has-badge[data-count]::after {
-  content: attr(data-count); position: absolute; top: -6px; right: -6px;
-  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px;
-  background: var(--blue-600); color: #fff; font-size: 10px; font-weight: 700;
-  display: grid; place-items: center; box-shadow: 0 0 0 2px var(--surface);
-}
 
 @media (max-width: 960px) {
   .header .collapse-toggle { display: none; }

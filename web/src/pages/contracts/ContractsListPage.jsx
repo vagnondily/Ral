@@ -293,7 +293,6 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
             {/* Une seule icône : choisir les filtres actifs (afficher / masquer) */}
             <div className="pop-anchor" ref={filterMenu.ref}>
               <IconButton icon={SlidersHorizontal} label="Filtres à afficher" variant="secondary" size="sm"
-                className={orderedShown.length ? 'has-badge' : ''} data-count={orderedShown.length || undefined}
                 onClick={() => filterMenu.setOpen((o) => !o)} />
               {filterMenu.open && (
                 <div className="pop-menu filter-menu" role="menu">
