@@ -180,6 +180,16 @@ Chosen by the user after comparing three directions. Do NOT revert to indigo.
   + monthly matrix (Réalisé/Planifié/Écart) + CSV export. Everything is
   recomputed live from contracts + plans + factures (nothing stored). Pure
   logic in `consolidation.js` is unit-tested (`server/test/consolidation.test.js`).
+- **Suivi de processus** (`server/src/modules/monitoring/*`, `web/src/pages/
+  monitoring/ProcessMonitoringPage.jsx`): import of real monitoring data and a
+  **configurable indicator mapping**. Model (migration 018): monitoring_forms,
+  monitoring_indicators (each indicator = a form field + an aggregation
+  percent_yes/percent_value/mean/sum/count + optional target/direction —
+  the « mapping paramétrable »), monitoring_submissions (raw answers in JSONB,
+  deduped by Kobo _uuid). Import sources: CSV + XLSX (parsed, tested), Kobo v2
+  API pull (implemented); SPSS .sav → export to CSV for now. Values are computed
+  live by the pure, unit-tested `monitoringMath.js`. Nav: « Suivi de processus ›
+  Données & indicateurs ».
 - **Shell**: left sidebar, collapsible (rail mode), header with notifications +
   user menu (FR/EN language, light/dark theme), no office filter.
 

@@ -14,7 +14,7 @@ module.exports = [
         require: 'readonly', exports: 'writable', global: 'readonly',
         setTimeout: 'readonly', clearTimeout: 'readonly',
         setInterval: 'readonly', clearInterval: 'readonly',
-        setImmediate: 'readonly', URL: 'readonly', URLSearchParams: 'readonly',
+        setImmediate: 'readonly', URL: 'readonly', URLSearchParams: 'readonly', fetch: 'readonly',
         TextEncoder: 'readonly', TextDecoder: 'readonly',
       },
     },

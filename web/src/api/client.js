@@ -188,6 +188,32 @@ export const api = {
     a.remove(); URL.revokeObjectURL(url);
   },
 
+  // Suivi de processus — formulaires, indicateurs (mapping), soumissions réelles
+  monForms: () => request('/api/monitoring/forms'),
+  monCreateForm: (input) => request('/api/monitoring/forms', { method: 'POST', body: input }),
+  monUpdateForm: (id, input) => request(`/api/monitoring/forms/${id}`, { method: 'PATCH', body: input }),
+  monFields: (id) => request(`/api/monitoring/forms/${id}/fields`),
+  monIndicators: (id) => request(`/api/monitoring/forms/${id}/indicators`),
+  monCreateIndicator: (id, input) => request(`/api/monitoring/forms/${id}/indicators`, { method: 'POST', body: input }),
+  monUpdateIndicator: (indId, input) => request(`/api/monitoring/indicators/${indId}`, { method: 'PATCH', body: input }),
+  monDeleteIndicator: (indId) => request(`/api/monitoring/indicators/${indId}`, { method: 'DELETE' }),
+  monValues: (id, month) => request(`/api/monitoring/forms/${id}/values`, { query: month ? { month } : undefined }),
+  monKoboPull: (id, input) => request(`/api/monitoring/forms/${id}/kobo-pull`, { method: 'POST', body: input }),
+  monImport: async (id, file) => {
+    const buf = await file.arrayBuffer();
+    let res;
+    try {
+      res = await fetch(new URL(`${API_URL}/api/monitoring/forms/${id}/import`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+        body: buf,
+      });
+    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, data.error || `Erreur ${res.status}`, data.details);
+    return data;
+  },
+
   // Paramètres
   listPartnerTypes: () => request('/api/settings/partner-types'),
   createPartnerType: (input) => request('/api/settings/partner-types', { method: 'POST', body: input }),

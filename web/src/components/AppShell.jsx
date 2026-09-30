@@ -42,7 +42,10 @@ export const NAV = [
       { id: 'carte', label: 'Carte des sites', icon: Map },
       { id: 'rbm', label: 'Risk-Based Monitoring', icon: ShieldAlert },
       { id: 'sites', label: 'Sites suivis', icon: MapPin },
-      { id: 'processus', label: 'Suivi de processus', icon: ClipboardCheck },
+      {
+        id: 'processus', label: 'Suivi de processus', icon: ClipboardCheck,
+        subs: [{ id: 'donnees', label: 'Données & indicateurs' }],
+      },
     ],
   },
   {
