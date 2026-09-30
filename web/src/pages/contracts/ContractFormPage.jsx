@@ -202,7 +202,7 @@ export default function ContractFormPage({ mode = 'create', contractId, onDone, 
         <div className="card-body">
           <div className="note" style={{ marginBottom: 16 }}>
             <Info size={18} aria-hidden="true" />
-            <span>Importez votre fichier <strong>budget FLA (.xlsx)</strong> pour remplir automatiquement les postes et la commission (feuilles « Détails Section … »). Vous pourrez ensuite ajuster.</span>
+            <span>Importez un <strong>budget FLA (.xlsx)</strong> pour remplir automatiquement les postes et la commission. Vous pouvez aussi <strong>télécharger le budget</strong> depuis la fiche du contrat, le modifier hors ligne dans Excel, puis le réimporter ici (création ou mise à jour). Vous pourrez ensuite ajuster.</span>
           </div>
           <BudgetItemsEditor
             activities={selectedActivities}

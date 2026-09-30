@@ -154,9 +154,16 @@ or navy rail.
   diff** (dates, commission, total, zones, postes).
 - **Avenant = same full process as a new contract**; stored as
   `{ before, after }` snapshot (backward-compatible with the old flat format).
-- **Excel**: import a real FLA `.xlsx` to auto-fill postes
-  (`server/src/modules/contracts/budgetImport.js`), and export the budget with
-  live formulas (`budgetXlsx.js`).
+- **Excel (round-trip)**: import a real FLA `.xlsx` to auto-fill postes AND
+  re-import the workbook the app itself exports — so the offline loop
+  *download → edit in Excel → re-upload* works for create / edit / amend
+  (`server/src/modules/contracts/budgetImport.js`: `parseFlaBudget` reads the
+  real « Détails Section … » template and falls back to `parseBudgetAccord` for
+  our own « Budget de l'accord » sheet; column positions are detected from the
+  header row; locked by `server/test/budgetRoundtrip.test.js`). Export with live
+  formulas is `budgetXlsx.js`. Note: an **active** contract's budget is updated
+  through an **avenant** (same form, same import), not edited in place — by
+  design for audit.
 - **Zones**: cascading Région → District selectors (no free text); admin
   breakdown (adm1–adm4) is per-tenant, importable from `.csv`/`.dbf`/`.zip`
   shapefile in Paramétrage › Localités.
