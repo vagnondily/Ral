@@ -156,10 +156,13 @@ async function main() {
   const client = new Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   try {
-    const { rows: [tenant] } = await client.query(
-      `INSERT INTO tenants (name) VALUES ($1) ON CONFLICT DO NOTHING RETURNING id`, ['Bureau de Toliara']);
-    const tenantId = tenant ? tenant.id
-      : (await client.query('SELECT id FROM tenants WHERE name = $1', ['Bureau de Toliara'])).rows[0].id;
+    // Idempotent : réutiliser le tenant démo existant s'il y en a un (tenants.name
+    // n'a pas de contrainte UNIQUE — un ON CONFLICT créerait un doublon à chaque
+    // exécution du seed). On sélectionne d'abord, on n'insère qu'à défaut.
+    const existingTenant = await client.query('SELECT id FROM tenants WHERE name = $1 ORDER BY created_at LIMIT 1', ['Bureau de Toliara']);
+    const tenantId = existingTenant.rows[0]
+      ? existingTenant.rows[0].id
+      : (await client.query('INSERT INTO tenants (name) VALUES ($1) RETURNING id', ['Bureau de Toliara'])).rows[0].id;
 
     const passwordHash = await bcrypt.hash('changeme123', 10);
     const users = {};
@@ -277,6 +280,26 @@ async function main() {
              SELECT $1,$2,$3,$4,$5,$6,$7 WHERE NOT EXISTS (SELECT 1 FROM tpm_agent_evaluations WHERE agent_id=$2 AND periode=$3)`,
             [tenantId, ag.id, periodISO, note, appr, com, validator]);
         }
+      }
+    }
+
+    // Visites de terrain de démo (module « Sites & visites ») : planification du
+    // mois courant, affectée à des prestataires TPM avec un rôle générique
+    // (Agent 1 / Superviseur 1) ; ~1/3 réalisées pour alimenter la couverture,
+    // le tableau de bord et les alertes.
+    if ((await client.query('SELECT 1 FROM site_visits WHERE tenant_id=$1 LIMIT 1', [tenantId])).rows.length === 0) {
+      const siteRows = (await client.query('SELECT id, activity FROM sites WHERE tenant_id=$1 ORDER BY code', [tenantId])).rows;
+      const tpmIds = TPM_PARTNERS.map(([nm]) => partnerId[nm]).filter(Boolean);
+      const VISIT_ROLES = ['Agent 1', 'Agent 2', 'Superviseur 1'];
+      for (let i = 0; i < siteRows.length; i += 1) {
+        const s = siteRows[i];
+        const prov = tpmIds.length ? tpmIds[i % tpmIds.length] : null;
+        await client.query(
+          `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, provider_id, agent, status, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           ON CONFLICT (tenant_id, site_id, period_month, activity) DO NOTHING`,
+          [tenantId, s.id, periodISO, s.activity || 'Suivi', prov, VISIT_ROLES[i % VISIT_ROLES.length],
+            i % 3 === 0 ? 'realise' : 'planifie', users.admin]);
       }
     }
 
