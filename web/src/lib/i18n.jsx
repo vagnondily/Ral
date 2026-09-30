@@ -34,6 +34,7 @@ const DICT = {
     'nav.processus.sites': 'Monitored sites',
     'nav.processus.carte': 'Site map',
     'nav.processus.rbm': 'Risk-Based Monitoring',
+    'nav.dashboard.apercu': 'Overview',
     'nav.dashboard.consolidation': 'Consolidated budget tracking',
     'nav.dashboard': 'Decision dashboard',
     'nav.reporting': 'Reporting',

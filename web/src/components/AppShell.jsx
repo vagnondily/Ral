@@ -55,7 +55,10 @@ export const NAV = [
     items: [
       {
         id: 'dashboard', label: 'Dashboard décisionnel', icon: LayoutDashboard,
-        subs: [{ id: 'consolidation', label: 'Suivi budgétaire consolidé' }],
+        subs: [
+          { id: 'apercu', label: "Vue d'ensemble" },
+          { id: 'consolidation', label: 'Suivi budgétaire consolidé' },
+        ],
       },
       { id: 'reporting', label: 'Reporting', icon: ChartColumn },
       { id: 'alertes', label: 'Alertes', icon: Bell },
