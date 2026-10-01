@@ -60,7 +60,7 @@ export const NAV = [
           { id: 'consolidation', label: 'Suivi budgétaire consolidé' },
         ],
       },
-      { id: 'reporting', label: 'Reporting', icon: ChartColumn },
+      { id: 'reporting', label: 'Reporting', icon: ChartColumn, subs: [{ id: 'synthese', label: 'Rapport de synthèse' }] },
       { id: 'alertes', label: 'Alertes', icon: Bell, subs: [{ id: 'centre', label: "Centre d'alertes" }] },
     ],
   },

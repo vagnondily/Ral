@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { TrendingUp, Wallet, CheckCircle2, AlertTriangle, Users, FileSignature } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Skeleton, PageHeader } from '../../components/ui.jsx';
-import { formatAr, formatInt } from '../../lib/format.js';
+import { formatAr, formatInt, currentMonth } from '../../lib/format.js';
 
 /**
  * Tableau de bord décisionnel « façon Power BI » : cartes KPI, barres groupées
@@ -177,9 +177,11 @@ function Donut({ items, onTip }) {
 export default function DashboardBIPage({ onOpenContract }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [field, setField] = useState(null); // couverture terrain du mois courant
   const [tip, setTip] = useState(null);
 
   useEffect(() => { api.consolidation().then(setData).catch((e) => setError(e.message)); }, []);
+  useEffect(() => { api.fieldSummary(currentMonth()).then(setField).catch(() => setField(null)); }, []);
 
   const donutItems = useMemo(() => {
     if (!data) return [];
@@ -255,6 +257,24 @@ export default function DashboardBIPage({ onOpenContract }) {
             })}
           </div>
         </div>
+
+        {field?.overall?.total > 0 && (
+          <div className="card biz-card biz-span2">
+            <div className="card-header"><div className="card-title">Couverture terrain — mois courant</div>
+              <div className="card-sub">Visites réalisées / planifiées par district ({field.overall.realise}/{field.overall.active} · {Math.round((field.overall.rate || 0) * 100)} %).</div></div>
+            <div className="card-body biz-gauges" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', display: 'grid', gap: 14 }}>
+              {field.byDistrict.map((d) => {
+                const col = d.rate >= 0.8 ? 'var(--green)' : d.rate >= 0.5 ? 'var(--blue-600)' : 'var(--orange)';
+                return (
+                  <div className="biz-gauge" key={d.key}>
+                    <div className="biz-gauge-head"><span>{d.label}</span><span className="tabular" style={{ color: col }}>{d.realise}/{d.active} · {Math.round(d.rate * 100)} %</span></div>
+                    <div className="biz-bar"><span style={{ width: `${Math.round(d.rate * 100)}%`, background: col }} /></div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {alerts.length > 0 && (
