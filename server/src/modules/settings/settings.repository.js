@@ -289,10 +289,48 @@ async function replaceAdminBreakdown(tenantId, { levels, records }) {
   });
 }
 
+// ---- Taux de change (ariary pour 1 USD), horodatés ----------------------
+async function listExchangeRates(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT id, to_char(effective_month, 'YYYY-MM') AS "effectiveMonth",
+              usd_rate::float8 AS "usdRate", note,
+              created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM exchange_rates WHERE tenant_id = $1 ORDER BY effective_month DESC`,
+      [tenantId]
+    );
+    return rows;
+  });
+}
+
+/** Un taux par mois d'application : ré-enregistrer un mois met à jour la valeur. */
+async function upsertExchangeRate(tenantId, { effectiveMonth, usdRate, note }, userId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `INSERT INTO exchange_rates (tenant_id, effective_month, usd_rate, note, created_by)
+       VALUES ($1, ($2 || '-01')::date, $3, $4, $5)
+       ON CONFLICT (tenant_id, effective_month)
+       DO UPDATE SET usd_rate = EXCLUDED.usd_rate, note = EXCLUDED.note, updated_at = now()
+       RETURNING id, to_char(effective_month, 'YYYY-MM') AS "effectiveMonth",
+                 usd_rate::float8 AS "usdRate", note, created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [tenantId, effectiveMonth, usdRate, note || null, userId]
+    );
+    return rows[0];
+  });
+}
+
+async function deleteExchangeRate(tenantId, id) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rowCount } = await client.query('DELETE FROM exchange_rates WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+    return rowCount === 1;
+  });
+}
+
 module.exports = {
   listPartnerTypes, createPartnerType,
   listActivities, createActivity, setActivityActive,
   listPartners, createPartner, updatePartner, partnerTypeById, createAgent, deleteAgent,
   createFormation, deleteFormation, createEvaluation, deleteEvaluation,
   listAdminLevels, listAdminAreas, adminBreakdownSummary, replaceAdminBreakdown,
+  listExchangeRates, upsertExchangeRate, deleteExchangeRate,
 };

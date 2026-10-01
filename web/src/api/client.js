@@ -110,6 +110,7 @@ export const api = {
     request(`/api/contracts/${id}/amendments/${amendmentId}/reject`, { method: 'POST', body: input }),
   renewContract: (id, input) => request(`/api/contracts/${id}/renew`, { method: 'POST', body: input }),
   terminateContract: (id, input) => request(`/api/contracts/${id}/terminate`, { method: 'POST', body: input }),
+  deleteContract: (id) => request(`/api/contracts/${id}`, { method: 'DELETE' }),
 
   // Découpage administratif (localités) — référentiel par tenant/pays
   listAdminLevels: () => request('/api/settings/admin-levels'),
@@ -219,6 +220,9 @@ export const api = {
   listPartnerTypes: () => request('/api/settings/partner-types'),
   createPartnerType: (input) => request('/api/settings/partner-types', { method: 'POST', body: input }),
   listActivities: () => request('/api/settings/activities'),
+  listExchangeRates: () => request('/api/settings/exchange-rates'),
+  saveExchangeRate: (input) => request('/api/settings/exchange-rates', { method: 'POST', body: input }),
+  deleteExchangeRate: (id) => request(`/api/settings/exchange-rates/${id}`, { method: 'DELETE' }),
   createActivity: (input) => request('/api/settings/activities', { method: 'POST', body: input }),
   setActivityActive: (id, active) => request(`/api/settings/activities/${id}`, { method: 'PATCH', body: { active } }),
   listPartners: (type) => request('/api/settings/partners', { query: type ? { type } : undefined }),
@@ -283,6 +287,7 @@ export const api = {
   saveReportItems: (id, input) => request(`/api/tpm/reports/${id}/items`, { method: 'PUT', body: input }),
   approveReport: (id, input) => request(`/api/tpm/reports/${id}/approve`, { method: 'POST', body: input }),
   rejectReport: (id, input) => request(`/api/tpm/reports/${id}/reject`, { method: 'POST', body: input }),
+  deleteReport: (id) => request(`/api/tpm/reports/${id}`, { method: 'DELETE' }),
 
   // Suivi budgétaire consolidé (Dashboard décisionnel) — interliaison
   // Budget (contrat) ↔ Planifié (plans) ↔ Réalisé (factures).

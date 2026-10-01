@@ -297,6 +297,21 @@ async function replaceReportItems(tenantId, id, items, { invoiceNo, periodEnd, a
   });
 }
 
+/**
+ * Supprime un rapport encore en brouillon (non validé). Les lignes de l'état
+ * des dépenses disparaissent par cascade (FK ON DELETE CASCADE). Renvoie
+ * 'ok' si supprimé, 'locked' si déjà validé (non supprimable), null si absent.
+ */
+async function deleteReport(tenantId, id) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const report = await getReportRow(client, tenantId, id);
+    if (!report) return null;
+    if (report.status === 'valide') return 'locked';
+    await client.query('DELETE FROM tpm_reports WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+    return 'ok';
+  });
+}
+
 async function setStatus(tenantId, id, status, userId, comment) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rowCount } = await client.query(
@@ -308,4 +323,4 @@ async function setStatus(tenantId, id, status, userId, comment) {
   });
 }
 
-module.exports = { listReports, getReport, invoiceData, reportContext, insertReport, setStatus, replaceReportItems };
+module.exports = { listReports, getReport, invoiceData, reportContext, insertReport, setStatus, replaceReportItems, deleteReport };

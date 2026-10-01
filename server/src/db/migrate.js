@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { Client } = require('pg');
 const logger = require('../config/logger');
-const { requireConnString } = require('../config/connString');
+const { requireConnString, explainConnError } = require('../config/connString');
 
 async function main() {
   // Migrations always run as the superuser connection (DATABASE_URL), never
@@ -62,12 +62,11 @@ async function main() {
 }
 
 main().catch((err) => {
-  // A config problem (missing/‑passwordless connection string) has a clear,
+  // A config problem (missing/passwordless connection string) has a clear,
   // actionable message — surface it plainly rather than a raw SASL stack.
-  if (/mot de passe|manquant|invalide|password must be a string/i.test(err.message || '')) {
-    logger.error(`Migration impossible : ${err.message}`);
-  } else {
-    logger.error({ err }, 'migration failed');
-  }
+  const explained = explainConnError(err, 'DATABASE_URL');
+  if (explained) logger.error(`Migration impossible : ${explained}`);
+  else if (/manquant|invalide/i.test(err.message || '')) logger.error(`Migration impossible : ${err.message}`);
+  else logger.error({ err }, 'migration failed');
   process.exit(1);
 });

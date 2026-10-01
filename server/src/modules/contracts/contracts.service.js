@@ -109,6 +109,7 @@ function allowedActions(contract, ctx, actor) {
     decideAmendment: Boolean(pending) && pending.validatorId === actor.userId,
     renew: write && isActive && !ctx.renewal && d.renewalWindowOpen(contract.dateFin, today()),
     terminate: write && isActive,
+    delete: write && contract.status === 'brouillon',
   };
 }
 
@@ -403,8 +404,24 @@ async function terminate(tenantId, actor, id, { reason, effectiveDate, version }
   nudgeOutbox();
 }
 
+/**
+ * Supprime un contrat encore en brouillon. Seul un brouillon est supprimable :
+ * dès qu'il est soumis/actif il porte un historique d'audit et, actif, des
+ * dépenses — on passe alors par résiliation, jamais par suppression.
+ */
+async function deleteDraft(tenantId, actor, id) {
+  assertCanWrite(actor);
+  await withTenantTransaction(tenantId, async (client) => {
+    const contract = await loadForUpdate(client, tenantId, id);
+    if (contract.status !== 'brouillon') {
+      throw conflict(`Seul un contrat en brouillon peut être supprimé (statut actuel : « ${d.STATUS_LABELS[contract.status]} »).`);
+    }
+    await repo.deleteContract(client, tenantId, id);
+  });
+}
+
 module.exports = {
   listContracts, listValidators, getContractDetail, getHistory, budgetWorkbook,
   createContract, updateDraft, submit, decide, requestAmendment, decideAmendment, renew, terminate,
-  allowedActions,
+  deleteDraft, allowedActions,
 };

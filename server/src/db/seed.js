@@ -14,7 +14,7 @@ require('dotenv').config();
 const { Client } = require('pg');
 const bcrypt = require('bcryptjs');
 const logger = require('../config/logger');
-const { requireConnString } = require('../config/connString');
+const { requireConnString, explainConnError } = require('../config/connString');
 
 const PARTNER_TYPES = [
   ['tpm', 'TPM (Tierce partie de suivi)', 1],
@@ -423,10 +423,9 @@ async function main() {
 }
 
 main().catch((err) => {
-  if (/mot de passe|manquant|invalide|password must be a string/i.test(err.message || '')) {
-    logger.error(`Seed impossible : ${err.message}`);
-  } else {
-    logger.error({ err }, 'seed failed');
-  }
+  const explained = explainConnError(err, 'DATABASE_URL');
+  if (explained) logger.error(`Seed impossible : ${explained}`);
+  else if (/manquant|invalide/i.test(err.message || '')) logger.error(`Seed impossible : ${err.message}`);
+  else logger.error({ err }, 'seed failed');
   process.exit(1);
 });

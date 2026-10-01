@@ -73,6 +73,11 @@ router.put('/:id', WRITE, body(v.updateContractSchema), asyncHandler(async (req,
   res.status(204).end();
 }));
 
+router.delete('/:id', WRITE, asyncHandler(async (req, res) => {
+  await service.deleteDraft(t(req), actor(req), req.params.id);
+  res.status(204).end();
+}));
+
 router.post('/:id/submit', WRITE, body(v.submitSchema), asyncHandler(async (req, res) => {
   await service.submit(t(req), actor(req), req.params.id, req.valid);
   res.status(204).end();

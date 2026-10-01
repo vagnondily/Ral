@@ -16,7 +16,7 @@ import PostesEditor, { newPoste, rowsFromItems, itemsFromRows, posteFunder } fro
  * groupés par section FLA I–V. Le « Réalisé » comptabilisé est la part
  * bailleur. Peut être pré-rempli depuis le plan de collecte du mois.
  */
-export default function FactureDrawer({ reportId, initial, context, month, onClose, onSaved }) {
+export default function FactureDrawer({ reportId, kind: kindProp = 'financier', initial, context, month, onClose, onSaved }) {
   const toast = useToast();
   const editing = Boolean(reportId);
   const [loading, setLoading] = useState(editing);
@@ -24,10 +24,15 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
   const [prefilling, setPrefilling] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
   const [touched, setTouched] = useState(false);
+  // Rapport financier = facture (postes) ; rapport technique = métadonnées
+  // seules. Un même tiroir gère les deux (combinaison rapport + facture).
+  const [kind, setKind] = useState(kindProp);
+  const isFin = kind === 'financier';
 
   const [head, setHead] = useState({
     partnerId: initial?.partnerId || '', contractId: initial?.contractId || '',
     invoiceNo: '', periodEnd: '', advanceDeducted: '', partnerName: '', contractNumero: '',
+    documentName: '', reference: '', plannedAmount: '',
   });
   const [rows, setRows] = useState(editing ? [] : [newPoste()]);
   const [invoice, setInvoice] = useState(null); // { budgetByLine, cumulByLine }
@@ -42,11 +47,13 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
     api.getReport(reportId).then((r) => {
       if (!alive) return;
       setReadOnly(r.status === 'valide');
+      setKind(r.kind);
       setHead((h) => ({
         ...h,
         partnerId: r.partnerId, contractId: r.contractId, partnerName: r.partnerName, contractNumero: r.contractNumero,
         invoiceNo: r.invoiceNo || '', periodEnd: r.periodEnd ? r.periodEnd.slice(0, 7) : '',
-        advanceDeducted: r.advanceDeducted || '',
+        advanceDeducted: r.advanceDeducted || '', documentName: r.documentName || '', reference: r.reference || '',
+        plannedAmount: r.plannedAmount || '',
       }));
       setRows(rowsFromItems(r.items));
       setLoading(false);
@@ -69,30 +76,36 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
   const errors = [];
   if (!editing && !head.partnerId) errors.push('Choisissez un prestataire.');
   if (!editing && !head.contractId) errors.push('Choisissez un contrat.');
-  if (itemsFromRows(rows).length === 0) errors.push('Ajoutez au moins un poste (désignation, quantité, coût).');
+  if (isFin && itemsFromRows(rows).length === 0) errors.push('Ajoutez au moins un poste (désignation, quantité, coût).');
 
   async function save() {
     setTouched(true);
     if (errors.length) return;
-    const items = itemsFromRows(rows);
     setSaving(true);
     try {
       if (editing) {
+        // Édition : seules les factures (financier) ont un état des dépenses éditable ici.
         await api.saveReportItems(reportId, {
-          items,
+          items: itemsFromRows(rows),
           invoiceNo: head.invoiceNo.trim() || undefined,
           periodEnd: head.periodEnd || undefined,
           advanceDeducted: head.advanceDeducted !== '' ? Number(head.advanceDeducted) : undefined,
         });
-      } else {
+      } else if (isFin) {
         await api.createReport({
           partnerId: head.partnerId, contractId: head.contractId, periodMonth: month, kind: 'financier',
           invoiceNo: head.invoiceNo.trim() || undefined, periodEnd: head.periodEnd || undefined,
           advanceDeducted: head.advanceDeducted !== '' ? Number(head.advanceDeducted) : undefined,
-          items,
+          items: itemsFromRows(rows),
+        });
+      } else {
+        await api.createReport({
+          partnerId: head.partnerId, contractId: head.contractId, periodMonth: month, kind: 'technique',
+          plannedAmount: head.plannedAmount !== '' ? Number(head.plannedAmount) : undefined,
+          documentName: head.documentName.trim() || undefined, reference: head.reference.trim() || undefined,
         });
       }
-      toast.success('Facture enregistrée.');
+      toast.success(isFin ? 'Facture enregistrée.' : 'Rapport technique enregistré.');
       onSaved();
     } catch (e) { toast.error(e.message); } finally { setSaving(false); }
   }
@@ -106,10 +119,14 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
     });
   }
 
-  const title = editing ? 'État des dépenses (facture)' : 'Nouvelle facture — état des dépenses';
+  const title = isFin
+    ? (editing ? 'État des dépenses (facture)' : 'Rapport financier — facture')
+    : (editing ? 'Rapport technique' : 'Nouveau rapport technique');
   const subtitle = editing
-    ? `${head.partnerName || ''} · ${head.contractNumero || ''}${readOnly ? ' · validée (lecture seule)' : ''}`
-    : 'Postes quantité × coût unitaire, à la charge du bailleur ou de l\'ONG, groupés par section FLA.';
+    ? `${head.partnerName || ''} · ${head.contractNumero || ''}${readOnly ? ' · validé (lecture seule)' : ''}`
+    : (isFin
+      ? 'Postes quantité × coût unitaire, à la charge du bailleur ou de l\'ONG, groupés par section FLA.'
+      : 'Rapport technique du mois (document + référence), rattaché au contrat suivi.');
 
   return (
     <Modal
@@ -117,15 +134,26 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
       onClose={() => !saving && onClose()}
       footer={readOnly
         ? <><Button variant="secondary" onClick={onClose}>Fermer</Button>
-          <Button variant="secondary" icon={Printer} onClick={printPdf}>PDF</Button>
-          <Button icon={FileSpreadsheet} onClick={() => api.downloadReportXlsx(reportId)}>Exporter (Excel)</Button></>
+          {isFin && <><Button variant="secondary" icon={Printer} onClick={printPdf}>PDF</Button>
+            <Button icon={FileSpreadsheet} onClick={() => api.downloadReportXlsx(reportId)}>Exporter (Excel)</Button></>}</>
         : <><Button variant="secondary" onClick={onClose} disabled={saving}>Annuler</Button>
-          <Button variant="secondary" icon={Printer} onClick={printPdf}>PDF</Button>
-          {editing && <Button variant="secondary" icon={FileSpreadsheet} onClick={() => api.downloadReportXlsx(reportId)}>Excel</Button>}
+          {isFin && <Button variant="secondary" icon={Printer} onClick={printPdf}>PDF</Button>}
+          {isFin && editing && <Button variant="secondary" icon={FileSpreadsheet} onClick={() => api.downloadReportXlsx(reportId)}>Excel</Button>}
           <Button onClick={save} loading={saving} icon={FileText}>Enregistrer</Button></>}
     >
       {loading ? <Skeleton height={240} /> : (
         <div style={{ display: 'grid', gap: 18 }}>
+          {/* Choix du type à la création : financier (facture) ou technique. */}
+          {!editing && (
+            <div className="field">
+              <span className="field-label">Type de rapport</span>
+              <div className="seg" role="group" aria-label="Type de rapport">
+                <button type="button" className={isFin ? 'is-active' : ''} onClick={() => setKind('financier')}>Financier (facture)</button>
+                <button type="button" className={!isFin ? 'is-active' : ''} onClick={() => setKind('technique')}>Technique</button>
+              </div>
+            </div>
+          )}
+
           <div className="form-grid">
             {!editing && (
               <>
@@ -141,29 +169,43 @@ export default function FactureDrawer({ reportId, initial, context, month, onClo
                 </Field>
               </>
             )}
-            <Field label="N° de facture"><input className="input mono" value={head.invoiceNo} disabled={readOnly} onChange={(e) => setHead({ ...head, invoiceNo: e.target.value })} placeholder="FAC-2025-11" /></Field>
-            <Field label="Fin de période" hint="Facture pluri-mensuelle (optionnel)."><input className="input" type="month" value={head.periodEnd} disabled={readOnly} onChange={(e) => setHead({ ...head, periodEnd: e.target.value })} /></Field>
-            <Field label="Avance déduite (Ar)"><MoneyInput value={head.advanceDeducted} onChange={(v) => setHead({ ...head, advanceDeducted: v })} /></Field>
+            {isFin && <>
+              <Field label="N° de facture"><input className="input mono" value={head.invoiceNo} disabled={readOnly} onChange={(e) => setHead({ ...head, invoiceNo: e.target.value })} placeholder="FAC-2025-11" /></Field>
+              <Field label="Fin de période" hint="Facture pluri-mensuelle (optionnel)."><input className="input" type="month" value={head.periodEnd} disabled={readOnly} onChange={(e) => setHead({ ...head, periodEnd: e.target.value })} /></Field>
+              <Field label="Avance déduite (Ar)"><MoneyInput value={head.advanceDeducted} onChange={(v) => setHead({ ...head, advanceDeducted: v })} /></Field>
+            </>}
           </div>
 
           {contract && <div className="note"><Coins size={18} aria-hidden="true" /><span>Budget Suivi/TPM du contrat : <strong>{formatAr(contract.monitoringBudget)}</strong> · barème mensuel <strong>{formatAr(contract.monthlyCeiling)}</strong></span></div>}
 
-          {!readOnly && !editing && (
-            <div><Button variant="secondary" size="sm" icon={Wand2} loading={prefilling} onClick={prefillFromPlan}>Pré-remplir depuis le plan de collecte</Button></div>
-          )}
-
           {touched && errors.length > 0 && <Alert tone="error" icon={AlertCircle}>{errors[0]}</Alert>}
 
-          <PostesEditor
-            rows={rows}
-            onChange={setRows}
-            readOnly={readOnly}
-            funderLabel="À la charge du bailleur (Réalisé)"
-            advance={head.advanceDeducted !== '' ? Number(head.advanceDeducted) : 0}
-            activities={context?.activities || []}
-          />
-
-          {invoice && <InvoiceBudgetTable invoice={invoice} rows={rows} />}
+          {isFin ? (
+            <>
+              {!readOnly && !editing && (
+                <div><Button variant="secondary" size="sm" icon={Wand2} loading={prefilling} onClick={prefillFromPlan}>Pré-remplir depuis le plan de collecte</Button></div>
+              )}
+              <PostesEditor
+                rows={rows}
+                onChange={setRows}
+                readOnly={readOnly}
+                funderLabel="À la charge du bailleur (Réalisé)"
+                advance={head.advanceDeducted !== '' ? Number(head.advanceDeducted) : 0}
+                activities={context?.activities || []}
+              />
+              {invoice && <InvoiceBudgetTable invoice={invoice} rows={rows} />}
+            </>
+          ) : (
+            <div className="form-grid">
+              <Field label="Budget prévu du mois (Ar)" hint={contract ? `Barème mensuel : ${formatAr(contract.monthlyCeiling)}` : 'Total ÷ nombre de mois.'}>
+                <MoneyInput value={head.plannedAmount} onChange={(v) => setHead({ ...head, plannedAmount: v })} />
+              </Field>
+              <Field label="Nom du document" hint="Métadonnée (fichier non stocké pour l'instant).">
+                <input className="input" value={head.documentName} onChange={(e) => setHead({ ...head, documentName: e.target.value })} placeholder="Rapport_technique_AINA_2026-06.pdf" />
+              </Field>
+              <Field label="Référence"><input className="input mono" value={head.reference} onChange={(e) => setHead({ ...head, reference: e.target.value })} /></Field>
+            </div>
+          )}
         </div>
       )}
     </Modal>

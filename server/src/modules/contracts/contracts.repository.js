@@ -358,9 +358,19 @@ async function addEvent(client, tenantId, eventType, aggregateId, payload) {
   );
 }
 
+// Supprime un contrat (ses postes, zones, activités, avenants et historique
+// disparaissent par cascade). L'appelant garantit qu'il est en brouillon.
+async function deleteContract(client, tenantId, id) {
+  const { rowCount } = await client.query(
+    'DELETE FROM contracts WHERE tenant_id = $1 AND id = $2', [tenantId, id]
+  );
+  return rowCount === 1;
+}
+
 module.exports = {
   listContracts,
   getContract,
+  deleteContract,
   getContractActivities,
   getBudgetItems,
   getContractAreas,
