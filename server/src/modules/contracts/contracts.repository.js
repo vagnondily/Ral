@@ -153,6 +153,27 @@ async function monitoringSpent(client, tenantId, contractId) {
   return num(rows[0].total);
 }
 
+/**
+ * Données de prévision d'un contrat : budget Suivi/TPM (ligne IV) + réalisé
+ * mensuel (part bailleur des factures soumises/validées), pour forecast.js.
+ */
+async function forecastData(client, tenantId, contractId) {
+  const { MONITORING_LINE } = require('./contracts.domain');
+  const { rows: budgetRows } = await client.query(
+    `SELECT COALESCE(SUM(unit_count * unit_cost), 0) AS total
+       FROM contract_budget_items WHERE tenant_id = $1 AND contract_id = $2 AND line_code = $3`,
+    [tenantId, contractId, MONITORING_LINE]
+  );
+  const { rows: monthly } = await client.query(
+    `SELECT to_char(period_month, 'YYYY-MM') AS month,
+            COALESCE(SUM(reported_amount) FILTER (WHERE kind = 'financier' AND status IN ('soumis', 'valide')), 0) AS actual
+       FROM tpm_reports WHERE tenant_id = $1 AND contract_id = $2
+      GROUP BY period_month ORDER BY period_month`,
+    [tenantId, contractId]
+  );
+  return { monitoringBudget: num(budgetRows[0].total), monthly: monthly.map((m) => ({ month: m.month, actual: num(m.actual) })) };
+}
+
 async function listAmendments(client, tenantId, contractId) {
   const { rows } = await client.query(
     `SELECT a.id, a.number, a.justification, a.new_date_fin AS "newDateFin", a.budget_changes AS "budgetChanges",
@@ -371,6 +392,7 @@ module.exports = {
   listContracts,
   getContract,
   deleteContract,
+  forecastData,
   getContractActivities,
   getBudgetItems,
   getContractAreas,

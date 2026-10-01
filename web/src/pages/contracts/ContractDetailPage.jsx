@@ -15,6 +15,7 @@ import { SubmitDialog, DecisionDialog, RenewDialog, TerminateDialog } from './Co
 
 const TABS = [
   { id: 'budget', label: 'Détail budgétaire' },
+  { id: 'forecast', label: 'Prévision de dépense' },
   { id: 'amendments', label: 'Avenants' },
   { id: 'history', label: 'Historique' },
 ];
@@ -184,6 +185,7 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
           )}
         </div>
         {tab === 'budget' && <BudgetItemsView budget={detail.budget} monthlyCeiling={c.monthlyCeiling} />}
+        {tab === 'forecast' && <ForecastTab contractId={contractId} dateFin={c.dateFin} />}
         {tab === 'amendments' && <AmendmentsTab detail={detail} canDecide={a.decideAmendment} onDecide={(am, approve) => setDialog({ type: 'decideAmendment', amendment: am, approve })} onAdd={a.amend ? () => onAmend(contractId) : null} />}
         {tab === 'history' && <HistoryTab history={history} />}
       </Card>
@@ -413,5 +415,73 @@ function HistoryTab({ history }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/**
+ * Prévision de dépense — projette, mois par mois, le réalisé Suivi/TPM jusqu'à
+ * la fin du contrat (ou jusqu'à un mois cible) au rythme moyen observé.
+ * Lecture seule, recalculée côté serveur (forecast.js).
+ */
+function ForecastTab({ contractId, dateFin }) {
+  const toast = useToast();
+  const [until, setUntil] = useState('');
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true; setLoading(true);
+    api.contractForecast(contractId, until || undefined)
+      .then((d) => { if (alive) { setData(d); setLoading(false); } })
+      .catch((e) => { if (alive) { toast.error(e.message); setLoading(false); } });
+    return () => { alive = false; };
+  }, [contractId, until, toast]);
+
+  if (loading && !data) return <div style={{ padding: 20 }}><Skeleton height={160} /></div>;
+  if (!data) return <EmptyState icon={Info} title="Prévision indisponible" />;
+
+  const pct = data.budget > 0 ? Math.min(1.2, data.projectedTotal / data.budget) : 0;
+  return (
+    <div style={{ padding: 20, display: 'grid', gap: 18 }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <label className="field" style={{ margin: 0 }}>
+          <span className="field-label">Projeter jusqu'au mois</span>
+          <input className="input" type="month" value={until} max={dateFin ? String(dateFin).slice(0, 7) : undefined}
+            onChange={(e) => setUntil(e.target.value)} style={{ width: 180 }} />
+        </label>
+        {until && <Button size="sm" variant="ghost" onClick={() => setUntil('')}>Jusqu'à la fin du contrat</Button>}
+        <span className="hint">Rythme moyen : {formatAr(data.avgMonthlyBurn)} / mois · {data.elapsedMonths} mois écoulé(s) · cible {data.until}</span>
+      </div>
+
+      <div className="stats">
+        <div className="stat"><div className="stat-label">Budget Suivi/TPM</div><div className="stat-value">{formatAr(data.budget)}</div></div>
+        <div className="stat"><div className="stat-label">Réalisé à ce jour</div><div className="stat-value">{formatAr(data.realizedToDate)}</div></div>
+        <div className="stat"><div className="stat-label">Projeté ({data.until})</div><div className="stat-value" style={data.willOverspend ? { color: 'var(--red)' } : undefined}>{formatAr(data.projectedTotal)}</div></div>
+        <div className="stat"><div className="stat-label">{data.willOverspend ? 'Dépassement projeté' : 'Restant projeté'}</div><div className="stat-value" style={data.willOverspend ? { color: 'var(--red)' } : { color: 'var(--green)' }}>{formatAr(data.willOverspend ? data.projectedOverrun : data.projectedRemaining)}</div></div>
+      </div>
+
+      <div className="progress" style={{ height: 10 }} aria-label="Taux de consommation projeté">
+        <span className={pct >= 1 ? 'is-over' : (pct >= 0.85 ? 'is-high' : '')} style={{ width: `${Math.min(100, pct * 100)}%` }} />
+      </div>
+
+      {data.willOverspend
+        ? <Alert tone="warn" icon={AlertCircle}>Au rythme actuel, le budget Suivi/TPM serait dépassé de <strong>{formatAr(data.projectedOverrun)}</strong> d'ici {data.until}.</Alert>
+        : <Alert tone="info" icon={Info}>Au rythme actuel, il resterait <strong>{formatAr(data.projectedRemaining)}</strong> sur le budget Suivi/TPM à {data.until}.</Alert>}
+
+      <div className="table-wrap"><table className="table">
+        <thead><tr><th scope="col">Mois</th><th scope="col">Nature</th><th scope="col" className="num">Dépense du mois</th><th scope="col" className="num">Cumulé</th><th scope="col" className="num">Restant</th></tr></thead>
+        <tbody>
+          {data.series.map((s) => (
+            <tr key={s.month}>
+              <td className="tabular"><strong>{s.month}</strong></td>
+              <td>{s.isFuture ? <Badge tone="blue">Projeté</Badge> : <Badge tone="green">Réalisé</Badge>}</td>
+              <td className="num tabular">{formatAr(s.amount)}</td>
+              <td className="num tabular">{formatAr(s.cumulative)}</td>
+              <td className="num tabular" style={s.remaining < 0 ? { color: 'var(--red)' } : undefined}>{formatAr(s.remaining)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table></div>
+    </div>
   );
 }

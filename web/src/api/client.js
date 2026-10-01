@@ -98,6 +98,7 @@ export const api = {
   listValidators: () => request('/api/contracts/validators'),
   getContract: (id) => request(`/api/contracts/${id}`),
   getContractHistory: (id) => request(`/api/contracts/${id}/history`),
+  contractForecast: (id, until) => request(`/api/contracts/${id}/forecast`, { query: until ? { until } : {} }),
   createContract: (input) => request('/api/contracts', { method: 'POST', body: input }),
   updateContract: (id, input) => request(`/api/contracts/${id}`, { method: 'PUT', body: input }),
   submitContract: (id, input) => request(`/api/contracts/${id}/submit`, { method: 'POST', body: input }),
