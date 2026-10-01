@@ -27,6 +27,12 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
   const contracts = context?.contracts || [];
   const contract = contracts.find((c) => c.id === head.contractId);
 
+  // Jours de collecte issus de la planification terrain (visites datées +
+  // déplacement) — à reporter comme quantité des postes en jours.
+  const [collDays, setCollDays] = useState([]);
+  useEffect(() => { api.fieldCollectionDays(month).then(setCollDays).catch(() => setCollDays([])); }, [month]);
+  const days = collDays.find((d) => d.providerId === head.partnerId);
+
   useEffect(() => {
     if (!editing) return;
     let alive = true;
@@ -101,6 +107,10 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
           </div>
 
           {contract && <div className="note"><Coins size={18} aria-hidden="true" /><span>Budget Suivi/TPM du contrat : <strong>{formatAr(contract.monitoringBudget)}</strong> · barème mensuel <strong>{formatAr(contract.monthlyCeiling)}</strong></span></div>}
+
+          {days && days.totalDays > 0 && (
+            <div className="note"><Coins size={18} aria-hidden="true" /><span>Jours de collecte planifiés pour ce prestataire ({month}) : <strong>{days.totalDays} jour(s)</strong> = {days.visitDays} visite(s) datée(s) + {days.travelDays} jour(s) de déplacement. À reporter comme quantité des postes « jour » ci-dessous.</span></div>
+          )}
 
           {touched && errors.length > 0 && <Alert tone="error" icon={AlertCircle}>{errors[0]}</Alert>}
 
