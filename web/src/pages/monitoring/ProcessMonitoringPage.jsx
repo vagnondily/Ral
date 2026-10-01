@@ -263,8 +263,8 @@ function DataTab({ form, canEdit, onChanged }) {
       <CardHeader title="Données réelles" subtitle={`${form?.submissionCount ?? 0} soumission(s) · ${form?.indicatorCount ?? 0} indicateur(s).`} />
       <div className="card-body" style={{ display: 'grid', gap: 16 }}>
         <div className="postes-toolbar">
-          <input ref={fileRef} type="file" accept=".csv,.xlsx" hidden onChange={onFile} />
-          <Button size="sm" variant="secondary" icon={Upload} loading={busy} disabled={!canEdit} onClick={() => fileRef.current?.click()}>Importer CSV / XLSX</Button>
+          <input ref={fileRef} type="file" accept=".csv,.xlsx,.sav,.zip" hidden onChange={onFile} />
+          <Button size="sm" variant="secondary" icon={Upload} loading={busy} disabled={!canEdit} onClick={() => fileRef.current?.click()}>Importer CSV / XLSX / SPSS .sav / .zip Kobo</Button>
           <Button size="sm" variant="ghost" icon={RefreshCw} disabled={!canEdit} onClick={() => setKobo({ ...kobo, open: !kobo.open })}>Depuis l'API Kobo v2</Button>
           <span className="hint">Export Kobo (CSV/XLSX) ou tout tableau à en-têtes. Les champs sont détectés automatiquement pour le mapping. (SPSS .sav : exportez en CSV pour l'instant.)</span>
         </div>

@@ -5,9 +5,12 @@ const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound } = require('../../middleware/errors');
 const repo = require('./monitoring.repository');
+const crypto = require('crypto');
 const ExcelJS = require('exceljs');
+const AdmZip = require('adm-zip');
 const { parseSubmissions, submissionsFromObjects } = require('./submissionsImport');
 const { parseXlsformRows } = require('./xlsformImport');
+const { parseSav } = require('./savParser');
 
 /**
  * Suivi de processus — forms, configurable indicators (mapping) and real
@@ -77,18 +80,52 @@ router.delete('/indicators/:id', WRITE, asyncHandler(async (req, res) => {
 }));
 
 // ---- Submissions ---------------------------------------------------------
-// Import a CSV / XLSX export (Kobo download or any tabular export).
-router.post('/forms/:id/import', WRITE, express.raw({ type: '*/*', limit: '60mb' }), asyncHandler(async (req, res) => {
+// Donne un identifiant stable (dé-duplication) aux soumissions sans _uuid,
+// à partir du contenu — pour que ré-importer le même .sav soit idempotent.
+function withStableIds(subs) {
+  for (const s of subs) {
+    if (!s.externalId) s.externalId = `sav:${crypto.createHash('sha1').update(JSON.stringify(s.data)).digest('hex').slice(0, 24)}`;
+  }
+  return subs;
+}
+
+// Extrait les lignes d'un .sav (SPSS) → soumissions normalisées.
+function savToSubmissions(buf) {
+  const { rows } = parseSav(buf);
+  if (!rows.length) throw badRequest('Aucune donnée dans le fichier .sav.');
+  return withStableIds(submissionsFromObjects(rows, 'sav'));
+}
+
+// Import a CSV / XLSX / SPSS .sav export, ou un .zip Kobo (contenant data.sav).
+router.post('/forms/:id/import', WRITE, express.raw({ type: '*/*', limit: '80mb' }), asyncHandler(async (req, res) => {
   if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
   const name = String(req.headers['x-filename'] || '');
-  if (/\.sav$/i.test(name)) throw badRequest('Format SPSS .sav pas encore pris en charge : exportez en CSV ou XLSX depuis SPSS/Kobo pour l\'instant.');
-  let parsed;
-  try { parsed = await parseSubmissions(req.body, { filename: name }); }
-  catch { throw badRequest('Fichier illisible : fournissez un CSV ou un XLSX.'); }
-  if (!parsed.submissions.length) throw badRequest('Aucune soumission trouvée dans le fichier.');
-  const result = await repo.importSubmissions(t(req), req.params.id, parsed.submissions);
+  const buf = req.body;
+  const isZip = /\.zip$/i.test(name) || (buf[0] === 0x50 && buf[1] === 0x4b && /\.zip$/i.test(name));
+  const isSav = /\.sav$/i.test(name) || buf.toString('latin1', 0, 4) === '$FL2';
+
+  let submissions; let fields = 0;
+  try {
+    if (isZip) {
+      const zip = new AdmZip(buf);
+      const entry = zip.getEntries().find((e) => /(^|\/)data\.sav$/i.test(e.entryName))
+        || zip.getEntries().find((e) => /\.sav$/i.test(e.entryName));
+      if (!entry) throw badRequest('Archive Kobo sans fichier .sav (data.sav attendu).');
+      submissions = savToSubmissions(entry.getData());
+    } else if (isSav) {
+      submissions = savToSubmissions(buf);
+    } else {
+      const parsed = await parseSubmissions(buf, { filename: name });
+      submissions = parsed.submissions; fields = parsed.headers.length;
+    }
+  } catch (err) {
+    if (err.status === 400) throw err; // badRequest explicite
+    throw badRequest(`Fichier illisible : fournissez un CSV, XLSX, SPSS .sav ou un .zip Kobo (${err.message}).`);
+  }
+  if (!submissions.length) throw badRequest('Aucune soumission trouvée dans le fichier.');
+  const result = await repo.importSubmissions(t(req), req.params.id, submissions);
   if (!result) throw notFound('Formulaire introuvable');
-  res.json({ ...result, fields: parsed.headers.length });
+  res.json({ ...result, fields });
 }));
 
 // Pull submissions from a Kobo v2 API (KoboToolbox / ONA). Needs the asset uid
