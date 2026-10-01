@@ -42,6 +42,47 @@ async function main() {
     const validator = (await client.query("SELECT id FROM users WHERE tenant_id=$1 AND email='validateur@mems.mg'", [tenantId])).rows[0]?.id;
     if (!admin) throw new Error('Utilisateur admin introuvable — lancez d\'abord `npm run seed`.');
 
+    // ---- 0) Données RÉELLES du Plan de suivi (bureaux, sites, MMR) --------
+    // Extrait des fichiers « Plan de suivi » + « Master Data » (adm1-adm3,
+    // rattachement bureau, paramètres MMR). Permet de voir l'app fonctionner
+    // sur des données réalistes. Idempotent (marqueurs 'seed-plan' / PLAN-).
+    const plan = require('./fixtures/planData.json');
+    const officeIdByCode = {};
+    await client.query('DELETE FROM field_offices WHERE tenant_id=$1 AND code = ANY($2)', [tenantId, plan.offices.map((o) => o.code)]);
+    for (const o of plan.offices) {
+      const { rows } = await client.query(
+        `INSERT INTO field_offices (tenant_id, code, name, nature, national, responsible)
+         VALUES ($1,$2,$3,$4,$5,'Responsable S&E') RETURNING id`,
+        [tenantId, o.code, o.name, o.nature || 'terrain', o.nature === 'pays']);
+      officeIdByCode[o.code] = rows[0].id;
+      // Périmètre communes en un seul INSERT multi-lignes (pas de boucle de requêtes).
+      const perim = (o.communes || []).slice(0, 1500);
+      if (perim.length) {
+        const params = [tenantId, rows[0].id]; const vals = [];
+        for (const c of perim) { params.push(c.district || null, c.commune); vals.push(`($1,$2,$${params.length - 1},$${params.length})`); }
+        await client.query(`INSERT INTO field_office_communes (tenant_id, office_id, district, commune) VALUES ${vals.join(',')} ON CONFLICT DO NOTHING`, params);
+      }
+    }
+    // Sites réels (Master Data) — codes PLAN-xxxx, adm1-adm3, risque réparti.
+    await client.query("DELETE FROM sites WHERE tenant_id=$1 AND code LIKE 'PLAN-%'", [tenantId]);
+    const RISK_CYCLE = ['elevee', 'moyenne', 'moyenne', 'faible'];
+    const CH = 400;
+    for (let i = 0; i < plan.sites.length; i += CH) {
+      const slice = plan.sites.slice(i, i + CH);
+      const params = [tenantId]; const vals = [];
+      slice.forEach((s, j) => {
+        const code = `PLAN-${String(i + j + 1).padStart(4, '0')}`;
+        const risk = RISK_CYCLE[(i + j) % RISK_CYCLE.length];
+        params.push(code, s.name, s.district, s.commune, s.region, s.district, s.commune, risk);
+        const b = params.length;
+        vals.push(`($1,$${b - 7},$${b - 6},$${b - 5},$${b - 4},$${b - 3},$${b - 2},$${b - 1},$${b})`);
+      });
+      await client.query(
+        `INSERT INTO sites (tenant_id, code, name, district, commune, adm1, adm2, adm3, risk_level)
+         VALUES ${vals.join(',')} ON CONFLICT (tenant_id, code) DO NOTHING`, params);
+    }
+    logger.info({ offices: plan.offices.length, sites: plan.sites.length }, 'seed-test: données réelles du plan insérées');
+
     const tpms = (await client.query("SELECT p.id, p.name FROM partners p JOIN partner_types pt ON pt.id=p.partner_type_id WHERE p.tenant_id=$1 AND pt.code='tpm' ORDER BY p.name", [tenantId])).rows;
     const contracts = (await client.query("SELECT id, numero, partner_name AS \"partnerName\", period_months AS \"periodMonths\" FROM contracts WHERE tenant_id=$1 AND status='actif' ORDER BY numero", [tenantId])).rows;
     const activities = (await client.query("SELECT id, code FROM activities WHERE tenant_id=$1 ORDER BY sort_order", [tenantId])).rows;
@@ -59,49 +100,35 @@ async function main() {
         [tenantId, m, rate, admin]);
     }
 
-    // ---- 2) Bureaux & antennes ------------------------------------------
-    await client.query("DELETE FROM field_offices WHERE tenant_id=$1 AND code LIKE 'ST-%'", [tenantId]);
-    const communes = [...new Set(sites.map((s) => s.commune).filter(Boolean))];
-    const half = Math.ceil(communes.length / 2) || 1;
-    const mkOffice = async (code, name, nature, national, perim, parentId = null) => {
-      const { rows } = await client.query(
-        `INSERT INTO field_offices (tenant_id, code, name, nature, parent_id, national, responsible)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-        [tenantId, code, name, nature, parentId, national, 'Responsable S&E']);
-      const id = rows[0].id;
-      for (const c of perim) {
-        const d = sites.find((s) => s.commune === c)?.district || null;
-        await client.query('INSERT INTO field_office_communes (tenant_id, office_id, district, commune) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [tenantId, id, d, c]);
-      }
-      return id;
-    };
-    await mkOffice('ST-1', 'Bureau pays (Antananarivo)', 'pays', true, []);
-    const bureauSud = await mkOffice('ST-2', 'Bureau terrain Sud', 'terrain', false, communes.slice(0, half));
-    await mkOffice('ST-3', 'Antenne Toliara', 'terrain', false, communes.slice(half), bureauSud);
+    // ---- 2) Bureaux & antennes : déjà insérés à l'étape 0 depuis le plan. --
 
-    // ---- 2b) Paramètres MMR — un seul plan général par catégorie, modifiable
-    // par bureau (dérogation). Valeurs proches de la feuille « Overarching
-    // parameters » du Plan de suivi. Plan général = field_office_id NULL.
-    await client.query("DELETE FROM mmr_parameters WHERE tenant_id=$1 AND note='seed-test'", [tenantId]);
-    const MMR = [
-      // ofc (null = plan général), catégorie, durée, nb sites, risque, faisable
-      [null,      'Cantines scolaires (SMP)',          9, 213, 2, 30],
-      [null,      'Nutrition — traitement (MAM)',     12, 310, 2, 12],
-      [null,      'Prévention malnutrition (PREV)',    6,  48, 1, 10],
-      [null,      'Transfert inconditionnel (URT)',    6, 104, 2, 12],
-      // Dérogation pour l'antenne Sud : risque relevé sur les cantines.
-      [bureauSud, 'Cantines scolaires (SMP)',          9, 120, 3, 20],
-    ];
-    for (const [ofc, cat, dur, nb, risk, feas] of MMR) {
-      const target = ofc ? '(tenant_id, field_office_id, activity_category) WHERE field_office_id IS NOT NULL'
+    // ---- 2b) Paramètres MMR — « un seul plan général, modifiable par bureau »
+    // depuis la feuille « Overarching parameters » (valeurs réelles). Le plan
+    // général (field_office_id NULL) reprend le bureau de référence ; les autres
+    // bureaux ayant des sites deviennent des dérogations.
+    await client.query("DELETE FROM mmr_parameters WHERE tenant_id=$1 AND note='seed-plan'", [tenantId]);
+    const upsertMmrRow = async (officeId, cat, dur, nb, risk, feasRaw) => {
+      const feas = feasRaw == null ? null : Math.round(Number(feasRaw));
+      const target = officeId ? '(tenant_id, field_office_id, activity_category) WHERE field_office_id IS NOT NULL'
         : '(tenant_id, activity_category) WHERE field_office_id IS NULL';
       await client.query(
         `INSERT INTO mmr_parameters (tenant_id, field_office_id, activity_category, operation_duration, number_of_sites, risk_level, feasible, note, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'seed-test',$8)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'seed-plan',$8)
          ON CONFLICT ${target} DO UPDATE SET
            operation_duration=EXCLUDED.operation_duration, number_of_sites=EXCLUDED.number_of_sites,
-           risk_level=EXCLUDED.risk_level, feasible=EXCLUDED.feasible, note='seed-test', updated_at=now()`,
-        [tenantId, ofc, cat, dur, nb, risk, feas, admin]);
+           risk_level=EXCLUDED.risk_level, feasible=EXCLUDED.feasible, note='seed-plan', updated_at=now()`,
+        [tenantId, officeId, cat, dur, nb, risk, feas, admin]);
+    };
+    const REF = 'AMB'; // bureau de référence pour le plan général
+    for (const row of (plan.mmrByOffice[REF] || [])) {
+      if (row.dur > 0 || row.sites > 0) await upsertMmrRow(null, row.cat, row.dur, row.sites, row.risk, row.feas);
+    }
+    // Dérogations : chaque autre bureau ayant des sites budgétés.
+    for (const code of Object.keys(plan.mmrByOffice)) {
+      if (code === REF || !officeIdByCode[code]) continue;
+      for (const row of plan.mmrByOffice[code]) {
+        if (row.sites > 0) await upsertMmrRow(officeIdByCode[code], row.cat, row.dur, row.sites, row.risk, row.feas);
+      }
     }
 
     // ---- 2c) Critères RBM sur quelques sites (score & priorité variés) --

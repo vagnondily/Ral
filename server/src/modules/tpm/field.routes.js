@@ -97,6 +97,15 @@ router.get('/visits', asyncHandler(async (req, res) => res.json(
 )));
 router.get('/summary', asyncHandler(async (req, res) => res.json(await repo.summary(t(req), { month: monthQ(req) }))));
 
+// Récap de couverture (sites visités 1/2/3/4+ fois vs MMR) — lecture seule.
+router.get('/coverage-recap', asyncHandler(async (req, res) => {
+  const om = Number(req.query.operationMonths);
+  res.json(await repo.coverageRecapSummary(t(req), {
+    district: req.query.district || undefined,
+    operationMonths: Number.isFinite(om) && om > 0 ? Math.min(om, 60) : 12,
+  }));
+}));
+
 // Jours de collecte par prestataire (visites datées + jours de déplacement).
 router.get('/collection-days', asyncHandler(async (req, res) => res.json(await repo.collectionDaysSummary(t(req), { month: monthQ(req) }))));
 const travelSchema = z.object({
