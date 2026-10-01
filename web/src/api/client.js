@@ -249,6 +249,22 @@ export const api = {
   fieldDeleteVisit: (id) => request(`/api/tpm/field/visits/${id}`, { method: 'DELETE' }),
   fieldCollectionDays: (month) => request('/api/tpm/field/collection-days', { query: month ? { month } : undefined }),
   fieldSetTravelDays: (input) => request('/api/tpm/field/collection-days', { method: 'PUT', body: input }),
+  rbmSites: (month, risk) => request('/api/tpm/field/rbm/sites', { query: { ...(month ? { month } : {}), ...(risk ? { risk } : {}) } }),
+  rbmGenerate: (month, risk) => request(`/api/tpm/field/rbm/generate?month=${encodeURIComponent(month)}${risk ? `&risk=${risk}` : ''}`, { method: 'POST' }),
+  rbmImport: async (file) => {
+    const buf = await file.arrayBuffer();
+    let res;
+    try {
+      res = await fetch(new URL(`${API_URL}/api/tpm/field/rbm/import`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+        body: buf,
+      });
+    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, data.error || `Erreur ${res.status}`, data.details);
+    return data;
+  },
   fieldImportPlanning: async (file, month) => {
     const buf = await file.arrayBuffer();
     let res;

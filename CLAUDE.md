@@ -248,6 +248,16 @@ or navy rail.
   manuelle) = **total des jours à budgéter**. Calcul pur `fieldMath.collectionDays`
   (testé) ; endpoints `GET/PUT /api/tpm/field/collection-days` ; carte « Jours de
   collecte (pour le budget) » sur la page terrain.
+- **Risk-Based Monitoring (RBM)** (`web/src/pages/monitoring/RbmPage.jsx`,
+  `server/src/modules/tpm/rbmMath.js` + `field.*`, migration 022) : le niveau de
+  risque de chaque site (`sites.risk_level` ∈ faible/moyenne/elevee, défaut
+  moyenne) pilote la **fréquence de suivi** (élevé = tous les mois, moyen = 2,
+  faible = 3). Un site est « à suivre » (due) s'il n'a jamais été visité ou si
+  l'échéance est atteinte (`rbmMath.isDue`, testé). La **planification des visites
+  du mois se génère depuis le RBM** (`POST /api/tpm/field/rbm/generate` → une
+  visite planifiée par site due) ; le référentiel de sites s'importe du **Master
+  Data** (`POST …/rbm/import` : Région | District | Commune | Site name | Code).
+  Nav : « Suivi de processus › Risk-Based Monitoring ».
 - **Dashboard « façon Power BI »** (`web/src/pages/dashboard/DashboardBIPage.jsx`,
   nav « Dashboard décisionnel › Vue d'ensemble ») : KPI tiles, grouped
   Budget/Planifié/Réalisé bars, réalisé-by-partner donut, monthly trend line,

@@ -1,5 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
 const { summarizeVisits, collectionDays } = require('./fieldMath');
+const { isDue } = require('./rbmMath');
 
 /**
  * Suivi terrain — planification/réalisation des visites, affectées aux
@@ -49,11 +50,78 @@ async function updateSite(tenantId, id, s) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rowCount } = await client.query(
       `UPDATE sites SET district = COALESCE($3, district), commune = COALESCE($4, commune),
-         fokontany = $5, name = COALESCE($6, name), activity = $7
+         fokontany = $5, name = COALESCE($6, name), activity = $7, risk_level = COALESCE($8, risk_level)
        WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id, s.district ?? null, s.commune ?? null, s.fokontany ?? null, s.name ?? null, s.activity ?? null]
+      [tenantId, id, s.district ?? null, s.commune ?? null, s.fokontany ?? null, s.name ?? null, s.activity ?? null, s.riskLevel ?? null]
     );
     return rowCount > 0;
+  });
+}
+
+// ---- RBM (Risk-Based Monitoring) ----------------------------------------
+const RBM_SELECT = `
+  SELECT s.id, s.code, s.name, s.district, s.commune, s.activity, s.risk_level AS "riskLevel",
+         to_char(mv.last, 'YYYY-MM') AS "lastVisitMonth"
+    FROM sites s
+    LEFT JOIN LATERAL (
+      SELECT max(period_month) AS last FROM site_visits v
+       WHERE v.tenant_id = s.tenant_id AND v.site_id = s.id AND v.status <> 'annule'
+    ) mv ON true
+   WHERE s.tenant_id = $1`;
+
+/** Site registry with risk level, last visit and whether it is due for `month`. */
+async function rbmSites(tenantId, { month, risk } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const params = [tenantId]; let where = '';
+    if (risk) { params.push(risk); where = ` AND s.risk_level = $${params.length}`; }
+    const { rows } = await client.query(`${RBM_SELECT}${where} ORDER BY s.district, s.commune, s.name`, params);
+    const target = month ? String(month).slice(0, 7) : null;
+    return rows.map((r) => ({ ...r, due: target ? isDue(r.riskLevel, r.lastVisitMonth, target) : false }));
+  });
+}
+
+/** Import the Master Data site referential (Region/District/Commune/Site/code). */
+async function importMasterData(tenantId, rows) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const clean = rows.filter((r) => r.district && r.commune && r.name);
+    let inserted = 0;
+    for (const r of clean) {
+      const code = (r.code && String(r.code).trim()) || siteCode(r);
+      const { rows: out } = await client.query(
+        `INSERT INTO sites (tenant_id, code, district, commune, name, activity, risk_level)
+         VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7,'moyenne'))
+         ON CONFLICT (tenant_id, code) DO UPDATE SET district = EXCLUDED.district,
+           commune = EXCLUDED.commune, name = EXCLUDED.name
+         RETURNING (xmax = 0) AS inserted`,
+        [tenantId, code, r.district, r.commune, r.name, r.activity || null, r.riskLevel || null]
+      );
+      if (out[0].inserted) inserted += 1;
+    }
+    return { total: clean.length, inserted };
+  });
+}
+
+/** Generate the month's planned visits from the RBM: one planifie visit per due
+ * site (optionally filtered by risk). Idempotent (skips existing). */
+async function generateFromRbm(tenantId, userId, month, { risk } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const params = [tenantId]; let where = '';
+    if (risk) { params.push(risk); where = ` AND s.risk_level = $${params.length}`; }
+    const { rows } = await client.query(`${RBM_SELECT}${where}`, params);
+    const target = String(month).slice(0, 7);
+    const pm = `${target}-01`;
+    let created = 0;
+    for (const s of rows) {
+      if (!isDue(s.riskLevel, s.lastVisitMonth, target)) continue;
+      const res = await client.query(
+        `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by)
+         VALUES ($1,$2,$3,$4,'planifie',$5)
+         ON CONFLICT (tenant_id, site_id, period_month, activity) DO NOTHING`,
+        [tenantId, s.id, pm, s.activity || null, userId]
+      );
+      created += res.rowCount;
+    }
+    return { created, due: rows.filter((s) => isDue(s.riskLevel, s.lastVisitMonth, target)).length };
   });
 }
 
@@ -233,4 +301,5 @@ module.exports = {
   listSites, createSite, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
   collectionDaysSummary, setTravelDays,
+  rbmSites, importMasterData, generateFromRbm,
 };

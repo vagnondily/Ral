@@ -41,9 +41,47 @@ router.post('/sites', WRITE, body(siteSchema), asyncHandler(async (req, res) => 
   try { res.status(201).json({ id: await repo.createSite(t(req), req.valid) }); }
   catch (err) { if (err.code === '23505') throw badRequest('Ce site existe déjà (district + commune + nom).'); throw err; }
 }));
-router.patch('/sites/:id', WRITE, body(siteSchema.partial().extend({ active: z.boolean().optional() })), asyncHandler(async (req, res) => {
+router.patch('/sites/:id', WRITE, body(siteSchema.partial().extend({ riskLevel: z.enum(['faible', 'moyenne', 'elevee']).optional() })), asyncHandler(async (req, res) => {
   if (!(await repo.updateSite(t(req), req.params.id, req.valid))) throw notFound('Site introuvable');
   res.status(204).end();
+}));
+
+// ---- RBM (Risk-Based Monitoring) : sélection des sites à suivre par risque ---
+router.get('/rbm/sites', asyncHandler(async (req, res) => res.json(
+  await repo.rbmSites(t(req), { month: monthQ(req), risk: req.query.risk })
+)));
+router.post('/rbm/generate', WRITE, asyncHandler(async (req, res) => {
+  const month = monthQ(req);
+  if (!month) throw badRequest('Mois requis (?month=YYYY-MM).');
+  res.json(await repo.generateFromRbm(t(req), uid(req), month, { risk: req.query.risk }));
+}));
+// Import du référentiel Master Data (Region | Code | District | Code | Communes |
+// Code | Site name | Code sites | …) → sites.
+router.post('/rbm/import', WRITE, express.raw({ type: '*/*', limit: '40mb' }), asyncHandler(async (req, res) => {
+  if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
+  let wb;
+  try { wb = new ExcelJS.Workbook(); await wb.xlsx.load(req.body); }
+  catch { throw badRequest('Fichier illisible : fournissez un .xlsx.'); }
+  const ws = wb.getWorksheet('Feuil1') || wb.worksheets[0];
+  if (!ws) throw badRequest('Feuille introuvable.');
+  const cell = (row, c) => {
+    const v = row.getCell(c).value;
+    if (v == null) return '';
+    if (typeof v === 'object') { if (v.richText) return v.richText.map((x) => x.text).join(''); if (v.text) return v.text; if (v.result != null) return String(v.result); return ''; }
+    return String(v);
+  };
+  const rows = [];
+  ws.eachRow((row, idx) => {
+    if (idx === 1) return;
+    const district = cell(row, 3).trim();
+    const commune = cell(row, 5).trim();
+    const name = cell(row, 7).trim();
+    const code = cell(row, 8).trim();
+    if (!district || !commune || !name) return;
+    rows.push({ district, commune, name, code });
+  });
+  if (rows.length === 0) throw badRequest('Aucun site valide trouvé (colonnes District/Communes/Site name).');
+  res.json(await repo.importMasterData(t(req), rows));
 }));
 
 // ---- Visits --------------------------------------------------------------
