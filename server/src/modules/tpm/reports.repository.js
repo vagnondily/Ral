@@ -312,6 +312,36 @@ async function deleteReport(tenantId, id) {
   });
 }
 
+/**
+ * Génère les gabarits de rapports financiers mensuels d'un contrat × TPM :
+ * un rapport « attendu » (montant 0, à remplir ou à marquer non applicable)
+ * par mois de la période du contrat. Idempotent (ON CONFLICT DO NOTHING).
+ */
+async function generateMonthlyStubs(tenantId, { contractId, partnerId, createdBy }) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: c } = await client.query(
+      'SELECT date_debut AS "dateDebut", date_fin AS "dateFin" FROM contracts WHERE tenant_id = $1 AND id = $2',
+      [tenantId, contractId]
+    );
+    if (!c[0]) { const e = new Error('contract'); e.code = 'NOCONTRACT'; throw e; }
+    const toIdx = (d) => { const [y, m] = String(d).slice(0, 7).split('-').map(Number); return y * 12 + (m - 1); };
+    const start = toIdx(c[0].dateDebut);
+    const end = toIdx(c[0].dateFin);
+    let created = 0;
+    for (let i = start; i <= end && i - start < 60; i += 1) {
+      const month = `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}-01`;
+      const { rowCount } = await client.query(
+        `INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, kind, reported_amount, status, created_by)
+         VALUES ($1,$2,$3,$4,'financier',0,'attendu',$5)
+         ON CONFLICT (partner_id, contract_id, period_month, kind) DO NOTHING`,
+        [tenantId, partnerId, contractId, month, createdBy]
+      );
+      created += rowCount;
+    }
+    return { created };
+  });
+}
+
 async function setStatus(tenantId, id, status, userId, comment) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rowCount } = await client.query(
@@ -323,4 +353,4 @@ async function setStatus(tenantId, id, status, userId, comment) {
   });
 }
 
-module.exports = { listReports, getReport, invoiceData, reportContext, insertReport, setStatus, replaceReportItems, deleteReport };
+module.exports = { listReports, getReport, invoiceData, reportContext, insertReport, setStatus, replaceReportItems, deleteReport, generateMonthlyStubs };

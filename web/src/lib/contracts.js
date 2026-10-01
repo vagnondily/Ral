@@ -12,6 +12,7 @@ export const REPORT_STATUS = {
   soumis: { label: 'Soumis', tone: 'blue' },
   valide: { label: 'Validé', tone: 'green' },
   rejete: { label: 'Rejeté', tone: 'red' },
+  non_applicable: { label: 'Non applicable', tone: null },
 };
 
 export const CONTRACT_STATUS = {

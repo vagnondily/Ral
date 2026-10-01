@@ -129,6 +129,29 @@ router.put('/:id/items', WRITE, body(itemsSchema), asyncHandler(async (req, res)
   }
 }));
 
+// Génère les gabarits mensuels (financier « attendu ») d'un contrat × TPM
+// pour toute sa durée — à remplir ou à marquer non applicable ensuite.
+const stubSchema = z.object({ contractId: z.string().uuid(), partnerId: z.string().uuid() });
+router.post('/generate-monthly', WRITE, body(stubSchema), asyncHandler(async (req, res) => {
+  try {
+    const r = await repo.generateMonthlyStubs(t(req), { ...req.valid, createdBy: req.auth.userId });
+    res.json(r);
+  } catch (err) {
+    if (err.code === 'NOCONTRACT') throw notFound('Contrat introuvable');
+    throw err;
+  }
+}));
+
+// Marquer un rapport « non applicable » (aucun suivi ce mois). Interdit sur un
+// rapport déjà validé.
+router.post('/:id/not-applicable', WRITE, asyncHandler(async (req, res) => {
+  const report = await repo.getReport(t(req), req.params.id);
+  if (!report) throw notFound('Rapport introuvable');
+  if (report.status === 'valide') throw conflict('Un rapport validé ne peut pas être marqué non applicable.');
+  await repo.setStatus(t(req), req.params.id, 'non_applicable', req.auth.userId, req.body?.comment);
+  res.status(204).end();
+}));
+
 // Supprimer un rapport encore en brouillon (non validé). Un rapport validé
 // alimente la consommation budgétaire : il est verrouillé.
 router.delete('/:id', WRITE, asyncHandler(async (req, res) => {
