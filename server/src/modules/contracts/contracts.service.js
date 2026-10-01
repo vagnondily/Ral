@@ -4,6 +4,7 @@ const { nudgeOutbox } = require('../../jobs/outbox');
 const repo = require('./contracts.repository');
 const d = require('./contracts.domain');
 const { buildBudgetWorkbook } = require('./budgetXlsx');
+const { buildForecast } = require('./forecast');
 
 /**
  * Contrats — business rules. Partner comes from the Paramètres registry,
@@ -420,8 +421,28 @@ async function deleteDraft(tenantId, actor, id) {
   });
 }
 
+/**
+ * Prévision de dépense d'un contrat jusqu'à sa fin ou jusqu'à un mois cible.
+ * Lecture seule : recalculée en direct depuis le budget Suivi/TPM et le réalisé.
+ */
+async function forecast(tenantId, id, { until } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const contract = await repo.getContract(client, tenantId, id);
+    if (!contract) throw notFound('Contrat introuvable');
+    const { monitoringBudget, monthly } = await repo.forecastData(client, tenantId, id);
+    return buildForecast({
+      budget: monitoringBudget,
+      monthlyActual: monthly,
+      dateDebut: contract.dateDebut,
+      dateFin: contract.dateFin,
+      asOf: today().slice(0, 7),
+      until,
+    });
+  });
+}
+
 module.exports = {
   listContracts, listValidators, getContractDetail, getHistory, budgetWorkbook,
   createContract, updateDraft, submit, decide, requestAmendment, decideAmendment, renew, terminate,
-  deleteDraft, allowedActions,
+  deleteDraft, forecast, allowedActions,
 };

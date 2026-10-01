@@ -45,6 +45,12 @@ router.get('/:id/history', asyncHandler(async (req, res) => {
   res.json(await service.getHistory(t(req), req.params.id));
 }));
 
+// Prévision de dépense jusqu'à la fin du contrat (ou ?until=YYYY-MM).
+router.get('/:id/forecast', asyncHandler(async (req, res) => {
+  const until = /^\d{4}-\d{2}/.test(req.query.until || '') ? req.query.until.slice(0, 7) : undefined;
+  res.json(await service.forecast(t(req), req.params.id, { until }));
+}));
+
 // Import d'un budget FLA (.xlsx du template) → postes extraits pour
 // pré-remplir le formulaire de contrat (aucune écriture en base).
 router.post('/import-budget', WRITE, express.raw({ type: '*/*', limit: '20mb' }),
