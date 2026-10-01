@@ -93,6 +93,9 @@ const mmrBody = z.object({
   numberOfSites: z.number().int().min(0).max(100000),
   riskLevel: z.number().int().min(1).max(3),
   feasible: z.number().int().min(0).max(100000).optional().nullable(),
+  personsToDeploy: z.number().int().min(0).max(100000).optional().nullable(),
+  visitsPerDay: z.number().min(0).max(1000).optional().nullable(),
+  workingDays: z.number().int().min(0).max(31).optional().nullable(),
   note: z.string().trim().max(200).optional().or(z.literal('').transform(() => undefined)),
 });
 router.post('/mmr', ADMIN, body(mmrBody), asyncHandler(async (req, res) =>

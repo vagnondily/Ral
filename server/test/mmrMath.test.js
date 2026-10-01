@@ -28,6 +28,23 @@ test('faisable atteint la cible ⇒ couverture suffisante', () => {
   assert.equal(m.feasibleMeetsTarget, true);
 });
 
+test('capacité calculée = personnes × suivis/jour × jours ouvrés (prime sur saisie)', () => {
+  const m = deriveMmr({ operationDuration: 6, numberOfSites: 104, riskLevel: 2, feasible: 5,
+    personsToDeploy: 3, visitsPerDay: 2, workingDays: 20 });
+  assert.equal(m.computedCapacity, 120);     // 3 × 2 × 20
+  assert.equal(m.feasible, 120);             // la calculée prime sur 5
+  assert.equal(m.feasibleSource, 'calculée');
+  assert.equal(m.targetedPerMonth, 34.67);
+  assert.equal(m.feasibleMeetsTarget, true); // 120 ≥ 34,67
+});
+
+test('sans ressources, on retombe sur la capacité saisie', () => {
+  const m = deriveMmr({ operationDuration: 6, numberOfSites: 48, riskLevel: 1, feasible: 10 });
+  assert.equal(m.computedCapacity, null);
+  assert.equal(m.feasible, 10);
+  assert.equal(m.feasibleSource, 'saisie');
+});
+
 test('valeurs manquantes gérées sans planter', () => {
   const m = deriveMmr({ operationDuration: 0, numberOfSites: 0, riskLevel: 0 });
   assert.equal(m.interval, null);
