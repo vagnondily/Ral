@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, UserPlus, Trash2 } from 'lucide-react';
+import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, UserPlus, Trash2, Wand2 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, PageHeader, Skeleton } from '../../components/ui.jsx';
 import MonthPicker from '../../components/MonthPicker.jsx';
@@ -31,9 +31,11 @@ export default function FieldVisitsPage({ canEdit }) {
   const [visits, setVisits] = useState(null);
   const [summary, setSummary] = useState(null);
   const [collDays, setCollDays] = useState([]);
+  const [rbmDue, setRbmDue] = useState(null); // nb de sites « à suivre » ce mois selon le RBM
   const [providers, setProviders] = useState([]);
   const [error, setError] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [fProvider, setFProvider] = useState('');   // '', 'non_affecte', or id
   const [fStatus, setFStatus] = useState('');
@@ -44,6 +46,8 @@ export default function FieldVisitsPage({ canEdit }) {
     Promise.all([api.fieldVisits({ month }), api.fieldSummary(month), api.fieldCollectionDays(month)])
       .then(([v, s, c]) => { setVisits(v); setSummary(s); setCollDays(c); })
       .catch((e) => setError(e.message));
+    // Combien de sites sont « à suivre » ce mois d'après le RBM (indicatif, non bloquant).
+    api.rbmSites(month).then((rows) => setRbmDue(rows.filter((r) => r.due).length)).catch(() => setRbmDue(null));
   }, [month]);
 
   useEffect(() => { reload(); }, [reload]);
@@ -67,6 +71,19 @@ export default function FieldVisitsPage({ canEdit }) {
   const remove = async (v) => {
     if (!window.confirm(`Supprimer la visite de « ${v.siteName} » ?`)) return;
     try { await api.fieldDeleteVisit(v.id); reload(); } catch (err) { toast.error(err.message); }
+  };
+  // Génère la planification du mois à partir du RBM : chaque site « à suivre »
+  // (jamais visité ou échéance atteinte) devient une visite planifiée. Même
+  // action que sur la page RBM — proposée ici pour partir du RBM sans quitter
+  // la planification. L'affectation (prestataire + rôle) se fait ensuite.
+  const generateFromRbm = async () => {
+    setGenerating(true);
+    try {
+      const r = await api.rbmGenerate(month);
+      if (r.created > 0) toast.success(`${r.created} visite(s) planifiée(s) sur ${r.due} site(s) à suivre (RBM).`);
+      else toast.info(`Aucune nouvelle visite : les ${r.due} site(s) à suivre sont déjà planifiés.`);
+      reload();
+    } catch (err) { toast.error(err.message); } finally { setGenerating(false); }
   };
   const setTravel = async (providerId, travelDays) => {
     try { await api.fieldSetTravelDays({ providerId, month, travelDays: Math.max(0, Math.round(Number(travelDays) || 0)) }); reload(); }
@@ -101,6 +118,9 @@ export default function FieldVisitsPage({ canEdit }) {
         description="Étape 1 — le bureau planifie les sites du mois (district › commune › établissement › activité). Étape 2 — chaque visite est affectée à un prestataire TPM et à un rôle générique (Agent 1 / Superviseur 1, non nominatif).">
         <MonthPicker value={month} onChange={setMonth} />
         {canEdit && <><input ref={fileRef} type="file" accept=".xlsx" hidden onChange={onImport} />
+          <Button variant="secondary" icon={Wand2} loading={generating} onClick={generateFromRbm}
+            title="Planifie automatiquement les sites « à suivre » ce mois d'après leur niveau de risque (RBM).">
+            Générer depuis le RBM{rbmDue ? ` (${rbmDue})` : ''}</Button>
           <Button variant="secondary" icon={Upload} loading={importing} onClick={() => fileRef.current?.click()}>Importer planning</Button>
           <Button icon={Plus} onClick={() => setAddOpen(true)}>Ajouter une visite</Button></>}
       </PageHeader>
@@ -170,7 +190,10 @@ export default function FieldVisitsPage({ canEdit }) {
       </div>
 
       {visits === null ? <Skeleton height={260} /> : filtered.length === 0 ? (
-        <div className="card"><div className="card-body"><p className="muted">Aucune visite pour ce mois / ce filtre. Importez le planning (.xlsx) ou ajoutez une visite.</p></div></div>
+        <div className="card"><div className="card-body">
+          <p className="muted">Aucune visite pour ce mois / ce filtre.{rbmDue ? ` ${rbmDue} site(s) sont « à suivre » ce mois d'après le RBM.` : ''} Générez la planification depuis le RBM, importez le planning (.xlsx) ou ajoutez une visite.</p>
+          {canEdit && rbmDue > 0 && <Button icon={Wand2} loading={generating} onClick={generateFromRbm} style={{ marginTop: 12 }}>Générer {rbmDue} visite(s) depuis le RBM</Button>}
+        </div></div>
       ) : (
         <div className="card biz-card">
           <div className="table-wrap"><table className="table">

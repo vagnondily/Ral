@@ -257,6 +257,9 @@ or navy rail.
   du mois se génère depuis le RBM** (`POST /api/tpm/field/rbm/generate` → une
   visite planifiée par site due) ; le référentiel de sites s'importe du **Master
   Data** (`POST …/rbm/import` : Région | District | Commune | Site name | Code).
+  La génération RBM est aussi offerte **directement sur la page de planification
+  des visites** (bouton « Générer depuis le RBM (N) » + compteur de sites à
+  suivre dans l'état vide) pour partir du RBM sans quitter la planification.
   Nav : « Suivi de processus › Risk-Based Monitoring ».
 - **Dashboard « façon Power BI »** (`web/src/pages/dashboard/DashboardBIPage.jsx`,
   nav « Dashboard décisionnel › Vue d'ensemble ») : KPI tiles, grouped
