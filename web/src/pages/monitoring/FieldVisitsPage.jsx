@@ -37,6 +37,7 @@ export default function FieldVisitsPage({ canEdit }) {
   const [importing, setImporting] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [view, setView] = useState('plan');          // 'plan' (grille simple) | 'couverture'
   const [fProvider, setFProvider] = useState('');   // '', 'non_affecte', or id
   const [fStatus, setFStatus] = useState('');
   const fileRef = useRef(null);
@@ -115,7 +116,7 @@ export default function FieldVisitsPage({ canEdit }) {
   return (
     <div className="page">
       <PageHeader title="Planification des visites de terrain"
-        description="Étape 1 — le bureau planifie les sites du mois (district › commune › établissement › activité). Étape 2 — chaque visite est affectée à un prestataire TPM et à un rôle générique (Agent 1 / Superviseur 1, non nominatif).">
+        description="La liste des sites à visiter ce mois : district › commune › établissement › activité. Affectez le prestataire TPM et le rôle (Agent 1 / Superviseur 1) directement dans le tableau.">
         <MonthPicker value={month} onChange={setMonth} />
         {canEdit && <><input ref={fileRef} type="file" accept=".xlsx" hidden onChange={onImport} />
           <Button variant="secondary" icon={Wand2} loading={generating} onClick={generateFromRbm}
@@ -127,51 +128,54 @@ export default function FieldVisitsPage({ canEdit }) {
 
       {error && <Alert tone="error">{error}</Alert>}
 
-      {ov && (
-        <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(5, minmax(0,1fr))' }}>
-          <Kpi icon={MapPin} tone="blue" label="Sites du mois" value={formatInt(ov.total)} foot={`${grouped.length} commune(s)`} />
-          <Kpi icon={UserPlus} tone={unassigned ? 'amber' : 'green'} label="À affecter" value={formatInt(unassigned)} foot="Sans prestataire" />
-          <Kpi icon={CalendarClock} tone="blue" label="Planifiées" value={formatInt(ov.planifie)} foot="À réaliser" />
-          <Kpi icon={CheckCircle2} tone="green" label="Réalisées" value={formatInt(ov.realise)} foot={`${Math.round(ov.rate * 100)} % de couverture`} />
-          <Kpi icon={Ban} tone="red" label="Annulées" value={formatInt(ov.annule)} foot="Exclues du taux" />
-        </div>
-      )}
-
-      <div className="biz-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
-        {summary?.byProvider?.length > 0 && (
-          <CoverageCard title="Couverture par prestataire" rows={summary.byProvider} />
-        )}
-        {summary?.byDistrict?.length > 0 && (
-          <CoverageCard title="Couverture par district" rows={summary.byDistrict} />
-        )}
+      {/* Deux vues : la grille de planification (simple, par défaut) et la couverture (analytique). */}
+      <div className="seg" role="group" aria-label="Vue" style={{ marginBottom: 4 }}>
+        <button type="button" className={view === 'plan' ? 'is-active' : ''} onClick={() => setView('plan')}>Planification</button>
+        <button type="button" className={view === 'couverture' ? 'is-active' : ''} onClick={() => setView('couverture')}>Couverture &amp; budget</button>
       </div>
 
-      {collDays.length > 0 && (
-        <div className="card biz-card" style={{ marginTop: 16 }}>
-          <div className="card-header"><div className="card-title">Jours de collecte (pour le budget)</div>
-            <div className="card-sub">Jours de visite = visites datées ; + jours de déplacement (saisie manuelle) = total des jours à budgéter par prestataire.</div></div>
-          <div className="table-wrap"><table className="table">
-            <thead><tr><th>Prestataire TPM</th><th className="num">Jours de visite</th><th className="num">Jours de déplacement</th><th className="num">Total jours</th></tr></thead>
-            <tbody>
-              {collDays.map((d) => (
-                <tr key={d.providerId}>
-                  <td><strong>{d.label}</strong></td>
-                  <td className="num tabular">{formatInt(d.visitDays)}</td>
-                  <td className="num">
-                    {canEdit ? (
-                      <input className="input tabular" style={{ width: 70, textAlign: 'right' }} type="number" min="0" step="1"
-                        defaultValue={d.travelDays} aria-label={`Jours de déplacement ${d.label}`}
-                        onBlur={(e) => { if (Number(e.target.value) !== d.travelDays) setTravel(d.providerId, e.target.value); }} />
-                    ) : formatInt(d.travelDays)}
-                  </td>
-                  <td className="num tabular"><strong>{formatInt(d.totalDays)}</strong></td>
-                </tr>
-              ))}
-            </tbody>
-          </table></div>
+      {view === 'couverture' && <>
+        {ov && (
+          <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(5, minmax(0,1fr))' }}>
+            <Kpi icon={MapPin} tone="blue" label="Sites du mois" value={formatInt(ov.total)} foot={`${grouped.length} commune(s)`} />
+            <Kpi icon={UserPlus} tone={unassigned ? 'amber' : 'green'} label="À affecter" value={formatInt(unassigned)} foot="Sans prestataire" />
+            <Kpi icon={CalendarClock} tone="blue" label="Planifiées" value={formatInt(ov.planifie)} foot="À réaliser" />
+            <Kpi icon={CheckCircle2} tone="green" label="Réalisées" value={formatInt(ov.realise)} foot={`${Math.round(ov.rate * 100)} % de couverture`} />
+            <Kpi icon={Ban} tone="red" label="Annulées" value={formatInt(ov.annule)} foot="Exclues du taux" />
+          </div>
+        )}
+        <div className="biz-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
+          {summary?.byProvider?.length > 0 && <CoverageCard title="Couverture par prestataire" rows={summary.byProvider} />}
+          {summary?.byDistrict?.length > 0 && <CoverageCard title="Couverture par district" rows={summary.byDistrict} />}
         </div>
-      )}
+        {collDays.length > 0 && (
+          <div className="card biz-card" style={{ marginTop: 16 }}>
+            <div className="card-header"><div className="card-title">Jours de collecte (pour le budget)</div>
+              <div className="card-sub">Jours de visite = visites datées ; + jours de déplacement (saisie manuelle) = total des jours à budgéter par prestataire.</div></div>
+            <div className="table-wrap"><table className="table">
+              <thead><tr><th>Prestataire TPM</th><th className="num">Jours de visite</th><th className="num">Jours de déplacement</th><th className="num">Total jours</th></tr></thead>
+              <tbody>
+                {collDays.map((d) => (
+                  <tr key={d.providerId}>
+                    <td><strong>{d.label}</strong></td>
+                    <td className="num tabular">{formatInt(d.visitDays)}</td>
+                    <td className="num">
+                      {canEdit ? (
+                        <input className="input tabular" style={{ width: 70, textAlign: 'right' }} type="number" min="0" step="1"
+                          defaultValue={d.travelDays} aria-label={`Jours de déplacement ${d.label}`}
+                          onBlur={(e) => { if (Number(e.target.value) !== d.travelDays) setTravel(d.providerId, e.target.value); }} />
+                      ) : formatInt(d.travelDays)}
+                    </td>
+                    <td className="num tabular"><strong>{formatInt(d.totalDays)}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+          </div>
+        )}
+      </>}
 
+      {view === 'plan' && <>
       <div className="postes-toolbar" style={{ margin: '16px 0' }}>
         <label className="field" style={{ margin: 0 }}>
           <select className="select" value={fProvider} onChange={(e) => setFProvider(e.target.value)} aria-label="Filtre prestataire">
@@ -251,6 +255,7 @@ export default function FieldVisitsPage({ canEdit }) {
           </table></div>
         </div>
       )}
+      </>}
 
       {addOpen && <AddVisitModal month={month} providers={providers} roles={ROLES} onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); reload(); }} />}
     </div>
