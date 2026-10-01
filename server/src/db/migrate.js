@@ -12,12 +12,13 @@ const fs = require('fs');
 const path = require('path');
 const { Client } = require('pg');
 const logger = require('../config/logger');
+const { requireConnString } = require('../config/connString');
 
 async function main() {
   // Migrations always run as the superuser connection (DATABASE_URL), never
   // the restricted runtime role, since they create roles/extensions and
   // alter table ownership.
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  const client = new Client({ connectionString: requireConnString('DATABASE_URL') });
   await client.connect();
 
   try {
@@ -61,6 +62,12 @@ async function main() {
 }
 
 main().catch((err) => {
-  logger.error({ err }, 'migration failed');
+  // A config problem (missing/‑passwordless connection string) has a clear,
+  // actionable message — surface it plainly rather than a raw SASL stack.
+  if (/mot de passe|manquant|invalide|password must be a string/i.test(err.message || '')) {
+    logger.error(`Migration impossible : ${err.message}`);
+  } else {
+    logger.error({ err }, 'migration failed');
+  }
   process.exit(1);
 });
