@@ -87,7 +87,8 @@ router.delete('/offices/:id', ADMIN, asyncHandler(async (req, res) => {
 // ---- MMR (Minimum Monitoring Requirements) — lecture tous, écriture admin.
 router.get('/mmr', asyncHandler(async (req, res) => res.json(await repo.listMmr(t(req)))));
 const mmrBody = z.object({
-  fieldOfficeId: z.string().uuid(),
+  // Omis / vide = plan général (vaut pour tous les bureaux) ; renseigné = dérogation bureau.
+  fieldOfficeId: z.string().uuid().optional().nullable().or(z.literal('').transform(() => undefined)),
   activityCategory: z.string().trim().min(1).max(160),
   operationDuration: z.number().int().min(0).max(12),
   numberOfSites: z.number().int().min(0).max(100000),
