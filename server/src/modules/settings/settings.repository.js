@@ -326,6 +326,110 @@ async function deleteExchangeRate(tenantId, id) {
   });
 }
 
+// ---- Bureaux & antennes --------------------------------------------------
+/** Communes disponibles (distinctes) du registre de sites, pour le périmètre. */
+async function listCommunes(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT DISTINCT COALESCE(district, '') AS district, commune
+         FROM sites WHERE tenant_id = $1 AND commune IS NOT NULL AND commune <> ''
+        ORDER BY district, commune`,
+      [tenantId]
+    );
+    return rows;
+  });
+}
+
+/**
+ * Bureaux avec, pour chacun, le nombre de communes du périmètre et le nombre de
+ * sites rattachés automatiquement (périmètre national → tous les sites ; sinon
+ * sites dont la commune est dans le périmètre). Fait en SQL (pas de boucle JS).
+ */
+async function officesWithCounts(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT o.id, o.code, o.name, o.nature, o.parent_id AS "parentId",
+              po.name AS "parentName", o.responsible, o.national, o.active,
+              (SELECT count(*)::int FROM field_office_communes c WHERE c.office_id = o.id) AS "communeCount",
+              CASE WHEN o.national
+                   THEN (SELECT count(*)::int FROM sites s WHERE s.tenant_id = o.tenant_id)
+                   ELSE (SELECT count(*)::int FROM sites s
+                          WHERE s.tenant_id = o.tenant_id
+                            AND s.commune IN (SELECT commune FROM field_office_communes c WHERE c.office_id = o.id))
+              END AS "siteCount"
+         FROM field_offices o
+         LEFT JOIN field_offices po ON po.id = o.parent_id
+        WHERE o.tenant_id = $1
+        ORDER BY o.national DESC, o.code`,
+      [tenantId]
+    );
+    return rows;
+  });
+}
+
+async function officePerimeter(tenantId, officeId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      'SELECT district, commune FROM field_office_communes WHERE tenant_id = $1 AND office_id = $2 ORDER BY district, commune',
+      [tenantId, officeId]
+    );
+    return rows;
+  });
+}
+
+async function createOffice(tenantId, { code, name, nature, parentId, responsible, national, communes }) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `INSERT INTO field_offices (tenant_id, code, name, nature, parent_id, responsible, national)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [tenantId, code, name, nature || 'terrain', parentId || null, responsible || null, Boolean(national)]
+    );
+    const id = rows[0].id;
+    await writePerimeter(client, tenantId, id, national ? [] : (communes || []));
+    return id;
+  });
+}
+
+async function updateOffice(tenantId, id, { code, name, nature, parentId, responsible, national, active, communes }) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rowCount } = await client.query(
+      `UPDATE field_offices SET code = COALESCE($3, code), name = COALESCE($4, name),
+              nature = COALESCE($5, nature), parent_id = $6, responsible = $7,
+              national = COALESCE($8, national), active = COALESCE($9, active), updated_at = now()
+        WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, id, code, name, nature, parentId || null, responsible || null,
+        national === undefined ? null : national, active === undefined ? null : active]
+    );
+    if (rowCount !== 1) return false;
+    if (communes !== undefined || national) await writePerimeter(client, tenantId, id, national ? [] : (communes || []));
+    return true;
+  });
+}
+
+async function writePerimeter(client, tenantId, officeId, communes) {
+  await client.query('DELETE FROM field_office_communes WHERE tenant_id = $1 AND office_id = $2', [tenantId, officeId]);
+  const clean = (communes || []).filter((c) => c && c.commune);
+  if (clean.length === 0) return;
+  const values = [];
+  const params = [];
+  clean.forEach((c, i) => {
+    params.push(tenantId, officeId, c.district || null, c.commune);
+    values.push(`($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4})`);
+  });
+  await client.query(
+    `INSERT INTO field_office_communes (tenant_id, office_id, district, commune) VALUES ${values.join(',')}
+     ON CONFLICT (office_id, commune) DO NOTHING`,
+    params
+  );
+}
+
+async function deleteOffice(tenantId, id) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rowCount } = await client.query('DELETE FROM field_offices WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+    return rowCount === 1;
+  });
+}
+
 module.exports = {
   listPartnerTypes, createPartnerType,
   listActivities, createActivity, setActivityActive,
@@ -333,4 +437,5 @@ module.exports = {
   createFormation, deleteFormation, createEvaluation, deleteEvaluation,
   listAdminLevels, listAdminAreas, adminBreakdownSummary, replaceAdminBreakdown,
   listExchangeRates, upsertExchangeRate, deleteExchangeRate,
+  listCommunes, officesWithCounts, officePerimeter, createOffice, updateOffice, deleteOffice,
 };
