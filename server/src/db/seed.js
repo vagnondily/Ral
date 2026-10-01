@@ -14,6 +14,7 @@ require('dotenv').config();
 const { Client } = require('pg');
 const bcrypt = require('bcryptjs');
 const logger = require('../config/logger');
+const { requireConnString } = require('../config/connString');
 
 const PARTNER_TYPES = [
   ['tpm', 'TPM (Tierce partie de suivi)', 1],
@@ -153,7 +154,7 @@ async function upsertRefList(client, tenantId, table, rows) {
 }
 
 async function main() {
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  const client = new Client({ connectionString: requireConnString('DATABASE_URL') });
   await client.connect();
   try {
     // Idempotent : réutiliser le tenant démo existant s'il y en a un (tenants.name
@@ -421,4 +422,11 @@ async function main() {
   }
 }
 
-main().catch((err) => { logger.error({ err }, 'seed failed'); process.exit(1); });
+main().catch((err) => {
+  if (/mot de passe|manquant|invalide|password must be a string/i.test(err.message || '')) {
+    logger.error(`Seed impossible : ${err.message}`);
+  } else {
+    logger.error({ err }, 'seed failed');
+  }
+  process.exit(1);
+});
