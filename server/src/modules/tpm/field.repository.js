@@ -36,10 +36,11 @@ async function listSites(tenantId, { q } = {}) {
 async function createSite(tenantId, s) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, adm2, adm3, adm4)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$3,$4,$5)
        ON CONFLICT (tenant_id, code) DO UPDATE SET fokontany = EXCLUDED.fokontany,
-         activity = COALESCE(EXCLUDED.activity, sites.activity)
+         activity = COALESCE(EXCLUDED.activity, sites.activity),
+         adm2 = EXCLUDED.adm2, adm3 = EXCLUDED.adm3, adm4 = COALESCE(EXCLUDED.adm4, sites.adm4)
        RETURNING id`,
       [tenantId, siteCode(s), s.district, s.commune, s.fokontany || null, s.name, s.activity || null]
     );
@@ -72,6 +73,7 @@ async function updateSite(tenantId, id, s) {
 // ---- RBM (Risk-Based Monitoring) ----------------------------------------
 const RBM_SELECT = `
   SELECT s.id, s.code, s.name, s.district, s.commune, s.activity, s.risk_level AS "riskLevel",
+         s.adm1, s.adm2, s.adm3, s.adm4, s.fokontany,
          s.security_situation AS "security", s.programme_synergies AS "synergies",
          s.beneficiary_over_200 AS "beneficiaryOver200", s.new_partner AS "newPartner",
          s.issues_process AS "issuesProcess", s.issues_partner_report AS "issuesPartnerReport",
@@ -112,12 +114,14 @@ async function importMasterData(tenantId, rows) {
     for (const r of clean) {
       const code = (r.code && String(r.code).trim()) || siteCode(r);
       const { rows: out } = await client.query(
-        `INSERT INTO sites (tenant_id, code, district, commune, name, activity, risk_level)
-         VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7,'moyenne'))
+        `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, risk_level, adm1, adm2, adm3, adm4)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8,'moyenne'),$9,$3,$4,$5)
          ON CONFLICT (tenant_id, code) DO UPDATE SET district = EXCLUDED.district,
-           commune = EXCLUDED.commune, name = EXCLUDED.name
+           commune = EXCLUDED.commune, fokontany = COALESCE(EXCLUDED.fokontany, sites.fokontany),
+           name = EXCLUDED.name, adm1 = COALESCE(EXCLUDED.adm1, sites.adm1),
+           adm2 = EXCLUDED.adm2, adm3 = EXCLUDED.adm3, adm4 = COALESCE(EXCLUDED.adm4, sites.adm4)
          RETURNING (xmax = 0) AS inserted`,
-        [tenantId, code, r.district, r.commune, r.name, r.activity || null, r.riskLevel || null]
+        [tenantId, code, r.district, r.commune, r.fokontany || null, r.name, r.activity || null, r.riskLevel || null, r.region || null]
       );
       if (out[0].inserted) inserted += 1;
     }
@@ -156,10 +160,11 @@ async function upsertSites(client, tenantId, sites) {
   for (const s of sites) {
     const code = siteCode(s);
     const { rows } = await client.query(
-      `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, adm2, adm3, adm4)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$3,$4,$5)
        ON CONFLICT (tenant_id, code)
-       DO UPDATE SET fokontany = EXCLUDED.fokontany, activity = COALESCE(EXCLUDED.activity, sites.activity)
+       DO UPDATE SET fokontany = EXCLUDED.fokontany, activity = COALESCE(EXCLUDED.activity, sites.activity),
+         adm2 = EXCLUDED.adm2, adm3 = EXCLUDED.adm3, adm4 = COALESCE(EXCLUDED.adm4, sites.adm4)
        RETURNING id, (xmax = 0) AS inserted`,
       [tenantId, code, s.district, s.commune, s.fokontany || null, s.name, s.activity || null]
     );

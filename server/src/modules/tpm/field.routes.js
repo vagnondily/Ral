@@ -79,12 +79,13 @@ router.post('/rbm/import', WRITE, express.raw({ type: '*/*', limit: '40mb' }), a
   const rows = [];
   ws.eachRow((row, idx) => {
     if (idx === 1) return;
-    const district = cell(row, 3).trim();
-    const commune = cell(row, 5).trim();
+    const region = cell(row, 1).trim();   // adm1
+    const district = cell(row, 3).trim(); // adm2
+    const commune = cell(row, 5).trim();  // adm3
     const name = cell(row, 7).trim();
     const code = cell(row, 8).trim();
     if (!district || !commune || !name) return;
-    rows.push({ district, commune, name, code });
+    rows.push({ region, district, commune, name, code });
   });
   if (rows.length === 0) throw badRequest('Aucun site valide trouvé (colonnes District/Communes/Site name).');
   res.json(await repo.importMasterData(t(req), rows));
