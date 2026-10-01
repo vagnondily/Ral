@@ -19,6 +19,7 @@ import ProcessMonitoringPage from './pages/monitoring/ProcessMonitoringPage.jsx'
 import ProcessDashboardPage from './pages/monitoring/ProcessDashboardPage.jsx';
 import FieldVisitsPage from './pages/monitoring/FieldVisitsPage.jsx';
 import RbmPage from './pages/monitoring/RbmPage.jsx';
+import CoverageRecapPage from './pages/monitoring/CoverageRecapPage.jsx';
 import FormationsPage from './pages/tpm/FormationsPage.jsx';
 import EvaluationPage from './pages/tpm/EvaluationPage.jsx';
 import SettingsPage from './pages/settings/SettingsPage.jsx';
@@ -101,6 +102,7 @@ function Workspace() {
       {route.module === 'processus' && route.sub === 'donnees' && <ProcessMonitoringPage canEdit={canEdit} />}
       {route.module === 'processus' && route.sub === 'sites' && <FieldVisitsPage canEdit={canEdit} />}
       {route.module === 'processus' && route.sub === 'rbm' && <RbmPage canEdit={canEdit} />}
+      {route.module === 'processus' && route.sub === 'couverture' && <CoverageRecapPage />}
       {route.module === 'parametrage' && <SettingsPage tab={route.sub} isAdmin={user.role === 'admin'} onNavigate={navigate} />}
     </AppShell>
   );

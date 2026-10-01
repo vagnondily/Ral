@@ -2,6 +2,7 @@ const { withTenantTransaction } = require('../../config/db');
 const { summarizeVisits, collectionDays } = require('./fieldMath');
 const { isDue, frequencyFor } = require('./rbmMath');
 const { scoreSite } = require('./rbmScore');
+const { coverageRecap } = require('./coverageRecap');
 
 /**
  * Suivi terrain — planification/réalisation des visites, affectées aux
@@ -219,6 +220,35 @@ async function summary(tenantId, { month } = {}) {
 }
 
 /**
+ * Récap de couverture : par site, le nombre de visites RÉALISÉES (agrégé en
+ * SQL), puis le récap pur par niveau de risque (coverageRecap). Optionnellement
+ * filtré par district (adm2). `operationMonths` fixe les visites requises MMR.
+ */
+async function coverageRecapSummary(tenantId, { district, operationMonths = 12 } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const params = [tenantId];
+    const where = ['s.tenant_id = $1'];
+    if (district) { params.push(district); where.push(`(s.adm2 = $${params.length} OR s.district = $${params.length})`); }
+    const { rows } = await client.query(
+      `SELECT s.risk_level AS "riskLevel",
+              COUNT(v.id) FILTER (WHERE v.status = 'realise') AS "visitCount"
+         FROM sites s
+         LEFT JOIN site_visits v ON v.site_id = s.id AND v.tenant_id = s.tenant_id
+        WHERE ${where.join(' AND ')}
+        GROUP BY s.id, s.risk_level`,
+      params
+    );
+    const recap = coverageRecap(rows.map((r) => ({ riskLevel: r.riskLevel, visitCount: Number(r.visitCount) })), operationMonths);
+    // Liste des districts pour le filtre.
+    const { rows: districts } = await client.query(
+      `SELECT DISTINCT COALESCE(adm2, district) AS d FROM sites WHERE tenant_id = $1 AND COALESCE(adm2, district) IS NOT NULL ORDER BY d`,
+      [tenantId]
+    );
+    return { ...recap, operationMonths, districts: districts.map((x) => x.d) };
+  });
+}
+
+/**
  * Jours de collecte par prestataire pour un mois = visites datées (non
  * annulées) + jours de déplacement manuels (tpm_collection_days).
  */
@@ -329,6 +359,6 @@ async function importPlanning(tenantId, userId, month, rows) {
 module.exports = {
   listSites, createSite, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
-  collectionDaysSummary, setTravelDays,
+  collectionDaysSummary, setTravelDays, coverageRecapSummary,
   rbmSites, importMasterData, generateFromRbm,
 };
