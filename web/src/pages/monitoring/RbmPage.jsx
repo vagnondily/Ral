@@ -14,6 +14,7 @@ const RISK = {
 };
 const SCORE = { 0: { bg: 'var(--green-bg)', text: 'var(--green-text)' }, 1: { bg: 'var(--orange-bg)', text: 'var(--orange-text)' }, 2: { bg: 'var(--red-bg)', text: 'var(--red-text)' } };
 const PRIO = { 0: { color: 'var(--green)', bg: 'var(--green-bg)', text: 'var(--green-text)' }, 1: { color: 'var(--orange)', bg: 'var(--orange-bg)', text: 'var(--orange-text)' }, 2: { color: 'var(--red)', bg: 'var(--red-bg)', text: 'var(--red-text)' } };
+const TONE = { green: { color: 'var(--green)', bg: 'var(--green-bg)', text: 'var(--green-text)' }, amber: { color: 'var(--orange)', bg: 'var(--orange-bg)', text: 'var(--orange-text)' }, red: { color: 'var(--red)', bg: 'var(--red-bg)', text: 'var(--red-text)' } };
 
 /**
  * Risk-Based Monitoring — le référentiel de sites porte un niveau de risque qui
@@ -30,6 +31,10 @@ export default function RbmPage({ canEdit }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [crit, setCrit] = useState(null); // site en cours d'édition des critères
+  const [fRegion, setFRegion] = useState('');
+  const [fDistrict, setFDistrict] = useState('');
+  const [fCommune, setFCommune] = useState('');
+  const [onlyDue, setOnlyDue] = useState(false);
   const fileRef = useRef(null);
 
   const reload = useCallback(() => {
@@ -61,6 +66,34 @@ export default function RbmPage({ canEdit }) {
     return s;
   }, [sites]);
 
+  // Filtres en cascade : région (adm1) → district (adm2) → commune (adm3).
+  const uniq = (arr) => [...new Set(arr.filter(Boolean))].sort();
+  const regions = useMemo(() => uniq((sites || []).map((s) => s.adm1)), [sites]);
+  const districts = useMemo(() => uniq((sites || []).filter((s) => !fRegion || s.adm1 === fRegion).map((s) => s.adm2)), [sites, fRegion]);
+  const communes = useMemo(() => uniq((sites || []).filter((s) => (!fRegion || s.adm1 === fRegion) && (!fDistrict || s.adm2 === fDistrict)).map((s) => s.adm3)), [sites, fRegion, fDistrict]);
+
+  // Recommandation dérivée (claire pour le terrain).
+  const reco = (s) => {
+    if (s.due && s.priority === 2) return { label: 'À visiter en priorité', tone: 'red' };
+    if (s.due) return { label: 'À planifier ce mois', tone: 'amber' };
+    if (s.priority >= 1) return { label: 'À surveiller', tone: 'amber' };
+    return { label: 'À jour', tone: 'green' };
+  };
+
+  // Liste filtrée + priorisée : regroupée par commune, du plus prioritaire au moins.
+  const filtered = useMemo(() => {
+    let list = (sites || []).filter((s) => {
+      if (fRegion && s.adm1 !== fRegion) return false;
+      if (fDistrict && s.adm2 !== fDistrict) return false;
+      if (fCommune && s.adm3 !== fCommune) return false;
+      if (onlyDue && !s.due) return false;
+      return true;
+    });
+    list = [...list].sort((a, b) => (a.adm3 || '').localeCompare(b.adm3 || '')
+      || (b.priority || 0) - (a.priority || 0) || (b.finalScore || 0) - (a.finalScore || 0));
+    return list;
+  }, [sites, fRegion, fDistrict, fCommune, onlyDue]);
+
   return (
     <div className="page">
       <PageHeader title="Risk-Based Monitoring (RBM)" description="Le niveau de risque de chaque site pilote la fréquence de suivi. La planification des visites du mois se génère depuis le RBM : les sites « à suivre » deviennent des visites planifiées.">
@@ -82,27 +115,43 @@ export default function RbmPage({ canEdit }) {
         <Kpi icon={Wand2} tone="blue" label="À suivre ce mois" value={formatInt(stats.due)} foot="Selon le RBM" />
       </div>
 
-      <div className="postes-toolbar" style={{ margin: '16px 0' }}>
-        <label className="field" style={{ margin: 0 }}>
-          <select className="select" value={risk} onChange={(e) => setRisk(e.target.value)} aria-label="Filtre risque">
-            <option value="">Tous les niveaux de risque</option>
-            <option value="elevee">Élevé</option><option value="moyenne">Moyen</option><option value="faible">Faible</option>
-          </select>
-        </label>
-        <span className="hint">{sites ? `${sites.length} site(s)` : '…'}</span>
+      <div className="filters-bar comet-filters">
+        <span className="filters-label">Filtres&nbsp;:</span>
+        <div className="comet-fields">
+          <div className="cfilter"><span className="cfilter-label">Région</span>
+            <select className="select" value={fRegion} onChange={(e) => { setFRegion(e.target.value); setFDistrict(''); setFCommune(''); }}>
+              <option value="">Toutes les régions</option>{regions.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select></div>
+          <div className="cfilter"><span className="cfilter-label">District</span>
+            <select className="select" value={fDistrict} onChange={(e) => { setFDistrict(e.target.value); setFCommune(''); }}>
+              <option value="">Tous les districts</option>{districts.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select></div>
+          <div className="cfilter"><span className="cfilter-label">Commune</span>
+            <select className="select" value={fCommune} onChange={(e) => setFCommune(e.target.value)}>
+              <option value="">Toutes les communes</option>{communes.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select></div>
+          <div className="cfilter"><span className="cfilter-label">Niveau de risque</span>
+            <select className="select" value={risk} onChange={(e) => setRisk(e.target.value)}>
+              <option value="">Tous</option><option value="elevee">Élevé</option><option value="moyenne">Moyen</option><option value="faible">Faible</option>
+            </select></div>
+          <div className="cfilter cfilter-check"><label className="filter-check"><input type="checkbox" checked={onlyDue} onChange={(e) => setOnlyDue(e.target.checked)} /><span>À suivre uniquement (non visités / en retard)</span></label></div>
+        </div>
+        <span className="hint">{filtered.length} / {sites ? sites.length : '…'} site(s)</span>
       </div>
 
       {sites === null ? <Skeleton height={300} /> : sites.length === 0 ? (
         <div className="card"><div className="card-body"><p className="muted">Aucun site référencé. Importez le référentiel Master Data (.xlsx).</p></div></div>
+      ) : filtered.length === 0 ? (
+        <div className="card"><div className="card-body"><p className="muted">Aucun site ne correspond aux filtres.</p></div></div>
       ) : (
         <div className="card biz-card">
           <div className="table-wrap"><table className="table">
-            <thead><tr><th>Site</th><th>District / Commune</th><th>Niveau de risque</th><th>Score RBM</th><th>Priorité</th><th>Dernière visite</th><th>À suivre ce mois</th>{canEdit && <th aria-label="Critères" />}</tr></thead>
+            <thead><tr><th>Site</th><th>District / Commune</th><th>Niveau de risque</th><th>Score RBM</th><th>Priorité</th><th>Dernière visite</th><th>Recommandation</th><th>À suivre ce mois</th>{canEdit && <th aria-label="Critères" />}</tr></thead>
             <tbody>
-              {sites.map((s) => (
+              {filtered.map((s) => { const r = reco(s); return (
                 <tr key={s.id} className={s.due ? 'is-selected' : ''}>
                   <td><strong>{s.name}</strong>{s.activity && <div className="site-meta">{s.activity}</div>}</td>
-                  <td>{s.district} › {s.commune}</td>
+                  <td>{(s.adm2 || s.district) || '—'} › {(s.adm3 || s.commune) || '—'}{s.adm1 && <div className="site-meta">{s.adm1}</div>}</td>
                   <td>
                     {canEdit ? (
                       <select className="select" style={{ minWidth: 110 }} value={s.riskLevel || 'moyenne'} onChange={(e) => setSiteRisk(s, e.target.value)} aria-label="Niveau de risque">
@@ -116,12 +165,13 @@ export default function RbmPage({ canEdit }) {
                   <td><span className="badge" style={{ background: SCORE[s.finalScore]?.bg, color: SCORE[s.finalScore]?.text }}>{s.finalLabel || '—'}</span>{s.urgentFlags && <div className="site-meta" style={{ color: 'var(--red)' }}>⚑ urgent</div>}</td>
                   <td><span className="badge" style={{ background: PRIO[s.priority]?.bg, color: PRIO[s.priority]?.text }}><span className="dot" style={{ background: PRIO[s.priority]?.color }} />{s.priorityLabel || '—'}</span></td>
                   <td className="tabular">{s.lastVisitMonth || '—'}{s.monthsSinceVisit != null && <div className="site-meta">il y a {s.monthsSinceVisit} mois</div>}</td>
+                  <td><span className="badge" style={{ background: TONE[r.tone]?.bg, color: TONE[r.tone]?.text }}><span className="dot" style={{ background: TONE[r.tone]?.color }} />{r.label}</span></td>
                   <td>{s.due
                     ? <span className="badge" style={{ background: 'var(--blue-50)', color: 'var(--blue-700)' }}><span className="dot" style={{ background: 'var(--blue-600)' }} />À suivre</span>
                     : <span className="muted">à jour</span>}</td>
                   {canEdit && <td style={{ textAlign: 'right' }}><Button size="sm" variant="ghost" icon={SlidersHorizontal} aria-label="Critères de risque" onClick={() => setCrit(s)} /></td>}
                 </tr>
-              ))}
+              ); })}
             </tbody>
           </table></div>
         </div>
