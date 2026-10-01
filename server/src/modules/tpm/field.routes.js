@@ -52,6 +52,18 @@ router.get('/visits', asyncHandler(async (req, res) => res.json(
 )));
 router.get('/summary', asyncHandler(async (req, res) => res.json(await repo.summary(t(req), { month: monthQ(req) }))));
 
+// Jours de collecte par prestataire (visites datées + jours de déplacement).
+router.get('/collection-days', asyncHandler(async (req, res) => res.json(await repo.collectionDaysSummary(t(req), { month: monthQ(req) }))));
+const travelSchema = z.object({
+  providerId: z.string().uuid(),
+  month: z.string().regex(/^\d{4}-\d{2}(-\d{2})?$/),
+  travelDays: z.number().int().min(0).max(366),
+});
+router.put('/collection-days', WRITE, body(travelSchema), asyncHandler(async (req, res) => {
+  await repo.setTravelDays(t(req), req.valid);
+  res.status(204).end();
+}));
+
 const visitSchema = z.object({
   siteId: z.string().uuid(),
   periodMonth: z.string().regex(/^\d{4}-\d{2}(-\d{2})?$/),

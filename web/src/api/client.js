@@ -247,6 +247,8 @@ export const api = {
   fieldCreateVisit: (input) => request('/api/tpm/field/visits', { method: 'POST', body: input }),
   fieldUpdateVisit: (id, input) => request(`/api/tpm/field/visits/${id}`, { method: 'PATCH', body: input }),
   fieldDeleteVisit: (id) => request(`/api/tpm/field/visits/${id}`, { method: 'DELETE' }),
+  fieldCollectionDays: (month) => request('/api/tpm/field/collection-days', { query: month ? { month } : undefined }),
+  fieldSetTravelDays: (input) => request('/api/tpm/field/collection-days', { method: 'PUT', body: input }),
   fieldImportPlanning: async (file, month) => {
     const buf = await file.arrayBuffer();
     let res;

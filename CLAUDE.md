@@ -242,6 +242,12 @@ or navy rail.
   « Planning » sheet (District | PDF | Commune | Établissement | Activité |
   agents) creates sites + plans visits idempotently. Nav: « Suivi de processus ›
   Sites & visites ».
+  **Jours de collecte → budget** (migration 021, `tpm_collection_days`) : chaque
+  visite porte une **date de visite** ; par prestataire, `jours de visite =
+  nombre de visites datées (non annulées)` + `jours de déplacement` (majoration
+  manuelle) = **total des jours à budgéter**. Calcul pur `fieldMath.collectionDays`
+  (testé) ; endpoints `GET/PUT /api/tpm/field/collection-days` ; carte « Jours de
+  collecte (pour le budget) » sur la page terrain.
 - **Dashboard « façon Power BI »** (`web/src/pages/dashboard/DashboardBIPage.jsx`,
   nav « Dashboard décisionnel › Vue d'ensemble ») : KPI tiles, grouped
   Budget/Planifié/Réalisé bars, réalisé-by-partner donut, monthly trend line,
