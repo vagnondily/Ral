@@ -225,10 +225,15 @@ or navy rail.
   monitoring_indicators (each indicator = a form field + an aggregation
   percent_yes/percent_value/mean/sum/count + optional target/direction —
   the « mapping paramétrable »), monitoring_submissions (raw answers in JSONB,
-  deduped by Kobo _uuid). Import sources: CSV + XLSX (parsed, tested), Kobo v2
-  API pull (implemented); SPSS .sav → export to CSV for now. Values are computed
-  live by the pure, unit-tested `monitoringMath.js`. Nav: « Suivi de processus ›
-  Données & indicateurs ».
+  deduped by Kobo _uuid). Import sources: CSV + XLSX, **SPSS `.sav`** et **`.zip`
+  Kobo** (le zip contient data.sav) — parseur `.sav` pur et testé
+  (`savParser.js` : little-endian, compression bytecode, chaînes multi-segments,
+  étiquettes de valeurs, noms longs ext.13, encodage ext.20 ; dé-duplication par
+  _uuid ou hash stable du contenu), plus Kobo v2 API pull. **Import de définition
+  XLSForm** (`POST /import-definition`, `xlsformImport.js`) crée la fiche + son
+  catalogue de champs/choix (migration 025) pour configurer les indicateurs avant
+  toute soumission. Values are computed live by the pure, unit-tested
+  `monitoringMath.js`. Nav: « Suivi de processus › Données & indicateurs ».
 - **Suivi terrain — sites & visites** (`server/src/modules/tpm/field.*`,
   `web/src/pages/monitoring/FieldVisitsPage.jsx`, migration 020): the S&E
   officer's field-monitoring tool. Two-stage workflow — (1) **planification
