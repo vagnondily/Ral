@@ -1,5 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
-const { summarizeVisits } = require('./fieldMath');
+const { summarizeVisits, collectionDays } = require('./fieldMath');
 
 /**
  * Suivi terrain — planification/réalisation des visites, affectées aux
@@ -121,6 +121,48 @@ async function summary(tenantId, { month } = {}) {
   });
 }
 
+/**
+ * Jours de collecte par prestataire pour un mois = visites datées (non
+ * annulées) + jours de déplacement manuels (tpm_collection_days).
+ */
+async function collectionDaysSummary(tenantId, { month } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const pm = month ? `${String(month).slice(0, 7)}-01` : null;
+    const vParams = [tenantId]; const vWhere = ['v.tenant_id = $1'];
+    if (pm) { vParams.push(pm); vWhere.push(`v.period_month = $${vParams.length}`); }
+    const { rows: visits } = await client.query(
+      `SELECT v.provider_id AS "providerId", p.name AS "providerName", v.status,
+              v.visit_date AS "visitDate"
+         FROM site_visits v LEFT JOIN partners p ON p.id = v.provider_id
+        WHERE ${vWhere.join(' AND ')}`,
+      vParams
+    );
+    const tParams = [tenantId]; const tWhere = ['tenant_id = $1'];
+    if (pm) { tParams.push(pm); tWhere.push(`period_month = $${tParams.length}`); }
+    const { rows: travel } = await client.query(
+      `SELECT provider_id AS "providerId", travel_days AS "travelDays" FROM tpm_collection_days WHERE ${tWhere.join(' AND ')}`,
+      tParams
+    );
+    const travelByProvider = {}; const providerLabel = {};
+    for (const t of travel) travelByProvider[t.providerId] = t.travelDays;
+    for (const v of visits) if (v.providerId) providerLabel[v.providerId] = v.providerName;
+    return collectionDays(visits, travelByProvider, providerLabel);
+  });
+}
+
+async function setTravelDays(tenantId, { providerId, month, travelDays }) {
+  return withTenantTransaction(tenantId, async (client) => {
+    await client.query(
+      `INSERT INTO tpm_collection_days (tenant_id, provider_id, period_month, travel_days)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (tenant_id, provider_id, period_month)
+       DO UPDATE SET travel_days = EXCLUDED.travel_days, updated_at = now()`,
+      [tenantId, providerId, `${String(month).slice(0, 7)}-01`, Math.max(0, Math.round(Number(travelDays) || 0))]
+    );
+    return true;
+  });
+}
+
 async function createVisit(tenantId, userId, v) {
   return withTenantTransaction(tenantId, async (client) => {
     try {
@@ -190,4 +232,5 @@ async function importPlanning(tenantId, userId, month, rows) {
 module.exports = {
   listSites, createSite, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
+  collectionDaysSummary, setTravelDays,
 };

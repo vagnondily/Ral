@@ -30,6 +30,7 @@ export default function FieldVisitsPage({ canEdit }) {
   const [month, setMonth] = useState(currentMonth);
   const [visits, setVisits] = useState(null);
   const [summary, setSummary] = useState(null);
+  const [collDays, setCollDays] = useState([]);
   const [providers, setProviders] = useState([]);
   const [error, setError] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -40,8 +41,8 @@ export default function FieldVisitsPage({ canEdit }) {
 
   const reload = useCallback(() => {
     setVisits(null);
-    Promise.all([api.fieldVisits({ month }), api.fieldSummary(month)])
-      .then(([v, s]) => { setVisits(v); setSummary(s); })
+    Promise.all([api.fieldVisits({ month }), api.fieldSummary(month), api.fieldCollectionDays(month)])
+      .then(([v, s, c]) => { setVisits(v); setSummary(s); setCollDays(c); })
       .catch((e) => setError(e.message));
   }, [month]);
 
@@ -67,6 +68,12 @@ export default function FieldVisitsPage({ canEdit }) {
     if (!window.confirm(`Supprimer la visite de « ${v.siteName} » ?`)) return;
     try { await api.fieldDeleteVisit(v.id); reload(); } catch (err) { toast.error(err.message); }
   };
+  const setTravel = async (providerId, travelDays) => {
+    try { await api.fieldSetTravelDays({ providerId, month, travelDays: Math.max(0, Math.round(Number(travelDays) || 0)) }); reload(); }
+    catch (err) { toast.error(err.message); }
+  };
+  const monthStart = `${month}-01`;
+  const monthEnd = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).toISOString().slice(0, 10);
 
   const filtered = useMemo(() => (visits || []).filter((v) => {
     if (fProvider === 'non_affecte' && v.providerId) return false;
@@ -119,6 +126,32 @@ export default function FieldVisitsPage({ canEdit }) {
         )}
       </div>
 
+      {collDays.length > 0 && (
+        <div className="card biz-card" style={{ marginTop: 16 }}>
+          <div className="card-header"><div className="card-title">Jours de collecte (pour le budget)</div>
+            <div className="card-sub">Jours de visite = visites datées ; + jours de déplacement (saisie manuelle) = total des jours à budgéter par prestataire.</div></div>
+          <div className="table-wrap"><table className="table">
+            <thead><tr><th>Prestataire TPM</th><th className="num">Jours de visite</th><th className="num">Jours de déplacement</th><th className="num">Total jours</th></tr></thead>
+            <tbody>
+              {collDays.map((d) => (
+                <tr key={d.providerId}>
+                  <td><strong>{d.label}</strong></td>
+                  <td className="num tabular">{formatInt(d.visitDays)}</td>
+                  <td className="num">
+                    {canEdit ? (
+                      <input className="input tabular" style={{ width: 70, textAlign: 'right' }} type="number" min="0" step="1"
+                        defaultValue={d.travelDays} aria-label={`Jours de déplacement ${d.label}`}
+                        onBlur={(e) => { if (Number(e.target.value) !== d.travelDays) setTravel(d.providerId, e.target.value); }} />
+                    ) : formatInt(d.travelDays)}
+                  </td>
+                  <td className="num tabular"><strong>{formatInt(d.totalDays)}</strong></td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+        </div>
+      )}
+
       <div className="postes-toolbar" style={{ margin: '16px 0' }}>
         <label className="field" style={{ margin: 0 }}>
           <select className="select" value={fProvider} onChange={(e) => setFProvider(e.target.value)} aria-label="Filtre prestataire">
@@ -142,12 +175,12 @@ export default function FieldVisitsPage({ canEdit }) {
         <div className="card biz-card">
           <div className="table-wrap"><table className="table">
             <thead><tr>
-              <th>Site (établissement)</th><th>Activité</th><th>Prestataire TPM</th><th>Rôle</th><th>Statut</th>{canEdit && <th aria-label="Actions" />}
+              <th>Site (établissement)</th><th>Activité</th><th>Prestataire TPM</th><th>Rôle</th><th>Date de visite</th><th>Statut</th>{canEdit && <th aria-label="Actions" />}
             </tr></thead>
             <tbody>
               {grouped.map(([zone, list]) => (
                 <React.Fragment key={zone}>
-                  <tr className="subrow-head"><td colSpan={canEdit ? 6 : 5}><strong>{zone}</strong> · {list.length} site(s)</td></tr>
+                  <tr className="subrow-head"><td colSpan={canEdit ? 7 : 6}><strong>{zone}</strong> · {list.length} site(s)</td></tr>
                   {list.map((v) => (
                     <tr key={v.id}>
                       <td><strong>{v.siteName}</strong>{v.fokontany && <div className="site-meta">{v.fokontany}</div>}</td>
@@ -168,6 +201,12 @@ export default function FieldVisitsPage({ canEdit }) {
                             {v.agent && !ROLES.includes(v.agent) && <option value={v.agent}>{v.agent}</option>}
                           </select>
                         ) : (v.agent || '—')}
+                      </td>
+                      <td>
+                        {canEdit ? (
+                          <input className="input" style={{ width: 150 }} type="date" min={monthStart} max={monthEnd}
+                            value={v.visitDate || ''} onChange={(e) => e.target.value && patch(v, { visitDate: e.target.value })} aria-label="Date de visite" />
+                        ) : (v.visitDate || '—')}
                       </td>
                       <td>
                         {canEdit ? (

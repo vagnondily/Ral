@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { summarizeVisits } = require('../src/modules/tpm/fieldMath');
+const { summarizeVisits, collectionDays } = require('../src/modules/tpm/fieldMath');
 
 test('coverage excludes cancelled visits and splits by provider/district', () => {
   const visits = [
@@ -30,4 +30,24 @@ test('empty list yields zero coverage', () => {
   assert.equal(s.overall.total, 0);
   assert.equal(s.overall.rate, 0);
   assert.deepEqual(s.byProvider, []);
+});
+
+test('collectionDays = dated visits + manual travel days, per provider', () => {
+  const visits = [
+    { providerId: 'p1', status: 'planifie', visitDate: '2026-09-02' },
+    { providerId: 'p1', status: 'realise', visitDate: '2026-09-03' },
+    { providerId: 'p1', status: 'planifie', visitDate: null },       // no date → not counted
+    { providerId: 'p1', status: 'annule', visitDate: '2026-09-04' }, // cancelled → not counted
+    { providerId: 'p2', status: 'planifie', visitDate: '2026-09-05' },
+    { providerId: null, status: 'planifie', visitDate: '2026-09-06' }, // unassigned → ignored
+  ];
+  const rows = collectionDays(visits, { p1: 2, p2: 0 }, { p1: 'YPA', p2: 'SAHY' });
+  const p1 = rows.find((r) => r.providerId === 'p1');
+  assert.equal(p1.label, 'YPA');
+  assert.equal(p1.visitDays, 2);
+  assert.equal(p1.travelDays, 2);
+  assert.equal(p1.totalDays, 4);       // 2 visites + 2 déplacement
+  const p2 = rows.find((r) => r.providerId === 'p2');
+  assert.equal(p2.visitDays, 1);
+  assert.equal(p2.totalDays, 1);
 });
