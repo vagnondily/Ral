@@ -98,6 +98,29 @@ async function main() {
         [tenantId, ofc, cat, dur, nb, risk, feas, admin]);
     }
 
+    // ---- 2c) Critères RBM sur quelques sites (score & priorité variés) --
+    {
+      const some = (await client.query('SELECT id FROM sites WHERE tenant_id=$1 ORDER BY code LIMIT 9', [tenantId])).rows;
+      const CRIT = [
+        { issues_cfm: 2 },                                   // urgent → priorité haute
+        { fraud_suspected: 1 },                              // urgent
+        { security_situation: 2 },                           // urgent
+        { programme_synergies: 1, beneficiary_over_200: 1 }, // moyen
+        { new_partner: 1, issues_process: 1 },               // moyen
+        { beneficiary_over_200: 1 },                         // faible/moyen
+      ];
+      for (let i = 0; i < Math.min(CRIT.length, some.length); i += 1) {
+        const c = CRIT[i];
+        await client.query(
+          `UPDATE sites SET security_situation=$2, programme_synergies=$3, beneficiary_over_200=$4,
+             new_partner=$5, issues_process=$6, issues_partner_report=$7, issues_cfm=$8, fraud_suspected=$9
+           WHERE tenant_id=$1 AND id=$10`,
+          [tenantId, c.security_situation || 0, c.programme_synergies || 0, c.beneficiary_over_200 || 0,
+            c.new_partner || 0, c.issues_process || 0, c.issues_partner_report || 0, c.issues_cfm || 0,
+            c.fraud_suspected || 0, some[i].id]);
+      }
+    }
+
     // ---- 3) Plans de collecte (Planifié) --------------------------------
     await client.query("DELETE FROM tpm_collection_plans WHERE tenant_id=$1 AND title LIKE 'Test —%'", [tenantId]);
     if (tpms.length && contracts.length) {
