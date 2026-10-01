@@ -79,6 +79,25 @@ async function main() {
     const bureauSud = await mkOffice('ST-2', 'Bureau terrain Sud', 'terrain', false, communes.slice(0, half));
     await mkOffice('ST-3', 'Antenne Toliara', 'terrain', false, communes.slice(half), bureauSud);
 
+    // ---- 2b) Paramètres MMR (par bureau × catégorie d'activité) ---------
+    // Valeurs proches de la feuille « Overarching parameters » du Plan de suivi.
+    await client.query("DELETE FROM mmr_parameters WHERE tenant_id=$1 AND note='seed-test'", [tenantId]);
+    const MMR = [
+      [bureauSud, 'Cantines scolaires (SMP)', 9, 213, 2, 30],
+      [bureauSud, 'Nutrition — traitement (MAM)', 12, 310, 2, 12],
+      [bureauSud, 'Prévention malnutrition (PREV)', 6, 48, 1, 10],
+      [bureauSud, 'Transfert inconditionnel (URT)', 6, 104, 2, 12],
+    ];
+    for (const [ofc, cat, dur, nb, risk, feas] of MMR) {
+      await client.query(
+        `INSERT INTO mmr_parameters (tenant_id, field_office_id, activity_category, operation_duration, number_of_sites, risk_level, feasible, note, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'seed-test',$8)
+         ON CONFLICT (tenant_id, field_office_id, activity_category) DO UPDATE SET
+           operation_duration=EXCLUDED.operation_duration, number_of_sites=EXCLUDED.number_of_sites,
+           risk_level=EXCLUDED.risk_level, feasible=EXCLUDED.feasible, note='seed-test', updated_at=now()`,
+        [tenantId, ofc, cat, dur, nb, risk, feas, admin]);
+    }
+
     // ---- 3) Plans de collecte (Planifié) --------------------------------
     await client.query("DELETE FROM tpm_collection_plans WHERE tenant_id=$1 AND title LIKE 'Test —%'", [tenantId]);
     if (tpms.length && contracts.length) {

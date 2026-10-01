@@ -43,6 +43,7 @@ const DICT = {
     'nav.alertes.centre': 'Alert center',
     'nav.parametrage': 'Settings',
     'nav.parametrage.apercu': 'Overview',
+    'nav.parametrage.mmr': 'MMR parameters',
     'nav.parametrage.utilisateurs': 'Users & access',
     'nav.parametrage.taux': 'Exchange rates',
     'nav.parametrage.bureaux': 'Offices & antennas',

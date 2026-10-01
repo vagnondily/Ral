@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Users, ListChecks, Tags, MapPinned, Upload, Info, Download, Coins, Building2, Trash2, Clock, Pencil, ShieldCheck, ChevronRight, Lock } from 'lucide-react';
+import { Plus, Users, ListChecks, Tags, MapPinned, Upload, Info, Download, Coins, Building2, Trash2, Clock, Pencil, ShieldCheck, ChevronRight, Lock, Gauge } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton, Alert } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
@@ -16,9 +16,10 @@ const SECTIONS = {
   taux: { label: 'Taux de change', icon: Coins, group: 'Finances', desc: 'Taux de référence (ariary pour 1 USD), horodatés, pour afficher les valeurs en dollars selon la période.' },
   localites: { label: 'Localités', icon: MapPinned, group: 'Géographie', desc: 'Découpage administratif du pays (régions → districts → communes) pour les zones d\'intervention.' },
   bureaux: { label: 'Bureaux & antennes', icon: Building2, group: 'Géographie', desc: 'Bureaux terrain et antennes, et leur périmètre (communes) pour le rattachement automatique des sites.' },
+  mmr: { label: 'Paramètres MMR', icon: Gauge, group: 'Suivi', admin: true, desc: 'Exigences minimales de suivi (MMR) par bureau × activité : durée, nombre de sites, niveau de risque → intervalle, fréquence et nombre de sites ciblés par mois (base du RBM).' },
   utilisateurs: { label: 'Utilisateurs & accès', icon: ShieldCheck, group: 'Sécurité', admin: true, desc: 'Comptes, rôles (administrateur / validateur / lecteur) et activation. Qui peut faire quoi dans l\'application.' },
 };
-const GROUPS = ['Référentiels', 'Finances', 'Géographie', 'Sécurité'];
+const GROUPS = ['Référentiels', 'Finances', 'Géographie', 'Suivi', 'Sécurité'];
 
 export default function SettingsPage({ tab = 'apercu', isAdmin, onNavigate }) {
   const current = SECTIONS[tab] ? tab : 'apercu';
@@ -46,6 +47,7 @@ export default function SettingsPage({ tab = 'apercu', isAdmin, onNavigate }) {
           {current === 'taux' && <ExchangeRatesSection isAdmin={isAdmin} />}
           {current === 'localites' && <LocalitesSection isAdmin={isAdmin} />}
           {current === 'bureaux' && <BureauxSection isAdmin={isAdmin} />}
+          {current === 'mmr' && <MmrSection isAdmin={isAdmin} />}
           {current === 'utilisateurs' && <UsersSection isAdmin={isAdmin} />}
         </>
       )}
@@ -83,6 +85,146 @@ function SettingsOverview({ isAdmin, onNavigate }) {
         );
       })}
     </div>
+  );
+}
+
+/* ------------------------------------------------------- MMR -------------- */
+
+const RISK_LABEL = { 1: 'Faible', 2: 'Moyen', 3: 'Élevé' };
+const RISK_TONE = { 1: 'green', 2: 'amber', 3: 'red' };
+
+function MmrSection({ isAdmin }) {
+  const toast = useToast();
+  const [rows, setRows] = useState(null);
+  const [offices, setOffices] = useState([]);
+  const [activities, setActivities] = useState([]);
+  const [modal, setModal] = useState(null);
+
+  async function reload() { try { setRows(await api.listMmr()); } catch (e) { toast.error(e.message); setRows([]); } }
+  useEffect(() => {
+    reload();
+    api.listOffices().then((o) => setOffices(o.filter((x) => x.active))).catch(() => setOffices([]));
+    api.listActivities().then(setActivities).catch(() => setActivities([]));
+    /* eslint-disable-next-line */
+  }, []);
+
+  async function remove(r) {
+    if (!window.confirm(`Supprimer le paramètre MMR « ${r.fieldOfficeName} · ${r.activityCategory} » ?`)) return;
+    try { await api.deleteMmr(r.id); toast.success('Paramètre supprimé.'); reload(); } catch (e) { toast.error(e.message); }
+  }
+
+  const num = (v) => (v == null ? '—' : v);
+  return (
+    <Card aria-labelledby="mmr-title">
+      <CardHeader id="mmr-title" title="Paramètres MMR (exigences minimales de suivi)"
+        subtitle="Par bureau × catégorie d'activité : durée d'opération, nombre de sites et niveau de risque. L'intervalle, la fréquence et le nombre de sites ciblés par mois sont calculés automatiquement (base du RBM et de la planification).">
+        {isAdmin && <Button icon={Plus} onClick={() => setModal({})} disabled={!offices.length}>Nouveau paramètre</Button>}
+      </CardHeader>
+      {!offices.length && <div className="card-body"><Alert tone="warn" icon={Info}>Créez d'abord des bureaux dans Paramétrage › Bureaux & antennes.</Alert></div>}
+      {rows === null ? <div className="card-body"><Skeleton height={120} /></div> : rows.length === 0 ? (
+        <EmptyState icon={Gauge} title="Aucun paramètre MMR" action={isAdmin && offices.length ? <Button icon={Plus} onClick={() => setModal({})}>Nouveau paramètre</Button> : null}>
+          Définissez les exigences de suivi par bureau et catégorie d'activité pour piloter la fréquence des visites.
+        </EmptyState>
+      ) : (
+        <div className="table-wrap"><table className="table">
+          <thead><tr>
+            <th scope="col">Bureau</th><th scope="col">Catégorie d'activité</th>
+            <th scope="col" className="num">Durée (mois)</th><th scope="col" className="num">Nb sites</th>
+            <th scope="col">Risque</th><th scope="col" className="num">Intervalle (mois)</th>
+            <th scope="col" className="num">Fréquence</th><th scope="col" className="num">Ciblé / mois</th>
+            <th scope="col" className="num">Faisable</th><th scope="col">Couverture</th>{isAdmin && <th scope="col" />}
+          </tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td><strong>{r.fieldOfficeName}</strong></td>
+                <td>{r.activityCategory}</td>
+                <td className="num tabular">{r.operationDuration}</td>
+                <td className="num tabular">{formatInt(r.numberOfSites)}</td>
+                <td><Badge tone={RISK_TONE[r.riskLevel]}>{RISK_LABEL[r.riskLevel] || r.riskLevel}</Badge></td>
+                <td className="num tabular">{num(r.interval)}</td>
+                <td className="num tabular">{num(r.frequency)}</td>
+                <td className="num tabular"><strong>{r.targetedPerMonth == null ? '—' : Math.round(r.targetedPerMonth)}</strong></td>
+                <td className="num tabular">{num(r.feasible)}</td>
+                <td>{r.coverageRatio == null ? <span className="cell-empty">—</span>
+                  : <Badge tone={r.feasibleMeetsTarget ? 'green' : 'red'}>{Math.round(r.coverageRatio * 100)} %</Badge>}</td>
+                {isAdmin && <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <Button size="sm" variant="ghost" icon={Pencil} aria-label="Éditer" onClick={() => setModal({ row: r })} />
+                  <Button size="sm" variant="ghost" icon={Trash2} aria-label="Supprimer" onClick={() => remove(r)} />
+                </td>}
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      )}
+      <div className="note"><Info size={18} aria-hidden="true" /><span>Intervalle = durée ÷ risque · Fréquence = durée ÷ intervalle · Ciblé/mois = nb sites ÷ intervalle · Couverture = faisable ÷ ciblé. Plus le risque est élevé, plus l'intervalle est court et la cible grande.</span></div>
+      {modal && <MmrModal row={modal.row} offices={offices} activities={activities} onClose={() => setModal(null)} onSaved={() => { setModal(null); reload(); }} />}
+    </Card>
+  );
+}
+
+function MmrModal({ row, offices, activities, onClose, onSaved }) {
+  const toast = useToast();
+  const editing = Boolean(row);
+  const [form, setForm] = useState({
+    fieldOfficeId: row?.fieldOfficeId || (offices[0]?.id || ''),
+    activityCategory: row?.activityCategory || '',
+    operationDuration: row?.operationDuration ?? 12,
+    numberOfSites: row?.numberOfSites ?? 0,
+    riskLevel: row?.riskLevel ?? 2,
+    feasible: row?.feasible ?? '',
+  });
+  const [saving, setSaving] = useState(false);
+
+  // Aperçu en direct des valeurs dérivées (même formule que le serveur).
+  const risk = Number(form.riskLevel) || 0; const dur = Number(form.operationDuration) || 0; const sites = Number(form.numberOfSites) || 0;
+  const interval = risk > 0 ? Math.round((dur / risk) * 100) / 100 : null;
+  const targeted = interval > 0 ? Math.round(sites / interval) : null;
+
+  async function save(e) {
+    e.preventDefault();
+    if (!form.fieldOfficeId) { toast.error('Choisissez un bureau.'); return; }
+    if (form.activityCategory.trim().length < 1) { toast.error('Indiquez la catégorie d\'activité.'); return; }
+    setSaving(true);
+    try {
+      await api.saveMmr({
+        fieldOfficeId: form.fieldOfficeId, activityCategory: form.activityCategory.trim(),
+        operationDuration: Number(form.operationDuration), numberOfSites: Number(form.numberOfSites),
+        riskLevel: Number(form.riskLevel), feasible: form.feasible === '' ? null : Number(form.feasible),
+      });
+      toast.success('Paramètre MMR enregistré.'); onSaved();
+    } catch (err) { toast.error(err.message); } finally { setSaving(false); }
+  }
+
+  return (
+    <Modal open title={editing ? 'Modifier le paramètre MMR' : 'Nouveau paramètre MMR'} subtitle="Par bureau × catégorie d'activité." onClose={() => !saving && onClose()}
+      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>Annuler</Button><Button type="submit" form="mmr-form" loading={saving}>Enregistrer</Button></>}>
+      <form id="mmr-form" onSubmit={save} style={{ display: 'grid', gap: 14 }}>
+        <div className="form-grid">
+          <Field label="Bureau">
+            <select className="select" value={form.fieldOfficeId} onChange={(e) => setForm({ ...form, fieldOfficeId: e.target.value })} disabled={editing}>
+              {offices.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Catégorie d'activité" hint="Ex. Cantines scolaires, Nutrition…">
+            <input className="input" list="mmr-acts" value={form.activityCategory} disabled={editing}
+              onChange={(e) => setForm({ ...form, activityCategory: e.target.value })} placeholder="Catégorie…" />
+            <datalist id="mmr-acts">{activities.map((a) => <option key={a.id} value={a.label} />)}</datalist>
+          </Field>
+        </div>
+        <div className="form-grid">
+          <Field label="Durée d'opération (mois / an)"><input className="input tabular" type="number" min="0" max="12" value={form.operationDuration} onChange={(e) => setForm({ ...form, operationDuration: e.target.value })} /></Field>
+          <Field label="Nombre de sites"><input className="input tabular" type="number" min="0" value={form.numberOfSites} onChange={(e) => setForm({ ...form, numberOfSites: e.target.value })} /></Field>
+          <Field label="Niveau de risque">
+            <select className="select" value={form.riskLevel} onChange={(e) => setForm({ ...form, riskLevel: e.target.value })}>
+              <option value="1">1 — Faible</option><option value="2">2 — Moyen</option><option value="3">3 — Élevé</option>
+            </select>
+          </Field>
+          <Field label="Faisable (sites/mois, optionnel)" hint="Capacité réelle des équipes."><input className="input tabular" type="number" min="0" value={form.feasible} onChange={(e) => setForm({ ...form, feasible: e.target.value })} /></Field>
+        </div>
+        <div className="note"><Gauge size={18} aria-hidden="true" /><span>Calcul : intervalle <strong>{interval ?? '—'}</strong> mois · fréquence <strong>{interval > 0 ? Math.round((dur / interval) * 100) / 100 : '—'}</strong> · <strong>{targeted ?? '—'}</strong> site(s) ciblé(s) par mois.</span></div>
+      </form>
+    </Modal>
   );
 }
 

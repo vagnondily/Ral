@@ -84,6 +84,24 @@ router.delete('/offices/:id', ADMIN, asyncHandler(async (req, res) => {
   return res.status(204).end();
 }));
 
+// ---- MMR (Minimum Monitoring Requirements) — lecture tous, écriture admin.
+router.get('/mmr', asyncHandler(async (req, res) => res.json(await repo.listMmr(t(req)))));
+const mmrBody = z.object({
+  fieldOfficeId: z.string().uuid(),
+  activityCategory: z.string().trim().min(1).max(160),
+  operationDuration: z.number().int().min(0).max(12),
+  numberOfSites: z.number().int().min(0).max(100000),
+  riskLevel: z.number().int().min(1).max(3),
+  feasible: z.number().int().min(0).max(100000).optional().nullable(),
+  note: z.string().trim().max(200).optional().or(z.literal('').transform(() => undefined)),
+});
+router.post('/mmr', ADMIN, body(mmrBody), asyncHandler(async (req, res) =>
+  res.status(201).json({ id: await repo.upsertMmr(t(req), req.valid, req.auth.userId) })));
+router.delete('/mmr/:id', ADMIN, asyncHandler(async (req, res) => {
+  if (!(await repo.deleteMmr(t(req), req.params.id))) return res.status(404).json({ error: 'Paramètre MMR introuvable' });
+  return res.status(204).end();
+}));
+
 // ---- Partners (unified registry)
 router.get('/partners', asyncHandler(async (req, res) =>
   res.json(await repo.listPartners(t(req), { typeCode: req.query.type }))));

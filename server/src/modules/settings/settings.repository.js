@@ -430,6 +430,46 @@ async function deleteOffice(tenantId, id) {
   });
 }
 
+// ---- MMR — Minimum Monitoring Requirements (par bureau × activité) -------
+const { deriveMmr } = require('../tpm/mmrMath');
+
+async function listMmr(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT m.id, m.field_office_id AS "fieldOfficeId", o.name AS "fieldOfficeName",
+              m.activity_category AS "activityCategory", m.operation_duration AS "operationDuration",
+              m.number_of_sites AS "numberOfSites", m.risk_level AS "riskLevel", m.feasible, m.note
+         FROM mmr_parameters m JOIN field_offices o ON o.id = m.field_office_id
+        WHERE m.tenant_id = $1 ORDER BY o.name, m.activity_category`,
+      [tenantId]
+    );
+    // Dérive intervalle/fréquence/cible/ratio depuis la logique pure.
+    return rows.map((r) => ({ ...r, ...deriveMmr(r) }));
+  });
+}
+
+async function upsertMmr(tenantId, { fieldOfficeId, activityCategory, operationDuration, numberOfSites, riskLevel, feasible, note }, userId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `INSERT INTO mmr_parameters (tenant_id, field_office_id, activity_category, operation_duration, number_of_sites, risk_level, feasible, note, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (tenant_id, field_office_id, activity_category) DO UPDATE SET
+         operation_duration = EXCLUDED.operation_duration, number_of_sites = EXCLUDED.number_of_sites,
+         risk_level = EXCLUDED.risk_level, feasible = EXCLUDED.feasible, note = EXCLUDED.note, updated_at = now()
+       RETURNING id`,
+      [tenantId, fieldOfficeId, activityCategory, operationDuration, numberOfSites, riskLevel, feasible ?? null, note || null, userId]
+    );
+    return rows[0].id;
+  });
+}
+
+async function deleteMmr(tenantId, id) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rowCount } = await client.query('DELETE FROM mmr_parameters WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+    return rowCount === 1;
+  });
+}
+
 module.exports = {
   listPartnerTypes, createPartnerType,
   listActivities, createActivity, setActivityActive,
@@ -438,4 +478,5 @@ module.exports = {
   listAdminLevels, listAdminAreas, adminBreakdownSummary, replaceAdminBreakdown,
   listExchangeRates, upsertExchangeRate, deleteExchangeRate,
   listCommunes, officesWithCounts, officePerimeter, createOffice, updateOffice, deleteOffice,
+  listMmr, upsertMmr, deleteMmr,
 };
