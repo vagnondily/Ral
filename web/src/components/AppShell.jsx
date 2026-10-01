@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  FileSignature, Handshake, Wallet, ClipboardCheck,
+  FileSignature, Handshake, ClipboardCheck,
   LayoutDashboard, ChartColumn, Bell, Settings, Menu, ChevronRight, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { IconButton } from './ui.jsx';
@@ -32,6 +32,7 @@ export const NAV = [
           { id: 'formations', label: 'Formations' },
           { id: 'evaluation', label: 'Évaluation' },
           { id: 'affectation', label: 'Affectation & calendrier' },
+          { id: 'budget', label: 'Planification & budget' },
           { id: 'rapports', label: 'Rapports & dépenses' },
         ],
       },
@@ -43,10 +44,6 @@ export const NAV = [
           { id: 'rbm', label: 'Risk-Based Monitoring' },
           { id: 'carte', label: 'Carte des sites', soon: true },
         ],
-      },
-      {
-        id: 'planification', label: 'Planification & budget', icon: Wallet,
-        subs: [{ id: 'budget', label: 'Budget prévisionnel' }],
       },
     ],
   },
