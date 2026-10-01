@@ -34,24 +34,28 @@ export function SortTh({ label, k, sort, onSort, className }) {
 }
 
 /**
- * Saved views, persistent in localStorage and temporary in sessionStorage,
- * under one storage key per page. A view is an opaque payload (filters +
- * columns + sort) plus { id, name, temp }.
+ * Remembered filter/view for a list page — ONE slot per scope, no names:
+ *  • temporaire  → sessionStorage (this session only)
+ *  • permanent   → localStorage (persists for the user)
+ * The payload is opaque (filters + chosen columns + sort). At load the
+ * temporary slot wins over the permanent one, so a quick ad-hoc filter does
+ * not overwrite the user's saved default.
  */
 export function makeViewStore(storageKey) {
-  const parse = (store) => { try { return JSON.parse(store.getItem(storageKey) || '[]'); } catch { return []; } };
-  function readViews() {
-    try {
-      const perm = parse(window.localStorage).map((v) => ({ ...v, temp: false }));
-      const temp = parse(window.sessionStorage).map((v) => ({ ...v, temp: true }));
-      return [...perm, ...temp];
-    } catch { return []; }
-  }
-  function writeViews(views) {
-    const perm = views.filter((v) => !v.temp).map(({ temp, ...v }) => v);
-    const temp = views.filter((v) => v.temp).map(({ temp, ...v }) => v);
-    try { window.localStorage.setItem(storageKey, JSON.stringify(perm)); } catch { /* ignore */ }
-    try { window.sessionStorage.setItem(storageKey, JSON.stringify(temp)); } catch { /* ignore */ }
-  }
-  return { readViews, writeViews };
+  const read = (store) => { try { const v = store.getItem(storageKey); return v ? JSON.parse(v) : null; } catch { return null; } };
+  return {
+    initial() {
+      const temp = read(window.sessionStorage);
+      if (temp) return { ...temp, scope: 'temp' };
+      const perm = read(window.localStorage);
+      if (perm) return { ...perm, scope: 'perm' };
+      return null;
+    },
+    saveTemp(payload) { try { window.sessionStorage.setItem(storageKey, JSON.stringify(payload)); } catch { /* ignore */ } },
+    savePerm(payload) { try { window.localStorage.setItem(storageKey, JSON.stringify(payload)); } catch { /* ignore */ } },
+    clear() {
+      try { window.sessionStorage.removeItem(storageKey); } catch { /* ignore */ }
+      try { window.localStorage.removeItem(storageKey); } catch { /* ignore */ }
+    },
+  };
 }
