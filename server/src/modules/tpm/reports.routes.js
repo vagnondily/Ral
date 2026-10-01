@@ -129,6 +129,15 @@ router.put('/:id/items', WRITE, body(itemsSchema), asyncHandler(async (req, res)
   }
 }));
 
+// Supprimer un rapport encore en brouillon (non validé). Un rapport validé
+// alimente la consommation budgétaire : il est verrouillé.
+router.delete('/:id', WRITE, asyncHandler(async (req, res) => {
+  const outcome = await repo.deleteReport(t(req), req.params.id);
+  if (outcome === null) throw notFound('Rapport introuvable');
+  if (outcome === 'locked') throw conflict('Un rapport validé ne peut pas être supprimé.');
+  res.status(204).end();
+}));
+
 const decisionSchema = z.object({ comment: z.string().trim().max(1000).optional() });
 
 router.post('/:id/approve', body(decisionSchema), asyncHandler(async (req, res) => {

@@ -40,6 +40,21 @@ router.patch('/activities/:id', ADMIN, body(z.object({ active: z.boolean() })), 
   return res.status(204).end();
 }));
 
+// ---- Exchange rates (ariary pour 1 USD), horodatés — lecture pour tous,
+// écriture admin. Sert à « regarder les valeurs en dollars selon la période ».
+router.get('/exchange-rates', asyncHandler(async (req, res) => res.json(await repo.listExchangeRates(t(req)))));
+const rateBody = z.object({
+  effectiveMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Mois AAAA-MM requis'),
+  usdRate: z.number().positive().max(1e9),
+  note: z.string().trim().max(200).optional().or(z.literal('').transform(() => undefined)),
+});
+router.post('/exchange-rates', ADMIN, body(rateBody), asyncHandler(async (req, res) =>
+  res.status(201).json(await repo.upsertExchangeRate(t(req), req.valid, req.auth.userId))));
+router.delete('/exchange-rates/:id', ADMIN, asyncHandler(async (req, res) => {
+  if (!(await repo.deleteExchangeRate(t(req), req.params.id))) return res.status(404).json({ error: 'Taux introuvable' });
+  return res.status(204).end();
+}));
+
 // ---- Partners (unified registry)
 router.get('/partners', asyncHandler(async (req, res) =>
   res.json(await repo.listPartners(t(req), { typeCode: req.query.type }))));
