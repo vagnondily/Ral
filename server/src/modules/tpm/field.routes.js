@@ -41,7 +41,13 @@ router.post('/sites', WRITE, body(siteSchema), asyncHandler(async (req, res) => 
   try { res.status(201).json({ id: await repo.createSite(t(req), req.valid) }); }
   catch (err) { if (err.code === '23505') throw badRequest('Ce site existe déjà (district + commune + nom).'); throw err; }
 }));
-router.patch('/sites/:id', WRITE, body(siteSchema.partial().extend({ riskLevel: z.enum(['faible', 'moyenne', 'elevee']).optional() })), asyncHandler(async (req, res) => {
+const crit02 = z.number().int().min(0).max(2).optional();
+const crit01 = z.number().int().min(0).max(1).optional();
+router.patch('/sites/:id', WRITE, body(siteSchema.partial().extend({
+  riskLevel: z.enum(['faible', 'moyenne', 'elevee']).optional(),
+  security: crit02, synergies: crit01, beneficiaryOver200: crit01, newPartner: crit01,
+  issuesProcess: crit02, issuesPartnerReport: crit02, issuesCFM: crit02, fraud: crit01,
+})), asyncHandler(async (req, res) => {
   if (!(await repo.updateSite(t(req), req.params.id, req.valid))) throw notFound('Site introuvable');
   res.status(204).end();
 }));

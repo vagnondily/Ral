@@ -1,6 +1,7 @@
 const { withTenantTransaction } = require('../../config/db');
 const { summarizeVisits, collectionDays } = require('./fieldMath');
-const { isDue } = require('./rbmMath');
+const { isDue, frequencyFor } = require('./rbmMath');
+const { scoreSite } = require('./rbmScore');
 
 /**
  * Suivi terrain — planification/réalisation des visites, affectées aux
@@ -50,9 +51,19 @@ async function updateSite(tenantId, id, s) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rowCount } = await client.query(
       `UPDATE sites SET district = COALESCE($3, district), commune = COALESCE($4, commune),
-         fokontany = $5, name = COALESCE($6, name), activity = $7, risk_level = COALESCE($8, risk_level)
+         fokontany = $5, name = COALESCE($6, name), activity = $7, risk_level = COALESCE($8, risk_level),
+         security_situation = COALESCE($9, security_situation),
+         programme_synergies = COALESCE($10, programme_synergies),
+         beneficiary_over_200 = COALESCE($11, beneficiary_over_200),
+         new_partner = COALESCE($12, new_partner),
+         issues_process = COALESCE($13, issues_process),
+         issues_partner_report = COALESCE($14, issues_partner_report),
+         issues_cfm = COALESCE($15, issues_cfm),
+         fraud_suspected = COALESCE($16, fraud_suspected)
        WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id, s.district ?? null, s.commune ?? null, s.fokontany ?? null, s.name ?? null, s.activity ?? null, s.riskLevel ?? null]
+      [tenantId, id, s.district ?? null, s.commune ?? null, s.fokontany ?? null, s.name ?? null, s.activity ?? null, s.riskLevel ?? null,
+        s.security ?? null, s.synergies ?? null, s.beneficiaryOver200 ?? null, s.newPartner ?? null,
+        s.issuesProcess ?? null, s.issuesPartnerReport ?? null, s.issuesCFM ?? null, s.fraud ?? null]
     );
     return rowCount > 0;
   });
@@ -61,6 +72,10 @@ async function updateSite(tenantId, id, s) {
 // ---- RBM (Risk-Based Monitoring) ----------------------------------------
 const RBM_SELECT = `
   SELECT s.id, s.code, s.name, s.district, s.commune, s.activity, s.risk_level AS "riskLevel",
+         s.security_situation AS "security", s.programme_synergies AS "synergies",
+         s.beneficiary_over_200 AS "beneficiaryOver200", s.new_partner AS "newPartner",
+         s.issues_process AS "issuesProcess", s.issues_partner_report AS "issuesPartnerReport",
+         s.issues_cfm AS "issuesCFM", s.fraud_suspected AS "fraud",
          to_char(mv.last, 'YYYY-MM') AS "lastVisitMonth"
     FROM sites s
     LEFT JOIN LATERAL (
@@ -76,7 +91,16 @@ async function rbmSites(tenantId, { month, risk } = {}) {
     if (risk) { params.push(risk); where = ` AND s.risk_level = $${params.length}`; }
     const { rows } = await client.query(`${RBM_SELECT}${where} ORDER BY s.district, s.commune, s.name`, params);
     const target = month ? String(month).slice(0, 7) : null;
-    return rows.map((r) => ({ ...r, due: target ? isDue(r.riskLevel, r.lastVisitMonth, target) : false }));
+    return rows.map((r) => {
+      // Intervalle de référence : fréquence RBM selon le niveau de risque
+      // (en l'absence d'un paramètre MMR précis pour ce site).
+      const interval = frequencyFor(r.riskLevel);
+      const score = scoreSite(r, { targetMonth: target, mmrInterval: interval });
+      // « À suivre » = retard (score) OU échéance de fréquence atteinte (isDue),
+      // pour rester cohérent avec l'ancienne logique.
+      const due = target ? (score.due || isDue(r.riskLevel, r.lastVisitMonth, target)) : false;
+      return { ...r, ...score, due };
+    });
   });
 }
 
