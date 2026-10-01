@@ -243,6 +243,13 @@ or navy rail.
   consumption gauges and alerts — dependency-free inline SVG with hover
   tooltips, legends and direct labels; series colours validated with the dataviz
   palette checker. Fed live from the consolidation API.
+- **Reporting — rapport de synthèse** (`web/src/pages/dashboard/ReportingPage.jsx`,
+  nav « Reporting › Rapport de synthèse ») : pour une période, situation
+  budgétaire par contrat (consolidation) + couverture terrain par district
+  (visites), avec exports CSV et impression/PDF (navigateur). Lecture seule,
+  recalculé en direct, rien stocké.
+- The Power BI dashboard also shows a **« Couverture terrain — mois courant »**
+  card (visites réalisées/planifiées par district), fed by the field summary API.
 - **Centre d'alertes** (`web/src/pages/dashboard/AlertsPage.jsx`, nav
   « Alertes › Centre d'alertes ») : agrège en direct (aucun stockage) ce qui
   demande attention pour le responsable S&E — dépassements/​projections

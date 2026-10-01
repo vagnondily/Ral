@@ -13,6 +13,7 @@ import ReportsPage from './pages/tpm/ReportsPage.jsx';
 import ConsolidationPage from './pages/dashboard/ConsolidationPage.jsx';
 import DashboardBIPage from './pages/dashboard/DashboardBIPage.jsx';
 import AlertsPage from './pages/dashboard/AlertsPage.jsx';
+import ReportingPage from './pages/dashboard/ReportingPage.jsx';
 import PlanningPage from './pages/tpm/PlanningPage.jsx';
 import ProcessMonitoringPage from './pages/monitoring/ProcessMonitoringPage.jsx';
 import FieldVisitsPage from './pages/monitoring/FieldVisitsPage.jsx';
@@ -92,6 +93,7 @@ function Workspace() {
       {route.module === 'dashboard' && route.sub === 'apercu' && <DashboardBIPage onOpenContract={openContract} />}
       {route.module === 'dashboard' && route.sub === 'consolidation' && <ConsolidationPage onOpenContract={openContract} />}
       {route.module === 'alertes' && <AlertsPage onNavigate={navigate} onOpenContract={openContract} />}
+      {route.module === 'reporting' && <ReportingPage onOpenContract={openContract} />}
       {route.module === 'planification' && route.sub === 'budget' && <PlanningPage canEdit={canEdit} />}
       {route.module === 'processus' && route.sub === 'donnees' && <ProcessMonitoringPage canEdit={canEdit} />}
       {route.module === 'processus' && route.sub === 'sites' && <FieldVisitsPage canEdit={canEdit} />}

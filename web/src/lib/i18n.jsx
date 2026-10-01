@@ -38,6 +38,7 @@ const DICT = {
     'nav.dashboard.consolidation': 'Consolidated budget tracking',
     'nav.dashboard': 'Decision dashboard',
     'nav.reporting': 'Reporting',
+    'nav.reporting.synthese': 'Synthesis report',
     'nav.alertes': 'Alerts',
     'nav.alertes.centre': 'Alert center',
     'nav.parametrage': 'Settings',
