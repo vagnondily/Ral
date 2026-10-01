@@ -55,6 +55,35 @@ router.delete('/exchange-rates/:id', ADMIN, asyncHandler(async (req, res) => {
   return res.status(204).end();
 }));
 
+// ---- Bureaux & antennes — lecture pour tous, écriture admin.
+router.get('/offices', asyncHandler(async (req, res) => res.json(await repo.officesWithCounts(t(req)))));
+router.get('/offices/communes', asyncHandler(async (req, res) => res.json(await repo.listCommunes(t(req)))));
+router.get('/offices/:id/perimeter', asyncHandler(async (req, res) => res.json(await repo.officePerimeter(t(req), req.params.id))));
+const communeItem = z.object({ district: z.string().trim().max(120).optional().or(z.literal('').transform(() => undefined)), commune: z.string().trim().min(1).max(120) });
+const officeBody = z.object({
+  code: z.string().trim().min(1).max(40),
+  name: z.string().trim().min(2).max(160),
+  nature: z.enum(['pays', 'terrain']).optional(),
+  parentId: z.string().uuid().optional().or(z.literal('').transform(() => undefined)),
+  responsible: z.string().trim().max(160).optional().or(z.literal('').transform(() => undefined)),
+  national: z.boolean().optional(),
+  active: z.boolean().optional(),
+  communes: z.array(communeItem).max(2000).optional(),
+});
+router.post('/offices', ADMIN, body(officeBody), asyncHandler(async (req, res) => {
+  try { res.status(201).json({ id: await repo.createOffice(t(req), req.valid) }); }
+  catch (err) { if (err.code === '23505') throw badRequest('Ce code de bureau existe déjà.'); throw err; }
+}));
+router.patch('/offices/:id', ADMIN, body(officeBody.partial()), asyncHandler(async (req, res) => {
+  try { if (!(await repo.updateOffice(t(req), req.params.id, req.valid))) return res.status(404).json({ error: 'Bureau introuvable' }); }
+  catch (err) { if (err.code === '23505') throw badRequest('Ce code de bureau existe déjà.'); throw err; }
+  return res.status(204).end();
+}));
+router.delete('/offices/:id', ADMIN, asyncHandler(async (req, res) => {
+  if (!(await repo.deleteOffice(t(req), req.params.id))) return res.status(404).json({ error: 'Bureau introuvable' });
+  return res.status(204).end();
+}));
+
 // ---- Partners (unified registry)
 router.get('/partners', asyncHandler(async (req, res) =>
   res.json(await repo.listPartners(t(req), { typeCode: req.query.type }))));

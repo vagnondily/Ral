@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Users, ListChecks, Tags, MapPinned, Upload, Info, Download, Coins, Building2, Trash2, Clock } from 'lucide-react';
+import { Plus, Users, ListChecks, Tags, MapPinned, Upload, Info, Download, Coins, Building2, Trash2, Clock, Pencil } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton, Alert } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import MoneyInput from '../../components/MoneyInput.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import { formatAr, formatDateTime } from '../../lib/format.js';
+import { formatAr, formatInt, formatDateTime } from '../../lib/format.js';
 
 const NAV = [
   { id: 'partenaires', label: 'Partenaires', icon: Users },
@@ -101,14 +101,151 @@ function ExchangeRatesSection({ isAdmin }) {
   );
 }
 
-/* ------------------------------------------------------- Bureaux (placeholder) -- */
+/* ------------------------------------------------------- Bureaux & antennes -- */
 
-function BureauxSection() {
+function BureauxSection({ isAdmin }) {
+  const toast = useToast();
+  const [offices, setOffices] = useState(null);
+  const [communes, setCommunes] = useState([]);
+  const [modal, setModal] = useState(null); // {office?} | null
+
+  async function reload() { try { setOffices(await api.listOffices()); } catch (e) { toast.error(e.message); setOffices([]); } }
+  useEffect(() => { reload(); api.officeCommunes().then(setCommunes).catch(() => setCommunes([])); /* eslint-disable-next-line */ }, []);
+
+  async function remove(o) {
+    if (!window.confirm(`Supprimer le bureau « ${o.name} » ?`)) return;
+    try { await api.deleteOffice(o.id); toast.success('Bureau supprimé.'); reload(); } catch (e) { toast.error(e.message); }
+  }
+
+  const nationalCount = (offices || []).filter((o) => o.national).length;
   return (
-    <Card>
-      <CardHeader title="Bureaux & antennes" subtitle="Bientôt : bureaux terrain, antennes et périmètre (communes) pour le rattachement automatique des sites par point GPS (adm1–4)." />
-      <div className="card-body"><Alert tone="info" icon={Info}>Module en cours de construction : il permettra de créer les bureaux (pays/terrain), de définir leur périmètre par communes (découpage adm.) et de rattacher automatiquement chaque site à son bureau selon ses coordonnées GPS.</Alert></div>
+    <Card aria-labelledby="off-title">
+      <CardHeader id="off-title" title="Bureaux & antennes"
+        subtitle="Bureau pays (périmètre national) ou bureau terrain / antenne avec un périmètre de communes. Les sites sont rattachés automatiquement selon leur commune.">
+        {isAdmin && <Button icon={Plus} onClick={() => setModal({})}>Ajouter un bureau</Button>}
+      </CardHeader>
+      {offices === null ? <div className="card-body"><Skeleton height={120} /></div> : offices.length === 0 ? (
+        <EmptyState icon={Building2} title="Aucun bureau" action={isAdmin && <Button icon={Plus} onClick={() => setModal({})}>Ajouter un bureau</Button>}>
+          Créez vos bureaux terrain et antennes, puis définissez leur périmètre de communes pour rattacher les sites.
+        </EmptyState>
+      ) : (
+        <>
+          <div className="card-body" style={{ paddingBottom: 0 }}>
+            <span className="hint">{offices.length} bureau(x) · {offices.filter((o) => o.active).length} actifs · {nationalCount} à périmètre national</span>
+          </div>
+          <div className="table-wrap"><table className="table">
+            <thead><tr>
+              <th scope="col">Bureau</th><th scope="col">Code</th><th scope="col">Nature</th><th scope="col">Périmètre</th>
+              <th scope="col" className="num">Sites</th><th scope="col">Statut</th>{isAdmin && <th scope="col" />}
+            </tr></thead>
+            <tbody>
+              {offices.map((o) => (
+                <tr key={o.id}>
+                  <td><strong>{o.name}</strong>{o.parentName && <div className="site-meta">antenne de {o.parentName}</div>}{o.responsible && <div className="site-meta">{o.responsible}</div>}</td>
+                  <td><span className="mono">{o.code}</span></td>
+                  <td><Badge tone={o.nature === 'pays' ? 'blue' : null}>{o.nature === 'pays' ? 'bureau pays' : 'terrain'}</Badge></td>
+                  <td>{o.national ? <Badge tone="green">national — tous les sites</Badge> : <span className="tag">{o.communeCount} commune(s)</span>}</td>
+                  <td className="num tabular">{formatInt(o.siteCount)}</td>
+                  <td><Badge tone={o.active ? 'green' : null} dot>{o.active ? 'Actif' : 'Inactif'}</Badge></td>
+                  {isAdmin && <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <Button size="sm" variant="ghost" icon={Pencil} aria-label="Éditer" onClick={() => setModal({ office: o })} />
+                    <Button size="sm" variant="ghost" icon={Trash2} aria-label="Supprimer" onClick={() => remove(o)} />
+                  </td>}
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+        </>
+      )}
+      {modal && <OfficeModal office={modal.office} offices={offices || []} communes={communes} onClose={() => setModal(null)} onSaved={() => { setModal(null); reload(); }} />}
     </Card>
+  );
+}
+
+function OfficeModal({ office, offices, communes, onClose, onSaved }) {
+  const toast = useToast();
+  const editing = Boolean(office);
+  const [form, setForm] = useState({
+    code: office?.code || '', name: office?.name || '', nature: office?.nature || 'terrain',
+    parentId: office?.parentId || '', responsible: office?.responsible || '',
+    national: office?.national || false, active: office?.active ?? true,
+  });
+  const [picked, setPicked] = useState(() => new Set());
+  const [q, setQ] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (editing) api.officePerimeter(office.id).then((rows) => setPicked(new Set(rows.map((r) => r.commune)))).catch(() => {});
+  }, [editing, office]);
+
+  const key = (c) => c.commune;
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    return communes.filter((c) => !s || c.commune.toLowerCase().includes(s) || (c.district || '').toLowerCase().includes(s)).slice(0, 400);
+  }, [communes, q]);
+
+  function toggle(c) { setPicked((prev) => { const n = new Set(prev); if (n.has(key(c))) n.delete(key(c)); else n.add(key(c)); return n; }); }
+
+  async function save(e) {
+    e.preventDefault();
+    if (!form.code.trim() || form.name.trim().length < 2) { toast.error('Code et nom (≥ 2 caractères) requis.'); return; }
+    setSaving(true);
+    const chosen = communes.filter((c) => picked.has(key(c))).map((c) => ({ district: c.district || undefined, commune: c.commune }));
+    const payload = {
+      code: form.code.trim(), name: form.name.trim(), nature: form.nature,
+      parentId: form.parentId || undefined, responsible: form.responsible.trim() || undefined,
+      national: form.national, active: form.active, communes: form.national ? [] : chosen,
+    };
+    try {
+      if (editing) await api.updateOffice(office.id, payload); else await api.createOffice(payload);
+      toast.success('Bureau enregistré.'); onSaved();
+    } catch (err) { toast.error(err.message); } finally { setSaving(false); }
+  }
+
+  return (
+    <Modal open size="lg" title={editing ? 'Modifier le bureau' : 'Nouveau bureau'} subtitle="Bureau pays (national) ou terrain / antenne avec périmètre de communes." onClose={() => !saving && onClose()}
+      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>Annuler</Button><Button type="submit" form="office-form" loading={saving}>Enregistrer</Button></>}>
+      <form id="office-form" onSubmit={save} style={{ display: 'grid', gap: 14 }}>
+        <div className="form-grid">
+          <Field label="Code"><input className="input mono" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="1" /></Field>
+          <Field label="Nom du bureau"><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Toliara" /></Field>
+          <Field label="Nature">
+            <select className="select" value={form.nature} onChange={(e) => setForm({ ...form, nature: e.target.value })}>
+              <option value="terrain">Bureau terrain</option><option value="pays">Bureau pays</option>
+            </select>
+          </Field>
+          <Field label="Antenne de (optionnel)">
+            <select className="select" value={form.parentId} onChange={(e) => setForm({ ...form, parentId: e.target.value })}>
+              <option value="">— Bureau principal —</option>
+              {offices.filter((o) => !office || o.id !== office.id).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Responsable (optionnel)"><input className="input" value={form.responsible} onChange={(e) => setForm({ ...form, responsible: e.target.value })} /></Field>
+        </div>
+        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+          <label className="filter-check"><input type="checkbox" checked={form.national} onChange={(e) => setForm({ ...form, national: e.target.checked })} /><span>Périmètre national (tous les sites)</span></label>
+          <label className="filter-check"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /><span>Actif</span></label>
+        </div>
+
+        {!form.national && (
+          <div className="field">
+            <span className="field-label">Périmètre — communes ({picked.size} sélectionnée(s))</span>
+            <input className="input" placeholder="Filtrer les communes…" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 8 }} />
+            {communes.length === 0 ? <p className="muted">Aucune commune dans le registre de sites. Importez des sites (Master Data / planning) d'abord.</p> : (
+              <div style={{ maxHeight: 240, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+                {filtered.map((c) => (
+                  <label key={`${c.district}|${c.commune}`} className="filter-pick" style={{ padding: '6px 10px' }}>
+                    <input type="checkbox" checked={picked.has(key(c))} onChange={() => toggle(c)} />
+                    <span>{c.commune}{c.district ? <span className="site-meta"> · {c.district}</span> : null}</span>
+                  </label>
+                ))}
+                {filtered.length === 0 && <p className="muted" style={{ padding: 10 }}>Aucune commune ne correspond.</p>}
+              </div>
+            )}
+          </div>
+        )}
+      </form>
+    </Modal>
   );
 }
 
