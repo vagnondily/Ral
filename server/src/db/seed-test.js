@@ -79,20 +79,26 @@ async function main() {
     const bureauSud = await mkOffice('ST-2', 'Bureau terrain Sud', 'terrain', false, communes.slice(0, half));
     await mkOffice('ST-3', 'Antenne Toliara', 'terrain', false, communes.slice(half), bureauSud);
 
-    // ---- 2b) Paramètres MMR (par bureau × catégorie d'activité) ---------
-    // Valeurs proches de la feuille « Overarching parameters » du Plan de suivi.
+    // ---- 2b) Paramètres MMR — un seul plan général par catégorie, modifiable
+    // par bureau (dérogation). Valeurs proches de la feuille « Overarching
+    // parameters » du Plan de suivi. Plan général = field_office_id NULL.
     await client.query("DELETE FROM mmr_parameters WHERE tenant_id=$1 AND note='seed-test'", [tenantId]);
     const MMR = [
-      [bureauSud, 'Cantines scolaires (SMP)', 9, 213, 2, 30],
-      [bureauSud, 'Nutrition — traitement (MAM)', 12, 310, 2, 12],
-      [bureauSud, 'Prévention malnutrition (PREV)', 6, 48, 1, 10],
-      [bureauSud, 'Transfert inconditionnel (URT)', 6, 104, 2, 12],
+      // ofc (null = plan général), catégorie, durée, nb sites, risque, faisable
+      [null,      'Cantines scolaires (SMP)',          9, 213, 2, 30],
+      [null,      'Nutrition — traitement (MAM)',     12, 310, 2, 12],
+      [null,      'Prévention malnutrition (PREV)',    6,  48, 1, 10],
+      [null,      'Transfert inconditionnel (URT)',    6, 104, 2, 12],
+      // Dérogation pour l'antenne Sud : risque relevé sur les cantines.
+      [bureauSud, 'Cantines scolaires (SMP)',          9, 120, 3, 20],
     ];
     for (const [ofc, cat, dur, nb, risk, feas] of MMR) {
+      const target = ofc ? '(tenant_id, field_office_id, activity_category) WHERE field_office_id IS NOT NULL'
+        : '(tenant_id, activity_category) WHERE field_office_id IS NULL';
       await client.query(
         `INSERT INTO mmr_parameters (tenant_id, field_office_id, activity_category, operation_duration, number_of_sites, risk_level, feasible, note, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,'seed-test',$8)
-         ON CONFLICT (tenant_id, field_office_id, activity_category) DO UPDATE SET
+         ON CONFLICT ${target} DO UPDATE SET
            operation_duration=EXCLUDED.operation_duration, number_of_sites=EXCLUDED.number_of_sites,
            risk_level=EXCLUDED.risk_level, feasible=EXCLUDED.feasible, note='seed-test', updated_at=now()`,
         [tenantId, ofc, cat, dur, nb, risk, feas, admin]);

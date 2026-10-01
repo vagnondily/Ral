@@ -109,7 +109,8 @@ function MmrSection({ isAdmin }) {
   }, []);
 
   async function remove(r) {
-    if (!window.confirm(`Supprimer le paramètre MMR « ${r.fieldOfficeName} · ${r.activityCategory} » ?`)) return;
+    const scope = r.isGeneral ? 'Plan général' : r.fieldOfficeName;
+    if (!window.confirm(`Supprimer le paramètre MMR « ${scope} · ${r.activityCategory} » ?`)) return;
     try { await api.deleteMmr(r.id); toast.success('Paramètre supprimé.'); reload(); } catch (e) { toast.error(e.message); }
   }
 
@@ -117,13 +118,12 @@ function MmrSection({ isAdmin }) {
   return (
     <Card aria-labelledby="mmr-title">
       <CardHeader id="mmr-title" title="Paramètres MMR (exigences minimales de suivi)"
-        subtitle="Par bureau × catégorie d'activité : durée d'opération, nombre de sites et niveau de risque. L'intervalle, la fréquence et le nombre de sites ciblés par mois sont calculés automatiquement (base du RBM et de la planification).">
-        {isAdmin && <Button icon={Plus} onClick={() => setModal({})} disabled={!offices.length}>Nouveau paramètre</Button>}
+        subtitle="Un seul plan général par catégorie d'activité (durée d'opération, nombre de sites, niveau de risque), modifiable par bureau au besoin (dérogation). L'intervalle, la fréquence et le nombre de sites ciblés par mois sont calculés automatiquement (base du RBM et de la planification).">
+        {isAdmin && <Button icon={Plus} onClick={() => setModal({})}>Nouveau paramètre</Button>}
       </CardHeader>
-      {!offices.length && <div className="card-body"><Alert tone="warn" icon={Info}>Créez d'abord des bureaux dans Paramétrage › Bureaux & antennes.</Alert></div>}
       {rows === null ? <div className="card-body"><Skeleton height={120} /></div> : rows.length === 0 ? (
-        <EmptyState icon={Gauge} title="Aucun paramètre MMR" action={isAdmin && offices.length ? <Button icon={Plus} onClick={() => setModal({})}>Nouveau paramètre</Button> : null}>
-          Définissez les exigences de suivi par bureau et catégorie d'activité pour piloter la fréquence des visites.
+        <EmptyState icon={Gauge} title="Aucun paramètre MMR" action={isAdmin ? <Button icon={Plus} onClick={() => setModal({})}>Nouveau paramètre</Button> : null}>
+          Définissez le plan général de suivi par catégorie d'activité (et, si besoin, une dérogation par bureau) pour piloter la fréquence des visites.
         </EmptyState>
       ) : (
         <div className="table-wrap"><table className="table">
@@ -137,7 +137,7 @@ function MmrSection({ isAdmin }) {
           <tbody>
             {rows.map((r) => (
               <tr key={r.id}>
-                <td><strong>{r.fieldOfficeName}</strong></td>
+                <td>{r.isGeneral ? <Badge tone="blue">Plan général</Badge> : <strong>{r.fieldOfficeName}</strong>}</td>
                 <td>{r.activityCategory}</td>
                 <td className="num tabular">{r.operationDuration}</td>
                 <td className="num tabular">{formatInt(r.numberOfSites)}</td>
@@ -167,7 +167,7 @@ function MmrModal({ row, offices, activities, onClose, onSaved }) {
   const toast = useToast();
   const editing = Boolean(row);
   const [form, setForm] = useState({
-    fieldOfficeId: row?.fieldOfficeId || (offices[0]?.id || ''),
+    fieldOfficeId: row?.fieldOfficeId || '',
     activityCategory: row?.activityCategory || '',
     operationDuration: row?.operationDuration ?? 12,
     numberOfSites: row?.numberOfSites ?? 0,
@@ -189,12 +189,11 @@ function MmrModal({ row, offices, activities, onClose, onSaved }) {
 
   async function save(e) {
     e.preventDefault();
-    if (!form.fieldOfficeId) { toast.error('Choisissez un bureau.'); return; }
     if (form.activityCategory.trim().length < 1) { toast.error('Indiquez la catégorie d\'activité.'); return; }
     setSaving(true);
     try {
       await api.saveMmr({
-        fieldOfficeId: form.fieldOfficeId, activityCategory: form.activityCategory.trim(),
+        fieldOfficeId: form.fieldOfficeId || null, activityCategory: form.activityCategory.trim(),
         operationDuration: Number(form.operationDuration), numberOfSites: Number(form.numberOfSites),
         riskLevel: Number(form.riskLevel), feasible: form.feasible === '' ? null : Number(form.feasible),
         personsToDeploy: form.personsToDeploy === '' ? null : Number(form.personsToDeploy),
@@ -206,13 +205,14 @@ function MmrModal({ row, offices, activities, onClose, onSaved }) {
   }
 
   return (
-    <Modal open title={editing ? 'Modifier le paramètre MMR' : 'Nouveau paramètre MMR'} subtitle="Par bureau × catégorie d'activité." onClose={() => !saving && onClose()}
+    <Modal open title={editing ? 'Modifier le paramètre MMR' : 'Nouveau paramètre MMR'} subtitle="Plan général par catégorie d'activité, ou dérogation par bureau." onClose={() => !saving && onClose()}
       footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>Annuler</Button><Button type="submit" form="mmr-form" loading={saving}>Enregistrer</Button></>}>
       <form id="mmr-form" onSubmit={save} style={{ display: 'grid', gap: 14 }}>
         <div className="form-grid">
-          <Field label="Bureau">
+          <Field label="Portée" hint="Plan général (tous les bureaux) ou dérogation pour un bureau.">
             <select className="select" value={form.fieldOfficeId} onChange={(e) => setForm({ ...form, fieldOfficeId: e.target.value })} disabled={editing}>
-              {offices.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              <option value="">Plan général (tous les bureaux)</option>
+              {offices.map((o) => <option key={o.id} value={o.id}>Dérogation — {o.name}</option>)}
             </select>
           </Field>
           <Field label="Catégorie d'activité" hint="Ex. Cantines scolaires, Nutrition…">

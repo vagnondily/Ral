@@ -437,32 +437,49 @@ async function listMmr(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
       `SELECT m.id, m.field_office_id AS "fieldOfficeId", o.name AS "fieldOfficeName",
+              (m.field_office_id IS NULL) AS "isGeneral",
               m.activity_category AS "activityCategory", m.operation_duration AS "operationDuration",
               m.number_of_sites AS "numberOfSites", m.risk_level AS "riskLevel", m.feasible,
               m.persons_to_deploy AS "personsToDeploy", m.visits_per_day::float8 AS "visitsPerDay",
               m.working_days AS "workingDays", m.note
-         FROM mmr_parameters m JOIN field_offices o ON o.id = m.field_office_id
-        WHERE m.tenant_id = $1 ORDER BY o.name, m.activity_category`,
+         FROM mmr_parameters m LEFT JOIN field_offices o ON o.id = m.field_office_id
+        WHERE m.tenant_id = $1
+        ORDER BY (m.field_office_id IS NOT NULL), o.name NULLS FIRST, m.activity_category`,
       [tenantId]
     );
-    // Dérive intervalle/fréquence/cible/ratio depuis la logique pure.
+    // Dérive intervalle/fréquence/cible/ratio depuis la logique pure. Le plan
+    // général (field_office_id NULL) est marqué isGeneral et classé en premier.
     return rows.map((r) => ({ ...r, ...deriveMmr(r) }));
   });
 }
 
+// Upsert manuel : les index uniques partiels (général vs par bureau) ne
+// peuvent pas être inférés par ON CONFLICT quand field_office_id est NULL.
 async function upsertMmr(tenantId, { fieldOfficeId, activityCategory, operationDuration, numberOfSites, riskLevel, feasible, personsToDeploy, visitsPerDay, workingDays, note }, userId) {
+  const officeId = fieldOfficeId || null;
   return withTenantTransaction(tenantId, async (client) => {
+    const existing = await client.query(
+      `SELECT id FROM mmr_parameters
+        WHERE tenant_id = $1 AND activity_category = $2
+          AND field_office_id IS NOT DISTINCT FROM $3`,
+      [tenantId, activityCategory, officeId]
+    );
+    const vals = [operationDuration, numberOfSites, riskLevel, feasible ?? null,
+      personsToDeploy ?? null, visitsPerDay ?? null, workingDays ?? null, note || null];
+    if (existing.rowCount) {
+      await client.query(
+        `UPDATE mmr_parameters SET
+           operation_duration = $3, number_of_sites = $4, risk_level = $5, feasible = $6,
+           persons_to_deploy = $7, visits_per_day = $8, working_days = $9, note = $10, updated_at = now()
+         WHERE tenant_id = $1 AND id = $2`,
+        [tenantId, existing.rows[0].id, ...vals]
+      );
+      return existing.rows[0].id;
+    }
     const { rows } = await client.query(
       `INSERT INTO mmr_parameters (tenant_id, field_office_id, activity_category, operation_duration, number_of_sites, risk_level, feasible, persons_to_deploy, visits_per_day, working_days, note, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-       ON CONFLICT (tenant_id, field_office_id, activity_category) DO UPDATE SET
-         operation_duration = EXCLUDED.operation_duration, number_of_sites = EXCLUDED.number_of_sites,
-         risk_level = EXCLUDED.risk_level, feasible = EXCLUDED.feasible,
-         persons_to_deploy = EXCLUDED.persons_to_deploy, visits_per_day = EXCLUDED.visits_per_day,
-         working_days = EXCLUDED.working_days, note = EXCLUDED.note, updated_at = now()
-       RETURNING id`,
-      [tenantId, fieldOfficeId, activityCategory, operationDuration, numberOfSites, riskLevel, feasible ?? null,
-        personsToDeploy ?? null, visitsPerDay ?? null, workingDays ?? null, note || null, userId]
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+      [tenantId, officeId, activityCategory, ...vals, userId]
     );
     return rows[0].id;
   });
