@@ -145,7 +145,7 @@ function MmrSection({ isAdmin }) {
                 <td className="num tabular">{num(r.interval)}</td>
                 <td className="num tabular">{num(r.frequency)}</td>
                 <td className="num tabular"><strong>{r.targetedPerMonth == null ? '—' : Math.round(r.targetedPerMonth)}</strong></td>
-                <td className="num tabular">{num(r.feasible)}</td>
+                <td className="num tabular">{num(r.feasible)}{r.feasibleSource && <div className="site-meta">{r.feasibleSource}</div>}</td>
                 <td>{r.coverageRatio == null ? <span className="cell-empty">—</span>
                   : <Badge tone={r.feasibleMeetsTarget ? 'green' : 'red'}>{Math.round(r.coverageRatio * 100)} %</Badge>}</td>
                 {isAdmin && <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -173,7 +173,13 @@ function MmrModal({ row, offices, activities, onClose, onSaved }) {
     numberOfSites: row?.numberOfSites ?? 0,
     riskLevel: row?.riskLevel ?? 2,
     feasible: row?.feasible ?? '',
+    personsToDeploy: row?.personsToDeploy ?? '',
+    visitsPerDay: row?.visitsPerDay ?? '',
+    workingDays: row?.workingDays ?? '',
   });
+  // Capacité calculée = personnes × suivis/jour × jours ouvrés (prime sur saisie).
+  const capacity = (Number(form.personsToDeploy) > 0 && Number(form.visitsPerDay) > 0 && Number(form.workingDays) > 0)
+    ? Math.round(Number(form.personsToDeploy) * Number(form.visitsPerDay) * Number(form.workingDays) * 100) / 100 : null;
   const [saving, setSaving] = useState(false);
 
   // Aperçu en direct des valeurs dérivées (même formule que le serveur).
@@ -191,6 +197,9 @@ function MmrModal({ row, offices, activities, onClose, onSaved }) {
         fieldOfficeId: form.fieldOfficeId, activityCategory: form.activityCategory.trim(),
         operationDuration: Number(form.operationDuration), numberOfSites: Number(form.numberOfSites),
         riskLevel: Number(form.riskLevel), feasible: form.feasible === '' ? null : Number(form.feasible),
+        personsToDeploy: form.personsToDeploy === '' ? null : Number(form.personsToDeploy),
+        visitsPerDay: form.visitsPerDay === '' ? null : Number(form.visitsPerDay),
+        workingDays: form.workingDays === '' ? null : Number(form.workingDays),
       });
       toast.success('Paramètre MMR enregistré.'); onSaved();
     } catch (err) { toast.error(err.message); } finally { setSaving(false); }
@@ -220,9 +229,17 @@ function MmrModal({ row, offices, activities, onClose, onSaved }) {
               <option value="1">1 — Faible</option><option value="2">2 — Moyen</option><option value="3">3 — Élevé</option>
             </select>
           </Field>
-          <Field label="Faisable (sites/mois, optionnel)" hint="Capacité réelle des équipes."><input className="input tabular" type="number" min="0" value={form.feasible} onChange={(e) => setForm({ ...form, feasible: e.target.value })} /></Field>
         </div>
-        <div className="note"><Gauge size={18} aria-hidden="true" /><span>Calcul : intervalle <strong>{interval ?? '—'}</strong> mois · fréquence <strong>{interval > 0 ? Math.round((dur / interval) * 100) / 100 : '—'}</strong> · <strong>{targeted ?? '—'}</strong> site(s) ciblé(s) par mois.</span></div>
+        <div className="field"><span className="field-label">Capacité réelle (faisable)</span>
+          <div className="hint" style={{ marginBottom: 6 }}>Calculée à partir des ressources : personnes à déployer × suivis/jour × jours ouvrés. Laissez vide pour saisir directement.</div>
+          <div className="form-grid">
+            <Field label="Personnes à déployer"><input className="input tabular" type="number" min="0" value={form.personsToDeploy} onChange={(e) => setForm({ ...form, personsToDeploy: e.target.value })} /></Field>
+            <Field label="Suivis / jour / personne" hint="Par activité."><input className="input tabular" type="number" min="0" step="0.5" value={form.visitsPerDay} onChange={(e) => setForm({ ...form, visitsPerDay: e.target.value })} /></Field>
+            <Field label="Jours ouvrés / mois"><input className="input tabular" type="number" min="0" max="31" value={form.workingDays} onChange={(e) => setForm({ ...form, workingDays: e.target.value })} /></Field>
+            <Field label="Ou faisable saisi (sites/mois)"><input className="input tabular" type="number" min="0" value={form.feasible} disabled={capacity != null} onChange={(e) => setForm({ ...form, feasible: e.target.value })} /></Field>
+          </div>
+        </div>
+        <div className="note"><Gauge size={18} aria-hidden="true" /><span>Intervalle <strong>{interval ?? '—'}</strong> mois · fréquence <strong>{interval > 0 ? Math.round((dur / interval) * 100) / 100 : '—'}</strong> · <strong>{targeted ?? '—'}</strong> site(s) ciblé(s) par mois{capacity != null && <> · capacité calculée <strong>{Math.round(capacity)}</strong> sites/mois</>}.</span></div>
       </form>
     </Modal>
   );

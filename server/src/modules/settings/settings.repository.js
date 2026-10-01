@@ -438,7 +438,9 @@ async function listMmr(tenantId) {
     const { rows } = await client.query(
       `SELECT m.id, m.field_office_id AS "fieldOfficeId", o.name AS "fieldOfficeName",
               m.activity_category AS "activityCategory", m.operation_duration AS "operationDuration",
-              m.number_of_sites AS "numberOfSites", m.risk_level AS "riskLevel", m.feasible, m.note
+              m.number_of_sites AS "numberOfSites", m.risk_level AS "riskLevel", m.feasible,
+              m.persons_to_deploy AS "personsToDeploy", m.visits_per_day::float8 AS "visitsPerDay",
+              m.working_days AS "workingDays", m.note
          FROM mmr_parameters m JOIN field_offices o ON o.id = m.field_office_id
         WHERE m.tenant_id = $1 ORDER BY o.name, m.activity_category`,
       [tenantId]
@@ -448,16 +450,19 @@ async function listMmr(tenantId) {
   });
 }
 
-async function upsertMmr(tenantId, { fieldOfficeId, activityCategory, operationDuration, numberOfSites, riskLevel, feasible, note }, userId) {
+async function upsertMmr(tenantId, { fieldOfficeId, activityCategory, operationDuration, numberOfSites, riskLevel, feasible, personsToDeploy, visitsPerDay, workingDays, note }, userId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      `INSERT INTO mmr_parameters (tenant_id, field_office_id, activity_category, operation_duration, number_of_sites, risk_level, feasible, note, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      `INSERT INTO mmr_parameters (tenant_id, field_office_id, activity_category, operation_duration, number_of_sites, risk_level, feasible, persons_to_deploy, visits_per_day, working_days, note, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        ON CONFLICT (tenant_id, field_office_id, activity_category) DO UPDATE SET
          operation_duration = EXCLUDED.operation_duration, number_of_sites = EXCLUDED.number_of_sites,
-         risk_level = EXCLUDED.risk_level, feasible = EXCLUDED.feasible, note = EXCLUDED.note, updated_at = now()
+         risk_level = EXCLUDED.risk_level, feasible = EXCLUDED.feasible,
+         persons_to_deploy = EXCLUDED.persons_to_deploy, visits_per_day = EXCLUDED.visits_per_day,
+         working_days = EXCLUDED.working_days, note = EXCLUDED.note, updated_at = now()
        RETURNING id`,
-      [tenantId, fieldOfficeId, activityCategory, operationDuration, numberOfSites, riskLevel, feasible ?? null, note || null, userId]
+      [tenantId, fieldOfficeId, activityCategory, operationDuration, numberOfSites, riskLevel, feasible ?? null,
+        personsToDeploy ?? null, visitsPerDay ?? null, workingDays ?? null, note || null, userId]
     );
     return rows[0].id;
   });
