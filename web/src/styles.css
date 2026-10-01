@@ -1592,21 +1592,24 @@ h1, h2, h3, h4 { letter-spacing: -0.018em; }
 .sheet-code { font-family: var(--font-mono); font-weight: 600; color: var(--blue-700); background: var(--blue-50); border-radius: var(--radius-sm); padding: 1px 8px; font-size: 13px; }
 .sheet-label { font-size: 15px; font-weight: 620; color: var(--text-strong); letter-spacing: -0.01em; }
 
-/* ---- Dark theme --------------------------------------------------------- */
+/* ---- Dark theme ---------------------------------------------------------
+   Slate (pas « tout noir ») : le canevas reste sombre mais les surfaces sont
+   nettement plus claires que le fond pour que cartes, tables et champs se
+   détachent, avec des bordures visibles et un texte à fort contraste. */
 :root[data-theme="dark"] {
-  --surface: #14161b;
-  --surface-2: #191c22;
-  --canvas: #0d0f13;
-  --canvas-sunken: #1c1f27;
-  --border: #262a33;
-  --border-strong: #343a46;
-  --text-strong: #f2f4f8;
-  --text: #c3c8d2;
-  --text-muted: #8b92a0;
-  --text-faint: #6a707d;
-  --rail: #0b0c10;
-  --rail-2: #191c22;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+  --surface: #1b212c;        /* cartes / tables — se détachent du canevas */
+  --surface-2: #232b38;      /* bandeaux d'en-tête, lignes alternées */
+  --canvas: #11151d;         /* fond de page (slate, pas noir pur) */
+  --canvas-sunken: #222a36;  /* champs, zones en creux — visibles */
+  --border: #333c4b;         /* hairlines nettement visibles */
+  --border-strong: #46525f;
+  --text-strong: #f4f7fb;
+  --text: #d5dbe6;           /* texte courant plus lumineux */
+  --text-muted: #9ba4b4;
+  --text-faint: #7b8494;
+  --rail: #161c26;           /* rail slate, pas noir */
+  --rail-2: #222a36;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.45);
   --shadow: 0 2px 8px rgba(0,0,0,.5);
   --shadow-lg: 0 20px 48px -12px rgba(0,0,0,.7);
 }
