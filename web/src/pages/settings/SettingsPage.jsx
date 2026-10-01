@@ -1,22 +1,28 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Users, ListChecks, Tags, MapPinned, Upload, Info, Download } from 'lucide-react';
+import { Plus, Users, ListChecks, Tags, MapPinned, Upload, Info, Download, Coins, Building2, Trash2, Clock } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton, Alert } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
+import MoneyInput from '../../components/MoneyInput.jsx';
 import { useToast } from '../../components/Toast.jsx';
+import { formatAr, formatDateTime } from '../../lib/format.js';
 
 const NAV = [
   { id: 'partenaires', label: 'Partenaires', icon: Users },
-  { id: 'activites', label: 'Activités', icon: ListChecks },
   { id: 'types', label: 'Types de partenaire', icon: Tags },
+  { id: 'activites', label: 'Activités', icon: ListChecks },
+  { id: 'taux', label: 'Taux de change', icon: Coins },
   { id: 'localites', label: 'Localités', icon: MapPinned },
+  { id: 'bureaux', label: 'Bureaux & antennes', icon: Building2 },
 ];
 
 const DESCRIPTIONS = {
   partenaires: 'Registre des partenaires (nom + type) servant aux sélections dans Contrats et Partenaires & TPM.',
   activites: 'Activités de suivi disponibles en multi-sélection sur les contrats.',
   types: 'Catégories de partenaire (TPM, prestataire, cabinet…).',
+  taux: 'Taux de change de référence (ariary pour 1 USD), horodatés, par mois d\'application — servent à afficher les valeurs en dollars selon la période de saisie.',
   localites: 'Découpage administratif du pays (un fichier par pays) pour les zones d\'intervention.',
+  bureaux: 'Bureaux terrain et antennes, et leur périmètre (communes) pour le rattachement automatique des sites.',
 };
 
 export default function SettingsPage({ tab = 'partenaires', isAdmin }) {
@@ -28,8 +34,81 @@ export default function SettingsPage({ tab = 'partenaires', isAdmin }) {
       {current === 'partenaires' && <PartnersSection isAdmin={isAdmin} />}
       {current === 'activites' && <ActivitiesSection isAdmin={isAdmin} />}
       {current === 'types' && <TypesSection isAdmin={isAdmin} />}
+      {current === 'taux' && <ExchangeRatesSection isAdmin={isAdmin} />}
       {current === 'localites' && <LocalitesSection isAdmin={isAdmin} />}
+      {current === 'bureaux' && <BureauxSection isAdmin={isAdmin} />}
     </div>
+  );
+}
+
+/* ------------------------------------------------------- Exchange rates -- */
+
+function ExchangeRatesSection({ isAdmin }) {
+  const toast = useToast();
+  const [rates, setRates] = useState(null);
+  const [form, setForm] = useState({ effectiveMonth: new Date().toISOString().slice(0, 7), usdRate: '', note: '' });
+  const [saving, setSaving] = useState(false);
+
+  async function reload() { try { setRates(await api.listExchangeRates()); } catch (e) { toast.error(e.message); setRates([]); } }
+  useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
+
+  async function save(e) {
+    e.preventDefault();
+    if (!(Number(form.usdRate) > 0)) { toast.error('Saisissez un taux (ariary pour 1 USD) supérieur à 0.'); return; }
+    setSaving(true);
+    try {
+      await api.saveExchangeRate({ effectiveMonth: form.effectiveMonth, usdRate: Number(form.usdRate), note: form.note.trim() || undefined });
+      toast.success('Taux enregistré.');
+      setForm({ effectiveMonth: form.effectiveMonth, usdRate: '', note: '' });
+      reload();
+    } catch (err) { toast.error(err.message); } finally { setSaving(false); }
+  }
+  async function remove(r) {
+    if (!window.confirm(`Supprimer le taux de ${r.effectiveMonth} ?`)) return;
+    try { await api.deleteExchangeRate(r.id); toast.success('Taux supprimé.'); reload(); } catch (e) { toast.error(e.message); }
+  }
+
+  return (
+    <Card aria-labelledby="rates-title">
+      <CardHeader id="rates-title" title="Taux de change (ariary pour 1 USD)" subtitle="Un taux par mois d'application. La valeur USD d'un montant se lit au taux dont le mois est ≤ la période de saisie (le dernier taux connu est reporté)." />
+      {isAdmin && (
+        <form onSubmit={save} className="card-body" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', borderBottom: '1px solid var(--border)' }}>
+          <Field label="Mois d'application" htmlFor="rate-month"><input id="rate-month" className="input" type="month" value={form.effectiveMonth} onChange={(e) => setForm({ ...form, effectiveMonth: e.target.value })} required /></Field>
+          <Field label="Taux (Ar pour 1 USD)" htmlFor="rate-usd"><MoneyInput id="rate-usd" value={form.usdRate} onChange={(v) => setForm({ ...form, usdRate: v })} /></Field>
+          <Field label="Note (optionnel)" htmlFor="rate-note"><input id="rate-note" className="input" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Source du taux…" /></Field>
+          <Button type="submit" icon={Plus} loading={saving}>Enregistrer le taux</Button>
+        </form>
+      )}
+      {rates === null ? <div className="card-body"><Skeleton height={100} /></div> : rates.length === 0 ? (
+        <EmptyState icon={Coins} title="Aucun taux de change">Ajoutez un taux de référence pour activer l'affichage des valeurs en dollars.</EmptyState>
+      ) : (
+        <div className="table-wrap"><table className="table">
+          <thead><tr><th scope="col">Mois d'application</th><th scope="col" className="num">Ar pour 1 USD</th><th scope="col">Note</th><th scope="col">Saisi le (horodatage)</th>{isAdmin && <th scope="col" />}</tr></thead>
+          <tbody>
+            {rates.map((r) => (
+              <tr key={r.id}>
+                <td><strong className="tabular">{r.effectiveMonth}</strong></td>
+                <td className="num tabular">{formatAr(r.usdRate)}</td>
+                <td>{r.note || <span className="cell-empty">—</span>}</td>
+                <td><span className="site-meta" style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><Clock size={13} aria-hidden="true" />{formatDateTime(r.updatedAt || r.createdAt)}</span></td>
+                {isAdmin && <td style={{ textAlign: 'right' }}><Button size="sm" variant="ghost" icon={Trash2} aria-label="Supprimer" onClick={() => remove(r)} /></td>}
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      )}
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------- Bureaux (placeholder) -- */
+
+function BureauxSection() {
+  return (
+    <Card>
+      <CardHeader title="Bureaux & antennes" subtitle="Bientôt : bureaux terrain, antennes et périmètre (communes) pour le rattachement automatique des sites par point GPS (adm1–4)." />
+      <div className="card-body"><Alert tone="info" icon={Info}>Module en cours de construction : il permettra de créer les bureaux (pays/terrain), de définir leur périmètre par communes (découpage adm.) et de rattacher automatiquement chaque site à son bureau selon ses coordonnées GPS.</Alert></div>
+    </Card>
   );
 }
 

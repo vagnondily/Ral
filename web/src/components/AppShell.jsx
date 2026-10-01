@@ -67,10 +67,15 @@ export const NAV = [
       {
         id: 'parametrage', label: 'Paramétrage', icon: Settings,
         subs: [
+          { heading: 'Référentiels' },
           { id: 'partenaires', label: 'Partenaires' },
-          { id: 'activites', label: 'Activités' },
           { id: 'types', label: 'Types de partenaire' },
+          { id: 'activites', label: 'Activités' },
+          { heading: 'Finances' },
+          { id: 'taux', label: 'Taux de change' },
+          { heading: 'Géographie' },
           { id: 'localites', label: 'Localités' },
+          { id: 'bureaux', label: 'Bureaux & antennes' },
         ],
       },
     ],
@@ -127,8 +132,8 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
                 const Icon = item.icon;
                 const available = Boolean(item.subs);
                 const open = route.module === item.id;
-                // Land on the first real sub-module (skip « soon » placeholders).
-                const firstSub = available ? (item.subs.find((s) => !s.soon) || item.subs[0]) : null;
+                // Land on the first real sub-module (skip headings and « soon » placeholders).
+                const firstSub = available ? (item.subs.find((s) => s.id && !s.soon) || item.subs.find((s) => s.id)) : null;
                 return (
                   <div key={item.id}>
                     <button
@@ -145,19 +150,23 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
                     </button>
                     {available && open && (
                       <div className="nav-sub">
-                        {item.subs.map((s) => (
-                          <button
-                            key={s.id}
-                            type="button"
-                            className={`nav-subitem ${route.sub === s.id ? 'is-active' : ''}`}
-                            disabled={s.soon}
-                            title={s.soon ? t('shell.comingSoon', 'Bientôt disponible') : undefined}
-                            aria-current={route.sub === s.id ? 'page' : undefined}
-                            onClick={() => !s.soon && onNavigate(item.id, s.id)}
-                          >
-                            {t(`nav.${item.id}.${s.id}`, s.label)}
-                            {s.soon && <span className="sr-only"> ({t('shell.comingSoon', 'bientôt disponible')})</span>}
-                          </button>
+                        {item.subs.map((s, idx) => (
+                          s.heading ? (
+                            <div key={`h${idx}`} className="nav-subgroup">{t(`nav.${item.id}.group.${s.heading}`, s.heading)}</div>
+                          ) : (
+                            <button
+                              key={s.id}
+                              type="button"
+                              className={`nav-subitem ${route.sub === s.id ? 'is-active' : ''}`}
+                              disabled={s.soon}
+                              title={s.soon ? t('shell.comingSoon', 'Bientôt disponible') : undefined}
+                              aria-current={route.sub === s.id ? 'page' : undefined}
+                              onClick={() => !s.soon && onNavigate(item.id, s.id)}
+                            >
+                              {t(`nav.${item.id}.${s.id}`, s.label)}
+                              {s.soon && <span className="sr-only"> ({t('shell.comingSoon', 'bientôt disponible')})</span>}
+                            </button>
+                          )
                         ))}
                       </div>
                     )}
