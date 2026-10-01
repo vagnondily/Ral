@@ -40,8 +40,8 @@ export const NAV = [
         subs: [
           { id: 'donnees', label: 'Données & indicateurs' },
           { id: 'sites', label: 'Sites & visites' },
+          { id: 'rbm', label: 'Risk-Based Monitoring' },
           { id: 'carte', label: 'Carte des sites', soon: true },
-          { id: 'rbm', label: 'Risk-Based Monitoring', soon: true },
         ],
       },
       {
