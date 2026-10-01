@@ -95,7 +95,7 @@ function Workspace() {
       {route.module === 'dashboard' && route.sub === 'consolidation' && <ConsolidationPage onOpenContract={openContract} />}
       {route.module === 'alertes' && <AlertsPage onNavigate={navigate} onOpenContract={openContract} />}
       {route.module === 'reporting' && <ReportingPage onOpenContract={openContract} />}
-      {route.module === 'planification' && route.sub === 'budget' && <PlanningPage canEdit={canEdit} />}
+      {route.module === 'tpm' && route.sub === 'budget' && <PlanningPage canEdit={canEdit} />}
       {route.module === 'processus' && route.sub === 'donnees' && <ProcessMonitoringPage canEdit={canEdit} />}
       {route.module === 'processus' && route.sub === 'sites' && <FieldVisitsPage canEdit={canEdit} />}
       {route.module === 'processus' && route.sub === 'rbm' && <RbmPage canEdit={canEdit} />}
