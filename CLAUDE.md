@@ -261,6 +261,14 @@ or navy rail.
   des visites** (bouton « Générer depuis le RBM (N) » + compteur de sites à
   suivre dans l'état vide) pour partir du RBM sans quitter la planification.
   Nav : « Suivi de processus › Risk-Based Monitoring ».
+- **Dashboard Suivi de processus — Synthèse** (`web/src/pages/monitoring/
+  ProcessDashboardPage.jsx`, endpoint `GET /api/monitoring/overview`,
+  `monitoring.repository.processOverview`) : synthèse transversale recalculée en
+  direct — KPIs (couverture terrain, sites à jour/à suivre via RBM, données
+  versées, indice de conformité global via `overallIndex`, visites planifiées,
+  fiches·indicateurs), tendance mensuelle des soumissions, couverture par
+  district, répartition des sites par risque, conformité par fiche, zones à
+  surveiller (<80 %). Nav : « Suivi de processus › Tableau de bord ».
 - **Dashboard « façon Power BI »** (`web/src/pages/dashboard/DashboardBIPage.jsx`,
   nav « Dashboard décisionnel › Vue d'ensemble ») : KPI tiles, grouped
   Budget/Planifié/Réalisé bars, réalisé-by-partner donut, monthly trend line,
