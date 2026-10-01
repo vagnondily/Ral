@@ -62,6 +62,7 @@ copy .env.example .env         REM then set DATABASE_URL to your postgres superu
 npm install
 npm run migrate
 npm run seed
+npm run seed:test              REM (optionnel) données de test variées, inspectables
 npm start                      REM API on http://localhost:9000
 ```
 In another terminal: `cd web && npm install && npm run dev` (UI on :5173,
@@ -315,3 +316,10 @@ budget Excel round-trip, the INVOICE workbook, and the field-visit coverage math
 yet, but `cd web && npm run build` type-checks imports/JSX, and a Playwright
 smoke-sweep of every route (login → each module) is used to confirm 0 console/API
 errors before pushing.
+- **Données de test end-user** : `cd server && npm run seed:test` (après `npm run
+  seed`) peuple des données variées et inspectables — taux de change, bureaux &
+  antennes (périmètre communes), plans de collecte, rapports (facture validée +
+  soumis + technique), un contrat en brouillon (test suppression/prévision),
+  visites du mois (couverture + jours de collecte), et une fiche de suivi de
+  processus + indicateurs + ~40 soumissions (alimente le tableau de bord).
+  Idempotent (supprime d'abord ses lignes marquées). `server/src/db/seed-test.js`.
