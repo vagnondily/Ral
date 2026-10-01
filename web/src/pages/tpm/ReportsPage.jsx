@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Plus, FileText, ShieldCheck, X, Info, Search, SlidersHorizontal, Columns3,
-  Save, Clock, RotateCcw, Download, Printer, Trash2, ChevronLeft, ChevronRight, ExternalLink,
+  Save, Clock, RotateCcw, Download, Printer, Trash2, ChevronLeft, ChevronRight, ExternalLink, CalendarClock, Ban,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, EmptyState, Field, IconButton, Skeleton, Stats } from '../../components/ui.jsx';
@@ -18,6 +18,7 @@ const STATUSES = [
   { id: '', label: 'Tous les statuts' },
   { id: 'attendu', label: 'Attendu' }, { id: 'soumis', label: 'Soumis' },
   { id: 'valide', label: 'Validé' }, { id: 'rejete', label: 'Rejeté' },
+  { id: 'non_applicable', label: 'Non applicable' },
 ];
 const KINDS = [{ id: '', label: 'Tous les types' }, { id: 'financier', label: 'Financier' }, { id: 'technique', label: 'Technique' }];
 const PAGE_SIZE = 12;
@@ -62,6 +63,7 @@ export default function ReportsPage({ canEdit, onOpenContract }) {
 
   const [facture, setFacture] = useState(null); // {reportId?} | {kind} | null
   const [decide, setDecide] = useState(null);    // {report, approve}
+  const [genOpen, setGenOpen] = useState(false); // modale génération mensuelle
 
   const saved = viewStore.initial();
   const [values, setValues] = useState(() => (saved?.values || { q: '', partnerId: '', contractId: '', kind: '', status: '' }));
@@ -162,6 +164,11 @@ export default function ReportsPage({ canEdit, onOpenContract }) {
     try { await api.deleteReport(r.id); toast.success('Rapport supprimé.'); setSelectedId(null); reload(); }
     catch (err) { toast.error(err.message); }
   }
+  async function markNotApplicable(r) {
+    if (!window.confirm(`Marquer « non applicable » le rapport de « ${r.partnerName} » pour ce mois (aucun suivi réalisé) ?`)) return;
+    try { await api.reportNotApplicable(r.id); toast.success('Rapport marqué non applicable.'); reload(); }
+    catch (err) { toast.error(err.message); }
+  }
 
   function exportCsv() {
     const head = cols.map((k) => COLUMNS[k].label);
@@ -234,6 +241,7 @@ export default function ReportsPage({ canEdit, onOpenContract }) {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <MonthPicker value={month} onChange={setMonth} />
+          {canEdit && <Button variant="secondary" icon={CalendarClock} onClick={() => setGenOpen(true)}>Générer les rapports mensuels</Button>}
           {canEdit && <Button variant="secondary" icon={Plus} onClick={() => setFacture({ kind: 'technique' })}>Rapport technique</Button>}
           {canEdit && <Button icon={FileText} onClick={() => setFacture({ kind: 'financier' })}>Rapport financier (facture)</Button>}
         </div>
@@ -296,6 +304,7 @@ export default function ReportsPage({ canEdit, onOpenContract }) {
               <Button size="sm" variant="secondary" icon={ShieldCheck} onClick={() => setDecide({ report: selected, approve: true })}>Valider</Button>
               <Button size="sm" variant="secondary" icon={X} onClick={() => setDecide({ report: selected, approve: false })}>Rejeter</Button>
             </>}
+            {canEdit && selected && !['valide', 'non_applicable'].includes(selected.status) && <Button size="sm" variant="secondary" icon={Ban} onClick={() => markNotApplicable(selected)}>Non applicable</Button>}
             {canEdit && selected && selected.status !== 'valide' && <Button size="sm" variant="ghost" icon={Trash2} onClick={() => removeReport(selected)}>Supprimer</Button>}
             {selected && <Button size="sm" variant="ghost" icon={X} onClick={() => setSelectedId(null)}>Désélectionner</Button>}
           </div>
@@ -359,7 +368,46 @@ export default function ReportsPage({ canEdit, onOpenContract }) {
 
       {facture && <FactureDrawer reportId={facture.reportId} kind={facture.kind} context={context} month={month} onClose={() => setFacture(null)} onSaved={() => { setFacture(null); reload(); }} />}
       {decide && <DecideModal decide={decide} onClose={() => setDecide(null)} onConfirm={runDecision} />}
+      {genOpen && <GenerateModal context={context} onClose={() => setGenOpen(false)} onDone={() => { setGenOpen(false); reload(); }} />}
     </div>
+  );
+}
+
+function GenerateModal({ context, onClose, onDone }) {
+  const toast = useToast();
+  const partners = context?.partners || [];
+  const contracts = context?.contracts || [];
+  const [form, setForm] = useState({ contractId: '', partnerId: '' });
+  const [busy, setBusy] = useState(false);
+  const contract = contracts.find((c) => c.id === form.contractId);
+
+  async function go() {
+    if (!form.contractId || !form.partnerId) { toast.error('Choisissez le contrat et le prestataire TPM.'); return; }
+    setBusy(true);
+    try {
+      const r = await api.generateMonthlyReports({ contractId: form.contractId, partnerId: form.partnerId });
+      toast.success(r.created > 0 ? `${r.created} rapport(s) mensuel(s) créé(s).` : 'Les rapports mensuels existaient déjà.');
+      onDone();
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  }
+  return (
+    <Modal open title="Générer les rapports mensuels" subtitle="Un gabarit « attendu » par mois de la durée du contrat, à remplir ou à marquer non applicable."
+      onClose={() => !busy && onClose()}
+      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>Annuler</Button><Button onClick={go} loading={busy} icon={CalendarClock}>Générer</Button></>}>
+      <div style={{ display: 'grid', gap: 14 }}>
+        <Field label="Contrat suivi">
+          <select className={`select ${form.contractId ? '' : 'is-empty'}`} value={form.contractId} onChange={(e) => setForm({ ...form, contractId: e.target.value })}>
+            <option value="">Choisir…</option>{contracts.map((c) => <option key={c.id} value={c.id}>{c.partnerName} · {c.numero}</option>)}
+          </select>
+        </Field>
+        <Field label="Prestataire TPM">
+          <select className={`select ${form.partnerId ? '' : 'is-empty'}`} value={form.partnerId} onChange={(e) => setForm({ ...form, partnerId: e.target.value })}>
+            <option value="">Choisir…</option>{partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </Field>
+        {contract && <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>Un rapport financier « attendu » sera créé pour chaque mois de la période du contrat ({contract.periodMonths} mois). Les mois déjà présents ne sont pas dupliqués.</span></div>}
+      </div>
+    </Modal>
   );
 }
 

@@ -312,6 +312,8 @@ export const api = {
   approveReport: (id, input) => request(`/api/tpm/reports/${id}/approve`, { method: 'POST', body: input }),
   rejectReport: (id, input) => request(`/api/tpm/reports/${id}/reject`, { method: 'POST', body: input }),
   deleteReport: (id) => request(`/api/tpm/reports/${id}`, { method: 'DELETE' }),
+  generateMonthlyReports: (input) => request('/api/tpm/reports/generate-monthly', { method: 'POST', body: input }),
+  reportNotApplicable: (id) => request(`/api/tpm/reports/${id}/not-applicable`, { method: 'POST', body: {} }),
 
   // Suivi budgétaire consolidé (Dashboard décisionnel) — interliaison
   // Budget (contrat) ↔ Planifié (plans) ↔ Réalisé (factures).
