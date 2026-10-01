@@ -202,6 +202,15 @@ export const api = {
   monValues: (id, month) => request(`/api/monitoring/forms/${id}/values`, { query: month ? { month } : undefined }),
   monDashboard: (id, month) => request(`/api/monitoring/forms/${id}/dashboard`, { query: month ? { month } : undefined }),
   monOverview: (month) => request('/api/monitoring/overview', { query: month ? { month } : undefined }),
+  monCatalog: (id) => request(`/api/monitoring/forms/${id}/catalog`),
+  monImportDefinition: async (file) => {
+    const token = getToken();
+    const res = await fetch(new URL(`${API_URL}/api/monitoring/import-definition`), {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: file,
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Erreur ${res.status}`);
+    return res.json();
+  },
   monKoboPull: (id, input) => request(`/api/monitoring/forms/${id}/kobo-pull`, { method: 'POST', body: input }),
   monImport: async (id, file) => {
     const buf = await file.arrayBuffer();

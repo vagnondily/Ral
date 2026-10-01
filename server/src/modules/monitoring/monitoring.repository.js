@@ -101,7 +101,12 @@ async function deleteIndicator(tenantId, id) {
 /** Distinct answer fields seen in recent submissions — feeds the mapping UI. */
 async function formFields(tenantId, formId) {
   return withTenantTransaction(tenantId, async (client) => {
-    const { rows } = await client.query(
+    // Catalogue importé (XLSForm) d'abord, puis clés dérivées des soumissions.
+    const { rows: cat } = await client.query(
+      'SELECT name, label, type, group_path AS "group" FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name',
+      [tenantId, formId]
+    );
+    const { rows: keys } = await client.query(
       `SELECT DISTINCT k AS field
          FROM (SELECT jsonb_object_keys(data) AS k
                  FROM monitoring_submissions
@@ -110,7 +115,65 @@ async function formFields(tenantId, formId) {
         ORDER BY field`,
       [tenantId, formId]
     );
-    return rows.map((r) => r.field);
+    const seen = new Set(cat.map((c) => c.name));
+    const extra = keys.map((r) => r.field).filter((f) => !seen.has(f)).map((f) => ({ name: f, label: f, type: null, group: null, derived: true }));
+    // Rétro-compatible : liste de chaînes + détail enrichi.
+    const all = [...cat.map((c) => ({ ...c, derived: false })), ...extra];
+    return all.map((f) => f.name);
+  });
+}
+
+/** Catalogue détaillé (champs + listes de choix) d'une fiche, pour l'UI. */
+async function formCatalog(tenantId, formId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: fields } = await client.query(
+      'SELECT name, label, type, group_path AS "group", list_name AS "listName" FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name',
+      [tenantId, formId]
+    );
+    const { rows: choices } = await client.query(
+      'SELECT list_name AS "listName", value, label FROM monitoring_choices WHERE tenant_id = $1 AND form_id = $2 ORDER BY list_name, sort_order',
+      [tenantId, formId]
+    );
+    return { fields, choices };
+  });
+}
+
+/**
+ * Importe la définition d'un XLSForm : crée (ou retrouve par code) la fiche,
+ * puis remplace son catalogue de champs et ses listes de choix.
+ */
+async function importDefinition(tenantId, { code, label }, fields, choicesMap) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: ex } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND code = $2', [tenantId, code]);
+    let formId = ex[0]?.id;
+    if (formId) {
+      await client.query('UPDATE monitoring_forms SET label = $3, active = true, updated_at = now() WHERE tenant_id = $1 AND id = $2', [tenantId, formId, label]);
+    } else {
+      const { rows } = await client.query('INSERT INTO monitoring_forms (tenant_id, code, label) VALUES ($1,$2,$3) RETURNING id', [tenantId, code, label]);
+      formId = rows[0].id;
+    }
+    await client.query('DELETE FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
+    await client.query('DELETE FROM monitoring_choices WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
+
+    for (let i = 0; i < fields.length; i += 1) {
+      const f = fields[i];
+      await client.query(
+        `INSERT INTO monitoring_form_fields (tenant_id, form_id, name, type, label, group_path, list_name, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (form_id, name) DO NOTHING`,
+        [tenantId, formId, f.name, f.type || null, f.label || f.name, f.group || null, f.listName || null, i]
+      );
+    }
+    let choiceCount = 0;
+    for (const [listName, opts] of Object.entries(choicesMap || {})) {
+      for (let i = 0; i < opts.length; i += 1) {
+        await client.query(
+          'INSERT INTO monitoring_choices (tenant_id, form_id, list_name, value, label, sort_order) VALUES ($1,$2,$3,$4,$5,$6)',
+          [tenantId, formId, listName, opts[i].value, opts[i].label || opts[i].value, i]
+        );
+        choiceCount += 1;
+      }
+    }
+    return { formId, fields: fields.length, choices: choiceCount };
   });
 }
 
@@ -275,4 +338,5 @@ module.exports = {
   listForms, createForm, updateForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,
   formFields, importSubmissions, computeValues, dashboard, processOverview,
+  formCatalog, importDefinition,
 };

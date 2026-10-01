@@ -5,7 +5,9 @@ const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound } = require('../../middleware/errors');
 const repo = require('./monitoring.repository');
+const ExcelJS = require('exceljs');
 const { parseSubmissions, submissionsFromObjects } = require('./submissionsImport');
+const { parseXlsformRows } = require('./xlsformImport');
 
 /**
  * Suivi de processus — forms, configurable indicators (mapping) and real
@@ -125,6 +127,33 @@ router.get('/forms/:id/values', asyncHandler(async (req, res) => {
 router.get('/forms/:id/dashboard', asyncHandler(async (req, res) => {
   const month = /^\d{4}-\d{2}/.test(req.query.month || '') ? req.query.month : undefined;
   res.json(await repo.dashboard(t(req), req.params.id, { month }));
+}));
+
+// Catalogue détaillé d'une fiche (champs + listes de choix issus du XLSForm).
+router.get('/forms/:id/catalog', asyncHandler(async (req, res) => res.json(await repo.formCatalog(t(req), req.params.id))));
+
+// Import d'une DÉFINITION XLSForm (.xlsx Kobo/ODK : feuilles survey/choices/
+// settings) → crée/MAJ la fiche + son catalogue de champs et listes de choix.
+router.post('/import-definition', WRITE, express.raw({ type: '*/*', limit: '60mb' }), asyncHandler(async (req, res) => {
+  if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
+  let wb;
+  try { wb = new ExcelJS.Workbook(); await wb.xlsx.load(req.body); }
+  catch { throw badRequest('Fichier illisible : fournissez un XLSForm .xlsx (feuilles survey/choices/settings).'); }
+  const sheetRows = (name) => {
+    const ws = wb.getWorksheet(name);
+    if (!ws) return [];
+    const rows = [];
+    ws.eachRow((row) => { rows.push(row.values.slice(1)); });
+    return rows;
+  };
+  const survey = sheetRows('survey');
+  if (survey.length < 2) throw badRequest('Feuille « survey » introuvable ou vide — ce n\'est pas un XLSForm.');
+  const parsed = parseXlsformRows(survey, sheetRows('choices'), sheetRows('settings'));
+  if (parsed.fields.length === 0) throw badRequest('Aucun champ de données trouvé dans la feuille survey.');
+  const code = (parsed.formId || `form_${Date.now()}`).slice(0, 60);
+  const label = parsed.title || code;
+  const result = await repo.importDefinition(t(req), { code, label }, parsed.fields, parsed.choices);
+  res.json({ ...result, code, label });
 }));
 
 // Synthèse transversale « Suivi de processus » (toutes fiches agrégées).

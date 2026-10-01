@@ -45,6 +45,9 @@ export default function ProcessMonitoringPage({ canEdit }) {
 
   const form = (forms || []).find((f) => f.id === formId);
 
+  const xlsformRef = useRef(null);
+  const [importingDef, setImportingDef] = useState(false);
+
   async function newForm() {
     const label = window.prompt('Nom du formulaire de suivi (ex. Suivi de processus GD/PREVMA) :');
     if (!label) return;
@@ -54,14 +57,28 @@ export default function ProcessMonitoringPage({ canEdit }) {
     catch (e) { toast.error(e.message); }
   }
 
+  async function onXlsform(e) {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    setImportingDef(true);
+    try {
+      const r = await api.monImportDefinition(f);
+      await loadForms();
+      setFormId(r.formId);
+      toast.success(`Fiche « ${r.label} » importée : ${r.fields} champ(s), ${r.choices} choix. Configurez les indicateurs.`);
+    } catch (err) { toast.error(err.message); } finally { setImportingDef(false); }
+  }
+
   return (
     <div className="section-gap">
-      <PageHeader title="Suivi de processus" description="Importez les données réelles de suivi (CSV / XLSX Kobo, API Kobo v2) et reliez chaque indicateur à un champ du formulaire (mapping paramétrable) pour alimenter le tableau de bord.">
+      <PageHeader title="Suivi de processus" description="Importez un XLSForm (Kobo/ODK) pour créer la fiche et son catalogue de champs, puis les données réelles (CSV / XLSX, API Kobo v2), et reliez chaque indicateur à un champ (mapping paramétrable) pour alimenter le tableau de bord.">
         {forms && forms.length > 0 && (
           <select className="select" style={{ minWidth: 240 }} value={formId} onChange={(e) => setFormId(e.target.value)}>
             {forms.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
           </select>
         )}
+        {canEdit && <><input ref={xlsformRef} type="file" accept=".xlsx" hidden onChange={onXlsform} />
+          <Button variant="secondary" icon={Upload} loading={importingDef} onClick={() => xlsformRef.current?.click()}>Importer un XLSForm</Button></>}
         {canEdit && <Button icon={Plus} onClick={newForm}>Nouveau formulaire</Button>}
       </PageHeader>
 
