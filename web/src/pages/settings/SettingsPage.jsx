@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Users, ListChecks, Tags, MapPinned, Upload, Info, Download, Coins, Building2, Trash2, Clock, Pencil } from 'lucide-react';
+import { Plus, Users, ListChecks, Tags, MapPinned, Upload, Info, Download, Coins, Building2, Trash2, Clock, Pencil, ShieldCheck, ChevronRight, Lock } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton, Alert } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
@@ -7,37 +7,182 @@ import MoneyInput from '../../components/MoneyInput.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatAr, formatInt, formatDateTime } from '../../lib/format.js';
 
-const NAV = [
-  { id: 'partenaires', label: 'Partenaires', icon: Users },
-  { id: 'types', label: 'Types de partenaire', icon: Tags },
-  { id: 'activites', label: 'Activités', icon: ListChecks },
-  { id: 'taux', label: 'Taux de change', icon: Coins },
-  { id: 'localites', label: 'Localités', icon: MapPinned },
-  { id: 'bureaux', label: 'Bureaux & antennes', icon: Building2 },
-];
-
-const DESCRIPTIONS = {
-  partenaires: 'Registre des partenaires (nom + type) servant aux sélections dans Contrats et Partenaires & TPM.',
-  activites: 'Activités de suivi disponibles en multi-sélection sur les contrats.',
-  types: 'Catégories de partenaire (TPM, prestataire, cabinet…).',
-  taux: 'Taux de change de référence (ariary pour 1 USD), horodatés, par mois d\'application — servent à afficher les valeurs en dollars selon la période de saisie.',
-  localites: 'Découpage administratif du pays (un fichier par pays) pour les zones d\'intervention.',
-  bureaux: 'Bureaux terrain et antennes, et leur périmètre (communes) pour le rattachement automatique des sites.',
+// Catalogue des rubriques de paramétrage, groupées (façon « Tools » : cartes
+// explicites). `admin` = réservé aux administrateurs.
+const SECTIONS = {
+  partenaires: { label: 'Partenaires', icon: Users, group: 'Référentiels', desc: 'Registre des partenaires (nom + type) servant aux sélections dans Contrats et Partenaires & TPM.' },
+  types: { label: 'Types de partenaire', icon: Tags, group: 'Référentiels', desc: 'Catégories de partenaire (TPM, prestataire, cabinet…).' },
+  activites: { label: 'Activités', icon: ListChecks, group: 'Référentiels', desc: 'Activités de suivi disponibles en multi-sélection sur les contrats.' },
+  taux: { label: 'Taux de change', icon: Coins, group: 'Finances', desc: 'Taux de référence (ariary pour 1 USD), horodatés, pour afficher les valeurs en dollars selon la période.' },
+  localites: { label: 'Localités', icon: MapPinned, group: 'Géographie', desc: 'Découpage administratif du pays (régions → districts → communes) pour les zones d\'intervention.' },
+  bureaux: { label: 'Bureaux & antennes', icon: Building2, group: 'Géographie', desc: 'Bureaux terrain et antennes, et leur périmètre (communes) pour le rattachement automatique des sites.' },
+  utilisateurs: { label: 'Utilisateurs & accès', icon: ShieldCheck, group: 'Sécurité', admin: true, desc: 'Comptes, rôles (administrateur / validateur / lecteur) et activation. Qui peut faire quoi dans l\'application.' },
 };
+const GROUPS = ['Référentiels', 'Finances', 'Géographie', 'Sécurité'];
 
-export default function SettingsPage({ tab = 'partenaires', isAdmin }) {
-  const current = NAV.some((n) => n.id === tab) ? tab : 'partenaires';
-  const meta = NAV.find((n) => n.id === current);
+export default function SettingsPage({ tab = 'apercu', isAdmin, onNavigate }) {
+  const current = SECTIONS[tab] ? tab : 'apercu';
+  if (current === 'apercu') {
+    return (
+      <div className="section-gap">
+        <PageHeader title="Paramétrage" description="Centre de configuration : référentiels, finances, géographie et sécurité. Choisissez une rubrique." />
+        <SettingsOverview isAdmin={isAdmin} onNavigate={onNavigate} />
+      </div>
+    );
+  }
+  const meta = SECTIONS[current];
   return (
     <div className="section-gap">
-      <PageHeader title={`Paramétrage — ${meta.label}`} description={DESCRIPTIONS[current]} />
-      {current === 'partenaires' && <PartnersSection isAdmin={isAdmin} />}
-      {current === 'activites' && <ActivitiesSection isAdmin={isAdmin} />}
-      {current === 'types' && <TypesSection isAdmin={isAdmin} />}
-      {current === 'taux' && <ExchangeRatesSection isAdmin={isAdmin} />}
-      {current === 'localites' && <LocalitesSection isAdmin={isAdmin} />}
-      {current === 'bureaux' && <BureauxSection isAdmin={isAdmin} />}
+      <PageHeader title={`Paramétrage — ${meta.label}`} description={meta.desc}>
+        {onNavigate && <Button variant="ghost" size="sm" onClick={() => onNavigate('parametrage', 'apercu')}>← Toutes les rubriques</Button>}
+      </PageHeader>
+      {meta.admin && !isAdmin ? (
+        <Card><EmptyState icon={Lock} title="Accès réservé">Cette rubrique est réservée aux administrateurs.</EmptyState></Card>
+      ) : (
+        <>
+          {current === 'partenaires' && <PartnersSection isAdmin={isAdmin} />}
+          {current === 'activites' && <ActivitiesSection isAdmin={isAdmin} />}
+          {current === 'types' && <TypesSection isAdmin={isAdmin} />}
+          {current === 'taux' && <ExchangeRatesSection isAdmin={isAdmin} />}
+          {current === 'localites' && <LocalitesSection isAdmin={isAdmin} />}
+          {current === 'bureaux' && <BureauxSection isAdmin={isAdmin} />}
+          {current === 'utilisateurs' && <UsersSection isAdmin={isAdmin} />}
+        </>
+      )}
     </div>
+  );
+}
+
+function SettingsOverview({ isAdmin, onNavigate }) {
+  return (
+    <div style={{ display: 'grid', gap: 20 }}>
+      {GROUPS.map((g) => {
+        const items = Object.entries(SECTIONS).filter(([, s]) => s.group === g);
+        return (
+          <div key={g}>
+            <div className="nav-group-label" style={{ padding: '0 2px 8px' }}>{g}</div>
+            <div className="set-cards">
+              {items.map(([id, s]) => {
+                const Icon = s.icon;
+                const locked = s.admin && !isAdmin;
+                return (
+                  <button key={id} type="button" className="set-card" disabled={locked}
+                    onClick={() => !locked && onNavigate && onNavigate('parametrage', id)}
+                    title={locked ? 'Réservé aux administrateurs' : s.label}>
+                    <span className="set-card-ic"><Icon size={20} aria-hidden="true" /></span>
+                    <span className="set-card-body">
+                      <span className="set-card-title">{s.label}{locked && <Lock size={13} aria-hidden="true" style={{ marginLeft: 6, verticalAlign: '-1px', color: 'var(--text-faint)' }} />}</span>
+                      <span className="set-card-desc">{s.desc}</span>
+                    </span>
+                    <ChevronRight size={16} className="set-card-arrow" aria-hidden="true" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------- Users & accès --- */
+
+const ROLE_LABEL = { admin: 'Administrateur', manager: 'Validateur', viewer: 'Lecteur' };
+const ROLE_TONE = { admin: 'blue', manager: 'green', viewer: null };
+
+function UsersSection() {
+  const toast = useToast();
+  const [users, setUsers] = useState(null);
+  const [modal, setModal] = useState(null); // {user?} | null
+
+  async function reload() { try { setUsers(await api.listUsers()); } catch (e) { toast.error(e.message); setUsers([]); } }
+  useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
+
+  async function toggleActive(u) {
+    try { await api.updateUser(u.id, { active: !u.active }); reload(); }
+    catch (e) { toast.error(e.message); }
+  }
+  async function remove(u) {
+    if (!window.confirm(`Supprimer le compte « ${u.email} » ? Cette action est définitive.`)) return;
+    try { await api.deleteUser(u.id); toast.success('Compte supprimé.'); reload(); } catch (e) { toast.error(e.message); }
+  }
+
+  return (
+    <Card aria-labelledby="users-title">
+      <CardHeader id="users-title" title="Utilisateurs & accès"
+        subtitle="Comptes et rôles. Administrateur : tout gère. Validateur : valide contrats/rapports. Lecteur : consultation seule. Un compte désactivé ne peut plus se connecter.">
+        <Button icon={Plus} onClick={() => setModal({})}>Nouvel utilisateur</Button>
+      </CardHeader>
+      {users === null ? <div className="card-body"><Skeleton height={120} /></div> : users.length === 0 ? (
+        <EmptyState icon={Users} title="Aucun compte" action={<Button icon={Plus} onClick={() => setModal({})}>Nouvel utilisateur</Button>} />
+      ) : (
+        <div className="table-wrap"><table className="table">
+          <thead><tr><th scope="col">Utilisateur</th><th scope="col">Rôle</th><th scope="col">Statut</th><th scope="col">Dernière modif.</th><th scope="col" /></tr></thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.id}>
+                <td><strong>{u.fullName || u.email}</strong><div className="site-meta">{u.email}</div></td>
+                <td><Badge tone={ROLE_TONE[u.role]}>{ROLE_LABEL[u.role] || u.role}</Badge></td>
+                <td>
+                  <button type="button" className="switch-row" onClick={() => toggleActive(u)} title={u.active ? 'Désactiver' : 'Activer'}>
+                    <Badge tone={u.active ? 'green' : null} dot>{u.active ? 'Actif' : 'Désactivé'}</Badge>
+                  </button>
+                </td>
+                <td className="tabular"><span className="site-meta">{u.updatedAt ? formatDateTime(u.updatedAt) : '—'}</span></td>
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <Button size="sm" variant="ghost" icon={Pencil} aria-label="Éditer" onClick={() => setModal({ user: u })} />
+                  <Button size="sm" variant="ghost" icon={Trash2} aria-label="Supprimer" onClick={() => remove(u)} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      )}
+      {modal && <UserModal user={modal.user} onClose={() => setModal(null)} onSaved={() => { setModal(null); reload(); }} />}
+    </Card>
+  );
+}
+
+function UserModal({ user, onClose, onSaved }) {
+  const toast = useToast();
+  const editing = Boolean(user);
+  const [form, setForm] = useState({ email: user?.email || '', fullName: user?.fullName || '', role: user?.role || 'viewer', password: '', active: user?.active ?? true });
+  const [saving, setSaving] = useState(false);
+
+  async function save(e) {
+    e.preventDefault();
+    if (!editing && !/.+@.+\..+/.test(form.email)) { toast.error('E-mail invalide.'); return; }
+    if (!editing && form.password.length < 10) { toast.error('Mot de passe : au moins 10 caractères.'); return; }
+    if (editing && form.password && form.password.length < 10) { toast.error('Mot de passe : au moins 10 caractères.'); return; }
+    setSaving(true);
+    try {
+      if (editing) {
+        await api.updateUser(user.id, { fullName: form.fullName.trim() || undefined, role: form.role, active: form.active, password: form.password || undefined });
+      } else {
+        await api.createUser({ email: form.email.trim(), fullName: form.fullName.trim() || undefined, role: form.role, password: form.password });
+      }
+      toast.success('Compte enregistré.'); onSaved();
+    } catch (err) { toast.error(err.message); } finally { setSaving(false); }
+  }
+
+  return (
+    <Modal open title={editing ? 'Modifier le compte' : 'Nouvel utilisateur'} subtitle={editing ? user.email : 'Créer un compte et définir son rôle.'} onClose={() => !saving && onClose()}
+      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>Annuler</Button><Button type="submit" form="user-form" loading={saving}>Enregistrer</Button></>}>
+      <form id="user-form" onSubmit={save} style={{ display: 'grid', gap: 14 }}>
+        {!editing && <Field label="E-mail"><input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="prenom.nom@mems.mg" autoFocus /></Field>}
+        <Field label="Nom complet (optionnel)"><input className="input" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} /></Field>
+        <Field label="Rôle" hint="Administrateur : gère tout (y compris les comptes). Validateur : valide. Lecteur : consultation.">
+          <select className="select" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+            <option value="admin">Administrateur</option><option value="manager">Validateur</option><option value="viewer">Lecteur</option>
+          </select>
+        </Field>
+        <Field label={editing ? 'Nouveau mot de passe (laisser vide pour ne pas changer)' : 'Mot de passe'} hint="Au moins 10 caractères.">
+          <input className="input" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="new-password" />
+        </Field>
+        {editing && <label className="filter-check"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /><span>Compte actif (peut se connecter)</span></label>}
+      </form>
+    </Modal>
   );
 }
 

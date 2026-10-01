@@ -68,6 +68,7 @@ export const NAV = [
       {
         id: 'parametrage', label: 'Paramétrage', icon: Settings,
         subs: [
+          { id: 'apercu', label: "Vue d'ensemble" },
           { heading: 'Référentiels' },
           { id: 'partenaires', label: 'Partenaires' },
           { id: 'types', label: 'Types de partenaire' },
@@ -77,6 +78,8 @@ export const NAV = [
           { heading: 'Géographie' },
           { id: 'localites', label: 'Localités' },
           { id: 'bureaux', label: 'Bureaux & antennes' },
+          { heading: 'Sécurité' },
+          { id: 'utilisateurs', label: 'Utilisateurs & accès' },
         ],
       },
     ],

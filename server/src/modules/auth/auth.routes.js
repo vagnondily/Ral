@@ -37,6 +37,7 @@ router.post(
 
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return next(unauthorized('Identifiants incorrects'));
+    if (user.active === false) return next(unauthorized('Compte désactivé — contactez un administrateur.'));
 
     const token = jwt.sign(
       { sub: user.id, tenantId: user.tenant_id, role: user.role },
