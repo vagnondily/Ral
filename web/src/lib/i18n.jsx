@@ -29,6 +29,7 @@ const DICT = {
     'nav.tpm.rapports': 'Reports & expenses',
     'nav.tpm.budget': 'Planning & budget',
     'nav.processus': 'Process monitoring',
+    'nav.processus.synthese': 'Dashboard',
     'nav.processus.donnees': 'Data & indicators',
     'nav.processus.sites': 'Sites & visits',
     'nav.processus.rbm': 'Risk-Based Monitoring',

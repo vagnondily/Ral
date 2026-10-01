@@ -197,8 +197,82 @@ async function dashboard(tenantId, formId, { month } = {}) {
   });
 }
 
+/**
+ * Synthèse transversale « Suivi de processus » — agrège toutes les fiches :
+ * volume de données versées, tendance mensuelle, répartition par bureau, et
+ * indice de conformité global (moyenne des indicateurs percent_* de toutes les
+ * fiches, via overallIndex). Recalculé en direct, rien de stocké.
+ */
+async function processOverview(tenantId, { month } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const monthFilter = month ? `${month.slice(0, 7)}-01` : null;
+    const p = monthFilter ? [tenantId, monthFilter] : [tenantId];
+    const mWhere = monthFilter ? ' AND s.period_month = $2' : '';
+
+    const { rows: tot } = await client.query(
+      `SELECT count(*)::int AS submissions,
+              count(DISTINCT NULLIF(site, ''))::int AS sites,
+              count(DISTINCT NULLIF(agent, ''))::int AS agents,
+              count(DISTINCT NULLIF(partner, ''))::int AS partners,
+              count(DISTINCT NULLIF(field_office, ''))::int AS "fieldOffices"
+         FROM monitoring_submissions s WHERE s.tenant_id = $1${mWhere}`,
+      p
+    );
+    // Tendance : soumissions par mois (12 derniers mois présents).
+    const { rows: trend } = await client.query(
+      `SELECT to_char(period_month, 'YYYY-MM') AS month, count(*)::int AS submissions
+         FROM monitoring_submissions WHERE tenant_id = $1
+        GROUP BY period_month ORDER BY period_month DESC LIMIT 12`,
+      [tenantId]
+    );
+    const { rows: byBureau } = await client.query(
+      `SELECT COALESCE(NULLIF(field_office, ''), '(non renseigné)') AS bureau,
+              count(*)::int AS submissions, count(DISTINCT NULLIF(site, ''))::int AS sites
+         FROM monitoring_submissions s WHERE s.tenant_id = $1${mWhere}
+        GROUP BY 1 ORDER BY submissions DESC LIMIT 12`,
+      p
+    );
+
+    const { rows: forms } = await client.query(
+      "SELECT id, code, label FROM monitoring_forms WHERE tenant_id = $1 AND active = true ORDER BY label",
+      [tenantId]
+    );
+    // Indice de conformité : on rassemble les résultats d'indicateurs de toutes
+    // les fiches puis on moyenne (overallIndex).
+    let allResults = [];
+    const perForm = [];
+    let indicatorsCount = 0;
+    for (const f of forms) {
+      const { rows: inds } = await client.query(
+        `SELECT id, code, label, module, source_field AS "sourceField", agg,
+                positive_value AS "positiveValue", target, direction, sort_order
+           FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2 AND active = true
+          ORDER BY sort_order, label`,
+        [tenantId, f.id]
+      );
+      indicatorsCount += inds.length;
+      const subP = monthFilter ? [tenantId, f.id, monthFilter] : [tenantId, f.id];
+      const { rows: subs } = await client.query(
+        `SELECT data FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${monthFilter ? ' AND s.period_month = $3' : ''}`,
+        subP
+      );
+      const results = computeAll(inds, subs);
+      allResults = allResults.concat(results);
+      perForm.push({ id: f.id, code: f.code, label: f.label, submissions: subs.length, index: overallIndex(results) });
+    }
+
+    return {
+      totals: { ...tot[0], forms: forms.length, indicators: indicatorsCount },
+      trend: trend.reverse(),
+      byBureau,
+      perForm,
+      conformityIndex: overallIndex(allResults),
+    };
+  });
+}
+
 module.exports = {
   listForms, createForm, updateForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,
-  formFields, importSubmissions, computeValues, dashboard,
+  formFields, importSubmissions, computeValues, dashboard, processOverview,
 };

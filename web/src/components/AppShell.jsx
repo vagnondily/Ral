@@ -39,6 +39,7 @@ export const NAV = [
       {
         id: 'processus', label: 'Suivi de processus', icon: ClipboardCheck,
         subs: [
+          { id: 'synthese', label: 'Tableau de bord' },
           { id: 'donnees', label: 'Données & indicateurs' },
           { id: 'sites', label: 'Sites & visites' },
           { id: 'rbm', label: 'Risk-Based Monitoring' },
