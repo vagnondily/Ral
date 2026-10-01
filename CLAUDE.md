@@ -172,12 +172,17 @@ or navy rail.
 - **Rapports & dépenses**: monthly financial/technical reports per partner ×
   contract × month (submit → validate/reject workflow). Financial reports carry
   a **faithful facture** — an « état des dépenses » of line items
-  (`contract_report_items`) reproducing the real YPA invoice: each poste =
-  quantité × coût unitaire = montant, flagged PAM / ONG, grouped in FLA
-  sections I–V, with sub-totals and PAM/ONG split. The « Réalisé » booked
-  against the budget is the PAM share, computed from the postes (never typed).
-  Editor: `web/src/pages/tpm/FactureDrawer.jsx`; pure math (unit-tested against
-  the real 5 600 800 Ar Bekily invoice) in `server/src/modules/tpm/reportMath.js`.
+  (`contract_report_items`) faithful to the real template: each poste =
+  quantité × coût unitaire = montant, with a per-line **« % bailleur »**
+  (part à la charge du bailleur = montant × %, défaut 100 %) and an optional
+  split across **two activités** (`activity_id`/`activity2_id`/`activity1_pct`),
+  grouped in FLA sections I–V with sub-totals. The « Réalisé » booked against the
+  budget is the bailleur share (`summarize().funder`), computed server-side
+  (never typed). The facture also exports the exact **« Facture (INVOICE) »**
+  layout + a « Suivi budgétaire (cumulé) » (Budget · dépenses du mois · cumulé ·
+  restant). Editor: `web/src/pages/tpm/FactureDrawer.jsx` + shared
+  `PostesEditor.jsx`; pure math in `server/src/modules/tpm/reportMath.js`
+  (migration 019 adds the columns).
 - **Planification & budget** (`web/src/pages/tpm/PlanningPage.jsx` +
   `PlanBudgetDrawer.jsx`, `server/src/modules/tpm/planning.*`): the provisional
   collection budget (planning workbook's « Budget » sheet) — planned postes per
@@ -275,8 +280,11 @@ or navy rail.
   `server/src/db/seed.js` (not shown in the UI).
 
 ## Testing
-`cd server && npm test` (29 unit tests on the pure business logic: budget/expense
-math, plan-month normalization, workflow state machine, and the consolidation
-engine — month maths, per-partner/grand-total roll-ups, month matrix,
-projection). Frontend has no test suite yet, but `cd web && npm run build`
-type-checks imports/JSX.
+`cd server && npm test` (64 unit tests on the pure business logic: budget/expense
+math incl. the per-line **% bailleur** split and 2-activity allocation,
+plan-month normalization, workflow state machine, the consolidation engine, the
+budget Excel round-trip, the INVOICE workbook, and the field-visit coverage math
+`fieldMath`). `cd server && npm run lint` is clean. Frontend has no test suite
+yet, but `cd web && npm run build` type-checks imports/JSX, and a Playwright
+smoke-sweep of every route (login → each module) is used to confirm 0 console/API
+errors before pushing.
