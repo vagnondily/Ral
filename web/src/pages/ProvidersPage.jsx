@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Handshake, UserPlus, ArrowRight, Settings, Info, Trash2, Users } from 'lucide-react';
 import { api } from '../api/client.js';
-import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton, Stats } from '../components/ui.jsx';
+import { Avatar, Badge, Button, Field, PageHeader, Stats } from '../components/ui.jsx';
+import DataList from '../components/DataList.jsx';
 import Modal from '../components/Modal.jsx';
 import { useToast } from '../components/Toast.jsx';
 
@@ -113,33 +114,25 @@ export default function ProvidersPage({ canEdit, onNavigate }) {
         { label: 'Prestataires avec agents', value: stats ? stats.withAgents : '—', suffix: stats ? `/ ${stats.count}` : null, foot: 'Prêts à être affectés' },
       ]} />
 
-      <Card aria-labelledby="providers-title">
-        <CardHeader id="providers-title" title="Prestataires et agents" subtitle="Un prestataire par ligne. Cliquez sur le nombre d'agents pour gérer la liste (nom, fonction)." />
-        {providers !== null && providers.length === 0 ? (
-          <EmptyState icon={Handshake} title="Aucun prestataire TPM"
-            action={canEdit && <Button icon={Settings} onClick={() => onNavigate('parametrage', 'partenaires')}>Créer dans Paramétrage</Button>}>
-            Créez un partenaire de type TPM dans Paramétrage pour pouvoir saisir ses agents.
-          </EmptyState>
-        ) : (
-          <div className="table-wrap">
-            <table className="table">
-              <thead><tr><th scope="col">Prestataire</th><th scope="col">Référence</th><th scope="col" className="num">Agents</th><th scope="col" /></tr></thead>
-              <tbody>
-                {providers === null
-                  ? [0, 1, 2].map((i) => (<tr key={i} aria-hidden="true">{[220, 180, 60, 120].map((w, j) => <td key={j}><Skeleton width={w} height={20} /></td>)}</tr>))
-                  : providers.map((p) => (
-                      <tr key={p.id}>
-                        <td><span className="agent"><Avatar name={p.name} /><strong>{p.name}</strong></span></td>
-                        <td>{p.contractRef ? <span className="mono">{p.contractRef}</span> : <span className="cell-empty">—</span>}</td>
-                        <td className="num"><button type="button" className="count-link" onClick={() => setModal(p)}>{p.agents.length} agent{p.agents.length > 1 ? 's' : ''}</button></td>
-                        <td style={{ textAlign: 'right' }}><Button size="sm" variant="secondary" icon={Users} onClick={() => setModal(p)}>Gérer les agents</Button></td>
-                      </tr>
-                    ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+      <DataList
+        rows={providers}
+        columns={{
+          name: { label: 'Prestataire', sortVal: (p) => p.name, csv: (p) => p.name,
+            render: (p) => <span className="agent"><Avatar name={p.name} /><strong>{p.name}</strong></span> },
+          reference: { label: 'Référence', sortVal: (p) => p.contractRef || '', csv: (p) => p.contractRef || '',
+            render: (p) => (p.contractRef ? <span className="mono">{p.contractRef}</span> : <span className="cell-empty">—</span>) },
+          agents: { label: 'Agents', num: true, sortVal: (p) => p.agents.length, csv: (p) => p.agents.length,
+            render: (p) => <button type="button" className="count-link" onClick={() => setModal(p)}>{p.agents.length} agent{p.agents.length > 1 ? 's' : ''}</button> },
+          action: { label: '', width: 150, csv: () => '',
+            render: (p) => <Button size="sm" variant="secondary" icon={Users} onClick={() => setModal(p)}>Gérer les agents</Button> },
+        }}
+        defaultColumns={['name', 'reference', 'agents', 'action']}
+        filters={{ q: { label: 'Recherche', type: 'search', placeholder: 'Prestataire, référence…', match: (p, v) => [p.name, p.contractRef].some((x) => x && String(x).toLowerCase().includes(v.toLowerCase())) } }}
+        storageKey="mems.providers.view" defaultSort={{ key: 'name', dir: 'asc' }}
+        csvName="prestataires_tpm.csv" emptyIcon={Handshake} emptyTitle="Aucun prestataire TPM"
+        emptyAction={canEdit && <Button icon={Settings} onClick={() => onNavigate('parametrage', 'partenaires')}>Créer dans Paramétrage</Button>}
+        emptyChildren="Créez un partenaire de type TPM dans Paramétrage pour pouvoir saisir ses agents."
+      />
 
       {modal && <AgentsModal provider={modal} canEdit={canEdit} onClose={() => setModal(null)} onChanged={reload} />}
     </div>

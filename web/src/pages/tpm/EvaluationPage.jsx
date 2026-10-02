@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ClipboardCheck, Plus, Trash2, Info, MapPin, CalendarDays } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton, Stats } from '../../components/ui.jsx';
+import DataList from '../../components/DataList.jsx';
 import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
 
@@ -122,29 +123,25 @@ export default function EvaluationPage({ canEdit }) {
         { label: 'Jours de mission', value: stats ? stats.missionDays : '—', foot: 'Cumul terrain' },
       ]} />
 
-      <Card>
-        <CardHeader title="Agents et travail terrain" subtitle="Missions et jours de mission par agent. Cliquez pour évaluer." />
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr><th scope="col">Agent</th><th scope="col">Prestataire</th><th scope="col" className="num">Missions</th><th scope="col" className="num">Jours terrain</th><th scope="col" className="num">Dernière note</th><th scope="col" /></tr></thead>
-            <tbody>
-              {agents === null
-                ? [0, 1, 2].map((i) => (<tr key={i} aria-hidden="true">{[200, 160, 60, 80, 80, 100].map((w, j) => <td key={j}><Skeleton width={w} height={20} /></td>)}</tr>))
-                : agents.map((a) => (
-                    <tr key={a.id}>
-                      <td><span className="agent"><Avatar name={a.name} /><strong>{a.name}</strong></span></td>
-                      <td>{a.providerName}</td>
-                      <td className="num">{a.missions}</td>
-                      <td className="num">{a.missionDays}</td>
-                      <td className="num">{lastNote(a) == null ? <span className="cell-empty">—</span> : <strong>{lastNote(a)}/20</strong>}</td>
-                      <td style={{ textAlign: 'right' }}><Button size="sm" variant="secondary" icon={ClipboardCheck} onClick={() => setModalId(a.id)}>Évaluer</Button></td>
-                    </tr>
-                  ))}
-            </tbody>
-          </table>
-          {agents && agents.length === 0 && <EmptyState icon={ClipboardCheck} title="Aucun agent">Saisissez d'abord des agents dans Prestataires TPM.</EmptyState>}
-        </div>
-      </Card>
+      <DataList
+        rows={agents}
+        columns={{
+          name: { label: 'Agent', sortVal: (a) => a.name, csv: (a) => a.name,
+            render: (a) => <span className="agent"><Avatar name={a.name} /><strong>{a.name}</strong></span> },
+          provider: { label: 'Prestataire', sortVal: (a) => a.providerName, csv: (a) => a.providerName, render: (a) => a.providerName },
+          missions: { label: 'Missions', num: true, sortVal: (a) => a.missions, csv: (a) => a.missions, render: (a) => a.missions },
+          missionDays: { label: 'Jours terrain', num: true, sortVal: (a) => a.missionDays, csv: (a) => a.missionDays, render: (a) => a.missionDays },
+          note: { label: 'Dernière note', num: true, sortVal: (a) => (lastNote(a) == null ? -1 : lastNote(a)), csv: (a) => (lastNote(a) == null ? '' : lastNote(a)),
+            render: (a) => (lastNote(a) == null ? <span className="cell-empty">—</span> : <strong>{lastNote(a)}/20</strong>) },
+          action: { label: '', width: 120, csv: () => '',
+            render: (a) => <Button size="sm" variant="secondary" icon={ClipboardCheck} onClick={() => setModalId(a.id)}>Évaluer</Button> },
+        }}
+        defaultColumns={['name', 'provider', 'missions', 'missionDays', 'note', 'action']}
+        filters={{ q: { label: 'Recherche', type: 'search', placeholder: 'Agent, prestataire…', match: (a, v) => [a.name, a.providerName].some((x) => x && String(x).toLowerCase().includes(v.toLowerCase())) } }}
+        storageKey="mems.evaluation.view" defaultSort={{ key: 'name', dir: 'asc' }}
+        csvName="evaluation_agents.csv" emptyIcon={ClipboardCheck} emptyTitle="Aucun agent"
+        emptyChildren="Saisissez d'abord des agents dans Prestataires TPM."
+      />
 
       {modalAgent && <EvaluationModal agent={modalAgent} canEdit={canEdit} onClose={() => setModalId(null)} onChanged={reload} />}
     </div>

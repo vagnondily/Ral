@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, UserPlus, Trash2, Wand2 } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Alert, Button, PageHeader, Skeleton } from '../../components/ui.jsx';
+import { Alert, Button, PageHeader } from '../../components/ui.jsx';
+import DataList from '../../components/DataList.jsx';
 import MonthPicker from '../../components/MonthPicker.jsx';
 import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
@@ -38,8 +39,6 @@ export default function FieldVisitsPage({ canEdit }) {
   const [generating, setGenerating] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [view, setView] = useState('plan');          // 'plan' (grille simple) | 'couverture'
-  const [fProvider, setFProvider] = useState('');   // '', 'non_affecte', or id
-  const [fStatus, setFStatus] = useState('');
   const fileRef = useRef(null);
 
   const reload = useCallback(() => {
@@ -93,25 +92,52 @@ export default function FieldVisitsPage({ canEdit }) {
   const monthStart = `${month}-01`;
   const monthEnd = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).toISOString().slice(0, 10);
 
-  const filtered = useMemo(() => (visits || []).filter((v) => {
-    if (fProvider === 'non_affecte' && v.providerId) return false;
-    if (fProvider && fProvider !== 'non_affecte' && v.providerId !== fProvider) return false;
-    if (fStatus && v.status !== fStatus) return false;
-    return true;
-  }), [visits, fProvider, fStatus]);
-
-  const grouped = useMemo(() => {
-    const g = new Map();
-    for (const v of filtered) {
-      const k = `${v.district} › ${v.commune}`;
-      if (!g.has(k)) g.set(k, []);
-      g.get(k).push(v);
-    }
-    return [...g.entries()];
-  }, [filtered]);
-
+  const communeCount = useMemo(() => new Set((visits || []).map((v) => `${v.district} › ${v.commune}`)).size, [visits]);
   const ov = summary?.overall;
   const unassigned = (visits || []).filter((v) => !v.providerId).length;
+
+  // Colonnes & filtres de la grille de planification (liste façon COMET).
+  const columns = useMemo(() => {
+    const c = {
+      site: { label: 'Site (établissement)', sortVal: (v) => v.siteName, csv: (v) => v.siteName,
+        render: (v) => <><strong>{v.siteName}</strong>{v.fokontany && <div className="site-meta">{v.fokontany}</div>}</> },
+      zone: { label: 'District / Commune', sortVal: (v) => `${v.district || ''} ${v.commune || ''}`, csv: (v) => `${v.district || ''} / ${v.commune || ''}`,
+        render: (v) => <>{v.district || '—'} › {v.commune || '—'}</> },
+      activity: { label: 'Activité', sortVal: (v) => v.activity || '', csv: (v) => v.activity || '',
+        render: (v) => v.activity || '—' },
+      provider: { label: 'Prestataire TPM', sortVal: (v) => v.providerName || '', csv: (v) => v.providerName || '',
+        render: (v) => (canEdit
+          ? <select className={`select ${v.providerId ? '' : 'is-empty'}`} style={{ minWidth: 150 }} value={v.providerId || ''} onChange={(e) => patch(v, { providerId: e.target.value || '' })} aria-label="Prestataire">
+              <option value="">— Non affecté —</option>{providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+          : (v.providerName || '—')) },
+      role: { label: 'Rôle', sortVal: (v) => v.agent || '', csv: (v) => v.agent || '',
+        render: (v) => (canEdit
+          ? <select className={`select ${v.agent ? '' : 'is-empty'}`} style={{ minWidth: 130 }} value={v.agent || ''} onChange={(e) => patch(v, { agent: e.target.value })} aria-label="Rôle">
+              <option value="">— Rôle —</option>{ROLES.map((r) => <option key={r} value={r}>{r}</option>)}{v.agent && !ROLES.includes(v.agent) && <option value={v.agent}>{v.agent}</option>}</select>
+          : (v.agent || '—')) },
+      visitDate: { label: 'Date de visite', sortVal: (v) => v.visitDate || '', csv: (v) => v.visitDate || '',
+        render: (v) => (canEdit
+          ? <input className="input" style={{ width: 150 }} type="date" min={monthStart} max={monthEnd} value={v.visitDate || ''} onChange={(e) => e.target.value && patch(v, { visitDate: e.target.value })} aria-label="Date de visite" />
+          : (v.visitDate || '—')) },
+      status: { label: 'Statut', sortVal: (v) => v.status, csv: (v) => STATUS[v.status]?.label || v.status,
+        render: (v) => (canEdit
+          ? <div className="seg" role="group" aria-label="Statut">{Object.entries(STATUS).map(([k, s]) => <button type="button" key={k} className={v.status === k ? 'is-active' : ''} onClick={() => patch(v, { status: k })} title={s.label}>{s.label}</button>)}</div>
+          : <span className="badge"><span className="dot" style={{ background: STATUS[v.status]?.color }} />{STATUS[v.status]?.label}</span>) },
+    };
+    if (canEdit) c.action = { label: '', width: 48, csv: () => '', render: (v) => <Button size="sm" variant="ghost" icon={Trash2} aria-label="Supprimer" onClick={() => remove(v)} /> };
+    return c;
+  }, [canEdit, providers, monthStart, monthEnd]); // eslint-disable-line
+
+  const filters = useMemo(() => ({
+    q: { label: 'Recherche', type: 'search', placeholder: 'Site, commune, district…',
+      match: (v, val) => [v.siteName, v.commune, v.district, v.activity].some((x) => x && String(x).toLowerCase().includes(val.toLowerCase())) },
+    provider: { label: 'Prestataire', type: 'select',
+      options: [{ id: '', label: 'Tous les prestataires' }, { id: 'non_affecte', label: '— Non affectés —' }, ...providers.map((p) => ({ id: p.id, label: p.name }))],
+      match: (v, val) => (val === 'non_affecte' ? !v.providerId : v.providerId === val) },
+    status: { label: 'Statut', type: 'select',
+      options: [{ id: '', label: 'Tous les statuts' }, ...Object.entries(STATUS).map(([k, s]) => ({ id: k, label: s.label }))],
+      match: (v, val) => v.status === val },
+  }), [providers]);
 
   return (
     <div className="page">
@@ -137,7 +163,7 @@ export default function FieldVisitsPage({ canEdit }) {
       {view === 'couverture' && <>
         {ov && (
           <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(5, minmax(0,1fr))' }}>
-            <Kpi icon={MapPin} tone="blue" label="Sites du mois" value={formatInt(ov.total)} foot={`${grouped.length} commune(s)`} />
+            <Kpi icon={MapPin} tone="blue" label="Sites du mois" value={formatInt(ov.total)} foot={`${communeCount} commune(s)`} />
             <Kpi icon={UserPlus} tone={unassigned ? 'amber' : 'green'} label="À affecter" value={formatInt(unassigned)} foot="Sans prestataire" />
             <Kpi icon={CalendarClock} tone="blue" label="Planifiées" value={formatInt(ov.planifie)} foot="À réaliser" />
             <Kpi icon={CheckCircle2} tone="green" label="Réalisées" value={formatInt(ov.realise)} foot={`${Math.round(ov.rate * 100)} % de couverture`} />
@@ -175,87 +201,16 @@ export default function FieldVisitsPage({ canEdit }) {
         )}
       </>}
 
-      {view === 'plan' && <>
-      <div className="postes-toolbar" style={{ margin: '16px 0' }}>
-        <label className="field" style={{ margin: 0 }}>
-          <select className="select" value={fProvider} onChange={(e) => setFProvider(e.target.value)} aria-label="Filtre prestataire">
-            <option value="">Tous les prestataires</option>
-            <option value="non_affecte">— Non affectés —</option>
-            {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </label>
-        <label className="field" style={{ margin: 0 }}>
-          <select className="select" value={fStatus} onChange={(e) => setFStatus(e.target.value)} aria-label="Filtre statut">
-            <option value="">Tous les statuts</option>
-            {Object.entries(STATUS).map(([k, s]) => <option key={k} value={k}>{s.label}</option>)}
-          </select>
-        </label>
-        <span className="hint">{filtered.length} visite(s) affichée(s)</span>
-      </div>
-
-      {visits === null ? <Skeleton height={260} /> : filtered.length === 0 ? (
-        <div className="card"><div className="card-body">
-          <p className="muted">Aucune visite pour ce mois / ce filtre.{rbmDue ? ` ${rbmDue} site(s) sont « à suivre » ce mois d'après le RBM.` : ''} Générez la planification depuis le RBM, importez le planning (.xlsx) ou ajoutez une visite.</p>
-          {canEdit && rbmDue > 0 && <Button icon={Wand2} loading={generating} onClick={generateFromRbm} style={{ marginTop: 12 }}>Générer {rbmDue} visite(s) depuis le RBM</Button>}
-        </div></div>
-      ) : (
-        <div className="card biz-card">
-          <div className="table-wrap"><table className="table">
-            <thead><tr>
-              <th>Site (établissement)</th><th>Activité</th><th>Prestataire TPM</th><th>Rôle</th><th>Date de visite</th><th>Statut</th>{canEdit && <th aria-label="Actions" />}
-            </tr></thead>
-            <tbody>
-              {grouped.map(([zone, list]) => (
-                <React.Fragment key={zone}>
-                  <tr className="subrow-head"><td colSpan={canEdit ? 7 : 6}><strong>{zone}</strong> · {list.length} site(s)</td></tr>
-                  {list.map((v) => (
-                    <tr key={v.id}>
-                      <td><strong>{v.siteName}</strong>{v.fokontany && <div className="site-meta">{v.fokontany}</div>}</td>
-                      <td>{v.activity || '—'}</td>
-                      <td>
-                        {canEdit ? (
-                          <select className={`select ${v.providerId ? '' : 'is-empty'}`} style={{ minWidth: 150 }} value={v.providerId || ''} onChange={(e) => patch(v, { providerId: e.target.value || '' })} aria-label="Prestataire">
-                            <option value="">— Non affecté —</option>
-                            {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                          </select>
-                        ) : (v.providerName || '—')}
-                      </td>
-                      <td>
-                        {canEdit ? (
-                          <select className={`select ${v.agent ? '' : 'is-empty'}`} style={{ minWidth: 130 }} value={v.agent || ''} onChange={(e) => patch(v, { agent: e.target.value })} aria-label="Rôle">
-                            <option value="">— Rôle —</option>
-                            {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                            {v.agent && !ROLES.includes(v.agent) && <option value={v.agent}>{v.agent}</option>}
-                          </select>
-                        ) : (v.agent || '—')}
-                      </td>
-                      <td>
-                        {canEdit ? (
-                          <input className="input" style={{ width: 150 }} type="date" min={monthStart} max={monthEnd}
-                            value={v.visitDate || ''} onChange={(e) => e.target.value && patch(v, { visitDate: e.target.value })} aria-label="Date de visite" />
-                        ) : (v.visitDate || '—')}
-                      </td>
-                      <td>
-                        {canEdit ? (
-                          <div className="seg" role="group" aria-label="Statut">
-                            {Object.entries(STATUS).map(([k, s]) => (
-                              <button type="button" key={k} className={v.status === k ? 'is-active' : ''} onClick={() => patch(v, { status: k })} title={s.label}>{s.label}</button>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="badge"><span className="dot" style={{ background: STATUS[v.status]?.color }} />{STATUS[v.status]?.label}</span>
-                        )}
-                      </td>
-                      {canEdit && <td><Button size="sm" variant="ghost" icon={Trash2} aria-label="Supprimer" onClick={() => remove(v)} /></td>}
-                    </tr>
-                  ))}
-                </React.Fragment>
-              ))}
-            </tbody>
-          </table></div>
-        </div>
+      {view === 'plan' && (
+        <DataList
+          rows={visits} columns={columns} defaultColumns={['site', 'zone', 'activity', 'provider', 'role', 'visitDate', 'status', ...(canEdit ? ['action'] : [])]}
+          filters={filters} defaultFilters={['q', 'provider', 'status']}
+          storageKey="mems.fieldvisits.view" pageSize={15} defaultSort={{ key: 'zone', dir: 'asc' }}
+          csvName={`visites_${month}.csv`} emptyIcon={MapPin} emptyTitle="Aucune visite ce mois-ci"
+          emptyAction={canEdit && rbmDue > 0 && <Button icon={Wand2} loading={generating} onClick={generateFromRbm}>Générer {rbmDue} visite(s) depuis le RBM</Button>}
+          emptyChildren={`Générez la planification depuis le RBM${rbmDue ? ` (${rbmDue} site(s) à suivre)` : ''}, importez le planning (.xlsx) ou ajoutez une visite.`}
+        />
       )}
-      </>}
 
       {addOpen && <AddVisitModal month={month} providers={providers} roles={ROLES} onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); reload(); }} />}
     </div>
