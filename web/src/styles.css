@@ -1715,3 +1715,12 @@ h1, h2, h3, h4 { letter-spacing: -0.018em; }
 .month-cell.is-selected { background: var(--blue-600); border-color: var(--blue-600); color: #fff; font-weight: 700; }
 .month-cell.is-selected:hover { background: var(--blue-700); color: #fff; }
 .month-dd-today { width: 100%; margin-top: 8px; color: var(--blue-600); justify-content: center; }
+
+/* Tableau des mois (navigation par mois avec stats) */
+.months-head { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 12px; border-bottom: 1px solid var(--border); }
+.months-year { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-strong); min-width: 64px; text-align: center; }
+.month-go { color: var(--text-faint); }
+tr.clickable:hover .month-go { color: var(--blue-600); }
+.tag-inline { display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 700; color: var(--blue-700); background: var(--blue-50); border-radius: 999px; padding: 1px 8px; vertical-align: middle; }
+.month-active-bar { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 10px; font-size: 16px; }
+.month-active-bar strong { color: var(--text-strong); }

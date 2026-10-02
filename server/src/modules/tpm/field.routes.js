@@ -97,6 +97,9 @@ router.get('/visits', asyncHandler(async (req, res) => res.json(
 )));
 router.get('/summary', asyncHandler(async (req, res) => res.json(await repo.summary(t(req), { month: monthQ(req) }))));
 
+// Vue par mois (une ligne par mois de l'année, avec stats) — pour la navigation.
+router.get('/months', asyncHandler(async (req, res) => res.json(await repo.monthsOverview(t(req), { year: req.query.year }))));
+
 // Récap de couverture (sites visités 1/2/3/4+ fois vs MMR) — lecture seule.
 router.get('/coverage-recap', asyncHandler(async (req, res) => {
   const om = Number(req.query.operationMonths);

@@ -207,6 +207,41 @@ async function listVisits(tenantId, { month, providerId, status } = {}) {
   });
 }
 
+/**
+ * Vue par mois d'une année : une ligne par mois avec ses stats de visites
+ * (planifiées / réalisées / annulées / couverture / sites). Agrégé en SQL ;
+ * les 12 mois sont toujours renvoyés (0 si aucune visite).
+ */
+async function monthsOverview(tenantId, { year } = {}) {
+  const y = Number(year) || new Date().getFullYear();
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT to_char(period_month, 'YYYY-MM') AS month,
+              count(*)::int AS total,
+              count(*) FILTER (WHERE status = 'planifie')::int AS planifie,
+              count(*) FILTER (WHERE status = 'realise')::int AS realise,
+              count(*) FILTER (WHERE status = 'annule')::int AS annule,
+              count(DISTINCT site_id)::int AS sites,
+              count(DISTINCT provider_id) FILTER (WHERE provider_id IS NOT NULL)::int AS providers
+         FROM site_visits
+        WHERE tenant_id = $1 AND date_part('year', period_month) = $2
+        GROUP BY 1`,
+      [tenantId, y]
+    );
+    const byMonth = new Map(rows.map((r) => [r.month, r]));
+    const out = [];
+    for (let m = 1; m <= 12; m += 1) {
+      const key = `${y}-${String(m).padStart(2, '0')}`;
+      const r = byMonth.get(key) || { month: key, total: 0, planifie: 0, realise: 0, annule: 0, sites: 0, providers: 0 };
+      const done = r.realise;
+      const base = r.planifie + r.realise; // annulées exclues du taux
+      r.coverage = base > 0 ? done / base : 0;
+      out.push(r);
+    }
+    return { year: y, months: out };
+  });
+}
+
 async function summary(tenantId, { month } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId];
@@ -365,6 +400,6 @@ async function importPlanning(tenantId, userId, month, rows) {
 module.exports = {
   listSites, createSite, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
-  collectionDaysSummary, setTravelDays, coverageRecapSummary,
+  collectionDaysSummary, setTravelDays, coverageRecapSummary, monthsOverview,
   rbmSites, importMasterData, generateFromRbm,
 };

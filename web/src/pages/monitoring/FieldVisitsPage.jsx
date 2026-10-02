@@ -1,12 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, UserPlus, Trash2, Wand2 } from 'lucide-react';
+import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, UserPlus, Trash2, Wand2, ChevronLeft, ChevronRight, ChevronRight as GoIcon } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Alert, Button, PageHeader } from '../../components/ui.jsx';
+import { Alert, Button, PageHeader, Skeleton } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
-import MonthPicker from '../../components/MonthPicker.jsx';
 import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import { currentMonth, formatInt } from '../../lib/format.js';
+import { currentMonth, formatInt, monthLabel } from '../../lib/format.js';
 
 const STATUS = {
   planifie: { label: 'Planifiée', color: 'var(--blue-600)' },
@@ -39,7 +38,14 @@ export default function FieldVisitsPage({ canEdit }) {
   const [generating, setGenerating] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [view, setView] = useState('plan');          // 'plan' (grille simple) | 'couverture'
+  // Navigation par TABLEAU des mois : on choisit l'année, on voit un mois par
+  // ligne avec ses stats, on clique un mois pour ouvrir son plan.
+  const [year, setYear] = useState(() => Number(currentMonth().slice(0, 4)));
+  const [monthsData, setMonthsData] = useState(null);
+  const [picking, setPicking] = useState(true);      // true = tableau des mois ; false = plan d'un mois
   const fileRef = useRef(null);
+
+  useEffect(() => { setMonthsData(null); api.fieldMonths(year).then(setMonthsData).catch(() => setMonthsData({ year, months: [] })); }, [year]);
 
   const reload = useCallback(() => {
     setVisits(null);
@@ -48,6 +54,8 @@ export default function FieldVisitsPage({ canEdit }) {
       .catch((e) => setError(e.message));
     // Combien de sites sont « à suivre » ce mois d'après le RBM (indicatif, non bloquant).
     api.rbmSites(month).then((rows) => setRbmDue(rows.filter((r) => r.due).length)).catch(() => setRbmDue(null));
+    // Rafraîchit les stats par mois (le tableau des mois).
+    api.fieldMonths(month.slice(0, 4)).then(setMonthsData).catch(() => {});
   }, [month]);
 
   useEffect(() => { reload(); }, [reload]);
@@ -139,12 +147,16 @@ export default function FieldVisitsPage({ canEdit }) {
       match: (v, val) => v.status === val },
   }), [providers]);
 
+  const openMonth = (mm) => { setMonth(mm); setPicking(false); setView('plan'); };
+
   return (
     <div className="page">
       <PageHeader title="Planification des visites de terrain"
-        description="La liste des sites à visiter ce mois : district › commune › établissement › activité. Affectez le prestataire TPM et le rôle (Agent 1 / Superviseur 1) directement dans le tableau.">
-        <MonthPicker value={month} onChange={setMonth} />
-        {canEdit && <><input ref={fileRef} type="file" accept=".xlsx" hidden onChange={onImport} />
+        description={picking
+          ? "Choisissez un mois dans le tableau ci-dessous pour ouvrir son plan de visites. Chaque ligne montre les visites planifiées, réalisées et la couverture du mois."
+          : "La liste des sites à visiter ce mois : district › commune › établissement › activité. Affectez le prestataire TPM et le rôle directement dans le tableau."}>
+        {!picking && <Button variant="secondary" icon={ChevronLeft} onClick={() => setPicking(true)}>Tous les mois</Button>}
+        {!picking && canEdit && <><input ref={fileRef} type="file" accept=".xlsx" hidden onChange={onImport} />
           <Button variant="secondary" icon={Wand2} loading={generating} onClick={generateFromRbm}
             title="Planifie automatiquement les sites « à suivre » ce mois d'après leur niveau de risque (RBM).">
             Générer depuis le RBM{rbmDue ? ` (${rbmDue})` : ''}</Button>
@@ -153,6 +165,14 @@ export default function FieldVisitsPage({ canEdit }) {
       </PageHeader>
 
       {error && <Alert tone="error">{error}</Alert>}
+
+      {picking && <MonthsTable data={monthsData} year={year} setYear={setYear} current={currentMonth()} onOpen={openMonth} />}
+
+      {!picking && <>
+      <div className="month-active-bar">
+        <strong>{monthLabel(month)}</strong>
+        <span className="muted">— plan de visites du mois</span>
+      </div>
 
       {/* Deux vues : la grille de planification (simple, par défaut) et la couverture (analytique). */}
       <div className="seg" role="group" aria-label="Vue" style={{ marginBottom: 4 }}>
@@ -211,8 +231,54 @@ export default function FieldVisitsPage({ canEdit }) {
           emptyChildren={`Générez la planification depuis le RBM${rbmDue ? ` (${rbmDue} site(s) à suivre)` : ''}, importez le planning (.xlsx) ou ajoutez une visite.`}
         />
       )}
+      </>}
 
       {addOpen && <AddVisitModal month={month} providers={providers} roles={ROLES} onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); reload(); }} />}
+    </div>
+  );
+}
+
+// Tableau des mois : une ligne par mois avec ses stats ; clic → plan du mois.
+function MonthsTable({ data, year, setYear, current, onOpen }) {
+  const months = data?.months || [];
+  const pctClass = (c) => (c >= 0.8 ? 'green' : c >= 0.5 ? 'amber' : 'red');
+  return (
+    <div className="card biz-card">
+      <div className="months-head">
+        <button type="button" className="btn btn-ghost btn-icon" onClick={() => setYear(year - 1)} aria-label="Année précédente"><ChevronLeft size={18} /></button>
+        <span className="months-year">{year}</span>
+        <button type="button" className="btn btn-ghost btn-icon" onClick={() => setYear(year + 1)} aria-label="Année suivante"><ChevronRight size={18} /></button>
+      </div>
+      {data === null ? <div className="card-body"><Skeleton height={320} /></div> : (
+        <div className="table-wrap"><table className="table grid">
+          <thead><tr>
+            <th>Mois</th><th className="num">Sites</th><th className="num">Planifiées</th>
+            <th className="num">Réalisées</th><th className="num">Annulées</th><th className="num">Prestataires</th>
+            <th className="num">Couverture</th><th aria-label="Ouvrir" />
+          </tr></thead>
+          <tbody>
+            {months.map((m) => {
+              const isCur = m.month === current;
+              const empty = m.total === 0;
+              return (
+                <tr key={m.month} className={`clickable ${isCur ? 'is-selected' : ''}`} onClick={() => onOpen(m.month)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') onOpen(m.month); }} tabIndex={0}>
+                  <td><strong>{monthLabel(m.month)}</strong>{isCur && <span className="tag-inline">en cours</span>}</td>
+                  <td className="num tabular">{empty ? <span className="cell-empty">—</span> : formatInt(m.sites)}</td>
+                  <td className="num tabular">{empty ? <span className="cell-empty">—</span> : formatInt(m.planifie)}</td>
+                  <td className="num tabular">{empty ? <span className="cell-empty">—</span> : formatInt(m.realise)}</td>
+                  <td className="num tabular">{empty ? <span className="cell-empty">—</span> : formatInt(m.annule)}</td>
+                  <td className="num tabular">{empty ? <span className="cell-empty">—</span> : formatInt(m.providers)}</td>
+                  <td className="num">{m.planifie + m.realise === 0 ? <span className="cell-empty">—</span>
+                    : <span className="badge" style={{ background: `var(--${pctClass(m.coverage)}-bg)`, color: `var(--${pctClass(m.coverage)}-text)` }}>{Math.round(m.coverage * 100)} %</span>}</td>
+                  <td className="num"><GoIcon size={16} className="month-go" aria-hidden="true" /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table></div>
+      )}
+      <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>Cliquez sur un mois pour ouvrir (ou créer) son plan de visites. La couverture = réalisées ÷ (planifiées + réalisées), annulées exclues.</span></div>
     </div>
   );
 }
