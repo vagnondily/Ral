@@ -1694,3 +1694,24 @@ h1, h2, h3, h4 { letter-spacing: -0.018em; }
 .set-card-desc { font-size: 12.5px; color: var(--text-muted); line-height: 1.45; }
 .set-card-arrow { color: var(--text-faint); flex-shrink: 0; }
 .switch-row { background: transparent; border: 0; padding: 0; cursor: pointer; }
+
+/* Sélecteur de mois en liste cliquable (remplace le pas-à-pas gauche/droite) */
+.month-dd { display: inline-block; }
+.month-dd-trigger { display: inline-flex; align-items: center; gap: 8px; }
+.month-dd-label { font-variant-numeric: tabular-nums; }
+.month-dd-caret { transform: rotate(90deg); color: var(--text-muted); }
+.month-dd-panel { min-width: 268px; left: 0; }
+.month-dd-year { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 8px; }
+.month-dd-year-label { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-strong); }
+.month-dd-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.month-cell {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  min-height: 38px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); color: var(--text); font-size: var(--fs-sm); cursor: pointer;
+  transition: background-color .12s var(--ease), border-color .12s var(--ease), color .12s var(--ease);
+}
+.month-cell:hover { background: var(--blue-50); border-color: var(--blue-300, var(--strong-border)); color: var(--blue-700); }
+.month-cell.is-current { border-color: var(--blue-600); color: var(--blue-700); font-weight: 650; }
+.month-cell.is-selected { background: var(--blue-600); border-color: var(--blue-600); color: #fff; font-weight: 700; }
+.month-cell.is-selected:hover { background: var(--blue-700); color: #fff; }
+.month-dd-today { width: 100%; margin-top: 8px; color: var(--blue-600); justify-content: center; }
