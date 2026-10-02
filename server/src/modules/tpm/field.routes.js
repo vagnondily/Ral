@@ -99,6 +99,8 @@ router.get('/summary', asyncHandler(async (req, res) => res.json(await repo.summ
 
 // Vue par mois (une ligne par mois de l'année, avec stats) — pour la navigation.
 router.get('/months', asyncHandler(async (req, res) => res.json(await repo.monthsOverview(t(req), { year: req.query.year }))));
+// Carte des sites : agrégation géographique + points GPS.
+router.get('/map', asyncHandler(async (req, res) => res.json(await repo.mapData(t(req)))));
 // Situation (workflow) du plan mensuel.
 const monthStatusSchema = z.object({
   month: z.string().regex(/^\d{4}-\d{2}(-\d{2})?$/),

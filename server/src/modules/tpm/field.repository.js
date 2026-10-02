@@ -270,6 +270,40 @@ async function monthsOverview(tenantId, { year } = {}) {
   });
 }
 
+/**
+ * Données pour la carte des sites : agrégation géographique (région → district
+ * → commune avec mix de risque et couverture) + points GPS des sites qui en ont.
+ * Agrégé en SQL. Filtrable par bureau (sous-arbre côté client via field_office_id).
+ */
+async function mapData(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: communes } = await client.query(
+      `SELECT COALESCE(s.adm1, '') AS region, COALESCE(s.adm2, s.district, '') AS district,
+              COALESCE(s.adm3, s.commune, '') AS commune,
+              count(*)::int AS sites,
+              count(*) FILTER (WHERE s.risk_level = 'elevee')::int AS elevee,
+              count(*) FILTER (WHERE s.risk_level = 'moyenne')::int AS moyenne,
+              count(*) FILTER (WHERE s.risk_level = 'faible')::int AS faible,
+              count(DISTINCT v.site_id)::int AS visited
+         FROM sites s
+         LEFT JOIN site_visits v ON v.site_id = s.id AND v.tenant_id = s.tenant_id AND v.status = 'realise'
+        WHERE s.tenant_id = $1
+        GROUP BY 1, 2, 3
+        ORDER BY 1, 2, 3`,
+      [tenantId]
+    );
+    const { rows: points } = await client.query(
+      `SELECT s.id, s.name, s.gps_lat::float8 AS lat, s.gps_lng::float8 AS lng,
+              s.risk_level AS "riskLevel", COALESCE(s.adm2, s.district) AS district,
+              COALESCE(s.adm3, s.commune) AS commune, ant.name AS "antenneName"
+         FROM sites s LEFT JOIN field_offices ant ON ant.id = s.field_office_id
+        WHERE s.tenant_id = $1 AND s.gps_lat IS NOT NULL AND s.gps_lng IS NOT NULL`,
+      [tenantId]
+    );
+    return { communes, points };
+  });
+}
+
 /** Définit (upsert) la situation du plan mensuel. */
 async function setMonthStatus(tenantId, { month, status }, userId) {
   const pm = `${String(month).slice(0, 7)}-01`;
@@ -443,6 +477,6 @@ async function importPlanning(tenantId, userId, month, rows) {
 module.exports = {
   listSites, createSite, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
-  collectionDaysSummary, setTravelDays, coverageRecapSummary, monthsOverview, setMonthStatus,
+  collectionDaysSummary, setTravelDays, coverageRecapSummary, monthsOverview, setMonthStatus, mapData,
   rbmSites, importMasterData, generateFromRbm,
 };
