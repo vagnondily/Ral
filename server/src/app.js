@@ -4,6 +4,7 @@ const cors = require('cors');
 const pinoHttp = require('pino-http');
 const logger = require('./config/logger');
 const { errorHandler, notFound } = require('./middleware/errors');
+const { rateLimit } = require('./middleware/rateLimit');
 const authRoutes = require('./modules/auth/auth.routes');
 const tpmRoutes = require('./modules/tpm/tpm.routes');
 const tpmReportsRoutes = require('./modules/tpm/reports.routes');
@@ -20,6 +21,9 @@ function createApp() {
   const app = express();
 
   app.disable('x-powered-by');
+  // Derrière un proxy (load-balancer, ingress) : req.ip = vrai client (pour le
+  // rate-limit et les logs). Nombre de sauts de confiance configurable.
+  app.set('trust proxy', Number(process.env.TRUST_PROXY || 1));
   app.use(helmet());
   app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
   app.use(express.json({ limit: '1mb' }));
@@ -28,6 +32,14 @@ function createApp() {
   // Liveness/readiness probe for docker-compose healthchecks and any future
   // orchestrator (Kubernetes, etc.) — deliberately has no auth requirement.
   app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
+  // Anti-bourrinage du login : par IP + email, fenêtre 15 min.
+  const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: Number(process.env.LOGIN_RATE_MAX || 10),
+    keyGenerator: (req) => `${req.ip}:${String(req.body?.email || '').toLowerCase()}`,
+  });
+  app.use('/api/auth/login', loginLimiter);
 
   app.use('/api/auth', authRoutes);
   app.use('/api/tpm/reports', tpmReportsRoutes);

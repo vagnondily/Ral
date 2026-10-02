@@ -2,6 +2,10 @@ require('dotenv').config();
 const createApp = require('./app');
 const logger = require('./config/logger');
 const { pool } = require('./config/db');
+const { validateEnv } = require('./config/validateEnv');
+
+// Échoue vite si la config est dangereuse (secret manquant, RLS contournée…).
+validateEnv();
 
 const port = Number(process.env.PORT || 9000);
 const app = createApp();
