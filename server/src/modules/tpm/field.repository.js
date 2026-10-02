@@ -228,6 +228,13 @@ async function monthsOverview(tenantId, { year } = {}) {
         GROUP BY 1`,
       [tenantId, y]
     );
+    // Situation (workflow) du plan par mois.
+    const { rows: statuses } = await client.query(
+      `SELECT to_char(period_month, 'YYYY-MM') AS month, status
+         FROM field_month_plans WHERE tenant_id = $1 AND date_part('year', period_month) = $2`,
+      [tenantId, y]
+    );
+    const statusByMonth = new Map(statuses.map((r) => [r.month, r.status]));
     const byMonth = new Map(rows.map((r) => [r.month, r]));
     const out = [];
     for (let m = 1; m <= 12; m += 1) {
@@ -236,9 +243,26 @@ async function monthsOverview(tenantId, { year } = {}) {
       const done = r.realise;
       const base = r.planifie + r.realise; // annulées exclues du taux
       r.coverage = base > 0 ? done / base : 0;
+      // Statut explicite si saisi ; sinon « draft » dès qu'il y a des visites, « vide » sinon.
+      r.status = statusByMonth.get(key) || (r.total > 0 ? 'draft' : 'vide');
       out.push(r);
     }
     return { year: y, months: out };
+  });
+}
+
+/** Définit (upsert) la situation du plan mensuel. */
+async function setMonthStatus(tenantId, { month, status }, userId) {
+  const pm = `${String(month).slice(0, 7)}-01`;
+  return withTenantTransaction(tenantId, async (client) => {
+    await client.query(
+      `INSERT INTO field_month_plans (tenant_id, period_month, status, updated_by)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (tenant_id, period_month)
+       DO UPDATE SET status = EXCLUDED.status, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+      [tenantId, pm, status, userId]
+    );
+    return true;
   });
 }
 
@@ -400,6 +424,6 @@ async function importPlanning(tenantId, userId, month, rows) {
 module.exports = {
   listSites, createSite, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
-  collectionDaysSummary, setTravelDays, coverageRecapSummary, monthsOverview,
+  collectionDaysSummary, setTravelDays, coverageRecapSummary, monthsOverview, setMonthStatus,
   rbmSites, importMasterData, generateFromRbm,
 };

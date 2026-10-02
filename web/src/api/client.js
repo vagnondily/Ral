@@ -278,6 +278,7 @@ export const api = {
   fieldCollectionDays: (month) => request('/api/tpm/field/collection-days', { query: month ? { month } : undefined }),
   fieldCoverageRecap: ({ district, operationMonths } = {}) => request('/api/tpm/field/coverage-recap', { query: { ...(district ? { district } : {}), ...(operationMonths ? { operationMonths } : {}) } }),
   fieldMonths: (year) => request('/api/tpm/field/months', { query: year ? { year } : undefined }),
+  fieldSetMonthStatus: (month, status) => request('/api/tpm/field/months/status', { method: 'PUT', body: { month, status } }),
   fieldSetTravelDays: (input) => request('/api/tpm/field/collection-days', { method: 'PUT', body: input }),
   rbmSites: (month, risk) => request('/api/tpm/field/rbm/sites', { query: { ...(month ? { month } : {}), ...(risk ? { risk } : {}) } }),
   rbmGenerate: (month, risk) => request(`/api/tpm/field/rbm/generate?month=${encodeURIComponent(month)}${risk ? `&risk=${risk}` : ''}`, { method: 'POST' }),

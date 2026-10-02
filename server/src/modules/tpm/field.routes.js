@@ -99,6 +99,15 @@ router.get('/summary', asyncHandler(async (req, res) => res.json(await repo.summ
 
 // Vue par mois (une ligne par mois de l'année, avec stats) — pour la navigation.
 router.get('/months', asyncHandler(async (req, res) => res.json(await repo.monthsOverview(t(req), { year: req.query.year }))));
+// Situation (workflow) du plan mensuel.
+const monthStatusSchema = z.object({
+  month: z.string().regex(/^\d{4}-\d{2}(-\d{2})?$/),
+  status: z.enum(['draft', 'soumis', 'valide', 'annule', 'non_applicable']),
+});
+router.put('/months/status', WRITE, body(monthStatusSchema), asyncHandler(async (req, res) => {
+  await repo.setMonthStatus(t(req), req.valid, uid(req));
+  res.status(204).end();
+}));
 
 // Récap de couverture (sites visités 1/2/3/4+ fois vs MMR) — lecture seule.
 router.get('/coverage-recap', asyncHandler(async (req, res) => {

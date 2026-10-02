@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, UserPlus, Trash2, Wand2, ChevronLeft, ChevronRight, ChevronRight as GoIcon } from 'lucide-react';
+import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, UserPlus, Trash2, Wand2, ChevronLeft, ChevronRight, ChevronRight as GoIcon, Filter } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, PageHeader, Skeleton } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
@@ -11,6 +11,19 @@ const STATUS = {
   planifie: { label: 'Planifiée', color: 'var(--blue-600)' },
   realise: { label: 'Réalisée', color: 'var(--green)' },
   annule: { label: 'Annulée', color: 'var(--text-faint)' },
+};
+// Situation (workflow) du plan mensuel.
+const PLAN_STATUS = {
+  vide: { label: 'Aucun plan', bg: 'var(--surface-2)', text: 'var(--text-faint)', dot: 'var(--text-faint)' },
+  draft: { label: 'Brouillon', bg: 'var(--surface-2)', text: 'var(--text-muted)', dot: 'var(--text-muted)' },
+  soumis: { label: 'Soumis', bg: 'var(--orange-bg)', text: 'var(--orange-text)', dot: 'var(--orange)' },
+  valide: { label: 'Validé', bg: 'var(--green-bg)', text: 'var(--green-text)', dot: 'var(--green)' },
+  annule: { label: 'Annulé', bg: 'var(--red-bg)', text: 'var(--red-text)', dot: 'var(--red)' },
+  non_applicable: { label: 'Non applicable', bg: 'var(--surface-2)', text: 'var(--text-muted)', dot: 'var(--text-faint)' },
+};
+const PlanBadge = ({ status }) => {
+  const s = PLAN_STATUS[status] || PLAN_STATUS.vide;
+  return <span className="badge" style={{ background: s.bg, color: s.text }}><span className="dot" style={{ background: s.dot }} />{s.label}</span>;
 };
 // Rôles génériques (non nominatifs) : le bureau affecte un créneau (Agent 1,
 // Superviseur 1…) ; le prestataire TPM y met ensuite une personne en interne.
@@ -43,6 +56,7 @@ export default function FieldVisitsPage({ canEdit }) {
   const [year, setYear] = useState(() => Number(currentMonth().slice(0, 4)));
   const [monthsData, setMonthsData] = useState(null);
   const [picking, setPicking] = useState(true);      // true = tableau des mois ; false = plan d'un mois
+  const [statusFilter, setStatusFilter] = useState(''); // filtre « situation » du tableau des mois
   const fileRef = useRef(null);
 
   useEffect(() => { setMonthsData(null); api.fieldMonths(year).then(setMonthsData).catch(() => setMonthsData({ year, months: [] })); }, [year]);
@@ -148,6 +162,11 @@ export default function FieldVisitsPage({ canEdit }) {
   }), [providers]);
 
   const openMonth = (mm) => { setMonth(mm); setPicking(false); setView('plan'); };
+  const setMonthStatus = async (status) => {
+    try { await api.fieldSetMonthStatus(month, status); toast.success(`Situation : ${PLAN_STATUS[status].label}.`); reload(); }
+    catch (e) { toast.error(e.message); }
+  };
+  const activeStatus = (monthsData?.months || []).find((m) => m.month === month)?.status || 'vide';
 
   return (
     <div className="page">
@@ -166,12 +185,23 @@ export default function FieldVisitsPage({ canEdit }) {
 
       {error && <Alert tone="error">{error}</Alert>}
 
-      {picking && <MonthsTable data={monthsData} year={year} setYear={setYear} current={currentMonth()} onOpen={openMonth} />}
+      {picking && <MonthsTable data={monthsData} year={year} setYear={setYear} current={currentMonth()} onOpen={openMonth}
+        statusFilter={statusFilter} setStatusFilter={setStatusFilter} />}
 
       {!picking && <>
       <div className="month-active-bar">
         <strong>{monthLabel(month)}</strong>
         <span className="muted">— plan de visites du mois</span>
+        <PlanBadge status={activeStatus} />
+        {canEdit && (
+          <span className="month-status-actions">
+            {['vide', 'draft', 'annule', 'non_applicable'].includes(activeStatus) && <Button size="sm" variant="secondary" onClick={() => setMonthStatus('soumis')}>Soumettre</Button>}
+            {activeStatus === 'soumis' && <><Button size="sm" variant="secondary" icon={CheckCircle2} onClick={() => setMonthStatus('valide')}>Valider</Button><Button size="sm" variant="ghost" onClick={() => setMonthStatus('draft')}>Repasser en brouillon</Button></>}
+            {activeStatus === 'valide' && <Button size="sm" variant="ghost" onClick={() => setMonthStatus('draft')}>Rouvrir</Button>}
+            {!['non_applicable'].includes(activeStatus) && <Button size="sm" variant="ghost" icon={Ban} onClick={() => setMonthStatus('non_applicable')}>Non applicable</Button>}
+            {!['annule', 'vide'].includes(activeStatus) && <Button size="sm" variant="ghost" onClick={() => setMonthStatus('annule')}>Annuler le plan</Button>}
+          </span>
+        )}
       </div>
 
       {/* Deux vues : la grille de planification (simple, par défaut) et la couverture (analytique). */}
@@ -240,12 +270,13 @@ export default function FieldVisitsPage({ canEdit }) {
 
 // Tableau des mois : une ligne par mois avec ses stats + barre de couverture ;
 // clic (ou bouton « Ouvrir / Planifier ») → plan du mois.
-function MonthsTable({ data, year, setYear, current, onOpen }) {
-  const months = data?.months || [];
+function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setStatusFilter }) {
+  const all = data?.months || [];
+  const months = statusFilter ? all.filter((m) => m.status === statusFilter) : all;
   const pctClass = (c) => (c >= 0.8 ? 'green' : c >= 0.5 ? 'amber' : 'red');
-  const tot = months.reduce((a, m) => ({ planifie: a.planifie + m.planifie, realise: a.realise + m.realise, annule: a.annule + m.annule, sites: a.sites + m.sites }), { planifie: 0, realise: 0, annule: 0, sites: 0 });
+  const tot = all.reduce((a, m) => ({ planifie: a.planifie + m.planifie, realise: a.realise + m.realise, annule: a.annule + m.annule, sites: a.sites + m.sites }), { planifie: 0, realise: 0, annule: 0, sites: 0 });
   const totCov = tot.planifie + tot.realise > 0 ? tot.realise / (tot.planifie + tot.realise) : 0;
-  const activeMonths = months.filter((m) => m.total > 0).length;
+  const activeMonths = all.filter((m) => m.total > 0).length;
   return (
     <div className="card biz-card months-card">
       <div className="months-head">
@@ -256,12 +287,18 @@ function MonthsTable({ data, year, setYear, current, onOpen }) {
           <span><strong className="tabular">{formatInt(activeMonths)}</strong> mois actifs</span>
           <span><strong className="tabular">{formatInt(tot.realise)}</strong>/{formatInt(tot.planifie + tot.realise)} visites</span>
           <span className="months-head-cov"><span className="mini-bar"><span style={{ width: `${Math.round(totCov * 100)}%`, background: `var(--${pctClass(totCov)})` }} /></span><strong className="tabular">{Math.round(totCov * 100)} %</strong></span>
+          <label className="months-filter"><Filter size={15} aria-hidden="true" />
+            <select className="select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filtrer par situation">
+              <option value="">Toutes situations</option>
+              {['vide', 'draft', 'soumis', 'valide', 'annule', 'non_applicable'].map((k) => <option key={k} value={k}>{PLAN_STATUS[k].label}</option>)}
+            </select>
+          </label>
         </div>
       </div>
       {data === null ? <div className="card-body"><Skeleton height={340} /></div> : (
         <div className="table-wrap"><table className="table grid months-grid">
           <thead><tr>
-            <th>Mois</th><th className="num">Sites</th><th className="num">Planifiées</th>
+            <th>Mois</th><th>Situation</th><th className="num">Sites</th><th className="num">Planifiées</th>
             <th className="num">Réalisées</th><th className="num">Annulées</th><th className="num">Prestataires</th>
             <th>Couverture</th><th aria-label="Action" />
           </tr></thead>
@@ -274,6 +311,7 @@ function MonthsTable({ data, year, setYear, current, onOpen }) {
                 <tr key={m.month} className={`clickable month-row ${isCur ? 'is-selected' : ''} ${empty ? 'is-empty' : ''}`} onClick={() => onOpen(m.month)}
                   onKeyDown={(e) => { if (e.key === 'Enter') onOpen(m.month); }} tabIndex={0} aria-label={`Ouvrir ${monthLabel(m.month)}`}>
                   <td><span className="month-name">{monthLabel(m.month)}</span>{isCur && <span className="tag-inline">en cours</span>}</td>
+                  <td><PlanBadge status={m.status} /></td>
                   <td className="num tabular">{empty ? <span className="cell-empty">—</span> : formatInt(m.sites)}</td>
                   <td className="num tabular">{empty ? <span className="cell-empty">—</span> : formatInt(m.planifie)}</td>
                   <td className="num tabular">{empty ? <span className="cell-empty">—</span> : <strong>{formatInt(m.realise)}</strong>}</td>
@@ -295,6 +333,7 @@ function MonthsTable({ data, year, setYear, current, onOpen }) {
                 </tr>
               );
             })}
+            {months.length === 0 && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center', padding: 20 }}>Aucun mois pour cette situation.</td></tr>}
           </tbody>
         </table></div>
       )}
