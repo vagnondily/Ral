@@ -91,6 +91,19 @@ router.post('/rbm/import', WRITE, express.raw({ type: '*/*', limit: '40mb' }), a
   res.json(await repo.importMasterData(t(req), rows));
 }));
 
+// Import complet du Plan de suivi (feuille « Risk-based site selection ») :
+// géographie + critères + SCORE FINAL + GPS + activité + dernières visites.
+router.post('/rbm/import-plan', WRITE, express.raw({ type: '*/*', limit: '60mb' }), asyncHandler(async (req, res) => {
+  if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
+  let parsed;
+  try { parsed = await require('./planImport').parsePlanWorkbook(req.body); }
+  catch { throw badRequest('Fichier illisible : fournissez un .xlsx du Plan de suivi.'); }
+  if (!parsed.sheet) throw badRequest('Aucune feuille « Risk-based site selection » détectée (en-têtes Site name + FINAL SCORE).');
+  if (parsed.sites.length === 0) throw badRequest(`Aucun site exploitable (district + commune requis). ${parsed.skipped} ligne(s) sans géographie ignorée(s).`);
+  const result = await repo.importPlanSites(t(req), uid(req), parsed.sites);
+  res.json({ ...result, sheet: parsed.sheet, skipped: parsed.skipped });
+}));
+
 // ---- Visits --------------------------------------------------------------
 router.get('/visits', asyncHandler(async (req, res) => res.json(
   await repo.listVisits(t(req), { month: monthQ(req), providerId: req.query.providerId, status: req.query.status })

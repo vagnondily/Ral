@@ -45,6 +45,7 @@ export default function RbmPage({ canEdit }) {
   const [crit, setCrit] = useState(null); // site en cours d'édition des critères
   const [offices, setOffices] = useState([]);
   const fileRef = useRef(null);
+  const planRef = useRef(null);
 
   const reload = useCallback(() => {
     setSites(null);
@@ -81,6 +82,16 @@ export default function RbmPage({ canEdit }) {
     setBusy(true);
     try { const r = await api.rbmImport(f); toast.success(`${r.inserted} site(s) ajouté(s) · ${r.total} ligne(s).`); reload(); }
     catch (err) { toast.error(err.message); } finally { setBusy(false); }
+  };
+  const onImportPlan = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    setBusy(true);
+    try {
+      const r = await api.rbmImportPlan(f);
+      toast.success(`${r.upserted} site(s) importé(s) (feuille « ${r.sheet} »)${r.lastVisits ? ` · ${r.lastVisits} dernière(s) visite(s)` : ''}${r.skipped ? ` · ${r.skipped} ligne(s) sans géographie ignorée(s)` : ''}.`);
+      reload();
+    } catch (err) { toast.error(err.message); } finally { setBusy(false); }
   };
 
   const stats = useMemo(() => {
@@ -163,7 +174,10 @@ export default function RbmPage({ canEdit }) {
         <MonthPicker value={month} onChange={setMonth} />
         {canEdit && <>
           <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={onImport} />
+          <input ref={planRef} type="file" accept=".xlsx,.xlsm" hidden onChange={onImportPlan} />
           <Button variant="secondary" icon={Upload} loading={busy} onClick={() => fileRef.current?.click()}>Importer sites (Master Data)</Button>
+          <Button variant="secondary" icon={Upload} loading={busy} onClick={() => planRef.current?.click()}
+            title="Importe la feuille « Risk-based site selection » : critères, SCORE FINAL, GPS, activité, dernière visite.">Importer le Plan de suivi</Button>
           <Button icon={Wand2} loading={busy} onClick={generate}>Générer la planification du mois</Button>
         </>}
       </PageHeader>

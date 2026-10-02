@@ -150,6 +150,88 @@ async function importMasterData(tenantId, rows) {
   });
 }
 
+/**
+ * Import complet du Plan de suivi (feuille « Risk-based site selection ») :
+ * upsert des sites avec géographie + critères + SCORE FINAL + GPS + activité +
+ * risque (du score) + rattachement bureau (par commune) + dernières visites.
+ * `sites` vient de planImport.parsePlanWorkbook.
+ */
+async function importPlanSites(tenantId, userId, sites) {
+  return withTenantTransaction(tenantId, async (client) => {
+    // commune (minuscule) → bureau le plus spécifique.
+    const { rows: perim } = await client.query(
+      `SELECT lower(c.commune) AS commune, c.office_id
+         FROM field_office_communes c JOIN field_offices o ON o.id = c.office_id
+        WHERE c.tenant_id = $1
+        ORDER BY (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code`,
+      [tenantId]
+    );
+    const officeByCommune = new Map();
+    for (const r of perim) if (!officeByCommune.has(r.commune)) officeByCommune.set(r.commune, r.office_id);
+
+    // Code = slug géographie+nom (stable, unique dans l'import ; on ignore
+    // l'« ID Sites » du fichier qui peut être vide ou dupliqué).
+    const seenCodes = new Set();
+    const uniq = sites.filter((s) => { const c = siteCode(s); if (seenCodes.has(c)) return false; seenCodes.add(c); return true; });
+    const COLS = 21; const CH = 200; let upserted = 0; const lastVisits = [];
+    for (let i = 0; i < uniq.length; i += CH) {
+      const slice = uniq.slice(i, i + CH);
+      const params = [tenantId]; const vals = [];
+      for (const s of slice) {
+        const code = siteCode(s);
+        if (s.lastVisit) lastVisits.push({ code, month: s.lastVisit });
+        params.push(code, s.name, s.district, s.commune, s.region || null, s.district, s.commune, s.fokontany || null,
+          s.risk || 'moyenne', officeByCommune.get(String(s.commune).toLowerCase()) || null, s.activity || null,
+          s.gpsLat ?? null, s.gpsLng ?? null, s.security || 0, s.synergies || 0, s.beneficiaryOver200 || 0,
+          s.newPartner || 0, s.issuesProcess || 0, s.issuesPartnerReport || 0, s.issuesCFM || 0, s.fraud || 0);
+        const b = params.length; const p = (k) => `$${b - COLS + 1 + k}`;
+        vals.push(`($1,${Array.from({ length: COLS }, (_, k) => p(k)).join(',')})`);
+      }
+      const { rowCount } = await client.query(
+        `INSERT INTO sites (tenant_id, code, name, district, commune, adm1, adm2, adm3, fokontany,
+           risk_level, field_office_id, activity, gps_lat, gps_lng,
+           security_situation, programme_synergies, beneficiary_over_200, new_partner,
+           issues_process, issues_partner_report, issues_cfm, fraud_suspected)
+         VALUES ${vals.join(',')}
+         ON CONFLICT (tenant_id, code) DO UPDATE SET
+           name = EXCLUDED.name, adm1 = COALESCE(EXCLUDED.adm1, sites.adm1),
+           adm2 = EXCLUDED.adm2, adm3 = EXCLUDED.adm3, fokontany = COALESCE(EXCLUDED.fokontany, sites.fokontany),
+           risk_level = EXCLUDED.risk_level, field_office_id = COALESCE(EXCLUDED.field_office_id, sites.field_office_id),
+           activity = COALESCE(EXCLUDED.activity, sites.activity),
+           gps_lat = COALESCE(EXCLUDED.gps_lat, sites.gps_lat), gps_lng = COALESCE(EXCLUDED.gps_lng, sites.gps_lng),
+           security_situation = EXCLUDED.security_situation, programme_synergies = EXCLUDED.programme_synergies,
+           beneficiary_over_200 = EXCLUDED.beneficiary_over_200, new_partner = EXCLUDED.new_partner,
+           issues_process = EXCLUDED.issues_process, issues_partner_report = EXCLUDED.issues_partner_report,
+           issues_cfm = EXCLUDED.issues_cfm, fraud_suspected = EXCLUDED.fraud_suspected`,
+        params
+      );
+      upserted += rowCount;
+    }
+    const total = uniq.length;
+    // Dernières visites → visites réalisées datées (idempotent).
+    let visits = 0;
+    if (lastVisits.length) {
+      const idByCode = new Map();
+      const codes = lastVisits.map((x) => x.code);
+      for (let i = 0; i < codes.length; i += 500) {
+        const { rows } = await client.query('SELECT id, code FROM sites WHERE tenant_id = $1 AND code = ANY($2)', [tenantId, codes.slice(i, i + 500)]);
+        for (const r of rows) idByCode.set(r.code, r.id);
+      }
+      for (let i = 0; i < lastVisits.length; i += 200) {
+        const slice = lastVisits.slice(i, i + 200).filter((x) => idByCode.get(x.code));
+        if (!slice.length) continue;
+        const params = [tenantId, userId || null]; const vals = [];
+        for (const x of slice) { params.push(idByCode.get(x.code), `${x.month}-01`); const b = params.length; vals.push(`($1,$${b - 1},$${b},'realise',$2)`); }
+        const { rowCount } = await client.query(
+          `INSERT INTO site_visits (tenant_id, site_id, period_month, status, created_by)
+           VALUES ${vals.join(',')} ON CONFLICT DO NOTHING`, params);
+        visits += rowCount;
+      }
+    }
+    return { total, upserted, lastVisits: visits };
+  });
+}
+
 /** Generate the month's planned visits from the RBM: one planifie visit per due
  * site (optionally filtered by risk). Idempotent (skips existing). */
 async function generateFromRbm(tenantId, userId, month, { risk } = {}) {
@@ -478,5 +560,5 @@ module.exports = {
   listSites, createSite, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
   collectionDaysSummary, setTravelDays, coverageRecapSummary, monthsOverview, setMonthStatus, mapData,
-  rbmSites, importMasterData, generateFromRbm,
+  rbmSites, importMasterData, importPlanSites, generateFromRbm,
 };
