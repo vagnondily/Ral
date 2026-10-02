@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { GraduationCap, Plus, Trash2, Info } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton, Stats } from '../../components/ui.jsx';
+import DataList from '../../components/DataList.jsx';
 import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatDate } from '../../lib/contracts.js';
@@ -102,31 +103,25 @@ export default function FormationsPage({ canEdit }) {
         { label: 'Agents formés', value: stats ? stats.trained : '—', suffix: stats ? `/ ${stats.agents}` : null, foot: 'Au moins une formation' },
       ]} />
 
-      <Card>
-        <CardHeader title="Agents et formations" subtitle="Cliquez sur le nombre de formations d'un agent pour les consulter et les compléter." />
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr><th scope="col">Agent</th><th scope="col">Prestataire</th><th scope="col">Fonction</th><th scope="col" className="num">Formations</th><th scope="col" className="num">Jours</th></tr></thead>
-            <tbody>
-              {providers === null
-                ? [0, 1, 2].map((i) => (<tr key={i} aria-hidden="true">{[200, 160, 140, 60, 60].map((w, j) => <td key={j}><Skeleton width={w} height={20} /></td>)}</tr>))
-                : agents.map((a) => {
-                    const jours = (a.formations || []).reduce((m, f) => m + (Number(f.jours) || 0), 0);
-                    return (
-                      <tr key={a.id}>
-                        <td><span className="agent"><Avatar name={a.name} /><strong>{a.name}</strong></span></td>
-                        <td>{a.providerName}</td>
-                        <td>{a.fonction ? <Badge>{a.fonction}</Badge> : <span className="cell-empty">—</span>}</td>
-                        <td className="num"><button type="button" className="count-link" onClick={() => setModalId(a.id)}><GraduationCap size={14} aria-hidden="true" style={{ verticalAlign: -2, marginRight: 4 }} />{(a.formations || []).length}</button></td>
-                        <td className="num">{jours}</td>
-                      </tr>
-                    );
-                  })}
-            </tbody>
-          </table>
-          {providers && agents.length === 0 && <EmptyState icon={GraduationCap} title="Aucun agent">Saisissez d'abord des agents dans Prestataires TPM.</EmptyState>}
-        </div>
-      </Card>
+      <DataList
+        rows={agents}
+        columns={{
+          name: { label: 'Agent', sortVal: (a) => a.name, csv: (a) => a.name,
+            render: (a) => <span className="agent"><Avatar name={a.name} /><strong>{a.name}</strong></span> },
+          provider: { label: 'Prestataire', sortVal: (a) => a.providerName, csv: (a) => a.providerName, render: (a) => a.providerName },
+          fonction: { label: 'Fonction', sortVal: (a) => a.fonction || '', csv: (a) => a.fonction || '',
+            render: (a) => (a.fonction ? <Badge>{a.fonction}</Badge> : <span className="cell-empty">—</span>) },
+          formations: { label: 'Formations', num: true, sortVal: (a) => (a.formations || []).length, csv: (a) => (a.formations || []).length,
+            render: (a) => <button type="button" className="count-link" onClick={() => setModalId(a.id)}><GraduationCap size={14} aria-hidden="true" style={{ verticalAlign: -2, marginRight: 4 }} />{(a.formations || []).length}</button> },
+          jours: { label: 'Jours', num: true, sortVal: (a) => (a.formations || []).reduce((m, f) => m + (Number(f.jours) || 0), 0), csv: (a) => (a.formations || []).reduce((m, f) => m + (Number(f.jours) || 0), 0),
+            render: (a) => (a.formations || []).reduce((m, f) => m + (Number(f.jours) || 0), 0) },
+        }}
+        defaultColumns={['name', 'provider', 'fonction', 'formations', 'jours']}
+        filters={{ q: { label: 'Recherche', type: 'search', placeholder: 'Agent, prestataire, fonction…', match: (a, v) => [a.name, a.providerName, a.fonction].some((x) => x && String(x).toLowerCase().includes(v.toLowerCase())) } }}
+        storageKey="mems.formations.view" defaultSort={{ key: 'name', dir: 'asc' }}
+        csvName="formations_agents.csv" emptyIcon={GraduationCap} emptyTitle="Aucun agent"
+        emptyChildren="Saisissez d'abord des agents dans Prestataires TPM."
+      />
 
       {modalAgent && <FormationsModal agent={modalAgent} canEdit={canEdit} onClose={() => setModalId(null)} onChanged={reload} />}
     </div>
