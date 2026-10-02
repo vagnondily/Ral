@@ -75,12 +75,18 @@ async function updateSite(tenantId, id, s) {
 const RBM_SELECT = `
   SELECT s.id, s.code, s.name, s.district, s.commune, s.activity, s.risk_level AS "riskLevel",
          s.adm1, s.adm2, s.adm3, s.adm4, s.fokontany,
+         s.gps_lat AS "gpsLat", s.gps_lng AS "gpsLng",
+         s.field_office_id AS "fieldOfficeId",
+         ant.name AS "antenneName",
+         COALESCE(par.name, ant.name) AS "subOfficeName",
          s.security_situation AS "security", s.programme_synergies AS "synergies",
          s.beneficiary_over_200 AS "beneficiaryOver200", s.new_partner AS "newPartner",
          s.issues_process AS "issuesProcess", s.issues_partner_report AS "issuesPartnerReport",
          s.issues_cfm AS "issuesCFM", s.fraud_suspected AS "fraud",
          to_char(mv.last, 'YYYY-MM') AS "lastVisitMonth"
     FROM sites s
+    LEFT JOIN field_offices ant ON ant.id = s.field_office_id
+    LEFT JOIN field_offices par ON par.id = ant.parent_id
     LEFT JOIN LATERAL (
       SELECT max(period_month) AS last FROM site_visits v
        WHERE v.tenant_id = s.tenant_id AND v.site_id = s.id AND v.status <> 'annule'
@@ -102,7 +108,7 @@ async function rbmSites(tenantId, { month, risk } = {}) {
       // « À suivre » = retard (score) OU échéance de fréquence atteinte (isDue),
       // pour rester cohérent avec l'ancienne logique.
       const due = target ? (score.due || isDue(r.riskLevel, r.lastVisitMonth, target)) : false;
-      return { ...r, ...score, due };
+      return { ...r, ...score, due, interval };
     });
   });
 }
