@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { MapPin, Layers, ShieldAlert } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
@@ -6,29 +8,74 @@ import { useToast } from '../../components/Toast.jsx';
 import { formatInt } from '../../lib/format.js';
 
 const RISK = {
-  elevee: { label: 'Élevé', color: 'var(--red)' },
-  moyenne: { label: 'Moyen', color: 'var(--orange)' },
-  faible: { label: 'Faible', color: 'var(--green)' },
+  elevee: { label: 'Élevé', color: '#d64545' },
+  moyenne: { label: 'Moyen', color: '#e08a1e' },
+  faible: { label: 'Faible', color: '#2e9e5b' },
 };
+const MG_CENTER = [-19.5, 46.7]; // Madagascar
 
 /**
- * Carte des sites : répartition géographique du référentiel. Scatter GPS (pour
- * les sites géolocalisés) + explorateur région → district → commune avec le mix
- * de risque et la couverture. Recalculé en direct, sans dépendance externe.
+ * Carte des sites sur fond OpenStreetMap (gratuit, sans clé). Les sites
+ * géolocalisés (GPS) sont tracés en marqueurs colorés par risque ; un
+ * explorateur région → district → commune couvre tous les sites (même sans
+ * GPS), avec mix de risque et couverture. Si un fond de contours (shapefile /
+ * GeoJSON) est importé plus tard, il pourra se superposer ici.
  */
 export default function SitesMapPage() {
   const toast = useToast();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [openRegion, setOpenRegion] = useState({});
+  const mapEl = useRef(null);
+  const mapRef = useRef(null);
+  const layerRef = useRef(null);
 
   useEffect(() => {
     api.fieldMap().then(setData).catch((e) => { setError(e.message); toast.error(e.message); });
     /* eslint-disable-next-line */
   }, []);
 
-  const points = data?.points || [];
-  const communes = data?.communes || [];
+  const points = useMemo(() => data?.points || [], [data]);
+  const communes = useMemo(() => data?.communes || [], [data]);
+
+  // Carte Leaflet (OSM) — initialisée dès que le conteneur est rendu (après le
+  // chargement des données ; le div n'existe pas pendant le squelette).
+  useEffect(() => {
+    if (!mapEl.current || mapRef.current) return undefined;
+    const map = L.map(mapEl.current, { scrollWheelZoom: false }).setView(MG_CENTER, 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '© OpenStreetMap',
+    }).addTo(map);
+    mapRef.current = map;
+    setTimeout(() => map.invalidateSize(), 50);
+    return undefined;
+  }, [data]);
+
+  // Nettoyage à la destruction du composant.
+  useEffect(() => () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } }, []);
+
+  // (Re)trace les marqueurs quand les points changent.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (layerRef.current) { layerRef.current.remove(); layerRef.current = null; }
+    if (!points.length) { map.setView(MG_CENTER, 5); return; }
+    const group = L.layerGroup();
+    const latlngs = [];
+    for (const p of points) {
+      latlngs.push([p.lat, p.lng]);
+      L.circleMarker([p.lat, p.lng], {
+        radius: 6, color: '#fff', weight: 1.5,
+        fillColor: RISK[p.riskLevel]?.color || '#0f6cbd', fillOpacity: 0.9,
+      }).bindPopup(`<strong>${p.name}</strong><br>${p.commune || ''}${p.antenneName ? ` · ${p.antenneName}` : ''}<br>Risque : ${RISK[p.riskLevel]?.label || p.riskLevel}`).addTo(group);
+    }
+    group.addTo(map);
+    layerRef.current = group;
+    try { map.fitBounds(L.latLngBounds(latlngs).pad(0.2)); } catch { /* single/no point */ }
+    // Leaflet a besoin d'un recalcul de taille quand le conteneur vient d'apparaître.
+    setTimeout(() => map.invalidateSize(), 100);
+  }, [points]);
 
   const kpis = useMemo(() => {
     const regions = new Set(), districts = new Set();
@@ -37,18 +84,6 @@ export default function SitesMapPage() {
     return { regions: regions.size, districts: districts.size, communes: communes.length, sites, geo: points.length };
   }, [communes, points]);
 
-  // Projection GPS → SVG (bbox auto-fit).
-  const scatter = useMemo(() => {
-    if (points.length === 0) return null;
-    const lats = points.map((p) => p.lat), lngs = points.map((p) => p.lng);
-    const minLat = Math.min(...lats), maxLat = Math.max(...lats), minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-    const W = 760, H = 460, pad = 30;
-    const sx = (lng) => (maxLng === minLng ? W / 2 : pad + ((lng - minLng) / (maxLng - minLng)) * (W - 2 * pad));
-    const sy = (lat) => (maxLat === minLat ? H / 2 : pad + ((maxLat - lat) / (maxLat - minLat)) * (H - 2 * pad));
-    return { W, H, dots: points.map((p) => ({ ...p, x: sx(p.lng), y: sy(p.lat) })) };
-  }, [points]);
-
-  // Hiérarchie région → district → communes.
   const tree = useMemo(() => {
     const r = new Map();
     for (const c of communes) {
@@ -56,8 +91,8 @@ export default function SitesMapPage() {
       if (!r.has(reg)) r.set(reg, { region: reg, sites: 0, elevee: 0, moyenne: 0, faible: 0, visited: 0, districts: new Map() });
       const R = r.get(reg); R.sites += c.sites; R.elevee += c.elevee; R.moyenne += c.moyenne; R.faible += c.faible; R.visited += c.visited;
       const dk = c.district || '—';
-      if (!R.districts.has(dk)) R.districts.set(dk, { district: dk, sites: 0, elevee: 0, moyenne: 0, faible: 0, visited: 0, communes: [] });
-      const D = R.districts.get(dk); D.sites += c.sites; D.elevee += c.elevee; D.moyenne += c.moyenne; D.faible += c.faible; D.visited += c.visited; D.communes.push(c);
+      if (!R.districts.has(dk)) R.districts.set(dk, { district: dk, sites: 0, elevee: 0, moyenne: 0, faible: 0, visited: 0 });
+      const D = R.districts.get(dk); D.sites += c.sites; D.elevee += c.elevee; D.moyenne += c.moyenne; D.faible += c.faible; D.visited += c.visited;
     }
     return [...r.values()].sort((a, b) => b.sites - a.sites);
   }, [communes]);
@@ -75,7 +110,7 @@ export default function SitesMapPage() {
 
   return (
     <div className="page">
-      <PageHeader title="Carte des sites" description="Répartition géographique du référentiel de sites : points géolocalisés et explorateur région → district → commune, avec le mix de risque et la couverture (visites réalisées)." />
+      <PageHeader title="Carte des sites" description="Fond OpenStreetMap (gratuit) : les sites géolocalisés sont tracés en marqueurs colorés par risque. L'explorateur région → district → commune couvre tous les sites, avec mix de risque et couverture." />
 
       {error && <Alert tone="error">{error}</Alert>}
 
@@ -90,26 +125,13 @@ export default function SitesMapPage() {
           </div>
 
           <div className="card biz-card" style={{ marginBottom: 16 }}>
-            <div className="card-header"><div className="card-title">Points géolocalisés</div>
-              <div className="card-sub">Sites disposant de coordonnées GPS, colorés par niveau de risque.</div></div>
+            <div className="card-header"><div className="card-title">Carte (OpenStreetMap)</div>
+              <div className="card-sub">Sites géolocalisés, couleur = niveau de risque. {kpis.geo === 0 && 'Importez les coordonnées GPS pour voir les points ici.'}</div></div>
             <div className="card-body">
-              {scatter ? (
-                <>
-                  <svg viewBox={`0 0 ${scatter.W} ${scatter.H}`} className="map-svg" role="img" aria-label="Carte des sites géolocalisés">
-                    <rect x="0" y="0" width={scatter.W} height={scatter.H} fill="var(--surface-2)" rx="8" />
-                    {scatter.dots.map((d) => (
-                      <circle key={d.id} cx={d.x} cy={d.y} r="5" fill={RISK[d.riskLevel]?.color || 'var(--blue-600)'} fillOpacity="0.8" stroke="#fff" strokeWidth="1">
-                        <title>{d.name} — {d.commune} ({RISK[d.riskLevel]?.label})</title>
-                      </circle>
-                    ))}
-                  </svg>
-                  <div className="map-legend">
-                    {Object.entries(RISK).map(([k, v]) => <span key={k}><span className="dot" style={{ background: v.color }} />{v.label}</span>)}
-                  </div>
-                </>
-              ) : (
-                <p className="muted">Aucun site géolocalisé pour l'instant. Importez les coordonnées GPS (Master Data / Risk-based site selection) pour les voir ici. L'explorateur ci-dessous couvre tous les sites.</p>
-              )}
+              <div ref={mapEl} className="site-map" />
+              <div className="map-legend">
+                {Object.entries(RISK).map(([k, v]) => <span key={k}><span className="dot" style={{ background: v.color }} />{v.label}</span>)}
+              </div>
             </div>
           </div>
 
@@ -118,7 +140,7 @@ export default function SitesMapPage() {
               <thead><tr><th>Région / District</th><th className="num">Sites</th><th>Mix de risque</th><th className="num">Visités</th><th className="num">Couverture</th></tr></thead>
               <tbody>
                 {tree.map((R) => {
-                  const open = openRegion[R.region] !== false; // ouvert par défaut
+                  const open = openRegion[R.region] !== false;
                   return (
                     <React.Fragment key={R.region}>
                       <tr className="clickable map-region" onClick={() => setOpenRegion((s) => ({ ...s, [R.region]: !open }))}>
