@@ -36,12 +36,17 @@ async function listSites(tenantId, { q } = {}) {
 
 async function createSite(tenantId, s) {
   return withTenantTransaction(tenantId, async (client) => {
+    const resolveOffice = `(SELECT c.office_id FROM field_office_communes c
+         JOIN field_offices o ON o.id = c.office_id
+        WHERE c.tenant_id = $1 AND c.commune = $4
+        ORDER BY (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code LIMIT 1)`;
     const { rows } = await client.query(
-      `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, adm2, adm3, adm4)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$3,$4,$5)
+      `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, adm2, adm3, adm4, field_office_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$3,$4,$5,${resolveOffice})
        ON CONFLICT (tenant_id, code) DO UPDATE SET fokontany = EXCLUDED.fokontany,
          activity = COALESCE(EXCLUDED.activity, sites.activity),
-         adm2 = EXCLUDED.adm2, adm3 = EXCLUDED.adm3, adm4 = COALESCE(EXCLUDED.adm4, sites.adm4)
+         adm2 = EXCLUDED.adm2, adm3 = EXCLUDED.adm3, adm4 = COALESCE(EXCLUDED.adm4, sites.adm4),
+         field_office_id = COALESCE(sites.field_office_id, EXCLUDED.field_office_id)
        RETURNING id`,
       [tenantId, siteCode(s), s.district, s.commune, s.fokontany || null, s.name, s.activity || null]
     );
@@ -120,13 +125,22 @@ async function importMasterData(tenantId, rows) {
     let inserted = 0;
     for (const r of clean) {
       const code = (r.code && String(r.code).trim()) || siteCode(r);
+      // Rattachement automatique au bureau via le périmètre communes : on prend
+      // le bureau le PLUS spécifique couvrant la commune (antenne avant bureau
+      // parent, bureau terrain avant bureau pays).
+      const resolveOffice = `(SELECT c.office_id FROM field_office_communes c
+           JOIN field_offices o ON o.id = c.office_id
+          WHERE c.tenant_id = $1 AND c.commune = $4
+          ORDER BY (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code
+          LIMIT 1)`;
       const { rows: out } = await client.query(
-        `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, risk_level, adm1, adm2, adm3, adm4)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8,'moyenne'),$9,$3,$4,$5)
+        `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, risk_level, adm1, adm2, adm3, adm4, field_office_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8,'moyenne'),$9,$3,$4,$5,${resolveOffice})
          ON CONFLICT (tenant_id, code) DO UPDATE SET district = EXCLUDED.district,
            commune = EXCLUDED.commune, fokontany = COALESCE(EXCLUDED.fokontany, sites.fokontany),
            name = EXCLUDED.name, adm1 = COALESCE(EXCLUDED.adm1, sites.adm1),
-           adm2 = EXCLUDED.adm2, adm3 = EXCLUDED.adm3, adm4 = COALESCE(EXCLUDED.adm4, sites.adm4)
+           adm2 = EXCLUDED.adm2, adm3 = EXCLUDED.adm3, adm4 = COALESCE(EXCLUDED.adm4, sites.adm4),
+           field_office_id = COALESCE(sites.field_office_id, EXCLUDED.field_office_id)
          RETURNING (xmax = 0) AS inserted`,
         [tenantId, code, r.district, r.commune, r.fokontany || null, r.name, r.activity || null, r.riskLevel || null, r.region || null]
       );
@@ -166,12 +180,17 @@ async function upsertSites(client, tenantId, sites) {
   let inserted = 0;
   for (const s of sites) {
     const code = siteCode(s);
+    const resolveOffice = `(SELECT c.office_id FROM field_office_communes c
+         JOIN field_offices o ON o.id = c.office_id
+        WHERE c.tenant_id = $1 AND c.commune = $4
+        ORDER BY (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code LIMIT 1)`;
     const { rows } = await client.query(
-      `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, adm2, adm3, adm4)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$3,$4,$5)
+      `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, adm2, adm3, adm4, field_office_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$3,$4,$5,${resolveOffice})
        ON CONFLICT (tenant_id, code)
        DO UPDATE SET fokontany = EXCLUDED.fokontany, activity = COALESCE(EXCLUDED.activity, sites.activity),
-         adm2 = EXCLUDED.adm2, adm3 = EXCLUDED.adm3, adm4 = COALESCE(EXCLUDED.adm4, sites.adm4)
+         adm2 = EXCLUDED.adm2, adm3 = EXCLUDED.adm3, adm4 = COALESCE(EXCLUDED.adm4, sites.adm4),
+         field_office_id = COALESCE(sites.field_office_id, EXCLUDED.field_office_id)
        RETURNING id, (xmax = 0) AS inserted`,
       [tenantId, code, s.district, s.commune, s.fokontany || null, s.name, s.activity || null]
     );
