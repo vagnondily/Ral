@@ -66,25 +66,47 @@ async function main() {
         await client.query(`INSERT INTO field_office_communes (tenant_id, office_id, district, commune) VALUES ${vals.join(',')} ON CONFLICT DO NOTHING`, params);
       }
     }
-    // Sites réels (Master Data) — codes PLAN-xxxx, adm1-adm3, risque réparti.
+    // Sites réels du Plan de suivi (feuille « Risk-based site selection ») :
+    // géographie du Master Data + critères/score/activité/GPS du Co-Monitoring.
     await client.query("DELETE FROM sites WHERE tenant_id=$1 AND code LIKE 'PLAN-%'", [tenantId]);
-    const RISK_CYCLE = ['elevee', 'moyenne', 'moyenne', 'faible'];
-    const CH = 400;
+    const COLS = 21; // colonnes par ligne (hors tenant_id partagé $1)
+    const CH = 250;
+    const lastVisits = []; // { code, month } → visites réalisées (dernière visite du plan)
     for (let i = 0; i < plan.sites.length; i += CH) {
       const slice = plan.sites.slice(i, i + CH);
       const params = [tenantId]; const vals = [];
       slice.forEach((s, j) => {
         const code = `PLAN-${String(i + j + 1).padStart(4, '0')}`;
-        const risk = RISK_CYCLE[(i + j) % RISK_CYCLE.length];
-        params.push(code, s.name, s.district, s.commune, s.region, s.district, s.commune, risk, officeIdByCode[s.office] || null);
-        const b = params.length;
-        vals.push(`($1,$${b - 8},$${b - 7},$${b - 6},$${b - 5},$${b - 4},$${b - 3},$${b - 2},$${b - 1},$${b})`);
+        if (s.lastVisit) lastVisits.push({ code, month: s.lastVisit });
+        params.push(code, s.name, s.district, s.commune, s.region, s.district, s.commune, s.fokontany || null,
+          s.risk || 'moyenne', officeIdByCode[s.office] || null, s.activity || null, s.gpsLat ?? null, s.gpsLng ?? null,
+          s.security || 0, s.synergies || 0, s.beneficiaryOver200 || 0, s.newPartner || 0,
+          s.issuesProcess || 0, s.issuesPartnerReport || 0, s.issuesCFM || 0, s.fraud || 0);
+        const b = params.length; const p = (k) => `$${b - COLS + 1 + k}`;
+        vals.push(`($1,${Array.from({ length: COLS }, (_, k) => p(k)).join(',')})`);
       });
       await client.query(
-        `INSERT INTO sites (tenant_id, code, name, district, commune, adm1, adm2, adm3, risk_level, field_office_id)
+        `INSERT INTO sites (tenant_id, code, name, district, commune, adm1, adm2, adm3, fokontany,
+           risk_level, field_office_id, activity, gps_lat, gps_lng,
+           security_situation, programme_synergies, beneficiary_over_200, new_partner,
+           issues_process, issues_partner_report, issues_cfm, fraud_suspected)
          VALUES ${vals.join(',')} ON CONFLICT (tenant_id, code) DO NOTHING`, params);
     }
-    logger.info({ offices: plan.offices.length, sites: plan.sites.length }, 'seed-test: données réelles du plan insérées');
+    // Dernières visites du plan → une visite réalisée datée, pour que le RBM et
+    // la couverture reflètent l'historique (idempotent : marquées via la source).
+    if (lastVisits.length) {
+      const codeIds = new Map((await client.query("SELECT id, code FROM sites WHERE tenant_id=$1 AND code LIKE 'PLAN-%'", [tenantId])).rows.map((r) => [r.code, r.id]));
+      for (let i = 0; i < lastVisits.length; i += CH) {
+        const slice = lastVisits.slice(i, i + CH).filter((x) => codeIds.get(x.code));
+        if (!slice.length) continue;
+        const params = [tenantId, admin]; const vals = [];
+        slice.forEach((x) => { params.push(codeIds.get(x.code), `${x.month}-01`); const b = params.length; vals.push(`($1,$${b - 1},$${b},'realise',$2)`); });
+        await client.query(
+          `INSERT INTO site_visits (tenant_id, site_id, period_month, status, created_by)
+           VALUES ${vals.join(',')} ON CONFLICT DO NOTHING`, params);
+      }
+    }
+    logger.info({ offices: plan.offices.length, sites: plan.sites.length, lastVisits: lastVisits.length }, 'seed-test: données réelles du plan insérées');
 
     const tpms = (await client.query("SELECT p.id, p.name FROM partners p JOIN partner_types pt ON pt.id=p.partner_type_id WHERE p.tenant_id=$1 AND pt.code='tpm' ORDER BY p.name", [tenantId])).rows;
     const contracts = (await client.query("SELECT id, numero, partner_name AS \"partnerName\", period_months AS \"periodMonths\" FROM contracts WHERE tenant_id=$1 AND status='actif' ORDER BY numero", [tenantId])).rows;
@@ -134,28 +156,8 @@ async function main() {
       }
     }
 
-    // ---- 2c) Critères RBM sur quelques sites (score & priorité variés) --
-    {
-      const some = (await client.query('SELECT id FROM sites WHERE tenant_id=$1 ORDER BY code LIMIT 9', [tenantId])).rows;
-      const CRIT = [
-        { issues_cfm: 2 },                                   // urgent → priorité haute
-        { fraud_suspected: 1 },                              // urgent
-        { security_situation: 2 },                           // urgent
-        { programme_synergies: 1, beneficiary_over_200: 1 }, // moyen
-        { new_partner: 1, issues_process: 1 },               // moyen
-        { beneficiary_over_200: 1 },                         // faible/moyen
-      ];
-      for (let i = 0; i < Math.min(CRIT.length, some.length); i += 1) {
-        const c = CRIT[i];
-        await client.query(
-          `UPDATE sites SET security_situation=$2, programme_synergies=$3, beneficiary_over_200=$4,
-             new_partner=$5, issues_process=$6, issues_partner_report=$7, issues_cfm=$8, fraud_suspected=$9
-           WHERE tenant_id=$1 AND id=$10`,
-          [tenantId, c.security_situation || 0, c.programme_synergies || 0, c.beneficiary_over_200 || 0,
-            c.new_partner || 0, c.issues_process || 0, c.issues_partner_report || 0, c.issues_cfm || 0,
-            c.fraud_suspected || 0, some[i].id]);
-      }
-    }
+    // ---- 2c) Critères RBM : désormais issus des vraies données du plan
+    // (feuille Risk-based site selection), insérés avec les sites à l'étape 0.
 
     // ---- 3) Plans de collecte (Planifié) --------------------------------
     await client.query("DELETE FROM tpm_collection_plans WHERE tenant_id=$1 AND title LIKE 'Test —%'", [tenantId]);
