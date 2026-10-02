@@ -76,12 +76,12 @@ async function main() {
       slice.forEach((s, j) => {
         const code = `PLAN-${String(i + j + 1).padStart(4, '0')}`;
         const risk = RISK_CYCLE[(i + j) % RISK_CYCLE.length];
-        params.push(code, s.name, s.district, s.commune, s.region, s.district, s.commune, risk);
+        params.push(code, s.name, s.district, s.commune, s.region, s.district, s.commune, risk, officeIdByCode[s.office] || null);
         const b = params.length;
-        vals.push(`($1,$${b - 7},$${b - 6},$${b - 5},$${b - 4},$${b - 3},$${b - 2},$${b - 1},$${b})`);
+        vals.push(`($1,$${b - 8},$${b - 7},$${b - 6},$${b - 5},$${b - 4},$${b - 3},$${b - 2},$${b - 1},$${b})`);
       });
       await client.query(
-        `INSERT INTO sites (tenant_id, code, name, district, commune, adm1, adm2, adm3, risk_level)
+        `INSERT INTO sites (tenant_id, code, name, district, commune, adm1, adm2, adm3, risk_level, field_office_id)
          VALUES ${vals.join(',')} ON CONFLICT (tenant_id, code) DO NOTHING`, params);
     }
     logger.info({ offices: plan.offices.length, sites: plan.sites.length }, 'seed-test: données réelles du plan insérées');

@@ -16,6 +16,17 @@ const RISK = {
 const SCORE = { 0: { bg: 'var(--green-bg)', text: 'var(--green-text)' }, 1: { bg: 'var(--orange-bg)', text: 'var(--orange-text)' }, 2: { bg: 'var(--red-bg)', text: 'var(--red-text)' } };
 const PRIO = { 0: { color: 'var(--green)', bg: 'var(--green-bg)', text: 'var(--green-text)' }, 1: { color: 'var(--orange)', bg: 'var(--orange-bg)', text: 'var(--orange-text)' }, 2: { color: 'var(--red)', bg: 'var(--red-bg)', text: 'var(--red-text)' } };
 const TONE = { green: { color: 'var(--green)', bg: 'var(--green-bg)', text: 'var(--green-text)' }, amber: { color: 'var(--orange)', bg: 'var(--orange-bg)', text: 'var(--orange-text)' }, red: { color: 'var(--red)', bg: 'var(--red-bg)', text: 'var(--red-text)' } };
+// Libellés des critères (0/1/2) — fidèles au Plan de suivi, pour l'affichage.
+const LABEL02 = {
+  security: ['Pas de restriction', 'Modérée', 'Élevée'],
+  issues: ['Aucun', 'Important', 'Urgent'],
+};
+const LABEL01 = {
+  synergies: ['Une seule activité', 'Plusieurs activités'],
+  caseload: ['≤ 200', '> 200'],
+  newPartner: ['Expérimenté', 'Nouveau'],
+  fraud: ['Non suspectée', 'Suspectée'],
+};
 
 /**
  * Risk-Based Monitoring — le référentiel de sites porte un niveau de risque qui
@@ -32,6 +43,7 @@ export default function RbmPage({ canEdit }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [crit, setCrit] = useState(null); // site en cours d'édition des critères
+  const [offices, setOffices] = useState([]);
   const fileRef = useRef(null);
 
   const reload = useCallback(() => {
@@ -39,6 +51,20 @@ export default function RbmPage({ canEdit }) {
     api.rbmSites(month, risk).then(setSites).catch((e) => setError(e.message));
   }, [month, risk]);
   useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { api.listOffices().then(setOffices).catch(() => setOffices([])); }, []);
+
+  // Sous-arbre d'un bureau : lui-même + toutes ses antennes (récursif). Un bureau
+  // pays (national) couvre TOUT le pays ; un bureau terrain ne voit que ses sites.
+  const officeById = useMemo(() => new Map(offices.map((o) => [o.id, o])), [offices]);
+  const descendantsOf = useCallback((officeId) => {
+    const set = new Set([officeId]);
+    let added = true;
+    while (added) {
+      added = false;
+      for (const o of offices) { if (o.parentId && set.has(o.parentId) && !set.has(o.id)) { set.add(o.id); added = true; } }
+    }
+    return set;
+  }, [offices]);
 
   const setSiteRisk = async (s, riskLevel) => {
     try { await api.fieldUpdateSite(s.id, { riskLevel }); reload(); }
@@ -63,35 +89,42 @@ export default function RbmPage({ canEdit }) {
     return s;
   }, [sites]);
 
-  // Recommandation dérivée (claire pour le terrain).
-  const reco = (s) => {
-    if (s.due && s.priority === 2) return { label: 'À visiter en priorité', tone: 'red' };
-    if (s.due) return { label: 'À planifier ce mois', tone: 'amber' };
-    if (s.priority >= 1) return { label: 'À surveiller', tone: 'amber' };
-    return { label: 'À jour', tone: 'green' };
-  };
   const uniq = (arr) => [...new Set(arr.filter(Boolean))].sort().map((x) => ({ id: x, label: x }));
 
-  // Colonnes & filtres déclaratifs (liste façon COMET, comme les contrats).
+  // Colonnes fidèles à la feuille « Risk-based site selection » du Plan de suivi
+  // (en-têtes réels, non inventés). Le sélecteur de colonnes permet de montrer
+  // les colonnes de critères détaillées.
   const columns = useMemo(() => {
     const c = {
-      name: { label: 'Site', sortVal: (s) => s.name, csv: (s) => s.name,
-        render: (s) => <><strong>{s.name}</strong>{s.activity && <div className="site-meta">{s.activity}</div>}</> },
-      zone: { label: 'District / Commune', sortVal: (s) => `${s.adm3 || s.commune || ''}`, csv: (s) => `${s.adm2 || s.district || ''} / ${s.adm3 || s.commune || ''}`,
-        render: (s) => <>{(s.adm2 || s.district) || '—'} › {(s.adm3 || s.commune) || '—'}{s.adm1 && <div className="site-meta">{s.adm1}</div>}</> },
+      subOffice: { label: 'Sous-bureau', sortVal: (s) => s.subOfficeName || '', csv: (s) => s.subOfficeName || '', render: (s) => s.subOfficeName || <span className="cell-empty">—</span> },
+      antenne: { label: 'Antenne', sortVal: (s) => s.antenneName || '', csv: (s) => s.antenneName || '', render: (s) => s.antenneName || <span className="cell-empty">—</span> },
+      name: { label: 'Nom du site', sortVal: (s) => s.name, csv: (s) => s.name, render: (s) => <strong>{s.name}</strong> },
+      region: { label: 'Région', sortVal: (s) => s.adm1 || '', csv: (s) => s.adm1 || '', render: (s) => s.adm1 || '—' },
+      district: { label: 'District', sortVal: (s) => s.adm2 || s.district || '', csv: (s) => s.adm2 || s.district || '', render: (s) => s.adm2 || s.district || '—' },
+      communes: { label: 'Commune', sortVal: (s) => s.adm3 || s.commune || '', csv: (s) => s.adm3 || s.commune || '', render: (s) => s.adm3 || s.commune || '—' },
+      fokontany: { label: 'Fokontany', sortVal: (s) => s.fokontany || '', csv: (s) => s.fokontany || '', render: (s) => s.fokontany || '—' },
+      idSite: { label: 'ID site', sortVal: (s) => s.code || '', csv: (s) => s.code || '', render: (s) => <span className="mono">{s.code || '—'}</span> },
+      gpsLat: { label: 'GPS Lat.', num: true, sortVal: (s) => s.gpsLat ?? -999, csv: (s) => s.gpsLat ?? '', render: (s) => (s.gpsLat ?? '—') },
+      gpsLng: { label: 'GPS Long.', num: true, sortVal: (s) => s.gpsLng ?? -999, csv: (s) => s.gpsLng ?? '', render: (s) => (s.gpsLng ?? '—') },
+      activityCategory: { label: "Catégorie d'activité", sortVal: (s) => s.activity || '', csv: (s) => s.activity || '', render: (s) => s.activity || '—' },
       risk: { label: 'Niveau de risque', sortVal: (s) => ({ elevee: 3, moyenne: 2, faible: 1 }[s.riskLevel] || 0), csv: (s) => RISK[s.riskLevel]?.label || s.riskLevel,
         render: (s) => (canEdit
-          ? <select className="select" style={{ minWidth: 110 }} value={s.riskLevel || 'moyenne'} onClick={(e) => e.stopPropagation()} onChange={(e) => setSiteRisk(s, e.target.value)} aria-label="Niveau de risque">
+          ? <select className="select" style={{ minWidth: 110 }} value={s.riskLevel || 'moyenne'} onChange={(e) => setSiteRisk(s, e.target.value)} aria-label="Niveau de risque">
               <option value="elevee">Élevé</option><option value="moyenne">Moyen</option><option value="faible">Faible</option></select>
           : <span className="badge" style={{ background: RISK[s.riskLevel]?.bg, color: RISK[s.riskLevel]?.text }}><span className="dot" style={{ background: RISK[s.riskLevel]?.color }} />{RISK[s.riskLevel]?.label || s.riskLevel}</span>) },
-      score: { label: 'Score RBM', sortVal: (s) => s.finalScore || 0, csv: (s) => s.finalLabel || '',
-        render: (s) => <><span className="badge" style={{ background: SCORE[s.finalScore]?.bg, color: SCORE[s.finalScore]?.text }}>{s.finalLabel || '—'}</span>{s.urgentFlags && <div className="site-meta" style={{ color: 'var(--red)' }}>⚑ urgent</div>}</> },
-      priority: { label: 'Priorité', sortVal: (s) => s.priority || 0, csv: (s) => s.priorityLabel || '',
-        render: (s) => <span className="badge" style={{ background: PRIO[s.priority]?.bg, color: PRIO[s.priority]?.text }}><span className="dot" style={{ background: PRIO[s.priority]?.color }} />{s.priorityLabel || '—'}</span> },
+      security: { label: 'Situation sécuritaire', sortVal: (s) => s.security || 0, csv: (s) => LABEL02.security[s.security || 0], render: (s) => LABEL02.security[s.security || 0] },
+      synergies: { label: 'Synergies de programme', sortVal: (s) => s.synergies || 0, csv: (s) => LABEL01.synergies[s.synergies || 0], render: (s) => LABEL01.synergies[s.synergies || 0] },
+      caseload: { label: 'Taille (caseload)', sortVal: (s) => s.beneficiaryOver200 || 0, csv: (s) => LABEL01.caseload[s.beneficiaryOver200 || 0], render: (s) => LABEL01.caseload[s.beneficiaryOver200 || 0] },
+      newPartner: { label: 'Nouveau partenaire', sortVal: (s) => s.newPartner || 0, csv: (s) => LABEL01.newPartner[s.newPartner || 0], render: (s) => LABEL01.newPartner[s.newPartner || 0] },
       lastVisit: { label: 'Dernière visite', sortVal: (s) => (s.monthsSinceVisit == null ? 1e9 : s.monthsSinceVisit), csv: (s) => s.lastVisitMonth || '',
         render: (s) => <span className="tabular">{s.lastVisitMonth || '—'}{s.monthsSinceVisit != null && <div className="site-meta">il y a {s.monthsSinceVisit} mois</div>}</span> },
-      reco: { label: 'Recommandation', sortVal: (s) => reco(s).label, csv: (s) => reco(s).label,
-        render: (s) => { const r = reco(s); return <span className="badge" style={{ background: TONE[r.tone]?.bg, color: TONE[r.tone]?.text }}><span className="dot" style={{ background: TONE[r.tone]?.color }} />{r.label}</span>; } },
+      issuesProcess: { label: 'Problèmes — processus interne', sortVal: (s) => s.issuesProcess || 0, csv: (s) => LABEL02.issues[s.issuesProcess || 0], render: (s) => LABEL02.issues[s.issuesProcess || 0] },
+      issuesPartnerReport: { label: 'Problème rapport partenaire', sortVal: (s) => s.issuesPartnerReport || 0, csv: (s) => LABEL02.issues[s.issuesPartnerReport || 0], render: (s) => LABEL02.issues[s.issuesPartnerReport || 0] },
+      issuesCFM: { label: 'Problème CFM', sortVal: (s) => s.issuesCFM || 0, csv: (s) => LABEL02.issues[s.issuesCFM || 0], render: (s) => LABEL02.issues[s.issuesCFM || 0] },
+      fraud: { label: 'Fraude et corruption', sortVal: (s) => s.fraud || 0, csv: (s) => LABEL01.fraud[s.fraud || 0], render: (s) => LABEL01.fraud[s.fraud || 0] },
+      finalScore: { label: 'SCORE FINAL', sortVal: (s) => s.finalScore || 0, csv: (s) => s.finalLabel || '',
+        render: (s) => <><span className="badge" style={{ background: SCORE[s.finalScore]?.bg, color: SCORE[s.finalScore]?.text }}>{s.finalLabel || '—'}</span>{s.urgentFlags && <div className="site-meta" style={{ color: 'var(--red)' }}>⚑ urgent</div>}</> },
+      interval: { label: 'Intervalle requis (CO)', num: true, sortVal: (s) => s.interval || 0, csv: (s) => s.interval || '', render: (s) => <span className="tabular">{s.interval != null ? `${s.interval} mois` : '—'}</span> },
       due: { label: 'À suivre ce mois', sortVal: (s) => (s.due ? 1 : 0), csv: (s) => (s.due ? 'oui' : 'non'),
         render: (s) => (s.due
           ? <span className="badge" style={{ background: 'var(--blue-50)', color: 'var(--blue-700)' }}><span className="dot" style={{ background: 'var(--blue-600)' }} />À suivre</span>
@@ -103,13 +136,16 @@ export default function RbmPage({ canEdit }) {
 
   const filters = useMemo(() => ({
     q: { label: 'Recherche', type: 'search', placeholder: 'Site, commune, district…',
-      match: (s, v) => [s.name, s.commune, s.adm3, s.district, s.adm2].some((x) => x && String(x).toLowerCase().includes(v.toLowerCase())) },
+      match: (s, v) => [s.name, s.commune, s.adm3, s.district, s.adm2, s.code].some((x) => x && String(x).toLowerCase().includes(v.toLowerCase())) },
+    office: { label: 'Bureau', type: 'select',
+      options: () => [{ id: '', label: 'Tous les bureaux' }, ...offices.map((o) => ({ id: o.id, label: (o.national ? '🏛 ' : (o.parentId ? '— ' : '')) + o.name + (o.national ? ' (pays — tous les sites)' : '') }))],
+      match: (s, v) => { const o = officeById.get(v); if (!o) return true; if (o.national) return true; return descendantsOf(v).has(s.fieldOfficeId); } },
     region: { label: 'Région', type: 'select', options: (rows) => [{ id: '', label: 'Toutes les régions' }, ...uniq(rows.map((s) => s.adm1))],
       match: (s, v) => s.adm1 === v },
     district: { label: 'District', type: 'select',
       options: (rows, vals) => [{ id: '', label: 'Tous les districts' }, ...uniq(rows.filter((s) => !vals.region || s.adm1 === vals.region).map((s) => s.adm2))],
       match: (s, v) => s.adm2 === v },
-    commune: { label: 'Commune', type: 'select',
+    communes: { label: 'Commune', type: 'select',
       options: (rows, vals) => [{ id: '', label: 'Toutes les communes' }, ...uniq(rows.filter((s) => (!vals.region || s.adm1 === vals.region) && (!vals.district || s.adm2 === vals.district)).map((s) => s.adm3))],
       match: (s, v) => s.adm3 === v },
     risk: { label: 'Niveau de risque', type: 'select',
@@ -117,9 +153,9 @@ export default function RbmPage({ canEdit }) {
       match: (s, v) => s.riskLevel === v },
     due: { label: 'À suivre', type: 'select', options: [{ id: '', label: 'Tous' }, { id: 'due', label: 'À suivre (non visités / en retard)' }, { id: 'ok', label: 'À jour' }],
       match: (s, v) => (v === 'due' ? !!s.due : !s.due) },
-  }), []); // eslint-disable-line
+  }), [offices, officeById, descendantsOf]); // eslint-disable-line
 
-  const DEFAULT_COLS = ['name', 'zone', 'risk', 'score', 'priority', 'lastVisit', 'reco', 'due', ...(canEdit ? ['crit'] : [])];
+  const DEFAULT_COLS = ['subOffice', 'antenne', 'name', 'district', 'communes', 'activityCategory', 'risk', 'lastVisit', 'finalScore', 'due', ...(canEdit ? ['crit'] : [])];
 
   return (
     <div className="page">
@@ -144,8 +180,8 @@ export default function RbmPage({ canEdit }) {
 
       <DataList
         rows={sites} columns={columns} defaultColumns={DEFAULT_COLS}
-        filters={filters} defaultFilters={['q', 'region', 'district', 'commune', 'risk', 'due']}
-        storageKey="mems.rbm.view" pageSize={15} defaultSort={{ key: 'priority', dir: 'desc' }}
+        filters={filters} defaultFilters={['q', 'office', 'region', 'district', 'communes', 'risk', 'due']}
+        storageKey="mems.rbm.view.v2" pageSize={15} defaultSort={{ key: 'finalScore', dir: 'desc' }}
         csvName={`rbm_${month}.csv`} emptyIcon={MapPin} emptyTitle="Aucun site référencé"
         emptyChildren="Importez le référentiel Master Data (.xlsx) pour alimenter le RBM."
         rowClassName={(s) => (s.due ? 'is-selected' : '')}
