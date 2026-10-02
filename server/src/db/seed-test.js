@@ -335,7 +335,40 @@ async function main() {
       }
     }
 
-    logger.info({ submissions: n, offices: 3, rates: 3 }, 'seed-test complet — connectez-vous (admin@mems.mg / changeme123) pour inspecter');
+    // ---- 6b) Suivi de processus : DONNÉES RÉELLES (export Kobo résilience) ---
+    // Vraie fiche + 189 soumissions réelles (feuille « data ») + 9 indicateurs
+    // de vérification process. Permet de voir des données réelles, pas une démo.
+    const monData = require('./fixtures/monitoringData.json');
+    await client.query('DELETE FROM monitoring_forms WHERE tenant_id=$1 AND code=$2', [tenantId, monData.form.code]);
+    const { rows: [rform] } = await client.query(
+      'INSERT INTO monitoring_forms (tenant_id, code, label) VALUES ($1,$2,$3) RETURNING id',
+      [tenantId, monData.form.code, monData.form.label]);
+    // Champs pm1..pm9 (oui/non) + catalogue de choix.
+    for (let i = 0; i < monData.indicators.length; i += 1) {
+      const ind = monData.indicators[i];
+      await client.query(
+        'INSERT INTO monitoring_form_fields (tenant_id, form_id, name, type, label, list_name, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [tenantId, rform.id, ind.sourceField, 'select_one', ind.label, 'TrueFalse', i]);
+    }
+    for (const [v, l] of [['true', 'Oui'], ['false', 'Non']]) {
+      await client.query('INSERT INTO monitoring_choices (tenant_id, form_id, list_name, value, label) VALUES ($1,$2,\'TrueFalse\',$3,$4)', [tenantId, rform.id, v, l]);
+    }
+    for (let i = 0; i < monData.indicators.length; i += 1) {
+      const ind = monData.indicators[i];
+      await client.query(
+        `INSERT INTO monitoring_indicators (tenant_id, form_id, code, label, source_field, agg, positive_value, target, direction, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [tenantId, rform.id, ind.code, ind.label, ind.sourceField, ind.agg, ind.positiveValue, ind.target, ind.direction, ind.sortOrder]);
+    }
+    for (const s of monData.submissions) {
+      await client.query(
+        `INSERT INTO monitoring_submissions (tenant_id, form_id, external_id, period_month, submitted_at, field_office, admin1, admin2, admin3, partner, source, data)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT (form_id, external_id) DO NOTHING`,
+        [tenantId, rform.id, s.externalId, s.periodMonth, s.submittedAt, s.fieldOffice, s.admin1, s.admin2, s.admin3, s.partner, s.source, JSON.stringify(s.data)]);
+    }
+
+    logger.info({ submissions: n, realSubmissions: monData.submissions.length, offices: 3, rates: 3 }, 'seed-test complet — connectez-vous (admin@mems.mg / changeme123) pour inspecter');
   } finally {
     await client.end();
   }
