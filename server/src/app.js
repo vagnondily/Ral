@@ -5,6 +5,7 @@ const pinoHttp = require('pino-http');
 const logger = require('./config/logger');
 const { errorHandler, notFound } = require('./middleware/errors');
 const { rateLimit } = require('./middleware/rateLimit');
+const { createRedisConnection } = require('./config/redis');
 const authRoutes = require('./modules/auth/auth.routes');
 const tpmRoutes = require('./modules/tpm/tpm.routes');
 const tpmReportsRoutes = require('./modules/tpm/reports.routes');
@@ -25,7 +26,12 @@ function createApp() {
   // rate-limit et les logs). Nombre de sauts de confiance configurable.
   app.set('trust proxy', Number(process.env.TRUST_PROXY || 1));
   app.use(helmet());
-  app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
+  // CORS : origine(s) explicite(s) via CORS_ORIGIN (séparées par des virgules) ;
+  // « * » par défaut en dev uniquement. En prod, validateEnv avertit si non fixé.
+  const corsOrigin = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim())
+    : '*';
+  app.use(cors({ origin: corsOrigin }));
   app.use(express.json({ limit: '1mb' }));
   app.use(pinoHttp({ logger }));
 
@@ -33,11 +39,19 @@ function createApp() {
   // orchestrator (Kubernetes, etc.) — deliberately has no auth requirement.
   app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-  // Anti-bourrinage du login : par IP + email, fenêtre 15 min.
+  // Anti-bourrinage du login : par IP + email, fenêtre 15 min. Compteur partagé
+  // via Redis si REDIS_URL est défini (API répliquée), sinon en mémoire.
+  let rlRedis = null;
+  if (process.env.REDIS_URL) {
+    try { rlRedis = createRedisConnection(); rlRedis.on('error', (err) => logger.warn({ err }, 'rate-limit Redis error')); }
+    catch (err) { logger.warn({ err }, 'rate-limit: connexion Redis impossible, repli mémoire'); }
+  }
   const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: Number(process.env.LOGIN_RATE_MAX || 10),
     keyGenerator: (req) => `${req.ip}:${String(req.body?.email || '').toLowerCase()}`,
+    redis: rlRedis,
+    prefix: 'rl:login',
   });
   app.use('/api/auth/login', loginLimiter);
 
