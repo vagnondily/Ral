@@ -49,11 +49,14 @@ async function main() {
     const plan = require('./fixtures/planData.json');
     const officeIdByCode = {};
     await client.query('DELETE FROM field_offices WHERE tenant_id=$1 AND code = ANY($2)', [tenantId, plan.offices.map((o) => o.code)]);
+    // Les bureaux sont listés parents avant enfants → parent_id déjà connu.
+    // Hiérarchie : Fort Dauphin > Ambovombe > {Bekily, Tsihombe}, > Amboasary.
     for (const o of plan.offices) {
+      const parentId = o.parent ? (officeIdByCode[o.parent] || null) : null;
       const { rows } = await client.query(
-        `INSERT INTO field_offices (tenant_id, code, name, nature, national, responsible)
-         VALUES ($1,$2,$3,$4,$5,'Responsable S&E') RETURNING id`,
-        [tenantId, o.code, o.name, o.nature || 'terrain', o.nature === 'pays']);
+        `INSERT INTO field_offices (tenant_id, code, name, nature, parent_id, national, responsible)
+         VALUES ($1,$2,$3,$4,$5,$6,'Responsable S&E') RETURNING id`,
+        [tenantId, o.code, o.name, o.nature || 'terrain', parentId, o.nature === 'pays']);
       officeIdByCode[o.code] = rows[0].id;
       // Périmètre communes en un seul INSERT multi-lignes (pas de boucle de requêtes).
       const perim = (o.communes || []).slice(0, 1500);
@@ -119,7 +122,7 @@ async function main() {
            risk_level=EXCLUDED.risk_level, feasible=EXCLUDED.feasible, note='seed-plan', updated_at=now()`,
         [tenantId, officeId, cat, dur, nb, risk, feas, admin]);
     };
-    const REF = 'AMB'; // bureau de référence pour le plan général
+    const REF = 'FDA'; // bureau de référence (Fort Dauphin) pour le plan général
     for (const row of (plan.mmrByOffice[REF] || [])) {
       if (row.dur > 0 || row.sites > 0) await upsertMmrRow(null, row.cat, row.dur, row.sites, row.risk, row.feas);
     }
