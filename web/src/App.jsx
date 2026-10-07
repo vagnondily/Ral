@@ -5,7 +5,6 @@ import { ToastProvider, useToast } from './components/Toast.jsx';
 import { I18nProvider } from './lib/i18n.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import ProvidersPage from './pages/ProvidersPage.jsx';
-import AssignmentPage from './pages/AssignmentPage.jsx';
 import ContractsListPage from './pages/contracts/ContractsListPage.jsx';
 import ContractDetailPage from './pages/contracts/ContractDetailPage.jsx';
 import ContractFormPage from './pages/contracts/ContractFormPage.jsx';
@@ -31,8 +30,14 @@ const DEFAULT_ROUTE = { module: 'contrats', sub: 'liste' };
 // Deep-linkable routes: #/tpm/prestataires, #/contrats/liste,
 // #/contrats/liste/nouveau, #/contrats/liste/<id>, #/contrats/liste/<id>/edit,
 // #/contrats/liste/<id>/amend
+// Routes retirées → redirigées (ex. l'ancien « Affectation & calendrier »,
+// fusionné dans « Affectation & visites »).
+const REDIRECTS = { 'tpm/affectation': { module: 'processus', sub: 'sites' } };
+
 function parseHash() {
   const [, mod, sub, extra, extra2] = window.location.hash.split('/');
+  const redirect = REDIRECTS[`${mod}/${sub}`];
+  if (redirect) return redirect;
   return findRoute(mod, sub) ? { module: mod, sub, extra: extra || null, extra2: extra2 || null } : DEFAULT_ROUTE;
 }
 
@@ -93,7 +98,6 @@ function Workspace() {
       {route.sub === 'prestataires' && <ProvidersPage canEdit={canEdit} onNavigate={navigate} />}
       {route.module === 'tpm' && route.sub === 'formations' && <FormationsPage canEdit={canEdit} />}
       {route.module === 'tpm' && route.sub === 'evaluation' && <EvaluationPage canEdit={canEdit} />}
-      {route.sub === 'affectation' && <AssignmentPage canEdit={canEdit} />}
       {route.module === 'tpm' && route.sub === 'rapports' && <ReportsPage canEdit={canEdit} onOpenContract={openContract} onNavigate={navigate} />}
       {route.module === 'dashboard' && route.sub === 'apercu' && <DashboardBIPage onOpenContract={openContract} />}
       {route.module === 'dashboard' && route.sub === 'consolidation' && <ConsolidationPage onOpenContract={openContract} />}

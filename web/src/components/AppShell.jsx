@@ -31,7 +31,6 @@ export const NAV = [
           { id: 'prestataires', label: 'Prestataires TPM' },
           { id: 'formations', label: 'Formations' },
           { id: 'evaluation', label: 'Évaluation' },
-          { id: 'affectation', label: 'Affectation & calendrier' },
           { id: 'budget', label: 'Planification & budget' },
           { id: 'rapports', label: 'Rapports & dépenses' },
         ],
@@ -41,7 +40,7 @@ export const NAV = [
         subs: [
           { id: 'synthese', label: 'Tableau de bord' },
           { id: 'donnees', label: 'Données & indicateurs' },
-          { id: 'sites', label: 'Sites & visites' },
+          { id: 'sites', label: 'Affectation & visites' },
           { id: 'rbm', label: 'Risk-Based Monitoring' },
           { id: 'couverture', label: 'Récap de couverture' },
           { id: 'carte', label: 'Carte des sites' },

@@ -242,9 +242,17 @@ or navy rail.
   catalogue de champs/choix (migration 025) pour configurer les indicateurs avant
   toute soumission. Values are computed live by the pure, unit-tested
   `monitoringMath.js`. Nav: « Suivi de processus › Données & indicateurs ».
-- **Suivi terrain — sites & visites** (`server/src/modules/tpm/field.*`,
-  `web/src/pages/monitoring/FieldVisitsPage.jsx`, migration 020): the S&E
-  officer's field-monitoring tool. Two-stage workflow — (1) **planification
+- **Affectation & visites de terrain** (ex-« Sites & visites » ;
+  `server/src/modules/tpm/field.*`, `web/src/pages/monitoring/FieldVisitsPage.jsx`,
+  migration 020). **Écran unique d'affectation TPM** : l'ancien
+  « Affectation & calendrier » (`AssignmentPage.jsx`, modèle `tpm_assignments` +
+  `tpm_mission_days`, nominatif) a été **retiré du menu** au profit de cet écran
+  piloté par le RBM (rôles génériques, conforme au design). L'entrée de nav est
+  « Suivi de processus › Affectation & visites » ; l'ancienne route
+  `#/tpm/affectation` **redirige** vers `#/processus/sites` (table `REDIRECTS`
+  dans `App.jsx`). `AssignmentPage.jsx` reste dans le dépôt mais n'est plus
+  importé (données `tpm_assignments` conservées, aucune migration destructive).
+  The S&E officer's field-monitoring tool. Two-stage workflow — (1) **planification
   générale** : the bureau lists the sites to visit in the month, reusing the
   **shared `sites` registry** (migration 001, also used by RBM/assignments — no
   duplicate table; migration 020 only adds `sites.fokontany` + the `site_visits`

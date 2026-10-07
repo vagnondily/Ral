@@ -98,9 +98,9 @@ export default function ProvidersPage({ canEdit, onNavigate }) {
     <div className="section-gap">
       <PageHeader
         title="Prestataires TPM"
-        description="Les tierces parties de suivi et leurs agents de terrain (nom, fonction). L'affectation d'un site se fait par prestataire d'abord, puis par agent."
+        description="Les tierces parties de suivi et leurs agents de terrain (nom, fonction). L'affectation des sites aux prestataires se fait dans « Affectation & visites » (à partir du RBM)."
       >
-        <Button variant="secondary" icon={ArrowRight} onClick={() => onNavigate('tpm', 'affectation')}>Affecter les sites</Button>
+        <Button variant="secondary" icon={ArrowRight} onClick={() => onNavigate('processus', 'sites')}>Affecter les sites</Button>
         {canEdit && <Button variant="secondary" icon={Settings} onClick={() => onNavigate('parametrage', 'partenaires')}>Créer un partenaire</Button>}
       </PageHeader>
       <div className="note">

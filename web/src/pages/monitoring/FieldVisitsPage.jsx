@@ -181,10 +181,10 @@ export default function FieldVisitsPage({ canEdit }) {
 
   return (
     <div className="page">
-      <PageHeader title="Planification des visites de terrain"
+      <PageHeader title="Affectation & visites de terrain"
         description={picking
-          ? "Choisissez un mois dans le tableau ci-dessous pour ouvrir son plan de visites. Chaque ligne montre les visites planifiées, réalisées et la couverture du mois."
-          : "La liste des sites à visiter ce mois : district › commune › établissement › activité. Affectez le prestataire TPM et le rôle directement dans le tableau."}>
+          ? "L'écran unique du suivi terrain : planifiez les visites du mois (depuis le RBM), affectez les prestataires TPM, suivez les jours/budget, la couverture et les données réelles. Choisissez un mois pour ouvrir son plan."
+          : "Les sites à visiter ce mois (district › commune › établissement › activité) : affectez le prestataire TPM et le rôle, datez les visites ; les onglets couvrent le budget-jours, la couverture et les données réelles."}>
         {!picking && <Button variant="secondary" icon={ChevronLeft} onClick={() => setPicking(true)}>Tous les mois</Button>}
         {!picking && canEdit && <><input ref={fileRef} type="file" accept=".xlsx" hidden onChange={onImport} />
           <Button variant="secondary" icon={Wand2} loading={generating} onClick={generateFromRbm}
