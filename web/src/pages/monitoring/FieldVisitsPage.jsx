@@ -50,7 +50,8 @@ export default function FieldVisitsPage({ canEdit }) {
   const [importing, setImporting] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [view, setView] = useState('plan');          // 'plan' (grille simple) | 'couverture'
+  const [view, setView] = useState('plan');          // 'plan' | 'couverture' | 'donnees'
+  const [subs, setSubs] = useState(null);             // données réelles (soumissions) du mois
   // Navigation par TABLEAU des mois : on choisit l'année, on voit un mois par
   // ligne avec ses stats, on clique un mois pour ouvrir son plan.
   const [year, setYear] = useState(() => Number(currentMonth().slice(0, 4)));
@@ -74,6 +75,12 @@ export default function FieldVisitsPage({ canEdit }) {
 
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => { api.listProviders().then((p) => setProviders(p.map((x) => ({ id: x.id, name: x.name })))).catch(() => setProviders([])); }, []);
+  // Données réelles du mois (chargées à l'ouverture de l'onglet).
+  useEffect(() => {
+    if (picking || view !== 'donnees') return;
+    setSubs(null);
+    api.monSubmissions(month).then(setSubs).catch(() => setSubs([]));
+  }, [picking, view, month]);
 
   async function onImport(e) {
     const f = e.target.files?.[0]; e.target.value = '';
@@ -141,6 +148,10 @@ export default function FieldVisitsPage({ canEdit }) {
         render: (v) => (canEdit
           ? <input className="input" style={{ width: 150 }} type="date" min={monthStart} max={monthEnd} value={v.visitDate || ''} onChange={(e) => e.target.value && patch(v, { visitDate: e.target.value })} aria-label="Date de visite" />
           : (v.visitDate || '—')) },
+      dataVisit: { label: 'Dernière collecte (données)', sortVal: (v) => v.dataVisitMonth || '', csv: (v) => v.dataVisitMonth || '',
+        render: (v) => (v.dataVisitMonth
+          ? <span className="tabular">{v.dataVisitMonth}</span>
+          : <span className="muted" title="Aucune donnée réelle rattachée à la commune de ce site (pcode).">—</span>) },
       status: { label: 'Statut', sortVal: (v) => v.status, csv: (v) => STATUS[v.status]?.label || v.status,
         render: (v) => (canEdit
           ? <div className="seg" role="group" aria-label="Statut">{Object.entries(STATUS).map(([k, s]) => <button type="button" key={k} className={v.status === k ? 'is-active' : ''} onClick={() => patch(v, { status: k })} title={s.label}>{s.label}</button>)}</div>
@@ -208,6 +219,7 @@ export default function FieldVisitsPage({ canEdit }) {
       <div className="seg" role="group" aria-label="Vue" style={{ marginBottom: 4 }}>
         <button type="button" className={view === 'plan' ? 'is-active' : ''} onClick={() => setView('plan')}>Planification</button>
         <button type="button" className={view === 'couverture' ? 'is-active' : ''} onClick={() => setView('couverture')}>Couverture &amp; budget</button>
+        <button type="button" className={view === 'donnees' ? 'is-active' : ''} onClick={() => setView('donnees')}>Données réelles</button>
       </div>
 
       {view === 'couverture' && <>
@@ -253,13 +265,48 @@ export default function FieldVisitsPage({ canEdit }) {
 
       {view === 'plan' && (
         <DataList
-          rows={visits} columns={columns} defaultColumns={['site', 'zone', 'activity', 'provider', 'role', 'visitDate', 'status', ...(canEdit ? ['action'] : [])]}
+          rows={visits} columns={columns} defaultColumns={['site', 'zone', 'activity', 'provider', 'role', 'visitDate', 'dataVisit', 'status', ...(canEdit ? ['action'] : [])]}
           filters={filters} defaultFilters={['q', 'provider', 'status']}
-          storageKey="mems.fieldvisits.view" pageSize={15} defaultSort={{ key: 'zone', dir: 'asc' }}
+          storageKey="mems.fieldvisits.view.v2" pageSize={15} defaultSort={{ key: 'zone', dir: 'asc' }}
           csvName={`visites_${month}.csv`} emptyIcon={MapPin} emptyTitle="Aucune visite ce mois-ci"
           emptyAction={canEdit && rbmDue > 0 && <Button icon={Wand2} loading={generating} onClick={generateFromRbm}>Générer {rbmDue} visite(s) depuis le RBM</Button>}
           emptyChildren={`Générez la planification depuis le RBM${rbmDue ? ` (${rbmDue} site(s) à suivre)` : ''}, importez le planning (.xlsx) ou ajoutez une visite.`}
         />
+      )}
+
+      {view === 'donnees' && (
+        <div className="card biz-card">
+          <div className="card-header">
+            <div className="card-title">Données réelles — {monthLabel(month)}</div>
+            <div className="card-sub">Soumissions de suivi réellement collectées ce mois (données uploadées). La commune est résolue depuis le référentiel de sites via le pcode — c'est cette liaison qui alimente la « dernière collecte » du plan et du RBM.</div>
+          </div>
+          {subs === null ? (
+            <div className="card-body"><Skeleton height={200} /></div>
+          ) : subs.length === 0 ? (
+            <div className="card-body"><p className="muted" style={{ textAlign: 'center', padding: 20 }}>Aucune donnée réelle versée pour {monthLabel(month)}. Importez des soumissions dans « Données &amp; indicateurs ».</p></div>
+          ) : (
+            <div className="table-wrap"><table className="table">
+              <thead><tr>
+                <th>Fiche</th><th>Commune (résolue)</th><th>District (code)</th><th>Commune (code)</th>
+                <th>Partenaire</th><th>Source</th><th>Soumis le</th>
+              </tr></thead>
+              <tbody>
+                {subs.map((s, i) => (
+                  <tr key={s.externalId || i}>
+                    <td>{s.formLabel || '—'}</td>
+                    <td>{s.communeName ? <strong>{s.communeName}</strong> : <span className="muted" title="Aucun site du référentiel ne porte ce pcode de commune.">non rattachée</span>}</td>
+                    <td className="mono">{s.admin2 || '—'}</td>
+                    <td className="mono">{s.admin3 || '—'}</td>
+                    <td>{s.partner || '—'}</td>
+                    <td><span className="badge">{s.source || '—'}</span></td>
+                    <td className="tabular">{s.submittedAt ? String(s.submittedAt).slice(0, 10) : (s.periodMonth || '—')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+          )}
+          <div className="note"><MapPin size={18} aria-hidden="true" /><span>Liaison par <strong>pcode de commune</strong> : une soumission « non rattachée » signifie qu'aucun site du référentiel ne porte ce code — importez le Master Data (RBM) pour compléter les pcodes.</span></div>
+        </div>
       )}
       </>}
 

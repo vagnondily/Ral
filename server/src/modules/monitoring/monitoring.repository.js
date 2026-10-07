@@ -334,9 +334,41 @@ async function processOverview(tenantId, { month } = {}) {
   });
 }
 
+/**
+ * Données réelles (soumissions brutes) — pour la « table des données actuelles »
+ * rattachée au plan de suivi. Bornée (limit) ; on résout le nom de la commune
+ * à partir du pcode (adm3) via le référentiel de sites, pour afficher un nom
+ * lisible plutôt que le seul code. Filtrable par mois.
+ */
+async function listSubmissions(tenantId, { month, limit = 300 } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const params = [tenantId];
+    const where = ['ms.tenant_id = $1'];
+    if (month) { params.push(`${String(month).slice(0, 7)}-01`); where.push(`ms.period_month = $${params.length}`); }
+    params.push(Math.min(Math.max(Number(limit) || 300, 1), 2000));
+    const { rows } = await client.query(
+      `SELECT ms.external_id AS "externalId", to_char(ms.period_month, 'YYYY-MM') AS "periodMonth",
+              ms.submitted_at AS "submittedAt", ms.field_office AS "fieldOffice",
+              ms.admin1, ms.admin2, ms.admin3, ms.partner, ms.source,
+              f.label AS "formLabel",
+              -- Nom de commune résolu depuis le référentiel de sites (même pcode).
+              (SELECT s.commune FROM sites s
+                WHERE s.tenant_id = ms.tenant_id AND s.adm3_pcode IS NOT NULL AND s.adm3_pcode = ms.admin3
+                LIMIT 1) AS "communeName"
+         FROM monitoring_submissions ms
+         JOIN monitoring_forms f ON f.id = ms.form_id AND f.tenant_id = ms.tenant_id
+        WHERE ${where.join(' AND ')}
+        ORDER BY ms.submitted_at DESC NULLS LAST, ms.period_month DESC
+        LIMIT $${params.length}`,
+      params
+    );
+    return rows;
+  });
+}
+
 module.exports = {
   listForms, createForm, updateForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,
   formFields, importSubmissions, computeValues, dashboard, processOverview,
-  formCatalog, importDefinition,
+  formCatalog, importDefinition, listSubmissions,
 };

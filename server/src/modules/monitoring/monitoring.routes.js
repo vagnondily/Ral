@@ -199,4 +199,12 @@ router.get('/overview', asyncHandler(async (req, res) => {
   res.json(await repo.processOverview(t(req), { month }));
 }));
 
+// Données réelles brutes (soumissions), filtrables par mois — alimente la
+// « table des données actuelles » rattachée au plan de suivi.
+router.get('/submissions', asyncHandler(async (req, res) => {
+  const month = /^\d{4}-\d{2}/.test(req.query.month || '') ? req.query.month : undefined;
+  const limit = Number(req.query.limit);
+  res.json(await repo.listSubmissions(t(req), { month, limit: Number.isFinite(limit) ? limit : undefined }));
+}));
+
 module.exports = router;

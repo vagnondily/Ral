@@ -305,7 +305,10 @@ const VISIT_COLS = `
   v.id, v.site_id AS "siteId", s.name AS "siteName", s.district, s.commune, s.fokontany,
   v.activity, to_char(v.period_month, 'YYYY-MM') AS "periodMonth",
   v.contract_id AS "contractId", v.provider_id AS "providerId", p.name AS "providerName",
-  v.agent, v.status, v.visit_date AS "visitDate"`;
+  v.agent, v.status, v.visit_date AS "visitDate",
+  -- Dernière collecte réelle (données uploadées) pour la commune du site.
+  (SELECT to_char(max(ms.period_month), 'YYYY-MM') FROM monitoring_submissions ms
+     WHERE ms.tenant_id = s.tenant_id AND s.adm3_pcode IS NOT NULL AND ms.admin3 = s.adm3_pcode) AS "dataVisitMonth"`;
 
 async function listVisits(tenantId, { month, providerId, status } = {}) {
   return withTenantTransaction(tenantId, async (client) => {

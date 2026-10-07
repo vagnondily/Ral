@@ -254,6 +254,13 @@ or navy rail.
   manuelle) = **total des jours à budgéter**. Calcul pur `fieldMath.collectionDays`
   (testé) ; endpoints `GET/PUT /api/tpm/field/collection-days` ; carte « Jours de
   collecte (pour le budget) » sur la page terrain.
+  **Plan de suivi groupé par mois + données réelles** : la page s'ouvre sur un
+  **tableau des mois** (clic → plan du mois, édition en ligne type Excel). La
+  grille de planification affiche une colonne **« Dernière collecte (données) »**
+  (`listVisits` renvoie `dataVisitMonth` via le pcode de commune du site), et un
+  onglet **« Données réelles »** liste les soumissions réellement versées le mois
+  (`GET /api/monitoring/submissions?month=`, `monitoring.repository.listSubmissions`
+  — résout le nom de commune depuis le référentiel de sites via le pcode).
 - **Risk-Based Monitoring (RBM)** (`web/src/pages/monitoring/RbmPage.jsx`,
   `server/src/modules/tpm/rbmMath.js` + `field.*`, migration 022) : le niveau de
   risque de chaque site (`sites.risk_level` ∈ faible/moyenne/elevee, défaut

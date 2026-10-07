@@ -202,6 +202,7 @@ export const api = {
   monValues: (id, month) => request(`/api/monitoring/forms/${id}/values`, { query: month ? { month } : undefined }),
   monDashboard: (id, month) => request(`/api/monitoring/forms/${id}/dashboard`, { query: month ? { month } : undefined }),
   monOverview: (month) => request('/api/monitoring/overview', { query: month ? { month } : undefined }),
+  monSubmissions: (month) => request('/api/monitoring/submissions', { query: month ? { month } : undefined }),
   monCatalog: (id) => request(`/api/monitoring/forms/${id}/catalog`),
   monImportDefinition: async (file) => {
     const token = getToken();
