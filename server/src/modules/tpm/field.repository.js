@@ -88,14 +88,30 @@ const RBM_SELECT = `
          s.beneficiary_over_200 AS "beneficiaryOver200", s.new_partner AS "newPartner",
          s.issues_process AS "issuesProcess", s.issues_partner_report AS "issuesPartnerReport",
          s.issues_cfm AS "issuesCFM", s.fraud_suspected AS "fraud",
-         to_char(mv.last, 'YYYY-MM') AS "lastVisitMonth"
+         s.adm3_pcode AS "adm3Pcode",
+         to_char(pv.last, 'YYYY-MM') AS "plannedVisitMonth",
+         to_char(dv.last, 'YYYY-MM') AS "dataVisitMonth",
+         dv.last_at AS "dataVisitAt",
+         COALESCE(dv.n, 0) AS "dataVisitCount",
+         -- Dernière visite effective = la plus récente entre le suivi terrain
+         -- planifié/réalisé (site_visits) et la COLLECTE RÉELLE issue des
+         -- données uploadées (soumissions rattachées par pcode de commune).
+         to_char(GREATEST(pv.last, dv.last), 'YYYY-MM') AS "lastVisitMonth"
     FROM sites s
     LEFT JOIN field_offices ant ON ant.id = s.field_office_id
     LEFT JOIN field_offices par ON par.id = ant.parent_id
     LEFT JOIN LATERAL (
       SELECT max(period_month) AS last FROM site_visits v
        WHERE v.tenant_id = s.tenant_id AND v.site_id = s.id AND v.status <> 'annule'
-    ) mv ON true
+    ) pv ON true
+    LEFT JOIN LATERAL (
+      -- Collecte réelle au niveau commune : la soumission la plus récente dont
+      -- le pcode de commune (adm3) correspond à celui du site.
+      SELECT max(ms.period_month) AS last, max(ms.submitted_at) AS last_at, count(*) AS n
+        FROM monitoring_submissions ms
+       WHERE ms.tenant_id = s.tenant_id
+         AND s.adm3_pcode IS NOT NULL AND ms.admin3 = s.adm3_pcode
+    ) dv ON true
    WHERE s.tenant_id = $1`;
 
 /** Site registry with risk level, last visit and whether it is due for `month`. */
@@ -134,15 +150,18 @@ async function importMasterData(tenantId, rows) {
           ORDER BY (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code
           LIMIT 1)`;
       const { rows: out } = await client.query(
-        `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, risk_level, adm1, adm2, adm3, adm4, field_office_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8,'moyenne'),$9,$3,$4,$5,${resolveOffice})
+        `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, risk_level, adm1, adm2, adm3, adm4, adm2_pcode, adm3_pcode, field_office_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8,'moyenne'),$9,$3,$4,$5,$10,$11,${resolveOffice})
          ON CONFLICT (tenant_id, code) DO UPDATE SET district = EXCLUDED.district,
            commune = EXCLUDED.commune, fokontany = COALESCE(EXCLUDED.fokontany, sites.fokontany),
            name = EXCLUDED.name, adm1 = COALESCE(EXCLUDED.adm1, sites.adm1),
            adm2 = EXCLUDED.adm2, adm3 = EXCLUDED.adm3, adm4 = COALESCE(EXCLUDED.adm4, sites.adm4),
+           adm2_pcode = COALESCE(EXCLUDED.adm2_pcode, sites.adm2_pcode),
+           adm3_pcode = COALESCE(EXCLUDED.adm3_pcode, sites.adm3_pcode),
            field_office_id = COALESCE(sites.field_office_id, EXCLUDED.field_office_id)
          RETURNING (xmax = 0) AS inserted`,
-        [tenantId, code, r.district, r.commune, r.fokontany || null, r.name, r.activity || null, r.riskLevel || null, r.region || null]
+        [tenantId, code, r.district, r.commune, r.fokontany || null, r.name, r.activity || null, r.riskLevel || null, r.region || null,
+          r.adm2Pcode || null, r.adm3Pcode || null]
       );
       if (out[0].inserted) inserted += 1;
     }

@@ -130,6 +130,10 @@ export default function RbmPage({ canEdit }) {
       newPartner: { label: 'Nouveau partenaire', sortVal: (s) => s.newPartner || 0, csv: (s) => LABEL01.newPartner[s.newPartner || 0], render: (s) => LABEL01.newPartner[s.newPartner || 0] },
       lastVisit: { label: 'Dernière visite', sortVal: (s) => (s.monthsSinceVisit == null ? 1e9 : s.monthsSinceVisit), csv: (s) => s.lastVisitMonth || '',
         render: (s) => <span className="tabular">{s.lastVisitMonth || '—'}{s.monthsSinceVisit != null && <div className="site-meta">il y a {s.monthsSinceVisit} mois</div>}</span> },
+      dataVisit: { label: 'Dernière collecte (données)', sortVal: (s) => s.dataVisitMonth || '', csv: (s) => s.dataVisitMonth || '',
+        render: (s) => (s.dataVisitMonth
+          ? <span className="tabular">{s.dataVisitMonth}{s.dataVisitCount ? <div className="site-meta">{s.dataVisitCount} soumission{s.dataVisitCount > 1 ? 's' : ''}</div> : null}</span>
+          : <span className="muted" title="Aucune soumission réelle rattachée à la commune de ce site (pcode).">—</span>) },
       issuesProcess: { label: 'Problèmes — processus interne', sortVal: (s) => s.issuesProcess || 0, csv: (s) => LABEL02.issues[s.issuesProcess || 0], render: (s) => LABEL02.issues[s.issuesProcess || 0] },
       issuesPartnerReport: { label: 'Problème rapport partenaire', sortVal: (s) => s.issuesPartnerReport || 0, csv: (s) => LABEL02.issues[s.issuesPartnerReport || 0], render: (s) => LABEL02.issues[s.issuesPartnerReport || 0] },
       issuesCFM: { label: 'Problème CFM', sortVal: (s) => s.issuesCFM || 0, csv: (s) => LABEL02.issues[s.issuesCFM || 0], render: (s) => LABEL02.issues[s.issuesCFM || 0] },
@@ -166,14 +170,14 @@ export default function RbmPage({ canEdit }) {
       match: (s, v) => (v === 'due' ? !!s.due : !s.due) },
   }), [offices, officeById, descendantsOf]); // eslint-disable-line
 
-  const DEFAULT_COLS = ['subOffice', 'antenne', 'name', 'district', 'communes', 'activityCategory', 'risk', 'lastVisit', 'finalScore', 'due'];
+  const DEFAULT_COLS = ['subOffice', 'antenne', 'name', 'district', 'communes', 'risk', 'lastVisit', 'dataVisit', 'finalScore', 'due'];
 
   return (
     <div className="section-gap">
       <div className="page-header">
         <div>
           <h1 className="page-title">Risk-Based Monitoring (RBM)</h1>
-          <p className="page-desc">Sélectionnez une ligne (ou <strong>double-clic</strong>) pour éditer ses critères. « Générer » planifie les sites à suivre du mois.</p>
+          <p className="page-desc">Sélectionnez une ligne (ou <strong>double-clic</strong>) pour éditer ses critères. « Générer » planifie les sites à suivre du mois. La <strong>dernière visite</strong> intègre la <strong>collecte réelle</strong> issue des données uploadées (rattachées par commune).</p>
         </div>
         <div className="header-actions">
           <MonthPicker value={month} onChange={setMonth} />
@@ -201,7 +205,7 @@ export default function RbmPage({ canEdit }) {
       <DataList
         rows={sites} columns={columns} defaultColumns={DEFAULT_COLS}
         filters={filters} defaultFilters={['q', 'office', 'risk', 'due']}
-        storageKey="mems.rbm.view.v3" pageSize={15} defaultSort={{ key: 'finalScore', dir: 'desc' }}
+        storageKey="mems.rbm.view.v4" pageSize={15} defaultSort={{ key: 'finalScore', dir: 'desc' }}
         csvName={`rbm_${month}.csv`} emptyIcon={MapPin} emptyTitle="Aucun site référencé"
         emptyChildren="Importez le référentiel Master Data (.xlsx) pour alimenter le RBM."
         selectable selectedId={selectedId} onSelect={setSelectedId}

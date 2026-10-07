@@ -267,6 +267,16 @@ or navy rail.
   des visites** (bouton « Générer depuis le RBM (N) » + compteur de sites à
   suivre dans l'état vide) pour partir du RBM sans quitter la planification.
   Nav : « Suivi de processus › Risk-Based Monitoring ».
+  **Liaison données réelles → site (migration 036)** : les soumissions de suivi
+  (`monitoring_submissions`) sont géocodées par **pcode** de commune (`admin3`),
+  sans identifiant de site. On stocke donc le pcode de commune sur chaque site
+  (`sites.adm3_pcode`, capturé à l'import Master Data, colonne « Code » après
+  Communes) et la **dernière collecte réelle** d'un site = la soumission la plus
+  récente de même pcode de commune (granularité commune — ce que la donnée
+  permet). Le RBM expose `dataVisitMonth`/`dataVisitCount` (colonne « Dernière
+  collecte (données) ») et la **dernière visite effective** = `GREATEST(visite
+  planifiée/réalisée, collecte réelle)`, de sorte que « à suivre » intègre les
+  données uploadées — plus besoin de ressaisir les visites faites.
 - **Dashboard Suivi de processus — Synthèse** (`web/src/pages/monitoring/
   ProcessDashboardPage.jsx`, endpoint `GET /api/monitoring/overview`,
   `monitoring.repository.processOverview`) : synthèse transversale recalculée en

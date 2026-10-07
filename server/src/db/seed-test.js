@@ -368,6 +368,24 @@ async function main() {
         [tenantId, rform.id, s.externalId, s.periodMonth, s.submittedAt, s.fieldOffice, s.admin1, s.admin2, s.admin3, s.partner, s.source, JSON.stringify(s.data)]);
     }
 
+    // ─── Liaison « données réelles → site » par pcode de commune ─────────
+    // Les soumissions portent un pcode de commune (admin3) mais pas d'ID de
+    // site. On attribue ces pcodes à quelques communes du référentiel de sites
+    // pour que la « dernière collecte (données) » du RBM soit non vide sur le
+    // jeu de test (idempotent : réaffecte les mêmes communes).
+    const subPcodes = [...new Set(monData.submissions.map((s) => s.admin3).filter(Boolean))];
+    if (subPcodes.length) {
+      const { rows: communes } = await client.query(
+        "SELECT DISTINCT commune FROM sites WHERE tenant_id=$1 AND code LIKE 'PLAN-%' AND commune IS NOT NULL ORDER BY commune LIMIT $2",
+        [tenantId, subPcodes.length]);
+      for (let i = 0; i < communes.length; i += 1) {
+        await client.query(
+          "UPDATE sites SET adm3_pcode=$3 WHERE tenant_id=$1 AND commune=$2 AND code LIKE 'PLAN-%'",
+          [tenantId, communes[i].commune, subPcodes[i]]);
+      }
+      logger.info({ linkedCommunes: communes.length, pcodes: subPcodes.length }, 'seed-test: liaison données↔sites (pcode commune)');
+    }
+
     // ─── Plan de Distribution d'urgence (PDD) — données réelles ──────────
     // Réutilise zones (région/district/commune), bureaux (antenne/sous-bureau)
     // et partenaires sous forme de libellés, comme le reste de MEMS.
