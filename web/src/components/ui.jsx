@@ -133,9 +133,9 @@ export function EmptyState({ icon: Icon, title, children, action }) {
 }
 
 /** Compact band of figures — replaces stacked KPI cards. */
-export function Stats({ items }) {
+export function Stats({ items, compact }) {
   return (
-    <div className="stats" style={{ '--stat-cols': items.length }}>
+    <div className={`stats ${compact ? 'stats-compact' : ''}`} style={{ '--stat-cols': items.length }}>
       {items.map((it) => (
         <div className="stat" key={it.label}>
           <span className="stat-label">{it.label}</span>

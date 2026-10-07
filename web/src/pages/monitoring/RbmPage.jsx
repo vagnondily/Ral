@@ -44,6 +44,7 @@ export default function RbmPage({ canEdit }) {
   const [busy, setBusy] = useState(false);
   const [crit, setCrit] = useState(null); // site en cours d'édition des critères
   const [offices, setOffices] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
   const fileRef = useRef(null);
   const planRef = useRef(null);
 
@@ -120,7 +121,7 @@ export default function RbmPage({ canEdit }) {
       activityCategory: { label: "Catégorie d'activité", sortVal: (s) => s.activity || '', csv: (s) => s.activity || '', render: (s) => s.activity || '—' },
       risk: { label: 'Niveau de risque', sortVal: (s) => ({ elevee: 3, moyenne: 2, faible: 1 }[s.riskLevel] || 0), csv: (s) => RISK[s.riskLevel]?.label || s.riskLevel,
         render: (s) => (canEdit
-          ? <select className="select" style={{ minWidth: 110 }} value={s.riskLevel || 'moyenne'} onChange={(e) => setSiteRisk(s, e.target.value)} aria-label="Niveau de risque">
+          ? <select className="select" style={{ minWidth: 110 }} value={s.riskLevel || 'moyenne'} onClick={(e) => e.stopPropagation()} onChange={(e) => setSiteRisk(s, e.target.value)} aria-label="Niveau de risque">
               <option value="elevee">Élevé</option><option value="moyenne">Moyen</option><option value="faible">Faible</option></select>
           : <span className="badge" style={{ background: RISK[s.riskLevel]?.bg, color: RISK[s.riskLevel]?.text }}><span className="dot" style={{ background: RISK[s.riskLevel]?.color }} />{RISK[s.riskLevel]?.label || s.riskLevel}</span>) },
       security: { label: 'Situation sécuritaire', sortVal: (s) => s.security || 0, csv: (s) => LABEL02.security[s.security || 0], render: (s) => LABEL02.security[s.security || 0] },
@@ -141,7 +142,6 @@ export default function RbmPage({ canEdit }) {
           ? <span className="badge" style={{ background: 'var(--blue-50)', color: 'var(--blue-700)' }}><span className="dot" style={{ background: 'var(--blue-600)' }} />À suivre</span>
           : <span className="muted">à jour</span>) },
     };
-    if (canEdit) c.crit = { label: '', width: 48, csv: () => '', render: (s) => <Button size="sm" variant="ghost" icon={SlidersHorizontal} aria-label="Critères de risque" onClick={(e) => { e.stopPropagation(); setCrit(s); }} /> };
     return c;
   }, [canEdit]); // eslint-disable-line
 
@@ -166,14 +166,14 @@ export default function RbmPage({ canEdit }) {
       match: (s, v) => (v === 'due' ? !!s.due : !s.due) },
   }), [offices, officeById, descendantsOf]); // eslint-disable-line
 
-  const DEFAULT_COLS = ['subOffice', 'antenne', 'name', 'district', 'communes', 'activityCategory', 'risk', 'lastVisit', 'finalScore', 'due', ...(canEdit ? ['crit'] : [])];
+  const DEFAULT_COLS = ['subOffice', 'antenne', 'name', 'district', 'communes', 'activityCategory', 'risk', 'lastVisit', 'finalScore', 'due'];
 
   return (
     <div className="section-gap">
       <div className="page-header">
         <div>
           <h1 className="page-title">Risk-Based Monitoring (RBM)</h1>
-          <p className="page-desc">Le niveau de risque pilote la fréquence de suivi. Filtrez (bureau, région, district…), <strong>double-cliquez</strong> une ligne pour éditer ses critères. « Générer » planifie les sites à suivre du mois.</p>
+          <p className="page-desc">Sélectionnez une ligne (ou <strong>double-clic</strong>) pour éditer ses critères. « Générer » planifie les sites à suivre du mois.</p>
         </div>
         <div className="header-actions">
           <MonthPicker value={month} onChange={setMonth} />
@@ -190,7 +190,7 @@ export default function RbmPage({ canEdit }) {
 
       {error && <Alert tone="error">{error}</Alert>}
 
-      <Stats items={[
+      <Stats compact items={[
         { label: 'Sites référencés', value: sites ? formatInt(stats.total) : '—', foot: 'Référentiel du plan' },
         { label: 'Risque élevé', value: sites ? formatInt(stats.elevee) : '—', foot: RISK.elevee.freq },
         { label: 'Risque moyen', value: sites ? formatInt(stats.moyenne) : '—', foot: RISK.moyenne.freq },
@@ -200,12 +200,17 @@ export default function RbmPage({ canEdit }) {
 
       <DataList
         rows={sites} columns={columns} defaultColumns={DEFAULT_COLS}
-        filters={filters} defaultFilters={['q', 'office', 'region', 'district', 'communes', 'risk', 'due']}
-        storageKey="mems.rbm.view.v2" pageSize={15} defaultSort={{ key: 'finalScore', dir: 'desc' }}
+        filters={filters} defaultFilters={['q', 'office', 'risk', 'due']}
+        storageKey="mems.rbm.view.v3" pageSize={15} defaultSort={{ key: 'finalScore', dir: 'desc' }}
         csvName={`rbm_${month}.csv`} emptyIcon={MapPin} emptyTitle="Aucun site référencé"
         emptyChildren="Importez le référentiel Master Data (.xlsx) pour alimenter le RBM."
+        selectable selectedId={selectedId} onSelect={setSelectedId}
         onRowDoubleClick={canEdit ? (s) => setCrit(s) : undefined}
-        rowClassName={(s) => (s.due ? 'is-selected' : '')}
+        toolbar={canEdit ? (sel) => (sel ? <>
+          <Button size="sm" variant="secondary" icon={SlidersHorizontal} onClick={() => setCrit(sel)}>Éditer les critères</Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedId(null)}>Désélectionner</Button>
+        </> : <span className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Sélectionnez un site pour éditer ses critères.</span>) : undefined}
+        rowClassName={(s) => (s.due ? 'row-due' : '')}
       />
 
       {crit && <CritModal site={crit} onClose={() => setCrit(null)} onSaved={() => { setCrit(null); reload(); }} />}
