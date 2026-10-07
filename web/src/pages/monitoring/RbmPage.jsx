@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Wand2, ShieldAlert, MapPin, SlidersHorizontal } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Alert, Button, Field, PageHeader } from '../../components/ui.jsx';
+import { Alert, Button, Field, Stats } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
 import Modal from '../../components/Modal.jsx';
 import MonthPicker from '../../components/MonthPicker.jsx';
@@ -169,28 +169,34 @@ export default function RbmPage({ canEdit }) {
   const DEFAULT_COLS = ['subOffice', 'antenne', 'name', 'district', 'communes', 'activityCategory', 'risk', 'lastVisit', 'finalScore', 'due', ...(canEdit ? ['crit'] : [])];
 
   return (
-    <div className="page">
-      <PageHeader title="Risk-Based Monitoring (RBM)" description="Le niveau de risque de chaque site pilote la fréquence de suivi. La planification des visites du mois se génère depuis le RBM : les sites « à suivre » deviennent des visites planifiées.">
-        <MonthPicker value={month} onChange={setMonth} />
-        {canEdit && <>
-          <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={onImport} />
-          <input ref={planRef} type="file" accept=".xlsx,.xlsm" hidden onChange={onImportPlan} />
-          <Button variant="secondary" icon={Upload} loading={busy} onClick={() => fileRef.current?.click()}>Importer sites (Master Data)</Button>
-          <Button variant="secondary" icon={Upload} loading={busy} onClick={() => planRef.current?.click()}
-            title="Importe la feuille « Risk-based site selection » : critères, SCORE FINAL, GPS, activité, dernière visite.">Importer le Plan de suivi</Button>
-          <Button icon={Wand2} loading={busy} onClick={generate}>Générer la planification du mois</Button>
-        </>}
-      </PageHeader>
+    <div className="section-gap">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Risk-Based Monitoring (RBM)</h1>
+          <p className="page-desc">Le niveau de risque pilote la fréquence de suivi. Filtrez (bureau, région, district…), <strong>double-cliquez</strong> une ligne pour éditer ses critères. « Générer » planifie les sites à suivre du mois.</p>
+        </div>
+        <div className="header-actions">
+          <MonthPicker value={month} onChange={setMonth} />
+          {canEdit && <>
+            <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={onImport} />
+            <input ref={planRef} type="file" accept=".xlsx,.xlsm" hidden onChange={onImportPlan} />
+            <Button variant="secondary" icon={Upload} loading={busy} onClick={() => fileRef.current?.click()}>Master Data</Button>
+            <Button variant="secondary" icon={Upload} loading={busy} onClick={() => planRef.current?.click()}
+              title="Importe la feuille « Risk-based site selection » : critères, SCORE FINAL, GPS, activité, dernière visite.">Plan de suivi</Button>
+            <Button icon={Wand2} loading={busy} onClick={generate}>Générer</Button>
+          </>}
+        </div>
+      </div>
 
       {error && <Alert tone="error">{error}</Alert>}
 
-      <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(5, minmax(0,1fr))' }}>
-        <Kpi icon={MapPin} tone="blue" label="Sites référencés" value={formatInt(stats.total)} />
-        <Kpi icon={ShieldAlert} tone="red" label="Risque élevé" value={formatInt(stats.elevee)} foot={RISK.elevee.freq} />
-        <Kpi icon={ShieldAlert} tone="amber" label="Risque moyen" value={formatInt(stats.moyenne)} foot={RISK.moyenne.freq} />
-        <Kpi icon={ShieldAlert} tone="green" label="Risque faible" value={formatInt(stats.faible)} foot={RISK.faible.freq} />
-        <Kpi icon={Wand2} tone="blue" label="À suivre ce mois" value={formatInt(stats.due)} foot="Selon le RBM" />
-      </div>
+      <Stats items={[
+        { label: 'Sites référencés', value: sites ? formatInt(stats.total) : '—', foot: 'Référentiel du plan' },
+        { label: 'Risque élevé', value: sites ? formatInt(stats.elevee) : '—', foot: RISK.elevee.freq },
+        { label: 'Risque moyen', value: sites ? formatInt(stats.moyenne) : '—', foot: RISK.moyenne.freq },
+        { label: 'Risque faible', value: sites ? formatInt(stats.faible) : '—', foot: RISK.faible.freq },
+        { label: 'À suivre ce mois', value: sites ? formatInt(stats.due) : '—', foot: 'Selon le RBM' },
+      ]} />
 
       <DataList
         rows={sites} columns={columns} defaultColumns={DEFAULT_COLS}
@@ -198,6 +204,7 @@ export default function RbmPage({ canEdit }) {
         storageKey="mems.rbm.view.v2" pageSize={15} defaultSort={{ key: 'finalScore', dir: 'desc' }}
         csvName={`rbm_${month}.csv`} emptyIcon={MapPin} emptyTitle="Aucun site référencé"
         emptyChildren="Importez le référentiel Master Data (.xlsx) pour alimenter le RBM."
+        onRowDoubleClick={canEdit ? (s) => setCrit(s) : undefined}
         rowClassName={(s) => (s.due ? 'is-selected' : '')}
       />
 
@@ -245,15 +252,3 @@ function CritModal({ site, onClose, onSaved }) {
   );
 }
 
-function Kpi({ icon: Icon, label, value, foot, tone }) {
-  return (
-    <div className="biz-kpi">
-      <div className={`biz-kpi-ic ${tone || ''}`}><Icon size={18} aria-hidden="true" /></div>
-      <div className="biz-kpi-body">
-        <div className="biz-kpi-label">{label}</div>
-        <div className="biz-kpi-value tabular">{value}</div>
-        {foot && <div className="biz-kpi-foot">{foot}</div>}
-      </div>
-    </div>
-  );
-}

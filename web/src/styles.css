@@ -1753,3 +1753,6 @@ h1, h2, h3, h4 { letter-spacing: -0.018em; }
 .map-region td { background: var(--surface-2); }
 .map-region:hover td { background: var(--blue-50); }
 .map-district td:first-child { color: var(--text-muted); }
+
+/* Actions à droite d'un en-tête de page (façon COMET) */
+.page-header .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
