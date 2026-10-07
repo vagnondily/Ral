@@ -1756,3 +1756,13 @@ h1, h2, h3, h4 { letter-spacing: -0.018em; }
 
 /* Actions à droite d'un en-tête de page (façon COMET) */
 .page-header .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* Tuiles Stats compactes (gagner de la hauteur en tête de liste) */
+.stats-compact .stat { padding: 9px 16px; }
+.stats-compact .stat-value { font-size: var(--fs-lg); line-height: 1.2; }
+.stats-compact .stat-label { font-size: 12px; }
+.stats-compact .stat-foot { font-size: 11.5px; }
+
+/* Ligne « à suivre » (RBM) — accent discret, distinct de la sélection */
+tr.row-due td:first-child { box-shadow: inset 3px 0 0 var(--blue-600); }
+tr.row-due { background: color-mix(in srgb, var(--blue-50) 55%, transparent); }
