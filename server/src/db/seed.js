@@ -416,6 +416,23 @@ async function main() {
         [tenantId, counterMax]);
     }
 
+    // Référentiel des denrées du PDD (ordre = colonnes du fichier source) + le
+    // cash (CBT). Idempotent via UNIQUE(tenant_id, code).
+    const { COMMODITIES: PDD_COMMODITIES } = require('../modules/pdd/pddImport');
+    let pddOrder = 0;
+    for (const [, name] of PDD_COMMODITIES) {
+      await client.query(
+        `INSERT INTO pdd_commodities (tenant_id, code, label, unit, kind, sort_order)
+         VALUES ($1,$2,$3,'MT','food',$4)
+         ON CONFLICT (tenant_id, code) DO UPDATE SET label = EXCLUDED.label, sort_order = EXCLUDED.sort_order`,
+        [tenantId, name, name, pddOrder++]);
+    }
+    await client.query(
+      `INSERT INTO pdd_commodities (tenant_id, code, label, unit, kind, sort_order)
+       VALUES ($1,'Cash','Cash (CBT)','USD','cash',$2)
+       ON CONFLICT (tenant_id, code) DO UPDATE SET label = EXCLUDED.label, sort_order = EXCLUDED.sort_order`,
+      [tenantId, pddOrder]);
+
     logger.info({ tenantId, admin: 'admin@mems.mg / changeme123', validator: 'validateur@mems.mg / changeme123' }, 'seed complete');
   } finally {
     await client.end();

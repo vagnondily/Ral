@@ -1766,3 +1766,7 @@ h1, h2, h3, h4 { letter-spacing: -0.018em; }
 /* Ligne « à suivre » (RBM) — accent discret, distinct de la sélection */
 tr.row-due td:first-child { box-shadow: inset 3px 0 0 var(--blue-600); }
 tr.row-due { background: color-mix(in srgb, var(--blue-50) 55%, transparent); }
+
+/* PDD — deux colonnes côte à côte (synthèse par aléa / par mois), responsive */
+.pdd-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 900px) { .pdd-two { grid-template-columns: 1fr; } }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  FileSignature, Handshake, ClipboardCheck,
+  FileSignature, Handshake, ClipboardCheck, PackageOpen,
   LayoutDashboard, ChartColumn, Bell, Settings, Menu, ChevronRight, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { IconButton } from './ui.jsx';
@@ -45,6 +45,14 @@ export const NAV = [
           { id: 'rbm', label: 'Risk-Based Monitoring' },
           { id: 'couverture', label: 'Récap de couverture' },
           { id: 'carte', label: 'Carte des sites' },
+        ],
+      },
+      {
+        id: 'pdd', label: "Distribution d'urgence", icon: PackageOpen,
+        subs: [
+          { id: 'distributions', label: 'Distributions' },
+          { id: 'synthese', label: 'Synthèse' },
+          { id: 'pipeline', label: 'Pipeline (stock)' },
         ],
       },
     ],

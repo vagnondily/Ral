@@ -17,6 +17,7 @@ const contractsRoutes = require('./modules/contracts/contracts.routes');
 const settingsRoutes = require('./modules/settings/settings.routes');
 const usersRoutes = require('./modules/users/users.routes');
 const monitoringRoutes = require('./modules/monitoring/monitoring.routes');
+const pddRoutes = require('./modules/pdd/pdd.routes');
 
 function createApp() {
   const app = express();
@@ -43,8 +44,19 @@ function createApp() {
   // via Redis si REDIS_URL est défini (API répliquée), sinon en mémoire.
   let rlRedis = null;
   if (process.env.REDIS_URL) {
-    try { rlRedis = createRedisConnection(); rlRedis.on('error', (err) => logger.warn({ err }, 'rate-limit Redis error')); }
-    catch (err) { logger.warn({ err }, 'rate-limit: connexion Redis impossible, repli mémoire'); }
+    try {
+      rlRedis = createRedisConnection();
+      // Redis est optionnel : le limiteur retombe sur un compteur mémoire. On
+      // ne veut pas inonder les logs quand Redis est absent, donc on ne trace
+      // que la première erreur, puis on se tait jusqu'à une reconnexion réussie.
+      let loggedError = false;
+      rlRedis.on('error', (err) => {
+        if (loggedError) return;
+        loggedError = true;
+        logger.warn({ err }, 'rate-limit Redis indisponible, repli mémoire (erreurs suivantes masquées)');
+      });
+      rlRedis.on('ready', () => { loggedError = false; });
+    } catch (err) { logger.warn({ err }, 'rate-limit: connexion Redis impossible, repli mémoire'); }
   }
   const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -66,6 +78,7 @@ function createApp() {
   app.use('/api/settings', settingsRoutes);
   app.use('/api/users', usersRoutes);
   app.use('/api/monitoring', monitoringRoutes);
+  app.use('/api/pdd', pddRoutes);
 
   // Anything else is a routing mistake, not a server error.
   app.use((req, res, next) => next(notFound('Route introuvable')));

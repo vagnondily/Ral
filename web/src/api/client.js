@@ -379,4 +379,25 @@ export const api = {
 
   toggleMissionDay: (assignmentId, date) =>
     request(`/api/tpm/assignments/${assignmentId}/mission-days`, { method: 'POST', body: { date } }),
+
+  // Plan de Distribution d'urgence (PDD) — distributions, synthèse, pipeline.
+  pddCommodities: () => request('/api/pdd/commodities'),
+  pddDistributions: (query) => request('/api/pdd/distributions', { query }),
+  pddSummary: (query) => request('/api/pdd/summary', { query }),
+  pddPipeline: (month) => request('/api/pdd/pipeline', { query: month ? { month } : undefined }),
+  pddSetStock: (input) => request('/api/pdd/stock', { method: 'PUT', body: input }),
+  pddImport: async (file) => {
+    const buf = await file.arrayBuffer();
+    let res;
+    try {
+      res = await fetch(new URL(`${API_URL}/api/pdd/import`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+        body: buf,
+      });
+    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, data.error || `Erreur ${res.status}`, data.details);
+    return data;
+  },
 };

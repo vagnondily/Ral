@@ -368,6 +368,57 @@ async function main() {
         [tenantId, rform.id, s.externalId, s.periodMonth, s.submittedAt, s.fieldOffice, s.admin1, s.admin2, s.admin3, s.partner, s.source, JSON.stringify(s.data)]);
     }
 
+    // ─── Plan de Distribution d'urgence (PDD) — données réelles ──────────
+    // Réutilise zones (région/district/commune), bureaux (antenne/sous-bureau)
+    // et partenaires sous forme de libellés, comme le reste de MEMS.
+    const pddData = require('./fixtures/pddData.json');
+    const pddRows = pddData.rows || [];
+    // Idempotent : on supprime d'abord nos lignes (cascade → items).
+    await client.query("DELETE FROM pdd_distributions WHERE tenant_id=$1 AND source='seed-test'", [tenantId]);
+    await client.query("DELETE FROM pdd_stock WHERE tenant_id=$1 AND note='seed-test'", [tenantId]);
+    const needByCommodity = {}; // pour calculer un stock réaliste ensuite
+    let pddItems = 0;
+    const CHUNK = 100;
+    for (let i = 0; i < pddRows.length; i += CHUNK) {
+      const slice = pddRows.slice(i, i + CHUNK);
+      const dParams = [tenantId]; const dVals = [];
+      for (const r of slice) {
+        dParams.push(r.periodMonth, r.activity, r.hazard || 'autre', r.wbs || null, r.antenne || null, r.sousBureau || null,
+          r.partner || null, r.corridor || null, r.region || null, r.district || null, r.commune || null, r.modality || null,
+          Math.max(0, Math.round(r.beneficiaries || 0)), Math.max(0, Math.round(r.households || 0)),
+          Math.max(0, Number(r.cashUsd) || 0), Math.max(0, Number(r.totalFood) || 0));
+        const b = dParams.length;
+        dVals.push(`($1,${Array.from({ length: 16 }, (_, k) => `$${b - 16 + 1 + k}`).join(',')},'seed-test')`);
+      }
+      const { rows: ids } = await client.query(
+        `INSERT INTO pdd_distributions (tenant_id, period_month, activity, hazard, wbs, antenne, sous_bureau, partner, corridor, region, district, commune, modality, beneficiaries, households, cash_usd, total_food, source)
+         VALUES ${dVals.join(',')} RETURNING id`, dParams);
+      const iParams = [tenantId]; const iVals = [];
+      slice.forEach((r, j) => {
+        for (const [commodity, qty] of Object.entries(r.items || {})) {
+          if (!(Number(qty) > 0)) continue;
+          needByCommodity[commodity] = (needByCommodity[commodity] || 0) + Number(qty);
+          iParams.push(ids[j].id, commodity, Number(qty)); const b = iParams.length;
+          iVals.push(`($1,$${b - 2},$${b - 1},$${b})`);
+        }
+      });
+      if (iVals.length) { await client.query(`INSERT INTO pdd_distribution_items (tenant_id, distribution_id, commodity, qty_mt) VALUES ${iVals.join(',')}`, iParams); pddItems += iVals.length; }
+    }
+    // Stock disponible (illustratif) pour alimenter l'analyse pipeline : ~80 %
+    // du besoin total sur le 1er mois → quelques ruptures visibles.
+    const firstMonth = pddRows.map((r) => r.periodMonth).filter(Boolean).sort()[0];
+    if (firstMonth) {
+      for (const [commodity, need] of Object.entries(needByCommodity)) {
+        const avail = Math.round(need * 0.8 * 1000) / 1000;
+        await client.query(
+          `INSERT INTO pdd_stock (tenant_id, period_month, commodity, available_mt, donor, note)
+           VALUES ($1,$2,$3,$4,'Donateur (démo)','seed-test')
+           ON CONFLICT (tenant_id, period_month, commodity) DO UPDATE SET available_mt = EXCLUDED.available_mt, donor = EXCLUDED.donor, note = EXCLUDED.note`,
+          [tenantId, firstMonth, commodity, avail]);
+      }
+    }
+    logger.info({ distributions: pddRows.length, items: pddItems, stockCommodities: Object.keys(needByCommodity).length }, 'seed-test: PDD inséré');
+
     logger.info({ submissions: n, realSubmissions: monData.submissions.length, offices: 3, rates: 3 }, 'seed-test complet — connectez-vous (admin@mems.mg / changeme123) pour inspecter');
   } finally {
     await client.end();
