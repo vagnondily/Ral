@@ -193,6 +193,14 @@ or navy rail.
 - **Liaison pré-remplissage** : a facture can be pre-filled from the month's
   collection plan (`GET /api/tpm/planning/prefill`), copying its postes into the
   état des dépenses. Plan (prévu) → Facture (réalisé) → Consolidation.
+- **Fil guidé du rapportage TPM** : la page Rapports affiche un **stepper**
+  « Plan validé → Facture → Validation → Consolidation » (composant `GuidedFlow`
+  dans `ReportsPage.jsx`) montrant l'état du mois, chaque étape menant à l'écran
+  concerné. Depuis **Planification & budget**, un plan sélectionné offre
+  **« Créer la facture »** : via `sessionStorage['mems.tpm.newFacture']` +
+  `onNavigate`, Rapports ouvre une facture avec prestataire/contrat
+  présélectionnés et **auto-pré-remplie** depuis le plan (`FactureDrawer`
+  `autoPrefill`). Une facture validée propose **« Voir dans la consolidation »**.
 - **Export facture** : real `.xlsx` with live formulas
   (`server/src/modules/tpm/factureXlsx.js`, `GET …/reports/:id/facture.xlsx`)
   and a dependency-free **PDF** via a print-optimized view

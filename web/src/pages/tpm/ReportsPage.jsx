@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Plus, FileText, ShieldCheck, X, Info, Search, SlidersHorizontal, Columns3,
   Save, Clock, RotateCcw, Download, Printer, Trash2, ChevronLeft, ChevronRight, ExternalLink, CalendarClock, Ban,
+  Wallet, TrendingUp, ChevronRight as FlowArrow,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, EmptyState, Field, IconButton, Skeleton, Stats } from '../../components/ui.jsx';
@@ -10,7 +11,7 @@ import MonthPicker from '../../components/MonthPicker.jsx';
 import FactureDrawer from './FactureDrawer.jsx';
 import { usePopover, SortTh, makeViewStore } from '../../components/listView.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import { currentMonth, formatAr, formatInt } from '../../lib/format.js';
+import { currentMonth, formatAr, formatInt, monthLabel } from '../../lib/format.js';
 import { formatUsdFor } from '../../lib/currency.js';
 import { REPORT_KIND, REPORT_STATUS } from '../../lib/contracts.js';
 
@@ -53,11 +54,12 @@ const COLUMNS = {
 const ALL_COLUMNS = Object.keys(COLUMNS);
 const DEFAULT_COLUMNS = ['partner', 'contract', 'kind', 'planned', 'reported', 'document', 'status'];
 
-export default function ReportsPage({ canEdit, onOpenContract }) {
+export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
   const toast = useToast();
   const [month, setMonth] = useState(currentMonth);
   const [context, setContext] = useState(null);
   const [reports, setReports] = useState(null);
+  const [plans, setPlans] = useState([]);
   const [rates, setRates] = useState([]);
   const [error, setError] = useState(null);
 
@@ -80,12 +82,22 @@ export default function ReportsPage({ canEdit, onOpenContract }) {
   async function reload() {
     setError(null);
     try {
-      const [ctx, list] = await Promise.all([api.reportsContext(), api.listReports({ month })]);
-      setContext(ctx); setReports(list);
+      const [ctx, list, pl] = await Promise.all([api.reportsContext(), api.listReports({ month }), api.listPlans({ month }).catch(() => [])]);
+      setContext(ctx); setReports(list); setPlans(pl || []);
     } catch (err) { setError(err.message); setReports((r) => r || []); }
   }
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [month]);
   useEffect(() => { api.listExchangeRates().then(setRates).catch(() => setRates([])); }, []);
+
+  // Fil guidé : arrivée depuis « Créer la facture » d'un plan (Planification &
+  // budget). On ouvre l'éditeur de facture pré-rempli, sur le bon mois.
+  useEffect(() => {
+    let intent = null;
+    try { const raw = sessionStorage.getItem('mems.tpm.newFacture'); if (raw) { intent = JSON.parse(raw); sessionStorage.removeItem('mems.tpm.newFacture'); } } catch { /* ignore */ }
+    if (!intent) return;
+    if (intent.month) setMonth(intent.month);
+    setFacture({ kind: 'financier', initial: { partnerId: intent.partnerId, contractId: intent.contractId }, autoPrefill: true });
+  }, []);
 
   const stats = useMemo(() => {
     const list = reports || [];
@@ -96,6 +108,18 @@ export default function ReportsPage({ canEdit, onOpenContract }) {
       pending: list.filter((r) => r.status === 'soumis').length,
     };
   }, [reports]);
+
+  // Fil guidé plan → facture → validation → consolidation (état du mois).
+  const flow = useMemo(() => {
+    const fin = (reports || []).filter((r) => r.kind === 'financier');
+    return {
+      plansValides: plans.filter((p) => p.status === 'valide').length,
+      plansTotal: plans.length,
+      facturesCreees: fin.length,
+      facturesSoumises: fin.filter((r) => r.status === 'soumis').length,
+      facturesValidees: fin.filter((r) => r.status === 'valide').length,
+    };
+  }, [reports, plans]);
 
   const shown = ALL_FILTERS.filter((k) => shownFilters.includes(k));
   const cols = ALL_COLUMNS.filter((k) => columns.includes(k));
@@ -247,6 +271,9 @@ export default function ReportsPage({ canEdit, onOpenContract }) {
         </div>
       </div>
 
+      <GuidedFlow flow={flow} month={month} ready={reports !== null} onNavigate={onNavigate}
+        onNewFacture={canEdit ? () => setFacture({ kind: 'financier' }) : undefined} />
+
       <Stats items={[
         { label: 'Rapports du mois', value: reports ? stats.total : '—', foot: `${stats.tech} technique(s)` },
         { label: 'Réalisé validé', value: reports ? (currency === 'USD' ? formatUsdFor(stats.justified, rates, `${month}-01`) : formatInt(stats.justified)) : '—', suffix: currency === 'USD' ? '' : 'Ar', foot: 'Financiers validés' },
@@ -300,6 +327,7 @@ export default function ReportsPage({ canEdit, onOpenContract }) {
         <div className="data-toolbar">
           <div className="data-toolbar-left">
             {selected?.kind === 'financier' && <Button size="sm" variant="secondary" icon={ExternalLink} onClick={() => setFacture({ reportId: selected.id })}>Ouvrir la facture</Button>}
+            {selected?.kind === 'financier' && selected?.status === 'valide' && onNavigate && <Button size="sm" variant="secondary" icon={TrendingUp} onClick={() => onNavigate('dashboard', 'consolidation')}>Voir dans la consolidation</Button>}
             {canEdit && selected?.status === 'soumis' && <>
               <Button size="sm" variant="secondary" icon={ShieldCheck} onClick={() => setDecide({ report: selected, approve: true })}>Valider</Button>
               <Button size="sm" variant="secondary" icon={X} onClick={() => setDecide({ report: selected, approve: false })}>Rejeter</Button>
@@ -366,9 +394,65 @@ export default function ReportsPage({ canEdit, onOpenContract }) {
 
       <div className="note"><Info size={18} aria-hidden="true" /><span>Un rapport <strong>financier</strong> est une <strong>facture</strong> (état des dépenses poste par poste) : créez-le ci-dessus, il s'ouvre dans l'éditeur de facture. Les icônes à droite de la barre de filtres mémorisent votre filtre (<Clock size={12} /> temporaire, <Save size={12} /> permanent) ; <Columns3 size={12} /> choisit les colonnes. Un rapport non validé peut être supprimé.</span></div>
 
-      {facture && <FactureDrawer reportId={facture.reportId} kind={facture.kind} context={context} month={month} onClose={() => setFacture(null)} onSaved={() => { setFacture(null); reload(); }} />}
+      {facture && <FactureDrawer reportId={facture.reportId} kind={facture.kind} initial={facture.initial} autoPrefill={facture.autoPrefill} context={context} month={month} onClose={() => setFacture(null)} onSaved={() => { setFacture(null); reload(); }} />}
       {decide && <DecideModal decide={decide} onClose={() => setDecide(null)} onConfirm={runDecision} />}
       {genOpen && <GenerateModal context={context} onClose={() => setGenOpen(false)} onDone={() => { setGenOpen(false); reload(); }} />}
+    </div>
+  );
+}
+
+/**
+ * Fil guidé du rapportage TPM : Plan validé → Facture → Validation →
+ * Consolidation. Chaque étape montre l'état du mois et mène à l'écran concerné.
+ */
+function GuidedFlow({ flow, month, ready, onNavigate, onNewFacture }) {
+  const steps = [
+    {
+      key: 'plan', n: 1, icon: Wallet, label: 'Plan validé',
+      state: flow.plansValides > 0 ? 'done' : (flow.plansTotal > 0 ? 'wip' : 'todo'),
+      detail: ready ? `${flow.plansValides}/${flow.plansTotal} plan(s)` : '—',
+      onClick: onNavigate ? () => onNavigate('tpm', 'budget') : undefined,
+      cta: 'Planification & budget',
+    },
+    {
+      key: 'facture', n: 2, icon: FileText, label: 'Facture (état des dépenses)',
+      state: flow.facturesCreees > 0 ? 'done' : 'todo',
+      detail: ready ? `${flow.facturesCreees} facture(s)` : '—',
+      onClick: onNewFacture,
+      cta: onNewFacture ? 'Créer une facture' : undefined,
+    },
+    {
+      key: 'valide', n: 3, icon: ShieldCheck, label: 'Validation',
+      state: flow.facturesValidees > 0 ? 'done' : (flow.facturesSoumises > 0 ? 'wip' : 'todo'),
+      detail: ready ? `${flow.facturesValidees} validée(s)${flow.facturesSoumises ? ` · ${flow.facturesSoumises} à valider` : ''}` : '—',
+    },
+    {
+      key: 'conso', n: 4, icon: TrendingUp, label: 'Consolidation',
+      state: flow.facturesValidees > 0 ? 'done' : 'todo',
+      detail: 'Budget ↔ Planifié ↔ Réalisé',
+      onClick: onNavigate ? () => onNavigate('dashboard', 'consolidation') : undefined,
+      cta: 'Voir la consolidation',
+    },
+  ];
+  return (
+    <div className="flow" aria-label={`Fil guidé du rapportage — ${monthLabel(month)}`}>
+      {steps.map((s, i) => {
+        const Icon = s.icon;
+        const Tag = s.onClick ? 'button' : 'div';
+        return (
+          <React.Fragment key={s.key}>
+            <Tag type={s.onClick ? 'button' : undefined} className={`flow-step is-${s.state}${s.onClick ? ' is-clickable' : ''}`} onClick={s.onClick} title={s.cta || s.label}>
+              <span className="flow-num"><Icon size={16} aria-hidden="true" /></span>
+              <span className="flow-body">
+                <span className="flow-label">{s.label}</span>
+                <span className="flow-detail">{s.detail}</span>
+                {s.cta && s.onClick && <span className="flow-cta">{s.cta}</span>}
+              </span>
+            </Tag>
+            {i < steps.length - 1 && <FlowArrow className="flow-arrow" size={18} aria-hidden="true" />}
+          </React.Fragment>
+        );
+      })}
     </div>
   );
 }

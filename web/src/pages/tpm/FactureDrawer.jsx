@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Coins, AlertCircle, FileText, Wand2, Printer, FileSpreadsheet } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, Field, Skeleton } from '../../components/ui.jsx';
@@ -16,7 +16,7 @@ import PostesEditor, { newPoste, rowsFromItems, itemsFromRows, posteFunder } fro
  * groupés par section FLA I–V. Le « Réalisé » comptabilisé est la part
  * bailleur. Peut être pré-rempli depuis le plan de collecte du mois.
  */
-export default function FactureDrawer({ reportId, kind: kindProp = 'financier', initial, context, month, onClose, onSaved }) {
+export default function FactureDrawer({ reportId, kind: kindProp = 'financier', initial, autoPrefill = false, context, month, onClose, onSaved }) {
   const toast = useToast();
   const editing = Boolean(reportId);
   const [loading, setLoading] = useState(editing);
@@ -61,6 +61,17 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
     api.reportInvoice(reportId).then((inv) => { if (alive) setInvoice(inv); }).catch(() => {});
     return () => { alive = false; };
   }, [editing, reportId, toast]);
+
+  // Fil guidé : à l'ouverture depuis un plan (contrat présélectionné), on
+  // reprend automatiquement les postes du plan du mois — une fois.
+  const autoPrefilled = useRef(false);
+  useEffect(() => {
+    if (editing || !autoPrefill || autoPrefilled.current) return;
+    if (!head.contractId || !isFin) return;
+    autoPrefilled.current = true;
+    prefillFromPlan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPrefill, head.contractId, isFin, editing]);
 
   async function prefillFromPlan() {
     if (!head.contractId) { toast.info('Choisissez d\'abord le contrat.'); return; }

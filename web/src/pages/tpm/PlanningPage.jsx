@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Plus, Wallet, Info, Search, SlidersHorizontal, Columns3, Save, Clock, RotateCcw,
-  Download, Printer, Trash2, ChevronLeft, ChevronRight, ExternalLink,
+  Download, Printer, Trash2, ChevronLeft, ChevronRight, ExternalLink, FileText,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, EmptyState, IconButton, Skeleton, Stats } from '../../components/ui.jsx';
@@ -42,7 +42,7 @@ const DEFAULT_COLUMNS = ['partner', 'contract', 'title', 'funder', 'total', 'sta
  * COMET (filtres, colonnes, tri, pagination, vue Ar/USD). La part bailleur
  * alimente le « Planifié » de la consolidation et pré-remplit la facture.
  */
-export default function PlanningPage({ canEdit }) {
+export default function PlanningPage({ canEdit, onNavigate }) {
   const toast = useToast();
   const [month, setMonth] = useState(currentMonth);
   const [context, setContext] = useState(null);
@@ -142,6 +142,12 @@ export default function PlanningPage({ canEdit }) {
     if (!window.confirm(`Supprimer le plan de « ${p.partnerName} » ? Cette action est définitive.`)) return;
     try { await api.deletePlan(p.id); toast.success('Plan supprimé.'); setSelectedId(null); reload(); }
     catch (e) { toast.error(e.message); }
+  }
+  // Fil guidé : passe le relais à « Rapports & dépenses » qui ouvrira une
+  // facture pré-remplie depuis ce plan (même contrat + mois).
+  function createFacture(p) {
+    try { sessionStorage.setItem('mems.tpm.newFacture', JSON.stringify({ contractId: p.contractId, partnerId: p.partnerId, month })); } catch { /* ignore */ }
+    if (onNavigate) onNavigate('tpm', 'rapports'); else toast.info('Ouvrez « Rapports & dépenses » pour créer la facture.');
   }
 
   function exportCsv() {
@@ -252,6 +258,8 @@ export default function PlanningPage({ canEdit }) {
         <div className="data-toolbar">
           <div className="data-toolbar-left">
             {selected && <Button size="sm" variant="secondary" icon={ExternalLink} onClick={() => setDrawer({ planId: selected.id })}>Ouvrir / éditer</Button>}
+            {canEdit && selected && <Button size="sm" variant="secondary" icon={FileText} onClick={() => createFacture(selected)}
+              title="Ouvre une facture pré-remplie depuis ce plan (Rapports & dépenses).">Créer la facture</Button>}
             {canEdit && selected && <Button size="sm" variant="ghost" icon={Trash2} onClick={() => remove(selected)}>Supprimer</Button>}
             {selected && <Button size="sm" variant="ghost" icon={ExternalLink} onClick={() => setSelectedId(null)} style={{ display: 'none' }} />}
           </div>
