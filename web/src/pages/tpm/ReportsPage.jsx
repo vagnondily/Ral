@@ -5,7 +5,7 @@ import {
   Wallet, TrendingUp, ChevronRight as FlowArrow,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Alert, Badge, Button, Card, EmptyState, Field, IconButton, Skeleton, Stats } from '../../components/ui.jsx';
+import { Alert, Badge, Button, Card, EmptyState, Field, IconButton, Skeleton, StatusBadge, Stats } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import FactureDrawer from './FactureDrawer.jsx';
 import { usePopover, SortTh, makeViewStore } from '../../components/listView.jsx';
@@ -252,7 +252,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       case 'document': return r.documentName || <span className="cell-empty">—</span>;
       case 'reference': return r.reference ? <span className="mono">{r.reference}</span> : <span className="cell-empty">—</span>;
       case 'invoiceNo': return r.invoiceNo ? <span className="mono">{r.invoiceNo}</span> : <span className="cell-empty">—</span>;
-      case 'status': return <Badge tone={REPORT_STATUS[r.status]?.tone} dot>{REPORT_STATUS[r.status]?.label}</Badge>;
+      case 'status': return <StatusBadge def={REPORT_STATUS[r.status]} />;
       case 'createdBy': return <span className="site-meta">{r.createdByEmail || '—'}</span>;
       case 'decidedBy': return <span className="site-meta">{r.decidedByEmail || '—'}</span>;
       case 'decidedAt': return <span className="tabular">{r.decidedAt ? String(r.decidedAt).slice(0, 10) : '—'}</span>;

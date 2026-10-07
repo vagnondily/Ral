@@ -135,6 +135,11 @@ or navy rail.
 - KPI/stat tiles are clean (no accent tick, tabular Inter value, muted
   label/foot). Tables: light-grey (`--canvas`) uppercase header band, hairline
   separators, `surface-2` row hover, tabular numerics.
+- **Statuts = couleur + icône + libellé** (jamais la couleur seule — a11y).
+  Chaque table de statut (`REPORT_STATUS`, `CONTRACT_STATUS`, `AMENDMENT_STATUS`
+  dans `lib/contracts.js`, et les maps inline `PLAN_STATUS`/visite) porte une
+  clé `icon` → `STATUS_ICONS` (`ui.jsx`). Rendu via `<StatusBadge def={…} />`
+  (ou `map`+`value`). `Badge` accepte une prop `icon`.
 - Base font-size 14.5px; header height 52px, sidebar 256px.
 - The MEMS logo is inline SVG in `web/src/components/Logo.jsx`.
 

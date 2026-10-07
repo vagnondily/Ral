@@ -5,7 +5,7 @@ import {
   SlidersHorizontal, Save, Trash2, Check,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Alert, Badge, Button, Card, EmptyState, IconButton, Skeleton, Stats, Usage } from '../../components/ui.jsx';
+import { Alert, Badge, Button, Card, EmptyState, IconButton, Skeleton, StatusBadge, Stats, Usage } from '../../components/ui.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatAr, formatInt } from '../../lib/format.js';
 import { CONTRACT_STATUS, contractFlags, periodLabel } from '../../lib/contracts.js';
@@ -412,7 +412,7 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
                         <td className="num">{c.monitoringBudget ? <Usage rate={monRate} /> : <span className="cell-empty">—</span>}</td>
                         <td>
                           <div className="tag-row">
-                            <Badge tone={st.tone} dot>{st.label}</Badge>
+                            <StatusBadge def={st} />
                             {flags.map((f) => <Badge key={f.key} tone={f.tone}>{f.label}</Badge>)}
                           </div>
                         </td>

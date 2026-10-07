@@ -1,6 +1,15 @@
 import React from 'react';
-import { ChevronRight } from 'lucide-react';
+import {
+  ChevronRight, CheckCircle2, XCircle, Clock, Ban, CircleDashed, Circle, AlertTriangle, MinusCircle,
+} from 'lucide-react';
 import { initials, RISK } from '../lib/format.js';
+
+// Registre d'icônes de statut (statut = couleur + icône + libellé, jamais la
+// couleur seule — accessibilité & lisibilité).
+export const STATUS_ICONS = {
+  check: CheckCircle2, x: XCircle, clock: Clock, ban: Ban,
+  draft: CircleDashed, dot: Circle, warn: AlertTriangle, na: MinusCircle,
+};
 
 export function Button({ variant = 'primary', size, block, loading, disabled, icon: Icon, children, className = '', type = 'button', ...props }) {
   const cls = ['btn', `btn-${variant}`, size === 'sm' && 'btn-sm', block && 'btn-block', className]
@@ -28,13 +37,25 @@ export function IconButton({ icon: Icon, label, size, variant = 'ghost', classNa
   );
 }
 
-export function Badge({ tone, dot, children }) {
+export function Badge({ tone, dot, icon: Icon, children }) {
   return (
     <span className={`badge ${tone ? `badge-${tone}` : ''}`}>
-      {dot && <span className="dot" aria-hidden="true" />}
+      {Icon ? <Icon size={13} aria-hidden="true" className="badge-ic" />
+        : (dot && <span className="dot" aria-hidden="true" />)}
       {children}
     </span>
   );
+}
+
+/**
+ * Badge de statut : résout {label, tone, icon} depuis une table de statuts
+ * (ex. REPORT_STATUS) et affiche couleur + icône + libellé. `icon` est une clé
+ * de STATUS_ICONS. Rend « — » si le statut est inconnu.
+ */
+export function StatusBadge({ def, value, map }) {
+  const d = def || (map ? map[value] : null);
+  if (!d) return <span className="cell-empty">—</span>;
+  return <Badge tone={d.tone} icon={STATUS_ICONS[d.icon] || Circle}>{d.label}</Badge>;
 }
 
 export function RiskBadge({ level }) {

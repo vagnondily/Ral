@@ -4,14 +4,14 @@ import {
   Download, Printer, Trash2, ChevronLeft, ChevronRight, ExternalLink, FileText,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Alert, Badge, Button, Card, EmptyState, IconButton, Skeleton, Stats } from '../../components/ui.jsx';
+import { Alert, Button, Card, EmptyState, IconButton, Skeleton, StatusBadge, Stats } from '../../components/ui.jsx';
 import PlanBudgetDrawer from './PlanBudgetDrawer.jsx';
 import { usePopover, SortTh, makeViewStore } from '../../components/listView.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatAr, formatInt, monthLabel } from '../../lib/format.js';
 import { formatUsdFor } from '../../lib/currency.js';
 
-const PLAN_STATUS = { brouillon: { label: 'Brouillon', tone: 'yellow' }, valide: { label: 'Validé', tone: 'green' } };
+const PLAN_STATUS = { brouillon: { label: 'Brouillon', tone: 'yellow', icon: 'draft' }, valide: { label: 'Validé', tone: 'green', icon: 'check' } };
 const STATUSES = [{ id: '', label: 'Tous les statuts' }, { id: 'brouillon', label: 'Brouillon' }, { id: 'valide', label: 'Validé' }];
 const PAGE_SIZE = 12;
 const viewStore = makeViewStore('mems.planning.view');
@@ -187,7 +187,7 @@ export default function PlanningPage({ canEdit, onNavigate }) {
       case 'title': return p.title || <span className="cell-empty">—</span>;
       case 'funder': return money(p.plannedFunder);
       case 'total': return money(p.plannedTotal);
-      case 'status': return <Badge tone={PLAN_STATUS[p.status]?.tone} dot>{PLAN_STATUS[p.status]?.label || p.status}</Badge>;
+      case 'status': return <StatusBadge def={PLAN_STATUS[p.status]} />;
       default: return null;
     }
   }

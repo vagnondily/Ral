@@ -3,30 +3,32 @@
 // source of truth for rules.
 export { SECTIONS, MONITORING_LINE } from './budgetCatalog.js';
 
+// Chaque statut porte une clé d'icône (STATUS_ICONS dans ui.jsx) : un statut
+// s'affiche en couleur + icône + libellé (jamais la couleur seule).
 export const REPORT_KIND = {
   financier: { label: 'Financier', tone: 'blue' },
   technique: { label: 'Technique', tone: null },
 };
 export const REPORT_STATUS = {
-  attendu: { label: 'Attendu', tone: null },
-  soumis: { label: 'Soumis', tone: 'blue' },
-  valide: { label: 'Validé', tone: 'green' },
-  rejete: { label: 'Rejeté', tone: 'red' },
-  non_applicable: { label: 'Non applicable', tone: null },
+  attendu: { label: 'Attendu', tone: null, icon: 'clock' },
+  soumis: { label: 'Soumis', tone: 'blue', icon: 'clock' },
+  valide: { label: 'Validé', tone: 'green', icon: 'check' },
+  rejete: { label: 'Rejeté', tone: 'red', icon: 'x' },
+  non_applicable: { label: 'Non applicable', tone: null, icon: 'na' },
 };
 
 export const CONTRACT_STATUS = {
-  brouillon: { label: 'Brouillon', tone: null },
-  en_validation: { label: 'En validation', tone: 'blue' },
-  actif: { label: 'Actif', tone: 'green' },
-  rejete: { label: 'Rejeté', tone: 'red' },
-  resilie: { label: 'Résilié', tone: null },
+  brouillon: { label: 'Brouillon', tone: null, icon: 'draft' },
+  en_validation: { label: 'En validation', tone: 'blue', icon: 'clock' },
+  actif: { label: 'Actif', tone: 'green', icon: 'check' },
+  rejete: { label: 'Rejeté', tone: 'red', icon: 'x' },
+  resilie: { label: 'Résilié', tone: null, icon: 'ban' },
 };
 
 export const AMENDMENT_STATUS = {
-  en_validation: { label: 'En validation', tone: 'blue' },
-  approuve: { label: 'Approuvé', tone: 'green' },
-  rejete: { label: 'Rejeté', tone: 'red' },
+  en_validation: { label: 'En validation', tone: 'blue', icon: 'clock' },
+  approuve: { label: 'Approuvé', tone: 'green', icon: 'check' },
+  rejete: { label: 'Rejeté', tone: 'red', icon: 'x' },
 };
 
 export const HISTORY_LABELS = {

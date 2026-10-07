@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, UserPlus, Trash2, Wand2, ChevronLeft, ChevronRight, ChevronRight as GoIcon, Filter } from 'lucide-react';
+import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, UserPlus, Trash2, Wand2, ChevronLeft, ChevronRight, ChevronRight as GoIcon, Filter, CircleDashed, Clock, MinusCircle } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, PageHeader, Skeleton } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
@@ -8,22 +8,23 @@ import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatInt, monthLabel } from '../../lib/format.js';
 
 const STATUS = {
-  planifie: { label: 'Planifiée', color: 'var(--blue-600)' },
-  realise: { label: 'Réalisée', color: 'var(--green)' },
-  annule: { label: 'Annulée', color: 'var(--text-faint)' },
+  planifie: { label: 'Planifiée', color: 'var(--blue-600)', Icon: CalendarClock },
+  realise: { label: 'Réalisée', color: 'var(--green)', Icon: CheckCircle2 },
+  annule: { label: 'Annulée', color: 'var(--text-faint)', Icon: Ban },
 };
 // Situation (workflow) du plan mensuel.
 const PLAN_STATUS = {
-  vide: { label: 'Aucun plan', bg: 'var(--surface-2)', text: 'var(--text-faint)', dot: 'var(--text-faint)' },
-  draft: { label: 'Brouillon', bg: 'var(--surface-2)', text: 'var(--text-muted)', dot: 'var(--text-muted)' },
-  soumis: { label: 'Soumis', bg: 'var(--orange-bg)', text: 'var(--orange-text)', dot: 'var(--orange)' },
-  valide: { label: 'Validé', bg: 'var(--green-bg)', text: 'var(--green-text)', dot: 'var(--green)' },
-  annule: { label: 'Annulé', bg: 'var(--red-bg)', text: 'var(--red-text)', dot: 'var(--red)' },
-  non_applicable: { label: 'Non applicable', bg: 'var(--surface-2)', text: 'var(--text-muted)', dot: 'var(--text-faint)' },
+  vide: { label: 'Aucun plan', bg: 'var(--surface-2)', text: 'var(--text-faint)', Icon: CircleDashed },
+  draft: { label: 'Brouillon', bg: 'var(--surface-2)', text: 'var(--text-muted)', Icon: CircleDashed },
+  soumis: { label: 'Soumis', bg: 'var(--orange-bg)', text: 'var(--orange-text)', Icon: Clock },
+  valide: { label: 'Validé', bg: 'var(--green-bg)', text: 'var(--green-text)', Icon: CheckCircle2 },
+  annule: { label: 'Annulé', bg: 'var(--red-bg)', text: 'var(--red-text)', Icon: Ban },
+  non_applicable: { label: 'Non applicable', bg: 'var(--surface-2)', text: 'var(--text-muted)', Icon: MinusCircle },
 };
 const PlanBadge = ({ status }) => {
   const s = PLAN_STATUS[status] || PLAN_STATUS.vide;
-  return <span className="badge" style={{ background: s.bg, color: s.text }}><span className="dot" style={{ background: s.dot }} />{s.label}</span>;
+  const I = s.Icon;
+  return <span className="badge" style={{ background: s.bg, color: s.text }}>{I && <I size={13} aria-hidden="true" className="badge-ic" />}{s.label}</span>;
 };
 // Rôles génériques (non nominatifs) : le bureau affecte un créneau (Agent 1,
 // Superviseur 1…) ; le prestataire TPM y met ensuite une personne en interne.
@@ -155,7 +156,7 @@ export default function FieldVisitsPage({ canEdit }) {
       status: { label: 'Statut', sortVal: (v) => v.status, csv: (v) => STATUS[v.status]?.label || v.status,
         render: (v) => (canEdit
           ? <div className="seg" role="group" aria-label="Statut">{Object.entries(STATUS).map(([k, s]) => <button type="button" key={k} className={v.status === k ? 'is-active' : ''} onClick={() => patch(v, { status: k })} title={s.label}>{s.label}</button>)}</div>
-          : <span className="badge"><span className="dot" style={{ background: STATUS[v.status]?.color }} />{STATUS[v.status]?.label}</span>) },
+          : (() => { const S = STATUS[v.status]; const I = S?.Icon; return <span className="badge">{I && <I size={13} aria-hidden="true" className="badge-ic" style={{ color: S.color }} />}{S?.label}</span>; })()) },
     };
     if (canEdit) c.action = { label: '', width: 48, csv: () => '', render: (v) => <Button size="sm" variant="ghost" icon={Trash2} aria-label="Supprimer" onClick={() => remove(v)} /> };
     return c;
