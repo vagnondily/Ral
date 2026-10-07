@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Download, Printer, FileSpreadsheet, Wallet, CheckCircle2, MapPin } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Download, Printer, FileSpreadsheet, MapPin } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Alert, Button, PageHeader, Skeleton } from '../../components/ui.jsx';
+import { Alert, Button, Card, CardHeader, EmptyState, Skeleton, Stats } from '../../components/ui.jsx';
 import MonthPicker from '../../components/MonthPicker.jsx';
 import { formatAr, formatInt, currentMonth } from '../../lib/format.js';
 
@@ -9,6 +9,7 @@ import { formatAr, formatInt, currentMonth } from '../../lib/format.js';
  * Reporting — rapport de synthèse S&E pour une période : situation budgétaire
  * (consolidation) et couverture terrain (visites). Lecture seule, recalculé en
  * direct ; exports CSV + impression (PDF via le navigateur). Rien n'est stocké.
+ * Structure COMET : section-gap + page-header + Stats compact + Card/table.
  */
 function downloadCsv(name, rows) {
   const esc = (v) => { const s = String(v ?? ''); return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -48,94 +49,103 @@ export default function ReportingPage({ onOpenContract }) {
     downloadCsv(`couverture-terrain-${month}.csv`, rows);
   };
 
-  if (error) return <div className="page"><PageHeader title="Reporting" /><Alert tone="error">{error}</Alert></div>;
-
   return (
-    <div className="page">
-      <PageHeader title="Rapport de synthèse S&E" description="Situation budgétaire et couverture terrain pour la période, recalculées en direct. Exportez en CSV ou imprimez (PDF).">
-        <MonthPicker value={month} onChange={setMonth} />
-        <Button variant="secondary" icon={Printer} onClick={() => window.print()}>Imprimer / PDF</Button>
-      </PageHeader>
-
-      {cons === null ? <Skeleton height={320} /> : (
-        <div className="section-gap" style={{ display: 'grid', gap: 18 }}>
-          <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
-            <Kpi icon={Wallet} tone="blue" label="Budget de suivi" value={formatAr(t.budget)} foot={`${t.contracts} contrat(s)`} />
-            <Kpi icon={CheckCircle2} tone="green" label="Réalisé (justifié)" value={formatAr(t.actual)} foot={`${Math.round((t.actualRate || 0) * 100)} % du budget`} />
-            <Kpi icon={Wallet} tone={t.remaining < 0 ? 'red' : 'blue'} label="Budget restant" value={formatAr(t.remaining)} foot="Disponible" />
-            <Kpi icon={MapPin} tone="amber" label="Couverture terrain" value={ov ? `${Math.round((ov.rate || 0) * 100)} %` : '—'} foot={ov ? `${ov.realise}/${ov.active} visites` : 'mois courant'} />
-          </div>
-
-          <div className="card biz-card">
-            <div className="card-header"><div className="card-title">Situation budgétaire par contrat</div>
-              <Button size="sm" variant="ghost" icon={FileSpreadsheet} onClick={exportBudget}>Exporter CSV</Button></div>
-            <div className="table-wrap"><table className="table">
-              <thead><tr><th>Contrat</th><th>Prestataire</th><th className="num">Budget</th><th className="num">Planifié</th><th className="num">Réalisé</th><th className="num">Taux</th><th className="num">Restant</th><th className="num">Projection fin</th></tr></thead>
-              <tbody>
-                {cons.rows.map((r) => (
-                  <tr key={r.contractId} onClick={() => onOpenContract && onOpenContract(r.contractId)} style={{ cursor: 'pointer' }}>
-                    <td><strong>{r.numero}</strong></td><td>{r.partnerName}</td>
-                    <td className="num tabular">{formatAr(r.budget)}</td>
-                    <td className="num tabular">{formatAr(r.planned)}</td>
-                    <td className="num tabular">{formatAr(r.actual)}</td>
-                    <td className="num tabular" style={{ color: r.overspent ? 'var(--red)' : undefined }}>{Math.round((r.actualRate || 0) * 100)} %</td>
-                    <td className="num tabular">{formatAr(r.remaining)}</td>
-                    <td className="num tabular">{formatAr(r.projectedTotal)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot><tr>
-                <td colSpan={2} style={{ textAlign: 'right' }}><strong>Total</strong></td>
-                <td className="num tabular"><strong>{formatAr(t.budget)}</strong></td>
-                <td className="num tabular"><strong>{formatAr(t.planned)}</strong></td>
-                <td className="num tabular"><strong>{formatAr(t.actual)}</strong></td>
-                <td className="num tabular"><strong>{Math.round((t.actualRate || 0) * 100)} %</strong></td>
-                <td className="num tabular"><strong>{formatAr(t.remaining)}</strong></td>
-                <td />
-              </tr></tfoot>
-            </table></div>
-          </div>
-
-          <div className="card biz-card">
-            <div className="card-header"><div className="card-title">Couverture terrain par district — {month}</div>
-              {field?.byDistrict?.length > 0 && <Button size="sm" variant="ghost" icon={Download} onClick={exportCoverage}>Exporter CSV</Button>}</div>
-            {field?.byDistrict?.length > 0 ? (
-              <div className="table-wrap"><table className="table">
-                <thead><tr><th>District</th><th className="num">Planifiées</th><th className="num">Réalisées</th><th className="num">Annulées</th><th className="num">Taux</th></tr></thead>
-                <tbody>
-                  {field.byDistrict.map((d) => (
-                    <tr key={d.key}><td><strong>{d.label}</strong></td>
-                      <td className="num tabular">{formatInt(d.planifie)}</td>
-                      <td className="num tabular">{formatInt(d.realise)}</td>
-                      <td className="num tabular">{formatInt(d.annule)}</td>
-                      <td className="num tabular">{Math.round(d.rate * 100)} %</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot><tr><td style={{ textAlign: 'right' }}><strong>Total</strong></td>
-                  <td className="num tabular"><strong>{formatInt(ov.planifie)}</strong></td>
-                  <td className="num tabular"><strong>{formatInt(ov.realise)}</strong></td>
-                  <td className="num tabular"><strong>{formatInt(ov.annule)}</strong></td>
-                  <td className="num tabular"><strong>{Math.round((ov.rate || 0) * 100)} %</strong></td>
-                </tr></tfoot>
-              </table></div>
-            ) : <div className="card-body"><p className="muted">Aucune visite planifiée pour {month}.</p></div>}
-          </div>
+    <div className="section-gap">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Rapport de synthèse S&amp;E</h1>
+          <p className="page-desc">Situation budgétaire et couverture terrain pour la période, recalculées en direct. Exportez en CSV ou imprimez (PDF).</p>
         </div>
-      )}
-    </div>
-  );
-}
-
-function Kpi({ icon: Icon, label, value, foot, tone }) {
-  return (
-    <div className="biz-kpi">
-      <div className={`biz-kpi-ic ${tone || ''}`}><Icon size={18} aria-hidden="true" /></div>
-      <div className="biz-kpi-body">
-        <div className="biz-kpi-label">{label}</div>
-        <div className="biz-kpi-value tabular">{value}</div>
-        {foot && <div className="biz-kpi-foot">{foot}</div>}
+        <div className="header-actions">
+          <MonthPicker value={month} onChange={setMonth} />
+          <Button variant="secondary" icon={Printer} onClick={() => window.print()}>Imprimer / PDF</Button>
+        </div>
       </div>
+
+      {error && <Alert tone="error">{error}</Alert>}
+
+      <Stats compact items={[
+        { label: 'Budget de suivi', value: cons ? formatAr(t.budget) : '—', foot: cons ? `${t.contracts} contrat(s)` : 'Consolidation' },
+        { label: 'Réalisé (justifié)', value: cons ? formatAr(t.actual) : '—', foot: cons ? `${Math.round((t.actualRate || 0) * 100)} % du budget` : 'Factures validées' },
+        { label: 'Budget restant', value: cons ? formatAr(t.remaining) : '—', foot: 'Disponible' },
+        { label: 'Couverture terrain', value: ov ? `${Math.round((ov.rate || 0) * 100)} %` : '—', foot: ov ? `${ov.realise}/${ov.active} visites` : 'Mois courant' },
+      ]} />
+
+      <Card aria-labelledby="rep-budget">
+        <CardHeader id="rep-budget" title="Situation budgétaire par contrat" subtitle="Budget ↔ Planifié ↔ Réalisé, taux de consommation, restant et projection de fin.">
+          {cons && cons.rows.length > 0 && <Button size="sm" variant="secondary" icon={FileSpreadsheet} onClick={exportBudget}>Exporter CSV</Button>}
+        </CardHeader>
+        {cons === null ? (
+          <div className="card-body"><Skeleton height={160} /></div>
+        ) : cons.rows.length === 0 ? (
+          <EmptyState icon={FileSpreadsheet} title="Aucun contrat de suivi actif">La synthèse budgétaire s'affiche dès qu'un contrat actif porte un budget « Suivi ».</EmptyState>
+        ) : (
+          <div className="table-wrap"><table className="table">
+            <thead><tr>
+              <th scope="col">Contrat</th><th scope="col">Prestataire</th><th scope="col" className="num">Budget</th>
+              <th scope="col" className="num">Planifié</th><th scope="col" className="num">Réalisé</th><th scope="col" className="num">Taux</th>
+              <th scope="col" className="num">Restant</th><th scope="col" className="num">Projection fin</th>
+            </tr></thead>
+            <tbody>
+              {cons.rows.map((r) => (
+                <tr key={r.contractId} className="clickable" onClick={() => onOpenContract && onOpenContract(r.contractId)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') onOpenContract && onOpenContract(r.contractId); }} tabIndex={0}>
+                  <td><strong>{r.numero}</strong></td><td>{r.partnerName}</td>
+                  <td className="num mono">{formatAr(r.budget)}</td>
+                  <td className="num mono">{formatAr(r.planned)}</td>
+                  <td className="num mono">{formatAr(r.actual)}</td>
+                  <td className="num mono" style={{ color: r.overspent ? 'var(--red)' : undefined }}>{Math.round((r.actualRate || 0) * 100)} %</td>
+                  <td className="num mono">{formatAr(r.remaining)}</td>
+                  <td className="num mono">{formatAr(r.projectedTotal)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot><tr>
+              <td colSpan={2}><strong>Total</strong></td>
+              <td className="num mono"><strong>{formatAr(t.budget)}</strong></td>
+              <td className="num mono"><strong>{formatAr(t.planned)}</strong></td>
+              <td className="num mono"><strong>{formatAr(t.actual)}</strong></td>
+              <td className="num mono"><strong>{Math.round((t.actualRate || 0) * 100)} %</strong></td>
+              <td className="num mono"><strong>{formatAr(t.remaining)}</strong></td>
+              <td />
+            </tr></tfoot>
+          </table></div>
+        )}
+      </Card>
+
+      <Card aria-labelledby="rep-cover">
+        <CardHeader id="rep-cover" title={`Couverture terrain par district — ${month}`} subtitle="Visites planifiées, réalisées et annulées du mois ; taux = réalisées ÷ (planifiées + réalisées).">
+          {field?.byDistrict?.length > 0 && <Button size="sm" variant="secondary" icon={Download} onClick={exportCoverage}>Exporter CSV</Button>}
+        </CardHeader>
+        {cons === null ? (
+          <div className="card-body"><Skeleton height={140} /></div>
+        ) : field?.byDistrict?.length > 0 ? (
+          <div className="table-wrap"><table className="table">
+            <thead><tr>
+              <th scope="col">District</th><th scope="col" className="num">Planifiées</th><th scope="col" className="num">Réalisées</th>
+              <th scope="col" className="num">Annulées</th><th scope="col" className="num">Taux</th>
+            </tr></thead>
+            <tbody>
+              {field.byDistrict.map((d) => (
+                <tr key={d.key}><td><strong>{d.label}</strong></td>
+                  <td className="num mono">{formatInt(d.planifie)}</td>
+                  <td className="num mono">{formatInt(d.realise)}</td>
+                  <td className="num mono">{formatInt(d.annule)}</td>
+                  <td className="num mono">{Math.round(d.rate * 100)} %</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot><tr><td><strong>Total</strong></td>
+              <td className="num mono"><strong>{formatInt(ov.planifie)}</strong></td>
+              <td className="num mono"><strong>{formatInt(ov.realise)}</strong></td>
+              <td className="num mono"><strong>{formatInt(ov.annule)}</strong></td>
+              <td className="num mono"><strong>{Math.round((ov.rate || 0) * 100)} %</strong></td>
+            </tr></tfoot>
+          </table></div>
+        ) : (
+          <EmptyState icon={MapPin} title="Aucune visite ce mois-ci">Aucune visite planifiée ou réalisée pour {month}.</EmptyState>
+        )}
+      </Card>
     </div>
   );
 }
