@@ -7,7 +7,6 @@ import {
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, EmptyState, Field, IconButton, Skeleton, Stats } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
-import MonthPicker from '../../components/MonthPicker.jsx';
 import FactureDrawer from './FactureDrawer.jsx';
 import { usePopover, SortTh, makeViewStore } from '../../components/listView.jsx';
 import { useToast } from '../../components/Toast.jsx';
@@ -26,37 +25,42 @@ const PAGE_SIZE = 12;
 const viewStore = makeViewStore('mems.reports.view');
 
 // Filtres disponibles (seuls les filtres cochés s'affichent et s'appliquent).
+// La « Période » remplace l'ancien sélecteur de mois en haut de page : elle vit
+// dans la barre de filtres COMET, comme les autres filtres.
 const FILTERS = {
   q:        { label: 'Recherche', type: 'search', ph: 'Prestataire, contrat, facture, réf…' },
+  period:   { label: 'Période', type: 'select' },
   partnerId: { label: 'Prestataire', type: 'select' },
   contractId: { label: 'Contrat', type: 'select' },
   kind:     { label: 'Type', type: 'select' },
   status:   { label: 'Statut', type: 'select' },
 };
-const ALL_FILTERS = ['q', 'partnerId', 'contractId', 'kind', 'status'];
-const DEFAULT_FILTERS = ['q', 'partnerId', 'kind', 'status'];
+const ALL_FILTERS = ['q', 'period', 'partnerId', 'contractId', 'kind', 'status'];
+const DEFAULT_FILTERS = ['period', 'q', 'partnerId', 'kind', 'status'];
 
 // Colonnes disponibles (choisies via le sélecteur de colonnes).
 const COLUMNS = {
   partner:   { label: 'Prestataire TPM', sort: 'partner' },
   contract:  { label: 'Contrat', sort: 'contract' },
+  period:    { label: 'Période', sort: 'period' },
   kind:      { label: 'Type', sort: 'kind' },
+  invoiceNo: { label: 'N° facture' },
   planned:   { label: 'Prévu', num: true, sort: 'planned' },
   reported:  { label: 'Réalisé (bailleur)', num: true, sort: 'reported' },
   document:  { label: 'Document' },
   reference: { label: 'Référence' },
-  invoiceNo: { label: 'N° facture' },
   status:    { label: 'Statut', sort: 'status' },
   createdBy: { label: 'Créé par' },
   decidedBy: { label: 'Décidé par' },
   decidedAt: { label: 'Date décision' },
 };
 const ALL_COLUMNS = Object.keys(COLUMNS);
-const DEFAULT_COLUMNS = ['partner', 'contract', 'kind', 'planned', 'reported', 'document', 'status'];
+const DEFAULT_COLUMNS = ['partner', 'contract', 'period', 'kind', 'invoiceNo', 'planned', 'reported', 'status'];
+
+const emptyValues = () => ({ q: '', period: currentMonth(), partnerId: '', contractId: '', kind: '', status: '' });
 
 export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
   const toast = useToast();
-  const [month, setMonth] = useState(currentMonth);
   const [context, setContext] = useState(null);
   const [reports, setReports] = useState(null);
   const [plans, setPlans] = useState([]);
@@ -68,7 +72,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
   const [genOpen, setGenOpen] = useState(false); // modale génération mensuelle
 
   const saved = viewStore.initial();
-  const [values, setValues] = useState(() => (saved?.values || { q: '', partnerId: '', contractId: '', kind: '', status: '' }));
+  const [values, setValues] = useState(() => ({ ...emptyValues(), ...(saved?.values || {}) }));
   const [shownFilters, setShownFilters] = useState(() => saved?.shownFilters || DEFAULT_FILTERS);
   const [columns, setColumns] = useState(() => saved?.columns || DEFAULT_COLUMNS);
   const [sort, setSort] = useState(() => saved?.sort || { key: 'partner', dir: 'asc' });
@@ -79,39 +83,37 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
   const filterMenu = usePopover();
   const colMenu = usePopover();
 
+  // Mois de référence (création de facture, fil guidé, stats du mois) = la
+  // période choisie dans la barre de filtres, sinon le mois courant.
+  const month = (values.period && /^\d{4}-\d{2}/.test(values.period)) ? values.period.slice(0, 7) : currentMonth();
+
   async function reload() {
     setError(null);
     try {
-      const [ctx, list, pl] = await Promise.all([api.reportsContext(), api.listReports({ month }), api.listPlans({ month }).catch(() => [])]);
-      setContext(ctx); setReports(list); setPlans(pl || []);
+      // On charge TOUS les rapports (toutes périodes) : la période se filtre
+      // dans le tableau (colonne + filtre), plus de sélecteur de date en haut.
+      const [ctx, list] = await Promise.all([api.reportsContext(), api.listReports({})]);
+      setContext(ctx); setReports(list);
     } catch (err) { setError(err.message); setReports((r) => r || []); }
   }
-  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [month]);
+  useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
   useEffect(() => { api.listExchangeRates().then(setRates).catch(() => setRates([])); }, []);
+  // Plans du mois de référence — pour le fil guidé (compteur « plans validés »).
+  useEffect(() => { api.listPlans({ month }).then(setPlans).catch(() => setPlans([])); }, [month]);
 
   // Fil guidé : arrivée depuis « Créer la facture » d'un plan (Planification &
-  // budget). On ouvre l'éditeur de facture pré-rempli, sur le bon mois.
+  // budget). On ouvre l'éditeur de facture pré-rempli, sur la bonne période.
   useEffect(() => {
     let intent = null;
     try { const raw = sessionStorage.getItem('mems.tpm.newFacture'); if (raw) { intent = JSON.parse(raw); sessionStorage.removeItem('mems.tpm.newFacture'); } } catch { /* ignore */ }
     if (!intent) return;
-    if (intent.month) setMonth(intent.month);
+    if (intent.month) setValues((s) => ({ ...s, period: intent.month }));
     setFacture({ kind: 'financier', initial: { partnerId: intent.partnerId, contractId: intent.contractId }, autoPrefill: true });
   }, []);
 
-  const stats = useMemo(() => {
-    const list = reports || [];
-    const fin = list.filter((r) => r.kind === 'financier');
-    return {
-      total: list.length, tech: list.filter((r) => r.kind === 'technique').length,
-      justified: fin.filter((r) => r.status === 'valide').reduce((n, r) => n + (r.reportedAmount || 0), 0),
-      pending: list.filter((r) => r.status === 'soumis').length,
-    };
-  }, [reports]);
-
-  // Fil guidé plan → facture → validation → consolidation (état du mois).
+  // Fil guidé plan → facture → validation → consolidation (état du mois de réf.).
   const flow = useMemo(() => {
-    const fin = (reports || []).filter((r) => r.kind === 'financier');
+    const fin = (reports || []).filter((r) => r.kind === 'financier' && (r.periodMonth || '').slice(0, 7) === month);
     return {
       plansValides: plans.filter((p) => p.status === 'valide').length,
       plansTotal: plans.length,
@@ -131,6 +133,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       if (!v) return true;
       switch (k) {
         case 'q': { const q = v.toLowerCase(); return [r.partnerName, r.contractPartner, r.contractNumero, r.reference, r.invoiceNo].some((x) => x && String(x).toLowerCase().includes(q)); }
+        case 'period': return (r.periodMonth || '').slice(0, 7) === v;
         case 'partnerId': return r.partnerId === v;
         case 'contractId': return r.contractId === v;
         case 'kind': return r.kind === v;
@@ -140,7 +143,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
     }));
     const val = (r) => ({
       partner: r.partnerName || '', contract: r.contractPartner || '', kind: r.kind,
-      planned: r.plannedAmount || 0, reported: r.reportedAmount || 0,
+      period: r.periodMonth || '', planned: r.plannedAmount || 0, reported: r.reportedAmount || 0,
       status: ['attendu', 'soumis', 'valide', 'rejete'].indexOf(r.status),
     }[sort.key]);
     return [...list].sort((a, a2) => {
@@ -150,7 +153,17 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
     });
   }, [reports, values, shown, sort]);
 
-  const sig = JSON.stringify({ values, shownFilters, sort, month });
+  // Stats = reflet des lignes affichées (filtres actifs, période comprise).
+  const stats = useMemo(() => {
+    const fin = filtered.filter((r) => r.kind === 'financier');
+    return {
+      total: filtered.length, tech: filtered.filter((r) => r.kind === 'technique').length,
+      justified: fin.filter((r) => r.status === 'valide').reduce((n, r) => n + (r.reportedAmount || 0), 0),
+      pending: filtered.filter((r) => r.status === 'soumis').length,
+    };
+  }, [filtered]);
+
+  const sig = JSON.stringify({ values, shownFilters, sort });
   useEffect(() => { setPage(1); /* eslint-disable-next-line */ }, [sig]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageClamped = Math.min(page, totalPages);
@@ -162,10 +175,18 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
   function toggleFilter(k) { setShownFilters((ks) => (ks.includes(k) ? ks.filter((x) => x !== k) : [...ks, k])); }
   function toggleColumn(k) { setColumns((ks) => (ks.includes(k) ? ks.filter((x) => x !== k) : [...ks, k])); }
   function currentPayload() { return { values, shownFilters, columns, sort }; }
-  function resetView() { setValues({ q: '', partnerId: '', contractId: '', kind: '', status: '' }); viewStore.clear(); toast.info('Filtres réinitialisés.'); }
+  function resetView() { setValues(emptyValues()); viewStore.clear(); toast.info('Filtres réinitialisés.'); }
+
+  // Périodes disponibles = mois présents dans les rapports (+ le mois courant).
+  const periodOptions = useMemo(() => {
+    const set = new Set([currentMonth()]);
+    for (const r of reports || []) if (r.periodMonth) set.add(String(r.periodMonth).slice(0, 7));
+    return [...set].sort().reverse();
+  }, [reports]);
 
   function optionsFor(k) {
     switch (k) {
+      case 'period': return [{ id: '', label: 'Toutes les périodes' }, ...periodOptions.map((m) => ({ id: m, label: monthLabel(m) }))];
       case 'partnerId': return [{ id: '', label: 'Tous les prestataires' }, ...(context?.partners || []).map((p) => ({ id: p.id, label: p.name }))];
       case 'contractId': return [{ id: '', label: 'Tous les contrats' }, ...(context?.contracts || []).map((c) => ({ id: c.id, label: `${c.partnerName} · ${c.numero}` }))];
       case 'kind': return KINDS;
@@ -224,6 +245,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
     switch (k) {
       case 'partner': return <strong>{r.partnerName}</strong>;
       case 'contract': return <><button type="button" className="link-cell" onClick={(e) => { e.stopPropagation(); onOpenContract(r.contractId); }}>{r.contractPartner}</button><div className="site-meta mono">{r.contractNumero}</div></>;
+      case 'period': return <span className="tabular">{r.periodMonth ? monthLabel(String(r.periodMonth).slice(0, 7)) : '—'}{r.periodEnd ? <div className="site-meta">→ {monthLabel(String(r.periodEnd).slice(0, 7))}</div> : null}</span>;
       case 'kind': return <Badge tone={REPORT_KIND[r.kind].tone}>{REPORT_KIND[r.kind].label}</Badge>;
       case 'planned': return r.plannedAmount != null ? money(r.plannedAmount, r.periodMonth) : <span className="cell-empty">—</span>;
       case 'reported': return r.kind === 'financier' ? money(r.reportedAmount || 0, r.periodMonth) : <span className="cell-empty">—</span>;
@@ -264,7 +286,6 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
           <p className="page-desc">Rapports financiers (facture / état des dépenses) et techniques des prestataires TPM, rattachés au budget mensuel du suivi. Le « Réalisé » validé alimente la consommation du contrat.</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <MonthPicker value={month} onChange={setMonth} />
           {canEdit && <Button variant="secondary" icon={CalendarClock} onClick={() => setGenOpen(true)}>Générer les rapports mensuels</Button>}
           {canEdit && <Button variant="secondary" icon={Plus} onClick={() => setFacture({ kind: 'technique' })}>Rapport technique</Button>}
           {canEdit && <Button icon={FileText} onClick={() => setFacture({ kind: 'financier' })}>Rapport financier (facture)</Button>}
