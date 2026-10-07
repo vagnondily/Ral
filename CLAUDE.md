@@ -113,8 +113,8 @@ or navy rail.
   Figures use Inter with `font-variant-numeric: tabular-nums`, NOT mono.
   Bundled via `@fontsource` (see `web/src/main.jsx`), no CDN. Headings carry
   negative tracking (`letter-spacing: -0.018em`).
-- **Neutrals: cool institutional grey.** Canvas `#f2f3f5`, surface `#fff`,
-  surface-2 `#f7f8fa`, hairline border `#e3e5ea`, strong border `#cbd0d9`,
+- **Neutrals: cool institutional grey (modernisé).** Canvas `#f5f6f9`, surface
+  `#fff`, surface-2 `#f6f8fb`, hairline border `#e7e9ef`, strong border `#ccd2dc`,
   text-strong `#14181f`, text `#3a4150`, muted `#616a7a`, faint `#8b93a1`.
 - **Accent: enterprise blue** `#0f6cbd` (hover `#0b5394`); `--blue-50 #eff6fc`
   for tints. Used sparingly (primary buttons, active nav, links, bars).
@@ -125,9 +125,13 @@ or navy rail.
   token values — no hardcoded rail colours. The collapse toggle lives **on the
   rail** (brand row), not the header.
 - **Header:** solid white, hairline bottom + `--shadow-sm` (no glass blur).
-- **Corners: crisp Fluent scale** — radii 4/6/8 (`--radius-sm`/`--radius`/
-  `--radius-lg`). Buttons/inputs 36px tall, radius 6.
-- **Elevation: restrained** — hairline + a shallow `--shadow-sm`, never floaty.
+- **Corners: modern-soft scale** — radii 6/9/14 (`--radius-sm`/`--radius`/
+  `--radius-lg`) : arrondi contemporain (SaaS/dashboards 2025) mais pro, jamais
+  bubbly. Buttons/inputs 38px tall, radius 9 ; cartes radius 14.
+- **Elevation: modern soft** — ombres diffuses et superposées (`--shadow-sm`
+  = deux couches douces), cartes légèrement surélevées, jamais criardes.
+- **Nav active = pill plein arrondi** (blue-50 + texte bleu), sans barre
+  latérale — look moderne épuré.
 - KPI/stat tiles are clean (no accent tick, tabular Inter value, muted
   label/foot). Tables: light-grey (`--canvas`) uppercase header band, hairline
   separators, `surface-2` row hover, tabular numerics.
