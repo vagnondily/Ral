@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Gauge, ShieldCheck, Database, CalendarClock, MapPin, Activity, AlertTriangle } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
-import MonthPicker from '../../components/MonthPicker.jsx';
+import MonthSelect from '../../components/MonthSelect.jsx';
 import { currentMonth, formatInt } from '../../lib/format.js';
 
 /**
@@ -42,7 +42,7 @@ export default function ProcessDashboardPage({ onNavigate }) {
     <div className="page">
       <PageHeader title="Suivi de processus — Synthèse"
         description="Vue d'ensemble du suivi : données collectées et conformité (fiches & indicateurs), couverture terrain et sites à suivre (RBM), zones à surveiller. Recalculé en direct.">
-        <MonthPicker value={month} onChange={setMonth} />
+        <MonthSelect value={month} onChange={setMonth} />
       </PageHeader>
 
       {error && <Alert tone="error">{error}</Alert>}

@@ -4,7 +4,7 @@ import { api } from '../../api/client.js';
 import { Alert, Button, Field, Stats } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
 import Modal from '../../components/Modal.jsx';
-import MonthPicker from '../../components/MonthPicker.jsx';
+import MonthSelect from '../../components/MonthSelect.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatInt } from '../../lib/format.js';
 
@@ -180,7 +180,7 @@ export default function RbmPage({ canEdit }) {
           <p className="page-desc">Sélectionnez une ligne (ou <strong>double-clic</strong>) pour éditer ses critères. « Générer » planifie les sites à suivre du mois. La <strong>dernière visite</strong> intègre la <strong>collecte réelle</strong> issue des données uploadées (rattachées par commune).</p>
         </div>
         <div className="header-actions">
-          <MonthPicker value={month} onChange={setMonth} />
+          <MonthSelect value={month} onChange={setMonth} />
           {canEdit && <>
             <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={onImport} />
             <input ref={planRef} type="file" accept=".xlsx,.xlsm" hidden onChange={onImportPlan} />

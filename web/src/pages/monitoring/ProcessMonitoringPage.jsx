@@ -3,7 +3,7 @@ import { Plus, Upload, Trash2, Pencil, AlertCircle, ClipboardCheck, Link2, Refre
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton, Stats, Usage } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
-import MonthPicker from '../../components/MonthPicker.jsx';
+import MonthSelect from '../../components/MonthSelect.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth } from '../../lib/format.js';
 
@@ -307,7 +307,7 @@ function ResultsTab({ form }) {
   return (
     <div className="section-gap">
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <MonthPicker value={month || currentMonth()} onChange={setMonth} />
+        <MonthSelect value={month || currentMonth()} onChange={setMonth} />
       </div>
 
       {data === null ? <Card><div className="card-body"><Skeleton height={120} /></div></Card>

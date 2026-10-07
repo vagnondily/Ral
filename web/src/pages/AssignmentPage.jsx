@@ -7,7 +7,7 @@ import {
   Alert, Badge, Button, Card, CardHeader, EmptyState, ExpandButton, PageHeader, Progress, RiskBadge, Skeleton, Stats,
 } from '../components/ui.jsx';
 import Modal from '../components/Modal.jsx';
-import MonthPicker from '../components/MonthPicker.jsx';
+import MonthSelect from '../components/MonthSelect.jsx';
 import Stepper from '../components/Stepper.jsx';
 import { useToast } from '../components/Toast.jsx';
 import MissionCalendarDrawer from './MissionCalendarDrawer.jsx';
@@ -210,7 +210,7 @@ export default function AssignmentPage({ canEdit }) {
         title="Affectation & calendrier"
         description="Affectez chaque site à un prestataire TPM puis à l'un de ses agents, planifiez les jours de mission et suivez le budget du mois."
       >
-        <MonthPicker value={month} onChange={setMonth} />
+        <MonthSelect value={month} onChange={setMonth} />
       </PageHeader>
 
       {loadError ? (

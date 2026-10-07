@@ -5,11 +5,10 @@ import {
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, EmptyState, IconButton, Skeleton, Stats } from '../../components/ui.jsx';
-import MonthPicker from '../../components/MonthPicker.jsx';
 import PlanBudgetDrawer from './PlanBudgetDrawer.jsx';
 import { usePopover, SortTh, makeViewStore } from '../../components/listView.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import { currentMonth, formatAr, formatInt } from '../../lib/format.js';
+import { currentMonth, formatAr, formatInt, monthLabel } from '../../lib/format.js';
 import { formatUsdFor } from '../../lib/currency.js';
 
 const PLAN_STATUS = { brouillon: { label: 'Brouillon', tone: 'yellow' }, valide: { label: 'Validé', tone: 'green' } };
@@ -17,25 +16,29 @@ const STATUSES = [{ id: '', label: 'Tous les statuts' }, { id: 'brouillon', labe
 const PAGE_SIZE = 12;
 const viewStore = makeViewStore('mems.planning.view');
 
+// La « Période » vit dans la barre de filtres (plus de sélecteur de mois en haut).
 const FILTERS = {
   q:        { label: 'Recherche', type: 'search', ph: 'Prestataire, contrat, intitulé…' },
+  period:   { label: 'Période', type: 'select' },
   partnerId: { label: 'Prestataire', type: 'select' },
   contractId: { label: 'Contrat', type: 'select' },
   status:   { label: 'Statut', type: 'select' },
 };
-const ALL_FILTERS = ['q', 'partnerId', 'contractId', 'status'];
-const DEFAULT_FILTERS = ['q', 'partnerId', 'status'];
+const ALL_FILTERS = ['q', 'period', 'partnerId', 'contractId', 'status'];
+const DEFAULT_FILTERS = ['period', 'q', 'partnerId', 'status'];
 
 const COLUMNS = {
   partner:  { label: 'Prestataire TPM', sort: 'partner' },
   contract: { label: 'Contrat', sort: 'contract' },
+  period:   { label: 'Période', sort: 'period' },
   title:    { label: 'Intitulé' },
   funder:   { label: 'Planifié (bailleur)', num: true, sort: 'funder' },
   total:    { label: 'Total prévu', num: true, sort: 'total' },
   status:   { label: 'Statut', sort: 'status' },
 };
 const ALL_COLUMNS = Object.keys(COLUMNS);
-const DEFAULT_COLUMNS = ['partner', 'contract', 'title', 'funder', 'total', 'status'];
+const DEFAULT_COLUMNS = ['partner', 'contract', 'period', 'title', 'funder', 'total', 'status'];
+const emptyValues = () => ({ q: '', period: currentMonth(), partnerId: '', contractId: '', status: '' });
 
 /**
  * Planification & budget — budgets prévisionnels des vagues de collecte, façon
@@ -44,7 +47,6 @@ const DEFAULT_COLUMNS = ['partner', 'contract', 'title', 'funder', 'total', 'sta
  */
 export default function PlanningPage({ canEdit, onNavigate }) {
   const toast = useToast();
-  const [month, setMonth] = useState(currentMonth);
   const [context, setContext] = useState(null);
   const [plans, setPlans] = useState(null);
   const [rates, setRates] = useState([]);
@@ -52,7 +54,7 @@ export default function PlanningPage({ canEdit, onNavigate }) {
   const [drawer, setDrawer] = useState(null);
 
   const saved = viewStore.initial();
-  const [values, setValues] = useState(() => (saved?.values || { q: '', partnerId: '', contractId: '', status: '' }));
+  const [values, setValues] = useState(() => ({ ...emptyValues(), ...(saved?.values || {}) }));
   const [shownFilters, setShownFilters] = useState(() => saved?.shownFilters || DEFAULT_FILTERS);
   const [columns, setColumns] = useState(() => saved?.columns || DEFAULT_COLUMNS);
   const [sort, setSort] = useState(() => saved?.sort || { key: 'partner', dir: 'asc' });
@@ -63,14 +65,18 @@ export default function PlanningPage({ canEdit, onNavigate }) {
   const filterMenu = usePopover();
   const colMenu = usePopover();
 
+  // Mois de référence (création de plan) = la période choisie, sinon mois courant.
+  const month = (values.period && /^\d{4}-\d{2}/.test(values.period)) ? values.period.slice(0, 7) : currentMonth();
+
   async function reload() {
     setError(null);
     try {
-      const [ctx, list] = await Promise.all([api.reportsContext(), api.listPlans({ month })]);
+      // Tous les plans (toutes périodes) ; la période se filtre dans le tableau.
+      const [ctx, list] = await Promise.all([api.reportsContext(), api.listPlans({})]);
       setContext(ctx); setPlans(list);
     } catch (err) { setError(err.message); setPlans((p) => p || []); }
   }
-  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [month]);
+  useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
   useEffect(() => { api.listExchangeRates().then(setRates).catch(() => setRates([])); }, []);
 
   const stats = useMemo(() => {
@@ -94,6 +100,7 @@ export default function PlanningPage({ canEdit, onNavigate }) {
       if (!v) return true;
       switch (k) {
         case 'q': { const q = v.toLowerCase(); return [p.partnerName, p.contractPartner, p.contractNumero, p.title].some((x) => x && String(x).toLowerCase().includes(q)); }
+        case 'period': return (p.periodMonth || '').slice(0, 7) === v;
         case 'partnerId': return p.partnerId === v;
         case 'contractId': return p.contractId === v;
         case 'status': return p.status === v;
@@ -101,7 +108,7 @@ export default function PlanningPage({ canEdit, onNavigate }) {
       }
     }));
     const val = (p) => ({
-      partner: p.partnerName || '', contract: p.contractPartner || '',
+      partner: p.partnerName || '', contract: p.contractPartner || '', period: p.periodMonth || '',
       funder: p.plannedFunder || 0, total: p.plannedTotal || 0,
       status: ['brouillon', 'valide'].indexOf(p.status),
     }[sort.key]);
@@ -112,7 +119,7 @@ export default function PlanningPage({ canEdit, onNavigate }) {
     });
   }, [plans, values, shown, sort]);
 
-  const sig = JSON.stringify({ values, shownFilters, sort, month });
+  const sig = JSON.stringify({ values, shownFilters, sort });
   useEffect(() => { setPage(1); /* eslint-disable-next-line */ }, [sig]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageClamped = Math.min(page, totalPages);
@@ -124,10 +131,17 @@ export default function PlanningPage({ canEdit, onNavigate }) {
   function toggleFilter(k) { setShownFilters((ks) => (ks.includes(k) ? ks.filter((x) => x !== k) : [...ks, k])); }
   function toggleColumn(k) { setColumns((ks) => (ks.includes(k) ? ks.filter((x) => x !== k) : [...ks, k])); }
   function currentPayload() { return { values, shownFilters, columns, sort }; }
-  function resetView() { setValues({ q: '', partnerId: '', contractId: '', status: '' }); viewStore.clear(); toast.info('Filtres réinitialisés.'); }
+  function resetView() { setValues(emptyValues()); viewStore.clear(); toast.info('Filtres réinitialisés.'); }
+
+  const periodOptions = useMemo(() => {
+    const set = new Set([currentMonth()]);
+    for (const p of plans || []) if (p.periodMonth) set.add(String(p.periodMonth).slice(0, 7));
+    return [...set].sort().reverse();
+  }, [plans]);
 
   function optionsFor(k) {
     switch (k) {
+      case 'period': return [{ id: '', label: 'Toutes les périodes' }, ...periodOptions.map((m) => ({ id: m, label: monthLabel(m) }))];
       case 'partnerId': return [{ id: '', label: 'Tous les prestataires' }, ...(context?.partners || []).map((p) => ({ id: p.id, label: p.name }))];
       case 'contractId': return [{ id: '', label: 'Tous les contrats' }, ...(context?.contracts || []).map((c) => ({ id: c.id, label: `${c.partnerName} · ${c.numero}` }))];
       case 'status': return STATUSES;
@@ -169,6 +183,7 @@ export default function PlanningPage({ canEdit, onNavigate }) {
     switch (k) {
       case 'partner': return <strong>{p.partnerName}</strong>;
       case 'contract': return <>{p.contractPartner}<div className="site-meta mono">{p.contractNumero}</div></>;
+      case 'period': return <span className="tabular">{p.periodMonth ? monthLabel(String(p.periodMonth).slice(0, 7)) : '—'}</span>;
       case 'title': return p.title || <span className="cell-empty">—</span>;
       case 'funder': return money(p.plannedFunder);
       case 'total': return money(p.plannedTotal);
@@ -203,7 +218,6 @@ export default function PlanningPage({ canEdit, onNavigate }) {
           <p className="page-desc">Budget prévisionnel des vagues de collecte : postes prévus par prestataire et contrat. La part bailleur alimente le « Planifié » de la consolidation et sert de base à la facture.</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <MonthPicker value={month} onChange={setMonth} />
           {canEdit && <Button icon={Plus} onClick={() => setDrawer({})}>Nouveau plan</Button>}
         </div>
       </div>

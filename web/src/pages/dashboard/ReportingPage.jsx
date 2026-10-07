@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Download, Printer, FileSpreadsheet, MapPin } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, Card, CardHeader, EmptyState, Skeleton, Stats } from '../../components/ui.jsx';
-import MonthPicker from '../../components/MonthPicker.jsx';
+import MonthSelect from '../../components/MonthSelect.jsx';
 import { formatAr, formatInt, currentMonth } from '../../lib/format.js';
 
 /**
@@ -57,7 +57,7 @@ export default function ReportingPage({ onOpenContract }) {
           <p className="page-desc">Situation budgétaire et couverture terrain pour la période, recalculées en direct. Exportez en CSV ou imprimez (PDF).</p>
         </div>
         <div className="header-actions">
-          <MonthPicker value={month} onChange={setMonth} />
+          <MonthSelect value={month} onChange={setMonth} />
           <Button variant="secondary" icon={Printer} onClick={() => window.print()}>Imprimer / PDF</Button>
         </div>
       </div>

@@ -1772,6 +1772,10 @@ tr.row-due { background: color-mix(in srgb, var(--blue-50) 55%, transparent); }
 .pdd-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 @media (max-width: 900px) { .pdd-two { grid-template-columns: 1fr; } }
 
+/* Sélecteur de mois compact (remplace l'ancien widget calendrier dans les
+   en-têtes de page) : s'adapte au contenu au lieu d'occuper toute la largeur. */
+.month-select { width: auto; min-width: 150px; flex: 0 0 auto; }
+
 /* Fil guidé (rapportage TPM) : Plan → Facture → Validation → Consolidation */
 .flow { display: flex; align-items: stretch; gap: 6px; flex-wrap: wrap;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
