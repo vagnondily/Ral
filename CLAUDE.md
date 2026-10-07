@@ -312,6 +312,20 @@ or navy rail.
   validation, contrats à échéance ≤ 90 j, couverture terrain faible et visites
   non affectées. Trois niveaux (critique/à surveiller/à traiter), chaque ligne
   navigue vers le module concerné.
+- **Distribution d'urgence (PDD)** (`web/src/pages/pdd/PddPage.jsx`,
+  `server/src/modules/pdd/*`, migration 035) : reproduit le classeur de plan de
+  distribution d'urgence (vivres & cash). **Réutilise les référentiels existants**
+  (zones région/district/commune, bureaux antenne/sous-bureau, partenaires) en
+  stockant leurs libellés — pas de référentiel dupliqué. Tables
+  `pdd_commodities` / `pdd_distributions` / `pdd_distribution_items` / `pdd_stock`.
+  Logique pure testée `pddMath.js` (summarize par aléa/mois/zone/denrée +
+  pipeline besoin vs stock). Import de la feuille « PDD base » (`pddImport.js`,
+  `POST /api/pdd/import`, réimport idempotent par mois). 3 vues COMET, nav
+  « Suivi & évaluation › Distribution d'urgence » : **Distributions** (ouvre sur
+  un **tableau des mois** façon plan de suivi — clic → distributions du mois —
+  table fidèle filtrable + CSV, colonne par denrée), **Synthèse** (par aléa /
+  mois / arbre zone / denrée) et **Pipeline** (besoin planifié vs stock éditable,
+  écart, couverture, ruptures). seed des denrées + seed-test (491 distributions).
 - **Shell**: left sidebar, collapsible (rail mode), header with notifications +
   user menu (FR/EN language, light/dark theme), no office filter.
 

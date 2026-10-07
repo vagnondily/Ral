@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, PackageOpen, Boxes, Layers, AlertTriangle } from 'lucide-react';
+import { Upload, PackageOpen, Boxes, Layers, AlertTriangle, ChevronLeft, CalendarClock, ChevronRight as GoIcon } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, Card, CardHeader, EmptyState, ExpandButton, Skeleton, Stats, Usage } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
@@ -55,6 +55,10 @@ function DistributionsView({ canEdit, onNavigate }) {
   const [commodities, setCommodities] = useState([]);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  // Navigation par mois (comme le plan de suivi) : d'abord un tableau des mois,
+  // clic sur un mois → ses distributions.
+  const [picking, setPicking] = useState(true);
+  const [month, setMonth] = useState('');
   const fileRef = useRef(null);
 
   const reload = useCallback(() => {
@@ -75,14 +79,34 @@ function DistributionsView({ canEdit, onNavigate }) {
     } catch (err) { toast.error(err.message); } finally { setBusy(false); }
   };
 
-  const stats = useMemo(() => {
+  // Lignes du mois sélectionné (ou toutes, si aucun mois).
+  const monthRows = useMemo(() => (month ? (rows || []).filter((r) => r.periodMonth === month) : rows), [rows, month]);
+
+  const agg = (list) => {
     const s = { lines: 0, beneficiaries: 0, households: 0, cashUsd: 0, totalFood: 0 };
-    for (const r of rows || []) {
+    for (const r of list || []) {
       s.lines += 1; s.beneficiaries += r.beneficiaries || 0; s.households += r.households || 0;
       s.cashUsd += Number(r.cashUsd) || 0; s.totalFood += Number(r.totalFood) || 0;
     }
     return s;
+  };
+  const stats = useMemo(() => agg(picking ? rows : monthRows), [rows, monthRows, picking]);
+
+  // Un enregistrement par mois pour le tableau de navigation.
+  const monthsAgg = useMemo(() => {
+    const by = new Map();
+    for (const r of rows || []) {
+      if (!r.periodMonth) continue;
+      if (!by.has(r.periodMonth)) by.set(r.periodMonth, { month: r.periodMonth, lines: 0, beneficiaries: 0, households: 0, cashUsd: 0, totalFood: 0, hazards: new Set() });
+      const m = by.get(r.periodMonth);
+      m.lines += 1; m.beneficiaries += r.beneficiaries || 0; m.households += r.households || 0;
+      m.cashUsd += Number(r.cashUsd) || 0; m.totalFood += Number(r.totalFood) || 0;
+      if (r.hazard) m.hazards.add(r.hazard);
+    }
+    return [...by.values()].sort((a, b) => (a.month < b.month ? 1 : -1));
   }, [rows]);
+
+  const openMonth = (mm) => { setMonth(mm); setPicking(false); };
 
   const foodCommodities = useMemo(() => commodities.filter((c) => c.kind !== 'cash'), [commodities]);
   const uniq = (arr) => [...new Set(arr.filter(Boolean))].sort().map((x) => ({ id: x, label: x }));
@@ -142,9 +166,12 @@ function DistributionsView({ canEdit, onNavigate }) {
       <div className="page-header">
         <div>
           <h1 className="page-title">Distribution d'urgence — distributions</h1>
-          <p className="page-desc">Plan de distribution (vivres &amp; cash) par mois, zone et activité. Table fidèle au classeur ; filtrable et exportable.</p>
+          <p className="page-desc">{picking
+            ? "Choisissez un mois pour ouvrir son plan de distribution (vivres & cash par zone et activité)."
+            : "Plan de distribution du mois : table fidèle au classeur, filtrable et exportable."}</p>
         </div>
         <div className="header-actions">
+          {!picking && <Button variant="secondary" icon={ChevronLeft} onClick={() => { setPicking(true); setMonth(''); }}>Tous les mois</Button>}
           {canEdit && <>
             <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={onImport} />
             <Button variant="secondary" icon={Upload} loading={busy} onClick={() => fileRef.current?.click()}
@@ -155,27 +182,87 @@ function DistributionsView({ canEdit, onNavigate }) {
 
       {error && <Alert tone="error">{error}</Alert>}
 
-      <Stats compact items={[
-        { label: 'Lignes', value: rows ? formatInt(stats.lines) : '—', foot: 'Distributions planifiées' },
-        { label: 'Bénéficiaires', value: rows ? formatInt(stats.beneficiaries) : '—', foot: 'Toutes modalités' },
-        { label: 'Ménages', value: rows ? formatInt(stats.households) : '—', foot: 'Toutes modalités' },
-        { label: 'Vivres', value: rows ? fmtMt(stats.totalFood) : '—', foot: 'Tonnage total' },
-        { label: 'Cash (CBT)', value: rows ? fmtUsd(stats.cashUsd) : '—', foot: 'Transferts monétaires' },
-      ]} />
+      {picking ? (
+        <PddMonthsTable data={rows === null ? null : monthsAgg} total={stats} onOpen={openMonth} />
+      ) : (
+        <>
+          <div className="month-active-bar">
+            <strong>{monthLabel(month)}</strong>
+            <span className="muted">— plan de distribution du mois</span>
+          </div>
 
-      <DataList
-        rows={rows} columns={columns} defaultColumns={DEFAULT_COLS}
-        filters={filters} defaultFilters={['q', 'month', 'hazard', 'region', 'district']}
-        storageKey="mems.pdd.dist.view.v1" pageSize={15} defaultSort={{ key: 'beneficiaries', dir: 'desc' }}
-        csvName="pdd_distributions.csv" emptyIcon={PackageOpen} emptyTitle="Aucune distribution"
-        emptyChildren={canEdit ? "Importez un fichier PDD (.xlsx) pour alimenter le module." : 'Aucune distribution importée pour le moment.'}
-      />
+          <Stats compact items={[
+            { label: 'Lignes', value: formatInt(stats.lines), foot: 'Distributions du mois' },
+            { label: 'Bénéficiaires', value: formatInt(stats.beneficiaries), foot: 'Toutes modalités' },
+            { label: 'Ménages', value: formatInt(stats.households), foot: 'Toutes modalités' },
+            { label: 'Vivres', value: fmtMt(stats.totalFood), foot: 'Tonnage du mois' },
+            { label: 'Cash (CBT)', value: fmtUsd(stats.cashUsd), foot: 'Transferts monétaires' },
+          ]} />
 
-      <p className="hint" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Layers size={14} aria-hidden="true" />
-        <span>Zones (région/district/commune), bureaux (antenne/sous-bureau) et partenaires sont les mêmes référentiels que le reste de MEMS. Voir la <button type="button" className="link-cell" onClick={() => onNavigate?.('pdd', 'synthese')}>Synthèse</button> et le <button type="button" className="link-cell" onClick={() => onNavigate?.('pdd', 'pipeline')}>Pipeline</button>.</span>
-      </p>
+          <DataList
+            rows={monthRows} columns={columns} defaultColumns={DEFAULT_COLS}
+            filters={filters} defaultFilters={['q', 'hazard', 'region', 'district']}
+            storageKey="mems.pdd.dist.view.v2" pageSize={15} defaultSort={{ key: 'beneficiaries', dir: 'desc' }}
+            csvName={`pdd_distributions_${month}.csv`} emptyIcon={PackageOpen} emptyTitle="Aucune distribution ce mois-ci"
+            emptyChildren={canEdit ? "Importez un fichier PDD (.xlsx) pour alimenter le module." : 'Aucune distribution importée pour ce mois.'}
+          />
+
+          <p className="hint" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Layers size={14} aria-hidden="true" />
+            <span>Zones (région/district/commune), bureaux (antenne/sous-bureau) et partenaires sont les mêmes référentiels que le reste de MEMS. Voir la <button type="button" className="link-cell" onClick={() => onNavigate?.('pdd', 'synthese')}>Synthèse</button> et le <button type="button" className="link-cell" onClick={() => onNavigate?.('pdd', 'pipeline')}>Pipeline</button>.</span>
+          </p>
+        </>
+      )}
     </>
+  );
+}
+
+// Tableau des mois : une ligne par mois avec ses totaux ; clic → distributions.
+function PddMonthsTable({ data, total, onOpen }) {
+  if (data === null) return <Card><div className="card-body"><Skeleton height={280} /></div></Card>;
+  if (data.length === 0) {
+    return <Card><EmptyState icon={PackageOpen} title="Aucune distribution">Importez un fichier PDD (.xlsx) pour alimenter le module.</EmptyState></Card>;
+  }
+  const maxBen = Math.max(...data.map((m) => m.beneficiaries), 1);
+  return (
+    <div className="card biz-card months-card">
+      <div className="months-head">
+        <span className="months-year">Plan de distribution — par mois</span>
+        <div className="months-head-sum">
+          <span><strong className="tabular">{formatInt(data.length)}</strong> mois</span>
+          <span><strong className="tabular">{formatInt(total.beneficiaries)}</strong> bénéficiaires</span>
+          <span><strong className="tabular">{fmtMt(total.totalFood)}</strong> vivres</span>
+        </div>
+      </div>
+      <div className="table-wrap"><table className="table grid months-grid">
+        <thead><tr>
+          <th>Mois</th><th>Aléas</th><th className="num">Lignes</th><th className="num">Bénéficiaires</th>
+          <th className="num">Ménages</th><th className="num">Vivres (t)</th><th className="num">Cash ($)</th>
+          <th>Part bénéficiaires</th><th aria-label="Action" />
+        </tr></thead>
+        <tbody>
+          {data.map((m) => (
+            <tr key={m.month} className="clickable month-row" onClick={() => onOpen(m.month)}
+              onKeyDown={(e) => { if (e.key === 'Enter') onOpen(m.month); }} tabIndex={0} aria-label={`Ouvrir ${monthLabel(m.month)}`}>
+              <td><span className="month-name">{monthLabel(m.month)}</span></td>
+              <td>{[...m.hazards].map((h) => <HazardBadge key={h} value={h} />)}</td>
+              <td className="num tabular">{formatInt(m.lines)}</td>
+              <td className="num tabular"><strong>{formatInt(m.beneficiaries)}</strong></td>
+              <td className="num tabular">{formatInt(m.households)}</td>
+              <td className="num tabular">{m.totalFood ? fmtMt(m.totalFood) : '—'}</td>
+              <td className="num tabular">{m.cashUsd ? fmtUsd(m.cashUsd) : '—'}</td>
+              <td><span className="mini-bar"><span style={{ width: `${Math.round((m.beneficiaries / maxBen) * 100)}%`, background: 'var(--blue-600)' }} /></span></td>
+              <td className="num">
+                <button type="button" className="btn btn-sm btn-secondary month-open" onClick={(e) => { e.stopPropagation(); onOpen(m.month); }}>
+                  Ouvrir<GoIcon size={15} aria-hidden="true" />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table></div>
+      <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>Cliquez un mois (ou « Ouvrir ») pour accéder à ses distributions détaillées.</span></div>
+    </div>
   );
 }
 
