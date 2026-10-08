@@ -1855,9 +1855,18 @@ tr.row-due { background: color-mix(in srgb, var(--blue-50) 55%, transparent); }
    horizontal via .table-wrap ; sous-titre technique (name) sous chaque en-tête. */
 /* Conteneur à hauteur bornée : défilement vertical interne + en-têtes figées. */
 .data-scroll { max-height: 68vh; overflow: auto; }
+/* La grille prend la largeur de son contenu (colonnes compactes à leur taille
+   naturelle) tout en remplissant un conteneur étroit : défilement horizontal
+   propre quand elle dépasse, sans écraser ni déformer les colonnes. */
+.data-grid { width: max-content; min-width: 100%; table-layout: auto; }
 .data-grid thead th { position: sticky; top: 0; z-index: 2; background: var(--canvas);
   box-shadow: inset 0 -1px 0 var(--border); }
 .data-grid th { vertical-align: bottom; white-space: nowrap; }
+/* Première colonne figée (ancre de ligne) pendant le défilement horizontal. */
+.data-grid th:first-child, .data-grid td:first-child { position: sticky; left: 0; z-index: 1;
+  background: var(--surface); box-shadow: inset -1px 0 0 var(--border); }
+.data-grid thead th:first-child { z-index: 3; background: var(--canvas); }
+.data-grid tbody tr:hover td:first-child { background: var(--surface-2); }
 .data-grid .th-sub { font-size: 11px; font-weight: 500; color: var(--text-faint); text-transform: none; letter-spacing: 0; }
 .data-grid td { white-space: nowrap; }
 .data-grid td.mono-cell { font-size: 12.5px; color: var(--text); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
