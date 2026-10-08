@@ -1840,8 +1840,6 @@ tr.row-due { background: color-mix(in srgb, var(--blue-50) 55%, transparent); }
   padding: 8px 12px; flex: 1 1 180px; min-width: 160px; font: inherit; color: var(--text); }
 .flow-step.is-clickable { cursor: pointer; }
 .flow-step.is-clickable:hover { background: var(--surface-2); border-color: var(--border); }
-.flow-step.is-current { border-color: var(--blue-600); background: var(--blue-50); box-shadow: inset 0 0 0 1px var(--blue-600); }
-.flow-step.is-current .flow-num { background: var(--blue-600); color: #fff; border-color: transparent; }
 
 /* Suivi de processus — période dans la barre d'outils des résultats, et
    expression de logique de saut (skip logic) dans la table des variables. */

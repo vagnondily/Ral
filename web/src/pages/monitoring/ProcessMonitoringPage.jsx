@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Upload, AlertCircle, ClipboardCheck, RefreshCw, ArrowLeft, ChevronRight,
-  FileSpreadsheet, SlidersHorizontal, Database, BarChart3, Link2, Trash2, Pencil, Check, Minus, Shuffle,
+  FileSpreadsheet, SlidersHorizontal, BarChart3, Link2, Trash2, Pencil, Check, Minus, Shuffle,
   Table2, Download, Search,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
