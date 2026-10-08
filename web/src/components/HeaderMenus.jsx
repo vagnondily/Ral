@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bell, Settings, LogOut, Sun, Moon, Globe, Check } from 'lucide-react';
+import { Bell, Settings, LogOut, Sun, Moon, Globe, Check, HelpCircle } from 'lucide-react';
 import { Avatar, IconButton } from './ui.jsx';
 import { useI18n, LANGS } from '../lib/i18n.jsx';
 import { useTheme } from '../lib/theme.js';
+import { useTips } from '../lib/tips.js';
 import { ROLE_LABELS } from '../lib/format.js';
 
 // Close a popover on outside click or Escape.
@@ -46,6 +47,7 @@ export function NotificationsMenu() {
 export function UserMenu({ user, onLogout, onSettings }) {
   const { t, lang, setLang } = useI18n();
   const { theme, setTheme } = useTheme();
+  const { tips, setTips } = useTips();
   const { open, setOpen, ref } = usePopover();
   const name = user?.email?.split('@')[0] || '?';
   const role = t(`role.${user?.role}`, ROLE_LABELS[user?.role] || user?.role);
@@ -95,6 +97,18 @@ export function UserMenu({ user, onLogout, onSettings }) {
               </button>
               <button type="button" className={theme === 'dark' ? 'is-active' : ''} aria-pressed={theme === 'dark'} onClick={() => setTheme('dark')}>
                 {t('user.theme.dark', 'Sombre')}
+              </button>
+            </div>
+          </div>
+
+          <div className="seg-row">
+            <span className="seg-label"><HelpCircle size={16} aria-hidden="true" />{t('user.tips', 'Aides')}</span>
+            <div className="seg" role="group" aria-label={t('user.tips', 'Aides')}>
+              <button type="button" className={tips === 'on' ? 'is-active' : ''} aria-pressed={tips === 'on'} onClick={() => setTips('on')}>
+                {t('user.tips.on', 'Afficher')}
+              </button>
+              <button type="button" className={tips === 'off' ? 'is-active' : ''} aria-pressed={tips === 'off'} onClick={() => setTips('off')}>
+                {t('user.tips.off', 'Masquer')}
               </button>
             </div>
           </div>

@@ -1877,6 +1877,13 @@ tr.row-due { background: color-mix(in srgb, var(--blue-50) 55%, transparent); }
 .cov-matrix td:first-child, .cov-matrix th:first-child { white-space: nowrap; position: sticky; left: 0; background: var(--surface); z-index: 1; }
 .cov-matrix thead th:first-child { background: var(--canvas); z-index: 2; }
 .cov-cell { display: inline-block; min-width: 46px; text-align: center; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+
+/* Aides contextuelles masquables (toggle du menu utilisateur) : notes
+   explicatives + astuces sous les champs/toolbars. Masquées par défaut pour
+   gagner de la place ; réaffichées quand data-tips="on". */
+:root[data-tips="off"] .note,
+:root[data-tips="off"] .field-hint,
+:root[data-tips="off"] .hint { display: none; }
 /* La grille prend la largeur de son contenu (colonnes compactes à leur taille
    naturelle) tout en remplissant un conteneur étroit : défilement horizontal
    propre quand elle dépasse, sans écraser ni déformer les colonnes. */

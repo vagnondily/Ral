@@ -12,9 +12,11 @@ import '@fontsource/ibm-plex-mono/600.css';
 import App from './App.jsx';
 import './styles.css';
 import { initTheme } from './lib/theme.js';
+import { initTips } from './lib/tips.js';
 
-// Apply the saved theme before first paint to avoid a flash.
+// Apply the saved theme + aides preference before first paint to avoid a flash.
 initTheme();
+initTips();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

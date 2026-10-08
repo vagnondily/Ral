@@ -262,25 +262,45 @@ function choiceLabeller(choices) {
   };
 }
 
+const DV_MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+// Filtres « référentiels MEMS » de la grille : bureau, découpage administratif,
+// date (année / mois). La date de collecte (svydate) est déjà dans les données,
+// donc toutes les soumissions sont chargées et filtrées ici — pas de sélecteur
+// de période imposé.
+const DV_DIMS = [
+  { key: 'bureau', label: 'Bureau', get: (r) => r.fieldOffice },
+  { key: 'region', label: 'Région', get: (r) => r.admin1 },
+  { key: 'district', label: 'District', get: (r) => r.admin3 },
+  { key: 'commune', label: 'Commune', get: (r) => r.communeName || r.admin4 },
+  { key: 'year', label: 'Année', get: (r) => (r.periodMonth ? r.periodMonth.slice(0, 4) : null) },
+  { key: 'mon', label: 'Mois', get: (r) => (r.periodMonth ? r.periodMonth.slice(5, 7) : null), fmt: (v) => DV_MONTHS[Number(v) - 1] || v },
+];
+
 function DataViewTab({ form, onGoConfig }) {
   const toast = useToast();
-  const [month, setMonth] = useState('');
   const [q, setQ] = useState('');
+  const [filters, setFilters] = useState({});
   const [cat, setCat] = useState(null);
   const [res, setRes] = useState(null);
 
   useEffect(() => {
-    setCat(null); setRes(null);
+    setCat(null); setRes(null); setFilters({});
     Promise.all([
       api.monCatalog(form.id).catch(() => ({ fields: [], choices: [] })),
-      api.monFormSubmissions(form.id, { month: month || undefined, limit: 500 }),
+      api.monFormSubmissions(form.id, { limit: 1000 }),
     ]).then(([c, r]) => { setCat(c || { fields: [], choices: [] }); setRes(r); })
       .catch((e) => { toast.error(e.message); setCat({ fields: [], choices: [] }); setRes({ rows: [], total: 0, limit: 0 }); });
     /* eslint-disable-next-line */
-  }, [form.id, month]);
+  }, [form.id]);
 
   const rows = res?.rows || [];
   const labelOf = choiceLabeller(cat?.choices);
+
+  // Options de filtre : une liste de valeurs distinctes par dimension présente.
+  const dimOptions = useMemo(() => DV_DIMS.map((d) => {
+    const vals = [...new Set(rows.map((r) => d.get(r)).filter((v) => v != null && v !== ''))].map(String).sort();
+    return { ...d, vals };
+  }).filter((d) => d.vals.length > 1), [rows]);
 
   // Colonnes « variables » : catalogue d'abord, sinon clés vues dans les données.
   const varCols = useMemo(() => {
@@ -322,14 +342,16 @@ function DataViewTab({ form, onGoConfig }) {
   };
 
   const shown = useMemo(() => {
-    if (!q) return rows;
+    const active = DV_DIMS.filter((d) => filters[d.key]);
     const s = q.toLowerCase();
     return rows.filter((r) => {
+      for (const d of active) { if (String(d.get(r) ?? '') !== filters[d.key]) return false; }
+      if (!q) return true;
       if (metaCols.some((m) => String(metaVal(r, m)).toLowerCase().includes(s))) return true;
       return Object.values(r.data || {}).some((v) => String(v ?? '').toLowerCase().includes(s));
     });
     /* eslint-disable-next-line */
-  }, [rows, q, metaCols]);
+  }, [rows, q, filters, metaCols]);
 
   const [open, setOpen] = useState(null);
   const [expanded, setExpanded] = useState(false); // hauteur compacte ↔ liste complète
@@ -338,7 +360,7 @@ function DataViewTab({ form, onGoConfig }) {
   // listes de l'app (sélection par ligne, tout cocher, export de la sélection).
   const rowKey = (r, i) => r.externalId || `_${i}`;
   const [sel, setSel] = useState(() => new Set());
-  useEffect(() => { setSel(new Set()); }, [form.id, month]);
+  useEffect(() => { setSel(new Set()); }, [form.id, filters]);
   const shownKeys = shown.map(rowKey);
   const allSel = shown.length > 0 && shownKeys.every((k) => sel.has(k));
   const toggleAll = () => setSel(allSel ? new Set() : new Set(shownKeys));
@@ -370,11 +392,25 @@ function DataViewTab({ form, onGoConfig }) {
           </EmptyState>
         ) : (
           <>
+            {dimOptions.length > 0 && (
+              <div className="comet-filters">
+                {dimOptions.map((d) => (
+                  <div className="field" key={d.key}>
+                    <span className="field-label">{d.label}</span>
+                    <select className="select" value={filters[d.key] || ''} aria-label={d.label}
+                      onChange={(e) => setFilters((f) => ({ ...f, [d.key]: e.target.value }))}>
+                      <option value="">Tous</option>
+                      {d.vals.map((v) => <option key={v} value={v}>{d.fmt ? d.fmt(v) : v}</option>)}
+                    </select>
+                  </div>
+                ))}
+                {DV_DIMS.some((d) => filters[d.key]) && <Button variant="ghost" size="sm" onClick={() => setFilters({})}>Réinitialiser</Button>}
+              </div>
+            )}
             <div className="ind-toolbar">
               <span className="input-wrap ind-search"><Search size={16} aria-hidden="true" />
                 <input className="input" type="search" placeholder="Filtrer les soumissions…" value={q} onChange={(e) => setQ(e.target.value)} />
               </span>
-              <label className="ind-period">Période <MonthSelect value={month || currentMonth()} onChange={setMonth} /></label>
               <span className="ind-hint">{shown.length} / {res.total} soumission(s){res.total > res.limit ? ` · ${res.limit} affichées max` : ''}</span>
               <span className="ind-tsp" />
               <div className="pop-anchor" ref={colMenu.ref}>
