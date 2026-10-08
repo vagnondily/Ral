@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Upload, AlertCircle, ClipboardCheck, RefreshCw, ArrowLeft, ChevronRight,
   FileSpreadsheet, SlidersHorizontal, BarChart3, Link2, Trash2, Pencil, Check, Minus, Shuffle,
-  Table2, Download, Search, Columns3,
+  Table2, Download, Search, Columns3, X,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, IconButton, PageHeader, Skeleton, Stats } from '../../components/ui.jsx';
@@ -333,10 +333,21 @@ function DataViewTab({ form, onGoConfig }) {
 
   const [open, setOpen] = useState(null);
 
-  function exportCsv() {
+  // Sélection multiple (cases à cocher) + actions groupées — convention des
+  // listes de l'app (sélection par ligne, tout cocher, export de la sélection).
+  const rowKey = (r, i) => r.externalId || `_${i}`;
+  const [sel, setSel] = useState(() => new Set());
+  useEffect(() => { setSel(new Set()); }, [form.id, month]);
+  const shownKeys = shown.map(rowKey);
+  const allSel = shown.length > 0 && shownKeys.every((k) => sel.has(k));
+  const toggleAll = () => setSel(allSel ? new Set() : new Set(shownKeys));
+  const toggleOne = (k) => setSel((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+
+  function exportCsv(which) {
+    const list = which === 'sel' ? shown.filter((r, i) => sel.has(rowKey(r, i))) : shown;
     const head = [...metaCols.map((m) => m.label), ...varCols.map((v) => v.label || v.name)];
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const lines = shown.map((r) => [
+    const lines = list.map((r) => [
       ...metaCols.map((m) => metaVal(r, m)),
       ...varCols.map((v) => { const raw = r.data?.[v.name]; return raw == null || raw === '' ? '' : labelOf(v, raw); }),
     ].map(esc).join(';'));
@@ -381,24 +392,38 @@ function DataViewTab({ form, onGoConfig }) {
                   </div>
                 )}
               </div>
-              <IconButton icon={Download} label="Exporter tout (CSV)" variant="secondary" size="sm" onClick={exportCsv} />
+              <IconButton icon={Download} label="Exporter tout (CSV)" variant="secondary" size="sm" onClick={() => exportCsv('all')} />
             </div>
+            {sel.size > 0 && (
+              <div className="ind-batch">
+                <span className="ind-batch-n">{sel.size} sélectionnée(s)</span>
+                <Button size="sm" variant="ghost" icon={Download} onClick={() => exportCsv('sel')}>Exporter la sélection</Button>
+                <Button size="sm" variant="ghost" icon={X} onClick={() => setSel(new Set())}>Désélectionner</Button>
+              </div>
+            )}
             <div className="table-wrap data-scroll">
               <table className="table data-grid">
                 <thead><tr>
-                  {metaCols.map((m) => <th key={m.key} scope="col">{m.label}</th>)}
+                  <th className="data-cb"><input type="checkbox" checked={allSel} onChange={toggleAll} aria-label="Tout sélectionner" /></th>
+                  {metaCols.map((m, mi) => <th key={m.key} scope="col" className={mi === 0 ? 'data-first' : ''}>{m.label}</th>)}
                   {shownVarCols.map((v) => <th key={v.name} scope="col" className="data-var"><span>{v.label || v.name}</span><div className="th-sub mono">{v.name}</div></th>)}
                 </tr></thead>
                 <tbody>
-                  {shown.map((r, i) => (
-                    <tr key={r.externalId || i} className="clickable" onClick={() => setOpen(r)}>
-                      {metaCols.map((m) => <td key={m.key} className={m.key === 'submittedAt' ? 'tabular' : ''}>{metaVal(r, m)}</td>)}
+                  {shown.map((r, i) => {
+                    const k = rowKey(r, i); const isSel = sel.has(k);
+                    return (
+                    <tr key={k} className={`clickable ${isSel ? 'is-selected' : ''}`} onClick={() => setOpen(r)}>
+                      <td className="data-cb" onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" checked={isSel} onChange={() => toggleOne(k)} aria-label="Sélectionner la soumission" />
+                      </td>
+                      {metaCols.map((m, mi) => <td key={m.key} className={`${m.key === 'submittedAt' ? 'tabular' : ''} ${mi === 0 ? 'data-first' : ''}`}>{metaVal(r, m)}</td>)}
                       {shownVarCols.map((v) => {
                         const raw = r.data?.[v.name];
                         return <td key={v.name} className="mono-cell data-var">{raw == null || raw === '' ? <span className="cell-empty">—</span> : labelOf(v, raw)}</td>;
                       })}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
