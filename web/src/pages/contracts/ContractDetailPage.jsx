@@ -240,15 +240,17 @@ function AmendmentDiff({ before, after }) {
   return (
     <div className="amend-diff">
       {scalarChanged && (
-        <table className="diff-table">
-          <thead><tr><th>Champ</th><th>Avant</th><th aria-hidden="true" /><th>Après</th></tr></thead>
-          <tbody>
-            <ScalarRow label="Date de début" before={formatDate(before.dateDebut)} after={formatDate(after.dateDebut)} />
-            <ScalarRow label="Date de fin" before={formatDate(before.dateFin)} after={formatDate(after.dateFin)} />
-            <ScalarRow label="Commission de gestion" before={pct(before.feePct)} after={pct(after.feePct)} />
-            <ScalarRow label="Total de l'accord" before={formatAr(before.grandTotal)} after={formatAr(after.grandTotal)} />
-          </tbody>
-        </table>
+        <div className="table-wrap">
+          <table className="diff-table">
+            <thead><tr><th>Champ</th><th>Avant</th><th aria-hidden="true" /><th>Après</th></tr></thead>
+            <tbody>
+              <ScalarRow label="Date de début" before={formatDate(before.dateDebut)} after={formatDate(after.dateDebut)} />
+              <ScalarRow label="Date de fin" before={formatDate(before.dateFin)} after={formatDate(after.dateFin)} />
+              <ScalarRow label="Commission de gestion" before={pct(before.feePct)} after={pct(after.feePct)} />
+              <ScalarRow label="Total de l'accord" before={formatAr(before.grandTotal)} after={formatAr(after.grandTotal)} />
+            </tbody>
+          </table>
+        </div>
       )}
 
       {(acts.added.length > 0 || acts.removed.length > 0) && (

@@ -1535,6 +1535,12 @@ h1, h2, h3, h4 { letter-spacing: -0.018em; }
 
 /* ---- Tables ------------------------------------------------------------- */
 .table { font-size: 13.5px; }
+/* Tous les tableaux défilent latéralement « au besoin » : ils remplissent un
+   conteneur étroit (width 100 %) mais, s'ils ont trop de colonnes, gardent la
+   largeur naturelle des en-têtes (jamais repliées) et débordent dans
+   .table-wrap qui scrolle — la structure n'est pas écrasée. */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table thead th { white-space: nowrap; }
 .table thead th { background: var(--canvas); color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; font-size: 11px; font-weight: 700; padding: 11px 18px; border-bottom: 1px solid var(--border); box-shadow: none; }
 .table td { padding: 13px 18px; border-bottom: 1px solid var(--border); color: var(--text); }
 .table tbody tr { transition: background-color .12s var(--ease); }
