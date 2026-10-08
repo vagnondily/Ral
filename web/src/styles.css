@@ -1883,6 +1883,7 @@ tr.row-due { background: color-mix(in srgb, var(--blue-50) 55%, transparent); }
    gagner de la place ; réaffichées quand data-tips="on". */
 :root[data-tips="off"] .note,
 :root[data-tips="off"] .field-hint,
+:root[data-tips="off"] .demo-hint,
 :root[data-tips="off"] .hint { display: none; }
 /* La grille prend la largeur de son contenu (colonnes compactes à leur taille
    naturelle) tout en remplissant un conteneur étroit : défilement horizontal
