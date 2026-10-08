@@ -283,6 +283,7 @@ export const api = {
   fieldDeleteVisit: (id) => request(`/api/tpm/field/visits/${id}`, { method: 'DELETE' }),
   fieldCollectionDays: (month) => request('/api/tpm/field/collection-days', { query: month ? { month } : undefined }),
   fieldCoverageRecap: ({ district, operationMonths } = {}) => request('/api/tpm/field/coverage-recap', { query: { ...(district ? { district } : {}), ...(operationMonths ? { operationMonths } : {}) } }),
+  fieldCoverageMatrix: (year) => request('/api/tpm/field/coverage-matrix', { query: year ? { year } : undefined }),
   fieldMonths: (year) => request('/api/tpm/field/months', { query: year ? { year } : undefined }),
   fieldMap: () => request('/api/tpm/field/map'),
   fieldSetMonthStatus: (month, status) => request('/api/tpm/field/months/status', { method: 'PUT', body: { month, status } }),

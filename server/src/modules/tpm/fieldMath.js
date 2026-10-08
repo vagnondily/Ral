@@ -75,4 +75,44 @@ function collectionDays(visits, travelByProvider = {}, providerLabel = {}) {
   }).sort((a, b) => b.totalDays - a.totalDays);
 }
 
-module.exports = { STATUSES, summarizeVisits, collectionDays };
+/** Taux de couverture d'une cellule = réalisées / (planifiées + réalisées). */
+function coverageRate(planifie, realise) {
+  const p = Number(planifie) || 0; const r = Number(realise) || 0; const active = p + r;
+  return { planifie: p, realise: r, active, rate: active > 0 ? r / active : null };
+}
+
+/**
+ * Matrice de couverture mensuelle par groupe (programme/activité ou prestataire)
+ * pour une année : 12 mois × groupes, taux par cellule, totaux par groupe, par
+ * mois et global. `rows` = [{month:'YYYY-MM', key, label, planifie, realise}].
+ * Logique pure, testée.
+ */
+function buildCoverageMatrix(rows, year) {
+  const y = Number(year);
+  const months = Array.from({ length: 12 }, (_, i) => `${y}-${String(i + 1).padStart(2, '0')}`);
+  const groups = new Map();
+  for (const r of rows || []) {
+    if (!groups.has(r.key)) groups.set(r.key, { key: r.key, label: r.label, byMonth: new Map() });
+    const g = groups.get(r.key);
+    const cur = g.byMonth.get(r.month) || { planifie: 0, realise: 0 };
+    cur.planifie += Number(r.planifie) || 0; cur.realise += Number(r.realise) || 0;
+    g.byMonth.set(r.month, cur);
+  }
+  const monthTotals = months.map(() => ({ planifie: 0, realise: 0 }));
+  const shaped = [...groups.values()].map((g) => {
+    const cells = months.map((m, i) => {
+      const c = g.byMonth.get(m) || { planifie: 0, realise: 0 };
+      monthTotals[i].planifie += c.planifie; monthTotals[i].realise += c.realise;
+      return { month: m, ...coverageRate(c.planifie, c.realise) };
+    });
+    const tp = cells.reduce((a, c) => a + c.planifie, 0);
+    const tr = cells.reduce((a, c) => a + c.realise, 0);
+    return { key: g.key, label: g.label, cells, total: coverageRate(tp, tr) };
+  }).sort((a, b) => b.total.realise - a.total.realise || String(a.label).localeCompare(String(b.label)));
+  const monthlyTotals = monthTotals.map((c, i) => ({ month: months[i], ...coverageRate(c.planifie, c.realise) }));
+  const gp = monthTotals.reduce((a, c) => a + c.planifie, 0);
+  const gr = monthTotals.reduce((a, c) => a + c.realise, 0);
+  return { year: y, months, groups: shaped, monthlyTotals, total: coverageRate(gp, gr) };
+}
+
+module.exports = { STATUSES, summarizeVisits, collectionDays, coverageRate, buildCoverageMatrix };

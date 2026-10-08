@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Upload, AlertCircle, ClipboardCheck, RefreshCw, ArrowLeft, ChevronRight,
   FileSpreadsheet, SlidersHorizontal, BarChart3, Link2, Trash2, Pencil, Check, Minus, Shuffle,
-  Table2, Download, Search, Columns3, X,
+  Table2, Download, Search, Columns3, X, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, IconButton, PageHeader, Skeleton, Stats } from '../../components/ui.jsx';
@@ -332,6 +332,7 @@ function DataViewTab({ form, onGoConfig }) {
   }, [rows, q, metaCols]);
 
   const [open, setOpen] = useState(null);
+  const [expanded, setExpanded] = useState(false); // hauteur compacte ↔ liste complète
 
   // Sélection multiple (cases à cocher) + actions groupées — convention des
   // listes de l'app (sélection par ligne, tout cocher, export de la sélection).
@@ -401,7 +402,7 @@ function DataViewTab({ form, onGoConfig }) {
                 <Button size="sm" variant="ghost" icon={X} onClick={() => setSel(new Set())}>Désélectionner</Button>
               </div>
             )}
-            <div className="table-wrap data-scroll">
+            <div className={`table-wrap data-scroll ${expanded ? 'is-expanded' : ''}`}>
               <table className="table data-grid">
                 <thead><tr>
                   <th className="data-cb"><input type="checkbox" checked={allSel} onChange={toggleAll} aria-label="Tout sélectionner" /></th>
@@ -427,6 +428,14 @@ function DataViewTab({ form, onGoConfig }) {
                 </tbody>
               </table>
             </div>
+            {shown.length > 8 && (
+              <div className="data-expand-row">
+                <button type="button" className="data-expand" aria-expanded={expanded} onClick={() => setExpanded((e) => !e)}>
+                  {expanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
+                  <span>{expanded ? 'Réduire le tableau' : `Afficher les ${shown.length} lignes`}</span>
+                </button>
+              </div>
+            )}
           </>
         )}
       {open && <SubmissionDrawer sub={open} varCols={varCols} metaCols={metaCols} metaVal={metaVal} labelOf={labelOf} onClose={() => setOpen(null)} />}

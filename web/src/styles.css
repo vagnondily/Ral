@@ -1857,8 +1857,26 @@ tr.row-due { background: color-mix(in srgb, var(--blue-50) 55%, transparent); }
 
 /* Grille des données importées (soumissions) : colonnes compactes, défilement
    horizontal via .table-wrap ; sous-titre technique (name) sous chaque en-tête. */
-/* Conteneur à hauteur bornée : défilement vertical interne + en-têtes figées. */
-.data-scroll { max-height: 68vh; overflow: auto; }
+/* Conteneur à hauteur bornée : défilement vertical interne + en-têtes figées.
+   Le chevron bascule vers la liste complète (.is-expanded). */
+.data-scroll { max-height: 60vh; overflow: auto; }
+.data-scroll.is-expanded { max-height: none; }
+/* Chevron « compacter / tout afficher » (façon COMET), centré sous le tableau. */
+.data-expand-row { display: flex; justify-content: center; padding: 8px; border-top: 1px solid var(--border); }
+.data-expand { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 14px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-muted);
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background-color .12s var(--ease), color .12s var(--ease); }
+.data-expand:hover { background: var(--surface-2); color: var(--text); border-color: var(--border-strong); }
+
+/* ---- Couverture : tendance (SVG) + matrice mensuelle -------------------- */
+.cov-svg { width: 100%; height: auto; display: block; }
+.cov-axis { fill: var(--text-faint); font-size: 10px; font-variant-numeric: tabular-nums; }
+.cov-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 12px; }
+.cov-leg { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text); }
+.cov-dot { width: 10px; height: 10px; border-radius: 3px; flex: none; display: inline-block; margin-right: 6px; vertical-align: -1px; }
+.cov-matrix td:first-child, .cov-matrix th:first-child { white-space: nowrap; position: sticky; left: 0; background: var(--surface); z-index: 1; }
+.cov-matrix thead th:first-child { background: var(--canvas); z-index: 2; }
+.cov-cell { display: inline-block; min-width: 46px; text-align: center; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
 /* La grille prend la largeur de son contenu (colonnes compactes à leur taille
    naturelle) tout en remplissant un conteneur étroit : défilement horizontal
    propre quand elle dépasse, sans écraser ni déformer les colonnes. */

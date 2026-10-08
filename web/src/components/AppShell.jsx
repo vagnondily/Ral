@@ -42,7 +42,7 @@ export const NAV = [
           { id: 'donnees', label: 'Données & indicateurs' },
           { id: 'sites', label: 'Affectation & visites' },
           { id: 'rbm', label: 'Risk-Based Monitoring' },
-          { id: 'couverture', label: 'Récap de couverture' },
+          { id: 'couverture', label: 'Couverture' },
           { id: 'carte', label: 'Carte des sites' },
         ],
       },

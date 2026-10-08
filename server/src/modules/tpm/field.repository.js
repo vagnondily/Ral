@@ -1,5 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
-const { summarizeVisits, collectionDays } = require('./fieldMath');
+const { summarizeVisits, collectionDays, buildCoverageMatrix } = require('./fieldMath');
 const { isDue, frequencyFor } = require('./rbmMath');
 const { scoreSite } = require('./rbmScore');
 const { coverageRecap } = require('./coverageRecap');
@@ -471,6 +471,45 @@ async function coverageRecapSummary(tenantId, { district, operationMonths = 12 }
 }
 
 /**
+ * Matrice de couverture mensuelle pour une année : par programme (activité) et
+ * par prestataire TPM — planifiées/réalisées et taux par mois. Agrégé en SQL,
+ * mis en forme par la logique pure testée `buildCoverageMatrix`.
+ */
+async function coverageMatrix(tenantId, { year } = {}) {
+  const y = Number(year) || new Date().getFullYear();
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: act } = await client.query(
+      `SELECT to_char(period_month, 'YYYY-MM') AS month,
+              COALESCE(NULLIF(activity, ''), '—') AS key,
+              COALESCE(NULLIF(activity, ''), '—') AS label,
+              count(*) FILTER (WHERE status = 'planifie')::int AS planifie,
+              count(*) FILTER (WHERE status = 'realise')::int AS realise
+         FROM site_visits
+        WHERE tenant_id = $1 AND date_part('year', period_month) = $2
+        GROUP BY 1, 2, 3`,
+      [tenantId, y]
+    );
+    const { rows: prov } = await client.query(
+      `SELECT to_char(v.period_month, 'YYYY-MM') AS month,
+              COALESCE(v.provider_id::text, 'non_affecte') AS key,
+              COALESCE(p.name, 'Non affecté') AS label,
+              count(*) FILTER (WHERE v.status = 'planifie')::int AS planifie,
+              count(*) FILTER (WHERE v.status = 'realise')::int AS realise
+         FROM site_visits v LEFT JOIN partners p ON p.id = v.provider_id
+        WHERE v.tenant_id = $1 AND date_part('year', v.period_month) = $2
+        GROUP BY 1, 2, 3`,
+      [tenantId, y]
+    );
+    // Années disponibles (pour le sélecteur).
+    const { rows: yrs } = await client.query(
+      `SELECT DISTINCT date_part('year', period_month)::int AS y FROM site_visits WHERE tenant_id = $1 ORDER BY y DESC`,
+      [tenantId]
+    );
+    return { year: y, years: yrs.map((r) => r.y), byActivity: buildCoverageMatrix(act, y), byProvider: buildCoverageMatrix(prov, y) };
+  });
+}
+
+/**
  * Jours de collecte par prestataire pour un mois = visites datées (non
  * annulées) + jours de déplacement manuels (tpm_collection_days).
  */
@@ -581,6 +620,6 @@ async function importPlanning(tenantId, userId, month, rows) {
 module.exports = {
   listSites, createSite, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
-  collectionDaysSummary, setTravelDays, coverageRecapSummary, monthsOverview, setMonthStatus, mapData,
+  collectionDaysSummary, setTravelDays, coverageRecapSummary, coverageMatrix, monthsOverview, setMonthStatus, mapData,
   rbmSites, importMasterData, importPlanSites, generateFromRbm,
 };
