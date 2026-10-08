@@ -173,6 +173,53 @@ async function formSubmissions(tenantId, formId, { month, limit = 200 } = {}) {
 }
 
 /**
+ * Enrichit le catalogue d'une fiche depuis les variables d'un .sav (SPSS) :
+ * name + label de variable, et étiquettes de valeurs → listes de choix. Ne fait
+ * rien si un catalogue existe déjà (le XLSForm reste la source de vérité) ;
+ * sinon, nomme les colonnes à partir des labels du .sav. Batché, idempotent.
+ */
+async function ensureCatalogFromSav(tenantId, formId, variables) {
+  if (!variables || !variables.length) return { added: 0 };
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: ex } = await client.query(
+      'SELECT count(*)::int AS n FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2',
+      [tenantId, formId]
+    );
+    if ((ex[0]?.n ?? 0) > 0) return { added: 0, skipped: 'catalogue existant' };
+
+    const withLabels = variables.filter((v) => v && v.name);
+    if (withLabels.length) {
+      const cols = 8; const params = []; const tuples = withLabels.map((v, i) => {
+        const b = i * cols;
+        const hasChoices = Array.isArray(v.valueLabels) && v.valueLabels.length > 0;
+        params.push(tenantId, formId, v.name, v.type || null, v.label || v.name, null, hasChoices ? v.name : null, i);
+        return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8})`;
+      });
+      await client.query(
+        `INSERT INTO monitoring_form_fields (tenant_id, form_id, name, type, label, group_path, list_name, sort_order)
+         VALUES ${tuples.join(',')} ON CONFLICT (form_id, name) DO NOTHING`,
+        params
+      );
+    }
+    const flat = [];
+    for (const v of withLabels) for (let i = 0; i < (v.valueLabels || []).length; i += 1) {
+      flat.push({ listName: v.name, value: v.valueLabels[i].value, label: v.valueLabels[i].label || v.valueLabels[i].value, sort: i });
+    }
+    if (flat.length) {
+      const cols = 6; const params = []; const tuples = flat.map((c, i) => {
+        const b = i * cols; params.push(tenantId, formId, c.listName, c.value, c.label, c.sort);
+        return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6})`;
+      });
+      await client.query(
+        `INSERT INTO monitoring_choices (tenant_id, form_id, list_name, value, label, sort_order) VALUES ${tuples.join(',')}`,
+        params
+      );
+    }
+    return { added: withLabels.length };
+  });
+}
+
+/**
  * Mapping « formulaire ↔ référentiels MEMS » : quelle colonne du formulaire
  * (catalogue XLSForm + clés vues dans les données) alimente chaque dimension
  * MEMS. Dérivé en direct via la table d'alias partagée (aucun stockage).
@@ -442,5 +489,5 @@ module.exports = {
   listForms, createForm, updateForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,
   formFields, importSubmissions, computeValues, dashboard, processOverview,
-  formCatalog, memsMappingForForm, formSubmissions, importDefinition, listSubmissions,
+  formCatalog, memsMappingForForm, formSubmissions, ensureCatalogFromSav, importDefinition, listSubmissions,
 };

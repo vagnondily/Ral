@@ -338,7 +338,7 @@ function DataViewTab({ form, onGoConfig }) {
               <span className="ind-tsp" />
               <IconButton icon={Download} label="Exporter (CSV)" variant="secondary" size="sm" onClick={exportCsv} />
             </div>
-            <div className="table-wrap">
+            <div className="table-wrap data-scroll">
               <table className="table data-grid">
                 <thead><tr>
                   {metaCols.map((m) => <th key={m.key} scope="col">{m.label}</th>)}

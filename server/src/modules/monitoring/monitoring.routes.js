@@ -89,11 +89,12 @@ function withStableIds(subs) {
   return subs;
 }
 
-// Extrait les lignes d'un .sav (SPSS) → soumissions normalisées.
+// Extrait les lignes d'un .sav (SPSS) → soumissions normalisées + le catalogue
+// de variables (name/label + étiquettes de valeurs) pour nommer les colonnes.
 function savToSubmissions(buf) {
-  const { rows } = parseSav(buf);
+  const { rows, variables } = parseSav(buf);
   if (!rows.length) throw badRequest('Aucune donnée dans le fichier .sav.');
-  return withStableIds(submissionsFromObjects(rows, 'sav'));
+  return { submissions: withStableIds(submissionsFromObjects(rows, 'sav')), variables };
 }
 
 // Import a CSV / XLSX / SPSS .sav export, ou un .zip Kobo (contenant data.sav).
@@ -104,16 +105,16 @@ router.post('/forms/:id/import', WRITE, express.raw({ type: '*/*', limit: '80mb'
   const isZip = /\.zip$/i.test(name) || (buf[0] === 0x50 && buf[1] === 0x4b && /\.zip$/i.test(name));
   const isSav = /\.sav$/i.test(name) || buf.toString('latin1', 0, 4) === '$FL2';
 
-  let submissions; let fields = 0;
+  let submissions; let fields = 0; let savVariables = null;
   try {
     if (isZip) {
       const zip = new AdmZip(buf);
       const entry = zip.getEntries().find((e) => /(^|\/)data\.sav$/i.test(e.entryName))
         || zip.getEntries().find((e) => /\.sav$/i.test(e.entryName));
       if (!entry) throw badRequest('Archive Kobo sans fichier .sav (data.sav attendu).');
-      submissions = savToSubmissions(entry.getData());
+      ({ submissions, variables: savVariables } = savToSubmissions(entry.getData()));
     } else if (isSav) {
-      submissions = savToSubmissions(buf);
+      ({ submissions, variables: savVariables } = savToSubmissions(buf));
     } else {
       const parsed = await parseSubmissions(buf, { filename: name });
       submissions = parsed.submissions; fields = parsed.headers.length;
@@ -125,7 +126,9 @@ router.post('/forms/:id/import', WRITE, express.raw({ type: '*/*', limit: '80mb'
   if (!submissions.length) throw badRequest('Aucune soumission trouvée dans le fichier.');
   const result = await repo.importSubmissions(t(req), req.params.id, submissions);
   if (!result) throw notFound('Formulaire introuvable');
-  res.json({ ...result, fields });
+  // Si aucun catalogue XLSForm, on nomme les colonnes depuis les labels du .sav.
+  if (savVariables && savVariables.length) await repo.ensureCatalogFromSav(t(req), req.params.id, savVariables);
+  res.json({ ...result, fields: fields || (savVariables ? savVariables.length : 0) });
 }));
 
 // Pull submissions from a Kobo v2 API (KoboToolbox / ONA). Needs the asset uid

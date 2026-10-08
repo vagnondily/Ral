@@ -202,7 +202,10 @@ function parseSav(buffer, { applyValueLabels = false } = {}) {
 
   return {
     meta: { encoding, compression, cases: rows.length, declaredCases: ncases, caseSize, bias, layoutCode },
-    variables: logical.map((v) => ({ name: v.name, label: v.label, type: v.isStr ? 'string' : 'numeric', width: v.width })),
+    variables: logical.map((v) => ({
+      name: v.name, label: v.label, type: v.isStr ? 'string' : 'numeric', width: v.width,
+      valueLabels: v.valueLabels ? [...v.valueLabels.entries()].map(([value, label]) => ({ value: String(value), label })) : [],
+    })),
     rows,
   };
 }
