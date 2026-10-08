@@ -2,12 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Upload, AlertCircle, ClipboardCheck, RefreshCw, ArrowLeft, ChevronRight,
   FileSpreadsheet, SlidersHorizontal, BarChart3, Link2, Trash2, Pencil, Check, Minus, Shuffle,
-  Table2, Download, Search,
+  Table2, Download, Search, Columns3,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, IconButton, PageHeader, Skeleton, Stats } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import MonthSelect from '../../components/MonthSelect.jsx';
+import { usePopover } from '../../components/listView.jsx';
 import IndicatorsList from './IndicatorsList.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatDateTime } from '../../lib/format.js';
@@ -238,6 +239,15 @@ function VariablesTab({ form }) {
 }
 
 // ---- Données importées (visualisation des soumissions brutes) ------------
+const DATAVIEW_DEFAULT_VARS = 8; // nb de variables affichées par défaut (lisibilité)
+const DATAVIEW_STORE = 'mems.dataview.cols.v1';
+function loadVarCols(formId) {
+  try { return (JSON.parse(localStorage.getItem(DATAVIEW_STORE)) || {})[formId] || null; } catch { return null; }
+}
+function saveVarCols(formId, names) {
+  try { const all = JSON.parse(localStorage.getItem(DATAVIEW_STORE)) || {}; all[formId] = names; localStorage.setItem(DATAVIEW_STORE, JSON.stringify(all)); } catch { /* ignore */ }
+}
+
 function choiceLabeller(choices) {
   const map = {};
   for (const c of choices || []) (map[c.listName] ||= {})[c.value] = c.label;
@@ -280,6 +290,25 @@ function DataViewTab({ form, onGoConfig }) {
     for (const r of rows) for (const k of Object.keys(r.data || {})) if (!seen.has(k)) seen.set(k, { name: k, label: k, listName: null });
     return [...seen.values()];
   }, [cat, rows]);
+
+  // Sélecteur de colonnes : avec beaucoup de variables, on n'en affiche qu'un
+  // sous-ensemble (lisibilité) ; le reste reste consultable dans le tiroir de
+  // détail. Choix mémorisé par fiche. `null` = défaut (N premières).
+  const [visibleNames, setVisibleNames] = useState(null);
+  const colMenu = usePopover();
+  useEffect(() => { setVisibleNames(loadVarCols(form.id)); }, [form.id]);
+  const shownVarCols = useMemo(() => {
+    if (!varCols.length) return [];
+    if (visibleNames == null) return varCols.slice(0, DATAVIEW_DEFAULT_VARS);
+    const set = new Set(visibleNames);
+    const picked = varCols.filter((v) => set.has(v.name));
+    return picked.length ? picked : varCols.slice(0, DATAVIEW_DEFAULT_VARS);
+  }, [varCols, visibleNames]);
+  const setVisible = (names) => { setVisibleNames(names); saveVarCols(form.id, names); };
+  const toggleVar = (name) => {
+    const base = visibleNames == null ? varCols.slice(0, DATAVIEW_DEFAULT_VARS).map((v) => v.name) : visibleNames;
+    setVisible(base.includes(name) ? base.filter((x) => x !== name) : [...base, name]);
+  };
 
   // Colonnes « méta » qui portent au moins une valeur (évite les colonnes vides).
   const metaCols = useMemo(() => META_COLS.filter((m) => rows.some((r) => {
@@ -336,21 +365,37 @@ function DataViewTab({ form, onGoConfig }) {
               <label className="ind-period">Période <MonthSelect value={month || currentMonth()} onChange={setMonth} /></label>
               <span className="ind-hint">{shown.length} / {res.total} soumission(s){res.total > res.limit ? ` · ${res.limit} affichées max` : ''}</span>
               <span className="ind-tsp" />
-              <IconButton icon={Download} label="Exporter (CSV)" variant="secondary" size="sm" onClick={exportCsv} />
+              <div className="pop-anchor" ref={colMenu.ref}>
+                <IconButton icon={Columns3} label={`Colonnes (${shownVarCols.length}/${varCols.length})`} variant="secondary" size="sm" onClick={() => colMenu.setOpen((o) => !o)} />
+                {colMenu.open && (
+                  <div className="pop-menu filter-menu" role="menu" style={{ maxHeight: 340, overflow: 'auto' }}>
+                    <div className="pop-menu-label">Variables affichées ({shownVarCols.length}/{varCols.length})</div>
+                    {varCols.map((v) => (
+                      <label key={v.name} className="filter-pick">
+                        <input type="checkbox" checked={shownVarCols.some((s) => s.name === v.name)} onChange={() => toggleVar(v.name)} />
+                        <span>{v.label || v.name}{v.label && v.label !== v.name ? <span className="site-meta"> · {v.name}</span> : null}</span>
+                      </label>
+                    ))}
+                    <button type="button" className="pop-reset" onClick={() => setVisible(varCols.map((v) => v.name))}>Tout afficher</button>
+                    <button type="button" className="pop-reset" onClick={() => setVisible(varCols.slice(0, DATAVIEW_DEFAULT_VARS).map((v) => v.name))}>Réduire ({DATAVIEW_DEFAULT_VARS} premières)</button>
+                  </div>
+                )}
+              </div>
+              <IconButton icon={Download} label="Exporter tout (CSV)" variant="secondary" size="sm" onClick={exportCsv} />
             </div>
             <div className="table-wrap data-scroll">
               <table className="table data-grid">
                 <thead><tr>
                   {metaCols.map((m) => <th key={m.key} scope="col">{m.label}</th>)}
-                  {varCols.map((v) => <th key={v.name} scope="col"><span>{v.label || v.name}</span><div className="th-sub mono">{v.name}</div></th>)}
+                  {shownVarCols.map((v) => <th key={v.name} scope="col" className="data-var"><span>{v.label || v.name}</span><div className="th-sub mono">{v.name}</div></th>)}
                 </tr></thead>
                 <tbody>
                   {shown.map((r, i) => (
                     <tr key={r.externalId || i} className="clickable" onClick={() => setOpen(r)}>
                       {metaCols.map((m) => <td key={m.key} className={m.key === 'submittedAt' ? 'tabular' : ''}>{metaVal(r, m)}</td>)}
-                      {varCols.map((v) => {
+                      {shownVarCols.map((v) => {
                         const raw = r.data?.[v.name];
-                        return <td key={v.name} className="mono-cell">{raw == null || raw === '' ? <span className="cell-empty">—</span> : labelOf(v, raw)}</td>;
+                        return <td key={v.name} className="mono-cell data-var">{raw == null || raw === '' ? <span className="cell-empty">—</span> : labelOf(v, raw)}</td>;
                       })}
                     </tr>
                   ))}
