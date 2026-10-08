@@ -172,8 +172,28 @@ router.get('/forms/:id/dashboard', asyncHandler(async (req, res) => {
 // Catalogue détaillé d'une fiche (champs + listes de choix issus du XLSForm).
 router.get('/forms/:id/catalog', asyncHandler(async (req, res) => res.json(await repo.formCatalog(t(req), req.params.id))));
 
-// Mapping « formulaire ↔ référentiels MEMS » (dérivé, aucun stockage).
+// Mapping « formulaire ↔ référentiels MEMS » : auto-détecté, surchargeable.
 router.get('/forms/:id/mems-mapping', asyncHandler(async (req, res) => res.json(await repo.memsMappingForForm(t(req), req.params.id))));
+
+// Surcharge manuelle d'une dimension (column '' = « non reliée »).
+router.put('/forms/:id/mems-mapping', WRITE,
+  body(z.object({ dimension: z.string().trim().min(1), column: z.string().trim().max(200).optional().default('') })),
+  asyncHandler(async (req, res) => {
+    const r = await repo.setMemsMapping(t(req), req.params.id, req.valid.dimension, req.valid.column);
+    if (!r) throw badRequest('Dimension non surchargeable ou formulaire introuvable.');
+    res.json(r);
+  }));
+
+// Rétablit la détection automatique d'une dimension.
+router.delete('/forms/:id/mems-mapping/:dimension', WRITE, asyncHandler(async (req, res) => {
+  await repo.resetMemsMapping(t(req), req.params.id, req.params.dimension);
+  res.status(204).end();
+}));
+
+// Réapplique les surcharges aux soumissions déjà importées.
+router.post('/forms/:id/mems-mapping/apply', WRITE, asyncHandler(async (req, res) => {
+  res.json(await repo.applyMappingToSubmissions(t(req), req.params.id));
+}));
 
 // Soumissions brutes d'une fiche (données importées) — visualisation par fiche.
 router.get('/forms/:id/submissions', asyncHandler(async (req, res) => {

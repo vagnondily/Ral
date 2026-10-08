@@ -1,6 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
 const { computeAll, overallIndex } = require('./monitoringMath');
-const { detectMapping } = require('./memsMapping');
+const { detectMapping, DIMENSION_COLUMN, EDITABLE_KEYS } = require('./memsMapping');
 
 /**
  * Suivi de processus — data access. Forms + configurable indicators (the
@@ -227,7 +227,7 @@ async function ensureCatalogFromSav(tenantId, formId, variables) {
 async function memsMappingForForm(tenantId, formId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows: cat } = await client.query(
-      'SELECT name, label FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2',
+      'SELECT name, label FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name',
       [tenantId, formId]
     );
     const { rows: keys } = await client.query(
@@ -235,9 +235,95 @@ async function memsMappingForForm(tenantId, formId) {
          FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2`,
       [tenantId, formId]
     );
+    const { rows: ov } = await client.query(
+      'SELECT dimension, column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2',
+      [tenantId, formId]
+    );
     const labelByName = new Map(cat.map((c) => [c.name, c.label]));
     const names = [...new Set([...cat.map((c) => c.name), ...keys.map((k) => k.field)])];
-    return detectMapping(names).map((m) => ({ ...m, columnLabel: m.column ? (labelByName.get(m.column) || null) : null }));
+    const overrideByDim = new Map(ov.map((o) => [o.dimension, o.columnName]));
+    const auto = new Map(detectMapping(names).map((m) => [m.key, m]));
+
+    const rows = detectMapping(names).map((m) => {
+      const hasOverride = overrideByDim.has(m.key);
+      const autoColumn = auto.get(m.key)?.column || null;
+      const column = hasOverride ? (overrideByDim.get(m.key) || null) : autoColumn;
+      return {
+        key: m.key, label: m.label, mems: m.mems,
+        column, columnLabel: column ? (labelByName.get(column) || null) : null,
+        autoColumn, source: hasOverride ? 'manuel' : (autoColumn ? 'auto' : null),
+        editable: EDITABLE_KEYS.includes(m.key),
+      };
+    });
+    // Colonnes disponibles pour l'éditeur (catalogue + clés vues dans les données).
+    const seen = new Set(cat.map((c) => c.name));
+    const columns = [
+      ...cat.map((c) => ({ name: c.name, label: c.label || c.name })),
+      ...keys.map((k) => k.field).filter((f) => !seen.has(f)).map((f) => ({ name: f, label: f })),
+    ];
+    return { rows, columns };
+  });
+}
+
+/** Surcharge (ou efface) le mapping d'une dimension MEMS pour une fiche. */
+async function setMemsMapping(tenantId, formId, dimension, columnName) {
+  if (!EDITABLE_KEYS.includes(dimension)) return null;
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query('SELECT 1 FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
+    if (!rows.length) return null;
+    const col = columnName && String(columnName).trim() ? String(columnName).trim() : '';
+    await client.query(
+      `INSERT INTO monitoring_field_map (tenant_id, form_id, dimension, column_name, updated_at)
+       VALUES ($1,$2,$3,$4, now())
+       ON CONFLICT (form_id, dimension) DO UPDATE SET column_name = EXCLUDED.column_name, updated_at = now()`,
+      [tenantId, formId, dimension, col]
+    );
+    return { dimension, columnName: col };
+  });
+}
+
+/** Rétablit la détection automatique pour une dimension (supprime la surcharge). */
+async function resetMemsMapping(tenantId, formId, dimension) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rowCount } = await client.query(
+      'DELETE FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2 AND dimension = $3',
+      [tenantId, formId, dimension]
+    );
+    return { removed: rowCount };
+  });
+}
+
+/**
+ * Réapplique les surcharges manuelles aux soumissions déjà importées : pour
+ * chaque dimension surchargée, recopie `data->>colonne` dans le champ typé
+ * (ou NULL si la dimension a été mise « non reliée »). N'affecte pas les
+ * dimensions laissées en automatique (valeurs posées à l'import conservées).
+ */
+async function applyMappingToSubmissions(tenantId, formId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: ov } = await client.query(
+      'SELECT dimension, column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2',
+      [tenantId, formId]
+    );
+    let applied = 0;
+    for (const o of ov) {
+      const col = DIMENSION_COLUMN[o.dimension];
+      if (!col) continue; // dimension non surchargeable (ex. date)
+      if (o.columnName && o.columnName.trim()) {
+        await client.query(
+          `UPDATE monitoring_submissions SET ${col} = NULLIF(data->>$3, '')
+             WHERE tenant_id = $1 AND form_id = $2`,
+          [tenantId, formId, o.columnName.trim()]
+        );
+      } else {
+        await client.query(
+          `UPDATE monitoring_submissions SET ${col} = NULL WHERE tenant_id = $1 AND form_id = $2`,
+          [tenantId, formId]
+        );
+      }
+      applied += 1;
+    }
+    return { applied };
   });
 }
 
@@ -302,9 +388,27 @@ async function importSubmissions(tenantId, formId, submissions) {
     const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
     if (!f[0]) return null;
 
+    // Surcharges manuelles de mapping : écrasent la détection par alias, au moment
+    // de l'import, à partir des réponses brutes (data) de chaque soumission.
+    const SUB_PROP = { field_office: 'fieldOffice', admin1: 'admin1', admin2: 'admin2', admin3: 'admin3', admin4: 'admin4', site: 'site', partner: 'partner', agent: 'agent' };
+    const { rows: ov } = await client.query(
+      'SELECT dimension, column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2',
+      [tenantId, formId]
+    );
+    const applyOverrides = (s) => {
+      for (const o of ov) {
+        const prop = SUB_PROP[o.dimension]; if (!prop) continue;
+        if (o.columnName && o.columnName.trim()) {
+          const v = s.data ? s.data[o.columnName.trim()] : undefined;
+          s[prop] = (v == null || v === '') ? null : String(v);
+        } else { s[prop] = null; }
+      }
+    };
+
     let inserted = 0;
     // Insert row by row so ON CONFLICT dedup (per _uuid) is simple and safe.
     for (const s of submissions) {
+      if (ov.length) applyOverrides(s);
       const res = await client.query(
         `INSERT INTO monitoring_submissions
            (tenant_id, form_id, external_id, period_month, submitted_at, field_office,
@@ -489,5 +593,6 @@ module.exports = {
   listForms, createForm, updateForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,
   formFields, importSubmissions, computeValues, dashboard, processOverview,
-  formCatalog, memsMappingForForm, formSubmissions, ensureCatalogFromSav, importDefinition, listSubmissions,
+  formCatalog, memsMappingForForm, setMemsMapping, resetMemsMapping, applyMappingToSubmissions,
+  formSubmissions, ensureCatalogFromSav, importDefinition, listSubmissions,
 };

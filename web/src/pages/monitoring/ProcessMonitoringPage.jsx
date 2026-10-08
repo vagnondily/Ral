@@ -164,7 +164,7 @@ function FormDetail({ form, canEdit, onBack, onChanged }) {
       {tab === 'variables' && <VariablesTab form={form} />}
       {tab === 'donnees' && <DataViewTab form={form} onGoConfig={() => setTab('config')} />}
       {tab === 'resultats' && <ResultsTab form={form} onGoConfig={() => setTab('config')} />}
-      {tab === 'mapping' && <MappingTab form={form} />}
+      {tab === 'mapping' && <MappingTab form={form} canEdit={canEdit} />}
       {tab === 'config' && <ConfigTab form={form} canEdit={canEdit} onChanged={onChanged} />}
     </div>
   );
@@ -441,45 +441,88 @@ function ResultsTab({ form, onGoConfig }) {
   );
 }
 
-// ---- Mapping MEMS (quelle colonne alimente quelle dimension du référentiel) --
-function MappingTab({ form }) {
+// ---- Mapping MEMS (auto-détecté + surcharge manuelle éditable) -----------
+function MappingTab({ form, canEdit }) {
   const toast = useToast();
-  const [rows, setRows] = useState(null);
+  const [data, setData] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [applying, setApplying] = useState(false);
 
-  useEffect(() => {
-    setRows(null);
-    api.monMemsMapping(form.id).then(setRows).catch((e) => { toast.error(e.message); setRows([]); });
-    /* eslint-disable-next-line */
-  }, [form.id]);
+  async function reload() {
+    try { setData(await api.monMemsMapping(form.id)); }
+    catch (e) { toast.error(e.message); setData({ rows: [], columns: [] }); }
+  }
+  useEffect(() => { setData(null); reload(); /* eslint-disable-next-line */ }, [form.id]);
 
-  const matched = (rows || []).filter((r) => r.column).length;
+  const rows = data?.rows || [];
+  const columns = data?.columns || [];
+  const hasManual = rows.some((r) => r.source === 'manuel');
+
+  async function onChange(r, value) {
+    // '__auto__' → auto ; '' → non reliée ; sinon nom de colonne.
+    setSaving(true);
+    try {
+      if (value === '__auto__') await api.monResetMemsMapping(form.id, r.key);
+      else await api.monSetMemsMapping(form.id, r.key, value);
+      await reload();
+    } catch (e) { toast.error(e.message); } finally { setSaving(false); }
+  }
+
+  async function applyToData() {
+    setApplying(true);
+    try { const res = await api.monApplyMemsMapping(form.id); toast.success(`Mapping appliqué (${res.applied} dimension(s)) aux soumissions.`); }
+    catch (e) { toast.error(e.message); } finally { setApplying(false); }
+  }
+
+  const selValue = (r) => (r.source === 'manuel' ? (r.column || '') : '__auto__');
+  const matched = rows.filter((r) => r.column).length;
+
   return (
     <Card aria-labelledby="mems-title">
       <CardHeader id="mems-title" title="Mapping avec les référentiels MEMS"
-        subtitle="Quelle colonne du formulaire alimente chaque dimension MEMS (bureau, zones, site, partenaire, agent, période). Détecté automatiquement à partir des variables ; sert au rattachement des soumissions." />
-      {rows === null ? <div className="card-body"><Skeleton height={140} /></div> : (
+        subtitle="Quelle colonne du formulaire alimente chaque dimension MEMS (bureau, zones, site, partenaire, agent, période). Auto-détecté à partir des variables ; vous pouvez le corriger à la main.">
+        {canEdit && hasManual && <Button size="sm" variant="secondary" icon={RefreshCw} loading={applying} onClick={applyToData}>Appliquer aux soumissions</Button>}
+      </CardHeader>
+      {data === null ? <div className="card-body"><Skeleton height={140} /></div> : (
         <>
           <div className="card-body" style={{ paddingBottom: 0 }}>
             <Alert tone={matched ? 'info' : 'warning'} icon={matched ? Link2 : AlertCircle}>
-              {matched} dimension(s) sur {rows.length} reliée(s). Les dimensions non reliées restent vides tant qu'aucune colonne du formulaire ne correspond (renommez la colonne dans le XLSForm au besoin).
+              {matched} dimension(s) sur {rows.length} reliée(s). {canEdit
+                ? <>Choisissez « Automatique » pour laisser la détection, une colonne pour forcer le mapping, ou « Aucune » pour ignorer. Après correction, « Appliquer aux soumissions » recalcule les données déjà importées.</>
+                : <>La détection est automatique ; un administrateur ou validateur peut corriger le mapping.</>}
             </Alert>
           </div>
           <div className="table-wrap">
             <table className="table">
               <thead><tr>
-                <th scope="col">Dimension MEMS</th><th scope="col">Référentiel</th><th scope="col">Colonne du formulaire</th><th scope="col">État</th>
+                <th scope="col">Dimension MEMS</th><th scope="col">Référentiel</th>
+                <th scope="col">Colonne du formulaire</th><th scope="col">Source</th>
               </tr></thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.key}>
                     <td><strong>{r.label}</strong></td>
                     <td className="muted">{r.mems}</td>
-                    <td>{r.column
-                      ? <><span className="mono">{r.column}</span>{r.columnLabel && r.columnLabel !== r.column && <div className="site-meta">{r.columnLabel}</div>}</>
-                      : <span className="cell-empty">—</span>}</td>
-                    <td>{r.column
-                      ? <Badge tone="green" icon={Check}>relié</Badge>
-                      : <Badge tone={null} icon={Minus}>non relié</Badge>}</td>
+                    <td>
+                      {r.editable && canEdit ? (
+                        <select className="select" value={selValue(r)} disabled={saving} onChange={(e) => onChange(r, e.target.value)} style={{ minWidth: 220 }}>
+                          <option value="__auto__">Automatique{r.autoColumn ? ` — ${r.autoColumn}` : ' — (aucune détectée)'}</option>
+                          <option value="">— Aucune (ignorer) —</option>
+                          <optgroup label="Colonnes du formulaire">
+                            {columns.map((c) => <option key={c.name} value={c.name}>{c.label && c.label !== c.name ? `${c.label} — ${c.name}` : c.name}</option>)}
+                          </optgroup>
+                        </select>
+                      ) : r.column
+                        ? <><span className="mono">{r.column}</span>{r.columnLabel && r.columnLabel !== r.column && <div className="site-meta">{r.columnLabel}</div>}</>
+                        : <span className="cell-empty">—</span>}
+                    </td>
+                    <td>
+                      {r.source === 'manuel'
+                        ? <Badge tone="blue" icon={Pencil}>manuel{r.column ? '' : ' · aucune'}</Badge>
+                        : r.column
+                          ? <Badge tone="green" icon={Check}>auto</Badge>
+                          : <Badge tone={null} icon={Minus}>non relié</Badge>}
+                    </td>
                   </tr>
                 ))}
               </tbody>

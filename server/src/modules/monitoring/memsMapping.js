@@ -35,6 +35,16 @@ const MAP = {
   ...Object.fromEntries(DIMENSIONS.map((d) => [d.key, d.aliases])),
 };
 
+// Colonne de la table monitoring_submissions alimentée par chaque dimension.
+// `submitted_at` est une date dérivée à l'import : non surchargeable à la main.
+const DIMENSION_COLUMN = {
+  field_office: 'field_office',
+  admin1: 'admin1', admin2: 'admin2', admin3: 'admin3', admin4: 'admin4',
+  site: 'site', partner: 'partner', agent: 'agent',
+};
+// Dimensions qu'on peut (re)mapper manuellement.
+const EDITABLE_KEYS = Object.keys(DIMENSION_COLUMN);
+
 const norm = (s) => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
 /**
@@ -55,4 +65,4 @@ function detectMapping(fieldNames) {
   });
 }
 
-module.exports = { DIMENSIONS, MAP, detectMapping, norm };
+module.exports = { DIMENSIONS, MAP, DIMENSION_COLUMN, EDITABLE_KEYS, detectMapping, norm };

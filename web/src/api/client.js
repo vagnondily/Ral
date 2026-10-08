@@ -205,6 +205,9 @@ export const api = {
   monSubmissions: (month) => request('/api/monitoring/submissions', { query: month ? { month } : undefined }),
   monCatalog: (id) => request(`/api/monitoring/forms/${id}/catalog`),
   monMemsMapping: (id) => request(`/api/monitoring/forms/${id}/mems-mapping`),
+  monSetMemsMapping: (id, dimension, column) => request(`/api/monitoring/forms/${id}/mems-mapping`, { method: 'PUT', body: { dimension, column } }),
+  monResetMemsMapping: (id, dimension) => request(`/api/monitoring/forms/${id}/mems-mapping/${dimension}`, { method: 'DELETE' }),
+  monApplyMemsMapping: (id) => request(`/api/monitoring/forms/${id}/mems-mapping/apply`, { method: 'POST' }),
   monFormSubmissions: (id, { month, limit } = {}) => request(`/api/monitoring/forms/${id}/submissions`, { query: { ...(month ? { month } : {}), ...(limit ? { limit } : {}) } }),
   monImportDefinition: async (file) => {
     const token = getToken();
