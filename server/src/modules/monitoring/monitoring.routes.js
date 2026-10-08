@@ -169,6 +169,9 @@ router.get('/forms/:id/dashboard', asyncHandler(async (req, res) => {
 // Catalogue détaillé d'une fiche (champs + listes de choix issus du XLSForm).
 router.get('/forms/:id/catalog', asyncHandler(async (req, res) => res.json(await repo.formCatalog(t(req), req.params.id))));
 
+// Mapping « formulaire ↔ référentiels MEMS » (dérivé, aucun stockage).
+router.get('/forms/:id/mems-mapping', asyncHandler(async (req, res) => res.json(await repo.memsMappingForForm(t(req), req.params.id))));
+
 // Import d'une DÉFINITION XLSForm (.xlsx Kobo/ODK : feuilles survey/choices/
 // settings) → crée/MAJ la fiche + son catalogue de champs et listes de choix.
 router.post('/import-definition', WRITE, express.raw({ type: '*/*', limit: '60mb' }), asyncHandler(async (req, res) => {

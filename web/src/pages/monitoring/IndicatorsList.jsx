@@ -48,7 +48,7 @@ function loadView() {
 }
 function saveView(v) { try { localStorage.setItem(STORE, JSON.stringify(v)); } catch { /* ignore */ } }
 
-export default function IndicatorsList({ indicators, moduleLabel }) {
+export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }) {
   const saved = loadView();
   const [q, setQ] = useState('');
   const [cols, setCols] = useState(() => saved.cols || DEFAULT_COLS);
@@ -138,6 +138,7 @@ export default function IndicatorsList({ indicators, moduleLabel }) {
         <span className="input-wrap ind-search"><Search size={16} aria-hidden="true" />
           <input className="input" type="search" placeholder="Filtrer les indicateurs…" value={q} onChange={(e) => setQ(e.target.value)} />
         </span>
+        {toolbarExtra}
         <span className="ind-hint">Clic sur une ligne pour le détail</span>
         <span className="ind-tsp" />
         <div className="seg" role="group" aria-label="Densité">

@@ -1,4 +1,5 @@
 const ExcelJS = require('exceljs');
+const { MAP } = require('./memsMapping');
 
 /**
  * Parse a monitoring export (CSV or XLSX, e.g. a Kobo download) into normalized
@@ -6,21 +7,10 @@ const ExcelJS = require('exceljs');
  * Kobo columns are lifted into typed fields for filtering/grouping. The same
  * shape is produced whatever the source, so the Kobo v2 API and SPSS .sav
  * importers (next phase) can feed the very same insert path.
+ *
+ * The « well-known column → typed field » alias table lives in `memsMapping.js`
+ * (single source of truth, shared with the « Mapping MEMS » screen).
  */
-
-// Well-known Kobo/XLSForm columns → normalized fields (case-insensitive).
-const MAP = {
-  external_id: ['_uuid', '_id', 'uuid', 'meta/instanceid'],
-  submitted_at: ['_submission_time', 'end', 'submissiondate', 'today', 'svydate'],
-  field_office: ['field_office', 'fieldoffice', 'sous bureau', 'sousbureau'],
-  admin1: ['admin1name', 'admin1', 'region', 'niveau régional'],
-  admin2: ['admin2name', 'admin2', 'province'],
-  admin3: ['admin3name', 'admin3', 'district'],
-  admin4: ['admin4name', 'admin4', 'commune', 'community'],
-  site: ['site', 'sitename', 'site_name', 'epp', 'etablissement', 'établissement'],
-  partner: ['enupartner', 'partner', 'organisation', 'ong'],
-  agent: ['enuname', 'enumerator', 'agent', 'énumérateur'],
-};
 
 const norm = (s) => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 

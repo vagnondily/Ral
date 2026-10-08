@@ -1,5 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
 const { computeAll, overallIndex } = require('./monitoringMath');
+const { detectMapping } = require('./memsMapping');
 
 /**
  * Suivi de processus — data access. Forms + configurable indicators (the
@@ -127,7 +128,7 @@ async function formFields(tenantId, formId) {
 async function formCatalog(tenantId, formId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows: fields } = await client.query(
-      'SELECT name, label, type, group_path AS "group", list_name AS "listName" FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name',
+      'SELECT name, label, type, group_path AS "group", list_name AS "listName", relevant, required FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name',
       [tenantId, formId]
     );
     const { rows: choices } = await client.query(
@@ -135,6 +136,28 @@ async function formCatalog(tenantId, formId) {
       [tenantId, formId]
     );
     return { fields, choices };
+  });
+}
+
+/**
+ * Mapping « formulaire ↔ référentiels MEMS » : quelle colonne du formulaire
+ * (catalogue XLSForm + clés vues dans les données) alimente chaque dimension
+ * MEMS. Dérivé en direct via la table d'alias partagée (aucun stockage).
+ */
+async function memsMappingForForm(tenantId, formId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: cat } = await client.query(
+      'SELECT name, label FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2',
+      [tenantId, formId]
+    );
+    const { rows: keys } = await client.query(
+      `SELECT DISTINCT jsonb_object_keys(data) AS field
+         FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2`,
+      [tenantId, formId]
+    );
+    const labelByName = new Map(cat.map((c) => [c.name, c.label]));
+    const names = [...new Set([...cat.map((c) => c.name), ...keys.map((k) => k.field)])];
+    return detectMapping(names).map((m) => ({ ...m, columnLabel: m.column ? (labelByName.get(m.column) || null) : null }));
   });
 }
 
@@ -155,23 +178,39 @@ async function importDefinition(tenantId, { code, label }, fields, choicesMap) {
     await client.query('DELETE FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
     await client.query('DELETE FROM monitoring_choices WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
 
-    for (let i = 0; i < fields.length; i += 1) {
-      const f = fields[i];
+    // Batch : une seule instruction multi-lignes (jamais N requêtes en boucle).
+    if (fields.length) {
+      const cols = 10;
+      const params = [];
+      const tuples = fields.map((f, i) => {
+        const b = i * cols;
+        params.push(tenantId, formId, f.name, f.type || null, f.label || f.name, f.group || null, f.listName || null, f.relevant || null, f.required === true, i);
+        return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10})`;
+      });
       await client.query(
-        `INSERT INTO monitoring_form_fields (tenant_id, form_id, name, type, label, group_path, list_name, sort_order)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (form_id, name) DO NOTHING`,
-        [tenantId, formId, f.name, f.type || null, f.label || f.name, f.group || null, f.listName || null, i]
+        `INSERT INTO monitoring_form_fields (tenant_id, form_id, name, type, label, group_path, list_name, relevant, required, sort_order)
+         VALUES ${tuples.join(',')} ON CONFLICT (form_id, name) DO NOTHING`,
+        params
       );
     }
     let choiceCount = 0;
+    const flatChoices = [];
     for (const [listName, opts] of Object.entries(choicesMap || {})) {
-      for (let i = 0; i < opts.length; i += 1) {
-        await client.query(
-          'INSERT INTO monitoring_choices (tenant_id, form_id, list_name, value, label, sort_order) VALUES ($1,$2,$3,$4,$5,$6)',
-          [tenantId, formId, listName, opts[i].value, opts[i].label || opts[i].value, i]
-        );
-        choiceCount += 1;
-      }
+      opts.forEach((o, i) => flatChoices.push({ listName, value: o.value, label: o.label || o.value, sort: i }));
+    }
+    if (flatChoices.length) {
+      const cols = 6;
+      const params = [];
+      const tuples = flatChoices.map((c, i) => {
+        const b = i * cols;
+        params.push(tenantId, formId, c.listName, c.value, c.label, c.sort);
+        return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6})`;
+      });
+      await client.query(
+        `INSERT INTO monitoring_choices (tenant_id, form_id, list_name, value, label, sort_order) VALUES ${tuples.join(',')}`,
+        params
+      );
+      choiceCount = flatChoices.length;
     }
     return { formId, fields: fields.length, choices: choiceCount };
   });
@@ -370,5 +409,5 @@ module.exports = {
   listForms, createForm, updateForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,
   formFields, importSubmissions, computeValues, dashboard, processOverview,
-  formCatalog, importDefinition, listSubmissions,
+  formCatalog, memsMappingForForm, importDefinition, listSubmissions,
 };

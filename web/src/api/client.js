@@ -204,6 +204,7 @@ export const api = {
   monOverview: (month) => request('/api/monitoring/overview', { query: month ? { month } : undefined }),
   monSubmissions: (month) => request('/api/monitoring/submissions', { query: month ? { month } : undefined }),
   monCatalog: (id) => request(`/api/monitoring/forms/${id}/catalog`),
+  monMemsMapping: (id) => request(`/api/monitoring/forms/${id}/mems-mapping`),
   monImportDefinition: async (file) => {
     const token = getToken();
     const res = await fetch(new URL(`${API_URL}/api/monitoring/import-definition`), {

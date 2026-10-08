@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Users, ListChecks, Tags, MapPinned, Upload, Info, Download, Coins, Building2, Trash2, Clock, Pencil, ShieldCheck, ChevronRight, Lock, Gauge, SlidersHorizontal } from 'lucide-react';
+import { Plus, Users, ListChecks, Tags, MapPinned, Upload, Info, Download, Coins, Building2, Trash2, Clock, Pencil, ShieldCheck, ChevronRight, Lock, Gauge } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton, Alert } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import MoneyInput from '../../components/MoneyInput.jsx';
-import IndicatorsSettings from './IndicatorsSettings.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatAr, formatInt, formatDateTime } from '../../lib/format.js';
 
@@ -17,7 +16,6 @@ const SECTIONS = {
   taux: { label: 'Taux de change', icon: Coins, group: 'Finances', desc: 'Taux de référence (ariary pour 1 USD), horodatés, pour afficher les valeurs en dollars selon la période.' },
   localites: { label: 'Localités', icon: MapPinned, group: 'Géographie', desc: 'Découpage administratif du pays (régions → districts → communes) pour les zones d\'intervention.' },
   bureaux: { label: 'Bureaux & antennes', icon: Building2, group: 'Géographie', desc: 'Bureaux terrain et antennes, et leur périmètre (communes) pour le rattachement automatique des sites.' },
-  indicateurs: { label: 'Indicateurs & calculs', icon: SlidersHorizontal, group: 'Suivi', desc: 'Méthodes de calcul des indicateurs de suivi : reliez chaque indicateur à une variable du formulaire (champ importé) et à un mode d\'agrégation (% de oui, moyenne, somme…).' },
   mmr: { label: 'Paramètres MMR', icon: Gauge, group: 'Suivi', admin: true, desc: 'Exigences minimales de suivi (MMR) par bureau × activité : durée, nombre de sites, niveau de risque → intervalle, fréquence et nombre de sites ciblés par mois (base du RBM).' },
   utilisateurs: { label: 'Utilisateurs & accès', icon: ShieldCheck, group: 'Sécurité', admin: true, desc: 'Comptes, rôles (administrateur / validateur / lecteur) et activation. Qui peut faire quoi dans l\'application.' },
 };
@@ -49,7 +47,6 @@ export default function SettingsPage({ tab = 'apercu', isAdmin, onNavigate }) {
           {current === 'taux' && <ExchangeRatesSection isAdmin={isAdmin} />}
           {current === 'localites' && <LocalitesSection isAdmin={isAdmin} />}
           {current === 'bureaux' && <BureauxSection isAdmin={isAdmin} />}
-          {current === 'indicateurs' && <IndicatorsSettings isAdmin={isAdmin} />}
           {current === 'mmr' && <MmrSection isAdmin={isAdmin} />}
           {current === 'utilisateurs' && <UsersSection isAdmin={isAdmin} />}
         </>

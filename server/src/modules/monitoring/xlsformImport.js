@@ -75,8 +75,11 @@ function parseXlsformRows(surveyRows, choicesRows = [], settingsRows = []) {
   const { find } = headerIndex(surveyRows[0].map(cellText));
   const cType = find('type'); const cName = find('name');
   const cLabel = find('label::french (fr)', 'label::french', 'label', 'label::english (en)');
+  const cRelevant = find('relevant', 'relevance'); // logique de saut (skip logic)
+  const cRequired = find('required');
   const fields = [];
   const groupStack = [];
+  const truthy = (v) => { const s = String(v || '').trim().toLowerCase(); return s === 'yes' || s === 'true' || s === '1'; };
   for (let i = 1; i < surveyRows.length; i += 1) {
     const row = surveyRows[i] || [];
     const at = (c) => (c >= 0 ? cellText(row[c]) : '').trim();
@@ -89,7 +92,10 @@ function parseXlsformRows(surveyRows, choicesRows = [], settingsRows = []) {
     if (type === 'end_group' || type === 'end_repeat') { groupStack.pop(); continue; }
     if (SKIP_TYPES.has(type) || !name) continue;
     const listName = (type === 'select_one' || type === 'select_multiple') ? (rawType.split(/\s+/)[1] || null) : null;
-    fields.push({ name, type, label: label || name, group: groupStack.join(' › ') || null, listName });
+    fields.push({
+      name, type, label: label || name, group: groupStack.join(' › ') || null, listName,
+      relevant: at(cRelevant) || null, required: truthy(at(cRequired)),
+    });
   }
 
   return { title, formId, fields, choices };
