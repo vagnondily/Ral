@@ -223,6 +223,7 @@ export const api = {
     return res.json();
   },
   monKoboPull: (id, input) => request(`/api/monitoring/forms/${id}/kobo-pull`, { method: 'POST', body: input }),
+  monUrlPull: (id, input) => request(`/api/monitoring/forms/${id}/url-pull`, { method: 'POST', body: input }),
   monImport: async (id, file) => {
     const buf = await file.arrayBuffer();
     let res;

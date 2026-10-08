@@ -905,6 +905,7 @@ function DataSourcesCard({ form, canEdit, onChanged }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [kobo, setKobo] = useState({ open: false, baseUrl: 'https://kf.kobotoolbox.org', assetUid: '', token: '' });
+  const [link, setLink] = useState({ open: false, url: form.sourceUrl || '', token: '' });
 
   async function onFile(e) {
     const file = e.target.files?.[0]; e.target.value = '';
@@ -921,17 +922,41 @@ function DataSourcesCard({ form, canEdit, onChanged }) {
       setKobo({ ...kobo, open: false }); onChanged?.();
     } catch (err) { toast.error(err.message); } finally { setBusy(false); }
   }
+  async function urlPull() {
+    setBusy(true);
+    try {
+      const r = await api.monUrlPull(form.id, { url: link.url.trim(), token: link.token.trim() || undefined });
+      toast.success(`${r.inserted}/${r.received} soumission(s) importée(s) depuis le lien.`);
+      setLink({ ...link, open: false }); onChanged?.();
+    } catch (err) { toast.error(err.message); } finally { setBusy(false); }
+  }
 
   return (
     <Card>
-      <CardHeader title="Données réelles" subtitle={`${form.submissionCount ?? 0} soumission(s). Import CSV / XLSX / SPSS .sav / .zip Kobo, ou API Kobo v2.`} />
+      <CardHeader title="Données réelles" subtitle={`${form.submissionCount ?? 0} soumission(s). Fichier (CSV / XLSX / SPSS .sav / .zip Kobo), API Kobo v2, ou lien de données ONA / MoDA.`} />
       <div className="card-body" style={{ display: 'grid', gap: 16 }}>
         <div className="postes-toolbar">
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.sav,.zip" hidden onChange={onFile} />
           <Button size="sm" variant="secondary" icon={Upload} loading={busy} disabled={!canEdit} onClick={() => fileRef.current?.click()}>Importer un fichier</Button>
-          <Button size="sm" variant="ghost" icon={RefreshCw} disabled={!canEdit} onClick={() => setKobo({ ...kobo, open: !kobo.open })}>Depuis l'API Kobo v2</Button>
+          <Button size="sm" variant="ghost" icon={Link2} disabled={!canEdit} onClick={() => setLink({ ...link, open: !link.open })}>Lien ONA / MoDA</Button>
+          <Button size="sm" variant="ghost" icon={RefreshCw} disabled={!canEdit} onClick={() => setKobo({ ...kobo, open: !kobo.open })}>API Kobo v2</Button>
           <span className="hint">Les colonnes sont détectées automatiquement (voir l'onglet Mapping MEMS).</span>
         </div>
+
+        {link.open && (
+          <div className="card-body" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--surface-2)', display: 'grid', gap: 10 }}>
+            <Field label="Lien de données (export ONA / MoDA : CSV, XLSX ou JSON)"
+              hint="Collez le lien d'export de votre formulaire ONA/MoDA. Il est mémorisé pour les réimports. Un token n'est requis que si le flux est protégé.">
+              <input className="input mono" value={link.url} onChange={(e) => setLink({ ...link, url: e.target.value })} placeholder="https://api.ona.io/api/v1/data/123456.csv" />
+            </Field>
+            <div className="form-grid" style={{ alignItems: 'end' }}>
+              <Field label="Token (optionnel)"><input className="input mono" type="password" value={link.token} onChange={(e) => setLink({ ...link, token: e.target.value })} placeholder="laisser vide si lien public" /></Field>
+              <Button loading={busy} onClick={urlPull} disabled={!/^https?:\/\//i.test(link.url.trim())}>Importer depuis le lien</Button>
+            </div>
+            {form.sourceUrl && <span className="site-meta mono">Dernier lien : {form.sourceUrl}</span>}
+          </div>
+        )}
+
         {kobo.open && (
           <div className="form-grid" style={{ alignItems: 'end' }}>
             <Field label="URL Kobo"><input className="input" value={kobo.baseUrl} onChange={(e) => setKobo({ ...kobo, baseUrl: e.target.value })} /></Field>

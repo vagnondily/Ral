@@ -30,13 +30,20 @@ const num = (v) => (v == null ? v : Number(v));
 async function listForms(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      `SELECT f.id, f.code, f.label, f.active,
+      `SELECT f.id, f.code, f.label, f.active, f.source_url AS "sourceUrl",
               COALESCE((SELECT count(*) FROM monitoring_indicators i WHERE i.form_id = f.id), 0)::int AS "indicatorCount",
               COALESCE((SELECT count(*) FROM monitoring_submissions s WHERE s.form_id = f.id), 0)::int AS "submissionCount"
          FROM monitoring_forms f WHERE f.tenant_id = $1 ORDER BY f.label`,
       [tenantId]
     );
     return rows;
+  });
+}
+
+/** Mémorise le lien de données (ONA/MoDA/export web) d'une fiche. */
+async function setFormSource(tenantId, formId, url) {
+  return withTenantTransaction(tenantId, async (client) => {
+    await client.query('UPDATE monitoring_forms SET source_url = $3 WHERE tenant_id = $1 AND id = $2', [tenantId, formId, url || null]);
   });
 }
 
@@ -674,6 +681,7 @@ async function setExclusion(tenantId, formId, { ids, excluded, reason } = {}) {
 
 module.exports = {
   listCalcFields, createCalcField, updateCalcField, deleteCalcField, setExclusion,
+  setFormSource,
   listForms, createForm, updateForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,
   formFields, importSubmissions, computeValues, dashboard, processOverview,

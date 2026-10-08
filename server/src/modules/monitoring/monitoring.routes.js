@@ -158,6 +158,44 @@ router.post('/forms/:id/kobo-pull', WRITE, body(koboSchema), asyncHandler(async 
   res.json(result);
 }));
 
+// Connecteur « lien de données » (ONA / MoDA / tout export web) : va chercher
+// un export CSV / XLSX / JSON à une URL et l'importe (même pipeline). Le lien
+// est mémorisé sur la fiche pour réimport. Token optionnel (flux protégé).
+const urlPullSchema = z.object({
+  url: z.string().url().max(500),
+  token: z.string().trim().max(300).optional().or(z.literal('').transform(() => undefined)),
+});
+router.post('/forms/:id/url-pull', WRITE, body(urlPullSchema), asyncHandler(async (req, res) => {
+  const { url, token } = req.valid;
+  let subs;
+  try {
+    const headers = { Accept: 'text/csv, application/json, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, */*' };
+    if (token) headers.Authorization = /^(Token|Bearer) /i.test(token) ? token : `Token ${token}`;
+    const r = await fetch(url, { headers, redirect: 'follow' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const ct = (r.headers.get('content-type') || '').toLowerCase();
+    const lower = url.toLowerCase();
+    if (ct.includes('json') || /\.json(\?|$)/.test(lower)) {
+      const data = await r.json();
+      const records = Array.isArray(data) ? data
+        : (data.results || data.data || (Array.isArray(data.features) ? data.features.map((f) => f.properties || f) : []));
+      subs = submissionsFromObjects(records, 'kobo');
+    } else {
+      const buf = Buffer.from(await r.arrayBuffer());
+      const isXlsx = /\.xlsx(\?|$)/.test(lower) || ct.includes('spreadsheet') || (buf[0] === 0x50 && buf[1] === 0x4b);
+      const parsed = await parseSubmissions(buf, { filename: isXlsx ? 'data.xlsx' : 'data.csv' });
+      subs = parsed.submissions;
+    }
+  } catch (err) {
+    throw badRequest(`Lien de données illisible (${err.message}). Vérifiez l'URL (export CSV / XLSX / JSON ONA/MoDA) et, si besoin, le token.`);
+  }
+  if (!subs.length) throw badRequest('Aucune soumission trouvée à ce lien.');
+  const result = await repo.importSubmissions(t(req), req.params.id, subs);
+  if (!result) throw notFound('Formulaire introuvable');
+  await repo.setFormSource(t(req), req.params.id, url);
+  res.json(result);
+}));
+
 // Computed indicator values for the dashboard.
 router.get('/forms/:id/values', asyncHandler(async (req, res) => {
   const month = /^\d{4}-\d{2}/.test(req.query.month || '') ? req.query.month : undefined;
