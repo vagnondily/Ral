@@ -1884,7 +1884,20 @@ tr.row-due { background: color-mix(in srgb, var(--blue-50) 55%, transparent); }
 :root[data-tips="off"] .note,
 :root[data-tips="off"] .field-hint,
 :root[data-tips="off"] .demo-hint,
+:root[data-tips="off"] .card-sub,
+:root[data-tips="off"] .page-desc,
 :root[data-tips="off"] .hint { display: none; }
+/* Les en-têtes se resserrent quand leur sous-titre/description est masqué. */
+:root[data-tips="off"] .page-title { margin-bottom: 0; }
+
+/* Interrupteur (switch) réutilisable — préférences du menu utilisateur. */
+.ui-switch { position: relative; display: inline-block; width: 40px; height: 22px; flex: none; }
+.ui-switch input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+.ui-switch .track { position: absolute; inset: 0; background: var(--border-strong); border-radius: 999px; transition: background .15s var(--ease); }
+.ui-switch .thumb { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.28); transition: left .15s var(--ease); }
+.ui-switch input:checked ~ .track { background: var(--blue-600); }
+.ui-switch input:checked ~ .track .thumb { left: 20px; }
+.ui-switch input:focus-visible ~ .track { outline: 2px solid var(--blue-600); outline-offset: 2px; }
 /* La grille prend la largeur de son contenu (colonnes compactes à leur taille
    naturelle) tout en remplissant un conteneur étroit : défilement horizontal
    propre quand elle dépasse, sans écraser ni déformer les colonnes. */

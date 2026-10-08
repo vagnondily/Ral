@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bell, Settings, LogOut, Sun, Moon, Globe, Check, HelpCircle } from 'lucide-react';
+import { Bell, Settings, LogOut, Sun, Moon, Globe, Check, Eye } from 'lucide-react';
 import { Avatar, IconButton } from './ui.jsx';
 import { useI18n, LANGS } from '../lib/i18n.jsx';
 import { useTheme } from '../lib/theme.js';
@@ -89,28 +89,20 @@ export function UserMenu({ user, onLogout, onSettings }) {
           <div className="seg-row">
             <span className="seg-label">
               {theme === 'dark' ? <Moon size={16} aria-hidden="true" /> : <Sun size={16} aria-hidden="true" />}
-              {t('user.theme', 'Thème')}
+              {t('user.theme.dark', 'Mode sombre')}
             </span>
-            <div className="seg" role="group" aria-label={t('user.theme', 'Thème')}>
-              <button type="button" className={theme === 'light' ? 'is-active' : ''} aria-pressed={theme === 'light'} onClick={() => setTheme('light')}>
-                {t('user.theme.light', 'Clair')}
-              </button>
-              <button type="button" className={theme === 'dark' ? 'is-active' : ''} aria-pressed={theme === 'dark'} onClick={() => setTheme('dark')}>
-                {t('user.theme.dark', 'Sombre')}
-              </button>
-            </div>
+            <label className="ui-switch">
+              <input type="checkbox" checked={theme === 'dark'} onChange={(e) => setTheme(e.target.checked ? 'dark' : 'light')} aria-label={t('user.theme.dark', 'Mode sombre')} />
+              <span className="track"><span className="thumb" /></span>
+            </label>
           </div>
 
           <div className="seg-row">
-            <span className="seg-label"><HelpCircle size={16} aria-hidden="true" />{t('user.tips', 'Aides')}</span>
-            <div className="seg" role="group" aria-label={t('user.tips', 'Aides')}>
-              <button type="button" className={tips === 'on' ? 'is-active' : ''} aria-pressed={tips === 'on'} onClick={() => setTips('on')}>
-                {t('user.tips.on', 'Afficher')}
-              </button>
-              <button type="button" className={tips === 'off' ? 'is-active' : ''} aria-pressed={tips === 'off'} onClick={() => setTips('off')}>
-                {t('user.tips.off', 'Masquer')}
-              </button>
-            </div>
+            <span className="seg-label"><Eye size={16} aria-hidden="true" />{t('user.tips.show', 'Afficher les aides')}</span>
+            <label className="ui-switch">
+              <input type="checkbox" checked={tips === 'on'} onChange={(e) => setTips(e.target.checked ? 'on' : 'off')} aria-label={t('user.tips.show', 'Afficher les aides')} />
+              <span className="track"><span className="thumb" /></span>
+            </label>
           </div>
 
           <div className="pop-sep" />
