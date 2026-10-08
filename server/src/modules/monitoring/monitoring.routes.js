@@ -172,6 +172,13 @@ router.get('/forms/:id/catalog', asyncHandler(async (req, res) => res.json(await
 // Mapping « formulaire ↔ référentiels MEMS » (dérivé, aucun stockage).
 router.get('/forms/:id/mems-mapping', asyncHandler(async (req, res) => res.json(await repo.memsMappingForForm(t(req), req.params.id))));
 
+// Soumissions brutes d'une fiche (données importées) — visualisation par fiche.
+router.get('/forms/:id/submissions', asyncHandler(async (req, res) => {
+  const month = /^\d{4}-\d{2}/.test(req.query.month || '') ? req.query.month : undefined;
+  const limit = Number(req.query.limit);
+  res.json(await repo.formSubmissions(t(req), req.params.id, { month, limit: Number.isFinite(limit) ? limit : undefined }));
+}));
+
 // Import d'une DÉFINITION XLSForm (.xlsx Kobo/ODK : feuilles survey/choices/
 // settings) → crée/MAJ la fiche + son catalogue de champs et listes de choix.
 router.post('/import-definition', WRITE, express.raw({ type: '*/*', limit: '60mb' }), asyncHandler(async (req, res) => {

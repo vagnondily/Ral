@@ -140,6 +140,39 @@ async function formCatalog(tenantId, formId) {
 }
 
 /**
+ * Soumissions brutes d'une fiche (données importées), pour la visualisation :
+ * champs typés (date, bureau, zones, site, partenaire, agent) + réponses brutes
+ * (JSONB). Bornée par `limit`, filtrable par mois. Nom de commune résolu depuis
+ * le référentiel de sites (même pcode adm3) comme ailleurs.
+ */
+async function formSubmissions(tenantId, formId, { month, limit = 200 } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const params = [tenantId, formId];
+    const where = ['ms.tenant_id = $1', 'ms.form_id = $2'];
+    if (month) { params.push(`${String(month).slice(0, 7)}-01`); where.push(`ms.period_month = $${params.length}`); }
+    params.push(Math.min(Math.max(Number(limit) || 200, 1), 2000));
+    const { rows } = await client.query(
+      `SELECT ms.external_id AS "externalId", to_char(ms.period_month, 'YYYY-MM') AS "periodMonth",
+              ms.submitted_at AS "submittedAt", ms.field_office AS "fieldOffice",
+              ms.admin1, ms.admin2, ms.admin3, ms.admin4, ms.site, ms.partner, ms.agent, ms.source, ms.data,
+              (SELECT s.commune FROM sites s
+                WHERE s.tenant_id = ms.tenant_id AND s.adm3_pcode IS NOT NULL AND s.adm3_pcode = ms.admin3
+                LIMIT 1) AS "communeName"
+         FROM monitoring_submissions ms
+        WHERE ${where.join(' AND ')}
+        ORDER BY ms.submitted_at DESC NULLS LAST, ms.period_month DESC
+        LIMIT $${params.length}`,
+      params
+    );
+    const { rows: cnt } = await client.query(
+      `SELECT count(*)::int AS total FROM monitoring_submissions ms WHERE ${where.slice(0, month ? 3 : 2).join(' AND ')}`,
+      params.slice(0, month ? 3 : 2)
+    );
+    return { rows, total: cnt[0]?.total ?? rows.length, limit: params[params.length - 1] };
+  });
+}
+
+/**
  * Mapping « formulaire ↔ référentiels MEMS » : quelle colonne du formulaire
  * (catalogue XLSForm + clés vues dans les données) alimente chaque dimension
  * MEMS. Dérivé en direct via la table d'alias partagée (aucun stockage).
@@ -409,5 +442,5 @@ module.exports = {
   listForms, createForm, updateForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,
   formFields, importSubmissions, computeValues, dashboard, processOverview,
-  formCatalog, memsMappingForForm, importDefinition, listSubmissions,
+  formCatalog, memsMappingForForm, formSubmissions, importDefinition, listSubmissions,
 };

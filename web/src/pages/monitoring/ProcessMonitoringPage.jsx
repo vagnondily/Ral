@@ -2,14 +2,15 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Upload, AlertCircle, ClipboardCheck, RefreshCw, ArrowLeft, ChevronRight,
   FileSpreadsheet, SlidersHorizontal, Database, BarChart3, Link2, Trash2, Pencil, Check, Minus, Shuffle,
+  Table2, Download, Search,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton, Stats } from '../../components/ui.jsx';
+import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, IconButton, PageHeader, Skeleton, Stats } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import MonthSelect from '../../components/MonthSelect.jsx';
 import IndicatorsList from './IndicatorsList.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import { currentMonth } from '../../lib/format.js';
+import { currentMonth, formatDateTime } from '../../lib/format.js';
 
 /**
  * Suivi de processus › Données & indicateurs.
@@ -33,9 +34,21 @@ const AGG_SHORT = { percent_yes: '% de « oui »', percent_value: '% = valeur', 
 
 const DETAIL_TABS = [
   { id: 'variables', label: 'Variables', icon: FileSpreadsheet },
+  { id: 'donnees', label: 'Données importées', icon: Table2 },
   { id: 'resultats', label: 'Résultats', icon: BarChart3 },
   { id: 'mapping', label: 'Mapping MEMS', icon: Shuffle },
   { id: 'config', label: 'Configuration', icon: SlidersHorizontal },
+];
+
+// Colonnes « méta » typées (référentiels MEMS) affichées avant les variables.
+const META_COLS = [
+  { key: 'submittedAt', label: 'Date', fmt: (v) => (v ? formatDateTime(v) : '—') },
+  { key: 'fieldOffice', label: 'Bureau' },
+  { key: 'communeName', label: 'Commune', alt: 'admin4' },
+  { key: 'admin3', label: 'District' },
+  { key: 'site', label: 'Site' },
+  { key: 'partner', label: 'Partenaire' },
+  { key: 'agent', label: 'Agent' },
 ];
 
 export default function ProcessMonitoringPage({ canEdit }) {
@@ -149,6 +162,7 @@ function FormDetail({ form, canEdit, onBack, onChanged }) {
       </div>
 
       {tab === 'variables' && <VariablesTab form={form} />}
+      {tab === 'donnees' && <DataViewTab form={form} onGoConfig={() => setTab('config')} />}
       {tab === 'resultats' && <ResultsTab form={form} onGoConfig={() => setTab('config')} />}
       {tab === 'mapping' && <MappingTab form={form} />}
       {tab === 'config' && <ConfigTab form={form} canEdit={canEdit} onChanged={onChanged} />}
@@ -220,6 +234,157 @@ function VariablesTab({ form }) {
           </div>
         )}
     </Card>
+  );
+}
+
+// ---- Données importées (visualisation des soumissions brutes) ------------
+function choiceLabeller(choices) {
+  const map = {};
+  for (const c of choices || []) (map[c.listName] ||= {})[c.value] = c.label;
+  return (field, raw) => {
+    if (raw == null || raw === '') return '—';
+    if (field?.listName && map[field.listName]) {
+      // select_multiple : plusieurs valeurs séparées par un espace.
+      return String(raw).split(/\s+/).map((v) => map[field.listName][v] || v).join(', ');
+    }
+    if (typeof raw === 'object') return JSON.stringify(raw);
+    return String(raw);
+  };
+}
+
+function DataViewTab({ form, onGoConfig }) {
+  const toast = useToast();
+  const [month, setMonth] = useState('');
+  const [q, setQ] = useState('');
+  const [cat, setCat] = useState(null);
+  const [res, setRes] = useState(null);
+
+  useEffect(() => {
+    setCat(null); setRes(null);
+    Promise.all([
+      api.monCatalog(form.id).catch(() => ({ fields: [], choices: [] })),
+      api.monFormSubmissions(form.id, { month: month || undefined, limit: 500 }),
+    ]).then(([c, r]) => { setCat(c || { fields: [], choices: [] }); setRes(r); })
+      .catch((e) => { toast.error(e.message); setCat({ fields: [], choices: [] }); setRes({ rows: [], total: 0, limit: 0 }); });
+    /* eslint-disable-next-line */
+  }, [form.id, month]);
+
+  const rows = res?.rows || [];
+  const labelOf = choiceLabeller(cat?.choices);
+
+  // Colonnes « variables » : catalogue d'abord, sinon clés vues dans les données.
+  const varCols = useMemo(() => {
+    const catFields = cat?.fields || [];
+    if (catFields.length) return catFields;
+    const seen = new Map();
+    for (const r of rows) for (const k of Object.keys(r.data || {})) if (!seen.has(k)) seen.set(k, { name: k, label: k, listName: null });
+    return [...seen.values()];
+  }, [cat, rows]);
+
+  // Colonnes « méta » qui portent au moins une valeur (évite les colonnes vides).
+  const metaCols = useMemo(() => META_COLS.filter((m) => rows.some((r) => {
+    const v = r[m.key] ?? (m.alt ? r[m.alt] : null);
+    return v != null && v !== '';
+  })), [rows]);
+
+  const metaVal = (r, m) => {
+    const v = r[m.key] ?? (m.alt ? r[m.alt] : null);
+    return m.fmt ? m.fmt(v) : (v == null || v === '' ? '—' : String(v));
+  };
+
+  const shown = useMemo(() => {
+    if (!q) return rows;
+    const s = q.toLowerCase();
+    return rows.filter((r) => {
+      if (metaCols.some((m) => String(metaVal(r, m)).toLowerCase().includes(s))) return true;
+      return Object.values(r.data || {}).some((v) => String(v ?? '').toLowerCase().includes(s));
+    });
+    /* eslint-disable-next-line */
+  }, [rows, q, metaCols]);
+
+  const [open, setOpen] = useState(null);
+
+  function exportCsv() {
+    const head = [...metaCols.map((m) => m.label), ...varCols.map((v) => v.label || v.name)];
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = shown.map((r) => [
+      ...metaCols.map((m) => metaVal(r, m)),
+      ...varCols.map((v) => { const raw = r.data?.[v.name]; return raw == null || raw === '' ? '' : labelOf(v, raw); }),
+    ].map(esc).join(';'));
+    const blob = new Blob(['﻿' + [head.map(esc).join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `donnees_${form.code}.csv`; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  const loading = cat === null || res === null;
+  return (
+    <Card aria-labelledby="data-title">
+      <CardHeader id="data-title" title="Données importées (soumissions)"
+        subtitle="Les réponses réellement versées, alignées sur les variables du formulaire (libellé + nom). Cliquez une ligne pour voir toutes les réponses." />
+      {loading ? <div className="card-body"><Skeleton height={160} /></div>
+        : rows.length === 0 ? (
+          <EmptyState icon={Table2} title="Aucune donnée importée"
+            action={<Button variant="secondary" icon={Upload} onClick={onGoConfig}>Importer des données</Button>}>
+            Importez des soumissions (onglet Configuration › Données réelles) pour les visualiser ici.
+          </EmptyState>
+        ) : (
+          <>
+            <div className="ind-toolbar">
+              <span className="input-wrap ind-search"><Search size={16} aria-hidden="true" />
+                <input className="input" type="search" placeholder="Filtrer les soumissions…" value={q} onChange={(e) => setQ(e.target.value)} />
+              </span>
+              <label className="ind-period">Période <MonthSelect value={month || currentMonth()} onChange={setMonth} /></label>
+              <span className="ind-hint">{shown.length} / {res.total} soumission(s){res.total > res.limit ? ` · ${res.limit} affichées max` : ''}</span>
+              <span className="ind-tsp" />
+              <IconButton icon={Download} label="Exporter (CSV)" variant="secondary" size="sm" onClick={exportCsv} />
+            </div>
+            <div className="table-wrap">
+              <table className="table data-grid">
+                <thead><tr>
+                  {metaCols.map((m) => <th key={m.key} scope="col">{m.label}</th>)}
+                  {varCols.map((v) => <th key={v.name} scope="col"><span>{v.label || v.name}</span><div className="th-sub mono">{v.name}</div></th>)}
+                </tr></thead>
+                <tbody>
+                  {shown.map((r, i) => (
+                    <tr key={r.externalId || i} className="clickable" onClick={() => setOpen(r)}>
+                      {metaCols.map((m) => <td key={m.key} className={m.key === 'submittedAt' ? 'tabular' : ''}>{metaVal(r, m)}</td>)}
+                      {varCols.map((v) => {
+                        const raw = r.data?.[v.name];
+                        return <td key={v.name} className="mono-cell">{raw == null || raw === '' ? <span className="cell-empty">—</span> : labelOf(v, raw)}</td>;
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      {open && <SubmissionDrawer sub={open} varCols={varCols} metaCols={metaCols} metaVal={metaVal} labelOf={labelOf} onClose={() => setOpen(null)} />}
+    </Card>
+  );
+}
+
+function SubmissionDrawer({ sub, varCols, metaCols, metaVal, labelOf, onClose }) {
+  const extraKeys = Object.keys(sub.data || {}).filter((k) => !varCols.some((v) => v.name === k));
+  return (
+    <Modal open variant="drawer" size="md" title="Soumission"
+      subtitle={sub.externalId ? sub.externalId : (sub.submittedAt ? formatDateTime(sub.submittedAt) : undefined)}
+      onClose={onClose} footer={<Button variant="secondary" onClick={onClose}>Fermer</Button>}>
+      <dl className="ind-kv">
+        {metaCols.map((m) => (<React.Fragment key={m.key}><dt>{m.label}</dt><dd>{metaVal(sub, m)}</dd></React.Fragment>))}
+      </dl>
+      <h4 className="drawer-sub">Réponses</h4>
+      <dl className="ind-kv">
+        {varCols.map((v) => {
+          const raw = sub.data?.[v.name];
+          return (<React.Fragment key={v.name}>
+            <dt>{v.label || v.name}<div className="th-sub mono">{v.name}</div></dt>
+            <dd>{raw == null || raw === '' ? <span className="cell-empty">—</span> : labelOf(v, raw)}</dd>
+          </React.Fragment>);
+        })}
+        {extraKeys.map((k) => (<React.Fragment key={k}><dt className="mono">{k}</dt><dd>{String(sub.data[k])}</dd></React.Fragment>))}
+      </dl>
+    </Modal>
   );
 }
 
