@@ -1783,6 +1783,54 @@ tr.row-due { background: color-mix(in srgb, var(--blue-50) 55%, transparent); }
 .badge { gap: 5px; }
 .badge .badge-ic { flex: none; }
 
+/* ── Liste d'indicateurs « riche » (page Données & indicateurs) ─────────── */
+.ind-wrap { display: flex; flex-direction: column; gap: 12px; }
+.ind-toolbar { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.ind-toolbar .ind-search { min-width: 240px; flex: 0 1 300px; }
+.ind-toolbar .input-wrap .input { border: 0; background: transparent; }
+.ind-hint { color: var(--text-faint); font-size: 12px; }
+.ind-tsp { flex: 1; }
+.pop-reset { width: 100%; margin-top: 6px; padding: 7px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text-muted); font: inherit; font-size: 12.5px; cursor: pointer; }
+.pop-reset:hover { border-color: var(--border-strong); color: var(--text-strong); }
+
+.ind-batch { display: flex; align-items: center; gap: 6px; background: var(--blue-600); color: #fff; border-radius: var(--radius); padding: 6px 8px 6px 14px; font-size: 13.5px; font-weight: 600; }
+.ind-batch-n { margin-right: auto; }
+.ind-batch .btn-ghost { color: #fff; }
+.ind-batch .btn-ghost:hover:not(:disabled) { background: rgba(255,255,255,.16); }
+
+.ind-tablewrap { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface); box-shadow: var(--shadow-sm); }
+.ind-tablewrap .table-wrap { border: 0; }
+.ind-table td, .ind-table th { padding: 12px 16px; }
+.ind-table.is-dense td, .ind-table.is-dense th { padding: 7px 16px; }
+.ind-table .ind-cb { width: 42px; }
+.ind-table .ind-cb input { width: 16px; height: 16px; accent-color: var(--blue-600); cursor: pointer; margin: 0; display: block; }
+.ind-sortable { cursor: pointer; user-select: none; }
+.ind-sortable:hover { color: var(--text-strong); }
+.ind-caret { color: var(--blue-600); font-size: 9px; margin-left: 2px; }
+.ind-name { font-weight: 600; color: var(--blue-700); }
+.ind-sub { color: var(--text-faint); font-size: 12px; margin-top: 1px; }
+.ind-sens { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 12.5px; }
+
+.ind-prog { display: flex; flex-direction: column; gap: 5px; min-width: 150px; }
+.ind-nums { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ind-nums b { color: var(--text-strong); font-weight: 600; }
+.ind-bar { height: 6px; border-radius: 4px; background: var(--canvas-sunken); overflow: hidden; }
+.ind-bar.lg { height: 8px; }
+.ind-bar > i { display: block; height: 100%; border-radius: 4px; transition: width .3s var(--ease); }
+
+/* Drawer de détail indicateur */
+.ind-dtabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin: -4px 0 16px; }
+.ind-dtabs button { padding: 10px 2px; margin-right: 18px; background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--text-muted); font: inherit; font-weight: 600; font-size: 13.5px; cursor: pointer; }
+.ind-dtabs button.on { color: var(--text-strong); border-color: var(--blue-600); }
+.ind-hero { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 16px; }
+.ind-hero-big { font-size: 28px; font-weight: 700; letter-spacing: -.5px; color: var(--text-strong); }
+.ind-hero-big small { font-size: 15px; color: var(--text-muted); font-weight: 500; }
+.ind-hero .ind-bar { margin-top: 10px; }
+.ind-kv { display: grid; grid-template-columns: 150px 1fr; gap: 0 14px; align-items: baseline; margin: 0; }
+.ind-kv dt { color: var(--text-faint); font-size: 11px; letter-spacing: .3px; text-transform: uppercase; font-weight: 600; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.ind-kv dd { margin: 0; padding: 9px 0; font-size: 14px; border-bottom: 1px solid var(--border); }
+.ind-method p { margin: 0 0 12px; line-height: 1.55; }
+
 /* Fil guidé (rapportage TPM) : Plan → Facture → Validation → Consolidation */
 .flow { display: flex; align-items: stretch; gap: 6px; flex-wrap: wrap;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);

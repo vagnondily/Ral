@@ -4,6 +4,7 @@ import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton, Stats, Usage } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import MonthSelect from '../../components/MonthSelect.jsx';
+import IndicatorsList from './IndicatorsList.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth } from '../../lib/format.js';
 
@@ -295,14 +296,7 @@ function ResultsTab({ form }) {
   }
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [form?.id, month]);
 
-  const grouped = useMemo(() => {
-    const g = {};
-    for (const i of data?.indicators || []) { (g[i.module || 'Autres'] ||= []).push(i); }
-    return g;
-  }, [data]);
-
   const cov = data?.coverage || {};
-  const fmtVal = (i) => (i.value == null ? '—' : (i.agg === 'percent_yes' || i.agg === 'percent_value' ? `${i.value} %` : i.value));
 
   return (
     <div className="section-gap">
@@ -322,26 +316,7 @@ function ResultsTab({ form }) {
               { label: 'Indice moyen', value: data.overallIndex == null ? '—' : data.overallIndex, suffix: data.overallIndex == null ? '' : '%', foot: 'moyenne des indicateurs %' },
             ]} />
 
-            {Object.entries(grouped).map(([mod, list]) => (
-              <Card key={mod} aria-label={mod}>
-                <CardHeader title={mod} subtitle={`${list.length} indicateur(s)`} />
-                <div className="table-wrap"><table className="table">
-                  <thead><tr><th>Indicateur</th><th className="num">Valeur</th><th style={{ minWidth: 140 }}>Niveau</th><th className="num">Base</th><th className="num">Cible</th><th>Appréciation</th></tr></thead>
-                  <tbody>
-                    {list.map((i) => (
-                      <tr key={i.id}>
-                        <td><strong>{i.label}</strong><div className="site-meta mono">{i.sourceField}</div></td>
-                        <td className="num mono">{fmtVal(i)}</td>
-                        <td>{(i.agg === 'percent_yes' || i.agg === 'percent_value') && i.value != null ? <Usage rate={i.value / 100} /> : <span className="cell-empty">—</span>}</td>
-                        <td className="num mono">{i.base}</td>
-                        <td className="num mono">{i.target ?? '—'}</td>
-                        <td>{i.value == null ? <span className="cell-empty">—</span> : <Badge tone={RATING[i.rating]?.tone} dot>{RATING[i.rating]?.label}</Badge>}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table></div>
-              </Card>
-            ))}
+            <IndicatorsList indicators={data.indicators} moduleLabel={form?.label} />
 
             {data.byBureau?.length > 0 && (
               <Card aria-label="Par bureau">

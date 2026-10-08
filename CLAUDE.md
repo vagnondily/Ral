@@ -251,6 +251,15 @@ or navy rail.
   catalogue de champs/choix (migration 025) pour configurer les indicateurs avant
   toute soumission. Values are computed live by the pure, unit-tested
   `monitoringMath.js`. Nav: « Suivi de processus › Données & indicateurs ».
+  **Liste d'indicateurs « riche »** (`web/src/pages/monitoring/IndicatorsList.jsx`,
+  onglet « Résultats ») : implémente la maquette design (branche
+  `design/liste-drawer-mockup`, PR #2 ; HTML de réf. dans `web/public/mockups/`) —
+  table aérée, **barres de progression en ligne** (Réalisé/Cible·% colorées par
+  statut), statut couleur+icône+libellé, **sélection multiple + barre d'actions**,
+  **densité réglable**, colonnes configurables (mémorisées localStorage), tri par
+  en-tête, et **clic ligne → drawer de détail** (hero métrique + barre + liste
+  clé-valeur + onglets Détails/Méthode). Câblée aux vrais champs d'indicateur
+  (label/code/module/agg/value/target/direction/rating) — aucun champ inventé.
 - **Affectation & visites de terrain** (ex-« Sites & visites » ;
   `server/src/modules/tpm/field.*`, `web/src/pages/monitoring/FieldVisitsPage.jsx`,
   migration 020). **Écran unique d'affectation TPM** : l'ancien
