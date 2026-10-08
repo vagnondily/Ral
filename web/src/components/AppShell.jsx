@@ -87,6 +87,7 @@ export const NAV = [
           { id: 'localites', label: 'Localités' },
           { id: 'bureaux', label: 'Bureaux & antennes' },
           { heading: 'Suivi' },
+          { id: 'indicateurs', label: 'Indicateurs & calculs' },
           { id: 'mmr', label: 'Paramètres MMR' },
           { heading: 'Sécurité' },
           { id: 'utilisateurs', label: 'Utilisateurs & accès' },

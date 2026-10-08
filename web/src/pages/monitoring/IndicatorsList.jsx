@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Search, Columns3, Download, Rows3, Rows4, X, TrendingUp, TrendingDown, Pencil } from 'lucide-react';
+import { Search, Columns3, Download, Rows3, Rows4, X, TrendingUp, TrendingDown, Layers } from 'lucide-react';
 import { Button, EmptyState, IconButton, StatusBadge } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import { usePopover } from '../../components/listView.jsx';
@@ -24,11 +24,12 @@ const ALL_COLS = {
   module: { label: 'Module' },
   prog: { label: 'Réalisé / Cible' },
   statut: { label: 'Statut' },
+  base: { label: 'Base (n)' },
   agg: { label: 'Agrégation' },
   sens: { label: 'Sens' },
   source: { label: 'Champ source' },
 };
-const DEFAULT_COLS = ['module', 'prog', 'statut', 'agg'];
+const DEFAULT_COLS = ['module', 'prog', 'statut', 'base'];
 const STORE = 'mems.indicators.view.v1';
 
 const isPct = (i) => i.agg === 'percent_yes' || i.agg === 'percent_value';
@@ -52,16 +53,18 @@ export default function IndicatorsList({ indicators, moduleLabel }) {
   const [q, setQ] = useState('');
   const [cols, setCols] = useState(() => saved.cols || DEFAULT_COLS);
   const [dense, setDense] = useState(() => saved.dense || false);
+  const [group, setGroup] = useState(() => saved.group || false);
   const [sort, setSort] = useState(() => saved.sort || { key: 'statut', dir: 'asc' });
   const [sel, setSel] = useState(() => new Set());
   const [open, setOpen] = useState(null); // indicateur ouvert dans le drawer
   const colMenu = usePopover();
 
-  const persist = (patch) => saveView({ cols, dense, sort, ...patch });
+  const persist = (patch) => saveView({ cols, dense, group, sort, ...patch });
   const toggleCol = (k) => setCols((cs) => { const next = cs.includes(k) ? cs.filter((x) => x !== k) : [...cs, k]; persist({ cols: next }); return next; });
   const setDensity = (d) => { setDense(d); persist({ dense: d }); };
+  const toggleGroup = () => setGroup((g) => { persist({ group: !g }); return !g; });
   const onSort = (key) => setSort((s) => { const next = s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }; persist({ sort: next }); return next; });
-  const resetView = () => { setCols(DEFAULT_COLS); setDense(false); setSort({ key: 'statut', dir: 'asc' }); setQ(''); saveView({}); };
+  const resetView = () => { setCols(DEFAULT_COLS); setDense(false); setGroup(false); setSort({ key: 'statut', dir: 'asc' }); setQ(''); saveView({}); };
 
   const rows = useMemo(() => {
     let list = (indicators || []).filter((i) => {
@@ -71,7 +74,7 @@ export default function IndicatorsList({ indicators, moduleLabel }) {
     });
     const val = (i) => ({
       indicateur: i.label || '', module: i.module || '', prog: progress(i).rate ?? (i.value ?? -1),
-      statut: RATING_ORDER[i.rating] ?? 0, agg: AGG[i.agg] || '', source: i.sourceField || '',
+      statut: RATING_ORDER[i.rating] ?? 0, base: i.base ?? -1, agg: AGG[i.agg] || '', source: i.sourceField || '',
     }[sort.key] ?? '');
     return [...list].sort((a, b) => {
       const va = val(a); const vb = val(b);
@@ -80,6 +83,12 @@ export default function IndicatorsList({ indicators, moduleLabel }) {
     });
   }, [indicators, q, sort]);
 
+  const groups = useMemo(() => {
+    const g = new Map();
+    for (const i of rows) { const k = i.module || 'Sans module'; if (!g.has(k)) g.set(k, []); g.get(k).push(i); }
+    return [...g.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [rows]);
+
   const shown = Object.keys(ALL_COLS).filter((k) => cols.includes(k));
   const allSel = rows.length > 0 && rows.every((i) => sel.has(i.id));
   const toggleAll = () => setSel(allSel ? new Set() : new Set(rows.map((i) => i.id)));
@@ -87,14 +96,40 @@ export default function IndicatorsList({ indicators, moduleLabel }) {
 
   const exportCsv = (which) => {
     const list = which === 'sel' ? rows.filter((i) => sel.has(i.id)) : rows;
-    const head = ['Indicateur', 'Code', 'Module', 'Réalisé', 'Cible', 'Statut', 'Agrégation', 'Sens', 'Champ source'];
+    const head = ['Indicateur', 'Code', 'Module', 'Réalisé', 'Cible', 'Base (n)', 'Statut', 'Agrégation', 'Sens', 'Champ source'];
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const lines = list.map((i) => [i.label, i.code, i.module, i.value, i.target, STAT[i.rating]?.label, AGG[i.agg], i.direction === 'lower_better' ? 'plus bas = mieux' : 'plus haut = mieux', i.sourceField].map(esc).join(';'));
+    const lines = list.map((i) => [i.label, i.code, i.module, i.value, i.target, i.base, STAT[i.rating]?.label, AGG[i.agg], i.direction === 'lower_better' ? 'plus bas = mieux' : 'plus haut = mieux', i.sourceField].map(esc).join(';'));
     const blob = new Blob(['﻿' + [head.map(esc).join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'indicateurs.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
 
   const Caret = ({ k }) => (sort.key === k ? <span className="ind-caret">{sort.dir === 'asc' ? '▲' : '▼'}</span> : null);
+
+  function renderRow(i) {
+    const st = STAT[i.rating] || STAT.na;
+    const p = progress(i);
+    const isSel = sel.has(i.id);
+    return (
+      <tr key={i.id} className={`clickable ${isSel ? 'is-selected' : ''}`} onClick={() => setOpen(i)}>
+        <td className="ind-cb" onClick={(e) => e.stopPropagation()}>
+          <input type="checkbox" checked={isSel} onChange={() => toggleOne(i.id)} aria-label={`Sélectionner ${i.label}`} />
+        </td>
+        <td><span className="ind-name">{i.label}</span>{i.code && <div className="ind-sub mono">{i.code}</div>}</td>
+        {shown.map((k) => {
+          if (k === 'module') return <td key={k} className="muted">{i.module || '—'}</td>;
+          if (k === 'prog') return <td key={k}>{p.has
+            ? <div className="ind-prog"><div className="ind-nums"><b className="mono">{p.text}</b>{p.pct != null && <span className="mono">{p.pct} %</span>}</div>{p.rate != null && <div className="ind-bar"><i style={{ width: `${Math.round(p.rate * 100)}%`, background: st.fill }} /></div>}</div>
+            : <span className="cell-empty">—</span>}</td>;
+          if (k === 'statut') return <td key={k}><StatusBadge def={st} /></td>;
+          if (k === 'base') return <td key={k} className="num mono">{i.base ?? <span className="cell-empty">—</span>}</td>;
+          if (k === 'agg') return <td key={k} className="muted">{AGG[i.agg] || i.agg}</td>;
+          if (k === 'sens') return <td key={k}>{i.direction === 'lower_better' ? <span className="ind-sens"><TrendingDown size={14} /> plus bas</span> : <span className="ind-sens"><TrendingUp size={14} /> plus haut</span>}</td>;
+          if (k === 'source') return <td key={k}><span className="mono ind-sub">{i.sourceField || '—'}</span></td>;
+          return <td key={k} />;
+        })}
+      </tr>
+    );
+  }
 
   return (
     <div className="ind-wrap">
@@ -109,6 +144,7 @@ export default function IndicatorsList({ indicators, moduleLabel }) {
           <button type="button" className={!dense ? 'is-active' : ''} onClick={() => setDensity(false)} title="Confort" aria-label="Confort"><Rows3 size={16} /></button>
           <button type="button" className={dense ? 'is-active' : ''} onClick={() => setDensity(true)} title="Compact" aria-label="Compact"><Rows4 size={16} /></button>
         </div>
+        <IconButton icon={Layers} label="Grouper par module" variant={group ? 'primary' : 'secondary'} size="sm" aria-pressed={group} onClick={toggleGroup} />
         <div className="pop-anchor" ref={colMenu.ref}>
           <IconButton icon={Columns3} label="Colonnes" variant="secondary" size="sm" onClick={() => colMenu.setOpen((o) => !o)} />
           {colMenu.open && (
@@ -139,39 +175,26 @@ export default function IndicatorsList({ indicators, moduleLabel }) {
             <thead><tr>
               <th className="ind-cb"><input type="checkbox" checked={allSel} onChange={toggleAll} aria-label="Tout sélectionner" /></th>
               <th className="ind-sortable" onClick={() => onSort('indicateur')}>Indicateur <Caret k="indicateur" /></th>
-              {shown.map((k) => (
-                <th key={k} className={`${['prog', 'statut'].includes(k) ? '' : ''} ${['module', 'statut'].includes(k) ? 'ind-sortable' : ''} ${k === 'prog' ? 'num' : ''}`}
-                  onClick={['module', 'statut', 'prog'].includes(k) ? () => onSort(k) : undefined}>
-                  {ALL_COLS[k].label} {['module', 'statut', 'prog'].includes(k) && <Caret k={k} />}
-                </th>
-              ))}
+              {shown.map((k) => {
+                const sortable = ['module', 'statut', 'prog', 'base'].includes(k);
+                return (
+                  <th key={k} className={`${sortable ? 'ind-sortable' : ''} ${['prog', 'base'].includes(k) ? 'num' : ''}`}
+                    onClick={sortable ? () => onSort(k) : undefined}>
+                    {ALL_COLS[k].label} {sortable && <Caret k={k} />}
+                  </th>
+                );
+              })}
             </tr></thead>
             <tbody>
               {rows.length === 0 && <tr className="ind-empty"><td colSpan={shown.length + 2}><EmptyState icon={TrendingUp} title="Aucun indicateur">Définissez des indicateurs et importez des données réelles.</EmptyState></td></tr>}
-              {rows.map((i) => {
-                const st = STAT[i.rating] || STAT.na;
-                const p = progress(i);
-                const isSel = sel.has(i.id);
-                return (
-                  <tr key={i.id} className={`clickable ${isSel ? 'is-selected' : ''}`} onClick={() => setOpen(i)}>
-                    <td className="ind-cb" onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" checked={isSel} onChange={() => toggleOne(i.id)} aria-label={`Sélectionner ${i.label}`} />
-                    </td>
-                    <td><span className="ind-name">{i.label}</span>{i.code && <div className="ind-sub mono">{i.code}</div>}</td>
-                    {shown.map((k) => {
-                      if (k === 'module') return <td key={k} className="muted">{i.module || '—'}</td>;
-                      if (k === 'prog') return <td key={k}>{p.has
-                        ? <div className="ind-prog"><div className="ind-nums"><b className="mono">{p.text}</b>{p.pct != null && <span className="mono">{p.pct} %</span>}</div>{p.rate != null && <div className="ind-bar"><i style={{ width: `${Math.round(p.rate * 100)}%`, background: st.fill }} /></div>}</div>
-                        : <span className="cell-empty">—</span>}</td>;
-                      if (k === 'statut') return <td key={k}><StatusBadge def={st} /></td>;
-                      if (k === 'agg') return <td key={k} className="muted">{AGG[i.agg] || i.agg}</td>;
-                      if (k === 'sens') return <td key={k}>{i.direction === 'lower_better' ? <span className="ind-sens"><TrendingDown size={14} /> plus bas</span> : <span className="ind-sens"><TrendingUp size={14} /> plus haut</span>}</td>;
-                      if (k === 'source') return <td key={k}><span className="mono ind-sub">{i.sourceField || '—'}</span></td>;
-                      return <td key={k} />;
-                    })}
-                  </tr>
-                );
-              })}
+              {group
+                ? groups.map(([mod, list]) => (
+                  <React.Fragment key={mod}>
+                    <tr className="subrow-head"><td colSpan={shown.length + 2}>{mod} · {list.length} indicateur(s)</td></tr>
+                    {list.map((i) => renderRow(i))}
+                  </React.Fragment>
+                ))
+                : rows.map((i) => renderRow(i))}
             </tbody>
           </table>
         </div>
