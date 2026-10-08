@@ -1662,7 +1662,10 @@ h1, h2, h3, h4 { letter-spacing: -0.018em; }
 
 .biz-gauges { display: grid; gap: 14px; }
 .biz-gauge { display: block; width: 100%; text-align: left; background: transparent; border: 0; padding: 0; cursor: pointer; }
-.biz-gauge-head { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 600; color: var(--text-strong); margin-bottom: 5px; }
+.biz-gauge-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--text-strong); margin-bottom: 5px; }
+/* Sur étroit : le libellé se tronque, la valeur reste entière (non coupée). */
+.biz-gauge-head > :first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.biz-gauge-head > :last-child { flex: none; white-space: nowrap; }
 .biz-bar { height: 8px; background: var(--canvas-sunken); border-radius: 999px; overflow: hidden; }
 .biz-bar > span { display: block; height: 100%; border-radius: 999px; transition: width .3s var(--ease); }
 .biz-gauge-foot { font-size: 11.5px; color: var(--text-faint); margin-top: 4px; }
