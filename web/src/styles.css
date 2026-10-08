@@ -890,6 +890,28 @@ button:disabled { cursor: not-allowed; }
 .seg-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 10px; }
 .seg-row .seg-label { font-size: var(--fs-sm); color: var(--text); display: inline-flex; align-items: center; gap: 10px; }
 .seg-row .seg-label svg { color: var(--text-muted); }
+/* Barre de préférences — contrôles icône seule (langue FR|EN, thème jour/nuit, aides) */
+.pref-bar { display: flex; align-items: center; gap: 6px; padding: 4px 10px 2px; }
+.pref-seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--canvas-sunken); border-radius: 999px; }
+.pref-seg button {
+  border: 0; background: transparent; color: var(--text-muted);
+  min-width: 34px; height: 28px; padding: 0 8px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; letter-spacing: .02em; cursor: pointer;
+  transition: background-color .15s var(--ease), color .15s var(--ease);
+}
+.pref-seg button:hover { color: var(--text-strong); }
+.pref-seg button.is-active { background: var(--surface); color: var(--text-strong); box-shadow: var(--shadow-sm); }
+.pref-ic {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; margin-left: auto; margin-right: 0;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); color: var(--text-muted); cursor: pointer;
+  transition: background-color .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
+}
+.pref-ic + .pref-ic { margin-left: 0; }
+.pref-ic:hover { color: var(--text-strong); border-color: var(--border-strong); }
+.pref-ic.is-active { background: var(--blue-50); color: var(--blue-600); border-color: var(--blue-600); }
+.pref-ic:focus-visible { outline: 2px solid var(--blue-600); outline-offset: 2px; }
 .notif-empty { padding: 18px 10px; text-align: center; color: var(--text-muted); font-size: var(--fs-sm); }
 .pop-sep { height: 1px; background: var(--border); margin: 6px 0; }
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bell, Settings, LogOut, Sun, Moon, Globe, Check, Eye } from 'lucide-react';
+import { Bell, Settings, LogOut, Sun, Moon, Lightbulb, LightbulbOff } from 'lucide-react';
 import { Avatar, IconButton } from './ui.jsx';
 import { useI18n, LANGS } from '../lib/i18n.jsx';
 import { useTheme } from '../lib/theme.js';
@@ -71,38 +71,41 @@ export function UserMenu({ user, onLogout, onSettings }) {
             <div className="pop-role">{role}</div>
           </div>
 
-          <div className="seg-row">
-            <span className="seg-label"><Globe size={16} aria-hidden="true" />{t('user.language', 'Langue')}</span>
-            <div className="seg" role="group" aria-label={t('user.language', 'Langue')}>
+          <div className="pref-bar" role="group" aria-label={t('user.preferences', 'Préférences')}>
+            <div className="pref-seg" role="group" aria-label={t('user.language', 'Langue')}>
               {LANGS.map((l) => (
                 <button
                   key={l.id}
                   type="button"
                   className={lang === l.id ? 'is-active' : ''}
                   aria-pressed={lang === l.id}
+                  title={l.label}
                   onClick={() => setLang(l.id)}
                 >{l.short}</button>
               ))}
             </div>
-          </div>
 
-          <div className="seg-row">
-            <span className="seg-label">
-              {theme === 'dark' ? <Moon size={16} aria-hidden="true" /> : <Sun size={16} aria-hidden="true" />}
-              {t('user.theme.dark', 'Mode sombre')}
-            </span>
-            <label className="ui-switch">
-              <input type="checkbox" checked={theme === 'dark'} onChange={(e) => setTheme(e.target.checked ? 'dark' : 'light')} aria-label={t('user.theme.dark', 'Mode sombre')} />
-              <span className="track"><span className="thumb" /></span>
-            </label>
-          </div>
+            <button
+              type="button"
+              className={`pref-ic${theme === 'dark' ? ' is-active' : ''}`}
+              aria-pressed={theme === 'dark'}
+              title={theme === 'dark' ? t('user.theme.dark', 'Mode sombre') : t('user.theme.light', 'Mode clair')}
+              aria-label={theme === 'dark' ? t('user.theme.dark', 'Mode sombre') : t('user.theme.light', 'Mode clair')}
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            >
+              {theme === 'dark' ? <Moon size={17} aria-hidden="true" /> : <Sun size={17} aria-hidden="true" />}
+            </button>
 
-          <div className="seg-row">
-            <span className="seg-label"><Eye size={16} aria-hidden="true" />{t('user.tips.show', 'Afficher les aides')}</span>
-            <label className="ui-switch">
-              <input type="checkbox" checked={tips === 'on'} onChange={(e) => setTips(e.target.checked ? 'on' : 'off')} aria-label={t('user.tips.show', 'Afficher les aides')} />
-              <span className="track"><span className="thumb" /></span>
-            </label>
+            <button
+              type="button"
+              className={`pref-ic${tips === 'on' ? ' is-active' : ''}`}
+              aria-pressed={tips === 'on'}
+              title={tips === 'on' ? t('user.tips.hide', 'Masquer les aides') : t('user.tips.show', 'Afficher les aides')}
+              aria-label={tips === 'on' ? t('user.tips.hide', 'Masquer les aides') : t('user.tips.show', 'Afficher les aides')}
+              onClick={() => setTips(tips === 'on' ? 'off' : 'on')}
+            >
+              {tips === 'on' ? <Lightbulb size={17} aria-hidden="true" /> : <LightbulbOff size={17} aria-hidden="true" />}
+            </button>
           </div>
 
           <div className="pop-sep" />

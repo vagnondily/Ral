@@ -66,8 +66,11 @@ const DICT = {
     'user.account': 'Account',
     'user.language': 'Language',
     'user.theme': 'Theme',
-    'user.theme.light': 'Light',
-    'user.theme.dark': 'Dark',
+    'user.theme.light': 'Light mode',
+    'user.theme.dark': 'Dark mode',
+    'user.preferences': 'Preferences',
+    'user.tips.show': 'Show tips',
+    'user.tips.hide': 'Hide tips',
     'user.settings': 'Settings',
     'user.logout': 'Sign out',
     // roles
