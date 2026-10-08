@@ -1908,6 +1908,12 @@ tr.row-due { background: color-mix(in srgb, var(--blue-50) 55%, transparent); }
    colonnes lisibles à l'écran (le sélecteur de colonnes limite le nombre). */
 .data-grid th.data-var { white-space: normal; max-width: 150px; min-width: 88px; }
 .data-grid td.data-var.mono-cell { max-width: 150px; }
+/* Lignes exclues de l'analyse (curation) : atténuées. */
+.data-grid tbody tr.is-excluded { opacity: .5; }
+.data-grid tbody tr.is-excluded td.data-first { box-shadow: inset -1px 0 0 var(--border), inset 3px 0 0 var(--red); }
+/* Colonnes « champ calculé » (ƒ) : légère teinte bleue. */
+.data-grid th.is-calc, .data-grid td.is-calc { background: var(--blue-50); }
+.data-grid thead th.is-calc { background: var(--blue-50); }
 .drawer-sub { margin: 18px 0 8px; font-size: var(--fs-sm); font-weight: 700; color: var(--text-strong); }
 .ind-kv dt .th-sub { font-weight: 500; }
 .flow-num { display: inline-flex; align-items: center; justify-content: center;

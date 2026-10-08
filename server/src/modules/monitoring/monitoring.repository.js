@@ -1,6 +1,22 @@
 const { withTenantTransaction } = require('../../config/db');
 const { computeAll, overallIndex } = require('./monitoringMath');
 const { detectMapping, DIMENSION_COLUMN, EDITABLE_KEYS } = require('./memsMapping');
+const { computeCalcFields } = require('./calcFields');
+
+/** Charge les champs calculés d'une fiche (ordre), pour l'analyse et la grille. */
+async function calcDefsFor(client, tenantId, formId) {
+  const { rows } = await client.query(
+    `SELECT name, label, kind, expression, source_field AS "sourceField", mapping, default_value AS "defaultValue", sort_order
+       FROM monitoring_calc_fields WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name`,
+    [tenantId, formId]
+  );
+  return rows;
+}
+/** Fusionne les champs calculés dans le `data` de chaque soumission (pour l'agrégation). */
+function withCalc(subs, defs) {
+  if (!defs || !defs.length) return subs;
+  return subs.map((s) => ({ ...s, data: { ...s.data, ...computeCalcFields(defs, s.data || {}) } }));
+}
 
 /**
  * Suivi de processus — data access. Forms + configurable indicators (the
@@ -152,9 +168,10 @@ async function formSubmissions(tenantId, formId, { month, limit = 200 } = {}) {
     if (month) { params.push(`${String(month).slice(0, 7)}-01`); where.push(`ms.period_month = $${params.length}`); }
     params.push(Math.min(Math.max(Number(limit) || 200, 1), 2000));
     const { rows } = await client.query(
-      `SELECT ms.external_id AS "externalId", to_char(ms.period_month, 'YYYY-MM') AS "periodMonth",
+      `SELECT ms.id, ms.external_id AS "externalId", to_char(ms.period_month, 'YYYY-MM') AS "periodMonth",
               ms.submitted_at AS "submittedAt", ms.field_office AS "fieldOffice",
               ms.admin1, ms.admin2, ms.admin3, ms.admin4, ms.site, ms.partner, ms.agent, ms.source, ms.data,
+              ms.excluded, ms.exclude_reason AS "excludeReason",
               (SELECT s.commune FROM sites s
                 WHERE s.tenant_id = ms.tenant_id AND s.adm3_pcode IS NOT NULL AND s.adm3_pcode = ms.admin3
                 LIMIT 1) AS "communeName"
@@ -165,10 +182,16 @@ async function formSubmissions(tenantId, formId, { month, limit = 200 } = {}) {
       params
     );
     const { rows: cnt } = await client.query(
-      `SELECT count(*)::int AS total FROM monitoring_submissions ms WHERE ${where.slice(0, month ? 3 : 2).join(' AND ')}`,
+      `SELECT count(*)::int AS total, count(*) FILTER (WHERE excluded)::int AS excluded
+         FROM monitoring_submissions ms WHERE ${where.slice(0, month ? 3 : 2).join(' AND ')}`,
       params.slice(0, month ? 3 : 2)
     );
-    return { rows, total: cnt[0]?.total ?? rows.length, limit: params[params.length - 1] };
+    // Champs calculés : fusionnés dans le `data` renvoyé (colonnes de la grille).
+    const calcFields = await calcDefsFor(client, tenantId, formId);
+    const outRows = calcFields.length
+      ? rows.map((r) => ({ ...r, data: { ...r.data, ...computeCalcFields(calcFields, r.data || {}) } }))
+      : rows;
+    return { rows: outRows, total: cnt[0]?.total ?? rows.length, excluded: cnt[0]?.excluded ?? 0, limit: params[params.length - 1], calcFields };
   });
 }
 
@@ -432,7 +455,7 @@ async function importSubmissions(tenantId, formId, submissions) {
 async function computeValues(tenantId, formId, { month } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId, formId];
-    let where = 's.tenant_id = $1 AND s.form_id = $2';
+    let where = 's.tenant_id = $1 AND s.form_id = $2 AND NOT s.excluded';
     if (month) { params.push(`${month.slice(0, 7)}-01`); where += ` AND s.period_month = $${params.length}`; }
     const { rows: subs } = await client.query(`SELECT data FROM monitoring_submissions s WHERE ${where}`, params);
     const { rows: inds } = await client.query(
@@ -442,7 +465,8 @@ async function computeValues(tenantId, formId, { month } = {}) {
         ORDER BY sort_order, label`,
       [tenantId, formId]
     );
-    return { count: subs.length, indicators: computeAll(inds, subs) };
+    const subsC = withCalc(subs, await calcDefsFor(client, tenantId, formId));
+    return { count: subsC.length, indicators: computeAll(inds, subsC) };
   });
 }
 
@@ -450,7 +474,7 @@ async function computeValues(tenantId, formId, { month } = {}) {
 async function dashboard(tenantId, formId, { month } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId, formId];
-    let where = 's.tenant_id = $1 AND s.form_id = $2';
+    let where = 's.tenant_id = $1 AND s.form_id = $2 AND NOT s.excluded';
     if (month) { params.push(`${month.slice(0, 7)}-01`); where += ` AND s.period_month = $${params.length}`; }
 
     const { rows: cov } = await client.query(
@@ -478,7 +502,8 @@ async function dashboard(tenantId, formId, { month } = {}) {
         ORDER BY sort_order, label`,
       [tenantId, formId]
     );
-    const indicators = computeAll(inds, subs);
+    const subsC = withCalc(subs, await calcDefsFor(client, tenantId, formId));
+    const indicators = computeAll(inds, subsC);
     return { coverage: cov[0], byBureau, indicators, overallIndex: overallIndex(indicators) };
   });
 }
@@ -589,7 +614,66 @@ async function listSubmissions(tenantId, { month, limit = 300 } = {}) {
   });
 }
 
+// ---- Nettoyage : champs calculés + exclusion -----------------------------
+async function listCalcFields(tenantId, formId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT id, name, label, kind, expression, source_field AS "sourceField", mapping,
+              default_value AS "defaultValue", sort_order AS "sortOrder"
+         FROM monitoring_calc_fields WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name`,
+      [tenantId, formId]
+    );
+    return rows;
+  });
+}
+
+async function createCalcField(tenantId, formId, b) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `INSERT INTO monitoring_calc_fields (tenant_id, form_id, name, label, kind, expression, source_field, mapping, default_value, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, COALESCE((SELECT max(sort_order)+1 FROM monitoring_calc_fields WHERE form_id=$2), 0))
+       RETURNING id`,
+      [tenantId, formId, b.name, b.label || b.name, b.kind, b.expression || null, b.sourceField || null,
+        b.mapping ? JSON.stringify(b.mapping) : null, b.defaultValue ?? null]
+    );
+    return rows[0].id;
+  });
+}
+
+async function updateCalcField(tenantId, id, b) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rowCount } = await client.query(
+      `UPDATE monitoring_calc_fields SET name=$3, label=$4, kind=$5, expression=$6, source_field=$7, mapping=$8, default_value=$9
+         WHERE tenant_id=$1 AND id=$2`,
+      [tenantId, id, b.name, b.label || b.name, b.kind, b.expression || null, b.sourceField || null,
+        b.mapping ? JSON.stringify(b.mapping) : null, b.defaultValue ?? null]
+    );
+    return rowCount > 0;
+  });
+}
+
+async function deleteCalcField(tenantId, id) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rowCount } = await client.query('DELETE FROM monitoring_calc_fields WHERE tenant_id=$1 AND id=$2', [tenantId, id]);
+    return rowCount > 0;
+  });
+}
+
+/** Exclut / réintègre des soumissions (curation). `ids` = monitoring_submissions.id. */
+async function setExclusion(tenantId, formId, { ids, excluded, reason } = {}) {
+  if (!Array.isArray(ids) || !ids.length) return { updated: 0 };
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rowCount } = await client.query(
+      `UPDATE monitoring_submissions SET excluded = $3, exclude_reason = $4
+         WHERE tenant_id = $1 AND form_id = $2 AND id = ANY($5::uuid[])`,
+      [tenantId, formId, excluded === true, excluded ? (reason || null) : null, ids]
+    );
+    return { updated: rowCount };
+  });
+}
+
 module.exports = {
+  listCalcFields, createCalcField, updateCalcField, deleteCalcField, setExclusion,
   listForms, createForm, updateForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,
   formFields, importSubmissions, computeValues, dashboard, processOverview,

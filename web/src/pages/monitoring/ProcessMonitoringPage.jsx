@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Upload, AlertCircle, ClipboardCheck, RefreshCw, ArrowLeft, ChevronRight,
   FileSpreadsheet, SlidersHorizontal, BarChart3, Link2, Trash2, Pencil, Check, Minus, Shuffle,
-  Table2, Download, Search, Columns3, X, ChevronDown, ChevronUp,
+  Table2, Download, Search, Columns3, X, ChevronDown, ChevronUp, Ban, Undo2,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, IconButton, PageHeader, Skeleton, Stats } from '../../components/ui.jsx';
@@ -163,7 +163,7 @@ function FormDetail({ form, canEdit, onBack, onChanged }) {
       </div>
 
       {tab === 'variables' && <VariablesTab form={form} />}
-      {tab === 'donnees' && <DataViewTab form={form} onGoConfig={() => setTab('config')} />}
+      {tab === 'donnees' && <DataViewTab form={form} canEdit={canEdit} onGoConfig={() => setTab('config')} />}
       {tab === 'resultats' && <ResultsTab form={form} onGoConfig={() => setTab('config')} />}
       {tab === 'mapping' && <MappingTab form={form} canEdit={canEdit} />}
       {tab === 'config' && <ConfigTab form={form} canEdit={canEdit} onChanged={onChanged} />}
@@ -276,25 +276,28 @@ const DV_DIMS = [
   { key: 'mon', label: 'Mois', get: (r) => (r.periodMonth ? r.periodMonth.slice(5, 7) : null), fmt: (v) => DV_MONTHS[Number(v) - 1] || v },
 ];
 
-function DataViewTab({ form, onGoConfig }) {
+function DataViewTab({ form, canEdit, onGoConfig }) {
   const toast = useToast();
   const [q, setQ] = useState('');
   const [filters, setFilters] = useState({});
   const [cat, setCat] = useState(null);
   const [res, setRes] = useState(null);
 
-  useEffect(() => {
-    setCat(null); setRes(null); setFilters({});
+  const [view, setView] = useState('all'); // all | kept | excluded
+
+  function loadData() {
+    setRes(null);
     Promise.all([
       api.monCatalog(form.id).catch(() => ({ fields: [], choices: [] })),
       api.monFormSubmissions(form.id, { limit: 1000 }),
     ]).then(([c, r]) => { setCat(c || { fields: [], choices: [] }); setRes(r); })
       .catch((e) => { toast.error(e.message); setCat({ fields: [], choices: [] }); setRes({ rows: [], total: 0, limit: 0 }); });
-    /* eslint-disable-next-line */
-  }, [form.id]);
+  }
+  useEffect(() => { setCat(null); setFilters({}); setView('all'); loadData(); /* eslint-disable-next-line */ }, [form.id]);
 
   const rows = res?.rows || [];
   const labelOf = choiceLabeller(cat?.choices);
+  const calcCols = useMemo(() => (res?.calcFields || []).map((c) => ({ name: c.name, label: c.label || c.name, listName: null, calc: true })), [res]);
 
   // Options de filtre : une liste de valeurs distinctes par dimension présente.
   const dimOptions = useMemo(() => DV_DIMS.map((d) => {
@@ -302,14 +305,19 @@ function DataViewTab({ form, onGoConfig }) {
     return { ...d, vals };
   }).filter((d) => d.vals.length > 1), [rows]);
 
-  // Colonnes « variables » : catalogue d'abord, sinon clés vues dans les données.
+  // Colonnes « variables » : champs calculés (ƒ) d'abord, puis catalogue, sinon
+  // clés vues dans les données.
   const varCols = useMemo(() => {
     const catFields = cat?.fields || [];
-    if (catFields.length) return catFields;
-    const seen = new Map();
-    for (const r of rows) for (const k of Object.keys(r.data || {})) if (!seen.has(k)) seen.set(k, { name: k, label: k, listName: null });
-    return [...seen.values()];
-  }, [cat, rows]);
+    let base = catFields;
+    if (!catFields.length) {
+      const seen = new Map();
+      for (const r of rows) for (const k of Object.keys(r.data || {})) if (!seen.has(k)) seen.set(k, { name: k, label: k, listName: null });
+      base = [...seen.values()];
+    }
+    const calcNames = new Set(calcCols.map((c) => c.name));
+    return [...calcCols, ...base.filter((b) => !calcNames.has(b.name))];
+  }, [cat, rows, calcCols]);
 
   // Sélecteur de colonnes : avec beaucoup de variables, on n'en affiche qu'un
   // sous-ensemble (lisibilité) ; le reste reste consultable dans le tiroir de
@@ -345,22 +353,35 @@ function DataViewTab({ form, onGoConfig }) {
     const active = DV_DIMS.filter((d) => filters[d.key]);
     const s = q.toLowerCase();
     return rows.filter((r) => {
+      if (view === 'kept' && r.excluded) return false;
+      if (view === 'excluded' && !r.excluded) return false;
       for (const d of active) { if (String(d.get(r) ?? '') !== filters[d.key]) return false; }
       if (!q) return true;
       if (metaCols.some((m) => String(metaVal(r, m)).toLowerCase().includes(s))) return true;
       return Object.values(r.data || {}).some((v) => String(v ?? '').toLowerCase().includes(s));
     });
     /* eslint-disable-next-line */
-  }, [rows, q, filters, metaCols]);
+  }, [rows, q, filters, view, metaCols]);
 
   const [open, setOpen] = useState(null);
   const [expanded, setExpanded] = useState(false); // hauteur compacte ↔ liste complète
 
   // Sélection multiple (cases à cocher) + actions groupées — convention des
   // listes de l'app (sélection par ligne, tout cocher, export de la sélection).
-  const rowKey = (r, i) => r.externalId || `_${i}`;
+  const rowKey = (r) => r.id || r.externalId;
   const [sel, setSel] = useState(() => new Set());
   useEffect(() => { setSel(new Set()); }, [form.id, filters]);
+
+  async function setExcluded(excluded) {
+    const ids = [...sel];
+    if (!ids.length) return;
+    const reason = excluded ? (window.prompt('Motif d\'exclusion (optionnel) :', '') || undefined) : undefined;
+    try {
+      const r = await api.monSetExclusion(form.id, { ids, excluded, reason });
+      toast.success(`${r.updated} soumission(s) ${excluded ? 'exclue(s)' : 'réintégrée(s)'}.`);
+      setSel(new Set()); loadData();
+    } catch (e) { toast.error(e.message); }
+  }
   const shownKeys = shown.map(rowKey);
   const allSel = shown.length > 0 && shownKeys.every((k) => sel.has(k));
   const toggleAll = () => setSel(allSel ? new Set() : new Set(shownKeys));
@@ -392,26 +413,32 @@ function DataViewTab({ form, onGoConfig }) {
           </EmptyState>
         ) : (
           <>
-            {dimOptions.length > 0 && (
-              <div className="comet-filters">
-                {dimOptions.map((d) => (
-                  <div className="field" key={d.key}>
-                    <span className="field-label">{d.label}</span>
-                    <select className="select" value={filters[d.key] || ''} aria-label={d.label}
-                      onChange={(e) => setFilters((f) => ({ ...f, [d.key]: e.target.value }))}>
-                      <option value="">Tous</option>
-                      {d.vals.map((v) => <option key={v} value={v}>{d.fmt ? d.fmt(v) : v}</option>)}
-                    </select>
-                  </div>
-                ))}
-                {DV_DIMS.some((d) => filters[d.key]) && <Button variant="ghost" size="sm" onClick={() => setFilters({})}>Réinitialiser</Button>}
+            <div className="comet-filters">
+              <div className="field">
+                <span className="field-label">Vue</span>
+                <select className="select" value={view} onChange={(e) => setView(e.target.value)} aria-label="Vue">
+                  <option value="all">Toutes</option>
+                  <option value="kept">Retenues (analyse)</option>
+                  <option value="excluded">Exclues</option>
+                </select>
               </div>
-            )}
+              {dimOptions.map((d) => (
+                <div className="field" key={d.key}>
+                  <span className="field-label">{d.label}</span>
+                  <select className="select" value={filters[d.key] || ''} aria-label={d.label}
+                    onChange={(e) => setFilters((f) => ({ ...f, [d.key]: e.target.value }))}>
+                    <option value="">Tous</option>
+                    {d.vals.map((v) => <option key={v} value={v}>{d.fmt ? d.fmt(v) : v}</option>)}
+                  </select>
+                </div>
+              ))}
+              {(DV_DIMS.some((d) => filters[d.key]) || view !== 'all') && <Button variant="ghost" size="sm" onClick={() => { setFilters({}); setView('all'); }}>Réinitialiser</Button>}
+            </div>
             <div className="ind-toolbar">
               <span className="input-wrap ind-search"><Search size={16} aria-hidden="true" />
                 <input className="input" type="search" placeholder="Filtrer les soumissions…" value={q} onChange={(e) => setQ(e.target.value)} />
               </span>
-              <span className="ind-hint">{shown.length} / {res.total} soumission(s){res.total > res.limit ? ` · ${res.limit} affichées max` : ''}</span>
+              <span className="ind-hint">{shown.length} affichée(s) · {res.total - (res.excluded || 0)} retenue(s){res.excluded ? ` · ${res.excluded} exclue(s)` : ''}</span>
               <span className="ind-tsp" />
               <div className="pop-anchor" ref={colMenu.ref}>
                 <IconButton icon={Columns3} label={`Colonnes (${shownVarCols.length}/${varCols.length})`} variant="secondary" size="sm" onClick={() => colMenu.setOpen((o) => !o)} />
@@ -434,6 +461,8 @@ function DataViewTab({ form, onGoConfig }) {
             {sel.size > 0 && (
               <div className="ind-batch">
                 <span className="ind-batch-n">{sel.size} sélectionnée(s)</span>
+                {canEdit && <Button size="sm" variant="ghost" icon={Ban} onClick={() => setExcluded(true)}>Exclure de l'analyse</Button>}
+                {canEdit && <Button size="sm" variant="ghost" icon={Undo2} onClick={() => setExcluded(false)}>Réintégrer</Button>}
                 <Button size="sm" variant="ghost" icon={Download} onClick={() => exportCsv('sel')}>Exporter la sélection</Button>
                 <Button size="sm" variant="ghost" icon={X} onClick={() => setSel(new Set())}>Désélectionner</Button>
               </div>
@@ -443,20 +472,20 @@ function DataViewTab({ form, onGoConfig }) {
                 <thead><tr>
                   <th className="data-cb"><input type="checkbox" checked={allSel} onChange={toggleAll} aria-label="Tout sélectionner" /></th>
                   {metaCols.map((m, mi) => <th key={m.key} scope="col" className={mi === 0 ? 'data-first' : ''}>{m.label}</th>)}
-                  {shownVarCols.map((v) => <th key={v.name} scope="col" className="data-var"><span>{v.label || v.name}</span><div className="th-sub mono">{v.name}</div></th>)}
+                  {shownVarCols.map((v) => <th key={v.name} scope="col" className={`data-var ${v.calc ? 'is-calc' : ''}`}><span>{v.calc ? `ƒ ${v.label || v.name}` : (v.label || v.name)}</span><div className="th-sub mono">{v.name}</div></th>)}
                 </tr></thead>
                 <tbody>
                   {shown.map((r, i) => {
                     const k = rowKey(r, i); const isSel = sel.has(k);
                     return (
-                    <tr key={k} className={`clickable ${isSel ? 'is-selected' : ''}`} onClick={() => setOpen(r)}>
+                    <tr key={k} className={`clickable ${isSel ? 'is-selected' : ''} ${r.excluded ? 'is-excluded' : ''}`} onClick={() => setOpen(r)} title={r.excluded ? `Exclue de l'analyse${r.excludeReason ? ` — ${r.excludeReason}` : ''}` : undefined}>
                       <td className="data-cb" onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" checked={isSel} onChange={() => toggleOne(k)} aria-label="Sélectionner la soumission" />
                       </td>
-                      {metaCols.map((m, mi) => <td key={m.key} className={`${m.key === 'submittedAt' ? 'tabular' : ''} ${mi === 0 ? 'data-first' : ''}`}>{metaVal(r, m)}</td>)}
+                      {metaCols.map((m, mi) => <td key={m.key} className={`${m.key === 'submittedAt' ? 'tabular' : ''} ${mi === 0 ? 'data-first' : ''}`}>{mi === 0 && r.excluded ? <><Badge tone="red">exclue</Badge> </> : null}{metaVal(r, m)}</td>)}
                       {shownVarCols.map((v) => {
                         const raw = r.data?.[v.name];
-                        return <td key={v.name} className="mono-cell data-var">{raw == null || raw === '' ? <span className="cell-empty">—</span> : labelOf(v, raw)}</td>;
+                        return <td key={v.name} className={`mono-cell data-var ${v.calc ? 'is-calc' : ''}`}>{raw == null || raw === '' ? <span className="cell-empty">—</span> : labelOf(v, raw)}</td>;
                       })}
                     </tr>
                     );
@@ -654,8 +683,152 @@ function ConfigTab({ form, canEdit, onChanged }) {
   return (
     <div className="section-gap">
       <IndicatorsConfigCard form={form} canEdit={canEdit} onChanged={onChanged} />
+      <CalcFieldsCard form={form} canEdit={canEdit} onChanged={onChanged} />
       <DataSourcesCard form={form} canEdit={canEdit} onChanged={onChanged} />
     </div>
+  );
+}
+
+const CALC_AGG_HELP = 'Fonctions : if(cond, a, b) · num(x) · round(x, n) · lower · upper · len · abs · min · max · coalesce · contains(x,"txt") · concat. Opérateurs : + − × ÷ % , == != < <= > >= , && || . Référez une variable par son nom (ou [nom avec espaces]).';
+
+function CalcFieldsCard({ form, canEdit, onChanged }) {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const [catalog, setCatalog] = useState({ fields: [], choices: [] });
+  const [edit, setEdit] = useState(null);
+
+  async function reload() {
+    try {
+      const [cf, cat] = await Promise.all([api.monCalcFields(form.id), api.monCatalog(form.id)]);
+      setList(cf); setCatalog(cat || { fields: [], choices: [] });
+    } catch (e) { toast.error(e.message); setList([]); }
+  }
+  useEffect(() => { setList(null); reload(); /* eslint-disable-next-line */ }, [form.id]);
+
+  async function remove(c) {
+    if (!window.confirm(`Supprimer le champ calculé « ${c.label || c.name} » ?`)) return;
+    try { await api.monDeleteCalcField(c.id); toast.success('Champ calculé supprimé.'); reload(); onChanged?.(); }
+    catch (e) { toast.error(e.message); }
+  }
+
+  return (
+    <Card aria-labelledby="calc-title">
+      <CardHeader id="calc-title" title="Champs calculés & préparation"
+        subtitle="Créez des variables dérivées (recodage de valeurs ou formule) à partir des variables existantes — réutilisables comme source d'indicateur et visibles dans les données. Nettoyage « type Tableau », sans code.">
+        {canEdit && <Button size="sm" icon={Plus} onClick={() => setEdit({})}>Nouveau champ calculé</Button>}
+      </CardHeader>
+      {list === null ? <div className="card-body"><Skeleton height={100} /></div>
+        : list.length === 0 ? (
+          <EmptyState icon={SlidersHorizontal} title="Aucun champ calculé"
+            action={canEdit && <Button icon={Plus} onClick={() => setEdit({})}>Nouveau champ calculé</Button>}>
+            Ex. recoder <code>cfm</code> (oui→1, non→0), ou une formule <code className="mono">if(age {'>='} 5, 1, 0)</code>.
+          </EmptyState>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Champ</th><th>Type</th><th>Définition</th>{canEdit && <th />}</tr></thead>
+              <tbody>
+                {list.map((c) => (
+                  <tr key={c.id}>
+                    <td><strong>{c.label || c.name}</strong><div className="site-meta mono">ƒ {c.name}</div></td>
+                    <td>{c.kind === 'recode' ? <Badge tone="blue">recodage</Badge> : <Badge tone={null}>formule</Badge>}</td>
+                    <td>{c.kind === 'recode'
+                      ? <span className="mono ind-sub">{c.sourceField} → {Object.entries(c.mapping || {}).slice(0, 4).map(([k, v]) => `${k}:${v}`).join(', ')}{Object.keys(c.mapping || {}).length > 4 ? '…' : ''}</span>
+                      : <code className="skip-expr">{c.expression}</code>}</td>
+                    {canEdit && <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <Button size="sm" variant="ghost" icon={Pencil} aria-label="Éditer" onClick={() => setEdit(c)} />
+                      <Button size="sm" variant="ghost" icon={Trash2} aria-label="Supprimer" onClick={() => remove(c)} />
+                    </td>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      {edit && <CalcFieldModal form={form} catalog={catalog} calc={edit.id ? edit : null}
+        onClose={() => setEdit(null)} onSaved={() => { setEdit(null); reload(); onChanged?.(); }} />}
+    </Card>
+  );
+}
+
+function CalcFieldModal({ form, catalog, calc, onClose, onSaved }) {
+  const toast = useToast();
+  const editing = Boolean(calc);
+  const [f, setF] = useState(() => calc
+    ? { ...calc, pairs: Object.entries(calc.mapping || {}).map(([k, v]) => ({ k, v: String(v) })) }
+    : { name: '', label: '', kind: 'expression', expression: '', sourceField: '', defaultValue: '', pairs: [{ k: '', v: '' }] });
+  const [saving, setSaving] = useState(false);
+  const fields = catalog.fields || [];
+  const err = { name: !/^[A-Za-z_][A-Za-z0-9_]*$/.test(f.name.trim()), src: f.kind === 'recode' && !f.sourceField };
+
+  async function save() {
+    if (err.name) { toast.error('Nom : lettres/chiffres/_ , sans espace.'); return; }
+    if (err.src) { toast.error('Choisissez la variable source à recoder.'); return; }
+    const body = { name: f.name.trim(), label: f.label?.trim() || f.name.trim(), kind: f.kind };
+    if (f.kind === 'expression') body.expression = f.expression;
+    else {
+      body.sourceField = f.sourceField;
+      body.mapping = Object.fromEntries(f.pairs.filter((p) => p.k !== '').map((p) => [p.k, p.v]));
+      body.defaultValue = f.defaultValue?.trim() || undefined;
+    }
+    setSaving(true);
+    try {
+      if (editing) await api.monUpdateCalcField(calc.id, body); else await api.monCreateCalcField(form.id, body);
+      toast.success('Champ calculé enregistré.'); onSaved();
+    } catch (e) { toast.error(e.message); } finally { setSaving(false); }
+  }
+
+  const setPair = (i, key, val) => setF((s) => ({ ...s, pairs: s.pairs.map((p, j) => (j === i ? { ...p, [key]: val } : p)) }));
+
+  return (
+    <Modal open size="lg" title={editing ? 'Modifier le champ calculé' : 'Nouveau champ calculé'}
+      subtitle="Variable dérivée à partir des variables existantes." onClose={() => !saving && onClose()}
+      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>Annuler</Button><Button onClick={save} loading={saving}>Enregistrer</Button></>}>
+      <div style={{ display: 'grid', gap: 14 }}>
+        <div className="form-grid">
+          <Field label="Libellé"><input className="input" value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} placeholder="CFM (binaire)" /></Field>
+          <Field label="Nom technique" required hint="Sans espace ; utilisable dans les formules et comme source d'indicateur.">
+            <input className="input mono" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="cfm_bin" />
+          </Field>
+        </div>
+        <Field label="Type">
+          <div className="seg" role="group">
+            <button type="button" className={f.kind === 'expression' ? 'is-active' : ''} onClick={() => setF({ ...f, kind: 'expression' })}>Formule</button>
+            <button type="button" className={f.kind === 'recode' ? 'is-active' : ''} onClick={() => setF({ ...f, kind: 'recode' })}>Recodage</button>
+          </div>
+        </Field>
+
+        {f.kind === 'expression' ? (
+          <Field label="Formule" hint={CALC_AGG_HELP}>
+            <input className="input mono" value={f.expression} onChange={(e) => setF({ ...f, expression: e.target.value })} placeholder="if(cfm == &quot;oui&quot;, 1, 0)" />
+          </Field>
+        ) : (
+          <>
+            <Field label="Variable source" required>
+              <select className={`select ${f.sourceField ? '' : 'is-empty'}`} value={f.sourceField} onChange={(e) => setF({ ...f, sourceField: e.target.value })}>
+                <option value="">Choisir une variable…</option>
+                {fields.map((x) => <option key={x.name} value={x.name}>{x.label && x.label !== x.name ? `${x.label} — ${x.name}` : x.name}</option>)}
+              </select>
+            </Field>
+            <div className="field">
+              <span className="field-label">Correspondances (valeur → nouvelle valeur)</span>
+              <div style={{ display: 'grid', gap: 6 }}>
+                {f.pairs.map((p, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 24px 1fr 32px', gap: 6, alignItems: 'center' }}>
+                    <input className="input" value={p.k} onChange={(e) => setPair(i, 'k', e.target.value)} placeholder="oui" />
+                    <span style={{ textAlign: 'center', color: 'var(--text-faint)' }}>→</span>
+                    <input className="input" value={p.v} onChange={(e) => setPair(i, 'v', e.target.value)} placeholder="1" />
+                    <Button size="sm" variant="ghost" icon={X} aria-label="Retirer" onClick={() => setF((s) => ({ ...s, pairs: s.pairs.filter((_, j) => j !== i) }))} />
+                  </div>
+                ))}
+                <Button size="sm" variant="ghost" icon={Plus} onClick={() => setF((s) => ({ ...s, pairs: [...s.pairs, { k: '', v: '' }] }))}>Ajouter une correspondance</Button>
+              </div>
+            </div>
+            <Field label="Valeur par défaut (si aucune correspondance)"><input className="input" value={f.defaultValue} onChange={(e) => setF({ ...f, defaultValue: e.target.value })} placeholder="0" /></Field>
+          </>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -782,6 +955,8 @@ function IndicatorModal({ form, catalog, indicator, onClose, onSaved }) {
   const err = { code: !f.code.trim(), label: !f.label.trim(), sourceField: !String(f.sourceField).trim() };
 
   const fields = catalog.fields || [];
+  const [calcFields, setCalcFields] = useState([]);
+  useEffect(() => { api.monCalcFields(form.id).then(setCalcFields).catch(() => setCalcFields([])); }, [form.id]);
   const selField = fields.find((x) => x.name === f.sourceField);
   const fieldChoices = useMemo(() => {
     if (!selField?.listName) return [];
@@ -822,13 +997,22 @@ function IndicatorModal({ form, catalog, indicator, onClose, onSaved }) {
         <div className="field">
           <span className="field-label">Variable source (champ du formulaire) <span className="req" aria-hidden="true">*</span></span>
           <div className="hint" style={{ marginBottom: 6 }}>
-            {fields.length ? `${fields.length} variable(s) disponible(s) dans cette fiche.` : 'Aucun catalogue de champs : saisissez le nom exact de la variable.'}
+            {fields.length ? `${fields.length} variable(s)${calcFields.length ? ` + ${calcFields.length} champ(s) calculé(s)` : ''} disponible(s).` : 'Aucun catalogue de champs : saisissez le nom exact de la variable.'}
           </div>
-          {fields.length ? (
+          {(fields.length || calcFields.length) ? (
             <select className={`select ${f.sourceField ? '' : 'is-empty'}`} value={f.sourceField}
               onChange={(e) => setF({ ...f, sourceField: e.target.value, positiveValue: '' })}>
               <option value="">Choisir une variable…</option>
-              {fields.map((x) => <option key={x.name} value={x.name}>{x.label && x.label !== x.name ? `${x.label} — ${x.name}` : x.name}{x.type ? ` (${x.type})` : ''}</option>)}
+              {fields.length > 0 && (
+                <optgroup label="Variables du formulaire">
+                  {fields.map((x) => <option key={x.name} value={x.name}>{x.label && x.label !== x.name ? `${x.label} — ${x.name}` : x.name}{x.type ? ` (${x.type})` : ''}</option>)}
+                </optgroup>
+              )}
+              {calcFields.length > 0 && (
+                <optgroup label="Champs calculés (ƒ)">
+                  {calcFields.map((c) => <option key={c.name} value={c.name}>ƒ {c.label && c.label !== c.name ? `${c.label} — ${c.name}` : c.name}</option>)}
+                </optgroup>
+              )}
             </select>
           ) : (
             <input className="input mono" value={f.sourceField} onChange={(e) => setF({ ...f, sourceField: e.target.value })} placeholder="info_recue" />

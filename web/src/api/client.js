@@ -209,6 +209,11 @@ export const api = {
   monResetMemsMapping: (id, dimension) => request(`/api/monitoring/forms/${id}/mems-mapping/${dimension}`, { method: 'DELETE' }),
   monApplyMemsMapping: (id) => request(`/api/monitoring/forms/${id}/mems-mapping/apply`, { method: 'POST' }),
   monFormSubmissions: (id, { month, limit } = {}) => request(`/api/monitoring/forms/${id}/submissions`, { query: { ...(month ? { month } : {}), ...(limit ? { limit } : {}) } }),
+  monCalcFields: (id) => request(`/api/monitoring/forms/${id}/calc-fields`),
+  monCreateCalcField: (id, body) => request(`/api/monitoring/forms/${id}/calc-fields`, { method: 'POST', body }),
+  monUpdateCalcField: (cfId, body) => request(`/api/monitoring/calc-fields/${cfId}`, { method: 'PATCH', body }),
+  monDeleteCalcField: (cfId) => request(`/api/monitoring/calc-fields/${cfId}`, { method: 'DELETE' }),
+  monSetExclusion: (id, body) => request(`/api/monitoring/forms/${id}/exclude`, { method: 'POST', body }),
   monImportDefinition: async (file) => {
     const token = getToken();
     const res = await fetch(new URL(`${API_URL}/api/monitoring/import-definition`), {

@@ -11,6 +11,7 @@ const AdmZip = require('adm-zip');
 const { parseSubmissions, submissionsFromObjects } = require('./submissionsImport');
 const { parseXlsformRows } = require('./xlsformImport');
 const { parseSav } = require('./savParser');
+const { validateExpression } = require('./calcFields');
 
 /**
  * Suivi de processus — forms, configurable indicators (mapping) and real
@@ -193,6 +194,44 @@ router.delete('/forms/:id/mems-mapping/:dimension', WRITE, asyncHandler(async (r
 // Réapplique les surcharges aux soumissions déjà importées.
 router.post('/forms/:id/mems-mapping/apply', WRITE, asyncHandler(async (req, res) => {
   res.json(await repo.applyMappingToSubmissions(t(req), req.params.id));
+}));
+
+// ---- Nettoyage : champs calculés + exclusion -----------------------------
+router.get('/forms/:id/calc-fields', asyncHandler(async (req, res) => res.json(await repo.listCalcFields(t(req), req.params.id))));
+
+const calcSchema = z.object({
+  name: z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'Nom : lettres/chiffres/_ , sans espace').max(60),
+  label: z.string().trim().max(120).optional(),
+  kind: z.enum(['expression', 'recode']),
+  expression: z.string().trim().max(500).optional(),
+  sourceField: z.string().trim().max(120).optional(),
+  mapping: z.record(z.string(), z.any()).optional(),
+  defaultValue: z.any().optional(),
+}).refine((v) => (v.kind === 'expression' ? !validateExpression(v.expression) : !!v.sourceField), {
+  message: 'Formule invalide, ou champ source manquant pour un recodage.',
+});
+
+router.post('/forms/:id/calc-fields', WRITE, body(calcSchema), asyncHandler(async (req, res) => {
+  try { res.status(201).json({ id: await repo.createCalcField(t(req), req.params.id, req.valid) }); }
+  catch (err) { if (err.code === '23505') throw badRequest('Un champ calculé porte déjà ce nom.'); throw err; }
+}));
+router.patch('/calc-fields/:id', WRITE, body(calcSchema), asyncHandler(async (req, res) => {
+  if (!(await repo.updateCalcField(t(req), req.params.id, req.valid))) throw notFound('Champ calculé introuvable');
+  res.status(204).end();
+}));
+router.delete('/calc-fields/:id', WRITE, asyncHandler(async (req, res) => {
+  if (!(await repo.deleteCalcField(t(req), req.params.id))) throw notFound('Champ calculé introuvable');
+  res.status(204).end();
+}));
+
+// Exclusion / réintégration de soumissions (curation avant analyse).
+const exclSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(5000),
+  excluded: z.boolean(),
+  reason: z.string().trim().max(200).optional(),
+});
+router.post('/forms/:id/exclude', WRITE, body(exclSchema), asyncHandler(async (req, res) => {
+  res.json(await repo.setExclusion(t(req), req.params.id, req.valid));
 }));
 
 // Soumissions brutes d'une fiche (données importées) — visualisation par fiche.
