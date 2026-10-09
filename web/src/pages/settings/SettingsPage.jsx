@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Users, ListChecks, Tags, MapPinned, Upload, Info, Download, Coins, Building2, Trash2, Clock, Pencil, ShieldCheck, ChevronRight, Lock, Gauge } from 'lucide-react';
+import { Plus, Users, ListChecks, Tags, MapPinned, Upload, Info, Download, Coins, Building2, Trash2, Clock, Pencil, ShieldCheck, ChevronRight, Lock, Gauge, X } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton, Alert } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
@@ -476,6 +476,8 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
   });
   const [picked, setPicked] = useState(() => new Set());
   const [q, setQ] = useState('');
+  const [region, setRegion] = useState('');
+  const [district, setDistrict] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -483,12 +485,26 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
   }, [editing, office]);
 
   const key = (c) => c.commune;
+  // Cascade Région › District › Commune (le périmètre peut couvrir plusieurs
+  // districts ; la sélection est conservée entre les changements de filtre).
+  const regions = useMemo(() => [...new Set(communes.map((c) => c.region).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [communes]);
+  const districts = useMemo(() => [...new Set(communes.filter((c) => !region || c.region === region).map((c) => c.district).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [communes, region]);
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return communes.filter((c) => !s || c.commune.toLowerCase().includes(s) || (c.district || '').toLowerCase().includes(s)).slice(0, 400);
-  }, [communes, q]);
+    return communes.filter((c) => (!region || c.region === region) && (!district || c.district === district)
+      && (!s || c.commune.toLowerCase().includes(s) || (c.district || '').toLowerCase().includes(s))).slice(0, 600);
+  }, [communes, q, region, district]);
+  // Communes sélectionnées (dédupliquées par nom), pour les puces récapitulatives.
+  const pickedList = useMemo(() => {
+    const seen = new Set(); const out = [];
+    for (const c of communes) if (picked.has(c.commune) && !seen.has(c.commune)) { seen.add(c.commune); out.push(c); }
+    return out;
+  }, [communes, picked]);
 
   function toggle(c) { setPicked((prev) => { const n = new Set(prev); if (n.has(key(c))) n.delete(key(c)); else n.add(key(c)); return n; }); }
+  function setMany(list, on) {
+    setPicked((prev) => { const n = new Set(prev); for (const c of list) { if (on) n.add(key(c)); else n.delete(key(c)); } return n; });
+  }
 
   async function save(e) {
     e.preventDefault();
@@ -534,17 +550,55 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
         {!form.national && (
           <div className="field">
             <span className="field-label">Périmètre — communes ({picked.size} sélectionnée(s))</span>
-            <input className="input" placeholder="Filtrer les communes…" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 8 }} />
             {communes.length === 0 ? <p className="muted">Aucune commune dans le registre de sites. Importez des sites (Master Data / planning) d'abord.</p> : (
-              <div style={{ maxHeight: 240, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-                {filtered.map((c) => (
-                  <label key={`${c.district}|${c.commune}`} className="filter-pick" style={{ padding: '6px 10px' }}>
-                    <input type="checkbox" checked={picked.has(key(c))} onChange={() => toggle(c)} />
-                    <span>{c.commune}{c.district ? <span className="site-meta"> · {c.district}</span> : null}</span>
-                  </label>
-                ))}
-                {filtered.length === 0 && <p className="muted" style={{ padding: 10 }}>Aucune commune ne correspond.</p>}
-              </div>
+              <>
+                {/* Cascade : Région → District → communes (multi-sélection) */}
+                <div className="form-grid" style={{ marginBottom: 8 }}>
+                  <select className="select" value={region} aria-label="Région"
+                    onChange={(e) => { setRegion(e.target.value); setDistrict(''); }}>
+                    <option value="">Toutes les régions</option>
+                    {regions.map((r) => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                  <select className="select" value={district} aria-label="District"
+                    onChange={(e) => setDistrict(e.target.value)}>
+                    <option value="">{region ? 'Tous les districts de la région' : 'Tous les districts'}</option>
+                    {districts.map((d) => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <input className="input" placeholder="Filtrer les communes…" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 8 }} />
+
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => setMany(filtered, true)} disabled={filtered.length === 0}>
+                    Tout cocher ({filtered.length})
+                  </Button>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setMany(filtered, false)} disabled={filtered.length === 0}>
+                    Décocher ces {filtered.length}
+                  </Button>
+                  {picked.size > 0 && <Button type="button" size="sm" variant="ghost" onClick={() => setPicked(new Set())}>Tout vider</Button>}
+                </div>
+
+                {/* Récap des communes sélectionnées (toutes régions/districts confondus) */}
+                {pickedList.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, maxHeight: 92, overflow: 'auto' }}>
+                    {pickedList.map((c) => (
+                      <button type="button" key={c.commune} className="chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
+                        onClick={() => toggle(c)} title={`${c.commune}${c.district ? ' · ' + c.district : ''} — retirer`}>
+                        {c.commune}<X size={13} aria-hidden="true" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ maxHeight: 240, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+                  {filtered.map((c) => (
+                    <label key={`${c.region}|${c.district}|${c.commune}`} className="filter-pick" style={{ padding: '6px 10px' }}>
+                      <input type="checkbox" checked={picked.has(key(c))} onChange={() => toggle(c)} />
+                      <span>{c.commune}{c.district ? <span className="site-meta"> · {c.district}{c.region ? ` · ${c.region}` : ''}</span> : null}</span>
+                    </label>
+                  ))}
+                  {filtered.length === 0 && <p className="muted" style={{ padding: 10 }}>Aucune commune ne correspond.</p>}
+                </div>
+              </>
             )}
           </div>
         )}

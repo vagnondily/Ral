@@ -330,10 +330,12 @@ async function deleteExchangeRate(tenantId, id) {
 /** Communes disponibles (distinctes) du registre de sites, pour le périmètre. */
 async function listCommunes(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
+    // region (adm1) + district + commune, pour la sélection cascade du
+    // périmètre de bureau. Le périmètre stocké reste (district, commune).
     const { rows } = await client.query(
-      `SELECT DISTINCT COALESCE(district, '') AS district, commune
+      `SELECT DISTINCT COALESCE(adm1, '') AS region, COALESCE(district, '') AS district, commune
          FROM sites WHERE tenant_id = $1 AND commune IS NOT NULL AND commune <> ''
-        ORDER BY district, commune`,
+        ORDER BY region, district, commune`,
       [tenantId]
     );
     return rows;
