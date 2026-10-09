@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Gauge, ShieldCheck, Database, CalendarClock, TrendingUp, LayoutGrid } from 'lucide-react';
+import { Gauge, ShieldCheck, Database, TrendingUp, LayoutGrid, LayoutList, Map as MapIcon, FileText } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
 import MonthSelect from '../../components/MonthSelect.jsx';
 import { currentMonth, formatInt } from '../../lib/format.js';
+import { MAP, project } from '../../lib/madagascarMap.js';
 
 /**
  * Dashboard décisionnel › « Couverture & performance du suivi ».
@@ -24,12 +25,21 @@ const BANDS = [
   { k: 'na', label: 'Non évalué' },
 ];
 
+const VIEWS = [
+  { id: 'synthese', label: 'Synthèse', icon: Gauge },
+  { id: 'controle', label: 'Salle de contrôle', icon: LayoutList },
+  { id: 'carte', label: 'Carte', icon: MapIcon },
+  { id: 'bulletin', label: 'Bulletin', icon: FileText },
+];
+
 export default function DashboardCoveragePage({ onNavigate }) {
   const [month, setMonth] = useState(currentMonth);
   const [cd, setCd] = useState(null);
   const [field, setField] = useState(null);
   const [rbm, setRbm] = useState(null);
+  const [map, setMap] = useState(null);
   const [error, setError] = useState(null);
+  const [view, setView] = useState('synthese');
   const [tab, setTab] = useState('_OV');
 
   useEffect(() => {
@@ -38,6 +48,9 @@ export default function DashboardCoveragePage({ onNavigate }) {
       .then(([c, f, r]) => { setCd(c); setField(f); setRbm(r); })
       .catch((e) => setError(e.message));
   }, [month]);
+
+  // Carte : référentiel de sites géolocalisés (indépendant du mois), chargé une fois.
+  useEffect(() => { api.fieldMap().then(setMap).catch(() => setMap({ communes: [], points: [] })); }, []);
 
   const rbmStats = useMemo(() => {
     const s = { total: 0, due: 0, elevee: 0, moyenne: 0, faible: 0 };
@@ -57,19 +70,34 @@ export default function DashboardCoveragePage({ onNavigate }) {
         <MonthSelect value={month} onChange={setMonth} />
       </PageHeader>
 
+      <div className="cd-views" role="tablist" aria-label="Vues">
+        {VIEWS.map((v) => (
+          <button key={v.id} type="button" role="tab" aria-selected={view === v.id}
+            className={`cd-view${view === v.id ? ' is-active' : ''}`} onClick={() => setView(v.id)}>
+            <v.icon size={15} aria-hidden="true" />{v.label}
+          </button>
+        ))}
+      </div>
+
       {error && <Alert tone="error">{error}</Alert>}
       {loading && !error ? <Skeleton height={360} /> : !error && (
         <>
-          <div className="cd-tabs" role="tablist" aria-label="Activités">
-            <TabBtn id="_OV" label="Vue d'ensemble" active={tab === '_OV'} onClick={setTab} />
-            {forms.map((f) => (
-              <TabBtn key={f.id} id={f.id} label={shortLabel(f.label)} active={tab === f.id} onClick={setTab} />
-            ))}
-          </div>
-
-          {tab === '_OV'
-            ? <Overview cd={cd} cov={cov} field={field} rbmStats={rbmStats} onNavigate={onNavigate} />
-            : activeForm && <ActivityView form={activeForm} />}
+          {view === 'synthese' && (
+            <>
+              <div className="cd-tabs" role="tablist" aria-label="Activités">
+                <TabBtn id="_OV" label="Vue d'ensemble" active={tab === '_OV'} onClick={setTab} />
+                {forms.map((f) => (
+                  <TabBtn key={f.id} id={f.id} label={shortLabel(f.label)} active={tab === f.id} onClick={setTab} />
+                ))}
+              </div>
+              {tab === '_OV'
+                ? <Overview cd={cd} cov={cov} field={field} rbmStats={rbmStats} onNavigate={onNavigate} />
+                : activeForm && <ActivityView form={activeForm} />}
+            </>
+          )}
+          {view === 'controle' && <ControlRoom cd={cd} />}
+          {view === 'carte' && <MapView map={map} regions={cd.regions || []} rbmStats={rbmStats} />}
+          {view === 'bulletin' && <Bulletin cd={cd} cov={cov} rbmStats={rbmStats} />}
         </>
       )}
     </div>
@@ -402,6 +430,140 @@ function TrendCard({ title, trend }) {
               ? <text key={`t${d.month}`} className="biz-axis biz-muted" x={x(i)} y={h - 6} textAnchor="middle">{d.month.slice(2)}</text> : null)}
           </svg>
         )}
+      </div>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------- Salle de contrôle
+/** Mur d'indicateurs : toutes les fiches, chaque indicateur en cellule colorée
+ * par bande de conformité. Lecture d'un coup d'œil de ce qui va / ne va pas. */
+function ControlRoom({ cd }) {
+  const forms = (cd.forms || []).filter((f) => (f.indicators || []).length);
+  if (!forms.length) return <p className="muted">Aucun indicateur à afficher pour ce mois.</p>;
+  return (
+    <>
+      <div className="cd-legend" style={{ marginBottom: 14 }}>
+        {BANDS.map((b) => <span key={b.k}><i className={`cd-dot cd-${b.k}`} />{b.label}</span>)}
+      </div>
+      {forms.map((f) => {
+        const c = f.classes || {};
+        return (
+          <div className="card biz-card cd-crmod" key={f.id}>
+            <div className="card-header">
+              <div className="card-title">{shortLabel(f.label)}</div>
+              <div className="card-sub">{formatInt(f.submissions)} soumission(s) · indice {f.index == null ? '—' : f.index}/100
+                {c.urg ? ` · ${c.urg} action(s) urgente(s)` : ''}</div>
+            </div>
+            <div className="card-body">
+              <div className="cd-wall">
+                {(f.indicators || []).map((ind, i) => (
+                  <div className={`cd-cell cd-b-${ind.cls}`} key={`${ind.code || ind.label}-${i}`} title={`${ind.label} — ${fmtVal(ind)}`}>
+                    <span className="cd-cell-l">{ind.label}</span>
+                    <span className="cd-cell-v tabular">{fmtVal(ind)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function fmtVal(ind) {
+  if (ind.value == null) return '—';
+  if (ind.agg === 'percent_yes' || ind.agg === 'percent_value') return `${Math.round(ind.value)}%`;
+  return formatInt(Math.round(ind.value));
+}
+
+// ------------------------------------------------------------------------- Carte
+const RISK_COLOR = { elevee: 'var(--red)', moyenne: 'var(--orange)', faible: 'var(--green)' };
+/** Carte SVG de Madagascar (silhouette fournie par le métier, sans dépendance)
+ * avec les sites géolocalisés réels en points, colorés par niveau de risque.
+ * À côté : données versées par région. */
+function MapView({ map, regions, rbmStats }) {
+  const points = (map?.points || []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+  return (
+    <div className="biz-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+      <div className="card biz-card">
+        <div className="card-header"><div className="card-title">Sites de suivi — Sud Madagascar</div>
+          <div className="card-sub">{formatInt(points.length)} site(s) géolocalisé(s) · couleur = niveau de risque</div></div>
+        <div className="card-body">
+          <svg className="cd-map" viewBox={`0 0 ${MAP.W} ${MAP.H}`} role="img" aria-label="Carte des sites de suivi">
+            <path d={MAP.outline} fill="var(--canvas-sunken)" stroke="var(--border-strong)" strokeWidth="1.5" />
+            {points.map((p) => {
+              const [x, y] = project(p.lat, p.lng);
+              return <circle key={p.id} cx={x.toFixed(1)} cy={y.toFixed(1)} r="4" fill={RISK_COLOR[p.riskLevel] || 'var(--blue-600)'} fillOpacity="0.85" stroke="#fff" strokeWidth="0.8" />;
+            })}
+          </svg>
+          <div className="cd-legend" style={{ marginTop: 10 }}>
+            <span><i className="cd-dot" style={{ background: 'var(--red)' }} />Risque élevé <b className="tabular">{formatInt(rbmStats.elevee)}</b></span>
+            <span><i className="cd-dot" style={{ background: 'var(--orange)' }} />Risque moyen <b className="tabular">{formatInt(rbmStats.moyenne)}</b></span>
+            <span><i className="cd-dot" style={{ background: 'var(--green)' }} />Risque faible <b className="tabular">{formatInt(rbmStats.faible)}</b></span>
+          </div>
+          {points.length < rbmStats.total && (
+            <div className="biz-kpi-foot" style={{ marginTop: 8 }}>
+              {formatInt(points.length)} site(s) sur {formatInt(rbmStats.total)} ont des coordonnées GPS ; la carte se densifie à mesure que le référentiel est géocodé (import Master Data).
+            </div>
+          )}
+        </div>
+      </div>
+      <RegionsCard regions={regions.slice(0, 10)} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------- Bulletin
+/** Bulletin narratif : synthèse en clair générée à partir des chiffres. */
+function Bulletin({ cd, cov, rbmStats }) {
+  const cls = cd.classes || {};
+  const idx = cd.conformityIndex;
+  const covPct = Math.round((cov?.rate || 0) * 100);
+  const urgentPct = cls.scored ? Math.round((cls.urg / cls.scored) * 100) : 0;
+  const topRegions = (cd.regions || []).filter((r) => r.region !== '(non renseigné)').slice(0, 3);
+  // Indicateurs les plus faibles, toutes fiches confondues.
+  const weak = [];
+  for (const f of cd.forms || []) for (const ind of f.flop || []) weak.push({ ...ind, form: shortLabel(f.label) });
+  weak.sort((a, b) => a.pct - b.pct);
+  const verdict = (idx == null) ? 'indéterminée'
+    : (idx < 50 || covPct < 40) ? 'critique'
+      : (idx < 65 || covPct < 65) ? 'à surveiller' : 'satisfaisante';
+
+  return (
+    <div className="card biz-card cd-bull">
+      <div className="card-body">
+        <div className="cd-bk">Bulletin de suivi · {cd.month || 'toutes périodes'}</div>
+        <h3>Situation {verdict}</h3>
+        <p>
+          Sur la période, <b>{formatInt(cd.totals?.submissions || 0)}</b> soumission(s) ont été versées
+          par <b>{formatInt(cd.totals?.agents || 0)}</b> agent(s) sur <b>{formatInt(cd.totals?.communes || 0)}</b> commune(s),
+          réparties sur <b>{formatInt(cd.totals?.forms || 0)}</b> fiche(s) de suivi
+          (<b>{formatInt(cd.totals?.indicators || 0)}</b> indicateurs). La couverture terrain atteint
+          <b> {covPct} %</b> ({formatInt(cov?.realise || 0)} visite(s) réalisée(s)), et le RBM signale
+          <b> {formatInt(rbmStats.due)}</b> site(s) à suivre ce mois sur {formatInt(rbmStats.total)}.
+        </p>
+        <p>
+          L'indice de conformité global est de <b>{idx == null ? '—' : `${idx}/100`}</b>.
+          Sur {formatInt(cls.scored || 0)} indicateur(s) noté(s), <b>{formatInt(cls.exc || 0)}</b> sont au vert (excellent),
+          <b> {formatInt(cls.sat || 0)}</b> satisfaisant(s), <b>{formatInt(cls.imp || 0)}</b> à améliorer et
+          <b> {formatInt(cls.urg || 0)}</b> en action urgente (<b>{urgentPct} %</b>).
+        </p>
+        {weak.length > 0 && (
+          <p>
+            Les points d'attention prioritaires : {weak.slice(0, 4).map((w, i) => (
+              <span key={`${w.form}-${w.label}-${i}`}>{i > 0 ? ', ' : ''}<b>{w.label}</b> ({w.pct}% · {w.form})</span>
+            ))}.
+          </p>
+        )}
+        {topRegions.length > 0 && (
+          <p>
+            Les régions les plus actives en remontée de données :
+            {topRegions.map((r, i) => <span key={r.region}>{i > 0 ? ', ' : ' '}<b>{r.region}</b> ({formatInt(r.submissions)})</span>)}.
+          </p>
+        )}
+        <p className="cd-bull-foot">Bulletin recalculé en direct à partir des fiches, indicateurs, visites et du RBM — aucun chiffre saisi à la main.</p>
       </div>
     </div>
   );

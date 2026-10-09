@@ -1,6 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
 const { computeAll, overallIndex } = require('./monitoringMath');
-const { classDistribution, dimGroups, topFlop } = require('./coverageDashboard');
+const { classDistribution, dimGroups, topFlop, classify } = require('./coverageDashboard');
 const { detectMapping, DIMENSION_COLUMN, EDITABLE_KEYS } = require('./memsMapping');
 const { computeCalcFields } = require('./calcFields');
 
@@ -616,11 +616,20 @@ async function coverageDashboard(tenantId, { month } = {}) {
          FROM monitoring_submissions s WHERE s.tenant_id = $1${mWhere}`,
       p
     );
+    // Région en clair : la soumission porte un pcode de commune (admin3) ; on
+    // le résout en NOM de région via le référentiel de sites (sites.adm3_pcode
+    // → sites.adm1). Repli sur le pcode brut puis « (non renseigné) ».
     const { rows: regionRows } = await client.query(
-      `SELECT COALESCE(NULLIF(admin1, ''), '(non renseigné)') AS region,
+      `WITH pcode_region AS (
+         SELECT DISTINCT ON (adm3_pcode) adm3_pcode, adm1 AS region
+           FROM sites WHERE tenant_id = $1 AND adm3_pcode IS NOT NULL AND NULLIF(adm1, '') IS NOT NULL
+       )
+       SELECT COALESCE(pr.region, NULLIF(s.admin1, ''), '(non renseigné)') AS region,
               count(*)::int AS submissions,
-              count(DISTINCT NULLIF(admin3, ''))::int AS communes
-         FROM monitoring_submissions s WHERE s.tenant_id = $1${mWhere}
+              count(DISTINCT NULLIF(s.admin3, ''))::int AS communes
+         FROM monitoring_submissions s
+         LEFT JOIN pcode_region pr ON pr.adm3_pcode = s.admin3
+        WHERE s.tenant_id = $1${mWhere}
         GROUP BY 1 ORDER BY submissions DESC`,
       p
     );
@@ -671,6 +680,11 @@ async function coverageDashboard(tenantId, { month } = {}) {
         classes: classDistribution(results),
         dims: dimGroups(results),
         top, flop,
+        // Liste complète des indicateurs (pour la salle de contrôle / bulletin).
+        indicators: results.map((r) => ({
+          label: r.label, code: r.code, value: r.value, base: r.base,
+          agg: r.agg, module: r.module || null, target: r.target, cls: classify(r),
+        })),
         byBureau: formBureau,
         trend: formTrend.reverse(),
       });
