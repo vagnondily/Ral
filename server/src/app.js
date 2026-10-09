@@ -45,7 +45,18 @@ function createApp() {
   let rlRedis = null;
   if (process.env.REDIS_URL) {
     try {
-      rlRedis = createRedisConnection();
+      // Fail-fast : le limiteur DOIT retomber sur le compteur mémoire si Redis
+      // est absent, sans jamais bloquer la requête. La fabrique partagée met
+      // maxRetriesPerRequest: null (exigé par BullMQ) + file d'attente hors
+      // ligne par défaut, ce qui ferait attendre `incr` indéfiniment quand
+      // Redis est down (login figé). On désactive donc l'offline queue et on
+      // borne chaque commande, pour que l'erreur survienne tout de suite et que
+      // le `catch` du limiteur bascule en mémoire.
+      rlRedis = createRedisConnection({
+        enableOfflineQueue: false,
+        maxRetriesPerRequest: 1,
+        commandTimeout: 1000,
+      });
       // Redis est optionnel : le limiteur retombe sur un compteur mémoire. On
       // ne veut pas inonder les logs quand Redis est absent, donc on ne trace
       // que la première erreur, puis on se tait jusqu'à une reconnexion réussie.
