@@ -11,6 +11,7 @@ import ContractFormPage from './pages/contracts/ContractFormPage.jsx';
 import ReportsPage from './pages/tpm/ReportsPage.jsx';
 import ConsolidationPage from './pages/dashboard/ConsolidationPage.jsx';
 import DashboardBIPage from './pages/dashboard/DashboardBIPage.jsx';
+import DashboardCoveragePage from './pages/dashboard/DashboardCoveragePage.jsx';
 import AlertsPage from './pages/dashboard/AlertsPage.jsx';
 import ReportingPage from './pages/dashboard/ReportingPage.jsx';
 import PlanningPage from './pages/tpm/PlanningPage.jsx';
@@ -101,6 +102,7 @@ function Workspace() {
       {route.module === 'tpm' && route.sub === 'rapports' && <ReportsPage canEdit={canEdit} onOpenContract={openContract} onNavigate={navigate} />}
       {route.module === 'dashboard' && route.sub === 'apercu' && <DashboardBIPage onOpenContract={openContract} />}
       {route.module === 'dashboard' && route.sub === 'consolidation' && <ConsolidationPage onOpenContract={openContract} />}
+      {route.module === 'dashboard' && route.sub === 'couverture' && <DashboardCoveragePage onNavigate={navigate} />}
       {route.module === 'alertes' && <AlertsPage onNavigate={navigate} onOpenContract={openContract} />}
       {route.module === 'reporting' && <ReportingPage onOpenContract={openContract} />}
       {route.module === 'tpm' && route.sub === 'budget' && <PlanningPage canEdit={canEdit} onNavigate={navigate} />}

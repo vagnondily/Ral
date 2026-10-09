@@ -1,5 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
 const { computeAll, overallIndex } = require('./monitoringMath');
+const { classDistribution, dimGroups, topFlop } = require('./coverageDashboard');
 const { detectMapping, DIMENSION_COLUMN, EDITABLE_KEYS } = require('./memsMapping');
 const { computeCalcFields } = require('./calcFields');
 
@@ -590,6 +591,103 @@ async function processOverview(tenantId, { month } = {}) {
 }
 
 /**
+ * Tableau de bord « Couverture & performance » — volet suivi/conformité, par
+ * activité (= fiche). Recalculé en direct à partir des fiches, indicateurs et
+ * soumissions ; rien de stocké. Pour chaque fiche : indice, répartition en
+ * 5 bandes (coverageDashboard.classify), dimensions (par `module`), top/flop
+ * d'indicateurs, tendance mensuelle et répartition par bureau. Plus l'agrégat
+ * global, la répartition par région (adm1) et le nombre de communes ayant
+ * réellement versé des données le mois (pour le « plan vs réalisé » des
+ * soumissions). La couverture terrain et le RBM restent fournis par leurs
+ * propres endpoints (field/summary, field/rbm) et sont combinés côté client.
+ */
+async function coverageDashboard(tenantId, { month } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const monthFilter = month ? `${month.slice(0, 7)}-01` : null;
+    const p = monthFilter ? [tenantId, monthFilter] : [tenantId];
+    const mWhere = monthFilter ? ' AND s.period_month = $2' : '';
+
+    const { rows: tot } = await client.query(
+      `SELECT count(*)::int AS submissions,
+              count(DISTINCT NULLIF(site, ''))::int AS sites,
+              count(DISTINCT NULLIF(agent, ''))::int AS agents,
+              count(DISTINCT NULLIF(partner, ''))::int AS partners,
+              count(DISTINCT NULLIF(admin3, ''))::int AS communes
+         FROM monitoring_submissions s WHERE s.tenant_id = $1${mWhere}`,
+      p
+    );
+    const { rows: regionRows } = await client.query(
+      `SELECT COALESCE(NULLIF(admin1, ''), '(non renseigné)') AS region,
+              count(*)::int AS submissions,
+              count(DISTINCT NULLIF(admin3, ''))::int AS communes
+         FROM monitoring_submissions s WHERE s.tenant_id = $1${mWhere}
+        GROUP BY 1 ORDER BY submissions DESC`,
+      p
+    );
+
+    const { rows: forms } = await client.query(
+      "SELECT id, code, label FROM monitoring_forms WHERE tenant_id = $1 AND active = true ORDER BY label",
+      [tenantId]
+    );
+
+    let allResults = [];
+    let indicatorsCount = 0;
+    const perForm = [];
+    for (const f of forms) {
+      const { rows: inds } = await client.query(
+        `SELECT id, code, label, module, source_field AS "sourceField", agg,
+                positive_value AS "positiveValue", target, direction, sort_order
+           FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2 AND active = true
+          ORDER BY sort_order, label`,
+        [tenantId, f.id]
+      );
+      indicatorsCount += inds.length;
+      const subP = monthFilter ? [tenantId, f.id, monthFilter] : [tenantId, f.id];
+      const { rows: subs } = await client.query(
+        `SELECT data FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${monthFilter ? ' AND s.period_month = $3' : ''}`,
+        subP
+      );
+      // Tendance mensuelle de la fiche (indépendante du filtre mois).
+      const { rows: formTrend } = await client.query(
+        `SELECT to_char(period_month, 'YYYY-MM') AS month, count(*)::int AS submissions
+           FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2
+          GROUP BY period_month ORDER BY period_month DESC LIMIT 12`,
+        [tenantId, f.id]
+      );
+      const { rows: formBureau } = await client.query(
+        `SELECT COALESCE(NULLIF(field_office, ''), '(non renseigné)') AS bureau,
+                count(*)::int AS submissions, count(DISTINCT NULLIF(site, ''))::int AS sites
+           FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${monthFilter ? ' AND s.period_month = $3' : ''}
+          GROUP BY 1 ORDER BY submissions DESC LIMIT 8`,
+        subP
+      );
+      const results = computeAll(inds, subs);
+      allResults = allResults.concat(results);
+      const { top, flop } = topFlop(results);
+      perForm.push({
+        id: f.id, code: f.code, label: f.label,
+        submissions: subs.length,
+        index: overallIndex(results),
+        classes: classDistribution(results),
+        dims: dimGroups(results),
+        top, flop,
+        byBureau: formBureau,
+        trend: formTrend.reverse(),
+      });
+    }
+
+    return {
+      month: month || null,
+      totals: { ...tot[0], forms: forms.length, indicators: indicatorsCount },
+      conformityIndex: overallIndex(allResults),
+      classes: classDistribution(allResults),
+      regions: regionRows,
+      forms: perForm,
+    };
+  });
+}
+
+/**
  * Données réelles (soumissions brutes) — pour la « table des données actuelles »
  * rattachée au plan de suivi. Bornée (limit) ; on résout le nom de la commune
  * à partir du pcode (adm3) via le référentiel de sites, pour afficher un nom
@@ -684,7 +782,7 @@ module.exports = {
   setFormSource,
   listForms, createForm, updateForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,
-  formFields, importSubmissions, computeValues, dashboard, processOverview,
+  formFields, importSubmissions, computeValues, dashboard, processOverview, coverageDashboard,
   formCatalog, memsMappingForForm, setMemsMapping, resetMemsMapping, applyMappingToSubmissions,
   formSubmissions, ensureCatalogFromSav, importDefinition, listSubmissions,
 };

@@ -64,6 +64,7 @@ export const NAV = [
         subs: [
           { id: 'apercu', label: "Vue d'ensemble" },
           { id: 'consolidation', label: 'Suivi budgétaire consolidé' },
+          { id: 'couverture', label: 'Couverture & performance' },
         ],
       },
       { id: 'reporting', label: 'Reporting', icon: ChartColumn, subs: [{ id: 'synthese', label: 'Rapport de synthèse' }] },

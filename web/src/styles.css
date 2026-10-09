@@ -1712,6 +1712,61 @@ h1, h2, h3, h4 { letter-spacing: -0.018em; }
 }
 @media (max-width: 640px) { .biz-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
+/* ---- Dashboard « Couverture & performance » (cd-*) ----------------------- */
+/* Bandes de conformité : couleurs sémantiques (clair + sombre via tokens). */
+:root { --cd-exc: #16a34a; --cd-sat: #65a30d; --cd-imp: #f59e0b; --cd-urg: #ef4444; --cd-na: #b4bcc9; }
+:root:not([data-theme="light"]) { }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --cd-exc: #22c55e; --cd-sat: #84cc16; --cd-imp: #fbbf24; --cd-urg: #f87171; --cd-na: #5b6472;
+} }
+:root[data-theme="dark"] { --cd-exc: #22c55e; --cd-sat: #84cc16; --cd-imp: #fbbf24; --cd-urg: #f87171; --cd-na: #5b6472; }
+
+.cd-tabs { display: flex; gap: 3px; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.cd-tab { border: 0; background: transparent; color: var(--text-muted); font-weight: 650; font-size: 13.5px;
+  padding: 9px 15px; border-radius: 9px 9px 0 0; cursor: pointer; margin-bottom: -1px;
+  border-bottom: 2px solid transparent; transition: color .12s var(--ease), background-color .12s var(--ease); }
+.cd-tab:hover { color: var(--text-strong); background: var(--surface-2); }
+.cd-tab.is-active { color: var(--blue-600); border-bottom-color: var(--blue-600); }
+
+.cd-conf { display: grid; grid-template-columns: 180px 1fr 150px; gap: 20px; align-items: center; padding: 16px 18px; margin-bottom: 0; }
+.cd-conf-idx, .cd-conf-urg { text-align: center; }
+.cd-conf-n { font-size: 34px; font-weight: 800; line-height: 1; color: var(--text-strong); letter-spacing: -0.02em; }
+.cd-conf-n small { font-size: 14px; color: var(--text-faint); font-weight: 600; }
+.cd-conf-l { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); margin-top: 5px; }
+.cd-conf-dist .card-title { margin-bottom: 10px; }
+
+.cd-stack { display: flex; height: 22px; border-radius: 6px; overflow: hidden; background: var(--canvas-sunken); }
+.cd-seg { height: 100%; }
+.cd-exc, .cd-dot.cd-exc { background: var(--cd-exc); } .cd-seg.cd-exc { background: var(--cd-exc); }
+.cd-seg.cd-sat { background: var(--cd-sat); } .cd-seg.cd-imp { background: var(--cd-imp); }
+.cd-seg.cd-urg { background: var(--cd-urg); } .cd-seg.cd-na { background: var(--cd-na); }
+.cd-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 11px; font-size: 12px; color: var(--text-muted); }
+.cd-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.cd-legend b { color: var(--text-strong); font-weight: 650; }
+.cd-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+.cd-dot.cd-sat { background: var(--cd-sat); } .cd-dot.cd-imp { background: var(--cd-imp); }
+.cd-dot.cd-urg { background: var(--cd-urg); } .cd-dot.cd-na { background: var(--cd-na); }
+
+.cd-pvr { display: flex; flex-direction: column; gap: 14px; }
+.cd-pvr-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text-strong); }
+.cd-pvr-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-pvr-v { flex: none; white-space: nowrap; color: var(--text-muted); font-weight: 500; }
+.cd-pvr-sub { font-size: 11.5px; color: var(--text-faint); margin: 2px 0 6px; }
+
+.cd-inds { display: flex; flex-direction: column; gap: 2px; }
+.cd-ind { display: grid; grid-template-columns: 1fr 72px 44px; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border-faint, var(--border)); }
+.cd-ind:last-child { border-bottom: 0; }
+.cd-ind-l { font-size: 12.5px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-ind-t { height: 10px; background: var(--canvas-sunken); border-radius: 5px; overflow: hidden; }
+.cd-ind-t > span { display: block; height: 100%; border-radius: 5px; }
+.cd-ind-v { text-align: right; font-weight: 700; font-size: 12.5px; color: var(--text-strong); }
+
+.cd-donutkpi { align-items: center; gap: 12px; }
+.cd-ring { width: 52px; height: 52px; flex: none; }
+.cd-ring-t { font-size: 14px; font-weight: 800; fill: var(--text-strong); }
+
+@media (max-width: 1100px) { .cd-conf { grid-template-columns: 1fr; gap: 14px; } }
+
 /* ---- Paramétrage : cartes de rubriques (landing « Tools ») --------------- */
 .set-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
 .set-card { display: flex; align-items: center; gap: 14px; text-align: left; width: 100%;
