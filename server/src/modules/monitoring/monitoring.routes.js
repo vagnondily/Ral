@@ -165,6 +165,18 @@ const urlPullSchema = z.object({
   url: z.string().url().max(500),
   token: z.string().trim().max(300).optional().or(z.literal('').transform(() => undefined)),
 });
+// Lien « suivant » d'un en-tête HTTP Link (RFC 5988) — ONA/MoDA paginent les
+// exports JSON et renvoient la page suivante ici (page_size plafonné à 10 000).
+// Sans ce suivi, un gros formulaire serait tronqué silencieusement.
+function nextPageUrl(linkHeader, currentUrl) {
+  if (!linkHeader) return null;
+  const m = linkHeader.split(',').map((p) => p.trim())
+    .find((p) => /\brel\s*=\s*"?next"?/i.test(p));
+  if (!m) return null;
+  const url = m.match(/<([^>]+)>/);
+  if (!url) return null;
+  try { return new URL(url[1], currentUrl).href; } catch { return null; }
+}
 router.post('/forms/:id/url-pull', WRITE, body(urlPullSchema), asyncHandler(async (req, res) => {
   const { url, token } = req.valid;
   let subs;
@@ -176,9 +188,22 @@ router.post('/forms/:id/url-pull', WRITE, body(urlPullSchema), asyncHandler(asyn
     const ct = (r.headers.get('content-type') || '').toLowerCase();
     const lower = url.toLowerCase();
     if (ct.includes('json') || /\.json(\?|$)/.test(lower)) {
-      const data = await r.json();
-      const records = Array.isArray(data) ? data
-        : (data.results || data.data || (Array.isArray(data.features) ? data.features.map((f) => f.properties || f) : []));
+      // Suit la pagination (en-tête Link rel="next") pour ne jamais tronquer.
+      const extract = (data) => (Array.isArray(data) ? data
+        : (data.results || data.data || (Array.isArray(data.features) ? data.features.map((f) => f.properties || f) : [])));
+      const records = [];
+      let page = r;
+      let pageUrl = url;
+      for (let i = 0; i < 100 && page; i += 1) {
+        if (!page.ok) throw new Error(`HTTP ${page.status}`);
+        const chunk = extract(await page.json());
+        if (!chunk.length) break;
+        records.push(...chunk);
+        const next = nextPageUrl(page.headers.get('link'), pageUrl);
+        if (!next || next === pageUrl) break;
+        pageUrl = next;
+        page = await fetch(next, { headers, redirect: 'follow' });
+      }
       subs = submissionsFromObjects(records, 'kobo');
     } else {
       const buf = Buffer.from(await r.arrayBuffer());
