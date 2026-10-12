@@ -226,12 +226,30 @@ async function deleteExchangeRate(tenantId, id) {
 /** Communes disponibles (distinctes) du registre de sites, pour le périmètre. */
 async function listCommunes(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
-    // region (adm1) + district + commune, pour la sélection cascade du
-    // périmètre de bureau. Le périmètre stocké reste (district, commune).
+    // Région + district + commune pour la cascade du périmètre de bureau : TOUT le
+    // découpage du pays (Paramétrage › Localités : niveaux 1 à 3) plus les communes
+    // du registre de sites absentes du découpage, sans doublon (casse et espaces
+    // ignorés ; le libellé du découpage l'emporte). Une région ou un district sans
+    // commune connue figure avec commune = null (visible, rien à cocher).
+    // Le périmètre stocké reste (district, commune).
     const { rows } = await client.query(
-      `SELECT DISTINCT COALESCE(adm1, '') AS region, COALESCE(district, '') AS district, commune
-         FROM sites WHERE tenant_id = $1 AND commune IS NOT NULL AND commune <> ''
-        ORDER BY region, district, commune`,
+      `WITH admin AS (
+         SELECT r.name AS region, d.name AS district, c.name AS commune, 0 AS src
+           FROM admin_areas r
+           LEFT JOIN admin_areas d ON d.parent_id = r.id AND d.depth = 2
+           LEFT JOIN admin_areas c ON c.parent_id = d.id AND c.depth = 3
+          WHERE r.tenant_id = $1 AND r.depth = 1),
+       site AS (
+         SELECT COALESCE(ad.region, NULLIF(s.adm1, '')) AS region, NULLIF(s.district, '') AS district, s.commune, 1 AS src
+           FROM (SELECT DISTINCT adm1, district, commune FROM sites WHERE tenant_id = $1 AND commune IS NOT NULL AND btrim(commune) <> '') s
+           LEFT JOIN LATERAL (SELECT a.region FROM admin a WHERE lower(btrim(a.district)) = lower(btrim(s.district)) LIMIT 1) ad ON true),
+       allrows AS (SELECT * FROM admin UNION ALL SELECT * FROM site)
+       SELECT region, district, commune FROM (
+         SELECT DISTINCT ON (lower(btrim(COALESCE(district, ''))), lower(btrim(COALESCE(commune, ''))), CASE WHEN commune IS NULL THEN lower(COALESCE(region, '')) END)
+                COALESCE(region, '') AS region, COALESCE(district, '') AS district, commune
+           FROM allrows
+          ORDER BY lower(btrim(COALESCE(district, ''))), lower(btrim(COALESCE(commune, ''))), CASE WHEN commune IS NULL THEN lower(COALESCE(region, '')) END, src) x
+        ORDER BY region, district, commune NULLS FIRST`,
       [tenantId]
     );
     return rows;
@@ -253,7 +271,7 @@ async function officesWithCounts(tenantId) {
                    THEN (SELECT count(*)::int FROM sites s WHERE s.tenant_id = o.tenant_id)
                    ELSE (SELECT count(*)::int FROM sites s
                           WHERE s.tenant_id = o.tenant_id
-                            AND s.commune IN (SELECT commune FROM field_office_communes c WHERE c.office_id = o.id))
+                            AND lower(btrim(s.commune)) IN (SELECT lower(btrim(commune)) FROM field_office_communes c WHERE c.office_id = o.id))
               END AS "siteCount"
          FROM field_offices o
          LEFT JOIN field_offices po ON po.id = o.parent_id
@@ -327,6 +345,26 @@ async function writePerimeter(client, tenantId, officeId, communes) {
      ON CONFLICT (office_id, commune) DO NOTHING`,
     params
   );
+  await attachUnassignedSites(client, tenantId);
+}
+
+/**
+ * Sites SANS bureau situés dans une commune d'un périmètre : rattachés au bureau
+ * le plus spécifique (antenne avant bureau parent, terrain avant pays). Un site
+ * qui a déjà un bureau (import, saisie, modification groupée) n'est jamais
+ * réaffecté. Une seule requête ; renvoie le nombre de sites rattachés.
+ */
+async function attachUnassignedSites(client, tenantId) {
+  const { rowCount } = await client.query(
+    `UPDATE sites s SET field_office_id = x.office_id
+       FROM (SELECT DISTINCT ON (lower(btrim(c.commune))) lower(btrim(c.commune)) AS lc, c.office_id
+               FROM field_office_communes c JOIN field_offices o ON o.id = c.office_id
+              WHERE c.tenant_id = $1 AND o.active
+              ORDER BY lower(btrim(c.commune)), (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code) x
+      WHERE s.tenant_id = $1 AND s.field_office_id IS NULL AND lower(btrim(s.commune)) = x.lc`,
+    [tenantId]
+  );
+  return rowCount;
 }
 
 async function deleteOffice(tenantId, id) {

@@ -106,7 +106,7 @@ export default {
   'Responsable (optionnel)': 'Focal point (optional)',
   'Périmètre national (tous les sites)': 'National coverage (all sites)',
   'Périmètre — communes ({n} sélectionnée(s))': 'Coverage area — communes ({n} selected)',
-  "Aucune commune dans le registre de sites. Importez des sites (Master Data / planning) d'abord.": 'No commune in the site registry. Import sites (Master Data / planning) first.',
+  'Aucune commune connue : importez le découpage du pays (Paramétrage › Localités) ou des sites (Master Data / planning).': 'No known commune: import the country breakdown (Settings › Localities) or sites (Master Data / planning).',
   'Toutes les régions': 'All regions',
   'Tous les districts de la région': 'All districts in the region',
   'Tous les districts': 'All districts',

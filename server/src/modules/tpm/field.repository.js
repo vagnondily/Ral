@@ -40,7 +40,7 @@ async function createSite(tenantId, s) {
   return withTenantTransaction(tenantId, async (client) => {
     const resolveOffice = `(SELECT c.office_id FROM field_office_communes c
          JOIN field_offices o ON o.id = c.office_id
-        WHERE c.tenant_id = $1 AND c.commune = $4
+        WHERE c.tenant_id = $1 AND lower(btrim(c.commune)) = lower(btrim($4))
         ORDER BY (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code LIMIT 1)`;
     const { rows } = await client.query(
       `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, adm2, adm3, adm4, field_office_id)
@@ -163,7 +163,7 @@ async function importMasterData(tenantId, rows) {
       // parent, bureau terrain avant bureau pays).
       const resolveOffice = `(SELECT c.office_id FROM field_office_communes c
            JOIN field_offices o ON o.id = c.office_id
-          WHERE c.tenant_id = $1 AND c.commune = $4
+          WHERE c.tenant_id = $1 AND lower(btrim(c.commune)) = lower(btrim($4))
           ORDER BY (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code
           LIMIT 1)`;
       const { rows: out } = await client.query(
@@ -196,7 +196,7 @@ async function importPlanSites(tenantId, userId, sites) {
   return withTenantTransaction(tenantId, async (client) => {
     // commune (minuscule) → bureau le plus spécifique.
     const { rows: perim } = await client.query(
-      `SELECT lower(c.commune) AS commune, c.office_id
+      `SELECT lower(btrim(c.commune)) AS commune, c.office_id
          FROM field_office_communes c JOIN field_offices o ON o.id = c.office_id
         WHERE c.tenant_id = $1
         ORDER BY (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code`,
@@ -217,7 +217,7 @@ async function importPlanSites(tenantId, userId, sites) {
         const code = siteCode(s);
         if (s.lastVisit) lastVisits.push({ code, month: s.lastVisit });
         params.push(code, s.name, s.district, s.commune, s.region || null, s.district, s.commune, s.fokontany || null,
-          s.risk || 'moyenne', officeByCommune.get(String(s.commune).toLowerCase()) || null, s.activity || null,
+          s.risk || 'moyenne', officeByCommune.get(String(s.commune).trim().toLowerCase()) || null, s.activity || null,
           s.gpsLat ?? null, s.gpsLng ?? null, normalizeSecurity(s.security), s.synergies || 0, s.beneficiaryOver200 || 0,
           s.newPartner || 0, s.issuesProcess || 0, s.issuesPartnerReport || 0, s.issuesCFM || 0, s.fraud || 0);
         const b = params.length; const p = (k) => `$${b - COLS + 1 + k}`;
@@ -300,7 +300,7 @@ async function upsertSites(client, tenantId, sites) {
     const code = siteCode(s);
     const resolveOffice = `(SELECT c.office_id FROM field_office_communes c
          JOIN field_offices o ON o.id = c.office_id
-        WHERE c.tenant_id = $1 AND c.commune = $4
+        WHERE c.tenant_id = $1 AND lower(btrim(c.commune)) = lower(btrim($4))
         ORDER BY (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code LIMIT 1)`;
     const { rows } = await client.query(
       `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, adm2, adm3, adm4, field_office_id)

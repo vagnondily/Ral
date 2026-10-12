@@ -24,6 +24,8 @@ const SECTIONS = {
 };
 const GROUPS = ['Référentiels', 'Finances', 'Géographie', 'Suivi', 'Sécurité'];
 
+const normCommune = (s) => String(s || '').trim().toLowerCase();
+
 export default function SettingsPage({ tab = 'apercu', isAdmin, onNavigate }) {
   const { tr } = useI18n();
   const current = SECTIONS[tab] ? tab : 'apercu';
@@ -328,31 +330,38 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
     national: office?.national || false, active: office?.active ?? true,
   });
   const [picked, setPicked] = useState(() => new Set());
+  const [perimeter, setPerimeter] = useState([]); // communes déjà enregistrées (même absentes du catalogue)
   const [q, setQ] = useState('');
   const [region, setRegion] = useState('');
   const [district, setDistrict] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (editing) api.officePerimeter(office.id).then((rows) => setPicked(new Set(rows.map((r) => r.commune)))).catch(() => {});
+    if (editing) api.officePerimeter(office.id).then((rows) => { setPerimeter(rows); setPicked(new Set(rows.map((r) => normCommune(r.commune)))); }).catch(() => {});
   }, [editing, office]);
 
-  const key = (c) => c.commune;
+  // Clé insensible à la casse et aux espaces (« MANAKOMPY » du registre = « Manakompy » du découpage).
+  const key = (c) => normCommune(c.commune);
+  // Catalogue = découpage du pays + registre ; une région/un district sans commune connue n'a rien à cocher.
+  const selectable = useMemo(() => communes.filter((c) => c.commune), [communes]);
   // Cascade Région › District › Commune (le périmètre peut couvrir plusieurs
   // districts ; la sélection est conservée entre les changements de filtre).
-  const regions = useMemo(() => [...new Set(communes.map((c) => c.region).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [communes]);
-  const districts = useMemo(() => [...new Set(communes.filter((c) => !region || c.region === region).map((c) => c.district).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [communes, region]);
+  // Listes sans doublon de casse (« Amboasary Sud » = « AMBOASARY SUD ») : première graphie conservée.
+  const uniqNames = (arr) => { const m = new Map(); for (const v of arr) if (v && !m.has(normCommune(v))) m.set(normCommune(v), v); return [...m.values()].sort((a, b) => a.localeCompare(b)); };
+  const sameName = (a, b) => normCommune(a) === normCommune(b);
+  const regions = useMemo(() => uniqNames(communes.map((c) => c.region)), [communes]);
+  const districts = useMemo(() => uniqNames(communes.filter((c) => !region || sameName(c.region, region)).map((c) => c.district)), [communes, region]);
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return communes.filter((c) => (!region || c.region === region) && (!district || c.district === district)
+    return selectable.filter((c) => (!region || sameName(c.region, region)) && (!district || sameName(c.district, district))
       && (!s || c.commune.toLowerCase().includes(s) || (c.district || '').toLowerCase().includes(s))).slice(0, 600);
-  }, [communes, q, region, district]);
+  }, [selectable, q, region, district]);
   // Communes sélectionnées (dédupliquées par nom), pour les puces récapitulatives.
   const pickedList = useMemo(() => {
     const seen = new Set(); const out = [];
-    for (const c of communes) if (picked.has(c.commune) && !seen.has(c.commune)) { seen.add(c.commune); out.push(c); }
+    for (const c of [...selectable, ...perimeter]) if (picked.has(key(c)) && !seen.has(key(c))) { seen.add(key(c)); out.push(c); }
     return out;
-  }, [communes, picked]);
+  }, [selectable, perimeter, picked]);
 
   function toggle(c) { setPicked((prev) => { const n = new Set(prev); if (n.has(key(c))) n.delete(key(c)); else n.add(key(c)); return n; }); }
   function setMany(list, on) {
@@ -363,7 +372,8 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
     e.preventDefault();
     if (!form.code.trim() || form.name.trim().length < 2) { toast.error(tr('Code et nom (≥ 2 caractères) requis.')); return; }
     setSaving(true);
-    const chosen = communes.filter((c) => picked.has(key(c))).map((c) => ({ district: c.district || undefined, commune: c.commune }));
+    // Une commune déjà enregistrée mais absente du catalogue est conservée (jamais perdue en silence).
+    const chosen = pickedList.map((c) => ({ district: c.district || undefined, commune: c.commune }));
     const payload = {
       code: form.code.trim(), name: form.name.trim(), nature: form.nature,
       parentId: form.parentId || undefined, responsible: form.responsible.trim() || undefined,
@@ -403,7 +413,7 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
         {!form.national && (
           <div className="field">
             <span className="field-label">{tr('Périmètre — communes ({n} sélectionnée(s))', { n: picked.size })}</span>
-            {communes.length === 0 ? <p className="muted">{tr('Aucune commune dans le registre de sites. Importez des sites (Master Data / planning) d\'abord.')}</p> : (
+            {selectable.length === 0 && perimeter.length === 0 ? <p className="muted">{tr('Aucune commune connue : importez le découpage du pays (Paramétrage › Localités) ou des sites (Master Data / planning).')}</p> : (
               <>
                 {/* Cascade : Région → District → communes (multi-sélection) */}
                 <div className="form-grid" style={{ marginBottom: 8 }}>
@@ -434,7 +444,7 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
                 {pickedList.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, maxHeight: 92, overflow: 'auto' }}>
                     {pickedList.map((c) => (
-                      <button type="button" key={c.commune} className="chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
+                      <button type="button" key={key(c)} className="chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
                         onClick={() => toggle(c)} title={tr('{name} — retirer', { name: `${c.commune}${c.district ? ' · ' + c.district : ''}` })}>
                         {c.commune}<X size={13} aria-hidden="true" />
                       </button>
