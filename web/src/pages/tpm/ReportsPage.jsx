@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Plus, FileText, ShieldCheck, X, Info, Search, SlidersHorizontal, Columns3,
   Save, Clock, RotateCcw, Download, Printer, Trash2, ChevronLeft, ChevronRight, ExternalLink, CalendarClock, Ban,
-  Wallet, TrendingUp, ChevronRight as FlowArrow,
+  Wallet, TrendingUp, ChevronRight as FlowArrow, Send,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, EmptyState, Field, IconButton, Skeleton, StatusBadge, Stats } from '../../components/ui.jsx';
@@ -211,6 +211,13 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
     try { await api.deleteReport(r.id); toast.success(tr('Rapport supprimé.')); setSelectedId(null); reload(); }
     catch (err) { toast.error(err.message); }
   }
+  // Soumettre un rapport « attendu » ou « rejeté » : le serveur vérifie la
+  // transition et qu'une facture porte au moins un poste (message clair sinon).
+  async function submitReport(r) {
+    if (!window.confirm(tr('Soumettre le rapport de « {name} » à la validation ? Vous ne pourrez pas le valider vous-même.', { name: r.partnerName }))) return;
+    try { await api.submitReport(r.id); toast.success(tr('Rapport soumis à la validation.')); reload(); }
+    catch (err) { toast.error(err.message); }
+  }
   async function markNotApplicable(r) {
     if (!window.confirm(tr('Marquer « non applicable » le rapport de « {name} » pour ce mois (aucun suivi réalisé) ?', { name: r.partnerName }))) return;
     try { await api.reportNotApplicable(r.id); toast.success(tr('Rapport marqué non applicable.')); reload(); }
@@ -351,6 +358,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
           <div className="data-toolbar-left">
             {selected?.kind === 'financier' && <Button size="sm" variant="secondary" icon={ExternalLink} onClick={() => setFacture({ reportId: selected.id })}>{tr('Ouvrir la facture')}</Button>}
             {selected?.kind === 'financier' && selected?.status === 'valide' && onNavigate && <Button size="sm" variant="secondary" icon={TrendingUp} onClick={() => onNavigate('dashboard', 'consolidation')}>{tr('Voir dans la consolidation')}</Button>}
+            {canEdit && ['attendu', 'rejete'].includes(selected?.status) && <Button size="sm" variant="secondary" icon={Send} onClick={() => submitReport(selected)}>{tr('Soumettre')}</Button>}
             {canEdit && selected?.status === 'soumis' && <>
               <Button size="sm" variant="secondary" icon={ShieldCheck} onClick={() => setDecide({ report: selected, approve: true })}>{tr('Valider')}</Button>
               <Button size="sm" variant="secondary" icon={X} onClick={() => setDecide({ report: selected, approve: false })}>{tr('Rejeter')}</Button>
