@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 16:08 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 12/10/2026 16:05 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -204,7 +204,7 @@ _Dernière mise à jour : 12/10/2026 16:08 UTC_ — la branche `main` reçoit ch
   3. **Vérification, avant d'écrire quoi que ce soit** : nouvelles soumissions et déjà importées (mises à jour), période et mois couverts, colonnes reconnues pour MEMS (bureau, lieux, site, partenaire, agent), et les points d'attention (doublons dans le fichier, lignes sans identifiant Kobo qui seraient comptées deux fois au prochain import, lignes sans date). Exemple réel : votre export GD de juin → 225 soumissions, 0 nouvelle, 225 mises à jour, 7 mois, 9 colonnes sur 10 reconnues ;
   4. **Compte rendu** : nouvelles / mises à jour, part des soumissions de la fiche avec bureau, commune et site reconnus, sites à confirmer (lien vers « À rapprocher »).
   - Au passage : les alertes « succès », « attention » et « danger » utilisées à 11 endroits de l'application s'affichaient sans couleur ; elles ont maintenant leur style.
-- **16:08** ✅ **Retour n° 3 — correspondances des valeurs codées** (lint propre, 450 tests, installation à neuf 59 migrations + 2 réparations au démarrage, balayage FR/EN sans erreur ni phrase manquante, essai à l'écran sur la fiche GD). Dans une fiche, onglet **« Mapping MEMS »**, une nouvelle carte **« Correspondances des valeurs »** liste, pour le **bureau**, le **partenaire** et l'**agent**, chaque valeur reçue (code et libellé), son nombre de soumissions et l'objet MEMS auquel elle est reliée :
+- **16:05** ✅ **Retour n° 3 — correspondances des valeurs codées** (`d37d241`, publié sur `main` ; lint propre, 450 tests, installation à neuf 59 migrations + 2 réparations au démarrage, balayage FR/EN sans erreur ni phrase manquante, essai à l'écran sur la fiche GD). Dans une fiche, onglet **« Mapping MEMS »**, une nouvelle carte **« Correspondances des valeurs »** liste, pour le **bureau**, le **partenaire** et l'**agent**, chaque valeur reçue (code et libellé), son nombre de soumissions et l'objet MEMS auquel elle est reliée :
   - MEMS relie seul quand c'est **sûr** (nom ou sigle identique, code d'enquêteur) et **propose** le reste (« YP » → YPA : bouton **Confirmer**) ; jamais de nom seulement proche pour un enquêteur ;
   - une **correction** (choisir un autre bureau / partenaire / agent, ou « ne pas relier ») ne vaut que **pour cette fiche** — le même code peut désigner autre chose ailleurs — et s'applique **aussitôt aux soumissions déjà reçues** ; « Automatique » annule la correction ;
   - les soumissions portent maintenant le partenaire et l'agent MEMS reconnus, à côté des valeurs brutes (migration 059 ; réparation au démarrage pour les données déjà importées).
