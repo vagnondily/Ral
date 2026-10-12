@@ -870,6 +870,10 @@ function IndicatorsConfigCard({ form, canEdit, onChanged }) {
   );
 }
 
+// Même plafond que le serveur (express.raw « 80mb » de POST /forms/:id/import). On prévient
+// AVANT l'envoi : un navigateur coupé en plein envoi n'affiche pas toujours la réponse 413.
+const MAX_IMPORT_BYTES = 80 * 1024 * 1024;
+
 function DataSourcesCard({ form, canEdit, onChanged }) {
   const { tr } = useI18n();
   const toast = useToast();
@@ -881,6 +885,10 @@ function DataSourcesCard({ form, canEdit, onChanged }) {
   async function onFile(e) {
     const file = e.target.files?.[0]; e.target.value = '';
     if (!file) return;
+    if (file.size > MAX_IMPORT_BYTES) {
+      toast.error(tr('Fichier trop volumineux ({size} Mo) : la taille maximale acceptée est de 80 Mo. Exportez une période plus courte ou découpez le fichier, puis réessayez.', { size: Math.round(file.size / (1024 * 1024)) }));
+      return;
+    }
     setBusy(true);
     try { const r = await api.monImport(form.id, file); toast.success(tr('{a}/{b} soumission(s) importée(s).', { a: r.inserted, b: r.received })); onChanged?.(); }
     catch (err) { toast.error(err.message); } finally { setBusy(false); }
