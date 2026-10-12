@@ -142,6 +142,27 @@ async function readSubmissionsFile(req) {
   return parsed;
 }
 
+// ---- Correspondances des valeurs codées (bureau, partenaire, agent) — retour n° 3 -------
+const CORR_DIMENSIONS = ['field_office', 'partner', 'agent'];
+router.get('/forms/:id/correspondences', asyncHandler(async (req, res) => {
+  const dimension = String(req.query.dimension || '');
+  if (!CORR_DIMENSIONS.includes(dimension)) throw badRequest('Dimension inconnue (field_office, partner ou agent).');
+  const out = await repo.formCorrespondences(t(req), uuidParam(req.params.id), dimension);
+  if (!out) throw notFound('Fiche introuvable');
+  res.json(out);
+}));
+const correspondenceSchema = z.object({
+  dimension: z.enum(['field_office', 'partner', 'agent']),
+  raw: z.string().min(1).max(200),
+  mode: z.enum(['link', 'ignore', 'auto']),
+  targetId: z.string().uuid().optional(),
+}).refine((v) => (v.mode === 'link') === Boolean(v.targetId), { message: 'Choisissez l\'élément MEMS à relier.' });
+router.put('/forms/:id/correspondences', WRITE, body(correspondenceSchema), asyncHandler(async (req, res) => {
+  const out = await repo.setCorrespondence(t(req), req.auth.userId, uuidParam(req.params.id), req.valid);
+  if (!out) throw notFound('Fiche introuvable');
+  res.json(out);
+}));
+
 // Vérification avant import (assistant « Importation ») : ce que contient le fichier, rien n'est écrit.
 router.post('/forms/:id/import/preview', WRITE, express.raw({ type: '*/*', limit: '80mb' }), asyncHandler(async (req, res) => {
   const { submissions, headers, variables, source } = await readSubmissionsFile(req);

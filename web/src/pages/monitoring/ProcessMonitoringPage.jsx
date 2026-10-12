@@ -14,6 +14,7 @@ import IndicatorsList from './IndicatorsList.jsx';
 import TemplateBindingCard from './TemplateBindingCard.jsx';
 import { CalcFieldsCard } from './CalcFields.jsx';
 import ImportWizard from './ImportWizard.jsx';
+import CorrespondencesCard from './Correspondences.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatDateTime, formatInt, formatLocale } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
@@ -851,6 +852,16 @@ function ResultsTab({ form, onGoConfig }) {
 
 // ---- Mapping MEMS (auto-détecté + surcharge manuelle éditable) -----------
 function MappingTab({ form, canEdit }) {
+  // Colonnes (quelle question alimente quelle information MEMS), puis valeurs (quel code = quel objet MEMS).
+  return (
+    <div className="section-gap">
+      <MappingColumnsCard form={form} canEdit={canEdit} />
+      <CorrespondencesCard form={form} canEdit={canEdit} />
+    </div>
+  );
+}
+
+function MappingColumnsCard({ form, canEdit }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [data, setData] = useState(null);

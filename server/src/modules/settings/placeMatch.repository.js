@@ -4,6 +4,7 @@ const { badRequest, conflict, notFound } = require('../../middleware/errors');
 const { buildPlaceIndex, resolvePath, groupUnmatched, normPlace, parentKeyOf, looksLikePcode, buildOfficeIndex, resolveOffice } = require('../common/placeMatch');
 const { detectMapping } = require('../monitoring/memsMapping');
 const { buildSiteIndex, resolveSite, queueKeyOf, isAutomaticSite } = require('../common/siteMatch');
+const { buildPartnerIndex, resolvePartner, buildAgentIndex, resolveAgent } = require('../common/partyMatch');
 
 /**
  * Rapprochement des lieux — SEUL fichier de ce chantier qui écrit du SQL. La
@@ -261,8 +262,9 @@ const officeChoiceLabelsTx = (client, tenantId) => choiceLabelsTx(client, tenant
  * pas des noms à rapprocher). Les valeurs brutes ne sont jamais modifiées.
  */
 async function applySubmissionsGeoTx(client, tenantId) {
-  const [index, offices, labels] = [
-    await loadPlaceIndexTx(client, tenantId), await loadOfficeIndexTx(client, tenantId), await officeChoiceLabelsTx(client, tenantId)];
+  const [index, offices, labels, links] = [
+    await loadPlaceIndexTx(client, tenantId), await loadOfficeIndexTx(client, tenantId), await officeChoiceLabelsTx(client, tenantId),
+    await loadValueLinksTx(client, tenantId)];
   const { rows: combos } = await client.query(
     `SELECT form_id AS "formId", COALESCE(admin1, '') AS a1, COALESCE(admin2, '') AS a2, COALESCE(admin3, '') AS a3,
             COALESCE(admin4, '') AS a4, COALESCE(field_office, '') AS fo, count(*)::int AS n
@@ -279,10 +281,12 @@ async function applySubmissionsGeoTx(client, tenantId) {
       const parentLevel = path.levels.find((x) => x.depth === l.depth - 1);
       unmatched.push({ depth: l.depth, parent: parentLevel && parentLevel.area, label: l.label, status: l.status, candidates: l.candidates, count: c.n });
     }
+    // Correspondance choisie à la main pour ce code dans cette fiche (écran « Correspondances ») : elle l'emporte.
+    const manual = links.get(linkKey(c.formId, 'field_office', c.fo));
     const officeLabel = (labels.get(c.formId) && labels.get(c.formId).get(c.fo)) || c.fo || null;
-    const office = resolveOffice(offices, { label: officeLabel, commune: communePcode }).office;
-    if (office) withOffice += c.n;
-    updates.push({ ...c, pcode: communePcode, office: office ? office.id : null, status: path.status === 'resolu' ? 'exact' : path.status });
+    const officeId = manual ? manual.officeId : (resolveOffice(offices, { label: officeLabel, commune: communePcode }).office || {}).id || null;
+    if (officeId) withOffice += c.n;
+    updates.push({ ...c, pcode: communePcode, office: officeId, status: path.status === 'resolu' ? 'exact' : path.status });
   }
   for (const slice of chunkRows(updates, 9)) {
     const params = [tenantId];
@@ -304,7 +308,70 @@ async function applySubmissionsGeoTx(client, tenantId) {
   const total = combos.reduce((a, c) => a + c.n, 0);
   // La commune vient d'être reconnue : le site se cherche dedans (même transaction).
   const sites = await applySubmissionSitesTx(client, tenantId);
-  return { submissions: total, combinations: combos.length, resolved, withOffice, sites };
+  const parties = await applySubmissionPartiesTx(client, tenantId, links);
+  return { submissions: total, combinations: combos.length, resolved, withOffice, sites, parties };
+}
+
+// ---- Correspondances des valeurs codées (retour n° 3) ---------------------------------
+const linkKey = (formId, dimension, raw) => `${formId}|${dimension}|${raw}`;
+
+/** Corrections manuelles de toutes les fiches : (fiche, dimension, valeur) → cible (null = ne pas relier). */
+async function loadValueLinksTx(client, tenantId) {
+  const { rows } = await client.query(
+    `SELECT form_id AS "formId", dimension, raw_value AS raw, office_id AS "officeId", partner_id AS "partnerId", agent_id AS "agentId"
+       FROM monitoring_value_links WHERE tenant_id = $1`, [tenantId]);
+  return new Map(rows.map((r) => [linkKey(r.formId, r.dimension, r.raw), r]));
+}
+
+/** Partenaires et agents MEMS → index de rapprochement (common/partyMatch). */
+async function loadPartiesTx(client, tenantId) {
+  const { rows: partners } = await client.query(
+    'SELECT id, name, short_name AS "shortName", active FROM partners WHERE tenant_id = $1 ORDER BY name', [tenantId]);
+  const { rows: agents } = await client.query(
+    'SELECT id, tpm_provider_id AS "partnerId", name, code, active FROM tpm_agents WHERE tenant_id = $1 ORDER BY name', [tenantId]);
+  return { partners, agents, partnerIndex: buildPartnerIndex(partners), agentIndex: buildAgentIndex(agents) };
+}
+
+/**
+ * Partenaire et agent MEMS de chaque formulaire reçu, par combinaison DISTINCTE
+ * (fiche, partenaire, agent) : correction manuelle d'abord, sinon correspondance
+ * exacte (libellé du choix ou texte saisi). Valeurs brutes jamais modifiées.
+ */
+async function applySubmissionPartiesTx(client, tenantId, links) {
+  const linksMap = links || await loadValueLinksTx(client, tenantId);
+  const { partnerIndex, agentIndex } = await loadPartiesTx(client, tenantId);
+  const pLabels = await choiceLabelsTx(client, tenantId, 'partner');
+  const aLabels = await choiceLabelsTx(client, tenantId, 'agent');
+  const { rows: combos } = await client.query(
+    `SELECT form_id AS "formId", COALESCE(partner, '') AS p, COALESCE(agent, '') AS a, count(*)::int AS n
+       FROM monitoring_submissions WHERE tenant_id = $1 GROUP BY 1, 2, 3`, [tenantId]);
+  const updates = []; let withPartner = 0; let withAgent = 0;
+  for (const c of combos) {
+    const pm = linksMap.get(linkKey(c.formId, 'partner', c.p));
+    const pLabel = pLabels.get(c.formId) && pLabels.get(c.formId).get(c.p);
+    const partnerId = pm ? pm.partnerId : (c.p ? (resolvePartner(partnerIndex, { raw: c.p, label: pLabel }).partner || {}).id || null : null);
+    const am = linksMap.get(linkKey(c.formId, 'agent', c.a));
+    const aLabel = aLabels.get(c.formId) && aLabels.get(c.formId).get(c.a);
+    const agentId = am ? am.agentId : (c.a ? (resolveAgent(agentIndex, { raw: c.a, label: aLabel, partnerId }).agent || {}).id || null : null);
+    if (partnerId) withPartner += c.n;
+    if (agentId) withAgent += c.n;
+    updates.push({ ...c, partnerId, agentId });
+  }
+  for (const slice of chunkRows(updates, 5)) {
+    const params = [tenantId];
+    const tuples = slice.map((u) => {
+      params.push(u.formId, u.p, u.a, u.partnerId, u.agentId);
+      const b = params.length - 5;
+      return `($${b + 1}::uuid, $${b + 2}, $${b + 3}, $${b + 4}::uuid, $${b + 5}::uuid)`;
+    });
+    await client.query(
+      `UPDATE monitoring_submissions ms SET partner_id = v.pid, agent_id = v.aid
+         FROM (VALUES ${tuples.join(',')}) AS v(form_id, p, a, pid, aid)
+        WHERE ms.tenant_id = $1 AND ms.form_id = v.form_id AND COALESCE(ms.partner, '') = v.p AND COALESCE(ms.agent, '') = v.a
+          AND (ms.partner_id IS DISTINCT FROM v.pid OR ms.agent_id IS DISTINCT FROM v.aid)`,
+      params);
+  }
+  return { withPartner, withAgent };
 }
 
 // ---- Sites des formulaires reçus ------------------------------------------------------
@@ -549,5 +616,6 @@ async function applyAll(tenantId) {
 module.exports = {
   loadPlaceIndexTx, applySitesGeoTx, syncQueueTx, resolvePerimeterTx, attachUnassignedSitesTx, afterSitesChangedTx, applySubmissionsGeoTx,
   officeChoiceLabelsTx, choiceLabelsTx, applySubmissionSitesTx, loadSiteIndexTx,
+  loadValueLinksTx, loadPartiesTx, applySubmissionPartiesTx,
   listQueue, listAliases, decideQueue, deleteAlias, applyAll,
 };

@@ -30,8 +30,11 @@ repo.importSubmissions = async (tenantId, formId, subs, { variables } = {}) => {
 };
 repo.importDefinition = async () => { writes.push({ what: 'definition' }); return { formId: 'f', fields: 1, choices: 0 }; };
 repo.importPreview = async (tenantId, formId, ids) => ({ already: ids.filter((x) => x.startsWith('old')).length });
+repo.setCorrespondence = async (tenantId, userId, formId, input) => { writes.push({ what: 'correspondence', input }); return { submissions: 3 }; };
+repo.formCorrespondences = async () => ({ rows: [], options: [] });
 
 const app = express();
+app.use(express.json()); // comme src/app.js (les envois de fichiers restent en octet-stream)
 app.use('/api/monitoring', routes);
 app.use(errorHandler);
 const token = jwt.sign({ sub: 'u1', tenantId: '11111111-1111-1111-1111-111111111111', role: 'manager' }, process.env.JWT_SECRET);
@@ -146,4 +149,20 @@ test('vérification avant import : ce que contient le fichier, nouvelles / déj�
   const bad = await upload(Buffer.from('%PDF-1.4 x'), 'rapport.pdf', `/api/monitoring/forms/${FORM}/import/preview`);
   assert.equal(bad.status, 400);
   assert.match(bad.body.error, /PDF/);
+});
+
+test('correspondances : dimension et cible contrôlées à l\'entrée, aucune écriture si invalide', async () => {
+  writes.length = 0;
+  const put = (body) => request(app).put(`/api/monitoring/forms/${FORM}/correspondences`).set('Authorization', `Bearer ${token}`).send(body);
+  assert.equal((await put({ dimension: 'partner', raw: '6', mode: 'link' })).status, 400);              // relier sans cible
+  assert.equal((await put({ dimension: 'partner', raw: '6', mode: 'auto', targetId: FORM })).status, 400); // cible sans « relier »
+  assert.equal((await put({ dimension: 'region', raw: '6', mode: 'auto' })).status, 400);
+  assert.equal((await put({ dimension: 'partner', raw: '', mode: 'ignore' })).status, 400);
+  assert.deepEqual(writes, []);
+  const ok = await put({ dimension: 'partner', raw: '6', mode: 'link', targetId: FORM });
+  assert.equal(ok.status, 200);
+  assert.equal(writes[0].input.targetId, FORM);
+  const get = (q) => request(app).get(`/api/monitoring/forms/${FORM}/correspondences${q}`).set('Authorization', `Bearer ${token}`);
+  assert.equal((await get('?dimension=region')).status, 400);
+  assert.equal((await get('?dimension=agent')).status, 200);
 });

@@ -2318,3 +2318,9 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .wiz-remembered { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .wiz-remembered > div { flex: 1; min-width: 0; }
 .wiz-remembered .site-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Correspondances des valeurs (retour n° 3) ---------------------------------- */
+.corr-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.corr-select { min-width: 240px; max-width: 100%; }
+.corr-propose { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.corr-table td { vertical-align: middle; }

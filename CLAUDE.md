@@ -375,6 +375,14 @@ or navy rail.
   compte rendu (`importSubmissions` renvoie `created` / `updated` / `months` et
   l'état de la fiche `form`). Même lecture du fichier pour la vérification et
   l'import (`readSubmissionsFile` dans les routes).
+- **Correspondances des valeurs codées** (retour n° 3 ; migration 059,
+  `common/partyMatch.js` pur, `placeMatch.repository.applySubmissionPartiesTx`,
+  `web/src/pages/monitoring/Correspondences.jsx` dans l'onglet « Mapping MEMS ») :
+  bureau / partenaire / agent d'un formulaire reçu → objet MEMS. Correction par
+  FICHE dans `monitoring_value_links` (une colonne cible par dimension, toutes
+  vides = « ne pas relier »), prioritaire sur l'automatique dans
+  `applySubmissionsGeoTx` ; `monitoring_submissions.partner_id` / `agent_id`.
+  Automatique seulement si exact ; un nom proche est proposé, jamais appliqué.
 - **Dashboard « façon Power BI »** (`web/src/pages/dashboard/DashboardBIPage.jsx`,
   nav « Dashboard décisionnel › Vue d'ensemble ») : KPI tiles, grouped
   Budget/Planifié/Réalisé bars, réalisé-by-partner donut, monthly trend line,

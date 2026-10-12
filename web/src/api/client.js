@@ -323,6 +323,9 @@ export const api = {
   monKoboPull: (id, input) => request(`/api/monitoring/forms/${id}/kobo-pull`, { method: 'POST', body: input }),
   monUrlPull: (id, input) => request(`/api/monitoring/forms/${id}/url-pull`, { method: 'POST', body: input }),
   monImport: (id, file) => uploadSubmissions(`/api/monitoring/forms/${id}/import`, file),
+  // Correspondances des valeurs codées (bureau, partenaire, agent) d'une fiche.
+  monCorrespondences: (id, dimension) => request(`/api/monitoring/forms/${id}/correspondences`, { query: { dimension } }),
+  monSetCorrespondence: (id, body) => request(`/api/monitoring/forms/${id}/correspondences`, { method: 'PUT', body }),
   // Vérification avant import : ce que contient le fichier (rien n'est écrit).
   monImportPreview: (id, file) => uploadSubmissions(`/api/monitoring/forms/${id}/import/preview`, file),
 

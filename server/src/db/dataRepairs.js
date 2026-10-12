@@ -27,6 +27,14 @@ const REPAIRS = [
       return { forms: forms.length, updated, offices: geo.withOffice, sites: geo.sites };
     },
   },
+  {
+    // R2 : partenaire et agent MEMS des formulaires déjà reçus (correspondances, migration 059).
+    key: 'r2_partenaires_agents',
+    async run(client, tenantId) {
+      const places = require('../modules/settings/placeMatch.repository');
+      return places.applySubmissionPartiesTx(client, tenantId);
+    },
+  },
 ];
 
 async function runDataRepairs({ repairs = REPAIRS } = {}) {

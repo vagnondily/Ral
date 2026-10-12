@@ -1,0 +1,26 @@
+/** Correspondances des valeurs codées d'une fiche (onglet « Mapping MEMS », retour n° 3). */
+export default {
+  'Correspondances des valeurs': 'Value correspondences',
+  'Chaque valeur codée du formulaire reliée au bureau, au partenaire ou à l\'agent MEMS. MEMS relie seul quand c\'est sûr et propose le reste ; une correction ne vaut que pour cette fiche et s\'applique aussitôt aux soumissions déjà reçues.':
+    'Each coded value of the form linked to the MEMS office, partner or agent. MEMS links on its own when it is certain and proposes the rest; a correction applies to this form only and immediately to the submissions already received.',
+  'Type de valeur': 'Type of value',
+  '{v} valeur(s) · {p} % des soumissions reliées': '{v} value(s) · {p} % of submissions linked',
+  'Aucune valeur reçue': 'No value received',
+  'Aucune soumission de cette fiche ne porte cette information (vérifiez la colonne choisie ci-dessus).': 'No submission of this form carries this information (check the column chosen above).',
+  'Valeur du formulaire': 'Form value',
+  'Reliée à': 'Linked to',
+  'Correspondance': 'Correspondence',
+  'Correspondance de « {v} »': 'Correspondence of “{v}”',
+  'non reliée': 'not linked',
+  'Automatique': 'Automatic',
+  'Automatique — {name}': 'Automatic — {name}',
+  '— Ne pas relier —': '— Do not link —',
+  'inactif': 'inactive',
+  'manuel · non relié': 'manual · not linked',
+  'à relier': 'to link',
+  'trouvé': 'found',
+  'proposé : {name}': 'proposed: {name}',
+  'Confirmer': 'Confirm',
+  'plusieurs possibles': 'several possible',
+  'Correspondance enregistrée : {n} soumission(s) de cette fiche mises à jour.': 'Correspondence saved: {n} submission(s) of this form updated.',
+};

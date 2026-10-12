@@ -8,7 +8,8 @@ const { computeCalcFields, checkExpression, previewCalc, makeGetter } = require(
 const { buildLookup, groupPathRenamer, TRIM_CLASS } = require('./submissionsImport');
 const { templateForActivity, moduleLabel, suggestBindings, indicatorFromItem } = require('./indicatorTemplates');
 const { OTHER_VALUES } = require('./memsMapping');
-const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx } = require('../settings/placeMatch.repository');
+const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx, loadPartiesTx } = require('../settings/placeMatch.repository');
+const { resolvePartner, resolveAgent } = require('../common/partyMatch');
 
 /** Charge les champs calculés d'une fiche (ordre), pour l'analyse et la grille. */
 async function calcDefsFor(client, tenantId, formId) {
@@ -758,6 +759,108 @@ async function importSubmissions(tenantId, formId, submissions, { variables } = 
   });
 }
 
+// ---- Correspondances des valeurs codées (retour n° 3) -----------------------------------
+const CORR = {
+  field_office: { raw: 'field_office', target: 'field_office_id', link: 'office_id' },
+  partner: { raw: 'partner', target: 'partner_id', link: 'partner_id' },
+  agent: { raw: 'agent', target: 'agent_id', link: 'agent_id' },
+};
+
+/**
+ * Correspondances d'une fiche pour une dimension : chaque valeur reçue (code et
+ * libellé), son nombre de soumissions, l'objet MEMS auquel elle est reliée
+ * aujourd'hui, la correction manuelle éventuelle et la proposition automatique.
+ * @returns {Promise<null|{ rows: object[], options: object[] }>}
+ */
+async function formCorrespondences(tenantId, formId, dimension) {
+  const d = CORR[dimension];
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
+    if (!f[0]) return null;
+    const { rows: counts } = await client.query(
+      `SELECT ${d.raw} AS raw, ${d.target} AS tid, count(*)::int AS n, mode() WITHIN GROUP (ORDER BY partner_id) AS "partnerId"
+         FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 AND NULLIF(btrim(${d.raw}), '') IS NOT NULL
+        GROUP BY 1, 2`, [tenantId, formId]);
+    const { rows: links } = await client.query(
+      `SELECT raw_value AS raw, ${d.link} AS "targetId" FROM monitoring_value_links
+        WHERE tenant_id = $1 AND form_id = $2 AND dimension = $3`, [tenantId, formId, dimension]);
+    const labels = (await choiceLabelsTx(client, tenantId, dimension)).get(formId) || new Map();
+    let options;
+    let parties = null;
+    if (dimension === 'field_office') {
+      const { rows } = await client.query('SELECT id, name, active FROM field_offices WHERE tenant_id = $1 ORDER BY name', [tenantId]);
+      options = rows;
+    } else {
+      parties = await loadPartiesTx(client, tenantId);
+      const pName = new Map(parties.partners.map((p) => [p.id, p.name]));
+      options = dimension === 'partner'
+        ? parties.partners.map((p) => ({ id: p.id, name: p.name, active: p.active }))
+        : parties.agents.map((a) => ({ id: a.id, name: a.code ? `${a.name} (${a.code})` : a.name, group: pName.get(a.partnerId) || null, active: a.active }));
+    }
+    const byRaw = new Map();
+    for (const c of counts) {
+      if (!byRaw.has(c.raw)) byRaw.set(c.raw, { raw: c.raw, n: 0, current: [], partnerId: c.partnerId });
+      const r = byRaw.get(c.raw);
+      r.n += c.n;
+      r.current.push({ id: c.tid, n: c.n });
+    }
+    const manual = new Map(links.map((l) => [l.raw, l.targetId]));
+    const rows = [...byRaw.values()].map((r) => {
+      const label = labels.get(r.raw) || null;
+      let proposal = null;
+      if (dimension === 'partner') {
+        const m = resolvePartner(parties.partnerIndex, { raw: r.raw, label });
+        proposal = { status: m.status, ids: m.partner ? [m.partner.id] : m.candidates.map((x) => x.id) };
+      } else if (dimension === 'agent') {
+        const m = resolveAgent(parties.agentIndex, { raw: r.raw, label, partnerId: r.partnerId });
+        proposal = { status: m.status, ids: m.agent ? [m.agent.id] : m.candidates.map((x) => x.id) };
+      }
+      return {
+        raw: r.raw, label, n: r.n,
+        current: r.current.sort((a, b) => b.n - a.n),
+        manual: manual.has(r.raw) ? { targetId: manual.get(r.raw) } : null,
+        proposal,
+      };
+    }).sort((a, b) => b.n - a.n || String(a.raw).localeCompare(String(b.raw), 'fr', { numeric: true }));
+    return { rows, options };
+  });
+}
+
+/**
+ * Correction d'une correspondance : relier (targetId), « ne pas relier »
+ * (targetId null) ou revenir à l'automatique (mode 'auto'), puis réapplication
+ * immédiate aux formulaires déjà reçus — dans la même transaction.
+ */
+async function setCorrespondence(tenantId, userId, formId, { dimension, raw, mode, targetId }) {
+  const d = CORR[dimension];
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
+    if (!f[0]) return null;
+    if (mode === 'auto') {
+      await client.query('DELETE FROM monitoring_value_links WHERE tenant_id = $1 AND form_id = $2 AND dimension = $3 AND raw_value = $4',
+        [tenantId, formId, dimension, raw]);
+    } else {
+      // La cible doit appartenir au compte (la contrainte « même client » le garantit aussi en base).
+      if (mode === 'link') {
+        const table = { field_office: 'field_offices', partner: 'partners', agent: 'tpm_agents' }[dimension];
+        const { rows } = await client.query(`SELECT 1 FROM ${table} WHERE tenant_id = $1 AND id = $2`, [tenantId, targetId]);
+        if (!rows[0]) throw badRequest('Élément MEMS introuvable.');
+      }
+      await client.query(
+        `INSERT INTO monitoring_value_links (tenant_id, form_id, dimension, raw_value, ${d.link}, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (tenant_id, form_id, dimension, raw_value)
+         DO UPDATE SET office_id = EXCLUDED.office_id, partner_id = EXCLUDED.partner_id, agent_id = EXCLUDED.agent_id,
+                       created_by = EXCLUDED.created_by, updated_at = now()`,
+        [tenantId, formId, dimension, raw, mode === 'link' ? targetId : null, userId || null]);
+    }
+    const geo = await applySubmissionsGeoTx(client, tenantId);
+    const { rows: [n] } = await client.query(
+      `SELECT count(*)::int AS n FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 AND ${d.raw} = $3`, [tenantId, formId, raw]);
+    return { submissions: n.n, geo };
+  });
+}
+
 /**
  * Vérification avant import : la fiche existe-t-elle, et combien des identifiants
  * Kobo du fichier y sont déjà (ils seront mis à jour, pas ajoutés) ? Lecture seule.
@@ -1274,7 +1377,7 @@ async function setExclusion(tenantId, formId, { ids, excluded, reason } = {}) {
 
 module.exports = {
   reliftSubmissionsTx, formTemplate, applyTemplate,
-  listCalcFields, calcPreview, formVariables, importPreview, createCalcField, updateCalcField, deleteCalcField, setExclusion,
+  listCalcFields, calcPreview, formVariables, importPreview, formCorrespondences, setCorrespondence, createCalcField, updateCalcField, deleteCalcField, setExclusion,
   setFormSource, formSourceContext, reportMonitoringData,
   listForms, createForm, updateForm, deleteForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,
