@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 15:05 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 12/10/2026 15:12 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -174,5 +174,6 @@ _Dernière mise à jour : 12/10/2026 15:05 UTC_ — la branche `main` reçoit ch
   - **Exigences (MMR)**.
 
   Tout était déjà là, mais réparti sur trois écrans ; rien n'est dupliqué. Le classeur Excel des sites propose désormais des listes déroulantes Région, District et Commune tirées de votre découpage ; un nom hors liste reste accepté et sera rapproché à l'import. L'ancienne adresse du plan de suivi mène au bon onglet. 332 tests OK, balayage FR/EN : 0 erreur, 0 phrase manquante.
+- **15:12** ✅ **Sites affectés dans le plan de collecte** (retour n° 8, `d805baa`) : dans **Planification & budget**, le plan d'un prestataire affiche les sites qui lui sont affectés pour le mois (site, commune, activité, date de visite, statut) et les jours de collecte qui en découlent. Exemple sur la démo : YPA, 8 sites, 11 jours = 8 visites datées + 3 jours de déplacement. Un bouton **reporte ces jours** sur les postes exprimés en jours. Ces visites justifient le budget prévisionnel.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
