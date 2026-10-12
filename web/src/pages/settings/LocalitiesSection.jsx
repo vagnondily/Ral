@@ -86,10 +86,17 @@ function CountryTab({ country, isAdmin, onChanged }) {
   async function onImport(e) {
     const file = e.target.files?.[0]; e.target.value = '';
     if (!file) return;
-    if (country.levels.length && !window.confirm(tr('L\'import REMPLACE tout le découpage actuel ({n} unités). Continuer ?', { n: country.levels.reduce((a, l) => a + l.units, 0) }))) return;
+    if (country.levels.length && !window.confirm(tr('L\'import met à jour le découpage actuel ({n} unités) : les unités retrouvées (par P-code ou par nom) gardent leurs liens avec les contrats ; celles absentes du fichier seront supprimées. Continuer ?', { n: country.levels.reduce((a, l) => a + l.units, 0) }))) return;
     setImporting(true);
     try {
-      const r = await api.importAdminBreakdown(file);
+      let r;
+      try { r = await api.importAdminBreakdown(file); } catch (err) {
+        // Des zones de contrat dépendent d'unités absentes du fichier : confirmation explicite.
+        if (err.status !== 409 || err.details?.code !== 'CONFIRM_REMOVALS') throw err;
+        const d = err.details;
+        if (!window.confirm(tr('{r} unité(s) absente(s) du fichier seront supprimées ; {z} zone(s) de {c} contrat(s) en dépendent et seront à resélectionner dans ces contrats. Importer quand même ?', { r: d.removed, z: d.contractZones, c: d.contracts }))) return;
+        r = await api.importAdminBreakdown(file, { confirm: true });
+      }
       setResult(r);
       toast.success(tr('{n} unité(s) importée(s) sur {l} niveau(x).', { n: r.areas, l: r.levels }));
       onChanged();
@@ -152,7 +159,7 @@ function CountryTab({ country, isAdmin, onChanged }) {
         </CardHeader>
         <div className="card-body section-gap">
           <div className="note"><Info size={18} aria-hidden="true" /><span>
-            {tr('Formats : .zip de shapefile (le plus détaillé est retenu ; .shp/.dbf/.prj/.cpg lus), .dbf seul, ou .csv. Les colonnes sont reconnues par leur nom : ADM1_FR / ADM1_EN / ADM1_PCODE …, ou Région, District, Commune, Fokontany (+ « P-code », Latitude, Longitude). Le niveau pays (adm0) est ignoré. L\'import remplace le découpage du pays.')}
+            {tr('Formats : .zip de shapefile (le plus détaillé est retenu ; .shp/.dbf/.prj/.cpg lus), .dbf seul, ou .csv. Les colonnes sont reconnues par leur nom : ADM1_FR / ADM1_EN / ADM1_PCODE …, ou Région, District, Commune, Fokontany (+ « P-code », Latitude, Longitude). Le niveau pays (adm0) est ignoré. Un nouvel import met le découpage à jour : les unités retrouvées gardent leurs liens.')}
           </span></div>
           {country.profile?.breakdownSource && (
             <p className="loc-vintage">{tr('Millésime')} : <strong className="mono">{country.profile.breakdownSource}</strong> — {formatDateTime(country.profile.breakdownImportedAt)} · {tr('{n} unité(s) au total', { n: total.units })}</p>
@@ -161,8 +168,17 @@ function CountryTab({ country, isAdmin, onChanged }) {
             <Alert tone="warn" icon={AlertTriangle}>{tr('{n} unité(s) portent un code au lieu d\'un nom (import antérieur au correctif) : réimportez le shapefile pour retrouver les noms et les P-codes.', { n: codeLike })}</Alert>
           )}
           {result && (
-            <Alert tone={result.warnings?.length ? 'warn' : 'info'}>
+            <Alert tone={result.warnings?.length || result.contractZonesStillDetached > 0 ? 'warn' : 'info'}>
               {tr('{n} unité(s) importée(s) · {p} avec P-code · {g} avec coordonnées.', { n: result.areas, p: result.withPcode, g: result.withGps })}
+              {result.kept != null && (
+                <div className="mmr-report">{tr('{k} conservée(s) avec leurs liens · {a} ajoutée(s) · {r} supprimée(s).', { k: result.kept, a: result.added, r: result.removed })}</div>
+              )}
+              {result.contractZonesRelinked > 0 && (
+                <div className="mmr-report">{tr('{n} zone(s) de contrat détachée(s) par un import précédent ont été rattachées de nouveau.', { n: result.contractZonesRelinked })}</div>
+              )}
+              {result.contractZonesStillDetached > 0 && (
+                <div className="mmr-report">{tr('{n} zone(s) de contrat restent détachées : ouvrez les contrats concernés pour les resélectionner.', { n: result.contractZonesStillDetached })}</div>
+              )}
               {result.warnings?.map((w) => <div key={w} className="mmr-report">{w}</div>)}
             </Alert>
           )}

@@ -72,6 +72,7 @@ export default function ContractFormPage({ mode = 'create', contractId, onDone, 
     dateFin: form.dateFin <= form.dateDebut ? tr('La date de fin doit suivre la date de début.') : null,
     justification: isAmend && form.justification.trim().length < 10 ? tr('Justification requise (10 caractères min.).') : null,
     validatorId: isAmend && !form.validatorId ? tr('Choisissez un valideur.') : null,
+    areas: form.areas.some((a) => !a.adminAreaId) ? tr('Une zone n\'existe plus dans le découpage : retirez-la puis resélectionnez-la.') : null,
   };
   const err = (k) => (touched ? errors[k] : undefined);
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
@@ -192,6 +193,7 @@ export default function ContractFormPage({ mode = 'create', contractId, onDone, 
         <CardHeader title={tr("Zones d'intervention affectées au prestataire")} subtitle={tr('Districts / communes du découpage administratif (Paramétrage › Localités).')} />
         <div className="card-body">
           <AreasSelector value={form.areas} onChange={(areas) => set({ areas })} />
+          {errors.areas && <p className="field-error" role="alert" style={{ marginTop: 8 }}>{errors.areas}</p>}
         </div>
       </Card>
 

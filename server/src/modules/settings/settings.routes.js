@@ -249,14 +249,16 @@ router.put('/country', ADMIN, body(z.object({
   levels: z.array(z.object({ depth: z.number().int().min(1).max(9), label: z.string().trim().min(1).max(60), labelPlural: z.string().trim().min(1).max(60) })).max(9).default([]),
 })), asyncHandler(async (req, res) => res.json(await loc.saveCountry(t(req), req.valid))));
 
-// Import d'un découpage (un fichier par pays) : .csv, .dbf ou .zip (shapefile) — remplace l'existant.
+// Import d'un découpage (un fichier par pays) : .csv, .dbf ou .zip (shapefile). Met à jour
+// l'existant en conservant les identifiants ; ?confirm=1 accepte de supprimer des unités
+// dont dépendent des zones de contrat (sinon 409 avec les compteurs).
 router.post('/admin-breakdown/import', ADMIN, express.raw({ type: '*/*', limit: '200mb' }), asyncHandler(async (req, res) => {
   const filename = req.get('x-filename') || 'upload.csv';
   if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
   let parsed;
   try { parsed = await parseUpload(req.body, filename); } catch (err) { throw badRequest(err.message); }
   if (!parsed.levels.length || !parsed.rows.length) throw badRequest('Aucune unité administrative détectée dans le fichier.');
-  res.status(201).json(await loc.replaceBreakdown(t(req), parsed));
+  res.status(201).json(await loc.replaceBreakdown(t(req), parsed, { confirm: req.query.confirm === '1' }));
 }));
 
 const dirQuery = (req) => ({

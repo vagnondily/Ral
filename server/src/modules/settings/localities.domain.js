@@ -1,8 +1,9 @@
 /**
  * Localités — logique PURE (testée, sans I/O) : plan d'insertion d'un
- * découpage importé, correspondance niveau ↔ colonne du registre de sites,
- * export CSV du répertoire.
+ * découpage importé, réimport sans casse (identifiants conservés),
+ * correspondance niveau ↔ colonne du registre de sites, export CSV du répertoire.
  */
+const { pathKey, relinkByPath } = require('../common/placeMatch');
 
 /**
  * Transforme les lignes importées ({ names, pcodes, lat, lng }) en nœuds uniques
@@ -38,6 +39,44 @@ function planBreakdown({ levels = [], rows = [] }) {
   return { levels, byDepth: nodes, points: [...points.values()], withPcode: pcodeOwner.size, warnings };
 }
 
+const upper = (s) => String(s).trim().toUpperCase();
+
+/**
+ * Réimport SANS CASSE : chaque nœud du nouveau plan reprend l'identifiant d'une
+ * unité existante du même niveau — d'abord par P-code, sinon par chemin
+ * normalisé — pour que les zones de contrat, avenants et alias qui pointent
+ * dessus restent valides. Seules les unités qui ne se retrouvent pas sont
+ * supprimées.
+ * @param {Array<{id, depth, pcode?, path}>} existing  unités actuelles
+ * @param {{ byDepth: Array<Array<{key, depth, pcode, path}>> }} plan  sortie de planBreakdown
+ * @returns {{ idByKey: Map<string,string>, removed: string[], stats: {kept, byPcode, byPath, added, removed} }}
+ */
+function matchBreakdown(existing, plan) {
+  const byPcode = new Map(); const byPath = new Map();
+  for (const a of existing) {
+    if (a.pcode) byPcode.set(`${a.depth}|${upper(a.pcode)}`, a);
+    const k = `${a.depth}|${pathKey(a.path)}`;
+    if (!byPath.has(k)) byPath.set(k, []);
+    byPath.get(k).push(a);
+  }
+  const nodes = plan.byDepth.flat();
+  const used = new Set(); const idByKey = new Map(); let byPcodeN = 0; let byPathN = 0;
+  for (const n of nodes) { // 1. P-code : identifiant stable, même si le nom a changé
+    const a = n.pcode && byPcode.get(`${n.depth}|${upper(n.pcode)}`);
+    if (a && !used.has(a.id)) { used.add(a.id); idByKey.set(n.key, a.id); byPcodeN += 1; }
+  }
+  for (const n of nodes) { // 2. chemin normalisé (« Atsimo-Andrefana » = « Atsimo Andrefana »)
+    if (idByKey.has(n.key)) continue;
+    const a = (byPath.get(`${n.depth}|${pathKey(n.path)}`) || []).find((x) => !used.has(x.id));
+    if (a) { used.add(a.id); idByKey.set(n.key, a.id); byPathN += 1; }
+  }
+  const removed = existing.filter((a) => !used.has(a.id)).map((a) => a.id);
+  return {
+    idByKey, removed,
+    stats: { kept: idByKey.size, byPcode: byPcodeN, byPath: byPathN, added: nodes.length - idByKey.size, removed: removed.length },
+  };
+}
+
 // Colonne du registre de sites qui porte le nom de l'unité d'un niveau.
 const SITE_COLUMNS = { adm1: 's.adm1', adm2: 'COALESCE(s.adm2, s.district)', adm3: 'COALESCE(s.adm3, s.commune)', adm4: 'COALESCE(s.adm4, s.fokontany)' };
 const siteColumnFor = (code) => SITE_COLUMNS[code] || null;
@@ -60,4 +99,4 @@ function directoryCsv(rows, levelLabels) {
   return `\uFEFF${[header.map(csvCell).join(';'), ...lines].join('\r\n')}\r\n`;
 }
 
-module.exports = { planBreakdown, siteColumnFor, directoryCsv };
+module.exports = { planBreakdown, matchBreakdown, relinkByPath, pathKey, siteColumnFor, directoryCsv };

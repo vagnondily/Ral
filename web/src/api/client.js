@@ -166,7 +166,7 @@ export const api = {
   // Découpage administratif (localités) — référentiel par tenant/pays
   listAdminLevels: () => request('/api/settings/admin-levels'),
   listAdminAreas: (query) => request('/api/settings/admin-areas', { query }),
-  importAdminBreakdown: (file) => uploadFile('/api/settings/admin-breakdown/import', file),
+  importAdminBreakdown: (file, { confirm = false } = {}) => uploadFile(`/api/settings/admin-breakdown/import${confirm ? '?confirm=1' : ''}`, file),
   getCountry: () => request('/api/settings/country'),
   saveCountry: (input) => request('/api/settings/country', { method: 'PUT', body: input }),
   listLocalities: (query) => request('/api/settings/localities', { query }),

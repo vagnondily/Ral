@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { detectColumns, buildRows, parseCsv, pickShapefile } = require('../src/modules/settings/adminImport');
 const { readShp, isGeographicPrj } = require('../src/modules/settings/shpReader');
-const { planBreakdown, directoryCsv, siteColumnFor } = require('../src/modules/settings/localities.domain');
+const { planBreakdown, matchBreakdown, relinkByPath, directoryCsv, siteColumnFor } = require('../src/modules/settings/localities.domain');
 
 // Colonnes réelles d'un découpage COD-AB (ordre du .dbf : le P-code AVANT le nom).
 const COD_FIELDS = ['ADM0_PCODE', 'ADM0_EN', 'ADM1_PCODE', 'ADM1_EN', 'ADM1_TYPE', 'ADM2_PCODE', 'ADM2_EN', 'ADM3_PCODE', 'ADM3_EN', 'ADM3_FR',
@@ -103,4 +103,75 @@ test('export CSV du répertoire : colonnes par niveau, BOM, échappement', () =>
   assert.match(csv, /Anosy;"Fort-Dauphin; centre";MG2302;-25.03;46.98/);
   assert.equal(siteColumnFor('adm3'), 'COALESCE(s.adm3, s.commune)');
   assert.equal(siteColumnFor('adm9'), null);
+});
+
+// ---- Réimport sans casse ----------------------------------------------------------
+const LEVELS = [{ code: 'adm1', label: 'Région' }, { code: 'adm2', label: 'District' }, { code: 'adm3', label: 'Commune' }];
+const EXISTING = [
+  { id: 'r1', depth: 1, pcode: 'MG51', path: 'Atsimo-Andrefana' },
+  { id: 'd1', depth: 2, pcode: 'MG51101', path: 'Atsimo-Andrefana > Toliara I' },
+  { id: 'd2', depth: 2, pcode: null, path: 'Atsimo-Andrefana > Toliara II' },
+  { id: 'c1', depth: 3, pcode: 'MG51102010', path: 'Atsimo-Andrefana > Toliara II > Belalanda' },
+  { id: 'c9', depth: 3, pcode: null, path: 'Atsimo-Andrefana > Toliara II > Ancienne commune' },
+];
+
+test('réimport : identifiants conservés par P-code (même renommé) puis par chemin normalisé', () => {
+  const plan = planBreakdown({ levels: LEVELS, rows: [
+    { names: ['Atsimo Andrefana', 'Toliara I'], pcodes: [null, 'MG51101'] },
+    { names: ['Atsimo Andrefana', 'Toliara-II', 'Belalanda Nord'], pcodes: [null, null, 'MG51102010'] },
+    { names: ['Atsimo Andrefana', 'Toliara-II', 'Nouvelle commune'], pcodes: [null, null, 'MG51102099'] },
+  ] });
+  const { idByKey, removed, stats } = matchBreakdown(EXISTING, plan);
+  assert.equal(idByKey.get('Atsimo Andrefana'), 'r1');                         // chemin normalisé
+  assert.equal(idByKey.get('Atsimo Andrefana > Toliara I'), 'd1');             // P-code
+  assert.equal(idByKey.get('Atsimo Andrefana > Toliara-II'), 'd2');            // chemin normalisé
+  assert.equal(idByKey.get('Atsimo Andrefana > Toliara-II > Belalanda Nord'), 'c1'); // P-code malgré le renommage
+  assert.equal(idByKey.has('Atsimo Andrefana > Toliara-II > Nouvelle commune'), false);
+  assert.deepEqual(removed, ['c9']);
+  assert.deepEqual(stats, { kept: 4, byPcode: 2, byPath: 2, added: 1, removed: 1 });
+});
+
+test('réimport : « Toliara I » ne reprend jamais l\'identifiant de « Toliara II », un P-code d\'un autre niveau non plus', () => {
+  const plan = planBreakdown({ levels: LEVELS, rows: [
+    { names: ['Atsimo-Andrefana', 'Toliara II'], pcodes: ['MG51', 'MG51102010'] },
+  ] });
+  const { idByKey, removed } = matchBreakdown(EXISTING.filter((a) => a.id !== 'd2'), plan);
+  assert.equal(idByKey.get('Atsimo-Andrefana'), 'r1');
+  assert.equal(idByKey.has('Atsimo-Andrefana > Toliara II'), false); // MG51102010 est une commune
+  assert.deepEqual(removed.sort(), ['c1', 'c9', 'd1']);
+});
+
+test('réimport : une unité existante n\'est reprise qu\'une fois', () => {
+  const plan = planBreakdown({ levels: LEVELS, rows: [
+    { names: ['Atsimo-Andrefana'] }, { names: ['Atsimo Andrefana'] },
+  ] });
+  const { idByKey, stats } = matchBreakdown(EXISTING.slice(0, 1), plan);
+  assert.equal([...idByKey.values()].filter((id) => id === 'r1').length, 1);
+  assert.equal(stats.added, 1);
+});
+
+test('zones détachées : retrouvées par chemin normalisé, seulement si la correspondance est unique', () => {
+  const areas = [
+    { id: 'a', path: 'Atsimo-Andrefana > Toliara II' },
+    { id: 'b', path: 'Anosy > Taolagnaro' },
+    { id: 'c', path: 'Anosy > Taolagnaro ' },
+  ];
+  const out = relinkByPath([
+    { ref: 'z1', path: 'Atsimo Andrefana > Toliara-II' },
+    { ref: 'z2', path: 'Anosy > Taolagnaro' },
+    { ref: 'z3', path: 'Atsimo-Andrefana > Toliara I' },
+  ], areas);
+  assert.equal(out.get('z1'), 'a');
+  assert.equal(out.has('z2'), false); // ambigu
+  assert.equal(out.has('z3'), false);
+});
+
+test('export réimporté : les cellules GPS vides ne deviennent pas (0, 0)', () => {
+  const cols = detectColumns(['Région', 'District', 'P-code', 'Latitude', 'Longitude']);
+  const rows = buildRows([
+    { Région: 'Androy', District: 'Bekily', 'P-code': '', Latitude: '', Longitude: '' },
+    { Région: 'Androy', District: 'Beloha', 'P-code': '', Latitude: '0', Longitude: '0' },
+    { Région: 'Androy', District: 'Tsihombe', 'P-code': '', Latitude: '-25,3', Longitude: '45.48' },
+  ], cols);
+  assert.deepEqual(rows.map((r) => [r.lat, r.lng]), [[null, null], [null, null], [-25.3, 45.48]]);
 });

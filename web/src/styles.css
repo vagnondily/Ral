@@ -977,6 +977,8 @@ button:disabled { cursor: not-allowed; }
   padding: 0; margin-left: 2px; line-height: 0; opacity: .7;
 }
 .chip .chip-x:hover { opacity: 1; }
+/* Zone dont l'unité a disparu du découpage (réimport) : à resélectionner. */
+.chip.is-static.is-detached { background: var(--orange-bg); border-color: transparent; color: var(--orange-text); }
 .areas-cascade { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .areas-cascade .field { margin: 0; }
 .areas-chips { gap: 8px; }

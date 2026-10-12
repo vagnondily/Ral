@@ -164,7 +164,10 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
           <div className="card-body">
             <div className="chips areas-chips">
               {detail.areas.map((z) => (
-                <span key={z.adminAreaId || z.path} className="chip is-static"><MapPin size={14} aria-hidden="true" /> {z.path}</span>
+                <span key={z.adminAreaId || z.path} className={`chip is-static ${z.adminAreaId ? '' : 'is-detached'}`}
+                  title={z.adminAreaId ? undefined : tr('Cette zone n\'existe plus dans le découpage (Paramétrage › Localités) : retirez-la puis resélectionnez-la.')}>
+                  <MapPin size={14} aria-hidden="true" /> {z.path}{!z.adminAreaId && <> · {tr('à resélectionner')}</>}
+                </span>
               ))}
             </div>
           </div>

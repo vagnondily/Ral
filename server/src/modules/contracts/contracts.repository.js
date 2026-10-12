@@ -144,6 +144,15 @@ async function getAdminAreasByIds(client, tenantId, ids) {
   return rows;
 }
 
+/** Units of the given levels (to re-find, by path, a zone whose unit was replaced). */
+async function adminAreasAtDepths(client, tenantId, depths) {
+  const { rows } = await client.query(
+    `SELECT id AS "adminAreaId", path, depth FROM admin_areas WHERE tenant_id = $1 AND ($2::int[] IS NULL OR depth = ANY($2::int[]))`,
+    [tenantId, depths && depths.length ? depths : null]
+  );
+  return rows;
+}
+
 /** Total validated TPM financial reports for this contract (= spent on the monitoring line). */
 async function monitoringSpent(client, tenantId, contractId) {
   const { rows } = await client.query(
@@ -399,6 +408,7 @@ module.exports = {
   getContractAreas,
   replaceAreas,
   getAdminAreasByIds,
+  adminAreasAtDepths,
   monitoringSpent,
   listAmendments,
   getAmendment,

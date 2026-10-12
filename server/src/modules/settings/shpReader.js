@@ -65,6 +65,8 @@ function isGeographicPrj(prjText) {
   return t.startsWith('GEOGCS') || t.startsWith('GEOGCRS');
 }
 
-const plausible = (p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng) && Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180;
+// (0, 0) n'est le centroïde d'aucune unité administrative : c'est une valeur par défaut.
+const plausible = (p) => Boolean(p) && Number.isFinite(p.lat) && Number.isFinite(p.lng) && Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180
+  && !(p.lat === 0 && p.lng === 0);
 
 module.exports = { readShp, isGeographicPrj, plausible, ringCentroid };

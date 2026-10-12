@@ -67,7 +67,8 @@ function detectColumns(fields) {
 }
 
 const clean = (v) => (v == null ? '' : String(v).trim());
-const num = (v) => { const n = Number(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : null; };
+// Cellule vide → null (Number('') vaut 0 : un export réimporté plaçait tout en (0, 0)).
+const num = (v) => { const t = String(v ?? '').trim(); if (!t) return null; const n = Number(t.replace(',', '.')); return Number.isFinite(n) ? n : null; };
 
 /**
  * Lignes → { names, pcodes, lat, lng } selon les colonnes détectées. PUR.

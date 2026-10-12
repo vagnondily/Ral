@@ -13,7 +13,7 @@ const notFound = (message = 'Ressource introuvable') => new AppError(404, messag
 const badRequest = (message = 'Requête invalide', details) => new AppError(400, message, details);
 const forbidden = (message = 'Accès refusé') => new AppError(403, message);
 const unauthorized = (message = 'Authentification requise') => new AppError(401, message);
-const conflict = (message = 'Conflit de modification') => new AppError(409, message);
+const conflict = (message = 'Conflit de modification', details) => new AppError(409, message, details);
 
 // Centralized error handler — must be registered last, after all routes.
 // Anything not thrown as an AppError is treated as a bug: logged with full

@@ -6,7 +6,13 @@ export default {
   'Indiquez le nom du pays.': 'Enter the country name.',
   'Chaque niveau doit avoir un libellé singulier et pluriel.': 'Each level needs a singular and a plural label.',
   'Identité du pays enregistrée.': 'Country identity saved.',
-  "L'import REMPLACE tout le découpage actuel ({n} unités). Continuer ?": 'The import REPLACES the whole current breakdown ({n} units). Continue?',
+  "L'import met à jour le découpage actuel ({n} unités) : les unités retrouvées (par P-code ou par nom) gardent leurs liens avec les contrats ; celles absentes du fichier seront supprimées. Continuer ?":
+    'The import updates the current breakdown ({n} units): units found again (by P-code or by name) keep their links to contracts; units missing from the file will be deleted. Continue?',
+  '{r} unité(s) absente(s) du fichier seront supprimées ; {z} zone(s) de {c} contrat(s) en dépendent et seront à resélectionner dans ces contrats. Importer quand même ?':
+    '{r} unit(s) missing from the file will be deleted; {z} area(s) in {c} contract(s) depend on them and will need to be selected again in those contracts. Import anyway?',
+  '{k} conservée(s) avec leurs liens · {a} ajoutée(s) · {r} supprimée(s).': '{k} kept with their links · {a} added · {r} deleted.',
+  '{n} zone(s) de contrat détachée(s) par un import précédent ont été rattachées de nouveau.': '{n} contract area(s) detached by a previous import were linked again.',
+  '{n} zone(s) de contrat restent détachées : ouvrez les contrats concernés pour les resélectionner.': '{n} contract area(s) remain detached: open the contracts concerned to select them again.',
   '{n} unité(s) importée(s) sur {l} niveau(x).': '{n} unit(s) imported across {l} level(s).',
   'Identité et vocabulaire': 'Identity and vocabulary',
   'Nom, devise, centre de la carte et libellés des niveaux administratifs.': 'Name, currency, map centre and administrative level labels.',
@@ -29,8 +35,8 @@ export default {
   "Construit l'arbre région → district → commune → fokontany, avec P-codes et coordonnées.": 'Builds the region → district → commune → fokontany tree, with P-codes and coordinates.',
   'Modèle CSV': 'CSV template',
   'Importer un fichier': 'Import a file',
-  "Formats : .zip de shapefile (le plus détaillé est retenu ; .shp/.dbf/.prj/.cpg lus), .dbf seul, ou .csv. Les colonnes sont reconnues par leur nom : ADM1_FR / ADM1_EN / ADM1_PCODE …, ou Région, District, Commune, Fokontany (+ « P-code », Latitude, Longitude). Le niveau pays (adm0) est ignoré. L'import remplace le découpage du pays.":
-    'Formats: shapefile .zip (the most detailed layer is used; .shp/.dbf/.prj/.cpg are read), a single .dbf, or .csv. Columns are recognised by name: ADM1_FR / ADM1_EN / ADM1_PCODE …, or Region, District, Commune, Fokontany (+ “P-code”, Latitude, Longitude). The country level (adm0) is ignored. The import replaces the country breakdown.',
+  "Formats : .zip de shapefile (le plus détaillé est retenu ; .shp/.dbf/.prj/.cpg lus), .dbf seul, ou .csv. Les colonnes sont reconnues par leur nom : ADM1_FR / ADM1_EN / ADM1_PCODE …, ou Région, District, Commune, Fokontany (+ « P-code », Latitude, Longitude). Le niveau pays (adm0) est ignoré. Un nouvel import met le découpage à jour : les unités retrouvées gardent leurs liens.":
+    'Formats: shapefile .zip (the most detailed layer is used; .shp/.dbf/.prj/.cpg are read), a single .dbf, or .csv. Columns are recognised by name: ADM1_FR / ADM1_EN / ADM1_PCODE …, or Region, District, Commune, Fokontany (+ “P-code”, Latitude, Longitude). The country level (adm0) is ignored. A new import updates the breakdown: units that are found again keep their links.',
   'Millésime': 'Vintage',
   '{n} unité(s) au total': '{n} unit(s) in total',
   "{n} unité(s) portent un code au lieu d'un nom (import antérieur au correctif) : réimportez le shapefile pour retrouver les noms et les P-codes.": '{n} unit(s) carry a code instead of a name (imported before the fix): re-import the shapefile to restore names and P-codes.',

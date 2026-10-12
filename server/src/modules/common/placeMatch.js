@@ -241,6 +241,31 @@ function resolvePath(index, q = {}) {
   return { levels, finest, pcodes, status: pending ? pending.status : (given.length ? 'resolu' : 'vide') };
 }
 
+// ---- Chemins (« Région > District > … ») ------------------------------------------
+/** Chemin comparé segment par segment après normalisation. */
+const pathKey = (path) => String(path || '').split('>').map((seg) => normPlace(seg).key).join(' > ');
+
+/**
+ * Références (zones de contrat, d'avenant…) dont l'unité a disparu : retrouvées
+ * par chemin normalisé, seulement si la correspondance est UNIQUE.
+ * @param {Array<{ref, path}>} items
+ * @param {Array<{id, path}>} areas
+ * @returns {Map<ref, areaId>}
+ */
+function relinkByPath(items, areas) {
+  const byKey = new Map();
+  for (const a of areas) {
+    const k = pathKey(a.path);
+    byKey.set(k, byKey.has(k) ? null : a.id); // null = ambigu
+  }
+  const out = new Map();
+  for (const it of items) {
+    const id = byKey.get(pathKey(it.path));
+    if (id) out.set(it.ref, id);
+  }
+  return out;
+}
+
 // ---- Bureaux ----------------------------------------------------------------------
 const officeNorm = (s) => normPlace(s, { synonyms: {} }).key;
 /**
@@ -322,5 +347,5 @@ function groupUnmatched(items, { synonyms = MDG_SYNONYMS } = {}) {
 
 module.exports = {
   normPlace, looksLikePcode, jaroWinkler, levenshtein, similarity, buildPlaceIndex, resolvePlace, resolvePath, isAutomatic, parentKeyOf,
-  officeResolver, buildOfficeIndex, resolveOffice, groupUnmatched, MDG_SYNONYMS, FUZZY_MIN,
+  pathKey, relinkByPath, officeResolver, buildOfficeIndex, resolveOffice, groupUnmatched, MDG_SYNONYMS, FUZZY_MIN,
 };
