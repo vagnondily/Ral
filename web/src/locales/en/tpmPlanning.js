@@ -175,4 +175,13 @@ export default {
   'Ven': 'Fri',
   'Sam': 'Sat',
   'Dim': 'Sun',
+  // Sites affectés au prestataire (justification du budget).
+  'Aucun poste en jours : indiquez « jour » comme unité des postes concernés.': 'No line in days: set “day” as the unit of the relevant lines.',
+  '{days} jour(s) reportés sur {n} poste(s) en jours.': '{days} day(s) carried over to {n} line(s) in days.',
+  'Sites affectés en {month}': 'Sites assigned in {month}',
+  '{sites} site(s) · {visits} visite(s)': '{sites} site(s) · {visits} visit(s)',
+  '{total} jour(s) de collecte ({visitDays} visite(s) datée(s) + {travel} de déplacement)': '{total} collection day(s) ({visitDays} dated visit(s) + {travel} travel)',
+  'Reporter les jours dans les postes': 'Carry the days over to the lines',
+  'Aucun site affecté à ce prestataire pour ce mois : affectez les visites dans « Suivi de processus › Affectation & visites » ; elles justifieront ce budget.': 'No site assigned to this provider for this month: assign the visits in “Process monitoring › Assignment & visits”; they will justify this budget.',
+  'non datée': 'not dated',
 };

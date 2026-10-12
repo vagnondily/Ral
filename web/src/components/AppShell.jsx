@@ -41,8 +41,8 @@ export const NAV = [
           { id: 'synthese', label: 'Tableau de bord' },
           { id: 'donnees', label: 'Données & indicateurs' },
           { id: 'sites', label: 'Affectation & visites' },
-          { id: 'plan', label: 'Plan de suivi' },
-          { id: 'rbm', label: 'Risk-Based Monitoring' },
+          // Espace RBM à onglets : priorités, plan de suivi (avec le prestataire), sites, exigences MMR.
+          { id: 'rbm', label: 'RBM & plan de suivi' },
           { id: 'couverture', label: 'Couverture' },
           { id: 'carte', label: 'Carte des sites' },
         ],

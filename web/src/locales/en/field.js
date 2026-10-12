@@ -135,8 +135,8 @@ export default {
 
   // ---- Risk-Based Monitoring (RbmPage)
   'Risk-Based Monitoring (RBM)': 'Risk-Based Monitoring (RBM)',
-  'Sélectionnez une ligne (ou <strong>double-clic</strong>) pour éditer ses critères. « Générer » planifie les sites à suivre du mois. La <strong>dernière visite</strong> intègre la <strong>collecte réelle</strong> issue des données uploadées (rattachées par commune).':
-    'Select a row (or <strong>double-click</strong>) to edit its criteria. “Generate” plans the sites due this month. The <strong>last visit</strong> includes the <strong>actual collection</strong> from uploaded data (linked by commune).',
+  'Sélectionnez une ligne (ou <strong>double-clic</strong>) pour éditer ses critères. « Générer » planifie les sites à suivre du mois. La <strong>dernière visite</strong> intègre la <strong>collecte réelle</strong> issue des données uploadées (reliées au site, sinon à sa commune).':
+    'Select a row (or <strong>double-click</strong>) to edit its criteria. “Generate” plans the sites due this month. The <strong>last visit</strong> includes the <strong>actual collection</strong> from uploaded data (linked to the site, otherwise to its commune).',
   'Master Data': 'Master Data',
   'Importe la feuille « Risk-based site selection » : critères, SCORE FINAL, GPS, activité, dernière visite.':
     'Imports the “Risk-based site selection” sheet: criteria, FINAL SCORE, GPS, activity, last visit.',

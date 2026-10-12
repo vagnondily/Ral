@@ -37,7 +37,7 @@ const LABEL01 = {
  * site « à suivre » (jamais visité ou échéance atteinte) devient une visite
  * planifiée. Import du référentiel Master Data pris en charge.
  */
-export default function RbmPage({ canEdit }) {
+export default function RbmPage({ canEdit, embedded = false }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [month, setMonth] = useState(currentMonth);
@@ -183,8 +183,8 @@ export default function RbmPage({ canEdit }) {
     <div className="section-gap">
       <div className="page-header">
         <div>
-          <h1 className="page-title">{tr('Risk-Based Monitoring (RBM)')}</h1>
-          <p className="page-desc">{richText(tr('Sélectionnez une ligne (ou <strong>double-clic</strong>) pour éditer ses critères. « Générer » planifie les sites à suivre du mois. La <strong>dernière visite</strong> intègre la <strong>collecte réelle</strong> issue des données uploadées (rattachées par commune).'))}</p>
+          {!embedded && <h1 className="page-title">{tr('Risk-Based Monitoring (RBM)')}</h1>}
+          <p className="page-desc">{richText(tr('Sélectionnez une ligne (ou <strong>double-clic</strong>) pour éditer ses critères. « Générer » planifie les sites à suivre du mois. La <strong>dernière visite</strong> intègre la <strong>collecte réelle</strong> issue des données uploadées (reliées au site, sinon à sa commune).'))}</p>
         </div>
         <div className="header-actions">
           <MonthSelect value={month} onChange={setMonth} />

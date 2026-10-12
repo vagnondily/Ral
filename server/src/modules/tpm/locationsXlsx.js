@@ -52,7 +52,7 @@ const BLUE = 'FF99CCFF';
  * @param {string[]} [p.activities]      catégories du MMR → liste déroulante « Activity Tag »
  * @param {string}   [p.prefillActivity] gabarit d'activité : Activity Tag prérempli sur les lignes libres
  */
-function buildLocationsWorkbook({ year, sites = [], offices = [], activities = [], prefillActivity = null }) {
+function buildLocationsWorkbook({ year, sites = [], offices = [], activities = [], prefillActivity = null, places = null }) {
   const wb = new ExcelJS.Workbook(); wb.creator = 'MEMS 2.0';
   // ---- Settings
   const st = wb.addWorksheet('Settings');
@@ -71,6 +71,21 @@ function buildLocationsWorkbook({ year, sites = [], offices = [], activities = [
   wb.definedNames.add('Settings!$D$5:$D$6', 'status');
   wb.definedNames.add(`Settings!$G$5:$G$${offEnd}`, 'offices');
   if (activities.length) wb.definedNames.add(`Settings!$K$5:$K$${4 + activities.length}`, 'activities');
+
+  // ---- Lieux : régions, districts et communes du découpage (Paramétrage › Localités), en listes
+  // déroulantes des colonnes Admin level 1-3. Avertissement seulement : un nom hors liste reste
+  // possible (il sera rapproché à l'import, ou proposé dans « À rapprocher »).
+  const placeLists = [['regions', places && places.regions], ['districts', places && places.districts], ['communes', places && places.communes]]
+    .filter(([, list]) => list && list.length);
+  if (placeLists.length) {
+    const lx = wb.addWorksheet('Lieux', { state: 'hidden' });
+    placeLists.forEach(([name, list], i) => {
+      lx.getCell(1, i + 1).value = name;
+      list.forEach((v, j) => { lx.getCell(j + 2, i + 1).value = v; });
+      wb.definedNames.add(`Lieux!$${colLetter(i + 1)}$2:$${colLetter(i + 1)}$${list.length + 1}`, name);
+    });
+  }
+  const placeCol = { 8: 'regions', 9: 'districts', 10: 'communes' };
 
   // ---- Locations Management
   const ws = wb.addWorksheet('Locations Management', { views: [{ state: 'frozen', xSplit: 6, ySplit: HEAD_ROW }] });
@@ -98,6 +113,12 @@ function buildLocationsWorkbook({ year, sites = [], offices = [], activities = [
     row.getCell(4).dataValidation = { type: 'list', allowBlank: true, formulae: ['pois'], showErrorMessage: true };
     row.getCell(7).dataValidation = { type: 'list', allowBlank: true, formulae: ['offices'], showErrorMessage: true };
     if (activities.length) row.getCell(6).dataValidation = { type: 'list', allowBlank: true, formulae: ['activities'], showErrorMessage: true };
+    for (const [c, name] of Object.entries(placeCol)) {
+      if (placeLists.some(([n]) => n === name)) {
+        row.getCell(Number(c)).dataValidation = { type: 'list', allowBlank: true, formulae: [name], showErrorMessage: true, errorStyle: 'warning',
+          errorTitle: 'Lieu hors du découpage', error: 'Ce nom n\'est pas dans le découpage de MEMS : il sera rapproché à l\'import ou proposé à valider.' };
+      }
+    }
     row.getCell(14).dataValidation = { type: 'list', allowBlank: true, formulae: ['"0,1,3,99"'], showErrorMessage: true };
     row.getCell(16).dataValidation = { type: 'list', allowBlank: true, formulae: [`"${MODALITIES.join(',')}"`], showErrorMessage: true };
     for (const c of [15, 18]) row.getCell(c).dataValidation = { type: 'list', allowBlank: true, formulae: ['"0,1"'] };

@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 14:52 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 12/10/2026 15:12 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -167,5 +167,13 @@ _Dernière mise à jour : 12/10/2026 14:52 UTC_ — la branche `main` reçoit ch
   - **PDD** : plus de blocage de l'API sur une valeur isolée très bas dans la feuille (42 s et 8,4 Go mesurés) ; lignes sous le tableau Excel listées ; aucun mois remplacé par un import partiel sans votre accord ; abréviations de mois reconnues ; modalités contrôlées en base ;
   - **Factures** : relecture complète, puis séparation des tâches rendue incontournable (une facture soumise ne se modifie plus, le validateur ne peut être ni l'auteur ni le dernier à l'avoir modifiée) ;
   - **Sécurité** : liens d'import protégés contre les adresses internes (IPv6 comprise), secrets masqués dans les journaux, textes échappés sur les cartes, formules neutralisées dans les exports CSV, plus de fusion silencieuse d'un site.
+- **15:05** ✅ **Espace RBM à onglets** (retour n° 7, `1e5a99b`). Le menu « Suivi de processus » contient maintenant une seule entrée, **RBM & plan de suivi**, avec quatre onglets :
+  - **Priorités du mois** ;
+  - **Plan de suivi**, avec une nouvelle colonne **Prestataire (TPM)** ;
+  - **Sites (actifs / inactifs)** : registre, statut par mois, export et import Excel ;
+  - **Exigences (MMR)**.
+
+  Tout était déjà là, mais réparti sur trois écrans ; rien n'est dupliqué. Le classeur Excel des sites propose désormais des listes déroulantes Région, District et Commune tirées de votre découpage ; un nom hors liste reste accepté et sera rapproché à l'import. L'ancienne adresse du plan de suivi mène au bon onglet. 332 tests OK, balayage FR/EN : 0 erreur, 0 phrase manquante.
+- **15:12** ✅ **Sites affectés dans le plan de collecte** (retour n° 8, `d805baa`) : dans **Planification & budget**, le plan d'un prestataire affiche les sites qui lui sont affectés pour le mois (site, commune, activité, date de visite, statut) et les jours de collecte qui en découlent. Exemple sur la démo : YPA, 8 sites, 11 jours = 8 visites datées + 3 jours de déplacement. Un bouton **reporte ces jours** sur les postes exprimés en jours. Ces visites justifient le budget prévisionnel.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
