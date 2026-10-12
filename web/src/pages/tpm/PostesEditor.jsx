@@ -7,7 +7,7 @@ import { useToast } from '../../components/Toast.jsx';
 import { SECTIONS, SECTION_OF } from '../../lib/budgetCatalog.js';
 import { formatAr } from '../../lib/format.js';
 import { useI18n } from '../../lib/i18n.jsx';
-import { pctFraction, posteAmount, posteFunder, postesTotals } from '../../lib/postesMath.js';
+import { pctFraction, pctPercentOf, fractionToPercent, posteAmount, posteFunder, postesTotals } from '../../lib/postesMath.js';
 
 let seq = 0;
 export const newPoste = (lineCode = 'IV.suivi') => ({
@@ -24,10 +24,11 @@ export function rowsFromItems(items) {
   return (items || []).map((it) => ({
     key: `p${seq++}`, lineCode: it.lineCode, designation: it.designation, unit: it.unit || '',
     unitCount: it.unitCount ?? '', unitCost: it.unitCost ?? '',
-    bailleurPct: it.bailleurPct != null ? Math.round(Number(it.bailleurPct) * 100) : (it.payBy === 'ong' ? 0 : 100),
+    // Pourcents SANS perte (33,333 %, pas 33 %) : réenregistrer ne change aucun montant.
+    bailleurPct: pctPercentOf(it),
     activityId: it.activityId || '',
     activity2Id: it.activity2Id || '',
-    activity1Pct: it.activity1Pct != null ? Math.round(Number(it.activity1Pct) * 100) : '',
+    activity1Pct: fractionToPercent(it.activity1Pct) ?? '',
     observation: it.observation || '',
   }));
 }

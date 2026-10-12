@@ -3,9 +3,10 @@ import { formatAr } from './format.js';
 import { pctFraction, posteCents, posteFunderCents, postesTotals } from './postesMath.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-// % bailleur affiché : « 90 % », « 33,33 % » (jamais arrondi à 100 % en silence).
+// % bailleur affiché à la précision stockée (5 décimales de fraction) :
+// « 90 % », « 33,333 % », « 99,999 % » (jamais arrondi à 100 % en silence).
 const NBSP = String.fromCharCode(0xa0);
-const pctLabel = (frac) => `${String(Math.round(frac * 10000) / 100).replace('.', ',')}${NBSP}%`;
+const pctLabel = (frac) => `${String(Math.round(frac * 100000) / 1000).replace('.', ',')}${NBSP}%`;
 
 /**
  * Open a clean, print-optimized view of a facture in a new window and trigger

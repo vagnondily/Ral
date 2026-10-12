@@ -69,3 +69,46 @@ test('finance-30 : l\'impression respecte le % bailleur de chaque ligne (90 % �
   assert.match(text, /À payer par l'ONG<\/td><td class="n">600 000 Ar/);
   assert.doesNotMatch(text, /À la charge de<\/th>/, 'plus de colonne binaire « Bailleur / ONG »');
 });
+
+test('postesMath : % bailleur relu SANS perte (réenregistrer ne change aucun montant)', async () => {
+  const m = await webLib('postesMath.js');
+  // Fraction stockée numeric(6,5) → pourcent de l'éditeur → fraction renvoyée au serveur : identique.
+  for (const f of [0, 1, 0.9, 0.905, 0.33333, 0.99999, 0.00001]) {
+    const pct = m.pctPercentOf({ bailleurPct: f });
+    assert.equal(m.pctFraction({ bailleurPct: pct }), f, `${f} → ${pct} %`);
+  }
+  assert.equal(m.pctPercentOf({ bailleurPct: 0.33333 }), 33.333, 'et non 33');
+  assert.equal(m.pctPercentOf({ payBy: 'ong' }), 0, 'ancien poste « ONG » sans %');
+  assert.equal(m.pctPercentOf({}), 100);
+  assert.equal(m.fractionToPercent(null), null);
+  assert.equal(m.fractionToPercent(0.5), 50);
+  // Montant d'un poste à 33,333 % : même part bailleur avant et après le réenregistrement.
+  const stored = { lineCode: 'IV.suivi', unitCount: 3, unitCost: 333333.33, bailleurPct: 0.33333 };
+  const row = { ...stored, bailleurPct: m.pctPercentOf(stored) };
+  assert.equal(m.posteFunder(row), summarize([stored]).funder);
+});
+
+test('postesMath : un % bailleur illisible ou hors 0–100 est signalé, jamais corrigé en silence', async () => {
+  const m = await webLib('postesMath.js');
+  for (const v of ['', null, undefined, 0, '0', 100, '90,5', ' 33.333 ']) assert.equal(m.pctInvalid({ bailleurPct: v }), false, String(v));
+  for (const v of ['abc', '-1', 150, '100,5', '9O']) assert.equal(m.pctInvalid({ bailleurPct: v }), true, String(v));
+  const rows = [
+    { designation: 'Salaire', bailleurPct: '120' },
+    { designation: '', bailleurPct: 'abc' },        // ligne vide : ignorée à l'enregistrement
+    { designation: 'Loyer', bailleurPct: '0' },
+  ];
+  assert.deepEqual(m.invalidPctRows(rows).map((r) => r.designation), ['Salaire']);
+});
+
+test('impression : % bailleur à la précision stockée (33,333 %, jamais 100 % pour 99,999 %)', async () => {
+  const { facturePrintHtml } = await webLib('facturePrint.js');
+  const html = facturePrintHtml({
+    head: { partnerName: 'P', contractNumero: 'C', periodMonth: '2026-05', advanceDeducted: 0 },
+    rows: [
+      { lineCode: 'IV.suivi', designation: 'Tiers', unitCount: 1, unitCost: 300000, bailleurPct: 33.333 },
+      { lineCode: 'IV.suivi', designation: 'Presque', unitCount: 1, unitCost: 100000, bailleurPct: 99.999 },
+    ],
+  });
+  assert.equal(printedCells(html, 'Tiers')[3], '33,333 %');
+  assert.equal(printedCells(html, 'Presque')[3], '99,999 %');
+});

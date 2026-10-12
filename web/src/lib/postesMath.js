@@ -16,7 +16,40 @@ export function pctFraction(r) {
   if (raw === '' || raw == null) return r.payBy === 'ong' ? 0 : 1;
   const p = Number(String(raw).trim().replace(',', '.'));
   if (!Number.isFinite(p)) return 1;
-  return Math.min(1, Math.max(0, p / 100));
+  // Fraction à la précision de la base (numeric(6,5)), comme reportMath :
+  // 33,333 % → 0,33333 exactement (et non 0,33332999…).
+  return Math.min(1, Math.max(0, Math.round(p * 1000) / 100000));
+}
+
+/**
+ * Fraction stockée (0..1, 5 décimales en base : numeric(6,5)) → pourcent de
+ * l'éditeur, SANS perte : 0,33333 → 33,333 (et non 33, qui changerait la part
+ * bailleur au réenregistrement). Vide / illisible → null.
+ */
+export function fractionToPercent(f) {
+  if (f === '' || f == null) return null;
+  const n = Number(f);
+  return Number.isFinite(n) ? Math.round(n * 100000) / 1000 : null;
+}
+
+/** « % bailleur » d'un poste stocké, en pourcent pour l'éditeur (ancien poste « ONG » sans % : 0). */
+export function pctPercentOf(item) {
+  const p = fractionToPercent(item.bailleurPct);
+  if (p != null) return p;
+  return item.payBy === 'ong' ? 0 : 100;
+}
+
+/** « % bailleur » saisi illisible ou hors 0–100 (vide = 100 %, valide). */
+export function pctInvalid(r) {
+  const raw = r.bailleurPct;
+  if (raw === '' || raw == null) return false;
+  const p = Number(String(raw).trim().replace(',', '.'));
+  return !Number.isFinite(p) || p < 0 || p > 100;
+}
+
+/** Lignes qui seront enregistrées (désignation ≥ 2 caractères) avec un % bailleur invalide. */
+export function invalidPctRows(rows) {
+  return rows.filter((r) => String(r.designation || '').trim().length >= 2 && pctInvalid(r));
 }
 
 /** Montant d'un poste en centimes entiers = quantité × coût unitaire. */

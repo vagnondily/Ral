@@ -15,7 +15,9 @@ const { itemCents, funderCentsOf, bailleurPctOf } = require('./reportMath');
 const BLUE = 'FF1F6EBC';
 const GREY = 'FFECEFF3';
 const money = '#,##0 "Ar"';
-const pctFmt = '0.###%';
+// Format du % bailleur : « 90 % », « 33,333 % ». Jamais '0.###%' qui affiche
+// « 90.% » dans Excel (séparateur décimal orphelin sur une valeur entière).
+const pctFmtOf = (pct) => (Number.isInteger(Math.round(pct * 1e5) / 1e3) ? '0%' : '0.0##%');
 const SECTION_LABEL = Object.fromEntries(SECTIONS.map((s) => [s.code, s.label]));
 const ar = (cents) => cents / 100;
 
@@ -107,7 +109,7 @@ function addEtatSheet(wb, report) {
       r.getCell(5).numFmt = money;
       r.getCell(6).value = { formula: `ROUND(D${row}*E${row},2)`, result: ar(split.cents) };
       r.getCell(7).value = split.pct;
-      r.getCell(7).numFmt = pctFmt;
+      r.getCell(7).numFmt = pctFmtOf(split.pct);
       r.getCell(8).value = { formula: `ROUND(F${row}*G${row},2)`, result: ar(split.funder) };
       r.getCell(9).value = { formula: `F${row}-H${row}`, result: ar(split.ong) };
       for (const c of [6, 8, 9]) r.getCell(c).numFmt = money;
@@ -333,4 +335,4 @@ function buildInvoiceWorkbook(invoice) {
   return wb;
 }
 
-module.exports = { buildFactureWorkbook, buildInvoiceWorkbook, addEtatSheet, addInvoiceSheet };
+module.exports = { pctFmtOf, buildFactureWorkbook, buildInvoiceWorkbook, addEtatSheet, addInvoiceSheet };

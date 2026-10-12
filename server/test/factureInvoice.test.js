@@ -65,6 +65,8 @@ test('finance-30 : l\'état exporté respecte le % bailleur de chaque ligne, en 
   assert.deepEqual(line('Salaire'), { montant: 1000000, pct: 0.9, bailleur: 900000, ong: 100000 });
   assert.deepEqual(line('Loyer bureau'), { montant: 500000, pct: 0, bailleur: 0, ong: 500000 });
   assert.deepEqual(line('Indemnité agents'), { montant: 2400000, pct: 1, bailleur: 2400000, ong: 0 });
+  // Format du % : « 90 % » (jamais « 90.% », séparateur orphelin d'un '0.###%').
+  assert.equal(rows.Salaire.getCell(7).numFmt, '0%');
   // Formules vivantes : part bailleur = montant × %, part ONG = le reste.
   const r = rows.Salaire.number;
   assert.equal(rows.Salaire.getCell(8).value.formula, `ROUND(F${r}*G${r},2)`);
@@ -83,4 +85,13 @@ test('la feuille Facture compte la part bailleur du mois (montant × %), pas le 
   let suivi = null;
   ws.eachRow((row) => { if (row.getCell(3).value === 3300000 && row.getCell(2).value === 5000000) suivi = row; });
   assert.ok(suivi, 'ligne IV.suivi : budget 5 000 000, dépenses du mois 2 400 000 + 900 000');
+});
+
+test('format Excel du % bailleur : entier « 0% », sinon jusqu\'à 3 décimales', () => {
+  const { pctFmtOf } = require('../src/modules/tpm/factureXlsx');
+  assert.equal(pctFmtOf(0.9), '0%');
+  assert.equal(pctFmtOf(1), '0%');
+  assert.equal(pctFmtOf(0), '0%');
+  assert.equal(pctFmtOf(0.905), '0.0##%');
+  assert.equal(pctFmtOf(0.33333), '0.0##%');
 });

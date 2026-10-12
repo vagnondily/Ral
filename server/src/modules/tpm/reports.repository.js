@@ -172,15 +172,19 @@ async function invoiceData(tenantId, id) {
     );
     // Cumulative funder spend per line across this contract+partner's financial
     // reports (soumis/valide) up to and including this report's month. This is
-    // the cumul PRINTED ON the invoice (it includes the invoice itself); the
+    // the cumul PRINTED ON the invoice: it always includes the invoice itself,
+    // even while it is still a draft (attendu / rejeté) being exported. The
     // budget « Réalisé » indicator counts validated reports only (realised.js).
+    // Part bailleur arrondie au centime PAR POSTE, comme reportMath.funderCentsOf
+    // (« Dépenses du mois ») : cumulé et dépenses du mois restent cohérents.
     const { rows: cum } = await client.query(
-      `SELECT i.line_code AS "lineCode", SUM(i.unit_count * i.unit_cost * i.bailleur_pct) AS amount
+      `SELECT i.line_code AS "lineCode",
+              SUM(round(round(i.unit_count * i.unit_cost * 100) * i.bailleur_pct)) / 100 AS amount
          FROM contract_report_items i
          JOIN tpm_reports r ON r.id = i.report_id
-        WHERE i.tenant_id = $1 AND r.contract_id = $2 AND r.partner_id = $3
-          AND r.kind = 'financier' AND r.status IN ('soumis', 'valide')
-          AND r.period_month <= (SELECT period_month FROM tpm_reports WHERE id = $4)
+        WHERE i.tenant_id = $1 AND r.tenant_id = $1 AND r.contract_id = $2 AND r.partner_id = $3
+          AND r.kind = 'financier' AND (r.status IN ('soumis', 'valide') OR r.id = $4)
+          AND r.period_month <= (SELECT period_month FROM tpm_reports WHERE tenant_id = $1 AND id = $4)
         GROUP BY i.line_code`,
       [tenantId, report.contractId, report.partnerId, id]
     );

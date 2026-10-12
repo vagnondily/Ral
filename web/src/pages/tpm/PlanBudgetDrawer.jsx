@@ -8,6 +8,7 @@ import { formatAr } from '../../lib/format.js';
 import { richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import PostesEditor, { newPoste, rowsFromItems, itemsFromRows } from './PostesEditor.jsx';
+import { invalidPctRows } from '../../lib/postesMath.js';
 
 /**
  * Planification & budget — éditeur du budget prévisionnel d'une vague de
@@ -55,6 +56,8 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
   if (!editing && !head.partnerId) errors.push(tr('Choisissez un prestataire.'));
   if (!editing && !head.contractId) errors.push(tr('Choisissez un contrat.'));
   if (itemsFromRows(rows).length === 0) errors.push(tr('Ajoutez au moins un poste prévu.'));
+  // Un % bailleur illisible ou hors 0–100 est refusé, jamais ramené en silence à 0 ou 100 %.
+  if (invalidPctRows(rows).length > 0) errors.push(tr('% bailleur invalide : saisissez un nombre entre 0 et 100 (vide = 100 %).'));
 
   async function save() {
     setTouched(true);
