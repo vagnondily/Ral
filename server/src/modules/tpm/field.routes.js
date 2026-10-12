@@ -145,7 +145,7 @@ async function locationsWorkbook(req, { blank = false, prefillActivity = null } 
   const year = yearQ(req);
   const [data, mmr] = await Promise.all([repo.locationsExportData(t(req), { year }), settingsRepo.listMmr(t(req))]);
   const activities = [...new Set(mmr.map((m) => String(m.activityCategory || '').trim()).filter(Boolean))];
-  return { year, wb: buildLocationsWorkbook({ year, offices: data.offices, sites: blank ? [] : data.sites, activities, prefillActivity }) };
+  return { year, wb: buildLocationsWorkbook({ year, offices: data.offices, sites: blank ? [] : data.sites, activities, prefillActivity, places: data.places }) };
 }
 const sendXlsx = async (res, wb, filename) => {
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

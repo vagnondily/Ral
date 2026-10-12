@@ -720,7 +720,7 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
                  WHEN dn.lat IS NOT NULL THEN 'district' END AS geo,
             COALESCE(b."gpsLat"::float8, cp.lat, cn.lat, sg.lat, dn.lat) AS "mapLat",
             COALESCE(b."gpsLng"::float8, cp.lng, cn.lng, sg.lng, dn.lng) AS "mapLng",
-            COALESCE(vv.months, '[]'::json) AS months,
+            COALESCE(vv.months, '[]'::json) AS months, vv.providers AS "providers",
             (SELECT json_object_agg(ms.month, ms.active) FROM site_month_status ms
               WHERE ms.tenant_id = $1 AND ms.site_id = b.id AND ms.year = extract(year FROM $2::date)) AS "monthStatus"
        FROM base b
@@ -730,9 +730,12 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
        LEFT JOIN site_gps sg ON sg.lc = lower(COALESCE(b.adm3, b.commune)) AND sg.ld = lower(COALESCE(b.adm2, b.district))
        LEFT JOIN districts dn ON dn.ld = lower(COALESCE(b.adm2, b.district))
        LEFT JOIN LATERAL (
+         -- Visites de l'exercice, avec le prestataire de suivi (TPM) affecté à chacune.
          SELECT json_agg(json_build_object('month', extract(month FROM v.period_month)::int, 'status', v.status,
-                                           'date', to_char(v.visit_date, 'YYYY-MM-DD')) ORDER BY v.period_month) AS months
+                                           'date', to_char(v.visit_date, 'YYYY-MM-DD'), 'provider', p.name) ORDER BY v.period_month) AS months,
+                string_agg(DISTINCT p.name, ', ') AS providers
            FROM site_visits v
+           LEFT JOIN partners p ON p.id = v.provider_id AND p.tenant_id = v.tenant_id
           WHERE v.tenant_id = $1 AND v.site_id = b.id AND v.status <> 'annule' AND v.period_month BETWEEN $2 AND $3
        ) vv ON true
       ORDER BY b.district, b.commune, b.name`, params);
@@ -847,7 +850,12 @@ async function locationsExportData(tenantId, { year }) {
     const { rows: offices } = await client.query(
       `SELECT o.name, o.code, p.code AS "parentCode" FROM field_offices o LEFT JOIN field_offices p ON p.id = o.parent_id
         WHERE o.tenant_id = $1 AND o.active ORDER BY o.code`, [tenantId]);
-    return { sites: sites.map((x) => ({ ...x, finalScore: scoreSite(x, {}).finalScore })), offices };
+    // Listes du découpage (Paramétrage › Localités) pour les listes déroulantes Admin level 1-3 du classeur.
+    const { rows: areas } = await client.query(
+      'SELECT DISTINCT depth, name FROM admin_areas WHERE tenant_id = $1 AND depth BETWEEN 1 AND 3 ORDER BY depth, name', [tenantId]);
+    const places = { regions: [], districts: [], communes: [] };
+    for (const a of areas) (a.depth === 1 ? places.regions : a.depth === 2 ? places.districts : places.communes).push(a.name);
+    return { sites: sites.map((x) => ({ ...x, finalScore: scoreSite(x, {}).finalScore })), offices, places };
   });
 }
 

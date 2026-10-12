@@ -62,3 +62,18 @@ test('gabarit d\'activité : registre vierge, Activity Tag prérempli et liste d
   const parsed = await parseLocationsWorkbook(buf, { resolveOffice, activities });
   assert.equal(parsed.rows.length, 0); assert.equal(parsed.errors.length, 0);
 });
+
+test('listes du découpage (régions, districts, communes) en listes déroulantes Admin level 1-3, en avertissement', async () => {
+  const wb = buildLocationsWorkbook({ year: 2026, places: { regions: ['Androy', 'Anosy'], districts: ['Ambovombe'], communes: ['Ambanisarika', 'Behara'] } });
+  const lieux = wb.getWorksheet('Lieux');
+  assert.equal(lieux.state, 'hidden');
+  assert.equal(lieux.getCell('A3').value, 'Anosy');
+  const row = wb.getWorksheet('Locations Management').getRow(4);
+  assert.deepEqual(row.getCell(8).dataValidation.formulae, ['regions']);
+  assert.deepEqual(row.getCell(10).dataValidation.formulae, ['communes']);
+  assert.equal(row.getCell(10).dataValidation.errorStyle, 'warning');
+  // Sans découpage : ni feuille Lieux ni liste (rien d'inventé).
+  const bare = buildLocationsWorkbook({ year: 2026 });
+  assert.equal(bare.getWorksheet('Lieux'), undefined);
+  assert.equal(bare.getWorksheet('Locations Management').getRow(4).getCell(8).dataValidation, undefined);
+});
