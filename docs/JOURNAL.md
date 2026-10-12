@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 14:47 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 12/10/2026 14:52 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -163,5 +163,9 @@ _Dernière mise à jour : 12/10/2026 14:47 UTC_ — la branche `main` reçoit ch
 
   Corrigés au passage : les libellés des exports SPSS s'affichaient en « bÃ©nÃ©ficiaire » (réparés en base, migration 056) ; les types XLSForm écrits « select one liste » perdaient leur liste de choix. 330 tests OK.
 - **14:47** ✅ **Codes ↔ libellés** (retours n° 2 et 3, `4278c67`) : dans « Données importées », un bouton **Libellés / Codes** montre « Antenne Ambovombe » ou « 6 », « Beloha » ou « MG52513 », « MAHAVOTSE » ou « 3 ». Les libellés viennent du bureau MEMS rattaché, sinon de la liste de choix du XLSForm ou des étiquettes de l'export SPSS. Les variables propres à l'export SPSS, absentes du XLSForm, sont désormais visibles. 331 tests OK.
+- **14:52** 🔄 **R0 — fin des trois chantiers restants**, confiés en parallèle à des agents, chacun dans sa copie du dépôt et relu par un second agent avant fusion :
+  - **PDD** : plus de blocage de l'API sur une valeur isolée très bas dans la feuille (42 s et 8,4 Go mesurés) ; lignes sous le tableau Excel listées ; aucun mois remplacé par un import partiel sans votre accord ; abréviations de mois reconnues ; modalités contrôlées en base ;
+  - **Factures** : relecture complète, puis séparation des tâches rendue incontournable (une facture soumise ne se modifie plus, le validateur ne peut être ni l'auteur ni le dernier à l'avoir modifiée) ;
+  - **Sécurité** : liens d'import protégés contre les adresses internes (IPv6 comprise), secrets masqués dans les journaux, textes échappés sur les cartes, formules neutralisées dans les exports CSV, plus de fusion silencieuse d'un site.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
