@@ -77,7 +77,7 @@ async function createForm(tenantId, { code, label }) {
 async function updateForm(tenantId, id, { label, active }) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rowCount } = await client.query(
-      `UPDATE monitoring_forms SET label = COALESCE($3, label), active = COALESCE($4, active)
+      `UPDATE monitoring_forms SET label = COALESCE($3, label), active = COALESCE($4, active), updated_at = now()
         WHERE tenant_id = $1 AND id = $2`,
       [tenantId, id, label ?? null, active ?? null]
     );

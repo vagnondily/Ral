@@ -10,6 +10,7 @@ const ExcelJS = require('exceljs');
 const AdmZip = require('adm-zip');
 const { parseSubmissions, submissionsFromObjects } = require('./submissionsImport');
 const { parseXlsformRows } = require('./xlsformImport');
+const { readXls, isOleFile, XlsError } = require('./xlsReader');
 const { parseSav } = require('./savParser');
 const { validateExpression } = require('./calcFields');
 const dataLinks = require('./dataLinks.service');
@@ -250,21 +251,32 @@ router.get('/forms/:id/submissions', asyncHandler(async (req, res) => {
 // settings) → crée/MAJ la fiche + son catalogue de champs et listes de choix.
 router.post('/import-definition', WRITE, express.raw({ type: '*/*', limit: '60mb' }), asyncHandler(async (req, res) => {
   if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
-  let wb;
-  try { wb = new ExcelJS.Workbook(); await wb.xlsx.load(req.body); }
-  catch { throw badRequest('Fichier illisible : fournissez un XLSForm .xlsx (feuilles survey/choices/settings).'); }
-  const sheetRows = (name) => {
-    const ws = wb.getWorksheet(name);
-    if (!ws) return [];
-    const rows = [];
-    ws.eachRow((row) => { rows.push(row.values.slice(1)); });
-    return rows;
-  };
+  // .xls (Excel 97-2003, encore produit par Kobo/ODK) : lecteur intégré ; .xlsx : ExcelJS.
+  let sheetRows;
+  if (isOleFile(req.body)) {
+    let xls;
+    try { xls = readXls(req.body); } catch (err) { throw badRequest(err instanceof XlsError ? err.message : 'Fichier .xls illisible.'); }
+    const byName = new Map(Object.entries(xls.sheets).map(([k, v]) => [k.trim().toLowerCase(), v]));
+    sheetRows = (name) => byName.get(name) || [];
+  } else {
+    let wb;
+    try { wb = new ExcelJS.Workbook(); await wb.xlsx.load(req.body); }
+    catch { throw badRequest('Fichier illisible : fournissez un XLSForm .xlsx ou .xls (feuilles survey/choices/settings).'); }
+    sheetRows = (name) => {
+      const ws = wb.worksheets.find((w) => w.name.trim().toLowerCase() === name);
+      if (!ws) return [];
+      const rows = [];
+      ws.eachRow((row) => { rows.push(row.values.slice(1)); });
+      return rows;
+    };
+  }
   const survey = sheetRows('survey');
   if (survey.length < 2) throw badRequest('Feuille « survey » introuvable ou vide — ce n\'est pas un XLSForm.');
   const parsed = parseXlsformRows(survey, sheetRows('choices'), sheetRows('settings'));
   if (parsed.fields.length === 0) throw badRequest('Aucun champ de données trouvé dans la feuille survey.');
-  const code = (parsed.formId || `form_${Date.now()}`).slice(0, 60);
+  // Sans form_id (fréquent dans les .xls), code stable tiré du titre : un réimport met la fiche à jour au lieu d'en créer une autre.
+  const slug = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  const code = (parsed.formId || slug(parsed.title) || `form_${Date.now()}`).slice(0, 60);
   const label = parsed.title || code;
   const result = await repo.importDefinition(t(req), { code, label }, parsed.fields, parsed.choices);
   res.json({ ...result, code, label });
