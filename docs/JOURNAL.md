@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 08:47 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 12/10/2026 08:45 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -123,7 +123,7 @@ _Dernière mise à jour : 12/10/2026 08:47 UTC_ — la branche `main` reçoit ch
 - **08:19** ✅ **XLSForm** (`041742a`) : (1) tout réimport d'une fiche existante échouait (500, colonne manquante — migration 047) ; (2) les XLSForms **.xls** sont lus (lecteur intégré, vérifié sur vos fichiers SMP : 349 lignes, 1 950 choix, accents intacts) ; (3) un XLSForm sans identifiant reçoit un code stable : le réimport met la fiche à jour au lieu d'en créer une autre. Installation neuve rejouée. 197 tests OK.
 - **08:20** ✅ **Concepteur de rapport** (`4a1f176`) : les panneaux latéraux se placent sous la barre d'outils quelle que soit sa hauteur (elle passe sur 2 lignes sur votre écran) ; libellés du plan lisibles en entier.
 - **08:23** ✅ **Fiches de suivi** (`473d7fa`) : « Ouvrir », « Modifier » (nom, **activité du MMR**, Active/Inactive), « Supprimer » (libre sans données ; avec données, administrateur + code ressaisi). Constat important pour les liaisons : aucun écran ne permettait de rattacher une fiche à une activité du MMR, d'où des couvertures vides — la liste signale maintenant les fiches « À rattacher ». L'import XLSForm accepte .xls dans le sélecteur de fichiers.
-- **08:46** ✅ **Analyse des liaisons terminée** (7 agents, code lu module par module) → [`docs/ANALYSE_LIAISONS.md`](ANALYSE_LIAISONS.md). À retenir : seuls 8 écrans sur 23 peuvent renvoyer vers l'écran où l'on configure ; **aucun import ne rapproche les noms de lieux** du référentiel (ex. « Atsimo-Andrefana » et « Atsimo Andrefana » comptées comme 2 régions) ; plusieurs chiffres faux ou vides identifiés avec preuves (ex. la « dernière collecte » compte les soumissions exclues ; changer le risque d'un site au RBM efface son activité ; réimporter le découpage détache les zones des contrats ; **valider une facture ne demande aucun rôle**). Plan en 10 lots livrables séparément.
-- **08:47** 🔄 Ordre retenu (fiabilité et sécurité d'abord, comme vous l'avez demandé) : **lot 0** = correctifs des chiffres faux et du contrôle d'accès, sans migration ; en parallèle, **conception de la refonte UI/UX** (3 propositions + 2 juges) qui exploitera cette carte des liaisons.
+- **08:45** ✅ **Analyse des liaisons terminée** (7 agents, code lu module par module) → [`docs/ANALYSE_LIAISONS.md`](ANALYSE_LIAISONS.md). À retenir : seuls 8 écrans sur 23 peuvent renvoyer vers l'écran où l'on configure ; **aucun import ne rapproche les noms de lieux** du référentiel (ex. « Atsimo-Andrefana » et « Atsimo Andrefana » comptées comme 2 régions) ; plusieurs chiffres faux ou vides identifiés avec preuves (ex. la « dernière collecte » compte les soumissions exclues ; changer le risque d'un site au RBM efface son activité ; réimporter le découpage détache les zones des contrats ; **valider une facture ne demande aucun rôle**). Plan en 10 lots livrables séparément.
+- **08:45** 🔄 Ordre retenu (fiabilité et sécurité d'abord, comme vous l'avez demandé) : **lot 0** = correctifs des chiffres faux et du contrôle d'accès, sans migration ; en parallèle, **conception de la refonte UI/UX** (3 propositions + 2 juges) qui exploitera cette carte des liaisons.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
