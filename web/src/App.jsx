@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { getStoredUser, getToken, onUnauthorized, setSession } from './api/client.js';
+import { api, getStoredUser, getToken, onUnauthorized, setSession } from './api/client.js';
+import { AlertCircle } from 'lucide-react';
+import { Alert } from './components/ui.jsx';
 import AppShell, { findRoute } from './components/AppShell.jsx';
 import { ToastProvider, useToast } from './components/Toast.jsx';
 import { I18nProvider, useI18n } from './lib/i18n.jsx';
@@ -19,8 +21,7 @@ import PlanningPage from './pages/tpm/PlanningPage.jsx';
 import ProcessMonitoringPage from './pages/monitoring/ProcessMonitoringPage.jsx';
 import ProcessDashboardPage from './pages/monitoring/ProcessDashboardPage.jsx';
 import FieldVisitsPage from './pages/monitoring/FieldVisitsPage.jsx';
-import RbmPage from './pages/monitoring/RbmPage.jsx';
-import PlanBoardPage from './pages/monitoring/PlanBoardPage.jsx';
+import RbmSpacePage from './pages/monitoring/RbmSpacePage.jsx';
 import CoverageRecapPage from './pages/monitoring/CoverageRecapPage.jsx';
 import SitesMapPage from './pages/monitoring/SitesMapPage.jsx';
 import PddPage from './pages/pdd/PddPage.jsx';
@@ -35,7 +36,12 @@ const DEFAULT_ROUTE = { module: 'contrats', sub: 'liste' };
 // #/contrats/liste/<id>/amend
 // Routes retirées → redirigées (ex. l'ancien « Affectation & calendrier »,
 // fusionné dans « Affectation & visites »).
-const REDIRECTS = { 'tpm/affectation': { module: 'processus', sub: 'sites' } };
+// Anciennes adresses → nouvel emplacement (les favoris restent valides).
+const REDIRECTS = {
+  'tpm/affectation': { module: 'processus', sub: 'sites' },
+  // Le plan de suivi est un onglet de l'espace RBM (retour n° 7).
+  'processus/plan': { module: 'processus', sub: 'rbm', extra: 'plan' },
+};
 
 function parseHash() {
   const [, mod, sub, extra, extra2] = window.location.hash.split('/');
@@ -91,6 +97,7 @@ function Workspace() {
 
   return (
     <AppShell user={user} route={route} onNavigate={navigate} onLogout={handleLogout}>
+      <SchemaBanner isAdmin={user.role === 'admin'} />
       {route.module === 'contrats' && (() => {
         const back = () => navigate('contrats', 'liste');
         if (route.extra === 'nouveau') return <ContractFormPage mode="create" onDone={openContract} onCancel={back} />;
@@ -113,8 +120,9 @@ function Workspace() {
       {route.module === 'processus' && route.sub === 'synthese' && <ProcessDashboardPage onNavigate={navigate} />}
       {route.module === 'processus' && route.sub === 'donnees' && <ProcessMonitoringPage canEdit={canEdit} isAdmin={user.role === 'admin'} />}
       {route.module === 'processus' && route.sub === 'sites' && <FieldVisitsPage canEdit={canEdit} />}
-      {route.module === 'processus' && route.sub === 'plan' && <PlanBoardPage canEdit={canEdit} />}
-      {route.module === 'processus' && route.sub === 'rbm' && <RbmPage canEdit={canEdit} />}
+      {route.module === 'processus' && route.sub === 'rbm' && (
+        <RbmSpacePage canEdit={canEdit} isAdmin={user.role === 'admin'} tab={route.extra} onTab={(tab) => navigate('processus', 'rbm', tab)} />
+      )}
       {route.module === 'processus' && route.sub === 'couverture' && <CoverageRecapPage />}
       {route.module === 'processus' && route.sub === 'carte' && <SitesMapPage />}
       {route.module === 'pdd' && <PddPage canEdit={canEdit} view={route.sub} onNavigate={navigate} />}
@@ -132,3 +140,25 @@ export default function App() {
     </I18nProvider>
   );
 }
+
+/**
+ * Base de données en retard sur l'application (migration oubliée après une mise
+ * à jour) : bandeau en tête de chaque page, avec la marche à suivre pour
+ * l'administrateur. Silencieux si la vérification échoue (rien d'inventé).
+ */
+function SchemaBanner({ isAdmin }) {
+  const { tr } = useI18n();
+  const [pending, setPending] = useState([]);
+  useEffect(() => { api.systemStatus().then((r) => setPending(r.pendingMigrations || [])).catch(() => {}); }, []);
+  if (!pending.length) return null;
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <Alert tone="error" icon={AlertCircle}>
+        {isAdmin
+          ? tr('La base de données n\'est pas à jour ({n} mise(s) à jour en attente) : certaines pages ne fonctionneront pas. Arrêtez l\'API, lancez « npm run migrate » dans le dossier server, puis redémarrez l\'API.', { n: pending.length })
+          : tr('L\'application est en cours de mise à jour : certaines pages peuvent ne pas fonctionner. Prévenez votre administrateur.')}
+      </Alert>
+    </div>
+  );
+}
+

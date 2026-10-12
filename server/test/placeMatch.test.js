@@ -274,3 +274,19 @@ test('résolution : graphie tronquée → propositions à valider, jamais un num
   // « Toliara » seul : I et II portent un numéro → aucune proposition automatique.
   assert.equal(resolvePlace(idx, { depth: 2, label: 'Toliara', parent: parentOf(idx, 'r1') }).status, 'introuvable');
 });
+
+test('alias : unité recréée au réimport (nouvel identifiant, sans code) → retrouvée par son chemin', () => {
+  const areas = AREAS.map((a) => (a.id === 'd5' ? { ...a, id: 'd5-bis', pcode: null, path: 'Anosy > Taolagnaro' } : { ...a, path: a.path || a.name }));
+  const idx = buildPlaceIndex({ areas, aliases: [{ depth: 2, parentKey: 'MG52', aliasKey: 'fort dauphin', targetId: 'd5', targetPath: 'Anosy > Taolagnaro' }] });
+  const r = resolvePlace(idx, { depth: 2, label: 'Fort Dauphin', parent: idx.byId.get('r3') });
+  assert.deepEqual([r.status, r.area && r.area.id], ['alias', 'd5-bis']);
+});
+
+test('bureaux : « Tulear » (étiquette d\'export) = Bureau Toliara, sans toucher au découpage', () => {
+  const byLabel = officeResolver([{ id: 'o1', code: 'TLR', name: 'Bureau Toliara' }, { id: 'o2', code: 'FD', name: 'Bureau Fort Dauphin' }]);
+  assert.equal(byLabel('Tulear').id, 'o1');
+  assert.equal(byLabel('Tuléar').id, 'o1');
+  assert.equal(byLabel('Fort Dauphin').id, 'o2');
+  assert.equal(byLabel('Tolagnaro').id, 'o2');
+  assert.notEqual(normPlace('Tuléar').key, normPlace('Toliara').key); // découpage : graphie à valider
+});

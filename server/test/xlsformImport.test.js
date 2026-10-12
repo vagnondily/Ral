@@ -52,3 +52,22 @@ test('empty survey is safe', () => {
   const r = parseXlsformRows([], [], []);
   assert.deepEqual(r.fields, []);
 });
+
+test('types écrits avec des espaces (« select one liste », « begin group ») : liste et groupe reconnus', () => {
+  const survey = [
+    ['type', 'name', 'label'],
+    ['begin group', 'grp', 'Distribution'],
+    ['select one resolution', 'MOResol', 'Problème résolu ?'],
+    ['select  multiple   dign', 'MODistPtsDign', 'Dignité'],
+    ['end group', '', ''],
+    ['text', 'after', 'Après'],
+  ];
+  const choices = [['list_name', 'name', 'label'], ['resolution', '1', 'Oui'], ['dign', '4', 'Eau']];
+  const { fields } = parseXlsformRows(survey, choices, []);
+  const by = Object.fromEntries(fields.map((f) => [f.name, f]));
+  assert.equal(by.MOResol.type, 'select_one');
+  assert.equal(by.MOResol.listName, 'resolution');
+  assert.equal(by.MODistPtsDign.listName, 'dign');
+  assert.equal(by.MOResol.group, 'Distribution');
+  assert.equal(by.after.group, null);
+});

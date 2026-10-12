@@ -222,4 +222,30 @@ function readXls(buf) {
   return { sheets, order };
 }
 
-module.exports = { readXls, isOleFile, rkValue, XlsError };
+/**
+ * Nature d'un conteneur OLE, sans lire les cellules : classeur (avec les noms
+ * de ses feuilles, lus dans les seuls enregistrements BOUNDSHEET), classeur
+ * antérieur à Excel 97, document Word, présentation PowerPoint ou autre.
+ * Ne lève jamais : un conteneur illisible donne { kind: 'other' }.
+ * @returns {{ kind: 'xls'|'xls-old'|'doc'|'ppt'|'other', sheetNames: string[] }}
+ */
+function inspectOle(buf) {
+  try {
+    const cf = readCompoundFile(buf);
+    const wb = cf.stream('Workbook');
+    if (wb) {
+      const sheetNames = [];
+      for (const rec of records(wb)) {
+        if ((rec.type === R.BOF && rec.offset > 0) || rec.type === R.FILEPASS) break; // fin des globals, ou noms chiffrés
+        if (rec.type === R.BOUNDSHEET && rec.data.length > 7) sheetNames.push(shortString(rec.data, 6, { lengthBytes: 1 }));
+      }
+      return { kind: 'xls', sheetNames };
+    }
+    if (cf.stream('Book')) return { kind: 'xls-old', sheetNames: [] };
+    if (cf.stream('WordDocument')) return { kind: 'doc', sheetNames: [] };
+    if (cf.stream('PowerPoint Document')) return { kind: 'ppt', sheetNames: [] };
+  } catch { /* conteneur tronqué ou corrompu */ }
+  return { kind: 'other', sheetNames: [] };
+}
+
+module.exports = { readXls, inspectOle, isOleFile, rkValue, XlsError };

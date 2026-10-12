@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Coins, AlertCircle, Wallet } from 'lucide-react';
+import { Coins, AlertCircle, Wallet, MapPin, CalendarCheck } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Alert, Button, Field, Skeleton } from '../../components/ui.jsx';
+import { Alert, Badge, Button, Field, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import { formatAr } from '../../lib/format.js';
+import { dayLabel, formatAr, formatInt, monthLabel } from '../../lib/format.js';
 import { richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import PostesEditor, { newPoste, rowsFromItems, itemsFromRows } from './PostesEditor.jsx';
@@ -111,9 +111,15 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
 
           {contract && <div className="note"><Coins size={18} aria-hidden="true" /><span>{richText(tr('Budget Suivi/TPM du contrat : <strong>{budget}</strong> · barème mensuel <strong>{ceiling}</strong>', { budget: formatAr(contract.monitoringBudget), ceiling: formatAr(contract.monthlyCeiling) }))}</span></div>}
 
-          {days && days.totalDays > 0 && (
-            <div className="note"><Coins size={18} aria-hidden="true" /><span>{richText(tr('Jours de collecte planifiés pour ce prestataire ({month}) : <strong>{total} jour(s)</strong> = {visits} visite(s) datée(s) + {travel} jour(s) de déplacement. À reporter comme quantité des postes « jour » ci-dessous.', { month, total: days.totalDays, visits: days.visitDays, travel: days.travelDays }))}</span></div>
-          )}
+          {head.partnerId && <AssignedSites providerId={head.partnerId} month={month} days={days}
+            onReportDays={() => {
+              // Les postes exprimés en jours (per diem, véhicule…) reçoivent le nombre de jours de collecte.
+              const isDay = (r) => /\b(jours?|j|days?|hj|homme[- ]jours?)\b/i.test(String(r.unit || ''));
+              const n = rows.filter(isDay).length;
+              if (!n) { toast.info(tr('Aucun poste en jours : indiquez « jour » comme unité des postes concernés.')); return; }
+              setRows(rows.map((r) => (isDay(r) ? { ...r, unitCount: String(days.totalDays) } : r)));
+              toast.success(tr('{days} jour(s) reportés sur {n} poste(s) en jours.', { days: days.totalDays, n }));
+            }} />}
 
           {touched && errors.length > 0 && <Alert tone="error" icon={AlertCircle}>{errors[0]}</Alert>}
 
@@ -123,3 +129,51 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
     </Modal>
   );
 }
+
+/**
+ * Sites affectés au prestataire pour le mois (retour n° 8) : les visites que
+ * l'affectation terrain lui a confiées justifient le budget prévisionnel —
+ * jours de collecte = visites datées + jours de déplacement.
+ */
+function AssignedSites({ providerId, month, days, onReportDays }) {
+  const { tr } = useI18n();
+  const [visits, setVisits] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    setVisits(null);
+    api.fieldVisits({ month, providerId }).then((v) => { if (alive) setVisits((v || []).filter((x) => x.status !== 'annule')); })
+      .catch(() => { if (alive) setVisits([]); });
+    return () => { alive = false; };
+  }, [providerId, month]);
+  if (visits === null) return <Skeleton height={80} />;
+  const sites = new Set(visits.map((v) => v.siteId)).size;
+  return (
+    <section className="assigned-sites" aria-labelledby="as-title">
+      <div className="assigned-head">
+        <h4 id="as-title"><MapPin size={16} aria-hidden="true" /> {tr('Sites affectés en {month}', { month: monthLabel(month) })}</h4>
+        <span className="muted">{tr('{sites} site(s) · {visits} visite(s)', { sites: formatInt(sites), visits: formatInt(visits.length) })}
+          {days && days.totalDays > 0 ? ` · ${tr('{total} jour(s) de collecte ({visitDays} visite(s) datée(s) + {travel} de déplacement)', { total: days.totalDays, visitDays: days.visitDays, travel: days.travelDays })}` : ''}</span>
+        {days && days.totalDays > 0 && <Button size="sm" variant="secondary" icon={CalendarCheck} onClick={onReportDays}>{tr('Reporter les jours dans les postes')}</Button>}
+      </div>
+      {visits.length === 0 ? (
+        <p className="muted">{tr('Aucun site affecté à ce prestataire pour ce mois : affectez les visites dans « Suivi de processus › Affectation & visites » ; elles justifieront ce budget.')}</p>
+      ) : (
+        <div className="table-wrap assigned-table"><table className="table table-compact">
+          <thead><tr><th scope="col">{tr('Site')}</th><th scope="col">{tr('Commune')}</th><th scope="col">{tr('Activité')}</th>
+            <th scope="col">{tr('Date de visite')}</th><th scope="col">{tr('Statut')}</th></tr></thead>
+          <tbody>
+            {visits.map((v) => (
+              <tr key={v.id}>
+                <td><strong>{v.siteName}</strong>{v.agent && <div className="site-meta">{v.agent}</div>}</td>
+                <td>{v.commune || '—'}</td><td>{v.activity || '—'}</td>
+                <td className="tabular">{v.visitDate ? dayLabel(String(v.visitDate).slice(0, 10)) : <span className="muted">{tr('non datée')}</span>}</td>
+                <td>{v.status === 'realise' ? <Badge tone="green">{tr('Réalisée')}</Badge> : <Badge tone="blue">{tr('Planifiée')}</Badge>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      )}
+    </section>
+  );
+}
+

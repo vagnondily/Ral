@@ -57,7 +57,8 @@ function guardOf(token) {
 }
 
 /** Une valeur a-t-elle la forme d'un pcode (MG51507090) ? */
-const looksLikePcode = (s) => /^[A-Z]{2,3}\d{1,12}$/.test(String(s == null ? '' : s).trim().toUpperCase());
+// Pcode : 2-3 lettres, des chiffres, parfois une lettre finale (découpages issus des XLSForm : MG51507110a).
+const looksLikePcode = (s) => /^[A-Z]{2,3}\d{1,14}[A-Z]?$/.test(String(s == null ? '' : s).trim().toUpperCase());
 
 /** Similarité de Jaro-Winkler (0..1). */
 function jaroWinkler(a, b) {
@@ -113,6 +114,9 @@ function similarity(a, b) {
 }
 
 // ---- Index du découpage -----------------------------------------------------------
+/** Chemin « A > B > C » comparé niveau par niveau après normalisation. */
+function pathKeyOf(path) { return String(path || '').split('>').map((seg) => normPlace(seg).key).join(' > '); }
+
 /**
  * @param {object} p
  * @param {Array<{id, depth, name, pcode?, parentId?}>} p.areas   unités du découpage (admin_areas)
@@ -136,7 +140,10 @@ function buildPlaceIndex({ areas = [], aliases = [], synonyms = MDG_SYNONYMS } =
   }
   const aliasMap = new Map();
   for (const al of aliases) aliasMap.set(`${al.depth || 0}|${al.parentKey || ''}|${al.aliasKey}`, al);
-  return { byId, byPcode, inParent, inLevel, aliasMap, synonyms };
+  // Chemin normalisé → unité (repli d'un alias dont l'unité a été recréée au réimport).
+  const byPath = new Map();
+  for (const a of byId.values()) if (a.path) byPath.set(pathKeyOf(a.path), a);
+  return { byId, byPcode, byPath, inParent, inLevel, aliasMap, synonyms };
 }
 
 /** Clé d'un parent pour les alias : son pcode, sinon sa clé normalisée. */
@@ -178,7 +185,9 @@ function resolvePlace(index, { depth, label, pcode, parent = null, within = null
     if (pk === null) continue;
     const al = index.aliasMap.get(`${depth}|${pk}|${key}`);
     if (!al) continue;
-    const target = (al.targetPcode && index.byPcode.get(String(al.targetPcode).toUpperCase())) || (al.targetId && index.byId.get(al.targetId));
+    const target = (al.targetPcode && index.byPcode.get(String(al.targetPcode).toUpperCase()))
+      || (al.targetId && index.byId.get(al.targetId))
+      || (al.targetPath && index.byPath && index.byPath.get(pathKeyOf(al.targetPath)));
     if (target && allowed(target) && (!parent || isUnder(index, target, parent))) return result('alias', target);
   }
   // 4. parent inconnu : nom normalisé unique sur le niveau (sous l'ancêtre connu)
@@ -253,7 +262,7 @@ function resolvePath(index, q = {}) {
 
 // ---- Chemins (« Région > District > … ») ------------------------------------------
 /** Chemin comparé segment par segment après normalisation. */
-const pathKey = (path) => String(path || '').split('>').map((seg) => normPlace(seg).key).join(' > ');
+const pathKey = pathKeyOf;
 
 /**
  * Références (zones de contrat, d'avenant…) dont l'unité a disparu : retrouvées
@@ -277,7 +286,14 @@ function relinkByPath(items, areas) {
 }
 
 // ---- Bureaux ----------------------------------------------------------------------
-const officeNorm = (s) => normPlace(s, { synonyms: {} }).key;
+// Noms de bureaux : les noms français usuels des villes sont fréquents dans les
+// étiquettes des exports (« Tulear » = Bureau Toliara). Réservé aux bureaux : dans
+// le découpage, « Tuléar » reste une graphie à valider (Toliara I ou II ?).
+const OFFICE_SYNONYMS = {
+  tulear: 'toliara', majunga: 'mahajanga', tamatave: 'toamasina', diego: 'antsiranana',
+  taolagnaro: 'fort dauphin', tolagnaro: 'fort dauphin', taolanaro: 'fort dauphin',
+};
+const officeNorm = (s) => normPlace(s, { synonyms: OFFICE_SYNONYMS }).key;
 /**
  * Résolveur de bureau par libellé (« RBJ Madagascar, Ampanihy Sub Office » →
  * Bureau Ampanihy) : code ou nom exact normalisé, sinon nom « cœur » (sans

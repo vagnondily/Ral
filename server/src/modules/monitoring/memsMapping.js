@@ -19,17 +19,36 @@ const DIMENSIONS = [
   // Niveaux administratifs alignés sur Paramétrage › Localités (vérifié sur les exports réels :
   // admin1 = région MG51, admin2 = district MG51507, admin3 = commune MG51507090).
   // Le CODE (pcode) passe avant le nom : c'est lui qui relie une soumission aux sites.
-  { key: 'admin1', label: 'Région', mems: 'Localités (niveau 1)', aliases: ['admin1', 'admin1_pcode', 'admin1pcode', 'adm1_pcode', 'admin1name', 'region', 'region_name', 'niveau régional'] },
-  { key: 'admin2', label: 'District', mems: 'Localités (niveau 2)', aliases: ['admin2', 'admin2_pcode', 'admin2pcode', 'adm2_pcode', 'admin2name', 'district', 'district_name'] },
-  { key: 'admin3', label: 'Commune', mems: 'Localités (niveau 3)', aliases: ['admin3', 'admin3_pcode', 'admin3pcode', 'adm3_pcode', 'admin3name', 'commune', 'commune_name'] },
-  { key: 'admin4', label: 'Fokontany / localité', mems: 'Localités (niveau 4)', aliases: ['admin4', 'admin4_pcode', 'admin4pcode', 'admin4name', 'fokontany', 'community'] },
-  { key: 'site', label: 'Site / établissement', mems: 'Référentiel de sites', aliases: ['site', 'sitename', 'site_name', 'epp', 'etablissement', 'établissement'] },
-  { key: 'partner', label: 'Partenaire / ONG', mems: 'Partenaires', aliases: ['enupartner', 'partner', 'organisation', 'ong'] },
+  // Noms réels des exports Kobo du pays (12/10/2026) : Adm1Code (Résilience), Adm1Code_gd (GD),
+  // Adm1Code_MAM (Nutrition), Adm1Code_SMP (cantines), Adm1Name… (MIARO, qui y met des codes).
+  // Adm3Code_SMP est exclu : ce sont des numéros de ZAP (éducation), pas des communes.
+  { key: 'admin1', label: 'Région', mems: 'Localités (niveau 1)', aliases: ['admin1', 'admin1_pcode', 'admin1pcode', 'adm1_pcode', 'adm1code', 'adm1code_gd', 'adm1code_mam', 'adm1code_smp', 'admin1name', 'adm1name', 'region', 'region_name', 'niveau régional'] },
+  { key: 'admin2', label: 'District', mems: 'Localités (niveau 2)', aliases: ['admin2', 'admin2_pcode', 'admin2pcode', 'adm2_pcode', 'adm2code', 'adm2code_gd', 'adm2code_mam', 'adm2code_smp', 'admin2name', 'adm2name', 'district', 'district_name'] },
+  { key: 'admin3', label: 'Commune', mems: 'Localités (niveau 3)', aliases: ['admin3', 'admin3_pcode', 'admin3pcode', 'adm3_pcode', 'adm3code', 'adm3code_gd', 'adm3code_mam', 'admin3name', 'adm3name', 'commune', 'commune_name'] },
+  { key: 'admin4', label: 'Fokontany / localité', mems: 'Localités (niveau 4)', aliases: ['admin4', 'admin4_pcode', 'admin4pcode', 'adm4code', 'adm4code_mam', 'admin4name', 'fokontany', 'community'] },
+  // Site : point d'intérêt (MIARO POIName), point de distribution (GD/Nutrition DPName,
+  // Résilience ADMIN5Name_DP), école (cantines Adm4Code_SMP, code + nom dans l'export).
+  { key: 'site', label: 'Site / établissement', mems: 'Référentiel de sites', aliases: ['site', 'sitename', 'site_name', 'poiname', 'dpname', 'admin5name_dp', 'adm4code_smp', 'epp', 'etablissement', 'établissement', 'frsitename'] },
+  // EnuPartner : organisation de l'enquêteur ; CPList : prestataire de suivi (exports GD, SMP, MIARO).
+  { key: 'partner', label: 'Partenaire / ONG', mems: 'Partenaires', aliases: ['enupartner', 'cplist', 'partner', 'organisation', 'ong'] },
   { key: 'agent', label: 'Agent / énumérateur', mems: 'Prestataires TPM (agents)', aliases: ['enuname', 'enumerator', 'agent', 'énumérateur', 'nom_enqueteur', 'enqueteur'] },
 ];
 
 // Identifiant technique de déduplication (pas une dimension MEMS).
-const EXTERNAL_ID_ALIASES = ['_uuid', '_id', 'uuid', 'meta/instanceid'];
+// Identifiant Kobo de la soumission, le même quel que soit le format d'export :
+// « _uuid » (Excel/CSV/API), « @_uuid » (SPSS, qui interdit le « _ » initial),
+// « instanceID » / « meta/instanceID » (« uuid: » + le même identifiant).
+// L'identifiant numérique « _id » ne vient qu'en dernier recours.
+const EXTERNAL_ID_ALIASES = ['_uuid', '@_uuid', 'meta/instanceid', 'instanceid', 'uuid', '_id'];
+
+/** Identifiant Kobo canonique : sans le préfixe « uuid: » de instanceID (même clé pour tous les formats). */
+const canonicalExternalId = (v) => (v == null || String(v).trim() === '' ? null : String(v).trim().replace(/^uuid:/i, ''));
+
+// Réponse « autre » d'un choix (999, autre…) : la précision saisie est dans une colonne voisine.
+const OTHER_VALUES = new Set(['999', 'other', 'autre', 'autres']);
+const OTHER_SUFFIXES = ['_other', '_oth', '_autre', '_autres'];
+// Voisines au nom irrégulier vues dans les exports réels (Résilience : Adm4Code → Adm_4_autres).
+const OTHER_EXTRA = { adm4code: ['adm_4_autres'], adm3code: ['adm_3_autres'] };
 
 // Table d'alias consommée par submissionsImport (clé → alias[]). external_id
 // d'abord, puis chaque dimension — comportement identique à l'ancienne table.
@@ -68,4 +87,5 @@ function detectMapping(fieldNames) {
   });
 }
 
-module.exports = { DIMENSIONS, MAP, DIMENSION_COLUMN, EDITABLE_KEYS, detectMapping, norm };
+module.exports = {
+  canonicalExternalId, OTHER_VALUES, OTHER_SUFFIXES, OTHER_EXTRA, DIMENSIONS, MAP, DIMENSION_COLUMN, EDITABLE_KEYS, detectMapping, norm };

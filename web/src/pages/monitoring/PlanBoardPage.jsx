@@ -33,14 +33,14 @@ const COLS_KEY = 'mems.planBoard.cols';
 const shortMonth = (m) => new Date(Date.UTC(2026, m - 1, 1)).toLocaleString(formatLocale(), { month: 'short', timeZone: 'UTC' });
 const thisYear = () => new Date().getFullYear();
 
-export default function PlanBoardPage({ canEdit }) {
+export default function PlanBoardPage({ canEdit, embedded = false, initialView = 'plan' }) {
   const { t, tr } = useI18n();
   const toast = useToast();
   const [year, setYear] = useState(thisYear);
   const [adjusted, setAdjusted] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [view, setView] = useState('plan');
+  const [view, setView] = useState(initialView);
   const [filters, setFilters] = useState({ q: '', bureau: '', district: '', commune: '', activity: '', status: '', priority: '' });
   const [pending, setPending] = useState({});
   const [selected, setSelected] = useState(() => new Set());
@@ -132,7 +132,7 @@ export default function PlanBoardPage({ canEdit }) {
     <div className="section-gap pb">
       <div className="page-header">
         <div>
-          <h1 className="page-title">{tr('Plan de suivi')}</h1>
+          {!embedded && <h1 className="page-title">{tr('Plan de suivi')}</h1>}
           <p className="page-desc">{tr('Visites exigées par le MMR de chaque site (bureau × activité), faites, prévues et restantes sur l\'exercice ; planifiez en cochant les mois.')}</p>
         </div>
         <div className="header-actions">
@@ -266,7 +266,8 @@ function StatusCell({ site }) {
   if (site.forbidden) return <Badge tone="red" icon={ShieldAlert}>{tr('Zone interdite')}</Badge>;
   if (site.status === 'Active') return <Badge tone="green" icon={CheckCircle2}>{tr('Active')}</Badge>;
   if (site.status === 'Inactive') return <Badge icon={PauseCircle}>{tr('Inactive')}</Badge>;
-  return <span className="muted">—</span>;
+  // Aucun mois renseigné : le site compte comme actif (planifiable) — on le dit au lieu d'un « — ».
+  return <span className="muted" title={tr('Aucun statut saisi pour l\'exercice : le site est considéré comme actif.')}>{tr('Active (par défaut)')}</span>;
 }
 
 const lastVisit = (s) => (s.lastVisitMonth ? monthLabel(s.lastVisitMonth) : null);
@@ -288,7 +289,8 @@ function PlanTable({ rows, offset, allRows, capacity, pending, canEdit, selected
         <tr>
           {canEdit && <SelectAllHead allSelected={allSelected} onSelectAll={onSelectAll} label={tr('Tout sélectionner')} />}
           <th scope="col" className="num pb-stick pb-stick-rank">{tr('Rang')}</th><th scope="col" className="pb-stick pb-stick-name">{tr('Localité')}</th><th scope="col">{tr('Bureau')}</th>
-          <th scope="col">{tr('District')}</th><th scope="col">{tr('Commune')}</th><th scope="col">{tr('Activité')}</th><th scope="col">{tr('Priorité')}</th>
+          <th scope="col">{tr('District')}</th><th scope="col">{tr('Commune')}</th><th scope="col">{tr('Activité')}</th>
+          <th scope="col" title={tr('Prestataire de suivi affecté aux visites de l\'exercice')}>{tr('Prestataire (TPM)')}</th><th scope="col">{tr('Priorité')}</th>
           <th scope="col" className="num" title={tr('Visites exigées par le MMR sur l\'exercice')}>{tr('Exigées')}</th>
           <th scope="col" className="num">{tr('Faites')}</th><th scope="col" className="num">{tr('Prévues')}</th><th scope="col" className="num">{tr('Reste')}</th>
           <th scope="col">{tr('Dernière visite')}</th>
@@ -303,6 +305,7 @@ function PlanTable({ rows, offset, allRows, capacity, pending, canEdit, selected
             <td className="pb-stick pb-stick-name"><span className="pb-name" title={s.name}>{s.name}</span><span className="pb-id">{s.locationId}</span></td>
             <td className="pb-clip" title={s.bureau || ''}>{s.bureau || '—'}</td><td className="pb-clip">{s.district}</td><td className="pb-clip" title={s.commune}>{s.commune}</td>
             <td className="pb-act" title={s.activity || ''}>{s.activity || <span className="muted">—</span>}</td>
+            <td className="pb-clip" title={s.providers || ''}>{s.providers || <span className="muted" title={tr('Aucune visite affectée à un prestataire')}>{tr('à affecter')}</span>}</td>
             <td><PriorityBadge value={s.priority} /></td>
             <td className="num">{s.required == null ? <span className="muted" title={tr('Activité absente du MMR')}>—</span> : s.required}</td>
             <td className="num">{s.done}</td><td className="num">{s.planned}</td>
@@ -312,10 +315,10 @@ function PlanTable({ rows, offset, allRows, capacity, pending, canEdit, selected
               const cell = (s.months || []).find((x) => x.month === m);
               const inactive = s.monthStatus && s.monthStatus[m] === false;
               const label = `${s.name} — ${monthLabel(`2026-${String(m).padStart(2, '0')}`).replace(/ \d+$/, '')}`;
-              if (cell && cell.status === 'realise') return <td key={m} className="pb-m is-done" title={tr('Réalisée{d}', { d: cell.date ? ` (${cell.date})` : '' })}><Check size={14} aria-label={tr('Réalisée')} /></td>;
+              if (cell && cell.status === 'realise') return <td key={m} className="pb-m is-done" title={`${tr('Réalisée{d}', { d: cell.date ? ` (${cell.date})` : '' })}${cell.provider ? ` · ${cell.provider}` : ''}`}><Check size={14} aria-label={tr('Réalisée')} /></td>;
               const isPending = pending[pendingKey(s.id, m)] !== undefined;
               return (
-                <td key={m} className={`pb-m ${inactive ? 'is-inactive' : ''} ${isPending ? 'is-pending' : ''}`} title={inactive ? tr('Mois inactif : non planifiable') : undefined}>
+                <td key={m} className={`pb-m ${inactive ? 'is-inactive' : ''} ${isPending ? 'is-pending' : ''}`} title={inactive ? tr('Mois inactif : non planifiable') : (cell?.provider ? `${tr('Prévue')} · ${cell.provider}` : undefined)}>
                   <input type="checkbox" checked={Boolean(cell)} disabled={!canEdit || inactive} aria-label={label}
                     onChange={(e) => onToggle(s, m, e.target.checked)} />
                 </td>
@@ -326,7 +329,7 @@ function PlanTable({ rows, offset, allRows, capacity, pending, canEdit, selected
       </tbody>
       <tfoot>
         <tr>
-          <th scope="row" colSpan={canEdit ? 13 : 12} className="pb-foot-l">{tr('Visites du mois (prévues + réalisées) / ciblé MMR')}</th>
+          <th scope="row" colSpan={canEdit ? 14 : 13} className="pb-foot-l">{tr('Visites du mois (prévues + réalisées) / ciblé MMR')}</th>
           {totals.map((t) => (
             <td key={t.month} className={`pb-m pb-total pb-tone-${rateTone(t.rate)} ${t.overCapacity ? 'is-over' : ''}`}
               title={tr('Prévues {n} · ciblé {j} · faisable {k}', { n: t.count, j: t.targeted ?? '—', k: t.feasible ?? '—' })}>
@@ -341,7 +344,7 @@ function PlanTable({ rows, offset, allRows, capacity, pending, canEdit, selected
 
 /* ------------------------------------------------------------- Vue standard (registre) */
 const STD_COLUMNS = [
-  ['status', 'Statut'], ['poiSubtype', 'Sous-type de lieu'], ['activity', 'Activité'], ['bureau', 'Bureau'], ['region', 'Région'],
+  ['status', 'Statut'], ['poiSubtype', 'Sous-type de lieu'], ['activity', 'Activité'], ['providers', 'Prestataire (TPM)'], ['bureau', 'Bureau'], ['region', 'Région'],
   ['district', 'District'], ['commune', 'Commune'], ['urbanArea', 'Zone urbaine'], ['gps', 'GPS'], ['security', 'Sécurité'],
   ['synergies', 'Synergies'], ['modalityType', 'Modalité'], ['beneficiaryNumber', 'Bénéficiaires'], ['newPartner', 'Nouveau partenaire'],
   ['experiencedPartner', 'Partenaire expérimenté'], ['lastVisitDate', 'Dernière visite (historique)'], ['issuesProcess', 'Problèmes (suivi interne)'],

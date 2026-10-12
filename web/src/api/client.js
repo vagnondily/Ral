@@ -131,6 +131,7 @@ async function request(path, { method = 'GET', body, query, auth = true } = {}) 
 }
 
 export const api = {
+  systemStatus: () => request('/api/system/status'),
   login: (email, password) =>
     request('/api/auth/login', { method: 'POST', body: { email, password }, auth: false }),
   listProviders: () => request('/api/tpm/providers'),
@@ -268,6 +269,8 @@ export const api = {
   monDeleteForm: (id, confirm) => request(`/api/monitoring/forms/${id}`, { method: 'DELETE', query: confirm ? { confirm } : undefined }),
   monFields: (id) => request(`/api/monitoring/forms/${id}/fields`),
   monIndicators: (id) => request(`/api/monitoring/forms/${id}/indicators`),
+  monTemplate: (id) => request(`/api/monitoring/forms/${id}/template`),
+  monApplyTemplate: (id, items) => request(`/api/monitoring/forms/${id}/template/apply`, { method: 'POST', body: { items } }),
   monCreateIndicator: (id, input) => request(`/api/monitoring/forms/${id}/indicators`, { method: 'POST', body: input }),
   monUpdateIndicator: (indId, input) => request(`/api/monitoring/indicators/${indId}`, { method: 'PATCH', body: input }),
   monDeleteIndicator: (indId) => request(`/api/monitoring/indicators/${indId}`, { method: 'DELETE' }),

@@ -29,7 +29,11 @@ async function listSites(tenantId, { q } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId];
     const where = ['tenant_id = $1'];
-    if (q) { params.push(`%${q}%`); where.push(`(name ILIKE $${params.length} OR commune ILIKE $${params.length} OR district ILIKE $${params.length})`); }
+    if (q) {
+      params.push(`%${q}%`);
+      where.push(`(name ILIKE $${params.length} OR commune ILIKE $${params.length} OR district ILIKE $${params.length}
+               OR code ILIKE $${params.length} OR location_id ILIKE $${params.length})`);
+    }
     const { rows } = await client.query(
       `SELECT ${SITE_COLS} FROM sites WHERE ${where.join(' AND ')} ORDER BY district, commune, name`,
       params
@@ -79,6 +83,9 @@ async function updateSite(tenantId, id, patch) {
  * fiche n'est pas rattachée à une AUTRE activité que celle du site (une fiche non
  * rattachée compte pour tous les sites de la commune).
  */
+// Soumission qui vaut collecte pour le site `s` : reliée à CE site (site reconnu à l'import),
+// sinon — site non reconnu — même commune (pcode), granularité dont on dispose alors.
+const SUBMISSION_OF_SITE = `(ms.site_id = s.id OR (ms.site_id IS NULL AND s.adm3_pcode IS NOT NULL AND ms.adm3_pcode = s.adm3_pcode))`;
 const SUBMISSION_COUNTS_FOR_SITE = `NOT ms.excluded
          AND (mf.activity_category IS NULL OR s.activity IS NULL OR lower(btrim(mf.activity_category)) = lower(btrim(s.activity)))`;
 
@@ -101,6 +108,7 @@ const RBM_SELECT = `
          to_char(dv.last, 'YYYY-MM') AS "dataVisitMonth",
          dv.last_at AS "dataVisitAt",
          COALESCE(dv.n, 0) AS "dataVisitCount",
+         COALESCE(dv.site_n, 0) AS "dataVisitSiteCount",
          -- Dernière visite effective = la plus récente entre le suivi terrain
          -- planifié/réalisé (site_visits) et la COLLECTE RÉELLE issue des
          -- données uploadées (soumissions rattachées par pcode de commune).
@@ -113,14 +121,14 @@ const RBM_SELECT = `
        WHERE v.tenant_id = s.tenant_id AND v.site_id = s.id AND v.status <> 'annule'
     ) pv ON true
     LEFT JOIN LATERAL (
-      -- Collecte réelle au niveau commune : la soumission la plus récente dont
-      -- le pcode de commune (adm3) correspond à celui du site, hors soumissions
-      -- écartées au nettoyage et hors fiches d'une AUTRE activité que le site.
-      SELECT max(ms.period_month) AS last, max(ms.submitted_at) AS last_at, count(*) AS n
+      -- Collecte réelle : la soumission la plus récente reliée à ce site (site
+      -- reconnu à l'import), ou, faute de site reconnu, de la même commune ;
+      -- hors soumissions écartées au nettoyage et hors fiches d'une AUTRE activité.
+      SELECT max(ms.period_month) AS last, max(ms.submitted_at) AS last_at, count(*) AS n,
+             count(*) FILTER (WHERE ms.site_id = s.id) AS site_n
         FROM monitoring_submissions ms
         JOIN monitoring_forms mf ON mf.id = ms.form_id
-       WHERE ms.tenant_id = s.tenant_id
-         AND s.adm3_pcode IS NOT NULL AND ms.admin3 = s.adm3_pcode
+       WHERE ms.tenant_id = s.tenant_id AND ${SUBMISSION_OF_SITE}
          AND ${SUBMISSION_COUNTS_FOR_SITE}
     ) dv ON true
    WHERE s.tenant_id = $1`;
@@ -317,10 +325,10 @@ const VISIT_COLS = `
   v.activity, to_char(v.period_month, 'YYYY-MM') AS "periodMonth",
   v.contract_id AS "contractId", v.provider_id AS "providerId", p.name AS "providerName",
   v.agent, v.status, v.visit_date AS "visitDate",
-  -- Dernière collecte réelle (données uploadées) pour la commune du site.
+  -- Dernière collecte réelle (données uploadées) : site reconnu, sinon commune du site.
   (SELECT to_char(max(ms.period_month), 'YYYY-MM') FROM monitoring_submissions ms
      JOIN monitoring_forms mf ON mf.id = ms.form_id
-     WHERE ms.tenant_id = s.tenant_id AND s.adm3_pcode IS NOT NULL AND ms.admin3 = s.adm3_pcode
+     WHERE ms.tenant_id = s.tenant_id AND ${SUBMISSION_OF_SITE}
        AND ${SUBMISSION_COUNTS_FOR_SITE}) AS "dataVisitMonth"`;
 
 async function listVisits(tenantId, { month, providerId, status } = {}) {
@@ -442,9 +450,10 @@ async function summary(tenantId, { month } = {}) {
     const where = ['v.tenant_id = $1'];
     if (month) { params.push(`${String(month).slice(0, 7)}-01`); where.push(`v.period_month = $${params.length}`); }
     const { rows } = await client.query(
-      `SELECT v.status, v.provider_id AS "providerId", p.name AS "providerName", s.district, v.activity
+      `SELECT v.status, v.provider_id AS "providerId", p.name AS "providerName", s.district, fo.name AS office, v.activity
          FROM site_visits v JOIN sites s ON s.id = v.site_id
          LEFT JOIN partners p ON p.id = v.provider_id
+         LEFT JOIN field_offices fo ON fo.id = s.field_office_id AND fo.tenant_id = s.tenant_id
         WHERE ${where.join(' AND ')}`,
       params
     );
@@ -711,7 +720,7 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
                  WHEN dn.lat IS NOT NULL THEN 'district' END AS geo,
             COALESCE(b."gpsLat"::float8, cp.lat, cn.lat, sg.lat, dn.lat) AS "mapLat",
             COALESCE(b."gpsLng"::float8, cp.lng, cn.lng, sg.lng, dn.lng) AS "mapLng",
-            COALESCE(vv.months, '[]'::json) AS months,
+            COALESCE(vv.months, '[]'::json) AS months, vv.providers AS "providers",
             (SELECT json_object_agg(ms.month, ms.active) FROM site_month_status ms
               WHERE ms.tenant_id = $1 AND ms.site_id = b.id AND ms.year = extract(year FROM $2::date)) AS "monthStatus"
        FROM base b
@@ -721,9 +730,12 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
        LEFT JOIN site_gps sg ON sg.lc = lower(COALESCE(b.adm3, b.commune)) AND sg.ld = lower(COALESCE(b.adm2, b.district))
        LEFT JOIN districts dn ON dn.ld = lower(COALESCE(b.adm2, b.district))
        LEFT JOIN LATERAL (
+         -- Visites de l'exercice, avec le prestataire de suivi (TPM) affecté à chacune.
          SELECT json_agg(json_build_object('month', extract(month FROM v.period_month)::int, 'status', v.status,
-                                           'date', to_char(v.visit_date, 'YYYY-MM-DD')) ORDER BY v.period_month) AS months
+                                           'date', to_char(v.visit_date, 'YYYY-MM-DD'), 'provider', p.name) ORDER BY v.period_month) AS months,
+                string_agg(DISTINCT p.name, ', ') AS providers
            FROM site_visits v
+           LEFT JOIN partners p ON p.id = v.provider_id AND p.tenant_id = v.tenant_id
           WHERE v.tenant_id = $1 AND v.site_id = b.id AND v.status <> 'annule' AND v.period_month BETWEEN $2 AND $3
        ) vv ON true
       ORDER BY b.district, b.commune, b.name`, params);
@@ -838,7 +850,12 @@ async function locationsExportData(tenantId, { year }) {
     const { rows: offices } = await client.query(
       `SELECT o.name, o.code, p.code AS "parentCode" FROM field_offices o LEFT JOIN field_offices p ON p.id = o.parent_id
         WHERE o.tenant_id = $1 AND o.active ORDER BY o.code`, [tenantId]);
-    return { sites: sites.map((x) => ({ ...x, finalScore: scoreSite(x, {}).finalScore })), offices };
+    // Listes du découpage (Paramétrage › Localités) pour les listes déroulantes Admin level 1-3 du classeur.
+    const { rows: areas } = await client.query(
+      'SELECT DISTINCT depth, name FROM admin_areas WHERE tenant_id = $1 AND depth BETWEEN 1 AND 3 ORDER BY depth, name', [tenantId]);
+    const places = { regions: [], districts: [], communes: [] };
+    for (const a of areas) (a.depth === 1 ? places.regions : a.depth === 2 ? places.districts : places.communes).push(a.name);
+    return { sites: sites.map((x) => ({ ...x, finalScore: scoreSite(x, {}).finalScore })), offices, places };
   });
 }
 

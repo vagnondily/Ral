@@ -157,7 +157,7 @@ function CountryTab({ country, isAdmin, onChanged }) {
           <div className="header-actions">
             <Button variant="ghost" icon={FileDown} onClick={() => downloadCsvTemplate(form.levels, tr)}>{tr('Modèle CSV')}</Button>
             {isAdmin && <>
-              <input ref={fileRef} type="file" accept=".zip,.dbf,.csv,.txt" hidden onChange={onImport} />
+              <input ref={fileRef} type="file" accept=".zip,.dbf,.csv,.txt,.xlsx,.xls" hidden onChange={onImport} />
               <Button icon={Upload} loading={importing} onClick={() => fileRef.current?.click()}>{tr('Importer un fichier')}</Button>
             </>}
           </div>
@@ -165,6 +165,7 @@ function CountryTab({ country, isAdmin, onChanged }) {
         <div className="card-body section-gap">
           <div className="note"><Info size={18} aria-hidden="true" /><span>
             {tr('Formats : .zip de shapefile (le plus détaillé est retenu ; .shp/.dbf/.prj/.cpg lus), .dbf seul, ou .csv. Les colonnes sont reconnues par leur nom : ADM1_FR / ADM1_EN / ADM1_PCODE …, ou Région, District, Commune, Fokontany (+ « P-code », Latitude, Longitude). Le niveau pays (adm0) est ignoré. Un nouvel import met le découpage à jour : les unités retrouvées gardent leurs liens.')}
+            {' '}{tr('Vous pouvez aussi fournir un XLSForm Kobo qui contient le référentiel (listes de choix ADM1CODE › ADM2CODE › …) : les codes officiels et les noms sont lus jusqu\'au fokontany.')}
           </span></div>
           {country.profile?.breakdownSource && (
             <p className="loc-vintage">{tr('Millésime')} : <strong className="mono">{country.profile.breakdownSource}</strong> — {formatDateTime(country.profile.breakdownImportedAt)} · {tr('{n} unité(s) au total', { n: total.units })}</p>

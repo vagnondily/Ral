@@ -17,10 +17,22 @@ function toNumber(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-function isYes(v, positiveValue) {
+/** Valeurs codées « hors base » d'un indicateur (Sans objet 9999, Ne sait pas 888, N/A 777…). */
+const naSet = (naValues) => new Set((naValues || []).map((x) => String(x).trim().toLowerCase()).filter(Boolean));
+
+/**
+ * Réponse positive ? 1 / 0, ou null si non répondue ou « hors base » (naValues).
+ * `positiveValue` peut lister plusieurs valeurs séparées par « | » (ex. « 1|2 » :
+ * « Très sûr » et « Sûr » comptent comme positifs).
+ */
+function isYes(v, positiveValue, naValues) {
   if (v == null || v === '') return null; // not answered → excluded from the base
   const s = String(v).trim().toLowerCase();
-  if (positiveValue != null && positiveValue !== '') return s === String(positiveValue).trim().toLowerCase() ? 1 : 0;
+  if (naValues && naSet(naValues).has(s)) return null;
+  if (positiveValue != null && positiveValue !== '') {
+    const ok = String(positiveValue).split('|').map((x) => x.trim().toLowerCase()).filter(Boolean);
+    return ok.includes(s) ? 1 : 0;
+  }
   if (YES.has(s)) return 1;
   if (NO.has(s)) return 0;
   return 0; // answered but not a positive value
@@ -36,10 +48,14 @@ const round1 = (n) => Math.round(n * 10) / 10;
  */
 function computeIndicator(indicator, submissions) {
   const field = indicator.sourceField;
+  const na = naSet(indicator.naValues);
   const vals = [];
   for (const s of submissions || []) {
     const d = s.data || {};
-    if (Object.prototype.hasOwnProperty.call(d, field)) vals.push(d[field]);
+    if (!Object.prototype.hasOwnProperty.call(d, field)) continue;
+    // Codes « hors base » écartés pour toutes les méthodes (une moyenne avec 9999 n'a pas de sens).
+    if (d[field] != null && na.has(String(d[field]).trim().toLowerCase())) continue;
+    vals.push(d[field]);
   }
 
   let value = null;
@@ -58,7 +74,7 @@ function computeIndicator(indicator, submissions) {
     value = base ? round1(nums.reduce((a, b) => a + b, 0) / base) : null;
   } else {
     // percent_yes / percent_value: % of answered submissions that are positive
-    const flags = vals.map((v) => isYes(v, indicator.positiveValue)).filter((f) => f != null);
+    const flags = vals.map((v) => isYes(v, indicator.positiveValue, indicator.naValues)).filter((f) => f != null);
     base = flags.length;
     value = base ? round1((flags.reduce((a, b) => a + b, 0) / base) * 100) : null;
   }
@@ -88,21 +104,45 @@ function computeAll(indicators, submissions) {
     module: ind.module || null,
     sourceField: ind.sourceField,
     agg: ind.agg,
+    direction: ind.direction || 'higher_better',
+    // Compte dans l'indice (faux pour un chiffre clé ou un module complémentaire du modèle).
+    scored: ind.scored !== false,
     target: ind.target == null ? null : Number(ind.target),
     ...computeIndicator(ind, submissions),
   }));
 }
 
+const isPercentResult = (r) => r && (r.agg === 'percent_yes' || r.agg === 'percent_value') && r.value != null;
+
 /**
- * Overall performance index = average of the percentage-type indicator values
- * that could be computed (percent_yes / percent_value). Null when none apply.
+ * Score orienté d'un indicateur en % : la valeur, ou 100 − valeur quand « plus
+ * bas = mieux » (personnel armé présent, fraude…). C'est lui qui entre dans les
+ * moyennes et les classes ; la valeur affichée reste la valeur mesurée.
  */
-function overallIndex(indicatorResults) {
-  const vals = (indicatorResults || [])
-    .filter((i) => (i.agg === 'percent_yes' || i.agg === 'percent_value') && i.value != null)
-    .map((i) => i.value);
-  if (!vals.length) return null;
-  return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+function orientedScore(r) {
+  if (!isPercentResult(r)) return null;
+  return r.direction === 'lower_better' ? 100 - Number(r.value) : Number(r.value);
 }
 
-module.exports = { computeIndicator, computeAll, rate, overallIndex, toNumber, isYes };
+/**
+ * Indice de conformité (sur 100), comme les rapports de référence : moyenne des
+ * DOMAINES à poids égaux, chaque domaine (`module`) étant la moyenne des scores
+ * orientés de ses indicateurs en %. Sans domaines, c'est la moyenne des
+ * indicateurs. Null quand aucun indicateur en % n'est calculable.
+ */
+function overallIndex(indicatorResults) {
+  const groups = new Map();
+  for (const r of indicatorResults || []) {
+    if (r && r.scored === false) continue;
+    const sc = orientedScore(r);
+    if (sc == null) continue;
+    const k = r.module || '';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(sc);
+  }
+  if (!groups.size) return null;
+  const means = [...groups.values()].map((v) => v.reduce((a, b) => a + b, 0) / v.length);
+  return Math.round((means.reduce((a, b) => a + b, 0) / means.length) * 10) / 10;
+}
+
+module.exports = { computeIndicator, computeAll, rate, overallIndex, orientedScore, toNumber, isYes };
