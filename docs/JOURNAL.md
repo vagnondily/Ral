@@ -12,21 +12,21 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 06:30 UTC_
+_Dernière mise à jour : 12/10/2026 06:36 UTC_
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
 | 1a | Bureau : périmètre en cascade Région › District › Commune | ✅ | Livré le 09/10 (`34be945`) |
 | 1b | PDD : bouton « Modèle PDD » + note de format | ✅ | `675b304` — à compléter avec les 47 en-têtes réels (voir PDD-config) |
 | 2 | MMR : édition enrichie et plus simple | ✅ | API `4a481eb` + écran `4dd6f77` |
-| 3 | Localités : pays & découpage, répertoire, CRUD | 🔄 | Étude de l'existant (tables `admin_levels`/`admin_areas`, import shapefile) |
+| 3 | Localités : pays & découpage, répertoire, CRUD | 🔄 | Phase 1 en cours : correctif import (nom vs P-code), profil pays & vocabulaire, répertoire paginé + filtres + export, CRUD. Phase 2 : contours cartographiques |
 | 4 | Langue FR/EN : traduire le contenu des pages | ⏳ | Aujourd'hui seul le menu change de langue |
 | 6 | Concepteur de rapport professionnel (bulletin éditable, modèles) | ⏳ | Références : rapport de suivi de performances (HTML), couverture par partenaire (.docx), dashboard (HTML) |
 | 7 | Plan de suivi « type Excel » + carte détaillée | ⏳ | Référence : classeur RBM + captures (KPI, modes, grille des mois, carte) |
 | PDD-config | PDD : rations, planification par commune, stock par donateur (TDD/BDD), calcul serveur des tonnages | ⏳ | Découvert dans le PDD réel `PDD_Urgence_Oct-Nov_04082025.xlsx` |
 | Import | Import facile multi-sources + lien Tableau WDC (MoDA/Ona, Kobo) | ⏳ | Faisabilité **confirmée** (voir 06:20) |
 | Facture | Fidélité de la facture au gabarit de mai + Invoice 09 | ⏳ | |
-| Analyse | Analyse multi-agents des documents de référence → feuille de route | 🔄 | Relance en cours (2 interruptions) |
+| Analyse | Analyse multi-agents des documents de référence → feuille de route | 🔄 | 3e lancement à 06:31 (8 familles : RBM, XLSForm, Kobo suivi, Kobo distribution, finance, rapports, PDD, import/WDC) |
 
 ---
 
@@ -51,5 +51,8 @@ _Dernière mise à jour : 12/10/2026 06:30 UTC_
 - **06:27** 🔄 Relance de l'analyse multi-agents (ajout du PDD réel et des faits WDC) — de nouveau interrompue par une interruption de la conversation.
 - **06:28** 🔄 Tâche 3 — Localités : étude de l'existant.
 - **06:30** ✅ Création de ce journal (`docs/JOURNAL.md`) + règle ajoutée dans `CLAUDE.md`.
+- **06:31** 🔄 3e lancement de l'analyse multi-agents (en arrière-plan).
+- **06:34** ✅ Cause du problème « Localités » identifiée : l'import d'un shapefile prend la colonne `ADMn_PCODE` comme nom de niveau et comme nom de localité (d'où « ADM0_PCODE… » et des localités nommées par leur code). Le modèle ne stocke ni P-code, ni GPS, ni pluriel, ni profil pays.
+- **06:36** 🔄 Tâche 3 phase 1 : migration 041 (P-code, GPS, lignée, profil pays, libellés pluriels), correctif d'import, répertoire + CRUD.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
