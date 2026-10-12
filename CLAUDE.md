@@ -44,7 +44,10 @@ trade-off arises, decide in this order:
    `tenant_id` + RLS; every query filters `tenant_id = $1` **and** runs inside
    `withTenantTransaction` (which sets the `app.tenant_id` GUC so RLS is the
    safety net). Never read/​write across tenants; never take a tenant id from
-   the request body — only from `req.auth`.
+   the request body — only from `req.auth`. A foreign key does NOT go through
+   RLS: every reference between two tenant tables is also checked on write by
+   the `trg_same_tenant` trigger (migration 049). A migration that adds such a
+   reference ends with `SELECT mems_install_same_tenant('the_table');`.
 4. **CPU-intensive / concurrency.** Node is single-threaded per process:
    - Do aggregation in SQL (`GROUP BY`, `SUM … FILTER`), not JS loops over big
      row sets; the JS layer only shapes bounded results.
