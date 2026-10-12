@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 16:05 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 12/10/2026 16:07 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -209,5 +209,6 @@ _Dernière mise à jour : 12/10/2026 16:05 UTC_ — la branche `main` reçoit ch
   - une **correction** (choisir un autre bureau / partenaire / agent, ou « ne pas relier ») ne vaut que **pour cette fiche** — le même code peut désigner autre chose ailleurs — et s'applique **aussitôt aux soumissions déjà reçues** ; « Automatique » annule la correction ;
   - les soumissions portent maintenant le partenaire et l'agent MEMS reconnus, à côté des valeurs brutes (migration 059 ; réparation au démarrage pour les données déjà importées).
   - Sur votre fiche GD : les 7 codes de bureau sont reliés (100 %) ; « ONG AINA » est relié automatiquement ; « YP » est proposé pour YPA ; TOMPY, MAHAVOTSE et LALANA ne sont pas encore des partenaires dans MEMS (à créer dans Partenaires & TPM, puis ils se relieront seuls).
+- **16:07** 🔄 **Relecture adverse** des lots publiés cet après-midi (garde des imports Excel, éditeur de calculs, assistant d'import, correspondances) confiée à un agent indépendant ; ses constats confirmés seront corrigés avant la suite.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
