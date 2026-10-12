@@ -1,5 +1,5 @@
 const ExcelJS = require('exceljs');
-const { COMMODITIES } = require('./pddImport');
+const { COMMODITIES, MODALITIES, colLetter } = require('./pddImport');
 
 /**
  * Modèle vierge de la feuille « PDD base », aux positions de colonnes EXACTES
@@ -16,8 +16,8 @@ const CASH_COL = 43;
 
 // Colonnes lues par l'import : n° → [en-tête, aide, obligatoire ?]
 const COLUMNS = {
-  1: ['Mois', 'Nom du mois en toutes lettres (janvier … décembre).', true],
-  2: ['Année', 'Année sur 4 chiffres (ex. 2026).', true],
+  1: ['Mois', 'Nom du mois (janvier … décembre ; abréviations sans ambiguïté acceptées : janv., févr., avr., juil., sept., oct., nov., déc.).', true],
+  2: ['Année', 'Année sur 4 chiffres, entre 2000 et 2100 (ex. 2026).', true],
   3: ['WBS', 'Code WBS / budgétaire (facultatif).', false],
   4: ['Programme', "Utilisé comme activité si la colonne « Activité » est vide.", false],
   7: ['Activité', "Libellé de l'activité. Contient « cyclone » ou « sécheresse/drought » → aléa détecté automatiquement.", true],
@@ -30,18 +30,13 @@ const COLUMNS = {
   16: ['Commune', 'Commune — District OU Commune obligatoire.', true],
   20: ['Bénéficiaires', 'Nombre de personnes (entier ≥ 0).', false],
   21: ['Ménages', 'Nombre de ménages (entier ≥ 0).', false],
-  22: ['Modalité', 'Vivres, Cash ou Mixte.', false],
+  22: ['Modalité', `${Object.keys(MODALITIES).join(', ')} (Inkind = vivres, CBT = transfert monétaire, Mixte = les deux). « Vivres », « Cash », « In-kind »… sont aussi acceptés.`, false],
   [FOOD_TOTAL_COL]: ['Total vivres (MT)', 'Calculé : somme des denrées (ne pas saisir).', false],
-  [CASH_COL]: ['Cash (USD)', 'Montant transféré en USD (≥ 0).', false],
+  [CASH_COL]: ['Cash (USD)', 'Montant transféré en USD (≥ 0), jamais en ariary : l\'en-tête doit contenir « USD ».', false],
 };
 for (const [c, name] of COMMODITIES) COLUMNS[c] = [`${name} (MT)`, `Tonnage de ${name} en tonnes métriques (≥ 0, 3 décimales).`, false];
 
 const LAST_COL = CASH_COL;
-const colLetter = (n) => {
-  let s = ''; let x = n;
-  while (x > 0) { const m = (x - 1) % 26; s = String.fromCharCode(65 + m) + s; x = Math.floor((x - 1) / 26); }
-  return s;
-};
 const FOOD_RANGE = (r) => `${colLetter(COMMODITIES[0][0])}${r}:${colLetter(COMMODITIES[COMMODITIES.length - 1][0])}${r}`;
 
 const BLUE = 'FF0F6CBD';
@@ -83,7 +78,7 @@ function buildPddTemplate({ sampleRows = [] } = {}) {
     const row = ws.getRow(r);
     row.getCell(1).dataValidation = { type: 'list', allowBlank: true, formulae: [`"${MONTH_NAMES.join(',')}"`], showErrorMessage: true, error: 'Choisissez un mois dans la liste.' };
     row.getCell(2).dataValidation = { type: 'whole', operator: 'between', allowBlank: true, formulae: [2000, 2100], showErrorMessage: true, error: 'Année sur 4 chiffres.' };
-    row.getCell(22).dataValidation = { type: 'list', allowBlank: true, formulae: ['"Vivres,Cash,Mixte"'] };
+    row.getCell(22).dataValidation = { type: 'list', allowBlank: true, formulae: [`"${Object.keys(MODALITIES).join(',')}"`] };
     for (const c of [20, 21]) row.getCell(c).dataValidation = { type: 'whole', operator: 'greaterThanOrEqual', allowBlank: true, formulae: [0], showErrorMessage: true, error: 'Entier ≥ 0.' };
     for (const c of [...COMMODITIES.map(([k]) => k), CASH_COL]) {
       row.getCell(c).dataValidation = { type: 'decimal', operator: 'greaterThanOrEqual', allowBlank: true, formulae: [0], showErrorMessage: true, error: 'Nombre ≥ 0.' };
@@ -122,12 +117,15 @@ function addReadme(wb) {
   const lines = [
     ['Format du fichier PDD'],
     [],
-    ['•', 'Feuille', 'Le fichier doit contenir une feuille nommée « PDD base » (sinon : une feuille dont la ligne 5 contient « Mois » et « Commune »).'],
-    ['•', 'En-tête', `Ligne ${HEADER_ROW} ; les données commencent à la ligne ${FIRST_ROW}. Les positions de colonnes sont fixes : ne pas insérer ni supprimer de colonne.`],
-    ['•', 'Ligne retenue', 'Une ligne est importée si elle a un Mois valide, une Activité (ou un Programme) et un District ou une Commune. Les autres sont comptées comme ignorées.'],
-    ['•', 'Réimport', 'Idempotent : chaque mois présent dans le fichier REMPLACE les distributions déjà importées pour ce mois.'],
+    ['•', 'Feuille', 'Le fichier doit contenir une feuille nommée « PDD base » (sinon : la feuille — de préférence un tableau Excel — dont l\'en-tête porte « Mois » en colonne A et « Commune » en colonne P, dans les 12 premières lignes).'],
+    ['•', 'En-tête', `Ligne ${HEADER_ROW} ; les données commencent à la ligne ${FIRST_ROW}. Les positions de colonnes sont fixes : ne pas insérer ni supprimer de colonne (sinon l'import est refusé).`],
+    ['•', 'Ligne retenue', 'Une ligne est importée si elle a un Mois (nom du mois, accents facultatifs), une Année, une Activité (ou un Programme) et un District ou une Commune. Les autres sont listées avec leur motif dans le résumé d\'import.'],
+    ['•', 'Tableau Excel', 'Si les données sont dans un tableau Excel (Insertion › Tableau), une ligne écrite SOUS le tableau n\'est pas importée : elle est listée avec le motif « étendez le tableau ».'],
+    ['•', 'Erreurs Excel', 'Une cellule en erreur (#REF!, #N/A, #VALUE!, #DIV/0!…) ou un nombre illisible écarte la ligne : il n\'est jamais lu comme 0. Un nombre écrit comme texte doit être sans ambiguïté : « 1,250 » ou « 1.250 » (mille deux cent cinquante ou 1,25 ?) sont refusés.'],
+    ['•', 'Modalité', `Valeurs enregistrées : ${Object.keys(MODALITIES).join(', ')}. Synonymes acceptés : Vivres / In-kind → Inkind ; Cash → CBT ; Mixed → Mixte.`],
+    ['•', 'Réimport', 'Idempotent : chaque mois présent dans le fichier REMPLACE les distributions déjà importées pour ce mois. Si une ligne écartée appartient à un mois remplacé (ou si son mois est illisible), rien n\'est importé : corrigez-la, ou cochez « Importer quand même » (la ligne manquera alors dans ce mois).'],
     ['•', 'Aléa', 'Déduit de l\'activité : « cyclone » → cyclone ; « sécheresse » / « drought » → sécheresse ; sinon « autre ».'],
-    ['•', 'Formules', 'Les colonnes calculées (ex. Total vivres) sont lues via leur résultat : enregistrez le fichier dans Excel avant l\'import.'],
+    ['•', 'Formules', 'Les colonnes calculées (ex. Total vivres) sont lues via leur résultat : enregistrez le fichier dans Excel avant l\'import. Une formule sans résultat enregistré écarte la ligne (« formule non calculée »).'],
     [],
     ['Col.', 'En-tête', 'Contenu attendu'],
     ...Object.keys(COLUMNS).map(Number).sort((a, b) => a - b).map((c) => [colLetter(c), COLUMNS[c][0] + (COLUMNS[c][2] ? ' *' : ''), COLUMNS[c][1]]),
@@ -140,7 +138,7 @@ function addReadme(wb) {
     row.getCell(3).alignment = { wrapText: true, vertical: 'top' };
   });
   ws.getCell('A1').font = { bold: true, size: 13 };
-  ws.getRow(10).font = { bold: true };
+  ws.getRow(lines.findIndex((l) => l[0] === 'Col.') + 1).font = { bold: true };
 }
 
 module.exports = { buildPddTemplate, MONTH_NAMES };

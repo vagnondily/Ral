@@ -480,11 +480,12 @@ export const api = {
   pddSummary: (query) => request('/api/pdd/summary', { query }),
   pddPipeline: (month) => request('/api/pdd/pipeline', { query: month ? { month } : undefined }),
   pddSetStock: (input) => request('/api/pdd/stock', { method: 'PUT', body: input }),
-  pddImport: async (file) => {
+  // `partial` : « Importer quand même » malgré des lignes ignorées dans les mois remplacés.
+  pddImport: async (file, { partial = false } = {}) => {
     const buf = await file.arrayBuffer();
     let res;
     try {
-      res = await fetch(new URL(`${API_URL}/api/pdd/import`), {
+      res = await fetch(new URL(`${API_URL}/api/pdd/import${partial ? '?partial=1' : ''}`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
         body: buf,

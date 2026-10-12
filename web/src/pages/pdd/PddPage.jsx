@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Download, PackageOpen, Boxes, Layers, AlertTriangle, ChevronLeft, CalendarClock, ChevronRight as GoIcon } from 'lucide-react';
+import { Upload, Download, PackageOpen, Boxes, Layers, AlertTriangle, ChevronLeft, CalendarClock, ChevronRight as GoIcon, CheckCircle2, X } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Alert, Button, Card, CardHeader, EmptyState, ExpandButton, Skeleton, Stats, Usage } from '../../components/ui.jsx';
+import { Alert, Badge, Button, Card, CardHeader, EmptyState, ExpandButton, IconButton, Skeleton, Stats, Usage } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatInt, monthLabel } from '../../lib/format.js';
@@ -58,6 +58,8 @@ function DistributionsView({ canEdit, onNavigate }) {
   const [commodities, setCommodities] = useState([]);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  // Résumé du dernier import (plage lue, lignes ignorées avec leur motif, avertissements).
+  const [importReport, setImportReport] = useState(null);
   // Navigation par mois (comme le plan de suivi) : d'abord un tableau des mois,
   // clic sur un mois → ses distributions.
   const [picking, setPicking] = useState(true);
@@ -72,17 +74,31 @@ function DistributionsView({ canEdit, onNavigate }) {
   useEffect(() => { api.pddCommodities().then(setCommodities).catch(() => setCommodities([])); }, []);
 
   const downloadTemplate = () => api.downloadPddTemplate().catch((err) => toast.error(err.message));
-  const onImport = async (e) => {
-    const f = e.target.files?.[0]; e.target.value = '';
-    if (!f) return;
+  // `partial` : relance « Importer quand même » du fichier refusé (lignes ignorées dans un mois remplacé).
+  const runImport = async (f, { partial = false } = {}) => {
     setBusy(true);
     try {
-      const r = await api.pddImport(f);
-      toast.success(r.skipped
-        ? tr('{n} distribution(s) · {items} tonnage(s) importé(s) (feuille « {sheet} ») · {skipped} ligne(s) ignorée(s).', { n: r.inserted, items: r.items, sheet: r.sheet, skipped: r.skipped })
-        : tr('{n} distribution(s) · {items} tonnage(s) importé(s) (feuille « {sheet} »).', { n: r.inserted, items: r.items, sheet: r.sheet }));
+      const r = await api.pddImport(f, { partial });
+      setImportReport({ ok: true, file: f.name, stamp: Date.now(), ...r });
+      const warnings = (r.warnings || []).length;
+      toast.success([
+        tr('{n} distribution(s) · {items} tonnage(s) importé(s) (feuille « {sheet} »)', { n: r.inserted, items: r.items, sheet: r.sheet }),
+        r.skipped ? tr('{skipped} ligne(s) ignorée(s)', { skipped: r.skipped }) : null,
+        warnings ? tr('{n} avertissement(s)', { n: warnings }) : null,
+      ].filter(Boolean).join(' · ') + '.');
       reload();
-    } catch (err) { toast.error(err.message); } finally { setBusy(false); }
+    } catch (err) {
+      // Refus motivé (disposition, aucune ligne valide, lignes ignorées dans un mois remplacé…) :
+      // le détail reste affiché, traduit à partir de son code ; le fichier est gardé pour « Importer quand même ».
+      const d = err.details;
+      const message = d && d.template ? messageText(tr, d) : err.message;
+      setImportReport(d && (d.skippedRows || d.layoutIssues) ? { ok: false, file: f.name, fileRef: f, stamp: Date.now(), ...d, message } : null);
+      toast.error(message);
+    } finally { setBusy(false); }
+  };
+  const onImport = (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (f) runImport(f);
   };
 
   // Lignes du mois sélectionné (ou toutes, si aucun mois).
@@ -183,12 +199,15 @@ function DistributionsView({ canEdit, onNavigate }) {
             <Button variant="ghost" icon={Download} onClick={downloadTemplate}
               title={tr("Classeur vierge au format exact de l'import (feuille « PDD base » + feuille « Lisez-moi » qui décrit chaque colonne).")}>{tr('Modèle PDD')}</Button>
             <Button variant="secondary" icon={Upload} loading={busy} onClick={() => fileRef.current?.click()}
-              title={tr('Importe la feuille « PDD base » : mois, zone, activité, bénéficiaires, tonnages. Réimport idempotent (les mois du fichier sont remplacés).')}>{tr('Importer le PDD')}</Button>
+              title={tr('Importe le tableau PDD (feuille « PDD base » du modèle ou tableau du classeur réel) : mois, zone, activité, bénéficiaires, tonnages. Les lignes ignorées sont listées avec leur motif. Réimport idempotent (les mois du fichier sont remplacés).')}>{tr('Importer le PDD')}</Button>
           </>}
         </div>
       </div>
 
       {error && <Alert tone="error">{error}</Alert>}
+
+      {importReport && <PddImportReport key={importReport.stamp} report={importReport} onClose={() => setImportReport(null)} busy={busy}
+        onForce={canEdit && importReport.partialAllowed ? () => runImport(importReport.fileRef, { partial: true }) : null} />}
 
       {picking ? (
         <PddMonthsTable data={rows === null ? null : monthsAgg} total={stats} onOpen={openMonth}
@@ -227,6 +246,103 @@ function DistributionsView({ canEdit, onNavigate }) {
         </>
       )}
     </>
+  );
+}
+
+// Messages d'import : le serveur renvoie { code, params, template } en plus du
+// texte français ; `template` est la phrase française, clé de tr(). Le libellé
+// de colonne (`label`) est traduit lui aussi. Repli : le texte du serveur.
+function messageText(tr, m) {
+  if (!m || !m.template) return m?.message || '';
+  const params = { ...(m.params || {}) };
+  if (params.label) params.label = tr(params.label);
+  return tr(m.template, params);
+}
+// Ligne ignorée : ses motifs traduits, joints comme côté serveur (« Motif ; motif. »).
+function rowText(tr, x) {
+  if (!x.issues || !x.issues.length) return x.template ? sentence(messageText(tr, x)) : x.message;
+  return sentence(x.issues.map((i) => messageText(tr, i)).join(' ; '));
+}
+const sentence = (s) => (s ? `${s.charAt(0).toUpperCase()}${s.slice(1)}${/[.!?]$/.test(s) ? '' : '.'}` : '');
+
+// Résumé d'import : ce qui a été lu, importé, ignoré (n° de ligne Excel + motif).
+function PddImportReport({ report, onClose, onForce, busy }) {
+  const { tr } = useI18n();
+  const [force, setForce] = useState(false);
+  const skippedRows = report.skippedRows || [];
+  const warnings = report.warnings || [];
+  const layout = report.layoutIssues || [];
+  const months = report.months || [];
+  const range = report.sheet && report.lastLine >= report.firstLine
+    ? tr('Feuille « {sheet} », lignes {from} à {to}', { sheet: report.sheet, from: report.firstLine, to: report.lastLine })
+    : (report.sheet ? tr('Feuille « {sheet} »', { sheet: report.sheet }) : '');
+  return (
+    <Card aria-labelledby="pdd-import-title">
+      <CardHeader id="pdd-import-title" title={tr("Résumé de l'import")} subtitle={[report.file, range].filter(Boolean).join(' · ')}>
+        <IconButton icon={X} label={tr('Fermer le résumé')} size="sm" onClick={onClose} />
+      </CardHeader>
+      <div className="card-body section-gap">
+        {report.ok ? (
+          <Stats compact items={[
+            { label: tr('Distributions importées'), value: formatInt(report.inserted || 0) },
+            { label: tr('Tonnages'), value: formatInt(report.items || 0), foot: tr('Lignes denrée × distribution') },
+            { label: tr('Lignes ignorées'), value: formatInt(report.skipped || 0) },
+            { label: tr('Avertissements'), value: formatInt(warnings.length) },
+            { label: tr('Mois remplacés'), value: formatInt(months.length), foot: months.map(monthLabel).join(', ') || '—' },
+          ]} />
+        ) : <Alert tone="error" icon={AlertTriangle}>{report.message}</Alert>}
+        {report.ok && report.partial && (
+          <Alert tone="warn" icon={AlertTriangle}>
+            {tr('Import partiel : {n} ligne(s) ignorée(s) manquent dans les mois remplacés. Corrigez-les puis réimportez le fichier pour les ajouter.', { n: report.blocking || 0 })}
+          </Alert>
+        )}
+        {onForce && (
+          <div className="section-gap">
+            <label className="check">
+              <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />{' '}
+              {tr('Importer quand même : les lignes ignorées manqueront dans les mois remplacés')}
+            </label>
+            <div><Button icon={Upload} disabled={!force || busy} loading={busy} onClick={onForce}>{tr('Importer les lignes valides')}</Button></div>
+          </div>
+        )}
+        {report.ok && !report.skipped && warnings.length === 0
+          && <Alert tone="info" icon={CheckCircle2}>{tr('Toutes les lignes du tableau ont été importées.')}</Alert>}
+        {layout.length > 0 && <ImportIssues title={tr('Colonnes à corriger')} items={layout.map((m) => ({ text: sentence(messageText(tr, m)) }))}
+          hint={tr('Les colonnes doivent rester à leur place (voir le modèle PDD).')} />}
+        {skippedRows.length > 0 && <ImportIssues title={tr('Lignes ignorées')} total={report.skipped}
+          items={skippedRows.map((x) => ({ line: x.line, text: rowText(tr, x), blocking: x.blocking, month: x.month }))}
+          hint={tr('Corrigez ces lignes dans le fichier puis réimportez-le : les mois du fichier sont remplacés.')} />}
+        {warnings.length > 0 && <ImportIssues title={tr('Avertissements')} items={warnings.map((x) => ({ line: x.line, text: rowText(tr, x) }))} />}
+      </div>
+    </Card>
+  );
+}
+
+function ImportIssues({ title, items, total, hint }) {
+  const { tr } = useI18n();
+  const withLine = items.some((x) => x.line);
+  const count = total ?? items.length;
+  return (
+    <div>
+      <h3 className="card-title" style={{ fontSize: '0.95rem' }}>{title} ({formatInt(count)})</h3>
+      {hint && <p className="hint">{hint}</p>}
+      <div className="table-wrap" style={{ maxHeight: 260, overflow: 'auto' }}>
+        <table className="table">
+          <thead><tr>{withLine && <th scope="col" className="num">{tr('Ligne')}</th>}<th scope="col">{tr('Motif')}</th></tr></thead>
+          <tbody>{items.map((x, i) => (
+            <tr key={`${x.line || ''}-${i}`}>
+              {withLine && <td className="num tabular">{x.line || '—'}</td>}
+              <td>
+                {x.blocking && (
+                  <Badge tone="orange" icon={AlertTriangle}>{x.month ? tr('Mois remplacé ({month})', { month: monthLabel(x.month.slice(0, 7)) }) : tr('Mois illisible')}</Badge>
+                )}{x.blocking ? ' ' : ''}{x.text}
+              </td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+      {count > items.length && <p className="hint">{tr('Seules les {n} premières sont affichées.', { n: formatInt(items.length) })}</p>}
+    </div>
   );
 }
 

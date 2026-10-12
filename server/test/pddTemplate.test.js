@@ -38,3 +38,13 @@ test('modèle rempli → import : chaque colonne est relue à la bonne position'
   assert.equal(b.hazard, 'drought');
   assert.deepEqual(b.items, { 'CSB+': 1.2 });
 });
+
+test('modèle : la liste Modalité propose les valeurs canoniques ; un synonyme est ramené à sa valeur', async () => {
+  const ExcelJS = require('exceljs');
+  const buf = await buildPddTemplate({ sampleRows: [{ ...SAMPLE[0], modality: 'Vivres' }] }).xlsx.writeBuffer();
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  assert.deepEqual(wb.getWorksheet('PDD base').getCell('V7').dataValidation.formulae, ['"Inkind,CBT,Mixte"']);
+  const { rows } = await parsePddWorkbook(buf);
+  assert.equal(rows[0].modality, 'Inkind');
+});
