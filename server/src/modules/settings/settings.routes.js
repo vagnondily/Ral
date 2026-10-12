@@ -3,7 +3,7 @@ const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
-const { badRequest } = require('../../middleware/errors');
+const { badRequest, conflict } = require('../../middleware/errors');
 const repo = require('./settings.repository');
 const { parseUpload } = require('./adminImport');
 const loc = require('./localities.repository');
@@ -85,8 +85,17 @@ router.patch('/offices/:id', ADMIN, body(officeBody.partial()), asyncHandler(asy
   return res.status(204).end();
 }));
 router.delete('/offices/:id', ADMIN, asyncHandler(async (req, res) => {
-  if (!(await repo.deleteOffice(t(req), req.params.id))) return res.status(404).json({ error: 'Bureau introuvable' });
-  return res.status(204).end();
+  if (!z.string().uuid().safeParse(req.params.id).success) throw badRequest('Identifiant invalide');
+  try {
+    const r = await repo.deleteOffice(t(req), req.params.id, { confirm: req.query.confirm === '1' });
+    if (!r) return res.status(404).json({ error: 'Bureau introuvable' });
+    return res.json(r);
+  } catch (err) {
+    if (err.code !== 'CONFIRM_DELETE') throw err;
+    const { sites, mmr, antennes } = err.impact;
+    throw conflict(`Ce bureau a ${sites} site(s) rattaché(s), ${mmr} dérogation(s) MMR et ${antennes} antenne(s). Préférez « Désactiver » ; supprimer détache les sites et efface les dérogations.`,
+      { code: 'CONFIRM_DELETE', ...err.impact });
+  }
 }));
 
 // ---- MMR (Minimum Monitoring Requirements) — lecture tous, écriture admin.

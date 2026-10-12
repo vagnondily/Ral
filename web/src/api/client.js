@@ -335,7 +335,7 @@ export const api = {
   officePerimeter: (id) => request(`/api/settings/offices/${id}/perimeter`),
   createOffice: (input) => request('/api/settings/offices', { method: 'POST', body: input }),
   updateOffice: (id, input) => request(`/api/settings/offices/${id}`, { method: 'PATCH', body: input }),
-  deleteOffice: (id) => request(`/api/settings/offices/${id}`, { method: 'DELETE' }),
+  deleteOffice: (id, { confirm } = {}) => request(`/api/settings/offices/${id}`, { method: 'DELETE', query: confirm ? { confirm: 1 } : undefined }),
   createActivity: (input) => request('/api/settings/activities', { method: 'POST', body: input }),
   setActivityActive: (id, active) => request(`/api/settings/activities/${id}`, { method: 'PATCH', body: { active } }),
   listPartners: (type) => request('/api/settings/partners', { query: type ? { type } : undefined }),

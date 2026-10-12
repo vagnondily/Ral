@@ -128,6 +128,67 @@ async function applySitesGeoTx(client, tenantId) {
   return { sites: updates.length, combinations: combos.length, resolved, pending };
 }
 
+// ---- Bureaux : périmètre et rattachement des sites -----------------------------------
+/**
+ * Unité reconnue de chaque commune d'un périmètre de bureau (district + commune
+ * résolus dans le découpage) : admin_area_id et pcode de commune, pour joindre
+ * les sites par identifiant plutôt que par nom. Sans niveau « commune » dans le
+ * découpage, rien n'est posé (le rattachement se fait alors par nom + district).
+ */
+async function resolvePerimeterTx(client, tenantId, officeId = null) {
+  const index = await loadPlaceIndexTx(client, tenantId);
+  const params = [tenantId]; let where = 'tenant_id = $1';
+  if (officeId) { params.push(officeId); where += ' AND office_id = $2'; }
+  const { rows } = await client.query(`SELECT id, district, commune FROM field_office_communes WHERE ${where}`, params);
+  const updates = rows.map((r) => {
+    const p = resolvePath(index, { adm2: r.district, adm3: r.commune });
+    const commune = p.levels[2] && p.levels[2].area;
+    return { id: r.id, area: commune ? commune.id : null, pcode: commune ? commune.pcode || null : null };
+  });
+  await updateFromValues(client, tenantId, {
+    table: 'field_office_communes', cols: [['id', 'uuid'], ['area', 'uuid'], ['pcode', 'text']],
+    set: 'admin_area_id = v.area, adm3_pcode = v.pcode', rows: updates, values: (u) => [u.id, u.area, u.pcode],
+    where: 'AND (t.admin_area_id IS DISTINCT FROM v.area OR t.adm3_pcode IS DISTINCT FROM v.pcode)',
+  });
+}
+
+/**
+ * Sites SANS bureau situés dans un périmètre : rattachés au bureau ACTIF le plus
+ * spécifique (antenne avant bureau parent, terrain avant pays). Correspondance par
+ * unité reconnue d'abord, sinon par commune ET district (les homonymes de
+ * districts différents ne se confondent plus). Un site qui a déjà un bureau n'est
+ * jamais réaffecté. Une requête ; renvoie le nombre de sites rattachés.
+ */
+async function attachUnassignedSitesTx(client, tenantId) {
+  const { rowCount } = await client.query(
+    `UPDATE sites s SET field_office_id = x.office_id
+       FROM (SELECT DISTINCT ON (s2.id) s2.id AS site_id, c.office_id
+               FROM sites s2
+               JOIN field_office_communes c ON c.tenant_id = s2.tenant_id
+               JOIN field_offices o ON o.id = c.office_id AND o.tenant_id = c.tenant_id AND o.active
+              WHERE s2.tenant_id = $1 AND s2.field_office_id IS NULL
+                AND ((c.admin_area_id IS NOT NULL AND s2.admin_area_id = c.admin_area_id)
+                  OR (lower(btrim(COALESCE(NULLIF(s2.adm3, ''), s2.commune))) = lower(btrim(c.commune))
+                      AND (c.district IS NULL OR btrim(c.district) = ''
+                           OR lower(btrim(COALESCE(NULLIF(s2.adm2, ''), s2.district))) = lower(btrim(c.district)))))
+              ORDER BY s2.id, (c.admin_area_id IS NOT NULL AND s2.admin_area_id = c.admin_area_id) DESC,
+                       (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code) x
+      WHERE s.tenant_id = $1 AND s.id = x.site_id`,
+    [tenantId]);
+  return rowCount;
+}
+
+/**
+ * À appeler en fin de TOUTE écriture de sites (import, ajout, modification,
+ * suppression de bureau) : rattachement au découpage puis au bureau, dans la
+ * transaction de l'appelant.
+ */
+async function afterSitesChangedTx(client, tenantId) {
+  const geo = await applySitesGeoTx(client, tenantId);
+  const attached = await attachUnassignedSitesTx(client, tenantId);
+  return { ...geo, attached };
+}
+
 // ---- File « À rapprocher » et alias (API) ------------------------------------------
 async function listQueue(tenantId, { status } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
@@ -204,7 +265,8 @@ async function decideQueue(tenantId, queueId, { action, areaId }, actorId) {
     await client.query(
       `UPDATE location_match_queue SET status = 'resolu', alias_id = $3, decided_by = $4, decided_at = now() WHERE tenant_id = $1 AND id = $2`,
       [tenantId, queueId, alias[0].id, actorId]);
-    const applied = await applySitesGeoTx(client, tenantId);
+    await resolvePerimeterTx(client, tenantId);
+    const applied = { sites: await afterSitesChangedTx(client, tenantId) };
     return { status: 'resolu', aliasId: alias[0].id, applied };
   });
 }
@@ -213,14 +275,21 @@ async function deleteAlias(tenantId, id) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rowCount } = await client.query('DELETE FROM location_aliases WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
     if (!rowCount) return false;
-    await applySitesGeoTx(client, tenantId);
+    await resolvePerimeterTx(client, tenantId);
+    await afterSitesChangedTx(client, tenantId);
     return true;
   });
 }
 
 /** « Rapprocher maintenant » : rejoue le rattachement de toutes les sources. */
 async function applyAll(tenantId) {
-  return withTenantTransaction(tenantId, async (client) => ({ sites: await applySitesGeoTx(client, tenantId) }));
+  return withTenantTransaction(tenantId, async (client) => {
+    await resolvePerimeterTx(client, tenantId);
+    return { sites: await afterSitesChangedTx(client, tenantId) };
+  });
 }
 
-module.exports = { loadPlaceIndexTx, applySitesGeoTx, syncQueueTx, listQueue, listAliases, decideQueue, deleteAlias, applyAll };
+module.exports = {
+  loadPlaceIndexTx, applySitesGeoTx, syncQueueTx, resolvePerimeterTx, attachUnassignedSitesTx, afterSitesChangedTx,
+  listQueue, listAliases, decideQueue, deleteAlias, applyAll,
+};
