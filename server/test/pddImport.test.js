@@ -384,7 +384,20 @@ test('cellValue / toNumber : erreurs Excel isolées, formule non calculée signa
   assert.ok(Number.isNaN(toNumber('1,250.5'))); // séparateurs mêlés : jamais deviné
   assert.ok(Number.isNaN(toNumber('1,250'))); // 1 250 ou 1,25 ? jamais deviné
   assert.ok(Number.isNaN(toNumber('-12,500')));
+  // Même ambiguïté avec le point : « 1.250 » = 1 250 (milliers à la française) ou 1,25 ?
+  assert.ok(Number.isNaN(toNumber('1.250')));
+  assert.ok(Number.isNaN(toNumber('12.345')));
+  assert.equal(toNumber('0.250'), 0.25); // « 0.250 » ne peut pas être un séparateur de milliers
+  assert.equal(toNumber('1.25'), 1.25);
+  assert.equal(toNumber('1250.500'), 1250.5); // 4 chiffres avant le point : pas un séparateur de milliers
   assert.ok(Number.isNaN(toNumber(true)));
+});
+
+test('nombre ambigu « 1.250 » (texte) : jamais lu 1,25 en silence — ligne écartée avec le motif dédié', () => {
+  const base = { 1: 'Octobre', 2: 2025, 7: 'GD drought', 15: 'Amboasary', 16: 'Ebelo', 20: '1.250' };
+  const r = parsePddRow((c) => base[c] ?? null, 6);
+  assert.equal(r.row, undefined);
+  assert.deepEqual(r.skip.issues.map((i) => [i.code, i.params.value]), [['AMBIGUOUS_NUMBER', '1.250']]);
 });
 
 test('nombre ambigu « 1,250 » : ligne écartée avec un motif dédié', () => {

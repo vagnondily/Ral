@@ -18,7 +18,8 @@ const ExcelJS = require('exceljs');
  *  • une erreur Excel (#REF!, #N/A, #VALUE!, #DIV/0!…) n'est jamais lue comme 0,
  *    une formule sans résultat enregistré non plus : la ligne est écartée ;
  *  • mois, année, modalité et nombres sont contrôlés — rien n'est deviné en
- *    silence (pas d'année courante par défaut, « 1,250 » refusé car ambigu) ;
+ *    silence (pas d'année courante par défaut, « 1,250 » / « 1.250 » refusés
+ *    car ambigus) ;
  *  • chaque motif porte un code et ses paramètres (`{ code, params, template }`)
  *    en plus du texte français : l'interface le traduit (tr).
  */
@@ -153,10 +154,12 @@ function text(v) {
 
 /**
  * « 1,250 » : milliers à l'anglaise (1 250) ou décimales à la française (1,25) ?
- * Une seule virgule suivie d'exactement 3 chiffres, partie entière de 1 à 3
- * chiffres sans zéro initial : on ne devine pas.
+ * « 1.250 » : milliers à la française / malgache (1 250, cf. « 1.250.000 Ar »)
+ * ou décimales à l'anglaise (1,25) ? Un seul séparateur (virgule OU point)
+ * suivi d'exactement 3 chiffres, partie entière de 1 à 3 chiffres sans zéro
+ * initial : on ne devine pas (« 1.250 » bénéficiaires lu 1,25 → 1 personne).
  */
-const isAmbiguousNumber = (t) => /^[-+]?[1-9]\d{0,2},\d{3}$/.test(t);
+const isAmbiguousNumber = (t) => /^[-+]?[1-9]\d{0,2}[,.]\d{3}$/.test(t);
 
 /** Nombre d'une valeur : null si vide, NaN si non numérique ou ambigu. Accepte « 1 250,5 ». */
 function toNumber(v) {
