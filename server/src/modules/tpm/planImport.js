@@ -1,3 +1,4 @@
+const { normalizeSecurity } = require('./rbmScore');
 const ExcelJS = require('exceljs');
 
 /**
@@ -100,14 +101,14 @@ async function parsePlanWorkbook(buffer) {
       activity: txt(cell(row, 'activity')).trim() || null,
       gpsLat: (lat != null && lat > -30 && lat < 0) ? lat : null,
       gpsLng: (lng != null && lng > 40 && lng < 55) ? lng : null,
-      security: clamp(cell(row, 'security'), 0, 2),
+      security: normalizeSecurity(cell(row, 'security')), // échelle du classeur : 0, 1, 3, 99 (zone interdite)
       synergies: clamp(cell(row, 'synergies'), 0, 1),
       beneficiaryOver200: clamp(cell(row, 'caseload'), 0, 1),
       newPartner: clamp(cell(row, 'newPartner'), 0, 1),
       issuesProcess: clamp(cell(row, 'issuesProcess'), 0, 2),
       issuesPartnerReport: clamp(cell(row, 'issuesPartnerReport'), 0, 2),
       issuesCFM: clamp(cell(row, 'issuesCFM'), 0, 2),
-      fraud: clamp(cell(row, 'fraud'), 0, 1),
+      fraud: clamp(cell(row, 'fraud'), 0, 2), // 0 non suspecté, 1 suspecté, 2 partenaire impliqué
       finalScore,
       risk: riskFromScore(finalScore),
       lastVisit: serialToMonth(cell(row, 'lastVisit')),

@@ -43,10 +43,19 @@ router.post('/sites', WRITE, body(siteSchema), asyncHandler(async (req, res) => 
 }));
 const crit02 = z.number().int().min(0).max(2).optional();
 const crit01 = z.number().int().min(0).max(1).optional();
+// Échelles du classeur RBM (Sheet4) ; l'ancienne valeur 2 de sécurité = stricte (3).
+const security = z.number().int().refine((v) => [0, 1, 2, 3, 99].includes(v), 'Sécurité : 0, 1, 3 ou 99')
+  .transform((v) => (v === 2 ? 3 : v)).optional();
+const optText = (max) => z.string().trim().max(max).nullable().optional().transform((v) => (v === undefined ? undefined : (v || null)));
 router.patch('/sites/:id', WRITE, body(siteSchema.partial().extend({
   riskLevel: z.enum(['faible', 'moyenne', 'elevee']).optional(),
-  security: crit02, synergies: crit01, beneficiaryOver200: crit01, newPartner: crit01,
-  issuesProcess: crit02, issuesPartnerReport: crit02, issuesCFM: crit02, fraud: crit01,
+  security, synergies: crit01, beneficiaryOver200: crit01, newPartner: crit01,
+  issuesProcess: crit02, issuesPartnerReport: crit02, issuesCFM: crit02, fraud: crit02,
+  experiencedPartner: crit02,
+  beneficiaryNumber: z.number().int().min(0).max(10_000_000).nullable().optional(),
+  modalityType: z.enum(['Cash', 'Voucher', 'Food', 'Capacity Strengthening', 'Mix']).nullable().optional(),
+  poiSubtype: optText(80), urbanArea: optText(120),
+  lastVisitDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
 })), asyncHandler(async (req, res) => {
   if (!(await repo.updateSite(t(req), req.params.id, req.valid))) throw notFound('Site introuvable');
   res.status(204).end();

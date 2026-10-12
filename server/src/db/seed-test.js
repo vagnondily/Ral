@@ -18,6 +18,7 @@
  *   npm run seed            # base (tenant, users, contrats, visites…)
  *   npm run seed:test       # ce fichier
  */
+const { normalizeSecurity } = require('../modules/tpm/rbmScore');
 require('dotenv').config();
 const { Client } = require('pg');
 const logger = require('../config/logger');
@@ -80,7 +81,7 @@ async function main() {
         if (s.lastVisit) lastVisits.push({ code, month: s.lastVisit });
         params.push(code, s.name, s.district, s.commune, s.region, s.district, s.commune, s.fokontany || null,
           s.risk || 'moyenne', officeIdByCode[s.office] || null, s.activity || null, s.gpsLat ?? null, s.gpsLng ?? null,
-          s.security || 0, s.synergies || 0, s.beneficiaryOver200 || 0, s.newPartner || 0,
+          normalizeSecurity(s.security), s.synergies || 0, s.beneficiaryOver200 || 0, s.newPartner || 0,
           s.issuesProcess || 0, s.issuesPartnerReport || 0, s.issuesCFM || 0, s.fraud || 0);
         const b = params.length; const p = (k) => `$${b - COLS + 1 + k}`;
         vals.push(`($1,${Array.from({ length: COLS }, (_, k) => p(k)).join(',')})`);

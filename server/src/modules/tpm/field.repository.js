@@ -1,7 +1,7 @@
 const { withTenantTransaction } = require('../../config/db');
 const { summarizeVisits, collectionDays, buildCoverageMatrix } = require('./fieldMath');
 const { isDue, frequencyFor } = require('./rbmMath');
-const { scoreSite } = require('./rbmScore');
+const { scoreSite, normalizeSecurity } = require('./rbmScore');
 const { coverageRecap } = require('./coverageRecap');
 const { mmrLookup, siteCounters, rankSites, boardKpis, normalizeChanges } = require('./planBoard');
 const { badRequest } = require('../../middleware/errors');
@@ -68,11 +68,23 @@ async function updateSite(tenantId, id, s) {
          issues_process = COALESCE($13, issues_process),
          issues_partner_report = COALESCE($14, issues_partner_report),
          issues_cfm = COALESCE($15, issues_cfm),
-         fraud_suspected = COALESCE($16, fraud_suspected)
+         fraud_suspected = COALESCE($16, fraud_suspected),
+         experienced_partner = COALESCE($17, experienced_partner),
+         beneficiary_number = CASE WHEN $18::boolean THEN $19::int ELSE beneficiary_number END,
+         modality_type = CASE WHEN $20::boolean THEN $21 ELSE modality_type END,
+         poi_subtype = CASE WHEN $22::boolean THEN $23 ELSE poi_subtype END,
+         urban_area = CASE WHEN $24::boolean THEN $25 ELSE urban_area END,
+         last_visit_date = CASE WHEN $26::boolean THEN $27::date ELSE last_visit_date END
        WHERE tenant_id = $1 AND id = $2`,
       [tenantId, id, s.district ?? null, s.commune ?? null, s.fokontany ?? null, s.name ?? null, s.activity ?? null, s.riskLevel ?? null,
         s.security ?? null, s.synergies ?? null, s.beneficiaryOver200 ?? null, s.newPartner ?? null,
-        s.issuesProcess ?? null, s.issuesPartnerReport ?? null, s.issuesCFM ?? null, s.fraud ?? null]
+        s.issuesProcess ?? null, s.issuesPartnerReport ?? null, s.issuesCFM ?? null, s.fraud ?? null,
+        s.experiencedPartner ?? null,
+        s.beneficiaryNumber !== undefined, s.beneficiaryNumber ?? null,
+        s.modalityType !== undefined, s.modalityType ?? null,
+        s.poiSubtype !== undefined, s.poiSubtype ?? null,
+        s.urbanArea !== undefined, s.urbanArea ?? null,
+        s.lastVisitDate !== undefined, s.lastVisitDate ?? null]
     );
     return rowCount > 0;
   });
@@ -90,6 +102,9 @@ const RBM_SELECT = `
          s.beneficiary_over_200 AS "beneficiaryOver200", s.new_partner AS "newPartner",
          s.issues_process AS "issuesProcess", s.issues_partner_report AS "issuesPartnerReport",
          s.issues_cfm AS "issuesCFM", s.fraud_suspected AS "fraud",
+         s.location_id AS "locationId", s.poi_subtype AS "poiSubtype", s.urban_area AS "urbanArea",
+         s.modality_type AS "modalityType", s.beneficiary_number AS "beneficiaryNumber",
+         s.experienced_partner AS "experiencedPartner", to_char(s.last_visit_date, 'YYYY-MM-DD') AS "lastVisitDate",
          s.adm3_pcode AS "adm3Pcode",
          to_char(pv.last, 'YYYY-MM') AS "plannedVisitMonth",
          to_char(dv.last, 'YYYY-MM') AS "dataVisitMonth",
@@ -98,7 +113,7 @@ const RBM_SELECT = `
          -- Dernière visite effective = la plus récente entre le suivi terrain
          -- planifié/réalisé (site_visits) et la COLLECTE RÉELLE issue des
          -- données uploadées (soumissions rattachées par pcode de commune).
-         to_char(GREATEST(pv.last, dv.last), 'YYYY-MM') AS "lastVisitMonth"
+         to_char(GREATEST(pv.last, dv.last, date_trunc('month', s.last_visit_date)::date), 'YYYY-MM') AS "lastVisitMonth"
     FROM sites s
     LEFT JOIN field_offices ant ON ant.id = s.field_office_id
     LEFT JOIN field_offices par ON par.id = ant.parent_id
@@ -203,7 +218,7 @@ async function importPlanSites(tenantId, userId, sites) {
         if (s.lastVisit) lastVisits.push({ code, month: s.lastVisit });
         params.push(code, s.name, s.district, s.commune, s.region || null, s.district, s.commune, s.fokontany || null,
           s.risk || 'moyenne', officeByCommune.get(String(s.commune).toLowerCase()) || null, s.activity || null,
-          s.gpsLat ?? null, s.gpsLng ?? null, s.security || 0, s.synergies || 0, s.beneficiaryOver200 || 0,
+          s.gpsLat ?? null, s.gpsLng ?? null, normalizeSecurity(s.security), s.synergies || 0, s.beneficiaryOver200 || 0,
           s.newPartner || 0, s.issuesProcess || 0, s.issuesPartnerReport || 0, s.issuesCFM || 0, s.fraud || 0);
         const b = params.length; const p = (k) => `$${b - COLS + 1 + k}`;
         vals.push(`($1,${Array.from({ length: COLS }, (_, k) => p(k)).join(',')})`);

@@ -9,15 +9,19 @@
  * valeurs calculées par macro, pas des formules ; on reproduit les bandes
  * documentées (issues/CFM/fraude urgents ⇒ priorité haute).
  *
- * Critères (tous optionnels, défaut 0) :
- *   security          0 = pas de restriction, 1 = modérée, 2 = élevée
+ * Critères (tous optionnels, défaut 0) — échelles du classeur RBM (Sheet4) :
+ *   security          0 = pas de restriction, 1 = modérée, 3 = stricte, 99 = zone interdite
+ *                     (l'ancienne valeur MEMS 2 = « élevée » est lue comme stricte)
  *   synergies         0 = une seule activité dans la commune, 1 = plusieurs
- *   beneficiaryOver200 0 = ≤200 bénéficiaires, 1 = >200 (caseload)
+ *   beneficiaryNumber nombre de bénéficiaires (> 200 = caseload élevé) ; à défaut
+ *   beneficiaryOver200 0 = ≤200, 1 = >200
  *   newPartner        0 = partenaire expérimenté, 1 = nouveau partenaire
+ *   experiencedPartner 0 = bonne expérience, 1 = moyenne, 2 = mauvaise
  *   issuesProcess     0 = aucun, 1 = important, 2 = urgent (suivi interne)
  *   issuesPartnerReport 0/1/2 (rapport partenaire)
  *   issuesCFM         0/1/2 (mécanisme de plainte)
- *   fraud             0 = non suspecté, 1 = suspecté
+ *   fraud             0 = non suspecté, 1 = fraude suspectée, 2 = partenaire impliqué
+ * Une zone interdite (99) est signalée `forbidden` : ni proposée ni planifiée.
  */
 
 function monthIndex(m) {
@@ -44,21 +48,25 @@ const PRIORITY_LABEL = { 0: 'Basse', 1: 'Moyenne', 2: 'Haute' };
  */
 function scoreSite(site = {}, { targetMonth, mmrInterval } = {}) {
   const n = (v) => Math.max(0, Number(v) || 0);
-  const security = Math.min(2, n(site.security));
+  const secRaw = n(site.security);
+  const forbidden = secRaw >= 99;
+  const security = secRaw >= 2 ? 2 : secRaw; // 0 aucune, 1 modérée, 2 = stricte (3) ou interdite (99)
   const synergies = Math.min(1, n(site.synergies));
-  const caseload = Math.min(1, n(site.beneficiaryOver200));
+  const caseload = site.beneficiaryNumber != null && site.beneficiaryNumber !== ''
+    ? (Number(site.beneficiaryNumber) > 200 ? 1 : 0) : Math.min(1, n(site.beneficiaryOver200));
   const newPartner = Math.min(1, n(site.newPartner));
+  const experienced = Math.min(2, n(site.experiencedPartner));
   const issP = Math.min(2, n(site.issuesProcess));
   const issR = Math.min(2, n(site.issuesPartnerReport));
   const issC = Math.min(2, n(site.issuesCFM));
-  const fraud = Math.min(1, n(site.fraud));
+  const fraud = Math.min(2, n(site.fraud));
 
   // Drapeaux urgents : tout problème « urgent » (=2), fraude suspectée ou
-  // sécurité élevée ⇒ attention immédiate.
-  const urgentFlags = issP === 2 || issR === 2 || issC === 2 || fraud === 1 || security === 2;
+  // avérée, restriction stricte ou zone interdite ⇒ attention immédiate.
+  const urgentFlags = issP === 2 || issR === 2 || issC === 2 || fraud >= 1 || security === 2;
 
   // Points de risque cumulés (vue d'ensemble).
-  const riskPoints = security + synergies + caseload + newPartner + issP + issR + issC + 2 * fraud;
+  const riskPoints = security + synergies + caseload + newPartner + experienced + issP + issR + issC + 2 * fraud;
 
   // FINAL SCORE (0/1/2).
   let finalScore;
@@ -89,6 +97,7 @@ function scoreSite(site = {}, { targetMonth, mmrInterval } = {}) {
     priorityLabel: PRIORITY_LABEL[priority],
     riskPoints,
     urgentFlags,
+    forbidden,
     monthsSinceVisit: since,
     neverVisited,
     overdue,
@@ -96,4 +105,16 @@ function scoreSite(site = {}, { targetMonth, mmrInterval } = {}) {
   };
 }
 
-module.exports = { scoreSite, monthsSinceVisit, FINAL_LABEL, PRIORITY_LABEL };
+/**
+ * Sécurité vers l'échelle du classeur (0, 1, 3, 99). L'ancienne valeur MEMS
+ * 2 (« élevée ») et toute valeur intermédiaire deviennent 3 (stricte) ; ≥ 99
+ * = zone interdite. Une seule règle pour les imports, le seed et l'API.
+ */
+function normalizeSecurity(v) {
+  const n = Math.max(0, Math.round(Number(v) || 0));
+  if (n >= 99) return 99;
+  if (n >= 2) return 3;
+  return n;
+}
+
+module.exports = { scoreSite, monthsSinceVisit, normalizeSecurity, FINAL_LABEL, PRIORITY_LABEL };

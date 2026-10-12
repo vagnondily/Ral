@@ -49,3 +49,27 @@ test('monthsSinceVisit calcule l\'écart en mois', () => {
   assert.equal(monthsSinceVisit('2025-12', '2026-02'), 2);
   assert.equal(monthsSinceVisit(null, '2026-10'), null);
 });
+
+test('échelles du classeur RBM : sécurité 3 (stricte) urgente, 99 = zone interdite', () => {
+  const strict = scoreSite({ security: 3, lastVisitMonth: '2026-09' }, { targetMonth: '2026-10', mmrInterval: 3 });
+  assert.equal(strict.urgentFlags, true); assert.equal(strict.forbidden, false);
+  const forbidden = scoreSite({ security: 99 }, { targetMonth: '2026-10', mmrInterval: 3 });
+  assert.equal(forbidden.forbidden, true);
+  // Ancienne échelle MEMS (2 = élevée) toujours lue comme stricte.
+  assert.equal(scoreSite({ security: 2 }, { targetMonth: '2026-10' }).urgentFlags, true);
+  assert.equal(scoreSite({ security: 1, lastVisitMonth: '2026-09' }, { targetMonth: '2026-10', mmrInterval: 3 }).urgentFlags, false);
+});
+
+test('fraude 2 (partenaire impliqué) pèse plus que 1 ; expérience du partenaire et nombre de bénéficiaires comptent', () => {
+  const f1 = scoreSite({ fraud: 1 }, { targetMonth: '2026-10' });
+  const f2 = scoreSite({ fraud: 2 }, { targetMonth: '2026-10' });
+  assert.ok(f2.riskPoints > f1.riskPoints); assert.equal(f2.urgentFlags, true);
+  assert.equal(scoreSite({ experiencedPartner: 2 }, { targetMonth: '2026-10' }).riskPoints, 2);
+  assert.equal(scoreSite({ beneficiaryNumber: 450 }, { targetMonth: '2026-10' }).riskPoints, 1);
+  assert.equal(scoreSite({ beneficiaryNumber: 150, beneficiaryOver200: 1 }, { targetMonth: '2026-10' }).riskPoints, 0); // le nombre réel prime
+});
+
+test('normalisation de la sécurité vers l\'échelle du classeur (0, 1, 3, 99)', () => {
+  const { normalizeSecurity } = require('../src/modules/tpm/rbmScore');
+  assert.deepEqual([0, 1, 2, 3, 5, 99, 120, null, 'x'].map(normalizeSecurity), [0, 1, 3, 3, 3, 99, 99, 0, 0]);
+});
