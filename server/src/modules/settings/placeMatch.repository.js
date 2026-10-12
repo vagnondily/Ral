@@ -220,11 +220,20 @@ async function choiceLabelsTx(client, tenantId, dimension) {
     'SELECT form_id AS "formId", column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND dimension = $2',
     [tenantId, dimension]);
   const forced = new Map(overrides.map((o) => [o.formId, (o.columnName || '').trim()]));
+  // Colonnes réellement présentes dans les données (soumission la plus récente de chaque fiche) :
+  // le XLSForm peut décrire « EnuPartner » alors que l'export porte « CPList ».
+  const { rows: samples } = await client.query(
+    `SELECT DISTINCT ON (form_id) form_id AS "formId", ARRAY(SELECT jsonb_object_keys(data)) AS keys
+       FROM monitoring_submissions WHERE tenant_id = $1 ORDER BY form_id, created_at DESC`, [tenantId]);
+  const dataKeys = new Map(samples.map((r) => [r.formId, new Set((r.keys || []).map((k) => k.toLowerCase()))]));
   const byForm = new Map();
   for (const f of fields) { if (!byForm.has(f.formId)) byForm.set(f.formId, []); byForm.get(f.formId).push(f); }
   const lists = [];
   for (const [formId, list] of byForm) {
-    const col = forced.has(formId) ? forced.get(formId) : (detectMapping(list.map((f) => f.name)).find((d) => d.key === dimension) || {}).column;
+    const inData = dataKeys.get(formId);
+    const present = inData ? list.filter((f) => inData.has(f.name.toLowerCase())) : [];
+    const detect = (names) => (detectMapping(names).find((d) => d.key === dimension) || {}).column;
+    const col = forced.has(formId) ? forced.get(formId) : (detect(present.map((f) => f.name)) || detect(list.map((f) => f.name)));
     const field = col && list.find((f) => f.name.toLowerCase() === col.toLowerCase());
     if (field && field.listName) lists.push([formId, field.listName]);
   }

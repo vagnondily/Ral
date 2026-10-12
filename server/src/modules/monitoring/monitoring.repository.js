@@ -8,7 +8,7 @@ const { computeCalcFields } = require('./calcFields');
 const { buildLookup } = require('./submissionsImport');
 const { templateForActivity, moduleLabel, suggestBindings, indicatorFromItem } = require('./indicatorTemplates');
 const { OTHER_VALUES } = require('./memsMapping');
-const { applySubmissionsGeoTx, officeChoiceLabelsTx } = require('../settings/placeMatch.repository');
+const { applySubmissionsGeoTx, officeChoiceLabelsTx, choiceLabelsTx } = require('../settings/placeMatch.repository');
 
 /** Charge les champs calculés d'une fiche (ordre), pour l'analyse et la grille. */
 async function calcDefsFor(client, tenantId, formId) {
@@ -319,7 +319,8 @@ const PLACE_NAMES = `
                        (SELECT s.commune FROM sites s WHERE s.tenant_id = ms.tenant_id AND s.adm3_pcode IS NOT NULL
                            AND s.adm3_pcode = COALESCE(ms.adm3_pcode, ms.admin3) LIMIT 1)) AS "communeName",
               (SELECT st.name FROM sites st WHERE st.tenant_id = ms.tenant_id AND st.id = ms.site_id) AS "siteName",
-              ms.site_status AS "siteStatus"`;
+              ms.site_status AS "siteStatus",
+              (SELECT o.name FROM field_offices o WHERE o.tenant_id = ms.tenant_id AND o.id = ms.field_office_id) AS "officeName"`;
 
 // Région en clair d'une soumission : par le code de commune rattaché (découpage
 // officiel d'abord, registre de sites en repli), sinon par un code de région
@@ -361,6 +362,15 @@ async function formSubmissions(tenantId, formId, { month, limit = 200 } = {}) {
         LIMIT $${params.length}`,
       params
     );
+    // Codes → libellés (« 6 » → « Ambovombe ») des colonnes typées, d'après les listes de la fiche.
+    const labelMaps = Object.fromEntries(await Promise.all(['field_office', 'partner', 'agent', 'site']
+      .map(async (dim) => [dim, ((await choiceLabelsTx(client, tenantId, dim)).get(formId)) || new Map()])));
+    for (const r of rows) {
+      r.fieldOfficeLabel = (r.fieldOffice != null && labelMaps.field_office.get(String(r.fieldOffice))) || null;
+      r.partnerLabel = (r.partner != null && labelMaps.partner.get(String(r.partner))) || null;
+      r.agentLabel = (r.agent != null && labelMaps.agent.get(String(r.agent))) || null;
+      r.siteLabel = (r.site != null && labelMaps.site.get(String(r.site))) || null;
+    }
     const { rows: cnt } = await client.query(
       `SELECT count(*)::int AS total, count(*) FILTER (WHERE excluded)::int AS excluded
          FROM monitoring_submissions ms WHERE ${where.slice(0, month ? 3 : 2).join(' AND ')}`,

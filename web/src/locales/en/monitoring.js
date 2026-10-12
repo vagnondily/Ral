@@ -422,4 +422,10 @@ export default {
   'moyenne': 'average',
   'somme': 'sum',
   'nombre': 'count',
+  // Bascule libellés / codes des données importées.
+  'Affichage des réponses': 'Answer display',
+  'Afficher le libellé des réponses codées (« 6 » → « Ambovombe »)': 'Show the label of coded answers (“6” → “Ambovombe”)',
+  'Afficher les codes tels que reçus': 'Show the codes as received',
+  'Libellés': 'Labels',
+  'Codes': 'Codes',
 };

@@ -54,16 +54,18 @@ const DETAIL_TABS = [
 // Colonnes « méta » typées (référentiels MEMS) affichées avant les variables.
 const META_COLS = [
   { key: 'submittedAt', label: 'Date', fmt: (v) => (v ? formatDateTime(v) : '—') },
-  { key: 'fieldOffice', label: 'Bureau' },
+  // Libellé d'abord (bureau MEMS rattaché, sinon libellé du choix : « 6 » → « Ambovombe »), code en repli ;
+  // `code` = la valeur brute affichée en mode « Codes ».
+  { key: 'officeName', alt: ['fieldOfficeLabel', 'fieldOffice'], code: 'fieldOffice', label: 'Bureau' },
   // admin2 = District, admin3 = Commune, admin4 = Fokontany (memsMapping) ; nom résolu par pcode sinon valeur brute.
-  { key: 'districtName', label: 'District', alt: 'admin2' },
-  { key: 'communeName', label: 'Commune', alt: 'admin3' },
+  { key: 'districtName', alt: 'admin2', code: 'admin2', label: 'District' },
+  { key: 'communeName', alt: 'admin3', code: 'admin3', label: 'Commune' },
   { key: 'admin4', label: 'Fokontany' },
-  { key: 'site', label: 'Site' },
+  { key: 'siteLabel', alt: 'site', code: 'site', label: 'Site' },
   // Site du référentiel reconnu à l'import (DPName, POIName, école…) ; vide = à rapprocher.
   { key: 'siteName', label: 'Site du référentiel' },
-  { key: 'partner', label: 'Partenaire' },
-  { key: 'agent', label: 'Agent' },
+  { key: 'partnerLabel', alt: 'partner', code: 'partner', label: 'Partenaire' },
+  { key: 'agentLabel', alt: 'agent', code: 'agent', label: 'Agent' },
 ];
 
 /**
@@ -475,6 +477,13 @@ function saveVarCols(formId, names) {
   try { const all = JSON.parse(localStorage.getItem(DATAVIEW_STORE)) || {}; all[formId] = names; localStorage.setItem(DATAVIEW_STORE, JSON.stringify(all)); } catch { /* ignore */ }
 }
 
+/** Valeur d'une colonne méta : la première clé renseignée (libellé puis code), ou le code brut en mode « Codes ». */
+function metaRaw(r, m, codes) {
+  if (codes && m.code) return r[m.code];
+  for (const k of [m.key, ...[].concat(m.alt || [])]) { const v = r[k]; if (v != null && v !== '') return v; }
+  return null;
+}
+
 function choiceLabeller(choices) {
   const map = {};
   for (const c of choices || []) (map[c.listName] ||= {})[c.value] = c.label;
@@ -495,7 +504,7 @@ const DV_MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juill
 // donc toutes les soumissions sont chargées et filtrées ici — pas de sélecteur
 // de période imposé.
 const DV_DIMS = [
-  { key: 'bureau', label: 'Bureau', get: (r) => r.fieldOffice },
+  { key: 'bureau', label: 'Bureau', get: (r) => r.officeName || r.fieldOfficeLabel || r.fieldOffice },
   { key: 'region', label: 'Région', get: (r) => r.admin1 },
   { key: 'district', label: 'District', get: (r) => r.districtName || r.admin2 },
   { key: 'commune', label: 'Commune', get: (r) => r.communeName || r.admin3 },
@@ -526,7 +535,18 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
   useEffect(() => { setCat(null); setFilters({}); setView('all'); loadData(); /* eslint-disable-next-line */ }, [form.id]);
 
   const rows = res?.rows || [];
-  const labelOf = choiceLabeller(cat?.choices);
+  // Retour n° 2 : bascule « Libellés / Codes » (mémorisée), pour lire « Ambovombe » ou vérifier « 6 ».
+  const [showCodes, setShowCodes] = useState(() => { try { return localStorage.getItem('mems.dv.codes') === '1'; } catch { return false; } });
+  const toggleCodes = (v) => { setShowCodes(v); try { localStorage.setItem('mems.dv.codes', v ? '1' : '0'); } catch { /* stockage indisponible */ } };
+  const baseLabelOf = useMemo(() => choiceLabeller(cat?.choices), [cat]);
+  const labelOf = (field, raw) => (showCodes ? (raw == null || raw === '' ? '—' : String(raw)) : baseLabelOf(field, raw));
+  // Nom de variable du XLSForm → clé réelle des données (« field_office » ↔ « Field_office » d'un export SPSS).
+  const dataKey = useMemo(() => {
+    const m = new Map();
+    for (const r of rows.slice(0, 200)) for (const k of Object.keys(r.data || {})) if (!m.has(k.toLowerCase())) m.set(k.toLowerCase(), k);
+    return m;
+  }, [rows]);
+  const cell = (r, name) => r.data?.[name] ?? r.data?.[dataKey.get(String(name).toLowerCase())];
   const calcCols = useMemo(() => (res?.calcFields || []).map((c) => ({ name: c.name, label: c.label || c.name, listName: null, calc: true })), [res]);
 
   // Options de filtre : une liste de valeurs distinctes par dimension présente.
@@ -538,13 +558,15 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
   // Colonnes « variables » : champs calculés (ƒ) d'abord, puis catalogue, sinon
   // clés vues dans les données.
   const varCols = useMemo(() => {
+    // Catalogue (XLSForm) d'abord, puis les colonnes des données qu'il ne décrit pas
+    // (variables propres à l'export SPSS, colonnes éclatées des choix multiples).
     const catFields = cat?.fields || [];
-    let base = catFields;
-    if (!catFields.length) {
-      const seen = new Map();
-      for (const r of rows) for (const k of Object.keys(r.data || {})) if (!seen.has(k)) seen.set(k, { name: k, label: k, listName: null });
-      base = [...seen.values()];
+    const known = new Set(catFields.map((f) => f.name.toLowerCase()));
+    const seen = new Map();
+    for (const r of rows.slice(0, 200)) for (const k of Object.keys(r.data || {})) {
+      if (!known.has(k.toLowerCase()) && !seen.has(k)) seen.set(k, { name: k, label: k, listName: null });
     }
+    const base = [...catFields, ...seen.values()];
     const calcNames = new Set(calcCols.map((c) => c.name));
     return [...calcCols, ...base.filter((b) => !calcNames.has(b.name))];
   }, [cat, rows, calcCols]);
@@ -570,12 +592,12 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
 
   // Colonnes « méta » qui portent au moins une valeur (évite les colonnes vides).
   const metaCols = useMemo(() => META_COLS.filter((m) => rows.some((r) => {
-    const v = r[m.key] ?? (m.alt ? r[m.alt] : null);
+    const v = metaRaw(r, m, false);
     return v != null && v !== '';
   })), [rows]);
 
   const metaVal = (r, m) => {
-    const v = r[m.key] ?? (m.alt ? r[m.alt] : null);
+    const v = metaRaw(r, m, showCodes);
     return m.fmt ? m.fmt(v) : (v == null || v === '' ? '—' : String(v));
   };
 
@@ -623,7 +645,7 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = list.map((r) => [
       ...metaCols.map((m) => metaVal(r, m)),
-      ...varCols.map((v) => { const raw = r.data?.[v.name]; return raw == null || raw === '' ? '' : labelOf(v, raw); }),
+      ...varCols.map((v) => { const raw = cell(r, v.name); return raw == null || raw === '' ? '' : labelOf(v, raw); }),
     ].map(esc).join(';'));
     const blob = new Blob(['﻿' + [head.map(esc).join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `donnees_${form.code}.csv`; a.click();
@@ -672,6 +694,10 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
                 ? tr('{n} affichée(s) · {k} retenue(s) · {x} exclue(s)', { n: shown.length, k: res.total - (res.excluded || 0), x: res.excluded })
                 : tr('{n} affichée(s) · {k} retenue(s)', { n: shown.length, k: res.total - (res.excluded || 0) })}</span>
               <span className="ind-tsp" />
+              <div className="segmented" role="group" aria-label={tr('Affichage des réponses')}>
+                <button type="button" aria-pressed={!showCodes} onClick={() => toggleCodes(false)} title={tr('Afficher le libellé des réponses codées (« 6 » → « Ambovombe »)')}>{tr('Libellés')}</button>
+                <button type="button" aria-pressed={showCodes} onClick={() => toggleCodes(true)} title={tr('Afficher les codes tels que reçus')}>{tr('Codes')}</button>
+              </div>
               <div className="pop-anchor" ref={colMenu.ref}>
                 <IconButton icon={Columns3} label={tr('Colonnes ({a}/{b})', { a: shownVarCols.length, b: varCols.length })} variant="secondary" size="sm" onClick={() => colMenu.setOpen((o) => !o)} />
                 {colMenu.open && (
@@ -716,7 +742,7 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
                       </td>
                       {metaCols.map((m, mi) => <td key={m.key} className={`${m.key === 'submittedAt' ? 'tabular' : ''} ${mi === 0 ? 'data-first' : ''}`}>{mi === 0 && r.excluded ? <><Badge tone="red">{tr('exclue')}</Badge> </> : null}{metaVal(r, m)}</td>)}
                       {shownVarCols.map((v) => {
-                        const raw = r.data?.[v.name];
+                        const raw = cell(r, v.name);
                         return <td key={v.name} className={`mono-cell data-var ${v.calc ? 'is-calc' : ''}`}>{raw == null || raw === '' ? <span className="cell-empty">—</span> : labelOf(v, raw)}</td>;
                       })}
                     </tr>
@@ -735,14 +761,14 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
             )}
           </>
         )}
-      {open && <SubmissionDrawer sub={open} varCols={varCols} metaCols={metaCols} metaVal={metaVal} labelOf={labelOf} onClose={() => setOpen(null)} />}
+      {open && <SubmissionDrawer sub={open} varCols={varCols} metaCols={metaCols} metaVal={metaVal} labelOf={labelOf} cell={cell} onClose={() => setOpen(null)} />}
     </Card>
   );
 }
 
-function SubmissionDrawer({ sub, varCols, metaCols, metaVal, labelOf, onClose }) {
+function SubmissionDrawer({ sub, varCols, metaCols, metaVal, labelOf, cell, onClose }) {
   const { tr } = useI18n();
-  const extraKeys = Object.keys(sub.data || {}).filter((k) => !varCols.some((v) => v.name === k));
+  const extraKeys = Object.keys(sub.data || {}).filter((k) => !varCols.some((v) => v.name.toLowerCase() === k.toLowerCase()));
   return (
     <Modal open variant="drawer" size="md" title={tr('Soumission')}
       subtitle={sub.externalId ? sub.externalId : (sub.submittedAt ? formatDateTime(sub.submittedAt) : undefined)}
@@ -753,7 +779,7 @@ function SubmissionDrawer({ sub, varCols, metaCols, metaVal, labelOf, onClose })
       <h4 className="drawer-sub">{tr('Réponses')}</h4>
       <dl className="ind-kv">
         {varCols.map((v) => {
-          const raw = sub.data?.[v.name];
+          const raw = cell(sub, v.name);
           return (<React.Fragment key={v.name}>
             <dt>{v.label || v.name}<div className="th-sub mono">{v.name}</div></dt>
             <dd>{raw == null || raw === '' ? <span className="cell-empty">—</span> : labelOf(v, raw)}</dd>
