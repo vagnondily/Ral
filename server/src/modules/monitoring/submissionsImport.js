@@ -1,5 +1,4 @@
 const crypto = require('crypto');
-const ExcelJS = require('exceljs');
 const AdmZip = require('adm-zip');
 const { MAP, canonicalExternalId, OTHER_VALUES, OTHER_SUFFIXES, OTHER_EXTRA } = require('./memsMapping');
 const { parseCollectionDate } = require('./collectionDate');
@@ -9,6 +8,7 @@ const { looksLikeXlsform } = require('./xlsformImport');
 const { sniffFile, decodeText, xlsxSheetNames } = require('../common/fileSniff');
 const { assertZipEntries, DEFAULT_ZIP_LIMITS } = require('../common/zipGuard');
 const { badRequest } = require('../../middleware/errors');
+const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
 
 /**
  * Parse a monitoring export into normalized submission rows. The raw answers
@@ -289,9 +289,8 @@ function cellText(cell) {
 }
 
 /** Première feuille d'un .xlsx → en-têtes + lignes, avec le n° de ligne Excel. */
-async function parseXlsx(buffer) {
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
+async function parseXlsx(buffer, zipLimits) {
+  const wb = await loadWorkbook(buffer, { zipLimits });
   const ws = wb.worksheets[0];
   if (!ws) return { headers: [], rows: [], lines: [] };
   const headers = [];
@@ -422,8 +421,8 @@ async function fromXlsx(buffer, sniff, limits) {
   assertZipEntries(sniff.entries, limits, { archiveBytes: buffer.length }); // ExcelJS décompresse tout
   if (looksLikeXlsform(xlsxSheetNames(buffer))) throw badRequest(XLSFORM);
   let table;
-  try { table = await parseXlsx(buffer); }
-  catch { throw badRequest('Classeur Excel (.xlsx) illisible ou corrompu. Ouvrez-le dans Excel, enregistrez-le de nouveau, puis réessayez.'); }
+  try { table = await parseXlsx(buffer, limits); }
+  catch (err) { if (isRefusal(err)) throw err; throw badRequest('Classeur Excel (.xlsx) illisible ou corrompu. Ouvrez-le dans Excel, enregistrez-le de nouveau, puis réessayez.'); }
   return tabular(table, 'xlsx');
 }
 

@@ -9,6 +9,7 @@ const { assertZipEntries, zipLimitsFromEnv } = require('../common/zipGuard');
 const repo = require('./pdd.repository');
 const { parsePddWorkbook, issue } = require('./pddImport');
 const { buildPddTemplate } = require('./pddTemplate');
+const { isRefusal } = require('../common/xlsxGuard');
 
 /**
  * Plan de Distribution d'urgence (PDD). Lecture pour tout utilisateur du
@@ -101,7 +102,7 @@ router.post('/import', WRITE, express.raw({ type: '*/*', limit: '40mb' }), async
 
   let parsed;
   try { parsed = await parsePddWorkbook(req.body); }
-  catch { throw refusal('IMPORT_UNREADABLE'); }
+  catch (err) { if (isRefusal(err)) throw err; throw refusal('IMPORT_UNREADABLE'); }
   if (!parsed.sheet) throw refusal('IMPORT_NO_SHEET');
   const report = {
     sheet: parsed.sheet, table: parsed.table, headerRow: parsed.headerRow, firstLine: parsed.firstLine, lastLine: parsed.lastLine,

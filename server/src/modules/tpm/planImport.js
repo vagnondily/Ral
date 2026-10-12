@@ -1,5 +1,5 @@
 const { normalizeSecurity } = require('./rbmScore');
-const ExcelJS = require('exceljs');
+const { loadWorkbook } = require('../common/xlsxGuard');
 
 /**
  * Parseur de la feuille « Risk-based site selection » du Plan de suivi
@@ -70,8 +70,7 @@ function detectHeader(ws) {
  * Un site requiert au moins district + commune + nom (sinon ignoré).
  */
 async function parsePlanWorkbook(buffer) {
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
+  const wb = await loadWorkbook(buffer);
   // Cherche une feuille exploitable (Co-Monitoring, par bureau, …).
   let found = null;
   for (const ws of wb.worksheets) {

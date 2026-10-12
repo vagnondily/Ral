@@ -5,15 +5,15 @@ const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound } = require('../../middleware/errors');
 const repo = require('./monitoring.repository');
-const ExcelJS = require('exceljs');
 const { parseSubmissions } = require('./submissionsImport');
 const { parseXlsformRows } = require('./xlsformImport');
 const { readXls, XlsError } = require('./xlsReader');
 const { sniffFile } = require('../common/fileSniff');
-const { assertZipEntries, zipLimitsFromEnv } = require('../common/zipGuard');
+const { zipLimitsFromEnv } = require('../common/zipGuard');
 const { validateExpression } = require('./calcFields');
 const dataLinks = require('./dataLinks.service');
 const settingsRepo = require('../settings/settings.repository');
+const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
 
 /**
  * Suivi de processus — forms, configurable indicators (mapping) and real
@@ -278,10 +278,9 @@ router.post('/import-definition', WRITE, express.raw({ type: '*/*', limit: '60mb
     const byName = new Map(Object.entries(xls.sheets).map(([k, v]) => [k.trim().toLowerCase(), v]));
     sheetRows = (name) => byName.get(name) || [];
   } else {
-    assertZipEntries(sniff.entries, zipLimitsFromEnv(process.env), { archiveBytes: req.body.length });
     let wb;
-    try { wb = new ExcelJS.Workbook(); await wb.xlsx.load(req.body); }
-    catch { throw badRequest('Fichier illisible : fournissez un XLSForm .xlsx ou .xls (feuilles survey/choices/settings).'); }
+    try { wb = await loadWorkbook(req.body, { zipLimits: zipLimitsFromEnv(process.env) }); }
+    catch (err) { if (isRefusal(err)) throw err; throw badRequest('Fichier illisible : fournissez un XLSForm .xlsx ou .xls (feuilles survey/choices/settings).'); }
     sheetRows = (name) => {
       const ws = wb.worksheets.find((w) => w.name.trim().toLowerCase() === name);
       if (!ws) return [];

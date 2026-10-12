@@ -1,5 +1,6 @@
 const ExcelJS = require('exceljs');
 const { LINE_CODES, LINE_LABELS, isValidLine } = require('../contracts/budgetCatalog');
+const { loadWorkbook } = require('../common/xlsxGuard');
 
 /**
  * Shared Excel template + parser for an « état des dépenses » (postes) — used
@@ -134,8 +135,7 @@ function buildTemplateWorkbook({ title = 'Modèle — État des dépenses', subt
 
 /** Parse a filled template into raw items (caller runs normalizeItems). */
 async function parsePostesWorkbook(buffer) {
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
+  const wb = await loadWorkbook(buffer);
   const ws = wb.getWorksheet('Postes');
   if (!ws) { const e = new Error('SHEET'); e.code = 'NO_SHEET'; throw e; }
 

@@ -1,7 +1,6 @@
 const express = require('express');
 const { Router } = require('express');
 const { z } = require('zod');
-const ExcelJS = require('exceljs');
 const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound } = require('../../middleware/errors');
@@ -9,6 +8,7 @@ const repo = require('./field.repository');
 const settingsRepo = require('../settings/settings.repository');
 const { buildLocationsWorkbook, parseLocationsWorkbook, POI_SUBTYPES, MODALITIES } = require('./locationsXlsx');
 const { officeResolver } = require('./mmrXlsx');
+const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
 
 /**
  * Suivi terrain — sites (établissements) et planification/affectation des
@@ -172,6 +172,7 @@ router.post('/plan-board/locations/import', WRITE, express.raw({ type: '*/*', li
   const activities = [...new Set(mmr.map((m) => m.activityCategory))];
   let parsed;
   try { parsed = await parseLocationsWorkbook(req.body, { resolveOffice, activities }); } catch (err) {
+    if (isRefusal(err)) throw err;
     if (err && err.code === 'NO_SHEET') throw badRequest('Aucune feuille « Locations Management » reconnue (en-têtes Point of Interest, Activity Tag, Sub Office).');
     throw badRequest('Fichier Excel illisible.');
   }
@@ -195,8 +196,8 @@ router.post('/rbm/generate', WRITE, asyncHandler(async (req, res) => {
 router.post('/rbm/import', WRITE, express.raw({ type: '*/*', limit: '40mb' }), asyncHandler(async (req, res) => {
   if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
   let wb;
-  try { wb = new ExcelJS.Workbook(); await wb.xlsx.load(req.body); }
-  catch { throw badRequest('Fichier illisible : fournissez un .xlsx.'); }
+  try { wb = await loadWorkbook(req.body); }
+  catch (err) { if (isRefusal(err)) throw err; throw badRequest('Fichier illisible : fournissez un .xlsx.'); }
   const ws = wb.getWorksheet('Feuil1') || wb.worksheets[0];
   if (!ws) throw badRequest('Feuille introuvable.');
   const cell = (row, c) => {
@@ -228,7 +229,7 @@ router.post('/rbm/import-plan', WRITE, express.raw({ type: '*/*', limit: '60mb' 
   if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
   let parsed;
   try { parsed = await require('./planImport').parsePlanWorkbook(req.body); }
-  catch { throw badRequest('Fichier illisible : fournissez un .xlsx du Plan de suivi.'); }
+  catch (err) { if (isRefusal(err)) throw err; throw badRequest('Fichier illisible : fournissez un .xlsx du Plan de suivi.'); }
   if (!parsed.sheet) throw badRequest('Aucune feuille « Risk-based site selection » détectée (en-têtes Site name + FINAL SCORE).');
   if (parsed.sites.length === 0) throw badRequest(`Aucun site exploitable (district + commune requis). ${parsed.skipped} ligne(s) sans géographie ignorée(s).`);
   const result = await repo.importPlanSites(t(req), uid(req), parsed.sites);
@@ -323,8 +324,8 @@ router.post('/import', WRITE, express.raw({ type: '*/*', limit: '40mb' }), async
   if (!month) throw badRequest('Mois requis (?month=YYYY-MM).');
   if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
   let wb;
-  try { wb = new ExcelJS.Workbook(); await wb.xlsx.load(req.body); }
-  catch { throw badRequest('Fichier illisible : fournissez un .xlsx.'); }
+  try { wb = await loadWorkbook(req.body); }
+  catch (err) { if (isRefusal(err)) throw err; throw badRequest('Fichier illisible : fournissez un .xlsx.'); }
   const ws = wb.getWorksheet('Planning') || wb.worksheets[0];
   if (!ws) throw badRequest('Feuille « Planning » introuvable.');
 

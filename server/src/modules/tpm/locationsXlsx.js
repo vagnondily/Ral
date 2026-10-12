@@ -1,5 +1,6 @@
 const ExcelJS = require('exceljs');
 const { normalizeSecurity } = require('./rbmScore');
+const { loadWorkbook } = require('../common/xlsxGuard');
 
 /**
  * Registre des sites ⇄ Excel au format du classeur du plan de suivi (feuille
@@ -177,8 +178,7 @@ function excelDate(v) {
  *   errors = lignes rejetées (valeur invalide) ; warnings = importées mais signalées.
  */
 async function parseLocationsWorkbook(buffer, { resolveOffice, activities = [] } = {}) {
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
+  const wb = await loadWorkbook(buffer);
   let ws = wb.getWorksheet('Locations Management'); let hr = null; let map = null;
   const findHead = (w) => {
     for (let r = 1; r <= Math.min(w.actualRowCount || 10, 10); r += 1) {

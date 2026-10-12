@@ -1,4 +1,5 @@
 const ExcelJS = require('exceljs');
+const { loadWorkbook } = require('../common/xlsxGuard');
 
 /**
  * Parseur du tableau PDD (Plan de Distribution d'urgence) : feuille « PDD base »
@@ -486,9 +487,8 @@ function markBlocking(skippedRows, months) {
  *   - tooManyRows : { limit, count } si la feuille dépasse `maxRows` (rien n'est lu).
  */
 async function parsePddWorkbook(buffer, { maxRows = MAX_DATA_ROWS } = {}) {
-  const wb = new ExcelJS.Workbook();
-  // Nœuds sans incidence sur les valeurs : ignorés pour charger plus vite.
-  await wb.xlsx.load(buffer, { ignoreNodes: ['dataValidations', 'conditionalFormatting', 'drawing', 'picture', 'extLst'] });
+  // Gardes (zones fusionnées, décompression) et nœuds sans incidence sur les valeurs ignorés.
+  const wb = await loadWorkbook(buffer);
   const found = findPddSheet(wb);
   const base = { rows: [], skipped: 0, skippedRows: [], blocking: 0, warnings: [], months: [], layoutIssues: [] };
   if (!found) return { ...base, sheet: null };

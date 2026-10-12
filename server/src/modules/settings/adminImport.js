@@ -3,10 +3,10 @@ const path = require('path');
 const fs = require('fs');
 const AdmZip = require('adm-zip');
 const { DBFFile } = require('dbffile');
-const ExcelJS = require('exceljs');
 const { readShp, isGeographicPrj, plausible } = require('./shpReader');
 const { readXls, isOleFile } = require('../monitoring/xlsReader');
 const { breakdownFromChoices } = require('./xlsformAdmin');
+const { loadWorkbook } = require('../common/xlsxGuard');
 
 /**
  * Import du découpage administratif (un fichier PAR PAYS / tenant) :
@@ -207,8 +207,7 @@ async function workbookSheets(buffer) {
     const xls = readXls(buffer);
     return new Map(Object.entries(xls.sheets).map(([k, v]) => [k.trim().toLowerCase(), v]));
   }
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
+  const wb = await loadWorkbook(buffer);
   const out = new Map();
   for (const ws of wb.worksheets) {
     const rows = [];

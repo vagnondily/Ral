@@ -5,6 +5,7 @@ const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest } = require('../../middleware/errors');
 const { buildTemplateWorkbook, parsePostesWorkbook } = require('./postesXlsx');
 const { normalizeItems, summarize } = require('./reportMath');
+const { isRefusal } = require('../common/xlsxGuard');
 
 /**
  * Shared Excel helpers for the postes / état des dépenses (facture + plan).
@@ -33,6 +34,7 @@ router.post('/import', WRITE, express.raw({ type: '*/*', limit: '20mb' }), async
   try {
     parsed = await parsePostesWorkbook(req.body);
   } catch (err) {
+    if (isRefusal(err)) throw err;
     if (err && err.code === 'NO_SHEET') throw badRequest('Le fichier ne contient pas de feuille « Postes ». Téléchargez et remplissez le modèle.');
     throw badRequest('Fichier Excel illisible ou format non reconnu (utilisez le modèle).');
   }

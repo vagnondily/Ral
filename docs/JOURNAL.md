@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 15:12 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 12/10/2026 15:15 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -184,6 +184,8 @@ _Dernière mise à jour : 12/10/2026 15:12 UTC_ — la branche `main` reçoit ch
   - **Dates** : une vraie date de 1970 n'est plus « réparée » à tort (migration 053) ; un export SPSS prend le même horodatage serveur qu'Excel.
   - Synthèse : un mois choisi pendant le premier chargement n'est plus remplacé ; fenêtre « Relier à un site » : recherche préremplie, plus de « aucun site trouvé » avant d'avoir cherché.
   - Au passage : six lectures groupées sur une même connexion à la base rendues séquentielles (avertissement de la bibliothèque `pg`, refusé dans sa prochaine version).
-- **15:12** ✅ **Publié sur `main`** (`59994c8`, avance rapide de 12 commits) : retours n° 2-3 (codes ↔ libellés), 7 (espace RBM), 8 (sites du plan de collecte), 12 (modèles d'indicateurs), 14 (formulaires reliés aux sites) et les correctifs de la relecture. **Chez vous** : arrêtez l'API, `npm run migrate` dans `server` (migrations 053 à 056), redémarrez l'API ; la réparation des données se fait seule au démarrage (une fois).
+- **15:10** ✅ **Publié sur `main`** (`59994c8`, avance rapide de 12 commits) : retours n° 2-3 (codes ↔ libellés), 7 (espace RBM), 8 (sites du plan de collecte), 12 (modèles d'indicateurs), 14 (formulaires reliés aux sites) et les correctifs de la relecture. **Chez vous** : arrêtez l'API, `npm run migrate` dans `server` (migrations 053 à 056), redémarrez l'API ; la réparation des données se fait seule au démarrage (une fois).
+- **15:13** ✅ **R0 « PDD » fusionné** (vérifié par un second agent : 367 tests, votre classeur PDD réel lu en 0,4 s — 492 lignes, 0 ignorée —, imports simultanés et multi-comptes sûrs). Import sans cellules fantômes (une valeur isolée en ligne 1 048 000 : 57 ms au lieu de 42 s et 8,4 Go), lignes sous le tableau Excel signalées, **tout ou rien par défaut** (case « Importer quand même »), modalité Inkind / CBT / Mixte contrôlée en base (migration 057, appliquée en dev).
+- **15:15** ✅ **Garde commune des imports Excel** (risque signalé par le vérificateur PDD) : un `.xlsx` de 6 Ko qui fusionne une zone géante, ou une validation posée sur une colonne entière, faisait gonfler la mémoire jusqu'à arrêter l'API. Les **11 imports Excel** passent maintenant par une seule porte : garde de décompression, fusions plafonnées à 100 000 cellules (vos classeurs réels : 3 249 au plus), validations ignorées à la lecture (3 colonnes validées : 3,5 s et 379 Mo → 21 ms et 2 Mo). Résultats identiques avant/après sur vos classeurs réels (budget FLA, PDD, RBM, planning, export Résilience). 384 tests, lint strict propre.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
