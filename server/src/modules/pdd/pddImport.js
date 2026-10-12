@@ -51,12 +51,13 @@ async function parsePddWorkbook(buffer) {
     const row = ws.getRow(r);
     const region = s(row.getCell(14)); const district = s(row.getCell(15)); const commune = s(row.getCell(16));
     const activity = s(row.getCell(7)) || s(row.getCell(4));
-    if ((!district && !commune) || !activity) { skipped += 1; continue; }
-    const mName = s(row.getCell(1)).toLowerCase(); const month = MONTHS[mName] || 0;
+    const mName = s(row.getCell(1)).toLowerCase();
+    if (!mName && !activity && !district && !commune) continue; // ligne vide (ex. modèle) : ni lue ni comptée
+    if ((!district && !commune) || !activity) { skipped += 1; continue; } const month = MONTHS[mName] || 0;
     const year = num(row.getCell(2)) || new Date().getFullYear();
     const items = {};
     for (const [c, name] of COMMODITIES) { const q = num(row.getCell(c)); if (q > 0) items[name] = r3(q); }
-    const hazard = /cyclone/i.test(activity) ? 'cyclone' : (/drought|sech/i.test(activity) ? 'drought' : 'autre');
+    const hazard = /cyclone/i.test(activity) ? 'cyclone' : (/drought|s[ée]ch/i.test(activity) ? 'drought' : 'autre');
     rows.push({
       month, year, periodMonth: month ? `${year}-${String(month).padStart(2, '0')}-01` : null,
       activity, hazard, wbs: s(row.getCell(3)) || null, antenne: s(row.getCell(10)) || null, sousBureau: s(row.getCell(11)) || null,

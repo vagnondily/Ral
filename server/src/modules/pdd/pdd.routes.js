@@ -6,6 +6,7 @@ const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest } = require('../../middleware/errors');
 const repo = require('./pdd.repository');
 const { parsePddWorkbook } = require('./pddImport');
+const { buildPddTemplate } = require('./pddTemplate');
 
 /**
  * Plan de Distribution d'urgence (PDD). Lecture pour tout utilisateur du
@@ -57,6 +58,14 @@ const stockSchema = z.object({
 router.put('/stock', WRITE, body(stockSchema), asyncHandler(async (req, res) => {
   await repo.setStock(t(req), req.valid, uid(req));
   res.status(204).end();
+}));
+
+// ---- Modèle vierge (même format que l'import, avec note de format) --------
+router.get('/template.xlsx', asyncHandler(async (req, res) => {
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="Modele_PDD_MEMS2.xlsx"');
+  await buildPddTemplate().xlsx.write(res);
+  res.end();
 }));
 
 // ---- Import du fichier PDD (.xlsx, feuille « PDD base ») -----------------

@@ -45,6 +45,21 @@ export class ApiError extends Error {
   }
 }
 
+// Téléchargement authentifié d'un fichier binaire (modèles .xlsx, exports).
+async function downloadFile(path, filename) {
+  let res;
+  try {
+    res = await fetch(new URL(`${API_URL}${path}`), {
+      headers: memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {},
+    });
+  } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+  if (!res.ok) throw new ApiError(res.status, `Erreur ${res.status}`);
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+  a.remove(); URL.revokeObjectURL(url);
+}
+
 async function request(path, { method = 'GET', body, query, auth = true } = {}) {
   const url = new URL(API_URL + path);
   if (query) {
@@ -376,6 +391,7 @@ export const api = {
     return data;
   },
   // Modèle Excel vierge (avec listes déroulantes)
+  downloadPddTemplate: () => downloadFile('/api/pdd/template.xlsx', 'Modele_PDD_MEMS2.xlsx'),
   downloadPostesTemplate: async () => {
     let res;
     try {

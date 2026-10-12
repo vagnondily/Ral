@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, PackageOpen, Boxes, Layers, AlertTriangle, ChevronLeft, CalendarClock, ChevronRight as GoIcon } from 'lucide-react';
+import { Upload, Download, PackageOpen, Boxes, Layers, AlertTriangle, ChevronLeft, CalendarClock, ChevronRight as GoIcon } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, Card, CardHeader, EmptyState, ExpandButton, Skeleton, Stats, Usage } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
@@ -68,6 +68,7 @@ function DistributionsView({ canEdit, onNavigate }) {
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => { api.pddCommodities().then(setCommodities).catch(() => setCommodities([])); }, []);
 
+  const downloadTemplate = () => api.downloadPddTemplate().catch((err) => toast.error(err.message));
   const onImport = async (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
     if (!f) return;
@@ -174,6 +175,8 @@ function DistributionsView({ canEdit, onNavigate }) {
           {!picking && <Button variant="secondary" icon={ChevronLeft} onClick={() => { setPicking(true); setMonth(''); }}>Tous les mois</Button>}
           {canEdit && <>
             <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={onImport} />
+            <Button variant="ghost" icon={Download} onClick={downloadTemplate}
+              title="Classeur vierge au format exact de l'import (feuille « PDD base » + feuille « Lisez-moi » qui décrit chaque colonne).">Modèle PDD</Button>
             <Button variant="secondary" icon={Upload} loading={busy} onClick={() => fileRef.current?.click()}
               title="Importe la feuille « PDD base » : mois, zone, activité, bénéficiaires, tonnages. Réimport idempotent (les mois du fichier sont remplacés).">Importer le PDD</Button>
           </>}
@@ -183,7 +186,8 @@ function DistributionsView({ canEdit, onNavigate }) {
       {error && <Alert tone="error">{error}</Alert>}
 
       {picking ? (
-        <PddMonthsTable data={rows === null ? null : monthsAgg} total={stats} onOpen={openMonth} />
+        <PddMonthsTable data={rows === null ? null : monthsAgg} total={stats} onOpen={openMonth}
+          canEdit={canEdit} onTemplate={downloadTemplate} onImport={() => fileRef.current?.click()} />
       ) : (
         <>
           <div className="month-active-bar">
@@ -218,10 +222,25 @@ function DistributionsView({ canEdit, onNavigate }) {
 }
 
 // Tableau des mois : une ligne par mois avec ses totaux ; clic → distributions.
-function PddMonthsTable({ data, total, onOpen }) {
+function PddMonthsTable({ data, total, onOpen, canEdit, onTemplate, onImport }) {
   if (data === null) return <Card><div className="card-body"><Skeleton height={280} /></div></Card>;
   if (data.length === 0) {
-    return <Card><EmptyState icon={PackageOpen} title="Aucune distribution">Importez un fichier PDD (.xlsx) pour alimenter le module.</EmptyState></Card>;
+    return (
+      <Card>
+        <EmptyState icon={PackageOpen} title="Aucune distribution"
+          action={canEdit && (
+            <div className="header-actions" style={{ justifyContent: 'center' }}>
+              <Button variant="secondary" icon={Download} onClick={onTemplate}>1 · Télécharger le modèle</Button>
+              <Button icon={Upload} onClick={onImport}>2 · Importer le fichier rempli</Button>
+            </div>
+          )}>
+          Le plan de distribution s'alimente depuis un classeur Excel (feuille « PDD base » : une ligne par
+          distribution — mois, zone, activité, bénéficiaires, tonnage par denrée, cash). Le modèle contient
+          les colonnes à leur place exacte, des listes de contrôle à la saisie et une feuille « Lisez-moi »
+          qui décrit chaque colonne. Réimporter un mois remplace ses distributions.
+        </EmptyState>
+      </Card>
+    );
   }
   const maxBen = Math.max(...data.map((m) => m.beneficiaries), 1);
   return (
