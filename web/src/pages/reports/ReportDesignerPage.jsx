@@ -241,7 +241,18 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
   const [forms, setForms] = useState([]);
   const [offices, setOffices] = useState([]);
   const pageRef = useRef(null);
+  const topbarRef = useRef(null);
+  const [topbarH, setTopbarH] = useState(64);
   const final = meta.status === 'final';
+
+  // Les panneaux latéraux se placent sous la barre d'outils, dont la hauteur varie (1 ou 2 lignes).
+  useEffect(() => {
+    const el = topbarRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => setTopbarH(Math.ceil(el.getBoundingClientRect().height)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const editable = canEdit && !final;
 
   useEffect(() => {
@@ -394,8 +405,8 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
   };
 
   return (
-    <div className="rd-editor">
-      <div className="rd-topbar">
+    <div className="rd-editor" style={{ '--rd-top': `${topbarH}px` }}>
+      <div className="rd-topbar" ref={topbarRef}>
         <Button variant="ghost" icon={ArrowLeft} onClick={() => { if (!dirty || window.confirm(tr('Quitter sans enregistrer ?'))) onClose(); }}>{tr('Rapports')}</Button>
         <input className="input rd-title" value={doc.title} disabled={!editable} maxLength={200} aria-label={tr('Titre du rapport')}
           onChange={(e) => change((d) => ({ ...d, title: e.target.value }))} />
@@ -477,7 +488,7 @@ function Outline({ blocks, selected, onSelect, onMove, onMoveTo, onRemove, onDup
             <div className={`rd-ol-row ${selected?.id === b.id ? 'is-selected' : ''}`} onClick={() => onSelect({ id: b.id, parent })}>
               <GripVertical size={13} className="rd-grip" aria-hidden="true" />
               <Icon size={14} aria-hidden="true" />
-              <span className="rd-ol-label">{String(label(b)).slice(0, 40)}</span>
+              <span className="rd-ol-label" title={String(label(b))}>{String(label(b))}</span>
               <span className="rd-block-tools">
                 <button type="button" onClick={(e) => { e.stopPropagation(); onMove(b.id, parent, -1); }} aria-label={tr('Monter')} disabled={i === 0}><ChevronUp size={13} /></button>
                 <button type="button" onClick={(e) => { e.stopPropagation(); onMove(b.id, parent, 1); }} aria-label={tr('Descendre')} disabled={i === blocks.length - 1}><ChevronDown size={13} /></button>
