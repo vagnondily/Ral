@@ -214,7 +214,7 @@ async function officeChoiceLabelsTx(client, tenantId) {
   for (const f of fields) { if (!byForm.has(f.formId)) byForm.set(f.formId, []); byForm.get(f.formId).push(f); }
   const lists = [];
   for (const [formId, list] of byForm) {
-    const col = (detectMapping(list.map((f) => f.name)).find((d) => d.key === 'fieldOffice') || {}).column;
+    const col = (detectMapping(list.map((f) => f.name)).find((d) => d.key === 'field_office') || {}).column;
     const field = col && list.find((f) => f.name === col);
     if (field && field.listName) lists.push([formId, field.listName]);
   }
@@ -386,5 +386,6 @@ async function applyAll(tenantId) {
 
 module.exports = {
   loadPlaceIndexTx, applySitesGeoTx, syncQueueTx, resolvePerimeterTx, attachUnassignedSitesTx, afterSitesChangedTx, applySubmissionsGeoTx,
+  officeChoiceLabelsTx,
   listQueue, listAliases, decideQueue, deleteAlias, applyAll,
 };

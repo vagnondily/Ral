@@ -3,6 +3,7 @@ import {
   Plus, Upload, AlertCircle, ClipboardCheck, RefreshCw, ArrowLeft, ChevronRight,
   FileSpreadsheet, SlidersHorizontal, BarChart3, Link2, Trash2, Pencil, Check, Minus, Shuffle,
   Table2, Download, Search, Columns3, X, ChevronDown, ChevronUp, Ban, Undo2, AlertTriangle, Link as LinkIcon,
+  CheckCircle2, Circle, Sparkles,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, IconButton, PageHeader, Skeleton, Stats } from '../../components/ui.jsx';
@@ -12,8 +13,9 @@ import { usePopover } from '../../components/listView.jsx';
 import IndicatorsList from './IndicatorsList.jsx';
 import { CalcFieldsCard } from './CalcFields.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import { currentMonth, formatDateTime, formatLocale } from '../../lib/format.js';
+import { currentMonth, formatDateTime, formatInt, formatLocale } from '../../lib/format.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { suggestActivity } from '../../lib/activitySuggest.js';
 
 /**
  * Suivi de processus › Données & indicateurs.
@@ -61,6 +63,19 @@ const META_COLS = [
   { key: 'agent', label: 'Agent' },
 ];
 
+/**
+ * Étapes pour qu'une fiche alimente les tableaux de bord et les rapports, dans
+ * l'ordre où l'utilisateur doit les faire. `next` = la première non faite.
+ */
+function formSteps(f) {
+  const steps = [
+    { id: 'activity', done: !!f.activityCategory, label: 'Rattacher à une activité', hint: 'Relie la fiche aux sites de cette activité : couverture, sites actifs et plan de suivi.' },
+    { id: 'data', done: (f.submissionCount ?? 0) > 0, label: 'Importer les données', hint: 'Export Kobo (.zip, .sav), Excel / CSV, lien ONA ou API Kobo.', tab: 'donnees' },
+    { id: 'indicators', done: (f.indicatorCount ?? 0) > 0, label: 'Définir les indicateurs', hint: 'Chaque indicateur relie une question du formulaire à un calcul (% de oui, moyenne…).', tab: 'config' },
+  ];
+  return { steps, next: steps.find((x) => !x.done) || null };
+}
+
 export default function ProcessMonitoringPage({ canEdit, isAdmin }) {
   const { tr } = useI18n();
   const toast = useToast();
@@ -69,6 +84,8 @@ export default function ProcessMonitoringPage({ canEdit, isAdmin }) {
   const [error, setError] = useState(null);
   const [editing, setEditing] = useState(null);   // fiche en cours de modification
   const [deleting, setDeleting] = useState(null); // fiche à supprimer
+  const [attaching, setAttaching] = useState(null); // fiche à rattacher à une activité
+  const [openTab, setOpenTab] = useState(null);     // onglet d'ouverture de la fiche
 
   async function loadForms() {
     setError(null);
@@ -103,8 +120,12 @@ export default function ProcessMonitoringPage({ canEdit, isAdmin }) {
     } catch (err) { toast.error(err.message); } finally { setImportingDef(false); }
   }
 
+  const open = (f, tab = null) => { setOpenTab(tab); setSelId(f.id); };
+  // Prochaine étape d'une fiche : rattacher (fenêtre dédiée) ou ouvrir le bon onglet.
+  const doStep = (f, step) => (step.id === 'activity' ? setAttaching(f) : open(f, step.tab));
+
   if (selected) {
-    return <FormDetail form={selected} canEdit={canEdit} onBack={() => setSelId(null)} onChanged={loadForms} />;
+    return <FormDetail form={selected} canEdit={canEdit} initialTab={openTab} onBack={() => { setSelId(null); setOpenTab(null); }} onChanged={loadForms} />;
   }
 
   return (
@@ -125,36 +146,52 @@ export default function ProcessMonitoringPage({ canEdit, isAdmin }) {
           </EmptyState></Card>
         ) : (
           <Card aria-label={tr('Fiches de suivi')}>
-            <CardHeader title={tr('Fiches de suivi')} subtitle={tr('{n} fiche(s) — cliquez sur une ligne pour l\'ouvrir.', { n: forms.length })} />
-            {forms.some((f) => !f.activityCategory) && (
-              <div className="card-body" style={{ paddingBottom: 0 }}>
-                <Alert tone="warning" icon={AlertTriangle}>{tr('{n} fiche(s) non rattachée(s) à une activité du MMR : leur couverture et leur place dans le plan de suivi ne peuvent pas être calculées. Utilisez « Modifier » pour les rattacher.', { n: forms.filter((f) => !f.activityCategory).length })}</Alert>
-              </div>
-            )}
+            <CardHeader title={tr('Fiches de suivi')} subtitle={tr('{n} fiche(s) — cliquez sur une ligne pour l\'ouvrir. La colonne « Prochaine étape » indique ce qu\'il reste à faire pour que la fiche alimente les tableaux de bord.', { n: forms.length })} />
+            {canEdit && forms.some((f) => !f.activityCategory) && (() => {
+              const todo = forms.filter((f) => !f.activityCategory);
+              return (
+                <div className="card-body" style={{ paddingBottom: 0 }}>
+                  <Alert tone="warning" icon={AlertTriangle}>
+                    {tr('{n} fiche(s) non rattachée(s) à une activité : leur couverture et leur place dans le plan de suivi ne peuvent pas être calculées.', { n: todo.length })}
+                    {' '}<button type="button" className="inline-link" onClick={() => setAttaching(todo[0])}>{todo.length === 1 ? tr('Rattacher la fiche « {label} »', { label: todo[0].label }) : tr('Rattacher la première')}</button>
+                  </Alert>
+                </div>
+              );
+            })()}
             <div className="table-wrap">
               <table className="table">
                 <thead><tr>
-                  <th scope="col">{tr('Fiche')}</th><th scope="col">{tr('Activité (MMR)')}</th><th scope="col" className="num">{tr('Indicateurs')}</th>
-                  <th scope="col" className="num">{tr('Soumissions')}</th><th scope="col">{tr('Statut')}</th><th scope="col" className="num">{tr('Actions')}</th>
+                  <th scope="col">{tr('Fiche')}</th><th scope="col">{tr('Activité (MMR)')}</th>
+                  <th scope="col" className="num">{tr('Soumissions')}</th><th scope="col" className="num">{tr('Indicateurs')}</th>
+                  <th scope="col">{tr('Prochaine étape')}</th><th scope="col" className="num">{tr('Actions')}</th>
                 </tr></thead>
                 <tbody>
-                  {forms.map((f) => (
-                    <tr key={f.id} className="clickable" onClick={() => setSelId(f.id)}>
-                      <td><strong>{f.label}</strong><div className="site-meta mono">{f.code}</div></td>
-                      <td>{f.activityCategory
-                        ? <span className="nowrap"><LinkIcon size={13} className="muted" aria-hidden="true" /> {f.activityCategory}</span>
-                        : <Badge tone="orange" icon={AlertTriangle}>{tr('À rattacher')}</Badge>}</td>
-                      <td className="num tabular">{f.indicatorCount ?? 0}</td>
-                      <td className="num tabular">{f.submissionCount ?? 0}</td>
-                      <td><Badge tone={f.active ? 'green' : null} dot>{f.active ? tr('Active') : tr('Inactive')}</Badge></td>
-                      <td className="num nowrap" onClick={(e) => e.stopPropagation()}>
-                        <Button size="sm" onClick={() => setSelId(f.id)}>{tr('Ouvrir')}</Button>
-                        {canEdit && <IconButton icon={Pencil} label={tr('Modifier')} onClick={() => setEditing(f)} />}
-                        {canEdit && <IconButton icon={Trash2} label={tr('Supprimer')} onClick={() => setDeleting(f)}
-                          disabled={f.submissionCount > 0 && !isAdmin} title={f.submissionCount > 0 && !isAdmin ? tr('Fiche avec données : désactivez-la (seul un administrateur peut la supprimer).') : undefined} />}
-                      </td>
-                    </tr>
-                  ))}
+                  {forms.map((f) => {
+                    const { next } = formSteps(f);
+                    return (
+                      <tr key={f.id} className="clickable" onClick={() => open(f)}>
+                        <td><strong>{f.label}</strong><div className="site-meta mono">{f.code}</div>
+                          {!f.active && <Badge tone={null} dot>{tr('Inactive')}</Badge>}</td>
+                        <td onClick={(e) => e.stopPropagation()}>{f.activityCategory
+                          ? <span className="nowrap"><LinkIcon size={13} className="muted" aria-hidden="true" /> {f.activityCategory}</span>
+                          : canEdit
+                            ? <button type="button" className="step-chip is-warn" onClick={() => setAttaching(f)}><AlertTriangle size={13} aria-hidden="true" /> {tr('À rattacher')}</button>
+                            : <Badge tone="orange" icon={AlertTriangle}>{tr('À rattacher')}</Badge>}</td>
+                        <td className="num tabular">{formatInt(f.submissionCount ?? 0)}</td>
+                        <td className="num tabular">{f.indicatorCount ?? 0}</td>
+                        <td onClick={(e) => e.stopPropagation()}>{next
+                          ? <button type="button" className="step-chip" title={tr(next.hint)} onClick={() => doStep(f, next)} disabled={!canEdit && next.id !== 'data'}>
+                            <Circle size={12} aria-hidden="true" /> {tr(next.label)}</button>
+                          : <span className="step-chip is-done"><CheckCircle2 size={13} aria-hidden="true" /> {tr('Prête')}</span>}</td>
+                        <td className="num nowrap" onClick={(e) => e.stopPropagation()}>
+                          <Button size="sm" onClick={() => open(f)}>{tr('Ouvrir')}</Button>
+                          {canEdit && <IconButton icon={Pencil} label={tr('Modifier')} onClick={() => setEditing(f)} />}
+                          {canEdit && <IconButton icon={Trash2} label={tr('Supprimer')} onClick={() => setDeleting(f)}
+                            disabled={f.submissionCount > 0 && !isAdmin} title={f.submissionCount > 0 && !isAdmin ? tr('Fiche avec données : désactivez-la (seul un administrateur peut la supprimer).') : undefined} />}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -162,7 +199,59 @@ export default function ProcessMonitoringPage({ canEdit, isAdmin }) {
         )}
       {editing && <FormEditModal form={editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await loadForms(); }} />}
       {deleting && <FormDeleteModal form={deleting} onClose={() => setDeleting(null)} onDeleted={async () => { setDeleting(null); await loadForms(); }} />}
+      {attaching && <AttachActivityModal form={attaching} onClose={() => setAttaching(null)} onSaved={async () => { setAttaching(null); await loadForms(); }} />}
     </div>
+  );
+}
+
+/**
+ * Rattacher une fiche à une activité du MMR, en un clic : la liste des
+ * activités, avec en tête une suggestion déduite du nom de la fiche.
+ */
+function AttachActivityModal({ form, onClose, onSaved }) {
+  const { tr } = useI18n();
+  const toast = useToast();
+  const [activities, setActivities] = useState(null);
+  const [choice, setChoice] = useState(form.activityCategory || '');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api.listMmr().then((rows) => {
+      const list = [...new Set(rows.map((r) => String(r.activityCategory || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+      setActivities(list);
+      if (!form.activityCategory) setChoice(suggestActivity(form, list) || '');
+    }).catch((e) => { toast.error(e.message); setActivities([]); });
+    /* eslint-disable-next-line */
+  }, [form.id]);
+  const suggested = activities ? suggestActivity(form, activities) : null;
+  const ordered = activities ? [...(suggested ? [suggested] : []), ...activities.filter((a) => a !== suggested)] : [];
+  async function save() {
+    setSaving(true);
+    try {
+      await api.monUpdateForm(form.id, { activityCategory: choice || null });
+      toast.success(tr('« {label} » est rattachée à « {activity} ».', { label: form.label, activity: choice }));
+      onSaved();
+    } catch (e) { toast.error(e.message); } finally { setSaving(false); }
+  }
+  return (
+    <Modal open onClose={onClose} title={tr('Rattacher à une activité')} subtitle={form.label}
+      footer={<><Button variant="secondary" onClick={onClose}>{tr('Annuler')}</Button><Button icon={Check} loading={saving} disabled={!choice} onClick={save}>{tr('Rattacher')}</Button></>}>
+      <p className="hint" style={{ marginTop: 0 }}>{tr('L\'activité relie la fiche aux sites de cette activité : la couverture, les sites actifs, le plan de suivi et les rapports en dépendent. Choisissez l\'activité suivie par ce formulaire.')}</p>
+      {activities === null ? <Skeleton height={200} /> : activities.length === 0 ? (
+        <Alert tone="warning" icon={AlertTriangle}>{tr('Aucune activité dans le MMR : paramétrez-les d\'abord (Paramétrage › Paramètres MMR).')}</Alert>
+      ) : (
+        <ul className="pm-pick" role="radiogroup" aria-label={tr('Activités du MMR')}>
+          {ordered.map((a) => (
+            <li key={a}>
+              <button type="button" role="radio" aria-checked={choice === a} className={`pm-pick-item${choice === a ? ' is-selected' : ''}`} onClick={() => setChoice(a)}>
+                {choice === a ? <CheckCircle2 size={15} aria-hidden="true" className="pm-pick-ic" /> : <Circle size={15} aria-hidden="true" className="pm-pick-ic muted" />}
+                {a}
+                {a === suggested && <span className="badge badge-blue" style={{ marginLeft: 8 }}><Sparkles size={12} aria-hidden="true" /> {tr('Suggestion')}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
   );
 }
 
@@ -247,15 +336,43 @@ function FormDeleteModal({ form, onClose, onDeleted }) {
 // ======================================================================
 // Détail d'une fiche
 // ======================================================================
-function FormDetail({ form, canEdit, onBack, onChanged }) {
+function FormDetail({ form, canEdit, initialTab, onBack, onChanged }) {
   const { tr } = useI18n();
-  const [tab, setTab] = useState('variables');
+  const [tab, setTab] = useState(initialTab || 'variables');
+  const [attaching, setAttaching] = useState(false);
+  const { steps, next } = formSteps(form);
   return (
     <div className="section-gap">
       <div className="detail-head">
         <Button variant="ghost" size="sm" icon={ArrowLeft} onClick={onBack}>{tr('Toutes les fiches')}</Button>
       </div>
       <PageHeader title={form.label} description={tr('Code {code} · {n} indicateur(s) · {m} soumission(s).', { code: form.code, n: form.indicatorCount ?? 0, m: form.submissionCount ?? 0 })} />
+
+      {next ? (
+        <Card aria-label={tr('Étapes de la fiche')}>
+          <div className="card-body">
+            <div className="form-steps-title">{tr('Pour que cette fiche alimente les tableaux de bord et les rapports')}</div>
+            <ol className="form-steps">
+              {steps.map((st, i) => (
+                <li key={st.id} className={st.done ? 'is-done' : st === next ? 'is-next' : ''}>
+                  <span className="form-step-n" aria-hidden="true">{st.done ? <Check size={14} /> : i + 1}</span>
+                  <div className="form-step-body">
+                    <strong>{tr(st.label)}</strong>
+                    <span className="muted">{st.id === 'activity' && st.done ? form.activityCategory : tr(st.hint)}</span>
+                  </div>
+                  {!st.done && (canEdit || st.id === 'data') && (
+                    <Button size="sm" variant={st === next ? 'primary' : 'secondary'}
+                      onClick={() => (st.id === 'activity' ? setAttaching(true) : setTab(st.tab))}>{tr(st.id === 'activity' ? 'Rattacher' : st.id === 'data' ? 'Importer' : 'Définir')}</Button>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </div>
+        </Card>
+      ) : (
+        <p className="hint"><CheckCircle2 size={14} aria-hidden="true" style={{ verticalAlign: '-2px', color: 'var(--green)' }} /> {tr('Fiche prête : rattachée à « {activity} », elle alimente la Synthèse, Couverture & performance et le concepteur de rapport.', { activity: form.activityCategory })}</p>
+      )}
+      {attaching && <AttachActivityModal form={form} onClose={() => setAttaching(false)} onSaved={async () => { setAttaching(false); await onChanged?.(); }} />}
 
       <div className="seg" role="tablist" aria-label={tr('Sections de la fiche')}>
         {DETAIL_TABS.map((x) => {

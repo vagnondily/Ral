@@ -3,6 +3,7 @@ const createApp = require('./app');
 const logger = require('./config/logger');
 const { pool } = require('./config/db');
 const { validateEnv } = require('./config/validateEnv');
+const { checkSchema } = require('./db/schemaStatus');
 
 // Échoue vite si la config est dangereuse (secret manquant, RLS contournée…).
 validateEnv();
@@ -12,6 +13,10 @@ const app = createApp();
 
 const server = app.listen(port, () => {
   logger.info({ port }, 'MEMS 2.0 – Partenaires & TPM API listening');
+  // Migration oubliée après une mise à jour : le dire tout de suite, en clair.
+  checkSchema().then((pending) => {
+    if (pending.length) logger.error({ pending }, `Base de données pas à jour : ${pending.length} migration(s) en attente — lancez « npm run migrate » dans server, puis redémarrez l'API.`);
+  }).catch((err) => logger.warn({ err }, 'vérification du schéma impossible au démarrage'));
 });
 
 // Graceful shutdown: stop accepting new connections, let in-flight requests

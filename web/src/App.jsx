@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { getStoredUser, getToken, onUnauthorized, setSession } from './api/client.js';
+import { api, getStoredUser, getToken, onUnauthorized, setSession } from './api/client.js';
+import { AlertCircle } from 'lucide-react';
+import { Alert } from './components/ui.jsx';
 import AppShell, { findRoute } from './components/AppShell.jsx';
 import { ToastProvider, useToast } from './components/Toast.jsx';
 import { I18nProvider, useI18n } from './lib/i18n.jsx';
@@ -91,6 +93,7 @@ function Workspace() {
 
   return (
     <AppShell user={user} route={route} onNavigate={navigate} onLogout={handleLogout}>
+      <SchemaBanner isAdmin={user.role === 'admin'} />
       {route.module === 'contrats' && (() => {
         const back = () => navigate('contrats', 'liste');
         if (route.extra === 'nouveau') return <ContractFormPage mode="create" onDone={openContract} onCancel={back} />;
@@ -132,3 +135,25 @@ export default function App() {
     </I18nProvider>
   );
 }
+
+/**
+ * Base de données en retard sur l'application (migration oubliée après une mise
+ * à jour) : bandeau en tête de chaque page, avec la marche à suivre pour
+ * l'administrateur. Silencieux si la vérification échoue (rien d'inventé).
+ */
+function SchemaBanner({ isAdmin }) {
+  const { tr } = useI18n();
+  const [pending, setPending] = useState([]);
+  useEffect(() => { api.systemStatus().then((r) => setPending(r.pendingMigrations || [])).catch(() => {}); }, []);
+  if (!pending.length) return null;
+  return (
+    <div className="page" style={{ paddingBottom: 0 }}>
+      <Alert tone="error" icon={AlertCircle}>
+        {isAdmin
+          ? tr('La base de données n\'est pas à jour ({n} mise(s) à jour en attente) : certaines pages ne fonctionneront pas. Arrêtez l\'API, lancez « npm run migrate » dans le dossier server, puis redémarrez l\'API.', { n: pending.length })
+          : tr('L\'application est en cours de mise à jour : certaines pages peuvent ne pas fonctionner. Prévenez votre administrateur.')}
+      </Alert>
+    </div>
+  );
+}
+

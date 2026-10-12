@@ -1,3 +1,5 @@
+const { knownPending } = require('../db/schemaStatus');
+
 /** Typed application error — controllers throw this for expected failure
  * cases (not found, validation, forbidden) so the central handler below can
  * pick the right HTTP status without string-matching messages. */
@@ -33,6 +35,15 @@ const PG_CLIENT_ERRORS = {
   '22008': 'Date invalide : utilisez le format AAAA-MM-JJ (ex. 2026-01-30).', // datetime_field_overflow
 };
 
+// Base injoignable (PostgreSQL arrêté, réseau, trop de connexions) : 503, pas
+// une « erreur interne » — l'utilisateur sait que ce n'est pas sa saisie.
+const DB_UNAVAILABLE = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ETIMEDOUT', '57P01', '57P03', '53300']);
+// Colonne / table / fonction / type inconnus : symptôme d'une migration oubliée
+// quand schemaStatus en signale en attente (sinon c'est un bug : 500).
+const PG_SCHEMA_ERRORS = new Set(['42703', '42P01', '42883', '42704']);
+const SCHEMA_OUTDATED = 'La base de données n\'est pas à jour pour cette version de l\'application. '
+  + 'Un administrateur doit lancer « npm run migrate » dans le dossier server, puis redémarrer l\'API.';
+
 // Centralized error handler — must be registered last, after all routes.
 // Anything not thrown as an AppError is treated as a bug: logged with full
 // detail, but the client only ever sees a generic message, never a stack
@@ -66,6 +77,15 @@ function errorHandler(err, req, res, _next) {
   // input errors that slipped past validation: 400, never a 500.
   if (Object.prototype.hasOwnProperty.call(PG_CLIENT_ERRORS, err.code)) {
     return res.status(400).json({ error: PG_CLIENT_ERRORS[err.code] });
+  }
+
+  if (DB_UNAVAILABLE.has(err.code) || /Connection terminated|timeout exceeded when trying to connect/i.test(err.message || '')) {
+    req.log?.error({ err }, 'base de données injoignable');
+    return res.status(503).json({ error: 'Base de données injoignable : vérifiez que PostgreSQL est démarré, puis réessayez.' });
+  }
+  if (PG_SCHEMA_ERRORS.has(err.code) && (knownPending() || []).length > 0) {
+    req.log?.error({ err, pending: knownPending() }, 'schéma en retard : migrations en attente');
+    return res.status(503).json({ error: SCHEMA_OUTDATED, details: { pendingMigrations: knownPending() } });
   }
 
   req.log?.error({ err }, 'unhandled error');

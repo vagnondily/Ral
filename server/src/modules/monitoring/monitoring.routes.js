@@ -117,10 +117,9 @@ router.post('/forms/:id/import', WRITE, express.raw({ type: '*/*', limit: '80mb'
   }
   const { submissions, headers, variables } = parsed;
   if (!submissions.length) throw badRequest('Aucune soumission trouvée dans le fichier.');
-  const result = await repo.importSubmissions(t(req), req.params.id, submissions);
+  // Les variables du .sav nomment les colonnes (sans XLSForm) ou complètent les listes codées (avec).
+  const result = await repo.importSubmissions(t(req), req.params.id, submissions, { variables });
   if (!result) throw notFound('Formulaire introuvable');
-  // Si aucun catalogue XLSForm, on nomme les colonnes depuis les labels du .sav.
-  if (variables && variables.length) await repo.ensureCatalogFromSav(t(req), req.params.id, variables);
   res.json({ ...result, fields: variables ? variables.length : headers.length });
 }));
 

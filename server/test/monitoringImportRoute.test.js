@@ -22,8 +22,12 @@ const { oleFile, biffGlobals } = require('./helpers/oleFixture');
 const { buildSav } = require('./helpers/savFixture');
 
 const writes = [];
-repo.importSubmissions = async (tenantId, formId, subs) => { writes.push({ what: 'submissions', n: subs.length }); return { received: subs.length, inserted: subs.length }; };
-repo.ensureCatalogFromSav = async (tenantId, formId, vars) => { writes.push({ what: 'catalog', n: vars.length }); };
+// Les variables du .sav (catalogue) partent avec les soumissions, dans la même transaction.
+repo.importSubmissions = async (tenantId, formId, subs, { variables } = {}) => {
+  writes.push({ what: 'submissions', n: subs.length });
+  if (variables && variables.length) writes.push({ what: 'catalog', n: variables.length });
+  return { received: subs.length, inserted: subs.length };
+};
 repo.importDefinition = async () => { writes.push({ what: 'definition' }); return { formId: 'f', fields: 1, choices: 0 }; };
 
 const app = express();

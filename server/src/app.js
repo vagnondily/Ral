@@ -20,6 +20,9 @@ const usersRoutes = require('./modules/users/users.routes');
 const monitoringRoutes = require('./modules/monitoring/monitoring.routes');
 const pddRoutes = require('./modules/pdd/pdd.routes');
 const reportDesignerRoutes = require('./modules/reports/reports.routes');
+const asyncHandler = require('./middleware/asyncHandler');
+const { requireAuth } = require('./middleware/auth');
+const { checkSchema } = require('./db/schemaStatus');
 
 function createApp() {
   const app = express();
@@ -94,6 +97,10 @@ function createApp() {
   app.use('/api/monitoring', monitoringRoutes);
   app.use('/api/pdd', pddRoutes);
   app.use('/api/report-designer', reportDesignerRoutes);
+  // État de la base pour l'écran : migrations en attente (bandeau administrateur).
+  app.get('/api/system/status', requireAuth, asyncHandler(async (req, res) => {
+    res.json({ pendingMigrations: await checkSchema() });
+  }));
 
   // Anything else is a routing mistake, not a server error.
   app.use((req, res, next) => next(notFound('Route introuvable')));

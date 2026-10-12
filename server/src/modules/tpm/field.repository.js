@@ -442,9 +442,10 @@ async function summary(tenantId, { month } = {}) {
     const where = ['v.tenant_id = $1'];
     if (month) { params.push(`${String(month).slice(0, 7)}-01`); where.push(`v.period_month = $${params.length}`); }
     const { rows } = await client.query(
-      `SELECT v.status, v.provider_id AS "providerId", p.name AS "providerName", s.district, v.activity
+      `SELECT v.status, v.provider_id AS "providerId", p.name AS "providerName", s.district, fo.name AS office, v.activity
          FROM site_visits v JOIN sites s ON s.id = v.site_id
          LEFT JOIN partners p ON p.id = v.provider_id
+         LEFT JOIN field_offices fo ON fo.id = s.field_office_id AND fo.tenant_id = s.tenant_id
         WHERE ${where.join(' AND ')}`,
       params
     );

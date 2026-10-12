@@ -285,7 +285,14 @@ function relinkByPath(items, areas) {
 }
 
 // ---- Bureaux ----------------------------------------------------------------------
-const officeNorm = (s) => normPlace(s, { synonyms: {} }).key;
+// Noms de bureaux : les noms français usuels des villes sont fréquents dans les
+// étiquettes des exports (« Tulear » = Bureau Toliara). Réservé aux bureaux : dans
+// le découpage, « Tuléar » reste une graphie à valider (Toliara I ou II ?).
+const OFFICE_SYNONYMS = {
+  tulear: 'toliara', majunga: 'mahajanga', tamatave: 'toamasina', diego: 'antsiranana',
+  taolagnaro: 'fort dauphin', tolagnaro: 'fort dauphin', taolanaro: 'fort dauphin',
+};
+const officeNorm = (s) => normPlace(s, { synonyms: OFFICE_SYNONYMS }).key;
 /**
  * Résolveur de bureau par libellé (« RBJ Madagascar, Ampanihy Sub Office » →
  * Bureau Ampanihy) : code ou nom exact normalisé, sinon nom « cœur » (sans

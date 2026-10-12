@@ -131,6 +131,7 @@ async function request(path, { method = 'GET', body, query, auth = true } = {}) 
 }
 
 export const api = {
+  systemStatus: () => request('/api/system/status'),
   login: (email, password) =>
     request('/api/auth/login', { method: 'POST', body: { email, password }, auth: false }),
   listProviders: () => request('/api/tpm/providers'),

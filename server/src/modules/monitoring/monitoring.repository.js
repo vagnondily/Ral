@@ -5,7 +5,7 @@ const { computeAll, overallIndex } = require('./monitoringMath');
 const { classDistribution, dimGroups, topFlop, classify } = require('./coverageDashboard');
 const { detectMapping, DIMENSION_COLUMN, EDITABLE_KEYS } = require('./memsMapping');
 const { computeCalcFields } = require('./calcFields');
-const { applySubmissionsGeoTx } = require('../settings/placeMatch.repository');
+const { applySubmissionsGeoTx, officeChoiceLabelsTx } = require('../settings/placeMatch.repository');
 
 /** Charge les champs calculés d'une fiche (ordre), pour l'analyse et la grille. */
 async function calcDefsFor(client, tenantId, formId) {
@@ -280,34 +280,74 @@ function insertChoices(client, tenantId, formId, choices) {
 
 /**
  * Enrichit le catalogue d'une fiche depuis les variables d'un .sav (SPSS) :
- * name + label de variable, et étiquettes de valeurs → listes de choix. Ne fait
- * rien si un catalogue existe déjà (le XLSForm reste la source de vérité) ;
- * sinon, nomme les colonnes à partir des labels du .sav. Batché, idempotent.
+ * name + label de variable, et étiquettes de valeurs → listes de choix.
+ * - Sans catalogue : nomme les colonnes à partir des labels du .sav.
+ * - Avec un catalogue XLSForm : le XLSForm reste la source de vérité, mais une
+ *   variable codée que le XLSForm ne décrit pas par une liste (ex. le bureau
+ *   « field_office », simple texte dans le formulaire, exporté 1…10 par Kobo)
+ *   reçoit les étiquettes du .sav dans une liste « sav:<variable> » : « 6 » se
+ *   lit alors « Ambovombe » partout (tableaux de bord, rattachement du bureau).
+ * Batché, idempotent (les listes « sav: » sont remplacées à chaque import).
  */
 async function ensureCatalogFromSav(tenantId, formId, variables) {
   if (!variables || !variables.length) return { added: 0 };
-  return withTenantTransaction(tenantId, async (client) => {
-    const { rows: ex } = await client.query(
-      'SELECT count(*)::int AS n FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2',
-      [tenantId, formId]
-    );
-    if ((ex[0]?.n ?? 0) > 0) return { added: 0, skipped: 'catalogue existant' };
+  return withTenantTransaction(tenantId, (client) => ensureCatalogFromSavTx(client, tenantId, formId, variables));
+}
 
-    const withLabels = variables.filter((v) => v && v.name);
+async function ensureCatalogFromSavTx(client, tenantId, formId, variables) {
+  const { rows: existing } = await client.query(
+    'SELECT name, list_name AS "listName", sort_order AS "sort" FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2',
+    [tenantId, formId]
+  );
+  const withLabels = variables.filter((v) => v && v.name);
+  const coded = (v) => Array.isArray(v.valueLabels) && v.valueLabels.length > 0;
+  const choicesOf = (v, listName) => v.valueLabels.map((x, i) => ({ listName, value: x.value, label: x.label || x.value, sort: i }));
+
+  if (existing.length === 0) {
     if (withLabels.length) {
       await insertRows(client, {
         table: 'monitoring_form_fields', columns: ['tenant_id', 'form_id', 'name', 'type', 'label', 'group_path', 'list_name', 'sort_order'],
         rows: withLabels.map((v, i) => ({ v, i })), suffix: 'ON CONFLICT (form_id, name) DO NOTHING',
-        values: ({ v, i }) => [tenantId, formId, v.name, v.type || null, v.label || v.name, null, Array.isArray(v.valueLabels) && v.valueLabels.length > 0 ? v.name : null, i],
+        values: ({ v, i }) => [tenantId, formId, v.name, v.type || null, v.label || v.name, null, coded(v) ? v.name : null, i],
       });
     }
-    const flat = [];
-    for (const v of withLabels) for (let i = 0; i < (v.valueLabels || []).length; i += 1) {
-      flat.push({ listName: v.name, value: v.valueLabels[i].value, label: v.valueLabels[i].label || v.valueLabels[i].value, sort: i });
-    }
+    const flat = withLabels.filter(coded).flatMap((v) => choicesOf(v, v.name));
     if (flat.length) await insertChoices(client, tenantId, formId, flat);
     return { added: withLabels.length };
-  });
+  }
+
+  // Catalogue XLSForm présent : compléter seulement les variables codées sans liste XLSForm.
+  const byName = new Map(existing.map((f) => [f.name.toLowerCase(), f]));
+  let nextSort = Math.max(0, ...existing.map((f) => f.sort || 0)) + 1;
+  const relink = []; const added = []; const flat = [];
+  for (const v of withLabels.filter(coded)) {
+    const field = byName.get(v.name.toLowerCase());
+    if (field && field.listName && !field.listName.startsWith('sav:')) continue; // liste du XLSForm : prioritaire
+    const listName = `sav:${v.name}`;
+    if (field) { if (field.listName !== listName) relink.push([field.name, listName]); } else added.push({ v, listName, i: nextSort++ });
+    flat.push(...choicesOf(v, listName));
+  }
+  if (relink.length) {
+    await client.query(
+      `UPDATE monitoring_form_fields f SET list_name = u.list_name
+         FROM unnest($3::text[], $4::text[]) AS u(name, list_name)
+        WHERE f.tenant_id = $1 AND f.form_id = $2 AND f.name = u.name`,
+      [tenantId, formId, relink.map((r) => r[0]), relink.map((r) => r[1])]
+    );
+  }
+  if (added.length) {
+    await insertRows(client, {
+      table: 'monitoring_form_fields', columns: ['tenant_id', 'form_id', 'name', 'type', 'label', 'group_path', 'list_name', 'sort_order'],
+      rows: added, suffix: 'ON CONFLICT (form_id, name) DO NOTHING',
+      values: ({ v, listName, i }) => [tenantId, formId, v.name, v.type || null, v.label || v.name, null, listName, i],
+    });
+  }
+  const lists = [...new Set(flat.map((c) => c.listName))];
+  if (lists.length) {
+    await client.query('DELETE FROM monitoring_choices WHERE tenant_id = $1 AND form_id = $2 AND list_name = ANY($3::text[])', [tenantId, formId, lists]);
+    await insertChoices(client, tenantId, formId, flat);
+  }
+  return { added: added.length, completed: relink.length + added.length };
 }
 
 /**
@@ -459,11 +499,14 @@ async function importDefinition(tenantId, { code, label }, fields, choicesMap) {
   });
 }
 
-async function importSubmissions(tenantId, formId, submissions) {
+async function importSubmissions(tenantId, formId, submissions, { variables } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     // Confirm the form belongs to the tenant.
     const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
     if (!f[0]) return null;
+    // Étiquettes du .sav AVANT le rattachement des bureaux, dans la même transaction :
+    // « 6 » est reconnu comme « Ambovombe » dès ce premier import.
+    if (variables && variables.length) await ensureCatalogFromSavTx(client, tenantId, formId, variables);
 
     // Surcharges manuelles de mapping : écrasent la détection par alias, au moment
     // de l'import, à partir des réponses brutes (data) de chaque soumission.
@@ -603,35 +646,81 @@ async function formResults(client, tenantId, formId, period) {
  * indice de conformité global (moyenne des indicateurs percent_* de toutes les
  * fiches, via overallIndex). Recalculé en direct, rien de stocké.
  */
+/**
+ * Nom lisible du bureau d'une soumission, pour l'affichage : bureau MEMS
+ * rattaché (field_office_id), sinon libellé du choix dans le XLSForm de la
+ * fiche (« 7 » → « Tsihombe »), sinon valeur brute. Ajoute ses paramètres à
+ * `params` ; renvoie la jointure et l'expression SQL.
+ */
+async function officeNameSql(client, tenantId, alias, params) {
+  const labels = await officeChoiceLabelsTx(client, tenantId);
+  const forms = []; const values = []; const names = [];
+  for (const [formId, map] of labels) for (const [value, label] of map) { forms.push(formId); values.push(value); names.push(label); }
+  params.push(forms, values, names);
+  const n = params.length;
+  return {
+    join: `LEFT JOIN field_offices fo ON fo.id = ${alias}.field_office_id AND fo.tenant_id = ${alias}.tenant_id
+           LEFT JOIN unnest($${n - 2}::uuid[], $${n - 1}::text[], $${n}::text[]) AS och(form_id, value, label)
+                  ON och.form_id = ${alias}.form_id AND och.value = ${alias}.field_office`,
+    expr: `COALESCE(fo.name, och.label, NULLIF(${alias}.field_office, ''), '(non renseigné)')`,
+  };
+}
+
+/** Dernier mois d'une période (« AAAA-MM-01 ») : le mois choisi, sinon la borne haute, sinon null (mois courant). */
+const periodEnd = ({ month, to } = {}) => ((month || to) ? `${String(month || to).slice(0, 7)}-01` : null);
+
+/**
+ * Soumissions par mois sur les 12 mois qui finissent au mois de la période
+ * (mois courant par défaut), mois vides compris — une date aberrante (tablette
+ * remise à zéro) ne déforme plus l'axe. `formId` restreint à une fiche.
+ */
+async function monthlyTrend(client, tenantId, period, formId = null) {
+  const { rows } = await client.query(
+    `WITH b AS (SELECT COALESCE($2::date, date_trunc('month', now())::date) AS hi)
+     SELECT to_char(m, 'YYYY-MM') AS month, COALESCE(c.n, 0)::int AS submissions
+       FROM b CROSS JOIN generate_series(b.hi - interval '11 months', b.hi, interval '1 month') AS m
+       LEFT JOIN (SELECT s.period_month, count(*) AS n FROM monitoring_submissions s, b
+                   WHERE s.tenant_id = $1 AND NOT s.excluded AND ($3::uuid IS NULL OR s.form_id = $3)
+                     AND s.period_month BETWEEN (b.hi - interval '11 months')::date AND b.hi
+                   GROUP BY 1) c ON c.period_month = m::date
+      ORDER BY m`,
+    [tenantId, periodEnd(period), formId]
+  );
+  return rows;
+}
+
 async function processOverview(tenantId, period = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const p = [tenantId];
     const f = submissionFilter('s', period, p);
+    const office = await officeNameSql(client, tenantId, 's', p);
     const { rows: tot } = await client.query(
       `SELECT count(*)::int AS submissions,
-              count(DISTINCT NULLIF(site, ''))::int AS sites,
-              count(DISTINCT NULLIF(agent, ''))::int AS agents,
-              count(DISTINCT NULLIF(partner, ''))::int AS partners,
-              count(DISTINCT NULLIF(field_office, ''))::int AS "fieldOffices"
-         FROM monitoring_submissions s WHERE s.tenant_id = $1${f}`,
+              count(DISTINCT NULLIF(s.site, ''))::int AS sites,
+              count(DISTINCT NULLIF(s.agent, ''))::int AS agents,
+              count(DISTINCT NULLIF(s.partner, ''))::int AS partners,
+              count(DISTINCT ${office.expr}) FILTER (WHERE s.field_office_id IS NOT NULL OR NULLIF(s.field_office, '') IS NOT NULL)::int AS "fieldOffices"
+         FROM monitoring_submissions s ${office.join} WHERE s.tenant_id = $1${f}`,
       p
     );
-    // Tendance : soumissions par mois (12 derniers mois présents), hors exclues.
-    const { rows: trend } = await client.query(
-      `SELECT to_char(period_month, 'YYYY-MM') AS month, count(*)::int AS submissions
-         FROM monitoring_submissions WHERE tenant_id = $1 AND NOT excluded
-        GROUP BY period_month ORDER BY period_month DESC LIMIT 12`,
+    const trend = await monthlyTrend(client, tenantId, period);
+    // Dernier mois ayant des données (hors exclues, pas dans le futur) : l'écran
+    // s'y place quand le mois demandé est vide, au lieu d'afficher des zéros.
+    const { rows: [last] } = await client.query(
+      `SELECT to_char(max(period_month), 'YYYY-MM') AS month FROM monitoring_submissions
+        WHERE tenant_id = $1 AND NOT excluded AND period_month <= date_trunc('month', now())::date`,
       [tenantId]
     );
     const { rows: byBureau } = await client.query(
-      `SELECT COALESCE(NULLIF(field_office, ''), '(non renseigné)') AS bureau,
-              count(*)::int AS submissions, count(DISTINCT NULLIF(site, ''))::int AS sites
-         FROM monitoring_submissions s WHERE s.tenant_id = $1${f}
+      `SELECT ${office.expr} AS bureau,
+              count(*)::int AS submissions, count(DISTINCT NULLIF(s.site, ''))::int AS sites
+         FROM monitoring_submissions s ${office.join} WHERE s.tenant_id = $1${f}
         GROUP BY 1 ORDER BY submissions DESC LIMIT 12`,
       p
     );
     const { rows: forms } = await client.query(
-      "SELECT id, code, label FROM monitoring_forms WHERE tenant_id = $1 AND active = true ORDER BY label",
+      `SELECT id, code, label, activity_category AS "activityCategory"
+         FROM monitoring_forms WHERE tenant_id = $1 AND active = true ORDER BY label`,
       [tenantId]
     );
     // Indice de conformité : résultats de toutes les fiches, moyennés (overallIndex).
@@ -642,12 +731,16 @@ async function processOverview(tenantId, period = {}) {
       const { inds, count, results } = await formResults(client, tenantId, fm.id, period);
       indicatorsCount += inds.length;
       allResults = allResults.concat(results);
-      perForm.push({ id: fm.id, code: fm.code, label: fm.label, submissions: count, index: overallIndex(results) });
+      perForm.push({
+        id: fm.id, code: fm.code, label: fm.label, activityCategory: fm.activityCategory,
+        submissions: count, indicators: inds.length, index: overallIndex(results),
+      });
     }
 
     return {
       totals: { ...tot[0], forms: forms.length, indicators: indicatorsCount },
-      trend: trend.reverse(),
+      latestMonth: last ? last.month : null,
+      trend,
       byBureau,
       perForm,
       conformityIndex: overallIndex(allResults),
@@ -705,18 +798,15 @@ async function coverageDashboard(tenantId, period = {}) {
     for (const fm of forms) {
       const { inds, count, results } = await formResults(client, tenantId, fm.id, period);
       indicatorsCount += inds.length;
-      // Tendance mensuelle de la fiche (12 derniers mois, indépendante de la période).
-      const { rows: formTrend } = await client.query(
-        `SELECT to_char(period_month, 'YYYY-MM') AS month, count(*)::int AS submissions
-           FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 AND NOT excluded
-          GROUP BY period_month ORDER BY period_month DESC LIMIT 12`,
-        [tenantId, fm.id]
-      );
+      // Tendance mensuelle de la fiche : 12 mois finissant au mois de la période.
+      const formTrend = await monthlyTrend(client, tenantId, period, fm.id);
       const bp = [tenantId, fm.id];
+      const bf = submissionFilter('s', period, bp);
+      const office = await officeNameSql(client, tenantId, 's', bp);
       const { rows: formBureau } = await client.query(
-        `SELECT COALESCE(NULLIF(field_office, ''), '(non renseigné)') AS bureau,
-                count(*)::int AS submissions, count(DISTINCT NULLIF(site, ''))::int AS sites
-           FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${submissionFilter('s', period, bp)}
+        `SELECT ${office.expr} AS bureau,
+                count(*)::int AS submissions, count(DISTINCT NULLIF(s.site, ''))::int AS sites
+           FROM monitoring_submissions s ${office.join} WHERE s.tenant_id = $1 AND s.form_id = $2${bf}
           GROUP BY 1 ORDER BY submissions DESC LIMIT 8`,
         bp
       );
@@ -725,6 +815,7 @@ async function coverageDashboard(tenantId, period = {}) {
       perForm.push({
         id: fm.id, code: fm.code, label: fm.label,
         submissions: count,
+        indicatorCount: inds.length,
         index: overallIndex(results),
         classes: classDistribution(results),
         dims: dimGroups(results),
@@ -735,7 +826,7 @@ async function coverageDashboard(tenantId, period = {}) {
           agg: r.agg, module: r.module || null, target: r.target, cls: classify(r),
         })),
         byBureau: formBureau,
-        trend: formTrend.reverse(),
+        trend: formTrend,
       });
     }
 
