@@ -2138,3 +2138,16 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 
 /* Ligne écartée (ex. soumission exclue au nettoyage) : visible mais atténuée. */
 .table tr.is-muted td { opacity: .55; }
+
+/* Rapprochement des lieux : liste de choix d'une unité. */
+.pm-pick { list-style: none; margin: 12px 0 0; padding: 0; max-height: 50vh; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.pm-pick li + li { border-top: 1px solid var(--border); }
+.pm-pick-item { display: block; width: 100%; text-align: left; padding: 10px 12px; background: var(--surface); border: 0; color: var(--text); cursor: pointer; }
+.pm-pick-item:hover, .pm-pick-item:focus-visible { background: var(--blue-50); }
+.pm-pick-item .muted { margin-left: 6px; font-size: 13px; }
+.row-actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
+.pm-cands { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.pm-cand { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--blue-100); background: var(--blue-50); color: var(--blue-700); font-weight: 600; font-size: 13px; cursor: pointer; }
+.pm-cand:hover:not(:disabled), .pm-cand:focus-visible { background: var(--surface); border-color: var(--blue-600); }
+.pm-cand:disabled { opacity: .6; cursor: progress; }
+.pm-score { color: var(--muted); font-weight: 500; }

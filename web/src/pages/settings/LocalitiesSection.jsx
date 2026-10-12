@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Download, Plus, Pencil, Trash2, Search, MapPinned, Globe2, Save, ChevronLeft, ChevronRight, Info, AlertTriangle, FileDown } from 'lucide-react';
+import { Upload, Download, Plus, Pencil, Trash2, Search, MapPinned, Globe2, Save, ChevronLeft, ChevronRight, Info, AlertTriangle, FileDown, Link2 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, formatDateTime } from '../../lib/format.js';
+import PlaceMatchQueue from './PlaceMatchQueue.jsx';
 
 /**
  * Paramétrage › Localités : (1) pays & découpage — identité, vocabulaire des
@@ -13,7 +14,7 @@ import { formatInt, formatDateTime } from '../../lib/format.js';
  * liste paginée côté serveur (≈ 19 000 unités), filtres en cascade, recherche,
  * export, création / modification / suppression.
  */
-export default function LocalitiesSection({ isAdmin }) {
+export default function LocalitiesSection({ isAdmin, canEdit = isAdmin }) {
   const { tr } = useI18n();
   const [tab, setTab] = useState('pays');
   const [country, setCountry] = useState(null);
@@ -33,10 +34,14 @@ export default function LocalitiesSection({ isAdmin }) {
         <button type="button" role="tab" aria-selected={tab === 'repertoire'} aria-pressed={tab === 'repertoire'} onClick={() => setTab('repertoire')} disabled={!country?.levels?.length}>
           <MapPinned size={15} aria-hidden="true" /> {tr('Répertoire des localités')}
         </button>
+        <button type="button" role="tab" aria-selected={tab === 'rapprocher'} aria-pressed={tab === 'rapprocher'} onClick={() => setTab('rapprocher')} disabled={!country?.levels?.length}>
+          <Link2 size={15} aria-hidden="true" /> {tr('À rapprocher')}
+        </button>
       </div>
       {country === null ? <Card><div className="card-body"><Skeleton height={220} /></div></Card>
         : tab === 'pays' ? <CountryTab country={country} isAdmin={isAdmin} onChanged={reload} />
-          : <DirectoryTab levels={country.levels} isAdmin={isAdmin} onChanged={reload} />}
+          : tab === 'rapprocher' ? <PlaceMatchQueue canEdit={canEdit} />
+            : <DirectoryTab levels={country.levels} isAdmin={isAdmin} onChanged={reload} />}
     </div>
   );
 }

@@ -142,6 +142,14 @@ async function listQueue(tenantId, { status } = {}) {
         WHERE ${where.join(' AND ')}
         ORDER BY total DESC, q.depth, q.raw_label
         LIMIT 500`, params);
+    // Unité parente de chaque graphie (pour proposer seulement ses enfants) : clé pcode ou nom normalisé.
+    const depths = [...new Set(rows.filter((r) => r.parentKey && r.depth > 1).map((r) => r.depth - 1))];
+    if (depths.length) {
+      const { rows: parents } = await client.query(
+        'SELECT id, depth, name, pcode FROM admin_areas WHERE tenant_id = $1 AND depth = ANY($2::int[])', [tenantId, depths]);
+      const byKey = new Map(parents.map((a) => [`${a.depth}|${parentKeyOf({ pcode: a.pcode, norm: normPlace(a.name) })}`, a.id]));
+      for (const r of rows) r.parentId = r.parentKey ? byKey.get(`${r.depth - 1}|${r.parentKey}`) || null : null;
+    }
     return rows;
   });
 }
