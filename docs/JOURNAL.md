@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 14:38 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 12/10/2026 14:47 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -162,5 +162,6 @@ _Dernière mise à jour : 12/10/2026 14:38 UTC_ — la branche `main` reçoit ch
   - les classes Excellent / Satisfaisant / À améliorer / Action urgente s'appliquent aussi sans cible.
 
   Corrigés au passage : les libellés des exports SPSS s'affichaient en « bÃ©nÃ©ficiaire » (réparés en base, migration 056) ; les types XLSForm écrits « select one liste » perdaient leur liste de choix. 330 tests OK.
+- **14:47** ✅ **Codes ↔ libellés** (retours n° 2 et 3, `4278c67`) : dans « Données importées », un bouton **Libellés / Codes** montre « Antenne Ambovombe » ou « 6 », « Beloha » ou « MG52513 », « MAHAVOTSE » ou « 3 ». Les libellés viennent du bureau MEMS rattaché, sinon de la liste de choix du XLSForm ou des étiquettes de l'export SPSS. Les variables propres à l'export SPSS, absentes du XLSForm, sont désormais visibles. 331 tests OK.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
