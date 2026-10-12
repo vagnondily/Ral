@@ -1,4 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
+const { insertRows } = require('../../db/batch');
 const { computeAll, overallIndex } = require('./monitoringMath');
 const { classDistribution, dimGroups, topFlop, classify } = require('./coverageDashboard');
 const { detectMapping, DIMENSION_COLUMN, EDITABLE_KEYS } = require('./memsMapping');
@@ -218,6 +219,14 @@ async function formSubmissions(tenantId, formId, { month, limit = 200 } = {}) {
   });
 }
 
+/** Listes de choix d'une fiche, insérées par lots. */
+function insertChoices(client, tenantId, formId, choices) {
+  return insertRows(client, {
+    table: 'monitoring_choices', columns: ['tenant_id', 'form_id', 'list_name', 'value', 'label', 'sort_order'],
+    rows: choices, values: (c) => [tenantId, formId, c.listName, c.value, c.label, c.sort],
+  });
+}
+
 /**
  * Enrichit le catalogue d'une fiche depuis les variables d'un .sav (SPSS) :
  * name + label de variable, et étiquettes de valeurs → listes de choix. Ne fait
@@ -235,32 +244,17 @@ async function ensureCatalogFromSav(tenantId, formId, variables) {
 
     const withLabels = variables.filter((v) => v && v.name);
     if (withLabels.length) {
-      const cols = 8; const params = []; const tuples = withLabels.map((v, i) => {
-        const b = i * cols;
-        const hasChoices = Array.isArray(v.valueLabels) && v.valueLabels.length > 0;
-        params.push(tenantId, formId, v.name, v.type || null, v.label || v.name, null, hasChoices ? v.name : null, i);
-        return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8})`;
+      await insertRows(client, {
+        table: 'monitoring_form_fields', columns: ['tenant_id', 'form_id', 'name', 'type', 'label', 'group_path', 'list_name', 'sort_order'],
+        rows: withLabels.map((v, i) => ({ v, i })), suffix: 'ON CONFLICT (form_id, name) DO NOTHING',
+        values: ({ v, i }) => [tenantId, formId, v.name, v.type || null, v.label || v.name, null, Array.isArray(v.valueLabels) && v.valueLabels.length > 0 ? v.name : null, i],
       });
-      await client.query(
-        `INSERT INTO monitoring_form_fields (tenant_id, form_id, name, type, label, group_path, list_name, sort_order)
-         VALUES ${tuples.join(',')} ON CONFLICT (form_id, name) DO NOTHING`,
-        params
-      );
     }
     const flat = [];
     for (const v of withLabels) for (let i = 0; i < (v.valueLabels || []).length; i += 1) {
       flat.push({ listName: v.name, value: v.valueLabels[i].value, label: v.valueLabels[i].label || v.valueLabels[i].value, sort: i });
     }
-    if (flat.length) {
-      const cols = 6; const params = []; const tuples = flat.map((c, i) => {
-        const b = i * cols; params.push(tenantId, formId, c.listName, c.value, c.label, c.sort);
-        return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6})`;
-      });
-      await client.query(
-        `INSERT INTO monitoring_choices (tenant_id, form_id, list_name, value, label, sort_order) VALUES ${tuples.join(',')}`,
-        params
-      );
-    }
+    if (flat.length) await insertChoices(client, tenantId, formId, flat);
     return { added: withLabels.length };
   });
 }
@@ -390,20 +384,14 @@ async function importDefinition(tenantId, { code, label }, fields, choicesMap) {
     await client.query('DELETE FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
     await client.query('DELETE FROM monitoring_choices WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
 
-    // Batch : une seule instruction multi-lignes (jamais N requêtes en boucle).
+    // Instructions multi-lignes par lots (jamais N requêtes en boucle, jamais au-delà
+    // de la limite de paramètres de PostgreSQL — un XLSForm peut porter 20 000 choix).
     if (fields.length) {
-      const cols = 10;
-      const params = [];
-      const tuples = fields.map((f, i) => {
-        const b = i * cols;
-        params.push(tenantId, formId, f.name, f.type || null, f.label || f.name, f.group || null, f.listName || null, f.relevant || null, f.required === true, i);
-        return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10})`;
+      await insertRows(client, {
+        table: 'monitoring_form_fields', columns: ['tenant_id', 'form_id', 'name', 'type', 'label', 'group_path', 'list_name', 'relevant', 'required', 'sort_order'],
+        rows: fields.map((f, i) => ({ f, i })), suffix: 'ON CONFLICT (form_id, name) DO NOTHING',
+        values: ({ f, i }) => [tenantId, formId, f.name, f.type || null, f.label || f.name, f.group || null, f.listName || null, f.relevant || null, f.required === true, i],
       });
-      await client.query(
-        `INSERT INTO monitoring_form_fields (tenant_id, form_id, name, type, label, group_path, list_name, relevant, required, sort_order)
-         VALUES ${tuples.join(',')} ON CONFLICT (form_id, name) DO NOTHING`,
-        params
-      );
     }
     let choiceCount = 0;
     const flatChoices = [];
@@ -411,17 +399,7 @@ async function importDefinition(tenantId, { code, label }, fields, choicesMap) {
       opts.forEach((o, i) => flatChoices.push({ listName, value: o.value, label: o.label || o.value, sort: i }));
     }
     if (flatChoices.length) {
-      const cols = 6;
-      const params = [];
-      const tuples = flatChoices.map((c, i) => {
-        const b = i * cols;
-        params.push(tenantId, formId, c.listName, c.value, c.label, c.sort);
-        return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6})`;
-      });
-      await client.query(
-        `INSERT INTO monitoring_choices (tenant_id, form_id, list_name, value, label, sort_order) VALUES ${tuples.join(',')}`,
-        params
-      );
+      await insertChoices(client, tenantId, formId, flatChoices);
       choiceCount = flatChoices.length;
     }
     return { formId, fields: fields.length, choices: choiceCount };

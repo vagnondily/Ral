@@ -1,4 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
+const { chunkRows } = require('../../db/batch');
 const { summarizeVisits, collectionDays, buildCoverageMatrix } = require('./fieldMath');
 const { isDue, frequencyFor } = require('./rbmMath');
 const { scoreSite, normalizeSecurity } = require('./rbmScore');
@@ -773,22 +774,25 @@ async function planMonthsTx(client, tenantId, userId, year, changes) {
   const blocked = new Set(inactive.map((r) => `${r.site_id}|${r.month}`));
   const skippedInactive = add.filter(([id, m]) => blocked.has(`${id}|${m}`)).length;
   add = add.filter(([id, m]) => !blocked.has(`${id}|${m}`));
-  if (add.length) {
-    const params = [tenantId, userId]; const tuples = add.map(([id, m]) => {
+  // Par lots (limite de paramètres de PostgreSQL) : 5 000 sites × 12 mois en une modification groupée.
+  for (const slice of chunkRows(add, 3)) {
+    const params = [tenantId, userId]; const tuples = slice.map(([id, m]) => {
       params.push(id, pm(m), activity.get(id));
       const b = params.length - 2;
       return `($1, $${b}::uuid, $${b + 1}::date, $${b + 2}, 'planifie', $2)`;
     });
-    ({ rowCount: added } = await client.query(
+    const { rowCount } = await client.query(
       `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by) VALUES ${tuples.join(',')}
        ON CONFLICT (tenant_id, site_id, period_month, activity) DO UPDATE SET status = 'planifie', updated_at = now()
-         WHERE site_visits.status = 'annule'`, params));
+         WHERE site_visits.status = 'annule'`, params);
+    added += rowCount;
   }
-  if (remove.length) {
-    const params = [tenantId]; const tuples = remove.map(([id, m]) => { params.push(id, pm(m)); return `($${params.length - 1}::uuid, $${params.length}::date)`; });
-    ({ rowCount: removed } = await client.query(
+  for (const slice of chunkRows(remove, 2)) {
+    const params = [tenantId]; const tuples = slice.map(([id, m]) => { params.push(id, pm(m)); return `($${params.length - 1}::uuid, $${params.length}::date)`; });
+    const { rowCount } = await client.query(
       `DELETE FROM site_visits v USING (VALUES ${tuples.join(',')}) AS x(site_id, pm)
-        WHERE v.tenant_id = $1 AND v.site_id = x.site_id AND v.period_month = x.pm AND v.status = 'planifie'`, params));
+        WHERE v.tenant_id = $1 AND v.site_id = x.site_id AND v.period_month = x.pm AND v.status = 'planifie'`, params);
+    removed += rowCount;
   }
   return { added, removed, skippedInactive };
 }
@@ -909,17 +913,19 @@ async function monthStatusesTx(client, tenantId, year, changes) {
   if (known.length !== ids.length) throw badRequest('Site inconnu (ou hors de ce compte).');
   const set = list.filter((c) => c.active !== null); const clear = list.filter((c) => c.active === null);
   let updated = 0; let cleared = 0;
-  if (set.length) {
-    const params = [tenantId, year]; const tuples = set.map((c) => { params.push(c.siteId, c.month, c.active); const b = params.length - 2; return `($1, $${b}::uuid, $2, $${b + 1}::smallint, $${b + 2}::boolean)`; });
-    ({ rowCount: updated } = await client.query(
+  for (const slice of chunkRows(set, 3)) {
+    const params = [tenantId, year]; const tuples = slice.map((c) => { params.push(c.siteId, c.month, c.active); const b = params.length - 2; return `($1, $${b}::uuid, $2, $${b + 1}::smallint, $${b + 2}::boolean)`; });
+    const { rowCount } = await client.query(
       `INSERT INTO site_month_status (tenant_id, site_id, year, month, active) VALUES ${tuples.join(',')}
-       ON CONFLICT (site_id, year, month) DO UPDATE SET active = EXCLUDED.active, updated_at = now()`, params));
+       ON CONFLICT (site_id, year, month) DO UPDATE SET active = EXCLUDED.active, updated_at = now()`, params);
+    updated += rowCount;
   }
-  if (clear.length) {
-    const params = [tenantId, year]; const tuples = clear.map((c) => { params.push(c.siteId, c.month); return `($${params.length - 1}::uuid, $${params.length}::smallint)`; });
-    ({ rowCount: cleared } = await client.query(
+  for (const slice of chunkRows(clear, 2)) {
+    const params = [tenantId, year]; const tuples = slice.map((c) => { params.push(c.siteId, c.month); return `($${params.length - 1}::uuid, $${params.length}::smallint)`; });
+    const { rowCount } = await client.query(
       `DELETE FROM site_month_status m USING (VALUES ${tuples.join(',')}) AS x(site_id, month)
-        WHERE m.tenant_id = $1 AND m.year = $2 AND m.site_id = x.site_id AND m.month = x.month`, params));
+        WHERE m.tenant_id = $1 AND m.year = $2 AND m.site_id = x.site_id AND m.month = x.month`, params);
+    cleared += rowCount;
   }
   return { updated, cleared };
 }
