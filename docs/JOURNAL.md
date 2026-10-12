@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 07:51 UTC_ — la branche `main` reçoit chaque lot vérifié (dernier : `6c7f425`)
+_Dernière mise à jour : 12/10/2026 08:12 UTC_ — la branche `main` reçoit chaque lot vérifié (dernier : `9ac50ea`)
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -22,11 +22,13 @@ _Dernière mise à jour : 12/10/2026 07:51 UTC_ — la branche `main` reçoit ch
 | 3 | Localités : pays & découpage, répertoire, CRUD | ✅ (phase 1) | Serveur `6d19108` + écran (ce commit). **À faire chez vous** : réimporter le shapefile pour corriger les noms. Phase 2 ⏳ : contours cartographiques (polygones) pour les cartes |
 | 4 | Langue FR/EN : traduire le contenu des pages | ✅ | `6c7f425` — toutes les pages, 1 957 phrases ; contrôle navigateur 31 écrans FR + EN : 0 phrase manquante, 0 erreur |
 | 6 | Concepteur de rapport professionnel (bulletin éditable, modèles) | ✅ | `bea593c` — « Reporting › Concepteur de rapport » : éditeur de blocs, texte riche, 5 modèles système + modèles d'équipe, exports PDF/HTML/Word/Excel, finalisation figée. Suite possible : traduire les en-têtes de l'export Excel |
-| 7 | Plan de suivi « type Excel » + carte détaillée | 🔄 | Serveur ✅ : moteur (exigées/faites/prévues/reste selon le MMR, classement, KPI), registre « Locations Management » (ID L###, statut mensuel Active/Inactive), échelles RBM du classeur, aller-retour Excel. **Prochaine étape : l'écran** (KPI, filtres, 3 vues, grille des mois, modification groupée, import avec aperçu, carte sans clé d'API) |
+| 7 | Plan de suivi « type Excel » + carte détaillée | ✅ | `3b45556` — écran « Suivi de processus › Plan de suivi » : 2 bandeaux de KPI, filtres, 4 vues (plan + grille des mois, registre, déjà visités, carte sans clé d'API), modification groupée tout-ou-rien, ajout de site, gabarit d'activité, export / import avec aperçu |
 | PDD-config | PDD : rations, planification par commune, stock par donateur (TDD/BDD), calcul serveur des tonnages | ⏳ | Découvert dans le PDD réel `PDD_Urgence_Oct-Nov_04082025.xlsx` |
 | Import | Import facile multi-sources + lien Tableau WDC (MoDA/Ona, Kobo) | 🔄 | Serveur ✅ (lien WDC/Ona open-data incrémental, Kobo paginé, liens sécurisés). Reste : écran « centre d'import » (après la traduction), gros fichiers via le worker, groupes répétés |
 | Facture | Fidélité de la facture au gabarit de mai + Invoice 09 | ⏳ | |
 | Analyse | Analyse multi-agents des documents de référence → feuille de route | 🔄 | 3e lancement à 06:31 (8 familles : RBM, XLSForm, Kobo suivi, Kobo distribution, finance, rapports, PDD, import/WDC) |
+| Liaisons | Liaisons entre pages + rapprochement automatique des noms de lieux importés | 🔄 | Analyse multi-agents lancée à 08:00 (6 sous-systèmes + synthèse) → plan de corrections, puis mise en œuvre |
+| Signalés 12/10 | Vos retours du jour | 🔄 | ✅ régions du bureau · ✅ en-têtes figés · ✅ XLSForm volumineux (500) · 🔄 XLSForm .xls · ⏳ concepteur (panneau gauche) · ⏳ actions sur les fiches (modifier/supprimer/valider) |
 
 ---
 
@@ -110,5 +112,11 @@ _Dernière mise à jour : 12/10/2026 07:51 UTC_ — la branche `main` reçoit ch
 - **07:51** 🔄 Plan de suivi — serveur complété (modification groupée tout-ou-rien, « Répartir selon le MMR », ajout de site, gabarit d'activité, position de carte de repli par commune) ; écran en cours (4 vues, 2 bandeaux de KPI, grille des mois, carte sans clé d'API).
 
 - **07:51** ⚠️ Correction : les quatre lignes ci-dessus avaient d'abord été horodatées 07:52–07:58 sans lecture de l'horloge ; heures recalées sur l'heure réelle des commits.
+- **07:58** ✅ **Plan de suivi livré** (`3b45556`, sur `main`) — vérifié de bout en bout dans le navigateur (cocher/enregistrer, modification groupée « répartir selon le MMR », 4 vues, ajout de site L###, gabarit, export → réimport **sans perte** : 1 281 lignes, 0 rejet ; anglais complet) ; données de test supprimées. Défauts trouvés et corrigés avant livraison : fenêtres masquées par la carte, champs débordants dans le panneau, « Moyenne » traduit « Mean ».
+- **08:01** 📥 Vos signalements : (1) bureaux — toutes les régions ne s'affichent pas ; (2) concepteur — panneau gauche masqué, libellés du plan tronqués ; (3) fiches de suivi — impossible de modifier/supprimer/valider ; (4) en-têtes de tableaux perdus en défilant ; (5) liaisons entre pages et rapprochement automatique des lieux importés ; (6) l'import XLSForm plante.
+- **08:02** 🔄 Analyse multi-agents « liaisons entre pages + rapprochement des lieux » lancée (lecture du code module par module : ce que chaque page utilise, où cela se configure, ce qu'elle alimente ; chaque point d'entrée de noms de lieux).
+- **08:04** ✅ **Bureaux** (`f21b708`) : le périmètre propose tout le découpage du pays (Localités) + les communes du registre, sans doublon ; correspondance des communes insensible à la casse ; les sites sans bureau sont rattachés automatiquement à l'enregistrement d'un périmètre ; une commune déjà enregistrée n'est plus perdue au réenregistrement.
+- **08:11** ✅ **XLSForm MIARO** (erreur 500 : 20 961 choix en une seule requête dépassaient la limite de PostgreSQL) — insertion par lots partagée, aussi appliquée au plan de suivi ; **en-têtes de tableaux figés** sur toutes les pages (`9ac50ea`). Formulaires créés par mes essais supprimés.
+- **08:12** 🔄 XLSForm au format **.xls** (ancien Excel, produit par Kobo) : lecteur intégré en cours (la version corrigée de la bibliothèque SheetJS est bloquée par le proxy ; la version npm a des failles connues à la lecture de fichiers externes).
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
