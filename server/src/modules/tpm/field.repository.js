@@ -120,7 +120,7 @@ const RBM_SELECT = `
         FROM monitoring_submissions ms
         JOIN monitoring_forms mf ON mf.id = ms.form_id
        WHERE ms.tenant_id = s.tenant_id
-         AND s.adm3_pcode IS NOT NULL AND ms.admin3 = s.adm3_pcode
+         AND s.adm3_pcode IS NOT NULL AND ms.adm3_pcode = s.adm3_pcode
          AND ${SUBMISSION_COUNTS_FOR_SITE}
     ) dv ON true
    WHERE s.tenant_id = $1`;
@@ -320,7 +320,7 @@ const VISIT_COLS = `
   -- Dernière collecte réelle (données uploadées) pour la commune du site.
   (SELECT to_char(max(ms.period_month), 'YYYY-MM') FROM monitoring_submissions ms
      JOIN monitoring_forms mf ON mf.id = ms.form_id
-     WHERE ms.tenant_id = s.tenant_id AND s.adm3_pcode IS NOT NULL AND ms.admin3 = s.adm3_pcode
+     WHERE ms.tenant_id = s.tenant_id AND s.adm3_pcode IS NOT NULL AND ms.adm3_pcode = s.adm3_pcode
        AND ${SUBMISSION_COUNTS_FOR_SITE}) AS "dataVisitMonth"`;
 
 async function listVisits(tenantId, { month, providerId, status } = {}) {

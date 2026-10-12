@@ -5,6 +5,7 @@ const { computeAll, overallIndex } = require('./monitoringMath');
 const { classDistribution, dimGroups, topFlop, classify } = require('./coverageDashboard');
 const { detectMapping, DIMENSION_COLUMN, EDITABLE_KEYS } = require('./memsMapping');
 const { computeCalcFields } = require('./calcFields');
+const { applySubmissionsGeoTx } = require('../settings/placeMatch.repository');
 
 /** Charge les champs calculés d'une fiche (ordre), pour l'analyse et la grille. */
 async function calcDefsFor(client, tenantId, formId) {
@@ -211,8 +212,25 @@ async function formCatalog(tenantId, formId) {
 const PLACE_NAMES = `
               COALESCE((SELECT a.name FROM admin_areas a WHERE a.tenant_id = ms.tenant_id AND a.pcode = ms.admin2 LIMIT 1),
                        (SELECT s.district FROM sites s WHERE s.tenant_id = ms.tenant_id AND s.adm2_pcode = ms.admin2 LIMIT 1)) AS "districtName",
-              COALESCE((SELECT a.name FROM admin_areas a WHERE a.tenant_id = ms.tenant_id AND a.pcode = ms.admin3 LIMIT 1),
-                       (SELECT s.commune FROM sites s WHERE s.tenant_id = ms.tenant_id AND s.adm3_pcode IS NOT NULL AND s.adm3_pcode = ms.admin3 LIMIT 1)) AS "communeName"`;
+              COALESCE((SELECT a.name FROM admin_areas a WHERE a.tenant_id = ms.tenant_id AND a.pcode = COALESCE(ms.adm3_pcode, ms.admin3) LIMIT 1),
+                       (SELECT s.commune FROM sites s WHERE s.tenant_id = ms.tenant_id AND s.adm3_pcode IS NOT NULL
+                           AND s.adm3_pcode = COALESCE(ms.adm3_pcode, ms.admin3) LIMIT 1)) AS "communeName"`;
+
+// Région en clair d'une soumission : par le code de commune rattaché (découpage
+// officiel d'abord, registre de sites en repli), sinon par un code de région
+// (admin1 = MG51), sinon la valeur brute. Une région = un libellé.
+const REGION_CTE = `WITH pcode_region AS (
+         SELECT DISTINCT ON (pcode) pcode, region FROM (
+           SELECT c.pcode, r.name AS region, 0 AS src FROM admin_areas c JOIN admin_areas r ON r.id = c.lineage[1]
+            WHERE c.tenant_id = $1 AND c.pcode IS NOT NULL AND cardinality(c.lineage) >= 1
+           UNION ALL
+           SELECT r.pcode, r.name, 0 FROM admin_areas r WHERE r.tenant_id = $1 AND r.depth = 1 AND r.pcode IS NOT NULL
+           UNION ALL
+           SELECT adm3_pcode, adm1, 1 FROM sites WHERE tenant_id = $1 AND adm3_pcode IS NOT NULL AND NULLIF(adm1, '') IS NOT NULL
+         ) x ORDER BY pcode, src)`;
+const REGION_JOIN = (a) => `LEFT JOIN pcode_region pr ON pr.pcode = COALESCE(${a}.adm3_pcode, ${a}.admin3)
+         LEFT JOIN pcode_region pr1 ON pr1.pcode = upper(btrim(${a}.admin1))`;
+const REGION_OF = (a) => `COALESCE(pr.region, pr1.region, NULLIF(${a}.admin1, ''), '(non renseigné)')`;
 
 /**
  * Soumissions brutes d'une fiche (données importées), pour la visualisation :
@@ -396,7 +414,9 @@ async function applyMappingToSubmissions(tenantId, formId) {
       }
       applied += 1;
     }
-    return { applied };
+    // Les colonnes de lieu/bureau ont pu changer : rattachement rejoué (même transaction).
+    const geo = applied ? await applySubmissionsGeoTx(client, tenantId) : null;
+    return { applied, geo };
   });
 }
 
@@ -481,7 +501,9 @@ async function importSubmissions(tenantId, formId, submissions) {
       );
       inserted += res.rowCount;
     }
-    return { received: submissions.length, inserted };
+    // Commune (pcode) et bureau rattachés dans la même transaction que l'import.
+    const geo = await applySubmissionsGeoTx(client, tenantId);
+    return { received: submissions.length, inserted, geo };
   });
 }
 
@@ -661,15 +683,12 @@ async function coverageDashboard(tenantId, period = {}) {
     // le résout en NOM de région via le référentiel de sites (sites.adm3_pcode
     // → sites.adm1). Repli sur le pcode brut puis « (non renseigné) ».
     const { rows: regionRows } = await client.query(
-      `WITH pcode_region AS (
-         SELECT DISTINCT ON (adm3_pcode) adm3_pcode, adm1 AS region
-           FROM sites WHERE tenant_id = $1 AND adm3_pcode IS NOT NULL AND NULLIF(adm1, '') IS NOT NULL
-       )
-       SELECT COALESCE(pr.region, NULLIF(s.admin1, ''), '(non renseigné)') AS region,
+      `${REGION_CTE}
+       SELECT ${REGION_OF('s')} AS region,
               count(*)::int AS submissions,
               count(DISTINCT NULLIF(s.admin3, ''))::int AS communes
          FROM monitoring_submissions s
-         LEFT JOIN pcode_region pr ON pr.adm3_pcode = s.admin3
+         ${REGION_JOIN('s')}
         WHERE s.tenant_id = $1${f}
         GROUP BY 1 ORDER BY submissions DESC`,
       p
@@ -789,12 +808,10 @@ async function reportMonitoringData(tenantId, period) {
     const rp = [tenantId];
     const rf = submissionFilter('s', period, rp);
     const { rows: regions } = await client.query(
-      `WITH pcode_region AS (
-         SELECT DISTINCT ON (adm3_pcode) adm3_pcode, adm1 AS region
-           FROM sites WHERE tenant_id = $1 AND adm3_pcode IS NOT NULL AND NULLIF(adm1, '') IS NOT NULL)
-       SELECT COALESCE(pr.region, NULLIF(s.admin1, ''), '(non renseigné)') AS region,
+      `${REGION_CTE}
+       SELECT ${REGION_OF('s')} AS region,
               count(*)::int AS submissions, count(DISTINCT NULLIF(s.admin3, ''))::int AS communes
-         FROM monitoring_submissions s LEFT JOIN pcode_region pr ON pr.adm3_pcode = s.admin3
+         FROM monitoring_submissions s ${REGION_JOIN('s')}
         WHERE s.tenant_id = $1${rf} GROUP BY 1 ORDER BY submissions DESC`, rp);
     const tp = [tenantId];
     const tf = submissionFilter('s', period, tp);

@@ -1,7 +1,8 @@
 const { withTenantTransaction } = require('../../config/db');
 const { chunkRows } = require('../../db/batch');
 const { badRequest, conflict, notFound } = require('../../middleware/errors');
-const { buildPlaceIndex, resolvePath, groupUnmatched, normPlace, parentKeyOf } = require('../common/placeMatch');
+const { buildPlaceIndex, resolvePath, groupUnmatched, normPlace, parentKeyOf, looksLikePcode, buildOfficeIndex, resolveOffice } = require('../common/placeMatch');
+const { detectMapping } = require('../monitoring/memsMapping');
 
 /**
  * Rapprochement des lieux — SEUL fichier de ce chantier qui écrit du SQL. La
@@ -189,6 +190,98 @@ async function afterSitesChangedTx(client, tenantId) {
   return { ...geo, attached };
 }
 
+// ---- Formulaires reçus (soumissions) -----------------------------------------------
+/** Bureaux actifs + communes (pcode) de leur périmètre → index de résolution des bureaux. */
+async function loadOfficeIndexTx(client, tenantId) {
+  const { rows } = await client.query(
+    `SELECT o.id, o.code, o.name, o.active,
+            COALESCE(array_agg(c.adm3_pcode) FILTER (WHERE c.adm3_pcode IS NOT NULL), '{}') AS communes
+       FROM field_offices o LEFT JOIN field_office_communes c ON c.office_id = o.id AND c.tenant_id = o.tenant_id
+      WHERE o.tenant_id = $1 GROUP BY o.id`, [tenantId]);
+  return buildOfficeIndex(rows);
+}
+
+/**
+ * Libellé des codes de bureau Kobo (« 7 » → « Ambovombe ») : liste de choix du
+ * champ que le mapping reconnaît comme « bureau », fiche par fiche.
+ * @returns {Map<formId, Map<value, label>>}
+ */
+async function officeChoiceLabelsTx(client, tenantId) {
+  const { rows: fields } = await client.query(
+    'SELECT form_id AS "formId", name, list_name AS "listName" FROM monitoring_form_fields WHERE tenant_id = $1', [tenantId]);
+  const byForm = new Map();
+  for (const f of fields) { if (!byForm.has(f.formId)) byForm.set(f.formId, []); byForm.get(f.formId).push(f); }
+  const lists = [];
+  for (const [formId, list] of byForm) {
+    const col = (detectMapping(list.map((f) => f.name)).find((d) => d.key === 'fieldOffice') || {}).column;
+    const field = col && list.find((f) => f.name === col);
+    if (field && field.listName) lists.push([formId, field.listName]);
+  }
+  const out = new Map();
+  if (!lists.length) return out;
+  const { rows } = await client.query(
+    `SELECT c.form_id AS "formId", c.value, c.label FROM monitoring_choices c
+       JOIN unnest($2::uuid[], $3::text[]) AS l(form_id, list_name) ON l.form_id = c.form_id AND l.list_name = c.list_name
+      WHERE c.tenant_id = $1`, [tenantId, lists.map((l) => l[0]), lists.map((l) => l[1])]);
+  for (const r of rows) {
+    if (!out.has(r.formId)) out.set(r.formId, new Map());
+    out.get(r.formId).set(String(r.value), r.label);
+  }
+  return out;
+}
+
+/**
+ * Rattache les formulaires reçus : commune (pcode) et bureau, par combinaison
+ * DISTINCTE de valeurs (le volume dépend du nombre de graphies, pas de lignes),
+ * mise à jour ensembliste par combinaison, file « À rapprocher » de la source
+ * « soumissions » (les codes absents du découpage n'y vont pas : ce ne sont
+ * pas des noms à rapprocher). Les valeurs brutes ne sont jamais modifiées.
+ */
+async function applySubmissionsGeoTx(client, tenantId) {
+  const [index, offices, labels] = await Promise.all([
+    loadPlaceIndexTx(client, tenantId), loadOfficeIndexTx(client, tenantId), officeChoiceLabelsTx(client, tenantId)]);
+  const { rows: combos } = await client.query(
+    `SELECT form_id AS "formId", COALESCE(admin1, '') AS a1, COALESCE(admin2, '') AS a2, COALESCE(admin3, '') AS a3,
+            COALESCE(admin4, '') AS a4, COALESCE(field_office, '') AS fo, count(*)::int AS n
+       FROM monitoring_submissions WHERE tenant_id = $1 GROUP BY 1, 2, 3, 4, 5, 6`, [tenantId]);
+  const updates = []; const unmatched = []; let resolved = 0; let withOffice = 0;
+  for (const c of combos) {
+    const path = resolvePath(index, { adm1: c.a1 || null, adm2: c.a2 || null, adm3: c.a3 || null, adm4: c.a4 || null });
+    const finest = path.finest;
+    const communePcode = (finest && finest.depth >= 3 && path.pcodes.adm3)
+      || (looksLikePcode(c.a3) ? c.a3.trim().toUpperCase() : null);
+    if (path.status === 'resolu') resolved += c.n;
+    for (const l of path.levels) {
+      if (['vide', 'hors_niveau', 'resolu'].includes(l.status) || l.area || looksLikePcode(l.label)) continue;
+      const parentLevel = path.levels.find((x) => x.depth === l.depth - 1);
+      unmatched.push({ depth: l.depth, parent: parentLevel && parentLevel.area, label: l.label, status: l.status, candidates: l.candidates, count: c.n });
+    }
+    const officeLabel = (labels.get(c.formId) && labels.get(c.formId).get(c.fo)) || c.fo || null;
+    const office = resolveOffice(offices, { label: officeLabel, commune: communePcode }).office;
+    if (office) withOffice += c.n;
+    updates.push({ ...c, pcode: communePcode, office: office ? office.id : null, status: path.status === 'resolu' ? 'exact' : path.status });
+  }
+  for (const slice of chunkRows(updates, 9)) {
+    const params = [tenantId];
+    const tuples = slice.map((u) => {
+      params.push(u.formId, u.a1, u.a2, u.a3, u.a4, u.fo, u.pcode, u.office, u.status);
+      const b = params.length - 9;
+      return `($${b + 1}::uuid, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7}, $${b + 8}::uuid, $${b + 9})`;
+    });
+    await client.query(
+      `UPDATE monitoring_submissions ms SET adm3_pcode = v.pcode, field_office_id = v.office, geo_status = v.status
+         FROM (VALUES ${tuples.join(',')}) AS v(form_id, a1, a2, a3, a4, fo, pcode, office, status)
+        WHERE ms.tenant_id = $1 AND ms.form_id = v.form_id
+          AND COALESCE(ms.admin1, '') = v.a1 AND COALESCE(ms.admin2, '') = v.a2 AND COALESCE(ms.admin3, '') = v.a3
+          AND COALESCE(ms.admin4, '') = v.a4 AND COALESCE(ms.field_office, '') = v.fo
+          AND (ms.adm3_pcode IS DISTINCT FROM v.pcode OR ms.field_office_id IS DISTINCT FROM v.office OR ms.geo_status IS DISTINCT FROM v.status)`,
+      params);
+  }
+  await syncQueueTx(client, tenantId, 'soumissions', groupUnmatched(unmatched));
+  const total = combos.reduce((a, c) => a + c.n, 0);
+  return { submissions: total, combinations: combos.length, resolved, withOffice };
+}
+
 // ---- File « À rapprocher » et alias (API) ------------------------------------------
 async function listQueue(tenantId, { status } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
@@ -266,7 +359,7 @@ async function decideQueue(tenantId, queueId, { action, areaId }, actorId) {
       `UPDATE location_match_queue SET status = 'resolu', alias_id = $3, decided_by = $4, decided_at = now() WHERE tenant_id = $1 AND id = $2`,
       [tenantId, queueId, alias[0].id, actorId]);
     await resolvePerimeterTx(client, tenantId);
-    const applied = { sites: await afterSitesChangedTx(client, tenantId) };
+    const applied = { sites: await afterSitesChangedTx(client, tenantId), submissions: await applySubmissionsGeoTx(client, tenantId) };
     return { status: 'resolu', aliasId: alias[0].id, applied };
   });
 }
@@ -277,6 +370,7 @@ async function deleteAlias(tenantId, id) {
     if (!rowCount) return false;
     await resolvePerimeterTx(client, tenantId);
     await afterSitesChangedTx(client, tenantId);
+    await applySubmissionsGeoTx(client, tenantId);
     return true;
   });
 }
@@ -285,11 +379,11 @@ async function deleteAlias(tenantId, id) {
 async function applyAll(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
     await resolvePerimeterTx(client, tenantId);
-    return { sites: await afterSitesChangedTx(client, tenantId) };
+    return { sites: await afterSitesChangedTx(client, tenantId), submissions: await applySubmissionsGeoTx(client, tenantId) };
   });
 }
 
 module.exports = {
-  loadPlaceIndexTx, applySitesGeoTx, syncQueueTx, resolvePerimeterTx, attachUnassignedSitesTx, afterSitesChangedTx,
+  loadPlaceIndexTx, applySitesGeoTx, syncQueueTx, resolvePerimeterTx, attachUnassignedSitesTx, afterSitesChangedTx, applySubmissionsGeoTx,
   listQueue, listAliases, decideQueue, deleteAlias, applyAll,
 };
