@@ -209,3 +209,48 @@ test('classeur .xlsx soumis à la même garde (ExcelJS décompresse tout le clas
   const buf = declareSize(await xlsxOf({ data: [['_uuid'], ['u1']] }), 40e6);
   await assert.rejects(parseSubmissions(buf), refused(413, /ferait \d+ Mo/));
 });
+
+/* ------------------------------------------------------------------------
+ * Colonnes réelles des exports Kobo du pays (GD, SMP, Nutrition, MIARO,
+ * Résilience) et identifiant Kobo commun à tous les formats.
+ * ---------------------------------------------------------------------- */
+const { valueOf } = require('../src/modules/monitoring/submissionsImport');
+
+test('exports réels : codes de lieu et site reconnus (GD, Nutrition, cantines, MIARO, Résilience)', () => {
+  const cases = [
+    { headers: ['Adm1Code_gd', 'Adm2Code_gd', 'Adm3Code_gd', 'DPName'], row: ['MG23', 'MG23209', 'MG23209070', 'MG23209070001'],
+      want: { admin1: 'MG23', admin2: 'MG23209', admin3: 'MG23209070', site: 'MG23209070001' } },
+    { headers: ['Adm1Code_MAM', 'Adm2Code_MAM', 'Adm3Code_MAM', 'Adm4Code_MAM', 'DPName'], row: ['MG51', 'MG51506', 'MG51506013', 'Amboro', 'Antatabe'],
+      want: { admin1: 'MG51', admin3: 'MG51506013', admin4: 'Amboro', site: 'Antatabe' } },
+    { headers: ['Adm1Code_SMP', 'Adm2Code_SMP', 'Adm3Code_SMP', 'Adm4Code_SMP'], row: ['MG53', 'MG25222', '94', '613100021'],
+      want: { admin1: 'MG53', admin2: 'MG25222', admin3: undefined, site: '613100021' } },
+    { headers: ['Adm1Name', 'Adm2Name', 'Adm3Name', 'POIName'], row: ['MG52', 'MG52516a', 'MG52516130', 'MG52516130033053'],
+      want: { admin1: 'MG52', admin3: 'MG52516130', site: 'MG52516130033053' } },
+    { headers: ['Adm1Code', 'Adm3Code', 'Adm4Code', 'ADMIN5Name_DP'], row: ['MG51', 'MG51507090', 'MG51507090001', 'MANIRY CENTRE'],
+      want: { admin1: 'MG51', admin3: 'MG51507090', admin4: 'MG51507090001', site: 'MANIRY CENTRE' } },
+  ];
+  for (const c of cases) {
+    const picks = buildLookup(c.headers, [c.row]);
+    for (const [field, v] of Object.entries(c.want)) assert.equal(valueOf(picks, field, c.row), v, `${c.headers.join(',')} → ${field}`);
+  }
+});
+
+test('réponse « autre » (999) : la précision saisie dans la colonne voisine est retenue', () => {
+  const headers = ['DPName', 'DPName_Other', 'Adm4Code', 'Adm_4_autres'];
+  const row = ['999', 'BEARA AMBOLAMENA', '999', 'Sarodrano'];
+  const picks = buildLookup(headers, [row]);
+  assert.equal(valueOf(picks, 'site', row), 'BEARA AMBOLAMENA');
+  assert.equal(valueOf(picks, 'admin4', row), 'Sarodrano');
+  const plain = ['MG23209070001', '', 'MG51507090001', ''];
+  assert.equal(valueOf(picks, 'site', plain), 'MG23209070001');
+});
+
+test('identifiant Kobo identique en Excel (_uuid) et en SPSS (@_uuid, instanceID) : pas de doublon', async () => {
+  const xlsx = 'x.csv';
+  const viaExcel = await parseSubmissions(Buffer.from('_uuid,_id,q1\n77bbf6c3-6aea,12,a', 'utf8'), { filename: xlsx });
+  const viaSpss = await parseSubmissions(Buffer.from('@_uuid,instanceID,q1\n77bbf6c3-6aea,uuid:77bbf6c3-6aea,a', 'utf8'), { filename: xlsx });
+  const viaInstance = await parseSubmissions(Buffer.from('instanceID,q1\nuuid:77bbf6c3-6aea,a', 'utf8'), { filename: xlsx });
+  assert.equal(viaExcel.submissions[0].externalId, '77bbf6c3-6aea');
+  assert.equal(viaSpss.submissions[0].externalId, '77bbf6c3-6aea');
+  assert.equal(viaInstance.submissions[0].externalId, '77bbf6c3-6aea');
+});

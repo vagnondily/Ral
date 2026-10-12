@@ -3,6 +3,7 @@ const { chunkRows } = require('../../db/batch');
 const { badRequest, conflict, notFound } = require('../../middleware/errors');
 const { buildPlaceIndex, resolvePath, groupUnmatched, normPlace, parentKeyOf, looksLikePcode, buildOfficeIndex, resolveOffice } = require('../common/placeMatch');
 const { detectMapping } = require('../monitoring/memsMapping');
+const { buildSiteIndex, resolveSite, queueKeyOf, isAutomaticSite } = require('../common/siteMatch');
 
 /**
  * Rapprochement des lieux — SEUL fichier de ce chantier qui écrit du SQL. La
@@ -50,9 +51,9 @@ async function updateFromValues(client, tenantId, { table, cols, set, rows, valu
  * qui dérive), conserve les décisions (ignoré / résolu) et retire les graphies
  * qui n'apparaissent plus nulle part sans avoir été décidées.
  */
-async function syncQueueTx(client, tenantId, source, groups) {
+async function syncQueueTx(client, tenantId, source, groups, kind = 'zone') {
   for (const slice of chunkRows(groups, 8)) {
-    const params = [tenantId, source];
+    const params = [tenantId, source, kind];
     const tuples = slice.map((g) => {
       params.push(g.depth, g.parentKey, g.parentLabel, g.rawKey, g.rawLabel.slice(0, 200), g.count, JSON.stringify(g.candidates), g.status);
       const b = params.length - 8;
@@ -60,25 +61,25 @@ async function syncQueueTx(client, tenantId, source, groups) {
     });
     await client.query(
       `INSERT INTO location_match_queue (tenant_id, kind, depth, parent_key, parent_label, raw_key, raw_label, occurrences, candidates, status)
-       SELECT $1, 'zone', v.depth, v.parent_key, v.parent_label, v.raw_key, v.raw_label, jsonb_build_object($2::text, v.n), v.candidates, v.status
+       SELECT $1, $3, v.depth, v.parent_key, v.parent_label, v.raw_key, v.raw_label, jsonb_build_object($2::text, v.n), v.candidates, v.status
          FROM (VALUES ${tuples.join(',')}) AS v(depth, parent_key, parent_label, raw_key, raw_label, n, candidates, status)
        ON CONFLICT (tenant_id, kind, COALESCE(depth, 0), parent_key, raw_key) DO UPDATE SET
          occurrences = location_match_queue.occurrences || EXCLUDED.occurrences,
-         candidates = EXCLUDED.candidates, parent_label = EXCLUDED.parent_label, last_seen_at = now(),
+         candidates = EXCLUDED.candidates, parent_label = EXCLUDED.parent_label, raw_label = EXCLUDED.raw_label, last_seen_at = now(),
          status = CASE WHEN location_match_queue.status IN ('ignore', 'resolu') THEN location_match_queue.status ELSE EXCLUDED.status END`,
       params);
   }
   // Graphies de cette source qui ne sont plus présentes : leur compteur disparaît.
-  const keep = groups.map((g) => `${g.depth}|${g.parentKey}|${g.rawKey}`);
+  const keep = groups.map((g) => `${g.depth || 0}|${g.parentKey}|${g.rawKey}`);
   await client.query(
     `UPDATE location_match_queue SET occurrences = occurrences - $2::text
-      WHERE tenant_id = $1 AND kind = 'zone' AND occurrences ? $2::text
+      WHERE tenant_id = $1 AND kind = $4 AND occurrences ? $2::text
         AND NOT (COALESCE(depth, 0)::text || '|' || parent_key || '|' || raw_key = ANY($3::text[]))`,
-    [tenantId, source, keep]);
+    [tenantId, source, keep, kind]);
   await client.query(
     `DELETE FROM location_match_queue
-      WHERE tenant_id = $1 AND kind = 'zone' AND occurrences = '{}'::jsonb AND status IN ('a_valider', 'ambigu', 'introuvable')`,
-    [tenantId]);
+      WHERE tenant_id = $1 AND kind = $2 AND occurrences = '{}'::jsonb AND status IN ('a_valider', 'ambigu', 'introuvable')`,
+    [tenantId, kind]);
 }
 
 // Colonnes de lieu d'un site (adm1..adm4 priment, les anciennes colonnes servent de repli).
@@ -188,7 +189,9 @@ async function attachUnassignedSitesTx(client, tenantId) {
 async function afterSitesChangedTx(client, tenantId) {
   const geo = await applySitesGeoTx(client, tenantId);
   const attached = await attachUnassignedSitesTx(client, tenantId);
-  return { ...geo, attached };
+  // Un site ajouté, renommé ou relocalisé peut être celui d'un formulaire déjà reçu.
+  const submissionSites = await applySubmissionSitesTx(client, tenantId);
+  return { ...geo, attached, submissionSites };
 }
 
 // ---- Formulaires reçus (soumissions) -----------------------------------------------
@@ -203,19 +206,26 @@ async function loadOfficeIndexTx(client, tenantId) {
 }
 
 /**
- * Libellé des codes de bureau Kobo (« 7 » → « Ambovombe ») : liste de choix du
- * champ que le mapping reconnaît comme « bureau », fiche par fiche.
+ * Libellés des valeurs codées d'une dimension (« 7 » → « Ambovombe » pour le
+ * bureau, « 609010034 » → « Maheny » pour l'école) : liste de choix de la
+ * colonne qui alimente la dimension — celle choisie à la main dans « Mapping
+ * MEMS », sinon celle que reconnaît la table d'alias —, fiche par fiche.
+ * @param {'field_office'|'site'} dimension
  * @returns {Map<formId, Map<value, label>>}
  */
-async function officeChoiceLabelsTx(client, tenantId) {
+async function choiceLabelsTx(client, tenantId, dimension) {
   const { rows: fields } = await client.query(
     'SELECT form_id AS "formId", name, list_name AS "listName" FROM monitoring_form_fields WHERE tenant_id = $1', [tenantId]);
+  const { rows: overrides } = await client.query(
+    'SELECT form_id AS "formId", column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND dimension = $2',
+    [tenantId, dimension]);
+  const forced = new Map(overrides.map((o) => [o.formId, (o.columnName || '').trim()]));
   const byForm = new Map();
   for (const f of fields) { if (!byForm.has(f.formId)) byForm.set(f.formId, []); byForm.get(f.formId).push(f); }
   const lists = [];
   for (const [formId, list] of byForm) {
-    const col = (detectMapping(list.map((f) => f.name)).find((d) => d.key === 'field_office') || {}).column;
-    const field = col && list.find((f) => f.name === col);
+    const col = forced.has(formId) ? forced.get(formId) : (detectMapping(list.map((f) => f.name)).find((d) => d.key === dimension) || {}).column;
+    const field = col && list.find((f) => f.name.toLowerCase() === col.toLowerCase());
     if (field && field.listName) lists.push([formId, field.listName]);
   }
   const out = new Map();
@@ -230,6 +240,7 @@ async function officeChoiceLabelsTx(client, tenantId) {
   }
   return out;
 }
+const officeChoiceLabelsTx = (client, tenantId) => choiceLabelsTx(client, tenantId, 'field_office');
 
 /**
  * Rattache les formulaires reçus : commune (pcode) et bureau, par combinaison
@@ -280,7 +291,108 @@ async function applySubmissionsGeoTx(client, tenantId) {
   }
   await syncQueueTx(client, tenantId, 'soumissions', groupUnmatched(unmatched));
   const total = combos.reduce((a, c) => a + c.n, 0);
-  return { submissions: total, combinations: combos.length, resolved, withOffice };
+  // La commune vient d'être reconnue : le site se cherche dedans (même transaction).
+  const sites = await applySubmissionSitesTx(client, tenantId);
+  return { submissions: total, combinations: combos.length, resolved, withOffice, sites };
+}
+
+// ---- Sites des formulaires reçus ------------------------------------------------------
+/** Référentiel des sites + graphies de sites apprises → index de résolution (common/siteMatch). */
+async function loadSiteIndexTx(client, tenantId) {
+  const { rows: sites } = await client.query(
+    `SELECT id, name, code, location_id AS "locationId", activity,
+            adm2_pcode AS "adm2Pcode", adm3_pcode AS "adm3Pcode", adm4_pcode AS "adm4Pcode"
+       FROM sites WHERE tenant_id = $1`, [tenantId]);
+  const { rows: aliases } = await client.query(
+    `SELECT parent_key AS "parentKey", alias_key AS "aliasKey", target_id AS "targetId"
+       FROM location_aliases WHERE tenant_id = $1 AND kind = 'site'`, [tenantId]);
+  return buildSiteIndex(sites, { aliases });
+}
+
+/** Unités du découpage désignées par des pcodes (et leurs préfixes : MIARO suffixe le fokontany d'un n°). */
+async function areaLookupTx(client, tenantId, values) {
+  const prefixes = new Set();
+  for (const v of values) {
+    const u = String(v == null ? '' : v).trim().toUpperCase();
+    if (!looksLikePcode(u)) continue;
+    for (let n = u.length; n >= 4; n -= 1) prefixes.add(u.slice(0, n));
+  }
+  if (!prefixes.size) return () => null;
+  const { rows } = await client.query(
+    `SELECT upper(a.pcode) AS pcode, a.name, a.depth, upper(p.pcode) AS "parentPcode"
+       FROM admin_areas a LEFT JOIN admin_areas p ON p.id = a.parent_id
+      WHERE a.tenant_id = $1 AND upper(a.pcode) = ANY($2::text[])`, [tenantId, [...prefixes]]);
+  const m = new Map(rows.map((r) => [r.pcode, r]));
+  return (pcode) => m.get(String(pcode).toUpperCase()) || null;
+}
+
+/**
+ * Rattache chaque formulaire reçu à son SITE du référentiel (retour n° 14) :
+ * une résolution par combinaison distincte (fiche, site déclaré, district,
+ * commune), dans le périmètre de l'activité de la fiche. Seuls les statuts sûrs
+ * posent `site_id` ; le reste va dans la file « À rapprocher » (type « site »,
+ * source « soumissions ») avec ses candidats. La valeur brute ne change jamais.
+ * @returns {{ submissions, withSite, linked, pending }}
+ */
+async function applySubmissionSitesTx(client, tenantId) {
+  const index = await loadSiteIndexTx(client, tenantId);
+  const labels = await choiceLabelsTx(client, tenantId, 'site');
+  const { rows: combos } = await client.query(
+    `SELECT s.form_id AS "formId", COALESCE(s.site, '') AS site, COALESCE(s.admin2, '') AS a2,
+            COALESCE(s.adm3_pcode, '') AS p3, f.activity_category AS activity, count(*)::int AS n
+       FROM monitoring_submissions s JOIN monitoring_forms f ON f.id = s.form_id AND f.tenant_id = s.tenant_id
+      WHERE s.tenant_id = $1 GROUP BY 1, 2, 3, 4, 5`, [tenantId]);
+  const areaOf = await areaLookupTx(client, tenantId, combos.map((c) => c.site));
+  const updates = []; const pending = new Map();
+  let withSite = 0; let linked = 0;
+  for (const c of combos) {
+    const label = (c.site && labels.get(c.formId) && labels.get(c.formId).get(c.site)) || null;
+    const q = { value: c.site, label, adm2: looksLikePcode(c.a2) ? c.a2 : null, adm3: c.p3 || null, activity: c.activity, areaOf };
+    const r = resolveSite(index, q);
+    const auto = isAutomaticSite(r.status);
+    if (c.site) withSite += c.n;
+    if (auto) linked += c.n;
+    updates.push({ ...c, siteId: auto ? r.site.id : null, status: r.status });
+    if (auto || r.status === 'vide') continue;
+    const k = queueKeyOf(q);
+    const gk = `${k.parentKey}|${k.rawKey}`;
+    if (!pending.has(gk)) {
+      // Code de fokontany reconnu : on l'affiche avec son nom, dans sa commune (lisible pour décider).
+      const rawLabel = r.area && !label ? `${r.area.name} (${c.site})` : k.rawLabel;
+      pending.set(gk, {
+        depth: null, parentKey: k.parentKey, parentLabel: null, zone: k.parentKey || (r.area && r.area.parentPcode) || null,
+        rawKey: k.rawKey, rawLabel: rawLabel.slice(0, 200), count: 0, status: r.status,
+        candidates: r.candidates.slice(0, 5).map((x) => ({ id: x.site.id, name: x.site.name, score: Math.round(x.score * 100) / 100, activity: x.site.activity || null })),
+      });
+    }
+    pending.get(gk).count += c.n;
+  }
+  for (const slice of chunkRows(updates, 6)) {
+    const params = [tenantId];
+    const tuples = slice.map((u) => {
+      params.push(u.formId, u.site, u.a2, u.p3, u.siteId, u.status);
+      const b = params.length - 6;
+      return `($${b + 1}::uuid, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}::uuid, $${b + 6})`;
+    });
+    await client.query(
+      `UPDATE monitoring_submissions ms SET site_id = v.site_id, site_status = v.status
+         FROM (VALUES ${tuples.join(',')}) AS v(form_id, site, a2, p3, site_id, status)
+        WHERE ms.tenant_id = $1 AND ms.form_id = v.form_id AND COALESCE(ms.site, '') = v.site
+          AND COALESCE(ms.admin2, '') = v.a2 AND COALESCE(ms.adm3_pcode, '') = v.p3
+          AND (ms.site_id IS DISTINCT FROM v.site_id OR ms.site_status IS DISTINCT FROM v.status)`,
+      params);
+  }
+  // Nom de la zone (commune ou district) de chaque graphie, pour la file.
+  const zones = [...new Set([...pending.values()].map((g) => g.zone).filter(Boolean))];
+  if (zones.length) {
+    const { rows } = await client.query(
+      'SELECT upper(pcode) AS pcode, name FROM admin_areas WHERE tenant_id = $1 AND upper(pcode) = ANY($2::text[])', [tenantId, zones]);
+    const names = new Map(rows.map((r) => [r.pcode, r.name]));
+    for (const g of pending.values()) g.parentLabel = g.zone ? names.get(g.zone) || g.zone : null;
+  }
+  await syncQueueTx(client, tenantId, 'soumissions', [...pending.values()], 'site');
+  const total = combos.reduce((a, c) => a + c.n, 0);
+  return { submissions: total, withSite, linked, pending: pending.size };
 }
 
 // ---- File « À rapprocher » et alias (API) ------------------------------------------
@@ -313,8 +425,10 @@ async function listAliases(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
       `SELECT a.id, a.kind, a.depth, a.parent_key AS "parentKey", a.alias_label AS "aliasLabel", a.target_pcode AS "targetPcode",
-              a.target_path AS "targetPath", ar.path AS "currentPath", a.source, a.created_at AS "createdAt"
-         FROM location_aliases a LEFT JOIN admin_areas ar ON ar.tenant_id = a.tenant_id AND ar.id = a.target_id
+              a.target_path AS "targetPath", COALESCE(ar.path, st.name) AS "currentPath", a.source, a.created_at AS "createdAt"
+         FROM location_aliases a
+         LEFT JOIN admin_areas ar ON ar.tenant_id = a.tenant_id AND ar.id = a.target_id AND a.kind = 'zone'
+         LEFT JOIN sites st ON st.tenant_id = a.tenant_id AND st.id = a.target_id AND a.kind = 'site'
         WHERE a.tenant_id = $1 ORDER BY a.created_at DESC LIMIT 1000`, [tenantId]);
     return rows;
   });
@@ -326,7 +440,7 @@ async function listAliases(tenantId) {
  *   connu) puis rejoue le rattachement de toutes les sources ;
  * - « ignorer » : la graphie sort de la file (rien n'est rattaché).
  */
-async function decideQueue(tenantId, queueId, { action, areaId }, actorId) {
+async function decideQueue(tenantId, queueId, { action, areaId, siteId }, actorId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
       `SELECT id, kind, depth, parent_key AS "parentKey", raw_key AS "rawKey", raw_label AS "rawLabel", status
@@ -339,6 +453,8 @@ async function decideQueue(tenantId, queueId, { action, areaId }, actorId) {
         [tenantId, queueId, actorId]);
       return { status: 'ignore' };
     }
+    if (q.kind === 'site') return linkSiteTx(client, tenantId, q, siteId, actorId);
+    if (!areaId) throw badRequest('Choisissez une unité du découpage.');
     const { rows: areas } = await client.query(
       `SELECT a.id, a.depth, a.pcode, a.path, a.name, p.pcode AS "parentPcode", p.name AS "parentName"
          FROM admin_areas a LEFT JOIN admin_areas p ON p.id = a.parent_id
@@ -365,6 +481,29 @@ async function decideQueue(tenantId, queueId, { action, areaId }, actorId) {
   });
 }
 
+/**
+ * Graphie de SITE reliée à la main : alias (même clé que la file : un code vaut
+ * pour tout le pays, un nom dans sa commune), graphie résolue, puis rattachement
+ * des formulaires rejoué — dans la transaction de la décision.
+ */
+async function linkSiteTx(client, tenantId, q, siteId, actorId) {
+  if (!siteId) throw badRequest('Choisissez un site du référentiel.');
+  const { rows: sites } = await client.query('SELECT id, name FROM sites WHERE tenant_id = $1 AND id = $2', [tenantId, siteId]);
+  if (!sites.length) throw badRequest('Site inconnu du référentiel.');
+  const { rows: alias } = await client.query(
+    `INSERT INTO location_aliases (tenant_id, kind, depth, parent_key, alias_key, alias_label, target_id, source, created_by)
+     VALUES ($1, 'site', NULL, $2, $3, $4, $5, 'valide', $6)
+     ON CONFLICT (tenant_id, kind, COALESCE(depth, 0), parent_key, alias_key) DO UPDATE SET
+       target_id = EXCLUDED.target_id, alias_label = EXCLUDED.alias_label, source = 'valide'
+     RETURNING id`,
+    [tenantId, q.parentKey, q.rawKey, q.rawLabel, siteId, actorId]);
+  await client.query(
+    `UPDATE location_match_queue SET status = 'resolu', alias_id = $3, decided_by = $4, decided_at = now() WHERE tenant_id = $1 AND id = $2`,
+    [tenantId, q.id, alias[0].id, actorId]);
+  const applied = { submissionSites: await applySubmissionSitesTx(client, tenantId) };
+  return { status: 'resolu', aliasId: alias[0].id, site: sites[0], applied };
+}
+
 async function deleteAlias(tenantId, id) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rowCount } = await client.query('DELETE FROM location_aliases WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
@@ -386,6 +525,6 @@ async function applyAll(tenantId) {
 
 module.exports = {
   loadPlaceIndexTx, applySitesGeoTx, syncQueueTx, resolvePerimeterTx, attachUnassignedSitesTx, afterSitesChangedTx, applySubmissionsGeoTx,
-  officeChoiceLabelsTx,
+  officeChoiceLabelsTx, choiceLabelsTx, applySubmissionSitesTx, loadSiteIndexTx,
   listQueue, listAliases, decideQueue, deleteAlias, applyAll,
 };

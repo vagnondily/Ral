@@ -59,6 +59,8 @@ const META_COLS = [
   { key: 'communeName', label: 'Commune', alt: 'admin3' },
   { key: 'admin4', label: 'Fokontany' },
   { key: 'site', label: 'Site' },
+  // Site du référentiel reconnu à l'import (DPName, POIName, école…) ; vide = à rapprocher.
+  { key: 'siteName', label: 'Site du référentiel' },
   { key: 'partner', label: 'Partenaire' },
   { key: 'agent', label: 'Agent' },
 ];

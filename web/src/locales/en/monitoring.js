@@ -379,4 +379,18 @@ export default {
   'Aucune donnée notée': 'No scored data',
   'La base de données n\'est pas à jour ({n} mise(s) à jour en attente) : certaines pages ne fonctionneront pas. Arrêtez l\'API, lancez « npm run migrate » dans le dossier server, puis redémarrez l\'API.': 'The database is not up to date ({n} update(s) pending): some pages will not work. Stop the API, run “npm run migrate” in the server folder, then restart the API.',
   'L\'application est en cours de mise à jour : certaines pages peuvent ne pas fonctionner. Prévenez votre administrateur.': 'The application is being updated: some pages may not work. Please tell your administrator.',
+  // Rattachement des formulaires reçus aux sites du référentiel.
+  'Site du référentiel': 'Registry site',
+  'Lieux (découpage)': 'Places (breakdown)',
+  'Sites des formulaires reçus': 'Sites of received forms',
+  'Type de nom': 'Name type',
+  'Site déclaré': 'Declared site',
+  'Site déclaré dans un formulaire (point de distribution, point d\'intérêt, école) que l\'outil n\'a pas relié seul au référentiel des sites. Un code (école, fokontany) relié une fois l\'est partout ; un nom l\'est dans sa commune.': 'Site declared in a form (distribution point, point of interest, school) that the tool could not link to the site registry on its own. A code (school, fokontany) linked once is linked everywhere; a name is linked within its commune.',
+  'Tous les sites déclarés dans les formulaires reçus sont reliés au référentiel des sites.': 'All sites declared in the received forms are linked to the site registry.',
+  'Noms de lieux et de sites importés que l\'outil n\'a pas reconnus seul. Une décision vaut pour toutes les lignes qui portent ce nom, maintenant et aux prochains imports.': 'Imported place and site names the tool did not recognise on its own. A decision applies to every row carrying that name, now and in future imports.',
+  '« {label} » est reliée au site {name} : {n} formulaire(s) reçu(s) relié(s) à un site au total.': '“{label}” is linked to site {name}: {n} received form(s) linked to a site in total.',
+  'Relier « {label} » à un site': 'Link “{label}” to a site',
+  'Déclaré dans {parent}.': 'Declared in {parent}.',
+  'Rechercher un site (nom, code, commune)': 'Search a site (name, code, commune)',
+  'Aucun site trouvé. Ajoutez-le au référentiel (Suivi de processus › Plan de suivi) s\'il manque.': 'No site found. Add it to the registry (Process monitoring › Monitoring plan) if it is missing.',
 };

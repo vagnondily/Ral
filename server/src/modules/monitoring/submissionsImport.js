@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const ExcelJS = require('exceljs');
 const AdmZip = require('adm-zip');
-const { MAP } = require('./memsMapping');
+const { MAP, canonicalExternalId, OTHER_VALUES, OTHER_SUFFIXES, OTHER_EXTRA } = require('./memsMapping');
 const { parseCollectionDate } = require('./collectionDate');
 const { parseSav } = require('./savParser');
 const { inspectOle } = require('./xlsReader');
@@ -31,7 +31,7 @@ const { badRequest } = require('../../middleware/errors');
 const norm = (s) => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
 // Forme d'un code de localité (pcode) : 2-3 lettres puis des chiffres (MG51507090).
-const PCODE = /^[A-Za-z]{2,3}\d{1,12}$/;
+const PCODE = /^[A-Za-z]{2,3}\d{1,14}[A-Za-z]?$/;
 const ADMIN_KEYS = new Set(['admin1', 'admin2', 'admin3', 'admin4']);
 
 /**
@@ -48,14 +48,50 @@ function buildLookup(headers, rows = []) {
     const vals = sample.map((r) => r[col]).filter((v) => v != null && String(v).trim() !== '');
     return vals.length > 0 && vals.filter((v) => PCODE.test(String(v).trim())).length / vals.length >= 0.8;
   };
+  // Colonnes « autre (préciser) » voisines d'une colonne de choix (DPName → DPName_Other).
+  const othersOf = (i) => {
+    const base = norm(headers[i]);
+    return [...OTHER_SUFFIXES.map((suf) => `${base}${suf}`), ...(OTHER_EXTRA[base] || [])]
+      .map((n) => byNorm.get(n)).filter((j) => j !== undefined);
+  };
   const picks = {};
+  const cands = {};
+  const others = {};
   for (const [field, aliases] of Object.entries(MAP)) {
-    const candidates = aliases.map((a) => byNorm.get(norm(a))).filter((i) => i !== undefined);
+    let candidates = aliases.map((a) => byNorm.get(norm(a))).filter((i) => i !== undefined);
     if (!candidates.length) continue;
-    const coded = ADMIN_KEYS.has(field) && candidates.length > 1 ? candidates.find(looksLikePcode) : undefined;
-    picks[field] = coded !== undefined ? coded : candidates[0];
+    // Niveau administratif sous plusieurs colonnes : celles qui portent des codes d'abord.
+    if (ADMIN_KEYS.has(field) && candidates.length > 1) {
+      candidates = [...candidates.filter(looksLikePcode), ...candidates.filter((i) => !looksLikePcode(i))];
+    }
+    picks[field] = candidates[0];
+    cands[field] = candidates;
+    others[field] = new Map(candidates.map((i) => [i, othersOf(i)]));
   }
+  // Non énumérables : `picks[champ]` reste l'index de la colonne principale (compatibilité).
+  Object.defineProperty(picks, 'candidates', { value: cands });
+  Object.defineProperty(picks, 'others', { value: others });
   return picks;
+}
+
+/**
+ * Valeur d'un champ typé pour une ligne : première colonne candidate non vide
+ * (un même formulaire importé en Excel puis en SPSS n'a pas toujours les mêmes
+ * colonnes) ; une réponse « autre » (999…) est remplacée par sa précision.
+ */
+function valueOf(picks, field, values) {
+  const list = (picks.candidates && picks.candidates[field]) || (picks[field] != null ? [picks[field]] : []);
+  for (const i of list) {
+    const v = values[i];
+    if (v == null || String(v).trim() === '') continue;
+    if (OTHER_VALUES.has(String(v).trim().toLowerCase())) {
+      const other = ((picks.others && picks.others[field] && picks.others[field].get(i)) || [])
+        .map((j) => values[j]).find((x) => x != null && String(x).trim() !== '');
+      if (other != null) return typeof other === 'string' ? other.trim() : other;
+    }
+    return typeof v === 'string' ? v.trim() : v;
+  }
+  return undefined;
 }
 
 /**
@@ -70,10 +106,10 @@ function rowToSubmission(headers, values, picks, source) {
     const v = values[i];
     if (v !== undefined && v !== null && v !== '') data[h] = v;
   });
-  const at = (field) => (picks[field] != null ? values[picks[field]] : undefined);
+  const at = (field) => valueOf(picks, field, values);
   const when = parseCollectionDate(at('submitted_at'));
   const submission = {
-    externalId: at('external_id') != null ? String(at('external_id')) : null,
+    externalId: canonicalExternalId(at('external_id')),
     periodMonth: when.ok ? when.month : null,
     submittedAt: when.ok ? when.date : null,
     fieldOffice: at('field_office') != null ? String(at('field_office')) : null,
@@ -87,7 +123,8 @@ function rowToSubmission(headers, values, picks, source) {
     source,
     data,
   };
-  const badDate = when.ok ? null : { column: String(headers[picks.submitted_at]), value: String(at('submitted_at')) };
+  const dateCol = ((picks.candidates && picks.candidates.submitted_at) || []).find((i) => values[i] != null && String(values[i]).trim() !== '');
+  const badDate = when.ok ? null : { column: String(headers[dateCol ?? picks.submitted_at]), value: String(at('submitted_at')) };
   return { submission, badDate };
 }
 
@@ -221,7 +258,7 @@ function submissionsFromObjects(objects, source = 'kobo') {
     const { submission: s, badDate } = rowToSubmission(headers, values, buildLookup(headers, [values]), source);
     if (badDate) { bad.push({ line: index + 1, ...badDate }); return; }
     // Kobo identifiers live on the raw object, not always flattened.
-    s.externalId = obj._uuid || obj['meta/instanceID'] || s.externalId || (obj._id != null ? String(obj._id) : null);
+    s.externalId = canonicalExternalId(obj._uuid || obj['meta/instanceID']) || s.externalId || (obj._id != null ? String(obj._id) : null);
     if (!s.periodMonth) {
       const fallback = parseCollectionDate(obj._submission_time);
       if (fallback.ok) s.periodMonth = fallback.month;
@@ -346,4 +383,4 @@ async function parseSubmissions(buffer, { zipLimits = DEFAULT_ZIP_LIMITS } = {})
   }
 }
 
-module.exports = { parseSubmissions, submissionsFromObjects, parseCsv, buildLookup, MAP };
+module.exports = { parseSubmissions, submissionsFromObjects, parseCsv, buildLookup, valueOf, MAP };

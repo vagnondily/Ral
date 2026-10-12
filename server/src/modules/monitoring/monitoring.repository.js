@@ -5,6 +5,8 @@ const { computeAll, overallIndex } = require('./monitoringMath');
 const { classDistribution, dimGroups, topFlop, classify } = require('./coverageDashboard');
 const { detectMapping, DIMENSION_COLUMN, EDITABLE_KEYS } = require('./memsMapping');
 const { computeCalcFields } = require('./calcFields');
+const { buildLookup } = require('./submissionsImport');
+const { OTHER_VALUES } = require('./memsMapping');
 const { applySubmissionsGeoTx, officeChoiceLabelsTx } = require('../settings/placeMatch.repository');
 
 /** Charge les champs calculés d'une fiche (ordre), pour l'analyse et la grille. */
@@ -214,7 +216,9 @@ const PLACE_NAMES = `
                        (SELECT s.district FROM sites s WHERE s.tenant_id = ms.tenant_id AND s.adm2_pcode = ms.admin2 LIMIT 1)) AS "districtName",
               COALESCE((SELECT a.name FROM admin_areas a WHERE a.tenant_id = ms.tenant_id AND a.pcode = COALESCE(ms.adm3_pcode, ms.admin3) LIMIT 1),
                        (SELECT s.commune FROM sites s WHERE s.tenant_id = ms.tenant_id AND s.adm3_pcode IS NOT NULL
-                           AND s.adm3_pcode = COALESCE(ms.adm3_pcode, ms.admin3) LIMIT 1)) AS "communeName"`;
+                           AND s.adm3_pcode = COALESCE(ms.adm3_pcode, ms.admin3) LIMIT 1)) AS "communeName",
+              (SELECT st.name FROM sites st WHERE st.tenant_id = ms.tenant_id AND st.id = ms.site_id) AS "siteName",
+              ms.site_status AS "siteStatus"`;
 
 // Région en clair d'une soumission : par le code de commune rattaché (découpage
 // officiel d'abord, registre de sites en repli), sinon par un code de région
@@ -432,32 +436,64 @@ async function resetMemsMapping(tenantId, formId, dimension) {
  */
 async function applyMappingToSubmissions(tenantId, formId) {
   return withTenantTransaction(tenantId, async (client) => {
-    const { rows: ov } = await client.query(
-      'SELECT dimension, column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2',
-      [tenantId, formId]
-    );
-    let applied = 0;
-    for (const o of ov) {
-      const col = DIMENSION_COLUMN[o.dimension];
-      if (!col) continue; // dimension non surchargeable (ex. date)
-      if (o.columnName && o.columnName.trim()) {
-        await client.query(
-          `UPDATE monitoring_submissions SET ${col} = NULLIF(data->>$3, '')
-             WHERE tenant_id = $1 AND form_id = $2`,
-          [tenantId, formId, o.columnName.trim()]
-        );
-      } else {
-        await client.query(
-          `UPDATE monitoring_submissions SET ${col} = NULL WHERE tenant_id = $1 AND form_id = $2`,
-          [tenantId, formId]
-        );
-      }
-      applied += 1;
-    }
-    // Les colonnes de lieu/bureau ont pu changer : rattachement rejoué (même transaction).
-    const geo = applied ? await applySubmissionsGeoTx(client, tenantId) : null;
-    return { applied, geo };
+    const { overrides, updated } = await reliftSubmissionsTx(client, tenantId, formId);
+    // Les colonnes de lieu/bureau/site ont pu changer : rattachement rejoué (même transaction).
+    const geo = await applySubmissionsGeoTx(client, tenantId);
+    return { applied: overrides, updated, geo };
   });
+}
+
+/**
+ * Relit les champs typés (bureau, lieux, site, partenaire, agent) d'une fiche
+ * depuis les réponses brutes conservées, avec la MÊME règle qu'à l'import
+ * (submissionsImport.buildLookup : alias, codes d'abord, première colonne non
+ * vide, réponse « autre » remplacée par sa précision) ; une colonne choisie à
+ * la main dans « Mapping MEMS » l'emporte ; sinon une valeur connue n'est jamais
+ * effacée faute de colonne. Sert après un changement de mapping
+ * et quand de nouveaux noms de colonnes sont reconnus (réparation au démarrage).
+ * Une seule requête par fiche, valeurs brutes intactes.
+ * @returns {{ overrides: number, updated: number }}
+ */
+async function reliftSubmissionsTx(client, tenantId, formId) {
+  const { rows: keyRows } = await client.query(
+    'SELECT DISTINCT jsonb_object_keys(data) AS k FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2',
+    [tenantId, formId]);
+  const keys = keyRows.map((r) => r.k);
+  const { rows: sample } = await client.query(
+    'SELECT data FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 ORDER BY created_at DESC LIMIT 50',
+    [tenantId, formId]);
+  const picks = buildLookup(keys, sample.map((r) => keys.map((k) => r.data[k])));
+  const { rows: ov } = await client.query(
+    'SELECT dimension, column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2',
+    [tenantId, formId]);
+  const forced = new Map(ov.map((o) => [o.dimension, (o.columnName || '').trim()]));
+  const params = [tenantId, formId];
+  const ref = (value) => { params.push(value); return `$${params.length}`; };
+  let otherRef = null; // valeurs « autre » (999…) : paramètre ajouté seulement s'il sert
+  const otherValues = () => { otherRef = otherRef || ref([...OTHER_VALUES]); return otherRef; };
+  const cell = (name) => `NULLIF(btrim(data->>${ref(name)}), '')`;
+  const exprFor = (dimension) => {
+    if (forced.has(dimension)) return forced.get(dimension) ? cell(forced.get(dimension)) : 'NULL';
+    const cands = (picks.candidates && picks.candidates[dimension]) || [];
+    if (!cands.length) return 'NULL';
+    const parts = cands.map((i) => {
+      const others = (picks.others[dimension] && picks.others[dimension].get(i)) || [];
+      const base = cell(keys[i]);
+      if (!others.length) return base;
+      return `CASE WHEN lower(btrim(data->>${ref(keys[i])})) = ANY(${otherValues()}::text[]) THEN COALESCE(${others.map((j) => cell(keys[j])).join(', ')}, ${base}) ELSE ${base} END`;
+    });
+    return parts.length === 1 ? parts[0] : `COALESCE(${parts.join(', ')})`;
+  };
+  // Une valeur déjà connue n'est jamais remplacée par une absence (lignes saisies autrement, colonne
+  // vide dans un autre format d'export) ; seule une colonne choisie à la main s'applique telle quelle.
+  const cols = Object.entries(DIMENSION_COLUMN).map(([dimension, col]) => [col,
+    forced.has(dimension) ? exprFor(dimension) : `COALESCE(${exprFor(dimension)}, ${col})`]);
+  const { rowCount } = await client.query(
+    `UPDATE monitoring_submissions SET ${cols.map(([c, e]) => `${c} = ${e}`).join(', ')}
+      WHERE tenant_id = $1 AND form_id = $2
+        AND (${cols.map(([c, e]) => `${c} IS DISTINCT FROM ${e}`).join(' OR ')})`,
+    params);
+  return { overrides: ov.length, updated: rowCount };
 }
 
 /**
@@ -868,13 +904,13 @@ async function reportMonitoringData(tenantId, period) {
       const f = submissionFilter('s', period, p);
       const { rows: subs } = await client.query(
         `SELECT data, COALESCE(NULLIF(field_office, ''), '(non renseigné)') AS bureau,
-                COALESCE(NULLIF(site, ''), NULLIF(admin3, '')) AS sitekey FROM monitoring_submissions s
+                COALESCE(site_id::text, NULLIF(site, ''), NULLIF(admin3, '')) AS sitekey FROM monitoring_submissions s
           WHERE s.tenant_id = $1 AND s.form_id = $2${f}`, p);
       const { rows: cnt } = await client.query(
-        `SELECT count(*)::int AS visits, count(DISTINCT COALESCE(NULLIF(site, ''), NULLIF(admin3, '')))::int AS "sitesVisited"
+        `SELECT count(*)::int AS visits, count(DISTINCT COALESCE(site_id::text, NULLIF(site, ''), NULLIF(admin3, '')))::int AS "sitesVisited"
            FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${f}`, p);
       const { rows: monthly } = await client.query(
-        `SELECT to_char(period_month, 'YYYY-MM') AS month, count(DISTINCT COALESCE(NULLIF(site, ''), NULLIF(admin3, '')))::int AS sites
+        `SELECT to_char(period_month, 'YYYY-MM') AS month, count(DISTINCT COALESCE(site_id::text, NULLIF(site, ''), NULLIF(admin3, '')))::int AS sites
            FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${f}
           GROUP BY 1 ORDER BY 1`, p);
       const defs = await calcDefsFor(client, tenantId, fm.id);
@@ -999,6 +1035,7 @@ async function setExclusion(tenantId, formId, { ids, excluded, reason } = {}) {
 }
 
 module.exports = {
+  reliftSubmissionsTx,
   listCalcFields, createCalcField, updateCalcField, deleteCalcField, setExclusion,
   setFormSource, formSourceContext, reportMonitoringData,
   listForms, createForm, updateForm, deleteForm,

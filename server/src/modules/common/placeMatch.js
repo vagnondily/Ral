@@ -57,7 +57,8 @@ function guardOf(token) {
 }
 
 /** Une valeur a-t-elle la forme d'un pcode (MG51507090) ? */
-const looksLikePcode = (s) => /^[A-Z]{2,3}\d{1,12}$/.test(String(s == null ? '' : s).trim().toUpperCase());
+// Pcode : 2-3 lettres, des chiffres, parfois une lettre finale (découpages issus des XLSForm : MG51507110a).
+const looksLikePcode = (s) => /^[A-Z]{2,3}\d{1,14}[A-Z]?$/.test(String(s == null ? '' : s).trim().toUpperCase());
 
 /** Similarité de Jaro-Winkler (0..1). */
 function jaroWinkler(a, b) {

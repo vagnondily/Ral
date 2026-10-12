@@ -62,7 +62,7 @@ export default function ProcessDashboardPage({ onNavigate }) {
     const m = new Map();
     const get = (name) => { if (!m.has(name)) m.set(name, { key: name, label: name, active: 0, realise: 0, rate: null, submissions: 0 }); return m.get(name); };
     for (const o of field?.byOffice || []) {
-      const r = get(o.label);
+      const r = get(o.key === '—' ? tr('Sans bureau') : o.label);
       r.active = o.active; r.realise = o.realise; r.rate = o.active > 0 ? o.rate : null;
     }
     for (const b of ov?.byBureau || []) get(b.bureau === '(non renseigné)' ? tr('Sans bureau') : b.bureau).submissions += b.submissions;

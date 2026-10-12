@@ -318,10 +318,12 @@ router.get('/place-matches', asyncHandler(async (req, res) => {
   res.json(await places.listQueue(t(req), { status: st.data }));
 }));
 router.post('/place-matches/apply', WRITE, asyncHandler(async (req, res) => res.json(await places.applyAll(t(req)))));
+// Lieu (zone) : areaId ; site du référentiel : siteId — exactement l'un des deux (selon le type de la graphie).
 router.post('/place-matches/:id/decide', WRITE, body(z.discriminatedUnion('action', [
-  z.object({ action: z.literal('lier'), areaId: z.string().uuid() }),
+  z.object({ action: z.literal('lier'), areaId: z.string().uuid().optional(), siteId: z.string().uuid().optional() }),
   z.object({ action: z.literal('ignorer') }),
-])), asyncHandler(async (req, res) => {
+]).refine((v) => v.action !== 'lier' || Boolean(v.areaId) !== Boolean(v.siteId), { message: 'Indiquez soit une unité, soit un site.' })),
+asyncHandler(async (req, res) => {
   if (!z.string().uuid().safeParse(req.params.id).success) throw badRequest('Identifiant invalide');
   res.json(await places.decideQueue(t(req), req.params.id, req.valid, req.auth.userId));
 }));

@@ -2,14 +2,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { officeChoiceLabelsTx } = require('../src/modules/settings/placeMatch.repository');
 
-// Client factice : 1re requête = catalogue des champs, 2e = choix des listes demandées.
-function fakeClient(fields, choices) {
+// Client factice : catalogue des champs, colonnes choisies à la main (Mapping MEMS), puis choix des listes demandées.
+function fakeClient(fields, choices, overrides = []) {
   const calls = [];
   return {
     calls,
     async query(sql, params) {
       calls.push(params);
       if (/FROM monitoring_form_fields/.test(sql)) return { rows: fields };
+      if (/FROM monitoring_field_map/.test(sql)) return { rows: overrides.filter((o) => o.dimension === params[1]) };
       const [, forms, lists] = params;
       return { rows: choices.filter((c) => forms.some((f, i) => f === c.formId && lists[i] === c.listName)) };
     },
@@ -24,12 +25,23 @@ test('bureau codé : « 6 » se lit par le libellé de la liste de la colonne bu
   );
   const labels = await officeChoiceLabelsTx(client, 't1');
   assert.equal(labels.get('f1').get('6'), 'Ambovombe');
-  assert.deepEqual(client.calls[1].slice(1), [['f1'], ['sav:Field_office']]);
+  assert.deepEqual(client.calls[2].slice(1), [['f1'], ['sav:Field_office']]);
 });
 
 test('colonne bureau sans liste : aucune requête de choix, aucune traduction inventée', async () => {
   const client = fakeClient([{ formId: 'f1', name: 'field_office', listName: null }], []);
   const labels = await officeChoiceLabelsTx(client, 't1');
   assert.equal(labels.size, 0);
-  assert.equal(client.calls.length, 1);
+  assert.equal(client.calls.length, 2);
+});
+
+test('colonne choisie à la main dans « Mapping MEMS » : ses libellés l\'emportent sur la détection', async () => {
+  const { choiceLabelsTx } = require('../src/modules/settings/placeMatch.repository');
+  const client = fakeClient(
+    [{ formId: 'f1', name: 'DPName', listName: null }, { formId: 'f1', name: 'Adm4Code_SMP', listName: 'sav:Adm4Code_SMP' }],
+    [{ formId: 'f1', listName: 'sav:Adm4Code_SMP', value: '609010034', label: 'Maheny' }],
+    [{ formId: 'f1', dimension: 'site', columnName: 'Adm4Code_SMP' }],
+  );
+  const labels = await choiceLabelsTx(client, 't1', 'site');
+  assert.equal(labels.get('f1').get('609010034'), 'Maheny');
 });
