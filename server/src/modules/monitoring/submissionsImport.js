@@ -341,6 +341,45 @@ function submissionsFromObjects(objects, source = 'kobo') {
   return out;
 }
 
+// Champs typés montrés à l'utilisateur avant un import (vérification).
+const ANALYZED_FIELDS = ['external_id', 'submitted_at', 'field_office', 'admin1', 'admin2', 'admin3', 'admin4', 'site', 'partner', 'agent'];
+
+/**
+ * Ce que contient un fichier lu, avant de l'importer (rien n'est écrit) :
+ * nombre de soumissions, colonne reconnue pour chaque champ MEMS, mois couverts,
+ * première et dernière date, doublons dans le fichier, lignes sans identifiant
+ * (un réimport les compterait deux fois). Logique pure.
+ * @param {object[]} submissions  sortie de parseSubmissions
+ * @param {string[]} headers       colonnes (ou variables SPSS) du fichier
+ */
+function analyzeSubmissions(submissions, headers = []) {
+  const list = submissions || [];
+  const cols = (headers || []).filter((h) => h != null && h !== '');
+  const picks = buildLookup(cols, list.slice(0, 50).map((x) => cols.map((h) => (x.data || {})[h])));
+  const recognized = Object.fromEntries(ANALYZED_FIELDS.map((f) => [f, picks[f] != null ? cols[picks[f]] : null]));
+  const months = new Map();
+  const seen = new Set();
+  let from = null; let to = null; let duplicatesInFile = 0; let withoutId = 0; let withoutDate = 0;
+  for (const x of list) {
+    if (x.periodMonth) months.set(x.periodMonth, (months.get(x.periodMonth) || 0) + 1); else withoutDate += 1;
+    if (x.submittedAt) {
+      const iso = new Date(x.submittedAt).toISOString().slice(0, 10);
+      if (!from || iso < from) from = iso;
+      if (!to || iso > to) to = iso;
+    }
+    if (!x.externalId) withoutId += 1;
+    else if (seen.has(x.externalId)) duplicatesInFile += 1;
+    else seen.add(x.externalId);
+  }
+  return {
+    count: list.length,
+    recognized,
+    months: [...months.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([month, n]) => ({ month, n })),
+    from, to, duplicatesInFile, withoutId, withoutDate,
+    ids: [...seen],
+  };
+}
+
 // Donne un identifiant stable (dé-duplication) aux soumissions sans _uuid,
 // à partir du contenu — pour que ré-importer le même .sav soit idempotent.
 function withStableIds(subs) {
@@ -455,4 +494,4 @@ async function parseSubmissions(buffer, { zipLimits = DEFAULT_ZIP_LIMITS } = {})
   }
 }
 
-module.exports = { parseSubmissions, submissionsFromObjects, parseCsv, buildLookup, valueOf, groupPathRenamer, TRIM_CLASS, MAP };
+module.exports = { parseSubmissions, submissionsFromObjects, parseCsv, buildLookup, valueOf, groupPathRenamer, analyzeSubmissions, TRIM_CLASS, MAP };

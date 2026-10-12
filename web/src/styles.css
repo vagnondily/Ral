@@ -306,6 +306,10 @@ button:disabled { cursor: not-allowed; }
 .alert-error { background: var(--red-bg); color: var(--red-text); border: 1px solid #ffd0d0; }
 .alert-info { background: var(--blue-50); color: var(--blue-700); border: 1px solid var(--blue-100); }
 .alert-warn { background: var(--orange-bg); color: var(--orange-text); border: 1px solid #ffe3a8; }
+/* Variantes utilisées dans les écrans mais jamais définies (rendues sans style jusqu'ici). */
+.alert-warning { background: var(--orange-bg); color: var(--orange-text); border: 1px solid #ffe3a8; }
+.alert-danger { background: var(--red-bg); color: var(--red-text); border: 1px solid #ffd0d0; }
+.alert-success { background: var(--green-bg); color: var(--green-text); border: 1px solid transparent; }
 
 .spinner {
   width: 16px; height: 16px;
@@ -2279,3 +2283,38 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .doc-fn dd { margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .doc-fn .fx-syntax { background: none; padding: 0; }
 .fx-preview th.mono { text-transform: none; letter-spacing: 0; }
+
+/* ---- Assistant d'import (retour n° 5) ------------------------------------------ */
+.wiz-steps { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13.5px; color: var(--text-muted); }
+.wiz-steps li { display: inline-flex; align-items: center; gap: 7px; }
+.wiz-steps li.is-current { color: var(--text-strong); font-weight: 600; }
+.wiz-steps li.is-done { color: var(--green-text); }
+.wiz-step-n { width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12px; border: 1px solid var(--border-strong); background: var(--surface); }
+.wiz-steps li.is-current .wiz-step-n { background: var(--blue-600); border-color: var(--blue-600); color: #fff; }
+.wiz-steps li.is-done .wiz-step-n { background: var(--green); border-color: var(--green); color: #fff; }
+.wiz-sources { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.wiz-source { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); cursor: pointer; color: var(--text); transition: border-color .15s var(--ease), box-shadow .15s var(--ease); }
+.wiz-source:hover, .wiz-source:focus-visible { border-color: var(--blue-600); box-shadow: var(--shadow-sm); }
+.wiz-source svg { color: var(--blue-600); }
+.wiz-source-title { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text-strong); }
+.wiz-source-desc { font-size: 13px; color: var(--text-muted); line-height: 1.45; }
+.wiz-source-fmt { font-size: 12px; color: var(--text-faint); margin-top: auto; }
+.wiz-body { display: flex; flex-direction: column; gap: 12px; }
+.wiz-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 160px; padding: 20px;
+  border: 2px dashed var(--border-strong); border-radius: var(--radius); background: var(--surface-2); text-align: center; color: var(--text); }
+.wiz-drop svg { color: var(--blue-600); }
+.wiz-drop.is-drag { border-color: var(--blue-600); background: var(--blue-50); }
+.wiz-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; }
+.wiz-file { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13.5px; }
+.wiz-file svg { color: var(--blue-600); }
+.wiz-months { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.wiz-checks { display: flex; flex-direction: column; gap: 8px; }
+.wiz-checks:empty { display: none; }
+.wiz-cols summary { cursor: pointer; font-size: 13.5px; color: var(--blue-600); }
+.wiz-cols .table { margin-top: 8px; }
+.wiz-errlines { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+.wiz-full { align-self: end; padding-bottom: 10px; }
+.wiz-remembered { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.wiz-remembered > div { flex: 1; min-width: 0; }
+.wiz-remembered .site-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

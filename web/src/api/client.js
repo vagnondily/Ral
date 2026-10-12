@@ -130,6 +130,22 @@ async function request(path, { method = 'GET', body, query, auth = true } = {}) 
   return data;
 }
 
+/** Envoi brut d'un fichier de soumissions (import ou vérification) ; erreurs détaillées conservées. */
+async function uploadSubmissions(path, file) {
+  const buf = await file.arrayBuffer();
+  let res;
+  try {
+    res = await fetch(new URL(`${API_URL}${path}`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+      body: buf,
+    });
+  } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, data.error || `Erreur ${res.status}`, data.details);
+  return data;
+}
+
 let calcFunctionsCache = null; // le catalogue ne change qu'avec une nouvelle version de l'API
 
 export const api = {
@@ -306,20 +322,9 @@ export const api = {
   },
   monKoboPull: (id, input) => request(`/api/monitoring/forms/${id}/kobo-pull`, { method: 'POST', body: input }),
   monUrlPull: (id, input) => request(`/api/monitoring/forms/${id}/url-pull`, { method: 'POST', body: input }),
-  monImport: async (id, file) => {
-    const buf = await file.arrayBuffer();
-    let res;
-    try {
-      res = await fetch(new URL(`${API_URL}/api/monitoring/forms/${id}/import`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
-        body: buf,
-      });
-    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new ApiError(res.status, data.error || `Erreur ${res.status}`, data.details);
-    return data;
-  },
+  monImport: (id, file) => uploadSubmissions(`/api/monitoring/forms/${id}/import`, file),
+  // Vérification avant import : ce que contient le fichier (rien n'est écrit).
+  monImportPreview: (id, file) => uploadSubmissions(`/api/monitoring/forms/${id}/import/preview`, file),
 
   // Paramètres
   listPartnerTypes: () => request('/api/settings/partner-types'),

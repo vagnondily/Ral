@@ -368,6 +368,13 @@ or navy rail.
   indicateur = `monitoringMath.classify`, la même partout** (liste des résultats,
   Synthèse, Couverture & performance) : avec cible écart ≤ 10 / 30 % ; sans cible
   bandes 80 / 65 / 50 sur le score orienté — ne pas réintroduire une 2ᵉ règle.
+- **Import des soumissions = assistant** (`web/src/pages/monitoring/ImportWizard.jsx`,
+  onglet « Importation » d'une fiche, distinct de « Données ») : source → fichier
+  ou connexion → **vérification sans écriture** (`POST /forms/:id/import/preview`,
+  `submissionsImport.analyzeSubmissions` pur + `repository.importPreview`) →
+  compte rendu (`importSubmissions` renvoie `created` / `updated` / `months` et
+  l'état de la fiche `form`). Même lecture du fichier pour la vérification et
+  l'import (`readSubmissionsFile` dans les routes).
 - **Dashboard « façon Power BI »** (`web/src/pages/dashboard/DashboardBIPage.jsx`,
   nav « Dashboard décisionnel › Vue d'ensemble ») : KPI tiles, grouped
   Budget/Planifié/Réalisé bars, réalisé-by-partner donut, monthly trend line,

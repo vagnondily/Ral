@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 15:45 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 12/10/2026 16:02 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -198,5 +198,11 @@ _Dernière mise à jour : 12/10/2026 15:45 UTC_ — la branche `main` reçoit ch
   - **Page « Aide aux calculs »** (menu Suivi de processus) : données prises en compte, méthodes des indicateurs avec exemples chiffrés, base et réponses hors base, sens et score orienté, classes, indice de conformité, formules (référence complète des fonctions), couverture terrain et RBM — chaque règle vérifiée dans le code. Lien « Comment c'est calculé ? » dans la fenêtre d'indicateur.
   - **Défaut corrigé au passage** : quand le XLSForm nomme une question « field_office » et que l'export SPSS l'appelle « Field_office », les indicateurs, formules et colonnes choisies à la main ne trouvaient **aucune** valeur, sans le signaler. Les noms sont maintenant reconnus sans tenir compte des majuscules (le nom exact reste prioritaire). Sur votre fiche GD, l'indicateur « marchandises abîmées isolées » passe de 0 à 132 réponses comptées.
   - **Incohérence corrigée au passage** : la liste des résultats affichait « Sans donnée » pour un indicateur qui avait une valeur mais pas de cible, alors que Couverture & performance le classait. Une seule règle partout désormais, celle de vos modèles : Excellent / Satisfaisant / À améliorer / Action urgente / Non évalué.
+- **16:02** ✅ **Retour n° 5 — assistant d'import** (lint propre, 445 tests, balayage FR/EN sans erreur ni phrase manquante, essai à l'écran avec votre export GD réel). Dans une fiche, l'import et les données sont maintenant **deux onglets : « Importation » et « Données »**. L'importation est un assistant :
+  1. **Source** : vous choisissez la nature de la source — export Kobo SPSS (recommandé, il garde les libellés), fichier Excel ou CSV, lien ONA / MoDA (mémorisé, « Actualiser maintenant » ensuite), API KoboToolbox ;
+  2. **Fichier** (glisser-déposer) ou **connexion** (lien, jeton, UID — avec l'endroit où les trouver dans Kobo) ;
+  3. **Vérification, avant d'écrire quoi que ce soit** : nouvelles soumissions et déjà importées (mises à jour), période et mois couverts, colonnes reconnues pour MEMS (bureau, lieux, site, partenaire, agent), et les points d'attention (doublons dans le fichier, lignes sans identifiant Kobo qui seraient comptées deux fois au prochain import, lignes sans date). Exemple réel : votre export GD de juin → 225 soumissions, 0 nouvelle, 225 mises à jour, 7 mois, 9 colonnes sur 10 reconnues ;
+  4. **Compte rendu** : nouvelles / mises à jour, part des soumissions de la fiche avec bureau, commune et site reconnus, sites à confirmer (lien vers « À rapprocher »).
+  - Au passage : les alertes « succès », « attention » et « danger » utilisées à 11 endroits de l'application s'affichaient sans couleur ; elles ont maintenant leur style.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.

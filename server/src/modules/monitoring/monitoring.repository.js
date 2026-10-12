@@ -714,7 +714,8 @@ async function importSubmissions(tenantId, formId, submissions, { variables } = 
       'SELECT name FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
     const canonical = groupPathRenamer(names.map((r) => r.name));
 
-    let inserted = 0;
+    let inserted = 0; let created = 0;
+    const months = new Map();
     // Insert row by row so ON CONFLICT dedup (per _uuid) is simple and safe.
     // Même soumission déjà reçue : le MÊME format la remplace (corrections faites dans Kobo) ;
     // un AUTRE format (Excel après SPSS…) la complète sans effacer ce qu'il ne porte pas.
@@ -733,15 +734,47 @@ async function importSubmissions(tenantId, formId, submissions, { variables } = 
            ${TYPED.map(merged).join(',\n           ')},
            data = CASE WHEN monitoring_submissions.source IS NOT DISTINCT FROM EXCLUDED.source
              THEN EXCLUDED.data ELSE monitoring_submissions.data || EXCLUDED.data END,
-           source = EXCLUDED.source`,
+           source = EXCLUDED.source
+         RETURNING (xmax = 0) AS created`,
         [tenantId, formId, s.externalId, s.periodMonth, s.submittedAt, s.fieldOffice,
           s.admin1, s.admin2, s.admin3, s.admin4, s.site, s.partner, s.agent, s.source, JSON.stringify(s.data)]
       );
       inserted += res.rowCount;
+      if (res.rows[0] && res.rows[0].created) created += 1;
+      if (s.periodMonth) months.set(s.periodMonth, (months.get(s.periodMonth) || 0) + 1);
     }
     // Commune (pcode) et bureau rattachés dans la même transaction que l'import.
     const geo = await applySubmissionsGeoTx(client, tenantId);
-    return { received: submissions.length, inserted, geo };
+    // État de la fiche après import (geo, lui, couvre toutes les fiches du compte).
+    const { rows: [state] } = await client.query(
+      `SELECT count(*)::int AS total, count(field_office_id)::int AS "withOffice", count(adm3_pcode)::int AS "withCommune",
+              count(site_id)::int AS "withSite", count(*) FILTER (WHERE site_status IN ('a_valider', 'ambigu'))::int AS "sitePending"
+         FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2`, [tenantId, formId]);
+    // Compte rendu : nouvelles / déjà présentes (mises à jour), mois couverts.
+    return {
+      received: submissions.length, inserted, created, updated: inserted - created, geo, form: state,
+      months: [...months.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([month, n]) => ({ month, n })),
+    };
+  });
+}
+
+/**
+ * Vérification avant import : la fiche existe-t-elle, et combien des identifiants
+ * Kobo du fichier y sont déjà (ils seront mis à jour, pas ajoutés) ? Lecture seule.
+ * @returns {Promise<null|{ already: number }>}
+ */
+async function importPreview(tenantId, formId, ids) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
+    if (!f[0]) return null;
+    let already = 0;
+    for (let i = 0; i < ids.length; i += 5000) {
+      const { rows } = await client.query(
+        'SELECT count(*)::int AS n FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 AND external_id = ANY($3::text[])',
+        [tenantId, formId, ids.slice(i, i + 5000)]);
+      already += rows[0].n;
+    }
+    return { already };
   });
 }
 
@@ -1241,7 +1274,7 @@ async function setExclusion(tenantId, formId, { ids, excluded, reason } = {}) {
 
 module.exports = {
   reliftSubmissionsTx, formTemplate, applyTemplate,
-  listCalcFields, calcPreview, formVariables, createCalcField, updateCalcField, deleteCalcField, setExclusion,
+  listCalcFields, calcPreview, formVariables, importPreview, createCalcField, updateCalcField, deleteCalcField, setExclusion,
   setFormSource, formSourceContext, reportMonitoringData,
   listForms, createForm, updateForm, deleteForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,

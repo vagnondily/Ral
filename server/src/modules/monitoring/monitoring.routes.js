@@ -5,7 +5,7 @@ const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound } = require('../../middleware/errors');
 const repo = require('./monitoring.repository');
-const { parseSubmissions } = require('./submissionsImport');
+const { parseSubmissions, analyzeSubmissions } = require('./submissionsImport');
 const { parseXlsformRows } = require('./xlsformImport');
 const { readXls, XlsError } = require('./xlsReader');
 const { sniffFile } = require('../common/fileSniff');
@@ -127,7 +127,8 @@ router.delete('/indicators/:id', WRITE, asyncHandler(async (req, res) => {
 // PDF, Word, .zsav, .xls ou XLSForm sont refusés (400, format nommé) et un zip
 // trop gros une fois décompressé l'est AVANT décompression (413) — dans tous
 // ces cas, rien n'est écrit.
-router.post('/forms/:id/import', WRITE, express.raw({ type: '*/*', limit: '80mb' }), asyncHandler(async (req, res) => {
+/** Lit le fichier envoyé (même règle pour la vérification et l'import) ; 400 / 413 explicites. */
+async function readSubmissionsFile(req) {
   if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
   let parsed;
   try {
@@ -137,8 +138,21 @@ router.post('/forms/:id/import', WRITE, express.raw({ type: '*/*', limit: '80mb'
     req.log?.warn({ err }, 'import de soumissions : fichier illisible');
     throw badRequest('Fichier illisible : fournissez un CSV, XLSX, SPSS .sav ou un .zip Kobo.');
   }
-  const { submissions, headers, variables } = parsed;
-  if (!submissions.length) throw badRequest('Aucune soumission trouvée dans le fichier.');
+  if (!parsed.submissions.length) throw badRequest('Aucune soumission trouvée dans le fichier.');
+  return parsed;
+}
+
+// Vérification avant import (assistant « Importation ») : ce que contient le fichier, rien n'est écrit.
+router.post('/forms/:id/import/preview', WRITE, express.raw({ type: '*/*', limit: '80mb' }), asyncHandler(async (req, res) => {
+  const { submissions, headers, variables, source } = await readSubmissionsFile(req);
+  const { ids, ...analysis } = analyzeSubmissions(submissions, variables ? variables.map((v) => v.name) : headers);
+  const check = await repo.importPreview(t(req), uuidParam(req.params.id), ids);
+  if (!check) throw notFound('Formulaire introuvable');
+  res.json({ source, fields: variables ? variables.length : headers.length, ...analysis, alreadyImported: check.already, newCount: ids.length - check.already });
+}));
+
+router.post('/forms/:id/import', WRITE, express.raw({ type: '*/*', limit: '80mb' }), asyncHandler(async (req, res) => {
+  const { submissions, headers, variables } = await readSubmissionsFile(req);
   // Les variables du .sav nomment les colonnes (sans XLSForm) ou complètent les listes codées (avec).
   const result = await repo.importSubmissions(t(req), req.params.id, submissions, { variables });
   if (!result) throw notFound('Formulaire introuvable');

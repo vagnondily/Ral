@@ -13,6 +13,7 @@ import { usePopover } from '../../components/listView.jsx';
 import IndicatorsList from './IndicatorsList.jsx';
 import TemplateBindingCard from './TemplateBindingCard.jsx';
 import { CalcFieldsCard } from './CalcFields.jsx';
+import ImportWizard from './ImportWizard.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatDateTime, formatInt, formatLocale } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
@@ -46,7 +47,9 @@ function fillNodes(text, nodes) {
 
 const DETAIL_TABS = [
   { id: 'variables', label: 'Variables', icon: FileSpreadsheet },
-  { id: 'donnees', label: 'Données importées', icon: Table2 },
+  // Retour n° 5 : l'import (assistant) et les données sont deux onglets distincts.
+  { id: 'importation', label: 'Importation', icon: Upload },
+  { id: 'donnees', label: 'Données', icon: Table2 },
   { id: 'resultats', label: 'Résultats', icon: BarChart3 },
   { id: 'mapping', label: 'Mapping MEMS', icon: Shuffle },
   { id: 'config', label: 'Configuration', icon: SlidersHorizontal },
@@ -76,7 +79,7 @@ const META_COLS = [
 function formSteps(f) {
   const steps = [
     { id: 'activity', done: !!f.activityCategory, label: 'Rattacher à une activité', hint: 'Relie la fiche aux sites de cette activité : couverture, sites actifs et plan de suivi.' },
-    { id: 'data', done: (f.submissionCount ?? 0) > 0, label: 'Importer les données', hint: 'Export Kobo (.zip, .sav), Excel / CSV, lien ONA ou API Kobo.', tab: 'donnees' },
+    { id: 'data', done: (f.submissionCount ?? 0) > 0, label: 'Importer les données', hint: 'Export Kobo (.zip, .sav), Excel / CSV, lien ONA ou API Kobo.', tab: 'importation' },
     { id: 'indicators', done: (f.indicatorCount ?? 0) > 0, label: 'Définir les indicateurs', hint: 'Chaque indicateur relie une question du formulaire à un calcul (% de oui, moyenne…).', tab: 'config' },
   ];
   return { steps, next: steps.find((x) => !x.done) || null };
@@ -392,7 +395,9 @@ function FormDetail({ form, canEdit, initialTab, onBack, onChanged }) {
       </div>
 
       {tab === 'variables' && <VariablesTab form={form} />}
-      {tab === 'donnees' && <DataViewTab form={form} canEdit={canEdit} onGoConfig={() => setTab('config')} />}
+      {tab === 'importation' && <ImportWizard form={form} canEdit={canEdit} onImported={onChanged}
+        onGoData={() => setTab('donnees')} onGoResults={() => setTab('resultats')} />}
+      {tab === 'donnees' && <DataViewTab form={form} canEdit={canEdit} onGoImport={() => setTab('importation')} />}
       {tab === 'resultats' && <ResultsTab form={form} onGoConfig={() => setTab('config')} />}
       {tab === 'mapping' && <MappingTab form={form} canEdit={canEdit} />}
       {tab === 'config' && <ConfigTab form={form} canEdit={canEdit} onChanged={onChanged} />}
@@ -515,7 +520,7 @@ const DV_DIMS = [
   { key: 'mon', label: 'Mois', get: (r) => (r.periodMonth ? r.periodMonth.slice(5, 7) : null), fmt: (v) => (DV_MONTHS[Number(v) - 1] ? new Date(2000, Number(v) - 1, 1).toLocaleString(formatLocale(), { month: 'long' }) : v) },
 ];
 
-function DataViewTab({ form, canEdit, onGoConfig }) {
+function DataViewTab({ form, canEdit, onGoImport }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [q, setQ] = useState('');
@@ -659,8 +664,8 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
       {loading ? <div className="card-body"><Skeleton height={160} /></div>
         : rows.length === 0 ? (
           <EmptyState icon={Table2} title={tr('Aucune donnée importée')}
-            action={<Button variant="secondary" icon={Upload} onClick={onGoConfig}>{tr('Importer des données')}</Button>}>
-            {tr('Importez des soumissions (onglet Configuration › Données réelles) pour les visualiser ici.')}
+            action={<Button variant="secondary" icon={Upload} onClick={onGoImport}>{tr('Importer des données')}</Button>}>
+            {tr('Importez des soumissions (onglet Importation) pour les visualiser ici.')}
           </EmptyState>
         ) : (
           <>
@@ -814,7 +819,7 @@ function ResultsTab({ form, onGoConfig }) {
     return (
       <Card><EmptyState icon={BarChart3} title={tr('Rien à afficher')}
         action={<Button variant="secondary" icon={SlidersHorizontal} onClick={onGoConfig}>{tr('Configurer la fiche')}</Button>}>
-        {tr('Définissez des indicateurs et importez des données réelles (onglet Configuration) pour alimenter les résultats.')}
+        {tr('Importez des données (onglet Importation) et définissez des indicateurs (onglet Configuration) pour alimenter les résultats.')}
       </EmptyState></Card>
     );
   }
@@ -947,7 +952,6 @@ function ConfigTab({ form, canEdit, onChanged }) {
       <TemplateBindingCard form={form} canEdit={canEdit} onApplied={() => { setVersion((v) => v + 1); onChanged?.(); }} />
       <IndicatorsConfigCard key={version} form={form} canEdit={canEdit} onChanged={onChanged} />
       <CalcFieldsCard form={form} canEdit={canEdit} onChanged={onChanged} />
-      <DataSourcesCard form={form} canEdit={canEdit} onChanged={onChanged} />
     </div>
   );
 }
@@ -1023,83 +1027,6 @@ function IndicatorsConfigCard({ form, canEdit, onChanged }) {
 
 // Même plafond que le serveur (express.raw « 80mb » de POST /forms/:id/import). On prévient
 // AVANT l'envoi : un navigateur coupé en plein envoi n'affiche pas toujours la réponse 413.
-const MAX_IMPORT_BYTES = 80 * 1024 * 1024;
-
-function DataSourcesCard({ form, canEdit, onChanged }) {
-  const { tr } = useI18n();
-  const toast = useToast();
-  const fileRef = useRef(null);
-  const [busy, setBusy] = useState(false);
-  const [kobo, setKobo] = useState({ open: false, baseUrl: 'https://kf.kobotoolbox.org', assetUid: '', token: '' });
-  const [link, setLink] = useState({ open: false, url: form.sourceUrl || '', token: '' });
-
-  async function onFile(e) {
-    const file = e.target.files?.[0]; e.target.value = '';
-    if (!file) return;
-    if (file.size > MAX_IMPORT_BYTES) {
-      toast.error(tr('Fichier trop volumineux ({size} Mo) : la taille maximale acceptée est de 80 Mo. Exportez une période plus courte ou découpez le fichier, puis réessayez.', { size: Math.round(file.size / (1024 * 1024)) }));
-      return;
-    }
-    setBusy(true);
-    try { const r = await api.monImport(form.id, file); toast.success(tr('{a}/{b} soumission(s) importée(s).', { a: r.inserted, b: r.received })); onChanged?.(); }
-    catch (err) { toast.error(err.message); } finally { setBusy(false); }
-  }
-  async function pull() {
-    setBusy(true);
-    try {
-      const r = await api.monKoboPull(form.id, { baseUrl: kobo.baseUrl.trim(), assetUid: kobo.assetUid.trim(), token: kobo.token.trim() });
-      toast.success(tr('{a}/{b} soumission(s) récupérées depuis Kobo.', { a: r.inserted, b: r.received }));
-      setKobo({ ...kobo, open: false }); onChanged?.();
-    } catch (err) { toast.error(err.message); } finally { setBusy(false); }
-  }
-  async function urlPull() {
-    setBusy(true);
-    try {
-      const r = await api.monUrlPull(form.id, { url: link.url.trim(), token: link.token.trim() || undefined });
-      toast.success(tr('{a}/{b} soumission(s) importée(s) depuis le lien.', { a: r.inserted, b: r.received }));
-      setLink({ ...link, open: false }); onChanged?.();
-    } catch (err) { toast.error(err.message); } finally { setBusy(false); }
-  }
-
-  return (
-    <Card>
-      <CardHeader title={tr('Données réelles')} subtitle={tr('{n} soumission(s). Fichier (CSV / XLSX / SPSS .sav / .zip Kobo), API Kobo v2, ou lien de données ONA / MoDA.', { n: form.submissionCount ?? 0 })} />
-      <div className="card-body" style={{ display: 'grid', gap: 16 }}>
-        <div className="postes-toolbar">
-          <input ref={fileRef} type="file" accept=".csv,.xlsx,.sav,.zip" hidden onChange={onFile} />
-          <Button size="sm" variant="secondary" icon={Upload} loading={busy} disabled={!canEdit} onClick={() => fileRef.current?.click()}>{tr('Importer un fichier')}</Button>
-          <Button size="sm" variant="ghost" icon={Link2} disabled={!canEdit} onClick={() => setLink({ ...link, open: !link.open })}>{tr('Lien ONA / MoDA')}</Button>
-          <Button size="sm" variant="ghost" icon={RefreshCw} disabled={!canEdit} onClick={() => setKobo({ ...kobo, open: !kobo.open })}>{tr('API Kobo v2')}</Button>
-          <span className="hint">{tr("Les colonnes sont détectées automatiquement (voir l'onglet Mapping MEMS).")}</span>
-        </div>
-
-        {link.open && (
-          <div className="card-body" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--surface-2)', display: 'grid', gap: 10 }}>
-            <Field label={tr('Lien de données (export ONA / MoDA : CSV, XLSX ou JSON)')}
-              hint={tr("Collez le lien d'export de votre formulaire ONA/MoDA. Il est mémorisé pour les réimports. Un token n'est requis que si le flux est protégé.")}>
-              <input className="input mono" value={link.url} onChange={(e) => setLink({ ...link, url: e.target.value })} placeholder="https://api.ona.io/api/v1/data/123456.csv" />
-            </Field>
-            <div className="form-grid" style={{ alignItems: 'end' }}>
-              <Field label={tr('Token (optionnel)')}><input className="input mono" type="password" value={link.token} onChange={(e) => setLink({ ...link, token: e.target.value })} placeholder={tr('laisser vide si lien public')} /></Field>
-              <Button loading={busy} onClick={urlPull} disabled={!/^https?:\/\//i.test(link.url.trim())}>{tr('Importer depuis le lien')}</Button>
-            </div>
-            {form.sourceUrl && <span className="site-meta mono">{tr('Dernier lien : {url}', { url: form.sourceUrl })}</span>}
-          </div>
-        )}
-
-        {kobo.open && (
-          <div className="form-grid" style={{ alignItems: 'end' }}>
-            <Field label={tr('URL Kobo')}><input className="input" value={kobo.baseUrl} onChange={(e) => setKobo({ ...kobo, baseUrl: e.target.value })} /></Field>
-            <Field label="Asset UID"><input className="input mono" value={kobo.assetUid} onChange={(e) => setKobo({ ...kobo, assetUid: e.target.value })} placeholder="aXXXXXXXXXXXXXXXX" /></Field>
-            <Field label={tr('Token API')}><input className="input mono" type="password" value={kobo.token} onChange={(e) => setKobo({ ...kobo, token: e.target.value })} /></Field>
-            <Button loading={busy} onClick={pull} disabled={!kobo.assetUid || !kobo.token}>{tr('Récupérer')}</Button>
-          </div>
-        )}
-      </div>
-    </Card>
-  );
-}
-
 // ---- Modal de définition d'indicateur (variable disponible → calcul) -----
 function IndicatorModal({ form, catalog, indicator, onClose, onSaved }) {
   const { tr } = useI18n();

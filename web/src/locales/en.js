@@ -18,8 +18,9 @@ import localities from './en/localities.js';
 import reports from './en/reports.js';
 import planBoard from './en/planBoard.js';
 import calc from './en/calc.js';
+import importWizard from './en/importWizard.js';
 
 export default {
   ...common, ...shell, ...contracts, ...tpmReports, ...tpmPlanning, ...monitoring,
-  ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard, ...calc,
+  ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard, ...calc, ...importWizard,
 };
