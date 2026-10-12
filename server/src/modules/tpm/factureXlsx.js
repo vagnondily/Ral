@@ -1,18 +1,32 @@
 const ExcelJS = require('exceljs');
 const { SECTIONS, SECTION_OF } = require('../contracts/budgetCatalog');
+const { itemCents, funderCentsOf, bailleurPctOf } = require('./reportMath');
 
 /**
- * Export a facture (état des dépenses) as a real .xlsx with live formulas:
- * each poste montant = Qté × Coût unitaire, section sub-totals = SUM(...),
- * and the grand totals (Total, part bailleur, part ONG, net après avance)
- * recompute if the user edits a cell. Neutral terminology (bailleur / ONG).
+ * Export a facture (état des dépenses) as a real .xlsx with live formulas,
+ * faithful to the template's « à payer par le bailleur / par l'ONG » columns:
+ * each poste montant = ROUND(Qté × Coût unitaire, 2), part bailleur =
+ * ROUND(montant × % bailleur, 2), part ONG = montant − part bailleur; section
+ * sub-totals and grand totals are SUMs. Every formula also carries its cached
+ * result computed in integer cents by reportMath, so the figures read without
+ * recalculation are exactly the app's. Neutral terminology (bailleur / ONG).
  */
 
 const BLUE = 'FF1F6EBC';
 const GREY = 'FFECEFF3';
 const money = '#,##0 "Ar"';
+// Format du % bailleur : « 90 % », « 33,333 % ». Jamais '0.###%' qui affiche
+// « 90.% » dans Excel (séparateur décimal orphelin sur une valeur entière).
+const pctFmtOf = (pct) => (Number.isInteger(Math.round(pct * 1e5) / 1e3) ? '0%' : '0.0##%');
 const SECTION_LABEL = Object.fromEntries(SECTIONS.map((s) => [s.code, s.label]));
-const PAYER_LABEL = { bailleur: 'Bailleur', ong: 'ONG' };
+const ar = (cents) => cents / 100;
+
+/** Montant, part bailleur et part ONG d'un poste, en centimes entiers (reportMath). */
+function lineSplit(it) {
+  const cents = itemCents(it);
+  const funder = funderCentsOf(it);
+  return { cents, funder, ong: cents - funder, pct: bailleurPctOf(it) };
+}
 
 function addEtatSheet(wb, report) {
   const ws = wb.addWorksheet('État des dépenses', {
@@ -27,11 +41,13 @@ function addEtatSheet(wb, report) {
     { key: 'qte', width: 10 },
     { key: 'cout', width: 16 },
     { key: 'montant', width: 18 },
-    { key: 'charge', width: 12 },
+    { key: 'pct', width: 11 },
+    { key: 'bailleur', width: 18 },
+    { key: 'ong', width: 18 },
     { key: 'obs', width: 28 },
   ];
 
-  ws.mergeCells('A1:H1');
+  ws.mergeCells('A1:J1');
   const t1 = ws.getCell('A1');
   t1.value = 'État des dépenses — Facture';
   t1.font = { name: 'Calibri', size: 15, bold: true, color: { argb: BLUE } };
@@ -40,16 +56,17 @@ function addEtatSheet(wb, report) {
   const periode = report.periodEnd && report.periodEnd !== report.periodMonth
     ? `${String(report.periodMonth).slice(0, 7)} → ${String(report.periodEnd).slice(0, 7)}`
     : String(report.periodMonth).slice(0, 7);
-  ws.mergeCells('A2:H2');
+  ws.mergeCells('A2:J2');
   ws.getCell('A2').value = `${report.partnerName} · ${report.contractNumero}`;
   ws.getCell('A2').font = { size: 11, color: { argb: 'FF666B72' } };
-  ws.mergeCells('A3:H3');
+  ws.mergeCells('A3:J3');
   ws.getCell('A3').value = `Période : ${periode}${report.invoiceNo ? ` · Facture n° ${report.invoiceNo}` : ''}`;
   ws.getCell('A3').font = { size: 10, color: { argb: 'FF666B72' } };
 
   const headerRowIdx = 6;
   const header = ws.getRow(headerRowIdx);
-  header.values = ['Ligne budgétaire', 'Désignation (poste)', 'Unité', 'Qté', 'Coût unitaire', 'Montant', 'À la charge de', 'Observation'];
+  header.values = ['Ligne budgétaire', 'Désignation (poste)', 'Unité', 'Qté', 'Coût unitaire', 'Montant',
+    '% bailleur', 'À payer par le bailleur', "À payer par l'ONG", 'Observation'];
   header.eachCell((c) => {
     c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLUE } };
@@ -67,11 +84,12 @@ function addEtatSheet(wb, report) {
 
   let row = headerRowIdx + 1;
   const subtotalRows = [];
+  const grand = { cents: 0, funder: 0, ong: 0 };
   for (const sec of SECTIONS) {
     const items = bySec.get(sec.code);
     if (!items || items.length === 0) continue;
 
-    ws.mergeCells(`A${row}:H${row}`);
+    ws.mergeCells(`A${row}:J${row}`);
     const sc = ws.getCell(`A${row}`);
     sc.value = `${sec.code}. ${SECTION_LABEL[sec.code]}`;
     sc.font = { bold: true, color: { argb: BLUE } };
@@ -79,7 +97,9 @@ function addEtatSheet(wb, report) {
     row += 1;
 
     const firstItemRow = row;
+    const sub = { cents: 0, funder: 0, ong: 0 };
     for (const it of items) {
+      const split = lineSplit(it);
       const r = ws.getRow(row);
       r.getCell(1).value = it.lineLabel || it.lineCode;
       r.getCell(2).value = it.designation;
@@ -87,70 +107,72 @@ function addEtatSheet(wb, report) {
       r.getCell(4).value = Number(it.unitCount) || 0;
       r.getCell(5).value = Number(it.unitCost) || 0;
       r.getCell(5).numFmt = money;
-      r.getCell(6).value = { formula: `D${row}*E${row}` };
-      r.getCell(6).numFmt = money;
-      r.getCell(7).value = PAYER_LABEL[it.payBy] || 'Bailleur';
-      r.getCell(8).value = it.observation || '';
+      r.getCell(6).value = { formula: `ROUND(D${row}*E${row},2)`, result: ar(split.cents) };
+      r.getCell(7).value = split.pct;
+      r.getCell(7).numFmt = pctFmtOf(split.pct);
+      r.getCell(8).value = { formula: `ROUND(F${row}*G${row},2)`, result: ar(split.funder) };
+      r.getCell(9).value = { formula: `F${row}-H${row}`, result: ar(split.ong) };
+      for (const c of [6, 8, 9]) r.getCell(c).numFmt = money;
+      r.getCell(10).value = it.observation || '';
+      sub.cents += split.cents; sub.funder += split.funder; sub.ong += split.ong;
       row += 1;
     }
 
     const st = ws.getRow(row);
     st.getCell(2).value = `Sous-total ${sec.code}`;
     st.getCell(2).font = { bold: true };
-    st.getCell(6).value = { formula: `SUM(F${firstItemRow}:F${row - 1})` };
-    st.getCell(6).numFmt = money;
-    st.getCell(6).font = { bold: true };
+    for (const [c, col, cents] of [[6, 'F', sub.cents], [8, 'H', sub.funder], [9, 'I', sub.ong]]) {
+      st.getCell(c).value = { formula: `SUM(${col}${firstItemRow}:${col}${row - 1})`, result: ar(cents) };
+      st.getCell(c).numFmt = money;
+      st.getCell(c).font = { bold: true };
+    }
+    grand.cents += sub.cents; grand.funder += sub.funder; grand.ong += sub.ong;
     subtotalRows.push(row);
     row += 1;
     row += 1; // spacer
   }
 
-  // Grand totals.
-  const totalsStart = row + 1;
-  const put = (label, formula) => {
+  // Grand totals : sommes des sous-totaux (colonnes Montant, bailleur, ONG).
+  const sumOf = (col) => (subtotalRows.length ? subtotalRows.map((r) => `${col}${r}`).join('+') : '0');
+  const put = (label, col, formula, cents, opts = {}) => {
     const r = ws.getRow(row);
     r.getCell(5).value = label;
     r.getCell(5).font = { bold: true };
     r.getCell(5).alignment = { horizontal: 'right' };
-    r.getCell(6).value = formula;
-    r.getCell(6).numFmt = money;
-    r.getCell(6).font = { bold: true, color: { argb: BLUE } };
+    const c = r.getCell(col);
+    c.value = { formula, result: ar(cents) };
+    c.numFmt = money;
+    c.font = { bold: true, color: opts.blue ? { argb: BLUE } : undefined };
     row += 1;
+    return row - 1;
   };
-  const sumSub = subtotalRows.length ? subtotalRows.map((r) => `F${r}`).join('+') : '0';
-  put('Total des dépenses', { formula: sumSub });
-  // Funder / ONG split can't be a clean cross-column SUMIF here, so use the
-  // computed summary values (still correct; the montant formulas above stay live).
-  ws.getRow(row).getCell(5).value = 'À la charge du bailleur (Réalisé)';
-  ws.getRow(row).getCell(5).font = { bold: true }; ws.getRow(row).getCell(5).alignment = { horizontal: 'right' };
-  ws.getRow(row).getCell(6).value = report.summary.funder; ws.getRow(row).getCell(6).numFmt = money;
-  ws.getRow(row).getCell(6).font = { bold: true, color: { argb: BLUE } };
-  row += 1;
-  ws.getRow(row).getCell(5).value = "À la charge de l'ONG";
-  ws.getRow(row).getCell(5).font = { bold: true }; ws.getRow(row).getCell(5).alignment = { horizontal: 'right' };
-  ws.getRow(row).getCell(6).value = report.summary.ong; ws.getRow(row).getCell(6).numFmt = money;
-  row += 1;
-  if (Number(report.advanceDeducted) > 0) {
-    ws.getRow(row).getCell(5).value = 'Net après avance déduite';
-    ws.getRow(row).getCell(5).font = { bold: true }; ws.getRow(row).getCell(5).alignment = { horizontal: 'right' };
-    ws.getRow(row).getCell(6).value = Number(report.summary.funder) - Number(report.advanceDeducted);
-    ws.getRow(row).getCell(6).numFmt = money;
-    row += 1;
+  put('Total des dépenses', 6, sumOf('F'), grand.cents, { blue: true });
+  const funderRow = put('À payer par le bailleur (Réalisé)', 8, sumOf('H'), grand.funder, { blue: true });
+  put("À payer par l'ONG", 9, sumOf('I'), grand.ong);
+  const advance = Math.round((Number(report.advanceDeducted) || 0) * 100);
+  if (advance > 0) {
+    put('Net après avance déduite', 8, `H${funderRow}-${ar(advance)}`, grand.funder - advance);
   }
 
   // Signature block.
   row += 1;
   ws.getRow(row).getCell(1).value = 'Préparé par :';
   ws.getRow(row).getCell(5).value = 'Validé par :';
-  void totalsStart;
   return ws;
+}
+
+/** New workbook whose formulas Excel recalculates on opening. */
+function newWorkbook() {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'MEMS 2.0';
+  wb.created = new Date();
+  wb.calcProperties.fullCalcOnLoad = true;
+  return wb;
 }
 
 /** Backward-compatible: a workbook with just the detailed état des dépenses. */
 function buildFactureWorkbook(report) {
-  const wb = new ExcelJS.Workbook();
-  wb.creator = 'MEMS 2.0';
-  wb.created = new Date();
+  const wb = newWorkbook();
   addEtatSheet(wb, report);
   return wb;
 }
@@ -185,7 +207,7 @@ function addInvoiceSheet(wb, invoice) {
   // Identity block.
   const idRows = [
     ['Partenaire Coopérant (PC)', report.partnerName],
-    ['Numéro de Facture', report.reference || ''],
+    ['Numéro de Facture', report.invoiceNo || ''], // jamais la « référence » (autre champ)
     ['Monnaie', 'MGA'],
     ['Numéro du FLA', report.numeroFla || report.contractNumero || ''],
     ['Numéro PO', report.numeroPo || ''],
@@ -216,13 +238,13 @@ function addInvoiceSheet(wb, invoice) {
   header.height = 30;
   row += 1;
 
-  // This month's funder spend per line.
-  const monthByLine = {};
+  // This month's funder spend per line: part bailleur de chaque poste
+  // (montant × % bailleur), cumulée en centimes entiers (reportMath).
+  const monthCents = {};
   for (const it of report.items || []) {
-    const cents = Math.round(Number(it.unitCount || 0) * Number(it.unitCost || 0) * 100);
-    const pct = it.bailleurPct == null ? 1 : Number(it.bailleurPct);
-    monthByLine[it.lineCode] = (monthByLine[it.lineCode] || 0) + Math.round(cents * pct) / 100;
+    monthCents[it.lineCode] = (monthCents[it.lineCode] || 0) + funderCentsOf(it);
   }
+  const monthByLine = Object.fromEntries(Object.entries(monthCents).map(([lc, c]) => [lc, ar(c)]));
 
   const sectionTotalRows = [];
   let directBudget = 0; let directMonth = 0; let directCumul = 0;
@@ -307,12 +329,10 @@ function addInvoiceSheet(wb, invoice) {
 /** Full invoice workbook: the formal « Facture » sheet + the detailed « État
  * des dépenses » sheet, like the real template. */
 function buildInvoiceWorkbook(invoice) {
-  const wb = new ExcelJS.Workbook();
-  wb.creator = 'MEMS 2.0';
-  wb.created = new Date();
+  const wb = newWorkbook();
   addInvoiceSheet(wb, invoice);
   addEtatSheet(wb, invoice.report);
   return wb;
 }
 
-module.exports = { buildFactureWorkbook, buildInvoiceWorkbook, addEtatSheet, addInvoiceSheet };
+module.exports = { pctFmtOf, buildFactureWorkbook, buildInvoiceWorkbook, addEtatSheet, addInvoiceSheet };

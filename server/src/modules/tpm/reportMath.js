@@ -53,6 +53,44 @@ function funderCentsOf(item) {
   return Math.round(itemCents(item) * bailleurPctOf(item));
 }
 
+// Précision du % en base (numeric(6,5)) : le % est arrondi AVANT d'en déduire
+// pay_by, sinon un % infime (0,000001) serait « bailleur » ici et 0 en base.
+const PCT_SCALE = 1e5;
+const roundPct = (p) => Math.round(p * PCT_SCALE) / PCT_SCALE;
+
+/**
+ * Règle de cohérence « à la charge de » ⇔ « % bailleur » (aussi imposée en
+ * base par la contrainte CHECK de la migration 048) :
+ *   pay_by = 'ong'      ⇔ bailleur_pct = 0
+ *   pay_by = 'bailleur' ⇔ bailleur_pct > 0
+ * pay_by n'est que le résumé binaire du % (gardé pour les anciens lecteurs).
+ */
+function payByOf(pct) {
+  return pct > 0 ? 'bailleur' : 'ong';
+}
+
+/**
+ * % bailleur (0..1, arrondi à la précision de la base) et pay_by cohérents
+ * d'un poste brut. Un % explicite invalide (texte, négatif, > 100) ou
+ * contredisant un pay_by explicite est refusé, jamais corrigé en silence.
+ */
+function payerOf(it, designation) {
+  const raw = it.bailleurPct;
+  const hasPct = raw != null && raw !== '';
+  if (hasPct) {
+    const p = Number(raw);
+    if (!Number.isFinite(p) || p < 0 || p > 100) throw new Error(`% bailleur invalide pour « ${designation} ».`);
+  }
+  const bailleurPct = roundPct(bailleurPctOf(it));
+  const payBy = payByOf(bailleurPct);
+  if (hasPct && PAYERS.includes(it.payBy) && it.payBy !== payBy) {
+    throw new Error(it.payBy === 'ong'
+      ? `Part bailleur invalide pour « ${designation} » : un poste à la charge de l'ONG doit avoir 0 % bailleur.`
+      : `Part bailleur invalide pour « ${designation} » : un poste à la charge du bailleur doit avoir un % bailleur supérieur à 0.`);
+  }
+  return { bailleurPct, payBy };
+}
+
 /**
  * Summarize an invoice's line items into section subtotals and grand totals,
  * with the bailleur / ONG split. `payBy` defaults to 'bailleur'.
@@ -120,9 +158,8 @@ function normalizeItems(rawItems) {
     const unitCost = Number(it.unitCost);
     if (!Number.isFinite(unitCount) || unitCount < 0) throw new Error(`Quantité invalide pour « ${designation} ».`);
     if (!Number.isFinite(unitCost) || unitCost < 0) throw new Error(`Coût unitaire invalide pour « ${designation} ».`);
-    const bailleurPct = bailleurPctOf(it);
-    // Legacy binary field kept in sync so old readers still work.
-    const payBy = bailleurPct <= 0 ? 'ong' : 'bailleur';
+    // % bailleur + pay_by cohérents (règle payByOf, contrainte en base).
+    const { bailleurPct, payBy } = payerOf(it, designation);
     const activityId = it.activityId ? String(it.activityId).trim() : null;
     const activity2Id = it.activity2Id ? String(it.activity2Id).trim() : null;
     // Share of the montant on activity 1 (rest on activity 2). Only meaningful
@@ -155,6 +192,6 @@ function normalizeItems(rawItems) {
 }
 
 module.exports = {
-  itemCents, itemAmount, bailleurPctOf, funderCentsOf, summarize, billedToFunder,
+  itemCents, itemAmount, bailleurPctOf, funderCentsOf, payByOf, summarize, billedToFunder,
   normalizeItems, PAYERS, LINE_LABELS, SECTION_LABEL,
 };

@@ -7,6 +7,7 @@ import { useToast } from '../../components/Toast.jsx';
 import { SECTIONS, SECTION_OF } from '../../lib/budgetCatalog.js';
 import { formatAr } from '../../lib/format.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { pctFraction, pctPercentOf, fractionToPercent, posteAmount, posteFunder, postesTotals } from '../../lib/postesMath.js';
 
 let seq = 0;
 export const newPoste = (lineCode = 'IV.suivi') => ({
@@ -14,44 +15,20 @@ export const newPoste = (lineCode = 'IV.suivi') => ({
   bailleurPct: 100, activityId: '', activity2Id: '', activity1Pct: '', observation: '',
 });
 
-export const posteAmount = (r) => {
-  const q = Number(r.unitCount); const c = Number(r.unitCost);
-  return Number.isFinite(q) && Number.isFinite(c) ? Math.round(q * c * 100) / 100 : 0;
-};
-
-// Funder share fraction (0..1) of a row; blank « % bailleur » means 100 %.
-const funderFrac = (r) => {
-  const p = r.bailleurPct === '' || r.bailleurPct == null ? 100 : Number(r.bailleurPct);
-  return Math.min(1, Math.max(0, (Number.isFinite(p) ? p : 100) / 100));
-};
-/** « À payer par le bailleur » d'un poste = montant × % bailleur. */
-export const posteFunder = (r) => Math.round(posteAmount(r) * funderFrac(r) * 100) / 100;
-
-/** Cent-safe totals of a list of postes: by section + bailleur/ONG split. */
-export function postesTotals(rows) {
-  const bySec = {};
-  let total = 0; let funder = 0; let ong = 0;
-  for (const r of rows) {
-    const amt = posteAmount(r);
-    const f = posteFunder(r);
-    const sec = SECTION_OF[r.lineCode] || '?';
-    bySec[sec] = (bySec[sec] || 0) + amt;
-    total += amt;
-    funder += f;
-    ong += amt - f;
-  }
-  return { bySec, total, funder, ong };
-}
+// Montant, part bailleur (montant × % bailleur) et totaux en centimes entiers :
+// module pur partagé avec l'impression de la facture (lib/facturePrint.js).
+export { posteAmount, posteFunder, postesTotals };
 
 /** Turn stored items (from the API) into editor rows. */
 export function rowsFromItems(items) {
   return (items || []).map((it) => ({
     key: `p${seq++}`, lineCode: it.lineCode, designation: it.designation, unit: it.unit || '',
     unitCount: it.unitCount ?? '', unitCost: it.unitCost ?? '',
-    bailleurPct: it.bailleurPct != null ? Math.round(Number(it.bailleurPct) * 100) : (it.payBy === 'ong' ? 0 : 100),
+    // Pourcents SANS perte (33,333 %, pas 33 %) : réenregistrer ne change aucun montant.
+    bailleurPct: pctPercentOf(it),
     activityId: it.activityId || '',
     activity2Id: it.activity2Id || '',
-    activity1Pct: it.activity1Pct != null ? Math.round(Number(it.activity1Pct) * 100) : '',
+    activity1Pct: fractionToPercent(it.activity1Pct) ?? '',
     observation: it.observation || '',
   }));
 }
@@ -63,7 +40,7 @@ export function itemsFromRows(rows) {
     .map((r) => ({
       lineCode: r.lineCode, designation: r.designation.trim(), unit: r.unit.trim() || undefined,
       unitCount: Number(r.unitCount) || 0, unitCost: Number(r.unitCost) || 0,
-      bailleurPct: funderFrac(r),
+      bailleurPct: pctFraction(r),
       activityId: r.activityId || undefined,
       activity2Id: r.activity2Id || undefined,
       activity1Pct: r.activity2Id ? (r.activity1Pct === '' ? 1 : Math.min(1, Math.max(0, Number(r.activity1Pct) / 100))) : undefined,
@@ -150,7 +127,7 @@ export default function PostesEditor({ rows, onChange, readOnly = false, funderL
                         </td>
                         <td><input className="input" style={{ width: 90 }} value={r.unit} disabled={readOnly} placeholder={tr('jour')} onChange={(e) => setRow(r.key, { unit: e.target.value })} /></td>
                         <td className="num"><input className="input tabular" style={{ width: 72, textAlign: 'right' }} inputMode="decimal" value={r.unitCount} disabled={readOnly} onChange={(e) => setRow(r.key, { unitCount: e.target.value })} /></td>
-                        <td className="num" style={{ minWidth: 130 }}><MoneyInput value={r.unitCost === '' ? '' : Number(r.unitCost)} onChange={(v) => setRow(r.key, { unitCost: v })} /></td>
+                        <td className="num" style={{ minWidth: 130 }}><MoneyInput value={r.unitCost === '' ? '' : Number(r.unitCost)} disabled={readOnly} onChange={(v) => setRow(r.key, { unitCost: v })} /></td>
                         <td className="num mono">{formatAr(posteAmount(r))}</td>
                         <td>
                           <select className={`select ${r.activityId ? '' : 'is-empty'}`} style={{ minWidth: 130 }} value={r.activityId} disabled={readOnly} onChange={(e) => setRow(r.key, { activityId: e.target.value })} aria-label={tr('Activité 1')}>

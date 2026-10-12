@@ -420,6 +420,7 @@ export const api = {
   },
   createReport: (input) => request('/api/tpm/reports', { method: 'POST', body: input }),
   saveReportItems: (id, input) => request(`/api/tpm/reports/${id}/items`, { method: 'PUT', body: input }),
+  submitReport: (id) => request(`/api/tpm/reports/${id}/submit`, { method: 'POST', body: {} }),
   approveReport: (id, input) => request(`/api/tpm/reports/${id}/approve`, { method: 'POST', body: input }),
   rejectReport: (id, input) => request(`/api/tpm/reports/${id}/reject`, { method: 'POST', body: input }),
   deleteReport: (id) => request(`/api/tpm/reports/${id}`, { method: 'DELETE' }),

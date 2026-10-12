@@ -31,6 +31,9 @@ const PG_CLIENT_ERRORS = {
   '23514': 'Données invalides.',          // check_violation
   '23503': 'Données invalides.',          // foreign_key_violation
   '22P02': 'Données invalides.',          // invalid_text_representation (uuid, nombre…)
+  // numeric_value_out_of_range : un montant ou une quantité dépasse la
+  // précision de la colonne (ex. quantité × coût d'une facture > numeric(16,2)).
+  '22003': 'Valeur hors limites : un montant ou une quantité est trop grand.',
   '22007': 'Date invalide : utilisez le format AAAA-MM-JJ (ex. 2026-01-30).', // invalid_datetime_format
   '22008': 'Date invalide : utilisez le format AAAA-MM-JJ (ex. 2026-01-30).', // datetime_field_overflow
 };

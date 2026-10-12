@@ -42,6 +42,12 @@ test('PostgreSQL : 22007 / 22008 (date invalide) → 400 clair ; 23505 → 409 ;
   }
   assert.equal(handle(Object.assign(new Error('dup'), { code: '23505' })).status, 409);
   assert.equal(handle(Object.assign(new Error('fk'), { code: '23503' })).status, 400);
+  // Montant hors précision de la colonne (quantité × coût d'une facture trop grand) : saisie, pas un bug.
+  const overflow = handle(Object.assign(new Error('numeric field overflow'), { code: '22003' }));
+  assert.equal(overflow.status, 400);
+  assert.match(overflow.body.error, /hors limites/);
+  assert.doesNotMatch(overflow.body.error, /numeric|overflow/);
+  assert.equal(overflow.logged.length, 0);
   const boom = handle(new Error('secret interne'));
   assert.deepEqual(boom.body, { error: 'Erreur interne du serveur.' });
   assert.equal(boom.status, 500);

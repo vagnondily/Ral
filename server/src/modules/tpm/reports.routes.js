@@ -5,10 +5,19 @@ const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound, conflict, forbidden } = require('../../middleware/errors');
 const repo = require('./reports.repository');
 const { buildInvoiceWorkbook } = require('./factureXlsx');
+const { reportActions } = require('./reportWorkflow');
 
 const router = Router();
 router.use(requireAuth);
-const WRITE = requireRole('admin', 'manager');
+const WRITE_ROLES = ['admin', 'manager'];
+const WRITE = requireRole(...WRITE_ROLES);
+
+// Chaque rapport renvoyé porte les actions permises à l'utilisateur courant,
+// calculées par les règles qui s'appliquent à l'écriture (reportWorkflow).
+const withActions = (req) => (report) => ({
+  ...report,
+  actions: reportActions(report, { userId: req.auth.userId, canWrite: WRITE_ROLES.includes(req.auth.role) }),
+});
 
 function body(schema) {
   return (req, res, next) => {
@@ -22,13 +31,15 @@ const t = (req) => req.auth.tenantId;
 
 router.get('/context', asyncHandler(async (req, res) => res.json(await repo.reportContext(t(req)))));
 
-router.get('/', asyncHandler(async (req, res) =>
-  res.json(await repo.listReports(t(req), { month: req.query.month, partnerId: req.query.partnerId, contractId: req.query.contractId }))));
+router.get('/', asyncHandler(async (req, res) => {
+  const rows = await repo.listReports(t(req), { month: req.query.month, partnerId: req.query.partnerId, contractId: req.query.contractId });
+  res.json(rows.map(withActions(req)));
+}));
 
 router.get('/:id', asyncHandler(async (req, res) => {
   const report = await repo.getReport(t(req), req.params.id);
   if (!report) throw notFound('Rapport introuvable');
-  res.json(report);
+  res.json(withActions(req)(report));
 }));
 
 // Per-line budget + cumulative funder spend for the on-screen invoice view
@@ -116,6 +127,7 @@ router.put('/:id/items', WRITE, body(itemsSchema), asyncHandler(async (req, res)
     invoiceNo: req.valid.invoiceNo,
     periodEnd: req.valid.periodEnd ? `${req.valid.periodEnd.slice(0, 7)}-01` : undefined,
     advanceDeducted: req.valid.advanceDeducted,
+    userId: req.auth.userId, // seul l'auteur modifie un brouillon ; le premier qui remplit un gabarit en devient l'auteur
   };
   try {
     const id = await repo.replaceReportItems(t(req), req.params.id, req.valid.items, opts);
@@ -123,7 +135,8 @@ router.put('/:id/items', WRITE, body(itemsSchema), asyncHandler(async (req, res)
     res.status(204).end();
   } catch (err) {
     if (err.code === 'KIND') throw badRequest('Seul un rapport financier porte un état des dépenses.');
-    if (err.code === 'LOCKED') throw conflict('Un rapport validé ne peut plus être modifié.');
+    if (err.code === 'LOCKED') throw conflict(err.message);
+    if (err.code === 'AUTHOR') throw forbidden(err.message);
     if (err instanceof Error && /Ligne budgétaire|désignation|invalide|Activité inconnue/.test(err.message)) throw badRequest(err.message);
     throw err;
   }
@@ -140,6 +153,18 @@ router.post('/generate-monthly', WRITE, body(stubSchema), asyncHandler(async (re
     if (err.code === 'NOCONTRACT') throw notFound('Contrat introuvable');
     throw err;
   }
+}));
+
+// Soumettre un rapport « attendu » ou « rejeté » (machine d'états
+// reportWorkflow) : 403 si l'acteur n'en est pas l'auteur, 409 si la
+// transition est interdite ou si la facture ne porte encore aucun poste. Le
+// soumetteur ne pourra ni valider ni rejeter.
+router.post('/:id/submit', WRITE, asyncHandler(async (req, res) => {
+  const r = await repo.submitReport(t(req), req.params.id, req.auth.userId);
+  if (r.error === 'not_found') throw notFound('Rapport introuvable');
+  if (r.error === 'author') throw forbidden(r.message);
+  if (r.error) throw conflict(r.message);
+  res.status(204).end();
 }));
 
 // Marquer un rapport « non applicable » (aucun suivi ce mois). Interdit sur un
@@ -164,7 +189,7 @@ router.delete('/:id', WRITE, asyncHandler(async (req, res) => {
 const decisionSchema = z.object({ comment: z.string().trim().max(1000).optional() });
 
 // Décision réservée aux gestionnaires (admin / validateur), sur un rapport soumis,
-// par une autre personne que celle qui l'a soumis.
+// par une autre personne que celle qui l'a soumis ou en a rempli le contenu.
 async function decide(req, status) {
   const r = await repo.setStatus(t(req), req.params.id, status, req.auth.userId, req.valid.comment);
   if (r.error === 'not_found') throw notFound('Rapport introuvable');

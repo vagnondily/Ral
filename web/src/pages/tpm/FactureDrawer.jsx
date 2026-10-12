@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Coins, AlertCircle, FileText, Wand2, Printer, FileSpreadsheet } from 'lucide-react';
+import { Coins, AlertCircle, FileText, Wand2, Printer, FileSpreadsheet, Send, Info, Lock } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, Field, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
@@ -11,6 +11,7 @@ import { richText } from '../../lib/contracts.js';
 import { openFacturePrint } from '../../lib/facturePrint.js';
 import { SECTIONS } from '../../lib/budgetCatalog.js';
 import PostesEditor, { newPoste, rowsFromItems, itemsFromRows, posteFunder } from './PostesEditor.jsx';
+import { invalidPctRows } from '../../lib/postesMath.js';
 
 /**
  * Facture fidèle — éditeur/visualiseur de l'état des dépenses TPM.
@@ -26,6 +27,13 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
   const [saving, setSaving] = useState(false);
   const [prefilling, setPrefilling] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
+  const [status, setStatus] = useState(null);   // statut du rapport ouvert
+  const [comment, setComment] = useState('');   // motif du dernier rejet
+  // Actions permises à l'utilisateur sur ce rapport, calculées par le serveur
+  // avec les règles qui s'appliquent à l'écriture (reportWorkflow) : figé une
+  // fois soumis, modifiable et soumis par son seul auteur.
+  const [actions, setActions] = useState(null);
+  const [author, setAuthor] = useState('');
   const [touched, setTouched] = useState(false);
   // Rapport financier = facture (postes) ; rapport technique = métadonnées
   // seules. Un même tiroir gère les deux (combinaison rapport + facture).
@@ -49,7 +57,11 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
     let alive = true;
     api.getReport(reportId).then((r) => {
       if (!alive) return;
-      setReadOnly(r.status === 'valide');
+      setReadOnly(!r.actions?.edit);
+      setActions(r.actions || null);
+      setAuthor(r.editedByEmail || '');
+      setStatus(r.status);
+      setComment(r.comment || '');
       setKind(r.kind);
       setHead((h) => ({
         ...h,
@@ -91,8 +103,15 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
   if (!editing && !head.partnerId) errors.push(tr('Choisissez un prestataire.'));
   if (!editing && !head.contractId) errors.push(tr('Choisissez un contrat.'));
   if (isFin && itemsFromRows(rows).length === 0) errors.push(tr('Ajoutez au moins un poste (désignation, quantité, coût).'));
+  // Un % bailleur illisible ou hors 0–100 est refusé, jamais ramené en silence à 0 ou 100 %.
+  if (isFin && !readOnly && invalidPctRows(rows).length > 0) errors.push(tr('% bailleur invalide : saisissez un nombre entre 0 et 100 (vide = 100 %).'));
 
-  async function save() {
+  // Une facture « attendue » ou « rejetée » ne part en validation que par
+  // l'action explicite « Soumettre » (par son auteur) : l'enregistrement ne
+  // change pas le statut.
+  const canSubmit = editing && isFin && !readOnly && Boolean(actions?.submit);
+
+  async function save({ submit = false } = {}) {
     setTouched(true);
     if (errors.length) return;
     setSaving(true);
@@ -105,6 +124,16 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
           periodEnd: head.periodEnd || undefined,
           advanceDeducted: head.advanceDeducted !== '' ? Number(head.advanceDeducted) : undefined,
         });
+        if (submit) {
+          try { await api.submitReport(reportId); } catch (e) {
+            toast.error(tr('Facture enregistrée, mais non soumise : {reason}', { reason: e.message }));
+            onSaved();
+            return;
+          }
+          toast.success(tr('Facture enregistrée et soumise à la validation.'));
+          onSaved();
+          return;
+        }
       } else if (isFin) {
         await api.createReport({
           partnerId: head.partnerId, contractId: head.contractId, periodMonth: month, kind: 'financier',
@@ -138,7 +167,7 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
     : (editing ? tr('Rapport technique') : tr('Nouveau rapport technique'));
   const subtitle = editing
     ? (readOnly
-      ? tr('{partner} · {contract} · validé (lecture seule)', { partner: head.partnerName || '', contract: head.contractNumero || '' })
+      ? tr(status === 'valide' ? '{partner} · {contract} · validé (lecture seule)' : '{partner} · {contract} · lecture seule', { partner: head.partnerName || '', contract: head.contractNumero || '' })
       : `${head.partnerName || ''} · ${head.contractNumero || ''}`)
     : (isFin
       ? tr("Postes quantité × coût unitaire, à la charge du bailleur ou de l'ONG, groupés par section FLA.")
@@ -155,7 +184,8 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
         : <><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button>
           {isFin && <Button variant="secondary" icon={Printer} onClick={printPdf}>PDF</Button>}
           {isFin && editing && <Button variant="secondary" icon={FileSpreadsheet} onClick={() => api.downloadReportXlsx(reportId)}>Excel</Button>}
-          <Button onClick={save} loading={saving} icon={FileText}>{tr('Enregistrer')}</Button></>}
+          <Button variant={canSubmit ? 'secondary' : undefined} onClick={() => save()} loading={saving} icon={FileText}>{tr('Enregistrer')}</Button>
+          {canSubmit && <Button onClick={() => save({ submit: true })} loading={saving} icon={Send}>{tr('Enregistrer et soumettre')}</Button>}</>}
     >
       {loading ? <Skeleton height={240} /> : (
         <div style={{ display: 'grid', gap: 18 }}>
@@ -188,11 +218,21 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
             {isFin && <>
               <Field label={tr('N° de facture')}><input className="input mono" value={head.invoiceNo} disabled={readOnly} onChange={(e) => setHead({ ...head, invoiceNo: e.target.value })} placeholder="FAC-2025-11" /></Field>
               <Field label={tr('Fin de période')} hint={tr('Facture pluri-mensuelle (optionnel).')}><input className="input" type="month" value={head.periodEnd} disabled={readOnly} onChange={(e) => setHead({ ...head, periodEnd: e.target.value })} /></Field>
-              <Field label={tr('Avance déduite (Ar)')}><MoneyInput value={head.advanceDeducted} onChange={(v) => setHead({ ...head, advanceDeducted: v })} /></Field>
+              <Field label={tr('Avance déduite (Ar)')}><MoneyInput value={head.advanceDeducted} disabled={readOnly} onChange={(v) => setHead({ ...head, advanceDeducted: v })} /></Field>
             </>}
           </div>
 
           {contract && <div className="note"><Coins size={18} aria-hidden="true" /><span>{richText(tr('Budget Suivi/TPM du contrat : <strong>{budget}</strong> · barème mensuel <strong>{ceiling}</strong>', { budget: formatAr(contract.monitoringBudget), ceiling: formatAr(contract.monthlyCeiling) }))}</span></div>}
+
+          {isFin && status === 'rejete' && comment && <Alert tone="warn">{readOnly
+            ? tr('Facture rejetée — motif : {reason}.', { reason: comment })
+            : tr('Facture rejetée — motif : {reason}. Corrigez-la puis soumettez-la de nouveau.', { reason: comment })}</Alert>}
+          {isFin && status === 'attendu' && !readOnly && <div className="note"><Info size={18} aria-hidden="true" /><span>{tr("Remplissez l'état des dépenses puis « Enregistrer et soumettre » pour l'envoyer en validation.")}</span></div>}
+          {/* État du circuit (pas une astuce masquable) : toujours affiché. */}
+          {isFin && status === 'soumis' && <Alert tone="info" icon={Lock}>{tr('Facture soumise : elle est figée pendant la décision du validateur. Pour la corriger, le validateur la rejette avec un motif, puis son auteur la reprend.')}</Alert>}
+          {isFin && readOnly && ['attendu', 'rejete'].includes(status) && actions?.editReason && <Alert tone="info" icon={Lock}>{author
+            ? tr("Seul l'auteur de cette facture ({author}) peut la modifier ou la soumettre.", { author })
+            : tr("Seul l'auteur de cette facture peut la modifier ou la soumettre.")}</Alert>}
 
           {touched && errors.length > 0 && <Alert tone="error" icon={AlertCircle}>{errors[0]}</Alert>}
 
@@ -214,12 +254,12 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
           ) : (
             <div className="form-grid">
               <Field label={tr('Budget prévu du mois (Ar)')} hint={contract ? tr('Barème mensuel : {amount}', { amount: formatAr(contract.monthlyCeiling) }) : tr('Total ÷ nombre de mois.')}>
-                <MoneyInput value={head.plannedAmount} onChange={(v) => setHead({ ...head, plannedAmount: v })} />
+                <MoneyInput value={head.plannedAmount} disabled={readOnly} onChange={(v) => setHead({ ...head, plannedAmount: v })} />
               </Field>
               <Field label={tr('Nom du document')} hint={tr("Métadonnée (fichier non stocké pour l'instant).")}>
-                <input className="input" value={head.documentName} onChange={(e) => setHead({ ...head, documentName: e.target.value })} placeholder={tr('Rapport_technique_AINA_2026-06.pdf')} />
+                <input className="input" value={head.documentName} disabled={readOnly} onChange={(e) => setHead({ ...head, documentName: e.target.value })} placeholder={tr('Rapport_technique_AINA_2026-06.pdf')} />
               </Field>
-              <Field label={tr('Référence')}><input className="input mono" value={head.reference} onChange={(e) => setHead({ ...head, reference: e.target.value })} /></Field>
+              <Field label={tr('Référence')}><input className="input mono" value={head.reference} disabled={readOnly} onChange={(e) => setHead({ ...head, reference: e.target.value })} /></Field>
             </div>
           )}
         </div>
