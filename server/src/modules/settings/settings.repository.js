@@ -1,4 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
+const { badRequest } = require('../../middleware/errors');
 
 /** Configuration registries: partner types, activities, partners (+ TPM
  * agents). All tenant-scoped through withTenantTransaction. */
@@ -369,6 +370,14 @@ async function officesWithCounts(tenantId) {
   });
 }
 
+/** Référence légère des bureaux (id, code, nom) — sans les comptages. */
+async function officeRefs(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query('SELECT id, code, name FROM field_offices WHERE tenant_id = $1 ORDER BY code', [tenantId]);
+    return rows;
+  });
+}
+
 async function officePerimeter(tenantId, officeId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
@@ -494,6 +503,85 @@ async function deleteMmr(tenantId, id) {
   });
 }
 
+/**
+ * Sites du référentiel par catégorie d'activité, agrégés en SQL (bornés) :
+ * { activity, officeId, parentId, n } — le front attribue un site d'antenne à
+ * son bureau parent (mmrMath.registryCounts).
+ */
+async function mmrRegistry(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT btrim(s.activity) AS activity, s.field_office_id AS "officeId", o.parent_id AS "parentId", count(*)::int AS n
+         FROM sites s LEFT JOIN field_offices o ON o.id = s.field_office_id
+        WHERE s.tenant_id = $1 AND NULLIF(btrim(s.activity), '') IS NOT NULL
+        GROUP BY 1, 2, 3`,
+      [tenantId]
+    );
+    return rows;
+  });
+}
+
+const MMR_COLS = ['operation_duration', 'number_of_sites', 'risk_level', 'feasible', 'persons_to_deploy', 'visits_per_day', 'working_days', 'note'];
+const mmrVals = (r) => [r.operationDuration, r.numberOfSites, r.riskLevel, r.feasible ?? null,
+  r.personsToDeploy ?? null, r.visitsPerDay ?? null, r.workingDays ?? null, r.note || null];
+
+/**
+ * Enregistrement groupé de la grille MMR, TOUT OU RIEN (une transaction) :
+ * suppressions, mises à jour par id (renommage de catégorie compris), puis
+ * créations — chaque étape en UNE requête multi-lignes. Les index uniques
+ * partiels (plan général / bureau) restent le vrai garde-fou (→ 409).
+ * @param {{ upserts: Array<object>, deletes: string[] }} input
+ */
+async function bulkSaveMmr(tenantId, { upserts = [], deletes = [] }, userId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const officeIds = [...new Set(upserts.map((u) => u.fieldOfficeId).filter(Boolean))];
+    if (officeIds.length) {
+      const { rows } = await client.query('SELECT id FROM field_offices WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, officeIds]);
+      if (rows.length !== officeIds.length) throw badRequest('Bureau inconnu (ou hors de ce compte).');
+    }
+    let deleted = 0; let updated = 0; let created = 0;
+    if (deletes.length) {
+      ({ rowCount: deleted } = await client.query('DELETE FROM mmr_parameters WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, deletes]));
+    }
+    const updates = upserts.filter((u) => u.id);
+    if (updates.length) {
+      const params = [tenantId]; const tuples = updates.map((u) => {
+        const vals = [u.id, u.activityCategory, ...mmrVals(u)];
+        const ph = vals.map((v) => { params.push(v); return `$${params.length}`; });
+        return `(${ph[0]}::uuid, ${ph[1]}::text, ${ph[2]}::int, ${ph[3]}::int, ${ph[4]}::int, ${ph[5]}::int, ${ph[6]}::int, ${ph[7]}::numeric, ${ph[8]}::int, ${ph[9]}::text)`;
+      });
+      ({ rowCount: updated } = await client.query(
+        `UPDATE mmr_parameters m SET activity_category = v.cat,
+                ${MMR_COLS.map((c) => `${c} = v.${c}`).join(', ')}, updated_at = now()
+           FROM (VALUES ${tuples.join(',')}) AS v(id, cat, ${MMR_COLS.join(', ')})
+          WHERE m.tenant_id = $1 AND m.id = v.id`,
+        params
+      ));
+      if (updated !== updates.length) throw badRequest('Paramètre MMR introuvable (modifié ou supprimé entre-temps) : rechargez la page.');
+    }
+    // Créations : une requête par portée (index unique partiel différent).
+    for (const general of [true, false]) {
+      const rows = upserts.filter((u) => !u.id && Boolean(u.fieldOfficeId) !== general);
+      if (!rows.length) continue;
+      const params = [tenantId, userId]; const tuples = rows.map((u) => {
+        const vals = [u.fieldOfficeId || null, u.activityCategory, ...mmrVals(u)];
+        const ph = vals.map((v) => { params.push(v); return `$${params.length}`; });
+        return `($1, ${ph.join(', ')}, $2)`;
+      });
+      const conflict = general ? '(tenant_id, activity_category) WHERE field_office_id IS NULL'
+        : '(tenant_id, field_office_id, activity_category) WHERE field_office_id IS NOT NULL';
+      const { rowCount } = await client.query(
+        `INSERT INTO mmr_parameters (tenant_id, field_office_id, activity_category, ${MMR_COLS.join(', ')}, created_by)
+         VALUES ${tuples.join(',')}
+         ON CONFLICT ${conflict} DO UPDATE SET ${MMR_COLS.map((c) => `${c} = EXCLUDED.${c}`).join(', ')}, updated_at = now()`,
+        params
+      );
+      created += rowCount;
+    }
+    return { deleted, updated, created };
+  });
+}
+
 module.exports = {
   listPartnerTypes, createPartnerType,
   listActivities, createActivity, setActivityActive,
@@ -502,5 +590,5 @@ module.exports = {
   listAdminLevels, listAdminAreas, adminBreakdownSummary, replaceAdminBreakdown,
   listExchangeRates, upsertExchangeRate, deleteExchangeRate,
   listCommunes, officesWithCounts, officePerimeter, createOffice, updateOffice, deleteOffice,
-  listMmr, upsertMmr, deleteMmr,
+  listMmr, upsertMmr, deleteMmr, mmrRegistry, bulkSaveMmr, officeRefs,
 };

@@ -60,6 +60,22 @@ async function downloadFile(path, filename) {
   a.remove(); URL.revokeObjectURL(url);
 }
 
+// Envoi authentifié d'un fichier binaire (imports .xlsx/.zip) ; renvoie le JSON.
+async function uploadFile(path, file) {
+  const buf = await file.arrayBuffer();
+  let res;
+  try {
+    res = await fetch(new URL(`${API_URL}${path}`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+      body: buf,
+    });
+  } catch { throw new ApiError(0, 'Serveur injoignable.'); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, data.error || `Erreur ${res.status}`, data.details);
+  return data;
+}
+
 async function request(path, { method = 'GET', body, query, auth = true } = {}) {
   const url = new URL(API_URL + path);
   if (query) {
@@ -269,6 +285,10 @@ export const api = {
   listMmr: () => request('/api/settings/mmr'),
   saveMmr: (input) => request('/api/settings/mmr', { method: 'POST', body: input }),
   deleteMmr: (id) => request(`/api/settings/mmr/${id}`, { method: 'DELETE' }),
+  mmrRegistry: () => request('/api/settings/mmr/registry'),
+  saveMmrBulk: (input) => request('/api/settings/mmr/bulk', { method: 'PUT', body: input }),
+  exportMmrXlsx: () => downloadFile('/api/settings/mmr/export.xlsx', 'Parametres_MMR_MEMS2.xlsx'),
+  importMmrXlsx: (file) => uploadFile('/api/settings/mmr/import', file),
   listOffices: () => request('/api/settings/offices'),
   officeCommunes: () => request('/api/settings/offices/communes'),
   officePerimeter: (id) => request(`/api/settings/offices/${id}/perimeter`),

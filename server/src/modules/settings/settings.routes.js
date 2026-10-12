@@ -6,6 +6,7 @@ const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest } = require('../../middleware/errors');
 const repo = require('./settings.repository');
 const { parseUpload } = require('./adminImport');
+const { buildMmrWorkbook, parseMmrWorkbook } = require('../tpm/mmrXlsx');
 
 const router = Router();
 router.use(requireAuth);
@@ -101,6 +102,45 @@ const mmrBody = z.object({
 });
 router.post('/mmr', ADMIN, body(mmrBody), asyncHandler(async (req, res) =>
   res.status(201).json({ id: await repo.upsertMmr(t(req), req.valid, req.auth.userId) })));
+// Grille MMR : enregistrement groupé tout-ou-rien (créations, modifications, suppressions).
+const mmrBulk = z.object({
+  upserts: z.array(mmrBody.extend({ id: z.string().uuid().optional() })).max(2000).default([]),
+  deletes: z.array(z.string().uuid()).max(2000).default([]),
+}).superRefine((v, ctx) => {
+  const seen = new Set();
+  v.upserts.forEach((u, i) => {
+    const k = `${u.fieldOfficeId || ''}|${u.activityCategory.toLowerCase()}`;
+    if (seen.has(k)) ctx.addIssue({ code: 'custom', path: ['upserts', i, 'activityCategory'], message: `« ${u.activityCategory} » en double pour la même portée` });
+    seen.add(k);
+  });
+});
+router.put('/mmr/bulk', ADMIN, body(mmrBulk), asyncHandler(async (req, res) =>
+  res.json(await repo.bulkSaveMmr(t(req), req.valid, req.auth.userId))));
+router.get('/mmr/registry', asyncHandler(async (req, res) => res.json(await repo.mmrRegistry(t(req)))));
+router.get('/mmr/export.xlsx', asyncHandler(async (req, res) => {
+  const [rows, offices] = await Promise.all([repo.listMmr(t(req)), repo.officeRefs(t(req))]);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="Parametres_MMR_MEMS2.xlsx"');
+  await buildMmrWorkbook(rows, offices).xlsx.write(res);
+  res.end();
+}));
+// Import = lecture seule : renvoie les lignes pour revue dans la grille ;
+// rien n'est enregistré avant « Enregistrer » (même schéma que /mmr/bulk).
+router.post('/mmr/import', ADMIN, express.raw({ type: '*/*', limit: '20mb' }), asyncHandler(async (req, res) => {
+  if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
+  let parsed;
+  try { parsed = await parseMmrWorkbook(req.body, await repo.officeRefs(t(req))); } catch (err) {
+    if (err && err.code === 'NO_SHEET') throw badRequest('Aucune feuille de paramètres MMR reconnue (colonnes Catégorie d\'activité, Durée, Risque).');
+    throw badRequest('Fichier Excel illisible.');
+  }
+  const errors = [...parsed.errors];
+  const rows = parsed.rows.filter((r) => {
+    const ok = mmrBody.safeParse(r);
+    if (!ok.success) errors.push({ row: null, message: `« ${r.activityCategory} » : ${Object.values(ok.error.flatten().fieldErrors).flat().join(', ')}` });
+    return ok.success;
+  });
+  res.json({ rows, errors, skipped: parsed.skipped, sheet: parsed.sheet });
+}));
 router.delete('/mmr/:id', ADMIN, asyncHandler(async (req, res) => {
   if (!(await repo.deleteMmr(t(req), req.params.id))) return res.status(404).json({ error: 'Paramètre MMR introuvable' });
   return res.status(204).end();
