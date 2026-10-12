@@ -14,6 +14,7 @@ const { readXls, isOleFile, XlsError } = require('./xlsReader');
 const { parseSav } = require('./savParser');
 const { validateExpression } = require('./calcFields');
 const dataLinks = require('./dataLinks.service');
+const settingsRepo = require('../settings/settings.repository');
 
 /**
  * Suivi de processus — forms, configurable indicators (mapping) and real
@@ -23,6 +24,7 @@ const dataLinks = require('./dataLinks.service');
 const router = Router();
 router.use(requireAuth);
 const WRITE = requireRole('admin', 'manager');
+const uuidParam = (v) => { if (!z.string().uuid().safeParse(v).success) throw badRequest('Identifiant invalide'); return v; };
 const t = (req) => req.auth.tenantId;
 
 function body(schema) {
@@ -46,11 +48,27 @@ router.post('/forms', WRITE, body(formSchema), asyncHandler(async (req, res) => 
   catch (err) { if (err.code === '23505') throw badRequest('Un formulaire avec ce code existe déjà.'); throw err; }
 }));
 
-router.patch('/forms/:id', WRITE, body(z.object({ label: z.string().trim().max(160).optional(), active: z.boolean().optional() })),
-  asyncHandler(async (req, res) => {
-    if (!(await repo.updateForm(t(req), req.params.id, req.valid))) throw notFound('Formulaire introuvable');
-    res.status(204).end();
-  }));
+router.patch('/forms/:id', WRITE, body(z.object({
+  label: z.string().trim().min(1).max(160).optional(), active: z.boolean().optional(),
+  activityCategory: z.string().trim().max(160).nullable().optional(),
+})), asyncHandler(async (req, res) => {
+  const patch = { ...req.valid };
+  // Activité = une catégorie du MMR (libellé canonique) : c'est elle qui relie la fiche aux sites,
+  // à la couverture et au plan de suivi.
+  if (patch.activityCategory) {
+    const cats = [...new Set((await settingsRepo.listMmr(t(req))).map((m) => String(m.activityCategory || '').trim()).filter(Boolean))];
+    const hit = cats.find((c) => c.toLowerCase().replace(/\s+/g, ' ') === patch.activityCategory.toLowerCase().replace(/\s+/g, ' '));
+    if (!hit) throw badRequest(`Activité inconnue du MMR : « ${patch.activityCategory} ».`);
+    patch.activityCategory = hit;
+  }
+  if (patch.activityCategory === '') patch.activityCategory = null;
+  if (!(await repo.updateForm(t(req), uuidParam(req.params.id), patch))) throw notFound('Formulaire introuvable');
+  res.status(204).end();
+}));
+
+router.delete('/forms/:id', WRITE, asyncHandler(async (req, res) => {
+  res.json(await repo.deleteForm(t(req), uuidParam(req.params.id), { isAdmin: req.auth.role === 'admin', confirm: req.query.confirm ? String(req.query.confirm) : null }));
+}));
 
 router.get('/forms/:id/fields', asyncHandler(async (req, res) => res.json(await repo.formFields(t(req), req.params.id))));
 

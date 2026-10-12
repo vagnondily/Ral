@@ -259,6 +259,7 @@ export const api = {
   linkPull: (formId, input) => request(`/api/monitoring/forms/${formId}/link-pull`, { method: 'POST', body: input }),
   monCreateForm: (input) => request('/api/monitoring/forms', { method: 'POST', body: input }),
   monUpdateForm: (id, input) => request(`/api/monitoring/forms/${id}`, { method: 'PATCH', body: input }),
+  monDeleteForm: (id, confirm) => request(`/api/monitoring/forms/${id}`, { method: 'DELETE', query: confirm ? { confirm } : undefined }),
   monFields: (id) => request(`/api/monitoring/forms/${id}/fields`),
   monIndicators: (id) => request(`/api/monitoring/forms/${id}/indicators`),
   monCreateIndicator: (id, input) => request(`/api/monitoring/forms/${id}/indicators`, { method: 'POST', body: input }),

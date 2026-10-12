@@ -2128,3 +2128,8 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .table-wrap { max-height: calc(100vh - var(--header-h) - 72px); overflow: auto; }
 .table thead th { position: sticky; top: 0; z-index: 2; }
 @media print { .table-wrap { max-height: none; overflow: visible; } }
+
+/* Action irréversible (suppression définitive) : rouge, toujours avec un libellé explicite. */
+.btn-danger { background: var(--red); border-color: var(--red); color: #fff; }
+.btn-danger:hover:not(:disabled) { background: var(--red-text); border-color: var(--red-text); }
+.btn-danger:disabled { opacity: .5; }

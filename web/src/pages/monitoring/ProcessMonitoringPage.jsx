@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Upload, AlertCircle, ClipboardCheck, RefreshCw, ArrowLeft, ChevronRight,
   FileSpreadsheet, SlidersHorizontal, BarChart3, Link2, Trash2, Pencil, Check, Minus, Shuffle,
-  Table2, Download, Search, Columns3, X, ChevronDown, ChevronUp, Ban, Undo2,
+  Table2, Download, Search, Columns3, X, ChevronDown, ChevronUp, Ban, Undo2, AlertTriangle, Link as LinkIcon,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, IconButton, PageHeader, Skeleton, Stats } from '../../components/ui.jsx';
@@ -59,12 +59,14 @@ const META_COLS = [
   { key: 'agent', label: 'Agent' },
 ];
 
-export default function ProcessMonitoringPage({ canEdit }) {
+export default function ProcessMonitoringPage({ canEdit, isAdmin }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [forms, setForms] = useState(null);
   const [selId, setSelId] = useState(null);
   const [error, setError] = useState(null);
+  const [editing, setEditing] = useState(null);   // fiche en cours de modification
+  const [deleting, setDeleting] = useState(null); // fiche à supprimer
 
   async function loadForms() {
     setError(null);
@@ -106,7 +108,7 @@ export default function ProcessMonitoringPage({ canEdit }) {
   return (
     <div className="section-gap">
       <PageHeader title={tr('Suivi de processus — fiches & indicateurs')} description={tr('Chaque fiche correspond à une activité suivie. Importez un XLSForm (Kobo/ODK) ou créez une fiche, puis ouvrez-la pour ses variables, ses résultats, le mapping MEMS et sa configuration.')}>
-        {canEdit && <><input ref={xlsformRef} type="file" accept=".xlsx" hidden onChange={onXlsform} />
+        {canEdit && <><input ref={xlsformRef} type="file" accept=".xlsx,.xls" hidden onChange={onXlsform} />
           <Button variant="secondary" icon={Upload} loading={importingDef} onClick={() => xlsformRef.current?.click()}>{tr('Importer un XLSForm')}</Button></>}
         {canEdit && <Button icon={Plus} onClick={newForm}>{tr('Nouvelle fiche')}</Button>}
       </PageHeader>
@@ -121,21 +123,34 @@ export default function ProcessMonitoringPage({ canEdit }) {
           </EmptyState></Card>
         ) : (
           <Card aria-label={tr('Fiches de suivi')}>
-            <CardHeader title={tr('Fiches de suivi')} subtitle={tr('{n} fiche(s) — cliquez pour ouvrir.', { n: forms.length })} />
+            <CardHeader title={tr('Fiches de suivi')} subtitle={tr('{n} fiche(s) — cliquez sur une ligne pour l\'ouvrir.', { n: forms.length })} />
+            {forms.some((f) => !f.activityCategory) && (
+              <div className="card-body" style={{ paddingBottom: 0 }}>
+                <Alert tone="warning" icon={AlertTriangle}>{tr('{n} fiche(s) non rattachée(s) à une activité du MMR : leur couverture et leur place dans le plan de suivi ne peuvent pas être calculées. Utilisez « Modifier » pour les rattacher.', { n: forms.filter((f) => !f.activityCategory).length })}</Alert>
+              </div>
+            )}
             <div className="table-wrap">
               <table className="table">
                 <thead><tr>
-                  <th scope="col">{tr('Fiche (activité)')}</th><th scope="col" className="num">{tr('Indicateurs')}</th>
-                  <th scope="col" className="num">{tr('Soumissions')}</th><th scope="col">{tr('État')}</th><th scope="col" />
+                  <th scope="col">{tr('Fiche')}</th><th scope="col">{tr('Activité (MMR)')}</th><th scope="col" className="num">{tr('Indicateurs')}</th>
+                  <th scope="col" className="num">{tr('Soumissions')}</th><th scope="col">{tr('Statut')}</th><th scope="col" className="num">{tr('Actions')}</th>
                 </tr></thead>
                 <tbody>
                   {forms.map((f) => (
                     <tr key={f.id} className="clickable" onClick={() => setSelId(f.id)}>
                       <td><strong>{f.label}</strong><div className="site-meta mono">{f.code}</div></td>
+                      <td>{f.activityCategory
+                        ? <span className="nowrap"><LinkIcon size={13} className="muted" aria-hidden="true" /> {f.activityCategory}</span>
+                        : <Badge tone="orange" icon={AlertTriangle}>{tr('À rattacher')}</Badge>}</td>
                       <td className="num tabular">{f.indicatorCount ?? 0}</td>
                       <td className="num tabular">{f.submissionCount ?? 0}</td>
                       <td><Badge tone={f.active ? 'green' : null} dot>{f.active ? tr('Active') : tr('Inactive')}</Badge></td>
-                      <td style={{ textAlign: 'right' }}><ChevronRight size={16} className="muted" aria-hidden="true" /></td>
+                      <td className="num nowrap" onClick={(e) => e.stopPropagation()}>
+                        <Button size="sm" onClick={() => setSelId(f.id)}>{tr('Ouvrir')}</Button>
+                        {canEdit && <IconButton icon={Pencil} label={tr('Modifier')} onClick={() => setEditing(f)} />}
+                        {canEdit && <IconButton icon={Trash2} label={tr('Supprimer')} onClick={() => setDeleting(f)}
+                          disabled={f.submissionCount > 0 && !isAdmin} title={f.submissionCount > 0 && !isAdmin ? tr('Fiche avec données : désactivez-la (seul un administrateur peut la supprimer).') : undefined} />}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -143,7 +158,87 @@ export default function ProcessMonitoringPage({ canEdit }) {
             </div>
           </Card>
         )}
+      {editing && <FormEditModal form={editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await loadForms(); }} />}
+      {deleting && <FormDeleteModal form={deleting} onClose={() => setDeleting(null)} onDeleted={async () => { setDeleting(null); await loadForms(); }} />}
     </div>
+  );
+}
+
+/** Modifier une fiche : nom, activité du MMR (liaison sites / couverture / plan), statut. */
+function FormEditModal({ form, onClose, onSaved }) {
+  const { tr } = useI18n();
+  const toast = useToast();
+  const [label, setLabel] = useState(form.label);
+  const [activity, setActivity] = useState(form.activityCategory || '');
+  const [active, setActive] = useState(form.active);
+  const [activities, setActivities] = useState(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api.listMmr().then((rows) => setActivities([...new Set(rows.map((r) => String(r.activityCategory || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b))))
+      .catch(() => setActivities([]));
+  }, []);
+  async function save() {
+    setSaving(true);
+    try {
+      await api.monUpdateForm(form.id, { label: label.trim(), active, activityCategory: activity || null });
+      toast.success(tr('Fiche mise à jour.'));
+      onSaved();
+    } catch (e) { toast.error(e.message); } finally { setSaving(false); }
+  }
+  return (
+    <Modal open onClose={onClose} title={tr('Modifier la fiche')} subtitle={form.code}
+      footer={<><Button variant="secondary" onClick={onClose}>{tr('Annuler')}</Button><Button icon={Check} loading={saving} disabled={!label.trim()} onClick={save}>{tr('Enregistrer')}</Button></>}>
+      <div className="section-gap">
+        <Field label={tr('Nom de la fiche')} required><input className="input" value={label} maxLength={160} onChange={(e) => setLabel(e.target.value)} /></Field>
+        <Field label={tr('Activité (MMR)')} hint={tr('Relie la fiche aux sites de cette activité : couverture, sites actifs et plan de suivi en dépendent. Les activités se définissent dans Paramétrage › Paramètres MMR.')}>
+          {activities === null ? <Skeleton height={38} /> : (
+            <select className="select" value={activity} onChange={(e) => setActivity(e.target.value)}>
+              <option value="">{tr('— Non rattachée —')}</option>
+              {activities.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+          )}
+        </Field>
+        {activities && activities.length === 0 && <Alert tone="warning" icon={AlertTriangle}>{tr('Aucune activité dans le MMR : paramétrez-les d\'abord (Paramétrage › Paramètres MMR).')}</Alert>}
+        <Field label={tr('Statut')}>
+          <div className="segmented" role="group" aria-label={tr('Statut')}>
+            <button type="button" aria-pressed={active} onClick={() => setActive(true)}>{tr('Active')}</button>
+            <button type="button" aria-pressed={!active} onClick={() => setActive(false)}>{tr('Inactive')}</button>
+          </div>
+        </Field>
+        {!active && <p className="hint">{tr('Une fiche inactive garde ses données mais n\'apparaît plus dans les synthèses.')}</p>}
+      </div>
+    </Modal>
+  );
+}
+
+/** Supprimer une fiche : simple sans données ; avec données, l'administrateur ressaisit le code. */
+function FormDeleteModal({ form, onClose, onDeleted }) {
+  const { tr } = useI18n();
+  const toast = useToast();
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const withData = form.submissionCount > 0;
+  async function remove() {
+    setBusy(true);
+    try {
+      const r = await api.monDeleteForm(form.id, withData ? confirm.trim() : undefined);
+      toast.success(withData ? tr('Fiche supprimée avec ses {n} soumission(s).', { n: r.submissions }) : tr('Fiche supprimée.'));
+      onDeleted();
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  }
+  return (
+    <Modal open onClose={onClose} title={tr('Supprimer la fiche')} subtitle={form.label}
+      footer={<><Button variant="secondary" onClick={onClose}>{tr('Annuler')}</Button>
+        <Button variant="danger" icon={Trash2} loading={busy} disabled={withData && confirm.trim() !== form.code} onClick={remove}>{tr('Supprimer définitivement')}</Button></>}>
+      <div className="section-gap">
+        {withData ? <>
+          <Alert tone="danger" icon={AlertTriangle}>{tr('Cette fiche contient {n} soumission(s). Elles seront supprimées avec elle, ainsi que ses indicateurs. Préférez « Modifier › Inactive » pour la retirer des synthèses sans rien perdre.', { n: form.submissionCount })}</Alert>
+          <Field label={tr('Pour confirmer, saisissez le code de la fiche : {code}', { code: form.code })}>
+            <input className="input mono" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" />
+          </Field>
+        </> : <p>{tr('La fiche, ses variables et ses indicateurs seront supprimés. Elle ne contient aucune soumission.')}</p>}
+      </div>
+    </Modal>
   );
 }
 

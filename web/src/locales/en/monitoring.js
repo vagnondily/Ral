@@ -305,4 +305,25 @@ export default {
   'non définie': 'not set',
   'Tout est recalculé en direct depuis les données réelles (aucune valeur saisie à la main).':
     'Everything is recomputed live from the actual data (no value entered by hand).',
+
+  // Liste des fiches : rattachement au MMR, modification, suppression
+  "{n} fiche(s) — cliquez sur une ligne pour l'ouvrir.": '{n} form(s) — click a row to open it.',
+  '{n} fiche(s) non rattachée(s) à une activité du MMR : leur couverture et leur place dans le plan de suivi ne peuvent pas être calculées. Utilisez « Modifier » pour les rattacher.': '{n} form(s) not linked to an MMR activity: their coverage and their place in the monitoring plan cannot be computed. Use “Edit” to link them.',
+  'Activité (MMR)': 'Activity (MMR)',
+  'À rattacher': 'To link',
+  'Fiche avec données : désactivez-la (seul un administrateur peut la supprimer).': 'Form with data: deactivate it (only an administrator can delete it).',
+  'Fiche mise à jour.': 'Form updated.',
+  'Modifier la fiche': 'Edit form',
+  'Nom de la fiche': 'Form name',
+  'Relie la fiche aux sites de cette activité : couverture, sites actifs et plan de suivi en dépendent. Les activités se définissent dans Paramétrage › Paramètres MMR.': 'Links the form to the sites of this activity: coverage, active sites and the monitoring plan depend on it. Activities are defined in Settings › MMR parameters.',
+  '— Non rattachée —': '— Not linked —',
+  "Aucune activité dans le MMR : paramétrez-les d'abord (Paramétrage › Paramètres MMR).": 'No activity in the MMR: set them up first (Settings › MMR parameters).',
+  "Une fiche inactive garde ses données mais n'apparaît plus dans les synthèses.": 'An inactive form keeps its data but no longer appears in summaries.',
+  'Fiche supprimée avec ses {n} soumission(s).': 'Form deleted with its {n} submission(s).',
+  'Fiche supprimée.': 'Form deleted.',
+  'Supprimer la fiche': 'Delete form',
+  'Supprimer définitivement': 'Delete permanently',
+  'Cette fiche contient {n} soumission(s). Elles seront supprimées avec elle, ainsi que ses indicateurs. Préférez « Modifier › Inactive » pour la retirer des synthèses sans rien perdre.': 'This form contains {n} submission(s). They will be deleted with it, along with its indicators. Prefer “Edit › Inactive” to remove it from summaries without losing anything.',
+  'Pour confirmer, saisissez le code de la fiche : {code}': 'To confirm, type the form code: {code}',
+  'La fiche, ses variables et ses indicateurs seront supprimés. Elle ne contient aucune soumission.': 'The form, its variables and its indicators will be deleted. It contains no submissions.',
 };

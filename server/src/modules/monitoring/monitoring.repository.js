@@ -1,5 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
 const { insertRows } = require('../../db/batch');
+const { notFound, forbidden, badRequest } = require('../../middleware/errors');
 const { computeAll, overallIndex } = require('./monitoringMath');
 const { classDistribution, dimGroups, topFlop, classify } = require('./coverageDashboard');
 const { detectMapping, DIMENSION_COLUMN, EDITABLE_KEYS } = require('./memsMapping');
@@ -32,7 +33,8 @@ const num = (v) => (v == null ? v : Number(v));
 async function listForms(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      `SELECT f.id, f.code, f.label, f.active, f.source_url AS "sourceUrl", f.source_kind AS "sourceKind",
+      `SELECT f.id, f.code, f.label, f.active, f.activity_category AS "activityCategory", f.updated_at AS "updatedAt",
+              f.source_url AS "sourceUrl", f.source_kind AS "sourceKind",
               f.source_cursor::float8 AS "sourceCursor", f.source_synced_at AS "sourceSyncedAt",
               COALESCE((SELECT count(*) FROM monitoring_indicators i WHERE i.form_id = f.id), 0)::int AS "indicatorCount",
               COALESCE((SELECT count(*) FROM monitoring_submissions s WHERE s.form_id = f.id), 0)::int AS "submissionCount"
@@ -74,14 +76,39 @@ async function createForm(tenantId, { code, label }) {
   });
 }
 
-async function updateForm(tenantId, id, { label, active }) {
+/**
+ * `activityCategory` : rattachement de la fiche à une activité du MMR (libellé
+ * canonique, déjà contrôlé par l'appelant) — il relie la fiche aux sites, à la
+ * couverture et au plan de suivi. `undefined` = inchangé, `null` = détacher.
+ */
+async function updateForm(tenantId, id, { label, active, activityCategory }) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rowCount } = await client.query(
-      `UPDATE monitoring_forms SET label = COALESCE($3, label), active = COALESCE($4, active), updated_at = now()
+      `UPDATE monitoring_forms SET label = COALESCE($3, label), active = COALESCE($4, active),
+              activity_category = CASE WHEN $5::boolean THEN $6 ELSE activity_category END, updated_at = now()
         WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id, label ?? null, active ?? null]
+      [tenantId, id, label ?? null, active ?? null, activityCategory !== undefined, activityCategory ?? null]
     );
     return rowCount === 1;
+  });
+}
+
+/**
+ * Suppression d'une fiche (variables, choix, indicateurs et soumissions suivent
+ * par cascade). Une fiche SANS données se supprime librement ; une fiche AVEC
+ * données exige un administrateur qui ressaisit son code — sinon on la désactive.
+ */
+async function deleteForm(tenantId, id, { isAdmin = false, confirm = null } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT f.code, (SELECT count(*) FROM monitoring_submissions s WHERE s.form_id = f.id)::int AS n
+         FROM monitoring_forms f WHERE f.tenant_id = $1 AND f.id = $2 FOR UPDATE`, [tenantId, id]);
+    if (!rows.length) throw notFound('Fiche introuvable');
+    const { code, n } = rows[0];
+    if (n > 0 && !isAdmin) throw forbidden(`Cette fiche contient ${n} soumission(s) : désactivez-la, ou demandez à un administrateur de la supprimer.`);
+    if (n > 0 && confirm !== code) throw badRequest(`Pour supprimer une fiche et ses ${n} soumission(s), ressaisissez son code « ${code} ».`);
+    await client.query('DELETE FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+    return { deleted: 1, submissions: n };
   });
 }
 
@@ -860,7 +887,7 @@ async function setExclusion(tenantId, formId, { ids, excluded, reason } = {}) {
 module.exports = {
   listCalcFields, createCalcField, updateCalcField, deleteCalcField, setExclusion,
   setFormSource, formSourceContext, reportMonitoringData,
-  listForms, createForm, updateForm,
+  listForms, createForm, updateForm, deleteForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,
   formFields, importSubmissions, computeValues, dashboard, processOverview, coverageDashboard,
   formCatalog, memsMappingForForm, setMemsMapping, resetMemsMapping, applyMappingToSubmissions,
