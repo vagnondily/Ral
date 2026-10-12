@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 06:43 UTC_
+_Dernière mise à jour : 12/10/2026 06:50 UTC_
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -20,11 +20,11 @@ _Dernière mise à jour : 12/10/2026 06:43 UTC_
 | 1b | PDD : bouton « Modèle PDD » + note de format | ✅ | `675b304` — à compléter avec les 47 en-têtes réels (voir PDD-config) |
 | 2 | MMR : édition enrichie et plus simple | ✅ | API `4a481eb` + écran `4dd6f77` |
 | 3 | Localités : pays & découpage, répertoire, CRUD | ✅ (phase 1) | Serveur `6d19108` + écran (ce commit). **À faire chez vous** : réimporter le shapefile pour corriger les noms. Phase 2 ⏳ : contours cartographiques (polygones) pour les cartes |
-| 4 | Langue FR/EN : traduire le contenu des pages | 🔄 | Mécanisme posé : `tr('phrase')` + dictionnaires par module (`web/src/locales/en/`). Localités traduites. Reste : toutes les autres pages |
+| 4 | Langue FR/EN : traduire le contenu des pages | 🔄 | Fondations `ef0f2c3` (formats selon la langue, badges, dictionnaires, détecteur). Traduction de toutes les pages en cours : 9 modules en parallèle + relecture |
 | 6 | Concepteur de rapport professionnel (bulletin éditable, modèles) | ⏳ | Références : rapport de suivi de performances (HTML), couverture par partenaire (.docx), dashboard (HTML) |
 | 7 | Plan de suivi « type Excel » + carte détaillée | ⏳ | Référence : classeur RBM + captures (KPI, modes, grille des mois, carte) |
 | PDD-config | PDD : rations, planification par commune, stock par donateur (TDD/BDD), calcul serveur des tonnages | ⏳ | Découvert dans le PDD réel `PDD_Urgence_Oct-Nov_04082025.xlsx` |
-| Import | Import facile multi-sources + lien Tableau WDC (MoDA/Ona, Kobo) | ⏳ | Faisabilité **confirmée** (voir 06:20) |
+| Import | Import facile multi-sources + lien Tableau WDC (MoDA/Ona, Kobo) | 🔄 | Serveur : liens sécurisés + connecteur lien WDC/Ona open-data (incrémental) |
 | Facture | Fidélité de la facture au gabarit de mai + Invoice 09 | ⏳ | |
 | Analyse | Analyse multi-agents des documents de référence → feuille de route | 🔄 | 3e lancement à 06:31 (8 familles : RBM, XLSForm, Kobo suivi, Kobo distribution, finance, rapports, PDD, import/WDC) |
 
@@ -60,5 +60,8 @@ _Dernière mise à jour : 12/10/2026 06:43 UTC_
 - **06:41** ✅ Garde-fou en base (migration 042) : la lignée d'une localité est calculée par un trigger à l'insertion (le seed l'omettait → filtre par région vide sur base neuve). Installation neuve complète rejouée (migrations 001→042, seed, seed:test) : OK.
 - **06:42** ✅ i18n : mécanisme de traduction par phrase (`tr`) + dictionnaires anglais par module ; écran Localités entièrement bilingue (89 phrases).
 - **06:43** ✅ Localités — écran livré : onglet « Pays & découpage » (identité, vocabulaire singulier/pluriel, import shapefile/.dbf/.csv, modèle CSV, millésime, récapitulatif P-codes/GPS par niveau, alerte si des noms ressemblent à des codes) et onglet « Répertoire » (niveau, filtres en cascade, recherche nom/P-code, pagination serveur, export CSV, ajout/modification/suppression en tiroir). Vérifié dans le navigateur (FR et EN) : 0 erreur.
+- **06:45** ✅ i18n — fondations `ef0f2c3` : formats (nombres, mois, dates) qui suivent la langue, badges de statut traduits, dictionnaires par module, détecteur de phrases manquantes, guide `docs/I18N.md`.
+- **06:47** 🔄 i18n — traduction de toutes les pages lancée (9 modules en parallèle, chacun relu par un second agent : portée de `tr`, textes oubliés, clés exactes).
+- **06:50** 🔄 Import — serveur : lecture de liens sécurisée + connecteur lien Tableau WDC (Ona/MoDA open-data).
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
