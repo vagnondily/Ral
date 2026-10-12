@@ -86,6 +86,7 @@ function ImportReport({ result, onGoData, onGoResults, onRestart }) {
       <Alert tone="success" icon={CheckCircle2}>
         {tr('Import terminé : {c} nouvelle(s) soumission(s), {u} déjà présente(s) mise(s) à jour.', { c: formatInt(result.created ?? result.inserted ?? 0), u: formatInt(result.updated ?? 0) })}
         {result.truncated && <div>{tr('La source a été lue en partie seulement (limite de pages) : relancez l\'actualisation pour la suite.')}</div>}
+        {result.duplicates > 0 && <div>{tr('{n} doublon(s) du fichier comptés une seule fois (dernière version retenue).', { n: formatInt(result.duplicates) })}</div>}
       </Alert>
       {f.total > 0 && (
         <Stats compact items={[

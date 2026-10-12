@@ -81,15 +81,16 @@ async function parsePlanWorkbook(buffer) {
   const { ws, headerRow, cols } = found;
   const cell = (row, key) => (cols[key] ? row.getCell(cols[key]).value : null);
   const sites = []; const seen = new Set(); let skipped = 0;
-  for (let r = headerRow + 1; r <= ws.rowCount; r += 1) {
-    const row = ws.getRow(r);
+  // Lignes existantes seulement (une cellule isolée tout en bas ne fait pas créer toute la feuille).
+  ws.eachRow({ includeEmpty: false }, (row, r) => {
+    if (r <= headerRow) return;
     const name = txt(cell(row, 'name')).trim();
     const district = txt(cell(row, 'district')).trim();
     const commune = txt(cell(row, 'commune')).trim();
-    if (!name) continue;
-    if (!district || !commune) { skipped += 1; continue; }
+    if (!name) return;
+    if (!district || !commune) { skipped += 1; return; }
     const key = `${district}|${commune}|${name}`.toLowerCase();
-    if (seen.has(key)) continue; seen.add(key);
+    if (seen.has(key)) return; seen.add(key);
     const lat = num(cell(row, 'gpsLat')); const lng = num(cell(row, 'gpsLng'));
     const finalScore = clamp(cell(row, 'finalScore'), 0, 2);
     sites.push({
@@ -112,7 +113,7 @@ async function parsePlanWorkbook(buffer) {
       risk: riskFromScore(finalScore),
       lastVisit: serialToMonth(cell(row, 'lastVisit')),
     });
-  }
+  });
   return { sites, headerRow, skipped, sheet: ws.name };
 }
 

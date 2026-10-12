@@ -723,7 +723,15 @@ async function importSubmissions(tenantId, formId, submissions, { variables } = 
     const merged = (col) => `${col} = CASE WHEN monitoring_submissions.source IS NOT DISTINCT FROM EXCLUDED.source
       THEN EXCLUDED.${col} ELSE COALESCE(EXCLUDED.${col}, monitoring_submissions.${col}) END`;
     const TYPED = ['period_month', 'submitted_at', 'field_office', 'admin1', 'admin2', 'admin3', 'admin4', 'site', 'partner', 'agent'];
+    // Même identifiant Kobo deux fois dans le fichier : une seule soumission, la dernière version
+    // (sans cela, le compte rendu la compterait « mise à jour » et ses mois deux fois).
+    const unique = []; const at = new Map();
     for (const s of submissions) {
+      if (s.externalId && at.has(s.externalId)) { unique[at.get(s.externalId)] = s; continue; }
+      if (s.externalId) at.set(s.externalId, unique.length);
+      unique.push(s);
+    }
+    for (const s of unique) {
       s.data = canonical(s.data || {});
       if (ov.length) applyOverrides(s);
       const res = await client.query(
@@ -753,7 +761,7 @@ async function importSubmissions(tenantId, formId, submissions, { variables } = 
          FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2`, [tenantId, formId]);
     // Compte rendu : nouvelles / déjà présentes (mises à jour), mois couverts.
     return {
-      received: submissions.length, inserted, created, updated: inserted - created, geo, form: state,
+      received: submissions.length, duplicates: submissions.length - unique.length, inserted, created, updated: inserted - created, geo, form: state,
       months: [...months.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([month, n]) => ({ month, n })),
     };
   });
@@ -1303,7 +1311,11 @@ async function calcPreview(tenantId, formId, def, { excludeId } = {}) {
     const { rows: defs } = await client.query(
       `SELECT id, name, kind, expression, source_field AS "sourceField", mapping, default_value AS "defaultValue"
          FROM monitoring_calc_fields WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name`, [tenantId, formId]);
-    const prior = defs.filter((d) => d.id !== excludeId);
+    // Le calcul réel passe les champs dans l'ordre : celui qu'on édite ne voit que ceux qui le PRÉCÈDENT
+    // (un nouveau champ est ajouté à la fin : il voit tous les autres).
+    const at = excludeId ? defs.findIndex((d) => d.id === excludeId) : -1;
+    const prior = at >= 0 ? defs.slice(0, at) : defs.filter((d) => d.id !== excludeId);
+    const later = new Set(at >= 0 ? defs.slice(at + 1).map((d) => d.name.toLowerCase()) : []);
     const { rows: keyRows } = await client.query(
       `SELECT name AS k FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2
        UNION SELECT DISTINCT jsonb_object_keys(data) FROM (
@@ -1313,6 +1325,11 @@ async function calcPreview(tenantId, formId, def, { excludeId } = {}) {
     const check = def.kind === 'recode'
       ? { error: def.sourceField ? null : { message: 'Choisissez la variable à recoder.', at: null }, warnings: [], references: [def.sourceField].filter(Boolean) }
       : checkExpression(def.expression, { fields: known });
+    for (const w of check.warnings || []) {
+      if (w.name && later.has(w.name.toLowerCase())) {
+        w.message = `« ${w.name} » est un champ calculé placé après celui-ci dans la liste : il est calculé plus tard, donc vide ici.`;
+      }
+    }
     if (check.error) return { check };
     // Réponses utiles seulement : variables de la formule et de tous les champs calculés existants.
     const needed = new Set(check.references);

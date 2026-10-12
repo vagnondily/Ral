@@ -72,8 +72,10 @@ export function CalcStatus({ expression, preview }) {
   if (preview.error) return <div className="fx-status is-error" role="alert"><XCircle size={14} aria-hidden="true" /> {preview.error}</div>;
   if (!check) return null;
   if (check.error) {
-    const at = check.error.at;
     const text = String(expression);
+    // Le serveur vérifie la formule sans ses espaces de tête : position recalée sur le texte affiché.
+    const lead = text.length - text.trimStart().length;
+    const at = check.error.at == null ? null : check.error.at + lead;
     return (
       <div className="fx-status is-error" role="alert">
         <div><XCircle size={14} aria-hidden="true" /> {tr('La formule contient une erreur')} : {check.error.message}
@@ -155,10 +157,15 @@ export default function FormulaEditor({ formId, value, onChange, excludeId, vari
   const preview = useCalcPreview(formId, def, excludeId);
 
   const functions = cat?.functions || [];
-  const vars = useMemo(() => [
-    ...(variables?.calcFields || []).filter((c) => c.id !== excludeId).map((c) => ({ name: c.name, label: c.label, calc: true })),
-    ...(variables?.fields || []),
-  ], [variables, excludeId]);
+  const vars = useMemo(() => {
+    // Champs calculés utilisables : ceux qui PRÉCÈDENT celui qu'on édite (calcul dans l'ordre de la liste).
+    const calcs = variables?.calcFields || [];
+    const at = excludeId ? calcs.findIndex((c) => c.id === excludeId) : -1;
+    return [
+      ...(at >= 0 ? calcs.slice(0, at) : calcs).map((c) => ({ name: c.name, label: c.label, calc: true })),
+      ...(variables?.fields || []),
+    ];
+  }, [variables, excludeId]);
   const text = String(value || '');
   const current = wordAt(text, caret);
   const needle = (q.trim() || current.word).toLowerCase();

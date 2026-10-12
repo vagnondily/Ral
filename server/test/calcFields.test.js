@@ -108,8 +108,9 @@ test('aperçu sur données réelles : lignes renseignées d\'abord, répartition
   const prior = [{ name: 'pm3', kind: 'expression', expression: 'selected(pm, "3")' }];
   const out = previewCalc({ kind: 'expression', expression: 'if(pm3 = 1, "cité", "non cité")' }, rows, prior, { samples: 3 });
   assert.equal(out.n, 5);
-  assert.deepEqual(out.distribution, [{ value: 'non cité', n: 3 }, { value: 'cité', n: 2 }]);
-  assert.equal(out.empty, 0);
+  // Question sans réponse : ni « cité » ni « non cité », mais vide (hors base).
+  assert.deepEqual(out.distribution, [{ value: 'cité', n: 2 }, { value: 'non cité', n: 1 }]);
+  assert.equal(out.empty, 2);
   assert.deepEqual(out.references, ['pm3']);
   assert.deepEqual(out.samples.map((x) => x.value), ['cité', 'cité', 'non cité']);
   const rec = previewCalc({ kind: 'recode', sourceField: 'r', mapping: { oui: 1 }, defaultValue: '' }, [{ r: 'oui' }, { r: 'non' }, {}]);
@@ -135,4 +136,25 @@ test('formules et recodage : variable trouvée sans tenir compte de la casse, no
   assert.equal(checkExpression('field_office = 6', { fields: ['Field_office'] }).warnings.length, 0);
   const prev = previewCalc({ kind: 'expression', expression: 'field_office' }, [{ Field_office: '6' }]);
   assert.deepEqual(prev.samples[0].inputs, { field_office: '6' });
+});
+
+test('réponse manquante : comparaison et condition vides (jamais « oui » ni « non »), sauf test explicite', () => {
+  assert.equal(evalExpression('perte < 1', { perte: '' }), null);
+  assert.equal(evalExpression('perte + 0 < 1', { perte: ' ' }), null);
+  assert.equal(evalExpression('if(age >= 5, "5 ans et plus", "moins de 5 ans")', {}), null);
+  assert.equal(evalExpression('x = null', { x: ' ' }), 1);
+  assert.equal(evalExpression('x <> null', { x: 'a' }), 1);
+  assert.equal(evalExpression('isnull(x)', { x: ' ' }), 1);
+  assert.equal(evalExpression('NOT x', {}), null);
+  assert.equal(evalExpression('a AND b', { a: 0 }), 0);   // faux ET inconnu = faux
+  assert.equal(evalExpression('a OR b', { a: 'oui' }), 1); // vrai OU inconnu = vrai
+  assert.equal(evalExpression('a AND b', { a: 1 }), null);
+  assert.equal(evalExpression('coalesce(x, 0) < 1', {}), 1);
+});
+
+test('faux = 0, « non », « Non », « NON », « No », « False », « faux », « n » ; tout le reste renseigné est vrai', () => {
+  for (const v of ['0', 'non', 'Non', 'NON', 'No', 'False', 'faux', 'n', ' non ', '0.0', 0]) assert.equal(evalExpression('if(r, 1, 0)', { r: v }), 0, String(v));
+  for (const v of ['oui', 'Oui', 'yes', '1', 'x', 2]) assert.equal(evalExpression('if(r, 1, 0)', { r: v }), 1, String(v));
+  assert.equal(evalExpression('num(x)', { x: '  ' }), 0);
+  assert.equal(evalExpression('x + 1', { x: '  ' }), null);
 });

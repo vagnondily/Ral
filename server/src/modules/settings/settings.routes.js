@@ -268,7 +268,8 @@ router.put('/country', ADMIN, body(z.object({
 // l'existant en conservant les identifiants ; ?confirm=1 accepte de supprimer des unités
 // dont dépendent des zones de contrat (sinon 409 avec les compteurs).
 router.post('/admin-breakdown/import', ADMIN, express.raw({ type: '*/*', limit: '200mb' }), asyncHandler(async (req, res) => {
-  const filename = req.get('x-filename') || 'upload.csv';
+  // Nom envoyé encodé (encodeURIComponent) : « ’ » ou « – » ne passent pas tels quels dans un en-tête HTTP.
+  const filename = (() => { try { return decodeURIComponent(req.get('x-filename') || ''); } catch { return req.get('x-filename'); } })() || 'upload.csv';
   if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
   let parsed;
   try { parsed = await parseUpload(req.body, filename); } catch (err) { throw badRequest(err.message); }

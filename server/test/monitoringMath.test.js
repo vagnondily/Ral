@@ -127,3 +127,12 @@ test('variable du XLSForm (« field_office ») trouvée dans un export qui l\'é
   assert.equal(r.base, 3);
   assert.equal(r.value, 66.7); // ligne 3 : « field_office » exact = 6, pas 9
 });
+
+test('nombre ou somme sans aucune réponse comptée : non évalué, même avec une cible', () => {
+  const r = computeIndicator({ sourceField: 'x', agg: 'count', target: 10 }, subs('x', ['', '']));
+  assert.equal(r.value, 0);
+  assert.equal(r.base, 0);
+  assert.equal(r.rating, 'na');
+  const [c] = computeAll([{ code: 's', sourceField: 'x', agg: 'sum', target: 5, direction: 'lower_better' }], subs('x', ['']));
+  assert.equal(c.rating, 'na');
+});

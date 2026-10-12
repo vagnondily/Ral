@@ -296,17 +296,20 @@ async function parseXlsx(buffer, zipLimits) {
   const headers = [];
   ws.getRow(1).eachCell({ includeEmpty: true }, (c, col) => { headers[col - 1] = cellText(c); });
   const rows = []; const lines = [];
-  for (let r = 2; r <= ws.rowCount; r += 1) {
-    const row = ws.getRow(r);
+  // Seules les lignes et cellules qui EXISTENT sont lues : une cellule isolée tout en bas de la
+  // feuille ne fait pas créer le million de lignes (et de cellules) qui la précèdent.
+  ws.eachRow({ includeEmpty: false }, (row, r) => {
+    if (r < 2) return;
     const vals = [];
     let any = false;
-    for (let c = 0; c < headers.length; c += 1) {
-      const v = cellText(row.getCell(c + 1));
-      vals[c] = v;
+    row.eachCell({ includeEmpty: false }, (cell, col) => {
+      if (col > headers.length) return;
+      const v = cellText(cell);
+      vals[col - 1] = v;
       if (v !== '') any = true;
-    }
+    });
     if (any) { rows.push(vals); lines.push(r); }
-  }
+  });
   return { headers, rows, lines };
 }
 

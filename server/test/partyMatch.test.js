@@ -42,8 +42,17 @@ test('agent : code d\'enquêteur puis nom exact, dans le partenaire reconnu ; ja
     { id: 'a3', partnerId: 'p2', name: 'Rasoa Marie', code: '37' },
   ];
   const idx = buildAgentIndex(agents);
-  assert.equal(resolveAgent(idx, { raw: 'e 07' }).agent.id, 'a1');
-  assert.equal(resolveAgent(idx, { raw: '37', label: 'Rasoa Marie' }).agent.id, 'a3');
+  assert.equal(resolveAgent(idx, { raw: 'e 07', partnerId: 'p1' }).agent.id, 'a1');
+  assert.equal(resolveAgent(idx, { raw: '37', label: 'Rasoa Marie' }).agent.id, 'a3'); // nom exact, unique
+  // Code seul sans partenaire reconnu, ou code d'un autre prestataire : proposé, jamais appliqué.
+  const noPartner = resolveAgent(idx, { raw: 'E-07' });
+  assert.equal(noPartner.status, 'propose');
+  assert.equal(noPartner.agent, null);
+  assert.equal(resolveAgent(idx, { raw: 'E-07', partnerId: 'p2' }).status, 'propose');
+  // Bon code, bon partenaire, mais le libellé nomme quelqu'un d'autre : proposé.
+  const other = resolveAgent(idx, { raw: '37', label: 'Ratsimba Hery', partnerId: 'p2' });
+  assert.equal(other.status, 'propose');
+  assert.equal(other.candidates[0].id, 'a3');
   assert.equal(resolveAgent(idx, { raw: '5', label: 'Rakoto Jean', partnerId: 'p2' }).agent.id, 'a2');
   assert.equal(resolveAgent(idx, { raw: '5', label: 'Rakoto Jean' }).status, 'ambigu');
   assert.equal(resolveAgent(idx, { raw: '9', label: 'Rakoto Jeanne' }).status, 'introuvable');

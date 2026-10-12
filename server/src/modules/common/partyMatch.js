@@ -79,24 +79,36 @@ function buildAgentIndex(agents) {
 }
 
 /**
- * Agent MEMS d'une valeur reçue : par code d'enquêteur, puis par nom exact ;
- * restreint au partenaire reconnu s'il y en a un.
+ * Agent MEMS d'une valeur reçue. Le code d'enquêteur n'est unique que DANS un
+ * prestataire (uq_tpm_agents_code) : il ne relie seul que si le partenaire de
+ * la soumission est reconnu, et seulement si le libellé du choix (le nom) ne
+ * désigne pas quelqu'un d'autre — sinon c'est une proposition. Puis nom exact,
+ * dans le partenaire quand il est connu (deux homonymes = ambigu, rien d'appliqué).
  * @param {{ byCode, byName }} index
  * @param {{ raw: string, label?: string, partnerId?: string|null }} q
  */
 function resolveAgent(index, { raw, label, partnerId }) {
-  const scoped = (list) => (partnerId ? list.filter((a) => a.partnerId === partnerId) : list);
-  const pick = (list, status) => {
-    const l = scoped(list || []);
-    if (l.length === 1) return { status, agent: l[0], candidates: [] };
-    if (l.length > 1) return { status: 'ambigu', agent: null, candidates: l };
-    return null;
-  };
-  if ((raw == null || String(raw).trim() === '') && !label) return { status: 'vide', agent: null, candidates: [] };
-  return pick(index.byCode.get(personKey(raw)), 'code')
-    || pick(index.byName.get(personKey(label)), 'nom')
-    || pick(index.byName.get(personKey(raw)), 'nom')
-    || { status: 'introuvable', agent: null, candidates: [] };
+  const blank = (v) => v == null || String(v).trim() === '';
+  if (blank(raw) && blank(label)) return { status: 'vide', agent: null, candidates: [] };
+  const codeHits = blank(raw) ? [] : index.byCode.get(personKey(raw)) || [];
+  if (partnerId) {
+    const mine = codeHits.filter((a) => a.partnerId === partnerId);
+    if (mine.length === 1) {
+      const a = mine[0];
+      if (!blank(label) && personKey(label) !== personKey(a.name)) return { status: 'propose', agent: null, candidates: [a] };
+      return { status: 'code', agent: a, candidates: [] };
+    }
+  }
+  const scoped = (list) => (partnerId ? (list || []).filter((a) => a.partnerId === partnerId) : list || []);
+  for (const text of [label, raw]) {
+    if (blank(text)) continue;
+    const hits = scoped(index.byName.get(personKey(text)));
+    if (hits.length === 1) return { status: 'nom', agent: hits[0], candidates: [] };
+    if (hits.length > 1) return { status: 'ambigu', agent: null, candidates: hits };
+  }
+  // Même code chez un autre prestataire, ou partenaire inconnu : proposé, jamais appliqué seul.
+  if (codeHits.length) return { status: 'propose', agent: null, candidates: codeHits.slice(0, 3) };
+  return { status: 'introuvable', agent: null, candidates: [] };
 }
 
 module.exports = { orgKey, personKey, orgVariants, buildPartnerIndex, resolvePartner, buildAgentIndex, resolveAgent };

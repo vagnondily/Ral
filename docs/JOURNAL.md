@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 16:25 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 12/10/2026 16:33 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -210,10 +210,18 @@ _Dernière mise à jour : 12/10/2026 16:25 UTC_ — la branche `main` reçoit ch
   - les soumissions portent maintenant le partenaire et l'agent MEMS reconnus, à côté des valeurs brutes (migration 059 ; réparation au démarrage pour les données déjà importées).
   - Sur votre fiche GD : les 7 codes de bureau sont reliés (100 %) ; « ONG AINA » est relié automatiquement ; « YP » est proposé pour YPA ; TOMPY, MAHAVOTSE et LALANA ne sont pas encore des partenaires dans MEMS (à créer dans Partenaires & TPM, puis ils se relieront seuls).
 - **16:05** ✅ **Relecture adverse** des lots publiés cet après-midi terminée : **11 défauts confirmés** (chacun reproduit par l'agent sur une base jetable, la base de dev intacte).
-- **16:25** 🔄 **Correction des 11 constats**, du plus grave au moins grave :
+- **16:25** ✅ **Correction des 11 constats**, du plus grave au moins grave :
   - **2 graves** : un petit `.xlsx` (6 à 900 Ko) pouvait encore contourner la garde des imports Excel et arrêter l'API (zone fusionnée écrite autrement — guillemets simples, espaces, entités, plus de 7 chiffres —, feuille au chemin inhabituel, ou classeur à plus de 10 000 entrées qui sautait la garde) ;
   - **moyen-grave** : deux autres formes de classeur minuscule épuisaient la mémoire (plage de colonnes géante, une seule cellule tout en bas d'une feuille) ;
   - **moyens** : un code d'enquêteur relié à l'agent d'un autre partenaire ; l'aperçu de formule voyait les champs calculés définis après lui ; une valeur vide comparée donnait vrai ou faux au lieu de vide (des non-réponses comptées « oui ») ;
   - **mineurs** : « Non » / « NON » / « faux » comptés comme vrai dans les formules, un indicateur nombre ou somme sans réponse classé au lieu de « non évalué », compte rendu d'import qui comptait les doublons du fichier comme « mis à jour », limites de décompression configurées ignorées par la plupart des imports Excel, position d'erreur décalée par des espaces en tête, nom de fichier avec « ’ » ou « – » qui affichait « Serveur injoignable ».
+- **16:33** ✅ **Les 11 constats sont corrigés** (lint propre, 456 tests, balayage FR/EN sans erreur ni phrase manquante ; résultats identiques avant/après sur vos classeurs réels, les 12 se chargent tous) :
+  - **Garde Excel** : balises lues quelle que soit leur écriture, toutes les entrées XML examinées quel que soit leur chemin, colonnes plafonnées à 16 384, refus net d'un classeur dont la liste des entrées est illisible, limites de décompression configurées appliquées partout. Les **9 classeurs piégés** de la relecture sont refusés en quelques millisecondes, même avec la mémoire plafonnée à 384 Mo ; ils sont devenus des tests permanents.
+  - **Cellule isolée tout en bas** : seules les lignes et cellules existantes sont lues (75 ms et 17 Mo au lieu d'un arrêt de l'API).
+  - **Agents** : un code d'enquêteur ne relie seul que dans le partenaire reconnu, et si le nom correspond ; sinon c'est une proposition.
+  - **Formules — réponse manquante** : toute comparaison ou condition qui l'utilise donne vide, la soumission sort de la base (avant, une non-réponse pouvait compter « oui ») ; `isnull(x)`, `x = null` et `coalesce(x, 0)` permettent de la traiter. « Non », « NON », « faux » sont lus comme faux.
+  - **Aperçu de formule** : ne voit que les champs calculés placés avant (comme le calcul réel) et signale une référence à un champ placé après.
+  - **Indicateur nombre ou somme sans réponse** : « Non évalué ». **Import** : un doublon du fichier compte une fois (compte rendu juste). Position d'erreur exacte malgré des espaces en tête ; nom de fichier avec « ’ » ou « – » accepté.
+  - La page « Aide aux calculs » décrit ces règles.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.

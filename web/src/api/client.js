@@ -67,7 +67,7 @@ async function uploadFile(path, file) {
   try {
     res = await fetch(new URL(`${API_URL}${path}`), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name), ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
       body: buf,
     });
   } catch { throw new ApiError(0, 'Serveur injoignable.'); }
@@ -137,7 +137,7 @@ async function uploadSubmissions(path, file) {
   try {
     res = await fetch(new URL(`${API_URL}${path}`), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name), ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
       body: buf,
     });
   } catch { throw new ApiError(0, 'Serveur injoignable.'); }
@@ -207,7 +207,7 @@ export const api = {
     try {
       res = await fetch(new URL(`${API_URL}/api/contracts/import-budget`), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name), ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
         body: buf,
       });
     } catch { throw new ApiError(0, 'Serveur injoignable.'); }
@@ -396,7 +396,7 @@ export const api = {
     try {
       res = await fetch(new URL(`${API_URL}/api/tpm/field/rbm/import`), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name), ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
         body: buf,
       });
     } catch { throw new ApiError(0, 'Serveur injoignable.'); }
@@ -410,7 +410,7 @@ export const api = {
     try {
       res = await fetch(new URL(`${API_URL}/api/tpm/field/rbm/import-plan`), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name), ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
         body: buf,
       });
     } catch { throw new ApiError(0, 'Serveur injoignable.'); }
@@ -424,7 +424,7 @@ export const api = {
     try {
       res = await fetch(new URL(`${API_URL}/api/tpm/field/import?month=${encodeURIComponent(month)}`), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name), ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
         body: buf,
       });
     } catch { throw new ApiError(0, 'Serveur injoignable.'); }
@@ -461,7 +461,7 @@ export const api = {
     try {
       res = await fetch(new URL(`${API_URL}/api/tpm/postes/import`), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name), ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
         body: buf,
       });
     } catch { throw new ApiError(0, 'Serveur injoignable.'); }
@@ -502,7 +502,7 @@ export const api = {
     try {
       res = await fetch(new URL(`${API_URL}/api/pdd/import${partial ? '?partial=1' : ''}`), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': file.name, ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name), ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}) },
         body: buf,
       });
     } catch { throw new ApiError(0, 'Serveur injoignable.'); }

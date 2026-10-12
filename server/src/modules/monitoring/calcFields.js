@@ -128,12 +128,22 @@ function parse(src) {
 }
 
 // ---- Valeurs ----------------------------------------------------------------
-const toNum = (v) => {
-  if (v == null || v === '' || typeof v === 'boolean') return v === true ? 1 : v === false ? 0 : null;
-  const n = Number(v); return Number.isNaN(n) ? null : n;
-};
-const truthy = (v) => (v != null && v !== '' && v !== 0 && v !== '0' && v !== false && v !== 'false' && v !== 'non' && v !== 'no');
 const isBlank = (v) => v == null || (typeof v === 'string' && v.trim() === '');
+const toNum = (v) => {
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (isBlank(v)) return null; // « » ou « » n'est pas 0
+  const n = Number(typeof v === 'string' ? v.trim() : v); return Number.isNaN(n) ? null : n;
+};
+// Faux : 0 et les « non » usuels, sans tenir compte de la casse (mêmes valeurs que monitoringMath).
+const FALSE_TEXT = new Set(['0', 'no', 'non', 'false', 'faux', 'n']);
+const truthy = (v) => {
+  if (isBlank(v) || v === false) return false;
+  if (typeof v === 'number') return v !== 0 && !Number.isNaN(v);
+  const t = String(v).trim().toLowerCase();
+  if (FALSE_TEXT.has(t)) return false;
+  const n = Number(t);
+  return Number.isNaN(n) ? true : n !== 0;
+};
 const nums = (a) => a.map(toNum).filter((x) => x != null);
 // Réponses d'une question à choix multiples : « 1 3 7 » (Kobo / XLSForm).
 const choicesOf = (v) => (isBlank(v) ? [] : String(v).trim().split(/\s+/));
@@ -150,15 +160,15 @@ const sameValue = (a, b) => {
 const FUNCTIONS = [
   // Logique
   { name: 'if', category: 'Logique', syntax: 'if(condition, si_vrai, si_faux)', min: 2, max: 3,
-    description: 'Renvoie « si_vrai » quand la condition est vraie, sinon « si_faux » (vide si omis). Les conditions s\'imbriquent : if(a, x, if(b, y, z)).',
+    description: 'Renvoie « si_vrai » quand la condition est vraie, « si_faux » quand elle est fausse (vide si omis), et vide quand la condition est vide (réponse manquante). Les conditions s\'imbriquent : if(a, x, if(b, y, z)).',
     example: 'if(age >= 5, "5 ans et plus", "moins de 5 ans")',
-    fn: (a) => (truthy(a[0]) ? a[1] : a[2] ?? null) },
+    fn: (a) => (isBlank(a[0]) ? null : truthy(a[0]) ? a[1] : a[2] ?? null) },
   { name: 'in', category: 'Logique', syntax: 'in(valeur, v1, v2, …)', min: 2, max: 50,
     description: '1 si la valeur est égale à l\'une des valeurs listées (nombres ou textes, sans tenir compte des majuscules), sinon 0.',
     example: 'in(Field_office, 6, 7, 9)',
     fn: (a) => (a.slice(1).some((x) => sameValue(a[0], x)) ? 1 : 0) },
   { name: 'between', category: 'Logique', syntax: 'between(valeur, min, max)', min: 3, max: 3,
-    description: '1 si la valeur est un nombre compris entre min et max (bornes incluses), sinon 0 ; vide si la valeur l\'est.',
+    description: '1 si la valeur est un nombre compris entre min et max (bornes incluses), sinon 0 ; vide si la valeur est vide ou n\'est pas un nombre.',
     example: 'between(age_mois, 6, 59)',
     fn: (a) => { const [v, lo, hi] = a.map(toNum); return v == null ? null : (lo == null || v >= lo) && (hi == null || v <= hi) ? 1 : 0; } },
   // Nombres
@@ -240,8 +250,8 @@ const BY_NAME = new Map(FUNCTIONS.map((f) => [f.name, f]));
 /** Opérateurs, pour la documentation (l'évaluation est dans evalAst). */
 const OPERATORS = [
   { symbol: '+  -  *  /  %', description: 'Calcul : addition, soustraction, multiplication, division, reste. Vide si un terme est vide ; division par zéro → vide.', example: '(recu / prevu) * 100' },
-  { symbol: '=  <>  <  <=  >  >=', description: 'Comparaison (== et != aussi acceptés) : nombres si les deux côtés en sont, sinon textes. Renvoie 1 (vrai) ou 0 (faux).', example: 'statut = "oui"' },
-  { symbol: 'AND  OR  NOT', description: 'Logique (&&, || et ! aussi acceptés). Vrai = ni vide, ni 0, ni « non » / « no » / « false ».', example: 'age >= 6 AND age <= 59' },
+  { symbol: '=  <>  <  <=  >  >=', description: 'Comparaison (== et != aussi acceptés) : nombres si les deux côtés en sont, sinon textes. Renvoie 1 (vrai) ou 0 (faux), et vide si un côté est vide (réponse manquante) ; « x = null » teste si x est vide.', example: 'statut = "oui"' },
+  { symbol: 'AND  OR  NOT', description: 'Logique (&&, || et ! aussi acceptés). Faux = 0, « non », « no », « n », « false », « faux » (majuscules ignorées) ; vide = inconnu, sauf si l\'autre côté suffit (faux AND vide = faux, vrai OR vide = vrai).', example: 'age >= 6 AND age <= 59' },
   { symbol: '"texte"  [nom avec espaces]  null', description: 'Texte entre guillemets ; variable dont le nom contient des espaces ou des « / » entre crochets ; null = valeur vide.', example: '[process_monitoring/3] = 1' },
 ];
 
@@ -276,6 +286,7 @@ function evalAst(node, get) {
     case 'un': {
       const a = evalAst(node.a, get);
       if (node.op === '-') { const n = toNum(a); return n == null ? null : -n; }
+      if (isBlank(a)) return null; // NOT d'une réponse manquante : inconnu
       return truthy(a) ? 0 : 1; // !
     }
     case 'call': {
@@ -285,8 +296,15 @@ function evalAst(node, get) {
     }
     case 'bin': {
       const { op } = node;
-      if (op === '&&') return truthy(evalAst(node.a, get)) && truthy(evalAst(node.b, get)) ? 1 : 0;
-      if (op === '||') return truthy(evalAst(node.a, get)) || truthy(evalAst(node.b, get)) ? 1 : 0;
+      // Logique à trois valeurs (comme SQL ou Tableau) : une réponse manquante rend la condition
+      // vide, sauf si l'autre côté suffit à conclure (faux ET … = faux ; vrai OU … = vrai).
+      if (op === '&&' || op === '||') {
+        const l = evalAst(node.a, get); const r = evalAst(node.b, get);
+        const decisive = op === '&&' ? (v) => !isBlank(v) && !truthy(v) : (v) => !isBlank(v) && truthy(v);
+        if (decisive(l) || decisive(r)) return op === '&&' ? 0 : 1;
+        if (isBlank(l) || isBlank(r)) return null;
+        return op === '&&' ? 1 : 0;
+      }
       const a = evalAst(node.a, get); const b = evalAst(node.b, get);
       if (['+', '-', '*', '/', '%'].includes(op)) {
         const na = toNum(a); const nb = toNum(b);
@@ -295,6 +313,14 @@ function evalAst(node, get) {
         if (op === '/') return nb === 0 ? null : na / nb;
         return nb === 0 ? null : na % nb;
       }
+      // Comparaison avec « null » écrit en clair : teste si la valeur est vide.
+      if (node.a.k === 'null' || node.b.k === 'null') {
+        const same = isBlank(a) === isBlank(b);
+        if (op === '==') return same ? 1 : 0;
+        if (op === '!=') return same ? 0 : 1;
+      }
+      // Une réponse manquante n'est ni égale, ni plus petite, ni plus grande : résultat vide.
+      if (isBlank(a) || isBlank(b)) return null;
       // comparaisons : numériques si les deux le sont, sinon chaînes
       const na = toNum(a); const nb = toNum(b);
       let x = a; let y = b;
@@ -383,7 +409,7 @@ function checkExpression(expr, { fields } = {}) {
       if (!references.includes(node.name)) references.push(node.name);
       if (knownSet && !knownSet.has(String(node.name).toLowerCase())) {
         const hint = closest(node.name, known);
-        warnings.push({ message: `Variable « ${node.name} » inconnue dans cette fiche${hint ? ` — vouliez-vous dire « ${hint} » ?` : ''} (elle sera vide).`, at: node.at });
+        warnings.push({ message: `Variable « ${node.name} » inconnue dans cette fiche${hint ? ` — vouliez-vous dire « ${hint} » ?` : ''} (elle sera vide).`, at: node.at, name: node.name });
       }
     }
     if (node.k === 'call') {

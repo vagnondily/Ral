@@ -79,7 +79,8 @@ function computeIndicator(indicator, submissions, names = [indicator.sourceField
     value = base ? round1((flags.reduce((a, b) => a + b, 0) / base) * 100) : null;
   }
 
-  return { value, base, rating: rate(value, indicator) };
+  // Aucune réponse comptée : non évalué (un nombre ou une somme vaut 0, mais rien n'a été mesuré).
+  return { value, base, rating: base ? rate(value, indicator) : 'na' };
 }
 
 // Seuils des modèles de référence (score orienté, sur 100) quand l'indicateur n'a pas de cible.
@@ -88,7 +89,7 @@ const BANDS = { exc: 80, sat: 65, imp: 50 };
 /**
  * Classe d'un résultat d'indicateur — la MÊME partout (liste des résultats,
  * Synthèse, Couverture & performance, rapports) :
- *   - pas de valeur → na (non évalué) ;
+ *   - pas de valeur, ou aucune réponse comptée (base 0) → na (non évalué) ;
  *   - avec cible : atteinte → exc ; écart relatif à la cible ≤ 10 % → sat ;
  *     ≤ 30 % → imp ; au-delà → urg ;
  *   - sans cible : bandes des modèles sur le score orienté d'un % (≥ 80 exc,
@@ -96,7 +97,7 @@ const BANDS = { exc: 80, sat: 65, imp: 50 };
  * @param {{ value, target, direction, agg }} result
  */
 function classify(result) {
-  if (!result || result.value == null) return 'na';
+  if (!result || result.value == null || result.base === 0) return 'na';
   const t = result.target == null || result.target === '' ? null : Number(result.target);
   if (t == null || Number.isNaN(t)) {
     const sc = orientedScore(result);

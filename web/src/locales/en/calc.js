@@ -4,6 +4,19 @@
  * catalogue du serveur (calcFields.FUNCTIONS) : leur texte français est la clé.
  */
 export default {
+  'Réponse manquante : un calcul, une comparaison ou une condition qui l\'utilise donne vide — la soumission sort alors de la base de l\'indicateur, elle ne compte ni « oui » ni « non ». Pour la traiter, testez-la avec isnull(x) ou x = null, ou remplacez-la avec coalesce(x, 0) ; sum() et avg() ignorent les vides. Division par zéro → vide.':
+    'Missing answer: any calculation, comparison or condition that uses it gives empty — the submission then leaves the indicator’s base and counts neither “yes” nor “no”. To handle it, test it with isnull(x) or x = null, or replace it with coalesce(x, 0); sum() and avg() ignore empty values. Division by zero → empty.',
+  'Comparaison en nombres si les deux côtés en sont, sinon en texte. Faux = 0, « non », « no », « n », « false », « faux » (majuscules ignorées) ; toute autre réponse est vraie.':
+    'Comparison as numbers when both sides are numbers, otherwise as text. False = 0, “non”, “no”, “n”, “false”, “faux” (case ignored); any other answer is true.',
+  'Renvoie « si_vrai » quand la condition est vraie, « si_faux » quand elle est fausse (vide si omis), et vide quand la condition est vide (réponse manquante). Les conditions s\'imbriquent : if(a, x, if(b, y, z)).':
+    'Returns “if_true” when the condition is true, “if_false” when it is false (empty if omitted), and empty when the condition is empty (missing answer). Conditions can be nested: if(a, x, if(b, y, z)).',
+  '1 si la valeur est un nombre compris entre min et max (bornes incluses), sinon 0 ; vide si la valeur est vide ou n\'est pas un nombre.':
+    '1 if the value is a number between min and max (inclusive), otherwise 0; empty if the value is empty or not a number.',
+  'Comparaison (== et != aussi acceptés) : nombres si les deux côtés en sont, sinon textes. Renvoie 1 (vrai) ou 0 (faux), et vide si un côté est vide (réponse manquante) ; « x = null » teste si x est vide.':
+    'Comparison (== and != also accepted): as numbers when both sides are numbers, otherwise as texts. Returns 1 (true) or 0 (false), and empty when a side is empty (missing answer); “x = null” tests whether x is empty.',
+  'Logique (&&, || et ! aussi acceptés). Faux = 0, « non », « no », « n », « false », « faux » (majuscules ignorées) ; vide = inconnu, sauf si l\'autre côté suffit (faux AND vide = faux, vrai OR vide = vrai).':
+    'Logic (&&, || and ! also accepted). False = 0, “non”, “no”, “n”, “false”, “faux” (case ignored); empty = unknown, unless the other side decides (false AND empty = false, true OR empty = true).',
+  '{n} doublon(s) du fichier comptés une seule fois (dernière version retenue).': '{n} duplicate(s) in the file counted once (latest version kept).',
   // ---- Éditeur de formule
   'Formule': 'Formula',
   'Tapez une formule, ou choisissez une fonction à droite.': 'Type a formula, or pick a function on the right.',
@@ -45,12 +58,8 @@ export default {
   'Texte': 'Text',
   'Choix multiples': 'Multiple choice',
   'Valeurs manquantes': 'Missing values',
-  'Renvoie « si_vrai » quand la condition est vraie, sinon « si_faux » (vide si omis). Les conditions s\'imbriquent : if(a, x, if(b, y, z)).':
-    'Returns “if_true” when the condition is true, otherwise “if_false” (empty if omitted). Conditions can be nested: if(a, x, if(b, y, z)).',
   '1 si la valeur est égale à l\'une des valeurs listées (nombres ou textes, sans tenir compte des majuscules), sinon 0.':
     '1 if the value equals one of the listed values (numbers or texts, case-insensitive), otherwise 0.',
-  '1 si la valeur est un nombre compris entre min et max (bornes incluses), sinon 0 ; vide si la valeur l\'est.':
-    '1 if the value is a number between min and max (inclusive), otherwise 0; empty if the value is empty.',
   'Convertit en nombre ; 0 si la valeur est vide ou n\'est pas un nombre.': 'Converts to a number; 0 if the value is empty or not a number.',
   'Arrondit x au nombre de décimales indiqué (0 par défaut).': 'Rounds x to the given number of decimals (0 by default).',
   'Valeur absolue (écart sans signe).': 'Absolute value (unsigned difference).',
@@ -74,10 +83,6 @@ export default {
   'Première valeur non vide de la liste.': 'First non-empty value of the list.',
   'Calcul : addition, soustraction, multiplication, division, reste. Vide si un terme est vide ; division par zéro → vide.':
     'Arithmetic: addition, subtraction, multiplication, division, remainder. Empty if a term is empty; division by zero → empty.',
-  'Comparaison (== et != aussi acceptés) : nombres si les deux côtés en sont, sinon textes. Renvoie 1 (vrai) ou 0 (faux).':
-    'Comparison (== and != also accepted): as numbers when both sides are numbers, otherwise as texts. Returns 1 (true) or 0 (false).',
-  'Logique (&&, || et ! aussi acceptés). Vrai = ni vide, ni 0, ni « non » / « no » / « false ».':
-    'Logic (&&, || and ! also accepted). True = neither empty, nor 0, nor “non” / “no” / “false”.',
   'Texte entre guillemets ; variable dont le nom contient des espaces ou des « / » entre crochets ; null = valeur vide.':
     'Text in double quotes; a variable whose name contains spaces or “/” in square brackets; null = empty value.',
 
@@ -152,8 +157,6 @@ export default {
     'Recode: each listed value is replaced by its new value; otherwise the default value, if given, otherwise the original value.',
   'Formule : calculée pour chaque soumission, dans l\'ordre de la liste des champs calculés (un champ peut utiliser ceux qui le précèdent). Un champ calculé sert ensuite de variable d\'indicateur comme une autre.':
     'Formula: computed for every submission, in the order of the calculated-field list (a field can use those before it). A calculated field can then be used as an indicator variable like any other.',
-  'Calcul avec une valeur vide → vide (utilisez sum() pour ignorer les vides) ; division par zéro → vide. Comparaison : en nombres si les deux côtés en sont, sinon en texte. Vrai = ni vide, ni 0, ni « non », « no », « false ».':
-    'Arithmetic with an empty value → empty (use sum() to ignore empty values); division by zero → empty. Comparison: as numbers when both sides are numbers, otherwise as text. True = neither empty, nor 0, nor “non”, “no”, “false”.',
   'Question à choix multiples : Kobo enregistre les options cochées séparées par des espaces (« 1 3 7 ») : utilisez selected(question, "3"). Une colonne éclatée « question/3 » s\'écrit entre crochets : [question/3].':
     'Multiple-choice question: Kobo records the ticked options separated by spaces (“1 3 7”): use selected(question, "3"). A split column “question/3” is written in square brackets: [question/3].',
   'Suivi terrain et RBM': 'Field monitoring and RBM',

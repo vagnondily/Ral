@@ -159,7 +159,8 @@ export default function CalcDocsPage() {
         <ul className="doc-list">
           <li>{tr('Recodage : chaque valeur listée est remplacée par sa nouvelle valeur ; sinon la valeur par défaut, si elle est donnée, sinon la valeur d\'origine.')}</li>
           <li>{tr('Formule : calculée pour chaque soumission, dans l\'ordre de la liste des champs calculés (un champ peut utiliser ceux qui le précèdent). Un champ calculé sert ensuite de variable d\'indicateur comme une autre.')}</li>
-          <li>{tr('Calcul avec une valeur vide → vide (utilisez sum() pour ignorer les vides) ; division par zéro → vide. Comparaison : en nombres si les deux côtés en sont, sinon en texte. Vrai = ni vide, ni 0, ni « non », « no », « false ».')}</li>
+          <li>{tr('Réponse manquante : un calcul, une comparaison ou une condition qui l\'utilise donne vide — la soumission sort alors de la base de l\'indicateur, elle ne compte ni « oui » ni « non ». Pour la traiter, testez-la avec isnull(x) ou x = null, ou remplacez-la avec coalesce(x, 0) ; sum() et avg() ignorent les vides. Division par zéro → vide.')}</li>
+          <li>{tr('Comparaison en nombres si les deux côtés en sont, sinon en texte. Faux = 0, « non », « no », « n », « false », « faux » (majuscules ignorées) ; toute autre réponse est vraie.')}</li>
           <li>{tr('Question à choix multiples : Kobo enregistre les options cochées séparées par des espaces (« 1 3 7 ») : utilisez selected(question, "3"). Une colonne éclatée « question/3 » s\'écrit entre crochets : [question/3].')}</li>
         </ul>
         <FunctionReference />
