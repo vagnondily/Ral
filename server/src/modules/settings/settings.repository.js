@@ -286,7 +286,7 @@ async function officesWithCounts(tenantId) {
 /** Référence légère des bureaux (id, code, nom) — sans les comptages. */
 async function officeRefs(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
-    const { rows } = await client.query('SELECT id, code, name FROM field_offices WHERE tenant_id = $1 ORDER BY code', [tenantId]);
+    const { rows } = await client.query('SELECT id, code, name, active FROM field_offices WHERE tenant_id = $1 ORDER BY code', [tenantId]);
     return rows;
   });
 }
