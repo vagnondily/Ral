@@ -13,14 +13,16 @@ import { downloadCsv } from '../../lib/csv.js';
  * colonnes configurables (mémorisées), et clic sur une ligne → drawer de détail.
  * Câblée aux vrais indicateurs (monDashboard) : aucun champ inventé.
  */
+// Classes d'indicateur : la même règle partout (serveur monitoringMath.classify), même vocabulaire que les tableaux de bord.
 const STAT = {
-  exc: { label: 'Atteint', tone: 'green', icon: 'check', fill: 'var(--green)' },
-  sat: { label: 'Proche', tone: 'blue', icon: 'clock', fill: 'var(--blue-600)' },
+  exc: { label: 'Excellent', tone: 'green', icon: 'check', fill: 'var(--green)' },
+  sat: { label: 'Satisfaisant', tone: 'blue', icon: 'clock', fill: 'var(--blue-600)' },
   imp: { label: 'À améliorer', tone: 'orange', icon: 'warn', fill: 'var(--orange)' },
-  na: { label: 'Sans donnée', tone: undefined, icon: 'na', fill: 'var(--text-faint)' },
+  urg: { label: 'Action urgente', tone: 'red', icon: 'x', fill: 'var(--red)' },
+  na: { label: 'Non évalué', tone: undefined, icon: 'na', fill: 'var(--text-faint)' },
 };
 const AGG = { percent_yes: '% de « oui »', percent_value: '% = valeur', mean: 'Moyenne', sum: 'Somme', count: 'Nombre' };
-const RATING_ORDER = { exc: 3, sat: 2, imp: 1, na: 0 };
+const RATING_ORDER = { exc: 4, sat: 3, imp: 2, urg: 1, na: 0 };
 
 const ALL_COLS = {
   module: { label: 'Module' },

@@ -46,13 +46,13 @@ const round1 = (n) => Math.round(n * 10) / 10;
  * @param {object[]} submissions rows with a `.data` object
  * @returns {{value:number|null, base:number, rating:string}}
  */
-function computeIndicator(indicator, submissions) {
-  const field = indicator.sourceField;
+function computeIndicator(indicator, submissions, names = [indicator.sourceField]) {
   const na = naSet(indicator.naValues);
   const vals = [];
   for (const s of submissions || []) {
     const d = s.data || {};
-    if (!Object.prototype.hasOwnProperty.call(d, field)) continue;
+    const field = names.find((n) => Object.prototype.hasOwnProperty.call(d, n));
+    if (field === undefined) continue;
     // Codes « hors base » écartés pour toutes les méthodes (une moyenne avec 9999 n'a pas de sens).
     if (d[field] != null && na.has(String(d[field]).trim().toLowerCase())) continue;
     vals.push(d[field]);
@@ -82,21 +82,65 @@ function computeIndicator(indicator, submissions) {
   return { value, base, rating: rate(value, indicator) };
 }
 
-/** Rate a value against its target + direction → exc / sat / imp / na. */
-function rate(value, indicator) {
-  if (value == null) return 'na';
-  const t = indicator.target == null || indicator.target === '' ? null : Number(indicator.target);
-  if (t == null || Number.isNaN(t)) return 'na';
-  const better = indicator.direction !== 'lower_better';
-  const ok = better ? value >= t : value <= t;
-  if (ok) return 'exc';
-  // within 10 % (relative) of the target counts as "à améliorer", else "insuffisant"
+// Seuils des modèles de référence (score orienté, sur 100) quand l'indicateur n'a pas de cible.
+const BANDS = { exc: 80, sat: 65, imp: 50 };
+
+/**
+ * Classe d'un résultat d'indicateur — la MÊME partout (liste des résultats,
+ * Synthèse, Couverture & performance, rapports) :
+ *   - pas de valeur → na (non évalué) ;
+ *   - avec cible : atteinte → exc ; écart relatif à la cible ≤ 10 % → sat ;
+ *     ≤ 30 % → imp ; au-delà → urg ;
+ *   - sans cible : bandes des modèles sur le score orienté d'un % (≥ 80 exc,
+ *     ≥ 65 sat, ≥ 50 imp, sinon urg) ; na pour une moyenne, une somme ou un nombre.
+ * @param {{ value, target, direction, agg }} result
+ */
+function classify(result) {
+  if (!result || result.value == null) return 'na';
+  const t = result.target == null || result.target === '' ? null : Number(result.target);
+  if (t == null || Number.isNaN(t)) {
+    const sc = orientedScore(result);
+    if (sc == null) return 'na';
+    return sc >= BANDS.exc ? 'exc' : sc >= BANDS.sat ? 'sat' : sc >= BANDS.imp ? 'imp' : 'urg';
+  }
+  const value = Number(result.value);
+  const better = result.direction !== 'lower_better';
+  if (better ? value >= t : value <= t) return 'exc';
   const gap = better ? (t - value) / (t || 1) : (value - t) / (t || 1);
-  return gap <= 0.1 ? 'sat' : 'imp';
+  if (gap <= 0.1) return 'sat';
+  if (gap <= 0.3) return 'imp';
+  return 'urg';
+}
+
+/** Classe d'une valeur pour un indicateur (cible, sens, méthode) : voir classify. */
+function rate(value, indicator) {
+  return classify({ value, target: indicator.target, direction: indicator.direction, agg: indicator.agg });
+}
+
+/**
+ * Clés réelles des réponses, par nom en minuscules : le XLSForm nomme une
+ * question « field_office » quand l'export SPSS l'appelle « Field_office ».
+ */
+function keyIndex(submissions) {
+  const idx = new Map();
+  for (const s of submissions || []) {
+    for (const k of Object.keys(s.data || {})) {
+      const l = k.toLowerCase();
+      if (!idx.has(l)) idx.set(l, new Set());
+      idx.get(l).add(k);
+    }
+  }
+  return idx;
+}
+/** Noms à essayer pour une variable : le nom exact d'abord, puis ses variantes de casse présentes dans les données. */
+function namesFor(field, idx) {
+  const alts = idx ? [...(idx.get(String(field).toLowerCase()) || [])].filter((k) => k !== field) : [];
+  return [field, ...alts];
 }
 
 /** Compute every indicator of a form over the given submissions. */
 function computeAll(indicators, submissions) {
+  const idx = keyIndex(submissions);
   return (indicators || []).map((ind) => ({
     id: ind.id,
     code: ind.code,
@@ -108,7 +152,7 @@ function computeAll(indicators, submissions) {
     // Compte dans l'indice (faux pour un chiffre clé ou un module complémentaire du modèle).
     scored: ind.scored !== false,
     target: ind.target == null ? null : Number(ind.target),
-    ...computeIndicator(ind, submissions),
+    ...computeIndicator(ind, submissions, namesFor(ind.sourceField, idx)),
   }));
 }
 
@@ -145,4 +189,4 @@ function overallIndex(indicatorResults) {
   return Math.round((means.reduce((a, b) => a + b, 0) / means.length) * 10) / 10;
 }
 
-module.exports = { computeIndicator, computeAll, rate, overallIndex, orientedScore, toNumber, isYes };
+module.exports = { computeIndicator, computeAll, rate, classify, BANDS, overallIndex, orientedScore, toNumber, isYes, keyIndex, namesFor };

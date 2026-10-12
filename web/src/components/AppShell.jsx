@@ -45,6 +45,8 @@ export const NAV = [
           { id: 'rbm', label: 'RBM & plan de suivi' },
           { id: 'couverture', label: 'Couverture' },
           { id: 'carte', label: 'Carte des sites' },
+          // Documentation des calculs (méthodes, classes, formules) — retour n° 4.
+          { id: 'calculs', label: 'Aide aux calculs' },
         ],
       },
       {

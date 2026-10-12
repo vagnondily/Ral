@@ -7,38 +7,11 @@
 // et expose les aides « plan vs réalisé » (taux, statut). Aucune valeur n'est
 // inventée : tout dérive des résultats fournis.
 
-const { orientedScore } = require('./monitoringMath');
+const { orientedScore, classify } = require('./monitoringMath');
 
 const CLASSES = ['exc', 'sat', 'imp', 'urg', 'na'];
-// Seuils des modèles de référence (score orienté, sur 100) quand l'indicateur n'a pas de cible.
-const BANDS = { exc: 80, sat: 65, imp: 50 };
 const CLASS_LABELS = { exc: 'Excellent', sat: 'Satisfaisant', imp: 'À améliorer', urg: 'Action urgente', na: 'Non évalué' };
-
-/**
- * Classe un résultat d'indicateur en 5 bandes par rapport à sa cible + sens.
- * Même base que monitoringMath.rate (exc/sat/imp/na) mais sépare « à améliorer »
- * d'« action urgente » selon l'ampleur de l'écart relatif à la cible.
- *   - pas de valeur → na ; pas de cible : bandes fixes 80/65/50 (score orienté, en %)
- *   - atteint la cible → exc
- *   - écart relatif ≤ 10 % → sat ; ≤ 30 % → imp ; sinon → urg
- */
-function classify(result) {
-  if (!result || result.value == null) return 'na';
-  const t = result.target == null || result.target === '' ? null : Number(result.target);
-  if (t == null || Number.isNaN(t)) {
-    // Sans cible : bandes fixes des modèles (≥ 80 / ≥ 65 / ≥ 50) sur le score orienté, si c'est un %.
-    const sc = orientedScore(result);
-    if (sc == null) return 'na';
-    return sc >= BANDS.exc ? 'exc' : sc >= BANDS.sat ? 'sat' : sc >= BANDS.imp ? 'imp' : 'urg';
-  }
-  const value = Number(result.value);
-  const better = result.direction !== 'lower_better';
-  if (better ? value >= t : value <= t) return 'exc';
-  const gap = better ? (t - value) / (t || 1) : (value - t) / (t || 1);
-  if (gap <= 0.1) return 'sat';
-  if (gap <= 0.3) return 'imp';
-  return 'urg';
-}
+// La classe d'un indicateur (monitoringMath.classify) est la même que dans la liste des résultats.
 
 /** Compte les indicateurs par bande. Renvoie { exc, sat, imp, urg, na, scored }
  * où `scored` = indicateurs réellement notés (hors na). */

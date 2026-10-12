@@ -62,6 +62,13 @@ trade-off arises, decide in this order:
      unique constraint as the real backstop; make writes idempotent where a
      retry could double-apply.
    - One shared pg `Pool` (never per-request); size it with `PG_POOL_MAX`.
+   - Queries on ONE transaction client run one after another (`await` each) —
+     never `Promise.all` over the same `client` (pg serialises them anyway and
+     the next pg major refuses it).
+   - Every Excel import loads its workbook through `common/xlsxGuard.loadWorkbook`
+     (zip guard + merged-cell cap + no data-validation expansion) — never
+     `new ExcelJS.Workbook().xlsx.load()` directly: a 6 KB file with a huge
+     merged range or a whole-column validation exhausts the API's memory.
    - Index the columns you filter/group on for the queries that run hot.
 
 ## Run it (Windows, PostgreSQL already installed, no Docker)
@@ -348,6 +355,19 @@ or navy rail.
   fiches·indicateurs), tendance mensuelle des soumissions, couverture par
   district, répartition des sites par risque, conformité par fiche, zones à
   surveiller (<80 %). Nav : « Suivi de processus › Tableau de bord ».
+- **Champs calculés & « Aide aux calculs »** (retour n° 4) : moteur de formule
+  sûr (`monitoring/calcFields.js`, sans `eval`) dont le catalogue `FUNCTIONS`
+  est la source unique pour le calcul, la vérification (position de l'erreur,
+  fonction inconnue avec suggestion, nombre d'arguments, variable inconnue), l'éditeur
+  (`web/src/pages/monitoring/FormulaEditor.jsx` : complétion Tab, fonctions par
+  catégorie, variables de la fiche, aperçu sur les 300 dernières soumissions via
+  `POST /forms/:id/calc-fields/preview`) et la page « Comment les calculs sont
+  faits » (`CalcDocsPage.jsx`, route `#/processus/calculs`). Syntaxe Tableau
+  tolérée (`=`, `<>`, AND/OR/NOT, null) ; fonctions du suivi (`selected`,
+  `count_selected`, `in`, `between`, `sum`, `avg`, `isnull`…). **Classe d'un
+  indicateur = `monitoringMath.classify`, la même partout** (liste des résultats,
+  Synthèse, Couverture & performance) : avec cible écart ≤ 10 / 30 % ; sans cible
+  bandes 80 / 65 / 50 sur le score orienté — ne pas réintroduire une 2ᵉ règle.
 - **Dashboard « façon Power BI »** (`web/src/pages/dashboard/DashboardBIPage.jsx`,
   nav « Dashboard décisionnel › Vue d'ensemble ») : KPI tiles, grouped
   Budget/Planifié/Réalisé bars, réalisé-by-partner donut, monthly trend line,
@@ -400,7 +420,7 @@ or navy rail.
   `server/src/db/seed.js` (not shown in the UI).
 
 ## Testing
-`cd server && npm test` (64 unit tests on the pure business logic: budget/expense
+`cd server && npm test` (440+ unit tests on the pure business logic: budget/expense
 math incl. the per-line **% bailleur** split and 2-activity allocation,
 plan-month normalization, workflow state machine, the consolidation engine, the
 budget Excel round-trip, the INVOICE workbook, and the field-visit coverage math

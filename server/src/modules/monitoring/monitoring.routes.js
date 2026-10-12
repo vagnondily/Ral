@@ -10,7 +10,7 @@ const { parseXlsformRows } = require('./xlsformImport');
 const { readXls, XlsError } = require('./xlsReader');
 const { sniffFile } = require('../common/fileSniff');
 const { zipLimitsFromEnv } = require('../common/zipGuard');
-const { validateExpression } = require('./calcFields');
+const { validateExpression, functionCatalog } = require('./calcFields');
 const dataLinks = require('./dataLinks.service');
 const settingsRepo = require('../settings/settings.repository');
 const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
@@ -216,23 +216,48 @@ router.post('/forms/:id/mems-mapping/apply', WRITE, asyncHandler(async (req, res
 // ---- Nettoyage : champs calculés + exclusion -----------------------------
 router.get('/forms/:id/calc-fields', asyncHandler(async (req, res) => res.json(await repo.listCalcFields(t(req), req.params.id))));
 
-const calcSchema = z.object({
-  name: z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'Nom : lettres/chiffres/_ , sans espace').max(60),
-  label: z.string().trim().max(120).optional(),
+const calcDefinition = {
   kind: z.enum(['expression', 'recode']),
   expression: z.string().trim().max(500).optional(),
   sourceField: z.string().trim().max(120).optional(),
   mapping: z.record(z.string(), z.any()).optional(),
   defaultValue: z.any().optional(),
-}).refine((v) => (v.kind === 'expression' ? !validateExpression(v.expression) : !!v.sourceField), {
-  message: 'Formule invalide, ou champ source manquant pour un recodage.',
+};
+const calcSchema = z.object({
+  name: z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'Nom : lettres/chiffres/_ , sans espace').max(60),
+  label: z.string().trim().max(120).optional(),
+  ...calcDefinition,
 });
+/** Formule ou recodage invalide : 400 avec la cause précise (et sa position), jamais enregistré. */
+function assertCalcValid(v) {
+  if (v.kind === 'recode') { if (!v.sourceField) throw badRequest('Choisissez la variable à recoder.'); return; }
+  const err = validateExpression(v.expression);
+  if (err) throw badRequest(`Formule invalide : ${err}`);
+}
+
+// Variables d'une fiche (catalogue + colonnes des données + champs calculés) pour l'éditeur de formule.
+router.get('/forms/:id/variables', asyncHandler(async (req, res) => {
+  const out = await repo.formVariables(t(req), uuidParam(req.params.id));
+  if (!out) throw notFound('Fiche introuvable');
+  res.json(out);
+}));
+// Catalogue des fonctions et opérateurs (éditeur de formule, page « Comment les calculs sont faits »).
+router.get('/calc-functions', (req, res) => res.json(functionCatalog()));
+// Aperçu d'un champ calculé sur les soumissions réelles de la fiche (rien n'est enregistré).
+router.post('/forms/:id/calc-fields/preview', body(z.object({ ...calcDefinition, excludeId: z.string().uuid().optional() })), asyncHandler(async (req, res) => {
+  const { excludeId, ...def } = req.valid;
+  const out = await repo.calcPreview(t(req), uuidParam(req.params.id), def, { excludeId });
+  if (!out) throw notFound('Fiche introuvable');
+  res.json(out);
+}));
 
 router.post('/forms/:id/calc-fields', WRITE, body(calcSchema), asyncHandler(async (req, res) => {
+  assertCalcValid(req.valid);
   try { res.status(201).json({ id: await repo.createCalcField(t(req), req.params.id, req.valid) }); }
   catch (err) { if (err.code === '23505') throw badRequest('Un champ calculé porte déjà ce nom.'); throw err; }
 }));
 router.patch('/calc-fields/:id', WRITE, body(calcSchema), asyncHandler(async (req, res) => {
+  assertCalcValid(req.valid);
   if (!(await repo.updateCalcField(t(req), req.params.id, req.valid))) throw notFound('Champ calculé introuvable');
   res.status(204).end();
 }));

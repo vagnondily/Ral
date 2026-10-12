@@ -130,6 +130,8 @@ async function request(path, { method = 'GET', body, query, auth = true } = {}) 
   return data;
 }
 
+let calcFunctionsCache = null; // le catalogue ne change qu'avec une nouvelle version de l'API
+
 export const api = {
   systemStatus: () => request('/api/system/status'),
   login: (email, password) =>
@@ -286,6 +288,10 @@ export const api = {
   monApplyMemsMapping: (id) => request(`/api/monitoring/forms/${id}/mems-mapping/apply`, { method: 'POST' }),
   monFormSubmissions: (id, { month, limit } = {}) => request(`/api/monitoring/forms/${id}/submissions`, { query: { ...(month ? { month } : {}), ...(limit ? { limit } : {}) } }),
   monCalcFields: (id) => request(`/api/monitoring/forms/${id}/calc-fields`),
+  // Éditeur de formule : catalogue des fonctions (mis en cache) et aperçu sur les soumissions réelles.
+  monCalcFunctions: () => (calcFunctionsCache ||= request('/api/monitoring/calc-functions').catch((e) => { calcFunctionsCache = null; throw e; })),
+  monVariables: (id) => request(`/api/monitoring/forms/${id}/variables`),
+  monCalcPreview: (id, body) => request(`/api/monitoring/forms/${id}/calc-fields/preview`, { method: 'POST', body }),
   monCreateCalcField: (id, body) => request(`/api/monitoring/forms/${id}/calc-fields`, { method: 'POST', body }),
   monUpdateCalcField: (cfId, body) => request(`/api/monitoring/calc-fields/${cfId}`, { method: 'PATCH', body }),
   monDeleteCalcField: (cfId) => request(`/api/monitoring/calc-fields/${cfId}`, { method: 'DELETE' }),

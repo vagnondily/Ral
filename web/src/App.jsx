@@ -20,6 +20,7 @@ import ReportDesignerPage from './pages/reports/ReportDesignerPage.jsx';
 import PlanningPage from './pages/tpm/PlanningPage.jsx';
 import ProcessMonitoringPage from './pages/monitoring/ProcessMonitoringPage.jsx';
 import ProcessDashboardPage from './pages/monitoring/ProcessDashboardPage.jsx';
+import CalcDocsPage from './pages/monitoring/CalcDocsPage.jsx';
 import FieldVisitsPage from './pages/monitoring/FieldVisitsPage.jsx';
 import RbmSpacePage from './pages/monitoring/RbmSpacePage.jsx';
 import CoverageRecapPage from './pages/monitoring/CoverageRecapPage.jsx';
@@ -125,6 +126,7 @@ function Workspace() {
       )}
       {route.module === 'processus' && route.sub === 'couverture' && <CoverageRecapPage />}
       {route.module === 'processus' && route.sub === 'carte' && <SitesMapPage />}
+      {route.module === 'processus' && route.sub === 'calculs' && <CalcDocsPage />}
       {route.module === 'pdd' && <PddPage canEdit={canEdit} view={route.sub} onNavigate={navigate} />}
       {route.module === 'parametrage' && <SettingsPage tab={route.sub} isAdmin={user.role === 'admin'} onNavigate={navigate} />}
     </AppShell>

@@ -4,7 +4,7 @@ const { notFound, forbidden, badRequest } = require('../../middleware/errors');
 const { computeAll, overallIndex } = require('./monitoringMath');
 const { classDistribution, dimGroups, topFlop, classify } = require('./coverageDashboard');
 const { detectMapping, DIMENSION_COLUMN, EDITABLE_KEYS } = require('./memsMapping');
-const { computeCalcFields } = require('./calcFields');
+const { computeCalcFields, checkExpression, previewCalc, makeGetter } = require('./calcFields');
 const { buildLookup, groupPathRenamer, TRIM_CLASS } = require('./submissionsImport');
 const { templateForActivity, moduleLabel, suggestBindings, indicatorFromItem } = require('./indicatorTemplates');
 const { OTHER_VALUES } = require('./memsMapping');
@@ -177,10 +177,10 @@ async function updateIndicator(tenantId, id, ind) {
  */
 async function bindingFieldsTx(client, tenantId, formId) {
   const { rows: cat } = await client.query(
-    `SELECT name, label, list_name AS "listName" FROM monitoring_form_fields
+    `SELECT name, label, type, list_name AS "listName" FROM monitoring_form_fields
       WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name`, [tenantId, formId]);
   const { rows: keys } = await client.query(
-    'SELECT DISTINCT jsonb_object_keys(data) AS name FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2',
+    'SELECT DISTINCT jsonb_object_keys(data) AS name FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 ORDER BY 1',
     [tenantId, formId]);
   const lists = [...new Set(cat.map((f) => f.listName).filter(Boolean))];
   const { rows: choices } = lists.length ? await client.query(
@@ -192,9 +192,25 @@ async function bindingFieldsTx(client, tenantId, formId) {
   const seen = new Set(cat.map((f) => f.name.toLowerCase()));
   return [
     // Listes longues (lieux, écoles) inutiles pour choisir une valeur positive : non envoyées.
-    ...cat.map((f) => ({ name: f.name, label: f.label, choices: (byList.get(f.listName) || []).length <= 40 ? byList.get(f.listName) || [] : [] })),
-    ...keys.filter((k) => !seen.has(k.name.toLowerCase())).map((k) => ({ name: k.name, label: null, choices: [] })),
+    ...cat.map((f) => ({ name: f.name, label: f.label, type: f.type || null, choices: (byList.get(f.listName) || []).length <= 40 ? byList.get(f.listName) || [] : [] })),
+    ...keys.filter((k) => !seen.has(k.name.toLowerCase())).map((k) => ({ name: k.name, label: null, type: null, choices: [] })),
   ];
+}
+
+/**
+ * Variables d'une fiche pour l'éditeur de formule : catalogue (XLSForm ou SPSS,
+ * avec libellés, type et choix) + colonnes présentes dans les données, et les
+ * champs calculés déjà définis. null si la fiche n'existe pas.
+ */
+async function formVariables(tenantId, formId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
+    if (!f[0]) return null;
+    const fields = await bindingFieldsTx(client, tenantId, formId);
+    const { rows: calc } = await client.query(
+      'SELECT id, name, label FROM monitoring_calc_fields WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name', [tenantId, formId]);
+    return { fields, calcFields: calc };
+  });
 }
 
 /** Modèle de l'activité de la fiche, avec la variable proposée pour chaque indicateur. */
@@ -590,8 +606,13 @@ async function reliftSubmissionsTx(client, tenantId, formId) {
   // Même nettoyage que l'import (String.prototype.trim) : espaces insécables compris.
   const trim = (x) => `regexp_replace(${x}, '^[${TRIM_CLASS}]+|[${TRIM_CLASS}]+$', '', 'g')`;
   const cell = (name) => `NULLIF(${trim(`data->>${ref(name)}`)}, '')`;
+  // Colonne choisie à la main : nom exact d'abord, puis ses variantes de casse présentes dans les données.
+  const forcedCell = (col) => {
+    const ks = [col, ...keys.filter((k) => k !== col && k.toLowerCase() === col.toLowerCase())];
+    return ks.length > 1 ? `COALESCE(${ks.map(cell).join(', ')})` : cell(col);
+  };
   const exprFor = (dimension) => {
-    if (forced.has(dimension)) return forced.get(dimension) ? cell(forced.get(dimension)) : 'NULL';
+    if (forced.has(dimension)) return forced.get(dimension) ? forcedCell(forced.get(dimension)) : 'NULL';
     const cands = (picks.candidates && picks.candidates[dimension]) || [];
     if (!cands.length) return 'NULL';
     const parts = cands.map((i) => {
@@ -682,7 +703,7 @@ async function importSubmissions(tenantId, formId, submissions, { variables } = 
       for (const o of ov) {
         const prop = SUB_PROP[o.dimension]; if (!prop) continue;
         const col = (o.columnName || '').trim();
-        const v = col && s.data ? s.data[col] : undefined;
+        const v = col && s.data ? makeGetter(s.data)(col) : undefined; // casse ignorée (XLSForm ≠ export SPSS)
         const t = v == null ? '' : String(v).trim();
         s[prop] = t === '' ? null : t;
       }
@@ -1131,6 +1152,48 @@ async function listCalcFields(tenantId, formId) {
   });
 }
 
+/**
+ * Aperçu d'un champ calculé (éditeur de formule) sur les 300 soumissions les plus
+ * récentes de la fiche (non exclues) : vérification de la formule contre les
+ * variables connues (catalogue, données, autres champs calculés), quelques
+ * lignes et la répartition des résultats. Lecture seule ; seules les réponses
+ * utilisées par les formules sont lues.
+ * @returns {Promise<null|{check:object, n?:number}>} null si la fiche n'existe pas
+ */
+async function calcPreview(tenantId, formId, def, { excludeId } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
+    if (!f[0]) return null;
+    const { rows: defs } = await client.query(
+      `SELECT id, name, kind, expression, source_field AS "sourceField", mapping, default_value AS "defaultValue"
+         FROM monitoring_calc_fields WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name`, [tenantId, formId]);
+    const prior = defs.filter((d) => d.id !== excludeId);
+    const { rows: keyRows } = await client.query(
+      `SELECT name AS k FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2
+       UNION SELECT DISTINCT jsonb_object_keys(data) FROM (
+         SELECT data FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 ORDER BY created_at DESC LIMIT 300) s`,
+      [tenantId, formId]);
+    const known = new Set([...keyRows.map((r) => r.k), ...prior.map((d) => d.name)]);
+    const check = def.kind === 'recode'
+      ? { error: def.sourceField ? null : { message: 'Choisissez la variable à recoder.', at: null }, warnings: [], references: [def.sourceField].filter(Boolean) }
+      : checkExpression(def.expression, { fields: known });
+    if (check.error) return { check };
+    // Réponses utiles seulement : variables de la formule et de tous les champs calculés existants.
+    const needed = new Set(check.references);
+    for (const d of prior) {
+      if (d.kind === 'recode') needed.add(d.sourceField);
+      else checkExpression(d.expression).references.forEach((r) => needed.add(r));
+    }
+    const { rows: sample } = await client.query(
+      `SELECT COALESCE((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(s.data) e WHERE lower(e.key) = ANY($3::text[])), '{}'::jsonb) AS data
+         FROM monitoring_submissions s
+        WHERE s.tenant_id = $1 AND s.form_id = $2 AND NOT s.excluded
+        ORDER BY s.submitted_at DESC NULLS LAST, s.created_at DESC LIMIT 300`,
+      [tenantId, formId, [...needed].filter(Boolean).map((k) => String(k).toLowerCase())]);
+    return { check, ...previewCalc(def, sample.map((r) => r.data), prior) };
+  });
+}
+
 async function createCalcField(tenantId, formId, b) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
@@ -1178,7 +1241,7 @@ async function setExclusion(tenantId, formId, { ids, excluded, reason } = {}) {
 
 module.exports = {
   reliftSubmissionsTx, formTemplate, applyTemplate,
-  listCalcFields, createCalcField, updateCalcField, deleteCalcField, setExclusion,
+  listCalcFields, calcPreview, formVariables, createCalcField, updateCalcField, deleteCalcField, setExclusion,
   setFormSource, formSourceContext, reportMonitoringData,
   listForms, createForm, updateForm, deleteForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,

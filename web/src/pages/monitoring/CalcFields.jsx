@@ -1,12 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, SlidersHorizontal, X } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Plus, Pencil, Trash2, SlidersHorizontal, X, BookOpen } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Badge, Button, Card, CardHeader, EmptyState, Field, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
-
-const CALC_AGG_HELP = 'Fonctions : if(cond, a, b) · num(x) · round(x, n) · lower · upper · len · abs · min · max · coalesce · contains(x,"txt") · concat. Opérateurs : + − × ÷ % , == != < <= > >= , && || . Référez une variable par son nom (ou [nom avec espaces]).';
+import FormulaEditor, { useCalcPreview, CalcPreviewPanel } from './FormulaEditor.jsx';
 
 // Phrase traduite contenant des éléments JSX : « {nom} » → nodes[nom].
 function fillNodes(text, nodes) {
@@ -38,6 +37,7 @@ export function CalcFieldsCard({ form, canEdit, onChanged }) {
     <Card aria-labelledby="calc-title">
       <CardHeader id="calc-title" title={tr('Champs calculés & préparation')}
         subtitle={tr("Créez des variables dérivées (recodage de valeurs ou formule) à partir des variables existantes — réutilisables comme source d'indicateur et visibles dans les données. Nettoyage « type Tableau », sans code.")}>
+        <a className="btn btn-ghost btn-sm" href="#/processus/calculs" target="_blank" rel="noopener noreferrer"><BookOpen size={14} aria-hidden="true" /> {tr('Documentation')}</a>
         {canEdit && <Button size="sm" icon={Plus} onClick={() => setEdit({})}>{tr('Nouveau champ calculé')}</Button>}
       </CardHeader>
       {list === null ? <div className="card-body"><Skeleton height={100} /></div>
@@ -82,7 +82,14 @@ function CalcFieldModal({ form, catalog, calc, onClose, onSaved }) {
     ? { ...calc, pairs: Object.entries(calc.mapping || {}).map(([k, v]) => ({ k, v: String(v) })) }
     : { name: '', label: '', kind: 'expression', expression: '', sourceField: '', defaultValue: '', pairs: [{ k: '', v: '' }] });
   const [saving, setSaving] = useState(false);
-  const fields = catalog.fields || [];
+  const [variables, setVariables] = useState(null);
+  useEffect(() => { let alive = true; api.monVariables(form.id).then((v) => alive && setVariables(v), () => alive && setVariables({ fields: catalog.fields || [], calcFields: [] })); return () => { alive = false; }; }, [form.id, catalog]);
+  const fields = variables?.fields || catalog.fields || [];
+  const recodeDef = useMemo(() => ({
+    kind: 'recode', sourceField: f.sourceField, defaultValue: f.defaultValue?.trim() || undefined,
+    mapping: Object.fromEntries(f.pairs.filter((p) => p.k !== '').map((p) => [p.k, p.v])),
+  }), [f.sourceField, f.defaultValue, f.pairs]);
+  const recodePreview = useCalcPreview(form.id, f.kind === 'recode' ? recodeDef : { kind: 'recode' }, calc?.id);
   const err = { name: !/^[A-Za-z_][A-Za-z0-9_]*$/.test(f.name.trim()), src: f.kind === 'recode' && !f.sourceField };
 
   async function save() {
@@ -105,7 +112,7 @@ function CalcFieldModal({ form, catalog, calc, onClose, onSaved }) {
   const setPair = (i, key, val) => setF((s) => ({ ...s, pairs: s.pairs.map((p, j) => (j === i ? { ...p, [key]: val } : p)) }));
 
   return (
-    <Modal open size="lg" title={editing ? tr('Modifier le champ calculé') : tr('Nouveau champ calculé')}
+    <Modal open size={f.kind === 'expression' ? 'editor' : 'lg'} title={editing ? tr('Modifier le champ calculé') : tr('Nouveau champ calculé')}
       subtitle={tr('Variable dérivée à partir des variables existantes.')} onClose={() => !saving && onClose()}
       footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button onClick={save} loading={saving}>{tr('Enregistrer')}</Button></>}>
       <div style={{ display: 'grid', gap: 14 }}>
@@ -123,9 +130,8 @@ function CalcFieldModal({ form, catalog, calc, onClose, onSaved }) {
         </Field>
 
         {f.kind === 'expression' ? (
-          <Field label={tr('Formule')} hint={tr(CALC_AGG_HELP)}>
-            <input className="input mono" value={f.expression} onChange={(e) => setF({ ...f, expression: e.target.value })} placeholder="if(cfm == &quot;oui&quot;, 1, 0)" />
-          </Field>
+          <FormulaEditor formId={form.id} value={f.expression || ''} onChange={(expression) => setF((s) => ({ ...s, expression }))}
+            excludeId={calc?.id} variables={variables} />
         ) : (
           <>
             <Field label={tr('Variable source')} required>
@@ -149,6 +155,7 @@ function CalcFieldModal({ form, catalog, calc, onClose, onSaved }) {
               </div>
             </div>
             <Field label={tr('Valeur par défaut (si aucune correspondance)')}><input className="input" value={f.defaultValue} onChange={(e) => setF({ ...f, defaultValue: e.target.value })} placeholder="0" /></Field>
+            <CalcPreviewPanel preview={recodePreview} />
           </>
         )}
       </div>

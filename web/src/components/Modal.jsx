@@ -66,7 +66,7 @@ export default function Modal({ open, onClose, title, subtitle, variant = 'dialo
     <div className={`overlay ${drawer ? 'is-drawer' : ''}`} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
         ref={dialogRef}
-        className={`dialog ${drawer ? 'is-drawer' : ''} ${wide ? 'is-wide' : ''} ${size === 'xl' ? 'is-xwide' : ''}`}
+        className={`dialog ${drawer ? 'is-drawer' : ''} ${wide ? 'is-wide' : ''} ${size === 'xl' ? 'is-xwide' : ''} ${size === 'editor' ? 'is-editor' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

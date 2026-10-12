@@ -35,13 +35,26 @@ test('value is null (na) when nothing was answered', () => {
 test('rating against a higher-better target', () => {
   assert.equal(rate(90, { target: 80, direction: 'higher_better' }), 'exc');
   assert.equal(rate(75, { target: 80, direction: 'higher_better' }), 'sat'); // within 10 %
-  assert.equal(rate(50, { target: 80, direction: 'higher_better' }), 'imp');
+  assert.equal(rate(60, { target: 80, direction: 'higher_better' }), 'imp'); // écart ≤ 30 %
+  assert.equal(rate(50, { target: 80, direction: 'higher_better' }), 'urg'); // au-delà : action urgente
   assert.equal(rate(null, { target: 80 }), 'na');
 });
 
 test('rating against a lower-better target (e.g. % de fraude)', () => {
   assert.equal(rate(2, { target: 5, direction: 'lower_better' }), 'exc');
-  assert.equal(rate(30, { target: 5, direction: 'lower_better' }), 'imp');
+  assert.equal(rate(6, { target: 5, direction: 'lower_better' }), 'imp');
+  assert.equal(rate(30, { target: 5, direction: 'lower_better' }), 'urg');
+});
+
+test('sans cible : un % est classé par les bandes des modèles (score orienté), une moyenne reste non évaluée', () => {
+  assert.equal(rate(85, { agg: 'percent_yes' }), 'exc');
+  assert.equal(rate(70, { agg: 'percent_value' }), 'sat');
+  assert.equal(rate(55, { agg: 'percent_yes' }), 'imp');
+  assert.equal(rate(40, { agg: 'percent_yes' }), 'urg');
+  assert.equal(rate(10, { agg: 'percent_yes', direction: 'lower_better' }), 'exc'); // 100 − 10 = 90
+  assert.equal(rate(3.2, { agg: 'mean' }), 'na');
+  const r = computeIndicator({ sourceField: 'x', agg: 'percent_yes' }, subs('x', ['oui', 'oui', 'non']));
+  assert.equal(r.rating, 'sat'); // 66,7 % sans cible : ≥ 65
 });
 
 test('overallIndex averages only the percentage indicators that computed', () => {
@@ -106,4 +119,11 @@ test('chiffres clés et modules complémentaires (scored = faux) hors de l\'indi
   ]), 80);
   const [r] = computeAll([{ code: 'k', sourceField: 'q', agg: 'percent_yes', scored: false }], [{ data: { q: 'oui' } }]);
   assert.equal(r.scored, false);
+});
+
+test('variable du XLSForm (« field_office ») trouvée dans un export qui l\'écrit autrement (« Field_office ») ; le nom exact passe d\'abord', () => {
+  const subs2 = [{ data: { Field_office: '6' } }, { data: { Field_office: '7' } }, { data: { field_office: '6', Field_office: '9' } }];
+  const [r] = computeAll([{ code: 'a', sourceField: 'field_office', agg: 'percent_value', positiveValue: '6' }], subs2);
+  assert.equal(r.base, 3);
+  assert.equal(r.value, 66.7); // ligne 3 : « field_office » exact = 6, pas 9
 });

@@ -1219,6 +1219,7 @@ function IndicatorModal({ form, catalog, indicator, onClose, onSaved }) {
           {f.agg === 'mean' && <>{tr('Moyenne des valeurs numériques de la variable.')}</>}
           {f.agg === 'percent_yes' && <>{tr('Part des réponses « oui » (oui / 1 / true) sur le total renseigné.')}</>}
           {f.agg === 'percent_value' && <>{fillNodes(tr('Part des réponses égales à {value} sur le total renseigné.'), { value: <strong>{String(f.positiveValue).trim() || '…'}</strong> })}</>}
+          {' '}<a href="#/processus/calculs" target="_blank" rel="noopener noreferrer">{tr('Comment c\'est calculé ?')}</a>
         </span></div>
       </div>
     </Modal>
