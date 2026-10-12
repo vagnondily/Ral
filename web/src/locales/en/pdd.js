@@ -32,13 +32,101 @@ export default {
   "Classeur vierge au format exact de l'import (feuille « PDD base » + feuille « Lisez-moi » qui décrit chaque colonne).":
     'Blank workbook in the exact import format (“PDD base” sheet + “Lisez-moi” read-me sheet describing each column).',
   'Modèle PDD': 'PDD template',
-  'Importe la feuille « PDD base » : mois, zone, activité, bénéficiaires, tonnages. Réimport idempotent (les mois du fichier sont remplacés).':
-    'Imports the “PDD base” sheet: month, area, activity, beneficiaries, tonnages. Idempotent re-import (the months in the file are replaced).',
+  'Importe le tableau PDD (feuille « PDD base » du modèle ou tableau du classeur réel) : mois, zone, activité, bénéficiaires, tonnages. Les lignes ignorées sont listées avec leur motif. Réimport idempotent (les mois du fichier sont remplacés).':
+    'Imports the PDD table (“PDD base” sheet of the template or the table of the actual workbook): month, area, activity, beneficiaries, tonnages. Skipped rows are listed with their reason. Idempotent re-import (the months in the file are replaced).',
   'Importer le PDD': 'Import PDD',
-  '{n} distribution(s) · {items} tonnage(s) importé(s) (feuille « {sheet} ») · {skipped} ligne(s) ignorée(s).':
-    '{n} distribution(s) · {items} tonnage line(s) imported (sheet “{sheet}”) · {skipped} row(s) skipped.',
-  '{n} distribution(s) · {items} tonnage(s) importé(s) (feuille « {sheet} »).':
-    '{n} distribution(s) · {items} tonnage line(s) imported (sheet “{sheet}”).',
+  '{n} distribution(s) · {items} tonnage(s) importé(s) (feuille « {sheet} »)':
+    '{n} distribution(s) · {items} tonnage line(s) imported (sheet “{sheet}”)',
+  '{skipped} ligne(s) ignorée(s)': '{skipped} row(s) skipped',
+  '{n} avertissement(s)': '{n} warning(s)',
+  // Résumé d'import (lignes ignorées avec leur motif, avertissements)
+  "Résumé de l'import": 'Import summary',
+  'Feuille « {sheet} », lignes {from} à {to}': 'Sheet “{sheet}”, rows {from} to {to}',
+  'Feuille « {sheet} »': 'Sheet “{sheet}”',
+  'Fermer le résumé': 'Close the summary',
+  'Distributions importées': 'Distributions imported',
+  'Tonnages': 'Tonnage lines',
+  'Lignes denrée × distribution': 'Commodity × distribution lines',
+  'Lignes ignorées': 'Skipped rows',
+  'Mois remplacés': 'Months replaced',
+  'Toutes les lignes du tableau ont été importées.': 'All rows in the table were imported.',
+  'Colonnes à corriger': 'Columns to fix',
+  'Les colonnes doivent rester à leur place (voir le modèle PDD).': 'Columns must stay in their positions (see the PDD template).',
+  'Corrigez ces lignes dans le fichier puis réimportez-le : les mois du fichier sont remplacés.':
+    'Fix these rows in the file, then re-import it: the months in the file are replaced.',
+  'Avertissements': 'Warnings',
+  'Ligne': 'Row',
+  'Motif': 'Reason',
+  'Seules les {n} premières sont affichées.': 'Only the first {n} are shown.',
+  // Import partiel (« tout ou rien » par défaut)
+  'Import partiel : {n} ligne(s) ignorée(s) manquent dans les mois remplacés. Corrigez-les puis réimportez le fichier pour les ajouter.':
+    'Partial import: {n} skipped row(s) are missing from the replaced months. Fix them, then re-import the file to add them.',
+  'Importer quand même : les lignes ignorées manqueront dans les mois remplacés':
+    'Import anyway: the skipped rows will be missing from the replaced months',
+  'Importer les lignes valides': 'Import the valid rows',
+  'Mois remplacé ({month})': 'Replaced month ({month})',
+  'Mois illisible': 'Unreadable month',
+
+  // Motifs renvoyés par le serveur (pddImport.js, MESSAGES) : { code, params, template }
+  'erreur Excel {error} en colonne {col} ({label})': 'Excel error {error} in column {col} ({label})',
+  'formule non calculée en colonne {col} ({label}) : ouvrez et enregistrez le fichier dans Excel':
+    'formula not calculated in column {col} ({label}): open and save the file in Excel',
+  'valeur non numérique « {value} » en colonne {col} ({label})': 'non-numeric value “{value}” in column {col} ({label})',
+  'nombre ambigu « {value} » en colonne {col} ({label}) : séparateur de milliers ou décimal ? Saisissez un nombre Excel':
+    'ambiguous number “{value}” in column {col} ({label}): thousands or decimal separator? Enter it as an Excel number',
+  'valeur négative ({value}) en colonne {col} ({label})': 'negative value ({value}) in column {col} ({label})',
+  'valeur hors limites ({value}) en colonne {col} ({label})': 'value out of range ({value}) in column {col} ({label})',
+  'mois absent': 'month missing',
+  'mois inconnu « {value} »': 'unknown month “{value}”',
+  'mois invalide « {value} » (date hors des années 2000 à 2100)': 'invalid month “{value}” (date outside the years 2000 to 2100)',
+  'année absente': 'year missing',
+  'année invalide « {value} » (attendu : 4 chiffres entre 2000 et 2100, ex. 2026)':
+    'invalid year “{value}” (expected: 4 digits between 2000 and 2100, e.g. 2026)',
+  'année incohérente ({year} en colonne {col} ({label}), {monthYear} dans le mois)':
+    'inconsistent year ({year} in column {col} ({label}), {monthYear} in the month)',
+  'activité absente (colonne {col} ou {col2})': 'activity missing (column {col} or {col2})',
+  'zone absente (district et commune vides)': 'area missing (district and commune empty)',
+  'modalité inconnue « {value} » (attendu : {expected} — ou Vivres, Cash)': 'unknown modality “{value}” (expected: {expected} — or Vivres, Cash)',
+  'ligne hors du tableau Excel « {table} » : étendez le tableau': 'row outside the Excel table “{table}”: extend the table',
+  '{n} ligne(s) sans mois, activité ni zone portent des erreurs Excel ({errors}) : non importées (lignes {from} à {to})':
+    '{n} row(s) without month, activity or area contain Excel errors ({errors}): not imported (rows {from} to {to})',
+  'colonne {col} : en-tête « {found} » au lieu de « {label} »': 'column {col}: header “{found}” instead of “{label}”',
+  'colonne {col} : en-tête vide au lieu de « {label} »': 'column {col}: empty header instead of “{label}”',
+  'colonne {col} : « {found} » est un montant en ariary, cette colonne doit contenir le cash en USD':
+    'column {col}: “{found}” is an amount in ariary, this column must contain cash in USD',
+  'Fichier vide.': 'Empty file.',
+  "Ce fichier n'est pas un classeur Excel .xlsx (format reconnu : {format}) : enregistrez le plan de distribution au format .xlsx puis réessayez.":
+    'This file is not an Excel .xlsx workbook (detected format: {format}): save the distribution plan as .xlsx and try again.',
+  'Fichier illisible : fournissez un .xlsx du plan de distribution.': 'Unreadable file: provide an .xlsx of the distribution plan.',
+  "Aucun tableau PDD détecté : il faut une ligne d'en-tête avec « Mois » en colonne A et « Commune » en colonne P (feuille « PDD base » du modèle).":
+    'No PDD table found: a header row with “Mois” in column A and “Commune” in column P is required (“PDD base” sheet of the template).',
+  "La feuille « {sheet} » n'a pas la disposition attendue (colonne insérée ou supprimée ?) : rien n'a été importé.":
+    'Sheet “{sheet}” does not have the expected layout (column inserted or deleted?): nothing was imported.',
+  "La feuille « {sheet} » compte {count} lignes remplies sous l'en-tête, au-delà du plafond de {limit} : découpez le fichier (par exemple par trimestre) puis importez chaque partie. Rien n'a été importé.":
+    'Sheet “{sheet}” has {count} filled rows below the header, above the limit of {limit}: split the file (e.g. by quarter) and import each part. Nothing was imported.',
+  "Aucune ligne exploitable (mois, année, activité et zone requis) : {skipped} ligne(s) ignorée(s), rien n'a été importé.":
+    'No usable rows (month, year, activity and area required): {skipped} row(s) skipped, nothing was imported.',
+  "{blocking} ligne(s) ignorée(s) concernent un mois que cet import remplacerait, ou un mois illisible : rien n'a été importé, pour ne pas effacer de distributions. Corrigez ces lignes et réimportez, ou cochez « Importer quand même ».":
+    '{blocking} skipped row(s) belong to a month this import would replace, or to an unreadable month: nothing was imported, so that no distributions are erased. Fix these rows and re-import, or tick “Import anyway”.',
+
+  // Libellés de colonnes cités dans les motifs (paramètre `label`)
+  'Total vivres': 'Total food',
+  'Cash USD': 'Cash USD',
+  'WBS': 'WBS',
+  'Riz': 'Rice',
+  'Mais concassé': 'Crushed maize',
+  'Mais en grain': 'Whole maize',
+  'Sorgho': 'Sorghum',
+  'LS': 'LS',
+  'Huile': 'Oil',
+  'MNP': 'MNP',
+  'P Sup': 'P Sup',
+  'CSB+': 'CSB+',
+  'CSB++': 'CSB++',
+  'P Doz': 'P Doz',
+  'LNS-sq': 'LNS-sq',
+  'Dattes': 'Dates',
+  'HEB': 'HEB',
   '— plan de distribution du mois': '— monthly distribution plan',
   'Distributions du mois': 'Distributions this month',
   'Toutes modalités': 'All modalities',

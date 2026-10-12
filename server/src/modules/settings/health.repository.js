@@ -8,8 +8,8 @@ const { evaluateHealth, summarizeHealth } = require('./healthRules');
  * aucune boucle sur les lignes. L'interprétation est dans healthRules.js (pur).
  */
 async function healthCounts(client, tenantId) {
-  const [{ rows: [g] }, { rows: [sub] }, { rows: [tpm] }, { rows: [misc] }] = await Promise.all([
-    client.query(
+  const [{ rows: [g] }, { rows: [sub] }, { rows: [tpm] }, { rows: [misc] }] = [
+    await client.query(
       `SELECT
          (SELECT count(*) FROM admin_areas WHERE tenant_id = $1)::int AS areas_total,
          (SELECT count(*) FROM admin_areas WHERE tenant_id = $1 AND depth = 3)::int AS communes,
@@ -28,7 +28,7 @@ async function healthCounts(client, tenantId) {
        FROM (SELECT count(*)::int AS total, count(*) FILTER (WHERE adm3_pcode IS NULL)::int AS no_pcode,
                     count(*) FILTER (WHERE field_office_id IS NULL)::int AS no_office
                FROM sites WHERE tenant_id = $1) s`, [tenantId]),
-    client.query(
+    await client.query(
       `WITH last AS (SELECT max(period_month) AS m FROM monitoring_submissions WHERE tenant_id = $1)
        SELECT count(*)::int AS total,
               count(*) FILTER (WHERE field_office_id IS NULL)::int AS no_office,
@@ -41,7 +41,7 @@ async function healthCounts(client, tenantId) {
               (SELECT COALESCE(sum((q.occurrences->>'soumissions')::int), 0) FROM location_match_queue q
                 WHERE q.tenant_id = $1 AND q.status IN ('a_valider', 'ambigu', 'introuvable'))::int AS queue_submissions
          FROM monitoring_submissions WHERE tenant_id = $1`, [tenantId]),
-    client.query(
+    await client.query(
       `WITH tpm AS (SELECT p.id FROM partners p JOIN partner_types t ON t.id = p.partner_type_id AND t.tenant_id = p.tenant_id
                      WHERE p.tenant_id = $1 AND p.active AND t.code = 'tpm'),
             active_contracts AS (SELECT c.id, c.partner_id FROM contracts c WHERE c.tenant_id = $1 AND c.status = 'actif')
@@ -51,7 +51,7 @@ async function healthCounts(client, tenantId) {
               (SELECT count(*) FROM active_contracts c JOIN tpm ON tpm.id = c.partner_id
                 WHERE NOT EXISTS (SELECT 1 FROM contract_budget_items b WHERE b.tenant_id = $1 AND b.contract_id = c.id AND b.line_code = $2))::int AS no_line`,
       [tenantId, MONITORING_LINE]),
-    client.query(
+    await client.query(
       `WITH months AS (
          SELECT DISTINCT period_month AS m FROM tpm_collection_plans WHERE tenant_id = $1
          UNION SELECT DISTINCT period_month FROM tpm_reports WHERE tenant_id = $1 AND kind = 'financier')
@@ -63,7 +63,7 @@ async function healthCounts(client, tenantId) {
               (SELECT center_lat IS NOT NULL AND center_lng IS NOT NULL FROM country_profiles WHERE tenant_id = $1) AS center,
               (SELECT count(*) FROM users WHERE tenant_id = $1 AND active AND role IN ('admin', 'manager'))::int AS validators`,
       [tenantId]),
-  ]);
+  ];
   return {
     areas: { total: g.areas_total, communes: g.communes, communesWithPcode: g.communes_pcode },
     detachedZones: g.detached,

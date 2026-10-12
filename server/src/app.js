@@ -98,8 +98,10 @@ function createApp() {
   app.use('/api/pdd', pddRoutes);
   app.use('/api/report-designer', reportDesignerRoutes);
   // État de la base pour l'écran : migrations en attente (bandeau administrateur).
+  // Nombre de mises à jour de schéma en attente pour tous ; leurs noms de fichiers pour l'admin seul.
   app.get('/api/system/status', requireAuth, asyncHandler(async (req, res) => {
-    res.json({ pendingMigrations: await checkSchema() });
+    const pending = await checkSchema();
+    res.json({ pendingCount: pending.length, ...(req.auth.role === 'admin' ? { pendingMigrations: pending } : {}) });
   }));
 
   // Anything else is a routing mistake, not a server error.

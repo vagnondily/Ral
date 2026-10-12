@@ -1,5 +1,6 @@
 const ExcelJS = require('exceljs');
 const { officeResolver } = require('../common/placeMatch');
+const { loadWorkbook } = require('../common/xlsxGuard');
 
 /**
  * Paramètres MMR ⇄ Excel (feuille « Paramètres MMR »), aller-retour :
@@ -139,8 +140,7 @@ function findHeader(ws) {
  * @returns {Promise<{ rows, errors: Array<{row,message}>, skipped: Array<{row,message}>, sheet }>}
  */
 async function parseMmrWorkbook(buffer, offices = []) {
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
+  const wb = await loadWorkbook(buffer);
   const candidates = [wb.getWorksheet(SHEET), wb.worksheets.find((w) => /overr?each?ing|overarching/i.test(w.name)), ...wb.worksheets].filter(Boolean);
   let ws = null; let header = null;
   for (const w of candidates) { header = findHeader(w); if (header) { ws = w; break; } }

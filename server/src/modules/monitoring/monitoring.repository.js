@@ -5,10 +5,10 @@ const { computeAll, overallIndex } = require('./monitoringMath');
 const { classDistribution, dimGroups, topFlop, classify } = require('./coverageDashboard');
 const { detectMapping, DIMENSION_COLUMN, EDITABLE_KEYS } = require('./memsMapping');
 const { computeCalcFields } = require('./calcFields');
-const { buildLookup } = require('./submissionsImport');
+const { buildLookup, groupPathRenamer, TRIM_CLASS } = require('./submissionsImport');
 const { templateForActivity, moduleLabel, suggestBindings, indicatorFromItem } = require('./indicatorTemplates');
 const { OTHER_VALUES } = require('./memsMapping');
-const { applySubmissionsGeoTx, officeChoiceLabelsTx, choiceLabelsTx } = require('../settings/placeMatch.repository');
+const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx } = require('../settings/placeMatch.repository');
 
 /** Charge les champs calculés d'une fiche (ordre), pour l'analyse et la grille. */
 async function calcDefsFor(client, tenantId, formId) {
@@ -93,6 +93,8 @@ async function updateForm(tenantId, id, { label, active, activityCategory }) {
         WHERE tenant_id = $1 AND id = $2`,
       [tenantId, id, label ?? null, active ?? null, activityCategory !== undefined, activityCategory ?? null]
     );
+    // L'activité de la fiche délimite les sites candidats : les formulaires reçus sont reliés à nouveau.
+    if (rowCount === 1 && activityCategory !== undefined) await applySubmissionSitesTx(client, tenantId);
     return rowCount === 1;
   });
 }
@@ -363,8 +365,11 @@ async function formSubmissions(tenantId, formId, { month, limit = 200 } = {}) {
       params
     );
     // Codes → libellés (« 6 » → « Ambovombe ») des colonnes typées, d'après les listes de la fiche.
-    const labelMaps = Object.fromEntries(await Promise.all(['field_office', 'partner', 'agent', 'site']
-      .map(async (dim) => [dim, ((await choiceLabelsTx(client, tenantId, dim)).get(formId)) || new Map()])));
+    // Une requête à la fois sur le client de la transaction (pg ne les parallélise pas).
+    const labelMaps = {};
+    for (const dim of ['field_office', 'partner', 'agent', 'site']) {
+      labelMaps[dim] = ((await choiceLabelsTx(client, tenantId, dim)).get(formId)) || new Map();
+    }
     for (const r of rows) {
       r.fieldOfficeLabel = (r.fieldOffice != null && labelMaps.field_office.get(String(r.fieldOffice))) || null;
       r.partnerLabel = (r.partner != null && labelMaps.partner.get(String(r.partner))) || null;
@@ -582,7 +587,9 @@ async function reliftSubmissionsTx(client, tenantId, formId) {
   const ref = (value) => { params.push(value); return `$${params.length}`; };
   let otherRef = null; // valeurs « autre » (999…) : paramètre ajouté seulement s'il sert
   const otherValues = () => { otherRef = otherRef || ref([...OTHER_VALUES]); return otherRef; };
-  const cell = (name) => `NULLIF(btrim(data->>${ref(name)}), '')`;
+  // Même nettoyage que l'import (String.prototype.trim) : espaces insécables compris.
+  const trim = (x) => `regexp_replace(${x}, '^[${TRIM_CLASS}]+|[${TRIM_CLASS}]+$', '', 'g')`;
+  const cell = (name) => `NULLIF(${trim(`data->>${ref(name)}`)}, '')`;
   const exprFor = (dimension) => {
     if (forced.has(dimension)) return forced.get(dimension) ? cell(forced.get(dimension)) : 'NULL';
     const cands = (picks.candidates && picks.candidates[dimension]) || [];
@@ -591,7 +598,7 @@ async function reliftSubmissionsTx(client, tenantId, formId) {
       const others = (picks.others[dimension] && picks.others[dimension].get(i)) || [];
       const base = cell(keys[i]);
       if (!others.length) return base;
-      return `CASE WHEN lower(btrim(data->>${ref(keys[i])})) = ANY(${otherValues()}::text[]) THEN COALESCE(${others.map((j) => cell(keys[j])).join(', ')}, ${base}) ELSE ${base} END`;
+      return `CASE WHEN lower(${trim(`data->>${ref(keys[i])}`)}) = ANY(${otherValues()}::text[]) THEN COALESCE(${others.map((j) => cell(keys[j])).join(', ')}, ${base}) ELSE ${base} END`;
     });
     return parts.length === 1 ? parts[0] : `COALESCE(${parts.join(', ')})`;
   };
@@ -622,7 +629,8 @@ async function importDefinition(tenantId, { code, label }, fields, choicesMap) {
       formId = rows[0].id;
     }
     await client.query('DELETE FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
-    await client.query('DELETE FROM monitoring_choices WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
+    // Les étiquettes venues des exports SPSS (« sav: ») ne sont pas dans le XLSForm : on les garde.
+    await client.query("DELETE FROM monitoring_choices WHERE tenant_id = $1 AND form_id = $2 AND list_name NOT LIKE 'sav:%'", [tenantId, formId]);
 
     // Instructions multi-lignes par lots (jamais N requêtes en boucle, jamais au-delà
     // de la limite de paramètres de PostgreSQL — un XLSForm peut porter 20 000 choix).
@@ -642,6 +650,13 @@ async function importDefinition(tenantId, { code, label }, fields, choicesMap) {
       await insertChoices(client, tenantId, formId, flatChoices);
       choiceCount = flatChoices.length;
     }
+    // Champs codés que le XLSForm ne décrit pas par une liste (« field_office » en texte, exporté 1…10) :
+    // reliés de nouveau à leurs étiquettes SPSS déjà reçues (« sav:Field_office »), casse ignorée.
+    await client.query(
+      `UPDATE monitoring_form_fields f SET list_name = c.list_name
+         FROM (SELECT DISTINCT list_name FROM monitoring_choices WHERE tenant_id = $1 AND form_id = $2 AND list_name LIKE 'sav:%') c
+        WHERE f.tenant_id = $1 AND f.form_id = $2 AND f.list_name IS NULL AND lower('sav:' || f.name) = lower(c.list_name)`,
+      [tenantId, formId]);
     return { formId, fields: fields.length, choices: choiceCount };
   });
 }
@@ -662,19 +677,31 @@ async function importSubmissions(tenantId, formId, submissions, { variables } = 
       'SELECT dimension, column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2',
       [tenantId, formId]
     );
+    // Valeur nettoyée comme à l'import automatique (valueOf) et à la relecture SQL.
     const applyOverrides = (s) => {
       for (const o of ov) {
         const prop = SUB_PROP[o.dimension]; if (!prop) continue;
-        if (o.columnName && o.columnName.trim()) {
-          const v = s.data ? s.data[o.columnName.trim()] : undefined;
-          s[prop] = (v == null || v === '') ? null : String(v);
-        } else { s[prop] = null; }
+        const col = (o.columnName || '').trim();
+        const v = col && s.data ? s.data[col] : undefined;
+        const t = v == null ? '' : String(v).trim();
+        s[prop] = t === '' ? null : t;
       }
     };
+    // Clés des réponses ramenées aux noms du catalogue (export Excel « avec les groupes ») :
+    // les mêmes clés quel que soit le format, donc les mêmes indicateurs.
+    const { rows: names } = await client.query(
+      'SELECT name FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
+    const canonical = groupPathRenamer(names.map((r) => r.name));
 
     let inserted = 0;
     // Insert row by row so ON CONFLICT dedup (per _uuid) is simple and safe.
+    // Même soumission déjà reçue : le MÊME format la remplace (corrections faites dans Kobo) ;
+    // un AUTRE format (Excel après SPSS…) la complète sans effacer ce qu'il ne porte pas.
+    const merged = (col) => `${col} = CASE WHEN monitoring_submissions.source IS NOT DISTINCT FROM EXCLUDED.source
+      THEN EXCLUDED.${col} ELSE COALESCE(EXCLUDED.${col}, monitoring_submissions.${col}) END`;
+    const TYPED = ['period_month', 'submitted_at', 'field_office', 'admin1', 'admin2', 'admin3', 'admin4', 'site', 'partner', 'agent'];
     for (const s of submissions) {
+      s.data = canonical(s.data || {});
       if (ov.length) applyOverrides(s);
       const res = await client.query(
         `INSERT INTO monitoring_submissions
@@ -682,12 +709,12 @@ async function importSubmissions(tenantId, formId, submissions, { variables } = 
             admin1, admin2, admin3, admin4, site, partner, agent, source, data)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
          ON CONFLICT (form_id, external_id) DO UPDATE SET
-           period_month = EXCLUDED.period_month, submitted_at = EXCLUDED.submitted_at,
-           field_office = EXCLUDED.field_office, admin1 = EXCLUDED.admin1, admin2 = EXCLUDED.admin2,
-           admin3 = EXCLUDED.admin3, admin4 = EXCLUDED.admin4, site = EXCLUDED.site,
-           partner = EXCLUDED.partner, agent = EXCLUDED.agent, source = EXCLUDED.source, data = EXCLUDED.data`,
+           ${TYPED.map(merged).join(',\n           ')},
+           data = CASE WHEN monitoring_submissions.source IS NOT DISTINCT FROM EXCLUDED.source
+             THEN EXCLUDED.data ELSE monitoring_submissions.data || EXCLUDED.data END,
+           source = EXCLUDED.source`,
         [tenantId, formId, s.externalId, s.periodMonth, s.submittedAt, s.fieldOffice,
-          s.admin1, s.admin2, s.admin3, s.admin4, s.site, s.partner, s.agent, s.source, JSON.stringify(s.data || {})]
+          s.admin1, s.admin2, s.admin3, s.admin4, s.site, s.partner, s.agent, s.source, JSON.stringify(s.data)]
       );
       inserted += res.rowCount;
     }

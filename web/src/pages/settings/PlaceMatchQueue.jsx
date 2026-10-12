@@ -194,7 +194,8 @@ function ChooseAreaModal({ row, busy, onClose, onPick }) {
         <span className="field-label">{tr('Rechercher')}</span>
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
       </label>
-      {list === null ? <Skeleton height={120} /> : list.length === 0 ? <Alert tone="info">{tr('Aucune unité trouvée. Créez-la dans le répertoire des localités si elle manque.')}</Alert> : (
+      {short ? <p className="muted">{tr('Tapez au moins 2 caractères du nom, du code ou de la commune du site.')}</p>
+        : list === null ? <Skeleton height={120} /> : list.length === 0 ? <Alert tone="info">{tr('Aucune unité trouvée. Créez-la dans le répertoire des localités si elle manque.')}</Alert> : (
         <ul className="pm-pick">
           {list.map((a) => (
             <li key={a.id}>
@@ -213,12 +214,15 @@ function ChooseAreaModal({ row, busy, onClose, onPick }) {
 function ChooseSiteModal({ row, busy, onClose, onPick }) {
   const { tr } = useI18n();
   const first = String(row.rawLabel || '').replace(/\s*\(.*\)$/, '');
-  const [q, setQ] = useState(/^[A-Za-z]{2,3}\d{4,}/.test(first) || /^\d+$/.test(first) ? (row.parentLabel || '') : first.slice(0, 6));
+  // Code d'école (chiffres) : cherché tel quel ; pcode de fokontany : sa commune ; sinon le début du nom.
+  const [q, setQ] = useState(/^\d+$/.test(first) ? first : /^[A-Za-z]{2,3}\d{4,}/.test(first) ? (row.parentLabel || first) : first.slice(0, 6));
   const [list, setList] = useState(null);
+  const short = !q || q.trim().length < 2;
   useEffect(() => {
     let alive = true;
+    setList(null);
     const h = setTimeout(async () => {
-      if (!q || q.trim().length < 2) { if (alive) setList([]); return; }
+      if (short) return; // rien cherché : pas de « aucun site trouvé »
       try { const r = await api.fieldSites(q.trim()); if (alive) setList((r || []).slice(0, 40)); } catch { if (alive) setList([]); }
     }, 250);
     return () => { alive = false; clearTimeout(h); };
@@ -230,7 +234,8 @@ function ChooseSiteModal({ row, busy, onClose, onPick }) {
         <span className="field-label">{tr('Rechercher un site (nom, code, commune)')}</span>
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
       </label>
-      {list === null ? <Skeleton height={120} /> : list.length === 0 ? <Alert tone="info">{tr('Aucun site trouvé. Ajoutez-le au référentiel (Suivi de processus › Plan de suivi) s\'il manque.')}</Alert> : (
+      {short ? <p className="muted">{tr('Tapez au moins 2 caractères du nom, du code ou de la commune du site.')}</p>
+        : list === null ? <Skeleton height={120} /> : list.length === 0 ? <Alert tone="info">{tr('Aucun site trouvé. Ajoutez-le au référentiel (RBM & plan de suivi › Sites) s\'il manque.')}</Alert> : (
         <ul className="pm-pick">
           {list.map((s) => (
             <li key={s.id}>

@@ -392,7 +392,8 @@ export default {
   'Relier « {label} » à un site': 'Link “{label}” to a site',
   'Déclaré dans {parent}.': 'Declared in {parent}.',
   'Rechercher un site (nom, code, commune)': 'Search a site (name, code, commune)',
-  'Aucun site trouvé. Ajoutez-le au référentiel (Suivi de processus › Plan de suivi) s\'il manque.': 'No site found. Add it to the registry (Process monitoring › Monitoring plan) if it is missing.',
+  'Aucun site trouvé. Ajoutez-le au référentiel (RBM & plan de suivi › Sites) s\'il manque.': 'No site found. Add it to the registry (RBM & monitoring plan › Sites) if it is missing.',
+  'Tapez au moins 2 caractères du nom, du code ou de la commune du site.': 'Type at least 2 characters of the site name, code or commune.',
   // Modèle d'indicateurs de l'activité (liaison des variables).
   'Rattachez la fiche à une activité pour profiter de son modèle d\'indicateurs (variables proposées automatiquement).': 'Link the form to an activity to use its indicator template (variables suggested automatically).',
   '{n} indicateur(s) créé(s) ou mis à jour depuis le modèle « {label} ».': '{n} indicator(s) created or updated from the “{label}” template.',

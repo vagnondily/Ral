@@ -1,5 +1,5 @@
-const ExcelJS = require('exceljs');
 const { SECTIONS } = require('./budgetCatalog');
+const { loadWorkbook } = require('../common/xlsxGuard');
 
 // Parse an uploaded FLA budget workbook (the standard FLA budget
 // template) and extract its cost items (postes), so the contract form can be
@@ -149,8 +149,7 @@ function parseBudgetAccord(wb) {
 }
 
 async function parseFlaBudget(buffer) {
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
+  const wb = await loadWorkbook(buffer);
   const items = [];
 
   for (const ws of wb.worksheets) {

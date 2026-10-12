@@ -104,3 +104,57 @@ test('file et graphie apprise : un code vaut pour tout le pays, un nom dans sa c
   const x = resolveSite(learned, { value: 'MG52518010012', areaOf, activity: URT });
   assert.equal(x.status, 'alias'); assert.equal(x.site.id, 's1');
 });
+
+// --- Garde-fous (relecture adverse) ------------------------------------------------
+const SCHOOL = [{ id: 'e1', name: 'EPP TERABOVO', activity: SMP, adm3Pcode: 'MG52518010' }];
+const fktTerabovo = (p) => (p === 'MG52518010030' ? { pcode: p, name: 'Terabovo', depth: 4, parentPcode: 'MG52518010' } : null);
+
+test('activité : une distribution GD n\'est jamais reliée seule à l\'école du fokontany ; sans activité de fiche, seulement proposé', () => {
+  const idx2 = buildSiteIndex(SCHOOL);
+  const gd = resolveSite(idx2, { value: 'MG52518010030', activity: URT, areaOf: fktTerabovo });
+  assert.equal(gd.status, 'a_valider'); assert.equal(gd.site, null); assert.equal(gd.candidates[0].site.id, 'e1');
+  const none = resolveSite(idx2, { value: 'MG52518010030', areaOf: fktTerabovo });
+  assert.equal(isAutomaticSite(none.status), false);
+  assert.equal(resolveSite(idx2, { value: 'MG52518010030', activity: SMP, areaOf: fktTerabovo }).status, 'lieu');
+});
+
+test('commune connue sans site : un homonyme ailleurs dans le district n\'est que proposé', () => {
+  const idx2 = buildSiteIndex([{ id: 't1', name: 'TANAMBAO', activity: URT, adm2Pcode: 'MG52514', adm3Pcode: 'MG52514011B' }]);
+  const x = resolveSite(idx2, { value: 'Tanambao', adm2: 'MG52514', adm3: 'MG52514011A', activity: URT });
+  assert.equal(x.status, 'a_valider'); assert.equal(x.site, null);
+  // Commune inconnue : le district fait foi.
+  assert.equal(resolveSite(idx2, { value: 'Tanambao', adm2: 'MG52514', activity: URT }).status, 'nom');
+});
+
+test('graphie apprise sans zone : ne s\'applique pas là où la commune est connue', () => {
+  const idx2 = buildSiteIndex(SITES, { aliases: [{ parentKey: '', aliasKey: siteKey('Antatabe'), targetId: 's9' }] });
+  assert.equal(resolveSite(idx2, { value: 'Antatabe', adm3: 'MG51506013', activity: NUT }).site.id, 's8');
+  assert.equal(resolveSite(idx2, { value: 'Antatabe' }).site.id, 's9');
+});
+
+test('petit code de liste (« 3 ») : clé par libellé dans sa zone, pas un code valable partout', () => {
+  assert.deepEqual(queueKeyOf({ value: '3', label: 'Maheny', adm3: 'MG25222010' }), { parentKey: 'MG25222010', rawKey: siteKey('Maheny'), rawLabel: 'Maheny (3)' });
+  const idx2 = buildSiteIndex(SITES, { aliases: [{ parentKey: '', aliasKey: 'code:3', targetId: 's5' }] });
+  assert.notEqual(resolveSite(idx2, { value: '3', label: 'Ambovombe', adm3: 'MG51506013' }).status, 'alias');
+});
+
+test('« deduit » : jamais vers un autre numéro (Beavake → BEAVAKE I) ni vers le site d\'un autre fokontany', () => {
+  const idx2 = buildSiteIndex([
+    { id: 'b1', name: 'BEAVAKE I', activity: URT, adm3Pcode: 'MG51507110' },
+    { id: 'b2', name: 'ANALALAVA CENTRE', activity: URT, adm3Pcode: 'MG51507110', adm4Pcode: 'MG51507110099' },
+  ]);
+  const areaOf = (p) => ({ MG51507110004: { pcode: 'MG51507110004', name: 'Beavake', depth: 4, parentPcode: 'MG51507110' },
+    MG51507110005: { pcode: 'MG51507110005', name: 'Analalava', depth: 4, parentPcode: 'MG51507110' } }[p] || null);
+  assert.equal(isAutomaticSite(resolveSite(idx2, { value: 'MG51507110004', activity: URT, areaOf }).status), false);
+  assert.equal(isAutomaticSite(resolveSite(idx2, { value: 'MG51507110005', activity: URT, areaOf }).status), false);
+});
+
+test('valeur sans contenu (« - », « . ») : vide, rien en file ; clé longue bornée à 200 caractères', () => {
+  for (const v of ['-', '.', '/', '___']) {
+    assert.equal(resolveSite(idx, { value: v, adm3: 'MG51506013' }).status, 'vide', v);
+    assert.equal(queueKeyOf({ value: v, adm3: 'MG51506013' }).rawKey, '', v);
+  }
+  const long = 'Site '.repeat(80);
+  const k1 = queueKeyOf({ value: `${long}A`, adm3: 'X' }).rawKey; const k2 = queueKeyOf({ value: `${long}B`, adm3: 'X' }).rawKey;
+  assert.ok(k1.length <= 200 && k2.length <= 200); assert.notEqual(k1, k2);
+});

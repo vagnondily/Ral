@@ -1,4 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
+const { afterSitesChangedTx } = require('../settings/placeMatch.repository');
 const { sitePatchSql } = require('./sitePatch');
 const { chunkRows } = require('../../db/batch');
 const { summarizeVisits, collectionDays, buildCoverageMatrix } = require('./fieldMath');
@@ -71,6 +72,7 @@ async function createSiteTx(client, tenantId, s) {
        RETURNING id`,
       [tenantId, code, s.district, s.commune, s.fokontany || null, s.name, s.activity || null]
     );
+    await afterSitesChangedTx(client, tenantId); // registre modifié : lieux, bureau et formulaires reçus reliés à nouveau
     return rows[0].id;
   } catch (err) {
     if (err.code === '23505') throw duplicateSite(null); // création simultanée du même site
@@ -88,6 +90,7 @@ async function updateSite(tenantId, id, patch) {
     }
     const { rowCount } = await client.query(
       `UPDATE sites SET ${sets.join(', ')} WHERE tenant_id = $1 AND id = $2`, [tenantId, id, ...values]);
+    await afterSitesChangedTx(client, tenantId); // registre modifié : lieux, bureau et formulaires reçus reliés à nouveau
     return rowCount > 0;
   });
 }
@@ -200,6 +203,7 @@ async function importMasterData(tenantId, rows) {
       );
       if (out[0].inserted) inserted += 1;
     }
+    await afterSitesChangedTx(client, tenantId); // registre modifié : lieux, bureau et formulaires reçus reliés à nouveau
     return { total: clean.length, inserted };
   });
 }
@@ -282,6 +286,7 @@ async function importPlanSites(tenantId, userId, sites) {
         visits += rowCount;
       }
     }
+    await afterSitesChangedTx(client, tenantId); // registre modifié : lieux, bureau et formulaires reçus reliés à nouveau
     return { total, upserted, lastVisits: visits };
   });
 }
@@ -678,6 +683,7 @@ async function importPlanning(tenantId, userId, month, rows) {
       );
       visits += res.rowCount;
     }
+    await afterSitesChangedTx(client, tenantId); // registre modifié : lieux, bureau et formulaires reçus reliés à nouveau
     return { sitesInserted: inserted, sitesTotal: clean.length, visitsCreated: visits };
   });
 }
@@ -950,6 +956,7 @@ async function importLocations(tenantId, userId, { year, rows }, { commit = fals
         plannedAdded += r.rowCount;
       }
     }
+    await afterSitesChangedTx(client, tenantId); // registre modifié : lieux, bureau et formulaires reçus reliés à nouveau
     return { ...summary, committed: true, statuses, plannedAdded };
   });
 }
@@ -1053,6 +1060,7 @@ async function bulkUpdateSites(tenantId, userId, { year, siteIds, set = {}, stat
     } else if (plan) {
       result.plan = await planMonthsTx(client, tenantId, userId, year, ids.map((id) => ({ siteId: id, month: plan.month, planned: plan.planned })));
     }
+    await afterSitesChangedTx(client, tenantId); // registre modifié : lieux, bureau et formulaires reçus reliés à nouveau
     return result;
   });
 }
@@ -1084,6 +1092,7 @@ async function addSite(tenantId, s, { today = new Date() } = {}) {
       `INSERT INTO site_month_status (tenant_id, site_id, year, month, active) VALUES ($1, $2, $3, $4, true)
        ON CONFLICT (site_id, year, month) DO UPDATE SET active = true, updated_at = now()`,
       [tenantId, row.id, today.getUTCFullYear(), today.getUTCMonth() + 1]);
+    await afterSitesChangedTx(client, tenantId); // registre modifié : lieux, bureau et formulaires reçus reliés à nouveau
     return row;
   });
 }

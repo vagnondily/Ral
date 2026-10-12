@@ -6,6 +6,7 @@ const { badRequest } = require('../../middleware/errors');
 const service = require('./contracts.service');
 const v = require('./contracts.validation');
 const { parseFlaBudget } = require('./budgetImport');
+const { isRefusal } = require('../common/xlsxGuard');
 
 const router = Router();
 router.use(requireAuth);
@@ -59,7 +60,8 @@ router.post('/import-budget', WRITE, express.raw({ type: '*/*', limit: '20mb' })
     let parsed;
     try {
       parsed = await parseFlaBudget(req.body);
-    } catch {
+    } catch (err) {
+      if (isRefusal(err)) throw err;
       throw badRequest('Fichier Excel illisible ou format non reconnu.');
     }
     if (!parsed.items.length) throw badRequest('Aucun poste budgétaire trouvé dans le fichier (feuilles « Détails Section … »).');

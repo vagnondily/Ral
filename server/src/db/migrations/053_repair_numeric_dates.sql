@@ -16,10 +16,15 @@
 -- effet (après réparation, plus aucune ligne ne répond au filtre).
 
 WITH broken AS (
-  SELECT id, round(extract(epoch FROM submitted_at) * 1000)::numeric AS n
-    FROM monitoring_submissions
-   WHERE submitted_at < '2000-01-01'
-     AND (period_month IS NULL OR period_month < '2000-01-01')
+  SELECT s.id, round(extract(epoch FROM s.submitted_at) * 1000)::numeric AS n
+    FROM monitoring_submissions s
+   WHERE s.submitted_at < '2000-01-01'
+     AND (s.period_month IS NULL OR s.period_month < '2000-01-01')
+     -- Seulement si les réponses brutes contiennent ce NOMBRE (la valeur mal lue) : une vraie date
+     -- ISO de 1970 (« 1970-01-20T08:00:00Z ») n'est jamais réinterprétée.
+     AND EXISTS (SELECT 1 FROM jsonb_each_text(s.data) e
+                  WHERE e.value ~ '^\d+(\.\d+)?$'
+                    AND trunc(e.value::numeric) = round(extract(epoch FROM s.submitted_at) * 1000))
 ), fixed AS (
   SELECT id,
          CASE

@@ -12,6 +12,7 @@ const { configHealth } = require('./health.repository');
 const { directoryCsv } = require('./localities.domain');
 const { attachmentHeader } = require('../common/csv');
 const { buildMmrWorkbook, parseMmrWorkbook } = require('../tpm/mmrXlsx');
+const { isRefusal } = require('../common/xlsxGuard');
 
 const router = Router();
 router.use(requireAuth);
@@ -145,6 +146,7 @@ router.post('/mmr/import', ADMIN, express.raw({ type: '*/*', limit: '20mb' }), a
   if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
   let parsed;
   try { parsed = await parseMmrWorkbook(req.body, await repo.officeRefs(t(req))); } catch (err) {
+    if (isRefusal(err)) throw err;
     if (err && err.code === 'NO_SHEET') throw badRequest('Aucune feuille de paramètres MMR reconnue (colonnes Catégorie d\'activité, Durée, Risque).');
     throw badRequest('Fichier Excel illisible.');
   }
