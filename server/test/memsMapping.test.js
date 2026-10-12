@@ -8,8 +8,9 @@ test('detectMapping maps well-known columns to MEMS dimensions (accent/case tole
   const by = Object.fromEntries(m.map((r) => [r.key, r.column]));
   assert.equal(by.submitted_at, '_submission_time');
   assert.equal(by.admin1, 'Region');            // insensible à la casse
-  assert.equal(by.admin3, 'District');
-  assert.equal(by.admin4, 'commune');
+  assert.equal(by.admin2, 'District');          // niveaux alignés sur les Localités : 2 = district
+  assert.equal(by.admin3, 'commune');           // 3 = commune (clé de liaison aux sites)
+  assert.equal(by.admin4, null);
   assert.equal(by.site, 'SiteName');
   assert.equal(by.partner, 'ENUpartner');
   assert.equal(by.agent, null);                  // non présent → non mappé
@@ -18,7 +19,7 @@ test('detectMapping maps well-known columns to MEMS dimensions (accent/case tole
 test('detectMapping keeps the first original column name and returns every dimension', () => {
   const m = detectMapping(['admin1', 'admin1name']);
   const a1 = m.find((r) => r.key === 'admin1');
-  assert.equal(a1.column, 'admin1name');         // 1ᵉʳ alias trouvé dans l'ordre des alias
+  assert.equal(a1.column, 'admin1');             // le code (pcode) passe avant le nom
   assert.equal(m.length, DIMENSIONS.length);     // une ligne par dimension, matchée ou non
 });
 

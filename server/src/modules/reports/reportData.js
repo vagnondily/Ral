@@ -114,21 +114,35 @@ function computeKpis(sources, filters = {}) {
   const forms = formsOf(sources.monitoring, filters);
   const offices = ((sources.field && sources.field.byOffice) || []).filter((b) => !filters.bureau || b.bureau === filters.bureau);
   const sum = (arr, k) => arr.reduce((a, x) => a + (Number(x[k]) || 0), 0);
-  const sitesActiveForms = forms.filter((f) => f.sitesActive != null);
-  const sitesActive = sitesActiveForms.length ? sum(sitesActiveForms, 'sitesActive') : sum(offices, 'sitesActive');
-  const sitesVisited = sum(forms, 'sitesVisited');
+  // Filtre bureau : visites, sites visités et indice viennent du détail PAR bureau de chaque fiche.
+  const scoped = filters.bureau
+    ? forms.map((f) => {
+      const b = (f.bureaux || []).find((x) => x.bureau === filters.bureau) || {};
+      return { ...f, visits: b.visits ?? b.n ?? 0, sitesVisited: b.sitesVisited ?? 0, index: b.index ?? null };
+    })
+    : forms;
+  const sitesVisited = sum(scoped, 'sitesVisited');
+  // Couverture : numérateur et dénominateur sur le MÊME ensemble — les fiches rattachées à une
+  // activité du MMR (sites actifs connus) ; à défaut, ou par bureau, les sites actifs du terrain.
+  const linked = scoped.filter((f) => f.sitesActive != null);
+  const byForms = !filters.bureau && linked.length > 0;
+  const sitesActive = byForms ? sum(linked, 'sitesActive') : sum(offices, 'sitesActive');
+  const visitedForCoverage = byForms ? sum(linked, 'sitesVisited') : sitesVisited;
   const planned = sum(offices, 'planned'); const done = sum(offices, 'done');
-  const indices = forms.map((f) => (filters.bureau ? (f.bureaux.find((b) => b.bureau === filters.bureau) || {}).index : f.index)).filter((x) => x != null);
+  const indices = scoped.map((f) => f.index).filter((x) => x != null);
   const budgetRows = (sources.budget && sources.budget.rows) || [];
   const pddRows = sources.pdd || [];
   const budgetTotal = sum(budgetRows, 'budget'); const budgetActual = sum(budgetRows, 'actual');
   return {
-    sites_active: sitesActive, sites_visited: sitesVisited, coverage: pct(sitesVisited, sitesActive),
+    sites_active: sitesActive, sites_visited: sitesVisited, coverage: pct(visitedForCoverage, sitesActive),
     visits_done: done, visits_planned: planned, execution_rate: pct(done, planned),
-    submissions: filters.formId || filters.bureau ? sum(forms, 'visits') : (sources.monitoring ? sources.monitoring.submissions : 0),
+    submissions: filters.formId || filters.bureau ? sum(scoped, 'visits') : (sources.monitoring ? sources.monitoring.submissions : 0),
     conformity: indices.length ? Math.round(indices.reduce((a, b) => a + b, 0) / indices.length) : null,
     budget_total: budgetTotal, budget_actual: budgetActual, consumption: pct(budgetActual, budgetTotal),
-    pdd_beneficiaries: sum(pddRows, 'beneficiaries'), pdd_food: Math.round(sum(pddRows, 'food') * 10) / 10, pdd_cash: Math.round(sum(pddRows, 'cash')),
+    // Le PDD n'est pas encore relié aux bureaux : pas de total national déguisé en chiffre de bureau.
+    pdd_beneficiaries: filters.bureau ? null : sum(pddRows, 'beneficiaries'),
+    pdd_food: filters.bureau ? null : Math.round(sum(pddRows, 'food') * 10) / 10,
+    pdd_cash: filters.bureau ? null : Math.round(sum(pddRows, 'cash')),
   };
 }
 

@@ -428,7 +428,7 @@ export const api = {
   updatePlan: (id, input) => request(`/api/tpm/planning/${id}`, { method: 'PUT', body: input }),
   deletePlan: (id) => request(`/api/tpm/planning/${id}`, { method: 'DELETE' }),
   // Liaison : postes du plan pour pré-remplir une facture (même contrat + mois)
-  planningPrefill: (contractId, month) => request('/api/tpm/planning/prefill', { query: { contractId, month } }),
+  planningPrefill: (partnerId, contractId, month) => request('/api/tpm/planning/prefill', { query: { partnerId, contractId, month } }),
 
   // Import Excel de postes (facture / plan) — validé côté serveur, non persisté
   importPostes: async (file) => {

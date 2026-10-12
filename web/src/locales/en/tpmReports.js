@@ -92,8 +92,8 @@ export default {
   'Motif obligatoire.': 'Reason required.',
 
   // FactureDrawer
-  "Choisissez d'abord le contrat.": 'Select the contract first.',
-  'Aucun plan de collecte pour ce contrat et ce mois.': 'No collection plan for this contract and month.',
+  "Choisissez d'abord le prestataire et le contrat.": 'Select the provider and the contract first.',
+  'Aucun plan de collecte de ce prestataire pour ce contrat et ce mois.': 'No collection plan from this provider for this contract and month.',
   '{n} poste(s) repris du plan de collecte.': '{n} cost item(s) copied from the collection plan.',
   'Choisissez un prestataire.': 'Select a provider.',
   'Choisissez un contrat.': 'Select a contract.',

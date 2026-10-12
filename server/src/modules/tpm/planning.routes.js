@@ -41,9 +41,12 @@ router.get('/', asyncHandler(async (req, res) =>
 
 // Items of the plan matching a contract + month — used to pre-fill a facture.
 router.get('/prefill', asyncHandler(async (req, res) => {
-  const { contractId, month } = req.query;
-  if (!contractId || !/^\d{4}-\d{2}/.test(month || '')) throw badRequest('contractId et month requis.');
-  res.json(await repo.planItemsFor(t(req), { contractId, periodMonth: month }));
+  const { partnerId, contractId, month } = req.query;
+  const uuid = z.string().uuid();
+  if (!uuid.safeParse(partnerId).success || !uuid.safeParse(contractId).success || !/^\d{4}-\d{2}/.test(month || '')) {
+    throw badRequest('partnerId, contractId et month requis.');
+  }
+  res.json(await repo.planItemsFor(t(req), { partnerId, contractId, periodMonth: month }));
 }));
 
 router.get('/:id', asyncHandler(async (req, res) => {

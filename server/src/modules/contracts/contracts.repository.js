@@ -9,6 +9,7 @@
  * Consumption on the monitoring line comes from validated TPM financial
  * reports, not from the contract itself (expenses moved to the TPM module).
  */
+const { REALISED_STATUS } = require('../tpm/realised');
 
 const CONTRACT_COLUMNS = `
   c.id, c.numero, c.partner_name AS "partnerName", c.partner_id AS "partnerId",
@@ -166,10 +167,10 @@ async function forecastData(client, tenantId, contractId) {
   );
   const { rows: monthly } = await client.query(
     `SELECT to_char(period_month, 'YYYY-MM') AS month,
-            COALESCE(SUM(reported_amount) FILTER (WHERE kind = 'financier' AND status IN ('soumis', 'valide')), 0) AS actual
+            COALESCE(SUM(reported_amount) FILTER (WHERE kind = 'financier' AND status = $3), 0) AS actual
        FROM tpm_reports WHERE tenant_id = $1 AND contract_id = $2
       GROUP BY period_month ORDER BY period_month`,
-    [tenantId, contractId]
+    [tenantId, contractId, REALISED_STATUS]
   );
   return { monitoringBudget: num(budgetRows[0].total), monthly: monthly.map((m) => ({ month: m.month, actual: num(m.actual) })) };
 }

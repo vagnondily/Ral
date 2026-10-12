@@ -552,16 +552,17 @@ function PipelineView({ canEdit }) {
                       <td><strong>{r.commodity}</strong></td>
                       <td className="num mono">{fmtMt(r.need)}</td>
                       <td className="num mono">
-                        {canEdit
+                        {canEdit && month
                           ? <input className="input" type="number" min="0" step="0.001" style={{ width: 110, textAlign: 'right' }}
                               value={availVal} onChange={(e) => setDraft({ ...draft, [r.commodity]: { ...d, available: e.target.value } })}
                               onKeyDown={(e) => { if (e.key === 'Enter') saveStock(r.commodity); }} aria-label={tr('Stock {commodity}', { commodity: r.commodity })} />
                           : fmtMt(r.available)}
+                        {!month && r.stockMonth && <div className="site-meta">{tr('stock au {m}', { m: monthLabel(`${r.stockMonth}`) })}</div>}
                       </td>
                       <td className="num mono">{r.shortfall ? <span style={{ color: 'var(--red)' }}>{mtFmt.format(r.gap)}</span> : mtFmt.format(r.gap)}</td>
                       <td style={{ minWidth: 140 }}><Usage rate={r.coverage} /></td>
                       <td>
-                        {canEdit
+                        {canEdit && month
                           ? <input className="input" type="text" style={{ width: 150 }} placeholder={tr('Donateur')}
                               value={donorVal} onChange={(e) => setDraft({ ...draft, [r.commodity]: { ...d, donor: e.target.value } })}
                               onKeyDown={(e) => { if (e.key === 'Enter') saveStock(r.commodity); }} aria-label={tr('Donateur {commodity}', { commodity: r.commodity })} />

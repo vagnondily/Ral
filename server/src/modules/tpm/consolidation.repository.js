@@ -1,4 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
+const { REALISED_STATUS, PENDING_STATUS } = require('./realised');
 const { MONITORING_LINE } = require('../contracts/budgetCatalog');
 const { buildConsolidation } = require('./consolidation');
 
@@ -41,21 +42,21 @@ async function consolidation(tenantId, { today } = {}) {
       [tenantId, MONITORING_LINE]
     );
 
-    // Monthly « Réalisé » per contract, from the financial reports (factures):
-    // amounts at least submitted (soumis) or validated (valide) — rejected
-    // drafts do not consume the budget. The funder (bailleur) share is what
-    // draws down the monitoring budget.
+    // Monthly « Réalisé » per contract = funder share of VALIDATED financial
+    // reports (single definition, see realised.js). Submitted ones are tracked
+    // apart as « en attente de validation » and never added to the Réalisé.
     const { rows: actualRows } = await client.query(
       `SELECT r.contract_id AS "contractId",
               to_char(r.period_month, 'YYYY-MM') AS month,
-              COALESCE(SUM(r.reported_amount)
-                       FILTER (WHERE r.kind = 'financier'
-                               AND r.status IN ('soumis', 'valide')), 0) AS actual
+              COALESCE(SUM(r.reported_amount) FILTER (WHERE r.status = $2), 0) AS actual,
+              COALESCE(SUM(r.reported_amount) FILTER (WHERE r.status = $3), 0) AS pending
          FROM tpm_reports r
-        WHERE r.tenant_id = $1
+        WHERE r.tenant_id = $1 AND r.kind = 'financier'
         GROUP BY r.contract_id, r.period_month`,
-      [tenantId]
+      [tenantId, REALISED_STATUS, PENDING_STATUS]
     );
+    const pendingByContract = new Map();
+    for (const r of actualRows) pendingByContract.set(r.contractId, (pendingByContract.get(r.contractId) || 0) + num(r.pending));
 
     // Monthly « Planifié » per contract, from the collection plans
     // (Planification & budget) — the funder share of the planned postes.
@@ -96,7 +97,11 @@ async function consolidation(tenantId, { today } = {}) {
       monitoringBudget: num(c.monitoringBudget),
     }));
 
-    return buildConsolidation(shaped, monthly, { today });
+    const out = buildConsolidation(shaped, monthly, { today });
+    // Factures soumises non encore validées : montrées à côté du Réalisé, jamais dedans.
+    out.rows = out.rows.map((r) => ({ ...r, pendingValidation: pendingByContract.get(r.contractId) || 0 }));
+    out.totals = { ...out.totals, pendingValidation: out.rows.reduce((a, r) => a + r.pendingValidation, 0) };
+    return out;
   });
 }
 

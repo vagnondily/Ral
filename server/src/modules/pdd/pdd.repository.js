@@ -1,5 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
-const { summarize, pipeline } = require('./pddMath');
+const { summarize, pipeline, latestStock } = require('./pddMath');
 
 /** Seul le repository écrit du SQL. Toute requête filtre tenant_id (RLS). */
 
@@ -74,13 +74,15 @@ async function pipelineData(tenantId, { month } = {}) {
     const sParams = [tenantId]; const sWhere = ['tenant_id = $1'];
     if (month) { sParams.push(monthStart(month)); sWhere.push(`period_month = $${sParams.length}`); }
     const { rows: stock } = await client.query(
-      `SELECT commodity, available_mt::float8 AS qty, donor FROM pdd_stock WHERE ${sWhere.join(' AND ')}`,
+      `SELECT commodity, available_mt::float8 AS qty, donor, to_char(period_month, 'YYYY-MM') AS month
+         FROM pdd_stock WHERE ${sWhere.join(' AND ')}`,
       sParams
     );
+    // Tous les mois : le stock de référence est celui du dernier mois renseigné (affiché « stock au … »).
+    const latest = latestStock(stock);
     const needMap = Object.fromEntries(need.map((r) => [r.commodity, r.qty]));
-    const stockMap = Object.fromEntries(stock.map((r) => [r.commodity, r.qty]));
-    const donorMap = Object.fromEntries(stock.map((r) => [r.commodity, r.donor]));
-    return pipeline(needMap, stockMap).map((r) => ({ ...r, donor: donorMap[r.commodity] || null }));
+    const stockMap = Object.fromEntries(Object.entries(latest).map(([c, s]) => [c, s.qty]));
+    return pipeline(needMap, stockMap).map((r) => ({ ...r, donor: latest[r.commodity]?.donor || null, stockMonth: latest[r.commodity]?.month || null }));
   });
 }
 

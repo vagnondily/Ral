@@ -37,3 +37,27 @@ test('normalizes Kobo JSON objects, flattening group-prefixed keys', () => {
   assert.equal(subs[0].fieldOffice, 'Manakara');
   assert.equal(subs[0].data.CFM_used, 'oui');
 });
+
+const { buildLookup } = require('../src/modules/monitoring/submissionsImport');
+
+test('import : le code de commune passe avant son nom, quel que soit l\'ordre des colonnes', () => {
+  const headers = ['admin3name', 'admin3', 'admin1name', 'admin1'];
+  const rows = [['Ampanihy Ouest', 'MG51507090', 'Atsimo Andrefana', 'MG51'], ['Ejeda', 'MG51507050', 'Atsimo Andrefana', 'MG51']];
+  const picks = buildLookup(headers, rows);
+  assert.equal(headers[picks.admin3], 'admin3');
+  assert.equal(headers[picks.admin1], 'admin1');
+});
+
+test('import : une colonne « admin3 » qui contient des noms cède la place à la colonne de codes', () => {
+  const headers = ['admin3', 'admin3_pcode'];
+  const rows = [['Ampanihy Ouest', 'MG51507090'], ['Ejeda', 'MG51507050']];
+  assert.equal(headers[buildLookup(headers, rows).admin3], 'admin3_pcode');
+});
+
+test('import : en-têtes accentués reconnus (Niveau régional, Énumérateur)', () => {
+  const headers = ['Niveau régional', 'Énumérateur', 'District'];
+  const picks = buildLookup(headers, [['MG51', 'Rasoa', 'MG51507']]);
+  assert.equal(headers[picks.admin1], 'Niveau régional');
+  assert.equal(headers[picks.agent], 'Énumérateur');
+  assert.equal(headers[picks.admin2], 'District');
+});

@@ -244,4 +244,6 @@ export default {
   "Les points d'attention prioritaires : {list}.": 'Priority areas of concern: {list}.',
   'Les régions les plus actives en remontée de données : {list}.': 'Most active regions in data reporting: {list}.',
   'Bulletin recalculé en direct à partir des fiches, indicateurs, visites et du RBM — aucun chiffre saisi à la main.': 'Bulletin recalculated live from forms, indicators, visits and RBM — no figure entered by hand.',
+  'Réalisé (factures validées)': 'Actual (validated invoices)',
+  'Consommation {rate} · {amount} Ar en attente de validation': 'Consumption {rate} · {amount} Ar awaiting validation',
 };

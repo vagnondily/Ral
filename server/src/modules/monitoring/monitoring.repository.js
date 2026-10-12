@@ -751,7 +751,8 @@ async function reportMonitoringData(tenantId, period) {
       const p = [tenantId, fm.id];
       const f = submissionFilter('s', period, p);
       const { rows: subs } = await client.query(
-        `SELECT data, COALESCE(NULLIF(field_office, ''), '(non renseigné)') AS bureau FROM monitoring_submissions s
+        `SELECT data, COALESCE(NULLIF(field_office, ''), '(non renseigné)') AS bureau,
+                COALESCE(NULLIF(site, ''), NULLIF(admin3, '')) AS sitekey FROM monitoring_submissions s
           WHERE s.tenant_id = $1 AND s.form_id = $2${f}`, p);
       const { rows: cnt } = await client.query(
         `SELECT count(*)::int AS visits, count(DISTINCT COALESCE(NULLIF(site, ''), NULLIF(admin3, '')))::int AS "sitesVisited"
@@ -767,7 +768,9 @@ async function reportMonitoringData(tenantId, period) {
       subsC.forEach((sub) => { if (!byBureau.has(sub.bureau)) byBureau.set(sub.bureau, []); byBureau.get(sub.bureau).push(sub); });
       const bureaux = [...byBureau.entries()].sort((a, b) => b[1].length - a[1].length).map(([bureau, list]) => {
         const r = computeAll(inds, list);
-        return { bureau, n: list.length, index: overallIndex(r), dims: dimGroups(r) };
+        // Visites et sites visités PAR bureau (chiffres clés filtrés par bureau du concepteur).
+        const sitesVisited = new Set(list.map((x) => x.sitekey).filter(Boolean)).size;
+        return { bureau, n: list.length, visits: list.length, sitesVisited, index: overallIndex(r), dims: dimGroups(r) };
       });
       out.push({
         id: fm.id, code: fm.code, label: fm.label, activityCategory: fm.activityCategory, sitesActive: fm.activityCategory ? fm.sitesActive : null,

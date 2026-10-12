@@ -107,12 +107,17 @@ async function getPlan(tenantId, id) {
 }
 
 /** Items of the plan matching a contract + month — for facture pre-fill. */
-async function planItemsFor(tenantId, { contractId, periodMonth }) {
+/**
+ * Postes du plan de collecte d'un PRESTATAIRE pour un contrat et un mois (pré-
+ * remplissage d'une facture). Le plan est unique par prestataire × contrat × mois :
+ * sans prestataire, on pourrait reprendre le plan d'un autre.
+ */
+async function planItemsFor(tenantId, { partnerId, contractId, periodMonth }) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
       `SELECT id FROM tpm_collection_plans
-        WHERE tenant_id = $1 AND contract_id = $2 AND period_month = $3`,
-      [tenantId, contractId, `${periodMonth.slice(0, 7)}-01`]
+        WHERE tenant_id = $1 AND partner_id = $2 AND contract_id = $3 AND period_month = $4`,
+      [tenantId, partnerId, contractId, `${periodMonth.slice(0, 7)}-01`]
     );
     if (!rows[0]) return { planId: null, items: [] };
     const items = await loadItems(client, tenantId, rows[0].id);

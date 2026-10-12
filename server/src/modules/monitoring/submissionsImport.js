@@ -14,12 +14,30 @@ const { MAP } = require('./memsMapping');
 
 const norm = (s) => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
-function buildLookup(headers) {
+// Forme d'un code de localité (pcode) : 2-3 lettres puis des chiffres (MG51507090).
+const PCODE = /^[A-Za-z]{2,3}\d{1,12}$/;
+const ADMIN_KEYS = new Set(['admin1', 'admin2', 'admin3', 'admin4']);
+
+/**
+ * Colonnes à lever en champs typés. Les alias sont comparés en forme normalisée
+ * (accents, casse). Pour un niveau administratif présent sous plusieurs colonnes
+ * (ex. admin3 et admin3name), la colonne dont les valeurs ont la forme d'un pcode
+ * l'emporte (échantillon `rows`), sinon l'ordre des alias (code d'abord).
+ */
+function buildLookup(headers, rows = []) {
   const byNorm = new Map();
-  headers.forEach((h, i) => { if (h != null && h !== '') byNorm.set(norm(h), i); });
+  headers.forEach((h, i) => { if (h != null && h !== '' && !byNorm.has(norm(h))) byNorm.set(norm(h), i); });
+  const sample = rows.slice(0, 50);
+  const looksLikePcode = (col) => {
+    const vals = sample.map((r) => r[col]).filter((v) => v != null && String(v).trim() !== '');
+    return vals.length > 0 && vals.filter((v) => PCODE.test(String(v).trim())).length / vals.length >= 0.8;
+  };
   const picks = {};
   for (const [field, aliases] of Object.entries(MAP)) {
-    for (const a of aliases) { if (byNorm.has(a)) { picks[field] = byNorm.get(a); break; } }
+    const candidates = aliases.map((a) => byNorm.get(norm(a))).filter((i) => i !== undefined);
+    if (!candidates.length) continue;
+    const coded = ADMIN_KEYS.has(field) && candidates.length > 1 ? candidates.find(looksLikePcode) : undefined;
+    picks[field] = coded !== undefined ? coded : candidates[0];
   }
   return picks;
 }
@@ -133,7 +151,7 @@ async function parseSubmissions(buffer, { filename = '' } = {}) {
   const source = isXlsx ? 'xlsx' : 'csv';
   void filename;
   if (!headers.length) return { submissions: [], headers: [] };
-  const picks = buildLookup(headers);
+  const picks = buildLookup(headers, rows);
   const submissions = rows
     .map((v) => rowToSubmission(headers, v, picks, source))
     .filter((s) => Object.keys(s.data).length > 0);
@@ -156,7 +174,7 @@ function submissionsFromObjects(objects, source = 'kobo') {
     }
     const headers = Object.keys(flat);
     const values = headers.map((h) => flat[h]);
-    const picks = buildLookup(headers);
+    const picks = buildLookup(headers, [values]);
     const s = rowToSubmission(headers, values, picks, source);
     // Kobo identifiers live on the raw object, not always flattened.
     s.externalId = obj._uuid || obj['meta/instanceID'] || s.externalId || (obj._id != null ? String(obj._id) : null);
@@ -166,4 +184,4 @@ function submissionsFromObjects(objects, source = 'kobo') {
   return out;
 }
 
-module.exports = { parseSubmissions, submissionsFromObjects, MAP };
+module.exports = { parseSubmissions, submissionsFromObjects, buildLookup, MAP };
