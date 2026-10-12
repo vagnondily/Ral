@@ -8,6 +8,7 @@ const repo = require('./settings.repository');
 const { parseUpload } = require('./adminImport');
 const loc = require('./localities.repository');
 const places = require('./placeMatch.repository');
+const { configHealth } = require('./health.repository');
 const { directoryCsv } = require('./localities.domain');
 const { buildMmrWorkbook, parseMmrWorkbook } = require('../tpm/mmrXlsx');
 
@@ -305,6 +306,9 @@ router.delete('/localities/:id', ADMIN, asyncHandler(async (req, res) => {
   if (!z.string().uuid().safeParse(req.params.id).success) throw badRequest('Identifiant invalide');
   res.json(await loc.deleteArea(t(req), req.params.id, { cascade: req.query.cascade === '1' }));
 }));
+
+// ---- État de la configuration : « prêt / à compléter / bloquant » par réglage ---------
+router.get('/health', asyncHandler(async (req, res) => res.json(await configHealth(t(req)))));
 
 // ---- Rapprochement des lieux : file « À rapprocher » et alias ------------------------
 const queueStatus = z.enum(['a_valider', 'ambigu', 'introuvable', 'ignore', 'resolu']);
