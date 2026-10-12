@@ -4,6 +4,7 @@ import { Button, EmptyState, IconButton, StatusBadge } from '../../components/ui
 import Modal from '../../components/Modal.jsx';
 import { usePopover } from '../../components/listView.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
+import { downloadCsv } from '../../lib/csv.js';
 
 /**
  * Liste d'indicateurs « riche » (façon maquette design/liste-drawer) : table
@@ -104,10 +105,8 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
   const exportCsv = (which) => {
     const list = which === 'sel' ? rows.filter((i) => sel.has(i.id)) : rows;
     const head = ['Indicateur', 'Code', 'Module', 'Réalisé', 'Cible', 'Base (n)', 'Statut', 'Agrégation', 'Sens', 'Champ source'].map((h) => tr(h));
-    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const lines = list.map((i) => [i.label, i.code, i.module, i.value, i.target, i.base, STAT[i.rating] && tr(STAT[i.rating].label), AGG[i.agg] && tr(AGG[i.agg]), i.direction === 'lower_better' ? tr('plus bas = mieux') : tr('plus haut = mieux'), i.sourceField].map(esc).join(';'));
-    const blob = new Blob(['﻿' + [head.map(esc).join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'indicateurs.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    const lines = list.map((i) => [i.label, i.code, i.module, i.value, i.target, i.base, STAT[i.rating] && tr(STAT[i.rating].label), AGG[i.agg] && tr(AGG[i.agg]), i.direction === 'lower_better' ? tr('plus bas = mieux') : tr('plus haut = mieux'), i.sourceField]);
+    downloadCsv('indicateurs.csv', [head, ...lines]);
   };
 
   const Caret = ({ k }) => (sort.key === k ? <span className="ind-caret">{sort.dir === 'asc' ? '▲' : '▼'}</span> : null);

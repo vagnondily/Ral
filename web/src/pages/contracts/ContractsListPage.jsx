@@ -9,6 +9,7 @@ import { Alert, Badge, Button, Card, EmptyState, IconButton, Skeleton, StatusBad
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatAr, formatInt } from '../../lib/format.js';
+import { downloadCsv } from '../../lib/csv.js';
 import { CONTRACT_STATUS, contractFlags, periodLabel, richText } from '../../lib/contracts.js';
 import { SubmitDialog, DecisionDialog, RenewDialog, TerminateDialog } from './ContractDialogs.jsx';
 
@@ -222,15 +223,12 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
 
   function exportCsv() {
     const head = ['N°', 'Partenaire', 'Type', 'N° FLA', 'Activités', 'Début', 'Fin', 'Total accord (Ar)', 'Budget Suivi (Ar)', 'Suivi justifié (Ar)', 'Statut'].map((h) => tr(h));
-    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = filtered.map((c) => [
       c.numero, c.partnerName, c.partnerTypeLabel || '', c.reference || c.numeroFla || '',
       (c.activities || []).map((x) => activityMap[x] || x).join(' / '), c.dateDebut, c.dateFin,
       Math.round(c.budgetTotal), Math.round(c.monitoringBudget || 0), Math.round(c.spentTotal || 0), CONTRACT_STATUS[c.status] ? tr(CONTRACT_STATUS[c.status].label) : c.status,
-    ].map(esc).join(';'));
-    const blob = new Blob(['﻿' + [head.map(esc).join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const el = document.createElement('a'); el.href = url; el.download = 'contrats.csv'; document.body.appendChild(el); el.click(); el.remove(); URL.revokeObjectURL(url);
+    ]);
+    downloadCsv('contrats.csv', [head, ...lines]);
   }
 
   const a = selected?.actions;

@@ -15,6 +15,7 @@ import TemplateBindingCard from './TemplateBindingCard.jsx';
 import { CalcFieldsCard } from './CalcFields.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatDateTime, formatInt, formatLocale } from '../../lib/format.js';
+import { downloadCsv } from '../../lib/csv.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { suggestActivity } from '../../lib/activitySuggest.js';
 
@@ -642,14 +643,12 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
   function exportCsv(which) {
     const list = which === 'sel' ? shown.filter((r, i) => sel.has(rowKey(r, i))) : shown;
     const head = [...metaCols.map((m) => tr(m.label)), ...varCols.map((v) => v.label || v.name)];
-    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    // Réponses brutes importées (texte libre) : formules neutralisées par downloadCsv.
     const lines = list.map((r) => [
       ...metaCols.map((m) => metaVal(r, m)),
       ...varCols.map((v) => { const raw = cell(r, v.name); return raw == null || raw === '' ? '' : labelOf(v, raw); }),
-    ].map(esc).join(';'));
-    const blob = new Blob(['﻿' + [head.map(esc).join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `donnees_${form.code}.csv`; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    ]);
+    downloadCsv(`donnees_${form.code}.csv`, [head, ...lines]);
   }
 
   const loading = cat === null || res === null;

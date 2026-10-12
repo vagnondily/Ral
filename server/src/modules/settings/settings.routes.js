@@ -10,6 +10,7 @@ const loc = require('./localities.repository');
 const places = require('./placeMatch.repository');
 const { configHealth } = require('./health.repository');
 const { directoryCsv } = require('./localities.domain');
+const { attachmentHeader } = require('../common/csv');
 const { buildMmrWorkbook, parseMmrWorkbook } = require('../tpm/mmrXlsx');
 
 const router = Router();
@@ -288,7 +289,8 @@ router.get('/localities/export.csv', asyncHandler(async (req, res) => {
   const [rows, levels] = await Promise.all([loc.directoryAll(t(req), f), loc.listAdminLevels(t(req))]);
   const labels = levels.filter((l) => l.depth <= f.depth).map((l) => l.label);
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="Localites_${labels[labels.length - 1] || 'niveau'}.csv"`);
+  // Libellé de niveau saisi par l'utilisateur : nom de fichier assaini (en-tête jamais cassé).
+  res.setHeader('Content-Disposition', attachmentHeader(`Localites_${labels[labels.length - 1] || 'niveau'}.csv`));
   res.send(directoryCsv(rows, labels));
 }));
 router.post('/localities', ADMIN, body(z.object({

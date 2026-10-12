@@ -14,6 +14,7 @@ import { currentMonth, formatAr, formatInt, monthLabel } from '../../lib/format.
 import { formatUsdFor } from '../../lib/currency.js';
 import { REPORT_KIND, REPORT_STATUS, richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { downloadCsv } from '../../lib/csv.js';
 
 const STATUSES = [
   { id: '', label: 'Tous les statuts' },
@@ -219,7 +220,6 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
 
   function exportCsv() {
     const head = cols.map((k) => tr(COLUMNS[k].label));
-    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const cell = (r, k) => {
       switch (k) {
         case 'partner': return r.partnerName;
@@ -237,10 +237,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
         default: return '';
       }
     };
-    const lines = filtered.map((r) => cols.map((k) => cell(r, k)).map(esc).join(';'));
-    const blob = new Blob(['﻿' + [head.map(esc).join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const el = document.createElement('a'); el.href = url; el.download = `rapports_${month}.csv`; document.body.appendChild(el); el.click(); el.remove(); URL.revokeObjectURL(url);
+    downloadCsv(`rapports_${month}.csv`, [head, ...filtered.map((r) => cols.map((k) => cell(r, k)))]);
   }
 
   function renderCell(r, k) {
