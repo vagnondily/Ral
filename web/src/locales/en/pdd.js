@@ -32,13 +32,32 @@ export default {
   "Classeur vierge au format exact de l'import (feuille « PDD base » + feuille « Lisez-moi » qui décrit chaque colonne).":
     'Blank workbook in the exact import format (“PDD base” sheet + “Lisez-moi” read-me sheet describing each column).',
   'Modèle PDD': 'PDD template',
-  'Importe la feuille « PDD base » : mois, zone, activité, bénéficiaires, tonnages. Réimport idempotent (les mois du fichier sont remplacés).':
-    'Imports the “PDD base” sheet: month, area, activity, beneficiaries, tonnages. Idempotent re-import (the months in the file are replaced).',
+  'Importe le tableau PDD (feuille « PDD base » du modèle ou tableau du classeur réel) : mois, zone, activité, bénéficiaires, tonnages. Les lignes ignorées sont listées avec leur motif. Réimport idempotent (les mois du fichier sont remplacés).':
+    'Imports the PDD table (“PDD base” sheet of the template or the table of the actual workbook): month, area, activity, beneficiaries, tonnages. Skipped rows are listed with their reason. Idempotent re-import (the months in the file are replaced).',
   'Importer le PDD': 'Import PDD',
   '{n} distribution(s) · {items} tonnage(s) importé(s) (feuille « {sheet} ») · {skipped} ligne(s) ignorée(s).':
     '{n} distribution(s) · {items} tonnage line(s) imported (sheet “{sheet}”) · {skipped} row(s) skipped.',
   '{n} distribution(s) · {items} tonnage(s) importé(s) (feuille « {sheet} »).':
     '{n} distribution(s) · {items} tonnage line(s) imported (sheet “{sheet}”).',
+  // Résumé d'import (lignes ignorées avec leur motif, avertissements)
+  "Résumé de l'import": 'Import summary',
+  'Feuille « {sheet} », lignes {from} à {to}': 'Sheet “{sheet}”, rows {from} to {to}',
+  'Feuille « {sheet} »': 'Sheet “{sheet}”',
+  'Fermer le résumé': 'Close the summary',
+  'Distributions importées': 'Distributions imported',
+  'Tonnages': 'Tonnage lines',
+  'Lignes denrée × distribution': 'Commodity × distribution lines',
+  'Lignes ignorées': 'Skipped rows',
+  'Mois remplacés': 'Months replaced',
+  'Toutes les lignes du tableau ont été importées.': 'All rows in the table were imported.',
+  'Colonnes à corriger': 'Columns to fix',
+  'Les colonnes doivent rester à leur place (voir le modèle PDD).': 'Columns must stay in their positions (see the PDD template).',
+  'Corrigez ces lignes dans le fichier puis réimportez-le : les mois du fichier sont remplacés.':
+    'Fix these rows in the file, then re-import it: the months in the file are replaced.',
+  'Avertissements': 'Warnings',
+  'Ligne': 'Row',
+  'Motif': 'Reason',
+  'Seules les {n} premières sont affichées.': 'Only the first {n} are shown.',
   '— plan de distribution du mois': '— monthly distribution plan',
   'Distributions du mois': 'Distributions this month',
   'Toutes modalités': 'All modalities',
