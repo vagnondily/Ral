@@ -110,4 +110,6 @@ export default {
   'Choisissez une unité de niveau « {level} ».': 'Choose a “{level}” unit.',
   'Rechercher': 'Search',
   'Aucune unité trouvée. Créez-la dans le répertoire des localités si elle manque.': 'No unit found. Create it in the locality directory if it is missing.',
+  "Vous pouvez aussi fournir un XLSForm Kobo qui contient le référentiel (listes de choix ADM1CODE › ADM2CODE › …) : les codes officiels et les noms sont lus jusqu'au fokontany.":
+    'You can also provide a Kobo XLSForm that holds the reference lists (choice lists ADM1CODE › ADM2CODE › …): official codes and names are read down to the fokontany.',
 };

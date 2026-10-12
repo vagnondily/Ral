@@ -274,3 +274,10 @@ test('résolution : graphie tronquée → propositions à valider, jamais un num
   // « Toliara » seul : I et II portent un numéro → aucune proposition automatique.
   assert.equal(resolvePlace(idx, { depth: 2, label: 'Toliara', parent: parentOf(idx, 'r1') }).status, 'introuvable');
 });
+
+test('alias : unité recréée au réimport (nouvel identifiant, sans code) → retrouvée par son chemin', () => {
+  const areas = AREAS.map((a) => (a.id === 'd5' ? { ...a, id: 'd5-bis', pcode: null, path: 'Anosy > Taolagnaro' } : { ...a, path: a.path || a.name }));
+  const idx = buildPlaceIndex({ areas, aliases: [{ depth: 2, parentKey: 'MG52', aliasKey: 'fort dauphin', targetId: 'd5', targetPath: 'Anosy > Taolagnaro' }] });
+  const r = resolvePlace(idx, { depth: 2, label: 'Fort Dauphin', parent: idx.byId.get('r3') });
+  assert.deepEqual([r.status, r.area && r.area.id], ['alias', 'd5-bis']);
+});

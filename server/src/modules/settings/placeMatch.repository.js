@@ -18,7 +18,8 @@ async function loadPlaceIndexTx(client, tenantId) {
     client.query(
       `SELECT id, depth, name, pcode, parent_id AS "parentId", path FROM admin_areas WHERE tenant_id = $1`, [tenantId]),
     client.query(
-      `SELECT depth, parent_key AS "parentKey", alias_key AS "aliasKey", target_pcode AS "targetPcode", target_id AS "targetId"
+      `SELECT depth, parent_key AS "parentKey", alias_key AS "aliasKey", target_pcode AS "targetPcode", target_id AS "targetId",
+              target_path AS "targetPath"
          FROM location_aliases WHERE tenant_id = $1 AND kind = 'zone'`, [tenantId]),
   ]);
   return buildPlaceIndex({ areas, aliases });

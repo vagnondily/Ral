@@ -15,26 +15,36 @@ const { pathKey, relinkByPath } = require('../common/placeMatch');
  */
 function planBreakdown({ levels = [], rows = [] }) {
   const byDepth = levels.map(() => new Map());
-  const pcodeOwner = new Map(); const points = new Map(); const warnings = []; let dupPcodes = 0;
+  const pcodeOwner = new Map(); const points = new Map(); const warnings = []; let dupPcodes = 0; let homonyms = 0;
   for (const r of rows) {
     const names = (r.names || []).slice(0, levels.length);
-    let parentKey = null;
+    let parent = null;
     names.forEach((name, d) => {
-      const key = parentKey ? `${parentKey} > ${name}` : name;
       const level = byDepth[d];
-      if (!level.has(key)) {
-        let pcode = (r.pcodes && r.pcodes[d]) || null;
-        if (pcode) {
-          const owner = pcodeOwner.get(pcode);
-          if (owner && owner !== key) { dupPcodes += 1; pcode = null; } else pcodeOwner.set(pcode, key);
+      const parentKey = parent ? parent.key : null;
+      const namePath = parentKey ? `${parentKey} > ${name}` : name;
+      let pcode = (r.pcodes && r.pcodes[d]) || null;
+      let key = namePath;
+      if (pcode) {
+        const owner = pcodeOwner.get(pcode);
+        if (owner && owner.parentKey === parentKey) key = owner.key;           // même unité (graphie éventuellement différente)
+        else if (owner) { dupPcodes += 1; pcode = null; }                      // code déjà porté ailleurs : écarté
+        else if (level.has(namePath) && level.get(namePath).pcode && level.get(namePath).pcode !== pcode) {
+          key = `${namePath} [${pcode}]`; homonyms += 1;                       // homonymes du même parent, codes distincts
         }
-        level.set(key, { key, depth: d + 1, name, parentKey, path: key, pcode });
       }
-      parentKey = key;
+      if (!level.has(key)) {
+        const path = parent ? `${parent.path} > ${name}` : name;
+        level.set(key, { key, depth: d + 1, name, parentKey, path, pcode });
+        if (pcode) pcodeOwner.set(pcode, { key, parentKey });
+      }
+      parent = level.get(key);
     });
-    if (names.length && r.lat != null && r.lng != null && !points.has(parentKey)) points.set(parentKey, { key: parentKey, lat: r.lat, lng: r.lng });
+    const leaf = parent && parent.key;
+    if (names.length && r.lat != null && r.lng != null && !points.has(leaf)) points.set(leaf, { key: leaf, lat: r.lat, lng: r.lng });
   }
   if (dupPcodes) warnings.push(`${dupPcodes} P-code(s) en double ignoré(s) (un P-code est unique dans le pays).`);
+  if (homonyms) warnings.push(`${homonyms} unité(s) homonyme(s) d'une autre du même parent, distinguée(s) par leur P-code.`);
   const nodes = byDepth.map((m) => [...m.values()]);
   return { levels, byDepth: nodes, points: [...points.values()], withPcode: pcodeOwner.size, warnings };
 }
