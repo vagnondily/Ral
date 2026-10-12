@@ -2178,3 +2178,17 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .pm-pick-ic { flex: none; }
 /* Actions empilées dans une cellule (file « À rapprocher ») : jamais coupées à droite. */
 .row-actions.is-stacked { flex-direction: column; align-items: stretch; gap: 4px; }
+
+/* Modèle d'indicateurs de l'activité : liaison des variables du formulaire. */
+.tpl-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding-bottom: 8px; }
+.tpl-counts { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-size: 13px; }
+.tpl-table td { vertical-align: top; }
+.tpl-table .tpl-check { width: 36px; text-align: center; }
+.tpl-table tr.tpl-domain th { background: var(--surface-2); color: var(--text-strong); font-weight: 700; text-transform: none; letter-spacing: 0; font-size: 13px; padding-top: 10px; padding-bottom: 10px; }
+.tpl-table tr.is-selected td { background: color-mix(in srgb, var(--blue-50) 55%, transparent); }
+.tpl-table .input-sm, .tpl-table .select-sm { height: 32px; font-size: 13px; padding: 4px 8px; min-width: 200px; max-width: 280px; }
+.tpl-table .input.is-invalid { border-color: var(--red); }
+.tpl-table .site-meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.tpl-field-label { max-width: 300px; display: block !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpl-lower { display: inline-flex; align-items: center; gap: 2px; color: var(--text); }
+.tpl-done { display: inline-flex; align-items: center; gap: 3px; color: var(--green-text); font-weight: 600; }

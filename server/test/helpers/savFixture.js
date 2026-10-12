@@ -10,20 +10,20 @@ function fixed(str, n) { const b = Buffer.alloc(n, 0x20); Buffer.from(String(str
 function i32(v) { const b = Buffer.alloc(4); b.writeInt32LE(v); return b; }
 function f64(v) { const b = Buffer.alloc(8); b.writeDoubleLE(v); return b; }
 
-function varRecord(type, name, labelText) {
+function varRecord(type, name, labelText, enc = 'utf8') {
   const parts = [i32(2), i32(type), i32(labelText ? 1 : 0), i32(0), i32(0), i32(0), fixed(name || '', 8)];
   if (labelText) {
-    const lb = Buffer.from(labelText, 'utf8');
+    const lb = Buffer.from(labelText, enc);
     parts.push(i32(lb.length), lb);
     const pad = (4 - (lb.length % 4)) % 4; if (pad) parts.push(Buffer.alloc(pad, 0x20));
   }
   return Buffer.concat(parts);
 }
 
-function valueLabelRecord(pairs, varIndex) {
+function valueLabelRecord(pairs, varIndex, enc = 'utf8') {
   const parts = [i32(3), i32(pairs.length)];
   for (const [value, label] of pairs) {
-    const lb = Buffer.from(label, 'utf8');
+    const lb = Buffer.from(label, enc);
     parts.push(f64(value), Buffer.from([lb.length]), lb);
     const used = 1 + lb.length; const pad = (8 - (used % 8)) % 8; if (pad) parts.push(Buffer.alloc(pad, 0x20));
   }
@@ -64,18 +64,19 @@ function strItems(value, width) {
   return items;
 }
 
-function buildSav({ cases, compression = 1, withLabels = true, withLongNames = true, withEncoding = true, longNames = 'NUM=valeur\tSTR4=code\tSTR16=commentaire' } = {}) {
+function buildSav({ cases, compression = 1, withLabels = true, withLongNames = true, withEncoding = true, longNames = 'NUM=valeur\tSTR4=code\tSTR16=commentaire',
+  numLabel = 'Un nombre', valueLabels = [[1, 'Oui'], [0, 'Non']], labelEncoding = 'utf8' } = {}) {
   const header = Buffer.concat([
     fixed('$FL2', 4), fixed('@(#) test', 60), i32(2), i32(4), i32(compression), i32(0), i32(cases.length),
     f64(BIAS), fixed('01 Jan 26', 9), fixed('00:00:00', 8), fixed('TEST', 64), Buffer.alloc(3, 0x20),
   ]);
   const dict = [
-    varRecord(0, 'NUM', 'Un nombre'),
+    varRecord(0, 'NUM', numLabel, labelEncoding),
     varRecord(4, 'STR4'),
     varRecord(16, 'STR16'),
     varRecord(-1, ''), // continuation de STR16
   ];
-  if (withLabels) dict.push(valueLabelRecord([[1, 'Oui'], [0, 'Non']], 1));
+  if (withLabels) dict.push(valueLabelRecord(valueLabels, 1, labelEncoding));
   if (withEncoding) dict.push(extRecord(20, 'UTF-8'));
   if (withLongNames) dict.push(extRecord(13, longNames));
   dict.push(i32(999), i32(0));

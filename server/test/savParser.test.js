@@ -77,3 +77,15 @@ test('erreurs claires : signature invalide et ZSAV', () => {
   assert.throws(() => parseSav(z), /ZSAV/i);
   assert.throws(() => parseSav(Buffer.alloc(10)), /court|vide/i);
 });
+
+test('étiquettes accentuées d\'un export Kobo (UTF-8) : décodées correctement, pas en « Ã© »', () => {
+  const { buildSav } = require('./helpers/savFixture');
+  const buf = buildSav({ cases: [[1, 'A', 'x']], numLabel: 'Le registre des bénéficiaires est-il complet ?', valueLabels: [[1, 'Très sûr'], [0, 'Non']] });
+  const r = parseSav(buf);
+  const v = r.variables.find((x) => x.name === 'valeur');
+  assert.equal(v.label, 'Le registre des bénéficiaires est-il complet ?');
+  assert.deepEqual(v.valueLabels.map((l) => l.label), ['Très sûr', 'Non']);
+  // Vieux fichier latin1 sans enregistrement d'encodage : lu en latin1, sans perte.
+  const old = parseSav(buildSav({ cases: [[1, 'A', 'x']], withEncoding: false, numLabel: 'Bénéficiaire', labelEncoding: 'latin1' }));
+  assert.equal(old.variables.find((x) => x.name === 'valeur').label, 'Bénéficiaire');
+});

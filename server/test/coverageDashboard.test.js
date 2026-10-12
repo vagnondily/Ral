@@ -98,3 +98,25 @@ test('progressStatus thresholds', () => {
   assert.equal(progressStatus(50), 'warn');
   assert.equal(progressStatus(20), 'low');
 });
+
+test('classify sans cible : bandes des modèles (80 / 65 / 50) sur le score orienté', () => {
+  assert.equal(classify({ agg: 'percent_yes', value: 85 }), 'exc');
+  assert.equal(classify({ agg: 'percent_yes', value: 70 }), 'sat');
+  assert.equal(classify({ agg: 'percent_yes', value: 55 }), 'imp');
+  assert.equal(classify({ agg: 'percent_yes', value: 40 }), 'urg');
+  assert.equal(classify({ agg: 'percent_yes', value: 19, direction: 'lower_better' }), 'exc'); // 100 − 19 = 81
+  assert.equal(classify({ agg: 'mean', value: 3 }), 'na'); // pas un % : non évalué sans cible
+});
+
+test('dimGroups et topFlop classent sur le score orienté, affichent la valeur mesurée', () => {
+  const res = [
+    { agg: 'percent_yes', module: 'Sécurité', label: 'Personnel armé présent', value: 3, direction: 'lower_better' },
+    { agg: 'percent_yes', module: 'Sécurité', label: 'Accès sûr', value: 60 },
+  ];
+  const [g] = dimGroups(res);
+  assert.equal(g.score, 79); // (97 + 60) / 2
+  assert.equal(g.inds[0].label, 'Accès sûr'); // plus faible d'abord
+  assert.equal(g.inds[1].pct, 3);
+  const { top } = topFlop(res);
+  assert.equal(top[0].label, 'Personnel armé présent');
+});

@@ -85,6 +85,9 @@ const indicatorSchema = z.object({
   direction: z.enum(['higher_better', 'lower_better']).optional(),
   sortOrder: z.number().int().optional(),
   active: z.boolean().optional(),
+  // Réponses « hors base » (Sans objet 9999, Ne sait pas 888…) ; compte dans l'indice.
+  naValues: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+  scored: z.boolean().optional(),
 });
 router.post('/forms/:id/indicators', WRITE, body(indicatorSchema), asyncHandler(async (req, res) => {
   try { res.status(201).json({ id: await repo.createIndicator(t(req), req.params.id, req.valid) }); }
@@ -94,6 +97,25 @@ router.patch('/indicators/:id', WRITE, body(indicatorSchema.partial()), asyncHan
   if (!(await repo.updateIndicator(t(req), req.params.id, req.valid))) throw notFound('Indicateur introuvable');
   res.status(204).end();
 }));
+// Modèle d'indicateurs de l'activité de la fiche : variable proposée pour chaque indicateur,
+// puis création groupée des indicateurs choisis (retour n° 12).
+router.get('/forms/:id/template', asyncHandler(async (req, res) => {
+  const r = await repo.formTemplate(t(req), uuidParam(req.params.id));
+  if (!r) throw notFound('Formulaire introuvable');
+  res.json(r);
+}));
+router.post('/forms/:id/template/apply', WRITE, body(z.object({
+  items: z.array(z.object({
+    code: z.string().trim().min(1).max(60),
+    sourceField: z.string().trim().min(1).max(200),
+    positiveValue: z.string().trim().max(80).nullable().optional(),
+  })).min(1).max(400),
+})), asyncHandler(async (req, res) => {
+  const r = await repo.applyTemplate(t(req), uuidParam(req.params.id), req.valid.items);
+  if (!r) throw notFound('Formulaire introuvable');
+  res.json(r);
+}));
+
 router.delete('/indicators/:id', WRITE, asyncHandler(async (req, res) => {
   if (!(await repo.deleteIndicator(t(req), req.params.id))) throw notFound('Indicateur introuvable');
   res.status(204).end();

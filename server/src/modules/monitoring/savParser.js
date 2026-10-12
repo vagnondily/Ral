@@ -120,6 +120,20 @@ function parseSav(buffer, { applyValueLabels = false } = {}) {
     }
   }
 
+  // Libellés lus octet par octet (latin1) AVANT de connaître l'encodage (enregistrement
+  // 7.20, placé après eux) : ré-décodés maintenant en UTF-8 quand c'est l'encodage du
+  // fichier — « bÃ©nÃ©ficiaire » redevient « bénéficiaire ». Une séquence qui n'est pas
+  // de l'UTF-8 valide (vieux fichier latin1 sans enregistrement d'encodage) reste telle quelle.
+  if (/utf-?8/i.test(encoding)) {
+    const fix = (s) => {
+      if (!s || !/[\x80-\xff]/.test(s)) return s;
+      const u = Buffer.from(s, 'latin1').toString('utf8');
+      return u.includes('\uFFFD') ? s : u;
+    };
+    for (const v of variables) v.label = fix(v.label);
+    for (const set of valueLabelSets) for (const [k, t] of set.labels) set.labels.set(k, fix(t));
+  }
+
   // ---- Variables logiques (regrouper les segments de chaîne) --------------
   const logical = [];   // { name, label, isStr, segments, width, dictIdx }
   for (let i = 0; i < variables.length; i += 1) {

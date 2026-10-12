@@ -11,6 +11,7 @@ import Modal from '../../components/Modal.jsx';
 import MonthSelect from '../../components/MonthSelect.jsx';
 import { usePopover } from '../../components/listView.jsx';
 import IndicatorsList from './IndicatorsList.jsx';
+import TemplateBindingCard from './TemplateBindingCard.jsx';
 import { CalcFieldsCard } from './CalcFields.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatDateTime, formatInt, formatLocale } from '../../lib/format.js';
@@ -914,9 +915,12 @@ function MappingTab({ form, canEdit }) {
 
 // ---- Configuration (paramètres + méthodes de calcul + sources de données) --
 function ConfigTab({ form, canEdit, onChanged }) {
+  // Après création depuis le modèle, la liste des indicateurs est rechargée (remontage).
+  const [version, setVersion] = useState(0);
   return (
     <div className="section-gap">
-      <IndicatorsConfigCard form={form} canEdit={canEdit} onChanged={onChanged} />
+      <TemplateBindingCard form={form} canEdit={canEdit} onApplied={() => { setVersion((v) => v + 1); onChanged?.(); }} />
+      <IndicatorsConfigCard key={version} form={form} canEdit={canEdit} onChanged={onChanged} />
       <CalcFieldsCard form={form} canEdit={canEdit} onChanged={onChanged} />
       <DataSourcesCard form={form} canEdit={canEdit} onChanged={onChanged} />
     </div>

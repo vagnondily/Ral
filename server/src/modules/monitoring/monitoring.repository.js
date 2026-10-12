@@ -6,6 +6,7 @@ const { classDistribution, dimGroups, topFlop, classify } = require('./coverageD
 const { detectMapping, DIMENSION_COLUMN, EDITABLE_KEYS } = require('./memsMapping');
 const { computeCalcFields } = require('./calcFields');
 const { buildLookup } = require('./submissionsImport');
+const { templateForActivity, moduleLabel, suggestBindings, indicatorFromItem } = require('./indicatorTemplates');
 const { OTHER_VALUES } = require('./memsMapping');
 const { applySubmissionsGeoTx, officeChoiceLabelsTx } = require('../settings/placeMatch.repository');
 
@@ -124,7 +125,8 @@ async function listIndicators(tenantId, formId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
       `SELECT id, form_id AS "formId", code, label, module, source_field AS "sourceField",
-              agg, positive_value AS "positiveValue", target, direction, sort_order AS "sortOrder", active
+              agg, positive_value AS "positiveValue", target, direction, sort_order AS "sortOrder", active,
+              na_values AS "naValues", scored, template_code AS "templateCode"
          FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2
         ORDER BY sort_order, label`,
       [tenantId, formId]
@@ -137,10 +139,12 @@ async function createIndicator(tenantId, formId, ind) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
       `INSERT INTO monitoring_indicators
-         (tenant_id, form_id, code, label, module, source_field, agg, positive_value, target, direction, sort_order, active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,COALESCE($12,true)) RETURNING id`,
+         (tenant_id, form_id, code, label, module, source_field, agg, positive_value, target, direction, sort_order, active,
+          na_values, scored)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,COALESCE($12,true),COALESCE($13,'{}'::text[]),COALESCE($14,true)) RETURNING id`,
       [tenantId, formId, ind.code, ind.label, ind.module || null, ind.sourceField, ind.agg || 'percent_yes',
-        ind.positiveValue || null, ind.target ?? null, ind.direction || 'higher_better', ind.sortOrder ?? 0, ind.active]
+        ind.positiveValue || null, ind.target ?? null, ind.direction || 'higher_better', ind.sortOrder ?? 0, ind.active,
+        ind.naValues ?? null, ind.scored ?? null]
     );
     return rows[0].id;
   });
@@ -152,12 +156,109 @@ async function updateIndicator(tenantId, id, ind) {
       `UPDATE monitoring_indicators SET
          label = COALESCE($3,label), module = $4, source_field = COALESCE($5,source_field),
          agg = COALESCE($6,agg), positive_value = $7, target = $8,
-         direction = COALESCE($9,direction), sort_order = COALESCE($10,sort_order), active = COALESCE($11,active)
+         direction = COALESCE($9,direction), sort_order = COALESCE($10,sort_order), active = COALESCE($11,active),
+         na_values = COALESCE($12,na_values), scored = COALESCE($13,scored)
         WHERE tenant_id = $1 AND id = $2`,
       [tenantId, id, ind.label ?? null, ind.module ?? null, ind.sourceField ?? null, ind.agg ?? null,
-        ind.positiveValue ?? null, ind.target ?? null, ind.direction ?? null, ind.sortOrder ?? null, ind.active ?? null]
+        ind.positiveValue ?? null, ind.target ?? null, ind.direction ?? null, ind.sortOrder ?? null, ind.active ?? null,
+        ind.naValues ?? null, ind.scored ?? null]
     );
     return rowCount === 1;
+  });
+}
+
+// ---- Modèle d'indicateurs de l'activité (retour n° 12) -------------------------------
+/**
+ * Variables de la fiche pour la liaison au modèle : catalogue XLSForm (libellé,
+ * liste de choix courte) + colonnes vues dans les données importées (variables
+ * du .sav absentes du XLSForm, colonnes éclatées des choix multiples).
+ */
+async function bindingFieldsTx(client, tenantId, formId) {
+  const { rows: cat } = await client.query(
+    `SELECT name, label, list_name AS "listName" FROM monitoring_form_fields
+      WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name`, [tenantId, formId]);
+  const { rows: keys } = await client.query(
+    'SELECT DISTINCT jsonb_object_keys(data) AS name FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2',
+    [tenantId, formId]);
+  const lists = [...new Set(cat.map((f) => f.listName).filter(Boolean))];
+  const { rows: choices } = lists.length ? await client.query(
+    `SELECT list_name AS "listName", value, label FROM monitoring_choices
+      WHERE tenant_id = $1 AND form_id = $2 AND list_name = ANY($3::text[]) ORDER BY list_name, sort_order`,
+    [tenantId, formId, lists]) : { rows: [] };
+  const byList = new Map();
+  for (const c of choices) { if (!byList.has(c.listName)) byList.set(c.listName, []); byList.get(c.listName).push({ value: String(c.value), label: c.label }); }
+  const seen = new Set(cat.map((f) => f.name.toLowerCase()));
+  return [
+    // Listes longues (lieux, écoles) inutiles pour choisir une valeur positive : non envoyées.
+    ...cat.map((f) => ({ name: f.name, label: f.label, choices: (byList.get(f.listName) || []).length <= 40 ? byList.get(f.listName) || [] : [] })),
+    ...keys.filter((k) => !seen.has(k.name.toLowerCase())).map((k) => ({ name: k.name, label: null, choices: [] })),
+  ];
+}
+
+/** Modèle de l'activité de la fiche, avec la variable proposée pour chaque indicateur. */
+async function formTemplate(tenantId, formId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: [form] } = await client.query(
+      'SELECT id, code, label, activity_category AS "activityCategory" FROM monitoring_forms WHERE tenant_id = $1 AND id = $2',
+      [tenantId, formId]);
+    if (!form) return null;
+    const tpl = templateForActivity(form.activityCategory);
+    if (!tpl) return { form, template: null, fields: [] };
+    const fields = await bindingFieldsTx(client, tenantId, formId);
+    const suggestions = suggestBindings(tpl, fields);
+    const { rows: existing } = await client.query(
+      `SELECT code, source_field AS "sourceField", positive_value AS "positiveValue" FROM monitoring_indicators
+        WHERE tenant_id = $1 AND form_id = $2 AND template_code IS NOT NULL`, [tenantId, formId]);
+    const done = new Map(existing.map((e) => [e.code, e]));
+    return {
+      form,
+      template: {
+        key: tpl.key, label: tpl.label, domains: tpl.domains,
+        items: tpl.items.map((it, i) => ({ ...it, module: moduleLabel(tpl, it.domain), suggestion: suggestions[i], existing: done.get(it.code) || null })),
+      },
+      fields: fields.map((f) => ({ name: f.name, label: f.label, choices: f.choices })),
+    };
+  });
+}
+
+/**
+ * Crée (ou met à jour) les indicateurs du modèle choisis par l'utilisateur, en
+ * une transaction et une écriture groupée. Chaque élément doit appartenir au
+ * modèle de l'activité de la fiche et viser une variable qui existe dans la
+ * fiche (XLSForm ou données) ; sinon rien n'est écrit (400).
+ */
+async function applyTemplate(tenantId, formId, bindings) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: [form] } = await client.query(
+      'SELECT id, activity_category AS "activityCategory" FROM monitoring_forms WHERE tenant_id = $1 AND id = $2 FOR UPDATE',
+      [tenantId, formId]);
+    if (!form) return null;
+    const tpl = templateForActivity(form.activityCategory);
+    if (!tpl) throw badRequest('Cette fiche n\'est rattachée à aucune activité qui a un modèle d\'indicateurs.');
+    const items = new Map(tpl.items.map((it, i) => [it.code, { it, i }]));
+    const names = new Set((await bindingFieldsTx(client, tenantId, formId)).map((f) => f.name));
+    const codes = bindings.map((b) => b.code);
+    if (new Set(codes).size !== codes.length) throw badRequest('Un même indicateur est envoyé deux fois.');
+    const unknownCode = bindings.find((b) => !items.has(b.code));
+    if (unknownCode) throw badRequest(`Indicateur « ${unknownCode.code} » absent du modèle « ${tpl.label} ».`);
+    const unknownField = bindings.find((b) => !names.has(b.sourceField));
+    if (unknownField) throw badRequest(`Variable « ${unknownField.sourceField} » introuvable dans cette fiche.`);
+    const rows = bindings.map((b) => {
+      const { it, i } = items.get(b.code);
+      return indicatorFromItem(tpl, it, { sourceField: b.sourceField, positiveValue: b.positiveValue }, i);
+    });
+    const applied = await insertRows(client, {
+      table: 'monitoring_indicators',
+      columns: ['tenant_id', 'form_id', 'code', 'label', 'module', 'source_field', 'agg', 'positive_value', 'direction', 'na_values', 'scored', 'template_code', 'sort_order'],
+      rows,
+      values: (r) => [tenantId, formId, r.code, r.label, r.module, r.sourceField, r.agg, r.positiveValue, r.direction, r.naValues, r.scored, r.templateCode, r.sortOrder],
+      suffix: `ON CONFLICT (form_id, code) DO UPDATE SET label = EXCLUDED.label, module = EXCLUDED.module,
+        source_field = EXCLUDED.source_field, agg = EXCLUDED.agg, positive_value = EXCLUDED.positive_value,
+        direction = EXCLUDED.direction, na_values = EXCLUDED.na_values, scored = EXCLUDED.scored,
+        template_code = EXCLUDED.template_code, sort_order = EXCLUDED.sort_order, active = true`,
+    });
+    await client.query('UPDATE monitoring_forms SET updated_at = now() WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
+    return { applied, template: tpl.key };
   });
 }
 
@@ -595,7 +696,8 @@ async function computeValues(tenantId, formId, { month } = {}) {
     const { rows: subs } = await client.query(`SELECT data FROM monitoring_submissions s WHERE ${where}`, params);
     const { rows: inds } = await client.query(
       `SELECT id, code, label, module, source_field AS "sourceField", agg,
-              positive_value AS "positiveValue", target, direction, sort_order
+              positive_value AS "positiveValue", target, direction, sort_order,
+              na_values AS "naValues", scored
          FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2 AND active = true
         ORDER BY sort_order, label`,
       [tenantId, formId]
@@ -632,7 +734,8 @@ async function dashboard(tenantId, formId, { month } = {}) {
     const { rows: subs } = await client.query(`SELECT data FROM monitoring_submissions s WHERE ${where}`, params);
     const { rows: inds } = await client.query(
       `SELECT id, code, label, module, source_field AS "sourceField", agg,
-              positive_value AS "positiveValue", target, direction, sort_order
+              positive_value AS "positiveValue", target, direction, sort_order,
+              na_values AS "naValues", scored
          FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2 AND active = true
         ORDER BY sort_order, label`,
       [tenantId, formId]
@@ -665,7 +768,8 @@ function submissionFilter(alias, { month, from, to, bureau } = {}, params) {
 async function formResults(client, tenantId, formId, period) {
   const { rows: inds } = await client.query(
     `SELECT id, code, label, module, source_field AS "sourceField", agg,
-            positive_value AS "positiveValue", target, direction, sort_order
+            positive_value AS "positiveValue", target, direction, sort_order,
+              na_values AS "naValues", scored
        FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2 AND active = true
       ORDER BY sort_order, label`,
     [tenantId, formId]
@@ -897,7 +1001,8 @@ async function reportMonitoringData(tenantId, period) {
     for (const fm of forms) {
       const { rows: inds } = await client.query(
         `SELECT id, code, label, module, source_field AS "sourceField", agg,
-                positive_value AS "positiveValue", target, direction, sort_order
+                positive_value AS "positiveValue", target, direction, sort_order,
+              na_values AS "naValues", scored
            FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2 AND active = true ORDER BY sort_order, label`,
         [tenantId, fm.id]);
       const p = [tenantId, fm.id];
@@ -1035,7 +1140,7 @@ async function setExclusion(tenantId, formId, { ids, excluded, reason } = {}) {
 }
 
 module.exports = {
-  reliftSubmissionsTx,
+  reliftSubmissionsTx, formTemplate, applyTemplate,
   listCalcFields, createCalcField, updateCalcField, deleteCalcField, setExclusion,
   setFormSource, formSourceContext, reportMonitoringData,
   listForms, createForm, updateForm, deleteForm,
