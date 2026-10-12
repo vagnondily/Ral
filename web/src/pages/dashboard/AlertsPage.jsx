@@ -51,8 +51,10 @@ export default function AlertsPage({ onNavigate, onOpenContract }) {
       else if (r.pendingValidation > 0 && r.budget != null && r.actual + r.pendingValidation > r.budget) out.push({ sev: 'warning', cat: 'Budget', title: tr('Dépassement si validation — {numero}', { numero: r.numero }), detail: tr('{partner} · réalisé {actual} + en attente {pending} > budget {budget}', { partner: r.partnerName, actual: formatAr(r.actual), pending: formatAr(r.pendingValidation), budget: formatAr(r.budget) }), go: () => onOpenContract(r.contractId) });
       else if (r.projectedOverrun > 0) out.push({ sev: 'warning', cat: 'Budget', title: tr('Projection de dépassement — {numero}', { numero: r.numero }), detail: tr('{partner} · projection fin {projected} > budget {budget}', { partner: r.partnerName, projected: formatAr(r.projectedTotal), budget: formatAr(r.budget) }), go: () => onOpenContract(r.contractId) });
     }
-    // Rapports à valider
-    const pending = (state.reports || []).filter((x) => x.status === 'soumis');
+    // Rapports à valider : seulement ceux que l'utilisateur peut réellement
+    // décider (actions calculées par le serveur) — jamais ses propres rapports,
+    // qu'il a remplis ou soumis (séparation des tâches).
+    const pending = (state.reports || []).filter((x) => x.status === 'soumis' && x.actions?.decide);
     for (const r of pending) out.push({ sev: 'info', cat: 'Rapports', title: r.kind === 'technique' ? tr('Rapport technique à valider') : tr('Rapport financier à valider'), detail: `${r.partnerName || r.contractPartner} · ${r.contractNumero} · ${String(r.periodMonth).slice(0, 7)}`, go: () => onNavigate('tpm', 'rapports') });
     // Contrats : avenants en validation & échéances
     for (const c of state.contracts || []) {

@@ -208,15 +208,13 @@ async function main() {
         // Supprime un éventuel rapport existant sur la même clé naturelle (hors seed-test) pour éviter le conflit d'unicité.
         await client.query('DELETE FROM tpm_reports WHERE tenant_id=$1 AND partner_id=$2 AND contract_id=$3 AND period_month=$4 AND kind=$5 AND reference IS DISTINCT FROM $6',
           [tenantId, s.tpm.id, s.c.id, s.month, s.kind, 'SEED-TEST']);
-        // Soumis par l'admin : c'est le validateur (autre personne) qui décide.
+        // Rempli et soumis par l'admin ; c'est le validateur (autre personne)
+        // qui décide. Même cycle que l'API (règles imposées en base, migration
+        // 058) : brouillon → postes → soumission → décision.
         const { rows: [rep] } = await client.query(
-          `INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, kind, planned_amount, reported_amount, reference, status, created_by, submitted_by, submitted_at, decided_by, decided_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,'SEED-TEST',$8,$9,$9,now(),$10,$11)
-           ON CONFLICT (partner_id, contract_id, period_month, kind) DO UPDATE SET status=EXCLUDED.status, reported_amount=EXCLUDED.reported_amount,
-             submitted_by=EXCLUDED.submitted_by, submitted_at=EXCLUDED.submitted_at, reference='SEED-TEST' RETURNING id`,
-          [tenantId, s.tpm.id, s.c.id, s.month, s.kind, 1200000, reported, s.status, admin,
-            s.status === 'valide' ? validator : null, s.status === 'valide' ? new Date() : null]);
-        await client.query('DELETE FROM contract_report_items WHERE report_id=$1', [rep.id]);
+          `INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, kind, planned_amount, reported_amount, reference, status, created_by, edited_by, edited_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'SEED-TEST','attendu',$8,$8,now()) RETURNING id`,
+          [tenantId, s.tpm.id, s.c.id, s.month, s.kind, 1200000, reported, admin]);
         if (s.items) {
           for (let k = 0; k < s.items.length; k += 1) {
             const [lc, des, u, qt, cost, pay] = s.items[k];
@@ -225,6 +223,10 @@ async function main() {
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
               [tenantId, rep.id, lc, des, u, qt, cost, pay, pctOf(pay), actId, k]);
           }
+        }
+        await client.query("UPDATE tpm_reports SET status='soumis', submitted_by=$2, submitted_at=now() WHERE id=$1", [rep.id, admin]);
+        if (s.status === 'valide' && validator) {
+          await client.query("UPDATE tpm_reports SET status='valide', decided_by=$2, decided_at=now() WHERE id=$1", [rep.id, validator]);
         }
       }
     }

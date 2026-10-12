@@ -404,8 +404,8 @@ async function main() {
         for (const r of c.reports || []) {
           await client.query(
             `INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, kind, planned_amount, reported_amount,
-                                      reference, status, created_by, created_at, submitted_by, submitted_at, decided_by, decided_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'valide',$9,$10,$9,$10,$11,$12)`,
+                                      reference, status, created_by, created_at, edited_by, edited_at, submitted_by, submitted_at, decided_by, decided_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'valide',$9,$10,$9,$10,$9,$10,$11,$12)`,
             [tenantId, partnerId[r.tpm], id, `${r.month}-01`, r.kind, planned,
               r.kind === 'financier' ? Math.round(r.amount) : null, r.ref, admin,
               `${r.month}-28T10:00:00+03:00`, validator, `${r.month}-28T14:00:00+03:00`]);
