@@ -147,25 +147,14 @@ export const api = {
   // Découpage administratif (localités) — référentiel par tenant/pays
   listAdminLevels: () => request('/api/settings/admin-levels'),
   listAdminAreas: (query) => request('/api/settings/admin-areas', { query }),
-  adminBreakdownSummary: () => request('/api/settings/admin-breakdown/summary'),
-  importAdminBreakdown: async (file) => {
-    const buf = await file.arrayBuffer();
-    let res;
-    try {
-      res = await fetch(new URL(`${API_URL}/api/settings/admin-breakdown/import`), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'X-Filename': file.name,
-          ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}),
-        },
-        body: buf,
-      });
-    } catch { throw new ApiError(0, 'Serveur injoignable.'); }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new ApiError(res.status, data.error || `Erreur ${res.status}`, data.details);
-    return data;
-  },
+  importAdminBreakdown: (file) => uploadFile('/api/settings/admin-breakdown/import', file),
+  getCountry: () => request('/api/settings/country'),
+  saveCountry: (input) => request('/api/settings/country', { method: 'PUT', body: input }),
+  listLocalities: (query) => request('/api/settings/localities', { query }),
+  createLocality: (input) => request('/api/settings/localities', { method: 'POST', body: input }),
+  updateLocality: (id, patch) => request(`/api/settings/localities/${id}`, { method: 'PATCH', body: patch }),
+  deleteLocality: (id, { cascade } = {}) => request(`/api/settings/localities/${id}`, { method: 'DELETE', query: cascade ? { cascade: 1 } : undefined }),
+  exportLocalitiesCsv: (query, filename) => downloadFile(`/api/settings/localities/export.csv?${new URLSearchParams(Object.entries(query).filter(([, v]) => v != null && v !== ''))}`, filename),
 
   // Import d'un budget FLA (.xlsx) → postes pour pré-remplir le formulaire
   importBudget: async (file) => {

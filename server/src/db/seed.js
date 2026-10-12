@@ -221,7 +221,8 @@ async function main() {
     const districtId = {};
     if ((await client.query('SELECT 1 FROM admin_levels WHERE tenant_id=$1 LIMIT 1', [tenantId])).rows.length === 0) {
       for (let i = 0; i < ADMIN_LEVELS.length; i += 1) {
-        await client.query('INSERT INTO admin_levels (tenant_id, depth, label) VALUES ($1,$2,$3)', [tenantId, i + 1, ADMIN_LEVELS[i]]);
+        await client.query('INSERT INTO admin_levels (tenant_id, depth, code, label, label_plural) VALUES ($1,$2,$3,$4,$5)',
+          [tenantId, i + 1, `adm${i + 1}`, ADMIN_LEVELS[i], `${ADMIN_LEVELS[i]}s`]);
       }
       for (const [region, districts] of ADMIN_BREAKDOWN) {
         const { rows: [reg] } = await client.query(

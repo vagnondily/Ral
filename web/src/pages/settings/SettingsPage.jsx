@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Users, ListChecks, Tags, MapPinned, Upload, Info, Download, Coins, Building2, Trash2, Clock, Pencil, ShieldCheck, ChevronRight, Lock, Gauge, X } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Plus, Users, ListChecks, Tags, MapPinned, Coins, Building2, Trash2, Clock, Pencil, ShieldCheck, ChevronRight, Lock, Gauge, X } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton, Alert } from '../../components/ui.jsx';
+import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import MoneyInput from '../../components/MoneyInput.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import MmrSection from './MmrSection.jsx';
+import LocalitiesSection from './LocalitiesSection.jsx';
 import { formatAr, formatInt, formatDateTime } from '../../lib/format.js';
 
 // Catalogue des rubriques de paramétrage, groupées (façon « Tools » : cartes
@@ -46,7 +47,7 @@ export default function SettingsPage({ tab = 'apercu', isAdmin, onNavigate }) {
           {current === 'activites' && <ActivitiesSection isAdmin={isAdmin} />}
           {current === 'types' && <TypesSection isAdmin={isAdmin} />}
           {current === 'taux' && <ExchangeRatesSection isAdmin={isAdmin} />}
-          {current === 'localites' && <LocalitesSection isAdmin={isAdmin} />}
+          {current === 'localites' && <LocalitiesSection isAdmin={isAdmin} />}
           {current === 'bureaux' && <BureauxSection isAdmin={isAdmin} />}
           {current === 'mmr' && <MmrSection isAdmin={isAdmin} />}
           {current === 'utilisateurs' && <UsersSection isAdmin={isAdmin} />}
@@ -638,89 +639,6 @@ function TypesSection({ isAdmin }) {
         </div>
       )}
       {modal && <CodeLabelModal title="Nouveau type de partenaire" onClose={() => setModal(false)} onSubmit={(v) => api.createPartnerType(v)} onSaved={() => { setModal(false); reload(); }} />}
-    </Card>
-  );
-}
-
-/* ------------------------------------------------------------- Localités -- */
-
-function LocalitesSection({ isAdmin }) {
-  const toast = useToast();
-  const [summary, setSummary] = useState(null);
-  const [levels, setLevels] = useState([]);
-  const [busy, setBusy] = useState(false);
-  const fileRef = useRef(null);
-
-  async function reload() {
-    try {
-      const [s, lv] = await Promise.all([api.adminBreakdownSummary(), api.listAdminLevels()]);
-      setSummary(s); setLevels(lv);
-    } catch (e) { toast.error(e.message); setSummary([]); }
-  }
-  useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
-
-  async function onFile(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setBusy(true);
-    try {
-      const res = await api.importAdminBreakdown(file);
-      toast.success(`Découpage importé : ${res.levels} niveau(x), ${res.areas} localité(s).`);
-      reload();
-    } catch (err) { toast.error(err.message); }
-    finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
-  }
-
-  function downloadTemplate() {
-    const csv = 'Region;District;Commune;Fokontany\nAndroy;Bekily;Bekily;Bekily Centre\nAndroy;Bekily;Beraketa;Beraketa\nAnosy;Amboasary Sud;Amboasary;Amboasary I\n';
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'modele_decoupage_adm.csv'; document.body.appendChild(a); a.click();
-    a.remove(); URL.revokeObjectURL(url);
-  }
-
-  const total = (summary || []).reduce((n, r) => n + r.count, 0);
-
-  return (
-    <Card aria-labelledby="loc-title">
-      <CardHeader id="loc-title" title="Localités — découpage administratif" subtitle="Référentiel géographique du pays (un fichier par pays / tenant). Alimente les listes déroulantes en cascade des zones d'intervention des contrats.">
-        {isAdmin && (
-          <>
-            <input ref={fileRef} type="file" accept=".csv,.txt,.dbf,.zip" style={{ display: 'none' }} onChange={onFile} />
-            <Button variant="secondary" icon={Download} onClick={downloadTemplate}>Modèle CSV</Button>
-            <Button icon={Upload} loading={busy} onClick={() => fileRef.current?.click()}>Importer un fichier</Button>
-          </>
-        )}
-      </CardHeader>
-      <div className="card-body" style={{ display: 'grid', gap: 16 }}>
-        <Alert tone="info" icon={Info}>
-          Convention <strong>adm1–adm4</strong> (comme MEMS) : Région (adm1) › District (adm2) › Commune (adm3) › Fokontany (adm4).
-          Formats acceptés : <strong>.csv</strong> (1ʳᵉ ligne = libellés des niveaux, une colonne par niveau),
-          <strong> .dbf</strong> ou <strong>.zip</strong> (shapefile — la table attributaire .dbf est lue ; les colonnes
-          ADM1–ADM4 / Région / District / Commune / Fokontany sont détectées automatiquement).
-          L'import <strong>remplace</strong> le découpage du pays actif et gère l'échelle nationale (≈ 18 000 fokontany).
-          Utilisez « Modèle CSV » pour préparer un fichier conforme.
-        </Alert>
-        {summary === null ? <Skeleton height={80} /> : total === 0 ? (
-          <EmptyState icon={MapPinned} title="Aucun découpage importé">
-            Importez un shapefile/.dbf (ou un .csv) pour activer les listes déroulantes de zones.
-          </EmptyState>
-        ) : (
-          <div className="table-wrap">
-            <table className="table">
-              <thead><tr><th scope="col">Niveau</th><th scope="col">Libellé</th><th scope="col" className="num">Localités</th></tr></thead>
-              <tbody>
-                {summary.map((r) => (
-                  <tr key={r.depth}><td>{r.depth}</td><td><strong>{r.label}</strong></td><td className="num">{r.count}</td></tr>
-                ))}
-                <tr><td colSpan={2} style={{ textAlign: 'right', fontWeight: 700 }}>Total</td><td className="num"><strong>{total}</strong></td></tr>
-              </tbody>
-            </table>
-          </div>
-        )}
-        {levels.length > 0 && <p className="field-hint">Hiérarchie : {levels.map((l) => l.label).join(' → ')}.</p>}
-      </div>
     </Card>
   );
 }

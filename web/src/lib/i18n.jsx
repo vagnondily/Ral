@@ -3,6 +3,7 @@
 // the application chrome (navigation, header, user menu, login) and extends into
 // the feature modules progressively, module by module.
 import React, { createContext, useContext, useState, useCallback } from 'react';
+import EN_PHRASES from '../locales/en.js';
 
 const KEY = 'mems.lang';
 export const LANGS = [
@@ -10,7 +11,8 @@ export const LANGS = [
   { id: 'en', label: 'English', short: 'EN' },
 ];
 
-// Only the chrome is translated for now; feature pages fall back to French.
+// Clés techniques du « chrome » (navigation, en-tête, menu). Le contenu des
+// pages utilise tr(phrase) et les dictionnaires de src/locales/.
 const DICT = {
   en: {
     // nav groups
@@ -80,7 +82,27 @@ const DICT = {
   },
 };
 
-const I18nContext = createContext({ lang: 'fr', t: (k, fb) => fb ?? k, setLang: () => {} });
+// Interpolation « {nom} » → vars.nom (nombres formatés selon la langue).
+export function interpolate(text, vars, lang = 'fr') {
+  if (!vars) return text;
+  return text.replace(/\{(\w+)\}/g, (m, k) => {
+    const v = vars[k];
+    if (v == null) return m;
+    return typeof v === 'number' ? v.toLocaleString(lang === 'en' ? 'en-US' : 'fr-FR') : String(v);
+  });
+}
+
+/**
+ * Traduction par PHRASE française (référence) : tr('Répertoire des localités'),
+ * tr('{n} localité(s)', { n }). Les dictionnaires anglais sont rangés par module
+ * dans src/locales/en.js ; une phrase absente reste en français.
+ */
+export function translatePhrase(lang, text, vars) {
+  const base = lang === 'en' ? (EN_PHRASES[text] ?? text) : text;
+  return interpolate(base, vars, lang);
+}
+
+const I18nContext = createContext({ lang: 'fr', t: (k, fb) => fb ?? k, tr: (s, v) => interpolate(s, v), setLang: () => {} });
 
 function storedLang() {
   try {
@@ -103,7 +125,8 @@ export function I18nProvider({ children }) {
     if (lang === 'fr') return fb ?? key;
     return DICT[lang]?.[key] ?? fb ?? key;
   }, [lang]);
-  return <I18nContext.Provider value={{ lang, t, setLang }}>{children}</I18nContext.Provider>;
+  const tr = useCallback((text, vars) => translatePhrase(lang, text, vars), [lang]);
+  return <I18nContext.Provider value={{ lang, t, tr, setLang }}>{children}</I18nContext.Provider>;
 }
 
 export function useI18n() { return useContext(I18nContext); }

@@ -12,15 +12,15 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 06:40 UTC_
+_Dernière mise à jour : 12/10/2026 06:43 UTC_
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
 | 1a | Bureau : périmètre en cascade Région › District › Commune | ✅ | Livré le 09/10 (`34be945`) |
 | 1b | PDD : bouton « Modèle PDD » + note de format | ✅ | `675b304` — à compléter avec les 47 en-têtes réels (voir PDD-config) |
 | 2 | MMR : édition enrichie et plus simple | ✅ | API `4a481eb` + écran `4dd6f77` |
-| 3 | Localités : pays & découpage, répertoire, CRUD | 🔄 | Serveur ✅ (import corrigé, profil pays, répertoire, CRUD, export). Écran en cours. Phase 2 : contours cartographiques |
-| 4 | Langue FR/EN : traduire le contenu des pages | ⏳ | Aujourd'hui seul le menu change de langue |
+| 3 | Localités : pays & découpage, répertoire, CRUD | ✅ (phase 1) | Serveur `6d19108` + écran (ce commit). **À faire chez vous** : réimporter le shapefile pour corriger les noms. Phase 2 ⏳ : contours cartographiques (polygones) pour les cartes |
+| 4 | Langue FR/EN : traduire le contenu des pages | 🔄 | Mécanisme posé : `tr('phrase')` + dictionnaires par module (`web/src/locales/en/`). Localités traduites. Reste : toutes les autres pages |
 | 6 | Concepteur de rapport professionnel (bulletin éditable, modèles) | ⏳ | Références : rapport de suivi de performances (HTML), couverture par partenaire (.docx), dashboard (HTML) |
 | 7 | Plan de suivi « type Excel » + carte détaillée | ⏳ | Référence : classeur RBM + captures (KPI, modes, grille des mois, carte) |
 | PDD-config | PDD : rations, planification par commune, stock par donateur (TDD/BDD), calcul serveur des tonnages | ⏳ | Découvert dans le PDD réel `PDD_Urgence_Oct-Nov_04082025.xlsx` |
@@ -57,5 +57,8 @@ _Dernière mise à jour : 12/10/2026 06:40 UTC_
 - **06:38** ✅ Localités — serveur : migration 041 (profil pays, vocabulaire singulier/pluriel, P-code unique, GPS, lignée indexée), import corrigé (nom ≠ P-code, niveau pays ignoré, shapefile le plus fin d'un zip, encodage .cpg, centroïdes GPS lus dans le .shp, niveaux supérieurs dérivés), répertoire paginé (filtre par ancêtre, recherche nom/P-code, nb de sites), CRUD (renommage/déplacement propagés à toute la descendance, suppression protégée), export CSV. Testé sur un shapefile COD-AB de 119 districts.
 - **06:39** ✅ 2 défauts trouvés par les tests de bout en bout et corrigés : un renommage effaçait le P-code ; message d'erreur générique sur P-code en double. 154 tests OK.
 - **06:40** 🔄 Localités — écran (Pays & vocabulaire, répertoire, édition).
+- **06:41** ✅ Garde-fou en base (migration 042) : la lignée d'une localité est calculée par un trigger à l'insertion (le seed l'omettait → filtre par région vide sur base neuve). Installation neuve complète rejouée (migrations 001→042, seed, seed:test) : OK.
+- **06:42** ✅ i18n : mécanisme de traduction par phrase (`tr`) + dictionnaires anglais par module ; écran Localités entièrement bilingue (89 phrases).
+- **06:43** ✅ Localités — écran livré : onglet « Pays & découpage » (identité, vocabulaire singulier/pluriel, import shapefile/.dbf/.csv, modèle CSV, millésime, récapitulatif P-codes/GPS par niveau, alerte si des noms ressemblent à des codes) et onglet « Répertoire » (niveau, filtres en cascade, recherche nom/P-code, pagination serveur, export CSV, ajout/modification/suppression en tiroir). Vérifié dans le navigateur (FR et EN) : 0 erreur.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
