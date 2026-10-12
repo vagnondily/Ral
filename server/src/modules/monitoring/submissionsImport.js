@@ -29,6 +29,10 @@ const { badRequest } = require('../../middleware/errors');
  */
 
 const norm = (s) => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+const leafOf = (h) => String(h).split('/').pop();
+// Colonne sous un groupe Kobo (« groupe/question »). Les colonnes système
+// « formhub/… » (identifiant du FORMULAIRE) ne sont jamais lues comme des questions.
+const isGroupPath = (h) => h != null && String(h).includes('/') && !/^formhub\//i.test(String(h));
 
 // Forme d'un code de localité (pcode) : 2-3 lettres puis des chiffres (MG51507090).
 const PCODE = /^[A-Za-z]{2,3}\d{1,14}[A-Za-z]?$/;
@@ -43,6 +47,15 @@ const ADMIN_KEYS = new Set(['admin1', 'admin2', 'admin3', 'admin4']);
 function buildLookup(headers, rows = []) {
   const byNorm = new Map();
   headers.forEach((h, i) => { if (h != null && h !== '' && !byNorm.has(norm(h))) byNorm.set(norm(h), i); });
+  // Export Excel « avec les groupes » : « Technical_module/…/Field_office ». Le nom de la
+  // question (dernier segment) sert de second choix, après les noms complets.
+  const byLeaf = new Map();
+  headers.forEach((h, i) => {
+    if (!isGroupPath(h)) return;
+    const leaf = norm(leafOf(h));
+    if (!byLeaf.has(leaf)) byLeaf.set(leaf, i);
+  });
+  const find = (name) => (byNorm.has(name) ? byNorm.get(name) : byLeaf.get(name));
   const sample = rows.slice(0, 50);
   const looksLikePcode = (col) => {
     const vals = sample.map((r) => r[col]).filter((v) => v != null && String(v).trim() !== '');
@@ -51,14 +64,18 @@ function buildLookup(headers, rows = []) {
   // Colonnes « autre (préciser) » voisines d'une colonne de choix (DPName → DPName_Other).
   const othersOf = (i) => {
     const base = norm(headers[i]);
-    return [...OTHER_SUFFIXES.map((suf) => `${base}${suf}`), ...(OTHER_EXTRA[base] || [])]
-      .map((n) => byNorm.get(n)).filter((j) => j !== undefined);
+    return [...OTHER_SUFFIXES.map((suf) => byNorm.get(`${base}${suf}`)),
+      ...(OTHER_EXTRA[norm(leafOf(headers[i]))] || []).map(find)].filter((j) => j !== undefined);
   };
   const picks = {};
   const cands = {};
   const others = {};
   for (const [field, aliases] of Object.entries(MAP)) {
-    let candidates = aliases.map((a) => byNorm.get(norm(a))).filter((i) => i !== undefined);
+    // Noms complets d'abord, puis noms de question sous un groupe (jamais pour l'identifiant :
+    // « formhub/uuid » est celui du FORMULAIRE, le même pour toutes les lignes).
+    const full = aliases.map((a) => byNorm.get(norm(a)));
+    const leaves = field === 'external_id' ? [] : aliases.map((a) => byLeaf.get(norm(a)));
+    let candidates = [...new Set([...full, ...leaves].filter((i) => i !== undefined))];
     if (!candidates.length) continue;
     // Niveau administratif sous plusieurs colonnes : celles qui portent des codes d'abord.
     if (ADMIN_KEYS.has(field) && candidates.length > 1) {
@@ -72,6 +89,62 @@ function buildLookup(headers, rows = []) {
   Object.defineProperty(picks, 'candidates', { value: cands });
   Object.defineProperty(picks, 'others', { value: others });
   return picks;
+}
+
+/**
+ * Espaces retirés autour d'une valeur : exactement ceux de String.prototype.trim(),
+ * écrits pour une expression régulière PostgreSQL. La relecture SQL des champs typés
+ * (monitoring.repository.reliftSubmissionsTx) nettoie ainsi comme l'import en JS.
+ */
+const TRIM_CLASS = '\\s\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff';
+
+/**
+ * Clés des réponses ramenées aux noms du catalogue de la fiche (XLSForm ou
+ * variables SPSS), pour qu'un formulaire importé en Excel « avec les groupes »
+ * (« Technical_module/…/Field_office »), en SPSS ou par l'API porte les mêmes
+ * clés — celles des indicateurs et du Mapping MEMS. Colonne d'une question à
+ * choix multiples (« groupe/Q/1 ») : « Q.1 » si le catalogue la nomme ainsi
+ * (SPSS), sinon « Q/1 ». Une clé que le catalogue ne connaît pas reste telle
+ * quelle, et un renommage n'écrase jamais une clé déjà présente.
+ * @param {string[]} catalogNames  noms des champs de la fiche
+ * @returns {(data: object) => object}
+ */
+function groupPathRenamer(catalogNames) {
+  const known = new Map();
+  for (const n of catalogNames || []) {
+    if (n != null && n !== '' && !known.has(String(n).toLowerCase())) known.set(String(n).toLowerCase(), String(n));
+  }
+  const has = (name) => known.has(name.toLowerCase());
+  const get = (name) => known.get(name.toLowerCase());
+  const cache = new Map();
+  const target = (key) => {
+    if (cache.has(key)) return cache.get(key);
+    let out = null;
+    if (isGroupPath(key) && !has(key)) {
+      const seg = key.split('/');
+      const n = seg.length;
+      for (let i = 0; i < n && out == null; i += 1) {
+        if (i > 0 && has(seg.slice(i).join('/'))) out = get(seg.slice(i).join('/'));
+        else if (i === n - 2 && has(`${seg[i]}.${seg[n - 1]}`)) out = get(`${seg[i]}.${seg[n - 1]}`);
+        else if (i === n - 2 && has(seg[i])) out = `${get(seg[i])}/${seg[n - 1]}`;
+      }
+      if (out === key) out = null;
+    }
+    cache.set(key, out);
+    return out;
+  };
+  return (data) => {
+    if (!known.size || !data) return data;
+    let changed = false;
+    const out = {};
+    for (const [k, v] of Object.entries(data)) {
+      const t = target(k);
+      if (t && !Object.prototype.hasOwnProperty.call(data, t) && !Object.prototype.hasOwnProperty.call(out, t)) {
+        out[t] = v; changed = true;
+      } else out[k] = v;
+    }
+    return changed ? out : data;
+  };
 }
 
 /**
@@ -383,4 +456,4 @@ async function parseSubmissions(buffer, { zipLimits = DEFAULT_ZIP_LIMITS } = {})
   }
 }
 
-module.exports = { parseSubmissions, submissionsFromObjects, parseCsv, buildLookup, valueOf, MAP };
+module.exports = { parseSubmissions, submissionsFromObjects, parseCsv, buildLookup, valueOf, groupPathRenamer, TRIM_CLASS, MAP };

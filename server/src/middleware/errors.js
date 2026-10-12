@@ -85,7 +85,7 @@ function errorHandler(err, req, res, _next) {
   }
   if (PG_SCHEMA_ERRORS.has(err.code) && (knownPending() || []).length > 0) {
     req.log?.error({ err, pending: knownPending() }, 'schéma en retard : migrations en attente');
-    return res.status(503).json({ error: SCHEMA_OUTDATED, details: { pendingMigrations: knownPending() } });
+    return res.status(503).json({ error: SCHEMA_OUTDATED }); // noms des fichiers : /api/system/status (admin)
   }
 
   req.log?.error({ err }, 'unhandled error');

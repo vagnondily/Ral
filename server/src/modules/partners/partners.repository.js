@@ -27,9 +27,9 @@ async function sheet(tenantId, id) {
   return withTenantTransaction(tenantId, async (client) => {
     const partner = await getPartnerTx(client, tenantId, id);
     if (!partner) return null;
-    const [{ rows: [contract] }, { rows: [counts] }, { rows: zones }, { rows: districts }] = await Promise.all([
+    const [{ rows: [contract] }, { rows: [counts] }, { rows: zones }, { rows: districts }] = [
       // Contrat en cours : budget de la ligne de suivi et Réalisé (factures validées), comme le Suivi budgétaire.
-      client.query(
+      await client.query(
         `SELECT c.id, c.numero, c.date_fin AS "dateFin",
                 COALESCE((SELECT sum(b.unit_count * b.unit_cost) FROM contract_budget_items b
                            WHERE b.tenant_id = $1 AND b.contract_id = c.id AND b.line_code = $3), 0)::float8 AS budget,
@@ -39,7 +39,7 @@ async function sheet(tenantId, id) {
                            WHERE r.tenant_id = $1 AND r.contract_id = c.id AND r.kind = 'financier' AND r.status = $5), 0)::float8 AS pending
            FROM contracts c WHERE c.tenant_id = $1 AND c.partner_id = $2 AND c.status = 'actif'
           ORDER BY c.date_fin DESC LIMIT 1`, [tenantId, id, MONITORING_LINE, REALISED_STATUS, PENDING_STATUS]),
-      client.query(
+      await client.query(
         `SELECT to_char(date_trunc('month', current_date), 'YYYY-MM') AS month,
                 (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND v.provider_id = $2
                    AND v.period_month = date_trunc('month', current_date) AND v.status <> 'annule')::int AS "visitsAssigned",
@@ -55,17 +55,17 @@ async function sheet(tenantId, id) {
                 (SELECT count(*) FROM tpm_collection_plans pl WHERE pl.tenant_id = $1 AND pl.partner_id = $2)::int AS plans,
                 (SELECT count(*) FROM tpm_agent_formations f JOIN tpm_agents a ON a.id = f.agent_id AND a.tenant_id = f.tenant_id
                   WHERE f.tenant_id = $1 AND a.tpm_provider_id = $2)::int AS trainings`, [tenantId, id, PENDING_STATUS]),
-      client.query(
+      await client.query(
         `SELECT DISTINCT COALESCE(ar.path, ca.path) AS path FROM contract_areas ca
            JOIN contracts c ON c.id = ca.contract_id AND c.tenant_id = ca.tenant_id
            LEFT JOIN admin_areas ar ON ar.id = ca.admin_area_id AND ar.tenant_id = ca.tenant_id
           WHERE ca.tenant_id = $1 AND c.partner_id = $2 AND c.status IN ('actif', 'en_validation', 'brouillon')`, [tenantId, id]),
-      client.query(
+      await client.query(
         `SELECT DISTINCT NULLIF(s.adm1, '') AS region, COALESCE(NULLIF(s.adm2, ''), s.district) AS district
            FROM site_visits v JOIN sites s ON s.id = v.site_id AND s.tenant_id = v.tenant_id
           WHERE v.tenant_id = $1 AND v.provider_id = $2 AND v.status <> 'annule'
             AND v.period_month >= date_trunc('month', current_date) - interval '11 months'`, [tenantId, id]),
-    ]);
+    ];
     const facts = buildFacts({ ...counts, contract: contract || null });
     return {
       partner, facts,

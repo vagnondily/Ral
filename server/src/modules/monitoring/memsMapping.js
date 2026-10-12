@@ -14,7 +14,9 @@
 // Dimensions MEMS reconnues, dans l'ordre d'affichage. `mems` = le référentiel
 // MEMS correspondant (pour guider l'utilisateur vers le bon paramétrage).
 const DIMENSIONS = [
-  { key: 'submitted_at', label: 'Date de collecte', mems: 'Période (mois)', aliases: ['_submission_time', 'end', 'submissiondate', 'today', 'svydate'] },
+  // « @_submission_time » : le même horodatage serveur dans un export SPSS (qui interdit le « _ »
+  // initial) — un formulaire importé en Excel puis en SPSS garde ainsi le même mois.
+  { key: 'submitted_at', label: 'Date de collecte', mems: 'Période (mois)', aliases: ['_submission_time', '@_submission_time', 'end', 'submissiondate', 'today', 'svydate'] },
   { key: 'field_office', label: 'Bureau / sous-bureau', mems: 'Bureaux & antennes', aliases: ['field_office', 'fieldoffice', 'sous bureau', 'sousbureau'] },
   // Niveaux administratifs alignés sur Paramétrage › Localités (vérifié sur les exports réels :
   // admin1 = région MG51, admin2 = district MG51507, admin3 = commune MG51507090).

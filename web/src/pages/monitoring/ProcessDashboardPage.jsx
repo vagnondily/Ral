@@ -46,6 +46,8 @@ export default function ProcessDashboardPage({ onNavigate }) {
       });
     return () => { alive = false; };
   }, [month]);
+  // Un mois choisi par l'utilisateur n'est jamais remplacé par le saut automatique du premier chargement.
+  const pickMonth = (m) => { firstLoad.current = false; setAutoFrom(null); setMonth(m); };
 
   const ov = res?.ov.data;
   const field = res?.field.data;
@@ -78,20 +80,20 @@ export default function ProcessDashboardPage({ onNavigate }) {
     <div className="page">
       <PageHeader title={tr('Suivi de processus — Synthèse')}
         description={tr("Vue d'ensemble du suivi par bureau : visites réalisées, données reçues et conformité (fiches & indicateurs), sites à suivre (RBM). Recalculé en direct.")}>
-        <MonthSelect value={month} onChange={(m) => { setAutoFrom(null); setMonth(m); }} />
+        <MonthSelect value={month} onChange={pickMonth} />
       </PageHeader>
 
       {autoFrom && (
         <Alert tone="info" icon={Info}>
           {tr('{asked} n\'a pas encore de données. Mois affiché : {shown}, le dernier avec des données.', { asked: monthLabel(autoFrom), shown: monthLabel(month) })}
-          {' '}<button type="button" className="inline-link" onClick={() => { const m = autoFrom; setAutoFrom(null); setMonth(m); }}>{tr('Revenir à {m}', { m: monthLabel(autoFrom) })}</button>
+          {' '}<button type="button" className="inline-link" onClick={() => pickMonth(autoFrom)}>{tr('Revenir à {m}', { m: monthLabel(autoFrom) })}</button>
         </Alert>
       )}
       {!autoFrom && empty && (
         <Alert tone="info" icon={Info}>
           {ov.latestMonth
             ? <>{tr('Aucune donnée reçue pour le mois sélectionné ({m}). Dernières données : {last}.', { m: monthLabel(month), last: monthLabel(ov.latestMonth) })}{' '}
-              <button type="button" className="inline-link" onClick={() => setMonth(ov.latestMonth)}>{tr('Voir {m}', { m: monthLabel(ov.latestMonth) })}</button></>
+              <button type="button" className="inline-link" onClick={() => pickMonth(ov.latestMonth)}>{tr('Voir {m}', { m: monthLabel(ov.latestMonth) })}</button></>
             : <>{tr('Aucune donnée reçue pour l\'instant.')}{' '}
               <button type="button" className="inline-link" onClick={() => go('processus', 'donnees')}>{tr('Importer des données')}</button></>}
         </Alert>

@@ -15,14 +15,14 @@ const { buildSiteIndex, resolveSite, queueKeyOf, isAutomaticSite } = require('..
 
 /** Découpage du tenant + alias de zones appris → index de résolution. */
 async function loadPlaceIndexTx(client, tenantId) {
-  const [{ rows: areas }, { rows: aliases }] = await Promise.all([
-    client.query(
+  const [{ rows: areas }, { rows: aliases }] = [
+    await client.query(
       `SELECT id, depth, name, pcode, parent_id AS "parentId", path FROM admin_areas WHERE tenant_id = $1`, [tenantId]),
-    client.query(
+    await client.query(
       `SELECT depth, parent_key AS "parentKey", alias_key AS "aliasKey", target_pcode AS "targetPcode", target_id AS "targetId",
               target_path AS "targetPath"
          FROM location_aliases WHERE tenant_id = $1 AND kind = 'zone'`, [tenantId]),
-  ]);
+  ];
   return buildPlaceIndex({ areas, aliases });
 }
 
@@ -51,7 +51,9 @@ async function updateFromValues(client, tenantId, { table, cols, set, rows, valu
  * qui dérive), conserve les décisions (ignoré / résolu) et retire les graphies
  * qui n'apparaissent plus nulle part sans avoir été décidées.
  */
-async function syncQueueTx(client, tenantId, source, groups, kind = 'zone') {
+async function syncQueueTx(client, tenantId, source, allGroups, kind = 'zone') {
+  // Défense : une clé vide ou trop longue ferait échouer toute la transaction (CHECK raw_key 1..200).
+  const groups = allGroups.filter((g) => g.rawKey && g.rawKey.length <= 200);
   for (const slice of chunkRows(groups, 8)) {
     const params = [tenantId, source, kind];
     const tuples = slice.map((g) => {
@@ -259,8 +261,8 @@ const officeChoiceLabelsTx = (client, tenantId) => choiceLabelsTx(client, tenant
  * pas des noms à rapprocher). Les valeurs brutes ne sont jamais modifiées.
  */
 async function applySubmissionsGeoTx(client, tenantId) {
-  const [index, offices, labels] = await Promise.all([
-    loadPlaceIndexTx(client, tenantId), loadOfficeIndexTx(client, tenantId), officeChoiceLabelsTx(client, tenantId)]);
+  const [index, offices, labels] = [
+    await loadPlaceIndexTx(client, tenantId), await loadOfficeIndexTx(client, tenantId), await officeChoiceLabelsTx(client, tenantId)];
   const { rows: combos } = await client.query(
     `SELECT form_id AS "formId", COALESCE(admin1, '') AS a1, COALESCE(admin2, '') AS a2, COALESCE(admin3, '') AS a3,
             COALESCE(admin4, '') AS a4, COALESCE(field_office, '') AS fo, count(*)::int AS n
@@ -351,12 +353,15 @@ async function applySubmissionSitesTx(client, tenantId) {
             COALESCE(s.adm3_pcode, '') AS p3, f.activity_category AS activity, count(*)::int AS n
        FROM monitoring_submissions s JOIN monitoring_forms f ON f.id = s.form_id AND f.tenant_id = s.tenant_id
       WHERE s.tenant_id = $1 GROUP BY 1, 2, 3, 4, 5`, [tenantId]);
-  const areaOf = await areaLookupTx(client, tenantId, combos.map((c) => c.site));
+  // Pcodes du site déclaré (fokontany) et de la commune (pour en déduire le district).
+  const areaOf = await areaLookupTx(client, tenantId, [...combos.map((c) => c.site), ...combos.map((c) => c.p3)]);
   const updates = []; const pending = new Map();
   let withSite = 0; let linked = 0;
   for (const c of combos) {
     const label = (c.site && labels.get(c.formId) && labels.get(c.formId).get(c.site)) || null;
-    const q = { value: c.site, label, adm2: looksLikePcode(c.a2) ? c.a2 : null, adm3: c.p3 || null, activity: c.activity, areaOf };
+    // District : le pcode reçu, sinon le parent de la commune reconnue (un nom de district ne sert pas de zone).
+    const adm2 = looksLikePcode(c.a2) ? c.a2 : ((c.p3 && areaOf(c.p3) && areaOf(c.p3).parentPcode) || null);
+    const q = { value: c.site, label, adm2, adm3: c.p3 || null, activity: c.activity, areaOf };
     const r = resolveSite(index, q);
     const auto = isAutomaticSite(r.status);
     if (c.site) withSite += c.n;
@@ -364,6 +369,7 @@ async function applySubmissionSitesTx(client, tenantId) {
     updates.push({ ...c, siteId: auto ? r.site.id : null, status: r.status });
     if (auto || r.status === 'vide') continue;
     const k = queueKeyOf(q);
+    if (!k.rawKey) continue; // rien de reconnaissable : pas de ligne dans la file
     const gk = `${k.parentKey}|${k.rawKey}`;
     if (!pending.has(gk)) {
       // Code de fokontany reconnu : on l'affiche avec son nom, dans sa commune (lisible pour décider).
@@ -409,15 +415,19 @@ async function listQueue(tenantId, { status } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId]; const where = ['q.tenant_id = $1'];
     if (status) { params.push(status); where.push(`q.status = $${params.length}`); } else where.push(`q.status IN ('a_valider', 'ambigu', 'introuvable')`);
+    // 500 graphies au plus PAR TYPE (lieux, sites) : un type ne masque jamais l'autre.
     const { rows } = await client.query(
-      `SELECT q.id, q.kind, q.depth, l.label AS "levelLabel", q.parent_key AS "parentKey", q.parent_label AS "parentLabel",
-              q.raw_label AS "rawLabel", q.occurrences, q.candidates, q.status, q.last_seen_at AS "lastSeenAt",
-              (SELECT COALESCE(sum(value::int), 0) FROM jsonb_each_text(q.occurrences))::int AS total
-         FROM location_match_queue q
-         LEFT JOIN admin_levels l ON l.tenant_id = q.tenant_id AND l.depth = q.depth
-        WHERE ${where.join(' AND ')}
-        ORDER BY total DESC, q.depth, q.raw_label
-        LIMIT 500`, params);
+      `SELECT * FROM (
+         SELECT q.id, q.kind, q.depth, l.label AS "levelLabel", q.parent_key AS "parentKey", q.parent_label AS "parentLabel",
+                q.raw_label AS "rawLabel", q.occurrences, q.candidates, q.status, q.last_seen_at AS "lastSeenAt",
+                (SELECT COALESCE(sum(value::int), 0) FROM jsonb_each_text(q.occurrences))::int AS total
+           FROM location_match_queue q
+           LEFT JOIN admin_levels l ON l.tenant_id = q.tenant_id AND l.depth = q.depth
+          WHERE ${where.join(' AND ')}) x
+        ORDER BY x.total DESC, x.depth, x."rawLabel"`, params);
+    const perKind = new Map();
+    const kept = rows.filter((r) => { const n = (perKind.get(r.kind) || 0) + 1; perKind.set(r.kind, n); return n <= 500; });
+    rows.length = 0; rows.push(...kept);
     // Unité parente de chaque graphie (pour proposer seulement ses enfants) : clé pcode ou nom normalisé.
     const depths = [...new Set(rows.filter((r) => r.parentKey && r.depth > 1).map((r) => r.depth - 1))];
     if (depths.length) {
@@ -515,6 +525,10 @@ async function linkSiteTx(client, tenantId, q, siteId, actorId) {
 
 async function deleteAlias(tenantId, id) {
   return withTenantTransaction(tenantId, async (client) => {
+    // « Oublier » une graphie la remet à valider dans la file (sinon elle resterait « résolue », sans lien).
+    await client.query(
+      `UPDATE location_match_queue SET status = 'a_valider', alias_id = NULL, decided_by = NULL, decided_at = NULL
+        WHERE tenant_id = $1 AND alias_id = $2`, [tenantId, id]);
     const { rowCount } = await client.query('DELETE FROM location_aliases WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
     if (!rowCount) return false;
     await resolvePerimeterTx(client, tenantId);

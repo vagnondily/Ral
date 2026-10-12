@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseSubmissions, submissionsFromObjects } = require('../src/modules/monitoring/submissionsImport');
+const { parseSubmissions, submissionsFromObjects, groupPathRenamer, TRIM_CLASS } = require('../src/modules/monitoring/submissionsImport');
 
 test('parses a CSV, lifting known Kobo columns and keeping raw answers', async () => {
   const csv = [
@@ -253,4 +253,60 @@ test('identifiant Kobo identique en Excel (_uuid) et en SPSS (@_uuid, instanceID
   assert.equal(viaExcel.submissions[0].externalId, '77bbf6c3-6aea');
   assert.equal(viaSpss.submissions[0].externalId, '77bbf6c3-6aea');
   assert.equal(viaInstance.submissions[0].externalId, '77bbf6c3-6aea');
+});
+
+test('export Excel « avec les groupes » : bureau, lieux, site et partenaire reconnus par le nom de la question', async () => {
+  const csv = [
+    '_uuid,_submission_time,formhub/uuid,T/TB/Field_office,T/TB/EnuPartner,T_DP/S/Adm1Code,T_DP/S/Adm3Code,T_DP/S/DPName,T_DP/S/DPName_Other',
+    'u1,2026-07-02T08:00:00,form-uuid,7,12,MG51,MG51507090,999,MANIRY CENTRE',
+  ].join('\n');
+  const [s] = (await parseSubmissions(Buffer.from(csv, 'utf8'))).submissions;
+  assert.equal(s.externalId, 'u1');
+  assert.equal(s.fieldOffice, '7');
+  assert.equal(s.partner, '12');
+  assert.equal(s.admin1, 'MG51');
+  assert.equal(s.admin3, 'MG51507090');
+  assert.equal(s.site, 'MANIRY CENTRE'); // « autre » : précision voisine, sous le même groupe
+  assert.equal(s.data['T/TB/Field_office'], '7'); // réponses brutes intactes
+});
+
+test('le nom complet passe avant le nom de question ; « formhub/uuid » n\'est jamais l\'identifiant', async () => {
+  const picks = buildLookup(['G/Field_office', 'Field_office', 'formhub/uuid', 'q'], []);
+  assert.equal(picks.field_office, 1);
+  assert.deepEqual(picks.candidates.field_office, [1, 0]);
+  assert.equal(picks.external_id, undefined);
+  const csv = 'formhub/uuid,q\nmeme-formulaire,a\nmeme-formulaire,b';
+  const { submissions } = await parseSubmissions(Buffer.from(csv, 'utf8'));
+  assert.deepEqual(submissions.map((x) => x.externalId), [null, null]); // jamais fusionnées sur l'identifiant du formulaire
+});
+
+test('même soumission en SPSS et par l\'API : même date et même mois (horodatage serveur)', () => {
+  const [sav] = submissionsFromObjects([{ '@_uuid': 'u1', end: '2026-01-30T17:00:00+03:00', '@_submission_time': '2026-02-02T08:00:00' }], 'sav');
+  const [api] = submissionsFromObjects([{ _uuid: 'u1', end: '2026-01-30T17:00:00+03:00', _submission_time: '2026-02-02T08:00:00' }], 'kobo');
+  assert.equal(sav.periodMonth, api.periodMonth);
+  assert.equal(String(sav.submittedAt), String(api.submittedAt));
+  assert.equal(api.periodMonth, '2026-02-01');
+});
+
+test('clés sous un groupe ramenées aux noms du catalogue (Excel = SPSS = API)', () => {
+  const sav = groupPathRenamer(['Field_office', 'process_monitoring', 'process_monitoring.1', 'instanceID']);
+  assert.deepEqual(sav({
+    'T/TB/Field_office': '7', 'T/TB/process_monitoring': '1 2', 'T/TB/process_monitoring/1': '1',
+    'meta/instanceID': 'uuid:x', 'formhub/uuid': 'f', 'Inconnu/zz': 'z', _uuid: 'x',
+  }), {
+    Field_office: '7', process_monitoring: '1 2', 'process_monitoring.1': '1',
+    instanceID: 'uuid:x', 'formhub/uuid': 'f', 'Inconnu/zz': 'z', _uuid: 'x',
+  });
+  // Catalogue XLSForm (pas de colonnes d'options) : « groupe/Q/1 » → « Q/1 ».
+  const xls = groupPathRenamer(['Q']);
+  assert.deepEqual(xls({ 'G/Q/1': '1', 'Q/2': '0' }), { 'Q/1': '1', 'Q/2': '0' });
+  // Jamais d'écrasement d'une clé déjà présente ; sans catalogue, rien ne change.
+  assert.deepEqual(sav({ 'G/Field_office': '7', Field_office: '8' }), { 'G/Field_office': '7', Field_office: '8' });
+  const raw = { 'G/Field_office': '7' };
+  assert.equal(groupPathRenamer([])(raw), raw);
+});
+
+test('nettoyage identique en JS et en SQL : la classe d\'espaces couvre ceux de trim()', () => {
+  const re = new RegExp(`^[${TRIM_CLASS.replace(/\\\\/g, '\\')}]+|[${TRIM_CLASS.replace(/\\\\/g, '\\')}]+$`, 'g');
+  for (const v of [' Ambovombe\t', '　 x ﻿', ' y ', '​z']) assert.equal(v.replace(re, ''), v.trim());
 });

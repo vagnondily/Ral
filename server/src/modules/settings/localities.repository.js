@@ -38,19 +38,19 @@ async function listAdminAreas(tenantId, { depth, parentId } = {}) {
 // ---- Profil pays + vocabulaire --------------------------------------------
 async function getCountry(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
-    const [{ rows: prof }, { rows: levels }, { rows: tenant }] = await Promise.all([
-      client.query(
+    const [{ rows: prof }, { rows: levels }, { rows: tenant }] = [
+      await client.query(
         `SELECT name, iso3, currency, center_lat::float8 AS "centerLat", center_lng::float8 AS "centerLng", note,
                 breakdown_source AS "breakdownSource", breakdown_imported_at AS "breakdownImportedAt", updated_at AS "updatedAt"
            FROM country_profiles WHERE tenant_id = $1`, [tenantId]),
-      client.query(
+      await client.query(
         `SELECT l.depth, l.label, COALESCE(l.label_plural, l.label) AS "labelPlural", l.code,
                 count(a.id)::int AS units, count(a.pcode)::int AS "withPcode", count(a.lat)::int AS "withGps",
                 count(*) FILTER (WHERE a.name ~ '^[A-Z]{2,3}[0-9]{2,}$' AND a.pcode IS NULL)::int AS "codeLikeNames"
            FROM admin_levels l LEFT JOIN admin_areas a ON a.tenant_id = l.tenant_id AND a.depth = l.depth
           WHERE l.tenant_id = $1 GROUP BY l.depth, l.label, l.label_plural, l.code ORDER BY l.depth`, [tenantId]),
-      client.query('SELECT name FROM tenants WHERE id = $1', [tenantId]),
-    ]);
+      await client.query('SELECT name FROM tenants WHERE id = $1', [tenantId]),
+    ];
     return { profile: prof[0] || { name: null, iso3: null, currency: null, centerLat: null, centerLng: null, note: null }, levels, tenantName: tenant[0]?.name || null };
   });
 }

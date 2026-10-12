@@ -148,14 +148,14 @@ export default function App() {
  */
 function SchemaBanner({ isAdmin }) {
   const { tr } = useI18n();
-  const [pending, setPending] = useState([]);
-  useEffect(() => { api.systemStatus().then((r) => setPending(r.pendingMigrations || [])).catch(() => {}); }, []);
-  if (!pending.length) return null;
+  const [pending, setPending] = useState(0);
+  useEffect(() => { api.systemStatus().then((r) => setPending(Number(r.pendingCount) || 0)).catch(() => {}); }, []);
+  if (!pending) return null;
   return (
     <div style={{ marginBottom: 16 }}>
       <Alert tone="error" icon={AlertCircle}>
         {isAdmin
-          ? tr('La base de données n\'est pas à jour ({n} mise(s) à jour en attente) : certaines pages ne fonctionneront pas. Arrêtez l\'API, lancez « npm run migrate » dans le dossier server, puis redémarrez l\'API.', { n: pending.length })
+          ? tr('La base de données n\'est pas à jour ({n} mise(s) à jour en attente) : certaines pages ne fonctionneront pas. Arrêtez l\'API, lancez « npm run migrate » dans le dossier server, puis redémarrez l\'API.', { n: pending })
           : tr('L\'application est en cours de mise à jour : certaines pages peuvent ne pas fonctionner. Prévenez votre administrateur.')}
       </Alert>
     </div>
