@@ -3,7 +3,7 @@ const { summarizeVisits, collectionDays, buildCoverageMatrix } = require('./fiel
 const { isDue, frequencyFor } = require('./rbmMath');
 const { scoreSite, normalizeSecurity } = require('./rbmScore');
 const { coverageRecap } = require('./coverageRecap');
-const { mmrLookup, siteCounters, rankSites, boardKpis, normalizeChanges } = require('./planBoard');
+const { mmrLookup, siteCounters, rankSites, boardKpis, normalizeChanges, currentStatus } = require('./planBoard');
 const { badRequest } = require('../../middleware/errors');
 
 /**
@@ -676,7 +676,9 @@ async function planBoard(tenantId, { year, adjusted = false }) {
     const { rows: sites } = await client.query(
       `WITH base AS (${RBM_SELECT})
        SELECT b.*, o.parent_id AS "parentOfficeId",
-              COALESCE(vv.months, '[]'::json) AS months
+              COALESCE(vv.months, '[]'::json) AS months,
+              (SELECT json_object_agg(ms.month, ms.active) FROM site_month_status ms
+                WHERE ms.tenant_id = $1 AND ms.site_id = b.id AND ms.year = extract(year FROM $2::date)) AS "monthStatus"
          FROM base b
          LEFT JOIN field_offices o ON o.id = b."fieldOfficeId"
          LEFT JOIN LATERAL (
@@ -696,11 +698,13 @@ async function planBoard(tenantId, { year, adjusted = false }) {
       const mmrRow = lookup(s.fieldOfficeId, s.parentOfficeId, s.activity);
       const score = scoreSite(s, { targetMonth: target });
       const counters = siteCounters({ months: s.months }, mmrRow, { adjusted });
+      const status = currentStatus(s.monthStatus);
       return {
         id: s.id, code: s.code, name: s.name, district: s.district, commune: s.commune, activity: s.activity,
         bureau: s.subOfficeName || s.antenneName || null, fieldOfficeId: s.fieldOfficeId,
         riskLevel: s.riskLevel, priority: score.priorityLabel, finalScore: score.finalScore,
         forbidden: Number(s.security) >= 99,
+        status, inactive: status === 'Inactive', monthStatus: s.monthStatus || {},
         lastVisitMonth: s.lastVisitMonth, dataCount: s.dataVisitCount, months: s.months,
         ...counters,
       };
@@ -715,7 +719,8 @@ async function planBoard(tenantId, { year, adjusted = false }) {
  * seules visites encore « planifiées » (une visite réalisée n'est jamais effacée).
  */
 async function setPlannedMonths(tenantId, userId, { year, changes }) {
-  const { add, remove } = normalizeChanges(changes);
+  let { add } = normalizeChanges(changes);
+  const { remove } = normalizeChanges(changes);
   return withTenantTransaction(tenantId, async (client) => {
     const ids = [...new Set([...add, ...remove].map(([id]) => id))];
     if (!ids.length) return { added: 0, removed: 0 };
@@ -724,6 +729,12 @@ async function setPlannedMonths(tenantId, userId, { year, changes }) {
     const activity = new Map(known.map((k) => [k.id, k.activity || null]));
     const pm = (m) => `${year}-${String(m).padStart(2, '0')}-01`;
     let added = 0; let removed = 0;
+    // Un site « Inactive » sur un mois n'est pas planifiable ce mois-là.
+    const { rows: inactive } = await client.query(
+      'SELECT site_id, month FROM site_month_status WHERE tenant_id = $1 AND year = $2 AND NOT active AND site_id = ANY($3::uuid[])', [tenantId, year, ids]);
+    const blocked = new Set(inactive.map((r) => `${r.site_id}|${r.month}`));
+    const skippedInactive = add.filter(([id, m]) => blocked.has(`${id}|${m}`)).length;
+    add = add.filter(([id, m]) => !blocked.has(`${id}|${m}`));
     if (add.length) {
       const params = [tenantId, userId]; const tuples = add.map(([id, m]) => {
         params.push(id, pm(m), activity.get(id));
@@ -741,7 +752,7 @@ async function setPlannedMonths(tenantId, userId, { year, changes }) {
         `DELETE FROM site_visits v USING (VALUES ${tuples.join(',')}) AS x(site_id, pm)
           WHERE v.tenant_id = $1 AND v.site_id = x.site_id AND v.period_month = x.pm AND v.status = 'planifie'`, params));
     }
-    return { added, removed };
+    return { added, removed, skippedInactive };
   });
 }
 
@@ -847,8 +858,35 @@ async function importLocations(tenantId, userId, { year, rows }, { commit = fals
   });
 }
 
+/** Statuts mensuels Active/Inactive par lot (null = effacer le mois), une transaction. */
+async function setMonthStatuses(tenantId, { year, changes }) {
+  const last = new Map();
+  for (const c of changes) last.set(`${c.siteId}|${c.month}`, c);
+  const list = [...last.values()];
+  return withTenantTransaction(tenantId, async (client) => {
+    const ids = [...new Set(list.map((c) => c.siteId))];
+    const { rows: known } = await client.query('SELECT id FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, ids]);
+    if (known.length !== ids.length) throw badRequest('Site inconnu (ou hors de ce compte).');
+    const set = list.filter((c) => c.active !== null); const clear = list.filter((c) => c.active === null);
+    let updated = 0; let cleared = 0;
+    if (set.length) {
+      const params = [tenantId, year]; const tuples = set.map((c) => { params.push(c.siteId, c.month, c.active); const b = params.length - 2; return `($1, $${b}::uuid, $2, $${b + 1}::smallint, $${b + 2}::boolean)`; });
+      ({ rowCount: updated } = await client.query(
+        `INSERT INTO site_month_status (tenant_id, site_id, year, month, active) VALUES ${tuples.join(',')}
+         ON CONFLICT (site_id, year, month) DO UPDATE SET active = EXCLUDED.active, updated_at = now()`, params));
+    }
+    if (clear.length) {
+      const params = [tenantId, year]; const tuples = clear.map((c) => { params.push(c.siteId, c.month); return `($${params.length - 1}::uuid, $${params.length}::smallint)`; });
+      ({ rowCount: cleared } = await client.query(
+        `DELETE FROM site_month_status m USING (VALUES ${tuples.join(',')}) AS x(site_id, month)
+          WHERE m.tenant_id = $1 AND m.year = $2 AND m.site_id = x.site_id AND m.month = x.month`, params));
+    }
+    return { updated, cleared };
+  });
+}
+
 module.exports = {
-  reportFieldData, planBoard, setPlannedMonths, locationsExportData, importLocations,
+  reportFieldData, planBoard, setPlannedMonths, setMonthStatuses, locationsExportData, importLocations,
   listSites, createSite, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
   collectionDaysSummary, setTravelDays, coverageRecapSummary, coverageMatrix, monthsOverview, setMonthStatus, mapData,

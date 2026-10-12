@@ -82,6 +82,15 @@ router.put('/plan-board/months', WRITE, asyncHandler(async (req, res) => {
   res.json(await repo.setPlannedMonths(t(req), uid(req), p.data));
 }));
 
+const statusChanges = z.object({
+  year: z.number().int().min(2000).max(2100),
+  changes: z.array(z.object({ siteId: z.string().uuid(), month: z.number().int().min(1).max(12), active: z.boolean().nullable() })).min(1).max(60000),
+});
+router.put('/plan-board/status', WRITE, asyncHandler(async (req, res) => {
+  const p = statusChanges.safeParse(req.body);
+  if (!p.success) throw badRequest('Données invalides', p.error.flatten());
+  res.json(await repo.setMonthStatuses(t(req), p.data));
+}));
 // Registre « Locations Management » au format du classeur du plan de suivi.
 router.get('/plan-board/locations.xlsx', asyncHandler(async (req, res) => {
   const year = yearQ(req);

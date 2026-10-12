@@ -64,3 +64,12 @@ test('lot de planification : dernier changement gagne, mois invalides ignorés',
   ]);
   assert.deepEqual(add, [['s2', 4]]); assert.deepEqual(remove, [['s1', 3]]);
 });
+
+test('statut courant = dernier mois renseigné ; un site inactif n\'est ni actif ni « à visiter »', () => {
+  const { currentStatus } = require('../src/modules/tpm/planBoard');
+  assert.equal(currentStatus({ 1: true, 2: true, 7: false }), 'Inactive');
+  assert.equal(currentStatus({ 3: false, 11: true }), 'Active');
+  assert.equal(currentStatus({}), null); assert.equal(currentStatus(null), null);
+  const k = boardKpis([{ required: 2, done: 0, planned: 0, remaining: 2, toPlan: 2, parametered: true, inactive: true }]);
+  assert.equal(k.active, 0); assert.equal(k.toVisit, 0); assert.equal(k.withoutPlan, 0);
+});

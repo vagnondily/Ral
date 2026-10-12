@@ -61,20 +61,28 @@ function rankSites(sites) {
     || String(a.name).localeCompare(String(b.name), 'fr'));
 }
 
+/** Statut courant = dernier mois renseigné de l'exercice (comme la colonne Status du classeur). */
+function currentStatus(monthStatus) {
+  if (!monthStatus) return null;
+  const months = Object.keys(monthStatus).map(Number).filter((m) => m >= 1 && m <= 12).sort((a, b) => a - b);
+  if (!months.length) return null;
+  return monthStatus[months[months.length - 1]] ? 'Active' : 'Inactive';
+}
+
 /** Compteurs des deux bandeaux de KPI, sur le périmètre (déjà filtré). */
 function boardKpis(sites) {
   const sum = (k) => sites.reduce((a, s) => a + (s[k] || 0), 0);
   const required = sum('required'); const done = sum('done');
   return {
     total: sites.length,
-    active: sites.filter((s) => !s.forbidden).length,
+    active: sites.filter((s) => !s.forbidden && !s.inactive).length,
     planned: sites.filter((s) => s.planned > 0).length,
-    toVisit: sites.filter((s) => s.remaining > 0 && !s.forbidden).length,
+    toVisit: sites.filter((s) => s.remaining > 0 && !s.forbidden && !s.inactive).length,
     followed: sites.filter((s) => s.done > 0).length,
     fed: sites.filter((s) => (s.dataCount || 0) > 0).length,
     remainingVisits: sum('remaining'),
     notYetPlanned: sum('toPlan'),
-    withoutPlan: sites.filter((s) => !s.forbidden && s.planned === 0 && s.done === 0).length,
+    withoutPlan: sites.filter((s) => !s.forbidden && !s.inactive && s.planned === 0 && s.done === 0).length,
     neverVisited: sites.filter((s) => !s.lastVisitMonth && !(s.dataCount > 0)).length,
     unparametered: sites.filter((s) => !s.parametered).length,
     requiredVisits: required, doneVisits: done,
@@ -98,4 +106,4 @@ function normalizeChanges(changes = []) {
   return { add, remove };
 }
 
-module.exports = { mmrLookup, requiredVisits, siteCounters, rankSites, boardKpis, normalizeChanges, norm };
+module.exports = { mmrLookup, requiredVisits, siteCounters, rankSites, boardKpis, normalizeChanges, currentStatus, norm };
