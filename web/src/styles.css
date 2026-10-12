@@ -2192,3 +2192,10 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .tpl-field-label { max-width: 300px; display: block !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tpl-lower { display: inline-flex; align-items: center; gap: 2px; color: var(--text); }
 .tpl-done { display: inline-flex; align-items: center; gap: 3px; color: var(--green-text); font-weight: 600; }
+
+/* Plan de collecte : sites affectés au prestataire (justification du budget). */
+.assigned-sites { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; background: var(--surface-2); }
+.assigned-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 8px; }
+.assigned-head h4 { margin: 0; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-strong); }
+.assigned-head .button, .assigned-head .btn { margin-left: auto; }
+.assigned-table { max-height: 260px; overflow: auto; background: var(--surface); border-radius: var(--radius-sm); }
