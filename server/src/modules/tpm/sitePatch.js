@@ -16,6 +16,10 @@ const COLUMNS = {
   urbanArea: ['urban_area', true], lastVisitDate: ['last_visit_date', true],
 };
 const MIRROR = { district: 'adm2', commune: 'adm3' };
+// Le pcode décrit l'ANCIENNE commune / l'ancien district : effacé seulement si le nom change
+// réellement (comparé à la valeur en base, casse et espaces ignorés) — il sera retrouvé par
+// le rapprochement des lieux, jamais laissé faux.
+const PCODE = { district: 'adm2_pcode', commune: 'adm3_pcode' };
 
 /**
  * @param {object} patch  champs du site (noms de l'API)
@@ -24,13 +28,16 @@ const MIRROR = { district: 'adm2', commune: 'adm3' };
  */
 function sitePatchSql(patch = {}, firstParam = 3) {
   const sets = []; const values = [];
-  const add = (col, v) => { values.push(v); sets.push(`${col} = $${firstParam + values.length - 1}`); };
+  const add = (col, v) => { values.push(v); const n = firstParam + values.length - 1; sets.push(`${col} = $${n}`); return n; };
   for (const [key, [col, nullable]] of Object.entries(COLUMNS)) {
     if (!(key in patch) || patch[key] === undefined) continue;
     const v = patch[key];
     if (v === null && !nullable) continue;
-    add(col, v === '' && nullable ? null : v);
+    const n = add(col, v === '' && nullable ? null : v);
     if (MIRROR[key] && v) add(MIRROR[key], v);
+    if (PCODE[key]) {
+      sets.push(`${PCODE[key]} = CASE WHEN lower(btrim(${col})) IS NOT DISTINCT FROM lower(btrim($${n}::text)) THEN ${PCODE[key]} ELSE NULL END`);
+    }
   }
   return { sets, values };
 }

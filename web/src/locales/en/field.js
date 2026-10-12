@@ -83,8 +83,11 @@ export default {
   'Jours de déplacement {provider}': 'Travel days {provider}',
   // Données réelles
   'Données réelles — {month}': 'Actual data — {month}',
-  "Soumissions de suivi réellement collectées ce mois (données uploadées). La commune est résolue depuis le référentiel de sites via le pcode — c'est cette liaison qui alimente la « dernière collecte » du plan et du RBM.":
-    'Monitoring submissions actually collected this month (uploaded data). The commune is resolved from the site registry via the P-code — this link feeds the “last collection” of the plan and the RBM.',
+  "Soumissions de suivi réellement collectées ce mois (données uploadées). La commune est résolue depuis le référentiel de sites via le pcode : c'est cette liaison qui alimente la « dernière collecte » du plan et du RBM, sauf pour les soumissions écartées au nettoyage et celles d'une fiche rattachée à une autre activité que le site.":
+    'Monitoring submissions actually collected this month (uploaded data). The commune is resolved from the site registry via the P-code: this link feeds the “last collection” of the plan and the RBM, except for submissions excluded during cleaning and those from a form linked to an activity other than the site’s.',
+  'Écartée au nettoyage : ne compte pas dans la dernière collecte.': 'Excluded during cleaning: does not count towards the last collection.',
+  'écartée': 'excluded',
+  'toutes': 'all',
   'Aucune donnée réelle versée pour {month}. Importez des soumissions dans « Données & indicateurs ».':
     'No actual data uploaded for {month}. Import submissions in “Data & indicators”.',
   'Fiche': 'Form',

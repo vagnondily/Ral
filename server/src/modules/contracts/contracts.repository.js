@@ -36,7 +36,7 @@ const FROM_CONTRACT = `
 // ------------------------------------------------------------------ reads
 
 async function listContracts(client, tenantId, { status, q } = {}) {
-  const params = [tenantId];
+  const params = [tenantId, REALISED_STATUS]; // $2 = statut du « Réalisé » (définition unique, tpm/realised)
   const where = ['c.tenant_id = $1'];
   if (status) {
     params.push(status);
@@ -59,7 +59,7 @@ async function listContracts(client, tenantId, { status, q } = {}) {
        LEFT JOIN LATERAL (SELECT SUM(unit_count * unit_cost) AS total FROM contract_budget_items WHERE contract_id = c.id) b ON true
        LEFT JOIN LATERAL (SELECT SUM(unit_count * unit_cost) AS total FROM contract_budget_items WHERE contract_id = c.id AND line_code = 'IV.suivi') m ON true
        LEFT JOIN LATERAL (SELECT SUM(reported_amount) AS total FROM tpm_reports
-                           WHERE contract_id = c.id AND kind = 'financier' AND status = 'valide') x ON true
+                           WHERE tenant_id = c.tenant_id AND contract_id = c.id AND kind = 'financier' AND status = $2) x ON true
       WHERE ${where.join(' AND ')}
       ORDER BY CASE c.status WHEN 'en_validation' THEN 0 WHEN 'brouillon' THEN 1 WHEN 'rejete' THEN 2
                              WHEN 'actif' THEN 3 ELSE 4 END,
@@ -153,19 +153,19 @@ async function adminAreasAtDepths(client, tenantId, depths) {
   return rows;
 }
 
-/** Total validated TPM financial reports for this contract (= spent on the monitoring line). */
+/** Réalisé du contrat : factures TPM au statut REALISED_STATUS (validées) = consommé sur la ligne de suivi. */
 async function monitoringSpent(client, tenantId, contractId) {
   const { rows } = await client.query(
     `SELECT COALESCE(SUM(reported_amount), 0) AS total FROM tpm_reports
-      WHERE tenant_id = $1 AND contract_id = $2 AND kind = 'financier' AND status = 'valide'`,
-    [tenantId, contractId]
+      WHERE tenant_id = $1 AND contract_id = $2 AND kind = 'financier' AND status = $3`,
+    [tenantId, contractId, REALISED_STATUS]
   );
   return num(rows[0].total);
 }
 
 /**
  * Données de prévision d'un contrat : budget Suivi/TPM (ligne IV) + réalisé
- * mensuel (part bailleur des factures soumises/validées), pour forecast.js.
+ * mensuel (factures au statut REALISED_STATUS, validées), pour forecast.js.
  */
 async function forecastData(client, tenantId, contractId) {
   const { MONITORING_LINE } = require('./contracts.domain');

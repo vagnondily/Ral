@@ -82,7 +82,7 @@ const DATASETS = {
 
 // Chiffres clés disponibles (bloc « kpis »).
 const KPIS = {
-  sites_active: 'Sites actifs', sites_visited: 'Sites visités', coverage: 'Couverture des sites',
+  sites_active: 'Sites actifs', sites_visited: 'Sites visités', sites_visited_all: 'Sites visités (toutes fiches)', coverage: 'Couverture des sites',
   visits_done: 'Visites réalisées', visits_planned: 'Visites planifiées', execution_rate: 'Taux de réalisation',
   submissions: 'Données versées', conformity: 'Indice de conformité',
   budget_total: 'Budget de suivi', budget_actual: 'Réalisé', consumption: 'Taux de consommation',

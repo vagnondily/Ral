@@ -55,8 +55,9 @@ async function consolidation(tenantId, { today } = {}) {
         GROUP BY r.contract_id, r.period_month`,
       [tenantId, REALISED_STATUS, PENDING_STATUS]
     );
-    const pendingByContract = new Map();
-    for (const r of actualRows) pendingByContract.set(r.contractId, (pendingByContract.get(r.contractId) || 0) + num(r.pending));
+    // En centimes entiers (jamais une somme de flottants), comme consolidation.js.
+    const pendingCents = new Map();
+    for (const r of actualRows) pendingCents.set(r.contractId, (pendingCents.get(r.contractId) || 0) + Math.round(num(r.pending) * 100));
 
     // Monthly « Planifié » per contract, from the collection plans
     // (Planification & budget) — the funder share of the planned postes.
@@ -99,8 +100,9 @@ async function consolidation(tenantId, { today } = {}) {
 
     const out = buildConsolidation(shaped, monthly, { today });
     // Factures soumises non encore validées : montrées à côté du Réalisé, jamais dedans.
-    out.rows = out.rows.map((r) => ({ ...r, pendingValidation: pendingByContract.get(r.contractId) || 0 }));
-    out.totals = { ...out.totals, pendingValidation: out.rows.reduce((a, r) => a + r.pendingValidation, 0) };
+    out.rows = out.rows.map((r) => ({ ...r, pendingValidation: (pendingCents.get(r.contractId) || 0) / 100 }));
+    const totalPendingCents = out.rows.reduce((a, r) => a + (pendingCents.get(r.contractId) || 0), 0);
+    out.totals = { ...out.totals, pendingValidation: totalPendingCents / 100 };
     return out;
   });
 }

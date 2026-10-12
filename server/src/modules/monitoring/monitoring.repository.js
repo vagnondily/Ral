@@ -206,6 +206,14 @@ async function formCatalog(tenantId, formId) {
   });
 }
 
+// Noms de district et de commune d'une soumission géocodée par pcode : le découpage
+// (Paramétrage › Localités) d'abord, sinon le référentiel de sites (même pcode).
+const PLACE_NAMES = `
+              COALESCE((SELECT a.name FROM admin_areas a WHERE a.tenant_id = ms.tenant_id AND a.pcode = ms.admin2 LIMIT 1),
+                       (SELECT s.district FROM sites s WHERE s.tenant_id = ms.tenant_id AND s.adm2_pcode = ms.admin2 LIMIT 1)) AS "districtName",
+              COALESCE((SELECT a.name FROM admin_areas a WHERE a.tenant_id = ms.tenant_id AND a.pcode = ms.admin3 LIMIT 1),
+                       (SELECT s.commune FROM sites s WHERE s.tenant_id = ms.tenant_id AND s.adm3_pcode IS NOT NULL AND s.adm3_pcode = ms.admin3 LIMIT 1)) AS "communeName"`;
+
 /**
  * Soumissions brutes d'une fiche (données importées), pour la visualisation :
  * champs typés (date, bureau, zones, site, partenaire, agent) + réponses brutes
@@ -223,9 +231,7 @@ async function formSubmissions(tenantId, formId, { month, limit = 200 } = {}) {
               ms.submitted_at AS "submittedAt", ms.field_office AS "fieldOffice",
               ms.admin1, ms.admin2, ms.admin3, ms.admin4, ms.site, ms.partner, ms.agent, ms.source, ms.data,
               ms.excluded, ms.exclude_reason AS "excludeReason",
-              (SELECT s.commune FROM sites s
-                WHERE s.tenant_id = ms.tenant_id AND s.adm3_pcode IS NOT NULL AND s.adm3_pcode = ms.admin3
-                LIMIT 1) AS "communeName"
+              ${PLACE_NAMES}
          FROM monitoring_submissions ms
         WHERE ${where.join(' AND ')}
         ORDER BY ms.submitted_at DESC NULLS LAST, ms.period_month DESC
@@ -813,11 +819,8 @@ async function listSubmissions(tenantId, { month, limit = 300 } = {}) {
       `SELECT ms.external_id AS "externalId", to_char(ms.period_month, 'YYYY-MM') AS "periodMonth",
               ms.submitted_at AS "submittedAt", ms.field_office AS "fieldOffice",
               ms.admin1, ms.admin2, ms.admin3, ms.partner, ms.source,
-              f.label AS "formLabel",
-              -- Nom de commune résolu depuis le référentiel de sites (même pcode).
-              (SELECT s.commune FROM sites s
-                WHERE s.tenant_id = ms.tenant_id AND s.adm3_pcode IS NOT NULL AND s.adm3_pcode = ms.admin3
-                LIMIT 1) AS "communeName"
+              ms.excluded, f.label AS "formLabel", f.activity_category AS "activityCategory",
+              ${PLACE_NAMES}
          FROM monitoring_submissions ms
          JOIN monitoring_forms f ON f.id = ms.form_id AND f.tenant_id = ms.tenant_id
         WHERE ${where.join(' AND ')}

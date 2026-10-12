@@ -68,7 +68,10 @@ export default function ReportingPage({ onOpenContract }) {
 
       <Stats compact items={[
         { label: tr('Budget de suivi'), value: cons ? formatAr(t.budget) : '—', foot: cons ? tr('{n} contrat(s)', { n: t.contracts }) : tr('Consolidation') },
-        { label: tr('Réalisé (justifié)'), value: cons ? formatAr(t.actual) : '—', foot: cons ? tr('{p} % du budget', { p: Math.round((t.actualRate || 0) * 100) }) : tr('Factures validées') },
+        { label: tr('Réalisé (factures validées)'), value: cons ? formatAr(t.actual) : '—',
+          foot: !cons ? tr('Factures validées')
+            : t.pendingValidation > 0 ? tr('{p} % du budget · {amount} Ar en attente de validation', { p: Math.round((t.actualRate || 0) * 100), amount: formatInt(t.pendingValidation) })
+              : tr('{p} % du budget', { p: Math.round((t.actualRate || 0) * 100) }) },
         { label: tr('Budget restant'), value: cons ? formatAr(t.remaining) : '—', foot: tr('Disponible') },
         { label: tr('Couverture terrain'), value: ov ? `${Math.round((ov.rate || 0) * 100)} %` : '—', foot: ov ? tr('{done}/{active} visites', { done: ov.realise, active: ov.active }) : tr('Mois courant') },
       ]} />

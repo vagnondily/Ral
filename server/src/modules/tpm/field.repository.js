@@ -553,6 +553,7 @@ async function collectionDaysSummary(tenantId, { month } = {}) {
 
 async function setTravelDays(tenantId, { providerId, month, travelDays }) {
   return withTenantTransaction(tenantId, async (client) => {
+    await assertVisitRefs(client, tenantId, { providerId });
     await client.query(
       `INSERT INTO tpm_collection_days (tenant_id, provider_id, period_month, travel_days)
        VALUES ($1,$2,$3,$4)
@@ -564,8 +565,20 @@ async function setTravelDays(tenantId, { providerId, month, travelDays }) {
   });
 }
 
+// Une clé étrangère ne voit pas la RLS : un identifiant d'un AUTRE tenant passerait.
+// Chaque référence d'une visite est donc vérifiée dans le tenant courant.
+const VISIT_REFS = [['siteId', 'sites', 'Site inconnu.'], ['providerId', 'partners', 'Prestataire inconnu.'], ['contractId', 'contracts', 'Contrat inconnu.']];
+async function assertVisitRefs(client, tenantId, v) {
+  for (const [key, table, message] of VISIT_REFS) {
+    if (!v[key]) continue;
+    const { rowCount } = await client.query(`SELECT 1 FROM ${table} WHERE tenant_id = $1 AND id = $2`, [tenantId, v[key]]);
+    if (!rowCount) throw badRequest(message);
+  }
+}
+
 async function createVisit(tenantId, userId, v) {
   return withTenantTransaction(tenantId, async (client) => {
+    await assertVisitRefs(client, tenantId, v);
     try {
       const { rows } = await client.query(
         `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, contract_id, provider_id, agent, status, visit_date, created_by)
@@ -585,6 +598,7 @@ async function createVisit(tenantId, userId, v) {
 async function updateVisit(tenantId, id, patch) {
   const given = (k) => patch[k] !== undefined;
   return withTenantTransaction(tenantId, async (client) => {
+    await assertVisitRefs(client, tenantId, { providerId: patch.providerId, contractId: patch.contractId });
     const { rowCount } = await client.query(
       `UPDATE site_visits
           SET provider_id = CASE WHEN $3::boolean THEN $4::uuid ELSE provider_id END,

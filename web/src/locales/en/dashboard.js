@@ -245,5 +245,8 @@ export default {
   'Les régions les plus actives en remontée de données : {list}.': 'Most active regions in data reporting: {list}.',
   'Bulletin recalculé en direct à partir des fiches, indicateurs, visites et du RBM — aucun chiffre saisi à la main.': 'Bulletin recalculated live from forms, indicators, visits and RBM — no figure entered by hand.',
   'Réalisé (factures validées)': 'Actual (validated invoices)',
+  '{p} % du budget · {amount} Ar en attente de validation': '{p}% of budget · {amount} Ar awaiting validation',
+  'Dépassement si validation — {numero}': 'Overrun if validated — {numero}',
+  '{partner} · réalisé {actual} + en attente {pending} > budget {budget}': '{partner} · actual {actual} + pending {pending} > budget {budget}',
   'Consommation {rate} · {amount} Ar en attente de validation': 'Consumption {rate} · {amount} Ar awaiting validation',
 };

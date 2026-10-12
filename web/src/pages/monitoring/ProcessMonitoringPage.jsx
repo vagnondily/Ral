@@ -52,8 +52,10 @@ const DETAIL_TABS = [
 const META_COLS = [
   { key: 'submittedAt', label: 'Date', fmt: (v) => (v ? formatDateTime(v) : '—') },
   { key: 'fieldOffice', label: 'Bureau' },
-  { key: 'communeName', label: 'Commune', alt: 'admin4' },
-  { key: 'admin3', label: 'District' },
+  // admin2 = District, admin3 = Commune, admin4 = Fokontany (memsMapping) ; nom résolu par pcode sinon valeur brute.
+  { key: 'districtName', label: 'District', alt: 'admin2' },
+  { key: 'communeName', label: 'Commune', alt: 'admin3' },
+  { key: 'admin4', label: 'Fokontany' },
   { key: 'site', label: 'Site' },
   { key: 'partner', label: 'Partenaire' },
   { key: 'agent', label: 'Agent' },
@@ -375,8 +377,9 @@ const DV_MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juill
 const DV_DIMS = [
   { key: 'bureau', label: 'Bureau', get: (r) => r.fieldOffice },
   { key: 'region', label: 'Région', get: (r) => r.admin1 },
-  { key: 'district', label: 'District', get: (r) => r.admin3 },
-  { key: 'commune', label: 'Commune', get: (r) => r.communeName || r.admin4 },
+  { key: 'district', label: 'District', get: (r) => r.districtName || r.admin2 },
+  { key: 'commune', label: 'Commune', get: (r) => r.communeName || r.admin3 },
+  { key: 'fokontany', label: 'Fokontany', get: (r) => r.admin4 },
   { key: 'year', label: 'Année', get: (r) => (r.periodMonth ? r.periodMonth.slice(0, 4) : null) },
   // Nom du mois dans la langue de l'interface (formatLocale suit la langue ; en français, identique à DV_MONTHS).
   { key: 'mon', label: 'Mois', get: (r) => (r.periodMonth ? r.periodMonth.slice(5, 7) : null), fmt: (v) => (DV_MONTHS[Number(v) - 1] ? new Date(2000, Number(v) - 1, 1).toLocaleString(formatLocale(), { month: 'long' }) : v) },

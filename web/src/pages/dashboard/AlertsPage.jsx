@@ -47,6 +47,8 @@ export default function AlertsPage({ onNavigate, onOpenContract }) {
     // Budget: dépassements & projections
     for (const r of state.cons?.rows || []) {
       if (r.overspent) out.push({ sev: 'critical', cat: 'Budget', title: tr('Budget de suivi dépassé — {numero}', { numero: r.numero }), detail: tr('{partner} · réalisé {actual} / budget {budget}', { partner: r.partnerName, actual: formatAr(r.actual), budget: formatAr(r.budget) }), go: () => onOpenContract(r.contractId) });
+      // Factures soumises non encore validées qui, une fois validées, feraient dépasser le budget.
+      else if (r.pendingValidation > 0 && r.budget != null && r.actual + r.pendingValidation > r.budget) out.push({ sev: 'warning', cat: 'Budget', title: tr('Dépassement si validation — {numero}', { numero: r.numero }), detail: tr('{partner} · réalisé {actual} + en attente {pending} > budget {budget}', { partner: r.partnerName, actual: formatAr(r.actual), pending: formatAr(r.pendingValidation), budget: formatAr(r.budget) }), go: () => onOpenContract(r.contractId) });
       else if (r.projectedOverrun > 0) out.push({ sev: 'warning', cat: 'Budget', title: tr('Projection de dépassement — {numero}', { numero: r.numero }), detail: tr('{partner} · projection fin {projected} > budget {budget}', { partner: r.partnerName, projected: formatAr(r.projectedTotal), budget: formatAr(r.budget) }), go: () => onOpenContract(r.contractId) });
     }
     // Rapports à valider

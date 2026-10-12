@@ -36,17 +36,22 @@ const itemSchema = z.object({
 
 const isPgText = (msg) => /Ligne budgétaire|désignation|invalide|Activité inconnue/.test(msg);
 
-router.get('/', asyncHandler(async (req, res) =>
-  res.json(await repo.listPlans(t(req), { month: req.query.month, contractId: req.query.contractId }))));
+// Mois réel (01-12) : un mois mal formé ne doit jamais atteindre PostgreSQL (500).
+const monthS = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?$/, 'Mois invalide (AAAA-MM).');
+const listQuery = z.object({ month: monthS.optional(), contractId: z.string().uuid().optional() });
+
+router.get('/', asyncHandler(async (req, res) => {
+  const q = listQuery.safeParse(req.query);
+  if (!q.success) throw badRequest('Filtres invalides', q.error.flatten());
+  res.json(await repo.listPlans(t(req), { month: q.data.month, contractId: q.data.contractId }));
+}));
 
 // Items of the plan matching a contract + month — used to pre-fill a facture.
+const prefillQuery = z.object({ partnerId: z.string().uuid(), contractId: z.string().uuid(), month: monthS });
 router.get('/prefill', asyncHandler(async (req, res) => {
-  const { partnerId, contractId, month } = req.query;
-  const uuid = z.string().uuid();
-  if (!uuid.safeParse(partnerId).success || !uuid.safeParse(contractId).success || !/^\d{4}-\d{2}/.test(month || '')) {
-    throw badRequest('partnerId, contractId et month requis.');
-  }
-  res.json(await repo.planItemsFor(t(req), { partnerId, contractId, periodMonth: month }));
+  const q = prefillQuery.safeParse(req.query);
+  if (!q.success) throw badRequest('partnerId, contractId et month (AAAA-MM) requis.', q.error.flatten());
+  res.json(await repo.planItemsFor(t(req), { partnerId: q.data.partnerId, contractId: q.data.contractId, periodMonth: q.data.month }));
 }));
 
 router.get('/:id', asyncHandler(async (req, res) => {

@@ -82,7 +82,7 @@ const BUILDERS = {
 
   region_submissions: ({ monitoring }) => ({ columns: cols('region_submissions'), rows: (monitoring && monitoring.regions) || [] }),
 
-  budget_contracts: ({ budget }) => ({
+  budget_contracts: ({ budget }, f) => (f.bureau ? notByBureau('budget_contracts') : {
     columns: cols('budget_contracts'),
     rows: ((budget && budget.rows) || []).map((r) => ({
       contract: r.numero, partner: r.partnerName, budget: r.budget, planned: r.planned, actual: r.actual,
@@ -90,11 +90,16 @@ const BUILDERS = {
     })),
   }),
 
-  pdd_by_month: ({ pdd }) => ({
+  pdd_by_month: ({ pdd }, f) => (f.bureau ? notByBureau('pdd_by_month') : {
     columns: cols('pdd_by_month'),
     rows: (pdd || []).map((m) => ({ month: m.month, beneficiaries: m.beneficiaries, households: m.households, food: Math.round((m.food || 0) * 1000) / 1000, cash: m.cash })),
   }),
 };
+
+// Budget et PDD ne sont pas encore reliés aux bureaux : jamais un total national présenté comme celui d'un bureau.
+function notByBureau(key) {
+  return { columns: cols(key), rows: [], note: 'Non disponible par bureau.' };
+}
 
 function monthsBetween(from, to) {
   const out = []; let [y, m] = from.split('-').map(Number); const [ty, tm] = to.split('-').map(Number);
@@ -134,11 +139,14 @@ function computeKpis(sources, filters = {}) {
   const pddRows = sources.pdd || [];
   const budgetTotal = sum(budgetRows, 'budget'); const budgetActual = sum(budgetRows, 'actual');
   return {
-    sites_active: sitesActive, sites_visited: sitesVisited, coverage: pct(visitedForCoverage, sitesActive),
+    // « Sites visités » = numérateur de la couverture (même ensemble de fiches que les sites actifs) :
+    // les tuiles et la phrase « … soit une couverture de … » se recoupent. Toutes fiches confondues : à part.
+    sites_active: sitesActive, sites_visited: visitedForCoverage, sites_visited_all: sitesVisited, coverage: pct(visitedForCoverage, sitesActive),
     visits_done: done, visits_planned: planned, execution_rate: pct(done, planned),
     submissions: filters.formId || filters.bureau ? sum(scoped, 'visits') : (sources.monitoring ? sources.monitoring.submissions : 0),
     conformity: indices.length ? Math.round(indices.reduce((a, b) => a + b, 0) / indices.length) : null,
-    budget_total: budgetTotal, budget_actual: budgetActual, consumption: pct(budgetActual, budgetTotal),
+    budget_total: filters.bureau ? null : budgetTotal, budget_actual: filters.bureau ? null : budgetActual,
+    consumption: filters.bureau ? null : pct(budgetActual, budgetTotal),
     // Le PDD n'est pas encore relié aux bureaux : pas de total national déguisé en chiffre de bureau.
     pdd_beneficiaries: filters.bureau ? null : sum(pddRows, 'beneficiaries'),
     pdd_food: filters.bureau ? null : Math.round(sum(pddRows, 'food') * 10) / 10,

@@ -2135,3 +2135,6 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .btn-danger { background: var(--red); border-color: var(--red); color: #fff; }
 .btn-danger:hover:not(:disabled) { background: var(--red-text); border-color: var(--red-text); }
 .btn-danger:disabled { opacity: .5; }
+
+/* Ligne écartée (ex. soumission exclue au nettoyage) : visible mais atténuée. */
+.table tr.is-muted td { opacity: .55; }

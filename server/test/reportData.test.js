@@ -97,7 +97,18 @@ test('couverture : une fiche NON rattachée au MMR ne gonfle pas le numérateur'
     { id: 'f-libre', label: 'Libre', sitesActive: null, visits: 500, sitesVisited: 400, index: null, monthly: [], dims: [], indicators: [], bureaux: [] },
   ] } };
   const k = computeKpis(src, {});
-  assert.equal(k.sites_visited, 1173);   // toutes les fiches (chiffre affiché)
-  assert.equal(k.sites_active, 1440);    // fiches rattachées seulement
-  assert.equal(k.coverage, 53.7);        // 773 / 1440 : même ensemble de fiches (et non 1173 / 1440)
+  assert.equal(k.sites_visited, 773);       // numérateur de la couverture (fiches rattachées)
+  assert.equal(k.sites_visited_all, 1173);  // toutes les fiches, chiffre séparé
+  assert.equal(k.sites_active, 1440);       // fiches rattachées seulement
+  assert.equal(k.coverage, 53.7);           // 773 / 1440 : tuiles et phrase du bulletin se recoupent
+});
+
+test('filtre bureau : ni budget ni PDD nationaux présentés comme ceux du bureau', () => {
+  const kb = computeKpis(SOURCES, { bureau: 'Bekily' });
+  assert.equal(kb.budget_total, null); assert.equal(kb.consumption, null); assert.equal(kb.pdd_food, null);
+  for (const key of ['pdd_by_month', 'budget_contracts']) {
+    const d = buildDataset(key, SOURCES, { bureau: 'Bekily' });
+    assert.deepEqual(d.rows, []);
+    assert.equal(d.note, 'Non disponible par bureau.');
+  }
 });
