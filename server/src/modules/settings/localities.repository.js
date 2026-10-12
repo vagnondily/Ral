@@ -2,6 +2,8 @@ const { withTenantTransaction } = require('../../config/db');
 const { badRequest, conflict, notFound } = require('../../middleware/errors');
 const { chunkRows } = require('../../db/batch');
 const { planBreakdown, matchBreakdown, relinkByPath, siteColumnFor } = require('./localities.domain');
+const { normPlace, parentKeyOf } = require('../common/placeMatch');
+const { applySitesGeoTx } = require('./placeMatch.repository');
 
 /**
  * Référentiel géographique du tenant (pays) : profil pays, vocabulaire des
@@ -217,9 +219,11 @@ async function replaceBreakdown(tenantId, parsed, { confirm = false } = {}) {
        VALUES ($1, COALESCE((SELECT name FROM tenants WHERE id = $1), 'Pays'), $2, now())
        ON CONFLICT (tenant_id) DO UPDATE SET breakdown_source = EXCLUDED.breakdown_source, breakdown_imported_at = now(), updated_at = now()`,
       [tenantId, parsed.source || null]);
+    // Les sites suivent le découpage mis à jour (unité reconnue, codes officiels, file « À rapprocher »).
+    const sitesGeo = await applySitesGeoTx(client, tenantId);
     return {
       levels: plan.levels.length, areas: idByKey.size, withPcode: plan.withPcode, withGps: pts.length,
-      kept: stats.kept, added: stats.added, removed: stats.removed,
+      kept: stats.kept, added: stats.added, removed: stats.removed, sitesGeo,
       contractZonesDetached: impact.zones, contractZonesRelinked: relinked.size, contractZonesStillDetached: detached.length - relinked.size,
       warnings: [...(parsed.warnings || []), ...plan.warnings],
     };
@@ -316,6 +320,7 @@ async function createArea(tenantId, { depth, parentId, name, pcode, lat, lng }) 
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid[]) RETURNING id`,
       [tenantId, depth, name, parent?.id || null, parent ? `${parent.path} > ${name}` : name, pcode || null, lat ?? null, lng ?? null,
         parent ? [...parent.lineage, parent.id] : []]);
+    await applySitesGeoTx(client, tenantId); // une localité créée peut rattacher des sites « introuvables »
     return { id: rows[0].id };
   });
 }
@@ -348,6 +353,23 @@ async function updateArea(tenantId, id, patch) {
         WHERE tenant_id = $1 AND id = $2`,
       [tenantId, id, name, parentId, newPath, newLineage, patch.pcode !== undefined, patch.pcode || null,
         patch.lat !== undefined || patch.lng !== undefined, patch.lat ?? null, patch.lng ?? null]);
+    // Renommer : l'ancien nom devient un alias (« renommage ») — les données qui portent
+    // l'ancienne graphie restent rattachées sans être réécrites.
+    if (renamed) {
+      // Clé du parent d'ORIGINE (là où l'ancienne graphie apparaît dans les données).
+      const oldParent = cur.parent_id
+        ? (await client.query('SELECT pcode, name FROM admin_areas WHERE tenant_id = $1 AND id = $2', [tenantId, cur.parent_id])).rows[0]
+        : null;
+      const parentKey = oldParent ? parentKeyOf({ pcode: oldParent.pcode, norm: normPlace(oldParent.name) }) : '';
+      const oldKey = normPlace(cur.name).key;
+      if (oldKey && oldKey !== normPlace(name).key) {
+        await client.query(
+          `INSERT INTO location_aliases (tenant_id, kind, depth, parent_key, alias_key, alias_label, target_id, target_path, source)
+           VALUES ($1, 'zone', $2, $3, $4, $5, $6, $7, 'renommage')
+           ON CONFLICT (tenant_id, kind, COALESCE(depth, 0), parent_key, alias_key) DO NOTHING`,
+          [tenantId, cur.depth, parentKey, oldKey, cur.name.slice(0, 200), id, newPath]);
+      }
+    }
     let descendants = 0;
     if (moved || renamed) {
       ({ rowCount: descendants } = await client.query(
@@ -356,6 +378,7 @@ async function updateArea(tenantId, id, patch) {
           WHERE d.tenant_id = $1 AND d.lineage @> ARRAY[$2]::uuid[]`,
         [tenantId, id, newPath, cur.path, newLineage, cur.lineage]));
     }
+    if (moved || renamed || patch.pcode !== undefined) await applySitesGeoTx(client, tenantId);
     return { id, descendants };
   });
 }
@@ -371,6 +394,7 @@ async function deleteArea(tenantId, id, { cascade = false } = {}) {
     const { descendants, contracts } = rows[0];
     if (descendants > 0 && !cascade) throw conflict(`Cette localité contient ${descendants} sous-unité(s) : confirmez la suppression en cascade.`);
     await client.query('DELETE FROM admin_areas WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+    await applySitesGeoTx(client, tenantId);
     return { deleted: 1 + descendants, contractsDetached: contracts };
   });
 }

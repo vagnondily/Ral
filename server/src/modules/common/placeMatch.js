@@ -197,6 +197,14 @@ function resolvePlace(index, { depth, label, pcode, parent = null, within = null
     .sort((x, y) => y.score - x.score)
     .slice(0, 3);
   if (near.length) return result('a_valider', null, near);
+  // 5 bis. graphie TRONQUÉE (« Betioky » → « Betioky Atsimo ») : proposition à valider,
+  // jamais appliquée ; un nombre différent n'est jamais proposé (« Toliara 1 » ≠ « Toliara 2 »).
+  const truncated = scope
+    .filter((a) => a.norm.key.startsWith(`${key} `) && !/\d/.test(a.norm.key.slice(key.length)))
+    .map((a) => ({ area: a, score: Math.round(similarity(key, a.norm.key) * 1000) / 1000, partial: true }))
+    .sort((x, y) => y.score - x.score)
+    .slice(0, 3);
+  if (truncated.length) return result('a_valider', null, truncated);
   return result('introuvable');
 }
 
@@ -220,6 +228,8 @@ function resolvePath(index, q = {}) {
   for (let depth = 1; depth <= 4; depth += 1) {
     const label = q[`adm${depth}`]; const pcode = q.pcodes && q.pcodes[`adm${depth}`];
     if ((label == null || String(label).trim() === '') && !pcode) { levels.push({ depth, label: label ?? null, ...result('vide') }); continue; }
+    // Niveau absent du découpage (ex. découpage à 2 niveaux, commune fournie) : ni résolu ni « à rapprocher ».
+    if (!index.inLevel.has(`${depth}`)) { levels.push({ depth, label, ...result('hors_niveau') }); continue; }
     const parent = anchor && anchor.depth === depth - 1 ? anchor : null;
     const r = resolvePlace(index, { depth, label, pcode, parent, within: parent ? null : anchor });
     levels.push({ depth, label, ...r });
@@ -236,7 +246,7 @@ function resolvePath(index, q = {}) {
       l.status = 'deduit'; l.area = anc;
     }
   }
-  const given = levels.filter((l) => l.status !== 'vide');
+  const given = levels.filter((l) => l.status !== 'vide' && l.status !== 'hors_niveau');
   const pending = given.find((l) => !isAutomatic(l.status));
   return { levels, finest, pcodes, status: pending ? pending.status : (given.length ? 'resolu' : 'vide') };
 }
@@ -332,7 +342,7 @@ function resolveOffice(officeIndex, { label, commune } = {}) {
 function groupUnmatched(items, { synonyms = MDG_SYNONYMS } = {}) {
   const out = new Map();
   for (const it of items) {
-    if (isAutomatic(it.status) || it.status === 'vide') continue;
+    if (isAutomatic(it.status) || it.status === 'vide' || it.status === 'hors_niveau') continue;
     const rawKey = normPlace(it.label, { synonyms }).key;
     const parentKey = it.parent ? parentKeyOf(it.parent) : '';
     const k = `${it.depth}|${parentKey}|${rawKey}`;

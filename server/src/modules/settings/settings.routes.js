@@ -7,12 +7,14 @@ const { badRequest } = require('../../middleware/errors');
 const repo = require('./settings.repository');
 const { parseUpload } = require('./adminImport');
 const loc = require('./localities.repository');
+const places = require('./placeMatch.repository');
 const { directoryCsv } = require('./localities.domain');
 const { buildMmrWorkbook, parseMmrWorkbook } = require('../tpm/mmrXlsx');
 
 const router = Router();
 router.use(requireAuth);
 const ADMIN = requireRole('admin');
+const WRITE = requireRole('admin', 'manager');
 
 function body(schema) {
   return (req, res, next) => {
@@ -293,6 +295,28 @@ router.patch('/localities/:id', ADMIN, body(z.object({
 router.delete('/localities/:id', ADMIN, asyncHandler(async (req, res) => {
   if (!z.string().uuid().safeParse(req.params.id).success) throw badRequest('Identifiant invalide');
   res.json(await loc.deleteArea(t(req), req.params.id, { cascade: req.query.cascade === '1' }));
+}));
+
+// ---- Rapprochement des lieux : file « À rapprocher » et alias ------------------------
+const queueStatus = z.enum(['a_valider', 'ambigu', 'introuvable', 'ignore', 'resolu']);
+router.get('/place-matches', asyncHandler(async (req, res) => {
+  const st = req.query.status ? queueStatus.safeParse(req.query.status) : { success: true, data: undefined };
+  if (!st.success) throw badRequest('Statut inconnu.');
+  res.json(await places.listQueue(t(req), { status: st.data }));
+}));
+router.post('/place-matches/apply', WRITE, asyncHandler(async (req, res) => res.json(await places.applyAll(t(req)))));
+router.post('/place-matches/:id/decide', WRITE, body(z.discriminatedUnion('action', [
+  z.object({ action: z.literal('lier'), areaId: z.string().uuid() }),
+  z.object({ action: z.literal('ignorer') }),
+])), asyncHandler(async (req, res) => {
+  if (!z.string().uuid().safeParse(req.params.id).success) throw badRequest('Identifiant invalide');
+  res.json(await places.decideQueue(t(req), req.params.id, req.valid, req.auth.userId));
+}));
+router.get('/place-aliases', asyncHandler(async (req, res) => res.json(await places.listAliases(t(req)))));
+router.delete('/place-aliases/:id', WRITE, asyncHandler(async (req, res) => {
+  if (!z.string().uuid().safeParse(req.params.id).success) throw badRequest('Identifiant invalide');
+  if (!(await places.deleteAlias(t(req), req.params.id))) throw badRequest('Alias introuvable.');
+  res.status(204).end();
 }));
 
 module.exports = router;

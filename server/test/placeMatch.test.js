@@ -255,3 +255,22 @@ test('file « À rapprocher » : regroupement par niveau, parent et graphie norm
   assert.equal(queue[1].rawKey, 'inconnu');
   assert.equal(queue[1].count, 1);
 });
+
+test('chemin : un niveau absent du découpage n\'est ni résolu ni mis en file', () => {
+  const twoLevels = buildPlaceIndex({ areas: AREAS.filter((a) => a.depth <= 2) });
+  const p = resolvePath(twoLevels, { adm1: 'Atsimo-Andrefana', adm2: 'Toliara II', adm3: 'Belalanda' });
+  assert.equal(p.levels[2].status, 'hors_niveau');
+  assert.equal(p.status, 'resolu');
+  assert.equal(p.finest.id, 'd2');
+  assert.deepEqual(groupUnmatched([{ depth: 3, label: 'Belalanda', status: 'hors_niveau', candidates: [] }]), []);
+});
+
+test('résolution : graphie tronquée → propositions à valider, jamais un numéro différent', () => {
+  const idx = index();
+  const r = resolvePlace(idx, { depth: 2, label: 'Betioky', parent: parentOf(idx, 'r1') });
+  assert.equal(r.status, 'a_valider');
+  assert.deepEqual(r.candidates.map((c) => c.area.id), ['d3']);
+  assert.equal(r.candidates[0].partial, true);
+  // « Toliara » seul : I et II portent un numéro → aucune proposition automatique.
+  assert.equal(resolvePlace(idx, { depth: 2, label: 'Toliara', parent: parentOf(idx, 'r1') }).status, 'introuvable');
+});
