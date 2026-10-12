@@ -185,111 +185,6 @@ async function deleteEvaluation(tenantId, partnerId, agentId, evaluationId) {
   });
 }
 
-// ---------------------------------------------------- Admin breakdown (géo)
-
-async function listAdminLevels(tenantId) {
-  return withTenantTransaction(tenantId, async (client) => {
-    const { rows } = await client.query(
-      `SELECT depth, label FROM admin_levels WHERE tenant_id = $1 ORDER BY depth`, [tenantId]);
-    return rows;
-  });
-}
-
-/** Areas at a given depth, optionally filtered by parent (for cascading selects). */
-async function listAdminAreas(tenantId, { depth, parentId } = {}) {
-  return withTenantTransaction(tenantId, async (client) => {
-    const params = [tenantId];
-    const where = ['tenant_id = $1'];
-    if (depth != null) { params.push(depth); where.push(`depth = $${params.length}`); }
-    if (parentId) { params.push(parentId); where.push(`parent_id = $${params.length}`); }
-    else if (parentId === null && depth == null) { /* all */ }
-    const { rows } = await client.query(
-      `SELECT id, name, depth, parent_id AS "parentId", path FROM admin_areas
-        WHERE ${where.join(' AND ')} ORDER BY name`, params);
-    return rows;
-  });
-}
-
-async function adminBreakdownSummary(tenantId) {
-  return withTenantTransaction(tenantId, async (client) => {
-    const { rows } = await client.query(
-      `SELECT a.depth, l.label, count(*)::int AS count
-         FROM admin_areas a JOIN admin_levels l ON l.tenant_id = a.tenant_id AND l.depth = a.depth
-        WHERE a.tenant_id = $1 GROUP BY a.depth, l.label ORDER BY a.depth`, [tenantId]);
-    return rows;
-  });
-}
-
-/**
- * Replace the tenant's whole admin breakdown.
- * levels: ['Région','District','Commune','Fokontany', …] (ordered, depth 1..n,
- *   convention adm1–adm4 comme MEMS)
- * records: [ [lvl1, lvl2, …], … ] — one row per deepest known area; empty
- * trailing values stop the chain. Nodes are de-duplicated per parent.
- *
- * Import LEVEL BY LEVEL with batched multi-row inserts, so a country-scale
- * breakdown (Madagascar ≈ 18 000 fokontany) loads in a handful of queries
- * instead of tens of thousands.
- */
-async function replaceAdminBreakdown(tenantId, { levels, records }) {
-  return withTenantTransaction(tenantId, async (client) => {
-    await client.query('DELETE FROM admin_areas WHERE tenant_id = $1', [tenantId]);
-    await client.query('DELETE FROM admin_levels WHERE tenant_id = $1', [tenantId]);
-    for (let i = 0; i < levels.length; i += 1) {
-      await client.query('INSERT INTO admin_levels (tenant_id, depth, label) VALUES ($1,$2,$3)', [tenantId, i + 1, levels[i]]);
-    }
-
-    // Chunked multi-row INSERT ... RETURNING id, path (id needed to link children).
-    async function insertBatch(depth, nodes) {
-      // nodes: [{ name, parentId, path, key }]
-      const idByKey = new Map();
-      const CHUNK = 2000; // 5 params/row → 10 000 params, well under the limit
-      for (let i = 0; i < nodes.length; i += CHUNK) {
-        const slice = nodes.slice(i, i + CHUNK);
-        const values = [];
-        const params = [];
-        slice.forEach((n, j) => {
-          const b = j * 5;
-          values.push(`($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5})`);
-          params.push(tenantId, depth, n.name, n.parentId, n.path);
-        });
-        const { rows } = await client.query(
-          `INSERT INTO admin_areas (tenant_id, depth, name, parent_id, path) VALUES ${values.join(',')} RETURNING id, path`,
-          params);
-        rows.forEach((r, j) => idByKey.set(slice[j].key, r.id));
-      }
-      return idByKey;
-    }
-
-    let total = 0;
-    let parentIdByPath = new Map(); // path(depth d) -> id, for linking depth d+1
-    for (let d = 0; d < levels.length; d += 1) {
-      const seen = new Map(); // key -> node
-      for (const rec of records) {
-        // Build the ancestor path for this record up to depth d.
-        const names = [];
-        let ok = true;
-        for (let k = 0; k <= d; k += 1) {
-          const nm = String(rec[k] || '').trim();
-          if (!nm) { ok = false; break; }
-          names.push(nm);
-        }
-        if (!ok) continue;
-        const path = names.join(' > ');
-        if (seen.has(path)) continue;
-        const parentPath = names.slice(0, d).join(' > ');
-        const parentId = d === 0 ? null : (parentIdByPath.get(parentPath) || null);
-        seen.set(path, { name: names[d], parentId, path, key: path });
-      }
-      if (seen.size === 0) continue;
-      const idByKey = await insertBatch(d + 1, [...seen.values()]);
-      total += idByKey.size;
-      parentIdByPath = idByKey; // keys are paths → serves as parent lookup for next depth
-    }
-    return { levels: levels.length, areas: total };
-  });
-}
-
 // ---- Taux de change (ariary pour 1 USD), horodatés ----------------------
 async function listExchangeRates(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
@@ -587,7 +482,6 @@ module.exports = {
   listActivities, createActivity, setActivityActive,
   listPartners, createPartner, updatePartner, partnerTypeById, createAgent, deleteAgent,
   createFormation, deleteFormation, createEvaluation, deleteEvaluation,
-  listAdminLevels, listAdminAreas, adminBreakdownSummary, replaceAdminBreakdown,
   listExchangeRates, upsertExchangeRate, deleteExchangeRate,
   listCommunes, officesWithCounts, officePerimeter, createOffice, updateOffice, deleteOffice,
   listMmr, upsertMmr, deleteMmr, mmrRegistry, bulkSaveMmr, officeRefs,

@@ -12,14 +12,14 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 06:36 UTC_
+_Dernière mise à jour : 12/10/2026 06:40 UTC_
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
 | 1a | Bureau : périmètre en cascade Région › District › Commune | ✅ | Livré le 09/10 (`34be945`) |
 | 1b | PDD : bouton « Modèle PDD » + note de format | ✅ | `675b304` — à compléter avec les 47 en-têtes réels (voir PDD-config) |
 | 2 | MMR : édition enrichie et plus simple | ✅ | API `4a481eb` + écran `4dd6f77` |
-| 3 | Localités : pays & découpage, répertoire, CRUD | 🔄 | Phase 1 en cours : correctif import (nom vs P-code), profil pays & vocabulaire, répertoire paginé + filtres + export, CRUD. Phase 2 : contours cartographiques |
+| 3 | Localités : pays & découpage, répertoire, CRUD | 🔄 | Serveur ✅ (import corrigé, profil pays, répertoire, CRUD, export). Écran en cours. Phase 2 : contours cartographiques |
 | 4 | Langue FR/EN : traduire le contenu des pages | ⏳ | Aujourd'hui seul le menu change de langue |
 | 6 | Concepteur de rapport professionnel (bulletin éditable, modèles) | ⏳ | Références : rapport de suivi de performances (HTML), couverture par partenaire (.docx), dashboard (HTML) |
 | 7 | Plan de suivi « type Excel » + carte détaillée | ⏳ | Référence : classeur RBM + captures (KPI, modes, grille des mois, carte) |
@@ -54,5 +54,8 @@ _Dernière mise à jour : 12/10/2026 06:36 UTC_
 - **06:31** 🔄 3e lancement de l'analyse multi-agents (en arrière-plan).
 - **06:34** ✅ Cause du problème « Localités » identifiée : l'import d'un shapefile prend la colonne `ADMn_PCODE` comme nom de niveau et comme nom de localité (d'où « ADM0_PCODE… » et des localités nommées par leur code). Le modèle ne stocke ni P-code, ni GPS, ni pluriel, ni profil pays.
 - **06:36** 🔄 Tâche 3 phase 1 : migration 041 (P-code, GPS, lignée, profil pays, libellés pluriels), correctif d'import, répertoire + CRUD.
+- **06:38** ✅ Localités — serveur : migration 041 (profil pays, vocabulaire singulier/pluriel, P-code unique, GPS, lignée indexée), import corrigé (nom ≠ P-code, niveau pays ignoré, shapefile le plus fin d'un zip, encodage .cpg, centroïdes GPS lus dans le .shp, niveaux supérieurs dérivés), répertoire paginé (filtre par ancêtre, recherche nom/P-code, nb de sites), CRUD (renommage/déplacement propagés à toute la descendance, suppression protégée), export CSV. Testé sur un shapefile COD-AB de 119 districts.
+- **06:39** ✅ 2 défauts trouvés par les tests de bout en bout et corrigés : un renommage effaçait le P-code ; message d'erreur générique sur P-code en double. 154 tests OK.
+- **06:40** 🔄 Localités — écran (Pays & vocabulaire, répertoire, édition).
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.

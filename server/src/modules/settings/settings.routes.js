@@ -6,6 +6,8 @@ const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest } = require('../../middleware/errors');
 const repo = require('./settings.repository');
 const { parseUpload } = require('./adminImport');
+const loc = require('./localities.repository');
+const { directoryCsv } = require('./localities.domain');
 const { buildMmrWorkbook, parseMmrWorkbook } = require('../tpm/mmrXlsx');
 
 const router = Router();
@@ -224,32 +226,71 @@ router.delete('/partners/:id/agents/:agentId/evaluations/:evaluationId', ADMIN, 
   return res.status(204).end();
 }));
 
-// ---- Admin breakdown (localités) — référentiel géographique par tenant/pays
-router.get('/admin-levels', asyncHandler(async (req, res) => res.json(await repo.listAdminLevels(t(req)))));
+// ---- Localités : profil pays, vocabulaire, découpage, répertoire, CRUD -------
+const latS = z.number().min(-90).max(90).nullable().optional();
+const lngS = z.number().min(-180).max(180).nullable().optional();
+const pcodeS = z.string().trim().max(40).regex(/^[A-Za-z0-9._-]*$/, 'P-code : lettres, chiffres, . _ -').nullable().optional()
+  .transform((v) => (v === undefined ? undefined : (v || null))); // absent ≠ vidé (un PATCH sans pcode le conserve)
+const areaName = z.string().trim().min(1).max(120);
 
+router.get('/admin-levels', asyncHandler(async (req, res) => res.json(await loc.listAdminLevels(t(req)))));
 router.get('/admin-areas', asyncHandler(async (req, res) => {
   const depth = req.query.depth ? Number(req.query.depth) : undefined;
-  const parentId = req.query.parentId || undefined;
-  res.json(await repo.listAdminAreas(t(req), { depth, parentId }));
+  res.json(await loc.listAdminAreas(t(req), { depth, parentId: req.query.parentId || undefined }));
 }));
 
-router.get('/admin-breakdown/summary', asyncHandler(async (req, res) =>
-  res.json(await repo.adminBreakdownSummary(t(req)))));
+router.get('/country', asyncHandler(async (req, res) => res.json(await loc.getCountry(t(req)))));
+router.put('/country', ADMIN, body(z.object({
+  name: z.string().trim().min(1).max(120),
+  iso3: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, 'Code ISO : 3 lettres').nullable().optional().or(z.literal('').transform(() => null)),
+  currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, 'Devise : code ISO à 3 lettres').nullable().optional().or(z.literal('').transform(() => null)),
+  centerLat: latS, centerLng: lngS,
+  note: z.string().trim().max(500).nullable().optional(),
+  levels: z.array(z.object({ depth: z.number().int().min(1).max(9), label: z.string().trim().min(1).max(60), labelPlural: z.string().trim().min(1).max(60) })).max(9).default([]),
+})), asyncHandler(async (req, res) => res.json(await loc.saveCountry(t(req), req.valid))));
 
-// Upload d'un découpage (un fichier par pays) : .csv, .dbf ou .zip (shapefile).
-router.post('/admin-breakdown/import', ADMIN, express.raw({ type: '*/*', limit: '30mb' }),
-  asyncHandler(async (req, res) => {
-    const filename = req.get('x-filename') || 'upload.csv';
-    if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
-    let parsed;
-    try {
-      parsed = await parseUpload(req.body, filename);
-    } catch (err) {
-      throw badRequest(err.message);
-    }
-    if (!parsed.levels.length) throw badRequest('Aucun niveau administratif détecté dans le fichier.');
-    const result = await repo.replaceAdminBreakdown(t(req), parsed);
-    res.status(201).json(result);
-  }));
+// Import d'un découpage (un fichier par pays) : .csv, .dbf ou .zip (shapefile) — remplace l'existant.
+router.post('/admin-breakdown/import', ADMIN, express.raw({ type: '*/*', limit: '200mb' }), asyncHandler(async (req, res) => {
+  const filename = req.get('x-filename') || 'upload.csv';
+  if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
+  let parsed;
+  try { parsed = await parseUpload(req.body, filename); } catch (err) { throw badRequest(err.message); }
+  if (!parsed.levels.length || !parsed.rows.length) throw badRequest('Aucune unité administrative détectée dans le fichier.');
+  res.status(201).json(await loc.replaceBreakdown(t(req), parsed));
+}));
+
+const dirQuery = (req) => ({
+  depth: Math.max(1, Number(req.query.depth) || 1),
+  ancestorId: z.string().uuid().safeParse(req.query.ancestorId).success ? req.query.ancestorId : undefined,
+  q: String(req.query.q || '').trim().slice(0, 80) || undefined,
+});
+router.get('/localities', asyncHandler(async (req, res) => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const pageSize = Math.min(200, Math.max(10, Number(req.query.pageSize) || 50));
+  res.json(await loc.directory(t(req), { ...dirQuery(req), page, pageSize, sort: req.query.sort }));
+}));
+router.get('/localities/export.csv', asyncHandler(async (req, res) => {
+  const f = dirQuery(req);
+  const [rows, levels] = await Promise.all([loc.directoryAll(t(req), f), loc.listAdminLevels(t(req))]);
+  const labels = levels.filter((l) => l.depth <= f.depth).map((l) => l.label);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="Localites_${labels[labels.length - 1] || 'niveau'}.csv"`);
+  res.send(directoryCsv(rows, labels));
+}));
+router.post('/localities', ADMIN, body(z.object({
+  depth: z.number().int().min(1).max(9), parentId: z.string().uuid().nullable().optional(),
+  name: areaName, pcode: pcodeS, lat: latS, lng: lngS,
+})), asyncHandler(async (req, res) => res.status(201).json(await loc.createArea(t(req), req.valid))));
+router.patch('/localities/:id', ADMIN, body(z.object({
+  name: areaName.optional(), parentId: z.string().uuid().nullable().optional(),
+  pcode: pcodeS, lat: latS, lng: lngS,
+}).refine((v) => Object.keys(v).length > 0, 'Rien à modifier')), asyncHandler(async (req, res) => {
+  if (!z.string().uuid().safeParse(req.params.id).success) throw badRequest('Identifiant invalide');
+  res.json(await loc.updateArea(t(req), req.params.id, req.valid));
+}));
+router.delete('/localities/:id', ADMIN, asyncHandler(async (req, res) => {
+  if (!z.string().uuid().safeParse(req.params.id).success) throw badRequest('Identifiant invalide');
+  res.json(await loc.deleteArea(t(req), req.params.id, { cascade: req.query.cascade === '1' }));
+}));
 
 module.exports = router;

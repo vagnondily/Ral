@@ -1,0 +1,300 @@
+const { withTenantTransaction } = require('../../config/db');
+const { badRequest, conflict, notFound } = require('../../middleware/errors');
+const { planBreakdown, siteColumnFor } = require('./localities.domain');
+
+/**
+ * Référentiel géographique du tenant (pays) : profil pays, vocabulaire des
+ * niveaux, unités administratives (P-code, GPS, lignée). Seul ce module écrit
+ * le SQL des localités ; tout passe par withTenantTransaction (RLS) et filtre
+ * tenant_id = $1.
+ */
+
+// ---- Niveaux & unités (lecture, sélecteurs en cascade) --------------------
+async function listAdminLevels(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT depth, label, COALESCE(label_plural, label) AS "labelPlural", code
+         FROM admin_levels WHERE tenant_id = $1 ORDER BY depth`, [tenantId]);
+    return rows;
+  });
+}
+
+/** Unités d'un niveau, éventuellement filtrées par parent (listes en cascade). */
+async function listAdminAreas(tenantId, { depth, parentId } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const params = [tenantId]; const where = ['tenant_id = $1'];
+    if (depth != null) { params.push(depth); where.push(`depth = $${params.length}`); }
+    if (parentId) { params.push(parentId); where.push(`parent_id = $${params.length}`); }
+    const { rows } = await client.query(
+      `SELECT id, name, depth, parent_id AS "parentId", path, pcode FROM admin_areas
+        WHERE ${where.join(' AND ')} ORDER BY name`, params);
+    return rows;
+  });
+}
+
+// ---- Profil pays + vocabulaire --------------------------------------------
+async function getCountry(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const [{ rows: prof }, { rows: levels }, { rows: tenant }] = await Promise.all([
+      client.query(
+        `SELECT name, iso3, currency, center_lat::float8 AS "centerLat", center_lng::float8 AS "centerLng", note,
+                breakdown_source AS "breakdownSource", breakdown_imported_at AS "breakdownImportedAt", updated_at AS "updatedAt"
+           FROM country_profiles WHERE tenant_id = $1`, [tenantId]),
+      client.query(
+        `SELECT l.depth, l.label, COALESCE(l.label_plural, l.label) AS "labelPlural", l.code,
+                count(a.id)::int AS units, count(a.pcode)::int AS "withPcode", count(a.lat)::int AS "withGps",
+                count(*) FILTER (WHERE a.name ~ '^[A-Z]{2,3}[0-9]{2,}$' AND a.pcode IS NULL)::int AS "codeLikeNames"
+           FROM admin_levels l LEFT JOIN admin_areas a ON a.tenant_id = l.tenant_id AND a.depth = l.depth
+          WHERE l.tenant_id = $1 GROUP BY l.depth, l.label, l.label_plural, l.code ORDER BY l.depth`, [tenantId]),
+      client.query('SELECT name FROM tenants WHERE id = $1', [tenantId]),
+    ]);
+    return { profile: prof[0] || { name: null, iso3: null, currency: null, centerLat: null, centerLng: null, note: null }, levels, tenantName: tenant[0]?.name || null };
+  });
+}
+
+/** Profil + libellés des niveaux, tout ou rien. */
+async function saveCountry(tenantId, { name, iso3, currency, centerLat, centerLng, note, levels = [] }) {
+  return withTenantTransaction(tenantId, async (client) => {
+    await client.query(
+      `INSERT INTO country_profiles (tenant_id, name, iso3, currency, center_lat, center_lng, note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (tenant_id) DO UPDATE SET name = EXCLUDED.name, iso3 = EXCLUDED.iso3, currency = EXCLUDED.currency,
+         center_lat = EXCLUDED.center_lat, center_lng = EXCLUDED.center_lng, note = EXCLUDED.note, updated_at = now()`,
+      [tenantId, name, iso3 || null, currency || null, centerLat ?? null, centerLng ?? null, note || null]);
+    if (levels.length) {
+      const params = [tenantId]; const tuples = levels.map((l) => {
+        params.push(l.depth, l.label, l.labelPlural);
+        const b = params.length - 2;
+        return `($${b}::int, $${b + 1}::text, $${b + 2}::text)`;
+      });
+      const { rowCount } = await client.query(
+        `UPDATE admin_levels l SET label = v.label, label_plural = v.plural
+           FROM (VALUES ${tuples.join(',')}) AS v(depth, label, plural)
+          WHERE l.tenant_id = $1 AND l.depth = v.depth`, params);
+      if (rowCount !== levels.length) throw badRequest('Niveau administratif inconnu.');
+    }
+    return { ok: true };
+  });
+}
+
+// ---- Import (remplace le découpage du pays) -------------------------------
+/**
+ * Remplace tout le découpage du tenant, niveau par niveau en INSERT multi-lignes
+ * (≈ 19 000 unités en quelques requêtes). La structure (nœuds, parents, P-codes,
+ * lignée) est calculée par la logique pure planBreakdown ; les centroïdes des
+ * niveaux supérieurs manquants sont dérivés en SQL (moyenne des enfants).
+ */
+async function replaceBreakdown(tenantId, parsed) {
+  const plan = planBreakdown(parsed);
+  return withTenantTransaction(tenantId, async (client) => {
+    await client.query('DELETE FROM admin_areas WHERE tenant_id = $1', [tenantId]);
+    await client.query('DELETE FROM admin_levels WHERE tenant_id = $1', [tenantId]);
+    {
+      const params = [tenantId]; const tuples = plan.levels.map((l, i) => {
+        params.push(i + 1, l.code, l.label, l.labelPlural);
+        const b = params.length - 3;
+        return `($1, $${b}, $${b + 1}, $${b + 2}, $${b + 3})`;
+      });
+      await client.query(`INSERT INTO admin_levels (tenant_id, depth, code, label, label_plural) VALUES ${tuples.join(',')}`, params);
+    }
+    const idByKey = new Map(); const lineageByKey = new Map();
+    const COLS = 7; const CHUNK = 1500;
+    for (const depthNodes of plan.byDepth) {
+      for (let i = 0; i < depthNodes.length; i += CHUNK) {
+        const slice = depthNodes.slice(i, i + CHUNK);
+        const params = []; const tuples = slice.map((n, j) => {
+          const parentId = n.parentKey ? idByKey.get(n.parentKey) : null;
+          const lineage = n.parentKey ? [...lineageByKey.get(n.parentKey), parentId] : [];
+          params.push(tenantId, n.depth, n.name, parentId, n.path, n.pcode, `{${lineage.join(',')}}`);
+          const b = j * COLS;
+          return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7}::uuid[])`;
+        });
+        const { rows } = await client.query(
+          `INSERT INTO admin_areas (tenant_id, depth, name, parent_id, path, pcode, lineage)
+           VALUES ${tuples.join(',')} RETURNING id, lineage`, params);
+        rows.forEach((r, j) => { idByKey.set(slice[j].key, r.id); lineageByKey.set(slice[j].key, r.lineage); });
+      }
+    }
+    // Coordonnées des unités les plus fines (une requête par lot via VALUES).
+    const pts = plan.points.filter((p) => idByKey.has(p.key));
+    for (let i = 0; i < pts.length; i += 3000) {
+      const slice = pts.slice(i, i + 3000);
+      const params = [tenantId]; const tuples = slice.map((p) => {
+        params.push(idByKey.get(p.key), p.lat, p.lng);
+        const b = params.length - 2;
+        return `($${b}::uuid, $${b + 1}::numeric, $${b + 2}::numeric)`;
+      });
+      await client.query(
+        `UPDATE admin_areas a SET lat = v.lat, lng = v.lng FROM (VALUES ${tuples.join(',')}) AS v(id, lat, lng)
+          WHERE a.tenant_id = $1 AND a.id = v.id`, params);
+    }
+    // Niveaux supérieurs sans coordonnées : moyenne des enfants, du bas vers le haut.
+    for (let d = plan.levels.length - 1; d >= 1; d -= 1) {
+      await client.query(
+        `UPDATE admin_areas p SET lat = c.lat, lng = c.lng
+           FROM (SELECT parent_id, avg(lat) AS lat, avg(lng) AS lng FROM admin_areas
+                  WHERE tenant_id = $1 AND depth = $2 AND lat IS NOT NULL GROUP BY parent_id) c
+          WHERE p.tenant_id = $1 AND p.id = c.parent_id AND p.lat IS NULL`, [tenantId, d + 1]);
+    }
+    await client.query(
+      `INSERT INTO country_profiles (tenant_id, name, breakdown_source, breakdown_imported_at)
+       VALUES ($1, COALESCE((SELECT name FROM tenants WHERE id = $1), 'Pays'), $2, now())
+       ON CONFLICT (tenant_id) DO UPDATE SET breakdown_source = EXCLUDED.breakdown_source, breakdown_imported_at = now(), updated_at = now()`,
+      [tenantId, parsed.source || null]);
+    return { levels: plan.levels.length, areas: idByKey.size, withPcode: plan.withPcode, withGps: pts.length, warnings: [...(parsed.warnings || []), ...plan.warnings] };
+  });
+}
+
+// ---- Répertoire (paginé côté serveur) --------------------------------------
+const SORTS = { path: 'a.path', name: 'lower(a.name)', pcode: 'a.pcode NULLS LAST' };
+
+function directoryWhere(tenantId, { depth, ancestorId, q }) {
+  const params = [tenantId, depth]; const where = ['a.tenant_id = $1', 'a.depth = $2'];
+  if (ancestorId) { params.push(ancestorId); where.push(`a.lineage @> ARRAY[$${params.length}]::uuid[]`); }
+  if (q) { params.push(`%${q.toLowerCase()}%`); where.push(`(lower(a.name) LIKE $${params.length} OR lower(a.pcode) LIKE $${params.length})`); }
+  return { params, where: where.join(' AND ') };
+}
+
+/**
+ * Une page du répertoire d'un niveau, avec ancêtres, P-code, GPS, nombre
+ * d'enfants et nombre de sites rattachés (calculés pour la page seulement).
+ */
+async function directory(tenantId, { depth, ancestorId, q, page = 1, pageSize = 50, sort = 'path' }) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: lv } = await client.query('SELECT depth, code FROM admin_levels WHERE tenant_id = $1 ORDER BY depth', [tenantId]);
+    const level = lv.find((l) => l.depth === depth);
+    if (!level) return { rows: [], total: 0, page, pageSize };
+    const parentLevel = lv.find((l) => l.depth === depth - 1);
+    const siteCol = siteColumnFor(level.code); const parentCol = parentLevel ? siteColumnFor(parentLevel.code) : null;
+    const { params, where } = directoryWhere(tenantId, { depth, ancestorId, q });
+    params.push(pageSize, (page - 1) * pageSize);
+    const lim = params.length - 1;
+    const siteMatch = siteCol
+      ? `(SELECT count(*)::int FROM sites s WHERE s.tenant_id = a.tenant_id AND (
+            ${level.code === 'adm3' ? '(a.pcode IS NOT NULL AND s.adm3_pcode = a.pcode) OR' : ''}
+            (lower(btrim(${siteCol})) = lower(a.name)${parentCol ? ` AND (p.name IS NULL OR lower(btrim(${parentCol})) = lower(p.name))` : ''})))`
+      : 'NULL::int';
+    const { rows } = await client.query(
+      `SELECT a.id, a.name, a.pcode, a.lat::float8 AS lat, a.lng::float8 AS lng, a.depth, a.parent_id AS "parentId", a.path,
+              a.updated_at AS "updatedAt", count(*) OVER()::int AS total,
+              (SELECT count(*)::int FROM admin_areas c WHERE c.parent_id = a.id) AS "childCount",
+              ${siteMatch} AS "siteCount"
+         FROM admin_areas a LEFT JOIN admin_areas p ON p.id = a.parent_id
+        WHERE ${where}
+        ORDER BY ${SORTS[sort] || SORTS.path}, a.id
+        LIMIT $${lim} OFFSET $${lim + 1}`, params);
+    const total = rows[0]?.total ?? (page > 1 ? (await client.query(`SELECT count(*)::int AS n FROM admin_areas a WHERE ${where}`, params.slice(0, -2))).rows[0].n : 0);
+    return { rows: rows.map(({ total: _t, ...r }) => ({ ...r, ancestors: r.path.split(' > ').slice(0, -1) })), total, page, pageSize };
+  });
+}
+
+/** Toutes les lignes filtrées (export) — bornées par le découpage du pays. */
+async function directoryAll(tenantId, filters) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { params, where } = directoryWhere(tenantId, filters);
+    const { rows } = await client.query(
+      `SELECT a.name, a.pcode, a.lat::float8 AS lat, a.lng::float8 AS lng, a.path FROM admin_areas a WHERE ${where} ORDER BY a.path`, params);
+    return rows.map((r) => ({ ...r, ancestors: r.path.split(' > ').slice(0, -1) }));
+  });
+}
+
+// ---- CRUD ---------------------------------------------------------------------
+async function assertUniqueName(client, tenantId, parentId, name, exceptId) {
+  const { rows } = await client.query(
+    `SELECT 1 FROM admin_areas WHERE tenant_id = $1 AND parent_id IS NOT DISTINCT FROM $2 AND lower(name) = lower($3) AND id IS DISTINCT FROM $4 LIMIT 1`,
+    [tenantId, parentId, name, exceptId || null]);
+  if (rows.length) throw conflict(`« ${name} » existe déjà à cet endroit du découpage.`);
+}
+
+async function assertUniquePcode(client, tenantId, pcode, exceptId) {
+  if (!pcode) return;
+  const { rows } = await client.query(
+    'SELECT name FROM admin_areas WHERE tenant_id = $1 AND pcode = $2 AND id IS DISTINCT FROM $3 LIMIT 1', [tenantId, pcode, exceptId || null]);
+  if (rows.length) throw conflict(`Le P-code ${pcode} est déjà attribué à « ${rows[0].name} ».`);
+}
+
+async function lockParent(client, tenantId, parentId, depth) {
+  if (depth === 1) { if (parentId) throw badRequest('Une unité du premier niveau n\'a pas de parent.'); return null; }
+  if (!parentId) throw badRequest('Choisissez l\'unité parente.');
+  const { rows } = await client.query(
+    'SELECT id, depth, path, lineage FROM admin_areas WHERE tenant_id = $1 AND id = $2 FOR UPDATE', [tenantId, parentId]);
+  if (!rows.length) throw badRequest('Unité parente introuvable.');
+  if (rows[0].depth !== depth - 1) throw badRequest('L\'unité parente doit être du niveau immédiatement supérieur.');
+  return rows[0];
+}
+
+async function createArea(tenantId, { depth, parentId, name, pcode, lat, lng }) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: lv } = await client.query('SELECT 1 FROM admin_levels WHERE tenant_id = $1 AND depth = $2', [tenantId, depth]);
+    if (!lv.length) throw badRequest('Niveau administratif inconnu.');
+    const parent = await lockParent(client, tenantId, parentId || null, depth);
+    await assertUniqueName(client, tenantId, parent?.id || null, name);
+    await assertUniquePcode(client, tenantId, pcode);
+    const { rows } = await client.query(
+      `INSERT INTO admin_areas (tenant_id, depth, name, parent_id, path, pcode, lat, lng, lineage)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid[]) RETURNING id`,
+      [tenantId, depth, name, parent?.id || null, parent ? `${parent.path} > ${name}` : name, pcode || null, lat ?? null, lng ?? null,
+        parent ? [...parent.lineage, parent.id] : []]);
+    return { id: rows[0].id };
+  });
+}
+
+/**
+ * Modifie une unité. Renommer ou changer de parent recalcule le chemin et la
+ * lignée de TOUTE la descendance en une requête (sous-arbre via la lignée).
+ */
+async function updateArea(tenantId, id, patch) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      'SELECT id, depth, name, parent_id, path, lineage FROM admin_areas WHERE tenant_id = $1 AND id = $2 FOR UPDATE', [tenantId, id]);
+    if (!rows.length) throw notFound('Localité introuvable');
+    const cur = rows[0];
+    const name = patch.name ?? cur.name;
+    const parentId = patch.parentId === undefined ? cur.parent_id : patch.parentId;
+    const moved = parentId !== cur.parent_id; const renamed = name !== cur.name;
+    let parent = null;
+    if (moved) parent = await lockParent(client, tenantId, parentId, cur.depth);
+    else if (cur.parent_id) parent = (await client.query('SELECT id, path, lineage FROM admin_areas WHERE id = $1', [cur.parent_id])).rows[0];
+    if (moved || renamed) await assertUniqueName(client, tenantId, parentId, name, id);
+    if (patch.pcode) await assertUniquePcode(client, tenantId, patch.pcode, id);
+    const newPath = parent ? `${parent.path} > ${name}` : name;
+    const newLineage = parent ? [...parent.lineage, parent.id] : [];
+    await client.query(
+      `UPDATE admin_areas SET name = $3, parent_id = $4, path = $5, lineage = $6::uuid[],
+              pcode = CASE WHEN $7::boolean THEN $8 ELSE pcode END,
+              lat = CASE WHEN $9::boolean THEN $10::numeric ELSE lat END,
+              lng = CASE WHEN $9::boolean THEN $11::numeric ELSE lng END, updated_at = now()
+        WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, id, name, parentId, newPath, newLineage, patch.pcode !== undefined, patch.pcode || null,
+        patch.lat !== undefined || patch.lng !== undefined, patch.lat ?? null, patch.lng ?? null]);
+    let descendants = 0;
+    if (moved || renamed) {
+      ({ rowCount: descendants } = await client.query(
+        `UPDATE admin_areas d SET path = $3 || substr(d.path, length($4) + 1),
+                lineage = $5::uuid[] || d.lineage[cardinality($6::uuid[]) + 1 : cardinality(d.lineage)], updated_at = now()
+          WHERE d.tenant_id = $1 AND d.lineage @> ARRAY[$2]::uuid[]`,
+        [tenantId, id, newPath, cur.path, newLineage, cur.lineage]));
+    }
+    return { id, descendants };
+  });
+}
+
+/** Supprime une unité ; refuse si elle a des sous-unités sauf `cascade`. */
+async function deleteArea(tenantId, id, { cascade = false } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT a.id, (SELECT count(*)::int FROM admin_areas d WHERE d.tenant_id = a.tenant_id AND d.lineage @> ARRAY[a.id]) AS descendants,
+              (SELECT count(*)::int FROM contract_areas c WHERE c.tenant_id = a.tenant_id AND c.admin_area_id = a.id) AS contracts
+         FROM admin_areas a WHERE a.tenant_id = $1 AND a.id = $2 FOR UPDATE`, [tenantId, id]);
+    if (!rows.length) throw notFound('Localité introuvable');
+    const { descendants, contracts } = rows[0];
+    if (descendants > 0 && !cascade) throw conflict(`Cette localité contient ${descendants} sous-unité(s) : confirmez la suppression en cascade.`);
+    await client.query('DELETE FROM admin_areas WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+    return { deleted: 1 + descendants, contractsDetached: contracts };
+  });
+}
+
+module.exports = {
+  listAdminLevels, listAdminAreas, getCountry, saveCountry, replaceBreakdown,
+  directory, directoryAll, createArea, updateArea, deleteArea,
+};
