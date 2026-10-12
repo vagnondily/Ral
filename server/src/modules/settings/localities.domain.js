@@ -1,8 +1,9 @@
 /**
  * Localités — logique PURE (testée, sans I/O) : plan d'insertion d'un
- * découpage importé, correspondance niveau ↔ colonne du registre de sites,
- * export CSV du répertoire.
+ * découpage importé, réimport sans casse (identifiants conservés),
+ * correspondance niveau ↔ colonne du registre de sites, export CSV du répertoire.
  */
+const { pathKey, relinkByPath } = require('../common/placeMatch');
 
 /**
  * Transforme les lignes importées ({ names, pcodes, lat, lng }) en nœuds uniques
@@ -14,28 +15,76 @@
  */
 function planBreakdown({ levels = [], rows = [] }) {
   const byDepth = levels.map(() => new Map());
-  const pcodeOwner = new Map(); const points = new Map(); const warnings = []; let dupPcodes = 0;
+  const pcodeOwner = new Map(); const points = new Map(); const warnings = []; let dupPcodes = 0; let homonyms = 0;
   for (const r of rows) {
     const names = (r.names || []).slice(0, levels.length);
-    let parentKey = null;
+    let parent = null;
     names.forEach((name, d) => {
-      const key = parentKey ? `${parentKey} > ${name}` : name;
       const level = byDepth[d];
-      if (!level.has(key)) {
-        let pcode = (r.pcodes && r.pcodes[d]) || null;
-        if (pcode) {
-          const owner = pcodeOwner.get(pcode);
-          if (owner && owner !== key) { dupPcodes += 1; pcode = null; } else pcodeOwner.set(pcode, key);
+      const parentKey = parent ? parent.key : null;
+      const namePath = parentKey ? `${parentKey} > ${name}` : name;
+      let pcode = (r.pcodes && r.pcodes[d]) || null;
+      let key = namePath;
+      if (pcode) {
+        const owner = pcodeOwner.get(pcode);
+        if (owner && owner.parentKey === parentKey) key = owner.key;           // même unité (graphie éventuellement différente)
+        else if (owner) { dupPcodes += 1; pcode = null; }                      // code déjà porté ailleurs : écarté
+        else if (level.has(namePath) && level.get(namePath).pcode && level.get(namePath).pcode !== pcode) {
+          key = `${namePath} [${pcode}]`; homonyms += 1;                       // homonymes du même parent, codes distincts
         }
-        level.set(key, { key, depth: d + 1, name, parentKey, path: key, pcode });
       }
-      parentKey = key;
+      if (!level.has(key)) {
+        const path = parent ? `${parent.path} > ${name}` : name;
+        level.set(key, { key, depth: d + 1, name, parentKey, path, pcode });
+        if (pcode) pcodeOwner.set(pcode, { key, parentKey });
+      }
+      parent = level.get(key);
     });
-    if (names.length && r.lat != null && r.lng != null && !points.has(parentKey)) points.set(parentKey, { key: parentKey, lat: r.lat, lng: r.lng });
+    const leaf = parent && parent.key;
+    if (names.length && r.lat != null && r.lng != null && !points.has(leaf)) points.set(leaf, { key: leaf, lat: r.lat, lng: r.lng });
   }
   if (dupPcodes) warnings.push(`${dupPcodes} P-code(s) en double ignoré(s) (un P-code est unique dans le pays).`);
+  if (homonyms) warnings.push(`${homonyms} unité(s) homonyme(s) d'une autre du même parent, distinguée(s) par leur P-code.`);
   const nodes = byDepth.map((m) => [...m.values()]);
   return { levels, byDepth: nodes, points: [...points.values()], withPcode: pcodeOwner.size, warnings };
+}
+
+const upper = (s) => String(s).trim().toUpperCase();
+
+/**
+ * Réimport SANS CASSE : chaque nœud du nouveau plan reprend l'identifiant d'une
+ * unité existante du même niveau — d'abord par P-code, sinon par chemin
+ * normalisé — pour que les zones de contrat, avenants et alias qui pointent
+ * dessus restent valides. Seules les unités qui ne se retrouvent pas sont
+ * supprimées.
+ * @param {Array<{id, depth, pcode?, path}>} existing  unités actuelles
+ * @param {{ byDepth: Array<Array<{key, depth, pcode, path}>> }} plan  sortie de planBreakdown
+ * @returns {{ idByKey: Map<string,string>, removed: string[], stats: {kept, byPcode, byPath, added, removed} }}
+ */
+function matchBreakdown(existing, plan) {
+  const byPcode = new Map(); const byPath = new Map();
+  for (const a of existing) {
+    if (a.pcode) byPcode.set(`${a.depth}|${upper(a.pcode)}`, a);
+    const k = `${a.depth}|${pathKey(a.path)}`;
+    if (!byPath.has(k)) byPath.set(k, []);
+    byPath.get(k).push(a);
+  }
+  const nodes = plan.byDepth.flat();
+  const used = new Set(); const idByKey = new Map(); let byPcodeN = 0; let byPathN = 0;
+  for (const n of nodes) { // 1. P-code : identifiant stable, même si le nom a changé
+    const a = n.pcode && byPcode.get(`${n.depth}|${upper(n.pcode)}`);
+    if (a && !used.has(a.id)) { used.add(a.id); idByKey.set(n.key, a.id); byPcodeN += 1; }
+  }
+  for (const n of nodes) { // 2. chemin normalisé (« Atsimo-Andrefana » = « Atsimo Andrefana »)
+    if (idByKey.has(n.key)) continue;
+    const a = (byPath.get(`${n.depth}|${pathKey(n.path)}`) || []).find((x) => !used.has(x.id));
+    if (a) { used.add(a.id); idByKey.set(n.key, a.id); byPathN += 1; }
+  }
+  const removed = existing.filter((a) => !used.has(a.id)).map((a) => a.id);
+  return {
+    idByKey, removed,
+    stats: { kept: idByKey.size, byPcode: byPcodeN, byPath: byPathN, added: nodes.length - idByKey.size, removed: removed.length },
+  };
 }
 
 // Colonne du registre de sites qui porte le nom de l'unité d'un niveau.
@@ -60,4 +109,4 @@ function directoryCsv(rows, levelLabels) {
   return `\uFEFF${[header.map(csvCell).join(';'), ...lines].join('\r\n')}\r\n`;
 }
 
-module.exports = { planBreakdown, siteColumnFor, directoryCsv };
+module.exports = { planBreakdown, matchBreakdown, relinkByPath, pathKey, siteColumnFor, directoryCsv };

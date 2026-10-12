@@ -1,6 +1,9 @@
 const { withTenantTransaction } = require('../../config/db');
 const { badRequest, conflict, notFound } = require('../../middleware/errors');
-const { planBreakdown, siteColumnFor } = require('./localities.domain');
+const { chunkRows } = require('../../db/batch');
+const { planBreakdown, matchBreakdown, relinkByPath, siteColumnFor } = require('./localities.domain');
+const { normPlace, parentKeyOf } = require('../common/placeMatch');
+const { applySitesGeoTx } = require('./placeMatch.repository');
 
 /**
  * Référentiel géographique du tenant (pays) : profil pays, vocabulaire des
@@ -77,57 +80,117 @@ async function saveCountry(tenantId, { name, iso3, currency, centerLat, centerLn
   });
 }
 
-// ---- Import (remplace le découpage du pays) -------------------------------
+// ---- Import (met à jour le découpage du pays, SANS CASSE) -----------------
+/** UPDATE … FROM (VALUES …) par lots ; `cols` = [nom, type SQL] dans l'ordre des valeurs. */
+async function updateFromValues(client, tenantId, { table, cols, set, rows, values }) {
+  for (const slice of chunkRows(rows, cols.length)) {
+    const params = [tenantId];
+    const tuples = slice.map((r) => {
+      const v = values(r);
+      const b = params.length;
+      params.push(...v);
+      return `(${v.map((_, k) => `$${b + k + 1}::${cols[k][1]}`).join(',')})`;
+    });
+    await client.query(
+      `UPDATE ${table} t SET ${set} FROM (VALUES ${tuples.join(',')}) AS v(${cols.map((c) => c[0]).join(', ')})
+        WHERE t.tenant_id = $1 AND t.id = v.id`, params);
+  }
+}
+
 /**
- * Remplace tout le découpage du tenant, niveau par niveau en INSERT multi-lignes
- * (≈ 19 000 unités en quelques requêtes). La structure (nœuds, parents, P-codes,
- * lignée) est calculée par la logique pure planBreakdown ; les centroïdes des
- * niveaux supérieurs manquants sont dérivés en SQL (moyenne des enfants).
+ * Importe un découpage en METTANT À JOUR l'existant : chaque unité retrouvée
+ * (P-code, sinon chemin normalisé — matchBreakdown) garde son identifiant, donc
+ * les zones de contrat et les avenants qui pointent dessus restent valides ;
+ * les nouvelles sont insérées, seules les disparues sont supprimées. Si des
+ * zones de contrat en dépendent, l'import s'arrête (409) tant que `confirm`
+ * n'est pas donné, avec les compteurs pour la confirmation. Tout ou rien.
  */
-async function replaceBreakdown(tenantId, parsed) {
+async function replaceBreakdown(tenantId, parsed, { confirm = false } = {}) {
   const plan = planBreakdown(parsed);
   return withTenantTransaction(tenantId, async (client) => {
-    await client.query('DELETE FROM admin_areas WHERE tenant_id = $1', [tenantId]);
-    await client.query('DELETE FROM admin_levels WHERE tenant_id = $1', [tenantId]);
+    // Un seul import de découpage à la fois par pays.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`admin-breakdown:${tenantId}`]);
+    const { rows: existing } = await client.query('SELECT id, depth, pcode, path FROM admin_areas WHERE tenant_id = $1', [tenantId]);
+    const { idByKey, removed, stats } = matchBreakdown(existing, plan);
+    let impact = { zones: 0, contracts: 0 };
+    if (removed.length) {
+      ({ rows: [impact] } = await client.query(
+        `SELECT count(*)::int AS zones, count(DISTINCT contract_id)::int AS contracts
+           FROM contract_areas WHERE tenant_id = $1 AND admin_area_id = ANY($2::uuid[])`, [tenantId, removed]));
+      if (impact.zones > 0 && !confirm) {
+        throw conflict(
+          `${stats.removed} unité(s) absente(s) du nouveau fichier seront supprimées ; ${impact.zones} zone(s) de ${impact.contracts} contrat(s) en dépendent et seront à resélectionner. Confirmez l'import.`,
+          { code: 'CONFIRM_REMOVALS', ...stats, contractZones: impact.zones, contracts: impact.contracts });
+      }
+    }
+
+    // Niveaux : les libellés saisis par l'utilisateur sont conservés si le code du niveau ne change pas.
     {
       const params = [tenantId]; const tuples = plan.levels.map((l, i) => {
         params.push(i + 1, l.code, l.label, l.labelPlural);
         const b = params.length - 3;
-        return `($1, $${b}, $${b + 1}, $${b + 2}, $${b + 3})`;
-      });
-      await client.query(`INSERT INTO admin_levels (tenant_id, depth, code, label, label_plural) VALUES ${tuples.join(',')}`, params);
-    }
-    const idByKey = new Map(); const lineageByKey = new Map();
-    const COLS = 7; const CHUNK = 1500;
-    for (const depthNodes of plan.byDepth) {
-      for (let i = 0; i < depthNodes.length; i += CHUNK) {
-        const slice = depthNodes.slice(i, i + CHUNK);
-        const params = []; const tuples = slice.map((n, j) => {
-          const parentId = n.parentKey ? idByKey.get(n.parentKey) : null;
-          const lineage = n.parentKey ? [...lineageByKey.get(n.parentKey), parentId] : [];
-          params.push(tenantId, n.depth, n.name, parentId, n.path, n.pcode, `{${lineage.join(',')}}`);
-          const b = j * COLS;
-          return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7}::uuid[])`;
-        });
-        const { rows } = await client.query(
-          `INSERT INTO admin_areas (tenant_id, depth, name, parent_id, path, pcode, lineage)
-           VALUES ${tuples.join(',')} RETURNING id, lineage`, params);
-        rows.forEach((r, j) => { idByKey.set(slice[j].key, r.id); lineageByKey.set(slice[j].key, r.lineage); });
-      }
-    }
-    // Coordonnées des unités les plus fines (une requête par lot via VALUES).
-    const pts = plan.points.filter((p) => idByKey.has(p.key));
-    for (let i = 0; i < pts.length; i += 3000) {
-      const slice = pts.slice(i, i + 3000);
-      const params = [tenantId]; const tuples = slice.map((p) => {
-        params.push(idByKey.get(p.key), p.lat, p.lng);
-        const b = params.length - 2;
-        return `($${b}::uuid, $${b + 1}::numeric, $${b + 2}::numeric)`;
+        return `($1, $${b}::int, $${b + 1}, $${b + 2}, $${b + 3})`;
       });
       await client.query(
-        `UPDATE admin_areas a SET lat = v.lat, lng = v.lng FROM (VALUES ${tuples.join(',')}) AS v(id, lat, lng)
-          WHERE a.tenant_id = $1 AND a.id = v.id`, params);
+        `INSERT INTO admin_levels (tenant_id, depth, code, label, label_plural) VALUES ${tuples.join(',')}
+         ON CONFLICT (tenant_id, depth) DO UPDATE SET
+           label = CASE WHEN admin_levels.code IS NOT DISTINCT FROM EXCLUDED.code THEN admin_levels.label ELSE EXCLUDED.label END,
+           label_plural = CASE WHEN admin_levels.code IS NOT DISTINCT FROM EXCLUDED.code THEN admin_levels.label_plural ELSE EXCLUDED.label_plural END,
+           code = EXCLUDED.code`, params);
+      await client.query('DELETE FROM admin_levels WHERE tenant_id = $1 AND depth > $2', [tenantId, plan.levels.length]);
     }
+
+    // Libérer les P-codes qui changent de titulaire (index unique par pays) avant de les réattribuer.
+    const pcodeOf = new Map(existing.map((a) => [a.id, a.pcode]));
+    const freed = [...removed.filter((id) => pcodeOf.get(id))];
+    for (const n of plan.byDepth.flat()) {
+      const id = idByKey.get(n.key);
+      if (id && pcodeOf.get(id) && pcodeOf.get(id) !== n.pcode) freed.push(id);
+    }
+    if (freed.length) await client.query('UPDATE admin_areas SET pcode = NULL WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, freed]);
+
+    // Niveau par niveau : mise à jour des unités retrouvées, insertion des nouvelles.
+    const lineageByKey = new Map();
+    for (const depthNodes of plan.byDepth) {
+      const row = (n) => {
+        const parentId = n.parentKey ? idByKey.get(n.parentKey) : null;
+        const lineage = n.parentKey ? [...lineageByKey.get(n.parentKey), parentId] : [];
+        lineageByKey.set(n.key, lineage);
+        return { n, parentId, lineage: `{${lineage.join(',')}}` };
+      };
+      const rows = depthNodes.map(row);
+      const kept = rows.filter((r) => idByKey.has(r.n.key));
+      await updateFromValues(client, tenantId, {
+        table: 'admin_areas',
+        cols: [['id', 'uuid'], ['name', 'text'], ['parent_id', 'uuid'], ['path', 'text'], ['pcode', 'text'], ['lineage', 'uuid[]']],
+        set: 'name = v.name, parent_id = v.parent_id, path = v.path, pcode = v.pcode, lineage = v.lineage, updated_at = now()',
+        rows: kept, values: (r) => [idByKey.get(r.n.key), r.n.name, r.parentId, r.n.path, r.n.pcode, r.lineage],
+      });
+      const fresh = rows.filter((r) => !idByKey.has(r.n.key));
+      for (const slice of chunkRows(fresh, 7)) {
+        const params = []; const tuples = slice.map((r, j) => {
+          params.push(tenantId, r.n.depth, r.n.name, r.parentId, r.n.path, r.n.pcode, r.lineage);
+          const b = j * 7;
+          return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7}::uuid[])`;
+        });
+        const { rows: ins } = await client.query(
+          `INSERT INTO admin_areas (tenant_id, depth, name, parent_id, path, pcode, lineage)
+           VALUES ${tuples.join(',')} RETURNING id`, params);
+        ins.forEach((r, j) => idByKey.set(slice[j].n.key, r.id));
+      }
+    }
+    // Les disparues seulement (leurs enfants retrouvés ont déjà un nouveau parent) ;
+    // leurs zones de contrat passent à « détachée » (ON DELETE SET NULL, chemin conservé).
+    if (removed.length) await client.query('DELETE FROM admin_areas WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, removed]);
+
+    // Coordonnées des unités les plus fines (celles du fichier priment ; sinon on garde l'existant).
+    const pts = plan.points.filter((p) => idByKey.has(p.key));
+    await updateFromValues(client, tenantId, {
+      table: 'admin_areas', cols: [['id', 'uuid'], ['lat', 'numeric'], ['lng', 'numeric']],
+      set: 'lat = v.lat, lng = v.lng', rows: pts, values: (p) => [idByKey.get(p.key), p.lat, p.lng],
+    });
+    // (0, 0) = cellules GPS vides d'un import antérieur au correctif : ce ne sont pas des coordonnées.
+    await client.query('UPDATE admin_areas SET lat = NULL, lng = NULL WHERE tenant_id = $1 AND lat = 0 AND lng = 0', [tenantId]);
     // Niveaux supérieurs sans coordonnées : moyenne des enfants, du bas vers le haut.
     for (let d = plan.levels.length - 1; d >= 1; d -= 1) {
       await client.query(
@@ -136,12 +199,34 @@ async function replaceBreakdown(tenantId, parsed) {
                   WHERE tenant_id = $1 AND depth = $2 AND lat IS NOT NULL GROUP BY parent_id) c
           WHERE p.tenant_id = $1 AND p.id = c.parent_id AND p.lat IS NULL`, [tenantId, d + 1]);
     }
+
+    // Zones de contrat : chemin courant, puis rattachement des zones détachées (même ancien import) par chemin.
+    await client.query(
+      `UPDATE contract_areas c SET path = a.path, depth = a.depth FROM admin_areas a
+        WHERE c.tenant_id = $1 AND a.tenant_id = $1 AND a.id = c.admin_area_id
+          AND (c.path IS DISTINCT FROM a.path OR c.depth IS DISTINCT FROM a.depth)`, [tenantId]);
+    const { rows: detached } = await client.query(
+      'SELECT id AS ref, path FROM contract_areas WHERE tenant_id = $1 AND admin_area_id IS NULL', [tenantId]);
+    const relinked = relinkByPath(detached, plan.byDepth.flat().map((n) => ({ id: idByKey.get(n.key), path: n.path })));
+    await updateFromValues(client, tenantId, {
+      table: 'contract_areas', cols: [['id', 'uuid'], ['area', 'uuid']],
+      set: 'admin_area_id = v.area, path = (SELECT path FROM admin_areas WHERE id = v.area), depth = (SELECT depth FROM admin_areas WHERE id = v.area)',
+      rows: [...relinked], values: ([ref, area]) => [ref, area],
+    });
+
     await client.query(
       `INSERT INTO country_profiles (tenant_id, name, breakdown_source, breakdown_imported_at)
        VALUES ($1, COALESCE((SELECT name FROM tenants WHERE id = $1), 'Pays'), $2, now())
        ON CONFLICT (tenant_id) DO UPDATE SET breakdown_source = EXCLUDED.breakdown_source, breakdown_imported_at = now(), updated_at = now()`,
       [tenantId, parsed.source || null]);
-    return { levels: plan.levels.length, areas: idByKey.size, withPcode: plan.withPcode, withGps: pts.length, warnings: [...(parsed.warnings || []), ...plan.warnings] };
+    // Les sites suivent le découpage mis à jour (unité reconnue, codes officiels, file « À rapprocher »).
+    const sitesGeo = await applySitesGeoTx(client, tenantId);
+    return {
+      levels: plan.levels.length, areas: idByKey.size, withPcode: plan.withPcode, withGps: pts.length,
+      kept: stats.kept, added: stats.added, removed: stats.removed, sitesGeo,
+      contractZonesDetached: impact.zones, contractZonesRelinked: relinked.size, contractZonesStillDetached: detached.length - relinked.size,
+      warnings: [...(parsed.warnings || []), ...plan.warnings],
+    };
   });
 }
 
@@ -235,6 +320,7 @@ async function createArea(tenantId, { depth, parentId, name, pcode, lat, lng }) 
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid[]) RETURNING id`,
       [tenantId, depth, name, parent?.id || null, parent ? `${parent.path} > ${name}` : name, pcode || null, lat ?? null, lng ?? null,
         parent ? [...parent.lineage, parent.id] : []]);
+    await applySitesGeoTx(client, tenantId); // une localité créée peut rattacher des sites « introuvables »
     return { id: rows[0].id };
   });
 }
@@ -267,6 +353,23 @@ async function updateArea(tenantId, id, patch) {
         WHERE tenant_id = $1 AND id = $2`,
       [tenantId, id, name, parentId, newPath, newLineage, patch.pcode !== undefined, patch.pcode || null,
         patch.lat !== undefined || patch.lng !== undefined, patch.lat ?? null, patch.lng ?? null]);
+    // Renommer : l'ancien nom devient un alias (« renommage ») — les données qui portent
+    // l'ancienne graphie restent rattachées sans être réécrites.
+    if (renamed) {
+      // Clé du parent d'ORIGINE (là où l'ancienne graphie apparaît dans les données).
+      const oldParent = cur.parent_id
+        ? (await client.query('SELECT pcode, name FROM admin_areas WHERE tenant_id = $1 AND id = $2', [tenantId, cur.parent_id])).rows[0]
+        : null;
+      const parentKey = oldParent ? parentKeyOf({ pcode: oldParent.pcode, norm: normPlace(oldParent.name) }) : '';
+      const oldKey = normPlace(cur.name).key;
+      if (oldKey && oldKey !== normPlace(name).key) {
+        await client.query(
+          `INSERT INTO location_aliases (tenant_id, kind, depth, parent_key, alias_key, alias_label, target_id, target_path, source)
+           VALUES ($1, 'zone', $2, $3, $4, $5, $6, $7, 'renommage')
+           ON CONFLICT (tenant_id, kind, COALESCE(depth, 0), parent_key, alias_key) DO NOTHING`,
+          [tenantId, cur.depth, parentKey, oldKey, cur.name.slice(0, 200), id, newPath]);
+      }
+    }
     let descendants = 0;
     if (moved || renamed) {
       ({ rowCount: descendants } = await client.query(
@@ -275,6 +378,7 @@ async function updateArea(tenantId, id, patch) {
           WHERE d.tenant_id = $1 AND d.lineage @> ARRAY[$2]::uuid[]`,
         [tenantId, id, newPath, cur.path, newLineage, cur.lineage]));
     }
+    if (moved || renamed || patch.pcode !== undefined) await applySitesGeoTx(client, tenantId);
     return { id, descendants };
   });
 }
@@ -290,6 +394,7 @@ async function deleteArea(tenantId, id, { cascade = false } = {}) {
     const { descendants, contracts } = rows[0];
     if (descendants > 0 && !cascade) throw conflict(`Cette localité contient ${descendants} sous-unité(s) : confirmez la suppression en cascade.`);
     await client.query('DELETE FROM admin_areas WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+    await applySitesGeoTx(client, tenantId);
     return { deleted: 1 + descendants, contractsDetached: contracts };
   });
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, X, MapPin } from 'lucide-react';
+import { Plus, X, MapPin, AlertTriangle } from 'lucide-react';
 import { api } from '../api/client.js';
 import { Button } from './ui.jsx';
 import { useI18n } from '../lib/i18n.jsx';
@@ -9,7 +9,8 @@ import { richText } from '../lib/contracts.js';
  * Assigns geographic zones to the provider by picking nodes from the tenant's
  * admin breakdown (configured/imported in Paramétrage › Localités). Cascading
  * dropdowns (Région → District → …), no free text. `value` is a list of
- * { adminAreaId, path }.
+ * { adminAreaId, path }. A zone whose unit disappeared from the breakdown
+ * (reimport) has adminAreaId = null: shown « à resélectionner », never sent.
  */
 export default function AreasSelector({ value, onChange }) {
   const { tr } = useI18n();
@@ -47,7 +48,7 @@ export default function AreasSelector({ value, onChange }) {
     setOptions(options.length ? [options[0]] : []);
   }
 
-  function remove(id) { onChange(value.filter((v) => v.adminAreaId !== id)); }
+  function remove(index) { onChange(value.filter((_, i) => i !== index)); }
 
   if (levels === null) return <p className="muted" style={{ fontSize: 14 }}>{tr('Chargement du découpage…')}</p>;
   if (levels.length === 0) {
@@ -82,10 +83,12 @@ export default function AreasSelector({ value, onChange }) {
 
       {value.length > 0 ? (
         <div className="chips areas-chips" style={{ marginTop: 12 }}>
-          {value.map((v) => (
-            <span key={v.adminAreaId} className="chip is-static">
-              <MapPin size={14} aria-hidden="true" /> {v.path}
-              <button type="button" className="chip-x" onClick={() => remove(v.adminAreaId)} aria-label={tr('Retirer {name}', { name: v.path })}><X size={13} /></button>
+          {value.map((v, i) => (
+            <span key={v.adminAreaId || `detached-${i}`} className={`chip is-static ${v.adminAreaId ? '' : 'is-detached'}`}
+              title={v.adminAreaId ? undefined : tr('Cette zone n\'existe plus dans le découpage (Paramétrage › Localités) : retirez-la puis resélectionnez-la.')}>
+              {v.adminAreaId ? <MapPin size={14} aria-hidden="true" /> : <AlertTriangle size={14} aria-hidden="true" />} {v.path}
+              {!v.adminAreaId && <span>· {tr('à resélectionner')}</span>}
+              <button type="button" className="chip-x" onClick={() => remove(i)} aria-label={tr('Retirer {name}', { name: v.path })}><X size={13} /></button>
             </span>
           ))}
         </div>

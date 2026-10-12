@@ -79,7 +79,10 @@ export default function ConsolidationPage({ onOpenContract }) {
       <Stats items={[
         { label: tr('Budget de suivi (total)'), value: data ? formatInt(t.budget) : '—', suffix: 'Ar', foot: tr('{n} contrat(s) de suivi', { n: data ? t.contracts : '—' }) },
         { label: tr('Planifié'), value: data ? formatInt(t.planned) : '—', suffix: 'Ar', foot: tr('Taux {rate} du budget', { rate: data ? pct(t.plannedRate) : '—' }) },
-        { label: tr('Réalisé (justifié)'), value: data ? formatInt(t.actual) : '—', suffix: 'Ar', foot: tr('Consommation {rate}', { rate: data ? pct(t.actualRate) : '—' }) },
+        { label: tr('Réalisé (factures validées)'), value: data ? formatInt(t.actual) : '—', suffix: 'Ar',
+          foot: data && t.pendingValidation > 0
+            ? tr('Consommation {rate} · {amount} Ar en attente de validation', { rate: pct(t.actualRate), amount: formatInt(t.pendingValidation) })
+            : tr('Consommation {rate}', { rate: data ? pct(t.actualRate) : '—' }) },
         { label: tr('Budget restant'), value: data ? formatInt(t.remaining) : '—', suffix: 'Ar', foot: t.overspent ? tr('Dépassement') : tr('Disponible') },
       ]} />
 

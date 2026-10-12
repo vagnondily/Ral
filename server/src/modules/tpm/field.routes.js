@@ -297,12 +297,14 @@ router.post('/visits', WRITE, body(visitSchema), asyncHandler(async (req, res) =
   catch (err) { if (err.status === 409) throw badRequest(err.message); throw err; }
 }));
 
+// Champ absent = inchangé ; chaîne vide ou null = effacer (« Non affecté », date retirée…).
+const clearable = (schema) => schema.nullable().optional().or(z.literal('').transform(() => null));
 const patchSchema = z.object({
-  providerId: z.string().uuid().optional().or(z.literal('').transform(() => undefined)),
-  agent: z.string().trim().max(120).optional(),
-  contractId: z.string().uuid().optional().or(z.literal('').transform(() => undefined)),
+  providerId: clearable(z.string().uuid()),
+  agent: clearable(z.string().trim().max(120)),
+  contractId: clearable(z.string().uuid()),
   status: z.enum(['planifie', 'realise', 'annule']).optional(),
-  visitDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  visitDate: clearable(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
 });
 router.patch('/visits/:id', WRITE, body(patchSchema), asyncHandler(async (req, res) => {
   if (!(await repo.updateVisit(t(req), req.params.id, req.valid))) throw notFound('Visite introuvable');

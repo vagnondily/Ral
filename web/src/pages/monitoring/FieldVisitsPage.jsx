@@ -285,7 +285,7 @@ export default function FieldVisitsPage({ canEdit }) {
         <div className="card biz-card">
           <div className="card-header">
             <div className="card-title">{tr('Données réelles — {month}', { month: monthLabel(month) })}</div>
-            <div className="card-sub">{tr("Soumissions de suivi réellement collectées ce mois (données uploadées). La commune est résolue depuis le référentiel de sites via le pcode — c'est cette liaison qui alimente la « dernière collecte » du plan et du RBM.")}</div>
+            <div className="card-sub">{tr("Soumissions de suivi réellement collectées ce mois (données uploadées). La commune est résolue depuis le référentiel de sites via le pcode : c'est cette liaison qui alimente la « dernière collecte » du plan et du RBM, sauf pour les soumissions écartées au nettoyage et celles d'une fiche rattachée à une autre activité que le site.")}</div>
           </div>
           {subs === null ? (
             <div className="card-body"><Skeleton height={200} /></div>
@@ -295,15 +295,16 @@ export default function FieldVisitsPage({ canEdit }) {
             <div className="table-wrap"><table className="table">
               <thead><tr>
                 <th>{tr('Fiche')}</th><th>{tr('Commune (résolue)')}</th><th>{tr('District (code)')}</th><th>{tr('Commune (code)')}</th>
-                <th>{tr('Partenaire')}</th><th>{tr('Source')}</th><th>{tr('Soumis le')}</th>
+                <th>{tr('Activité (MMR)')}</th><th>{tr('Partenaire')}</th><th>{tr('Source')}</th><th>{tr('Soumis le')}</th>
               </tr></thead>
               <tbody>
                 {subs.map((s, i) => (
-                  <tr key={s.externalId || i}>
-                    <td>{s.formLabel || '—'}</td>
+                  <tr key={s.externalId || i} className={s.excluded ? 'is-muted' : undefined}>
+                    <td>{s.formLabel || '—'}{s.excluded && <> <span className="badge" title={tr('Écartée au nettoyage : ne compte pas dans la dernière collecte.')}>{tr('écartée')}</span></>}</td>
                     <td>{s.communeName ? <strong>{s.communeName}</strong> : <span className="muted" title={tr('Aucun site du référentiel ne porte ce pcode de commune.')}>{tr('non rattachée')}</span>}</td>
                     <td className="mono">{s.admin2 || '—'}</td>
                     <td className="mono">{s.admin3 || '—'}</td>
+                    <td>{s.activityCategory || <span className="muted">{tr('toutes')}</span>}</td>
                     <td>{s.partner || '—'}</td>
                     <td><span className="badge">{s.source || '—'}</span></td>
                     <td className="tabular">{s.submittedAt ? String(s.submittedAt).slice(0, 10) : (s.periodMonth || '—')}</td>

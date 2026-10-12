@@ -25,6 +25,20 @@ test('coverage excludes cancelled visits and splits by provider/district', () =>
   assert.equal(s.byDistrict.find((r) => r.key === 'A').total, 3);
 });
 
+test('couverture par bureau de rattachement du site ; site sans bureau regroupé sous « Sans bureau »', () => {
+  const s = summarizeVisits([
+    { status: 'realise', office: 'Antenne Tsihombe' },
+    { status: 'planifie', office: 'Antenne Tsihombe' },
+    { status: 'annule', office: 'Antenne Tsihombe' },
+    { status: 'realise', office: null },
+  ]);
+  const ts = s.byOffice.find((r) => r.key === 'Antenne Tsihombe');
+  assert.equal(ts.label, 'Antenne Tsihombe');
+  assert.equal(ts.active, 2);            // annulée exclue
+  assert.equal(ts.rate, 0.5);
+  assert.equal(s.byOffice.find((r) => r.key === '—').label, 'Sans bureau');
+});
+
 test('empty list yields zero coverage', () => {
   const s = summarizeVisits([]);
   assert.equal(s.overall.total, 0);

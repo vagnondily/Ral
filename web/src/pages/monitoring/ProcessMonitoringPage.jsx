@@ -3,6 +3,7 @@ import {
   Plus, Upload, AlertCircle, ClipboardCheck, RefreshCw, ArrowLeft, ChevronRight,
   FileSpreadsheet, SlidersHorizontal, BarChart3, Link2, Trash2, Pencil, Check, Minus, Shuffle,
   Table2, Download, Search, Columns3, X, ChevronDown, ChevronUp, Ban, Undo2, AlertTriangle, Link as LinkIcon,
+  CheckCircle2, Circle, Sparkles,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, IconButton, PageHeader, Skeleton, Stats } from '../../components/ui.jsx';
@@ -10,10 +11,12 @@ import Modal from '../../components/Modal.jsx';
 import MonthSelect from '../../components/MonthSelect.jsx';
 import { usePopover } from '../../components/listView.jsx';
 import IndicatorsList from './IndicatorsList.jsx';
+import TemplateBindingCard from './TemplateBindingCard.jsx';
 import { CalcFieldsCard } from './CalcFields.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import { currentMonth, formatDateTime, formatLocale } from '../../lib/format.js';
+import { currentMonth, formatDateTime, formatInt, formatLocale } from '../../lib/format.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { suggestActivity } from '../../lib/activitySuggest.js';
 
 /**
  * Suivi de processus › Données & indicateurs.
@@ -51,13 +54,32 @@ const DETAIL_TABS = [
 // Colonnes « méta » typées (référentiels MEMS) affichées avant les variables.
 const META_COLS = [
   { key: 'submittedAt', label: 'Date', fmt: (v) => (v ? formatDateTime(v) : '—') },
-  { key: 'fieldOffice', label: 'Bureau' },
-  { key: 'communeName', label: 'Commune', alt: 'admin4' },
-  { key: 'admin3', label: 'District' },
-  { key: 'site', label: 'Site' },
-  { key: 'partner', label: 'Partenaire' },
-  { key: 'agent', label: 'Agent' },
+  // Libellé d'abord (bureau MEMS rattaché, sinon libellé du choix : « 6 » → « Ambovombe »), code en repli ;
+  // `code` = la valeur brute affichée en mode « Codes ».
+  { key: 'officeName', alt: ['fieldOfficeLabel', 'fieldOffice'], code: 'fieldOffice', label: 'Bureau' },
+  // admin2 = District, admin3 = Commune, admin4 = Fokontany (memsMapping) ; nom résolu par pcode sinon valeur brute.
+  { key: 'districtName', alt: 'admin2', code: 'admin2', label: 'District' },
+  { key: 'communeName', alt: 'admin3', code: 'admin3', label: 'Commune' },
+  { key: 'admin4', label: 'Fokontany' },
+  { key: 'siteLabel', alt: 'site', code: 'site', label: 'Site' },
+  // Site du référentiel reconnu à l'import (DPName, POIName, école…) ; vide = à rapprocher.
+  { key: 'siteName', label: 'Site du référentiel' },
+  { key: 'partnerLabel', alt: 'partner', code: 'partner', label: 'Partenaire' },
+  { key: 'agentLabel', alt: 'agent', code: 'agent', label: 'Agent' },
 ];
+
+/**
+ * Étapes pour qu'une fiche alimente les tableaux de bord et les rapports, dans
+ * l'ordre où l'utilisateur doit les faire. `next` = la première non faite.
+ */
+function formSteps(f) {
+  const steps = [
+    { id: 'activity', done: !!f.activityCategory, label: 'Rattacher à une activité', hint: 'Relie la fiche aux sites de cette activité : couverture, sites actifs et plan de suivi.' },
+    { id: 'data', done: (f.submissionCount ?? 0) > 0, label: 'Importer les données', hint: 'Export Kobo (.zip, .sav), Excel / CSV, lien ONA ou API Kobo.', tab: 'donnees' },
+    { id: 'indicators', done: (f.indicatorCount ?? 0) > 0, label: 'Définir les indicateurs', hint: 'Chaque indicateur relie une question du formulaire à un calcul (% de oui, moyenne…).', tab: 'config' },
+  ];
+  return { steps, next: steps.find((x) => !x.done) || null };
+}
 
 export default function ProcessMonitoringPage({ canEdit, isAdmin }) {
   const { tr } = useI18n();
@@ -67,6 +89,8 @@ export default function ProcessMonitoringPage({ canEdit, isAdmin }) {
   const [error, setError] = useState(null);
   const [editing, setEditing] = useState(null);   // fiche en cours de modification
   const [deleting, setDeleting] = useState(null); // fiche à supprimer
+  const [attaching, setAttaching] = useState(null); // fiche à rattacher à une activité
+  const [openTab, setOpenTab] = useState(null);     // onglet d'ouverture de la fiche
 
   async function loadForms() {
     setError(null);
@@ -101,8 +125,12 @@ export default function ProcessMonitoringPage({ canEdit, isAdmin }) {
     } catch (err) { toast.error(err.message); } finally { setImportingDef(false); }
   }
 
+  const open = (f, tab = null) => { setOpenTab(tab); setSelId(f.id); };
+  // Prochaine étape d'une fiche : rattacher (fenêtre dédiée) ou ouvrir le bon onglet.
+  const doStep = (f, step) => (step.id === 'activity' ? setAttaching(f) : open(f, step.tab));
+
   if (selected) {
-    return <FormDetail form={selected} canEdit={canEdit} onBack={() => setSelId(null)} onChanged={loadForms} />;
+    return <FormDetail form={selected} canEdit={canEdit} initialTab={openTab} onBack={() => { setSelId(null); setOpenTab(null); }} onChanged={loadForms} />;
   }
 
   return (
@@ -123,36 +151,52 @@ export default function ProcessMonitoringPage({ canEdit, isAdmin }) {
           </EmptyState></Card>
         ) : (
           <Card aria-label={tr('Fiches de suivi')}>
-            <CardHeader title={tr('Fiches de suivi')} subtitle={tr('{n} fiche(s) — cliquez sur une ligne pour l\'ouvrir.', { n: forms.length })} />
-            {forms.some((f) => !f.activityCategory) && (
-              <div className="card-body" style={{ paddingBottom: 0 }}>
-                <Alert tone="warning" icon={AlertTriangle}>{tr('{n} fiche(s) non rattachée(s) à une activité du MMR : leur couverture et leur place dans le plan de suivi ne peuvent pas être calculées. Utilisez « Modifier » pour les rattacher.', { n: forms.filter((f) => !f.activityCategory).length })}</Alert>
-              </div>
-            )}
+            <CardHeader title={tr('Fiches de suivi')} subtitle={tr('{n} fiche(s) — cliquez sur une ligne pour l\'ouvrir. La colonne « Prochaine étape » indique ce qu\'il reste à faire pour que la fiche alimente les tableaux de bord.', { n: forms.length })} />
+            {canEdit && forms.some((f) => !f.activityCategory) && (() => {
+              const todo = forms.filter((f) => !f.activityCategory);
+              return (
+                <div className="card-body" style={{ paddingBottom: 0 }}>
+                  <Alert tone="warning" icon={AlertTriangle}>
+                    {tr('{n} fiche(s) non rattachée(s) à une activité : leur couverture et leur place dans le plan de suivi ne peuvent pas être calculées.', { n: todo.length })}
+                    {' '}<button type="button" className="inline-link" onClick={() => setAttaching(todo[0])}>{todo.length === 1 ? tr('Rattacher la fiche « {label} »', { label: todo[0].label }) : tr('Rattacher la première')}</button>
+                  </Alert>
+                </div>
+              );
+            })()}
             <div className="table-wrap">
               <table className="table">
                 <thead><tr>
-                  <th scope="col">{tr('Fiche')}</th><th scope="col">{tr('Activité (MMR)')}</th><th scope="col" className="num">{tr('Indicateurs')}</th>
-                  <th scope="col" className="num">{tr('Soumissions')}</th><th scope="col">{tr('Statut')}</th><th scope="col" className="num">{tr('Actions')}</th>
+                  <th scope="col">{tr('Fiche')}</th><th scope="col">{tr('Activité (MMR)')}</th>
+                  <th scope="col" className="num">{tr('Soumissions')}</th><th scope="col" className="num">{tr('Indicateurs')}</th>
+                  <th scope="col">{tr('Prochaine étape')}</th><th scope="col" className="num">{tr('Actions')}</th>
                 </tr></thead>
                 <tbody>
-                  {forms.map((f) => (
-                    <tr key={f.id} className="clickable" onClick={() => setSelId(f.id)}>
-                      <td><strong>{f.label}</strong><div className="site-meta mono">{f.code}</div></td>
-                      <td>{f.activityCategory
-                        ? <span className="nowrap"><LinkIcon size={13} className="muted" aria-hidden="true" /> {f.activityCategory}</span>
-                        : <Badge tone="orange" icon={AlertTriangle}>{tr('À rattacher')}</Badge>}</td>
-                      <td className="num tabular">{f.indicatorCount ?? 0}</td>
-                      <td className="num tabular">{f.submissionCount ?? 0}</td>
-                      <td><Badge tone={f.active ? 'green' : null} dot>{f.active ? tr('Active') : tr('Inactive')}</Badge></td>
-                      <td className="num nowrap" onClick={(e) => e.stopPropagation()}>
-                        <Button size="sm" onClick={() => setSelId(f.id)}>{tr('Ouvrir')}</Button>
-                        {canEdit && <IconButton icon={Pencil} label={tr('Modifier')} onClick={() => setEditing(f)} />}
-                        {canEdit && <IconButton icon={Trash2} label={tr('Supprimer')} onClick={() => setDeleting(f)}
-                          disabled={f.submissionCount > 0 && !isAdmin} title={f.submissionCount > 0 && !isAdmin ? tr('Fiche avec données : désactivez-la (seul un administrateur peut la supprimer).') : undefined} />}
-                      </td>
-                    </tr>
-                  ))}
+                  {forms.map((f) => {
+                    const { next } = formSteps(f);
+                    return (
+                      <tr key={f.id} className="clickable" onClick={() => open(f)}>
+                        <td><strong>{f.label}</strong><div className="site-meta mono">{f.code}</div>
+                          {!f.active && <Badge tone={null} dot>{tr('Inactive')}</Badge>}</td>
+                        <td onClick={(e) => e.stopPropagation()}>{f.activityCategory
+                          ? <span className="nowrap"><LinkIcon size={13} className="muted" aria-hidden="true" /> {f.activityCategory}</span>
+                          : canEdit
+                            ? <button type="button" className="step-chip is-warn" onClick={() => setAttaching(f)}><AlertTriangle size={13} aria-hidden="true" /> {tr('À rattacher')}</button>
+                            : <Badge tone="orange" icon={AlertTriangle}>{tr('À rattacher')}</Badge>}</td>
+                        <td className="num tabular">{formatInt(f.submissionCount ?? 0)}</td>
+                        <td className="num tabular">{f.indicatorCount ?? 0}</td>
+                        <td onClick={(e) => e.stopPropagation()}>{next
+                          ? <button type="button" className="step-chip" title={tr(next.hint)} onClick={() => doStep(f, next)} disabled={!canEdit && next.id !== 'data'}>
+                            <Circle size={12} aria-hidden="true" /> {tr(next.label)}</button>
+                          : <span className="step-chip is-done"><CheckCircle2 size={13} aria-hidden="true" /> {tr('Prête')}</span>}</td>
+                        <td className="num nowrap" onClick={(e) => e.stopPropagation()}>
+                          <Button size="sm" onClick={() => open(f)}>{tr('Ouvrir')}</Button>
+                          {canEdit && <IconButton icon={Pencil} label={tr('Modifier')} onClick={() => setEditing(f)} />}
+                          {canEdit && <IconButton icon={Trash2} label={tr('Supprimer')} onClick={() => setDeleting(f)}
+                            disabled={f.submissionCount > 0 && !isAdmin} title={f.submissionCount > 0 && !isAdmin ? tr('Fiche avec données : désactivez-la (seul un administrateur peut la supprimer).') : undefined} />}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -160,7 +204,59 @@ export default function ProcessMonitoringPage({ canEdit, isAdmin }) {
         )}
       {editing && <FormEditModal form={editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await loadForms(); }} />}
       {deleting && <FormDeleteModal form={deleting} onClose={() => setDeleting(null)} onDeleted={async () => { setDeleting(null); await loadForms(); }} />}
+      {attaching && <AttachActivityModal form={attaching} onClose={() => setAttaching(null)} onSaved={async () => { setAttaching(null); await loadForms(); }} />}
     </div>
+  );
+}
+
+/**
+ * Rattacher une fiche à une activité du MMR, en un clic : la liste des
+ * activités, avec en tête une suggestion déduite du nom de la fiche.
+ */
+function AttachActivityModal({ form, onClose, onSaved }) {
+  const { tr } = useI18n();
+  const toast = useToast();
+  const [activities, setActivities] = useState(null);
+  const [choice, setChoice] = useState(form.activityCategory || '');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api.listMmr().then((rows) => {
+      const list = [...new Set(rows.map((r) => String(r.activityCategory || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+      setActivities(list);
+      if (!form.activityCategory) setChoice(suggestActivity(form, list) || '');
+    }).catch((e) => { toast.error(e.message); setActivities([]); });
+    /* eslint-disable-next-line */
+  }, [form.id]);
+  const suggested = activities ? suggestActivity(form, activities) : null;
+  const ordered = activities ? [...(suggested ? [suggested] : []), ...activities.filter((a) => a !== suggested)] : [];
+  async function save() {
+    setSaving(true);
+    try {
+      await api.monUpdateForm(form.id, { activityCategory: choice || null });
+      toast.success(tr('« {label} » est rattachée à « {activity} ».', { label: form.label, activity: choice }));
+      onSaved();
+    } catch (e) { toast.error(e.message); } finally { setSaving(false); }
+  }
+  return (
+    <Modal open onClose={onClose} title={tr('Rattacher à une activité')} subtitle={form.label}
+      footer={<><Button variant="secondary" onClick={onClose}>{tr('Annuler')}</Button><Button icon={Check} loading={saving} disabled={!choice} onClick={save}>{tr('Rattacher')}</Button></>}>
+      <p className="hint" style={{ marginTop: 0 }}>{tr('L\'activité relie la fiche aux sites de cette activité : la couverture, les sites actifs, le plan de suivi et les rapports en dépendent. Choisissez l\'activité suivie par ce formulaire.')}</p>
+      {activities === null ? <Skeleton height={200} /> : activities.length === 0 ? (
+        <Alert tone="warning" icon={AlertTriangle}>{tr('Aucune activité dans le MMR : paramétrez-les d\'abord (Paramétrage › Paramètres MMR).')}</Alert>
+      ) : (
+        <ul className="pm-pick" role="radiogroup" aria-label={tr('Activités du MMR')}>
+          {ordered.map((a) => (
+            <li key={a}>
+              <button type="button" role="radio" aria-checked={choice === a} className={`pm-pick-item${choice === a ? ' is-selected' : ''}`} onClick={() => setChoice(a)}>
+                {choice === a ? <CheckCircle2 size={15} aria-hidden="true" className="pm-pick-ic" /> : <Circle size={15} aria-hidden="true" className="pm-pick-ic muted" />}
+                {a}
+                {a === suggested && <span className="badge badge-blue" style={{ marginLeft: 8 }}><Sparkles size={12} aria-hidden="true" /> {tr('Suggestion')}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
   );
 }
 
@@ -245,15 +341,43 @@ function FormDeleteModal({ form, onClose, onDeleted }) {
 // ======================================================================
 // Détail d'une fiche
 // ======================================================================
-function FormDetail({ form, canEdit, onBack, onChanged }) {
+function FormDetail({ form, canEdit, initialTab, onBack, onChanged }) {
   const { tr } = useI18n();
-  const [tab, setTab] = useState('variables');
+  const [tab, setTab] = useState(initialTab || 'variables');
+  const [attaching, setAttaching] = useState(false);
+  const { steps, next } = formSteps(form);
   return (
     <div className="section-gap">
       <div className="detail-head">
         <Button variant="ghost" size="sm" icon={ArrowLeft} onClick={onBack}>{tr('Toutes les fiches')}</Button>
       </div>
       <PageHeader title={form.label} description={tr('Code {code} · {n} indicateur(s) · {m} soumission(s).', { code: form.code, n: form.indicatorCount ?? 0, m: form.submissionCount ?? 0 })} />
+
+      {next ? (
+        <Card aria-label={tr('Étapes de la fiche')}>
+          <div className="card-body">
+            <div className="form-steps-title">{tr('Pour que cette fiche alimente les tableaux de bord et les rapports')}</div>
+            <ol className="form-steps">
+              {steps.map((st, i) => (
+                <li key={st.id} className={st.done ? 'is-done' : st === next ? 'is-next' : ''}>
+                  <span className="form-step-n" aria-hidden="true">{st.done ? <Check size={14} /> : i + 1}</span>
+                  <div className="form-step-body">
+                    <strong>{tr(st.label)}</strong>
+                    <span className="muted">{st.id === 'activity' && st.done ? form.activityCategory : tr(st.hint)}</span>
+                  </div>
+                  {!st.done && (canEdit || st.id === 'data') && (
+                    <Button size="sm" variant={st === next ? 'primary' : 'secondary'}
+                      onClick={() => (st.id === 'activity' ? setAttaching(true) : setTab(st.tab))}>{tr(st.id === 'activity' ? 'Rattacher' : st.id === 'data' ? 'Importer' : 'Définir')}</Button>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </div>
+        </Card>
+      ) : (
+        <p className="hint"><CheckCircle2 size={14} aria-hidden="true" style={{ verticalAlign: '-2px', color: 'var(--green)' }} /> {tr('Fiche prête : rattachée à « {activity} », elle alimente la Synthèse, Couverture & performance et le concepteur de rapport.', { activity: form.activityCategory })}</p>
+      )}
+      {attaching && <AttachActivityModal form={form} onClose={() => setAttaching(false)} onSaved={async () => { setAttaching(false); await onChanged?.(); }} />}
 
       <div className="seg" role="tablist" aria-label={tr('Sections de la fiche')}>
         {DETAIL_TABS.map((x) => {
@@ -353,6 +477,13 @@ function saveVarCols(formId, names) {
   try { const all = JSON.parse(localStorage.getItem(DATAVIEW_STORE)) || {}; all[formId] = names; localStorage.setItem(DATAVIEW_STORE, JSON.stringify(all)); } catch { /* ignore */ }
 }
 
+/** Valeur d'une colonne méta : la première clé renseignée (libellé puis code), ou le code brut en mode « Codes ». */
+function metaRaw(r, m, codes) {
+  if (codes && m.code) return r[m.code];
+  for (const k of [m.key, ...[].concat(m.alt || [])]) { const v = r[k]; if (v != null && v !== '') return v; }
+  return null;
+}
+
 function choiceLabeller(choices) {
   const map = {};
   for (const c of choices || []) (map[c.listName] ||= {})[c.value] = c.label;
@@ -373,10 +504,11 @@ const DV_MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juill
 // donc toutes les soumissions sont chargées et filtrées ici — pas de sélecteur
 // de période imposé.
 const DV_DIMS = [
-  { key: 'bureau', label: 'Bureau', get: (r) => r.fieldOffice },
+  { key: 'bureau', label: 'Bureau', get: (r) => r.officeName || r.fieldOfficeLabel || r.fieldOffice },
   { key: 'region', label: 'Région', get: (r) => r.admin1 },
-  { key: 'district', label: 'District', get: (r) => r.admin3 },
-  { key: 'commune', label: 'Commune', get: (r) => r.communeName || r.admin4 },
+  { key: 'district', label: 'District', get: (r) => r.districtName || r.admin2 },
+  { key: 'commune', label: 'Commune', get: (r) => r.communeName || r.admin3 },
+  { key: 'fokontany', label: 'Fokontany', get: (r) => r.admin4 },
   { key: 'year', label: 'Année', get: (r) => (r.periodMonth ? r.periodMonth.slice(0, 4) : null) },
   // Nom du mois dans la langue de l'interface (formatLocale suit la langue ; en français, identique à DV_MONTHS).
   { key: 'mon', label: 'Mois', get: (r) => (r.periodMonth ? r.periodMonth.slice(5, 7) : null), fmt: (v) => (DV_MONTHS[Number(v) - 1] ? new Date(2000, Number(v) - 1, 1).toLocaleString(formatLocale(), { month: 'long' }) : v) },
@@ -403,7 +535,18 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
   useEffect(() => { setCat(null); setFilters({}); setView('all'); loadData(); /* eslint-disable-next-line */ }, [form.id]);
 
   const rows = res?.rows || [];
-  const labelOf = choiceLabeller(cat?.choices);
+  // Retour n° 2 : bascule « Libellés / Codes » (mémorisée), pour lire « Ambovombe » ou vérifier « 6 ».
+  const [showCodes, setShowCodes] = useState(() => { try { return localStorage.getItem('mems.dv.codes') === '1'; } catch { return false; } });
+  const toggleCodes = (v) => { setShowCodes(v); try { localStorage.setItem('mems.dv.codes', v ? '1' : '0'); } catch { /* stockage indisponible */ } };
+  const baseLabelOf = useMemo(() => choiceLabeller(cat?.choices), [cat]);
+  const labelOf = (field, raw) => (showCodes ? (raw == null || raw === '' ? '—' : String(raw)) : baseLabelOf(field, raw));
+  // Nom de variable du XLSForm → clé réelle des données (« field_office » ↔ « Field_office » d'un export SPSS).
+  const dataKey = useMemo(() => {
+    const m = new Map();
+    for (const r of rows.slice(0, 200)) for (const k of Object.keys(r.data || {})) if (!m.has(k.toLowerCase())) m.set(k.toLowerCase(), k);
+    return m;
+  }, [rows]);
+  const cell = (r, name) => r.data?.[name] ?? r.data?.[dataKey.get(String(name).toLowerCase())];
   const calcCols = useMemo(() => (res?.calcFields || []).map((c) => ({ name: c.name, label: c.label || c.name, listName: null, calc: true })), [res]);
 
   // Options de filtre : une liste de valeurs distinctes par dimension présente.
@@ -415,13 +558,15 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
   // Colonnes « variables » : champs calculés (ƒ) d'abord, puis catalogue, sinon
   // clés vues dans les données.
   const varCols = useMemo(() => {
+    // Catalogue (XLSForm) d'abord, puis les colonnes des données qu'il ne décrit pas
+    // (variables propres à l'export SPSS, colonnes éclatées des choix multiples).
     const catFields = cat?.fields || [];
-    let base = catFields;
-    if (!catFields.length) {
-      const seen = new Map();
-      for (const r of rows) for (const k of Object.keys(r.data || {})) if (!seen.has(k)) seen.set(k, { name: k, label: k, listName: null });
-      base = [...seen.values()];
+    const known = new Set(catFields.map((f) => f.name.toLowerCase()));
+    const seen = new Map();
+    for (const r of rows.slice(0, 200)) for (const k of Object.keys(r.data || {})) {
+      if (!known.has(k.toLowerCase()) && !seen.has(k)) seen.set(k, { name: k, label: k, listName: null });
     }
+    const base = [...catFields, ...seen.values()];
     const calcNames = new Set(calcCols.map((c) => c.name));
     return [...calcCols, ...base.filter((b) => !calcNames.has(b.name))];
   }, [cat, rows, calcCols]);
@@ -447,12 +592,12 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
 
   // Colonnes « méta » qui portent au moins une valeur (évite les colonnes vides).
   const metaCols = useMemo(() => META_COLS.filter((m) => rows.some((r) => {
-    const v = r[m.key] ?? (m.alt ? r[m.alt] : null);
+    const v = metaRaw(r, m, false);
     return v != null && v !== '';
   })), [rows]);
 
   const metaVal = (r, m) => {
-    const v = r[m.key] ?? (m.alt ? r[m.alt] : null);
+    const v = metaRaw(r, m, showCodes);
     return m.fmt ? m.fmt(v) : (v == null || v === '' ? '—' : String(v));
   };
 
@@ -500,7 +645,7 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = list.map((r) => [
       ...metaCols.map((m) => metaVal(r, m)),
-      ...varCols.map((v) => { const raw = r.data?.[v.name]; return raw == null || raw === '' ? '' : labelOf(v, raw); }),
+      ...varCols.map((v) => { const raw = cell(r, v.name); return raw == null || raw === '' ? '' : labelOf(v, raw); }),
     ].map(esc).join(';'));
     const blob = new Blob(['﻿' + [head.map(esc).join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `donnees_${form.code}.csv`; a.click();
@@ -549,6 +694,10 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
                 ? tr('{n} affichée(s) · {k} retenue(s) · {x} exclue(s)', { n: shown.length, k: res.total - (res.excluded || 0), x: res.excluded })
                 : tr('{n} affichée(s) · {k} retenue(s)', { n: shown.length, k: res.total - (res.excluded || 0) })}</span>
               <span className="ind-tsp" />
+              <div className="segmented" role="group" aria-label={tr('Affichage des réponses')}>
+                <button type="button" aria-pressed={!showCodes} onClick={() => toggleCodes(false)} title={tr('Afficher le libellé des réponses codées (« 6 » → « Ambovombe »)')}>{tr('Libellés')}</button>
+                <button type="button" aria-pressed={showCodes} onClick={() => toggleCodes(true)} title={tr('Afficher les codes tels que reçus')}>{tr('Codes')}</button>
+              </div>
               <div className="pop-anchor" ref={colMenu.ref}>
                 <IconButton icon={Columns3} label={tr('Colonnes ({a}/{b})', { a: shownVarCols.length, b: varCols.length })} variant="secondary" size="sm" onClick={() => colMenu.setOpen((o) => !o)} />
                 {colMenu.open && (
@@ -593,7 +742,7 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
                       </td>
                       {metaCols.map((m, mi) => <td key={m.key} className={`${m.key === 'submittedAt' ? 'tabular' : ''} ${mi === 0 ? 'data-first' : ''}`}>{mi === 0 && r.excluded ? <><Badge tone="red">{tr('exclue')}</Badge> </> : null}{metaVal(r, m)}</td>)}
                       {shownVarCols.map((v) => {
-                        const raw = r.data?.[v.name];
+                        const raw = cell(r, v.name);
                         return <td key={v.name} className={`mono-cell data-var ${v.calc ? 'is-calc' : ''}`}>{raw == null || raw === '' ? <span className="cell-empty">—</span> : labelOf(v, raw)}</td>;
                       })}
                     </tr>
@@ -612,14 +761,14 @@ function DataViewTab({ form, canEdit, onGoConfig }) {
             )}
           </>
         )}
-      {open && <SubmissionDrawer sub={open} varCols={varCols} metaCols={metaCols} metaVal={metaVal} labelOf={labelOf} onClose={() => setOpen(null)} />}
+      {open && <SubmissionDrawer sub={open} varCols={varCols} metaCols={metaCols} metaVal={metaVal} labelOf={labelOf} cell={cell} onClose={() => setOpen(null)} />}
     </Card>
   );
 }
 
-function SubmissionDrawer({ sub, varCols, metaCols, metaVal, labelOf, onClose }) {
+function SubmissionDrawer({ sub, varCols, metaCols, metaVal, labelOf, cell, onClose }) {
   const { tr } = useI18n();
-  const extraKeys = Object.keys(sub.data || {}).filter((k) => !varCols.some((v) => v.name === k));
+  const extraKeys = Object.keys(sub.data || {}).filter((k) => !varCols.some((v) => v.name.toLowerCase() === k.toLowerCase()));
   return (
     <Modal open variant="drawer" size="md" title={tr('Soumission')}
       subtitle={sub.externalId ? sub.externalId : (sub.submittedAt ? formatDateTime(sub.submittedAt) : undefined)}
@@ -630,7 +779,7 @@ function SubmissionDrawer({ sub, varCols, metaCols, metaVal, labelOf, onClose })
       <h4 className="drawer-sub">{tr('Réponses')}</h4>
       <dl className="ind-kv">
         {varCols.map((v) => {
-          const raw = sub.data?.[v.name];
+          const raw = cell(sub, v.name);
           return (<React.Fragment key={v.name}>
             <dt>{v.label || v.name}<div className="th-sub mono">{v.name}</div></dt>
             <dd>{raw == null || raw === '' ? <span className="cell-empty">—</span> : labelOf(v, raw)}</dd>
@@ -792,9 +941,12 @@ function MappingTab({ form, canEdit }) {
 
 // ---- Configuration (paramètres + méthodes de calcul + sources de données) --
 function ConfigTab({ form, canEdit, onChanged }) {
+  // Après création depuis le modèle, la liste des indicateurs est rechargée (remontage).
+  const [version, setVersion] = useState(0);
   return (
     <div className="section-gap">
-      <IndicatorsConfigCard form={form} canEdit={canEdit} onChanged={onChanged} />
+      <TemplateBindingCard form={form} canEdit={canEdit} onApplied={() => { setVersion((v) => v + 1); onChanged?.(); }} />
+      <IndicatorsConfigCard key={version} form={form} canEdit={canEdit} onChanged={onChanged} />
       <CalcFieldsCard form={form} canEdit={canEdit} onChanged={onChanged} />
       <DataSourcesCard form={form} canEdit={canEdit} onChanged={onChanged} />
     </div>
@@ -870,6 +1022,10 @@ function IndicatorsConfigCard({ form, canEdit, onChanged }) {
   );
 }
 
+// Même plafond que le serveur (express.raw « 80mb » de POST /forms/:id/import). On prévient
+// AVANT l'envoi : un navigateur coupé en plein envoi n'affiche pas toujours la réponse 413.
+const MAX_IMPORT_BYTES = 80 * 1024 * 1024;
+
 function DataSourcesCard({ form, canEdit, onChanged }) {
   const { tr } = useI18n();
   const toast = useToast();
@@ -881,6 +1037,10 @@ function DataSourcesCard({ form, canEdit, onChanged }) {
   async function onFile(e) {
     const file = e.target.files?.[0]; e.target.value = '';
     if (!file) return;
+    if (file.size > MAX_IMPORT_BYTES) {
+      toast.error(tr('Fichier trop volumineux ({size} Mo) : la taille maximale acceptée est de 80 Mo. Exportez une période plus courte ou découpez le fichier, puis réessayez.', { size: Math.round(file.size / (1024 * 1024)) }));
+      return;
+    }
     setBusy(true);
     try { const r = await api.monImport(form.id, file); toast.success(tr('{a}/{b} soumission(s) importée(s).', { a: r.inserted, b: r.received })); onChanged?.(); }
     catch (err) { toast.error(err.message); } finally { setBusy(false); }

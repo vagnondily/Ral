@@ -1,4 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
+const places = require('./placeMatch.repository');
 const { badRequest } = require('../../middleware/errors');
 
 /** Configuration registries: partner types, activities, partners (+ TPM
@@ -95,13 +96,16 @@ async function createPartner(tenantId, { name, partnerTypeId, dailyRate, contrac
   });
 }
 
+/** Mise à jour PARTIELLE (écart B4) : un champ absent reste inchangé ; null efface le taux ou la référence. */
 async function updatePartner(tenantId, id, { name, dailyRate, contractRef, active }) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rowCount } = await client.query(
-      `UPDATE partners SET name = COALESCE($3, name), daily_rate = $4, contract_ref = $5,
-              active = COALESCE($6, active)
+      `UPDATE partners SET name = COALESCE($3, name),
+              daily_rate = CASE WHEN $4::boolean THEN $5::numeric ELSE daily_rate END,
+              contract_ref = CASE WHEN $6::boolean THEN $7 ELSE contract_ref END,
+              active = COALESCE($8, active)
        WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id, name || null, dailyRate ?? null, contractRef || null, active ?? null]
+      [tenantId, id, name || null, dailyRate !== undefined, dailyRate ?? null, contractRef !== undefined, contractRef || null, active ?? null]
     );
     return rowCount === 1;
   });
@@ -267,12 +271,19 @@ async function officesWithCounts(tenantId) {
       `SELECT o.id, o.code, o.name, o.nature, o.parent_id AS "parentId",
               po.name AS "parentName", o.responsible, o.national, o.active,
               (SELECT count(*)::int FROM field_office_communes c WHERE c.office_id = o.id) AS "communeCount",
+              -- Sites RATTACHÉS au bureau (même définition que les autres écrans), et ceux de
+              -- son périmètre restés sans bureau (à rattacher).
               CASE WHEN o.national
                    THEN (SELECT count(*)::int FROM sites s WHERE s.tenant_id = o.tenant_id)
+                   ELSE (SELECT count(*)::int FROM sites s WHERE s.tenant_id = o.tenant_id AND s.field_office_id = o.id)
+              END AS "siteCount",
+              CASE WHEN o.national THEN 0
                    ELSE (SELECT count(*)::int FROM sites s
-                          WHERE s.tenant_id = o.tenant_id
-                            AND lower(btrim(s.commune)) IN (SELECT lower(btrim(commune)) FROM field_office_communes c WHERE c.office_id = o.id))
-              END AS "siteCount"
+                          WHERE s.tenant_id = o.tenant_id AND s.field_office_id IS NULL
+                            AND EXISTS (SELECT 1 FROM field_office_communes c
+                                         WHERE c.office_id = o.id
+                                           AND lower(btrim(COALESCE(NULLIF(s.adm3, ''), s.commune))) = lower(btrim(c.commune))))
+              END AS "unattachedInPerimeter"
          FROM field_offices o
          LEFT JOIN field_offices po ON po.id = o.parent_id
         WHERE o.tenant_id = $1
@@ -286,7 +297,7 @@ async function officesWithCounts(tenantId) {
 /** Référence légère des bureaux (id, code, nom) — sans les comptages. */
 async function officeRefs(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
-    const { rows } = await client.query('SELECT id, code, name FROM field_offices WHERE tenant_id = $1 ORDER BY code', [tenantId]);
+    const { rows } = await client.query('SELECT id, code, name, active FROM field_offices WHERE tenant_id = $1 ORDER BY code', [tenantId]);
     return rows;
   });
 }
@@ -333,44 +344,48 @@ async function updateOffice(tenantId, id, { code, name, nature, parentId, respon
 async function writePerimeter(client, tenantId, officeId, communes) {
   await client.query('DELETE FROM field_office_communes WHERE tenant_id = $1 AND office_id = $2', [tenantId, officeId]);
   const clean = (communes || []).filter((c) => c && c.commune);
-  if (clean.length === 0) return;
-  const values = [];
-  const params = [];
-  clean.forEach((c, i) => {
-    params.push(tenantId, officeId, c.district || null, c.commune);
-    values.push(`($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4})`);
-  });
-  await client.query(
-    `INSERT INTO field_office_communes (tenant_id, office_id, district, commune) VALUES ${values.join(',')}
-     ON CONFLICT (office_id, commune) DO NOTHING`,
-    params
-  );
-  await attachUnassignedSites(client, tenantId);
+  if (clean.length) {
+    const values = [];
+    const params = [];
+    clean.forEach((c, i) => {
+      params.push(tenantId, officeId, c.district || null, c.commune);
+      values.push(`($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4})`);
+    });
+    // Même commune (casse/espaces) dans le même district : une seule ligne ; deux homonymes
+    // de districts différents sont tous deux conservés (migration 051).
+    await client.query(
+      `INSERT INTO field_office_communes (tenant_id, office_id, district, commune) VALUES ${values.join(',')}
+       ON CONFLICT (office_id, lower(btrim(COALESCE(district, ''))), lower(btrim(commune))) DO NOTHING`,
+      params
+    );
+  }
+  await places.resolvePerimeterTx(client, tenantId, officeId);
+  await places.attachUnassignedSitesTx(client, tenantId);
 }
 
 /**
- * Sites SANS bureau situés dans une commune d'un périmètre : rattachés au bureau
- * le plus spécifique (antenne avant bureau parent, terrain avant pays). Un site
- * qui a déjà un bureau (import, saisie, modification groupée) n'est jamais
- * réaffecté. Une seule requête ; renvoie le nombre de sites rattachés.
+ * Supprimer un bureau a des effets en cascade (sites détachés, dérogations MMR
+ * supprimées, antennes orphelines) : refusé (409 avec les compteurs) tant que
+ * `confirm` n'est pas donné ; « Désactiver » est l'alternative sans perte. Les
+ * sites détachés sont aussitôt rattachés à un autre bureau actif qui couvre leur
+ * commune.
  */
-async function attachUnassignedSites(client, tenantId) {
-  const { rowCount } = await client.query(
-    `UPDATE sites s SET field_office_id = x.office_id
-       FROM (SELECT DISTINCT ON (lower(btrim(c.commune))) lower(btrim(c.commune)) AS lc, c.office_id
-               FROM field_office_communes c JOIN field_offices o ON o.id = c.office_id
-              WHERE c.tenant_id = $1 AND o.active
-              ORDER BY lower(btrim(c.commune)), (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code) x
-      WHERE s.tenant_id = $1 AND s.field_office_id IS NULL AND lower(btrim(s.commune)) = x.lc`,
-    [tenantId]
-  );
-  return rowCount;
-}
-
-async function deleteOffice(tenantId, id) {
+async function deleteOffice(tenantId, id, { confirm = false } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
-    const { rowCount } = await client.query('DELETE FROM field_offices WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
-    return rowCount === 1;
+    const { rows } = await client.query(
+      `SELECT o.id,
+              (SELECT count(*)::int FROM sites s WHERE s.tenant_id = o.tenant_id AND s.field_office_id = o.id) AS sites,
+              (SELECT count(*)::int FROM mmr_parameters m WHERE m.tenant_id = o.tenant_id AND m.field_office_id = o.id) AS mmr,
+              (SELECT count(*)::int FROM field_offices a WHERE a.tenant_id = o.tenant_id AND a.parent_id = o.id) AS antennes
+         FROM field_offices o WHERE o.tenant_id = $1 AND o.id = $2 FOR UPDATE`, [tenantId, id]);
+    if (!rows.length) return null;
+    const impact = rows[0];
+    if (!confirm && (impact.sites || impact.mmr || impact.antennes)) {
+      const e = new Error('CONFIRM'); e.code = 'CONFIRM_DELETE'; e.impact = { sites: impact.sites, mmr: impact.mmr, antennes: impact.antennes }; throw e;
+    }
+    await client.query('DELETE FROM field_offices WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+    const reattached = await places.attachUnassignedSitesTx(client, tenantId);
+    return { deleted: true, ...impact, reattached };
   });
 }
 

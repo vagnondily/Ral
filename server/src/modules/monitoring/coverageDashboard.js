@@ -7,21 +7,30 @@
 // et expose les aides « plan vs réalisé » (taux, statut). Aucune valeur n'est
 // inventée : tout dérive des résultats fournis.
 
+const { orientedScore } = require('./monitoringMath');
+
 const CLASSES = ['exc', 'sat', 'imp', 'urg', 'na'];
+// Seuils des modèles de référence (score orienté, sur 100) quand l'indicateur n'a pas de cible.
+const BANDS = { exc: 80, sat: 65, imp: 50 };
 const CLASS_LABELS = { exc: 'Excellent', sat: 'Satisfaisant', imp: 'À améliorer', urg: 'Action urgente', na: 'Non évalué' };
 
 /**
  * Classe un résultat d'indicateur en 5 bandes par rapport à sa cible + sens.
  * Même base que monitoringMath.rate (exc/sat/imp/na) mais sépare « à améliorer »
  * d'« action urgente » selon l'ampleur de l'écart relatif à la cible.
- *   - pas de valeur ou pas de cible → na
+ *   - pas de valeur → na ; pas de cible : bandes fixes 80/65/50 (score orienté, en %)
  *   - atteint la cible → exc
  *   - écart relatif ≤ 10 % → sat ; ≤ 30 % → imp ; sinon → urg
  */
 function classify(result) {
   if (!result || result.value == null) return 'na';
   const t = result.target == null || result.target === '' ? null : Number(result.target);
-  if (t == null || Number.isNaN(t)) return 'na';
+  if (t == null || Number.isNaN(t)) {
+    // Sans cible : bandes fixes des modèles (≥ 80 / ≥ 65 / ≥ 50) sur le score orienté, si c'est un %.
+    const sc = orientedScore(result);
+    if (sc == null) return 'na';
+    return sc >= BANDS.exc ? 'exc' : sc >= BANDS.sat ? 'sat' : sc >= BANDS.imp ? 'imp' : 'urg';
+  }
   const value = Number(result.value);
   const better = result.direction !== 'lower_better';
   if (better ? value >= t : value <= t) return 'exc';
@@ -35,7 +44,7 @@ function classify(result) {
  * où `scored` = indicateurs réellement notés (hors na). */
 function classDistribution(results) {
   const out = { exc: 0, sat: 0, imp: 0, urg: 0, na: 0 };
-  for (const r of results || []) out[classify(r)] += 1;
+  for (const r of results || []) if (!r || r.scored !== false) out[classify(r)] += 1;
   out.scored = out.exc + out.sat + out.imp + out.urg;
   return out;
 }
@@ -56,15 +65,17 @@ function round(v) { return Math.round(Number(v) || 0); }
  */
 function dimGroups(results) {
   const groups = new Map();
-  for (const r of (results || []).filter(isPercent)) {
+  for (const r of (results || []).filter((x) => isPercent(x) && x.scored !== false)) {
     const key = r.module || '(sans dimension)';
     if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push({ label: r.label, pct: round(r.value) });
+    // pct = valeur mesurée (affichée) ; score = orienté (100 − valeur si « plus bas = mieux »).
+    groups.get(key).push({ label: r.label, pct: round(r.value), score: orientedScore(r), lower: r.direction === 'lower_better' });
   }
   const out = [];
   for (const [name, inds] of groups.entries()) {
-    const score = round(inds.reduce((a, b) => a + b.pct, 0) / inds.length);
-    inds.sort((a, b) => a.pct - b.pct);
+    const score = round(inds.reduce((a, b) => a + b.score, 0) / inds.length);
+    inds.sort((a, b) => a.score - b.score);
+    for (const i of inds) i.score = round(i.score);
     out.push({ name, score, n: inds.length, inds });
   }
   return out.sort((a, b) => a.score - b.score);
@@ -75,10 +86,11 @@ function dimGroups(results) {
  * `flop` = plus faibles (asc). Bornés par nTop / nFlop.
  */
 function topFlop(results, { nTop = 4, nFlop = 6 } = {}) {
+  // Classés sur le score orienté : « personnel armé présent 3 % » est un bon résultat.
   const pct = (results || []).filter(isPercent)
-    .map((r) => ({ label: r.label, pct: round(r.value) }));
-  const asc = [...pct].sort((a, b) => a.pct - b.pct);
-  const desc = [...pct].sort((a, b) => b.pct - a.pct);
+    .map((r) => ({ label: r.label, pct: round(r.value), score: orientedScore(r), lower: r.direction === 'lower_better' }));
+  const asc = [...pct].sort((a, b) => a.score - b.score);
+  const desc = [...pct].sort((a, b) => b.score - a.score);
   return { top: desc.slice(0, nTop), flop: asc.slice(0, nFlop) };
 }
 

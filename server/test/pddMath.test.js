@@ -63,3 +63,18 @@ test('empty is safe', () => {
   assert.equal(byZone.length, 0);
   assert.deepEqual(pipeline({}, {}), []);
 });
+
+const { latestStock } = require('../src/modules/pdd/pddMath');
+
+test('pipeline sur plusieurs mois : stock du DERNIER mois renseigné par denrée', () => {
+  const rows = [
+    { commodity: 'Riz', qty: 80, donor: 'A', month: '2025-11' },
+    { commodity: 'Riz', qty: 120, donor: 'B', month: '2025-12' },
+    { commodity: 'Riz', qty: 50, donor: 'C', month: '2025-10' },
+    { commodity: 'Huile', qty: 4, month: '2025-10' },
+  ];
+  const s = latestStock(rows);
+  assert.deepEqual(s.Riz, { qty: 120, donor: 'B', month: '2025-12' });
+  assert.deepEqual(s.Huile, { qty: 4, donor: null, month: '2025-10' });
+  assert.deepEqual(latestStock([]), {});
+});

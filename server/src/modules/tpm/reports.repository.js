@@ -1,4 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
+const { decisionError, DECIDABLE } = require('./reportWorkflow');
 const { normalizeItems, summarize } = require('./reportMath');
 const { assertItemActivities } = require('./activityRefs');
 const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
@@ -168,7 +169,9 @@ async function invoiceData(tenantId, id) {
       [tenantId, report.contractId]
     );
     // Cumulative funder spend per line across this contract+partner's financial
-    // reports (soumis/valide) up to and including this report's month.
+    // reports (soumis/valide) up to and including this report's month. This is
+    // the cumul PRINTED ON the invoice (it includes the invoice itself); the
+    // budget « Réalisé » indicator counts validated reports only (realised.js).
     const { rows: cum } = await client.query(
       `SELECT i.line_code AS "lineCode", SUM(i.unit_count * i.unit_cost * i.bailleur_pct) AS amount
          FROM contract_report_items i
@@ -342,15 +345,39 @@ async function generateMonthlyStubs(tenantId, { contractId, partnerId, createdBy
   });
 }
 
+/**
+ * Décision (valide / rejete) sous verrou de ligne : le statut et l'auteur sont
+ * relus dans la transaction, la règle `decisionError` s'applique, puis la mise
+ * à jour exige encore le statut « soumis » (aucune double décision possible).
+ * @returns {Promise<{ ok: true } | { error: 'not_found' } | { error: 'status' | 'self', message: string }>}
+ */
 async function setStatus(tenantId, id, status, userId, comment) {
   return withTenantTransaction(tenantId, async (client) => {
-    const { rowCount } = await client.query(
+    const { rows } = await client.query(
+      'SELECT status, created_by AS "createdBy" FROM tpm_reports WHERE tenant_id = $1 AND id = $2 FOR UPDATE', [tenantId, id]);
+    if (!rows.length) return { error: 'not_found' };
+    const err = decisionError(rows[0], userId);
+    if (err) return { error: err.code, message: err.message };
+    await client.query(
       `UPDATE tpm_reports SET status = $3, decided_by = $4, decided_at = now(), comment = COALESCE($5, comment), updated_at = now()
-        WHERE tenant_id = $1 AND id = $2`,
+        WHERE tenant_id = $1 AND id = $2 AND status = '${DECIDABLE}'`,
       [tenantId, id, status, userId, comment || null]
     );
-    return rowCount === 1;
+    return { ok: true };
   });
 }
 
-module.exports = { listReports, getReport, invoiceData, reportContext, insertReport, setStatus, replaceReportItems, deleteReport, generateMonthlyStubs };
+/** « Non applicable » (aucun suivi ce mois) : vérifié et écrit sous le même verrou ; jamais sur un rapport validé. */
+async function markNotApplicable(tenantId, id, userId, comment) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query('SELECT status FROM tpm_reports WHERE tenant_id = $1 AND id = $2 FOR UPDATE', [tenantId, id]);
+    if (!rows.length) return { error: 'not_found' };
+    if (rows[0].status === 'valide') return { error: 'locked' };
+    await client.query(
+      `UPDATE tpm_reports SET status = 'non_applicable', decided_by = $3, decided_at = now(), comment = COALESCE($4, comment), updated_at = now()
+        WHERE tenant_id = $1 AND id = $2`, [tenantId, id, userId, comment || null]);
+    return { ok: true };
+  });
+}
+
+module.exports = { listReports, getReport, invoiceData, reportContext, insertReport, setStatus, markNotApplicable, replaceReportItems, deleteReport, generateMonthlyStubs };

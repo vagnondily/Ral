@@ -139,4 +139,5 @@ export default {
   'Couvert': 'Covered',
   'Le stock se saisit par mois. Choisissez un mois ci-dessus pour enregistrer les quantités disponibles et leur donateur.':
     'Stock is entered per month. Select a month above to record the available quantities and their donor.',
+  'stock au {m}': 'stock as of {m}',
 };

@@ -210,7 +210,10 @@ export default function DashboardBIPage({ onOpenContract }) {
       <div className="biz-kpis">
         <Kpi icon={Wallet} label={tr('Budget de suivi')} value={fmtM(totals.budget, tr)} suffix="Ar" foot={tr('{n} contrat(s)', { n: totals.contracts })} tone="blue" />
         <Kpi icon={TrendingUp} label={tr('Planifié')} value={fmtM(totals.planned, tr)} suffix="Ar" foot={tr('{p} % du budget', { p: Math.round((totals.plannedRate || 0) * 100) })} tone="amber" />
-        <Kpi icon={CheckCircle2} label={tr('Réalisé (justifié)')} value={fmtM(totals.actual, tr)} suffix="Ar" foot={tr('{p} % du budget', { p: Math.round((totals.actualRate || 0) * 100) })} tone="blue" />
+        <Kpi icon={CheckCircle2} label={tr('Réalisé (factures validées)')} value={fmtM(totals.actual, tr)} suffix="Ar"
+          foot={totals.pendingValidation > 0
+            ? tr('{p} % du budget · {amount} Ar en attente de validation', { p: Math.round((totals.actualRate || 0) * 100), amount: formatInt(totals.pendingValidation) })
+            : tr('{p} % du budget', { p: Math.round((totals.actualRate || 0) * 100) })} tone="blue" />
         <Kpi icon={Wallet} label={tr('Budget restant')} value={fmtM(totals.remaining, tr)} suffix="Ar" foot={tr('Disponible')} tone={totals.remaining < 0 ? 'red' : 'green'} />
         <Kpi icon={AlertTriangle} label={tr('Alertes')} value={formatInt(alerts.length)} foot={tr('Dépassement / projection')} tone={alerts.length ? 'red' : 'green'} />
         <Kpi icon={Users} label={tr('Taux global')} value={`${Math.round((totals.actualRate || 0) * 100)}`} suffix="%" foot={tr('Consommation')} tone="blue" />

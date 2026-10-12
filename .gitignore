@@ -13,3 +13,6 @@ dist/
 # Logs & OS files
 *.log
 .DS_Store
+
+# Copies de travail temporaires des agents (git worktree)
+.claude/worktrees/

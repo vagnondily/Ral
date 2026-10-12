@@ -77,11 +77,11 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
   }, [autoPrefill, head.contractId, isFin, editing]);
 
   async function prefillFromPlan() {
-    if (!head.contractId) { toast.info(tr("Choisissez d'abord le contrat.")); return; }
+    if (!head.partnerId || !head.contractId) { toast.info(tr("Choisissez d'abord le prestataire et le contrat.")); return; }
     setPrefilling(true);
     try {
-      const { items } = await api.planningPrefill(head.contractId, month);
-      if (!items.length) { toast.info(tr('Aucun plan de collecte pour ce contrat et ce mois.')); return; }
+      const { items } = await api.planningPrefill(head.partnerId, head.contractId, month);
+      if (!items.length) { toast.info(tr('Aucun plan de collecte de ce prestataire pour ce contrat et ce mois.')); return; }
       setRows(rowsFromItems(items));
       toast.success(tr('{n} poste(s) repris du plan de collecte.', { n: items.length }));
     } catch (e) { toast.error(e.message); } finally { setPrefilling(false); }

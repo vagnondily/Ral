@@ -5,6 +5,7 @@ const repo = require('./contracts.repository');
 const d = require('./contracts.domain');
 const { buildBudgetWorkbook } = require('./budgetXlsx');
 const { buildForecast } = require('./forecast');
+const { relinkByPath } = require('../common/placeMatch');
 
 /**
  * Contrats — business rules. Partner comes from the Paramètres registry,
@@ -69,6 +70,28 @@ async function resolveInputs(client, tenantId, input) {
   if (resolved.length !== areaIds.length) throw badRequest('Une zone sélectionnée est inconnue pour ce pays.');
   const areas = resolved.map((a) => ({ adminAreaId: a.adminAreaId, path: a.path, depth: a.depth }));
   return { partner, activityIds, items, feePct, areas };
+}
+
+/**
+ * Zones d'un avenant revérifiées au moment de l'approbation : le découpage a
+ * pu être réimporté depuis la demande. Identifiant toujours valide → gardé ;
+ * sinon zone retrouvée par chemin normalisé (unique) ; sinon 409 explicite —
+ * jamais une erreur de clé étrangère.
+ */
+async function revalidateAreas(client, tenantId, areas) {
+  const ids = [...new Set(areas.map((a) => a.adminAreaId).filter(Boolean))];
+  const found = new Map((await repo.getAdminAreasByIds(client, tenantId, ids)).map((a) => [a.adminAreaId, a]));
+  const missing = areas.filter((a) => !found.has(a.adminAreaId));
+  if (!missing.length) return areas.map((a) => found.get(a.adminAreaId));
+  const depths = missing.every((a) => a.depth) ? [...new Set(missing.map((a) => a.depth))] : null;
+  const candidates = (await repo.adminAreasAtDepths(client, tenantId, depths)).map((c) => ({ id: c.adminAreaId, path: c.path, area: c }));
+  const relinked = relinkByPath(missing.map((a) => ({ ref: a, path: a.path })), candidates);
+  const lost = missing.filter((a) => !relinked.has(a));
+  if (lost.length) {
+    throw conflict(`Zone(s) de l'avenant absente(s) du découpage actuel (réimporté depuis la demande) : ${lost.map((a) => a.path).join(' ; ')}. Rejetez l'avenant puis refaites la demande avec les zones à jour.`);
+  }
+  const byId = new Map(candidates.map((c) => [c.id, c.area]));
+  return areas.map((a) => found.get(a.adminAreaId) || byId.get(relinked.get(a)));
 }
 
 // --------------------------------------------------------------- reads
@@ -345,7 +368,7 @@ async function decideAmendment(tenantId, actor, id, amendmentId, { approve, comm
       // Apply the full revised detail (activities, budget postes, districts).
       if (Array.isArray(snap.activityIds)) await repo.setContractActivities(client, tenantId, id, snap.activityIds);
       if (Array.isArray(snap.items)) await repo.replaceBudget(client, tenantId, id, snap.items);
-      if (Array.isArray(snap.areas)) await repo.replaceAreas(client, tenantId, id, snap.areas);
+      if (Array.isArray(snap.areas)) await repo.replaceAreas(client, tenantId, id, await revalidateAreas(client, tenantId, snap.areas));
       await repo.addEvent(client, tenantId, 'ContratModifie', id, {
         contractId: id, tenantId, amendment: code, newDateFin: dateFin,
         newFeePct: snap.feePct ?? null,

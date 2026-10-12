@@ -1,4 +1,5 @@
 const ExcelJS = require('exceljs');
+const { officeResolver } = require('../common/placeMatch');
 
 /**
  * Paramètres MMR ⇄ Excel (feuille « Paramètres MMR »), aller-retour :
@@ -127,24 +128,9 @@ function findHeader(ws) {
   return null;
 }
 
-/**
- * Rattache une portée à un bureau : code ou nom exact, sinon nom « cœur »
- * (sans « Bureau ») contenu dans la portée — « RBJ Madagascar, Ampanihy Sub
- * Office » → « Bureau Ampanihy ». Le plus long nom gagne (pas d'ambiguïté
- * « Fort Dauphin » vs « Dauphin »).
- */
-function officeResolver(offices) {
-  const exact = new Map();
-  for (const o of offices) { exact.set(norm(o.code), o); exact.set(norm(o.name), o); }
-  const cores = offices.map((o) => [norm(o.name).replace(/^(bureau|sous-bureau|antenne)\s+/, ''), o])
-    .filter(([core]) => core.length >= 3).sort((a, b) => b[0].length - a[0].length);
-  return (scope) => {
-    const n = norm(scope);
-    if (exact.has(n)) return exact.get(n);
-    const hit = cores.find(([core]) => new RegExp(`(^|[^a-z])${core.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z]|$)`).test(n));
-    return hit ? hit[1] : null;
-  };
-}
+// Rattachement d'une portée à un bureau : moteur partagé (common/placeMatch).
+// « RBJ Madagascar, Ampanihy Sub Office » → « Bureau Ampanihy » ; le plus long
+// nom « cœur » gagne (pas d'ambiguïté « Fort Dauphin » vs « Dauphin »).
 
 /**
  * Relit les colonnes saisies (les dérivés ne sont jamais relus). Accepte
@@ -159,7 +145,8 @@ async function parseMmrWorkbook(buffer, offices = []) {
   let ws = null; let header = null;
   for (const w of candidates) { header = findHeader(w); if (header) { ws = w; break; } }
   if (!ws) { const e = new Error('NO_SHEET'); e.code = 'NO_SHEET'; throw e; }
-  const resolve = officeResolver(offices);
+  // Paramètres : un bureau désactivé garde ses dérogations (aller-retour Excel intact).
+  const resolve = officeResolver(offices, { includeInactive: true });
   const { map } = header;
 
   const rows = []; const errors = []; const skipped = []; const seen = new Set();

@@ -9,6 +9,7 @@
  * Consumption on the monitoring line comes from validated TPM financial
  * reports, not from the contract itself (expenses moved to the TPM module).
  */
+const { REALISED_STATUS } = require('../tpm/realised');
 
 const CONTRACT_COLUMNS = `
   c.id, c.numero, c.partner_name AS "partnerName", c.partner_id AS "partnerId",
@@ -35,7 +36,7 @@ const FROM_CONTRACT = `
 // ------------------------------------------------------------------ reads
 
 async function listContracts(client, tenantId, { status, q } = {}) {
-  const params = [tenantId];
+  const params = [tenantId, REALISED_STATUS]; // $2 = statut du « Réalisé » (définition unique, tpm/realised)
   const where = ['c.tenant_id = $1'];
   if (status) {
     params.push(status);
@@ -58,7 +59,7 @@ async function listContracts(client, tenantId, { status, q } = {}) {
        LEFT JOIN LATERAL (SELECT SUM(unit_count * unit_cost) AS total FROM contract_budget_items WHERE contract_id = c.id) b ON true
        LEFT JOIN LATERAL (SELECT SUM(unit_count * unit_cost) AS total FROM contract_budget_items WHERE contract_id = c.id AND line_code = 'IV.suivi') m ON true
        LEFT JOIN LATERAL (SELECT SUM(reported_amount) AS total FROM tpm_reports
-                           WHERE contract_id = c.id AND kind = 'financier' AND status = 'valide') x ON true
+                           WHERE tenant_id = c.tenant_id AND contract_id = c.id AND kind = 'financier' AND status = $2) x ON true
       WHERE ${where.join(' AND ')}
       ORDER BY CASE c.status WHEN 'en_validation' THEN 0 WHEN 'brouillon' THEN 1 WHEN 'rejete' THEN 2
                              WHEN 'actif' THEN 3 ELSE 4 END,
@@ -143,19 +144,28 @@ async function getAdminAreasByIds(client, tenantId, ids) {
   return rows;
 }
 
-/** Total validated TPM financial reports for this contract (= spent on the monitoring line). */
+/** Units of the given levels (to re-find, by path, a zone whose unit was replaced). */
+async function adminAreasAtDepths(client, tenantId, depths) {
+  const { rows } = await client.query(
+    `SELECT id AS "adminAreaId", path, depth FROM admin_areas WHERE tenant_id = $1 AND ($2::int[] IS NULL OR depth = ANY($2::int[]))`,
+    [tenantId, depths && depths.length ? depths : null]
+  );
+  return rows;
+}
+
+/** Réalisé du contrat : factures TPM au statut REALISED_STATUS (validées) = consommé sur la ligne de suivi. */
 async function monitoringSpent(client, tenantId, contractId) {
   const { rows } = await client.query(
     `SELECT COALESCE(SUM(reported_amount), 0) AS total FROM tpm_reports
-      WHERE tenant_id = $1 AND contract_id = $2 AND kind = 'financier' AND status = 'valide'`,
-    [tenantId, contractId]
+      WHERE tenant_id = $1 AND contract_id = $2 AND kind = 'financier' AND status = $3`,
+    [tenantId, contractId, REALISED_STATUS]
   );
   return num(rows[0].total);
 }
 
 /**
  * Données de prévision d'un contrat : budget Suivi/TPM (ligne IV) + réalisé
- * mensuel (part bailleur des factures soumises/validées), pour forecast.js.
+ * mensuel (factures au statut REALISED_STATUS, validées), pour forecast.js.
  */
 async function forecastData(client, tenantId, contractId) {
   const { MONITORING_LINE } = require('./contracts.domain');
@@ -166,10 +176,10 @@ async function forecastData(client, tenantId, contractId) {
   );
   const { rows: monthly } = await client.query(
     `SELECT to_char(period_month, 'YYYY-MM') AS month,
-            COALESCE(SUM(reported_amount) FILTER (WHERE kind = 'financier' AND status IN ('soumis', 'valide')), 0) AS actual
+            COALESCE(SUM(reported_amount) FILTER (WHERE kind = 'financier' AND status = $3), 0) AS actual
        FROM tpm_reports WHERE tenant_id = $1 AND contract_id = $2
       GROUP BY period_month ORDER BY period_month`,
-    [tenantId, contractId]
+    [tenantId, contractId, REALISED_STATUS]
   );
   return { monitoringBudget: num(budgetRows[0].total), monthly: monthly.map((m) => ({ month: m.month, actual: num(m.actual) })) };
 }
@@ -398,6 +408,7 @@ module.exports = {
   getContractAreas,
   replaceAreas,
   getAdminAreasByIds,
+  adminAreasAtDepths,
   monitoringSpent,
   listAmendments,
   getAmendment,

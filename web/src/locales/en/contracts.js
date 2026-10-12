@@ -370,4 +370,8 @@ export default {
   'Ajouter la zone': 'Add area',
   'Retirer {name}': 'Remove {name}',
   'Aucune zone affectée. Choisissez une zone puis « Ajouter la zone ».': 'No area assigned. Select an area, then “Add area”.',
+  'à resélectionner': 'select again',
+  "Cette zone n'existe plus dans le découpage (Paramétrage › Localités) : retirez-la puis resélectionnez-la.":
+    'This area no longer exists in the administrative breakdown (Settings › Localities): remove it, then select it again.',
+  "Une zone n'existe plus dans le découpage : retirez-la puis resélectionnez-la.": 'An area no longer exists in the administrative breakdown: remove it, then select it again.',
 };

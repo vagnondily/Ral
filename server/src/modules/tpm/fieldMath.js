@@ -18,12 +18,14 @@ function add(acc, status) {
 
 /**
  * Summarize a list of visits into overall coverage + breakdowns by provider,
- * district and activity. `providerLabel` maps a provider id → name.
+ * district, office (bureau ou antenne de rattachement du site) and activity.
+ * `providerLabel` maps a provider id → name.
  */
 function summarizeVisits(visits, providerLabel = {}) {
   const overall = blank();
   const byProvider = new Map();
   const byDistrict = new Map();
+  const byOffice = new Map();
   const byActivity = new Map();
   const bump = (map, key) => { if (!map.has(key)) map.set(key, blank()); return map.get(key); };
 
@@ -31,6 +33,7 @@ function summarizeVisits(visits, providerLabel = {}) {
     add(overall, v.status);
     add(bump(byProvider, v.providerId || 'non_affecte'), v.status);
     add(bump(byDistrict, v.district || '—'), v.status);
+    add(bump(byOffice, v.office || '—'), v.status);
     add(bump(byActivity, v.activity || '—'), v.status);
   }
 
@@ -42,6 +45,7 @@ function summarizeVisits(visits, providerLabel = {}) {
     overall,
     byProvider: shape(byProvider, (id) => (id === 'non_affecte' ? 'Non affecté' : (providerLabel[id] || id))),
     byDistrict: shape(byDistrict),
+    byOffice: shape(byOffice, (name) => (name === '—' ? 'Sans bureau' : name)),
     byActivity: shape(byActivity),
   };
 }

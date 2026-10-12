@@ -143,6 +143,8 @@ export default {
 
   // Catalogue serveur : chiffres clés
   'Sites visités': 'Sites visited',
+  'Sites visités (toutes fiches)': 'Sites visited (all forms)',
+  'Non disponible par bureau.': 'Not available by office.',
   'Couverture des sites': 'Site coverage',
   'Taux de réalisation': 'Completion rate',
   'Bénéficiaires (PDD)': 'Beneficiaries (emergency distribution)',

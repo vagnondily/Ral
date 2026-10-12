@@ -71,4 +71,18 @@ function pipeline(needByCommodity = {}, stockByCommodity = {}) {
   return rows;
 }
 
-module.exports = { summarize, pipeline };
+/**
+ * Stock de référence par denrée sur plusieurs mois : le DERNIER mois renseigné
+ * (jamais une ligne prise au hasard). Renvoie { [denrée]: { qty, donor, month } }.
+ * @param {Array<{commodity:string, qty:number, donor?:string, month:string}>} rows  mois au format AAAA-MM
+ */
+function latestStock(rows = []) {
+  const out = {};
+  for (const r of rows) {
+    const cur = out[r.commodity];
+    if (!cur || String(r.month) > String(cur.month)) out[r.commodity] = { qty: r.qty, donor: r.donor || null, month: r.month };
+  }
+  return out;
+}
+
+module.exports = { summarize, pipeline, latestStock };

@@ -2,7 +2,7 @@ const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
-const { badRequest, notFound, conflict } = require('../../middleware/errors');
+const { badRequest, notFound, conflict, forbidden } = require('../../middleware/errors');
 const repo = require('./reports.repository');
 const { buildInvoiceWorkbook } = require('./factureXlsx');
 
@@ -145,10 +145,10 @@ router.post('/generate-monthly', WRITE, body(stubSchema), asyncHandler(async (re
 // Marquer un rapport « non applicable » (aucun suivi ce mois). Interdit sur un
 // rapport déjà validé.
 router.post('/:id/not-applicable', WRITE, asyncHandler(async (req, res) => {
-  const report = await repo.getReport(t(req), req.params.id);
-  if (!report) throw notFound('Rapport introuvable');
-  if (report.status === 'valide') throw conflict('Un rapport validé ne peut pas être marqué non applicable.');
-  await repo.setStatus(t(req), req.params.id, 'non_applicable', req.auth.userId, req.body?.comment);
+  const comment = typeof req.body?.comment === 'string' ? req.body.comment.trim().slice(0, 1000) : null;
+  const r = await repo.markNotApplicable(t(req), req.params.id, req.auth.userId, comment);
+  if (r.error === 'not_found') throw notFound('Rapport introuvable');
+  if (r.error === 'locked') throw conflict('Un rapport validé ne peut pas être marqué non applicable.');
   res.status(204).end();
 }));
 
@@ -163,14 +163,23 @@ router.delete('/:id', WRITE, asyncHandler(async (req, res) => {
 
 const decisionSchema = z.object({ comment: z.string().trim().max(1000).optional() });
 
-router.post('/:id/approve', body(decisionSchema), asyncHandler(async (req, res) => {
-  if (!(await repo.setStatus(t(req), req.params.id, 'valide', req.auth.userId, req.valid.comment))) throw notFound('Rapport introuvable');
+// Décision réservée aux gestionnaires (admin / validateur), sur un rapport soumis,
+// par une autre personne que celle qui l'a soumis.
+async function decide(req, status) {
+  const r = await repo.setStatus(t(req), req.params.id, status, req.auth.userId, req.valid.comment);
+  if (r.error === 'not_found') throw notFound('Rapport introuvable');
+  if (r.error === 'status') throw conflict(r.message);
+  if (r.error === 'self') throw forbidden(r.message);
+}
+
+router.post('/:id/approve', WRITE, body(decisionSchema), asyncHandler(async (req, res) => {
+  await decide(req, 'valide');
   res.status(204).end();
 }));
 
-router.post('/:id/reject', body(decisionSchema), asyncHandler(async (req, res) => {
+router.post('/:id/reject', WRITE, body(decisionSchema), asyncHandler(async (req, res) => {
   if (!req.valid.comment) throw badRequest('Un motif est obligatoire pour rejeter.');
-  if (!(await repo.setStatus(t(req), req.params.id, 'rejete', req.auth.userId, req.valid.comment))) throw notFound('Rapport introuvable');
+  await decide(req, 'rejete');
   res.status(204).end();
 }));
 

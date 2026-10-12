@@ -1,4 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
+const { sitePatchSql } = require('./sitePatch');
 const { chunkRows } = require('../../db/batch');
 const { summarizeVisits, collectionDays, buildCoverageMatrix } = require('./fieldMath');
 const { isDue, frequencyFor } = require('./rbmMath');
@@ -28,7 +29,11 @@ async function listSites(tenantId, { q } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId];
     const where = ['tenant_id = $1'];
-    if (q) { params.push(`%${q}%`); where.push(`(name ILIKE $${params.length} OR commune ILIKE $${params.length} OR district ILIKE $${params.length})`); }
+    if (q) {
+      params.push(`%${q}%`);
+      where.push(`(name ILIKE $${params.length} OR commune ILIKE $${params.length} OR district ILIKE $${params.length}
+               OR code ILIKE $${params.length} OR location_id ILIKE $${params.length})`);
+    }
     const { rows } = await client.query(
       `SELECT ${SITE_COLS} FROM sites WHERE ${where.join(' AND ')} ORDER BY district, commune, name`,
       params
@@ -57,41 +62,33 @@ async function createSite(tenantId, s) {
   });
 }
 
-async function updateSite(tenantId, id, s) {
+/** Mise à jour partielle : seuls les champs envoyés changent (un changement de risque n'efface plus l'activité). */
+async function updateSite(tenantId, id, patch) {
+  const { sets, values } = sitePatchSql(patch, 3);
   return withTenantTransaction(tenantId, async (client) => {
+    if (!sets.length) {
+      const { rowCount } = await client.query('SELECT 1 FROM sites WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+      return rowCount > 0;
+    }
     const { rowCount } = await client.query(
-      `UPDATE sites SET district = COALESCE($3, district), commune = COALESCE($4, commune),
-         fokontany = $5, name = COALESCE($6, name), activity = $7, risk_level = COALESCE($8, risk_level),
-         security_situation = COALESCE($9, security_situation),
-         programme_synergies = COALESCE($10, programme_synergies),
-         beneficiary_over_200 = COALESCE($11, beneficiary_over_200),
-         new_partner = COALESCE($12, new_partner),
-         issues_process = COALESCE($13, issues_process),
-         issues_partner_report = COALESCE($14, issues_partner_report),
-         issues_cfm = COALESCE($15, issues_cfm),
-         fraud_suspected = COALESCE($16, fraud_suspected),
-         experienced_partner = COALESCE($17, experienced_partner),
-         beneficiary_number = CASE WHEN $18::boolean THEN $19::int ELSE beneficiary_number END,
-         modality_type = CASE WHEN $20::boolean THEN $21 ELSE modality_type END,
-         poi_subtype = CASE WHEN $22::boolean THEN $23 ELSE poi_subtype END,
-         urban_area = CASE WHEN $24::boolean THEN $25 ELSE urban_area END,
-         last_visit_date = CASE WHEN $26::boolean THEN $27::date ELSE last_visit_date END
-       WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id, s.district ?? null, s.commune ?? null, s.fokontany ?? null, s.name ?? null, s.activity ?? null, s.riskLevel ?? null,
-        s.security ?? null, s.synergies ?? null, s.beneficiaryOver200 ?? null, s.newPartner ?? null,
-        s.issuesProcess ?? null, s.issuesPartnerReport ?? null, s.issuesCFM ?? null, s.fraud ?? null,
-        s.experiencedPartner ?? null,
-        s.beneficiaryNumber !== undefined, s.beneficiaryNumber ?? null,
-        s.modalityType !== undefined, s.modalityType ?? null,
-        s.poiSubtype !== undefined, s.poiSubtype ?? null,
-        s.urbanArea !== undefined, s.urbanArea ?? null,
-        s.lastVisitDate !== undefined, s.lastVisitDate ?? null]
-    );
+      `UPDATE sites SET ${sets.join(', ')} WHERE tenant_id = $1 AND id = $2`, [tenantId, id, ...values]);
     return rowCount > 0;
   });
 }
 
 // ---- RBM (Risk-Based Monitoring) ----------------------------------------
+/**
+ * Une soumission compte comme « collecte réelle » d'un site (alias ms = soumission,
+ * mf = sa fiche, s = le site) si elle n'a pas été écartée au nettoyage et si sa
+ * fiche n'est pas rattachée à une AUTRE activité que celle du site (une fiche non
+ * rattachée compte pour tous les sites de la commune).
+ */
+// Soumission qui vaut collecte pour le site `s` : reliée à CE site (site reconnu à l'import),
+// sinon — site non reconnu — même commune (pcode), granularité dont on dispose alors.
+const SUBMISSION_OF_SITE = `(ms.site_id = s.id OR (ms.site_id IS NULL AND s.adm3_pcode IS NOT NULL AND ms.adm3_pcode = s.adm3_pcode))`;
+const SUBMISSION_COUNTS_FOR_SITE = `NOT ms.excluded
+         AND (mf.activity_category IS NULL OR s.activity IS NULL OR lower(btrim(mf.activity_category)) = lower(btrim(s.activity)))`;
+
 const RBM_SELECT = `
   SELECT s.id, s.code, s.name, s.district, s.commune, s.activity, s.risk_level AS "riskLevel",
          s.adm1, s.adm2, s.adm3, s.adm4, s.fokontany,
@@ -111,6 +108,7 @@ const RBM_SELECT = `
          to_char(dv.last, 'YYYY-MM') AS "dataVisitMonth",
          dv.last_at AS "dataVisitAt",
          COALESCE(dv.n, 0) AS "dataVisitCount",
+         COALESCE(dv.site_n, 0) AS "dataVisitSiteCount",
          -- Dernière visite effective = la plus récente entre le suivi terrain
          -- planifié/réalisé (site_visits) et la COLLECTE RÉELLE issue des
          -- données uploadées (soumissions rattachées par pcode de commune).
@@ -123,12 +121,15 @@ const RBM_SELECT = `
        WHERE v.tenant_id = s.tenant_id AND v.site_id = s.id AND v.status <> 'annule'
     ) pv ON true
     LEFT JOIN LATERAL (
-      -- Collecte réelle au niveau commune : la soumission la plus récente dont
-      -- le pcode de commune (adm3) correspond à celui du site.
-      SELECT max(ms.period_month) AS last, max(ms.submitted_at) AS last_at, count(*) AS n
+      -- Collecte réelle : la soumission la plus récente reliée à ce site (site
+      -- reconnu à l'import), ou, faute de site reconnu, de la même commune ;
+      -- hors soumissions écartées au nettoyage et hors fiches d'une AUTRE activité.
+      SELECT max(ms.period_month) AS last, max(ms.submitted_at) AS last_at, count(*) AS n,
+             count(*) FILTER (WHERE ms.site_id = s.id) AS site_n
         FROM monitoring_submissions ms
-       WHERE ms.tenant_id = s.tenant_id
-         AND s.adm3_pcode IS NOT NULL AND ms.admin3 = s.adm3_pcode
+        JOIN monitoring_forms mf ON mf.id = ms.form_id
+       WHERE ms.tenant_id = s.tenant_id AND ${SUBMISSION_OF_SITE}
+         AND ${SUBMISSION_COUNTS_FOR_SITE}
     ) dv ON true
    WHERE s.tenant_id = $1`;
 
@@ -324,9 +325,11 @@ const VISIT_COLS = `
   v.activity, to_char(v.period_month, 'YYYY-MM') AS "periodMonth",
   v.contract_id AS "contractId", v.provider_id AS "providerId", p.name AS "providerName",
   v.agent, v.status, v.visit_date AS "visitDate",
-  -- Dernière collecte réelle (données uploadées) pour la commune du site.
+  -- Dernière collecte réelle (données uploadées) : site reconnu, sinon commune du site.
   (SELECT to_char(max(ms.period_month), 'YYYY-MM') FROM monitoring_submissions ms
-     WHERE ms.tenant_id = s.tenant_id AND s.adm3_pcode IS NOT NULL AND ms.admin3 = s.adm3_pcode) AS "dataVisitMonth"`;
+     JOIN monitoring_forms mf ON mf.id = ms.form_id
+     WHERE ms.tenant_id = s.tenant_id AND ${SUBMISSION_OF_SITE}
+       AND ${SUBMISSION_COUNTS_FOR_SITE}) AS "dataVisitMonth"`;
 
 async function listVisits(tenantId, { month, providerId, status } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
@@ -447,9 +450,10 @@ async function summary(tenantId, { month } = {}) {
     const where = ['v.tenant_id = $1'];
     if (month) { params.push(`${String(month).slice(0, 7)}-01`); where.push(`v.period_month = $${params.length}`); }
     const { rows } = await client.query(
-      `SELECT v.status, v.provider_id AS "providerId", p.name AS "providerName", s.district, v.activity
+      `SELECT v.status, v.provider_id AS "providerId", p.name AS "providerName", s.district, fo.name AS office, v.activity
          FROM site_visits v JOIN sites s ON s.id = v.site_id
          LEFT JOIN partners p ON p.id = v.provider_id
+         LEFT JOIN field_offices fo ON fo.id = s.field_office_id AND fo.tenant_id = s.tenant_id
         WHERE ${where.join(' AND ')}`,
       params
     );
@@ -558,6 +562,7 @@ async function collectionDaysSummary(tenantId, { month } = {}) {
 
 async function setTravelDays(tenantId, { providerId, month, travelDays }) {
   return withTenantTransaction(tenantId, async (client) => {
+    await assertVisitRefs(client, tenantId, { providerId });
     await client.query(
       `INSERT INTO tpm_collection_days (tenant_id, provider_id, period_month, travel_days)
        VALUES ($1,$2,$3,$4)
@@ -569,8 +574,20 @@ async function setTravelDays(tenantId, { providerId, month, travelDays }) {
   });
 }
 
+// Une clé étrangère ne voit pas la RLS : un identifiant d'un AUTRE tenant passerait.
+// Chaque référence d'une visite est donc vérifiée dans le tenant courant.
+const VISIT_REFS = [['siteId', 'sites', 'Site inconnu.'], ['providerId', 'partners', 'Prestataire inconnu.'], ['contractId', 'contracts', 'Contrat inconnu.']];
+async function assertVisitRefs(client, tenantId, v) {
+  for (const [key, table, message] of VISIT_REFS) {
+    if (!v[key]) continue;
+    const { rowCount } = await client.query(`SELECT 1 FROM ${table} WHERE tenant_id = $1 AND id = $2`, [tenantId, v[key]]);
+    if (!rowCount) throw badRequest(message);
+  }
+}
+
 async function createVisit(tenantId, userId, v) {
   return withTenantTransaction(tenantId, async (client) => {
+    await assertVisitRefs(client, tenantId, v);
     try {
       const { rows } = await client.query(
         `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, contract_id, provider_id, agent, status, visit_date, created_by)
@@ -586,16 +603,21 @@ async function createVisit(tenantId, userId, v) {
   });
 }
 
+/** Mise à jour partielle d'une visite : champ absent = inchangé, null = effacé (désaffectation possible). */
 async function updateVisit(tenantId, id, patch) {
+  const given = (k) => patch[k] !== undefined;
   return withTenantTransaction(tenantId, async (client) => {
+    await assertVisitRefs(client, tenantId, { providerId: patch.providerId, contractId: patch.contractId });
     const { rowCount } = await client.query(
       `UPDATE site_visits
-          SET provider_id = COALESCE($3, provider_id), agent = COALESCE($4, agent),
-              contract_id = COALESCE($5, contract_id), status = COALESCE($6, status),
-              visit_date = COALESCE($7, visit_date), updated_at = now()
+          SET provider_id = CASE WHEN $3::boolean THEN $4::uuid ELSE provider_id END,
+              agent = CASE WHEN $5::boolean THEN $6 ELSE agent END,
+              contract_id = CASE WHEN $7::boolean THEN $8::uuid ELSE contract_id END,
+              status = COALESCE($9, status),
+              visit_date = CASE WHEN $10::boolean THEN $11::date ELSE visit_date END, updated_at = now()
         WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id, patch.providerId ?? null, patch.agent ?? null, patch.contractId ?? null,
-        patch.status ?? null, patch.visitDate ?? null]
+      [tenantId, id, given('providerId'), patch.providerId ?? null, given('agent'), patch.agent ?? null,
+        given('contractId'), patch.contractId ?? null, patch.status ?? null, given('visitDate'), patch.visitDate ?? null]
     );
     return rowCount > 0;
   });
