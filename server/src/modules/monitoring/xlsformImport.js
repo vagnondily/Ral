@@ -83,15 +83,18 @@ function parseXlsformRows(surveyRows, choicesRows = [], settingsRows = []) {
   for (let i = 1; i < surveyRows.length; i += 1) {
     const row = surveyRows[i] || [];
     const at = (c) => (c >= 0 ? cellText(row[c]) : '').trim();
-    const rawType = at(cType);
+    // « select one liste » et « begin group » (avec des espaces, vus dans les XLSForms MIARO et GD)
+    // valent « select_one liste » et « begin_group ».
+    const rawType = at(cType).replace(/\s+/g, ' ')
+      .replace(/^(select) (one|multiple)\b/i, '$1_$2').replace(/^(begin|end) (group|repeat)\b/i, '$1_$2');
     if (!rawType) continue;
-    const type = rawType.split(/\s+/)[0];
+    const type = rawType.split(' ')[0].toLowerCase();
     const name = at(cName);
     const label = at(cLabel);
     if (type === 'begin_group' || type === 'begin_repeat') { groupStack.push(label || name); continue; }
     if (type === 'end_group' || type === 'end_repeat') { groupStack.pop(); continue; }
     if (SKIP_TYPES.has(type) || !name) continue;
-    const listName = (type === 'select_one' || type === 'select_multiple') ? (rawType.split(/\s+/)[1] || null) : null;
+    const listName = (type === 'select_one' || type === 'select_multiple') ? (rawType.split(' ')[1] || null) : null;
     fields.push({
       name, type, label: label || name, group: groupStack.join(' › ') || null, listName,
       relevant: at(cRelevant) || null, required: truthy(at(cRequired)),
@@ -101,4 +104,16 @@ function parseXlsformRows(surveyRows, choicesRows = [], settingsRows = []) {
   return { title, formId, fields, choices };
 }
 
-module.exports = { parseXlsformRows, cellText, headerIndex };
+/**
+ * Un classeur dont les feuilles comptent « survey » et « choices » (ou
+ * « settings ») est la DÉFINITION d'un formulaire, pas un export de données :
+ * importé comme données, il produirait une « soumission » par ligne de
+ * questionnaire (512 pour la fiche GD, 698 pour MIARO).
+ * @param {string[]} sheetNames
+ */
+function looksLikeXlsform(sheetNames) {
+  const names = new Set((sheetNames || []).map((n) => String(n || '').trim().toLowerCase()));
+  return names.has('survey') && (names.has('choices') || names.has('settings'));
+}
+
+module.exports = { parseXlsformRows, cellText, headerIndex, looksLikeXlsform };

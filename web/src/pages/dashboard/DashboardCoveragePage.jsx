@@ -137,6 +137,8 @@ function Overview({ cd, cov, field, rbmStats, onNavigate }) {
     key: f.id, label: shortLabel(f.label),
     pct: f.index == null ? 0 : Math.round(f.index),
     urgent: (f.classes && f.classes.urg) || 0,
+    noIndicator: !f.indicatorCount,
+    noData: f.index == null,
   }));
   const regions = (cd.regions || []).slice(0, 8);
   const watch = (field?.byDistrict || []).filter((d) => d.active > 0 && d.rate < 0.8).sort((a, b) => a.rate - b.rate).slice(0, 8);
@@ -175,7 +177,12 @@ function Overview({ cd, cov, field, rbmStats, onNavigate }) {
       <div className="biz-grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 16 }}>
         <PlanVsReal rows={pvr} />
         <BarsCard title={tr('Performance par activité')} sub={tr('Indice de conformité par fiche')}
-          rows={byActivity.map((a) => ({ key: a.key, label: a.label, pct: a.pct, right: `${a.pct} · ${a.urgent ? tr('{n} urgent', { n: a.urgent }) : 'ok'}` }))}
+          rows={byActivity.map((a) => ({
+            key: a.key, label: a.label, pct: a.pct,
+            // Sans indicateur (ou sans donnée notée) : le dire, au lieu d'un « 0 · ok » trompeur.
+            right: a.noIndicator ? tr('Aucun indicateur défini') : a.noData ? tr('Aucune donnée notée')
+              : `${a.pct} · ${a.urgent ? tr('{n} urgent', { n: a.urgent }) : 'ok'}`,
+          }))}
           empty={tr('Aucune fiche active.')} />
       </div>
 

@@ -2138,3 +2138,57 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 
 /* Ligne écartée (ex. soumission exclue au nettoyage) : visible mais atténuée. */
 .table tr.is-muted td { opacity: .55; }
+
+/* Rapprochement des lieux : liste de choix d'une unité. */
+.pm-pick { list-style: none; margin: 12px 0 0; padding: 0; max-height: 50vh; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.pm-pick li + li { border-top: 1px solid var(--border); }
+.pm-pick-item { display: block; width: 100%; text-align: left; padding: 10px 12px; background: var(--surface); border: 0; color: var(--text); cursor: pointer; }
+.pm-pick-item:hover, .pm-pick-item:focus-visible { background: var(--blue-50); }
+.pm-pick-item .muted { margin-left: 6px; font-size: 13px; }
+.row-actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
+.pm-cands { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.pm-cand { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--blue-100); background: var(--blue-50); color: var(--blue-700); font-weight: 600; font-size: 13px; cursor: pointer; }
+.pm-cand:hover:not(:disabled), .pm-cand:focus-visible { background: var(--surface); border-color: var(--blue-600); }
+.pm-cand:disabled { opacity: .6; cursor: progress; }
+.pm-score { color: var(--muted); font-weight: 500; }
+
+/* Texte d'alerte discret (ex. « non rattachée à une activité »). */
+.text-warn { color: var(--orange-text, #a35200); font-weight: 600; }
+.biz-gauge-foot .inline-link { font-size: inherit; font-weight: 600; display: inline-flex; align-items: center; gap: 2px; }
+
+/* Fiches de suivi : prochaine étape (puce-bouton) et liste d'étapes guidée. */
+.step-chip { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--blue-100); background: var(--blue-50); color: var(--blue-700); font-weight: 600; font-size: 13px; cursor: pointer; }
+.step-chip:hover:not(:disabled), .step-chip:focus-visible { background: var(--surface); border-color: var(--blue-600); }
+.step-chip:disabled { cursor: default; opacity: .75; }
+.step-chip.is-warn { background: var(--orange-bg); border-color: #f3d9a8; color: var(--orange-text); }
+.step-chip.is-warn:hover { border-color: var(--orange); background: var(--surface); }
+.step-chip.is-done { background: var(--green-bg, #e3f4ea); border-color: transparent; color: var(--green-text, #1d6b3d); cursor: default; }
+.form-steps-title { font-weight: 700; color: var(--text-strong); margin-bottom: 10px; }
+.form-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.form-steps li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.form-steps li.is-next { border-color: var(--blue-600); background: var(--blue-50); }
+.form-steps li.is-done { opacity: .75; }
+.form-step-n { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong); }
+.form-steps li.is-next .form-step-n { background: var(--blue-600); border-color: var(--blue-600); color: #fff; }
+.form-steps li.is-done .form-step-n { background: var(--green); border-color: var(--green); color: #fff; }
+.form-step-body { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.form-step-body .muted { font-size: 13px; }
+.pm-pick-item { display: flex; align-items: center; gap: 8px; }
+.pm-pick-item.is-selected { background: var(--blue-50); color: var(--blue-700); font-weight: 600; }
+.pm-pick-ic { flex: none; }
+/* Actions empilées dans une cellule (file « À rapprocher ») : jamais coupées à droite. */
+.row-actions.is-stacked { flex-direction: column; align-items: stretch; gap: 4px; }
+
+/* Modèle d'indicateurs de l'activité : liaison des variables du formulaire. */
+.tpl-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding-bottom: 8px; }
+.tpl-counts { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-size: 13px; }
+.tpl-table td { vertical-align: top; }
+.tpl-table .tpl-check { width: 36px; text-align: center; }
+.tpl-table tr.tpl-domain th { background: var(--surface-2); color: var(--text-strong); font-weight: 700; text-transform: none; letter-spacing: 0; font-size: 13px; padding-top: 10px; padding-bottom: 10px; }
+.tpl-table tr.is-selected td { background: color-mix(in srgb, var(--blue-50) 55%, transparent); }
+.tpl-table .input-sm, .tpl-table .select-sm { height: 32px; font-size: 13px; padding: 4px 8px; min-width: 200px; max-width: 280px; }
+.tpl-table .input.is-invalid { border-color: var(--red); }
+.tpl-table .site-meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.tpl-field-label { max-width: 300px; display: block !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpl-lower { display: inline-flex; align-items: center; gap: 2px; color: var(--text); }
+.tpl-done { display: inline-flex; align-items: center; gap: 3px; color: var(--green-text); font-weight: 600; }

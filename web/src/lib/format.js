@@ -38,6 +38,17 @@ export function monthLabel(month) {
   return `${name.charAt(0).toUpperCase()}${name.slice(1)} ${y}`;
 }
 
+const MONTH_SHORT = {
+  fr: ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'],
+  en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+};
+
+/** "2026-07" -> "juil. 26" : étiquette courte pour un axe de graphique. */
+export function shortMonthLabel(month) {
+  const [y, m] = month.split('-').map(Number);
+  return `${(MONTH_SHORT[LANG] || MONTH_SHORT.fr)[m - 1]} ${String(y).slice(2)}`;
+}
+
 export function shiftMonth(month, delta) {
   const [y, m] = month.split('-').map(Number);
   const idx = y * 12 + (m - 1) + delta;

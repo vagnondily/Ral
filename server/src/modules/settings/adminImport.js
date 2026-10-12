@@ -3,7 +3,10 @@ const path = require('path');
 const fs = require('fs');
 const AdmZip = require('adm-zip');
 const { DBFFile } = require('dbffile');
+const ExcelJS = require('exceljs');
 const { readShp, isGeographicPrj, plausible } = require('./shpReader');
+const { readXls, isOleFile } = require('../monitoring/xlsReader');
+const { breakdownFromChoices } = require('./xlsformAdmin');
 
 /**
  * Import du découpage administratif (un fichier PAR PAYS / tenant) :
@@ -186,10 +189,59 @@ function pickShapefile(entries) {
  * @param {string} filename
  * @param {{ shp?: Buffer, prj?: string }} [extra]  .shp/.prj envoyés à côté d'un .dbf
  */
+// ---- XLSForm (listes de choix du référentiel officiel) ----------------------------
+const cellText = (v) => {
+  if (v == null) return '';
+  if (typeof v === 'object') {
+    if (Array.isArray(v.richText)) return v.richText.map((t) => t.text).join('');
+    if (v.result != null) return v.result;
+    if (v.text != null) return v.text;
+    return '';
+  }
+  return v;
+};
+
+/** Feuilles d'un classeur .xlsx / .xls → Map(nom en minuscules → lignes [tableaux]). */
+async function workbookSheets(buffer) {
+  if (isOleFile(buffer)) {
+    const xls = readXls(buffer);
+    return new Map(Object.entries(xls.sheets).map(([k, v]) => [k.trim().toLowerCase(), v]));
+  }
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  const out = new Map();
+  for (const ws of wb.worksheets) {
+    const rows = [];
+    ws.eachRow((row) => { rows.push(row.values.slice(1)); });
+    out.set(ws.name.trim().toLowerCase(), rows);
+  }
+  return out;
+}
+
+function rowsToObjects(rows = []) {
+  if (!rows.length) return [];
+  const header = rows[0].map((h) => String(cellText(h)).trim());
+  return rows.slice(1).map((r) => Object.fromEntries(header.map((h, i) => [h, cellText(r[i])]).filter(([h]) => h)));
+}
+
+/** Découpage lu dans les listes de choix (choices puis external_choices) d'un XLSForm. */
+async function fromXlsform(buffer) {
+  let sheets;
+  try { sheets = await workbookSheets(buffer); } catch { throw new Error('Classeur illisible : fournissez un XLSForm .xlsx ou .xls.'); }
+  const choices = [...rowsToObjects(sheets.get('choices')), ...rowsToObjects(sheets.get('external_choices'))];
+  const r = breakdownFromChoices(choices);
+  if (!r) {
+    throw new Error('Ce classeur ne contient pas de listes de codes officiels reliées entre elles (feuille « choices » d\'un XLSForm, ex. ADM1CODE › ADM2CODE). Fournissez le XLSForm du référentiel ou un shapefile.');
+  }
+  const summary = `Découpage lu dans les listes ${r.lists.map((l) => `${l.list} (${l.count})`).join(' › ')} du XLSForm.`;
+  return { levels: r.levels, rows: r.rows, warnings: [summary, ...r.warnings] };
+}
+
 async function parseUpload(buffer, filename, extra = {}) {
   const ext = (filename.split('.').pop() || '').toLowerCase();
   let out;
-  if (ext === 'csv' || ext === 'txt') out = parseCsv(buffer.toString('utf8'));
+  if (ext === 'xlsx' || ext === 'xls' || isOleFile(buffer)) out = await fromXlsform(buffer);
+  else if (ext === 'csv' || ext === 'txt') out = parseCsv(buffer.toString('utf8'));
   else if (ext === 'dbf') out = await fromShapefile({ dbf: buffer, shp: extra.shp || null, prj: extra.prj || null });
   else if (ext === 'zip') {
     const zip = new AdmZip(buffer);
@@ -201,7 +253,7 @@ async function parseUpload(buffer, filename, extra = {}) {
       if (!csvEntry) throw new Error('Le .zip ne contient ni shapefile (.dbf) ni .csv.');
       out = parseCsv(csvEntry.getData().toString('utf8'));
     }
-  } else throw new Error('Format non supporté : fournissez un .csv, un .dbf ou un .zip (shapefile).');
+  } else throw new Error('Format non supporté : fournissez un .csv, un .dbf, un .zip (shapefile) ou le XLSForm du référentiel (.xlsx, .xls).');
   return { ...out, source: filename };
 }
 

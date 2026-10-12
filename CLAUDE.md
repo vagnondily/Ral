@@ -32,8 +32,10 @@ trade-off arises, decide in this order:
    (e.g. a facture's « Réalisé » = PAM share computed server-side; monitoring
    spend recomputed by the worker). Validate every input at the edge (zod in
    routes) AND enforce it in the DB (CHECK / UNIQUE / FK) — the central error
-   handler maps 23505→409, 23514/23503/22P02→400, everything else→500 with no
-   leak. Never weaken a constraint to make a test pass.
+   handler maps 23505→409, 23514/23503/22P02/22007/22008→400, an oversized
+   body (`entity.too.large`)→413, malformed JSON→400, everything else→500 with
+   no leak. AppErrors carry `statusCode` (not `status`). Never weaken a
+   constraint to make a test pass.
 2. **Maintainability.** Keep the layering `routes → controller → service →
    repository`; only the repository writes SQL. Put business rules in **pure,
    unit-tested** modules with no I/O (the `*.domain.js` / `*Math.js` /
@@ -262,6 +264,15 @@ or navy rail.
   catalogue de champs/choix (migration 025) pour configurer les indicateurs avant
   toute soumission. Values are computed live by the pure, unit-tested
   `monitoringMath.js`. Nav: « Suivi de processus › Données & indicateurs ».
+  **Imports sûrs** : le format est reconnu par les OCTETS, jamais par le nom
+  (`server/src/modules/common/fileSniff.js`) ; HTML, PDF, Word, `.zsav`, `.xls`
+  et XLSForm déposés comme données sont refusés (400, format nommé, rien
+  d'écrit). Tout zip (export SPSS, `.xlsx`) passe d'abord la garde de
+  décompression (`common/zipGuard.js` : tailles déclarées lues avant
+  décompression, plafond `IMPORT_MAX_UNZIPPED_MB` = 150 Mo et taux
+  `IMPORT_MAX_ZIP_RATIO` = 100 → 413/400). Les dates de collecte sont lues
+  strictement (`monitoring/collectionDate.js` : ISO, secondes SPSS, série
+  Excel ; `30/01/2026` refusé) → 400 avec ligne et colonne, jamais 500.
   **Liste d'indicateurs « riche »** (`web/src/pages/monitoring/IndicatorsList.jsx`,
   onglet « Résultats ») : implémente la maquette design (branche
   `design/liste-drawer-mockup`, PR #2 ; HTML de réf. dans `web/public/mockups/`) —

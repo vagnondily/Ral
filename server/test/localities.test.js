@@ -175,3 +175,21 @@ test('export réimporté : les cellules GPS vides ne deviennent pas (0, 0)', () 
   ], cols);
   assert.deepEqual(rows.map((r) => [r.lat, r.lng]), [[null, null], [null, null], [-25.3, 45.48]]);
 });
+
+test('plan d\'insertion : homonymes d\'un même parent distingués par leur P-code, enfants rattachés au bon', () => {
+  const plan = planBreakdown({ levels: [{ code: 'adm1' }, { code: 'adm2' }, { code: 'adm3' }], rows: [
+    { names: ['Androy', 'Ambovombe', 'Ambazoa'], pcodes: ['MG52', 'MG52516', 'MG52516001'] },
+    { names: ['Androy', 'Ambovombe', 'Ambazoa'], pcodes: ['MG52', 'MG52516', 'MG52516002'] },
+    { names: ['Androy', 'Ambovombe', 'Ambazoa', 'X'], pcodes: ['MG52', 'MG52516', 'MG52516002', 'MG52516002001'] },
+  ] });
+  const communes = plan.byDepth[2];
+  assert.equal(communes.length, 2);
+  assert.deepEqual(communes.map((c) => c.pcode), ['MG52516001', 'MG52516002']);
+  assert.deepEqual(communes.map((c) => c.path), ['Androy > Ambovombe > Ambazoa', 'Androy > Ambovombe > Ambazoa']);
+  assert.ok(plan.warnings.some((w) => /homonyme/.test(w)));
+  // Même code revu avec une autre graphie dans le même parent : une seule unité.
+  const same = planBreakdown({ levels: [{ code: 'adm1' }, { code: 'adm2' }], rows: [
+    { names: ['Androy', 'Ambovombe'], pcodes: ['MG52', 'MG52516'] }, { names: ['Androy', 'Ambovombe-Androy'], pcodes: ['MG52', 'MG52516'] },
+  ] });
+  assert.equal(same.byDepth[1].length, 1);
+});

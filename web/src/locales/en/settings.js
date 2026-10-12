@@ -268,4 +268,8 @@ export default {
   'Entre 0 et 1000': 'Between 0 and 1000',
   'Entre 0 et 100000': 'Between 0 and 100000',
   '160 caractères max': '160 characters max',
+  'Ce bureau a {sites} site(s) rattaché(s), {mmr} dérogation(s) MMR et {antennes} antenne(s). Le supprimer détache ces sites (rattachés ensuite à un autre bureau qui couvre leur commune) et efface ses dérogations. Pour ne rien perdre, choisissez plutôt « Modifier » puis Inactif. Supprimer quand même ?':
+    'This office has {sites} attached site(s), {mmr} MMR override(s) and {antennes} sub-office(s). Deleting it detaches these sites (then attached to another office covering their commune) and erases its overrides. To lose nothing, use “Edit” and set it to Inactive instead. Delete anyway?',
+  'Sites dont la commune est dans le périmètre mais qui restent sans bureau.': 'Sites whose commune is in the coverage area but which still have no office.',
+  '+ {n} à rattacher': '+ {n} to attach',
 };

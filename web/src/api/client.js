@@ -131,6 +131,7 @@ async function request(path, { method = 'GET', body, query, auth = true } = {}) 
 }
 
 export const api = {
+  systemStatus: () => request('/api/system/status'),
   login: (email, password) =>
     request('/api/auth/login', { method: 'POST', body: { email, password }, auth: false }),
   listProviders: () => request('/api/tpm/providers'),
@@ -170,6 +171,12 @@ export const api = {
   getCountry: () => request('/api/settings/country'),
   saveCountry: (input) => request('/api/settings/country', { method: 'PUT', body: input }),
   listLocalities: (query) => request('/api/settings/localities', { query }),
+  // Rapprochement des lieux : file « À rapprocher » et graphies apprises.
+  listPlaceMatches: (query) => request('/api/settings/place-matches', { query }),
+  applyPlaceMatches: () => request('/api/settings/place-matches/apply', { method: 'POST' }),
+  decidePlaceMatch: (id, body) => request(`/api/settings/place-matches/${id}/decide`, { method: 'POST', body }),
+  listPlaceAliases: () => request('/api/settings/place-aliases'),
+  deletePlaceAlias: (id) => request(`/api/settings/place-aliases/${id}`, { method: 'DELETE' }),
   createLocality: (input) => request('/api/settings/localities', { method: 'POST', body: input }),
   updateLocality: (id, patch) => request(`/api/settings/localities/${id}`, { method: 'PATCH', body: patch }),
   deleteLocality: (id, { cascade } = {}) => request(`/api/settings/localities/${id}`, { method: 'DELETE', query: cascade ? { cascade: 1 } : undefined }),
@@ -262,6 +269,8 @@ export const api = {
   monDeleteForm: (id, confirm) => request(`/api/monitoring/forms/${id}`, { method: 'DELETE', query: confirm ? { confirm } : undefined }),
   monFields: (id) => request(`/api/monitoring/forms/${id}/fields`),
   monIndicators: (id) => request(`/api/monitoring/forms/${id}/indicators`),
+  monTemplate: (id) => request(`/api/monitoring/forms/${id}/template`),
+  monApplyTemplate: (id, items) => request(`/api/monitoring/forms/${id}/template/apply`, { method: 'POST', body: { items } }),
   monCreateIndicator: (id, input) => request(`/api/monitoring/forms/${id}/indicators`, { method: 'POST', body: input }),
   monUpdateIndicator: (indId, input) => request(`/api/monitoring/indicators/${indId}`, { method: 'PATCH', body: input }),
   monDeleteIndicator: (indId) => request(`/api/monitoring/indicators/${indId}`, { method: 'DELETE' }),
@@ -329,7 +338,7 @@ export const api = {
   officePerimeter: (id) => request(`/api/settings/offices/${id}/perimeter`),
   createOffice: (input) => request('/api/settings/offices', { method: 'POST', body: input }),
   updateOffice: (id, input) => request(`/api/settings/offices/${id}`, { method: 'PATCH', body: input }),
-  deleteOffice: (id) => request(`/api/settings/offices/${id}`, { method: 'DELETE' }),
+  deleteOffice: (id, { confirm } = {}) => request(`/api/settings/offices/${id}`, { method: 'DELETE', query: confirm ? { confirm: 1 } : undefined }),
   createActivity: (input) => request('/api/settings/activities', { method: 'POST', body: input }),
   setActivityActive: (id, active) => request(`/api/settings/activities/${id}`, { method: 'PATCH', body: { active } }),
   listPartners: (type) => request('/api/settings/partners', { query: type ? { type } : undefined }),

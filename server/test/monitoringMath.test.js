@@ -67,3 +67,43 @@ test('computeAll returns one result per indicator', () => {
   assert.equal(out[0].value, 50);
   assert.equal(out[1].value, 15);
 });
+
+// --- Règles des modèles de référence (tableau de bord et rapport de suivi) ----------
+test('réponses « hors base » (Sans objet 9999, Ne sait pas 888) exclues, pas comptées comme « non »', () => {
+  const rows = ['1', '0', '9999', '1', '888'].map((v) => ({ data: { HelpDesk: v } }));
+  const r = computeIndicator({ sourceField: 'HelpDesk', agg: 'percent_yes', positiveValue: '1', naValues: ['9999', '888'] }, rows);
+  assert.equal(r.base, 3);
+  assert.equal(r.value, 66.7);
+  // Sans liste hors base : comportement inchangé (9999 compté comme « non »).
+  assert.equal(computeIndicator({ sourceField: 'HelpDesk', agg: 'percent_yes', positiveValue: '1' }, rows).value, 40);
+});
+
+test('plusieurs valeurs positives (« Très sûr » 1 et « Sûr » 2)', () => {
+  const rows = ['1', '2', '3', '4'].map((v) => ({ data: { Acces: v } }));
+  assert.equal(computeIndicator({ sourceField: 'Acces', agg: 'percent_value', positiveValue: '1|2' }, rows).value, 50);
+});
+
+test('indice = moyenne des domaines ; indicateurs « plus bas = mieux » inversés (GD D7 = 91)', () => {
+  const lower = 'lower_better';
+  const d7 = [
+    { agg: 'percent_yes', module: 'D7', value: 19, direction: lower },
+    { agg: 'percent_yes', module: 'D7', value: 6, direction: lower },
+    { agg: 'percent_yes', module: 'D7', value: 8, direction: lower },
+    { agg: 'percent_yes', module: 'D7', value: 98 },
+  ];
+  assert.equal(Math.round(overallIndex(d7)), 91);
+  // Deux domaines à poids égaux : (90 + 50) / 2 = 70, pas la moyenne des 3 indicateurs (76,7).
+  assert.equal(overallIndex([
+    { agg: 'percent_yes', module: 'D1', value: 80 }, { agg: 'percent_yes', module: 'D1', value: 100 },
+    { agg: 'percent_yes', module: 'D2', value: 50 },
+  ]), 70);
+});
+
+test('chiffres clés et modules complémentaires (scored = faux) hors de l\'indice', () => {
+  assert.equal(overallIndex([
+    { agg: 'percent_yes', module: 'D1', value: 80 },
+    { agg: 'percent_yes', module: 'KPI', value: 10, scored: false },
+  ]), 80);
+  const [r] = computeAll([{ code: 'k', sourceField: 'q', agg: 'percent_yes', scored: false }], [{ data: { q: 'oui' } }]);
+  assert.equal(r.scored, false);
+});

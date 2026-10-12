@@ -272,7 +272,16 @@ function BureauxSection({ isAdmin }) {
 
   async function remove(o) {
     if (!window.confirm(tr('Supprimer le bureau « {name} » ?', { name: o.name }))) return;
-    try { await api.deleteOffice(o.id); toast.success(tr('Bureau supprimé.')); reload(); } catch (e) { toast.error(e.message); }
+    try {
+      try { await api.deleteOffice(o.id); } catch (e) {
+        // Effets en cascade : confirmation explicite avec les chiffres (la désactivation est sans perte).
+        if (e.status !== 409 || e.details?.code !== 'CONFIRM_DELETE') throw e;
+        const d = e.details;
+        if (!window.confirm(tr('Ce bureau a {sites} site(s) rattaché(s), {mmr} dérogation(s) MMR et {antennes} antenne(s). Le supprimer détache ces sites (rattachés ensuite à un autre bureau qui couvre leur commune) et efface ses dérogations. Pour ne rien perdre, choisissez plutôt « Modifier » puis Inactif. Supprimer quand même ?', d))) return;
+        await api.deleteOffice(o.id, { confirm: true });
+      }
+      toast.success(tr('Bureau supprimé.')); reload();
+    } catch (e) { toast.error(e.message); }
   }
 
   const nationalCount = (offices || []).filter((o) => o.national).length;
@@ -303,7 +312,9 @@ function BureauxSection({ isAdmin }) {
                   <td><span className="mono">{o.code}</span></td>
                   <td><Badge tone={o.nature === 'pays' ? 'blue' : null}>{o.nature === 'pays' ? tr('bureau pays') : tr('terrain')}</Badge></td>
                   <td>{o.national ? <Badge tone="green">{tr('national — tous les sites')}</Badge> : <span className="tag">{tr('{n} commune(s)', { n: o.communeCount })}</span>}</td>
-                  <td className="num tabular">{formatInt(o.siteCount)}</td>
+                  <td className="num tabular">{formatInt(o.siteCount)}{o.unattachedInPerimeter > 0 && (
+                    <div className="muted" style={{ fontSize: 12 }} title={tr('Sites dont la commune est dans le périmètre mais qui restent sans bureau.')}>{tr('+ {n} à rattacher', { n: formatInt(o.unattachedInPerimeter) })}</div>
+                  )}</td>
                   <td><Badge tone={o.active ? 'green' : null} dot>{o.active ? tr('Actif') : tr('Inactif')}</Badge></td>
                   {isAdmin && <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <Button size="sm" variant="ghost" icon={Pencil} aria-label={tr('Éditer')} onClick={() => setModal({ office: o })} />
