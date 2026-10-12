@@ -25,13 +25,30 @@ test('rbm-38 : POST /sites sur un site existant → 409 avec son id, aucune écr
 });
 
 test('rbm-38 : site nouveau → simple INSERT, jamais d\'ON CONFLICT … DO UPDATE ; fokontany absent = NULL à la création seulement', async () => {
-  const client = fakeClient((sql) => (sql.startsWith('SELECT id FROM sites') ? { rows: [] } : { rows: [{ id: 'nouveau' }] }));
+  // Après l'INSERT, les rattachements communs (afterSitesChangedTx) s'exécutent dans la même
+  // transaction : registre et file simulés vides.
+  const client = fakeClient((sql) => {
+    if (sql.startsWith('SELECT id FROM sites')) return { rows: [] };
+    if (/^\s*INSERT INTO sites/.test(sql)) return { rows: [{ id: 'nouveau' }] };
+    return { rows: [], rowCount: 0 };
+  });
   const id = await createSiteTx(client, TENANT, { district: 'Ambovombe', commune: 'Ambazoa', name: 'EPP Ambazoa', activity: 'Cantines' });
   assert.equal(id, 'nouveau');
   const insert = client.calls[1];
   assert.match(insert.sql, /^\s*INSERT INTO sites/);
   assert.doesNotMatch(insert.sql, /ON CONFLICT|UPDATE/i);
   assert.deepEqual(insert.params, [TENANT, 'ambovombe--ambazoa--epp-ambazoa', 'Ambovombe', 'Ambazoa', null, 'EPP Ambazoa', 'Cantines']);
+  assert.equal(client.calls.filter((c) => /INSERT INTO sites/.test(c.sql)).length, 1, 'un seul INSERT de site');
+});
+
+test('rbm-38 : une erreur des rattachements après l\'INSERT n\'est jamais présentée comme « site existant »', async () => {
+  const client = fakeClient((sql) => {
+    if (sql.startsWith('SELECT id FROM sites')) return { rows: [] };
+    if (/^\s*INSERT INTO sites/.test(sql)) return { rows: [{ id: 'nouveau' }] };
+    throw Object.assign(new Error('duplicate key value violates unique constraint "autre_table"'), { code: '23505' });
+  });
+  await assert.rejects(createSiteTx(client, TENANT, { district: 'D', commune: 'C', name: 'N' }),
+    (err) => !(err instanceof AppError) && err.code === '23505');
 });
 
 test('rbm-38 : création simultanée du même site (contrainte unique) → 409 explicite, jamais 500', async () => {

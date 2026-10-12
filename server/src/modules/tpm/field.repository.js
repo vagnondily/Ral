@@ -65,19 +65,21 @@ async function createSiteTx(client, tenantId, s) {
        JOIN field_offices o ON o.id = c.office_id
       WHERE c.tenant_id = $1 AND lower(btrim(c.commune)) = lower(btrim($4))
       ORDER BY (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code LIMIT 1)`;
+  let id;
   try {
-    const { rows } = await client.query(
+    ({ rows: [{ id }] } = await client.query(
       `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, adm2, adm3, adm4, field_office_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$3,$4,$5,${resolveOffice})
        RETURNING id`,
       [tenantId, code, s.district, s.commune, s.fokontany || null, s.name, s.activity || null]
-    );
-    await afterSitesChangedTx(client, tenantId); // registre modifié : lieux, bureau et formulaires reçus reliés à nouveau
-    return rows[0].id;
+    ));
   } catch (err) {
     if (err.code === '23505') throw duplicateSite(null); // création simultanée du même site
     throw err;
   }
+  // Hors du try : une erreur des rattachements n'est jamais présentée comme « site existant ».
+  await afterSitesChangedTx(client, tenantId); // registre modifié : lieux, bureau et formulaires reçus reliés à nouveau
+  return id;
 }
 
 /** Mise à jour partielle : seuls les champs envoyés changent (un changement de risque n'efface plus l'activité). */
