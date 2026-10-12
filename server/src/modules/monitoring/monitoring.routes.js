@@ -12,6 +12,7 @@ const { parseSubmissions, submissionsFromObjects } = require('./submissionsImpor
 const { parseXlsformRows } = require('./xlsformImport');
 const { parseSav } = require('./savParser');
 const { validateExpression } = require('./calcFields');
+const dataLinks = require('./dataLinks.service');
 
 /**
  * Suivi de processus — forms, configurable indicators (mapping) and real
@@ -132,93 +133,34 @@ router.post('/forms/:id/import', WRITE, express.raw({ type: '*/*', limit: '80mb'
   res.json({ ...result, fields: fields || (savVariables ? savVariables.length : 0) });
 }));
 
-// Pull submissions from a Kobo v2 API (KoboToolbox / ONA). Needs the asset uid
-// and an API token; the same normalization + insert path as the file import.
+// ---- Import par LIEN (un seul point d'entrée, sécurisé) ----------------------
+// Lien Tableau WDC / open-data Ona-MoDA, API Kobo v2, ou export CSV/XLSX/JSON :
+// reconnu automatiquement (dataLinks.classifyLink), lu via safeFetch (anti-SSRF,
+// délai, taille), importé par le pipeline commun ; source + curseur mémorisés.
+const linkSchema = z.object({
+  url: z.string().url().max(1000),
+  token: z.string().trim().max(300).optional().or(z.literal('').transform(() => undefined)),
+  full: z.boolean().optional(),
+});
+router.post('/forms/:id/link-pull', WRITE, body(linkSchema), asyncHandler(async (req, res) =>
+  res.json(await dataLinks.importFromLink(t(req), req.params.id, req.valid))));
+
+// Compatibilité : anciens points d'entrée, même implémentation.
+const urlPullSchema = z.object({
+  url: z.string().url().max(1000),
+  token: z.string().trim().max(300).optional().or(z.literal('').transform(() => undefined)),
+});
+router.post('/forms/:id/url-pull', WRITE, body(urlPullSchema), asyncHandler(async (req, res) =>
+  res.json(await dataLinks.importFromLink(t(req), req.params.id, req.valid))));
 const koboSchema = z.object({
   baseUrl: z.string().url().max(200),
-  assetUid: z.string().trim().min(3).max(80),
+  assetUid: z.string().trim().regex(/^[A-Za-z0-9]{10,40}$/, 'UID Kobo invalide'),
   token: z.string().trim().min(6).max(200),
 });
 router.post('/forms/:id/kobo-pull', WRITE, body(koboSchema), asyncHandler(async (req, res) => {
   const { baseUrl, assetUid, token } = req.valid;
-  const url = `${baseUrl.replace(/\/$/, '')}/api/v2/assets/${assetUid}/data.json?limit=30000`;
-  let data;
-  try {
-    const r = await fetch(url, { headers: { Authorization: `Token ${token}`, Accept: 'application/json' } });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    data = await r.json();
-  } catch (err) {
-    throw badRequest(`Connexion Kobo impossible (${err.message}). Vérifiez l'URL, l'UID et le token.`);
-  }
-  const records = Array.isArray(data) ? data : (data.results || []);
-  const submissions = submissionsFromObjects(records, 'kobo');
-  if (!submissions.length) throw badRequest('Aucune soumission renvoyée par Kobo.');
-  const result = await repo.importSubmissions(t(req), req.params.id, submissions);
-  if (!result) throw notFound('Formulaire introuvable');
-  res.json(result);
-}));
-
-// Connecteur « lien de données » (ONA / MoDA / tout export web) : va chercher
-// un export CSV / XLSX / JSON à une URL et l'importe (même pipeline). Le lien
-// est mémorisé sur la fiche pour réimport. Token optionnel (flux protégé).
-const urlPullSchema = z.object({
-  url: z.string().url().max(500),
-  token: z.string().trim().max(300).optional().or(z.literal('').transform(() => undefined)),
-});
-// Lien « suivant » d'un en-tête HTTP Link (RFC 5988) — ONA/MoDA paginent les
-// exports JSON et renvoient la page suivante ici (page_size plafonné à 10 000).
-// Sans ce suivi, un gros formulaire serait tronqué silencieusement.
-function nextPageUrl(linkHeader, currentUrl) {
-  if (!linkHeader) return null;
-  const m = linkHeader.split(',').map((p) => p.trim())
-    .find((p) => /\brel\s*=\s*"?next"?/i.test(p));
-  if (!m) return null;
-  const url = m.match(/<([^>]+)>/);
-  if (!url) return null;
-  try { return new URL(url[1], currentUrl).href; } catch { return null; }
-}
-router.post('/forms/:id/url-pull', WRITE, body(urlPullSchema), asyncHandler(async (req, res) => {
-  const { url, token } = req.valid;
-  let subs;
-  try {
-    const headers = { Accept: 'text/csv, application/json, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, */*' };
-    if (token) headers.Authorization = /^(Token|Bearer) /i.test(token) ? token : `Token ${token}`;
-    const r = await fetch(url, { headers, redirect: 'follow' });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const ct = (r.headers.get('content-type') || '').toLowerCase();
-    const lower = url.toLowerCase();
-    if (ct.includes('json') || /\.json(\?|$)/.test(lower)) {
-      // Suit la pagination (en-tête Link rel="next") pour ne jamais tronquer.
-      const extract = (data) => (Array.isArray(data) ? data
-        : (data.results || data.data || (Array.isArray(data.features) ? data.features.map((f) => f.properties || f) : [])));
-      const records = [];
-      let page = r;
-      let pageUrl = url;
-      for (let i = 0; i < 100 && page; i += 1) {
-        if (!page.ok) throw new Error(`HTTP ${page.status}`);
-        const chunk = extract(await page.json());
-        if (!chunk.length) break;
-        records.push(...chunk);
-        const next = nextPageUrl(page.headers.get('link'), pageUrl);
-        if (!next || next === pageUrl) break;
-        pageUrl = next;
-        page = await fetch(next, { headers, redirect: 'follow' });
-      }
-      subs = submissionsFromObjects(records, 'kobo');
-    } else {
-      const buf = Buffer.from(await r.arrayBuffer());
-      const isXlsx = /\.xlsx(\?|$)/.test(lower) || ct.includes('spreadsheet') || (buf[0] === 0x50 && buf[1] === 0x4b);
-      const parsed = await parseSubmissions(buf, { filename: isXlsx ? 'data.xlsx' : 'data.csv' });
-      subs = parsed.submissions;
-    }
-  } catch (err) {
-    throw badRequest(`Lien de données illisible (${err.message}). Vérifiez l'URL (export CSV / XLSX / JSON ONA/MoDA) et, si besoin, le token.`);
-  }
-  if (!subs.length) throw badRequest('Aucune soumission trouvée à ce lien.');
-  const result = await repo.importSubmissions(t(req), req.params.id, subs);
-  if (!result) throw notFound('Formulaire introuvable');
-  await repo.setFormSource(t(req), req.params.id, url);
-  res.json(result);
+  const url = new URL(`/api/v2/assets/${assetUid}/data.json`, baseUrl).href;
+  res.json(await dataLinks.importFromLink(t(req), req.params.id, { url, token }));
 }));
 
 // Computed indicator values for the dashboard.

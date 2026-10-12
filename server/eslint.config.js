@@ -15,7 +15,7 @@ module.exports = [
         setTimeout: 'readonly', clearTimeout: 'readonly',
         setInterval: 'readonly', clearInterval: 'readonly',
         setImmediate: 'readonly', URL: 'readonly', URLSearchParams: 'readonly', fetch: 'readonly',
-        TextEncoder: 'readonly', TextDecoder: 'readonly',
+        TextEncoder: 'readonly', TextDecoder: 'readonly', AbortController: 'readonly',
       },
     },
     rules: {

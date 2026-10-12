@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 06:50 UTC_
+_Dernière mise à jour : 12/10/2026 07:00 UTC_
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -24,7 +24,7 @@ _Dernière mise à jour : 12/10/2026 06:50 UTC_
 | 6 | Concepteur de rapport professionnel (bulletin éditable, modèles) | ⏳ | Références : rapport de suivi de performances (HTML), couverture par partenaire (.docx), dashboard (HTML) |
 | 7 | Plan de suivi « type Excel » + carte détaillée | ⏳ | Référence : classeur RBM + captures (KPI, modes, grille des mois, carte) |
 | PDD-config | PDD : rations, planification par commune, stock par donateur (TDD/BDD), calcul serveur des tonnages | ⏳ | Découvert dans le PDD réel `PDD_Urgence_Oct-Nov_04082025.xlsx` |
-| Import | Import facile multi-sources + lien Tableau WDC (MoDA/Ona, Kobo) | 🔄 | Serveur : liens sécurisés + connecteur lien WDC/Ona open-data (incrémental) |
+| Import | Import facile multi-sources + lien Tableau WDC (MoDA/Ona, Kobo) | 🔄 | Serveur ✅ (lien WDC/Ona open-data incrémental, Kobo paginé, liens sécurisés). Reste : écran « centre d'import » (après la traduction), gros fichiers via le worker, groupes répétés |
 | Facture | Fidélité de la facture au gabarit de mai + Invoice 09 | ⏳ | |
 | Analyse | Analyse multi-agents des documents de référence → feuille de route | 🔄 | 3e lancement à 06:31 (8 familles : RBM, XLSForm, Kobo suivi, Kobo distribution, finance, rapports, PDD, import/WDC) |
 
@@ -63,5 +63,6 @@ _Dernière mise à jour : 12/10/2026 06:50 UTC_
 - **06:45** ✅ i18n — fondations `ef0f2c3` : formats (nombres, mois, dates) qui suivent la langue, badges de statut traduits, dictionnaires par module, détecteur de phrases manquantes, guide `docs/I18N.md`.
 - **06:47** 🔄 i18n — traduction de toutes les pages lancée (9 modules en parallèle, chacun relu par un second agent : portée de `tr`, textes oubliés, clés exactes).
 - **06:50** 🔄 Import — serveur : lecture de liens sécurisée + connecteur lien Tableau WDC (Ona/MoDA open-data).
+- **07:00** ✅ Import — serveur : point d'entrée unique `POST /api/monitoring/forms/:id/link-pull` qui reconnaît le lien collé (Tableau WDC / open-data Ona-MoDA, API Kobo v2, export CSV/XLSX/JSON). Ona : pagination + **rafraîchissement incrémental** (`gt_id` : seules les nouvelles soumissions), champs renommés par Ona ramenés aux noms du formulaire. Kobo : pagination complète (l'ancien import s'arrêtait à 30 000). **Sécurité** : lecture des liens anti-SSRF (adresses privées refusées sauf hôtes listés dans `DATA_SOURCE_ALLOWED_HOSTS` — à renseigner avec `moda.wfp.org` si MoDA est sur votre intranet), délai 60 s, taille 200 Mo, redirections revalidées, token jamais transmis à un autre hôte. Testé de bout en bout contre un faux serveur Ona (2 502 soumissions en 3 pages, incrémental 0 puis 2). 161 tests OK.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.

@@ -31,7 +31,8 @@ const num = (v) => (v == null ? v : Number(v));
 async function listForms(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      `SELECT f.id, f.code, f.label, f.active, f.source_url AS "sourceUrl",
+      `SELECT f.id, f.code, f.label, f.active, f.source_url AS "sourceUrl", f.source_kind AS "sourceKind",
+              f.source_cursor::float8 AS "sourceCursor", f.source_synced_at AS "sourceSyncedAt",
               COALESCE((SELECT count(*) FROM monitoring_indicators i WHERE i.form_id = f.id), 0)::int AS "indicatorCount",
               COALESCE((SELECT count(*) FROM monitoring_submissions s WHERE s.form_id = f.id), 0)::int AS "submissionCount"
          FROM monitoring_forms f WHERE f.tenant_id = $1 ORDER BY f.label`,
@@ -41,10 +42,24 @@ async function listForms(tenantId) {
   });
 }
 
-/** Mémorise le lien de données (ONA/MoDA/export web) d'une fiche. */
-async function setFormSource(tenantId, formId, url) {
+/** Mémorise le lien de données d'une fiche, sa nature et le curseur incrémental. */
+async function setFormSource(tenantId, formId, url, { kind = null, cursor = null } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
-    await client.query('UPDATE monitoring_forms SET source_url = $3 WHERE tenant_id = $1 AND id = $2', [tenantId, formId, url || null]);
+    await client.query(
+      `UPDATE monitoring_forms SET source_url = $3, source_kind = $4, source_cursor = $5, source_synced_at = now()
+        WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, formId, url || null, kind, cursor]);
+  });
+}
+
+/** Source mémorisée + noms des champs du catalogue (pour normaliser les clés Ona). */
+async function formSourceContext(tenantId, formId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT f.source_url AS "sourceUrl", f.source_kind AS "sourceKind", f.source_cursor::float8 AS "sourceCursor",
+              COALESCE((SELECT array_agg(ff.name) FROM monitoring_form_fields ff WHERE ff.tenant_id = f.tenant_id AND ff.form_id = f.id), '{}') AS "fieldNames"
+         FROM monitoring_forms f WHERE f.tenant_id = $1 AND f.id = $2`, [tenantId, formId]);
+    return rows[0] || null;
   });
 }
 
@@ -793,7 +808,7 @@ async function setExclusion(tenantId, formId, { ids, excluded, reason } = {}) {
 
 module.exports = {
   listCalcFields, createCalcField, updateCalcField, deleteCalcField, setExclusion,
-  setFormSource,
+  setFormSource, formSourceContext,
   listForms, createForm, updateForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,
   formFields, importSubmissions, computeValues, dashboard, processOverview, coverageDashboard,
