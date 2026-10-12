@@ -4,6 +4,7 @@
 // the feature modules progressively, module by module.
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import EN_PHRASES from '../locales/en.js';
+import { setFormatLocale } from './format.js';
 
 const KEY = 'mems.lang';
 export const LANGS = [
@@ -98,23 +99,34 @@ export function interpolate(text, vars, lang = 'fr') {
  * dans src/locales/en.js ; une phrase absente reste en français.
  */
 export function translatePhrase(lang, text, vars) {
+  if (lang === 'en' && EN_PHRASES[text] === undefined && import.meta.env.DEV) reportMissing(text);
   const base = lang === 'en' ? (EN_PHRASES[text] ?? text) : text;
   return interpolate(base, vars, lang);
+}
+
+// En développement : phrases demandées sans traduction anglaise, exposées sur
+// window.__memsMissingTr (balayage Playwright de contrôle de complétude).
+function reportMissing(text) {
+  if (typeof window === 'undefined' || !/[A-Za-zÀ-ÿ]/.test(text)) return;
+  (window.__memsMissingTr ||= new Set()).add(text);
 }
 
 const I18nContext = createContext({ lang: 'fr', t: (k, fb) => fb ?? k, tr: (s, v) => interpolate(s, v), setLang: () => {} });
 
 function storedLang() {
+  let lang = 'fr';
   try {
     const v = localStorage.getItem(KEY);
-    if (LANGS.some((l) => l.id === v)) return v;
+    if (LANGS.some((l) => l.id === v)) lang = v;
   } catch { /* ignore */ }
-  return 'fr';
+  setFormatLocale(lang);
+  return lang;
 }
 
 export function I18nProvider({ children }) {
   const [lang, setLangState] = useState(storedLang);
   const setLang = useCallback((l) => {
+    setFormatLocale(l); // formats (nombres, mois, dates) avant le nouveau rendu
     setLangState(l);
     try { localStorage.setItem(KEY, l); } catch { /* ignore */ }
     document.documentElement.setAttribute('lang', l);

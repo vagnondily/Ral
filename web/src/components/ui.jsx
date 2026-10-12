@@ -3,6 +3,7 @@ import {
   ChevronRight, CheckCircle2, XCircle, Clock, Ban, CircleDashed, Circle, AlertTriangle, MinusCircle,
 } from 'lucide-react';
 import { initials, RISK } from '../lib/format.js';
+import { useI18n } from '../lib/i18n.jsx';
 
 // Registre d'icônes de statut (statut = couleur + icône + libellé, jamais la
 // couleur seule — accessibilité & lisibilité).
@@ -53,17 +54,19 @@ export function Badge({ tone, dot, icon: Icon, children }) {
  * de STATUS_ICONS. Rend « — » si le statut est inconnu.
  */
 export function StatusBadge({ def, value, map }) {
+  const { tr } = useI18n();
   const d = def || (map ? map[value] : null);
   if (!d) return <span className="cell-empty">—</span>;
-  return <Badge tone={d.tone} icon={STATUS_ICONS[d.icon] || Circle}>{d.label}</Badge>;
+  return <Badge tone={d.tone} icon={STATUS_ICONS[d.icon] || Circle}>{tr(d.label)}</Badge>;
 }
 
 export function RiskBadge({ level }) {
+  const { tr } = useI18n();
   const risk = RISK[level];
   if (!risk) return <span className="cell-empty">—</span>;
   return (
     <Badge tone={risk.tone} dot>
-      {risk.label}
+      {tr(risk.label)}
     </Badge>
   );
 }

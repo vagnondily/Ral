@@ -1,7 +1,17 @@
 // Formatting helpers — one place for every user-visible number/date so the
-// whole UI stays consistent (fr-FR, Ariary without decimals).
+// whole UI stays consistent (Ariary without decimals). The locale follows the
+// interface language: I18nProvider calls setFormatLocale() before re-rendering.
 
-const nf = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
+let LANG = 'fr';
+const LOCALES = { fr: 'fr-FR', en: 'en-GB' };
+let nf = new Intl.NumberFormat(LOCALES.fr, { maximumFractionDigits: 0 });
+
+/** Langue des formats (« fr » | « en ») — appelé par I18nProvider. */
+export function setFormatLocale(lang) {
+  LANG = LOCALES[lang] ? lang : 'fr';
+  nf = new Intl.NumberFormat(LOCALES[LANG], { maximumFractionDigits: 0 });
+}
+export const formatLocale = () => LOCALES[LANG];
 
 /** 450000 -> "450 000 Ar". Normalizes the narrow no-break space Intl emits
  * (U+202F) to a regular no-break space, which every font renders. */
@@ -14,13 +24,17 @@ export function formatInt(value) {
   return nf.format(Number(value) || 0).replace(/ /g, ' ');
 }
 
-const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+const MONTH_NAMES = {
+  fr: ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'],
+  en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+};
+const months = () => MONTH_NAMES[LANG];
 
 /** "2026-09" -> "Septembre 2026" (explicit table: no dependency on the
  * browser's locale data, and no timezone involved). */
 export function monthLabel(month) {
   const [y, m] = month.split('-').map(Number);
-  const name = MONTHS[m - 1];
+  const name = months()[m - 1];
   return `${name.charAt(0).toUpperCase()}${name.slice(1)} ${y}`;
 }
 
@@ -56,20 +70,20 @@ export function monthGrid(month) {
 
 export function dayLabel(iso) {
   const [y, m, d] = iso.split('-').map(Number);
-  return `${d} ${MONTHS[m - 1]} ${y}`;
+  return `${d} ${months()[m - 1]} ${y}`;
 }
 
 export function formatDateTime(value) {
   if (!value) return '—';
   const d = new Date(value);
-  const date = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const time = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-  return `${date} à ${time}`;
+  const date = d.toLocaleDateString(LOCALES[LANG], { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const time = d.toLocaleTimeString(LOCALES[LANG], { hour: '2-digit', minute: '2-digit' });
+  return `${date} ${LANG === 'en' ? 'at' : 'à'} ${time}`;
 }
 
 export function formatTime(value) {
   if (!value) return '—';
-  return new Date(value).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  return new Date(value).toLocaleTimeString(LOCALES[LANG], { hour: '2-digit', minute: '2-digit' });
 }
 
 export function initials(name = '') {

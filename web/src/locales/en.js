@@ -2,11 +2,21 @@
  * Dictionnaire anglais par PHRASE française (référence). Un module = un
  * fichier dans ./en/ ; ce fichier les agrège. Une phrase absente reste en
  * français (repli sûr). Garder les variables {nom} identiques à la source.
+ * Voir docs/I18N.md.
  */
 import common from './en/common.js';
+import shell from './en/shell.js';
+import contracts from './en/contracts.js';
+import tpmReports from './en/tpmReports.js';
+import tpmPlanning from './en/tpmPlanning.js';
+import monitoring from './en/monitoring.js';
+import field from './en/field.js';
+import dashboard from './en/dashboard.js';
+import settings from './en/settings.js';
+import pdd from './en/pdd.js';
 import localities from './en/localities.js';
 
 export default {
-  ...common,
-  ...localities,
+  ...common, ...shell, ...contracts, ...tpmReports, ...tpmPlanning, ...monitoring,
+  ...field, ...dashboard, ...settings, ...pdd, ...localities,
 };
