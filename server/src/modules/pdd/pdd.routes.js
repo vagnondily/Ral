@@ -4,8 +4,10 @@ const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest } = require('../../middleware/errors');
+const { sniffFile } = require('../common/fileSniff');
+const { assertZipEntries, zipLimitsFromEnv } = require('../common/zipGuard');
 const repo = require('./pdd.repository');
-const { parsePddWorkbook } = require('./pddImport');
+const { parsePddWorkbook, issue } = require('./pddImport');
 const { buildPddTemplate } = require('./pddTemplate');
 
 /**
@@ -71,25 +73,47 @@ router.get('/template.xlsx', asyncHandler(async (req, res) => {
 // ---- Import du fichier PDD (.xlsx, feuille « PDD base » ou tableau réel) --
 // Réimport idempotent : les mois présents dans le fichier sont d'abord vidés.
 // La réponse (et le détail d'une erreur 400) porte le résumé d'import : plage
-// lue, lignes ignorées avec leur motif, avertissements, mois remplacés.
+// lue, lignes ignorées avec leur motif, avertissements, mois remplacés. Chaque
+// refus porte aussi { code, params, template } : l'interface le traduit.
+//
+// Tout ou rien par défaut : si une ligne ignorée appartient à un mois que
+// l'import va remplacer (ou si son mois est illisible), RIEN n'est écrit — ses
+// distributions déjà en base seraient effacées sans être réimportées. Le
+// paramètre ?partial=1 (« Importer quand même ») force l'import des lignes valides.
+const importQuery = z.object({ partial: z.enum(['0', '1', 'true', 'false']).optional() });
+
+/** Refus motivé (400) : texte français + code, paramètres et modèle pour la traduction. */
+function refusal(code, params = {}, details = {}) {
+  const m = issue(code, params);
+  return badRequest(m.message, { ...details, code: m.code, params: m.params, template: m.template });
+}
+
 router.post('/import', WRITE, express.raw({ type: '*/*', limit: '40mb' }), asyncHandler(async (req, res) => {
-  if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
+  const query = importQuery.safeParse(req.query);
+  if (!query.success) throw badRequest('Paramètres invalides', query.error.flatten());
+  const partial = query.data.partial === '1' || query.data.partial === 'true';
+  if (!req.body || !req.body.length) throw refusal('IMPORT_EMPTY_FILE');
+  // Format reconnu par les octets, et garde de décompression AVANT ExcelJS
+  // (un .xlsx est un zip : quelques Mo peuvent en faire des centaines).
+  const sniff = sniffFile(req.body);
+  if (sniff.kind !== 'xlsx') throw refusal('IMPORT_NOT_XLSX', { format: sniff.label });
+  assertZipEntries(sniff.entries, zipLimitsFromEnv(process.env), { archiveBytes: req.body.length });
+
   let parsed;
   try { parsed = await parsePddWorkbook(req.body); }
-  catch { throw badRequest('Fichier illisible : fournissez un .xlsx du plan de distribution.'); }
-  if (!parsed.sheet) throw badRequest('Aucun tableau PDD détecté : il faut une ligne d\'en-tête avec « Mois » en colonne A et « Commune » en colonne P (feuille « PDD base » du modèle).');
+  catch { throw refusal('IMPORT_UNREADABLE'); }
+  if (!parsed.sheet) throw refusal('IMPORT_NO_SHEET');
   const report = {
     sheet: parsed.sheet, table: parsed.table, headerRow: parsed.headerRow, firstLine: parsed.firstLine, lastLine: parsed.lastLine,
-    months: parsed.months, skipped: parsed.skipped, skippedRows: parsed.skippedRows, warnings: parsed.warnings,
+    months: parsed.months, skipped: parsed.skipped, skippedRows: parsed.skippedRows, blocking: parsed.blocking, warnings: parsed.warnings,
   };
-  if (parsed.layoutIssues.length) {
-    throw badRequest(`La feuille « ${parsed.sheet} » n'a pas la disposition attendue (colonne insérée ou supprimée ?) : rien n'a été importé.`, { ...report, layoutIssues: parsed.layoutIssues });
-  }
-  if (parsed.rows.length === 0) {
-    throw badRequest(`Aucune ligne exploitable (mois, année, activité et zone requis) : ${parsed.skipped} ligne(s) ignorée(s), rien n'a été importé.`, report);
-  }
+  if (parsed.tooManyRows) throw refusal('IMPORT_TOO_MANY_ROWS', { sheet: parsed.sheet, ...parsed.tooManyRows }, report);
+  if (parsed.layoutIssues.length) throw refusal('IMPORT_LAYOUT', { sheet: parsed.sheet }, { ...report, layoutIssues: parsed.layoutIssues });
+  if (parsed.rows.length === 0) throw refusal('IMPORT_NO_VALID_ROWS', { skipped: parsed.skipped }, report);
+  if (parsed.blocking > 0 && !partial) throw refusal('IMPORT_PARTIAL_REFUSED', { blocking: parsed.blocking }, { ...report, partialAllowed: true });
+
   const result = await repo.insertDistributions(t(req), uid(req), parsed.rows, { source: 'xlsx', replaceMonths: true });
-  res.json({ ...result, ...report });
+  res.json({ ...result, ...report, partial: parsed.blocking > 0 });
 }));
 
 module.exports = router;

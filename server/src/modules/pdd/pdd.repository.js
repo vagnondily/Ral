@@ -100,9 +100,13 @@ async function setStock(tenantId, { month, commodity, availableMt, donor, note }
 }
 
 /** Insertion en lot des lignes de distribution (+ tonnages). `replaceMonths`
- * vide d'abord les mois concernés (ré-import idempotent d'un fichier). */
+ * vide d'abord les mois concernés (ré-import idempotent d'un fichier).
+ * Deux imports simultanés du même compte sont mis en file par un verrou
+ * consultatif de transaction : sinon chacun vide les mois AVANT que l'autre
+ * n'insère, et les deux insertions s'additionnent (mois en double). */
 async function insertDistributions(tenantId, userId, rows, { source = 'xlsx', replaceMonths = true } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1::text || ':pdd-import'))", [tenantId]);
     if (replaceMonths) {
       const months = [...new Set(rows.map((r) => r.periodMonth).filter(Boolean))];
       if (months.length) await client.query('DELETE FROM pdd_distributions WHERE tenant_id = $1 AND period_month = ANY($2::date[])', [tenantId, months]);
