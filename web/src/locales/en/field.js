@@ -121,6 +121,8 @@ export default {
   // Ajouter une visite
   'District, commune et nom du site sont requis.': 'District, commune and site name are required.',
   'Choisissez un site.': 'Choose a site.',
+  'Ce site existe déjà : il est sélectionné dans « Site existant ». Vérifiez puis planifiez.':
+    'This site already exists: it is selected under “Existing site”. Check it, then plan.',
   'Visite planifiée.': 'Visit planned.',
   'Mois : {month}': 'Month: {month}',
   'Type de site': 'Site type',

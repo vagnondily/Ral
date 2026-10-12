@@ -42,24 +42,40 @@ async function listSites(tenantId, { q } = {}) {
   });
 }
 
+/**
+ * Création d'un site (formulaire « Nouveau site » de la page Visites). Un site de
+ * même code (district + commune + nom) est REFUSÉ par un 409 qui porte son id —
+ * jamais fusionné en silence : l'ancien `ON CONFLICT DO UPDATE` remettait le
+ * fokontany à NULL et réécrivait adm2/adm3 depuis un formulaire qui ne les porte pas.
+ * La vérification préalable évite aussi de consommer un numéro L### pour rien
+ * (le déclencheur d'attribution s'exécute avant la détection du conflit).
+ */
 async function createSite(tenantId, s) {
-  return withTenantTransaction(tenantId, async (client) => {
-    const resolveOffice = `(SELECT c.office_id FROM field_office_communes c
-         JOIN field_offices o ON o.id = c.office_id
-        WHERE c.tenant_id = $1 AND lower(btrim(c.commune)) = lower(btrim($4))
-        ORDER BY (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code LIMIT 1)`;
+  return withTenantTransaction(tenantId, (client) => createSiteTx(client, tenantId, s));
+}
+
+const duplicateSite = (siteId) => conflict('Ce site existe déjà (même district, commune et nom).', siteId ? { siteId } : undefined);
+
+async function createSiteTx(client, tenantId, s) {
+  const code = siteCode(s);
+  const { rows: dup } = await client.query('SELECT id FROM sites WHERE tenant_id = $1 AND code = $2', [tenantId, code]);
+  if (dup.length) throw duplicateSite(dup[0].id);
+  const resolveOffice = `(SELECT c.office_id FROM field_office_communes c
+       JOIN field_offices o ON o.id = c.office_id
+      WHERE c.tenant_id = $1 AND lower(btrim(c.commune)) = lower(btrim($4))
+      ORDER BY (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code LIMIT 1)`;
+  try {
     const { rows } = await client.query(
       `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, adm2, adm3, adm4, field_office_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$3,$4,$5,${resolveOffice})
-       ON CONFLICT (tenant_id, code) DO UPDATE SET fokontany = EXCLUDED.fokontany,
-         activity = COALESCE(EXCLUDED.activity, sites.activity),
-         adm2 = EXCLUDED.adm2, adm3 = EXCLUDED.adm3, adm4 = COALESCE(EXCLUDED.adm4, sites.adm4),
-         field_office_id = COALESCE(sites.field_office_id, EXCLUDED.field_office_id)
        RETURNING id`,
-      [tenantId, siteCode(s), s.district, s.commune, s.fokontany || null, s.name, s.activity || null]
+      [tenantId, code, s.district, s.commune, s.fokontany || null, s.name, s.activity || null]
     );
     return rows[0].id;
-  });
+  } catch (err) {
+    if (err.code === '23505') throw duplicateSite(null); // création simultanée du même site
+    throw err;
+  }
 }
 
 /** Mise à jour partielle : seuls les champs envoyés changent (un changement de risque n'efface plus l'activité). */
@@ -294,6 +310,18 @@ async function generateFromRbm(tenantId, userId, month, { risk } = {}) {
   });
 }
 
+/**
+ * Site déjà au registre lors d'un import de planning : l'import COMPLÈTE ce qui
+ * manque, il ne remplace ni n'efface rien (rbm-38). L'ancienne clause écrasait
+ * fokontany (NULL si la colonne était vide), adm2/adm3 et l'activité du registre.
+ */
+const PLANNING_SITE_MERGE = `ON CONFLICT (tenant_id, code) DO UPDATE SET
+         fokontany = COALESCE(sites.fokontany, EXCLUDED.fokontany),
+         activity = COALESCE(sites.activity, EXCLUDED.activity),
+         adm2 = COALESCE(sites.adm2, EXCLUDED.adm2), adm3 = COALESCE(sites.adm3, EXCLUDED.adm3),
+         adm4 = COALESCE(sites.adm4, EXCLUDED.adm4),
+         field_office_id = COALESCE(sites.field_office_id, EXCLUDED.field_office_id)`;
+
 /** Bulk upsert sites (shared registry) from an import; returns a code→id map. */
 async function upsertSites(client, tenantId, sites) {
   const map = new Map();
@@ -307,10 +335,7 @@ async function upsertSites(client, tenantId, sites) {
     const { rows } = await client.query(
       `INSERT INTO sites (tenant_id, code, district, commune, fokontany, name, activity, adm2, adm3, adm4, field_office_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$3,$4,$5,${resolveOffice})
-       ON CONFLICT (tenant_id, code)
-       DO UPDATE SET fokontany = EXCLUDED.fokontany, activity = COALESCE(EXCLUDED.activity, sites.activity),
-         adm2 = EXCLUDED.adm2, adm3 = EXCLUDED.adm3, adm4 = COALESCE(EXCLUDED.adm4, sites.adm4),
-         field_office_id = COALESCE(sites.field_office_id, EXCLUDED.field_office_id)
+       ${PLANNING_SITE_MERGE}
        RETURNING id, (xmax = 0) AS inserted`,
       [tenantId, code, s.district, s.commune, s.fokontany || null, s.name, s.activity || null]
     );
@@ -597,7 +622,7 @@ async function createVisit(tenantId, userId, v) {
       );
       return rows[0].id;
     } catch (err) {
-      if (err.code === '23505') { const e = new Error('Une visite existe déjà pour ce site, ce mois et cette activité.'); e.status = 409; throw e; }
+      if (err.code === '23505') throw conflict('Une visite existe déjà pour ce site, ce mois et cette activité.');
       throw err;
     }
   });
@@ -1065,7 +1090,7 @@ async function addSite(tenantId, s, { today = new Date() } = {}) {
 
 module.exports = {
   reportFieldData, planBoard, setPlannedMonths, setMonthStatuses, bulkUpdateSites, addSite, locationsExportData, importLocations,
-  listSites, createSite, updateSite,
+  listSites, createSite, createSiteTx, upsertSites, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
   collectionDaysSummary, setTravelDays, coverageRecapSummary, coverageMatrix, monthsOverview, setMonthStatus, mapData,
   rbmSites, importMasterData, importPlanSites, generateFromRbm,
