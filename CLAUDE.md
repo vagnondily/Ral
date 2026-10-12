@@ -12,6 +12,14 @@ maintainability are the explicit priorities.
 - `server/` — API + background worker (Node/Express/pg/BullMQ)
 - `web/`    — React SPA (Vite, hash routing)
 
+## Journal de bord (obligatoire)
+Le propriétaire veut connaître l'état des choses à tout moment. **Chaque action**
+(démarrée, en cours, terminée, bloquée) est consignée dans `docs/JOURNAL.md` :
+heure UTC, statut (⏳ à faire · 🔄 en cours · ✅ fait · ⛔ bloqué · ⏸️ en pause),
+commit et résultat des vérifications ; le tableau « État courant » en tête est
+tenu à jour. Le journal est commité et poussé **à chaque mise à jour**, pas en
+fin de session. `docs/ETAT_DU_PROJET.md` reste la synthèse fait / reste à faire.
+
 ## Engineering priorities (ranked — enforce on every change)
 The owner has stated these are the most critical properties of the app. When a
 trade-off arises, decide in this order:
