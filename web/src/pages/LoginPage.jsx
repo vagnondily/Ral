@@ -3,10 +3,12 @@ import { Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { api } from '../api/client.js';
 import { Alert, Button, Field } from '../components/ui.jsx';
 import { LogoMark } from '../components/Logo.jsx';
+import { useI18n } from '../lib/i18n.jsx';
 
 const DEMO_EMAIL = 'admin@mems.mg';
 
 export default function LoginPage({ onLoggedIn }) {
+  const { tr } = useI18n();
   // Demo credentials are only suggested in development builds.
   const [email, setEmail] = useState(import.meta.env.DEV ? DEMO_EMAIL : '');
   const [password, setPassword] = useState('');
@@ -22,7 +24,7 @@ export default function LoginPage({ onLoggedIn }) {
       const { token, user } = await api.login(email.trim(), password);
       onLoggedIn(token, user);
     } catch (err) {
-      setError(err.status === 401 ? 'Email ou mot de passe incorrect.' : err.message);
+      setError(err.status === 401 ? tr('Email ou mot de passe incorrect.') : err.message);
       setLoading(false);
     }
   }
@@ -33,18 +35,18 @@ export default function LoginPage({ onLoggedIn }) {
         <div className="login-head">
           <LogoMark size={52} />
           <div className="login-brand-name">MEMS 2.0</div>
-          <p className="login-tagline">Plateforme de suivi &amp; évaluation</p>
+          <p className="login-tagline">{tr('Plateforme de suivi & évaluation')}</p>
         </div>
 
         <form className="login-form" onSubmit={handleSubmit} noValidate>
           <div className="login-form-head">
-            <h2>Connexion</h2>
-            <p className="lead">Accédez à votre espace de travail.</p>
+            <h2>{tr('Connexion')}</h2>
+            <p className="lead">{tr('Accédez à votre espace de travail.')}</p>
           </div>
 
           {error && <Alert tone="error" icon={AlertCircle}>{error}</Alert>}
 
-          <Field label="Adresse email" htmlFor="login-email">
+          <Field label={tr('Adresse email')} htmlFor="login-email">
             <div className="input-wrap">
               <Mail size={18} aria-hidden="true" />
               <input
@@ -56,12 +58,12 @@ export default function LoginPage({ onLoggedIn }) {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 aria-invalid={Boolean(error) || undefined}
-                placeholder="prenom.nom@exemple.mg"
+                placeholder={tr('prenom.nom@exemple.mg')}
               />
             </div>
           </Field>
 
-          <Field label="Mot de passe" htmlFor="login-password">
+          <Field label={tr('Mot de passe')} htmlFor="login-password">
             <div className="input-wrap">
               <Lock size={18} aria-hidden="true" />
               <input
@@ -79,7 +81,7 @@ export default function LoginPage({ onLoggedIn }) {
                 type="button"
                 className="btn btn-ghost btn-icon btn-sm input-action"
                 onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                aria-label={showPassword ? tr('Masquer le mot de passe') : tr('Afficher le mot de passe')}
                 aria-pressed={showPassword}
               >
                 {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
@@ -88,12 +90,12 @@ export default function LoginPage({ onLoggedIn }) {
           </Field>
 
           <Button type="submit" block loading={loading} disabled={!email || !password}>
-            {loading ? 'Connexion…' : 'Se connecter'}
+            {loading ? tr('Connexion…') : tr('Se connecter')}
           </Button>
 
           {import.meta.env.DEV && (
             <p className="demo-hint">
-              Démo : <code>{DEMO_EMAIL}</code> / <code>changeme123</code>
+              {tr('Démo :')} <code>{DEMO_EMAIL}</code> / <code>changeme123</code>
             </p>
           )}
         </form>

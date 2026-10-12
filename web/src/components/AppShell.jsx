@@ -113,7 +113,7 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem(SIDEBAR_KEY) === 'collapsed'; } catch { return false; }
   });
-  const { t } = useI18n();
+  const { t, tr } = useI18n();
   const current = findRoute(route.module, route.sub);
 
   useEffect(() => setNavOpen(false), [route.module, route.sub]);
@@ -123,12 +123,12 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
 
   return (
     <div className={`shell ${navOpen ? 'nav-open' : ''} ${collapsed ? 'is-collapsed' : ''}`}>
-      <aside className="sidebar" aria-label="Navigation principale">
+      <aside className="sidebar" aria-label={tr('Navigation principale')}>
         <div className="brand">
           <LogoMark size={34} />
           <div className="brand-text">
             <div className="brand-name">MEMS 2.0</div>
-            <div className="brand-sub">Suivi &amp; évaluation</div>
+            <div className="brand-sub">{tr('Suivi & évaluation')}</div>
           </div>
           <IconButton
             icon={collapsed ? PanelLeftOpen : PanelLeftClose}
@@ -142,7 +142,7 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
         <nav className="nav">
           {NAV.map((g) => (
             <div className="nav-group" key={g.group}>
-              <div className="nav-group-label">{t(`nav.group.${g.group}`, g.group)}</div>
+              <div className="nav-group-label">{t(`nav.group.${g.group}`, tr(g.group))}</div>
               {g.items.map((item) => {
                 const Icon = item.icon;
                 const available = Boolean(item.subs);
@@ -155,19 +155,19 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
                       type="button"
                       className={`nav-item ${open ? 'is-open' : ''}`}
                       disabled={!available}
-                      title={available ? t(`nav.${item.id}`, item.label) : t('shell.comingSoon', 'Bientôt disponible')}
+                      title={available ? t(`nav.${item.id}`, tr(item.label)) : t('shell.comingSoon', 'Bientôt disponible')}
                       aria-expanded={available ? open : undefined}
                       onClick={() => available && onNavigate(item.id, firstSub.id)}
                     >
                       <Icon size={18} aria-hidden="true" />
-                      <span className="nav-label">{t(`nav.${item.id}`, item.label)}</span>
+                      <span className="nav-label">{t(`nav.${item.id}`, tr(item.label))}</span>
                       {!available && <span className="sr-only"> ({t('shell.comingSoon', 'bientôt disponible')})</span>}
                     </button>
                     {available && open && (
                       <div className="nav-sub">
                         {item.subs.map((s, idx) => (
                           s.heading ? (
-                            <div key={`h${idx}`} className="nav-subgroup">{t(`nav.${item.id}.group.${s.heading}`, s.heading)}</div>
+                            <div key={`h${idx}`} className="nav-subgroup">{t(`nav.${item.id}.group.${s.heading}`, tr(s.heading))}</div>
                           ) : (
                             <button
                               key={s.id}
@@ -178,7 +178,7 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
                               aria-current={route.sub === s.id ? 'page' : undefined}
                               onClick={() => !s.soon && onNavigate(item.id, s.id)}
                             >
-                              {t(`nav.${item.id}.${s.id}`, s.label)}
+                              {t(`nav.${item.id}.${s.id}`, tr(s.label))}
                               {s.soon && <span className="sr-only"> ({t('shell.comingSoon', 'bientôt disponible')})</span>}
                             </button>
                           )
@@ -202,10 +202,10 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
       <div className="main">
         <header className="header">
           <IconButton icon={Menu} label={t('shell.openMenu', 'Ouvrir le menu')} className="menu-toggle" onClick={() => setNavOpen(true)} />
-          <nav className="breadcrumb" aria-label="Fil d'Ariane">
-            <span>{current ? t(`nav.${current.mod.id}`, current.mod.label) : ''}</span>
+          <nav className="breadcrumb" aria-label={tr('Fil d\'Ariane')}>
+            <span>{current ? t(`nav.${current.mod.id}`, tr(current.mod.label)) : ''}</span>
             <ChevronRight size={14} aria-hidden="true" />
-            <strong>{current ? t(`nav.${current.mod.id}.${current.sub.id}`, current.sub.label) : ''}</strong>
+            <strong>{current ? t(`nav.${current.mod.id}.${current.sub.id}`, tr(current.sub.label)) : ''}</strong>
           </nav>
           <div className="header-right">
             <div className="header-tools">

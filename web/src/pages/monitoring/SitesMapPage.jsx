@@ -6,6 +6,7 @@ import { api } from '../../api/client.js';
 import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatInt } from '../../lib/format.js';
+import { useI18n } from '../../lib/i18n.jsx';
 
 const RISK = {
   elevee: { label: 'Élevé', color: '#d64545' },
@@ -30,6 +31,7 @@ const choro = (n) => (n === 0 ? '#e3e5ea' : n < 10 ? '#dbe9f6' : n < 30 ? '#9eca
  * district, contours Madagascar ADM2 geoBoundaries, jointe à nos données par nom).
  */
 export default function SitesMapPage() {
+  const { tr } = useI18n();
   const toast = useToast();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -84,7 +86,7 @@ export default function SitesMapPage() {
       for (const p of points) {
         latlngs.push([p.lat, p.lng]);
         L.circleMarker([p.lat, p.lng], { radius: 6, color: '#fff', weight: 1.5, fillColor: RISK[p.riskLevel]?.color || '#0f6cbd', fillOpacity: 0.9 })
-          .bindPopup(`<strong>${p.name}</strong><br>${p.commune || ''}${p.antenneName ? ` · ${p.antenneName}` : ''}<br>Risque : ${RISK[p.riskLevel]?.label || p.riskLevel}`).addTo(group);
+          .bindPopup(`<strong>${p.name}</strong><br>${p.commune || ''}${p.antenneName ? ` · ${p.antenneName}` : ''}<br>${tr('Risque : {level}', { level: RISK[p.riskLevel] ? tr(RISK[p.riskLevel].label) : p.riskLevel })}`).addTo(group);
       }
       group.addTo(map); overlayRef.current = group;
       try { map.fitBounds(L.latLngBounds(latlngs).pad(0.2)); } catch { /* */ }
@@ -104,7 +106,7 @@ export default function SitesMapPage() {
         onEachFeature: (f, l) => {
           const d = byDistrict.get(normDistrict(f.properties.name));
           const cov = d && d.sites ? Math.round((d.visited / d.sites) * 100) : 0;
-          l.bindPopup(`<strong>${f.properties.name}</strong><br>${d ? `${d.sites} site(s) · ${cov} % visités<br>Élevé ${d.elevee} · Moyen ${d.moyenne} · Faible ${d.faible}` : 'Aucun site référencé'}`);
+          l.bindPopup(`<strong>${f.properties.name}</strong><br>${d ? `${tr('{n} site(s) · {p} % visités', { n: d.sites, p: cov })}<br>${tr('Élevé {e} · Moyen {m} · Faible {f}', { e: d.elevee, m: d.moyenne, f: d.faible })}` : tr('Aucun site référencé')}`);
           l.on({ mouseover: () => l.setStyle({ weight: 2.5 }), mouseout: () => l.setStyle({ weight: 1 }) });
         },
       });
@@ -115,10 +117,10 @@ export default function SitesMapPage() {
     if (geojsonRef.current) { render(geojsonRef.current); }
     else {
       fetch('mdg-adm2.geojson').then((r) => r.json()).then((gj) => { geojsonRef.current = gj; render(gj); })
-        .catch(() => toast.error('Contours de districts indisponibles.'));
+        .catch(() => toast.error(tr('Contours de districts indisponibles.')));
     }
     return () => { cancelled = true; };
-  }, [layer, points, byDistrict]); // eslint-disable-line
+  }, [layer, points, byDistrict, tr]); // eslint-disable-line
 
   const kpis = useMemo(() => {
     const regions = new Set(), districts = new Set();
@@ -141,9 +143,10 @@ export default function SitesMapPage() {
   }, [communes]);
 
   const RiskBar = ({ e, m, f, total }) => {
+    const { tr } = useI18n();
     const pc = (n) => (total ? (n / total) * 100 : 0);
     return (
-      <span className="riskbar" title={`Élevé ${e} · Moyen ${m} · Faible ${f}`}>
+      <span className="riskbar" title={tr('Élevé {e} · Moyen {m} · Faible {f}', { e, m, f })}>
         <span style={{ width: `${pc(e)}%`, background: 'var(--red)' }} />
         <span style={{ width: `${pc(m)}%`, background: 'var(--orange)' }} />
         <span style={{ width: `${pc(f)}%`, background: 'var(--green)' }} />
@@ -153,34 +156,34 @@ export default function SitesMapPage() {
 
   return (
     <div className="page">
-      <PageHeader title="Carte des sites" description="Fond OpenStreetMap (gratuit). Deux couches : marqueurs des sites géolocalisés (couleur = risque) et zones administratives (choroplèthe par district, contours Madagascar ADM2). L'explorateur ci-dessous couvre tous les sites." />
+      <PageHeader title={tr('Carte des sites')} description={tr("Fond OpenStreetMap (gratuit). Deux couches : marqueurs des sites géolocalisés (couleur = risque) et zones administratives (choroplèthe par district, contours Madagascar ADM2). L'explorateur ci-dessous couvre tous les sites.")} />
 
       {error && <Alert tone="error">{error}</Alert>}
 
       {data === null ? <Skeleton height={360} /> : (
         <>
           <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(5, minmax(0,1fr))' }}>
-            <Kpi icon={Layers} tone="blue" label="Régions" value={formatInt(kpis.regions)} />
-            <Kpi icon={Layers} tone="blue" label="Districts" value={formatInt(kpis.districts)} />
-            <Kpi icon={MapPin} tone="blue" label="Communes" value={formatInt(kpis.communes)} />
-            <Kpi icon={MapPin} tone="blue" label="Sites" value={formatInt(kpis.sites)} />
-            <Kpi icon={ShieldAlert} tone={kpis.geo ? 'green' : 'amber'} label="Géolocalisés (GPS)" value={formatInt(kpis.geo)} foot={`${kpis.sites - kpis.geo} sans GPS`} />
+            <Kpi icon={Layers} tone="blue" label={tr('Régions')} value={formatInt(kpis.regions)} />
+            <Kpi icon={Layers} tone="blue" label={tr('Districts')} value={formatInt(kpis.districts)} />
+            <Kpi icon={MapPin} tone="blue" label={tr('Communes')} value={formatInt(kpis.communes)} />
+            <Kpi icon={MapPin} tone="blue" label={tr('Sites')} value={formatInt(kpis.sites)} />
+            <Kpi icon={ShieldAlert} tone={kpis.geo ? 'green' : 'amber'} label={tr('Géolocalisés (GPS)')} value={formatInt(kpis.geo)} foot={tr('{n} sans GPS', { n: kpis.sites - kpis.geo })} />
           </div>
 
           <div className="card biz-card" style={{ marginBottom: 16 }}>
             <div className="card-header">
-              <div><div className="card-title">Carte (OpenStreetMap)</div>
-                <div className="card-sub">{layer === 'markers' ? 'Sites géolocalisés, couleur = niveau de risque.' : 'Districts colorés selon le nombre de sites (choroplèthe). Contours : geoBoundaries ADM2 (CC BY).'}</div></div>
-              <div className="seg" role="group" aria-label="Couche">
-                <button type="button" className={layer === 'markers' ? 'is-active' : ''} onClick={() => setLayer('markers')}>Marqueurs</button>
-                <button type="button" className={layer === 'zones' ? 'is-active' : ''} onClick={() => setLayer('zones')}>Zones (districts)</button>
+              <div><div className="card-title">{tr('Carte (OpenStreetMap)')}</div>
+                <div className="card-sub">{layer === 'markers' ? tr('Sites géolocalisés, couleur = niveau de risque.') : tr('Districts colorés selon le nombre de sites (choroplèthe). Contours : geoBoundaries ADM2 (CC BY).')}</div></div>
+              <div className="seg" role="group" aria-label={tr('Couche')}>
+                <button type="button" className={layer === 'markers' ? 'is-active' : ''} onClick={() => setLayer('markers')}>{tr('Marqueurs')}</button>
+                <button type="button" className={layer === 'zones' ? 'is-active' : ''} onClick={() => setLayer('zones')}>{tr('Zones (districts)')}</button>
               </div>
             </div>
             <div className="card-body">
               <div ref={mapEl} className="site-map" />
               <div className="map-legend">
                 {layer === 'markers'
-                  ? Object.entries(RISK).map(([k, v]) => <span key={k}><span className="dot" style={{ background: v.color }} />{v.label}</span>)
+                  ? Object.entries(RISK).map(([k, v]) => <span key={k}><span className="dot" style={{ background: v.color }} />{tr(v.label)}</span>)
                   : [['< 10', choro(5)], ['10–29', choro(20)], ['30–59', choro(45)], ['60–119', choro(90)], ['120+', choro(200)]].map(([lab, col]) => <span key={lab}><span className="dot" style={{ background: col }} />{lab}</span>)}
               </div>
             </div>
@@ -188,7 +191,7 @@ export default function SitesMapPage() {
 
           <div className="card biz-card">
             <div className="table-wrap"><table className="table grid">
-              <thead><tr><th>Région / District</th><th className="num">Sites</th><th>Mix de risque</th><th className="num">Visités</th><th className="num">Couverture</th></tr></thead>
+              <thead><tr><th>{tr('Région / District')}</th><th className="num">{tr('Sites')}</th><th>{tr('Mix de risque')}</th><th className="num">{tr('Visités')}</th><th className="num">{tr('Couverture')}</th></tr></thead>
               <tbody>
                 {tree.map((R) => {
                   const open = openRegion[R.region] !== false;
@@ -199,7 +202,7 @@ export default function SitesMapPage() {
                         <td className="num tabular"><strong>{formatInt(R.sites)}</strong></td>
                         <td><RiskBar e={R.elevee} m={R.moyenne} f={R.faible} total={R.sites} /></td>
                         <td className="num tabular">{formatInt(R.visited)}</td>
-                        <td className="num tabular">{R.sites ? Math.round((R.visited / R.sites) * 100) : 0} %</td>
+                        <td className="num tabular">{tr('{p} %', { p: R.sites ? Math.round((R.visited / R.sites) * 100) : 0 })}</td>
                       </tr>
                       {open && [...R.districts.values()].sort((a, b) => b.sites - a.sites).map((D) => (
                         <tr key={R.region + D.district} className="map-district">
@@ -207,7 +210,7 @@ export default function SitesMapPage() {
                           <td className="num tabular">{formatInt(D.sites)}</td>
                           <td><RiskBar e={D.elevee} m={D.moyenne} f={D.faible} total={D.sites} /></td>
                           <td className="num tabular">{formatInt(D.visited)}</td>
-                          <td className="num tabular">{D.sites ? Math.round((D.visited / D.sites) * 100) : 0} %</td>
+                          <td className="num tabular">{tr('{p} %', { p: D.sites ? Math.round((D.visited / D.sites) * 100) : 0 })}</td>
                         </tr>
                       ))}
                     </React.Fragment>

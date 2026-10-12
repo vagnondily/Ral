@@ -6,6 +6,8 @@ import Modal from '../../components/Modal.jsx';
 import MoneyInput from '../../components/MoneyInput.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatAr } from '../../lib/format.js';
+import { useI18n } from '../../lib/i18n.jsx';
+import { richText } from '../../lib/contracts.js';
 import { openFacturePrint } from '../../lib/facturePrint.js';
 import { SECTIONS } from '../../lib/budgetCatalog.js';
 import PostesEditor, { newPoste, rowsFromItems, itemsFromRows, posteFunder } from './PostesEditor.jsx';
@@ -17,6 +19,7 @@ import PostesEditor, { newPoste, rowsFromItems, itemsFromRows, posteFunder } fro
  * bailleur. Peut être pré-rempli depuis le plan de collecte du mois.
  */
 export default function FactureDrawer({ reportId, kind: kindProp = 'financier', initial, autoPrefill = false, context, month, onClose, onSaved }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const editing = Boolean(reportId);
   const [loading, setLoading] = useState(editing);
@@ -74,20 +77,20 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
   }, [autoPrefill, head.contractId, isFin, editing]);
 
   async function prefillFromPlan() {
-    if (!head.contractId) { toast.info('Choisissez d\'abord le contrat.'); return; }
+    if (!head.contractId) { toast.info(tr("Choisissez d'abord le contrat.")); return; }
     setPrefilling(true);
     try {
       const { items } = await api.planningPrefill(head.contractId, month);
-      if (!items.length) { toast.info('Aucun plan de collecte pour ce contrat et ce mois.'); return; }
+      if (!items.length) { toast.info(tr('Aucun plan de collecte pour ce contrat et ce mois.')); return; }
       setRows(rowsFromItems(items));
-      toast.success(`${items.length} poste(s) repris du plan de collecte.`);
+      toast.success(tr('{n} poste(s) repris du plan de collecte.', { n: items.length }));
     } catch (e) { toast.error(e.message); } finally { setPrefilling(false); }
   }
 
   const errors = [];
-  if (!editing && !head.partnerId) errors.push('Choisissez un prestataire.');
-  if (!editing && !head.contractId) errors.push('Choisissez un contrat.');
-  if (isFin && itemsFromRows(rows).length === 0) errors.push('Ajoutez au moins un poste (désignation, quantité, coût).');
+  if (!editing && !head.partnerId) errors.push(tr('Choisissez un prestataire.'));
+  if (!editing && !head.contractId) errors.push(tr('Choisissez un contrat.'));
+  if (isFin && itemsFromRows(rows).length === 0) errors.push(tr('Ajoutez au moins un poste (désignation, quantité, coût).'));
 
   async function save() {
     setTouched(true);
@@ -116,7 +119,7 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
           documentName: head.documentName.trim() || undefined, reference: head.reference.trim() || undefined,
         });
       }
-      toast.success(isFin ? 'Facture enregistrée.' : 'Rapport technique enregistré.');
+      toast.success(isFin ? tr('Facture enregistrée.') : tr('Rapport technique enregistré.'));
       onSaved();
     } catch (e) { toast.error(e.message); } finally { setSaving(false); }
   }
@@ -131,36 +134,38 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
   }
 
   const title = isFin
-    ? (editing ? 'État des dépenses (facture)' : 'Rapport financier — facture')
-    : (editing ? 'Rapport technique' : 'Nouveau rapport technique');
+    ? (editing ? tr('État des dépenses (facture)') : tr('Rapport financier — facture'))
+    : (editing ? tr('Rapport technique') : tr('Nouveau rapport technique'));
   const subtitle = editing
-    ? `${head.partnerName || ''} · ${head.contractNumero || ''}${readOnly ? ' · validé (lecture seule)' : ''}`
+    ? (readOnly
+      ? tr('{partner} · {contract} · validé (lecture seule)', { partner: head.partnerName || '', contract: head.contractNumero || '' })
+      : `${head.partnerName || ''} · ${head.contractNumero || ''}`)
     : (isFin
-      ? 'Postes quantité × coût unitaire, à la charge du bailleur ou de l\'ONG, groupés par section FLA.'
-      : 'Rapport technique du mois (document + référence), rattaché au contrat suivi.');
+      ? tr("Postes quantité × coût unitaire, à la charge du bailleur ou de l'ONG, groupés par section FLA.")
+      : tr('Rapport technique du mois (document + référence), rattaché au contrat suivi.'));
 
   return (
     <Modal
       open variant="drawer" size="xl" title={title} subtitle={subtitle}
       onClose={() => !saving && onClose()}
       footer={readOnly
-        ? <><Button variant="secondary" onClick={onClose}>Fermer</Button>
+        ? <><Button variant="secondary" onClick={onClose}>{tr('Fermer')}</Button>
           {isFin && <><Button variant="secondary" icon={Printer} onClick={printPdf}>PDF</Button>
-            <Button icon={FileSpreadsheet} onClick={() => api.downloadReportXlsx(reportId)}>Exporter (Excel)</Button></>}</>
-        : <><Button variant="secondary" onClick={onClose} disabled={saving}>Annuler</Button>
+            <Button icon={FileSpreadsheet} onClick={() => api.downloadReportXlsx(reportId)}>{tr('Exporter (Excel)')}</Button></>}</>
+        : <><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button>
           {isFin && <Button variant="secondary" icon={Printer} onClick={printPdf}>PDF</Button>}
           {isFin && editing && <Button variant="secondary" icon={FileSpreadsheet} onClick={() => api.downloadReportXlsx(reportId)}>Excel</Button>}
-          <Button onClick={save} loading={saving} icon={FileText}>Enregistrer</Button></>}
+          <Button onClick={save} loading={saving} icon={FileText}>{tr('Enregistrer')}</Button></>}
     >
       {loading ? <Skeleton height={240} /> : (
         <div style={{ display: 'grid', gap: 18 }}>
           {/* Choix du type à la création : financier (facture) ou technique. */}
           {!editing && (
             <div className="field">
-              <span className="field-label">Type de rapport</span>
-              <div className="seg" role="group" aria-label="Type de rapport">
-                <button type="button" className={isFin ? 'is-active' : ''} onClick={() => setKind('financier')}>Financier (facture)</button>
-                <button type="button" className={!isFin ? 'is-active' : ''} onClick={() => setKind('technique')}>Technique</button>
+              <span className="field-label">{tr('Type de rapport')}</span>
+              <div className="seg" role="group" aria-label={tr('Type de rapport')}>
+                <button type="button" className={isFin ? 'is-active' : ''} onClick={() => setKind('financier')}>{tr('Financier (facture)')}</button>
+                <button type="button" className={!isFin ? 'is-active' : ''} onClick={() => setKind('technique')}>{tr('Technique')}</button>
               </div>
             </div>
           )}
@@ -168,39 +173,39 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
           <div className="form-grid">
             {!editing && (
               <>
-                <Field label="Prestataire TPM" required error={touched && !head.partnerId ? 'Requis.' : undefined}>
+                <Field label={tr('Prestataire TPM')} required error={touched && !head.partnerId ? tr('Requis.') : undefined}>
                   <select className={`select ${head.partnerId ? '' : 'is-empty'}`} value={head.partnerId} onChange={(e) => setHead({ ...head, partnerId: e.target.value })}>
-                    <option value="">Choisir…</option>{partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    <option value="">{tr('Choisir…')}</option>{partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </Field>
-                <Field label="Contrat suivi" required error={touched && !head.contractId ? 'Requis.' : undefined}>
+                <Field label={tr('Contrat suivi')} required error={touched && !head.contractId ? tr('Requis.') : undefined}>
                   <select className={`select ${head.contractId ? '' : 'is-empty'}`} value={head.contractId} onChange={(e) => setHead({ ...head, contractId: e.target.value })}>
-                    <option value="">Choisir…</option>{contracts.map((c) => <option key={c.id} value={c.id}>{c.partnerName} · {c.numero}</option>)}
+                    <option value="">{tr('Choisir…')}</option>{contracts.map((c) => <option key={c.id} value={c.id}>{c.partnerName} · {c.numero}</option>)}
                   </select>
                 </Field>
               </>
             )}
             {isFin && <>
-              <Field label="N° de facture"><input className="input mono" value={head.invoiceNo} disabled={readOnly} onChange={(e) => setHead({ ...head, invoiceNo: e.target.value })} placeholder="FAC-2025-11" /></Field>
-              <Field label="Fin de période" hint="Facture pluri-mensuelle (optionnel)."><input className="input" type="month" value={head.periodEnd} disabled={readOnly} onChange={(e) => setHead({ ...head, periodEnd: e.target.value })} /></Field>
-              <Field label="Avance déduite (Ar)"><MoneyInput value={head.advanceDeducted} onChange={(v) => setHead({ ...head, advanceDeducted: v })} /></Field>
+              <Field label={tr('N° de facture')}><input className="input mono" value={head.invoiceNo} disabled={readOnly} onChange={(e) => setHead({ ...head, invoiceNo: e.target.value })} placeholder="FAC-2025-11" /></Field>
+              <Field label={tr('Fin de période')} hint={tr('Facture pluri-mensuelle (optionnel).')}><input className="input" type="month" value={head.periodEnd} disabled={readOnly} onChange={(e) => setHead({ ...head, periodEnd: e.target.value })} /></Field>
+              <Field label={tr('Avance déduite (Ar)')}><MoneyInput value={head.advanceDeducted} onChange={(v) => setHead({ ...head, advanceDeducted: v })} /></Field>
             </>}
           </div>
 
-          {contract && <div className="note"><Coins size={18} aria-hidden="true" /><span>Budget Suivi/TPM du contrat : <strong>{formatAr(contract.monitoringBudget)}</strong> · barème mensuel <strong>{formatAr(contract.monthlyCeiling)}</strong></span></div>}
+          {contract && <div className="note"><Coins size={18} aria-hidden="true" /><span>{richText(tr('Budget Suivi/TPM du contrat : <strong>{budget}</strong> · barème mensuel <strong>{ceiling}</strong>', { budget: formatAr(contract.monitoringBudget), ceiling: formatAr(contract.monthlyCeiling) }))}</span></div>}
 
           {touched && errors.length > 0 && <Alert tone="error" icon={AlertCircle}>{errors[0]}</Alert>}
 
           {isFin ? (
             <>
               {!readOnly && !editing && (
-                <div><Button variant="secondary" size="sm" icon={Wand2} loading={prefilling} onClick={prefillFromPlan}>Pré-remplir depuis le plan de collecte</Button></div>
+                <div><Button variant="secondary" size="sm" icon={Wand2} loading={prefilling} onClick={prefillFromPlan}>{tr('Pré-remplir depuis le plan de collecte')}</Button></div>
               )}
               <PostesEditor
                 rows={rows}
                 onChange={setRows}
                 readOnly={readOnly}
-                funderLabel="À la charge du bailleur (Réalisé)"
+                funderLabel={tr('À la charge du bailleur (Réalisé)')}
                 advance={head.advanceDeducted !== '' ? Number(head.advanceDeducted) : 0}
                 activities={context?.activities || []}
               />
@@ -208,13 +213,13 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
             </>
           ) : (
             <div className="form-grid">
-              <Field label="Budget prévu du mois (Ar)" hint={contract ? `Barème mensuel : ${formatAr(contract.monthlyCeiling)}` : 'Total ÷ nombre de mois.'}>
+              <Field label={tr('Budget prévu du mois (Ar)')} hint={contract ? tr('Barème mensuel : {amount}', { amount: formatAr(contract.monthlyCeiling) }) : tr('Total ÷ nombre de mois.')}>
                 <MoneyInput value={head.plannedAmount} onChange={(v) => setHead({ ...head, plannedAmount: v })} />
               </Field>
-              <Field label="Nom du document" hint="Métadonnée (fichier non stocké pour l'instant).">
-                <input className="input" value={head.documentName} onChange={(e) => setHead({ ...head, documentName: e.target.value })} placeholder="Rapport_technique_AINA_2026-06.pdf" />
+              <Field label={tr('Nom du document')} hint={tr("Métadonnée (fichier non stocké pour l'instant).")}>
+                <input className="input" value={head.documentName} onChange={(e) => setHead({ ...head, documentName: e.target.value })} placeholder={tr('Rapport_technique_AINA_2026-06.pdf')} />
               </Field>
-              <Field label="Référence"><input className="input mono" value={head.reference} onChange={(e) => setHead({ ...head, reference: e.target.value })} /></Field>
+              <Field label={tr('Référence')}><input className="input mono" value={head.reference} onChange={(e) => setHead({ ...head, reference: e.target.value })} /></Field>
             </div>
           )}
         </div>
@@ -230,6 +235,7 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
  * (budget + cumulé) and the current postes (mois).
  */
 function InvoiceBudgetTable({ invoice, rows }) {
+  const { tr } = useI18n();
   const monthByLine = {};
   for (const r of rows) monthByLine[r.lineCode] = (monthByLine[r.lineCode] || 0) + posteFunder(r);
 
@@ -249,21 +255,21 @@ function InvoiceBudgetTable({ invoice, rows }) {
 
   return (
     <div className="card" style={{ marginTop: 4 }}>
-      <div className="card-header"><div className="card-title">Suivi budgétaire (cumulé)</div>
-        <div className="card-sub">Budget contribution bailleur · dépenses du mois · cumulé · restant, par section FLA.</div></div>
+      <div className="card-header"><div className="card-title">{tr('Suivi budgétaire (cumulé)')}</div>
+        <div className="card-sub">{tr('Budget contribution bailleur · dépenses du mois · cumulé · restant, par section FLA.')}</div></div>
       <div className="table-wrap">
         <table className="table">
           <thead><tr>
-            <th scope="col">Section</th>
-            <th scope="col" className="num">Budget</th>
-            <th scope="col" className="num">Dépenses du mois</th>
-            <th scope="col" className="num">Cumulé</th>
-            <th scope="col" className="num">Restant</th>
+            <th scope="col">{tr('Section')}</th>
+            <th scope="col" className="num">{tr('Budget')}</th>
+            <th scope="col" className="num">{tr('Dépenses du mois')}</th>
+            <th scope="col" className="num">{tr('Cumulé')}</th>
+            <th scope="col" className="num">{tr('Restant')}</th>
           </tr></thead>
           <tbody>
             {secs.map((s) => (
               <tr key={s.code}>
-                <td><strong>{s.code}</strong> — {s.label}</td>
+                <td><strong>{s.code}</strong> — {tr(s.label)}</td>
                 <td className="num tabular">{formatAr(s.budget)}</td>
                 <td className="num tabular">{formatAr(s.month)}</td>
                 <td className="num tabular">{formatAr(s.cumul)}</td>
@@ -272,7 +278,7 @@ function InvoiceBudgetTable({ invoice, rows }) {
             ))}
           </tbody>
           <tfoot><tr>
-            <td style={{ textAlign: 'right' }}><strong>Total</strong></td>
+            <td style={{ textAlign: 'right' }}><strong>{tr('Total')}</strong></td>
             <td className="num tabular"><strong>{formatAr(tot.budget)}</strong></td>
             <td className="num tabular"><strong>{formatAr(tot.month)}</strong></td>
             <td className="num tabular"><strong>{formatAr(tot.cumul)}</strong></td>

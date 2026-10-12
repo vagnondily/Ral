@@ -177,14 +177,15 @@ export function Stats({ items, compact }) {
 
 /** Chevron toggle for a table row that opens a sub-group. */
 export function ExpandButton({ expanded, onClick, label, controls }) {
+  const { tr } = useI18n();
   return (
     <button
       type="button"
       className="expander"
       aria-expanded={expanded}
       aria-controls={controls}
-      aria-label={`${expanded ? 'Replier' : 'Déplier'} : ${label}`}
-      title={expanded ? 'Replier' : 'Déplier'}
+      aria-label={expanded ? tr('Replier : {label}', { label }) : tr('Déplier : {label}', { label })}
+      title={expanded ? tr('Replier') : tr('Déplier')}
       onClick={(e) => {
         e.stopPropagation();
         onClick();
@@ -197,14 +198,15 @@ export function ExpandButton({ expanded, onClick, label, controls }) {
 
 /** Consumption bar + percentage (turns orange ≥ 90 %, red above 100 %). */
 export function Usage({ rate }) {
+  const { tr } = useI18n();
   const pct = Math.round(rate * 100);
   const tone = rate > 1 ? 'is-over' : rate >= 0.9 ? 'is-high' : '';
   return (
     <div className="usage">
-      <div className={`progress ${tone}`} role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Taux de consommation">
+      <div className={`progress ${tone}`} role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={tr('Taux de consommation')}>
         <span style={{ width: `${Math.min(100, pct)}%` }} />
       </div>
-      <span>{pct} %</span>
+      <span>{tr('{p} %', { p: pct })}</span>
     </div>
   );
 }

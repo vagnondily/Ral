@@ -12,7 +12,8 @@ import { usePopover, SortTh, makeViewStore } from '../../components/listView.jsx
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatAr, formatInt, monthLabel } from '../../lib/format.js';
 import { formatUsdFor } from '../../lib/currency.js';
-import { REPORT_KIND, REPORT_STATUS } from '../../lib/contracts.js';
+import { REPORT_KIND, REPORT_STATUS, richText } from '../../lib/contracts.js';
+import { useI18n } from '../../lib/i18n.jsx';
 
 const STATUSES = [
   { id: '', label: 'Tous les statuts' },
@@ -60,6 +61,7 @@ const DEFAULT_COLUMNS = ['partner', 'contract', 'period', 'kind', 'invoiceNo', '
 const emptyValues = () => ({ q: '', period: currentMonth(), partnerId: '', contractId: '', kind: '', status: '' });
 
 export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [context, setContext] = useState(null);
   const [reports, setReports] = useState(null);
@@ -175,7 +177,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
   function toggleFilter(k) { setShownFilters((ks) => (ks.includes(k) ? ks.filter((x) => x !== k) : [...ks, k])); }
   function toggleColumn(k) { setColumns((ks) => (ks.includes(k) ? ks.filter((x) => x !== k) : [...ks, k])); }
   function currentPayload() { return { values, shownFilters, columns, sort }; }
-  function resetView() { setValues(emptyValues()); viewStore.clear(); toast.info('Filtres réinitialisés.'); }
+  function resetView() { setValues(emptyValues()); viewStore.clear(); toast.info(tr('Filtres réinitialisés.')); }
 
   // Périodes disponibles = mois présents dans les rapports (+ le mois courant).
   const periodOptions = useMemo(() => {
@@ -186,11 +188,11 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
 
   function optionsFor(k) {
     switch (k) {
-      case 'period': return [{ id: '', label: 'Toutes les périodes' }, ...periodOptions.map((m) => ({ id: m, label: monthLabel(m) }))];
-      case 'partnerId': return [{ id: '', label: 'Tous les prestataires' }, ...(context?.partners || []).map((p) => ({ id: p.id, label: p.name }))];
-      case 'contractId': return [{ id: '', label: 'Tous les contrats' }, ...(context?.contracts || []).map((c) => ({ id: c.id, label: `${c.partnerName} · ${c.numero}` }))];
-      case 'kind': return KINDS;
-      case 'status': return STATUSES;
+      case 'period': return [{ id: '', label: tr('Toutes les périodes') }, ...periodOptions.map((m) => ({ id: m, label: monthLabel(m) }))];
+      case 'partnerId': return [{ id: '', label: tr('Tous les prestataires') }, ...(context?.partners || []).map((p) => ({ id: p.id, label: p.name }))];
+      case 'contractId': return [{ id: '', label: tr('Tous les contrats') }, ...(context?.contracts || []).map((c) => ({ id: c.id, label: `${c.partnerName} · ${c.numero}` }))];
+      case 'kind': return KINDS.map((o) => ({ ...o, label: tr(o.label) }));
+      case 'status': return STATUSES.map((o) => ({ ...o, label: tr(o.label) }));
       default: return [];
     }
   }
@@ -201,34 +203,34 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
   async function runDecision(report, approve, comment) {
     try {
       if (approve) await api.approveReport(report.id, { comment }); else await api.rejectReport(report.id, { comment });
-      toast.success(approve ? 'Rapport validé.' : 'Rapport rejeté.'); setDecide(null); reload();
+      toast.success(approve ? tr('Rapport validé.') : tr('Rapport rejeté.')); setDecide(null); reload();
     } catch (err) { toast.error(err.message); }
   }
   async function removeReport(r) {
-    if (!window.confirm(`Supprimer le rapport ${REPORT_KIND[r.kind].label.toLowerCase()} de « ${r.partnerName} » ? Cette action est définitive.`)) return;
-    try { await api.deleteReport(r.id); toast.success('Rapport supprimé.'); setSelectedId(null); reload(); }
+    if (!window.confirm(tr('Supprimer le rapport {kind} de « {name} » ? Cette action est définitive.', { kind: tr(REPORT_KIND[r.kind].label).toLowerCase(), name: r.partnerName }))) return;
+    try { await api.deleteReport(r.id); toast.success(tr('Rapport supprimé.')); setSelectedId(null); reload(); }
     catch (err) { toast.error(err.message); }
   }
   async function markNotApplicable(r) {
-    if (!window.confirm(`Marquer « non applicable » le rapport de « ${r.partnerName} » pour ce mois (aucun suivi réalisé) ?`)) return;
-    try { await api.reportNotApplicable(r.id); toast.success('Rapport marqué non applicable.'); reload(); }
+    if (!window.confirm(tr('Marquer « non applicable » le rapport de « {name} » pour ce mois (aucun suivi réalisé) ?', { name: r.partnerName }))) return;
+    try { await api.reportNotApplicable(r.id); toast.success(tr('Rapport marqué non applicable.')); reload(); }
     catch (err) { toast.error(err.message); }
   }
 
   function exportCsv() {
-    const head = cols.map((k) => COLUMNS[k].label);
+    const head = cols.map((k) => tr(COLUMNS[k].label));
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const cell = (r, k) => {
       switch (k) {
         case 'partner': return r.partnerName;
         case 'contract': return `${r.contractPartner} (${r.contractNumero})`;
-        case 'kind': return REPORT_KIND[r.kind].label;
+        case 'kind': return tr(REPORT_KIND[r.kind].label);
         case 'planned': return currency === 'USD' ? money(r.plannedAmount, r.periodMonth) : Math.round(r.plannedAmount || 0);
         case 'reported': return r.kind === 'financier' ? (currency === 'USD' ? money(r.reportedAmount, r.periodMonth) : Math.round(r.reportedAmount || 0)) : '';
         case 'document': return r.documentName || '';
         case 'reference': return r.reference || '';
         case 'invoiceNo': return r.invoiceNo || '';
-        case 'status': return REPORT_STATUS[r.status]?.label || r.status;
+        case 'status': return REPORT_STATUS[r.status] ? tr(REPORT_STATUS[r.status].label) : r.status;
         case 'createdBy': return r.createdByEmail || '';
         case 'decidedBy': return r.decidedByEmail || '';
         case 'decidedAt': return r.decidedAt ? String(r.decidedAt).slice(0, 10) : '';
@@ -246,7 +248,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       case 'partner': return <strong>{r.partnerName}</strong>;
       case 'contract': return <><button type="button" className="link-cell" onClick={(e) => { e.stopPropagation(); onOpenContract(r.contractId); }}>{r.contractPartner}</button><div className="site-meta mono">{r.contractNumero}</div></>;
       case 'period': return <span className="tabular">{r.periodMonth ? monthLabel(String(r.periodMonth).slice(0, 7)) : '—'}{r.periodEnd ? <div className="site-meta">→ {monthLabel(String(r.periodEnd).slice(0, 7))}</div> : null}</span>;
-      case 'kind': return <Badge tone={REPORT_KIND[r.kind].tone}>{REPORT_KIND[r.kind].label}</Badge>;
+      case 'kind': return <Badge tone={REPORT_KIND[r.kind].tone}>{tr(REPORT_KIND[r.kind].label)}</Badge>;
       case 'planned': return r.plannedAmount != null ? money(r.plannedAmount, r.periodMonth) : <span className="cell-empty">—</span>;
       case 'reported': return r.kind === 'financier' ? money(r.reportedAmount || 0, r.periodMonth) : <span className="cell-empty">—</span>;
       case 'document': return r.documentName || <span className="cell-empty">—</span>;
@@ -264,10 +266,10 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
     const f = FILTERS[k];
     return (
       <div key={k} className="cfilter">
-        <span className="cfilter-label">{f.label}</span>
+        <span className="cfilter-label">{tr(f.label)}</span>
         {f.type === 'search' ? (
           <span className="input-wrap"><Search size={16} aria-hidden="true" />
-            <input className="input" type="search" placeholder={f.ph} value={values[k]} onChange={(e) => setVal(k, e.target.value)} />
+            <input className="input" type="search" placeholder={tr(f.ph)} value={values[k]} onChange={(e) => setVal(k, e.target.value)} />
           </span>
         ) : (
           <select className="select" value={values[k]} onChange={(e) => setVal(k, e.target.value)}>
@@ -282,13 +284,13 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
     <div className="section-gap">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Rapports &amp; dépenses</h1>
-          <p className="page-desc">Rapports financiers (facture / état des dépenses) et techniques des prestataires TPM, rattachés au budget mensuel du suivi. Le « Réalisé » validé alimente la consommation du contrat.</p>
+          <h1 className="page-title">{tr('Rapports & dépenses')}</h1>
+          <p className="page-desc">{tr('Rapports financiers (facture / état des dépenses) et techniques des prestataires TPM, rattachés au budget mensuel du suivi. Le « Réalisé » validé alimente la consommation du contrat.')}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {canEdit && <Button variant="secondary" icon={CalendarClock} onClick={() => setGenOpen(true)}>Générer les rapports mensuels</Button>}
-          {canEdit && <Button variant="secondary" icon={Plus} onClick={() => setFacture({ kind: 'technique' })}>Rapport technique</Button>}
-          {canEdit && <Button icon={FileText} onClick={() => setFacture({ kind: 'financier' })}>Rapport financier (facture)</Button>}
+          {canEdit && <Button variant="secondary" icon={CalendarClock} onClick={() => setGenOpen(true)}>{tr('Générer les rapports mensuels')}</Button>}
+          {canEdit && <Button variant="secondary" icon={Plus} onClick={() => setFacture({ kind: 'technique' })}>{tr('Rapport technique')}</Button>}
+          {canEdit && <Button icon={FileText} onClick={() => setFacture({ kind: 'financier' })}>{tr('Rapport financier (facture)')}</Button>}
         </div>
       </div>
 
@@ -296,83 +298,83 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
         onNewFacture={canEdit ? () => setFacture({ kind: 'financier' }) : undefined} />
 
       <Stats items={[
-        { label: 'Rapports du mois', value: reports ? stats.total : '—', foot: `${stats.tech} technique(s)` },
-        { label: 'Réalisé validé', value: reports ? (currency === 'USD' ? formatUsdFor(stats.justified, rates, `${month}-01`) : formatInt(stats.justified)) : '—', suffix: currency === 'USD' ? '' : 'Ar', foot: 'Financiers validés' },
-        { label: 'En attente', value: reports ? stats.pending : '—', foot: 'Statut « soumis »' },
-        { label: 'Contrats suivis', value: context ? context.contracts.length : '—', foot: 'Avec budget Suivi/TPM' },
+        { label: tr('Rapports du mois'), value: reports ? stats.total : '—', foot: tr('{n} technique(s)', { n: stats.tech }) },
+        { label: tr('Réalisé validé'), value: reports ? (currency === 'USD' ? formatUsdFor(stats.justified, rates, `${month}-01`) : formatInt(stats.justified)) : '—', suffix: currency === 'USD' ? '' : 'Ar', foot: tr('Financiers validés') },
+        { label: tr('En attente'), value: reports ? stats.pending : '—', foot: tr('Statut « soumis »') },
+        { label: tr('Contrats suivis'), value: context ? context.contracts.length : '—', foot: tr('Avec budget Suivi/TPM') },
       ]} />
 
       <Card>
         {/* Barre de filtres (façon COMET) */}
         <div className="filters-bar comet-filters">
-          <span className="filters-label">Filtres&nbsp;:</span>
+          <span className="filters-label">{tr('Filtres\u00a0:')}</span>
           <div className="comet-fields">
             {shown.map(renderFilter)}
-            {shown.length === 0 && <span className="filters-empty">Aucun filtre actif — ajoutez-en avec l'icône filtres.</span>}
+            {shown.length === 0 && <span className="filters-empty">{tr("Aucun filtre actif — ajoutez-en avec l'icône filtres.")}</span>}
           </div>
           <div className="comet-icons">
-            <div className="seg" role="group" aria-label="Devise d'affichage">
+            <div className="seg" role="group" aria-label={tr("Devise d'affichage")}>
               <button type="button" className={currency === 'Ar' ? 'is-active' : ''} onClick={() => setCurrency('Ar')}>Ar</button>
-              <button type="button" className={currency === 'USD' ? 'is-active' : ''} onClick={() => setCurrency('USD')} title={hasRates ? 'Valeurs en dollars selon la période' : 'Aucun taux de change — à saisir dans Paramétrage'}>USD</button>
+              <button type="button" className={currency === 'USD' ? 'is-active' : ''} onClick={() => setCurrency('USD')} title={hasRates ? tr('Valeurs en dollars selon la période') : tr('Aucun taux de change — à saisir dans Paramétrage')}>USD</button>
             </div>
             <div className="pop-anchor" ref={filterMenu.ref}>
-              <IconButton icon={SlidersHorizontal} label="Filtres à afficher" variant="secondary" size="sm" onClick={() => filterMenu.setOpen((o) => !o)} />
+              <IconButton icon={SlidersHorizontal} label={tr('Filtres à afficher')} variant="secondary" size="sm" onClick={() => filterMenu.setOpen((o) => !o)} />
               {filterMenu.open && (
                 <div className="pop-menu filter-menu" role="menu">
-                  <div className="pop-menu-label">Filtres à afficher</div>
+                  <div className="pop-menu-label">{tr('Filtres à afficher')}</div>
                   {ALL_FILTERS.map((k) => (
-                    <label key={k} className="filter-pick"><input type="checkbox" checked={shownFilters.includes(k)} onChange={() => toggleFilter(k)} /><span>{FILTERS[k].label}</span></label>
+                    <label key={k} className="filter-pick"><input type="checkbox" checked={shownFilters.includes(k)} onChange={() => toggleFilter(k)} /><span>{tr(FILTERS[k].label)}</span></label>
                   ))}
                 </div>
               )}
             </div>
             <div className="pop-anchor" ref={colMenu.ref}>
-              <IconButton icon={Columns3} label="Colonnes à afficher" variant="secondary" size="sm" onClick={() => colMenu.setOpen((o) => !o)} />
+              <IconButton icon={Columns3} label={tr('Colonnes à afficher')} variant="secondary" size="sm" onClick={() => colMenu.setOpen((o) => !o)} />
               {colMenu.open && (
                 <div className="pop-menu filter-menu" role="menu">
-                  <div className="pop-menu-label">Colonnes à afficher</div>
+                  <div className="pop-menu-label">{tr('Colonnes à afficher')}</div>
                   {ALL_COLUMNS.map((k) => (
-                    <label key={k} className="filter-pick"><input type="checkbox" checked={columns.includes(k)} onChange={() => toggleColumn(k)} /><span>{COLUMNS[k].label}</span></label>
+                    <label key={k} className="filter-pick"><input type="checkbox" checked={columns.includes(k)} onChange={() => toggleColumn(k)} /><span>{tr(COLUMNS[k].label)}</span></label>
                   ))}
                 </div>
               )}
             </div>
             {/* Mémoriser le filtre : gauche = temporaire (session), droite = permanent (user) */}
-            <IconButton icon={Clock} label="Mémoriser le filtre (temporaire)" variant="secondary" size="sm" onClick={() => { viewStore.saveTemp(currentPayload()); toast.success('Filtre mémorisé pour cette session.'); }} />
-            <IconButton icon={Save} label="Mémoriser le filtre (permanent)" variant="secondary" size="sm" onClick={() => { viewStore.savePerm(currentPayload()); toast.success('Filtre enregistré comme vue par défaut.'); }} />
-            <IconButton icon={RotateCcw} label="Réinitialiser" variant="secondary" size="sm" onClick={resetView} />
+            <IconButton icon={Clock} label={tr('Mémoriser le filtre (temporaire)')} variant="secondary" size="sm" onClick={() => { viewStore.saveTemp(currentPayload()); toast.success(tr('Filtre mémorisé pour cette session.')); }} />
+            <IconButton icon={Save} label={tr('Mémoriser le filtre (permanent)')} variant="secondary" size="sm" onClick={() => { viewStore.savePerm(currentPayload()); toast.success(tr('Filtre enregistré comme vue par défaut.')); }} />
+            <IconButton icon={RotateCcw} label={tr('Réinitialiser')} variant="secondary" size="sm" onClick={resetView} />
           </div>
         </div>
 
         {/* Barre d'actions */}
         <div className="data-toolbar">
           <div className="data-toolbar-left">
-            {selected?.kind === 'financier' && <Button size="sm" variant="secondary" icon={ExternalLink} onClick={() => setFacture({ reportId: selected.id })}>Ouvrir la facture</Button>}
-            {selected?.kind === 'financier' && selected?.status === 'valide' && onNavigate && <Button size="sm" variant="secondary" icon={TrendingUp} onClick={() => onNavigate('dashboard', 'consolidation')}>Voir dans la consolidation</Button>}
+            {selected?.kind === 'financier' && <Button size="sm" variant="secondary" icon={ExternalLink} onClick={() => setFacture({ reportId: selected.id })}>{tr('Ouvrir la facture')}</Button>}
+            {selected?.kind === 'financier' && selected?.status === 'valide' && onNavigate && <Button size="sm" variant="secondary" icon={TrendingUp} onClick={() => onNavigate('dashboard', 'consolidation')}>{tr('Voir dans la consolidation')}</Button>}
             {canEdit && selected?.status === 'soumis' && <>
-              <Button size="sm" variant="secondary" icon={ShieldCheck} onClick={() => setDecide({ report: selected, approve: true })}>Valider</Button>
-              <Button size="sm" variant="secondary" icon={X} onClick={() => setDecide({ report: selected, approve: false })}>Rejeter</Button>
+              <Button size="sm" variant="secondary" icon={ShieldCheck} onClick={() => setDecide({ report: selected, approve: true })}>{tr('Valider')}</Button>
+              <Button size="sm" variant="secondary" icon={X} onClick={() => setDecide({ report: selected, approve: false })}>{tr('Rejeter')}</Button>
             </>}
-            {canEdit && selected && !['valide', 'non_applicable'].includes(selected.status) && <Button size="sm" variant="secondary" icon={Ban} onClick={() => markNotApplicable(selected)}>Non applicable</Button>}
-            {canEdit && selected && selected.status !== 'valide' && <Button size="sm" variant="ghost" icon={Trash2} onClick={() => removeReport(selected)}>Supprimer</Button>}
-            {selected && <Button size="sm" variant="ghost" icon={X} onClick={() => setSelectedId(null)}>Désélectionner</Button>}
+            {canEdit && selected && !['valide', 'non_applicable'].includes(selected.status) && <Button size="sm" variant="secondary" icon={Ban} onClick={() => markNotApplicable(selected)}>{tr('Non applicable')}</Button>}
+            {canEdit && selected && selected.status !== 'valide' && <Button size="sm" variant="ghost" icon={Trash2} onClick={() => removeReport(selected)}>{tr('Supprimer')}</Button>}
+            {selected && <Button size="sm" variant="ghost" icon={X} onClick={() => setSelectedId(null)}>{tr('Désélectionner')}</Button>}
           </div>
           <div className="data-toolbar-right">
-            <Button size="sm" variant="secondary" icon={Printer} onClick={() => window.print()} disabled={!(reports && reports.length)}>Imprimer</Button>
-            <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!(reports && reports.length)}>Exporter (CSV)</Button>
+            <Button size="sm" variant="secondary" icon={Printer} onClick={() => window.print()} disabled={!(reports && reports.length)}>{tr('Imprimer')}</Button>
+            <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!(reports && reports.length)}>{tr('Exporter (CSV)')}</Button>
           </div>
         </div>
 
         {error && <div style={{ padding: '12px 20px 0' }}><Alert tone="error">{error}</Alert></div>}
-        {currency === 'USD' && !hasRates && <div style={{ padding: '12px 20px 0' }}><Alert tone="warn">Aucun taux de change saisi — renseignez-les dans Paramétrage › Taux de change pour afficher les valeurs en dollars.</Alert></div>}
+        {currency === 'USD' && !hasRates && <div style={{ padding: '12px 20px 0' }}><Alert tone="warn">{tr('Aucun taux de change saisi — renseignez-les dans Paramétrage › Taux de change pour afficher les valeurs en dollars.')}</Alert></div>}
 
         <div className="table-wrap">
           <table className="table grid">
             <thead><tr>
-              <th scope="col" style={{ width: 36 }}><span className="sr-only">Sélection</span></th>
+              <th scope="col" style={{ width: 36 }}><span className="sr-only">{tr('Sélection')}</span></th>
               {cols.map((k) => (COLUMNS[k].sort
-                ? <SortTh key={k} label={COLUMNS[k].label} k={COLUMNS[k].sort} sort={sort} onSort={onSort} className={COLUMNS[k].num ? 'num' : ''} />
-                : <th key={k} scope="col" className={COLUMNS[k].num ? 'num' : ''}>{COLUMNS[k].label}</th>))}
+                ? <SortTh key={k} label={tr(COLUMNS[k].label)} k={COLUMNS[k].sort} sort={sort} onSort={onSort} className={COLUMNS[k].num ? 'num' : ''} />
+                : <th key={k} scope="col" className={COLUMNS[k].num ? 'num' : ''}>{tr(COLUMNS[k].label)}</th>))}
             </tr></thead>
             <tbody>
               {reports === null
@@ -383,7 +385,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
                       <tr key={r.id} className={`clickable ${isSel ? 'is-selected' : ''}`} onClick={() => setSelectedId(r.id)}
                         onDoubleClick={() => r.kind === 'financier' && setFacture({ reportId: r.id })}>
                         <td onClick={(e) => e.stopPropagation()}>
-                          <input type="radio" name="report-select" checked={isSel} onChange={() => setSelectedId(isSel ? null : r.id)} aria-label={`Sélectionner ${r.partnerName}`} />
+                          <input type="radio" name="report-select" checked={isSel} onChange={() => setSelectedId(isSel ? null : r.id)} aria-label={tr('Sélectionner {name}', { name: r.partnerName })} />
                         </td>
                         {cols.map((k) => <td key={k} className={COLUMNS[k].num ? 'num tabular' : ''}>{renderCell(r, k)}</td>)}
                       </tr>
@@ -392,28 +394,30 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
             </tbody>
           </table>
           {reports && filtered.length === 0 && (
-            <EmptyState icon={FileText} title={reports.length ? 'Aucun rapport ne correspond' : 'Aucun rapport ce mois-ci'}
+            <EmptyState icon={FileText} title={reports.length ? tr('Aucun rapport ne correspond') : tr('Aucun rapport ce mois-ci')}
               action={canEdit && (reports.length === 0
-                ? <Button icon={FileText} onClick={() => setFacture({ kind: 'financier' })}>Rapport financier</Button>
-                : <Button variant="secondary" icon={RotateCcw} onClick={resetView}>Réinitialiser les filtres</Button>)}>
-              {reports.length ? 'Ajustez les filtres.' : 'Enregistrez les rapports financiers (facture) et techniques des prestataires TPM pour ce mois.'}
+                ? <Button icon={FileText} onClick={() => setFacture({ kind: 'financier' })}>{tr('Rapport financier')}</Button>
+                : <Button variant="secondary" icon={RotateCcw} onClick={resetView}>{tr('Réinitialiser les filtres')}</Button>)}>
+              {reports.length ? tr('Ajustez les filtres.') : tr('Enregistrez les rapports financiers (facture) et techniques des prestataires TPM pour ce mois.')}
             </EmptyState>
           )}
         </div>
 
         {reports && filtered.length > 0 && (
           <div className="list-foot">
-            <span className="list-count">{(pageClamped - 1) * PAGE_SIZE + 1}–{Math.min(pageClamped * PAGE_SIZE, filtered.length)} sur {filtered.length} rapport{filtered.length > 1 ? 's' : ''}</span>
+            <span className="list-count">{tr(filtered.length > 1 ? '{a}–{b} sur {n} rapports' : '{a}–{b} sur {n} rapport', { a: (pageClamped - 1) * PAGE_SIZE + 1, b: Math.min(pageClamped * PAGE_SIZE, filtered.length), n: filtered.length })}</span>
             <div className="pager">
-              <button type="button" className="pager-btn" disabled={pageClamped <= 1} onClick={() => setPage(pageClamped - 1)} aria-label="Page précédente"><ChevronLeft size={16} /></button>
-              <span className="pager-info">Page {pageClamped} / {totalPages}</span>
-              <button type="button" className="pager-btn" disabled={pageClamped >= totalPages} onClick={() => setPage(pageClamped + 1)} aria-label="Page suivante"><ChevronRight size={16} /></button>
+              <button type="button" className="pager-btn" disabled={pageClamped <= 1} onClick={() => setPage(pageClamped - 1)} aria-label={tr('Page précédente')}><ChevronLeft size={16} /></button>
+              <span className="pager-info">{tr('Page {p} / {t}', { p: pageClamped, t: totalPages })}</span>
+              <button type="button" className="pager-btn" disabled={pageClamped >= totalPages} onClick={() => setPage(pageClamped + 1)} aria-label={tr('Page suivante')}><ChevronRight size={16} /></button>
             </div>
           </div>
         )}
       </Card>
 
-      <div className="note"><Info size={18} aria-hidden="true" /><span>Un rapport <strong>financier</strong> est une <strong>facture</strong> (état des dépenses poste par poste) : créez-le ci-dessus, il s'ouvre dans l'éditeur de facture. Les icônes à droite de la barre de filtres mémorisent votre filtre (<Clock size={12} /> temporaire, <Save size={12} /> permanent) ; <Columns3 size={12} /> choisit les colonnes. Un rapport non validé peut être supprimé.</span></div>
+      <div className="note"><Info size={18} aria-hidden="true" /><span>{richText(tr("Un rapport <strong>financier</strong> est une <strong>facture</strong> (état des dépenses poste par poste) : créez-le ci-dessus, il s'ouvre dans l'éditeur de facture."))}{' '}
+        {tr('Les icônes à droite de la barre de filtres mémorisent votre filtre ({clock} temporaire, {save} permanent) ; {cols} choisit les colonnes. Un rapport non validé peut être supprimé.')
+          .split(/\{(clock|save|cols)\}/).map((part, i) => (i % 2 ? { clock: <Clock key={i} size={12} />, save: <Save key={i} size={12} />, cols: <Columns3 key={i} size={12} /> }[part] : part))}</span></div>
 
       {facture && <FactureDrawer reportId={facture.reportId} kind={facture.kind} initial={facture.initial} autoPrefill={facture.autoPrefill} context={context} month={month} onClose={() => setFacture(null)} onSaved={() => { setFacture(null); reload(); }} />}
       {decide && <DecideModal decide={decide} onClose={() => setDecide(null)} onConfirm={runDecision} />}
@@ -427,36 +431,39 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
  * Consolidation. Chaque étape montre l'état du mois et mène à l'écran concerné.
  */
 function GuidedFlow({ flow, month, ready, onNavigate, onNewFacture }) {
+  const { tr } = useI18n();
   const steps = [
     {
-      key: 'plan', n: 1, icon: Wallet, label: 'Plan validé',
+      key: 'plan', n: 1, icon: Wallet, label: tr('Plan validé'),
       state: flow.plansValides > 0 ? 'done' : (flow.plansTotal > 0 ? 'wip' : 'todo'),
-      detail: ready ? `${flow.plansValides}/${flow.plansTotal} plan(s)` : '—',
+      detail: ready ? tr('{a}/{b} plan(s)', { a: flow.plansValides, b: flow.plansTotal }) : '—',
       onClick: onNavigate ? () => onNavigate('tpm', 'budget') : undefined,
-      cta: 'Planification & budget',
+      cta: tr('Planification & budget'),
     },
     {
-      key: 'facture', n: 2, icon: FileText, label: 'Facture (état des dépenses)',
+      key: 'facture', n: 2, icon: FileText, label: tr('Facture (état des dépenses)'),
       state: flow.facturesCreees > 0 ? 'done' : 'todo',
-      detail: ready ? `${flow.facturesCreees} facture(s)` : '—',
+      detail: ready ? tr('{n} facture(s)', { n: flow.facturesCreees }) : '—',
       onClick: onNewFacture,
-      cta: onNewFacture ? 'Créer une facture' : undefined,
+      cta: onNewFacture ? tr('Créer une facture') : undefined,
     },
     {
-      key: 'valide', n: 3, icon: ShieldCheck, label: 'Validation',
+      key: 'valide', n: 3, icon: ShieldCheck, label: tr('Validation'),
       state: flow.facturesValidees > 0 ? 'done' : (flow.facturesSoumises > 0 ? 'wip' : 'todo'),
-      detail: ready ? `${flow.facturesValidees} validée(s)${flow.facturesSoumises ? ` · ${flow.facturesSoumises} à valider` : ''}` : '—',
+      detail: ready ? (flow.facturesSoumises
+        ? tr('{v} validée(s) · {s} à valider', { v: flow.facturesValidees, s: flow.facturesSoumises })
+        : tr('{v} validée(s)', { v: flow.facturesValidees })) : '—',
     },
     {
-      key: 'conso', n: 4, icon: TrendingUp, label: 'Consolidation',
+      key: 'conso', n: 4, icon: TrendingUp, label: tr('Consolidation'),
       state: flow.facturesValidees > 0 ? 'done' : 'todo',
-      detail: 'Budget ↔ Planifié ↔ Réalisé',
+      detail: tr('Budget ↔ Planifié ↔ Réalisé'),
       onClick: onNavigate ? () => onNavigate('dashboard', 'consolidation') : undefined,
-      cta: 'Voir la consolidation',
+      cta: tr('Voir la consolidation'),
     },
   ];
   return (
-    <div className="flow" aria-label={`Fil guidé du rapportage — ${monthLabel(month)}`}>
+    <div className="flow" aria-label={tr('Fil guidé du rapportage — {month}', { month: monthLabel(month) })}>
       {steps.map((s, i) => {
         const Icon = s.icon;
         const Tag = s.onClick ? 'button' : 'div';
@@ -479,6 +486,7 @@ function GuidedFlow({ flow, month, ready, onNavigate, onNewFacture }) {
 }
 
 function GenerateModal({ context, onClose, onDone }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const partners = context?.partners || [];
   const contracts = context?.contracts || [];
@@ -487,36 +495,37 @@ function GenerateModal({ context, onClose, onDone }) {
   const contract = contracts.find((c) => c.id === form.contractId);
 
   async function go() {
-    if (!form.contractId || !form.partnerId) { toast.error('Choisissez le contrat et le prestataire TPM.'); return; }
+    if (!form.contractId || !form.partnerId) { toast.error(tr('Choisissez le contrat et le prestataire TPM.')); return; }
     setBusy(true);
     try {
       const r = await api.generateMonthlyReports({ contractId: form.contractId, partnerId: form.partnerId });
-      toast.success(r.created > 0 ? `${r.created} rapport(s) mensuel(s) créé(s).` : 'Les rapports mensuels existaient déjà.');
+      toast.success(r.created > 0 ? tr('{n} rapport(s) mensuel(s) créé(s).', { n: r.created }) : tr('Les rapports mensuels existaient déjà.'));
       onDone();
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   }
   return (
-    <Modal open title="Générer les rapports mensuels" subtitle="Un gabarit « attendu » par mois de la durée du contrat, à remplir ou à marquer non applicable."
+    <Modal open title={tr('Générer les rapports mensuels')} subtitle={tr('Un gabarit « attendu » par mois de la durée du contrat, à remplir ou à marquer non applicable.')}
       onClose={() => !busy && onClose()}
-      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>Annuler</Button><Button onClick={go} loading={busy} icon={CalendarClock}>Générer</Button></>}>
+      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button><Button onClick={go} loading={busy} icon={CalendarClock}>{tr('Générer')}</Button></>}>
       <div style={{ display: 'grid', gap: 14 }}>
-        <Field label="Contrat suivi">
+        <Field label={tr('Contrat suivi')}>
           <select className={`select ${form.contractId ? '' : 'is-empty'}`} value={form.contractId} onChange={(e) => setForm({ ...form, contractId: e.target.value })}>
-            <option value="">Choisir…</option>{contracts.map((c) => <option key={c.id} value={c.id}>{c.partnerName} · {c.numero}</option>)}
+            <option value="">{tr('Choisir…')}</option>{contracts.map((c) => <option key={c.id} value={c.id}>{c.partnerName} · {c.numero}</option>)}
           </select>
         </Field>
-        <Field label="Prestataire TPM">
+        <Field label={tr('Prestataire TPM')}>
           <select className={`select ${form.partnerId ? '' : 'is-empty'}`} value={form.partnerId} onChange={(e) => setForm({ ...form, partnerId: e.target.value })}>
-            <option value="">Choisir…</option>{partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            <option value="">{tr('Choisir…')}</option>{partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </Field>
-        {contract && <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>Un rapport financier « attendu » sera créé pour chaque mois de la période du contrat ({contract.periodMonths} mois). Les mois déjà présents ne sont pas dupliqués.</span></div>}
+        {contract && <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>{tr('Un rapport financier « attendu » sera créé pour chaque mois de la période du contrat ({n} mois). Les mois déjà présents ne sont pas dupliqués.', { n: contract.periodMonths })}</span></div>}
       </div>
     </Modal>
   );
 }
 
 function DecideModal({ decide, onClose, onConfirm }) {
+  const { tr } = useI18n();
   const { report, approve } = decide;
   const [comment, setComment] = useState('');
   const [touched, setTouched] = useState(false);
@@ -529,13 +538,13 @@ function DecideModal({ decide, onClose, onConfirm }) {
     setBusy(false);
   }
   return (
-    <Modal open onClose={() => !busy && onClose()} title={approve ? 'Valider le rapport ?' : 'Rejeter le rapport ?'}
-      subtitle={`${report.partnerName} · ${report.contractNumero} · ${REPORT_KIND[report.kind].label}`}
-      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>Annuler</Button><Button loading={busy} onClick={go}>{approve ? 'Valider' : 'Rejeter'}</Button></>}>
+    <Modal open onClose={() => !busy && onClose()} title={approve ? tr('Valider le rapport ?') : tr('Rejeter le rapport ?')}
+      subtitle={`${report.partnerName} · ${report.contractNumero} · ${tr(REPORT_KIND[report.kind].label)}`}
+      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button><Button loading={busy} onClick={go}>{approve ? tr('Valider') : tr('Rejeter')}</Button></>}>
       {approve
-        ? <p>{report.kind === 'financier' ? `Le montant réalisé (${formatAr(report.reportedAmount || 0)}) sera comptabilisé dans la consommation du budget Suivi/TPM du contrat.` : 'Le rapport technique sera marqué comme validé.'}</p>
-        : <p>Le rapport repassera à corriger côté prestataire.</p>}
-      <Field label={approve ? 'Commentaire' : 'Motif du rejet'} htmlFor="dc-comment" required={!approve} error={touched && !approve && !comment.trim() ? 'Motif obligatoire.' : undefined}>
+        ? <p>{report.kind === 'financier' ? tr('Le montant réalisé ({amount}) sera comptabilisé dans la consommation du budget Suivi/TPM du contrat.', { amount: formatAr(report.reportedAmount || 0) }) : tr('Le rapport technique sera marqué comme validé.')}</p>
+        : <p>{tr('Le rapport repassera à corriger côté prestataire.')}</p>}
+      <Field label={approve ? tr('Commentaire') : tr('Motif du rejet')} htmlFor="dc-comment" required={!approve} error={touched && !approve && !comment.trim() ? tr('Motif obligatoire.') : undefined}>
         <textarea id="dc-comment" className="input" value={comment} onChange={(e) => setComment(e.target.value)} />
       </Field>
     </Modal>

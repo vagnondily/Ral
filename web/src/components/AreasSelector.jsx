@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Plus, X, MapPin } from 'lucide-react';
 import { api } from '../api/client.js';
 import { Button } from './ui.jsx';
+import { useI18n } from '../lib/i18n.jsx';
+import { richText } from '../lib/contracts.js';
 
 /**
  * Assigns geographic zones to the provider by picking nodes from the tenant's
@@ -10,6 +12,7 @@ import { Button } from './ui.jsx';
  * { adminAreaId, path }.
  */
 export default function AreasSelector({ value, onChange }) {
+  const { tr } = useI18n();
   const [levels, setLevels] = useState(null);
   const [options, setOptions] = useState([]);   // options[depthIndex] = areas[]
   const [picked, setPicked] = useState([]);     // picked[depthIndex] = { id, name, path }
@@ -46,11 +49,11 @@ export default function AreasSelector({ value, onChange }) {
 
   function remove(id) { onChange(value.filter((v) => v.adminAreaId !== id)); }
 
-  if (levels === null) return <p className="muted" style={{ fontSize: 14 }}>Chargement du découpage…</p>;
+  if (levels === null) return <p className="muted" style={{ fontSize: 14 }}>{tr('Chargement du découpage…')}</p>;
   if (levels.length === 0) {
     return (
       <p className="muted" style={{ fontSize: 14 }}>
-        Aucun découpage administratif n'est configuré. Importez-le dans <strong>Paramétrage › Localités</strong> (un fichier par pays).
+        {richText(tr("Aucun découpage administratif n'est configuré. Importez-le dans <strong>Paramétrage › Localités</strong> (un fichier par pays)."))}
       </p>
     );
   }
@@ -69,12 +72,12 @@ export default function AreasSelector({ value, onChange }) {
               disabled={i > 0 && !picked[i - 1]}
               onChange={(e) => pick(i, e.target.value)}
             >
-              <option value="">{i === 0 ? 'Choisir…' : '(tous / non précisé)'}</option>
+              <option value="">{i === 0 ? tr('Choisir…') : tr('(tous / non précisé)')}</option>
               {(options[i] || []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </label>
         ))}
-        <Button size="sm" variant="secondary" icon={Plus} onClick={addZone} disabled={!canAdd}>Ajouter la zone</Button>
+        <Button size="sm" variant="secondary" icon={Plus} onClick={addZone} disabled={!canAdd}>{tr('Ajouter la zone')}</Button>
       </div>
 
       {value.length > 0 ? (
@@ -82,12 +85,12 @@ export default function AreasSelector({ value, onChange }) {
           {value.map((v) => (
             <span key={v.adminAreaId} className="chip is-static">
               <MapPin size={14} aria-hidden="true" /> {v.path}
-              <button type="button" className="chip-x" onClick={() => remove(v.adminAreaId)} aria-label={`Retirer ${v.path}`}><X size={13} /></button>
+              <button type="button" className="chip-x" onClick={() => remove(v.adminAreaId)} aria-label={tr('Retirer {name}', { name: v.path })}><X size={13} /></button>
             </span>
           ))}
         </div>
       ) : (
-        <p className="muted" style={{ fontSize: 14, marginTop: 10 }}>Aucune zone affectée. Choisissez une zone puis « Ajouter la zone ».</p>
+        <p className="muted" style={{ fontSize: 14, marginTop: 10 }}>{tr('Aucune zone affectée. Choisissez une zone puis « Ajouter la zone ».')}</p>
       )}
     </div>
   );

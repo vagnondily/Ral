@@ -5,6 +5,7 @@ import { Alert, Button, Card, CardHeader, EmptyState, ExpandButton, Skeleton, St
 import DataList from '../../components/DataList.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatInt, monthLabel } from '../../lib/format.js';
+import { useI18n } from '../../lib/i18n.jsx';
 
 /**
  * Plan de Distribution d'urgence (PDD). Trois vues :
@@ -31,8 +32,9 @@ const fmtUsd = (n) => `${formatInt(Math.round(Number(n) || 0))} $`;
 const pct = (r) => `${Math.round((Number(r) || 0) * 100)} %`;
 
 function HazardBadge({ value }) {
+  const { tr } = useI18n();
   const h = hz(value);
-  return <span className="badge" style={{ background: h.bg, color: h.text }}><span className="dot" style={{ background: h.color }} />{h.label}</span>;
+  return <span className="badge" style={{ background: h.bg, color: h.text }}><span className="dot" style={{ background: h.color }} />{tr(h.label)}</span>;
 }
 
 export default function PddPage({ canEdit, view, onNavigate }) {
@@ -50,6 +52,7 @@ export default function PddPage({ canEdit, view, onNavigate }) {
 // Distributions — table fidèle à la feuille « PDD base »
 // ──────────────────────────────────────────────────────────────────────────
 function DistributionsView({ canEdit, onNavigate }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [rows, setRows] = useState(null);
   const [commodities, setCommodities] = useState([]);
@@ -75,7 +78,9 @@ function DistributionsView({ canEdit, onNavigate }) {
     setBusy(true);
     try {
       const r = await api.pddImport(f);
-      toast.success(`${r.inserted} distribution(s) · ${r.items} tonnage(s) importé(s) (feuille « ${r.sheet} »)${r.skipped ? ` · ${r.skipped} ligne(s) ignorée(s)` : ''}.`);
+      toast.success(r.skipped
+        ? tr('{n} distribution(s) · {items} tonnage(s) importé(s) (feuille « {sheet} ») · {skipped} ligne(s) ignorée(s).', { n: r.inserted, items: r.items, sheet: r.sheet, skipped: r.skipped })
+        : tr('{n} distribution(s) · {items} tonnage(s) importé(s) (feuille « {sheet} »).', { n: r.inserted, items: r.items, sheet: r.sheet }));
       reload();
     } catch (err) { toast.error(err.message); } finally { setBusy(false); }
   };
@@ -114,21 +119,21 @@ function DistributionsView({ canEdit, onNavigate }) {
 
   const columns = useMemo(() => {
     const c = {
-      periodMonth: { label: 'Mois', sortVal: (r) => r.periodMonth, csv: (r) => r.periodMonth, render: (r) => <span className="tabular">{monthLabel(r.periodMonth)}</span> },
-      activity: { label: 'Activité', sortVal: (r) => r.activity || '', csv: (r) => r.activity || '', render: (r) => r.activity || '—' },
-      hazard: { label: 'Aléa', sortVal: (r) => hz(r.hazard).label, csv: (r) => hz(r.hazard).label, render: (r) => <HazardBadge value={r.hazard} /> },
-      region: { label: 'Région', sortVal: (r) => r.region || '', csv: (r) => r.region || '', render: (r) => r.region || '—' },
-      district: { label: 'District', sortVal: (r) => r.district || '', csv: (r) => r.district || '', render: (r) => r.district || '—' },
-      commune: { label: 'Commune', sortVal: (r) => r.commune || '', csv: (r) => r.commune || '', render: (r) => <strong>{r.commune || '—'}</strong> },
-      antenne: { label: 'Antenne', sortVal: (r) => r.antenne || '', csv: (r) => r.antenne || '', render: (r) => r.antenne || <span className="cell-empty">—</span> },
-      sousBureau: { label: 'Sous-bureau', sortVal: (r) => r.sousBureau || '', csv: (r) => r.sousBureau || '', render: (r) => r.sousBureau || <span className="cell-empty">—</span> },
-      partner: { label: 'Partenaire', sortVal: (r) => r.partner || '', csv: (r) => r.partner || '', render: (r) => r.partner || <span className="cell-empty">—</span> },
-      corridor: { label: 'Corridor', sortVal: (r) => r.corridor || '', csv: (r) => r.corridor || '', render: (r) => r.corridor || <span className="cell-empty">—</span> },
-      modality: { label: 'Modalité', sortVal: (r) => r.modality || '', csv: (r) => r.modality || '', render: (r) => r.modality || '—' },
-      beneficiaries: { label: 'Bénéficiaires', num: true, sortVal: (r) => r.beneficiaries || 0, csv: (r) => r.beneficiaries || 0, render: (r) => <span className="tabular">{formatInt(r.beneficiaries || 0)}</span> },
-      households: { label: 'Ménages', num: true, sortVal: (r) => r.households || 0, csv: (r) => r.households || 0, render: (r) => <span className="tabular">{formatInt(r.households || 0)}</span> },
-      totalFood: { label: 'Vivres (t)', num: true, sortVal: (r) => Number(r.totalFood) || 0, csv: (r) => Number(r.totalFood) || 0, render: (r) => <span className="tabular mono">{Number(r.totalFood) ? fmtMt(r.totalFood) : <span className="cell-empty">—</span>}</span> },
-      cashUsd: { label: 'Cash ($)', num: true, sortVal: (r) => Number(r.cashUsd) || 0, csv: (r) => Number(r.cashUsd) || 0, render: (r) => <span className="tabular mono">{Number(r.cashUsd) ? fmtUsd(r.cashUsd) : <span className="cell-empty">—</span>}</span> },
+      periodMonth: { label: tr('Mois'), sortVal: (r) => r.periodMonth, csv: (r) => r.periodMonth, render: (r) => <span className="tabular">{monthLabel(r.periodMonth)}</span> },
+      activity: { label: tr('Activité'), sortVal: (r) => r.activity || '', csv: (r) => r.activity || '', render: (r) => r.activity || '—' },
+      hazard: { label: tr('Aléa'), sortVal: (r) => tr(hz(r.hazard).label), csv: (r) => tr(hz(r.hazard).label), render: (r) => <HazardBadge value={r.hazard} /> },
+      region: { label: tr('Région'), sortVal: (r) => r.region || '', csv: (r) => r.region || '', render: (r) => r.region || '—' },
+      district: { label: tr('District'), sortVal: (r) => r.district || '', csv: (r) => r.district || '', render: (r) => r.district || '—' },
+      commune: { label: tr('Commune'), sortVal: (r) => r.commune || '', csv: (r) => r.commune || '', render: (r) => <strong>{r.commune || '—'}</strong> },
+      antenne: { label: tr('Antenne'), sortVal: (r) => r.antenne || '', csv: (r) => r.antenne || '', render: (r) => r.antenne || <span className="cell-empty">—</span> },
+      sousBureau: { label: tr('Sous-bureau'), sortVal: (r) => r.sousBureau || '', csv: (r) => r.sousBureau || '', render: (r) => r.sousBureau || <span className="cell-empty">—</span> },
+      partner: { label: tr('Partenaire'), sortVal: (r) => r.partner || '', csv: (r) => r.partner || '', render: (r) => r.partner || <span className="cell-empty">—</span> },
+      corridor: { label: tr('Corridor'), sortVal: (r) => r.corridor || '', csv: (r) => r.corridor || '', render: (r) => r.corridor || <span className="cell-empty">—</span> },
+      modality: { label: tr('Modalité'), sortVal: (r) => r.modality || '', csv: (r) => r.modality || '', render: (r) => r.modality || '—' },
+      beneficiaries: { label: tr('Bénéficiaires'), num: true, sortVal: (r) => r.beneficiaries || 0, csv: (r) => r.beneficiaries || 0, render: (r) => <span className="tabular">{formatInt(r.beneficiaries || 0)}</span> },
+      households: { label: tr('Ménages'), num: true, sortVal: (r) => r.households || 0, csv: (r) => r.households || 0, render: (r) => <span className="tabular">{formatInt(r.households || 0)}</span> },
+      totalFood: { label: tr('Vivres (t)'), num: true, sortVal: (r) => Number(r.totalFood) || 0, csv: (r) => Number(r.totalFood) || 0, render: (r) => <span className="tabular mono">{Number(r.totalFood) ? fmtMt(r.totalFood) : <span className="cell-empty">—</span>}</span> },
+      cashUsd: { label: tr('Cash ($)'), num: true, sortVal: (r) => Number(r.cashUsd) || 0, csv: (r) => Number(r.cashUsd) || 0, render: (r) => <span className="tabular mono">{Number(r.cashUsd) ? fmtUsd(r.cashUsd) : <span className="cell-empty">—</span>}</span> },
     };
     // Une colonne (optionnelle) par denrée — fidèle aux colonnes du classeur.
     for (const cm of foodCommodities) {
@@ -140,25 +145,25 @@ function DistributionsView({ canEdit, onNavigate }) {
       };
     }
     return c;
-  }, [foodCommodities]);
+  }, [foodCommodities, tr]);
 
   const filters = useMemo(() => ({
-    q: { label: 'Recherche', type: 'search', placeholder: 'Commune, district, activité…',
+    q: { label: tr('Recherche'), type: 'search', placeholder: tr('Commune, district, activité…'),
       match: (r, v) => [r.commune, r.district, r.region, r.activity, r.partner, r.antenne].some((x) => x && String(x).toLowerCase().includes(v.toLowerCase())) },
-    month: { label: 'Mois', type: 'select',
-      options: (rr) => [{ id: '', label: 'Tous les mois' }, ...uniq((rr || []).map((r) => r.periodMonth)).map((o) => ({ id: o.id, label: monthLabel(o.id) }))],
+    month: { label: tr('Mois'), type: 'select',
+      options: (rr) => [{ id: '', label: tr('Tous les mois') }, ...uniq((rr || []).map((r) => r.periodMonth)).map((o) => ({ id: o.id, label: monthLabel(o.id) }))],
       match: (r, v) => r.periodMonth === v },
-    hazard: { label: 'Aléa', type: 'select',
-      options: [{ id: '', label: 'Tous les aléas' }, { id: 'drought', label: 'Sécheresse' }, { id: 'cyclone', label: 'Cyclone' }, { id: 'autre', label: 'Autre' }],
+    hazard: { label: tr('Aléa'), type: 'select',
+      options: [{ id: '', label: tr('Tous les aléas') }, { id: 'drought', label: tr('Sécheresse') }, { id: 'cyclone', label: tr('Cyclone') }, { id: 'autre', label: tr('Autre') }],
       match: (r, v) => r.hazard === v },
-    region: { label: 'Région', type: 'select', options: (rr) => [{ id: '', label: 'Toutes les régions' }, ...uniq((rr || []).map((r) => r.region))],
+    region: { label: tr('Région'), type: 'select', options: (rr) => [{ id: '', label: tr('Toutes les régions') }, ...uniq((rr || []).map((r) => r.region))],
       match: (r, v) => r.region === v },
-    district: { label: 'District', type: 'select',
-      options: (rr, vals) => [{ id: '', label: 'Tous les districts' }, ...uniq((rr || []).filter((r) => !vals.region || r.region === vals.region).map((r) => r.district))],
+    district: { label: tr('District'), type: 'select',
+      options: (rr, vals) => [{ id: '', label: tr('Tous les districts') }, ...uniq((rr || []).filter((r) => !vals.region || r.region === vals.region).map((r) => r.district))],
       match: (r, v) => r.district === v },
-    modality: { label: 'Modalité', type: 'select', options: (rr) => [{ id: '', label: 'Toutes' }, ...uniq((rr || []).map((r) => r.modality))],
+    modality: { label: tr('Modalité'), type: 'select', options: (rr) => [{ id: '', label: tr('Toutes') }, ...uniq((rr || []).map((r) => r.modality))],
       match: (r, v) => r.modality === v },
-  }), []);
+  }), [tr]);
 
   const DEFAULT_COLS = ['periodMonth', 'activity', 'hazard', 'region', 'district', 'commune', 'modality', 'beneficiaries', 'households', 'totalFood', 'cashUsd'];
 
@@ -166,19 +171,19 @@ function DistributionsView({ canEdit, onNavigate }) {
     <>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Distribution d'urgence — distributions</h1>
+          <h1 className="page-title">{tr("Distribution d'urgence — distributions")}</h1>
           <p className="page-desc">{picking
-            ? "Choisissez un mois pour ouvrir son plan de distribution (vivres & cash par zone et activité)."
-            : "Plan de distribution du mois : table fidèle au classeur, filtrable et exportable."}</p>
+            ? tr('Choisissez un mois pour ouvrir son plan de distribution (vivres & cash par zone et activité).')
+            : tr('Plan de distribution du mois : table fidèle au classeur, filtrable et exportable.')}</p>
         </div>
         <div className="header-actions">
-          {!picking && <Button variant="secondary" icon={ChevronLeft} onClick={() => { setPicking(true); setMonth(''); }}>Tous les mois</Button>}
+          {!picking && <Button variant="secondary" icon={ChevronLeft} onClick={() => { setPicking(true); setMonth(''); }}>{tr('Tous les mois')}</Button>}
           {canEdit && <>
             <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={onImport} />
             <Button variant="ghost" icon={Download} onClick={downloadTemplate}
-              title="Classeur vierge au format exact de l'import (feuille « PDD base » + feuille « Lisez-moi » qui décrit chaque colonne).">Modèle PDD</Button>
+              title={tr("Classeur vierge au format exact de l'import (feuille « PDD base » + feuille « Lisez-moi » qui décrit chaque colonne).")}>{tr('Modèle PDD')}</Button>
             <Button variant="secondary" icon={Upload} loading={busy} onClick={() => fileRef.current?.click()}
-              title="Importe la feuille « PDD base » : mois, zone, activité, bénéficiaires, tonnages. Réimport idempotent (les mois du fichier sont remplacés).">Importer le PDD</Button>
+              title={tr('Importe la feuille « PDD base » : mois, zone, activité, bénéficiaires, tonnages. Réimport idempotent (les mois du fichier sont remplacés).')}>{tr('Importer le PDD')}</Button>
           </>}
         </div>
       </div>
@@ -192,28 +197,32 @@ function DistributionsView({ canEdit, onNavigate }) {
         <>
           <div className="month-active-bar">
             <strong>{monthLabel(month)}</strong>
-            <span className="muted">— plan de distribution du mois</span>
+            <span className="muted">{tr('— plan de distribution du mois')}</span>
           </div>
 
           <Stats compact items={[
-            { label: 'Lignes', value: formatInt(stats.lines), foot: 'Distributions du mois' },
-            { label: 'Bénéficiaires', value: formatInt(stats.beneficiaries), foot: 'Toutes modalités' },
-            { label: 'Ménages', value: formatInt(stats.households), foot: 'Toutes modalités' },
-            { label: 'Vivres', value: fmtMt(stats.totalFood), foot: 'Tonnage du mois' },
-            { label: 'Cash (CBT)', value: fmtUsd(stats.cashUsd), foot: 'Transferts monétaires' },
+            { label: tr('Lignes'), value: formatInt(stats.lines), foot: tr('Distributions du mois') },
+            { label: tr('Bénéficiaires'), value: formatInt(stats.beneficiaries), foot: tr('Toutes modalités') },
+            { label: tr('Ménages'), value: formatInt(stats.households), foot: tr('Toutes modalités') },
+            { label: tr('Vivres'), value: fmtMt(stats.totalFood), foot: tr('Tonnage du mois') },
+            { label: tr('Cash (CBT)'), value: fmtUsd(stats.cashUsd), foot: tr('Transferts monétaires') },
           ]} />
 
           <DataList
             rows={monthRows} columns={columns} defaultColumns={DEFAULT_COLS}
             filters={filters} defaultFilters={['q', 'hazard', 'region', 'district']}
             storageKey="mems.pdd.dist.view.v2" pageSize={15} defaultSort={{ key: 'beneficiaries', dir: 'desc' }}
-            csvName={`pdd_distributions_${month}.csv`} emptyIcon={PackageOpen} emptyTitle="Aucune distribution ce mois-ci"
-            emptyChildren={canEdit ? "Importez un fichier PDD (.xlsx) pour alimenter le module." : 'Aucune distribution importée pour ce mois.'}
+            csvName={`pdd_distributions_${month}.csv`} emptyIcon={PackageOpen} emptyTitle={tr('Aucune distribution ce mois-ci')}
+            emptyChildren={canEdit ? tr('Importez un fichier PDD (.xlsx) pour alimenter le module.') : tr('Aucune distribution importée pour ce mois.')}
           />
 
           <p className="hint" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Layers size={14} aria-hidden="true" />
-            <span>Zones (région/district/commune), bureaux (antenne/sous-bureau) et partenaires sont les mêmes référentiels que le reste de MEMS. Voir la <button type="button" className="link-cell" onClick={() => onNavigate?.('pdd', 'synthese')}>Synthèse</button> et le <button type="button" className="link-cell" onClick={() => onNavigate?.('pdd', 'pipeline')}>Pipeline</button>.</span>
+            <span>{tr('Zones (région/district/commune), bureaux (antenne/sous-bureau) et partenaires sont les mêmes référentiels que le reste de MEMS.')}{' '}
+              {tr('Voir la {synthese} et le {pipeline}.').split(/(\{synthese\}|\{pipeline\})/).map((part, i) => (
+                part === '{synthese}' ? <button key={i} type="button" className="link-cell" onClick={() => onNavigate?.('pdd', 'synthese')}>{tr('Synthèse')}</button>
+                  : part === '{pipeline}' ? <button key={i} type="button" className="link-cell" onClick={() => onNavigate?.('pdd', 'pipeline')}>{tr('Pipeline')}</button>
+                    : part))}</span>
           </p>
         </>
       )}
@@ -223,21 +232,19 @@ function DistributionsView({ canEdit, onNavigate }) {
 
 // Tableau des mois : une ligne par mois avec ses totaux ; clic → distributions.
 function PddMonthsTable({ data, total, onOpen, canEdit, onTemplate, onImport }) {
+  const { tr } = useI18n();
   if (data === null) return <Card><div className="card-body"><Skeleton height={280} /></div></Card>;
   if (data.length === 0) {
     return (
       <Card>
-        <EmptyState icon={PackageOpen} title="Aucune distribution"
+        <EmptyState icon={PackageOpen} title={tr('Aucune distribution')}
           action={canEdit && (
             <div className="header-actions" style={{ justifyContent: 'center' }}>
-              <Button variant="secondary" icon={Download} onClick={onTemplate}>1 · Télécharger le modèle</Button>
-              <Button icon={Upload} onClick={onImport}>2 · Importer le fichier rempli</Button>
+              <Button variant="secondary" icon={Download} onClick={onTemplate}>{tr('1 · Télécharger le modèle')}</Button>
+              <Button icon={Upload} onClick={onImport}>{tr('2 · Importer le fichier rempli')}</Button>
             </div>
           )}>
-          Le plan de distribution s'alimente depuis un classeur Excel (feuille « PDD base » : une ligne par
-          distribution — mois, zone, activité, bénéficiaires, tonnage par denrée, cash). Le modèle contient
-          les colonnes à leur place exacte, des listes de contrôle à la saisie et une feuille « Lisez-moi »
-          qui décrit chaque colonne. Réimporter un mois remplace ses distributions.
+          {tr("Le plan de distribution s'alimente depuis un classeur Excel (feuille « PDD base » : une ligne par distribution — mois, zone, activité, bénéficiaires, tonnage par denrée, cash). Le modèle contient les colonnes à leur place exacte, des listes de contrôle à la saisie et une feuille « Lisez-moi » qui décrit chaque colonne. Réimporter un mois remplace ses distributions.")}
         </EmptyState>
       </Card>
     );
@@ -246,23 +253,23 @@ function PddMonthsTable({ data, total, onOpen, canEdit, onTemplate, onImport }) 
   return (
     <div className="card biz-card months-card">
       <div className="months-head">
-        <span className="months-year">Plan de distribution — par mois</span>
+        <span className="months-year">{tr('Plan de distribution — par mois')}</span>
         <div className="months-head-sum">
-          <span><strong className="tabular">{formatInt(data.length)}</strong> mois</span>
-          <span><strong className="tabular">{formatInt(total.beneficiaries)}</strong> bénéficiaires</span>
-          <span><strong className="tabular">{fmtMt(total.totalFood)}</strong> vivres</span>
+          <span><strong className="tabular">{formatInt(data.length)}</strong> {tr('mois')}</span>
+          <span><strong className="tabular">{formatInt(total.beneficiaries)}</strong> {tr('bénéficiaires')}</span>
+          <span><strong className="tabular">{fmtMt(total.totalFood)}</strong> {tr('vivres')}</span>
         </div>
       </div>
       <div className="table-wrap"><table className="table grid months-grid">
         <thead><tr>
-          <th>Mois</th><th>Aléas</th><th className="num">Lignes</th><th className="num">Bénéficiaires</th>
-          <th className="num">Ménages</th><th className="num">Vivres (t)</th><th className="num">Cash ($)</th>
-          <th>Part bénéficiaires</th><th aria-label="Action" />
+          <th>{tr('Mois')}</th><th>{tr('Aléas')}</th><th className="num">{tr('Lignes')}</th><th className="num">{tr('Bénéficiaires')}</th>
+          <th className="num">{tr('Ménages')}</th><th className="num">{tr('Vivres (t)')}</th><th className="num">{tr('Cash ($)')}</th>
+          <th>{tr('Part bénéficiaires')}</th><th aria-label={tr('Action')} />
         </tr></thead>
         <tbody>
           {data.map((m) => (
             <tr key={m.month} className="clickable month-row" onClick={() => onOpen(m.month)}
-              onKeyDown={(e) => { if (e.key === 'Enter') onOpen(m.month); }} tabIndex={0} aria-label={`Ouvrir ${monthLabel(m.month)}`}>
+              onKeyDown={(e) => { if (e.key === 'Enter') onOpen(m.month); }} tabIndex={0} aria-label={tr('Ouvrir {month}', { month: monthLabel(m.month) })}>
               <td><span className="month-name">{monthLabel(m.month)}</span></td>
               <td>{[...m.hazards].map((h) => <HazardBadge key={h} value={h} />)}</td>
               <td className="num tabular">{formatInt(m.lines)}</td>
@@ -273,14 +280,14 @@ function PddMonthsTable({ data, total, onOpen, canEdit, onTemplate, onImport }) 
               <td><span className="mini-bar"><span style={{ width: `${Math.round((m.beneficiaries / maxBen) * 100)}%`, background: 'var(--blue-600)' }} /></span></td>
               <td className="num">
                 <button type="button" className="btn btn-sm btn-secondary month-open" onClick={(e) => { e.stopPropagation(); onOpen(m.month); }}>
-                  Ouvrir<GoIcon size={15} aria-hidden="true" />
+                  {tr('Ouvrir')}<GoIcon size={15} aria-hidden="true" />
                 </button>
               </td>
             </tr>
           ))}
         </tbody>
       </table></div>
-      <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>Cliquez un mois (ou « Ouvrir ») pour accéder à ses distributions détaillées.</span></div>
+      <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>{tr('Cliquez un mois (ou « Ouvrir ») pour accéder à ses distributions détaillées.')}</span></div>
     </div>
   );
 }
@@ -289,6 +296,7 @@ function PddMonthsTable({ data, total, onOpen, canEdit, onTemplate, onImport }) 
 // Synthèse — par aléa, par mois, par zone, par denrée
 // ──────────────────────────────────────────────────────────────────────────
 function SynthesisView() {
+  const { tr } = useI18n();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [open, setOpen] = useState(() => new Set());
@@ -300,7 +308,7 @@ function SynthesisView() {
   if (error) return <Alert tone="error">{error}</Alert>;
   if (!data) return (
     <>
-      <div className="page-header"><div><h1 className="page-title">Distribution d'urgence — synthèse</h1><p className="page-desc">Chargement…</p></div></div>
+      <div className="page-header"><div><h1 className="page-title">{tr("Distribution d'urgence — synthèse")}</h1><p className="page-desc">{tr('Chargement…')}</p></div></div>
       <Card><div className="card-body"><Skeleton height={200} /></div></Card>
     </>
   );
@@ -314,25 +322,25 @@ function SynthesisView() {
     <>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Distribution d'urgence — synthèse</h1>
-          <p className="page-desc">Totaux recalculés en direct : par aléa, par mois, par zone (région → district → commune) et par denrée.</p>
+          <h1 className="page-title">{tr("Distribution d'urgence — synthèse")}</h1>
+          <p className="page-desc">{tr('Totaux recalculés en direct : par aléa, par mois, par zone (région → district → commune) et par denrée.')}</p>
         </div>
       </div>
 
       <Stats compact items={[
-        { label: 'Lignes', value: formatInt(total.lines), foot: 'Distributions' },
-        { label: 'Bénéficiaires', value: formatInt(total.beneficiaries), foot: 'Toutes zones' },
-        { label: 'Ménages', value: formatInt(total.households), foot: 'Toutes zones' },
-        { label: 'Vivres', value: fmtMt(total.totalFood), foot: 'Tonnage total' },
-        { label: 'Cash (CBT)', value: fmtUsd(total.cashUsd), foot: 'Transferts monétaires' },
+        { label: tr('Lignes'), value: formatInt(total.lines), foot: tr('Distributions') },
+        { label: tr('Bénéficiaires'), value: formatInt(total.beneficiaries), foot: tr('Toutes zones') },
+        { label: tr('Ménages'), value: formatInt(total.households), foot: tr('Toutes zones') },
+        { label: tr('Vivres'), value: fmtMt(total.totalFood), foot: tr('Tonnage total') },
+        { label: tr('Cash (CBT)'), value: fmtUsd(total.cashUsd), foot: tr('Transferts monétaires') },
       ]} />
 
       <div className="pdd-two">
         <Card aria-labelledby="pdd-hz">
-          <CardHeader id="pdd-hz" title="Par aléa" subtitle="Réponse par type de choc." />
+          <CardHeader id="pdd-hz" title={tr('Par aléa')} subtitle={tr('Réponse par type de choc.')} />
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th scope="col">Aléa</th><th scope="col" className="num">Lignes</th><th scope="col" className="num">Bénéficiaires</th><th scope="col" className="num">Vivres (t)</th><th scope="col" className="num">Cash ($)</th></tr></thead>
+              <thead><tr><th scope="col">{tr('Aléa')}</th><th scope="col" className="num">{tr('Lignes')}</th><th scope="col" className="num">{tr('Bénéficiaires')}</th><th scope="col" className="num">{tr('Vivres (t)')}</th><th scope="col" className="num">{tr('Cash ($)')}</th></tr></thead>
               <tbody>
                 {hazards.map((k) => (
                   <tr key={k}>
@@ -349,10 +357,10 @@ function SynthesisView() {
         </Card>
 
         <Card aria-labelledby="pdd-mo">
-          <CardHeader id="pdd-mo" title="Par mois" subtitle="Échelonnement de la réponse dans le temps." />
+          <CardHeader id="pdd-mo" title={tr('Par mois')} subtitle={tr('Échelonnement de la réponse dans le temps.')} />
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th scope="col">Mois</th><th scope="col" className="num">Lignes</th><th scope="col" className="num">Bénéficiaires</th><th scope="col" className="num">Vivres (t)</th><th scope="col" className="num">Cash ($)</th></tr></thead>
+              <thead><tr><th scope="col">{tr('Mois')}</th><th scope="col" className="num">{tr('Lignes')}</th><th scope="col" className="num">{tr('Bénéficiaires')}</th><th scope="col" className="num">{tr('Vivres (t)')}</th><th scope="col" className="num">{tr('Cash ($)')}</th></tr></thead>
               <tbody>
                 {months.map((m) => (
                   <tr key={m}>
@@ -370,10 +378,10 @@ function SynthesisView() {
       </div>
 
       <Card aria-labelledby="pdd-zone">
-        <CardHeader id="pdd-zone" title="Par zone" subtitle="Région → district → commune. Cliquez pour déplier." />
+        <CardHeader id="pdd-zone" title={tr('Par zone')} subtitle={tr('Région → district → commune. Cliquez pour déplier.')} />
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th scope="col">Zone</th><th scope="col" className="num">Lignes</th><th scope="col" className="num">Bénéficiaires</th><th scope="col" className="num">Ménages</th><th scope="col" className="num">Vivres (t)</th><th scope="col" className="num">Cash ($)</th></tr></thead>
+            <thead><tr><th scope="col">{tr('Zone')}</th><th scope="col" className="num">{tr('Lignes')}</th><th scope="col" className="num">{tr('Bénéficiaires')}</th><th scope="col" className="num">{tr('Ménages')}</th><th scope="col" className="num">{tr('Vivres (t)')}</th><th scope="col" className="num">{tr('Cash ($)')}</th></tr></thead>
             <tbody>
               {byZone.map((R) => {
                 const rk = `r:${R.name}`; const rOpen = open.has(rk);
@@ -381,7 +389,7 @@ function SynthesisView() {
                   <React.Fragment key={rk}>
                     <tr className={rOpen ? 'is-expanded' : ''}>
                       <td>
-                        <ExpandButton expanded={rOpen} onClick={() => toggle(rk)} label={`Déplier ${R.name}`} />
+                        <ExpandButton expanded={rOpen} onClick={() => toggle(rk)} label={R.name} />
                         <strong style={{ marginLeft: 6 }}>{R.name}</strong>
                       </td>
                       <td className="num mono">{formatInt(R.lines)}</td>
@@ -396,7 +404,7 @@ function SynthesisView() {
                         <React.Fragment key={dk}>
                           <tr className="subrow">
                             <td style={{ paddingLeft: 28 }}>
-                              <ExpandButton expanded={dOpen} onClick={() => toggle(dk)} label={`Déplier ${D.name}`} />
+                              <ExpandButton expanded={dOpen} onClick={() => toggle(dk)} label={D.name} />
                               <span style={{ marginLeft: 6 }}>{D.name}</span>
                             </td>
                             <td className="num mono">{formatInt(D.lines)}</td>
@@ -427,12 +435,12 @@ function SynthesisView() {
       </Card>
 
       <Card aria-labelledby="pdd-cm">
-        <CardHeader id="pdd-cm" title="Par denrée" subtitle="Tonnage total planifié par produit." />
+        <CardHeader id="pdd-cm" title={tr('Par denrée')} subtitle={tr('Tonnage total planifié par produit.')} />
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th scope="col">Denrée</th><th scope="col" className="num">Tonnage (t)</th><th scope="col">Part</th></tr></thead>
+            <thead><tr><th scope="col">{tr('Denrée')}</th><th scope="col" className="num">{tr('Tonnage (t)')}</th><th scope="col">{tr('Part')}</th></tr></thead>
             <tbody>
-              {commodityTotals.length === 0 && <tr><td colSpan={3}><EmptyState icon={Boxes} title="Aucune denrée">Les tonnages apparaissent dès qu'un PDD est importé.</EmptyState></td></tr>}
+              {commodityTotals.length === 0 && <tr><td colSpan={3}><EmptyState icon={Boxes} title={tr('Aucune denrée')}>{tr("Les tonnages apparaissent dès qu'un PDD est importé.")}</EmptyState></td></tr>}
               {commodityTotals.map(([name, qty]) => {
                 const max = commodityTotals[0][1] || 1;
                 return (
@@ -455,6 +463,7 @@ function SynthesisView() {
 // Pipeline — besoin planifié vs stock disponible, par denrée
 // ──────────────────────────────────────────────────────────────────────────
 function PipelineView({ canEdit }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [month, setMonth] = useState('');
   const [months, setMonths] = useState([]);
@@ -470,14 +479,14 @@ function PipelineView({ canEdit }) {
   useEffect(() => { reload(); }, [reload]);
 
   const saveStock = async (commodity) => {
-    if (!month) { toast.error('Choisissez d\'abord un mois pour saisir le stock.'); return; }
+    if (!month) { toast.error(tr("Choisissez d'abord un mois pour saisir le stock.")); return; }
     const d = draft[commodity] || {};
     const row = (rows || []).find((r) => r.commodity === commodity) || {};
     const availableMt = d.available != null ? Number(d.available) : Number(row.available) || 0;
     const donor = d.donor != null ? d.donor : (row.donor || '');
     try {
       await api.pddSetStock({ month, commodity, availableMt: Math.max(0, availableMt || 0), donor });
-      toast.success(`Stock « ${commodity} » enregistré.`);
+      toast.success(tr('Stock « {commodity} » enregistré.', { commodity }));
       reload();
     } catch (e) { toast.error(e.message); }
   };
@@ -492,12 +501,12 @@ function PipelineView({ canEdit }) {
     <>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Distribution d'urgence — pipeline</h1>
-          <p className="page-desc">Besoin planifié (tonnages du PDD) confronté au stock disponible, par denrée : écart, couverture et ruptures.</p>
+          <h1 className="page-title">{tr("Distribution d'urgence — pipeline")}</h1>
+          <p className="page-desc">{tr('Besoin planifié (tonnages du PDD) confronté au stock disponible, par denrée : écart, couverture et ruptures.')}</p>
         </div>
         <div className="header-actions">
-          <select className="select" value={month} onChange={(e) => setMonth(e.target.value)} aria-label="Mois">
-            <option value="">Tous les mois</option>
+          <select className="select" value={month} onChange={(e) => setMonth(e.target.value)} aria-label={tr('Mois')}>
+            <option value="">{tr('Tous les mois')}</option>
             {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
           </select>
         </div>
@@ -506,31 +515,31 @@ function PipelineView({ canEdit }) {
       {error && <Alert tone="error">{error}</Alert>}
 
       <Stats compact items={[
-        { label: 'Besoin total', value: rows ? fmtMt(totals.need) : '—', foot: 'Tonnage planifié' },
-        { label: 'Stock disponible', value: rows ? fmtMt(totals.available) : '—', foot: 'Saisi' },
-        { label: 'Couverture', value: rows ? pct(totals.need > 0 ? totals.available / totals.need : (totals.available > 0 ? 1 : 0)) : '—', foot: 'Dispo / besoin' },
-        { label: 'Ruptures', value: rows ? formatInt(totals.shortfalls) : '—', foot: 'Denrées en déficit' },
+        { label: tr('Besoin total'), value: rows ? fmtMt(totals.need) : '—', foot: tr('Tonnage planifié') },
+        { label: tr('Stock disponible'), value: rows ? fmtMt(totals.available) : '—', foot: tr('Saisi') },
+        { label: tr('Couverture'), value: rows ? pct(totals.need > 0 ? totals.available / totals.need : (totals.available > 0 ? 1 : 0)) : '—', foot: tr('Dispo / besoin') },
+        { label: tr('Ruptures'), value: rows ? formatInt(totals.shortfalls) : '—', foot: tr('Denrées en déficit') },
       ]} />
 
       <Card aria-labelledby="pdd-pipe">
-        <CardHeader id="pdd-pipe" title="Pipeline par denrée" subtitle={canEdit ? 'Saisissez le stock disponible et le donateur pour calculer l\'écart.' : 'Lecture seule.'} />
+        <CardHeader id="pdd-pipe" title={tr('Pipeline par denrée')} subtitle={canEdit ? tr("Saisissez le stock disponible et le donateur pour calculer l'écart.") : tr('Lecture seule.')} />
         {rows === null ? (
           <div className="card-body"><Skeleton height={160} /></div>
         ) : rows.length === 0 ? (
-          <EmptyState icon={Boxes} title="Aucun besoin" >Importez un PDD (onglet Distributions) pour alimenter le pipeline.</EmptyState>
+          <EmptyState icon={Boxes} title={tr('Aucun besoin')} >{tr('Importez un PDD (onglet Distributions) pour alimenter le pipeline.')}</EmptyState>
         ) : (
           <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
-                  <th scope="col">Denrée</th>
-                  <th scope="col" className="num">Besoin (t)</th>
-                  <th scope="col" className="num">Disponible (t)</th>
-                  <th scope="col" className="num">Écart (t)</th>
-                  <th scope="col">Couverture</th>
-                  <th scope="col">Donateur</th>
-                  <th scope="col">Statut</th>
-                  {canEdit && <th scope="col" aria-label="Actions" />}
+                  <th scope="col">{tr('Denrée')}</th>
+                  <th scope="col" className="num">{tr('Besoin (t)')}</th>
+                  <th scope="col" className="num">{tr('Disponible (t)')}</th>
+                  <th scope="col" className="num">{tr('Écart (t)')}</th>
+                  <th scope="col">{tr('Couverture')}</th>
+                  <th scope="col">{tr('Donateur')}</th>
+                  <th scope="col">{tr('Statut')}</th>
+                  {canEdit && <th scope="col" aria-label={tr('Actions')} />}
                 </tr>
               </thead>
               <tbody>
@@ -546,22 +555,22 @@ function PipelineView({ canEdit }) {
                         {canEdit
                           ? <input className="input" type="number" min="0" step="0.001" style={{ width: 110, textAlign: 'right' }}
                               value={availVal} onChange={(e) => setDraft({ ...draft, [r.commodity]: { ...d, available: e.target.value } })}
-                              onKeyDown={(e) => { if (e.key === 'Enter') saveStock(r.commodity); }} aria-label={`Stock ${r.commodity}`} />
+                              onKeyDown={(e) => { if (e.key === 'Enter') saveStock(r.commodity); }} aria-label={tr('Stock {commodity}', { commodity: r.commodity })} />
                           : fmtMt(r.available)}
                       </td>
                       <td className="num mono">{r.shortfall ? <span style={{ color: 'var(--red)' }}>{mtFmt.format(r.gap)}</span> : mtFmt.format(r.gap)}</td>
                       <td style={{ minWidth: 140 }}><Usage rate={r.coverage} /></td>
                       <td>
                         {canEdit
-                          ? <input className="input" type="text" style={{ width: 150 }} placeholder="Donateur"
+                          ? <input className="input" type="text" style={{ width: 150 }} placeholder={tr('Donateur')}
                               value={donorVal} onChange={(e) => setDraft({ ...draft, [r.commodity]: { ...d, donor: e.target.value } })}
-                              onKeyDown={(e) => { if (e.key === 'Enter') saveStock(r.commodity); }} aria-label={`Donateur ${r.commodity}`} />
+                              onKeyDown={(e) => { if (e.key === 'Enter') saveStock(r.commodity); }} aria-label={tr('Donateur {commodity}', { commodity: r.commodity })} />
                           : (r.donor || <span className="cell-empty">—</span>)}
                       </td>
                       <td>{r.shortfall
-                        ? <span className="badge" style={{ background: 'var(--red-bg)', color: 'var(--red-text)' }}><span className="dot" style={{ background: 'var(--red)' }} />Rupture</span>
-                        : <span className="badge" style={{ background: 'var(--green-bg)', color: 'var(--green-text)' }}><span className="dot" style={{ background: 'var(--green)' }} />Couvert</span>}</td>
-                      {canEdit && <td><Button size="sm" variant="secondary" onClick={() => saveStock(r.commodity)}>Enregistrer</Button></td>}
+                        ? <span className="badge" style={{ background: 'var(--red-bg)', color: 'var(--red-text)' }}><span className="dot" style={{ background: 'var(--red)' }} />{tr('Rupture')}</span>
+                        : <span className="badge" style={{ background: 'var(--green-bg)', color: 'var(--green-text)' }}><span className="dot" style={{ background: 'var(--green)' }} />{tr('Couvert')}</span>}</td>
+                      {canEdit && <td><Button size="sm" variant="secondary" onClick={() => saveStock(r.commodity)}>{tr('Enregistrer')}</Button></td>}
                     </tr>
                   );
                 })}
@@ -573,7 +582,7 @@ function PipelineView({ canEdit }) {
 
       {!month && <p className="hint" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <AlertTriangle size={14} aria-hidden="true" />
-        <span>Le stock se saisit par mois. Choisissez un mois ci-dessus pour enregistrer les quantités disponibles et leur donateur.</span>
+        <span>{tr('Le stock se saisit par mois. Choisissez un mois ci-dessus pour enregistrer les quantités disponibles et leur donateur.')}</span>
       </p>}
     </>
   );

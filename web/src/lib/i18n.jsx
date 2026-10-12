@@ -34,7 +34,7 @@ const DICT = {
     'nav.processus': 'Process monitoring',
     'nav.processus.synthese': 'Dashboard',
     'nav.processus.donnees': 'Data & indicators',
-    'nav.processus.sites': 'Sites & visits',
+    'nav.processus.sites': 'Assignment & visits',
     'nav.processus.rbm': 'Risk-Based Monitoring',
     'nav.processus.carte': 'Site map',
     'nav.dashboard.apercu': 'Overview',
@@ -78,8 +78,8 @@ const DICT = {
     'user.logout': 'Sign out',
     // roles
     'role.admin': 'Administrator',
-    'role.manager': 'Validator',
-    'role.viewer': 'Viewer',
+    'role.manager': 'Monitoring manager',
+    'role.viewer': 'Read-only',
   },
 };
 

@@ -3,6 +3,7 @@ import { Download, AlertCircle, TriangleAlert, Layers, Coins, Wallet } from 'luc
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, PageHeader, Skeleton, Stats, Usage } from '../../components/ui.jsx';
 import { formatAr, formatInt, monthLabel } from '../../lib/format.js';
+import { useI18n } from '../../lib/i18n.jsx';
 
 const MATRIX_VIEWS = [
   { id: 'actual', label: 'Réalisé' },
@@ -23,6 +24,7 @@ function pct(rate) {
  * variance / consumption / projection columns.
  */
 export default function ConsolidationPage({ onOpenContract }) {
+  const { tr } = useI18n();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [view, setView] = useState('actual');
@@ -51,8 +53,8 @@ export default function ConsolidationPage({ onOpenContract }) {
   }
 
   function exportCsv() {
-    const head = ['Prestataire TPM', 'Contrat', 'Budget Suivi (Ar)', 'Planifié (Ar)', 'Réalisé (Ar)',
-      'Taux conso', 'Écart plan/réel', 'Mois restants', 'Restant (Ar)', 'Projection fin (Ar)'];
+    const head = [tr('Prestataire TPM'), tr('Contrat'), tr('Budget Suivi (Ar)'), tr('Planifié (Ar)'), tr('Réalisé (Ar)'),
+      tr('Taux conso'), tr('Écart plan/réel'), tr('Mois restants'), tr('Restant (Ar)'), tr('Projection fin (Ar)')];
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = rows.map((r) => [
       r.partnerName, r.numero, Math.round(r.budget), Math.round(r.planned), Math.round(r.actual),
@@ -68,52 +70,51 @@ export default function ConsolidationPage({ onOpenContract }) {
   return (
     <div className="section-gap">
       <PageHeader
-        title="Suivi budgétaire consolidé"
-        description="Vue d'ensemble par prestataire TPM : le Budget de suivi (contrat), le Planifié et le Réalisé (rapports) réunis pour suivre la consommation, les écarts et la projection de fin de contrat."
+        title={tr('Suivi budgétaire consolidé')}
+        description={tr('Vue d\'ensemble par prestataire TPM : le Budget de suivi (contrat), le Planifié et le Réalisé (rapports) réunis pour suivre la consommation, les écarts et la projection de fin de contrat.')}
       >
-        <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!rows.length}>Exporter (CSV)</Button>
+        <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!rows.length}>{tr('Exporter (CSV)')}</Button>
       </PageHeader>
 
       <Stats items={[
-        { label: 'Budget de suivi (total)', value: data ? formatInt(t.budget) : '—', suffix: 'Ar', foot: `${data ? t.contracts : '—'} contrat(s) de suivi` },
-        { label: 'Planifié', value: data ? formatInt(t.planned) : '—', suffix: 'Ar', foot: `Taux ${data ? pct(t.plannedRate) : '—'} du budget` },
-        { label: 'Réalisé (justifié)', value: data ? formatInt(t.actual) : '—', suffix: 'Ar', foot: `Consommation ${data ? pct(t.actualRate) : '—'}` },
-        { label: 'Budget restant', value: data ? formatInt(t.remaining) : '—', suffix: 'Ar', foot: t.overspent ? 'Dépassement' : 'Disponible' },
+        { label: tr('Budget de suivi (total)'), value: data ? formatInt(t.budget) : '—', suffix: 'Ar', foot: tr('{n} contrat(s) de suivi', { n: data ? t.contracts : '—' }) },
+        { label: tr('Planifié'), value: data ? formatInt(t.planned) : '—', suffix: 'Ar', foot: tr('Taux {rate} du budget', { rate: data ? pct(t.plannedRate) : '—' }) },
+        { label: tr('Réalisé (justifié)'), value: data ? formatInt(t.actual) : '—', suffix: 'Ar', foot: tr('Consommation {rate}', { rate: data ? pct(t.actualRate) : '—' }) },
+        { label: tr('Budget restant'), value: data ? formatInt(t.remaining) : '—', suffix: 'Ar', foot: t.overspent ? tr('Dépassement') : tr('Disponible') },
       ]} />
 
       {error && <Alert tone="error" icon={AlertCircle}>{error}</Alert>}
 
       {alerts.length > 0 && (
         <Alert tone="warning" icon={TriangleAlert}>
-          {alerts.length} prestataire(s) en dépassement ou en projection de dépassement du budget de suivi :{' '}
-          {alerts.map((r) => r.partnerName).join(', ')}.
+          {tr('{n} prestataire(s) en dépassement ou en projection de dépassement du budget de suivi : {names}.', { n: alerts.length, names: alerts.map((r) => r.partnerName).join(', ') })}
         </Alert>
       )}
 
       {/* Overview — une ligne par contrat de suivi */}
       <Card aria-labelledby="cons-title">
-        <CardHeader id="cons-title" title="Vue d'ensemble par prestataire" subtitle="Budget ↔ Planifié ↔ Réalisé, avec taux de consommation, écart et projection de fin de contrat." />
+        <CardHeader id="cons-title" title={tr('Vue d\'ensemble par prestataire')} subtitle={tr('Budget ↔ Planifié ↔ Réalisé, avec taux de consommation, écart et projection de fin de contrat.')} />
         {data === null ? (
           <div className="card-body"><Skeleton height={160} /></div>
         ) : rows.length === 0 ? (
-          <EmptyState icon={Layers} title="Aucun contrat de suivi actif">
-            La consolidation s'affiche dès qu'un contrat actif porte un budget « Suivi » (section IV) et que des rapports sont saisis.
+          <EmptyState icon={Layers} title={tr('Aucun contrat de suivi actif')}>
+            {tr('La consolidation s\'affiche dès qu\'un contrat actif porte un budget « Suivi » (section IV) et que des rapports sont saisis.')}
           </EmptyState>
         ) : (
           <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
-                  <th scope="col">Prestataire TPM</th>
-                  <th scope="col">Contrat</th>
-                  <th scope="col" className="num">Budget suivi</th>
-                  <th scope="col" className="num">Planifié</th>
-                  <th scope="col" className="num">Réalisé</th>
-                  <th scope="col">Consommation</th>
-                  <th scope="col" className="num">Plan / Réel</th>
-                  <th scope="col" className="num">Mois rest.</th>
-                  <th scope="col" className="num">Restant</th>
-                  <th scope="col" className="num">Projection fin</th>
+                  <th scope="col">{tr('Prestataire TPM')}</th>
+                  <th scope="col">{tr('Contrat')}</th>
+                  <th scope="col" className="num">{tr('Budget suivi')}</th>
+                  <th scope="col" className="num">{tr('Planifié')}</th>
+                  <th scope="col" className="num">{tr('Réalisé')}</th>
+                  <th scope="col">{tr('Consommation')}</th>
+                  <th scope="col" className="num">{tr('Plan / Réel')}</th>
+                  <th scope="col" className="num">{tr('Mois rest.')}</th>
+                  <th scope="col" className="num">{tr('Restant')}</th>
+                  <th scope="col" className="num">{tr('Projection fin')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -135,7 +136,7 @@ export default function ConsolidationPage({ onOpenContract }) {
                     </td>
                     <td className="num mono">
                       {r.projectedOverrun > 0
-                        ? <span title={`Dépassement projeté de ${formatAr(r.projectedOverrun)}`}><Badge tone="orange">{formatAr(r.projectedTotal)}</Badge></span>
+                        ? <span title={tr('Dépassement projeté de {amount}', { amount: formatAr(r.projectedOverrun) })}><Badge tone="orange">{formatAr(r.projectedTotal)}</Badge></span>
                         : formatAr(r.projectedTotal)}
                     </td>
                   </tr>
@@ -143,7 +144,7 @@ export default function ConsolidationPage({ onOpenContract }) {
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={2}><strong>Total portefeuille</strong></td>
+                  <td colSpan={2}><strong>{tr('Total portefeuille')}</strong></td>
                   <td className="num mono"><strong>{formatAr(t.budget)}</strong></td>
                   <td className="num mono"><strong>{formatAr(t.planned)}</strong></td>
                   <td className="num mono"><strong>{formatAr(t.actual)}</strong></td>
@@ -162,8 +163,8 @@ export default function ConsolidationPage({ onOpenContract }) {
       {/* Recap / Analysis — matrice mensuelle */}
       {rows.length > 0 && months.length > 0 && (
         <Card aria-labelledby="matrix-title">
-          <CardHeader id="matrix-title" title="Suivi mensuel" subtitle="Montants par mois et par prestataire, sur la période des contrats.">
-            <div className="seg" role="tablist" aria-label="Vue de la matrice">
+          <CardHeader id="matrix-title" title={tr('Suivi mensuel')} subtitle={tr('Montants par mois et par prestataire, sur la période des contrats.')}>
+            <div className="seg" role="tablist" aria-label={tr('Vue de la matrice')}>
               {MATRIX_VIEWS.map((v) => (
                 <button
                   key={v.id}
@@ -173,7 +174,7 @@ export default function ConsolidationPage({ onOpenContract }) {
                   className={view === v.id ? 'is-active' : ''}
                   onClick={() => setView(v.id)}
                 >
-                  {v.label}
+                  {tr(v.label)}
                 </button>
               ))}
             </div>
@@ -182,9 +183,9 @@ export default function ConsolidationPage({ onOpenContract }) {
             <table className="table">
               <thead>
                 <tr>
-                  <th scope="col">Prestataire</th>
+                  <th scope="col">{tr('Prestataire')}</th>
                   {months.map((m) => <th key={m} scope="col" className="num">{monthLabel(m).replace(/ \d{4}$/, '')}</th>)}
-                  <th scope="col" className="num">Total</th>
+                  <th scope="col" className="num">{tr('Total')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -208,7 +209,7 @@ export default function ConsolidationPage({ onOpenContract }) {
               </tbody>
               <tfoot>
                 <tr>
-                  <td><strong>Total</strong></td>
+                  <td><strong>{tr('Total')}</strong></td>
                   {(data.monthlyTotals || []).map((mt) => {
                     const v = view === 'planned' ? mt.planned : view === 'ecart' ? mt.ecart : mt.actual;
                     return <td key={mt.month} className="num mono"><strong>{v ? formatInt(v) : '—'}</strong></td>;
@@ -226,8 +227,8 @@ export default function ConsolidationPage({ onOpenContract }) {
       <p className="hint" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <Wallet size={14} aria-hidden="true" />
         <span>
-          <strong>Budget</strong> = ligne « Suivi » (section IV) du contrat · <Coins size={12} aria-hidden="true" />{' '}
-          <strong>Planifié</strong> &amp; <strong>Réalisé</strong> = rapports mensuels du prestataire. Tout est recalculé en direct depuis les contrats et les rapports.
+          <strong>{tr('Budget')}</strong> {tr('= ligne « Suivi » (section IV) du contrat')} · <Coins size={12} aria-hidden="true" />{' '}
+          <strong>{tr('Planifié')}</strong> &amp; <strong>{tr('Réalisé')}</strong> {tr('= rapports mensuels du prestataire. Tout est recalculé en direct depuis les contrats et les rapports.')}
         </span>
       </p>
     </div>

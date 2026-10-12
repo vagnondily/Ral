@@ -8,6 +8,7 @@ import { useToast } from '../../components/Toast.jsx';
 import MmrSection from './MmrSection.jsx';
 import LocalitiesSection from './LocalitiesSection.jsx';
 import { formatAr, formatInt, formatDateTime } from '../../lib/format.js';
+import { useI18n } from '../../lib/i18n.jsx';
 
 // Catalogue des rubriques de paramétrage, groupées (façon « Tools » : cartes
 // explicites). `admin` = réservé aux administrateurs.
@@ -24,11 +25,12 @@ const SECTIONS = {
 const GROUPS = ['Référentiels', 'Finances', 'Géographie', 'Suivi', 'Sécurité'];
 
 export default function SettingsPage({ tab = 'apercu', isAdmin, onNavigate }) {
+  const { tr } = useI18n();
   const current = SECTIONS[tab] ? tab : 'apercu';
   if (current === 'apercu') {
     return (
       <div className="section-gap">
-        <PageHeader title="Paramétrage" description="Centre de configuration : référentiels, finances, géographie et sécurité. Choisissez une rubrique." />
+        <PageHeader title={tr('Paramétrage')} description={tr('Centre de configuration : référentiels, finances, géographie et sécurité. Choisissez une rubrique.')} />
         <SettingsOverview isAdmin={isAdmin} onNavigate={onNavigate} />
       </div>
     );
@@ -36,11 +38,11 @@ export default function SettingsPage({ tab = 'apercu', isAdmin, onNavigate }) {
   const meta = SECTIONS[current];
   return (
     <div className="section-gap">
-      <PageHeader title={`Paramétrage — ${meta.label}`} description={meta.desc}>
-        {onNavigate && <Button variant="ghost" size="sm" onClick={() => onNavigate('parametrage', 'apercu')}>← Toutes les rubriques</Button>}
+      <PageHeader title={tr('Paramétrage — {label}', { label: tr(meta.label) })} description={tr(meta.desc)}>
+        {onNavigate && <Button variant="ghost" size="sm" onClick={() => onNavigate('parametrage', 'apercu')}>{tr('← Toutes les rubriques')}</Button>}
       </PageHeader>
       {meta.admin && !isAdmin ? (
-        <Card><EmptyState icon={Lock} title="Accès réservé">Cette rubrique est réservée aux administrateurs.</EmptyState></Card>
+        <Card><EmptyState icon={Lock} title={tr('Accès réservé')}>{tr('Cette rubrique est réservée aux administrateurs.')}</EmptyState></Card>
       ) : (
         <>
           {current === 'partenaires' && <PartnersSection isAdmin={isAdmin} />}
@@ -58,13 +60,14 @@ export default function SettingsPage({ tab = 'apercu', isAdmin, onNavigate }) {
 }
 
 function SettingsOverview({ isAdmin, onNavigate }) {
+  const { tr } = useI18n();
   return (
     <div style={{ display: 'grid', gap: 20 }}>
       {GROUPS.map((g) => {
         const items = Object.entries(SECTIONS).filter(([, s]) => s.group === g);
         return (
           <div key={g}>
-            <div className="nav-group-label" style={{ padding: '0 2px 8px' }}>{g}</div>
+            <div className="nav-group-label" style={{ padding: '0 2px 8px' }}>{tr(g)}</div>
             <div className="set-cards">
               {items.map(([id, s]) => {
                 const Icon = s.icon;
@@ -72,11 +75,11 @@ function SettingsOverview({ isAdmin, onNavigate }) {
                 return (
                   <button key={id} type="button" className="set-card" disabled={locked}
                     onClick={() => !locked && onNavigate && onNavigate('parametrage', id)}
-                    title={locked ? 'Réservé aux administrateurs' : s.label}>
+                    title={locked ? tr('Réservé aux administrateurs') : tr(s.label)}>
                     <span className="set-card-ic"><Icon size={20} aria-hidden="true" /></span>
                     <span className="set-card-body">
-                      <span className="set-card-title">{s.label}{locked && <Lock size={13} aria-hidden="true" style={{ marginLeft: 6, verticalAlign: '-1px', color: 'var(--text-faint)' }} />}</span>
-                      <span className="set-card-desc">{s.desc}</span>
+                      <span className="set-card-title">{tr(s.label)}{locked && <Lock size={13} aria-hidden="true" style={{ marginLeft: 6, verticalAlign: '-1px', color: 'var(--text-faint)' }} />}</span>
+                      <span className="set-card-desc">{tr(s.desc)}</span>
                     </span>
                     <ChevronRight size={16} className="set-card-arrow" aria-hidden="true" />
                   </button>
@@ -96,6 +99,7 @@ const ROLE_LABEL = { admin: 'Administrateur', manager: 'Validateur', viewer: 'Le
 const ROLE_TONE = { admin: 'blue', manager: 'green', viewer: null };
 
 function UsersSection() {
+  const { tr } = useI18n();
   const toast = useToast();
   const [users, setUsers] = useState(null);
   const [modal, setModal] = useState(null); // {user?} | null
@@ -108,35 +112,35 @@ function UsersSection() {
     catch (e) { toast.error(e.message); }
   }
   async function remove(u) {
-    if (!window.confirm(`Supprimer le compte « ${u.email} » ? Cette action est définitive.`)) return;
-    try { await api.deleteUser(u.id); toast.success('Compte supprimé.'); reload(); } catch (e) { toast.error(e.message); }
+    if (!window.confirm(tr('Supprimer le compte « {email} » ? Cette action est définitive.', { email: u.email }))) return;
+    try { await api.deleteUser(u.id); toast.success(tr('Compte supprimé.')); reload(); } catch (e) { toast.error(e.message); }
   }
 
   return (
     <Card aria-labelledby="users-title">
-      <CardHeader id="users-title" title="Utilisateurs & accès"
-        subtitle="Comptes et rôles. Administrateur : tout gère. Validateur : valide contrats/rapports. Lecteur : consultation seule. Un compte désactivé ne peut plus se connecter.">
-        <Button icon={Plus} onClick={() => setModal({})}>Nouvel utilisateur</Button>
+      <CardHeader id="users-title" title={tr('Utilisateurs & accès')}
+        subtitle={tr('Comptes et rôles. Administrateur : tout gère. Validateur : valide contrats/rapports. Lecteur : consultation seule. Un compte désactivé ne peut plus se connecter.')}>
+        <Button icon={Plus} onClick={() => setModal({})}>{tr('Nouvel utilisateur')}</Button>
       </CardHeader>
       {users === null ? <div className="card-body"><Skeleton height={120} /></div> : users.length === 0 ? (
-        <EmptyState icon={Users} title="Aucun compte" action={<Button icon={Plus} onClick={() => setModal({})}>Nouvel utilisateur</Button>} />
+        <EmptyState icon={Users} title={tr('Aucun compte')} action={<Button icon={Plus} onClick={() => setModal({})}>{tr('Nouvel utilisateur')}</Button>} />
       ) : (
         <div className="table-wrap"><table className="table">
-          <thead><tr><th scope="col">Utilisateur</th><th scope="col">Rôle</th><th scope="col">Statut</th><th scope="col">Dernière modif.</th><th scope="col" /></tr></thead>
+          <thead><tr><th scope="col">{tr('Utilisateur')}</th><th scope="col">{tr('Rôle')}</th><th scope="col">{tr('Statut')}</th><th scope="col">{tr('Dernière modif.')}</th><th scope="col" /></tr></thead>
           <tbody>
             {users.map((u) => (
               <tr key={u.id}>
                 <td><strong>{u.fullName || u.email}</strong><div className="site-meta">{u.email}</div></td>
-                <td><Badge tone={ROLE_TONE[u.role]}>{ROLE_LABEL[u.role] || u.role}</Badge></td>
+                <td><Badge tone={ROLE_TONE[u.role]}>{ROLE_LABEL[u.role] ? tr(ROLE_LABEL[u.role]) : u.role}</Badge></td>
                 <td>
-                  <button type="button" className="switch-row" onClick={() => toggleActive(u)} title={u.active ? 'Désactiver' : 'Activer'}>
-                    <Badge tone={u.active ? 'green' : null} dot>{u.active ? 'Actif' : 'Désactivé'}</Badge>
+                  <button type="button" className="switch-row" onClick={() => toggleActive(u)} title={u.active ? tr('Désactiver') : tr('Activer')}>
+                    <Badge tone={u.active ? 'green' : null} dot>{u.active ? tr('Actif') : tr('Désactivé')}</Badge>
                   </button>
                 </td>
                 <td className="tabular"><span className="site-meta">{u.updatedAt ? formatDateTime(u.updatedAt) : '—'}</span></td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <Button size="sm" variant="ghost" icon={Pencil} aria-label="Éditer" onClick={() => setModal({ user: u })} />
-                  <Button size="sm" variant="ghost" icon={Trash2} aria-label="Supprimer" onClick={() => remove(u)} />
+                  <Button size="sm" variant="ghost" icon={Pencil} aria-label={tr('Éditer')} onClick={() => setModal({ user: u })} />
+                  <Button size="sm" variant="ghost" icon={Trash2} aria-label={tr('Supprimer')} onClick={() => remove(u)} />
                 </td>
               </tr>
             ))}
@@ -149,6 +153,7 @@ function UsersSection() {
 }
 
 function UserModal({ user, onClose, onSaved }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const editing = Boolean(user);
   const [form, setForm] = useState({ email: user?.email || '', fullName: user?.fullName || '', role: user?.role || 'viewer', password: '', active: user?.active ?? true });
@@ -156,9 +161,9 @@ function UserModal({ user, onClose, onSaved }) {
 
   async function save(e) {
     e.preventDefault();
-    if (!editing && !/.+@.+\..+/.test(form.email)) { toast.error('E-mail invalide.'); return; }
-    if (!editing && form.password.length < 10) { toast.error('Mot de passe : au moins 10 caractères.'); return; }
-    if (editing && form.password && form.password.length < 10) { toast.error('Mot de passe : au moins 10 caractères.'); return; }
+    if (!editing && !/.+@.+\..+/.test(form.email)) { toast.error(tr('E-mail invalide.')); return; }
+    if (!editing && form.password.length < 10) { toast.error(tr('Mot de passe : au moins 10 caractères.')); return; }
+    if (editing && form.password && form.password.length < 10) { toast.error(tr('Mot de passe : au moins 10 caractères.')); return; }
     setSaving(true);
     try {
       if (editing) {
@@ -166,25 +171,25 @@ function UserModal({ user, onClose, onSaved }) {
       } else {
         await api.createUser({ email: form.email.trim(), fullName: form.fullName.trim() || undefined, role: form.role, password: form.password });
       }
-      toast.success('Compte enregistré.'); onSaved();
+      toast.success(tr('Compte enregistré.')); onSaved();
     } catch (err) { toast.error(err.message); } finally { setSaving(false); }
   }
 
   return (
-    <Modal open title={editing ? 'Modifier le compte' : 'Nouvel utilisateur'} subtitle={editing ? user.email : 'Créer un compte et définir son rôle.'} onClose={() => !saving && onClose()}
-      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>Annuler</Button><Button type="submit" form="user-form" loading={saving}>Enregistrer</Button></>}>
+    <Modal open title={editing ? tr('Modifier le compte') : tr('Nouvel utilisateur')} subtitle={editing ? user.email : tr('Créer un compte et définir son rôle.')} onClose={() => !saving && onClose()}
+      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button type="submit" form="user-form" loading={saving}>{tr('Enregistrer')}</Button></>}>
       <form id="user-form" onSubmit={save} style={{ display: 'grid', gap: 14 }}>
-        {!editing && <Field label="E-mail"><input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="prenom.nom@mems.mg" autoFocus /></Field>}
-        <Field label="Nom complet (optionnel)"><input className="input" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} /></Field>
-        <Field label="Rôle" hint="Administrateur : gère tout (y compris les comptes). Validateur : valide. Lecteur : consultation.">
+        {!editing && <Field label={tr('E-mail')}><input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder={tr('prenom.nom@mems.mg')} autoFocus /></Field>}
+        <Field label={tr('Nom complet (optionnel)')}><input className="input" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} /></Field>
+        <Field label={tr('Rôle')} hint={tr('Administrateur : gère tout (y compris les comptes). Validateur : valide. Lecteur : consultation.')}>
           <select className="select" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-            <option value="admin">Administrateur</option><option value="manager">Validateur</option><option value="viewer">Lecteur</option>
+            <option value="admin">{tr('Administrateur')}</option><option value="manager">{tr('Validateur')}</option><option value="viewer">{tr('Lecteur')}</option>
           </select>
         </Field>
-        <Field label={editing ? 'Nouveau mot de passe (laisser vide pour ne pas changer)' : 'Mot de passe'} hint="Au moins 10 caractères.">
+        <Field label={editing ? tr('Nouveau mot de passe (laisser vide pour ne pas changer)') : tr('Mot de passe')} hint={tr('Au moins 10 caractères.')}>
           <input className="input" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="new-password" />
         </Field>
-        {editing && <label className="filter-check"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /><span>Compte actif (peut se connecter)</span></label>}
+        {editing && <label className="filter-check"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /><span>{tr('Compte actif (peut se connecter)')}</span></label>}
       </form>
     </Modal>
   );
@@ -193,6 +198,7 @@ function UserModal({ user, onClose, onSaved }) {
 /* ------------------------------------------------------- Exchange rates -- */
 
 function ExchangeRatesSection({ isAdmin }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [rates, setRates] = useState(null);
   const [form, setForm] = useState({ effectiveMonth: new Date().toISOString().slice(0, 7), usdRate: '', note: '' });
@@ -203,36 +209,36 @@ function ExchangeRatesSection({ isAdmin }) {
 
   async function save(e) {
     e.preventDefault();
-    if (!(Number(form.usdRate) > 0)) { toast.error('Saisissez un taux (ariary pour 1 USD) supérieur à 0.'); return; }
+    if (!(Number(form.usdRate) > 0)) { toast.error(tr('Saisissez un taux (ariary pour 1 USD) supérieur à 0.')); return; }
     setSaving(true);
     try {
       await api.saveExchangeRate({ effectiveMonth: form.effectiveMonth, usdRate: Number(form.usdRate), note: form.note.trim() || undefined });
-      toast.success('Taux enregistré.');
+      toast.success(tr('Taux enregistré.'));
       setForm({ effectiveMonth: form.effectiveMonth, usdRate: '', note: '' });
       reload();
     } catch (err) { toast.error(err.message); } finally { setSaving(false); }
   }
   async function remove(r) {
-    if (!window.confirm(`Supprimer le taux de ${r.effectiveMonth} ?`)) return;
-    try { await api.deleteExchangeRate(r.id); toast.success('Taux supprimé.'); reload(); } catch (e) { toast.error(e.message); }
+    if (!window.confirm(tr('Supprimer le taux de {month} ?', { month: r.effectiveMonth }))) return;
+    try { await api.deleteExchangeRate(r.id); toast.success(tr('Taux supprimé.')); reload(); } catch (e) { toast.error(e.message); }
   }
 
   return (
     <Card aria-labelledby="rates-title">
-      <CardHeader id="rates-title" title="Taux de change (ariary pour 1 USD)" subtitle="Un taux par mois d'application. La valeur USD d'un montant se lit au taux dont le mois est ≤ la période de saisie (le dernier taux connu est reporté)." />
+      <CardHeader id="rates-title" title={tr('Taux de change (ariary pour 1 USD)')} subtitle={tr('Un taux par mois d\'application. La valeur USD d\'un montant se lit au taux dont le mois est ≤ la période de saisie (le dernier taux connu est reporté).')} />
       {isAdmin && (
         <form onSubmit={save} className="card-body" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', borderBottom: '1px solid var(--border)' }}>
-          <Field label="Mois d'application" htmlFor="rate-month"><input id="rate-month" className="input" type="month" value={form.effectiveMonth} onChange={(e) => setForm({ ...form, effectiveMonth: e.target.value })} required /></Field>
-          <Field label="Taux (Ar pour 1 USD)" htmlFor="rate-usd"><MoneyInput id="rate-usd" value={form.usdRate} onChange={(v) => setForm({ ...form, usdRate: v })} /></Field>
-          <Field label="Note (optionnel)" htmlFor="rate-note"><input id="rate-note" className="input" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Source du taux…" /></Field>
-          <Button type="submit" icon={Plus} loading={saving}>Enregistrer le taux</Button>
+          <Field label={tr('Mois d\'application')} htmlFor="rate-month"><input id="rate-month" className="input" type="month" value={form.effectiveMonth} onChange={(e) => setForm({ ...form, effectiveMonth: e.target.value })} required /></Field>
+          <Field label={tr('Taux (Ar pour 1 USD)')} htmlFor="rate-usd"><MoneyInput id="rate-usd" value={form.usdRate} onChange={(v) => setForm({ ...form, usdRate: v })} /></Field>
+          <Field label={tr('Note (optionnel)')} htmlFor="rate-note"><input id="rate-note" className="input" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder={tr('Source du taux…')} /></Field>
+          <Button type="submit" icon={Plus} loading={saving}>{tr('Enregistrer le taux')}</Button>
         </form>
       )}
       {rates === null ? <div className="card-body"><Skeleton height={100} /></div> : rates.length === 0 ? (
-        <EmptyState icon={Coins} title="Aucun taux de change">Ajoutez un taux de référence pour activer l'affichage des valeurs en dollars.</EmptyState>
+        <EmptyState icon={Coins} title={tr('Aucun taux de change')}>{tr('Ajoutez un taux de référence pour activer l\'affichage des valeurs en dollars.')}</EmptyState>
       ) : (
         <div className="table-wrap"><table className="table">
-          <thead><tr><th scope="col">Mois d'application</th><th scope="col" className="num">Ar pour 1 USD</th><th scope="col">Note</th><th scope="col">Saisi le (horodatage)</th>{isAdmin && <th scope="col" />}</tr></thead>
+          <thead><tr><th scope="col">{tr('Mois d\'application')}</th><th scope="col" className="num">{tr('Ar pour 1 USD')}</th><th scope="col">{tr('Note')}</th><th scope="col">{tr('Saisi le (horodatage)')}</th>{isAdmin && <th scope="col" />}</tr></thead>
           <tbody>
             {rates.map((r) => (
               <tr key={r.id}>
@@ -240,7 +246,7 @@ function ExchangeRatesSection({ isAdmin }) {
                 <td className="num tabular">{formatAr(r.usdRate)}</td>
                 <td>{r.note || <span className="cell-empty">—</span>}</td>
                 <td><span className="site-meta" style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><Clock size={13} aria-hidden="true" />{formatDateTime(r.updatedAt || r.createdAt)}</span></td>
-                {isAdmin && <td style={{ textAlign: 'right' }}><Button size="sm" variant="ghost" icon={Trash2} aria-label="Supprimer" onClick={() => remove(r)} /></td>}
+                {isAdmin && <td style={{ textAlign: 'right' }}><Button size="sm" variant="ghost" icon={Trash2} aria-label={tr('Supprimer')} onClick={() => remove(r)} /></td>}
               </tr>
             ))}
           </tbody>
@@ -253,6 +259,7 @@ function ExchangeRatesSection({ isAdmin }) {
 /* ------------------------------------------------------- Bureaux & antennes -- */
 
 function BureauxSection({ isAdmin }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [offices, setOffices] = useState(null);
   const [communes, setCommunes] = useState([]);
@@ -262,43 +269,43 @@ function BureauxSection({ isAdmin }) {
   useEffect(() => { reload(); api.officeCommunes().then(setCommunes).catch(() => setCommunes([])); /* eslint-disable-next-line */ }, []);
 
   async function remove(o) {
-    if (!window.confirm(`Supprimer le bureau « ${o.name} » ?`)) return;
-    try { await api.deleteOffice(o.id); toast.success('Bureau supprimé.'); reload(); } catch (e) { toast.error(e.message); }
+    if (!window.confirm(tr('Supprimer le bureau « {name} » ?', { name: o.name }))) return;
+    try { await api.deleteOffice(o.id); toast.success(tr('Bureau supprimé.')); reload(); } catch (e) { toast.error(e.message); }
   }
 
   const nationalCount = (offices || []).filter((o) => o.national).length;
   return (
     <Card aria-labelledby="off-title">
-      <CardHeader id="off-title" title="Bureaux & antennes"
-        subtitle="Bureau pays (périmètre national) ou bureau terrain / antenne avec un périmètre de communes. Les sites sont rattachés automatiquement selon leur commune.">
-        {isAdmin && <Button icon={Plus} onClick={() => setModal({})}>Ajouter un bureau</Button>}
+      <CardHeader id="off-title" title={tr('Bureaux & antennes')}
+        subtitle={tr('Bureau pays (périmètre national) ou bureau terrain / antenne avec un périmètre de communes. Les sites sont rattachés automatiquement selon leur commune.')}>
+        {isAdmin && <Button icon={Plus} onClick={() => setModal({})}>{tr('Ajouter un bureau')}</Button>}
       </CardHeader>
       {offices === null ? <div className="card-body"><Skeleton height={120} /></div> : offices.length === 0 ? (
-        <EmptyState icon={Building2} title="Aucun bureau" action={isAdmin && <Button icon={Plus} onClick={() => setModal({})}>Ajouter un bureau</Button>}>
-          Créez vos bureaux terrain et antennes, puis définissez leur périmètre de communes pour rattacher les sites.
+        <EmptyState icon={Building2} title={tr('Aucun bureau')} action={isAdmin && <Button icon={Plus} onClick={() => setModal({})}>{tr('Ajouter un bureau')}</Button>}>
+          {tr('Créez vos bureaux terrain et antennes, puis définissez leur périmètre de communes pour rattacher les sites.')}
         </EmptyState>
       ) : (
         <>
           <div className="card-body" style={{ paddingBottom: 0 }}>
-            <span className="hint">{offices.length} bureau(x) · {offices.filter((o) => o.active).length} actifs · {nationalCount} à périmètre national</span>
+            <span className="hint">{tr('{n} bureau(x) · {a} actifs · {nat} à périmètre national', { n: offices.length, a: offices.filter((o) => o.active).length, nat: nationalCount })}</span>
           </div>
           <div className="table-wrap"><table className="table">
             <thead><tr>
-              <th scope="col">Bureau</th><th scope="col">Code</th><th scope="col">Nature</th><th scope="col">Périmètre</th>
-              <th scope="col" className="num">Sites</th><th scope="col">Statut</th>{isAdmin && <th scope="col" />}
+              <th scope="col">{tr('Bureau')}</th><th scope="col">{tr('Code')}</th><th scope="col">{tr('Nature')}</th><th scope="col">{tr('Périmètre')}</th>
+              <th scope="col" className="num">{tr('Sites')}</th><th scope="col">{tr('Statut')}</th>{isAdmin && <th scope="col" />}
             </tr></thead>
             <tbody>
               {offices.map((o) => (
                 <tr key={o.id}>
-                  <td><strong>{o.name}</strong>{o.parentName && <div className="site-meta">antenne de {o.parentName}</div>}{o.responsible && <div className="site-meta">{o.responsible}</div>}</td>
+                  <td><strong>{o.name}</strong>{o.parentName && <div className="site-meta">{tr('antenne de {name}', { name: o.parentName })}</div>}{o.responsible && <div className="site-meta">{o.responsible}</div>}</td>
                   <td><span className="mono">{o.code}</span></td>
-                  <td><Badge tone={o.nature === 'pays' ? 'blue' : null}>{o.nature === 'pays' ? 'bureau pays' : 'terrain'}</Badge></td>
-                  <td>{o.national ? <Badge tone="green">national — tous les sites</Badge> : <span className="tag">{o.communeCount} commune(s)</span>}</td>
+                  <td><Badge tone={o.nature === 'pays' ? 'blue' : null}>{o.nature === 'pays' ? tr('bureau pays') : tr('terrain')}</Badge></td>
+                  <td>{o.national ? <Badge tone="green">{tr('national — tous les sites')}</Badge> : <span className="tag">{tr('{n} commune(s)', { n: o.communeCount })}</span>}</td>
                   <td className="num tabular">{formatInt(o.siteCount)}</td>
-                  <td><Badge tone={o.active ? 'green' : null} dot>{o.active ? 'Actif' : 'Inactif'}</Badge></td>
+                  <td><Badge tone={o.active ? 'green' : null} dot>{o.active ? tr('Actif') : tr('Inactif')}</Badge></td>
                   {isAdmin && <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <Button size="sm" variant="ghost" icon={Pencil} aria-label="Éditer" onClick={() => setModal({ office: o })} />
-                    <Button size="sm" variant="ghost" icon={Trash2} aria-label="Supprimer" onClick={() => remove(o)} />
+                    <Button size="sm" variant="ghost" icon={Pencil} aria-label={tr('Éditer')} onClick={() => setModal({ office: o })} />
+                    <Button size="sm" variant="ghost" icon={Trash2} aria-label={tr('Supprimer')} onClick={() => remove(o)} />
                   </td>}
                 </tr>
               ))}
@@ -312,6 +319,7 @@ function BureauxSection({ isAdmin }) {
 }
 
 function OfficeModal({ office, offices, communes, onClose, onSaved }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const editing = Boolean(office);
   const [form, setForm] = useState({
@@ -353,7 +361,7 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
 
   async function save(e) {
     e.preventDefault();
-    if (!form.code.trim() || form.name.trim().length < 2) { toast.error('Code et nom (≥ 2 caractères) requis.'); return; }
+    if (!form.code.trim() || form.name.trim().length < 2) { toast.error(tr('Code et nom (≥ 2 caractères) requis.')); return; }
     setSaving(true);
     const chosen = communes.filter((c) => picked.has(key(c))).map((c) => ({ district: c.district || undefined, commune: c.commune }));
     const payload = {
@@ -363,63 +371,63 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
     };
     try {
       if (editing) await api.updateOffice(office.id, payload); else await api.createOffice(payload);
-      toast.success('Bureau enregistré.'); onSaved();
+      toast.success(tr('Bureau enregistré.')); onSaved();
     } catch (err) { toast.error(err.message); } finally { setSaving(false); }
   }
 
   return (
-    <Modal open size="lg" title={editing ? 'Modifier le bureau' : 'Nouveau bureau'} subtitle="Bureau pays (national) ou terrain / antenne avec périmètre de communes." onClose={() => !saving && onClose()}
-      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>Annuler</Button><Button type="submit" form="office-form" loading={saving}>Enregistrer</Button></>}>
+    <Modal open size="lg" title={editing ? tr('Modifier le bureau') : tr('Nouveau bureau')} subtitle={tr('Bureau pays (national) ou terrain / antenne avec périmètre de communes.')} onClose={() => !saving && onClose()}
+      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button type="submit" form="office-form" loading={saving}>{tr('Enregistrer')}</Button></>}>
       <form id="office-form" onSubmit={save} style={{ display: 'grid', gap: 14 }}>
         <div className="form-grid">
-          <Field label="Code"><input className="input mono" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="1" /></Field>
-          <Field label="Nom du bureau"><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Toliara" /></Field>
-          <Field label="Nature">
+          <Field label={tr('Code')}><input className="input mono" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="1" /></Field>
+          <Field label={tr('Nom du bureau')}><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Toliara" /></Field>
+          <Field label={tr('Nature')}>
             <select className="select" value={form.nature} onChange={(e) => setForm({ ...form, nature: e.target.value })}>
-              <option value="terrain">Bureau terrain</option><option value="pays">Bureau pays</option>
+              <option value="terrain">{tr('Bureau terrain')}</option><option value="pays">{tr('Bureau pays')}</option>
             </select>
           </Field>
-          <Field label="Antenne de (optionnel)">
+          <Field label={tr('Antenne de (optionnel)')}>
             <select className="select" value={form.parentId} onChange={(e) => setForm({ ...form, parentId: e.target.value })}>
-              <option value="">— Bureau principal —</option>
+              <option value="">{tr('— Bureau principal —')}</option>
               {offices.filter((o) => !office || o.id !== office.id).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select>
           </Field>
-          <Field label="Responsable (optionnel)"><input className="input" value={form.responsible} onChange={(e) => setForm({ ...form, responsible: e.target.value })} /></Field>
+          <Field label={tr('Responsable (optionnel)')}><input className="input" value={form.responsible} onChange={(e) => setForm({ ...form, responsible: e.target.value })} /></Field>
         </div>
         <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-          <label className="filter-check"><input type="checkbox" checked={form.national} onChange={(e) => setForm({ ...form, national: e.target.checked })} /><span>Périmètre national (tous les sites)</span></label>
-          <label className="filter-check"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /><span>Actif</span></label>
+          <label className="filter-check"><input type="checkbox" checked={form.national} onChange={(e) => setForm({ ...form, national: e.target.checked })} /><span>{tr('Périmètre national (tous les sites)')}</span></label>
+          <label className="filter-check"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /><span>{tr('Actif')}</span></label>
         </div>
 
         {!form.national && (
           <div className="field">
-            <span className="field-label">Périmètre — communes ({picked.size} sélectionnée(s))</span>
-            {communes.length === 0 ? <p className="muted">Aucune commune dans le registre de sites. Importez des sites (Master Data / planning) d'abord.</p> : (
+            <span className="field-label">{tr('Périmètre — communes ({n} sélectionnée(s))', { n: picked.size })}</span>
+            {communes.length === 0 ? <p className="muted">{tr('Aucune commune dans le registre de sites. Importez des sites (Master Data / planning) d\'abord.')}</p> : (
               <>
                 {/* Cascade : Région → District → communes (multi-sélection) */}
                 <div className="form-grid" style={{ marginBottom: 8 }}>
-                  <select className="select" value={region} aria-label="Région"
+                  <select className="select" value={region} aria-label={tr('Région')}
                     onChange={(e) => { setRegion(e.target.value); setDistrict(''); }}>
-                    <option value="">Toutes les régions</option>
+                    <option value="">{tr('Toutes les régions')}</option>
                     {regions.map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
-                  <select className="select" value={district} aria-label="District"
+                  <select className="select" value={district} aria-label={tr('District')}
                     onChange={(e) => setDistrict(e.target.value)}>
-                    <option value="">{region ? 'Tous les districts de la région' : 'Tous les districts'}</option>
+                    <option value="">{region ? tr('Tous les districts de la région') : tr('Tous les districts')}</option>
                     {districts.map((d) => <option key={d} value={d}>{d}</option>)}
                   </select>
                 </div>
-                <input className="input" placeholder="Filtrer les communes…" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 8 }} />
+                <input className="input" placeholder={tr('Filtrer les communes…')} value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 8 }} />
 
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
                   <Button type="button" size="sm" variant="secondary" onClick={() => setMany(filtered, true)} disabled={filtered.length === 0}>
-                    Tout cocher ({filtered.length})
+                    {tr('Tout cocher ({n})', { n: filtered.length })}
                   </Button>
                   <Button type="button" size="sm" variant="ghost" onClick={() => setMany(filtered, false)} disabled={filtered.length === 0}>
-                    Décocher ces {filtered.length}
+                    {tr('Décocher ces {n}', { n: filtered.length })}
                   </Button>
-                  {picked.size > 0 && <Button type="button" size="sm" variant="ghost" onClick={() => setPicked(new Set())}>Tout vider</Button>}
+                  {picked.size > 0 && <Button type="button" size="sm" variant="ghost" onClick={() => setPicked(new Set())}>{tr('Tout vider')}</Button>}
                 </div>
 
                 {/* Récap des communes sélectionnées (toutes régions/districts confondus) */}
@@ -427,7 +435,7 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, maxHeight: 92, overflow: 'auto' }}>
                     {pickedList.map((c) => (
                       <button type="button" key={c.commune} className="chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
-                        onClick={() => toggle(c)} title={`${c.commune}${c.district ? ' · ' + c.district : ''} — retirer`}>
+                        onClick={() => toggle(c)} title={tr('{name} — retirer', { name: `${c.commune}${c.district ? ' · ' + c.district : ''}` })}>
                         {c.commune}<X size={13} aria-hidden="true" />
                       </button>
                     ))}
@@ -441,7 +449,7 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
                       <span>{c.commune}{c.district ? <span className="site-meta"> · {c.district}{c.region ? ` · ${c.region}` : ''}</span> : null}</span>
                     </label>
                   ))}
-                  {filtered.length === 0 && <p className="muted" style={{ padding: 10 }}>Aucune commune ne correspond.</p>}
+                  {filtered.length === 0 && <p className="muted" style={{ padding: 10 }}>{tr('Aucune commune ne correspond.')}</p>}
                 </div>
               </>
             )}
@@ -455,6 +463,7 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
 /* ------------------------------------------------------------- Partners -- */
 
 function PartnersSection({ isAdmin }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [partners, setPartners] = useState(null);
   const [types, setTypes] = useState([]);
@@ -473,17 +482,17 @@ function PartnersSection({ isAdmin }) {
 
   return (
     <Card aria-labelledby="partners-title">
-      <CardHeader id="partners-title" title="Partenaires" subtitle="Liste des partenaires (mise en œuvre, prestataires, cabinets, TPM) servant aux sélections. Les agents de terrain des TPM se saisissent dans Partenaires & TPM › Prestataires TPM.">
-        {isAdmin && <Button icon={Plus} onClick={() => setModal({ mode: 'create' })}>Nouveau partenaire</Button>}
+      <CardHeader id="partners-title" title={tr('Partenaires')} subtitle={tr('Liste des partenaires (mise en œuvre, prestataires, cabinets, TPM) servant aux sélections. Les agents de terrain des TPM se saisissent dans Partenaires & TPM › Prestataires TPM.')}>
+        {isAdmin && <Button icon={Plus} onClick={() => setModal({ mode: 'create' })}>{tr('Nouveau partenaire')}</Button>}
       </CardHeader>
       {partners === null ? (
         <div className="card-body"><Skeleton height={120} /></div>
       ) : partners.length === 0 ? (
-        <EmptyState icon={Users} title="Aucun partenaire" action={isAdmin && <Button icon={Plus} onClick={() => setModal({ mode: 'create' })}>Nouveau partenaire</Button>} />
+        <EmptyState icon={Users} title={tr('Aucun partenaire')} action={isAdmin && <Button icon={Plus} onClick={() => setModal({ mode: 'create' })}>{tr('Nouveau partenaire')}</Button>} />
       ) : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th scope="col">Partenaire</th><th scope="col">Type</th><th scope="col">Agents (TPM)</th></tr></thead>
+            <thead><tr><th scope="col">{tr('Partenaire')}</th><th scope="col">{tr('Type')}</th><th scope="col">{tr('Agents (TPM)')}</th></tr></thead>
             {Object.entries(grouped).map(([typeLabel, list]) => (
               <tbody key={typeLabel}>
                 <tr className="subrow-head"><td colSpan={3}>{typeLabel} · {list.length}</td></tr>
@@ -493,7 +502,7 @@ function PartnersSection({ isAdmin }) {
                     <td><Badge tone={p.typeCode === 'tpm' ? 'blue' : null}>{p.typeLabel}</Badge></td>
                     <td>
                       {p.typeCode === 'tpm'
-                        ? <span>{p.agents.length} agent{p.agents.length > 1 ? 's' : ''}{p.agents.length ? ` · ${p.agents.map((a) => a.name).join(', ')}` : ''}</span>
+                        ? <span>{p.agents.length > 1 ? tr('{n} agents', { n: p.agents.length }) : tr('{n} agent', { n: p.agents.length })}{p.agents.length ? ` · ${p.agents.map((a) => a.name).join(', ')}` : ''}</span>
                         : <span className="cell-empty">—</span>}
                     </td>
                   </tr>
@@ -510,11 +519,12 @@ function PartnersSection({ isAdmin }) {
 }
 
 function PartnerModal({ types, onClose, onSaved }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [form, setForm] = useState({ name: '', partnerTypeId: '' });
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
-  const errs = { name: form.name.trim().length < 2 ? 'Nom requis.' : null, partnerTypeId: !form.partnerTypeId ? 'Choisissez un type.' : null };
+  const errs = { name: form.name.trim().length < 2 ? tr('Nom requis.') : null, partnerTypeId: !form.partnerTypeId ? tr('Choisissez un type.') : null };
 
   async function save(e) {
     e.preventDefault();
@@ -523,21 +533,21 @@ function PartnerModal({ types, onClose, onSaved }) {
     setSaving(true);
     try {
       await api.createPartner({ name: form.name.trim(), partnerTypeId: form.partnerTypeId });
-      toast.success(`Partenaire ${form.name.trim()} créé.`);
+      toast.success(tr('Partenaire {name} créé.', { name: form.name.trim() }));
       onSaved();
     } catch (err) { toast.error(err.message); } finally { setSaving(false); }
   }
 
   return (
-    <Modal open onClose={() => !saving && onClose()} title="Nouveau partenaire" subtitle="Ajouté au référentiel, utilisable dans les contrats et le suivi tiers." initialFocus="#pt-name"
-      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>Annuler</Button><Button type="submit" form="partner-form" loading={saving}>Créer</Button></>}>
+    <Modal open onClose={() => !saving && onClose()} title={tr('Nouveau partenaire')} subtitle={tr('Ajouté au référentiel, utilisable dans les contrats et le suivi tiers.')} initialFocus="#pt-name"
+      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button type="submit" form="partner-form" loading={saving}>{tr('Créer')}</Button></>}>
       <form id="partner-form" onSubmit={save} noValidate style={{ display: 'grid', gap: 16 }}>
-        <Field label="Nom" htmlFor="pt-name" required error={touched ? errs.name : undefined}>
-          <input id="pt-name" className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex. ASSOCIATION AINA" />
+        <Field label={tr('Nom')} htmlFor="pt-name" required error={touched ? errs.name : undefined}>
+          <input id="pt-name" className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={tr('Ex. ASSOCIATION AINA')} />
         </Field>
-        <Field label="Type de partenaire" htmlFor="pt-type" required hint="Configuré dans « Types de partenaire »." error={touched ? errs.partnerTypeId : undefined}>
+        <Field label={tr('Type de partenaire')} htmlFor="pt-type" required hint={tr('Configuré dans « Types de partenaire ».')} error={touched ? errs.partnerTypeId : undefined}>
           <select id="pt-type" className={`select ${form.partnerTypeId ? '' : 'is-empty'}`} value={form.partnerTypeId} onChange={(e) => setForm({ ...form, partnerTypeId: e.target.value })}>
-            <option value="">Choisir un type…</option>
+            <option value="">{tr('Choisir un type…')}</option>
             {types.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
           </select>
         </Field>
@@ -547,6 +557,7 @@ function PartnerModal({ types, onClose, onSaved }) {
 }
 
 function AgentModal({ partner, onClose, onSaved }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
@@ -554,14 +565,14 @@ function AgentModal({ partner, onClose, onSaved }) {
     e.preventDefault();
     if (name.trim().length < 2) return;
     setSaving(true);
-    try { await api.createPartnerAgent(partner.id, { name: name.trim() }); toast.success(`Agent ajouté à ${partner.name}.`); onSaved(); }
+    try { await api.createPartnerAgent(partner.id, { name: name.trim() }); toast.success(tr('Agent ajouté à {name}.', { name: partner.name })); onSaved(); }
     catch (err) { toast.error(err.message); } finally { setSaving(false); }
   }
   return (
-    <Modal open onClose={() => !saving && onClose()} title={`Nouvel agent — ${partner.name}`} initialFocus="#ag-name"
-      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>Annuler</Button><Button type="submit" form="agent-form" loading={saving}>Ajouter</Button></>}>
+    <Modal open onClose={() => !saving && onClose()} title={tr('Nouvel agent — {name}', { name: partner.name })} initialFocus="#ag-name"
+      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button type="submit" form="agent-form" loading={saving}>{tr('Ajouter')}</Button></>}>
       <form id="agent-form" onSubmit={save}>
-        <Field label="Nom de l'agent" htmlFor="ag-name" required><input id="ag-name" className="input" value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label={tr('Nom de l\'agent')} htmlFor="ag-name" required><input id="ag-name" className="input" value={name} onChange={(e) => setName(e.target.value)} /></Field>
       </form>
     </Modal>
   );
@@ -570,6 +581,7 @@ function AgentModal({ partner, onClose, onSaved }) {
 /* ----------------------------------------------------------- Activities -- */
 
 function ActivitiesSection({ isAdmin }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [items, setItems] = useState(null);
   const [modal, setModal] = useState(false);
@@ -584,27 +596,27 @@ function ActivitiesSection({ isAdmin }) {
 
   return (
     <Card aria-labelledby="act-title">
-      <CardHeader id="act-title" title="Activités de suivi" subtitle="Multi-sélection sur les contrats. Ex. suivi, ciblage, PDM, distribution, évaluation.">
-        {isAdmin && <Button icon={Plus} onClick={() => setModal(true)}>Nouvelle activité</Button>}
+      <CardHeader id="act-title" title={tr('Activités de suivi')} subtitle={tr('Multi-sélection sur les contrats. Ex. suivi, ciblage, PDM, distribution, évaluation.')}>
+        {isAdmin && <Button icon={Plus} onClick={() => setModal(true)}>{tr('Nouvelle activité')}</Button>}
       </CardHeader>
       {items === null ? <div className="card-body"><Skeleton height={100} /></div> : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th scope="col">Activité</th><th scope="col">Code</th><th scope="col">État</th>{isAdmin && <th scope="col" />}</tr></thead>
+            <thead><tr><th scope="col">{tr('Activité')}</th><th scope="col">{tr('Code')}</th><th scope="col">{tr('État')}</th>{isAdmin && <th scope="col" />}</tr></thead>
             <tbody>
               {items.map((a) => (
                 <tr key={a.id}>
                   <td><strong>{a.label}</strong></td>
                   <td><span className="mono">{a.code}</span></td>
-                  <td><Badge tone={a.active ? 'green' : null}>{a.active ? 'Active' : 'Inactive'}</Badge></td>
-                  {isAdmin && <td style={{ textAlign: 'right' }}><Button size="sm" variant="ghost" onClick={() => toggle(a)}>{a.active ? 'Désactiver' : 'Activer'}</Button></td>}
+                  <td><Badge tone={a.active ? 'green' : null}>{a.active ? tr('Active') : tr('Inactive')}</Badge></td>
+                  {isAdmin && <td style={{ textAlign: 'right' }}><Button size="sm" variant="ghost" onClick={() => toggle(a)}>{a.active ? tr('Désactiver') : tr('Activer')}</Button></td>}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      {modal && <CodeLabelModal title="Nouvelle activité" onClose={() => setModal(false)} onSubmit={(v) => api.createActivity(v)} onSaved={() => { setModal(false); reload(); }} />}
+      {modal && <CodeLabelModal title={tr('Nouvelle activité')} onClose={() => setModal(false)} onSubmit={(v) => api.createActivity(v)} onSaved={() => { setModal(false); reload(); }} />}
     </Card>
   );
 }
@@ -612,6 +624,7 @@ function ActivitiesSection({ isAdmin }) {
 /* ---------------------------------------------------------------- Types -- */
 
 function TypesSection({ isAdmin }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [items, setItems] = useState(null);
   const [modal, setModal] = useState(false);
@@ -619,13 +632,13 @@ function TypesSection({ isAdmin }) {
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
   return (
     <Card aria-labelledby="types-title">
-      <CardHeader id="types-title" title="Types de partenaire" subtitle="Catégorisation des partenaires. Ex. TPM, prestataire, cabinet.">
-        {isAdmin && <Button icon={Plus} onClick={() => setModal(true)}>Nouveau type</Button>}
+      <CardHeader id="types-title" title={tr('Types de partenaire')} subtitle={tr('Catégorisation des partenaires. Ex. TPM, prestataire, cabinet.')}>
+        {isAdmin && <Button icon={Plus} onClick={() => setModal(true)}>{tr('Nouveau type')}</Button>}
       </CardHeader>
       {items === null ? <div className="card-body"><Skeleton height={100} /></div> : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th scope="col">Type</th><th scope="col">Code</th><th scope="col" className="num">Partenaires</th></tr></thead>
+            <thead><tr><th scope="col">{tr('Type')}</th><th scope="col">{tr('Code')}</th><th scope="col" className="num">{tr('Partenaires')}</th></tr></thead>
             <tbody>
               {items.map((t) => (
                 <tr key={t.id}>
@@ -638,36 +651,37 @@ function TypesSection({ isAdmin }) {
           </table>
         </div>
       )}
-      {modal && <CodeLabelModal title="Nouveau type de partenaire" onClose={() => setModal(false)} onSubmit={(v) => api.createPartnerType(v)} onSaved={() => { setModal(false); reload(); }} />}
+      {modal && <CodeLabelModal title={tr('Nouveau type de partenaire')} onClose={() => setModal(false)} onSubmit={(v) => api.createPartnerType(v)} onSaved={() => { setModal(false); reload(); }} />}
     </Card>
   );
 }
 
 function CodeLabelModal({ title, onClose, onSubmit, onSaved }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [form, setForm] = useState({ code: '', label: '' });
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const errs = {
-    label: form.label.trim().length < 2 ? 'Libellé requis.' : null,
-    code: !/^[a-z0-9_-]{2,40}$/i.test(form.code.trim()) ? 'Code : lettres/chiffres/tiret, 2 à 40.' : null,
+    label: form.label.trim().length < 2 ? tr('Libellé requis.') : null,
+    code: !/^[a-z0-9_-]{2,40}$/i.test(form.code.trim()) ? tr('Code : lettres/chiffres/tiret, 2 à 40.') : null,
   };
   async function save(e) {
     e.preventDefault();
     setTouched(true);
     if (errs.label || errs.code) return;
     setSaving(true);
-    try { await onSubmit({ code: form.code.trim(), label: form.label.trim() }); toast.success('Enregistré.'); onSaved(); }
+    try { await onSubmit({ code: form.code.trim(), label: form.label.trim() }); toast.success(tr('Enregistré.')); onSaved(); }
     catch (err) { toast.error(err.message); } finally { setSaving(false); }
   }
   return (
     <Modal open onClose={() => !saving && onClose()} title={title} initialFocus="#cl-label"
-      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>Annuler</Button><Button type="submit" form="cl-form" loading={saving}>Créer</Button></>}>
+      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button type="submit" form="cl-form" loading={saving}>{tr('Créer')}</Button></>}>
       <form id="cl-form" onSubmit={save} noValidate style={{ display: 'grid', gap: 16 }}>
-        <Field label="Libellé" htmlFor="cl-label" required error={touched ? errs.label : undefined}>
+        <Field label={tr('Libellé')} htmlFor="cl-label" required error={touched ? errs.label : undefined}>
           <input id="cl-label" className="input" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} />
         </Field>
-        <Field label="Code" htmlFor="cl-code" required hint="Identifiant court, sans espace (ex. pdm)." error={touched ? errs.code : undefined}>
+        <Field label={tr('Code')} htmlFor="cl-code" required hint={tr('Identifiant court, sans espace (ex. pdm).')} error={touched ? errs.code : undefined}>
           <input id="cl-code" className="input mono" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
         </Field>
       </form>

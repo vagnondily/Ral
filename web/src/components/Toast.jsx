@@ -1,10 +1,12 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
+import { useI18n } from '../lib/i18n.jsx';
 
 const ToastContext = createContext(null);
 const ICONS = { success: CheckCircle2, error: AlertCircle, info: Info };
 
 export function ToastProvider({ children }) {
+  const { tr } = useI18n();
   const [toasts, setToasts] = useState([]);
   const seq = useRef(0);
 
@@ -40,7 +42,7 @@ export function ToastProvider({ children }) {
             <div key={t.id} className={`toast toast-${t.tone}`} role={t.tone === 'error' ? 'alert' : 'status'}>
               <Icon size={18} aria-hidden="true" />
               <span>{t.message}</span>
-              <button type="button" className="toast-close" onClick={() => dismiss(t.id)} aria-label="Fermer la notification">
+              <button type="button" className="toast-close" onClick={() => dismiss(t.id)} aria-label={tr('Fermer la notification')}>
                 <X size={16} aria-hidden="true" />
               </button>
             </div>

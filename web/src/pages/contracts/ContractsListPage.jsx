@@ -7,8 +7,9 @@ import {
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, EmptyState, IconButton, Skeleton, StatusBadge, Stats, Usage } from '../../components/ui.jsx';
 import { useToast } from '../../components/Toast.jsx';
+import { useI18n } from '../../lib/i18n.jsx';
 import { formatAr, formatInt } from '../../lib/format.js';
-import { CONTRACT_STATUS, contractFlags, periodLabel } from '../../lib/contracts.js';
+import { CONTRACT_STATUS, contractFlags, periodLabel, richText } from '../../lib/contracts.js';
 import { SubmitDialog, DecisionDialog, RenewDialog, TerminateDialog } from './ContractDialogs.jsx';
 
 const STATUSES = [
@@ -98,6 +99,7 @@ function SortTh({ label, k, sort, onSort, className }) {
 }
 
 export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAmend }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [contracts, setContracts] = useState(null);
   const [activityMap, setActivityMap] = useState({});
@@ -152,10 +154,10 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
 
   function optionsFor(key) {
     switch (key) {
-      case 'status': return STATUSES;
-      case 'activity': return [{ id: '', label: 'Toutes' }, ...Object.entries(activityMap).map(([id, label]) => ({ id, label }))];
-      case 'type': return [{ id: '', label: 'Tous' }, ...types.map((t) => ({ id: t, label: t }))];
-      case 'year': return [{ id: '', label: 'Toutes' }, ...years.map((y) => ({ id: y, label: y }))];
+      case 'status': return STATUSES.map((s) => ({ ...s, label: tr(s.label) }));
+      case 'activity': return [{ id: '', label: tr('Toutes') }, ...Object.entries(activityMap).map(([id, label]) => ({ id, label }))];
+      case 'type': return [{ id: '', label: tr('Tous') }, ...types.map((t) => ({ id: t, label: t }))];
+      case 'year': return [{ id: '', label: tr('Toutes') }, ...years.map((y) => ({ id: y, label: y }))];
       default: return [];
     }
   }
@@ -208,7 +210,7 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
     const next = [...views.filter((x) => !(x.name === name && x.temp === saveTemp)), v];
     setViews(next); writeViews(next); setCurrentView(v.id);
     setSaveName(''); setSaveTemp(false);
-    toast.success(`Vue « ${name} » enregistrée${saveTemp ? ' (temporaire)' : ''}.`);
+    toast.success(saveTemp ? tr('Vue « {name} » enregistrée (temporaire).', { name }) : tr('Vue « {name} » enregistrée.', { name }));
   }
   function deleteView(id) {
     const next = views.filter((v) => v.id !== id);
@@ -219,12 +221,12 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
   function afterAction() { setDialog(null); reload(); if (selectedId) api.getContract(selectedId).then(setSelected).catch(() => {}); }
 
   function exportCsv() {
-    const head = ['N°', 'Partenaire', 'Type', 'N° FLA', 'Activités', 'Début', 'Fin', 'Total accord (Ar)', 'Budget Suivi (Ar)', 'Suivi justifié (Ar)', 'Statut'];
+    const head = ['N°', 'Partenaire', 'Type', 'N° FLA', 'Activités', 'Début', 'Fin', 'Total accord (Ar)', 'Budget Suivi (Ar)', 'Suivi justifié (Ar)', 'Statut'].map((h) => tr(h));
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = filtered.map((c) => [
       c.numero, c.partnerName, c.partnerTypeLabel || '', c.reference || c.numeroFla || '',
       (c.activities || []).map((x) => activityMap[x] || x).join(' / '), c.dateDebut, c.dateFin,
-      Math.round(c.budgetTotal), Math.round(c.monitoringBudget || 0), Math.round(c.spentTotal || 0), CONTRACT_STATUS[c.status]?.label || c.status,
+      Math.round(c.budgetTotal), Math.round(c.monitoringBudget || 0), Math.round(c.spentTotal || 0), CONTRACT_STATUS[c.status] ? tr(CONTRACT_STATUS[c.status].label) : c.status,
     ].map(esc).join(';'));
     const blob = new Blob(['﻿' + [head.map(esc).join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -242,17 +244,17 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
         <div key={k} className="cfilter cfilter-check">
           <label className="filter-check">
             <input type="checkbox" checked={!!values[k]} onChange={(e) => setVal(k, e.target.checked)} />
-            <span>{f.label}</span>
+            <span>{tr(f.label)}</span>
           </label>
         </div>
       );
     }
     return (
       <div key={k} className="cfilter">
-        <span className="cfilter-label">{f.label}</span>
+        <span className="cfilter-label">{tr(f.label)}</span>
         {f.type === 'search' ? (
           <span className="input-wrap"><Search size={16} aria-hidden="true" />
-            <input className="input" type="search" placeholder={f.ph} value={values[k]} onChange={(e) => setVal(k, e.target.value)} />
+            <input className="input" type="search" placeholder={tr(f.ph)} value={values[k]} onChange={(e) => setVal(k, e.target.value)} />
           </span>
         ) : (
           <select className="select" value={values[k]} onChange={(e) => setVal(k, e.target.value)}>
@@ -267,74 +269,74 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
     <div className="section-gap">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Contrats</h1>
-          <p className="page-desc">Portefeuille des contrats et FLA des partenaires. Filtrez, cliquez une ligne pour la sélectionner, <strong>double-cliquez</strong> pour ouvrir la fiche.</p>
+          <h1 className="page-title">{tr('Contrats')}</h1>
+          <p className="page-desc">{richText(tr('Portefeuille des contrats et FLA des partenaires. Filtrez, cliquez une ligne pour la sélectionner, <strong>double-cliquez</strong> pour ouvrir la fiche.'))}</p>
         </div>
-        {canEdit && <Button icon={Plus} onClick={onNew}>Nouveau contrat</Button>}
+        {canEdit && <Button icon={Plus} onClick={onNew}>{tr('Nouveau contrat')}</Button>}
       </div>
 
       <Stats items={[
-        { label: 'Contrats actifs', value: stats ? stats.active : '—', suffix: stats ? `/ ${stats.total}` : null, foot: 'Sur le portefeuille' },
-        { label: 'Budget engagé (actifs)', value: stats ? formatInt(stats.budget) : '—', suffix: 'Ar', foot: 'Somme des totaux d\'accord' },
-        { label: 'Suivi/TPM justifié', value: stats ? formatInt(stats.monSpent) : '—', suffix: 'Ar', foot: stats && stats.monBudget ? `sur ${formatInt(stats.monBudget)} Ar` : '' },
-        { label: 'À traiter', value: stats ? stats.attention : '—', foot: 'Avenants requis + en validation' },
+        { label: tr('Contrats actifs'), value: stats ? stats.active : '—', suffix: stats ? `/ ${stats.total}` : null, foot: tr('Sur le portefeuille') },
+        { label: tr('Budget engagé (actifs)'), value: stats ? formatInt(stats.budget) : '—', suffix: 'Ar', foot: tr("Somme des totaux d'accord") },
+        { label: tr('Suivi/TPM justifié'), value: stats ? formatInt(stats.monSpent) : '—', suffix: 'Ar', foot: stats && stats.monBudget ? tr('sur {amount} Ar', { amount: formatInt(stats.monBudget) }) : '' },
+        { label: tr('À traiter'), value: stats ? stats.attention : '—', foot: tr('Avenants requis + en validation') },
       ]} />
 
       <Card>
         {/* Barre de filtres compacte (façon COMET) */}
         <div className="filters-bar comet-filters">
-          <span className="filters-label">Filtres&nbsp;:</span>
+          <span className="filters-label">{tr('Filtres\u00a0:')}</span>
           {currentViewName && <span className="filters-view-chip"><Save size={12} /> {currentViewName}</span>}
           <div className="comet-fields">
             {orderedShown.map(renderField)}
-            {orderedShown.length === 0 && <span className="filters-empty">Aucun filtre actif — ajoutez-en avec l'icône filtres.</span>}
+            {orderedShown.length === 0 && <span className="filters-empty">{tr("Aucun filtre actif — ajoutez-en avec l'icône filtres.")}</span>}
           </div>
           <div className="comet-icons">
             {/* Une seule icône : choisir les filtres actifs (afficher / masquer) */}
             <div className="pop-anchor" ref={filterMenu.ref}>
-              <IconButton icon={SlidersHorizontal} label="Filtres à afficher" variant="secondary" size="sm"
+              <IconButton icon={SlidersHorizontal} label={tr('Filtres à afficher')} variant="secondary" size="sm"
                 onClick={() => filterMenu.setOpen((o) => !o)} />
               {filterMenu.open && (
                 <div className="pop-menu filter-menu" role="menu">
-                  <div className="pop-menu-label">Filtres à afficher</div>
+                  <div className="pop-menu-label">{tr('Filtres à afficher')}</div>
                   {ALL_KEYS.map((k) => (
                     <label key={k} className="filter-pick">
                       <input type="checkbox" checked={shownKeys.includes(k)} onChange={() => toggleShown(k)} />
-                      <span>{FILTERS[k].label}</span>
+                      <span>{tr(FILTERS[k].label)}</span>
                     </label>
                   ))}
                   <div className="manage-foot">
-                    <Button size="sm" variant="ghost" icon={RotateCcw} onClick={resetFilters} disabled={!filtersActive}>Réinitialiser les valeurs</Button>
+                    <Button size="sm" variant="ghost" icon={RotateCcw} onClick={resetFilters} disabled={!filtersActive}>{tr('Réinitialiser les valeurs')}</Button>
                   </div>
                 </div>
               )}
             </div>
             {/* Disquette : vues enregistrées */}
             <div className="pop-anchor" ref={viewMenu.ref}>
-              <IconButton icon={Save} label="Filtres enregistrés" variant="secondary" size="sm" onClick={() => viewMenu.setOpen((o) => !o)} />
+              <IconButton icon={Save} label={tr('Filtres enregistrés')} variant="secondary" size="sm" onClick={() => viewMenu.setOpen((o) => !o)} />
               {viewMenu.open && (
-                <div className="pop-menu view-menu" role="dialog" aria-label="Filtres enregistrés">
-                  <div className="pop-menu-label">Enregistrer la vue courante</div>
+                <div className="pop-menu view-menu" role="dialog" aria-label={tr('Filtres enregistrés')}>
+                  <div className="pop-menu-label">{tr('Enregistrer la vue courante')}</div>
                   <div className="save-row">
-                    <input className="input" type="text" placeholder="Nom de la vue" value={saveName}
+                    <input className="input" type="text" placeholder={tr('Nom de la vue')} value={saveName}
                       onChange={(e) => setSaveName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && saveView()} />
-                    <Button size="sm" icon={Save} disabled={!saveName.trim()} onClick={saveView}>Enregistrer</Button>
+                    <Button size="sm" icon={Save} disabled={!saveName.trim()} onClick={saveView}>{tr('Enregistrer')}</Button>
                   </div>
                   <label className="save-temp">
                     <input type="checkbox" checked={saveTemp} onChange={(e) => setSaveTemp(e.target.checked)} />
-                    <span>Temporaire (cette session uniquement)</span>
+                    <span>{tr('Temporaire (cette session uniquement)')}</span>
                   </label>
                   <div className="pop-menu-sep" />
-                  <div className="pop-menu-label">Vues enregistrées</div>
-                  {views.length === 0 && <div className="pop-menu-empty">Aucune vue enregistrée pour le moment.</div>}
+                  <div className="pop-menu-label">{tr('Vues enregistrées')}</div>
+                  {views.length === 0 && <div className="pop-menu-empty">{tr('Aucune vue enregistrée pour le moment.')}</div>}
                   {views.map((v) => (
                     <div key={v.id} className={`view-row ${currentView === v.id ? 'is-active' : ''}`}>
                       <button type="button" className="view-row-main" onClick={() => applyView(v)}>
                         {currentView === v.id ? <Check size={14} /> : <span className="view-dot" />}
                         <span className="view-name">{v.name}</span>
-                        {v.temp && <span className="view-tag">temporaire</span>}
+                        {v.temp && <span className="view-tag">{tr('temporaire')}</span>}
                       </button>
-                      <button type="button" className="view-row-del" title="Supprimer la vue" onClick={() => deleteView(v.id)}><Trash2 size={14} /></button>
+                      <button type="button" className="view-row-del" title={tr('Supprimer la vue')} onClick={() => deleteView(v.id)}><Trash2 size={14} /></button>
                     </div>
                   ))}
                 </div>
@@ -346,20 +348,20 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
         {/* Barre d'actions */}
         <div className="data-toolbar">
           <div className="data-toolbar-left">
-            <Button size="sm" variant="secondary" icon={ExternalLink} disabled={!hasSel} onClick={() => onOpen(selectedId)}>Ouvrir</Button>
-            {a?.edit && <Button size="sm" variant="secondary" icon={Pencil} onClick={() => onEdit(selectedId)}>Éditer</Button>}
-            {a?.submit && <Button size="sm" variant="secondary" icon={Send} onClick={() => setDialog({ type: 'submit' })}>Soumettre</Button>}
+            <Button size="sm" variant="secondary" icon={ExternalLink} disabled={!hasSel} onClick={() => onOpen(selectedId)}>{tr('Ouvrir')}</Button>
+            {a?.edit && <Button size="sm" variant="secondary" icon={Pencil} onClick={() => onEdit(selectedId)}>{tr('Éditer')}</Button>}
+            {a?.submit && <Button size="sm" variant="secondary" icon={Send} onClick={() => setDialog({ type: 'submit' })}>{tr('Soumettre')}</Button>}
             {a?.decide && <>
-              <Button size="sm" variant="secondary" icon={ShieldCheck} onClick={() => setDialog({ type: 'decide', approve: true })}>Valider</Button>
-              <Button size="sm" variant="secondary" icon={X} onClick={() => setDialog({ type: 'decide', approve: false })}>Rejeter</Button>
+              <Button size="sm" variant="secondary" icon={ShieldCheck} onClick={() => setDialog({ type: 'decide', approve: true })}>{tr('Valider')}</Button>
+              <Button size="sm" variant="secondary" icon={X} onClick={() => setDialog({ type: 'decide', approve: false })}>{tr('Rejeter')}</Button>
             </>}
-            {a?.amend && <Button size="sm" variant="secondary" icon={FilePlus2} onClick={() => onAmend(selectedId)}>Amender</Button>}
-            {a?.renew && <Button size="sm" variant="secondary" icon={RefreshCw} onClick={() => setDialog({ type: 'renew' })}>Renouveler</Button>}
-            {a?.terminate && <Button size="sm" variant="secondary" icon={Ban} onClick={() => setDialog({ type: 'terminate' })}>Résilier</Button>}
-            {hasSel && <Button size="sm" variant="ghost" icon={X} onClick={() => setSelectedId(null)}>Désélectionner</Button>}
+            {a?.amend && <Button size="sm" variant="secondary" icon={FilePlus2} onClick={() => onAmend(selectedId)}>{tr('Amender')}</Button>}
+            {a?.renew && <Button size="sm" variant="secondary" icon={RefreshCw} onClick={() => setDialog({ type: 'renew' })}>{tr('Renouveler')}</Button>}
+            {a?.terminate && <Button size="sm" variant="secondary" icon={Ban} onClick={() => setDialog({ type: 'terminate' })}>{tr('Résilier')}</Button>}
+            {hasSel && <Button size="sm" variant="ghost" icon={X} onClick={() => setSelectedId(null)}>{tr('Désélectionner')}</Button>}
           </div>
           <div className="data-toolbar-right">
-            <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!(contracts && contracts.length)}>Exporter (CSV)</Button>
+            <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!(contracts && contracts.length)}>{tr('Exporter (CSV)')}</Button>
           </div>
         </div>
 
@@ -369,14 +371,14 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
           <table className="table grid">
             <thead>
               <tr>
-                <th scope="col" style={{ width: 36 }}><span className="sr-only">Sélection</span></th>
-                <SortTh label="Partenaire" k="partner" sort={sort} onSort={onSort} />
-                <SortTh label="N° FLA" k="fla" sort={sort} onSort={onSort} />
-                <th scope="col">Activités</th>
-                <SortTh label="Période" k="period" sort={sort} onSort={onSort} />
-                <SortTh label="Total accord" k="total" sort={sort} onSort={onSort} className="num" />
-                <SortTh label="Suivi/TPM" k="suivi" sort={sort} onSort={onSort} className="num" />
-                <SortTh label="Statut" k="status" sort={sort} onSort={onSort} />
+                <th scope="col" style={{ width: 36 }}><span className="sr-only">{tr('Sélection')}</span></th>
+                <SortTh label={tr('Partenaire')} k="partner" sort={sort} onSort={onSort} />
+                <SortTh label={tr('N° FLA')} k="fla" sort={sort} onSort={onSort} />
+                <th scope="col">{tr('Activités')}</th>
+                <SortTh label={tr('Période')} k="period" sort={sort} onSort={onSort} />
+                <SortTh label={tr('Total accord')} k="total" sort={sort} onSort={onSort} className="num" />
+                <SortTh label={tr('Suivi/TPM')} k="suivi" sort={sort} onSort={onSort} className="num" />
+                <SortTh label={tr('Statut')} k="status" sort={sort} onSort={onSort} />
               </tr>
             </thead>
             <tbody>
@@ -391,9 +393,9 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
                       <tr key={c.id} className={`clickable ${isSel ? 'is-selected' : ''}`}
                         onClick={() => setSelectedId(c.id)}
                         onDoubleClick={() => onOpen(c.id)}
-                        title="Double-cliquez pour ouvrir la fiche">
+                        title={tr('Double-cliquez pour ouvrir la fiche')}>
                         <td onClick={(e) => e.stopPropagation()}>
-                          <input type="radio" name="contract-select" checked={isSel} onChange={() => setSelectedId(isSel ? null : c.id)} aria-label={`Sélectionner ${c.partnerName}`} />
+                          <input type="radio" name="contract-select" checked={isSel} onChange={() => setSelectedId(isSel ? null : c.id)} aria-label={tr('Sélectionner {name}', { name: c.partnerName })} />
                         </td>
                         <td>
                           <button type="button" className="link-cell" onClick={(e) => { e.stopPropagation(); onOpen(c.id); }}>{c.partnerName}</button>
@@ -407,13 +409,13 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
                             {(c.activities || []).length === 0 && <span className="cell-empty">—</span>}
                           </div>
                         </td>
-                        <td className="nowrap">{periodLabel(c.dateDebut, c.dateFin)}</td>
+                        <td className="nowrap">{periodLabel(c.dateDebut, c.dateFin, tr)}</td>
                         <td className="num nowrap">{formatAr(c.budgetTotal)}</td>
                         <td className="num">{c.monitoringBudget ? <Usage rate={monRate} /> : <span className="cell-empty">—</span>}</td>
                         <td>
                           <div className="tag-row">
                             <StatusBadge def={st} />
-                            {flags.map((f) => <Badge key={f.key} tone={f.tone}>{f.label}</Badge>)}
+                            {flags.map((f) => <Badge key={f.key} tone={f.tone}>{tr(f.label)}</Badge>)}
                           </div>
                         </td>
                       </tr>
@@ -422,9 +424,9 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
             </tbody>
           </table>
           {contracts && filtered.length === 0 && (
-            <EmptyState icon={FileSignature} title={contracts.length ? 'Aucun contrat ne correspond' : 'Aucun contrat'}
-              action={canEdit && (contracts.length === 0 ? <Button icon={Plus} onClick={onNew}>Nouveau contrat</Button> : <Button variant="secondary" icon={RotateCcw} onClick={resetFilters}>Réinitialiser les filtres</Button>)}>
-              {contracts.length ? 'Ajustez les filtres ou la recherche.' : 'Créez un premier contrat pour démarrer le portefeuille.'}
+            <EmptyState icon={FileSignature} title={contracts.length ? tr('Aucun contrat ne correspond') : tr('Aucun contrat')}
+              action={canEdit && (contracts.length === 0 ? <Button icon={Plus} onClick={onNew}>{tr('Nouveau contrat')}</Button> : <Button variant="secondary" icon={RotateCcw} onClick={resetFilters}>{tr('Réinitialiser les filtres')}</Button>)}>
+              {contracts.length ? tr('Ajustez les filtres ou la recherche.') : tr('Créez un premier contrat pour démarrer le portefeuille.')}
             </EmptyState>
           )}
         </div>
@@ -433,12 +435,12 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
         {contracts && filtered.length > 0 && (
           <div className="list-foot">
             <span className="list-count">
-              {(pageClamped - 1) * PAGE_SIZE + 1}–{Math.min(pageClamped * PAGE_SIZE, filtered.length)} sur {filtered.length} contrat{filtered.length > 1 ? 's' : ''}
+              {tr(filtered.length > 1 ? '{a}–{b} sur {n} contrats' : '{a}–{b} sur {n} contrat', { a: (pageClamped - 1) * PAGE_SIZE + 1, b: Math.min(pageClamped * PAGE_SIZE, filtered.length), n: filtered.length })}
             </span>
             <div className="pager">
-              <button type="button" className="pager-btn" disabled={pageClamped <= 1} onClick={() => setPage(pageClamped - 1)} aria-label="Page précédente"><ChevronLeft size={16} /></button>
-              <span className="pager-info">Page {pageClamped} / {totalPages}</span>
-              <button type="button" className="pager-btn" disabled={pageClamped >= totalPages} onClick={() => setPage(pageClamped + 1)} aria-label="Page suivante"><ChevronRight size={16} /></button>
+              <button type="button" className="pager-btn" disabled={pageClamped <= 1} onClick={() => setPage(pageClamped - 1)} aria-label={tr('Page précédente')}><ChevronLeft size={16} /></button>
+              <span className="pager-info">{tr('Page {p} / {t}', { p: pageClamped, t: totalPages })}</span>
+              <button type="button" className="pager-btn" disabled={pageClamped >= totalPages} onClick={() => setPage(pageClamped + 1)} aria-label={tr('Page suivante')}><ChevronRight size={16} /></button>
             </div>
           </div>
         )}
@@ -446,7 +448,7 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
 
       <div className="note">
         <Info size={18} aria-hidden="true" />
-        <span>L'icône <strong>filtres</strong> choisit les filtres actifs (seuls les filtres cochés s'affichent) ; la <strong>disquette</strong> enregistre vos vues (permanentes ou temporaires). Double-cliquez une ligne pour ouvrir la fiche.</span>
+        <span>{richText(tr("L'icône <strong>filtres</strong> choisit les filtres actifs (seuls les filtres cochés s'affichent) ; la <strong>disquette</strong> enregistre vos vues (permanentes ou temporaires). Double-cliquez une ligne pour ouvrir la fiche."))}</span>
       </div>
 
       {selected && dialog?.type === 'submit' && <SubmitDialog open onClose={() => setDialog(null)} detail={selected} onDone={afterAction} />}

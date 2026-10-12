@@ -3,6 +3,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import MoneyInput from './MoneyInput.jsx';
 import { Button } from './ui.jsx';
 import { formatAr } from '../lib/format.js';
+import { useI18n } from '../lib/i18n.jsx';
 import { SECTIONS, MONITORING_LINE } from '../lib/budgetCatalog.js';
 
 // Flattened line options for the "ligne budgétaire" selector.
@@ -61,8 +62,9 @@ const emptyRow = (activityId) => ({ _k: ++_seq, lineCode: MONITORING_LINE, descr
  * "Total de l'accord" (the contract ceiling — never typed).
  */
 export function BudgetItemsEditor({ activities, items, onItems, feePct, onFee }) {
+  const { tr } = useI18n();
   if (activities.length === 0) {
-    return <p className="muted" style={{ fontSize: 14 }}>Sélectionnez d'abord au moins une activité pour saisir le budget.</p>;
+    return <p className="muted" style={{ fontSize: 14 }}>{tr("Sélectionnez d'abord au moins une activité pour saisir le budget.")}</p>;
   }
   const rows = items.map((it) => ({ ...it, _k: it._k ?? ++_seq }));
   const setRow = (k, patch) => onItems(rows.map((r) => (r._k === k ? { ...r, ...patch } : r)));
@@ -86,19 +88,19 @@ export function BudgetItemsEditor({ activities, items, onItems, feePct, onFee })
         <table className="table budget-editor">
           <thead>
             <tr>
-              <th scope="col" style={{ minWidth: 200 }}>Ligne budgétaire</th>
-              <th scope="col" style={{ minWidth: 220 }}>Poste (description)</th>
-              <th scope="col" className="num">Nb unités</th>
-              <th scope="col" className="num">Coût/unité</th>
-              <th scope="col" style={{ minWidth: 150 }}>Activité</th>
-              <th scope="col" className="num">Montant</th>
+              <th scope="col" style={{ minWidth: 200 }}>{tr('Ligne budgétaire')}</th>
+              <th scope="col" style={{ minWidth: 220 }}>{tr('Poste (description)')}</th>
+              <th scope="col" className="num">{tr('Nb unités')}</th>
+              <th scope="col" className="num">{tr('Coût/unité')}</th>
+              <th scope="col" style={{ minWidth: 150 }}>{tr('Activité')}</th>
+              <th scope="col" className="num">{tr('Montant')}</th>
               <th scope="col" />
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr><td colSpan={7} className="muted" style={{ textAlign: 'center', padding: 20 }}>
-                Aucun poste. Ajoutez les postes de dépense (indemnités, transport, matériel…).
+                {tr('Aucun poste. Ajoutez les postes de dépense (indemnités, transport, matériel…).')}
               </td></tr>
             )}
             {rows.map((r) => {
@@ -106,25 +108,25 @@ export function BudgetItemsEditor({ activities, items, onItems, feePct, onFee })
               return (
                 <tr key={r._k} className={isMon ? 'row-highlight' : ''}>
                   <td>
-                    <select className="select" value={r.lineCode} onChange={(e) => setRow(r._k, { lineCode: e.target.value })} aria-label="Ligne budgétaire">
+                    <select className="select" value={r.lineCode} onChange={(e) => setRow(r._k, { lineCode: e.target.value })} aria-label={tr('Ligne budgétaire')}>
                       {SECTIONS.map((s) => (
-                        <optgroup key={s.code} label={`${s.code} — ${s.short}`}>
-                          {s.lines.map(([line, label]) => <option key={line} value={`${s.code}.${line}`}>{label}</option>)}
+                        <optgroup key={s.code} label={`${s.code} — ${tr(s.short)}`}>
+                          {s.lines.map(([line, label]) => <option key={line} value={`${s.code}.${line}`}>{tr(label)}</option>)}
                         </optgroup>
                       ))}
                     </select>
                   </td>
-                  <td><input className="input" value={r.description} onChange={(e) => setRow(r._k, { description: e.target.value })} placeholder="Ex. COLLECTE Indemnité des agents" aria-label="Description du poste" /></td>
-                  <td><input className="input tabular" type="number" min="0" step="1" value={r.unitCount} onChange={(e) => setRow(r._k, { unitCount: e.target.value })} aria-label="Nombre d'unités" style={{ textAlign: 'right', minWidth: 90 }} /></td>
-                  <td><MoneyInput value={r.unitCost} onChange={(v) => setRow(r._k, { unitCost: v })} ariaLabel="Coût unitaire" /></td>
+                  <td><input className="input" value={r.description} onChange={(e) => setRow(r._k, { description: e.target.value })} placeholder={tr('Ex. COLLECTE Indemnité des agents')} aria-label={tr('Description du poste')} /></td>
+                  <td><input className="input tabular" type="number" min="0" step="1" value={r.unitCount} onChange={(e) => setRow(r._k, { unitCount: e.target.value })} aria-label={tr("Nombre d'unités")} style={{ textAlign: 'right', minWidth: 90 }} /></td>
+                  <td><MoneyInput value={r.unitCost} onChange={(v) => setRow(r._k, { unitCost: v })} ariaLabel={tr('Coût unitaire')} /></td>
                   <td>
-                    <select className="select" value={r.activityId} onChange={(e) => setRow(r._k, { activityId: e.target.value })} aria-label="Activité de la ligne">
+                    <select className="select" value={r.activityId} onChange={(e) => setRow(r._k, { activityId: e.target.value })} aria-label={tr('Activité de la ligne')}>
                       {activities.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
                     </select>
                   </td>
                   <td className="num tabular">{formatAr(itemAmount(r))}</td>
                   <td style={{ textAlign: 'right' }}>
-                    <Button size="sm" variant="ghost" icon={Trash2} onClick={() => delRow(r._k)} aria-label="Supprimer le poste" />
+                    <Button size="sm" variant="ghost" icon={Trash2} onClick={() => delRow(r._k)} aria-label={tr('Supprimer le poste')} />
                   </td>
                 </tr>
               );
@@ -133,23 +135,23 @@ export function BudgetItemsEditor({ activities, items, onItems, feePct, onFee })
         </table>
       </div>
       <div style={{ padding: '12px 0' }}>
-        <Button size="sm" variant="secondary" icon={Plus} onClick={addRow}>Ajouter un poste</Button>
+        <Button size="sm" variant="secondary" icon={Plus} onClick={addRow}>{tr('Ajouter un poste')}</Button>
       </div>
 
       <div className="budget-totals">
         {perActivity.length > 1 && perActivity.map((a) => (
-          <div className="row" key={a.id}><span>Total {a.label}</span><span className="tabular">{formatAr(a.total)}</span></div>
+          <div className="row" key={a.id}><span>{tr('Total {name}', { name: a.label })}</span><span className="tabular">{formatAr(a.total)}</span></div>
         ))}
-        <div className="row"><span>Total des coûts directs (sections I–V)</span><strong className="tabular">{formatAr(direct)}</strong></div>
+        <div className="row"><span>{tr('Total des coûts directs (sections I–V)')}</span><strong className="tabular">{formatAr(direct)}</strong></div>
         <div className="row">
           <span>
-            Commission de gestion
+            {tr('Commission de gestion')}
             <input className="input fee-input tabular" type="number" min="0" max="100" step="0.5"
-              value={Math.round(fee * 1000) / 10} onChange={(e) => onFee((Number(e.target.value) || 0) / 100)} aria-label="Commission de gestion en %" /> %
+              value={Math.round(fee * 1000) / 10} onChange={(e) => onFee((Number(e.target.value) || 0) / 100)} aria-label={tr('Commission de gestion en %')} /> %
           </span>
           <strong className="tabular">{formatAr(feeAmount)}</strong>
         </div>
-        <div className="row grand"><span>Total de l'accord (plafond du contrat)</span><strong className="tabular">{formatAr(grand)}</strong></div>
+        <div className="row grand"><span>{tr("Total de l'accord (plafond du contrat)")}</span><strong className="tabular">{formatAr(grand)}</strong></div>
       </div>
     </div>
   );
@@ -158,6 +160,7 @@ export function BudgetItemsEditor({ activities, items, onItems, feePct, onFee })
 /** One section's detail table (lines → postes → sous-totaux), like a section
  * sheet of the FLA workbook. */
 function SectionSheet({ sec, activities, single }) {
+  const { tr } = useI18n();
   const cols = single ? 4 : 5;
   const hasItems = sec.lines.some((l) => l.items.length > 0);
   return (
@@ -165,23 +168,23 @@ function SectionSheet({ sec, activities, single }) {
       <table className="table matrix">
         <thead>
           <tr>
-            <th scope="col" style={{ minWidth: 260 }}>Poste</th>
-            <th scope="col" className="num">Nb unités</th>
-            <th scope="col" className="num">Coût/unité</th>
-            {!single && <th scope="col">Activité</th>}
-            <th scope="col" className="num">Montant</th>
+            <th scope="col" style={{ minWidth: 260 }}>{tr('Poste')}</th>
+            <th scope="col" className="num">{tr('Nb unités')}</th>
+            <th scope="col" className="num">{tr('Coût/unité')}</th>
+            {!single && <th scope="col">{tr('Activité')}</th>}
+            <th scope="col" className="num">{tr('Montant')}</th>
           </tr>
         </thead>
         <tbody>
           {!hasItems && (
             <tr><td colSpan={cols} className="muted" style={{ textAlign: 'center', padding: 22 }}>
-              Aucun poste budgétisé dans cette section.
+              {tr('Aucun poste budgétisé dans cette section.')}
             </td></tr>
           )}
           {sec.lines.filter((l) => l.items.length > 0).map((line) => (
             <React.Fragment key={line.lineCode}>
               {line.items.length > 1 && (
-                <tr className="subrow"><td className="indent" colSpan={cols}><strong>{line.label}</strong>{line.lineCode === MONITORING_LINE && <span className="tag" style={{ marginLeft: 8 }}>TPM</span>}</td></tr>
+                <tr className="subrow"><td className="indent" colSpan={cols}><strong>{tr(line.label)}</strong>{line.lineCode === MONITORING_LINE && <span className="tag" style={{ marginLeft: 8 }}>TPM</span>}</td></tr>
               )}
               {line.items.map((it) => {
                 const actId = Object.keys(it.byActivity).find((k) => it.byActivity[k] > 0);
@@ -197,7 +200,7 @@ function SectionSheet({ sec, activities, single }) {
                 );
               })}
               <tr className="subrow-foot">
-                <td className="indent" colSpan={cols - 1} style={{ textAlign: 'right' }}>Sous-total {line.label}</td>
+                <td className="indent" colSpan={cols - 1} style={{ textAlign: 'right' }}>{tr('Sous-total {line}', { line: tr(line.label) })}</td>
                 <td className="num tabular"><strong>{formatAr(line.total)}</strong></td>
               </tr>
             </React.Fragment>
@@ -205,9 +208,9 @@ function SectionSheet({ sec, activities, single }) {
         </tbody>
         <tfoot>
           {!single && activities.map((a) => (
-            <tr key={a.id}><td colSpan={cols - 1} style={{ textAlign: 'right' }} className="muted">Total {a.label}</td><td className="num tabular">{formatAr(sec.byActivity[a.id] || 0)}</td></tr>
+            <tr key={a.id}><td colSpan={cols - 1} style={{ textAlign: 'right' }} className="muted">{tr('Total {name}', { name: a.label })}</td><td className="num tabular">{formatAr(sec.byActivity[a.id] || 0)}</td></tr>
           ))}
-          <tr className="grand-row"><td colSpan={cols - 1} style={{ textAlign: 'right' }}><strong>Total section {sec.code}</strong></td><td className="num tabular"><strong>{formatAr(sec.total)}</strong></td></tr>
+          <tr className="grand-row"><td colSpan={cols - 1} style={{ textAlign: 'right' }}><strong>{tr('Total section {code}', { code: sec.code })}</strong></td><td className="num tabular"><strong>{formatAr(sec.total)}</strong></td></tr>
         </tfoot>
       </table>
     </div>
@@ -217,6 +220,7 @@ function SectionSheet({ sec, activities, single }) {
 /** Synthesis sheet: one row per section + the agreement totals, like the FLA
  * workbook's overview tab. */
 function OverviewSheet({ budget, monthlyCeiling }) {
+  const { tr } = useI18n();
   const { sections, activities, direct, managementFee, total } = budget;
   const single = activities.length <= 1;
   const cols = single ? 2 : 2 + activities.length;
@@ -225,26 +229,26 @@ function OverviewSheet({ budget, monthlyCeiling }) {
       <table className="table matrix">
         <thead>
           <tr>
-            <th scope="col" style={{ minWidth: 300 }}>Section</th>
+            <th scope="col" style={{ minWidth: 300 }}>{tr('Section')}</th>
             {!single && activities.map((a) => <th key={a.id} scope="col" className="num">{a.label}</th>)}
-            <th scope="col" className="num">Total</th>
+            <th scope="col" className="num">{tr('Total')}</th>
           </tr>
         </thead>
         <tbody>
           {sections.map((sec) => (
             <tr key={sec.code} className={sec.total > 0 ? '' : 'muted'}>
-              <td><strong>{sec.code}</strong> — {sec.label}</td>
+              <td><strong>{sec.code}</strong> — {tr(sec.label)}</td>
               {!single && activities.map((a) => <td key={a.id} className="num tabular">{formatAr(sec.byActivity[a.id] || 0)}</td>)}
               <td className="num tabular">{formatAr(sec.total)}</td>
             </tr>
           ))}
         </tbody>
         <tfoot>
-          <tr><td style={{ textAlign: 'right' }}>Total des coûts directs (I–V)</td>{!single && activities.map((a) => <td key={a.id} className="num tabular">{formatAr(direct.byActivity[a.id] || 0)}</td>)}<td className="num tabular"><strong>{formatAr(direct.total)}</strong></td></tr>
-          <tr><td colSpan={cols - 1} style={{ textAlign: 'right' }}>Commission de gestion ({Math.round(managementFee.pct * 1000) / 10} %)</td><td className="num tabular">{formatAr(managementFee.amount)}</td></tr>
-          <tr className="grand-row"><td colSpan={cols - 1} style={{ textAlign: 'right' }}><strong>Total de l'accord</strong></td><td className="num tabular"><strong>{formatAr(total.grand)}</strong></td></tr>
+          <tr><td style={{ textAlign: 'right' }}>{tr('Total des coûts directs (I–V)')}</td>{!single && activities.map((a) => <td key={a.id} className="num tabular">{formatAr(direct.byActivity[a.id] || 0)}</td>)}<td className="num tabular"><strong>{formatAr(direct.total)}</strong></td></tr>
+          <tr><td colSpan={cols - 1} style={{ textAlign: 'right' }}>{tr('Commission de gestion ({pct} %)', { pct: Math.round(managementFee.pct * 1000) / 10 })}</td><td className="num tabular">{formatAr(managementFee.amount)}</td></tr>
+          <tr className="grand-row"><td colSpan={cols - 1} style={{ textAlign: 'right' }}><strong>{tr("Total de l'accord")}</strong></td><td className="num tabular"><strong>{formatAr(total.grand)}</strong></td></tr>
           {monthlyCeiling != null && (
-            <tr><td colSpan={cols - 1} style={{ textAlign: 'right' }}>Barème mensuel (total ÷ mois)</td><td className="num tabular">{formatAr(monthlyCeiling)}</td></tr>
+            <tr><td colSpan={cols - 1} style={{ textAlign: 'right' }}>{tr('Barème mensuel (total ÷ mois)')}</td><td className="num tabular">{formatAr(monthlyCeiling)}</td></tr>
           )}
         </tfoot>
       </table>
@@ -258,6 +262,7 @@ function OverviewSheet({ budget, monthlyCeiling }) {
  * so each section is read page by page, exactly as in the Excel.
  */
 export function BudgetItemsView({ budget, monthlyCeiling }) {
+  const { tr } = useI18n();
   const { sections, activities } = budget;
   const single = activities.length <= 1;
   const [view, setView] = React.useState('overview');
@@ -265,15 +270,15 @@ export function BudgetItemsView({ budget, monthlyCeiling }) {
 
   return (
     <div className="budget-sheets">
-      <div className="seg budget-nav" role="tablist" aria-label="Sections du budget" style={{ marginBottom: 14 }}>
+      <div className="seg budget-nav" role="tablist" aria-label={tr('Sections du budget')} style={{ marginBottom: 14 }}>
         <button type="button" role="tab" aria-selected={view === 'overview'} className={view === 'overview' ? 'is-active' : ''} onClick={() => setView('overview')}>
-          Vue d'ensemble
+          {tr("Vue d'ensemble")}
         </button>
         {sections.map((s) => (
           <button
             key={s.code} type="button" role="tab" aria-selected={view === s.code}
             className={view === s.code ? 'is-active' : ''}
-            title={`${s.code} — ${s.label}`}
+            title={`${s.code} — ${tr(s.label)}`}
             onClick={() => setView(s.code)}
           >
             {s.code}{s.total > 0 ? '' : ' ·'}
@@ -287,7 +292,7 @@ export function BudgetItemsView({ budget, monthlyCeiling }) {
         <>
           <div className="sheet-title" style={{ margin: '2px 0 10px' }}>
             <span className="sheet-code">{activeSec.code}</span>
-            <span className="sheet-label">{activeSec.label}</span>
+            <span className="sheet-label">{tr(activeSec.label)}</span>
           </div>
           <SectionSheet sec={activeSec} activities={activities} single={single} />
         </>

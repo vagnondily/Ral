@@ -7,6 +7,8 @@ import Modal from '../../components/Modal.jsx';
 import MonthSelect from '../../components/MonthSelect.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatInt } from '../../lib/format.js';
+import { richText } from '../../lib/contracts.js';
+import { useI18n } from '../../lib/i18n.jsx';
 
 const RISK = {
   elevee: { label: 'Élevé', color: 'var(--red)', bg: 'var(--red-bg)', text: 'var(--red-text)', freq: 'tous les mois' },
@@ -36,6 +38,7 @@ const LABEL01 = {
  * planifiée. Import du référentiel Master Data pris en charge.
  */
 export default function RbmPage({ canEdit }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [month, setMonth] = useState(currentMonth);
   const [risk, setRisk] = useState('');
@@ -74,14 +77,14 @@ export default function RbmPage({ canEdit }) {
   };
   const generate = async () => {
     setBusy(true);
-    try { const r = await api.rbmGenerate(month, risk); toast.success(`${r.created} visite(s) planifiée(s) sur ${r.due} site(s) à suivre.`); reload(); }
+    try { const r = await api.rbmGenerate(month, risk); toast.success(tr('{created} visite(s) planifiée(s) sur {due} site(s) à suivre.', { created: r.created, due: r.due })); reload(); }
     catch (e) { toast.error(e.message); } finally { setBusy(false); }
   };
   const onImport = async (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
     if (!f) return;
     setBusy(true);
-    try { const r = await api.rbmImport(f); toast.success(`${r.inserted} site(s) ajouté(s) · ${r.total} ligne(s).`); reload(); }
+    try { const r = await api.rbmImport(f); toast.success(tr('{inserted} site(s) ajouté(s) · {total} ligne(s).', { inserted: r.inserted, total: r.total })); reload(); }
     catch (err) { toast.error(err.message); } finally { setBusy(false); }
   };
   const onImportPlan = async (e) => {
@@ -90,7 +93,11 @@ export default function RbmPage({ canEdit }) {
     setBusy(true);
     try {
       const r = await api.rbmImportPlan(f);
-      toast.success(`${r.upserted} site(s) importé(s) (feuille « ${r.sheet} »)${r.lastVisits ? ` · ${r.lastVisits} dernière(s) visite(s)` : ''}${r.skipped ? ` · ${r.skipped} ligne(s) sans géographie ignorée(s)` : ''}.`);
+      toast.success(`${[
+        tr('{n} site(s) importé(s) (feuille « {sheet} »)', { n: r.upserted, sheet: r.sheet }),
+        r.lastVisits ? tr('{n} dernière(s) visite(s)', { n: r.lastVisits }) : null,
+        r.skipped ? tr('{n} ligne(s) sans géographie ignorée(s)', { n: r.skipped }) : null,
+      ].filter(Boolean).join(' · ')}.`);
       reload();
     } catch (err) { toast.error(err.message); } finally { setBusy(false); }
   };
@@ -108,67 +115,67 @@ export default function RbmPage({ canEdit }) {
   // les colonnes de critères détaillées.
   const columns = useMemo(() => {
     const c = {
-      subOffice: { label: 'Sous-bureau', sortVal: (s) => s.subOfficeName || '', csv: (s) => s.subOfficeName || '', render: (s) => s.subOfficeName || <span className="cell-empty">—</span> },
-      antenne: { label: 'Antenne', sortVal: (s) => s.antenneName || '', csv: (s) => s.antenneName || '', render: (s) => s.antenneName || <span className="cell-empty">—</span> },
-      name: { label: 'Nom du site', sortVal: (s) => s.name, csv: (s) => s.name, render: (s) => <strong>{s.name}</strong> },
-      region: { label: 'Région', sortVal: (s) => s.adm1 || '', csv: (s) => s.adm1 || '', render: (s) => s.adm1 || '—' },
-      district: { label: 'District', sortVal: (s) => s.adm2 || s.district || '', csv: (s) => s.adm2 || s.district || '', render: (s) => s.adm2 || s.district || '—' },
-      communes: { label: 'Commune', sortVal: (s) => s.adm3 || s.commune || '', csv: (s) => s.adm3 || s.commune || '', render: (s) => s.adm3 || s.commune || '—' },
-      fokontany: { label: 'Fokontany', sortVal: (s) => s.fokontany || '', csv: (s) => s.fokontany || '', render: (s) => s.fokontany || '—' },
-      idSite: { label: 'ID site', sortVal: (s) => s.code || '', csv: (s) => s.code || '', render: (s) => <span className="mono">{s.code || '—'}</span> },
-      gpsLat: { label: 'GPS Lat.', num: true, sortVal: (s) => s.gpsLat ?? -999, csv: (s) => s.gpsLat ?? '', render: (s) => (s.gpsLat ?? '—') },
-      gpsLng: { label: 'GPS Long.', num: true, sortVal: (s) => s.gpsLng ?? -999, csv: (s) => s.gpsLng ?? '', render: (s) => (s.gpsLng ?? '—') },
-      activityCategory: { label: "Catégorie d'activité", sortVal: (s) => s.activity || '', csv: (s) => s.activity || '', render: (s) => s.activity || '—' },
-      risk: { label: 'Niveau de risque', sortVal: (s) => ({ elevee: 3, moyenne: 2, faible: 1 }[s.riskLevel] || 0), csv: (s) => RISK[s.riskLevel]?.label || s.riskLevel,
+      subOffice: { label: tr('Sous-bureau'), sortVal: (s) => s.subOfficeName || '', csv: (s) => s.subOfficeName || '', render: (s) => s.subOfficeName || <span className="cell-empty">—</span> },
+      antenne: { label: tr('Antenne'), sortVal: (s) => s.antenneName || '', csv: (s) => s.antenneName || '', render: (s) => s.antenneName || <span className="cell-empty">—</span> },
+      name: { label: tr('Nom du site'), sortVal: (s) => s.name, csv: (s) => s.name, render: (s) => <strong>{s.name}</strong> },
+      region: { label: tr('Région'), sortVal: (s) => s.adm1 || '', csv: (s) => s.adm1 || '', render: (s) => s.adm1 || '—' },
+      district: { label: tr('District'), sortVal: (s) => s.adm2 || s.district || '', csv: (s) => s.adm2 || s.district || '', render: (s) => s.adm2 || s.district || '—' },
+      communes: { label: tr('Commune'), sortVal: (s) => s.adm3 || s.commune || '', csv: (s) => s.adm3 || s.commune || '', render: (s) => s.adm3 || s.commune || '—' },
+      fokontany: { label: tr('Fokontany'), sortVal: (s) => s.fokontany || '', csv: (s) => s.fokontany || '', render: (s) => s.fokontany || '—' },
+      idSite: { label: tr('ID site'), sortVal: (s) => s.code || '', csv: (s) => s.code || '', render: (s) => <span className="mono">{s.code || '—'}</span> },
+      gpsLat: { label: tr('GPS Lat.'), num: true, sortVal: (s) => s.gpsLat ?? -999, csv: (s) => s.gpsLat ?? '', render: (s) => (s.gpsLat ?? '—') },
+      gpsLng: { label: tr('GPS Long.'), num: true, sortVal: (s) => s.gpsLng ?? -999, csv: (s) => s.gpsLng ?? '', render: (s) => (s.gpsLng ?? '—') },
+      activityCategory: { label: tr("Catégorie d'activité"), sortVal: (s) => s.activity || '', csv: (s) => s.activity || '', render: (s) => s.activity || '—' },
+      risk: { label: tr('Niveau de risque'), sortVal: (s) => ({ elevee: 3, moyenne: 2, faible: 1 }[s.riskLevel] || 0), csv: (s) => (RISK[s.riskLevel] ? tr(RISK[s.riskLevel].label) : s.riskLevel),
         render: (s) => (canEdit
-          ? <select className="select" style={{ minWidth: 110 }} value={s.riskLevel || 'moyenne'} onClick={(e) => e.stopPropagation()} onChange={(e) => setSiteRisk(s, e.target.value)} aria-label="Niveau de risque">
-              <option value="elevee">Élevé</option><option value="moyenne">Moyen</option><option value="faible">Faible</option></select>
-          : <span className="badge" style={{ background: RISK[s.riskLevel]?.bg, color: RISK[s.riskLevel]?.text }}><span className="dot" style={{ background: RISK[s.riskLevel]?.color }} />{RISK[s.riskLevel]?.label || s.riskLevel}</span>) },
-      security: { label: 'Situation sécuritaire', sortVal: (s) => s.security || 0, csv: (s) => LABEL02.security[s.security || 0], render: (s) => LABEL02.security[s.security || 0] },
-      synergies: { label: 'Synergies de programme', sortVal: (s) => s.synergies || 0, csv: (s) => LABEL01.synergies[s.synergies || 0], render: (s) => LABEL01.synergies[s.synergies || 0] },
-      caseload: { label: 'Taille (caseload)', sortVal: (s) => s.beneficiaryOver200 || 0, csv: (s) => LABEL01.caseload[s.beneficiaryOver200 || 0], render: (s) => LABEL01.caseload[s.beneficiaryOver200 || 0] },
-      newPartner: { label: 'Nouveau partenaire', sortVal: (s) => s.newPartner || 0, csv: (s) => LABEL01.newPartner[s.newPartner || 0], render: (s) => LABEL01.newPartner[s.newPartner || 0] },
-      lastVisit: { label: 'Dernière visite', sortVal: (s) => (s.monthsSinceVisit == null ? 1e9 : s.monthsSinceVisit), csv: (s) => s.lastVisitMonth || '',
-        render: (s) => <span className="tabular">{s.lastVisitMonth || '—'}{s.monthsSinceVisit != null && <div className="site-meta">il y a {s.monthsSinceVisit} mois</div>}</span> },
-      dataVisit: { label: 'Dernière collecte (données)', sortVal: (s) => s.dataVisitMonth || '', csv: (s) => s.dataVisitMonth || '',
+          ? <select className="select" style={{ minWidth: 110 }} value={s.riskLevel || 'moyenne'} onClick={(e) => e.stopPropagation()} onChange={(e) => setSiteRisk(s, e.target.value)} aria-label={tr('Niveau de risque')}>
+              <option value="elevee">{tr('Élevé')}</option><option value="moyenne">{tr('Moyen')}</option><option value="faible">{tr('Faible')}</option></select>
+          : <span className="badge" style={{ background: RISK[s.riskLevel]?.bg, color: RISK[s.riskLevel]?.text }}><span className="dot" style={{ background: RISK[s.riskLevel]?.color }} />{RISK[s.riskLevel] ? tr(RISK[s.riskLevel].label) : s.riskLevel}</span>) },
+      security: { label: tr('Situation sécuritaire'), sortVal: (s) => s.security || 0, csv: (s) => tr(LABEL02.security[s.security || 0]), render: (s) => tr(LABEL02.security[s.security || 0]) },
+      synergies: { label: tr('Synergies de programme'), sortVal: (s) => s.synergies || 0, csv: (s) => tr(LABEL01.synergies[s.synergies || 0]), render: (s) => tr(LABEL01.synergies[s.synergies || 0]) },
+      caseload: { label: tr('Taille (caseload)'), sortVal: (s) => s.beneficiaryOver200 || 0, csv: (s) => LABEL01.caseload[s.beneficiaryOver200 || 0], render: (s) => LABEL01.caseload[s.beneficiaryOver200 || 0] },
+      newPartner: { label: tr('Nouveau partenaire'), sortVal: (s) => s.newPartner || 0, csv: (s) => tr(LABEL01.newPartner[s.newPartner || 0]), render: (s) => tr(LABEL01.newPartner[s.newPartner || 0]) },
+      lastVisit: { label: tr('Dernière visite'), sortVal: (s) => (s.monthsSinceVisit == null ? 1e9 : s.monthsSinceVisit), csv: (s) => s.lastVisitMonth || '',
+        render: (s) => <span className="tabular">{s.lastVisitMonth || '—'}{s.monthsSinceVisit != null && <div className="site-meta">{tr('il y a {n} mois', { n: s.monthsSinceVisit })}</div>}</span> },
+      dataVisit: { label: tr('Dernière collecte (données)'), sortVal: (s) => s.dataVisitMonth || '', csv: (s) => s.dataVisitMonth || '',
         render: (s) => (s.dataVisitMonth
-          ? <span className="tabular">{s.dataVisitMonth}{s.dataVisitCount ? <div className="site-meta">{s.dataVisitCount} soumission{s.dataVisitCount > 1 ? 's' : ''}</div> : null}</span>
-          : <span className="muted" title="Aucune soumission réelle rattachée à la commune de ce site (pcode).">—</span>) },
-      issuesProcess: { label: 'Problèmes — processus interne', sortVal: (s) => s.issuesProcess || 0, csv: (s) => LABEL02.issues[s.issuesProcess || 0], render: (s) => LABEL02.issues[s.issuesProcess || 0] },
-      issuesPartnerReport: { label: 'Problème rapport partenaire', sortVal: (s) => s.issuesPartnerReport || 0, csv: (s) => LABEL02.issues[s.issuesPartnerReport || 0], render: (s) => LABEL02.issues[s.issuesPartnerReport || 0] },
-      issuesCFM: { label: 'Problème CFM', sortVal: (s) => s.issuesCFM || 0, csv: (s) => LABEL02.issues[s.issuesCFM || 0], render: (s) => LABEL02.issues[s.issuesCFM || 0] },
-      fraud: { label: 'Fraude et corruption', sortVal: (s) => s.fraud || 0, csv: (s) => LABEL01.fraud[s.fraud || 0], render: (s) => LABEL01.fraud[s.fraud || 0] },
-      finalScore: { label: 'SCORE FINAL', sortVal: (s) => s.finalScore || 0, csv: (s) => s.finalLabel || '',
-        render: (s) => <><span className="badge" style={{ background: SCORE[s.finalScore]?.bg, color: SCORE[s.finalScore]?.text }}>{s.finalLabel || '—'}</span>{s.urgentFlags && <div className="site-meta" style={{ color: 'var(--red)' }}>⚑ urgent</div>}</> },
-      interval: { label: 'Intervalle requis (CO)', num: true, sortVal: (s) => s.interval || 0, csv: (s) => s.interval || '', render: (s) => <span className="tabular">{s.interval != null ? `${s.interval} mois` : '—'}</span> },
-      due: { label: 'À suivre ce mois', sortVal: (s) => (s.due ? 1 : 0), csv: (s) => (s.due ? 'oui' : 'non'),
+          ? <span className="tabular">{s.dataVisitMonth}{s.dataVisitCount ? <div className="site-meta">{s.dataVisitCount > 1 ? tr('{n} soumissions', { n: s.dataVisitCount }) : tr('{n} soumission', { n: s.dataVisitCount })}</div> : null}</span>
+          : <span className="muted" title={tr('Aucune soumission réelle rattachée à la commune de ce site (pcode).')}>—</span>) },
+      issuesProcess: { label: tr('Problèmes — processus interne'), sortVal: (s) => s.issuesProcess || 0, csv: (s) => tr(LABEL02.issues[s.issuesProcess || 0]), render: (s) => tr(LABEL02.issues[s.issuesProcess || 0]) },
+      issuesPartnerReport: { label: tr('Problème rapport partenaire'), sortVal: (s) => s.issuesPartnerReport || 0, csv: (s) => tr(LABEL02.issues[s.issuesPartnerReport || 0]), render: (s) => tr(LABEL02.issues[s.issuesPartnerReport || 0]) },
+      issuesCFM: { label: tr('Problème CFM'), sortVal: (s) => s.issuesCFM || 0, csv: (s) => tr(LABEL02.issues[s.issuesCFM || 0]), render: (s) => tr(LABEL02.issues[s.issuesCFM || 0]) },
+      fraud: { label: tr('Fraude et corruption'), sortVal: (s) => s.fraud || 0, csv: (s) => tr(LABEL01.fraud[s.fraud || 0]), render: (s) => tr(LABEL01.fraud[s.fraud || 0]) },
+      finalScore: { label: tr('SCORE FINAL'), sortVal: (s) => s.finalScore || 0, csv: (s) => (s.finalLabel ? tr(s.finalLabel) : ''),
+        render: (s) => <><span className="badge" style={{ background: SCORE[s.finalScore]?.bg, color: SCORE[s.finalScore]?.text }}>{s.finalLabel ? tr(s.finalLabel) : '—'}</span>{s.urgentFlags && <div className="site-meta" style={{ color: 'var(--red)' }}>{tr('⚑ urgent')}</div>}</> },
+      interval: { label: tr('Intervalle requis (CO)'), num: true, sortVal: (s) => s.interval || 0, csv: (s) => s.interval || '', render: (s) => <span className="tabular">{s.interval != null ? tr('{n} mois', { n: s.interval }) : '—'}</span> },
+      due: { label: tr('À suivre ce mois'), sortVal: (s) => (s.due ? 1 : 0), csv: (s) => (s.due ? tr('oui') : tr('non')),
         render: (s) => (s.due
-          ? <span className="badge" style={{ background: 'var(--blue-50)', color: 'var(--blue-700)' }}><span className="dot" style={{ background: 'var(--blue-600)' }} />À suivre</span>
-          : <span className="muted">à jour</span>) },
+          ? <span className="badge" style={{ background: 'var(--blue-50)', color: 'var(--blue-700)' }}><span className="dot" style={{ background: 'var(--blue-600)' }} />{tr('À suivre')}</span>
+          : <span className="muted">{tr('à jour')}</span>) },
     };
     return c;
-  }, [canEdit]); // eslint-disable-line
+  }, [canEdit, tr]); // eslint-disable-line
 
   const filters = useMemo(() => ({
-    q: { label: 'Recherche', type: 'search', placeholder: 'Site, commune, district…',
+    q: { label: tr('Recherche'), type: 'search', placeholder: tr('Site, commune, district…'),
       match: (s, v) => [s.name, s.commune, s.adm3, s.district, s.adm2, s.code].some((x) => x && String(x).toLowerCase().includes(v.toLowerCase())) },
-    office: { label: 'Bureau', type: 'select',
-      options: () => [{ id: '', label: 'Tous les bureaux' }, ...offices.map((o) => ({ id: o.id, label: (o.national ? '🏛 ' : (o.parentId ? '— ' : '')) + o.name + (o.national ? ' (pays — tous les sites)' : '') }))],
+    office: { label: tr('Bureau'), type: 'select',
+      options: () => [{ id: '', label: tr('Tous les bureaux') }, ...offices.map((o) => ({ id: o.id, label: o.national ? '🏛 ' + tr('{name} (pays — tous les sites)', { name: o.name }) : (o.parentId ? '— ' : '') + o.name }))],
       match: (s, v) => { const o = officeById.get(v); if (!o) return true; if (o.national) return true; return descendantsOf(v).has(s.fieldOfficeId); } },
-    region: { label: 'Région', type: 'select', options: (rows) => [{ id: '', label: 'Toutes les régions' }, ...uniq(rows.map((s) => s.adm1))],
+    region: { label: tr('Région'), type: 'select', options: (rows) => [{ id: '', label: tr('Toutes les régions') }, ...uniq(rows.map((s) => s.adm1))],
       match: (s, v) => s.adm1 === v },
-    district: { label: 'District', type: 'select',
-      options: (rows, vals) => [{ id: '', label: 'Tous les districts' }, ...uniq(rows.filter((s) => !vals.region || s.adm1 === vals.region).map((s) => s.adm2))],
+    district: { label: tr('District'), type: 'select',
+      options: (rows, vals) => [{ id: '', label: tr('Tous les districts') }, ...uniq(rows.filter((s) => !vals.region || s.adm1 === vals.region).map((s) => s.adm2))],
       match: (s, v) => s.adm2 === v },
-    communes: { label: 'Commune', type: 'select',
-      options: (rows, vals) => [{ id: '', label: 'Toutes les communes' }, ...uniq(rows.filter((s) => (!vals.region || s.adm1 === vals.region) && (!vals.district || s.adm2 === vals.district)).map((s) => s.adm3))],
+    communes: { label: tr('Commune'), type: 'select',
+      options: (rows, vals) => [{ id: '', label: tr('Toutes les communes') }, ...uniq(rows.filter((s) => (!vals.region || s.adm1 === vals.region) && (!vals.district || s.adm2 === vals.district)).map((s) => s.adm3))],
       match: (s, v) => s.adm3 === v },
-    risk: { label: 'Niveau de risque', type: 'select',
-      options: [{ id: '', label: 'Tous' }, { id: 'elevee', label: 'Élevé' }, { id: 'moyenne', label: 'Moyen' }, { id: 'faible', label: 'Faible' }],
+    risk: { label: tr('Niveau de risque'), type: 'select',
+      options: [{ id: '', label: tr('Tous') }, { id: 'elevee', label: tr('Élevé') }, { id: 'moyenne', label: tr('Moyen') }, { id: 'faible', label: tr('Faible') }],
       match: (s, v) => s.riskLevel === v },
-    due: { label: 'À suivre', type: 'select', options: [{ id: '', label: 'Tous' }, { id: 'due', label: 'À suivre (non visités / en retard)' }, { id: 'ok', label: 'À jour' }],
+    due: { label: tr('À suivre'), type: 'select', options: [{ id: '', label: tr('Tous') }, { id: 'due', label: tr('À suivre (non visités / en retard)') }, { id: 'ok', label: tr('À jour') }],
       match: (s, v) => (v === 'due' ? !!s.due : !s.due) },
-  }), [offices, officeById, descendantsOf]); // eslint-disable-line
+  }), [offices, officeById, descendantsOf, tr]); // eslint-disable-line
 
   const DEFAULT_COLS = ['subOffice', 'antenne', 'name', 'district', 'communes', 'risk', 'lastVisit', 'dataVisit', 'finalScore', 'due'];
 
@@ -176,18 +183,18 @@ export default function RbmPage({ canEdit }) {
     <div className="section-gap">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Risk-Based Monitoring (RBM)</h1>
-          <p className="page-desc">Sélectionnez une ligne (ou <strong>double-clic</strong>) pour éditer ses critères. « Générer » planifie les sites à suivre du mois. La <strong>dernière visite</strong> intègre la <strong>collecte réelle</strong> issue des données uploadées (rattachées par commune).</p>
+          <h1 className="page-title">{tr('Risk-Based Monitoring (RBM)')}</h1>
+          <p className="page-desc">{richText(tr('Sélectionnez une ligne (ou <strong>double-clic</strong>) pour éditer ses critères. « Générer » planifie les sites à suivre du mois. La <strong>dernière visite</strong> intègre la <strong>collecte réelle</strong> issue des données uploadées (rattachées par commune).'))}</p>
         </div>
         <div className="header-actions">
           <MonthSelect value={month} onChange={setMonth} />
           {canEdit && <>
             <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={onImport} />
             <input ref={planRef} type="file" accept=".xlsx,.xlsm" hidden onChange={onImportPlan} />
-            <Button variant="secondary" icon={Upload} loading={busy} onClick={() => fileRef.current?.click()}>Master Data</Button>
+            <Button variant="secondary" icon={Upload} loading={busy} onClick={() => fileRef.current?.click()}>{tr('Master Data')}</Button>
             <Button variant="secondary" icon={Upload} loading={busy} onClick={() => planRef.current?.click()}
-              title="Importe la feuille « Risk-based site selection » : critères, SCORE FINAL, GPS, activité, dernière visite.">Plan de suivi</Button>
-            <Button icon={Wand2} loading={busy} onClick={generate}>Générer</Button>
+              title={tr('Importe la feuille « Risk-based site selection » : critères, SCORE FINAL, GPS, activité, dernière visite.')}>{tr('Plan de suivi')}</Button>
+            <Button icon={Wand2} loading={busy} onClick={generate}>{tr('Générer')}</Button>
           </>}
         </div>
       </div>
@@ -195,25 +202,25 @@ export default function RbmPage({ canEdit }) {
       {error && <Alert tone="error">{error}</Alert>}
 
       <Stats compact items={[
-        { label: 'Sites référencés', value: sites ? formatInt(stats.total) : '—', foot: 'Référentiel du plan' },
-        { label: 'Risque élevé', value: sites ? formatInt(stats.elevee) : '—', foot: RISK.elevee.freq },
-        { label: 'Risque moyen', value: sites ? formatInt(stats.moyenne) : '—', foot: RISK.moyenne.freq },
-        { label: 'Risque faible', value: sites ? formatInt(stats.faible) : '—', foot: RISK.faible.freq },
-        { label: 'À suivre ce mois', value: sites ? formatInt(stats.due) : '—', foot: 'Selon le RBM' },
+        { label: tr('Sites référencés'), value: sites ? formatInt(stats.total) : '—', foot: tr('Référentiel du plan') },
+        { label: tr('Risque élevé'), value: sites ? formatInt(stats.elevee) : '—', foot: tr(RISK.elevee.freq) },
+        { label: tr('Risque moyen'), value: sites ? formatInt(stats.moyenne) : '—', foot: tr(RISK.moyenne.freq) },
+        { label: tr('Risque faible'), value: sites ? formatInt(stats.faible) : '—', foot: tr(RISK.faible.freq) },
+        { label: tr('À suivre ce mois'), value: sites ? formatInt(stats.due) : '—', foot: tr('Selon le RBM') },
       ]} />
 
       <DataList
         rows={sites} columns={columns} defaultColumns={DEFAULT_COLS}
         filters={filters} defaultFilters={['q', 'office', 'risk', 'due']}
         storageKey="mems.rbm.view.v4" pageSize={15} defaultSort={{ key: 'finalScore', dir: 'desc' }}
-        csvName={`rbm_${month}.csv`} emptyIcon={MapPin} emptyTitle="Aucun site référencé"
-        emptyChildren="Importez le référentiel Master Data (.xlsx) pour alimenter le RBM."
+        csvName={`rbm_${month}.csv`} emptyIcon={MapPin} emptyTitle={tr('Aucun site référencé')}
+        emptyChildren={tr('Importez le référentiel Master Data (.xlsx) pour alimenter le RBM.')}
         selectable selectedId={selectedId} onSelect={setSelectedId}
         onRowDoubleClick={canEdit ? (s) => setCrit(s) : undefined}
         toolbar={canEdit ? (sel) => (sel ? <>
-          <Button size="sm" variant="secondary" icon={SlidersHorizontal} onClick={() => setCrit(sel)}>Éditer les critères</Button>
-          <Button size="sm" variant="ghost" onClick={() => setSelectedId(null)}>Désélectionner</Button>
-        </> : <span className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Sélectionnez un site pour éditer ses critères.</span>) : undefined}
+          <Button size="sm" variant="secondary" icon={SlidersHorizontal} onClick={() => setCrit(sel)}>{tr('Éditer les critères')}</Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedId(null)}>{tr('Désélectionner')}</Button>
+        </> : <span className="muted" style={{ fontSize: 'var(--fs-sm)' }}>{tr('Sélectionnez un site pour éditer ses critères.')}</span>) : undefined}
         rowClassName={(s) => (s.due ? 'row-due' : '')}
       />
 
@@ -232,6 +239,7 @@ const C01 = [['synergies', 'Synergies de programme', ['Une seule activité', 'Pl
   ['fraud', 'Fraude / corruption', ['Non suspectée', 'Suspectée']]];
 
 function CritModal({ site, onClose, onSaved }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const init = {};
   [...C02, ...C01].forEach(([k]) => { init[k] = Number(site[k]) || 0; });
@@ -240,19 +248,19 @@ function CritModal({ site, onClose, onSaved }) {
 
   async function save() {
     setSaving(true);
-    try { await api.fieldUpdateSite(site.id, form); toast.success('Critères enregistrés.'); onSaved(); }
+    try { await api.fieldUpdateSite(site.id, form); toast.success(tr('Critères enregistrés.')); onSaved(); }
     catch (e) { toast.error(e.message); } finally { setSaving(false); }
   }
   const sel = (k, label, opts) => (
-    <Field key={k} label={label}>
+    <Field key={k} label={tr(label)}>
       <select className="select" value={form[k]} onChange={(e) => setForm({ ...form, [k]: Number(e.target.value) })}>
-        {opts.map((o, i) => <option key={i} value={i}>{o}</option>)}
+        {opts.map((o, i) => <option key={i} value={i}>{tr(o)}</option>)}
       </select>
     </Field>
   );
   return (
-    <Modal open size="md" title="Critères de risque (RBM)" subtitle={`${site.name} — alimentent le score et la priorité`} onClose={() => !saving && onClose()}
-      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>Annuler</Button><Button onClick={save} loading={saving}>Enregistrer</Button></>}>
+    <Modal open size="md" title={tr('Critères de risque (RBM)')} subtitle={tr('{site} — alimentent le score et la priorité', { site: site.name })} onClose={() => !saving && onClose()}
+      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button onClick={save} loading={saving}>{tr('Enregistrer')}</Button></>}>
       <div className="form-grid">
         {C02.map(([k, l, o]) => sel(k, l, o))}
         {C01.map(([k, l, o]) => sel(k, l, o))}

@@ -3,10 +3,12 @@ import { Handshake, UserRound, Banknote, ShieldAlert, Lock } from 'lucide-react'
 import Modal from '../components/Modal.jsx';
 import { Alert, Button, RiskBadge } from '../components/ui.jsx';
 import { dayLabel, formatAr, monthGrid, monthLabel, todayISO } from '../lib/format.js';
+import { useI18n } from '../lib/i18n.jsx';
 
 const DOW = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
 export default function MissionCalendarDrawer({ open, onClose, month, assignment, provider, selectedDays, editable, lockReason, onToggle }) {
+  const { tr } = useI18n();
   if (!assignment) return null;
   const cells = monthGrid(month);
   const today = todayISO();
@@ -18,26 +20,26 @@ export default function MissionCalendarDrawer({ open, onClose, month, assignment
       open={open}
       onClose={onClose}
       variant="drawer"
-      title="Calendrier de mission"
+      title={tr('Calendrier de mission')}
       subtitle={`${assignment.siteName} · ${assignment.commune || '—'}`}
-      footer={<Button onClick={onClose}>Terminé</Button>}
+      footer={<Button onClick={onClose}>{tr('Terminé')}</Button>}
     >
       <div className="cal-meta">
         <p className="fact">
           <Handshake size={16} aria-hidden="true" />
-          <span><span className="cal-meta-label">Prestataire</span><strong>{provider?.name || '—'}</strong></span>
+          <span><span className="cal-meta-label">{tr('Prestataire')}</span><strong>{provider?.name || '—'}</strong></span>
         </p>
         <p className="fact">
           <UserRound size={16} aria-hidden="true" />
-          <span><span className="cal-meta-label">Agent</span><strong>{assignment.tpmAgentName || <span className="muted">Non désigné</span>}</strong></span>
+          <span><span className="cal-meta-label">{tr('Agent')}</span><strong>{assignment.tpmAgentName || <span className="muted">{tr('Non désigné')}</span>}</strong></span>
         </p>
         <p className="fact">
           <Banknote size={16} aria-hidden="true" />
-          <span><span className="cal-meta-label">Barème</span><strong className="tabular">{formatAr(rate)}</strong> <span className="muted">/ jour</span></span>
+          <span><span className="cal-meta-label">{tr('Barème')}</span><strong className="tabular">{formatAr(rate)}</strong> <span className="muted">{tr('/ jour')}</span></span>
         </p>
         <p className="fact">
           <ShieldAlert size={16} aria-hidden="true" />
-          <span><span className="cal-meta-label">Niveau de risque</span><RiskBadge level={assignment.riskLevel} /></span>
+          <span><span className="cal-meta-label">{tr('Niveau de risque')}</span><RiskBadge level={assignment.riskLevel} /></span>
         </p>
       </div>
 
@@ -46,13 +48,13 @@ export default function MissionCalendarDrawer({ open, onClose, month, assignment
       <div className="cal-month">
         <span>{monthLabel(month)}</span>
         <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>
-          {editable ? 'Cliquez sur un jour pour le planifier' : 'Lecture seule'}
+          {editable ? tr('Cliquez sur un jour pour le planifier') : tr('Lecture seule')}
         </span>
       </div>
 
-      <div className="cal-grid" role="group" aria-label={`Jours de mission, ${monthLabel(month)}`}>
+      <div className="cal-grid" role="group" aria-label={tr('Jours de mission, {month}', { month: monthLabel(month) })}>
         {DOW.map((d) => (
-          <span key={d} className="cal-dow" aria-hidden="true">{d}</span>
+          <span key={d} className="cal-dow" aria-hidden="true">{tr(d)}</span>
         ))}
         {cells.map((c, i) =>
           c === null ? (
@@ -65,7 +67,7 @@ export default function MissionCalendarDrawer({ open, onClose, month, assignment
                 .filter(Boolean)
                 .join(' ')}
               aria-pressed={selected.has(c.iso)}
-              aria-label={`${dayLabel(c.iso)}${selected.has(c.iso) ? ', mission planifiée' : ''}`}
+              aria-label={selected.has(c.iso) ? tr('{day}, mission planifiée', { day: dayLabel(c.iso) }) : dayLabel(c.iso)}
               disabled={!editable}
               onClick={() => onToggle(c.iso)}
             >
@@ -76,17 +78,17 @@ export default function MissionCalendarDrawer({ open, onClose, month, assignment
       </div>
 
       <div className="cal-legend" aria-hidden="true">
-        <span><i style={{ background: 'var(--blue-600)', borderColor: 'var(--blue-600)' }} /> Mission planifiée</span>
-        <span><i style={{ borderColor: 'var(--blue-500)', borderWidth: 2 }} /> Aujourd'hui</span>
-        <span><i style={{ background: 'var(--canvas)' }} /> Week-end</span>
+        <span><i style={{ background: 'var(--blue-600)', borderColor: 'var(--blue-600)' }} /> {tr('Mission planifiée')}</span>
+        <span><i style={{ borderColor: 'var(--blue-500)', borderWidth: 2 }} /> {tr("Aujourd'hui")}</span>
+        <span><i style={{ background: 'var(--canvas)' }} /> {tr('Week-end')}</span>
       </div>
 
       <div className="cal-summary">
         <span>
-          <strong className="tabular">{selected.size}</strong> jour{selected.size > 1 ? 's' : ''} planifié{selected.size > 1 ? 's' : ''}
+          <strong className="tabular">{selected.size}</strong> {tr(selected.size > 1 ? 'jours planifiés' : 'jour planifié')}
         </span>
         <span>
-          Coût estimé <strong className="tabular">{formatAr(selected.size * rate)}</strong>
+          {tr('Coût estimé')} <strong className="tabular">{formatAr(selected.size * rate)}</strong>
         </span>
       </div>
     </Modal>

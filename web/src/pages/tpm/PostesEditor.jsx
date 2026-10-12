@@ -6,6 +6,7 @@ import MoneyInput from '../../components/MoneyInput.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { SECTIONS, SECTION_OF } from '../../lib/budgetCatalog.js';
 import { formatAr } from '../../lib/format.js';
+import { useI18n } from '../../lib/i18n.jsx';
 
 let seq = 0;
 export const newPoste = (lineCode = 'IV.suivi') => ({
@@ -76,7 +77,8 @@ export function itemsFromRows(rows) {
  * the `rows` array. Used by the facture (réalisé) and the plan de collecte
  * (prévu) so both stay identical in shape and maintenance.
  */
-export default function PostesEditor({ rows, onChange, readOnly = false, funderLabel = 'À la charge du bailleur', advance = 0, activities = [] }) {
+export default function PostesEditor({ rows, onChange, readOnly = false, funderLabel, advance = 0, activities = [] }) {
+  const { tr } = useI18n();
   const totals = useMemo(() => postesTotals(rows), [rows]);
   const toast = useToast();
   const fileRef = useRef(null);
@@ -90,7 +92,9 @@ export default function PostesEditor({ rows, onChange, readOnly = false, funderL
     try {
       const { items, skipped } = await api.importPostes(f);
       onChange(rowsFromItems(items));
-      toast.success(`${items.length} poste(s) importé(s)${skipped?.length ? ` · ${skipped.length} ligne(s) ignorée(s)` : ''}.`);
+      toast.success(skipped?.length
+        ? tr('{n} poste(s) importé(s) · {s} ligne(s) ignorée(s).', { n: items.length, s: skipped.length })
+        : tr('{n} poste(s) importé(s).', { n: items.length }));
     } catch (err) { toast.error(err.message); } finally { setImporting(false); }
   }
 
@@ -106,9 +110,9 @@ export default function PostesEditor({ rows, onChange, readOnly = false, funderL
       {!readOnly && (
         <div className="postes-toolbar">
           <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={handleImport} />
-          <Button size="sm" variant="secondary" icon={Upload} loading={importing} onClick={() => fileRef.current?.click()}>Importer Excel</Button>
-          <Button size="sm" variant="ghost" icon={Download} onClick={() => api.downloadPostesTemplate().catch((e) => toast.error(e.message))}>Modèle</Button>
-          <span className="hint">Remplissez le modèle hors ligne puis importez — les règles du système sont appliquées (lignes valides, montants ≥ 0). Le « % bailleur » fixe la part à payer par le bailleur (100 % par défaut).</span>
+          <Button size="sm" variant="secondary" icon={Upload} loading={importing} onClick={() => fileRef.current?.click()}>{tr('Importer Excel')}</Button>
+          <Button size="sm" variant="ghost" icon={Download} onClick={() => api.downloadPostesTemplate().catch((e) => toast.error(e.message))}>{tr('Modèle')}</Button>
+          <span className="hint">{tr('Remplissez le modèle hors ligne puis importez — les règles du système sont appliquées (lignes valides, montants ≥ 0). Le « % bailleur » fixe la part à payer par le bailleur (100 % par défaut).')}</span>
         </div>
       )}
       {SECTIONS.map((sec) => {
@@ -117,79 +121,79 @@ export default function PostesEditor({ rows, onChange, readOnly = false, funderL
         return (
           <div key={sec.code} className="facture-sec">
             <div className="facture-sec-head">
-              <h3 className="facture-sec-title">{sec.code}. {sec.label}</h3>
+              <h3 className="facture-sec-title">{sec.code}. {tr(sec.label)}</h3>
               <span className="mono muted">{formatAr(totals.bySec[sec.code] || 0)}</span>
             </div>
             {secRows.length > 0 && (
               <div className="table-wrap">
                 <table className="table facture-table">
                   <thead><tr>
-                    <th scope="col">Ligne / Désignation</th>
-                    <th scope="col">Unité</th>
-                    <th scope="col" className="num">Qté</th>
-                    <th scope="col" className="num">Coût unit.</th>
-                    <th scope="col" className="num">Montant</th>
-                    <th scope="col">Activité(s)</th>
-                    <th scope="col" className="num">% bailleur</th>
-                    <th scope="col" className="num">À payer bailleur</th>
-                    <th scope="col">Observation</th>
-                    {!readOnly && <th scope="col" aria-label="Actions" />}
+                    <th scope="col">{tr('Ligne / Désignation')}</th>
+                    <th scope="col">{tr('Unité')}</th>
+                    <th scope="col" className="num">{tr('Qté')}</th>
+                    <th scope="col" className="num">{tr('Coût unit.')}</th>
+                    <th scope="col" className="num">{tr('Montant')}</th>
+                    <th scope="col">{tr('Activité(s)')}</th>
+                    <th scope="col" className="num">{tr('% bailleur')}</th>
+                    <th scope="col" className="num">{tr('À payer bailleur')}</th>
+                    <th scope="col">{tr('Observation')}</th>
+                    {!readOnly && <th scope="col" aria-label={tr('Actions')} />}
                   </tr></thead>
                   <tbody>
                     {secRows.map((r) => (
                       <tr key={r.key}>
                         <td>
-                          <select className="select" value={r.lineCode} disabled={readOnly} onChange={(e) => setRow(r.key, { lineCode: e.target.value })} aria-label="Ligne budgétaire">
-                            {sec.lines.map(([code, label]) => <option key={code} value={`${sec.code}.${code}`}>{label}</option>)}
+                          <select className="select" value={r.lineCode} disabled={readOnly} onChange={(e) => setRow(r.key, { lineCode: e.target.value })} aria-label={tr('Ligne budgétaire')}>
+                            {sec.lines.map(([code, label]) => <option key={code} value={`${sec.code}.${code}`}>{tr(label)}</option>)}
                           </select>
-                          <input className="input" style={{ marginTop: 6 }} value={r.designation} disabled={readOnly} placeholder="Désignation du poste" onChange={(e) => setRow(r.key, { designation: e.target.value })} />
+                          <input className="input" style={{ marginTop: 6 }} value={r.designation} disabled={readOnly} placeholder={tr('Désignation du poste')} onChange={(e) => setRow(r.key, { designation: e.target.value })} />
                         </td>
-                        <td><input className="input" style={{ width: 90 }} value={r.unit} disabled={readOnly} placeholder="jour" onChange={(e) => setRow(r.key, { unit: e.target.value })} /></td>
+                        <td><input className="input" style={{ width: 90 }} value={r.unit} disabled={readOnly} placeholder={tr('jour')} onChange={(e) => setRow(r.key, { unit: e.target.value })} /></td>
                         <td className="num"><input className="input tabular" style={{ width: 72, textAlign: 'right' }} inputMode="decimal" value={r.unitCount} disabled={readOnly} onChange={(e) => setRow(r.key, { unitCount: e.target.value })} /></td>
                         <td className="num" style={{ minWidth: 130 }}><MoneyInput value={r.unitCost === '' ? '' : Number(r.unitCost)} onChange={(v) => setRow(r.key, { unitCost: v })} /></td>
                         <td className="num mono">{formatAr(posteAmount(r))}</td>
                         <td>
-                          <select className={`select ${r.activityId ? '' : 'is-empty'}`} style={{ minWidth: 130 }} value={r.activityId} disabled={readOnly} onChange={(e) => setRow(r.key, { activityId: e.target.value })} aria-label="Activité 1">
-                            <option value="">— Activité —</option>
+                          <select className={`select ${r.activityId ? '' : 'is-empty'}`} style={{ minWidth: 130 }} value={r.activityId} disabled={readOnly} onChange={(e) => setRow(r.key, { activityId: e.target.value })} aria-label={tr('Activité 1')}>
+                            <option value="">{tr('— Activité —')}</option>
                             {activities.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
                           </select>
                           {(r.activity2Id || (!readOnly && r.activityId)) && (
                             <div style={{ display: 'flex', gap: 4, marginTop: 4, alignItems: 'center' }}>
-                              <select className="select" style={{ minWidth: 110, flex: 1 }} value={r.activity2Id} disabled={readOnly} onChange={(e) => setRow(r.key, { activity2Id: e.target.value })} aria-label="Activité 2">
-                                <option value="">— 2ᵉ activité —</option>
+                              <select className="select" style={{ minWidth: 110, flex: 1 }} value={r.activity2Id} disabled={readOnly} onChange={(e) => setRow(r.key, { activity2Id: e.target.value })} aria-label={tr('Activité 2')}>
+                                <option value="">{tr('— 2ᵉ activité —')}</option>
                                 {activities.filter((a) => a.id !== r.activityId).map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
                               </select>
                               {r.activity2Id && (
-                                <span className="hint" style={{ whiteSpace: 'nowrap' }} title="Part du montant sur l'activité 1 (le reste sur la 2ᵉ)">
-                                  <input className="input tabular" style={{ width: 52, textAlign: 'right' }} inputMode="decimal" value={r.activity1Pct} placeholder="100" disabled={readOnly} onChange={(e) => setRow(r.key, { activity1Pct: e.target.value })} aria-label="% sur activité 1" /> %
+                                <span className="hint" style={{ whiteSpace: 'nowrap' }} title={tr("Part du montant sur l'activité 1 (le reste sur la 2ᵉ)")}>
+                                  <input className="input tabular" style={{ width: 52, textAlign: 'right' }} inputMode="decimal" value={r.activity1Pct} placeholder="100" disabled={readOnly} onChange={(e) => setRow(r.key, { activity1Pct: e.target.value })} aria-label={tr('% sur activité 1')} /> %
                                 </span>
                               )}
                             </div>
                           )}
                         </td>
                         <td className="num">
-                          <input className="input tabular" style={{ width: 64, textAlign: 'right' }} inputMode="decimal" value={r.bailleurPct} placeholder="100" disabled={readOnly} onChange={(e) => setRow(r.key, { bailleurPct: e.target.value })} aria-label="Pourcentage à la charge du bailleur" />
+                          <input className="input tabular" style={{ width: 64, textAlign: 'right' }} inputMode="decimal" value={r.bailleurPct} placeholder="100" disabled={readOnly} onChange={(e) => setRow(r.key, { bailleurPct: e.target.value })} aria-label={tr('Pourcentage à la charge du bailleur')} />
                         </td>
                         <td className="num mono">{formatAr(posteFunder(r))}</td>
                         <td><input className="input" value={r.observation} disabled={readOnly} onChange={(e) => setRow(r.key, { observation: e.target.value })} /></td>
-                        {!readOnly && <td><Button size="sm" variant="ghost" icon={Trash2} aria-label="Supprimer le poste" onClick={() => removeRow(r.key)} /></td>}
+                        {!readOnly && <td><Button size="sm" variant="ghost" icon={Trash2} aria-label={tr('Supprimer le poste')} onClick={() => removeRow(r.key)} /></td>}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             )}
-            {!readOnly && <Button size="sm" variant="ghost" icon={Plus} onClick={() => addRow(sec.code)}>Ajouter un poste — {sec.short}</Button>}
+            {!readOnly && <Button size="sm" variant="ghost" icon={Plus} onClick={() => addRow(sec.code)}>{tr('Ajouter un poste — {section}', { section: tr(sec.short) })}</Button>}
           </div>
         );
       })}
 
       <div className="facture-totals">
-        <div><span className="stat-label">Total</span><span className="stat-value">{formatAr(totals.total)}</span></div>
-        <div><span className="stat-label">{funderLabel}</span><span className="stat-value">{formatAr(totals.funder)}</span></div>
-        <div><span className="stat-label">À la charge de l'ONG</span><span className="stat-value">{formatAr(totals.ong)}</span></div>
+        <div><span className="stat-label">{tr('Total')}</span><span className="stat-value">{formatAr(totals.total)}</span></div>
+        <div><span className="stat-label">{funderLabel ?? tr('À la charge du bailleur')}</span><span className="stat-value">{formatAr(totals.funder)}</span></div>
+        <div><span className="stat-label">{tr("À la charge de l'ONG")}</span><span className="stat-value">{formatAr(totals.ong)}</span></div>
         {advance > 0 && (
-          <div><span className="stat-label">Net après avance déduite</span><span className="stat-value">{formatAr(totals.funder - advance)}</span></div>
+          <div><span className="stat-label">{tr('Net après avance déduite')}</span><span className="stat-value">{formatAr(totals.funder - advance)}</span></div>
         )}
       </div>
     </>

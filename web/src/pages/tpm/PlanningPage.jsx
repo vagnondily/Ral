@@ -10,6 +10,8 @@ import { usePopover, SortTh, makeViewStore } from '../../components/listView.jsx
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatAr, formatInt, monthLabel } from '../../lib/format.js';
 import { formatUsdFor } from '../../lib/currency.js';
+import { richText } from '../../lib/contracts.js';
+import { useI18n } from '../../lib/i18n.jsx';
 
 const PLAN_STATUS = { brouillon: { label: 'Brouillon', tone: 'yellow', icon: 'draft' }, valide: { label: 'Validé', tone: 'green', icon: 'check' } };
 const STATUSES = [{ id: '', label: 'Tous les statuts' }, { id: 'brouillon', label: 'Brouillon' }, { id: 'valide', label: 'Validé' }];
@@ -46,6 +48,7 @@ const emptyValues = () => ({ q: '', period: currentMonth(), partnerId: '', contr
  * alimente le « Planifié » de la consolidation et pré-remplit la facture.
  */
 export default function PlanningPage({ canEdit, onNavigate }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [context, setContext] = useState(null);
   const [plans, setPlans] = useState(null);
@@ -131,7 +134,7 @@ export default function PlanningPage({ canEdit, onNavigate }) {
   function toggleFilter(k) { setShownFilters((ks) => (ks.includes(k) ? ks.filter((x) => x !== k) : [...ks, k])); }
   function toggleColumn(k) { setColumns((ks) => (ks.includes(k) ? ks.filter((x) => x !== k) : [...ks, k])); }
   function currentPayload() { return { values, shownFilters, columns, sort }; }
-  function resetView() { setValues(emptyValues()); viewStore.clear(); toast.info('Filtres réinitialisés.'); }
+  function resetView() { setValues(emptyValues()); viewStore.clear(); toast.info(tr('Filtres réinitialisés.')); }
 
   const periodOptions = useMemo(() => {
     const set = new Set([currentMonth()]);
@@ -141,10 +144,10 @@ export default function PlanningPage({ canEdit, onNavigate }) {
 
   function optionsFor(k) {
     switch (k) {
-      case 'period': return [{ id: '', label: 'Toutes les périodes' }, ...periodOptions.map((m) => ({ id: m, label: monthLabel(m) }))];
-      case 'partnerId': return [{ id: '', label: 'Tous les prestataires' }, ...(context?.partners || []).map((p) => ({ id: p.id, label: p.name }))];
-      case 'contractId': return [{ id: '', label: 'Tous les contrats' }, ...(context?.contracts || []).map((c) => ({ id: c.id, label: `${c.partnerName} · ${c.numero}` }))];
-      case 'status': return STATUSES;
+      case 'period': return [{ id: '', label: tr('Toutes les périodes') }, ...periodOptions.map((m) => ({ id: m, label: monthLabel(m) }))];
+      case 'partnerId': return [{ id: '', label: tr('Tous les prestataires') }, ...(context?.partners || []).map((p) => ({ id: p.id, label: p.name }))];
+      case 'contractId': return [{ id: '', label: tr('Tous les contrats') }, ...(context?.contracts || []).map((c) => ({ id: c.id, label: `${c.partnerName} · ${c.numero}` }))];
+      case 'status': return STATUSES.map((s) => ({ ...s, label: tr(s.label) }));
       default: return [];
     }
   }
@@ -153,25 +156,25 @@ export default function PlanningPage({ canEdit, onNavigate }) {
   const hasRates = rates.length > 0;
 
   async function remove(p) {
-    if (!window.confirm(`Supprimer le plan de « ${p.partnerName} » ? Cette action est définitive.`)) return;
-    try { await api.deletePlan(p.id); toast.success('Plan supprimé.'); setSelectedId(null); reload(); }
+    if (!window.confirm(tr('Supprimer le plan de « {name} » ? Cette action est définitive.', { name: p.partnerName }))) return;
+    try { await api.deletePlan(p.id); toast.success(tr('Plan supprimé.')); setSelectedId(null); reload(); }
     catch (e) { toast.error(e.message); }
   }
   // Fil guidé : passe le relais à « Rapports & dépenses » qui ouvrira une
   // facture pré-remplie depuis ce plan (même contrat + mois).
   function createFacture(p) {
     try { sessionStorage.setItem('mems.tpm.newFacture', JSON.stringify({ contractId: p.contractId, partnerId: p.partnerId, month })); } catch { /* ignore */ }
-    if (onNavigate) onNavigate('tpm', 'rapports'); else toast.info('Ouvrez « Rapports & dépenses » pour créer la facture.');
+    if (onNavigate) onNavigate('tpm', 'rapports'); else toast.info(tr('Ouvrez « Rapports & dépenses » pour créer la facture.'));
   }
 
   function exportCsv() {
-    const head = cols.map((k) => COLUMNS[k].label);
+    const head = cols.map((k) => tr(COLUMNS[k].label));
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const cell = (p, k) => ({
       partner: p.partnerName, contract: `${p.contractPartner} (${p.contractNumero})`, title: p.title || '',
       funder: currency === 'USD' ? money(p.plannedFunder) : Math.round(p.plannedFunder || 0),
       total: currency === 'USD' ? money(p.plannedTotal) : Math.round(p.plannedTotal || 0),
-      status: PLAN_STATUS[p.status]?.label || p.status,
+      status: PLAN_STATUS[p.status] ? tr(PLAN_STATUS[p.status].label) : p.status,
     }[k]);
     const lines = filtered.map((p) => cols.map((k) => cell(p, k)).map(esc).join(';'));
     const blob = new Blob(['﻿' + [head.map(esc).join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -196,10 +199,10 @@ export default function PlanningPage({ canEdit, onNavigate }) {
     const f = FILTERS[k];
     return (
       <div key={k} className="cfilter">
-        <span className="cfilter-label">{f.label}</span>
+        <span className="cfilter-label">{tr(f.label)}</span>
         {f.type === 'search' ? (
           <span className="input-wrap"><Search size={16} aria-hidden="true" />
-            <input className="input" type="search" placeholder={f.ph} value={values[k]} onChange={(e) => setVal(k, e.target.value)} />
+            <input className="input" type="search" placeholder={tr(f.ph)} value={values[k]} onChange={(e) => setVal(k, e.target.value)} />
           </span>
         ) : (
           <select className="select" value={values[k]} onChange={(e) => setVal(k, e.target.value)}>
@@ -214,85 +217,85 @@ export default function PlanningPage({ canEdit, onNavigate }) {
     <div className="section-gap">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Planification &amp; budget</h1>
-          <p className="page-desc">Budget prévisionnel des vagues de collecte : postes prévus par prestataire et contrat. La part bailleur alimente le « Planifié » de la consolidation et sert de base à la facture.</p>
+          <h1 className="page-title">{tr('Planification & budget')}</h1>
+          <p className="page-desc">{tr('Budget prévisionnel des vagues de collecte : postes prévus par prestataire et contrat. La part bailleur alimente le « Planifié » de la consolidation et sert de base à la facture.')}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {canEdit && <Button icon={Plus} onClick={() => setDrawer({})}>Nouveau plan</Button>}
+          {canEdit && <Button icon={Plus} onClick={() => setDrawer({})}>{tr('Nouveau plan')}</Button>}
         </div>
       </div>
 
       <Stats items={[
-        { label: 'Plans du mois', value: plans ? stats.count : '—', foot: `${stats.valides} validé(s)` },
-        { label: 'Planifié (part bailleur)', value: plans ? (currency === 'USD' ? formatUsdFor(stats.planned, rates, monthStart) : formatInt(stats.planned)) : '—', suffix: currency === 'USD' ? '' : 'Ar', foot: 'Alimente la consolidation' },
-        { label: 'Budget total prévu', value: plans ? (currency === 'USD' ? formatUsdFor(stats.total, rates, monthStart) : formatInt(stats.total)) : '—', suffix: currency === 'USD' ? '' : 'Ar', foot: 'Bailleur + ONG' },
-        { label: 'Contrats couverts', value: context ? context.contracts.length : '—', foot: 'Avec budget Suivi/TPM' },
+        { label: tr('Plans du mois'), value: plans ? stats.count : '—', foot: tr('{n} validé(s)', { n: stats.valides }) },
+        { label: tr('Planifié (part bailleur)'), value: plans ? (currency === 'USD' ? formatUsdFor(stats.planned, rates, monthStart) : formatInt(stats.planned)) : '—', suffix: currency === 'USD' ? '' : 'Ar', foot: tr('Alimente la consolidation') },
+        { label: tr('Budget total prévu'), value: plans ? (currency === 'USD' ? formatUsdFor(stats.total, rates, monthStart) : formatInt(stats.total)) : '—', suffix: currency === 'USD' ? '' : 'Ar', foot: tr('Bailleur + ONG') },
+        { label: tr('Contrats couverts'), value: context ? context.contracts.length : '—', foot: tr('Avec budget Suivi/TPM') },
       ]} />
 
       <Card>
         <div className="filters-bar comet-filters">
-          <span className="filters-label">Filtres&nbsp;:</span>
+          <span className="filters-label">{tr('Filtres\u00a0:')}</span>
           <div className="comet-fields">
             {shown.map(renderFilter)}
-            {shown.length === 0 && <span className="filters-empty">Aucun filtre actif — ajoutez-en avec l'icône filtres.</span>}
+            {shown.length === 0 && <span className="filters-empty">{tr('Aucun filtre actif — ajoutez-en avec l\'icône filtres.')}</span>}
           </div>
           <div className="comet-icons">
-            <div className="seg" role="group" aria-label="Devise d'affichage">
+            <div className="seg" role="group" aria-label={tr('Devise d\'affichage')}>
               <button type="button" className={currency === 'Ar' ? 'is-active' : ''} onClick={() => setCurrency('Ar')}>Ar</button>
-              <button type="button" className={currency === 'USD' ? 'is-active' : ''} onClick={() => setCurrency('USD')} title={hasRates ? 'Valeurs en dollars selon la période' : 'Aucun taux de change — à saisir dans Paramétrage'}>USD</button>
+              <button type="button" className={currency === 'USD' ? 'is-active' : ''} onClick={() => setCurrency('USD')} title={hasRates ? tr('Valeurs en dollars selon la période') : tr('Aucun taux de change — à saisir dans Paramétrage')}>USD</button>
             </div>
             <div className="pop-anchor" ref={filterMenu.ref}>
-              <IconButton icon={SlidersHorizontal} label="Filtres à afficher" variant="secondary" size="sm" onClick={() => filterMenu.setOpen((o) => !o)} />
+              <IconButton icon={SlidersHorizontal} label={tr('Filtres à afficher')} variant="secondary" size="sm" onClick={() => filterMenu.setOpen((o) => !o)} />
               {filterMenu.open && (
                 <div className="pop-menu filter-menu" role="menu">
-                  <div className="pop-menu-label">Filtres à afficher</div>
+                  <div className="pop-menu-label">{tr('Filtres à afficher')}</div>
                   {ALL_FILTERS.map((k) => (
-                    <label key={k} className="filter-pick"><input type="checkbox" checked={shownFilters.includes(k)} onChange={() => toggleFilter(k)} /><span>{FILTERS[k].label}</span></label>
+                    <label key={k} className="filter-pick"><input type="checkbox" checked={shownFilters.includes(k)} onChange={() => toggleFilter(k)} /><span>{tr(FILTERS[k].label)}</span></label>
                   ))}
                 </div>
               )}
             </div>
             <div className="pop-anchor" ref={colMenu.ref}>
-              <IconButton icon={Columns3} label="Colonnes à afficher" variant="secondary" size="sm" onClick={() => colMenu.setOpen((o) => !o)} />
+              <IconButton icon={Columns3} label={tr('Colonnes à afficher')} variant="secondary" size="sm" onClick={() => colMenu.setOpen((o) => !o)} />
               {colMenu.open && (
                 <div className="pop-menu filter-menu" role="menu">
-                  <div className="pop-menu-label">Colonnes à afficher</div>
+                  <div className="pop-menu-label">{tr('Colonnes à afficher')}</div>
                   {ALL_COLUMNS.map((k) => (
-                    <label key={k} className="filter-pick"><input type="checkbox" checked={columns.includes(k)} onChange={() => toggleColumn(k)} /><span>{COLUMNS[k].label}</span></label>
+                    <label key={k} className="filter-pick"><input type="checkbox" checked={columns.includes(k)} onChange={() => toggleColumn(k)} /><span>{tr(COLUMNS[k].label)}</span></label>
                   ))}
                 </div>
               )}
             </div>
-            <IconButton icon={Clock} label="Mémoriser le filtre (temporaire)" variant="secondary" size="sm" onClick={() => { viewStore.saveTemp(currentPayload()); toast.success('Filtre mémorisé pour cette session.'); }} />
-            <IconButton icon={Save} label="Mémoriser le filtre (permanent)" variant="secondary" size="sm" onClick={() => { viewStore.savePerm(currentPayload()); toast.success('Filtre enregistré comme vue par défaut.'); }} />
-            <IconButton icon={RotateCcw} label="Réinitialiser" variant="secondary" size="sm" onClick={resetView} />
+            <IconButton icon={Clock} label={tr('Mémoriser le filtre (temporaire)')} variant="secondary" size="sm" onClick={() => { viewStore.saveTemp(currentPayload()); toast.success(tr('Filtre mémorisé pour cette session.')); }} />
+            <IconButton icon={Save} label={tr('Mémoriser le filtre (permanent)')} variant="secondary" size="sm" onClick={() => { viewStore.savePerm(currentPayload()); toast.success(tr('Filtre enregistré comme vue par défaut.')); }} />
+            <IconButton icon={RotateCcw} label={tr('Réinitialiser')} variant="secondary" size="sm" onClick={resetView} />
           </div>
         </div>
 
         <div className="data-toolbar">
           <div className="data-toolbar-left">
-            {selected && <Button size="sm" variant="secondary" icon={ExternalLink} onClick={() => setDrawer({ planId: selected.id })}>Ouvrir / éditer</Button>}
+            {selected && <Button size="sm" variant="secondary" icon={ExternalLink} onClick={() => setDrawer({ planId: selected.id })}>{tr('Ouvrir / éditer')}</Button>}
             {canEdit && selected && <Button size="sm" variant="secondary" icon={FileText} onClick={() => createFacture(selected)}
-              title="Ouvre une facture pré-remplie depuis ce plan (Rapports & dépenses).">Créer la facture</Button>}
-            {canEdit && selected && <Button size="sm" variant="ghost" icon={Trash2} onClick={() => remove(selected)}>Supprimer</Button>}
+              title={tr('Ouvre une facture pré-remplie depuis ce plan (Rapports & dépenses).')}>{tr('Créer la facture')}</Button>}
+            {canEdit && selected && <Button size="sm" variant="ghost" icon={Trash2} onClick={() => remove(selected)}>{tr('Supprimer')}</Button>}
             {selected && <Button size="sm" variant="ghost" icon={ExternalLink} onClick={() => setSelectedId(null)} style={{ display: 'none' }} />}
           </div>
           <div className="data-toolbar-right">
-            <Button size="sm" variant="secondary" icon={Printer} onClick={() => window.print()} disabled={!(plans && plans.length)}>Imprimer</Button>
-            <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!(plans && plans.length)}>Exporter (CSV)</Button>
+            <Button size="sm" variant="secondary" icon={Printer} onClick={() => window.print()} disabled={!(plans && plans.length)}>{tr('Imprimer')}</Button>
+            <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!(plans && plans.length)}>{tr('Exporter (CSV)')}</Button>
           </div>
         </div>
 
         {error && <div style={{ padding: '12px 20px 0' }}><Alert tone="error">{error}</Alert></div>}
-        {currency === 'USD' && !hasRates && <div style={{ padding: '12px 20px 0' }}><Alert tone="warn">Aucun taux de change saisi — renseignez-les dans Paramétrage › Taux de change pour afficher les valeurs en dollars.</Alert></div>}
+        {currency === 'USD' && !hasRates && <div style={{ padding: '12px 20px 0' }}><Alert tone="warn">{tr('Aucun taux de change saisi — renseignez-les dans Paramétrage › Taux de change pour afficher les valeurs en dollars.')}</Alert></div>}
 
         <div className="table-wrap">
           <table className="table grid">
             <thead><tr>
-              <th scope="col" style={{ width: 36 }}><span className="sr-only">Sélection</span></th>
+              <th scope="col" style={{ width: 36 }}><span className="sr-only">{tr('Sélection')}</span></th>
               {cols.map((k) => (COLUMNS[k].sort
-                ? <SortTh key={k} label={COLUMNS[k].label} k={COLUMNS[k].sort} sort={sort} onSort={onSort} className={COLUMNS[k].num ? 'num' : ''} />
-                : <th key={k} scope="col" className={COLUMNS[k].num ? 'num' : ''}>{COLUMNS[k].label}</th>))}
+                ? <SortTh key={k} label={tr(COLUMNS[k].label)} k={COLUMNS[k].sort} sort={sort} onSort={onSort} className={COLUMNS[k].num ? 'num' : ''} />
+                : <th key={k} scope="col" className={COLUMNS[k].num ? 'num' : ''}>{tr(COLUMNS[k].label)}</th>))}
             </tr></thead>
             <tbody>
               {plans === null
@@ -302,7 +305,7 @@ export default function PlanningPage({ canEdit, onNavigate }) {
                     return (
                       <tr key={p.id} className={`clickable ${isSel ? 'is-selected' : ''}`} onClick={() => setSelectedId(p.id)} onDoubleClick={() => setDrawer({ planId: p.id })}>
                         <td onClick={(e) => e.stopPropagation()}>
-                          <input type="radio" name="plan-select" checked={isSel} onChange={() => setSelectedId(isSel ? null : p.id)} aria-label={`Sélectionner ${p.partnerName}`} />
+                          <input type="radio" name="plan-select" checked={isSel} onChange={() => setSelectedId(isSel ? null : p.id)} aria-label={tr('Sélectionner {name}', { name: p.partnerName })} />
                         </td>
                         {cols.map((k) => <td key={k} className={COLUMNS[k].num ? 'num tabular' : ''}>{renderCell(p, k)}</td>)}
                       </tr>
@@ -311,28 +314,28 @@ export default function PlanningPage({ canEdit, onNavigate }) {
             </tbody>
           </table>
           {plans && filtered.length === 0 && (
-            <EmptyState icon={Wallet} title={plans.length ? 'Aucun plan ne correspond' : 'Aucun plan ce mois-ci'}
+            <EmptyState icon={Wallet} title={plans.length ? tr('Aucun plan ne correspond') : tr('Aucun plan ce mois-ci')}
               action={canEdit && (plans.length === 0
-                ? <Button icon={Plus} onClick={() => setDrawer({})}>Nouveau plan</Button>
-                : <Button variant="secondary" icon={RotateCcw} onClick={resetView}>Réinitialiser les filtres</Button>)}>
-              {plans.length ? 'Ajustez les filtres.' : "Créez le budget prévisionnel d'une vague de collecte pour pré-remplir la facture ensuite."}
+                ? <Button icon={Plus} onClick={() => setDrawer({})}>{tr('Nouveau plan')}</Button>
+                : <Button variant="secondary" icon={RotateCcw} onClick={resetView}>{tr('Réinitialiser les filtres')}</Button>)}>
+              {plans.length ? tr('Ajustez les filtres.') : tr("Créez le budget prévisionnel d'une vague de collecte pour pré-remplir la facture ensuite.")}
             </EmptyState>
           )}
         </div>
 
         {plans && filtered.length > 0 && (
           <div className="list-foot">
-            <span className="list-count">{(pageClamped - 1) * PAGE_SIZE + 1}–{Math.min(pageClamped * PAGE_SIZE, filtered.length)} sur {filtered.length} plan{filtered.length > 1 ? 's' : ''}</span>
+            <span className="list-count">{tr(filtered.length > 1 ? '{a}–{b} sur {n} plans' : '{a}–{b} sur {n} plan', { a: (pageClamped - 1) * PAGE_SIZE + 1, b: Math.min(pageClamped * PAGE_SIZE, filtered.length), n: filtered.length })}</span>
             <div className="pager">
-              <button type="button" className="pager-btn" disabled={pageClamped <= 1} onClick={() => setPage(pageClamped - 1)} aria-label="Page précédente"><ChevronLeft size={16} /></button>
-              <span className="pager-info">Page {pageClamped} / {totalPages}</span>
-              <button type="button" className="pager-btn" disabled={pageClamped >= totalPages} onClick={() => setPage(pageClamped + 1)} aria-label="Page suivante"><ChevronRight size={16} /></button>
+              <button type="button" className="pager-btn" disabled={pageClamped <= 1} onClick={() => setPage(pageClamped - 1)} aria-label={tr('Page précédente')}><ChevronLeft size={16} /></button>
+              <span className="pager-info">{tr('Page {p} / {t}', { p: pageClamped, t: totalPages })}</span>
+              <button type="button" className="pager-btn" disabled={pageClamped >= totalPages} onClick={() => setPage(pageClamped + 1)} aria-label={tr('Page suivante')}><ChevronRight size={16} /></button>
             </div>
           </div>
         )}
       </Card>
 
-      <div className="note"><Info size={18} aria-hidden="true" /><span>La <strong>part bailleur</strong> des postes prévus est le « Planifié » comparé au budget de suivi. Depuis une facture, « Pré-remplir depuis le plan » reprend ces postes. Bascule <strong>Ar/USD</strong> selon les taux de Paramétrage.</span></div>
+      <div className="note"><Info size={18} aria-hidden="true" /><span>{richText(tr('La <strong>part bailleur</strong> des postes prévus est le « Planifié » comparé au budget de suivi. Depuis une facture, « Pré-remplir depuis le plan » reprend ces postes. Bascule <strong>Ar/USD</strong> selon les taux de Paramétrage.'))}</span></div>
 
       {drawer && <PlanBudgetDrawer planId={drawer.planId} context={context} month={month} onClose={() => setDrawer(null)} onSaved={() => { setDrawer(null); reload(); }} />}
     </div>

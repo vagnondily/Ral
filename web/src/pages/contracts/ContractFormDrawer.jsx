@@ -4,6 +4,7 @@ import Modal from '../../components/Modal.jsx';
 import { Button, Field } from '../../components/ui.jsx';
 import { BudgetItemsEditor, itemsToPayload, itemsFromBudget } from '../../components/BudgetItems.jsx';
 import { useToast } from '../../components/Toast.jsx';
+import { useI18n } from '../../lib/i18n.jsx';
 
 function emptyForm() {
   const y = new Date().getFullYear();
@@ -24,6 +25,7 @@ function fromDetail(detail) {
 }
 
 export default function ContractFormDrawer({ open, onClose, detail, onSaved }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [form, setForm] = useState(emptyForm);
   const [partners, setPartners] = useState(null);
@@ -46,9 +48,9 @@ export default function ContractFormDrawer({ open, onClose, detail, onSaved }) {
   );
 
   const errors = {
-    partnerId: !form.partnerId ? 'Choisissez un partenaire.' : null,
-    activityIds: form.activityIds.length === 0 ? 'Sélectionnez au moins une activité.' : null,
-    dateFin: form.dateFin <= form.dateDebut ? 'La date de fin doit suivre la date de début.' : null,
+    partnerId: !form.partnerId ? tr('Choisissez un partenaire.') : null,
+    activityIds: form.activityIds.length === 0 ? tr('Sélectionnez au moins une activité.') : null,
+    dateFin: form.dateFin <= form.dateDebut ? tr('La date de fin doit suivre la date de début.') : null,
   };
   const err = (k) => (touched ? errors[k] : undefined);
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
@@ -79,11 +81,11 @@ export default function ContractFormDrawer({ open, onClose, detail, onSaved }) {
     try {
       if (editing) {
         await api.updateContract(detail.contract.id, { ...payload, version: detail.contract.version });
-        toast.success('Brouillon enregistré.');
+        toast.success(tr('Brouillon enregistré.'));
         onSaved(detail.contract.id);
       } else {
         const { id } = await api.createContract(payload);
-        toast.success('Contrat créé en brouillon.');
+        toast.success(tr('Contrat créé en brouillon.'));
         onSaved(id);
       }
     } catch (error) {
@@ -101,54 +103,54 @@ export default function ContractFormDrawer({ open, onClose, detail, onSaved }) {
       onClose={() => !saving && onClose()}
       variant="drawer"
       size="xl"
-      title={editing ? `Modifier ${detail.contract.numero}` : 'Nouveau contrat'}
-      subtitle={editing ? 'Brouillon — modifiable jusqu\'à sa soumission.' : 'Créé en brouillon, numéroté automatiquement.'}
+      title={editing ? tr('Modifier {numero}', { numero: detail.contract.numero }) : tr('Nouveau contrat')}
+      subtitle={editing ? tr("Brouillon — modifiable jusqu'à sa soumission.") : tr('Créé en brouillon, numéroté automatiquement.')}
       initialFocus="#ct-partner"
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} disabled={saving}>Annuler</Button>
-          <Button type="submit" form="contract-form" loading={saving}>{editing ? 'Enregistrer' : 'Créer le brouillon'}</Button>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button>
+          <Button type="submit" form="contract-form" loading={saving}>{editing ? tr('Enregistrer') : tr('Créer le brouillon')}</Button>
         </>
       }
     >
       <form id="contract-form" onSubmit={handleSubmit} noValidate style={{ display: 'grid', gap: 16 }}>
         <div className="form-grid">
           <div className="span-2">
-            <Field label="Partenaire" htmlFor="ct-partner" required hint="Configuré dans Paramétrage › Partenaires." error={err('partnerId')}>
+            <Field label={tr('Partenaire')} htmlFor="ct-partner" required hint={tr('Configuré dans Paramétrage › Partenaires.')} error={err('partnerId')}>
               <select id="ct-partner" className={`select ${form.partnerId ? '' : 'is-empty'}`} value={form.partnerId}
                 onChange={(e) => set({ partnerId: e.target.value })} aria-invalid={Boolean(err('partnerId')) || undefined}>
-                <option value="">{partners === null ? 'Chargement…' : 'Choisir un partenaire…'}</option>
+                <option value="">{partners === null ? tr('Chargement…') : tr('Choisir un partenaire…')}</option>
                 {(partners || []).map((p) => <option key={p.id} value={p.id}>{partnerLabel(p)}</option>)}
               </select>
             </Field>
           </div>
 
           <div className="span-2 field">
-            <span className="field-label" id="ct-act">Activités couvertes <span className="req" aria-hidden="true">*</span></span>
+            <span className="field-label" id="ct-act">{tr('Activités couvertes')} <span className="req" aria-hidden="true">*</span></span>
             <div className="chips" role="group" aria-labelledby="ct-act">
-              {activities === null && <span className="muted" style={{ fontSize: 14 }}>Chargement…</span>}
+              {activities === null && <span className="muted" style={{ fontSize: 14 }}>{tr('Chargement…')}</span>}
               {(activities || []).map((a) => (
                 <button type="button" key={a.id} className="chip" aria-pressed={form.activityIds.includes(a.id)} onClick={() => toggleActivity(a.id)}>{a.label}</button>
               ))}
             </div>
             {err('activityIds') && <span className="field-error">{err('activityIds')}</span>}
-            <span className="field-hint">Configurées dans Paramétrage › Activités (multi-sélection).</span>
+            <span className="field-hint">{tr('Configurées dans Paramétrage › Activités (multi-sélection).')}</span>
           </div>
 
           <div className="span-2">
-            <Field label="N° FLA" htmlFor="ct-fla" hint="Field Level Agreement — ex. FLA-2025-AIN-MULTI-003">
+            <Field label={tr('N° FLA')} htmlFor="ct-fla" hint={tr('Field Level Agreement — ex. FLA-2025-AIN-MULTI-003')}>
               <input id="ct-fla" className="input mono" value={form.numeroFla} onChange={(e) => set({ numeroFla: e.target.value })} />
             </Field>
           </div>
-          <Field label="N° PO" htmlFor="ct-po"><input id="ct-po" className="input mono" value={form.numeroPo} onChange={(e) => set({ numeroPo: e.target.value })} /></Field>
-          <Field label="N° Vendor" htmlFor="ct-vendor"><input id="ct-vendor" className="input mono" value={form.numeroVendor} onChange={(e) => set({ numeroVendor: e.target.value })} /></Field>
-          <Field label="Date de début" htmlFor="ct-debut" required><input id="ct-debut" type="date" className="input" value={form.dateDebut} onChange={(e) => set({ dateDebut: e.target.value })} /></Field>
-          <Field label="Date de fin" htmlFor="ct-fin" required error={err('dateFin')}><input id="ct-fin" type="date" className="input" value={form.dateFin} onChange={(e) => set({ dateFin: e.target.value })} aria-invalid={Boolean(err('dateFin')) || undefined} /></Field>
+          <Field label={tr('N° PO')} htmlFor="ct-po"><input id="ct-po" className="input mono" value={form.numeroPo} onChange={(e) => set({ numeroPo: e.target.value })} /></Field>
+          <Field label={tr('N° Vendor')} htmlFor="ct-vendor"><input id="ct-vendor" className="input mono" value={form.numeroVendor} onChange={(e) => set({ numeroVendor: e.target.value })} /></Field>
+          <Field label={tr('Date de début')} htmlFor="ct-debut" required><input id="ct-debut" type="date" className="input" value={form.dateDebut} onChange={(e) => set({ dateDebut: e.target.value })} /></Field>
+          <Field label={tr('Date de fin')} htmlFor="ct-fin" required error={err('dateFin')}><input id="ct-fin" type="date" className="input" value={form.dateFin} onChange={(e) => set({ dateFin: e.target.value })} aria-invalid={Boolean(err('dateFin')) || undefined} /></Field>
         </div>
 
         <div className="field">
-          <span className="field-label">Budget FLA — postes (nb unités × coût unitaire), par activité</span>
-          <span className="field-hint" style={{ marginBottom: 8 }}>Les montants et le total de l'accord sont calculés. Ce total est le plafond du contrat ; le barème mensuel = total ÷ nombre de mois.</span>
+          <span className="field-label">{tr('Budget FLA — postes (nb unités × coût unitaire), par activité')}</span>
+          <span className="field-hint" style={{ marginBottom: 8 }}>{tr("Les montants et le total de l'accord sont calculés. Ce total est le plafond du contrat ; le barème mensuel = total ÷ nombre de mois.")}</span>
           <BudgetItemsEditor
             activities={selectedActivities}
             items={form.items}

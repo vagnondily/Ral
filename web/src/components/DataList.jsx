@@ -6,6 +6,7 @@ import {
 import { Alert, Button, Card, EmptyState, IconButton, Skeleton } from './ui.jsx';
 import { usePopover, SortTh, makeViewStore } from './listView.jsx';
 import { useToast } from './Toast.jsx';
+import { useI18n } from '../lib/i18n.jsx';
 
 /**
  * Liste réutilisable « façon COMET » (comme la liste des contrats) : barre de
@@ -22,9 +23,10 @@ export default function DataList({
   storageKey, pageSize = 12, getId = (r) => r.id, defaultSort,
   selectable = false, selectedId = null, onSelect, onRowDoubleClick,
   csvName = 'export.csv', extraIcons = null, toolbar = null, rightToolbar = null,
-  error = null, emptyIcon, emptyTitle = 'Aucun élément', emptyAction, emptyChildren,
+  error = null, emptyIcon, emptyTitle, emptyAction, emptyChildren,
   rowClassName,
 }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const viewStore = useMemo(() => makeViewStore(storageKey), [storageKey]);
   const ALL_FILTERS = Object.keys(filters);
@@ -72,7 +74,7 @@ export default function DataList({
   function toggleFilter(k) { setShownFilters((ks) => (ks.includes(k) ? ks.filter((x) => x !== k) : [...ks, k])); }
   function toggleColumn(k) { setCols((ks) => (ks.includes(k) ? ks.filter((x) => x !== k) : [...ks, k])); }
   const payload = () => ({ values, shownFilters, columns: cols, sort });
-  function resetView() { setValues(emptyValues); viewStore.clear(); toast.info('Filtres réinitialisés.'); }
+  function resetView() { setValues(emptyValues); viewStore.clear(); toast.info(tr('Filtres réinitialisés.')); }
 
   function optionsFor(k) {
     const f = filters[k];
@@ -96,7 +98,7 @@ export default function DataList({
         <span className="cfilter-label">{f.label}</span>
         {f.type === 'search' ? (
           <span className="input-wrap"><Search size={16} aria-hidden="true" />
-            <input className="input" type="search" placeholder={f.placeholder || 'Rechercher…'} value={values[k]} onChange={(e) => setVal(k, e.target.value)} />
+            <input className="input" type="search" placeholder={f.placeholder || tr('Rechercher…')} value={values[k]} onChange={(e) => setVal(k, e.target.value)} />
           </span>
         ) : (
           <select className="select" value={values[k]} onChange={(e) => setVal(k, e.target.value)}>
@@ -112,18 +114,18 @@ export default function DataList({
   return (
     <Card>
       <div className="filters-bar comet-filters">
-        <span className="filters-label">Filtres&nbsp;:</span>
+        <span className="filters-label">{tr('Filtres :')}</span>
         <div className="comet-fields">
           {shown.map(renderFilter)}
-          {shown.length === 0 && <span className="filters-empty">Aucun filtre actif — ajoutez-en avec l'icône filtres.</span>}
+          {shown.length === 0 && <span className="filters-empty">{tr('Aucun filtre actif — ajoutez-en avec l\'icône filtres.')}</span>}
         </div>
         <div className="comet-icons">
           {extraIcons}
           <div className="pop-anchor" ref={filterMenu.ref}>
-            <IconButton icon={SlidersHorizontal} label="Filtres à afficher" variant="secondary" size="sm" onClick={() => filterMenu.setOpen((o) => !o)} />
+            <IconButton icon={SlidersHorizontal} label={tr('Filtres à afficher')} variant="secondary" size="sm" onClick={() => filterMenu.setOpen((o) => !o)} />
             {filterMenu.open && (
               <div className="pop-menu filter-menu" role="menu">
-                <div className="pop-menu-label">Filtres à afficher</div>
+                <div className="pop-menu-label">{tr('Filtres à afficher')}</div>
                 {ALL_FILTERS.map((k) => (
                   <label key={k} className="filter-pick"><input type="checkbox" checked={shownFilters.includes(k)} onChange={() => toggleFilter(k)} /><span>{filters[k].label}</span></label>
                 ))}
@@ -131,19 +133,19 @@ export default function DataList({
             )}
           </div>
           <div className="pop-anchor" ref={colMenu.ref}>
-            <IconButton icon={Columns3} label="Colonnes à afficher" variant="secondary" size="sm" onClick={() => colMenu.setOpen((o) => !o)} />
+            <IconButton icon={Columns3} label={tr('Colonnes à afficher')} variant="secondary" size="sm" onClick={() => colMenu.setOpen((o) => !o)} />
             {colMenu.open && (
               <div className="pop-menu filter-menu" role="menu">
-                <div className="pop-menu-label">Colonnes à afficher</div>
+                <div className="pop-menu-label">{tr('Colonnes à afficher')}</div>
                 {ALL_COLUMNS.map((k) => (
                   <label key={k} className="filter-pick"><input type="checkbox" checked={cols.includes(k)} onChange={() => toggleColumn(k)} /><span>{columns[k].label}</span></label>
                 ))}
               </div>
             )}
           </div>
-          <IconButton icon={Clock} label="Mémoriser le filtre (temporaire)" variant="secondary" size="sm" onClick={() => { viewStore.saveTemp(payload()); toast.success('Filtre mémorisé pour cette session.'); }} />
-          <IconButton icon={Save} label="Mémoriser le filtre (permanent)" variant="secondary" size="sm" onClick={() => { viewStore.savePerm(payload()); toast.success('Filtre enregistré comme vue par défaut.'); }} />
-          <IconButton icon={RotateCcw} label="Réinitialiser" variant="secondary" size="sm" onClick={resetView} />
+          <IconButton icon={Clock} label={tr('Mémoriser le filtre (temporaire)')} variant="secondary" size="sm" onClick={() => { viewStore.saveTemp(payload()); toast.success(tr('Filtre mémorisé pour cette session.')); }} />
+          <IconButton icon={Save} label={tr('Mémoriser le filtre (permanent)')} variant="secondary" size="sm" onClick={() => { viewStore.savePerm(payload()); toast.success(tr('Filtre enregistré comme vue par défaut.')); }} />
+          <IconButton icon={RotateCcw} label={tr('Réinitialiser')} variant="secondary" size="sm" onClick={resetView} />
         </div>
       </div>
 
@@ -152,13 +154,13 @@ export default function DataList({
           <div className="data-toolbar-left">{toolbar && toolbar(selected)}</div>
           <div className="data-toolbar-right">
             {rightToolbar}
-            <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!(rows && rows.length)}>Exporter (CSV)</Button>
+            <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!(rows && rows.length)}>{tr('Exporter (CSV)')}</Button>
           </div>
         </div>
       )}
       {!toolbar && !rightToolbar && (
         <div className="data-toolbar"><div className="data-toolbar-left" /><div className="data-toolbar-right">
-          <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!(rows && rows.length)}>Exporter (CSV)</Button>
+          <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!(rows && rows.length)}>{tr('Exporter (CSV)')}</Button>
         </div></div>
       )}
 
@@ -167,7 +169,7 @@ export default function DataList({
       <div className="table-wrap">
         <table className="table grid">
           <thead><tr>
-            {selectable && <th scope="col" style={{ width: 36 }}><span className="sr-only">Sélection</span></th>}
+            {selectable && <th scope="col" style={{ width: 36 }}><span className="sr-only">{tr('Sélection')}</span></th>}
             {shownCols.map((k) => (columns[k].sortVal
               ? <SortTh key={k} label={columns[k].label} k={k} sort={sort} onSort={onSort} className={columns[k].num ? 'num' : ''} />
               : <th key={k} scope="col" className={columns[k].num ? 'num' : ''} style={columns[k].width ? { width: columns[k].width } : undefined}>{columns[k].label}</th>))}
@@ -185,7 +187,7 @@ export default function DataList({
                       onDoubleClick={onRowDoubleClick ? () => onRowDoubleClick(r) : undefined}>
                       {selectable && (
                         <td onClick={(e) => e.stopPropagation()}>
-                          <input type="radio" name={`sel-${storageKey}`} checked={isSel} onChange={() => onSelect && onSelect(isSel ? null : id)} aria-label="Sélectionner" />
+                          <input type="radio" name={`sel-${storageKey}`} checked={isSel} onChange={() => onSelect && onSelect(isSel ? null : id)} aria-label={tr('Sélectionner')} />
                         </td>
                       )}
                       {shownCols.map((k) => <td key={k} className={columns[k].num ? 'num tabular' : ''}>{columns[k].render(r)}</td>)}
@@ -195,20 +197,20 @@ export default function DataList({
           </tbody>
         </table>
         {rows && filtered.length === 0 && (
-          <EmptyState icon={emptyIcon} title={rows.length ? 'Aucun élément ne correspond' : emptyTitle}
-            action={rows.length ? <Button variant="secondary" icon={RotateCcw} onClick={resetView}>Réinitialiser les filtres</Button> : emptyAction}>
-            {rows.length ? 'Ajustez les filtres.' : emptyChildren}
+          <EmptyState icon={emptyIcon} title={rows.length ? tr('Aucun élément ne correspond') : (emptyTitle ?? tr('Aucun élément'))}
+            action={rows.length ? <Button variant="secondary" icon={RotateCcw} onClick={resetView}>{tr('Réinitialiser les filtres')}</Button> : emptyAction}>
+            {rows.length ? tr('Ajustez les filtres.') : emptyChildren}
           </EmptyState>
         )}
       </div>
 
       {rows && filtered.length > 0 && (
         <div className="list-foot">
-          <span className="list-count">{(pageClamped - 1) * pageSize + 1}–{Math.min(pageClamped * pageSize, filtered.length)} sur {filtered.length}</span>
+          <span className="list-count">{tr('{a}–{b} sur {n}', { a: (pageClamped - 1) * pageSize + 1, b: Math.min(pageClamped * pageSize, filtered.length), n: filtered.length })}</span>
           <div className="pager">
-            <button type="button" className="pager-btn" disabled={pageClamped <= 1} onClick={() => setPage(pageClamped - 1)} aria-label="Page précédente"><ChevronLeft size={16} /></button>
-            <span className="pager-info">Page {pageClamped} / {totalPages}</span>
-            <button type="button" className="pager-btn" disabled={pageClamped >= totalPages} onClick={() => setPage(pageClamped + 1)} aria-label="Page suivante"><ChevronRight size={16} /></button>
+            <button type="button" className="pager-btn" disabled={pageClamped <= 1} onClick={() => setPage(pageClamped - 1)} aria-label={tr('Page précédente')}><ChevronLeft size={16} /></button>
+            <span className="pager-info">{tr('Page {p} / {t}', { p: pageClamped, t: totalPages })}</span>
+            <button type="button" className="pager-btn" disabled={pageClamped >= totalPages} onClick={() => setPage(pageClamped + 1)} aria-label={tr('Page suivante')}><ChevronRight size={16} /></button>
           </div>
         </div>
       )}

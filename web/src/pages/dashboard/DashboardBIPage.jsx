@@ -3,6 +3,7 @@ import { TrendingUp, Wallet, CheckCircle2, AlertTriangle, Users, FileSignature }
 import { api } from '../../api/client.js';
 import { Alert, Skeleton, PageHeader } from '../../components/ui.jsx';
 import { formatAr, formatInt, currentMonth } from '../../lib/format.js';
+import { useI18n } from '../../lib/i18n.jsx';
 
 /**
  * Tableau de bord décisionnel « façon Power BI » : cartes KPI, barres groupées
@@ -21,17 +22,18 @@ const C = {
   actual: '#0f6cbd',
 };
 const CAT = ['#0f6cbd', '#7c3aed', '#0f7b40', '#c77700', '#d13438', '#0891b2'];
-const fmtM = (n) => {
+const fmtM = (n, tr) => {
   const v = Number(n) || 0;
-  if (Math.abs(v) >= 1e9) return `${(v / 1e9).toFixed(1)} Md`;
+  if (Math.abs(v) >= 1e9) return tr('{v} Md', { v: (v / 1e9).toFixed(1) });
   if (Math.abs(v) >= 1e6) return `${(v / 1e6).toFixed(1)} M`;
   if (Math.abs(v) >= 1e3) return `${Math.round(v / 1e3)} k`;
   return String(Math.round(v));
 };
-const monthLabel = (m) => {
+const monthLabel = (m, tr) => {
   const [y, mo] = String(m).split('-');
   const names = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
-  return `${names[Number(mo) - 1] || mo} ${String(y).slice(2)}`;
+  const name = names[Number(mo) - 1];
+  return `${name ? tr(name) : mo} ${String(y).slice(2)}`;
 };
 
 function Tip({ tip }) {
@@ -65,6 +67,7 @@ function Kpi({ icon: Icon, label, value, suffix, foot, tone }) {
 
 /** Grouped vertical bars: Budget / Planifié / Réalisé per contract. */
 function GroupedBars({ rows, onTip, onOpen }) {
+  const { tr } = useI18n();
   const W = 720; const H = 260; const padL = 46; const padB = 54; const padT = 12;
   const max = Math.max(1, ...rows.map((r) => Math.max(r.budget, r.planned, r.actual)));
   const plot = H - padB - padT; const innerW = W - padL - 8;
@@ -73,13 +76,13 @@ function GroupedBars({ rows, onTip, onOpen }) {
   const series = [['budget', C.budget], ['planned', C.planned], ['actual', C.actual]];
   const ticks = 4;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="biz-svg" role="img" aria-label="Budget, planifié et réalisé par contrat">
+    <svg viewBox={`0 0 ${W} ${H}`} className="biz-svg" role="img" aria-label={tr('Budget, planifié et réalisé par contrat')}>
       {Array.from({ length: ticks + 1 }, (_, i) => {
         const v = (max / ticks) * i; const yy = y(v);
         return (
           <g key={i}>
             <line x1={padL} x2={W - 8} y1={yy} y2={yy} stroke="var(--border)" strokeWidth="1" />
-            <text x={padL - 8} y={yy + 4} textAnchor="end" className="biz-axis">{fmtM(v)}</text>
+            <text x={padL - 8} y={yy + 4} textAnchor="end" className="biz-axis">{fmtM(v, tr)}</text>
           </g>
         );
       })}
@@ -93,9 +96,9 @@ function GroupedBars({ rows, onTip, onOpen }) {
                 <rect
                   key={key} x={bx} y={by} width={barW} height={Math.max(0, bh)} rx="3" fill={color}
                   onMouseMove={(e) => onTip({ x: e.clientX, y: e.clientY, title: `${r.partnerName} · ${r.numero}`, rows: [
-                    { label: 'Budget', value: formatAr(r.budget), color: C.budget },
-                    { label: 'Planifié', value: formatAr(r.planned), color: C.planned },
-                    { label: 'Réalisé', value: formatAr(r.actual), color: C.actual },
+                    { label: tr('Budget'), value: formatAr(r.budget), color: C.budget },
+                    { label: tr('Planifié'), value: formatAr(r.planned), color: C.planned },
+                    { label: tr('Réalisé'), value: formatAr(r.actual), color: C.actual },
                   ] })}
                   onMouseLeave={() => onTip(null)}
                 />
@@ -112,6 +115,7 @@ function GroupedBars({ rows, onTip, onOpen }) {
 
 /** Monthly trend: Planifié vs Réalisé lines with a crosshair tooltip. */
 function TrendLines({ months, monthly, onTip }) {
+  const { tr } = useI18n();
   const W = 720; const H = 240; const padL = 46; const padB = 34; const padT = 12; const padR = 10;
   const data = months.map((m) => monthly.find((x) => x.month === m) || { month: m, planned: 0, actual: 0 });
   const max = Math.max(1, ...data.map((d) => Math.max(d.planned, d.actual)));
@@ -121,10 +125,10 @@ function TrendLines({ months, monthly, onTip }) {
   const path = (key) => data.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(d[key]).toFixed(1)}`).join(' ');
   const ticks = 4;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="biz-svg" role="img" aria-label="Tendance mensuelle planifié vs réalisé">
+    <svg viewBox={`0 0 ${W} ${H}`} className="biz-svg" role="img" aria-label={tr('Tendance mensuelle planifié vs réalisé')}>
       {Array.from({ length: ticks + 1 }, (_, i) => {
         const v = (max / ticks) * i; const yy = y(v);
-        return (<g key={i}><line x1={padL} x2={W - padR} y1={yy} y2={yy} stroke="var(--border)" strokeWidth="1" /><text x={padL - 8} y={yy + 4} textAnchor="end" className="biz-axis">{fmtM(v)}</text></g>);
+        return (<g key={i}><line x1={padL} x2={W - padR} y1={yy} y2={yy} stroke="var(--border)" strokeWidth="1" /><text x={padL - 8} y={yy + 4} textAnchor="end" className="biz-axis">{fmtM(v, tr)}</text></g>);
       })}
       <path d={path('planned')} fill="none" stroke={C.planned} strokeWidth="2" />
       <path d={path('actual')} fill="none" stroke={C.actual} strokeWidth="2" />
@@ -134,12 +138,12 @@ function TrendLines({ months, monthly, onTip }) {
             <circle key={k} cx={x(i)} cy={y(d[k])} r="3.5" fill={col} stroke="var(--surface)" strokeWidth="1.5" />
           ))}
           <rect x={x(i) - innerW / (data.length * 2)} y={padT} width={innerW / data.length} height={plot} fill="transparent"
-            onMouseMove={(e) => onTip({ x: e.clientX, y: e.clientY, title: monthLabel(d.month), rows: [
-              { label: 'Planifié', value: formatAr(d.planned), color: C.planned },
-              { label: 'Réalisé', value: formatAr(d.actual), color: C.actual },
+            onMouseMove={(e) => onTip({ x: e.clientX, y: e.clientY, title: monthLabel(d.month, tr), rows: [
+              { label: tr('Planifié'), value: formatAr(d.planned), color: C.planned },
+              { label: tr('Réalisé'), value: formatAr(d.actual), color: C.actual },
             ] })}
             onMouseLeave={() => onTip(null)} />
-          <text x={x(i)} y={H - 12} textAnchor="middle" className="biz-axis">{monthLabel(d.month)}</text>
+          <text x={x(i)} y={H - 12} textAnchor="middle" className="biz-axis">{monthLabel(d.month, tr)}</text>
         </g>
       ))}
     </svg>
@@ -148,6 +152,7 @@ function TrendLines({ months, monthly, onTip }) {
 
 /** Donut: share of « Réalisé » by prestataire. */
 function Donut({ items, onTip }) {
+  const { tr } = useI18n();
   const total = items.reduce((n, it) => n + it.value, 0) || 1;
   const R = 78; const r = 48; const cx = 90; const cy = 90;
   let acc = 0;
@@ -159,22 +164,23 @@ function Donut({ items, onTip }) {
     return `M${x0},${y0} A${R},${R} 0 ${large} 1 ${x1},${y1} L${x2},${y2} A${r},${r} 0 ${large} 0 ${x3},${y3} Z`;
   };
   return (
-    <svg viewBox="0 0 180 180" className="biz-donut" role="img" aria-label="Répartition du réalisé par prestataire">
+    <svg viewBox="0 0 180 180" className="biz-donut" role="img" aria-label={tr('Répartition du réalisé par prestataire')}>
       {items.map((it, i) => (
         <path key={it.label} d={arc(it.value / total)} fill={it.color} stroke="var(--surface)" strokeWidth="2"
           onMouseMove={(e) => onTip({ x: e.clientX, y: e.clientY, title: it.label, rows: [
-            { label: 'Réalisé', value: formatAr(it.value), color: it.color },
-            { label: 'Part', value: `${Math.round((it.value / total) * 100)} %`, color: it.color },
+            { label: tr('Réalisé'), value: formatAr(it.value), color: it.color },
+            { label: tr('Part'), value: `${Math.round((it.value / total) * 100)} %`, color: it.color },
           ] })}
           onMouseLeave={() => onTip(null)} />
       ))}
-      <text x="90" y="86" textAnchor="middle" className="biz-donut-tot">{fmtM(total)}</text>
-      <text x="90" y="104" textAnchor="middle" className="biz-donut-lab">Ar réalisé</text>
+      <text x="90" y="86" textAnchor="middle" className="biz-donut-tot">{fmtM(total, tr)}</text>
+      <text x="90" y="104" textAnchor="middle" className="biz-donut-lab">{tr('Ar réalisé')}</text>
     </svg>
   );
 }
 
 export default function DashboardBIPage({ onOpenContract }) {
+  const { tr } = useI18n();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [field, setField] = useState(null); // couverture terrain du mois courant
@@ -191,36 +197,36 @@ export default function DashboardBIPage({ onOpenContract }) {
       .map(([label, value], i) => ({ label, value, color: CAT[i % CAT.length] }));
   }, [data]);
 
-  if (error) return <div className="page"><PageHeader title="Tableau de bord" /><Alert tone="error" icon={AlertTriangle}>{error}</Alert></div>;
-  if (!data) return <div className="page"><PageHeader title="Tableau de bord" /><Skeleton height={320} /></div>;
+  if (error) return <div className="page"><PageHeader title={tr('Tableau de bord')} /><Alert tone="error" icon={AlertTriangle}>{error}</Alert></div>;
+  if (!data) return <div className="page"><PageHeader title={tr('Tableau de bord')} /><Skeleton height={320} /></div>;
 
   const { rows, totals, months, monthlyTotals } = data;
   const alerts = rows.filter((r) => r.overspent || (r.projectedOverrun && r.projectedOverrun > 0));
 
   return (
     <div className="page" onMouseLeave={() => setTip(null)}>
-      <PageHeader title="Tableau de bord décisionnel" description="Vue analytique du suivi budgétaire TPM — budget, planifié, réalisé, tendance et alertes, recalculés en direct." />
+      <PageHeader title={tr('Tableau de bord décisionnel')} description={tr('Vue analytique du suivi budgétaire TPM — budget, planifié, réalisé, tendance et alertes, recalculés en direct.')} />
 
       <div className="biz-kpis">
-        <Kpi icon={Wallet} label="Budget de suivi" value={fmtM(totals.budget)} suffix="Ar" foot={`${totals.contracts} contrat(s)`} tone="blue" />
-        <Kpi icon={TrendingUp} label="Planifié" value={fmtM(totals.planned)} suffix="Ar" foot={`${Math.round((totals.plannedRate || 0) * 100)} % du budget`} tone="amber" />
-        <Kpi icon={CheckCircle2} label="Réalisé (justifié)" value={fmtM(totals.actual)} suffix="Ar" foot={`${Math.round((totals.actualRate || 0) * 100)} % du budget`} tone="blue" />
-        <Kpi icon={Wallet} label="Budget restant" value={fmtM(totals.remaining)} suffix="Ar" foot="Disponible" tone={totals.remaining < 0 ? 'red' : 'green'} />
-        <Kpi icon={AlertTriangle} label="Alertes" value={formatInt(alerts.length)} foot="Dépassement / projection" tone={alerts.length ? 'red' : 'green'} />
-        <Kpi icon={Users} label="Taux global" value={`${Math.round((totals.actualRate || 0) * 100)}`} suffix="%" foot="Consommation" tone="blue" />
+        <Kpi icon={Wallet} label={tr('Budget de suivi')} value={fmtM(totals.budget, tr)} suffix="Ar" foot={tr('{n} contrat(s)', { n: totals.contracts })} tone="blue" />
+        <Kpi icon={TrendingUp} label={tr('Planifié')} value={fmtM(totals.planned, tr)} suffix="Ar" foot={tr('{p} % du budget', { p: Math.round((totals.plannedRate || 0) * 100) })} tone="amber" />
+        <Kpi icon={CheckCircle2} label={tr('Réalisé (justifié)')} value={fmtM(totals.actual, tr)} suffix="Ar" foot={tr('{p} % du budget', { p: Math.round((totals.actualRate || 0) * 100) })} tone="blue" />
+        <Kpi icon={Wallet} label={tr('Budget restant')} value={fmtM(totals.remaining, tr)} suffix="Ar" foot={tr('Disponible')} tone={totals.remaining < 0 ? 'red' : 'green'} />
+        <Kpi icon={AlertTriangle} label={tr('Alertes')} value={formatInt(alerts.length)} foot={tr('Dépassement / projection')} tone={alerts.length ? 'red' : 'green'} />
+        <Kpi icon={Users} label={tr('Taux global')} value={`${Math.round((totals.actualRate || 0) * 100)}`} suffix="%" foot={tr('Consommation')} tone="blue" />
       </div>
 
       <div className="biz-grid">
         <div className="card biz-card biz-span2">
-          <div className="card-header"><div className="card-title">Budget · Planifié · Réalisé par contrat</div>
-            <Legend items={[['Budget', C.budget], ['Planifié', C.planned], ['Réalisé', C.actual]]} /></div>
+          <div className="card-header"><div className="card-title">{tr('Budget · Planifié · Réalisé par contrat')}</div>
+            <Legend items={[[tr('Budget'), C.budget], [tr('Planifié'), C.planned], [tr('Réalisé'), C.actual]]} /></div>
           <div className="card-body"><GroupedBars rows={rows} onTip={setTip} onOpen={onOpenContract} /></div>
         </div>
 
         <div className="card biz-card">
-          <div className="card-header"><div className="card-title">Réalisé par prestataire</div></div>
+          <div className="card-header"><div className="card-title">{tr('Réalisé par prestataire')}</div></div>
           <div className="card-body biz-donut-wrap">
-            {donutItems.length ? <Donut items={donutItems} onTip={setTip} /> : <p className="muted">Aucun réalisé.</p>}
+            {donutItems.length ? <Donut items={donutItems} onTip={setTip} /> : <p className="muted">{tr('Aucun réalisé.')}</p>}
             <div className="biz-legend-col">
               {donutItems.map((it) => (
                 <div className="biz-legend-item" key={it.label}>
@@ -234,15 +240,15 @@ export default function DashboardBIPage({ onOpenContract }) {
         </div>
 
         <div className="card biz-card biz-span2">
-          <div className="card-header"><div className="card-title">Tendance mensuelle</div>
-            <Legend items={[['Planifié', C.planned], ['Réalisé', C.actual]]} /></div>
+          <div className="card-header"><div className="card-title">{tr('Tendance mensuelle')}</div>
+            <Legend items={[[tr('Planifié'), C.planned], [tr('Réalisé'), C.actual]]} /></div>
           <div className="card-body">
-            {months.length ? <TrendLines months={months} monthly={monthlyTotals} onTip={setTip} /> : <p className="muted">Aucune donnée mensuelle.</p>}
+            {months.length ? <TrendLines months={months} monthly={monthlyTotals} onTip={setTip} /> : <p className="muted">{tr('Aucune donnée mensuelle.')}</p>}
           </div>
         </div>
 
         <div className="card biz-card">
-          <div className="card-header"><div className="card-title">Consommation par contrat</div></div>
+          <div className="card-header"><div className="card-title">{tr('Consommation par contrat')}</div></div>
           <div className="card-body biz-gauges">
             {rows.map((r) => {
               const rate = Math.min(1.2, r.actualRate || 0);
@@ -251,7 +257,7 @@ export default function DashboardBIPage({ onOpenContract }) {
                 <button type="button" key={r.contractId} className="biz-gauge" onClick={() => onOpenContract && onOpenContract(r.contractId)}>
                   <div className="biz-gauge-head"><span>{r.numero}</span><span className="tabular" style={{ color: col }}>{Math.round((r.actualRate || 0) * 100)} %</span></div>
                   <div className="biz-bar"><span style={{ width: `${Math.min(100, (r.actualRate || 0) * 100)}%`, background: col }} /></div>
-                  <div className="biz-gauge-foot">{r.partnerName} · reste {formatAr(r.remaining)}</div>
+                  <div className="biz-gauge-foot">{tr('{partner} · reste {amount}', { partner: r.partnerName, amount: formatAr(r.remaining) })}</div>
                 </button>
               );
             })}
@@ -260,8 +266,8 @@ export default function DashboardBIPage({ onOpenContract }) {
 
         {field?.overall?.total > 0 && (
           <div className="card biz-card biz-span2">
-            <div className="card-header"><div className="card-title">Couverture terrain — mois courant</div>
-              <div className="card-sub">Visites réalisées / planifiées par district ({field.overall.realise}/{field.overall.active} · {Math.round((field.overall.rate || 0) * 100)} %).</div></div>
+            <div className="card-header"><div className="card-title">{tr('Couverture terrain — mois courant')}</div>
+              <div className="card-sub">{tr('Visites réalisées / planifiées par district ({done}/{active} · {p} %).', { done: field.overall.realise, active: field.overall.active, p: Math.round((field.overall.rate || 0) * 100) })}</div></div>
             <div className="card-body biz-gauges" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', display: 'grid', gap: 14 }}>
               {field.byDistrict.map((d) => {
                 const col = d.rate >= 0.8 ? 'var(--green)' : d.rate >= 0.5 ? 'var(--blue-600)' : 'var(--orange)';
@@ -279,17 +285,17 @@ export default function DashboardBIPage({ onOpenContract }) {
 
       {alerts.length > 0 && (
         <div className="card biz-card" style={{ marginTop: 16 }}>
-          <div className="card-header"><div className="card-title">Alertes budgétaires</div>
-            <div className="card-sub">Contrats en dépassement ou en projection de dépassement du budget de suivi.</div></div>
+          <div className="card-header"><div className="card-title">{tr('Alertes budgétaires')}</div>
+            <div className="card-sub">{tr('Contrats en dépassement ou en projection de dépassement du budget de suivi.')}</div></div>
           <div className="table-wrap"><table className="table">
-            <thead><tr><th>Contrat</th><th>Prestataire</th><th className="num">Réalisé</th><th className="num">Budget</th><th className="num">Projection fin</th><th>État</th></tr></thead>
+            <thead><tr><th>{tr('Contrat')}</th><th>{tr('Prestataire')}</th><th className="num">{tr('Réalisé')}</th><th className="num">{tr('Budget')}</th><th className="num">{tr('Projection fin')}</th><th>{tr('État')}</th></tr></thead>
             <tbody>{alerts.map((r) => (
               <tr key={r.contractId} onClick={() => onOpenContract && onOpenContract(r.contractId)} style={{ cursor: 'pointer' }}>
                 <td><strong>{r.numero}</strong></td><td>{r.partnerName}</td>
                 <td className="num tabular">{formatAr(r.actual)}</td>
                 <td className="num tabular">{formatAr(r.budget)}</td>
                 <td className="num tabular">{formatAr(r.projectedTotal)}</td>
-                <td><span className="badge" style={{ background: 'var(--red-bg)', color: 'var(--red-text)' }}><span className="dot" style={{ background: 'var(--red)' }} />{r.overspent ? 'Dépassé' : 'Projection'}</span></td>
+                <td><span className="badge" style={{ background: 'var(--red-bg)', color: 'var(--red-text)' }}><span className="dot" style={{ background: 'var(--red)' }} />{r.overspent ? tr('Dépassé') : tr('Projection')}</span></td>
               </tr>
             ))}</tbody>
           </table></div>

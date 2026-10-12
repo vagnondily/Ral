@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { IconButton } from './ui.jsx';
+import { useI18n } from '../lib/i18n.jsx';
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -13,6 +14,7 @@ const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select
  * - page scroll is locked while open
  */
 export default function Modal({ open, onClose, title, subtitle, variant = 'dialog', wide, size, footer, children, initialFocus }) {
+  const { tr } = useI18n();
   const dialogRef = useRef(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose; // Esc handler always calls the latest callback
@@ -74,7 +76,7 @@ export default function Modal({ open, onClose, title, subtitle, variant = 'dialo
             <h2 className="dialog-title" id={titleId}>{title}</h2>
             {subtitle && <p className="dialog-sub">{subtitle}</p>}
           </div>
-          <IconButton icon={X} label="Fermer" onClick={onClose} />
+          <IconButton icon={X} label={tr('Fermer')} onClick={onClose} />
         </div>
         <div className="dialog-body">{children}</div>
         {footer && <div className="dialog-foot">{footer}</div>}

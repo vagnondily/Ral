@@ -4,6 +4,7 @@ import { api } from '../../api/client.js';
 import Modal from '../../components/Modal.jsx';
 import { Alert, Button, Field } from '../../components/ui.jsx';
 import { useToast } from '../../components/Toast.jsx';
+import { useI18n } from '../../lib/i18n.jsx';
 import { formatAr, todayISO } from '../../lib/format.js';
 import { amendmentCode, formatDate } from '../../lib/contracts.js';
 
@@ -14,11 +15,12 @@ function useValidators(open) {
 }
 
 function ValidatorSelect({ id, value, onChange, validators, error }) {
+  const { tr } = useI18n();
   return (
-    <Field label="Valideur" htmlFor={id} required hint="Une autre personne que vous (séparation des tâches)." error={error}>
+    <Field label={tr('Valideur')} htmlFor={id} required hint={tr('Une autre personne que vous (séparation des tâches).')} error={error}>
       <select id={id} className={`select ${value ? '' : 'is-empty'}`} value={value} onChange={(e) => onChange(e.target.value)}
         aria-invalid={Boolean(error) || undefined} disabled={validators === null}>
-        <option value="">{validators === null ? 'Chargement…' : 'Choisir un valideur…'}</option>
+        <option value="">{validators === null ? tr('Chargement…') : tr('Choisir un valideur…')}</option>
         {(validators || []).map((v) => <option key={v.id} value={v.id}>{v.email}</option>)}
       </select>
     </Field>
@@ -40,6 +42,7 @@ function useAction() {
 const clampISO = (v, min, max) => (v < min ? min : v > max ? max : v);
 
 export function SubmitDialog({ open, onClose, detail, onDone }) {
+  const { tr } = useI18n();
   const validators = useValidators(open);
   const [validatorId, setValidatorId] = useState('');
   const [comment, setComment] = useState('');
@@ -51,24 +54,27 @@ export function SubmitDialog({ open, onClose, detail, onDone }) {
   async function submit() {
     setTouched(true);
     if (!validatorId) return;
-    if (await run(() => api.submitContract(c.id, { validatorId, comment: comment.trim() || undefined, version: c.version }), 'Contrat soumis pour validation.')) onDone();
+    if (await run(() => api.submitContract(c.id, { validatorId, comment: comment.trim() || undefined, version: c.version }), tr('Contrat soumis pour validation.'))) onDone();
   }
   return (
-    <Modal open={open} onClose={() => !busy && onClose()} title="Soumettre pour validation" subtitle={`${c.partnerName} · ${c.numero}`}
-      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>Annuler</Button><Button loading={busy} onClick={submit}>Soumettre</Button></>}>
-      <p>Le contrat ne sera plus modifiable pendant sa validation. Le valideur pourra l'approuver (il devient actif) ou le rejeter avec un motif.</p>
-      <ValidatorSelect id="sub-validator" value={validatorId} onChange={setValidatorId} validators={validators} error={touched && !validatorId ? 'Choisissez un valideur.' : undefined} />
-      <Field label="Message au valideur" htmlFor="sub-comment" hint="Facultatif."><textarea id="sub-comment" className="input" value={comment} onChange={(e) => setComment(e.target.value)} /></Field>
+    <Modal open={open} onClose={() => !busy && onClose()} title={tr('Soumettre pour validation')} subtitle={`${c.partnerName} · ${c.numero}`}
+      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button><Button loading={busy} onClick={submit}>{tr('Soumettre')}</Button></>}>
+      <p>{tr("Le contrat ne sera plus modifiable pendant sa validation. Le valideur pourra l'approuver (il devient actif) ou le rejeter avec un motif.")}</p>
+      <ValidatorSelect id="sub-validator" value={validatorId} onChange={setValidatorId} validators={validators} error={touched && !validatorId ? tr('Choisissez un valideur.') : undefined} />
+      <Field label={tr('Message au valideur')} htmlFor="sub-comment" hint={tr('Facultatif.')}><textarea id="sub-comment" className="input" value={comment} onChange={(e) => setComment(e.target.value)} /></Field>
     </Modal>
   );
 }
 
 export function DecisionDialog({ open, onClose, detail, amendment, approve, onDone }) {
+  const { tr } = useI18n();
   const [comment, setComment] = useState('');
   const [touched, setTouched] = useState(false);
   const [busy, run] = useAction();
   const c = detail.contract;
-  const subject = amendment ? `l'avenant ${amendmentCode(amendment.number)}` : 'le contrat';
+  const title = amendment
+    ? tr(approve ? "Approuver l'avenant {code} ?" : "Rejeter l'avenant {code} ?", { code: amendmentCode(amendment.number) })
+    : tr(approve ? 'Approuver le contrat ?' : 'Rejeter le contrat ?');
   useEffect(() => { if (open) { setComment(''); setTouched(false); } }, [open]);
 
   async function decide() {
@@ -78,19 +84,19 @@ export function DecisionDialog({ open, onClose, detail, amendment, approve, onDo
     const call = amendment
       ? () => (approve ? api.approveAmendment(c.id, amendment.id, b) : api.rejectAmendment(c.id, amendment.id, b))
       : () => (approve ? api.approveContract(c.id, { ...b, version: c.version }) : api.rejectContract(c.id, { ...b, version: c.version }));
-    const msg = amendment ? (approve ? `Avenant ${amendmentCode(amendment.number)} approuvé et appliqué.` : 'Avenant rejeté.')
-      : (approve ? 'Contrat approuvé : il est désormais actif.' : 'Contrat rejeté.');
+    const msg = amendment ? (approve ? tr('Avenant {code} approuvé et appliqué.', { code: amendmentCode(amendment.number) }) : tr('Avenant rejeté.'))
+      : (approve ? tr('Contrat approuvé : il est désormais actif.') : tr('Contrat rejeté.'));
     if (await run(call, msg)) onDone();
   }
   return (
-    <Modal open={open} onClose={() => !busy && onClose()} title={approve ? `Approuver ${subject} ?` : `Rejeter ${subject} ?`} subtitle={`${c.partnerName} · ${c.numero}`}
-      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>Annuler</Button><Button loading={busy} onClick={decide}>{approve ? 'Approuver' : 'Rejeter'}</Button></>}>
+    <Modal open={open} onClose={() => !busy && onClose()} title={title} subtitle={`${c.partnerName} · ${c.numero}`}
+      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button><Button loading={busy} onClick={decide}>{approve ? tr('Approuver') : tr('Rejeter')}</Button></>}>
       {approve
-        ? <p>{amendment ? "Les modifications de l'avenant seront appliquées immédiatement et publiées aux autres modules." : 'Le contrat devient actif ; son activation est publiée aux modules Planning et Reporting.'}</p>
-        : <p>{amendment ? "L'avenant sera clôturé sans effet sur le contrat." : 'Le contrat repassera en correction chez son rédacteur.'}</p>}
-      <Field label={approve ? 'Commentaire' : 'Motif du rejet'} htmlFor="dec-comment" required={!approve}
-        hint={approve ? "Facultatif — conservé dans l'historique." : "Obligatoire — conservé dans l'historique."}
-        error={touched && !approve && !comment.trim() ? 'Le motif est obligatoire.' : undefined}>
+        ? <p>{amendment ? tr("Les modifications de l'avenant seront appliquées immédiatement et publiées aux autres modules.") : tr('Le contrat devient actif ; son activation est publiée aux modules Planning et Reporting.')}</p>
+        : <p>{amendment ? tr("L'avenant sera clôturé sans effet sur le contrat.") : tr('Le contrat repassera en correction chez son rédacteur.')}</p>}
+      <Field label={approve ? tr('Commentaire') : tr('Motif du rejet')} htmlFor="dec-comment" required={!approve}
+        hint={approve ? tr("Facultatif — conservé dans l'historique.") : tr("Obligatoire — conservé dans l'historique.")}
+        error={touched && !approve && !comment.trim() ? tr('Le motif est obligatoire.') : undefined}>
         <textarea id="dec-comment" className="input" value={comment} onChange={(e) => setComment(e.target.value)} />
       </Field>
     </Modal>
@@ -100,6 +106,7 @@ export function DecisionDialog({ open, onClose, detail, amendment, approve, onDo
 /** Amendment: revise the end date and/or the management fee, with the same
  * validation circuit. Budget lines are revised by a new version if needed. */
 export function AmendmentDrawer({ open, onClose, detail, onDone }) {
+  const { tr } = useI18n();
   const c = detail.contract;
   const validators = useValidators(open);
   const currentFeePctDisplay = Math.round((c.managementFeePct ?? 0.07) * 1000) / 10;
@@ -116,11 +123,11 @@ export function AmendmentDrawer({ open, onClose, detail, onDone }) {
   const feeChanged = feePctPct !== '' && Number(feePctPct) !== currentFeePctDisplay;
   const hasChange = dateChanged || feeChanged;
   const errs = {
-    justification: justification.trim().length < 10 ? 'Justification requise (10 caractères minimum).' : null,
-    change: !hasChange ? 'Modifiez la date de fin ou la commission de gestion.' : null,
-    date: dateChanged && newDateFin <= c.dateDebut ? 'La date de fin doit suivre la date de début.' : null,
-    fee: feeChanged && (Number(feePctPct) < 0 || Number(feePctPct) > 100) ? 'Commission entre 0 et 100 %.' : null,
-    validator: !validatorId ? 'Choisissez un valideur.' : null,
+    justification: justification.trim().length < 10 ? tr('Justification requise (10 caractères minimum).') : null,
+    change: !hasChange ? tr('Modifiez la date de fin ou la commission de gestion.') : null,
+    date: dateChanged && newDateFin <= c.dateDebut ? tr('La date de fin doit suivre la date de début.') : null,
+    fee: feeChanged && (Number(feePctPct) < 0 || Number(feePctPct) > 100) ? tr('Commission entre 0 et 100 %.') : null,
+    validator: !validatorId ? tr('Choisissez un valideur.') : null,
   };
 
   async function submit() {
@@ -131,21 +138,21 @@ export function AmendmentDrawer({ open, onClose, detail, onDone }) {
       newDateFin: dateChanged ? newDateFin : undefined,
       newFeePct: feeChanged ? Number(feePctPct) / 100 : undefined,
       validatorId,
-    }), 'Avenant soumis pour validation.')) onDone();
+    }), tr('Avenant soumis pour validation.'))) onDone();
   }
 
   return (
-    <Modal open={open} onClose={() => !busy && onClose()} title={`Avenant ${amendmentCode(c.amendmentCount + 1)}`}
+    <Modal open={open} onClose={() => !busy && onClose()} title={tr('Avenant {code}', { code: amendmentCode(c.amendmentCount + 1) })}
       subtitle={`${c.partnerName} · ${c.reference || c.numero}`} initialFocus="#am-just"
-      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>Annuler</Button><Button loading={busy} onClick={submit}>Soumettre l'avenant</Button></>}>
-      <Alert tone="info" icon={Info}>L'avenant suit le même circuit que le contrat : il ne s'applique qu'après approbation du valideur.</Alert>
-      <Field label="Justification" htmlFor="am-just" required error={touched ? errs.justification : undefined}>
+      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button><Button loading={busy} onClick={submit}>{tr("Soumettre l'avenant")}</Button></>}>
+      <Alert tone="info" icon={Info}>{tr("L'avenant suit le même circuit que le contrat : il ne s'applique qu'après approbation du valideur.")}</Alert>
+      <Field label={tr('Justification')} htmlFor="am-just" required error={touched ? errs.justification : undefined}>
         <textarea id="am-just" className="input" value={justification} onChange={(e) => setJustification(e.target.value)} />
       </Field>
-      <Field label="Nouvelle date de fin" htmlFor="am-date" hint={`Actuelle : ${formatDate(c.dateFin)}. Laisser vide pour ne pas la changer.`} error={touched ? errs.date : undefined}>
+      <Field label={tr('Nouvelle date de fin')} htmlFor="am-date" hint={tr('Actuelle : {value}. Laisser vide pour ne pas la changer.', { value: formatDate(c.dateFin) })} error={touched ? errs.date : undefined}>
         <input id="am-date" type="date" className="input" value={newDateFin} onChange={(e) => setNewDateFin(e.target.value)} />
       </Field>
-      <Field label="Nouvelle commission de gestion (%)" htmlFor="am-fee" hint={`Actuelle : ${currentFeePctDisplay} %. Laisser vide pour ne pas la changer.`} error={touched ? errs.fee : undefined}>
+      <Field label={tr('Nouvelle commission de gestion (%)')} htmlFor="am-fee" hint={tr('Actuelle : {value} %. Laisser vide pour ne pas la changer.', { value: currentFeePctDisplay })} error={touched ? errs.fee : undefined}>
         <input id="am-fee" type="number" min="0" max="100" step="0.5" className="input tabular" value={feePctPct} onChange={(e) => setFeePctPct(e.target.value)} placeholder={String(currentFeePctDisplay)} />
       </Field>
       {touched && errs.change && <span className="field-error">{errs.change}</span>}
@@ -160,6 +167,7 @@ function addDaysISO(iso, n) {
 }
 
 export function RenewDialog({ open, onClose, detail, onDone }) {
+  const { tr } = useI18n();
   const c = detail.contract;
   const start = addDaysISO(c.dateFin, 1);
   const [newDateFin, setNewDateFin] = useState('');
@@ -167,28 +175,29 @@ export function RenewDialog({ open, onClose, detail, onDone }) {
   const [touched, setTouched] = useState(false);
   const [busy, run] = useAction();
   useEffect(() => { if (open) { setNewDateFin(addDaysISO(start, 364)); setNumeroFla(''); setTouched(false); } }, [open, start]);
-  const dateErr = !newDateFin || newDateFin <= start ? `Doit être après le ${formatDate(start)}.` : null;
+  const dateErr = !newDateFin || newDateFin <= start ? tr('Doit être après le {date}.', { date: formatDate(start) }) : null;
 
   async function renew() {
     setTouched(true);
     if (dateErr) return;
     let created;
-    if (await run(async () => { created = await api.renewContract(c.id, { newDateFin, numeroFla: numeroFla.trim() || undefined }); }, 'Renouvellement créé en brouillon.')) onDone(created.id);
+    if (await run(async () => { created = await api.renewContract(c.id, { newDateFin, numeroFla: numeroFla.trim() || undefined }); }, tr('Renouvellement créé en brouillon.'))) onDone(created.id);
   }
   return (
-    <Modal open={open} onClose={() => !busy && onClose()} title="Renouveler le contrat" subtitle={`${c.partnerName} · échéance le ${formatDate(c.dateFin)}`}
-      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>Annuler</Button><Button loading={busy} onClick={renew}>Créer le renouvellement</Button></>}>
-      <p>Un nouveau contrat est créé en brouillon, lié à celui-ci, avec le même partenaire, ses activités et sa structure budgétaire. Il suit ensuite le circuit de validation normal.</p>
+    <Modal open={open} onClose={() => !busy && onClose()} title={tr('Renouveler le contrat')} subtitle={tr('{partner} · échéance le {date}', { partner: c.partnerName, date: formatDate(c.dateFin) })}
+      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button><Button loading={busy} onClick={renew}>{tr('Créer le renouvellement')}</Button></>}>
+      <p>{tr('Un nouveau contrat est créé en brouillon, lié à celui-ci, avec le même partenaire, ses activités et sa structure budgétaire. Il suit ensuite le circuit de validation normal.')}</p>
       <div className="form-grid">
-        <Field label="Début" htmlFor="rn-start" hint="Lendemain de l'échéance actuelle."><input id="rn-start" className="input" value={formatDate(start)} disabled /></Field>
-        <Field label="Nouvelle date de fin" htmlFor="rn-end" required error={touched ? dateErr : undefined}><input id="rn-end" type="date" className="input" value={newDateFin} onChange={(e) => setNewDateFin(e.target.value)} /></Field>
+        <Field label={tr('Début')} htmlFor="rn-start" hint={tr("Lendemain de l'échéance actuelle.")}><input id="rn-start" className="input" value={formatDate(start)} disabled /></Field>
+        <Field label={tr('Nouvelle date de fin')} htmlFor="rn-end" required error={touched ? dateErr : undefined}><input id="rn-end" type="date" className="input" value={newDateFin} onChange={(e) => setNewDateFin(e.target.value)} /></Field>
       </div>
-      <Field label="Nouveau N° FLA" htmlFor="rn-fla" hint="Facultatif — peut être complété sur le brouillon."><input id="rn-fla" className="input mono" value={numeroFla} onChange={(e) => setNumeroFla(e.target.value)} /></Field>
+      <Field label={tr('Nouveau N° FLA')} htmlFor="rn-fla" hint={tr('Facultatif — peut être complété sur le brouillon.')}><input id="rn-fla" className="input mono" value={numeroFla} onChange={(e) => setNumeroFla(e.target.value)} /></Field>
     </Modal>
   );
 }
 
 export function TerminateDialog({ open, onClose, detail, onDone }) {
+  const { tr } = useI18n();
   const c = detail.contract;
   const [reason, setReason] = useState('');
   const [effectiveDate, setEffectiveDate] = useState('');
@@ -196,20 +205,20 @@ export function TerminateDialog({ open, onClose, detail, onDone }) {
   const [busy, run] = useAction();
   useEffect(() => { if (open) { setReason(''); setEffectiveDate(clampISO(todayISO(), c.dateDebut, c.dateFin)); setTouched(false); } }, [open, c.dateDebut, c.dateFin]);
   const errs = {
-    reason: reason.trim().length < 10 ? 'Motif obligatoire (10 caractères minimum).' : null,
-    date: !effectiveDate || effectiveDate < c.dateDebut || effectiveDate > c.dateFin ? `Entre le ${formatDate(c.dateDebut)} et le ${formatDate(c.dateFin)}.` : null,
+    reason: reason.trim().length < 10 ? tr('Motif obligatoire (10 caractères minimum).') : null,
+    date: !effectiveDate || effectiveDate < c.dateDebut || effectiveDate > c.dateFin ? tr('Entre le {start} et le {end}.', { start: formatDate(c.dateDebut), end: formatDate(c.dateFin) }) : null,
   };
   async function confirm() {
     setTouched(true);
     if (errs.reason || errs.date) return;
-    if (await run(() => api.terminateContract(c.id, { reason: reason.trim(), effectiveDate, version: c.version }), 'Contrat résilié.')) onDone();
+    if (await run(() => api.terminateContract(c.id, { reason: reason.trim(), effectiveDate, version: c.version }), tr('Contrat résilié.'))) onDone();
   }
   return (
-    <Modal open={open} onClose={() => !busy && onClose()} title="Résilier le contrat ?" subtitle={`${c.partnerName} · ${c.reference || c.numero}`}
-      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>Annuler</Button><Button loading={busy} onClick={confirm}>Résilier définitivement</Button></>}>
-      <Alert tone="warn" icon={AlertCircle}>Action définitive : le contrat sera verrouillé et sa résiliation publiée aux modules Planning, Alertes et Reporting.</Alert>
-      <Field label="Motif" htmlFor="tm-reason" required error={touched ? errs.reason : undefined}><textarea id="tm-reason" className="input" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
-      <Field label="Date d'effet" htmlFor="tm-date" required error={touched ? errs.date : undefined}><input id="tm-date" type="date" className="input" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} /></Field>
+    <Modal open={open} onClose={() => !busy && onClose()} title={tr('Résilier le contrat ?')} subtitle={`${c.partnerName} · ${c.reference || c.numero}`}
+      footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button><Button loading={busy} onClick={confirm}>{tr('Résilier définitivement')}</Button></>}>
+      <Alert tone="warn" icon={AlertCircle}>{tr('Action définitive : le contrat sera verrouillé et sa résiliation publiée aux modules Planning, Alertes et Reporting.')}</Alert>
+      <Field label={tr('Motif')} htmlFor="tm-reason" required error={touched ? errs.reason : undefined}><textarea id="tm-reason" className="input" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
+      <Field label={tr("Date d'effet")} htmlFor="tm-date" required error={touched ? errs.date : undefined}><input id="tm-date" type="date" className="input" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} /></Field>
     </Modal>
   );
 }

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { getStoredUser, getToken, onUnauthorized, setSession } from './api/client.js';
 import AppShell, { findRoute } from './components/AppShell.jsx';
 import { ToastProvider, useToast } from './components/Toast.jsx';
-import { I18nProvider } from './lib/i18n.jsx';
+import { I18nProvider, useI18n } from './lib/i18n.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import ProvidersPage from './pages/ProvidersPage.jsx';
 import ContractsListPage from './pages/contracts/ContractsListPage.jsx';
@@ -44,6 +44,7 @@ function parseHash() {
 }
 
 function Workspace() {
+  const { tr } = useI18n();
   const toast = useToast();
   const [user, setUser] = useState(() => (getToken() ? getStoredUser() : null));
   const [route, setRoute] = useState(parseHash);
@@ -57,9 +58,9 @@ function Workspace() {
   useEffect(() => {
     onUnauthorized(() => {
       setUser(null);
-      toast.info('Votre session a expiré. Veuillez vous reconnecter.');
+      toast.info(tr('Votre session a expiré. Veuillez vous reconnecter.'));
     });
-  }, [toast]);
+  }, [toast, tr]);
 
   const navigate = useCallback((mod, sub, extra, extra2) => {
     let hash = `/${mod}/${sub}`;

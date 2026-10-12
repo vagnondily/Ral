@@ -5,6 +5,7 @@ import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
 import MonthSelect from '../../components/MonthSelect.jsx';
 import { currentMonth, formatInt } from '../../lib/format.js';
 import { MAP, project } from '../../lib/madagascarMap.js';
+import { useI18n } from '../../lib/i18n.jsx';
 
 /**
  * Dashboard décisionnel › « Couverture & performance du suivi ».
@@ -33,6 +34,7 @@ const VIEWS = [
 ];
 
 export default function DashboardCoveragePage({ onNavigate }) {
+  const { tr } = useI18n();
   const [month, setMonth] = useState(currentMonth);
   const [cd, setCd] = useState(null);
   const [field, setField] = useState(null);
@@ -65,16 +67,16 @@ export default function DashboardCoveragePage({ onNavigate }) {
 
   return (
     <div className="page">
-      <PageHeader title="Couverture & performance du suivi"
-        description="Vue analytique du suivi de processus : couverture terrain, données versées, conformité par bande, plan vs réalisé, et détail par activité (dimensions, indicateurs). Recalculé en direct.">
+      <PageHeader title={tr('Couverture & performance du suivi')}
+        description={tr('Vue analytique du suivi de processus : couverture terrain, données versées, conformité par bande, plan vs réalisé, et détail par activité (dimensions, indicateurs). Recalculé en direct.')}>
         <MonthSelect value={month} onChange={setMonth} />
       </PageHeader>
 
-      <div className="cd-views" role="tablist" aria-label="Vues">
+      <div className="cd-views" role="tablist" aria-label={tr('Vues')}>
         {VIEWS.map((v) => (
           <button key={v.id} type="button" role="tab" aria-selected={view === v.id}
             className={`cd-view${view === v.id ? ' is-active' : ''}`} onClick={() => setView(v.id)}>
-            <v.icon size={15} aria-hidden="true" />{v.label}
+            <v.icon size={15} aria-hidden="true" />{tr(v.label)}
           </button>
         ))}
       </div>
@@ -84,8 +86,8 @@ export default function DashboardCoveragePage({ onNavigate }) {
         <>
           {view === 'synthese' && (
             <>
-              <div className="cd-tabs" role="tablist" aria-label="Activités">
-                <TabBtn id="_OV" label="Vue d'ensemble" active={tab === '_OV'} onClick={setTab} />
+              <div className="cd-tabs" role="tablist" aria-label={tr('Activités')}>
+                <TabBtn id="_OV" label={tr('Vue d\'ensemble')} active={tab === '_OV'} onClick={setTab} />
                 {forms.map((f) => (
                   <TabBtn key={f.id} id={f.id} label={shortLabel(f.label)} active={tab === f.id} onClick={setTab} />
                 ))}
@@ -113,6 +115,7 @@ function TabBtn({ id, label, active, onClick }) {
 
 // ---------------------------------------------------------------- Vue d'ensemble
 function Overview({ cd, cov, field, rbmStats, onNavigate }) {
+  const { tr } = useI18n();
   const covPct = Math.round((cov?.rate || 0) * 100);
   const upToDate = rbmStats.total - rbmStats.due;
   const sitesPct = rbmStats.total ? Math.round((upToDate / rbmStats.total) * 100) : 0;
@@ -122,12 +125,12 @@ function Overview({ cd, cov, field, rbmStats, onNavigate }) {
   // Plan vs réalisé — trois sources (visites, sites RBM, soumissions).
   const received = cd.totals?.communes || 0;
   const pvr = [
-    { label: 'Visites de terrain', sub: 'planifiées → réalisées ce mois',
-      planned: (cov?.realise || 0) + (cov?.planifie || 0), done: cov?.realise || 0, unit: 'visite(s)' },
-    { label: 'Sites à suivre (RBM)', sub: 'dus ce mois → visités (terrain)',
-      planned: rbmStats.due, done: cov?.realise || 0, unit: 'site(s)' },
-    { label: 'Données versées', sub: 'communes attendues (RBM) → ayant versé',
-      planned: rbmStats.due, done: received, unit: 'commune(s)' },
+    { label: tr('Visites de terrain'), sub: tr('planifiées → réalisées ce mois'),
+      planned: (cov?.realise || 0) + (cov?.planifie || 0), done: cov?.realise || 0, unit: tr('visite(s)') },
+    { label: tr('Sites à suivre (RBM)'), sub: tr('dus ce mois → visités (terrain)'),
+      planned: rbmStats.due, done: cov?.realise || 0, unit: tr('site(s)') },
+    { label: tr('Données versées'), sub: tr('communes attendues (RBM) → ayant versé'),
+      planned: rbmStats.due, done: received, unit: tr('commune(s)') },
   ];
 
   const byActivity = (cd.forms || []).map((f) => ({
@@ -141,39 +144,39 @@ function Overview({ cd, cov, field, rbmStats, onNavigate }) {
   return (
     <>
       <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
-        <DonutKpi icon={Gauge} label="Couverture" pct={covPct} foot={`${formatInt(cov?.realise || 0)} / ${formatInt((cov?.realise || 0) + (cov?.planifie || 0))} visites`} />
-        <DonutKpi icon={ShieldCheck} label="Sites à jour" pct={sitesPct} tone={rbmStats.due ? 'amber' : 'green'}
-          foot={`${formatInt(rbmStats.due)} à suivre / ${formatInt(rbmStats.total)}`} />
-        <Kpi icon={Database} label="Données versées" value={formatInt(cd.totals?.submissions || 0)}
-          foot={`${formatInt(cd.totals?.communes || 0)} commune(s) · ${formatInt(cd.totals?.agents || 0)} agent(s)`} />
-        <Kpi icon={LayoutGrid} label="Fiches · indicateurs" value={formatInt(cd.totals?.forms || 0)}
-          foot={`${formatInt(cd.totals?.indicators || 0)} indicateur(s)`} />
+        <DonutKpi icon={Gauge} label={tr('Couverture')} pct={covPct} foot={tr('{done} / {planned} visites', { done: formatInt(cov?.realise || 0), planned: formatInt((cov?.realise || 0) + (cov?.planifie || 0)) })} />
+        <DonutKpi icon={ShieldCheck} label={tr('Sites à jour')} pct={sitesPct} tone={rbmStats.due ? 'amber' : 'green'}
+          foot={tr('{due} à suivre / {total}', { due: formatInt(rbmStats.due), total: formatInt(rbmStats.total) })} />
+        <Kpi icon={Database} label={tr('Données versées')} value={formatInt(cd.totals?.submissions || 0)}
+          foot={tr('{communes} commune(s) · {agents} agent(s)', { communes: formatInt(cd.totals?.communes || 0), agents: formatInt(cd.totals?.agents || 0) })} />
+        <Kpi icon={LayoutGrid} label={tr('Fiches · indicateurs')} value={formatInt(cd.totals?.forms || 0)}
+          foot={tr('{n} indicateur(s)', { n: formatInt(cd.totals?.indicators || 0) })} />
       </div>
 
       {/* Bande conformité : indice + répartition 5 bandes + action urgente */}
       <div className="card biz-card cd-conf">
         <div className="cd-conf-idx">
           <div className="cd-conf-n tabular">{cd.conformityIndex == null ? '—' : cd.conformityIndex}<small>/100</small></div>
-          <div className="cd-conf-l">Indice de conformité</div>
-          <div className="biz-kpi-foot">{formatInt(cls.scored || 0)} indicateur(s) noté(s)</div>
+          <div className="cd-conf-l">{tr('Indice de conformité')}</div>
+          <div className="biz-kpi-foot">{tr('{n} indicateur(s) noté(s)', { n: formatInt(cls.scored || 0) })}</div>
         </div>
         <div className="cd-conf-dist">
-          <div className="card-title">Répartition des indicateurs</div>
+          <div className="card-title">{tr('Répartition des indicateurs')}</div>
           <ClassBar classes={cls} />
           <ClassLegend classes={cls} />
         </div>
         <div className="cd-conf-urg">
           <div className="cd-conf-n tabular" style={{ color: 'var(--cd-urg)' }}>{urgentPct}<small>%</small></div>
-          <div className="cd-conf-l">Action urgente</div>
-          <div className="biz-kpi-foot">{formatInt(cls.urg || 0)} sur {formatInt(cls.scored || 0)}</div>
+          <div className="cd-conf-l">{tr('Action urgente')}</div>
+          <div className="biz-kpi-foot">{tr('{n} sur {total}', { n: formatInt(cls.urg || 0), total: formatInt(cls.scored || 0) })}</div>
         </div>
       </div>
 
       <div className="biz-grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 16 }}>
         <PlanVsReal rows={pvr} />
-        <BarsCard title="Performance par activité" sub="Indice de conformité par fiche"
-          rows={byActivity.map((a) => ({ key: a.key, label: a.label, pct: a.pct, right: `${a.pct} · ${a.urgent ? `${a.urgent} urgent` : 'ok'}` }))}
-          empty="Aucune fiche active." />
+        <BarsCard title={tr('Performance par activité')} sub={tr('Indice de conformité par fiche')}
+          rows={byActivity.map((a) => ({ key: a.key, label: a.label, pct: a.pct, right: `${a.pct} · ${a.urgent ? tr('{n} urgent', { n: a.urgent }) : 'ok'}` }))}
+          empty={tr('Aucune fiche active.')} />
       </div>
 
       <div className="biz-grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 16 }}>
@@ -186,18 +189,19 @@ function Overview({ cd, cov, field, rbmStats, onNavigate }) {
 
 // ---------------------------------------------------------------- Activité (fiche)
 function ActivityView({ form }) {
+  const { tr } = useI18n();
   const cls = form.classes || {};
   return (
     <>
       <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
-        <Kpi icon={Database} label="Données versées" value={formatInt(form.submissions || 0)} foot="soumissions de la fiche" />
-        <Kpi icon={TrendingUp} label="Indice de conformité" value={form.index == null ? '—' : `${form.index}`} foot="sur 100 (indicateurs %)" />
-        <Kpi icon={ShieldCheck} label="Indicateurs notés" value={formatInt(cls.scored || 0)}
-          foot={`${formatInt(cls.urg || 0)} en action urgente`} />
+        <Kpi icon={Database} label={tr('Données versées')} value={formatInt(form.submissions || 0)} foot={tr('soumissions de la fiche')} />
+        <Kpi icon={TrendingUp} label={tr('Indice de conformité')} value={form.index == null ? '—' : `${form.index}`} foot={tr('sur 100 (indicateurs %)')} />
+        <Kpi icon={ShieldCheck} label={tr('Indicateurs notés')} value={formatInt(cls.scored || 0)}
+          foot={tr('{n} en action urgente', { n: formatInt(cls.urg || 0) })} />
       </div>
 
       <div className="card biz-card" style={{ marginTop: 16 }}>
-        <div className="card-header"><div className="card-title">Répartition des indicateurs</div></div>
+        <div className="card-header"><div className="card-title">{tr('Répartition des indicateurs')}</div></div>
         <div className="card-body">
           <ClassBar classes={cls} />
           <ClassLegend classes={cls} />
@@ -207,16 +211,16 @@ function ActivityView({ form }) {
       <div className="biz-grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 16 }}>
         <DimsCard dims={form.dims || []} />
         <div className="biz-grid" style={{ gridTemplateColumns: '1fr', gap: 16 }}>
-          <IndListCard title="Indicateurs les plus faibles" rows={form.flop || []} tone="low" />
-          <IndListCard title="Points forts" rows={form.top || []} tone="ok" />
+          <IndListCard title={tr('Indicateurs les plus faibles')} rows={form.flop || []} tone="low" />
+          <IndListCard title={tr('Points forts')} rows={form.top || []} tone="ok" />
         </div>
       </div>
 
       <div className="biz-grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 16 }}>
-        <TrendCard title="Données versées — tendance mensuelle" trend={form.trend} />
-        <BarsCard title="Données par bureau" sub="soumissions sur le mois"
+        <TrendCard title={tr('Données versées — tendance mensuelle')} trend={form.trend} />
+        <BarsCard title={tr('Données par bureau')} sub={tr('soumissions sur le mois')}
           rows={(form.byBureau || []).map((b) => ({ key: b.bureau, label: b.bureau, count: b.submissions, right: `${formatInt(b.submissions)}` }))}
-          mode="count" empty="Aucune donnée." />
+          mode="count" empty={tr('Aucune donnée.')} />
       </div>
     </>
   );
@@ -259,23 +263,25 @@ function DonutKpi({ icon: Icon, label, pct, foot, tone }) {
 
 /** Barre empilée des 5 bandes de conformité. */
 function ClassBar({ classes }) {
+  const { tr } = useI18n();
   const total = BANDS.reduce((a, b) => a + (classes[b.k] || 0), 0) || 1;
   return (
-    <div className="cd-stack" role="img" aria-label="Répartition des indicateurs par bande">
+    <div className="cd-stack" role="img" aria-label={tr('Répartition des indicateurs par bande')}>
       {BANDS.map((b) => {
         const n = classes[b.k] || 0;
         if (!n) return null;
-        return <span key={b.k} className={`cd-seg cd-${b.k}`} style={{ width: `${(n / total) * 100}%` }} title={`${b.label}: ${n}`} />;
+        return <span key={b.k} className={`cd-seg cd-${b.k}`} style={{ width: `${(n / total) * 100}%` }} title={`${tr(b.label)}: ${n}`} />;
       })}
     </div>
   );
 }
 
 function ClassLegend({ classes }) {
+  const { tr } = useI18n();
   return (
     <div className="cd-legend">
       {BANDS.map((b) => (
-        <span key={b.k}><i className={`cd-dot cd-${b.k}`} />{b.label} <b className="tabular">{formatInt(classes[b.k] || 0)}</b></span>
+        <span key={b.k}><i className={`cd-dot cd-${b.k}`} />{tr(b.label)} <b className="tabular">{formatInt(classes[b.k] || 0)}</b></span>
       ))}
     </div>
   );
@@ -283,10 +289,11 @@ function ClassLegend({ classes }) {
 
 /** Carte « Plan vs Réalisé » — une ligne par source, barre d'avancement. */
 function PlanVsReal({ rows }) {
+  const { tr } = useI18n();
   return (
     <div className="card biz-card">
-      <div className="card-header"><div className="card-title">Plan vs Réalisé</div>
-        <div className="card-sub">Avancement du mois par rapport au plan</div></div>
+      <div className="card-header"><div className="card-title">{tr('Plan vs Réalisé')}</div>
+        <div className="card-sub">{tr('Avancement du mois par rapport au plan')}</div></div>
       <div className="card-body cd-pvr">
         {rows.map((r) => {
           const pct = r.planned > 0 ? Math.round((Math.max(0, r.done) / r.planned) * 100) : 0;
@@ -332,12 +339,13 @@ function BarsCard({ title, sub, rows, empty, mode = 'pct' }) {
 
 /** Dimensions (groupes d'indicateurs) avec score moyen. */
 function DimsCard({ dims }) {
+  const { tr } = useI18n();
   return (
     <div className="card biz-card">
-      <div className="card-header"><div className="card-title">Dimensions du suivi</div>
-        <div className="card-sub">Score moyen par dimension (les plus faibles d'abord)</div></div>
+      <div className="card-header"><div className="card-title">{tr('Dimensions du suivi')}</div>
+        <div className="card-sub">{tr('Score moyen par dimension (les plus faibles d\'abord)')}</div></div>
       <div className="card-body biz-gauges">
-        {(!dims || dims.length === 0) ? <p className="muted">Aucun indicateur en pourcentage.</p> : dims.map((d) => {
+        {(!dims || dims.length === 0) ? <p className="muted">{tr('Aucun indicateur en pourcentage.')}</p> : dims.map((d) => {
           const color = d.score >= 80 ? 'var(--green)' : (d.score >= 50 ? 'var(--orange)' : 'var(--red)');
           return (
             <div className="biz-gauge" key={d.name}>
@@ -373,15 +381,16 @@ function IndListCard({ title, rows, tone }) {
 }
 
 function RegionsCard({ regions }) {
+  const { tr } = useI18n();
   const max = Math.max(1, ...regions.map((r) => r.submissions || 0));
   return (
     <div className="card biz-card">
-      <div className="card-header"><div className="card-title">Données versées par région</div>
-        <div className="card-sub">Soumissions collectées · communes couvertes</div></div>
+      <div className="card-header"><div className="card-title">{tr('Données versées par région')}</div>
+        <div className="card-sub">{tr('Soumissions collectées · communes couvertes')}</div></div>
       <div className="card-body biz-gauges">
-        {regions.length === 0 ? <p className="muted">Aucune donnée.</p> : regions.map((r) => (
+        {regions.length === 0 ? <p className="muted">{tr('Aucune donnée.')}</p> : regions.map((r) => (
           <div className="biz-gauge" key={r.region}>
-            <div className="biz-gauge-head"><span>{r.region}</span><span className="tabular">{formatInt(r.submissions)} · {formatInt(r.communes)} com.</span></div>
+            <div className="biz-gauge-head"><span>{r.region}</span><span className="tabular">{tr('{s} · {c} com.', { s: formatInt(r.submissions), c: formatInt(r.communes) })}</span></div>
             <div className="biz-bar"><span style={{ width: `${(r.submissions / max) * 100}%`, background: 'var(--blue-600)' }} /></div>
           </div>
         ))}
@@ -391,15 +400,16 @@ function RegionsCard({ regions }) {
 }
 
 function WatchCard({ rows, onNavigate }) {
+  const { tr } = useI18n();
   return (
     <div className="card biz-card">
-      <div className="card-header"><div className="card-title">Zones à surveiller</div>
-        <div className="card-sub">Districts dont la couverture terrain est &lt; 80 %</div></div>
+      <div className="card-header"><div className="card-title">{tr('Zones à surveiller')}</div>
+        <div className="card-sub">{tr('Districts dont la couverture terrain est < 80 %')}</div></div>
       <div className="card-body biz-gauges">
-        {(!rows || rows.length === 0) ? <p className="muted">Toutes les zones couvertes sont ≥ 80 %.</p> : rows.map((d) => {
+        {(!rows || rows.length === 0) ? <p className="muted">{tr('Toutes les zones couvertes sont ≥ 80 %.')}</p> : rows.map((d) => {
           const pct = Math.round((d.rate || 0) * 100);
           return (
-            <button type="button" className="biz-gauge" key={d.key} onClick={() => onNavigate && onNavigate('processus', 'sites')} title="Ouvrir Affectation & visites">
+            <button type="button" className="biz-gauge" key={d.key} onClick={() => onNavigate && onNavigate('processus', 'sites')} title={tr('Ouvrir Affectation & visites')}>
               <div className="biz-gauge-head"><span>{d.label}</span><span className="tabular">{d.realise}/{d.active} · {pct} %</span></div>
               <div className="biz-bar"><span style={{ width: `${Math.min(100, pct)}%`, background: pct < 50 ? 'var(--red)' : 'var(--orange)' }} /></div>
             </button>
@@ -411,6 +421,7 @@ function WatchCard({ rows, onNavigate }) {
 }
 
 function TrendCard({ title, trend }) {
+  const { tr } = useI18n();
   const data = trend || [];
   const w = 320; const h = 150; const pad = { l: 8, r: 8, t: 12, b: 22 };
   const max = Math.max(1, ...data.map((d) => d.submissions));
@@ -422,7 +433,7 @@ function TrendCard({ title, trend }) {
     <div className="card biz-card">
       <div className="card-header"><div className="card-title">{title}</div></div>
       <div className="card-body">
-        {n === 0 ? <p className="muted">Aucune donnée versée.</p> : (
+        {n === 0 ? <p className="muted">{tr('Aucune donnée versée.')}</p> : (
           <svg className="biz-svg" viewBox={`0 0 ${w} ${h}`} role="img" aria-label={title}>
             <polyline fill="none" stroke="var(--blue-600)" strokeWidth="2" points={pts} />
             {data.map((d, i) => <circle key={d.month} cx={x(i)} cy={y(d.submissions)} r="3" fill="var(--blue-600)" />)}
@@ -439,12 +450,13 @@ function TrendCard({ title, trend }) {
 /** Mur d'indicateurs : toutes les fiches, chaque indicateur en cellule colorée
  * par bande de conformité. Lecture d'un coup d'œil de ce qui va / ne va pas. */
 function ControlRoom({ cd }) {
+  const { tr } = useI18n();
   const forms = (cd.forms || []).filter((f) => (f.indicators || []).length);
-  if (!forms.length) return <p className="muted">Aucun indicateur à afficher pour ce mois.</p>;
+  if (!forms.length) return <p className="muted">{tr('Aucun indicateur à afficher pour ce mois.')}</p>;
   return (
     <>
       <div className="cd-legend" style={{ marginBottom: 14 }}>
-        {BANDS.map((b) => <span key={b.k}><i className={`cd-dot cd-${b.k}`} />{b.label}</span>)}
+        {BANDS.map((b) => <span key={b.k}><i className={`cd-dot cd-${b.k}`} />{tr(b.label)}</span>)}
       </div>
       {forms.map((f) => {
         const c = f.classes || {};
@@ -452,8 +464,9 @@ function ControlRoom({ cd }) {
           <div className="card biz-card cd-crmod" key={f.id}>
             <div className="card-header">
               <div className="card-title">{shortLabel(f.label)}</div>
-              <div className="card-sub">{formatInt(f.submissions)} soumission(s) · indice {f.index == null ? '—' : f.index}/100
-                {c.urg ? ` · ${c.urg} action(s) urgente(s)` : ''}</div>
+              <div className="card-sub">{c.urg
+                ? tr('{n} soumission(s) · indice {idx}/100 · {urg} action(s) urgente(s)', { n: formatInt(f.submissions), idx: f.index == null ? '—' : String(f.index), urg: c.urg })
+                : tr('{n} soumission(s) · indice {idx}/100', { n: formatInt(f.submissions), idx: f.index == null ? '—' : String(f.index) })}</div>
             </div>
             <div className="card-body">
               <div className="cd-wall">
@@ -484,14 +497,15 @@ const RISK_COLOR = { elevee: 'var(--red)', moyenne: 'var(--orange)', faible: 'va
  * avec les sites géolocalisés réels en points, colorés par niveau de risque.
  * À côté : données versées par région. */
 function MapView({ map, regions, rbmStats }) {
+  const { tr } = useI18n();
   const points = (map?.points || []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
   return (
     <div className="biz-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
       <div className="card biz-card">
-        <div className="card-header"><div className="card-title">Sites de suivi — Sud Madagascar</div>
-          <div className="card-sub">{formatInt(points.length)} site(s) géolocalisé(s) · couleur = niveau de risque</div></div>
+        <div className="card-header"><div className="card-title">{tr('Sites de suivi — Sud Madagascar')}</div>
+          <div className="card-sub">{tr('{n} site(s) géolocalisé(s) · couleur = niveau de risque', { n: formatInt(points.length) })}</div></div>
         <div className="card-body">
-          <svg className="cd-map" viewBox={`0 0 ${MAP.W} ${MAP.H}`} role="img" aria-label="Carte des sites de suivi">
+          <svg className="cd-map" viewBox={`0 0 ${MAP.W} ${MAP.H}`} role="img" aria-label={tr('Carte des sites de suivi')}>
             <path d={MAP.outline} fill="var(--canvas-sunken)" stroke="var(--border-strong)" strokeWidth="1.5" />
             {points.map((p) => {
               const [x, y] = project(p.lat, p.lng);
@@ -499,13 +513,13 @@ function MapView({ map, regions, rbmStats }) {
             })}
           </svg>
           <div className="cd-legend" style={{ marginTop: 10 }}>
-            <span><i className="cd-dot" style={{ background: 'var(--red)' }} />Risque élevé <b className="tabular">{formatInt(rbmStats.elevee)}</b></span>
-            <span><i className="cd-dot" style={{ background: 'var(--orange)' }} />Risque moyen <b className="tabular">{formatInt(rbmStats.moyenne)}</b></span>
-            <span><i className="cd-dot" style={{ background: 'var(--green)' }} />Risque faible <b className="tabular">{formatInt(rbmStats.faible)}</b></span>
+            <span><i className="cd-dot" style={{ background: 'var(--red)' }} />{tr('Risque élevé')} <b className="tabular">{formatInt(rbmStats.elevee)}</b></span>
+            <span><i className="cd-dot" style={{ background: 'var(--orange)' }} />{tr('Risque moyen')} <b className="tabular">{formatInt(rbmStats.moyenne)}</b></span>
+            <span><i className="cd-dot" style={{ background: 'var(--green)' }} />{tr('Risque faible')} <b className="tabular">{formatInt(rbmStats.faible)}</b></span>
           </div>
           {points.length < rbmStats.total && (
             <div className="biz-kpi-foot" style={{ marginTop: 8 }}>
-              {formatInt(points.length)} site(s) sur {formatInt(rbmStats.total)} ont des coordonnées GPS ; la carte se densifie à mesure que le référentiel est géocodé (import Master Data).
+              {tr('{n} site(s) sur {total} ont des coordonnées GPS ; la carte se densifie à mesure que le référentiel est géocodé (import Master Data).', { n: formatInt(points.length), total: formatInt(rbmStats.total) })}
             </div>
           )}
         </div>
@@ -516,8 +530,15 @@ function MapView({ map, regions, rbmStats }) {
 }
 
 // ---------------------------------------------------------------------- Bulletin
+/** Phrase traduite dont les {variables} sont remplacées par des nœuds React
+ * (chiffres en gras du bulletin) : chaque phrase reste entière pour la traduction. */
+function richText(template, vars) {
+  return template.split(/\{(\w+)\}/).map((part, i) => (i % 2 ? <React.Fragment key={i}>{vars[part]}</React.Fragment> : part));
+}
+
 /** Bulletin narratif : synthèse en clair générée à partir des chiffres. */
 function Bulletin({ cd, cov, rbmStats }) {
+  const { tr } = useI18n();
   const cls = cd.classes || {};
   const idx = cd.conformityIndex;
   const covPct = Math.round((cov?.rate || 0) * 100);
@@ -527,43 +548,47 @@ function Bulletin({ cd, cov, rbmStats }) {
   const weak = [];
   for (const f of cd.forms || []) for (const ind of f.flop || []) weak.push({ ...ind, form: shortLabel(f.label) });
   weak.sort((a, b) => a.pct - b.pct);
-  const verdict = (idx == null) ? 'indéterminée'
-    : (idx < 50 || covPct < 40) ? 'critique'
-      : (idx < 65 || covPct < 65) ? 'à surveiller' : 'satisfaisante';
+  const verdict = (idx == null) ? 'Situation indéterminée'
+    : (idx < 50 || covPct < 40) ? 'Situation critique'
+      : (idx < 65 || covPct < 65) ? 'Situation à surveiller' : 'Situation satisfaisante';
+  const bold = (v) => <b>{formatInt(v || 0)}</b>;
 
   return (
     <div className="card biz-card cd-bull">
       <div className="card-body">
-        <div className="cd-bk">Bulletin de suivi · {cd.month || 'toutes périodes'}</div>
-        <h3>Situation {verdict}</h3>
+        <div className="cd-bk">{tr('Bulletin de suivi · {period}', { period: cd.month || tr('toutes périodes') })}</div>
+        <h3>{tr(verdict)}</h3>
         <p>
-          Sur la période, <b>{formatInt(cd.totals?.submissions || 0)}</b> soumission(s) ont été versées
-          par <b>{formatInt(cd.totals?.agents || 0)}</b> agent(s) sur <b>{formatInt(cd.totals?.communes || 0)}</b> commune(s),
-          réparties sur <b>{formatInt(cd.totals?.forms || 0)}</b> fiche(s) de suivi
-          (<b>{formatInt(cd.totals?.indicators || 0)}</b> indicateurs). La couverture terrain atteint
-          <b> {covPct} %</b> ({formatInt(cov?.realise || 0)} visite(s) réalisée(s)), et le RBM signale
-          <b> {formatInt(rbmStats.due)}</b> site(s) à suivre ce mois sur {formatInt(rbmStats.total)}.
+          {richText(tr('Sur la période, {submissions} soumission(s) ont été versées par {agents} agent(s) sur {communes} commune(s), réparties sur {forms} fiche(s) de suivi ({indicators} indicateurs).'), {
+            submissions: bold(cd.totals?.submissions), agents: bold(cd.totals?.agents), communes: bold(cd.totals?.communes),
+            forms: bold(cd.totals?.forms), indicators: bold(cd.totals?.indicators),
+          })}{' '}
+          {richText(tr('La couverture terrain atteint {coverage} ({visits} visite(s) réalisée(s)), et le RBM signale {due} site(s) à suivre ce mois sur {total}.'), {
+            coverage: <b>{tr('{p} %', { p: covPct })}</b>, visits: formatInt(cov?.realise || 0), due: bold(rbmStats.due), total: formatInt(rbmStats.total),
+          })}
         </p>
         <p>
-          L'indice de conformité global est de <b>{idx == null ? '—' : `${idx}/100`}</b>.
-          Sur {formatInt(cls.scored || 0)} indicateur(s) noté(s), <b>{formatInt(cls.exc || 0)}</b> sont au vert (excellent),
-          <b> {formatInt(cls.sat || 0)}</b> satisfaisant(s), <b>{formatInt(cls.imp || 0)}</b> à améliorer et
-          <b> {formatInt(cls.urg || 0)}</b> en action urgente (<b>{urgentPct} %</b>).
+          {richText(tr('L\'indice de conformité global est de {index}.'), { index: <b>{idx == null ? '—' : `${idx}/100`}</b> })}{' '}
+          {richText(tr('Sur {scored} indicateur(s) noté(s), {exc} sont au vert (excellent), {sat} satisfaisant(s), {imp} à améliorer et {urg} en action urgente ({urgentPct}).'), {
+            scored: formatInt(cls.scored || 0), exc: bold(cls.exc), sat: bold(cls.sat), imp: bold(cls.imp), urg: bold(cls.urg),
+            urgentPct: <b>{tr('{p} %', { p: urgentPct })}</b>,
+          })}
         </p>
         {weak.length > 0 && (
           <p>
-            Les points d'attention prioritaires : {weak.slice(0, 4).map((w, i) => (
+            {richText(tr('Les points d\'attention prioritaires : {list}.'), { list: weak.slice(0, 4).map((w, i) => (
               <span key={`${w.form}-${w.label}-${i}`}>{i > 0 ? ', ' : ''}<b>{w.label}</b> ({w.pct}% · {w.form})</span>
-            ))}.
+            )) })}
           </p>
         )}
         {topRegions.length > 0 && (
           <p>
-            Les régions les plus actives en remontée de données :
-            {topRegions.map((r, i) => <span key={r.region}>{i > 0 ? ', ' : ' '}<b>{r.region}</b> ({formatInt(r.submissions)})</span>)}.
+            {richText(tr('Les régions les plus actives en remontée de données : {list}.'), { list: topRegions.map((r, i) => (
+              <span key={r.region}>{i > 0 ? ', ' : ''}<b>{r.region}</b> ({formatInt(r.submissions)})</span>
+            )) })}
           </p>
         )}
-        <p className="cd-bull-foot">Bulletin recalculé en direct à partir des fiches, indicateurs, visites et du RBM — aucun chiffre saisi à la main.</p>
+        <p className="cd-bull-foot">{tr('Bulletin recalculé en direct à partir des fiches, indicateurs, visites et du RBM — aucun chiffre saisi à la main.')}</p>
       </div>
     </div>
   );

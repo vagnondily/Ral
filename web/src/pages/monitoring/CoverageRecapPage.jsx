@@ -4,13 +4,14 @@ import { api } from '../../api/client.js';
 import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatInt } from '../../lib/format.js';
+import { useI18n } from '../../lib/i18n.jsx';
 
 const RISK = {
   elevee: { label: 'Risque élevé', tone: 'red', color: 'var(--red)', bg: 'var(--red-bg)', text: 'var(--red-text)' },
   moyenne: { label: 'Risque moyen', tone: 'amber', color: 'var(--orange)', bg: 'var(--orange-bg)', text: 'var(--orange-text)' },
   faible: { label: 'Risque faible', tone: 'green', color: 'var(--green)', bg: 'var(--green-bg)', text: 'var(--green-text)' },
 };
-const pct = (x) => (x == null ? '—' : `${Math.round(x * 100)} %`);
+const pct = (x, tr) => (x == null ? '—' : tr('{p} %', { p: Math.round(x * 100) }));
 const compTone = (x) => (x >= 0.8 ? 'green' : x >= 0.5 ? 'amber' : 'red');
 
 // Palette catégorielle validée (dataviz) — identité par couleur + libellé.
@@ -32,26 +33,28 @@ const TABS = [
  * Tout est recalculé en direct ; aucune donnée stockée.
  */
 export default function CoverageRecapPage() {
+  const { tr } = useI18n();
   const [tab, setTab] = useState('mmr');
   return (
     <div className="section-gap">
-      <PageHeader title="Couverture du suivi" description="Combien de sites sont couverts, par niveau de risque (MMR), par programme et par prestataire. Recalculé en direct depuis les sites et les visites." />
-      <div className="seg" role="tablist" aria-label="Vue de couverture">
+      <PageHeader title={tr('Couverture du suivi')} description={tr('Combien de sites sont couverts, par niveau de risque (MMR), par programme et par prestataire. Recalculé en direct depuis les sites et les visites.')} />
+      <div className="seg" role="tablist" aria-label={tr('Vue de couverture')}>
         {TABS.map((x) => { const Icon = x.icon; return (
           <button key={x.id} role="tab" aria-selected={tab === x.id} className={tab === x.id ? 'is-active' : ''} onClick={() => setTab(x.id)}>
-            <Icon size={15} aria-hidden="true" /> {x.label}
+            <Icon size={15} aria-hidden="true" /> {tr(x.label)}
           </button>
         ); })}
       </div>
       {tab === 'mmr' && <SiteMmrTab />}
-      {tab === 'program' && <CoverageMatrixView by="activity" groupHead="Programme" />}
-      {tab === 'partner' && <CoverageMatrixView by="provider" groupHead="Prestataire TPM" />}
+      {tab === 'program' && <CoverageMatrixView by="activity" groupHead={tr('Programme')} />}
+      {tab === 'partner' && <CoverageMatrixView by="provider" groupHead={tr('Prestataire TPM')} />}
     </div>
   );
 }
 
 // ---- Par site (MMR) : récap existant --------------------------------------
 function SiteMmrTab() {
+  const { tr } = useI18n();
   const toast = useToast();
   const [district, setDistrict] = useState('');
   const [months, setMonths] = useState(12);
@@ -72,15 +75,15 @@ function SiteMmrTab() {
   return (
     <>
       <div className="comet-filters">
-        <div className="field"><span className="field-label">District</span>
-          <select className="select" value={district} onChange={(e) => setDistrict(e.target.value)} aria-label="District">
-            <option value="">Tous les districts</option>
+        <div className="field"><span className="field-label">{tr('District')}</span>
+          <select className="select" value={district} onChange={(e) => setDistrict(e.target.value)} aria-label={tr('District')}>
+            <option value="">{tr('Tous les districts')}</option>
             {districts.map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
         </div>
-        <div className="field"><span className="field-label">Durée d'opération</span>
-          <select className="select" value={months} onChange={(e) => setMonths(Number(e.target.value))} aria-label="Durée d'opération">
-            {[3, 6, 9, 12].map((m) => <option key={m} value={m}>{m} mois</option>)}
+        <div className="field"><span className="field-label">{tr("Durée d'opération")}</span>
+          <select className="select" value={months} onChange={(e) => setMonths(Number(e.target.value))} aria-label={tr("Durée d'opération")}>
+            {[3, 6, 9, 12].map((m) => <option key={m} value={m}>{tr('{n} mois', { n: m })}</option>)}
           </select>
         </div>
       </div>
@@ -88,25 +91,25 @@ function SiteMmrTab() {
       {data === null ? <Skeleton height={320} /> : (
         <>
           <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
-            <Kpi icon={MapPin} tone="blue" label="Sites actifs" value={formatInt(total.active)} foot={`${district || 'tous districts'}`} />
-            <Kpi icon={Repeat} tone="blue" label="Visités au moins une fois" value={formatInt(total.visitedToDate)} foot={pct(total.coverageRate)} />
-            <Kpi icon={Target} tone="amber" label="Jamais visités" value={formatInt(total.notVisited)} foot="à planifier" />
-            <Kpi icon={ShieldCheck} tone={compTone(total.compliance)} label="Conformité MMR" value={pct(total.compliance)} foot="sites au nombre de visites requis" />
+            <Kpi icon={MapPin} tone="blue" label={tr('Sites actifs')} value={formatInt(total.active)} foot={`${district || tr('tous districts')}`} />
+            <Kpi icon={Repeat} tone="blue" label={tr('Visités au moins une fois')} value={formatInt(total.visitedToDate)} foot={pct(total.coverageRate, tr)} />
+            <Kpi icon={Target} tone="amber" label={tr('Jamais visités')} value={formatInt(total.notVisited)} foot={tr('à planifier')} />
+            <Kpi icon={ShieldCheck} tone={compTone(total.compliance)} label={tr('Conformité MMR')} value={pct(total.compliance, tr)} foot={tr('sites au nombre de visites requis')} />
           </div>
           <div className="card biz-card">
             <div className="table-wrap"><table className="table">
               <thead><tr>
-                <th>Niveau de risque</th>
-                <th className="num">Visites requises</th>
-                <th className="num">Sites actifs</th>
-                <th className="num">Jamais visités</th>
-                <th className="num">1 fois</th><th className="num">2 fois</th><th className="num">3 fois</th><th className="num">4 fois +</th>
-                <th className="num">Couverture</th><th className="num">Conformité MMR</th>
+                <th>{tr('Niveau de risque')}</th>
+                <th className="num">{tr('Visites requises')}</th>
+                <th className="num">{tr('Sites actifs')}</th>
+                <th className="num">{tr('Jamais visités')}</th>
+                <th className="num">{tr('1 fois')}</th><th className="num">{tr('2 fois')}</th><th className="num">{tr('3 fois')}</th><th className="num">{tr('4 fois +')}</th>
+                <th className="num">{tr('Couverture')}</th><th className="num">{tr('Conformité MMR')}</th>
               </tr></thead>
               <tbody>
                 {groups.map((g) => (
                   <tr key={g.riskLevel}>
-                    <td><span className="badge" style={{ background: RISK[g.riskLevel]?.bg, color: RISK[g.riskLevel]?.text }}><span className="dot" style={{ background: RISK[g.riskLevel]?.color }} />{RISK[g.riskLevel]?.label}</span></td>
+                    <td><span className="badge" style={{ background: RISK[g.riskLevel]?.bg, color: RISK[g.riskLevel]?.text }}><span className="dot" style={{ background: RISK[g.riskLevel]?.color }} />{RISK[g.riskLevel] && tr(RISK[g.riskLevel].label)}</span></td>
                     <td className="num tabular"><strong>{g.required}</strong></td>
                     <td className="num tabular">{formatInt(g.active)}</td>
                     <td className="num tabular">{g.notVisited ? <span style={{ color: 'var(--red)' }}>{formatInt(g.notVisited)}</span> : '—'}</td>
@@ -114,13 +117,13 @@ function SiteMmrTab() {
                     <td className="num tabular">{formatInt(g.twice)}</td>
                     <td className="num tabular">{formatInt(g.thrice)}</td>
                     <td className="num tabular">{formatInt(g.fourPlus)}</td>
-                    <td className="num tabular">{pct(g.coverageRate)}</td>
-                    <td className="num"><span className="badge" style={{ background: `var(--${compTone(g.compliance)}-bg)`, color: `var(--${compTone(g.compliance)}-text)` }}>{pct(g.compliance)}</span></td>
+                    <td className="num tabular">{pct(g.coverageRate, tr)}</td>
+                    <td className="num"><span className="badge" style={{ background: `var(--${compTone(g.compliance)}-bg)`, color: `var(--${compTone(g.compliance)}-text)` }}>{pct(g.compliance, tr)}</span></td>
                   </tr>
                 ))}
               </tbody>
               <tfoot><tr>
-                <td><strong>Total</strong></td>
+                <td><strong>{tr('Total')}</strong></td>
                 <td className="num" />
                 <td className="num tabular"><strong>{formatInt(total.active)}</strong></td>
                 <td className="num tabular"><strong>{formatInt(total.notVisited)}</strong></td>
@@ -128,12 +131,12 @@ function SiteMmrTab() {
                 <td className="num tabular"><strong>{formatInt(total.twice)}</strong></td>
                 <td className="num tabular"><strong>{formatInt(total.thrice)}</strong></td>
                 <td className="num tabular"><strong>{formatInt(total.fourPlus)}</strong></td>
-                <td className="num tabular"><strong>{pct(total.coverageRate)}</strong></td>
-                <td className="num"><strong>{pct(total.compliance)}</strong></td>
+                <td className="num tabular"><strong>{pct(total.coverageRate, tr)}</strong></td>
+                <td className="num"><strong>{pct(total.compliance, tr)}</strong></td>
               </tr></tfoot>
             </table></div>
           </div>
-          <div className="note"><Target size={18} aria-hidden="true" /><span>Visites requises = durée d'opération ÷ intervalle MMR (élevé&nbsp;: 1 mois · moyen&nbsp;: 2 · faible&nbsp;: 3). Un site est conforme s'il a atteint ce nombre de visites réalisées. Couverture = part des sites visités au moins une fois.</span></div>
+          <div className="note"><Target size={18} aria-hidden="true" /><span>{tr("Visites requises = durée d'opération ÷ intervalle MMR (élevé : 1 mois · moyen : 2 · faible : 3). Un site est conforme s'il a atteint ce nombre de visites réalisées. Couverture = part des sites visités au moins une fois.")}</span></div>
         </>
       )}
     </>
@@ -142,6 +145,7 @@ function SiteMmrTab() {
 
 // ---- Programme / Partenaire : tendance mensuelle + matrice ----------------
 function CoverageMatrixView({ by, groupHead }) {
+  const { tr } = useI18n();
   const toast = useToast();
   const [year, setYear] = useState(null);
   const [data, setData] = useState(null);
@@ -162,28 +166,30 @@ function CoverageMatrixView({ by, groupHead }) {
   return (
     <>
       <div className="comet-filters">
-        <div className="field"><span className="field-label">Année</span>
-          <select className="select" value={year || ''} onChange={(e) => setYear(Number(e.target.value))} aria-label="Année">
+        <div className="field"><span className="field-label">{tr('Année')}</span>
+          <select className="select" value={year || ''} onChange={(e) => setYear(Number(e.target.value))} aria-label={tr('Année')}>
             {years.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
       </div>
 
       {matrix === null ? <Skeleton height={340} /> : matrix.groups.length === 0 ? (
-        <div className="card biz-card"><div className="card-body"><div className="empty"><TrendingUp size={28} aria-hidden="true" /><p>Aucune visite en {year}. Planifiez des visites (Affectation &amp; visites) pour alimenter la couverture.</p></div></div></div>
+        <div className="card biz-card"><div className="card-body"><div className="empty"><TrendingUp size={28} aria-hidden="true" /><p>{tr('Aucune visite en {year}. Planifiez des visites (Affectation & visites) pour alimenter la couverture.', { year: String(year) })}</p></div></div></div>
       ) : (
         <>
           <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
-            <Kpi icon={Boxes} tone="blue" label={by === 'activity' ? 'Programmes suivis' : 'Prestataires'} value={matrix.groups.length} foot={`année ${year}`} />
-            <Kpi icon={Repeat} tone="blue" label="Visites réalisées" value={formatInt(matrix.total.realise)} foot={`sur ${formatInt(matrix.total.active)} actives`} />
-            <Kpi icon={Target} tone="amber" label="Planifiées restantes" value={formatInt(matrix.total.planifie)} foot="non encore réalisées" />
-            <Kpi icon={ShieldCheck} tone={matrix.total.rate == null ? 'blue' : compTone(matrix.total.rate)} label="Taux de couverture" value={pct(matrix.total.rate)} foot="réalisées / actives" />
+            <Kpi icon={Boxes} tone="blue" label={by === 'activity' ? tr('Programmes suivis') : tr('Prestataires')} value={matrix.groups.length} foot={tr('année {year}', { year: String(year) })} />
+            <Kpi icon={Repeat} tone="blue" label={tr('Visites réalisées')} value={formatInt(matrix.total.realise)} foot={tr('sur {n} actives', { n: formatInt(matrix.total.active) })} />
+            <Kpi icon={Target} tone="amber" label={tr('Planifiées restantes')} value={formatInt(matrix.total.planifie)} foot={tr('non encore réalisées')} />
+            <Kpi icon={ShieldCheck} tone={matrix.total.rate == null ? 'blue' : compTone(matrix.total.rate)} label={tr('Taux de couverture')} value={pct(matrix.total.rate, tr)} foot={tr('réalisées / actives')} />
           </div>
 
           <div className="card biz-card">
             <div className="card-header">
-              <div><div className="card-title"><TrendingUp size={16} aria-hidden="true" /> Tendance mensuelle du taux de couverture</div>
-                <div className="card-sub">Part des visites réalisées (vs planifiées + réalisées), par {by === 'activity' ? 'programme' : 'prestataire'}, mois par mois.</div></div>
+              <div><div className="card-title"><TrendingUp size={16} aria-hidden="true" /> {tr('Tendance mensuelle du taux de couverture')}</div>
+                <div className="card-sub">{by === 'activity'
+                  ? tr('Part des visites réalisées (vs planifiées + réalisées), par programme, mois par mois.')
+                  : tr('Part des visites réalisées (vs planifiées + réalisées), par prestataire, mois par mois.')}</div></div>
             </div>
             <div className="card-body">
               <CovTrend matrix={matrix} colorOf={colorOf} />
@@ -196,14 +202,16 @@ function CoverageMatrixView({ by, groupHead }) {
           </div>
 
           <div className="card biz-card">
-            <div className="card-header"><div><div className="card-title"><LayoutGrid size={16} aria-hidden="true" /> Matrice de couverture mensuelle</div>
-              <div className="card-sub">Taux par {by === 'activity' ? 'programme' : 'prestataire'} et par mois (réalisées / actives). « — » = aucune visite.</div></div></div>
+            <div className="card-header"><div><div className="card-title"><LayoutGrid size={16} aria-hidden="true" /> {tr('Matrice de couverture mensuelle')}</div>
+              <div className="card-sub">{by === 'activity'
+                ? tr('Taux par programme et par mois (réalisées / actives). « — » = aucune visite.')
+                : tr('Taux par prestataire et par mois (réalisées / actives). « — » = aucune visite.')}</div></div></div>
             <div className="table-wrap">
               <table className="table cov-matrix">
                 <thead><tr>
                   <th>{groupHead}</th>
-                  {matrix.months.map((m) => <th key={m} className="num">{moShort(m)}</th>)}
-                  <th className="num">Total</th>
+                  {matrix.months.map((m) => <th key={m} className="num">{tr(moShort(m))}</th>)}
+                  <th className="num">{tr('Total')}</th>
                 </tr></thead>
                 <tbody>
                   {matrix.groups.map((g, i) => (
@@ -215,7 +223,7 @@ function CoverageMatrixView({ by, groupHead }) {
                   ))}
                 </tbody>
                 <tfoot><tr>
-                  <td><strong>Tous</strong></td>
+                  <td><strong>{tr('Tous')}</strong></td>
                   {matrix.monthlyTotals.map((c) => <td key={c.month} className="num"><CovCell cell={c} strong /></td>)}
                   <td className="num"><CovCell cell={matrix.total} strong /></td>
                 </tr></tfoot>
@@ -229,10 +237,11 @@ function CoverageMatrixView({ by, groupHead }) {
 }
 
 function CovCell({ cell, strong }) {
+  const { tr } = useI18n();
   if (!cell || cell.rate == null) return <span className="cell-empty">—</span>;
   const tone = compTone(cell.rate);
   return (
-    <span className="cov-cell tabular" title={`${cell.realise} réalisée(s) / ${cell.active} active(s)`}
+    <span className="cov-cell tabular" title={tr('{done} réalisée(s) / {active} active(s)', { done: cell.realise, active: cell.active })}
       style={{ background: `var(--${tone}-bg)`, color: `var(--${tone}-text)`, fontWeight: strong ? 700 : 600 }}>
       {Math.round(cell.rate * 100)}%
     </span>
@@ -240,13 +249,14 @@ function CovCell({ cell, strong }) {
 }
 
 function CovTrend({ matrix, colorOf }) {
+  const { tr } = useI18n();
   const W = 820; const H = 240; const padL = 32; const padR = 14; const padT = 12; const padB = 26;
   const plotW = W - padL - padR; const plotH = H - padT - padB;
   const x = (i) => padL + (plotW * i) / 11;
   const y = (v) => padT + plotH * (1 - v / 100);
   const grid = [0, 25, 50, 75, 100];
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="cov-svg" role="img" aria-label="Tendance mensuelle du taux de couverture">
+    <svg viewBox={`0 0 ${W} ${H}`} className="cov-svg" role="img" aria-label={tr('Tendance mensuelle du taux de couverture')}>
       {grid.map((v) => (
         <g key={v}>
           <line x1={padL} x2={W - padR} y1={y(v)} y2={y(v)} stroke="var(--border)" strokeWidth="1" />
@@ -254,7 +264,7 @@ function CovTrend({ matrix, colorOf }) {
         </g>
       ))}
       {matrix.months.map((m, i) => (
-        <text key={m} x={x(i)} y={H - 8} textAnchor="middle" className="cov-axis">{moShort(m).replace('.', '')}</text>
+        <text key={m} x={x(i)} y={H - 8} textAnchor="middle" className="cov-axis">{tr(moShort(m)).replace('.', '')}</text>
       ))}
       {matrix.groups.map((g, gi) => {
         const col = colorOf(gi);
@@ -273,7 +283,7 @@ function CovTrend({ matrix, colorOf }) {
             ))}
             {g.cells.map((c, i) => (c.rate == null ? null : (
               <circle key={i} cx={x(i)} cy={y(c.rate * 100)} r="2.6" fill={col}>
-                <title>{`${g.label} · ${moShort(c.month)} : ${Math.round(c.rate * 100)} % (${c.realise}/${c.active})`}</title>
+                <title>{tr('{group} · {month} : {p} % ({done}/{active})', { group: g.label, month: tr(moShort(c.month)), p: Math.round(c.rate * 100), done: c.realise, active: c.active })}</title>
               </circle>
             )))}
           </g>

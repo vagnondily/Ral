@@ -3,6 +3,7 @@ import { Search, Columns3, Download, Rows3, Rows4, X, TrendingUp, TrendingDown, 
 import { Button, EmptyState, IconButton, StatusBadge } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import { usePopover } from '../../components/listView.jsx';
+import { useI18n } from '../../lib/i18n.jsx';
 
 /**
  * Liste d'indicateurs « riche » (façon maquette design/liste-drawer) : table
@@ -48,7 +49,13 @@ function loadView() {
 }
 function saveView(v) { try { localStorage.setItem(STORE, JSON.stringify(v)); } catch { /* ignore */ } }
 
+// Phrase traduite contenant des éléments JSX : « {nom} » → nodes[nom].
+function fillNodes(text, nodes) {
+  return text.split(/\{(\w+)\}/).map((part, i) => (i % 2 ? <React.Fragment key={i}>{nodes[part]}</React.Fragment> : part));
+}
+
 export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }) {
+  const { tr } = useI18n();
   const saved = loadView();
   const [q, setQ] = useState('');
   const [cols, setCols] = useState(() => saved.cols || DEFAULT_COLS);
@@ -85,9 +92,9 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
 
   const groups = useMemo(() => {
     const g = new Map();
-    for (const i of rows) { const k = i.module || 'Sans module'; if (!g.has(k)) g.set(k, []); g.get(k).push(i); }
+    for (const i of rows) { const k = i.module || tr('Sans module'); if (!g.has(k)) g.set(k, []); g.get(k).push(i); }
     return [...g.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [rows]);
+  }, [rows, tr]);
 
   const shown = Object.keys(ALL_COLS).filter((k) => cols.includes(k));
   const allSel = rows.length > 0 && rows.every((i) => sel.has(i.id));
@@ -96,9 +103,9 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
 
   const exportCsv = (which) => {
     const list = which === 'sel' ? rows.filter((i) => sel.has(i.id)) : rows;
-    const head = ['Indicateur', 'Code', 'Module', 'Réalisé', 'Cible', 'Base (n)', 'Statut', 'Agrégation', 'Sens', 'Champ source'];
+    const head = ['Indicateur', 'Code', 'Module', 'Réalisé', 'Cible', 'Base (n)', 'Statut', 'Agrégation', 'Sens', 'Champ source'].map((h) => tr(h));
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const lines = list.map((i) => [i.label, i.code, i.module, i.value, i.target, i.base, STAT[i.rating]?.label, AGG[i.agg], i.direction === 'lower_better' ? 'plus bas = mieux' : 'plus haut = mieux', i.sourceField].map(esc).join(';'));
+    const lines = list.map((i) => [i.label, i.code, i.module, i.value, i.target, i.base, STAT[i.rating] && tr(STAT[i.rating].label), AGG[i.agg] && tr(AGG[i.agg]), i.direction === 'lower_better' ? tr('plus bas = mieux') : tr('plus haut = mieux'), i.sourceField].map(esc).join(';'));
     const blob = new Blob(['﻿' + [head.map(esc).join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'indicateurs.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
@@ -112,7 +119,7 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
     return (
       <tr key={i.id} className={`clickable ${isSel ? 'is-selected' : ''}`} onClick={() => setOpen(i)}>
         <td className="ind-cb" onClick={(e) => e.stopPropagation()}>
-          <input type="checkbox" checked={isSel} onChange={() => toggleOne(i.id)} aria-label={`Sélectionner ${i.label}`} />
+          <input type="checkbox" checked={isSel} onChange={() => toggleOne(i.id)} aria-label={tr('Sélectionner {label}', { label: i.label })} />
         </td>
         <td><span className="ind-name">{i.label}</span>{i.code && <div className="ind-sub mono">{i.code}</div>}</td>
         {shown.map((k) => {
@@ -122,8 +129,8 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
             : <span className="cell-empty">—</span>}</td>;
           if (k === 'statut') return <td key={k}><StatusBadge def={st} /></td>;
           if (k === 'base') return <td key={k} className="num mono">{i.base ?? <span className="cell-empty">—</span>}</td>;
-          if (k === 'agg') return <td key={k} className="muted">{AGG[i.agg] || i.agg}</td>;
-          if (k === 'sens') return <td key={k}>{i.direction === 'lower_better' ? <span className="ind-sens"><TrendingDown size={14} /> plus bas</span> : <span className="ind-sens"><TrendingUp size={14} /> plus haut</span>}</td>;
+          if (k === 'agg') return <td key={k} className="muted">{AGG[i.agg] ? tr(AGG[i.agg]) : i.agg}</td>;
+          if (k === 'sens') return <td key={k}>{i.direction === 'lower_better' ? <span className="ind-sens"><TrendingDown size={14} /> {tr('plus bas')}</span> : <span className="ind-sens"><TrendingUp size={14} /> {tr('plus haut')}</span>}</td>;
           if (k === 'source') return <td key={k}><span className="mono ind-sub">{i.sourceField || '—'}</span></td>;
           return <td key={k} />;
         })}
@@ -136,37 +143,37 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
       {/* Toolbar */}
       <div className="ind-toolbar">
         <span className="input-wrap ind-search"><Search size={16} aria-hidden="true" />
-          <input className="input" type="search" placeholder="Filtrer les indicateurs…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input className="input" type="search" placeholder={tr('Filtrer les indicateurs…')} value={q} onChange={(e) => setQ(e.target.value)} />
         </span>
         {toolbarExtra}
-        <span className="ind-hint">Clic sur une ligne pour le détail</span>
+        <span className="ind-hint">{tr('Clic sur une ligne pour le détail')}</span>
         <span className="ind-tsp" />
-        <div className="seg" role="group" aria-label="Densité">
-          <button type="button" className={!dense ? 'is-active' : ''} onClick={() => setDensity(false)} title="Confort" aria-label="Confort"><Rows3 size={16} /></button>
-          <button type="button" className={dense ? 'is-active' : ''} onClick={() => setDensity(true)} title="Compact" aria-label="Compact"><Rows4 size={16} /></button>
+        <div className="seg" role="group" aria-label={tr('Densité')}>
+          <button type="button" className={!dense ? 'is-active' : ''} onClick={() => setDensity(false)} title={tr('Confort')} aria-label={tr('Confort')}><Rows3 size={16} /></button>
+          <button type="button" className={dense ? 'is-active' : ''} onClick={() => setDensity(true)} title={tr('Compact')} aria-label={tr('Compact')}><Rows4 size={16} /></button>
         </div>
-        <IconButton icon={Layers} label="Grouper par module" variant={group ? 'primary' : 'secondary'} size="sm" aria-pressed={group} onClick={toggleGroup} />
+        <IconButton icon={Layers} label={tr('Grouper par module')} variant={group ? 'primary' : 'secondary'} size="sm" aria-pressed={group} onClick={toggleGroup} />
         <div className="pop-anchor" ref={colMenu.ref}>
-          <IconButton icon={Columns3} label="Colonnes" variant="secondary" size="sm" onClick={() => colMenu.setOpen((o) => !o)} />
+          <IconButton icon={Columns3} label={tr('Colonnes')} variant="secondary" size="sm" onClick={() => colMenu.setOpen((o) => !o)} />
           {colMenu.open && (
             <div className="pop-menu filter-menu" role="menu">
-              <div className="pop-menu-label">Colonnes à afficher</div>
+              <div className="pop-menu-label">{tr('Colonnes à afficher')}</div>
               {Object.entries(ALL_COLS).map(([k, c]) => (
-                <label key={k} className="filter-pick"><input type="checkbox" checked={cols.includes(k)} onChange={() => toggleCol(k)} /><span>{c.label}</span></label>
+                <label key={k} className="filter-pick"><input type="checkbox" checked={cols.includes(k)} onChange={() => toggleCol(k)} /><span>{tr(c.label)}</span></label>
               ))}
-              <button type="button" className="pop-reset" onClick={resetView}>Réinitialiser l'affichage</button>
+              <button type="button" className="pop-reset" onClick={resetView}>{tr("Réinitialiser l'affichage")}</button>
             </div>
           )}
         </div>
-        <IconButton icon={Download} label="Exporter (CSV)" variant="secondary" size="sm" onClick={() => exportCsv('all')} />
+        <IconButton icon={Download} label={tr('Exporter (CSV)')} variant="secondary" size="sm" onClick={() => exportCsv('all')} />
       </div>
 
       {/* Barre d'actions groupées */}
       {sel.size > 0 && (
         <div className="ind-batch">
-          <span className="ind-batch-n">{sel.size} sélectionné(s)</span>
-          <Button size="sm" variant="ghost" icon={Download} onClick={() => exportCsv('sel')}>Exporter la sélection</Button>
-          <Button size="sm" variant="ghost" icon={X} onClick={() => setSel(new Set())}>Désélectionner</Button>
+          <span className="ind-batch-n">{tr('{n} sélectionné(s)', { n: sel.size })}</span>
+          <Button size="sm" variant="ghost" icon={Download} onClick={() => exportCsv('sel')}>{tr('Exporter la sélection')}</Button>
+          <Button size="sm" variant="ghost" icon={X} onClick={() => setSel(new Set())}>{tr('Désélectionner')}</Button>
         </div>
       )}
 
@@ -174,24 +181,24 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
         <div className="table-wrap">
           <table className={`table ind-table ${dense ? 'is-dense' : ''}`}>
             <thead><tr>
-              <th className="ind-cb"><input type="checkbox" checked={allSel} onChange={toggleAll} aria-label="Tout sélectionner" /></th>
-              <th className="ind-sortable" onClick={() => onSort('indicateur')}>Indicateur <Caret k="indicateur" /></th>
+              <th className="ind-cb"><input type="checkbox" checked={allSel} onChange={toggleAll} aria-label={tr('Tout sélectionner')} /></th>
+              <th className="ind-sortable" onClick={() => onSort('indicateur')}>{tr('Indicateur')} <Caret k="indicateur" /></th>
               {shown.map((k) => {
                 const sortable = ['module', 'statut', 'prog', 'base'].includes(k);
                 return (
                   <th key={k} className={`${sortable ? 'ind-sortable' : ''} ${['prog', 'base'].includes(k) ? 'num' : ''}`}
                     onClick={sortable ? () => onSort(k) : undefined}>
-                    {ALL_COLS[k].label} {sortable && <Caret k={k} />}
+                    {tr(ALL_COLS[k].label)} {sortable && <Caret k={k} />}
                   </th>
                 );
               })}
             </tr></thead>
             <tbody>
-              {rows.length === 0 && <tr className="ind-empty"><td colSpan={shown.length + 2}><EmptyState icon={TrendingUp} title="Aucun indicateur">Définissez des indicateurs et importez des données réelles.</EmptyState></td></tr>}
+              {rows.length === 0 && <tr className="ind-empty"><td colSpan={shown.length + 2}><EmptyState icon={TrendingUp} title={tr('Aucun indicateur')}>{tr('Définissez des indicateurs et importez des données réelles.')}</EmptyState></td></tr>}
               {group
                 ? groups.map(([mod, list]) => (
                   <React.Fragment key={mod}>
-                    <tr className="subrow-head"><td colSpan={shown.length + 2}>{mod} · {list.length} indicateur(s)</td></tr>
+                    <tr className="subrow-head"><td colSpan={shown.length + 2}>{tr('{module} · {n} indicateur(s)', { module: mod, n: list.length })}</td></tr>
                     {list.map((i) => renderRow(i))}
                   </React.Fragment>
                 ))
@@ -207,26 +214,27 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
 }
 
 function IndicatorDrawer({ ind, moduleLabel, onClose }) {
+  const { tr } = useI18n();
   const [tab, setTab] = useState('details');
   const st = STAT[ind.rating] || STAT.na;
   const p = progress(ind);
   const kv = [
-    ['Statut', <StatusBadge def={st} />],
-    ['Module', ind.module || '—'],
-    ['Agrégation', AGG[ind.agg] || ind.agg],
-    ['Champ source', <span className="mono">{ind.sourceField || '—'}</span>],
-    ['Cible', ind.target ?? '—'],
-    ['Sens', ind.direction === 'lower_better' ? '↓ plus bas = mieux' : '↑ plus haut = mieux'],
-    ...(ind.base != null ? [['Base de calcul', ind.base]] : []),
+    [tr('Statut'), <StatusBadge def={st} />],
+    [tr('Module'), ind.module || '—'],
+    [tr('Agrégation'), AGG[ind.agg] ? tr(AGG[ind.agg]) : ind.agg],
+    [tr('Champ source'), <span className="mono">{ind.sourceField || '—'}</span>],
+    [tr('Cible'), ind.target ?? '—'],
+    [tr('Sens'), ind.direction === 'lower_better' ? tr('↓ plus bas = mieux') : tr('↑ plus haut = mieux')],
+    ...(ind.base != null ? [[tr('Base de calcul'), ind.base]] : []),
   ];
   return (
     <Modal open variant="drawer" size="md" title={ind.label}
       subtitle={ind.code ? `${ind.code}${moduleLabel ? ` · ${moduleLabel}` : ''}` : moduleLabel}
       onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>Fermer</Button></>}>
+      footer={<><Button variant="secondary" onClick={onClose}>{tr('Fermer')}</Button></>}>
       <div className="ind-dtabs">
-        <button type="button" className={tab === 'details' ? 'on' : ''} onClick={() => setTab('details')}>Détails</button>
-        <button type="button" className={tab === 'method' ? 'on' : ''} onClick={() => setTab('method')}>Méthode</button>
+        <button type="button" className={tab === 'details' ? 'on' : ''} onClick={() => setTab('details')}>{tr('Détails')}</button>
+        <button type="button" className={tab === 'method' ? 'on' : ''} onClick={() => setTab('method')}>{tr('Méthode')}</button>
       </div>
 
       {tab === 'details' ? (
@@ -241,12 +249,18 @@ function IndicatorDrawer({ ind, moduleLabel, onClose }) {
         </>
       ) : (
         <div className="ind-method">
-          <p>Cet indicateur agrège le champ <strong className="mono">{ind.sourceField || '—'}</strong> des soumissions
-          {' '}par <strong>{(AGG[ind.agg] || ind.agg).toLowerCase()}</strong>
-          {ind.agg === 'percent_value' && ind.positiveValue ? <> (valeur « positive » = <strong className="mono">{ind.positiveValue}</strong>)</> : null}.</p>
-          <p>La cible est {ind.target != null ? <strong>{ind.target}</strong> : <em>non définie</em>}, avec la convention
-          {' '}<strong>{ind.direction === 'lower_better' ? 'plus bas = mieux' : 'plus haut = mieux'}</strong>.</p>
-          <p className="muted">Tout est recalculé en direct depuis les données réelles (aucune valeur saisie à la main).</p>
+          <p>{fillNodes(ind.agg === 'percent_value' && ind.positiveValue
+            ? tr('Cet indicateur agrège le champ {field} des soumissions par {method} (valeur « positive » = {value}).')
+            : tr('Cet indicateur agrège le champ {field} des soumissions par {method}.'), {
+            field: <strong className="mono">{ind.sourceField || '—'}</strong>,
+            method: <strong>{(AGG[ind.agg] ? tr(AGG[ind.agg]) : ind.agg).toLowerCase()}</strong>,
+            value: <strong className="mono">{ind.positiveValue}</strong>,
+          })}</p>
+          <p>{fillNodes(tr('La cible est {target}, avec la convention {direction}.'), {
+            target: ind.target != null ? <strong>{ind.target}</strong> : <em>{tr('non définie')}</em>,
+            direction: <strong>{ind.direction === 'lower_better' ? tr('plus bas = mieux') : tr('plus haut = mieux')}</strong>,
+          })}</p>
+          <p className="muted">{tr('Tout est recalculé en direct depuis les données réelles (aucune valeur saisie à la main).')}</p>
         </div>
       )}
     </Modal>

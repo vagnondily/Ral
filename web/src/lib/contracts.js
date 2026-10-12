@@ -1,6 +1,8 @@
 // Labels and small helpers for the Contrats module. The FLA budget structure
 // lives in budgetCatalog.js (mirror of the server); the server stays the
 // source of truth for rules.
+import { createElement } from 'react';
+
 export { SECTIONS, MONITORING_LINE } from './budgetCatalog.js';
 
 // Chaque statut porte une clé d'icône (STATUS_ICONS dans ui.jsx) : un statut
@@ -59,14 +61,22 @@ export function formatDate(iso) {
 
 const SHORT_MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 
-/** "2026-01-01" → "janv. 2026" */
-export function shortMonth(iso) {
+/** "2026-01-01" → "janv. 2026" (tr : traduction de l'abréviation, facultative) */
+export function shortMonth(iso, tr = (s) => s) {
   const [y, m] = iso.split('-').map(Number);
-  return `${SHORT_MONTHS[m - 1]} ${y}`;
+  return `${tr(SHORT_MONTHS[m - 1])} ${y}`;
 }
 
-export function periodLabel(debut, fin) {
-  return `${shortMonth(debut)} – ${shortMonth(fin)}`;
+export function periodLabel(debut, fin, tr) {
+  return `${shortMonth(debut, tr)} – ${shortMonth(fin, tr)}`;
+}
+
+/**
+ * Phrase traduite contenant des <strong>…</strong> → nœuds React : le gras reste
+ * dans la phrase (une seule clé de traduction), sans injection de HTML.
+ */
+export function richText(text) {
+  return String(text).split(/<strong>(.*?)<\/strong>/).map((part, i) => (i % 2 ? createElement('strong', { key: i }, part) : part));
 }
 
 /** Flags shown next to the status in lists and detail headers. */
