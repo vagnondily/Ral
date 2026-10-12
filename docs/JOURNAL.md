@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 15:09 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 12/10/2026 15:12 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -184,5 +184,6 @@ _Dernière mise à jour : 12/10/2026 15:09 UTC_ — la branche `main` reçoit ch
   - **Dates** : une vraie date de 1970 n'est plus « réparée » à tort (migration 053) ; un export SPSS prend le même horodatage serveur qu'Excel.
   - Synthèse : un mois choisi pendant le premier chargement n'est plus remplacé ; fenêtre « Relier à un site » : recherche préremplie, plus de « aucun site trouvé » avant d'avoir cherché.
   - Au passage : six lectures groupées sur une même connexion à la base rendues séquentielles (avertissement de la bibliothèque `pg`, refusé dans sa prochaine version).
+- **15:12** ✅ **Publié sur `main`** (`59994c8`, avance rapide de 12 commits) : retours n° 2-3 (codes ↔ libellés), 7 (espace RBM), 8 (sites du plan de collecte), 12 (modèles d'indicateurs), 14 (formulaires reliés aux sites) et les correctifs de la relecture. **Chez vous** : arrêtez l'API, `npm run migrate` dans `server` (migrations 053 à 056), redémarrez l'API ; la réparation des données se fait seule au démarrage (une fois).
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
