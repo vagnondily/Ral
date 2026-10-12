@@ -39,9 +39,26 @@ test('contrôles par ligne : bureau inconnu, échelles, ID, activité hors MMR, 
   ws.getRow(3).values = HEADERS;
   ws.getRow(4).values = ['L002', '', 'Site OK', 'WFP Warehouse', '', 'School meal activities', 'Ambovombe', '', '', '', '', '', '', 99];
   ws.getRow(5).values = ['X9', '', 'Site KO', 'Château', '', 'Activité inconnue', 'Nulle part', '', '', '', '', '', '', 2];
-  const { rows, errors } = await parseLocationsWorkbook(await wb.xlsx.writeBuffer(), { resolveOffice, activities: ['School meal activities'] });
+  const { rows, errors, warnings } = await parseLocationsWorkbook(await wb.xlsx.writeBuffer(), { resolveOffice, activities: ['School meal activities'] });
   assert.equal(rows.length, 1);
   assert.equal(rows[0].poiSubtype, 'Programme Warehouse'); assert.equal(rows[0].security, 99);
   const msgs = errors.filter((e) => e.line === 5).map((e) => e.message).join(' | ');
-  assert.match(msgs, /ID « X9 »/); assert.match(msgs, /Château/); assert.match(msgs, /absent du MMR/); assert.match(msgs, /Nulle part/); assert.match(msgs, /hors échelle/);
+  assert.match(msgs, /ID « X9 »/); assert.match(msgs, /Château/); assert.match(msgs, /Nulle part/); assert.match(msgs, /hors échelle/);
+  // Activité hors MMR : signalée sans rejeter la ligne (un registre existant se réimporte sans perte).
+  assert.match(warnings.filter((w) => w.line === 5).map((w) => w.message).join(' | '), /absent du MMR/);
+});
+
+test('gabarit d\'activité : registre vierge, Activity Tag prérempli et liste des activités du MMR', async () => {
+  const activities = ['School meal activities', 'Nutrition treatment activities'];
+  const wb = buildLocationsWorkbook({ year: 2026, offices: OFFICES, activities, prefillActivity: 'School meal activities' });
+  const ws = wb.getWorksheet('Locations Management');
+  const first = ws.getRow(4);
+  assert.equal(first.getCell(6).value, 'School meal activities');
+  assert.equal(first.getCell(3).value, null);
+  assert.deepEqual(first.getCell(6).dataValidation.formulae, ['activities']);
+  assert.equal(wb.getWorksheet('Settings').getCell('K6').value, 'Nutrition treatment activities');
+  // Réimport du gabarit non rempli : aucune ligne (les lignes sans nom sont ignorées), aucune erreur.
+  const buf = await wb.xlsx.writeBuffer();
+  const parsed = await parseLocationsWorkbook(buf, { resolveOffice, activities });
+  assert.equal(parsed.rows.length, 0); assert.equal(parsed.errors.length, 0);
 });

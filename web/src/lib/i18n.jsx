@@ -80,6 +80,10 @@ const DICT = {
     'role.admin': 'Administrator',
     'role.manager': 'Monitoring manager',
     'role.viewer': 'Read-only',
+    // Priorité de suivi RBM (« Moyenne » seul est déjà la moyenne statistique).
+    'priority.Haute': 'High',
+    'priority.Moyenne': 'Medium',
+    'priority.Basse': 'Low',
   },
 };
 

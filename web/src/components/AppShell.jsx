@@ -41,6 +41,7 @@ export const NAV = [
           { id: 'synthese', label: 'Tableau de bord' },
           { id: 'donnees', label: 'Données & indicateurs' },
           { id: 'sites', label: 'Affectation & visites' },
+          { id: 'plan', label: 'Plan de suivi' },
           { id: 'rbm', label: 'Risk-Based Monitoring' },
           { id: 'couverture', label: 'Couverture' },
           { id: 'carte', label: 'Carte des sites' },

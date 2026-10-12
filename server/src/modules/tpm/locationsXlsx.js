@@ -47,7 +47,12 @@ const BLUE = 'FF99CCFF';
  *            security, synergies, modalityType, beneficiaryNumber, newPartner, experiencedPartner, lastVisitDate,
  *            issuesProcess, issuesPartnerReport, issuesCFM, fraud, finalScore, monthStatus:{1..12:bool}, visits:{1..12:'planifie'|'realise'} }
  */
-function buildLocationsWorkbook({ year, sites = [], offices = [] }) {
+/**
+ * @param {object} p
+ * @param {string[]} [p.activities]      catégories du MMR → liste déroulante « Activity Tag »
+ * @param {string}   [p.prefillActivity] gabarit d'activité : Activity Tag prérempli sur les lignes libres
+ */
+function buildLocationsWorkbook({ year, sites = [], offices = [], activities = [], prefillActivity = null }) {
   const wb = new ExcelJS.Workbook(); wb.creator = 'MEMS 2.0';
   // ---- Settings
   const st = wb.addWorksheet('Settings');
@@ -59,11 +64,13 @@ function buildLocationsWorkbook({ year, sites = [], offices = [] }) {
   block(1, 'POI Subtypes', ['Description', 'Code'], POI_SUBTYPES);
   block(4, 'Status', ['Description', 'Code'], [['Active', 1], ['Inactive', 0]]);
   block(7, 'Bureau', ['Description', 'Code', 'Sub Office'], offices.map((o) => [o.name, o.code, o.parentCode || null]));
-  [1, 4, 7].forEach((c) => { st.getColumn(c).width = 28; });
+  if (activities.length) block(11, 'Activity Tag', ['Description'], activities.map((a) => [a]));
+  [1, 4, 7, 11].forEach((c) => { st.getColumn(c).width = 28; });
   const poiEnd = 4 + POI_SUBTYPES.length; const offEnd = 4 + Math.max(offices.length, 1);
   wb.definedNames.add(`Settings!$A$5:$A$${poiEnd}`, 'pois');
   wb.definedNames.add('Settings!$D$5:$D$6', 'status');
   wb.definedNames.add(`Settings!$G$5:$G$${offEnd}`, 'offices');
+  if (activities.length) wb.definedNames.add(`Settings!$K$5:$K$${4 + activities.length}`, 'activities');
 
   // ---- Locations Management
   const ws = wb.addWorksheet('Locations Management', { views: [{ state: 'frozen', xSplit: 6, ySplit: HEAD_ROW }] });
@@ -90,6 +97,7 @@ function buildLocationsWorkbook({ year, sites = [], offices = [] }) {
     row.getCell(5).value = { formula: `IFERROR(VLOOKUP($D${r},Settings!$A$4:$B$${poiEnd},2,0),"")` };
     row.getCell(4).dataValidation = { type: 'list', allowBlank: true, formulae: ['pois'], showErrorMessage: true };
     row.getCell(7).dataValidation = { type: 'list', allowBlank: true, formulae: ['offices'], showErrorMessage: true };
+    if (activities.length) row.getCell(6).dataValidation = { type: 'list', allowBlank: true, formulae: ['activities'], showErrorMessage: true };
     row.getCell(14).dataValidation = { type: 'list', allowBlank: true, formulae: ['"0,1,3,99"'], showErrorMessage: true };
     row.getCell(16).dataValidation = { type: 'list', allowBlank: true, formulae: [`"${MODALITIES.join(',')}"`], showErrorMessage: true };
     for (const c of [15, 18]) row.getCell(c).dataValidation = { type: 'list', allowBlank: true, formulae: ['"0,1"'] };
@@ -98,7 +106,7 @@ function buildLocationsWorkbook({ year, sites = [], offices = [] }) {
       row.getCell(STATUS_COL + m).dataValidation = { type: 'list', allowBlank: true, formulae: ['status'], showErrorMessage: true };
       row.getCell(PLAN_COL + m).dataValidation = { type: 'list', allowBlank: true, formulae: ['"P,R"'] };
     }
-    if (!s) continue;
+    if (!s) { if (prefillActivity) row.getCell(6).value = prefillActivity; continue; }
     const vals = [s.locationId, null, s.name, s.poiSubtype, null, s.activity, s.officeName, s.admin1, s.admin2, s.admin3, s.urbanArea,
       s.gpsLat, s.gpsLng, s.security ?? 0, s.synergies ?? 0, s.modalityType, s.beneficiaryNumber, s.newPartner ?? 0, s.experiencedPartner ?? 0,
       s.lastVisitDate ? new Date(`${s.lastVisitDate}T00:00:00Z`) : null, s.issuesProcess ?? 0, s.issuesPartnerReport ?? 0, s.issuesCFM ?? 0, s.fraud ?? 0, s.finalScore];
@@ -190,10 +198,13 @@ async function parseLocationsWorkbook(buffer, { resolveOffice, activities = [] }
     // Vide autorisé (comme dans le classeur) mais signalé ; valeur inconnue = ligne rejetée.
     if (!officeName) warnings.push({ line, message: 'Sub Office vide : site sans bureau.' });
     else if (!office) errors.push({ line, message: `Sub Office « ${officeName} » inconnu (Paramétrage › Bureaux).` });
+    // Activité : libellé canonique du MMR si elle y figure. Sinon la ligne est importée telle
+    // quelle et signalée (sans visite exigée) — un registre existant se réimporte sans perte.
     const actRaw = str(at(row, 'activity'));
-    const activity = actSet.size ? actSet.get(norm(actRaw)) : actRaw;
+    const known = actSet.size ? actSet.get(norm(actRaw)) : actRaw;
+    const activity = known || actRaw;
     if (!actRaw) warnings.push({ line, message: 'Activity Tag vide : aucune visite exigée par le MMR.' });
-    else if (actSet.size && !activity) errors.push({ line, message: `Activity Tag « ${actRaw} » absent du MMR (Paramétrage › Paramètres MMR).` });
+    else if (actSet.size && !known) warnings.push({ line, message: `Activity Tag « ${actRaw} » absent du MMR : site importé sans visite exigée (ajoutez la catégorie dans Paramétrage › Paramètres MMR).` });
     const poiRaw = str(at(row, 'poi'));
     const poi = poiRaw ? (POI_ALIASES[norm(poiRaw)] || (POI_SUBTYPES.find(([l]) => norm(l) === norm(poiRaw)) || [])[0]) : null;
     if (poiRaw && !poi) errors.push({ line, message: `POI Subtypes « ${poiRaw} » hors liste.` });

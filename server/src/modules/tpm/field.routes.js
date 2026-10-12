@@ -7,7 +7,7 @@ const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound } = require('../../middleware/errors');
 const repo = require('./field.repository');
 const settingsRepo = require('../settings/settings.repository');
-const { buildLocationsWorkbook, parseLocationsWorkbook } = require('./locationsXlsx');
+const { buildLocationsWorkbook, parseLocationsWorkbook, POI_SUBTYPES, MODALITIES } = require('./locationsXlsx');
 const { officeResolver } = require('./mmrXlsx');
 
 /**
@@ -70,8 +70,12 @@ router.get('/rbm/sites', asyncHandler(async (req, res) => res.json(
 )));
 // ---- Plan de suivi « type Excel » (exercice) ---------------------------------
 const yearQ = (req) => { const y = Number(req.query.year); return Number.isInteger(y) && y >= 2000 && y <= 2100 ? y : new Date().getFullYear(); };
-router.get('/plan-board', asyncHandler(async (req, res) =>
-  res.json(await repo.planBoard(t(req), { year: yearQ(req), adjusted: req.query.adjusted === '1' }))));
+// Listes de référence de l'écran (Activity Tag = catégories du MMR, sous-types de POI, modalités).
+router.get('/plan-board', asyncHandler(async (req, res) => {
+  const [board, mmr] = await Promise.all([repo.planBoard(t(req), { year: yearQ(req), adjusted: req.query.adjusted === '1' }), settingsRepo.listMmr(t(req))]);
+  const activities = [...new Set(mmr.map((m) => String(m.activityCategory || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+  res.json({ ...board, refs: { activities, poiSubtypes: POI_SUBTYPES.map(([label, code]) => ({ label, code })), modalities: MODALITIES } });
+}));
 const planChanges = z.object({
   year: z.number().int().min(2000).max(2100),
   changes: z.array(z.object({ siteId: z.string().uuid(), month: z.number().int().min(1).max(12), planned: z.boolean() })).min(1).max(5000),
@@ -91,14 +95,74 @@ router.put('/plan-board/status', WRITE, asyncHandler(async (req, res) => {
   if (!p.success) throw badRequest('Données invalides', p.error.flatten());
   res.json(await repo.setMonthStatuses(t(req), p.data));
 }));
+// Modification groupée (tout ou rien) : registre, statut mensuel sur une plage, planification.
+const month = z.number().int().min(1).max(12);
+const bulkSchema = z.object({
+  year: z.number().int().min(2000).max(2100),
+  siteIds: z.array(z.string().uuid()).min(1).max(5000),
+  set: z.object({
+    fieldOfficeId: z.string().uuid().nullable().optional(),
+    activity: z.string().trim().max(160).nullable().optional(),
+    poiSubtype: optText(80), urbanArea: optText(120),
+    modalityType: z.enum(['Cash', 'Voucher', 'Food', 'Capacity Strengthening', 'Mix']).nullable().optional(),
+    security, synergies: crit01, newPartner: crit01, experiencedPartner: crit02,
+    issuesProcess: crit02, issuesPartnerReport: crit02, issuesCFM: crit02, fraud: crit02,
+  }).strict().optional(),
+  status: z.object({ from: month, to: month, active: z.boolean().nullable() }).refine((s) => s.from <= s.to, 'Plage de mois invalide.').optional(),
+  plan: z.union([
+    z.object({ month, planned: z.boolean() }).strict(),
+    z.object({ auto: z.literal(true), fromMonth: month.default(1), adjusted: z.boolean().optional() }).strict(),
+  ]).optional(),
+}).refine((b) => (b.set && Object.keys(b.set).length) || b.status || b.plan, 'Aucune modification demandée.');
+router.post('/plan-board/bulk', WRITE, asyncHandler(async (req, res) => {
+  const p = bulkSchema.safeParse(req.body);
+  if (!p.success) throw badRequest('Données invalides', p.error.flatten());
+  res.json(await repo.bulkUpdateSites(t(req), uid(req), p.data));
+}));
+
+// « Ajouter un site » : ID L### attribué par la base, statut du mois courant Active.
+const addSiteSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  region: z.string().trim().max(120).optional(),
+  district: z.string().trim().min(1).max(120),
+  commune: z.string().trim().min(1).max(120),
+  fokontany: z.string().trim().max(120).optional(),
+  activity: z.string().trim().max(160).optional(),
+  fieldOfficeId: z.string().uuid().nullable().optional(),
+  poiSubtype: optText(80), urbanArea: optText(120),
+  gpsLat: z.number().min(-90).max(90).nullable().optional(),
+  gpsLng: z.number().min(-180).max(180).nullable().optional(),
+  modalityType: z.enum(['Cash', 'Voucher', 'Food', 'Capacity Strengthening', 'Mix']).nullable().optional(),
+  beneficiaryNumber: z.number().int().min(0).max(10_000_000).nullable().optional(),
+  security, synergies: crit01, newPartner: crit01, experiencedPartner: crit02,
+});
+router.post('/plan-board/sites', WRITE, body(addSiteSchema), asyncHandler(async (req, res) => {
+  res.status(201).json(await repo.addSite(t(req), req.valid));
+}));
+
 // Registre « Locations Management » au format du classeur du plan de suivi.
-router.get('/plan-board/locations.xlsx', asyncHandler(async (req, res) => {
+async function locationsWorkbook(req, { blank = false, prefillActivity = null } = {}) {
   const year = yearQ(req);
-  const data = await repo.locationsExportData(t(req), { year });
+  const [data, mmr] = await Promise.all([repo.locationsExportData(t(req), { year }), settingsRepo.listMmr(t(req))]);
+  const activities = [...new Set(mmr.map((m) => String(m.activityCategory || '').trim()).filter(Boolean))];
+  return { year, wb: buildLocationsWorkbook({ year, offices: data.offices, sites: blank ? [] : data.sites, activities, prefillActivity }) };
+}
+const sendXlsx = async (res, wb, filename) => {
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', `attachment; filename="Plan_de_suivi_sites_${year}.xlsx"`);
-  await buildLocationsWorkbook({ year, ...data }).xlsx.write(res);
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  await wb.xlsx.write(res);
   res.end();
+};
+router.get('/plan-board/locations.xlsx', asyncHandler(async (req, res) => {
+  const { year, wb } = await locationsWorkbook(req);
+  await sendXlsx(res, wb, `Plan_de_suivi_sites_${year}.xlsx`);
+}));
+// Gabarit d'activité : registre vierge, Activity Tag prérempli, à remplir hors ligne puis réimporter.
+router.get('/plan-board/template.xlsx', asyncHandler(async (req, res) => {
+  const activity = String(req.query.activity || '').trim().slice(0, 160) || null;
+  const { year, wb } = await locationsWorkbook(req, { blank: true, prefillActivity: activity });
+  const slug = activity ? `_${activity.normalize('NFD').replace(/[^\w]+/g, '_').replace(/^_|_$/g, '').slice(0, 40)}` : '';
+  await sendXlsx(res, wb, `Gabarit_sites${slug}_${year}.xlsx`);
 }));
 // Import : ?commit=0 → aperçu (rien n'est écrit) ; ?commit=1 → enregistrement en une transaction.
 router.post('/plan-board/locations/import', WRITE, express.raw({ type: '*/*', limit: '50mb' }), asyncHandler(async (req, res) => {

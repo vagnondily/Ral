@@ -20,6 +20,7 @@ import ProcessMonitoringPage from './pages/monitoring/ProcessMonitoringPage.jsx'
 import ProcessDashboardPage from './pages/monitoring/ProcessDashboardPage.jsx';
 import FieldVisitsPage from './pages/monitoring/FieldVisitsPage.jsx';
 import RbmPage from './pages/monitoring/RbmPage.jsx';
+import PlanBoardPage from './pages/monitoring/PlanBoardPage.jsx';
 import CoverageRecapPage from './pages/monitoring/CoverageRecapPage.jsx';
 import SitesMapPage from './pages/monitoring/SitesMapPage.jsx';
 import PddPage from './pages/pdd/PddPage.jsx';
@@ -112,6 +113,7 @@ function Workspace() {
       {route.module === 'processus' && route.sub === 'synthese' && <ProcessDashboardPage onNavigate={navigate} />}
       {route.module === 'processus' && route.sub === 'donnees' && <ProcessMonitoringPage canEdit={canEdit} />}
       {route.module === 'processus' && route.sub === 'sites' && <FieldVisitsPage canEdit={canEdit} />}
+      {route.module === 'processus' && route.sub === 'plan' && <PlanBoardPage canEdit={canEdit} />}
       {route.module === 'processus' && route.sub === 'rbm' && <RbmPage canEdit={canEdit} />}
       {route.module === 'processus' && route.sub === 'couverture' && <CoverageRecapPage />}
       {route.module === 'processus' && route.sub === 'carte' && <SitesMapPage />}

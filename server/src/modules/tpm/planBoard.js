@@ -106,4 +106,38 @@ function normalizeChanges(changes = []) {
   return { add, remove };
 }
 
-module.exports = { mmrLookup, requiredVisits, siteCounters, rankSites, boardKpis, normalizeChanges, currentStatus, norm };
+/** Clé MMR d'un site (bureau × activité) — celle de la ligne MMR retenue, pour regrouper les totaux mensuels. */
+const mmrKeyOf = (mmrRow) => (mmrRow ? `${mmrRow.fieldOfficeId || ''}|${norm(mmrRow.activityCategory)}` : null);
+
+/**
+ * Capacité mensuelle de chaque ligne MMR : ciblé par mois (J) et faisable par
+ * mois (K), pour comparer le total prévu d'un mois (pied de grille). Valeurs
+ * exactes du classeur ; null quand la division est impossible.
+ */
+function mmrCapacity(mmrRows = []) {
+  const out = {};
+  for (const r of mmrRows) {
+    const d = deriveMmr(r);
+    out[mmrKeyOf(r)] = { fieldOfficeId: r.fieldOfficeId || null, activity: r.activityCategory, targeted: d.targetedPerMonth, feasible: d.feasible ?? null };
+  }
+  return out;
+}
+
+/**
+ * « Planifier selon le MMR » : choisit `toPlan` mois répartis régulièrement à
+ * partir de `fromMonth`, hors mois déjà occupés (prévus ou réalisés) et hors mois
+ * inactifs. S'il reste moins de mois libres que de visites, tous sont pris.
+ * @returns {number[]} mois 1..12 croissants
+ */
+function autoPlanMonths({ toPlan, fromMonth = 1, busy = [], inactive = [] }) {
+  const n = Math.max(0, Math.floor(Number(toPlan) || 0));
+  if (!n) return [];
+  const taken = new Set([...busy, ...inactive].map(Number));
+  const free = [];
+  for (let m = Math.max(1, Math.min(12, Number(fromMonth) || 1)); m <= 12; m += 1) if (!taken.has(m)) free.push(m);
+  if (n >= free.length) return free;
+  // Milieu de chaque tranche : 1 visite sur 12 mois libres → mois 7 ; 2 → 4 et 10 ; 4 → 2, 5, 8, 11.
+  return Array.from({ length: n }, (_, i) => free[Math.floor(((i + 0.5) * free.length) / n)]);
+}
+
+module.exports = { mmrLookup, requiredVisits, siteCounters, rankSites, boardKpis, normalizeChanges, currentStatus, norm, mmrKeyOf, mmrCapacity, autoPlanMonths };

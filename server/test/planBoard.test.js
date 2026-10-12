@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { mmrLookup, requiredVisits, siteCounters, rankSites, boardKpis, normalizeChanges } = require('../src/modules/tpm/planBoard');
+const { mmrLookup, requiredVisits, siteCounters, rankSites, boardKpis, normalizeChanges, mmrCapacity, mmrKeyOf, autoPlanMonths } = require('../src/modules/tpm/planBoard');
 
 const MMR = [
   { fieldOfficeId: null, activityCategory: 'School meal activities', operationDuration: 10, numberOfSites: 700, riskLevel: 2, feasible: 52 },
@@ -72,4 +72,25 @@ test('statut courant = dernier mois renseigné ; un site inactif n\'est ni actif
   assert.equal(currentStatus({}), null); assert.equal(currentStatus(null), null);
   const k = boardKpis([{ required: 2, done: 0, planned: 0, remaining: 2, toPlan: 2, parametered: true, inactive: true }]);
   assert.equal(k.active, 0); assert.equal(k.toVisit, 0); assert.equal(k.withoutPlan, 0);
+});
+
+test('planifier selon le MMR : mois répartis, mois occupés et inactifs évités', () => {
+  assert.deepEqual(autoPlanMonths({ toPlan: 1 }), [7]);
+  assert.deepEqual(autoPlanMonths({ toPlan: 2 }), [4, 10]);
+  assert.deepEqual(autoPlanMonths({ toPlan: 4 }), [2, 5, 8, 11]);
+  // À partir de septembre, avec octobre déjà prévu : 2 visites sur sept., nov., déc.
+  assert.deepEqual(autoPlanMonths({ toPlan: 2, fromMonth: 9, busy: [10] }), [9, 12]);
+  // Mois inactifs exclus ; plus de visites que de mois libres → tous les mois libres.
+  assert.deepEqual(autoPlanMonths({ toPlan: 5, fromMonth: 10, inactive: [11] }), [10, 12]);
+  assert.deepEqual(autoPlanMonths({ toPlan: 0 }), []);
+});
+
+test('capacité mensuelle MMR : ciblé (J) et faisable (K) par bureau × activité', () => {
+  const cap = mmrCapacity(MMR);
+  const amb = cap[mmrKeyOf(MMR[1])];
+  // (9 mois, 213 sites, risque 3) → intervalle 3 → 71 sites ciblés / mois ; faisable 30.
+  assert.equal(amb.targeted, 71); assert.equal(amb.feasible, 30); assert.equal(amb.fieldOfficeId, 'amb');
+  assert.equal(cap[mmrKeyOf(MMR[2])].feasible, null);
+  assert.equal(mmrKeyOf(MMR[1]), 'amb|school meal activities');
+  assert.equal(mmrKeyOf(null), null);
 });

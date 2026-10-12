@@ -16,8 +16,9 @@ import settings from './en/settings.js';
 import pdd from './en/pdd.js';
 import localities from './en/localities.js';
 import reports from './en/reports.js';
+import planBoard from './en/planBoard.js';
 
 export default {
   ...common, ...shell, ...contracts, ...tpmReports, ...tpmPlanning, ...monitoring,
-  ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports,
+  ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard,
 };
