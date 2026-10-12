@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 08:20 UTC_ — la branche `main` reçoit chaque lot vérifié (dernier : `041742a`)
+_Dernière mise à jour : 12/10/2026 08:23 UTC_ — la branche `main` reçoit chaque lot vérifié (dernier : `473d7fa`)
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -28,7 +28,7 @@ _Dernière mise à jour : 12/10/2026 08:20 UTC_ — la branche `main` reçoit ch
 | Facture | Fidélité de la facture au gabarit de mai + Invoice 09 | ⏳ | |
 | Analyse | Analyse multi-agents des documents de référence → feuille de route | 🔄 | 3e lancement à 06:31 (8 familles : RBM, XLSForm, Kobo suivi, Kobo distribution, finance, rapports, PDD, import/WDC) |
 | Liaisons | Liaisons entre pages + rapprochement automatique des noms de lieux importés | 🔄 | Analyse multi-agents lancée à 08:08 (6 sous-systèmes + synthèse) → plan de corrections, puis mise en œuvre |
-| Signalés 12/10 | Vos retours du jour | 🔄 | ✅ régions du bureau · ✅ en-têtes figés · ✅ XLSForm (500 au réimport, gros fichiers, .xls) · ⏳ concepteur (panneau gauche) · ⏳ actions sur les fiches (modifier/supprimer/valider) |
+| Signalés 12/10 | Vos retours du jour | ✅ | régions du bureau · en-têtes figés · XLSForm (500 au réimport, gros fichiers, .xls) · concepteur (panneau gauche) · actions sur les fiches + rattachement au MMR |
 | Refonte | Refonte UI/UX : catégories, écrans en double, liaisons ; Partenaires & TPM (fiche prestataire, formations structurées, évaluation des agents) | ⏳ | Après l'analyse des liaisons : plusieurs propositions indépendantes comparées, puis mise en œuvre par lots. Principe : cœur = suivi-évaluation des sites ; utilisateurs peu à l'aise avec l'informatique → lisible au premier coup d'œil, peu chargé |
 
 ---
@@ -121,5 +121,7 @@ _Dernière mise à jour : 12/10/2026 08:20 UTC_ — la branche `main` reçoit ch
 - **08:12** 🔄 XLSForm au format **.xls** (ancien Excel, produit par Kobo) : lecteur intégré en cours (la version corrigée de la bibliothèque SheetJS est bloquée par le proxy ; la version npm a des failles connues à la lecture de fichiers externes).
 - **08:12–08:18** 📥 Nouvelles demandes : refonte libre de l'UI/UX (app pro multitenant, sécurisée, facile, interconnectée : pas de double saisie ni d'écran en double, pages rangées dans la bonne catégorie) ; Partenaires & TPM : vraie fiche du prestataire et son parcours, formations structurées avec leur évaluation, évaluation des agents d'abord d'après les formulaires saisis (note selon une méthode à définir) puis évaluations qualitatives ; principe directeur : le cœur est le suivi-évaluation des sites, pour des utilisateurs parfois peu à l'aise avec l'informatique → simple au premier coup d'œil, pas chargé.
 - **08:19** ✅ **XLSForm** (`041742a`) : (1) tout réimport d'une fiche existante échouait (500, colonne manquante — migration 047) ; (2) les XLSForms **.xls** sont lus (lecteur intégré, vérifié sur vos fichiers SMP : 349 lignes, 1 950 choix, accents intacts) ; (3) un XLSForm sans identifiant reçoit un code stable : le réimport met la fiche à jour au lieu d'en créer une autre. Installation neuve rejouée. 197 tests OK.
+- **08:21** ✅ **Concepteur de rapport** (`4a1f176`) : les panneaux latéraux se placent sous la barre d'outils quelle que soit sa hauteur (elle passe sur 2 lignes sur votre écran) ; libellés du plan lisibles en entier.
+- **08:23** ✅ **Fiches de suivi** (`473d7fa`) : « Ouvrir », « Modifier » (nom, **activité du MMR**, Active/Inactive), « Supprimer » (libre sans données ; avec données, administrateur + code ressaisi). Constat important pour les liaisons : aucun écran ne permettait de rattacher une fiche à une activité du MMR, d'où des couvertures vides — la liste signale maintenant les fiches « À rattacher ». L'import XLSForm accepte .xls dans le sélecteur de fichiers.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
