@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 15:15 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 12/10/2026 15:24 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -187,5 +187,10 @@ _Dernière mise à jour : 12/10/2026 15:15 UTC_ — la branche `main` reçoit ch
 - **15:10** ✅ **Publié sur `main`** (`59994c8`, avance rapide de 12 commits) : retours n° 2-3 (codes ↔ libellés), 7 (espace RBM), 8 (sites du plan de collecte), 12 (modèles d'indicateurs), 14 (formulaires reliés aux sites) et les correctifs de la relecture. **Chez vous** : arrêtez l'API, `npm run migrate` dans `server` (migrations 053 à 056), redémarrez l'API ; la réparation des données se fait seule au démarrage (une fois).
 - **15:13** ✅ **R0 « PDD » fusionné** (vérifié par un second agent : 367 tests, votre classeur PDD réel lu en 0,4 s — 492 lignes, 0 ignorée —, imports simultanés et multi-comptes sûrs). Import sans cellules fantômes (une valeur isolée en ligne 1 048 000 : 57 ms au lieu de 42 s et 8,4 Go), lignes sous le tableau Excel signalées, **tout ou rien par défaut** (case « Importer quand même »), modalité Inkind / CBT / Mixte contrôlée en base (migration 057, appliquée en dev).
 - **15:15** ✅ **Garde commune des imports Excel** (risque signalé par le vérificateur PDD) : un `.xlsx` de 6 Ko qui fusionne une zone géante, ou une validation posée sur une colonne entière, faisait gonfler la mémoire jusqu'à arrêter l'API. Les **11 imports Excel** passent maintenant par une seule porte : garde de décompression, fusions plafonnées à 100 000 cellules (vos classeurs réels : 3 249 au plus), validations ignorées à la lecture (3 colonnes validées : 3,5 s et 379 Mo → 21 ms et 2 Mo). Résultats identiques avant/après sur vos classeurs réels (budget FLA, PDD, RBM, planning, export Résilience). 384 tests, lint strict propre.
+- **15:24** ✅ **R0 terminé : chantiers « sécurité » et « factures » fusionnés** (chacun vérifié par un second agent ; ensemble : lint propre, 436 tests, 58 migrations sur base neuve, seeds rejoués deux fois, balayage FR/EN sans erreur hors tuiles de carte). Migrations 048 et 058 appliquées en dev.
+  - **Factures — séparation des tâches incontournable**, dans l'API **et** en base (migration 058) : une facture soumise ne se modifie plus ; seul son auteur la modifie et la soumet ; celui qui valide ou rejette n'est ni le soumetteur ni l'auteur. Écran : Valider / Rejeter masqués sur son propre rapport (raison affichée), facture soumise ouverte en lecture seule ; « à valider » du centre d'alertes = ce que vous pouvez réellement décider. Vérifié : 66 scénarios API, 15 contournements directs en base refusés.
+  - **Factures — montants justes** : un % bailleur de 33,333 % n'est plus arrondi à 33 % en rouvrant la facture ; un % invalide est signalé au lieu d'être corrigé en silence ; export Excel « 90 % » et cumulé imprimé au centime.
+  - **Sécurité** : liens d'import protégés contre les adresses internes (IPv6 comprise, adresse vérifiée puis épinglée, chaque redirection revérifiée, jeton jamais transmis à un autre hôte) ; jetons, cookies et mots de passe masqués dans les journaux ; formules neutralisées dans tous les exports CSV ; données échappées dans les bulles de la carte ; créer un site qui existe déjà renvoie « ce site existe déjà » au lieu de l'écraser.
+  - **Restes connus, non bloquants** : un administrateur peut encore supprimer ou marquer « non applicable » un rapport soumis qui n'est pas le sien ; le modèle Excel des postes n'a pas de colonne « % bailleur ».
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
