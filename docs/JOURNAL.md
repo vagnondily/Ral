@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 07:12 UTC_
+_Dernière mise à jour : 12/10/2026 07:35 UTC_
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -21,7 +21,7 @@ _Dernière mise à jour : 12/10/2026 07:12 UTC_
 | 2 | MMR : édition enrichie et plus simple | ✅ | API `4a481eb` + écran `4dd6f77` |
 | 3 | Localités : pays & découpage, répertoire, CRUD | ✅ (phase 1) | Serveur `6d19108` + écran (ce commit). **À faire chez vous** : réimporter le shapefile pour corriger les noms. Phase 2 ⏳ : contours cartographiques (polygones) pour les cartes |
 | 4 | Langue FR/EN : traduire le contenu des pages | 🔄 | Fondations `ef0f2c3` (formats selon la langue, badges, dictionnaires, détecteur). Traduction de toutes les pages en cours : 9 modules en parallèle + relecture |
-| 6 | Concepteur de rapport professionnel (bulletin éditable, modèles) | ⏳ | Références : rapport de suivi de performances (HTML), couverture par partenaire (.docx), dashboard (HTML) |
+| 6 | Concepteur de rapport professionnel (bulletin éditable, modèles) | 🔄 | Serveur ✅ (blocs, 5 modèles système, données sur période, documents versionnés, finalisation figée, export Excel). Reste : l'éditeur (écran) après la traduction |
 | 7 | Plan de suivi « type Excel » + carte détaillée | ⏳ | Référence : classeur RBM + captures (KPI, modes, grille des mois, carte) |
 | PDD-config | PDD : rations, planification par commune, stock par donateur (TDD/BDD), calcul serveur des tonnages | ⏳ | Découvert dans le PDD réel `PDD_Urgence_Oct-Nov_04082025.xlsx` |
 | Import | Import facile multi-sources + lien Tableau WDC (MoDA/Ona, Kobo) | 🔄 | Serveur ✅ (lien WDC/Ona open-data incrémental, Kobo paginé, liens sécurisés). Reste : écran « centre d'import » (après la traduction), gros fichiers via le worker, groupes répétés |
@@ -67,5 +67,9 @@ _Dernière mise à jour : 12/10/2026 07:12 UTC_
 - **06:49** 🔄 i18n — module « Rapports & facture TPM » (`ReportsPage`, `FactureDrawer`, `PostesEditor`, `facturePrint`) : traduction en cours.
 - **07:05** 📥 Références de rapports étudiées : « Rapport de suivi de performances » (bandeau par activité, scores par domaine D1–D7, scores par bureau, listes d'indicateurs avec n, constats, priorités, pagination) et « Couverture par partenaire » (captures : complétude mensuelle par programme, matrice mois × programme, tables de distribution filtrables).
 - **07:12** ✅ **Défaut corrigé** : le tableau de bord « Couverture & performance » et la Synthèse du suivi de processus comptaient les soumissions **exclues** au nettoyage et ignoraient les **champs calculés** — leurs chiffres différaient de l'onglet « Résultats » de la fiche. Ils partagent désormais le même calcul (vérifié sur les données : indices et effectifs identiques, exclusion répercutée partout). Ajout du filtre par **période** (`from`/`to`), nécessaire au concepteur de rapport.
+- **06:57** ✅ i18n — module « Rapports & facture TPM » traduit (non commité) : `ReportsPage` (liste, filtres, fil guidé, génération mensuelle, validation/rejet, export CSV), `FactureDrawer` (facture + rapport technique + suivi budgétaire cumulé), `PostesEditor` (grille des postes partagée avec le plan, libellés des sections/lignes FLA). Dictionnaire `en/tpmReports.js` : 179 phrases. La vue imprimable de la facture (`facturePrint.js`) reste en français (gabarit officiel). Compilation OK, rendu en anglais vérifié sans phrase manquante. À faire côté plan : `PlanBudgetDrawer` doit passer `funderLabel={tr('Part bailleur (Planifié)')}`.
+- **06:57** 🔄 i18n — module « Planification & partenaires TPM » (`PlanningPage`, `PlanBudgetDrawer`, `FormationsPage`, `EvaluationPage`, `ProvidersPage`, `MissionCalendarDrawer`) : traduction en cours (dictionnaire `en/tpmPlanning.js`).
+- **06:58** 🔄 i18n — module « Suivi de processus » (`ProcessMonitoringPage`, `CalcFields`, `IndicatorsList`) : traduction en cours (dictionnaire `en/monitoring.js`).
+- **07:35** ✅ Concepteur de rapport — serveur : rapport = liste de blocs (titre, texte riche, encadré, chiffres clés, tableau, graphique, bulletin auto-rédigé, saut de page, et bloc **« répéter par activité / bureau »**). Texte riche stocké en JSON structuré (jamais d'HTML : pas d'injection possible). 10 jeux de données calculés sur une **période** (couverture et scores par activité, scores par domaine × bureau, indicateurs, couverture par bureau, plan/réalisé, complétude mensuelle, régions, budget par contrat, PDD). **5 modèles système** dont le « Rapport de suivi de performances » calqué sur votre référence. Documents enregistrés avec **verrou de version** (pas d'écrasement entre collègues) et **finalisation figée** (les chiffres d'un bulletin publié ne bougent plus). Export Excel. Testé sur vos données (5 modèles générés). 174 tests OK.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.

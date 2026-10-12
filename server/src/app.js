@@ -18,6 +18,7 @@ const settingsRoutes = require('./modules/settings/settings.routes');
 const usersRoutes = require('./modules/users/users.routes');
 const monitoringRoutes = require('./modules/monitoring/monitoring.routes');
 const pddRoutes = require('./modules/pdd/pdd.routes');
+const reportDesignerRoutes = require('./modules/reports/reports.routes');
 
 function createApp() {
   const app = express();
@@ -90,6 +91,7 @@ function createApp() {
   app.use('/api/users', usersRoutes);
   app.use('/api/monitoring', monitoringRoutes);
   app.use('/api/pdd', pddRoutes);
+  app.use('/api/report-designer', reportDesignerRoutes);
 
   // Anything else is a routing mistake, not a server error.
   app.use((req, res, next) => next(notFound('Route introuvable')));

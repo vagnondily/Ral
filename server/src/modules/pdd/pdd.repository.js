@@ -139,4 +139,19 @@ async function insertDistributions(tenantId, userId, rows, { source = 'xlsx', re
   });
 }
 
-module.exports = { listCommodities, listDistributions, summaryData, pipelineData, setStock, insertDistributions };
+/** Distributions d'urgence par mois sur une période [from, to] — agrégé en SQL. */
+async function reportPddByMonth(tenantId, { from, to }) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT to_char(d.period_month, 'YYYY-MM') AS month, sum(d.beneficiaries)::float8 AS beneficiaries,
+              sum(d.households)::float8 AS households, sum(d.cash_usd)::float8 AS cash,
+              COALESCE(sum(it.food), 0)::float8 AS food
+         FROM pdd_distributions d
+         LEFT JOIN LATERAL (SELECT sum(i.qty_mt) AS food FROM pdd_distribution_items i WHERE i.distribution_id = d.id) it ON true
+        WHERE d.tenant_id = $1 AND d.period_month BETWEEN $2 AND $3
+        GROUP BY 1 ORDER BY 1`, [tenantId, `${from}-01`, `${to}-01`]);
+    return rows;
+  });
+}
+
+module.exports = { reportPddByMonth, listCommodities, listDistributions, summaryData, pipelineData, setStock, insertDistributions };

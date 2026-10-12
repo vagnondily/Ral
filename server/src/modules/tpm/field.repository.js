@@ -617,7 +617,37 @@ async function importPlanning(tenantId, userId, month, rows) {
   });
 }
 
+/**
+ * Données « terrain » d'un rapport sur une période [from, to] (mois inclus) :
+ * par bureau (antenne comptée avec son bureau parent) — sites du référentiel,
+ * visites planifiées (non annulées) et réalisées — et par mois. Agrégé en SQL.
+ */
+async function reportFieldData(tenantId, { from, to }) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const p = [tenantId, `${from}-01`, `${to}-01`];
+    const { rows: byOffice } = await client.query(
+      `WITH s AS (
+         SELECT st.id, COALESCE(par.name, o.name, '(non rattaché)') AS bureau
+           FROM sites st LEFT JOIN field_offices o ON o.id = st.field_office_id LEFT JOIN field_offices par ON par.id = o.parent_id
+          WHERE st.tenant_id = $1)
+       SELECT s.bureau, count(DISTINCT s.id)::int AS "sitesActive",
+              count(v.id) FILTER (WHERE v.status <> 'annule')::int AS planned,
+              count(v.id) FILTER (WHERE v.status = 'realise')::int AS done,
+              count(DISTINCT v.site_id) FILTER (WHERE v.status = 'realise')::int AS "sitesVisited"
+         FROM s LEFT JOIN site_visits v ON v.site_id = s.id AND v.tenant_id = $1 AND v.period_month BETWEEN $2 AND $3
+        GROUP BY s.bureau ORDER BY "sitesActive" DESC`, p);
+    const { rows: monthly } = await client.query(
+      `SELECT to_char(period_month, 'YYYY-MM') AS month,
+              count(*) FILTER (WHERE status <> 'annule')::int AS planned,
+              count(*) FILTER (WHERE status = 'realise')::int AS done
+         FROM site_visits WHERE tenant_id = $1 AND period_month BETWEEN $2 AND $3
+        GROUP BY 1 ORDER BY 1`, p);
+    return { byOffice, monthly };
+  });
+}
+
 module.exports = {
+  reportFieldData,
   listSites, createSite, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
   collectionDaysSummary, setTravelDays, coverageRecapSummary, coverageMatrix, monthsOverview, setMonthStatus, mapData,
