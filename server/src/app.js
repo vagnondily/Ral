@@ -15,6 +15,7 @@ const tpmPostesRoutes = require('./modules/tpm/postes.routes');
 const tpmFieldRoutes = require('./modules/tpm/field.routes');
 const contractsRoutes = require('./modules/contracts/contracts.routes');
 const settingsRoutes = require('./modules/settings/settings.routes');
+const partnersRoutes = require('./modules/partners/partners.routes');
 const usersRoutes = require('./modules/users/users.routes');
 const monitoringRoutes = require('./modules/monitoring/monitoring.routes');
 const pddRoutes = require('./modules/pdd/pdd.routes');
@@ -88,6 +89,7 @@ function createApp() {
   app.use('/api/tpm', tpmRoutes);
   app.use('/api/contracts', contractsRoutes);
   app.use('/api/settings', settingsRoutes);
+  app.use('/api/partners', partnersRoutes);
   app.use('/api/users', usersRoutes);
   app.use('/api/monitoring', monitoringRoutes);
   app.use('/api/pdd', pddRoutes);
