@@ -68,17 +68,28 @@ router.get('/template.xlsx', asyncHandler(async (req, res) => {
   res.end();
 }));
 
-// ---- Import du fichier PDD (.xlsx, feuille « PDD base ») -----------------
+// ---- Import du fichier PDD (.xlsx, feuille « PDD base » ou tableau réel) --
 // Réimport idempotent : les mois présents dans le fichier sont d'abord vidés.
+// La réponse (et le détail d'une erreur 400) porte le résumé d'import : plage
+// lue, lignes ignorées avec leur motif, avertissements, mois remplacés.
 router.post('/import', WRITE, express.raw({ type: '*/*', limit: '40mb' }), asyncHandler(async (req, res) => {
   if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
   let parsed;
   try { parsed = await parsePddWorkbook(req.body); }
   catch { throw badRequest('Fichier illisible : fournissez un .xlsx du plan de distribution.'); }
-  if (!parsed.sheet) throw badRequest('Aucune feuille « PDD base » détectée (en-têtes Mois + Commune).');
-  if (parsed.rows.length === 0) throw badRequest(`Aucune ligne exploitable (mois + zone + activité requis). ${parsed.skipped} ligne(s) ignorée(s).`);
+  if (!parsed.sheet) throw badRequest('Aucun tableau PDD détecté : il faut une ligne d\'en-tête avec « Mois » en colonne A et « Commune » en colonne P (feuille « PDD base » du modèle).');
+  const report = {
+    sheet: parsed.sheet, table: parsed.table, headerRow: parsed.headerRow, firstLine: parsed.firstLine, lastLine: parsed.lastLine,
+    months: parsed.months, skipped: parsed.skipped, skippedRows: parsed.skippedRows, warnings: parsed.warnings,
+  };
+  if (parsed.layoutIssues.length) {
+    throw badRequest(`La feuille « ${parsed.sheet} » n'a pas la disposition attendue (colonne insérée ou supprimée ?) : rien n'a été importé.`, { ...report, layoutIssues: parsed.layoutIssues });
+  }
+  if (parsed.rows.length === 0) {
+    throw badRequest(`Aucune ligne exploitable (mois, année, activité et zone requis) : ${parsed.skipped} ligne(s) ignorée(s), rien n'a été importé.`, report);
+  }
   const result = await repo.insertDistributions(t(req), uid(req), parsed.rows, { source: 'xlsx', replaceMonths: true });
-  res.json({ ...result, sheet: parsed.sheet, skipped: parsed.skipped });
+  res.json({ ...result, ...report });
 }));
 
 module.exports = router;
