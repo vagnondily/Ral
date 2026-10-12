@@ -56,6 +56,20 @@ router.patch('/sites/:id', WRITE, body(siteSchema.partial().extend({
 router.get('/rbm/sites', asyncHandler(async (req, res) => res.json(
   await repo.rbmSites(t(req), { month: monthQ(req), risk: req.query.risk })
 )));
+// ---- Plan de suivi « type Excel » (exercice) ---------------------------------
+const yearQ = (req) => { const y = Number(req.query.year); return Number.isInteger(y) && y >= 2000 && y <= 2100 ? y : new Date().getFullYear(); };
+router.get('/plan-board', asyncHandler(async (req, res) =>
+  res.json(await repo.planBoard(t(req), { year: yearQ(req), adjusted: req.query.adjusted === '1' }))));
+const planChanges = z.object({
+  year: z.number().int().min(2000).max(2100),
+  changes: z.array(z.object({ siteId: z.string().uuid(), month: z.number().int().min(1).max(12), planned: z.boolean() })).min(1).max(5000),
+});
+router.put('/plan-board/months', WRITE, asyncHandler(async (req, res) => {
+  const p = planChanges.safeParse(req.body);
+  if (!p.success) throw badRequest('Données invalides', p.error.flatten());
+  res.json(await repo.setPlannedMonths(t(req), uid(req), p.data));
+}));
+
 router.post('/rbm/generate', WRITE, asyncHandler(async (req, res) => {
   const month = monthQ(req);
   if (!month) throw badRequest('Mois requis (?month=YYYY-MM).');

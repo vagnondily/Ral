@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 07:35 UTC_
+_Dernière mise à jour : 12/10/2026 07:50 UTC_
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -22,7 +22,7 @@ _Dernière mise à jour : 12/10/2026 07:35 UTC_
 | 3 | Localités : pays & découpage, répertoire, CRUD | ✅ (phase 1) | Serveur `6d19108` + écran (ce commit). **À faire chez vous** : réimporter le shapefile pour corriger les noms. Phase 2 ⏳ : contours cartographiques (polygones) pour les cartes |
 | 4 | Langue FR/EN : traduire le contenu des pages | 🔄 | Fondations `ef0f2c3` (formats selon la langue, badges, dictionnaires, détecteur). Traduction de toutes les pages en cours : 9 modules en parallèle + relecture |
 | 6 | Concepteur de rapport professionnel (bulletin éditable, modèles) | 🔄 | Serveur ✅ (blocs, 5 modèles système, données sur période, documents versionnés, finalisation figée, export Excel). Reste : l'éditeur (écran) après la traduction |
-| 7 | Plan de suivi « type Excel » + carte détaillée | ⏳ | Référence : classeur RBM + captures (KPI, modes, grille des mois, carte) |
+| 7 | Plan de suivi « type Excel » + carte détaillée | 🔄 | Moteur serveur ✅ (exigées/faites/prévues/reste par site selon le MMR, classement, 2 bandeaux de KPI, planification par lot). Reste : écran, registre « Locations Management » (POI, statut mensuel actif/inactif), échelles RBM du classeur (sécurité 0/1/3/99, fraude 0/1/2), export/import, carte |
 | PDD-config | PDD : rations, planification par commune, stock par donateur (TDD/BDD), calcul serveur des tonnages | ⏳ | Découvert dans le PDD réel `PDD_Urgence_Oct-Nov_04082025.xlsx` |
 | Import | Import facile multi-sources + lien Tableau WDC (MoDA/Ona, Kobo) | 🔄 | Serveur ✅ (lien WDC/Ona open-data incrémental, Kobo paginé, liens sécurisés). Reste : écran « centre d'import » (après la traduction), gros fichiers via le worker, groupes répétés |
 | Facture | Fidélité de la facture au gabarit de mai + Invoice 09 | ⏳ | |
@@ -71,5 +71,7 @@ _Dernière mise à jour : 12/10/2026 07:35 UTC_
 - **06:57** 🔄 i18n — module « Planification & partenaires TPM » (`PlanningPage`, `PlanBudgetDrawer`, `FormationsPage`, `EvaluationPage`, `ProvidersPage`, `MissionCalendarDrawer`) : traduction en cours (dictionnaire `en/tpmPlanning.js`).
 - **06:58** 🔄 i18n — module « Suivi de processus » (`ProcessMonitoringPage`, `CalcFields`, `IndicatorsList`) : traduction en cours (dictionnaire `en/monitoring.js`).
 - **07:35** ✅ Concepteur de rapport — serveur : rapport = liste de blocs (titre, texte riche, encadré, chiffres clés, tableau, graphique, bulletin auto-rédigé, saut de page, et bloc **« répéter par activité / bureau »**). Texte riche stocké en JSON structuré (jamais d'HTML : pas d'injection possible). 10 jeux de données calculés sur une **période** (couverture et scores par activité, scores par domaine × bureau, indicateurs, couverture par bureau, plan/réalisé, complétude mensuelle, régions, budget par contrat, PDD). **5 modèles système** dont le « Rapport de suivi de performances » calqué sur votre référence. Documents enregistrés avec **verrou de version** (pas d'écrasement entre collègues) et **finalisation figée** (les chiffres d'un bulletin publié ne bougent plus). Export Excel. Testé sur vos données (5 modèles générés). 174 tests OK.
+- **07:42** 📥 Analyse du classeur RBM terminée (45 comportements attendus pour le plan de suivi). Écarts relevés sur l'existant, à corriger : seuils de couleur MMR 50 %/90 % (au lieu de 100 %), échelles RBM du classeur non respectées (sécurité 0/1/3/99 avec 99 = zone interdite, fraude 0/1/2, critère « partenaire expérimenté » absent), deux traitements serveur qui font une requête par site dans une boucle (`generateFromRbm`, `upsertSites`).
+- **07:50** ✅ Plan de suivi — moteur serveur : `GET /api/tpm/field/plan-board?year=` (par site : visites exigées selon le MMR de son bureau × activité — dérogation, bureau parent, puis plan général —, faites, prévues, reste, à planifier, priorité, dernière visite ; classement des sites proposés ; KPI des deux bandeaux) et `PUT /plan-board/months` (cocher/décocher des mois en un lot transactionnel, idempotent, ne supprime jamais une visite réalisée). 1 280 sites calculés en 0,15 s. 180 tests OK.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
