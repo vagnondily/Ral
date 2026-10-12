@@ -1,4 +1,4 @@
-const { badRequest, notFound } = require('../../middleware/errors');
+const { AppError, badRequest, notFound } = require('../../middleware/errors');
 const repo = require('./monitoring.repository');
 const { parseSubmissions, submissionsFromObjects } = require('./submissionsImport');
 const { MAP } = require('./memsMapping');
@@ -40,7 +40,9 @@ async function pullOna(link, { gtId }) {
         const url = onaDataUrl(apiOrigin, link.uuid, { page: i + 1, pageSize: PAGE_SIZE, gtId });
         const r = await safeFetch(url, { headers: { Accept: 'application/json' } });
         if (r.status === 404 && i > 0) return { rows: [] }; // au-delà de la dernière page
-        if (!r.ok) { const e = new FetchRefused(`HTTP ${r.status}`); e.status = r.status; throw e; }
+        // Statut HTTP distant porté par `httpStatus` (jamais `status`/`statusCode`,
+        // réservés aux erreurs applicatives renvoyées telles quelles au client).
+        if (!r.ok) { const e = new FetchRefused(`HTTP ${r.status}`); e.httpStatus = r.status; throw e; }
         const body = parseJson(r.buffer);
         if (Array.isArray(body)) return { rows: body };
         return { rows: body.results || body.data || [], next: body.next || nextFromLink(r.headers.get('link'), url), hasNextField: 'next' in body };
@@ -48,7 +50,7 @@ async function pullOna(link, { gtId }) {
       return { ...res, apiOrigin };
     } catch (err) {
       lastErr = err;
-      if (err.status !== 404 && !/introuvable|ENOTFOUND/i.test(err.message)) break; // autre erreur : inutile d'essayer api.
+      if (err.httpStatus !== 404 && !/introuvable|ENOTFOUND/i.test(err.message)) break; // autre erreur : inutile d'essayer api.
     }
   }
   throw lastErr || new FetchRefused('Lien open-data introuvable.');
@@ -94,6 +96,26 @@ async function pullFile(url, token) {
 }
 
 /**
+ * Erreur renvoyée au client pour un échec de lecture du lien — PUR (testé).
+ * Une erreur applicative explicite (AppError < 500, ex. « token requis ») passe
+ * telle quelle ; tout le reste (refus anti-SSRF, HTTP distant, réseau — même si
+ * l'objet porte un `status`) devient un 400 lisible, sans détail interne.
+ */
+const NETWORK_REASONS = [
+  [/^(ECONNREFUSED)$/, 'connexion refusée par le serveur'],
+  [/^(ECONNRESET|ETIMEDOUT|EPIPE|ECONNABORTED|UND_ERR_SOCKET)$/, 'connexion interrompue'],
+  [/^(ENOTFOUND|EAI_AGAIN)$/, 'hôte introuvable'],
+  [/CERT|SELF_SIGNED|UNABLE_TO_VERIFY|ERR_TLS/, 'certificat du site invalide'],
+];
+function linkError(err, kind) {
+  if (err instanceof AppError && err.statusCode < 500) return err;
+  const code = String((err && (err.code || (err.cause && err.cause.code))) || '');
+  const net = NETWORK_REASONS.find(([re]) => code && re.test(code));
+  const reason = err instanceof FetchRefused ? err.message.replace(/\.$/, '') : (net ? net[1] : 'source injoignable ou réponse invalide');
+  return badRequest(`Lien de données illisible (${reason}). Vérifiez le lien${kind === 'kobo-api' ? ' et le token' : ''}.`);
+}
+
+/**
  * @param {string} tenantId
  * @param {string} formId
  * @param {{ url: string, token?: string, full?: boolean }} input  full = ignorer le curseur incrémental
@@ -120,8 +142,7 @@ async function importFromLink(tenantId, formId, { url, token, full = false }) {
       ({ submissions, pages } = await pullFile(link.url, token));
     }
   } catch (err) {
-    if (err.status && err.status < 500 && err.expose !== false && !(err instanceof FetchRefused)) throw err;
-    throw badRequest(`Lien de données illisible (${err.message}). Vérifiez le lien${link.kind === 'kobo-api' ? ' et le token' : ''}.`);
+    throw linkError(err, link.kind);
   }
 
   const incremental = gtId != null;
@@ -131,4 +152,4 @@ async function importFromLink(tenantId, formId, { url, token, full = false }) {
   return { ...result, kind: link.kind, pages, truncated, incremental };
 }
 
-module.exports = { importFromLink, nextFromLink };
+module.exports = { importFromLink, nextFromLink, linkError };

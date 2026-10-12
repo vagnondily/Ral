@@ -12,6 +12,7 @@ import { currentMonth, formatAr, formatInt, monthLabel } from '../../lib/format.
 import { formatUsdFor } from '../../lib/currency.js';
 import { richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { downloadCsv } from '../../lib/csv.js';
 
 const PLAN_STATUS = { brouillon: { label: 'Brouillon', tone: 'yellow', icon: 'draft' }, valide: { label: 'Validé', tone: 'green', icon: 'check' } };
 const STATUSES = [{ id: '', label: 'Tous les statuts' }, { id: 'brouillon', label: 'Brouillon' }, { id: 'valide', label: 'Validé' }];
@@ -169,17 +170,13 @@ export default function PlanningPage({ canEdit, onNavigate }) {
 
   function exportCsv() {
     const head = cols.map((k) => tr(COLUMNS[k].label));
-    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const cell = (p, k) => ({
       partner: p.partnerName, contract: `${p.contractPartner} (${p.contractNumero})`, title: p.title || '',
       funder: currency === 'USD' ? money(p.plannedFunder) : Math.round(p.plannedFunder || 0),
       total: currency === 'USD' ? money(p.plannedTotal) : Math.round(p.plannedTotal || 0),
       status: PLAN_STATUS[p.status] ? tr(PLAN_STATUS[p.status].label) : p.status,
     }[k]);
-    const lines = filtered.map((p) => cols.map((k) => cell(p, k)).map(esc).join(';'));
-    const blob = new Blob(['﻿' + [head.map(esc).join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const el = document.createElement('a'); el.href = url; el.download = `plans_${month}.csv`; document.body.appendChild(el); el.click(); el.remove(); URL.revokeObjectURL(url);
+    downloadCsv(`plans_${month}.csv`, [head, ...filtered.map((p) => cols.map((k) => cell(p, k)))]);
   }
 
   function renderCell(p, k) {

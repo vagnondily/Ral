@@ -40,9 +40,10 @@ const siteSchema = z.object({
   name: z.string().trim().min(1).max(200),
   activity: z.string().trim().max(160).optional().or(z.literal('').transform(() => undefined)),
 });
+// Un site existant (même district + commune + nom) → 409 avec details.siteId :
+// jamais de fusion silencieuse (rbm-38). Pour modifier un site : PATCH /sites/:id.
 router.post('/sites', WRITE, body(siteSchema), asyncHandler(async (req, res) => {
-  try { res.status(201).json({ id: await repo.createSite(t(req), req.valid) }); }
-  catch (err) { if (err.code === '23505') throw badRequest('Ce site existe déjà (district + commune + nom).'); throw err; }
+  res.status(201).json({ id: await repo.createSite(t(req), req.valid) });
 }));
 const crit02 = z.number().int().min(0).max(2).optional();
 const crit01 = z.number().int().min(0).max(1).optional();
@@ -293,9 +294,9 @@ const visitSchema = z.object({
   status: z.enum(['planifie', 'realise', 'annule']).optional(),
   visitDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
+// Doublon (site + mois + activité) : le dépôt lève un conflit explicite (409).
 router.post('/visits', WRITE, body(visitSchema), asyncHandler(async (req, res) => {
-  try { res.status(201).json({ id: await repo.createVisit(t(req), uid(req), req.valid) }); }
-  catch (err) { if (err.status === 409) throw badRequest(err.message); throw err; }
+  res.status(201).json({ id: await repo.createVisit(t(req), uid(req), req.valid) });
 }));
 
 // Champ absent = inchangé ; chaîne vide ou null = effacer (« Non affecté », date retirée…).

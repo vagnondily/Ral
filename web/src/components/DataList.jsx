@@ -7,6 +7,7 @@ import { Alert, Button, Card, EmptyState, IconButton, Skeleton } from './ui.jsx'
 import { usePopover, SortTh, makeViewStore } from './listView.jsx';
 import { useToast } from './Toast.jsx';
 import { useI18n } from '../lib/i18n.jsx';
+import { downloadCsv } from '../lib/csv.js';
 
 /**
  * Liste réutilisable « façon COMET » (comme la liste des contrats) : barre de
@@ -83,12 +84,8 @@ export default function DataList({
 
   function exportCsv() {
     const head = shownCols.map((k) => columns[k].label);
-    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const cell = (r, k) => (columns[k].csv ? columns[k].csv(r) : '');
-    const lines = filtered.map((r) => shownCols.map((k) => cell(r, k)).map(esc).join(';'));
-    const blob = new Blob(['﻿' + [head.map(esc).join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const el = document.createElement('a'); el.href = url; el.download = csvName; document.body.appendChild(el); el.click(); el.remove(); URL.revokeObjectURL(url);
+    downloadCsv(csvName, [head, ...filtered.map((r) => shownCols.map((k) => cell(r, k)))]);
   }
 
   function renderFilter(k) {

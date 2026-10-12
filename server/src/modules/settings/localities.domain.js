@@ -4,6 +4,7 @@
  * correspondance niveau ↔ colonne du registre de sites, export CSV du répertoire.
  */
 const { pathKey, relinkByPath } = require('../common/placeMatch');
+const { toCsv } = require('../common/csv');
 
 /**
  * Transforme les lignes importées ({ names, pcodes, lat, lng }) en nœuds uniques
@@ -91,11 +92,6 @@ function matchBreakdown(existing, plan) {
 const SITE_COLUMNS = { adm1: 's.adm1', adm2: 'COALESCE(s.adm2, s.district)', adm3: 'COALESCE(s.adm3, s.commune)', adm4: 'COALESCE(s.adm4, s.fokontany)' };
 const siteColumnFor = (code) => SITE_COLUMNS[code] || null;
 
-const csvCell = (v) => {
-  const s = v == null ? '' : String(v);
-  return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
-
 /**
  * Export CSV (séparateur « ; », BOM UTF-8 pour Excel) : une colonne par niveau
  * ancêtre, puis l'unité, son P-code et ses coordonnées.
@@ -105,8 +101,9 @@ const csvCell = (v) => {
 function directoryCsv(rows, levelLabels) {
   const header = [...levelLabels, 'P-code', 'Latitude', 'Longitude'];
   const lines = rows.map((r) => [...r.ancestors, r.name].concat(Array(Math.max(0, levelLabels.length - r.ancestors.length - 1)).fill(''))
-    .concat([r.pcode, r.lat, r.lng]).map(csvCell).join(';'));
-  return `\uFEFF${[header.map(csvCell).join(';'), ...lines].join('\r\n')}\r\n`;
+    .concat([r.pcode, r.lat, r.lng]));
+  // Cellules neutralisées (formules) et échappées par l'écrivain CSV commun.
+  return toCsv([header, ...lines]);
 }
 
 module.exports = { planBreakdown, matchBreakdown, relinkByPath, pathKey, siteColumnFor, directoryCsv };

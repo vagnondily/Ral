@@ -3,6 +3,7 @@ import { Download, AlertCircle, TriangleAlert, Layers, Coins, Wallet } from 'luc
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, PageHeader, Skeleton, Stats, Usage } from '../../components/ui.jsx';
 import { formatAr, formatInt, monthLabel } from '../../lib/format.js';
+import { downloadCsv } from '../../lib/csv.js';
 import { useI18n } from '../../lib/i18n.jsx';
 
 const MATRIX_VIEWS = [
@@ -55,16 +56,11 @@ export default function ConsolidationPage({ onOpenContract }) {
   function exportCsv() {
     const head = [tr('Prestataire TPM'), tr('Contrat'), tr('Budget Suivi (Ar)'), tr('Planifié (Ar)'), tr('Réalisé (Ar)'),
       tr('Taux conso'), tr('Écart plan/réel'), tr('Mois restants'), tr('Restant (Ar)'), tr('Projection fin (Ar)')];
-    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = rows.map((r) => [
       r.partnerName, r.numero, Math.round(r.budget), Math.round(r.planned), Math.round(r.actual),
       pct(r.actualRate), pct(r.planVsActual), r.monthsRemaining, Math.round(r.remaining), Math.round(r.projectedTotal),
-    ].map(esc).join(';'));
-    const blob = new Blob(['﻿' + [head.map(esc).join(';'), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const el = document.createElement('a');
-    el.href = url; el.download = 'suivi-budgetaire-consolide.csv';
-    document.body.appendChild(el); el.click(); el.remove(); URL.revokeObjectURL(url);
+    ]);
+    downloadCsv('suivi-budgetaire-consolide.csv', [head, ...lines]);
   }
 
   return (

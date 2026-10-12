@@ -446,8 +446,17 @@ function AddVisitModal({ month, providers, roles, onClose, onSaved }) {
       let activity = form.activity;
       if (mode === 'new') {
         if (!newSite.district || !newSite.commune || !newSite.name) { toast.error(tr('District, commune et nom du site sont requis.')); setSaving(false); return; }
-        const { id } = await api.fieldCreateSite(newSite);
-        siteId = id; activity = activity || newSite.activity;
+        let created;
+        try { created = await api.fieldCreateSite(newSite); } catch (e) {
+          // Site déjà au registre (409) : jamais fusionné en silence — on le sélectionne et l'utilisateur confirme.
+          if (e.status !== 409 || !e.details?.siteId) throw e;
+          const existingId = e.details.siteId;
+          if (!sites.some((s) => s.id === existingId)) api.fieldSites().then(setSites).catch(() => {});
+          setMode('existing'); setForm((f) => ({ ...f, siteId: existingId }));
+          toast.info(tr('Ce site existe déjà : il est sélectionné dans « Site existant ». Vérifiez puis planifiez.'));
+          setSaving(false); return;
+        }
+        siteId = created.id; activity = activity || newSite.activity;
       }
       if (!siteId) { toast.error(tr('Choisissez un site.')); setSaving(false); return; }
       await api.fieldCreateVisit({ siteId, periodMonth: month, activity: activity || undefined, providerId: form.providerId || undefined, agent: form.agent || undefined });

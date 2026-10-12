@@ -6,6 +6,7 @@ import { api } from '../../api/client.js';
 import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatInt } from '../../lib/format.js';
+import { escapeHtml as esc } from '../../lib/html.js';
 import { useI18n } from '../../lib/i18n.jsx';
 
 const RISK = {
@@ -85,8 +86,9 @@ export default function SitesMapPage() {
       const group = L.layerGroup(); const latlngs = [];
       for (const p of points) {
         latlngs.push([p.lat, p.lng]);
+        // Popup en HTML : chaque donnée (nom, commune, antenne…) est échappée.
         L.circleMarker([p.lat, p.lng], { radius: 6, color: '#fff', weight: 1.5, fillColor: RISK[p.riskLevel]?.color || '#0f6cbd', fillOpacity: 0.9 })
-          .bindPopup(`<strong>${p.name}</strong><br>${p.commune || ''}${p.antenneName ? ` · ${p.antenneName}` : ''}<br>${tr('Risque : {level}', { level: RISK[p.riskLevel] ? tr(RISK[p.riskLevel].label) : p.riskLevel })}`).addTo(group);
+          .bindPopup(`<strong>${esc(p.name)}</strong><br>${esc(p.commune || '')}${p.antenneName ? ` · ${esc(p.antenneName)}` : ''}<br>${esc(tr('Risque : {level}', { level: RISK[p.riskLevel] ? tr(RISK[p.riskLevel].label) : p.riskLevel }))}`).addTo(group);
       }
       group.addTo(map); overlayRef.current = group;
       try { map.fitBounds(L.latLngBounds(latlngs).pad(0.2)); } catch { /* */ }
@@ -106,7 +108,7 @@ export default function SitesMapPage() {
         onEachFeature: (f, l) => {
           const d = byDistrict.get(normDistrict(f.properties.name));
           const cov = d && d.sites ? Math.round((d.visited / d.sites) * 100) : 0;
-          l.bindPopup(`<strong>${f.properties.name}</strong><br>${d ? `${tr('{n} site(s) · {p} % visités', { n: d.sites, p: cov })}<br>${tr('Élevé {e} · Moyen {m} · Faible {f}', { e: d.elevee, m: d.moyenne, f: d.faible })}` : tr('Aucun site référencé')}`);
+          l.bindPopup(`<strong>${esc(f.properties.name)}</strong><br>${d ? `${esc(tr('{n} site(s) · {p} % visités', { n: d.sites, p: cov }))}<br>${esc(tr('Élevé {e} · Moyen {m} · Faible {f}', { e: d.elevee, m: d.moyenne, f: d.faible }))}` : esc(tr('Aucun site référencé'))}`);
           l.on({ mouseover: () => l.setStyle({ weight: 2.5 }), mouseout: () => l.setStyle({ weight: 1 }) });
         },
       });

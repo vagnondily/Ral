@@ -6,6 +6,7 @@ import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, formatDateTime } from '../../lib/format.js';
+import { downloadCsv } from '../../lib/csv.js';
 import PlaceMatchQueue from './PlaceMatchQueue.jsx';
 
 /**
@@ -219,11 +220,9 @@ function CountryTab({ country, isAdmin, onChanged }) {
 function downloadCsvTemplate(levels, tr) {
   const labels = levels.length ? levels.map((l) => l.label) : ['Région', 'District', 'Commune', 'Fokontany'];
   const header = [...labels.flatMap((l) => [l, `${l} P-code`]), 'Latitude', 'Longitude'];
-  const example = labels.flatMap((l, i) => [`${tr('Exemple')} ${l}`, `MG${String(i + 1).repeat(2)}`]).concat(['-18.9', '47.5']);
-  const csv = `﻿${header.join(';')}\r\n${example.join(';')}\r\n`;
-  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-  const a = document.createElement('a'); a.href = url; a.download = 'Modele_localites.csv'; document.body.appendChild(a); a.click();
-  a.remove(); URL.revokeObjectURL(url);
+  const example = labels.flatMap((l, i) => [`${tr('Exemple')} ${l}`, `MG${String(i + 1).repeat(2)}`]).concat([-18.9, 47.5]);
+  // Libellés de niveaux saisis par l'utilisateur : écrivain CSV partagé (échappement + formules neutralisées).
+  downloadCsv('Modele_localites.csv', [header, example]);
 }
 
 /* ------------------------------------------------------------------ Répertoire */

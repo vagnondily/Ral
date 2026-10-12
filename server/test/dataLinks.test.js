@@ -2,7 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { classifyLink, onaApiOrigins, onaDataUrl, koboDataUrl, collectPages, normalizeOnaRecord, maxId } = require('../src/modules/monitoring/dataLinks');
 const { isPrivateIp, assertAllowedUrl, safeFetch } = require('../src/modules/monitoring/remoteFetch');
-const { nextFromLink } = require('../src/modules/monitoring/dataLinks.service');
+const { nextFromLink, linkError } = require('../src/modules/monitoring/dataLinks.service');
+const { FetchRefused } = require('../src/modules/monitoring/remoteFetch');
+const { badRequest, notFound, AppError } = require('../src/middleware/errors');
 
 test('lien Tableau WDC MoDA → open-data Ona (uuid extrait)', () => {
   const l = classifyLink('https://moda.wfp.org/tableau-web-data-connector/fb8e29158ebc45a9be122fa8caae6d0a');
@@ -79,4 +81,30 @@ test('safeFetch : redirection revalidée, token non transmis à un autre hôte, 
 test('en-tête Link : page suivante', () => {
   assert.equal(nextFromLink('<https://x.org/d?page=2>; rel="next", <https://x.org/d?page=9>; rel="last"', 'https://x.org/d'), 'https://x.org/d?page=2');
   assert.equal(nextFromLink(null, 'https://x.org'), null);
+});
+
+test('erreurs du lien : AppError (statusCode) transmise telle quelle, le reste traduit en 400 clair', () => {
+  // Erreur applicative explicite (ex. token Kobo manquant) : même objet, même message.
+  const tokenMissing = badRequest('Un token d\'API Kobo est requis pour ce lien.');
+  assert.equal(linkError(tokenMissing, 'kobo-api'), tokenMissing);
+  assert.equal(linkError(notFound('Formulaire introuvable'), 'file').statusCode, 404);
+  // Refus anti-SSRF ou HTTP distant : 400 qui reprend le motif.
+  const refused = linkError(new FetchRefused('Hôte « x » sur un réseau privé'), 'file');
+  assert.ok(refused instanceof AppError); assert.equal(refused.statusCode, 400);
+  assert.match(refused.message, /^Lien de données illisible \(Hôte « x » sur un réseau privé\)\. Vérifiez le lien\.$/);
+  // Une erreur réseau qui porte `status` (statut distant) n'est PAS prise pour une erreur applicative.
+  const remote = Object.assign(new Error('Forbidden'), { status: 403 });
+  const r = linkError(remote, 'kobo-api');
+  assert.equal(r.statusCode, 400); assert.match(r.message, /source injoignable.*et le token/);
+  // Codes réseau traduits en français, sans détail technique.
+  assert.match(linkError(Object.assign(new Error('connect ECONNREFUSED 1.2.3.4:443'), { code: 'ECONNREFUSED' }), 'file').message, /connexion refusée/);
+  assert.match(linkError(Object.assign(new Error('x'), { code: 'CERT_HAS_EXPIRED' }), 'file').message, /certificat du site invalide/);
+  assert.doesNotMatch(linkError(new Error('connect ECONNREFUSED 10.0.0.1:5432'), 'file').message, /ECONNREFUSED|10\.0\.0\.1/);
+  // Une erreur interne (500) n'est jamais renvoyée telle quelle.
+  assert.equal(linkError(new AppError(500, 'interne'), 'file').statusCode, 400);
+});
+
+test('erreurs du lien : pas de double point quand le motif de refus finit par un point', () => {
+  const e = linkError(new FetchRefused('Seuls les liens http(s) sont acceptés.'), 'file');
+  assert.equal(e.message, 'Lien de données illisible (Seuls les liens http(s) sont acceptés). Vérifiez le lien.');
 });
