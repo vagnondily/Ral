@@ -101,4 +101,16 @@ function parseXlsformRows(surveyRows, choicesRows = [], settingsRows = []) {
   return { title, formId, fields, choices };
 }
 
-module.exports = { parseXlsformRows, cellText, headerIndex };
+/**
+ * Un classeur dont les feuilles comptent « survey » et « choices » (ou
+ * « settings ») est la DÉFINITION d'un formulaire, pas un export de données :
+ * importé comme données, il produirait une « soumission » par ligne de
+ * questionnaire (512 pour la fiche GD, 698 pour MIARO).
+ * @param {string[]} sheetNames
+ */
+function looksLikeXlsform(sheetNames) {
+  const names = new Set((sheetNames || []).map((n) => String(n || '').trim().toLowerCase()));
+  return names.has('survey') && (names.has('choices') || names.has('settings'));
+}
+
+module.exports = { parseXlsformRows, cellText, headerIndex, looksLikeXlsform };
