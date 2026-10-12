@@ -16,15 +16,17 @@ router.use(requireAuth);
 const WRITE = requireRole('admin', 'manager');
 const t = (req) => req.auth.tenantId;
 const uid = (req) => req.auth.userId;
+// Langue du rendu (libellé de période, bulletin auto-rédigé) : celle de l'interface.
+const lang = (req) => ({ lang: req.query.lang === 'en' ? 'en' : 'fr' });
 const uuid = (v) => { if (!z.string().uuid().safeParse(v).success) throw badRequest('Identifiant invalide'); return v; };
 
 router.get('/catalog', (req, res) => res.json(service.catalog()));
 
 // Rendu des données d'un rapport (non enregistré ou en cours d'édition).
-router.post('/render', asyncHandler(async (req, res) => res.json(await service.renderReport(t(req), req.body))));
+router.post('/render', asyncHandler(async (req, res) => res.json(await service.renderReport(t(req), req.body, lang(req)))));
 
 router.post('/export.xlsx', asyncHandler(async (req, res) => {
-  const wb = await service.exportXlsx(t(req), req.body);
+  const wb = await service.exportXlsx(t(req), req.body, lang(req));
   const name = String(req.body && req.body.title || 'Rapport').replace(/[^\w\- ]+/g, '').trim().slice(0, 60) || 'Rapport';
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${name}.xlsx"`);
@@ -47,7 +49,7 @@ router.delete('/templates/:id', WRITE, asyncHandler(async (req, res) => res.json
 // ---- Documents ---------------------------------------------------------------------
 router.get('/documents', asyncHandler(async (req, res) => res.json(await repo.listDocuments(t(req)))));
 router.get('/documents/:id', asyncHandler(async (req, res) => res.json(await repo.getDocument(t(req), uuid(req.params.id)))));
-router.get('/documents/:id/data', asyncHandler(async (req, res) => res.json(await service.documentData(t(req), uuid(req.params.id)))));
+router.get('/documents/:id/data', asyncHandler(async (req, res) => res.json(await service.documentData(t(req), uuid(req.params.id), lang(req)))));
 router.post('/documents', WRITE, asyncHandler(async (req, res) => {
   const content = service.validate(req.body && req.body.content);
   const templateKey = typeof req.body.templateKey === 'string' ? req.body.templateKey.slice(0, 60) : null;
@@ -59,7 +61,7 @@ router.put('/documents/:id', WRITE, asyncHandler(async (req, res) => {
   res.json(await repo.updateDocument(t(req), uuid(req.params.id), { content, version: version(req.body) }, uid(req)));
 }));
 router.post('/documents/:id/finalize', WRITE, asyncHandler(async (req, res) =>
-  res.json(await service.finalize(t(req), uuid(req.params.id), version(req.body), uid(req)))));
-router.delete('/documents/:id', WRITE, asyncHandler(async (req, res) => res.json(await repo.deleteDocument(t(req), uuid(req.params.id)))));
+  res.json(await service.finalize(t(req), uuid(req.params.id), version(req.body), uid(req), lang(req)))));
+router.delete('/documents/:id', WRITE, asyncHandler(async (req, res) => res.json(await repo.deleteDocument(t(req), uuid(req.params.id), { allowFinal: req.auth.role === 'admin' }))));
 
 module.exports = router;

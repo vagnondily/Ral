@@ -146,22 +146,39 @@ function repeatItems(over, sources) {
  * Bulletin rédigé automatiquement (texte riche) à partir des chiffres : le
  * point de départ que l'utilisateur complète ou réécrit dans l'éditeur.
  */
-function bulletinDoc(kpis, sources, periodText) {
+// Phrases du bulletin auto-rédigé, par langue du rapport.
+const BULLETIN_TEXT = {
+  fr: {
+    intro: (p) => `Sur la période ${p}, `, sites: (n) => `${n} site(s)`, collected: ' ont fait l\'objet d\'au moins une collecte',
+    coverage: (n) => `, soit une couverture de ${n} %`, visits: (d, p) => `. ${d} visite(s) réalisée(s) sur ${p} planifiée(s)`,
+    conformity: 'L\'indice de conformité moyen s\'établit à ', weak: 'Domaines sous 60 % : ', lowCov: 'Couverture insuffisante (< 30 %) : ',
+    pctSep: ' : ', locale: 'fr-FR',
+  },
+  en: {
+    intro: (p) => `Over the period ${p}, `, sites: (n) => `${n} site(s)`, collected: ' had at least one data collection',
+    coverage: (n) => `, i.e. a coverage of ${n} %`, visits: (d, p) => `. ${d} visit(s) carried out out of ${p} planned`,
+    conformity: 'The average compliance index stands at ', weak: 'Domains below 60 %: ', lowCov: 'Insufficient coverage (< 30 %): ',
+    pctSep: ': ', locale: 'en-GB',
+  },
+};
+
+function bulletinDoc(kpis, sources, periodText, lang = 'fr') {
+  const T = BULLETIN_TEXT[lang] || BULLETIN_TEXT.fr;
   const seg = (x, o = {}) => ({ x, ...o });
-  const n = (v) => (v == null ? '—' : Number(v).toLocaleString('fr-FR'));
+  const n = (v) => (v == null ? '—' : Number(v).toLocaleString(T.locale));
   const nodes = [];
-  nodes.push({ t: 'p', c: [seg(`Sur la période ${periodText}, `), seg(`${n(kpis.sites_visited)} site(s)`, { b: true }),
-    seg(' ont fait l\'objet d\'au moins une collecte'), seg(kpis.coverage != null ? `, soit une couverture de ${n(kpis.coverage)} %` : ''),
-    seg(`. ${n(kpis.visits_done)} visite(s) réalisée(s) sur ${n(kpis.visits_planned)} planifiée(s)`),
+  nodes.push({ t: 'p', c: [seg(T.intro(periodText)), seg(T.sites(n(kpis.sites_visited)), { b: true }),
+    seg(T.collected), seg(kpis.coverage != null ? T.coverage(n(kpis.coverage)) : ''),
+    seg(T.visits(n(kpis.visits_done), n(kpis.visits_planned))),
     seg(kpis.execution_rate != null ? ` (${n(kpis.execution_rate)} %).` : '.')] });
   if (kpis.conformity != null) {
-    nodes.push({ t: 'p', c: [seg('L\'indice de conformité moyen s\'établit à '), seg(`${n(kpis.conformity)} %`, { b: true }), seg('.')] });
+    nodes.push({ t: 'p', c: [seg(T.conformity), seg(`${n(kpis.conformity)} %`, { b: true }), seg('.')] });
   }
   const forms = formsOf(sources.monitoring).filter((f) => f.visits > 0);
-  const weak = forms.flatMap((f) => f.dims.filter((d) => d.score < 60).map((d) => `${d.name} (${f.label} : ${d.score} %)`)).slice(0, 5);
-  if (weak.length) nodes.push({ t: 'p', c: [seg('Domaines sous 60 % : ', { b: true })] }, { t: 'ul', items: weak.map((w) => [seg(w)]) });
+  const weak = forms.flatMap((f) => f.dims.filter((d) => d.score < 60).map((d) => `${d.name} (${f.label}${T.pctSep}${d.score} %)`)).slice(0, 5);
+  if (weak.length) nodes.push({ t: 'p', c: [seg(T.weak, { b: true })] }, { t: 'ul', items: weak.map((w) => [seg(w)]) });
   const lowCov = forms.filter((f) => f.sitesActive && pct(f.sitesVisited, f.sitesActive) < 30).map((f) => `${f.label} (${pct(f.sitesVisited, f.sitesActive)} %)`);
-  if (lowCov.length) nodes.push({ t: 'p', c: [seg('Couverture insuffisante (< 30 %) : ', { b: true }), seg(lowCov.join(', '))] });
+  if (lowCov.length) nodes.push({ t: 'p', c: [seg(T.lowCov, { b: true }), seg(lowCov.join(', '))] });
   return { nodes };
 }
 

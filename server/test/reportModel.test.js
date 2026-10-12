@@ -36,6 +36,11 @@ test('libellé de période', () => {
   assert.equal(periodLabel({ from: '2026-08', to: '2026-08' }), 'Août 2026');
   assert.equal(periodLabel({ from: '2026-01', to: '2026-12' }), 'Année 2026');
   assert.equal(periodLabel({ from: '2025-10', to: '2026-03' }), 'Octobre 2025 à mars 2026');
+  // Langue de l'interface anglaise
+  assert.equal(periodLabel({ from: '2026-01', to: '2026-05' }, 'en'), 'January to May 2026');
+  assert.equal(periodLabel({ from: '2026-08', to: '2026-08' }, 'en'), 'August 2026');
+  assert.equal(periodLabel({ from: '2026-01', to: '2026-12' }, 'en'), 'Year 2026');
+  assert.equal(periodLabel({ from: '2025-10', to: '2026-03' }, 'en'), 'October 2025 to March 2026');
 });
 
 test('variables et besoins en données (dédupliqués)', () => {

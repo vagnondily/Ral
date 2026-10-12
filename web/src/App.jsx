@@ -14,6 +14,7 @@ import DashboardBIPage from './pages/dashboard/DashboardBIPage.jsx';
 import DashboardCoveragePage from './pages/dashboard/DashboardCoveragePage.jsx';
 import AlertsPage from './pages/dashboard/AlertsPage.jsx';
 import ReportingPage from './pages/dashboard/ReportingPage.jsx';
+import ReportDesignerPage from './pages/reports/ReportDesignerPage.jsx';
 import PlanningPage from './pages/tpm/PlanningPage.jsx';
 import ProcessMonitoringPage from './pages/monitoring/ProcessMonitoringPage.jsx';
 import ProcessDashboardPage from './pages/monitoring/ProcessDashboardPage.jsx';
@@ -104,7 +105,8 @@ function Workspace() {
       {route.module === 'dashboard' && route.sub === 'consolidation' && <ConsolidationPage onOpenContract={openContract} />}
       {route.module === 'dashboard' && route.sub === 'couverture' && <DashboardCoveragePage onNavigate={navigate} />}
       {route.module === 'alertes' && <AlertsPage onNavigate={navigate} onOpenContract={openContract} />}
-      {route.module === 'reporting' && <ReportingPage onOpenContract={openContract} />}
+      {route.module === 'reporting' && route.sub === 'concepteur' && <ReportDesignerPage canEdit={canEdit} isAdmin={user.role === 'admin'} />}
+      {route.module === 'reporting' && route.sub !== 'concepteur' && <ReportingPage onOpenContract={openContract} />}
       {route.module === 'tpm' && route.sub === 'budget' && <PlanningPage canEdit={canEdit} onNavigate={navigate} />}
       {route.module === 'processus' && route.sub === 'synthese' && <ProcessDashboardPage onNavigate={navigate} />}
       {route.module === 'processus' && route.sub === 'donnees' && <ProcessMonitoringPage canEdit={canEdit} />}

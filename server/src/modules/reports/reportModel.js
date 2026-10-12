@@ -142,14 +142,21 @@ const parseReport = (input) => reportDoc.parse(input);
 const safeParseReport = (input) => reportDoc.safeParse(input);
 
 // ---- Variables -------------------------------------------------------------------
-const MONTHS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
-function periodLabel({ from, to }) {
-  const lab = (m) => { const [y, mm] = m.split('-').map(Number); return { y, name: MONTHS_FR[mm - 1] }; };
+const MONTHS = {
+  fr: ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'],
+  en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+};
+/** Libellé de période dans la langue du rapport (fr par défaut, en). */
+function periodLabel({ from, to }, lang = 'fr') {
+  const en = lang === 'en';
+  const names = en ? MONTHS.en : MONTHS.fr;
+  const lab = (m) => { const [y, mm] = m.split('-').map(Number); return { y, name: names[mm - 1] }; };
   const a = lab(from); const b = lab(to);
-  if (from === to) return `${a.name[0].toUpperCase()}${a.name.slice(1)} ${a.y}`;
-  if (a.y === b.y && from.endsWith('-01') && to.endsWith('-12')) return `Année ${a.y}`;
   const cap = (s) => s[0].toUpperCase() + s.slice(1);
-  return a.y === b.y ? `${cap(a.name)} à ${b.name} ${a.y}` : `${cap(a.name)} ${a.y} à ${b.name} ${b.y}`;
+  const sep = en ? 'to' : 'à';
+  if (from === to) return `${cap(a.name)} ${a.y}`;
+  if (a.y === b.y && from.endsWith('-01') && to.endsWith('-12')) return `${en ? 'Year' : 'Année'} ${a.y}`;
+  return a.y === b.y ? `${cap(a.name)} ${sep} ${b.name} ${a.y}` : `${cap(a.name)} ${a.y} ${sep} ${b.name} ${b.y}`;
 }
 
 /** Variables disponibles dans le texte : période + chiffres clés calculés. */
@@ -158,8 +165,8 @@ const VARIABLES = {
 };
 
 /** Valeurs des variables pour un rapport (kpis = chiffres clés déjà calculés). */
-function variableValues(period, kpis = {}, today = new Date()) {
-  const out = { periode: periodLabel(period), date_edition: today.toISOString().slice(0, 10) };
+function variableValues(period, kpis = {}, today = new Date(), lang = 'fr') {
+  const out = { periode: periodLabel(period, lang), date_edition: today.toISOString().slice(0, 10) };
   for (const k of Object.keys(KPIS)) if (kpis[k] != null) out[k] = kpis[k];
   return out;
 }

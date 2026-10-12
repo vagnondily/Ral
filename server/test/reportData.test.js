@@ -72,10 +72,18 @@ test('bulletin auto : phrases chiffrées, domaines faibles et couverture insuffi
   const text = JSON.stringify(doc);
   assert.match(text, /773 site\(s\)/); assert.match(text, /D6 Gouvernance \(SMP : 52 %\)/);
   assert.match(text, /MIARO \(12.3 %\)/);
+  const en = JSON.stringify(bulletinDoc(computeKpis(SOURCES, {}), SOURCES, 'January to March 2026', 'en'));
+  assert.match(en, /Over the period January to March 2026/); assert.match(en, /773 site\(s\)/);
+  assert.match(en, /D6 Gouvernance \(SMP: 52 %\)/); assert.doesNotMatch(en, /Sur la période|Domaines sous/);
 });
 
 test('sources requises : seulement celles des blocs présents', () => {
   assert.deepEqual(requiredSources([{ type: 'table', params: { dataset: 'pdd_by_month' } }]), { monitoring: false, field: false, budget: false, pdd: true });
   assert.deepEqual(requiredSources([{ type: 'kpis', params: { metrics: ['consumption'] } }]), { monitoring: false, field: false, budget: true, pdd: false });
   assert.equal(requiredSources([{ type: 'heading', params: { text: 'x' } }]).monitoring, false);
+  // La couverture prend ses sites actifs au terrain quand les fiches n'ont pas de catégorie d'activité.
+  assert.deepEqual(requiredSources([{ type: 'kpis', params: { metrics: ['coverage'] } }]), { monitoring: true, field: true, budget: false, pdd: false });
+  // Un chiffre inséré comme variable dans un texte charge sa source.
+  const text = { type: 'text', params: { doc: { nodes: [{ t: 'p', c: [{ x: 'Budget : ' }, { x: '', v: 'budget_total' }] }, { t: 'ul', items: [[{ x: '', v: 'pdd_food' }]] }] } } };
+  assert.deepEqual(requiredSources([text]), { monitoring: false, field: false, budget: true, pdd: true });
 });

@@ -23,20 +23,34 @@ function validate(input) {
   return r.data;
 }
 
-/** Sources requises par les blocs (dépliant les blocs répétés). */
+// Variables insérées dans un texte riche ({ nodes: [{ c: [{ v }] | items: [[{ v }]] }] }).
+function docVariables(doc) {
+  const out = [];
+  for (const n of (doc && doc.nodes) || []) {
+    for (const s of [...(n.c || []), ...(n.items || []).flat()]) if (s && s.v) out.push(s.v);
+  }
+  return out;
+}
+
+/**
+ * Sources requises par les blocs (dépliant les blocs répétés), y compris les
+ * chiffres insérés comme variables dans les textes. La couverture a besoin du
+ * terrain : sans catégorie d'activité sur les fiches, ses sites actifs
+ * viennent des bureaux.
+ */
 function requiredSources(blocks) {
   const need = { monitoring: false, field: false, budget: false, pdd: false };
+  const metrics = (m) => {
+    if (m.some((k) => ['sites_active', 'sites_visited', 'coverage', 'submissions', 'conformity'].includes(k))) need.monitoring = true;
+    if (m.some((k) => ['sites_active', 'coverage', 'visits_done', 'visits_planned', 'execution_rate'].includes(k))) need.field = true;
+    if (m.some((k) => k.startsWith('budget') || k === 'consumption')) need.budget = true;
+    if (m.some((k) => k.startsWith('pdd'))) need.pdd = true;
+  };
   const walk = (b) => {
     if (b.type === 'repeat') { need.monitoring = true; need.field = true; b.params.blocks.forEach(walk); return; }
-    if (b.type === 'kpis' || b.type === 'bulletin') {
-      const m = b.type === 'bulletin' ? ['sites_visited', 'conformity', 'visits_done'] : b.params.metrics;
-      if (m.some((k) => ['sites_active', 'sites_visited', 'coverage', 'submissions', 'conformity'].includes(k))) need.monitoring = true;
-      if (m.some((k) => ['sites_active', 'visits_done', 'visits_planned', 'execution_rate'].includes(k))) need.field = true;
-      if (m.some((k) => k.startsWith('budget') || k === 'consumption')) need.budget = true;
-      if (m.some((k) => k.startsWith('pdd'))) need.pdd = true;
-      if (b.type === 'bulletin') { need.monitoring = true; need.field = true; }
-      return;
-    }
+    if (b.params && b.params.doc) metrics(docVariables(b.params.doc));
+    if (b.type === 'kpis') { metrics(b.params.metrics); return; }
+    if (b.type === 'bulletin') { need.monitoring = true; need.field = true; return; }
     const ds = b.params && b.params.dataset;
     if (!ds) return;
     if (MONITORING_SETS.has(ds)) need.monitoring = true;
@@ -58,7 +72,7 @@ async function loadSources(tenantId, period, need) {
   return { monitoring, field, budget, pdd };
 }
 
-function renderBlock(b, sources, filters, period, ptext) {
+function renderBlock(b, sources, filters, period, ptext, lang) {
   const f = { ...(b.params.filters || {}), ...filters };
   switch (b.type) {
     case 'table': case 'chart': {
@@ -70,7 +84,7 @@ function renderBlock(b, sources, filters, period, ptext) {
       const k = computeKpis(sources, f);
       return { values: Object.fromEntries(b.params.metrics.map((m) => [m, k[m] ?? null])) };
     }
-    case 'bulletin': return { doc: b.params.doc || bulletinDoc(computeKpis(sources, f), sources, ptext), generated: !b.params.doc };
+    case 'bulletin': return { doc: b.params.doc || bulletinDoc(computeKpis(sources, f), sources, ptext, lang), generated: !b.params.doc };
     default: return null;
   }
 }
@@ -79,37 +93,38 @@ function renderBlock(b, sources, filters, period, ptext) {
  * Données d'un rapport : { periodLabel, variables, blocks: { [id]: data },
  * repeats: { [id]: [{ key, label, blocks: { [childId]: data } }] } }.
  */
-async function renderReport(tenantId, input) {
+async function renderReport(tenantId, input, { lang = 'fr' } = {}) {
   const doc = validate(input);
   const period = doc.period;
   const sources = await loadSources(tenantId, period, requiredSources(doc.blocks));
-  const ptext = periodLabel(period);
+  const ptext = periodLabel(period, lang);
   const out = { periodLabel: ptext, blocks: {}, repeats: {} };
   for (const b of doc.blocks) {
     if (b.type === 'repeat') {
       out.repeats[b.id] = repeatItems(b.params.over, sources).map((it) => ({
         key: it.key, label: it.label,
-        blocks: Object.fromEntries(b.params.blocks.map((c) => [c.id, renderBlock(c, sources, it.filters, period, ptext)]).filter(([, v]) => v != null)),
+        blocks: Object.fromEntries(b.params.blocks.map((c) => [c.id, renderBlock(c, sources, it.filters, period, ptext, lang)]).filter(([, v]) => v != null)),
       }));
     } else {
-      const d = renderBlock(b, sources, {}, period, ptext);
+      const d = renderBlock(b, sources, {}, period, ptext, lang);
       if (d != null) out.blocks[b.id] = d;
     }
   }
-  out.variables = variableValues(period, computeKpis(sources, {}));
+  out.variables = variableValues(period, computeKpis(sources, {}), new Date(), lang);
   return out;
 }
 
 // ---- Documents ----------------------------------------------------------------------
-async function documentData(tenantId, id) {
+async function documentData(tenantId, id, opts) {
   const d = await repo.getDocument(tenantId, id);
   if (d.status === 'final') return d.snapshot;
-  return renderReport(tenantId, d.content);
+  return renderReport(tenantId, d.content, opts);
 }
 
-async function finalize(tenantId, id, version, userId) {
+// Le snapshot figé garde la langue dans laquelle le rapport a été finalisé.
+async function finalize(tenantId, id, version, userId, opts) {
   const d = await repo.getDocument(tenantId, id);
-  const snapshot = await renderReport(tenantId, d.content);
+  const snapshot = await renderReport(tenantId, d.content, opts);
   return repo.finalizeDocument(tenantId, id, { version, snapshot }, userId);
 }
 
@@ -144,9 +159,9 @@ function addTable(wb, title, data) {
   ws.views = [{ state: 'frozen', ySplit: 3 }];
 }
 
-async function exportXlsx(tenantId, input) {
+async function exportXlsx(tenantId, input, opts) {
   const doc = validate(input);
-  const data = await renderReport(tenantId, doc);
+  const data = await renderReport(tenantId, doc, opts);
   const wb = new ExcelJS.Workbook(); wb.creator = 'MEMS 2.0';
   // 1re passe : chiffres clés et tableaux à écrire (dans l'ordre du rapport).
   const kpiRows = []; const tables = [];

@@ -67,7 +67,7 @@ export const NAV = [
           { id: 'couverture', label: 'Couverture & performance' },
         ],
       },
-      { id: 'reporting', label: 'Reporting', icon: ChartColumn, subs: [{ id: 'synthese', label: 'Rapport de synthèse' }] },
+      { id: 'reporting', label: 'Reporting', icon: ChartColumn, subs: [{ id: 'synthese', label: 'Rapport de synthèse' }, { id: 'concepteur', label: 'Concepteur de rapport' }] },
       { id: 'alertes', label: 'Alertes', icon: Bell, subs: [{ id: 'centre', label: "Centre d'alertes" }] },
     ],
   },

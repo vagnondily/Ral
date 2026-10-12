@@ -2,7 +2,7 @@
 // missing key), English is offered via the user menu. Translation is applied to
 // the application chrome (navigation, header, user menu, login) and extends into
 // the feature modules progressively, module by module.
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import EN_PHRASES from '../locales/en.js';
 import { setFormatLocale } from './format.js';
 
@@ -125,6 +125,8 @@ function storedLang() {
 
 export function I18nProvider({ children }) {
   const [lang, setLangState] = useState(storedLang);
+  // Langue du document dès le chargement (lecteurs d'écran, formats, API du concepteur de rapport).
+  useEffect(() => { document.documentElement.setAttribute('lang', lang); }, [lang]);
   const setLang = useCallback((l) => {
     setFormatLocale(l); // formats (nombres, mois, dates) avant le nouveau rendu
     setLangState(l);

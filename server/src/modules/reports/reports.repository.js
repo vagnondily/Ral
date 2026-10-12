@@ -1,5 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
-const { conflict, notFound, badRequest } = require('../../middleware/errors');
+const { conflict, notFound, badRequest, forbidden } = require('../../middleware/errors');
 
 /**
  * Concepteur de rapport — persistance des modèles personnalisés et des
@@ -105,10 +105,13 @@ async function finalizeDocument(tenantId, id, { version, snapshot }, userId) {
   });
 }
 
-async function deleteDocument(tenantId, id) {
+/** Un rapport finalisé (chiffres figés, potentiellement diffusé) ne se supprime que par un administrateur. */
+async function deleteDocument(tenantId, id, { allowFinal = false } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
-    const { rowCount } = await client.query('DELETE FROM report_documents WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
-    if (!rowCount) throw notFound('Rapport introuvable');
+    const { rows } = await client.query('SELECT status FROM report_documents WHERE tenant_id = $1 AND id = $2 FOR UPDATE', [tenantId, id]);
+    if (!rows.length) throw notFound('Rapport introuvable');
+    if (rows[0].status === 'final' && !allowFinal) throw forbidden('Rapport finalisé : seul un administrateur peut le supprimer.');
+    await client.query('DELETE FROM report_documents WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
     return { deleted: 1 };
   });
 }
