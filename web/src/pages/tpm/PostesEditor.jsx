@@ -127,7 +127,7 @@ export default function PostesEditor({ rows, onChange, readOnly = false, funderL
                         </td>
                         <td><input className="input" style={{ width: 90 }} value={r.unit} disabled={readOnly} placeholder={tr('jour')} onChange={(e) => setRow(r.key, { unit: e.target.value })} /></td>
                         <td className="num"><input className="input tabular" style={{ width: 72, textAlign: 'right' }} inputMode="decimal" value={r.unitCount} disabled={readOnly} onChange={(e) => setRow(r.key, { unitCount: e.target.value })} /></td>
-                        <td className="num" style={{ minWidth: 130 }}><MoneyInput value={r.unitCost === '' ? '' : Number(r.unitCost)} onChange={(v) => setRow(r.key, { unitCost: v })} /></td>
+                        <td className="num" style={{ minWidth: 130 }}><MoneyInput value={r.unitCost === '' ? '' : Number(r.unitCost)} disabled={readOnly} onChange={(v) => setRow(r.key, { unitCost: v })} /></td>
                         <td className="num mono">{formatAr(posteAmount(r))}</td>
                         <td>
                           <select className={`select ${r.activityId ? '' : 'is-empty'}`} style={{ minWidth: 130 }} value={r.activityId} disabled={readOnly} onChange={(e) => setRow(r.key, { activityId: e.target.value })} aria-label={tr('Activité 1')}>

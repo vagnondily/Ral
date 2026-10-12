@@ -254,12 +254,12 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
           ) : (
             <div className="form-grid">
               <Field label={tr('Budget prévu du mois (Ar)')} hint={contract ? tr('Barème mensuel : {amount}', { amount: formatAr(contract.monthlyCeiling) }) : tr('Total ÷ nombre de mois.')}>
-                <MoneyInput value={head.plannedAmount} onChange={(v) => setHead({ ...head, plannedAmount: v })} />
+                <MoneyInput value={head.plannedAmount} disabled={readOnly} onChange={(v) => setHead({ ...head, plannedAmount: v })} />
               </Field>
               <Field label={tr('Nom du document')} hint={tr("Métadonnée (fichier non stocké pour l'instant).")}>
-                <input className="input" value={head.documentName} onChange={(e) => setHead({ ...head, documentName: e.target.value })} placeholder={tr('Rapport_technique_AINA_2026-06.pdf')} />
+                <input className="input" value={head.documentName} disabled={readOnly} onChange={(e) => setHead({ ...head, documentName: e.target.value })} placeholder={tr('Rapport_technique_AINA_2026-06.pdf')} />
               </Field>
-              <Field label={tr('Référence')}><input className="input mono" value={head.reference} onChange={(e) => setHead({ ...head, reference: e.target.value })} /></Field>
+              <Field label={tr('Référence')}><input className="input mono" value={head.reference} disabled={readOnly} onChange={(e) => setHead({ ...head, reference: e.target.value })} /></Field>
             </div>
           )}
         </div>
