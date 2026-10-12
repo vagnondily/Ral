@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 16:05 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 12/10/2026 16:25 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -209,6 +209,11 @@ _Dernière mise à jour : 12/10/2026 16:05 UTC_ — la branche `main` reçoit ch
   - une **correction** (choisir un autre bureau / partenaire / agent, ou « ne pas relier ») ne vaut que **pour cette fiche** — le même code peut désigner autre chose ailleurs — et s'applique **aussitôt aux soumissions déjà reçues** ; « Automatique » annule la correction ;
   - les soumissions portent maintenant le partenaire et l'agent MEMS reconnus, à côté des valeurs brutes (migration 059 ; réparation au démarrage pour les données déjà importées).
   - Sur votre fiche GD : les 7 codes de bureau sont reliés (100 %) ; « ONG AINA » est relié automatiquement ; « YP » est proposé pour YPA ; TOMPY, MAHAVOTSE et LALANA ne sont pas encore des partenaires dans MEMS (à créer dans Partenaires & TPM, puis ils se relieront seuls).
-- **16:05** 🔄 **Relecture adverse** des lots publiés cet après-midi (garde des imports Excel, éditeur de calculs, assistant d'import, correspondances) confiée à un agent indépendant ; ses constats confirmés seront corrigés avant la suite.
+- **16:05** ✅ **Relecture adverse** des lots publiés cet après-midi terminée : **11 défauts confirmés** (chacun reproduit par l'agent sur une base jetable, la base de dev intacte).
+- **16:25** 🔄 **Correction des 11 constats**, du plus grave au moins grave :
+  - **2 graves** : un petit `.xlsx` (6 à 900 Ko) pouvait encore contourner la garde des imports Excel et arrêter l'API (zone fusionnée écrite autrement — guillemets simples, espaces, entités, plus de 7 chiffres —, feuille au chemin inhabituel, ou classeur à plus de 10 000 entrées qui sautait la garde) ;
+  - **moyen-grave** : deux autres formes de classeur minuscule épuisaient la mémoire (plage de colonnes géante, une seule cellule tout en bas d'une feuille) ;
+  - **moyens** : un code d'enquêteur relié à l'agent d'un autre partenaire ; l'aperçu de formule voyait les champs calculés définis après lui ; une valeur vide comparée donnait vrai ou faux au lieu de vide (des non-réponses comptées « oui ») ;
+  - **mineurs** : « Non » / « NON » / « faux » comptés comme vrai dans les formules, un indicateur nombre ou somme sans réponse classé au lieu de « non évalué », compte rendu d'import qui comptait les doublons du fichier comme « mis à jour », limites de décompression configurées ignorées par la plupart des imports Excel, position d'erreur décalée par des espaces en tête, nom de fichier avec « ’ » ou « – » qui affichait « Serveur injoignable ».
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
