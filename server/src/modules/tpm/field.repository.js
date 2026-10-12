@@ -745,8 +745,110 @@ async function setPlannedMonths(tenantId, userId, { year, changes }) {
   });
 }
 
+// ---- Registre « Locations Management » : export / import Excel ---------------
+const SITE_UPD_COLS = ['location_id', 'name', 'poi_subtype', 'activity', 'field_office_id', 'adm1', 'adm2', 'adm3', 'district', 'commune',
+  'urban_area', 'gps_lat', 'gps_lng', 'security_situation', 'programme_synergies', 'modality_type', 'beneficiary_number', 'new_partner',
+  'experienced_partner', 'last_visit_date', 'issues_process', 'issues_partner_report', 'issues_cfm', 'fraud_suspected'];
+const SITE_UPD_TYPES = ['text', 'text', 'text', 'text', 'uuid', 'text', 'text', 'text', 'text', 'text', 'text', 'numeric', 'numeric',
+  'smallint', 'smallint', 'text', 'int', 'smallint', 'smallint', 'date', 'smallint', 'smallint', 'smallint', 'smallint'];
+const siteVals = (r) => [r.locationId, r.name, r.poiSubtype, r.activity, r.officeId, r.admin1, r.admin2, r.admin3, r.admin2, r.admin3,
+  r.urbanArea, r.gpsLat, r.gpsLng, r.security, r.synergies, r.modalityType, r.beneficiaryNumber, r.newPartner, r.experiencedPartner,
+  r.lastVisitDate, r.issuesProcess, r.issuesPartnerReport, r.issuesCFM, r.fraud];
+
+/** Données d'export du registre pour un exercice (sites + statuts + visites + bureaux). */
+async function locationsExportData(tenantId, { year }) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: sites } = await client.query(
+      `SELECT s.id, s.location_id AS "locationId", s.name, s.poi_subtype AS "poiSubtype", s.activity,
+              o.name AS "officeName", s.adm1 AS admin1, COALESCE(s.adm2, s.district) AS admin2, COALESCE(s.adm3, s.commune) AS admin3,
+              s.urban_area AS "urbanArea", s.gps_lat::float8 AS "gpsLat", s.gps_lng::float8 AS "gpsLng", s.security_situation AS security,
+              s.programme_synergies AS synergies, s.modality_type AS "modalityType", s.beneficiary_number AS "beneficiaryNumber",
+              s.new_partner AS "newPartner", s.experienced_partner AS "experiencedPartner", to_char(s.last_visit_date, 'YYYY-MM-DD') AS "lastVisitDate",
+              s.issues_process AS "issuesProcess", s.issues_partner_report AS "issuesPartnerReport", s.issues_cfm AS "issuesCFM", s.fraud_suspected AS fraud,
+              (SELECT json_object_agg(ms.month, ms.active) FROM site_month_status ms WHERE ms.site_id = s.id AND ms.year = $2) AS "monthStatus",
+              (SELECT json_object_agg(extract(month FROM v.period_month)::int, v.status) FROM site_visits v
+                WHERE v.tenant_id = s.tenant_id AND v.site_id = s.id AND v.status <> 'annule' AND extract(year FROM v.period_month) = $2) AS visits
+         FROM sites s LEFT JOIN field_offices o ON o.id = s.field_office_id
+        WHERE s.tenant_id = $1 ORDER BY s.location_id NULLS LAST, s.district, s.commune, s.name`, [tenantId, year]);
+    const { rows: offices } = await client.query(
+      `SELECT o.name, o.code, p.code AS "parentCode" FROM field_offices o LEFT JOIN field_offices p ON p.id = o.parent_id
+        WHERE o.tenant_id = $1 AND o.active ORDER BY o.code`, [tenantId]);
+    return { sites: sites.map((x) => ({ ...x, finalScore: scoreSite(x, {}).finalScore })), offices };
+  });
+}
+
+/**
+ * Import du registre (lignes déjà validées par parseLocationsWorkbook).
+ * Rapproche par ID L### puis par district + commune + nom ; `commit=false` =
+ * aperçu (rien n'est écrit). En écriture : mises à jour, créations, statuts
+ * mensuels et mois prévus — requêtes multi-lignes, une seule transaction.
+ */
+async function importLocations(tenantId, userId, { year, rows }, { commit = false } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: existing } = await client.query('SELECT id, code, location_id FROM sites WHERE tenant_id = $1', [tenantId]);
+    const byLoc = new Map(existing.filter((e) => e.location_id).map((e) => [e.location_id, e.id]));
+    const byCode = new Map(existing.map((e) => [e.code, e.id]));
+    let nextNum = existing.reduce((m, e) => Math.max(m, Number(String(e.location_id || '').slice(1)) || 0), 0);
+    const plan = rows.map((r) => {
+      const code = siteCode({ district: r.admin2 || '', commune: r.admin3 || '', name: r.name });
+      const id = (r.locationId && byLoc.get(r.locationId)) || byCode.get(code) || null;
+      return { ...r, code, id };
+    });
+    const toUpdate = plan.filter((p) => p.id); const toCreate = plan.filter((p) => !p.id);
+    const summary = { read: rows.length, updated: toUpdate.length, created: toCreate.length };
+    if (!commit) return { ...summary, committed: false };
+
+    for (const p of toCreate) if (!p.locationId) { nextNum += 1; p.locationId = `L${String(nextNum).padStart(3, '0')}`; }
+    const CH = 400;
+    for (let i = 0; i < toUpdate.length; i += CH) {
+      const slice = toUpdate.slice(i, i + CH); const params = [tenantId];
+      const tuples = slice.map((p) => {
+        const vals = [p.id, ...siteVals(p)]; const types = ['uuid', ...SITE_UPD_TYPES];
+        return `(${vals.map((v, k) => { params.push(v ?? null); return `$${params.length}::${types[k]}`; }).join(',')})`;
+      });
+      await client.query(
+        `UPDATE sites s SET ${SITE_UPD_COLS.map((c) => (c === 'location_id' ? 'location_id = COALESCE(v.location_id, s.location_id)' : `${c} = v.${c}`)).join(', ')}
+           FROM (VALUES ${tuples.join(',')}) AS v(id, ${SITE_UPD_COLS.join(', ')})
+          WHERE s.tenant_id = $1 AND s.id = v.id`, params);
+    }
+    for (let i = 0; i < toCreate.length; i += CH) {
+      const slice = toCreate.slice(i, i + CH); const params = [tenantId];
+      const tuples = slice.map((p) => {
+        const vals = [p.code, ...siteVals(p)]; const types = ['text', ...SITE_UPD_TYPES];
+        return `($1, ${vals.map((v, k) => { params.push(v ?? null); return `$${params.length}::${types[k]}`; }).join(',')})`;
+      });
+      const { rows: ins } = await client.query(
+        `INSERT INTO sites (tenant_id, code, ${SITE_UPD_COLS.join(', ')}) VALUES ${tuples.join(',')} RETURNING id, code`, params);
+      const idByCode = new Map(ins.map((x) => [x.code, x.id]));
+      slice.forEach((p) => { p.id = idByCode.get(p.code); });
+    }
+    let statuses = 0; let plannedAdded = 0;
+    if (year) {
+      const st = plan.flatMap((p) => Object.entries(p.monthStatus || {}).map(([m, a]) => [p.id, Number(m), a]));
+      for (let i = 0; i < st.length; i += 2000) {
+        const slice = st.slice(i, i + 2000); const params = [tenantId, year];
+        const tuples = slice.map(([sid, m, a]) => { params.push(sid, m, a); const b = params.length - 2; return `($1, $${b}::uuid, $2, $${b + 1}::smallint, $${b + 2}::boolean)`; });
+        const r = await client.query(
+          `INSERT INTO site_month_status (tenant_id, site_id, year, month, active) VALUES ${tuples.join(',')}
+           ON CONFLICT (site_id, year, month) DO UPDATE SET active = EXCLUDED.active, updated_at = now()`, params);
+        statuses += r.rowCount;
+      }
+      const pv = plan.flatMap((p) => (p.planned || []).map((m) => [p.id, m, p.activity]));
+      for (let i = 0; i < pv.length; i += 2000) {
+        const slice = pv.slice(i, i + 2000); const params = [tenantId, userId];
+        const tuples = slice.map(([sid, m, act]) => { params.push(sid, `${year}-${String(m).padStart(2, '0')}-01`, act); const b = params.length - 2; return `($1, $${b}::uuid, $${b + 1}::date, $${b + 2}, 'planifie', $2)`; });
+        const r = await client.query(
+          `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by) VALUES ${tuples.join(',')}
+           ON CONFLICT (tenant_id, site_id, period_month, activity) DO NOTHING`, params);
+        plannedAdded += r.rowCount;
+      }
+    }
+    return { ...summary, committed: true, statuses, plannedAdded };
+  });
+}
+
 module.exports = {
-  reportFieldData, planBoard, setPlannedMonths,
+  reportFieldData, planBoard, setPlannedMonths, locationsExportData, importLocations,
   listSites, createSite, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
   collectionDaysSummary, setTravelDays, coverageRecapSummary, coverageMatrix, monthsOverview, setMonthStatus, mapData,

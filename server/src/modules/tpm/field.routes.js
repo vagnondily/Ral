@@ -6,6 +6,9 @@ const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound } = require('../../middleware/errors');
 const repo = require('./field.repository');
+const settingsRepo = require('../settings/settings.repository');
+const { buildLocationsWorkbook, parseLocationsWorkbook } = require('./locationsXlsx');
+const { officeResolver } = require('./mmrXlsx');
 
 /**
  * Suivi terrain — sites (établissements) et planification/affectation des
@@ -77,6 +80,36 @@ router.put('/plan-board/months', WRITE, asyncHandler(async (req, res) => {
   const p = planChanges.safeParse(req.body);
   if (!p.success) throw badRequest('Données invalides', p.error.flatten());
   res.json(await repo.setPlannedMonths(t(req), uid(req), p.data));
+}));
+
+// Registre « Locations Management » au format du classeur du plan de suivi.
+router.get('/plan-board/locations.xlsx', asyncHandler(async (req, res) => {
+  const year = yearQ(req);
+  const data = await repo.locationsExportData(t(req), { year });
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="Plan_de_suivi_sites_${year}.xlsx"`);
+  await buildLocationsWorkbook({ year, ...data }).xlsx.write(res);
+  res.end();
+}));
+// Import : ?commit=0 → aperçu (rien n'est écrit) ; ?commit=1 → enregistrement en une transaction.
+router.post('/plan-board/locations/import', WRITE, express.raw({ type: '*/*', limit: '50mb' }), asyncHandler(async (req, res) => {
+  if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
+  const [offices, mmr] = await Promise.all([settingsRepo.officeRefs(t(req)), settingsRepo.listMmr(t(req))]);
+  const resolveOffice = officeResolver(offices);
+  const activities = [...new Set(mmr.map((m) => m.activityCategory))];
+  let parsed;
+  try { parsed = await parseLocationsWorkbook(req.body, { resolveOffice, activities }); } catch (err) {
+    if (err && err.code === 'NO_SHEET') throw badRequest('Aucune feuille « Locations Management » reconnue (en-têtes Point of Interest, Activity Tag, Sub Office).');
+    throw badRequest('Fichier Excel illisible.');
+  }
+  const year = parsed.year || yearQ(req);
+  const commit = req.query.commit === '1';
+  const rejected = new Set(parsed.errors.map((e) => e.line)).size;
+  // Lignes rejetées : l'enregistrement exige de les écarter explicitement (skipErrors=1).
+  if (commit && rejected && req.query.skipErrors !== '1') throw badRequest(`${rejected} ligne(s) rejetée(s) : corrigez le fichier, ou enregistrez les lignes valides en les écartant.`, { errors: parsed.errors.slice(0, 200) });
+  const result = await repo.importLocations(t(req), uid(req), { year, rows: parsed.rows }, { commit });
+  res.json({ ...result, year, sheet: parsed.sheet, rejected, errors: parsed.errors.slice(0, 500), errorCount: parsed.errors.length,
+    warnings: parsed.warnings.slice(0, 500), warningCount: parsed.warnings.length });
 }));
 
 router.post('/rbm/generate', WRITE, asyncHandler(async (req, res) => {
