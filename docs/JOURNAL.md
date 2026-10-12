@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 15:42 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 12/10/2026 15:45 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -192,7 +192,7 @@ _Dernière mise à jour : 12/10/2026 15:42 UTC_ — la branche `main` reçoit ch
   - **Factures — montants justes** : un % bailleur de 33,333 % n'est plus arrondi à 33 % en rouvrant la facture ; un % invalide est signalé au lieu d'être corrigé en silence ; export Excel « 90 % » et cumulé imprimé au centime.
   - **Sécurité** : liens d'import protégés contre les adresses internes (IPv6 comprise, adresse vérifiée puis épinglée, chaque redirection revérifiée, jeton jamais transmis à un autre hôte) ; jetons, cookies et mots de passe masqués dans les journaux ; formules neutralisées dans tous les exports CSV ; données échappées dans les bulles de la carte ; créer un site qui existe déjà renvoie « ce site existe déjà » au lieu de l'écraser.
   - **Restes connus, non bloquants** : un administrateur peut encore supprimer ou marquer « non applicable » un rapport soumis qui n'est pas le sien ; le modèle Excel des postes n'a pas de colonne « % bailleur ».
-- **15:42** ✅ **Retour n° 4 — éditeur de calculs « à la Tableau » et documentation** (lint propre, 444 tests, balayage FR/EN sans erreur ni phrase manquante, essai à l'écran sur la fiche GD réelle).
+- **15:45** ✅ **Retour n° 4 — éditeur de calculs « à la Tableau » et documentation** (`b9bcaa5`, publié sur `main` ; lint propre, 444 tests, balayage FR/EN sans erreur ni phrase manquante, essai à l'écran sur la fiche GD réelle).
   - **Éditeur de formule** (Données & indicateurs › fiche › Configuration › Champs calculés) : à droite, les **fonctions par catégorie** (Logique, Nombres, Texte, Choix multiples, Valeurs manquantes) avec syntaxe, description, exemple et bouton Insérer, et les **variables de la fiche** avec leur libellé et leurs choix ; **complétion** avec Tab ; **vérification en direct** (« La formule contient une erreur : Fonction inconnue « iff » — vouliez-vous dire « if » ? », caractère fautif surligné ; variable mal tapée signalée avec suggestion) ; **aperçu du résultat sur vos 300 dernières soumissions** (exemple : `selected(process_monitoring, "1")` → 287 « cité », 13 « non cité »). Le recodage a aussi son aperçu.
   - Syntaxe de Tableau acceptée (`=`, `<>`, `AND`, `OR`, `NOT`, `null`) et nouvelles fonctions utiles au suivi : `selected` et `count_selected` (questions à choix multiples de Kobo), `in`, `between`, `sum` et `avg` (qui ignorent les vides), `isnull`, `trim`, `left`, `right`.
   - **Page « Aide aux calculs »** (menu Suivi de processus) : données prises en compte, méthodes des indicateurs avec exemples chiffrés, base et réponses hors base, sens et score orienté, classes, indice de conformité, formules (référence complète des fonctions), couverture terrain et RBM — chaque règle vérifiée dans le code. Lien « Comment c'est calculé ? » dans la fenêtre d'indicateur.
