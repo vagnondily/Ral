@@ -1,5 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
-const { decisionError, DECIDABLE } = require('./reportWorkflow');
+const { decisionError, submitError, notApplicableError, DECIDABLE, SUBMITTABLE } = require('./reportWorkflow');
 const { normalizeItems, summarize } = require('./reportMath');
 const { assertItemActivities } = require('./activityRefs');
 const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
@@ -24,13 +24,15 @@ const REPORT_COLUMNS = `
   r.advance_deducted AS "advanceDeducted", r.kind, r.planned_amount AS "plannedAmount",
   r.reported_amount AS "reportedAmount", r.reference, r.document_name AS "documentName",
   r.status, r.comment, r.created_by AS "createdBy", u.email AS "createdByEmail", r.created_at AS "createdAt",
-  r.submitted_at AS "submittedAt", r.decided_by AS "decidedBy", d.email AS "decidedByEmail", r.decided_at AS "decidedAt"`;
+  r.submitted_at AS "submittedAt", r.submitted_by AS "submittedBy", sb.email AS "submittedByEmail",
+  r.decided_by AS "decidedBy", d.email AS "decidedByEmail", r.decided_at AS "decidedAt"`;
 
 const FROM = `
   FROM tpm_reports r
   JOIN partners pa ON pa.id = r.partner_id
   JOIN contracts c ON c.id = r.contract_id
   JOIN users u ON u.id = r.created_by
+  LEFT JOIN users sb ON sb.id = r.submitted_by
   LEFT JOIN users d ON d.id = r.decided_by`;
 
 function cast(r) {
@@ -254,11 +256,12 @@ async function insertReport(tenantId, r) {
     const cleanItems = hasItems ? normalizeItems(r.items) : null;
     const reportedAmount = hasItems ? summarize(cleanItems).funder : (r.reportedAmount ?? null);
 
+    // Créé directement « soumis » : son auteur en est le soumetteur.
     const { rows } = await client.query(
       `INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, period_end, invoice_no,
                                 advance_deducted, kind, planned_amount, reported_amount, reference,
-                                document_name, status, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'soumis',$13) RETURNING id`,
+                                document_name, status, created_by, submitted_by, submitted_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'soumis',$13,$13,now()) RETURNING id`,
       [tenantId, r.partnerId, r.contractId, r.periodMonth, r.periodEnd || null, r.invoiceNo || null,
         r.advanceDeducted ?? 0, r.kind, r.plannedAmount ?? null, reportedAmount,
         r.reference || null, r.documentName || null, r.createdBy]
@@ -271,10 +274,14 @@ async function insertReport(tenantId, r) {
 
 /**
  * Replace the état des dépenses of a report and recompute its amount.
- * Only editable while the report is not yet validated.
- * Returns the report id, or null if not found / not editable.
+ * Only editable while the report is not yet validated. Saving NEVER changes
+ * the status: an « attendu » or « rejeté » report goes to « soumis » only
+ * through the explicit « Soumettre » action (submitReport). Editing a report
+ * that is already « soumis » makes the editor its submitter: whoever last
+ * changed the content cannot validate it (séparation des tâches).
+ * Returns the report id, or null if not found.
  */
-async function replaceReportItems(tenantId, id, items, { invoiceNo, periodEnd, advanceDeducted } = {}) {
+async function replaceReportItems(tenantId, id, items, { invoiceNo, periodEnd, advanceDeducted, userId } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const report = await getReportRow(client, tenantId, id);
     if (!report) return null;
@@ -291,10 +298,11 @@ async function replaceReportItems(tenantId, id, items, { invoiceNo, periodEnd, a
               invoice_no = COALESCE($4, invoice_no),
               period_end = COALESCE($5, period_end),
               advance_deducted = COALESCE($6, advance_deducted),
-              status = CASE WHEN status = 'rejete' THEN 'soumis' ELSE status END,
+              submitted_by = CASE WHEN status = '${DECIDABLE}' THEN COALESCE($7::uuid, submitted_by) ELSE submitted_by END,
+              submitted_at = CASE WHEN status = '${DECIDABLE}' AND $7::uuid IS NOT NULL THEN now() ELSE submitted_at END,
               updated_at = now()
         WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id, reported, invoiceNo || null, periodEnd || null, advanceDeducted ?? null]
+      [tenantId, id, reported, invoiceNo || null, periodEnd || null, advanceDeducted ?? null, userId]
     );
     return id;
   });
@@ -354,7 +362,8 @@ async function generateMonthlyStubs(tenantId, { contractId, partnerId, createdBy
 async function setStatus(tenantId, id, status, userId, comment) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      'SELECT status, created_by AS "createdBy" FROM tpm_reports WHERE tenant_id = $1 AND id = $2 FOR UPDATE', [tenantId, id]);
+      `SELECT status, created_by AS "createdBy", submitted_by AS "submittedBy"
+         FROM tpm_reports WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [tenantId, id]);
     if (!rows.length) return { error: 'not_found' };
     const err = decisionError(rows[0], userId);
     if (err) return { error: err.code, message: err.message };
@@ -367,12 +376,39 @@ async function setStatus(tenantId, id, status, userId, comment) {
   });
 }
 
+/**
+ * Soumettre un rapport « attendu » ou « rejeté » (machine d'états
+ * reportWorkflow) : statut relu sous verrou de ligne, règle `submitError`
+ * (une facture doit porter un état des dépenses ou un montant), puis mise à
+ * jour qui exige encore un statut soumettable (aucune double soumission).
+ * Le soumetteur est enregistré : il ne pourra ni valider ni rejeter.
+ * @returns {Promise<{ ok: true } | { error: 'not_found' } | { error: 'status' | 'empty', message: string }>}
+ */
+async function submitReport(tenantId, id, userId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT status, kind, reported_amount AS "reportedAmount"
+         FROM tpm_reports WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [tenantId, id]);
+    if (!rows.length) return { error: 'not_found' };
+    const { rows: cnt } = await client.query(
+      'SELECT count(*)::int AS n FROM contract_report_items WHERE tenant_id = $1 AND report_id = $2', [tenantId, id]);
+    const err = submitError({ ...rows[0], reportedAmount: num(rows[0].reportedAmount), itemCount: cnt[0].n });
+    if (err) return { error: err.code, message: err.message };
+    await client.query(
+      `UPDATE tpm_reports SET status = 'soumis', submitted_by = $3, submitted_at = now(), updated_at = now()
+        WHERE tenant_id = $1 AND id = $2 AND status = ANY($4::text[])`,
+      [tenantId, id, userId, SUBMITTABLE]
+    );
+    return { ok: true };
+  });
+}
+
 /** « Non applicable » (aucun suivi ce mois) : vérifié et écrit sous le même verrou ; jamais sur un rapport validé. */
 async function markNotApplicable(tenantId, id, userId, comment) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query('SELECT status FROM tpm_reports WHERE tenant_id = $1 AND id = $2 FOR UPDATE', [tenantId, id]);
     if (!rows.length) return { error: 'not_found' };
-    if (rows[0].status === 'valide') return { error: 'locked' };
+    if (notApplicableError(rows[0])) return { error: 'locked' };
     await client.query(
       `UPDATE tpm_reports SET status = 'non_applicable', decided_by = $3, decided_at = now(), comment = COALESCE($4, comment), updated_at = now()
         WHERE tenant_id = $1 AND id = $2`, [tenantId, id, userId, comment || null]);
@@ -380,4 +416,7 @@ async function markNotApplicable(tenantId, id, userId, comment) {
   });
 }
 
-module.exports = { listReports, getReport, invoiceData, reportContext, insertReport, setStatus, markNotApplicable, replaceReportItems, deleteReport, generateMonthlyStubs };
+module.exports = {
+  listReports, getReport, invoiceData, reportContext, insertReport, submitReport, setStatus, markNotApplicable,
+  replaceReportItems, deleteReport, generateMonthlyStubs,
+};

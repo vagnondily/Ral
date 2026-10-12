@@ -116,6 +116,7 @@ router.put('/:id/items', WRITE, body(itemsSchema), asyncHandler(async (req, res)
     invoiceNo: req.valid.invoiceNo,
     periodEnd: req.valid.periodEnd ? `${req.valid.periodEnd.slice(0, 7)}-01` : undefined,
     advanceDeducted: req.valid.advanceDeducted,
+    userId: req.auth.userId, // modifier un rapport soumis en fait son soumetteur
   };
   try {
     const id = await repo.replaceReportItems(t(req), req.params.id, req.valid.items, opts);
@@ -140,6 +141,16 @@ router.post('/generate-monthly', WRITE, body(stubSchema), asyncHandler(async (re
     if (err.code === 'NOCONTRACT') throw notFound('Contrat introuvable');
     throw err;
   }
+}));
+
+// Soumettre un rapport « attendu » ou « rejeté » (machine d'états
+// reportWorkflow) : 409 si la transition est interdite ou si la facture ne
+// porte encore aucun poste. Le soumetteur ne pourra ni valider ni rejeter.
+router.post('/:id/submit', WRITE, asyncHandler(async (req, res) => {
+  const r = await repo.submitReport(t(req), req.params.id, req.auth.userId);
+  if (r.error === 'not_found') throw notFound('Rapport introuvable');
+  if (r.error) throw conflict(r.message);
+  res.status(204).end();
 }));
 
 // Marquer un rapport « non applicable » (aucun suivi ce mois). Interdit sur un
