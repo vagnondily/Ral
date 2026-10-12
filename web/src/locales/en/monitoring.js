@@ -197,6 +197,7 @@ export default {
 
   // Configuration — sources de données
   '{a}/{b} soumission(s) importée(s).': '{a}/{b} submission(s) imported.',
+  'Fichier trop volumineux ({size} Mo) : la taille maximale acceptée est de 80 Mo. Exportez une période plus courte ou découpez le fichier, puis réessayez.': 'File too large ({size} MB): the maximum accepted size is 80 MB. Export a shorter period or split the file, then try again.',
   '{a}/{b} soumission(s) récupérées depuis Kobo.': '{a}/{b} submission(s) fetched from Kobo.',
   '{a}/{b} soumission(s) importée(s) depuis le lien.': '{a}/{b} submission(s) imported from the link.',
   'Données réelles': 'Actual data',
