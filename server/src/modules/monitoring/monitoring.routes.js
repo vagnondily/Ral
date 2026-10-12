@@ -271,17 +271,14 @@ router.post('/import-definition', WRITE, express.raw({ type: '*/*', limit: '60mb
 }));
 
 // Synthèse transversale « Suivi de processus » (toutes fiches agrégées).
-router.get('/overview', asyncHandler(async (req, res) => {
-  const month = /^\d{4}-\d{2}/.test(req.query.month || '') ? req.query.month : undefined;
-  res.json(await repo.processOverview(t(req), { month }));
-}));
+// Période : ?month=AAAA-MM, ou ?from=AAAA-MM&to=AAAA-MM (intervalle inclusif).
+const ym = (v) => (/^\d{4}-\d{2}/.test(v || '') ? String(v).slice(0, 7) : undefined);
+const periodQuery = (req) => ({ month: ym(req.query.month), from: ym(req.query.from), to: ym(req.query.to) });
+router.get('/overview', asyncHandler(async (req, res) => res.json(await repo.processOverview(t(req), periodQuery(req)))));
 
 // Tableau de bord « Couverture & performance » — détail conformité par activité
 // (fiche) : bandes, dimensions, top/flop, tendance, bureaux + régions.
-router.get('/coverage-dashboard', asyncHandler(async (req, res) => {
-  const month = /^\d{4}-\d{2}/.test(req.query.month || '') ? req.query.month : undefined;
-  res.json(await repo.coverageDashboard(t(req), { month }));
-}));
+router.get('/coverage-dashboard', asyncHandler(async (req, res) => res.json(await repo.coverageDashboard(t(req), periodQuery(req)))));
 
 // Données réelles brutes (soumissions), filtrables par mois — alimente la
 // « table des données actuelles » rattachée au plan de suivi.

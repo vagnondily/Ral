@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 07:00 UTC_
+_Dernière mise à jour : 12/10/2026 07:12 UTC_
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -64,5 +64,8 @@ _Dernière mise à jour : 12/10/2026 07:00 UTC_
 - **06:47** 🔄 i18n — traduction de toutes les pages lancée (9 modules en parallèle, chacun relu par un second agent : portée de `tr`, textes oubliés, clés exactes).
 - **06:50** 🔄 Import — serveur : lecture de liens sécurisée + connecteur lien Tableau WDC (Ona/MoDA open-data).
 - **07:00** ✅ Import — serveur : point d'entrée unique `POST /api/monitoring/forms/:id/link-pull` qui reconnaît le lien collé (Tableau WDC / open-data Ona-MoDA, API Kobo v2, export CSV/XLSX/JSON). Ona : pagination + **rafraîchissement incrémental** (`gt_id` : seules les nouvelles soumissions), champs renommés par Ona ramenés aux noms du formulaire. Kobo : pagination complète (l'ancien import s'arrêtait à 30 000). **Sécurité** : lecture des liens anti-SSRF (adresses privées refusées sauf hôtes listés dans `DATA_SOURCE_ALLOWED_HOSTS` — à renseigner avec `moda.wfp.org` si MoDA est sur votre intranet), délai 60 s, taille 200 Mo, redirections revalidées, token jamais transmis à un autre hôte. Testé de bout en bout contre un faux serveur Ona (2 502 soumissions en 3 pages, incrémental 0 puis 2). 161 tests OK.
+- **06:49** 🔄 i18n — module « Rapports & facture TPM » (`ReportsPage`, `FactureDrawer`, `PostesEditor`, `facturePrint`) : traduction en cours.
+- **07:05** 📥 Références de rapports étudiées : « Rapport de suivi de performances » (bandeau par activité, scores par domaine D1–D7, scores par bureau, listes d'indicateurs avec n, constats, priorités, pagination) et « Couverture par partenaire » (captures : complétude mensuelle par programme, matrice mois × programme, tables de distribution filtrables).
+- **07:12** ✅ **Défaut corrigé** : le tableau de bord « Couverture & performance » et la Synthèse du suivi de processus comptaient les soumissions **exclues** au nettoyage et ignoraient les **champs calculés** — leurs chiffres différaient de l'onglet « Résultats » de la fiche. Ils partagent désormais le même calcul (vérifié sur les données : indices et effectifs identiques, exclusion répercutée partout). Ajout du filtre par **période** (`from`/`to`), nécessaire au concepteur de rapport.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.

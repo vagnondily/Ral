@@ -532,67 +532,83 @@ async function dashboard(tenantId, formId, { month } = {}) {
 }
 
 /**
+ * Filtre période des soumissions — un mois, ou un intervalle de mois inclusif
+ * [from, to] — et TOUJOURS hors soumissions exclues au nettoyage (comme les
+ * onglets Résultats/Tableau de bord d'une fiche). Pousse ses paramètres dans
+ * `params` et renvoie le fragment SQL « AND … ».
+ */
+function submissionFilter(alias, { month, from, to } = {}, params) {
+  const a = alias ? `${alias}.` : '';
+  const parts = [`NOT ${a}excluded`];
+  const m = (v) => `${String(v).slice(0, 7)}-01`;
+  if (month) { params.push(m(month)); parts.push(`${a}period_month = $${params.length}`); } else {
+    if (from) { params.push(m(from)); parts.push(`${a}period_month >= $${params.length}`); }
+    if (to) { params.push(m(to)); parts.push(`${a}period_month <= $${params.length}`); }
+  }
+  return ` AND ${parts.join(' AND ')}`;
+}
+
+/** Résultats d'indicateurs d'une fiche sur la période (exclusions + champs calculés appliqués). */
+async function formResults(client, tenantId, formId, period) {
+  const { rows: inds } = await client.query(
+    `SELECT id, code, label, module, source_field AS "sourceField", agg,
+            positive_value AS "positiveValue", target, direction, sort_order
+       FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2 AND active = true
+      ORDER BY sort_order, label`,
+    [tenantId, formId]
+  );
+  const p = [tenantId, formId];
+  const { rows: subs } = await client.query(`SELECT data FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${submissionFilter('s', period, p)}`, p);
+  const subsC = withCalc(subs, await calcDefsFor(client, tenantId, formId));
+  return { inds, count: subsC.length, results: computeAll(inds, subsC) };
+}
+
+/**
  * Synthèse transversale « Suivi de processus » — agrège toutes les fiches :
  * volume de données versées, tendance mensuelle, répartition par bureau, et
  * indice de conformité global (moyenne des indicateurs percent_* de toutes les
  * fiches, via overallIndex). Recalculé en direct, rien de stocké.
  */
-async function processOverview(tenantId, { month } = {}) {
+async function processOverview(tenantId, period = {}) {
   return withTenantTransaction(tenantId, async (client) => {
-    const monthFilter = month ? `${month.slice(0, 7)}-01` : null;
-    const p = monthFilter ? [tenantId, monthFilter] : [tenantId];
-    const mWhere = monthFilter ? ' AND s.period_month = $2' : '';
-
+    const p = [tenantId];
+    const f = submissionFilter('s', period, p);
     const { rows: tot } = await client.query(
       `SELECT count(*)::int AS submissions,
               count(DISTINCT NULLIF(site, ''))::int AS sites,
               count(DISTINCT NULLIF(agent, ''))::int AS agents,
               count(DISTINCT NULLIF(partner, ''))::int AS partners,
               count(DISTINCT NULLIF(field_office, ''))::int AS "fieldOffices"
-         FROM monitoring_submissions s WHERE s.tenant_id = $1${mWhere}`,
+         FROM monitoring_submissions s WHERE s.tenant_id = $1${f}`,
       p
     );
-    // Tendance : soumissions par mois (12 derniers mois présents).
+    // Tendance : soumissions par mois (12 derniers mois présents), hors exclues.
     const { rows: trend } = await client.query(
       `SELECT to_char(period_month, 'YYYY-MM') AS month, count(*)::int AS submissions
-         FROM monitoring_submissions WHERE tenant_id = $1
+         FROM monitoring_submissions WHERE tenant_id = $1 AND NOT excluded
         GROUP BY period_month ORDER BY period_month DESC LIMIT 12`,
       [tenantId]
     );
     const { rows: byBureau } = await client.query(
       `SELECT COALESCE(NULLIF(field_office, ''), '(non renseigné)') AS bureau,
               count(*)::int AS submissions, count(DISTINCT NULLIF(site, ''))::int AS sites
-         FROM monitoring_submissions s WHERE s.tenant_id = $1${mWhere}
+         FROM monitoring_submissions s WHERE s.tenant_id = $1${f}
         GROUP BY 1 ORDER BY submissions DESC LIMIT 12`,
       p
     );
-
     const { rows: forms } = await client.query(
       "SELECT id, code, label FROM monitoring_forms WHERE tenant_id = $1 AND active = true ORDER BY label",
       [tenantId]
     );
-    // Indice de conformité : on rassemble les résultats d'indicateurs de toutes
-    // les fiches puis on moyenne (overallIndex).
+    // Indice de conformité : résultats de toutes les fiches, moyennés (overallIndex).
     let allResults = [];
     const perForm = [];
     let indicatorsCount = 0;
-    for (const f of forms) {
-      const { rows: inds } = await client.query(
-        `SELECT id, code, label, module, source_field AS "sourceField", agg,
-                positive_value AS "positiveValue", target, direction, sort_order
-           FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2 AND active = true
-          ORDER BY sort_order, label`,
-        [tenantId, f.id]
-      );
+    for (const fm of forms) {
+      const { inds, count, results } = await formResults(client, tenantId, fm.id, period);
       indicatorsCount += inds.length;
-      const subP = monthFilter ? [tenantId, f.id, monthFilter] : [tenantId, f.id];
-      const { rows: subs } = await client.query(
-        `SELECT data FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${monthFilter ? ' AND s.period_month = $3' : ''}`,
-        subP
-      );
-      const results = computeAll(inds, subs);
       allResults = allResults.concat(results);
-      perForm.push({ id: f.id, code: f.code, label: f.label, submissions: subs.length, index: overallIndex(results) });
+      perForm.push({ id: fm.id, code: fm.code, label: fm.label, submissions: count, index: overallIndex(results) });
     }
 
     return {
@@ -616,19 +632,17 @@ async function processOverview(tenantId, { month } = {}) {
  * soumissions). La couverture terrain et le RBM restent fournis par leurs
  * propres endpoints (field/summary, field/rbm) et sont combinés côté client.
  */
-async function coverageDashboard(tenantId, { month } = {}) {
+async function coverageDashboard(tenantId, period = {}) {
   return withTenantTransaction(tenantId, async (client) => {
-    const monthFilter = month ? `${month.slice(0, 7)}-01` : null;
-    const p = monthFilter ? [tenantId, monthFilter] : [tenantId];
-    const mWhere = monthFilter ? ' AND s.period_month = $2' : '';
-
+    const p = [tenantId];
+    const f = submissionFilter('s', period, p);
     const { rows: tot } = await client.query(
       `SELECT count(*)::int AS submissions,
               count(DISTINCT NULLIF(site, ''))::int AS sites,
               count(DISTINCT NULLIF(agent, ''))::int AS agents,
               count(DISTINCT NULLIF(partner, ''))::int AS partners,
               count(DISTINCT NULLIF(admin3, ''))::int AS communes
-         FROM monitoring_submissions s WHERE s.tenant_id = $1${mWhere}`,
+         FROM monitoring_submissions s WHERE s.tenant_id = $1${f}`,
       p
     );
     // Région en clair : la soumission porte un pcode de commune (admin3) ; on
@@ -644,7 +658,7 @@ async function coverageDashboard(tenantId, { month } = {}) {
               count(DISTINCT NULLIF(s.admin3, ''))::int AS communes
          FROM monitoring_submissions s
          LEFT JOIN pcode_region pr ON pr.adm3_pcode = s.admin3
-        WHERE s.tenant_id = $1${mWhere}
+        WHERE s.tenant_id = $1${f}
         GROUP BY 1 ORDER BY submissions DESC`,
       p
     );
@@ -657,40 +671,29 @@ async function coverageDashboard(tenantId, { month } = {}) {
     let allResults = [];
     let indicatorsCount = 0;
     const perForm = [];
-    for (const f of forms) {
-      const { rows: inds } = await client.query(
-        `SELECT id, code, label, module, source_field AS "sourceField", agg,
-                positive_value AS "positiveValue", target, direction, sort_order
-           FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2 AND active = true
-          ORDER BY sort_order, label`,
-        [tenantId, f.id]
-      );
+    for (const fm of forms) {
+      const { inds, count, results } = await formResults(client, tenantId, fm.id, period);
       indicatorsCount += inds.length;
-      const subP = monthFilter ? [tenantId, f.id, monthFilter] : [tenantId, f.id];
-      const { rows: subs } = await client.query(
-        `SELECT data FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${monthFilter ? ' AND s.period_month = $3' : ''}`,
-        subP
-      );
-      // Tendance mensuelle de la fiche (indépendante du filtre mois).
+      // Tendance mensuelle de la fiche (12 derniers mois, indépendante de la période).
       const { rows: formTrend } = await client.query(
         `SELECT to_char(period_month, 'YYYY-MM') AS month, count(*)::int AS submissions
-           FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2
+           FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 AND NOT excluded
           GROUP BY period_month ORDER BY period_month DESC LIMIT 12`,
-        [tenantId, f.id]
+        [tenantId, fm.id]
       );
+      const bp = [tenantId, fm.id];
       const { rows: formBureau } = await client.query(
         `SELECT COALESCE(NULLIF(field_office, ''), '(non renseigné)') AS bureau,
                 count(*)::int AS submissions, count(DISTINCT NULLIF(site, ''))::int AS sites
-           FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${monthFilter ? ' AND s.period_month = $3' : ''}
+           FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${submissionFilter('s', period, bp)}
           GROUP BY 1 ORDER BY submissions DESC LIMIT 8`,
-        subP
+        bp
       );
-      const results = computeAll(inds, subs);
       allResults = allResults.concat(results);
       const { top, flop } = topFlop(results);
       perForm.push({
-        id: f.id, code: f.code, label: f.label,
-        submissions: subs.length,
+        id: fm.id, code: fm.code, label: fm.label,
+        submissions: count,
         index: overallIndex(results),
         classes: classDistribution(results),
         dims: dimGroups(results),
@@ -706,7 +709,9 @@ async function coverageDashboard(tenantId, { month } = {}) {
     }
 
     return {
-      month: month || null,
+      month: period.month || null,
+      from: period.month ? null : (period.from || null),
+      to: period.month ? null : (period.to || null),
       totals: { ...tot[0], forms: forms.length, indicators: indicatorsCount },
       conformityIndex: overallIndex(allResults),
       classes: classDistribution(allResults),
