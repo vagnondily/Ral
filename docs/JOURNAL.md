@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 13/10/2026 16:13 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 13/10/2026 17:25 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -314,5 +314,12 @@ _Dernière mise à jour : 13/10/2026 16:13 UTC_ — la branche `main` reçoit ch
 - **13:06** 🔄 **Ordre révisé** : après la publication du lot 1, trois chantiers en parallèle — 1b (période = plage de mois), 6a (carte exploitable, aussi dans le Dashboard décisionnel), 7a (concepteur riche, en-tête libre, orientation par page, calcul rapide). Conception des trois lancée maintenant (lecture seule, avec critique de complétude), pendant que les correctifs du lot 1 tournent.
 
 - **16:13** ⏸️→🔄 **Reprise après la limite d'usage** (interruption vers 14:30, reprise à 16:10 ; le conteneur avait redémarré : base, API et interface relancées, données intactes). Correctifs du lot 1 : la partie « indicateurs » était terminée (`a7b94f4`, 591 tests) ; « données » repart de son travail non commité (sauvegardé) ; « tableaux de bord » et « RBM » relancés ; conception 1b / 6a / 7a relancée. Un point de contrôle automatique est programmé à 17:29 pour relancer seul ce qui serait de nouveau interrompu.
+
+- **17:25** ✅ **Correctifs du lot 1 terminés et fusionnés** (branche de travail, `3717912` ; 641 tests sur 642, 1 ignoré ; lint ; build) :
+  - **Mois de collecte** : la première date d'enquête **lisible** est prise (un fichier dont SvyDate est illisible mais « end » lisible s'importe de nouveau) ; la vérification avant import donne exactement les mêmes mois que l'import, y compris avec une colonne de date choisie dans le Mapping ; **règle des 2 ans** au lieu de 92 jours — les envois groupés tardifs restent au mois réel de l'enquête. Sur vos exports : SMP 503 soumissions rangées à leur mois d'enquête (dont 153 envoyées en avril 2026 pour des collectes de septembre à décembre 2025) ; Nutrition 359 (dont 156 envois tardifs, de 93 à 602 jours — **à confirmer de votre côté**, ces lignes n'ont que SvyDate) ; GD 80 (5 dates d'août 2022 restent « à vérifier »).
+  - **Indicateurs** : « hors indice » pour les moyennes, sommes et nombres ; lecture seule bien titrée ; légende « % des soumissions » ; écart à la cible cohérent avec la classe ; logique de saut affichée ; un seul rechargement ; messages d'erreur traduits.
+  - **Tableaux de bord** : étiquettes de mois sans chevauchement (vérifié de 360 à 2 000 px, FR et EN) ; cloche et Centre d'alertes lisibles sur téléphone ; libellés de bureau traduits dans le concepteur ; « réponses non numériques » expliqué ; plus de « tout est au vert » quand une source n'a pas pu être lue ; « — aucun plan » au lieu de « 0 % » dans le rapport de synthèse.
+  - **RBM (retour 48)** : le niveau et « ⚑ urgent » ouvrent « Pourquoi ? / Conséquence / Que faire ? » ; une visite seulement planifiée ne rend plus un site « à jour ».
+- **17:25** 🔄 **Dernier tour de correctifs** lancé (2 points moyens et 9 mineurs relevés par la contre-vérification : case « compté dans la couverture » pour les moyennes, « Générer » qui doublonnait les visites des sites sans activité, zones interdites planifiées, critères modifiables depuis le panneau…), puis publication sur `main`. CLAUDE.md mis à jour avec les nouvelles règles.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.

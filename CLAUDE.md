@@ -297,6 +297,20 @@ or navy rail.
   `IMPORT_MAX_ZIP_RATIO` = 100 → 413/400). Les dates de collecte sont lues
   strictement (`monitoring/collectionDate.js` : ISO, secondes SPSS, série
   Excel ; `30/01/2026` refusé) → 400 avec ligne et colonne, jamais 500.
+  **Mois de collecte = date d'enquête** (retour 35, `collectionDate.js`) : le
+  mois d'une soumission (`period_month`) est celui de la PREMIÈRE date d'enquête
+  LISIBLE (SvyDate → today → start → end, chaque alias nom complet puis feuille
+  de groupe) quand elle précède la réception serveur (`_submission_time`) de 0
+  à `MAX_SURVEY_LAG_DAYS` = 730 jours (tolérance 1 jour) ; au-delà, ou après la
+  réception, mois de réception (compté « à vérifier »). Un envoi > 92 jours après
+  l'enquête reste au mois de l'enquête (« envoi tardif », information).
+  `upload_month` garde le mois de réception. Vérification avant import =
+  import (`prepareImport`, même résolution du Mapping) ; réparations
+  `r3_mois_de_collecte` / `r4_mois_de_collecte_2ans` (dataRepairs.js).
+  **Mapping MEMS** : colonne de date modifiable (colonne, « Aucune », Automatique)
+  et cycle brouillon → soumis → validé (migration 060, `mappingWorkflow.js` pur ;
+  modification refusée hors brouillon, valideur ≠ soumetteur, mêmes règles en
+  base par contraintes et déclencheurs ; « Réinitialiser » ramène au brouillon).
   **Liste d'indicateurs « riche »** (`web/src/pages/monitoring/IndicatorsList.jsx`,
   onglet « Résultats ») : implémente la maquette design (branche
   `design/liste-drawer-mockup`, PR #2 ; HTML de réf. dans `web/public/mockups/`) —
@@ -361,9 +375,14 @@ or navy rail.
   Communes) et la **dernière collecte réelle** d'un site = la soumission la plus
   récente de même pcode de commune (granularité commune — ce que la donnée
   permet). Le RBM expose `dataVisitMonth`/`dataVisitCount` (colonne « Dernière
-  collecte (données) ») et la **dernière visite effective** = `GREATEST(visite
-  planifiée/réalisée, collecte réelle)`, de sorte que « à suivre » intègre les
-  données uploadées — plus besoin de ressaisir les visites faites.
+  collecte (données) ») et la **dernière visite effective** = la plus récente
+  entre une visite RÉALISÉE (`status = 'realise'`), une collecte réelle et
+  `sites.last_visit_date` (`rbmMath.visitState` / `lastVisitOf`) : une visite
+  seulement PLANIFIÉE ne compte jamais et ne rend jamais un site « à jour » (elle
+  s'affiche à part : « prévue AAAA-MM »). **Drapeaux expliqués** (retour 48) :
+  `rbmScore.scoreSite` rend `reasons` (règles appliquées et valeurs du site),
+  `consequence` (niveau, priorité, fréquence) et `actions` (que faire) ; le
+  niveau et « ⚑ urgent » ouvrent « Pourquoi ? / Conséquence / Que faire ? ».
 - **Dashboard Suivi de processus — Synthèse** (`web/src/pages/monitoring/
   ProcessDashboardPage.jsx`, endpoint `GET /api/monitoring/overview`,
   `monitoring.repository.processOverview`) : synthèse transversale recalculée en
@@ -372,6 +391,14 @@ or navy rail.
   fiches·indicateurs), tendance mensuelle des soumissions, couverture par
   district, répartition des sites par risque, conformité par fiche, zones à
   surveiller (<80 %). Nav : « Suivi de processus › Tableau de bord ».
+  **Règles communes des tableaux de bord** (lot 1) : période par défaut = dernier
+  mois qui a vraiment des données (bandeau qui le dit), jamais un mois vide ; un
+  code de bureau non relié s'affiche via `common/codeLabel` (« Code 6 (non relié) »
+  + lien vers les correspondances), jamais un chiffre seul ; « — aucun plan »,
+  jamais « 0 % » quand rien n'est planifié ; chaque « Non évalué » porte sa raison
+  (`monitoringMath.naReason` : no_data, variable_absent, only_na, no_answer,
+  not_numeric, no_target, not_scored) ; la cloche affiche le Centre d'alertes
+  (`dashboards/alerts.service.js`, mêmes règles et niveaux).
 - **Champs calculés & « Aide aux calculs »** (retour n° 4) : moteur de formule
   sûr (`monitoring/calcFields.js`, sans `eval`) dont le catalogue `FUNCTIONS`
   est la source unique pour le calcul, la vérification (position de l'erreur,
@@ -471,7 +498,7 @@ or navy rail.
   `server/src/db/seed.js` (not shown in the UI).
 
 ## Testing
-`cd server && npm test` (500+ unit tests on the pure business logic: budget/expense
+`cd server && npm test` (640+ unit tests on the pure business logic: budget/expense
 math incl. the per-line **% bailleur** split and 2-activity allocation,
 plan-month normalization, workflow state machine, the consolidation engine, the
 budget Excel round-trip, the INVOICE workbook, and the field-visit coverage math
