@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 13/10/2026 13:06 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 13/10/2026 16:13 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -312,5 +312,7 @@ _Dernière mise à jour : 13/10/2026 13:06 UTC_ — la branche `main` reçoit ch
 
 - **13:06** 📥 **Retours n° 51 à 53** (concepteur de rapport) : en-tête libre (logos, images, textes placés où l'on veut), toutes les données de MEMS disponibles, orientation par page. Constaté : le calcul d'un bulletin prend 3,4 s pour 562 soumissions sur la base de démonstration — sur vos volumes, la page reste vide sur « Calcul… ».
 - **13:06** 🔄 **Ordre révisé** : après la publication du lot 1, trois chantiers en parallèle — 1b (période = plage de mois), 6a (carte exploitable, aussi dans le Dashboard décisionnel), 7a (concepteur riche, en-tête libre, orientation par page, calcul rapide). Conception des trois lancée maintenant (lecture seule, avec critique de complétude), pendant que les correctifs du lot 1 tournent.
+
+- **16:13** ⏸️→🔄 **Reprise après la limite d'usage** (interruption vers 14:30, reprise à 16:10 ; le conteneur avait redémarré : base, API et interface relancées, données intactes). Correctifs du lot 1 : la partie « indicateurs » était terminée (`a7b94f4`, 591 tests) ; « données » repart de son travail non commité (sauvegardé) ; « tableaux de bord » et « RBM » relancés ; conception 1b / 6a / 7a relancée. Un point de contrôle automatique est programmé à 17:29 pour relancer seul ce qui serait de nouveau interrompu.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
