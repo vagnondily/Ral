@@ -137,8 +137,8 @@ export default {
 
   // ---- Risk-Based Monitoring (RbmPage)
   'Risk-Based Monitoring (RBM)': 'Risk-Based Monitoring (RBM)',
-  'Sélectionnez une ligne (ou <strong>double-clic</strong>) pour éditer ses critères. « Générer » planifie les sites à suivre du mois. La <strong>dernière visite</strong> intègre la <strong>collecte réelle</strong> issue des données uploadées (reliées au site, sinon à sa commune).':
-    'Select a row (or <strong>double-click</strong>) to edit its criteria. “Generate” plans the sites due this month. The <strong>last visit</strong> includes the <strong>actual collection</strong> from uploaded data (linked to the site, otherwise to its commune).',
+  'Sélectionnez une ligne (ou <strong>double-clic</strong>) pour éditer ses critères. « Générer » planifie les sites à suivre du mois. La <strong>dernière visite</strong> est une visite <strong>réalisée</strong> ou une <strong>collecte réelle</strong> issue des données uploadées (reliées au site, sinon à sa commune) ; une visite seulement prévue est affichée à part. Cliquez sur un <strong>score</strong> ou un <strong>drapeau</strong> pour voir pourquoi, la conséquence et que faire.':
+    'Select a row (or <strong>double-click</strong>) to edit its criteria. “Generate” plans the sites due this month. The <strong>last visit</strong> is a <strong>completed</strong> visit or an <strong>actual collection</strong> from uploaded data (linked to the site, otherwise to its commune); a visit that is only planned is shown separately. Click a <strong>score</strong> or a <strong>flag</strong> to see why, the consequence and what to do.',
   'Master Data': 'Master Data',
   'Importe la feuille « Risk-based site selection » : critères, SCORE FINAL, GPS, activité, dernière visite.':
     'Imports the “Risk-based site selection” sheet: criteria, FINAL SCORE, GPS, activity, last visit.',
@@ -185,13 +185,14 @@ export default {
   'Problème CFM': 'CFM issue',
   'Fraude et corruption': 'Fraud and corruption',
   'SCORE FINAL': 'FINAL SCORE',
-  '⚑ urgent': '⚑ urgent',
+  'Jamais visité': 'Never visited',
+  'prévue {m}': 'planned {m}',
+  'prévue {m} (non réalisée)': 'planned {m} (not completed)',
   'Intervalle requis (CO)': 'Required interval (CO)',
   '{n} mois': '{n} month(s)',
   'oui': 'yes',
   'non': 'no',
   'À suivre': 'Due',
-  'à jour': 'up to date',
   // Libellés des critères (LABEL02 / LABEL01 / C02 / C01)
   'Pas de restriction': 'No restriction',
   'Modérée': 'Moderate',
@@ -227,6 +228,73 @@ export default {
   'Critères enregistrés.': 'Criteria saved.',
   'Critères de risque (RBM)': 'Risk criteria (RBM)',
   '{site} — alimentent le score et la priorité': '{site} — these feed the score and priority',
+  'Fraude suspectée': 'Suspected fraud',
+  'Partenaire impliqué': 'Partner involved',
+
+  // ---- RBM : « Pourquoi ? / Conséquence / Que faire ? » (RbmExplain, retour n° 48)
+  'Pourquoi ce niveau ?': 'Why this level?',
+  'Niveau {level} — pourquoi ? ({site})': 'Level {level} — why? ({site})',
+  'Pourquoi urgent ?': 'Why urgent?',
+  'Drapeau urgent — pourquoi ? ({site})': 'Urgent flag — why? ({site})',
+  'urgent': 'urgent',
+  '{place} — situation de {month}': '{place} — situation for {month}',
+  'Niveau {level}': 'Level: {level}',
+  'Priorité {p}': 'Priority: {p}',
+  'Pourquoi ?': 'Why?',
+  'valeur {v}': 'value {v}',
+  '+{n} pt': '+{n} pt',
+  'Aucun critère de risque renseigné pour ce site.': 'No risk criterion recorded for this site.',
+  'Règle : un drapeau urgent (problème urgent, fraude, sécurité stricte ou zone interdite) place le site au niveau Élevé, quel que soit le total ({n} point(s)).':
+    'Rule: an urgent flag (urgent issue, fraud, strict security or no-go area) puts the site at High level, whatever the total ({n} point(s)).',
+  'Règle : {n} point(s) de risque — 4 et plus = Élevé, 2 à 3 = Moyen, moins de 2 = Faible.':
+    'Rule: {n} risk point(s) — 4 or more = High, 2 to 3 = Medium, under 2 = Low.',
+  'Conséquence': 'Consequence',
+  'Niveau final': 'Final level',
+  'Fréquence de suivi': 'Monitoring frequency',
+  'une visite tous les {n} mois': 'one visit every {n} months',
+  'une visite par mois': 'one visit a month',
+  'Visite prévue': 'Planned visit',
+  '{m} (non réalisée)': '{m} (not completed)',
+  "Une visite prévue ne compte pas comme visite tant qu'elle n'est pas marquée « réalisée ».":
+    'A planned visit does not count as a visit until it is marked “completed”.',
+  'Ce mois': 'This month',
+  'Que faire ?': 'What to do?',
+  'Jamais visité (aucune visite réalisée ni donnée collectée)': 'Never visited (no completed visit and no data collected)',
+  'visite réalisée': 'completed visit',
+  'collecte de données reçue': 'data collection received',
+  'date du registre': 'registry date',
+  'À suivre : aucune visite réalisée ni donnée collectée.': 'Due: no completed visit and no data collected.',
+  'À suivre : {n} mois depuis la dernière visite (fréquence : {freq}).': 'Due: {n} month(s) since the last visit (frequency: {freq}).',
+  'À suivre : visite en retard.': 'Due: visit overdue.',
+  'À jour : prochain suivi dû en {m}.': 'Up to date: next monitoring due in {m}.',
+  'À jour.': 'Up to date.',
+  // Justification de la priorité (une branche de la règle = une phrase)
+  'Un drapeau urgent ⇒ priorité haute.': 'An urgent flag ⇒ high priority.',
+  'Niveau élevé et visite en retard ⇒ priorité haute.': 'High level and visit overdue ⇒ high priority.',
+  'Niveau élevé, mais visite à jour ⇒ priorité moyenne.': 'High level, but visit up to date ⇒ medium priority.',
+  'Visite en retard ou jamais faite ⇒ priorité moyenne.': 'Visit overdue or never done ⇒ medium priority.',
+  'Niveau moyen ⇒ priorité moyenne.': 'Medium level ⇒ medium priority.',
+  'Niveau faible et visite à jour ⇒ priorité basse.': 'Low level and visit up to date ⇒ low priority.',
+  // Raisons (rbmScore.reasons : critère et valeur du site)
+  'Problème de processus (suivi interne)': 'Process issue (internal monitoring)',
+  'Problème de rapport partenaire': 'Partner report issue',
+  'Problème signalé par le mécanisme de plainte (CFM)': 'Issue reported through the complaint & feedback mechanism (CFM)',
+  'Plusieurs activités dans la commune': 'Several activities in the commune',
+  'Plus de 200 bénéficiaires': 'More than 200 beneficiaries',
+  'Expérience du partenaire': 'Partner experience',
+  'Bonne expérience': 'Good experience',
+  'Expérience moyenne': 'Average experience',
+  'Mauvaise expérience': 'Poor experience',
+  // Actions (rbmScore.actions)
+  'Zone interdite : suivi à distance uniquement': 'No-go area: remote monitoring only',
+  'Signaler et planifier une vérification ciblée': 'Report it and plan a targeted check',
+  "Vérifier les conditions de sécurité et l'autorisation d'accès avant de planifier": 'Check security conditions and access authorisation before planning',
+  'Vérifier le problème signalé (processus / rapport / CFM) lors de la prochaine visite': 'Check the reported issue (process / report / CFM) during the next visit',
+  'Visite prévue non réalisée : la marquer « réalisée » si elle a eu lieu, sinon la replanifier':
+    'Planned visit not completed: mark it “completed” if it took place, otherwise re-plan it',
+  'Réaliser la visite déjà prévue ce mois, puis la marquer « réalisée »': 'Carry out the visit already planned this month, then mark it “completed”',
+  'Planifier une visite ce mois': 'Plan a visit this month',
+  'Aucune visite requise ce mois — prochain suivi dû': 'No visit required this month — next monitoring due',
 
   // ---- Couverture du suivi (CoverageRecapPage)
   'Couverture du suivi': 'Monitoring coverage',

@@ -405,6 +405,8 @@ export const api = {
   fieldSetMonthStatus: (month, status) => request('/api/tpm/field/months/status', { method: 'PUT', body: { month, status } }),
   fieldSetTravelDays: (input) => request('/api/tpm/field/collection-days', { method: 'PUT', body: input }),
   rbmSites: (month, risk) => request('/api/tpm/field/rbm/sites', { query: { ...(month ? { month } : {}), ...(risk ? { risk } : {}) } }),
+  // Un site avec « Pourquoi ? / Conséquence / Que faire ? » (retour n° 48).
+  rbmSiteExplain: (id, month) => request(`/api/tpm/field/rbm/sites/${encodeURIComponent(id)}`, { query: month ? { month } : {} }),
   rbmGenerate: (month, risk) => request(`/api/tpm/field/rbm/generate?month=${encodeURIComponent(month)}${risk ? `&risk=${risk}` : ''}`, { method: 'POST' }),
   rbmImport: async (file) => {
     const buf = await file.arrayBuffer();

@@ -310,7 +310,10 @@ function PlanTable({ rows, offset, allRows, capacity, pending, canEdit, selected
             <td className="num">{s.required == null ? <span className="muted" title={tr('Activité absente du MMR')}>—</span> : s.required}</td>
             <td className="num">{s.done}</td><td className="num">{s.planned}</td>
             <td className={`num ${s.remaining > 0 ? 'pb-rest' : ''}`}>{s.remaining}</td>
-            <td>{lastVisit(s) || <span className="muted">{tr('Jamais')}</span>}</td>
+            <td>
+              {lastVisit(s) || <span className="muted">{tr('Jamais')}</span>}
+              {s.nextPlannedMonth && <div className="site-meta">{tr('prévue {m}', { m: monthLabel(s.nextPlannedMonth) })}</div>}
+            </td>
             {MONTHS.map((m) => {
               const cell = (s.months || []).find((x) => x.month === m);
               const inactive = s.monthStatus && s.monthStatus[m] === false;

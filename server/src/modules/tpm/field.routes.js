@@ -69,6 +69,14 @@ router.patch('/sites/:id', WRITE, body(siteSchema.partial().extend({
 router.get('/rbm/sites', asyncHandler(async (req, res) => res.json(
   await repo.rbmSites(t(req), { month: monthQ(req), risk: req.query.risk })
 )));
+// Pourquoi ce score / ce drapeau, conséquence, que faire (retour n° 48) — un site, à la demande.
+const uuid = z.string().uuid();
+router.get('/rbm/sites/:id', asyncHandler(async (req, res) => {
+  if (!uuid.safeParse(req.params.id).success) throw badRequest('Identifiant de site invalide');
+  const site = await repo.rbmSiteExplain(t(req), req.params.id, { month: monthQ(req) || new Date().toISOString().slice(0, 7) });
+  if (!site) throw notFound('Site introuvable');
+  res.json(site);
+}));
 // ---- Plan de suivi « type Excel » (exercice) ---------------------------------
 const yearQ = (req) => { const y = Number(req.query.year); return Number.isInteger(y) && y >= 2000 && y <= 2100 ? y : new Date().getFullYear(); };
 // Listes de référence de l'écran (Activity Tag = catégories du MMR, sous-types de POI, modalités).

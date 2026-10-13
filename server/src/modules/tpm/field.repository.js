@@ -3,7 +3,7 @@ const { afterSitesChangedTx, lockSubmissionLinksTx, withSubmissionLinks } = requ
 const { sitePatchSql } = require('./sitePatch');
 const { chunkRows } = require('../../db/batch');
 const { summarizeVisits, collectionDays, buildCoverageMatrix } = require('./fieldMath');
-const { isDue, frequencyFor } = require('./rbmMath');
+const { isDue, frequencyFor, visitState, currentMonth } = require('./rbmMath');
 const { scoreSite, normalizeSecurity } = require('./rbmScore');
 const { coverageRecap } = require('./coverageRecap');
 const { mmrLookup, siteCounters, rankSites, boardKpis, normalizeChanges, currentStatus, mmrKeyOf, mmrCapacity, autoPlanMonths, norm } = require('./planBoard');
@@ -126,21 +126,24 @@ const RBM_SELECT = `
          s.modality_type AS "modalityType", s.beneficiary_number AS "beneficiaryNumber",
          s.experienced_partner AS "experiencedPartner", to_char(s.last_visit_date, 'YYYY-MM-DD') AS "lastVisitDate",
          s.adm3_pcode AS "adm3Pcode",
-         to_char(pv.last, 'YYYY-MM') AS "plannedVisitMonth",
+         -- Dernière visite effective = rbmMath.visitState (une seule règle, testée) : la plus
+         -- récente entre une visite RÉALISÉE, la COLLECTE RÉELLE (données uploadées) et la date
+         -- du registre. Une visite seulement PLANIFIÉE n'en est jamais une (retour n° 48) : les
+         -- mois prévus sont rendus à part (« prévue AAAA-MM »).
+         to_char(pv.last_done, 'YYYY-MM') AS "fieldVisitMonth",
+         COALESCE(pv.planned, '{}'::text[]) AS "plannedMonths",
          to_char(dv.last, 'YYYY-MM') AS "dataVisitMonth",
          dv.last_at AS "dataVisitAt",
          COALESCE(dv.n, 0) AS "dataVisitCount",
-         COALESCE(dv.site_n, 0) AS "dataVisitSiteCount",
-         -- Dernière visite effective = la plus récente entre le suivi terrain
-         -- planifié/réalisé (site_visits) et la COLLECTE RÉELLE issue des
-         -- données uploadées (soumissions rattachées par pcode de commune).
-         to_char(GREATEST(pv.last, dv.last, date_trunc('month', s.last_visit_date)::date), 'YYYY-MM') AS "lastVisitMonth"
+         COALESCE(dv.site_n, 0) AS "dataVisitSiteCount"
     FROM sites s
     LEFT JOIN field_offices ant ON ant.id = s.field_office_id
     LEFT JOIN field_offices par ON par.id = ant.parent_id
     LEFT JOIN LATERAL (
-      SELECT max(period_month) AS last FROM site_visits v
-       WHERE v.tenant_id = s.tenant_id AND v.site_id = s.id AND v.status <> 'annule'
+      SELECT max(v.period_month) FILTER (WHERE v.status = 'realise') AS last_done,
+             array_agg(DISTINCT to_char(v.period_month, 'YYYY-MM')) FILTER (WHERE v.status = 'planifie') AS planned
+        FROM site_visits v
+       WHERE v.tenant_id = s.tenant_id AND v.site_id = s.id AND v.status IN ('realise', 'planifie')
     ) pv ON true
     LEFT JOIN LATERAL (
       -- Collecte réelle : la soumission la plus récente reliée à ce site (site
@@ -155,23 +158,41 @@ const RBM_SELECT = `
     ) dv ON true
    WHERE s.tenant_id = $1`;
 
+/** Lignes du SELECT RBM avec l'état des visites (dernière visite effective, visites prévues). */
+async function rbmRowsTx(client, tenantId, { risk, siteId, targetMonth, ordered = false } = {}) {
+  const params = [tenantId]; let where = '';
+  if (risk) { params.push(risk); where += ` AND s.risk_level = $${params.length}`; }
+  if (siteId) { params.push(siteId); where += ` AND s.id = $${params.length}`; }
+  const { rows } = await client.query(`${RBM_SELECT}${where}${ordered ? ' ORDER BY s.district, s.commune, s.name' : ''}`, params);
+  return rows.map((r) => ({ ...r, ...visitState(r, targetMonth) }));
+}
+
 /** Site registry with risk level, last visit and whether it is due for `month`. */
-async function rbmSites(tenantId, { month, risk } = {}) {
-  return withTenantTransaction(tenantId, async (client) => {
-    const params = [tenantId]; let where = '';
-    if (risk) { params.push(risk); where = ` AND s.risk_level = $${params.length}`; }
-    const { rows } = await client.query(`${RBM_SELECT}${where} ORDER BY s.district, s.commune, s.name`, params);
-    const target = month ? String(month).slice(0, 7) : null;
-    return rows.map((r) => {
-      // Intervalle de référence : fréquence RBM selon le niveau de risque
-      // (en l'absence d'un paramètre MMR précis pour ce site).
-      const interval = frequencyFor(r.riskLevel);
-      const score = scoreSite(r, { targetMonth: target, mmrInterval: interval });
-      // « À suivre » = retard (score) OU échéance de fréquence atteinte (isDue),
-      // pour rester cohérent avec l'ancienne logique.
-      const due = target ? (score.due || isDue(r.riskLevel, r.lastVisitMonth, target)) : false;
-      return { ...r, ...score, due, interval };
-    });
+async function rbmSites(tenantId, opts = {}) {
+  return withTenantTransaction(tenantId, (client) => rbmSitesTx(client, tenantId, opts));
+}
+
+/**
+ * Un site RBM avec son explication (raisons, conséquence, actions — retour n° 48),
+ * calculée par la MÊME fonction que la liste : servie à la demande pour que la liste
+ * de tous les sites reste légère (+50 % de JSON sinon). null si le site n'existe pas.
+ */
+async function rbmSiteExplain(tenantId, siteId, { month } = {}) {
+  return withTenantTransaction(tenantId, async (client) => (await rbmSitesTx(client, tenantId, { month, siteId, explain: true }))[0] || null);
+}
+
+async function rbmSitesTx(client, tenantId, { month, risk, siteId, explain = false } = {}) {
+  const target = month ? String(month).slice(0, 7) : null;
+  const rows = await rbmRowsTx(client, tenantId, { risk, siteId, targetMonth: target, ordered: true });
+  return rows.map((r) => {
+    // Intervalle de référence : fréquence RBM selon le niveau de risque
+    // (en l'absence d'un paramètre MMR précis pour ce site).
+    const interval = frequencyFor(r.riskLevel);
+    const { reasons, consequence, actions, ...score } = scoreSite(r, { targetMonth: target, mmrInterval: interval });
+    // « À suivre » = retard (score) OU échéance de fréquence atteinte (isDue),
+    // pour rester cohérent avec l'ancienne logique.
+    const due = target ? (score.due || isDue(r.riskLevel, r.lastVisitMonth, target)) : false;
+    return { ...r, ...score, due, interval, ...(explain ? { reasons, consequence, actions } : {}) };
   });
 }
 
@@ -295,27 +316,29 @@ async function importPlanSites(tenantId, userId, sites) {
 }
 
 /** Generate the month's planned visits from the RBM: one planifie visit per due
- * site (optionally filtered by risk). Idempotent (skips existing). */
-async function generateFromRbm(tenantId, userId, month, { risk } = {}) {
-  return withTenantTransaction(tenantId, async (client) => {
-    const params = [tenantId]; let where = '';
-    if (risk) { params.push(risk); where = ` AND s.risk_level = $${params.length}`; }
-    const { rows } = await client.query(`${RBM_SELECT}${where}`, params);
-    const target = String(month).slice(0, 7);
-    const pm = `${target}-01`;
-    let created = 0;
-    for (const s of rows) {
-      if (!isDue(s.riskLevel, s.lastVisitMonth, target)) continue;
-      const res = await client.query(
-        `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by)
-         VALUES ($1,$2,$3,$4,'planifie',$5)
-         ON CONFLICT (tenant_id, site_id, period_month, activity) DO NOTHING`,
-        [tenantId, s.id, pm, s.activity || null, userId]
-      );
-      created += res.rowCount;
-    }
-    return { created, due: rows.filter((s) => isDue(s.riskLevel, s.lastVisitMonth, target)).length };
-  });
+ * site (optionally filtered by risk). Idempotent (skips existing). « À suivre »
+ * suit la même dernière visite que la page RBM (visite réalisée ou collecte
+ * réelle — une visite seulement planifiée ne rend jamais un site « à jour »). */
+async function generateFromRbm(tenantId, userId, month, opts = {}) {
+  return withTenantTransaction(tenantId, (client) => generateFromRbmTx(client, tenantId, userId, month, opts));
+}
+
+async function generateFromRbmTx(client, tenantId, userId, month, { risk } = {}) {
+  const target = String(month).slice(0, 7);
+  const rows = await rbmRowsTx(client, tenantId, { risk, targetMonth: target });
+  const dueSites = rows.filter((s) => isDue(s.riskLevel, s.lastVisitMonth, target));
+  const pm = `${target}-01`;
+  let created = 0;
+  for (const s of dueSites) {
+    const res = await client.query(
+      `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by)
+       VALUES ($1,$2,$3,$4,'planifie',$5)
+       ON CONFLICT (tenant_id, site_id, period_month, activity) DO NOTHING`,
+      [tenantId, s.id, pm, s.activity || null, userId]
+    );
+    created += res.rowCount;
+  }
+  return { created, due: dueSites.length };
 }
 
 /**
@@ -780,7 +803,10 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
        FROM mmr_parameters WHERE tenant_id = $1`, [tenantId]);
   const lookup = mmrLookup(mmr);
   const target = `${y}-12`;
-  const out = sites.map((s) => {
+  const out = sites.map((row) => {
+    // Dernière visite = visite réalisée ou collecte réelle (jamais une visite seulement prévue) ;
+    // la prochaine visite prévue est rendue à part, vue depuis le mois courant.
+    const s = { ...row, ...visitState(row, currentMonth()) };
     const mmrRow = lookup(s.fieldOfficeId, s.parentOfficeId, s.activity);
     const score = scoreSite(s, { targetMonth: target });
     const counters = siteCounters({ months: s.months }, mmrRow, { adjusted });
@@ -791,7 +817,8 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
       riskLevel: s.riskLevel, priority: score.priorityLabel, finalScore: score.finalScore,
       forbidden: Number(s.security) >= 99,
       status, inactive: status === 'Inactive', monthStatus: s.monthStatus || {},
-      lastVisitMonth: s.lastVisitMonth, dataCount: s.dataVisitCount, months: s.months,
+      lastVisitMonth: s.lastVisitMonth, lastVisitSource: s.lastVisitSource, nextPlannedMonth: s.nextPlannedMonth,
+      dataCount: s.dataVisitCount, months: s.months,
       // Registre « Locations Management » (vue standard, carte)
       poiSubtype: s.poiSubtype, urbanArea: s.urbanArea, gpsLat: s.gpsLat, gpsLng: s.gpsLng, security: s.security,
       mapLat: s.mapLat, mapLng: s.mapLng, geo: s.geo,
@@ -1105,5 +1132,5 @@ module.exports = {
   listSites, createSite, createSiteTx, upsertSites, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
   collectionDaysSummary, setTravelDays, coverageRecapSummary, coverageMatrix, monthsOverview, setMonthStatus, mapData,
-  rbmSites, importMasterData, importPlanSites, generateFromRbm,
+  rbmSites, rbmSitesTx, rbmSiteExplain, importMasterData, importPlanSites, generateFromRbm, generateFromRbmTx, planBoardTx,
 };
