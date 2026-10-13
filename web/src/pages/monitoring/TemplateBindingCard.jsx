@@ -5,7 +5,7 @@ import { Alert, Badge, Button, Card, CardHeader, Skeleton } from '../../componen
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt } from '../../lib/format.js';
-import { choiceText } from '../../lib/indicatorView.js';
+import { choiceText, indexStatus, INDEX_STATUS_LABEL, classesStatus, CLASSES_STATUS_LABEL } from '../../lib/indicatorView.js';
 
 // Qualité de la variable proposée : couleur + icône + libellé (jamais la couleur seule).
 const CONFIDENCE = {
@@ -168,7 +168,9 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
                         <strong>{it.label}</strong>
                         <div className="site-meta">
                           {it.direction === 'lower_better' && <span className="tpl-lower"><ArrowDown size={12} aria-hidden="true" /> {tr('plus bas = mieux')}</span>}
-                          {!it.scored && <span>{tr('hors indice')}</span>}
+                          {/* Mêmes mots que l'éditeur et le détail : indice de conformité (seuls les %) et classes. */}
+                          {indexStatus({ agg: it.agg, scored: it.scored }) !== 'in' && <span>{tr(INDEX_STATUS_LABEL[indexStatus({ agg: it.agg, scored: it.scored })])}</span>}
+                          {classesStatus({ scored: it.scored }) === 'complementary' && <span>{tr(CLASSES_STATUS_LABEL.complementary)}</span>}
                           {(it.warnings || []).map((w) => <span key={w} className="text-warn">{tr(WARNINGS[w] || w)}</span>)}
                           {it.existing && <span className="tpl-done"><CheckCircle2 size={12} aria-hidden="true" /> {tr('créé')}{it.existing.code !== it.code ? ` (${it.existing.code})` : ''}</span>}
                           {it.taken && <span className="text-warn">{tr('code déjà utilisé par « {label} »', { label: it.taken.label })}</span>}

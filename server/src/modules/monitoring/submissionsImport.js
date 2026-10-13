@@ -271,19 +271,18 @@ function rowToSubmission(rawHeaders, rawValues, picks, source) {
  * alias, et pour chacun le nom complet puis le nom de question sous un groupe — clés brutes
  * ou renommées par le catalogue, la même colonne). `forcedSurvey` : `undefined` = automatique ;
  * '' = « aucune » (mois de réception seul) ; sinon la colonne choisie dans « Mapping MEMS »
- * (et ses variantes de casse présentes dans les données : XLSForm ≠ export SPSS).
+ * (lue par overrideColumns : variantes de casse, nom renommé par le catalogue).
  * @param {string[]} keys  clés des réponses (data) de la fiche
+ * @param {string} [forcedSurvey]
+ * @param {string[]} [catalogNames]  noms des champs de la fiche
  * @returns {{ surveyCols: string[], uploadCols: string[] }}
  */
-function collectionColumns(keys, forcedSurvey) {
+function collectionColumns(keys, forcedSurvey, catalogNames = []) {
   const list = (keys || []).filter((k) => k != null && k !== '');
   const picks = buildLookup(list, []);
   const cols = (field) => ((picks.candidates && picks.candidates[field]) || []).map((i) => list[i]);
   let surveyCols = cols(DATE_KEYS.survey);
-  if (forcedSurvey !== undefined) {
-    const f = forcedSurvey == null ? '' : String(forcedSurvey).trim();
-    surveyCols = f ? [f, ...list.filter((k) => k !== f && k.toLowerCase() === f.toLowerCase())] : [];
-  }
+  if (forcedSurvey !== undefined) surveyCols = overrideColumns(forcedSurvey, list, catalogNames);
   return { surveyCols, uploadCols: cols(DATE_KEYS.upload) };
 }
 
@@ -487,11 +486,35 @@ const OVERRIDE_PROP = { field_office: 'fieldOffice', admin1: 'admin1', admin2: '
  * Valeurs d'une colonne choisie à la main, par priorité : le nom exact, puis ses variantes de
  * casse présentes dans les réponses (XLSForm ≠ export SPSS) — comme collectionColumns.
  */
-function forcedValues(data, column) {
+function forcedValues(data, column, catalogNames = []) {
   if (!data || !column) return [];
-  const lower = column.toLowerCase();
-  const keys = Object.keys(data).filter((k) => k !== column && k.toLowerCase() === lower);
-  return [...(Object.prototype.hasOwnProperty.call(data, column) ? [column] : []), ...keys].map((k) => data[k]);
+  return overrideColumns(column, Object.keys(data), catalogNames)
+    .filter((k) => Object.prototype.hasOwnProperty.call(data, k)).map((k) => data[k]);
+}
+
+/**
+ * Colonnes à lire pour une colonne choisie à la main dans « Mapping MEMS », par priorité :
+ * le nom choisi, puis — s'il désigne une question sous un groupe que le catalogue renomme
+ * (« grp/SvyDate » → « SvyDate », comme l'import le fait des réponses) — son nom renommé ;
+ * chacun suivi de ses variantes de casse parmi `keys` (XLSForm ≠ export SPSS). La MÊME
+ * règle à l'import, à la vérification et à « Appliquer aux soumissions » : une colonne
+ * choisie avant l'arrivée du catalogue reste lue après. Pur.
+ * @param {string} column  colonne choisie
+ * @param {string[]} keys  clés présentes (réponses, ou colonnes du fichier)
+ * @param {string[]} [catalogNames]  noms des champs de la fiche
+ * @returns {string[]}
+ */
+function overrideColumns(column, keys, catalogNames = []) {
+  const col = String(column == null ? '' : column).trim();
+  if (!col) return [];
+  const renamed = Object.keys(groupPathRenamer(catalogNames)({ [col]: true }))[0];
+  const out = [];
+  for (const c of renamed && renamed !== col ? [col, renamed] : [col]) {
+    if (!out.includes(c)) out.push(c);
+    const lower = c.toLowerCase();
+    for (const k of keys || []) if (k !== c && String(k).toLowerCase() === lower && !out.includes(k)) out.push(k);
+  }
+  return out;
 }
 
 /**
@@ -503,12 +526,13 @@ function forcedValues(data, column) {
  * comptée « colonne absente » (dateIssue 'survey_column_missing'), jamais en silence.
  * @param {object} s  soumission (sortie de parseSubmissions)
  * @param {Array<{ dimension: string, columnName: string|null }>} overrides
- * @param {{ missing?: Map<string, string> }} [opts]  dimensions dont la colonne choisie manque au fichier
+ * @param {{ missing?: Map<string, string>, catalogNames?: string[] }} [opts]  dimensions dont la colonne
+ *   choisie manque au fichier ; noms du catalogue (colonne choisie sous un groupe → nom renommé)
  */
-function applyFieldOverrides(s, overrides, { missing } = {}) {
+function applyFieldOverrides(s, overrides, { missing, catalogNames = [] } = {}) {
   for (const o of overrides || []) {
     const col = (o.columnName || '').trim();
-    const vals = col ? forcedValues(s.data, col) : [];
+    const vals = col ? forcedValues(s.data, col, catalogNames) : [];
     if (o.dimension === DATE_KEYS.survey) {
       applySurveyDate(s, vals);
       if (missing && missing.has(o.dimension) && s.dateSource === 'upload' && !s.dateIssue) s.dateIssue = 'survey_column_missing';
@@ -545,12 +569,13 @@ function uniqueByExternalId(submissions) {
  */
 function missingOverrides(overrides, headers, catalogNames = []) {
   const cols = (headers || []).filter((h) => h != null && h !== '').map(String);
-  const renamed = Object.keys(groupPathRenamer(catalogNames)(Object.fromEntries(cols.map((h) => [h, true]))));
-  const present = new Set([...cols, ...renamed].map((h) => h.toLowerCase()));
+  // Clés que l'import lira : colonnes du fichier ramenées aux noms du catalogue (groupPathRenamer).
+  const read = Object.keys(groupPathRenamer(catalogNames)(Object.fromEntries(cols.map((h) => [h, true]))));
+  const present = new Set(read.map((h) => h.toLowerCase()));
   const out = new Map();
   for (const o of overrides || []) {
     const col = (o.columnName || '').trim();
-    if (col && !present.has(col.toLowerCase())) out.set(o.dimension, col);
+    if (col && !overrideColumns(col, read, catalogNames).some((c) => present.has(c.toLowerCase()))) out.set(o.dimension, col);
   }
   return out;
 }
@@ -580,7 +605,7 @@ function prepareImport(submissions, { catalogNames = [], overrides = [], headers
   const missing = overrides.length ? missingOverrides(overrides, headers || keysOfSubmissions(unique), catalogNames) : new Map();
   for (const s of unique) {
     s.data = canonical(s.data || {});
-    if (overrides.length) applyFieldOverrides(s, overrides, { missing });
+    if (overrides.length) applyFieldOverrides(s, overrides, { missing, catalogNames });
   }
   return { unique, duplicates: list.length - unique.length, missing };
 }
@@ -774,6 +799,6 @@ async function parseSubmissions(buffer, { zipLimits = zipLimitsFromEnv(process.e
 }
 
 module.exports = {
-  parseSubmissions, submissionsFromObjects, parseCsv, buildLookup, valueOf, groupPathRenamer, analyzeSubmissions, previewImport,
+  parseSubmissions, submissionsFromObjects, parseCsv, buildLookup, valueOf, groupPathRenamer, overrideColumns, analyzeSubmissions, previewImport,
   collectionColumns, applySurveyDate, applyFieldOverrides, prepareImport, missingOverrides, uniqueByExternalId, dateSummary, TRIM_CLASS, MAP,
 };

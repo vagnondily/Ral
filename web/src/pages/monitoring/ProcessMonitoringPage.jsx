@@ -460,7 +460,7 @@ function VariablesTab({ form }) {
                       <td><span className="mono">{f.name}</span></td>
                       <td className="muted">{f.type || '—'}</td>
                       <td className="muted">{f.group || '—'}</td>
-                      <td>{f.relevant ? <code className="skip-expr">{f.relevant}</code> : <span className="cell-empty">—</span>}</td>
+                      <td>{f.relevant ? <code className="skip-expr" title={f.relevant}>{f.relevant}</code> : <span className="cell-empty">—</span>}</td>
                       <td>{opts.length
                         ? <span title={opts.map((o) => `${o.value} = ${o.label}`).join('\n')}>{tr('{n} choix', { n: opts.length })} <span className="site-meta">({f.listName})</span></span>
                         : <span className="cell-empty">—</span>}</td>

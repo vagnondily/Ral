@@ -75,8 +75,13 @@ export default function RbmPage({ canEdit, embedded = false }) {
     setBusy(true);
     try {
       const r = await api.rbmGenerate(month, risk);
-      if (r.created > 0) toast.success(tr('{created} visite(s) planifiée(s) sur {due} site(s) à suivre.', { created: r.created, due: r.due }));
-      else if (r.due > 0) toast.info(tr('Aucune nouvelle visite : les {due} site(s) à suivre sont déjà planifiés.', { due: r.due }));
+      const notes = [
+        r.cancelled ? tr('{n} site(s) avec une visite annulée ce mois, laissée telle quelle', { n: r.cancelled }) : null,
+        r.inactive ? tr('{n} site(s) inactif(s) ce mois, non planifié(s)', { n: r.inactive }) : null,
+      ].filter(Boolean);
+      const tail = notes.length ? ` (${notes.join(' · ')})` : '';
+      if (r.created > 0) toast.success(tr('{created} visite(s) planifiée(s) sur {due} site(s) à suivre.', { created: r.created, due: r.due }) + tail);
+      else if (r.due > 0) toast.info(tr('Aucune nouvelle visite : les {due} site(s) à suivre sont déjà planifiés.', { due: r.due }) + tail);
       else toast.info(tr('Aucun site à suivre ce mois (hors zones interdites).'));
       reload();
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
@@ -107,7 +112,7 @@ export default function RbmPage({ canEdit, embedded = false }) {
     const s = { total: 0, elevee: 0, moyenne: 0, faible: 0, due: 0, toPlan: 0 };
     for (const x of sites || []) {
       s.total += 1; s[x.riskLevel] = (s[x.riskLevel] || 0) + 1;
-      if (x.due) s.due += 1;
+      if (x.due && !x.forbidden) s.due += 1; // même définition que « Générer » (rbmMath.planningCounts)
       if (x.toPlan) s.toPlan += 1; // ce que « Générer » planifiera (serveur : rbmMath.needsPlanning)
     }
     return s;
@@ -226,7 +231,7 @@ export default function RbmPage({ canEdit, embedded = false }) {
         { label: tr('Risque élevé'), value: sites ? formatInt(stats.elevee) : '—', foot: tr(RISK.elevee.freq) },
         { label: tr('Risque moyen'), value: sites ? formatInt(stats.moyenne) : '—', foot: tr(RISK.moyenne.freq) },
         { label: tr('Risque faible'), value: sites ? formatInt(stats.faible) : '—', foot: tr(RISK.faible.freq) },
-        { label: tr('À suivre ce mois'), value: sites ? formatInt(stats.due) : '—',
+        { label: tr('À suivre ce mois (hors zones interdites)'), value: sites ? formatInt(stats.due) : '—',
           foot: sites ? tr('dont {n} à planifier', { n: formatInt(stats.toPlan) }) : tr('Selon le RBM') },
       ]} />
 

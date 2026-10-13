@@ -296,3 +296,27 @@ test('exports réels : soumissions dont le mois change (si MEMS_REAL_EXPORTS est
     assert.equal(d.surveyAfterUpload, 0, name); // la date d'enquête ne suit jamais la réception
   }
 });
+
+test('colonne choisie sous un groupe (« grp/SvyDate ») puis catalogue arrivé : lue sous son nom renommé, jamais « reconnue » sans être lue', async () => {
+  const { overrideColumns, collectionColumns, missingOverrides } = require('../src/modules/monitoring/submissionsImport');
+  assert.deepEqual(overrideColumns('grp/SvyDate', ['SvyDate', 'svydate'], ['SvyDate']), ['grp/SvyDate', 'SvyDate', 'svydate']);
+  assert.deepEqual(overrideColumns('Bureau', ['bureau'], []), ['Bureau', 'bureau']);
+  assert.deepEqual(overrideColumns('', ['x']), []);
+  // Import + vérification : la valeur de la colonne choisie est lue (mois de l'enquête), et rien n'est « absent ».
+  const csv = '_uuid,grp/SvyDate,_submission_time\nr2,2026-01-15,2026-02-03T09:00:00\n';
+  const { submissions, headers } = await parseSubmissions(Buffer.from(csv));
+  const ctx = { catalogNames: ['SvyDate'], overrides: [{ dimension: 'survey_date', columnName: 'grp/SvyDate' }] };
+  const a = previewImport(submissions, headers, ctx);
+  assert.deepEqual(a.months, [{ month: '2026-01-01', n: 1 }]);
+  assert.deepEqual(a.missing, {});
+  assert.equal(missingOverrides(ctx.overrides, headers, ctx.catalogNames).size, 0);
+  // « Appliquer aux soumissions » sur les clés déjà renommées : la même colonne.
+  assert.deepEqual(collectionColumns(['SvyDate', '_submission_time'], 'grp/SvyDate', ['SvyDate']).surveyCols, ['grp/SvyDate', 'SvyDate']);
+  // Colonne vraiment absente : signalée.
+  assert.equal(missingOverrides([{ dimension: 'survey_date', columnName: 'DateVisite' }], headers, ['SvyDate']).get('survey_date'), 'DateVisite');
+});
+
+test('lien de données : les colonnes vides sur tout le lot restent des colonnes du fichier', () => {
+  const { recordKeys } = require('../src/modules/monitoring/dataLinks.service');
+  assert.deepEqual(recordKeys([{ _uuid: 'a', DateVisite: '' }, { _uuid: 'b', SvyDate: '2026-01-02' }]), ['_uuid', 'DateVisite', 'SvyDate']);
+});

@@ -116,23 +116,33 @@ function visitState(row = {}, targetMonth) {
 /**
  * « À planifier » pour `targetMonth` (bouton « Générer depuis le RBM ») : site à suivre (`due`),
  * hors zone interdite (`forbidden` : suivi à distance uniquement, jamais de visite planifiée) et
- * sans visite déjà prévue ce mois (`nextPlannedMonth` = le mois cible). Une visite RÉALISÉE ce
- * mois rend déjà le site « à jour » ; une visite annulée ne compte pas.
+ * sans visite déjà prévue ce mois (`nextPlannedMonth` = le mois cible), sans visite ANNULÉE ce
+ * mois (`cancelledThisMonth` : décision de l'utilisateur) et actif ce mois (`inactiveThisMonth`).
+ * Une visite RÉALISÉE ce mois rend déjà le site « à jour ».
  */
-function needsPlanning({ due, forbidden, nextPlannedMonth } = {}, targetMonth) {
+function needsPlanning({ due, forbidden, nextPlannedMonth, cancelledThisMonth, inactiveThisMonth } = {}, targetMonth) {
   const target = toMonth(targetMonth);
-  return Boolean(target && due && !forbidden && toMonth(nextPlannedMonth) !== target);
+  // Une visite ANNULÉE ce mois est une décision de l'utilisateur : jamais replanifiée d'office.
+  // Un site « Inactive » ce mois (grille d'activation) n'est pas planifiable ce mois-là.
+  return Boolean(target && due && !forbidden && !cancelledThisMonth && !inactiveThisMonth
+    && toMonth(nextPlannedMonth) !== target);
 }
 
-/** Compteurs de la génération du mois : sites à suivre (hors zones interdites) et, parmi eux, à planifier. */
+/**
+ * Compteurs de la génération du mois, une seule définition pour l'écran et « Générer » :
+ * `due` = sites à suivre hors zones interdites ; parmi eux `toPlan` (à planifier),
+ * `cancelled` (visite annulée ce mois, laissée telle quelle) et `inactive` (inactifs ce mois).
+ */
 function planningCounts(rows, targetMonth) {
-  let due = 0; let toPlan = 0;
+  let due = 0; let toPlan = 0; let cancelled = 0; let inactive = 0;
   for (const r of rows || []) {
     if (!r.due || r.forbidden) continue;
     due += 1;
+    if (r.cancelledThisMonth) cancelled += 1;
+    else if (r.inactiveThisMonth) inactive += 1;
     if (needsPlanning(r, targetMonth)) toPlan += 1;
   }
-  return { due, toPlan };
+  return { due, toPlan, cancelled, inactive };
 }
 
 module.exports = {

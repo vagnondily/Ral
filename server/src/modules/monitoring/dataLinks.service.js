@@ -87,11 +87,22 @@ async function pullFile(url, token) {
       pageUrl = next; page = await safeFetch(next, { headers });
       if (!page.ok) throw new FetchRefused(`HTTP ${page.status}`);
     }
-    return { submissions: submissionsFromObjects(records, 'kobo'), pages: 1 };
+    return { submissions: submissionsFromObjects(records, 'kobo'), pages: 1, headers: recordKeys(records) };
   }
   const buf = first.buffer;
   const parsed = await parseSubmissions(buf); // format reconnu par les octets, limites de décompression de l'environnement
-  return { submissions: parsed.submissions, pages: 1 };
+  return { submissions: parsed.submissions, pages: 1, headers: parsed.headers };
+}
+
+/**
+ * Colonnes d'un lot JSON (API Kobo, Ona, export JSON) : toutes les clés des enregistrements,
+ * valeurs vides comprises — une colonne choisie dans « Mapping MEMS » vide sur tout le lot
+ * n'est pas « absente du fichier ».
+ */
+function recordKeys(records) {
+  const keys = new Set();
+  for (const r of records || []) if (r && typeof r === 'object') for (const k of Object.keys(r)) keys.add(k);
+  return [...keys];
 }
 
 /**
@@ -129,20 +140,23 @@ async function importFromLink(tenantId, formId, { url, token, full = false }) {
   const link = classifyLink(url);
   if (link.kind === 'invalid') throw badRequest('Lien invalide.');
 
-  let submissions; let pages = 1; let truncated = false; let cursor = null; let gtId = null;
+  let submissions; let headers; let pages = 1; let truncated = false; let cursor = null; let gtId = null;
   try {
     if (link.kind === 'ona-open-data') {
       gtId = !full && ctx.sourceKind === 'ona-open-data' && ctx.sourceUrl === url ? ctx.sourceCursor : null;
       const res = await pullOna(link, { gtId });
-      submissions = submissionsFromObjects(res.rows.map((r) => normalizeOnaRecord(r, [...ctx.fieldNames, ...KNOWN_FIELDS])), 'ona');
+      const records = res.rows.map((r) => normalizeOnaRecord(r, [...ctx.fieldNames, ...KNOWN_FIELDS]));
+      submissions = submissionsFromObjects(records, 'ona');
+      headers = recordKeys(records);
       ({ pages, truncated } = res);
       cursor = maxId(res.rows, gtId);
     } else if (link.kind === 'kobo-api') {
       const res = await pullKobo(link, token);
       submissions = submissionsFromObjects(res.rows, 'kobo');
+      headers = recordKeys(res.rows);
       ({ pages, truncated } = res);
     } else {
-      ({ submissions, pages } = await pullFile(link.url, token));
+      ({ submissions, pages, headers } = await pullFile(link.url, token));
     }
   } catch (err) {
     throw linkError(err, link.kind);
@@ -150,9 +164,9 @@ async function importFromLink(tenantId, formId, { url, token, full = false }) {
 
   const incremental = gtId != null;
   if (!submissions.length && !incremental) throw badRequest('Aucune soumission trouvée à ce lien.');
-  const result = submissions.length ? await repo.importSubmissions(tenantId, formId, submissions) : { received: 0, inserted: 0 };
+  const result = submissions.length ? await repo.importSubmissions(tenantId, formId, submissions, { headers }) : { received: 0, inserted: 0 };
   await repo.setFormSource(tenantId, formId, url, { kind: link.kind, cursor });
   return { ...result, kind: link.kind, pages, truncated, incremental };
 }
 
-module.exports = { importFromLink, nextFromLink, linkError };
+module.exports = { importFromLink, nextFromLink, linkError, recordKeys };

@@ -182,9 +182,24 @@ async function rbmSiteExplain(tenantId, siteId, { month } = {}) {
   return withTenantTransaction(tenantId, async (client) => (await rbmSitesTx(client, tenantId, { month, siteId, explain: true }))[0] || null);
 }
 
+/** Sites dont la visite du mois a été ANNULÉE, et sites « Inactive » ce mois (grille d'activation). */
+async function monthBlocksTx(client, tenantId, target) {
+  if (!target) return { cancelled: new Set(), inactive: new Set() };
+  const [y, m] = target.split('-').map(Number);
+  const { rows: c } = await client.query(
+    `SELECT DISTINCT site_id FROM site_visits WHERE tenant_id = $1 AND period_month = $2::date AND status = 'annule'
+       AND NOT EXISTS (SELECT 1 FROM site_visits o WHERE o.tenant_id = $1 AND o.site_id = site_visits.site_id
+                         AND o.period_month = $2::date AND o.status <> 'annule')`,
+    [tenantId, `${target}-01`]);
+  const { rows: i } = await client.query(
+    'SELECT site_id FROM site_month_status WHERE tenant_id = $1 AND year = $2 AND month = $3 AND NOT active', [tenantId, y, m]);
+  return { cancelled: new Set(c.map((r) => r.site_id)), inactive: new Set(i.map((r) => r.site_id)) };
+}
+
 async function rbmSitesTx(client, tenantId, { month, risk, siteId, explain = false } = {}) {
   const target = month ? String(month).slice(0, 7) : null;
   const rows = await rbmRowsTx(client, tenantId, { risk, siteId, targetMonth: target, ordered: true });
+  const blocks = await monthBlocksTx(client, tenantId, target);
   return rows.map((r) => {
     // Intervalle de référence : fréquence RBM selon le niveau de risque
     // (en l'absence d'un paramètre MMR précis pour ce site).
@@ -194,8 +209,10 @@ async function rbmSitesTx(client, tenantId, { month, risk, siteId, explain = fal
     // pour rester cohérent avec l'ancienne logique.
     const due = target ? (score.due || isDue(r.riskLevel, r.lastVisitMonth, target)) : false;
     // « À planifier » (compteur et bouton « Générer ») : à suivre, hors zone interdite, sans visite prévue ce mois.
-    const toPlan = needsPlanning({ due, forbidden: score.forbidden, nextPlannedMonth: r.nextPlannedMonth }, target);
-    return { ...r, ...score, due, toPlan, interval, ...(explain ? { reasons, consequence, actions } : {}) };
+    const cancelledThisMonth = blocks.cancelled.has(r.id);
+    const inactiveThisMonth = blocks.inactive.has(r.id);
+    const toPlan = needsPlanning({ due, forbidden: score.forbidden, nextPlannedMonth: r.nextPlannedMonth, cancelledThisMonth, inactiveThisMonth }, target);
+    return { ...r, ...score, due, toPlan, cancelledThisMonth, inactiveThisMonth, interval, ...(explain ? { reasons, consequence, actions } : {}) };
   });
 }
 
@@ -306,10 +323,15 @@ async function importPlanSites(tenantId, userId, sites) {
         const slice = lastVisits.slice(i, i + 200).filter((x) => idByCode.get(x.code));
         if (!slice.length) continue;
         const params = [tenantId, userId || null]; const vals = [];
-        for (const x of slice) { params.push(idByCode.get(x.code), `${x.month}-01`); const b = params.length; vals.push(`($1,$${b - 1},$${b},'realise',$2)`); }
+        for (const x of slice) { params.push(idByCode.get(x.code), `${x.month}-01`); const b = params.length; vals.push(`($${b - 1}::uuid,$${b}::date)`); }
+        // Idempotent même sans activité (la contrainte unique laisse passer les NULL) : jamais une
+        // 2ᵉ visite réalisée pour le même site et le même mois.
         const { rowCount } = await client.query(
           `INSERT INTO site_visits (tenant_id, site_id, period_month, status, created_by)
-           VALUES ${vals.join(',')} ON CONFLICT DO NOTHING`, params);
+           SELECT DISTINCT $1::uuid, t.site_id, t.pm, 'realise', $2::uuid FROM (VALUES ${vals.join(',')}) AS t(site_id, pm)
+            WHERE NOT EXISTS (SELECT 1 FROM site_visits v WHERE v.tenant_id = $1 AND v.site_id = t.site_id
+                                AND v.period_month = t.pm AND v.status = 'realise')
+           ON CONFLICT DO NOTHING`, params);
         visits += rowCount;
       }
     }
@@ -343,21 +365,24 @@ async function generateFromRbmTx(client, tenantId, userId, month, { risk } = {})
   if (!target) throw badRequest('Mois invalide (attendu : AAAA-MM).');
   await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`rbm-generate:${tenantId}:${target}`]);
   const rows = await rbmSitesTx(client, tenantId, { month: target, risk });
-  const { due, toPlan } = planningCounts(rows, target);
+  const counts = planningCounts(rows, target);
   const todo = rows.filter((s) => s.toPlan);
-  if (!todo.length) return { created: 0, due, toPlan };
+  if (!todo.length) return { created: 0, ...counts };
+  // Une seule instruction ; jamais sur un site qui a DÉJÀ une visite ce mois (quel que soit son
+  // statut : une visite annulée est une décision, elle n'est pas ressuscitée) ni « Inactive » ce mois.
+  const [y, m] = target.split('-').map(Number);
   const { rowCount } = await client.query(
     `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by)
      SELECT $1, t.site_id, $2::date, t.activity, 'planifie', $3
        FROM unnest($4::uuid[], $5::text[]) AS t(site_id, activity)
       WHERE NOT EXISTS (SELECT 1 FROM site_visits v
-                         WHERE v.tenant_id = $1 AND v.site_id = t.site_id
-                           AND v.period_month = $2::date AND v.status <> 'annule')
-     ON CONFLICT (tenant_id, site_id, period_month, activity) DO UPDATE SET status = 'planifie', updated_at = now()
-       WHERE site_visits.status = 'annule'`,
-    [tenantId, `${target}-01`, userId || null, todo.map((s) => s.id), todo.map((s) => s.activity || null)]
+                         WHERE v.tenant_id = $1 AND v.site_id = t.site_id AND v.period_month = $2::date)
+        AND NOT EXISTS (SELECT 1 FROM site_month_status ms
+                         WHERE ms.tenant_id = $1 AND ms.site_id = t.site_id AND ms.year = $6 AND ms.month = $7 AND NOT ms.active)
+     ON CONFLICT (tenant_id, site_id, period_month, activity) DO NOTHING`,
+    [tenantId, `${target}-01`, userId || null, todo.map((s) => s.id), todo.map((s) => s.activity || null), y, m]
   );
-  return { created: rowCount, due, toPlan };
+  return { created: rowCount, ...counts };
 }
 
 /**
@@ -720,9 +745,13 @@ async function importPlanning(tenantId, userId, month, rows) {
     for (const r of clean) {
       const siteId = map.get(`${r.district}|${r.commune}|${r.name}`);
       if (!siteId) continue;
+      // Idempotent même sans activité (NULL n'entre pas en conflit) : rien si une visite non annulée
+      // de même activité (ou sans activité des deux côtés) existe déjà ce mois.
       const res = await client.query(
         `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, agent, status, created_by)
-         VALUES ($1,$2,$3,$4,$5,'planifie',$6)
+         SELECT $1, $2, $3::date, $4::text, $5, 'planifie', $6
+          WHERE NOT EXISTS (SELECT 1 FROM site_visits v WHERE v.tenant_id = $1 AND v.site_id = $2 AND v.period_month = $3::date
+                              AND v.status <> 'annule' AND COALESCE(v.activity, '') = COALESCE($4::text, ''))
          ON CONFLICT (tenant_id, site_id, period_month, activity) DO NOTHING`,
         [tenantId, siteId, pm, r.activity || null, r.agent || null, userId]
       );

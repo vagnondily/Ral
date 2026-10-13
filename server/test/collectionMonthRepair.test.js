@@ -18,7 +18,7 @@ const T = '11111111-1111-1111-1111-111111111111';
 const F = '22222222-2222-2222-2222-222222222222';
 
 /** Faux client : table monitoring_submissions en mémoire, surcharges de mapping, journal des requêtes. */
-function fakeClient(rows, { overrides = [] } = {}) {
+function fakeClient(rows, { overrides = [], catalog = [] } = {}) {
   const log = [];
   let busy = false;
   const client = {
@@ -33,6 +33,7 @@ function fakeClient(rows, { overrides = [] } = {}) {
       if (/jsonb_object_keys/.test(sql)) return { rows: [...new Set(mine.flatMap((r) => Object.keys(r.data)))].map((k) => ({ k })) };
       if (/^SELECT count\(\*\)::int AS n FROM monitoring_submissions/.test(sql)) return { rows: [{ n: mine.length }] };
       if (/FROM monitoring_field_map/.test(sql)) return { rows: overrides.filter((o) => o.dimension === params[2]) };
+      if (/FROM monitoring_form_fields/.test(sql)) return { rows: catalog.map((name) => ({ name })) };
       if (/jsonb_object_agg/.test(sql)) {
         const keys = params[2];
         return {

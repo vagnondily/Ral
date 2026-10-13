@@ -118,6 +118,14 @@ test('needsPlanning / planningCounts : à suivre, hors zone interdite, sans visi
     { due: true }, { due: true, nextPlannedMonth: M }, { due: true, forbidden: true },
     { due: false }, { due: true, nextPlannedMonth: '2026-11' },
   ];
-  assert.deepEqual(planningCounts(rows, M), { due: 3, toPlan: 2 });
-  assert.deepEqual(planningCounts([], M), { due: 0, toPlan: 0 });
+  assert.deepEqual(planningCounts(rows, M), { due: 3, toPlan: 2, cancelled: 0, inactive: 0 });
+  assert.deepEqual(planningCounts([], M), { due: 0, toPlan: 0, cancelled: 0, inactive: 0 });
+});
+
+test('visite annulée ce mois ou site inactif ce mois : jamais replanifié d\'office, compté à part', () => {
+  const M = '2026-10';
+  assert.equal(needsPlanning({ due: true, cancelledThisMonth: true }, M), false, 'annulée = décision de l\'utilisateur');
+  assert.equal(needsPlanning({ due: true, inactiveThisMonth: true }, M), false, 'inactif ce mois : pas planifiable');
+  const rows = [{ due: true }, { due: true, cancelledThisMonth: true }, { due: true, inactiveThisMonth: true }, { due: true, forbidden: true, cancelledThisMonth: true }];
+  assert.deepEqual(planningCounts(rows, M), { due: 3, toPlan: 1, cancelled: 1, inactive: 1 });
 });

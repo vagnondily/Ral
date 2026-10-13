@@ -251,3 +251,12 @@ test('taille (caseload) rendue avec le score : le nombre de bénéficiaires prim
   const r = scoreSite({ beneficiaryNumber: 350 }, T);
   assert.equal(r.reasons.find((x) => x.code === 'caseload').points, r.caseload);
 });
+
+test('zone interdite : aucune action ne parle de visite (problème signalé vérifié à distance)', () => {
+  const { scoreSite: score } = require('../src/modules/tpm/rbmScore');
+  const r = score({ security: 99, issuesCFM: 2, fraud: 1 }, { targetMonth: '2026-10', mmrInterval: 1 });
+  const issues = r.actions.find((a) => a.code === 'issues');
+  assert.match(issues.label, /à distance/);
+  assert.equal(issues.month, null);
+  assert.ok(r.actions.every((a) => !/visite|planifi/i.test(a.label)), JSON.stringify(r.actions.map((a) => a.label)));
+});

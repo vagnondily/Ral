@@ -8,7 +8,7 @@ const { classDistribution, naReasonCounts, dimGroups, topFlop, classify } = requ
 const { codeLabelText } = require('../common/codeLabel');
 const { detectMapping, DIMENSION_COLUMN, DATE_KEYS, EDITABLE_KEYS } = require('./memsMapping');
 const { computeCalcFields, checkExpression, previewCalc } = require('./calcFields');
-const { buildLookup, collectionColumns, prepareImport, previewImport, dateSummary, TRIM_CLASS } = require('./submissionsImport');
+const { buildLookup, collectionColumns, overrideColumns, prepareImport, previewImport, dateSummary, TRIM_CLASS } = require('./submissionsImport');
 const { collectionUpdates } = require('./collectionDate');
 const { templateForActivity, moduleLabel, suggestBindings, indicatorFromItem } = require('./indicatorTemplates');
 const { OTHER_VALUES } = require('./memsMapping');
@@ -887,7 +887,9 @@ async function rederiveCollectionDatesTx(client, tenantId, formId) {
   const { rows: ov } = await client.query(
     'SELECT column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2 AND dimension = $3',
     [tenantId, formId, DATE_KEYS.survey]);
-  const cols = collectionColumns(keyRows.map((r) => r.k), ov.length ? (ov[0].columnName || '') : undefined);
+  const { rows: cat } = await client.query(
+    'SELECT name FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
+  const cols = collectionColumns(keyRows.map((r) => r.k), ov.length ? (ov[0].columnName || '') : undefined, cat.map((r) => r.name));
   const read = [...new Set([...cols.surveyCols, ...cols.uploadCols])];
   if (!read.length) {
     const { rows: [c] } = await client.query(
@@ -942,6 +944,9 @@ async function reliftSubmissionsTx(client, tenantId, formId) {
     'SELECT dimension, column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2',
     [tenantId, formId]);
   const forced = new Map(ov.map((o) => [o.dimension, (o.columnName || '').trim()]));
+  const { rows: cat } = await client.query(
+    'SELECT name FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
+  const catalogNames = cat.map((r) => r.name);
   const params = [tenantId, formId];
   const ref = (value) => { params.push(value); return `$${params.length}`; };
   let otherRef = null; // valeurs « autre » (999…) : paramètre ajouté seulement s'il sert
@@ -949,9 +954,10 @@ async function reliftSubmissionsTx(client, tenantId, formId) {
   // Même nettoyage que l'import (String.prototype.trim) : espaces insécables compris.
   const trim = (x) => `regexp_replace(${x}, '^[${TRIM_CLASS}]+|[${TRIM_CLASS}]+$', '', 'g')`;
   const cell = (name) => `NULLIF(${trim(`data->>${ref(name)}`)}, '')`;
-  // Colonne choisie à la main : nom exact d'abord, puis ses variantes de casse présentes dans les données.
+  // Colonne choisie à la main : la même règle qu'à l'import (overrideColumns) — nom exact, nom
+  // renommé par le catalogue (« grp/Bureau » → « Bureau »), variantes de casse présentes.
   const forcedCell = (col) => {
-    const ks = [col, ...keys.filter((k) => k !== col && k.toLowerCase() === col.toLowerCase())];
+    const ks = overrideColumns(col, keys, catalogNames);
     return ks.length > 1 ? `COALESCE(${ks.map(cell).join(', ')})` : cell(col);
   };
   const exprFor = (dimension) => {

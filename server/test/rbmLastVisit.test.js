@@ -106,22 +106,25 @@ test('génération du plan du mois : un site seulement planifié reste « à sui
   ]);
   const r = await generateFromRbmTx(client, TENANT, 'user-1', '2026-10');
   // « À suivre » hors zone interdite : planned-only + never ; seul never est encore à planifier.
-  assert.deepEqual(r, { created: 1, due: 2, toPlan: 1 });
+  assert.deepEqual(r, { created: 1, due: 2, toPlan: 1, cancelled: 0, inactive: 0 });
   // Deux « Générer » simultanés du même mois sont mis en file (verrou pris AVANT la lecture).
   assert.match(client.calls[0].sql, /pg_advisory_xact_lock/);
   assert.deepEqual(client.calls[0].params, [`rbm-generate:${TENANT}:2026-10`]);
   const inserts = client.calls.filter((c) => /INSERT INTO site_visits/.test(c.sql));
   assert.equal(inserts.length, 1, 'une seule instruction pour tous les sites');
-  assert.deepEqual(inserts[0].params, [TENANT, '2026-10-01', 'user-1', ['never'], [null]]);
-  // Le contrôle « déjà une visite non annulée ce mois » est dans l'INSERT (activité NULL comprise), filtré par compte.
+  assert.deepEqual(inserts[0].params, [TENANT, '2026-10-01', 'user-1', ['never'], [null], 2026, 10]);
+  // Dans l'INSERT, filtré par compte : aucune visite DU MOIS (annulée comprise : jamais ressuscitée,
+  // activité NULL comprise) et site actif ce mois ; un conflit ne modifie rien.
   assert.match(inserts[0].sql, /INSERT INTO site_visits[\s\S]*SELECT \$1, t\.site_id[\s\S]*FROM unnest\(\$4::uuid\[\], \$5::text\[\]\)/);
-  assert.match(inserts[0].sql, /WHERE NOT EXISTS \(SELECT 1 FROM site_visits v\s+WHERE v\.tenant_id = \$1 AND v\.site_id = t\.site_id\s+AND v\.period_month = \$2::date AND v\.status <> 'annule'\)/);
-  assert.match(inserts[0].sql, /ON CONFLICT \(tenant_id, site_id, period_month, activity\) DO UPDATE SET status = 'planifie'[\s\S]*WHERE site_visits\.status = 'annule'/);
+  assert.match(inserts[0].sql, /WHERE NOT EXISTS \(SELECT 1 FROM site_visits v\s+WHERE v\.tenant_id = \$1 AND v\.site_id = t\.site_id AND v\.period_month = \$2::date\)/);
+  assert.match(inserts[0].sql, /NOT EXISTS \(SELECT 1 FROM site_month_status ms[\s\S]*NOT ms\.active\)/);
+  assert.match(inserts[0].sql, /ON CONFLICT \(tenant_id, site_id, period_month, activity\) DO NOTHING/);
+  assert.doesNotMatch(inserts[0].sql, /DO UPDATE/);
 });
 
 test('génération : rien à planifier ⇒ aucune écriture ; mois illisible refusé', async () => {
   const client = fakeClient([row({ id: 'planned-only', plannedMonths: ['2026-10'] }), row({ id: 'forbidden', security: 99 })]);
-  assert.deepEqual(await generateFromRbmTx(client, TENANT, 'user-1', '2026-10'), { created: 0, due: 1, toPlan: 0 });
+  assert.deepEqual(await generateFromRbmTx(client, TENANT, 'user-1', '2026-10'), { created: 0, due: 1, toPlan: 0, cancelled: 0, inactive: 0 });
   assert.equal(client.calls.filter((c) => /INSERT/.test(c.sql)).length, 0);
   await assert.rejects(generateFromRbmTx(fakeClient([]), TENANT, 'user-1', '2026-13'), (e) => e.statusCode === 400);
 });
@@ -131,7 +134,7 @@ test('génération : rien à planifier ⇒ aucune écriture ; mois illisible ref
  * et l'INSERT … SELECT … WHERE NOT EXISTS … ON CONFLICT de la génération, y compris le
  * piège d'origine : UNIQUE (…, activity) laisse passer deux visites d'activité NULL.
  */
-function stateClient(sites, visits) {
+function stateClient(sites, visits, inactive = []) {
   return {
     async query(sql, params) {
       if (/pg_advisory_xact_lock/.test(sql)) return { rows: [] };
@@ -139,13 +142,18 @@ function stateClient(sites, visits) {
         const [, pm, , ids, acts] = params;
         let n = 0;
         ids.forEach((id, i) => {
-          if (visits.some((v) => v.siteId === id && v.pm === pm && v.status !== 'annule')) return; // NOT EXISTS
-          const act = acts[i];
-          const clash = act != null && visits.find((v) => v.siteId === id && v.pm === pm && v.activity === act); // NULL ≠ NULL
-          if (clash) { if (clash.status === 'annule') { clash.status = 'planifie'; n += 1; } return; }
-          visits.push({ siteId: id, pm, activity: act, status: 'planifie' }); n += 1;
+          if (visits.some((v) => v.siteId === id && v.pm === pm)) return; // NOT EXISTS : toute visite du mois, annulée comprise
+          if ((inactive || []).includes(id)) return; // NOT EXISTS : site « Inactive » ce mois
+          visits.push({ siteId: id, pm, activity: acts[i], status: 'planifie' }); n += 1;
         });
         return { rows: [], rowCount: n };
+      }
+      if (/FROM site_month_status/.test(sql)) return { rows: (inactive || []).map((id) => ({ site_id: id })) };
+      if (/status = 'annule'/.test(sql) && /SELECT DISTINCT site_id FROM site_visits/.test(sql)) {
+        const [, pm] = params;
+        const ids = [...new Set(visits.filter((v) => v.pm === pm && v.status === 'annule').map((v) => v.siteId))]
+          .filter((id) => !visits.some((v) => v.siteId === id && v.pm === pm && v.status !== 'annule'));
+        return { rows: ids.map((id) => ({ site_id: id })) };
       }
       const months = (id, status) => visits.filter((v) => v.siteId === id && v.status === status).map((v) => v.pm.slice(0, 7));
       return { rows: sites.map((s) => ({ ...s, plannedMonths: [...new Set(months(s.id, 'planifie'))], fieldVisitMonth: months(s.id, 'realise').sort().pop() || s.fieldVisitMonth })) };
@@ -165,12 +173,14 @@ test('« Générer » cliqué 3 fois : n, 0, 0 visites — plus de doublon d\'ac
   const client = stateClient(sites, visits);
   const clicks = [];
   for (let i = 0; i < 3; i += 1) clicks.push(await generateFromRbmTx(client, TENANT, 'user-1', '2026-10'));
-  assert.deepEqual(clicks.map((c) => c.created), [3, 0, 0]);
-  assert.deepEqual(clicks.map((c) => c.toPlan), [3, 0, 0]);
+  assert.deepEqual(clicks.map((c) => c.created), [2, 0, 0]);
+  assert.deepEqual(clicks.map((c) => c.toPlan), [2, 0, 0]);
   assert.deepEqual(clicks.map((c) => c.due), [3, 3, 3], 'les sites restent « à suivre » tant que la visite n\'est pas réalisée');
+  assert.deepEqual(clicks.map((c) => c.cancelled), [1, 1, 1], 'visite annulée ce mois : comptée à part, jamais replanifiée');
   const live = (id) => visits.filter((v) => v.siteId === id && v.status !== 'annule').length;
-  assert.deepEqual(['sans-activite', 'cantines', 'annulee', 'interdite', 'a-jour'].map(live), [1, 1, 1, 0, 0]);
-  assert.equal(visits.length, 3, 'la visite annulée est replanifiée, pas dupliquée');
+  assert.deepEqual(['sans-activite', 'cantines', 'annulee', 'interdite', 'a-jour'].map(live), [1, 1, 0, 0, 0]);
+  assert.equal(visits.length, 3, 'la visite annulée reste annulée, rien n\'est dupliqué');
+  assert.equal(visits.find((v) => v.siteId === 'annulee').status, 'annule');
   // Même règle pour le compteur de l'écran (rbmSitesTx) : plus rien « à planifier ».
   const rows = await rbmSitesTx(client, TENANT, { month: '2026-10' });
   assert.equal(rows.filter((s) => s.toPlan).length, 0);
@@ -191,4 +201,12 @@ test('liste RBM : drapeau « à planifier » par site (à suivre, hors zone inte
   // Sans mois : rien n'est « à suivre » ni « à planifier ».
   const noMonth = await rbmSitesTx(fakeClient([row({ id: 'todo' })]), TENANT, {});
   assert.deepEqual([noMonth[0].due, noMonth[0].toPlan], [false, false]);
+});
+
+test('« Générer » : un site « Inactive » ce mois n\'est ni planifié ni compté « à planifier »', async () => {
+  const visits = [];
+  const client = stateClient([row({ id: 'actif', activity: null }), row({ id: 'inactif', activity: null })], visits, ['inactif']);
+  const r = await generateFromRbmTx(client, TENANT, 'user-1', '2026-10');
+  assert.deepEqual([r.created, r.toPlan, r.inactive], [1, 1, 1]);
+  assert.deepEqual(visits.map((v) => v.siteId), ['actif']);
 });

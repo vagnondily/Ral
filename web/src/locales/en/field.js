@@ -303,6 +303,10 @@ export default {
   'Signaler et planifier une vérification ciblée': 'Report it and plan a targeted check',
   'Signaler et organiser une vérification à distance': 'Report it and arrange a remote check',
   "Vérifier les conditions de sécurité et l'autorisation d'accès avant de planifier": 'Check security conditions and access authorisation before planning',
+  'Vérifier le problème signalé (processus / rapport / CFM) à distance': 'Check the reported issue (process / report / CFM) remotely',
+  '{n} site(s) avec une visite annulée ce mois, laissée telle quelle': '{n} site(s) with a visit cancelled this month, left as is',
+  '{n} site(s) inactif(s) ce mois, non planifié(s)': '{n} site(s) inactive this month, not planned',
+  'À suivre ce mois (hors zones interdites)': 'Due this month (excluding no-go areas)',
   'Vérifier le problème signalé (processus / rapport / CFM) lors de la prochaine visite': 'Check the reported issue (process / report / CFM) during the next visit',
   'Visite prévue non réalisée : la marquer « réalisée » si elle a eu lieu, sinon la replanifier':
     'Planned visit not completed: mark it “completed” if it took place, otherwise re-plan it',

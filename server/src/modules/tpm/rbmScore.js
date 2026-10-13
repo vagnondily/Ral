@@ -108,7 +108,9 @@ function recommendedActions(c) {
   }
   const issues = ISSUE_CRITERIA.filter(([k]) => c[k] > 0).map(([k]) => k);
   if (issues.length) {
-    out.push({ code: 'issues', label: 'Vérifier le problème signalé (processus / rapport / CFM) lors de la prochaine visite', refs: issues, month: c.forbidden ? null : nextVisit });
+    out.push(c.forbidden
+      ? { code: 'issues', label: 'Vérifier le problème signalé (processus / rapport / CFM) à distance', refs: issues, month: null }
+      : { code: 'issues', label: 'Vérifier le problème signalé (processus / rapport / CFM) lors de la prochaine visite', refs: issues, month: nextVisit });
   }
   if (c.forbidden) return out;
   if (c.latePlannedMonth && c.due) {
