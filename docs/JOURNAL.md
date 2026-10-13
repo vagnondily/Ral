@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 13/10/2026 13:02 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 13/10/2026 13:06 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -309,5 +309,8 @@ _Dernière mise à jour : 13/10/2026 13:02 UTC_ — la branche `main` reçoit ch
 
 - **13:02** 📥 **Retours n° 49 et 50** : cartes vides et inexploitables (26 sites sur 1 280 ont un GPS ; pas de contours dans le découpage) ; carte à intégrer au Dashboard décisionnel. → **Lot 6a remonté en priorité**, juste après les correctifs du lot 1 et en parallèle du lot 1b : contours des 119 districts déjà embarqués dans l'application, sites placés par GPS ou par la position de leurs ~480 collectes géolocalisées, couches par thème.
 - **13:02** 🔄 **Correctifs du lot 1** lancés (4 chantiers en parallèle, chacun contre-vérifié) : données (date d'enquête, aperçu, règle des 92 jours), indicateurs, tableaux de bord, et RBM « Pourquoi ? / Que faire ? » (retour 48).
+
+- **13:06** 📥 **Retours n° 51 à 53** (concepteur de rapport) : en-tête libre (logos, images, textes placés où l'on veut), toutes les données de MEMS disponibles, orientation par page. Constaté : le calcul d'un bulletin prend 3,4 s pour 562 soumissions sur la base de démonstration — sur vos volumes, la page reste vide sur « Calcul… ».
+- **13:06** 🔄 **Ordre révisé** : après la publication du lot 1, trois chantiers en parallèle — 1b (période = plage de mois), 6a (carte exploitable, aussi dans le Dashboard décisionnel), 7a (concepteur riche, en-tête libre, orientation par page, calcul rapide). Conception des trois lancée maintenant (lecture seule, avec critique de complétude), pendant que les correctifs du lot 1 tournent.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
