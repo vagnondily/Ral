@@ -1,5 +1,5 @@
 // Couverture terrain affichée — règle PURE (sans DOM), testée depuis le serveur
-// (server/test/webCoverage.test.js). Même règle que Synthèse, Couverture &
+// (server/test/webDashboards.test.js). Même règle que Synthèse, Couverture &
 // performance et le Bulletin : sans visite active (planifiée ou réalisée), le
 // taux est INCONNU — « — aucun plan », jamais un 0 % qui se lirait comme un échec.
 

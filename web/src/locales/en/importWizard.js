@@ -92,4 +92,10 @@ export default {
     'For information — late upload: more than 92 days after the survey: {n}. These submissions stay in their survey month.',
   'choisie dans « Mapping MEMS »': 'chosen in “MEMS mapping”',
   'date d\'enquête postérieure à la réception : {n}': 'survey date after receipt: {n}',
+  // Colonne choisie dans « Mapping MEMS » absente du fichier
+  'colonne de date choisie dans « Mapping MEMS » absente du fichier : {n}': 'date column chosen in “MEMS mapping” missing from the file: {n}',
+  'absente du fichier': 'missing from the file',
+  'Colonne choisie dans « Mapping MEMS » absente du fichier : l\'import ne pourra pas la lire. Corrigez le choix dans l\'onglet « Mapping MEMS » ou importez un fichier qui la contient.':
+    'Column chosen in “MEMS mapping” missing from the file: the import cannot read it. Fix the choice in the “MEMS mapping” tab or import a file that contains it.',
+  '{field} : « {column} »': '{field}: “{column}”',
 };

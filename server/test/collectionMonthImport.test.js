@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   parseSubmissions, submissionsFromObjects, analyzeSubmissions, collectionColumns, applySurveyDate, dateSummary,
-  applyFieldOverrides, prepareImport, previewImport,
+  applyFieldOverrides, prepareImport, previewImport, missingOverrides,
 } = require('../src/modules/monitoring/submissionsImport');
 
 const refused = (status, pattern) => (err) => {
@@ -33,7 +33,7 @@ test('CSV Kobo : SvyDate fixe le mois, _submission_time reste le mois de récept
   assert.deepEqual(s.map((x) => x.dateSource), ['survey', 'survey', 'upload', 'upload']);
   assert.deepEqual(s.map((x) => x.dateIssue), [null, null, 'survey_too_old', null]);
   assert.equal(s[0].submittedAt.toISOString(), '2026-01-28T00:00:00.000Z'); // submitted_at = date d'enquête retenue
-  assert.deepEqual(dateSummary(s), { fromSurvey: 2, fromUpload: 2, monthDiffers: 1, surveyUnreadable: 0, surveyTooOld: 1, surveyAfterUpload: 0, lateUpload: 0 });
+  assert.deepEqual(dateSummary(s), { fromSurvey: 2, fromUpload: 2, monthDiffers: 1, surveyUnreadable: 0, surveyTooOld: 1, surveyAfterUpload: 0, surveyColumnMissing: 0, lateUpload: 0 });
 });
 
 test('date d\'enquête illisible AVEC une date de réception : importée au mois de réception, comptée', async () => {
@@ -206,6 +206,46 @@ test('previewImport : préparation sur des copies — soumissions lues intactes,
   const { unique: [w] } = prepareImport(subs, { catalogNames: ['SvyDate', 'Bureau'], overrides: [{ dimension: 'field_office', columnName: 'Bureau' }] });
   assert.equal(w.fieldOffice, 'Ihosy');
   assert.equal(w.data.Bureau, 'Ihosy');
+});
+
+test('colonne choisie dans « Mapping MEMS » absente du fichier : jamais « reconnue », repli au mois de réception compté', async () => {
+  const csv = [
+    '_uuid,SvyDate,grp/Bureau,_submission_time',
+    'u1,2026-01-20,Ihosy,2026-02-03T08:00:00',
+    'u2,2026-01-25,Ihosy,2026-02-04T08:00:00',
+    'u3,2026-03-02,Ihosy,', // sans date de réception : la lecture de l'import est gardée (pas un repli)
+  ].join('\n');
+  const headers = ['_uuid', 'SvyDate', 'grp/Bureau', '_submission_time'];
+  const read = async () => (await parseSubmissions(Buffer.from(csv))).submissions;
+  const overrides = [{ dimension: 'survey_date', columnName: 'DateVisite' }, { dimension: 'field_office', columnName: 'Bureau' }];
+  const ctx = { overrides, catalogNames: ['Bureau'] };
+  const a = previewImport(await read(), headers, ctx);
+  assert.equal(a.recognized.survey_date, null, 'colonne absente : pas « reconnue »');
+  assert.deepEqual(a.missing, { survey_date: 'DateVisite' });
+  assert.equal(a.recognized.field_office, 'Bureau'); // présente sous un groupe, ramenée au nom du catalogue
+  assert.deepEqual(a.manual, ['survey_date', 'field_office']);
+  assert.deepEqual(a.months, [{ month: '2026-02-01', n: 2 }, { month: '2026-03-01', n: 1 }]);
+  assert.equal(a.dates.surveyColumnMissing, 2);
+  assert.equal(a.dates.fromUpload, 2);
+  // L'import (mêmes en-têtes) compte pareil : le compte rendu l'explique aussi.
+  const { unique, missing } = prepareImport(await read(), { ...ctx, headers });
+  assert.deepEqual(dateSummary(unique), a.dates);
+  assert.deepEqual([...missing], [['survey_date', 'DateVisite']]);
+  // Sans en-têtes (API, lien JSON) : les clés des réponses en tiennent lieu.
+  const api = prepareImport(submissionsFromObjects([{ _uuid: 'k1', SvyDate: '2026-01-20', _submission_time: '2026-02-03T08:00:00' }], 'kobo'), { overrides });
+  assert.equal(api.unique[0].dateIssue, 'survey_column_missing');
+  assert.equal(api.unique[0].periodMonth, '2026-02-01');
+  // Casse ignorée : « svydate » est bien dans le fichier — reconnue, aucun repli compté.
+  const b = previewImport(await read(), headers, { overrides: [{ dimension: 'survey_date', columnName: 'svydate' }] });
+  assert.equal(b.recognized.survey_date, 'svydate');
+  assert.deepEqual(b.missing, {});
+  assert.equal(b.dates.surveyColumnMissing, 0);
+  assert.deepEqual(b.months, [{ month: '2026-01-01', n: 2 }, { month: '2026-03-01', n: 1 }]);
+  // « Aucune » (colonne vide) est un choix, jamais une colonne absente.
+  assert.equal(missingOverrides([{ dimension: 'survey_date', columnName: '' }], headers).size, 0);
+  assert.equal(missingOverrides([{ dimension: 'field_office', columnName: 'Bureau' }], headers).get('field_office'), 'Bureau'); // sans catalogue
+  // analyzeSubmissions seul (sans prepareImport) applique la même règle aux en-têtes.
+  assert.deepEqual(analyzeSubmissions(await read(), headers, { overrides }).missing, { survey_date: 'DateVisite', field_office: 'Bureau' });
 });
 
 test('applyFieldOverrides : valeur recopiée (variantes de casse, première non vide), « aucune » efface', () => {

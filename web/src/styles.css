@@ -2417,8 +2417,13 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .vp-warn { display: flex; align-items: flex-start; gap: 6px; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--orange-bg); color: var(--orange-text); font-size: 12.5px; }
 .vp-warn svg { flex: none; margin-top: 2px; }
 .vp-relevant { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; font-size: 12px; min-width: 0; }
-.vp-relevant .skip-expr { max-width: 100%; }
+/* Expression de saut longue : lisible en entier (retour à la ligne), jamais coupée par « … ». */
+.vp-relevant .skip-expr { max-width: 100%; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere;
+  overflow: visible; text-overflow: clip; }
 .ie-index-note { margin: 0; font-size: 12.5px; color: var(--text-muted); line-height: 1.5; }
+/* Case « compté » (toutes méthodes) : sens de la case décochée et note « hors indice » alignés sur le libellé. */
+.ie-scored { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ie-scored > .hint, .ie-scored > .ie-index-note { padding-left: 24px; }
 .ix-bar-cap { margin-bottom: 4px; }
 .vp-opts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 
@@ -2540,18 +2545,22 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .alerts-table .al-sev { white-space: nowrap; }
 .alerts-table .al-cat { white-space: nowrap; }
 /* Téléphone : chaque alerte en carte empilée (niveau · catégorie, titre, détail, ouvrir) —
-   plus de colonnes d'un caractère. L'en-tête reste lu par les lecteurs d'écran (rôles explicites). */
+   plus de colonnes d'un caractère. L'en-tête reste lu par les lecteurs d'écran (rôles explicites).
+   Lignes flexibles : la catégorie suit le niveau quand elle tient en entier, sinon elle passe
+   sur sa propre ligne (320–340 px) — jamais tronquée en « C… ». « Ouvrir » reste à droite. */
 @media (max-width: 640px) {
   .alerts-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .alerts-table, .alerts-table tbody { display: block; width: 100%; }
-  .alerts-table tbody tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .alerts-table tbody tr { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+    padding: 12px 52px 12px 14px; border-bottom: 1px solid var(--border); }
   .alerts-table tbody tr:last-child { border-bottom: 0; }
   .alerts-table tbody td { display: block; padding: 0; border: 0; min-width: 0; }
-  .alerts-table td.al-sev { grid-column: 1; grid-row: 1; }
-  .alerts-table td.al-cat { grid-column: 2; grid-row: 1; color: var(--text-muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; }
-  .alerts-table td.al-go { grid-column: 3; grid-row: 1 / span 3; width: auto; align-self: center; }
-  .alerts-table td.al-title { grid-column: 1 / 3; grid-row: 2; overflow-wrap: anywhere; }
-  .alerts-table td.al-detail { grid-column: 1 / 3; grid-row: 3; font-size: 12.5px; overflow-wrap: anywhere; }
+  .alerts-table td.al-sev { flex: none; }
+  .alerts-table td.al-cat { flex: 0 1 auto; min-width: min-content; white-space: normal; overflow: visible; text-overflow: clip;
+    color: var(--text-muted); font-size: 12.5px; }
+  .alerts-table td.al-go { position: absolute; top: 50%; right: 14px; transform: translateY(-50%); width: auto; }
+  .alerts-table td.al-title { flex: 1 1 100%; overflow-wrap: anywhere; }
+  .alerts-table td.al-detail { flex: 1 1 100%; font-size: 12.5px; overflow-wrap: anywhere; }
   .alerts-table td.al-detail:empty { display: none; }
 }
 

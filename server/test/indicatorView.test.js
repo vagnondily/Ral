@@ -142,3 +142,62 @@ test('valeurs comptées « 1|2 » ↔ liste ; libellés d\'option traduits, libe
   assert.equal(v.choiceText('Oui', tr), 'Oui');
   assert.equal(v.choiceText(null, tr), null);
 });
+
+test('case « compté » : présente pour CHAQUE méthode, avec son vrai sens (classes de Couverture & performance)', async (t) => {
+  const v = await load(t); if (!v) return;
+  const { classDistribution, naReasonCounts } = require('../src/modules/monitoring/coverageDashboard');
+  const { naReason } = require('../src/modules/monitoring/monitoringMath');
+  for (const agg of v.AGGS) {
+    const c = v.scoredControl(agg);
+    assert.ok(c.label && c.off, `${agg} : case présente`);
+    assert.match(c.label, /couverture & performance \(classes\)/);
+    if (v.isPctAgg(agg)) {
+      assert.match(c.label, /indice de conformité/);
+      assert.equal(c.note, null);
+    } else {
+      // Note fixe, toujours affichée, à côté de la case (jamais à sa place).
+      assert.match(c.note, /^Hors indice de conformité : seuls les indicateurs en % y entrent/);
+    }
+  }
+  // Même verdict que le tableau de bord : une moyenne complémentaire (scored = false, comme les modèles
+  // d'activité en livrent) est hors classes ; comptée, elle y entre — sans jamais entrer dans l'indice.
+  const mean = { agg: 'mean', value: 3, base: 4, target: 2 };
+  assert.equal(v.classesStatus({ ...mean, scored: false }), 'complementary');
+  assert.equal(v.classesStatus(mean), 'counted');
+  assert.equal(v.indexStatus({ ...mean, scored: true }), 'not_pct');
+  assert.equal(classDistribution([{ ...mean, scored: false }]).scored, 0);
+  assert.equal(classDistribution([{ ...mean, scored: true }]).scored, 1);
+  assert.equal(naReason({ ...mean, scored: false }), 'not_scored');
+  assert.deepEqual(naReasonCounts([{ agg: 'count', value: 2, base: 2, scored: false }]), {}); // complémentaire : pas un « Non évalué »
+  // Changer de méthode ne touche pas à la case (visible partout) : seul `agg` est envoyé.
+  const d = v.toDraft({ agg: 'mean', scored: false, code: 'c', label: 'l', sourceField: 'q' });
+  assert.equal(d.scored, false);
+  assert.deepEqual(v.draftPatch(d, { ...d, agg: 'percent_yes' }), { agg: 'percent_yes' });
+  // Cocher / décocher envoie `scored`, quelle que soit la méthode.
+  assert.deepEqual(v.draftPatch(d, { ...d, scored: true }), { scored: true });
+  // Libellés de la case, de la note et du détail traduits en anglais.
+  const en = (await import(pathToFileURL(path.join(__dirname, '../../web/src/locales/en.js')).href)).default;
+  for (const agg of v.AGGS) {
+    const c = v.scoredControl(agg);
+    for (const s of [c.label, c.off, c.note].filter(Boolean)) assert.ok(en[s], `« ${s} » sans traduction anglaise`);
+  }
+  for (const s of [...Object.values(v.CLASSES_STATUS_LABEL), ...Object.values(v.INDEX_STATUS_LABEL)]) assert.ok(en[s], `« ${s} » sans traduction anglaise`);
+});
+
+test('écrans modifiés (éditeur, détail, explication, import, choix de la variable) : chaque phrase a sa traduction anglaise', async (t) => {
+  const enFile = path.join(__dirname, '../../web/src/locales/en.js');
+  if (!fs.existsSync(enFile)) { t.skip('web/ absent'); return; }
+  const en = (await import(pathToFileURL(enFile).href)).default;
+  const files = ['IndicatorEditor.jsx', 'IndicatorsList.jsx', 'IndicatorExplain.jsx', 'ImportWizard.jsx', 'VariablePicker.jsx'];
+  let checked = 0;
+  for (const f of files) {
+    const src = fs.readFileSync(path.join(__dirname, '../../web/src/pages/monitoring', f), 'utf8');
+    // tr('…') avec une chaîne littérale entre apostrophes (\' échappées comprises).
+    for (const [, raw] of src.matchAll(/\btr\(\s*'((?:[^'\\]|\\.)*)'/g)) {
+      const phrase = raw.replace(/\\'/g, '\'');
+      assert.ok(en[phrase] !== undefined, `${f} : « ${phrase} » sans traduction anglaise`);
+      checked += 1;
+    }
+  }
+  assert.ok(checked >= 100, `phrases vérifiées : ${checked}`);
+});

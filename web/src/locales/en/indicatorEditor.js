@@ -24,7 +24,17 @@ export default {
     'Removed from the calculation (neither positive nor negative): Not applicable 9999, Don’t know 888…',
   'Sans cible, un % est classé par les bandes 80 / 65 / 50.': 'Without a target, a % is rated with the 80 / 65 / 50 bands.',
   'Sans cible, une moyenne, une somme ou un nombre n\'est pas classé.': 'Without a target, a mean, sum or count is not rated.',
-  'Compte dans l\'indice de conformité': 'Counts in the compliance index',
+  // Case « compté » (toutes méthodes) : indice de conformité (% seulement) et classes de Couverture & performance
+  'Compté dans l\'indice de conformité et dans la couverture & performance (classes)': 'Counted in the compliance index and in coverage & performance (classes)',
+  'Compté dans la couverture & performance (classes)': 'Counted in coverage & performance (classes)',
+  'Décoché : indicateur complémentaire — affiché dans les résultats, hors indice et hors classes.':
+    'Unchecked: complementary indicator — shown in the results, outside the index and the classes.',
+  'Décoché : indicateur complémentaire — affiché dans les résultats, hors classes.':
+    'Unchecked: complementary indicator — shown in the results, outside the classes.',
+  'compté dans les classes': 'counted in the classes',
+  'complémentaire (hors classes)': 'complementary (outside the classes)',
+  'Compté dans les classes de Couverture & performance.': 'Counted in the Coverage & performance classes.',
+  'Complémentaire : hors des classes de Couverture & performance.': 'Complementary: outside the Coverage & performance classes.',
   'Hors indice de conformité : seuls les indicateurs en % y entrent (une moyenne, une somme ou un nombre n\'y compte pas).':
     'Not in the compliance index: only % indicators enter it (a mean, sum or count does not count).',
   'Calcul de l\'indicateur': 'Indicator calculation',

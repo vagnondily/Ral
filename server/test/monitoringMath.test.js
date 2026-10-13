@@ -256,6 +256,37 @@ test('écart à la cible affiché : jamais en contradiction avec la classe (« �
   }
 });
 
+test('cible négative : écart rapporté à |cible| — classe et écart affiché justes, jamais un « 0,01 % » inventé', () => {
+  // Plus haut = mieux, cible −10, valeur −12 : 2 sous la cible = 20 % de |−10| → À améliorer.
+  // Avant : (−10 − −12) / −10 = −20 % → « Satisfaisant » affiché « 0,01 % ».
+  const below = classifyDetail({ value: -12, base: 5, target: -10, agg: 'mean' });
+  assert.deepEqual([below.rating, below.gapPct, below.achieved], ['imp', 20, false]);
+  const slight = classifyDetail({ value: -10.5, base: 5, target: -10, agg: 'mean' });
+  assert.deepEqual([slight.rating, slight.gapPct], ['sat', 5]);
+  const far = classifyDetail({ value: -20, base: 5, target: -10, agg: 'mean' });
+  assert.deepEqual([far.rating, far.gapPct], ['urg', 100]);
+  assert.equal(classifyDetail({ value: -8, base: 5, target: -10, agg: 'mean' }).rating, 'exc'); // au-dessus de la cible : atteinte
+  // Plus bas = mieux, cible −10, valeur −7 : 3 au-dessus = 30 % → À améliorer (≤ 30).
+  const lower = classifyDetail({ value: -7, base: 5, target: -10, direction: 'lower_better', agg: 'mean' });
+  assert.deepEqual([lower.rating, lower.gapPct], ['imp', 30]);
+  assert.equal(classifyDetail({ value: -11, base: 5, target: -10, direction: 'lower_better', agg: 'mean' }).rating, 'exc');
+  // classify et rate suivent la même règle.
+  assert.equal(classify({ value: -12, base: 5, target: -10, agg: 'mean' }), 'imp');
+  assert.equal(rate(-12, { target: -10, agg: 'mean' }), 'imp');
+  // Le relèvement au centième n'existe que pour un écart POSITIF.
+  assert.equal(displayGap(0, 'sat'), 0);
+  assert.equal(displayGap(-20, 'sat'), -20);
+  assert.equal(displayGap(0.001, 'sat'), 0.01); // écart non nul : jamais « 0 % »
+  // Balayage sur une cible négative : l'écart affiché est positif et tombe dans la bande de la classe.
+  for (let v = -40; v <= -10; v += 0.01) {
+    const r = classifyDetail({ value: Math.round(v * 100) / 100, base: 1, target: -10, agg: 'mean' });
+    if (r.achieved) continue;
+    const g = r.gapPct;
+    const ok = r.rating === 'sat' ? g > 0 && g <= 10 : r.rating === 'imp' ? g > 10 && g <= 30 : g > 30;
+    assert.ok(ok, `valeur ${v} : ${r.rating} avec un écart affiché de ${g} %`);
+  }
+});
+
 test('computeAll transmet la définition complète (valeur comptée, codes hors base, modèle, actif)', () => {
   const [r] = computeAll([{ id: 'i', code: 'c', sourceField: 'q', agg: 'percent_yes', positiveValue: '1', naValues: ['9999'], templateCode: 'GD_X', active: true }], MIXED);
   assert.equal(r.positiveValue, '1');
