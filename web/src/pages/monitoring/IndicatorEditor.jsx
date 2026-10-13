@@ -247,10 +247,11 @@ export default function IndicatorEditor({ form, indicator, period: initialPeriod
                 </div>
               </div>
             </div>
-            {/* Seuls les indicateurs en % entrent dans l'indice (overallIndex) : la case n'a de sens que pour eux. */}
+            {/* Seuls les indicateurs en % entrent dans l'indice (overallIndex) : la case n'a de sens que pour eux.
+                L'explication qui la remplace n'est PAS une astuce (.hint, masquée par « astuces désactivées ») : toujours affichée. */}
             {isPctAgg(draft.agg)
               ? <label className="ie-check"><input type="checkbox" checked={draft.scored} onChange={(e) => set({ scored: e.target.checked })} /> {tr('Compte dans l\'indice de conformité')}</label>
-              : <p className="hint ie-index-note">{tr('Hors indice de conformité : seuls les indicateurs en % y entrent (une moyenne, une somme ou un nombre n\'y compte pas).')}</p>}
+              : <p className="ie-index-note">{tr('Hors indice de conformité : seuls les indicateurs en % y entrent (une moyenne, une somme ou un nombre n\'y compte pas).')}</p>}
             {editing && <label className="ie-check"><input type="checkbox" checked={draft.active} onChange={(e) => set({ active: e.target.checked })} /> {tr('Actif (calculé et affiché dans les résultats)')}</label>}
           </fieldset>
         </div>

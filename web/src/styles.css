@@ -2418,7 +2418,7 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .vp-warn svg { flex: none; margin-top: 2px; }
 .vp-relevant { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; font-size: 12px; min-width: 0; }
 .vp-relevant .skip-expr { max-width: 100%; }
-.ie-index-note { margin: 0; font-size: 12.5px; }
+.ie-index-note { margin: 0; font-size: 12.5px; color: var(--text-muted); line-height: 1.5; }
 .ix-bar-cap { margin-bottom: 4px; }
 .vp-opts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 
