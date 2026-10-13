@@ -34,9 +34,12 @@ db.withTenantTransaction = async (tenantId, fn) => fn({
     }
     if (/count\(\*\)::int AS visits/.test(s)) return { rows: [{ visits: 3, sitesVisited: 3 }] };
     if (/SELECT count\(\*\)::int AS submissions FROM monitoring_submissions/.test(s)) return { rows: [{ submissions: 3 }] };
-    if (/COALESCE\(par\.name, o\.name, \$4::text\) AS bureau/.test(s)) {
-      // Sites sans bureau : le libellé vient du paramètre $4 (langue du rapport), jamais d'un texte figé.
-      return { rows: [{ bureau: params[3], sitesActive: 2, planned: 0, done: 0, sitesVisited: 0 }] };
+    // Faits site × mois en mode « bureau » (lot 1b) : un site sans bureau prend le libellé
+    // du paramètre (langue du rapport), jamais un texte figé.
+    const unattached = /COALESCE\(par\.name, fo\.name, \$(\d+)::text\) AS office/.exec(s);
+    if (unattached && /FROM per_site GROUP BY office/.test(s)) {
+      return { rows: [{ dim: 'office', key: params[Number(unattached[1]) - 1], sitesActive: 2, sitesPlanned: 0, sitesRealised: 0,
+        sitesRealisedInactive: 0, smPlanifie: 0, smRealise: 0, smAnnule: 0, duePlanifie: 0, dueRealise: 0, upcoming: 0, planifie: 0, realise: 0, annule: 0 }] };
     }
     return { rows: [] };
   },

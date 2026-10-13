@@ -9,6 +9,13 @@ const settingsRepo = require('../settings/settings.repository');
 const { buildLocationsWorkbook, parseLocationsWorkbook, POI_SUBTYPES, MODALITIES } = require('./locationsXlsx');
 const { officeResolver } = require('./mmrXlsx');
 const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
+const { readPeriod } = require('../../middleware/period');
+
+// Durées maximales d'une période (lot 1b, mesurées au banc : 3 000 sites, sous RLS) : la
+// liste des visites se lit sur 12 mois au plus ; les faits site × mois (résumé,
+// récapitulatif) sur 24 mois (≈ 200 ms ; 60 mois ≈ 400 ms, au-delà du budget de 250 ms).
+const VISITS_MAX_SPAN = 12;
+const FACTS_MAX_SPAN = 24;
 
 /**
  * Suivi terrain — sites (établissements) et planification/affectation des
@@ -66,14 +73,18 @@ router.patch('/sites/:id', WRITE, body(siteSchema.partial().extend({
 }));
 
 // ---- RBM (Risk-Based Monitoring) : sélection des sites à suivre par risque ---
-router.get('/rbm/sites', asyncHandler(async (req, res) => res.json(
-  await repo.rbmSites(t(req), { month: monthQ(req), risk: req.query.risk })
-)));
+// Mois de référence : ?month=, ou le dernier mois d'une période ?from=&to= (« à suivre »
+// est un ÉTAT : il se lit à un mois) ; l'état est borné à ce mois (asOf).
+router.get('/rbm/sites', asyncHandler(async (req, res) => {
+  const p = readPeriod(req.query);
+  res.json(await repo.rbmSites(t(req), { month: p ? p.to : undefined, asOf: p ? p.to : null, risk: req.query.risk }));
+}));
 // Pourquoi ce score / ce drapeau, conséquence, que faire (retour n° 48) — un site, à la demande.
 const uuid = z.string().uuid();
 router.get('/rbm/sites/:id', asyncHandler(async (req, res) => {
   if (!uuid.safeParse(req.params.id).success) throw badRequest('Identifiant de site invalide');
-  const site = await repo.rbmSiteExplain(t(req), req.params.id, { month: monthQ(req) || new Date().toISOString().slice(0, 7) });
+  const p = readPeriod(req.query);
+  const site = await repo.rbmSiteExplain(t(req), req.params.id, { month: p ? p.to : new Date().toISOString().slice(0, 7), asOf: p ? p.to : null });
   if (!site) throw notFound('Site introuvable');
   res.json(site);
 }));
@@ -246,10 +257,12 @@ router.post('/rbm/import-plan', WRITE, express.raw({ type: '*/*', limit: '60mb' 
 }));
 
 // ---- Visits --------------------------------------------------------------
-router.get('/visits', asyncHandler(async (req, res) => res.json(
-  await repo.listVisits(t(req), { month: monthQ(req), providerId: req.query.providerId, status: req.query.status })
-)));
-router.get('/summary', asyncHandler(async (req, res) => res.json(await repo.summary(t(req), { month: monthQ(req) }))));
+router.get('/visits', asyncHandler(async (req, res) => {
+  const period = readPeriod(req.query, { maxSpan: VISITS_MAX_SPAN });
+  res.json(await repo.listVisits(t(req), { period, providerId: req.query.providerId, status: req.query.status }));
+}));
+// Résumé terrain sur une période (?from=&to= ou ?month=) ; sans paramètre : toutes les visites.
+router.get('/summary', asyncHandler(async (req, res) => res.json(await repo.summary(t(req), { period: readPeriod(req.query, { maxSpan: FACTS_MAX_SPAN }) }))));
 
 // Vue par mois (une ligne par mois de l'année, avec stats) — pour la navigation.
 router.get('/months', asyncHandler(async (req, res) => res.json(await repo.monthsOverview(t(req), { year: req.query.year }))));
@@ -266,18 +279,23 @@ router.put('/months/status', WRITE, body(monthStatusSchema), asyncHandler(async 
 }));
 
 // Récap de couverture (sites visités 1/2/3/4+ fois vs MMR) — lecture seule.
+// Période facultative (?from=&to= ou ?month=) : sites actifs sur la période ; sans période,
+// toutes les visites. operationMonths : donné, sinon la durée de la période, sinon 12.
 router.get('/coverage-recap', asyncHandler(async (req, res) => {
+  const period = readPeriod(req.query, { maxSpan: FACTS_MAX_SPAN });
   const om = Number(req.query.operationMonths);
   res.json(await repo.coverageRecapSummary(t(req), {
-    district: req.query.district || undefined,
-    operationMonths: Number.isFinite(om) && om > 0 ? Math.min(om, 60) : 12,
+    district: req.query.district || undefined, period,
+    operationMonths: Number.isFinite(om) && om > 0 ? Math.min(om, 60) : undefined,
   }));
 }));
 
 // Matrice de couverture mensuelle par programme et par prestataire — lecture.
+// ?year= (12 mois de l'année, comportement historique) ou une période ?from=&to= (colonnes = mois de la période).
 router.get('/coverage-matrix', asyncHandler(async (req, res) => {
+  const period = readPeriod(req.query);
   const y = Number(req.query.year);
-  res.json(await repo.coverageMatrix(t(req), { year: Number.isFinite(y) && y > 2000 && y < 2100 ? y : undefined }));
+  res.json(await repo.coverageMatrix(t(req), { period: period || undefined, year: Number.isFinite(y) && y > 2000 && y < 2100 ? y : undefined }));
 }));
 
 // Jours de collecte par prestataire (visites datées + jours de déplacement).

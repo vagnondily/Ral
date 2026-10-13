@@ -109,18 +109,19 @@ function targets({ mon, field, periodsService }) {
       run: (p) => mon.reportMonitoringData(T1, p, { lang: 'fr' }) },
     { key: 'periods', label: 'GET /monitoring/periods', budget: 150, scale: 'flat', spans: [0],
       run: () => periodsService.periods(T1, { todayMonth: DATA_END }) },
-    { key: 'fieldSummary', label: 'GET /tpm/field/summary', budget: 250, scale: 'flat', spans: [1],
-      run: (p) => field.summary(T1, { month: p.to }) },
-    { key: 'visits', label: 'GET /tpm/field/visits', budget: 300, scale: 'flat', spans: [1],
-      run: (p) => field.listVisits(T1, { month: p.to }) },
-    { key: 'coverageRecap', label: 'GET /tpm/field/coverage-recap', budget: 250, scale: 'flat', spans: [0],
-      run: () => field.coverageRecapSummary(T1, {}) },
-    { key: 'coverageMatrix', label: 'GET /tpm/field/coverage-matrix', budget: 250, scale: 'flat', spans: [0],
-      run: () => field.coverageMatrix(T1, { year: 2026 }) },
-    { key: 'reportField', label: 'reportFieldData (concepteur)', budget: 250, scale: 'flat', spans: [1, 6, 12, 24, 60],
+    { key: 'fieldSummary', label: 'GET /tpm/field/summary', budget: 250, scale: 'flat', spans: [1, 6, 12, 24],
+      run: (p) => field.summary(T1, { period: p }) },
+    { key: 'visits', label: 'GET /tpm/field/visits', budget: 300, scale: 'flat', spans: [1, 6, 12],
+      run: (p) => field.listVisits(T1, { period: p }) },
+    { key: 'coverageRecap', label: 'GET /tpm/field/coverage-recap', budget: 250, scale: 'flat', spans: [0, 1, 6, 12, 24],
+      run: (p) => field.coverageRecapSummary(T1, { period: p }) },
+    { key: 'coverageMatrix', label: 'GET /tpm/field/coverage-matrix', budget: 250, scale: 'flat', spans: [12, 24],
+      run: (p) => field.coverageMatrix(T1, { period: p }) },
+    // Document du concepteur (jusqu'à 60 mois) : part terrain du budget de rendu (1,5 s au total).
+    { key: 'reportField', label: 'reportFieldData (concepteur)', budget: 500, scale: 'flat', spans: [1, 6, 12, 24, 60],
       run: (p) => field.reportFieldData(T1, p, { lang: 'fr' }) },
     { key: 'rbmSites', label: 'GET /tpm/field/rbm/sites', budget: null, scale: 'flat', spans: [1],
-      run: (p) => field.rbmSites(T1, { month: p.to }) },
+      run: (p) => field.rbmSites(T1, { month: p.to, asOf: p.to }) },
   ];
 }
 
@@ -141,6 +142,44 @@ const KNOWN_BAD_REGION_SQL = `WITH pcode_region AS (
          LEFT JOIN pcode_region pr1 ON pr1.pcode = upper(btrim(s.admin1))
         WHERE s.tenant_id = $1 AND NOT s.excluded AND s.period_month >= $2::date AND s.period_month < $3::date
         GROUP BY 1 ORDER BY submissions DESC`;
+
+// ---- Parité SQL / règle pure des faits site × mois ------------------------------------
+/**
+ * Les faits site × mois calculés en SQL (common/siteActivitySql) sont-ils ceux de la règle
+ * pure (common/siteActivity.siteRangeFacts) sur les mêmes lignes ? Site par site, sous RLS.
+ * @returns {{ sites:number, mismatches:number, sample:object[] }}
+ */
+async function factsParity(withTenantTransaction, period, todayMonth) {
+  const { siteMonthFactsCtes } = require('../src/modules/common/siteActivitySql');
+  const { siteRangeFacts } = require('../src/modules/common/siteActivity');
+  return withTenantTransaction(T1, async (client) => {
+    const params = [T1];
+    const { rows: sqlRows } = await client.query(
+      `${siteMonthFactsCtes({ period, todayMonth }, params)}
+       SELECT site_id, active, planned, realised, realised_inactive, sm_planifie, sm_realise, sm_annule,
+              due_planifie, due_realise, upcoming, realise_active FROM per_site`, params);
+    const { rows: sites } = await client.query('SELECT id, COALESCE(security_situation, 0) >= 99 AS forbidden FROM sites WHERE tenant_id = $1', [T1]);
+    const { rows: cells } = await client.query(
+      "SELECT site_id, to_char(make_date(year, month, 1), 'YYYY-MM') AS m, active FROM site_month_status WHERE tenant_id = $1", [T1]);
+    const { rows: visits } = await client.query(
+      "SELECT site_id, to_char(period_month, 'YYYY-MM') AS month, status FROM site_visits WHERE tenant_id = $1", [T1]);
+    const gridYears = new Set(cells.map((c) => Number(c.m.slice(0, 4))));
+    const statuses = new Map(); const vis = new Map();
+    for (const c of cells) { if (!statuses.has(c.site_id)) statuses.set(c.site_id, new Map()); statuses.get(c.site_id).set(c.m, c.active); }
+    for (const v of visits) { if (!vis.has(v.site_id)) vis.set(v.site_id, []); vis.get(v.site_id).push(v); }
+    const bySql = new Map(sqlRows.map((r) => [r.site_id, r]));
+    let mismatches = 0; const sample = [];
+    for (const s of sites) {
+      const js = siteRangeFacts({ statuses: statuses.get(s.id) || new Map(), forbidden: s.forbidden, gridYears, visits: vis.get(s.id) || [] }, period, { todayMonth });
+      const q = bySql.get(s.id) || {};
+      const sqlView = { active: q.active, planned: q.planned, realised: q.realised, realisedInactive: q.realised_inactive,
+        planifie: q.sm_planifie, realise: q.sm_realise, annule: q.sm_annule, duePlanifie: q.due_planifie, dueRealise: q.due_realise,
+        upcoming: q.upcoming, realiseActive: q.realise_active };
+      if (JSON.stringify(sqlView) !== JSON.stringify(js)) { mismatches += 1; if (sample.length < 3) sample.push({ site: s.id, sql: sqlView, js }); }
+    }
+    return { sites: sites.length, mismatches, sample };
+  });
+}
 
 // ---- Mesure -------------------------------------------------------------------------
 const pct = (sorted, q) => sorted[Math.min(sorted.length - 1, Math.ceil(q * sorted.length) - 1)];
@@ -226,6 +265,7 @@ function report(rows, extra) {
     lines.push(`| ${r.label} | ${plage}${r.tooSlow ? ' (arrêté : trop lent)' : ''} | ${f(r.p50, 1)} | ${f(r.p95, 1)}${over} | ${f(r.max, 1)} | ${f(r.budget)} | ${f(r.alloc, 1)} | ${f(r.retained, 1)} | ${r.bytes == null ? '—' : f(r.bytes / 1024)} | ${guard} |`);
   }
   lines.push('', `Régression connue (ancienne résolution des régions) : ${extra.regression}`);
+  if (extra.parity) lines.push('', `Parité faits site × mois (SQL / règle pure) : ${extra.parity}`);
   return lines.join('\n');
 }
 
@@ -271,7 +311,7 @@ async function main() {
     }
     return origQuery.call(this, text, values, cb);
   };
-  const { pool } = require('../src/config/db');
+  const { pool, withTenantTransaction } = require('../src/config/db');
   const mon = require('../src/modules/monitoring/monitoring.repository');
   const field = require('../src/modules/tpm/field.repository');
   const periodsService = require('../src/modules/monitoring/periods.service');
@@ -301,7 +341,14 @@ async function main() {
     const detected = bad.issues.some((i) => i.rule !== 'explain_failed');
     if (!detected) failed = true;
     const regression = detected ? `détectée (${bad.issues[0].message})` : `NON détectée — garde cassée ${JSON.stringify(bad.issues)}`;
-    const md = report(rows, { jit, regression });
+    // Parité des faits site × mois : SQL = règle pure, site par site (6, 12 et 60 mois ; grille 2024-2026).
+    const parity = [];
+    for (const span of [6, 12, 60]) {
+      const r = await factsParity(withTenantTransaction, periodOf(span), DATA_END);
+      if (r.mismatches) { failed = true; log(`  parité ${span} mois : ${JSON.stringify(r.sample)}`); }
+      parity.push(`${span} mois : ${r.mismatches ? `⛔ ${r.mismatches} site(s) différent(s)` : 'identique'} (${r.sites} sites)`);
+    }
+    const md = report(rows, { jit, regression, parity: parity.join(' · ') });
     log(`\n${md}\n`);
     if (opts.out) fs.writeFileSync(opts.out, `${md}\n`);
   } finally {

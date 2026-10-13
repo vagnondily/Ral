@@ -15,6 +15,8 @@ const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const mon = require('../src/modules/monitoring/monitoring.repository');
 const monitoringRoutes = require('../src/modules/monitoring/monitoring.routes');
+const field = require('../src/modules/tpm/field.repository');
+const fieldRoutes = require('../src/modules/tpm/field.routes');
 const { errorHandler } = require('../src/middleware/errors');
 
 const calls = [];
@@ -27,10 +29,16 @@ mon.formSubmissions = spy('formSubmissions', { rows: [] });
 mon.listSubmissions = spy('submissions', []);
 mon.indicatorPreview = spy('preview', { n: 0 });
 mon.monthCounts = spy('monthCounts', [{ month: '2026-07', formId: 'f', n: 74 }, { month: '2026-06', formId: 'f', n: 58 }]);
+field.summary = spy('fieldSummary');
+field.listVisits = spy('visits', []);
+field.coverageRecapSummary = spy('recap');
+field.coverageMatrix = spy('matrix');
+field.rbmSites = spy('rbm', []);
 
 const app = express();
 app.use(express.json());
 app.use('/api/monitoring', monitoringRoutes);
+app.use('/api/tpm/field', fieldRoutes);
 app.use(errorHandler);
 const TENANT = '11111111-1111-1111-1111-111111111111';
 const FORM = '22222222-2222-2222-2222-222222222222';
@@ -39,13 +47,16 @@ const get = (url) => request(app).get(url).set({ Authorization: `Bearer ${viewer
 const last = () => calls[calls.length - 1];
 
 // [endpoint, nom de l'espion, période extraite des arguments, durée maximale]
-const MONITORING = [
+const MONITORING_AND_FIELD = [
   ['/api/monitoring/overview', 'overview', (a) => a[1], 24],
   ['/api/monitoring/coverage-dashboard', 'coverage', (a) => a[1], 24],
   [`/api/monitoring/forms/${FORM}/values`, 'values', (a) => a[2].period, 24],
   [`/api/monitoring/forms/${FORM}/dashboard`, 'dashboard', (a) => a[2].period, 24],
   [`/api/monitoring/forms/${FORM}/submissions`, 'formSubmissions', (a) => a[2].period, 12],
   ['/api/monitoring/submissions', 'submissions', (a) => a[1].period, 12],
+  ['/api/tpm/field/summary', 'fieldSummary', (a) => a[1].period, 24],
+  ['/api/tpm/field/visits', 'visits', (a) => a[1].period, 12],
+  ['/api/tpm/field/coverage-recap', 'recap', (a) => a[1].period, 24],
 ];
 
 const ERRORS = [
@@ -59,7 +70,7 @@ const ERRORS = [
   ['from=1999-01&to=1999-02', 'period_year'],
 ];
 
-for (const [url, name, periodOf, maxSpan] of MONITORING) {
+for (const [url, name, periodOf, maxSpan] of MONITORING_AND_FIELD) {
   test(`${url} : ?month ≡ from=to, plage transmise, sans paramètre → null`, async () => {
     assert.equal((await get(`${url}?month=2026-07`)).status, 200);
     const a = last(); assert.equal(a.name, name);
@@ -84,12 +95,12 @@ for (const [url, name, periodOf, maxSpan] of MONITORING) {
       assert.ok(res.body.error.startsWith('Période'), q);
     }
     // Durée maximale propre à l'endpoint (analyse : 24 mois ; listes : 12 mois) : un mois de plus est refusé.
-    const over = await get(`${url}?from=${maxSpan === 24 ? '2024-12' : '2025-12'}&to=2026-12`);
+    const over = await get(`${url}?from=${{ 12: '2025-12', 24: '2024-12', 60: '2021-12' }[maxSpan]}&to=2026-12`);
     assert.equal(over.status, 400);
     assert.equal(over.body.details.code, 'period_span');
     assert.equal(over.body.details.maxSpan, maxSpan);
     assert.equal(over.body.details.span, maxSpan + 1);
-    const atMax = maxSpan === 24 ? '?from=2025-01&to=2026-12' : '?from=2026-01&to=2026-12';
+    const atMax = `?from=${{ 12: '2026-01', 24: '2025-01', 60: '2022-01' }[maxSpan]}&to=2026-12`;
     assert.equal((await get(`${url}${atMax}`)).status, 200, `${maxSpan} mois acceptés`);
     assert.equal(calls.length, n + 1, 'seule la période valide a atteint le dépôt');
   });
@@ -117,4 +128,25 @@ test('GET /monitoring/periods : la période par défaut porte from et to (= le m
   assert.equal(res.body.default.month, '2026-07');
   assert.equal(res.body.default.from, '2026-07');
   assert.equal(res.body.default.to, '2026-07');
+});
+
+test('matrice de couverture : ?year= (historique) ou une période (colonnes = mois de la période)', async () => {
+  await get('/api/tpm/field/coverage-matrix?year=2026');
+  assert.deepEqual(last().args[1], { period: undefined, year: 2026 });
+  await get('/api/tpm/field/coverage-matrix?from=2026-01&to=2026-06');
+  assert.deepEqual(last().args[1].period, { from: '2026-01', to: '2026-06' });
+  await get('/api/tpm/field/coverage-matrix?month=2026-07');
+  assert.deepEqual(last().args[1].period, { from: '2026-07', to: '2026-07' });
+  const bad = await get('/api/tpm/field/coverage-matrix?from=2026-06&to=2026-01');
+  assert.equal(bad.body.details.code, 'period_order');
+});
+
+test('RBM : ?from&to → mois de référence = to (un état se lit à un mois), état borné à ce mois', async () => {
+  await get('/api/tpm/field/rbm/sites?from=2026-01&to=2026-06&risk=elevee');
+  assert.deepEqual(last().args[1], { month: '2026-06', asOf: '2026-06', risk: 'elevee' });
+  await get('/api/tpm/field/rbm/sites?month=2026-06');
+  assert.deepEqual(last().args[1], { month: '2026-06', asOf: '2026-06', risk: undefined }, '?month ≡ from = to');
+  await get('/api/tpm/field/rbm/sites');
+  assert.deepEqual(last().args[1], { month: undefined, asOf: null, risk: undefined });
+  assert.equal((await get('/api/tpm/field/rbm/sites?month=abc')).body.details.code, 'period_format');
 });
