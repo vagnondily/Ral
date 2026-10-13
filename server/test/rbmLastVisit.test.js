@@ -21,7 +21,7 @@ function fakeClient(rows) {
     calls,
     async query(sql, params) {
       calls.push({ sql, params });
-      if (/^\s*INSERT INTO site_visits/.test(sql)) return { rows: [], rowCount: 1 };
+      if (/^\s*INSERT INTO site_visits/.test(sql)) return { rows: [], rowCount: Array.isArray(params[3]) ? params[3].length : 1 };
       return { rows };
     },
   };
@@ -96,16 +96,99 @@ test('Plan de suivi : « Dernière visite » = réalisée ou collecte réelle ; 
   assert.deepEqual(board.sites.map((s) => s.id), ['planned-only', 'visited']);
 });
 
-test('génération du plan du mois : même règle — un site seulement planifié reste dû (insertion idempotente)', async () => {
+test('génération du plan du mois : un site seulement planifié reste « à suivre » mais n\'est pas replanifié ; zone interdite ignorée', async () => {
   const client = fakeClient([
     row({ id: 'planned-only', plannedMonths: ['2026-10'] }),
+    row({ id: 'never', activity: null }),
     row({ id: 'done-this-month', fieldVisitMonth: '2026-10' }),
     row({ id: 'moyenne-recent', riskLevel: 'moyenne', fieldVisitMonth: '2026-09', plannedMonths: ['2026-09'] }),
+    row({ id: 'forbidden', security: 99 }),
   ]);
   const r = await generateFromRbmTx(client, TENANT, 'user-1', '2026-10');
-  assert.equal(r.due, 1);
+  // « À suivre » hors zone interdite : planned-only + never ; seul never est encore à planifier.
+  assert.deepEqual(r, { created: 1, due: 2, toPlan: 1 });
+  // Deux « Générer » simultanés du même mois sont mis en file (verrou pris AVANT la lecture).
+  assert.match(client.calls[0].sql, /pg_advisory_xact_lock/);
+  assert.deepEqual(client.calls[0].params, [`rbm-generate:${TENANT}:2026-10`]);
   const inserts = client.calls.filter((c) => /INSERT INTO site_visits/.test(c.sql));
-  assert.equal(inserts.length, 1);
-  assert.deepEqual(inserts[0].params, [TENANT, 'planned-only', '2026-10-01', 'Cantines', 'user-1']);
-  assert.match(inserts[0].sql, /ON CONFLICT \(tenant_id, site_id, period_month, activity\) DO NOTHING/);
+  assert.equal(inserts.length, 1, 'une seule instruction pour tous les sites');
+  assert.deepEqual(inserts[0].params, [TENANT, '2026-10-01', 'user-1', ['never'], [null]]);
+  // Le contrôle « déjà une visite non annulée ce mois » est dans l'INSERT (activité NULL comprise), filtré par compte.
+  assert.match(inserts[0].sql, /INSERT INTO site_visits[\s\S]*SELECT \$1, t\.site_id[\s\S]*FROM unnest\(\$4::uuid\[\], \$5::text\[\]\)/);
+  assert.match(inserts[0].sql, /WHERE NOT EXISTS \(SELECT 1 FROM site_visits v\s+WHERE v\.tenant_id = \$1 AND v\.site_id = t\.site_id\s+AND v\.period_month = \$2::date AND v\.status <> 'annule'\)/);
+  assert.match(inserts[0].sql, /ON CONFLICT \(tenant_id, site_id, period_month, activity\) DO UPDATE SET status = 'planifie'[\s\S]*WHERE site_visits\.status = 'annule'/);
+});
+
+test('génération : rien à planifier ⇒ aucune écriture ; mois illisible refusé', async () => {
+  const client = fakeClient([row({ id: 'planned-only', plannedMonths: ['2026-10'] }), row({ id: 'forbidden', security: 99 })]);
+  assert.deepEqual(await generateFromRbmTx(client, TENANT, 'user-1', '2026-10'), { created: 0, due: 1, toPlan: 0 });
+  assert.equal(client.calls.filter((c) => /INSERT/.test(c.sql)).length, 0);
+  await assert.rejects(generateFromRbmTx(fakeClient([]), TENANT, 'user-1', '2026-13'), (e) => e.statusCode === 400);
+});
+
+/**
+ * Client à état : simule le SELECT RBM (visites prévues / réalisées relues depuis la table)
+ * et l'INSERT … SELECT … WHERE NOT EXISTS … ON CONFLICT de la génération, y compris le
+ * piège d'origine : UNIQUE (…, activity) laisse passer deux visites d'activité NULL.
+ */
+function stateClient(sites, visits) {
+  return {
+    async query(sql, params) {
+      if (/pg_advisory_xact_lock/.test(sql)) return { rows: [] };
+      if (/^\s*INSERT INTO site_visits/.test(sql)) {
+        const [, pm, , ids, acts] = params;
+        let n = 0;
+        ids.forEach((id, i) => {
+          if (visits.some((v) => v.siteId === id && v.pm === pm && v.status !== 'annule')) return; // NOT EXISTS
+          const act = acts[i];
+          const clash = act != null && visits.find((v) => v.siteId === id && v.pm === pm && v.activity === act); // NULL ≠ NULL
+          if (clash) { if (clash.status === 'annule') { clash.status = 'planifie'; n += 1; } return; }
+          visits.push({ siteId: id, pm, activity: act, status: 'planifie' }); n += 1;
+        });
+        return { rows: [], rowCount: n };
+      }
+      const months = (id, status) => visits.filter((v) => v.siteId === id && v.status === status).map((v) => v.pm.slice(0, 7));
+      return { rows: sites.map((s) => ({ ...s, plannedMonths: [...new Set(months(s.id, 'planifie'))], fieldVisitMonth: months(s.id, 'realise').sort().pop() || s.fieldVisitMonth })) };
+    },
+  };
+}
+
+test('« Générer » cliqué 3 fois : n, 0, 0 visites — plus de doublon d\'activité NULL, compteur « à planifier » à 0', async () => {
+  const sites = [
+    row({ id: 'sans-activite', activity: null }),
+    row({ id: 'cantines', activity: 'Cantines' }),
+    row({ id: 'annulee', activity: 'Cantines' }),
+    row({ id: 'interdite', security: 99, activity: null }),
+    row({ id: 'a-jour', riskLevel: 'faible', fieldVisitMonth: '2026-09' }),
+  ];
+  const visits = [{ siteId: 'annulee', pm: '2026-10-01', activity: 'Cantines', status: 'annule' }];
+  const client = stateClient(sites, visits);
+  const clicks = [];
+  for (let i = 0; i < 3; i += 1) clicks.push(await generateFromRbmTx(client, TENANT, 'user-1', '2026-10'));
+  assert.deepEqual(clicks.map((c) => c.created), [3, 0, 0]);
+  assert.deepEqual(clicks.map((c) => c.toPlan), [3, 0, 0]);
+  assert.deepEqual(clicks.map((c) => c.due), [3, 3, 3], 'les sites restent « à suivre » tant que la visite n\'est pas réalisée');
+  const live = (id) => visits.filter((v) => v.siteId === id && v.status !== 'annule').length;
+  assert.deepEqual(['sans-activite', 'cantines', 'annulee', 'interdite', 'a-jour'].map(live), [1, 1, 1, 0, 0]);
+  assert.equal(visits.length, 3, 'la visite annulée est replanifiée, pas dupliquée');
+  // Même règle pour le compteur de l'écran (rbmSitesTx) : plus rien « à planifier ».
+  const rows = await rbmSitesTx(client, TENANT, { month: '2026-10' });
+  assert.equal(rows.filter((s) => s.toPlan).length, 0);
+});
+
+test('liste RBM : drapeau « à planifier » par site (à suivre, hors zone interdite, sans visite prévue ce mois)', async () => {
+  const client = fakeClient([
+    row({ id: 'todo' }),
+    row({ id: 'planned', plannedMonths: ['2026-10'] }),
+    row({ id: 'later', plannedMonths: ['2026-12'] }),
+    row({ id: 'forbidden', security: 99 }),
+    row({ id: 'ok', riskLevel: 'faible', fieldVisitMonth: '2026-09' }),
+  ]);
+  const rows = await rbmSitesTx(client, TENANT, { month: '2026-10' });
+  assert.deepEqual(rows.map((s) => [s.id, s.due, s.toPlan]), [
+    ['todo', true, true], ['planned', true, false], ['later', true, true], ['forbidden', true, false], ['ok', false, false],
+  ]);
+  // Sans mois : rien n'est « à suivre » ni « à planifier ».
+  const noMonth = await rbmSitesTx(fakeClient([row({ id: 'todo' })]), TENANT, {});
+  assert.deepEqual([noMonth[0].due, noMonth[0].toPlan], [false, false]);
 });

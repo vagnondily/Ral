@@ -76,17 +76,30 @@ function lastVisitOf({ fieldVisitMonth, dataVisitMonth, lastVisitDate } = {}) {
 }
 
 /**
+ * Mois prévu `month` encore « non réalisé » vu de `targetMonth` : AVANT le mois cible et APRÈS
+ * la dernière visite réelle (`lastVisitMonth`). Une visite prévue avant la dernière visite réelle
+ * (ou le même mois) n'est plus « non réalisée » : le site a été visité depuis.
+ */
+function isLatePlanned(month, targetMonth, lastVisitMonth) {
+  const m = toMonth(month);
+  const target = toMonth(targetMonth) || currentMonth();
+  const last = toMonth(lastVisitMonth);
+  return Boolean(m && m < target && (!last || m > last));
+}
+
+/**
  * Visites encore PLANIFIÉES d'un site, vues depuis `targetMonth` (défaut : mois courant) :
  *   - nextPlannedMonth : la première prévue au mois cible ou après ;
- *   - latePlannedMonth : la plus récente prévue AVANT le mois cible et jamais réalisée.
+ *   - latePlannedMonth : la plus récente prévue AVANT le mois cible, jamais réalisée, et
+ *     postérieure à la dernière visite réelle `lastVisitMonth` (isLatePlanned).
  */
-function plannedVisits(plannedMonths, targetMonth) {
+function plannedVisits(plannedMonths, targetMonth, lastVisitMonth = null) {
   const target = toMonth(targetMonth) || currentMonth();
   const months = [...new Set((plannedMonths || []).map(toMonth).filter(Boolean))].sort();
-  const past = months.filter((m) => m < target);
+  const late = months.filter((m) => isLatePlanned(m, target, lastVisitMonth));
   return {
     nextPlannedMonth: months.find((m) => m >= target) || null,
-    latePlannedMonth: past.length ? past[past.length - 1] : null,
+    latePlannedMonth: late.length ? late[late.length - 1] : null,
   };
 }
 
@@ -97,10 +110,33 @@ function plannedVisits(plannedMonths, targetMonth) {
  */
 function visitState(row = {}, targetMonth) {
   const last = lastVisitOf(row);
-  return { lastVisitMonth: last.month, lastVisitSource: last.source, ...plannedVisits(row.plannedMonths, targetMonth) };
+  return { lastVisitMonth: last.month, lastVisitSource: last.source, ...plannedVisits(row.plannedMonths, targetMonth, last.month) };
+}
+
+/**
+ * « À planifier » pour `targetMonth` (bouton « Générer depuis le RBM ») : site à suivre (`due`),
+ * hors zone interdite (`forbidden` : suivi à distance uniquement, jamais de visite planifiée) et
+ * sans visite déjà prévue ce mois (`nextPlannedMonth` = le mois cible). Une visite RÉALISÉE ce
+ * mois rend déjà le site « à jour » ; une visite annulée ne compte pas.
+ */
+function needsPlanning({ due, forbidden, nextPlannedMonth } = {}, targetMonth) {
+  const target = toMonth(targetMonth);
+  return Boolean(target && due && !forbidden && toMonth(nextPlannedMonth) !== target);
+}
+
+/** Compteurs de la génération du mois : sites à suivre (hors zones interdites) et, parmi eux, à planifier. */
+function planningCounts(rows, targetMonth) {
+  let due = 0; let toPlan = 0;
+  for (const r of rows || []) {
+    if (!r.due || r.forbidden) continue;
+    due += 1;
+    if (needsPlanning(r, targetMonth)) toPlan += 1;
+  }
+  return { due, toPlan };
 }
 
 module.exports = {
   RISK_LEVELS, DEFAULT_FREQUENCY, frequencyFor, monthsBetween, isDue,
-  toMonth, addMonths, currentMonth, lastVisitOf, plannedVisits, visitState,
+  toMonth, addMonths, currentMonth, lastVisitOf, isLatePlanned, plannedVisits, visitState,
+  needsPlanning, planningCounts,
 };
