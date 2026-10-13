@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 13/10/2026 12:30 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 13/10/2026 12:46 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -287,5 +287,8 @@ _Dernière mise à jour : 13/10/2026 12:30 UTC_ — la branche `main` reçoit ch
 - **12:09** 📥 **Retour n° 45** : rapport infographique SMP (chiffres clés + 8 sections par thème, résultats en % avec n et interprétation) et guide de visualisation des données (palette, éléments d'un graphique, choix du graphique, erreurs à éviter) — ajoutés au lot 7 : 4ᵉ mise en page « Fiche infographique » et règles du guide comme réglages par défaut des blocs.
 
 - **12:30** ✅ **Publié sur `main`** (`d8863bb`) — la contre-vérification de `aec0c6c` a relevé 5 points, tous corrigés : la garde Excel lit désormais chaque fichier en une seule passe, dans l'ordre, en temps linéaire (un littéral de DOCTYPE pouvait masquer une fusion géante et un fichier de 6 Ko épuisait la mémoire ; 400 Ko d'ouvertures non fermées bloquaient l'API 15 s, maintenant 29 ms) ; la réparation au démarrage prend le verrou des rattachements en premier (plus d'interblocage avec une modification de site) ; un interblocage éventuel répond « réessayez » (503) au lieu d'« erreur interne » ; les jetons de liens saisis sont oubliés à la déconnexion. Vérifié : 476 tests, lint, build, balayage des pages ; les 14 classeurs réels donnent exactement les mêmes résultats d'import ; tous les scripts de reproduction du vérificateur sont refusés.
+
+- **12:46** ✅ **Analyses Partenaires & TPM et rapports TPM terminées** (reprises après l'interruption de ce matin) — conception du lot 8 : fiche prestataire 360° (le serveur existe déjà mais n'est relié à aucun écran ; il ne trouve pas le contrat quand le prestataire rapporte sur le contrat d'un autre partenaire), évaluation du TPM (formulaire configurable : moyenne des agents, exécution du plan, ponctualité des rapports, qualité des données + critères manuels), formations en sessions avec participants, note des agents tirée des données, planification & budget en Excel. Rapports : un rapport technique ne s'ouvre pas, la création soumet d'office (jamais de brouillon), un rapport soumis peut être supprimé, le montant prévu est saisi au lieu d'être calculé, et valider un plan ne crée aucun rapport attendu — tout cela est prévu au lot 8.
+- **12:46** ✅ **Correctif immédiat (perte de données)** (`a02b4b4`) : supprimer un agent depuis « Prestataires TPM » effaçait en silence ses formations, évaluations et correspondances. Désormais refusé quand l'agent porte des données, avec un bouton « Désactiver » (historique conservé) et « Réactiver ». Vérifié : 477 tests, API réelle, écran.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
