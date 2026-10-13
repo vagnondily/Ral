@@ -1,4 +1,4 @@
-# Plan de réalisation — retours n° 15 à 42 (13/10/2026)
+# Plan de réalisation — retours n° 15 à 43 (13/10/2026)
 
 Ce plan découle des analyses multi-agents de vos retours (le détail de chaque retour
 est dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md), l'avancement dans
@@ -33,7 +33,7 @@ est dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md), l'avancement dans
 | **4** | Réalisé issu des données (site × mois) : tableau des mois avec « Données sans plan », plan de suivi P/R (R = données, déclaré avec motif), RBM « à suivre » juste, Couverture du suivi (filtre bureau, visites totales, tableau par sous-activité et par bureau en sites uniques actifs / prévus / réalisés) | 15, 21, 22, 26 |
 | **5** | RBM : règles de priorité configurables (table si / sinon, aperçu, versions), risque par période avec journal | 24, 25 |
 | **6** | Carte du suivi : fond vectoriel hors ligne, sites planifiés / réalisés, choroplèthe par commune (contours importés), couches de classification et surcouches hachurées importables, étiquettes, carte de situation, nord, échelle, légende, pied de page, export image / PDF, panneau latéral (vos captures) ; tableau de bord par activité (maquette) | 17, 27, 40, 41 |
-| **7** | Concepteur de rapport : éditeur large à 3 volets, blocs = graphiques et tableaux des tableaux de bord, tableaux qui tiennent dans la page, chiffres justes ; filtres par bureau, période, activité (rapport et bloc) ; **fil de validation** (brouillon → soumis → validé / rejeté) ; modèle « Rapport de suivi des performances » fidèle à votre exemple PowerPoint (synthèse + une page par activité) ; **catalogue de blocs = tout ce que MEMS saisit ou calcule** (tableaux de bord, plan, RBM, budget, PDD, partenaires, alertes, carte) | 18, 39, 40 |
+| **7** | Concepteur de rapport : éditeur large à 3 volets, blocs = graphiques et tableaux des tableaux de bord, tableaux qui tiennent dans la page, chiffres justes ; filtres par bureau, période, activité (rapport et bloc) ; **fil de validation** (brouillon → soumis → validé / rejeté) ; modèle « Rapport de suivi des performances » fidèle à votre exemple PowerPoint (synthèse + une page par activité) ; **catalogue de blocs = tout ce que MEMS saisit ou calcule** (tableaux de bord, plan, RBM, budget, PDD, partenaires, alertes, carte) ; trois mises en page de vos références : rapport A4 portrait, présentation 16:9 de direction, fiche 2 pages ; export PowerPoint | 18, 39, 40, 43 |
 | **8** | Partenaires & TPM : fiche 360° + évaluation du TPM, formations, évaluation des agents, Planification & budget (Excel Gantt + budget), rapports attendus créés à l'approbation du plan (financier / technique, pièces jointes), TPM actif selon le contrat | 28, 29, 30 |
 
 Les lots 1 à 3 posent les fondations (dates, référentiels, registre) dont dépendent les
