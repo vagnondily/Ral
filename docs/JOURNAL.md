@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 13/10/2026 18:15 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 13/10/2026 18:17 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -327,5 +327,7 @@ _Dernière mise à jour : 13/10/2026 18:15 UTC_ — la branche `main` reçoit ch
 
 - **18:15** ✅ **Lot 1 publié sur `main`** (`45493c7`) — après trois tours de contre-vérification. Dernier tour : une colonne de date choisie sous un groupe (« grp/SvyDate ») est lue partout sous son nom renommé ; « Générer » ne ressuscite plus une visite annulée et ne planifie pas un site inactif ce mois (les deux comptés à part) ; réimport du plan sans doublon de visite ; « Pourquoi ? / Que faire ? » cohérent en zone interdite. Vérifié : 669 tests (668 + 1 ignoré), lint, build ; copie de la base (1 273 visites puis 0, 0 ; annulation conservée) ; balayage des 31 écrans en FR et EN : 0 erreur, 0 phrase manquante.
 - **18:15** ℹ️ Le script de balayage des écrans avait été modifié par un sous-agent (il ne naviguait plus et ne testait que le français) : réécrit dans un dossier réservé, avec un contrôle que la navigation change bien de page.
+
+- **18:17** 🔄 **Réalisation des lots 1b, 6a et 7a lancée** (d'après `docs/SPEC_LOT_*.md`) : d'abord le socle 1b (modèle de période, sélecteur « du … au … », requête des régions accélérée, service unique des sites × mois), puis en parallèle les écrans 1b, la carte (6a) et le concepteur riche (7a, en deux parties). Chaque partie est vérifiée par un vérificateur indépendant. Le travail est enregistré au fil de l'eau (branches `wip/…`) pour reprendre sans perte si la limite d'usage l'interrompt ; point de contrôle automatique à 19:30.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
