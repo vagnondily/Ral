@@ -20,8 +20,9 @@ import planBoard from './en/planBoard.js';
 import calc from './en/calc.js';
 import importWizard from './en/importWizard.js';
 import correspondences from './en/correspondences.js';
+import dashboards from './en/dashboards.js';
 
 export default {
   ...common, ...shell, ...contracts, ...tpmReports, ...tpmPlanning, ...monitoring,
-  ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard, ...calc, ...importWizard, ...correspondences,
+  ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard, ...calc, ...importWizard, ...correspondences, ...dashboards,
 };

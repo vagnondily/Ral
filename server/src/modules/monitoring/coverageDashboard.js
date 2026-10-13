@@ -7,7 +7,7 @@
 // et expose les aides « plan vs réalisé » (taux, statut). Aucune valeur n'est
 // inventée : tout dérive des résultats fournis.
 
-const { orientedScore, classify } = require('./monitoringMath');
+const { orientedScore, classify, naReason } = require('./monitoringMath');
 
 const CLASSES = ['exc', 'sat', 'imp', 'urg', 'na'];
 const CLASS_LABELS = { exc: 'Excellent', sat: 'Satisfaisant', imp: 'À améliorer', urg: 'Action urgente', na: 'Non évalué' };
@@ -19,6 +19,21 @@ function classDistribution(results) {
   const out = { exc: 0, sat: 0, imp: 0, urg: 0, na: 0 };
   for (const r of results || []) if (!r || r.scored !== false) out[classify(r)] += 1;
   out.scored = out.exc + out.sat + out.imp + out.urg;
+  return out;
+}
+
+/**
+ * Pourquoi les indicateurs notés d'une fiche sont « Non évalué » : nombre par
+ * raison (monitoringMath.naReason), sur le même ensemble que classDistribution
+ * (indicateurs hors indice exclus) — la somme égale `na`.
+ */
+function naReasonCounts(results, periodCount) {
+  const out = {};
+  for (const r of results || []) {
+    if (!r || r.scored === false || classify(r) !== 'na') continue;
+    const k = naReason(r, { periodCount });
+    out[k] = (out[k] || 0) + 1;
+  }
   return out;
 }
 
@@ -84,6 +99,6 @@ function progressStatus(pctValue) {
 
 module.exports = {
   CLASSES, CLASS_LABELS,
-  classify, classDistribution, dimGroups, topFlop,
+  classify, classDistribution, naReasonCounts, dimGroups, topFlop,
   isPercent, progressPct, progressStatus,
 };

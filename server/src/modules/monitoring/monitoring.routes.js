@@ -12,6 +12,7 @@ const { sniffFile } = require('../common/fileSniff');
 const { zipLimitsFromEnv } = require('../common/zipGuard');
 const { validateExpression, functionCatalog } = require('./calcFields');
 const dataLinks = require('./dataLinks.service');
+const periodsService = require('./periods.service');
 const settingsRepo = require('../settings/settings.repository');
 const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
 const { sheetTable } = require('../common/sheetRows');
@@ -371,6 +372,16 @@ router.post('/import-definition', WRITE, express.raw({ type: '*/*', limit: '60mb
 const ym = (v) => (/^\d{4}-\d{2}/.test(v || '') ? String(v).slice(0, 7) : undefined);
 const periodQuery = (req) => ({ month: ym(req.query.month), from: ym(req.query.from), to: ym(req.query.to) });
 router.get('/overview', asyncHandler(async (req, res) => res.json(await repo.processOverview(t(req), periodQuery(req)))));
+
+// Volume de données par mois + période par défaut des écrans d'analyse (retour n° 16).
+// `today` = mois courant du navigateur (sinon celui du serveur, UTC) : la règle ignore les mois futurs.
+const periodsQuery = z.object({ today: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional() });
+router.get('/periods', asyncHandler(async (req, res) => {
+  const parsed = periodsQuery.safeParse(req.query);
+  if (!parsed.success) throw badRequest('Mois invalide (attendu : AAAA-MM)', parsed.error.flatten());
+  const todayMonth = parsed.data.today || new Date().toISOString().slice(0, 7);
+  res.json(await periodsService.periods(t(req), { todayMonth }));
+}));
 
 // Tableau de bord « Couverture & performance » — détail conformité par activité
 // (fiche) : bandes, dimensions, top/flop, tendance, bureaux + régions.

@@ -212,7 +212,7 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
           </nav>
           <div className="header-right">
             <div className="header-tools">
-              <NotificationsMenu />
+              <NotificationsMenu onNavigate={onNavigate} />
               <UserMenu user={user} onLogout={onLogout} onSettings={() => onNavigate('parametrage', 'partenaires')} />
             </div>
           </div>

@@ -2327,3 +2327,100 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .corr-select { min-width: 240px; max-width: 100%; }
 .corr-propose { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .corr-table td { vertical-align: middle; }
+
+/* ---- Tableaux de bord : période, courbe, bureaux, alertes (retours 16, 19, 34) ---- */
+/* Courbe mensuelle partagée (components/charts/TrendChart.jsx) : viewBox en pixels, texte jamais mis à l'échelle. */
+.trend-chart { position: relative; width: 100%; min-width: 0; }
+.trend-chart svg { display: block; overflow: visible; }
+.trend-empty { margin: 0; padding: 8px 0; }
+.trend-grid { stroke: var(--border); stroke-width: 1; shape-rendering: crispEdges; }
+.trend-axis { fill: var(--text-faint); font-size: 11px; font-family: var(--font-ui); font-variant-numeric: tabular-nums; }
+.trend-axis.is-selected { fill: var(--text-strong); font-weight: 650; }
+.trend-area { fill: var(--blue-600); fill-opacity: .08; stroke: none; }
+.trend-line { fill: none; stroke: var(--blue-600); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.trend-dot { fill: var(--blue-600); stroke: var(--surface); stroke-width: 2; }
+.trend-dot.is-selected { fill: var(--blue-700); }
+.trend-cross { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 3 3; }
+.trend-hit { fill: transparent; cursor: crosshair; }
+.trend-tip { position: absolute; transform: translateX(-50%); pointer-events: none; z-index: 2; white-space: nowrap;
+  background: var(--text-strong); color: var(--surface); border-radius: var(--radius-sm); padding: 5px 9px; font-size: 12px; box-shadow: var(--shadow-sm); }
+.trend-tip-m { font-weight: 650; }
+
+/* Bandeau de période : dit où la page s'est placée et pourquoi. */
+.period-banner { margin-bottom: 14px; }
+
+/* Sélecteur de mois avec volumes : un mois sans donnée est grisé (le libellé « · — » le dit aussi). */
+.month-select option.month-empty { color: var(--text-faint); }
+
+/* Valeur codée par son nom (components/CodeLabel.jsx). */
+.code-label { display: inline-flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; min-width: 0; }
+.code-label-code { white-space: nowrap; }
+.code-label-ic { color: var(--text-faint); flex: none; }
+.code-label-form { font-size: 12px; font-weight: 400; }
+.code-label.is-code .badge { font-size: 11.5px; padding: 1px 7px; }
+
+/* Synthèse : bande de KPI puis grille dense, cartes à la hauteur de leur contenu (jamais étirées). */
+.syn-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.syn-main { grid-column: span 8; }
+.syn-side { grid-column: span 4; display: grid; gap: 16px; align-content: start; min-width: 0; }
+.syn-full { grid-column: 1 / -1; }
+.syn-side .card-header { padding-bottom: 6px; }
+.syn-body { padding-top: 8px; }
+.syn-compact.biz-gauges { gap: 9px; }
+.syn-scroll { max-height: 440px; }
+.syn-table td, .syn-table th { padding-top: 8px; padding-bottom: 8px; }
+.syn-table td:first-child { min-width: 190px; }
+.syn-table tfoot td { font-weight: 650; color: var(--text-strong); }
+.syn-cov { min-width: 150px; }
+.syn-bar-cell { display: grid; grid-template-columns: minmax(60px, 1fr) auto; align-items: center; gap: 8px; }
+@media (max-width: 1180px) {
+  .syn-main { grid-column: 1 / -1; }
+  .syn-side { grid-column: 1 / -1; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: start; }
+}
+
+/* Couverture & performance : grilles réactives (plus de colonnes imposées en ligne). */
+.biz-kpis.cd-kpis-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.biz-kpis.cd-kpis-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.biz-grid.cd-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; margin-top: 16px; }
+.biz-grid.cd-grid-2.cd-grid-flush { margin-top: 0; }
+.cd-col { display: grid; gap: 16px; align-content: start; min-width: 0; }
+.cd-why { margin-top: 16px; }
+.cd-why .card-title { display: inline-flex; align-items: center; gap: 7px; }
+.cd-why-ic { color: var(--text-muted); }
+.cd-why-list { display: grid; gap: 12px; }
+.cd-why-row { border-left: 3px solid var(--cd-na); padding: 2px 0 2px 12px; }
+.cd-why-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13.5px; color: var(--text-strong); }
+.cd-why-n { background: var(--canvas-sunken); color: var(--text-strong); }
+.cd-why-hint { margin: 3px 0 2px; font-size: 12.5px; color: var(--text-muted); }
+.cd-why-inds { margin: 0; font-size: 12.5px; color: var(--text); line-height: 1.5; overflow-wrap: anywhere; }
+@media (max-width: 1100px) {
+  .biz-kpis.cd-kpis-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .biz-grid.cd-grid-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .biz-kpis.cd-kpis-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Centre d'alertes : tuiles par gravité (couleur + icône + libellé). */
+.biz-kpis.alerts-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.biz-kpi-ic.sev-critical { background: var(--red-bg); color: var(--red-text); }
+.biz-kpi-ic.sev-warning { background: var(--orange-bg); color: var(--orange-text); }
+.biz-kpi-ic.sev-info { background: var(--blue-50); color: var(--blue-700); }
+.icon-link { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-faint); cursor: pointer; }
+.icon-link:hover { background: var(--canvas-sunken); color: var(--text-strong); }
+@media (max-width: 640px) { .biz-kpis.alerts-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; } .alerts-kpis .biz-kpi { padding: 10px; } .alerts-kpis .biz-kpi-ic { display: none; } }
+
+/* Cloche = Centre d'alertes : pastille (critiques + à surveiller) et panneau des premières alertes. */
+.bell-count { position: absolute; top: 1px; right: -3px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 999px;
+  background: var(--orange); color: #fff; font-size: 10px; font-weight: 700; line-height: 15px; text-align: center; pointer-events: none;
+  border: 2px solid var(--surface); box-sizing: content-box; font-variant-numeric: tabular-nums; }
+.bell-count.is-critical { background: var(--red); }
+.notif-pop { width: min(380px, calc(100vw - 24px)); }
+.notif-head { display: flex; flex-direction: column; gap: 2px; }
+.notif-counts { text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--text-faint); }
+.notif-item { align-items: flex-start; gap: 10px; }
+.notif-item .badge { flex: none; margin-top: 1px; }
+.notif-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.notif-title { color: var(--text-strong); font-weight: 600; line-height: 1.3; }
+.notif-detail { color: var(--text-muted); font-size: 12px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.notif-all { justify-content: space-between; color: var(--blue-600); font-weight: 600; }
