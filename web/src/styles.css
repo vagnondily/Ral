@@ -1510,7 +1510,9 @@ h1, h2, h3, h4 { letter-spacing: -0.018em; }
 .breadcrumb strong { color: var(--text-strong); font-weight: 600; }
 
 /* ---- Page --------------------------------------------------------------- */
-.page { padding: 28px 32px 56px; max-width: 1320px; }
+/* Zone centrale large (retour n° 31) : elle suit la largeur de l'écran et gagne la place
+   libérée quand la barre latérale est repliée ; plafond seulement pour les très grands écrans. */
+.page { padding: 28px 32px 56px; max-width: var(--page-max, 2200px); }
 .page-header { margin-bottom: 24px; }
 .page-title { font-size: var(--fs-2xl); font-weight: 700; letter-spacing: -0.028em; color: var(--text-strong); }
 .page-desc { color: var(--text-muted); margin-top: 6px; font-size: 14px; max-width: 74ch; line-height: 1.5; }

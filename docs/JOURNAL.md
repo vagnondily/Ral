@@ -257,4 +257,6 @@ _Dernière mise à jour : 13/10/2026 07:19 UTC_ — la branche `main` reçoit ch
 
 - **07:55** 📥 **Retour n° 30** : le contrat rend le TPM actif sur sa période, et ce TPM devient automatiquement sélectionnable partout (plan de suivi, planification, rapportage…). Intégré comme règle commune de la conception.
 
+- **07:57** ✅ **Retour n° 31 — zone centrale élargie** : la largeur maximale de 1 320 px est retirée ; la zone centrale suit l'écran (1 647 px à 1 903 px de large) et gagne la place de la barre latérale quand on la replie (1 827 px). Vérifié à l'écran (Partenaires, Couverture & performance, Synthèse) ; build web OK.
+
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
