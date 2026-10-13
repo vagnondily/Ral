@@ -447,4 +447,44 @@ export default {
   'Registre des sites : activité, bureau, lieux, GPS facultatif et statut actif / inactif par mois. Exportez le classeur Excel, complétez-le hors ligne (listes du découpage), puis réimportez-le.': 'Site registry: activity, office, places, optional GPS and active / inactive status per month. Export the Excel workbook, fill it in offline (breakdown lists), then re-import it.',
   'Exigences minimales de suivi (MMR) par bureau et activité : durée, fréquence, nombre de sites.': 'Minimum monitoring requirements (MMR) per office and activity: duration, frequency, number of sites.',
   'RBM & plan de suivi': 'RBM & monitoring plan',
+
+  // Mapping MEMS : cycle de vie (brouillon → soumis → validé) et mois de collecte (retour n° 35)
+  'Mois de collecte': 'Collection month',
+  'Date de réception (serveur)': 'Receipt date (server)',
+  'Localités (niveau 1)': 'Localities (level 1)',
+  'Localités (niveau 2)': 'Localities (level 2)',
+  'Localités (niveau 3)': 'Localities (level 3)',
+  'Localités (niveau 4)': 'Localities (level 4)',
+  'Mois de réception': 'Receipt month',
+  'Quelle colonne du formulaire alimente chaque dimension MEMS (bureau, zones, site, partenaire, agent, mois de collecte). Auto-détecté à partir des variables ; vous pouvez le corriger, puis le soumettre pour validation.':
+    'Which form column feeds each MEMS dimension (office, areas, site, partner, agent, collection month). Auto-detected from the variables; you can correct it, then submit it for validation.',
+  'Remettre le mapping en brouillon ? Il devra être soumis puis validé de nouveau.': 'Put the mapping back to draft? It will have to be submitted and validated again.',
+  'Mapping soumis pour validation.': 'Mapping submitted for validation.',
+  'Mapping validé.': 'Mapping validated.',
+  'Mapping remis en brouillon.': 'Mapping put back to draft.',
+  '{n} soumission(s) changent de mois de collecte.': '{n} submission(s) change collection month.',
+  'un compte supprimé': 'a deleted account',
+  'Terminer la modification': 'Finish editing',
+  'Modifier le mapping': 'Edit the mapping',
+  'Soumettre le mapping pour validation': 'Submit the mapping for validation',
+  'Valider le mapping': 'Validate the mapping',
+  'Réinitialiser le mapping (retour en brouillon)': 'Reset the mapping (back to draft)',
+  'Brouillon : modifiable. Soumettez-le quand il est juste ; une autre personne le validera.':
+    'Draft: editable. Submit it when it is right; another person will validate it.',
+  'Soumis par {who} le {at} — en attente de validation par une autre personne.': 'Submitted by {who} on {at} — awaiting validation by another person.',
+  'Validé par {who} le {at} (soumis par {sub}). Lecture seule : réinitialisez-le pour le modifier.':
+    'Validated by {who} on {at} (submitted by {sub}). Read-only: reset it to edit it.',
+  'Séparation des tâches : le mapping est validé par une autre personne que celle qui l\'a soumis.':
+    'Separation of duties: the mapping is validated by someone other than the person who submitted it.',
+  'Choisissez une colonne pour forcer le mapping, ou « Aucune » pour ignorer ; l\'icône « Automatique » rétablit la détection. Après correction, « Appliquer aux soumissions » recalcule les données déjà importées.':
+    'Choose a column to force the mapping, or “None” to ignore; the “Automatic” icon restores the detection. After a correction, “Apply to submissions” recomputes the data already imported.',
+  'Pour changer une colonne, cliquez sur « Modifier » (crayon).': 'To change a column, click “Edit” (pencil).',
+  'Mapping figé : réinitialisez-le (retour en brouillon) pour le modifier.': 'Mapping locked: reset it (back to draft) to edit it.',
+  '— Aucune (mois de réception) —': '— None (receipt month) —',
+  'Automatique : rétablir la détection pour « {d} »': 'Automatic: restore the detection for “{d}”',
+  '{n} soumission(s) sur {t} : mois de collecte différent du mois de réception.': '{n} of {t} submission(s): collection month different from the receipt month.',
+  'Mois de réception inconnu pour {n} (importées avant cette règle : « Appliquer aux soumissions »).':
+    'Receipt month unknown for {n} (imported before this rule: “Apply to submissions”).',
+  'Repli quand la date d\'enquête manque, est illisible ou précède la réception de plus de 92 jours.':
+    'Fallback when the survey date is missing, unreadable or more than 92 days before receipt.',
 };

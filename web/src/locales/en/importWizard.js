@@ -81,4 +81,12 @@ export default {
   'Importez des soumissions (onglet Importation) pour les visualiser ici.': 'Import submissions (Import tab) to see them here.',
   'Importez des données (onglet Importation) et définissez des indicateurs (onglet Configuration) pour alimenter les résultats.':
     'Import data (Import tab) and define indicators (Configuration tab) to feed the results.',
+  // Mois de collecte (retour n° 35)
+  'Mois de collecte couverts': 'Collection months covered',
+  '{n} soumission(s) rangée(s) au mois de leur date d\'enquête, différent du mois de réception par le serveur.':
+    '{n} submission(s) filed under the month of their survey date, different from the month the server received them.',
+  'Mois de réception retenu faute de date d\'enquête exploitable': 'Receipt month used for lack of a usable survey date',
+  'date d\'enquête illisible : {n}': 'unreadable survey date: {n}',
+  'date d\'enquête de plus de 92 jours : {n}': 'survey date more than 92 days old: {n}',
+  'date d\'enquête postérieure à la réception : {n}': 'survey date after receipt: {n}',
 };

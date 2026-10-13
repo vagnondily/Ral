@@ -3,10 +3,11 @@ import {
   Plus, Upload, AlertCircle, ClipboardCheck, RefreshCw, ArrowLeft, ChevronRight,
   FileSpreadsheet, SlidersHorizontal, BarChart3, Link2, Trash2, Pencil, Check, Minus, Shuffle,
   Table2, Download, Search, Columns3, X, ChevronDown, ChevronUp, Ban, Undo2, AlertTriangle, Link as LinkIcon,
-  CheckCircle2, Circle, Sparkles,
+  CheckCircle2, Circle, Sparkles, Send, ShieldCheck, RotateCcw,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, IconButton, PageHeader, Skeleton, Stats } from '../../components/ui.jsx';
+import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, IconButton, PageHeader, Skeleton, Stats, StatusBadge } from '../../components/ui.jsx';
+import { MAPPING_STATUS, DATE_KEYS, dateStats } from '../../lib/mappingWorkflow.js';
 import Modal from '../../components/Modal.jsx';
 import MonthSelect from '../../components/MonthSelect.jsx';
 import { usePopover } from '../../components/listView.jsx';
@@ -861,22 +862,34 @@ function MappingTab({ form, canEdit }) {
   );
 }
 
+/**
+ * Colonnes du « Mapping MEMS » et son cycle de vie (brouillon → soumis → validé,
+ * demande « mettre auto, en icône : modifier, reseter si validé ou soumis,
+ * soumettre, valider »). Les actions offertes viennent du serveur (`actions`,
+ * mêmes règles que l'écriture) : modifier seulement en brouillon, valider par
+ * une autre personne que le soumetteur, lecture seule une fois validé.
+ */
 function MappingColumnsCard({ form, canEdit }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [data, setData] = useState(null);
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [applying, setApplying] = useState(false);
+  const [busy, setBusy] = useState(null); // action en cours : submit | validate | reset | apply
 
   async function reload() {
     try { setData(await api.monMemsMapping(form.id)); }
-    catch (e) { toast.error(e.message); setData({ rows: [], columns: [] }); }
+    catch (e) { toast.error(e.message); setData({ rows: [], columns: [], actions: {}, workflow: null, dates: null }); }
   }
-  useEffect(() => { setData(null); reload(); /* eslint-disable-next-line */ }, [form.id]);
+  useEffect(() => { setData(null); setEditing(false); reload(); /* eslint-disable-next-line */ }, [form.id]);
 
   const rows = data?.rows || [];
   const columns = data?.columns || [];
-  const hasManual = rows.some((r) => r.source === 'manuel');
+  const actions = data?.actions || {};
+  const wf = data?.workflow || null;
+  const status = wf?.status || 'brouillon';
+  const editMode = canEdit && Boolean(actions.edit) && editing;
+  useEffect(() => { if (!actions.edit) setEditing(false); }, [actions.edit]);
 
   async function onChange(r, value) {
     // '__auto__' → auto ; '' → non reliée ; sinon nom de colonne.
@@ -885,31 +898,72 @@ function MappingColumnsCard({ form, canEdit }) {
       if (value === '__auto__') await api.monResetMemsMapping(form.id, r.key);
       else await api.monSetMemsMapping(form.id, r.key, value);
       await reload();
-    } catch (e) { toast.error(e.message); } finally { setSaving(false); }
+    } catch (e) { toast.error(e.message); await reload(); } finally { setSaving(false); }
+  }
+
+  async function runAction(action) {
+    if (action === 'reset' && !window.confirm(tr('Remettre le mapping en brouillon ? Il devra être soumis puis validé de nouveau.'))) return;
+    setBusy(action);
+    try {
+      await api.monMappingAction(form.id, action);
+      toast.success(tr({ submit: 'Mapping soumis pour validation.', validate: 'Mapping validé.', reset: 'Mapping remis en brouillon.' }[action]));
+      setEditing(false);
+    } catch (e) { toast.error(e.message); } finally { setBusy(null); await reload(); }
   }
 
   async function applyToData() {
-    setApplying(true);
-    try { const res = await api.monApplyMemsMapping(form.id); toast.success(tr('Mapping appliqué ({n} dimension(s)) aux soumissions.', { n: res.applied })); }
-    catch (e) { toast.error(e.message); } finally { setApplying(false); }
+    setBusy('apply');
+    try {
+      const res = await api.monApplyMemsMapping(form.id);
+      const moved = res.dates?.monthChanged || 0;
+      toast.success([tr('Mapping appliqué ({n} dimension(s)) aux soumissions.', { n: res.applied }),
+        moved ? tr('{n} soumission(s) changent de mois de collecte.', { n: formatInt(moved) }) : ''].filter(Boolean).join(' '));
+      await reload();
+    } catch (e) { toast.error(e.message); } finally { setBusy(null); }
   }
 
   const selValue = (r) => (r.source === 'manuel' ? (r.column || '') : '__auto__');
   const matched = rows.filter((r) => r.column).length;
+  const stats = dateStats(data?.dates);
+  const who = (name) => name || tr('un compte supprimé');
 
   return (
     <Card aria-labelledby="mems-title">
       <CardHeader id="mems-title" title={tr('Mapping avec les référentiels MEMS')}
-        subtitle={tr('Quelle colonne du formulaire alimente chaque dimension MEMS (bureau, zones, site, partenaire, agent, période). Auto-détecté à partir des variables ; vous pouvez le corriger à la main.')}>
-        {canEdit && hasManual && <Button size="sm" variant="secondary" icon={RefreshCw} loading={applying} onClick={applyToData}>{tr('Appliquer aux soumissions')}</Button>}
+        subtitle={tr('Quelle colonne du formulaire alimente chaque dimension MEMS (bureau, zones, site, partenaire, agent, mois de collecte). Auto-détecté à partir des variables ; vous pouvez le corriger, puis le soumettre pour validation.')}>
+        {data !== null && (
+          <div className="map-head-actions">
+            <StatusBadge map={MAPPING_STATUS} value={status} />
+            {canEdit && actions.edit && (
+              <IconButton icon={editMode ? Check : Pencil} variant={editMode ? 'secondary' : 'ghost'} aria-pressed={editMode}
+                label={editMode ? tr('Terminer la modification') : tr('Modifier le mapping')} onClick={() => setEditing(!editMode)} />
+            )}
+            {canEdit && actions.submit && <IconButton icon={Send} label={tr('Soumettre le mapping pour validation')} disabled={Boolean(busy)} onClick={() => runAction('submit')} />}
+            {canEdit && actions.validate && <IconButton icon={ShieldCheck} label={tr('Valider le mapping')} disabled={Boolean(busy)} onClick={() => runAction('validate')} />}
+            {canEdit && actions.reset && <IconButton icon={RotateCcw} label={tr('Réinitialiser le mapping (retour en brouillon)')} disabled={Boolean(busy)} onClick={() => runAction('reset')} />}
+            {canEdit && actions.apply && <Button size="sm" variant="secondary" icon={RefreshCw} loading={busy === 'apply'} disabled={Boolean(busy) && busy !== 'apply'} onClick={applyToData}>{tr('Appliquer aux soumissions')}</Button>}
+          </div>
+        )}
       </CardHeader>
       {data === null ? <div className="card-body"><Skeleton height={140} /></div> : (
         <>
-          <div className="card-body" style={{ paddingBottom: 0 }}>
+          <div className="card-body map-intro">
+            {wf && (
+              <p className="map-workflow" role="status">
+                {status === 'brouillon' && tr('Brouillon : modifiable. Soumettez-le quand il est juste ; une autre personne le validera.')}
+                {status === 'soumis' && tr('Soumis par {who} le {at} — en attente de validation par une autre personne.', { who: who(wf.submittedByName), at: formatDateTime(wf.submittedAt) })}
+                {status === 'valide' && tr('Validé par {who} le {at} (soumis par {sub}). Lecture seule : réinitialisez-le pour le modifier.', { who: who(wf.validatedByName), at: formatDateTime(wf.validatedAt), sub: who(wf.submittedByName) })}
+                {actions.validateReason && <span className="text-warn"> {tr(actions.validateReason)}</span>}
+              </p>
+            )}
             <Alert tone={matched ? 'info' : 'warning'} icon={matched ? Link2 : AlertCircle}>
-              {tr('{n} dimension(s) sur {t} reliée(s).', { n: matched, t: rows.length })} {canEdit
-                ? <>{tr('Choisissez « Automatique » pour laisser la détection, une colonne pour forcer le mapping, ou « Aucune » pour ignorer. Après correction, « Appliquer aux soumissions » recalcule les données déjà importées.')}</>
-                : <>{tr('La détection est automatique ; un administrateur ou validateur peut corriger le mapping.')}</>}
+              {tr('{n} dimension(s) sur {t} reliée(s).', { n: matched, t: rows.length })} {!canEdit
+                ? tr('La détection est automatique ; un administrateur ou validateur peut corriger le mapping.')
+                : editMode
+                  ? tr('Choisissez une colonne pour forcer le mapping, ou « Aucune » pour ignorer ; l\'icône « Automatique » rétablit la détection. Après correction, « Appliquer aux soumissions » recalcule les données déjà importées.')
+                  : actions.edit
+                    ? tr('Pour changer une colonne, cliquez sur « Modifier » (crayon).')
+                    : tr('Mapping figé : réinitialisez-le (retour en brouillon) pour le modifier.')}
             </Alert>
           </div>
           <div className="table-wrap">
@@ -924,17 +978,31 @@ function MappingColumnsCard({ form, canEdit }) {
                     <td><strong>{tr(r.label)}</strong></td>
                     <td className="muted">{tr(r.mems)}</td>
                     <td>
-                      {r.editable && canEdit ? (
-                        <select className="select" value={selValue(r)} disabled={saving} onChange={(e) => onChange(r, e.target.value)} style={{ minWidth: 220 }}>
-                          <option value="__auto__">{r.autoColumn ? tr('Automatique — {col}', { col: r.autoColumn }) : tr('Automatique — (aucune détectée)')}</option>
-                          <option value="">{tr('— Aucune (ignorer) —')}</option>
-                          <optgroup label={tr('Colonnes du formulaire')}>
-                            {columns.map((c) => <option key={c.name} value={c.name}>{c.label && c.label !== c.name ? `${c.label} — ${c.name}` : c.name}</option>)}
-                          </optgroup>
-                        </select>
+                      {r.editable && editMode ? (
+                        <div className="map-cell">
+                          <select className="select" value={selValue(r)} disabled={saving} aria-label={tr(r.label)} onChange={(e) => onChange(r, e.target.value)}>
+                            <option value="__auto__">{r.autoColumn ? tr('Automatique — {col}', { col: r.autoColumn }) : tr('Automatique — (aucune détectée)')}</option>
+                            <option value="">{r.key === DATE_KEYS.survey ? tr('— Aucune (mois de réception) —') : tr('— Aucune (ignorer) —')}</option>
+                            <optgroup label={tr('Colonnes du formulaire')}>
+                              {columns.map((c) => <option key={c.name} value={c.name}>{c.label && c.label !== c.name ? `${c.label} — ${c.name}` : c.name}</option>)}
+                            </optgroup>
+                          </select>
+                          {r.source === 'manuel' && (
+                            <IconButton icon={Sparkles} size="sm" disabled={saving} label={tr('Automatique : rétablir la détection pour « {d} »', { d: tr(r.label) })} onClick={() => onChange(r, '__auto__')} />
+                          )}
+                        </div>
                       ) : r.column
                         ? <><span className="mono">{r.column}</span>{r.columnLabel && r.columnLabel !== r.column && <div className="site-meta">{r.columnLabel}</div>}</>
                         : <span className="cell-empty">—</span>}
+                      {r.key === DATE_KEYS.survey && stats.total > 0 && (
+                        <div className="map-date-note">
+                          {tr('{n} soumission(s) sur {t} : mois de collecte différent du mois de réception.', { n: formatInt(stats.differs), t: formatInt(stats.total) })}
+                          {stats.unknownUpload > 0 && <> {tr('Mois de réception inconnu pour {n} (importées avant cette règle : « Appliquer aux soumissions »).', { n: formatInt(stats.unknownUpload) })}</>}
+                        </div>
+                      )}
+                      {r.key === DATE_KEYS.upload && (
+                        <div className="map-date-note">{tr('Repli quand la date d\'enquête manque, est illisible ou précède la réception de plus de 92 jours.')}</div>
+                      )}
                     </td>
                     <td>
                       {r.source === 'manuel'

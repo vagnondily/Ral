@@ -1,11 +1,12 @@
 const { withTenantTransaction } = require('../../config/db');
-const { insertRows } = require('../../db/batch');
+const { insertRows, chunkRows } = require('../../db/batch');
 const { notFound, forbidden, badRequest } = require('../../middleware/errors');
 const { computeAll, overallIndex } = require('./monitoringMath');
 const { classDistribution, dimGroups, topFlop, classify } = require('./coverageDashboard');
-const { detectMapping, DIMENSION_COLUMN, EDITABLE_KEYS } = require('./memsMapping');
+const { detectMapping, DIMENSION_COLUMN, DATE_KEYS, EDITABLE_KEYS } = require('./memsMapping');
 const { computeCalcFields, checkExpression, previewCalc, makeGetter } = require('./calcFields');
-const { buildLookup, groupPathRenamer, TRIM_CLASS } = require('./submissionsImport');
+const { buildLookup, groupPathRenamer, collectionColumns, applySurveyDate, dateSummary, TRIM_CLASS } = require('./submissionsImport');
+const { collectionUpdates } = require('./collectionDate');
 const { templateForActivity, moduleLabel, suggestBindings, indicatorFromItem } = require('./indicatorTemplates');
 const { OTHER_VALUES } = require('./memsMapping');
 const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx, loadPartiesTx, lockSubmissionLinksTx } = require('../settings/placeMatch.repository');
@@ -491,91 +492,182 @@ async function ensureCatalogFromSavTx(client, tenantId, formId, variables) {
 /**
  * Mapping « formulaire ↔ référentiels MEMS » : quelle colonne du formulaire
  * (catalogue XLSForm + clés vues dans les données) alimente chaque dimension
- * MEMS. Dérivé en direct via la table d'alias partagée (aucun stockage).
+ * MEMS (détection en direct via la table d'alias partagée, surcharges de
+ * monitoring_field_map), l'état de son cycle de vie (brouillon / soumis /
+ * validé, migration 060) et, pour la date de collecte, la colonne utilisée et
+ * le nombre de soumissions dont le mois de collecte diffère du mois de réception.
+ * @returns {Promise<null|{ rows, columns, dates, workflow }>} null si la fiche n'existe pas
  */
-async function memsMappingForForm(tenantId, formId) {
-  return withTenantTransaction(tenantId, async (client) => {
-    const { rows: cat } = await client.query(
-      'SELECT name, label FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name',
-      [tenantId, formId]
-    );
-    const { rows: keys } = await client.query(
-      `SELECT DISTINCT jsonb_object_keys(data) AS field
-         FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2`,
-      [tenantId, formId]
-    );
-    const { rows: ov } = await client.query(
-      'SELECT dimension, column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2',
-      [tenantId, formId]
-    );
-    const labelByName = new Map(cat.map((c) => [c.name, c.label]));
-    const names = [...new Set([...cat.map((c) => c.name), ...keys.map((k) => k.field)])];
-    const overrideByDim = new Map(ov.map((o) => [o.dimension, o.columnName]));
-    const auto = new Map(detectMapping(names).map((m) => [m.key, m]));
+async function memsMappingTx(client, tenantId, formId) {
+  const { rows: [workflow] } = await client.query(
+    `SELECT f.mapping_status AS status, f.mapping_submitted_by AS "submittedBy", f.mapping_submitted_at AS "submittedAt",
+            f.mapping_validated_by AS "validatedBy", f.mapping_validated_at AS "validatedAt",
+            COALESCE(NULLIF(btrim(su.full_name), ''), su.email::text) AS "submittedByName",
+            COALESCE(NULLIF(btrim(vu.full_name), ''), vu.email::text) AS "validatedByName"
+       FROM monitoring_forms f
+       LEFT JOIN users su ON su.id = f.mapping_submitted_by AND su.tenant_id = f.tenant_id
+       LEFT JOIN users vu ON vu.id = f.mapping_validated_by AND vu.tenant_id = f.tenant_id
+      WHERE f.tenant_id = $1 AND f.id = $2`, [tenantId, formId]);
+  if (!workflow) return null;
+  const { rows: cat } = await client.query(
+    'SELECT name, label FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name',
+    [tenantId, formId]
+  );
+  const { rows: keys } = await client.query(
+    `SELECT DISTINCT jsonb_object_keys(data) AS field
+       FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2`,
+    [tenantId, formId]
+  );
+  const { rows: ov } = await client.query(
+    'SELECT dimension, column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2',
+    [tenantId, formId]
+  );
+  // Mois de collecte vs mois de réception, sur toutes les soumissions de la fiche (agrégé en SQL).
+  const { rows: [dates] } = await client.query(
+    `SELECT count(*)::int AS total, count(period_month)::int AS "withMonth", count(upload_month)::int AS "withUpload",
+            count(*) FILTER (WHERE upload_month IS NOT NULL AND period_month IS DISTINCT FROM upload_month)::int AS "monthDiffers"
+       FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2`, [tenantId, formId]);
+  const labelByName = new Map(cat.map((c) => [c.name, c.label]));
+  const names = [...new Set([...cat.map((c) => c.name), ...keys.map((k) => k.field)])];
+  const overrideByDim = new Map(ov.map((o) => [o.dimension, o.columnName]));
+  const auto = new Map(detectMapping(names).map((m) => [m.key, m]));
+  // Dates : colonne lue par la MÊME règle qu'à l'import (alias, nom de question sous un groupe).
+  const dateCols = collectionColumns(names);
+  const autoDate = { [DATE_KEYS.survey]: dateCols.surveyCols[0] || null, [DATE_KEYS.upload]: dateCols.uploadCols[0] || null };
 
-    const rows = detectMapping(names).map((m) => {
-      const hasOverride = overrideByDim.has(m.key);
-      const autoColumn = auto.get(m.key)?.column || null;
-      const column = hasOverride ? (overrideByDim.get(m.key) || null) : autoColumn;
-      return {
-        key: m.key, label: m.label, mems: m.mems,
-        column, columnLabel: column ? (labelByName.get(column) || null) : null,
-        autoColumn, source: hasOverride ? 'manuel' : (autoColumn ? 'auto' : null),
-        editable: EDITABLE_KEYS.includes(m.key),
-      };
-    });
-    // Colonnes disponibles pour l'éditeur (catalogue + clés vues dans les données).
-    const seen = new Set(cat.map((c) => c.name));
-    const columns = [
-      ...cat.map((c) => ({ name: c.name, label: c.label || c.name })),
-      ...keys.map((k) => k.field).filter((f) => !seen.has(f)).map((f) => ({ name: f, label: f })),
-    ];
-    return { rows, columns };
+  const rows = detectMapping(names).map((m) => {
+    const hasOverride = overrideByDim.has(m.key);
+    const autoColumn = (m.key in autoDate ? autoDate[m.key] : auto.get(m.key)?.column) || null;
+    const column = hasOverride ? (overrideByDim.get(m.key) || null) : autoColumn;
+    return {
+      key: m.key, label: m.label, mems: m.mems,
+      column, columnLabel: column ? (labelByName.get(column) || null) : null,
+      autoColumn, source: hasOverride ? 'manuel' : (autoColumn ? 'auto' : null),
+      editable: EDITABLE_KEYS.includes(m.key),
+    };
   });
+  // Colonnes disponibles pour l'éditeur (catalogue + clés vues dans les données).
+  const seen = new Set(cat.map((c) => c.name));
+  const columns = [
+    ...cat.map((c) => ({ name: c.name, label: c.label || c.name })),
+    ...keys.map((k) => k.field).filter((f) => !seen.has(f)).map((f) => ({ name: f, label: f })),
+  ];
+  const surveyRow = rows.find((r) => r.key === DATE_KEYS.survey);
+  const uploadRow = rows.find((r) => r.key === DATE_KEYS.upload);
+  return {
+    rows, columns, workflow,
+    dates: { ...dates, surveyColumn: surveyRow ? surveyRow.column : null, uploadColumn: uploadRow ? uploadRow.column : null },
+  };
 }
 
-/** Surcharge (ou efface) le mapping d'une dimension MEMS pour une fiche. */
-async function setMemsMapping(tenantId, formId, dimension, columnName) {
-  if (!EDITABLE_KEYS.includes(dimension)) return null;
-  return withTenantTransaction(tenantId, async (client) => {
-    const { rows } = await client.query('SELECT 1 FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
-    if (!rows.length) return null;
-    const col = columnName && String(columnName).trim() ? String(columnName).trim() : '';
-    await client.query(
-      `INSERT INTO monitoring_field_map (tenant_id, form_id, dimension, column_name, updated_at)
-       VALUES ($1,$2,$3,$4, now())
-       ON CONFLICT (form_id, dimension) DO UPDATE SET column_name = EXCLUDED.column_name, updated_at = now()`,
-      [tenantId, formId, dimension, col]
-    );
-    return { dimension, columnName: col };
-  });
+/** État du cycle de vie du mapping d'une fiche ; `forUpdate` : verrou de ligne jusqu'à la fin de la transaction. */
+async function mappingStateTx(client, tenantId, formId, { forUpdate = false } = {}) {
+  const { rows } = await client.query(
+    `SELECT mapping_status AS status, mapping_submitted_by AS "submittedBy", mapping_validated_by AS "validatedBy"
+       FROM monitoring_forms WHERE tenant_id = $1 AND id = $2${forUpdate ? ' FOR UPDATE' : ''}`,
+    [tenantId, formId]);
+  return rows[0] || null;
+}
+
+const MAPPING_STATE_COLUMNS = {
+  status: 'mapping_status', submittedBy: 'mapping_submitted_by', submittedAt: 'mapping_submitted_at',
+  validatedBy: 'mapping_validated_by', validatedAt: 'mapping_validated_at',
+};
+/**
+ * Passe le mapping d'une fiche à un nouveau statut (champs de `patch`, voir
+ * mappingWorkflow.transitionPatch), seulement s'il est encore au statut `from`.
+ * @returns {Promise<boolean>} faux si le statut a changé entre-temps
+ */
+async function setMappingStatusTx(client, tenantId, formId, from, patch) {
+  const params = [tenantId, formId, from];
+  const sets = Object.entries(MAPPING_STATE_COLUMNS).filter(([k]) => patch[k] !== undefined)
+    .map(([k, col]) => { params.push(patch[k]); return `${col} = $${params.length}`; });
+  const { rowCount } = await client.query(
+    `UPDATE monitoring_forms SET ${sets.join(', ')}, updated_at = now()
+      WHERE tenant_id = $1 AND id = $2 AND mapping_status = $3`, params);
+  return rowCount === 1;
+}
+
+/** Surcharge (ou efface : '' = « aucune ») le mapping d'une dimension MEMS pour une fiche. */
+async function setMemsMappingTx(client, tenantId, formId, dimension, columnName) {
+  const col = columnName && String(columnName).trim() ? String(columnName).trim() : '';
+  await client.query(
+    `INSERT INTO monitoring_field_map (tenant_id, form_id, dimension, column_name, updated_at)
+     VALUES ($1,$2,$3,$4, now())
+     ON CONFLICT (form_id, dimension) DO UPDATE SET column_name = EXCLUDED.column_name, updated_at = now()`,
+    [tenantId, formId, dimension, col]
+  );
+  return { dimension, columnName: col };
 }
 
 /** Rétablit la détection automatique pour une dimension (supprime la surcharge). */
-async function resetMemsMapping(tenantId, formId, dimension) {
-  return withTenantTransaction(tenantId, async (client) => {
-    const { rowCount } = await client.query(
-      'DELETE FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2 AND dimension = $3',
-      [tenantId, formId, dimension]
-    );
-    return { removed: rowCount };
-  });
+async function resetMemsMappingTx(client, tenantId, formId, dimension) {
+  const { rowCount } = await client.query(
+    'DELETE FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2 AND dimension = $3',
+    [tenantId, formId, dimension]
+  );
+  return { removed: rowCount };
 }
 
 /**
- * Réapplique les surcharges manuelles aux soumissions déjà importées : pour
+ * Réapplique le mapping en vigueur aux soumissions déjà importées : pour
  * chaque dimension surchargée, recopie `data->>colonne` dans le champ typé
- * (ou NULL si la dimension a été mise « non reliée »). N'affecte pas les
- * dimensions laissées en automatique (valeurs posées à l'import conservées).
+ * (ou NULL si la dimension a été mise « non reliée ») ; le mois de collecte est
+ * recalculé depuis les réponses brutes (date d'enquête choisie ou automatique).
+ * N'affecte pas les dimensions laissées en automatique (valeurs posées à l'import
+ * conservées). Permis à tout statut du mapping : il n'est pas modifié.
  */
 async function applyMappingToSubmissions(tenantId, formId) {
   return withTenantTransaction(tenantId, async (client) => {
     await lockSubmissionLinksTx(client, tenantId); // avant de toucher aux soumissions : jamais d'interblocage
     const { overrides, updated } = await reliftSubmissionsTx(client, tenantId, formId);
+    const { updates, ...dates } = await rederiveCollectionDatesTx(client, tenantId, formId);
     // Les colonnes de lieu/bureau/site ont pu changer : rattachement rejoué (même transaction).
     const geo = await applySubmissionsGeoTx(client, tenantId);
-    return { applied: overrides, updated, geo };
+    return { applied: overrides, updated, dates: { ...dates, updated: updates }, geo };
   });
+}
+
+/**
+ * Mois de collecte des soumissions DÉJÀ importées d'une fiche, recalculé depuis
+ * leurs réponses brutes par la règle de l'import (collectionDate.collectionMonth) :
+ * date d'enquête choisie dans « Mapping MEMS » ou détectée, date de réception.
+ * Lecture des seules colonnes de date (pas des réponses entières), calcul pur
+ * (collectionUpdates), puis écriture des seules lignes qui changent en
+ * instructions multi-lignes UPDATE … FROM (VALUES …) par lots. Idempotent :
+ * rejoué, il ne trouve plus rien à changer. Dans la transaction de l'appelant.
+ * @returns {Promise<{ updates: number, total: number, monthChanged: number, unreadable: number, undated: number }>}
+ */
+async function rederiveCollectionDatesTx(client, tenantId, formId) {
+  const { rows: keyRows } = await client.query(
+    'SELECT DISTINCT jsonb_object_keys(data) AS k FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2',
+    [tenantId, formId]);
+  const { rows: ov } = await client.query(
+    'SELECT column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2 AND dimension = $3',
+    [tenantId, formId, DATE_KEYS.survey]);
+  const cols = collectionColumns(keyRows.map((r) => r.k), ov.length ? (ov[0].columnName || '') : undefined);
+  const read = [...new Set([...cols.surveyCols, ...cols.uploadCols])];
+  const none = { updates: 0, total: 0, monthChanged: 0, unreadable: 0, undated: 0 };
+  if (!read.length) return none;
+  const { rows } = await client.query(
+    `SELECT id, period_month AS "periodMonth", submitted_at AS "submittedAt", upload_month AS "uploadMonth",
+            (SELECT jsonb_object_agg(k, s.data -> k) FROM unnest($3::text[]) AS k WHERE s.data ? k) AS dates
+       FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2`,
+    [tenantId, formId, read]);
+  const plan = collectionUpdates(rows, cols);
+  for (const slice of chunkRows(plan.updates, 4)) {
+    const params = [tenantId, formId];
+    const tuples = slice.map((u) => {
+      params.push(u.id, u.periodMonth, u.submittedAt, u.uploadMonth);
+      const b = params.length - 4;
+      return `($${b + 1}::uuid, $${b + 2}::date, $${b + 3}::timestamptz, $${b + 4}::date)`;
+    });
+    await client.query(
+      `UPDATE monitoring_submissions s SET period_month = v.pm, submitted_at = v.at, upload_month = v.um
+         FROM (VALUES ${tuples.join(', ')}) AS v(id, pm, at, um)
+        WHERE s.tenant_id = $1 AND s.form_id = $2 AND s.id = v.id`, params);
+  }
+  return { updates: plan.updates.length, total: plan.total, monthChanged: plan.monthChanged, unreadable: plan.unreadable, undated: plan.undated };
 }
 
 /**
@@ -703,11 +795,13 @@ async function importSubmissions(tenantId, formId, submissions, { variables } = 
       [tenantId, formId]
     );
     // Valeur nettoyée comme à l'import automatique (valueOf) et à la relecture SQL.
+    // Date d'enquête choisie à la main : mois de collecte recalculé (même règle, collectionMonth).
     const applyOverrides = (s) => {
       for (const o of ov) {
-        const prop = SUB_PROP[o.dimension]; if (!prop) continue;
         const col = (o.columnName || '').trim();
         const v = col && s.data ? makeGetter(s.data)(col) : undefined; // casse ignorée (XLSForm ≠ export SPSS)
+        if (o.dimension === DATE_KEYS.survey) { applySurveyDate(s, v); continue; }
+        const prop = SUB_PROP[o.dimension]; if (!prop) continue;
         const t = v == null ? '' : String(v).trim();
         s[prop] = t === '' ? null : t;
       }
@@ -725,7 +819,7 @@ async function importSubmissions(tenantId, formId, submissions, { variables } = 
     // un AUTRE format (Excel après SPSS…) la complète sans effacer ce qu'il ne porte pas.
     const merged = (col) => `${col} = CASE WHEN monitoring_submissions.source IS NOT DISTINCT FROM EXCLUDED.source
       THEN EXCLUDED.${col} ELSE COALESCE(EXCLUDED.${col}, monitoring_submissions.${col}) END`;
-    const TYPED = ['period_month', 'submitted_at', 'field_office', 'admin1', 'admin2', 'admin3', 'admin4', 'site', 'partner', 'agent'];
+    const TYPED = ['period_month', 'submitted_at', 'upload_month', 'field_office', 'admin1', 'admin2', 'admin3', 'admin4', 'site', 'partner', 'agent'];
     // Même identifiant Kobo deux fois dans le fichier : une seule soumission, la dernière version
     // (sans cela, le compte rendu la compterait « mise à jour » et ses mois deux fois).
     const unique = []; const at = new Map();
@@ -739,16 +833,16 @@ async function importSubmissions(tenantId, formId, submissions, { variables } = 
       if (ov.length) applyOverrides(s);
       const res = await client.query(
         `INSERT INTO monitoring_submissions
-           (tenant_id, form_id, external_id, period_month, submitted_at, field_office,
+           (tenant_id, form_id, external_id, period_month, submitted_at, upload_month, field_office,
             admin1, admin2, admin3, admin4, site, partner, agent, source, data)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          ON CONFLICT (form_id, external_id) DO UPDATE SET
            ${TYPED.map(merged).join(',\n           ')},
            data = CASE WHEN monitoring_submissions.source IS NOT DISTINCT FROM EXCLUDED.source
              THEN EXCLUDED.data ELSE monitoring_submissions.data || EXCLUDED.data END,
            source = EXCLUDED.source
          RETURNING (xmax = 0) AS created`,
-        [tenantId, formId, s.externalId, s.periodMonth, s.submittedAt, s.fieldOffice,
+        [tenantId, formId, s.externalId, s.periodMonth, s.submittedAt, s.uploadMonth || null, s.fieldOffice,
           s.admin1, s.admin2, s.admin3, s.admin4, s.site, s.partner, s.agent, s.source, JSON.stringify(s.data)]
       );
       inserted += res.rowCount;
@@ -762,10 +856,12 @@ async function importSubmissions(tenantId, formId, submissions, { variables } = 
       `SELECT count(*)::int AS total, count(field_office_id)::int AS "withOffice", count(adm3_pcode)::int AS "withCommune",
               count(site_id)::int AS "withSite", count(*) FILTER (WHERE site_status IN ('a_valider', 'ambigu'))::int AS "sitePending"
          FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2`, [tenantId, formId]);
-    // Compte rendu : nouvelles / déjà présentes (mises à jour), mois couverts.
+    // Compte rendu : nouvelles / déjà présentes (mises à jour), mois couverts, mois de collecte
+    // (tiré de l'enquête ou de la réception, et pourquoi : date d'enquête illisible…).
     return {
       received: submissions.length, duplicates: submissions.length - unique.length, inserted, created, updated: inserted - created, geo, form: state,
       months: [...months.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([month, n]) => ({ month, n })),
+      dates: dateSummary(unique),
     };
   });
 }
@@ -1416,6 +1512,7 @@ module.exports = {
   listForms, createForm, updateForm, deleteForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,
   formFields, importSubmissions, computeValues, dashboard, processOverview, coverageDashboard,
-  formCatalog, memsMappingForForm, setMemsMapping, resetMemsMapping, applyMappingToSubmissions,
+  formCatalog, memsMappingTx, mappingStateTx, setMappingStatusTx, setMemsMappingTx, resetMemsMappingTx,
+  applyMappingToSubmissions, rederiveCollectionDatesTx,
   formSubmissions, ensureCatalogFromSav, importDefinition, listSubmissions,
 };

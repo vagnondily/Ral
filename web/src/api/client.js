@@ -302,6 +302,8 @@ export const api = {
   monSetMemsMapping: (id, dimension, column) => request(`/api/monitoring/forms/${id}/mems-mapping`, { method: 'PUT', body: { dimension, column } }),
   monResetMemsMapping: (id, dimension) => request(`/api/monitoring/forms/${id}/mems-mapping/${dimension}`, { method: 'DELETE' }),
   monApplyMemsMapping: (id) => request(`/api/monitoring/forms/${id}/mems-mapping/apply`, { method: 'POST' }),
+  // Cycle de vie du mapping : action ∈ submit | validate | reset.
+  monMappingAction: (id, action) => request(`/api/monitoring/forms/${id}/mapping/${action}`, { method: 'POST' }),
   monFormSubmissions: (id, { month, limit } = {}) => request(`/api/monitoring/forms/${id}/submissions`, { query: { ...(month ? { month } : {}), ...(limit ? { limit } : {}) } }),
   monCalcFields: (id) => request(`/api/monitoring/forms/${id}/calc-fields`),
   // Éditeur de formule : catalogue des fonctions (mis en cache) et aperçu sur les soumissions réelles.

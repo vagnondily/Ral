@@ -2327,3 +2327,16 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .corr-select { min-width: 240px; max-width: 100%; }
 .corr-propose { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .corr-table td { vertical-align: middle; }
+
+/* ---- Mapping MEMS : cycle de vie (brouillon → soumis → validé) et mois de collecte ---- */
+.map-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.map-head-actions .badge { margin-right: 4px; }
+.map-intro { display: flex; flex-direction: column; gap: 10px; padding-bottom: 12px; }
+.map-workflow { margin: 0; font-size: 13px; color: var(--text-muted); }
+.map-cell { display: flex; align-items: center; gap: 6px; }
+.map-cell .select { min-width: 220px; max-width: 100%; }
+.map-date-note { margin-top: 4px; font-size: 12.5px; line-height: 1.4; color: var(--text-muted); max-width: 52ch; }
+@media (max-width: 640px) {
+  .map-cell { flex-wrap: wrap; }
+  .map-cell .select { min-width: 0; width: 100%; }
+}

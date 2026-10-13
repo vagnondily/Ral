@@ -14,9 +14,15 @@
 // Dimensions MEMS reconnues, dans l'ordre d'affichage. `mems` = le référentiel
 // MEMS correspondant (pour guider l'utilisateur vers le bon paramétrage).
 const DIMENSIONS = [
-  // « @_submission_time » : le même horodatage serveur dans un export SPSS (qui interdit le « _ »
-  // initial) — un formulaire importé en Excel puis en SPSS garde ainsi le même mois.
-  { key: 'submitted_at', label: 'Date de collecte', mems: 'Période (mois)', aliases: ['_submission_time', '@_submission_time', 'end', 'submissiondate', 'today', 'svydate'] },
+  // Date d'ENQUÊTE : elle fixe le MOIS DE COLLECTE (collectionDate.collectionMonth). La date saisie
+  // par l'enquêteur (SvyDate, réelle dans les exports GD, SMP, Nutrition, MIARO, Résilience), à
+  // défaut la date du jour de la tablette (today), puis le début et la fin du formulaire.
+  // Seule date que l'on peut choisir à la main dans « Mapping MEMS ».
+  { key: 'survey_date', label: 'Date de collecte', mems: 'Mois de collecte', aliases: ['svydate', 'survey_date', 'surveydate', 'date_enquete', 'today', 'start', 'end'] },
+  // Date de RÉCEPTION par le serveur Kobo : repli quand la date d'enquête manque ou n'est pas
+  // plausible. « @_submission_time » : le même horodatage dans un export SPSS (qui interdit le
+  // « _ » initial). Détectée, jamais choisie à la main (c'est le serveur qui l'écrit).
+  { key: 'submitted_at', label: 'Date de réception (serveur)', mems: 'Mois de réception', aliases: ['_submission_time', '@_submission_time', 'submissiondate'] },
   { key: 'field_office', label: 'Bureau / sous-bureau', mems: 'Bureaux & antennes', aliases: ['field_office', 'fieldoffice', 'sous bureau', 'sousbureau'] },
   // Niveaux administratifs alignés sur Paramétrage › Localités (vérifié sur les exports réels :
   // admin1 = région MG51, admin2 = district MG51507, admin3 = commune MG51507090).
@@ -64,15 +70,18 @@ const MAP = {
   ...Object.fromEntries(DIMENSIONS.map((d) => [d.key, d.aliases])),
 };
 
-// Colonne de la table monitoring_submissions alimentée par chaque dimension.
-// `submitted_at` est une date dérivée à l'import : non surchargeable à la main.
+// Colonne de la table monitoring_submissions alimentée par chaque dimension (valeur recopiée).
+// Les dates ne sont pas recopiées : period_month / submitted_at / upload_month sont DÉRIVÉS
+// des deux dates par collectionDate.collectionMonth (voir DATE_KEYS).
 const DIMENSION_COLUMN = {
   field_office: 'field_office',
   admin1: 'admin1', admin2: 'admin2', admin3: 'admin3', admin4: 'admin4',
   site: 'site', partner: 'partner', agent: 'agent',
 };
-// Dimensions qu'on peut (re)mapper manuellement.
-const EDITABLE_KEYS = Object.keys(DIMENSION_COLUMN);
+// Dimensions de date : date d'enquête (choisie à la main ou automatique) et date de réception.
+const DATE_KEYS = { survey: 'survey_date', upload: 'submitted_at' };
+// Dimensions qu'on peut (re)mapper manuellement : les valeurs recopiées + la date d'enquête.
+const EDITABLE_KEYS = [...Object.keys(DIMENSION_COLUMN), DATE_KEYS.survey];
 
 const norm = (s) => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
@@ -95,4 +104,4 @@ function detectMapping(fieldNames) {
 }
 
 module.exports = {
-  canonicalExternalId, OTHER_VALUES, OTHER_SUFFIXES, OTHER_EXTRA, DIMENSIONS, MAP, DIMENSION_COLUMN, EDITABLE_KEYS, detectMapping, norm };
+  canonicalExternalId, OTHER_VALUES, OTHER_SUFFIXES, OTHER_EXTRA, DIMENSIONS, MAP, DIMENSION_COLUMN, DATE_KEYS, EDITABLE_KEYS, detectMapping, norm };

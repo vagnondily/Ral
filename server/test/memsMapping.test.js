@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { detectMapping, MAP, DIMENSIONS } = require('../src/modules/monitoring/memsMapping');
+const { detectMapping, MAP, DIMENSIONS, DATE_KEYS, EDITABLE_KEYS } = require('../src/modules/monitoring/memsMapping');
 
 test('detectMapping maps well-known columns to MEMS dimensions (accent/case tolerant)', () => {
   const names = ['_submission_time', 'Region', 'District', 'commune', 'SiteName', 'ENUpartner', 'autre_champ'];
@@ -21,6 +21,16 @@ test('detectMapping keeps the first original column name and returns every dimen
   const a1 = m.find((r) => r.key === 'admin1');
   assert.equal(a1.column, 'admin1');             // le code (pcode) passe avant le nom
   assert.equal(m.length, DIMENSIONS.length);     // une ligne par dimension, matchée ou non
+});
+
+test('dates : date d\'enquête (SvyDate d\'abord, choisie à la main possible) et date de réception (détectée seulement)', () => {
+  const by = Object.fromEntries(detectMapping(['start', 'end', 'today', 'SvyDate', '@_submission_time']).map((r) => [r.key, r.column]));
+  assert.equal(by.survey_date, 'SvyDate');                 // avant today / start / end
+  assert.equal(by.submitted_at, '@_submission_time');      // horodatage serveur (export SPSS)
+  assert.equal(detectMapping(['today', 'end']).find((r) => r.key === 'survey_date').column, 'today');
+  assert.ok(EDITABLE_KEYS.includes(DATE_KEYS.survey));
+  assert.ok(!EDITABLE_KEYS.includes(DATE_KEYS.upload));
+  assert.equal(DIMENSIONS.find((d) => d.key === 'survey_date').label, 'Date de collecte');
 });
 
 test('MAP is the shared alias table and includes the dedup id plus every dimension', () => {

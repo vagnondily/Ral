@@ -5,6 +5,7 @@ const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound } = require('../../middleware/errors');
 const repo = require('./monitoring.repository');
+const mapping = require('./mapping.service');
 const { parseSubmissions, analyzeSubmissions } = require('./submissionsImport');
 const { parseXlsformRows } = require('./xlsformImport');
 const { readXls, XlsError } = require('./xlsReader');
@@ -226,27 +227,34 @@ router.get('/forms/:id/dashboard', asyncHandler(async (req, res) => {
 // Catalogue détaillé d'une fiche (champs + listes de choix issus du XLSForm).
 router.get('/forms/:id/catalog', asyncHandler(async (req, res) => res.json(await repo.formCatalog(t(req), req.params.id))));
 
-// Mapping « formulaire ↔ référentiels MEMS » : auto-détecté, surchargeable.
-router.get('/forms/:id/mems-mapping', asyncHandler(async (req, res) => res.json(await repo.memsMappingForForm(t(req), req.params.id))));
+// Mapping « formulaire ↔ référentiels MEMS » : auto-détecté, surchargeable, avec son cycle de vie
+// (brouillon → soumis → validé ; mapping.service + mappingWorkflow) et les actions permises.
+router.get('/forms/:id/mems-mapping', asyncHandler(async (req, res) =>
+  res.json(await mapping.getMapping(t(req), uuidParam(req.params.id), req.auth))));
 
-// Surcharge manuelle d'une dimension (column '' = « non reliée »).
+// Surcharge manuelle d'une dimension (column '' = « non reliée ») — 409 hors brouillon.
 router.put('/forms/:id/mems-mapping', WRITE,
-  body(z.object({ dimension: z.string().trim().min(1), column: z.string().trim().max(200).optional().default('') })),
+  body(z.object({ dimension: z.string().trim().min(1).max(40), column: z.string().trim().max(200).optional().default('') })),
   asyncHandler(async (req, res) => {
-    const r = await repo.setMemsMapping(t(req), req.params.id, req.valid.dimension, req.valid.column);
-    if (!r) throw badRequest('Dimension non surchargeable ou formulaire introuvable.');
-    res.json(r);
+    res.json(await mapping.setDimension(t(req), uuidParam(req.params.id), req.valid.dimension, req.valid.column));
   }));
 
-// Rétablit la détection automatique d'une dimension.
+// Rétablit la détection automatique d'une dimension — 409 hors brouillon.
 router.delete('/forms/:id/mems-mapping/:dimension', WRITE, asyncHandler(async (req, res) => {
-  await repo.resetMemsMapping(t(req), req.params.id, req.params.dimension);
+  await mapping.resetDimension(t(req), uuidParam(req.params.id), String(req.params.dimension));
   res.status(204).end();
 }));
 
-// Réapplique les surcharges aux soumissions déjà importées.
+// Cycle de vie : soumettre, valider (par une autre personne que le soumetteur), réinitialiser.
+const noBody = body(z.object({}).strict().optional());
+for (const action of ['submit', 'validate', 'reset']) {
+  router.post(`/forms/:id/mapping/${action}`, WRITE, noBody, asyncHandler(async (req, res) =>
+    res.json(await mapping.transition(t(req), uuidParam(req.params.id), action, req.auth))));
+}
+
+// Réapplique le mapping en vigueur aux soumissions déjà importées (à tout statut du mapping).
 router.post('/forms/:id/mems-mapping/apply', WRITE, asyncHandler(async (req, res) => {
-  res.json(await repo.applyMappingToSubmissions(t(req), req.params.id));
+  res.json(await repo.applyMappingToSubmissions(t(req), uuidParam(req.params.id)));
 }));
 
 // ---- Nettoyage : champs calculés + exclusion -----------------------------
