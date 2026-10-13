@@ -1,4 +1,4 @@
-# Plan de réalisation — retours n° 15 à 37 (13/10/2026)
+# Plan de réalisation — retours n° 15 à 38 (13/10/2026)
 
 Ce plan découle des analyses multi-agents de vos retours (le détail de chaque retour
 est dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md), l'avancement dans
@@ -28,7 +28,7 @@ est dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md), l'avancement dans
 |---|---|---|
 | **0** | Correctifs de la relecture (imports Excel, formules, correspondances, import) + zone centrale élargie | contre-vérif., 31 |
 | **1** | Mois de collecte = date d'enquête + mapping modifiable et validé (brouillon → soumis → validé) · indicateurs : modification sans perte, « Nouvel indicateur » / « Modifier » partout, méthode de calcul visible · tableaux de bord : période par défaut, axe lisible, noms de bureau au lieu des codes, Synthèse dense, cloche = Centre d'alertes | 35, 20, 16, 19, 34 |
-| **2** | Référentiels : clés système immuables, suppression protégée partout, activités et sous-activités, codes de bureau des formulaires (1 Bekily … 10 Tulear), libellés et réponses « Autre » dans les correspondances | 32, 33, 37 |
+| **2** | Référentiels : clés système immuables, suppression protégée partout, activités et sous-activités, codes de bureau des formulaires (1 Bekily … 10 Tulear), libellés et réponses « Autre » dans les correspondances · zones du contrat en tableau (niveau, P-code, bureau, sites du registre et sites actifs par sous-activité, état) | 32, 33, 37, 38 |
 | **3** | Registre réel : import du classeur d'activation (grille Sites actifs par mois + motif, aller-retour Excel), contrôle du fichier (colonne Code POI décalée), code proposé fokontany + 00n, rattachement GPS → découpage (contours importés), garde sur les codes et règles nom + GPS | 23, 33, 36, 14 |
 | **4** | Réalisé issu des données (site × mois) : tableau des mois avec « Données sans plan », plan de suivi P/R (R = données, déclaré avec motif), RBM « à suivre » juste, Couverture du suivi (filtre bureau, visites totales, tableau par sous-activité et par bureau en sites uniques actifs / prévus / réalisés) | 15, 21, 22, 26 |
 | **5** | RBM : règles de priorité configurables (table si / sinon, aperçu, versions), risque par période avec journal | 24, 25 |
