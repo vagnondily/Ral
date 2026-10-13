@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 13/10/2026 07:00 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 13/10/2026 07:19 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -30,7 +30,7 @@ _Dernière mise à jour : 13/10/2026 07:00 UTC_ — la branche `main` reçoit ch
 | Liaisons | Liaisons entre pages + rapprochement automatique des lieux importés | 🔄 | Analyse ✅ → [`docs/ANALYSE_LIAISONS.md`](ANALYSE_LIAISONS.md). **Lot 0** : 9 correctifs faits (commit local `cf0c46b`), relecture adverse en cours avant publication sur `main`. **Lot 2** : moteur de rapprochement des lieux (`4c22775`). **Lot 1** : réimport du découpage sans détacher les contrats (`afe463e`). Lots 0 à 2 publiés sur `main`. Prochaine étape : lot 3 (sites et bureaux rattachés au découpage, migration 048) |
 | Signalés 12/10 | Vos retours du jour | ✅ | régions du bureau · en-têtes figés · XLSForm (500 au réimport, gros fichiers, .xls) · concepteur (panneau gauche) · actions sur les fiches + rattachement au MMR |
 | Retours 13/10 | Retours n° 15 à 22 : soumissions = visites réalisées, Couverture & performance vide, carte, concepteur de rapport, Synthèse (vide, codes), configuration des indicateurs | 🔄 | Analyse multi-agents en cours, puis réalisation. Détail dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) |
-| Contre-vérif. | 19 défauts confirmés par la contre-vérification des correctifs d'hier | 🔄 | Correction en cours |
+| Contre-vérif. | 19 défauts confirmés par la contre-vérification des correctifs d'hier | 🔄 | Corrigés (`ef7ed78`, sur la branche) ; relecture adverse des correctifs en cours avant publication sur `main` |
 | Refonte | Refonte UI/UX : menu par objets métier, fiches, liaisons visibles ; Partenaires & TPM (fiche 360°, formations avec pré/post-test, notation des agents) | 🔄 | Spécification ✅ [`docs/REFONTE_UX.md`](REFONTE_UX.md) (`5f6a6ef`) : « le site au centre », 6 groupes / 24 entrées, 13 lots A à M. Décisions de la section 8 adoptées avec les valeurs recommandées (modifiables). **Lot A** (navigation, adresses, redirections) en cours |
 
 ---
@@ -237,5 +237,12 @@ _Dernière mise à jour : 13/10/2026 07:00 UTC_ — la branche `main` reçoit ch
 - **07:05** 🔄 Analyse multi-agents lancée (6 analystes : réalisé issu des soumissions, Couverture & performance, carte, concepteur de rapport, Synthèse et codes sans nom, configuration des indicateurs ; puis un contrôle croisé qui fixe les définitions communes et l'ordre des lots).
 - **07:02** 📥 Retour n° 21 reçu : dans « Affectation & visites de terrain », un mois sans plan mais avec des données réelles doit montrer ces données et les sites actifs (traité avec le n° 15).
 - **07:00** 🔄 Correction des 19 défauts, et en parallèle analyse multi-agents de vos retours 15 à 20.
+
+- **07:19** ✅ **Les 19 défauts sont corrigés** (`ef7ed78`, sur la branche ; lint propre, 465 tests, balayage FR/EN sans erreur hors tuiles de carte, résultats identiques avant/après sur vos classeurs réels) :
+  - **Imports Excel** : les lignes sont lues de façon bornée partout (plan de suivi, découpage, XLSForm, MMR, registre des sites, soumissions) et la garde commune refuse un classeur dont les lignes s'étendent sur plus de 10 millions de cellules — ce qui couvre aussi le budget, les postes, le RBM et le PDD. Les fichiers piégés qui bloquaient l'API 7 à 111 s ou l'arrêtaient sont refusés ou lus en moins de 0,25 s. Le MMR et le registre des sites ne perdent plus de lignes après des lignes vides.
+  - **Formules** : `NOT x = null` se lit `NOT (x = null)` (comme dans Tableau) ; `x <> ""` teste le vide ; `in()` et `contains()` sur une réponse manquante donnent vide (ni oui ni non) ; la position d'une erreur à l'enregistrement est celle de l'éditeur.
+  - **Correspondances** : deux enregistrements simultanés ne s'annulent plus (0 erreur sur 20 essais sur base jetable, contre 10 sur 10 avant ; aucun interblocage avec des imports simultanés) ; un enquêteur n'est proposé que si son nom correspond au libellé reçu ; créer, renommer ou supprimer un partenaire ou un agent relie aussitôt les soumissions (vérifié : TOMPY, LALANA, MAHAVOTSE reliés dès leur création) ; un même code utilisé chez plusieurs partenaires est signalé « selon le partenaire ».
+  - **Import** : « Actualiser maintenant » relit la source affichée et demande le jeton d'une source API Kobo ; les liens respectent les limites de décompression configurées ; des lignes à l'identifiant `uuid:` vide ne fusionnent plus ; un nom de fichier avec `%00` est nettoyé (plus d'erreur 500).
+- **07:19** 🔄 Relecture adverse de ces correctifs (3 attaquants + reproduction indépendante) avant publication sur `main`.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
