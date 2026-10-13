@@ -107,9 +107,10 @@ contrat créé par l'admin est approuvé en se connectant comme validateur.
 **⚠️ Avant tout déploiement réel**, changez impérativement :
 
 - `JWT_SECRET` (dans `server/.env`)
-- le mot de passe du rôle `mems2_app` (actuellement `mems2_app_change_me`,
-  défini dans `server/src/db/migrations/012_app_role_password.sql` — à adapter
-  puis à reporter dans `APP_DATABASE_URL`)
+- le mot de passe du rôle `mems2_app` (créé avec `mems2_app_change_me`) :
+  en superutilisateur, `ALTER ROLE mems2_app PASSWORD '…';` puis reportez-le dans
+  `APP_DATABASE_URL`. Les migrations ne le remettent jamais à sa valeur par
+  défaut, même si vous créez et migrez une autre base sur le même serveur.
 - le mot de passe `changeme123` du compte admin de démonstration (ou
   supprimez ce compte et créez les vrais comptes)
 
