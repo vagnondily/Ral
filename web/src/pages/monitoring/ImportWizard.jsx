@@ -3,7 +3,7 @@ import {
   FileArchive, FileSpreadsheet, Link2, CloudDownload, Upload, CheckCircle2, AlertTriangle, ArrowLeft, Table2, BarChart3,
   RefreshCw, MapPinned, Check,
 } from 'lucide-react';
-import { api } from '../../api/client.js';
+import { api, getSessionSecret, setSessionSecret } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, Field, Skeleton, Stats } from '../../components/ui.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { dayLabel, formatInt, monthLabel } from '../../lib/format.js';
@@ -117,9 +117,9 @@ function ImportReport({ result, onGoData, onGoResults, onRestart }) {
   );
 }
 
-// Jetons saisis pendant la session, par fiche et par lien : gardés EN MÉMOIRE seulement (jamais
-// dans le stockage du navigateur), pour survivre à un changement d'onglet de la fiche.
-const sessionTokens = new Map();
+// Jetons saisis pendant la session, par fiche et par lien : gardés en mémoire par api/client
+// (jamais dans le stockage du navigateur, oubliés à la déconnexion), pour survivre à un
+// changement d'onglet de la fiche.
 const tokenKey = (formId, url) => `${formId}|${String(url || '').trim()}`;
 
 export default function ImportWizard({ form, canEdit, onImported, onGoData, onGoResults }) {
@@ -159,7 +159,7 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
   }
   const importFile = () => run(() => api.monImport(form.id, file));
   const importLink = () => {
-    if (link.token.trim()) sessionTokens.set(tokenKey(form.id, link.url), link.token.trim());
+    if (link.token.trim()) setSessionSecret(tokenKey(form.id, link.url), link.token.trim());
     return run(() => api.linkPull(form.id, { url: link.url.trim(), token: link.token.trim() || undefined, full: link.full || undefined }));
   };
   const importKobo = () => run(() => api.monKoboPull(form.id, { baseUrl: kobo.baseUrl.trim(), assetUid: kobo.assetUid.trim(), token: kobo.token.trim() }));
@@ -167,8 +167,8 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
   // Jeton : celui saisi ici, sinon celui déjà saisi pour ce lien pendant la session (lien protégé).
   const refreshRemembered = () => {
     setSource('link');
-    const token = refreshToken.trim() || link.token.trim() || sessionTokens.get(tokenKey(form.id, form.sourceUrl)) || '';
-    if (token) sessionTokens.set(tokenKey(form.id, form.sourceUrl), token);
+    const token = refreshToken.trim() || link.token.trim() || getSessionSecret(tokenKey(form.id, form.sourceUrl)) || '';
+    if (token) setSessionSecret(tokenKey(form.id, form.sourceUrl), token);
     run(() => api.linkPull(form.id, { url: form.sourceUrl, token: token || undefined }));
   };
 

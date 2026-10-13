@@ -86,7 +86,9 @@ function errorHandler(err, req, res, _next) {
 
   // Attente d'un verrou au-delà de lock_timeout (une autre mise à jour longue des mêmes données) :
   // 503 « réessayez », jamais une connexion du pool bloquée indéfiniment ni une « erreur interne ».
-  if (err.code === '55P03') {
+  // Interblocage (40P01) ou conflit de sérialisation (40001) : la transaction a été annulée en entier,
+  // rien n'est écrit — même réponse, on peut réessayer.
+  if (err.code === '55P03' || err.code === '40P01' || err.code === '40001') {
     return res.status(503).json({ error: 'Une autre mise à jour des mêmes données est en cours : réessayez dans un instant.' });
   }
   if (DB_UNAVAILABLE.has(err.code) || /Connection terminated|timeout exceeded when trying to connect/i.test(err.message || '')) {

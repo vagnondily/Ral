@@ -19,6 +19,9 @@ const REPAIRS = [
     async run(client, tenantId) {
       const monitoring = require('../modules/monitoring/monitoring.repository');
       const places = require('../modules/settings/placeMatch.repository');
+      // Verrou des rattachements pris EN PREMIER, avant toute ligne de site verrouillée : même ordre que
+      // les écritures de l'API (withSubmissionLinks), donc jamais d'interblocage avec elles.
+      await places.lockSubmissionLinksTx(client, tenantId);
       await places.applySitesGeoTx(client, tenantId); // communes des sites à jour avant d'y chercher les sites
       const { rows: forms } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1', [tenantId]);
       let updated = 0;

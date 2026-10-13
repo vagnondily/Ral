@@ -25,7 +25,15 @@ export function getStoredUser() {
   try { return JSON.parse(safeGet(USER_KEY)); } catch { return null; }
 }
 
+// Secrets saisis pendant la session (jetons des liens de données, par fiche et par lien) : gardés
+// EN MÉMOIRE seulement, jamais dans le stockage du navigateur, et oubliés à chaque changement de
+// session (connexion, déconnexion, session expirée) — l'utilisateur suivant ne les réutilise jamais.
+const sessionSecrets = new Map();
+export const getSessionSecret = (key) => sessionSecrets.get(key);
+export const setSessionSecret = (key, value) => { sessionSecrets.set(key, value); };
+
 export function setSession(token, user) {
+  sessionSecrets.clear();
   memoryToken = token || null;
   safeSet(TOKEN_KEY, token || null);
   safeSet(USER_KEY, user ? JSON.stringify(user) : null);

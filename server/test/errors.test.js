@@ -41,6 +41,12 @@ test('PostgreSQL : 22007 / 22008 (date invalide) → 400 clair ; 23505 → 409 ;
     assert.doesNotMatch(r.body.error, /timestamp|NaN/); // aucun détail technique
   }
   assert.equal(handle(Object.assign(new Error('dup'), { code: '23505' })).status, 409);
+  // Verrou trop attendu, interblocage, conflit de sérialisation : transaction annulée → 503 « réessayez ».
+  for (const code of ['55P03', '40P01', '40001']) {
+    const busy = handle(Object.assign(new Error('deadlock detected'), { code }));
+    assert.equal(busy.status, 503);
+    assert.match(busy.body.error, /réessayez/);
+  }
   assert.equal(handle(Object.assign(new Error('fk'), { code: '23503' })).status, 400);
   // Montant hors précision de la colonne (quantité × coût d'une facture trop grand) : saisie, pas un bug.
   const overflow = handle(Object.assign(new Error('numeric field overflow'), { code: '22003' }));
