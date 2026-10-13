@@ -17,6 +17,13 @@ const periodsService = require('./periods.service');
 const settingsRepo = require('../settings/settings.repository');
 const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
 const { sheetTable } = require('../common/sheetRows');
+const { readPeriod } = require('../../middleware/period');
+
+// Durées maximales d'une période (lot 1b, mesurées au banc) : l'analyse des
+// soumissions charge les réponses de la période en mémoire (24 mois) ; une liste
+// de soumissions se lit sur 12 mois au plus.
+const ANALYSIS_MAX_SPAN = 24;
+const LIST_MAX_SPAN = 12;
 
 /**
  * Suivi de processus — forms, configurable indicators (mapping) and real
@@ -129,7 +136,8 @@ router.patch('/indicators/:id', WRITE, body(indicatorPatchSchema), asyncHandler(
 
 // « Comment c'est calculé » : une définition (enregistrée ou en cours de saisie) appliquée aux
 // soumissions réelles de la période. Lecture seule (aucune écriture), pour tout utilisateur.
-const monthParam = z.string().regex(/^\d{4}-\d{2}$/, 'Mois au format AAAA-MM').optional().nullable();
+// Période : { from, to } ou l'ancien { month } (null = absent), lue par readPeriod (codes period_*).
+const periodField = z.any().optional();
 const previewSchema = z.object({
   sourceField: indicatorFields.sourceField,
   agg: indicatorFields.agg,
@@ -137,12 +145,12 @@ const previewSchema = z.object({
   naValues: indicatorFields.naValues,
   target: indicatorFields.target,
   direction: indicatorFields.direction,
-  month: monthParam, from: monthParam, to: monthParam,
+  month: periodField, from: periodField, to: periodField,
 });
 router.post('/forms/:id/indicators/preview', body(previewSchema), asyncHandler(async (req, res) => {
   const { month, from, to, ...def } = req.valid;
-  const out = await repo.indicatorPreview(t(req), uuidParam(req.params.id), { agg: 'percent_yes', ...def },
-    { month: month || undefined, from: from || undefined, to: to || undefined });
+  const period = readPeriod({ month, from, to }, { maxSpan: ANALYSIS_MAX_SPAN });
+  const out = await repo.indicatorPreview(t(req), uuidParam(req.params.id), { agg: 'percent_yes', ...def }, period);
   if (!out) throw notFound('Fiche introuvable');
   res.json(out);
 }));
@@ -268,14 +276,14 @@ router.post('/forms/:id/kobo-pull', WRITE, body(koboSchema), asyncHandler(async 
 
 // Computed indicator values for the dashboard.
 router.get('/forms/:id/values', asyncHandler(async (req, res) => {
-  const month = /^\d{4}-\d{2}/.test(req.query.month || '') ? req.query.month : undefined;
-  res.json(await repo.computeValues(t(req), req.params.id, { month }));
+  const period = readPeriod(req.query, { maxSpan: ANALYSIS_MAX_SPAN });
+  res.json(await repo.computeValues(t(req), uuidParam(req.params.id), { period }));
 }));
 
 // Dashboard restitution: coverage + per-bureau + indicator values + index.
 router.get('/forms/:id/dashboard', asyncHandler(async (req, res) => {
-  const month = /^\d{4}-\d{2}/.test(req.query.month || '') ? req.query.month : undefined;
-  res.json(await repo.dashboard(t(req), req.params.id, { month }));
+  const period = readPeriod(req.query, { maxSpan: ANALYSIS_MAX_SPAN });
+  res.json(await repo.dashboard(t(req), uuidParam(req.params.id), { period }));
 }));
 
 // Catalogue détaillé d'une fiche (champs + listes de choix issus du XLSForm).
@@ -380,9 +388,9 @@ router.post('/forms/:id/exclude', WRITE, body(exclSchema), asyncHandler(async (r
 
 // Soumissions brutes d'une fiche (données importées) — visualisation par fiche.
 router.get('/forms/:id/submissions', asyncHandler(async (req, res) => {
-  const month = /^\d{4}-\d{2}/.test(req.query.month || '') ? req.query.month : undefined;
+  const period = readPeriod(req.query, { maxSpan: LIST_MAX_SPAN });
   const limit = Number(req.query.limit);
-  res.json(await repo.formSubmissions(t(req), req.params.id, { month, limit: Number.isFinite(limit) ? limit : undefined }));
+  res.json(await repo.formSubmissions(t(req), uuidParam(req.params.id), { period, limit: Number.isFinite(limit) ? limit : undefined }));
 }));
 
 // Import d'une DÉFINITION XLSForm (.xlsx Kobo/ODK : feuilles survey/choices/
@@ -429,10 +437,10 @@ router.post('/import-definition', WRITE, express.raw({ type: '*/*', limit: '60mb
 }));
 
 // Synthèse transversale « Suivi de processus » (toutes fiches agrégées).
-// Période : ?month=AAAA-MM, ou ?from=AAAA-MM&to=AAAA-MM (intervalle inclusif).
-const ym = (v) => (/^\d{4}-\d{2}/.test(v || '') ? String(v).slice(0, 7) : undefined);
-const periodQuery = (req) => ({ month: ym(req.query.month), from: ym(req.query.from), to: ym(req.query.to) });
-router.get('/overview', asyncHandler(async (req, res) => res.json(await repo.processOverview(t(req), periodQuery(req)))));
+// Période : ?from=AAAA-MM&to=AAAA-MM (bornes incluses), ou ?month=AAAA-MM (= from = to) ;
+// sans paramètre : toutes les périodes. Période mal formée : 400 avec details.code.
+const analysisPeriod = (req) => readPeriod(req.query, { maxSpan: ANALYSIS_MAX_SPAN });
+router.get('/overview', asyncHandler(async (req, res) => res.json(await repo.processOverview(t(req), analysisPeriod(req)))));
 
 // Volume de données par mois + période par défaut des écrans d'analyse (retour n° 16).
 // `today` = mois courant du navigateur (sinon celui du serveur, UTC) : la règle ignore les mois futurs.
@@ -446,14 +454,14 @@ router.get('/periods', asyncHandler(async (req, res) => {
 
 // Tableau de bord « Couverture & performance » — détail conformité par activité
 // (fiche) : bandes, dimensions, top/flop, tendance, bureaux + régions.
-router.get('/coverage-dashboard', asyncHandler(async (req, res) => res.json(await repo.coverageDashboard(t(req), periodQuery(req)))));
+router.get('/coverage-dashboard', asyncHandler(async (req, res) => res.json(await repo.coverageDashboard(t(req), analysisPeriod(req)))));
 
 // Données réelles brutes (soumissions), filtrables par mois — alimente la
 // « table des données actuelles » rattachée au plan de suivi.
 router.get('/submissions', asyncHandler(async (req, res) => {
-  const month = /^\d{4}-\d{2}/.test(req.query.month || '') ? req.query.month : undefined;
+  const period = readPeriod(req.query, { maxSpan: LIST_MAX_SPAN });
   const limit = Number(req.query.limit);
-  res.json(await repo.listSubmissions(t(req), { month, limit: Number.isFinite(limit) ? limit : undefined }));
+  res.json(await repo.listSubmissions(t(req), { period, limit: Number.isFinite(limit) ? limit : undefined }));
 }));
 
 module.exports = router;

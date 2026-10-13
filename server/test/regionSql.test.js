@@ -46,8 +46,9 @@ for (const [name, run] of [
     assert.doesNotMatch(sql, /DISTINCT ON \(pcode\)/);
     // tenant_id dans chaque lecture, et la période (exclues écartées) sur les soumissions.
     assert.equal((sql.match(/tenant_id = \$1/g) || []).length, 4);
-    assert.match(sql, /WHERE s\.tenant_id = \$1 AND NOT s\.excluded AND s\.period_month >= \$2 AND s\.period_month <= \$3/);
-    assert.deepEqual(params, [T, '2026-01-01', '2026-06-01']);
+    // Borne semi-ouverte (lot 1b) : une date du 15 n'est jamais perdue.
+    assert.match(sql, /WHERE s\.tenant_id = \$1 AND NOT s\.excluded AND s\.period_month >= \$2::date AND s\.period_month < \$3::date/);
+    assert.deepEqual(params, [T, '2026-01-01', '2026-07-01']);
   });
 }
 
