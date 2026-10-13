@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Wand2, ShieldAlert, MapPin, SlidersHorizontal } from 'lucide-react';
+import { Upload, Wand2, MapPin, SlidersHorizontal, Clock, CheckCircle2 } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Alert, Button, Field, Stats } from '../../components/ui.jsx';
+import { Alert, Badge, Button, Field, Stats } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
 import Modal from '../../components/Modal.jsx';
 import MonthSelect from '../../components/MonthSelect.jsx';
@@ -9,25 +9,24 @@ import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatInt } from '../../lib/format.js';
 import { richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { RbmExplainDrawer, ScoreButton, UrgentButton } from './RbmExplain.jsx';
 
 const RISK = {
   elevee: { label: 'Élevé', color: 'var(--red)', bg: 'var(--red-bg)', text: 'var(--red-text)', freq: 'tous les mois' },
   moyenne: { label: 'Moyen', color: 'var(--orange)', bg: 'var(--orange-bg)', text: 'var(--orange-text)', freq: 'tous les 2 mois' },
   faible: { label: 'Faible', color: 'var(--green)', bg: 'var(--green-bg)', text: 'var(--green-text)', freq: 'tous les 3 mois' },
 };
-const SCORE = { 0: { bg: 'var(--green-bg)', text: 'var(--green-text)' }, 1: { bg: 'var(--orange-bg)', text: 'var(--orange-text)' }, 2: { bg: 'var(--red-bg)', text: 'var(--red-text)' } };
-const PRIO = { 0: { color: 'var(--green)', bg: 'var(--green-bg)', text: 'var(--green-text)' }, 1: { color: 'var(--orange)', bg: 'var(--orange-bg)', text: 'var(--orange-text)' }, 2: { color: 'var(--red)', bg: 'var(--red-bg)', text: 'var(--red-text)' } };
-const TONE = { green: { color: 'var(--green)', bg: 'var(--green-bg)', text: 'var(--green-text)' }, amber: { color: 'var(--orange)', bg: 'var(--orange-bg)', text: 'var(--orange-text)' }, red: { color: 'var(--red)', bg: 'var(--red-bg)', text: 'var(--red-text)' } };
-// Libellés des critères (0/1/2) — fidèles au Plan de suivi, pour l'affichage.
+// Libellés des critères — échelles du classeur RBM (sécurité 0 / 1 / 3 / 99, fraude 0 / 1 / 2).
+const SECURITY = [[0, 'Pas de restriction'], [1, 'Restriction modérée'], [3, 'Restriction stricte'], [99, 'Zone interdite']];
+const securityLabel = (v) => (SECURITY.find(([k]) => k === Number(v || 0)) || [null, null])[1];
 const LABEL02 = {
-  security: ['Pas de restriction', 'Modérée', 'Élevée'],
   issues: ['Aucun', 'Important', 'Urgent'],
+  fraud: ['Non suspectée', 'Fraude suspectée', 'Partenaire impliqué'],
 };
 const LABEL01 = {
   synergies: ['Une seule activité', 'Plusieurs activités'],
   caseload: ['≤ 200', '> 200'],
   newPartner: ['Expérimenté', 'Nouveau'],
-  fraud: ['Non suspectée', 'Suspectée'],
 };
 
 /**
@@ -46,6 +45,7 @@ export default function RbmPage({ canEdit, embedded = false }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [crit, setCrit] = useState(null); // site en cours d'édition des critères
+  const [why, setWhy] = useState(null); // site dont on explique le score / le drapeau
   const [offices, setOffices] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const fileRef = useRef(null);
@@ -131,12 +131,23 @@ export default function RbmPage({ canEdit, embedded = false }) {
           ? <select className="select" style={{ minWidth: 110 }} value={s.riskLevel || 'moyenne'} onClick={(e) => e.stopPropagation()} onChange={(e) => setSiteRisk(s, e.target.value)} aria-label={tr('Niveau de risque')}>
               <option value="elevee">{tr('Élevé')}</option><option value="moyenne">{tr('Moyen')}</option><option value="faible">{tr('Faible')}</option></select>
           : <span className="badge" style={{ background: RISK[s.riskLevel]?.bg, color: RISK[s.riskLevel]?.text }}><span className="dot" style={{ background: RISK[s.riskLevel]?.color }} />{RISK[s.riskLevel] ? tr(RISK[s.riskLevel].label) : s.riskLevel}</span>) },
-      security: { label: tr('Situation sécuritaire'), sortVal: (s) => s.security || 0, csv: (s) => tr(LABEL02.security[s.security || 0]), render: (s) => tr(LABEL02.security[s.security || 0]) },
+      security: { label: tr('Situation sécuritaire'), sortVal: (s) => s.security || 0,
+        csv: (s) => (securityLabel(s.security) ? tr(securityLabel(s.security)) : String(s.security ?? '')),
+        render: (s) => (securityLabel(s.security) ? tr(securityLabel(s.security)) : String(s.security ?? '—')) },
       synergies: { label: tr('Synergies de programme'), sortVal: (s) => s.synergies || 0, csv: (s) => tr(LABEL01.synergies[s.synergies || 0]), render: (s) => tr(LABEL01.synergies[s.synergies || 0]) },
       caseload: { label: tr('Taille (caseload)'), sortVal: (s) => s.beneficiaryOver200 || 0, csv: (s) => LABEL01.caseload[s.beneficiaryOver200 || 0], render: (s) => LABEL01.caseload[s.beneficiaryOver200 || 0] },
       newPartner: { label: tr('Nouveau partenaire'), sortVal: (s) => s.newPartner || 0, csv: (s) => tr(LABEL01.newPartner[s.newPartner || 0]), render: (s) => tr(LABEL01.newPartner[s.newPartner || 0]) },
+      // Dernière visite RÉELLE (visite réalisée, collecte de données ou registre) ; une visite
+      // seulement planifiée n'en est jamais une : elle est montrée à part (« prévue AAAA-MM »).
       lastVisit: { label: tr('Dernière visite'), sortVal: (s) => (s.monthsSinceVisit == null ? 1e9 : s.monthsSinceVisit), csv: (s) => s.lastVisitMonth || '',
-        render: (s) => <span className="tabular">{s.lastVisitMonth || '—'}{s.monthsSinceVisit != null && <div className="site-meta">{tr('il y a {n} mois', { n: s.monthsSinceVisit })}</div>}</span> },
+        render: (s) => (
+          <span className="tabular">
+            {s.lastVisitMonth || <span className="muted">{tr('Jamais visité')}</span>}
+            {s.monthsSinceVisit != null && s.monthsSinceVisit >= 0 && <div className="site-meta">{tr('il y a {n} mois', { n: s.monthsSinceVisit })}</div>}
+            {s.nextPlannedMonth && <div className="site-meta">{tr('prévue {m}', { m: s.nextPlannedMonth })}</div>}
+            {!s.nextPlannedMonth && s.latePlannedMonth && <div className="site-meta">{tr('prévue {m} (non réalisée)', { m: s.latePlannedMonth })}</div>}
+          </span>
+        ) },
       dataVisit: { label: tr('Dernière collecte (données)'), sortVal: (s) => s.dataVisitMonth || '', csv: (s) => s.dataVisitMonth || '',
         render: (s) => (s.dataVisitMonth
           ? <span className="tabular">{s.dataVisitMonth}{s.dataVisitCount ? <div className="site-meta">{s.dataVisitCount > 1 ? tr('{n} soumissions', { n: s.dataVisitCount }) : tr('{n} soumission', { n: s.dataVisitCount })}</div> : null}</span>
@@ -144,14 +155,15 @@ export default function RbmPage({ canEdit, embedded = false }) {
       issuesProcess: { label: tr('Problèmes — processus interne'), sortVal: (s) => s.issuesProcess || 0, csv: (s) => tr(LABEL02.issues[s.issuesProcess || 0]), render: (s) => tr(LABEL02.issues[s.issuesProcess || 0]) },
       issuesPartnerReport: { label: tr('Problème rapport partenaire'), sortVal: (s) => s.issuesPartnerReport || 0, csv: (s) => tr(LABEL02.issues[s.issuesPartnerReport || 0]), render: (s) => tr(LABEL02.issues[s.issuesPartnerReport || 0]) },
       issuesCFM: { label: tr('Problème CFM'), sortVal: (s) => s.issuesCFM || 0, csv: (s) => tr(LABEL02.issues[s.issuesCFM || 0]), render: (s) => tr(LABEL02.issues[s.issuesCFM || 0]) },
-      fraud: { label: tr('Fraude et corruption'), sortVal: (s) => s.fraud || 0, csv: (s) => tr(LABEL01.fraud[s.fraud || 0]), render: (s) => tr(LABEL01.fraud[s.fraud || 0]) },
+      fraud: { label: tr('Fraude et corruption'), sortVal: (s) => s.fraud || 0, csv: (s) => tr(LABEL02.fraud[s.fraud || 0]), render: (s) => tr(LABEL02.fraud[s.fraud || 0]) },
+      // Badge et drapeau = boutons : « Pourquoi ? / Conséquence / Que faire ? » (retour n° 48).
       finalScore: { label: tr('SCORE FINAL'), sortVal: (s) => s.finalScore || 0, csv: (s) => (s.finalLabel ? tr(s.finalLabel) : ''),
-        render: (s) => <><span className="badge" style={{ background: SCORE[s.finalScore]?.bg, color: SCORE[s.finalScore]?.text }}>{s.finalLabel ? tr(s.finalLabel) : '—'}</span>{s.urgentFlags && <div className="site-meta" style={{ color: 'var(--red)' }}>{tr('⚑ urgent')}</div>}</> },
+        render: (s) => <div className="rbm-score-cell"><ScoreButton site={s} onOpen={setWhy} />{s.urgentFlags && <UrgentButton site={s} onOpen={setWhy} />}</div> },
       interval: { label: tr('Intervalle requis (CO)'), num: true, sortVal: (s) => s.interval || 0, csv: (s) => s.interval || '', render: (s) => <span className="tabular">{s.interval != null ? tr('{n} mois', { n: s.interval }) : '—'}</span> },
       due: { label: tr('À suivre ce mois'), sortVal: (s) => (s.due ? 1 : 0), csv: (s) => (s.due ? tr('oui') : tr('non')),
         render: (s) => (s.due
-          ? <span className="badge" style={{ background: 'var(--blue-50)', color: 'var(--blue-700)' }}><span className="dot" style={{ background: 'var(--blue-600)' }} />{tr('À suivre')}</span>
-          : <span className="muted">{tr('à jour')}</span>) },
+          ? <Badge tone="blue" icon={Clock}>{tr('À suivre')}</Badge>
+          : <Badge tone="green" icon={CheckCircle2}>{tr('À jour')}</Badge>) },
     };
     return c;
   }, [canEdit, tr]); // eslint-disable-line
@@ -184,7 +196,7 @@ export default function RbmPage({ canEdit, embedded = false }) {
       <div className="page-header">
         <div>
           {!embedded && <h1 className="page-title">{tr('Risk-Based Monitoring (RBM)')}</h1>}
-          <p className="page-desc">{richText(tr('Sélectionnez une ligne (ou <strong>double-clic</strong>) pour éditer ses critères. « Générer » planifie les sites à suivre du mois. La <strong>dernière visite</strong> intègre la <strong>collecte réelle</strong> issue des données uploadées (reliées au site, sinon à sa commune).'))}</p>
+          <p className="page-desc">{richText(tr('Sélectionnez une ligne (ou <strong>double-clic</strong>) pour éditer ses critères. « Générer » planifie les sites à suivre du mois. La <strong>dernière visite</strong> est une visite <strong>réalisée</strong> ou une <strong>collecte réelle</strong> issue des données uploadées (reliées au site, sinon à sa commune) ; une visite seulement prévue est affichée à part. Cliquez sur un <strong>score</strong> ou un <strong>drapeau</strong> pour voir pourquoi, la conséquence et que faire.'))}</p>
         </div>
         <div className="header-actions">
           <MonthSelect value={month} onChange={setMonth} />
@@ -224,25 +236,32 @@ export default function RbmPage({ canEdit, embedded = false }) {
         rowClassName={(s) => (s.due ? 'row-due' : '')}
       />
 
+      {why && <RbmExplainDrawer site={why} month={month} onClose={() => setWhy(null)}
+        onEditCriteria={canEdit ? (s) => { setWhy(null); setCrit(s); } : undefined} />}
       {crit && <CritModal site={crit} onClose={() => setCrit(null)} onSaved={() => { setCrit(null); reload(); }} />}
     </div>
   );
 }
 
-const C02 = [['security', 'Situation sécuritaire', ['Pas de restriction', 'Modérée', 'Élevée']],
-  ['issuesProcess', 'Problèmes — suivi interne', ['Aucun', 'Important', 'Urgent']],
-  ['issuesPartnerReport', 'Problèmes — rapport partenaire', ['Aucun', 'Important', 'Urgent']],
-  ['issuesCFM', 'Problèmes — mécanisme de plainte (CFM)', ['Aucun', 'Important', 'Urgent']]];
-const C01 = [['synergies', 'Synergies de programme', ['Une seule activité', 'Plusieurs activités']],
-  ['beneficiaryOver200', 'Taille (bénéficiaires)', ['≤ 200', '> 200']],
-  ['newPartner', 'Partenaire', ['Expérimenté', 'Nouveau']],
-  ['fraud', 'Fraude / corruption', ['Non suspectée', 'Suspectée']]];
+// Critères éditables : [clé, libellé, [[valeur, libellé], …]] — valeurs de l'échelle du classeur
+// (sécurité 0 / 1 / 3 / 99, fraude 0 / 1 / 2), pour que le formulaire montre la valeur réelle du site.
+const indexed = (labels) => labels.map((l, i) => [i, l]);
+const CRITERIA = [
+  ['security', 'Situation sécuritaire', SECURITY],
+  ['issuesProcess', 'Problèmes — suivi interne', indexed(LABEL02.issues)],
+  ['issuesPartnerReport', 'Problèmes — rapport partenaire', indexed(LABEL02.issues)],
+  ['issuesCFM', 'Problèmes — mécanisme de plainte (CFM)', indexed(LABEL02.issues)],
+  ['synergies', 'Synergies de programme', indexed(LABEL01.synergies)],
+  ['beneficiaryOver200', 'Taille (bénéficiaires)', indexed(LABEL01.caseload)],
+  ['newPartner', 'Partenaire', indexed(LABEL01.newPartner)],
+  ['fraud', 'Fraude / corruption', indexed(LABEL02.fraud)],
+];
 
 function CritModal({ site, onClose, onSaved }) {
   const { tr } = useI18n();
   const toast = useToast();
   const init = {};
-  [...C02, ...C01].forEach(([k]) => { init[k] = Number(site[k]) || 0; });
+  CRITERIA.forEach(([k]) => { init[k] = Number(site[k]) || 0; });
   const [form, setForm] = useState(init);
   const [saving, setSaving] = useState(false);
 
@@ -251,19 +270,22 @@ function CritModal({ site, onClose, onSaved }) {
     try { await api.fieldUpdateSite(site.id, form); toast.success(tr('Critères enregistrés.')); onSaved(); }
     catch (e) { toast.error(e.message); } finally { setSaving(false); }
   }
-  const sel = (k, label, opts) => (
-    <Field key={k} label={tr(label)}>
-      <select className="select" value={form[k]} onChange={(e) => setForm({ ...form, [k]: Number(e.target.value) })}>
-        {opts.map((o, i) => <option key={i} value={i}>{tr(o)}</option>)}
-      </select>
-    </Field>
-  );
+  const sel = (k, label, opts) => {
+    // Valeur hors échelle (ancienne saisie) : gardée et montrée telle quelle, jamais remplacée en silence.
+    const options = opts.some(([v]) => v === form[k]) ? opts : [...opts, [form[k], String(form[k])]];
+    return (
+      <Field key={k} label={tr(label)}>
+        <select className="select" value={form[k]} onChange={(e) => setForm({ ...form, [k]: Number(e.target.value) })}>
+          {options.map(([v, o]) => <option key={v} value={v}>{tr(o)}</option>)}
+        </select>
+      </Field>
+    );
+  };
   return (
     <Modal open size="md" title={tr('Critères de risque (RBM)')} subtitle={tr('{site} — alimentent le score et la priorité', { site: site.name })} onClose={() => !saving && onClose()}
       footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button onClick={save} loading={saving}>{tr('Enregistrer')}</Button></>}>
       <div className="form-grid">
-        {C02.map(([k, l, o]) => sel(k, l, o))}
-        {C01.map(([k, l, o]) => sel(k, l, o))}
+        {CRITERIA.map(([k, l, o]) => sel(k, l, o))}
       </div>
     </Modal>
   );
