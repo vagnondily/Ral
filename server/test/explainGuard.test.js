@@ -49,6 +49,23 @@ test('parcours répété : une table relue plus de 1 000 fois, plus de 10 lignes
   assert.equal(issues[0].loops, 3000);
 });
 
+test('sous-requête corrélée qui relit une table de 3 000 lignes pour chaque ligne rendue → signalée', () => {
+  const plan = [{ Plan: node('Limit', { 'Actual Rows': 300 }, [
+    node('Index Scan', { 'Relation Name': 'monitoring_submissions', 'Actual Rows': 300 }, [
+      node('Limit', { 'Parent Relationship': 'SubPlan', 'Actual Rows': 1, 'Actual Loops': 300 }, [
+        node('Seq Scan', { 'Relation Name': 'sites', 'Actual Rows': 1, 'Rows Removed by Filter': 2999, 'Actual Loops': 300 }),
+      ]),
+    ]),
+  ]) }];
+  const issues = planIssues(plan);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].rule, 'subplan_reread');
+  assert.equal(issues[0].work, 3000 * 300);
+  // Une lecture par index (une ligne par boucle) reste permise.
+  plan[0].Plan.Plans[0].Plans[0].Plans[0] = node('Index Scan', { 'Relation Name': 'sites', 'Actual Rows': 1, 'Actual Loops': 300 });
+  assert.deepEqual(planIssues(plan), []);
+});
+
 test('petit ensemble relu pour chaque ligne (une dizaine de bureaux) : jointure linéaire, non signalée', () => {
   const plan = [{ Plan: node('Nested Loop', { 'Join Type': 'Left' }, [
     node('Index Scan', { 'Parent Relationship': 'Outer', 'Relation Name': 'monitoring_submissions', 'Actual Rows': 60000 }),

@@ -573,21 +573,57 @@ const PLACE_NAMES = `
               ms.site_status AS "siteStatus",
               (SELECT o.name FROM field_offices o WHERE o.tenant_id = ms.tenant_id AND o.id = ms.field_office_id) AS "officeName"`;
 
-// Région en clair d'une soumission : par le code de commune rattaché (découpage
-// officiel d'abord, registre de sites en repli), sinon par un code de région
-// (admin1 = MG51), sinon la valeur brute. Une région = un libellé.
-const REGION_CTE = `WITH pcode_region AS (
-         SELECT DISTINCT ON (pcode) pcode, region FROM (
-           SELECT c.pcode, r.name AS region, 0 AS src FROM admin_areas c JOIN admin_areas r ON r.id = c.lineage[1]
-            WHERE c.tenant_id = $1 AND c.pcode IS NOT NULL AND cardinality(c.lineage) >= 1
-           UNION ALL
-           SELECT r.pcode, r.name, 0 FROM admin_areas r WHERE r.tenant_id = $1 AND r.depth = 1 AND r.pcode IS NOT NULL
-           UNION ALL
-           SELECT adm3_pcode, adm1, 1 FROM sites WHERE tenant_id = $1 AND adm3_pcode IS NOT NULL AND NULLIF(adm1, '') IS NOT NULL
-         ) x ORDER BY pcode, src)`;
-const REGION_JOIN = (a) => `LEFT JOIN pcode_region pr ON pr.pcode = COALESCE(${a}.adm3_pcode, ${a}.admin3)
-         LEFT JOIN pcode_region pr1 ON pr1.pcode = upper(btrim(${a}.admin1))`;
-const REGION_OF = (a) => `COALESCE(pr.region, pr1.region, NULLIF(${a}.admin1, ''), '(non renseigné)')`;
+/**
+ * Soumissions par région (en clair) — requête unique, réutilisée par la Couverture
+ * & performance, le concepteur de rapport (lot 7a) et la carte (lot 6a).
+ *
+ * Région d'une soumission, dans cet ordre (une région = un libellé) :
+ *   1. la région (racine de la lignée) de la zone du découpage dont le pcode est
+ *      le code de commune rattaché (adm3_pcode, sinon admin3) ;
+ *   2. une région (profondeur 1) dont le pcode est admin1 (« MG51 ») ;
+ *   3. le registre de sites : adm1 d'un site de même pcode de commune — le premier
+ *      dans l'ordre alphabétique (déterministe) ;
+ *   4. la valeur brute d'admin1, sinon « (non renseigné) ».
+ *
+ * Performance (lot 1b, préalable) : on AGRÈGE d'abord les soumissions par clés
+ * distinctes (g), puis on résout chaque clé distincte par un index
+ * (uq_admin_areas_pcode, admin_areas_pkey, idx_sites_adm3_pcode). L'ancienne forme
+ * (un CTE de tout le découpage joint à chaque soumission) faisait choisir au
+ * planificateur, sous RLS (estimations ÷ 200), une boucle imbriquée de
+ * 19 370 zones × N soumissions, deux fois : 6 s pour 562 soumissions.
+ * Sortie identique (mêmes régions, soumissions et communes), ordre déterministe.
+ *
+ * @param {string} filterSql fragment « AND … » sur l'alias s (submissionFilter), paramètres déjà poussés ($1 = tenant)
+ */
+function regionRowsSql(filterSql) {
+  return `WITH g AS MATERIALIZED (
+       SELECT COALESCE(s.adm3_pcode, s.admin3) AS pc, upper(btrim(s.admin1)) AS a1,
+              NULLIF(s.admin1, '') AS raw1, NULLIF(s.admin3, '') AS commune, count(*)::int AS n
+         FROM monitoring_submissions s
+        WHERE s.tenant_id = $1${filterSql}
+        GROUP BY 1, 2, 3, 4),
+     k AS MATERIALIZED (SELECT pc AS key FROM g WHERE pc IS NOT NULL UNION SELECT a1 FROM g WHERE a1 IS NOT NULL),
+     pr AS MATERIALIZED (
+       SELECT k.key AS pcode, COALESCE(
+         (SELECT r.name FROM admin_areas c JOIN admin_areas r ON r.id = c.lineage[1] AND r.tenant_id = c.tenant_id
+           WHERE c.tenant_id = $1 AND c.pcode = k.key AND cardinality(c.lineage) >= 1 LIMIT 1),
+         (SELECT r.name FROM admin_areas r WHERE r.tenant_id = $1 AND r.depth = 1 AND r.pcode = k.key LIMIT 1),
+         (SELECT st.adm1 FROM sites st WHERE st.tenant_id = $1 AND st.adm3_pcode = k.key
+             AND NULLIF(st.adm1, '') IS NOT NULL ORDER BY st.adm1 LIMIT 1)) AS region
+         FROM k)
+     SELECT COALESCE(p3.region, p1.region, g.raw1, '(non renseigné)') AS region,
+            sum(g.n)::int AS submissions, count(DISTINCT g.commune)::int AS communes
+       FROM g LEFT JOIN pr p3 ON p3.pcode = g.pc LEFT JOIN pr p1 ON p1.pcode = g.a1
+      GROUP BY 1 ORDER BY submissions DESC, 1`;
+}
+
+/** Soumissions et communes par région sur la période (hors exclues) — voir regionRowsSql. */
+async function submissionRegionsTx(client, tenantId, period) {
+  const p = [tenantId];
+  const f = submissionFilter('s', period, p);
+  const { rows } = await client.query(regionRowsSql(f), p);
+  return rows;
+}
 
 /**
  * Soumissions brutes d'une fiche (données importées), pour la visualisation :
@@ -1529,20 +1565,8 @@ async function coverageDashboard(tenantId, period = {}) {
          FROM monitoring_submissions s WHERE s.tenant_id = $1${f}`,
       p
     );
-    // Région en clair : la soumission porte un pcode de commune (admin3) ; on
-    // le résout en NOM de région via le référentiel de sites (sites.adm3_pcode
-    // → sites.adm1). Repli sur le pcode brut puis « (non renseigné) ».
-    const { rows: regionRows } = await client.query(
-      `${REGION_CTE}
-       SELECT ${REGION_OF('s')} AS region,
-              count(*)::int AS submissions,
-              count(DISTINCT NULLIF(s.admin3, ''))::int AS communes
-         FROM monitoring_submissions s
-         ${REGION_JOIN('s')}
-        WHERE s.tenant_id = $1${f}
-        GROUP BY 1 ORDER BY submissions DESC`,
-      p
-    );
+    // Région en clair (découpage, sinon registre de sites, sinon valeur brute) : regionRowsSql.
+    const regionRows = await submissionRegionsTx(client, tenantId, period);
 
     const { rows: forms } = await client.query(
       "SELECT id, code, label FROM monitoring_forms WHERE tenant_id = $1 AND active = true ORDER BY label",
@@ -1676,14 +1700,7 @@ async function reportMonitoringData(tenantId, period, { lang = 'fr' } = {}) {
         bureaux,
       });
     }
-    const rp = [tenantId];
-    const rf = submissionFilter('s', period, rp);
-    const { rows: regions } = await client.query(
-      `${REGION_CTE}
-       SELECT ${REGION_OF('s')} AS region,
-              count(*)::int AS submissions, count(DISTINCT NULLIF(s.admin3, ''))::int AS communes
-         FROM monitoring_submissions s ${REGION_JOIN('s')}
-        WHERE s.tenant_id = $1${rf} GROUP BY 1 ORDER BY submissions DESC`, rp);
+    const regions = await submissionRegionsTx(client, tenantId, period);
     const tp = [tenantId];
     const tf = submissionFilter('s', period, tp);
     const { rows: tot } = await client.query(`SELECT count(*)::int AS submissions FROM monitoring_submissions s WHERE s.tenant_id = $1${tf}`, tp);
@@ -1830,7 +1847,7 @@ async function setExclusion(tenantId, formId, { ids, excluded, reason } = {}) {
 }
 
 module.exports = {
-  monthCounts, officeLabelSql,
+  monthCounts, officeLabelSql, regionRowsSql, submissionRegionsTx,
   reliftSubmissionsTx, formTemplate, applyTemplate,
   listCalcFields, calcPreview, formVariables, formMonths, indicatorPreview, importPreview, formCorrespondences, setCorrespondence, createCalcField, updateCalcField, deleteCalcField, setExclusion,
   setFormSource, formSourceContext, reportMonitoringData,

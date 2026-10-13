@@ -13,6 +13,8 @@
  *     Index / Index Only / Bitmap Heap Scan), un « CTE Scan », un « Materialize » ou un
  *     « Function Scan ». Un petit ensemble (une dizaine de bureaux) relu pour chaque
  *     ligne reste une jointure linéaire : il n'est pas signalé par cette règle.
+ *     Même règle pour une sous-requête corrélée (« SubPlan ») : relancée pour chaque
+ *     ligne, elle relit son ensemble à chaque fois.
  *  2. Parcours répété : un parcours de table lancé plus de `maxLoops` fois avec plus
  *     de `maxRowsPerLoop` lignes lues par boucle (sous-requête corrélée, LATERAL).
  *  Exemption : un « Function Scan » qui rend au plus `smallFunctionRows` lignes par
@@ -70,6 +72,13 @@ function planIssues(explainJson, options = {}) {
           issues.push({ rule: 'nested_loop_inner', work, loops: loopsOf(inner), path: here.join(' > '),
             message: `Boucle imbriquée : le côté interne (${nameOf(inner)}) lit ${work} lignes au total (> ${opts.maxInnerRead}).` });
         }
+      }
+    }
+    if (n['Parent Relationship'] === 'SubPlan' && loopsOf(n) > 1) {
+      const { work, perLoop } = rereadWork(n, opts);
+      if (work > opts.maxInnerRead && perLoop > opts.minInnerRows) {
+        issues.push({ rule: 'subplan_reread', work, loops: loopsOf(n), path: here.join(' > '),
+          message: `Sous-requête corrélée (${nameOf(n)}) relancée ${loopsOf(n)} fois : ${work} lignes lues au total (> ${opts.maxInnerRead}).` });
       }
     }
     if (TABLE_SCANS.has(n['Node Type'])) {

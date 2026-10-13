@@ -192,8 +192,12 @@ async function measure(t, span, opts, capture) {
   if (global.gc) global.gc();
   const heap0 = process.memoryUsage().heapUsed;
   let result;
+  let alloc = null; // tas alloué par appel (borne basse : un GC pendant l'appel le réduit)
   for (let i = 0; i < opts.runs && !tooSlow; i += 1) {
+    if (global.gc) { result = undefined; global.gc(); }
+    const before = process.memoryUsage().heapUsed;
     const [d, r] = await call();
+    if (global.gc) alloc = Math.max(alloc || 0, mb(process.memoryUsage().heapUsed - before));
     times.push(d); result = r;
   }
   let retained = null;
@@ -203,7 +207,7 @@ async function measure(t, span, opts, capture) {
   return {
     key: t.key, label: t.label, span, period: p, runs: times.length, tooSlow,
     p50: pct(sorted, 0.5), p95: pct(sorted, 0.95), max: sorted[sorted.length - 1], budget,
-    retained, bytes, queries,
+    retained, alloc, bytes, queries,
   };
 }
 
@@ -212,14 +216,14 @@ function report(rows, extra) {
   const lines = [
     `Banc de période (lot 1b) — ${new Date().toISOString().slice(0, 16)}Z — rôle mems2_app (RLS), jit=${extra.jit}`,
     '',
-    '| Cible | Plage | p50 ms | p95 ms | max ms | budget p95 | tas retenu Mo | réponse ko | garde EXPLAIN |',
-    '|---|---|---:|---:|---:|---:|---:|---:|---|',
+    '| Cible | Plage | p50 ms | p95 ms | max ms | budget p95 | tas alloué Mo | tas retenu Mo | réponse ko | garde EXPLAIN |',
+    '|---|---|---:|---:|---:|---:|---:|---:|---:|---|',
   ];
   for (const r of rows) {
     const plage = r.span ? `${r.span} mois` : 'sans période';
     const over = r.budget && r.p95 > r.budget ? ' ⛔' : '';
     const guard = r.guard.length ? `⛔ ${r.guard.length} : ${r.guard[0].message}` : 'ok';
-    lines.push(`| ${r.label} | ${plage}${r.tooSlow ? ' (arrêté : trop lent)' : ''} | ${f(r.p50, 1)} | ${f(r.p95, 1)}${over} | ${f(r.max, 1)} | ${f(r.budget)} | ${f(r.retained, 1)} | ${r.bytes == null ? '—' : f(r.bytes / 1024)} | ${guard} |`);
+    lines.push(`| ${r.label} | ${plage}${r.tooSlow ? ' (arrêté : trop lent)' : ''} | ${f(r.p50, 1)} | ${f(r.p95, 1)}${over} | ${f(r.max, 1)} | ${f(r.budget)} | ${f(r.alloc, 1)} | ${f(r.retained, 1)} | ${r.bytes == null ? '—' : f(r.bytes / 1024)} | ${guard} |`);
   }
   lines.push('', `Régression connue (ancienne résolution des régions) : ${extra.regression}`);
   return lines.join('\n');
