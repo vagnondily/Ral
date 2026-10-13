@@ -212,3 +212,42 @@ test('conséquence : retard, mois depuis la dernière visite, échéance et fré
   assert.equal(scoreSite({ experiencedPartner: 2, synergies: 1, newPartner: 1 }, OPTS).consequence.priorityBasis, 'highOverdue');
   assert.equal(scoreSite({ synergies: 1, newPartner: 1, lastVisitMonth: '2026-10' }, OPTS).consequence.priorityBasis, 'medium');
 });
+
+// ---- Relecture du lot 1 (RBM) -------------------------------------------------
+test('zone interdite + fraude : vérification À DISTANCE (aucune visite ne sera planifiée)', () => {
+  const remote = scoreSite({ security: 99, fraud: 1 }, OPTS);
+  assert.deepEqual(codes(remote.actions), ['remote', 'fraud']);
+  assert.equal(remote.actions[1].label, 'Signaler et organiser une vérification à distance');
+  assert.ok(!remote.actions.some((a) => /planifi/i.test(a.label)), 'aucune action ne propose de planifier une visite');
+  // Hors zone interdite : vérification ciblée lors d'une visite planifiée (inchangé).
+  assert.equal(scoreSite({ fraud: 1 }, OPTS).actions[0].label, 'Signaler et planifier une vérification ciblée');
+  assert.equal(scoreSite({ security: 3, fraud: 2 }, OPTS).actions.find((a) => a.code === 'fraud').label, 'Signaler et planifier une vérification ciblée');
+});
+
+test('« visite prévue non réalisée » : seulement si elle est postérieure à la dernière visite réelle', () => {
+  // Prévue en juin, mais une visite réelle a eu lieu en août : plus rien à régulariser.
+  const visited = scoreSite({ lastVisitMonth: '2026-08', latePlannedMonth: '2026-06' }, OPTS);
+  assert.equal(visited.consequence.latePlannedMonth, null);
+  assert.ok(!codes(visited.actions).includes('latePlanned'));
+  // Même mois que la dernière visite réelle : la visite a eu lieu.
+  assert.equal(scoreSite({ lastVisitMonth: '2026-08', latePlannedMonth: '2026-08' }, OPTS).consequence.latePlannedMonth, null);
+  // Prévue APRÈS la dernière visite réelle et jamais réalisée : toujours signalée.
+  const late = scoreSite({ lastVisitMonth: '2026-06', latePlannedMonth: '2026-08' }, OPTS);
+  assert.equal(late.consequence.latePlannedMonth, '2026-08');
+  assert.deepEqual(codes(late.actions), ['latePlanned', 'planVisit']);
+  // Jamais visité : la visite prévue passée reste à régulariser.
+  assert.equal(scoreSite({ latePlannedMonth: '2026-08' }, OPTS).consequence.latePlannedMonth, '2026-08');
+});
+
+test('taille (caseload) rendue avec le score : le nombre de bénéficiaires prime sur « > 200 »', () => {
+  const T = { targetMonth: '2026-10' };
+  assert.equal(scoreSite({ beneficiaryNumber: 150, beneficiaryOver200: 1 }, T).caseload, 0);
+  assert.equal(scoreSite({ beneficiaryNumber: 350, beneficiaryOver200: 0 }, T).caseload, 1);
+  assert.equal(scoreSite({ beneficiaryNumber: 200 }, T).caseload, 0);
+  assert.equal(scoreSite({ beneficiaryNumber: null, beneficiaryOver200: 1 }, T).caseload, 1);
+  assert.equal(scoreSite({ beneficiaryNumber: '', beneficiaryOver200: 1 }, T).caseload, 1);
+  assert.equal(scoreSite({}, T).caseload, 0);
+  // La colonne et la raison « Taille » lisent la même valeur que les points du score.
+  const r = scoreSite({ beneficiaryNumber: 350 }, T);
+  assert.equal(r.reasons.find((x) => x.code === 'caseload').points, r.caseload);
+});

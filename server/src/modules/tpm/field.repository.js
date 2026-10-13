@@ -3,7 +3,7 @@ const { afterSitesChangedTx, lockSubmissionLinksTx, withSubmissionLinks } = requ
 const { sitePatchSql } = require('./sitePatch');
 const { chunkRows } = require('../../db/batch');
 const { summarizeVisits, collectionDays, buildCoverageMatrix } = require('./fieldMath');
-const { isDue, frequencyFor, visitState, currentMonth } = require('./rbmMath');
+const { isDue, frequencyFor, visitState, currentMonth, toMonth, needsPlanning, planningCounts } = require('./rbmMath');
 const { scoreSite, normalizeSecurity } = require('./rbmScore');
 const { coverageRecap } = require('./coverageRecap');
 const { mmrLookup, siteCounters, rankSites, boardKpis, normalizeChanges, currentStatus, mmrKeyOf, mmrCapacity, autoPlanMonths, norm } = require('./planBoard');
@@ -193,7 +193,9 @@ async function rbmSitesTx(client, tenantId, { month, risk, siteId, explain = fal
     // « À suivre » = retard (score) OU échéance de fréquence atteinte (isDue),
     // pour rester cohérent avec l'ancienne logique.
     const due = target ? (score.due || isDue(r.riskLevel, r.lastVisitMonth, target)) : false;
-    return { ...r, ...score, due, interval, ...(explain ? { reasons, consequence, actions } : {}) };
+    // « À planifier » (compteur et bouton « Générer ») : à suivre, hors zone interdite, sans visite prévue ce mois.
+    const toPlan = needsPlanning({ due, forbidden: score.forbidden, nextPlannedMonth: r.nextPlannedMonth }, target);
+    return { ...r, ...score, due, toPlan, interval, ...(explain ? { reasons, consequence, actions } : {}) };
   });
 }
 
@@ -316,30 +318,46 @@ async function importPlanSites(tenantId, userId, sites) {
   });
 }
 
-/** Generate the month's planned visits from the RBM: one planifie visit per due
- * site (optionally filtered by risk). Idempotent (skips existing). « À suivre »
- * suit la même dernière visite que la page RBM (visite réalisée ou collecte
- * réelle — une visite seulement planifiée ne rend jamais un site « à jour »). */
+/**
+ * « Générer depuis le RBM » : une visite planifiée par site « à planifier » du mois
+ * (rbmMath.needsPlanning — à suivre, hors zone interdite, sans visite non annulée ce
+ * mois), éventuellement filtré par risque. Mêmes lignes et même règle « à suivre » que
+ * la page RBM (rbmSitesTx) : une visite seulement planifiée ne rend jamais un site
+ * « à jour », mais elle suffit à ne pas le replanifier.
+ *
+ * Idempotent : un deuxième clic ne crée rien. Le contrôle « déjà une visite ce mois »
+ * est dans l'INSERT lui-même (NOT EXISTS sur les visites non annulées, toutes activités)
+ * car UNIQUE (tenant_id, site_id, period_month, activity) laisse passer les doublons
+ * quand l'activité est NULL. Deux générations simultanées du même mois sont mises en
+ * file par un verrou consultatif (sinon chacune insérerait avant de voir l'autre).
+ * Une visite ANNULÉE de même activité est replanifiée (comme le Plan de suivi).
+ * @returns {{ created: number, due: number, toPlan: number }}  visites planifiées par ce
+ *   clic ; sites à suivre (hors zones interdites) et, parmi eux, à planifier avant ce clic.
+ */
 async function generateFromRbm(tenantId, userId, month, opts = {}) {
   return withTenantTransaction(tenantId, (client) => generateFromRbmTx(client, tenantId, userId, month, opts));
 }
 
 async function generateFromRbmTx(client, tenantId, userId, month, { risk } = {}) {
-  const target = String(month).slice(0, 7);
-  const rows = await rbmRowsTx(client, tenantId, { risk, targetMonth: target });
-  const dueSites = rows.filter((s) => isDue(s.riskLevel, s.lastVisitMonth, target));
-  const pm = `${target}-01`;
-  let created = 0;
-  for (const s of dueSites) {
-    const res = await client.query(
-      `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by)
-       VALUES ($1,$2,$3,$4,'planifie',$5)
-       ON CONFLICT (tenant_id, site_id, period_month, activity) DO NOTHING`,
-      [tenantId, s.id, pm, s.activity || null, userId]
-    );
-    created += res.rowCount;
-  }
-  return { created, due: dueSites.length };
+  const target = toMonth(month);
+  if (!target) throw badRequest('Mois invalide (attendu : AAAA-MM).');
+  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`rbm-generate:${tenantId}:${target}`]);
+  const rows = await rbmSitesTx(client, tenantId, { month: target, risk });
+  const { due, toPlan } = planningCounts(rows, target);
+  const todo = rows.filter((s) => s.toPlan);
+  if (!todo.length) return { created: 0, due, toPlan };
+  const { rowCount } = await client.query(
+    `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by)
+     SELECT $1, t.site_id, $2::date, t.activity, 'planifie', $3
+       FROM unnest($4::uuid[], $5::text[]) AS t(site_id, activity)
+      WHERE NOT EXISTS (SELECT 1 FROM site_visits v
+                         WHERE v.tenant_id = $1 AND v.site_id = t.site_id
+                           AND v.period_month = $2::date AND v.status <> 'annule')
+     ON CONFLICT (tenant_id, site_id, period_month, activity) DO UPDATE SET status = 'planifie', updated_at = now()
+       WHERE site_visits.status = 'annule'`,
+    [tenantId, `${target}-01`, userId || null, todo.map((s) => s.id), todo.map((s) => s.activity || null)]
+  );
+  return { created: rowCount, due, toPlan };
 }
 
 /**

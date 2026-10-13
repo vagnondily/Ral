@@ -30,7 +30,7 @@
  * dérivent des MÊMES valeurs que le score : la somme des points des raisons est
  * exactement `riskPoints`.
  */
-const { addMonths, toMonth, currentMonth } = require('./rbmMath');
+const { addMonths, toMonth, currentMonth, isLatePlanned } = require('./rbmMath');
 
 function monthIndex(m) {
   if (!m) return null;
@@ -99,7 +99,10 @@ function recommendedActions(c) {
   const month = c.targetMonth;
   const nextVisit = c.due ? month : (c.nextPlannedMonth || c.nextDueMonth || null);
   if (c.forbidden) out.push({ code: 'remote', label: 'Zone interdite : suivi à distance uniquement', month });
-  if (c.fraud > 0) out.push({ code: 'fraud', label: 'Signaler et planifier une vérification ciblée', month });
+  // Zone interdite : aucune visite ne sera planifiée — la vérification se fait à distance.
+  if (c.fraud > 0) {
+    out.push({ code: 'fraud', label: c.forbidden ? 'Signaler et organiser une vérification à distance' : 'Signaler et planifier une vérification ciblée', month });
+  }
   if (c.securityStrict && !c.forbidden) {
     out.push({ code: 'security', label: "Vérifier les conditions de sécurité et l'autorisation d'accès avant de planifier", month });
   }
@@ -173,7 +176,9 @@ function scoreSite(site = {}, { targetMonth, mmrInterval } = {}) {
     frequencyMonths: interval,
     targetMonth: target, lastVisitMonth, monthsSinceVisit: since, neverVisited, overdue, due,
     nextDueMonth: lastVisitMonth && interval != null ? addMonths(lastVisitMonth, interval) : null,
-    nextPlannedMonth: toMonth(site.nextPlannedMonth), latePlannedMonth: toMonth(site.latePlannedMonth),
+    nextPlannedMonth: toMonth(site.nextPlannedMonth),
+    // Même règle que rbmMath.plannedVisits : une visite prévue avant la dernière visite réelle n'est plus en retard.
+    latePlannedMonth: isLatePlanned(site.latePlannedMonth, target, lastVisitMonth) ? toMonth(site.latePlannedMonth) : null,
   };
   const criteria = {
     security, securityValue: normalizeSecurity(secRaw), securityStrict: security === 2, forbidden,
@@ -189,6 +194,8 @@ function scoreSite(site = {}, { targetMonth, mmrInterval } = {}) {
     riskPoints,
     urgentFlags,
     forbidden,
+    // Taille retenue par le score (0/1) : le nombre de bénéficiaires s'il est saisi, sinon « > 200 ».
+    caseload,
     monthsSinceVisit: since,
     neverVisited,
     overdue,

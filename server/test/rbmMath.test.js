@@ -79,3 +79,45 @@ test('addMonths / toMonth', () => {
   assert.equal(toMonth('2026-00'), null);
   assert.equal(toMonth(undefined), null);
 });
+
+// ---- Relecture du lot 1 : visite prévue « non réalisée » et sites « à planifier »
+const { isLatePlanned, needsPlanning, planningCounts } = require('../src/modules/tpm/rbmMath');
+
+test('plannedVisits : une visite prévue avant la dernière visite réelle n\'est plus « non réalisée »', () => {
+  // Prévues juin et août ; visite réelle en septembre : rien en retard.
+  assert.deepEqual(plannedVisits(['2026-06', '2026-08'], '2026-10', '2026-09'), { nextPlannedMonth: null, latePlannedMonth: null });
+  // Visite réelle en juillet : seule celle d'août (postérieure) reste à régulariser.
+  assert.deepEqual(plannedVisits(['2026-06', '2026-08'], '2026-10', '2026-07'), { nextPlannedMonth: null, latePlannedMonth: '2026-08' });
+  // Même mois que la dernière visite réelle : la visite a eu lieu.
+  assert.deepEqual(plannedVisits(['2026-08'], '2026-10', '2026-08'), { nextPlannedMonth: null, latePlannedMonth: null });
+  // La prochaine visite prévue n'est pas concernée.
+  assert.deepEqual(plannedVisits(['2026-06', '2026-11'], '2026-10', '2026-09'), { nextPlannedMonth: '2026-11', latePlannedMonth: null });
+  assert.equal(isLatePlanned('2026-08', '2026-10', null), true);
+  assert.equal(isLatePlanned('2026-10', '2026-10', null), false, 'le mois cible n\'est pas « passé »');
+  assert.equal(isLatePlanned(null, '2026-10', null), false);
+});
+
+test('visitState : la dernière visite réelle (visite, données ou registre) efface une visite prévue plus ancienne', () => {
+  const done = visitState({ fieldVisitMonth: '2026-09', plannedMonths: ['2026-08'] }, '2026-10');
+  assert.deepEqual([done.lastVisitMonth, done.latePlannedMonth], ['2026-09', null]);
+  const data = visitState({ fieldVisitMonth: '2026-05', dataVisitMonth: '2026-09', plannedMonths: ['2026-07'] }, '2026-10');
+  assert.deepEqual([data.lastVisitMonth, data.lastVisitSource, data.latePlannedMonth], ['2026-09', 'donnees', null]);
+  const late = visitState({ fieldVisitMonth: '2026-05', plannedMonths: ['2026-07'] }, '2026-10');
+  assert.equal(late.latePlannedMonth, '2026-07');
+});
+
+test('needsPlanning / planningCounts : à suivre, hors zone interdite, sans visite déjà prévue ce mois', () => {
+  const M = '2026-10';
+  assert.equal(needsPlanning({ due: true }, M), true);
+  assert.equal(needsPlanning({ due: true, nextPlannedMonth: '2026-10' }, M), false, 'déjà prévue ce mois');
+  assert.equal(needsPlanning({ due: true, nextPlannedMonth: '2026-12' }, M), true, 'prévue plus tard : reste à planifier ce mois');
+  assert.equal(needsPlanning({ due: true, forbidden: true }, M), false, 'zone interdite : jamais planifiée');
+  assert.equal(needsPlanning({ due: false }, M), false);
+  assert.equal(needsPlanning({ due: true }, null), false, 'sans mois cible, rien à planifier');
+  const rows = [
+    { due: true }, { due: true, nextPlannedMonth: M }, { due: true, forbidden: true },
+    { due: false }, { due: true, nextPlannedMonth: '2026-11' },
+  ];
+  assert.deepEqual(planningCounts(rows, M), { due: 3, toPlan: 2 });
+  assert.deepEqual(planningCounts([], M), { due: 0, toPlan: 0 });
+});

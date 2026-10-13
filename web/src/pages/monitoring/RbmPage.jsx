@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Upload, Wand2, MapPin, SlidersHorizontal, Clock, CheckCircle2 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Field, Stats } from '../../components/ui.jsx';
@@ -9,6 +9,8 @@ import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatInt } from '../../lib/format.js';
 import { richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
+// Libellés des critères (échelles du classeur RBM) et formulaire « Éditer les critères » : module pur testé.
+import { LABEL01, LABEL02, RBM_CRITERIA, caseloadOf, criteriaForm, criteriaPatch, hasBeneficiaryNumber, securityLabel } from '../../lib/rbmCriteria.js';
 import { RbmExplainDrawer, ScoreButton, UrgentButton } from './RbmExplain.jsx';
 
 const RISK = {
@@ -16,18 +18,10 @@ const RISK = {
   moyenne: { label: 'Moyen', color: 'var(--orange)', bg: 'var(--orange-bg)', text: 'var(--orange-text)', freq: 'tous les 2 mois' },
   faible: { label: 'Faible', color: 'var(--green)', bg: 'var(--green-bg)', text: 'var(--green-text)', freq: 'tous les 3 mois' },
 };
-// Libellés des critères — échelles du classeur RBM (sécurité 0 / 1 / 3 / 99, fraude 0 / 1 / 2).
-const SECURITY = [[0, 'Pas de restriction'], [1, 'Restriction modérée'], [3, 'Restriction stricte'], [99, 'Zone interdite']];
-const securityLabel = (v) => (SECURITY.find(([k]) => k === Number(v || 0)) || [null, null])[1];
-const LABEL02 = {
-  issues: ['Aucun', 'Important', 'Urgent'],
-  fraud: ['Non suspectée', 'Fraude suspectée', 'Partenaire impliqué'],
-};
-const LABEL01 = {
-  synergies: ['Une seule activité', 'Plusieurs activités'],
-  caseload: ['≤ 200', '> 200'],
-  newPartner: ['Expérimenté', 'Nouveau'],
-};
+// Taille retenue par le score (servie par le serveur, sinon même règle) : nombre de bénéficiaires s'il est saisi.
+const caseloadValue = (s) => (s.caseload != null ? s.caseload : caseloadOf(s));
+const caseloadText = (s) => `${LABEL01.caseload[caseloadValue(s)]}${hasBeneficiaryNumber(s.beneficiaryNumber) ? ` (${s.beneficiaryNumber})` : ''}`;
+const experienceText = (tr) => (s) => { const l = LABEL02.experience[Number(s.experiencedPartner) || 0]; return l ? tr(l) : String(s.experiencedPartner); };
 
 /**
  * Risk-Based Monitoring — le référentiel de sites porte un niveau de risque qui
@@ -75,10 +69,17 @@ export default function RbmPage({ canEdit, embedded = false }) {
     try { await api.fieldUpdateSite(s.id, { riskLevel }); reload(); }
     catch (e) { toast.error(e.message); }
   };
+  // Ne planifie que les sites « à planifier » (à suivre, hors zone interdite, sans visite prévue ce mois) :
+  // un deuxième clic ne crée rien.
   const generate = async () => {
     setBusy(true);
-    try { const r = await api.rbmGenerate(month, risk); toast.success(tr('{created} visite(s) planifiée(s) sur {due} site(s) à suivre.', { created: r.created, due: r.due })); reload(); }
-    catch (e) { toast.error(e.message); } finally { setBusy(false); }
+    try {
+      const r = await api.rbmGenerate(month, risk);
+      if (r.created > 0) toast.success(tr('{created} visite(s) planifiée(s) sur {due} site(s) à suivre.', { created: r.created, due: r.due }));
+      else if (r.due > 0) toast.info(tr('Aucune nouvelle visite : les {due} site(s) à suivre sont déjà planifiés.', { due: r.due }));
+      else toast.info(tr('Aucun site à suivre ce mois (hors zones interdites).'));
+      reload();
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   };
   const onImport = async (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
@@ -103,8 +104,12 @@ export default function RbmPage({ canEdit, embedded = false }) {
   };
 
   const stats = useMemo(() => {
-    const s = { total: 0, elevee: 0, moyenne: 0, faible: 0, due: 0 };
-    for (const x of sites || []) { s.total += 1; s[x.riskLevel] = (s[x.riskLevel] || 0) + 1; if (x.due) s.due += 1; }
+    const s = { total: 0, elevee: 0, moyenne: 0, faible: 0, due: 0, toPlan: 0 };
+    for (const x of sites || []) {
+      s.total += 1; s[x.riskLevel] = (s[x.riskLevel] || 0) + 1;
+      if (x.due) s.due += 1;
+      if (x.toPlan) s.toPlan += 1; // ce que « Générer » planifiera (serveur : rbmMath.needsPlanning)
+    }
     return s;
   }, [sites]);
 
@@ -135,8 +140,9 @@ export default function RbmPage({ canEdit, embedded = false }) {
         csv: (s) => (securityLabel(s.security) ? tr(securityLabel(s.security)) : String(s.security ?? '')),
         render: (s) => (securityLabel(s.security) ? tr(securityLabel(s.security)) : String(s.security ?? '—')) },
       synergies: { label: tr('Synergies de programme'), sortVal: (s) => s.synergies || 0, csv: (s) => tr(LABEL01.synergies[s.synergies || 0]), render: (s) => tr(LABEL01.synergies[s.synergies || 0]) },
-      caseload: { label: tr('Taille (caseload)'), sortVal: (s) => s.beneficiaryOver200 || 0, csv: (s) => LABEL01.caseload[s.beneficiaryOver200 || 0], render: (s) => LABEL01.caseload[s.beneficiaryOver200 || 0] },
+      caseload: { label: tr('Taille (caseload)'), sortVal: (s) => caseloadValue(s), csv: caseloadText, render: caseloadText },
       newPartner: { label: tr('Nouveau partenaire'), sortVal: (s) => s.newPartner || 0, csv: (s) => tr(LABEL01.newPartner[s.newPartner || 0]), render: (s) => tr(LABEL01.newPartner[s.newPartner || 0]) },
+      experiencedPartner: { label: tr('Expérience du partenaire'), sortVal: (s) => s.experiencedPartner || 0, csv: experienceText(tr), render: experienceText(tr) },
       // Dernière visite RÉELLE (visite réalisée, collecte de données ou registre) ; une visite
       // seulement planifiée n'en est jamais une : elle est montrée à part (« prévue AAAA-MM »).
       lastVisit: { label: tr('Dernière visite'), sortVal: (s) => (s.monthsSinceVisit == null ? 1e9 : s.monthsSinceVisit), csv: (s) => s.lastVisitMonth || '',
@@ -206,7 +212,9 @@ export default function RbmPage({ canEdit, embedded = false }) {
             <Button variant="secondary" icon={Upload} loading={busy} onClick={() => fileRef.current?.click()}>{tr('Master Data')}</Button>
             <Button variant="secondary" icon={Upload} loading={busy} onClick={() => planRef.current?.click()}
               title={tr('Importe la feuille « Risk-based site selection » : critères, SCORE FINAL, GPS, activité, dernière visite.')}>{tr('Plan de suivi')}</Button>
-            <Button icon={Wand2} loading={busy} onClick={generate}>{tr('Générer')}</Button>
+            <Button icon={Wand2} loading={busy} onClick={generate}
+              title={tr('Planifie une visite pour chaque site à suivre qui n\'en a pas encore ce mois (hors zones interdites).')}>
+              {sites && stats.toPlan ? tr('Générer ({n})', { n: stats.toPlan }) : tr('Générer')}</Button>
           </>}
         </div>
       </div>
@@ -218,7 +226,8 @@ export default function RbmPage({ canEdit, embedded = false }) {
         { label: tr('Risque élevé'), value: sites ? formatInt(stats.elevee) : '—', foot: tr(RISK.elevee.freq) },
         { label: tr('Risque moyen'), value: sites ? formatInt(stats.moyenne) : '—', foot: tr(RISK.moyenne.freq) },
         { label: tr('Risque faible'), value: sites ? formatInt(stats.faible) : '—', foot: tr(RISK.faible.freq) },
-        { label: tr('À suivre ce mois'), value: sites ? formatInt(stats.due) : '—', foot: tr('Selon le RBM') },
+        { label: tr('À suivre ce mois'), value: sites ? formatInt(stats.due) : '—',
+          foot: sites ? tr('dont {n} à planifier', { n: formatInt(stats.toPlan) }) : tr('Selon le RBM') },
       ]} />
 
       <DataList
@@ -243,41 +252,53 @@ export default function RbmPage({ canEdit, embedded = false }) {
   );
 }
 
-// Critères éditables : [clé, libellé, [[valeur, libellé], …]] — valeurs de l'échelle du classeur
-// (sécurité 0 / 1 / 3 / 99, fraude 0 / 1 / 2), pour que le formulaire montre la valeur réelle du site.
-const indexed = (labels) => labels.map((l, i) => [i, l]);
-const CRITERIA = [
-  ['security', 'Situation sécuritaire', SECURITY],
-  ['issuesProcess', 'Problèmes — suivi interne', indexed(LABEL02.issues)],
-  ['issuesPartnerReport', 'Problèmes — rapport partenaire', indexed(LABEL02.issues)],
-  ['issuesCFM', 'Problèmes — mécanisme de plainte (CFM)', indexed(LABEL02.issues)],
-  ['synergies', 'Synergies de programme', indexed(LABEL01.synergies)],
-  ['beneficiaryOver200', 'Taille (bénéficiaires)', indexed(LABEL01.caseload)],
-  ['newPartner', 'Partenaire', indexed(LABEL01.newPartner)],
-  ['fraud', 'Fraude / corruption', indexed(LABEL02.fraud)],
-];
-
+/**
+ * « Éditer les critères » : chaque raison que « Pourquoi ? » peut afficher se corrige ici
+ * (lib/rbmCriteria : RBM_CRITERIA + REASON_FIELDS), y compris le nombre de bénéficiaires
+ * — prioritaire sur « ≤ 200 / > 200 », comme dans le score — et l'expérience du partenaire.
+ */
 function CritModal({ site, onClose, onSaved }) {
   const { tr } = useI18n();
   const toast = useToast();
-  const init = {};
-  CRITERIA.forEach(([k]) => { init[k] = Number(site[k]) || 0; });
-  const [form, setForm] = useState(init);
+  const idBase = useId();
+  const [form, setForm] = useState(() => criteriaForm(site));
+  const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const numberSet = hasBeneficiaryNumber(form.beneficiaryNumber);
 
   async function save() {
+    const { patch, error: invalid } = criteriaPatch(form);
+    if (invalid) { setError(tr(invalid)); return; }
     setSaving(true);
-    try { await api.fieldUpdateSite(site.id, form); toast.success(tr('Critères enregistrés.')); onSaved(); }
+    try { await api.fieldUpdateSite(site.id, patch); toast.success(tr('Critères enregistrés.')); onSaved(); }
     catch (e) { toast.error(e.message); } finally { setSaving(false); }
   }
-  const sel = (k, label, opts) => {
+  // Règle de priorité toujours visible (les aides .field-hint sont masquables : ici c'est la règle du score).
+  const note = (id, text) => <span id={id} className="muted" style={{ fontSize: 'var(--fs-sm)' }}>{text}</span>;
+  const field = (c) => {
+    const id = `${idBase}-${c.key}`;
+    if (c.kind === 'number') {
+      return (
+        <Field key={c.key} label={tr(c.label)} htmlFor={id} error={error}>
+          <input id={id} className="input tabular" type="number" min="0" step="1" inputMode="numeric" value={form[c.key]}
+            placeholder={tr('Non renseigné')} aria-invalid={error ? true : undefined} aria-describedby={`${id}-note`}
+            onChange={(e) => { setError(null); setForm({ ...form, [c.key]: e.target.value }); }} />
+          {note(`${id}-note`, tr(c.hint))}
+        </Field>
+      );
+    }
+    // Le choix ≤ 200 / > 200 ne compte pas quand le nombre de bénéficiaires est saisi : montré déduit, non modifiable.
+    const derived = c.key === 'beneficiaryOver200' && numberSet;
+    const value = derived ? caseloadOf(form) : form[c.key];
     // Valeur hors échelle (ancienne saisie) : gardée et montrée telle quelle, jamais remplacée en silence.
-    const options = opts.some(([v]) => v === form[k]) ? opts : [...opts, [form[k], String(form[k])]];
+    const options = c.options.some(([v]) => v === value) ? c.options : [...c.options, [value, String(value)]];
     return (
-      <Field key={k} label={tr(label)}>
-        <select className="select" value={form[k]} onChange={(e) => setForm({ ...form, [k]: Number(e.target.value) })}>
+      <Field key={c.key} label={tr(c.label)} htmlFor={id}>
+        <select id={id} className="select" value={value} disabled={derived} aria-describedby={derived ? `${id}-note` : undefined}
+          onChange={(e) => setForm({ ...form, [c.key]: Number(e.target.value) })}>
           {options.map(([v, o]) => <option key={v} value={v}>{tr(o)}</option>)}
         </select>
+        {derived && note(`${id}-note`, tr('Déduit du nombre de bénéficiaires saisi.'))}
       </Field>
     );
   };
@@ -285,7 +306,7 @@ function CritModal({ site, onClose, onSaved }) {
     <Modal open size="md" title={tr('Critères de risque (RBM)')} subtitle={tr('{site} — alimentent le score et la priorité', { site: site.name })} onClose={() => !saving && onClose()}
       footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button onClick={save} loading={saving}>{tr('Enregistrer')}</Button></>}>
       <div className="form-grid">
-        {CRITERIA.map(([k, l, o]) => sel(k, l, o))}
+        {RBM_CRITERIA.map(field)}
       </div>
     </Modal>
   );

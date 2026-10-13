@@ -9,7 +9,8 @@ export default {
   "Les sites à visiter ce mois (district › commune › établissement › activité) : affectez le prestataire TPM et le rôle, datez les visites ; les onglets couvrent le budget-jours, la couverture et les données réelles.":
     'Sites to visit this month (district › commune › facility › activity): assign the TPM provider and role, date the visits; the tabs cover the days-based budget, coverage and actual data.',
   'Tous les mois': 'All months',
-  "Planifie automatiquement les sites « à suivre » ce mois d'après leur niveau de risque (RBM).": 'Automatically plans the sites “due” this month based on their risk level (RBM).',
+  "Planifie automatiquement les sites « à suivre » ce mois d'après leur niveau de risque (RBM). Le nombre indique ceux qui n'ont pas encore de visite ce mois (hors zones interdites).":
+    'Automatically plans the sites “due” this month based on their risk level (RBM). The number shows those with no visit yet this month (no-go areas excluded).',
   'Générer depuis le RBM ({n})': 'Generate from RBM ({n})',
   'Générer depuis le RBM': 'Generate from RBM',
   'Importer planning': 'Import schedule',
@@ -18,6 +19,7 @@ export default {
   'Supprimer la visite de « {site} » ?': 'Delete the visit to “{site}”?',
   '{created} visite(s) planifiée(s) sur {due} site(s) à suivre (RBM).': '{created} visit(s) planned for {due} site(s) due for monitoring (RBM).',
   'Aucune nouvelle visite : les {due} site(s) à suivre sont déjà planifiés.': 'No new visit: the {due} site(s) due for monitoring are already planned.',
+  'Aucun site à suivre ce mois (hors zones interdites).': 'No site due for monitoring this month (no-go areas excluded).',
   'Situation : {status}.': 'Status: {status}.',
   // Statuts d'une visite (STATUS) et situation du plan mensuel (PLAN_STATUS)
   'Planifiée': 'Planned',
@@ -48,8 +50,8 @@ export default {
   'Tous les statuts': 'All statuses',
   'Aucune visite ce mois-ci': 'No visits this month',
   'Générer {n} visite(s) depuis le RBM': 'Generate {n} visit(s) from RBM',
-  'Générez la planification depuis le RBM ({n} site(s) à suivre), importez le planning (.xlsx) ou ajoutez une visite.':
-    'Generate the plan from the RBM ({n} site(s) due), import the schedule (.xlsx) or add a visit.',
+  'Générez la planification depuis le RBM ({n} site(s) à planifier), importez le planning (.xlsx) ou ajoutez une visite.':
+    'Generate the plan from the RBM ({n} site(s) to plan), import the schedule (.xlsx) or add a visit.',
   'Générez la planification depuis le RBM, importez le planning (.xlsx) ou ajoutez une visite.':
     'Generate the plan from the RBM, import the schedule (.xlsx) or add a visit.',
   // Barre du mois actif
@@ -144,6 +146,10 @@ export default {
     'Imports the “Risk-based site selection” sheet: criteria, FINAL SCORE, GPS, activity, last visit.',
   'Plan de suivi': 'Monitoring plan',
   'Générer': 'Generate',
+  'Générer ({n})': 'Generate ({n})',
+  "Planifie une visite pour chaque site à suivre qui n'en a pas encore ce mois (hors zones interdites).":
+    'Plans a visit for each due site that has none yet this month (no-go areas excluded).',
+  'dont {n} à planifier': 'of which {n} to plan',
   '{created} visite(s) planifiée(s) sur {due} site(s) à suivre.': '{created} visit(s) planned for {due} site(s) due for monitoring.',
   '{inserted} site(s) ajouté(s) · {total} ligne(s).': '{inserted} site(s) added · {total} row(s).',
   '{n} site(s) importé(s) (feuille « {sheet} »)': '{n} site(s) imported (sheet “{sheet}”)',
@@ -230,6 +236,13 @@ export default {
   '{site} — alimentent le score et la priorité': '{site} — these feed the score and priority',
   'Fraude suspectée': 'Suspected fraud',
   'Partenaire impliqué': 'Partner involved',
+  // Formulaire « Éditer les critères » (lib/rbmCriteria) : nombre de bénéficiaires et expérience du partenaire
+  'Nombre de bénéficiaires': 'Number of beneficiaries',
+  'Prioritaire sur « Taille (bénéficiaires) » : plus de 200 = caseload élevé. Laissez vide pour utiliser le choix ≤ 200 / > 200.':
+    'Takes precedence over “Size (beneficiaries)”: more than 200 = high caseload. Leave empty to use the ≤ 200 / > 200 choice.',
+  'Déduit du nombre de bénéficiaires saisi.': 'Derived from the number of beneficiaries entered.',
+  'Nombre de bénéficiaires : nombre entier de 0 à 10 000 000 attendu (ou laissez vide).':
+    'Number of beneficiaries: a whole number from 0 to 10,000,000 is expected (or leave it empty).',
 
   // ---- RBM : « Pourquoi ? / Conséquence / Que faire ? » (RbmExplain, retour n° 48)
   'Pourquoi ce niveau ?': 'Why this level?',
@@ -288,6 +301,7 @@ export default {
   // Actions (rbmScore.actions)
   'Zone interdite : suivi à distance uniquement': 'No-go area: remote monitoring only',
   'Signaler et planifier une vérification ciblée': 'Report it and plan a targeted check',
+  'Signaler et organiser une vérification à distance': 'Report it and arrange a remote check',
   "Vérifier les conditions de sécurité et l'autorisation d'accès avant de planifier": 'Check security conditions and access authorisation before planning',
   'Vérifier le problème signalé (processus / rapport / CFM) lors de la prochaine visite': 'Check the reported issue (process / report / CFM) during the next visit',
   'Visite prévue non réalisée : la marquer « réalisée » si elle a eu lieu, sinon la replanifier':
