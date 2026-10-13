@@ -35,6 +35,47 @@ export const INDEX_STATUS_LABEL = {
 };
 
 /**
+ * Place d'un indicateur dans les classes de « Couverture & performance »
+ * (serveur coverageDashboard.classDistribution / naReasonCounts, naReason
+ * 'not_scored') : `scored` en décide pour TOUTES les méthodes — compté
+ * (Excellent … Non évalué), ou complémentaire (affiché dans les résultats, hors
+ * classes). Les modèles d'activité livrent exprès des moyennes et des nombres
+ * complémentaires (scored = false).
+ * @returns {'counted'|'complementary'}
+ */
+export function classesStatus(ind) {
+  return ind && ind.scored === false ? 'complementary' : 'counted';
+}
+// Libellé court de classesStatus (ligne « Couverture & performance » du détail).
+export const CLASSES_STATUS_LABEL = {
+  counted: 'compté dans les classes',
+  complementary: 'complémentaire (hors classes)',
+};
+
+/**
+ * Case « scored » de l'éditeur, pour CHAQUE méthode (jamais masquée : sa valeur
+ * n'est jamais reportée en silence d'une méthode à l'autre). Son sens dépend de
+ * la méthode : un % entre dans l'indice de conformité ET dans les classes ; une
+ * moyenne, une somme ou un nombre n'entre que dans les classes — `note`, toujours
+ * affichée, le dit (ce n'est pas une astuce).
+ * @returns {{ label: string, off: string, note: string|null }}  `off` : ce que veut dire la case décochée
+ */
+export function scoredControl(agg) {
+  if (isPctAgg(agg)) {
+    return {
+      label: 'Compté dans l\'indice de conformité et dans la couverture & performance (classes)',
+      off: 'Décoché : indicateur complémentaire — affiché dans les résultats, hors indice et hors classes.',
+      note: null,
+    };
+  }
+  return {
+    label: 'Compté dans la couverture & performance (classes)',
+    off: 'Décoché : indicateur complémentaire — affiché dans les résultats, hors classes.',
+    note: 'Hors indice de conformité : seuls les indicateurs en % y entrent (une moyenne, une somme ou un nombre n\'y compte pas).',
+  };
+}
+
+/**
  * Titre de l'éditeur d'indicateur : création, modification, ou — sans droit
  * d'écriture — simple consultation du calcul (« Modifier » serait trompeur).
  */

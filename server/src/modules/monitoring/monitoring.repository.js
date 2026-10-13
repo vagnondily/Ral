@@ -756,7 +756,9 @@ async function memsMappingTx(client, tenantId, formId) {
   const names = [...new Set([...cat.map((c) => c.name), ...keys.map((k) => k.field)])];
   const overrideByDim = new Map(ov.map((o) => [o.dimension, o.columnName]));
   const auto = new Map(detectMapping(names).map((m) => [m.key, m]));
-  // Dates : colonne lue par la MÊME règle qu'à l'import (alias, nom de question sous un groupe).
+  // Dates : colonne lue par la MÊME règle qu'à l'import (ordre des alias SvyDate → today → start → end,
+  // chacun en nom complet puis en nom de question sous un groupe) : la vérification, l'import et
+  // « Appliquer » (rederiveCollectionDatesTx) désignent la même colonne, clés brutes ou renommées.
   const dateCols = collectionColumns(names);
   // Mois de collecte vs mois de réception, sur toutes les soumissions de la fiche (agrégé en SQL).
   // Mois de réception inconnu : « uploadPending » si les réponses portent une date de réception
@@ -1023,7 +1025,12 @@ async function importDefinition(tenantId, { code, label }, fields, choicesMap) {
   });
 }
 
-async function importSubmissions(tenantId, formId, submissions, { variables } = {}) {
+/**
+ * @param {{ variables?: object[], headers?: string[] }} [opts]  `headers` : colonnes (ou variables
+ *   SPSS) du fichier — une colonne choisie dans « Mapping MEMS » qui n'y est pas est signalée
+ *   comme à la vérification ; sans en-têtes (API), les clés des réponses en tiennent lieu.
+ */
+async function importSubmissions(tenantId, formId, submissions, { variables, headers } = {}) {
   return withSubmissionLinks(tenantId, async (client) => {
     // Confirm the form belongs to the tenant.
     const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
@@ -1035,7 +1042,7 @@ async function importSubmissions(tenantId, formId, submissions, { variables } = 
     // Doublons du fichier fondus (dernière version), clés ramenées aux noms du catalogue
     // (export Excel « avec les groupes ») et colonnes choisies dans « Mapping MEMS » appliquées :
     // la MÊME préparation que la vérification avant import (importContextTx + prepareImport).
-    const { unique } = prepareImport(submissions, await importContextTx(client, tenantId, formId));
+    const { unique } = prepareImport(submissions, { ...(await importContextTx(client, tenantId, formId)), headers });
 
     let inserted = 0; let created = 0;
     const months = new Map();

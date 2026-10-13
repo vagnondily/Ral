@@ -5,7 +5,7 @@ import { Alert, Badge, Skeleton, StatusBadge } from '../../components/ui.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, formatLocale, monthLabel } from '../../lib/format.js';
 import {
-  INDICATOR_STATUS, choiceText, classificationRule, explainSegments, indexStatus, indicatorErrorText, segmentShareText, unknownVariableText,
+  INDICATOR_STATUS, choiceText, classesStatus, classificationRule, explainSegments, indexStatus, indicatorErrorText, segmentShareText, unknownVariableText,
 } from '../../lib/indicatorView.js';
 
 /**
@@ -94,7 +94,10 @@ function RuleText({ explain, direction, scored }) {
         not_pct: tr('Seuls les indicateurs en % entrent dans l\'indice de conformité.'),
         in: tr('Compte dans l\'indice de conformité de la fiche.'),
         excluded: tr('Hors indice : affiché, mais n\'entre pas dans l\'indice de conformité.'),
-      }[indexStatus({ agg: explain.agg, scored })]}</div>}
+      }[indexStatus({ agg: explain.agg, scored })]} {{
+        counted: tr('Compté dans les classes de Couverture & performance.'),
+        complementary: tr('Complémentaire : hors des classes de Couverture & performance.'),
+      }[classesStatus({ scored })]}</div>}
     </div>
   );
 }

@@ -6,7 +6,7 @@ import {
 import { api, getSessionSecret, setSessionSecret } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, Field, Skeleton, Stats } from '../../components/ui.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
-import { dayLabel, formatInt, monthLabel } from '../../lib/format.js';
+import { dayLabel, formatFileSize, formatInt, monthLabel } from '../../lib/format.js';
 
 /**
  * Onglet « Importation » d'une fiche de suivi (retour n° 5) : un assistant en
@@ -39,10 +39,9 @@ const FIELD_LABELS = [
   ['admin1', 'Région'], ['admin2', 'District'], ['admin3', 'Commune'], ['admin4', 'Fokontany'],
   ['site', 'Site'], ['partner', 'Partenaire'], ['agent', 'Agent'],
 ];
+const FIELD_LABEL = Object.fromEntries(FIELD_LABELS);
 const FORMAT_LABELS = { sav: 'SPSS (.sav)', csv: 'CSV', xlsx: 'Excel (.xlsx)' };
 const STEPS = ['Source', 'Fichier ou connexion', 'Vérification', 'Compte rendu'];
-
-const sizeMo = (bytes) => (bytes / (1024 * 1024)).toFixed(bytes > 10 * 1024 * 1024 ? 0 : 1).replace('.', ',');
 
 /** Erreur du serveur, avec les lignes en cause quand il les donne (dates illisibles). */
 function ImportError({ error }) {
@@ -80,8 +79,9 @@ function Stepper({ step, sourceId }) {
  * Mois de collecte d'un lot (vérification ou compte rendu) : combien de soumissions sont
  * rangées au mois de l'enquête plutôt qu'au mois de réception, pourquoi certaines restent
  * au mois de réception (date d'enquête illisible, de plus de 2 ans avant l'envoi — à
- * vérifier —, postérieure à la réception) et, pour information, les envois tardifs (plus de
- * 92 jours après l'enquête, gardés au mois de l'enquête).
+ * vérifier —, postérieure à la réception, colonne de date choisie dans « Mapping MEMS »
+ * absente du fichier) et, pour information, les envois tardifs (plus de 92 jours après
+ * l'enquête, gardés au mois de l'enquête).
  */
 export function CollectionMonthNotes({ dates }) {
   const { tr } = useI18n();
@@ -90,6 +90,7 @@ export function CollectionMonthNotes({ dates }) {
     [dates.surveyUnreadable, 'date d\'enquête illisible : {n}'],
     [dates.surveyTooOld, 'date d\'enquête de plus de 2 ans avant l\'envoi (à vérifier) : {n}'],
     [dates.surveyAfterUpload, 'date d\'enquête postérieure à la réception : {n}'],
+    [dates.surveyColumnMissing, 'colonne de date choisie dans « Mapping MEMS » absente du fichier : {n}'],
   ].filter(([n]) => n > 0);
   return (
     <>
@@ -216,6 +217,8 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
   const onDrop = (e) => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) check(f); };
   const p = preview;
   const newTotal = p ? p.newCount + p.withoutId : 0;
+  // Colonnes choisies dans « Mapping MEMS » que le fichier ne contient pas (jamais « reconnues »).
+  const missingCols = p ? Object.entries(p.missing || {}) : [];
 
   return (
     <div className="section-gap">
@@ -315,7 +318,7 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
               <div className="wiz-file">
                 <FileSpreadsheet size={18} aria-hidden="true" />
                 <strong>{file?.name}</strong>
-                <span className="muted">{sizeMo(file?.size || 0)} Mo · {tr('format reconnu : {f}', { f: tr(FORMAT_LABELS[p.source] || p.source) })} · {tr('{n} colonne(s)', { n: formatInt(p.fields) })}</span>
+                <span className="muted">{formatFileSize(file?.size || 0)} · {tr('format reconnu : {f}', { f: tr(FORMAT_LABELS[p.source] || p.source) })} · {tr('{n} colonne(s)', { n: formatInt(p.fields) })}</span>
               </div>
               <Stats compact items={[
                 { label: tr('Soumissions dans le fichier'), value: formatInt(p.count) },
@@ -334,19 +337,28 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
                 {p.duplicatesInFile > 0 && <Alert tone="info">{tr('{n} soumission(s) en double dans le fichier : elles ne compteront qu\'une fois.', { n: formatInt(p.duplicatesInFile) })}</Alert>}
                 {p.withoutId > 0 && <Alert tone="warn" icon={AlertTriangle}>{tr('{n} ligne(s) sans identifiant Kobo (_uuid) : si vous réimportez ce fichier, elles seront ajoutées une seconde fois.', { n: formatInt(p.withoutId) })}</Alert>}
                 {p.withoutDate > 0 && <Alert tone="warn" icon={AlertTriangle}>{tr('{n} soumission(s) sans date de collecte : elles ne figureront dans aucun mois.', { n: formatInt(p.withoutDate) })}</Alert>}
-                {!p.recognized.field_office && <Alert tone="info">{tr('Aucune colonne de bureau reconnue : après l\'import, choisissez-la dans l\'onglet « Mapping MEMS ».')}</Alert>}
+                {missingCols.length > 0 && (
+                  <Alert tone="warn" icon={AlertTriangle}>
+                    {tr('Colonne choisie dans « Mapping MEMS » absente du fichier : l\'import ne pourra pas la lire. Corrigez le choix dans l\'onglet « Mapping MEMS » ou importez un fichier qui la contient.')}
+                    {' '}{missingCols.map(([k, col]) => tr('{field} : « {column} »', { field: tr(FIELD_LABEL[k] || k), column: col })).join(' · ')}
+                  </Alert>
+                )}
+                {!p.recognized.field_office && !(p.missing || {}).field_office && <Alert tone="info">{tr('Aucune colonne de bureau reconnue : après l\'import, choisissez-la dans l\'onglet « Mapping MEMS ».')}</Alert>}
               </div>
               <details className="wiz-cols">
                 <summary>{tr('Colonnes reconnues pour MEMS ({n} sur {t})', { n: FIELD_LABELS.filter(([k]) => p.recognized[k]).length, t: FIELD_LABELS.length })}</summary>
                 <table className="table">
                   <thead><tr><th scope="col">{tr('Information MEMS')}</th><th scope="col">{tr('Colonne du fichier')}</th></tr></thead>
                   <tbody>{FIELD_LABELS.map(([k, label]) => {
-                    // Colonne choisie dans « Mapping MEMS » : c'est elle que l'import appliquera.
+                    // Colonne choisie dans « Mapping MEMS » : c'est elle que l'import appliquera —
+                    // reconnue seulement si le fichier la contient (sinon « absente du fichier »).
                     const manual = (p.manual || []).includes(k);
+                    const missing = (p.missing || {})[k];
                     return (
                       <tr key={k}><td>{tr(label)}</td><td>
                         {p.recognized[k] ? <span className="mono">{p.recognized[k]}</span>
-                          : <span className="muted">{manual ? tr('aucune') : tr('non trouvée')}</span>}
+                          : missing ? <><span className="mono">{missing}</span> <Badge tone="orange" icon={AlertTriangle}>{tr('absente du fichier')}</Badge></>
+                            : <span className="muted">{manual ? tr('aucune') : tr('non trouvée')}</span>}
                         {manual && <> <Badge tone="blue">{tr('choisie dans « Mapping MEMS »')}</Badge></>}
                       </td></tr>
                     );

@@ -2,7 +2,7 @@
 // (monitoringMath.naReason) ; ici seulement le texte (phrase française, traduite
 // à l'affichage), l'action proposée et son libellé. Ordre = ordre d'affichage.
 // Chaque code du serveur (sauf « not_scored », hors indice) a son entrée : vérifié
-// par server/test/webNaReasons.test.js, avec la traduction anglaise.
+// par server/test/webDashboards.test.js, avec la traduction anglaise.
 export const NA_REASONS = {
   no_data: {
     label: 'Aucune donnée sur la période',

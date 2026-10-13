@@ -24,6 +24,19 @@ export function formatInt(value) {
   return nf.format(Number(value) || 0).replace(/ /g, ' ');
 }
 
+// Unité des tailles de fichier selon la langue de l'interface (Mo / MB).
+const SIZE_UNIT = { fr: 'Mo', en: 'MB' };
+/**
+ * Taille d'un fichier en mégaoctets, dans la langue de l'interface :
+ * « 1,1 Mo » en français, « 1.1 MB » en anglais (une décimale jusqu'à 10, entier au-delà).
+ */
+export function formatFileSize(bytes) {
+  const mb = (Number(bytes) || 0) / (1024 * 1024);
+  const digits = mb > 10 ? 0 : 1;
+  const n = new Intl.NumberFormat(LOCALES[LANG], { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(mb);
+  return `${n.replace(/ /g, ' ')} ${SIZE_UNIT[LANG]}`;
+}
+
 const MONTH_NAMES = {
   fr: ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'],
   en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],

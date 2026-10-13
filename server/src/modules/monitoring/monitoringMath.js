@@ -140,13 +140,15 @@ const snapPct = (x) => Math.round(x * 1e9) / 1e9;
  * améliorer », l'afficher « 10 % » contredirait « ≤ 10 % : Satisfaisant ».
  * Il est alors arrondi au centième SUPÉRIEUR (10,05), jamais au seuil ou en
  * dessous ; de même un écart non nul ne s'affiche jamais « 0 % ».
+ * Le relèvement ne vaut que pour un écart POSITIF : un écart nul (ou négatif,
+ * qui ne devrait jamais arriver) s'affiche tel quel, jamais un « 0,01 % » inventé.
  * @param {number} gapPct écart en % (> 0 : cible non atteinte)
  * @param {'sat'|'imp'|'urg'} rating classe obtenue avec cet écart
  */
 function displayGap(gapPct, rating) {
   const r = round1(gapPct);
   const floor = GAP_FLOOR[rating];
-  if (floor == null || r > floor) return r;
+  if (floor == null || !(gapPct > 0) || r > floor) return r;
   const up = Math.ceil(Math.round(gapPct * 1e6) / 1e4) / 100;
   return up > floor ? up : Math.round((floor + 0.01) * 100) / 100;
 }
@@ -179,7 +181,10 @@ function classifyDetail(result) {
   const value = Number(result.value);
   const better = result.direction !== 'lower_better';
   if (better ? value >= t : value <= t) return { rating: 'exc', basis: 'target', target: t, achieved: true, gapPct: 0, thresholds: { ...TARGET_GAPS } };
-  const gap = snapPct(((better ? t - value : value - t) / (t || 1)) * 100);
+  // Écart RELATIF à |cible| : une cible négative (solde, variation…) donne un
+  // écart positif comme les autres, jamais un écart négatif lu « Satisfaisant ».
+  // Cible 0 : écart absolu (rien à rapporter).
+  const gap = snapPct(((better ? t - value : value - t) / (Math.abs(t) || 1)) * 100);
   const rating = gap <= TARGET_GAPS.sat ? 'sat' : gap <= TARGET_GAPS.imp ? 'imp' : 'urg';
   return { rating, basis: 'target', target: t, achieved: false, gapPct: displayGap(gap, rating), thresholds: { ...TARGET_GAPS } };
 }

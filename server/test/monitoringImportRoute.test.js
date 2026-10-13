@@ -22,8 +22,10 @@ const { oleFile, biffGlobals } = require('./helpers/oleFixture');
 const { buildSav } = require('./helpers/savFixture');
 
 const writes = [];
+let lastHeaders = null; // colonnes du fichier transmises au dépôt (colonne choisie absente : signalée)
 // Les variables du .sav (catalogue) partent avec les soumissions, dans la même transaction.
-repo.importSubmissions = async (tenantId, formId, subs, { variables } = {}) => {
+repo.importSubmissions = async (tenantId, formId, subs, { variables, headers } = {}) => {
+  lastHeaders = headers;
   writes.push({ what: 'submissions', n: subs.length });
   if (variables && variables.length) writes.push({ what: 'catalog', n: variables.length });
   return { received: subs.length, inserted: subs.length };
@@ -89,6 +91,7 @@ test('archive trop grosse une fois décompressée : 413 avant décompression, pu
   assert.equal(ok.status, 200);
   assert.deepEqual(ok.body, { received: 2, inserted: 2, fields: 3 });
   assert.deepEqual(writes, [{ what: 'submissions', n: 2 }, { what: 'catalog', n: 3 }]);
+  assert.equal(lastHeaders.length, 3, 'variables du .sav transmises comme colonnes du fichier');
 });
 
 test('plafond réglable par IMPORT_MAX_UNZIPPED_MB (lu à chaque import)', async () => {
@@ -108,6 +111,9 @@ test('un CSV valide passe, quel que soit son nom', async () => {
   const res = await upload(Buffer.from('_uuid;SvyDate;q1\nu1;2026-05-03;oui\n'), 'export.xlsx');
   assert.equal(res.status, 200);
   assert.deepEqual(res.body, { received: 1, inserted: 1, fields: 3 });
+  // Les colonnes du fichier vont au dépôt : une colonne choisie dans « Mapping MEMS » absente est
+  // signalée à l'import comme à la vérification (même règle, submissionsImport.missingOverrides).
+  assert.deepEqual(lastHeaders, ['_uuid', 'SvyDate', 'q1']);
 });
 
 test('import de définition : un fichier de données est renvoyé vers « Importer un fichier »', async () => {

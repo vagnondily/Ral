@@ -85,11 +85,14 @@ function buildLookup(headers, rows = []) {
   const cands = {};
   const others = {};
   for (const [field, aliases] of Object.entries(MAP)) {
-    // Noms complets d'abord, puis noms de question sous un groupe (jamais pour l'identifiant :
-    // « formhub/uuid » est celui du FORMULAIRE, le même pour toutes les lignes).
-    const full = aliases.map((a) => byNorm.get(norm(a)));
-    const leaves = field === 'external_id' ? [] : aliases.map((a) => byLeaf.get(norm(a)));
-    let candidates = [...new Set([...full, ...leaves].filter((i) => i !== undefined))];
+    // Ordre des ALIAS d'abord (SvyDate → today → start → end), et pour chacun le nom complet
+    // puis le nom de question sous un groupe. C'est l'ordre qu'obtiennent les clés renommées
+    // par le catalogue (« grp/SvyDate » → « SvyDate ») : l'import (en-têtes bruts), la
+    // vérification et la relecture (« Appliquer », r4 : clés enregistrées) choisissent la
+    // MÊME colonne. Jamais de nom sous un groupe pour l'identifiant : « formhub/uuid » est
+    // celui du FORMULAIRE, le même pour toutes les lignes.
+    const ranked = aliases.flatMap((a) => [byNorm.get(norm(a)), field === 'external_id' ? undefined : byLeaf.get(norm(a))]);
+    let candidates = [...new Set(ranked.filter((i) => i !== undefined))];
     if (!candidates.length) continue;
     // Niveau administratif sous plusieurs colonnes : celles qui portent des codes d'abord.
     if (ADMIN_KEYS.has(field) && candidates.length > 1) {
@@ -264,8 +267,9 @@ function rowToSubmission(rawHeaders, rawValues, picks, source) {
 }
 
 /**
- * Colonnes de date d'une fiche, dans l'ordre de priorité de l'import (mêmes alias, nom
- * complet puis nom de question sous un groupe). `forcedSurvey` : `undefined` = automatique ;
+ * Colonnes de date d'une fiche, dans l'ordre de priorité de l'import (buildLookup : ordre des
+ * alias, et pour chacun le nom complet puis le nom de question sous un groupe — clés brutes
+ * ou renommées par le catalogue, la même colonne). `forcedSurvey` : `undefined` = automatique ;
  * '' = « aucune » (mois de réception seul) ; sinon la colonne choisie dans « Mapping MEMS »
  * (et ses variantes de casse présentes dans les données : XLSForm ≠ export SPSS).
  * @param {string[]} keys  clés des réponses (data) de la fiche
@@ -307,11 +311,15 @@ function applySurveyDate(s, survey) {
  * compte rendu) : mois tiré de l'enquête ou de la réception, mois différent du mois de
  * réception (ce qui change par rapport à l'ancienne règle), pourquoi la réception a
  * été prise (date d'enquête illisible, de plus de 2 ans avant l'envoi, postérieure à
- * l'envoi) et, pour information, les envois tardifs (plus de 92 jours après l'enquête,
- * rangés au mois de l'enquête).
+ * l'envoi, colonne de date choisie dans « Mapping MEMS » absente du fichier) et, pour
+ * information, les envois tardifs (plus de 92 jours après l'enquête, rangés au mois de
+ * l'enquête).
  */
 function dateSummary(submissions) {
-  const out = { fromSurvey: 0, fromUpload: 0, monthDiffers: 0, surveyUnreadable: 0, surveyTooOld: 0, surveyAfterUpload: 0, lateUpload: 0 };
+  const out = {
+    fromSurvey: 0, fromUpload: 0, monthDiffers: 0, surveyUnreadable: 0, surveyTooOld: 0, surveyAfterUpload: 0,
+    surveyColumnMissing: 0, lateUpload: 0,
+  };
   for (const s of submissions || []) {
     if (s.dateSource === 'survey') out.fromSurvey += 1;
     else if (s.dateSource === 'upload') out.fromUpload += 1;
@@ -320,6 +328,7 @@ function dateSummary(submissions) {
     if (s.dateIssue === 'survey_unreadable') out.surveyUnreadable += 1;
     else if (s.dateIssue === 'survey_too_old') out.surveyTooOld += 1;
     else if (s.dateIssue === 'survey_after_upload') out.surveyAfterUpload += 1;
+    else if (s.dateIssue === 'survey_column_missing') out.surveyColumnMissing += 1;
   }
   return out;
 }
@@ -489,15 +498,22 @@ function forcedValues(data, column) {
  * Colonnes choisies à la main dans « Mapping MEMS » appliquées à une soumission lue (pur ;
  * modifie `s`). Valeur recopiée : la première non vide, nettoyée comme à l'import (valueOf)
  * et à la relecture SQL ; colonne vide = « aucune » (valeur effacée). Date d'enquête choisie :
- * mois de collecte recalculé par la même règle (applySurveyDate).
+ * mois de collecte recalculé par la même règle (applySurveyDate) ; colonne choisie ABSENTE du
+ * fichier (`missing`, voir missingOverrides) : la soumission rangée au mois de réception est
+ * comptée « colonne absente » (dateIssue 'survey_column_missing'), jamais en silence.
  * @param {object} s  soumission (sortie de parseSubmissions)
  * @param {Array<{ dimension: string, columnName: string|null }>} overrides
+ * @param {{ missing?: Map<string, string> }} [opts]  dimensions dont la colonne choisie manque au fichier
  */
-function applyFieldOverrides(s, overrides) {
+function applyFieldOverrides(s, overrides, { missing } = {}) {
   for (const o of overrides || []) {
     const col = (o.columnName || '').trim();
     const vals = col ? forcedValues(s.data, col) : [];
-    if (o.dimension === DATE_KEYS.survey) { applySurveyDate(s, vals); continue; }
+    if (o.dimension === DATE_KEYS.survey) {
+      applySurveyDate(s, vals);
+      if (missing && missing.has(o.dimension) && s.dateSource === 'upload' && !s.dateIssue) s.dateIssue = 'survey_column_missing';
+      continue;
+    }
     const prop = OVERRIDE_PROP[o.dimension];
     if (!prop) continue;
     const v = vals.map((x) => (x == null ? '' : String(x).trim())).find((x) => x !== '');
@@ -518,47 +534,85 @@ function uniqueByExternalId(submissions) {
 }
 
 /**
+ * Colonnes choisies dans « Mapping MEMS » ABSENTES d'un fichier : ni parmi ses colonnes
+ * (casse ignorée, comme forcedValues), ni parmi ses colonnes ramenées aux noms du catalogue
+ * (« grp/Bureau » → « Bureau », comme l'import). Une colonne vide (« aucune ») n'est jamais
+ * absente : c'est un choix. Pur.
+ * @param {Array<{ dimension: string, columnName: string|null }>} overrides
+ * @param {string[]} headers  colonnes (ou variables SPSS) du fichier
+ * @param {string[]} [catalogNames]  noms des champs de la fiche
+ * @returns {Map<string, string>} dimension → colonne choisie absente
+ */
+function missingOverrides(overrides, headers, catalogNames = []) {
+  const cols = (headers || []).filter((h) => h != null && h !== '').map(String);
+  const renamed = Object.keys(groupPathRenamer(catalogNames)(Object.fromEntries(cols.map((h) => [h, true]))));
+  const present = new Set([...cols, ...renamed].map((h) => h.toLowerCase()));
+  const out = new Map();
+  for (const o of overrides || []) {
+    const col = (o.columnName || '').trim();
+    if (col && !present.has(col.toLowerCase())) out.set(o.dimension, col);
+  }
+  return out;
+}
+
+/** Colonnes d'un lot lu sans en-têtes (API, lien JSON) : toutes les clés de ses réponses. */
+function keysOfSubmissions(list) {
+  const keys = new Set();
+  for (const s of list || []) for (const k of Object.keys(s.data || {})) keys.add(k);
+  return [...keys];
+}
+
+/**
  * Soumissions lues → ce que l'import écrira, pour l'import ET pour la vérification avant
  * import (mêmes mois, mêmes comptes) : doublons du fichier fondus (dernière version), clés
  * des réponses ramenées aux noms du catalogue de la fiche (groupPathRenamer), puis colonnes
- * choisies dans « Mapping MEMS » appliquées (applyFieldOverrides). Pur ; modifie les
- * soumissions retenues (comme l'import l'a toujours fait).
+ * choisies dans « Mapping MEMS » appliquées (applyFieldOverrides) — celles absentes du
+ * fichier (`headers`, ou à défaut les clés des réponses) sont signalées (`missing`). Pur ;
+ * modifie les soumissions retenues (comme l'import l'a toujours fait).
  * @param {object[]} submissions  sortie de parseSubmissions
- * @param {{ catalogNames?: string[], overrides?: Array<{dimension:string,columnName:string|null}> }} ctx
- * @returns {{ unique: object[], duplicates: number }}
+ * @param {{ catalogNames?: string[], overrides?: Array<{dimension:string,columnName:string|null}>, headers?: string[] }} ctx
+ * @returns {{ unique: object[], duplicates: number, missing: Map<string, string> }}
  */
-function prepareImport(submissions, { catalogNames = [], overrides = [] } = {}) {
+function prepareImport(submissions, { catalogNames = [], overrides = [], headers } = {}) {
   const list = submissions || [];
   const unique = uniqueByExternalId(list);
   const canonical = groupPathRenamer(catalogNames);
+  const missing = overrides.length ? missingOverrides(overrides, headers || keysOfSubmissions(unique), catalogNames) : new Map();
   for (const s of unique) {
     s.data = canonical(s.data || {});
-    if (overrides.length) applyFieldOverrides(s, overrides);
+    if (overrides.length) applyFieldOverrides(s, overrides, { missing });
   }
-  return { unique, duplicates: list.length - unique.length };
+  return { unique, duplicates: list.length - unique.length, missing };
 }
 
 /**
  * Ce que contient un fichier lu, avant de l'importer (rien n'est écrit) :
  * nombre de soumissions, colonne reconnue pour chaque champ MEMS (celle choisie dans
- * « Mapping MEMS » quand il y en a une : `manual`), mois couverts, première et dernière
+ * « Mapping MEMS » quand il y en a une : `manual` — reconnue seulement si le fichier la
+ * contient, sinon `missing[champ]` = la colonne choisie, absente), mois couverts, première et dernière
  * date, doublons dans le fichier, lignes sans identifiant (un réimport les compterait
  * deux fois). Mois, dates et comptes « mois de collecte » portent sur ce que l'import
  * écrira (`unique`, sortie de prepareImport) : les mêmes que son compte rendu. Logique pure.
  * @param {object[]} submissions  sortie de parseSubmissions
  * @param {string[]} headers       colonnes (ou variables SPSS) du fichier
- * @param {{ unique?: object[], overrides?: Array<{dimension:string,columnName:string|null}> }} [opts]
+ * @param {{ unique?: object[], overrides?: Array<{dimension:string,columnName:string|null}>,
+ *   missing?: Map<string,string>, catalogNames?: string[] }} [opts]  `missing` : sortie de prepareImport
  */
-function analyzeSubmissions(submissions, headers = [], { unique, overrides = [] } = {}) {
+function analyzeSubmissions(submissions, headers = [], { unique, overrides = [], missing, catalogNames = [] } = {}) {
   const list = submissions || [];
   const kept = unique || uniqueByExternalId(list);
   const cols = (headers || []).filter((h) => h != null && h !== '');
   const picks = buildLookup(cols, list.slice(0, 50).map((x) => cols.map((h) => (x.data || {})[h])));
   const recognized = Object.fromEntries(ANALYZED_FIELDS.map((f) => [f, picks[f] != null ? cols[picks[f]] : null]));
   const manual = [];
+  // Colonne choisie absente du fichier : jamais montrée « reconnue » (l'import ne la lira pas).
+  const absent = missing || missingOverrides(overrides, cols, catalogNames);
+  const missingCols = {};
   for (const o of overrides) {
     if (!ANALYZED_FIELDS.includes(o.dimension)) continue;
-    recognized[o.dimension] = (o.columnName || '').trim() || null;
+    const col = (o.columnName || '').trim();
+    recognized[o.dimension] = col && !absent.has(o.dimension) ? col : null;
+    if (col && absent.has(o.dimension)) missingCols[o.dimension] = col;
     manual.push(o.dimension);
   }
   const months = new Map();
@@ -581,6 +635,7 @@ function analyzeSubmissions(submissions, headers = [], { unique, overrides = [] 
     count: list.length,
     recognized,
     manual,
+    missing: missingCols,
     months: [...months.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([month, n]) => ({ month, n })),
     from, to, duplicatesInFile, withoutId, withoutDate,
     dates: dateSummary(kept),
@@ -600,8 +655,8 @@ function analyzeSubmissions(submissions, headers = [], { unique, overrides = [] 
  */
 function previewImport(submissions, headers = [], ctx = {}) {
   const list = submissions || [];
-  const { unique } = prepareImport(list.map((s) => ({ ...s })), ctx);
-  return analyzeSubmissions(list, headers, { unique, overrides: ctx.overrides || [] });
+  const { unique, missing } = prepareImport(list.map((s) => ({ ...s })), { ...ctx, headers });
+  return analyzeSubmissions(list, headers, { unique, overrides: ctx.overrides || [], missing });
 }
 
 // Donne un identifiant stable (dé-duplication) aux soumissions sans _uuid,
@@ -720,5 +775,5 @@ async function parseSubmissions(buffer, { zipLimits = zipLimitsFromEnv(process.e
 
 module.exports = {
   parseSubmissions, submissionsFromObjects, parseCsv, buildLookup, valueOf, groupPathRenamer, analyzeSubmissions, previewImport,
-  collectionColumns, applySurveyDate, applyFieldOverrides, prepareImport, uniqueByExternalId, dateSummary, TRIM_CLASS, MAP,
+  collectionColumns, applySurveyDate, applyFieldOverrides, prepareImport, missingOverrides, uniqueByExternalId, dateSummary, TRIM_CLASS, MAP,
 };

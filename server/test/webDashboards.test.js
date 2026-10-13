@@ -89,3 +89,42 @@ test('tableaux de bord modifiés : chaque phrase affichée a sa traduction angla
   assert.ok(checked >= 40, `phrases vérifiées : ${checked}`);
   for (const label of ['Budget', 'Contrats', 'Rapports', 'Terrain']) assert.ok(EN[label], label);
 });
+
+test('Centre d\'alertes sur téléphone (320–390 px) : la catégorie passe à la ligne, jamais tronquée en « C… »', (t) => {
+  const file = webFile('styles.css');
+  if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }
+  const css = fs.readFileSync(file, 'utf8');
+  // Bloc « téléphone » du tableau des alertes (cartes empilées).
+  const start = css.indexOf('@media (max-width: 640px) {\n  .alerts-table thead');
+  assert.ok(start >= 0, 'bloc téléphone du Centre d\'alertes');
+  const block = css.slice(start, css.indexOf('\n}', start));
+  const rule = (sel) => {
+    const m = block.match(new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`));
+    return m ? m[1] : '';
+  };
+  // Ligne flexible : la catégorie suit le niveau quand elle tient, sinon elle passe sur sa propre ligne.
+  assert.match(rule('.alerts-table tbody tr'), /flex-wrap:\s*wrap/);
+  const cat = rule('.alerts-table td.al-cat');
+  assert.match(cat, /min-width:\s*min-content/);
+  assert.match(cat, /white-space:\s*normal/);
+  assert.doesNotMatch(cat, /text-overflow:\s*ellipsis/);
+  assert.doesNotMatch(cat, /overflow:\s*hidden/);
+  // Titre et détail prennent toute la ligne ; « Ouvrir » reste à droite (place réservée).
+  assert.match(rule('.alerts-table td.al-title'), /flex:\s*1 1 100%/);
+  assert.match(rule('.alerts-table td.al-go'), /position:\s*absolute/);
+  assert.match(rule('.alerts-table tbody tr'), /padding:\s*12px 52px 12px 14px/);
+});
+
+test('commentaires du front : chaque test cité existe (server/test/…)', (t) => {
+  const dir = webFile('lib');
+  if (!fs.existsSync(dir)) { t.skip('web/ absent'); return; }
+  let cited = 0;
+  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.js'))) {
+    const src = fs.readFileSync(path.join(dir, f), 'utf8');
+    for (const [, name] of src.matchAll(/server\/test\/([\w.-]+\.test\.js)/g)) {
+      assert.ok(fs.existsSync(path.join(__dirname, name)), `web/src/lib/${f} cite server/test/${name}, introuvable`);
+      cited += 1;
+    }
+  }
+  assert.ok(cited >= 2, `tests cités : ${cited}`);
+});

@@ -6,7 +6,7 @@ import Modal from '../../components/Modal.jsx';
 import MonthSelect from '../../components/MonthSelect.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
-import { choiceText, draftErrors, draftBody, draftPatch, editorTitle, indicatorErrorText, isPctAgg, previewBody, toDraft } from '../../lib/indicatorView.js';
+import { choiceText, draftErrors, draftBody, draftPatch, editorTitle, indicatorErrorText, isPctAgg, previewBody, scoredControl, toDraft } from '../../lib/indicatorView.js';
 import VariablePicker, { findVariable } from './VariablePicker.jsx';
 import IndicatorExplain, { useIndicatorPreview } from './IndicatorExplain.jsx';
 
@@ -134,6 +134,7 @@ export default function IndicatorEditor({ form, indicator, period: initialPeriod
   })();
   const extra = (vals) => vals.filter((v) => !choiceList.some((c) => c.value.toLowerCase() === String(v).toLowerCase())).map((v) => ({ value: v, label: null }));
   const method = METHODS.find((m) => m.id === draft.agg) || METHODS[0];
+  const scoring = scoredControl(draft.agg);
   const fieldError = (k) => (touched && errors[k] ? tr(errors[k]) : undefined);
 
   async function save() {
@@ -247,11 +248,15 @@ export default function IndicatorEditor({ form, indicator, period: initialPeriod
                 </div>
               </div>
             </div>
-            {/* Seuls les indicateurs en % entrent dans l'indice (overallIndex) : la case n'a de sens que pour eux.
-                L'explication qui la remplace n'est PAS une astuce (.hint, masquée par « astuces désactivées ») : toujours affichée. */}
-            {isPctAgg(draft.agg)
-              ? <label className="ie-check"><input type="checkbox" checked={draft.scored} onChange={(e) => set({ scored: e.target.checked })} /> {tr('Compte dans l\'indice de conformité')}</label>
-              : <p className="ie-index-note">{tr('Hors indice de conformité : seuls les indicateurs en % y entrent (une moyenne, une somme ou un nombre n\'y compte pas).')}</p>}
+            {/* « scored » vaut pour TOUTES les méthodes (classes de Couverture & performance) : la case
+                n'est jamais masquée, sa valeur n'est donc jamais reportée en silence quand la méthode change.
+                Un % entre aussi dans l'indice ; pour les autres, la note le dit — ce n'est PAS une astuce
+                (.hint, masquée par « astuces désactivées ») : toujours affichée. */}
+            <div className="ie-scored">
+              <label className="ie-check"><input type="checkbox" checked={draft.scored} onChange={(e) => set({ scored: e.target.checked })} /> {tr(scoring.label)}</label>
+              <div className="hint">{tr(scoring.off)}</div>
+              {scoring.note && <p className="ie-index-note">{tr(scoring.note)}</p>}
+            </div>
             {editing && <label className="ie-check"><input type="checkbox" checked={draft.active} onChange={(e) => set({ active: e.target.checked })} /> {tr('Actif (calculé et affiché dans les résultats)')}</label>}
           </fieldset>
         </div>

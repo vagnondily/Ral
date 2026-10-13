@@ -12,6 +12,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const repo = require('../src/modules/monitoring/monitoring.repository');
 const { repairCollectionMonths, REPAIRS } = require('../src/db/dataRepairs');
+const { parseSubmissions, prepareImport, previewImport, collectionColumns } = require('../src/modules/monitoring/submissionsImport');
 
 const T = '11111111-1111-1111-1111-111111111111';
 const F = '22222222-2222-2222-2222-222222222222';
@@ -104,6 +105,38 @@ test('date d\'enquête choisie dans « Mapping MEMS » : la colonne choisie, pui
   await repo.rederiveCollectionDatesTx(fakeClient(rows, { overrides }), T, F);
   assert.equal(rows[0].period_month, '2026-02-01');
   assert.equal(rows[0].submitted_at.toISOString(), '2026-02-03T08:00:00.000Z');
+});
+
+test('export « avec les groupes » + catalogue : SvyDate sous un groupe passe avant today — import, vérification et relecture d\'accord', async () => {
+  // SvyDate n'existe que sous un groupe, today en nom complet : l'ordre des ALIAS décide
+  // (SvyDate → today → start → end), pas « tous les noms complets d'abord ».
+  const csv = '_uuid,Technical_module/SvyDate,today,_submission_time\nu1,2026-01-30,2026-02-02,2026-02-02T09:00:00\n';
+  const headers = ['_uuid', 'Technical_module/SvyDate', 'today', '_submission_time'];
+  const catalogNames = ['SvyDate', 'today'];
+  // Import : lecture des en-têtes bruts, puis clés renommées par le catalogue.
+  const { submissions } = await parseSubmissions(Buffer.from(csv));
+  assert.equal(submissions[0].periodMonth, '2026-01-01');
+  const { unique: [written] } = prepareImport(submissions.map((x) => ({ ...x })), { catalogNames });
+  assert.equal(written.periodMonth, '2026-01-01');
+  assert.equal(written.data.SvyDate, '2026-01-30');
+  // Vérification avant import : même mois.
+  const preview = previewImport(submissions, headers, { catalogNames });
+  assert.deepEqual(preview.months, [{ month: '2026-01-01', n: 1 }]);
+  assert.equal(preview.recognized.survey_date, 'Technical_module/SvyDate');
+  // Mêmes colonnes, par priorité, sur les en-têtes bruts, les clés renommées et « Mapping MEMS » (catalogue + clés).
+  assert.deepEqual(collectionColumns(headers).surveyCols, ['Technical_module/SvyDate', 'today']);
+  assert.deepEqual(collectionColumns(Object.keys(written.data)).surveyCols, ['SvyDate', 'today']);
+  assert.equal(collectionColumns([...catalogNames, ...Object.keys(written.data)]).surveyCols[0], 'SvyDate');
+  // Relecture (« Appliquer », r4) des réponses enregistrées — renommées, ou brutes (fiche sans catalogue
+  // à l'import) : même mois, rien à changer quand l'import l'a déjà bien rangée.
+  const rows = [
+    sub('renamed', written.data, '2026-02-01'),
+    sub('raw', submissions[0].data, '2026-02-01'),
+    sub('ok', written.data, '2026-01-01', { upload_month: '2026-02-01', submitted_at: new Date('2026-01-30T00:00:00Z') }),
+  ];
+  const r = await repo.rederiveCollectionDatesTx(fakeClient(rows), T, F);
+  assert.deepEqual(rows.map((x) => x.period_month), ['2026-01-01', '2026-01-01', '2026-01-01']);
+  assert.deepEqual([r.updates, r.monthChanged], [2, 2]);
 });
 
 test('fiche sans colonne de date : toutes les soumissions comptées « sans date », aucune lecture des réponses, aucune écriture', async () => {

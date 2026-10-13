@@ -6,7 +6,7 @@ import { usePopover } from '../../components/listView.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { downloadCsv } from '../../lib/csv.js';
 import { formatLocale } from '../../lib/format.js';
-import { INDEX_STATUS_LABEL, INDICATOR_STATUS, indexStatus, progress as progressOf } from '../../lib/indicatorView.js';
+import { CLASSES_STATUS_LABEL, INDEX_STATUS_LABEL, INDICATOR_STATUS, classesStatus, indexStatus, progress as progressOf } from '../../lib/indicatorView.js';
 import IndicatorExplain, { useIndicatorPreview } from './IndicatorExplain.jsx';
 
 /**
@@ -256,6 +256,8 @@ function IndicatorDrawer({ ind, moduleLabel, formId, period, periodLabel, onEdit
     [tr('Sens'), ind.direction === 'lower_better' ? tr('↓ plus bas = mieux') : tr('↑ plus haut = mieux')],
     // Seuls les indicateurs en % entrent dans l'indice : une moyenne, une somme ou un nombre n'y compte jamais.
     [tr('Indice'), tr(INDEX_STATUS_LABEL[indexStatus(ind)])],
+    // Toutes les méthodes : compté dans les classes de Couverture & performance, ou complémentaire.
+    [tr('Couverture & performance'), tr(CLASSES_STATUS_LABEL[classesStatus(ind)])],
     ...(ind.base != null ? [[tr('Base de calcul'), ind.base]] : []),
   ];
   return (

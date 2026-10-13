@@ -230,7 +230,8 @@ router.post('/forms/:id/import/preview', WRITE, express.raw({ type: '*/*', limit
 router.post('/forms/:id/import', WRITE, express.raw({ type: '*/*', limit: '80mb' }), asyncHandler(async (req, res) => {
   const { submissions, headers, variables } = await readSubmissionsFile(req);
   // Les variables du .sav nomment les colonnes (sans XLSForm) ou complètent les listes codées (avec).
-  const result = await repo.importSubmissions(t(req), req.params.id, submissions, { variables });
+  const result = await repo.importSubmissions(t(req), req.params.id, submissions,
+    { variables, headers: variables ? variables.map((v) => v.name) : headers });
   if (!result) throw notFound('Formulaire introuvable');
   res.json({ ...result, fields: variables ? variables.length : headers.length });
 }));
