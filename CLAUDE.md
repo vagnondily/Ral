@@ -77,9 +77,15 @@ trade-off arises, decide in this order:
      loop condition, nor `getRow`/`getCell` over a range (they rescan or create the
      sheet); a table read stops at the LAST row, never at a row count.
    - Tenant-wide re-application of submission links (`applySubmissionsGeoTx`,
-     `applySubmissionPartiesTx`, `applySubmissionSitesTx`) is serialised by
-     `lockSubmissionLinksTx`: take it FIRST in any transaction that writes
-     submissions, value links, partners/agents or sites and then re-applies.
+     `applySubmissionPartiesTx`, `applySubmissionSitesTx`, `afterSitesChangedTx`)
+     is serialised by a per-tenant advisory lock. Any write to submissions, value
+     links, partners/agents, offices, sites or admin areas that then re-applies
+     runs in `places.withSubmissionLinks(tenantId, fn)` instead of
+     `withTenantTransaction`: it takes the lock FIRST with a non-blocking try and,
+     when busy, rolls back, gives the connection back to the pool and retries
+     (jittered 100→500 ms; 503 « réessayez » after 20 s) — so waiting writers never
+     starve the pool. Inside it, `lockSubmissionLinksTx` is a no-op; elsewhere it
+     blocks (lock_timeout 20 s → 503).
    - Index the columns you filter/group on for the queries that run hot.
 
 ## Run it (Windows, PostgreSQL already installed, no Docker)
@@ -446,7 +452,7 @@ or navy rail.
   `server/src/db/seed.js` (not shown in the UI).
 
 ## Testing
-`cd server && npm test` (465+ unit tests on the pure business logic: budget/expense
+`cd server && npm test` (474+ unit tests on the pure business logic: budget/expense
 math incl. the per-line **% bailleur** split and 2-activity allocation,
 plan-month normalization, workflow state machine, the consolidation engine, the
 budget Excel round-trip, the INVOICE workbook, and the field-visit coverage math
