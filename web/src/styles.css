@@ -2416,6 +2416,10 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .vp-group-path { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vp-warn { display: flex; align-items: flex-start; gap: 6px; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--orange-bg); color: var(--orange-text); font-size: 12.5px; }
 .vp-warn svg { flex: none; margin-top: 2px; }
+.vp-relevant { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; font-size: 12px; min-width: 0; }
+.vp-relevant .skip-expr { max-width: 100%; }
+.ie-index-note { margin: 0; font-size: 12.5px; }
+.ix-bar-cap { margin-bottom: 4px; }
 .vp-opts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 
 /* « Comment c'est calculé » : étapes, barre de répartition, réponses, règle de classement. */

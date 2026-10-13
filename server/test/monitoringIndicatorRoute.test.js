@@ -95,6 +95,28 @@ test('POST : « % = valeur » sans valeur comptée → 400 sans écriture ; code
   assert.equal((await request(app).post('/api/monitoring/forms/99999999-9999-9999-9999-999999999999/indicators').set(as(manager)).send({ code: 'B', label: 'B', sourceField: 'q' })).status, 404);
 });
 
+test('erreurs structurées : message français + code, pour que l\'interface refasse la phrase dans sa langue', async () => {
+  const taken = await request(app).post(`/api/monitoring/forms/${FORM}/indicators`).set(as(manager)).send({ code: 'PRIS', label: 'A', sourceField: 'q' });
+  assert.equal(taken.status, 409);
+  assert.equal(taken.body.error, 'Un indicateur avec ce code existe déjà sur cette fiche.');
+  assert.deepEqual(taken.body.details, { code: 'duplicate_code', field: 'code', value: 'PRIS' });
+  const takenPatch = await request(app).patch(`/api/monitoring/indicators/${IND}`).set(as(manager)).send({ code: 'PRIS' });
+  assert.equal(takenPatch.body.details.code, 'duplicate_code');
+  const n = calls.length;
+  const bad = await request(app).post(`/api/monitoring/forms/${FORM}/indicators`).set(as(manager))
+    .send({ code: 'A', label: 'A', sourceField: 'q', agg: 'percent_value' });
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.error, /« % = valeur » : précisez la valeur comptée/);
+  assert.equal(bad.body.details.code, 'positive_required');
+  assert.equal(bad.body.details.field, 'positiveValue');
+  assert.equal(calls.length, n); // rien n'a atteint le dépôt
+  // Autres erreurs de saisie : inchangées (« Données invalides », sans code).
+  const other = await request(app).post(`/api/monitoring/forms/${FORM}/indicators`).set(as(manager)).send({ code: '', label: 'A', sourceField: 'q' });
+  assert.equal(other.status, 400);
+  assert.equal(other.body.error, 'Données invalides');
+  assert.equal(other.body.details.code, undefined);
+});
+
 test('aperçu du calcul : lecture pour tout utilisateur, période transmise, méthode par défaut % de oui', async () => {
   const res = await request(app).post(`/api/monitoring/forms/${FORM}/indicators/preview`).set(as(viewer))
     .send({ sourceField: 'MOInfoSession', positiveValue: '1', naValues: ['9999'], month: '2026-07' });

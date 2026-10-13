@@ -79,6 +79,38 @@ test('resolveVariable : nom exact, puis variante de casse, sinon erreur avec la 
   assert.match(resolveVariable('', known).error, /Choisissez la variable/);
 });
 
+test('logique de saut (relevant) : jointe à la question et à ses options éclatées, absente ailleurs', () => {
+  const withSkip = [
+    { ...catalog[0], relevant: " ${MOInfoSession} = '1' " },
+    { ...catalog[1], relevant: '' },
+    ...catalog.slice(2),
+  ];
+  const vars = describeVariables({
+    catalog: withSkip, choicesByList, dataKeys: ['MODistPtsDign.1', '_uuid'],
+    calcFields: [{ name: 'score_dign', label: 'Score dignité' }],
+  });
+  assert.equal(vars.find((v) => v.name === 'MODistPtsDign').relevant, "${MOInfoSession} = '1'");
+  // Une option n'est renseignée que si sa question est posée : même condition.
+  assert.equal(vars.find((v) => v.name === 'MODistPtsDign.1').relevant, "${MOInfoSession} = '1'");
+  assert.equal(vars.find((v) => v.name === 'MOInfoSession').relevant, null); // vide = toujours posée
+  assert.equal(vars.find((v) => v.name === 'HHSize').relevant, null);
+  assert.equal(vars.find((v) => v.name === '_uuid').relevant, null);
+  assert.equal(vars.find((v) => v.name === 'score_dign').relevant, null);
+});
+
+test('resolveVariable : erreur structurée (code, nom demandé, suggestion) pour refaire la phrase dans la langue de l\'interface', () => {
+  const known = ['MOInfoSession', 'Field_office'];
+  assert.deepEqual(resolveVariable(' MOInfoSesion ', known), {
+    error: 'Variable « MOInfoSesion » introuvable dans cette fiche — vouliez-vous dire « MOInfoSession » ?',
+    code: 'unknown_variable', requested: 'MOInfoSesion', suggestion: 'MOInfoSession',
+  });
+  const none = resolveVariable('totalement_autre', known);
+  assert.equal(none.code, 'unknown_variable');
+  assert.equal(none.requested, 'totalement_autre');
+  assert.equal(none.suggestion, null);
+  assert.equal(resolveVariable('  ', known).code, 'variable_required');
+});
+
 test('optionParentName', () => {
   assert.equal(optionParentName('MODistPtsDign.3'), 'MODistPtsDign');
   assert.equal(optionParentName('group/q/2'), 'group/q');

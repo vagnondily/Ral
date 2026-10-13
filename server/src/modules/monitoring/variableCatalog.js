@@ -24,6 +24,11 @@ const OPTION_CHOICES = Object.freeze([{ value: '1', label: 'sélectionné' }, { 
 const DEFAULT_MAX_CHOICES = 40;
 
 const lower = (s) => String(s == null ? '' : s).toLowerCase();
+/** Logique de saut (colonne « relevant » du XLSForm) d'un champ : l'expression, ou null. */
+const relevantOf = (f) => {
+  const r = f && f.relevant != null ? String(f.relevant).trim() : '';
+  return r || null;
+};
 
 function choicesOf(choicesByList, list) {
   if (!list || !choicesByList) return [];
@@ -34,13 +39,13 @@ function choicesOf(choicesByList, list) {
 /**
  * Décrit toutes les variables d'une fiche.
  * @param {object} input
- * @param {Array<{name, label?, type?, group?, listName?}>} [input.catalog]  champs du XLSForm / .sav
+ * @param {Array<{name, label?, type?, group?, listName?, relevant?}>} [input.catalog]  champs du XLSForm / .sav
  * @param {Map<string, Array<{value,label}>>|object} [input.choicesByList]  listes de choix
  * @param {string[]} [input.dataKeys]  colonnes vues dans les soumissions
  * @param {Array<{name, label?, id?}>} [input.calcFields]  champs calculés
  * @param {Map<string, number>|object} [input.fill]  réponses renseignées par variable (échantillon)
  * @param {number} [input.maxChoices]  au-delà, la liste de choix n'est pas jointe (lieux, écoles…)
- * @returns {Array<{ name, label, kind: 'question'|'option'|'data'|'calc', type, group, choices,
+ * @returns {Array<{ name, label, kind: 'question'|'option'|'data'|'calc', type, group, relevant, choices,
  *   filled: number|null, parent?: string, choice?: string }>}
  */
 function describeVariables({ catalog = [], choicesByList = null, dataKeys = [], calcFields = [], fill = null, maxChoices = DEFAULT_MAX_CHOICES } = {}) {
@@ -65,6 +70,8 @@ function describeVariables({ catalog = [], choicesByList = null, dataKeys = [], 
     kind: 'option',
     type: 'option',
     group: opt.parent.group || own.group || null,
+    // Une option n'est renseignée que si sa question est posée : la logique de saut de la question.
+    relevant: relevantOf(opt.parent) || relevantOf(own),
     choices: OPTION_CHOICES.map((c) => ({ ...c })),
     filled: filledOf(name),
     parent: opt.parent.name,
@@ -85,6 +92,7 @@ function describeVariables({ catalog = [], choicesByList = null, dataKeys = [], 
       kind: 'question',
       type: f.type || null,
       group: f.group || null,
+      relevant: relevantOf(f),
       choices: choices.length <= maxChoices ? choices.map((c) => ({ value: String(c.value), label: c.label == null ? null : String(c.label) })) : [],
       filled: filledOf(f.name),
     });
@@ -93,13 +101,13 @@ function describeVariables({ catalog = [], choicesByList = null, dataKeys = [], 
     if (!k || seen.has(lower(k))) continue;
     seen.add(lower(k));
     const opt = optionOf(k);
-    out.push(opt ? optionEntry(k, opt) : { name: k, label: null, kind: 'data', type: null, group: null, choices: [], filled: filledOf(k) });
+    out.push(opt ? optionEntry(k, opt) : { name: k, label: null, kind: 'data', type: null, group: null, relevant: null, choices: [], filled: filledOf(k) });
   }
   for (const c of calcFields || []) {
     if (!c || !c.name) continue;
     // Un champ calculé du même nom qu'une colonne la remplace dans le calcul (withCalc) : il est listé comme tel.
     const at = out.findIndex((v) => lower(v.name) === lower(c.name));
-    const entry = { name: c.name, label: c.label || null, kind: 'calc', type: 'calculate', group: null, choices: [], filled: c.filled == null ? null : Number(c.filled) };
+    const entry = { name: c.name, label: c.label || null, kind: 'calc', type: 'calculate', group: null, relevant: null, choices: [], filled: c.filled == null ? null : Number(c.filled) };
     if (at >= 0) out.splice(at, 1, entry); else out.push(entry);
   }
   return out;
@@ -111,11 +119,14 @@ function describeVariables({ catalog = [], choicesByList = null, dataKeys = [], 
  * erreur lisible avec la variable la plus proche.
  * @param {string} name
  * @param {Iterable<string>} known
- * @returns {{ name: string } | { error: string, suggestion: string|null }}
+ * `code` (variable_required | unknown_variable), `requested` (le nom demandé)
+ * et `suggestion` permettent à l'interface de refaire la phrase dans sa langue ;
+ * `error` est le message français de l'API.
+ * @returns {{ name: string } | { error: string, code: string, requested: string, suggestion: string|null }}
  */
 function resolveVariable(name, known) {
   const n = String(name == null ? '' : name).trim();
-  if (!n) return { error: 'Choisissez la variable source.', suggestion: null };
+  if (!n) return { error: 'Choisissez la variable source.', code: 'variable_required', requested: '', suggestion: null };
   const list = [...(known || [])].filter(Boolean).map(String);
   if (list.includes(n)) return { name: n };
   const ci = list.find((k) => k.toLowerCase() === n.toLowerCase());
@@ -123,6 +134,8 @@ function resolveVariable(name, known) {
   const hint = closest(n, list);
   return {
     error: `Variable « ${n} » introuvable dans cette fiche${hint ? ` — vouliez-vous dire « ${hint} » ?` : ' (ni dans le formulaire, ni dans les données, ni parmi les champs calculés).'}`,
+    code: 'unknown_variable',
+    requested: n,
     suggestion: hint || null,
   };
 }

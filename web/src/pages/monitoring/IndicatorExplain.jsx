@@ -4,7 +4,9 @@ import { api } from '../../api/client.js';
 import { Alert, Badge, Skeleton, StatusBadge } from '../../components/ui.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, formatLocale, monthLabel } from '../../lib/format.js';
-import { INDICATOR_STATUS, choiceText, classificationRule, explainSegments } from '../../lib/indicatorView.js';
+import {
+  INDICATOR_STATUS, choiceText, classificationRule, explainSegments, indexStatus, indicatorErrorText, segmentShareText, unknownVariableText,
+} from '../../lib/indicatorView.js';
 
 /**
  * « Comment c'est calculé » — explication d'un indicateur sur les soumissions
@@ -31,7 +33,8 @@ export function useIndicatorPreview(formId, body, { enabled = true } = {}) {
     const h = setTimeout(() => {
       api.monIndicatorPreview(formId, body)
         .then((data) => alive && setState({ loading: false, data, error: null }))
-        .catch((e) => alive && setState({ loading: false, data: null, error: e.message }));
+        // L'erreur garde son statut et ses détails structurés : la phrase est refaite dans la langue de l'interface.
+        .catch((e) => alive && setState({ loading: false, data: null, error: { message: e.message, status: e.status, details: e.details } }));
     }, 450);
     return () => { alive = false; clearTimeout(h); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -87,9 +90,11 @@ function RuleText({ explain, direction, scored }) {
   return (
     <div className="ix-rule">
       <div className="ix-rule-head"><StatusBadge def={INDICATOR_STATUS[c.rating] || INDICATOR_STATUS.na} /> <span>{text}</span></div>
-      {scored != null && <div className="muted ix-small">{!(explain.agg === 'percent_yes' || explain.agg === 'percent_value')
-        ? tr('Seuls les indicateurs en % entrent dans l\'indice de conformité.')
-        : scored ? tr('Compte dans l\'indice de conformité de la fiche.') : tr('Hors indice : affiché, mais n\'entre pas dans l\'indice de conformité.')}</div>}
+      {scored != null && <div className="muted ix-small">{{
+        not_pct: tr('Seuls les indicateurs en % entrent dans l\'indice de conformité.'),
+        in: tr('Compte dans l\'indice de conformité de la fiche.'),
+        excluded: tr('Hors indice : affiché, mais n\'entre pas dans l\'indice de conformité.'),
+      }[indexStatus({ agg: explain.agg, scored })]}</div>}
     </div>
   );
 }
@@ -118,7 +123,7 @@ function Formula({ x, positives }) {
 export default function IndicatorExplain({ preview, direction, scored, periodLabel }) {
   const { tr } = useI18n();
   const d = preview.data;
-  if (preview.error) return <Alert tone="error" icon={AlertTriangle}>{preview.error}</Alert>;
+  if (preview.error) return <Alert tone="error" icon={AlertTriangle}>{indicatorErrorText(preview.error, tr)}</Alert>;
   if (!d) {
     return preview.loading ? <Skeleton height={180} /> : <p className="muted ix-small">{tr('Choisissez une variable pour voir comment l\'indicateur est calculé.')}</p>;
   }
@@ -132,7 +137,9 @@ export default function IndicatorExplain({ preview, direction, scored, periodLab
   return (
     <div className={`ix${preview.loading ? ' is-stale' : ''}`} aria-live="polite">
       {preview.loading && <span className="ix-loading muted"><Loader2 size={13} className="spin" aria-hidden="true" /> {tr('Recalcul…')}</span>}
-      {d.check && d.check.known === false && <Alert tone="warning" icon={AlertTriangle}>{d.check.error}</Alert>}
+      {d.check && d.check.known === false && (
+        <Alert tone="warning" icon={AlertTriangle}>{d.check.code ? unknownVariableText(d.check.name, d.check.suggestion, tr) : d.check.error}</Alert>
+      )}
       {d.check && d.check.known && <Alert tone="info" icon={Info}>{tr('La variable « {name} » n\'a aucune réponse sur cette période.', { name: d.check.name })}</Alert>}
       {d.variable && (
         <div className="ix-var">
@@ -164,12 +171,14 @@ export default function IndicatorExplain({ preview, direction, scored, periodLab
 
       {segments.length > 0 && (
         <div className="ix-bar-wrap">
-          <div className="ix-bar" role="img" aria-label={segments.map((s) => `${tr(SEGMENT[s.key])} ${s.n}`).join(', ')}>
+          {/* Parts rapportées à TOUTES les soumissions de la période (≠ % de l'indicateur, calculé sur la base). */}
+          <div className="muted ix-small ix-bar-cap">{tr('Répartition des {n} soumission(s) de la période :', { n: formatInt(x.total) })}</div>
+          <div className="ix-bar" role="img" aria-label={segments.map((s) => `${tr(SEGMENT[s.key])} ${s.n} (${segmentShareText(s, tr, fmtNum)})`).join(', ')}>
             {segments.map((s) => <span key={s.key} className={`ix-seg is-${s.key}`} style={{ width: `${Math.max(s.pct, 0.8)}%` }} />)}
           </div>
           <ul className="ix-legend">
             {segments.map((s) => (
-              <li key={s.key}><span className={`ix-swatch is-${s.key}`} aria-hidden="true" />{tr(SEGMENT[s.key])} <b className="tabular">{formatInt(s.n)}</b> <span className="muted">({fmtNum(s.pct)} %)</span></li>
+              <li key={s.key}><span className={`ix-swatch is-${s.key}`} aria-hidden="true" />{tr(SEGMENT[s.key])} <b className="tabular">{formatInt(s.n)}</b> <span className="muted">({segmentShareText(s, tr, fmtNum)})</span></li>
             ))}
           </ul>
         </div>

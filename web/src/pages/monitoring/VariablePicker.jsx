@@ -141,6 +141,12 @@ export default function VariablePicker({ id, variables, sampled, value, onChange
             {selected.group && <span className="vp-group-path" title={selected.group}>{selected.group}</span>}
             <FillText v={selected} sampled={sampled} />
           </div>
+          {/* Logique de saut (« relevant » du XLSForm) : la question n'est posée que si elle est vraie. */}
+          {selected.relevant && (
+            <div className="vp-relevant" title={tr('La question n\'est posée que si cette condition est vraie : les autres soumissions n\'ont pas de réponse (« sans réponse » ou « sans la variable » dans le calcul).')}>
+              <span className="muted">{tr('Logique de saut :')}</span> <code className="skip-expr">{selected.relevant}</code>
+            </div>
+          )}
           {isMultiple(selected) && (
             <div className="vp-warn">
               <AlertTriangle size={14} aria-hidden="true" />

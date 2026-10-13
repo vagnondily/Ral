@@ -124,6 +124,32 @@ function computeIndicator(indicator, submissions, names = [indicator.sourceField
 const BANDS = { exc: 80, sat: 65, imp: 50 };
 // Écart relatif à la cible, en % : ≤ sat → Satisfaisant ; ≤ imp → À améliorer ; au-delà → Action urgente.
 const TARGET_GAPS = { sat: 10, imp: 30 };
+// Seuil franchi par chaque classe sous la cible : l'écart d'une classe est TOUJOURS au-dessus.
+const GAP_FLOOR = { sat: 0, imp: TARGET_GAPS.sat, urg: TARGET_GAPS.imp };
+
+/**
+ * Écart à la cible en %, débarrassé du bruit des flottants pour la comparaison
+ * aux seuils : 2,7 face à 3 est un écart de 10 % pile (Satisfaisant), pas de
+ * 10,000000000000009 % (À améliorer).
+ */
+const snapPct = (x) => Math.round(x * 1e9) / 1e9;
+
+/**
+ * Écart AFFICHÉ, cohérent avec la classe : arrondi au dixième, sauf s'il
+ * retomberait sur le seuil que la classe a franchi — 10,05 % est « À
+ * améliorer », l'afficher « 10 % » contredirait « ≤ 10 % : Satisfaisant ».
+ * Il est alors arrondi au centième SUPÉRIEUR (10,05), jamais au seuil ou en
+ * dessous ; de même un écart non nul ne s'affiche jamais « 0 % ».
+ * @param {number} gapPct écart en % (> 0 : cible non atteinte)
+ * @param {'sat'|'imp'|'urg'} rating classe obtenue avec cet écart
+ */
+function displayGap(gapPct, rating) {
+  const r = round1(gapPct);
+  const floor = GAP_FLOOR[rating];
+  if (floor == null || r > floor) return r;
+  const up = Math.ceil(Math.round(gapPct * 1e6) / 1e4) / 100;
+  return up > floor ? up : Math.round((floor + 0.01) * 100) / 100;
+}
 
 /**
  * Classe d'un résultat d'indicateur AVEC la règle appliquée — la MÊME partout
@@ -132,7 +158,8 @@ const TARGET_GAPS = { sat: 10, imp: 30 };
  *   - pas de valeur, ou aucune réponse comptée (base 0) → na (non évalué)
  *     — basis 'none', reason 'no_data' ;
  *   - avec cible : atteinte → exc ; écart relatif à la cible ≤ 10 % → sat ;
- *     ≤ 30 % → imp ; au-delà → urg — basis 'target', gapPct ;
+ *     ≤ 30 % → imp ; au-delà → urg — basis 'target', gapPct (l'écart affiché,
+ *     jamais en contradiction avec la classe : displayGap) ;
  *   - sans cible : bandes des modèles sur le score orienté d'un % (≥ 80 exc,
  *     ≥ 65 sat, ≥ 50 imp, sinon urg) — basis 'bands', oriented ; na pour une
  *     moyenne, une somme ou un nombre — basis 'none', reason 'no_target'.
@@ -152,9 +179,9 @@ function classifyDetail(result) {
   const value = Number(result.value);
   const better = result.direction !== 'lower_better';
   if (better ? value >= t : value <= t) return { rating: 'exc', basis: 'target', target: t, achieved: true, gapPct: 0, thresholds: { ...TARGET_GAPS } };
-  const gap = better ? (t - value) / (t || 1) : (value - t) / (t || 1);
-  const rating = gap <= TARGET_GAPS.sat / 100 ? 'sat' : gap <= TARGET_GAPS.imp / 100 ? 'imp' : 'urg';
-  return { rating, basis: 'target', target: t, achieved: false, gapPct: round1(gap * 100), thresholds: { ...TARGET_GAPS } };
+  const gap = snapPct(((better ? t - value : value - t) / (t || 1)) * 100);
+  const rating = gap <= TARGET_GAPS.sat ? 'sat' : gap <= TARGET_GAPS.imp ? 'imp' : 'urg';
+  return { rating, basis: 'target', target: t, achieved: false, gapPct: displayGap(gap, rating), thresholds: { ...TARGET_GAPS } };
 }
 
 /** Classe d'un résultat d'indicateur (exc / sat / imp / urg / na) : la règle de classifyDetail, la seule. */
@@ -336,6 +363,6 @@ function naReason(result, { periodCount } = {}) {
 }
 
 module.exports = {
-  computeIndicator, computeAll, rate, classify, classifyDetail, BANDS, TARGET_GAPS, overallIndex, orientedScore, toNumber, isYes,
+  computeIndicator, computeAll, rate, classify, classifyDetail, displayGap, BANDS, TARGET_GAPS, overallIndex, orientedScore, toNumber, isYes,
   keyIndex, namesFor, tallyIndicator, explainIndicator, isPercentAgg, positiveList, naReason,
 };

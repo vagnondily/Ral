@@ -25,6 +25,21 @@ export default {
   'Sans cible, un % est classé par les bandes 80 / 65 / 50.': 'Without a target, a % is rated with the 80 / 65 / 50 bands.',
   'Sans cible, une moyenne, une somme ou un nombre n\'est pas classé.': 'Without a target, a mean, sum or count is not rated.',
   'Compte dans l\'indice de conformité': 'Counts in the compliance index',
+  'Hors indice de conformité : seuls les indicateurs en % y entrent (une moyenne, une somme ou un nombre n\'y compte pas).':
+    'Not in the compliance index: only % indicators enter it (a mean, sum or count does not count).',
+  'Calcul de l\'indicateur': 'Indicator calculation',
+  // Erreurs de l'API, refaites dans la langue de l'interface (détails structurés)
+  'Variable « {name} » introuvable dans cette fiche — vouliez-vous dire « {suggestion} » ?':
+    'Variable “{name}” not found in this form — did you mean “{suggestion}”?',
+  'Variable « {name} » introuvable dans cette fiche (ni dans le formulaire, ni dans les données, ni parmi les champs calculés).':
+    'Variable “{name}” not found in this form (neither in the form, nor in the data, nor among the calculated fields).',
+  'Le code « {code} » est déjà utilisé par un autre indicateur de cette fiche : choisissez-en un autre.':
+    'The code “{code}” is already used by another indicator of this form: choose another one.',
+  'Méthode « % = valeur » : précisez la valeur comptée (ex. 1, ou 1|2 pour plusieurs).':
+    '“% = value” method: specify the counted value (e.g. 1, or 1|2 for several).',
+  'La valeur « {value} » est à la fois comptée et hors base : retirez-la de l\'une des deux listes.':
+    'The value “{value}” is both counted and excluded from the base: remove it from one of the two lists.',
+  'Cible invalide : saisissez un nombre.': 'Invalid target: enter a number.',
   'Actif (calculé et affiché dans les résultats)': 'Active (calculated and shown in the results)',
   'Créer l\'indicateur': 'Create indicator',
   'Indicateur créé.': 'Indicator created.',
@@ -61,6 +76,8 @@ export default {
   'Question à choix multiples : sa réponse est une liste de choix (« 1 3 5 »). Pour compter un choix précis, choisissez une de ses options :':
     'Multiple-choice question: its answer is a list of choices (“1 3 5”). To count a specific choice, pick one of its options:',
   '« {name} » n\'est pas dans le catalogue de la fiche : le serveur la vérifiera.': '“{name}” is not in the form catalogue: the server will check it.',
+  'La question n\'est posée que si cette condition est vraie : les autres soumissions n\'ont pas de réponse (« sans réponse » ou « sans la variable » dans le calcul).':
+    'The question is only asked when this condition is true: other submissions have no answer (“no answer” or “without the variable” in the calculation).',
   'sélectionné': 'selected',
   'non sélectionné': 'not selected',
   // Comment c'est calculé
@@ -95,6 +112,8 @@ export default {
   'Hors base': 'Excluded from base',
   'Sans réponse': 'No answer',
   'Sans la variable': 'Without the variable',
+  'Répartition des {n} soumission(s) de la période :': 'Breakdown of the {n} submission(s) of the period:',
+  '{pct} % des soumissions': '{pct} % of submissions',
   'Positives': 'Positive',
   'Négatives': 'Negative',
   'Comptées': 'Counted',
@@ -117,6 +136,7 @@ export default {
   'Supprimer « {label} »': 'Delete “{label}”',
   'Indice': 'Index',
   'compte dans l\'indice': 'counts in the index',
+  'hors indice (seuls les indicateurs en % comptent)': 'not in the index (only % indicators count)',
   'oui / yes / 1': 'oui / yes / 1',
   '{period} · {n} bureau(x)': '{period} · {n} office(s)',
   // Configuration et modèle de l'activité

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { computeIndicator, computeAll, rate, overallIndex, classify, classifyDetail, explainIndicator, keyIndex, namesFor } = require('../src/modules/monitoring/monitoringMath');
+const { computeIndicator, computeAll, rate, overallIndex, classify, classifyDetail, displayGap, explainIndicator, keyIndex, namesFor } = require('../src/modules/monitoring/monitoringMath');
 
 const subs = (field, values) => values.map((v) => ({ data: { [field]: v } }));
 
@@ -222,6 +222,37 @@ test('classifyDetail : la règle appliquée, et classify = classifyDetail().rati
   assert.equal(classifyDetail({ value: 3, base: 3, agg: 'count' }).reason, 'no_target');
   for (const r of [{ value: 90, target: 80 }, { value: 75, target: 80 }, { value: 60, target: 80 }, { value: 50, target: 80 }, { value: 70, agg: 'percent_yes' }, { value: 3, agg: 'mean' }, null]) {
     assert.equal(classify(r), classifyDetail(r).rating);
+  }
+});
+
+test('écart à la cible affiché : jamais en contradiction avec la classe (« ≤ 10 % : Satisfaisant »)', () => {
+  // Avant : 179,9 face à 200 = 10,05 % → « À améliorer », mais affiché « 10 % ».
+  const c = classifyDetail({ value: 179.9, base: 5, target: 200, agg: 'mean' });
+  assert.equal(c.rating, 'imp');
+  assert.ok(c.gapPct > c.thresholds.sat, `écart affiché ${c.gapPct} > 10`);
+  // Juste au-delà d'un seuil : arrondi au centième SUPÉRIEUR, jamais au seuil.
+  const near = classifyDetail({ value: 5.501, base: 3, target: 5, direction: 'lower_better', agg: 'mean' }); // 10,02 %
+  assert.deepEqual([near.rating, near.gapPct], ['imp', 10.02]);
+  const urg = classifyDetail({ value: 62.99, base: 10, target: 90, agg: 'percent_yes' }); // 30,011 %
+  assert.deepEqual([urg.rating, urg.gapPct], ['urg', 30.02]);
+  // Cible non atteinte : l'écart affiché n'est jamais « 0 % ».
+  const tiny = classifyDetail({ value: 89.96, base: 10, target: 90, agg: 'percent_yes' });
+  assert.equal(tiny.rating, 'sat');
+  assert.ok(tiny.gapPct > 0);
+  // Écart de 10 % pile malgré le bruit des flottants (2,7 / 3) : Satisfaisant, affiché 10.
+  assert.deepEqual(['rating', 'gapPct'].map((k) => classifyDetail({ value: 2.7, base: 4, target: 3, agg: 'mean' })[k]), ['sat', 10]);
+  assert.deepEqual(['rating', 'gapPct'].map((k) => classifyDetail({ value: 180, base: 4, target: 200, agg: 'mean' })[k]), ['sat', 10]);
+  // Ailleurs, l'arrondi au dixième est inchangé.
+  assert.equal(displayGap(76.444, 'urg'), 76.4);
+  assert.equal(displayGap(9.96, 'sat'), 10); // ≤ 10 : cohérent avec Satisfaisant
+  assert.equal(displayGap(10.000000001, 'imp'), 10.01);
+  // Balayage : pour toute valeur, l'écart affiché tombe dans la bande de la classe.
+  for (let v = 120; v <= 200; v += 0.01) {
+    const r = classifyDetail({ value: Math.round(v * 100) / 100, base: 1, target: 200, agg: 'mean' });
+    if (r.achieved) continue;
+    const g = r.gapPct;
+    const ok = r.rating === 'sat' ? g > 0 && g <= 10 : r.rating === 'imp' ? g > 10 && g <= 30 : g > 30;
+    assert.ok(ok, `valeur ${v} : ${r.rating} avec un écart affiché de ${g} %`);
   }
 });
 

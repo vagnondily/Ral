@@ -3,7 +3,7 @@ const { insertRows, chunkRows } = require('../../db/batch');
 const { notFound, forbidden, badRequest } = require('../../middleware/errors');
 const { computeAll, overallIndex, explainIndicator, keyIndex, namesFor, naReason } = require('./monitoringMath');
 const { describeVariables, resolveVariable, optionParentName } = require('./variableCatalog');
-const { definitionError, effectiveDefinition, normalizeNaValues, presentKeys } = require('./indicatorRules');
+const { definitionIssue, effectiveDefinition, normalizeNaValues, presentKeys } = require('./indicatorRules');
 const { classDistribution, naReasonCounts, dimGroups, topFlop, classify } = require('./coverageDashboard');
 const { codeLabelText } = require('../common/codeLabel');
 const { detectMapping, DIMENSION_COLUMN, DATE_KEYS, EDITABLE_KEYS } = require('./memsMapping');
@@ -161,13 +161,17 @@ async function resolveSourceFieldTx(client, tenantId, formId, name) {
     [tenantId, formId]);
   const all = resolveVariable(name, [...names, ...keys.map((r) => r.name)]);
   if (all.name) return all.name;
-  throw badRequest(all.error, { field: 'sourceField', suggestion: all.suggestion });
+  // Détails structurés (code, nom demandé, suggestion) : l'interface refait la phrase dans sa langue.
+  throw badRequest(all.error, { code: all.code, field: 'sourceField', name: all.requested, suggestion: all.suggestion });
 }
 
-/** Définition incohérente (« % = valeur » sans valeur, valeur comptée aussi hors base…) : 400, rien n'est écrit. */
+/**
+ * Définition incohérente (« % = valeur » sans valeur, valeur comptée aussi hors base…) : 400, rien n'est écrit.
+ * Message français + détails structurés (code, champ, valeur en cause) pour l'interface.
+ */
 function assertDefinition(def) {
-  const err = definitionError(def);
-  if (err) throw badRequest(err);
+  const issue = definitionIssue(def);
+  if (issue) throw badRequest(issue.message, { code: issue.code, field: issue.field, ...(issue.value != null ? { value: issue.value } : {}) });
 }
 
 /**
@@ -265,12 +269,13 @@ async function bindingFieldsTx(client, tenantId, formId) {
 }
 
 /**
- * Catalogue d'une fiche (champs XLSForm / .sav) et ses listes de choix.
+ * Catalogue d'une fiche (champs XLSForm / .sav), avec la logique de saut
+ * (« relevant ») de chaque question, et ses listes de choix.
  * `names` (minuscules) restreint aux variables utiles.
  */
 async function catalogTx(client, tenantId, formId, names = null) {
   const { rows: catalog } = await client.query(
-    `SELECT name, label, type, group_path AS "group", list_name AS "listName" FROM monitoring_form_fields
+    `SELECT name, label, type, group_path AS "group", list_name AS "listName", relevant FROM monitoring_form_fields
       WHERE tenant_id = $1 AND form_id = $2 AND ($3::text[] IS NULL OR lower(name) = ANY($3::text[]))
       ORDER BY sort_order, name`, [tenantId, formId, names]);
   const lists = [...new Set(catalog.map((c) => c.listName).filter(Boolean))];
@@ -407,7 +412,8 @@ async function indicatorPreview(tenantId, formId, def, period = {}) {
       const { rows: names } = await client.query(
         'SELECT name FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
       const r = resolveVariable(src, [...names.map((x) => x.name), ...keys.map((x) => x.name), ...defs.map((d) => d.name)]);
-      check = r.name ? { known: true, name: r.name } : { known: false, error: r.error, suggestion: r.suggestion };
+      // Inconnue : message français de l'API + code, nom demandé et suggestion (phrase refaite par l'interface).
+      check = r.name ? { known: true, name: r.name } : { known: false, error: r.error, code: r.code, name: r.requested, suggestion: r.suggestion };
     }
     const choiceLabels = new Map((variable ? variable.choices : []).map((c) => [String(c.value), c.label]));
     const explain = explainIndicator(def, subs, namesFor(src, keyIndex(subs)), { choiceLabels });

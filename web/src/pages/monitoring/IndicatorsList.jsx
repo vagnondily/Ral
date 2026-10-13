@@ -6,7 +6,7 @@ import { usePopover } from '../../components/listView.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { downloadCsv } from '../../lib/csv.js';
 import { formatLocale } from '../../lib/format.js';
-import { INDICATOR_STATUS, progress as progressOf } from '../../lib/indicatorView.js';
+import { INDEX_STATUS_LABEL, INDICATOR_STATUS, indexStatus, progress as progressOf } from '../../lib/indicatorView.js';
 import IndicatorExplain, { useIndicatorPreview } from './IndicatorExplain.jsx';
 
 /**
@@ -254,7 +254,8 @@ function IndicatorDrawer({ ind, moduleLabel, formId, period, periodLabel, onEdit
     ...(ind.naValues?.length ? [[tr('Hors base'), <span className="mono">{ind.naValues.join(', ')}</span>]] : []),
     [tr('Cible'), ind.target ?? '—'],
     [tr('Sens'), ind.direction === 'lower_better' ? tr('↓ plus bas = mieux') : tr('↑ plus haut = mieux')],
-    [tr('Indice'), ind.scored === false ? tr('hors indice') : tr('compte dans l\'indice')],
+    // Seuls les indicateurs en % entrent dans l'indice : une moyenne, une somme ou un nombre n'y compte jamais.
+    [tr('Indice'), tr(INDEX_STATUS_LABEL[indexStatus(ind)])],
     ...(ind.base != null ? [[tr('Base de calcul'), ind.base]] : []),
   ];
   return (
