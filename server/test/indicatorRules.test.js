@@ -1,6 +1,17 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { presentKeys, effectiveDefinition, normalizeNaValues, definitionError } = require('../src/modules/monitoring/indicatorRules');
+const { presentKeys, effectiveDefinition, normalizeNaValues, definitionError, definitionIssue } = require('../src/modules/monitoring/indicatorRules');
+
+test('définition : problème structuré (code, champ, valeur) — le message français reste celui de l\'API', () => {
+  const req = definitionIssue({ agg: 'percent_value', positiveValue: ' ' });
+  assert.deepEqual([req.code, req.field], ['positive_required', 'positiveValue']);
+  assert.equal(req.message, definitionError({ agg: 'percent_value', positiveValue: ' ' }));
+  assert.match(req.message, /« % = valeur »/);
+  assert.deepEqual(definitionIssue({ agg: 'mean', target: 'abc' }), { code: 'target_invalid', field: 'target', message: 'Cible invalide : saisissez un nombre.' });
+  const clash = definitionIssue({ agg: 'percent_yes', positiveValue: '1| 9999', naValues: [' 9999'] });
+  assert.deepEqual([clash.code, clash.field, clash.value], ['positive_is_na', 'naValues', '9999']);
+  assert.equal(definitionIssue({ agg: 'percent_value', positiveValue: '1' }), null);
+});
 
 test('modification partielle : seules les clés présentes comptent (null = effacer, absent = inchangé)', () => {
   assert.deepEqual(presentKeys({ active: false }), ['active']);

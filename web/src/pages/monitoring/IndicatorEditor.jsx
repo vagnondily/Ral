@@ -6,7 +6,7 @@ import Modal from '../../components/Modal.jsx';
 import MonthSelect from '../../components/MonthSelect.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
-import { choiceText, draftErrors, draftBody, draftPatch, isPctAgg, previewBody, toDraft } from '../../lib/indicatorView.js';
+import { choiceText, draftErrors, draftBody, draftPatch, editorTitle, indicatorErrorText, isPctAgg, previewBody, toDraft } from '../../lib/indicatorView.js';
 import VariablePicker, { findVariable } from './VariablePicker.jsx';
 import IndicatorExplain, { useIndicatorPreview } from './IndicatorExplain.jsx';
 
@@ -105,9 +105,10 @@ export default function IndicatorEditor({ form, indicator, period: initialPeriod
   const body = useMemo(() => (draft && draft.sourceField.trim() ? previewBody(draft, period || null) : null), [draft, period]);
   const preview = useIndicatorPreview(form.id, body, { enabled: Boolean(draft) && period !== null });
 
+  const title = tr(editorTitle({ editing, canEdit }));
   if (!draft) {
     return (
-      <Modal open size="editor" title={editing ? tr('Modifier l\'indicateur') : tr('Nouvel indicateur')} onClose={onClose}>
+      <Modal open size="editor" title={title} onClose={onClose}>
         <Skeleton height={320} />
       </Modal>
     );
@@ -150,23 +151,25 @@ export default function IndicatorEditor({ form, indicator, period: initialPeriod
       toast.success(editing ? tr('Indicateur modifié.') : tr('Indicateur créé.'));
       onSaved?.();
     } catch (e) {
-      setServerError(e.message);
-      toast.error(e.message);
+      // Message refait dans la langue de l'interface à partir des détails structurés de l'API.
+      const msg = indicatorErrorText(e, tr, { code: draft.code.trim(), sourceField: draft.sourceField.trim() });
+      setServerError(msg);
+      toast.error(msg);
     } finally { setSaving(false); }
   }
 
   const readOnly = !canEdit;
   return (
-    <Modal open size="editor" title={editing ? tr('Modifier l\'indicateur') : tr('Nouvel indicateur')}
+    <Modal open size="editor" title={title}
       subtitle={editing ? `${orig.label} · ${orig.code}` : tr('Reliez une variable de la fiche à une méthode de calcul ; le calcul s\'affiche à côté, sur les données réelles.')}
       onClose={() => !saving && onClose()}
       footer={<>
-        <Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button>
+        <Button variant="secondary" onClick={onClose} disabled={saving}>{readOnly ? tr('Fermer') : tr('Annuler')}</Button>
         {!readOnly && <Button icon={Check} onClick={save} loading={saving}>{editing ? tr('Enregistrer') : tr('Créer l\'indicateur')}</Button>}
       </>}>
       <div className="ie">
         <div className="ie-form">
-          {indicator?.templateCode && (
+          {indicator?.templateCode && !readOnly && (
             <Alert tone="info" icon={Sparkles}>{tr('Issu du modèle de l\'activité (élément {code}). Vos modifications sont conservées : réappliquer le modèle ne modifie pas les indicateurs déjà créés.', { code: indicator.templateCode })}</Alert>
           )}
           {serverError && <Alert tone="error" icon={AlertTriangle}>{serverError}</Alert>}
@@ -177,7 +180,7 @@ export default function IndicatorEditor({ form, indicator, period: initialPeriod
               <Field label={tr('Libellé')} htmlFor="ie-label" required error={fieldError('label')}>
                 <input id="ie-label" className="input" value={draft.label} maxLength={200} onChange={(e) => set({ label: e.target.value })} placeholder={tr('Bénéficiaires informés')} />
               </Field>
-              <Field label={tr('Code')} htmlFor="ie-code" required error={fieldError('code')} hint={editing ? tr('Modifiable ; unique dans la fiche.') : tr('Unique dans la fiche.')}>
+              <Field label={tr('Code')} htmlFor="ie-code" required error={fieldError('code')} hint={readOnly ? undefined : editing ? tr('Modifiable ; unique dans la fiche.') : tr('Unique dans la fiche.')}>
                 <input id="ie-code" className="input mono" value={draft.code} maxLength={60} onChange={(e) => set({ code: e.target.value })} placeholder="benef_informes" />
               </Field>
             </div>
@@ -244,7 +247,11 @@ export default function IndicatorEditor({ form, indicator, period: initialPeriod
                 </div>
               </div>
             </div>
-            <label className="ie-check"><input type="checkbox" checked={draft.scored} onChange={(e) => set({ scored: e.target.checked })} /> {tr('Compte dans l\'indice de conformité')}</label>
+            {/* Seuls les indicateurs en % entrent dans l'indice (overallIndex) : la case n'a de sens que pour eux.
+                L'explication qui la remplace n'est PAS une astuce (.hint, masquée par « astuces désactivées ») : toujours affichée. */}
+            {isPctAgg(draft.agg)
+              ? <label className="ie-check"><input type="checkbox" checked={draft.scored} onChange={(e) => set({ scored: e.target.checked })} /> {tr('Compte dans l\'indice de conformité')}</label>
+              : <p className="ie-index-note">{tr('Hors indice de conformité : seuls les indicateurs en % y entrent (une moyenne, une somme ou un nombre n\'y compte pas).')}</p>}
             {editing && <label className="ie-check"><input type="checkbox" checked={draft.active} onChange={(e) => set({ active: e.target.checked })} /> {tr('Actif (calculé et affiché dans les résultats)')}</label>}
           </fieldset>
         </div>

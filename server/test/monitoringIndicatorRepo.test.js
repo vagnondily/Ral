@@ -72,7 +72,7 @@ db.withTenantTransaction = async (tenantId, fn) => fn({
       return { rows: [{ id: 'new-id' }], rowCount: 1 };
     }
     if (/^SELECT id, activity_category AS "activityCategory" FROM monitoring_forms/.test(s)) return { rows: [state.form] };
-    if (/^SELECT name, label, type, group_path AS "group", list_name AS "listName" FROM monitoring_form_fields/.test(s)) {
+    if (/^SELECT name, label, type, group_path AS "group", list_name AS "listName", relevant FROM monitoring_form_fields/.test(s)) {
       return { rows: state.catalog.map((name) => ({ name, label: name, type: 'select_one', group: null, listName: null })) };
     }
     if (/^SELECT template_code FROM monitoring_indicators/.test(s)) {
@@ -124,6 +124,10 @@ test('modification de la variable : contrôlée contre la fiche (casse, colonnes
     assert.equal(err.statusCode, 400);
     assert.match(err.message, /vouliez-vous dire « MOInfoSession »/);
     assert.equal(err.details.suggestion, 'MOInfoSession');
+    // Détails structurés : l'interface refait la phrase dans sa langue.
+    assert.equal(err.details.code, 'unknown_variable');
+    assert.equal(err.details.name, 'MOInfoSesion');
+    assert.equal(err.details.field, 'sourceField');
     return true;
   });
   assert.equal(state.ind.source_field, 'score_dign'); // rien d'écrit
@@ -132,7 +136,16 @@ test('modification de la variable : contrôlée contre la fiche (casse, colonnes
 test('modification de la méthode : « % = valeur » sans valeur comptée refusé (définition effective)', async () => {
   reset();
   state.ind.positive_value = null;
-  await assert.rejects(repo.updateIndicator(T, IND, { agg: 'percent_value' }), /précisez la valeur comptée/);
+  await assert.rejects(repo.updateIndicator(T, IND, { agg: 'percent_value' }), (err) => {
+    assert.match(err.message, /précisez la valeur comptée/);
+    assert.deepEqual(err.details, { code: 'positive_required', field: 'positiveValue' });
+    return true;
+  });
+  state.ind.positive_value = '1';
+  await assert.rejects(repo.updateIndicator(T, IND, { naValues: ['1'] }), (err) => {
+    assert.deepEqual(err.details, { code: 'positive_is_na', field: 'naValues', value: '1' });
+    return true;
+  });
   assert.equal(state.ind.agg, 'percent_yes');
   await repo.updateIndicator(T, IND, { agg: 'percent_value', positiveValue: '1|2' });
   assert.equal(state.ind.agg, 'percent_value');

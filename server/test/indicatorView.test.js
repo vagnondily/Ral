@@ -80,6 +80,58 @@ test('barre « d\'où vient la base » et règle de classement appliquée', asyn
   assert.equal(v.classificationRule({ rating: 'na', basis: 'none', reason: 'no_data' }).key, 'no_data');
 });
 
+test('indice de conformité : seuls les indicateurs en % y entrent (comme overallIndex)', async (t) => {
+  const v = await load(t); if (!v) return;
+  const { overallIndex } = require('../src/modules/monitoring/monitoringMath');
+  assert.equal(v.indexStatus({ agg: 'percent_yes', scored: true }), 'in');
+  assert.equal(v.indexStatus({ agg: 'percent_value' }), 'in'); // scored absent = compte
+  assert.equal(v.indexStatus({ agg: 'percent_yes', scored: false }), 'excluded');
+  // Une moyenne / somme / un nombre n'y compte jamais, même enregistré « scored ».
+  for (const agg of ['mean', 'sum', 'count']) assert.equal(v.indexStatus({ agg, scored: true }), 'not_pct');
+  assert.equal(v.indexStatus(null), 'not_pct');
+  assert.match(v.INDEX_STATUS_LABEL.not_pct, /hors indice \(seuls les indicateurs en % comptent\)/);
+  // Même verdict que le calcul de l'indice : la moyenne « scored » ne change pas l'indice.
+  const pct = { agg: 'percent_yes', value: 80, scored: true, module: 'D1' };
+  assert.equal(overallIndex([pct, { agg: 'mean', value: 3, scored: true, module: 'D1' }]), overallIndex([pct]));
+});
+
+test('éditeur en lecture seule : « Calcul de l\'indicateur », jamais « Modifier »', async (t) => {
+  const v = await load(t); if (!v) return;
+  assert.equal(v.editorTitle({ editing: true, canEdit: false }), 'Calcul de l\'indicateur');
+  assert.equal(v.editorTitle({ editing: true, canEdit: true }), 'Modifier l\'indicateur');
+  assert.equal(v.editorTitle({ editing: false, canEdit: true }), 'Nouvel indicateur');
+});
+
+test('erreurs de l\'API refaites dans la langue de l\'interface à partir des détails structurés', async (t) => {
+  const v = await load(t); if (!v) return;
+  const tr = (s, vars) => `EN[${s.replace(/\{(\w+)\}/g, (_, k) => (vars && vars[k] != null ? vars[k] : `{${k}}`))}]`;
+  const unknown = { status: 400, message: 'Variable « MOInfoSesion » introuvable…', details: { code: 'unknown_variable', field: 'sourceField', name: 'MOInfoSesion', suggestion: 'MOInfoSession' } };
+  assert.equal(v.indicatorErrorText(unknown, tr), 'EN[Variable « MOInfoSesion » introuvable dans cette fiche — vouliez-vous dire « MOInfoSession » ?]');
+  assert.match(v.indicatorErrorText({ ...unknown, details: { code: 'unknown_variable', name: 'zz', suggestion: null } }, tr), /^EN\[Variable « zz » introuvable dans cette fiche \(ni/);
+  // 409 : code repris des détails, sinon de la saisie.
+  assert.equal(v.indicatorErrorText({ status: 409, message: 'Un indicateur avec ce code existe déjà sur cette fiche.', details: { code: 'duplicate_code', value: 'GD_1' } }, tr),
+    'EN[Le code « GD_1 » est déjà utilisé par un autre indicateur de cette fiche : choisissez-en un autre.]');
+  assert.match(v.indicatorErrorText({ status: 409, message: 'x' }, tr, { code: 'A2' }), /« A2 »/);
+  assert.match(v.indicatorErrorText({ status: 400, message: 'm', details: { code: 'positive_required' } }, tr), /^EN\[Méthode « % = valeur »/);
+  assert.match(v.indicatorErrorText({ status: 400, message: 'm', details: { code: 'positive_is_na', value: '9999' } }, tr), /« 9999 » est à la fois comptée/);
+  assert.equal(v.indicatorErrorText({ status: 400, message: 'm', details: { code: 'target_invalid' } }, tr), 'EN[Cible invalide : saisissez un nombre.]');
+  // Sans code reconnu : le message du serveur tel quel.
+  assert.equal(v.indicatorErrorText({ status: 404, message: 'Fiche introuvable' }, tr), 'Fiche introuvable');
+  assert.equal(v.indicatorErrorText(null, tr), null);
+  assert.equal(v.unknownVariableText('q', 'Q1', tr), 'EN[Variable « q » introuvable dans cette fiche — vouliez-vous dire « Q1 » ?]');
+});
+
+test('légende de la barre : parts rapportées aux soumissions, et dites comme telles', async (t) => {
+  const v = await load(t); if (!v) return;
+  // 317 positives sur 331 soumissions = 95,8 % des soumissions, quand l'indicateur vaut 98,4 % (317 ÷ 322 comptées).
+  const x = { agg: 'percent_yes', total: 331, absent: 7, blank: 0, naCount: 2, answered: 322, base: 322, numerator: 317, denominator: 322, ignored: 0 };
+  const pos = v.explainSegments(x).find((s) => s.key === 'positive');
+  assert.equal(pos.pct, 95.8);
+  const tr = (s, vars) => s.replace(/\{(\w+)\}/g, (_, k) => vars[k]);
+  assert.equal(v.segmentShareText(pos, tr), '95.8 % des soumissions');
+  assert.equal(v.segmentShareText(pos, tr, (n) => String(n).replace('.', ',')), '95,8 % des soumissions');
+});
+
 test('valeurs comptées « 1|2 » ↔ liste ; libellés d\'option traduits, libellés du formulaire tels quels', async (t) => {
   const v = await load(t); if (!v) return;
   assert.deepEqual(v.splitValues(' 1 | 2 ||'), ['1', '2']);

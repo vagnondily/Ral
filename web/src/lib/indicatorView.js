@@ -17,6 +17,64 @@ export const INDICATOR_STATUS = {
 };
 export const isPctAgg = (agg) => agg === 'percent_yes' || agg === 'percent_value';
 
+/**
+ * Place d'un indicateur dans l'indice de conformité (serveur overallIndex /
+ * orientedScore) : SEULS les indicateurs en % y entrent ; une moyenne, une
+ * somme ou un nombre n'y entre jamais, même enregistré « compte dans l'indice ».
+ * @returns {'in'|'excluded'|'not_pct'}
+ */
+export function indexStatus(ind) {
+  if (!ind || !isPctAgg(ind.agg)) return 'not_pct';
+  return ind.scored === false ? 'excluded' : 'in';
+}
+// Libellé court de indexStatus (ligne « Indice » du détail).
+export const INDEX_STATUS_LABEL = {
+  in: 'compte dans l\'indice',
+  excluded: 'hors indice',
+  not_pct: 'hors indice (seuls les indicateurs en % comptent)',
+};
+
+/**
+ * Titre de l'éditeur d'indicateur : création, modification, ou — sans droit
+ * d'écriture — simple consultation du calcul (« Modifier » serait trompeur).
+ */
+export function editorTitle({ editing, canEdit }) {
+  if (!canEdit) return 'Calcul de l\'indicateur';
+  return editing ? 'Modifier l\'indicateur' : 'Nouvel indicateur';
+}
+
+/** Variable inconnue de la fiche, dans la langue de l'interface (avec la variable la plus proche s'il y en a une). */
+export function unknownVariableText(name, suggestion, tr) {
+  return suggestion
+    ? tr('Variable « {name} » introuvable dans cette fiche — vouliez-vous dire « {suggestion} » ?', { name: name ?? '', suggestion })
+    : tr('Variable « {name} » introuvable dans cette fiche (ni dans le formulaire, ni dans les données, ni parmi les champs calculés).', { name: name ?? '' });
+}
+
+/**
+ * Message d'une erreur de l'API des indicateurs dans la langue de l'interface.
+ * L'API répond en français (`message`) avec des détails structurés
+ * (`details.code`, `name`, `suggestion`, `value`) : la phrase est refaite ici
+ * avec tr(). Sans code reconnu, le message du serveur tel quel.
+ * @param {{ message?: string, status?: number, details?: object }|null} err
+ * @param {(s: string, vars?: object) => string} tr
+ * @param {{ code?: string, sourceField?: string }} [ctx] saisie en cours (repli si le détail manque)
+ * @returns {string|null}
+ */
+export function indicatorErrorText(err, tr, ctx = {}) {
+  if (!err) return null;
+  const d = (err.details && typeof err.details === 'object') ? err.details : {};
+  const code = d.code || (err.status === 409 ? 'duplicate_code' : null);
+  switch (code) {
+    case 'unknown_variable': return unknownVariableText(d.name ?? ctx.sourceField, d.suggestion || null, tr);
+    case 'variable_required': return tr('Choisissez la variable source.');
+    case 'duplicate_code': return tr('Le code « {code} » est déjà utilisé par un autre indicateur de cette fiche : choisissez-en un autre.', { code: d.value ?? ctx.code ?? '' });
+    case 'positive_required': return tr('Méthode « % = valeur » : précisez la valeur comptée (ex. 1, ou 1|2 pour plusieurs).');
+    case 'positive_is_na': return tr('La valeur « {value} » est à la fois comptée et hors base : retirez-la de l\'une des deux listes.', { value: d.value ?? '' });
+    case 'target_invalid': return tr('Cible invalide : saisissez un nombre.');
+    default: return err.message || null;
+  }
+}
+
 // Libellés des valeurs d'une option éclatée (« X.1 ») fixés par le serveur
 // (variableCatalog.OPTION_CHOICES) : seuls ceux-là se traduisent — les libellés
 // de choix du formulaire sont des données, affichées telles quelles.
@@ -168,6 +226,16 @@ export function explainSegments(x) {
     : [['counted', x.agg === 'count' ? x.answered : x.base], ['ignored', x.ignored || 0]];
   parts.push(['na', x.naCount || 0], ['blank', x.blank || 0], ['absent', x.absent || 0]);
   return parts.filter(([, n]) => n > 0).map(([key, n]) => ({ key, n, pct: Math.round((n / x.total) * 1000) / 10 }));
+}
+
+/**
+ * Part d'un segment de la barre, telle qu'affichée : rapportée à TOUTES les
+ * soumissions examinées, et dite comme telle — à côté du % de l'indicateur
+ * (calculé sur la base : réponses comptées), « 95,8 % » seul semblerait le
+ * contredire.
+ */
+export function segmentShareText(s, tr, fmt = (n) => String(n)) {
+  return tr('{pct} % des soumissions', { pct: fmt(s.pct) });
 }
 
 /**

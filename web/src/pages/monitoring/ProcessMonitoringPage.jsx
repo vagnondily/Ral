@@ -1054,13 +1054,17 @@ function MappingColumnsCard({ form, canEdit }) {
 
 // ---- Configuration (indicateurs + modèle de l'activité + champs calculés) --
 function ConfigTab({ form, canEdit, onChanged }) {
-  // Les deux cartes se rechargent l'une l'autre : création depuis le modèle ↔ indicateurs modifiés.
-  const [version, setVersion] = useState(0);
-  const changed = () => { setVersion((v) => v + 1); onChanged?.(); };
+  // Les deux cartes se rechargent l'une l'autre (création depuis le modèle ↔ indicateur enregistré ou
+  // supprimé), UNE fois : la carte qui écrit recharge ses propres données, l'autre reçoit un nouveau
+  // refreshKey. Plus de remontage des deux cartes (qui rechargeait deux fois indicateurs et variables).
+  const [indRefresh, setIndRefresh] = useState(0);
+  const [tplRefresh, setTplRefresh] = useState(0);
   return (
     <div className="section-gap">
-      <IndicatorsConfigCard key={`ind-${version}`} form={form} canEdit={canEdit} onChanged={changed} />
-      <TemplateBindingCard key={`tpl-${version}`} form={form} canEdit={canEdit} onApplied={changed} />
+      <IndicatorsConfigCard form={form} canEdit={canEdit} refreshKey={indRefresh}
+        onChanged={() => { setTplRefresh((v) => v + 1); onChanged?.(); }} />
+      <TemplateBindingCard form={form} canEdit={canEdit} refreshKey={tplRefresh}
+        onApplied={() => { setIndRefresh((v) => v + 1); onChanged?.(); }} />
       <CalcFieldsCard form={form} canEdit={canEdit} onChanged={onChanged} />
     </div>
   );
@@ -1072,24 +1076,27 @@ function ConfigTab({ form, canEdit, onChanged }) {
  * Résultats) sur chaque ligne. Colonne d'actions toujours visible (figée à
  * droite), libellés de question longs tronqués.
  */
-function IndicatorsConfigCard({ form, canEdit, onChanged }) {
+function IndicatorsConfigCard({ form, canEdit, refreshKey = 0, onChanged }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [indicators, setIndicators] = useState(null);
   const [vars, setVars] = useState({ fields: [], calcFields: [] });
   const [edit, setEdit] = useState(null); // indicator | {} | null
 
-  async function reload() {
+  // Variables (libellés) : à l'ouverture seulement — enregistrer ou supprimer un indicateur ne les change pas.
+  async function reload({ variables = true } = {}) {
     try {
-      const [inds, v] = await Promise.all([api.monIndicators(form.id), api.monVariables(form.id).catch(() => null)]);
+      const [inds, v] = await Promise.all([api.monIndicators(form.id), variables ? api.monVariables(form.id).catch(() => null) : null]);
       setIndicators(inds); if (v) setVars(v);
     } catch (e) { toast.error(e.message); setIndicators([]); }
   }
   useEffect(() => { setIndicators(null); reload(); /* eslint-disable-next-line */ }, [form.id]);
+  // Indicateurs créés depuis le modèle (l'autre carte) : la liste, une fois.
+  useEffect(() => { if (refreshKey) reload({ variables: false }); /* eslint-disable-next-line */ }, [refreshKey]);
 
   async function remove(i) {
     if (!window.confirm(tr("Supprimer l'indicateur « {label} » ?", { label: i.label }))) return;
-    try { await api.monDeleteIndicator(i.id); toast.success(tr('Indicateur supprimé.')); reload(); onChanged?.(); }
+    try { await api.monDeleteIndicator(i.id); toast.success(tr('Indicateur supprimé.')); reload({ variables: false }); onChanged?.(); }
     catch (e) { toast.error(e.message); }
   }
 
@@ -1150,7 +1157,7 @@ function IndicatorsConfigCard({ form, canEdit, onChanged }) {
           </div>
         )}
       {edit && <IndicatorEditor form={form} indicator={edit.id ? edit : null} canEdit={canEdit}
-        onClose={() => setEdit(null)} onSaved={() => { setEdit(null); reload(); onChanged?.(); }} />}
+        onClose={() => setEdit(null)} onSaved={() => { setEdit(null); reload({ variables: false }); onChanged?.(); }} />}
     </Card>
   );
 }

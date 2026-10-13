@@ -27,7 +27,7 @@ const FILTERS = [
  * puis crée les indicateurs en une fois ; ils alimentent ensuite la Synthèse,
  * Couverture & performance et le concepteur de rapport. Rien n'est créé sans lui.
  */
-export default function TemplateBindingCard({ form, canEdit, onApplied }) {
+export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onApplied }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [data, setData] = useState(null);
@@ -51,6 +51,8 @@ export default function TemplateBindingCard({ form, canEdit, onApplied }) {
     } catch (e) { toast.error(e.message); setData({ template: null, fields: [] }); }
   }
   useEffect(() => { setData(null); load(); /* eslint-disable-next-line */ }, [form.id, form.activityCategory]);
+  // Indicateur enregistré ou supprimé dans la liste (autre carte) : « déjà créé » / « code pris » rechargés, une fois.
+  useEffect(() => { if (refreshKey) load(); /* eslint-disable-next-line */ }, [refreshKey]);
 
   const fieldsByName = useMemo(() => new Map((data?.fields || []).map((f) => [f.name, f])), [data]);
   const items = data?.template?.items || [];

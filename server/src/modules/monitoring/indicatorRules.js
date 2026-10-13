@@ -37,24 +37,42 @@ function normalizeNaValues(list) {
 }
 
 /**
- * Erreur de définition (message lisible), ou null si la définition est cohérente :
- *   - « % = valeur » exige la (les) valeur(s) comptée(s) ;
- *   - une cible doit être un nombre fini ;
- *   - une valeur comptée n'est pas aussi un code « hors base » (elle ne serait jamais comptée).
+ * Problème de définition, STRUCTURÉ, ou null si la définition est cohérente :
+ *   - « % = valeur » exige la (les) valeur(s) comptée(s) — code positive_required ;
+ *   - une cible doit être un nombre fini — code target_invalid ;
+ *   - une valeur comptée n'est pas aussi un code « hors base » (elle ne serait
+ *     jamais comptée) — code positive_is_na, `value` = la valeur en cause.
+ * `message` (français) est celui de l'API ; `code`, `field` et `value` voyagent
+ * dans les détails de l'erreur pour que l'interface refasse la phrase dans la
+ * langue de l'utilisateur.
+ * @returns {null|{ code: string, field: string, message: string, value?: string }}
  */
-function definitionError(def) {
+function definitionIssue(def) {
   const d = def || {};
   const positive = d.positiveValue == null ? '' : String(d.positiveValue).trim();
   if (d.agg === 'percent_value' && !positive) {
-    return 'Méthode « % = valeur » : précisez la valeur comptée (ex. 1, ou 1|2 pour plusieurs).';
+    return { code: 'positive_required', field: 'positiveValue', message: 'Méthode « % = valeur » : précisez la valeur comptée (ex. 1, ou 1|2 pour plusieurs).' };
   }
-  if (d.target != null && d.target !== '' && !Number.isFinite(Number(d.target))) return 'Cible invalide : saisissez un nombre.';
+  if (d.target != null && d.target !== '' && !Number.isFinite(Number(d.target))) {
+    return { code: 'target_invalid', field: 'target', message: 'Cible invalide : saisissez un nombre.' };
+  }
   if (positive && (d.agg === 'percent_value' || d.agg === 'percent_yes' || d.agg == null)) {
     const na = new Set((d.naValues || []).map((x) => String(x).trim().toLowerCase()));
     const clash = positive.split('|').map((x) => x.trim()).find((x) => x && na.has(x.toLowerCase()));
-    if (clash) return `La valeur « ${clash} » est à la fois comptée et hors base : retirez-la de l'une des deux listes.`;
+    if (clash) {
+      return {
+        code: 'positive_is_na', field: 'naValues', value: clash,
+        message: `La valeur « ${clash} » est à la fois comptée et hors base : retirez-la de l'une des deux listes.`,
+      };
+    }
   }
   return null;
 }
 
-module.exports = { INDICATOR_KEYS, presentKeys, effectiveDefinition, normalizeNaValues, definitionError };
+/** Erreur de définition (message lisible, en français), ou null : le message de definitionIssue. */
+function definitionError(def) {
+  const issue = definitionIssue(def);
+  return issue ? issue.message : null;
+}
+
+module.exports = { INDICATOR_KEYS, presentKeys, effectiveDefinition, normalizeNaValues, definitionIssue, definitionError };

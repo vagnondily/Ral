@@ -32,7 +32,13 @@ const t = (req) => req.auth.tenantId;
 function body(schema) {
   return (req, res, next) => {
     const parsed = schema.safeParse(req.body);
-    if (!parsed.success) return next(badRequest('Données invalides', parsed.error.flatten()));
+    if (!parsed.success) {
+      // Règle métier codée (refine avec params.code) : son message français et son code,
+      // pour que l'interface refasse la phrase dans la langue de l'utilisateur.
+      const coded = parsed.error.issues.find((i) => i.params && i.params.code);
+      if (coded) return next(badRequest(coded.message, { ...parsed.error.flatten(), code: coded.params.code, field: coded.path.join('.') }));
+      return next(badRequest('Données invalides', parsed.error.flatten()));
+    }
     req.valid = parsed.data;
     return next();
   };
@@ -98,23 +104,25 @@ const indicatorFields = {
 };
 const indicatorSchema = z.object(indicatorFields)
   .refine((v) => v.agg !== 'percent_value' || Boolean(v.positiveValue), {
-    message: 'Méthode « % = valeur » : précisez la valeur comptée.', path: ['positiveValue'],
+    message: 'Méthode « % = valeur » : précisez la valeur comptée.', path: ['positiveValue'], params: { code: 'positive_required' },
   });
 // PATCH : modification partielle — seules les clés envoyées sont écrites (règles croisées contrôlées par le dépôt).
 const indicatorPatchSchema = z.object(indicatorFields).partial().strict();
 const DUP_CODE = 'Un indicateur avec ce code existe déjà sur cette fiche.';
+// Code déjà pris : 409, message français + détails structurés (l'interface refait la phrase dans sa langue).
+const dupCode = (code) => conflict(DUP_CODE, { code: 'duplicate_code', field: 'code', ...(code ? { value: code } : {}) });
 
 router.post('/forms/:id/indicators', WRITE, body(indicatorSchema), asyncHandler(async (req, res) => {
   let id;
   try { id = await repo.createIndicator(t(req), uuidParam(req.params.id), req.valid); }
-  catch (err) { if (err.code === '23505') throw conflict(DUP_CODE); throw err; }
+  catch (err) { if (err.code === '23505') throw dupCode(req.valid.code); throw err; }
   if (!id) throw notFound('Fiche introuvable');
   res.status(201).json({ id });
 }));
 router.patch('/indicators/:id', WRITE, body(indicatorPatchSchema), asyncHandler(async (req, res) => {
   let ok;
   try { ok = await repo.updateIndicator(t(req), uuidParam(req.params.id), req.valid); }
-  catch (err) { if (err.code === '23505') throw conflict(DUP_CODE); throw err; }
+  catch (err) { if (err.code === '23505') throw dupCode(req.valid.code); throw err; }
   if (!ok) throw notFound('Indicateur introuvable');
   res.status(204).end();
 }));
