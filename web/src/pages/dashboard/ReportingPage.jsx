@@ -3,9 +3,10 @@ import { Download, Printer, FileSpreadsheet, MapPin } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, Card, CardHeader, EmptyState, Skeleton, Stats } from '../../components/ui.jsx';
 import MonthSelect from '../../components/MonthSelect.jsx';
-import { formatAr, formatInt, currentMonth } from '../../lib/format.js';
+import { formatAr, formatInt, currentMonth, monthLabel } from '../../lib/format.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { downloadCsv } from '../../lib/csv.js';
+import { coveragePct } from '../../lib/coverage.js';
 
 /**
  * Reporting — rapport de synthèse S&E pour une période : situation budgétaire
@@ -13,6 +14,7 @@ import { downloadCsv } from '../../lib/csv.js';
  * direct ; exports CSV + impression (PDF via le navigateur). Rien n'est stocké.
  * Structure COMET : section-gap + page-header + Stats compact + Card/table.
  * Exports CSV : écrivain partagé (formules neutralisées), lib/csv.js.
+ * Couverture sans visite planifiée : « — aucun plan », jamais 0 % (lib/coverage.js).
  */
 
 export default function ReportingPage({ onOpenContract }) {
@@ -33,6 +35,12 @@ export default function ReportingPage({ onOpenContract }) {
 
   const t = cons?.totals;
   const ov = field?.overall;
+  const ovPct = coveragePct(ov);
+  // Cellule « Taux » : « — aucun plan » sans visite planifiée (jamais 0 %).
+  const pctCell = (cov) => {
+    const p = coveragePct(cov);
+    return p == null ? <span className="muted">— {tr('aucun plan')}</span> : `${p} %`;
+  };
 
   const exportBudget = () => {
     const rows = [[tr('Contrat'), tr('Prestataire'), tr('Budget'), tr('Planifié'), tr('Réalisé'), tr('Taux'), tr('Restant'), tr('Projection fin')]];
@@ -41,7 +49,10 @@ export default function ReportingPage({ onOpenContract }) {
   };
   const exportCoverage = () => {
     const rows = [[tr('District'), tr('Planifiées'), tr('Réalisées'), tr('Annulées'), tr('Taux couverture')]];
-    for (const d of field.byDistrict) rows.push([d.label, d.planifie, d.realise, d.annule, `${Math.round(d.rate * 100)}%`]);
+    for (const d of field.byDistrict) {
+      const p = coveragePct(d);
+      rows.push([d.label, d.planifie, d.realise, d.annule, p == null ? tr('aucun plan') : `${p}%`]);
+    }
     downloadCsv(`couverture-terrain-${month}.csv`, rows);
   };
 
@@ -67,7 +78,8 @@ export default function ReportingPage({ onOpenContract }) {
             : t.pendingValidation > 0 ? tr('{p} % du budget · {amount} Ar en attente de validation', { p: Math.round((t.actualRate || 0) * 100), amount: formatInt(t.pendingValidation) })
               : tr('{p} % du budget', { p: Math.round((t.actualRate || 0) * 100) }) },
         { label: tr('Budget restant'), value: cons ? formatAr(t.remaining) : '—', foot: tr('Disponible') },
-        { label: tr('Couverture terrain'), value: ov ? `${Math.round((ov.rate || 0) * 100)} %` : '—', foot: ov ? tr('{done}/{active} visites', { done: ov.realise, active: ov.active }) : tr('Mois courant') },
+        { label: tr('Couverture terrain'), value: ovPct == null ? '—' : `${ovPct} %`,
+          foot: !ov ? tr('Mois courant') : ovPct == null ? tr('aucun plan pour {m}', { m: monthLabel(month) }) : tr('{done}/{active} visites', { done: ov.realise, active: ov.active }) },
       ]} />
 
       <Card aria-labelledby="rep-budget">
@@ -130,7 +142,7 @@ export default function ReportingPage({ onOpenContract }) {
                   <td className="num mono">{formatInt(d.planifie)}</td>
                   <td className="num mono">{formatInt(d.realise)}</td>
                   <td className="num mono">{formatInt(d.annule)}</td>
-                  <td className="num mono">{Math.round(d.rate * 100)} %</td>
+                  <td className="num mono">{pctCell(d)}</td>
                 </tr>
               ))}
             </tbody>
@@ -138,7 +150,7 @@ export default function ReportingPage({ onOpenContract }) {
               <td className="num mono"><strong>{formatInt(ov.planifie)}</strong></td>
               <td className="num mono"><strong>{formatInt(ov.realise)}</strong></td>
               <td className="num mono"><strong>{formatInt(ov.annule)}</strong></td>
-              <td className="num mono"><strong>{Math.round((ov.rate || 0) * 100)} %</strong></td>
+              <td className="num mono"><strong>{pctCell(ov)}</strong></td>
             </tr></tfoot>
           </table></div>
         ) : (

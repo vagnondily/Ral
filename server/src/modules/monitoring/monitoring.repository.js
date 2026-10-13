@@ -1597,8 +1597,13 @@ async function coverageDashboard(tenantId, period = {}) {
  * partition par bureau, sites visités, sites actifs de l'activité rattachée,
  * complétude mensuelle — et régions. Les indicateurs restent calculés par la
  * logique pure partagée (computeAll) ; le SQL fait les comptages.
+ *
+ * Bureau d'un code non relié, dans la langue du rapport (`lang`) : `bureau`
+ * (identité, filtres et sections répétées) porte le nom de la fiche — jamais
+ * mêlé au même code d'une autre fiche ; `label` (« Code 7 (non relié) » seul)
+ * sert là où le tableau ne porte déjà que sur cette fiche (bureau_domains).
  */
-async function reportMonitoringData(tenantId, period) {
+async function reportMonitoringData(tenantId, period, { lang = 'fr' } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows: forms } = await client.query(
       `SELECT f.id, f.code, f.label, f.activity_category AS "activityCategory",
@@ -1627,7 +1632,9 @@ async function reportMonitoringData(tenantId, period) {
            FROM monitoring_submissions s ${office.join}
           WHERE s.tenant_id = $1 AND s.form_id = $2${f}`, sp);
       for (const sub of subs) {
-        sub.bureau = codeLabelText({ status: sub.bureauStatus, name: sub.bureauName, code: sub.bureauCode }, { formLabel: fm.label });
+        const v = { status: sub.bureauStatus, name: sub.bureauName, code: sub.bureauCode };
+        sub.bureau = codeLabelText(v, { formLabel: fm.label, lang });
+        sub.bureauLabel = codeLabelText(v, { lang });
       }
       const { rows: cnt } = await client.query(
         `SELECT count(*)::int AS visits, count(DISTINCT COALESCE(site_id::text, NULLIF(site, ''), NULLIF(admin3, '')))::int AS "sitesVisited"
@@ -1645,8 +1652,8 @@ async function reportMonitoringData(tenantId, period) {
         const r = computeAll(inds, list);
         // Visites et sites visités PAR bureau (chiffres clés filtrés par bureau du concepteur).
         const sitesVisited = new Set(list.map((x) => x.sitekey).filter(Boolean)).size;
-        const { bureau, bureauStatus } = list[0];
-        return { bureau, bureauKey, bureauStatus, n: list.length, visits: list.length, sitesVisited, index: overallIndex(r), dims: dimGroups(r) };
+        const { bureau, bureauLabel, bureauStatus } = list[0];
+        return { bureau, label: bureauLabel, bureauKey, bureauStatus, n: list.length, visits: list.length, sitesVisited, index: overallIndex(r), dims: dimGroups(r) };
       });
       out.push({
         id: fm.id, code: fm.code, label: fm.label, activityCategory: fm.activityCategory, sitesActive: fm.activityCategory ? fm.sitesActive : null,

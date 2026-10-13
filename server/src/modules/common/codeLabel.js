@@ -22,6 +22,15 @@
 
 const NOT_SET = '(non renseigné)';
 
+/** Mots du texte lisible, par langue d'affichage (français = référence). */
+const TEXT = Object.freeze({
+  fr: Object.freeze({ notSet: NOT_SET, notLinked: 'non relié', unattached: '(non rattaché)' }),
+  en: Object.freeze({ notSet: '(not set)', notLinked: 'not linked', unattached: '(not attached)' }),
+});
+
+/** Bureau d'un site du référentiel rattaché à aucun bureau, dans la langue `lang`. */
+const unattachedText = (lang = 'fr') => (TEXT[lang] || TEXT.fr).unattached;
+
 const clean = (v) => (v == null ? '' : String(v).trim());
 /** Libellé normalisé pour la clé : casse et espaces sans effet (même règle que le SQL). */
 const normLabel = (v) => clean(v).toLowerCase().replace(/\s+/g, ' ');
@@ -46,15 +55,18 @@ function resolveCodeLabel({ raw, linkedId = null, linkedName = null, choiceLabel
 const isNumericCode = (code) => /^\d+$/.test(clean(code));
 
 /**
- * Texte lisible (français, langue de référence) d'une valeur résolue :
- * le nom, sinon « Code 6 (non relié) » (ou le texte saisi, s'il n'est pas un
- * code numérique : « Bureau terrain Sud (non relié) »), sinon « (non renseigné) ».
- * `formLabel` précise la fiche d'un code non relié quand plusieurs fiches sont mêlées.
+ * Texte lisible d'une valeur résolue, dans la langue `lang` (« fr » par défaut,
+ * « en ») : le nom, sinon « Code 6 (non relié) » / « Code 6 (not linked) » (ou
+ * le texte saisi, s'il n'est pas un code numérique : « Bureau terrain Sud (non
+ * relié) »), sinon « (non renseigné) » / « (not set) ». `formLabel` précise la
+ * fiche d'un code non relié quand plusieurs fiches sont mêlées ; on l'omet là où
+ * le tableau ne porte déjà que sur une fiche.
  */
-function codeLabelText(v, { formLabel = null } = {}) {
-  if (!v || v.status === 'vide') return NOT_SET;
+function codeLabelText(v, { formLabel = null, lang = 'fr' } = {}) {
+  const T = TEXT[lang] || TEXT.fr;
+  if (!v || v.status === 'vide') return T.notSet;
   if (v.name) return v.name;
-  const base = isNumericCode(v.code) ? `Code ${v.code} (non relié)` : `${v.code} (non relié)`;
+  const base = isNumericCode(v.code) ? `Code ${v.code} (${T.notLinked})` : `${v.code} (${T.notLinked})`;
   return formLabel ? `${base} · ${formLabel}` : base;
 }
 
@@ -72,4 +84,4 @@ function mergeByKey(rows, numericFields) {
   return [...out.values()];
 }
 
-module.exports = { resolveCodeLabel, codeLabelText, mergeByKey, normLabel, isNumericCode, NOT_SET };
+module.exports = { resolveCodeLabel, codeLabelText, unattachedText, mergeByKey, normLabel, isNumericCode, NOT_SET };

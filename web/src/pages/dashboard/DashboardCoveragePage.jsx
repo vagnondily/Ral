@@ -264,13 +264,13 @@ function ActivityView({ form, month, periods, onPick, onNavigate }) {
                   )}
                   {g.action === 'config' && onNavigate && (
                     <button type="button" className="inline-link" onClick={() => onNavigate('processus', 'donnees', form.id, 'config')}>
-                      {g.reason === 'no_target' ? tr('Ajouter une cible') : tr('Vérifier la variable')}
+                      {tr(g.actionLabel || 'Vérifier la variable')}
                     </button>
                   )}
                 </div>
                 <p className="cd-why-hint">{tr(g.hint)}</p>
                 <p className="cd-why-inds">
-                  {g.indicators.slice(0, 8).map((i) => (g.reason === 'variable_absent' && i.sourceField ? `${i.label} (${i.sourceField})` : i.label)).join(' · ')}
+                  {g.indicators.slice(0, 8).map((i) => (g.showVariable && i.sourceField ? `${i.label} (${i.sourceField})` : i.label)).join(' · ')}
                   {g.indicators.length > 8 && ` · ${tr('+ {n} autre(s)', { n: g.indicators.length - 8 })}`}
                 </p>
               </div>

@@ -47,12 +47,19 @@ export default {
   'Aucune réponse comptée pour cet indicateur sur la période.': 'No answer counted for this indicator in the period.',
   'Ajouter une cible': 'Add a target',
   'Vérifier la variable': 'Check the variable',
+  'Réponses non numériques : vérifiez la méthode ou la variable': 'Non-numeric answers: check the method or the variable',
+  'Une moyenne ou une somme ne compte que des nombres : les réponses reçues sont du texte ou des choix. Changez la méthode (ex. « % de oui ») ou choisissez une variable numérique.':
+    'A mean or a sum only counts numbers: the answers received are text or choices. Change the method (e.g. “% yes”) or choose a numeric variable.',
+  'Vérifier la méthode': 'Check the method',
   '+ {n} autre(s)': '+ {n} more',
   'Aucune visite de terrain n\'est planifiée ce mois (couverture non mesurable), et le RBM signale {due} site(s) à suivre ce mois sur {total}.':
     'No field visit is planned this month (coverage cannot be measured), and RBM flags {due} site(s) to monitor this month out of {total}.',
 
   // ---- Centre d'alertes et cloche de l'en-tête
   'Certaines sources n\'ont pas pu être lues : {list}. Les autres alertes restent à jour.': 'Some sources could not be read: {list}. The other alerts are up to date.',
+  'Aucune alerte dans les sources lues, mais ces sources n\'ont pas pu être lues : {list}. Impossible de dire que tout est au vert ; réessayez plus tard.':
+    'No alerts in the sources that were read, but these sources could not be read: {list}. We cannot say everything is green; try again later.',
+  'Sources non lues : {list}.': 'Sources not read: {list}.',
   '{partner}': '{partner}',
   '{partner} · {numero} · {month}': '{partner} · {numero} · {month}',
   'Alertes : {n} à traiter en priorité': 'Alerts: {n} need attention first',

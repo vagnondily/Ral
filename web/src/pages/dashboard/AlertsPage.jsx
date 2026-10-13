@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, ChevronRight, AlertCircle } from 'lucide-r
 import { api } from '../../api/client.js';
 import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
 import SeverityBadge, { SEV_ICON } from '../../components/SeverityBadge.jsx';
-import { SEVERITY, alertText, goArgs } from '../../lib/alerts.js';
+import { SEVERITY, alertText, alertsState, goArgs, sourceList } from '../../lib/alerts.js';
 import { useI18n } from '../../lib/i18n.jsx';
 
 /**
@@ -13,9 +13,9 @@ import { useI18n } from '../../lib/i18n.jsx';
  * la même liste. Dépassements/projections budgétaires (consolidation),
  * rapports à valider, avenants et contrats en validation, contrats arrivant à
  * échéance et faible couverture terrain du mois. Chaque alerte ouvre le module concerné.
+ * Jamais « tout est au vert » quand une source n'a pas pu être lue (alertsState).
+ * Sur téléphone, le tableau passe en cartes empilées (styles.css, .alerts-table).
  */
-const SOURCE_LABEL = { budget: 'Budget', contrats: 'Contrats', rapports: 'Rapports', terrain: 'Terrain' };
-
 export default function AlertsPage({ onNavigate }) {
   const { tr } = useI18n();
   const [state, setState] = useState({ loading: true });
@@ -30,6 +30,7 @@ export default function AlertsPage({ onNavigate }) {
 
   const items = state.data?.items || [];
   const counts = state.data?.counts || { critical: 0, warning: 0, info: 0 };
+  const { status, unavailable } = alertsState(state.data);
   const open = (a) => { const args = goArgs(a.go); if (args && onNavigate) onNavigate(...args); };
 
   return (
@@ -37,9 +38,9 @@ export default function AlertsPage({ onNavigate }) {
       <PageHeader title={tr('Centre d\'alertes')} description={tr('Tout ce qui demande votre attention, recalculé en direct : budget, rapports à valider, contrats et couverture terrain.')} />
 
       {state.error && <Alert tone="error" icon={AlertCircle}>{state.error}</Alert>}
-      {(state.data?.unavailable || []).length > 0 && (
+      {status === 'alerts' && unavailable.length > 0 && (
         <Alert tone="warning" icon={AlertTriangle}>
-          {tr('Certaines sources n\'ont pas pu être lues : {list}. Les autres alertes restent à jour.', { list: state.data.unavailable.map((s) => tr(SOURCE_LABEL[s] || s)).join(', ') })}
+          {tr('Certaines sources n\'ont pas pu être lues : {list}. Les autres alertes restent à jour.', { list: sourceList(tr, unavailable) })}
         </Alert>
       )}
 
@@ -55,22 +56,33 @@ export default function AlertsPage({ onNavigate }) {
         })}
       </div>
 
-      {!state.error && items.length === 0 ? (
+      {!state.error && status === 'clear' && (
         <Alert tone="success" icon={CheckCircle2}>{tr('Aucune alerte : budget, rapports, contrats et couverture terrain sont au vert.')}</Alert>
-      ) : items.length > 0 && (
+      )}
+      {!state.error && status === 'partial' && (
+        <Alert tone="warning" icon={AlertTriangle}>
+          {tr('Aucune alerte dans les sources lues, mais ces sources n\'ont pas pu être lues : {list}. Impossible de dire que tout est au vert ; réessayez plus tard.', { list: sourceList(tr, unavailable) })}
+        </Alert>
+      )}
+      {items.length > 0 && (
         <div className="card biz-card">
-          <div className="table-wrap"><table className="table">
-            <thead><tr><th>{tr('Niveau')}</th><th>{tr('Catégorie')}</th><th>{tr('Alerte')}</th><th>{tr('Détail')}</th><th aria-label={tr('Ouvrir')} /></tr></thead>
+          {/* Rôles explicites : la sémantique de tableau reste lue même quand le téléphone empile les cellules. */}
+          <div className="table-wrap"><table className="table alerts-table" role="table">
+            <thead><tr role="row">
+              <th role="columnheader" className="al-sev">{tr('Niveau')}</th><th role="columnheader" className="al-cat">{tr('Catégorie')}</th>
+              <th role="columnheader" className="al-title">{tr('Alerte')}</th><th role="columnheader" className="al-detail">{tr('Détail')}</th>
+              <th role="columnheader" className="al-go" aria-label={tr('Ouvrir')} />
+            </tr></thead>
             <tbody>
               {items.map((a, i) => {
                 const { title, detail } = alertText(tr, a);
                 return (
-                  <tr key={`${a.kind}-${i}`} onClick={() => open(a)} style={{ cursor: 'pointer' }}>
-                    <td><SeverityBadge sev={a.sev} /></td>
-                    <td>{tr(a.cat)}</td>
-                    <td><strong>{title}</strong></td>
-                    <td className="muted">{detail}</td>
-                    <td style={{ textAlign: 'right' }}>
+                  <tr role="row" key={`${a.kind}-${i}`} onClick={() => open(a)} style={{ cursor: 'pointer' }}>
+                    <td role="cell" className="al-sev"><SeverityBadge sev={a.sev} /></td>
+                    <td role="cell" className="al-cat">{tr(a.cat)}</td>
+                    <td role="cell" className="al-title"><strong>{title}</strong></td>
+                    <td role="cell" className="al-detail muted">{detail}</td>
+                    <td role="cell" className="al-go">
                       <button type="button" className="icon-link" aria-label={tr('Ouvrir')} onClick={(e) => { e.stopPropagation(); open(a); }}>
                         <ChevronRight size={16} aria-hidden="true" />
                       </button>

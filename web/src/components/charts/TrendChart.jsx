@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { formatInt, monthLabel, shortMonthLabel } from '../../lib/format.js';
-import { tickIndexes, yScale } from '../../lib/chartAxis.js';
+import { pickTicks, yScale } from '../../lib/chartAxis.js';
 
 /**
  * Courbe mensuelle partagée (Synthèse, Couverture & performance) — sans
@@ -8,25 +8,57 @@ import { tickIndexes, yScale } from '../../lib/chartAxis.js';
  *
  * Lisible à toutes les tailles : la largeur RÉELLE est mesurée (ResizeObserver)
  * et sert de viewBox en pixels, le texte n'est donc jamais agrandi ni rétréci ;
- * le nombre d'étiquettes de mois découle de cette largeur (chartAxis.tickIndexes,
- * ancrées sur le dernier mois = le mois choisi, jamais de chevauchement) ;
- * mois en clair et traduits (shortMonthLabel) ; graduations horizontales
- * discrètes ; survol = repère vertical + info-bulle (et <title> pour les
- * lecteurs d'écran).
+ * chaque étiquette de mois est MESURÉE (police de l'axe, gras pour le mois
+ * choisi) et chartAxis.pickTicks ne garde que des étiquettes qui ne se touchent
+ * pas : le mois choisi et le dernier mois sont toujours étiquetés, leurs
+ * voisines trop proches sont retirées ; mois en clair et traduits
+ * (shortMonthLabel) ; graduations horizontales discrètes ; survol = repère
+ * vertical + info-bulle (et <title> pour les lecteurs d'écran).
  *
  * @param {{ data: {month:string}[], valueKey?:string, selected?:string, height?:number,
  *           label:string, unit?:string, empty:React.ReactNode, format?:(n:number)=>string }} props
  */
-const LABEL_W = 52; // place réservée par étiquette de mois (« sept. 26 » + marge)
+const AXIS_PX = 11;  // taille de police de .trend-axis (styles.css)
+const LABEL_GAP = 8; // écart minimal entre deux étiquettes de mois (px)
+const FALLBACK_FONT = "'Inter', system-ui, sans-serif";
+
+let measureCtx = null;
+/** Largeur (px) d'une étiquette d'axe dans sa police ; estimation prudente sans canvas. */
+function textWidth(text, bold, family) {
+  try {
+    if (!measureCtx && typeof document !== 'undefined') measureCtx = document.createElement('canvas').getContext('2d');
+  } catch { measureCtx = null; }
+  if (measureCtx) {
+    measureCtx.font = `${bold ? 700 : 400} ${AXIS_PX}px ${family || FALLBACK_FONT}`;
+    const w = measureCtx.measureText(text).width;
+    if (w > 0) return Math.ceil(w);
+  }
+  return Math.ceil(text.length * AXIS_PX * (bold ? 0.66 : 0.62));
+}
 
 export default function TrendChart({ data, valueKey = 'submissions', selected, height = 168, label, unit = '', empty, format = formatInt }) {
   const wrap = useRef(null);
   const [width, setWidth] = useState(0);
   const [hover, setHover] = useState(null);
+  const [family, setFamily] = useState(FALLBACK_FONT);
+  const [, setFontGen] = useState(0);
+
+  // La largeur d'une étiquette dépend de la police : re-mesurer quand une police finit de charger.
+  useEffect(() => {
+    const fonts = typeof document !== 'undefined' ? document.fonts : null;
+    if (!fonts) return undefined;
+    let alive = true;
+    const bump = () => { if (alive) setFontGen((g) => g + 1); };
+    if (fonts.ready) fonts.ready.then(bump, () => {});
+    if (fonts.addEventListener) fonts.addEventListener('loadingdone', bump);
+    return () => { alive = false; if (fonts.removeEventListener) fonts.removeEventListener('loadingdone', bump); };
+  }, []);
 
   useEffect(() => {
     const el = wrap.current;
     if (!el) return undefined;
+    // Police réelle de l'axe (.trend-axis hérite de la police de l'interface).
+    if (typeof getComputedStyle === 'function') setFamily(getComputedStyle(el).fontFamily || FALLBACK_FONT);
     const measure = () => setWidth(Math.round(el.getBoundingClientRect().width));
     measure();
     if (typeof ResizeObserver === 'undefined') return undefined;
@@ -53,9 +85,11 @@ export default function TrendChart({ data, valueKey = 'submissions', selected, h
   const y = (v) => pad.t + plotH * (1 - v / max);
   const pts = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const area = `${x(0).toFixed(1)},${y(0)} ${pts} ${x(n - 1).toFixed(1)},${y(0)}`;
-  // Au plus une étiquette par LABEL_W pixels : deux étiquettes voisines ne se touchent jamais.
-  const marks = tickIndexes(n, Math.max(1, Math.floor(plotW / LABEL_W)));
-  const anchor = (i) => (x(i) - LABEL_W / 2 < 0 ? 'start' : x(i) + LABEL_W / 2 > w ? 'end' : 'middle');
+  // Étiquettes mesurées puis choisies sans chevauchement (mois choisi, puis dernier mois, toujours montrés).
+  const texts = rows.map((r) => shortMonthLabel(r.month));
+  const sel = rows.findIndex((r) => r.month === selected);
+  const marks = pickTicks(rows.map((r, i) => x(i)), texts.map((tx, i) => textWidth(tx, i === sel, family)),
+    { width: w, forced: [sel, n - 1], gap: LABEL_GAP });
   const tipFor = (i) => `${monthLabel(rows[i].month)} : ${format(values[i])}${unit ? ` ${unit}` : ''}`;
 
   return (
@@ -76,9 +110,9 @@ export default function TrendChart({ data, valueKey = 'submissions', selected, h
             <title>{tipFor(i)}</title>
           </circle>
         ))}
-        {marks.map((i) => (
-          <text key={`t${rows[i].month}`} className={`trend-axis${rows[i].month === selected ? ' is-selected' : ''}`}
-            x={x(i)} y={height - 7} textAnchor={anchor(i)}>{shortMonthLabel(rows[i].month)}</text>
+        {marks.map(({ index: i, anchor }) => (
+          <text key={`t${rows[i].month}`} className={`trend-axis trend-month${i === sel ? ' is-selected' : ''}`}
+            x={x(i)} y={height - 7} textAnchor={anchor}>{texts[i]}</text>
         ))}
         {/* Zones de survol plus larges que les points (une colonne par mois). */}
         {values.map((v, i) => (

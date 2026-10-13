@@ -167,7 +167,17 @@ function reportActions(report, { userId, canWrite }) {
   };
 }
 
+/**
+ * Rôles qui écrivent les rapports (remplir, soumettre, décider) : UNE liste,
+ * partagée par les routes (requireRole) et le Centre d'alertes (« à valider »
+ * ne compte que ce que l'utilisateur peut décider).
+ */
+const REPORT_WRITE_ROLES = Object.freeze(['admin', 'manager']);
+
+/** Le rôle de session écrit-il les rapports ? */
+const canWriteReports = (role) => REPORT_WRITE_ROLES.includes(role);
+
 module.exports = {
-  TRANSITIONS, STATUSES, DECIDABLE, SUBMITTABLE, EDITABLE,
-  canTransition, authorOf, editError, submitError, decisionError, notApplicableError, reportActions,
+  TRANSITIONS, STATUSES, DECIDABLE, SUBMITTABLE, EDITABLE, REPORT_WRITE_ROLES,
+  canTransition, authorOf, editError, submitError, decisionError, notApplicableError, reportActions, canWriteReports,
 };

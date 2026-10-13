@@ -1,6 +1,8 @@
 // Raisons d'un indicateur « Non évalué » — codes calculés par le serveur
 // (monitoringMath.naReason) ; ici seulement le texte (phrase française, traduite
-// à l'affichage) et l'action proposée. Ordre = ordre d'affichage.
+// à l'affichage), l'action proposée et son libellé. Ordre = ordre d'affichage.
+// Chaque code du serveur (sauf « not_scored », hors indice) a son entrée : vérifié
+// par server/test/webNaReasons.test.js, avec la traduction anglaise.
 export const NA_REASONS = {
   no_data: {
     label: 'Aucune donnée sur la période',
@@ -11,6 +13,15 @@ export const NA_REASONS = {
     label: 'Variable absente des données de la période',
     hint: 'Les formulaires reçus ne contiennent pas cette question : elle vient d\'une autre version du formulaire, ou le nom de variable de l\'indicateur est à corriger.',
     action: 'config',
+    actionLabel: 'Vérifier la variable',
+    showVariable: true,
+  },
+  not_numeric: {
+    label: 'Réponses non numériques : vérifiez la méthode ou la variable',
+    hint: 'Une moyenne ou une somme ne compte que des nombres : les réponses reçues sont du texte ou des choix. Changez la méthode (ex. « % de oui ») ou choisissez une variable numérique.',
+    action: 'config',
+    actionLabel: 'Vérifier la méthode',
+    showVariable: true,
   },
   only_na: {
     label: 'Seulement des réponses « hors base »',
@@ -26,6 +37,7 @@ export const NA_REASONS = {
     label: 'Moyenne, somme ou nombre sans cible',
     hint: 'La valeur est calculée et affichée, mais sans cible aucune bande ne s\'applique : ajoutez une cible pour la classer.',
     action: 'config',
+    actionLabel: 'Ajouter une cible',
   },
   unknown: {
     label: 'Non évalué',

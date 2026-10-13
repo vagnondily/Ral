@@ -33,5 +33,26 @@ export function alertText(tr, a) {
   return { title: tr(a.title, p), detail: a.detail ? tr(a.detail, p) : '' };
 }
 
+/** Sources lues par le serveur (alerts.service : `unavailable`), libellés traduits à l'affichage. */
+export const ALERT_SOURCES = { budget: 'Budget', contrats: 'Contrats', rapports: 'Rapports', terrain: 'Terrain' };
+
+/**
+ * État du Centre d'alertes (page et cloche) — jamais « tout est au vert » quand
+ * une source n'a pas pu être lue :
+ *   'alerts'  : il y a des alertes (et peut-être des sources non lues) ;
+ *   'partial' : aucune alerte dans les sources lues, mais `unavailable` non vide ;
+ *   'clear'   : aucune alerte, toutes les sources lues.
+ * @param {{ items?: object[], unavailable?: string[] } | null} data réponse de GET /api/alerts
+ * @returns {{ status: 'alerts'|'partial'|'clear', unavailable: string[] }}
+ */
+export function alertsState(data) {
+  const unavailable = Array.isArray(data?.unavailable) ? data.unavailable : [];
+  const status = (data?.items || []).length > 0 ? 'alerts' : unavailable.length > 0 ? 'partial' : 'clear';
+  return { status, unavailable };
+}
+
+/** Sources non lues, nommées dans la langue de l'interface (« Budget, Terrain »). */
+export const sourceList = (tr, sources) => (sources || []).map((s) => tr(ALERT_SOURCES[s] || s)).join(', ');
+
 /** Arguments de navigation (module, sous-page, élément) de l'écran concerné. */
 export const goArgs = (go) => (go ? [go.module, go.sub, go.extra || undefined] : null);
