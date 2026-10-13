@@ -25,15 +25,18 @@ const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
  * (`zipGuard`). Une date de collecte illisible donne une erreur 400 qui cite
  * la ligne et la colonne, au lieu d'un 500 au moment de l'écriture.
  *
- * MOIS DE COLLECTE : deux dates sont lues, la date d'ENQUÊTE (SvyDate, today,
- * start, end) et la date de RÉCEPTION par le serveur (_submission_time) ; le
- * mois retenu (period_month) et la date gardée (submitted_at) suivent
- * collectionDate.collectionMonth. Strictes comme avant : une date de réception
- * illisible, ou une date d'enquête illisible SANS date de réception, refusent
- * le fichier (400, ligne et colonne). Une date d'enquête illisible AVEC une
- * date de réception lisible ne refuse rien (ces fichiers s'importaient déjà :
- * seule la réception était lue) : le mois de réception est pris et la ligne
+ * MOIS DE COLLECTE : deux dates sont lues, la date d'ENQUÊTE (la première
+ * LISIBLE de SvyDate, today, start, end) et la date de RÉCEPTION par le serveur
+ * (_submission_time) ; le mois retenu (period_month) et la date gardée
+ * (submitted_at) suivent collectionDate.collectionMonth. Une candidate illisible
+ * (« 15/01/2026 » dans SvyDate) ne masque pas une suivante lisible (end) : ces
+ * fichiers s'importaient avant. Strictes comme avant : une date de réception
+ * illisible, ou AUCUNE date d'enquête lisible sans date de réception, refusent le
+ * fichier (400, ligne et colonne). Aucune date d'enquête lisible AVEC une date de
+ * réception lisible ne refuse rien : le mois de réception est pris et la ligne
  * est comptée « date d'enquête illisible » dans la vérification et le compte rendu.
+ * La vérification avant import et l'import appliquent les MÊMES colonnes choisies
+ * dans « Mapping MEMS » (prepareImport) : mêmes mois, mêmes comptes.
  *
  * The « well-known column → typed field » alias table lives in `memsMapping.js`
  * (single source of truth, shared with the « Mapping MEMS » screen).
@@ -197,7 +200,8 @@ const noNul = (v) => (typeof v === 'string' ? (v.includes('\u0000') ? v.replace(
 
 /**
  * Champs de date d'une soumission d'après collectionMonth (non persistés : `dateSource`,
- * `dateIssue`, `dateInputs` servent au compte rendu et à une colonne choisie à la main).
+ * `dateIssue`, `dateLate`, `dateInputs` servent au compte rendu et à une colonne choisie
+ * à la main).
  */
 function dateFields(when, inputs) {
   return {
@@ -206,6 +210,7 @@ function dateFields(when, inputs) {
     uploadMonth: when.ok ? when.uploadMonth : null,
     dateSource: when.ok ? when.source : null,
     dateIssue: when.ok ? when.issue : null,
+    dateLate: when.ok ? when.late === true : false,
     dateInputs: inputs,
   };
 }
@@ -226,8 +231,12 @@ function rowToSubmission(rawHeaders, rawValues, picks, source) {
     if (v !== undefined && v !== null && v !== '') data[h] = v;
   });
   const at = (field) => valueOf(picks, field, values);
-  const inputs = { survey: at(DATE_KEYS.survey), upload: at(DATE_KEYS.upload) };
-  const when = collectionMonth({ surveyDate: inputs.survey, uploadDate: inputs.upload });
+  // Date d'enquête : TOUTES les colonnes candidates, par priorité — la première lisible l'emporte.
+  const surveyIdx = (picks.candidates && picks.candidates[DATE_KEYS.survey]) || [];
+  const surveyVals = surveyIdx.map((i) => values[i]);
+  const upload = at(DATE_KEYS.upload);
+  const when = collectionMonth({ surveyDates: surveyVals, uploadDate: upload });
+  const inputs = { survey: when.surveyIndex >= 0 ? surveyVals[when.surveyIndex] : undefined, upload };
   const submission = {
     externalId: externalIdOf(picks, values),
     ...dateFields(when, inputs),
@@ -243,8 +252,11 @@ function rowToSubmission(rawHeaders, rawValues, picks, source) {
     data,
   };
   let badDate = null;
-  if (!when.ok) {
-    const field = when.field === 'upload' ? DATE_KEYS.upload : DATE_KEYS.survey;
+  if (!when.ok && when.field === 'survey') {
+    const col = surveyIdx[when.surveyIndex];
+    badDate = { column: String(headers[col]), value: String(values[col]).trim() };
+  } else if (!when.ok) {
+    const field = DATE_KEYS.upload;
     const col = ((picks.candidates && picks.candidates[field]) || []).find((i) => values[i] != null && String(values[i]).trim() !== '');
     badDate = { column: String(headers[col ?? picks[field]]), value: String(at(field)) };
   }
@@ -273,15 +285,18 @@ function collectionColumns(keys, forcedSurvey) {
 
 /**
  * Mois de collecte d'une soumission recalculé avec une date d'enquête choisie à la main
- * (`survey`, valeur brute ; `undefined` = aucune) ; la date de réception lue à l'import
- * est gardée. Une date illisible laisse la soumission telle qu'importée (lecture
- * automatique déjà vérifiée) et la compte « date d'enquête illisible ».
+ * (`survey` : valeur brute, ou valeurs candidates par priorité — la colonne choisie puis
+ * ses variantes de casse ; `undefined` ou [] = aucune) ; la date de réception lue à
+ * l'import est gardée. Aucune valeur lisible et pas de réception : la soumission reste
+ * telle qu'importée (lecture automatique déjà vérifiée), comptée « date d'enquête illisible ».
  * @returns {boolean} vrai si la date d'enquête choisie était illisible
  */
 function applySurveyDate(s, survey) {
-  const inputs = { survey, upload: s.dateInputs ? s.dateInputs.upload : undefined };
-  const when = collectionMonth({ surveyDate: survey, uploadDate: inputs.upload });
+  const surveyDates = Array.isArray(survey) ? survey : [survey];
+  const upload = s.dateInputs ? s.dateInputs.upload : undefined;
+  const when = collectionMonth({ surveyDates, uploadDate: upload });
   if (!when.ok) { s.dateIssue = 'survey_unreadable'; return true; }
+  const inputs = { survey: when.surveyIndex >= 0 ? surveyDates[when.surveyIndex] : undefined, upload };
   if (!when.month && s.periodMonth) return false; // aucune date relue : on garde celle de l'import
   Object.assign(s, dateFields(when, inputs));
   return when.issue === 'survey_unreadable';
@@ -290,14 +305,17 @@ function applySurveyDate(s, survey) {
 /**
  * Comptes « mois de collecte » d'un lot de soumissions (vérification avant import et
  * compte rendu) : mois tiré de l'enquête ou de la réception, mois différent du mois de
- * réception (ce qui change par rapport à l'ancienne règle), et pourquoi la réception a
- * été prise (date d'enquête illisible, trop ancienne, postérieure à la réception).
+ * réception (ce qui change par rapport à l'ancienne règle), pourquoi la réception a
+ * été prise (date d'enquête illisible, de plus de 2 ans avant l'envoi, postérieure à
+ * l'envoi) et, pour information, les envois tardifs (plus de 92 jours après l'enquête,
+ * rangés au mois de l'enquête).
  */
 function dateSummary(submissions) {
-  const out = { fromSurvey: 0, fromUpload: 0, monthDiffers: 0, surveyUnreadable: 0, surveyTooOld: 0, surveyAfterUpload: 0 };
+  const out = { fromSurvey: 0, fromUpload: 0, monthDiffers: 0, surveyUnreadable: 0, surveyTooOld: 0, surveyAfterUpload: 0, lateUpload: 0 };
   for (const s of submissions || []) {
     if (s.dateSource === 'survey') out.fromSurvey += 1;
     else if (s.dateSource === 'upload') out.fromUpload += 1;
+    if (s.dateLate) out.lateUpload += 1;
     if (s.periodMonth && s.uploadMonth && s.periodMonth !== s.uploadMonth) out.monthDiffers += 1;
     if (s.dateIssue === 'survey_unreadable') out.surveyUnreadable += 1;
     else if (s.dateIssue === 'survey_too_old') out.surveyTooOld += 1;
@@ -453,41 +471,137 @@ function submissionsFromObjects(objects, source = 'kobo') {
 // Champs typés montrés à l'utilisateur avant un import (vérification).
 const ANALYZED_FIELDS = ['external_id', 'survey_date', 'submitted_at', 'field_office', 'admin1', 'admin2', 'admin3', 'admin4', 'site', 'partner', 'agent'];
 
+// Dimension « Mapping MEMS » choisie à la main → propriété de la soumission (valeurs recopiées).
+const OVERRIDE_PROP = { field_office: 'fieldOffice', admin1: 'admin1', admin2: 'admin2', admin3: 'admin3', admin4: 'admin4', site: 'site', partner: 'partner', agent: 'agent' };
+
+/**
+ * Valeurs d'une colonne choisie à la main, par priorité : le nom exact, puis ses variantes de
+ * casse présentes dans les réponses (XLSForm ≠ export SPSS) — comme collectionColumns.
+ */
+function forcedValues(data, column) {
+  if (!data || !column) return [];
+  const lower = column.toLowerCase();
+  const keys = Object.keys(data).filter((k) => k !== column && k.toLowerCase() === lower);
+  return [...(Object.prototype.hasOwnProperty.call(data, column) ? [column] : []), ...keys].map((k) => data[k]);
+}
+
+/**
+ * Colonnes choisies à la main dans « Mapping MEMS » appliquées à une soumission lue (pur ;
+ * modifie `s`). Valeur recopiée : la première non vide, nettoyée comme à l'import (valueOf)
+ * et à la relecture SQL ; colonne vide = « aucune » (valeur effacée). Date d'enquête choisie :
+ * mois de collecte recalculé par la même règle (applySurveyDate).
+ * @param {object} s  soumission (sortie de parseSubmissions)
+ * @param {Array<{ dimension: string, columnName: string|null }>} overrides
+ */
+function applyFieldOverrides(s, overrides) {
+  for (const o of overrides || []) {
+    const col = (o.columnName || '').trim();
+    const vals = col ? forcedValues(s.data, col) : [];
+    if (o.dimension === DATE_KEYS.survey) { applySurveyDate(s, vals); continue; }
+    const prop = OVERRIDE_PROP[o.dimension];
+    if (!prop) continue;
+    const v = vals.map((x) => (x == null ? '' : String(x).trim())).find((x) => x !== '');
+    s[prop] = v === undefined ? null : v;
+  }
+  return s;
+}
+
+/** Même identifiant Kobo deux fois : une seule soumission, la DERNIÈRE version (sans identifiant : toutes gardées). */
+function uniqueByExternalId(submissions) {
+  const unique = []; const at = new Map();
+  for (const s of submissions || []) {
+    if (s.externalId && at.has(s.externalId)) { unique[at.get(s.externalId)] = s; continue; }
+    if (s.externalId) at.set(s.externalId, unique.length);
+    unique.push(s);
+  }
+  return unique;
+}
+
+/**
+ * Soumissions lues → ce que l'import écrira, pour l'import ET pour la vérification avant
+ * import (mêmes mois, mêmes comptes) : doublons du fichier fondus (dernière version), clés
+ * des réponses ramenées aux noms du catalogue de la fiche (groupPathRenamer), puis colonnes
+ * choisies dans « Mapping MEMS » appliquées (applyFieldOverrides). Pur ; modifie les
+ * soumissions retenues (comme l'import l'a toujours fait).
+ * @param {object[]} submissions  sortie de parseSubmissions
+ * @param {{ catalogNames?: string[], overrides?: Array<{dimension:string,columnName:string|null}> }} ctx
+ * @returns {{ unique: object[], duplicates: number }}
+ */
+function prepareImport(submissions, { catalogNames = [], overrides = [] } = {}) {
+  const list = submissions || [];
+  const unique = uniqueByExternalId(list);
+  const canonical = groupPathRenamer(catalogNames);
+  for (const s of unique) {
+    s.data = canonical(s.data || {});
+    if (overrides.length) applyFieldOverrides(s, overrides);
+  }
+  return { unique, duplicates: list.length - unique.length };
+}
+
 /**
  * Ce que contient un fichier lu, avant de l'importer (rien n'est écrit) :
- * nombre de soumissions, colonne reconnue pour chaque champ MEMS, mois couverts,
- * première et dernière date, doublons dans le fichier, lignes sans identifiant
- * (un réimport les compterait deux fois). Logique pure.
+ * nombre de soumissions, colonne reconnue pour chaque champ MEMS (celle choisie dans
+ * « Mapping MEMS » quand il y en a une : `manual`), mois couverts, première et dernière
+ * date, doublons dans le fichier, lignes sans identifiant (un réimport les compterait
+ * deux fois). Mois, dates et comptes « mois de collecte » portent sur ce que l'import
+ * écrira (`unique`, sortie de prepareImport) : les mêmes que son compte rendu. Logique pure.
  * @param {object[]} submissions  sortie de parseSubmissions
  * @param {string[]} headers       colonnes (ou variables SPSS) du fichier
+ * @param {{ unique?: object[], overrides?: Array<{dimension:string,columnName:string|null}> }} [opts]
  */
-function analyzeSubmissions(submissions, headers = []) {
+function analyzeSubmissions(submissions, headers = [], { unique, overrides = [] } = {}) {
   const list = submissions || [];
+  const kept = unique || uniqueByExternalId(list);
   const cols = (headers || []).filter((h) => h != null && h !== '');
   const picks = buildLookup(cols, list.slice(0, 50).map((x) => cols.map((h) => (x.data || {})[h])));
   const recognized = Object.fromEntries(ANALYZED_FIELDS.map((f) => [f, picks[f] != null ? cols[picks[f]] : null]));
+  const manual = [];
+  for (const o of overrides) {
+    if (!ANALYZED_FIELDS.includes(o.dimension)) continue;
+    recognized[o.dimension] = (o.columnName || '').trim() || null;
+    manual.push(o.dimension);
+  }
   const months = new Map();
   const seen = new Set();
   let from = null; let to = null; let duplicatesInFile = 0; let withoutId = 0; let withoutDate = 0;
   for (const x of list) {
+    if (!x.externalId) withoutId += 1;
+    else if (seen.has(x.externalId)) duplicatesInFile += 1;
+    else seen.add(x.externalId);
+  }
+  for (const x of kept) {
     if (x.periodMonth) months.set(x.periodMonth, (months.get(x.periodMonth) || 0) + 1); else withoutDate += 1;
     if (x.submittedAt) {
       const iso = new Date(x.submittedAt).toISOString().slice(0, 10);
       if (!from || iso < from) from = iso;
       if (!to || iso > to) to = iso;
     }
-    if (!x.externalId) withoutId += 1;
-    else if (seen.has(x.externalId)) duplicatesInFile += 1;
-    else seen.add(x.externalId);
   }
   return {
     count: list.length,
     recognized,
+    manual,
     months: [...months.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([month, n]) => ({ month, n })),
     from, to, duplicatesInFile, withoutId, withoutDate,
-    dates: dateSummary(list),
+    dates: dateSummary(kept),
     ids: [...seen],
   };
+}
+
+/**
+ * Vérification avant import d'un fichier lu (pur, rien n'est écrit) : la MÊME préparation que
+ * l'import (prepareImport, avec les colonnes choisies dans « Mapping MEMS » et le catalogue de
+ * la fiche), puis analyzeSubmissions — mois et comptes identiques à ce que l'import écrira.
+ * La préparation porte sur des COPIES : les soumissions lues restent telles quelles (colonnes
+ * reconnues lues sur les en-têtes du fichier, pas sur les clés renommées).
+ * @param {object[]} submissions  sortie de parseSubmissions
+ * @param {string[]} headers       colonnes (ou variables SPSS) du fichier
+ * @param {{ catalogNames?: string[], overrides?: Array<{dimension:string,columnName:string|null}> }} [ctx]
+ */
+function previewImport(submissions, headers = [], ctx = {}) {
+  const list = submissions || [];
+  const { unique } = prepareImport(list.map((s) => ({ ...s })), ctx);
+  return analyzeSubmissions(list, headers, { unique, overrides: ctx.overrides || [] });
 }
 
 // Donne un identifiant stable (dé-duplication) aux soumissions sans _uuid,
@@ -605,6 +719,6 @@ async function parseSubmissions(buffer, { zipLimits = zipLimitsFromEnv(process.e
 }
 
 module.exports = {
-  parseSubmissions, submissionsFromObjects, parseCsv, buildLookup, valueOf, groupPathRenamer, analyzeSubmissions,
-  collectionColumns, applySurveyDate, dateSummary, TRIM_CLASS, MAP,
+  parseSubmissions, submissionsFromObjects, parseCsv, buildLookup, valueOf, groupPathRenamer, analyzeSubmissions, previewImport,
+  collectionColumns, applySurveyDate, applyFieldOverrides, prepareImport, uniqueByExternalId, dateSummary, TRIM_CLASS, MAP,
 };

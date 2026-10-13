@@ -1026,11 +1026,12 @@ function MappingColumnsCard({ form, canEdit }) {
                       {r.key === DATE_KEYS.survey && stats.total > 0 && (
                         <div className="map-date-note">
                           {tr('{n} soumission(s) sur {t} : mois de collecte différent du mois de réception.', { n: formatInt(stats.differs), t: formatInt(stats.total) })}
-                          {stats.unknownUpload > 0 && <> {tr('Mois de réception inconnu pour {n} (importées avant cette règle : « Appliquer aux soumissions »).', { n: formatInt(stats.unknownUpload) })}</>}
+                          {stats.pendingUpload > 0 && <> {tr('Mois de réception inconnu pour {n} (importées avant cette règle : « Appliquer aux soumissions »).', { n: formatInt(stats.pendingUpload) })}</>}
+                          {stats.withoutUpload > 0 && <> {tr('Sans date de réception : {n} — leurs données n\'en portent pas ; leur mois de réception restera inconnu.', { n: formatInt(stats.withoutUpload) })}</>}
                         </div>
                       )}
                       {r.key === DATE_KEYS.upload && (
-                        <div className="map-date-note">{tr('Repli quand la date d\'enquête manque, est illisible ou précède la réception de plus de 92 jours.')}</div>
+                        <div className="map-date-note">{tr('Repli quand la date d\'enquête manque, est illisible, postérieure à l\'envoi ou de plus de 2 ans avant l\'envoi (à vérifier).')}</div>
                       )}
                     </td>
                     <td>

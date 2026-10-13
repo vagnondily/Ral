@@ -47,10 +47,19 @@ const REPAIRS = [
     key: 'r3_mois_de_collecte',
     run: repairCollectionMonths,
   },
+  {
+    // R4 : MOIS DE COLLECTE, règle des 2 ans (MAX_SURVEY_LAG_DAYS). R3 a déjà tourné avec
+    // l'ancienne fenêtre de 92 jours, qui rangeait au mois de l'ENVOI des collectes réelles
+    // envoyées tard (SMP : collectes de septembre à décembre 2025 reçues en avril 2026) ; et
+    // une date d'enquête illisible masquait une suivante lisible (start, end). Même calcul que
+    // R3, depuis les réponses brutes, lignes changées seulement, par lots ; idempotent.
+    key: 'r4_mois_de_collecte_2ans',
+    run: repairCollectionMonths,
+  },
 ];
 
 /**
- * R3 — pour chaque fiche du client, mois de collecte recalculé (monitoring.repository
+ * R3, R4 — pour chaque fiche du client, mois de collecte recalculé (monitoring.repository
  * .rederiveCollectionDatesTx). Le verrou des rattachements est pris D'ABORD, comme tout
  * écrivain de soumissions (CLAUDE.md : lockSubmissionLinksTx), puis les fiches une par une
  * sur le même client, l'une après l'autre.
@@ -61,14 +70,15 @@ async function repairCollectionMonths(client, tenantId, deps = {}) {
   const places = deps.places || require('../modules/settings/placeMatch.repository');
   await places.lockSubmissionLinksTx(client, tenantId);
   const { rows: forms } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 ORDER BY id', [tenantId]);
-  const out = { forms: forms.length, submissions: 0, updated: 0, monthChanged: 0, unreadable: 0, undated: 0 };
+  const out = {
+    forms: forms.length, submissions: 0, updated: 0, monthChanged: 0, unreadable: 0, undated: 0,
+    tooOld: 0, lateUpload: 0, withoutUpload: 0,
+  };
   for (const f of forms) {
     const r = await monitoring.rederiveCollectionDatesTx(client, tenantId, f.id);
     out.submissions += r.total;
     out.updated += r.updates;
-    out.monthChanged += r.monthChanged;
-    out.unreadable += r.unreadable;
-    out.undated += r.undated;
+    for (const k of ['monthChanged', 'unreadable', 'undated', 'tooOld', 'lateUpload', 'withoutUpload']) out[k] += r[k] || 0;
   }
   return out;
 }

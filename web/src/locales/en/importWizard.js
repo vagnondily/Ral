@@ -87,6 +87,9 @@ export default {
     '{n} submission(s) filed under the month of their survey date, different from the month the server received them.',
   'Mois de réception retenu faute de date d\'enquête exploitable': 'Receipt month used for lack of a usable survey date',
   'date d\'enquête illisible : {n}': 'unreadable survey date: {n}',
-  'date d\'enquête de plus de 92 jours : {n}': 'survey date more than 92 days old: {n}',
+  'date d\'enquête de plus de 2 ans avant l\'envoi (à vérifier) : {n}': 'survey date more than 2 years before upload (to be checked): {n}',
+  'Pour information — envoi tardif : plus de 92 jours après l\'enquête : {n}. Ces soumissions restent au mois de leur enquête.':
+    'For information — late upload: more than 92 days after the survey: {n}. These submissions stay in their survey month.',
+  'choisie dans « Mapping MEMS »': 'chosen in “MEMS mapping”',
   'date d\'enquête postérieure à la réception : {n}': 'survey date after receipt: {n}',
 };

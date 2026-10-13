@@ -78,15 +78,17 @@ function Stepper({ step, sourceId }) {
 
 /**
  * Mois de collecte d'un lot (vérification ou compte rendu) : combien de soumissions sont
- * rangées au mois de l'enquête plutôt qu'au mois de réception, et pourquoi certaines restent
- * au mois de réception (date d'enquête illisible, trop ancienne, postérieure à la réception).
+ * rangées au mois de l'enquête plutôt qu'au mois de réception, pourquoi certaines restent
+ * au mois de réception (date d'enquête illisible, de plus de 2 ans avant l'envoi — à
+ * vérifier —, postérieure à la réception) et, pour information, les envois tardifs (plus de
+ * 92 jours après l'enquête, gardés au mois de l'enquête).
  */
 export function CollectionMonthNotes({ dates }) {
   const { tr } = useI18n();
   if (!dates) return null;
   const fallback = [
     [dates.surveyUnreadable, 'date d\'enquête illisible : {n}'],
-    [dates.surveyTooOld, 'date d\'enquête de plus de 92 jours : {n}'],
+    [dates.surveyTooOld, 'date d\'enquête de plus de 2 ans avant l\'envoi (à vérifier) : {n}'],
     [dates.surveyAfterUpload, 'date d\'enquête postérieure à la réception : {n}'],
   ].filter(([n]) => n > 0);
   return (
@@ -94,6 +96,11 @@ export function CollectionMonthNotes({ dates }) {
       {dates.monthDiffers > 0 && (
         <Alert tone="info">
           {tr('{n} soumission(s) rangée(s) au mois de leur date d\'enquête, différent du mois de réception par le serveur.', { n: formatInt(dates.monthDiffers) })}
+        </Alert>
+      )}
+      {dates.lateUpload > 0 && (
+        <Alert tone="info">
+          {tr('Pour information — envoi tardif : plus de 92 jours après l\'enquête : {n}. Ces soumissions restent au mois de leur enquête.', { n: formatInt(dates.lateUpload) })}
         </Alert>
       )}
       {fallback.length > 0 && (
@@ -333,9 +340,17 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
                 <summary>{tr('Colonnes reconnues pour MEMS ({n} sur {t})', { n: FIELD_LABELS.filter(([k]) => p.recognized[k]).length, t: FIELD_LABELS.length })}</summary>
                 <table className="table">
                   <thead><tr><th scope="col">{tr('Information MEMS')}</th><th scope="col">{tr('Colonne du fichier')}</th></tr></thead>
-                  <tbody>{FIELD_LABELS.map(([k, label]) => (
-                    <tr key={k}><td>{tr(label)}</td><td>{p.recognized[k] ? <span className="mono">{p.recognized[k]}</span> : <span className="muted">{tr('non trouvée')}</span>}</td></tr>
-                  ))}</tbody>
+                  <tbody>{FIELD_LABELS.map(([k, label]) => {
+                    // Colonne choisie dans « Mapping MEMS » : c'est elle que l'import appliquera.
+                    const manual = (p.manual || []).includes(k);
+                    return (
+                      <tr key={k}><td>{tr(label)}</td><td>
+                        {p.recognized[k] ? <span className="mono">{p.recognized[k]}</span>
+                          : <span className="muted">{manual ? tr('aucune') : tr('non trouvée')}</span>}
+                        {manual && <> <Badge tone="blue">{tr('choisie dans « Mapping MEMS »')}</Badge></>}
+                      </td></tr>
+                    );
+                  })}</tbody>
                 </table>
               </details>
               <div className="wiz-actions">

@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseCollectionDate, collectionMonth, collectionUpdates, firstFilled } = require('../src/modules/monitoring/collectionDate');
+const {
+  parseCollectionDate, collectionMonth, collectionUpdates, firstFilled, pickSurveyDate, MAX_SURVEY_LAG_DAYS, LATE_UPLOAD_DAYS,
+} = require('../src/modules/monitoring/collectionDate');
 
 const ok = (v) => { const r = parseCollectionDate(v); assert.equal(r.ok, true, `attendu lisible : ${v}`); return r; };
 const bad = (v) => assert.equal(parseCollectionDate(v).ok, false, `attendu refusé : ${v}`);
@@ -51,7 +53,7 @@ test('objet Date : valide accepté, « Invalid Date » refusé', () => {
 // ---- Mois de collecte (retour n° 35) -------------------------------------------------------
 const cm = (surveyDate, uploadDate, opts) => collectionMonth({ surveyDate, uploadDate, ...opts });
 
-test('mois de collecte : la date d\'enquête l\'emporte quand elle précède la réception de 0 à 92 jours', () => {
+test('mois de collecte : la date d\'enquête l\'emporte quand elle précède l\'envoi de 0 à 730 jours (2 ans)', () => {
   const r = cm('2026-01-28', '2026-02-03T08:00:00');
   assert.equal(r.month, '2026-01-01');
   assert.equal(r.source, 'survey');
@@ -62,16 +64,40 @@ test('mois de collecte : la date d\'enquête l\'emporte quand elle précède la 
   assert.equal(r.date.toISOString(), '2026-01-28T00:00:00.000Z'); // submitted_at = date d'enquête
   // Même jour : écart 0.
   assert.equal(cm('2026-03-10', '2026-03-10T15:00:00').lagDays, 0);
-  // Bornes : 92 jours gardent l'enquête, 93 basculent sur la réception.
-  assert.equal(cm('2026-01-01', '2026-04-03').source, 'survey');       // 92 j
-  const late = cm('2026-01-01', '2026-04-04');                          // 93 j
-  assert.equal(late.source, 'upload');
-  assert.equal(late.issue, 'survey_too_old');
-  assert.equal(late.month, '2026-04-01');
-  assert.equal(late.lagDays, 93);
+  assert.equal(r.late, false);
+  // Constantes nommées : 2 ans pour garder l'enquête, 92 jours pour signaler un envoi tardif.
+  assert.equal(MAX_SURVEY_LAG_DAYS, 730);
+  assert.equal(LATE_UPLOAD_DAYS, 92);
+  // Bornes : 730 jours gardent l'enquête, 731 basculent sur l'envoi (« à vérifier »).
+  const edge = cm('2024-01-01', '2025-12-31');                          // 730 j (2024 bissextile)
+  assert.equal(edge.lagDays, 730);
+  assert.equal(edge.source, 'survey');
+  assert.equal(edge.month, '2024-01-01');
+  assert.equal(edge.late, true);
+  const old = cm('2024-01-01', '2026-01-01');                           // 731 j
+  assert.equal(old.source, 'upload');
+  assert.equal(old.issue, 'survey_too_old');
+  assert.equal(old.month, '2026-01-01');
+  assert.equal(old.lagDays, 731);
+  assert.equal(old.late, false);
 });
 
-test('mois de collecte : date d\'enquête future ou trop ancienne (horloge de tablette) → mois de réception', () => {
+test('mois de collecte : envoi tardif (plus de 92 jours) gardé au mois de l\'enquête, signalé pour information', () => {
+  assert.equal(cm('2026-01-01', '2026-04-03').late, false);             // 92 j : pas tardif
+  const late = cm('2026-01-01', '2026-04-04');                          // 93 j
+  assert.equal(late.source, 'survey');
+  assert.equal(late.month, '2026-01-01');
+  assert.equal(late.issue, null);
+  assert.equal(late.late, true);
+  assert.equal(late.lagDays, 93);
+  // Valeurs réelles SMP (secondes SPSS) : collecte de septembre 2025 envoyée en avril 2026 → septembre.
+  const smp = cm(13977964800, 13996750892);
+  assert.equal(smp.month, '2025-09-01');
+  assert.equal(smp.late, true);
+  assert.equal(smp.uploadMonth, '2026-04-01');
+});
+
+test('mois de collecte : date d\'enquête postérieure à l\'envoi ou de plus de 2 ans avant → mois de l\'envoi', () => {
   const future = cm('2026-03-05', '2026-03-01T09:00:00');
   assert.equal(future.source, 'upload');
   assert.equal(future.issue, 'survey_after_upload');
@@ -79,7 +105,7 @@ test('mois de collecte : date d\'enquête future ou trop ancienne (horloge de ta
   const nextMonth = cm('2026-05-02', '2026-04-29T10:00:00');
   assert.equal(nextMonth.month, '2026-04-01');
   assert.equal(nextMonth.issue, 'survey_after_upload');
-  // Valeurs réelles (Nutrition, SPSS) : SvyDate en mars 2024, reçue en avril 2026.
+  // Valeurs réelles (Nutrition, SPSS) : SvyDate en mars 2024, reçue en avril 2026 (750 j > 2 ans).
   const nut = cm(13929667200, 13994498165);
   assert.equal(nut.month, '2026-04-01');
   assert.equal(nut.issue, 'survey_too_old');
@@ -119,7 +145,7 @@ test('mois de collecte : date illisible — refus seulement quand le mois devien
   assert.equal(r.issue, 'survey_unreadable');
   assert.equal(r.surveyMonth, null);
   // Enquête illisible sans réception : refus (400 à l'import), sur la date d'enquête.
-  assert.deepEqual(cm('30/01/2026', undefined), { ok: false, field: 'survey' });
+  assert.deepEqual(cm('30/01/2026', undefined), { ok: false, field: 'survey', surveyIndex: 0 });
   // Réception illisible : refus, même si l'enquête est lisible.
   assert.deepEqual(cm('2026-01-30', '10/05/2026'), { ok: false, field: 'upload' });
 });
@@ -129,6 +155,26 @@ test('mois de collecte : secondes SPSS réelles (GD : SvyDate et @_submission_ti
   assert.equal(r.source, 'survey');
   assert.equal(r.month, '2025-12-01');
   assert.equal(r.lagDays, 1);
+});
+
+test('date d\'enquête : la première candidate LISIBLE (SvyDate → today → start → end)', () => {
+  // SvyDate illisible, end lisible, pas de réception : end (comme avant le lot 1), jamais un refus.
+  const r = collectionMonth({ surveyDates: ['15/01/2026', undefined, undefined, '2026-01-15T10:00:00'] });
+  assert.equal(r.ok, true);
+  assert.equal(r.month, '2026-01-01');
+  assert.equal(r.source, 'survey');
+  assert.equal(r.issue, null);
+  assert.equal(r.surveyIndex, 3);
+  // Aucune lisible, sans réception : refus sur la PREMIÈRE illisible.
+  assert.deepEqual(collectionMonth({ surveyDates: [' ', '15/01/2026', 'hier'] }), { ok: false, field: 'survey', surveyIndex: 1 });
+  // Aucune lisible, réception lisible : mois de réception, signalé.
+  const up = collectionMonth({ surveyDates: ['15/01/2026'], uploadDate: '2026-02-03T08:00:00' });
+  assert.equal(up.month, '2026-02-01');
+  assert.equal(up.issue, 'survey_unreadable');
+  // Aucune renseignée : pas de date d'enquête.
+  assert.deepEqual(pickSurveyDate(['', null, undefined]).index, -1);
+  assert.equal(pickSurveyDate(['2026-03-01', '2026-02-01']).index, 0); // la priorité est gardée
+  assert.equal(collectionMonth({ surveyDates: [] }).month, null);
 });
 
 test('collectionUpdates : seules les lignes qui changent ; sans date ou illisible → gardées telles quelles', () => {
@@ -150,6 +196,8 @@ test('collectionUpdates : seules les lignes qui changent ; sans date ou illisibl
   assert.deepEqual(r.updates[0], { id: 'a', periodMonth: '2026-01-01', submittedAt: '2026-01-28T00:00:00.000Z', uploadMonth: '2026-02-01' });
   assert.deepEqual(r.updates[1], { id: 'e', periodMonth: '2026-04-01', submittedAt: '2026-04-01T00:00:00.000Z', uploadMonth: '2026-04-01' });
   assert.deepEqual([r.total, r.unchanged, r.undated, r.unreadable, r.monthChanged, r.fromSurvey, r.fromUpload], [5, 1, 1, 1, 1, 3, 0]);
+  assert.equal(r.withoutUpload, 1); // c : aucune date de réception dans ses réponses
+  assert.equal(r.total, r.unchanged + r.updates.length + r.undated + r.unreadable); // chaque ligne comptée une fois
   // Idempotent : les changements appliqués, plus rien à faire.
   const applied = rows.map((row) => ({ ...row, ...(r.updates.find((u) => u.id === row.id) || {}) }));
   assert.equal(collectionUpdates(applied, cols).updates.length, 0);
@@ -160,4 +208,24 @@ test('firstFilled : première colonne renseignée, dans l\'ordre', () => {
   assert.equal(firstFilled({ a: null }, ['a', 'z']), undefined);
   assert.equal(firstFilled(null, ['a']), undefined);
   assert.equal(firstFilled({ toString: 'x' }, ['valueOf']), undefined); // pas de clé héritée
+});
+
+test('collectionUpdates : candidate illisible sautée, règle des 2 ans, envois tardifs et lignes sans réception comptés', () => {
+  const cols = { surveyCols: ['SvyDate', 'today', 'start', 'end'], uploadCols: ['_submission_time'] };
+  const rows = [
+    // SvyDate illisible, end lisible : end.
+    { id: 'a', periodMonth: null, submittedAt: null, uploadMonth: null, dates: { SvyDate: '15/01/2026', end: '2026-01-15T10:00:00' } },
+    // Envoi 7 mois après l'enquête (SMP réel) : mois de l'enquête, compté « tardif ».
+    { id: 'b', periodMonth: '2026-04-01', submittedAt: '2026-04-10T00:00:00.000Z', uploadMonth: '2026-04-01', dates: { SvyDate: '2025-09-01', _submission_time: '2026-04-10T00:00:00Z' } },
+    // Plus de 2 ans : mois de l'envoi, compté « à vérifier ».
+    { id: 'c', periodMonth: '2026-03-01', submittedAt: '2026-03-01T00:00:00.000Z', uploadMonth: '2026-03-01', dates: { SvyDate: '2022-08-01', _submission_time: '2026-03-01T00:00:00Z' } },
+    // Aucune date d'enquête lisible ni réception : gardée telle quelle, comptée illisible ET sans réception.
+    { id: 'd', periodMonth: '2026-01-01', submittedAt: null, uploadMonth: null, dates: { SvyDate: '15/01/2026' } },
+    // Aucune date dans les réponses (seed) : sans date ET sans réception.
+    { id: 'e', periodMonth: '2026-05-01', submittedAt: null, uploadMonth: null, dates: null },
+  ];
+  const r = collectionUpdates(rows, cols);
+  assert.deepEqual(r.updates.map((u) => [u.id, u.periodMonth, u.uploadMonth]), [['a', '2026-01-01', null], ['b', '2025-09-01', '2026-04-01']]);
+  assert.deepEqual([r.lateUpload, r.tooOld, r.withoutUpload, r.monthChanged, r.unchanged, r.unreadable, r.undated], [1, 1, 3, 2, 1, 1, 1]);
+  assert.equal(r.total, r.unchanged + r.updates.length + r.undated + r.unreadable);
 });

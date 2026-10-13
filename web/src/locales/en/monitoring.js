@@ -455,6 +455,7 @@ export default {
   'Localités (niveau 2)': 'Localities (level 2)',
   'Localités (niveau 3)': 'Localities (level 3)',
   'Localités (niveau 4)': 'Localities (level 4)',
+  'Fokontany / localité': 'Fokontany / locality',
   'Mois de réception': 'Receipt month',
   'Quelle colonne du formulaire alimente chaque dimension MEMS (bureau, zones, site, partenaire, agent, mois de collecte). Auto-détecté à partir des variables ; vous pouvez le corriger, puis le soumettre pour validation.':
     'Which form column feeds each MEMS dimension (office, areas, site, partner, agent, collection month). Auto-detected from the variables; you can correct it, then submit it for validation.',
@@ -485,6 +486,8 @@ export default {
   '{n} soumission(s) sur {t} : mois de collecte différent du mois de réception.': '{n} of {t} submission(s): collection month different from the receipt month.',
   'Mois de réception inconnu pour {n} (importées avant cette règle : « Appliquer aux soumissions »).':
     'Receipt month unknown for {n} (imported before this rule: “Apply to submissions”).',
-  'Repli quand la date d\'enquête manque, est illisible ou précède la réception de plus de 92 jours.':
-    'Fallback when the survey date is missing, unreadable or more than 92 days before receipt.',
+  'Repli quand la date d\'enquête manque, est illisible, postérieure à l\'envoi ou de plus de 2 ans avant l\'envoi (à vérifier).':
+    'Fallback when the survey date is missing, unreadable, after the upload or more than 2 years before the upload (to be checked).',
+  'Sans date de réception : {n} — leurs données n\'en portent pas ; leur mois de réception restera inconnu.':
+    'No receipt date: {n} — their data carry none; their receipt month will stay unknown.',
 };

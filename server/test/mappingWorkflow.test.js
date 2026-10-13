@@ -79,8 +79,14 @@ test('web : statuts affichés = statuts du serveur ; comptes « mois de collecte
     assert.ok(d.label && icons.includes(d.icon), JSON.stringify(d));
   }
   assert.deepEqual(web.DATE_KEYS, DATE_KEYS);
-  assert.deepEqual(web.dateStats({ total: 10, withUpload: 8, monthDiffers: 2 }), { total: 10, differs: 2, unknownUpload: 2, pct: 25 });
-  assert.deepEqual(web.dateStats(null), { total: 0, differs: 0, unknownUpload: 0, pct: null });
+  // Serveur ancien : tout le mois de réception inconnu est « à appliquer ».
+  assert.deepEqual(web.dateStats({ total: 10, withUpload: 8, monthDiffers: 2 }), { total: 10, differs: 2, pendingUpload: 2, withoutUpload: 0, pct: 25 });
+  // Lignes sans date de réception dans leurs données : comptées à part, jamais « à appliquer ».
+  assert.deepEqual(web.dateStats({ total: 50, withUpload: 10, monthDiffers: 1, uploadPending: 0, withoutUpload: 40 }),
+    { total: 50, differs: 1, pendingUpload: 0, withoutUpload: 40, pct: 10 });
+  assert.deepEqual(web.dateStats({ total: 50, withUpload: 10, monthDiffers: 0, uploadPending: 15, withoutUpload: 25 }),
+    { total: 50, differs: 0, pendingUpload: 15, withoutUpload: 25, pct: 0 });
+  assert.deepEqual(web.dateStats(null), { total: 0, differs: 0, pendingUpload: 0, withoutUpload: 0, pct: null });
 });
 
 // La base impose les mêmes règles (migration 060) : transitions et statuts modifiables du SQL

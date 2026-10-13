@@ -16,17 +16,28 @@ export const DATE_KEYS = { survey: 'survey_date', upload: 'submitted_at' };
 /**
  * Comptes « mois de collecte » d'une fiche, pour la ligne « Date de collecte » :
  * soumissions dont le mois de collecte diffère du mois de réception, et celles
- * dont le mois de réception n'est pas encore connu (importées avant la règle).
- * @param {{ total?: number, withUpload?: number, monthDiffers?: number }|null} dates
+ * dont le mois de réception est inconnu, en deux groupes :
+ *  - `pendingUpload` : leurs réponses portent une date de réception (importées
+ *    avant la règle) — « Appliquer aux soumissions » la lira ;
+ *  - `withoutUpload` : « sans date de réception » (seed, export sans
+ *    _submission_time) — rien à appliquer, le mois de réception restera inconnu.
+ * Serveur ancien (sans `uploadPending` / `withoutUpload`) : tout l'inconnu est « à appliquer ».
+ * @param {{ total?: number, withUpload?: number, monthDiffers?: number, uploadPending?: number, withoutUpload?: number }|null} dates
  */
 export function dateStats(dates) {
   const total = Number(dates?.total) || 0;
   const withUpload = Number(dates?.withUpload) || 0;
   const differs = Number(dates?.monthDiffers) || 0;
+  const unknown = Math.max(0, total - withUpload);
+  const withoutUpload = Math.min(unknown, Number(dates?.withoutUpload) || 0);
+  const pendingUpload = dates?.uploadPending != null
+    ? Math.min(unknown - withoutUpload, Number(dates.uploadPending) || 0)
+    : unknown - withoutUpload;
   return {
     total,
     differs,
-    unknownUpload: Math.max(0, total - withUpload),
+    pendingUpload,
+    withoutUpload,
     pct: withUpload ? Math.round((differs / withUpload) * 100) : null,
   };
 }

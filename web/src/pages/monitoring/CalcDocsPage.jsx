@@ -112,7 +112,7 @@ export default function CalcDocsPage() {
       <Section id="donnees" title={tr('Données prises en compte')} icon={Database}>
         <ul className="doc-list">
           <li>{tr('Une soumission est identifiée par son identifiant Kobo (_uuid, « @_uuid » en SPSS, instanceID sans « uuid: ») : réimporter le même formulaire — en Excel, en SPSS ou par l\'API — ne la compte qu\'une fois. Un autre format la complète sans effacer ce qu\'il ne porte pas.')}</li>
-          <li>{tr('Mois de collecte : le mois de la date d\'enquête (SvyDate, à défaut today, start puis end) quand elle précède la réception par le serveur (_submission_time) de 0 à 92 jours ; sinon — date d\'enquête absente, illisible, postérieure à la réception ou trop ancienne — le mois de réception. La colonne de la date d\'enquête se choisit dans « Mapping MEMS ».')}</li>
+          <li>{tr('Mois de collecte : le mois de la date d\'enquête (la première lisible de SvyDate, today, start puis end) quand elle précède l\'envoi au serveur (_submission_time) de 0 jour à 2 ans ; un envoi plus de 92 jours après l\'enquête reste au mois de l\'enquête et est seulement signalé (envoi tardif). Sinon — date d\'enquête absente, illisible, postérieure à l\'envoi ou de plus de 2 ans avant (à vérifier) — le mois de l\'envoi. La colonne de la date d\'enquête se choisit dans « Mapping MEMS » ; la vérification avant import l\'applique comme l\'import.')}</li>
           <li>{tr('Les soumissions exclues (« Exclure de l\'analyse ») ne comptent dans aucun calcul.')}</li>
           <li>{tr('Bureau, lieux, site et partenaire sont lus dans les colonnes reconnues de l\'export (ou celles choisies dans « Mapping MEMS ») ; une réponse « autre » (999) est remplacée par la précision saisie.')}</li>
         </ul>
