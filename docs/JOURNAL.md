@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 13/10/2026 17:25 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 13/10/2026 17:37 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -321,5 +321,8 @@ _Dernière mise à jour : 13/10/2026 17:25 UTC_ — la branche `main` reçoit ch
   - **Tableaux de bord** : étiquettes de mois sans chevauchement (vérifié de 360 à 2 000 px, FR et EN) ; cloche et Centre d'alertes lisibles sur téléphone ; libellés de bureau traduits dans le concepteur ; « réponses non numériques » expliqué ; plus de « tout est au vert » quand une source n'a pas pu être lue ; « — aucun plan » au lieu de « 0 % » dans le rapport de synthèse.
   - **RBM (retour 48)** : le niveau et « ⚑ urgent » ouvrent « Pourquoi ? / Conséquence / Que faire ? » ; une visite seulement planifiée ne rend plus un site « à jour ».
 - **17:25** 🔄 **Dernier tour de correctifs** lancé (2 points moyens et 9 mineurs relevés par la contre-vérification : case « compté dans la couverture » pour les moyennes, « Générer » qui doublonnait les visites des sites sans activité, zones interdites planifiées, critères modifiables depuis le panneau…), puis publication sur `main`. CLAUDE.md mis à jour avec les nouvelles règles.
+
+- **17:37** ✅ **Conception des lots 1b, 6a et 7a terminée**, chacune critiquée par un vérificateur indépendant : [`SPEC_LOT_1B.md`](SPEC_LOT_1B.md) (période = plage de mois, 16 commits), [`SPEC_LOT_6A.md`](SPEC_LOT_6A.md) (carte, 11 commits), [`SPEC_LOT_7A.md`](SPEC_LOT_7A.md) (concepteur riche, 13 commits). Questions ouvertes tranchées (section « Décisions » de chaque document, modifiables). Constats mesurés : la lenteur du concepteur et de Couverture & performance vient d'une seule requête (« régions ») qui prend 4,4 à 6 s pour 562 soumissions — réécrite, elle prend 3 ms avec le même résultat ; la carte peut colorer les 120 districts (119 contours + Antanimora Sud via son district parent) et 99,4 % des points GPS tombent dans le bon district.
+- **17:37** ✅ **Correctif de sécurité d'exploitation** (`cc89c57`) : créer puis migrer une autre base sur le même serveur PostgreSQL remettait le mot de passe par défaut sur le rôle `mems2_app` utilisé par l'API (rôle commun au serveur). La migration 012 ne pose plus le mot de passe qu'à la création du rôle ; README mis à jour. Vérifié sur une base jetable.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
