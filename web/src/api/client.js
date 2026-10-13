@@ -307,6 +307,8 @@ export const api = {
   monDashboard: (id, month) => request(`/api/monitoring/forms/${id}/dashboard`, { query: month ? { month } : undefined }),
   monOverview: (month) => request('/api/monitoring/overview', { query: month ? { month } : undefined }),
   monCoverageDashboard: (month) => request('/api/monitoring/coverage-dashboard', { query: month ? { month } : undefined }),
+  // Volume de données par mois + période par défaut (dernier mois substantiel ≤ mois courant).
+  monPeriods: (today) => request('/api/monitoring/periods', { query: today ? { today } : undefined }),
   monSubmissions: (month) => request('/api/monitoring/submissions', { query: month ? { month } : undefined }),
   monCatalog: (id) => request(`/api/monitoring/forms/${id}/catalog`),
   monMemsMapping: (id) => request(`/api/monitoring/forms/${id}/mems-mapping`),
@@ -458,6 +460,8 @@ export const api = {
   // Suivi budgétaire consolidé (Dashboard décisionnel) — interliaison
   // Budget (contrat) ↔ Planifié (plans) ↔ Réalisé (factures).
   consolidation: (today) => request('/api/tpm/consolidation', { query: today ? { today } : undefined }),
+  // Centre d'alertes : une seule liste pour la page et la cloche de l'en-tête.
+  alerts: () => request('/api/alerts'),
 
   // Planification & budget — budget prévisionnel des vagues de collecte
   listPlans: (query) => request('/api/tpm/planning', { query }),

@@ -102,7 +102,12 @@ function resultFromTally(indicator, t) {
     value = base ? round1((t.positives / base) * 100) : null;
   }
   // Aucune réponse comptée : non évalué (un nombre ou une somme vaut 0, mais rien n'a été mesuré).
-  return { value, base, rating: base ? rate(value, indicator) : 'na' };
+  // present = soumissions qui portent la variable ; naCount = réponses écartées « hors base » ;
+  // answered = réponses comptées. Ils ne changent pas la valeur : ils disent POURQUOI un
+  // indicateur n'est pas évalué (naReason).
+  let naCount = 0;
+  for (const n of t.naExcluded.values()) naCount += n;
+  return { value, base, rating: base ? rate(value, indicator) : 'na', present: t.total - t.absent, naCount, answered: t.answered };
 }
 
 /**
@@ -300,7 +305,37 @@ function overallIndex(indicatorResults) {
   return Math.round((means.reduce((a, b) => a + b, 0) / means.length) * 10) / 10;
 }
 
+/**
+ * POURQUOI un indicateur est « Non évalué » (classify → na), sans changer la
+ * règle de classe : c'est classify qui décide, naReason ne fait que l'expliquer.
+ *   - 'no_data'         : aucune soumission sur la période ;
+ *   - 'variable_absent' : des soumissions, mais aucune ne porte la variable
+ *                         (question ajoutée/retirée dans une autre version du
+ *                         formulaire, ou nom de variable à corriger) ;
+ *   - 'only_na'         : la variable n'a reçu que des codes « hors base » (NA) ;
+ *   - 'no_answer'       : la variable est présente mais toujours vide ;
+ *   - 'not_numeric'     : une moyenne ou une somme dont les réponses existent
+ *                         mais ne sont pas des nombres (méthode ou variable à revoir) ;
+ *   - 'no_target'       : une moyenne, une somme ou un nombre sans cible —
+ *                         valeur affichée, mais aucune bande ne s'applique ;
+ *   - 'not_scored'      : classé, mais hors indice (indicateur complémentaire).
+ * Renvoie null pour un indicateur classé qui compte dans l'indice.
+ * @param {object} result un résultat de computeAll (value, base, present, naCount, scored…)
+ * @param {{ periodCount?:number }} [ctx] nombre de soumissions de la période
+ */
+function naReason(result, { periodCount } = {}) {
+  if (!result) return null;
+  if (classify(result) !== 'na') return result.scored === false ? 'not_scored' : null;
+  if (periodCount === 0) return 'no_data';
+  if (result.present === 0) return 'variable_absent';
+  if (!result.base) {
+    if (result.answered > 0) return 'not_numeric';
+    return result.naCount > 0 ? 'only_na' : 'no_answer';
+  }
+  return 'no_target';
+}
+
 module.exports = {
   computeIndicator, computeAll, rate, classify, classifyDetail, BANDS, TARGET_GAPS, overallIndex, orientedScore, toNumber, isYes,
-  keyIndex, namesFor, tallyIndicator, explainIndicator, isPercentAgg, positiveList,
+  keyIndex, namesFor, tallyIndicator, explainIndicator, isPercentAgg, positiveList, naReason,
 };

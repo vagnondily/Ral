@@ -1,10 +1,11 @@
 const { withTenantTransaction } = require('../../config/db');
 const { insertRows, chunkRows } = require('../../db/batch');
 const { notFound, forbidden, badRequest } = require('../../middleware/errors');
-const { computeAll, overallIndex, explainIndicator, keyIndex, namesFor } = require('./monitoringMath');
+const { computeAll, overallIndex, explainIndicator, keyIndex, namesFor, naReason } = require('./monitoringMath');
 const { describeVariables, resolveVariable, optionParentName } = require('./variableCatalog');
 const { definitionError, effectiveDefinition, normalizeNaValues, presentKeys } = require('./indicatorRules');
-const { classDistribution, dimGroups, topFlop, classify } = require('./coverageDashboard');
+const { classDistribution, naReasonCounts, dimGroups, topFlop, classify } = require('./coverageDashboard');
+const { codeLabelText } = require('../common/codeLabel');
 const { detectMapping, DIMENSION_COLUMN, DATE_KEYS, EDITABLE_KEYS } = require('./memsMapping');
 const { computeCalcFields, checkExpression, previewCalc, makeGetter } = require('./calcFields');
 const { buildLookup, groupPathRenamer, collectionColumns, applySurveyDate, dateSummary, TRIM_CLASS } = require('./submissionsImport');
@@ -1249,22 +1250,25 @@ async function dashboard(tenantId, formId, { month } = {}) {
     let where = 's.tenant_id = $1 AND s.form_id = $2 AND NOT s.excluded';
     if (month) { params.push(`${month.slice(0, 7)}-01`); where += ` AND s.period_month = $${params.length}`; }
 
+    // Bureau par son nom (bureau MEMS rattaché, sinon libellé de la fiche), jamais un code nu.
+    const bp = [...params];
+    const office = officeLabelSql(await officeLabelsTx(client, tenantId), 's', bp);
     const { rows: cov } = await client.query(
       `SELECT count(*)::int AS submissions,
-              count(DISTINCT NULLIF(site, ''))::int AS sites,
-              count(DISTINCT NULLIF(agent, ''))::int AS agents,
-              count(DISTINCT NULLIF(partner, ''))::int AS partners,
-              count(DISTINCT NULLIF(field_office, ''))::int AS "fieldOffices"
-         FROM monitoring_submissions s WHERE ${where}`,
-      params
+              count(DISTINCT NULLIF(s.site, ''))::int AS sites,
+              count(DISTINCT NULLIF(s.agent, ''))::int AS agents,
+              count(DISTINCT NULLIF(s.partner, ''))::int AS partners,
+              count(DISTINCT ${office.key}) FILTER (WHERE ${office.status} <> 'vide')::int AS "fieldOffices"
+         FROM monitoring_submissions s ${office.join} WHERE ${where}`,
+      bp
     );
     const { rows: byBureau } = await client.query(
-      `SELECT COALESCE(NULLIF(field_office, ''), '(non renseigné)') AS bureau,
+      `SELECT ${officeCols(office)},
               count(*)::int AS submissions,
-              count(DISTINCT NULLIF(site, ''))::int AS sites
-         FROM monitoring_submissions s WHERE ${where}
-        GROUP BY 1 ORDER BY submissions DESC`,
-      params
+              count(DISTINCT NULLIF(s.site, ''))::int AS sites
+         FROM monitoring_submissions s ${office.join} WHERE ${where}
+        GROUP BY 1 ORDER BY submissions DESC, 1`,
+      bp
     );
     const { rows: subs } = await client.query(`SELECT data FROM monitoring_submissions s WHERE ${where}`, params);
     const { rows: inds } = await client.query(
@@ -1277,7 +1281,7 @@ async function dashboard(tenantId, formId, { month } = {}) {
     );
     const subsC = withCalc(subs, await calcDefsFor(client, tenantId, formId));
     const indicators = computeAll(inds, subsC);
-    return { coverage: cov[0], byBureau, indicators, overallIndex: overallIndex(indicators) };
+    return { coverage: cov[0], byBureau: byBureau.map((r) => withOfficeText(r)), indicators, overallIndex: overallIndex(indicators) };
   });
 }
 
@@ -1322,23 +1326,70 @@ async function formResults(client, tenantId, formId, period) {
  * fiches, via overallIndex). Recalculé en direct, rien de stocké.
  */
 /**
- * Nom lisible du bureau d'une soumission, pour l'affichage : bureau MEMS
- * rattaché (field_office_id), sinon libellé du choix dans le XLSForm de la
- * fiche (« 7 » → « Tsihombe »), sinon valeur brute. Ajoute ses paramètres à
- * `params` ; renvoie la jointure et l'expression SQL.
+ * Libellés du bureau, lus UNE fois par requête : pour chaque fiche, la liste de
+ * choix de sa colonne bureau (XLSForm ou étiquettes « sav: » de l'export SPSS).
+ * Renvoie trois tableaux parallèles (fiche, valeur, libellé) pour `officeLabelSql`.
  */
-async function officeNameSql(client, tenantId, alias, params) {
+async function officeLabelsTx(client, tenantId) {
   const labels = await officeChoiceLabelsTx(client, tenantId);
   const forms = []; const values = []; const names = [];
   for (const [formId, map] of labels) for (const [value, label] of map) { forms.push(formId); values.push(value); names.push(label); }
-  params.push(forms, values, names);
+  return { forms, values, names };
+}
+
+/**
+ * Bureau d'une soumission, « jamais un code sans son nom » (retour n° 19) —
+ * la règle de common/codeLabel.resolveCodeLabel, en SQL :
+ *   relie     → bureau MEMS rattaché (field_office_id) : son nom ;
+ *   libelle   → libellé du choix dans la fiche (« 7 » → « Tsihombe ») ;
+ *   non_relie → le code seul, gardé PAR FICHE (clé code:<fiche>:<code>) :
+ *               le 6 d'une fiche n'est pas le 6 d'une autre ;
+ *   vide      → non renseigné.
+ * Pousse ses paramètres dans `params` ; renvoie la jointure et les expressions
+ * (key, name, status, code, formId) à regrouper par `key`.
+ */
+function officeLabelSql(labels, alias, params) {
+  params.push(labels.forms, labels.values, labels.names);
   const n = params.length;
+  const raw = `NULLIF(btrim(${alias}.field_office), '')`;
+  const lab = `NULLIF(NULLIF(btrim(och.label), ''), ${raw})`; // un libellé identique au code n'apprend rien
+  const when = (relie, libelle, nonRelie, vide) => `CASE WHEN fo.id IS NOT NULL THEN ${relie} WHEN ${lab} IS NOT NULL THEN ${libelle} `
+    + `WHEN ${raw} IS NOT NULL THEN ${nonRelie} ELSE ${vide} END`;
   return {
     join: `LEFT JOIN field_offices fo ON fo.id = ${alias}.field_office_id AND fo.tenant_id = ${alias}.tenant_id
            LEFT JOIN unnest($${n - 2}::uuid[], $${n - 1}::text[], $${n}::text[]) AS och(form_id, value, label)
-                  ON och.form_id = ${alias}.form_id AND och.value = ${alias}.field_office`,
-    expr: `COALESCE(fo.name, och.label, NULLIF(${alias}.field_office, ''), '(non renseigné)')`,
+                  ON och.form_id = ${alias}.form_id AND och.value = btrim(${alias}.field_office)`,
+    key: when("'id:' || fo.id::text", `'lib:' || lower(regexp_replace(${lab}, '\\s+', ' ', 'g'))`, `'code:' || ${alias}.form_id::text || ':' || ${raw}`, "'vide'"),
+    status: when("'relie'", "'libelle'", "'non_relie'", "'vide'"),
+    name: `COALESCE(fo.name, ${lab})`,
+    code: when('NULL', 'NULL', raw, 'NULL'),
+    formId: when('NULL', 'NULL', `${alias}.form_id::text`, 'NULL'),
   };
+}
+
+/** Colonnes d'un regroupement par bureau (GROUP BY la clé ; les autres champs en découlent). */
+const officeCols = (o) => `${o.key} AS key, min(${o.status}) AS status, min(${o.name}) AS name,
+              min(${o.code}) AS code, min(${o.formId}) AS "formId"`;
+
+/** Ligne de bureau prête à afficher : champs de codeLabel + texte lisible `bureau` (français). */
+const withOfficeText = (r, formLabel) => ({ ...r, bureau: codeLabelText(r, { formLabel }) });
+
+/**
+ * Volume de données reçues par mois et par fiche (hors soumissions exclues) :
+ * base de la période par défaut des écrans d'analyse et des compteurs du
+ * sélecteur de mois. Agrégé en SQL (index tenant/fiche/mois).
+ */
+async function monthCounts(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT to_char(period_month, 'YYYY-MM') AS month, form_id AS "formId", count(*)::int AS n
+         FROM monitoring_submissions
+        WHERE tenant_id = $1 AND NOT excluded AND period_month IS NOT NULL
+        GROUP BY 1, 2 ORDER BY 1, 2`,
+      [tenantId]
+    );
+    return rows;
+  });
 }
 
 /** Dernier mois d'une période (« AAAA-MM-01 ») : le mois choisi, sinon la borne haute, sinon null (mois courant). */
@@ -1368,13 +1419,13 @@ async function processOverview(tenantId, period = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const p = [tenantId];
     const f = submissionFilter('s', period, p);
-    const office = await officeNameSql(client, tenantId, 's', p);
+    const office = officeLabelSql(await officeLabelsTx(client, tenantId), 's', p);
     const { rows: tot } = await client.query(
       `SELECT count(*)::int AS submissions,
               count(DISTINCT NULLIF(s.site, ''))::int AS sites,
               count(DISTINCT NULLIF(s.agent, ''))::int AS agents,
               count(DISTINCT NULLIF(s.partner, ''))::int AS partners,
-              count(DISTINCT ${office.expr}) FILTER (WHERE s.field_office_id IS NOT NULL OR NULLIF(s.field_office, '') IS NOT NULL)::int AS "fieldOffices"
+              count(DISTINCT ${office.key}) FILTER (WHERE ${office.status} <> 'vide')::int AS "fieldOffices"
          FROM monitoring_submissions s ${office.join} WHERE s.tenant_id = $1${f}`,
       p
     );
@@ -1386,11 +1437,16 @@ async function processOverview(tenantId, period = {}) {
         WHERE tenant_id = $1 AND NOT excluded AND period_month <= date_trunc('month', now())::date`,
       [tenantId]
     );
+    // Par bureau, toutes fiches : un nom (bureau MEMS ou libellé de la fiche), jamais un code nu ;
+    // un code non relié reste propre à SA fiche (formId + formLabel) pour être relié dans ses Correspondances.
     const { rows: byBureau } = await client.query(
-      `SELECT ${office.expr} AS bureau,
+      `SELECT ${officeCols(office)},
+              min(CASE WHEN ${office.formId} IS NOT NULL THEN mf.label END) AS "formLabel",
               count(*)::int AS submissions, count(DISTINCT NULLIF(s.site, ''))::int AS sites
-         FROM monitoring_submissions s ${office.join} WHERE s.tenant_id = $1${f}
-        GROUP BY 1 ORDER BY submissions DESC LIMIT 12`,
+         FROM monitoring_submissions s ${office.join}
+         LEFT JOIN monitoring_forms mf ON mf.id = s.form_id AND mf.tenant_id = s.tenant_id
+        WHERE s.tenant_id = $1${f}
+        GROUP BY 1 ORDER BY submissions DESC, 1`,
       p
     );
     const { rows: forms } = await client.query(
@@ -1416,7 +1472,7 @@ async function processOverview(tenantId, period = {}) {
       totals: { ...tot[0], forms: forms.length, indicators: indicatorsCount },
       latestMonth: last ? last.month : null,
       trend,
-      byBureau,
+      byBureau: byBureau.map((r) => withOfficeText(r, r.formLabel)),
       perForm,
       conformityIndex: overallIndex(allResults),
     };
@@ -1470,6 +1526,7 @@ async function coverageDashboard(tenantId, period = {}) {
     let allResults = [];
     let indicatorsCount = 0;
     const perForm = [];
+    const officeLabels = await officeLabelsTx(client, tenantId); // une fois par requête, pas par fiche
     for (const fm of forms) {
       const { inds, count, results } = await formResults(client, tenantId, fm.id, period);
       indicatorsCount += inds.length;
@@ -1477,12 +1534,12 @@ async function coverageDashboard(tenantId, period = {}) {
       const formTrend = await monthlyTrend(client, tenantId, period, fm.id);
       const bp = [tenantId, fm.id];
       const bf = submissionFilter('s', period, bp);
-      const office = await officeNameSql(client, tenantId, 's', bp);
+      const office = officeLabelSql(officeLabels, 's', bp);
       const { rows: formBureau } = await client.query(
-        `SELECT ${office.expr} AS bureau,
+        `SELECT ${officeCols(office)},
                 count(*)::int AS submissions, count(DISTINCT NULLIF(s.site, ''))::int AS sites
            FROM monitoring_submissions s ${office.join} WHERE s.tenant_id = $1 AND s.form_id = $2${bf}
-          GROUP BY 1 ORDER BY submissions DESC LIMIT 8`,
+          GROUP BY 1 ORDER BY submissions DESC, 1`,
         bp
       );
       allResults = allResults.concat(results);
@@ -1493,14 +1550,17 @@ async function coverageDashboard(tenantId, period = {}) {
         indicatorCount: inds.length,
         index: overallIndex(results),
         classes: classDistribution(results),
+        // Pourquoi les « Non évalué » le sont (aucune donnée, variable absente, NA seulement…).
+        naReasons: naReasonCounts(results, count),
         dims: dimGroups(results),
         top, flop,
-        // Liste complète des indicateurs (pour la salle de contrôle / bulletin).
+        // Liste complète des indicateurs (salle de contrôle, bulletin, détail « Pourquoi »).
         indicators: results.map((r) => ({
-          label: r.label, code: r.code, value: r.value, base: r.base,
-          agg: r.agg, module: r.module || null, target: r.target, cls: classify(r),
+          label: r.label, code: r.code, value: r.value, base: r.base, sourceField: r.sourceField,
+          agg: r.agg, module: r.module || null, target: r.target, scored: r.scored, cls: classify(r),
+          reason: naReason(r, { periodCount: count }),
         })),
-        byBureau: formBureau,
+        byBureau: formBureau.map((r) => withOfficeText(r)),
         trend: formTrend,
       });
     }
@@ -1533,6 +1593,7 @@ async function reportMonitoringData(tenantId, period) {
                   AND lower(btrim(st.activity)) = lower(btrim(f.activity_category))) AS "sitesActive"
          FROM monitoring_forms f WHERE f.tenant_id = $1 AND f.active = true ORDER BY f.label`, [tenantId]);
     const out = [];
+    const officeLabels = await officeLabelsTx(client, tenantId); // une fois par requête, pas par fiche
     for (const fm of forms) {
       const { rows: inds } = await client.query(
         `SELECT id, code, label, module, source_field AS "sourceField", agg,
@@ -1542,10 +1603,19 @@ async function reportMonitoringData(tenantId, period) {
         [tenantId, fm.id]);
       const p = [tenantId, fm.id];
       const f = submissionFilter('s', period, p);
+      // Bureau par son nom (jamais « 6 ») ; un code non relié porte le nom de sa fiche,
+      // pour ne jamais se mêler au même code d'une autre fiche dans un rapport répété par bureau.
+      const sp = [...p];
+      const office = officeLabelSql(officeLabels, 's', sp);
       const { rows: subs } = await client.query(
-        `SELECT data, COALESCE(NULLIF(field_office, ''), '(non renseigné)') AS bureau,
-                COALESCE(site_id::text, NULLIF(site, ''), NULLIF(admin3, '')) AS sitekey FROM monitoring_submissions s
-          WHERE s.tenant_id = $1 AND s.form_id = $2${f}`, p);
+        `SELECT s.data, ${office.key} AS "bureauKey", ${office.status} AS "bureauStatus", ${office.name} AS "bureauName",
+                ${office.code} AS "bureauCode",
+                COALESCE(s.site_id::text, NULLIF(s.site, ''), NULLIF(s.admin3, '')) AS sitekey
+           FROM monitoring_submissions s ${office.join}
+          WHERE s.tenant_id = $1 AND s.form_id = $2${f}`, sp);
+      for (const sub of subs) {
+        sub.bureau = codeLabelText({ status: sub.bureauStatus, name: sub.bureauName, code: sub.bureauCode }, { formLabel: fm.label });
+      }
       const { rows: cnt } = await client.query(
         `SELECT count(*)::int AS visits, count(DISTINCT COALESCE(site_id::text, NULLIF(site, ''), NULLIF(admin3, '')))::int AS "sitesVisited"
            FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${f}`, p);
@@ -1557,12 +1627,13 @@ async function reportMonitoringData(tenantId, period) {
       const subsC = withCalc(subs, defs);
       const results = computeAll(inds, subsC);
       const byBureau = new Map();
-      subsC.forEach((sub) => { if (!byBureau.has(sub.bureau)) byBureau.set(sub.bureau, []); byBureau.get(sub.bureau).push(sub); });
-      const bureaux = [...byBureau.entries()].sort((a, b) => b[1].length - a[1].length).map(([bureau, list]) => {
+      subsC.forEach((sub) => { if (!byBureau.has(sub.bureauKey)) byBureau.set(sub.bureauKey, []); byBureau.get(sub.bureauKey).push(sub); });
+      const bureaux = [...byBureau.entries()].sort((a, b) => b[1].length - a[1].length).map(([bureauKey, list]) => {
         const r = computeAll(inds, list);
         // Visites et sites visités PAR bureau (chiffres clés filtrés par bureau du concepteur).
         const sitesVisited = new Set(list.map((x) => x.sitekey).filter(Boolean)).size;
-        return { bureau, n: list.length, visits: list.length, sitesVisited, index: overallIndex(r), dims: dimGroups(r) };
+        const { bureau, bureauStatus } = list[0];
+        return { bureau, bureauKey, bureauStatus, n: list.length, visits: list.length, sitesVisited, index: overallIndex(r), dims: dimGroups(r) };
       });
       out.push({
         id: fm.id, code: fm.code, label: fm.label, activityCategory: fm.activityCategory, sitesActive: fm.activityCategory ? fm.sitesActive : null,
@@ -1726,6 +1797,7 @@ async function setExclusion(tenantId, formId, { ids, excluded, reason } = {}) {
 }
 
 module.exports = {
+  monthCounts, officeLabelSql,
   reliftSubmissionsTx, formTemplate, applyTemplate,
   listCalcFields, calcPreview, formVariables, formMonths, indicatorPreview, importPreview, formCorrespondences, setCorrespondence, createCalcField, updateCalcField, deleteCalcField, setExclusion,
   setFormSource, formSourceContext, reportMonitoringData,

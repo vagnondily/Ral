@@ -1,6 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Bell, Settings, LogOut, Sun, Moon, Lightbulb, LightbulbOff } from 'lucide-react';
-import { Avatar, IconButton } from './ui.jsx';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Bell, Settings, LogOut, Sun, Moon, Lightbulb, LightbulbOff, ChevronRight } from 'lucide-react';
+import { api } from '../api/client.js';
+import { alertText, goArgs } from '../lib/alerts.js';
+import SeverityBadge from './SeverityBadge.jsx';
+import { Avatar } from './ui.jsx';
 import { useI18n, LANGS } from '../lib/i18n.jsx';
 import { useTheme } from '../lib/theme.js';
 import { useTips } from '../lib/tips.js';
@@ -21,23 +24,69 @@ function usePopover() {
   return { open, setOpen, ref };
 }
 
-export function NotificationsMenu() {
-  const { t } = useI18n();
+const ALERTS_REFRESH_MS = 5 * 60 * 1000;
+const BELL_ITEMS = 6;
+
+/**
+ * Cloche = Centre d'alertes (retour n° 34) : même liste que la page, lue sur
+ * GET /api/alerts. La pastille compte ce qui demande l'attention (critiques +
+ * à surveiller) ; le panneau montre les premières alertes et mène au Centre.
+ * Rafraîchie à l'ouverture et toutes les 5 minutes ; une erreur réseau laisse
+ * simplement la cloche sans pastille.
+ */
+export function NotificationsMenu({ onNavigate }) {
+  const { t, tr } = useI18n();
   const { open, setOpen, ref } = usePopover();
+  const [data, setData] = useState(null);
+  const [failed, setFailed] = useState(false);
+
+  const load = useCallback(() => {
+    api.alerts().then((d) => { setData(d); setFailed(false); }, () => setFailed(true));
+  }, []);
+  useEffect(() => {
+    load();
+    const id = setInterval(load, ALERTS_REFRESH_MS);
+    return () => clearInterval(id);
+  }, [load]);
+  useEffect(() => { if (open) load(); }, [open, load]);
+
+  const counts = data?.counts || null;
+  const attention = counts?.attention || 0;
+  const items = data?.items || [];
+  const go = (args) => { setOpen(false); if (args && onNavigate) onNavigate(...args); };
+  const label = attention
+    ? tr('Alertes : {n} à traiter en priorité', { n: attention })
+    : t('header.notifications', 'Notifications');
   return (
     <div className="pop-anchor" ref={ref}>
-      <IconButton
-        icon={Bell}
-        label={t('header.notifications', 'Notifications')}
-        className="bell-btn"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      />
+      <button type="button" className="btn btn-ghost btn-icon bell-btn" aria-label={label} title={label}
+        aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <Bell size={18} aria-hidden="true" />
+        {attention > 0 && <span className={`bell-count${counts.critical ? ' is-critical' : ''}`} aria-hidden="true">{attention > 99 ? '99+' : attention}</span>}
+      </button>
       {open && (
-        <div className="pop" role="menu" aria-label={t('header.notifications', 'Notifications')}>
-          <div className="pop-label">{t('header.notifications', 'Notifications')}</div>
-          <div className="notif-empty">{t('header.noNotifications', 'Aucune notification pour le moment')}</div>
+        <div className="pop notif-pop" role="menu" aria-label={t('header.notifications', 'Notifications')}>
+          <div className="pop-label notif-head">
+            <span>{tr('Alertes')}</span>
+            {counts && <span className="notif-counts">{tr('{c} critique(s) · {w} à surveiller · {i} à traiter', { c: counts.critical, w: counts.warning, i: counts.info })}</span>}
+          </div>
+          {failed && !data ? <div className="notif-empty">{tr('Alertes indisponibles pour le moment.')}</div>
+            : !data ? <div className="notif-empty">{tr('Chargement…')}</div>
+              : items.length === 0 ? <div className="notif-empty">{t('header.noNotifications', 'Aucune notification pour le moment')}</div>
+                : items.slice(0, BELL_ITEMS).map((a, i) => {
+                  const { title, detail } = alertText(tr, a);
+                  return (
+                    <button type="button" role="menuitem" className="menu-item notif-item" key={`${a.kind}-${i}`} onClick={() => go(goArgs(a.go))}>
+                      <SeverityBadge sev={a.sev} />
+                      <span className="notif-text"><span className="notif-title">{title}</span>{detail && <span className="notif-detail">{detail}</span>}</span>
+                    </button>
+                  );
+                })}
+          <div className="pop-sep" />
+          <button type="button" role="menuitem" className="menu-item notif-all" onClick={() => go(['alertes', 'centre'])}>
+            {items.length > BELL_ITEMS ? tr('Voir toutes les alertes ({n})', { n: items.length }) : tr('Voir toutes les alertes')}
+            <ChevronRight size={15} aria-hidden="true" className="mi-icon" />
+          </button>
         </div>
       )}
     </div>

@@ -17,6 +17,7 @@ import TemplateBindingCard from './TemplateBindingCard.jsx';
 import { CalcFieldsCard } from './CalcFields.jsx';
 import ImportWizard from './ImportWizard.jsx';
 import CorrespondencesCard from './Correspondences.jsx';
+import CodeLabel from '../../components/CodeLabel.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatDateTime, formatInt, formatLocale, monthLabel } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
@@ -81,7 +82,7 @@ function formSteps(f) {
   return { steps, next: steps.find((x) => !x.done) || null };
 }
 
-export default function ProcessMonitoringPage({ canEdit, isAdmin }) {
+export default function ProcessMonitoringPage({ canEdit, isAdmin, formId = null, tab = null, onNavigate }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [forms, setForms] = useState(null);
@@ -98,6 +99,10 @@ export default function ProcessMonitoringPage({ canEdit, isAdmin }) {
     catch (e) { setError(e.message); setForms([]); }
   }
   useEffect(() => { loadForms(); /* eslint-disable-next-line */ }, []);
+  // Lien direct #/processus/donnees/<fiche>/<onglet> (ex. « Relier » un code de bureau → Mapping MEMS de CETTE fiche).
+  useEffect(() => {
+    if (formId) { setOpenTab(tab || null); setSelId(formId); } else { setSelId(null); setOpenTab(null); }
+  }, [formId, tab]);
 
   const selected = (forms || []).find((f) => f.id === selId) || null;
 
@@ -130,7 +135,8 @@ export default function ProcessMonitoringPage({ canEdit, isAdmin }) {
   const doStep = (f, step) => (step.id === 'activity' ? setAttaching(f) : open(f, step.tab));
 
   if (selected) {
-    return <FormDetail form={selected} canEdit={canEdit} initialTab={openTab} onBack={() => { setSelId(null); setOpenTab(null); }} onChanged={loadForms} />;
+    const back = () => { setSelId(null); setOpenTab(null); if (formId && onNavigate) onNavigate('processus', 'donnees'); };
+    return <FormDetail key={`${selected.id}-${openTab || ''}`} form={selected} canEdit={canEdit} initialTab={openTab} onBack={back} onChanged={loadForms} />;
   }
 
   return (
@@ -394,7 +400,7 @@ function FormDetail({ form, canEdit, initialTab, onBack, onChanged }) {
       {tab === 'importation' && <ImportWizard form={form} canEdit={canEdit} onImported={onChanged}
         onGoData={() => setTab('donnees')} onGoResults={() => setTab('resultats')} />}
       {tab === 'donnees' && <DataViewTab form={form} canEdit={canEdit} onGoImport={() => setTab('importation')} />}
-      {tab === 'resultats' && <ResultsTab form={form} canEdit={canEdit} onChanged={onChanged} onGoConfig={() => setTab('config')} />}
+      {tab === 'resultats' && <ResultsTab form={form} canEdit={canEdit} onChanged={onChanged} onGoConfig={() => setTab('config')} onGoMapping={() => setTab('mapping')} />}
       {tab === 'mapping' && <MappingTab form={form} canEdit={canEdit} />}
       {tab === 'config' && <ConfigTab form={form} canEdit={canEdit} onChanged={onChanged} />}
     </div>
@@ -792,7 +798,7 @@ function SubmissionDrawer({ sub, varCols, metaCols, metaVal, labelOf, cell, onCl
 }
 
 // ---- Résultats (indicateurs recalculés · période dans la barre d'outils) --
-function ResultsTab({ form, canEdit, onGoConfig, onChanged }) {
+function ResultsTab({ form, canEdit, onGoConfig, onChanged, onGoMapping }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [months, setMonths] = useState(null); // mois ayant des données : [{ month, submissions }]
@@ -860,7 +866,11 @@ function ResultsTab({ form, canEdit, onGoConfig, onChanged }) {
             <thead><tr><th>{tr('Bureau')}</th><th className="num">{tr('Soumissions')}</th><th className="num">{tr('Sites suivis')}</th></tr></thead>
             <tbody>
               {data.byBureau.map((b) => (
-                <tr key={b.bureau}><td><strong>{b.bureau}</strong></td><td className="num mono">{b.submissions}</td><td className="num mono">{b.sites}</td></tr>
+                <tr key={b.key || b.bureau}>
+                  <td><strong>{b.status ? <CodeLabel row={b} /> : b.bureau}</strong>
+                    {b.status === 'non_relie' && <> · <button type="button" className="inline-link" onClick={onGoMapping}>{tr('Relier')}</button></>}</td>
+                  <td className="num mono">{b.submissions}</td><td className="num mono">{b.sites}</td>
+                </tr>
               ))}
             </tbody>
           </table></div>

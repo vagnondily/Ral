@@ -21,9 +21,10 @@ import calc from './en/calc.js';
 import importWizard from './en/importWizard.js';
 import correspondences from './en/correspondences.js';
 import indicatorEditor from './en/indicatorEditor.js';
+import dashboards from './en/dashboards.js';
 
 export default {
   ...common, ...shell, ...contracts, ...tpmReports, ...tpmPlanning, ...monitoring,
   ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard, ...calc, ...importWizard, ...correspondences,
-  ...indicatorEditor,
+  ...indicatorEditor, ...dashboards,
 };
