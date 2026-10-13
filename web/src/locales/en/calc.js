@@ -98,8 +98,8 @@ export default {
   'Données prises en compte': 'Data taken into account',
   'Une soumission est identifiée par son identifiant Kobo (_uuid, « @_uuid » en SPSS, instanceID sans « uuid: ») : réimporter le même formulaire — en Excel, en SPSS ou par l\'API — ne la compte qu\'une fois. Un autre format la complète sans effacer ce qu\'il ne porte pas.':
     'A submission is identified by its Kobo identifier (_uuid, “@_uuid” in SPSS, instanceID without “uuid:”): re-importing the same form — in Excel, SPSS or through the API — counts it only once. Another format completes it without erasing what it does not carry.',
-  'Mois de collecte : la date de réception par le serveur (_submission_time), à défaut la fin de l\'enquête (end), puis la date d\'enquête (today, SvyDate).':
-    'Collection month: the date received by the server (_submission_time), otherwise the end of the survey (end), then the survey date (today, SvyDate).',
+  'Mois de collecte : le mois de la date d\'enquête (SvyDate, à défaut today, start puis end) quand elle précède la réception par le serveur (_submission_time) de 0 à 92 jours ; sinon — date d\'enquête absente, illisible, postérieure à la réception ou trop ancienne — le mois de réception. La colonne de la date d\'enquête se choisit dans « Mapping MEMS ».':
+    'Collection month: the month of the survey date (SvyDate, otherwise today, start then end) when it precedes receipt by the server (_submission_time) by 0 to 92 days; otherwise — survey date missing, unreadable, after receipt or too old — the receipt month. The survey-date column is chosen in “MEMS mapping”.',
   'Les soumissions exclues (« Exclure de l\'analyse ») ne comptent dans aucun calcul.': 'Excluded submissions (“Exclude from analysis”) count in no calculation.',
   'Bureau, lieux, site et partenaire sont lus dans les colonnes reconnues de l\'export (ou celles choisies dans « Mapping MEMS ») ; une réponse « autre » (999) est remplacée par la précision saisie.':
     'Office, places, site and partner are read from the recognised columns of the export (or those chosen in “MEMS mapping”); an “other” answer (999) is replaced by the specification typed in.',

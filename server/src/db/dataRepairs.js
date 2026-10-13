@@ -38,7 +38,40 @@ const REPAIRS = [
       return places.applySubmissionPartiesTx(client, tenantId);
     },
   },
+  {
+    // R3 : MOIS DE COLLECTE des formulaires déjà reçus (retour n° 35, migration 060). Le mois
+    // était celui de la réception par le serveur (_submission_time) ; il devient celui de la date
+    // d'enquête quand elle est plausible (collectionDate.collectionMonth), et le mois de réception
+    // est gardé à part (upload_month). Recalculé depuis les réponses brutes, lignes changées
+    // seulement, par lots ; rejoué, ne trouve plus rien à changer (idempotent).
+    key: 'r3_mois_de_collecte',
+    run: repairCollectionMonths,
+  },
 ];
+
+/**
+ * R3 — pour chaque fiche du client, mois de collecte recalculé (monitoring.repository
+ * .rederiveCollectionDatesTx). Le verrou des rattachements est pris D'ABORD, comme tout
+ * écrivain de soumissions (CLAUDE.md : lockSubmissionLinksTx), puis les fiches une par une
+ * sur le même client, l'une après l'autre.
+ * @param {{ monitoring?: object, places?: object }} [deps]  injection pour les tests
+ */
+async function repairCollectionMonths(client, tenantId, deps = {}) {
+  const monitoring = deps.monitoring || require('../modules/monitoring/monitoring.repository');
+  const places = deps.places || require('../modules/settings/placeMatch.repository');
+  await places.lockSubmissionLinksTx(client, tenantId);
+  const { rows: forms } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 ORDER BY id', [tenantId]);
+  const out = { forms: forms.length, submissions: 0, updated: 0, monthChanged: 0, unreadable: 0, undated: 0 };
+  for (const f of forms) {
+    const r = await monitoring.rederiveCollectionDatesTx(client, tenantId, f.id);
+    out.submissions += r.total;
+    out.updated += r.updates;
+    out.monthChanged += r.monthChanged;
+    out.unreadable += r.unreadable;
+    out.undated += r.undated;
+  }
+  return out;
+}
 
 async function runDataRepairs({ repairs = REPAIRS } = {}) {
   const { rows: tenants } = await pool.query('SELECT id FROM tenants');
@@ -61,4 +94,4 @@ async function runDataRepairs({ repairs = REPAIRS } = {}) {
   }
 }
 
-module.exports = { runDataRepairs, REPAIRS };
+module.exports = { runDataRepairs, REPAIRS, repairCollectionMonths };

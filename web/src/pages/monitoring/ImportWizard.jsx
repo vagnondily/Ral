@@ -35,7 +35,7 @@ export const IMPORT_SOURCES = [
 ];
 
 const FIELD_LABELS = [
-  ['external_id', 'Identifiant Kobo'], ['submitted_at', 'Date de collecte'], ['field_office', 'Bureau'],
+  ['external_id', 'Identifiant Kobo'], ['survey_date', 'Date de collecte'], ['submitted_at', 'Date de réception (serveur)'], ['field_office', 'Bureau'],
   ['admin1', 'Région'], ['admin2', 'District'], ['admin3', 'Commune'], ['admin4', 'Fokontany'],
   ['site', 'Site'], ['partner', 'Partenaire'], ['agent', 'Agent'],
 ];
@@ -76,6 +76,35 @@ function Stepper({ step, sourceId }) {
   );
 }
 
+/**
+ * Mois de collecte d'un lot (vérification ou compte rendu) : combien de soumissions sont
+ * rangées au mois de l'enquête plutôt qu'au mois de réception, et pourquoi certaines restent
+ * au mois de réception (date d'enquête illisible, trop ancienne, postérieure à la réception).
+ */
+export function CollectionMonthNotes({ dates }) {
+  const { tr } = useI18n();
+  if (!dates) return null;
+  const fallback = [
+    [dates.surveyUnreadable, 'date d\'enquête illisible : {n}'],
+    [dates.surveyTooOld, 'date d\'enquête de plus de 92 jours : {n}'],
+    [dates.surveyAfterUpload, 'date d\'enquête postérieure à la réception : {n}'],
+  ].filter(([n]) => n > 0);
+  return (
+    <>
+      {dates.monthDiffers > 0 && (
+        <Alert tone="info">
+          {tr('{n} soumission(s) rangée(s) au mois de leur date d\'enquête, différent du mois de réception par le serveur.', { n: formatInt(dates.monthDiffers) })}
+        </Alert>
+      )}
+      {fallback.length > 0 && (
+        <Alert tone="warn" icon={AlertTriangle}>
+          {tr('Mois de réception retenu faute de date d\'enquête exploitable')} — {fallback.map(([n, label]) => tr(label, { n: formatInt(n) })).join(' · ')}.
+        </Alert>
+      )}
+    </>
+  );
+}
+
 /** Ce qui a été écrit : nouvelles / mises à jour, rattachements de la fiche, mois couverts. */
 function ImportReport({ result, onGoData, onGoResults, onRestart }) {
   const { tr } = useI18n();
@@ -104,10 +133,11 @@ function ImportReport({ result, onGoData, onGoResults, onRestart }) {
       )}
       {result.months?.length > 0 && (
         <div className="wiz-months">
-          <span className="muted">{tr('Mois reçus')} :</span>
+          <span className="muted">{tr('Mois de collecte')} :</span>
           {result.months.map((m) => <Badge key={m.month} tone="blue">{monthLabel(m.month.slice(0, 7))} · {formatInt(m.n)}</Badge>)}
         </div>
       )}
+      <CollectionMonthNotes dates={result.dates} />
       <div className="wiz-actions">
         <Button icon={Table2} onClick={onGoData}>{tr('Voir les données')}</Button>
         <Button variant="secondary" icon={BarChart3} onClick={onGoResults}>{tr('Voir les résultats')}</Button>
@@ -288,11 +318,12 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
               ]} />
               {p.months.length > 0 && (
                 <div className="wiz-months">
-                  <span className="muted">{tr('Mois couverts')} :</span>
+                  <span className="muted">{tr('Mois de collecte couverts')} :</span>
                   {p.months.map((m) => <Badge key={m.month} tone="blue">{monthLabel(m.month.slice(0, 7))} · {formatInt(m.n)}</Badge>)}
                 </div>
               )}
               <div className="wiz-checks">
+                <CollectionMonthNotes dates={p.dates} />
                 {p.duplicatesInFile > 0 && <Alert tone="info">{tr('{n} soumission(s) en double dans le fichier : elles ne compteront qu\'une fois.', { n: formatInt(p.duplicatesInFile) })}</Alert>}
                 {p.withoutId > 0 && <Alert tone="warn" icon={AlertTriangle}>{tr('{n} ligne(s) sans identifiant Kobo (_uuid) : si vous réimportez ce fichier, elles seront ajoutées une seconde fois.', { n: formatInt(p.withoutId) })}</Alert>}
                 {p.withoutDate > 0 && <Alert tone="warn" icon={AlertTriangle}>{tr('{n} soumission(s) sans date de collecte : elles ne figureront dans aucun mois.', { n: formatInt(p.withoutDate) })}</Alert>}

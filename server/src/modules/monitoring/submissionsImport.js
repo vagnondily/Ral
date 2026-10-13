@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const AdmZip = require('adm-zip');
-const { MAP, canonicalExternalId, OTHER_VALUES, OTHER_SUFFIXES, OTHER_EXTRA } = require('./memsMapping');
-const { parseCollectionDate } = require('./collectionDate');
+const { MAP, DATE_KEYS, canonicalExternalId, OTHER_VALUES, OTHER_SUFFIXES, OTHER_EXTRA } = require('./memsMapping');
+const { collectionMonth } = require('./collectionDate');
 const { parseSav } = require('./savParser');
 const { inspectOle } = require('./xlsReader');
 const { looksLikeXlsform } = require('./xlsformImport');
@@ -24,6 +24,16 @@ const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
  * toute écriture. Un zip n'est décompressé qu'après la garde de taille
  * (`zipGuard`). Une date de collecte illisible donne une erreur 400 qui cite
  * la ligne et la colonne, au lieu d'un 500 au moment de l'écriture.
+ *
+ * MOIS DE COLLECTE : deux dates sont lues, la date d'ENQUÊTE (SvyDate, today,
+ * start, end) et la date de RÉCEPTION par le serveur (_submission_time) ; le
+ * mois retenu (period_month) et la date gardée (submitted_at) suivent
+ * collectionDate.collectionMonth. Strictes comme avant : une date de réception
+ * illisible, ou une date d'enquête illisible SANS date de réception, refusent
+ * le fichier (400, ligne et colonne). Une date d'enquête illisible AVEC une
+ * date de réception lisible ne refuse rien (ces fichiers s'importaient déjà :
+ * seule la réception était lue) : le mois de réception est pris et la ligne
+ * est comptée « date d'enquête illisible » dans la vérification et le compte rendu.
  *
  * The « well-known column → typed field » alias table lives in `memsMapping.js`
  * (single source of truth, shared with the « Mapping MEMS » screen).
@@ -168,11 +178,6 @@ function valueOf(picks, field, values) {
   return undefined;
 }
 
-/**
- * Une ligne → une soumission. `badDate` est renseigné quand la colonne de date
- * de collecte contient une valeur illisible (la ligne n'est alors pas gardée).
- * @returns {{ submission: object, badDate: {column:string,value:string}|null }}
- */
 /** Premier identifiant utilisable parmi les colonnes candidates (« uuid: » seul ne compte pas : on passe à la suivante, ex. _id). */
 function externalIdOf(picks, values) {
   const list = (picks.candidates && picks.candidates.external_id) || (picks.external_id != null ? [picks.external_id] : []);
@@ -190,6 +195,27 @@ function externalIdOf(picks, values) {
 const NUL = /\u0000/g;
 const noNul = (v) => (typeof v === 'string' ? (v.includes('\u0000') ? v.replace(NUL, '') : v).toWellFormed() : v);
 
+/**
+ * Champs de date d'une soumission d'après collectionMonth (non persistés : `dateSource`,
+ * `dateIssue`, `dateInputs` servent au compte rendu et à une colonne choisie à la main).
+ */
+function dateFields(when, inputs) {
+  return {
+    periodMonth: when.ok ? when.month : null,
+    submittedAt: when.ok ? when.date : null,
+    uploadMonth: when.ok ? when.uploadMonth : null,
+    dateSource: when.ok ? when.source : null,
+    dateIssue: when.ok ? when.issue : null,
+    dateInputs: inputs,
+  };
+}
+
+/**
+ * Une ligne → une soumission. `badDate` est renseigné quand une date est
+ * illisible et rend le mois de collecte indécidable (collectionMonth `ok: false`) :
+ * la ligne n'est alors pas gardée et le fichier est refusé (400).
+ * @returns {{ submission: object, badDate: {column:string,value:string}|null }}
+ */
 function rowToSubmission(rawHeaders, rawValues, picks, source) {
   const headers = rawHeaders.map(noNul);
   const values = rawValues.map(noNul);
@@ -200,11 +226,11 @@ function rowToSubmission(rawHeaders, rawValues, picks, source) {
     if (v !== undefined && v !== null && v !== '') data[h] = v;
   });
   const at = (field) => valueOf(picks, field, values);
-  const when = parseCollectionDate(at('submitted_at'));
+  const inputs = { survey: at(DATE_KEYS.survey), upload: at(DATE_KEYS.upload) };
+  const when = collectionMonth({ surveyDate: inputs.survey, uploadDate: inputs.upload });
   const submission = {
     externalId: externalIdOf(picks, values),
-    periodMonth: when.ok ? when.month : null,
-    submittedAt: when.ok ? when.date : null,
+    ...dateFields(when, inputs),
     fieldOffice: at('field_office') != null ? String(at('field_office')) : null,
     admin1: at('admin1') != null ? String(at('admin1')) : null,
     admin2: at('admin2') != null ? String(at('admin2')) : null,
@@ -216,9 +242,68 @@ function rowToSubmission(rawHeaders, rawValues, picks, source) {
     source,
     data,
   };
-  const dateCol = ((picks.candidates && picks.candidates.submitted_at) || []).find((i) => values[i] != null && String(values[i]).trim() !== '');
-  const badDate = when.ok ? null : { column: String(headers[dateCol ?? picks.submitted_at]), value: String(at('submitted_at')) };
+  let badDate = null;
+  if (!when.ok) {
+    const field = when.field === 'upload' ? DATE_KEYS.upload : DATE_KEYS.survey;
+    const col = ((picks.candidates && picks.candidates[field]) || []).find((i) => values[i] != null && String(values[i]).trim() !== '');
+    badDate = { column: String(headers[col ?? picks[field]]), value: String(at(field)) };
+  }
   return { submission, badDate };
+}
+
+/**
+ * Colonnes de date d'une fiche, dans l'ordre de priorité de l'import (mêmes alias, nom
+ * complet puis nom de question sous un groupe). `forcedSurvey` : `undefined` = automatique ;
+ * '' = « aucune » (mois de réception seul) ; sinon la colonne choisie dans « Mapping MEMS »
+ * (et ses variantes de casse présentes dans les données : XLSForm ≠ export SPSS).
+ * @param {string[]} keys  clés des réponses (data) de la fiche
+ * @returns {{ surveyCols: string[], uploadCols: string[] }}
+ */
+function collectionColumns(keys, forcedSurvey) {
+  const list = (keys || []).filter((k) => k != null && k !== '');
+  const picks = buildLookup(list, []);
+  const cols = (field) => ((picks.candidates && picks.candidates[field]) || []).map((i) => list[i]);
+  let surveyCols = cols(DATE_KEYS.survey);
+  if (forcedSurvey !== undefined) {
+    const f = forcedSurvey == null ? '' : String(forcedSurvey).trim();
+    surveyCols = f ? [f, ...list.filter((k) => k !== f && k.toLowerCase() === f.toLowerCase())] : [];
+  }
+  return { surveyCols, uploadCols: cols(DATE_KEYS.upload) };
+}
+
+/**
+ * Mois de collecte d'une soumission recalculé avec une date d'enquête choisie à la main
+ * (`survey`, valeur brute ; `undefined` = aucune) ; la date de réception lue à l'import
+ * est gardée. Une date illisible laisse la soumission telle qu'importée (lecture
+ * automatique déjà vérifiée) et la compte « date d'enquête illisible ».
+ * @returns {boolean} vrai si la date d'enquête choisie était illisible
+ */
+function applySurveyDate(s, survey) {
+  const inputs = { survey, upload: s.dateInputs ? s.dateInputs.upload : undefined };
+  const when = collectionMonth({ surveyDate: survey, uploadDate: inputs.upload });
+  if (!when.ok) { s.dateIssue = 'survey_unreadable'; return true; }
+  if (!when.month && s.periodMonth) return false; // aucune date relue : on garde celle de l'import
+  Object.assign(s, dateFields(when, inputs));
+  return when.issue === 'survey_unreadable';
+}
+
+/**
+ * Comptes « mois de collecte » d'un lot de soumissions (vérification avant import et
+ * compte rendu) : mois tiré de l'enquête ou de la réception, mois différent du mois de
+ * réception (ce qui change par rapport à l'ancienne règle), et pourquoi la réception a
+ * été prise (date d'enquête illisible, trop ancienne, postérieure à la réception).
+ */
+function dateSummary(submissions) {
+  const out = { fromSurvey: 0, fromUpload: 0, monthDiffers: 0, surveyUnreadable: 0, surveyTooOld: 0, surveyAfterUpload: 0 };
+  for (const s of submissions || []) {
+    if (s.dateSource === 'survey') out.fromSurvey += 1;
+    else if (s.dateSource === 'upload') out.fromUpload += 1;
+    if (s.periodMonth && s.uploadMonth && s.periodMonth !== s.uploadMonth) out.monthDiffers += 1;
+    if (s.dateIssue === 'survey_unreadable') out.surveyUnreadable += 1;
+    else if (s.dateIssue === 'survey_too_old') out.surveyTooOld += 1;
+    else if (s.dateIssue === 'survey_after_upload') out.surveyAfterUpload += 1;
+  }
+  return out;
 }
 
 const clip = (s, n = 40) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -356,8 +441,8 @@ function submissionsFromObjects(objects, source = 'kobo') {
     // Kobo identifiers live on the raw object, not always flattened.
     s.externalId = canonicalExternalId(noNul(obj._uuid || obj['meta/instanceID'])) || s.externalId || (obj._id != null ? noNul(String(obj._id)) : null);
     if (!s.periodMonth) {
-      const fallback = parseCollectionDate(obj._submission_time);
-      if (fallback.ok) s.periodMonth = fallback.month;
+      const fallback = collectionMonth({ uploadDate: obj._submission_time });
+      if (fallback.ok && fallback.month) Object.assign(s, dateFields(fallback, { survey: undefined, upload: obj._submission_time }));
     }
     if (Object.keys(s.data).length > 0) out.push(s);
   });
@@ -366,7 +451,7 @@ function submissionsFromObjects(objects, source = 'kobo') {
 }
 
 // Champs typés montrés à l'utilisateur avant un import (vérification).
-const ANALYZED_FIELDS = ['external_id', 'submitted_at', 'field_office', 'admin1', 'admin2', 'admin3', 'admin4', 'site', 'partner', 'agent'];
+const ANALYZED_FIELDS = ['external_id', 'survey_date', 'submitted_at', 'field_office', 'admin1', 'admin2', 'admin3', 'admin4', 'site', 'partner', 'agent'];
 
 /**
  * Ce que contient un fichier lu, avant de l'importer (rien n'est écrit) :
@@ -400,6 +485,7 @@ function analyzeSubmissions(submissions, headers = []) {
     recognized,
     months: [...months.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([month, n]) => ({ month, n })),
     from, to, duplicatesInFile, withoutId, withoutDate,
+    dates: dateSummary(list),
     ids: [...seen],
   };
 }
@@ -518,4 +604,7 @@ async function parseSubmissions(buffer, { zipLimits = zipLimitsFromEnv(process.e
   }
 }
 
-module.exports = { parseSubmissions, submissionsFromObjects, parseCsv, buildLookup, valueOf, groupPathRenamer, analyzeSubmissions, TRIM_CLASS, MAP };
+module.exports = {
+  parseSubmissions, submissionsFromObjects, parseCsv, buildLookup, valueOf, groupPathRenamer, analyzeSubmissions,
+  collectionColumns, applySurveyDate, dateSummary, TRIM_CLASS, MAP,
+};

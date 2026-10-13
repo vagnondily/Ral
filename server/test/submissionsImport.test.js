@@ -280,12 +280,16 @@ test('le nom complet passe avant le nom de question ; « formhub/uuid » n\'est 
   assert.deepEqual(submissions.map((x) => x.externalId), [null, null]); // jamais fusionnées sur l'identifiant du formulaire
 });
 
-test('même soumission en SPSS et par l\'API : même date et même mois (horodatage serveur)', () => {
+test('même soumission en SPSS et par l\'API : même date et même mois (mois de collecte)', () => {
   const [sav] = submissionsFromObjects([{ '@_uuid': 'u1', end: '2026-01-30T17:00:00+03:00', '@_submission_time': '2026-02-02T08:00:00' }], 'sav');
   const [api] = submissionsFromObjects([{ _uuid: 'u1', end: '2026-01-30T17:00:00+03:00', _submission_time: '2026-02-02T08:00:00' }], 'kobo');
   assert.equal(sav.periodMonth, api.periodMonth);
   assert.equal(String(sav.submittedAt), String(api.submittedAt));
-  assert.equal(api.periodMonth, '2026-02-01');
+  assert.equal(sav.uploadMonth, api.uploadMonth);
+  // Fin de l'enquête le 30 janvier, reçue le 2 février : la soumission est de janvier.
+  assert.equal(api.periodMonth, '2026-01-01');
+  assert.equal(api.uploadMonth, '2026-02-01');
+  assert.equal(api.submittedAt.toISOString(), '2026-01-30T14:00:00.000Z');
 });
 
 test('clés sous un groupe ramenées aux noms du catalogue (Excel = SPSS = API)', () => {
