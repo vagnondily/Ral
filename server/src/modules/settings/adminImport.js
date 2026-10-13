@@ -6,7 +6,8 @@ const { DBFFile } = require('dbffile');
 const { readShp, isGeographicPrj, plausible } = require('./shpReader');
 const { readXls, isOleFile } = require('../monitoring/xlsReader');
 const { breakdownFromChoices } = require('./xlsformAdmin');
-const { loadWorkbook } = require('../common/xlsxGuard');
+const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
+const { sheetTable } = require('../common/sheetRows');
 
 /**
  * Import du découpage administratif (un fichier PAR PAYS / tenant) :
@@ -209,11 +210,7 @@ async function workbookSheets(buffer) {
   }
   const wb = await loadWorkbook(buffer);
   const out = new Map();
-  for (const ws of wb.worksheets) {
-    const rows = [];
-    ws.eachRow((row) => { rows.push(row.values.slice(1)); });
-    out.set(ws.name.trim().toLowerCase(), rows);
-  }
+  for (const ws of wb.worksheets) out.set(ws.name.trim().toLowerCase(), sheetTable(ws));
   return out;
 }
 
@@ -226,7 +223,10 @@ function rowsToObjects(rows = []) {
 /** Découpage lu dans les listes de choix (choices puis external_choices) d'un XLSForm. */
 async function fromXlsform(buffer) {
   let sheets;
-  try { sheets = await workbookSheets(buffer); } catch { throw new Error('Classeur illisible : fournissez un XLSForm .xlsx ou .xls.'); }
+  try { sheets = await workbookSheets(buffer); } catch (err) {
+    if (isRefusal(err)) throw err; // refus motivé de la garde (zone fusionnée, trop de colonnes…)
+    throw new Error('Classeur illisible : fournissez un XLSForm .xlsx ou .xls.');
+  }
   const choices = [...rowsToObjects(sheets.get('choices')), ...rowsToObjects(sheets.get('external_choices'))];
   const r = breakdownFromChoices(choices);
   if (!r) {

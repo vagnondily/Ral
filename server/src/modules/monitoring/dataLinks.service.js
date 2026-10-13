@@ -90,8 +90,7 @@ async function pullFile(url, token) {
     return { submissions: submissionsFromObjects(records, 'kobo'), pages: 1 };
   }
   const buf = first.buffer;
-  const isXlsx = /\.xlsx(\?|$)/i.test(url) || ct.includes('spreadsheet') || (buf[0] === 0x50 && buf[1] === 0x4b);
-  const parsed = await parseSubmissions(buf, { filename: isXlsx ? 'data.xlsx' : 'data.csv' });
+  const parsed = await parseSubmissions(buf); // format reconnu par les octets, limites de décompression de l'environnement
   return { submissions: parsed.submissions, pages: 1 };
 }
 

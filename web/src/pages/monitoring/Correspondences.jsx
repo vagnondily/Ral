@@ -81,6 +81,7 @@ export default function CorrespondencesCard({ form, canEdit }) {
       );
     }
     if (p.status === 'ambigu') return <Badge tone="orange" icon={AlertTriangle}>{tr('plusieurs possibles')}</Badge>;
+    if (p.status === 'partiel') return <Badge tone="orange" icon={AlertTriangle}>{tr('selon le partenaire')}</Badge>;
     return <Badge tone={null} icon={Minus}>{tr('à relier')}</Badge>;
   }
 
@@ -119,11 +120,15 @@ export default function CorrespondencesCard({ form, canEdit }) {
                     <td className="num tabular">{formatInt(r.n)}</td>
                     <td>
                       {r.current.filter((c) => c.id).length
-                        ? r.current.filter((c) => c.id).map((c) => <div key={c.id}>{names.get(c.id) || '…'}{r.current.length > 1 && <span className="muted"> · {formatInt(c.n)}</span>}</div>)
+                        ? r.current.map((c) => (c.id
+                          ? <div key={c.id}>{names.get(c.id) || '…'}{r.current.length > 1 && <span className="muted"> · {formatInt(c.n)}</span>}</div>
+                          : <div key="none" className="cell-empty">{tr('non reliée')} · {formatInt(c.n)}</div>))
                         : <span className="cell-empty">{tr('non reliée')}</span>}
                     </td>
                     <td>
-                      {canEdit ? (
+                      {canEdit && r.editable === false ? (
+                        <span className="muted">{tr('Valeur trop longue (plus de 200 caractères) : correspondance impossible ; vérifiez la colonne choisie.')}</span>
+                      ) : canEdit ? (
                         <select className="select select-sm corr-select" value={selValue(r)} disabled={saving === r.raw}
                           aria-label={tr('Correspondance de « {v} »', { v: r.label || r.raw })} onChange={(e) => save(r, e.target.value)}>
                           <option value={AUTO}>{autoLabel(r)}</option>

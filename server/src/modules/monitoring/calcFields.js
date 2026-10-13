@@ -87,7 +87,9 @@ function parse(src) {
 
   function parseExpr() { return parseOr(); }
   function parseOr() { let a = parseAnd(); while (isOp('||')) { eat(); a = { k: 'bin', op: '||', a, b: parseAnd() }; } return a; }
-  function parseAnd() { let a = parseCmp(); while (isOp('&&')) { eat(); a = { k: 'bin', op: '&&', a, b: parseCmp() }; } return a; }
+  function parseAnd() { let a = parseNot(); while (isOp('&&')) { eat(); a = { k: 'bin', op: '&&', a, b: parseNot() }; } return a; }
+  // NOT porte sur toute la comparaison qui suit, comme dans Tableau et SQL : NOT x = 1 → NOT (x = 1).
+  function parseNot() { if (isOp('!')) { eat(); return { k: 'un', op: '!', a: parseNot() }; } return parseCmp(); }
   function parseCmp() {
     let a = parseAdd();
     while (peek() && peek().t === 'op' && ['==', '!=', '<', '<=', '>', '>='].includes(peek().v)) {
@@ -129,6 +131,8 @@ function parse(src) {
 
 // ---- Valeurs ----------------------------------------------------------------
 const isBlank = (v) => v == null || (typeof v === 'string' && v.trim() === '');
+/** Littéral qui désigne la valeur vide : null, "" ou "  ". */
+const blankLiteral = (node) => node.k === 'null' || (node.k === 'str' && isBlank(node.v));
 const toNum = (v) => {
   if (typeof v === 'boolean') return v ? 1 : 0;
   if (isBlank(v)) return null; // « » ou « » n'est pas 0
@@ -164,9 +168,10 @@ const FUNCTIONS = [
     example: 'if(age >= 5, "5 ans et plus", "moins de 5 ans")',
     fn: (a) => (isBlank(a[0]) ? null : truthy(a[0]) ? a[1] : a[2] ?? null) },
   { name: 'in', category: 'Logique', syntax: 'in(valeur, v1, v2, …)', min: 2, max: 50,
-    description: '1 si la valeur est égale à l\'une des valeurs listées (nombres ou textes, sans tenir compte des majuscules), sinon 0.',
+    description: '1 si la valeur est égale à l\'une des valeurs listées (nombres ou textes, sans tenir compte des majuscules), sinon 0 ; vide si la valeur est vide (réponse manquante), sauf si la liste contient "" ou null.',
     example: 'in(Field_office, 6, 7, 9)',
-    fn: (a) => (a.slice(1).some((x) => sameValue(a[0], x)) ? 1 : 0) },
+    // Comme x = 6 OR x = 7 : une réponse manquante n'est pas un « non ».
+    fn: (a) => (isBlank(a[0]) && !a.slice(1).some(isBlank) ? null : a.slice(1).some((x) => sameValue(a[0], x)) ? 1 : 0) },
   { name: 'between', category: 'Logique', syntax: 'between(valeur, min, max)', min: 3, max: 3,
     description: '1 si la valeur est un nombre compris entre min et max (bornes incluses), sinon 0 ; vide si la valeur est vide ou n\'est pas un nombre.',
     example: 'between(age_mois, 6, 59)',
@@ -220,9 +225,9 @@ const FUNCTIONS = [
     description: 'Les n derniers caractères.', example: 'right(code_site, 3)',
     fn: (a) => { const s = String(a[0] ?? ''); const n = Math.max(0, toNum(a[1]) || 0); return n ? s.slice(-n) : ''; } },
   { name: 'contains', category: 'Texte', syntax: 'contains(texte, recherche)', min: 2, max: 2,
-    description: '1 si le texte contient la recherche (sans tenir compte des majuscules), sinon 0.',
+    description: '1 si le texte contient la recherche (sans tenir compte des majuscules), sinon 0 ; vide si le texte est vide (réponse manquante).',
     example: 'contains(probleme_autre, "retard")',
-    fn: (a) => (String(a[0] ?? '').toLowerCase().includes(String(a[1] ?? '').toLowerCase()) ? 1 : 0) },
+    fn: (a) => (isBlank(a[0]) ? null : String(a[0]).toLowerCase().includes(String(a[1] ?? '').toLowerCase()) ? 1 : 0) },
   { name: 'concat', category: 'Texte', syntax: 'concat(a, b, …)', min: 1, max: 50,
     description: 'Met bout à bout les valeurs (les vides comptent pour rien).', example: 'concat(Adm2Name, " / ", Adm3Name)',
     fn: (a) => a.map((x) => (x == null ? '' : String(x))).join('') },
@@ -232,7 +237,7 @@ const FUNCTIONS = [
     example: 'selected(process_monitoring, "3")',
     fn: (a) => (isBlank(a[0]) ? null : choicesOf(a[0]).some((x) => sameValue(x, a[1])) ? 1 : 0) },
   { name: 'count_selected', category: 'Choix multiples', syntax: 'count_selected(question)', min: 1, max: 1,
-    description: 'Nombre d\'options cochées pour une question à choix multiples.',
+    description: 'Nombre d\'options cochées pour une question à choix multiples ; 0 si la question n\'a pas de réponse.',
     example: 'count_selected(problemes_signales)',
     fn: (a) => choicesOf(a[0]).length },
   // Valeurs manquantes
@@ -250,8 +255,8 @@ const BY_NAME = new Map(FUNCTIONS.map((f) => [f.name, f]));
 /** Opérateurs, pour la documentation (l'évaluation est dans evalAst). */
 const OPERATORS = [
   { symbol: '+  -  *  /  %', description: 'Calcul : addition, soustraction, multiplication, division, reste. Vide si un terme est vide ; division par zéro → vide.', example: '(recu / prevu) * 100' },
-  { symbol: '=  <>  <  <=  >  >=', description: 'Comparaison (== et != aussi acceptés) : nombres si les deux côtés en sont, sinon textes. Renvoie 1 (vrai) ou 0 (faux), et vide si un côté est vide (réponse manquante) ; « x = null » teste si x est vide.', example: 'statut = "oui"' },
-  { symbol: 'AND  OR  NOT', description: 'Logique (&&, || et ! aussi acceptés). Faux = 0, « non », « no », « n », « false », « faux » (majuscules ignorées) ; vide = inconnu, sauf si l\'autre côté suffit (faux AND vide = faux, vrai OR vide = vrai).', example: 'age >= 6 AND age <= 59' },
+  { symbol: '=  <>  <  <=  >  >=', description: 'Comparaison (== et != aussi acceptés) : nombres si les deux côtés en sont, sinon textes. Renvoie 1 (vrai) ou 0 (faux), et vide si un côté est vide (réponse manquante) ; « x = null » ou « x = "" » teste si x est vide.', example: 'statut = "oui"' },
+  { symbol: 'AND  OR  NOT', description: 'Logique (&&, || et ! aussi acceptés). Faux = 0, « non », « no », « n », « false », « faux » (majuscules ignorées) ; vide = inconnu, sauf si l\'autre côté suffit (faux AND vide = faux, vrai OR vide = vrai). NOT porte sur toute la comparaison qui suit : NOT x = 1 se lit NOT (x = 1).', example: 'age >= 6 AND age <= 59' },
   { symbol: '"texte"  [nom avec espaces]  null', description: 'Texte entre guillemets ; variable dont le nom contient des espaces ou des « / » entre crochets ; null = valeur vide.', example: '[process_monitoring/3] = 1' },
 ];
 
@@ -313,8 +318,8 @@ function evalAst(node, get) {
         if (op === '/') return nb === 0 ? null : na / nb;
         return nb === 0 ? null : na % nb;
       }
-      // Comparaison avec « null » écrit en clair : teste si la valeur est vide.
-      if (node.a.k === 'null' || node.b.k === 'null') {
+      // Comparaison avec null ou "" écrits en clair : teste si la valeur est vide.
+      if (blankLiteral(node.a) || blankLiteral(node.b)) {
         const same = isBlank(a) === isBlank(b);
         if (op === '==') return same ? 1 : 0;
         if (op === '!=') return same ? 0 : 1;

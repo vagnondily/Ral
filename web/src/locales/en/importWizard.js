@@ -39,6 +39,7 @@ export default {
   'Identifiant du formulaire (UID)': 'Form identifier (UID)',
   'Dans Kobo : Formulaire › Paramètres, ou dans l\'adresse de la page (/forms/aXXXX…).': 'In Kobo: Form › Settings, or in the page address (/forms/aXXXX…).',
   'Jeton API': 'API token',
+  'Saisissez le jeton API Kobo pour actualiser cette source.': 'Enter the Kobo API token to refresh this source.',
   'Dans Kobo : Paramètres du compte › Sécurité › Clé API.': 'In Kobo: Account settings › Security › API key.',
   'Récupérer les soumissions': 'Fetch the submissions',
   'format reconnu : {f}': 'detected format: {f}',

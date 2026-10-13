@@ -1,5 +1,6 @@
 const { normalizeSecurity } = require('./rbmScore');
 const { loadWorkbook } = require('../common/xlsxGuard');
+const { existingRows, MAX_TABLE_COLUMNS } = require('../common/sheetRows');
 
 /**
  * Parseur de la feuille « Risk-based site selection » du Plan de suivi
@@ -50,10 +51,15 @@ const MATCHERS = {
 
 function detectHeader(ws) {
   // En-tête = la 1re ligne (parmi les 8 premières) qui contient « Site name » ET « FINAL SCORE ».
-  for (let r = 1; r <= Math.min(ws.rowCount, 10); r += 1) {
-    const row = ws.getRow(r); const map = {}; let hasName = false; let hasScore = false;
-    for (let c = 1; c <= ws.columnCount; c += 1) {
-      const h = txt(row.getCell(c).value).trim(); if (!h) continue;
+  // Bornes lues une fois, cellules existantes seulement (columnCount reparcourt toute la feuille).
+  const lastRow = Math.min(ws.rowCount, 10);
+  for (let r = 1; r <= lastRow; r += 1) {
+    const row = ws.findRow(r); if (!row) continue;
+    const map = {}; let hasName = false; let hasScore = false;
+    const width = Math.min(row.cellCount, MAX_TABLE_COLUMNS);
+    for (let c = 1; c <= width; c += 1) {
+      const found = row.findCell(c);
+      const h = found ? txt(found.value).trim() : ''; if (!h) continue;
       for (const [key, re] of Object.entries(MATCHERS)) {
         if (map[key] == null && re.test(h)) map[key] = c;
       }
@@ -79,18 +85,17 @@ async function parsePlanWorkbook(buffer) {
   }
   if (!found) return { sites: [], headerRow: null, skipped: 0, sheet: null };
   const { ws, headerRow, cols } = found;
-  const cell = (row, key) => (cols[key] ? row.getCell(cols[key]).value : null);
+  const cell = (row, key) => (cols[key] ? row.findCell(cols[key])?.value ?? null : null);
   const sites = []; const seen = new Set(); let skipped = 0;
   // Lignes existantes seulement (une cellule isolée tout en bas ne fait pas créer toute la feuille).
-  ws.eachRow({ includeEmpty: false }, (row, r) => {
-    if (r <= headerRow) return;
+  for (const { row } of existingRows(ws, headerRow + 1)) {
     const name = txt(cell(row, 'name')).trim();
     const district = txt(cell(row, 'district')).trim();
     const commune = txt(cell(row, 'commune')).trim();
-    if (!name) return;
-    if (!district || !commune) { skipped += 1; return; }
+    if (!name) continue;
+    if (!district || !commune) { skipped += 1; continue; }
     const key = `${district}|${commune}|${name}`.toLowerCase();
-    if (seen.has(key)) return; seen.add(key);
+    if (seen.has(key)) continue; seen.add(key);
     const lat = num(cell(row, 'gpsLat')); const lng = num(cell(row, 'gpsLng'));
     const finalScore = clamp(cell(row, 'finalScore'), 0, 2);
     sites.push({
@@ -113,7 +118,7 @@ async function parsePlanWorkbook(buffer) {
       risk: riskFromScore(finalScore),
       lastVisit: serialToMonth(cell(row, 'lastVisit')),
     });
-  });
+  }
   return { sites, headerRow, skipped, sheet: ws.name };
 }
 

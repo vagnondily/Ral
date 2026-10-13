@@ -44,7 +44,12 @@ const DIMENSIONS = [
 const EXTERNAL_ID_ALIASES = ['_uuid', '@_uuid', 'meta/instanceid', 'instanceid', 'uuid', '_id'];
 
 /** Identifiant Kobo canonique : sans le préfixe « uuid: » de instanceID (même clé pour tous les formats). */
-const canonicalExternalId = (v) => (v == null || String(v).trim() === '' ? null : String(v).trim().replace(/^uuid:/i, ''));
+/** « uuid: » seul ne désigne rien : null (sinon toutes ces lignes partageraient la clé '' et se fondraient en une). */
+const canonicalExternalId = (v) => {
+  if (v == null) return null;
+  const s = String(v).trim().replace(/^uuid:/i, '').trim();
+  return s || null;
+};
 
 // Réponse « autre » d'un choix (999, autre…) : la précision saisie est dans une colonne voisine.
 const OTHER_VALUES = new Set(['999', 'other', 'autre', 'autres']);

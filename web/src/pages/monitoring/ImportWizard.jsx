@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   FileArchive, FileSpreadsheet, Link2, CloudDownload, Upload, CheckCircle2, AlertTriangle, ArrowLeft, Table2, BarChart3,
   RefreshCw, MapPinned, Check,
@@ -130,7 +130,12 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
   const [result, setResult] = useState(null);
   const [link, setLink] = useState({ url: form.sourceUrl || '', token: '', full: false });
   const [kobo, setKobo] = useState({ baseUrl: 'https://kf.kobotoolbox.org', assetUid: '', token: '' });
+  // Le jeton n'est jamais mémorisé : une source « API Kobo » le redemande pour être actualisée.
+  const [refreshToken, setRefreshToken] = useState('');
   const src = IMPORT_SOURCES.find((x) => x.id === source);
+  const rememberedNeedsToken = form.sourceKind === 'kobo-api';
+  // Le lien proposé suit la source mémorisée de la fiche (elle change après chaque import par lien).
+  useEffect(() => { setLink((l) => ({ ...l, url: form.sourceUrl || '' })); }, [form.sourceUrl]);
 
   const restart = () => { setStep(0); setSource(null); setFile(null); setPreview(null); setResult(null); setError(null); };
   const choose = (id) => { setSource(id); setStep(1); setError(null); setFile(null); setPreview(null); };
@@ -150,6 +155,8 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
   const importFile = () => run(() => api.monImport(form.id, file));
   const importLink = () => run(() => api.linkPull(form.id, { url: link.url.trim(), token: link.token.trim() || undefined, full: link.full || undefined }));
   const importKobo = () => run(() => api.monKoboPull(form.id, { baseUrl: kobo.baseUrl.trim(), assetUid: kobo.assetUid.trim(), token: kobo.token.trim() }));
+  // « Actualiser maintenant » relit exactement la source affichée sur la carte.
+  const refreshRemembered = () => { setSource('link'); run(() => api.linkPull(form.id, { url: form.sourceUrl, token: refreshToken.trim() || undefined })); };
 
   if (!canEdit) {
     return <Alert tone="info">{tr('Lecture seule : l\'import de données est réservé aux gestionnaires et administrateurs.')}</Alert>;
@@ -169,7 +176,13 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
               <strong>{tr('Source mémorisée')}</strong>
               <div className="site-meta mono" title={form.sourceUrl}>{form.sourceUrl}</div>
             </div>
-            <Button variant="secondary" icon={RefreshCw} loading={busy} onClick={() => { setSource('link'); importLink(); }}>{tr('Actualiser maintenant')}</Button>
+            {rememberedNeedsToken && (
+              <input className="input mono wiz-token" type="password" autoComplete="off" value={refreshToken}
+                placeholder={tr('Jeton API')} aria-label={tr('Jeton API')} onChange={(e) => setRefreshToken(e.target.value)} />
+            )}
+            <Button variant="secondary" icon={RefreshCw} loading={busy} disabled={rememberedNeedsToken && !refreshToken.trim()}
+              title={rememberedNeedsToken && !refreshToken.trim() ? tr('Saisissez le jeton API Kobo pour actualiser cette source.') : undefined}
+              onClick={refreshRemembered}>{tr('Actualiser maintenant')}</Button>
           </div>
         </Card>
       )}

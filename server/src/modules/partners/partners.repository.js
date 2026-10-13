@@ -3,6 +3,7 @@ const { badRequest, conflict, notFound } = require('../../middleware/errors');
 const { MONITORING_LINE } = require('../contracts/budgetCatalog');
 const { REALISED_STATUS, PENDING_STATUS } = require('../tpm/realised');
 const { buildFacts, mergeZones, shapeTimeline } = require('./partnerSheet');
+const places = require('../settings/placeMatch.repository');
 
 /**
  * Fiche partenaire 360° et équipe — seul fichier du module qui écrit du SQL.
@@ -139,6 +140,7 @@ const DUP_CODE = 'Ce code d\'enquêteur est déjà utilisé par un autre agent d
 
 async function createAgent(tenantId, partnerId, a) {
   return withTenantTransaction(tenantId, async (client) => {
+    await places.lockSubmissionLinksTx(client, tenantId);
     if (!(await getPartnerTx(client, tenantId, partnerId))) throw notFound('Partenaire introuvable');
     try {
       const { rows } = await client.query(
@@ -146,6 +148,7 @@ async function createAgent(tenantId, partnerId, a) {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, true), $10, $11) RETURNING id`,
         [tenantId, partnerId, a.name, a.fonction ?? null, a.code ?? null, a.phone ?? null, a.email ?? null, a.sex ?? null,
           a.active ?? null, a.startedOn ?? null, a.endedOn ?? null]);
+      await places.relinkPartiesTx(client, tenantId); // ses formulaires déjà reçus s'y relient
       return { id: rows[0].id };
     } catch (err) {
       if (err.code === '23505') throw conflict(DUP_CODE);
@@ -169,10 +172,13 @@ async function updateAgent(tenantId, partnerId, agentId, patch) {
       const { rowCount } = await client.query('SELECT 1 FROM tpm_agents WHERE tenant_id = $1 AND tpm_provider_id = $2 AND id = $3', [tenantId, partnerId, agentId]);
       return rowCount > 0;
     }
+    const identity = patch.name != null || patch.code !== undefined;
+    if (identity) await places.lockSubmissionLinksTx(client, tenantId);
     try {
       const { rowCount } = await client.query(
         `UPDATE tpm_agents SET ${sets.join(', ')}, updated_at = now() WHERE tenant_id = $1 AND tpm_provider_id = $2 AND id = $3`,
         [tenantId, partnerId, agentId, ...values]);
+      if (rowCount > 0 && identity) await places.relinkPartiesTx(client, tenantId);
       return rowCount > 0;
     } catch (err) {
       if (err.code === '23505') throw conflict(DUP_CODE);
@@ -185,6 +191,7 @@ async function updateAgent(tenantId, partnerId, agentId, patch) {
 /** Un agent qui a un historique (formations, évaluations, affectations) se désactive, il ne se supprime pas. */
 async function deleteAgent(tenantId, partnerId, agentId) {
   return withTenantTransaction(tenantId, async (client) => {
+    await places.lockSubmissionLinksTx(client, tenantId);
     const { rows } = await client.query(
       `SELECT a.id,
               EXISTS (SELECT 1 FROM tpm_agent_formations f WHERE f.tenant_id = $1 AND f.agent_id = a.id)
@@ -195,6 +202,7 @@ async function deleteAgent(tenantId, partnerId, agentId) {
     if (!rows.length) return false;
     if (rows[0].history) throw conflict('Cet agent a un historique (formations, évaluations ou missions) : désactivez-le au lieu de le supprimer.');
     await client.query('DELETE FROM tpm_agents WHERE tenant_id = $1 AND id = $2', [tenantId, agentId]);
+    await places.relinkPartiesTx(client, tenantId);
     return true;
   });
 }
@@ -212,8 +220,11 @@ async function updatePartner(tenantId, id, patch) {
   }
   return withTenantTransaction(tenantId, async (client) => {
     if (!sets.length) return Boolean(await getPartnerTx(client, tenantId, id));
+    const identity = patch.name != null || patch.shortName !== undefined;
+    if (identity) await places.lockSubmissionLinksTx(client, tenantId);
     const { rowCount } = await client.query(
       `UPDATE partners SET ${sets.join(', ')}, updated_at = now() WHERE tenant_id = $1 AND id = $2`, [tenantId, id, ...values]);
+    if (rowCount > 0 && identity) await places.relinkPartiesTx(client, tenantId); // nom ou sigle : formulaires reliés à nouveau
     return rowCount > 0;
   });
 }

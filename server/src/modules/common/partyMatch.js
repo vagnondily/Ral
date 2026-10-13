@@ -95,8 +95,11 @@ function resolveAgent(index, { raw, label, partnerId }) {
     const mine = codeHits.filter((a) => a.partnerId === partnerId);
     if (mine.length === 1) {
       const a = mine[0];
-      if (!blank(label) && personKey(label) !== personKey(a.name)) return { status: 'propose', agent: null, candidates: [a] };
-      return { status: 'code', agent: a, candidates: [] };
+      if (blank(label) || personKey(label) === personKey(a.name)) return { status: 'code', agent: a, candidates: [] };
+      // Le libellé désigne quelqu'un d'autre : la personne de ce nom chez ce partenaire, si elle est unique.
+      const named = (index.byName.get(personKey(label)) || []).filter((x) => x.partnerId === partnerId);
+      if (named.length === 1) return { status: 'nom', agent: named[0], candidates: [] };
+      return { status: 'propose', agent: null, candidates: [a] };
     }
   }
   const scoped = (list) => (partnerId ? (list || []).filter((a) => a.partnerId === partnerId) : list || []);
@@ -106,8 +109,11 @@ function resolveAgent(index, { raw, label, partnerId }) {
     if (hits.length === 1) return { status: 'nom', agent: hits[0], candidates: [] };
     if (hits.length > 1) return { status: 'ambigu', agent: null, candidates: hits };
   }
-  // Même code chez un autre prestataire, ou partenaire inconnu : proposé, jamais appliqué seul.
-  if (codeHits.length) return { status: 'propose', agent: null, candidates: codeHits.slice(0, 3) };
+  // Même code chez un autre prestataire, ou partenaire inconnu : proposé, jamais appliqué seul —
+  // et seulement si le libellé reçu ne désigne pas quelqu'un d'autre (les fiches numérotent
+  // les mêmes personnes différemment).
+  const coherent = blank(label) ? codeHits : codeHits.filter((a) => personKey(a.name) === personKey(label));
+  if (coherent.length) return { status: 'propose', agent: null, candidates: coherent.slice(0, 3) };
   return { status: 'introuvable', agent: null, candidates: [] };
 }
 

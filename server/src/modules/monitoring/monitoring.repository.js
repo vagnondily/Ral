@@ -8,7 +8,7 @@ const { computeCalcFields, checkExpression, previewCalc, makeGetter } = require(
 const { buildLookup, groupPathRenamer, TRIM_CLASS } = require('./submissionsImport');
 const { templateForActivity, moduleLabel, suggestBindings, indicatorFromItem } = require('./indicatorTemplates');
 const { OTHER_VALUES } = require('./memsMapping');
-const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx, loadPartiesTx } = require('../settings/placeMatch.repository');
+const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx, loadPartiesTx, lockSubmissionLinksTx } = require('../settings/placeMatch.repository');
 const { resolvePartner, resolveAgent } = require('../common/partyMatch');
 
 /** Charge les champs calculés d'une fiche (ordre), pour l'analyse et la grille. */
@@ -88,6 +88,7 @@ async function createForm(tenantId, { code, label }) {
  */
 async function updateForm(tenantId, id, { label, active, activityCategory }) {
   return withTenantTransaction(tenantId, async (client) => {
+    if (activityCategory !== undefined) await lockSubmissionLinksTx(client, tenantId);
     const { rowCount } = await client.query(
       `UPDATE monitoring_forms SET label = COALESCE($3, label), active = COALESCE($4, active),
               activity_category = CASE WHEN $5::boolean THEN $6 ELSE activity_category END, updated_at = now()
@@ -569,6 +570,7 @@ async function resetMemsMapping(tenantId, formId, dimension) {
  */
 async function applyMappingToSubmissions(tenantId, formId) {
   return withTenantTransaction(tenantId, async (client) => {
+    await lockSubmissionLinksTx(client, tenantId); // avant de toucher aux soumissions : jamais d'interblocage
     const { overrides, updated } = await reliftSubmissionsTx(client, tenantId, formId);
     // Les colonnes de lieu/bureau/site ont pu changer : rattachement rejoué (même transaction).
     const geo = await applySubmissionsGeoTx(client, tenantId);
@@ -685,6 +687,7 @@ async function importDefinition(tenantId, { code, label }, fields, choicesMap) {
 
 async function importSubmissions(tenantId, formId, submissions, { variables } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
+    await lockSubmissionLinksTx(client, tenantId); // avant d'écrire les soumissions : jamais d'interblocage
     // Confirm the form belongs to the tenant.
     const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
     if (!f[0]) return null;
@@ -785,10 +788,11 @@ async function formCorrespondences(tenantId, formId, dimension) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
     if (!f[0]) return null;
+    // Un agent se résout DANS son partenaire : comptes par (valeur, cible, partenaire) pour cette dimension.
     const { rows: counts } = await client.query(
-      `SELECT ${d.raw} AS raw, ${d.target} AS tid, count(*)::int AS n, mode() WITHIN GROUP (ORDER BY partner_id) AS "partnerId"
+      `SELECT ${d.raw} AS raw, ${d.target} AS tid, ${dimension === 'agent' ? 'partner_id' : 'NULL::uuid'} AS "partnerId", count(*)::int AS n
          FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 AND NULLIF(btrim(${d.raw}), '') IS NOT NULL
-        GROUP BY 1, 2`, [tenantId, formId]);
+        GROUP BY 1, 2, 3`, [tenantId, formId]);
     const { rows: links } = await client.query(
       `SELECT raw_value AS raw, ${d.link} AS "targetId" FROM monitoring_value_links
         WHERE tenant_id = $1 AND form_id = $2 AND dimension = $3`, [tenantId, formId, dimension]);
@@ -807,10 +811,11 @@ async function formCorrespondences(tenantId, formId, dimension) {
     }
     const byRaw = new Map();
     for (const c of counts) {
-      if (!byRaw.has(c.raw)) byRaw.set(c.raw, { raw: c.raw, n: 0, current: [], partnerId: c.partnerId });
+      if (!byRaw.has(c.raw)) byRaw.set(c.raw, { raw: c.raw, n: 0, current: new Map(), partners: new Set() });
       const r = byRaw.get(c.raw);
       r.n += c.n;
-      r.current.push({ id: c.tid, n: c.n });
+      r.current.set(c.tid, (r.current.get(c.tid) || 0) + c.n);
+      r.partners.add(c.partnerId);
     }
     const manual = new Map(links.map((l) => [l.raw, l.targetId]));
     const rows = [...byRaw.values()].map((r) => {
@@ -820,14 +825,21 @@ async function formCorrespondences(tenantId, formId, dimension) {
         const m = resolvePartner(parties.partnerIndex, { raw: r.raw, label });
         proposal = { status: m.status, ids: m.partner ? [m.partner.id] : m.candidates.map((x) => x.id) };
       } else if (dimension === 'agent') {
-        const m = resolveAgent(parties.agentIndex, { raw: r.raw, label, partnerId: r.partnerId });
-        proposal = { status: m.status, ids: m.agent ? [m.agent.id] : m.candidates.map((x) => x.id) };
+        // Même résolution que l'application (une par partenaire) ; résultats différents selon le partenaire → « partiel ».
+        const per = [...r.partners].map((partnerId) => {
+          const m = resolveAgent(parties.agentIndex, { raw: r.raw, label, partnerId });
+          return { status: m.status, ids: m.agent ? [m.agent.id] : m.candidates.map((x) => x.id) };
+        });
+        const same = per.every((x) => x.status === per[0].status && x.ids.join() === per[0].ids.join());
+        proposal = same ? per[0] : { status: 'partiel', ids: [] };
       }
       return {
         raw: r.raw, label, n: r.n,
-        current: r.current.sort((a, b) => b.n - a.n),
+        current: [...r.current].map(([id, n]) => ({ id, n })).sort((a, b) => b.n - a.n),
         manual: manual.has(r.raw) ? { targetId: manual.get(r.raw) } : null,
         proposal,
+        // Une correspondance s'enregistre pour une valeur de 200 caractères au plus (contrainte de la table).
+        editable: String(r.raw).length <= 200,
       };
     }).sort((a, b) => b.n - a.n || String(a.raw).localeCompare(String(b.raw), 'fr', { numeric: true }));
     return { rows, options };
@@ -842,6 +854,8 @@ async function formCorrespondences(tenantId, formId, dimension) {
 async function setCorrespondence(tenantId, userId, formId, { dimension, raw, mode, targetId }) {
   const d = CORR[dimension];
   return withTenantTransaction(tenantId, async (client) => {
+    // Avant d'enregistrer la correction : la réapplication voit celles des autres transactions.
+    await lockSubmissionLinksTx(client, tenantId);
     const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
     if (!f[0]) return null;
     if (mode === 'auto') {

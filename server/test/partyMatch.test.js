@@ -57,3 +57,23 @@ test('agent : code d\'enquêteur puis nom exact, dans le partenaire reconnu ; ja
   assert.equal(resolveAgent(idx, { raw: '5', label: 'Rakoto Jean' }).status, 'ambigu');
   assert.equal(resolveAgent(idx, { raw: '9', label: 'Rakoto Jeanne' }).status, 'introuvable');
 });
+
+test('relecture : un code tenu par quelqu\'un d\'autre que le libellé reçu n\'est jamais proposé', () => {
+  const idx = buildAgentIndex([
+    { id: 'b1', partnerId: 'p1', name: 'Randria Paul', code: '85' },
+    { id: 'b2', partnerId: 'p1', name: 'Rabe Luc', code: '12' },
+    { id: 'b3', partnerId: 'p2', name: 'Rabe Luc', code: '40' },
+  ]);
+  // Dans le partenaire : le code 12 est à Rabe Luc, mais le libellé nomme Randria Paul (même partenaire) → lui.
+  const named = resolveAgent(idx, { raw: '12', label: 'Randria Paul', partnerId: 'p1' });
+  assert.equal(named.status, 'nom');
+  assert.equal(named.agent.id, 'b1');
+  // Partenaire de la fiche sans ce code : le porteur du code 85 ailleurs s'appelle autrement → introuvable.
+  assert.equal(resolveAgent(idx, { raw: '85', label: 'Rakotomalala Hery', partnerId: 'p3' }).status, 'introuvable');
+  // Même personne numérotée autrement dans une autre fiche : proposée (libellé identique).
+  const same = resolveAgent(idx, { raw: '40', label: 'Rabe  luc', partnerId: 'p3' });
+  assert.equal(same.status, 'propose');
+  assert.deepEqual(same.candidates.map((a) => a.id), ['b3']);
+  // Sans libellé : le code seul reste une proposition.
+  assert.equal(resolveAgent(idx, { raw: '85' }).status, 'propose');
+});

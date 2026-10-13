@@ -14,6 +14,7 @@ const { validateExpression, functionCatalog } = require('./calcFields');
 const dataLinks = require('./dataLinks.service');
 const settingsRepo = require('../settings/settings.repository');
 const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
+const { sheetTable } = require('../common/sheetRows');
 
 /**
  * Suivi de processus — forms, configurable indicators (mapping) and real
@@ -263,10 +264,14 @@ const calcSchema = z.object({
   label: z.string().trim().max(120).optional(),
   ...calcDefinition,
 });
-/** Formule ou recodage invalide : 400 avec la cause précise (et sa position), jamais enregistré. */
-function assertCalcValid(v) {
+/**
+ * Formule ou recodage invalide : 400 avec la cause précise (et sa position), jamais enregistré.
+ * La formule vérifiée est celle SAISIE (avant suppression des espaces) : la position annoncée
+ * est celle que l'utilisateur voit dans l'éditeur.
+ */
+function assertCalcValid(v, typed) {
   if (v.kind === 'recode') { if (!v.sourceField) throw badRequest('Choisissez la variable à recoder.'); return; }
-  const err = validateExpression(v.expression);
+  const err = validateExpression(typeof typed === 'string' && typed.trim() === v.expression ? typed : v.expression);
   if (err) throw badRequest(`Formule invalide : ${err}`);
 }
 
@@ -287,12 +292,12 @@ router.post('/forms/:id/calc-fields/preview', body(z.object({ ...calcDefinition,
 }));
 
 router.post('/forms/:id/calc-fields', WRITE, body(calcSchema), asyncHandler(async (req, res) => {
-  assertCalcValid(req.valid);
+  assertCalcValid(req.valid, req.body?.expression);
   try { res.status(201).json({ id: await repo.createCalcField(t(req), req.params.id, req.valid) }); }
   catch (err) { if (err.code === '23505') throw badRequest('Un champ calculé porte déjà ce nom.'); throw err; }
 }));
 router.patch('/calc-fields/:id', WRITE, body(calcSchema), asyncHandler(async (req, res) => {
-  assertCalcValid(req.valid);
+  assertCalcValid(req.valid, req.body?.expression);
   if (!(await repo.updateCalcField(t(req), req.params.id, req.valid))) throw notFound('Champ calculé introuvable');
   res.status(204).end();
 }));
@@ -343,10 +348,7 @@ router.post('/import-definition', WRITE, express.raw({ type: '*/*', limit: '60mb
     catch (err) { if (isRefusal(err)) throw err; throw badRequest('Fichier illisible : fournissez un XLSForm .xlsx ou .xls (feuilles survey/choices/settings).'); }
     sheetRows = (name) => {
       const ws = wb.worksheets.find((w) => w.name.trim().toLowerCase() === name);
-      if (!ws) return [];
-      const rows = [];
-      ws.eachRow((row) => { rows.push(row.values.slice(1)); });
-      return rows;
+      return ws ? sheetTable(ws) : [];
     };
   }
   const survey = sheetRows('survey');

@@ -269,7 +269,10 @@ router.put('/country', ADMIN, body(z.object({
 // dont dépendent des zones de contrat (sinon 409 avec les compteurs).
 router.post('/admin-breakdown/import', ADMIN, express.raw({ type: '*/*', limit: '200mb' }), asyncHandler(async (req, res) => {
   // Nom envoyé encodé (encodeURIComponent) : « ’ » ou « – » ne passent pas tels quels dans un en-tête HTTP.
-  const filename = (() => { try { return decodeURIComponent(req.get('x-filename') || ''); } catch { return req.get('x-filename'); } })() || 'upload.csv';
+  // Caractères de contrôle retirés après décodage : « %00 » ne doit jamais atteindre la base (22021 → 500).
+  const decoded = (() => { try { return decodeURIComponent(req.get('x-filename') || ''); } catch { return req.get('x-filename') || ''; } })();
+  // eslint-disable-next-line no-control-regex -- on retire justement les caractères de contrôle
+  const filename = decoded.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 255) || 'upload.csv';
   if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
   let parsed;
   try { parsed = await parseUpload(req.body, filename); } catch (err) { throw badRequest(err.message); }

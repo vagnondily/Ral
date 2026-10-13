@@ -1,6 +1,7 @@
 const ExcelJS = require('exceljs');
 const { officeResolver } = require('../common/placeMatch');
 const { loadWorkbook } = require('../common/xlsxGuard');
+const { existingRows, rowValues, MAX_TABLE_COLUMNS } = require('../common/sheetRows');
 
 /**
  * Paramètres MMR ⇄ Excel (feuille « Paramètres MMR »), aller-retour :
@@ -118,11 +119,14 @@ const HEADER_MATCHERS = [
 ];
 
 function findHeader(ws) {
-  for (let r = 1; r <= Math.min(ws.actualRowCount || ws.rowCount, 15); r += 1) {
+  // Bornes lues une fois (actualRowCount reparcourt toute la feuille), cellules existantes seulement.
+  const lastRow = Math.min(ws.rowCount, 15);
+  for (let r = 1; r <= lastRow; r += 1) {
+    const row = ws.findRow(r); if (!row) continue;
     const map = {};
-    ws.getRow(r).eachCell((cell, c) => {
+    rowValues(row, Math.min(row.cellCount, MAX_TABLE_COLUMNS), (cell) => cell).forEach((cell, i) => {
       const h = norm(str(cell));
-      for (const [k, re] of HEADER_MATCHERS) if (!map[k] && re.test(h)) { map[k] = c; break; }
+      for (const [k, re] of HEADER_MATCHERS) if (!map[k] && re.test(h)) { map[k] = i + 1; break; }
     });
     if (map.activityCategory && map.operationDuration && map.riskLevel) return { row: r, map };
   }
@@ -150,8 +154,8 @@ async function parseMmrWorkbook(buffer, offices = []) {
   const { map } = header;
 
   const rows = []; const errors = []; const skipped = []; const seen = new Set();
-  for (let r = header.row + 1; r <= ws.actualRowCount + header.row; r += 1) {
-    const row = ws.getRow(r);
+  // Jusqu'à la DERNIÈRE ligne de la feuille : des lignes vides dans le tableau ne font rien perdre.
+  for (const { row, r } of existingRows(ws, header.row + 1)) {
     const at = (k) => (map[k] ? row.getCell(map[k]) : null);
     const category = str(at('activityCategory'));
     if (!category) continue; // ligne libre

@@ -87,11 +87,13 @@ async function listPartners(tenantId, { typeCode } = {}) {
 
 async function createPartner(tenantId, { name, partnerTypeId, dailyRate, contractRef }) {
   return withTenantTransaction(tenantId, async (client) => {
+    await places.lockSubmissionLinksTx(client, tenantId);
     const { rows } = await client.query(
       `INSERT INTO partners (tenant_id, partner_type_id, name, daily_rate, contract_ref)
        VALUES ($1,$2,$3,$4,$5) RETURNING id`,
       [tenantId, partnerTypeId, name, dailyRate ?? null, contractRef || null]
     );
+    await places.relinkPartiesTx(client, tenantId); // les formulaires reçus qui le nomment s'y relient
     return rows[0].id;
   });
 }
@@ -99,6 +101,7 @@ async function createPartner(tenantId, { name, partnerTypeId, dailyRate, contrac
 /** Mise à jour PARTIELLE (écart B4) : un champ absent reste inchangé ; null efface le taux ou la référence. */
 async function updatePartner(tenantId, id, { name, dailyRate, contractRef, active }) {
   return withTenantTransaction(tenantId, async (client) => {
+    if (name) await places.lockSubmissionLinksTx(client, tenantId);
     const { rowCount } = await client.query(
       `UPDATE partners SET name = COALESCE($3, name),
               daily_rate = CASE WHEN $4::boolean THEN $5::numeric ELSE daily_rate END,
@@ -107,6 +110,7 @@ async function updatePartner(tenantId, id, { name, dailyRate, contractRef, activ
        WHERE tenant_id = $1 AND id = $2`,
       [tenantId, id, name || null, dailyRate !== undefined, dailyRate ?? null, contractRef !== undefined, contractRef || null, active ?? null]
     );
+    if (rowCount === 1 && name) await places.relinkPartiesTx(client, tenantId);
     return rowCount === 1;
   });
 }
@@ -120,20 +124,24 @@ async function partnerTypeById(tenantId, id) {
 
 async function createAgent(tenantId, partnerId, { name, fonction }) {
   return withTenantTransaction(tenantId, async (client) => {
+    await places.lockSubmissionLinksTx(client, tenantId);
     const { rows } = await client.query(
       `INSERT INTO tpm_agents (tenant_id, tpm_provider_id, name, fonction) VALUES ($1,$2,$3,$4) RETURNING id, name, fonction`,
       [tenantId, partnerId, name, fonction || null]
     );
+    await places.relinkPartiesTx(client, tenantId);
     return rows[0];
   });
 }
 
 async function deleteAgent(tenantId, partnerId, agentId) {
   return withTenantTransaction(tenantId, async (client) => {
+    await places.lockSubmissionLinksTx(client, tenantId);
     const { rowCount } = await client.query(
       'DELETE FROM tpm_agents WHERE tenant_id = $1 AND tpm_provider_id = $2 AND id = $3',
       [tenantId, partnerId, agentId]
     );
+    if (rowCount === 1) await places.relinkPartiesTx(client, tenantId);
     return rowCount === 1;
   });
 }

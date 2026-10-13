@@ -6,8 +6,9 @@ const { parseSav } = require('./savParser');
 const { inspectOle } = require('./xlsReader');
 const { looksLikeXlsform } = require('./xlsformImport');
 const { sniffFile, decodeText, xlsxSheetNames } = require('../common/fileSniff');
-const { assertZipEntries, DEFAULT_ZIP_LIMITS } = require('../common/zipGuard');
+const { assertZipEntries, zipLimitsFromEnv } = require('../common/zipGuard');
 const { badRequest } = require('../../middleware/errors');
+const { existingRows, rowValues, filledWidth, MAX_SHEET_COLUMNS } = require('../common/sheetRows');
 const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
 
 /**
@@ -293,23 +294,24 @@ async function parseXlsx(buffer, zipLimits) {
   const wb = await loadWorkbook(buffer, { zipLimits });
   const ws = wb.worksheets[0];
   if (!ws) return { headers: [], rows: [], lines: [] };
-  const headers = [];
-  ws.getRow(1).eachCell({ includeEmpty: true }, (c, col) => { headers[col - 1] = cellText(c); });
+  // En-tête : jusqu'à sa dernière colonne non vide (cellules existantes seulement).
+  const head = ws.findRow(1);
+  const headers = Array.from(rowValues(head, filledWidth(head, MAX_SHEET_COLUMNS).width, cellText), (h) => h ?? '');
   const rows = []; const lines = [];
-  // Seules les lignes et cellules qui EXISTENT sont lues : une cellule isolée tout en bas de la
-  // feuille ne fait pas créer le million de lignes (et de cellules) qui la précèdent.
-  ws.eachRow({ includeEmpty: false }, (row, r) => {
-    if (r < 2) return;
-    const vals = [];
-    let any = false;
-    row.eachCell({ includeEmpty: false }, (cell, col) => {
-      if (col > headers.length) return;
+  // Seules les lignes et cellules qui EXISTENT sont lues, dans la largeur de l'en-tête : une
+  // cellule isolée tout en bas ou tout à droite ne fait ni créer ni parcourir ce qui la précède.
+  for (const { row, r } of existingRows(ws, 2)) {
+    const vals = []; let any = false;
+    const width = Math.min(headers.length, row.cellCount);
+    for (let col = 1; col <= width; col += 1) {
+      const cell = row.findCell(col);
+      if (!cell) continue;
       const v = cellText(cell);
       vals[col - 1] = v;
       if (v !== '') any = true;
-    });
+    }
     if (any) { rows.push(vals); lines.push(r); }
-  });
+  }
   return { headers, rows, lines };
 }
 
@@ -481,7 +483,7 @@ function tabular({ headers, rows, lines }, source) {
  * @param {{ zipLimits?: {maxBytes:number,maxRatio:number,ratioFloorBytes:number} }} [opts]
  * @returns {Promise<{ submissions: object[], headers: string[], variables: object[]|null, source: string }>}
  */
-async function parseSubmissions(buffer, { zipLimits = DEFAULT_ZIP_LIMITS } = {}) {
+async function parseSubmissions(buffer, { zipLimits = zipLimitsFromEnv(process.env) } = {}) {
   const sniff = sniffFile(buffer);
   switch (sniff.kind) {
     case 'text': return tabular(parseCsv(decodeText(buffer, sniff)), 'csv');

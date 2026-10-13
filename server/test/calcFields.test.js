@@ -158,3 +158,31 @@ test('faux = 0, « non », « Non », « NON », « No », « False », « faux 
   assert.equal(evalExpression('num(x)', { x: '  ' }), 0);
   assert.equal(evalExpression('x + 1', { x: '  ' }), null);
 });
+
+test('relecture : NOT porte sur toute la comparaison qui suit (comme dans Tableau)', () => {
+  assert.equal(evalExpression('NOT x = null', { x: 'a' }), 1);
+  assert.equal(evalExpression('NOT x = null', {}), 0);
+  assert.equal(evalExpression('NOT age > 5', { age: 3 }), 1);
+  assert.equal(evalExpression('NOT age > 5', { age: 10 }), 0);
+  assert.equal(evalExpression('NOT a = 1 AND b = 2', { a: 2, b: 2 }), 1); // (NOT (a = 1)) AND (b = 2)
+  assert.equal(evalExpression('a = NOT b', { a: 0, b: 1 }), 1); // NOT d'un terme reste possible
+});
+
+test('relecture : comparer avec "" teste la valeur vide, comme null', () => {
+  assert.equal(evalExpression('x <> ""', { x: 'oui' }), 1);
+  assert.equal(evalExpression('x <> ""', {}), 0);
+  assert.equal(evalExpression("x != ''", { x: '  ' }), 0);
+  assert.equal(evalExpression('x = ""', {}), 1);
+  assert.equal(evalExpression('x = ""', { x: 0 }), 0);
+});
+
+test('relecture : in() et contains() sur une réponse manquante donnent vide (ni oui ni non)', () => {
+  assert.equal(evalExpression('in(x, 6, 7, 9)', {}), null);
+  assert.equal(evalExpression('in(x, 6, 7, 9)', { x: 7 }), 1);
+  assert.equal(evalExpression('in(x, 6, 7, 9)', { x: 8 }), 0);
+  assert.equal(evalExpression('in(x, "", 6)', {}), 1); // test explicite du vide
+  assert.equal(evalExpression('in(x, null)', { x: 'a' }), 0);
+  assert.equal(evalExpression('contains(x, "retard")', {}), null);
+  assert.equal(evalExpression('contains(x, "retard")', { x: 'Retard de paiement' }), 1);
+  assert.equal(evalExpression('count_selected(x)', {}), 0);
+});

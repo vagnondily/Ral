@@ -69,6 +69,17 @@ trade-off arises, decide in this order:
      (zip guard + merged-cell cap + no data-validation expansion) — never
      `new ExcelJS.Workbook().xlsx.load()` directly: a 6 KB file with a huge
      merged range or a whole-column validation exhausts the API's memory.
+     The guard also caps, per workbook, the sum of each row's last occupied
+     column (`MAX_CELL_SLOTS`, 10 M).
+   - Read sheet rows through `common/sheetRows` (`existingRows`, `rowValues`,
+     `sheetTable`, `filledWidth`): bounds computed ONCE, existing cells only via
+     `findRow`/`findCell`. Never `row.values`, `actualRowCount`/`columnCount` in a
+     loop condition, nor `getRow`/`getCell` over a range (they rescan or create the
+     sheet); a table read stops at the LAST row, never at a row count.
+   - Tenant-wide re-application of submission links (`applySubmissionsGeoTx`,
+     `applySubmissionPartiesTx`, `applySubmissionSitesTx`) is serialised by
+     `lockSubmissionLinksTx`: take it FIRST in any transaction that writes
+     submissions, value links, partners/agents or sites and then re-applies.
    - Index the columns you filter/group on for the queries that run hot.
 
 ## Run it (Windows, PostgreSQL already installed, no Docker)
@@ -435,7 +446,7 @@ or navy rail.
   `server/src/db/seed.js` (not shown in the UI).
 
 ## Testing
-`cd server && npm test` (440+ unit tests on the pure business logic: budget/expense
+`cd server && npm test` (465+ unit tests on the pure business logic: budget/expense
 math incl. the per-line **% bailleur** split and 2-activity allocation,
 plan-month normalization, workflow state machine, the consolidation engine, the
 budget Excel round-trip, the INVOICE workbook, and the field-visit coverage math

@@ -1,6 +1,7 @@
 const ExcelJS = require('exceljs');
 const { normalizeSecurity } = require('./rbmScore');
 const { loadWorkbook } = require('../common/xlsxGuard');
+const { existingRows, rowValues, MAX_TABLE_COLUMNS } = require('../common/sheetRows');
 
 /**
  * Registre des sites ⇄ Excel au format du classeur du plan de suivi (feuille
@@ -181,9 +182,13 @@ async function parseLocationsWorkbook(buffer, { resolveOffice, activities = [] }
   const wb = await loadWorkbook(buffer);
   let ws = wb.getWorksheet('Locations Management'); let hr = null; let map = null;
   const findHead = (w) => {
-    for (let r = 1; r <= Math.min(w.actualRowCount || 10, 10); r += 1) {
-      const m = {}; const row = w.getRow(r);
-      row.eachCell((c, col) => { const h = norm(str(c)); for (const [k, re] of FIELD_MATCHERS) if (!m[k] && re.test(h)) m[k] = col; });
+    // Bornes lues une fois (actualRowCount reparcourt toute la feuille), cellules existantes seulement.
+    const lastRow = Math.min(w.rowCount, 10);
+    for (let r = 1; r <= lastRow; r += 1) {
+      const m = {}; const row = w.findRow(r); if (!row) continue;
+      rowValues(row, Math.min(row.cellCount, MAX_TABLE_COLUMNS), (cell) => cell).forEach((c, i) => {
+        const h = norm(str(c)); for (const [k, re] of FIELD_MATCHERS) if (!m[k] && re.test(h)) m[k] = i + 1;
+      });
       if (m.name && m.activity && m.office) return { r, m };
     }
     return null;
@@ -192,9 +197,11 @@ async function parseLocationsWorkbook(buffer, { resolveOffice, activities = [] }
   if (!map) { const e = new Error('NO_SHEET'); e.code = 'NO_SHEET'; throw e; }
   // Grilles mois : premières colonnes « 1 » des deux blocs 1..12 (plan puis statut).
   const head = ws.getRow(hr); const ones = [];
-  head.eachCell((c, col) => { if (Number(val(c)) === 1 && Number(val(head.getCell(col + 11))) === 12) ones.push(col); });
+  rowValues(head, Math.min(head.cellCount, MAX_TABLE_COLUMNS), (cell) => cell).forEach((c, i) => {
+    if (Number(val(c)) === 1 && Number(val(head.findCell(i + 12))) === 12) ones.push(i + 1);
+  });
   const statusCol = ones.length ? ones[ones.length - 1] : null; const planCol = ones.length > 1 ? ones[0] : null;
-  const year = statusCol ? Number(val(ws.getRow(hr - 1).getCell(statusCol))) || null : null;
+  const year = statusCol && hr > 1 ? Number(val(ws.findRow(hr - 1)?.findCell(statusCol))) || null : null;
   const actSet = new Map(activities.map((a) => [norm(a), a]));
 
   const rows = []; const errors = []; const warnings = []; const seenIds = new Set();
@@ -205,8 +212,8 @@ async function parseLocationsWorkbook(buffer, { resolveOffice, activities = [] }
     if (!allowed.includes(n)) { errors.push({ line, message: `${label} : « ${raw} » hors échelle (${allowed.join(', ')}).` }); return null; }
     return n;
   };
-  for (let r = hr + 1; r <= ws.actualRowCount + hr; r += 1) {
-    const row = ws.getRow(r);
+  // Jusqu'à la DERNIÈRE ligne de la feuille : des lignes vides dans le tableau ne font rien perdre.
+  for (const { row, r } of existingRows(ws, hr + 1)) {
     const name = str(at(row, 'name'));
     if (!name) continue;
     const line = r; const before = errors.length;

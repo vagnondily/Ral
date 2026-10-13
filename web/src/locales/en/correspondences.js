@@ -22,5 +22,8 @@ export default {
   'proposé : {name}': 'proposed: {name}',
   'Confirmer': 'Confirm',
   'plusieurs possibles': 'several possible',
+  'selon le partenaire': 'depends on the partner',
+  'Valeur trop longue (plus de 200 caractères) : correspondance impossible ; vérifiez la colonne choisie.':
+    'Value too long (over 200 characters): it cannot be linked; check the chosen column.',
   'Correspondance enregistrée : {n} soumission(s) de cette fiche mises à jour.': 'Correspondence saved: {n} submission(s) of this form updated.',
 };

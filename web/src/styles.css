@@ -2318,6 +2318,7 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .wiz-remembered { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .wiz-remembered > div { flex: 1; min-width: 0; }
 .wiz-remembered .site-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wiz-remembered .wiz-token { width: 220px; max-width: 100%; }
 
 /* ---- Correspondances des valeurs (retour n° 3) ---------------------------------- */
 .corr-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }

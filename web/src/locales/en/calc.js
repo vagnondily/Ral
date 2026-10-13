@@ -4,18 +4,18 @@
  * catalogue du serveur (calcFields.FUNCTIONS) : leur texte français est la clé.
  */
 export default {
-  'Réponse manquante : un calcul, une comparaison ou une condition qui l\'utilise donne vide — la soumission sort alors de la base de l\'indicateur, elle ne compte ni « oui » ni « non ». Pour la traiter, testez-la avec isnull(x) ou x = null, ou remplacez-la avec coalesce(x, 0) ; sum() et avg() ignorent les vides. Division par zéro → vide.':
-    'Missing answer: any calculation, comparison or condition that uses it gives empty — the submission then leaves the indicator’s base and counts neither “yes” nor “no”. To handle it, test it with isnull(x) or x = null, or replace it with coalesce(x, 0); sum() and avg() ignore empty values. Division by zero → empty.',
+  'Réponse manquante : un calcul, une comparaison ou une condition qui l\'utilise donne vide — la soumission sort alors de la base de l\'indicateur, elle ne compte ni « oui » ni « non ». Pour la traiter, testez-la avec isnull(x), x = null ou x = "", ou remplacez-la avec coalesce(x, 0) ; sum() et avg() ignorent les vides. Division par zéro → vide.':
+    'Missing answer: any calculation, comparison or condition that uses it gives empty — the submission then leaves the indicator’s base and counts neither “yes” nor “no”. To handle it, test it with isnull(x), x = null or x = "", or replace it with coalesce(x, 0); sum() and avg() ignore empty values. Division by zero → empty.',
   'Comparaison en nombres si les deux côtés en sont, sinon en texte. Faux = 0, « non », « no », « n », « false », « faux » (majuscules ignorées) ; toute autre réponse est vraie.':
     'Comparison as numbers when both sides are numbers, otherwise as text. False = 0, “non”, “no”, “n”, “false”, “faux” (case ignored); any other answer is true.',
   'Renvoie « si_vrai » quand la condition est vraie, « si_faux » quand elle est fausse (vide si omis), et vide quand la condition est vide (réponse manquante). Les conditions s\'imbriquent : if(a, x, if(b, y, z)).':
     'Returns “if_true” when the condition is true, “if_false” when it is false (empty if omitted), and empty when the condition is empty (missing answer). Conditions can be nested: if(a, x, if(b, y, z)).',
   '1 si la valeur est un nombre compris entre min et max (bornes incluses), sinon 0 ; vide si la valeur est vide ou n\'est pas un nombre.':
     '1 if the value is a number between min and max (inclusive), otherwise 0; empty if the value is empty or not a number.',
-  'Comparaison (== et != aussi acceptés) : nombres si les deux côtés en sont, sinon textes. Renvoie 1 (vrai) ou 0 (faux), et vide si un côté est vide (réponse manquante) ; « x = null » teste si x est vide.':
-    'Comparison (== and != also accepted): as numbers when both sides are numbers, otherwise as texts. Returns 1 (true) or 0 (false), and empty when a side is empty (missing answer); “x = null” tests whether x is empty.',
-  'Logique (&&, || et ! aussi acceptés). Faux = 0, « non », « no », « n », « false », « faux » (majuscules ignorées) ; vide = inconnu, sauf si l\'autre côté suffit (faux AND vide = faux, vrai OR vide = vrai).':
-    'Logic (&&, || and ! also accepted). False = 0, “non”, “no”, “n”, “false”, “faux” (case ignored); empty = unknown, unless the other side decides (false AND empty = false, true OR empty = true).',
+  'Comparaison (== et != aussi acceptés) : nombres si les deux côtés en sont, sinon textes. Renvoie 1 (vrai) ou 0 (faux), et vide si un côté est vide (réponse manquante) ; « x = null » ou « x = \"\" » teste si x est vide.':
+    'Comparison (== and != also accepted): as numbers when both sides are numbers, otherwise as texts. Returns 1 (true) or 0 (false), and empty when a side is empty (missing answer); “x = null” or “x = \"\"” tests whether x is empty.',
+  'Logique (&&, || et ! aussi acceptés). Faux = 0, « non », « no », « n », « false », « faux » (majuscules ignorées) ; vide = inconnu, sauf si l\'autre côté suffit (faux AND vide = faux, vrai OR vide = vrai). NOT porte sur toute la comparaison qui suit : NOT x = 1 se lit NOT (x = 1).':
+    'Logic (&&, || and ! also accepted). False = 0, “non”, “no”, “n”, “false”, “faux” (case ignored); empty = unknown, unless the other side decides (false AND empty = false, true OR empty = true). NOT applies to the whole comparison that follows: NOT x = 1 reads NOT (x = 1).',
   '{n} doublon(s) du fichier comptés une seule fois (dernière version retenue).': '{n} duplicate(s) in the file counted once (latest version kept).',
   // ---- Éditeur de formule
   'Formule': 'Formula',
@@ -58,8 +58,8 @@ export default {
   'Texte': 'Text',
   'Choix multiples': 'Multiple choice',
   'Valeurs manquantes': 'Missing values',
-  '1 si la valeur est égale à l\'une des valeurs listées (nombres ou textes, sans tenir compte des majuscules), sinon 0.':
-    '1 if the value equals one of the listed values (numbers or texts, case-insensitive), otherwise 0.',
+  '1 si la valeur est égale à l\'une des valeurs listées (nombres ou textes, sans tenir compte des majuscules), sinon 0 ; vide si la valeur est vide (réponse manquante), sauf si la liste contient "" ou null.':
+    '1 if the value equals one of the listed values (numbers or texts, case-insensitive), otherwise 0; empty if the value is empty (missing answer), unless the list contains "" or null.',
   'Convertit en nombre ; 0 si la valeur est vide ou n\'est pas un nombre.': 'Converts to a number; 0 if the value is empty or not a number.',
   'Arrondit x au nombre de décimales indiqué (0 par défaut).': 'Rounds x to the given number of decimals (0 by default).',
   'Valeur absolue (écart sans signe).': 'Absolute value (unsigned difference).',
@@ -74,11 +74,13 @@ export default {
   'Nombre de caractères.': 'Number of characters.',
   'Les n premiers caractères (ex. code de région au début d\'un pcode).': 'The first n characters (e.g. the region code at the start of a pcode).',
   'Les n derniers caractères.': 'The last n characters.',
-  '1 si le texte contient la recherche (sans tenir compte des majuscules), sinon 0.': '1 if the text contains the search string (case-insensitive), otherwise 0.',
+  '1 si le texte contient la recherche (sans tenir compte des majuscules), sinon 0 ; vide si le texte est vide (réponse manquante).':
+    '1 if the text contains the search string (case-insensitive), otherwise 0; empty if the text is empty (missing answer).',
   'Met bout à bout les valeurs (les vides comptent pour rien).': 'Joins the values together (empty values count as nothing).',
   '1 si l\'option fait partie des réponses d\'une question à choix multiples (réponses séparées par des espaces, comme dans Kobo), sinon 0 ; vide si la question n\'a pas de réponse.':
     '1 if the option is among the answers of a multiple-choice question (answers separated by spaces, as in Kobo), otherwise 0; empty if the question was not answered.',
-  'Nombre d\'options cochées pour une question à choix multiples.': 'Number of options ticked for a multiple-choice question.',
+  'Nombre d\'options cochées pour une question à choix multiples ; 0 si la question n\'a pas de réponse.':
+    'Number of options ticked for a multiple-choice question; 0 if the question has no answer.',
   '1 si la valeur est vide (question non répondue), sinon 0.': '1 if the value is empty (question not answered), otherwise 0.',
   'Première valeur non vide de la liste.': 'First non-empty value of the list.',
   'Calcul : addition, soustraction, multiplication, division, reste. Vide si un terme est vide ; division par zéro → vide.':

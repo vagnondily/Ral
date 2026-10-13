@@ -185,11 +185,25 @@ async function attachUnassignedSitesTx(client, tenantId) {
 }
 
 /**
+ * Une seule réapplication des rattachements de formulaires reçus à la fois par
+ * tenant. Sans ce verrou, deux transactions qui chargent les corrections (ou le
+ * référentiel) chacune de leur côté se réécrivent mutuellement : la seconde
+ * repose des liens calculés sans la correction que la première vient d'enregistrer.
+ * Pris au DÉBUT de la transaction de l'appelant (avant toute ligne verrouillée,
+ * pour ne jamais s'interbloquer), puis à nouveau — sans effet, il est réentrant —
+ * par chaque fonction de réapplication.
+ */
+async function lockSubmissionLinksTx(client, tenantId) {
+  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`mems:submissions-apply:${tenantId}`]);
+}
+
+/**
  * À appeler en fin de TOUTE écriture de sites (import, ajout, modification,
  * suppression de bureau) : rattachement au découpage puis au bureau, dans la
  * transaction de l'appelant.
  */
 async function afterSitesChangedTx(client, tenantId) {
+  await lockSubmissionLinksTx(client, tenantId);
   const geo = await applySitesGeoTx(client, tenantId);
   const attached = await attachUnassignedSitesTx(client, tenantId);
   // Un site ajouté, renommé ou relocalisé peut être celui d'un formulaire déjà reçu.
@@ -262,6 +276,7 @@ const officeChoiceLabelsTx = (client, tenantId) => choiceLabelsTx(client, tenant
  * pas des noms à rapprocher). Les valeurs brutes ne sont jamais modifiées.
  */
 async function applySubmissionsGeoTx(client, tenantId) {
+  await lockSubmissionLinksTx(client, tenantId); // corrections lues APRÈS celles des autres transactions
   const [index, offices, labels, links] = [
     await loadPlaceIndexTx(client, tenantId), await loadOfficeIndexTx(client, tenantId), await officeChoiceLabelsTx(client, tenantId),
     await loadValueLinksTx(client, tenantId)];
@@ -337,7 +352,18 @@ async function loadPartiesTx(client, tenantId) {
  * (fiche, partenaire, agent) : correction manuelle d'abord, sinon correspondance
  * exacte (libellé du choix ou texte saisi). Valeurs brutes jamais modifiées.
  */
+/**
+ * Après l'ajout, le renommage ou la suppression d'un partenaire ou d'un agent :
+ * les formulaires reçus sont reliés à nouveau (sinon l'écran « Correspondances »
+ * annonce « trouvé » alors que les soumissions ne sont pas reliées). Le verrou
+ * est déjà pris en début de transaction par l'appelant.
+ */
+async function relinkPartiesTx(client, tenantId) {
+  return applySubmissionPartiesTx(client, tenantId);
+}
+
 async function applySubmissionPartiesTx(client, tenantId, links) {
+  await lockSubmissionLinksTx(client, tenantId);
   const linksMap = links || await loadValueLinksTx(client, tenantId);
   const { partnerIndex, agentIndex } = await loadPartiesTx(client, tenantId);
   const pLabels = await choiceLabelsTx(client, tenantId, 'partner');
@@ -413,6 +439,7 @@ async function areaLookupTx(client, tenantId, values) {
  * @returns {{ submissions, withSite, linked, pending }}
  */
 async function applySubmissionSitesTx(client, tenantId) {
+  await lockSubmissionLinksTx(client, tenantId);
   const index = await loadSiteIndexTx(client, tenantId);
   const labels = await choiceLabelsTx(client, tenantId, 'site');
   const { rows: combos } = await client.query(
@@ -528,6 +555,7 @@ async function listAliases(tenantId) {
  */
 async function decideQueue(tenantId, queueId, { action, areaId, siteId }, actorId) {
   return withTenantTransaction(tenantId, async (client) => {
+    await lockSubmissionLinksTx(client, tenantId); // avant le FOR UPDATE : jamais d'interblocage
     const { rows } = await client.query(
       `SELECT id, kind, depth, parent_key AS "parentKey", raw_key AS "rawKey", raw_label AS "rawLabel", status
          FROM location_match_queue WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [tenantId, queueId]);
@@ -592,6 +620,7 @@ async function linkSiteTx(client, tenantId, q, siteId, actorId) {
 
 async function deleteAlias(tenantId, id) {
   return withTenantTransaction(tenantId, async (client) => {
+    await lockSubmissionLinksTx(client, tenantId);
     // « Oublier » une graphie la remet à valider dans la file (sinon elle resterait « résolue », sans lien).
     await client.query(
       `UPDATE location_match_queue SET status = 'a_valider', alias_id = NULL, decided_by = NULL, decided_at = NULL
@@ -608,6 +637,7 @@ async function deleteAlias(tenantId, id) {
 /** « Rapprocher maintenant » : rejoue le rattachement de toutes les sources. */
 async function applyAll(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
+    await lockSubmissionLinksTx(client, tenantId);
     await resolvePerimeterTx(client, tenantId);
     return { sites: await afterSitesChangedTx(client, tenantId), submissions: await applySubmissionsGeoTx(client, tenantId) };
   });
@@ -616,6 +646,6 @@ async function applyAll(tenantId) {
 module.exports = {
   loadPlaceIndexTx, applySitesGeoTx, syncQueueTx, resolvePerimeterTx, attachUnassignedSitesTx, afterSitesChangedTx, applySubmissionsGeoTx,
   officeChoiceLabelsTx, choiceLabelsTx, applySubmissionSitesTx, loadSiteIndexTx,
-  loadValueLinksTx, loadPartiesTx, applySubmissionPartiesTx,
+  loadValueLinksTx, loadPartiesTx, applySubmissionPartiesTx, lockSubmissionLinksTx, relinkPartiesTx,
   listQueue, listAliases, decideQueue, deleteAlias, applyAll,
 };
