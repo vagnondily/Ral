@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 13/10/2026 17:37 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 13/10/2026 18:15 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -29,7 +29,7 @@ _Dernière mise à jour : 13/10/2026 17:37 UTC_ — la branche `main` reçoit ch
 | Analyse | Analyse de **vos fichiers réels** → feuille de route | ✅ + 🔄 | ✅ **Analyse des références terminée** (lancée à 06:28, finie à 09:13 — je l'avais crue abandonnée à tort) → [`docs/ANALYSE_REFERENCES.md`](ANALYSE_REFERENCES.md) (`597325b`) : 395 comportements attendus, 20 en place, 184 partiels, 191 absents ; feuille de route R0 à R13. 🔄 Analyse complémentaire en cours (lancée à 09:10) : vrais noms de lieux pour tester le moteur de rapprochement, notation des agents, formations avec évaluation, fiche prestataire |
 | Liaisons | Liaisons entre pages + rapprochement automatique des lieux importés | 🔄 | Analyse ✅ → [`docs/ANALYSE_LIAISONS.md`](ANALYSE_LIAISONS.md). **Lot 0** : 9 correctifs faits (commit local `cf0c46b`), relecture adverse en cours avant publication sur `main`. **Lot 2** : moteur de rapprochement des lieux (`4c22775`). **Lot 1** : réimport du découpage sans détacher les contrats (`afe463e`). Lots 0 à 2 publiés sur `main`. Prochaine étape : lot 3 (sites et bureaux rattachés au découpage, migration 048) |
 | Signalés 12/10 | Vos retours du jour | ✅ | régions du bureau · en-têtes figés · XLSForm (500 au réimport, gros fichiers, .xls) · concepteur (panneau gauche) · actions sur les fiches + rattachement au MMR |
-| Retours 13/10 | Plan par lots : [`PLAN_RETOURS_15_37.md`](PLAN_RETOURS_15_37.md). Retours n° 15 à 48 | 🔄 | **Lot 1 fusionné** (3 parties, 582 tests) : correctifs des vérificateurs en cours, puis publication sur `main`. Ensuite lot 1b (période = plage de mois). Détail dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) |
+| Retours 13/10 | Plan par lots : [`PLAN_RETOURS_15_37.md`](PLAN_RETOURS_15_37.md). Retours n° 15 à 53 | 🔄 | **Lot 1 publié sur `main`** (`45493c7`, retours 16, 19, 20, 34, 35, 48). Conceptions 1b / 6a / 7a prêtes (`docs/SPEC_LOT_*.md`) ; réalisation lancée. Détail dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) |
 | Contre-vérif. | Correctifs des imports, formules, correspondances et verrous (retours d'hier + 4 relectures) | ✅ | **Publié sur `main`** (`d8863bb`) : `ef7ed78` → `6241cb1` → `aec0c6c` → `d8863bb`. Dernier contrôle ciblé de la nouvelle garde Excel en cours |
 | Refonte | Refonte UI/UX : menu par objets métier, fiches, liaisons visibles ; Partenaires & TPM (fiche 360°, formations avec pré/post-test, notation des agents) | 🔄 | Spécification ✅ [`docs/REFONTE_UX.md`](REFONTE_UX.md) (`5f6a6ef`) : « le site au centre », 6 groupes / 24 entrées, 13 lots A à M. Décisions de la section 8 adoptées avec les valeurs recommandées (modifiables). **Lot A** (navigation, adresses, redirections) en cours |
 
@@ -324,5 +324,8 @@ _Dernière mise à jour : 13/10/2026 17:37 UTC_ — la branche `main` reçoit ch
 
 - **17:37** ✅ **Conception des lots 1b, 6a et 7a terminée**, chacune critiquée par un vérificateur indépendant : [`SPEC_LOT_1B.md`](SPEC_LOT_1B.md) (période = plage de mois, 16 commits), [`SPEC_LOT_6A.md`](SPEC_LOT_6A.md) (carte, 11 commits), [`SPEC_LOT_7A.md`](SPEC_LOT_7A.md) (concepteur riche, 13 commits). Questions ouvertes tranchées (section « Décisions » de chaque document, modifiables). Constats mesurés : la lenteur du concepteur et de Couverture & performance vient d'une seule requête (« régions ») qui prend 4,4 à 6 s pour 562 soumissions — réécrite, elle prend 3 ms avec le même résultat ; la carte peut colorer les 120 districts (119 contours + Antanimora Sud via son district parent) et 99,4 % des points GPS tombent dans le bon district.
 - **17:37** ✅ **Correctif de sécurité d'exploitation** (`cc89c57`) : créer puis migrer une autre base sur le même serveur PostgreSQL remettait le mot de passe par défaut sur le rôle `mems2_app` utilisé par l'API (rôle commun au serveur). La migration 012 ne pose plus le mot de passe qu'à la création du rôle ; README mis à jour. Vérifié sur une base jetable.
+
+- **18:15** ✅ **Lot 1 publié sur `main`** (`45493c7`) — après trois tours de contre-vérification. Dernier tour : une colonne de date choisie sous un groupe (« grp/SvyDate ») est lue partout sous son nom renommé ; « Générer » ne ressuscite plus une visite annulée et ne planifie pas un site inactif ce mois (les deux comptés à part) ; réimport du plan sans doublon de visite ; « Pourquoi ? / Que faire ? » cohérent en zone interdite. Vérifié : 669 tests (668 + 1 ignoré), lint, build ; copie de la base (1 273 visites puis 0, 0 ; annulation conservée) ; balayage des 31 écrans en FR et EN : 0 erreur, 0 phrase manquante.
+- **18:15** ℹ️ Le script de balayage des écrans avait été modifié par un sous-agent (il ne naviguait plus et ne testait que le français) : réécrit dans un dossier réservé, avec un contrôle que la navigation change bien de page.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
