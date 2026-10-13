@@ -131,16 +131,9 @@ async function createAgent(tenantId, partnerId, { name, fonction }) {
   });
 }
 
-async function deleteAgent(tenantId, partnerId, agentId) {
-  return places.withSubmissionLinks(tenantId, async (client) => {
-    const { rowCount } = await client.query(
-      'DELETE FROM tpm_agents WHERE tenant_id = $1 AND tpm_provider_id = $2 AND id = $3',
-      [tenantId, partnerId, agentId]
-    );
-    if (rowCount === 1) await places.relinkPartiesTx(client, tenantId);
-    return rowCount === 1;
-  });
-}
+// Même règle que la fiche partenaire : un agent qui porte des données (formations, évaluations,
+// missions, formulaires reçus, correspondances) est refusé (409 « désactivez-le »), jamais effacé.
+const deleteAgent = (tenantId, partnerId, agentId) => require('../partners/partners.repository').deleteAgent(tenantId, partnerId, agentId);
 
 // ---- Évaluation : formations suivies par un agent
 async function agentBelongs(client, tenantId, partnerId, agentId) {

@@ -193,11 +193,15 @@ async function deleteAgent(tenantId, partnerId, agentId) {
       `SELECT a.id,
               EXISTS (SELECT 1 FROM tpm_agent_formations f WHERE f.tenant_id = $1 AND f.agent_id = a.id)
            OR EXISTS (SELECT 1 FROM tpm_agent_evaluations e WHERE e.tenant_id = $1 AND e.agent_id = a.id)
-           OR EXISTS (SELECT 1 FROM tpm_assignments x WHERE x.tenant_id = $1 AND x.tpm_agent_id = a.id) AS history
+           OR EXISTS (SELECT 1 FROM tpm_assignments x WHERE x.tenant_id = $1 AND x.tpm_agent_id = a.id)
+           OR EXISTS (SELECT 1 FROM monitoring_submissions ms WHERE ms.tenant_id = $1 AND ms.agent_id = a.id)
+           OR EXISTS (SELECT 1 FROM monitoring_value_links vl WHERE vl.tenant_id = $1 AND vl.agent_id = a.id) AS history
          FROM tpm_agents a WHERE a.tenant_id = $1 AND a.tpm_provider_id = $2 AND a.id = $3 FOR UPDATE`,
       [tenantId, partnerId, agentId]);
     if (!rows.length) return false;
-    if (rows[0].history) throw conflict('Cet agent a un historique (formations, évaluations ou missions) : désactivez-le au lieu de le supprimer.');
+    // Formations, évaluations et correspondances partiraient en cascade, les formulaires reçus perdraient
+    // leur agent : un agent qui porte des données ne se supprime jamais, il se désactive.
+    if (rows[0].history) throw conflict('Cet agent a un historique (formations, évaluations, missions ou formulaires reçus) : désactivez-le au lieu de le supprimer.');
     await client.query('DELETE FROM tpm_agents WHERE tenant_id = $1 AND id = $2', [tenantId, agentId]);
     await places.relinkPartiesTx(client, tenantId);
     return true;

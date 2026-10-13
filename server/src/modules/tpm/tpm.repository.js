@@ -21,8 +21,8 @@ async function listProviders(tenantId) {
       [tenantId]
     );
     const { rows: agents } = await client.query(
-      `SELECT id, tpm_provider_id AS "tpmProviderId", name, fonction
-       FROM tpm_agents WHERE tenant_id = $1 ORDER BY name`,
+      `SELECT id, tpm_provider_id AS "tpmProviderId", name, fonction, active
+       FROM tpm_agents WHERE tenant_id = $1 ORDER BY active DESC, name`,
       [tenantId]
     );
     const { rows: formations } = await client.query(
@@ -34,7 +34,7 @@ async function listProviders(tenantId) {
       ...p,
       dailyRate: p.dailyRate == null ? 0 : Number(p.dailyRate),
       agents: agents.filter((a) => a.tpmProviderId === p.id).map((a) => ({
-        id: a.id, name: a.name, fonction: a.fonction || null,
+        id: a.id, name: a.name, fonction: a.fonction || null, active: a.active !== false,
         formations: formations.filter((f) => f.agentId === a.id).map((f) => ({ id: f.id, thematique: f.thematique, date: f.date, jours: Number(f.jours) })),
       })),
     }));

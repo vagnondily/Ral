@@ -123,6 +123,9 @@ export default {
   // ProvidersPage — prestataires TPM et agents de terrain
   'Agent ajouté.': 'Agent added.',
   'Agent supprimé.': 'Agent deleted.',
+  'Agent réactivé.': 'Agent reactivated.',
+  'Réactiver': 'Reactivate',
+  'Agent désactivé : son historique est conservé.': 'Agent deactivated: their history is kept.',
   'Agents de terrain — {name}': 'Field agents — {name}',
   '{n} agents. Formation et évaluation dans leurs pages dédiées.': '{n} agents. Training and evaluation are on their dedicated pages.',
   '{n} agent. Formation et évaluation dans leurs pages dédiées.': '{n} agent. Training and evaluation are on their dedicated pages.',

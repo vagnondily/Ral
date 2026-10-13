@@ -34,9 +34,22 @@ function AgentsModal({ provider, canEdit, onClose, onChanged }) {
       onChanged();
     } catch (err) { toast.error(err.message); } finally { setSaving(false); }
   }
+  // Agent qui porte des données (formations, évaluations, formulaires reçus) : la suppression est refusée
+  // (409) — on propose alors de le désactiver, ce qui garde tout son historique.
+  const [withHistory, setWithHistory] = useState(() => new Set());
   async function remove(agentId) {
     try { await api.deletePartnerAgent(provider.id, agentId); toast.success(tr('Agent supprimé.')); onChanged(); }
-    catch (err) { toast.error(err.message); }
+    catch (err) {
+      if (err.status === 409) setWithHistory((prev) => new Set(prev).add(agentId));
+      toast.error(err.message);
+    }
+  }
+  async function setActive(agentId, active) {
+    try {
+      await api.setPartnerAgentActive(provider.id, agentId, active);
+      toast.success(tr(active ? 'Agent réactivé.' : 'Agent désactivé : son historique est conservé.'));
+      onChanged();
+    } catch (err) { toast.error(err.message); }
   }
 
   return (
@@ -50,9 +63,19 @@ function AgentsModal({ provider, canEdit, onClose, onChanged }) {
             {agents.length === 0 && <tr><td colSpan={canEdit ? 3 : 2} className="muted" style={{ textAlign: 'center', padding: 16 }}>{tr("Aucun agent pour l'instant.")}</td></tr>}
             {agents.map((a) => (
               <tr key={a.id}>
-                <td><span className="agent"><Avatar name={a.name} />{a.name}</span></td>
+                <td>
+                  <span className="agent"><Avatar name={a.name} />{a.name}</span>
+                  {a.active === false && <> <Badge>{tr('Inactif')}</Badge></>}
+                </td>
                 <td>{a.fonction ? <Badge>{a.fonction}</Badge> : <span className="cell-empty">—</span>}</td>
-                {canEdit && <td style={{ textAlign: 'right' }}><Button size="sm" variant="ghost" icon={Trash2} onClick={() => remove(a.id)} aria-label={tr('Supprimer {name}', { name: a.name })} /></td>}
+                {canEdit && (
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {a.active === false
+                      ? <Button size="sm" variant="secondary" onClick={() => setActive(a.id, true)}>{tr('Réactiver')}</Button>
+                      : withHistory.has(a.id) && <Button size="sm" variant="secondary" onClick={() => setActive(a.id, false)}>{tr('Désactiver')}</Button>}
+                    {a.active !== false && <Button size="sm" variant="ghost" icon={Trash2} onClick={() => remove(a.id)} aria-label={tr('Supprimer {name}', { name: a.name })} />}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

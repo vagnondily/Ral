@@ -368,6 +368,7 @@ export const api = {
   updatePartner: (id, input) => request(`/api/settings/partners/${id}`, { method: 'PATCH', body: input }),
   createPartnerAgent: (id, input) => request(`/api/settings/partners/${id}/agents`, { method: 'POST', body: input }),
   deletePartnerAgent: (id, agentId) => request(`/api/settings/partners/${id}/agents/${agentId}`, { method: 'DELETE' }),
+  setPartnerAgentActive: (id, agentId, active) => request(`/api/partners/${id}/agents/${agentId}`, { method: 'PATCH', body: { active } }),
   createAgentFormation: (id, agentId, input) => request(`/api/settings/partners/${id}/agents/${agentId}/formations`, { method: 'POST', body: input }),
   deleteAgentFormation: (id, agentId, formationId) => request(`/api/settings/partners/${id}/agents/${agentId}/formations/${formationId}`, { method: 'DELETE' }),
   listAgentsEvaluation: () => request('/api/tpm/agents-evaluation'),
