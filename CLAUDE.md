@@ -379,6 +379,25 @@ or navy rail.
   indicateur = `monitoringMath.classify`, la même partout** (liste des résultats,
   Synthèse, Couverture & performance) : avec cible écart ≤ 10 / 30 % ; sans cible
   bandes 80 / 65 / 50 sur le score orienté — ne pas réintroduire une 2ᵉ règle.
+  `classify = classifyDetail().rating` (classifyDetail rend aussi la règle appliquée).
+- **Éditeur d'indicateur + « Comment c'est calculé »** (retour n° 20) : UN éditeur
+  (`web/src/pages/monitoring/IndicatorEditor.jsx`) ouvert depuis les Résultats
+  (barre d'outils, ligne, détail) et la Configuration (carte des indicateurs en
+  tête, colonne d'actions figée). Choix de la variable `VariablePicker.jsx` sur
+  `GET /forms/:id/variables` (`variableCatalog.describeVariables` pur : questions,
+  options éclatées « X.1 » / « X/1 » libellées « question — choix », colonnes des
+  seules données, champs calculés, remplissage sur les 1 000 dernières soumissions).
+  Explication `IndicatorExplain.jsx` via `POST /forms/:id/indicators/preview`
+  (lecture, période, seules les clés utiles lues) = `monitoringMath.explainIndicator`,
+  qui dérive du MÊME décompte que `computeIndicator` (`tallyIndicator`) : jamais
+  d'écart avec les résultats. `PATCH /indicators/:id` est PARTIEL (`col = CASE WHEN
+  $drapeau …`, null efface, absent = inchangé, code modifiable → 409 si pris) ; la
+  variable est contrôlée contre la fiche (`variableCatalog.resolveVariable` : exact,
+  puis casse, sinon 400 « vouliez-vous dire ») ; règles croisées dans
+  `indicatorRules.js` (« % = valeur » exige la valeur comptée). Réappliquer le
+  modèle d'activité ne crée que les manquants (`ON CONFLICT DO NOTHING`), jamais
+  de réécriture d'un indicateur existant. Résultats : période par défaut = dernier
+  mois avec données (`GET /forms/:id/months`), « Toutes les périodes » proposé.
 - **Import des soumissions = assistant** (`web/src/pages/monitoring/ImportWizard.jsx`,
   onglet « Importation » d'une fiche, distinct de « Données ») : source → fichier
   ou connexion → **vérification sans écriture** (`POST /forms/:id/import/preview`,
@@ -446,7 +465,7 @@ or navy rail.
   `server/src/db/seed.js` (not shown in the UI).
 
 ## Testing
-`cd server && npm test` (465+ unit tests on the pure business logic: budget/expense
+`cd server && npm test` (500+ unit tests on the pure business logic: budget/expense
 math incl. the per-line **% bailleur** split and 2-activity allocation,
 plan-month normalization, workflow state machine, the consolidation engine, the
 budget Excel round-trip, the INVOICE workbook, and the field-visit coverage math

@@ -39,78 +39,122 @@ function isYes(v, positiveValue, naValues) {
 }
 
 const round1 = (n) => Math.round(n * 10) / 10;
+const SCALAR_AGGS = new Set(['count', 'sum', 'mean']);
+/** Méthode « en % » (percent_yes / percent_value — et toute méthode inconnue, comme le calcul l'a toujours traitée). */
+const isPercentAgg = (agg) => !SCALAR_AGGS.has(agg);
+/** Valeurs comptées comme positives (« 1|2 » → ['1', '2']). */
+const positiveList = (positiveValue) => (positiveValue == null ? [] : String(positiveValue).split('|').map((x) => x.trim()).filter(Boolean));
+/** Clé d'affichage d'une réponse (comptage par valeur) : le texte sans espaces autour. */
+const valueKey = (v) => { const s = String(v); return s.trim() === '' ? s : s.trim(); };
+const bump = (map, k) => map.set(k, (map.get(k) || 0) + 1);
 
 /**
- * Compute one indicator over a list of submissions.
- * @param {object} indicator {sourceField, agg, positiveValue, target, direction}
- * @param {object[]} submissions rows with a `.data` object
- * @returns {{value:number|null, base:number, rating:string}}
+ * Décompte d'un indicateur sur des soumissions — LA boucle du calcul : la
+ * valeur (computeIndicator) et son explication (explainIndicator) en dérivent,
+ * elles ne peuvent donc pas diverger.
+ *   total = soumissions examinées ; absent = sans la variable ; blank = variable
+ *   vide ; naExcluded = codes « hors base » écartés (par valeur) ; values =
+ *   réponses comptées (par valeur) ; answered = nombre de réponses comptées ;
+ *   positives (méthodes en %) ; numeric / sum (moyenne, somme).
  */
-function computeIndicator(indicator, submissions, names = [indicator.sourceField]) {
+function tallyIndicator(indicator, submissions, names = [indicator.sourceField]) {
   const na = naSet(indicator.naValues);
-  const vals = [];
+  const pct = isPercentAgg(indicator.agg);
+  const numericAgg = indicator.agg === 'sum' || indicator.agg === 'mean';
+  const t = { total: 0, absent: 0, blank: 0, naExcluded: new Map(), values: new Map(), answered: 0, positives: 0, numeric: 0, sum: 0 };
   for (const s of submissions || []) {
+    t.total += 1;
     const d = s.data || {};
     const field = names.find((n) => Object.prototype.hasOwnProperty.call(d, n));
-    if (field === undefined) continue;
+    if (field === undefined) { t.absent += 1; continue; }
+    const v = d[field];
+    if (v == null || v === '') { t.blank += 1; continue; } // non répondue : hors base
     // Codes « hors base » écartés pour toutes les méthodes (une moyenne avec 9999 n'a pas de sens).
-    if (d[field] != null && na.has(String(d[field]).trim().toLowerCase())) continue;
-    vals.push(d[field]);
+    if (na.has(String(v).trim().toLowerCase())) { bump(t.naExcluded, valueKey(v)); continue; }
+    t.answered += 1;
+    bump(t.values, valueKey(v));
+    if (pct) {
+      if (isYes(v, indicator.positiveValue) === 1) t.positives += 1;
+    } else if (numericAgg) {
+      const n = toNumber(v);
+      if (n != null) { t.numeric += 1; t.sum += n; }
+    }
   }
+  return t;
+}
 
+/** Valeur, base et classe d'un indicateur à partir de son décompte. */
+function resultFromTally(indicator, t) {
   let value = null;
   let base = 0;
-
   if (indicator.agg === 'count') {
-    value = vals.filter((v) => v != null && v !== '').length;
+    value = t.answered;
     base = value;
   } else if (indicator.agg === 'sum') {
-    const nums = vals.map(toNumber).filter((n) => n != null);
-    base = nums.length;
-    value = nums.reduce((a, b) => a + b, 0);
+    base = t.numeric;
+    value = t.sum;
   } else if (indicator.agg === 'mean') {
-    const nums = vals.map(toNumber).filter((n) => n != null);
-    base = nums.length;
-    value = base ? round1(nums.reduce((a, b) => a + b, 0) / base) : null;
+    base = t.numeric;
+    value = base ? round1(t.sum / base) : null;
   } else {
-    // percent_yes / percent_value: % of answered submissions that are positive
-    const flags = vals.map((v) => isYes(v, indicator.positiveValue, indicator.naValues)).filter((f) => f != null);
-    base = flags.length;
-    value = base ? round1((flags.reduce((a, b) => a + b, 0) / base) * 100) : null;
+    // percent_yes / percent_value : % des réponses comptées qui sont positives
+    base = t.answered;
+    value = base ? round1((t.positives / base) * 100) : null;
   }
-
   // Aucune réponse comptée : non évalué (un nombre ou une somme vaut 0, mais rien n'a été mesuré).
   return { value, base, rating: base ? rate(value, indicator) : 'na' };
 }
 
+/**
+ * Compute one indicator over a list of submissions.
+ * @param {object} indicator {sourceField, agg, positiveValue, target, direction, naValues}
+ * @param {object[]} submissions rows with a `.data` object
+ * @returns {{value:number|null, base:number, rating:string}}
+ */
+function computeIndicator(indicator, submissions, names = [indicator.sourceField]) {
+  return resultFromTally(indicator, tallyIndicator(indicator, submissions, names));
+}
+
 // Seuils des modèles de référence (score orienté, sur 100) quand l'indicateur n'a pas de cible.
 const BANDS = { exc: 80, sat: 65, imp: 50 };
+// Écart relatif à la cible, en % : ≤ sat → Satisfaisant ; ≤ imp → À améliorer ; au-delà → Action urgente.
+const TARGET_GAPS = { sat: 10, imp: 30 };
 
 /**
- * Classe d'un résultat d'indicateur — la MÊME partout (liste des résultats,
- * Synthèse, Couverture & performance, rapports) :
- *   - pas de valeur, ou aucune réponse comptée (base 0) → na (non évalué) ;
+ * Classe d'un résultat d'indicateur AVEC la règle appliquée — la MÊME partout
+ * (liste des résultats, Synthèse, Couverture & performance, rapports,
+ * explication du calcul) :
+ *   - pas de valeur, ou aucune réponse comptée (base 0) → na (non évalué)
+ *     — basis 'none', reason 'no_data' ;
  *   - avec cible : atteinte → exc ; écart relatif à la cible ≤ 10 % → sat ;
- *     ≤ 30 % → imp ; au-delà → urg ;
+ *     ≤ 30 % → imp ; au-delà → urg — basis 'target', gapPct ;
  *   - sans cible : bandes des modèles sur le score orienté d'un % (≥ 80 exc,
- *     ≥ 65 sat, ≥ 50 imp, sinon urg) ; na pour une moyenne, une somme ou un nombre.
- * @param {{ value, target, direction, agg }} result
+ *     ≥ 65 sat, ≥ 50 imp, sinon urg) — basis 'bands', oriented ; na pour une
+ *     moyenne, une somme ou un nombre — basis 'none', reason 'no_target'.
+ * @param {{ value, base?, target, direction, agg }} result
+ * @returns {{ rating: string, basis: 'target'|'bands'|'none', reason?: string, oriented?: number,
+ *   target?: number, achieved?: boolean, gapPct?: number, thresholds?: object }}
  */
-function classify(result) {
-  if (!result || result.value == null || result.base === 0) return 'na';
+function classifyDetail(result) {
+  if (!result || result.value == null || result.base === 0) return { rating: 'na', basis: 'none', reason: 'no_data' };
   const t = result.target == null || result.target === '' ? null : Number(result.target);
   if (t == null || Number.isNaN(t)) {
     const sc = orientedScore(result);
-    if (sc == null) return 'na';
-    return sc >= BANDS.exc ? 'exc' : sc >= BANDS.sat ? 'sat' : sc >= BANDS.imp ? 'imp' : 'urg';
+    if (sc == null) return { rating: 'na', basis: 'none', reason: 'no_target' };
+    const rating = sc >= BANDS.exc ? 'exc' : sc >= BANDS.sat ? 'sat' : sc >= BANDS.imp ? 'imp' : 'urg';
+    return { rating, basis: 'bands', oriented: round1(sc), thresholds: { ...BANDS } };
   }
   const value = Number(result.value);
   const better = result.direction !== 'lower_better';
-  if (better ? value >= t : value <= t) return 'exc';
+  if (better ? value >= t : value <= t) return { rating: 'exc', basis: 'target', target: t, achieved: true, gapPct: 0, thresholds: { ...TARGET_GAPS } };
   const gap = better ? (t - value) / (t || 1) : (value - t) / (t || 1);
-  if (gap <= 0.1) return 'sat';
-  if (gap <= 0.3) return 'imp';
-  return 'urg';
+  const rating = gap <= TARGET_GAPS.sat / 100 ? 'sat' : gap <= TARGET_GAPS.imp / 100 ? 'imp' : 'urg';
+  return { rating, basis: 'target', target: t, achieved: false, gapPct: round1(gap * 100), thresholds: { ...TARGET_GAPS } };
+}
+
+/** Classe d'un résultat d'indicateur (exc / sat / imp / urg / na) : la règle de classifyDetail, la seule. */
+function classify(result) {
+  return classifyDetail(result).rating;
 }
 
 /** Classe d'une valeur pour un indicateur (cible, sens, méthode) : voir classify. */
@@ -153,8 +197,74 @@ function computeAll(indicators, submissions) {
     // Compte dans l'indice (faux pour un chiffre clé ou un module complémentaire du modèle).
     scored: ind.scored !== false,
     target: ind.target == null ? null : Number(ind.target),
+    // Définition complète, pour expliquer le calcul et éditer l'indicateur depuis les résultats.
+    positiveValue: ind.positiveValue == null || ind.positiveValue === '' ? null : String(ind.positiveValue),
+    naValues: Array.isArray(ind.naValues) ? ind.naValues : [],
+    templateCode: ind.templateCode ?? null,
+    active: ind.active !== false,
     ...computeIndicator(ind, submissions, namesFor(ind.sourceField, idx)),
   }));
+}
+
+const DISTRIBUTION_TOP = 12;
+const round4 = (n) => Math.round(n * 1e4) / 1e4;
+
+/**
+ * Explication d'un indicateur sur des soumissions : d'où vient la valeur, chiffre
+ * par chiffre. Même décompte que computeIndicator (tallyIndicator) : `value` et
+ * `base` sont TOUJOURS ceux du calcul.
+ * @param {object} indicator {sourceField, agg, positiveValue, naValues, target, direction}
+ * @param {object[]} submissions rows with a `.data` object
+ * @param {string[]} [names] noms à essayer (namesFor)
+ * @param {{ choiceLabels?: Map<string,string>|object, top?: number }} [opts]
+ * @returns {{ agg, positiveValues: string[], naValues: string[], total, absent, blank,
+ *   na: Array<{value,label,n}>, naCount, answered, ignored, base, numerator, denominator, value,
+ *   distribution: Array<{value,label,n,role}>, others: {n, positives}, distinct, classification }}
+ *   role ∈ positive | negative (méthodes en %), counted | ignored (moyenne, somme, nombre).
+ */
+function explainIndicator(indicator, submissions, names = [indicator.sourceField], { choiceLabels, top = DISTRIBUTION_TOP } = {}) {
+  const t = tallyIndicator(indicator, submissions, names);
+  const r = resultFromTally(indicator, t);
+  const pct = isPercentAgg(indicator.agg);
+  const labelOf = (v) => {
+    if (!choiceLabels) return null;
+    const l = choiceLabels instanceof Map ? choiceLabels.get(String(v)) : choiceLabels[String(v)];
+    return l == null || l === '' ? null : String(l);
+  };
+  const roleOf = (v) => {
+    if (pct) return isYes(v, indicator.positiveValue) === 1 ? 'positive' : 'negative';
+    if (indicator.agg === 'count') return 'counted';
+    return toNumber(v) == null ? 'ignored' : 'counted';
+  };
+  const sorted = [...t.values.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'fr', { numeric: true }));
+  const distribution = sorted.slice(0, top).map(([value, n]) => ({ value, label: labelOf(value), n, role: roleOf(value) }));
+  const rest = sorted.slice(top);
+  const na = [...t.naExcluded.entries()].sort((a, b) => b[1] - a[1]).map(([value, n]) => ({ value, label: labelOf(value), n }));
+  let numerator = null;
+  let denominator = null;
+  if (pct) { numerator = t.positives; denominator = t.answered; } else if (indicator.agg === 'mean') { numerator = round4(t.sum); denominator = t.numeric; } else if (indicator.agg === 'sum') numerator = round4(t.sum);
+  else numerator = t.answered;
+  return {
+    agg: indicator.agg,
+    positiveValues: positiveList(indicator.positiveValue),
+    naValues: (indicator.naValues || []).map((x) => String(x).trim()).filter(Boolean),
+    total: t.total,
+    absent: t.absent,
+    blank: t.blank,
+    na,
+    naCount: na.reduce((s, x) => s + x.n, 0),
+    answered: t.answered,
+    // Moyenne / somme : réponses non numériques, ignorées.
+    ignored: indicator.agg === 'sum' || indicator.agg === 'mean' ? t.answered - t.numeric : 0,
+    base: r.base,
+    numerator,
+    denominator,
+    value: r.value,
+    distribution,
+    others: { n: rest.reduce((s, [, n]) => s + n, 0), positives: pct ? rest.reduce((s, [v, n]) => s + (roleOf(v) === 'positive' ? n : 0), 0) : 0 },
+    distinct: t.values.size,
+    classification: classifyDetail({ value: r.value, base: r.base, target: indicator.target, direction: indicator.direction, agg: indicator.agg }),
+  };
 }
 
 const isPercentResult = (r) => r && (r.agg === 'percent_yes' || r.agg === 'percent_value') && r.value != null;
@@ -190,4 +300,7 @@ function overallIndex(indicatorResults) {
   return Math.round((means.reduce((a, b) => a + b, 0) / means.length) * 10) / 10;
 }
 
-module.exports = { computeIndicator, computeAll, rate, classify, BANDS, overallIndex, orientedScore, toNumber, isYes, keyIndex, namesFor };
+module.exports = {
+  computeIndicator, computeAll, rate, classify, classifyDetail, BANDS, TARGET_GAPS, overallIndex, orientedScore, toNumber, isYes,
+  keyIndex, namesFor, tallyIndicator, explainIndicator, isPercentAgg, positiveList,
+};

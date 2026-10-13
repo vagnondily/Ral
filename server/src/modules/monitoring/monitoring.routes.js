@@ -3,7 +3,7 @@ const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
-const { badRequest, notFound } = require('../../middleware/errors');
+const { badRequest, notFound, conflict } = require('../../middleware/errors');
 const repo = require('./monitoring.repository');
 const { parseSubmissions, analyzeSubmissions } = require('./submissionsImport');
 const { parseXlsformRows } = require('./xlsformImport');
@@ -75,28 +75,72 @@ router.get('/forms/:id/fields', asyncHandler(async (req, res) => res.json(await 
 // ---- Indicators (mapping) ------------------------------------------------
 router.get('/forms/:id/indicators', asyncHandler(async (req, res) => res.json(await repo.listIndicators(t(req), req.params.id))));
 
-const indicatorSchema = z.object({
+// Texte effaçable : '' (ou espaces) et null effacent la valeur ; absent = inchangé (PATCH).
+const clearable = (max) => z.string().trim().max(max).nullable().optional().transform((v) => (v === '' ? null : v));
+const AGGS = ['percent_yes', 'mean', 'sum', 'count', 'percent_value'];
+const indicatorFields = {
   code: z.string().trim().min(1).max(60),
   label: z.string().trim().min(1).max(200),
-  module: z.string().trim().max(80).optional().or(z.literal('').transform(() => undefined)),
+  module: clearable(80),
   sourceField: z.string().trim().min(1).max(200),
-  agg: z.enum(['percent_yes', 'mean', 'sum', 'count', 'percent_value']).optional(),
-  positiveValue: z.string().trim().max(80).optional().or(z.literal('').transform(() => undefined)),
-  target: z.number().optional().nullable(),
+  agg: z.enum(AGGS).optional(),
+  // Valeur(s) comptée(s) comme positives, séparées par « | » (ex. « 1|2 »).
+  positiveValue: clearable(80),
+  target: z.number().finite().nullable().optional(),
   direction: z.enum(['higher_better', 'lower_better']).optional(),
-  sortOrder: z.number().int().optional(),
+  sortOrder: z.number().int().min(-100000).max(100000).optional(),
   active: z.boolean().optional(),
   // Réponses « hors base » (Sans objet 9999, Ne sait pas 888…) ; compte dans l'indice.
   naValues: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
   scored: z.boolean().optional(),
-});
+};
+const indicatorSchema = z.object(indicatorFields)
+  .refine((v) => v.agg !== 'percent_value' || Boolean(v.positiveValue), {
+    message: 'Méthode « % = valeur » : précisez la valeur comptée.', path: ['positiveValue'],
+  });
+// PATCH : modification partielle — seules les clés envoyées sont écrites (règles croisées contrôlées par le dépôt).
+const indicatorPatchSchema = z.object(indicatorFields).partial().strict();
+const DUP_CODE = 'Un indicateur avec ce code existe déjà sur cette fiche.';
+
 router.post('/forms/:id/indicators', WRITE, body(indicatorSchema), asyncHandler(async (req, res) => {
-  try { res.status(201).json({ id: await repo.createIndicator(t(req), req.params.id, req.valid) }); }
-  catch (err) { if (err.code === '23505') throw badRequest('Un indicateur avec ce code existe déjà sur ce formulaire.'); throw err; }
+  let id;
+  try { id = await repo.createIndicator(t(req), uuidParam(req.params.id), req.valid); }
+  catch (err) { if (err.code === '23505') throw conflict(DUP_CODE); throw err; }
+  if (!id) throw notFound('Fiche introuvable');
+  res.status(201).json({ id });
 }));
-router.patch('/indicators/:id', WRITE, body(indicatorSchema.partial()), asyncHandler(async (req, res) => {
-  if (!(await repo.updateIndicator(t(req), req.params.id, req.valid))) throw notFound('Indicateur introuvable');
+router.patch('/indicators/:id', WRITE, body(indicatorPatchSchema), asyncHandler(async (req, res) => {
+  let ok;
+  try { ok = await repo.updateIndicator(t(req), uuidParam(req.params.id), req.valid); }
+  catch (err) { if (err.code === '23505') throw conflict(DUP_CODE); throw err; }
+  if (!ok) throw notFound('Indicateur introuvable');
   res.status(204).end();
+}));
+
+// « Comment c'est calculé » : une définition (enregistrée ou en cours de saisie) appliquée aux
+// soumissions réelles de la période. Lecture seule (aucune écriture), pour tout utilisateur.
+const monthParam = z.string().regex(/^\d{4}-\d{2}$/, 'Mois au format AAAA-MM').optional().nullable();
+const previewSchema = z.object({
+  sourceField: indicatorFields.sourceField,
+  agg: indicatorFields.agg,
+  positiveValue: indicatorFields.positiveValue,
+  naValues: indicatorFields.naValues,
+  target: indicatorFields.target,
+  direction: indicatorFields.direction,
+  month: monthParam, from: monthParam, to: monthParam,
+});
+router.post('/forms/:id/indicators/preview', body(previewSchema), asyncHandler(async (req, res) => {
+  const { month, from, to, ...def } = req.valid;
+  const out = await repo.indicatorPreview(t(req), uuidParam(req.params.id), { agg: 'percent_yes', ...def },
+    { month: month || undefined, from: from || undefined, to: to || undefined });
+  if (!out) throw notFound('Fiche introuvable');
+  res.json(out);
+}));
+// Mois ayant des données (période par défaut des résultats : le dernier, jamais un mois vide).
+router.get('/forms/:id/months', asyncHandler(async (req, res) => {
+  const out = await repo.formMonths(t(req), uuidParam(req.params.id));
+  if (!out) throw notFound('Fiche introuvable');
+  res.json(out);
 }));
 // Modèle d'indicateurs de l'activité de la fiche : variable proposée pour chaque indicateur,
 // puis création groupée des indicateurs choisis (retour n° 12).

@@ -1,7 +1,9 @@
 const { withTenantTransaction } = require('../../config/db');
 const { insertRows } = require('../../db/batch');
 const { notFound, forbidden, badRequest } = require('../../middleware/errors');
-const { computeAll, overallIndex } = require('./monitoringMath');
+const { computeAll, overallIndex, explainIndicator, keyIndex, namesFor } = require('./monitoringMath');
+const { describeVariables, resolveVariable, optionParentName } = require('./variableCatalog');
+const { definitionError, effectiveDefinition, normalizeNaValues, presentKeys } = require('./indicatorRules');
 const { classDistribution, dimGroups, topFlop, classify } = require('./coverageDashboard');
 const { detectMapping, DIMENSION_COLUMN, EDITABLE_KEYS } = require('./memsMapping');
 const { computeCalcFields, checkExpression, previewCalc, makeGetter } = require('./calcFields');
@@ -139,34 +141,107 @@ async function listIndicators(tenantId, formId) {
   });
 }
 
+/**
+ * Variable source d'un indicateur, contrôlée contre les variables de la fiche :
+ * catalogue (XLSForm / .sav) et champs calculés d'abord, puis colonnes vues dans
+ * les données (options éclatées « X.1 », variables absentes du XLSForm). Même
+ * identité que le calcul : nom exact, sinon variante de casse. 400 avec la
+ * variable la plus proche sinon.
+ */
+async function resolveSourceFieldTx(client, tenantId, formId, name) {
+  const { rows: declared } = await client.query(
+    `SELECT name FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2
+     UNION SELECT name FROM monitoring_calc_fields WHERE tenant_id = $1 AND form_id = $2`, [tenantId, formId]);
+  const names = declared.map((r) => r.name);
+  const first = resolveVariable(name, names);
+  if (first.name) return first.name;
+  const { rows: keys } = await client.query(
+    'SELECT DISTINCT jsonb_object_keys(data) AS name FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2',
+    [tenantId, formId]);
+  const all = resolveVariable(name, [...names, ...keys.map((r) => r.name)]);
+  if (all.name) return all.name;
+  throw badRequest(all.error, { field: 'sourceField', suggestion: all.suggestion });
+}
+
+/** Définition incohérente (« % = valeur » sans valeur, valeur comptée aussi hors base…) : 400, rien n'est écrit. */
+function assertDefinition(def) {
+  const err = definitionError(def);
+  if (err) throw badRequest(err);
+}
+
+/**
+ * Crée un indicateur. La variable source doit exister dans la fiche ; il se
+ * range après les indicateurs existants. null si la fiche n'existe pas ; un
+ * code déjà pris sur la fiche remonte en 23505 (→ 409 par la route).
+ */
 async function createIndicator(tenantId, formId, ind) {
   return withTenantTransaction(tenantId, async (client) => {
+    // Verrou de la fiche : deux créations simultanées ne prennent pas le même rang.
+    const { rows: [form] } = await client.query(
+      'SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2 FOR UPDATE', [tenantId, formId]);
+    if (!form) return null;
+    const sourceField = await resolveSourceFieldTx(client, tenantId, formId, ind.sourceField);
+    const naValues = normalizeNaValues(ind.naValues);
+    assertDefinition({ ...ind, agg: ind.agg || 'percent_yes', naValues });
     const { rows } = await client.query(
       `INSERT INTO monitoring_indicators
          (tenant_id, form_id, code, label, module, source_field, agg, positive_value, target, direction, sort_order, active,
           na_values, scored)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,COALESCE($12,true),COALESCE($13,'{}'::text[]),COALESCE($14,true)) RETURNING id`,
-      [tenantId, formId, ind.code, ind.label, ind.module || null, ind.sourceField, ind.agg || 'percent_yes',
-        ind.positiveValue || null, ind.target ?? null, ind.direction || 'higher_better', ind.sortOrder ?? 0, ind.active,
-        ind.naValues ?? null, ind.scored ?? null]
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+               COALESCE($11, (SELECT max(sort_order) + 1 FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2), 0),
+               COALESCE($12,true),$13::text[],COALESCE($14,true)) RETURNING id`,
+      [tenantId, formId, ind.code, ind.label, ind.module || null, sourceField, ind.agg || 'percent_yes',
+        ind.positiveValue || null, ind.target ?? null, ind.direction || 'higher_better', ind.sortOrder ?? null, ind.active ?? null,
+        naValues, ind.scored ?? null]
     );
     return rows[0].id;
   });
 }
 
-async function updateIndicator(tenantId, id, ind) {
+// Colonnes modifiables : clé d'API → colonne, type SQL. L'instruction est fixe ;
+// chaque colonne n'est écrite que si sa clé est présente (drapeau), sinon elle garde sa valeur.
+const INDICATOR_COLUMNS = [
+  ['code', 'code', 'text'], ['label', 'label', 'text'], ['module', 'module', 'text'],
+  ['sourceField', 'source_field', 'text'], ['agg', 'agg', 'text'], ['positiveValue', 'positive_value', 'text'],
+  ['target', 'target', 'numeric'], ['direction', 'direction', 'text'], ['sortOrder', 'sort_order', 'integer'],
+  ['active', 'active', 'boolean'], ['naValues', 'na_values', 'text[]'], ['scored', 'scored', 'boolean'],
+];
+
+/**
+ * Modification PARTIELLE d'un indicateur : seules les clés présentes sont
+ * écrites (null efface module, valeur comptée ou cible) ; l'absence d'une clé
+ * ne touche jamais à la valeur enregistrée. Le code est modifiable (23505 → 409).
+ * Une nouvelle variable source est contrôlée contre la fiche ; la définition
+ * effective (enregistrée + modification) doit rester cohérente.
+ * @returns {Promise<boolean>} false si l'indicateur n'existe pas
+ */
+async function updateIndicator(tenantId, id, patch) {
   return withTenantTransaction(tenantId, async (client) => {
+    const { rows: [cur] } = await client.query(
+      `SELECT id, form_id AS "formId", source_field AS "sourceField", agg, positive_value AS "positiveValue",
+              target, na_values AS "naValues"
+         FROM monitoring_indicators WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [tenantId, id]);
+    if (!cur) return false;
+    const p = { ...patch };
+    if (p.naValues !== undefined) p.naValues = normalizeNaValues(p.naValues);
+    if (p.module === '') p.module = null;
+    if (p.positiveValue === '') p.positiveValue = null;
+    if (p.sourceField !== undefined && p.sourceField !== cur.sourceField) {
+      p.sourceField = await resolveSourceFieldTx(client, tenantId, cur.formId, p.sourceField);
+    }
+    // Définition contrôlée seulement si la modification y touche (un ancien indicateur se renomme toujours).
+    if (['agg', 'positiveValue', 'naValues', 'target'].some((k) => p[k] !== undefined)) {
+      assertDefinition(effectiveDefinition(cur, p));
+    }
+    const present = new Set(presentKeys(p));
+    if (!present.size) return true;
+    const params = [tenantId, id];
+    const sets = INDICATOR_COLUMNS.map(([key, col, type]) => {
+      params.push(present.has(key), present.has(key) ? p[key] : null);
+      return `${col} = CASE WHEN $${params.length - 1}::boolean THEN $${params.length}::${type} ELSE ${col} END`;
+    });
     const { rowCount } = await client.query(
-      `UPDATE monitoring_indicators SET
-         label = COALESCE($3,label), module = $4, source_field = COALESCE($5,source_field),
-         agg = COALESCE($6,agg), positive_value = $7, target = $8,
-         direction = COALESCE($9,direction), sort_order = COALESCE($10,sort_order), active = COALESCE($11,active),
-         na_values = COALESCE($12,na_values), scored = COALESCE($13,scored)
-        WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id, ind.label ?? null, ind.module ?? null, ind.sourceField ?? null, ind.agg ?? null,
-        ind.positiveValue ?? null, ind.target ?? null, ind.direction ?? null, ind.sortOrder ?? null, ind.active ?? null,
-        ind.naValues ?? null, ind.scored ?? null]
-    );
+      `UPDATE monitoring_indicators SET ${sets.join(', ')} WHERE tenant_id = $1 AND id = $2`, params);
     return rowCount === 1;
   });
 }
@@ -178,40 +253,170 @@ async function updateIndicator(tenantId, id, ind) {
  * du .sav absentes du XLSForm, colonnes éclatées des choix multiples).
  */
 async function bindingFieldsTx(client, tenantId, formId) {
-  const { rows: cat } = await client.query(
-    `SELECT name, label, type, list_name AS "listName" FROM monitoring_form_fields
-      WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name`, [tenantId, formId]);
+  const { catalog, choicesByList } = await catalogTx(client, tenantId, formId);
   const { rows: keys } = await client.query(
     'SELECT DISTINCT jsonb_object_keys(data) AS name FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 ORDER BY 1',
     [tenantId, formId]);
-  const lists = [...new Set(cat.map((f) => f.listName).filter(Boolean))];
+  // Listes longues (lieux, écoles) inutiles pour choisir une valeur positive : non envoyées (describeVariables).
+  // Options éclatées des choix multiples (« X.1 ») libellées « question — choix ».
+  return describeVariables({ catalog, choicesByList, dataKeys: keys.map((k) => k.name) })
+    .map((v) => ({ name: v.name, label: v.label, type: v.type, choices: v.choices }));
+}
+
+/**
+ * Catalogue d'une fiche (champs XLSForm / .sav) et ses listes de choix.
+ * `names` (minuscules) restreint aux variables utiles.
+ */
+async function catalogTx(client, tenantId, formId, names = null) {
+  const { rows: catalog } = await client.query(
+    `SELECT name, label, type, group_path AS "group", list_name AS "listName" FROM monitoring_form_fields
+      WHERE tenant_id = $1 AND form_id = $2 AND ($3::text[] IS NULL OR lower(name) = ANY($3::text[]))
+      ORDER BY sort_order, name`, [tenantId, formId, names]);
+  const lists = [...new Set(catalog.map((c) => c.listName).filter(Boolean))];
   const { rows: choices } = lists.length ? await client.query(
     `SELECT list_name AS "listName", value, label FROM monitoring_choices
       WHERE tenant_id = $1 AND form_id = $2 AND list_name = ANY($3::text[]) ORDER BY list_name, sort_order`,
     [tenantId, formId, lists]) : { rows: [] };
-  const byList = new Map();
-  for (const c of choices) { if (!byList.has(c.listName)) byList.set(c.listName, []); byList.get(c.listName).push({ value: String(c.value), label: c.label }); }
-  const seen = new Set(cat.map((f) => f.name.toLowerCase()));
-  return [
-    // Listes longues (lieux, écoles) inutiles pour choisir une valeur positive : non envoyées.
-    ...cat.map((f) => ({ name: f.name, label: f.label, type: f.type || null, choices: (byList.get(f.listName) || []).length <= 40 ? byList.get(f.listName) || [] : [] })),
-    ...keys.filter((k) => !seen.has(k.name.toLowerCase())).map((k) => ({ name: k.name, label: null, type: null, choices: [] })),
-  ];
+  const choicesByList = new Map();
+  for (const c of choices) {
+    if (!choicesByList.has(c.listName)) choicesByList.set(c.listName, []);
+    choicesByList.get(c.listName).push({ value: String(c.value), label: c.label });
+  }
+  return { catalog, choicesByList };
+}
+
+// Taux de remplissage des variables : mesuré sur les soumissions les plus récentes (non exclues).
+const FILL_SAMPLE = 1000;
+
+/** Références (variables lues) des champs calculés d'une fiche, en minuscules. */
+function calcReferences(defs) {
+  const refs = new Set();
+  for (const d of defs || []) {
+    const list = d.kind === 'recode' ? [d.sourceField] : checkExpression(d.expression).references;
+    for (const r of list) if (r) refs.add(String(r).toLowerCase());
+  }
+  return refs;
 }
 
 /**
- * Variables d'une fiche pour l'éditeur de formule : catalogue (XLSForm ou SPSS,
- * avec libellés, type et choix) + colonnes présentes dans les données, et les
- * champs calculés déjà définis. null si la fiche n'existe pas.
+ * Variables d'une fiche pour choisir la variable d'un indicateur et pour
+ * l'éditeur de formule (variableCatalog.describeVariables) : questions du
+ * XLSForm / .sav (libellé, type, groupe, choix), options des choix multiples
+ * (« X.1 » libellée « question — choix »), colonnes vues seulement dans les
+ * données, et champs calculés — chacun avec le nombre de réponses renseignées
+ * sur les FILL_SAMPLE soumissions les plus récentes (`sampled`).
+ * null si la fiche n'existe pas.
  */
 async function formVariables(tenantId, formId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
     if (!f[0]) return null;
-    const fields = await bindingFieldsTx(client, tenantId, formId);
-    const { rows: calc } = await client.query(
-      'SELECT id, name, label FROM monitoring_calc_fields WHERE tenant_id = $1 AND form_id = $2 ORDER BY sort_order, name', [tenantId, formId]);
-    return { fields, calcFields: calc };
+    const { catalog, choicesByList } = await catalogTx(client, tenantId, formId);
+    const { rows: keys } = await client.query(
+      'SELECT DISTINCT jsonb_object_keys(data) AS name FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 ORDER BY 1',
+      [tenantId, formId]);
+    // Renseignées = clé présente et non vide, sur l'échantillon le plus récent.
+    const { rows: fillRows } = await client.query(
+      `SELECT e.key AS name, count(*) FILTER (WHERE e.value <> '')::int AS filled
+         FROM (SELECT data FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 AND NOT excluded
+                ORDER BY created_at DESC LIMIT $3) s, jsonb_each_text(s.data) e
+        GROUP BY 1`, [tenantId, formId, FILL_SAMPLE]);
+    const { rows: [{ n: sampled }] } = await client.query(
+      `SELECT count(*)::int AS n FROM (SELECT 1 FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 AND NOT excluded
+          ORDER BY created_at DESC LIMIT $3) s`, [tenantId, formId, FILL_SAMPLE]);
+    const defs = await calcDefsFor(client, tenantId, formId);
+    const { rows: calcIds } = await client.query(
+      'SELECT id, name FROM monitoring_calc_fields WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
+    // Champs calculés : remplissage calculé sur le même échantillon, en ne lisant que leurs variables.
+    const calcFilled = new Map();
+    if (defs.length && sampled) {
+      const { rows: sample } = await client.query(
+        `SELECT COALESCE((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(s.data) e WHERE lower(e.key) = ANY($3::text[])), '{}'::jsonb) AS data
+           FROM (SELECT data FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 AND NOT excluded
+                  ORDER BY created_at DESC LIMIT $4) s`,
+        [tenantId, formId, [...calcReferences(defs)], FILL_SAMPLE]);
+      for (const row of sample) {
+        const out = computeCalcFields(defs, row.data || {});
+        for (const [k, v] of Object.entries(out)) if (v != null && v !== '') calcFilled.set(k, (calcFilled.get(k) || 0) + 1);
+      }
+    }
+    const idOf = new Map(calcIds.map((c) => [c.name, c.id]));
+    const calcFields = defs.map((d) => ({ id: idOf.get(d.name), name: d.name, label: d.label, filled: sampled ? (calcFilled.get(d.name) || 0) : null }));
+    const all = describeVariables({
+      catalog, choicesByList, dataKeys: keys.map((k) => k.name), calcFields,
+      fill: sampled ? new Map(fillRows.map((r) => [r.name, r.filled])) : null,
+    });
+    return { fields: all.filter((v) => v.kind !== 'calc'), calcFields, sampled };
+  });
+}
+
+/** Mois ayant des données (non exclues) d'une fiche, et le dernier mois ≤ mois courant. */
+async function formMonths(tenantId, formId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
+    if (!f[0]) return null;
+    const { rows } = await client.query(
+      `SELECT to_char(period_month, 'YYYY-MM') AS month, count(*)::int AS submissions,
+              period_month <= date_trunc('month', now())::date AS past
+         FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 AND NOT excluded AND period_month IS NOT NULL
+        GROUP BY period_month ORDER BY period_month`, [tenantId, formId]);
+    // Un mois futur vient d'une date aberrante (tablette mal réglée) : jamais la période par défaut.
+    const latest = [...rows].reverse().find((r) => r.past);
+    return { months: rows.map(({ month, submissions }) => ({ month, submissions })), latest: latest ? latest.month : null };
+  });
+}
+
+/**
+ * « Comment c'est calculé » : explication d'une définition d'indicateur (non
+ * enregistrée ou enregistrée) sur les soumissions réelles de la période —
+ * même filtre (exclues écartées, mois ou intervalle) et même chaîne de champs
+ * calculés que les résultats ; seules les réponses utiles sont lues.
+ * @returns {Promise<null|{ variable, check, n, period, explain }>} null si la fiche n'existe pas
+ */
+async function indicatorPreview(tenantId, formId, def, period = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
+    if (!f[0]) return null;
+    const src = String(def.sourceField);
+    const defs = await calcDefsFor(client, tenantId, formId);
+    const isCalc = defs.some((d) => d.name.toLowerCase() === src.toLowerCase());
+    const needed = isCalc ? calcReferences(defs) : new Set();
+    needed.add(src.toLowerCase());
+    const p = [tenantId, formId, [...needed]];
+    const { rows } = await client.query(
+      `SELECT COALESCE((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(s.data) e WHERE lower(e.key) = ANY($3::text[])), '{}'::jsonb) AS data
+         FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${submissionFilter('s', period, p)}`, p);
+    const subs = isCalc ? withCalc(rows, defs) : rows;
+    // Variable décrite comme dans le sélecteur : question, option éclatée, colonne ou champ calculé.
+    const parent = optionParentName(src);
+    const { catalog, choicesByList } = await catalogTx(client, tenantId, formId,
+      [src.toLowerCase(), ...(parent ? [parent.toLowerCase()] : [])]);
+    const seenInData = subs.some((s) => Object.keys(s.data || {}).some((k) => k.toLowerCase() === src.toLowerCase()));
+    const described = describeVariables({
+      catalog, choicesByList, dataKeys: seenInData ? [src] : [], maxChoices: 500,
+      calcFields: defs.filter((d) => d.name.toLowerCase() === src.toLowerCase()).map((d) => ({ name: d.name, label: d.label })),
+    });
+    const variable = described.find((v) => v.name.toLowerCase() === src.toLowerCase()) || null;
+    // Variable inconnue sur la période : est-elle connue ailleurs (autres mois) ? Sinon, la plus proche.
+    let check = null;
+    if (!variable) {
+      const { rows: keys } = await client.query(
+        'SELECT DISTINCT jsonb_object_keys(data) AS name FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2',
+        [tenantId, formId]);
+      const { rows: names } = await client.query(
+        'SELECT name FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
+      const r = resolveVariable(src, [...names.map((x) => x.name), ...keys.map((x) => x.name), ...defs.map((d) => d.name)]);
+      check = r.name ? { known: true, name: r.name } : { known: false, error: r.error, suggestion: r.suggestion };
+    }
+    const choiceLabels = new Map((variable ? variable.choices : []).map((c) => [String(c.value), c.label]));
+    const explain = explainIndicator(def, subs, namesFor(src, keyIndex(subs)), { choiceLabels });
+    return {
+      variable: variable && { name: variable.name, label: variable.label, kind: variable.kind, type: variable.type, group: variable.group, choices: variable.choices.slice(0, 200) },
+      check,
+      n: subs.length,
+      period: { month: period.month || null, from: period.from || null, to: period.to || null },
+      explain,
+    };
   });
 }
 
@@ -227,14 +432,25 @@ async function formTemplate(tenantId, formId) {
     const fields = await bindingFieldsTx(client, tenantId, formId);
     const suggestions = suggestBindings(tpl, fields);
     const { rows: existing } = await client.query(
-      `SELECT code, source_field AS "sourceField", positive_value AS "positiveValue" FROM monitoring_indicators
-        WHERE tenant_id = $1 AND form_id = $2 AND template_code IS NOT NULL`, [tenantId, formId]);
-    const done = new Map(existing.map((e) => [e.code, e]));
+      `SELECT id, code, label, template_code AS "templateCode", source_field AS "sourceField", positive_value AS "positiveValue"
+         FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2`, [tenantId, formId]);
+    // Élément déjà créé = un indicateur qui porte son template_code (même si son code a été modifié depuis).
+    const done = new Map(existing.filter((e) => e.templateCode).map((e) => [e.templateCode, e]));
+    // Code de l'élément déjà pris par un indicateur créé à la main : l'élément ne peut pas être créé.
+    const byCode = new Map(existing.map((e) => [e.code, e]));
     return {
       form,
       template: {
         key: tpl.key, label: tpl.label, domains: tpl.domains,
-        items: tpl.items.map((it, i) => ({ ...it, module: moduleLabel(tpl, it.domain), suggestion: suggestions[i], existing: done.get(it.code) || null })),
+        items: tpl.items.map((it, i) => {
+          const ex = done.get(it.code) || null;
+          const other = !ex && byCode.get(it.code);
+          return {
+            ...it, module: moduleLabel(tpl, it.domain), suggestion: suggestions[i],
+            existing: ex && { id: ex.id, code: ex.code, sourceField: ex.sourceField, positiveValue: ex.positiveValue },
+            taken: other ? { id: other.id, code: other.code, label: other.label } : null,
+          };
+        }),
       },
       fields: fields.map((f) => ({ name: f.name, label: f.label, choices: f.choices })),
     };
@@ -242,10 +458,15 @@ async function formTemplate(tenantId, formId) {
 }
 
 /**
- * Crée (ou met à jour) les indicateurs du modèle choisis par l'utilisateur, en
- * une transaction et une écriture groupée. Chaque élément doit appartenir au
- * modèle de l'activité de la fiche et viser une variable qui existe dans la
- * fiche (XLSForm ou données) ; sinon rien n'est écrit (400).
+ * Crée les indicateurs du modèle choisis par l'utilisateur, en une transaction
+ * et une écriture groupée. Chaque élément doit appartenir au modèle de
+ * l'activité de la fiche et viser une variable qui existe dans la fiche
+ * (XLSForm ou données) ; sinon rien n'est écrit (400).
+ * Réappliquer le modèle ne modifie JAMAIS un indicateur déjà créé (même
+ * template_code) : les modifications de l'utilisateur sont conservées. Un code
+ * déjà pris par un indicateur créé à la main n'est pas écrasé non plus.
+ * @returns {Promise<null|{ applied, kept, conflicts, template }>}
+ *   applied = créés ; kept = déjà créés, laissés tels quels ; conflicts = code déjà pris
  */
 async function applyTemplate(tenantId, formId, bindings) {
   return withTenantTransaction(tenantId, async (client) => {
@@ -263,22 +484,25 @@ async function applyTemplate(tenantId, formId, bindings) {
     if (unknownCode) throw badRequest(`Indicateur « ${unknownCode.code} » absent du modèle « ${tpl.label} ».`);
     const unknownField = bindings.find((b) => !names.has(b.sourceField));
     if (unknownField) throw badRequest(`Variable « ${unknownField.sourceField} » introuvable dans cette fiche.`);
-    const rows = bindings.map((b) => {
+    // Déjà créés depuis le modèle (verrouillés le temps de l'écriture) : laissés tels quels.
+    const { rows: existing } = await client.query(
+      `SELECT template_code FROM monitoring_indicators
+        WHERE tenant_id = $1 AND form_id = $2 AND template_code = ANY($3::text[]) FOR UPDATE`, [tenantId, formId, codes]);
+    const kept = new Set(existing.map((r) => r.template_code));
+    const rows = bindings.filter((b) => !kept.has(b.code)).map((b) => {
       const { it, i } = items.get(b.code);
       return indicatorFromItem(tpl, it, { sourceField: b.sourceField, positiveValue: b.positiveValue }, i);
     });
-    const applied = await insertRows(client, {
+    const applied = rows.length ? await insertRows(client, {
       table: 'monitoring_indicators',
       columns: ['tenant_id', 'form_id', 'code', 'label', 'module', 'source_field', 'agg', 'positive_value', 'direction', 'na_values', 'scored', 'template_code', 'sort_order'],
       rows,
       values: (r) => [tenantId, formId, r.code, r.label, r.module, r.sourceField, r.agg, r.positiveValue, r.direction, r.naValues, r.scored, r.templateCode, r.sortOrder],
-      suffix: `ON CONFLICT (form_id, code) DO UPDATE SET label = EXCLUDED.label, module = EXCLUDED.module,
-        source_field = EXCLUDED.source_field, agg = EXCLUDED.agg, positive_value = EXCLUDED.positive_value,
-        direction = EXCLUDED.direction, na_values = EXCLUDED.na_values, scored = EXCLUDED.scored,
-        template_code = EXCLUDED.template_code, sort_order = EXCLUDED.sort_order, active = true`,
-    });
-    await client.query('UPDATE monitoring_forms SET updated_at = now() WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
-    return { applied, template: tpl.key };
+      // Code déjà pris par un indicateur manuel : rien n'est écrasé (compté dans `conflicts`).
+      suffix: 'ON CONFLICT (form_id, code) DO NOTHING',
+    }) : 0;
+    if (applied) await client.query('UPDATE monitoring_forms SET updated_at = now() WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
+    return { applied, kept: kept.size, conflicts: rows.length - applied, template: tpl.key };
   });
 }
 
@@ -954,7 +1178,7 @@ async function dashboard(tenantId, formId, { month } = {}) {
     const { rows: inds } = await client.query(
       `SELECT id, code, label, module, source_field AS "sourceField", agg,
               positive_value AS "positiveValue", target, direction, sort_order,
-              na_values AS "naValues", scored
+              na_values AS "naValues", scored, template_code AS "templateCode", active
          FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2 AND active = true
         ORDER BY sort_order, label`,
       [tenantId, formId]
@@ -1411,7 +1635,7 @@ async function setExclusion(tenantId, formId, { ids, excluded, reason } = {}) {
 
 module.exports = {
   reliftSubmissionsTx, formTemplate, applyTemplate,
-  listCalcFields, calcPreview, formVariables, importPreview, formCorrespondences, setCorrespondence, createCalcField, updateCalcField, deleteCalcField, setExclusion,
+  listCalcFields, calcPreview, formVariables, formMonths, indicatorPreview, importPreview, formCorrespondences, setCorrespondence, createCalcField, updateCalcField, deleteCalcField, setExclusion,
   setFormSource, formSourceContext, reportMonitoringData,
   listForms, createForm, updateForm, deleteForm,
   listIndicators, createIndicator, updateIndicator, deleteIndicator,

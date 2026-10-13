@@ -540,5 +540,5 @@ const functionCatalog = () => ({
 
 module.exports = {
   tokenize, parse, evalExpression, validateExpression, checkExpression, applyRecode, computeCalcFields,
-  previewCalc, functionCatalog, makeGetter, FUNCTIONS, CalcError,
+  previewCalc, functionCatalog, makeGetter, FUNCTIONS, CalcError, closest,
 };
