@@ -1,0 +1,136 @@
+// Dictionnaire anglais — module « indicatorEditor » (clé = phrase française exacte).
+// Éditeur d'indicateur, choix de la variable, « Comment c'est calculé », liste des
+// résultats (Réalisé / Cible) et carte du modèle de l'activité (retour n° 20).
+export default {
+  // Éditeur — sections et champs
+  'Identité': 'Identity',
+  'Mesure': 'Measure',
+  'Lecture du résultat': 'Reading the result',
+  'Domaine (regroupement)': 'Domain (grouping)',
+  'Choisissez un domaine existant : un nom nouveau crée un domaine à part entière dans l\'indice (moyenne des domaines à poids égaux).':
+    'Pick an existing domain: a new name creates a separate domain in the index (equal-weight average of domains).',
+  'Modifiable ; unique dans la fiche.': 'Editable; unique within the form.',
+  'Unique dans la fiche.': 'Unique within the form.',
+  'Reliez une variable de la fiche à une méthode de calcul ; le calcul s\'affiche à côté, sur les données réelles.':
+    'Link a variable of the form to a calculation method; the calculation is shown alongside, on the real data.',
+  'Valeur(s) comptée(s)': 'Counted value(s)',
+  'Valeur(s) « oui »': '“Yes” value(s)',
+  'Valeurs comptées': 'Counted values',
+  'Aucune valeur choisie : oui, yes, 1, true et vrai comptent comme « oui ».': 'No value chosen: oui, yes, 1, true and vrai count as “yes”.',
+  'Plusieurs valeurs possibles (ex. « Très sûr » et « Sûr ») : chacune compte comme positive.':
+    'Several values allowed (e.g. “Very safe” and “Safe”): each one counts as positive.',
+  'Réponses hors base': 'Answers excluded from the base',
+  'Retirées du calcul (ni positives, ni négatives) : Sans objet 9999, Ne sait pas 888…':
+    'Removed from the calculation (neither positive nor negative): Not applicable 9999, Don’t know 888…',
+  'Sans cible, un % est classé par les bandes 80 / 65 / 50.': 'Without a target, a % is rated with the 80 / 65 / 50 bands.',
+  'Sans cible, une moyenne, une somme ou un nombre n\'est pas classé.': 'Without a target, a mean, sum or count is not rated.',
+  'Compte dans l\'indice de conformité': 'Counts in the compliance index',
+  'Actif (calculé et affiché dans les résultats)': 'Active (calculated and shown in the results)',
+  'Créer l\'indicateur': 'Create indicator',
+  'Indicateur créé.': 'Indicator created.',
+  'Indicateur modifié.': 'Indicator updated.',
+  'Complétez les champs signalés.': 'Complete the highlighted fields.',
+  'Période de l\'aperçu': 'Preview period',
+  'Issu du modèle de l\'activité (élément {code}). Vos modifications sont conservées : réappliquer le modèle ne modifie pas les indicateurs déjà créés.':
+    'Created from the activity template (item {code}). Your changes are kept: re-applying the template does not modify indicators already created.',
+  // Méthodes (descriptions)
+  'Part des réponses positives (oui / 1, ou les valeurs comptées choisies) parmi les réponses comptées.':
+    'Share of positive answers (yes / 1, or the chosen counted values) among the counted answers.',
+  'Part des réponses égales à la (aux) valeur(s) comptée(s) parmi les réponses comptées.':
+    'Share of answers equal to the counted value(s) among the counted answers.',
+  'Moyenne des réponses numériques (les autres sont ignorées).': 'Mean of the numeric answers (others are ignored).',
+  'Somme des réponses numériques.': 'Sum of the numeric answers.',
+  'Nombre de réponses renseignées.': 'Number of filled-in answers.',
+  // Contrôles de saisie
+  'Requis.': 'Required.',
+  'Choisissez la variable source.': 'Choose the source variable.',
+  'Précisez la valeur comptée.': 'Specify the counted value.',
+  'Saisissez un nombre.': 'Enter a number.',
+  'Une valeur comptée ne peut pas être hors base.': 'A counted value cannot also be excluded from the base.',
+  // Choix de la variable
+  'Variables de la fiche': 'Form variables',
+  'Questions du formulaire': 'Form questions',
+  'Options des choix multiples': 'Multiple-choice options',
+  'Colonnes des données': 'Data columns',
+  'Champs calculés': 'Calculated fields',
+  'jamais renseignée': 'never filled in',
+  'renseignée {n}/{t}': 'filled in {n}/{t}',
+  '… {n} autre(s) : affinez la recherche.': '… {n} more: refine the search.',
+  'Utiliser le nom « {name} »': 'Use the name “{name}”',
+  'variable absente du catalogue : elle sera vérifiée à l\'enregistrement': 'variable not in the catalogue: it will be checked on save',
+  'Question à choix multiples : sa réponse est une liste de choix (« 1 3 5 »). Pour compter un choix précis, choisissez une de ses options :':
+    'Multiple-choice question: its answer is a list of choices (“1 3 5”). To count a specific choice, pick one of its options:',
+  '« {name} » n\'est pas dans le catalogue de la fiche : le serveur la vérifiera.': '“{name}” is not in the form catalogue: the server will check it.',
+  'sélectionné': 'selected',
+  'non sélectionné': 'not selected',
+  // Comment c'est calculé
+  'Comment c\'est calculé': 'How it is calculated',
+  'Choisissez une variable pour voir comment l\'indicateur est calculé.': 'Choose a variable to see how the indicator is calculated.',
+  'Recalcul…': 'Recalculating…',
+  'La variable « {name} » n\'a aucune réponse sur cette période.': 'The variable “{name}” has no answer in this period.',
+  '{period} · base {base} réponse(s)': '{period} · base {base} answer(s)',
+  'soumission(s) sur la période (hors soumissions exclues)': 'submission(s) in the period (excluding excluded submissions)',
+  'sans la variable (question absente de cette version du formulaire, ou non posée)': 'without the variable (question absent from this form version, or not asked)',
+  'sans réponse (vide)': 'without an answer (empty)',
+  'hors base : {codes}': 'excluded from the base: {codes}',
+  'réponse(s) non numérique(s), ignorée(s)': 'non-numeric answer(s), ignored',
+  'réponse(s) comptée(s) : la base du calcul': 'counted answer(s): the calculation base',
+  '{num} réponse(s) {values} ÷ {den} réponse(s) comptée(s) = {value} %': '{num} answer(s) {values} ÷ {den} counted answer(s) = {value} %',
+  ' ou ': ' or ',
+  '« {v} »': '“{v}”',
+  '« oui » (oui, yes, 1, true, vrai)': '“yes” (oui, yes, 1, true, vrai)',
+  'Somme {sum} ÷ {n} réponse(s) numérique(s) = {value}': 'Sum {sum} ÷ {n} numeric answer(s) = {value}',
+  'Somme des {n} réponse(s) numérique(s) = {value}': 'Sum of the {n} numeric answer(s) = {value}',
+  '{n} réponse(s) renseignée(s) = {value}': '{n} filled-in answer(s) = {value}',
+  'Aucune réponse numérique : pas de moyenne.': 'No numeric answer: no mean.',
+  'Aucune réponse comptée : pas de pourcentage.': 'No counted answer: no percentage.',
+  'Réponse': 'Answer',
+  'Rôle dans le calcul': 'Role in the calculation',
+  '{n} autre(s) valeur(s)': '{n} other value(s)',
+  'dont {n} positive(s)': 'of which {n} positive',
+  'Comptée positive': 'Counted positive',
+  'Comptée négative': 'Counted negative',
+  'Comptée': 'Counted',
+  'Ignorée (non numérique)': 'Ignored (non-numeric)',
+  'Hors base': 'Excluded from base',
+  'Sans réponse': 'No answer',
+  'Sans la variable': 'Without the variable',
+  'Positives': 'Positive',
+  'Négatives': 'Negative',
+  'Comptées': 'Counted',
+  'Ignorées': 'Ignored',
+  'Aucune réponse comptée sur la période : l\'indicateur n\'est pas évalué.': 'No counted answer in the period: the indicator is not rated.',
+  'Moyenne, somme ou nombre sans cible : l\'indicateur n\'est pas classé. Ajoutez une cible pour l\'évaluer.':
+    'Mean, sum or count without a target: the indicator is not rated. Add a target to rate it.',
+  'Cible {target} atteinte → {label}.': 'Target {target} reached → {label}.',
+  'Écart à la cible {target} : {gap} % (≤ {sat} % : Satisfaisant ; ≤ {imp} % : À améliorer ; au-delà : Action urgente) → {label}.':
+    'Gap to the target {target}: {gap} % (≤ {sat} %: Satisfactory; ≤ {imp} %: Needs improvement; beyond: Urgent action) → {label}.',
+  'Sans cible : score orienté = 100 − valeur (plus bas = mieux) = {oriented}, {band} → {label} (bandes 80 / 65 / 50).':
+    'No target: oriented score = 100 − value (lower is better) = {oriented}, {band} → {label} (bands 80 / 65 / 50).',
+  'Sans cible : score {oriented} {band} → {label} (bandes 80 / 65 / 50).': 'No target: score {oriented} {band} → {label} (bands 80 / 65 / 50).',
+  'Compte dans l\'indice de conformité de la fiche.': 'Counts in the form’s compliance index.',
+  'Seuls les indicateurs en % entrent dans l\'indice de conformité.': 'Only % indicators enter the compliance index.',
+  'Hors indice : affiché, mais n\'entre pas dans l\'indice de conformité.': 'Outside the index: shown, but not part of the compliance index.',
+  // Liste des résultats
+  'cible {t}': 'target {t}',
+  'Modifier « {label} »': 'Edit “{label}”',
+  'Supprimer « {label} »': 'Delete “{label}”',
+  'Indice': 'Index',
+  'compte dans l\'indice': 'counts in the index',
+  'oui / yes / 1': 'oui / yes / 1',
+  '{period} · {n} bureau(x)': '{period} · {n} office(s)',
+  // Configuration et modèle de l'activité
+  'Chaque indicateur relie une variable de la fiche à une méthode de calcul (% de oui, moyenne, somme…). Ouvrez-en un pour voir, sur les données réelles, comment il est calculé.':
+    'Each indicator links a variable of the form to a calculation method (% yes, mean, sum…). Open one to see how it is calculated on the real data.',
+  'compte : {v}': 'counts: {v}',
+  'modèle': 'template',
+  'Voir le calcul': 'See the calculation',
+  'Afficher le modèle': 'Show the template',
+  'code déjà utilisé par « {label} »': 'code already used by “{label}”',
+  '{n} indicateur(s) créé(s) depuis le modèle « {label} ».': '{n} indicator(s) created from the template “{label}”.',
+  '{n} indicateur(s) non créé(s) : leur code est déjà utilisé par un indicateur de la fiche.': '{n} indicator(s) not created: their code is already used by an indicator of the form.',
+  '{n} indicateur(s) du modèle sur {t} déjà créé(s) ; {r} restant(s). Les indicateurs déjà créés ne sont pas modifiés par le modèle : modifiez-les dans la liste des indicateurs.':
+    '{n} of {t} template indicator(s) already created; {r} remaining. Indicators already created are not modified by the template: edit them in the indicator list.',
+  'Les indicateurs de vos tableaux de bord de référence, domaine par domaine. Pour chacun, la variable du formulaire est proposée : vérifiez-la, cochez, puis créez les indicateurs. Les indicateurs déjà créés ne sont pas modifiés : modifiez-les dans la liste des indicateurs.':
+    'The indicators of your reference dashboards, domain by domain. For each one, the form variable is suggested: check it, tick it, then create the indicators. Indicators already created are not modified: edit them in the indicator list.',
+};

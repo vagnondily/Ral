@@ -1,26 +1,25 @@
 import React, { useMemo, useState } from 'react';
-import { Search, Columns3, Download, Rows3, Rows4, X, TrendingUp, TrendingDown, Layers } from 'lucide-react';
+import { Search, Columns3, Download, Rows3, Rows4, X, TrendingUp, TrendingDown, Layers, Plus, Pencil } from 'lucide-react';
 import { Button, EmptyState, IconButton, StatusBadge } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import { usePopover } from '../../components/listView.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { downloadCsv } from '../../lib/csv.js';
+import { formatLocale } from '../../lib/format.js';
+import { INDICATOR_STATUS, progress as progressOf } from '../../lib/indicatorView.js';
+import IndicatorExplain, { useIndicatorPreview } from './IndicatorExplain.jsx';
 
 /**
  * Liste d'indicateurs « riche » (façon maquette design/liste-drawer) : table
- * aérée, barres de progression en ligne (Réalisé / Cible · %), statut
+ * aérée, barres de progression en ligne (Réalisé face à la Cible), statut
  * couleur+icône+libellé, sélection multiple + barre d'actions, densité réglable,
- * colonnes configurables (mémorisées), et clic sur une ligne → drawer de détail.
+ * colonnes configurables (mémorisées), et clic sur une ligne → drawer de détail
+ * (onglet « Méthode » = le calcul expliqué sur la période). Avec `canEdit` :
+ * « Nouvel indicateur », « Modifier » sur chaque ligne et dans le détail.
  * Câblée aux vrais indicateurs (monDashboard) : aucun champ inventé.
  */
 // Classes d'indicateur : la même règle partout (serveur monitoringMath.classify), même vocabulaire que les tableaux de bord.
-const STAT = {
-  exc: { label: 'Excellent', tone: 'green', icon: 'check', fill: 'var(--green)' },
-  sat: { label: 'Satisfaisant', tone: 'blue', icon: 'clock', fill: 'var(--blue-600)' },
-  imp: { label: 'À améliorer', tone: 'orange', icon: 'warn', fill: 'var(--orange)' },
-  urg: { label: 'Action urgente', tone: 'red', icon: 'x', fill: 'var(--red)' },
-  na: { label: 'Non évalué', tone: undefined, icon: 'na', fill: 'var(--text-faint)' },
-};
+const STAT = INDICATOR_STATUS;
 const AGG = { percent_yes: '% de « oui »', percent_value: '% = valeur', mean: 'Moyenne', sum: 'Somme', count: 'Nombre' };
 const RATING_ORDER = { exc: 4, sat: 3, imp: 2, urg: 1, na: 0 };
 
@@ -36,28 +35,37 @@ const ALL_COLS = {
 const DEFAULT_COLS = ['module', 'prog', 'statut', 'base'];
 const STORE = 'mems.indicators.view.v1';
 
-const isPct = (i) => i.agg === 'percent_yes' || i.agg === 'percent_value';
-function progress(i) {
-  if (i.value == null) return { has: false };
-  if (isPct(i)) return { has: true, text: `${i.value} %`, rate: Math.min(Math.max(i.value / 100, 0), 1), pct: Math.round(i.value) };
-  if (i.target != null && Number(i.target) > 0) {
-    const r = i.value / i.target;
-    return { has: true, text: `${i.value} / ${i.target}`, rate: Math.min(Math.max(r, 0), 1), pct: Math.round(r * 100) };
-  }
-  return { has: true, text: String(i.value), rate: null, pct: null };
-}
+const fmt1 = (n) => Number(n).toLocaleString(formatLocale(), { maximumFractionDigits: 1 });
+const progress = (i) => progressOf(i, fmt1);
 
 function loadView() {
   try { return JSON.parse(localStorage.getItem(STORE)) || {}; } catch { return {}; }
 }
 function saveView(v) { try { localStorage.setItem(STORE, JSON.stringify(v)); } catch { /* ignore */ } }
 
-// Phrase traduite contenant des éléments JSX : « {nom} » → nodes[nom].
-function fillNodes(text, nodes) {
-  return text.split(/\{(\w+)\}/).map((part, i) => (i % 2 ? <React.Fragment key={i}>{nodes[part]}</React.Fragment> : part));
+/** Valeur face à la cible : valeur, « cible T », barre et repère de la cible. */
+function ProgressCell({ p, fill }) {
+  const { tr } = useI18n();
+  return (
+    <div className="ind-prog">
+      <div className="ind-nums"><b className="mono">{p.text}</b>{p.targetText && <span>{tr('cible {t}', { t: p.targetText })}</span>}</div>
+      {p.rate != null && (
+        <div className="ind-bar">
+          <i style={{ width: `${Math.round(p.rate * 100)}%`, background: fill }} />
+          {p.targetRate != null && <span className="ind-target" style={{ left: `${Math.round(p.targetRate * 1000) / 10}%` }} title={tr('cible {t}', { t: p.targetText })} />}
+        </div>
+      )}
+    </div>
+  );
 }
 
-export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }) {
+/**
+ * @param {{ indicators: object[], moduleLabel?: string, toolbarExtra?: React.ReactNode,
+ *   canEdit?: boolean, onCreate?: Function, onEdit?: (ind) => void,
+ *   formId?: string, period?: string, periodLabel?: string }} props
+ *   period : mois des résultats (« AAAA-MM »), '' = toutes les périodes — pour expliquer le calcul.
+ */
+export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra, canEdit = false, onCreate, onEdit, formId, period = '', periodLabel }) {
   const { tr } = useI18n();
   const saved = loadView();
   const [q, setQ] = useState('');
@@ -68,6 +76,7 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
   const [sel, setSel] = useState(() => new Set());
   const [open, setOpen] = useState(null); // indicateur ouvert dans le drawer
   const colMenu = usePopover();
+  const editable = canEdit && typeof onEdit === 'function';
 
   const persist = (patch) => saveView({ cols, dense, group, sort, ...patch });
   const toggleCol = (k) => setCols((cs) => { const next = cs.includes(k) ? cs.filter((x) => x !== k) : [...cs, k]; persist({ cols: next }); return next; });
@@ -77,7 +86,7 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
   const resetView = () => { setCols(DEFAULT_COLS); setDense(false); setGroup(false); setSort({ key: 'statut', dir: 'asc' }); setQ(''); saveView({}); };
 
   const rows = useMemo(() => {
-    let list = (indicators || []).filter((i) => {
+    const list = (indicators || []).filter((i) => {
       if (!q) return true;
       const s = q.toLowerCase();
       return [i.label, i.code, i.module, i.sourceField].some((x) => x && String(x).toLowerCase().includes(s));
@@ -100,6 +109,7 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
   }, [rows, tr]);
 
   const shown = Object.keys(ALL_COLS).filter((k) => cols.includes(k));
+  const span = shown.length + 2 + (editable ? 1 : 0);
   const allSel = rows.length > 0 && rows.every((i) => sel.has(i.id));
   const toggleAll = () => setSel(allSel ? new Set() : new Set(rows.map((i) => i.id)));
   const toggleOne = (id) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -125,9 +135,7 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
         <td><span className="ind-name">{i.label}</span>{i.code && <div className="ind-sub mono">{i.code}</div>}</td>
         {shown.map((k) => {
           if (k === 'module') return <td key={k} className="muted">{i.module || '—'}</td>;
-          if (k === 'prog') return <td key={k}>{p.has
-            ? <div className="ind-prog"><div className="ind-nums"><b className="mono">{p.text}</b>{p.pct != null && <span className="mono">{p.pct} %</span>}</div>{p.rate != null && <div className="ind-bar"><i style={{ width: `${Math.round(p.rate * 100)}%`, background: st.fill }} /></div>}</div>
-            : <span className="cell-empty">—</span>}</td>;
+          if (k === 'prog') return <td key={k}>{p.has ? <ProgressCell p={p} fill={st.fill} /> : <span className="cell-empty">—</span>}</td>;
           if (k === 'statut') return <td key={k}><StatusBadge def={st} /></td>;
           if (k === 'base') return <td key={k} className="num mono">{i.base ?? <span className="cell-empty">—</span>}</td>;
           if (k === 'agg') return <td key={k} className="muted">{AGG[i.agg] ? tr(AGG[i.agg]) : i.agg}</td>;
@@ -135,6 +143,11 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
           if (k === 'source') return <td key={k}><span className="mono ind-sub">{i.sourceField || '—'}</span></td>;
           return <td key={k} />;
         })}
+        {editable && (
+          <td className="col-actions" onClick={(e) => e.stopPropagation()}>
+            <IconButton icon={Pencil} label={tr('Modifier « {label} »', { label: i.label })} size="sm" onClick={() => onEdit(i)} />
+          </td>
+        )}
       </tr>
     );
   }
@@ -167,6 +180,7 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
           )}
         </div>
         <IconButton icon={Download} label={tr('Exporter (CSV)')} variant="secondary" size="sm" onClick={() => exportCsv('all')} />
+        {canEdit && onCreate && <Button size="sm" icon={Plus} onClick={onCreate}>{tr('Nouvel indicateur')}</Button>}
       </div>
 
       {/* Barre d'actions groupées */}
@@ -193,13 +207,18 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
                   </th>
                 );
               })}
+              {editable && <th className="col-actions"><span className="sr-only">{tr('Actions')}</span></th>}
             </tr></thead>
             <tbody>
-              {rows.length === 0 && <tr className="ind-empty"><td colSpan={shown.length + 2}><EmptyState icon={TrendingUp} title={tr('Aucun indicateur')}>{tr('Définissez des indicateurs et importez des données réelles.')}</EmptyState></td></tr>}
+              {rows.length === 0 && (
+                <tr className="ind-empty"><td colSpan={span}><EmptyState icon={TrendingUp} title={tr('Aucun indicateur')}
+                  action={canEdit && onCreate ? <Button icon={Plus} onClick={onCreate}>{tr('Nouvel indicateur')}</Button> : undefined}>
+                  {tr('Définissez des indicateurs et importez des données réelles.')}</EmptyState></td></tr>
+              )}
               {group
                 ? groups.map(([mod, list]) => (
                   <React.Fragment key={mod}>
-                    <tr className="subrow-head"><td colSpan={shown.length + 2}>{tr('{module} · {n} indicateur(s)', { module: mod, n: list.length })}</td></tr>
+                    <tr className="subrow-head"><td colSpan={span}>{tr('{module} · {n} indicateur(s)', { module: mod, n: list.length })}</td></tr>
                     {list.map((i) => renderRow(i))}
                   </React.Fragment>
                 ))
@@ -209,40 +228,53 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra }
         </div>
       </div>
 
-      {open && <IndicatorDrawer ind={open} moduleLabel={moduleLabel} onClose={() => setOpen(null)} />}
+      {open && <IndicatorDrawer ind={open} moduleLabel={moduleLabel} formId={formId} period={period} periodLabel={periodLabel}
+        onEdit={editable ? () => { const i = open; setOpen(null); onEdit(i); } : null} onClose={() => setOpen(null)} />}
     </div>
   );
 }
 
-function IndicatorDrawer({ ind, moduleLabel, onClose }) {
+function IndicatorDrawer({ ind, moduleLabel, formId, period, periodLabel, onEdit, onClose }) {
   const { tr } = useI18n();
   const [tab, setTab] = useState('details');
   const st = STAT[ind.rating] || STAT.na;
   const p = progress(ind);
+  // « Méthode » : la définition enregistrée, expliquée sur la période des résultats (même calcul).
+  const body = useMemo(() => ({
+    sourceField: ind.sourceField, agg: ind.agg, positiveValue: ind.positiveValue ?? null, naValues: ind.naValues || [],
+    target: ind.target ?? null, direction: ind.direction, ...(period ? { month: period } : {}),
+  }), [ind, period]);
+  const preview = useIndicatorPreview(formId, body, { enabled: tab === 'method' && Boolean(formId) });
   const kv = [
     [tr('Statut'), <StatusBadge def={st} />],
     [tr('Module'), ind.module || '—'],
     [tr('Agrégation'), AGG[ind.agg] ? tr(AGG[ind.agg]) : ind.agg],
     [tr('Champ source'), <span className="mono">{ind.sourceField || '—'}</span>],
+    ...((ind.agg === 'percent_yes' || ind.agg === 'percent_value') ? [[tr('Valeur(s) comptée(s)'), <span className="mono">{ind.positiveValue || tr('oui / yes / 1')}</span>]] : []),
+    ...(ind.naValues?.length ? [[tr('Hors base'), <span className="mono">{ind.naValues.join(', ')}</span>]] : []),
     [tr('Cible'), ind.target ?? '—'],
     [tr('Sens'), ind.direction === 'lower_better' ? tr('↓ plus bas = mieux') : tr('↑ plus haut = mieux')],
+    [tr('Indice'), ind.scored === false ? tr('hors indice') : tr('compte dans l\'indice')],
     ...(ind.base != null ? [[tr('Base de calcul'), ind.base]] : []),
   ];
   return (
     <Modal open variant="drawer" size="md" title={ind.label}
       subtitle={ind.code ? `${ind.code}${moduleLabel ? ` · ${moduleLabel}` : ''}` : moduleLabel}
       onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>{tr('Fermer')}</Button></>}>
-      <div className="ind-dtabs">
-        <button type="button" className={tab === 'details' ? 'on' : ''} onClick={() => setTab('details')}>{tr('Détails')}</button>
-        <button type="button" className={tab === 'method' ? 'on' : ''} onClick={() => setTab('method')}>{tr('Méthode')}</button>
+      footer={<>
+        <Button variant="secondary" onClick={onClose}>{tr('Fermer')}</Button>
+        {onEdit && <Button icon={Pencil} onClick={onEdit}>{tr('Modifier')}</Button>}
+      </>}>
+      <div className="ind-dtabs" role="tablist">
+        <button type="button" role="tab" aria-selected={tab === 'details'} className={tab === 'details' ? 'on' : ''} onClick={() => setTab('details')}>{tr('Détails')}</button>
+        <button type="button" role="tab" aria-selected={tab === 'method'} className={tab === 'method' ? 'on' : ''} onClick={() => setTab('method')}>{tr('Méthode')}</button>
       </div>
 
       {tab === 'details' ? (
         <>
           <div className="ind-hero">
-            <div className="ind-hero-big mono">{p.has ? p.text : '—'}{p.pct != null && <small> · {p.pct} %</small>}</div>
-            {p.rate != null && <div className="ind-bar lg"><i style={{ width: `${Math.round(p.rate * 100)}%`, background: st.fill }} /></div>}
+            <div className="ind-hero-big mono">{p.has ? p.text : '—'}{p.targetText && <small> · {tr('cible {t}', { t: p.targetText })}</small>}</div>
+            {p.rate != null && <ProgressBarOnly p={p} fill={st.fill} />}
           </div>
           <dl className="ind-kv">
             {kv.map(([k, v], idx) => (<React.Fragment key={idx}><dt>{k}</dt><dd>{v}</dd></React.Fragment>))}
@@ -250,20 +282,22 @@ function IndicatorDrawer({ ind, moduleLabel, onClose }) {
         </>
       ) : (
         <div className="ind-method">
-          <p>{fillNodes(ind.agg === 'percent_value' && ind.positiveValue
-            ? tr('Cet indicateur agrège le champ {field} des soumissions par {method} (valeur « positive » = {value}).')
-            : tr('Cet indicateur agrège le champ {field} des soumissions par {method}.'), {
-            field: <strong className="mono">{ind.sourceField || '—'}</strong>,
-            method: <strong>{(AGG[ind.agg] ? tr(AGG[ind.agg]) : ind.agg).toLowerCase()}</strong>,
-            value: <strong className="mono">{ind.positiveValue}</strong>,
-          })}</p>
-          <p>{fillNodes(tr('La cible est {target}, avec la convention {direction}.'), {
-            target: ind.target != null ? <strong>{ind.target}</strong> : <em>{tr('non définie')}</em>,
-            direction: <strong>{ind.direction === 'lower_better' ? tr('plus bas = mieux') : tr('plus haut = mieux')}</strong>,
-          })}</p>
-          <p className="muted">{tr('Tout est recalculé en direct depuis les données réelles (aucune valeur saisie à la main).')}</p>
+          {formId
+            ? <IndicatorExplain preview={preview} direction={ind.direction} scored={ind.scored !== false} periodLabel={periodLabel} />
+            : <p className="muted">{tr('Tout est recalculé en direct depuis les données réelles (aucune valeur saisie à la main).')}</p>}
         </div>
       )}
     </Modal>
   );
 }
+
+function ProgressBarOnly({ p, fill }) {
+  const { tr } = useI18n();
+  return (
+    <div className="ind-bar lg">
+      <i style={{ width: `${Math.round(p.rate * 100)}%`, background: fill }} />
+      {p.targetRate != null && <span className="ind-target" style={{ left: `${Math.round(p.targetRate * 1000) / 10}%` }} title={tr('cible {t}', { t: p.targetText })} />}
+    </div>
+  );
+}
+

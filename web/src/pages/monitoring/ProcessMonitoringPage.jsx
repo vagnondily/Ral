@@ -12,12 +12,13 @@ import Modal from '../../components/Modal.jsx';
 import MonthSelect from '../../components/MonthSelect.jsx';
 import { usePopover } from '../../components/listView.jsx';
 import IndicatorsList from './IndicatorsList.jsx';
+import IndicatorEditor from './IndicatorEditor.jsx';
 import TemplateBindingCard from './TemplateBindingCard.jsx';
 import { CalcFieldsCard } from './CalcFields.jsx';
 import ImportWizard from './ImportWizard.jsx';
 import CorrespondencesCard from './Correspondences.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import { currentMonth, formatDateTime, formatInt, formatLocale } from '../../lib/format.js';
+import { formatDateTime, formatInt, formatLocale, monthLabel } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { suggestActivity } from '../../lib/activitySuggest.js';
@@ -33,13 +34,6 @@ import { suggestActivity } from '../../lib/activitySuggest.js';
  * des indicateurs, sources de données). Aucun sélecteur de mois en tête : la
  * période se choisit dans la barre d'outils des résultats.
  */
-const AGG_LABELS = {
-  percent_yes: '% de « oui » (réponses oui / non)',
-  percent_value: '% égal à une valeur de choix',
-  mean: 'Moyenne des valeurs numériques',
-  sum: 'Somme des valeurs numériques',
-  count: 'Nombre de réponses',
-};
 const AGG_SHORT = { percent_yes: '% de « oui »', percent_value: '% = valeur', mean: 'Moyenne', sum: 'Somme', count: 'Nombre' };
 
 // Phrase traduite contenant des éléments JSX : « {nom} » → nodes[nom].
@@ -400,7 +394,7 @@ function FormDetail({ form, canEdit, initialTab, onBack, onChanged }) {
       {tab === 'importation' && <ImportWizard form={form} canEdit={canEdit} onImported={onChanged}
         onGoData={() => setTab('donnees')} onGoResults={() => setTab('resultats')} />}
       {tab === 'donnees' && <DataViewTab form={form} canEdit={canEdit} onGoImport={() => setTab('importation')} />}
-      {tab === 'resultats' && <ResultsTab form={form} onGoConfig={() => setTab('config')} />}
+      {tab === 'resultats' && <ResultsTab form={form} canEdit={canEdit} onChanged={onChanged} onGoConfig={() => setTab('config')} />}
       {tab === 'mapping' && <MappingTab form={form} canEdit={canEdit} />}
       {tab === 'config' && <ConfigTab form={form} canEdit={canEdit} onChanged={onChanged} />}
     </div>
@@ -798,42 +792,67 @@ function SubmissionDrawer({ sub, varCols, metaCols, metaVal, labelOf, cell, onCl
 }
 
 // ---- Résultats (indicateurs recalculés · période dans la barre d'outils) --
-function ResultsTab({ form, onGoConfig }) {
+function ResultsTab({ form, canEdit, onGoConfig, onChanged }) {
   const { tr } = useI18n();
   const toast = useToast();
-  const [month, setMonth] = useState('');
+  const [months, setMonths] = useState(null); // mois ayant des données : [{ month, submissions }]
+  const [month, setMonth] = useState(null);   // null = pas encore choisi ; '' = toutes les périodes
   const [data, setData] = useState(null);
+  const [edit, setEdit] = useState(null);     // indicateur à modifier | {} (création) | null
+
+  // Période par défaut : le dernier mois qui a des données (jamais un mois courant vide présenté comme tel).
+  useEffect(() => {
+    let alive = true;
+    setMonths(null); setMonth(null);
+    api.monFormMonths(form.id)
+      .then((r) => { if (alive) { setMonths(r.months || []); setMonth(r.latest || ''); } })
+      .catch(() => { if (alive) { setMonths([]); setMonth(''); } });
+    return () => { alive = false; };
+  }, [form.id]);
 
   async function reload() {
-    setData(null);
     try { setData(await api.monDashboard(form.id, month || undefined)); }
     catch (e) { toast.error(e.message); setData({ coverage: {}, byBureau: [], indicators: [], overallIndex: null }); }
   }
-  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [form.id, month]);
+  useEffect(() => { if (month === null) return; setData(null); reload(); /* eslint-disable-next-line */ }, [form.id, month]);
 
   const cov = data?.coverage || {};
+  const periodLabel = month ? monthLabel(month) : tr('Toutes les périodes');
   const periodControl = (
-    <label className="ind-period">{tr('Période')} <MonthSelect value={month || currentMonth()} onChange={setMonth} /></label>
+    <>
+      <label className="ind-period">{tr('Période')} <MonthSelect allowAll value={month || ''} onChange={setMonth}
+        options={(months || []).map((m) => m.month)} counts={Object.fromEntries((months || []).map((m) => [m.month, m.submissions]))} /></label>
+    </>
+  );
+  const editor = edit && (
+    <IndicatorEditor form={form} indicator={edit.id ? edit : null} period={month || ''} canEdit={canEdit}
+      onClose={() => setEdit(null)} onSaved={() => { setEdit(null); reload(); onChanged?.(); }} />
   );
 
   if (data === null) return <Card><div className="card-body"><Skeleton height={160} /></div></Card>;
   if (data.indicators.length === 0 && (cov.submissions || 0) === 0) {
     return (
       <Card><EmptyState icon={BarChart3} title={tr('Rien à afficher')}
-        action={<Button variant="secondary" icon={SlidersHorizontal} onClick={onGoConfig}>{tr('Configurer la fiche')}</Button>}>
+        action={<>
+          {canEdit && <Button icon={Plus} onClick={() => setEdit({})}>{tr('Nouvel indicateur')}</Button>}
+          <Button variant="secondary" icon={SlidersHorizontal} onClick={onGoConfig}>{tr('Configurer la fiche')}</Button>
+        </>}>
         {tr('Importez des données (onglet Importation) et définissez des indicateurs (onglet Configuration) pour alimenter les résultats.')}
-      </EmptyState></Card>
+      </EmptyState>{editor}</Card>
     );
   }
   return (
     <div className="section-gap">
       <Stats items={[
-        { label: tr('Soumissions'), value: cov.submissions ?? 0, foot: tr('{n} bureau(x)', { n: cov.fieldOffices ?? 0 }) },
+        { label: tr('Soumissions'), value: cov.submissions ?? 0, foot: tr('{period} · {n} bureau(x)', { period: periodLabel, n: cov.fieldOffices ?? 0 }) },
         { label: tr('Sites suivis'), value: cov.sites ?? 0, foot: tr('sites distincts') },
         { label: tr('Agents'), value: cov.agents ?? 0, foot: tr('{n} prestataire(s)', { n: cov.partners ?? 0 }) },
         { label: tr('Indice moyen'), value: data.overallIndex == null ? '—' : data.overallIndex, suffix: data.overallIndex == null ? '' : '%', foot: tr('moyenne des indicateurs %') },
       ]} />
-      <IndicatorsList indicators={data.indicators} moduleLabel={form.label} toolbarExtra={periodControl} />
+      <IndicatorsList indicators={data.indicators} moduleLabel={form.label} toolbarExtra={periodControl}
+        canEdit={canEdit} onCreate={() => setEdit({})} onEdit={(i) => setEdit(i)}
+        formId={form.id} period={month || ''} periodLabel={periodLabel} />
+      {editor}
       {data.byBureau?.length > 0 && (
         <Card aria-label={tr('Par bureau')}>
           <CardHeader title={tr('Couverture par bureau')} subtitle={tr('Répartition des soumissions et des sites suivis.')} />
@@ -1022,30 +1041,37 @@ function MappingColumnsCard({ form, canEdit }) {
   );
 }
 
-// ---- Configuration (paramètres + méthodes de calcul + sources de données) --
+// ---- Configuration (indicateurs + modèle de l'activité + champs calculés) --
 function ConfigTab({ form, canEdit, onChanged }) {
-  // Après création depuis le modèle, la liste des indicateurs est rechargée (remontage).
+  // Les deux cartes se rechargent l'une l'autre : création depuis le modèle ↔ indicateurs modifiés.
   const [version, setVersion] = useState(0);
+  const changed = () => { setVersion((v) => v + 1); onChanged?.(); };
   return (
     <div className="section-gap">
-      <TemplateBindingCard form={form} canEdit={canEdit} onApplied={() => { setVersion((v) => v + 1); onChanged?.(); }} />
-      <IndicatorsConfigCard key={version} form={form} canEdit={canEdit} onChanged={onChanged} />
+      <IndicatorsConfigCard key={`ind-${version}`} form={form} canEdit={canEdit} onChanged={changed} />
+      <TemplateBindingCard key={`tpl-${version}`} form={form} canEdit={canEdit} onApplied={changed} />
       <CalcFieldsCard form={form} canEdit={canEdit} onChanged={onChanged} />
     </div>
   );
 }
 
+/**
+ * Indicateurs de la fiche : la définition de chacun (variable, méthode, cible,
+ * sens), « Nouvel indicateur » en tête, et l'éditeur (le même que dans les
+ * Résultats) sur chaque ligne. Colonne d'actions toujours visible (figée à
+ * droite), libellés de question longs tronqués.
+ */
 function IndicatorsConfigCard({ form, canEdit, onChanged }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [indicators, setIndicators] = useState(null);
-  const [catalog, setCatalog] = useState({ fields: [], choices: [] });
+  const [vars, setVars] = useState({ fields: [], calcFields: [] });
   const [edit, setEdit] = useState(null); // indicator | {} | null
 
   async function reload() {
     try {
-      const [inds, cat] = await Promise.all([api.monIndicators(form.id), api.monCatalog(form.id)]);
-      setIndicators(inds); setCatalog(cat || { fields: [], choices: [] });
+      const [inds, v] = await Promise.all([api.monIndicators(form.id), api.monVariables(form.id).catch(() => null)]);
+      setIndicators(inds); if (v) setVars(v);
     } catch (e) { toast.error(e.message); setIndicators([]); }
   }
   useEffect(() => { setIndicators(null); reload(); /* eslint-disable-next-line */ }, [form.id]);
@@ -1056,13 +1082,18 @@ function IndicatorsConfigCard({ form, canEdit, onChanged }) {
     catch (e) { toast.error(e.message); }
   }
 
-  const fieldLabel = useMemo(() => Object.fromEntries((catalog.fields || []).map((f) => [f.name, f.label || f.name])), [catalog]);
+  // Libellé de chaque variable (questions, options éclatées « X.1 », champs calculés), nom exact puis casse.
+  const varLabel = useMemo(() => {
+    const m = new Map();
+    for (const v of [...(vars.fields || []), ...(vars.calcFields || [])]) if (v.label) { m.set(v.name, v.label); if (!m.has(v.name.toLowerCase())) m.set(v.name.toLowerCase(), v.label); }
+    return (name) => m.get(name) || m.get(String(name).toLowerCase()) || null;
+  }, [vars]);
 
   return (
     <Card aria-labelledby="cfg-ind-title">
       <CardHeader id="cfg-ind-title" title={tr('Indicateurs & méthodes de calcul')}
-        subtitle={tr('Construisez chaque indicateur à partir des variables disponibles (champ du formulaire) + un mode de calcul (% de oui, moyenne, somme…). Recalculé en direct depuis les données.')}>
-        {canEdit && (catalog.fields.length > 0 || (indicators || []).length > 0) && <Button size="sm" icon={Plus} onClick={() => setEdit({})}>{tr('Nouvel indicateur')}</Button>}
+        subtitle={tr('Chaque indicateur relie une variable de la fiche à une méthode de calcul (% de oui, moyenne, somme…). Ouvrez-en un pour voir, sur les données réelles, comment il est calculé.')}>
+        {canEdit && <Button size="sm" icon={Plus} onClick={() => setEdit({})}>{tr('Nouvel indicateur')}</Button>}
       </CardHeader>
       {indicators === null ? <div className="card-body"><Skeleton height={120} /></div>
         : indicators.length === 0 ? (
@@ -1072,162 +1103,43 @@ function IndicatorsConfigCard({ form, canEdit, onChanged }) {
           </EmptyState>
         ) : (
           <div className="table-wrap">
-            <table className="table">
+            <table className="table ind-cfg-table">
               <thead><tr>
-                <th scope="col">{tr('Indicateur')}</th><th scope="col">{tr('Module')}</th><th scope="col">{tr('Variable source')}</th>
-                <th scope="col">{tr('Méthode')}</th><th scope="col" className="num">{tr('Cible')}</th><th scope="col">{tr('Sens')}</th>{canEdit && <th scope="col" />}
+                <th scope="col">{tr('Indicateur')}</th><th scope="col">{tr('Domaine')}</th><th scope="col">{tr('Variable source')}</th>
+                <th scope="col">{tr('Méthode')}</th><th scope="col" className="num">{tr('Cible')}</th><th scope="col">{tr('Sens')}</th>
+                <th scope="col">{tr('Origine')}</th>
+                <th scope="col" className="col-actions">{canEdit ? tr('Actions') : <span className="sr-only">{tr('Actions')}</span>}</th>
               </tr></thead>
               <tbody>
-                {indicators.map((i) => (
-                  <tr key={i.id}>
-                    <td><strong>{i.label}</strong><div className="site-meta mono">{i.code}</div></td>
-                    <td>{i.module || <span className="cell-empty">—</span>}</td>
-                    <td><span className="mono">{i.sourceField}</span>
-                      {fieldLabel[i.sourceField] && fieldLabel[i.sourceField] !== i.sourceField && <div className="site-meta">{fieldLabel[i.sourceField]}</div>}
-                      {i.agg === 'percent_value' && i.positiveValue ? <div className="site-meta">= {i.positiveValue}</div> : null}</td>
-                    <td>{AGG_SHORT[i.agg] ? tr(AGG_SHORT[i.agg]) : i.agg}</td>
-                    <td className="num mono">{i.target ?? <span className="cell-empty">—</span>}</td>
-                    <td>{i.direction === 'lower_better' ? tr('↓ mieux') : tr('↑ mieux')}</td>
-                    {canEdit && <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <Button size="sm" variant="ghost" icon={Pencil} aria-label={tr('Éditer')} onClick={() => setEdit(i)} />
-                      <Button size="sm" variant="ghost" icon={Trash2} aria-label={tr('Supprimer')} onClick={() => remove(i)} />
-                    </td>}
-                  </tr>
-                ))}
+                {indicators.map((i) => {
+                  const label = varLabel(i.sourceField);
+                  return (
+                    <tr key={i.id} className={i.active ? '' : 'is-muted'}>
+                      <td className="ind-cfg-name"><strong>{i.label}</strong><div className="site-meta mono">{i.code}</div>
+                        {!i.active && <Badge tone={null} icon={Minus}>{tr('inactif')}</Badge>}</td>
+                      <td className="ind-cfg-module">{i.module || <span className="cell-empty">—</span>}</td>
+                      <td className="ind-cfg-var"><span className="mono">{i.sourceField}</span>
+                        {label && label !== i.sourceField && <div className="var-label" title={label}>{label}</div>}
+                        {(i.agg === 'percent_value' || i.agg === 'percent_yes') && i.positiveValue ? <div className="site-meta">{tr('compte : {v}', { v: i.positiveValue })}</div> : null}</td>
+                      <td className="ind-cfg-agg">{AGG_SHORT[i.agg] ? tr(AGG_SHORT[i.agg]) : i.agg}</td>
+                      <td className="num mono">{i.target ?? <span className="cell-empty">—</span>}</td>
+                      <td className="nowrap">{i.direction === 'lower_better' ? tr('↓ mieux') : tr('↑ mieux')}</td>
+                      <td>{i.templateCode ? <Badge tone="blue" icon={Sparkles}>{tr('modèle')}</Badge> : <Badge tone={null} icon={Pencil}>{tr('manuel')}</Badge>}</td>
+                      <td className="col-actions">
+                        {canEdit ? <>
+                          <IconButton icon={Pencil} size="sm" label={tr('Modifier « {label} »', { label: i.label })} onClick={() => setEdit(i)} />
+                          <IconButton icon={Trash2} size="sm" label={tr('Supprimer « {label} »', { label: i.label })} onClick={() => remove(i)} />
+                        </> : <Button size="sm" variant="ghost" onClick={() => setEdit(i)}>{tr('Voir le calcul')}</Button>}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
-      {edit && <IndicatorModal form={form} catalog={catalog} indicator={edit.id ? edit : null}
+      {edit && <IndicatorEditor form={form} indicator={edit.id ? edit : null} canEdit={canEdit}
         onClose={() => setEdit(null)} onSaved={() => { setEdit(null); reload(); onChanged?.(); }} />}
     </Card>
-  );
-}
-
-// Même plafond que le serveur (express.raw « 80mb » de POST /forms/:id/import). On prévient
-// AVANT l'envoi : un navigateur coupé en plein envoi n'affiche pas toujours la réponse 413.
-// ---- Modal de définition d'indicateur (variable disponible → calcul) -----
-function IndicatorModal({ form, catalog, indicator, onClose, onSaved }) {
-  const { tr } = useI18n();
-  const toast = useToast();
-  const editing = Boolean(indicator);
-  const [f, setF] = useState(() => indicator || { code: '', label: '', module: '', sourceField: '', agg: 'percent_yes', positiveValue: '', target: '', direction: 'higher_better' });
-  const [saving, setSaving] = useState(false);
-  const [touched, setTouched] = useState(false);
-  const err = { code: !f.code.trim(), label: !f.label.trim(), sourceField: !String(f.sourceField).trim() };
-
-  const fields = catalog.fields || [];
-  const [calcFields, setCalcFields] = useState([]);
-  useEffect(() => { api.monCalcFields(form.id).then(setCalcFields).catch(() => setCalcFields([])); }, [form.id]);
-  const selField = fields.find((x) => x.name === f.sourceField);
-  const fieldChoices = useMemo(() => {
-    if (!selField?.listName) return [];
-    return (catalog.choices || []).filter((c) => c.listName === selField.listName);
-  }, [catalog, selField]);
-
-  async function save() {
-    setTouched(true);
-    if (err.code || err.label || err.sourceField) return;
-    const body = {
-      code: f.code.trim(), label: f.label.trim(), module: f.module?.trim() || undefined,
-      sourceField: String(f.sourceField).trim(), agg: f.agg,
-      positiveValue: f.agg === 'percent_value' ? (String(f.positiveValue).trim() || undefined) : undefined,
-      target: f.target === '' || f.target == null ? null : Number(f.target),
-      direction: f.direction,
-    };
-    setSaving(true);
-    try {
-      if (editing) await api.monUpdateIndicator(indicator.id, body);
-      else await api.monCreateIndicator(form.id, body);
-      toast.success(tr('Indicateur enregistré.')); onSaved();
-    } catch (e) { toast.error(e.message); } finally { setSaving(false); }
-  }
-
-  return (
-    <Modal open size="lg" title={editing ? tr('Modifier l\'indicateur') : tr('Nouvel indicateur')}
-      subtitle={tr('Reliez une variable du formulaire à une méthode de calcul.')} onClose={() => !saving && onClose()}
-      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button onClick={save} loading={saving}>{tr('Enregistrer')}</Button></>}>
-      <div style={{ display: 'grid', gap: 14 }}>
-        <div className="form-grid">
-          <Field label={tr('Libellé')} required error={touched && err.label ? tr('Requis.') : undefined}><input className="input" value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} placeholder={tr('Bénéficiaires informés')} /></Field>
-          <Field label={tr('Code')} required error={touched && err.code ? tr('Requis.') : undefined}><input className="input mono" value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} placeholder="benef_informes" /></Field>
-        </div>
-        <Field label={tr('Module (regroupement)')} hint={tr('Regroupe les indicateurs dans les résultats (ex. « Information & CFM »).')}>
-          <input className="input" value={f.module} onChange={(e) => setF({ ...f, module: e.target.value })} placeholder="Information & CFM" />
-        </Field>
-
-        <div className="field">
-          <span className="field-label">{tr('Variable source (champ du formulaire)')} <span className="req" aria-hidden="true">*</span></span>
-          <div className="hint" style={{ marginBottom: 6 }}>
-            {fields.length
-              ? (calcFields.length
-                ? tr('{n} variable(s) + {c} champ(s) calculé(s) disponible(s).', { n: fields.length, c: calcFields.length })
-                : tr('{n} variable(s) disponible(s).', { n: fields.length }))
-              : tr('Aucun catalogue de champs : saisissez le nom exact de la variable.')}
-          </div>
-          {(fields.length || calcFields.length) ? (
-            <select className={`select ${f.sourceField ? '' : 'is-empty'}`} value={f.sourceField}
-              onChange={(e) => setF({ ...f, sourceField: e.target.value, positiveValue: '' })}>
-              <option value="">{tr('Choisir une variable…')}</option>
-              {fields.length > 0 && (
-                <optgroup label={tr('Variables du formulaire')}>
-                  {fields.map((x) => <option key={x.name} value={x.name}>{x.label && x.label !== x.name ? `${x.label} — ${x.name}` : x.name}{x.type ? ` (${x.type})` : ''}</option>)}
-                </optgroup>
-              )}
-              {calcFields.length > 0 && (
-                <optgroup label={tr('Champs calculés (ƒ)')}>
-                  {calcFields.map((c) => <option key={c.name} value={c.name}>ƒ {c.label && c.label !== c.name ? `${c.label} — ${c.name}` : c.name}</option>)}
-                </optgroup>
-              )}
-            </select>
-          ) : (
-            <input className="input mono" value={f.sourceField} onChange={(e) => setF({ ...f, sourceField: e.target.value })} placeholder="info_recue" />
-          )}
-          {touched && err.sourceField && <div className="field-error">{tr('Requis.')}</div>}
-          {selField?.group && <div className="site-meta" style={{ marginTop: 4 }}>{tr('Groupe : {group}', { group: selField.group })}</div>}
-          {selField?.relevant && <div className="site-meta" style={{ marginTop: 2 }}>{tr('Logique de saut :')} <code className="skip-expr">{selField.relevant}</code></div>}
-        </div>
-
-        <div className="form-grid">
-          <Field label={tr('Méthode de calcul')}>
-            <select className="select" value={f.agg} onChange={(e) => setF({ ...f, agg: e.target.value })}>
-              {Object.entries(AGG_LABELS).map(([k, v]) => <option key={k} value={k}>{tr(v)}</option>)}
-            </select>
-          </Field>
-          {f.agg === 'percent_value'
-            ? (
-              <Field label={tr('Valeur « positive »')} hint={tr('Réponse comptée comme atteinte.')}>
-                {fieldChoices.length ? (
-                  <select className="select" value={f.positiveValue} onChange={(e) => setF({ ...f, positiveValue: e.target.value })}>
-                    <option value="">{tr('Choisir une valeur…')}</option>
-                    {fieldChoices.map((c) => <option key={c.value} value={c.value}>{c.label && c.label !== c.value ? `${c.label} (${c.value})` : c.value}</option>)}
-                  </select>
-                ) : (
-                  <input className="input" value={f.positiveValue} onChange={(e) => setF({ ...f, positiveValue: e.target.value })} placeholder={tr('oui / 1 / A')} />
-                )}
-              </Field>
-            )
-            : <Field label={tr('Cible (optionnel)')}><input className="input tabular" inputMode="decimal" value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })} placeholder="80" /></Field>}
-        </div>
-        <div className="form-grid">
-          {f.agg === 'percent_value' && <Field label={tr('Cible (optionnel)')}><input className="input tabular" inputMode="decimal" value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })} placeholder="80" /></Field>}
-          <Field label={tr('Sens')}>
-            <select className="select" value={f.direction} onChange={(e) => setF({ ...f, direction: e.target.value })}>
-              <option value="higher_better">{tr('Plus haut = mieux')}</option>
-              <option value="lower_better">{tr('Plus bas = mieux')}</option>
-            </select>
-          </Field>
-        </div>
-
-        <div className="note"><SlidersHorizontal size={18} aria-hidden="true" /><span>
-          {f.agg === 'count' && <>{tr('Compte le nombre de réponses à la variable.')}</>}
-          {f.agg === 'sum' && <>{tr('Additionne les valeurs numériques de la variable.')}</>}
-          {f.agg === 'mean' && <>{tr('Moyenne des valeurs numériques de la variable.')}</>}
-          {f.agg === 'percent_yes' && <>{tr('Part des réponses « oui » (oui / 1 / true) sur le total renseigné.')}</>}
-          {f.agg === 'percent_value' && <>{fillNodes(tr('Part des réponses égales à {value} sur le total renseigné.'), { value: <strong>{String(f.positiveValue).trim() || '…'}</strong> })}</>}
-          {' '}<a href="#/processus/calculs" target="_blank" rel="noopener noreferrer">{tr('Comment c\'est calculé ?')}</a>
-        </span></div>
-      </div>
-    </Modal>
   );
 }

@@ -300,6 +300,9 @@ export const api = {
   monCreateIndicator: (id, input) => request(`/api/monitoring/forms/${id}/indicators`, { method: 'POST', body: input }),
   monUpdateIndicator: (indId, input) => request(`/api/monitoring/indicators/${indId}`, { method: 'PATCH', body: input }),
   monDeleteIndicator: (indId) => request(`/api/monitoring/indicators/${indId}`, { method: 'DELETE' }),
+  // « Comment c'est calculé » : une définition appliquée aux soumissions de la période (lecture seule).
+  monIndicatorPreview: (id, body) => request(`/api/monitoring/forms/${id}/indicators/preview`, { method: 'POST', body }),
+  monFormMonths: (id) => request(`/api/monitoring/forms/${id}/months`),
   monValues: (id, month) => request(`/api/monitoring/forms/${id}/values`, { query: month ? { month } : undefined }),
   monDashboard: (id, month) => request(`/api/monitoring/forms/${id}/dashboard`, { query: month ? { month } : undefined }),
   monOverview: (month) => request('/api/monitoring/overview', { query: month ? { month } : undefined }),

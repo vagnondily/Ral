@@ -2340,3 +2340,113 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
   .map-cell { flex-wrap: wrap; }
   .map-cell .select { min-width: 0; width: 100%; }
 }
+
+/* ---- Indicateurs : éditeur, choix de la variable, « Comment c'est calculé » (retour n° 20) ---- */
+/* Onglets en segments (fiche de suivi…) : sur petit écran, ils défilent dans leur barre au lieu d'élargir la page. */
+.seg[role="tablist"]:not(.fx-tabs) { max-width: 100%; overflow-x: auto; scrollbar-width: thin; }
+.seg[role="tablist"]:not(.fx-tabs) > button { flex: none; }
+/* Barre d'outils des résultats sur une ligne : la recherche et l'aide se resserrent avant de passer à la ligne. */
+.ind-toolbar .ind-search { flex: 0 1 260px; min-width: 200px; }
+.ind-toolbar .ind-hint { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Réalisé face à la cible : repère de la cible sur la barre. */
+.ind-bar { position: relative; overflow: visible; }
+.ind-bar > i { border-radius: 4px; }
+.ind-target { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--text-strong); border-radius: 1px; }
+/* Colonne d'actions toujours visible (figée à droite) dans les tables d'indicateurs. */
+.ind-table .col-actions, .ind-cfg-table .col-actions { position: sticky; right: 0; z-index: 1; background: var(--surface); box-shadow: -1px 0 0 var(--border); text-align: right; white-space: nowrap; width: 1%; }
+.ind-table thead .col-actions, .ind-cfg-table thead .col-actions { z-index: 3; background: var(--canvas); }
+:root[data-theme="dark"] .ind-table thead .col-actions, :root[data-theme="dark"] .ind-cfg-table thead .col-actions { background: var(--surface); }
+.table tbody tr:hover td.col-actions { background: var(--surface-2); }
+.table tbody tr.is-selected td.col-actions { background: var(--blue-50); }
+/* Configuration : libellés de question longs tronqués (plus de table de 2 756 px). */
+.ind-cfg-table td { vertical-align: top; }
+.ind-cfg-table .ind-cfg-name { min-width: 180px; max-width: 300px; }
+.ind-cfg-table .ind-cfg-module { min-width: 140px; max-width: 200px; }
+.ind-cfg-table .ind-cfg-var { max-width: 320px; }
+.ind-cfg-table .ind-cfg-agg { white-space: nowrap; }
+.ind-cfg-table .var-label { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+.ind-cfg-table tr.is-muted td:not(.col-actions) { color: var(--text-faint); }
+
+/* Éditeur : définition à gauche, calcul expliqué à droite. */
+.ie { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 440px); gap: 20px; align-items: start; }
+@media (max-width: 980px) { .ie { grid-template-columns: 1fr; } }
+.ie-form { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.ie-section { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px 14px; margin: 0; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ie-section legend { padding: 0 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+.ie-methods { display: flex; flex-wrap: wrap; gap: 6px; }
+.ie-methods button { border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); border-radius: var(--radius-sm); padding: 6px 12px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.ie-methods button:hover { border-color: var(--blue-600); }
+.ie-methods button.is-on { background: var(--blue-50); border-color: var(--blue-600); color: var(--blue-700); }
+.ie-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ie-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 3px 10px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--text); font-size: 12.5px; cursor: pointer; }
+.ie-chip:hover { border-color: var(--blue-600); }
+.ie-chip[aria-pressed="true"] { background: var(--blue-50); border-color: var(--blue-600); color: var(--blue-700); font-weight: 600; }
+.ie-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.ie-add { display: inline-flex; align-items: center; gap: 6px; margin-top: 2px; }
+.ie-add .input { width: 120px; height: 32px; }
+.ie-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--text); cursor: pointer; }
+.ie-check input { width: 16px; height: 16px; accent-color: var(--blue-600); }
+.ie-explain { position: sticky; top: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ie-explain-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.ie-explain-head h3 { margin: 0; font-size: 15px; color: var(--text-strong); }
+.ie-explain-head .select { width: auto; min-width: 180px; }
+.ie-errors { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; }
+
+/* Choix de la variable (liste déroulante avec recherche). */
+.vp { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.vp-input { position: relative; display: flex; align-items: center; }
+.vp-input svg { position: absolute; left: 10px; color: var(--text-faint); pointer-events: none; }
+.vp-input .input { padding-left: 32px; width: 100%; }
+.vp.is-invalid .input { border-color: var(--red); }
+.vp-list { position: absolute; top: 42px; left: 0; right: 0; z-index: 30; list-style: none; margin: 0; padding: 4px 0; max-height: 340px; overflow: auto; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.vp-group { display: flex; align-items: center; gap: 6px; padding: 8px 12px 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+.vp-item { display: flex; flex-direction: column; gap: 2px; padding: 6px 12px; cursor: pointer; border-left: 2px solid transparent; }
+.vp-item.is-active { background: var(--blue-50); }
+.vp-item.is-selected { border-left-color: var(--blue-600); }
+.vp-label { color: var(--text-strong); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12px; color: var(--text-muted); min-width: 0; }
+.vp-meta .mono { color: var(--text); }
+.vp-type { padding: 0 6px; border-radius: var(--radius-sm); background: var(--canvas-sunken); font-size: 11px; }
+.vp-fill { font-variant-numeric: tabular-nums; }
+.vp-fill.is-empty { color: var(--orange-text); }
+.vp-more { padding: 6px 12px; font-size: 12px; }
+.vp-free .vp-label { color: var(--blue-700); }
+.vp-selected { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.vp-sel-label { color: var(--text); line-height: 1.45; }
+.vp-group-path { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vp-warn { display: flex; align-items: flex-start; gap: 6px; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--orange-bg); color: var(--orange-text); font-size: 12.5px; }
+.vp-warn svg { flex: none; margin-top: 2px; }
+.vp-opts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+
+/* « Comment c'est calculé » : étapes, barre de répartition, réponses, règle de classement. */
+.ix { display: flex; flex-direction: column; gap: 10px; font-size: 13px; min-width: 0; position: relative; }
+.ix.is-stale > :not(.ix-loading) { opacity: .6; }
+.ix-loading { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.ix-small { font-size: 12px; }
+.ix-var { display: flex; flex-direction: column; gap: 2px; }
+.ix-var-label { color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ix-value-big { font-size: 26px; font-weight: 700; letter-spacing: -.02em; color: var(--text-strong); }
+.ix-steps { list-style: none; margin: 0; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.ix-steps li { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; align-items: baseline; color: var(--text); }
+.ix-steps li.is-out { color: var(--text-muted); }
+.ix-steps li.is-base { border-top: 1px solid var(--border); padding-top: 4px; font-weight: 600; color: var(--text-strong); }
+.ix-n { text-align: right; font-weight: 600; }
+.ix-formula { padding: 8px 10px; border-left: 3px solid var(--blue-600); background: var(--surface); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.ix-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--canvas-sunken); }
+.ix-seg { display: block; height: 100%; }
+.ix-seg + .ix-seg { border-left: 1px solid var(--surface); }
+.ix-legend { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text); }
+.ix-legend li { display: inline-flex; align-items: center; gap: 5px; }
+.ix-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.ix-seg.is-positive, .ix-swatch.is-positive, .ix-seg.is-counted, .ix-swatch.is-counted { background: var(--blue-600); }
+.ix-seg.is-negative, .ix-swatch.is-negative { background: var(--border-strong); }
+.ix-seg.is-ignored, .ix-swatch.is-ignored { background: var(--orange); }
+.ix-seg.is-na, .ix-swatch.is-na { background: var(--yellow); }
+.ix-seg.is-blank, .ix-swatch.is-blank { background: var(--text-faint); }
+.ix-seg.is-absent, .ix-swatch.is-absent { background: repeating-linear-gradient(45deg, var(--border-strong) 0 3px, var(--surface-2) 3px 6px); }
+.ix-dist { max-height: 260px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.ix-dist .table th, .ix-dist .table td { padding: 5px 10px; font-size: 12.5px; }
+.ix-choice { color: var(--text-muted); }
+.ix-rule { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.ix-rule-head { display: flex; align-items: flex-start; gap: 8px; line-height: 1.45; }
+.ix-rule-head .badge { flex: none; }
