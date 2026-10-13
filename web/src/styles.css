@@ -2532,6 +2532,24 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .icon-link { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-faint); cursor: pointer; }
 .icon-link:hover { background: var(--canvas-sunken); color: var(--text-strong); }
 @media (max-width: 640px) { .biz-kpis.alerts-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; } .alerts-kpis .biz-kpi { padding: 10px; } .alerts-kpis .biz-kpi-ic { display: none; } }
+.alerts-table .al-go { text-align: right; width: 44px; }
+.alerts-table .al-sev { white-space: nowrap; }
+.alerts-table .al-cat { white-space: nowrap; }
+/* Téléphone : chaque alerte en carte empilée (niveau · catégorie, titre, détail, ouvrir) —
+   plus de colonnes d'un caractère. L'en-tête reste lu par les lecteurs d'écran (rôles explicites). */
+@media (max-width: 640px) {
+  .alerts-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .alerts-table, .alerts-table tbody { display: block; width: 100%; }
+  .alerts-table tbody tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .alerts-table tbody tr:last-child { border-bottom: 0; }
+  .alerts-table tbody td { display: block; padding: 0; border: 0; min-width: 0; }
+  .alerts-table td.al-sev { grid-column: 1; grid-row: 1; }
+  .alerts-table td.al-cat { grid-column: 2; grid-row: 1; color: var(--text-muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; }
+  .alerts-table td.al-go { grid-column: 3; grid-row: 1 / span 3; width: auto; align-self: center; }
+  .alerts-table td.al-title { grid-column: 1 / 3; grid-row: 2; overflow-wrap: anywhere; }
+  .alerts-table td.al-detail { grid-column: 1 / 3; grid-row: 3; font-size: 12.5px; overflow-wrap: anywhere; }
+  .alerts-table td.al-detail:empty { display: none; }
+}
 
 /* Cloche = Centre d'alertes : pastille (critiques + à surveiller) et panneau des premières alertes. */
 .bell-count { position: absolute; top: 1px; right: -3px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 999px;
@@ -2547,3 +2565,11 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .notif-title { color: var(--text-strong); font-weight: 600; line-height: 1.3; }
 .notif-detail { color: var(--text-muted); font-size: 12px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .notif-all { justify-content: space-between; color: var(--blue-600); font-weight: 600; }
+.notif-partial { margin: 0 4px 6px; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--orange-bg); color: var(--orange-text); font-size: 12px; line-height: 1.4; }
+.notif-empty.notif-partial-empty { text-align: left; color: var(--orange-text); }
+/* Téléphone : la cloche n'est pas au bord droit (le menu du compte la suit), un panneau
+   aligné sur elle sortait de l'écran — il est fixé à l'écran, 12 px de marge de chaque côté. */
+@media (max-width: 560px) {
+  .notif-pop { position: fixed; left: 12px; right: 12px; top: calc(var(--header-h) + 6px); width: auto; min-width: 0;
+    max-height: calc(100vh - var(--header-h) - 18px); overflow-y: auto; }
+}

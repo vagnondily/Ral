@@ -5,18 +5,18 @@ const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound, conflict, forbidden } = require('../../middleware/errors');
 const repo = require('./reports.repository');
 const { buildInvoiceWorkbook } = require('./factureXlsx');
-const { reportActions } = require('./reportWorkflow');
+const { reportActions, REPORT_WRITE_ROLES, canWriteReports } = require('./reportWorkflow');
 
 const router = Router();
 router.use(requireAuth);
-const WRITE_ROLES = ['admin', 'manager'];
-const WRITE = requireRole(...WRITE_ROLES);
+// Rôles d'écriture : la liste partagée avec le Centre d'alertes (reportWorkflow).
+const WRITE = requireRole(...REPORT_WRITE_ROLES);
 
 // Chaque rapport renvoyé porte les actions permises à l'utilisateur courant,
 // calculées par les règles qui s'appliquent à l'écriture (reportWorkflow).
 const withActions = (req) => (report) => ({
   ...report,
-  actions: reportActions(report, { userId: req.auth.userId, canWrite: WRITE_ROLES.includes(req.auth.role) }),
+  actions: reportActions(report, { userId: req.auth.userId, canWrite: canWriteReports(req.auth.role) }),
 });
 
 function body(schema) {

@@ -62,10 +62,11 @@ function requiredSources(blocks) {
   return need;
 }
 
-async function loadSources(tenantId, period, need) {
+// `lang` : langue des libellés construits par le serveur (bureau non relié : « Code 7 (not linked) »).
+async function loadSources(tenantId, period, need, lang = 'fr') {
   const [monitoring, field, budget, pdd] = await Promise.all([
-    need.monitoring ? monitoringRepo.reportMonitoringData(tenantId, period) : null,
-    need.field ? fieldRepo.reportFieldData(tenantId, period) : null,
+    need.monitoring ? monitoringRepo.reportMonitoringData(tenantId, period, { lang }) : null,
+    need.field ? fieldRepo.reportFieldData(tenantId, period, { lang }) : null,
     need.budget ? consolidationRepo.consolidation(tenantId, { today: period.to }) : null,
     need.pdd ? pddRepo.reportPddByMonth(tenantId, period) : null,
   ]);
@@ -96,7 +97,7 @@ function renderBlock(b, sources, filters, period, ptext, lang) {
 async function renderReport(tenantId, input, { lang = 'fr' } = {}) {
   const doc = validate(input);
   const period = doc.period;
-  const sources = await loadSources(tenantId, period, requiredSources(doc.blocks));
+  const sources = await loadSources(tenantId, period, requiredSources(doc.blocks), lang);
   const ptext = periodLabel(period, lang);
   const out = { periodLabel: ptext, blocks: {}, repeats: {} };
   for (const b of doc.blocks) {

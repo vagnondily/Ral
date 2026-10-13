@@ -44,7 +44,8 @@ const BUILDERS = {
     const base = cols('bureau_domains');
     return {
       columns: [base[0], base[1], ...domains.map((d) => ({ key: `d:${d}`, label: d, type: 'pct' })), base[2]],
-      rows: bureaux.map((b) => ({ bureau: b.bureau, n: b.n, score: b.index, ...Object.fromEntries(b.dims.map((d) => [`d:${d.name}`, d.score])) })),
+      // Tableau d'UNE fiche : le bureau sans le nom de la fiche (« Code 7 (non relié) »), déjà connu.
+      rows: bureaux.map((b) => ({ bureau: b.label || b.bureau, n: b.n, score: b.index, ...Object.fromEntries(b.dims.map((d) => [`d:${d.name}`, d.score])) })),
     };
   },
 

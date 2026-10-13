@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell, Settings, LogOut, Sun, Moon, Lightbulb, LightbulbOff, ChevronRight } from 'lucide-react';
 import { api } from '../api/client.js';
-import { alertText, goArgs } from '../lib/alerts.js';
+import { alertText, alertsState, goArgs, sourceList } from '../lib/alerts.js';
 import SeverityBadge from './SeverityBadge.jsx';
 import { Avatar } from './ui.jsx';
 import { useI18n, LANGS } from '../lib/i18n.jsx';
@@ -32,7 +32,9 @@ const BELL_ITEMS = 6;
  * GET /api/alerts. La pastille compte ce qui demande l'attention (critiques +
  * à surveiller) ; le panneau montre les premières alertes et mène au Centre.
  * Rafraîchie à l'ouverture et toutes les 5 minutes ; une erreur réseau laisse
- * simplement la cloche sans pastille.
+ * simplement la cloche sans pastille. Comme la page, jamais « aucune
+ * notification » quand une source n'a pas pu être lue (alertsState).
+ * Sur téléphone, le panneau est fixé à l'écran (styles.css, .notif-pop).
  */
 export function NotificationsMenu({ onNavigate }) {
   const { t, tr } = useI18n();
@@ -53,6 +55,7 @@ export function NotificationsMenu({ onNavigate }) {
   const counts = data?.counts || null;
   const attention = counts?.attention || 0;
   const items = data?.items || [];
+  const { status, unavailable } = alertsState(data);
   const go = (args) => { setOpen(false); if (args && onNavigate) onNavigate(...args); };
   const label = attention
     ? tr('Alertes : {n} à traiter en priorité', { n: attention })
@@ -70,8 +73,16 @@ export function NotificationsMenu({ onNavigate }) {
             <span>{tr('Alertes')}</span>
             {counts && <span className="notif-counts">{tr('{c} critique(s) · {w} à surveiller · {i} à traiter', { c: counts.critical, w: counts.warning, i: counts.info })}</span>}
           </div>
+          {data && status === 'alerts' && unavailable.length > 0 && (
+            <div className="notif-partial">{tr('Sources non lues : {list}.', { list: sourceList(tr, unavailable) })}</div>
+          )}
           {failed && !data ? <div className="notif-empty">{tr('Alertes indisponibles pour le moment.')}</div>
             : !data ? <div className="notif-empty">{tr('Chargement…')}</div>
+              : status === 'partial' ? (
+                <div className="notif-empty notif-partial-empty">
+                  {tr('Aucune alerte dans les sources lues, mais ces sources n\'ont pas pu être lues : {list}. Impossible de dire que tout est au vert ; réessayez plus tard.', { list: sourceList(tr, unavailable) })}
+                </div>
+              )
               : items.length === 0 ? <div className="notif-empty">{t('header.noNotifications', 'Aucune notification pour le moment')}</div>
                 : items.slice(0, BELL_ITEMS).map((a, i) => {
                   const { title, detail } = alertText(tr, a);

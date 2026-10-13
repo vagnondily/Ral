@@ -193,3 +193,19 @@ test('non applicable : tout statut sauf validé (comportement inchangé)', () =>
   }
   assert.equal(notApplicableError({ status: 'valide' }).code, 'locked');
 });
+
+test('rôles d\'écriture des rapports : UNE liste, partagée par les routes et le Centre d\'alertes', () => {
+  const { REPORT_WRITE_ROLES, canWriteReports } = require('../src/modules/tpm/reportWorkflow');
+  assert.deepEqual([...REPORT_WRITE_ROLES], ['admin', 'manager']);
+  assert.ok(Object.isFrozen(REPORT_WRITE_ROLES));
+  assert.equal(canWriteReports('admin'), true);
+  assert.equal(canWriteReports('manager'), true);
+  assert.equal(canWriteReports('viewer'), false);
+  assert.equal(canWriteReports(undefined), false);
+  // Aucune copie locale de la liste : les deux modules lisent la constante partagée.
+  for (const file of ['tpm/reports.routes.js', 'dashboards/alerts.service.js']) {
+    const src = fs.readFileSync(path.join(__dirname, '../src/modules', file), 'utf8');
+    assert.doesNotMatch(src, /\[\s*'admin'\s*,\s*'manager'\s*\]/, `${file} : liste de rôles dupliquée`);
+    assert.match(src, /REPORT_WRITE_ROLES|canWriteReports/, file);
+  }
+});

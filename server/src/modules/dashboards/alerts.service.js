@@ -3,7 +3,7 @@ const consolidationRepo = require('../tpm/consolidation.repository');
 const contractsService = require('../contracts/contracts.service');
 const reportsRepo = require('../tpm/reports.repository');
 const fieldRepo = require('../tpm/field.repository');
-const { reportActions } = require('../tpm/reportWorkflow');
+const { reportActions, canWriteReports } = require('../tpm/reportWorkflow');
 const { buildAlerts, countAlerts } = require('./alertsMath');
 
 /**
@@ -15,9 +15,10 @@ const { buildAlerts, countAlerts } = require('./alertsMath');
  *
  * Lectures l'une après l'autre (pas en parallèle) : chaque source prend son
  * propre client du pool partagé ; la cloche ne doit pas en monopoliser quatre.
+ *
+ * « À valider » : seulement ce que l'utilisateur peut décider — même liste de
+ * rôles d'écriture que les routes des rapports (reportWorkflow.REPORT_WRITE_ROLES).
  */
-const WRITE_ROLES = ['admin', 'manager'];
-
 const isoDay = (d) => d.toISOString().slice(0, 10);
 
 async function alerts(auth, { today = isoDay(new Date()) } = {}) {
@@ -34,7 +35,7 @@ async function alerts(auth, { today = isoDay(new Date()) } = {}) {
   const cons = await read('budget', () => consolidationRepo.consolidation(tenantId, {}), null);
   const contracts = await read('contrats', () => contractsService.listContracts(tenantId, {}), []);
   const reports = await read('rapports', async () => {
-    const canWrite = WRITE_ROLES.includes(role);
+    const canWrite = canWriteReports(role);
     return (await reportsRepo.listReports(tenantId, {})).map((r) => ({ ...r, actions: reportActions(r, { userId, canWrite }) }));
   }, []);
   const field = await read('terrain', () => fieldRepo.summary(tenantId, { month }), null);

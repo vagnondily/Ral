@@ -63,6 +63,22 @@ test('mergeByKey additionne les lignes d\'une même clé, sans jamais fusionner 
   assert.deepEqual(out.map((r) => [r.key, r.submissions, r.sites]), [['id:o1', 7, 3], ['code:gd:6', 5, 1], ['code:res:6', 7, 0]]);
 });
 
+test('texte lisible dans la langue du rapport : « Code 7 (not linked) » en anglais, français par défaut', () => {
+  const { unattachedText } = require('../src/modules/common/codeLabel');
+  const code = resolveCodeLabel({ raw: '7', formId: 'f1' });
+  assert.equal(codeLabelText(code, { lang: 'en' }), 'Code 7 (not linked)');
+  assert.equal(codeLabelText(code, { lang: 'en', formLabel: 'GD' }), 'Code 7 (not linked) · GD');
+  assert.equal(codeLabelText(code, { lang: 'fr' }), 'Code 7 (non relié)');
+  assert.equal(codeLabelText(code, { lang: 'xx' }), 'Code 7 (non relié)'); // langue inconnue : français
+  assert.equal(codeLabelText(resolveCodeLabel({ raw: 'Bureau Sud', formId: 'f1' }), { lang: 'en' }), 'Bureau Sud (not linked)');
+  assert.equal(codeLabelText(resolveCodeLabel({ raw: '', formId: 'f1' }), { lang: 'en' }), '(not set)');
+  // Un nom (bureau MEMS ou libellé de la fiche) n'est jamais traduit.
+  assert.equal(codeLabelText(resolveCodeLabel({ raw: '7', choiceLabel: 'Tsihombe', formId: 'f1' }), { lang: 'en' }), 'Tsihombe');
+  assert.equal(unattachedText('en'), '(not attached)');
+  assert.equal(unattachedText(), '(non rattaché)');
+  assert.equal(unattachedText('xx'), '(non rattaché)');
+});
+
 test('requête SQL du bureau (officeLabelSql) : même règle, paramètres poussés dans l\'ordre, code gardé par fiche', () => {
   const { officeLabelSql } = require('../src/modules/monitoring/monitoring.repository');
   const params = ['t1', 'f1'];
