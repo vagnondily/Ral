@@ -13,7 +13,8 @@
     "seed": "node src/db/seed.js",
     "seed:test": "node src/db/seed-test.js",
     "test": "node --test test/**/*.test.js",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "perf:period": "node --expose-gc scripts/perfPeriod.js"
   },
   "dependencies": {
     "adm-zip": "^0.6.1",
