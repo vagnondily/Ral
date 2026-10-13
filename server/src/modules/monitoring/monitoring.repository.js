@@ -7,8 +7,8 @@ const { definitionError, effectiveDefinition, normalizeNaValues, presentKeys } =
 const { classDistribution, naReasonCounts, dimGroups, topFlop, classify } = require('./coverageDashboard');
 const { codeLabelText } = require('../common/codeLabel');
 const { detectMapping, DIMENSION_COLUMN, DATE_KEYS, EDITABLE_KEYS } = require('./memsMapping');
-const { computeCalcFields, checkExpression, previewCalc, makeGetter } = require('./calcFields');
-const { buildLookup, groupPathRenamer, collectionColumns, applySurveyDate, dateSummary, TRIM_CLASS } = require('./submissionsImport');
+const { computeCalcFields, checkExpression, previewCalc } = require('./calcFields');
+const { buildLookup, collectionColumns, prepareImport, previewImport, dateSummary, TRIM_CLASS } = require('./submissionsImport');
 const { collectionUpdates } = require('./collectionDate');
 const { templateForActivity, moduleLabel, suggestBindings, indicatorFromItem } = require('./indicatorTemplates');
 const { OTHER_VALUES } = require('./memsMapping');
@@ -746,17 +746,25 @@ async function memsMappingTx(client, tenantId, formId) {
     'SELECT dimension, column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2',
     [tenantId, formId]
   );
-  // Mois de collecte vs mois de réception, sur toutes les soumissions de la fiche (agrégé en SQL).
-  const { rows: [dates] } = await client.query(
-    `SELECT count(*)::int AS total, count(period_month)::int AS "withMonth", count(upload_month)::int AS "withUpload",
-            count(*) FILTER (WHERE upload_month IS NOT NULL AND period_month IS DISTINCT FROM upload_month)::int AS "monthDiffers"
-       FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2`, [tenantId, formId]);
   const labelByName = new Map(cat.map((c) => [c.name, c.label]));
   const names = [...new Set([...cat.map((c) => c.name), ...keys.map((k) => k.field)])];
   const overrideByDim = new Map(ov.map((o) => [o.dimension, o.columnName]));
   const auto = new Map(detectMapping(names).map((m) => [m.key, m]));
   // Dates : colonne lue par la MÊME règle qu'à l'import (alias, nom de question sous un groupe).
   const dateCols = collectionColumns(names);
+  // Mois de collecte vs mois de réception, sur toutes les soumissions de la fiche (agrégé en SQL).
+  // Mois de réception inconnu : « uploadPending » si les réponses portent une date de réception
+  // (« Appliquer aux soumissions » la lira), « withoutUpload » sinon (seed, export sans
+  // _submission_time) — rien à appliquer, le mois de réception restera inconnu.
+  const { rows: [dates] } = await client.query(
+    `SELECT count(*)::int AS total, count(period_month)::int AS "withMonth", count(upload_month)::int AS "withUpload",
+            count(*) FILTER (WHERE upload_month IS NOT NULL AND period_month IS DISTINCT FROM upload_month)::int AS "monthDiffers",
+            count(*) FILTER (WHERE upload_month IS NULL AND has_upload)::int AS "uploadPending",
+            count(*) FILTER (WHERE upload_month IS NULL AND NOT has_upload)::int AS "withoutUpload"
+       FROM (SELECT period_month, upload_month,
+                    EXISTS (SELECT 1 FROM unnest($3::text[]) AS k WHERE NULLIF(btrim(s.data ->> k), '') IS NOT NULL) AS has_upload
+               FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2) d`,
+    [tenantId, formId, dateCols.uploadCols]);
   const autoDate = { [DATE_KEYS.survey]: dateCols.surveyCols[0] || null, [DATE_KEYS.upload]: dateCols.uploadCols[0] || null };
 
   const rows = detectMapping(names).map((m) => {
@@ -859,7 +867,10 @@ async function applyMappingToSubmissions(tenantId, formId) {
  * (collectionUpdates), puis écriture des seules lignes qui changent en
  * instructions multi-lignes UPDATE … FROM (VALUES …) par lots. Idempotent :
  * rejoué, il ne trouve plus rien à changer. Dans la transaction de l'appelant.
- * @returns {Promise<{ updates: number, total: number, monthChanged: number, unreadable: number, undated: number }>}
+ * Toutes les soumissions de la fiche sont comptées (total), y compris quand aucune
+ * colonne de date n'existe (toutes « sans date », rien n'est lu ni écrit).
+ * @returns {Promise<{ updates: number, total: number, monthChanged: number, unreadable: number,
+ *   undated: number, tooOld: number, lateUpload: number, withoutUpload: number }>}
  */
 async function rederiveCollectionDatesTx(client, tenantId, formId) {
   const { rows: keyRows } = await client.query(
@@ -870,8 +881,11 @@ async function rederiveCollectionDatesTx(client, tenantId, formId) {
     [tenantId, formId, DATE_KEYS.survey]);
   const cols = collectionColumns(keyRows.map((r) => r.k), ov.length ? (ov[0].columnName || '') : undefined);
   const read = [...new Set([...cols.surveyCols, ...cols.uploadCols])];
-  const none = { updates: 0, total: 0, monthChanged: 0, unreadable: 0, undated: 0 };
-  if (!read.length) return none;
+  if (!read.length) {
+    const { rows: [c] } = await client.query(
+      'SELECT count(*)::int AS n FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
+    return { updates: 0, total: c.n, monthChanged: 0, unreadable: 0, undated: c.n, tooOld: 0, lateUpload: 0, withoutUpload: c.n };
+  }
   const { rows } = await client.query(
     `SELECT id, period_month AS "periodMonth", submitted_at AS "submittedAt", upload_month AS "uploadMonth",
             (SELECT jsonb_object_agg(k, s.data -> k) FROM unnest($3::text[]) AS k WHERE s.data ? k) AS dates
@@ -890,7 +904,10 @@ async function rederiveCollectionDatesTx(client, tenantId, formId) {
          FROM (VALUES ${tuples.join(', ')}) AS v(id, pm, at, um)
         WHERE s.tenant_id = $1 AND s.form_id = $2 AND s.id = v.id`, params);
   }
-  return { updates: plan.updates.length, total: plan.total, monthChanged: plan.monthChanged, unreadable: plan.unreadable, undated: plan.undated };
+  return {
+    updates: plan.updates.length, total: plan.total, monthChanged: plan.monthChanged, unreadable: plan.unreadable,
+    undated: plan.undated, tooOld: plan.tooOld, lateUpload: plan.lateUpload, withoutUpload: plan.withoutUpload,
+  };
 }
 
 /**
@@ -1009,30 +1026,10 @@ async function importSubmissions(tenantId, formId, submissions, { variables } = 
     // « 6 » est reconnu comme « Ambovombe » dès ce premier import.
     if (variables && variables.length) await ensureCatalogFromSavTx(client, tenantId, formId, variables);
 
-    // Surcharges manuelles de mapping : écrasent la détection par alias, au moment
-    // de l'import, à partir des réponses brutes (data) de chaque soumission.
-    const SUB_PROP = { field_office: 'fieldOffice', admin1: 'admin1', admin2: 'admin2', admin3: 'admin3', admin4: 'admin4', site: 'site', partner: 'partner', agent: 'agent' };
-    const { rows: ov } = await client.query(
-      'SELECT dimension, column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2',
-      [tenantId, formId]
-    );
-    // Valeur nettoyée comme à l'import automatique (valueOf) et à la relecture SQL.
-    // Date d'enquête choisie à la main : mois de collecte recalculé (même règle, collectionMonth).
-    const applyOverrides = (s) => {
-      for (const o of ov) {
-        const col = (o.columnName || '').trim();
-        const v = col && s.data ? makeGetter(s.data)(col) : undefined; // casse ignorée (XLSForm ≠ export SPSS)
-        if (o.dimension === DATE_KEYS.survey) { applySurveyDate(s, v); continue; }
-        const prop = SUB_PROP[o.dimension]; if (!prop) continue;
-        const t = v == null ? '' : String(v).trim();
-        s[prop] = t === '' ? null : t;
-      }
-    };
-    // Clés des réponses ramenées aux noms du catalogue (export Excel « avec les groupes ») :
-    // les mêmes clés quel que soit le format, donc les mêmes indicateurs.
-    const { rows: names } = await client.query(
-      'SELECT name FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
-    const canonical = groupPathRenamer(names.map((r) => r.name));
+    // Doublons du fichier fondus (dernière version), clés ramenées aux noms du catalogue
+    // (export Excel « avec les groupes ») et colonnes choisies dans « Mapping MEMS » appliquées :
+    // la MÊME préparation que la vérification avant import (importContextTx + prepareImport).
+    const { unique } = prepareImport(submissions, await importContextTx(client, tenantId, formId));
 
     let inserted = 0; let created = 0;
     const months = new Map();
@@ -1042,17 +1039,7 @@ async function importSubmissions(tenantId, formId, submissions, { variables } = 
     const merged = (col) => `${col} = CASE WHEN monitoring_submissions.source IS NOT DISTINCT FROM EXCLUDED.source
       THEN EXCLUDED.${col} ELSE COALESCE(EXCLUDED.${col}, monitoring_submissions.${col}) END`;
     const TYPED = ['period_month', 'submitted_at', 'upload_month', 'field_office', 'admin1', 'admin2', 'admin3', 'admin4', 'site', 'partner', 'agent'];
-    // Même identifiant Kobo deux fois dans le fichier : une seule soumission, la dernière version
-    // (sans cela, le compte rendu la compterait « mise à jour » et ses mois deux fois).
-    const unique = []; const at = new Map();
-    for (const s of submissions) {
-      if (s.externalId && at.has(s.externalId)) { unique[at.get(s.externalId)] = s; continue; }
-      if (s.externalId) at.set(s.externalId, unique.length);
-      unique.push(s);
-    }
     for (const s of unique) {
-      s.data = canonical(s.data || {});
-      if (ov.length) applyOverrides(s);
       const res = await client.query(
         `INSERT INTO monitoring_submissions
            (tenant_id, form_id, external_id, period_month, submitted_at, upload_month, field_office,
@@ -1204,14 +1191,34 @@ async function setCorrespondence(tenantId, userId, formId, { dimension, raw, mod
 }
 
 /**
- * Vérification avant import : la fiche existe-t-elle, et combien des identifiants
- * Kobo du fichier y sont déjà (ils seront mis à jour, pas ajoutés) ? Lecture seule.
- * @returns {Promise<null|{ already: number }>}
+ * Ce que l'import d'une fiche applique aux soumissions lues : colonnes choisies dans
+ * « Mapping MEMS » (surcharges) et noms du catalogue (clés des réponses). Lu une fois,
+ * dans la transaction de l'appelant ; partagé par l'import et la vérification.
+ * @returns {Promise<{ overrides: Array<{dimension:string,columnName:string|null}>, catalogNames: string[] }>}
  */
-async function importPreview(tenantId, formId, ids) {
+async function importContextTx(client, tenantId, formId) {
+  const { rows: overrides } = await client.query(
+    'SELECT dimension, column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND form_id = $2 ORDER BY dimension',
+    [tenantId, formId]);
+  const { rows: names } = await client.query(
+    'SELECT name FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2', [tenantId, formId]);
+  return { overrides, catalogNames: names.map((r) => r.name) };
+}
+
+/**
+ * Vérification avant import (lecture seule) : la fiche existe-t-elle dans ce compte, ce que
+ * l'import écrira (submissionsImport.previewImport : la MÊME préparation que l'import, colonnes
+ * choisies dans « Mapping MEMS » et date d'enquête comprises — mêmes mois, mêmes comptes) et
+ * combien des identifiants Kobo du fichier y sont déjà (mis à jour, pas ajoutés), par lots.
+ * @param {object[]} submissions  sortie de parseSubmissions
+ * @param {string[]} fieldNames   colonnes (ou variables SPSS) du fichier
+ * @returns {Promise<null|object>} null si la fiche n'existe pas dans ce compte
+ */
+async function importPreview(tenantId, formId, submissions, fieldNames) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
     if (!f[0]) return null;
+    const { ids, ...analysis } = previewImport(submissions, fieldNames, await importContextTx(client, tenantId, formId));
     let already = 0;
     for (let i = 0; i < ids.length; i += 5000) {
       const { rows } = await client.query(
@@ -1219,7 +1226,7 @@ async function importPreview(tenantId, formId, ids) {
         [tenantId, formId, ids.slice(i, i + 5000)]);
       already += rows[0].n;
     }
-    return { already };
+    return { ...analysis, alreadyImported: already, newCount: ids.length - already };
   });
 }
 

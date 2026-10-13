@@ -6,7 +6,7 @@ const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound, conflict } = require('../../middleware/errors');
 const repo = require('./monitoring.repository');
 const mapping = require('./mapping.service');
-const { parseSubmissions, analyzeSubmissions } = require('./submissionsImport');
+const { parseSubmissions } = require('./submissionsImport');
 const { parseXlsformRows } = require('./xlsformImport');
 const { readXls, XlsError } = require('./xlsReader');
 const { sniffFile } = require('../common/fileSniff');
@@ -211,12 +211,12 @@ router.put('/forms/:id/correspondences', WRITE, body(correspondenceSchema), asyn
 }));
 
 // Vérification avant import (assistant « Importation ») : ce que contient le fichier, rien n'est écrit.
+// Même préparation que l'import (colonnes choisies dans « Mapping MEMS » comprises) : mêmes mois, mêmes comptes.
 router.post('/forms/:id/import/preview', WRITE, express.raw({ type: '*/*', limit: '80mb' }), asyncHandler(async (req, res) => {
   const { submissions, headers, variables, source } = await readSubmissionsFile(req);
-  const { ids, ...analysis } = analyzeSubmissions(submissions, variables ? variables.map((v) => v.name) : headers);
-  const check = await repo.importPreview(t(req), uuidParam(req.params.id), ids);
-  if (!check) throw notFound('Formulaire introuvable');
-  res.json({ source, fields: variables ? variables.length : headers.length, ...analysis, alreadyImported: check.already, newCount: ids.length - check.already });
+  const analysis = await repo.importPreview(t(req), uuidParam(req.params.id), submissions, variables ? variables.map((v) => v.name) : headers);
+  if (!analysis) throw notFound('Formulaire introuvable');
+  res.json({ source, fields: variables ? variables.length : headers.length, ...analysis });
 }));
 
 router.post('/forms/:id/import', WRITE, express.raw({ type: '*/*', limit: '80mb' }), asyncHandler(async (req, res) => {

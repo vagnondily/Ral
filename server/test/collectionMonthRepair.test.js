@@ -1,5 +1,5 @@
 /**
- * Réparation r3_mois_de_collecte et relecture des dates (« Appliquer aux
+ * Réparations r3_mois_de_collecte / r4_mois_de_collecte_2ans et relecture des dates (« Appliquer aux
  * soumissions ») SANS base : un faux client PostgreSQL rejoue les requêtes de
  * monitoring.repository.rederiveCollectionDatesTx sur une table en mémoire.
  * Vérifie : lignes changées seulement, UPDATE … FROM (VALUES …) par lots,
@@ -30,6 +30,7 @@ function fakeClient(rows, { overrides = [] } = {}) {
       log.push({ sql, params });
       const mine = rows.filter((r) => r.tenant_id === params[0] && r.form_id === params[1]);
       if (/jsonb_object_keys/.test(sql)) return { rows: [...new Set(mine.flatMap((r) => Object.keys(r.data)))].map((k) => ({ k })) };
+      if (/^SELECT count\(\*\)::int AS n FROM monitoring_submissions/.test(sql)) return { rows: [{ n: mine.length }] };
       if (/FROM monitoring_field_map/.test(sql)) return { rows: overrides.filter((o) => o.dimension === params[2]) };
       if (/jsonb_object_agg/.test(sql)) {
         const keys = params[2];
@@ -67,12 +68,12 @@ test('soumissions déjà importées : mois de collecte recalculé, lignes chang�
     sub('a', { SvyDate: 13988505600, '@_submission_time': 13988628765 }, '2026-01-01'), // même mois (SMP réel)
     sub('b', { SvyDate: '2026-01-28', _submission_time: '2026-02-03T05:00:00Z' }, '2026-02-01'), // → janvier
     sub('c', { site_present: '1' }, '2026-05-01'), // données de démonstration sans date : jamais touchées
-    sub('d', { SvyDate: 13929667200, '@_submission_time': 13994498165 }, '2026-04-01'), // SvyDate 2024 : réception
+    sub('d', { SvyDate: 13929667200, '@_submission_time': 13994498165 }, '2026-04-01'), // SvyDate 2024, plus de 2 ans : réception
     { ...sub('x', { SvyDate: '2026-01-02', _submission_time: '2026-03-01' }, '2026-03-01'), form_id: 'autre-fiche' },
   ];
   const client = fakeClient(rows);
   const first = await repo.rederiveCollectionDatesTx(client, T, F);
-  assert.deepEqual(first, { updates: 3, total: 4, monthChanged: 1, unreadable: 0, undated: 1 });
+  assert.deepEqual(first, { updates: 3, total: 4, monthChanged: 1, unreadable: 0, undated: 1, tooOld: 1, lateUpload: 0, withoutUpload: 1 });
   assert.equal(rows[1].period_month, '2026-01-01');
   assert.equal(rows[1].upload_month, '2026-02-01');
   assert.equal(rows[1].submitted_at.toISOString(), '2026-01-28T00:00:00.000Z');
@@ -105,10 +106,34 @@ test('date d\'enquête choisie dans « Mapping MEMS » : la colonne choisie, pui
   assert.equal(rows[0].submitted_at.toISOString(), '2026-02-03T08:00:00.000Z');
 });
 
-test('fiche sans colonne de date : aucune lecture des soumissions, aucune écriture', async () => {
-  const client = fakeClient([sub('a', { q1: 'oui' }, '2026-03-01')]);
-  assert.deepEqual(await repo.rederiveCollectionDatesTx(client, T, F), { updates: 0, total: 0, monthChanged: 0, unreadable: 0, undated: 0 });
+test('fiche sans colonne de date : toutes les soumissions comptées « sans date », aucune lecture des réponses, aucune écriture', async () => {
+  const client = fakeClient([sub('a', { q1: 'oui' }, '2026-03-01'), sub('b', { q1: 'non' }, null)]);
+  assert.deepEqual(await repo.rederiveCollectionDatesTx(client, T, F),
+    { updates: 0, total: 2, monthChanged: 0, unreadable: 0, undated: 2, tooOld: 0, lateUpload: 0, withoutUpload: 2 });
   assert.equal(client.log.filter((q) => /jsonb_object_agg|UPDATE/.test(q.sql)).length, 0);
+});
+
+test('règle des 2 ans (r4) : envoi tardif rangé par r3 au mois de l\'envoi → mois de l\'enquête ; SvyDate illisible → end', async () => {
+  const rows = [
+    // Valeurs réelles SMP : collecte de septembre 2025 envoyée en avril 2026, rangée en avril par la fenêtre de 92 jours.
+    sub('smp', { SvyDate: 13977964800, '@_submission_time': 13996750892 }, '2026-04-01', { upload_month: '2026-04-01', submitted_at: new Date('2026-04-14T00:00:00Z') }),
+    // SvyDate illisible, end lisible, sans date de réception.
+    sub('end', { SvyDate: '15/01/2026', end: '2026-01-15T10:00:00Z' }, null),
+    // Plus de 2 ans avant l'envoi (GD réel : SvyDate 2022) : reste au mois de l'envoi.
+    sub('gd', { SvyDate: '2022-08-10', _submission_time: '2026-03-01T08:00:00Z' }, '2026-03-01', { upload_month: '2026-03-01', submitted_at: new Date('2026-03-01T08:00:00Z') }),
+  ];
+  const client = fakeClient(rows);
+  const r = await repo.rederiveCollectionDatesTx(client, T, F);
+  assert.equal(rows[0].period_month, '2025-09-01');
+  assert.equal(rows[0].upload_month, '2026-04-01');
+  assert.equal(rows[1].period_month, '2026-01-01');
+  assert.equal(rows[1].upload_month, null);
+  assert.equal(rows[2].period_month, '2026-03-01');
+  assert.deepEqual([r.lateUpload, r.tooOld, r.withoutUpload, r.monthChanged, r.total], [1, 1, 1, 2, 3]);
+  // Rejouée : plus rien à écrire.
+  client.log.length = 0;
+  assert.equal((await repo.rederiveCollectionDatesTx(client, T, F)).updates, 0);
+  assert.equal(client.log.filter((q) => /^\s*UPDATE/.test(q.sql)).length, 0);
 });
 
 test('gros volume : écritures par lots sous la limite de paramètres de PostgreSQL', async () => {
@@ -121,8 +146,13 @@ test('gros volume : écritures par lots sous la limite de paramètres de Postgre
   assert.ok(rows.every((x) => x.period_month === '2026-01-01'));
 });
 
-test('réparation r3 : verrou des rattachements d\'abord, puis chaque fiche l\'une après l\'autre', async () => {
-  assert.ok(REPAIRS.some((r) => r.key === 'r3_mois_de_collecte'), 'réparation enregistrée');
+test('réparations r3 et r4 : verrou des rattachements d\'abord, puis chaque fiche l\'une après l\'autre', async () => {
+  const keys = REPAIRS.map((r) => r.key);
+  assert.ok(keys.includes('r3_mois_de_collecte'), 'r3 enregistrée');
+  // r4 rejoue le calcul avec la règle des 2 ans là où r3 a déjà tourné (clé nouvelle), après r3.
+  assert.ok(keys.indexOf('r4_mois_de_collecte_2ans') > keys.indexOf('r3_mois_de_collecte'), 'r4 enregistrée après r3');
+  assert.equal(REPAIRS.find((r) => r.key === 'r4_mois_de_collecte_2ans').run, repairCollectionMonths);
+  assert.equal(new Set(keys).size, keys.length, 'clés uniques');
   const calls = [];
   const client = {
     async query(sql, params) {
@@ -141,12 +171,12 @@ test('réparation r3 : verrou des rattachements d\'abord, puis chaque fiche l\'u
       pending -= 1;
       calls.push(`rederive:${formId}`);
       return formId === 'f1'
-        ? { updates: 3, total: 10, monthChanged: 2, unreadable: 1, undated: 0 }
-        : { updates: 0, total: 5, monthChanged: 0, unreadable: 0, undated: 5 };
+        ? { updates: 3, total: 10, monthChanged: 2, unreadable: 1, undated: 0, tooOld: 1, lateUpload: 4, withoutUpload: 0 }
+        : { updates: 0, total: 5, monthChanged: 0, unreadable: 0, undated: 5, tooOld: 0, lateUpload: 0, withoutUpload: 5 };
     },
   };
   const places = { async lockSubmissionLinksTx(c, tenantId) { assert.equal(tenantId, T); calls.push('lock'); } };
   const out = await repairCollectionMonths(client, T, { monitoring, places });
   assert.deepEqual(calls, ['lock', 'forms', 'rederive:f1', 'rederive:f2']);
-  assert.deepEqual(out, { forms: 2, submissions: 15, updated: 3, monthChanged: 2, unreadable: 1, undated: 5 });
+  assert.deepEqual(out, { forms: 2, submissions: 15, updated: 3, monthChanged: 2, unreadable: 1, undated: 5, tooOld: 1, lateUpload: 4, withoutUpload: 5 });
 });
