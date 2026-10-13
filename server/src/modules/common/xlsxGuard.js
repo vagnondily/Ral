@@ -36,7 +36,8 @@ const MAX_ROW = 1048576; // limites d'une feuille Excel
 const MAX_COL = 16384;
 const IGNORE_NODES = ['dataValidations', 'conditionalFormatting', 'drawing', 'picture', 'extLst'];
 // Balise <mergeCell …>, <col …>, <row …> ou <c …> (préfixe d'espace de noms possible), avec ses attributs.
-const TAG = /<(?:[\w.-]+:)?(mergeCell|col|row|c)(?=[\s>/])([^>]*)>/g;
+// Les attributs sont lus en respectant les guillemets : un « > » dans une valeur entre guillemets ne coupe pas la balise.
+const TAG = /<(?:[\w.-]+:)?(mergeCell|col|row|c)(?=[\s>/])((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
 const CELL_REF = /(?:^|\s)r\s*=\s*(?:"([^"]*)"|'([^']*)')/;
 const ATTR = /([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
@@ -68,6 +69,16 @@ const colNumber = (letters) => {
   for (const c of letters) n = n * 26 + (c.charCodeAt(0) - 64);
   return n;
 };
+
+/** Bornes d'une référence « B2 » ou « A6:AQ1048576 » ; null si illisible ou hors de la feuille. */
+function refBounds(ref) {
+  const m = /^\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/.exec(String(ref || '').trim().toUpperCase());
+  if (!m) return null;
+  const c1 = colNumber(m[1]); const r1 = Number(m[2]);
+  const c2 = m[3] ? colNumber(m[3]) : c1; const r2 = m[4] ? Number(m[4]) : r1;
+  if ([c1, c2].some((c) => c < 1 || c > MAX_COL) || [r1, r2].some((r) => !Number.isSafeInteger(r) || r < 1 || r > MAX_ROW)) return null;
+  return { rows: Math.abs(r2 - r1) + 1, cols: Math.abs(c2 - c1) + 1, lastCol: Math.max(c1, c2) };
+}
 
 /**
  * Nombre de cellules d'une référence « B2 » ou « A6:AQ1048576 » ; -1 si elle est
@@ -105,9 +116,12 @@ function scanSheetXml(xml) {
     }
     const a = attributes(m[2]);
     if (m[1] === 'mergeCell') {
-      const area = refArea(a.ref);
-      if (area < 0) { unreadable = unreadable || `zone fusionnée illisible « ${String(a.ref ?? '').slice(0, 40)} »`; continue; }
-      merged += area;
+      const b = refBounds(a.ref);
+      if (!b) { unreadable = unreadable || `zone fusionnée illisible « ${String(a.ref ?? '').slice(0, 40)} »`; continue; }
+      merged += b.rows * b.cols;
+      // ExcelJS crée une cellule par case fusionnée : chaque ligne de la zone s'étend jusqu'à sa dernière
+      // colonne (une fusion verticale en XFD sur 100 000 lignes = 1,6 milliard de places à parcourir).
+      cellSlots += b.rows * b.lastCol;
     } else {
       // <col min max> d'une feuille ; un <xdr:col>3</xdr:col> de dessin (ancrage) n'a pas d'attributs.
       if (a.max === undefined && a.min === undefined) continue;

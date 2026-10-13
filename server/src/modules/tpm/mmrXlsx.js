@@ -156,7 +156,7 @@ async function parseMmrWorkbook(buffer, offices = []) {
   const rows = []; const errors = []; const skipped = []; const seen = new Set();
   // Jusqu'à la DERNIÈRE ligne de la feuille : des lignes vides dans le tableau ne font rien perdre.
   for (const { row, r } of existingRows(ws, header.row + 1)) {
-    const at = (k) => (map[k] ? row.getCell(map[k]) : null);
+    const at = (k) => (map[k] ? row.findCell(map[k]) || null : null); // lecture seule : aucune cellule créée
     const category = str(at('activityCategory'));
     if (!category) continue; // ligne libre
     const scope = str(at('scope'));

@@ -173,7 +173,24 @@ function valueOf(picks, field, values) {
  * de collecte contient une valeur illisible (la ligne n'est alors pas gardée).
  * @returns {{ submission: object, badDate: {column:string,value:string}|null }}
  */
-function rowToSubmission(headers, values, picks, source) {
+/** Premier identifiant utilisable parmi les colonnes candidates (« uuid: » seul ne compte pas : on passe à la suivante, ex. _id). */
+function externalIdOf(picks, values) {
+  const list = (picks.candidates && picks.candidates.external_id) || (picks.external_id != null ? [picks.external_id] : []);
+  for (const i of list) {
+    const id = canonicalExternalId(values[i]);
+    if (id) return id;
+  }
+  return null;
+}
+
+// Caractère nul (« _x0000_ » d'un .xlsx, \u0000 d'un JSON) : PostgreSQL le refuse dans un texte ou un jsonb.
+// eslint-disable-next-line no-control-regex -- on retire justement ce caractère de contrôle
+const NUL = /\u0000/g;
+const noNul = (v) => (typeof v === 'string' && v.includes('\u0000') ? v.replace(NUL, '') : v);
+
+function rowToSubmission(rawHeaders, rawValues, picks, source) {
+  const headers = rawHeaders.map(noNul);
+  const values = rawValues.map(noNul);
   const data = {};
   headers.forEach((h, i) => {
     if (h == null || h === '') return;
@@ -183,7 +200,7 @@ function rowToSubmission(headers, values, picks, source) {
   const at = (field) => valueOf(picks, field, values);
   const when = parseCollectionDate(at('submitted_at'));
   const submission = {
-    externalId: canonicalExternalId(at('external_id')),
+    externalId: externalIdOf(picks, values),
     periodMonth: when.ok ? when.month : null,
     submittedAt: when.ok ? when.date : null,
     fieldOffice: at('field_office') != null ? String(at('field_office')) : null,

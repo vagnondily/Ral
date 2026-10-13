@@ -830,8 +830,11 @@ async function formCorrespondences(tenantId, formId, dimension) {
           const m = resolveAgent(parties.agentIndex, { raw: r.raw, label, partnerId });
           return { status: m.status, ids: m.agent ? [m.agent.id] : m.candidates.map((x) => x.id) };
         });
-        const same = per.every((x) => x.status === per[0].status && x.ids.join() === per[0].ids.join());
-        proposal = same ? per[0] : { status: 'partiel', ids: [] };
+        // Même agent quel que soit le partenaire (« code » chez l'un, « nom » sans partenaire) : pas « partiel ».
+        const found = (x) => ['exact', 'code', 'nom'].includes(x.status);
+        const sameIds = per.every((x) => x.ids.join() === per[0].ids.join());
+        const same = sameIds && (per.every(found) || per.every((x) => x.status === per[0].status));
+        proposal = same ? (per.find(found) || per[0]) : { status: 'partiel', ids: [] };
       }
       return {
         raw: r.raw, label, n: r.n,

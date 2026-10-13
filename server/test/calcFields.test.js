@@ -186,3 +186,20 @@ test('relecture : in() et contains() sur une réponse manquante donnent vide (ni
   assert.equal(evalExpression('contains(x, "retard")', { x: 'Retard de paiement' }), 1);
   assert.equal(evalExpression('count_selected(x)', {}), 0);
 });
+
+test('relecture 2 : NOT sans comparaison ne porte que sur le terme suivant (compte des réponses renseignées)', () => {
+  assert.equal(evalExpression('NOT isnull(a) + NOT isnull(b) + NOT isnull(c)', { a: 1, c: 2 }), 2);
+  assert.equal(evalExpression('NOT a + b > 5', { a: 3, b: 4 }), 0); // NOT ((a + b) > 5)
+  assert.equal(evalExpression('NOT NOT x = 1', { x: 1 }), 1);
+});
+
+test('relecture 2 : blancs Unicode (espace insécable, BOM, tabulation verticale) acceptés partout', () => {
+  assert.equal(validateExpression(' x = 1﻿'), null);
+  assert.equal(evalExpression(' x =\u000b1', { x: 1 }), 1);
+});
+
+test('relecture 2 : in() — seul un vide ÉCRIT dans la liste teste le vide ; une variable vide ne compte pas', () => {
+  assert.equal(evalExpression('in(x, y)', {}), null);
+  assert.equal(evalExpression('in(x, "", 6)', {}), 1);
+  assert.equal(evalExpression('in(x, null)', {}), 1);
+});

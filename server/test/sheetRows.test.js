@@ -72,3 +72,20 @@ test('MMR et registre des sites : des lignes vides dans le tableau ne font perdr
   assert.equal(l.rows.length, 11);
   assert.equal(l.rows.at(-1).line, 20);
 });
+
+test('relecture 2 : une fusion verticale tout à droite compte toutes ses lignes dans le budget de places', () => {
+  const { scanSheetXml: scan } = require('../src/modules/common/xlsxGuard');
+  assert.equal(scan('<mergeCells><mergeCell ref="XFD1:XFD100"/></mergeCells>').cellSlots, 100 * 16384);
+  // Un « > » dans une valeur entre guillemets ne cache pas la référence de la cellule.
+  assert.equal(scan('<row r="1"><c t="a>b" r="XFD1"/></row>').cellSlots, 16384);
+});
+
+test('relecture 2 : un identifiant « uuid: » vide passe à la colonne suivante (_id) ; caractère nul retiré', async () => {
+  const csv = Buffer.from('_uuid,_id,today,note\nuuid:,101,2026-01-15,a\nuuid:,102,2026-02-15,c\n');
+  const out = await parseSubmissions(csv);
+  assert.deepEqual(out.submissions.map((s) => s.externalId), ['101', '102']);
+  // Caractère nul d'une source JSON (Kobo) ou d'un .xlsx (_x0000_) : retiré (PostgreSQL le refuse dans un jsonb).
+  const { submissionsFromObjects } = require('../src/modules/monitoring/submissionsImport');
+  const [sub] = submissionsFromObjects([{ _uuid: 'u1', today: '2026-01-15', note: 'a\u0000b' }]);
+  assert.equal(sub.data.note, 'ab');
+});

@@ -32,6 +32,7 @@ const PG_CLIENT_ERRORS = {
   '23503': 'Données invalides.',          // foreign_key_violation
   '22P02': 'Données invalides.',          // invalid_text_representation (uuid, nombre…)
   '22021': 'Données invalides : caractère non autorisé.', // character_not_in_repertoire (octet nul…)
+  '22P05': 'Données invalides : caractère non autorisé.', // untranslatable_character (\u0000 dans un jsonb)
   // numeric_value_out_of_range : un montant ou une quantité dépasse la
   // précision de la colonne (ex. quantité × coût d'une facture > numeric(16,2)).
   '22003': 'Valeur hors limites : un montant ou une quantité est trop grand.',
@@ -83,6 +84,11 @@ function errorHandler(err, req, res, _next) {
     return res.status(400).json({ error: PG_CLIENT_ERRORS[err.code] });
   }
 
+  // Attente d'un verrou au-delà de lock_timeout (une autre mise à jour longue des mêmes données) :
+  // 503 « réessayez », jamais une connexion du pool bloquée indéfiniment ni une « erreur interne ».
+  if (err.code === '55P03') {
+    return res.status(503).json({ error: 'Une autre mise à jour des mêmes données est en cours : réessayez dans un instant.' });
+  }
   if (DB_UNAVAILABLE.has(err.code) || /Connection terminated|timeout exceeded when trying to connect/i.test(err.message || '')) {
     req.log?.error({ err }, 'base de données injoignable');
     return res.status(503).json({ error: 'Base de données injoignable : vérifiez que PostgreSQL est démarré, puis réessayez.' });

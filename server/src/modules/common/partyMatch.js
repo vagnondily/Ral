@@ -23,7 +23,11 @@ function orgKey(name) {
   return normPlace(String(name || '')).key.split(' ').filter((w) => w && !ORG_WORDS.has(w)).join(' ');
 }
 /** Clé d'un nom de personne ou d'un code : normalisé (accents, casse, ponctuation). */
-const personKey = (name) => normPlace(String(name || '')).key;
+/**
+ * Clé d'une personne (ou d'un code) : casse, accents et ponctuation ignorés, et ordre des mots
+ * aussi — les fiches écrivent « NOM Prénom » ou « Prénom NOM » pour la même personne.
+ */
+const personKey = (name) => normPlace(String(name || '')).key.split(' ').filter(Boolean).sort().join(' ');
 
 /** Variantes d'un libellé d'organisation : entier, puis avant « - », « / » ou « ( » (« TOMPY - Ampanihy » → « TOMPY »). */
 function orgVariants(text) {

@@ -1,5 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
-const { afterSitesChangedTx } = require('../settings/placeMatch.repository');
+const { afterSitesChangedTx, lockSubmissionLinksTx } = require('../settings/placeMatch.repository');
 const { sitePatchSql } = require('./sitePatch');
 const { chunkRows } = require('../../db/batch');
 const { summarizeVisits, collectionDays, buildCoverageMatrix } = require('./fieldMath');
@@ -61,6 +61,7 @@ async function createSiteTx(client, tenantId, s) {
   const code = siteCode(s);
   const { rows: dup } = await client.query('SELECT id FROM sites WHERE tenant_id = $1 AND code = $2', [tenantId, code]);
   if (dup.length) throw duplicateSite(dup[0].id);
+  await lockSubmissionLinksTx(client, tenantId); // avant toute écriture de sites (voir afterSitesChangedTx)
   const resolveOffice = `(SELECT c.office_id FROM field_office_communes c
        JOIN field_offices o ON o.id = c.office_id
       WHERE c.tenant_id = $1 AND lower(btrim(c.commune)) = lower(btrim($4))
@@ -90,6 +91,7 @@ async function updateSite(tenantId, id, patch) {
       const { rowCount } = await client.query('SELECT 1 FROM sites WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
       return rowCount > 0;
     }
+    await lockSubmissionLinksTx(client, tenantId); // avant toute écriture de sites (voir afterSitesChangedTx)
     const { rowCount } = await client.query(
       `UPDATE sites SET ${sets.join(', ')} WHERE tenant_id = $1 AND id = $2`, [tenantId, id, ...values]);
     await afterSitesChangedTx(client, tenantId); // registre modifié : lieux, bureau et formulaires reçus reliés à nouveau
@@ -177,6 +179,9 @@ async function rbmSites(tenantId, { month, risk } = {}) {
 /** Import the Master Data site referential (Region/District/Commune/Site/code). */
 async function importMasterData(tenantId, rows) {
   return withTenantTransaction(tenantId, async (client) => {
+    // Écriture du registre suivie d'un rattachement des formulaires reçus : verrou pris EN PREMIER
+    // (avant toute ligne de sites verrouillée), sinon interblocage avec une réapplication en cours.
+    await lockSubmissionLinksTx(client, tenantId);
     const clean = rows.filter((r) => r.district && r.commune && r.name);
     let inserted = 0;
     for (const r of clean) {
@@ -218,6 +223,9 @@ async function importMasterData(tenantId, rows) {
  */
 async function importPlanSites(tenantId, userId, sites) {
   return withTenantTransaction(tenantId, async (client) => {
+    // Écriture du registre suivie d'un rattachement des formulaires reçus : verrou pris EN PREMIER
+    // (avant toute ligne de sites verrouillée), sinon interblocage avec une réapplication en cours.
+    await lockSubmissionLinksTx(client, tenantId);
     // commune (minuscule) → bureau le plus spécifique.
     const { rows: perim } = await client.query(
       `SELECT lower(btrim(c.commune)) AS commune, c.office_id
@@ -670,6 +678,9 @@ async function deleteVisit(tenantId, id) {
  */
 async function importPlanning(tenantId, userId, month, rows) {
   return withTenantTransaction(tenantId, async (client) => {
+    // Écriture du registre suivie d'un rattachement des formulaires reçus : verrou pris EN PREMIER
+    // (avant toute ligne de sites verrouillée), sinon interblocage avec une réapplication en cours.
+    await lockSubmissionLinksTx(client, tenantId);
     const clean = rows.filter((r) => r.district && r.commune && r.name);
     const { map, inserted } = await upsertSites(client, tenantId, clean);
     let visits = 0;
@@ -900,6 +911,7 @@ async function locationsExportData(tenantId, { year }) {
  */
 async function importLocations(tenantId, userId, { year, rows }, { commit = false } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
+    if (commit) await lockSubmissionLinksTx(client, tenantId); // avant toute écriture de sites (voir afterSitesChangedTx)
     const { rows: existing } = await client.query('SELECT id, code, location_id FROM sites WHERE tenant_id = $1', [tenantId]);
     const byLoc = new Map(existing.filter((e) => e.location_id).map((e) => [e.location_id, e.id]));
     const byCode = new Map(existing.map((e) => [e.code, e.id]));
@@ -1026,6 +1038,9 @@ async function canonicalActivity(client, tenantId, activity) {
  */
 async function bulkUpdateSites(tenantId, userId, { year, siteIds, set = {}, status = null, plan = null }) {
   return withTenantTransaction(tenantId, async (client) => {
+    // Écriture du registre suivie d'un rattachement des formulaires reçus : verrou pris EN PREMIER
+    // (avant toute ligne de sites verrouillée), sinon interblocage avec une réapplication en cours.
+    await lockSubmissionLinksTx(client, tenantId);
     const ids = [...new Set(siteIds)];
     const { rows: known } = await client.query('SELECT id FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[]) FOR UPDATE', [tenantId, ids]);
     if (known.length !== ids.length) throw badRequest('Site inconnu (ou hors de ce compte).');
@@ -1074,6 +1089,9 @@ async function bulkUpdateSites(tenantId, userId, { year, siteIds, set = {}, stat
  */
 async function addSite(tenantId, s, { today = new Date() } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
+    // Écriture du registre suivie d'un rattachement des formulaires reçus : verrou pris EN PREMIER
+    // (avant toute ligne de sites verrouillée), sinon interblocage avec une réapplication en cours.
+    await lockSubmissionLinksTx(client, tenantId);
     await assertOffice(client, tenantId, s.fieldOfficeId);
     const activity = await canonicalActivity(client, tenantId, s.activity);
     let row;

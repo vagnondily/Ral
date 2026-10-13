@@ -77,3 +77,10 @@ test('relecture : un code tenu par quelqu\'un d\'autre que le libellé reçu n\'
   // Sans libellé : le code seul reste une proposition.
   assert.equal(resolveAgent(idx, { raw: '85' }).status, 'propose');
 });
+
+test('relecture 2 : un même nom écrit « NOM Prénom » ou « Prénom NOM » désigne la même personne', () => {
+  const idx = buildAgentIndex([{ id: 'c1', partnerId: 'p1', name: 'RABE Luc', code: '7' }]);
+  const r = resolveAgent(idx, { raw: '99', label: 'Luc Rabe', partnerId: 'p1' });
+  assert.equal(r.status, 'nom');
+  assert.equal(r.agent.id, 'c1');
+});

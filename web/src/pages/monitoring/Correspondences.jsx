@@ -76,7 +76,7 @@ export default function CorrespondencesCard({ form, canEdit }) {
       return (
         <span className="corr-propose">
           <Badge tone="orange" icon={AlertTriangle}>{tr('proposé : {name}', { name: names.get(p.ids[0]) || '…' })}</Badge>
-          {canEdit && <Button size="sm" variant="ghost" icon={Link2} loading={saving === r.raw} onClick={() => save(r, p.ids[0])}>{tr('Confirmer')}</Button>}
+          {canEdit && r.editable !== false && <Button size="sm" variant="ghost" icon={Link2} loading={saving === r.raw} onClick={() => save(r, p.ids[0])}>{tr('Confirmer')}</Button>}
         </span>
       );
     }

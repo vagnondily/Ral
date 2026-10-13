@@ -205,7 +205,7 @@ async function parseLocationsWorkbook(buffer, { resolveOffice, activities = [] }
   const actSet = new Map(activities.map((a) => [norm(a), a]));
 
   const rows = []; const errors = []; const warnings = []; const seenIds = new Set();
-  const at = (row, k) => (map[k] ? row.getCell(map[k]) : null);
+  const at = (row, k) => (map[k] ? row.findCell(map[k]) || null : null); // lecture seule : aucune cellule créée
   const scale = (row, k, allowed, line, label) => {
     const raw = str(at(row, k)); if (raw === '') return 0;
     const n = Number(raw);
@@ -250,8 +250,8 @@ async function parseLocationsWorkbook(buffer, { resolveOffice, activities = [] }
     if ((lat != null && !(lat >= -90 && lat <= 90)) || (lng != null && !(lng >= -180 && lng <= 180))) errors.push({ line, message: 'Coordonnées GPS invalides.' });
     const monthStatus = {}; const planned = [];
     for (let m = 0; m < 12; m += 1) {
-      if (statusCol) { const v = norm(str(row.getCell(statusCol + m))); if (v === 'active' || v === '1') monthStatus[m + 1] = true; else if (v === 'inactive' || v === '0') monthStatus[m + 1] = false; else if (v) errors.push({ line, message: `Statut du mois ${m + 1} « ${v} » : Active ou Inactive attendu.` }); }
-      if (planCol) { const v = norm(str(row.getCell(planCol + m))); if (v === 'p' || v === 'x' || v === '1') planned.push(m + 1); }
+      if (statusCol) { const v = norm(str(row.findCell(statusCol + m))); if (v === 'active' || v === '1') monthStatus[m + 1] = true; else if (v === 'inactive' || v === '0') monthStatus[m + 1] = false; else if (v) errors.push({ line, message: `Statut du mois ${m + 1} « ${v} » : Active ou Inactive attendu.` }); }
+      if (planCol) { const v = norm(str(row.findCell(planCol + m))); if (v === 'p' || v === 'x' || v === '1') planned.push(m + 1); }
     }
     const rec = {
       line, locationId: id, name, poiSubtype: poi, activity: activity || actRaw || null, officeId: office ? office.id : null,

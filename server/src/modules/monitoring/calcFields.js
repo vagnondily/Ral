@@ -32,7 +32,7 @@ function tokenize(src) {
   const two = { '==': '==', '!=': '!=', '<>': '!=', '<=': '<=', '>=': '>=', '&&': '&&', '||': '||' };
   while (i < s.length) {
     const c = s[i];
-    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') { i += 1; continue; }
+    if (/\s/.test(c)) { i += 1; continue; } // tout blanc Unicode (espace insécable, BOM, tabulation verticale…)
     if (c === '[') { // [nom de champ avec espaces]
       const end = s.indexOf(']', i + 1);
       if (end < 0) throw new CalcError('Crochet [ non fermé', i);
@@ -88,17 +88,32 @@ function parse(src) {
   function parseExpr() { return parseOr(); }
   function parseOr() { let a = parseAnd(); while (isOp('||')) { eat(); a = { k: 'bin', op: '||', a, b: parseAnd() }; } return a; }
   function parseAnd() { let a = parseNot(); while (isOp('&&')) { eat(); a = { k: 'bin', op: '&&', a, b: parseNot() }; } return a; }
-  // NOT porte sur toute la comparaison qui suit, comme dans Tableau et SQL : NOT x = 1 → NOT (x = 1).
-  function parseNot() { if (isOp('!')) { eat(); return { k: 'un', op: '!', a: parseNot() }; } return parseCmp(); }
-  function parseCmp() {
-    let a = parseAdd();
-    while (peek() && peek().t === 'op' && ['==', '!=', '<', '<=', '>', '>='].includes(peek().v)) {
-      const op = eat().v; a = { k: 'bin', op, a, b: parseAdd() };
-    }
-    return a;
+  /*
+   * NOT porte sur toute la COMPARAISON qui suit, comme dans Tableau et SQL : NOT x = null → NOT (x = null),
+   * NOT a + b > 5 → NOT ((a + b) > 5). Sans comparaison, il ne porte que sur le terme qui suit, comme
+   * un signe : NOT isnull(a) + NOT isnull(b) compte les réponses renseignées (0 à 2).
+   */
+  const isCmp = () => peek() && peek().t === 'op' && ['==', '!=', '<', '<=', '>', '>='].includes(peek().v);
+  function parseNot() {
+    if (!isOp('!')) return parseCmp();
+    eat();
+    if (isOp('!')) return { k: 'un', op: '!', a: parseNot() }; // NOT NOT x = 1 → NOT (NOT (x = 1))
+    const start = p;
+    const left = parseAdd();
+    if (isCmp()) return { k: 'un', op: '!', a: parseCmpRest(left) };
+    p = start; // pas de comparaison : NOT ne s'applique qu'au terme suivant
+    return parseCmpRest(parseAddRest(parseMulRest({ k: 'un', op: '!', a: parseUnary() })));
   }
-  function parseAdd() { let a = parseMul(); while (isOp('+') || isOp('-')) { const op = eat().v; a = { k: 'bin', op, a, b: parseMul() }; } return a; }
-  function parseMul() { let a = parseUnary(); while (isOp('*') || isOp('/') || isOp('%')) { const op = eat().v; a = { k: 'bin', op, a, b: parseUnary() }; } return a; }
+  function parseCmp() { return parseCmpRest(parseAdd()); }
+  function parseCmpRest(a) {
+    let left = a;
+    while (isCmp()) { const op = eat().v; left = { k: 'bin', op, a: left, b: parseAdd() }; }
+    return left;
+  }
+  function parseAdd() { return parseAddRest(parseMul()); }
+  function parseAddRest(a) { let left = a; while (isOp('+') || isOp('-')) { const op = eat().v; left = { k: 'bin', op, a: left, b: parseMul() }; } return left; }
+  function parseMul() { return parseMulRest(parseUnary()); }
+  function parseMulRest(a) { let left = a; while (isOp('*') || isOp('/') || isOp('%')) { const op = eat().v; left = { k: 'bin', op, a: left, b: parseUnary() }; } return left; }
   function parseUnary() { if (isOp('-') || isOp('!')) { const op = eat().v; return { k: 'un', op, a: parseUnary() }; } return parsePrimary(); }
   function parsePrimary() {
     const tk = peek();
@@ -171,7 +186,7 @@ const FUNCTIONS = [
     description: '1 si la valeur est égale à l\'une des valeurs listées (nombres ou textes, sans tenir compte des majuscules), sinon 0 ; vide si la valeur est vide (réponse manquante), sauf si la liste contient "" ou null.',
     example: 'in(Field_office, 6, 7, 9)',
     // Comme x = 6 OR x = 7 : une réponse manquante n'est pas un « non ».
-    fn: (a) => (isBlank(a[0]) && !a.slice(1).some(isBlank) ? null : a.slice(1).some((x) => sameValue(a[0], x)) ? 1 : 0) },
+    fn: (a) => (isBlank(a[0]) ? null : a.slice(1).some((x) => sameValue(a[0], x)) ? 1 : 0) },
   { name: 'between', category: 'Logique', syntax: 'between(valeur, min, max)', min: 3, max: 3,
     description: '1 si la valeur est un nombre compris entre min et max (bornes incluses), sinon 0 ; vide si la valeur est vide ou n\'est pas un nombre.',
     example: 'between(age_mois, 6, 59)',
@@ -297,7 +312,11 @@ function evalAst(node, get) {
     case 'call': {
       const def = BY_NAME.get(node.name);
       if (!def) throw new CalcError(`Fonction inconnue « ${node.name} »`, node.at);
-      return def.fn(node.args.map((x) => evalAst(x, get)));
+      const args = node.args.map((x) => evalAst(x, get));
+      // in(x, …) sur une réponse manquante : vide, sauf si la liste ÉCRIT la valeur vide (in(x, "") ou in(x, null)) —
+      // une variable de la liste qui se trouve vide ne compte pas comme ce test explicite.
+      if (def.name === 'in' && isBlank(args[0])) return node.args.slice(1).some(blankLiteral) ? 1 : null;
+      return def.fn(args);
     }
     case 'bin': {
       const { op } = node;

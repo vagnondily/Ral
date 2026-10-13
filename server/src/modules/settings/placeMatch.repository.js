@@ -194,7 +194,11 @@ async function attachUnassignedSitesTx(client, tenantId) {
  * par chaque fonction de réapplication.
  */
 async function lockSubmissionLinksTx(client, tenantId) {
+  // Attente bornée : au-delà de 20 s (un gros import en cours), 503 « réessayez » plutôt
+  // qu'une connexion du pool immobilisée sans fin. Sans effet si le verrou est déjà détenu.
+  await client.query("SET LOCAL lock_timeout = '20s'");
   await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`mems:submissions-apply:${tenantId}`]);
+  await client.query('SET LOCAL lock_timeout = DEFAULT');
 }
 
 /**
@@ -230,19 +234,32 @@ async function loadOfficeIndexTx(client, tenantId) {
  * @param {'field_office'|'site'} dimension
  * @returns {Map<formId, Map<value, label>>}
  */
-async function choiceLabelsTx(client, tenantId, dimension) {
+/**
+ * Catalogue des champs et colonnes réellement présentes (soumission la plus récente de chaque
+ * fiche), lus UNE fois et partagés par les dimensions (bureau, partenaire, agent).
+ */
+async function choiceContextTx(client, tenantId) {
   const { rows: fields } = await client.query(
     'SELECT form_id AS "formId", name, list_name AS "listName" FROM monitoring_form_fields WHERE tenant_id = $1', [tenantId]);
+  // Colonnes réellement présentes dans les données : le XLSForm peut décrire « EnuPartner » alors
+  // que l'export porte « CPList ». Une seule soumission par fiche est ouverte (LATERAL … LIMIT 1),
+  // jamais les clés JSON de toutes les soumissions.
+  const { rows: samples } = await client.query(
+    `SELECT f.id AS "formId", ARRAY(SELECT jsonb_object_keys(s.data)) AS keys
+       FROM monitoring_forms f
+       CROSS JOIN LATERAL (SELECT data FROM monitoring_submissions ms
+                            WHERE ms.tenant_id = $1 AND ms.form_id = f.id ORDER BY ms.created_at DESC LIMIT 1) s
+      WHERE f.tenant_id = $1`, [tenantId]);
+  const dataKeys = new Map(samples.map((r) => [r.formId, new Set((r.keys || []).map((k) => k.toLowerCase()))]));
+  return { fields, dataKeys };
+}
+
+async function choiceLabelsTx(client, tenantId, dimension, ctx) {
+  const { fields, dataKeys } = ctx || await choiceContextTx(client, tenantId);
   const { rows: overrides } = await client.query(
     'SELECT form_id AS "formId", column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND dimension = $2',
     [tenantId, dimension]);
   const forced = new Map(overrides.map((o) => [o.formId, (o.columnName || '').trim()]));
-  // Colonnes réellement présentes dans les données (soumission la plus récente de chaque fiche) :
-  // le XLSForm peut décrire « EnuPartner » alors que l'export porte « CPList ».
-  const { rows: samples } = await client.query(
-    `SELECT DISTINCT ON (form_id) form_id AS "formId", ARRAY(SELECT jsonb_object_keys(data)) AS keys
-       FROM monitoring_submissions WHERE tenant_id = $1 ORDER BY form_id, created_at DESC`, [tenantId]);
-  const dataKeys = new Map(samples.map((r) => [r.formId, new Set((r.keys || []).map((k) => k.toLowerCase()))]));
   const byForm = new Map();
   for (const f of fields) { if (!byForm.has(f.formId)) byForm.set(f.formId, []); byForm.get(f.formId).push(f); }
   const lists = [];
@@ -366,8 +383,9 @@ async function applySubmissionPartiesTx(client, tenantId, links) {
   await lockSubmissionLinksTx(client, tenantId);
   const linksMap = links || await loadValueLinksTx(client, tenantId);
   const { partnerIndex, agentIndex } = await loadPartiesTx(client, tenantId);
-  const pLabels = await choiceLabelsTx(client, tenantId, 'partner');
-  const aLabels = await choiceLabelsTx(client, tenantId, 'agent');
+  const ctx = await choiceContextTx(client, tenantId);
+  const pLabels = await choiceLabelsTx(client, tenantId, 'partner', ctx);
+  const aLabels = await choiceLabelsTx(client, tenantId, 'agent', ctx);
   const { rows: combos } = await client.query(
     `SELECT form_id AS "formId", COALESCE(partner, '') AS p, COALESCE(agent, '') AS a, count(*)::int AS n
        FROM monitoring_submissions WHERE tenant_id = $1 GROUP BY 1, 2, 3`, [tenantId]);

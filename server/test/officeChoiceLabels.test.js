@@ -11,7 +11,7 @@ function fakeClient(fields, choices, overrides = [], samples = []) {
       calls.push(params);
       if (/FROM monitoring_form_fields/.test(sql)) return { rows: fields };
       if (/FROM monitoring_field_map/.test(sql)) return { rows: overrides.filter((o) => o.dimension === params[1]) };
-      if (/DISTINCT ON \(form_id\)/.test(sql)) return { rows: samples };
+      if (/CROSS JOIN LATERAL/.test(sql)) return { rows: samples }; // dernière soumission de chaque fiche
       const [, forms, lists] = params;
       return { rows: choices.filter((c) => forms.some((f, i) => f === c.formId && lists[i] === c.listName)) };
     },

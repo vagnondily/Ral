@@ -156,7 +156,11 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
   const importLink = () => run(() => api.linkPull(form.id, { url: link.url.trim(), token: link.token.trim() || undefined, full: link.full || undefined }));
   const importKobo = () => run(() => api.monKoboPull(form.id, { baseUrl: kobo.baseUrl.trim(), assetUid: kobo.assetUid.trim(), token: kobo.token.trim() }));
   // « Actualiser maintenant » relit exactement la source affichée sur la carte.
-  const refreshRemembered = () => { setSource('link'); run(() => api.linkPull(form.id, { url: form.sourceUrl, token: refreshToken.trim() || undefined })); };
+  // Jeton : celui saisi ici, sinon celui déjà saisi pour ce lien pendant la session (lien protégé).
+  const refreshRemembered = () => {
+    setSource('link');
+    run(() => api.linkPull(form.id, { url: form.sourceUrl, token: refreshToken.trim() || link.token.trim() || undefined }));
+  };
 
   if (!canEdit) {
     return <Alert tone="info">{tr('Lecture seule : l\'import de données est réservé aux gestionnaires et administrateurs.')}</Alert>;
@@ -176,10 +180,9 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
               <strong>{tr('Source mémorisée')}</strong>
               <div className="site-meta mono" title={form.sourceUrl}>{form.sourceUrl}</div>
             </div>
-            {rememberedNeedsToken && (
-              <input className="input mono wiz-token" type="password" autoComplete="off" value={refreshToken}
-                placeholder={tr('Jeton API')} aria-label={tr('Jeton API')} onChange={(e) => setRefreshToken(e.target.value)} />
-            )}
+            <input className="input mono wiz-token" type="password" autoComplete="off" value={refreshToken}
+              placeholder={rememberedNeedsToken ? tr('Jeton API') : tr('Jeton (facultatif)')}
+              aria-label={rememberedNeedsToken ? tr('Jeton API') : tr('Jeton (facultatif)')} onChange={(e) => setRefreshToken(e.target.value)} />
             <Button variant="secondary" icon={RefreshCw} loading={busy} disabled={rememberedNeedsToken && !refreshToken.trim()}
               title={rememberedNeedsToken && !refreshToken.trim() ? tr('Saisissez le jeton API Kobo pour actualiser cette source.') : undefined}
               onClick={refreshRemembered}>{tr('Actualiser maintenant')}</Button>

@@ -8,6 +8,8 @@ const { readXls, isOleFile } = require('../monitoring/xlsReader');
 const { breakdownFromChoices } = require('./xlsformAdmin');
 const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
 const { sheetTable } = require('../common/sheetRows');
+const { sniffFile } = require('../common/fileSniff');
+const { assertZipEntries, zipLimitsFromEnv } = require('../common/zipGuard');
 
 /**
  * Import du découpage administratif (un fichier PAR PAYS / tenant) :
@@ -209,9 +211,15 @@ async function workbookSheets(buffer) {
     return new Map(Object.entries(xls.sheets).map(([k, v]) => [k.trim().toLowerCase(), v]));
   }
   const wb = await loadWorkbook(buffer);
-  const out = new Map();
-  for (const ws of wb.worksheets) out.set(ws.name.trim().toLowerCase(), sheetTable(ws));
-  return out;
+  // Feuilles lues À LA DEMANDE : une feuille que l'import n'utilise pas (même très large) n'est jamais parcourue.
+  const byName = new Map(wb.worksheets.map((ws) => [ws.name.trim().toLowerCase(), ws]));
+  const cache = new Map();
+  return {
+    get(name) {
+      if (!cache.has(name)) cache.set(name, byName.has(name) ? sheetTable(byName.get(name)) : undefined);
+      return cache.get(name);
+    },
+  };
 }
 
 function rowsToObjects(rows = []) {
@@ -243,6 +251,10 @@ async function parseUpload(buffer, filename, extra = {}) {
   else if (ext === 'csv' || ext === 'txt') out = parseCsv(buffer.toString('utf8'));
   else if (ext === 'dbf') out = await fromShapefile({ dbf: buffer, shp: extra.shp || null, prj: extra.prj || null });
   else if (ext === 'zip') {
+    // Garde de décompression AVANT d'ouvrir l'archive (comme tous les autres imports).
+    const sniff = sniffFile(buffer);
+    if (sniff.kind !== 'zip' || !sniff.entries) throw new Error('Archive .zip illisible.');
+    assertZipEntries(sniff.entries, zipLimitsFromEnv(process.env), { archiveBytes: buffer.length });
     const zip = new AdmZip(buffer);
     const entries = zip.getEntries();
     const shp = pickShapefile(entries);

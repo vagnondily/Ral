@@ -5,12 +5,20 @@ const { AppError } = require('../src/middleware/errors');
 
 const TENANT = '00000000-0000-0000-0000-000000000001';
 
-/** Client pg simulé : enregistre chaque requête, répond selon `reply(sql, params)`. */
+/** Verrou de réapplication (SET LOCAL lock_timeout + pg_advisory_xact_lock) : infrastructure, pas une écriture. */
+const isLock = (sql) => /^SET LOCAL lock_timeout|pg_advisory_xact_lock/.test(sql);
+
+/** Client pg simulé : enregistre chaque requête (hors verrou, gardé à part dans `all`), répond selon `reply(sql, params)`. */
 function fakeClient(reply) {
-  const calls = [];
+  const calls = []; const all = [];
   return {
-    calls,
-    async query(sql, params) { calls.push({ sql, params }); return reply(sql, params); },
+    calls, all,
+    async query(sql, params) {
+      all.push({ sql, params });
+      if (isLock(sql)) return { rows: [] };
+      calls.push({ sql, params });
+      return reply(sql, params);
+    },
   };
 }
 
@@ -76,4 +84,17 @@ test('rbm-38 : l\'import de planning complète un site existant sans rien écras
   assert.deepEqual(assigned.map((m) => m[1]).sort(), ['activity', 'adm2', 'adm3', 'adm4', 'field_office_id', 'fokontany']);
   // Chaque colonne garde la valeur du registre et ne prend celle de l'import que si elle est vide.
   for (const [, col, expr] of assigned) assert.equal(expr, `COALESCE(sites.${col}, EXCLUDED.${col})`, `colonne écrasée par l'import : ${col}`);
+});
+
+test('relecture : le verrou de réapplication est pris APRÈS la vérification (lecture seule) et AVANT l\'INSERT du site', async () => {
+  const client = fakeClient((sql) => {
+    if (sql.startsWith('SELECT id FROM sites')) return { rows: [] };
+    if (/^\s*INSERT INTO sites/.test(sql)) return { rows: [{ id: 'nouveau' }] };
+    return { rows: [], rowCount: 0 };
+  });
+  await createSiteTx(client, TENANT, { district: 'D', commune: 'C', name: 'N' });
+  const lock = client.all.findIndex((c) => /pg_advisory_xact_lock/.test(c.sql));
+  const insert = client.all.findIndex((c) => /^\s*INSERT INTO sites/.test(c.sql));
+  const check = client.all.findIndex((c) => c.sql.startsWith('SELECT id FROM sites'));
+  assert.ok(check < lock && lock < insert, `ordre vérification ${check} < verrou ${lock} < insert ${insert}`);
 });
