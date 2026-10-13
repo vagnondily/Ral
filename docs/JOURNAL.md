@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 13/10/2026 12:09 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 13/10/2026 12:30 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -30,7 +30,7 @@ _Dernière mise à jour : 13/10/2026 12:09 UTC_ — la branche `main` reçoit ch
 | Liaisons | Liaisons entre pages + rapprochement automatique des lieux importés | 🔄 | Analyse ✅ → [`docs/ANALYSE_LIAISONS.md`](ANALYSE_LIAISONS.md). **Lot 0** : 9 correctifs faits (commit local `cf0c46b`), relecture adverse en cours avant publication sur `main`. **Lot 2** : moteur de rapprochement des lieux (`4c22775`). **Lot 1** : réimport du découpage sans détacher les contrats (`afe463e`). Lots 0 à 2 publiés sur `main`. Prochaine étape : lot 3 (sites et bureaux rattachés au découpage, migration 048) |
 | Signalés 12/10 | Vos retours du jour | ✅ | régions du bureau · en-têtes figés · XLSForm (500 au réimport, gros fichiers, .xls) · concepteur (panneau gauche) · actions sur les fiches + rattachement au MMR |
 | Retours 13/10 | Plan par lots : [`PLAN_RETOURS_15_37.md`](PLAN_RETOURS_15_37.md). Retours n° 15 à 45 : soumissions = visites réalisées, Couverture & performance vide, carte, concepteur de rapport, Synthèse (vide, codes), configuration des indicateurs | 🔄 | Lot 1 en cours de réalisation (3 branches en parallèle). Détail dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) |
-| Contre-vérif. | 19 défauts confirmés par la contre-vérification des correctifs d'hier | 🔄 | Corrigés (`ef7ed78`) ; relecture → 16 points corrigés (`6241cb1`) ; contre-vérification → 7 points corrigés (`aec0c6c`, vérifiés sur une base jetable). Dernière contre-vérification ciblée en cours, puis publication sur `main` |
+| Contre-vérif. | Correctifs des imports, formules, correspondances et verrous (retours d'hier + 4 relectures) | ✅ | **Publié sur `main`** (`d8863bb`) : `ef7ed78` → `6241cb1` → `aec0c6c` → `d8863bb`. Dernier contrôle ciblé de la nouvelle garde Excel en cours |
 | Refonte | Refonte UI/UX : menu par objets métier, fiches, liaisons visibles ; Partenaires & TPM (fiche 360°, formations avec pré/post-test, notation des agents) | 🔄 | Spécification ✅ [`docs/REFONTE_UX.md`](REFONTE_UX.md) (`5f6a6ef`) : « le site au centre », 6 groupes / 24 entrées, 13 lots A à M. Décisions de la section 8 adoptées avec les valeurs recommandées (modifiables). **Lot A** (navigation, adresses, redirections) en cours |
 
 ---
@@ -285,5 +285,7 @@ _Dernière mise à jour : 13/10/2026 12:09 UTC_ — la branche `main` reçoit ch
 
 - **12:09** ✅ **Contre-vérification des correctifs : 7 points corrigés** (`aec0c6c`, sur la branche ; lint propre, 474 tests, build, balayage des pages sans erreur hors fonds de carte en ligne) — une formule « NOT NOT … » qui faisait exploser le temps de calcul, une zone fusionnée cachée dans un commentaire du classeur, des écritures qui attendaient le verrou en occupant le pool de connexions (les autres utilisateurs ne pouvaient plus lire), le caractère nul d'une source Kobo, un lien protégé sans message clair. **Vérifié sur une base jetable** : pendant qu'un gros import tient le verrou, les lectures restent rapides (0,1 à 0,5 s) ; 20 modifications de sites simultanées aboutissent 2,8 s après sa libération (un premier essai montrait 15 s : les attentes repartaient toutes au même instant — corrigé par un délai tiré au hasard) ; au-delà de 20 s d'attente, message « réessayez dans un instant » (503) au lieu d'un blocage. Dernière contre-vérification ciblée lancée avant publication sur `main`.
 - **12:09** 📥 **Retour n° 45** : rapport infographique SMP (chiffres clés + 8 sections par thème, résultats en % avec n et interprétation) et guide de visualisation des données (palette, éléments d'un graphique, choix du graphique, erreurs à éviter) — ajoutés au lot 7 : 4ᵉ mise en page « Fiche infographique » et règles du guide comme réglages par défaut des blocs.
+
+- **12:30** ✅ **Publié sur `main`** (`d8863bb`) — la contre-vérification de `aec0c6c` a relevé 5 points, tous corrigés : la garde Excel lit désormais chaque fichier en une seule passe, dans l'ordre, en temps linéaire (un littéral de DOCTYPE pouvait masquer une fusion géante et un fichier de 6 Ko épuisait la mémoire ; 400 Ko d'ouvertures non fermées bloquaient l'API 15 s, maintenant 29 ms) ; la réparation au démarrage prend le verrou des rattachements en premier (plus d'interblocage avec une modification de site) ; un interblocage éventuel répond « réessayez » (503) au lieu d'« erreur interne » ; les jetons de liens saisis sont oubliés à la déconnexion. Vérifié : 476 tests, lint, build, balayage des pages ; les 14 classeurs réels donnent exactement les mêmes résultats d'import ; tous les scripts de reproduction du vérificateur sont refusés.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
