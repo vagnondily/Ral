@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 12/10/2026 16:33 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 13/10/2026 05:46 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -223,5 +223,10 @@ _Dernière mise à jour : 12/10/2026 16:33 UTC_ — la branche `main` reçoit ch
   - **Aperçu de formule** : ne voit que les champs calculés placés avant (comme le calcul réel) et signale une référence à un champ placé après.
   - **Indicateur nombre ou somme sans réponse** : « Non évalué ». **Import** : un doublon du fichier compte une fois (compte rendu juste). Position d'erreur exacte malgré des espaces en tête ; nom de fichier avec « ’ » ou « – » accepté.
   - La page « Aide aux calculs » décrit ces règles.
+
+### Mardi 13 octobre 2026
+
+- **05:46** ℹ️ Le conteneur de travail a redémarré pendant la nuit (base de données, API et interface arrêtées) ; tout est relancé, rien n'est perdu : base de dev intacte (59 migrations, 562 soumissions), tout le travail d'hier est sur `main` (`6594567`).
+- **05:46** 🔄 **Contre-vérification des 11 correctifs d'hier** (`520ce62`) : 5 vérificateurs indépendants, un par domaine (garde des imports Excel, lecture des lignes, formules et indicateurs, correspondances, import), chargés d'essayer de les contourner et de chercher des régressions sur vos fichiers réels ; chaque constat est ensuite reproduit par un second agent avant d'être retenu.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
