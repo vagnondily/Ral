@@ -810,7 +810,7 @@ Questions ouvertes de la conception, tranchées pour avancer (modifiables) :
 - Index `monitoring_submissions (tenant_id, period_month) WHERE NOT excluded` : seulement si le banc le justifie, migration 065.
 - Plafonds : 60 mois par période, 12 mois pour la liste des visites.
 - JIT PostgreSQL désactivé sur le pool de l'API (`-c jit=off`), mesuré avant / après.
-- Banc de performance : JAMAIS de création de base ni de migration sur le serveur PostgreSQL de l'application (rôle commun) — base de banc dans un serveur jetable (`initdb` + `pg_ctl` sur un port libre, dans le scratchpad), arrêté après.
+- Banc de performance : depuis `cc89c57`, migrer une base jetable ne remet plus le mot de passe de `mems2_app` ; une base de banc (préfixe `bench_`) sur le même serveur est donc permise, supprimée après. Jamais de modification de `mems_app`, ni de la base `mems2_tpm`.
 
 ## Corrections exigées par la critique de complétude
 
