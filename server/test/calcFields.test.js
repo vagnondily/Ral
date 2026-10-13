@@ -189,7 +189,11 @@ test('relecture : in() et contains() sur une réponse manquante donnent vide (ni
 
 test('relecture 2 : NOT sans comparaison ne porte que sur le terme suivant (compte des réponses renseignées)', () => {
   assert.equal(evalExpression('NOT isnull(a) + NOT isnull(b) + NOT isnull(c)', { a: 1, c: 2 }), 2);
-  assert.equal(evalExpression('NOT a + b > 5', { a: 3, b: 4 }), 0); // NOT ((a + b) > 5)
+  // Devant un calcul suivi d'une comparaison, NOT ne porte que sur le premier terme : un compte de NOT reste juste.
+  assert.equal(evalExpression('NOT isnull(a) + NOT isnull(b) = 2', { a: 1 }), 0);
+  assert.equal(evalExpression('NOT isnull(a) + NOT isnull(b) = 2', { a: 1, b: 1 }), 1);
+  assert.equal(evalExpression('NOT isnull(a) + NOT isnull(b) >= 1', { a: 1, b: 1 }), 1);
+  assert.equal(evalExpression('NOT NOT x + 1', { x: 0 }), 1);
   assert.equal(evalExpression('NOT NOT x = 1', { x: 1 }), 1);
 });
 
@@ -202,4 +206,11 @@ test('relecture 2 : in() — seul un vide ÉCRIT dans la liste teste le vide ; u
   assert.equal(evalExpression('in(x, y)', {}), null);
   assert.equal(evalExpression('in(x, "", 6)', {}), 1);
   assert.equal(evalExpression('in(x, null)', {}), 1);
+});
+
+test('relecture 3 : NOT imbriqués analysés en temps linéaire ; au-delà de 64 niveaux, erreur claire', () => {
+  const t0 = Date.now();
+  assert.equal(validateExpression(`${'NOT('.repeat(60)}x${')'.repeat(60)}`), null);
+  assert.ok(Date.now() - t0 < 50);
+  assert.match(validateExpression(`${'('.repeat(70)}x${')'.repeat(70)}`), /trop imbriquée/);
 });

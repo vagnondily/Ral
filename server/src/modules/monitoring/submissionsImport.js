@@ -183,10 +183,12 @@ function externalIdOf(picks, values) {
   return null;
 }
 
-// Caractère nul (« _x0000_ » d'un .xlsx, \u0000 d'un JSON) : PostgreSQL le refuse dans un texte ou un jsonb.
+// Caractère nul (« _x0000_ » d'un .xlsx, \u0000 d'un JSON) retiré, demi-paire UTF-16 isolée (« _xD800_ »,
+// \ud800) remplacée par « � » : PostgreSQL refuse les deux dans un texte ou un jsonb (toute l'importation
+// échouerait, alors que la vérification l'avait acceptée).
 // eslint-disable-next-line no-control-regex -- on retire justement ce caractère de contrôle
 const NUL = /\u0000/g;
-const noNul = (v) => (typeof v === 'string' && v.includes('\u0000') ? v.replace(NUL, '') : v);
+const noNul = (v) => (typeof v === 'string' ? (v.includes('\u0000') ? v.replace(NUL, '') : v).toWellFormed() : v);
 
 function rowToSubmission(rawHeaders, rawValues, picks, source) {
   const headers = rawHeaders.map(noNul);
@@ -352,7 +354,7 @@ function submissionsFromObjects(objects, source = 'kobo') {
     const { submission: s, badDate } = rowToSubmission(headers, values, buildLookup(headers, [values]), source);
     if (badDate) { bad.push({ line: index + 1, ...badDate }); return; }
     // Kobo identifiers live on the raw object, not always flattened.
-    s.externalId = canonicalExternalId(obj._uuid || obj['meta/instanceID']) || s.externalId || (obj._id != null ? String(obj._id) : null);
+    s.externalId = canonicalExternalId(noNul(obj._uuid || obj['meta/instanceID'])) || s.externalId || (obj._id != null ? noNul(String(obj._id)) : null);
     if (!s.periodMonth) {
       const fallback = parseCollectionDate(obj._submission_time);
       if (fallback.ok) s.periodMonth = fallback.month;

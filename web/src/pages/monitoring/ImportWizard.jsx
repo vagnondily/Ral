@@ -117,6 +117,11 @@ function ImportReport({ result, onGoData, onGoResults, onRestart }) {
   );
 }
 
+// Jetons saisis pendant la session, par fiche et par lien : gardés EN MÉMOIRE seulement (jamais
+// dans le stockage du navigateur), pour survivre à un changement d'onglet de la fiche.
+const sessionTokens = new Map();
+const tokenKey = (formId, url) => `${formId}|${String(url || '').trim()}`;
+
 export default function ImportWizard({ form, canEdit, onImported, onGoData, onGoResults }) {
   const { tr } = useI18n();
   const fileRef = useRef(null);
@@ -153,13 +158,18 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
     catch (e) { setError(e); } finally { setBusy(false); }
   }
   const importFile = () => run(() => api.monImport(form.id, file));
-  const importLink = () => run(() => api.linkPull(form.id, { url: link.url.trim(), token: link.token.trim() || undefined, full: link.full || undefined }));
+  const importLink = () => {
+    if (link.token.trim()) sessionTokens.set(tokenKey(form.id, link.url), link.token.trim());
+    return run(() => api.linkPull(form.id, { url: link.url.trim(), token: link.token.trim() || undefined, full: link.full || undefined }));
+  };
   const importKobo = () => run(() => api.monKoboPull(form.id, { baseUrl: kobo.baseUrl.trim(), assetUid: kobo.assetUid.trim(), token: kobo.token.trim() }));
   // « Actualiser maintenant » relit exactement la source affichée sur la carte.
   // Jeton : celui saisi ici, sinon celui déjà saisi pour ce lien pendant la session (lien protégé).
   const refreshRemembered = () => {
     setSource('link');
-    run(() => api.linkPull(form.id, { url: form.sourceUrl, token: refreshToken.trim() || link.token.trim() || undefined }));
+    const token = refreshToken.trim() || link.token.trim() || sessionTokens.get(tokenKey(form.id, form.sourceUrl)) || '';
+    if (token) sessionTokens.set(tokenKey(form.id, form.sourceUrl), token);
+    run(() => api.linkPull(form.id, { url: form.sourceUrl, token: token || undefined }));
   };
 
   if (!canEdit) {

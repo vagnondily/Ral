@@ -36,9 +36,13 @@ const MAX_ROW = 1048576; // limites d'une feuille Excel
 const MAX_COL = 16384;
 const IGNORE_NODES = ['dataValidations', 'conditionalFormatting', 'drawing', 'picture', 'extLst'];
 // Balise <mergeCell …>, <col …>, <row …> ou <c …> (préfixe d'espace de noms possible), avec ses attributs.
-// Les attributs sont lus en respectant les guillemets : un « > » dans une valeur entre guillemets ne coupe pas la balise.
-const TAG = /<(?:[\w.-]+:)?(mergeCell|col|row|c)(?=[\s>/])((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
-const CELL_REF = /(?:^|\s)r\s*=\s*(?:"([^"]*)"|'([^']*)')/;
+// Les attributs sont lus en respectant les guillemets : un « > » dans une valeur entre guillemets ne coupe
+// pas la balise. Une valeur d'attribut XML ne peut pas contenir « < » : un guillemet laissé ouvert ne
+// peut donc jamais avaler les balises suivantes (elles restent vues par la garde).
+const TAG = /<(?:[\w.-]+:)?(mergeCell|col|row|c)(?=[\s>/])((?:[^<>"']|"[^"<]*"|'[^'<]*')*)>/g;
+// Commentaires, sections CDATA et instructions de traitement : ignorés par ExcelJS, retirés avant l'examen
+// (un « <row ' » placé dans un commentaire ne doit rien masquer).
+const NOT_MARKUP = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>/g;
 const ATTR = /([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
 
@@ -100,14 +104,15 @@ function refArea(ref) {
 function scanSheetXml(xml) {
   let merged = 0; let maxCol = 0; let unreadable = null;
   let cellSlots = 0; let inRow = false; let rowMax = 0; let pos = 0;
-  for (const m of String(xml || '').matchAll(TAG)) {
+  const text = String(xml || '');
+  for (const m of (text.includes('<!') || text.includes('<?') ? text.replace(NOT_MARKUP, ' ') : text).matchAll(TAG)) {
     if (m[1] === 'row') { cellSlots += rowMax; inRow = true; rowMax = 0; pos = 0; continue; }
     if (m[1] === 'c') {
       if (!inRow) continue; // <c> hors d'une ligne (calcChain…) : rien de créé dans une feuille
-      const ref = CELL_REF.exec(m[2]);
-      if (ref) {
-        const raw = ref[1] ?? ref[2];
-        const col = /^\s*\$?([A-Za-z]{1,3})\$?\d/.exec(raw.includes('&') ? decodeXml(raw) : raw);
+      // Référence lue parmi les attributs analysés (jamais une sous-chaîne d'une autre valeur).
+      const raw = attributes(m[2]).r;
+      if (raw !== undefined) {
+        const col = /^\s*\$?([A-Za-z]{1,3})\$?\d/.exec(raw);
         pos = col ? colNumber(col[1].toUpperCase()) : -1;
         if (pos < 1 || pos > MAX_COL) { unreadable = unreadable || `référence de cellule hors limites « ${String(raw).slice(0, 20)} »`; continue; }
       } else pos += 1; // cellule sans référence : la suivante de la ligne

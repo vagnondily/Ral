@@ -8,7 +8,7 @@ const { computeCalcFields, checkExpression, previewCalc, makeGetter } = require(
 const { buildLookup, groupPathRenamer, TRIM_CLASS } = require('./submissionsImport');
 const { templateForActivity, moduleLabel, suggestBindings, indicatorFromItem } = require('./indicatorTemplates');
 const { OTHER_VALUES } = require('./memsMapping');
-const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx, loadPartiesTx, lockSubmissionLinksTx } = require('../settings/placeMatch.repository');
+const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx, loadPartiesTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
 const { resolvePartner, resolveAgent } = require('../common/partyMatch');
 
 /** Charge les champs calculés d'une fiche (ordre), pour l'analyse et la grille. */
@@ -87,8 +87,7 @@ async function createForm(tenantId, { code, label }) {
  * couverture et au plan de suivi. `undefined` = inchangé, `null` = détacher.
  */
 async function updateForm(tenantId, id, { label, active, activityCategory }) {
-  return withTenantTransaction(tenantId, async (client) => {
-    if (activityCategory !== undefined) await lockSubmissionLinksTx(client, tenantId);
+  return (activityCategory !== undefined ? withSubmissionLinks : withTenantTransaction)(tenantId, async (client) => {
     const { rowCount } = await client.query(
       `UPDATE monitoring_forms SET label = COALESCE($3, label), active = COALESCE($4, active),
               activity_category = CASE WHEN $5::boolean THEN $6 ELSE activity_category END, updated_at = now()
@@ -569,8 +568,7 @@ async function resetMemsMapping(tenantId, formId, dimension) {
  * dimensions laissées en automatique (valeurs posées à l'import conservées).
  */
 async function applyMappingToSubmissions(tenantId, formId) {
-  return withTenantTransaction(tenantId, async (client) => {
-    await lockSubmissionLinksTx(client, tenantId); // avant de toucher aux soumissions : jamais d'interblocage
+  return withSubmissionLinks(tenantId, async (client) => {
     const { overrides, updated } = await reliftSubmissionsTx(client, tenantId, formId);
     // Les colonnes de lieu/bureau/site ont pu changer : rattachement rejoué (même transaction).
     const geo = await applySubmissionsGeoTx(client, tenantId);
@@ -686,8 +684,7 @@ async function importDefinition(tenantId, { code, label }, fields, choicesMap) {
 }
 
 async function importSubmissions(tenantId, formId, submissions, { variables } = {}) {
-  return withTenantTransaction(tenantId, async (client) => {
-    await lockSubmissionLinksTx(client, tenantId); // avant d'écrire les soumissions : jamais d'interblocage
+  return withSubmissionLinks(tenantId, async (client) => {
     // Confirm the form belongs to the tenant.
     const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
     if (!f[0]) return null;
@@ -856,9 +853,8 @@ async function formCorrespondences(tenantId, formId, dimension) {
  */
 async function setCorrespondence(tenantId, userId, formId, { dimension, raw, mode, targetId }) {
   const d = CORR[dimension];
-  return withTenantTransaction(tenantId, async (client) => {
+  return withSubmissionLinks(tenantId, async (client) => {
     // Avant d'enregistrer la correction : la réapplication voit celles des autres transactions.
-    await lockSubmissionLinksTx(client, tenantId);
     const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
     if (!f[0]) return null;
     if (mode === 'auto') {

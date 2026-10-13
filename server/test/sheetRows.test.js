@@ -89,3 +89,11 @@ test('relecture 2 : un identifiant « uuid: » vide passe à la colonne suivante
   const [sub] = submissionsFromObjects([{ _uuid: 'u1', today: '2026-01-15', note: 'a\u0000b' }]);
   assert.equal(sub.data.note, 'ab');
 });
+
+test('relecture 3 : un guillemet ouvert dans un commentaire ne masque aucune balise ; « r » lu parmi les attributs', () => {
+  const { scanSheetXml: scan } = require('../src/modules/common/xlsxGuard');
+  const hidden = scan('<!--<row \'--><sheetData><row r="1"/></sheetData><mergeCells><mergeCell ref="A7:XFD1048576"/></mergeCells><!--\'-->');
+  assert.ok(hidden.merged > 1e9, 'la zone fusionnée reste comptée');
+  assert.equal(scan('<row r="1" x=\'><mergeCell ref="A1:XFD100"/>').merged, 1638400);
+  assert.equal(scan('<row r="2"><c foo=" r=\'A2\'" r="XFD2">x</c></row>').cellSlots, 16384);
+});

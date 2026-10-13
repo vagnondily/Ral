@@ -1,6 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
 const { chunkRows } = require('../../db/batch');
-const { badRequest, conflict, notFound } = require('../../middleware/errors');
+const { AppError, badRequest, conflict, notFound } = require('../../middleware/errors');
 const { buildPlaceIndex, resolvePath, groupUnmatched, normPlace, parentKeyOf, looksLikePcode, buildOfficeIndex, resolveOffice } = require('../common/placeMatch');
 const { detectMapping } = require('../monitoring/memsMapping');
 const { buildSiteIndex, resolveSite, queueKeyOf, isAutomaticSite } = require('../common/siteMatch');
@@ -193,12 +193,47 @@ async function attachUnassignedSitesTx(client, tenantId) {
  * pour ne jamais s'interbloquer), puis à nouveau — sans effet, il est réentrant —
  * par chaque fonction de réapplication.
  */
+const linksKey = (tenantId) => `mems:submissions-apply:${tenantId}`;
+const LINKS_LOCKED = Symbol('mems.submissionLinksLocked');
+
 async function lockSubmissionLinksTx(client, tenantId) {
-  // Attente bornée : au-delà de 20 s (un gros import en cours), 503 « réessayez » plutôt
-  // qu'une connexion du pool immobilisée sans fin. Sans effet si le verrou est déjà détenu.
+  if (client[LINKS_LOCKED]) return; // déjà pris par withSubmissionLinks (même transaction)
+  // Chemins sans enveloppe (réparations au démarrage) : attente bornée à 20 s, puis 503 « réessayez ».
   await client.query("SET LOCAL lock_timeout = '20s'");
-  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`mems:submissions-apply:${tenantId}`]);
+  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [linksKey(tenantId)]);
   await client.query('SET LOCAL lock_timeout = DEFAULT');
+}
+
+const BUSY = Symbol('busy');
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+/**
+ * Transaction d'écriture qui sera suivie d'une réapplication des rattachements : le verrou du
+ * tenant est pris EN PREMIER (avant toute ligne verrouillée), par un essai non bloquant. S'il est
+ * occupé (un gros import en cours), la transaction est annulée et la CONNEXION RENDUE au pool,
+ * puis on réessaie (attente croissante 100 ms → 500 ms, tirée au hasard autour de cette valeur
+ * pour que les écritures en attente ne réessaient pas toutes au même instant) : des écritures en
+ * attente n'immobilisent jamais le pool, les lectures des autres utilisateurs continuent.
+ * Au-delà de `waitMs` : 503.
+ */
+async function withSubmissionLinks(tenantId, fn, { waitMs = 20000 } = {}) {
+  const deadline = Date.now() + waitMs;
+  let delay = 100;
+  for (;;) {
+    try {
+      return await withTenantTransaction(tenantId, async (client) => {
+        const { rows: [{ ok }] } = await client.query('SELECT pg_try_advisory_xact_lock(hashtext($1)) AS ok', [linksKey(tenantId)]);
+        if (!ok) throw BUSY;
+        client[LINKS_LOCKED] = true;
+        try { return await fn(client); } finally { delete client[LINKS_LOCKED]; }
+      });
+    } catch (err) {
+      if (err !== BUSY) throw err;
+      if (Date.now() >= deadline) throw new AppError(503, 'Une autre mise à jour des mêmes données est en cours : réessayez dans un instant.');
+      await sleep(Math.round(delay * (0.5 + Math.random())));
+      delay = Math.min(delay * 2, 500);
+    }
+  }
 }
 
 /**
@@ -572,8 +607,7 @@ async function listAliases(tenantId) {
  * - « ignorer » : la graphie sort de la file (rien n'est rattaché).
  */
 async function decideQueue(tenantId, queueId, { action, areaId, siteId }, actorId) {
-  return withTenantTransaction(tenantId, async (client) => {
-    await lockSubmissionLinksTx(client, tenantId); // avant le FOR UPDATE : jamais d'interblocage
+  return withSubmissionLinks(tenantId, async (client) => {
     const { rows } = await client.query(
       `SELECT id, kind, depth, parent_key AS "parentKey", raw_key AS "rawKey", raw_label AS "rawLabel", status
          FROM location_match_queue WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [tenantId, queueId]);
@@ -637,8 +671,7 @@ async function linkSiteTx(client, tenantId, q, siteId, actorId) {
 }
 
 async function deleteAlias(tenantId, id) {
-  return withTenantTransaction(tenantId, async (client) => {
-    await lockSubmissionLinksTx(client, tenantId);
+  return withSubmissionLinks(tenantId, async (client) => {
     // « Oublier » une graphie la remet à valider dans la file (sinon elle resterait « résolue », sans lien).
     await client.query(
       `UPDATE location_match_queue SET status = 'a_valider', alias_id = NULL, decided_by = NULL, decided_at = NULL
@@ -654,8 +687,7 @@ async function deleteAlias(tenantId, id) {
 
 /** « Rapprocher maintenant » : rejoue le rattachement de toutes les sources. */
 async function applyAll(tenantId) {
-  return withTenantTransaction(tenantId, async (client) => {
-    await lockSubmissionLinksTx(client, tenantId);
+  return withSubmissionLinks(tenantId, async (client) => {
     await resolvePerimeterTx(client, tenantId);
     return { sites: await afterSitesChangedTx(client, tenantId), submissions: await applySubmissionsGeoTx(client, tenantId) };
   });
@@ -664,6 +696,6 @@ async function applyAll(tenantId) {
 module.exports = {
   loadPlaceIndexTx, applySitesGeoTx, syncQueueTx, resolvePerimeterTx, attachUnassignedSitesTx, afterSitesChangedTx, applySubmissionsGeoTx,
   officeChoiceLabelsTx, choiceLabelsTx, applySubmissionSitesTx, loadSiteIndexTx,
-  loadValueLinksTx, loadPartiesTx, applySubmissionPartiesTx, lockSubmissionLinksTx, relinkPartiesTx,
+  loadValueLinksTx, loadPartiesTx, applySubmissionPartiesTx, lockSubmissionLinksTx, withSubmissionLinks, relinkPartiesTx,
   listQueue, listAliases, decideQueue, deleteAlias, applyAll,
 };

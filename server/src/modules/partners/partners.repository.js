@@ -139,8 +139,7 @@ async function listAgents(tenantId, partnerId, { personal = false } = {}) {
 const DUP_CODE = 'Ce code d\'enquêteur est déjà utilisé par un autre agent de ce prestataire.';
 
 async function createAgent(tenantId, partnerId, a) {
-  return withTenantTransaction(tenantId, async (client) => {
-    await places.lockSubmissionLinksTx(client, tenantId);
+  return places.withSubmissionLinks(tenantId, async (client) => {
     if (!(await getPartnerTx(client, tenantId, partnerId))) throw notFound('Partenaire introuvable');
     try {
       const { rows } = await client.query(
@@ -167,13 +166,12 @@ async function updateAgent(tenantId, partnerId, agentId, patch) {
     if (patch[k] === undefined || (k === 'name' && patch[k] === null) || (k === 'active' && patch[k] === null)) continue;
     values.push(patch[k]); sets.push(`${col} = $${values.length + 3}`);
   }
-  return withTenantTransaction(tenantId, async (client) => {
+  const identity = sets.length > 0 && (patch.name != null || patch.code !== undefined);
+  return (identity ? places.withSubmissionLinks : withTenantTransaction)(tenantId, async (client) => {
     if (!sets.length) {
       const { rowCount } = await client.query('SELECT 1 FROM tpm_agents WHERE tenant_id = $1 AND tpm_provider_id = $2 AND id = $3', [tenantId, partnerId, agentId]);
       return rowCount > 0;
     }
-    const identity = patch.name != null || patch.code !== undefined;
-    if (identity) await places.lockSubmissionLinksTx(client, tenantId);
     try {
       const { rowCount } = await client.query(
         `UPDATE tpm_agents SET ${sets.join(', ')}, updated_at = now() WHERE tenant_id = $1 AND tpm_provider_id = $2 AND id = $3`,
@@ -190,8 +188,7 @@ async function updateAgent(tenantId, partnerId, agentId, patch) {
 
 /** Un agent qui a un historique (formations, évaluations, affectations) se désactive, il ne se supprime pas. */
 async function deleteAgent(tenantId, partnerId, agentId) {
-  return withTenantTransaction(tenantId, async (client) => {
-    await places.lockSubmissionLinksTx(client, tenantId);
+  return places.withSubmissionLinks(tenantId, async (client) => {
     const { rows } = await client.query(
       `SELECT a.id,
               EXISTS (SELECT 1 FROM tpm_agent_formations f WHERE f.tenant_id = $1 AND f.agent_id = a.id)
@@ -218,10 +215,9 @@ async function updatePartner(tenantId, id, patch) {
     if (patch[k] === undefined || ((k === 'name' || k === 'active') && patch[k] === null)) continue;
     values.push(patch[k]); sets.push(`${col} = $${values.length + 2}`);
   }
-  return withTenantTransaction(tenantId, async (client) => {
+  const identity = sets.length > 0 && (patch.name != null || patch.shortName !== undefined);
+  return (identity ? places.withSubmissionLinks : withTenantTransaction)(tenantId, async (client) => {
     if (!sets.length) return Boolean(await getPartnerTx(client, tenantId, id));
-    const identity = patch.name != null || patch.shortName !== undefined;
-    if (identity) await places.lockSubmissionLinksTx(client, tenantId);
     const { rowCount } = await client.query(
       `UPDATE partners SET ${sets.join(', ')}, updated_at = now() WHERE tenant_id = $1 AND id = $2`, [tenantId, id, ...values]);
     if (rowCount > 0 && identity) await places.relinkPartiesTx(client, tenantId); // nom ou sigle : formulaires reliés à nouveau

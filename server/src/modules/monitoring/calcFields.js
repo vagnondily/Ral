@@ -22,6 +22,8 @@ class CalcError extends Error {
 }
 
 // ---- Lexer ----------------------------------------------------------------
+const MAX_NESTING = 64;
+
 // Mots-clés à la Tableau, insensibles à la casse (hors crochets) : AND, OR, NOT, NULL.
 const KEYWORD_OPS = { and: '&&', or: '||', not: '!' };
 
@@ -75,6 +77,12 @@ function parse(src) {
   const text = String(src || '');
   const toks = tokenize(text);
   let p = 0;
+  // Profondeur de parenthèses / fonctions bornée : message clair au lieu d'un dépassement de pile.
+  let depth = 0;
+  const enter = (at) => {
+    depth += 1;
+    if (depth > MAX_NESTING) throw new CalcError(`Formule trop imbriquée (plus de ${MAX_NESTING} niveaux de parenthèses ou de fonctions)`, at);
+  };
   const peek = () => toks[p];
   const here = () => (toks[p] ? toks[p].at : text.length);
   const isOp = (v) => peek() && peek().t === 'op' && peek().v === v;
@@ -89,20 +97,20 @@ function parse(src) {
   function parseOr() { let a = parseAnd(); while (isOp('||')) { eat(); a = { k: 'bin', op: '||', a, b: parseAnd() }; } return a; }
   function parseAnd() { let a = parseNot(); while (isOp('&&')) { eat(); a = { k: 'bin', op: '&&', a, b: parseNot() }; } return a; }
   /*
-   * NOT porte sur toute la COMPARAISON qui suit, comme dans Tableau et SQL : NOT x = null → NOT (x = null),
-   * NOT a + b > 5 → NOT ((a + b) > 5). Sans comparaison, il ne porte que sur le terme qui suit, comme
-   * un signe : NOT isnull(a) + NOT isnull(b) compte les réponses renseignées (0 à 2).
+   * NOT devant UN terme suivi d'une comparaison porte sur toute la comparaison, comme dans Tableau
+   * et SQL : NOT x = null → NOT (x = null), NOT age > 5 → NOT (age > 5). Devant un calcul, il ne
+   * porte que sur le premier terme, comme un signe : NOT isnull(a) + NOT isnull(b) = 2 compte les
+   * réponses renseignées. Un seul passage sur les jetons (jamais de relecture : coût linéaire).
    */
   const isCmp = () => peek() && peek().t === 'op' && ['==', '!=', '<', '<=', '>', '>='].includes(peek().v);
   function parseNot() {
     if (!isOp('!')) return parseCmp();
-    eat();
-    if (isOp('!')) return { k: 'un', op: '!', a: parseNot() }; // NOT NOT x = 1 → NOT (NOT (x = 1))
-    const start = p;
-    const left = parseAdd();
-    if (isCmp()) return { k: 'un', op: '!', a: parseCmpRest(left) };
-    p = start; // pas de comparaison : NOT ne s'applique qu'au terme suivant
-    return parseCmpRest(parseAddRest(parseMulRest({ k: 'un', op: '!', a: parseUnary() })));
+    let count = 0;
+    while (isOp('!')) { eat(); count += 1; } // NOT NOT … : appliqués ensemble, au même endroit
+    const wrap = (node) => { let out = node; for (let i = 0; i < count; i += 1) out = { k: 'un', op: '!', a: out }; return out; };
+    const term = parseUnary();
+    if (isCmp()) return wrap(parseCmpRest(term));
+    return parseCmpRest(parseAddRest(parseMulRest(wrap(term))));
   }
   function parseCmp() { return parseCmpRest(parseAdd()); }
   function parseCmpRest(a) {
@@ -122,18 +130,20 @@ function parse(src) {
     if (tk.t === 'str') { eat(); return { k: 'str', v: tk.v, at: tk.at }; }
     if (tk.t === 'null') { eat(); return { k: 'null', at: tk.at }; }
     if (isOp('(')) {
+      enter(tk.at);
       eat('(');
       const e = parseExpr();
       if (!isOp(')')) throw new CalcError('Parenthèse fermante « ) » attendue', here());
-      eat(')'); return e;
+      eat(')'); depth -= 1; return e;
     }
     if (tk.t === 'id') {
       eat();
       if (!tk.quoted && isOp('(')) { // appel de fonction
+        enter(tk.at);
         eat('('); const args = [];
         if (!isOp(')')) { args.push(parseExpr()); while (isOp(',')) { eat(','); args.push(parseExpr()); } }
         if (!isOp(')')) throw new CalcError(`« , » ou « ) » attendu dans ${tk.v}( … )`, here());
-        eat(')'); return { k: 'call', name: tk.v.toLowerCase(), args, at: tk.at };
+        eat(')'); depth -= 1; return { k: 'call', name: tk.v.toLowerCase(), args, at: tk.at };
       }
       return { k: 'field', name: tk.v, at: tk.at };
     }
@@ -271,7 +281,7 @@ const BY_NAME = new Map(FUNCTIONS.map((f) => [f.name, f]));
 const OPERATORS = [
   { symbol: '+  -  *  /  %', description: 'Calcul : addition, soustraction, multiplication, division, reste. Vide si un terme est vide ; division par zéro → vide.', example: '(recu / prevu) * 100' },
   { symbol: '=  <>  <  <=  >  >=', description: 'Comparaison (== et != aussi acceptés) : nombres si les deux côtés en sont, sinon textes. Renvoie 1 (vrai) ou 0 (faux), et vide si un côté est vide (réponse manquante) ; « x = null » ou « x = "" » teste si x est vide.', example: 'statut = "oui"' },
-  { symbol: 'AND  OR  NOT', description: 'Logique (&&, || et ! aussi acceptés). Faux = 0, « non », « no », « n », « false », « faux » (majuscules ignorées) ; vide = inconnu, sauf si l\'autre côté suffit (faux AND vide = faux, vrai OR vide = vrai). NOT porte sur toute la comparaison qui suit : NOT x = 1 se lit NOT (x = 1).', example: 'age >= 6 AND age <= 59' },
+  { symbol: 'AND  OR  NOT', description: 'Logique (&&, || et ! aussi acceptés). Faux = 0, « non », « no », « n », « false », « faux » (majuscules ignorées) ; vide = inconnu, sauf si l\'autre côté suffit (faux AND vide = faux, vrai OR vide = vrai). NOT devant un terme suivi d\'une comparaison porte sur toute la comparaison : NOT x = 1 se lit NOT (x = 1) ; devant un calcul, il ne porte que sur le premier terme (NOT isnull(a) + NOT isnull(b) = 2).', example: 'age >= 6 AND age <= 59' },
   { symbol: '"texte"  [nom avec espaces]  null', description: 'Texte entre guillemets ; variable dont le nom contient des espaces ou des « / » entre crochets ; null = valeur vide.', example: '[process_monitoring/3] = 1' },
 ];
 

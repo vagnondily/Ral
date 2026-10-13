@@ -86,8 +86,7 @@ async function listPartners(tenantId, { typeCode } = {}) {
 }
 
 async function createPartner(tenantId, { name, partnerTypeId, dailyRate, contractRef }) {
-  return withTenantTransaction(tenantId, async (client) => {
-    await places.lockSubmissionLinksTx(client, tenantId);
+  return places.withSubmissionLinks(tenantId, async (client) => {
     const { rows } = await client.query(
       `INSERT INTO partners (tenant_id, partner_type_id, name, daily_rate, contract_ref)
        VALUES ($1,$2,$3,$4,$5) RETURNING id`,
@@ -100,8 +99,7 @@ async function createPartner(tenantId, { name, partnerTypeId, dailyRate, contrac
 
 /** Mise à jour PARTIELLE (écart B4) : un champ absent reste inchangé ; null efface le taux ou la référence. */
 async function updatePartner(tenantId, id, { name, dailyRate, contractRef, active }) {
-  return withTenantTransaction(tenantId, async (client) => {
-    if (name) await places.lockSubmissionLinksTx(client, tenantId);
+  return (name ? places.withSubmissionLinks : withTenantTransaction)(tenantId, async (client) => {
     const { rowCount } = await client.query(
       `UPDATE partners SET name = COALESCE($3, name),
               daily_rate = CASE WHEN $4::boolean THEN $5::numeric ELSE daily_rate END,
@@ -123,8 +121,7 @@ async function partnerTypeById(tenantId, id) {
 }
 
 async function createAgent(tenantId, partnerId, { name, fonction }) {
-  return withTenantTransaction(tenantId, async (client) => {
-    await places.lockSubmissionLinksTx(client, tenantId);
+  return places.withSubmissionLinks(tenantId, async (client) => {
     const { rows } = await client.query(
       `INSERT INTO tpm_agents (tenant_id, tpm_provider_id, name, fonction) VALUES ($1,$2,$3,$4) RETURNING id, name, fonction`,
       [tenantId, partnerId, name, fonction || null]
@@ -135,8 +132,7 @@ async function createAgent(tenantId, partnerId, { name, fonction }) {
 }
 
 async function deleteAgent(tenantId, partnerId, agentId) {
-  return withTenantTransaction(tenantId, async (client) => {
-    await places.lockSubmissionLinksTx(client, tenantId);
+  return places.withSubmissionLinks(tenantId, async (client) => {
     const { rowCount } = await client.query(
       'DELETE FROM tpm_agents WHERE tenant_id = $1 AND tpm_provider_id = $2 AND id = $3',
       [tenantId, partnerId, agentId]
@@ -321,7 +317,7 @@ async function officePerimeter(tenantId, officeId) {
 }
 
 async function createOffice(tenantId, { code, name, nature, parentId, responsible, national, communes }) {
-  return withTenantTransaction(tenantId, async (client) => {
+  return places.withSubmissionLinks(tenantId, async (client) => { // rattache des sites : verrou de réapplication d'abord
     const { rows } = await client.query(
       `INSERT INTO field_offices (tenant_id, code, name, nature, parent_id, responsible, national)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
@@ -334,7 +330,7 @@ async function createOffice(tenantId, { code, name, nature, parentId, responsibl
 }
 
 async function updateOffice(tenantId, id, { code, name, nature, parentId, responsible, national, active, communes }) {
-  return withTenantTransaction(tenantId, async (client) => {
+  return places.withSubmissionLinks(tenantId, async (client) => { // rattache des sites : verrou de réapplication d'abord
     const { rowCount } = await client.query(
       `UPDATE field_offices SET code = COALESCE($3, code), name = COALESCE($4, name),
               nature = COALESCE($5, nature), parent_id = $6, responsible = $7,
@@ -379,7 +375,7 @@ async function writePerimeter(client, tenantId, officeId, communes) {
  * commune.
  */
 async function deleteOffice(tenantId, id, { confirm = false } = {}) {
-  return withTenantTransaction(tenantId, async (client) => {
+  return places.withSubmissionLinks(tenantId, async (client) => { // rattache des sites : verrou de réapplication d'abord
     const { rows } = await client.query(
       `SELECT o.id,
               (SELECT count(*)::int FROM sites s WHERE s.tenant_id = o.tenant_id AND s.field_office_id = o.id) AS sites,

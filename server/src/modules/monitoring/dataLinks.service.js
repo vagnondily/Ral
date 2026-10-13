@@ -72,7 +72,7 @@ async function pullKobo(link, token) {
 async function pullFile(url, token) {
   const headers = { Accept: 'text/csv, application/json, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, */*', ...authHeader(token) };
   const first = await safeFetch(url, { headers });
-  if (!first.ok) throw new FetchRefused(`HTTP ${first.status}`);
+  if (!first.ok) { const e = new FetchRefused(`HTTP ${first.status}`); e.httpStatus = first.status; throw e; }
   const ct = String(first.headers.get('content-type') || '').toLowerCase();
   if (ct.includes('json') || /\.json(\?|$)/i.test(url)) {
     const extract = (data) => (Array.isArray(data) ? data
@@ -108,6 +108,10 @@ const NETWORK_REASONS = [
 ];
 function linkError(err, kind) {
   if (err instanceof AppError && err.statusCode < 500) return err;
+  // Accès refusé par la source : c'est le jeton qui manque ou qui est faux, pas le lien.
+  if (err instanceof FetchRefused && (err.httpStatus === 401 || err.httpStatus === 403)) {
+    return badRequest('Ce lien demande un jeton d\'accès valide : saisissez-le dans le champ « Jeton », puis réessayez.');
+  }
   const code = String((err && (err.code || (err.cause && err.cause.code))) || '');
   const net = NETWORK_REASONS.find(([re]) => code && re.test(code));
   const reason = err instanceof FetchRefused ? err.message.replace(/\.$/, '') : (net ? net[1] : 'source injoignable ou réponse invalide');

@@ -3,7 +3,7 @@ const { badRequest, conflict, notFound } = require('../../middleware/errors');
 const { chunkRows } = require('../../db/batch');
 const { planBreakdown, matchBreakdown, relinkByPath, siteColumnFor } = require('./localities.domain');
 const { normPlace, parentKeyOf } = require('../common/placeMatch');
-const { applySitesGeoTx } = require('./placeMatch.repository');
+const { applySitesGeoTx, withSubmissionLinks } = require('./placeMatch.repository');
 
 /**
  * Référentiel géographique du tenant (pays) : profil pays, vocabulaire des
@@ -107,7 +107,7 @@ async function updateFromValues(client, tenantId, { table, cols, set, rows, valu
  */
 async function replaceBreakdown(tenantId, parsed, { confirm = false } = {}) {
   const plan = planBreakdown(parsed);
-  return withTenantTransaction(tenantId, async (client) => {
+  return withSubmissionLinks(tenantId, async (client) => { // écrit des sites : verrou de réapplication d'abord
     // Un seul import de découpage à la fois par pays.
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`admin-breakdown:${tenantId}`]);
     const { rows: existing } = await client.query('SELECT id, depth, pcode, path FROM admin_areas WHERE tenant_id = $1', [tenantId]);
@@ -309,7 +309,7 @@ async function lockParent(client, tenantId, parentId, depth) {
 }
 
 async function createArea(tenantId, { depth, parentId, name, pcode, lat, lng }) {
-  return withTenantTransaction(tenantId, async (client) => {
+  return withSubmissionLinks(tenantId, async (client) => { // écrit des sites : verrou de réapplication d'abord
     const { rows: lv } = await client.query('SELECT 1 FROM admin_levels WHERE tenant_id = $1 AND depth = $2', [tenantId, depth]);
     if (!lv.length) throw badRequest('Niveau administratif inconnu.');
     const parent = await lockParent(client, tenantId, parentId || null, depth);
@@ -330,7 +330,7 @@ async function createArea(tenantId, { depth, parentId, name, pcode, lat, lng }) 
  * lignée de TOUTE la descendance en une requête (sous-arbre via la lignée).
  */
 async function updateArea(tenantId, id, patch) {
-  return withTenantTransaction(tenantId, async (client) => {
+  return withSubmissionLinks(tenantId, async (client) => { // écrit des sites : verrou de réapplication d'abord
     const { rows } = await client.query(
       'SELECT id, depth, name, parent_id, path, lineage FROM admin_areas WHERE tenant_id = $1 AND id = $2 FOR UPDATE', [tenantId, id]);
     if (!rows.length) throw notFound('Localité introuvable');
@@ -385,7 +385,7 @@ async function updateArea(tenantId, id, patch) {
 
 /** Supprime une unité ; refuse si elle a des sous-unités sauf `cascade`. */
 async function deleteArea(tenantId, id, { cascade = false } = {}) {
-  return withTenantTransaction(tenantId, async (client) => {
+  return withSubmissionLinks(tenantId, async (client) => { // écrit des sites : verrou de réapplication d'abord
     const { rows } = await client.query(
       `SELECT a.id, (SELECT count(*)::int FROM admin_areas d WHERE d.tenant_id = a.tenant_id AND d.lineage @> ARRAY[a.id]) AS descendants,
               (SELECT count(*)::int FROM contract_areas c WHERE c.tenant_id = a.tenant_id AND c.admin_area_id = a.id) AS contracts
