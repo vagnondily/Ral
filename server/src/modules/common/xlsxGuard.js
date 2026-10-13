@@ -166,10 +166,13 @@ function scanSheetXml(xml) {
       if (i < 0) return done('commentaire, section CDATA ou instruction non fermé');
       continue;
     }
-    if (next === '/') { // balise fermante : </nom>
-      const gt = text.indexOf('>', lt + 2);
-      if (gt < 0 || !/^[^\s<>/="']+\s*$/.test(text.slice(lt + 2, gt))) return done('balise fermante mal formée');
-      i = gt + 1;
+    if (next === '/') { // balise fermante : </nom> — mêmes règles de nom et de blancs XML que l'ouvrante
+      let k = lt + 2;
+      while (k < text.length && !NAME_END.has(text[k])) k += 1;
+      const named = k > lt + 2;
+      while (k < text.length && isSpace(text.charCodeAt(k))) k += 1;
+      if (!named || text[k] !== '>') return done('balise fermante mal formée');
+      i = k + 1;
       continue;
     }
     const tag = readStartTag(text, lt);

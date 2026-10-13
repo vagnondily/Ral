@@ -122,6 +122,14 @@ test('relecture 4 : DOCTYPE, ouvertures non fermées, attributs ambigus — refu
   // Le XML ordinaire reste lu : déclaration, commentaire, CDATA, balises fermantes avec blanc.
   const ok = scan('<?xml version="1.0" encoding="UTF-8"?><!-- x --><worksheet><sheetData><row r="1" ><c r="B1" t="inlineStr"><is><t><![CDATA[a<b]]></t></is></c></row ></sheetData></worksheet>');
   assert.deepEqual([ok.unreadable, ok.cellSlots], [null, 2]);
+  // Noms d'éléments non ASCII en UTF-8 (customXml d'un complément) : l'octet 0xA0 (« à », « Р », « 格 »)
+  // lu octet par octet n'est pas un blanc XML — accepté, à l'ouvrante comme à la fermante.
+  for (const name of ['Montant_à_payer', 'Регион', '表格']) {
+    const xml = Buffer.from(`<r><${name}>1</${name} ></r>`, 'utf8').toString('latin1');
+    assert.equal(scan(xml).unreadable, null, name);
+  }
+  assert.match(scan('<r></ r>').unreadable, /fermante/);
+  assert.match(scan('<r></r x="1">').unreadable, /fermante/);
 
   // De bout en bout : un vrai .xlsx portant un DOCTYPE est refusé (400) avant tout chargement par ExcelJS.
   const AdmZip = require('adm-zip');
