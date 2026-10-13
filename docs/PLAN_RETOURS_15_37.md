@@ -1,4 +1,4 @@
-# Plan de réalisation — retours n° 15 à 39 (13/10/2026)
+# Plan de réalisation — retours n° 15 à 42 (13/10/2026)
 
 Ce plan découle des analyses multi-agents de vos retours (le détail de chaque retour
 est dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md), l'avancement dans
@@ -32,9 +32,11 @@ est dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md), l'avancement dans
 | **3** | Registre réel : import du classeur d'activation (grille Sites actifs par mois + motif, aller-retour Excel), contrôle du fichier (colonne Code POI décalée), code proposé fokontany + 00n, rattachement GPS → découpage (contours importés), garde sur les codes et règles nom + GPS | 23, 33, 36, 14 |
 | **4** | Réalisé issu des données (site × mois) : tableau des mois avec « Données sans plan », plan de suivi P/R (R = données, déclaré avec motif), RBM « à suivre » juste, Couverture du suivi (filtre bureau, visites totales, tableau par sous-activité et par bureau en sites uniques actifs / prévus / réalisés) | 15, 21, 22, 26 |
 | **5** | RBM : règles de priorité configurables (table si / sinon, aperçu, versions), risque par période avec journal | 24, 25 |
-| **6** | Carte du suivi : fond vectoriel hors ligne, sites planifiés / réalisés, choroplèthe, filtres, panneau latéral (vos captures) | 17, 27 |
-| **7** | Concepteur de rapport : éditeur large à 3 volets, blocs = graphiques et tableaux des tableaux de bord, tableaux qui tiennent dans la page, chiffres justes ; filtres par bureau, période, activité (rapport et bloc) ; **fil de validation** (brouillon → soumis → validé / rejeté) ; modèle « Rapport de suivi des performances » fidèle à votre exemple PowerPoint (synthèse + une page par activité) | 18, 39 |
+| **6** | Carte du suivi : fond vectoriel hors ligne, sites planifiés / réalisés, choroplèthe par commune (contours importés), couches de classification et surcouches hachurées importables, étiquettes, carte de situation, nord, échelle, légende, pied de page, export image / PDF, panneau latéral (vos captures) ; tableau de bord par activité (maquette) | 17, 27, 40, 41 |
+| **7** | Concepteur de rapport : éditeur large à 3 volets, blocs = graphiques et tableaux des tableaux de bord, tableaux qui tiennent dans la page, chiffres justes ; filtres par bureau, période, activité (rapport et bloc) ; **fil de validation** (brouillon → soumis → validé / rejeté) ; modèle « Rapport de suivi des performances » fidèle à votre exemple PowerPoint (synthèse + une page par activité) ; **catalogue de blocs = tout ce que MEMS saisit ou calcule** (tableaux de bord, plan, RBM, budget, PDD, partenaires, alertes, carte) | 18, 39, 40 |
 | **8** | Partenaires & TPM : fiche 360° + évaluation du TPM, formations, évaluation des agents, Planification & budget (Excel Gantt + budget), rapports attendus créés à l'approbation du plan (financier / technique, pièces jointes), TPM actif selon le contrat | 28, 29, 30 |
 
 Les lots 1 à 3 posent les fondations (dates, référentiels, registre) dont dépendent les
 chiffres des lots 4 à 8.
+
+Documents de référence fournis (retour 42) : rapport d'atelier PECMAM, stratégie SMP, stratégie résilience, note sur l'alimentation scolaire — consultés pour les descriptions d'activités (lot 2) et les modèles de rapport (lot 7).
