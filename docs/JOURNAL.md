@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 13/10/2026 13:00 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 13/10/2026 13:02 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -306,5 +306,8 @@ _Dernière mise à jour : 13/10/2026 13:00 UTC_ — la branche `main` reçoit ch
   - Les vérificateurs ont relevé 3 points moyens (un fichier dont la date d'enquête est illisible n'est plus importé, l'aperçu d'import ignore la colonne de date choisie, et la règle des 92 jours range au mois d'envoi des collectes réelles envoyées en retard : 153 SMP de sept. à déc. 2025 envoyées en avril 2026) et une quinzaine de points mineurs : corrections en cours avant publication.
 - **13:00** ✅ **Garde Excel** (`52da10f`) : une balise fermante avec « à » (ou un nom cyrillique / chinois) dans une partie customXml d'un complément était refusée à tort — corrigé, 6 classeurs de test acceptés. Le contrôle confirme aussi : 12 classeurs réels Excel / WPS / openpyxl, 47 réenregistrements LibreOffice et les exports de MEMS tous acceptés ; lecture linéaire (environ 45 Mo/s).
 - **13:00** 📥 **Retours n° 46 à 48** : code de localité tiré du découpage pour grouper (lots 2–3) ; **période = plage de mois** (« janvier à juin ») partout → nouveau **lot 1b**, juste après le lot 1 ; drapeaux « urgent » du RBM sans justification → « Pourquoi ? / Que faire ? » ajouté aux correctifs en cours (ici : sécurité « restriction stricte » du classeur RBM ; et une visite seulement planifiée ne rendra plus un site « à jour »).
+
+- **13:02** 📥 **Retours n° 49 et 50** : cartes vides et inexploitables (26 sites sur 1 280 ont un GPS ; pas de contours dans le découpage) ; carte à intégrer au Dashboard décisionnel. → **Lot 6a remonté en priorité**, juste après les correctifs du lot 1 et en parallèle du lot 1b : contours des 119 districts déjà embarqués dans l'application, sites placés par GPS ou par la position de leurs ~480 collectes géolocalisées, couches par thème.
+- **13:02** 🔄 **Correctifs du lot 1** lancés (4 chantiers en parallèle, chacun contre-vérifié) : données (date d'enquête, aperçu, règle des 92 jours), indicateurs, tableaux de bord, et RBM « Pourquoi ? / Que faire ? » (retour 48).
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
