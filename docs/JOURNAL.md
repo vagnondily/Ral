@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 08:14 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 08:30 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -341,5 +341,7 @@ _Dernière mise à jour : 14/10/2026 08:14 UTC_ — la branche `main` reçoit ch
 
 - **08:14** 📥 **Retour n° 54** : tableau trimestriel par activité (sites actifs / prévus / réalisés, couverture, taux d'exécution, couleurs, total) dans les tableaux de bord, rempli depuis MEMS → réalisé juste après les correctifs du lot 1b, sur le service « sites × mois » du socle.
 - **08:14** 🔄 Vérifications de 1b (écrans) et 6a (carte) en cours ; contre-vérification du socle 1b rendue (1 grave : ~200 sites dont le P-code de district contredit le district → regrouper par le district du site ; 4 moyens ; 2 mineurs) — corrigés dans un seul tour avec les constats des écrans.
+
+- **08:30** 📥 **Retour n° 55** : calendrier d'activités (durée réelle) et plan de suivi réaliste selon le MMR (≥ 80 % des sites, tournées par commune / district multi-activités, capacité par jour, intervalle ajusté, dernière visite, recommandations urgentes, paramètres modifiables initialisés du MMR / RBM) → **lot 5 élargi** (avec 24 et 25). 🔄 Conception lancée maintenant (lecture seule), en parallèle des chantiers en cours.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
