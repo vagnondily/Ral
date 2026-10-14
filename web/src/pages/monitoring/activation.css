@@ -1,0 +1,77 @@
+/* Sites (actifs / inactifs) — grille du classeur d'activation (retour 64). */
+
+.act-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.act-hint { margin: 0; padding: 10px 18px; font-size: 13px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+
+.act-wrap { max-height: calc(100vh - 330px); min-height: 320px; overflow: auto; }
+.act-table { font-size: 13.5px; }
+.act-table th, .act-table td { white-space: nowrap; }
+.act-table thead th { position: sticky; top: 0; z-index: 2; }
+.act-table tfoot td, .act-table tfoot th { position: sticky; bottom: 0; z-index: 2; background: var(--canvas); border-top: 1px solid var(--border-strong); }
+.act-check { width: 34px; }
+.act-ident .mono { font-size: 12px; color: var(--text-muted); }
+.act-name strong { display: block; color: var(--text-strong); font-weight: 600; }
+.act-sub { display: block; font-size: 12px; color: var(--text-muted); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.act-muted { color: var(--text-muted); }
+
+.act-m { width: 46px; padding-left: 4px !important; padding-right: 4px !important; text-align: center !important; }
+.act-m.is-focus { background: color-mix(in srgb, var(--blue-50) 70%, transparent); }
+thead .act-m { text-transform: capitalize; }
+thead .act-m.is-focus { color: var(--blue-700); }
+
+.act-cell {
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px; min-width: 38px; height: 24px; padding: 0 5px;
+  border: 1px solid transparent; border-radius: 999px; font-size: 11.5px; font-weight: 600; line-height: 1; cursor: pointer;
+  background: transparent; color: var(--text-faint); transition: background .12s ease, border-color .12s ease;
+}
+.act-cell:disabled { cursor: default; }
+.act-cell.is-yes { background: var(--green-bg); color: var(--green-text); }
+.act-cell.is-no { background: var(--surface-2); color: var(--text); border-color: var(--border-strong); }
+.act-cell.is-empty { color: var(--text-faint); border: 1px dashed var(--border-strong); }
+.act-cell:not(:disabled):hover { border-color: var(--blue-600); }
+.act-cell.is-changed { box-shadow: 0 0 0 2px var(--blue-600); }
+.act-cell:focus-visible { outline: 2px solid var(--blue-600); outline-offset: 1px; }
+
+.act-reason { max-width: 280px; }
+.act-reason-text { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; color: var(--text); }
+.act-history { margin-left: 6px; padding: 3px; border: 0; background: none; color: var(--text-faint); cursor: pointer; border-radius: var(--radius-sm); vertical-align: middle; }
+.act-history:hover { color: var(--blue-700); background: var(--blue-50); }
+
+.act-foot-label { text-align: right !important; font-weight: 600; color: var(--text-muted); font-size: 12.5px; }
+.act-foot { font-weight: 650; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+
+.act-savebar {
+  position: sticky; bottom: 12px; z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-md, 0 8px 24px rgba(16, 24, 40, .12));
+}
+.act-savebar-reason { flex: 1 1 280px; }
+
+.act-bulk { display: grid; gap: 14px; }
+.act-bulk-range { display: flex; gap: 12px; flex-wrap: wrap; }
+.act-bulk-range label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-muted); }
+.act-bulk-range .select { min-width: 150px; text-transform: capitalize; }
+.act-import { display: grid; gap: 10px; }
+.act-hist td { vertical-align: top; }
+
+.rbm-config-nav { margin-bottom: 12px; }
+
+/* Colonnes figées à gauche (identifiant, localité) pour lire les mois en défilant. */
+.act-table .act-check, .act-table .act-ident, .act-table .act-name { position: sticky; z-index: 1; background: var(--surface); }
+.act-table thead .act-check, .act-table thead .act-ident, .act-table thead .act-name { z-index: 3; background: var(--canvas); }
+.act-table tr:hover .act-check, .act-table tr:hover .act-ident, .act-table tr:hover .act-name { background: var(--surface-2); }
+.act-table .act-check { left: 0; }
+.act-table .act-ident { left: 34px; min-width: 120px; }
+.act-table .act-name { left: 154px; min-width: 200px; max-width: 260px; box-shadow: 1px 0 0 var(--border); }
+.act-table .act-name strong { overflow: hidden; text-overflow: ellipsis; }
+.act-place { max-width: 220px; color: var(--text); }
+.act-place > span:first-child { display: block; overflow: hidden; text-overflow: ellipsis; }
+
+/* Journal d'un site : liste chronologique. */
+.act-hist { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.act-hist li { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+.act-hist-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; }
+.act-hist-head strong { text-transform: capitalize; color: var(--text-strong); }
+.act-hist-change { color: var(--text); }
+.act-hist-tag { font-size: 11.5px; padding: 1px 6px; border-radius: 999px; background: var(--blue-50); color: var(--blue-700); }
+.act-hist-reason { margin: 6px 0 0; color: var(--text); }
+.act-hist-meta { margin-top: 4px; font-size: 12px; color: var(--text-muted); }

@@ -35,7 +35,14 @@ const COLS_KEY = 'mems.planBoard.cols';
 const shortMonth = (m) => new Date(Date.UTC(2026, m - 1, 1)).toLocaleString(formatLocale(), { month: 'short', timeZone: 'UTC' });
 const thisYear = () => new Date().getFullYear();
 
-export default function PlanBoardPage({ canEdit, embedded = false, initialView = 'plan' }) {
+const ALL_VIEWS = ['plan', 'standard', 'visited', 'map'];
+
+/**
+ * `views` : vues proposées par l'onglet qui l'affiche (retour du 14/10) — le
+ * « Plan de suivi » montre le plan, les sites déjà visités et la carte ; la vue
+ * standard (critères de risque des sites) vit dans « Configuration RBM ».
+ */
+export default function PlanBoardPage({ canEdit, embedded = false, initialView = 'plan', views = ALL_VIEWS }) {
   const { t, tr } = useI18n();
   const toast = useToast();
   const [year, setYear] = useState(thisYear);
@@ -194,11 +201,14 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
           </div>
 
           <div className="pb-viewbar">
-            <div className="segmented" role="tablist" aria-label={tr('Vue')}>
-              {[['plan', tr('Plan de suivi'), ListChecks], ['standard', tr('Vue standard'), Columns3], ['visited', tr('Déjà visités'), CheckCircle2], ['map', tr('Carte'), MapIcon]].map(([k, l, Icon]) => (
-                <button key={k} type="button" role="tab" aria-selected={view === k} aria-pressed={view === k} onClick={() => setView(k)}><Icon size={14} aria-hidden="true" /> {l}</button>
-              ))}
-            </div>
+            {views.length > 1 && (
+              <div className="segmented" role="tablist" aria-label={tr('Vue')}>
+                {[['plan', tr('Plan de suivi'), ListChecks], ['standard', tr('Vue standard'), Columns3], ['visited', tr('Déjà visités'), CheckCircle2], ['map', tr('Carte'), MapIcon]]
+                  .filter(([k]) => views.includes(k)).map(([k, l, Icon]) => (
+                    <button key={k} type="button" role="tab" aria-selected={view === k} aria-pressed={view === k} onClick={() => setView(k)}><Icon size={14} aria-hidden="true" /> {l}</button>
+                  ))}
+              </div>
+            )}
             <span className="pb-count">{tr('{n} site(s)', { n: formatInt(rows.length) })}{view === 'plan' ? ` · ${tr('classés par reste à faire, priorité puis ancienneté')}` : ''}</span>
             {view === 'standard' && <ColumnChooser />}
           </div>

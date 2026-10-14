@@ -296,6 +296,12 @@ export const api = {
   planBoard: (year, { adjusted } = {}) => request('/api/tpm/field/plan-board', { query: { year, adjusted: adjusted ? 1 : undefined } }),
   planBoardSetMonths: (input) => request('/api/tpm/field/plan-board/months', { method: 'PUT', body: input }),
   planBoardSetStatus: (input) => request('/api/tpm/field/plan-board/status', { method: 'PUT', body: input }),
+  // Sites (actifs / inactifs) : grille du classeur d'activation (retour 64).
+  activationGrid: (year) => request('/api/tpm/field/activation', { query: { year } }),
+  saveActivation: (input) => request('/api/tpm/field/activation', { method: 'PUT', body: input }),
+  activationHistory: (siteId, year) => request('/api/tpm/field/activation/history', { query: { siteId, year } }),
+  activationExport: (year) => downloadFile(`/api/tpm/field/activation.xlsx?year=${year}`, `Sites_actifs_${year}.xlsx`),
+  activationImport: (file, { commit, year } = {}) => uploadFile(`/api/tpm/field/activation/import?commit=${commit ? 1 : 0}&year=${year}`, file),
   planBoardExport: (year) => downloadFile(`/api/tpm/field/plan-board/locations.xlsx?year=${year}`, `Plan_de_suivi_sites_${year}.xlsx`),
   planBoardBulk: (input) => request('/api/tpm/field/plan-board/bulk', { method: 'POST', body: input }),
   planBoardAddSite: (input) => request('/api/tpm/field/plan-board/sites', { method: 'POST', body: input }),
