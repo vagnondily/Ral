@@ -415,7 +415,6 @@ export const api = {
     query: qs(yearOrPeriod && typeof yearOrPeriod === 'object' ? pq(yearOrPeriod) : { year: yearOrPeriod }),
   }),
   fieldMonths: (year) => request('/api/tpm/field/months', { query: year ? { year } : undefined }),
-  fieldMap: () => request('/api/tpm/field/map'),
   fieldSetMonthStatus: (month, status) => request('/api/tpm/field/months/status', { method: 'PUT', body: { month, status } }),
   fieldSetTravelDays: (input) => request('/api/tpm/field/collection-days', { method: 'PUT', body: input }),
   // Mois de référence « AAAA-MM », ou une période { from, to } : l'état est lu au mois `to`.

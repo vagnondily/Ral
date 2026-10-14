@@ -137,7 +137,7 @@ function Workspace() {
         <RbmSpacePage canEdit={canEdit} isAdmin={user.role === 'admin'} tab={route.extra} onTab={(tab) => navigate('processus', 'rbm', tab)} />
       )}
       {route.module === 'processus' && route.sub === 'couverture' && <CoverageRecapPage />}
-      {route.module === 'processus' && route.sub === 'carte' && <SitesMapPage />}
+      {route.module === 'processus' && route.sub === 'carte' && <SitesMapPage onNavigate={navigate} isAdmin={user.role === 'admin'} />}
       {route.module === 'processus' && route.sub === 'calculs' && <CalcDocsPage />}
       {route.module === 'pdd' && <PddPage canEdit={canEdit} view={route.sub} onNavigate={navigate} />}
       {route.module === 'parametrage' && <SettingsPage tab={route.sub} isAdmin={user.role === 'admin'} onNavigate={navigate} />}

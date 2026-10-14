@@ -161,6 +161,18 @@ export default {
   'dont au site': 'of which at the site',
   'Carte du suivi — tableau': 'Monitoring map — table',
   'Un contour par ligne · {p} · sites distincts sur la période': 'One outline per row · {p} · distinct sites over the period',
+  // ---- Carte des sites (registre géographique)
+  'Registre des sites sur le fond vectoriel des districts (hors ligne) : districts colorés selon le thème, sites GPS et positions déduites des collectes ; registre géographique région → district ci-dessous.':
+    'Site registry on the offline vector map of districts: districts coloured by theme, GPS sites and positions derived from data collections; geographic register by region → district below.',
+  'Sites du registre': 'Registry sites',
+  '{n} actif(s) sur la période': '{n} active in the period',
+  'Districts portant des sites': 'Districts with sites',
+  '{n} région(s)': '{n} region(s)',
+  '{ro} à la région seulement · {u} sans localité': '{ro} region only · {u} without locality',
+  'Registre géographique': 'Geographic register',
+  'Région → district du découpage (P-code) · sites distincts · réalisés et couverture sur la période': 'Region → district of the administrative breakdown (P-code) · distinct sites · visited and coverage over the period',
+  'contour partagé': 'shared outline',
+  'Rattachés à la région seulement': 'Linked to the region only',
   // ---- Couverture & performance (tuile, bulletin)
   '{done} sites réalisés / {active} actifs (sites distincts)': '{done} sites visited / {active} active (distinct sites)',
   'Aucun site actif sur la période (couverture non mesurable), et le RBM signale {due} site(s) à suivre ce mois sur {total}.':
