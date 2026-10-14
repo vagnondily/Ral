@@ -105,7 +105,7 @@ export default function DataList({
         {f.type === 'period' ? (
           <PeriodSelect
             compact allowAll value={values[k] || null} onChange={(p) => setVal(k, p || '')}
-            counts={f.counts || null} today={f.today} latest={f.latest || null} presets={f.presets} ariaLabel={f.label}
+            counts={f.counts || null} countLabel={f.countLabel} today={f.today} latest={f.latest || null} presets={f.presets} ariaLabel={f.label}
           />
         ) : f.type === 'search' ? (
           <span className="input-wrap"><Search size={16} aria-hidden="true" />

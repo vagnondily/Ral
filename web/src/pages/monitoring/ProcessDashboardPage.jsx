@@ -9,9 +9,10 @@ import { ActivationNote, PeriodBanner, SessionPeriodNote, usePeriod } from '../.
 import { formatInt, monthLabel } from '../../lib/format.js';
 import { periodLabel, single, spanMonths } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 
-/** Durée maximale des endpoints d'analyse (overview, coverage-dashboard, field/summary) : 24 mois. */
-const ANALYSIS_MAX_SPAN = 24;
+/** Durée maximale de l'écran : la plus courte de ses endpoints (overview = analyse ; field/summary = faits) — lib/periodCaps. */
+const ANALYSIS_MAX_SPAN = Math.min(PERIOD_CAPS.analysis, PERIOD_CAPS.facts);
 
 /**
  * Dashboard « Suivi de processus » — Synthèse. Recalculé en direct (rien de
@@ -34,7 +35,7 @@ const ANALYSIS_MAX_SPAN = 24;
  */
 export default function ProcessDashboardPage({ onNavigate }) {
   const { tr, lang } = useI18n();
-  const { period, ready, auto, counts, latest, today, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data', maxSpan: ANALYSIS_MAX_SPAN });
+  const { period, ready, auto, counts, latest, today, source, capped, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data', maxSpan: ANALYSIS_MAX_SPAN });
   const [res, setRes] = useState(null);       // { ov, field, rbm } : { data } | { error }
   const key = period ? `${period.from}|${period.to}` : '';
 
@@ -103,7 +104,7 @@ export default function ProcessDashboardPage({ onNavigate }) {
       </PageHeader>
 
       <PeriodBanner auto={auto} onBack={(m) => setPeriod(single(m))} />
-      <SessionPeriodNote source={source} onReset={resetToDefault} />
+      <SessionPeriodNote source={source} capped={capped} onReset={resetToDefault} />
       {!auto && empty && (
         <div className="period-banner"><Alert tone="info" icon={Info}>
           {ov.latestMonth

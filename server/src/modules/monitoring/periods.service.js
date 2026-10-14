@@ -1,5 +1,6 @@
 const repo = require('./monitoring.repository');
 const { defaultPeriod } = require('../common/period');
+const { PERIOD_CAPS } = require('../common/periodCaps');
 
 /**
  * Périodes des écrans d'analyse (GET /api/monitoring/periods) : volume de
@@ -24,7 +25,8 @@ async function periods(tenantId, { todayMonth }) {
     .map((m) => ({ ...m, future: m.month > todayMonth }));
   const def = defaultPeriod(months.map((m) => ({ month: m.month, n: m.submissions })), todayMonth);
   // Période par défaut sous la forme commune (lot 1b) : une plage d'un mois, from = to = month.
-  return { today: todayMonth, months, latestMonth: def.latestMonth, default: { ...def, from: def.month, to: def.month } };
+  // `limits` : durées maximales par nature de calcul (common/periodCaps) — celles que les routes appliquent.
+  return { today: todayMonth, months, latestMonth: def.latestMonth, default: { ...def, from: def.month, to: def.month }, limits: { ...PERIOD_CAPS } };
 }
 
 module.exports = { periods };

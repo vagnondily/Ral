@@ -116,13 +116,48 @@ test('liste des visites : période semi-ouverte, dernière collecte réelle calc
     if (/WITH ts AS MATERIALIZED/.test(s)) return [{ id: sid, last: '2026-05-01' }];
     return [];
   };
-  const rows = await field.listVisits(T, { period: H1, status: 'realise' });
+  const out = await field.listVisits(T, { period: H1, status: 'realise' });
   assert.match(calls[0].sql, /v\.tenant_id = \$1 AND v\.period_month >= \$2::date AND v\.period_month < \$3::date AND v\.status = \$4/);
   assert.doesNotMatch(calls[0].sql, /SELECT to_char\(max\(ms\.period_month\)/, 'plus de sous-requête par visite');
   assert.deepEqual(calls[1].params, [T, [sid]], 'un site distinct, une seule lecture');
   assert.match(calls[1].sql, /ms\.site_id = ANY \(ARRAY\(SELECT id FROM ts\)\)/);
   assert.match(calls[1].sql, /ms\.site_id IS NULL AND ms\.adm3_pcode = ANY \(ARRAY\(SELECT DISTINCT adm3_pcode FROM ts WHERE adm3_pcode IS NOT NULL\)\)/);
-  assert.deepEqual(rows.map((r) => r.dataVisitMonth), ['2026-05', '2026-05']);
+  assert.deepEqual(out.items.map((r) => r.dataVisitMonth), ['2026-05', '2026-05']);
+});
+
+test('liste des visites : paginée (1 000 par défaut, 2 000 au plus), ordre stable, total, colonnes utiles seulement', async () => {
+  calls = [];
+  rowsFor = (s) => (/FROM site_visits v JOIN sites s/.test(s) ? [{ id: 'v1', siteId: 's1', _total: 3456 }] : []);
+  const out = await field.listVisits(T, { period: H1 });
+  assert.deepEqual({ total: out.total, limit: out.limit, offset: out.offset }, { total: 3456, limit: 1000, offset: 0 });
+  assert.equal(out.items[0]._total, undefined, 'le total ne reste pas dans les lignes');
+  assert.match(calls[0].sql, /count\(\*\) OVER \(\)::int AS _total/);
+  assert.match(calls[0].sql, /ORDER BY s\.district, s\.commune, s\.name, v\.period_month, v\.id LIMIT \$4 OFFSET \$5$/);
+  assert.deepEqual(calls[0].params.slice(-2), [1000, 0]);
+  assert.doesNotMatch(calls[0].sql, /contract_id/, 'contrat jamais affiché : pas lu');
+  calls = [];
+  await field.listVisits(T, { period: H1, limit: 99999, offset: 2000 });
+  assert.deepEqual(calls[0].params.slice(-2), [2000, 2000], '2 000 au plus par page');
+  // Page au-delà de la fin : total recompté (la fenêtre n'a rien rendu).
+  calls = []; rowsFor = (s) => (/SELECT count\(\*\)::int AS n FROM site_visits v/.test(s) ? [{ n: 12 }] : []);
+  const past = await field.listVisits(T, { period: H1, offset: 5000 });
+  assert.deepEqual({ items: past.items, total: past.total }, { items: [], total: 12 });
+});
+
+test('sans période : les visites des 24 derniers mois de visites au plus (jamais plus long qu\'une période demandée)', async () => {
+  // Visites de janvier 2020 à octobre 2026 (82 mois) : la lecture s'arrête aux 24 derniers mois.
+  calls = []; rowsFor = (s) => (/SELECT to_char\(min\(period_month\)/.test(s) ? [{ lo: '2020-01', hi: '2026-10' }] : []);
+  const out = await field.summary(T, {});
+  assert.deepEqual(out.period, { from: '2024-11', to: '2026-10', months: 24 });
+  assert.deepEqual(factsCall().params.slice(1, 4), ['2024-11-01', '2026-10-01', '2026-11-01']);
+  calls = [];
+  const recap = await field.coverageRecapSummary(T, {});
+  assert.equal(recap.period, null, 'aucune période demandée');
+  assert.deepEqual(recap.span, { from: '2024-11', to: '2026-10', months: 24 }, 'mois réellement lus, dits à l\'écran');
+  assert.equal(recap.operationMonths, 12);
+  // Moins de 24 mois de visites : toutes.
+  rowsFor = (s) => (/SELECT to_char\(min\(period_month\)/.test(s) ? [{ lo: '2026-03', hi: '2026-09' }] : []);
+  assert.deepEqual((await field.summary(T, {})).period, { from: '2026-03', to: '2026-09', months: 7 });
 });
 
 test('RBM : état au mois de référence — visites réalisées, données et date du registre bornées, plan à venir non borné', async () => {

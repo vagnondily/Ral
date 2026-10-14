@@ -208,7 +208,7 @@ function DistributionsView({ canEdit, onNavigate }) {
             : tr('Plan de distribution de la période : table fidèle au classeur, filtrable et exportable.')}</p>
         </div>
         <div className="header-actions">
-          <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latestOf(counts)} allowAll align="right" />
+          <PeriodSelect value={period} onChange={setPeriod} counts={counts} countLabel="{n} ligne(s) de distribution sur la période" latest={latestOf(counts)} allowAll align="right" />
           {!picking && <Button variant="secondary" icon={ChevronLeft} onClick={() => setPeriod(null)}>{tr('Tous les mois')}</Button>}
           {canEdit && <>
             <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={onImport} />
@@ -474,7 +474,7 @@ function SynthesisView() {
           <p className="page-desc">{tr('Totaux recalculés en direct : par aléa, par mois, par zone (région → district → commune) et par denrée.')}</p>
         </div>
         <div className="header-actions">
-          <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latestOf(counts)} allowAll align="right" />
+          <PeriodSelect value={period} onChange={setPeriod} counts={counts} countLabel="{n} ligne(s) de distribution sur la période" latest={latestOf(counts)} allowAll align="right" />
         </div>
       </div>
 
@@ -668,7 +668,7 @@ function PipelineView({ canEdit }) {
           <p className="page-desc">{tr('Besoin planifié (tonnages du PDD) confronté au stock disponible, par denrée : écart, couverture et ruptures.')}</p>
         </div>
         <div className="header-actions">
-          <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latestOf(counts)} allowAll align="right" />
+          <PeriodSelect value={period} onChange={setPeriod} counts={counts} countLabel="{n} ligne(s) de distribution sur la période" latest={latestOf(counts)} allowAll align="right" />
         </div>
       </div>
 

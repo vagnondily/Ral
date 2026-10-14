@@ -3,14 +3,15 @@ import { MapPin, ShieldCheck, Repeat, Target, LayoutGrid, Boxes, Handshake, Tren
 import { api } from '../../api/client.js';
 import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
 import PeriodSelect from '../../components/PeriodSelect.jsx';
-import { usePeriod } from '../../components/PeriodBanner.jsx';
+import { SessionPeriodNote, usePeriod } from '../../components/PeriodBanner.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatInt } from '../../lib/format.js';
 import { periodLabel, spanMonths } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 
-/** Durée maximale (faits site × mois, matrice lisible) : 24 mois. */
-const RECAP_MAX_SPAN = 24;
+/** Durée maximale (faits site × mois, matrice lisible) : lib/periodCaps.facts, la table du serveur. */
+const RECAP_MAX_SPAN = PERIOD_CAPS.facts;
 
 const RISK = {
   elevee: { label: 'Risque élevé', tone: 'red', color: 'var(--red)', bg: 'var(--red-bg)', text: 'var(--red-text)' },
@@ -46,12 +47,13 @@ const TABS = [
 export default function CoverageRecapPage() {
   const { tr } = useI18n();
   const [tab, setTab] = useState('mmr');
-  const { period, ready, today, setPeriod } = usePeriod({ scope: 'local', defaultRule: 'all', maxSpan: RECAP_MAX_SPAN });
+  const { period, ready, today, source, capped, setPeriod, resetToDefault } = usePeriod({ scope: 'local', defaultRule: 'all', maxSpan: RECAP_MAX_SPAN });
   return (
     <div className="section-gap">
       <PageHeader title={tr('Couverture du suivi')} description={tr('Combien de sites sont couverts, par niveau de risque (MMR), par programme et par prestataire. Recalculé en direct depuis les sites et les visites.')}>
         {ready && <PeriodSelect value={period} onChange={setPeriod} today={today} allowAll withFullYear maxSpan={RECAP_MAX_SPAN} align="right" />}
       </PageHeader>
+      <SessionPeriodNote source={source} capped={capped} onReset={resetToDefault} />
       <div className="seg" role="tablist" aria-label={tr('Vue de couverture')}>
         {TABS.map((x) => { const Icon = x.icon; return (
           <button key={x.id} role="tab" aria-selected={tab === x.id} className={tab === x.id ? 'is-active' : ''} onClick={() => setTab(x.id)}>
@@ -111,7 +113,7 @@ function SiteMmrTab({ period }) {
         <>
           <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
             <Kpi icon={MapPin} tone="blue" label={tr('Sites actifs')} value={formatInt(total.active)}
-              foot={`${district || tr('tous districts')} · ${period ? periodLabel(period, lang) : tr('Toutes les périodes')}`} />
+              foot={`${district || tr('tous districts')} · ${period ? periodLabel(period, lang) : (data.span ? tr('Toutes les périodes : {p} ({n} mois au plus)', { p: periodLabel(data.span, lang), n: RECAP_MAX_SPAN }) : tr('Toutes les périodes'))}`} />
             <Kpi icon={Repeat} tone="blue" label={tr('Visités au moins une fois')} value={formatInt(total.visitedToDate)} foot={pct(total.coverageRate, tr)} />
             <Kpi icon={Target} tone="amber" label={tr('Jamais visités')} value={formatInt(total.notVisited)} foot={tr('à planifier')} />
             <Kpi icon={ShieldCheck} tone={compTone(total.compliance)} label={tr('Conformité MMR')} value={pct(total.compliance, tr)} foot={tr('sites au nombre de visites requis')} />

@@ -403,7 +403,19 @@ export const api = {
   fieldCreateSite: (input) => request('/api/tpm/field/sites', { method: 'POST', body: input }),
   fieldUpdateSite: (id, input) => request(`/api/tpm/field/sites/${id}`, { method: 'PATCH', body: input }),
   // Visites : { period | month, providerId, status } — 12 mois au plus sur une plage.
-  fieldVisits: ({ period, month, ...rest } = {}) => request('/api/tpm/field/visits', { query: qs({ ...pq(period || month), ...rest }) }),
+  // Liste paginée côté serveur (pages de 1 000, chacune < 1 Mo) : toutes les pages sont lues, une
+  // après l'autre, jusqu'au total ; l'écran reçoit le tableau complet des visites demandées.
+  fieldVisits: async ({ period, month, ...rest } = {}) => {
+    const items = [];
+    for (let offset = 0, guard = 0; guard < 100; guard += 1) {
+      const page = await request('/api/tpm/field/visits', { query: qs({ ...pq(period || month), ...rest, offset: offset || undefined }) });
+      const list = Array.isArray(page) ? page : (page.items || []);
+      items.push(...list);
+      if (Array.isArray(page) || !list.length || items.length >= page.total) break;
+      offset = items.length;
+    }
+    return items;
+  },
   // Faits site × mois sur la période (sites distincts actifs / prévus / réalisés, visites, taux).
   fieldSummary: (period) => request('/api/tpm/field/summary', { query: qs(pq(period)) }),
   fieldCreateVisit: (input) => request('/api/tpm/field/visits', { method: 'POST', body: input }),

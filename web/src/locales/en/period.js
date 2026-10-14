@@ -28,6 +28,18 @@ export default {
   '{n} mois au plus': '{n} months at most',
   'période conservée de la session': 'period kept from this session',
   'Revenir au dernier mois avec des données': 'Back to the latest month with data',
+  // Plafond de l'écran (lib/periodCaps) : dit dans la fenêtre, et quand une période d'URL ou de session est écartée.
+  '{n} mois au plus sur cet écran (temps de calcul).': '{n} months at most on this screen (computation time).',
+  'Période demandée ({p}, {n} mois) plus longue que les {max} mois que permet cet écran : période par défaut affichée.':
+    'Requested period ({p}, {n} months) is longer than the {max} months this screen allows: showing the default period.',
+  'Période demandée plus longue que ce que permet cet écran : période par défaut affichée.':
+    'Requested period is longer than this screen allows: showing the default period.',
+  // Sans période : les mois réellement lus (24 derniers mois de visites au plus).
+  'Toutes les périodes : {p} ({n} mois au plus)': 'All periods: {p} ({n} months at most)',
+  // Volume du sélecteur selon l'écran (countLabel).
+  '{n} rapport(s) sur la période': '{n} report(s) over the period',
+  '{n} ligne(s) de distribution sur la période': '{n} distribution line(s) over the period',
+  '{n} plan(s) sur la période': '{n} plan(s) over the period',
 
   // ---- Erreurs de période renvoyées par le serveur (details.code)
   'Période invalide : mois attendu au format AAAA-MM (ex. 2026-01).': 'Invalid period: month expected as YYYY-MM (e.g. 2026-01).',

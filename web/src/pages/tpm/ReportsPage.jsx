@@ -294,7 +294,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
         <span className="cfilter-label">{tr(f.label)}</span>
         {f.type === 'period' ? (
           <PeriodSelect compact allowAll value={values.period || null} onChange={(p) => setVal('period', p || '')}
-            counts={reportCounts} latest={latestReport} ariaLabel={tr(f.label)} />
+            counts={reportCounts} countLabel="{n} rapport(s) sur la période" latest={latestReport} ariaLabel={tr(f.label)} />
         ) : f.type === 'search' ? (
           <span className="input-wrap"><Search size={16} aria-hidden="true" />
             <input className="input" type="search" placeholder={tr(f.ph)} value={values[k]} onChange={(e) => setVal(k, e.target.value)} />

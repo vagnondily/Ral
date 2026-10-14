@@ -3,11 +3,12 @@ import { AlertTriangle, CheckCircle2, ChevronRight, AlertCircle, Clock } from 'l
 import { api } from '../../api/client.js';
 import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
 import PeriodSelect from '../../components/PeriodSelect.jsx';
-import { usePeriod } from '../../components/PeriodBanner.jsx';
+import { SessionPeriodNote, usePeriod } from '../../components/PeriodBanner.jsx';
 import { samePeriod, single } from '../../lib/period.js';
 import SeverityBadge, { SEV_ICON } from '../../components/SeverityBadge.jsx';
 import { SEVERITY, alertText, alertsState, goArgs, sourceList } from '../../lib/alerts.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 
 /**
  * Centre d'alertes — la vue « ce qui demande mon attention » du responsable
@@ -24,11 +25,11 @@ import { useI18n } from '../../lib/i18n.jsx';
  * pour le terrain (visites de la période) et les rapports à valider (période chevauchante) ;
  * les alertes budgétaires et d'échéance restent calculées à date, et chaque ligne le dit.
  */
-const ALERTS_MAX_SPAN = 24;
+const ALERTS_MAX_SPAN = PERIOD_CAPS.facts; // comme GET /api/alerts (lib/periodCaps, la table du serveur)
 
 export default function AlertsPage({ onNavigate }) {
   const { tr } = useI18n();
-  const { period, ready, today, setPeriod } = usePeriod({ scope: 'local', defaultRule: 'current', maxSpan: ALERTS_MAX_SPAN });
+  const { period, ready, today, source, capped, setPeriod, resetToDefault } = usePeriod({ scope: 'local', defaultRule: 'current', maxSpan: ALERTS_MAX_SPAN });
   const isBell = !period || samePeriod(period, single(today));
   const key = period ? `${period.from}|${period.to}` : '';
   const [state, setState] = useState({ loading: true });
@@ -57,10 +58,13 @@ export default function AlertsPage({ onNavigate }) {
     </PageHeader>
   );
   const note = (
-    <p className="period-session-note">
-      <Clock size={14} aria-hidden="true" />
-      <span>{tr('Les alertes budgétaires et d\'échéance sont calculées à date.')}</span>
-    </p>
+    <>
+      <SessionPeriodNote source={source} capped={capped} onReset={resetToDefault} />
+      <p className="period-session-note">
+        <Clock size={14} aria-hidden="true" />
+        <span>{tr('Les alertes budgétaires et d\'échéance sont calculées à date.')}</span>
+      </p>
+    </>
   );
 
   if (state.loading) return <div className="page">{header}{note}<Skeleton height={320} /></div>;

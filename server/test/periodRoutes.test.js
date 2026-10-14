@@ -68,23 +68,24 @@ const viewer = jwt.sign({ sub: 'u2', tenantId: TENANT, role: 'viewer' }, process
 const get = (url) => request(app).get(url).set({ Authorization: `Bearer ${viewer}` });
 const last = () => calls[calls.length - 1];
 
-// [endpoint, nom de l'espion, période extraite des arguments, durée maximale]
+// [endpoint, nom de l'espion, période extraite des arguments, durée maximale (common/periodCaps)]
+const { PERIOD_CAPS: CAPS } = require('../src/modules/common/periodCaps');
 const MONITORING_AND_FIELD = [
-  ['/api/monitoring/overview', 'overview', (a) => a[1], 24],
-  ['/api/monitoring/coverage-dashboard', 'coverage', (a) => a[1], 24],
-  [`/api/monitoring/forms/${FORM}/values`, 'values', (a) => a[2].period, 24],
-  [`/api/monitoring/forms/${FORM}/dashboard`, 'dashboard', (a) => a[2].period, 24],
-  [`/api/monitoring/forms/${FORM}/submissions`, 'formSubmissions', (a) => a[2].period, 12],
-  ['/api/monitoring/submissions', 'submissions', (a) => a[1].period, 12],
-  ['/api/tpm/field/summary', 'fieldSummary', (a) => a[1].period, 24],
-  ['/api/tpm/field/visits', 'visits', (a) => a[1].period, 12],
-  ['/api/tpm/field/coverage-recap', 'recap', (a) => a[1].period, 24],
-  ['/api/tpm/reports', 'reports', (a) => a[1].period, 60],
-  ['/api/tpm/planning', 'plans', (a) => a[1].period, 60],
-  ['/api/pdd/distributions', 'pddDistributions', (a) => a[1].period, 60],
-  ['/api/pdd/summary', 'pddSummary', (a) => a[1].period, 60],
-  ['/api/pdd/pipeline', 'pddPipeline', (a) => a[1].period, 60],
-  ['/api/alerts', 'alerts', (a) => a[1].period, 24],
+  ['/api/monitoring/overview', 'overview', (a) => a[1], CAPS.analysis],
+  ['/api/monitoring/coverage-dashboard', 'coverage', (a) => a[1], CAPS.analysis],
+  [`/api/monitoring/forms/${FORM}/values`, 'values', (a) => a[2].period, CAPS.analysis],
+  [`/api/monitoring/forms/${FORM}/dashboard`, 'dashboard', (a) => a[2].period, CAPS.analysis],
+  [`/api/monitoring/forms/${FORM}/submissions`, 'formSubmissions', (a) => a[2].period, CAPS.list],
+  ['/api/monitoring/submissions', 'submissions', (a) => a[1].period, CAPS.list],
+  ['/api/tpm/field/summary', 'fieldSummary', (a) => a[1].period, CAPS.facts],
+  ['/api/tpm/field/visits', 'visits', (a) => a[1].period, CAPS.list],
+  ['/api/tpm/field/coverage-recap', 'recap', (a) => a[1].period, CAPS.facts],
+  ['/api/tpm/reports', 'reports', (a) => a[1].period, CAPS.document],
+  ['/api/tpm/planning', 'plans', (a) => a[1].period, CAPS.document],
+  ['/api/pdd/distributions', 'pddDistributions', (a) => a[1].period, CAPS.document],
+  ['/api/pdd/summary', 'pddSummary', (a) => a[1].period, CAPS.document],
+  ['/api/pdd/pipeline', 'pddPipeline', (a) => a[1].period, CAPS.document],
+  ['/api/alerts', 'alerts', (a) => a[1].period, CAPS.facts],
 ];
 
 const ERRORS = [
@@ -122,7 +123,7 @@ for (const [url, name, periodOf, maxSpan] of MONITORING_AND_FIELD) {
       assert.equal(res.body.details.code, code, q);
       assert.ok(res.body.error.startsWith('Période'), q);
     }
-    // Durée maximale propre à l'endpoint (analyse : 24 mois ; listes : 12 mois) : un mois de plus est refusé.
+    // Durée maximale propre à l'endpoint (analyse et listes : 12 mois ; faits terrain : 24 mois) : un mois de plus est refusé.
     const over = await get(`${url}?from=${{ 12: '2025-12', 24: '2024-12', 60: '2021-12' }[maxSpan]}&to=2026-12`);
     assert.equal(over.status, 400);
     assert.equal(over.body.details.code, 'period_span');
@@ -156,6 +157,8 @@ test('GET /monitoring/periods : la période par défaut porte from et to (= le m
   assert.equal(res.body.default.month, '2026-07');
   assert.equal(res.body.default.from, '2026-07');
   assert.equal(res.body.default.to, '2026-07');
+  // Durées maximales appliquées par les routes, données aux écrans (une seule table).
+  assert.deepEqual(res.body.limits, { ...CAPS });
 });
 
 test('matrice de couverture : ?year= (historique) ou une période (colonnes = mois de la période)', async () => {
@@ -167,6 +170,18 @@ test('matrice de couverture : ?year= (historique) ou une période (colonnes = mo
   assert.deepEqual(last().args[1].period, { from: '2026-07', to: '2026-07' });
   const bad = await get('/api/tpm/field/coverage-matrix?from=2026-06&to=2026-01');
   assert.equal(bad.body.details.code, 'period_order');
+});
+
+test('visites : pagination ?limit (1 à 2 000) et ?offset transmises, valeurs invalides refusées', async () => {
+  await get('/api/tpm/field/visits?month=2026-07&limit=50&offset=100');
+  assert.equal(last().args[1].limit, 50);
+  assert.equal(last().args[1].offset, 100);
+  await get('/api/tpm/field/visits?month=2026-07');
+  assert.equal(last().args[1].limit, undefined, 'taille par défaut du dépôt');
+  for (const q of ['limit=0', 'limit=2001', 'offset=-1', 'limit=abc']) {
+    const res = await get(`/api/tpm/field/visits?month=2026-07&${q}`);
+    assert.equal(res.status, 400, q);
+  }
 });
 
 test('RBM : ?from&to → mois de référence = to (un état se lit à un mois), état borné à ce mois', async () => {

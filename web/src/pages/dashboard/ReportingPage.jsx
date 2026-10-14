@@ -7,11 +7,12 @@ import { ActivationNote, PeriodBanner, SessionPeriodNote, usePeriod } from '../.
 import { formatAr, formatInt } from '../../lib/format.js';
 import { periodLabel, single } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { coveragePct } from '../../lib/coverage.js';
 
-/** Plafond commun à la consolidation de la période et aux faits terrain (field/summary) : 24 mois. */
-const REPORT_MAX_SPAN = 24;
+/** Plafond commun à la consolidation de la période et aux faits terrain (field/summary) : lib/periodCaps.facts. */
+const REPORT_MAX_SPAN = Math.min(PERIOD_CAPS.document, PERIOD_CAPS.facts);
 
 /**
  * Reporting — rapport de synthèse S&E pour une PÉRIODE (lot 1b : plage de mois, défaut =
@@ -26,7 +27,7 @@ const REPORT_MAX_SPAN = 24;
 
 export default function ReportingPage({ onOpenContract }) {
   const { tr, lang } = useI18n();
-  const { period, ready, auto, counts, latest, today, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data', maxSpan: REPORT_MAX_SPAN });
+  const { period, ready, auto, counts, latest, today, source, capped, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data', maxSpan: REPORT_MAX_SPAN });
   const key = period ? `${period.from}|${period.to}` : '';
   const [cons, setCons] = useState(null);
   const [field, setField] = useState(null);
@@ -92,7 +93,7 @@ export default function ReportingPage({ onOpenContract }) {
       </div>
 
       <PeriodBanner auto={auto} onBack={(m) => setPeriod(single(m))} />
-      <SessionPeriodNote source={source} onReset={resetToDefault} />
+      <SessionPeriodNote source={source} capped={capped} onReset={resetToDefault} />
       {error && <Alert tone="error">{error}</Alert>}
 
       <Stats compact items={[

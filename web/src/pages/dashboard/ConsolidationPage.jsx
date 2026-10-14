@@ -8,6 +8,7 @@ import { formatAr, formatInt, monthLabel } from '../../lib/format.js';
 import { periodLabel } from '../../lib/period.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 
 const MATRIX_VIEWS = [
   { id: 'actual', label: 'Réalisé' },
@@ -37,7 +38,7 @@ const pctOrDash = (rate) => (rate == null ? '—' : pct(rate));
  */
 export default function ConsolidationPage({ onOpenContract }) {
   const { tr, lang } = useI18n();
-  const { period, ready, counts, latest, today, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'all' });
+  const { period, ready, counts, latest, today, source, capped, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'all', maxSpan: PERIOD_CAPS.document });
   const key = period ? `${period.from}|${period.to}` : 'all';
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -96,7 +97,7 @@ export default function ConsolidationPage({ onOpenContract }) {
         {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} allowAll align="right" />}
         <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!rows.length}>{tr('Exporter (CSV)')}</Button>
       </PageHeader>
-      <SessionPeriodNote source={source} onReset={resetToDefault} resetLabel={tr('Revenir à toutes les périodes')} />
+      <SessionPeriodNote source={source} capped={capped} onReset={resetToDefault} resetLabel={tr('Revenir à toutes les périodes')} />
 
       {tp ? (
         <Stats items={[
