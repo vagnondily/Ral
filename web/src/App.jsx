@@ -15,7 +15,6 @@ import ReportsPage from './pages/tpm/ReportsPage.jsx';
 import ConsolidationPage from './pages/dashboard/ConsolidationPage.jsx';
 import DashboardBIPage from './pages/dashboard/DashboardBIPage.jsx';
 import DashboardCoveragePage from './pages/dashboard/DashboardCoveragePage.jsx';
-import QuarterlyReportPage from './pages/dashboard/QuarterlyReportPage.jsx';
 import AlertsPage from './pages/dashboard/AlertsPage.jsx';
 import ReportingPage from './pages/dashboard/ReportingPage.jsx';
 import ReportDesignerPage from './pages/reports/ReportDesignerPage.jsx';
@@ -46,6 +45,8 @@ const REDIRECTS = {
   'processus/plan': { module: 'processus', sub: 'rbm', extra: 'plan' },
   // Le registre des sites est un onglet de Localités (retour 63).
   'parametrage/sites': { module: 'parametrage', sub: 'localites', extra: 'sites' },
+  // Le rapport trimestriel est devenu la carte « Couverture par activité » de la Synthèse (retour 76).
+  'dashboard/trimestriel': { module: 'processus', sub: 'synthese' },
 };
 
 // La requête du hash (#/dashboard/couverture?from=2026-01&to=2026-06 : période, lot 1b)
@@ -127,7 +128,6 @@ function Workspace() {
       {route.module === 'dashboard' && route.sub === 'apercu' && <DashboardBIPage onOpenContract={openContract} onNavigate={navigate} />}
       {route.module === 'dashboard' && route.sub === 'consolidation' && <ConsolidationPage onOpenContract={openContract} />}
       {route.module === 'dashboard' && route.sub === 'couverture' && <DashboardCoveragePage onNavigate={navigate} />}
-      {route.module === 'dashboard' && route.sub === 'trimestriel' && <QuarterlyReportPage />}
       {route.module === 'alertes' && <AlertsPage onNavigate={navigate} onOpenContract={openContract} />}
       {route.module === 'reporting' && route.sub === 'concepteur' && <ReportDesignerPage canEdit={canEdit} isAdmin={user.role === 'admin'} />}
       {route.module === 'reporting' && route.sub !== 'concepteur' && <ReportingPage onOpenContract={openContract} />}

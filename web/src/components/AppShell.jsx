@@ -68,7 +68,6 @@ export const NAV = [
           { id: 'apercu', label: "Vue d'ensemble" },
           { id: 'consolidation', label: 'Suivi budgétaire consolidé' },
           { id: 'couverture', label: 'Couverture & performance' },
-          { id: 'trimestriel', label: 'Rapport trimestriel' },
         ],
       },
       { id: 'reporting', label: 'Reporting', icon: ChartColumn, subs: [{ id: 'synthese', label: 'Rapport de synthèse' }, { id: 'concepteur', label: 'Concepteur de rapport' }] },
