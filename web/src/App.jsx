@@ -121,7 +121,7 @@ function Workspace() {
       {route.module === 'tpm' && route.sub === 'formations' && <FormationsPage canEdit={canEdit} />}
       {route.module === 'tpm' && route.sub === 'evaluation' && <EvaluationPage canEdit={canEdit} />}
       {route.module === 'tpm' && route.sub === 'rapports' && <ReportsPage canEdit={canEdit} onOpenContract={openContract} onNavigate={navigate} />}
-      {route.module === 'dashboard' && route.sub === 'apercu' && <DashboardBIPage onOpenContract={openContract} />}
+      {route.module === 'dashboard' && route.sub === 'apercu' && <DashboardBIPage onOpenContract={openContract} onNavigate={navigate} />}
       {route.module === 'dashboard' && route.sub === 'consolidation' && <ConsolidationPage onOpenContract={openContract} />}
       {route.module === 'dashboard' && route.sub === 'couverture' && <DashboardCoveragePage onNavigate={navigate} />}
       {route.module === 'alertes' && <AlertsPage onNavigate={navigate} onOpenContract={openContract} />}
@@ -137,10 +137,10 @@ function Workspace() {
         <RbmSpacePage canEdit={canEdit} isAdmin={user.role === 'admin'} tab={route.extra} onTab={(tab) => navigate('processus', 'rbm', tab)} />
       )}
       {route.module === 'processus' && route.sub === 'couverture' && <CoverageRecapPage />}
-      {route.module === 'processus' && route.sub === 'carte' && <SitesMapPage />}
+      {route.module === 'processus' && route.sub === 'carte' && <SitesMapPage onNavigate={navigate} isAdmin={user.role === 'admin'} />}
       {route.module === 'processus' && route.sub === 'calculs' && <CalcDocsPage />}
       {route.module === 'pdd' && <PddPage canEdit={canEdit} view={route.sub} onNavigate={navigate} />}
-      {route.module === 'parametrage' && <SettingsPage tab={route.sub} isAdmin={user.role === 'admin'} onNavigate={navigate} />}
+      {route.module === 'parametrage' && <SettingsPage tab={route.sub} sub={route.extra} isAdmin={user.role === 'admin'} onNavigate={navigate} />}
     </AppShell>
   );
 }

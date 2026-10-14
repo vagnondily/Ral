@@ -21,16 +21,14 @@ test('escapeHtml (popups de carte) : aucune donnée interprétée comme du HTML'
   assert.equal(escapeHtml('Ambovombe › Site 3'), 'Ambovombe › Site 3');
 });
 
-test('popups de la carte des sites : chaque donnée passe par escapeHtml', () => {
-  const file = path.join(__dirname, '../../web/src/pages/monitoring/SitesMapPage.jsx');
-  if (!fs.existsSync(file)) return;
-  const src = fs.readFileSync(file, 'utf8');
-  // Toute interpolation dans un bindPopup / bindTooltip est enveloppée par esc(…).
-  const popups = src.match(/bind(?:Popup|Tooltip)\(`[\s\S]*?`\)/g) || [];
-  assert.ok(popups.length >= 2);
-  for (const p of popups) {
-    for (const expr of p.match(/\$\{(?!esc\(|d \?|p\.antenneName \?)[^}]*\}/g) || []) {
-      assert.fail(`interpolation non échappée dans un popup : ${expr}`);
-    }
+test('carte des sites et carte du suivi (lot 6a) : aucune chaîne HTML assemblée (fiches en nœuds React, échappés)', () => {
+  const files = [path.join(__dirname, '../../web/src/pages/monitoring/SitesMapPage.jsx')];
+  const dir = path.join(__dirname, '../../web/src/components/map');
+  if (fs.existsSync(dir)) for (const f of fs.readdirSync(dir)) files.push(path.join(dir, f));
+  for (const file of files) {
+    if (!fs.existsSync(file)) continue;
+    const src = fs.readFileSync(file, 'utf8');
+    // Plus de popups Leaflet en HTML : noms de sites, communes, districts rendus par React.
+    assert.doesNotMatch(src, /bind(?:Popup|Tooltip)\(|innerHTML|dangerouslySetInnerHTML|insertAdjacentHTML/, path.basename(file));
   }
 });

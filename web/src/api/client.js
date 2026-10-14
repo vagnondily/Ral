@@ -416,7 +416,6 @@ export const api = {
     query: qs(yearOrPeriod && typeof yearOrPeriod === 'object' ? pq(yearOrPeriod) : { year: yearOrPeriod }),
   }),
   fieldMonths: (year) => request('/api/tpm/field/months', { query: year ? { year } : undefined }),
-  fieldMap: () => request('/api/tpm/field/map'),
   fieldSetMonthStatus: (month, status) => request('/api/tpm/field/months/status', { method: 'PUT', body: { month, status } }),
   fieldSetTravelDays: (input) => request('/api/tpm/field/collection-days', { method: 'PUT', body: input }),
   // Mois de référence « AAAA-MM », ou une période { from, to } : l'état est lu au mois `to`.
@@ -486,6 +485,22 @@ export const api = {
   // Centre d'alertes : une seule liste pour la page et la cloche de l'en-tête.
   // Alertes : sans période, le mois courant (la cloche) ; une période vaut pour le terrain et les rapports.
   alerts: (period) => request('/api/alerts', { query: qs(pq(period)) }),
+  // Carte du suivi (lot 6a) : tous les thèmes par district sur une période (requise) ;
+  // filtres bureau (avec ses antennes) et activité ; levels: ['commune'] = classement par commune.
+  mapDistricts: (period, { officeId, activity, levels } = {}) => request('/api/map/districts', {
+    query: qs({ ...pq(period), office: officeId, activity, levels: levels && levels.length ? levels.join(',') : undefined }),
+  }),
+  // Points : sites GPS, positions déduites des collectes, centres de commune, points de collecte
+  // (précis pour admin / gestionnaire, carroyage de 2 km sinon).
+  mapPoints: (period, { officeId, activity, layers, limit } = {}) => request('/api/map/points', {
+    query: qs({ ...pq(period), office: officeId, activity, layers: layers && layers.length ? layers.join(',') : undefined, limit }),
+  }),
+  mapSearch: (q) => request('/api/map/search', { query: { q } }),
+  // Paramétrage › Localités › Contours de la carte (administrateur).
+  mapShapeLinks: () => request('/api/map/shape-links'),
+  mapShapeLinkSet: (pcode, shapeKey) => request(`/api/map/shape-links/${encodeURIComponent(pcode)}`, { method: 'PUT', body: { shapeKey } }),
+  mapShapeLinkClear: (pcode) => request(`/api/map/shape-links/${encodeURIComponent(pcode)}`, { method: 'DELETE' }),
+  mapFillCentres: () => request('/api/map/shape-links/fill-centres', { method: 'POST' }),
 
   // Planification & budget — budget prévisionnel des vagues de collecte
   listPlans: ({ period, month, ...rest } = {}) => request('/api/tpm/planning', { query: qs({ ...pq(period || month), ...rest }) }),

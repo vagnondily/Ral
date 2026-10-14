@@ -8,7 +8,9 @@ import CodeLabel from '../../components/CodeLabel.jsx';
 import { ActivationNote, PeriodBanner, SessionPeriodNote, usePeriod } from '../../components/PeriodBanner.jsx';
 import { formatInt, monthLabel } from '../../lib/format.js';
 import { periodLabel, single } from '../../lib/period.js';
-import { MAP, project } from '../../lib/madagascarMap.js';
+import MapExplorer, { peekMapOpen, forgetMapOpen } from '../../components/map/MapExplorer.jsx';
+import { fetchMapDistricts } from '../../components/map/useMapData.js';
+import { formatRate } from '../../lib/mapScale.js';
 import { groupNaReasons } from '../../lib/naReasons.js';
 import { shortFormLabel as shortLabel } from '../../lib/formLabel.js';
 import { useI18n } from '../../lib/i18n.jsx';
@@ -23,7 +25,8 @@ const ANALYSIS_MAX_SPAN = 24;
  * plan vs réalisé, et un détail par activité (= fiche) — dimensions, top/flop
  * d'indicateurs, tendance, bureaux. Tout est recalculé en direct :
  *   • conformité/indicateurs ← /monitoring/coverage-dashboard
- *   • couverture terrain      ← /tpm/field/summary
+ *   • couverture (sites)       ← /map/districts (la MÊME réponse que la vue Carte)
+ *   • exécution du plan, zones ← /tpm/field/summary
  *   • sites à suivre (RBM)     ← /tpm/field/rbm/sites
  * Période = plage de mois (lot 1b, retour n° 47) : URL, puis période de travail de la
  * session, puis la règle commune (dernier mois substantiel avec des données, dite par
@@ -31,6 +34,11 @@ const ANALYSIS_MAX_SPAN = 24;
  * Deux taux terrain : Couverture (sites) = sites actifs réalisés ÷ sites actifs ;
  * Exécution du plan (visites) = visites réalisées ÷ prévues — sans plan, « — aucun
  * plan », jamais 0 % ni « Situation critique ».
+ * La tuile « Couverture », le Bulletin et la vue Carte lisent la même réponse de
+ * /api/map/districts pour la période de la page (cache partagé) : jamais deux
+ * couvertures différentes sur la page (lot 6a). « Ouvrir la carte » (Vue d'ensemble)
+ * passe la période par l'URL (#/dashboard/couverture?from=…&to=…, lue par usePeriod)
+ * et le thème / les filtres par sessionStorage['mems.map.open'].
  */
 
 const BANDS = [
@@ -58,15 +66,20 @@ export default function DashboardCoveragePage({ onNavigate }) {
   const [cd, setCd] = useState(null);
   const [field, setField] = useState(null);
   const [rbm, setRbm] = useState(null);
-  const [map, setMap] = useState(null);
+  // Totaux de la carte pour la période : undefined = en cours, null = échec, objet = réponse.
+  const [mapData, setMapData] = useState(undefined);
   const [error, setError] = useState(null);
-  const [view, setView] = useState('synthese');
+  // « Ouvrir la carte » (Vue d'ensemble) : même thème et mêmes filtres, lus une fois ; la
+  // période arrive par l'URL (usePeriod).
+  const [opened] = useState(() => peekMapOpen());
+  useEffect(() => { forgetMapOpen(); }, []);
+  const [view, setView] = useState(opened ? 'carte' : 'synthese');
   const [tab, setTab] = useState('_OV');
 
   useEffect(() => {
     if (!ready || !period) return undefined;
     let alive = true;
-    setCd(null); setField(null); setRbm(null); setError(null);
+    setCd(null); setField(null); setRbm(null); setMapData(undefined); setError(null);
     // RBM : un état, lu au dernier mois de la période (le serveur prend `to`).
     Promise.all([api.monCoverageDashboard(period), api.fieldSummary(period), api.rbmSites(period)])
       .then(([c, f, r]) => {
@@ -75,11 +88,12 @@ export default function DashboardCoveragePage({ onNavigate }) {
         try { if (typeof performance !== 'undefined' && performance.mark) performance.mark('period:rendered'); } catch { /* sans incidence */ }
       })
       .catch((e) => { if (alive) setError(e.message); });
+    // Couverture (définition commune) : sites actifs réalisés ÷ actifs, sites distincts — la
+    // tuile, le Bulletin et la carte lisent la même réponse (cache partagé de useMapData).
+    fetchMapDistricts(period).then((d) => { if (alive) setMapData(d); }, () => { if (alive) setMapData(null); });
     return () => { alive = false; };
   }, [ready, key]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Carte : référentiel de sites géolocalisés (indépendant du mois), chargé une fois.
-  useEffect(() => { api.fieldMap().then(setMap).catch(() => setMap({ communes: [], points: [] })); }, []);
+  const mapInitial = useMemo(() => (opened ? { theme: opened.theme, officeId: opened.officeId, activity: opened.activity } : {}), [opened]);
 
   const rbmStats = useMemo(() => {
     const s = { total: 0, due: 0, elevee: 0, moyenne: 0, faible: 0 };
@@ -131,17 +145,36 @@ export default function DashboardCoveragePage({ onNavigate }) {
                 ))}
               </div>
               {tab === '_OV'
-                ? <Overview cd={cd} cov={cov} field={field} rbmStats={rbmStats} period={period} onNavigate={onNavigate} />
+                ? <Overview cd={cd} cov={cov} field={field} rbmStats={rbmStats} period={period} mapData={mapData} onNavigate={onNavigate} />
                 : activeForm && <ActivityView form={activeForm} period={period} periods={periods} onPick={pick} onNavigate={onNavigate} />}
             </>
           )}
           {view === 'controle' && <ControlRoom cd={cd} />}
-          {view === 'carte' && <MapView map={map} regions={cd.regions || []} rbmStats={rbmStats} />}
-          {view === 'bulletin' && <Bulletin cd={cd} cov={cov} field={field} rbmStats={rbmStats} period={period} />}
+          {view === 'carte' && <MapExplorer variant="full" period={period || undefined} onNavigate={onNavigate} initial={mapInitial} />}
+          {view === 'bulletin' && <Bulletin cd={cd} cov={cov} field={field} rbmStats={rbmStats} period={period} mapData={mapData} />}
         </>
       )}
     </div>
   );
+}
+
+/**
+ * État de la couverture des sites lue dans la réponse de la carte : 'loading' (requête en
+ * cours), 'error' (échec : jamais « aucun site actif »), 'ok' — rate null seulement quand la
+ * période n'a vraiment aucun site actif (totals.counts.active === 0).
+ */
+function coverageState(mapData) {
+  if (mapData === undefined) return { state: 'loading', rate: null };
+  if (!mapData || !mapData.totals) return { state: 'error', rate: null };
+  const { counts, rates } = mapData.totals;
+  return { state: 'ok', rate: rates.coverage.value, realised: counts.realised, active: counts.active, realisedData: counts.realisedData };
+}
+
+function coverageFoot(c, tr) {
+  if (c.state === 'loading') return tr('chargement…');
+  if (c.state === 'error') return tr('couverture indisponible (erreur de chargement)');
+  if (!(c.active > 0)) return tr('aucun site actif sur la période');
+  return tr('{r} / {a} sites actifs · distincts sur la période', { r: formatInt(c.realised), a: formatInt(c.active) });
 }
 
 function TabBtn({ id, label, active, onClick }) {
@@ -152,10 +185,12 @@ function TabBtn({ id, label, active, onClick }) {
 }
 
 // ---------------------------------------------------------------- Vue d'ensemble
-function Overview({ cd, cov, field, rbmStats, period, onNavigate }) {
-  const { tr } = useI18n();
-  // Couverture (sites) et exécution du plan (visites) : null = « — » / « — aucun plan », jamais 0 %.
-  const covPct = cov?.coverage == null ? null : Math.round(cov.coverage * 100);
+function Overview({ cd, cov, field, rbmStats, period, mapData, onNavigate }) {
+  const { tr, lang } = useI18n();
+  // Couverture (sites) : la valeur de la carte (même réponse) ; exécution du plan (visites) :
+  // null = « — » / « — aucun plan », jamais 0 %.
+  const covState = coverageState(mapData);
+  const covPct = covState.rate == null ? null : covState.rate * 100;
   const execPct = cov?.execution == null ? null : Math.round(cov.execution * 100);
   const sites = cov?.sites || {};
   const visits = cov?.visits || {};
@@ -189,8 +224,9 @@ function Overview({ cd, cov, field, rbmStats, period, onNavigate }) {
   return (
     <>
       <div className="biz-kpis cd-kpis-5">
-        <DonutKpi icon={Gauge} label={tr('Couverture (sites)')} pct={covPct}
-          foot={tr('{r} / {a} sites actifs · distincts sur la période', { r: formatInt(sites.realised || 0), a: formatInt(sites.active || 0) })} />
+        <DonutKpi icon={Gauge} label={tr('Couverture (sites)')} pct={covPct} display={covState.rate == null ? null : formatRate(covState.rate, lang)}
+          loading={covState.state === 'loading'} noneLabel={covState.state === 'error' ? tr('indisponible') : null}
+          foot={coverageFoot(covState, tr)} />
         <DonutKpi icon={ListChecks} label={tr('Exécution du plan (visites)')} pct={execPct} noneLabel={tr('— aucun plan')}
           foot={<>
             {tr('{done} / {planned} visites prévues', { done: formatInt(visits.realised || 0), planned: formatInt(visits.planned || 0) })}
@@ -362,19 +398,23 @@ function Kpi({ icon: Icon, label, value, foot, tone }) {
   );
 }
 
-/** KPI avec anneau de progression (donut SVG, dépendance zéro) ; sans base, « — » (ou `noneLabel`). */
-function DonutKpi({ icon: Icon, label, pct, foot, tone, noneLabel }) {
+/**
+ * KPI avec anneau de progression (donut SVG, dépendance zéro) ; sans base, « — » (ou `noneLabel`).
+ * `display` remplace le texte du centre (ex. « 1,3 % » de formatRate) ; `loading` : anneau vide « … ».
+ */
+function DonutKpi({ icon: Icon, label, pct, foot, tone, noneLabel, display, loading }) {
   const none = pct == null; // pas de dénominateur (aucun plan) : anneau vide et « — », pas de couleur d'alerte
   const v = none ? 0 : Math.max(0, Math.min(100, Math.round(pct)));
   const R = 22; const C = 2 * Math.PI * R;
   const color = tone === 'green' || v >= 80 ? 'var(--green)' : (tone === 'amber' || v >= 50 ? 'var(--orange)' : 'var(--red)');
+  const text = loading ? '…' : none ? '—' : (display || `${v}%`);
   return (
-    <div className="biz-kpi cd-donutkpi">
-      <svg className="cd-ring" viewBox="0 0 56 56" role="img" aria-label={none ? `${label} —` : `${label} ${v}%`}>
+    <div className="biz-kpi cd-donutkpi" aria-busy={loading ? 'true' : undefined}>
+      <svg className="cd-ring" viewBox="0 0 56 56" role="img" aria-label={`${label} ${text}`}>
         <circle cx="28" cy="28" r={R} fill="none" stroke="var(--canvas-sunken)" strokeWidth="6" />
-        {!none && <circle cx="28" cy="28" r={R} fill="none" stroke={color} strokeWidth="6" strokeLinecap="round"
+        {!none && !loading && <circle cx="28" cy="28" r={R} fill="none" stroke={color} strokeWidth="6" strokeLinecap="round"
           strokeDasharray={`${(v / 100) * C} ${C}`} transform="rotate(-90 28 28)" />}
-        <text x="28" y="31" textAnchor="middle" className="cd-ring-t tabular">{none ? '—' : `${v}%`}</text>
+        <text x="28" y="31" textAnchor="middle" className="cd-ring-t tabular">{text}</text>
       </svg>
       <div className="biz-kpi-body">
         <div className="biz-kpi-label"><Icon size={13} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 5 }} />{label}</div>
@@ -592,44 +632,6 @@ function fmtVal(ind) {
   return formatInt(Math.round(ind.value));
 }
 
-// ------------------------------------------------------------------------- Carte
-const RISK_COLOR = { elevee: 'var(--red)', moyenne: 'var(--orange)', faible: 'var(--green)' };
-/** Carte SVG de Madagascar (silhouette fournie par le métier, sans dépendance)
- * avec les sites géolocalisés réels en points, colorés par niveau de risque.
- * À côté : données versées par région. */
-function MapView({ map, regions, rbmStats }) {
-  const { tr } = useI18n();
-  const points = (map?.points || []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
-  return (
-    <div className="biz-grid cd-grid-2 cd-grid-flush">
-      <div className="card biz-card">
-        <div className="card-header"><div className="card-title">{tr('Sites de suivi — Sud Madagascar')}</div>
-          <div className="card-sub">{tr('{n} site(s) géolocalisé(s) · couleur = niveau de risque', { n: formatInt(points.length) })}</div></div>
-        <div className="card-body">
-          <svg className="cd-map" viewBox={`0 0 ${MAP.W} ${MAP.H}`} role="img" aria-label={tr('Carte des sites de suivi')}>
-            <path d={MAP.outline} fill="var(--canvas-sunken)" stroke="var(--border-strong)" strokeWidth="1.5" />
-            {points.map((p) => {
-              const [x, y] = project(p.lat, p.lng);
-              return <circle key={p.id} cx={x.toFixed(1)} cy={y.toFixed(1)} r="4" fill={RISK_COLOR[p.riskLevel] || 'var(--blue-600)'} fillOpacity="0.85" stroke="#fff" strokeWidth="0.8" />;
-            })}
-          </svg>
-          <div className="cd-legend" style={{ marginTop: 10 }}>
-            <span><i className="cd-dot" style={{ background: 'var(--red)' }} />{tr('Risque élevé')} <b className="tabular">{formatInt(rbmStats.elevee)}</b></span>
-            <span><i className="cd-dot" style={{ background: 'var(--orange)' }} />{tr('Risque moyen')} <b className="tabular">{formatInt(rbmStats.moyenne)}</b></span>
-            <span><i className="cd-dot" style={{ background: 'var(--green)' }} />{tr('Risque faible')} <b className="tabular">{formatInt(rbmStats.faible)}</b></span>
-          </div>
-          {points.length < rbmStats.total && (
-            <div className="biz-kpi-foot" style={{ marginTop: 8 }}>
-              {tr('{n} site(s) sur {total} ont des coordonnées GPS ; la carte se densifie à mesure que le référentiel est géocodé (import Master Data).', { n: formatInt(points.length), total: formatInt(rbmStats.total) })}
-            </div>
-          )}
-        </div>
-      </div>
-      <RegionsCard regions={regions.slice(0, 10)} />
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------- Bulletin
 /** Phrase traduite dont les {variables} sont remplacées par des nœuds React
  * (chiffres en gras du bulletin) : chaque phrase reste entière pour la traduction. */
@@ -643,12 +645,13 @@ function richText(template, vars) {
  * est dite à côté. Sans visite planifiée, l'exécution est inconnue (« aucun plan ») :
  * elle n'entre pas dans le verdict.
  */
-function Bulletin({ cd, cov, field, rbmStats, period }) {
+function Bulletin({ cd, cov, field, rbmStats, period, mapData }) {
   const { tr, lang } = useI18n();
   const cls = cd.classes || {};
   const idx = cd.conformityIndex;
   const covPct = cov?.execution == null ? null : Math.round(cov.execution * 100);
-  const sitesCov = cov?.coverage == null ? null : Math.round(cov.coverage * 100);
+  // Couverture des sites : la valeur de la carte et de la tuile (même réponse de /api/map/districts).
+  const covState = coverageState(mapData);
   const toLabel = period ? monthLabel(period.to) : '';
   const urgentPct = cls.scored ? Math.round((cls.urg / cls.scored) * 100) : 0;
   const topRegions = (cd.regions || []).filter((r) => r.region !== '(non renseigné)').slice(0, 3);
@@ -679,9 +682,12 @@ function Bulletin({ cd, cov, field, rbmStats, period }) {
             : richText(tr('L\'exécution du plan atteint {execution} ({visits} visite(s) réalisée(s)), et le RBM signale {due} site(s) à suivre au {m} sur {total}.'), {
               execution: <b>{tr('{p} %', { p: covPct })}</b>, visits: formatInt(cov?.visits?.realised || 0), due: bold(rbmStats.due), total: formatInt(rbmStats.total), m: toLabel,
             })}{' '}
-          {sitesCov != null && richText(tr('La couverture des sites atteint {coverage} ({r} site(s) réalisé(s) sur {a} actif(s)).'), {
-            coverage: <b>{tr('{p} %', { p: sitesCov })}</b>, r: formatInt(cov?.sites?.realised || 0), a: formatInt(cov?.sites?.active || 0),
+          {covState.state === 'ok' && covState.rate != null && richText(tr('La couverture des sites atteint {coverage} ({r} site(s) réalisé(s) sur {a} actif(s)).'), {
+            coverage: <b>{formatRate(covState.rate, lang)}</b>, r: formatInt(covState.realised), a: formatInt(covState.active),
           })}
+          {covState.state === 'ok' && covState.rate == null && tr('Aucun site actif sur la période (couverture des sites non mesurable).')}
+          {covState.state === 'loading' && <span className="muted">{tr('Couverture des sites : chargement…')}</span>}
+          {covState.state === 'error' && <span className="muted">{tr('Couverture des sites indisponible (erreur de chargement).')}</span>}
           {field && field.activationKnown === false && <>{' '}{tr('sites actifs : tout le registre (aucune grille d\'activation)')}.</>}
         </p>
         <p>

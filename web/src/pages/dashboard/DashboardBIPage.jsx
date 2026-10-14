@@ -1,15 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { TrendingUp, Wallet, CheckCircle2, AlertTriangle, Users, FileSignature } from 'lucide-react';
+import { TrendingUp, Wallet, CheckCircle2, AlertTriangle, Users, FileSignature, Info } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Skeleton, PageHeader } from '../../components/ui.jsx';
 import PeriodSelect from '../../components/PeriodSelect.jsx';
-import { SessionPeriodNote, usePeriod } from '../../components/PeriodBanner.jsx';
+import { SessionPeriodNote, clampPeriod, usePeriod } from '../../components/PeriodBanner.jsx';
+import MapExplorer, { MAP_OPEN_KEY } from '../../components/map/MapExplorer.jsx';
 import { formatAr, formatInt } from '../../lib/format.js';
-import { periodLabel, single, spanMonths } from '../../lib/period.js';
+import { periodLabel, single, spanMonths, writeHashPeriod } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
 
-/** Plafond des faits terrain (field/summary) : au-delà, la carte terrain n'est pas chargée. */
-const FIELD_MAX_SPAN = 24;
+/**
+ * Plafond de la carte du suivi sur cette page : celui de Couverture & performance (analyse,
+ * 24 mois), pour que « Ouvrir la carte » y montre exactement la même période.
+ */
+const MAP_PAGE_SPAN = 24;
 
 /**
  * Tableau de bord décisionnel « façon Power BI » : cartes KPI, barres groupées
@@ -20,8 +24,14 @@ const FIELD_MAX_SPAN = 24;
  * Période (lot 1b) : par défaut le cumul de toute la durée des contrats (comportement
  * historique) ; une période choisie (URL, session ou sélecteur) donne le budget DE LA
  * PÉRIODE (parts mensuelles en centimes), le planifié et le réalisé de ses mois, la
- * tendance limitée à ses mois et la carte terrain de la période ; le budget restant, la
+ * tendance limitée à ses mois et la carte du suivi de la période ; le budget restant, la
  * projection, les alertes et la consommation par contrat restent « à date ».
+ *
+ * Carte du suivi (lot 6a) : la PÉRIODE DE LA PAGE (ramenée aux 24 derniers mois, plafond
+ * de l'analyse) ; « toutes les périodes » (cumul budgétaire) n'a pas de sens pour des sites
+ * actifs : la carte montre alors le dernier mois avec des données, et le dit. Elle remplace
+ * l'ancienne carte « Couverture terrain » (une seule règle : Couverture = sites actifs
+ * réalisés ÷ actifs, même service que Couverture & performance).
  *
  * Couleurs validées (dataviz) : Réalisé = bleu #0f6cbd, Planifié = ambre
  * #c77700, Budget = gris de référence ; palette catégorielle pour la
@@ -199,13 +209,12 @@ function Donut({ items, onTip }) {
   );
 }
 
-export default function DashboardBIPage({ onOpenContract }) {
+export default function DashboardBIPage({ onOpenContract, onNavigate }) {
   const { tr, lang } = useI18n();
-  const { period, ready, counts, latest, today, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'all' });
+  const { period, ready, counts, latest, today, periods, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'all' });
   const key = period ? `${period.from}|${period.to}` : 'all';
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [field, setField] = useState(null); // visites de terrain de la période (mois courant sans période)
   const [tip, setTip] = useState(null);
 
   useEffect(() => {
@@ -219,14 +228,24 @@ export default function DashboardBIPage({ onOpenContract }) {
     }, (e) => { if (alive) setError(e.message); });
     return () => { alive = false; };
   }, [ready, key]); // eslint-disable-line react-hooks/exhaustive-deps
-  const fieldPeriod = period || single(today);
-  const fieldTooLong = spanMonths(fieldPeriod) > FIELD_MAX_SPAN;
-  useEffect(() => {
-    if (!ready || fieldTooLong) { setField(null); return undefined; }
-    let alive = true;
-    api.fieldSummary(fieldPeriod).then((f) => { if (alive) setField(f); }, () => { if (alive) setField(null); });
-    return () => { alive = false; };
-  }, [ready, key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Période de la carte : celle de la page (≤ 24 mois) ; sans période, le dernier mois avec des
+  // données (undefined tant qu'il n'est pas connu : la carte attend au lieu d'afficher un mois vide).
+  const mapPeriod = useMemo(() => {
+    if (!ready) return undefined;
+    if (period) return clampPeriod(period, MAP_PAGE_SPAN);
+    if (!periods) return undefined;
+    return single(latest || today);
+  }, [ready, key, periods, latest, today]); // eslint-disable-line react-hooks/exhaustive-deps
+  const mapClamped = !!(period && spanMonths(period) > MAP_PAGE_SPAN);
+  // « Ouvrir la carte » : Couverture & performance › Carte avec la MÊME période (dans l'URL : la
+  // page la lit par usePeriod, comme un lien partagé) ; thème et filtres passés par la session.
+  const openMap = (state) => {
+    const { theme, officeId, activity } = state || {};
+    try { window.sessionStorage.setItem(MAP_OPEN_KEY, JSON.stringify({ view: 'carte', theme, officeId, activity })); } catch { /* stockage indisponible */ }
+    if (mapPeriod) window.location.hash = writeHashPeriod('#/dashboard/couverture', mapPeriod);
+    else if (onNavigate) onNavigate('dashboard', 'couverture');
+  };
 
   // Avec une période : les chiffres DE LA PÉRIODE par contrat (budget de la période, planifié, réalisé).
   const shown = useMemo(() => (data ? data.rows.map((r) => (period && r.period
@@ -251,8 +270,9 @@ export default function DashboardBIPage({ onOpenContract }) {
   const tp = period && totals.period;
   const pctOf = (rate) => (rate == null ? '—' : `${Math.round(rate * 100)}`);
   const pLabel = period ? periodLabel(period, lang) : '';
-  const fieldLabel = periodLabel(fieldPeriod, lang);
-  const fo = field?.overall;
+  let mapNote = null;
+  if (mapPeriod && !period) mapNote = tr('Toutes les périodes : la carte montre {m}, dernier mois avec des données.', { m: periodLabel(mapPeriod, lang) });
+  else if (mapPeriod && mapClamped) mapNote = tr('La carte montre les 24 derniers mois de la période ({p}).', { p: periodLabel(mapPeriod, lang) });
 
   return (
     <div className="page" onMouseLeave={() => setTip(null)}>
@@ -288,6 +308,13 @@ export default function DashboardBIPage({ onOpenContract }) {
           <Kpi icon={Users} label={tr('Taux global')} value={`${Math.round((totals.actualRate || 0) * 100)}`} suffix="%" foot={tr('Consommation')} tone="blue" />
         </div>
       )}
+
+      {/* Carte du suivi : pleine largeur sous les tuiles, même service que Couverture & performance › Carte
+          (remplace « Couverture terrain », ancienne règle visites réalisées ÷ planifiées). */}
+      <section className="bi-map" aria-label={tr('Carte du suivi')}>
+        {mapNote && <p className="period-session-note"><Info size={14} aria-hidden="true" /><span>{mapNote}</span></p>}
+        <MapExplorer variant="compact" period={mapPeriod} onNavigate={onNavigate} onOpenFull={openMap} />
+      </section>
 
       <div className="biz-grid">
         <div className="card biz-card biz-span2">
@@ -337,26 +364,6 @@ export default function DashboardBIPage({ onOpenContract }) {
           </div>
         </div>
 
-        {fo?.total > 0 && (
-          <div className="card biz-card biz-span2">
-            <div className="card-header"><div className="card-title">{tr('Couverture terrain — {p}', { p: fieldLabel })}</div>
-              <div className="card-sub">
-                {tr('Exécution du plan (visites) par district : réalisées / prévues ({done}/{active} · {p} %).', { done: fo.realise, active: fo.active, p: Math.round((fo.rate || 0) * 100) })}
-                {fo.coverage != null && <> {tr('Couverture (sites) : {r} / {a} sites actifs ({p} %).', { r: formatInt(fo.sites.realised), a: formatInt(fo.sites.active), p: Math.round(fo.coverage * 100) })}</>}
-              </div></div>
-            <div className="card-body biz-gauges" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', display: 'grid', gap: 14 }}>
-              {field.byDistrict.map((d) => {
-                const col = d.rate >= 0.8 ? 'var(--green)' : d.rate >= 0.5 ? 'var(--blue-600)' : 'var(--orange)';
-                return (
-                  <div className="biz-gauge" key={d.key}>
-                    <div className="biz-gauge-head"><span>{d.label}</span><span className="tabular" style={{ color: col }}>{d.realise}/{d.active} · {Math.round(d.rate * 100)} %</span></div>
-                    <div className="biz-bar"><span style={{ width: `${Math.round(d.rate * 100)}%`, background: col }} /></div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
 
       {alerts.length > 0 && (
