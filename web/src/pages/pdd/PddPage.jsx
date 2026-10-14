@@ -3,8 +3,11 @@ import { Upload, Download, PackageOpen, Boxes, Layers, AlertTriangle, ChevronLef
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, ExpandButton, IconButton, Skeleton, Stats, Usage } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
+import PeriodSelect from '../../components/PeriodSelect.jsx';
+import { usePeriod } from '../../components/PeriodBanner.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatInt, monthLabel } from '../../lib/format.js';
+import { periodLabel, single, spanMonths } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
 
 /**
@@ -17,7 +20,17 @@ import { useI18n } from '../../lib/i18n.jsx';
  *    couverture, ruptures).
  * Réutilise les zones/bureaux/partenaires de MEMS (stockés en libellé) : pas
  * de référentiel dupliqué.
+ *
+ * Période (lot 1b) : plage de mois, « Toutes les périodes » par défaut ; gardée dans l'URL
+ * (?from&to, lien partageable), pas dans la session. Bénéficiaires et ménages d'une plage :
+ * cumul (bénéficiaires-distributions) ET pic mensuel ; le stock est un niveau, lu au mois.
  */
+
+/** Période d'une vue PDD : URL seulement, toutes les périodes par défaut. */
+const usePddPeriod = () => usePeriod({ scope: 'local', defaultRule: 'all' });
+/** Volume de lignes par mois { 'AAAA-MM': n } d'une synthèse (sélecteur de période). */
+const countsOfSummary = (s) => Object.fromEntries(Object.entries((s && s.byMonth) || {}).map(([m, a]) => [m, a.lines]));
+const latestOf = (counts) => { const ms = Object.keys(counts || {}).sort(); return ms.length ? ms[ms.length - 1] : null; };
 
 const HAZARD = {
   drought: { label: 'Sécheresse', color: 'var(--orange)', bg: 'var(--orange-bg)', text: 'var(--orange-text)' },
@@ -52,7 +65,7 @@ export default function PddPage({ canEdit, view, onNavigate }) {
 // Distributions — table fidèle à la feuille « PDD base »
 // ──────────────────────────────────────────────────────────────────────────
 function DistributionsView({ canEdit, onNavigate }) {
-  const { tr } = useI18n();
+  const { tr, lang } = useI18n();
   const toast = useToast();
   const [rows, setRows] = useState(null);
   const [commodities, setCommodities] = useState([]);
@@ -60,17 +73,30 @@ function DistributionsView({ canEdit, onNavigate }) {
   const [busy, setBusy] = useState(false);
   // Résumé du dernier import (plage lue, lignes ignorées avec leur motif, avertissements).
   const [importReport, setImportReport] = useState(null);
-  // Navigation par mois (comme le plan de suivi) : d'abord un tableau des mois,
-  // clic sur un mois → ses distributions.
-  const [picking, setPicking] = useState(true);
-  const [month, setMonth] = useState('');
+  // Navigation (comme le plan de suivi) : d'abord le tableau des mois (agrégé en SQL), clic
+  // sur un mois → ses distributions ; la période peut ensuite s'élargir (plage de mois).
+  const { period, setPeriod } = usePddPeriod();
+  const picking = !period;
+  const key = period ? `${period.from}|${period.to}` : '';
+  const [summary, setSummary] = useState(null); // tableau des mois : synthèse de toutes les périodes
+  const [total, setTotal] = useState(0);         // lignes de la période (la liste est bornée)
   const fileRef = useRef(null);
 
-  const reload = useCallback(() => {
-    setRows(null);
-    api.pddDistributions({ limit: 5000 }).then((r) => setRows(r.rows)).catch((e) => setError(e.message));
+  const reloadSummary = useCallback(() => {
+    setSummary(null);
+    api.pddSummary({}).then(setSummary).catch((e) => setError(e.message));
   }, []);
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { reloadSummary(); }, [reloadSummary]);
+  // Distributions de la période : lecture bornée (2 000 lignes), le total dit s'il y en a plus.
+  const reloadRows = useCallback(() => {
+    if (!period) { setRows(null); return; }
+    setRows(null);
+    api.pddDistributions({ period, limit: 2000 })
+      .then((r) => { setRows(r.rows); setTotal(r.total); })
+      .catch((e) => setError(e.message));
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { reloadRows(); }, [reloadRows]);
+  const reload = () => { reloadSummary(); reloadRows(); };
   useEffect(() => { api.pddCommodities().then(setCommodities).catch(() => setCommodities([])); }, []);
 
   const downloadTemplate = () => api.downloadPddTemplate().catch((err) => toast.error(err.message));
@@ -101,34 +127,24 @@ function DistributionsView({ canEdit, onNavigate }) {
     if (f) runImport(f);
   };
 
-  // Lignes du mois sélectionné (ou toutes, si aucun mois).
-  const monthRows = useMemo(() => (month ? (rows || []).filter((r) => r.periodMonth === month) : rows), [rows, month]);
-
-  const agg = (list) => {
+  // Totaux de la période affichée (lignes chargées ; la liste est bornée, le total le dit).
+  const stats = useMemo(() => {
     const s = { lines: 0, beneficiaries: 0, households: 0, cashUsd: 0, totalFood: 0 };
-    for (const r of list || []) {
+    for (const r of rows || []) {
       s.lines += 1; s.beneficiaries += r.beneficiaries || 0; s.households += r.households || 0;
       s.cashUsd += Number(r.cashUsd) || 0; s.totalFood += Number(r.totalFood) || 0;
     }
     return s;
-  };
-  const stats = useMemo(() => agg(picking ? rows : monthRows), [rows, monthRows, picking]);
-
-  // Un enregistrement par mois pour le tableau de navigation.
-  const monthsAgg = useMemo(() => {
-    const by = new Map();
-    for (const r of rows || []) {
-      if (!r.periodMonth) continue;
-      if (!by.has(r.periodMonth)) by.set(r.periodMonth, { month: r.periodMonth, lines: 0, beneficiaries: 0, households: 0, cashUsd: 0, totalFood: 0, hazards: new Set() });
-      const m = by.get(r.periodMonth);
-      m.lines += 1; m.beneficiaries += r.beneficiaries || 0; m.households += r.households || 0;
-      m.cashUsd += Number(r.cashUsd) || 0; m.totalFood += Number(r.totalFood) || 0;
-      if (r.hazard) m.hazards.add(r.hazard);
-    }
-    return [...by.values()].sort((a, b) => (a.month < b.month ? 1 : -1));
   }, [rows]);
 
-  const openMonth = (mm) => { setMonth(mm); setPicking(false); };
+  // Un enregistrement par mois pour le tableau de navigation — agrégé en SQL (synthèse).
+  const monthsAgg = useMemo(() => (summary ? Object.entries(summary.byMonth || {})
+    .map(([m, a]) => ({ month: m, lines: a.lines, beneficiaries: a.beneficiaries, households: a.households, cashUsd: a.cashUsd, totalFood: a.totalFood, hazards: new Set(a.hazards || []) }))
+    .sort((a, b) => (a.month < b.month ? 1 : -1)) : null), [summary]);
+  const counts = useMemo(() => countsOfSummary(summary), [summary]);
+
+  const openMonth = (mm) => setPeriod(single(mm));
+  const pLabel = period ? periodLabel(period, lang) : '';
 
   const foodCommodities = useMemo(() => commodities.filter((c) => c.kind !== 'cash'), [commodities]);
   const uniq = (arr) => [...new Set(arr.filter(Boolean))].sort().map((x) => ({ id: x, label: x }));
@@ -166,9 +182,8 @@ function DistributionsView({ canEdit, onNavigate }) {
   const filters = useMemo(() => ({
     q: { label: tr('Recherche'), type: 'search', placeholder: tr('Commune, district, activité…'),
       match: (r, v) => [r.commune, r.district, r.region, r.activity, r.partner, r.antenne].some((x) => x && String(x).toLowerCase().includes(v.toLowerCase())) },
-    month: { label: tr('Mois'), type: 'select',
-      options: (rr) => [{ id: '', label: tr('Tous les mois') }, ...uniq((rr || []).map((r) => r.periodMonth)).map((o) => ({ id: o.id, label: monthLabel(o.id) }))],
-      match: (r, v) => r.periodMonth === v },
+    // Période (plage) : une ancienne vue enregistrée « AAAA-MM » est relue comme un mois.
+    month: { label: tr('Période'), type: 'period', start: (r) => r.periodMonth },
     hazard: { label: tr('Aléa'), type: 'select',
       options: [{ id: '', label: tr('Tous les aléas') }, { id: 'drought', label: tr('Sécheresse') }, { id: 'cyclone', label: tr('Cyclone') }, { id: 'autre', label: tr('Autre') }],
       match: (r, v) => r.hazard === v },
@@ -190,10 +205,11 @@ function DistributionsView({ canEdit, onNavigate }) {
           <h1 className="page-title">{tr("Distribution d'urgence — distributions")}</h1>
           <p className="page-desc">{picking
             ? tr('Choisissez un mois pour ouvrir son plan de distribution (vivres & cash par zone et activité).')
-            : tr('Plan de distribution du mois : table fidèle au classeur, filtrable et exportable.')}</p>
+            : tr('Plan de distribution de la période : table fidèle au classeur, filtrable et exportable.')}</p>
         </div>
         <div className="header-actions">
-          {!picking && <Button variant="secondary" icon={ChevronLeft} onClick={() => { setPicking(true); setMonth(''); }}>{tr('Tous les mois')}</Button>}
+          <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latestOf(counts)} allowAll align="right" />
+          {!picking && <Button variant="secondary" icon={ChevronLeft} onClick={() => setPeriod(null)}>{tr('Tous les mois')}</Button>}
           {canEdit && <>
             <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={onImport} />
             <Button variant="ghost" icon={Download} onClick={downloadTemplate}
@@ -210,30 +226,33 @@ function DistributionsView({ canEdit, onNavigate }) {
         onForce={canEdit && importReport.partialAllowed ? () => runImport(importReport.fileRef, { partial: true }) : null} />}
 
       {picking ? (
-        <PddMonthsTable data={rows === null ? null : monthsAgg} total={stats} onOpen={openMonth}
+        <PddMonthsTable data={monthsAgg} total={summary ? summary.total : stats} onOpen={openMonth}
           canEdit={canEdit} onTemplate={downloadTemplate} onImport={() => fileRef.current?.click()} />
       ) : (
         <>
           <div className="month-active-bar">
-            <strong>{monthLabel(month)}</strong>
-            <span className="muted">{tr('— plan de distribution du mois')}</span>
+            <strong>{pLabel}</strong>
+            <span className="muted">{spanMonths(period) > 1 ? tr('— plan de distribution de la période') : tr('— plan de distribution du mois')}</span>
           </div>
+          {rows && total > rows.length && (
+            <Alert tone="info" icon={AlertTriangle}>{tr('{n} premières lignes sur {total} : réduisez la période pour tout voir.', { n: formatInt(rows.length), total: formatInt(total) })}</Alert>
+          )}
 
           <Stats compact items={[
-            { label: tr('Lignes'), value: formatInt(stats.lines), foot: tr('Distributions du mois') },
-            { label: tr('Bénéficiaires'), value: formatInt(stats.beneficiaries), foot: tr('Toutes modalités') },
-            { label: tr('Ménages'), value: formatInt(stats.households), foot: tr('Toutes modalités') },
-            { label: tr('Vivres'), value: fmtMt(stats.totalFood), foot: tr('Tonnage du mois') },
-            { label: tr('Cash (CBT)'), value: fmtUsd(stats.cashUsd), foot: tr('Transferts monétaires') },
+            { label: tr('Lignes'), value: rows ? formatInt(stats.lines) : '—', foot: tr('Distributions de la période') },
+            { label: tr('Bénéficiaires'), value: rows ? formatInt(stats.beneficiaries) : '—', foot: spanMonths(period) > 1 ? tr('cumul sur la période') : tr('Toutes modalités') },
+            { label: tr('Ménages'), value: rows ? formatInt(stats.households) : '—', foot: spanMonths(period) > 1 ? tr('cumul sur la période') : tr('Toutes modalités') },
+            { label: tr('Vivres'), value: rows ? fmtMt(stats.totalFood) : '—', foot: tr('Tonnage de la période') },
+            { label: tr('Cash (CBT)'), value: rows ? fmtUsd(stats.cashUsd) : '—', foot: tr('Transferts monétaires') },
           ]} />
 
-          <DataList
-            rows={monthRows} columns={columns} defaultColumns={DEFAULT_COLS}
+          {rows === null ? <Card><div className="card-body"><Skeleton height={200} /></div></Card> : <DataList
+            rows={rows} columns={columns} defaultColumns={DEFAULT_COLS}
             filters={filters} defaultFilters={['q', 'hazard', 'region', 'district']}
             storageKey="mems.pdd.dist.view.v2" pageSize={15} defaultSort={{ key: 'beneficiaries', dir: 'desc' }}
-            csvName={`pdd_distributions_${month}.csv`} emptyIcon={PackageOpen} emptyTitle={tr('Aucune distribution ce mois-ci')}
-            emptyChildren={canEdit ? tr('Importez un fichier PDD (.xlsx) pour alimenter le module.') : tr('Aucune distribution importée pour ce mois.')}
-          />
+            csvName={`pdd_distributions_${period.from}_${period.to}.csv`} emptyIcon={PackageOpen} emptyTitle={tr('Aucune distribution sur la période')}
+            emptyChildren={canEdit ? tr('Importez un fichier PDD (.xlsx) pour alimenter le module.') : tr('Aucune distribution importée pour cette période.')}
+          />}
 
           <p className="hint" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Layers size={14} aria-hidden="true" />
@@ -412,12 +431,22 @@ function PddMonthsTable({ data, total, onOpen, canEdit, onTemplate, onImport }) 
 // Synthèse — par aléa, par mois, par zone, par denrée
 // ──────────────────────────────────────────────────────────────────────────
 function SynthesisView() {
-  const { tr } = useI18n();
+  const { tr, lang } = useI18n();
+  const { period, setPeriod } = usePddPeriod();
+  const key = period ? `${period.from}|${period.to}` : '';
   const [data, setData] = useState(null);
+  const [all, setAll] = useState(null); // volume par mois (toutes périodes) pour le sélecteur
   const [error, setError] = useState(null);
   const [open, setOpen] = useState(() => new Set());
 
-  useEffect(() => { api.pddSummary({}).then(setData).catch((e) => setError(e.message)); }, []);
+  useEffect(() => { api.pddSummary({}).then(setAll).catch(() => setAll(null)); }, []);
+  useEffect(() => {
+    let alive = true;
+    setData(null); setError(null);
+    api.pddSummary({ period }).then((d) => { if (alive) setData(d); }, (e) => { if (alive) setError(e.message); });
+    return () => { alive = false; };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const counts = useMemo(() => countsOfSummary(all), [all]);
 
   const toggle = (key) => setOpen((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
 
@@ -429,10 +458,13 @@ function SynthesisView() {
     </>
   );
 
-  const { total, byHazard, byMonth, byZone } = data;
+  const { total, byHazard, byMonth, byZone, peak } = data;
   const months = Object.keys(byMonth || {}).sort();
   const hazards = Object.keys(byHazard || {});
   const commodityTotals = Object.entries(total.byCommodity || {}).sort((a, b) => b[1] - a[1]);
+  // Sur plusieurs mois : la somme compte des « bénéficiaires-distributions » (pas de personne
+  // identifiée) ; le pic mensuel est la borne basse honnête des personnes atteintes.
+  const multi = months.length > 1;
 
   return (
     <>
@@ -441,12 +473,17 @@ function SynthesisView() {
           <h1 className="page-title">{tr("Distribution d'urgence — synthèse")}</h1>
           <p className="page-desc">{tr('Totaux recalculés en direct : par aléa, par mois, par zone (région → district → commune) et par denrée.')}</p>
         </div>
+        <div className="header-actions">
+          <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latestOf(counts)} allowAll align="right" />
+        </div>
       </div>
 
       <Stats compact items={[
-        { label: tr('Lignes'), value: formatInt(total.lines), foot: tr('Distributions') },
-        { label: tr('Bénéficiaires'), value: formatInt(total.beneficiaries), foot: tr('Toutes zones') },
-        { label: tr('Ménages'), value: formatInt(total.households), foot: tr('Toutes zones') },
+        { label: tr('Lignes'), value: formatInt(total.lines), foot: period ? periodLabel(period, lang) : tr('Toutes les périodes') },
+        { label: tr('Bénéficiaires'), value: formatInt(total.beneficiaries),
+          foot: multi && peak ? `${tr('cumul sur la période')} · ${tr('pic mensuel ({m})', { m: monthLabel(peak.month) })} ${formatInt(peak.beneficiaries)}` : tr('Toutes zones') },
+        { label: tr('Ménages'), value: formatInt(total.households),
+          foot: multi && peak ? `${tr('cumul sur la période')} · ${tr('pic mensuel ({m})', { m: monthLabel(peak.month) })} ${formatInt(peak.households)}` : tr('Toutes zones') },
         { label: tr('Vivres'), value: fmtMt(total.totalFood), foot: tr('Tonnage total') },
         { label: tr('Cash (CBT)'), value: fmtUsd(total.cashUsd), foot: tr('Transferts monétaires') },
       ]} />
@@ -579,19 +616,25 @@ function SynthesisView() {
 // Pipeline — besoin planifié vs stock disponible, par denrée
 // ──────────────────────────────────────────────────────────────────────────
 function PipelineView({ canEdit }) {
-  const { tr } = useI18n();
+  const { tr, lang } = useI18n();
   const toast = useToast();
-  const [month, setMonth] = useState('');
-  const [months, setMonths] = useState([]);
+  const { period, setPeriod } = usePddPeriod();
+  const key = period ? `${period.from}|${period.to}` : '';
+  // Le stock se saisit pour UN mois : seulement quand la période est un mois seul.
+  const month = period && period.from === period.to ? period.from : '';
+  const multi = !!period && period.from !== period.to;
+  const [all, setAll] = useState(null);
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(null);
   const [draft, setDraft] = useState({}); // commodity -> { available, donor }
+  const [openRow, setOpenRow] = useState(null); // denrée dont le détail mensuel est déplié
 
-  useEffect(() => { api.pddSummary({}).then((s) => setMonths(s.months || [])).catch(() => setMonths([])); }, []);
+  useEffect(() => { api.pddSummary({}).then(setAll).catch(() => setAll(null)); }, []);
+  const counts = useMemo(() => countsOfSummary(all), [all]);
   const reload = useCallback(() => {
     setRows(null); setDraft({});
-    api.pddPipeline(month).then(setRows).catch((e) => setError(e.message));
-  }, [month]);
+    api.pddPipeline(period).then(setRows).catch((e) => setError(e.message));
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { reload(); }, [reload]);
 
   const saveStock = async (commodity) => {
@@ -608,10 +651,14 @@ function PipelineView({ canEdit }) {
   };
 
   const totals = useMemo(() => {
-    const t = { need: 0, available: 0, shortfalls: 0 };
-    for (const r of rows || []) { t.need += r.need || 0; t.available += r.available || 0; if (r.shortfall) t.shortfalls += 1; }
+    const t = { need: 0, available: 0, shortfalls: 0, covered: 0 };
+    for (const r of rows || []) {
+      t.need += r.need || 0; t.available += r.available || 0; if (r.shortfall) t.shortfalls += 1;
+      t.covered += Math.max(0, (r.need || 0) - (r.uncovered || 0));
+    }
     return t;
   }, [rows]);
+  const toLabel = period ? monthLabel(period.to) : '';
 
   return (
     <>
@@ -621,24 +668,31 @@ function PipelineView({ canEdit }) {
           <p className="page-desc">{tr('Besoin planifié (tonnages du PDD) confronté au stock disponible, par denrée : écart, couverture et ruptures.')}</p>
         </div>
         <div className="header-actions">
-          <select className="select" value={month} onChange={(e) => setMonth(e.target.value)} aria-label={tr('Mois')}>
-            <option value="">{tr('Tous les mois')}</option>
-            {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
-          </select>
+          <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latestOf(counts)} allowAll align="right" />
         </div>
       </div>
 
       {error && <Alert tone="error">{error}</Alert>}
 
-      <Stats compact items={[
-        { label: tr('Besoin total'), value: rows ? fmtMt(totals.need) : '—', foot: tr('Tonnage planifié') },
-        { label: tr('Stock disponible'), value: rows ? fmtMt(totals.available) : '—', foot: tr('Saisi') },
-        { label: tr('Couverture'), value: rows ? pct(totals.need > 0 ? totals.available / totals.need : (totals.available > 0 ? 1 : 0)) : '—', foot: tr('Dispo / besoin') },
-        { label: tr('Ruptures'), value: rows ? formatInt(totals.shortfalls) : '—', foot: tr('Denrées en déficit') },
-      ]} />
+      {multi ? (
+        <Stats compact items={[
+          { label: tr('Besoin total'), value: rows ? fmtMt(totals.need) : '—', foot: tr('cumul sur la période') },
+          { label: tr('Stock disponible'), value: rows ? fmtMt(totals.available) : '—', foot: tr('stock au {m}', { m: toLabel }) },
+          { label: tr('Couverture'), value: rows ? pct(totals.need > 0 ? totals.covered / totals.need : 0) : '—', foot: tr('besoins mensuels couverts par le stock du mois') },
+          { label: tr('Ruptures'), value: rows ? formatInt(totals.shortfalls) : '—', foot: tr('Denrées en déficit au moins un mois') },
+        ]} />
+      ) : (
+        <Stats compact items={[
+          { label: tr('Besoin total'), value: rows ? fmtMt(totals.need) : '—', foot: tr('Tonnage planifié') },
+          { label: tr('Stock disponible'), value: rows ? fmtMt(totals.available) : '—', foot: month ? tr('stock au {m}', { m: monthLabel(month) }) : tr('Saisi') },
+          { label: tr('Couverture'), value: rows ? pct(totals.need > 0 ? totals.available / totals.need : (totals.available > 0 ? 1 : 0)) : '—', foot: tr('Dispo / besoin') },
+          { label: tr('Ruptures'), value: rows ? formatInt(totals.shortfalls) : '—', foot: tr('Denrées en déficit') },
+        ]} />
+      )}
 
       <Card aria-labelledby="pdd-pipe">
-        <CardHeader id="pdd-pipe" title={tr('Pipeline par denrée')} subtitle={canEdit ? tr("Saisissez le stock disponible et le donateur pour calculer l'écart.") : tr('Lecture seule.')} />
+        <CardHeader id="pdd-pipe" title={multi ? tr('Pipeline par denrée — mois par mois ({p})', { p: periodLabel(period, lang) }) : tr('Pipeline par denrée')}
+          subtitle={canEdit ? tr("Saisissez le stock disponible et le donateur pour calculer l'écart.") : tr('Lecture seule.')} />
         {rows === null ? (
           <div className="card-body"><Skeleton height={160} /></div>
         ) : rows.length === 0 ? (
@@ -649,10 +703,10 @@ function PipelineView({ canEdit }) {
               <thead>
                 <tr>
                   <th scope="col">{tr('Denrée')}</th>
-                  <th scope="col" className="num">{tr('Besoin (t)')}</th>
-                  <th scope="col" className="num">{tr('Disponible (t)')}</th>
-                  <th scope="col" className="num">{tr('Écart (t)')}</th>
-                  <th scope="col">{tr('Couverture')}</th>
+                  <th scope="col" className="num">{multi ? tr('Besoin cumulé (t)') : tr('Besoin (t)')}</th>
+                  <th scope="col" className="num">{multi ? tr('Stock au {m} (t)', { m: toLabel }) : tr('Disponible (t)')}</th>
+                  <th scope="col" className="num">{multi ? tr('Manque cumulé (t)') : tr('Écart (t)')}</th>
+                  <th scope="col">{multi ? tr('Mois en rupture') : tr('Couverture')}</th>
                   <th scope="col">{tr('Donateur')}</th>
                   <th scope="col">{tr('Statut')}</th>
                   {canEdit && <th scope="col" aria-label={tr('Actions')} />}
@@ -663,6 +717,40 @@ function PipelineView({ canEdit }) {
                   const d = draft[r.commodity] || {};
                   const availVal = d.available != null ? d.available : (r.available ?? 0);
                   const donorVal = d.donor != null ? d.donor : (r.donor || '');
+                  if (multi) {
+                    const isOpen = openRow === r.commodity;
+                    return (
+                      <React.Fragment key={r.commodity}>
+                        <tr className={r.shortfall ? 'row-due' : ''}>
+                          <td>
+                            <ExpandButton expanded={isOpen} onClick={() => setOpenRow(isOpen ? null : r.commodity)} label={r.commodity} />
+                            <strong style={{ marginLeft: 6 }}>{r.commodity}</strong>
+                          </td>
+                          <td className="num mono">{fmtMt(r.need)}</td>
+                          <td className="num mono">{fmtMt(r.available)}{r.stockMonth && r.stockMonth !== period.to && <div className="site-meta">{tr('stock au {m}', { m: monthLabel(r.stockMonth) })}</div>}</td>
+                          <td className="num mono">{r.uncovered > 0 ? <span style={{ color: 'var(--red)' }}>{mtFmt.format(r.uncovered)}</span> : '—'}</td>
+                          <td className="tabular">{tr('{n} / {total} mois', { n: r.shortfallMonths, total: r.months.length })}</td>
+                          <td>{r.donor || <span className="cell-empty">—</span>}</td>
+                          <td>{r.shortfall
+                            ? <span className="badge" style={{ background: 'var(--red-bg)', color: 'var(--red-text)' }}><span className="dot" style={{ background: 'var(--red)' }} />{tr('Rupture')}</span>
+                            : <span className="badge" style={{ background: 'var(--green-bg)', color: 'var(--green-text)' }}><span className="dot" style={{ background: 'var(--green)' }} />{tr('Couvert')}</span>}</td>
+                          {canEdit && <td />}
+                        </tr>
+                        {isOpen && r.months.map((m) => (
+                          <tr key={`${r.commodity}:${m.month}`} className="subrow">
+                            <td style={{ paddingLeft: 40 }} className="muted">{monthLabel(m.month)}</td>
+                            <td className="num mono">{fmtMt(m.need)}</td>
+                            <td className="num mono">{fmtMt(m.available)}{m.stockMonth && m.stockMonth !== m.month && <div className="site-meta">{tr('stock au {m}', { m: monthLabel(m.stockMonth) })}</div>}</td>
+                            <td className="num mono">{m.shortfall ? <span style={{ color: 'var(--red)' }}>{mtFmt.format(m.gap)}</span> : mtFmt.format(m.gap)}</td>
+                            <td style={{ minWidth: 140 }}><Usage rate={m.coverage} /></td>
+                            <td />
+                            <td>{m.shortfall ? tr('Rupture') : tr('Couvert')}</td>
+                            {canEdit && <td />}
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  }
                   return (
                     <tr key={r.commodity} className={r.shortfall ? 'row-due' : ''}>
                       <td><strong>{r.commodity}</strong></td>
@@ -673,7 +761,7 @@ function PipelineView({ canEdit }) {
                               value={availVal} onChange={(e) => setDraft({ ...draft, [r.commodity]: { ...d, available: e.target.value } })}
                               onKeyDown={(e) => { if (e.key === 'Enter') saveStock(r.commodity); }} aria-label={tr('Stock {commodity}', { commodity: r.commodity })} />
                           : fmtMt(r.available)}
-                        {!month && r.stockMonth && <div className="site-meta">{tr('stock au {m}', { m: monthLabel(`${r.stockMonth}`) })}</div>}
+                        {r.stockMonth && r.stockMonth !== month && <div className="site-meta">{tr('stock au {m}', { m: monthLabel(`${r.stockMonth}`) })}</div>}
                       </td>
                       <td className="num mono">{r.shortfall ? <span style={{ color: 'var(--red)' }}>{mtFmt.format(r.gap)}</span> : mtFmt.format(r.gap)}</td>
                       <td style={{ minWidth: 140 }}><Usage rate={r.coverage} /></td>
@@ -697,7 +785,7 @@ function PipelineView({ canEdit }) {
         )}
       </Card>
 
-      {!month && <p className="hint" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {!month && <p className="pdd-stock-note">
         <AlertTriangle size={14} aria-hidden="true" />
         <span>{tr('Le stock se saisit par mois. Choisissez un mois ci-dessus pour enregistrer les quantités disponibles et leur donateur.')}</span>
       </p>}

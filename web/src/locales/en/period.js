@@ -137,4 +137,26 @@ export default {
 
   // ---- Fiche › Résultats sur une plage (C13)
   'sites (données) distincts sur la période': 'distinct sites (data) over the period',
+
+  // ---- Listes sur une plage : Rapports & dépenses, Distribution d'urgence, Couverture du suivi (C14)
+  'Plan de distribution de la période : table fidèle au classeur, filtrable et exportable.': 'Distribution plan for the period: table faithful to the workbook, filterable and exportable.',
+  '— plan de distribution de la période': '— distribution plan for the period',
+  '{n} premières lignes sur {total} : réduisez la période pour tout voir.': 'First {n} rows out of {total}: narrow the period to see them all.',
+  'Distributions de la période': 'Distributions over the period',
+  'Tonnage de la période': 'Tonnage over the period',
+  'Aucune distribution sur la période': 'No distribution over the period',
+  'Aucune distribution importée pour cette période.': 'No distribution imported for this period.',
+  'besoins mensuels couverts par le stock du mois': 'monthly needs covered by that month\'s stock',
+  'Denrées en déficit au moins un mois': 'Commodities short in at least one month',
+  'Pipeline par denrée — mois par mois ({p})': 'Pipeline by commodity — month by month ({p})',
+  'Besoin cumulé (t)': 'Cumulative need (t)',
+  'Stock au {m} (t)': 'Stock as of {m} (t)',
+  'Manque cumulé (t)': 'Cumulative shortfall (t)',
+  'Mois en rupture': 'Months short',
+  '{n} / {total} mois': '{n} / {total} month(s)',
+  'comptée en {m}': 'counted in {m}',
+  'Rapports de la période': 'Reports for the period',
+  'Financiers validés, comptés au mois de début': 'Validated financial reports, counted in their start month',
+  '{n} mois (durée de la période)': '{n} month(s) (length of the period)',
+  'Aucune visite sur la période ({p}). Planifiez des visites (Affectation & visites) pour alimenter la couverture.': 'No visit over the period ({p}). Plan visits (Assignment & visits) to feed the coverage.',
 };
