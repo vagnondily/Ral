@@ -3,7 +3,7 @@
  *
  * `recordDeletion` s'exécute DANS la transaction de la suppression (le même
  * `client`) : la ligne de journal et la suppression du document réussissent ou
- * échouent ensemble. Table append-only (migration 061).
+ * échouent ensemble. Table append-only (migration 065).
  */
 const { withTenantTransaction } = require('../../config/db');
 

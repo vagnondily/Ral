@@ -1,4 +1,4 @@
--- MEMS 2.0 — Journal des suppressions de documents (retour n° 56).
+-- MEMS 2.0 — Journal des suppressions de documents (retour n° 56). Migration 065.
 --
 -- Une politique UNIQUE de suppression des documents (rapports / factures TPM,
 -- plans de collecte, contrats et avenants) est désormais appliquée partout —

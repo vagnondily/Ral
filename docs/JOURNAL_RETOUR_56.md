@@ -57,7 +57,7 @@
   contrats `brouillon/en_validation/actif/rejete/resilie`.
 - **~10:10** ✅ Module pur `common/deletionPolicy.js` + `test/deletionPolicy.test.js`
   (12 tests, verts). Règle commune, « validé » par type, justificatif nettoyé/borné.
-- **~10:15** ✅ Migration `061_document_deletions.sql` : table-journal, RLS,
+- **~10:15** ✅ Migration `065_document_deletions.sql` : table-journal, RLS,
   `same_tenant` (deleted_by → users), **append-only** (REVOKE UPDATE/DELETE —
   un `ALTER DEFAULT PRIVILEGES` 002/012 accordait tout, d'où la révocation),
   CHECK justificatif-si-validé + CHECK doc_type.
@@ -107,7 +107,7 @@
 
 ## État : ✅ terminé
 
-Fait : politique pure testée · migration 061 (journal append-only) · câblage
+Fait : politique pure testée · migration 065 (journal append-only) · câblage
 rapports / plans / contrats / **avenants** + journal · endpoint et écran admin ·
 dialogue frontend sur les 4 types. Hors périmètre (assumé) : concepteur de
 rapport (aligné avec le lot 7a de la session principale).
@@ -186,7 +186,7 @@ remaniement administratif). Clés retenues :
 
 ## Fait (backend, additif — fichiers neufs, invariant respecté)
 
-- Migration `062_sites_tag_code.sql` : seule colonne manquante (`tag_code`).
+- Migration `066_sites_tag_code.sql` : seule colonne manquante (`tag_code`).
   Toutes les autres colonnes existent déjà sur `sites`.
 - `settings/sitesAdmin.repository.js` : liste complète (colonnes de la page,
   jointure `field_offices`), `createSite`/`updateSite`/`deleteSite`,

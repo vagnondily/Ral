@@ -18,7 +18,7 @@
  * Ce module ne fait pas d'I/O : l'appelant lui fournit `validated`,
  * `hasLinkedData` (calculés par le dépôt selon le type) et le `justification`
  * saisi, et reçoit une décision. Les mêmes règles sont le filet de sécurité en
- * base (migration 061 : CHECK justificatif non vide si validé ; journal
+ * base (migration 065 : CHECK justificatif non vide si validé ; journal
  * append-only). Codes de refus → HTTP : 'linked_data' → 409,
  * 'justification_required' → 400.
  */
