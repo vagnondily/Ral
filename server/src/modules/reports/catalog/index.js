@@ -35,9 +35,16 @@ const FILTER_KEYS = ['office', 'activity', 'partner', 'form', 'module'];
 const PERIOD_MODES = ['range', 'asOf', 'year', 'now'];
 const COLUMN_TYPES = ['text', 'int', 'dec', 'pct', 'money', 'month', 'band', 'status', 'date', 'rate'];
 const UNITS = ['int', 'pct', 'money', 'dec', 'mt', 'rate'];
+// Clés de bureau qu'une source sait filtrer : 'id' (bureau MEMS et ses antennes), 'unlinked'
+// (sans bureau), 'lib' / 'code' (libellé ou code d'une fiche — soumissions seulement).
+const OFFICE_KINDS = ['id', 'lib', 'code', 'unlinked'];
+const ARG_TYPES = ['uuid', 'number', 'enum', 'text'];
 
 // Déclarations (un fichier par domaine).
 const DATASET_LIST = [
+  ...require('./monitoring'),
+  ...require('./coverage'),
+  ...require('./rbm'),
   ...require('./legacy'),
 ];
 const KPI_LIST = [
@@ -64,6 +71,12 @@ function checkRegistry(datasets, kpis) {
     if (!Array.isArray(d.columns) || d.columns.some((c) => !c.key || !c.label || !COLUMN_TYPES.includes(c.type))) issues.push(`${at} : colonnes invalides`);
     if (d.available !== false && typeof d.shape !== 'function') issues.push(`${at} : mise en forme manquante`);
     if (d.available === false && !d.reason) issues.push(`${at} : indisponible sans raison`);
+    if (d.officeKinds && d.officeKinds.some((k) => !OFFICE_KINDS.includes(k))) issues.push(`${at} : type de bureau inconnu`);
+    for (const [name, a] of Object.entries(d.args || {})) {
+      if (!ARG_TYPES.includes(a.type) || !a.label) issues.push(`${at} : argument ${name} invalide`);
+      if (a.type === 'enum' && (!Array.isArray(a.choices) || !a.choices.length)) issues.push(`${at} : argument ${name} sans choix`);
+    }
+    if (d.measures && d.measures.some((m) => !(d.columns || []).some((c) => c.key === m) && !['exc', 'sat', 'imp', 'urg', 'na'].includes(m))) issues.push(`${at} : mesure inconnue`);
   }
   const kseen = new Set();
   for (const k of kpis) {
@@ -104,6 +117,8 @@ function validateBlockParams(def, params) {
     }
     if (spec.type === 'uuid' && !/^[0-9a-fA-F-]{36}$/.test(String(v))) issues.push({ path: ['args', name], message: `Identifiant invalide : ${name}.` });
     if (spec.type === 'number' && !Number.isFinite(Number(v))) issues.push({ path: ['args', name], message: `Nombre attendu : ${name}.` });
+    if (spec.type === 'enum' && !spec.choices.includes(v)) issues.push({ path: ['args', name], message: `Valeur non permise pour ${name} : ${v}.` });
+    if (spec.type === 'text' && String(v).length > 200) issues.push({ path: ['args', name], message: `Texte trop long : ${name}.` });
   }
   for (const name of Object.keys(p.args || {})) if (!(def.args || {})[name]) issues.push({ path: ['args', name], message: `Argument inconnu : ${name}.` });
   const known = new Set(def.columns.map((c) => c.key));
@@ -120,15 +135,16 @@ function catalogForClient() {
     label: d.label, group: d.group, origin: d.origin || null, views: d.views, defaultView: d.defaultView,
     filters: d.filters, periodMode: d.periodMode, args: d.args, columns: d.columns, measures: d.measures || numericColumns(d),
     dynamicColumns: d.dynamicColumns || null, available: d.available !== false, reason: d.reason || null, keywords: d.keywords || [],
+    officeKinds: d.officeKinds || OFFICE_KINDS, annotate: d.annotate || null,
   });
   return {
     groups: GROUPS.map((g) => ({ ...g, items: Object.values(DATASETS).filter((d) => d.group === g.key).map((d) => d.key) })),
     datasets: Object.fromEntries(Object.values(DATASETS).map((d) => [d.key, pub(d)])),
-    kpis: Object.fromEntries(Object.values(KPIS).map((k) => [k.key, { label: k.label, unit: k.unit, group: k.group, available: k.available !== false, reason: k.reason || null }])),
+    kpis: Object.fromEntries(Object.values(KPIS).map((k) => [k.key, { label: k.label, unit: k.unit, group: k.group, filters: k.filters, available: k.available !== false, reason: k.reason || null }])),
   };
 }
 
 module.exports = {
-  GROUPS, FILTER_KEYS, PERIOD_MODES, COLUMN_TYPES, DATASETS, KPIS,
+  GROUPS, FILTER_KEYS, PERIOD_MODES, COLUMN_TYPES, OFFICE_KINDS, DATASETS, KPIS,
   datasetDef, kpiDef, numericColumns, validateBlockParams, catalogForClient, checkRegistry,
 };

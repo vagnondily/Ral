@@ -70,19 +70,25 @@ function summarizeVisits(visits, providerLabel = {}) {
  * @param {object[]} groupRows lignes { dim: 'overall'|'office'|'district'|'activity'|'month', key, districtLabel, known, …colonnes }
  * @param {object[]} providerRows lignes { key, label, planifie, realise, annule, sitesPlanned, sitesRealised }
  */
+const num = (v) => Number(v) || 0;
+/** Champs hérités d'une ligne de faits (lignes de visites). */
+function legacyOf(r) {
+  const planifie = num(r.planifie); const realise = num(r.realise); const annule = num(r.annule);
+  const active = planifie + realise;
+  return { planifie, realise, annule, total: planifie + realise + annule, active, rate: active > 0 ? realise / active : 0 };
+}
+/** Faits d'une ligne (SITE_FACT_COLUMNS / MONTH_FACT_COLUMNS) : sites, visites, trois taux (ratesOf). */
+function factsOf(r) {
+  const sites = { active: num(r.sitesActive), planned: num(r.sitesPlanned), realised: num(r.sitesRealised), realisedInactive: num(r.sitesRealisedInactive) };
+  const visits = { planned: num(r.smPlanifie) + num(r.smRealise), realised: num(r.smRealise), cancelled: num(r.smAnnule), upcoming: num(r.upcoming) };
+  const rates = ratesOf({ sitesActive: sites.active, sitesPlanned: sites.planned, sitesRealised: sites.realised, planifie: num(r.duePlanifie), realise: num(r.dueRealise) });
+  return { sites, visits, ...rates };
+}
+
 function shapeRangeSummary(groupRows, providerRows = []) {
-  const n = (v) => Number(v) || 0;
-  const legacy = (r) => {
-    const planifie = n(r.planifie); const realise = n(r.realise); const annule = n(r.annule);
-    const active = planifie + realise;
-    return { planifie, realise, annule, total: planifie + realise + annule, active, rate: active > 0 ? realise / active : 0 };
-  };
-  const facts = (r) => {
-    const sites = { active: n(r.sitesActive), planned: n(r.sitesPlanned), realised: n(r.sitesRealised), realisedInactive: n(r.sitesRealisedInactive) };
-    const visits = { planned: n(r.smPlanifie) + n(r.smRealise), realised: n(r.smRealise), cancelled: n(r.smAnnule), upcoming: n(r.upcoming) };
-    const rates = ratesOf({ sitesActive: sites.active, sitesPlanned: sites.planned, sitesRealised: sites.realised, planifie: n(r.duePlanifie), realise: n(r.dueRealise) });
-    return { sites, visits, ...rates };
-  };
+  const n = num;
+  const legacy = legacyOf;
+  const facts = factsOf;
   const byLabel = (a, b) => b.total - a.total || String(a.label).localeCompare(String(b.label));
   const rowsOf = (dim, labelOf) => groupRows.filter((r) => r.dim === dim)
     .map((r) => ({ key: r.key, label: labelOf(r), ...legacy(r), ...facts(r) }))
@@ -108,6 +114,39 @@ function shapeRangeSummary(groupRows, providerRows = []) {
     byOffice: rowsOf('office', (r) => (r.key === '—' ? 'Sans bureau' : r.key)),
     byActivity: rowsOf('activity', (r) => r.key),
     monthly,
+  };
+}
+
+/**
+ * Faits de COUVERTURE d'une période (concepteur de rapport, lot 7a) — mêmes faits site ×
+ * mois et mêmes taux que shapeRangeSummary (factsOf → ratesOf), mais un groupe est gardé
+ * dès qu'il a un site actif OU une visite : une activité dont les sites actifs n'ont reçu
+ * aucune visite montre 0 % (et non une ligne absente). `month_activity` : faits par mois ×
+ * activité (complétude mensuelle).
+ * @param {object[]} groupRows lignes { dim: 'overall'|'office'|'district'|'activity'|'month'|'month_activity', key, sub, districtLabel, known, …colonnes }
+ */
+function shapeCoverageFacts(groupRows) {
+  const row = (r, label) => {
+    const f = factsOf(r);
+    return { key: r.key, label, sitesTotal: num(r.sitesTotal), ...legacyOf(r), ...f };
+  };
+  const keep = (x) => x.sites.active > 0 || x.total > 0 || x.sites.realisedInactive > 0;
+  const bySites = (a, b) => b.sites.active - a.sites.active || b.total - a.total || String(a.label).localeCompare(String(b.label), 'fr');
+  const rowsOf = (dim, labelOf) => groupRows.filter((r) => r.dim === dim).map((r) => row(r, labelOf(r))).filter(keep).sort(bySites);
+  const overallRow = groupRows.find((r) => r.dim === 'overall') || {};
+  const monthOf = (r) => ({ ...row(r, r.key), month: r.key, activationKnown: r.known === true });
+  const monthly = groupRows.filter((r) => r.dim === 'month').map(monthOf).sort((a, b) => a.month.localeCompare(b.month));
+  const monthlyByActivity = groupRows.filter((r) => r.dim === 'month_activity')
+    .map((r) => ({ ...monthOf(r), activity: r.sub }))
+    .sort((a, b) => a.month.localeCompare(b.month) || String(a.activity).localeCompare(String(b.activity), 'fr'));
+  return {
+    activationKnown: monthly.length > 0 && monthly.every((m) => m.activationKnown),
+    overall: row(overallRow, null),
+    byOffice: rowsOf('office', (r) => r.key),
+    byDistrict: rowsOf('district', (r) => r.districtLabel || r.key),
+    byActivity: rowsOf('activity', (r) => r.key),
+    monthly,
+    monthlyByActivity,
   };
 }
 
@@ -182,4 +221,4 @@ function buildCoverageMatrix(rows, yearOrMonths) {
   return { year: y, months, groups: shaped, monthlyTotals, total: coverageRate(gp, gr) };
 }
 
-module.exports = { STATUSES, summarizeVisits, shapeRangeSummary, collectionDays, coverageRate, buildCoverageMatrix };
+module.exports = { STATUSES, summarizeVisits, shapeRangeSummary, shapeCoverageFacts, factsOf, collectionDays, coverageRate, buildCoverageMatrix };

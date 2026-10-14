@@ -2,7 +2,7 @@ const { withTenantTransaction } = require('../../config/db');
 const { afterSitesChangedTx, lockSubmissionLinksTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
 const { sitePatchSql } = require('./sitePatch');
 const { chunkRows } = require('../../db/batch');
-const { shapeRangeSummary, collectionDays, buildCoverageMatrix } = require('./fieldMath');
+const { shapeRangeSummary, shapeCoverageFacts, collectionDays, buildCoverageMatrix } = require('./fieldMath');
 const { isDue, frequencyFor, visitState, currentMonth, toMonth, needsPlanning, planningCounts } = require('./rbmMath');
 const { scoreSite, normalizeSecurity } = require('./rbmScore');
 const { coverageRecap } = require('./coverageRecap');
@@ -930,6 +930,62 @@ async function reportFieldData(tenantId, { from, to }, { lang = 'fr' } = {}) {
 }
 
 /**
+ * Faits de COUVERTURE d'une période pour le concepteur de rapport (lot 7a) — le SERVICE
+ * UNIQUE des faits site × mois (siteMonthFactsCtes, bureau parent comme le rapport) en UNE
+ * requête : global, par bureau, district et activité, par mois et par mois × activité
+ * (GROUPING SETS), mis en forme par fieldMath.shapeCoverageFacts (mêmes taux que la
+ * Couverture & performance : ratesOf) ; plus les visites par prestataire sur les MÊMES sites.
+ * Filtres : `officeId` (bureau MEMS et ses antennes, ou 'unlinked'), `activity` (catégorie du site).
+ * Sans période : toutes les visites (60 mois au plus), comme summary.
+ */
+async function coverageFacts(tenantId, { period: asked = null, officeId = null, activity = null, lang = 'fr' } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const period = toPeriod(asked) || await visitSpanTx(client, tenantId);
+    const params = [tenantId];
+    const ctes = siteMonthFactsCtes({ period, todayMonth: currentMonth(), office: 'bureau', unattached: unattachedText(lang), officeId, activity }, params);
+    const { rows } = await client.query(
+      `${ctes}
+       SELECT CASE WHEN GROUPING(office) = 0 THEN 'office' WHEN GROUPING(dkey) = 0 THEN 'district'
+                   WHEN GROUPING(activity) = 0 THEN 'activity' ELSE 'overall' END AS dim,
+              COALESCE(office, dkey, activity) AS key, NULL::text AS sub,
+              COALESCE(min(official), min(dname) FILTER (WHERE dname <> upper(dname)), min(dname)) AS "districtLabel",
+              NULL::boolean AS known, count(*)::int AS "sitesTotal", ${SITE_FACT_COLUMNS}
+         FROM per_site GROUP BY GROUPING SETS ((), (office), (dkey), (activity))
+       UNION ALL
+       SELECT CASE WHEN GROUPING(r.activity) = 0 THEN 'month_activity' ELSE 'month' END, to_char(f.m, 'YYYY-MM'),
+              CASE WHEN GROUPING(r.activity) = 0 THEN r.activity END, NULL, bool_or(f.known), count(*)::int, ${MONTH_FACT_COLUMNS}
+         FROM fact f JOIN reg r ON r.site_id = f.site_id
+        GROUP BY GROUPING SETS ((f.m), (f.m, r.activity))`,
+      params
+    );
+    // Visites par prestataire, sur les sites retenus (mêmes bornes semi-ouvertes).
+    const pp = [tenantId];
+    const within = monthWithin('v.period_month', period, pp);
+    let scope = '';
+    if (officeId === 'unlinked') scope += ' AND s.field_office_id IS NULL';
+    else if (officeId) { pp.push(officeId); scope += ` AND (s.field_office_id = $${pp.length}::uuid OR fo.parent_id = $${pp.length}::uuid)`; }
+    if (activity) { pp.push(activity); scope += ` AND lower(btrim(s.activity)) = lower(btrim($${pp.length}::text))`; }
+    const { rows: providers } = await client.query(
+      `SELECT COALESCE(v.provider_id::text, 'non_affecte') AS key, min(p.name) AS label,
+              count(*) FILTER (WHERE v.status = 'planifie')::int AS planifie,
+              count(*) FILTER (WHERE v.status = 'realise')::int AS realise,
+              count(*) FILTER (WHERE v.status = 'annule')::int AS annule,
+              count(DISTINCT v.site_id) FILTER (WHERE v.status <> 'annule')::int AS "sitesPlanned",
+              count(DISTINCT v.site_id) FILTER (WHERE v.status = 'realise')::int AS "sitesRealised"
+         FROM site_visits v
+         JOIN sites s ON s.id = v.site_id AND s.tenant_id = v.tenant_id
+         LEFT JOIN field_offices fo ON fo.id = s.field_office_id AND fo.tenant_id = s.tenant_id
+         LEFT JOIN partners p ON p.id = v.provider_id AND p.tenant_id = v.tenant_id
+        WHERE v.tenant_id = $1 AND ${within}${scope}
+        GROUP BY 1`,
+      pp
+    );
+    const { byProvider } = shapeRangeSummary([], providers);
+    return { period: periodInfo(period), ...shapeCoverageFacts(rows), byProvider };
+  });
+}
+
+/**
  * Plan de suivi d'un exercice : sites (critères, bureau + parent, dernière
  * visite effective, données reçues), visites de l'année agrégées en SQL par
  * site (json_agg) et lignes MMR — puis compteurs exigées/faites/prévues/reste,
@@ -1314,7 +1370,7 @@ async function addSite(tenantId, s, { today = new Date() } = {}) {
 }
 
 module.exports = {
-  reportFieldData, planBoard, setPlannedMonths, setMonthStatuses, bulkUpdateSites, addSite, locationsExportData, importLocations,
+  reportFieldData, coverageFacts, planBoard, setPlannedMonths, setMonthStatuses, bulkUpdateSites, addSite, locationsExportData, importLocations,
   listSites, createSite, createSiteTx, upsertSites, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
   collectionDaysSummary, setTravelDays, coverageRecapSummary, coverageMatrix, monthsOverview, setMonthStatus, mapData,

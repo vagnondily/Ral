@@ -401,6 +401,107 @@ function overallIndex(indicatorResults) {
 }
 
 /**
+ * Score d'une VISITE (une soumission), lot 7a — la mesure du tableau de bord de
+ * référence (« sites urgents », classes par visite, signaux de risque) : moyenne des
+ * scores orientés des indicateurs EN % notés auxquels la visite a répondu (réponse
+ * positive = 100, sinon 0 ; « plus bas = mieux » → 100 − valeur), avec les MÊMES règles
+ * de réponse que le décompte (vide et codes « hors base » écartés). Classe : la règle
+ * unique (classify), bandes 80 / 65 / 50 — aucune deuxième règle.
+ * @param {object[]} indicators indicateurs actifs de la fiche
+ * @param {object} data réponses de la soumission (champs calculés fusionnés)
+ * @param {(ind) => string[]} namesOf noms à essayer pour chaque indicateur (namesFor)
+ * @returns {{ score: number|null, answered: number, rating: string }}
+ */
+function visitScore(indicators, data, namesOf) {
+  return visitScorer(indicators)(data, namesOf);
+}
+
+/**
+ * Score par visite PRÉPARÉ pour une liste d'indicateurs (valeurs positives et codes « hors
+ * base » lus une fois, classe mémorisée par score) — même résultat que visitScore, appelé
+ * pour chaque soumission d'une page (indicatorTallies.pageFacts).
+ * @returns {(data: object, namesOf?: (ind) => string[]) => { score, answered, rating }}
+ */
+function visitScorer(indicators) {
+  const list = (indicators || []).filter((ind) => ind.scored !== false && isPercentAgg(ind.agg)).map((ind) => ({
+    ind, na: naSet(ind.naValues), lower: ind.direction === 'lower_better',
+    pos: ind.positiveValue != null && ind.positiveValue !== '' ? new Set(positiveList(ind.positiveValue).map((x) => x.toLowerCase())) : null,
+  }));
+  const ratings = new Map();
+  const ratingOf = (score, answered) => {
+    if (!ratings.has(score)) ratings.set(score, classify({ value: score, base: answered, agg: 'percent_yes', target: null, direction: 'higher_better' }));
+    return ratings.get(score);
+  };
+  const has = Object.prototype.hasOwnProperty;
+  return (data, namesOf) => {
+    const d = data || {};
+    let sum = 0; let answered = 0;
+    for (const x of list) {
+      const names = namesOf ? namesOf(x.ind) : [x.ind.sourceField];
+      let field;
+      for (const n of names) if (has.call(d, n)) { field = n; break; }
+      if (field === undefined) continue;
+      const v = d[field];
+      if (v == null || v === '') continue;
+      const low = String(v).trim().toLowerCase();
+      if (x.na.has(low)) continue;
+      const yes = (x.pos ? x.pos.has(low) : YES.has(low)) ? 100 : 0;
+      sum += x.lower ? 100 - yes : yes;
+      answered += 1;
+    }
+    if (!answered) return { score: null, answered: 0, rating: 'na' };
+    const score = round1(sum / answered);
+    return { score, answered, rating: ratingOf(score, answered) };
+  };
+}
+
+const PHRASES = {
+  fr: {
+    pct: (r) => `${fmt(r.value, 'fr')} % des ${fmt(r.base, 'fr')} réponses comptées sont positives`,
+    mean: (r) => `Moyenne de ${fmt(r.value, 'fr')} sur ${fmt(r.base, 'fr')} réponses`,
+    sum: (r) => `Total de ${fmt(r.value, 'fr')} sur ${fmt(r.base, 'fr')} réponses`,
+    count: (r) => `${fmt(r.value, 'fr')} réponses comptées`,
+    target: (t) => ` (cible ${fmt(t, 'fr')}${' '}%)`,
+    targetScalar: (t) => ` (cible ${fmt(t, 'fr')})`,
+    na: 'Non évalué sur la période : aucune réponse comptée.',
+    rating: { exc: 'Excellent', sat: 'Satisfaisant', imp: 'À améliorer', urg: 'Action urgente', na: 'Non évalué' },
+    alert: 'Sous le seuil : action à engager.',
+  },
+  en: {
+    pct: (r) => `${fmt(r.value, 'en')}% of the ${fmt(r.base, 'en')} counted answers are positive`,
+    mean: (r) => `Average of ${fmt(r.value, 'en')} over ${fmt(r.base, 'en')} answers`,
+    sum: (r) => `Total of ${fmt(r.value, 'en')} over ${fmt(r.base, 'en')} answers`,
+    count: (r) => `${fmt(r.value, 'en')} counted answers`,
+    target: (t) => ` (target ${fmt(t, 'en')}%)`,
+    targetScalar: (t) => ` (target ${fmt(t, 'en')})`,
+    na: 'Not assessed over the period: no answer counted.',
+    rating: { exc: 'Excellent', sat: 'Satisfactory', imp: 'Needs improvement', urg: 'Urgent action', na: 'Not assessed' },
+    alert: 'Below the threshold: action required.',
+  },
+};
+function fmt(v, lang) { return Number(v).toLocaleString(lang === 'en' ? 'en-GB' : 'fr-FR', { maximumFractionDigits: 1 }); }
+
+/**
+ * Phrase d'interprétation d'un résultat d'indicateur (carte de résultat, retour 45),
+ * dans la langue du rapport : valeur, base, cible, classe — et une alerte sous le seuil
+ * (À améliorer, Action urgente). Mêmes chiffres que le résultat, rien de recalculé.
+ * @returns {{ sentence: string, rating: string, ratingLabel: string, alert: string|null }}
+ */
+function interpretIndicator(result, lang = 'fr') {
+  const T = PHRASES[lang === 'en' ? 'en' : 'fr'];
+  const rating = classify(result);
+  if (!result || result.value == null || !result.base) return { sentence: T.na, rating: 'na', ratingLabel: T.rating.na, alert: null };
+  const kind = isPercentAgg(result.agg) ? 'pct' : result.agg;
+  const t = result.target == null || result.target === '' ? null : Number(result.target);
+  const target = t == null || Number.isNaN(t) ? '' : (kind === 'pct' ? T.target(t) : T.targetScalar(t));
+  return {
+    sentence: `${(T[kind] || T.pct)(result)}${target}.`,
+    rating, ratingLabel: T.rating[rating],
+    alert: rating === 'imp' || rating === 'urg' ? T.alert : null,
+  };
+}
+
+/**
  * POURQUOI un indicateur est « Non évalué » (classify → na), sans changer la
  * règle de classe : c'est classify qui décide, naReason ne fait que l'expliquer.
  *   - 'no_data'         : aucune soumission sur la période ;
@@ -431,7 +532,7 @@ function naReason(result, { periodCount } = {}) {
 }
 
 module.exports = {
-  computeIndicator, computeAll, rate, classify, classifyDetail, displayGap, BANDS, TARGET_GAPS, overallIndex, orientedScore, toNumber, isYes,
+  computeIndicator, computeAll, rate, classify, classifyDetail, displayGap, BANDS, TARGET_GAPS, overallIndex, orientedScore, toNumber, isYes, visitScorer,
   keyIndex, namesFor, tallyIndicator, mergeTallies, resultFromTally, indicatorMeta, explainIndicator, explainFromTally,
-  isPercentAgg, positiveList, naReason,
+  isPercentAgg, positiveList, naReason, visitScore, interpretIndicator,
 };

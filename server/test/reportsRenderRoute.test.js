@@ -27,13 +27,14 @@ const FORM = '22222222-2222-4222-8222-222222222222';
 reportsRepo.listOffices = async () => [{ id: '33333333-3333-4333-8333-333333333333', name: 'Bureau Sud', parentId: null, active: true }];
 reportsRepo.repeatCandidates = async (t, over) => (over === 'activity' ? [{ id: FORM, label: 'SMP', activityCategory: null, n: 3 }] : []);
 let fieldFails = null;
-monitoringRepo.reportMonitoringData = async () => ({
-  submissions: 3, regions: [{ region: 'Androy', submissions: 3, communes: 1 }],
-  forms: [{ id: FORM, label: 'SMP', sitesActive: null, visits: 3, sitesVisited: 2, index: 70, monthly: [], dims: [], indicators: [], bureaux: [] }],
+monitoringRepo.reportDataCounts = async () => ({
+  totals: { submissions: 3 }, byBureau: [], trend: [], regions: [{ region: 'Androy', submissions: 3, communes: 1 }],
 });
-fieldRepo.reportFieldData = async () => {
+monitoringRepo.reportFormsFacts = async () => ({ forms: [] });
+const { shapeCoverageFacts } = require('../src/modules/tpm/fieldMath');
+fieldRepo.coverageFacts = async () => {
   if (fieldFails) throw fieldFails;
-  return { byOffice: [{ bureau: 'Bureau Sud', sitesActive: 4, planned: 2, done: 1 }], monthly: [{ month: '2026-01', planned: 2, done: 1 }] };
+  return { ...shapeCoverageFacts([{ dim: 'office', key: 'Bureau Sud', sitesActive: 4, sitesRealised: 1, smRealise: 1, smPlanifie: 1 }]), byProvider: [] };
 };
 
 const app = express();
@@ -56,10 +57,10 @@ const DOC = {
 
 test('plan : instances, figures numérotées, éléments répétés, Server-Timing — sans calcul lourd', async () => {
   let calls = 0;
-  const orig = monitoringRepo.reportMonitoringData;
-  monitoringRepo.reportMonitoringData = async (...a) => { calls += 1; return orig(...a); };
+  const orig = monitoringRepo.reportDataCounts;
+  monitoringRepo.reportDataCounts = async (...a) => { calls += 1; return orig(...a); };
   const r = await post('/api/report-designer/render/plan', { doc: DOC });
-  monitoringRepo.reportMonitoringData = orig;
+  monitoringRepo.reportDataCounts = orig;
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.match(r.headers['server-timing'], /^plan;dur=\d+/);
   assert.equal(calls, 0, 'le plan ne calcule aucune donnée');

@@ -172,12 +172,17 @@ async function main() {
 
   if (!args.only || args.only === 'templates') {
     const service = require('../src/modules/reports/reports.service');
-    const { SYSTEM_TEMPLATES } = require('../src/modules/reports/reportTemplates');
+    const { SYSTEM_TEMPLATES, templateDocument } = require('../src/modules/reports/reportTemplates');
     const p = period || { from: `${new Date().getFullYear()}-01`, to: new Date().toISOString().slice(0, 7) };
     for (const t of SYSTEM_TEMPLATES) {
-      const doc = service.templateDocument ? service.templateDocument(t, p) : { title: t.name, period: p, page: t.page, blocks: t.blocks };
-      const r = await timed(args.runs, () => service.renderReport(tenantId, doc, { lang: 'fr' }));
-      report.templates.push({ template: t.key, min: r.min, p50: r.p50, p95: r.p95, heapMb: r.heapMb });
+      const doc = templateDocument(t, p);
+      let failed = 0; let blocks = 0;
+      const r = await timed(args.runs, async () => {
+        const out = await service.renderReport(tenantId, doc, { lang: 'fr' });
+        blocks = Object.keys(out.blocks).length;
+        failed = Object.values(out.blocks).filter((b) => !b.ok).length;
+      });
+      report.templates.push({ template: t.key, blocks, failed, min: r.min, p50: r.p50, p95: r.p95, heapMb: r.heapMb });
     }
   }
 
@@ -198,7 +203,7 @@ async function main() {
       console.log(`  fiche « ${f.form} » (${f.submissions} soumissions, ${f.indicators} indicateurs) : en flux min ${r1(f.flux.min)} · p50 ${r1(f.flux.p50)} · p95 ${r1(f.flux.p95)} ms · tas ${f.heapMb} Mo`
         + (f.rowsRead ? ` | ligne à ligne (ancien chemin) ${r1(f.rowsRead.ms)} ms · tas ${f.rowsRead.heapMb} Mo` : ''));
     }
-    for (const t of report.templates) console.log(`  modèle ${t.template} : min ${r1(t.min)} · p50 ${r1(t.p50)} · p95 ${r1(t.p95)} ms · tas ${t.heapMb} Mo`);
+    for (const t of report.templates) console.log(`  modèle ${t.template} (${t.blocks} blocs, ${t.failed} en erreur) : min ${r1(t.min)} · p50 ${r1(t.p50)} · p95 ${r1(t.p95)} ms · tas ${t.heapMb} Mo`);
     if (report.check) {
       console.log(`  contrôle calcul en flux = ligne à ligne : ${report.check.issues} écart(s) sur ${report.check.forms} fiche(s)`);
       for (const d of report.check.detail) if (d.issues) console.log(`    ${d.form} : ${d.issues} écart(s), ex. ${JSON.stringify(d.sample[0])}`);

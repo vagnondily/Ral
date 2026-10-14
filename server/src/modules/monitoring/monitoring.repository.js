@@ -18,7 +18,7 @@ const { toPeriod, trendWindow, periodInfo } = require('../common/period');
 const { monthWithin } = require('../common/periodSql');
 const { submissionSiteKey } = require('../common/submissionSiteKey');
 const { calcReferences } = require('./indicatorKeys');
-const { formFactsTx, formResultsTx, resultsOf, calcDefsTx } = require('./indicatorFacts.repository');
+const { formFactsTx, formResultsTx, resultsOf, calcDefsTx, factFilter, agentKeySql } = require('./indicatorFacts.repository');
 const { explainOf } = require('./indicatorTallies');
 
 /** Période d'un appel : `period` ({ from, to } | null) si fourni, sinon l'ancien { month } / { from, to }. */
@@ -1721,11 +1721,141 @@ async function reportMonitoringData(tenantId, period, { lang = 'fr' } = {}) {
   });
 }
 
+// ---- Concepteur de rapport v2 (lot 7a) : faits partagés avec les tableaux de bord ----------
+/** Fiches actives retenues par les filtres d'un bloc (fiche, catégorie d'activité). */
+async function scopedFormsTx(client, tenantId, { formId, activity } = {}) {
+  const params = [tenantId];
+  let where = '';
+  if (formId) { params.push(formId); where += ` AND f.id = $${params.length}::uuid`; }
+  if (activity) { params.push(String(activity)); where += ` AND lower(btrim(f.activity_category)) = lower(btrim($${params.length}))`; }
+  const { rows } = await client.query(
+    `SELECT f.id, f.code, f.label, f.activity_category AS "activityCategory"
+       FROM monitoring_forms f WHERE f.tenant_id = $1 AND f.active = true${where} ORDER BY f.label`, params);
+  return rows;
+}
+
+/**
+ * Faits d'indicateurs de chaque fiche retenue, en UN passage par fiche (indicatorFacts :
+ * curseur, décomptes additifs) groupés par bureau × mois — le global, les bureaux et les
+ * mois s'en déduisent sans relire les données ; score de chaque visite si `visits`.
+ * Mêmes résultats que la Synthèse et Couverture & performance (formResults).
+ * @param {{ period, officeKey?, partnerId?, formId?, activity?, visits?: {keep:number}, group? }} opts
+ * @returns {Promise<{ forms: Array<{ id, code, label, activityCategory, facts }>, officeNames: Map }>}
+ */
+async function reportFormsFacts(tenantId, opts = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const forms = await scopedFormsTx(client, tenantId, opts);
+    const officeLabels = await officeLabelsTx(client, tenantId);
+    const officeSql = (params) => officeLabelSql(officeLabels, 's', params);
+    const out = [];
+    for (const fm of forms) { // une fiche à la fois (client de la transaction)
+      const facts = await formFactsTx(client, tenantId, fm.id, {
+        period: opts.period, group: opts.group || 'bureau_month', officeSql,
+        officeKey: opts.officeKey, partnerId: opts.partnerId, visits: opts.visits,
+      });
+      out.push({ ...fm, facts });
+    }
+    return { forms: out };
+  });
+}
+
+/**
+ * Faits d'indicateurs par AGENT (qualité de saisie) : agent MEMS relié, sinon le nom brut
+ * de la fiche ; libellé du nom de l'agent MEMS.
+ */
+async function reportAgentFacts(tenantId, opts = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const forms = await scopedFormsTx(client, tenantId, opts);
+    const officeLabels = await officeLabelsTx(client, tenantId);
+    const officeSql = (params) => officeLabelSql(officeLabels, 's', params);
+    const out = [];
+    for (const fm of forms) {
+      const facts = await formFactsTx(client, tenantId, fm.id, { period: opts.period, group: 'agent', officeSql, officeKey: opts.officeKey, partnerId: opts.partnerId });
+      out.push({ ...fm, facts });
+    }
+    const ids = [...new Set(out.flatMap((f) => [...f.facts.counts.keys()]).filter((k) => k.startsWith('id:')).map((k) => k.slice(3)))];
+    const { rows } = ids.length
+      ? await client.query('SELECT id, name FROM tpm_agents WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, ids])
+      : { rows: [] };
+    return { forms: out, agentNames: new Map(rows.map((r) => [`id:${r.id}`, r.name])) };
+  });
+}
+
+/**
+ * Données versées (comptages SQL, aucune réponse lue) sur la période et les filtres d'un
+ * bloc : totaux (soumissions, sites du registre avec données, lieux non rattachés, sites
+ * (données), communes, agents, partenaires, bureaux, fiches), par bureau (nommé, jamais un
+ * code seul), tendance mensuelle (fenêtre des tendances) et régions (clés distinctes).
+ */
+async function reportDataCounts(tenantId, opts = {}) {
+  const period = toPeriod(opts.period);
+  return withTenantTransaction(tenantId, async (client) => {
+    const officeLabels = await officeLabelsTx(client, tenantId);
+    const byLabel = /^(lib|code):/.test(opts.officeKey || '');
+    // FROM … WHERE commun (paramètres propres à chaque requête) ; `per` = période appliquée.
+    const scope = (params, withOffice = false, per = period) => {
+      const office = withOffice || byLabel ? officeLabelSql(officeLabels, 's', params) : null;
+      return { office, where: `s.tenant_id = $1${factFilter('s', { ...opts, period: per }, params, office)}` };
+    };
+    const tp = [tenantId];
+    const t = scope(tp, true);
+    const { rows: [totals] } = await client.query(
+      `SELECT count(*)::int AS submissions,
+              count(DISTINCT s.site_id)::int AS "registrySites",
+              count(DISTINCT ${SITE_KEY}) FILTER (WHERE s.site_id IS NULL)::int AS "unlinkedPlaces",
+              count(DISTINCT ${SITE_KEY})::int AS "dataSites",
+              count(DISTINCT NULLIF(btrim(s.admin3), ''))::int AS communes,
+              count(DISTINCT ${agentKeySql('s')}) FILTER (WHERE ${agentKeySql('s')} <> 'vide')::int AS agents,
+              count(DISTINCT COALESCE(s.partner_id::text, NULLIF(btrim(s.partner), '')))::int AS partners,
+              count(DISTINCT ${t.office.key}) FILTER (WHERE ${t.office.status} <> 'vide')::int AS offices,
+              count(DISTINCT s.form_id)::int AS forms
+         FROM monitoring_submissions s ${t.office.join} WHERE ${t.where}`, tp);
+    const bp = [tenantId];
+    const b = scope(bp, true);
+    const { rows: byBureau } = await client.query(
+      `SELECT ${officeCols(b.office)},
+              min(CASE WHEN ${b.office.formId} IS NOT NULL THEN mf.label END) AS "formLabel",
+              count(*)::int AS submissions, count(DISTINCT ${SITE_KEY})::int AS sites, count(DISTINCT s.site_id)::int AS "registrySites"
+         FROM monitoring_submissions s ${b.office.join}
+         LEFT JOIN monitoring_forms mf ON mf.id = s.form_id AND mf.tenant_id = s.tenant_id
+        WHERE ${b.where}
+        GROUP BY 1 ORDER BY submissions DESC, 1`, bp);
+    // Tendance : au moins 12 mois finissant au dernier mois de la période, mois vides compris.
+    const w = trendWindow(period, currentMonthUTC());
+    // La fenêtre des tendances (et non la période du bloc) borne les mois lus.
+    const mp = [tenantId];
+    const m = scope(mp, false, { from: w.from, to: w.to });
+    const wLo = mp.push(`${w.from}-01`); const wHi = mp.push(`${w.to}-01`);
+    const { rows: trend } = await client.query(
+      `SELECT to_char(mm, 'YYYY-MM') AS month, COALESCE(c.n, 0)::int AS submissions
+         FROM generate_series($${wLo}::date, $${wHi}::date, interval '1 month') AS mm
+         LEFT JOIN (SELECT date_trunc('month', s.period_month)::date AS pm, count(*) AS n
+                      FROM monitoring_submissions s ${m.office ? m.office.join : ''}
+                     WHERE ${m.where}
+                     GROUP BY 1) c ON c.pm = mm::date
+        ORDER BY mm`, mp);
+    // Régions : regionRowsSql ne joint pas les bureaux — une clé de bureau « libellé / code »
+    // n'y est pas applicable (régions omises, jamais fausses).
+    let regions = null;
+    if (!byLabel) {
+      const rp = [tenantId];
+      const rf = factFilter('s', { ...opts, period }, rp, null);
+      regions = (await client.query(regionRowsSql(rf), rp)).rows;
+    }
+    return {
+      period: periodInfo(period), totals,
+      byBureau: byBureau.map((r) => withOfficeText(r, r.formLabel)), trend, regions,
+    };
+  });
+}
+
 /**
  * Données réelles (soumissions brutes) — pour la « table des données actuelles »
  * rattachée au plan de suivi. Bornée (limit) ; on résout le nom de la commune
  * à partir du pcode (adm3) via le référentiel de sites, pour afficher un nom
  * lisible plutôt que le seul code. Filtrable par mois.
+ * `scope` (concepteur de rapport, lot 7a) : filtres factFilter (bureau 'id:' / 'unlinked',
+ * fiche, activité, partenaire) — et alors hors soumissions exclues.
  */
 async function listSubmissions(tenantId, opts = {}) {
   const { limit = 300 } = opts;
@@ -1733,11 +1863,12 @@ async function listSubmissions(tenantId, opts = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId];
     const where = ['ms.tenant_id = $1', monthWithin('ms.period_month', p, params)];
+    if (opts.scope) where.push(factFilter('ms', { ...opts.scope, period: null }, params, null).replace(/^ AND /, ''));
     params.push(Math.min(Math.max(Number(limit) || 300, 1), 2000));
     const { rows } = await client.query(
       `SELECT ms.external_id AS "externalId", to_char(ms.period_month, 'YYYY-MM') AS "periodMonth",
               ms.submitted_at AS "submittedAt", ms.field_office AS "fieldOffice",
-              ms.admin1, ms.admin2, ms.admin3, ms.partner, ms.source,
+              ms.admin1, ms.admin2, ms.admin3, ms.partner, ms.source, ms.site, ms.agent,
               ms.excluded, f.label AS "formLabel", f.activity_category AS "activityCategory",
               ${PLACE_KEYS}
          FROM monitoring_submissions ms
@@ -1871,4 +2002,5 @@ module.exports = {
   formCatalog, memsMappingTx, mappingStateTx, setMappingStatusTx, setMemsMappingTx, resetMemsMappingTx,
   applyMappingToSubmissions, rederiveCollectionDatesTx,
   formSubmissions, ensureCatalogFromSav, importDefinition, listSubmissions,
+  reportFormsFacts, reportAgentFacts, reportDataCounts,
 };

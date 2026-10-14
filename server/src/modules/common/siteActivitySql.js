@@ -42,9 +42,12 @@ const districtNameSql = (s = 's', ad = 'ad') =>
  *   office 'site'   : antenne ou bureau propre du site (fo.name, « — » sans bureau) ;
  *          'bureau' : bureau parent (antenne comptée avec son bureau), libellé `unattached` sans bureau.
  *   district        : ne garder que les sites de ce district (même clé que dkey, casse ignorée).
+ *   officeId        : ne garder que les sites de ce bureau MEMS ET de ses antennes (lot 7a) ;
+ *                     'unlinked' = sites sans bureau.
+ *   activity        : ne garder que les sites de cette catégorie d'activité (casse ignorée, lot 7a).
  * @param {any[]} params paramètres de la requête, $1 = tenant déjà présent ; complétés ici.
  */
-function siteMonthFactsCtes({ period, todayMonth, office = 'site', unattached = '(non rattaché)', district } = {}, params) {
+function siteMonthFactsCtes({ period, todayMonth, office = 'site', unattached = '(non rattaché)', district, officeId, activity } = {}, params) {
   const { lo, hi, hiExcl } = periodBounds(period);
   const push = (v) => { params.push(v); return `$${params.length}`; };
   const pLo = push(lo); const pHi = push(hi); const pHiExcl = push(hiExcl); const pToday = push(`${todayMonth}-01`);
@@ -55,6 +58,10 @@ function siteMonthFactsCtes({ period, todayMonth, office = 'site', unattached = 
   const parJoin = office === 'bureau' ? 'LEFT JOIN field_offices par ON par.id = fo.parent_id AND par.tenant_id = s.tenant_id' : '';
   const dName = districtNameSql('s', 'ad');
   const districtFilter = district ? ` AND lower(${dName}) = lower(btrim(${push(district)}::text))` : '';
+  let scopeFilter = '';
+  if (officeId === 'unlinked') scopeFilter += ' AND s.field_office_id IS NULL';
+  else if (officeId) { const o = push(officeId); scopeFilter += ` AND (s.field_office_id = ${o}::uuid OR fo.parent_id = ${o}::uuid)`; }
+  if (activity) scopeFilter += ` AND lower(btrim(s.activity)) = lower(btrim(${push(activity)}::text))`;
   // Années où le tenant a une grille : une sonde d'index par année (année en entier, comparée par
   // un opérateur « leakproof » : sous RLS, une expression comme extract() ne peut pas servir de
   // condition d'index et la sonde relisait toute la grille du tenant).
@@ -76,7 +83,7 @@ function siteMonthFactsCtes({ period, todayMonth, office = 'site', unattached = 
          LEFT JOIN admin_areas ad ON ad.tenant_id = s.tenant_id AND ad.pcode = s.adm2_pcode
          LEFT JOIN field_offices fo ON fo.id = s.field_office_id AND fo.tenant_id = s.tenant_id
          ${parJoin}
-        WHERE s.tenant_id = $1${districtFilter}),
+        WHERE s.tenant_id = $1${districtFilter}${scopeFilter}),
      st AS MATERIALIZED (
        SELECT x.site_id, make_date(x.year, x.month, 1) AS m
          FROM site_month_status x

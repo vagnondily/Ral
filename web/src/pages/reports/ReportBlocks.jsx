@@ -19,6 +19,13 @@ const BAND = {
   urg: ['var(--cd-urg)', 'Action urgente'], na: ['var(--cd-na)', 'Non évalué'],
 };
 
+// Statuts codés renvoyés par le serveur (couverture, risque, plan de visites) → libellé + ton.
+const STATUS = {
+  bon: ['Bon', 'exc'], moyen: ['Moyen', 'sat'], faible: ['Faible', 'imp'], critique: ['Critique', 'urg'],
+  elevee: ['Élevé', 'urg'], moyenne: ['Moyen', 'imp'],
+  draft: ['Brouillon', 'na'], soumis: ['Soumis', 'sat'], valide: ['Validé', 'exc'], annule: ['Annulé', 'na'], non_applicable: ['Non applicable', 'na'], vide: ['Vide', 'na'],
+};
+
 const num = (v, d = 0) => Number(v).toLocaleString(document.documentElement.lang === 'en' ? 'en-GB' : 'fr-FR', { maximumFractionDigits: d });
 
 /** Valeur formatée selon le type de colonne du jeu de données. */
@@ -32,6 +39,7 @@ export function formatCell(type, v, tr) {
     case 'money': return num(v, 0);
     case 'month': return /^\d{4}-\d{2}$/.test(v) ? monthLabel(v) : v;
     case 'band': return tr(BAND[v] ? BAND[v][1] : v);
+    case 'status': return STATUS[v] ? tr(STATUS[v][0]) : String(v);
     default: return String(v); // donnée (nom, code) : jamais traduite
   }
 }
@@ -62,6 +70,7 @@ export function DataTable({ data, columns: pick, matrix }) {
               {cols.map((c) => {
                 const v = r[c.key];
                 if (c.type === 'band') return <td key={c.key}><span className={`rb-band rb-band-${v || 'na'}`}>{formatCell('band', v || 'na', tr)}</span></td>;
+                if (c.type === 'status') return <td key={c.key}>{v == null ? <span className="rb-muted">{tr('— aucun plan')}</span> : <span className={`rb-band rb-band-${(STATUS[v] || [])[1] || 'na'}`}>{formatCell('status', v, tr)}</span>}</td>;
                 if (matrix && c.type === 'pct') return <td key={c.key} className={`num rb-heat rb-heat-${pctTone(v)}`}>{formatCell('pct', v, tr)}</td>;
                 return <td key={c.key} className={c.type === 'text' ? '' : 'num'}>{formatCell(c.type, v, tr)}</td>;
               })}

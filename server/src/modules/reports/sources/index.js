@@ -14,6 +14,8 @@ const { memo, stableKey } = require('./memo');
  * promesse partagée ; une erreur n'est pas gardée).
  */
 const SOURCES = Object.fromEntries([
+  ...require('./monitoring'),
+  ...require('./coverage'),
   require('./legacy'),
 ].map((s) => [s.key, s]));
 

@@ -6,11 +6,10 @@ const { upgradeDoc, upgradeSnapshot, isV1 } = require('./reportUpgrade');
 const { safeParseDocV2, walkBlocks } = require('./reportSchema');
 const { DATASETS, KPIS, GROUPS, datasetDef, kpiDef, validateBlockParams, catalogForClient } = require('./catalog');
 const { loadFor } = require('./sources');
-const { legacyFilters } = require('./catalog/legacy');
 const { buildPlan, blockOfInstance, PlanError, richVariables } = require('./renderPlan');
 const { VARIABLES } = require('./reportModel');
 const { SYSTEM_TEMPLATES } = require('./reportTemplates');
-const { bulletinDoc, computeKpis } = require('./reportData');
+const { bulletinDoc, bulletinFindings, BULLETIN_METRICS } = require('./reportData');
 const { periodLabel } = require('../common/period');
 const { phrases } = require('./phrases');
 const repo = require('./reports.repository');
@@ -28,12 +27,13 @@ const repo = require('./reports.repository');
 const today = () => new Date().toISOString().slice(0, 10);
 const langOf = (opts) => (opts && opts.lang === 'en' ? 'en' : 'fr');
 
-/** Bureaux du client : nom (minuscules) → id, id → nom. */
+/** Bureaux du client : nom (minuscules) → id, id → nom, id → bureau parent. */
 async function officeIndex(tenantId) {
   const rows = await repo.listOffices(tenantId);
   return {
     idByName: new Map(rows.map((o) => [String(o.name).trim().toLowerCase(), o.id])),
     nameById: new Map(rows.map((o) => [o.id, o.name])),
+    parentById: new Map(rows.map((o) => [o.id, o.parentId || null])),
   };
 }
 
@@ -113,6 +113,11 @@ function unsupportedNote(def, eff, lang) {
   for (const [k, [name, phrase]] of Object.entries(FILTER_OF)) {
     if (eff[k] != null && !(def.filters || []).includes(name)) return phrases(lang)[phrase];
   }
+  // Clé de bureau non filtrable par cette source (ex. libellé d'une fiche pour des faits de sites).
+  if (eff.office && def.officeKinds) {
+    const kind = eff.office === 'unlinked' ? 'unlinked' : eff.office.split(':')[0];
+    if (!def.officeKinds.includes(kind)) return phrases(lang).notByUnlinkedOffice;
+  }
   return null;
 }
 
@@ -140,26 +145,36 @@ async function dataBlock(tenantId, block, eff, ctx) {
   if (def.available === false) return { columns: def.columns, rows: [], meta: { note: def.reason, unavailable: true } };
   const note = unsupportedNote(def, eff, ctx.lang);
   if (note) return { columns: def.columns, rows: [], meta: { note, unsupported: true } };
-  const raw = await loadFor(def, tenantId, eff, block.params.args, ctx);
-  const shaped = def.shape(raw, eff, { ...ctx, args: block.params.args || {} });
+  const args = withDefaults(def, block.params.args);
+  const raw = await loadFor(def, tenantId, eff, args, ctx);
+  const shaped = def.shape(raw, eff, { ...ctx, args });
   const rows = sortAndLimit(shaped.rows || [], block.params);
   const groupLabel = (GROUPS.find((g) => g.key === def.group) || {}).label || '';
+  const m = shaped.meta || {};
   return {
     columns: shaped.columns || def.columns,
     rows,
     meta: {
-      n: shaped.meta && shaped.meta.n != null ? shaped.meta.n : (shaped.rows || []).length,
-      nLabel: (shaped.meta && shaped.meta.nLabel) || null,
+      ...m,
+      n: m.n != null ? m.n : (shaped.rows || []).length,
+      nLabel: m.nLabel || null,
       total: (shaped.rows || []).length,
-      source: (shaped.meta && shaped.meta.source) || T.source(def.sourceLabel || groupLabel),
-      asOf: (shaped.meta && shaped.meta.asOf) || null,
-      note: (shaped.meta && shaped.meta.note) || null,
-      definition: (shaped.meta && shaped.meta.definition) || null,
-      warnings: (shaped.meta && shaped.meta.warnings) || [],
+      source: m.source || T.source(def.sourceLabel || groupLabel),
+      asOf: m.asOf || null,
+      note: m.note || ((shaped.rows || []).length ? null : T.noData),
+      definition: m.definition || null,
+      warnings: m.warnings || [],
       periodMode: def.periodMode,
       period: eff.period,
     },
   };
+}
+
+/** Arguments d'un bloc complétés par les valeurs par défaut déclarées par le jeu. */
+function withDefaults(def, args) {
+  const out = { ...(args || {}) };
+  for (const [k, spec] of Object.entries(def.args || {})) if (out[k] == null && spec.default != null) out[k] = spec.default;
+  return out;
 }
 
 /** Valeurs de chiffres clés (bloc « kpis » et variables des textes). */
@@ -178,7 +193,6 @@ async function kpiValues(tenantId, metrics, eff, ctx) {
   return { values, notes };
 }
 
-const BULLETIN_SOURCE = { key: 'bulletin', source: 'legacy', needs: ['field', 'monitoring'], filters: ['office', 'form'] };
 
 /** Données d'une instance (selon le type de bloc). */
 async function computeData(tenantId, doc, inst, block, ctx) {
@@ -188,10 +202,13 @@ async function computeData(tenantId, doc, inst, block, ctx) {
     case 'kpis': return kpiValues(tenantId, block.params.metrics, eff, ctx);
     case 'bulletin': {
       if (block.params.doc) return { doc: block.params.doc, generated: false };
-      const raw = await loadFor(BULLETIN_SOURCE, tenantId, eff, {}, ctx);
-      const f = legacyFilters(eff, ctx);
-      const k = computeKpis(raw, f.unsupported ? {} : f);
-      return { doc: bulletinDoc(k, raw, periodLabel(eff.period, ctx.lang), ctx.lang), generated: true };
+      // Mêmes chiffres que les blocs « chiffres clés » (catalogue), mêmes sources.
+      const { values } = await kpiValues(tenantId, BULLETIN_METRICS, eff, ctx);
+      const monDef = datasetDef('mon.forms_index');
+      const covDef = datasetDef('cov.by_activity');
+      const mon = unsupportedNote(monDef, eff, ctx.lang) ? null : await loadFor(monDef, tenantId, eff, {}, ctx);
+      const cov = unsupportedNote(covDef, eff, ctx.lang) ? null : await loadFor(covDef, tenantId, eff, {}, ctx);
+      return { doc: bulletinDoc(values, bulletinFindings(mon, cov), periodLabel(eff.period, ctx.lang), ctx.lang), generated: true };
     }
     case 'text': case 'callout': {
       const metrics = richVariables(block.params.doc).filter((v) => KPIS[v]);
@@ -244,7 +261,9 @@ async function computeGuarded(tenantId, doc, inst, ctx) {
 }
 
 /** Contexte de rendu : langue, jour, bureaux, calculs partagés. */
-const renderCtx = (offices, opts) => ({ lang: langOf(opts), today: today(), officeNames: offices.nameById, memo: new Map(), log: opts && opts.log });
+const renderCtx = (offices, opts) => ({
+  lang: langOf(opts), today: today(), officeNames: offices.nameById, officeParents: offices.parentById || new Map(), memo: new Map(), log: opts && opts.log,
+});
 
 /**
  * Rendu complet (compatibilité, exports, soumission) : plan + données de toutes les instances.
@@ -429,5 +448,5 @@ async function exportXlsx(tenantId, input, opts) {
 
 module.exports = {
   renderReport, renderPlanFor, renderBlocks, MAX_IIDS, normalizeDoc, expandRepeats, computeInstance, renderCtx, planOf, officeIndex,
-  getDocument, documentData, finalize, listTemplates, catalog, exportXlsx, catalogIssues,
+  getDocument, documentData, finalize, listTemplates, catalog, exportXlsx, catalogIssues, unsupportedNote,
 };

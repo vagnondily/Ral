@@ -524,10 +524,14 @@ function DocProps({ doc, onChange }) {
   );
 }
 
-/** Filtres d'un bloc : vide = hérite du rapport ; « all » = ignorer le filtre du rapport. */
-function BlockFilters({ filters, onChange, forms, offices, supported = ['office', 'form'] }) {
+/**
+ * Filtres d'un bloc : vide = hérite du rapport ; « all » = ignorer le filtre du rapport.
+ * `officeKinds` : clés de bureau que le jeu sait filtrer (bureau MEMS, « sans bureau »).
+ */
+function BlockFilters({ filters, onChange, forms, offices, supported = ['office', 'form'], officeKinds = ['id', 'unlinked'] }) {
   const { tr } = useI18n();
   const set = (k, v) => onChange({ ...filters, [k]: v || undefined });
+  const foreign = filters.office && filters.office !== 'all' && !officeKinds.includes(filters.office === 'unlinked' ? 'unlinked' : filters.office.split(':')[0]);
   return (
     <>
       {supported.includes('form') && (
@@ -542,11 +546,62 @@ function BlockFilters({ filters, onChange, forms, offices, supported = ['office'
         <Field label={tr('Bureau')}>
           <select className="select" value={filters.office || ''} onChange={(e) => set('office', e.target.value)}>
             <option value="">{tr('Hérite du rapport')}</option><option value="all">{tr('Tous (ignorer le filtre du rapport)')}</option>
-            {offices.map((o) => <option key={o.id} value={`id:${o.id}`}>{o.name}</option>)}
+            {officeKinds.includes('id') && <optgroup label={tr('Bureaux MEMS')}>{offices.map((o) => <option key={o.id} value={`id:${o.id}`}>{o.parentId ? `· ${o.name}` : o.name}</option>)}</optgroup>}
+            {officeKinds.includes('unlinked') && <option value="unlinked">{tr('Sans bureau MEMS')}</option>}
+            {foreign && <option value={filters.office}>{tr('Bureau (libellé ou code d\'une fiche)')}</option>}
           </select>
+          {foreign && <p className="hint">{tr('Ce jeu ne se filtre que par bureau MEMS.')}</p>}
         </Field>
       )}
     </>
+  );
+}
+
+/** Arguments d'un jeu de données (indicateur, seuil, regroupement…), déclarés par le catalogue. */
+const ARG_CHOICES = { activity: 'Programme (activité)', provider: 'Prestataire', office: 'Bureau', district: 'District' };
+function ArgsEditor({ def, args, filters, forms, onChange }) {
+  const { tr } = useI18n();
+  const [inds, setInds] = useState(null);
+  const needsInd = Object.values(def.args || {}).some((a) => a.choices === 'indicators');
+  const formId = filters && filters.formId && filters.formId !== 'all' ? filters.formId : (forms.length === 1 ? forms[0].id : null);
+  useEffect(() => {
+    if (!needsInd || !formId) { setInds(null); return undefined; }
+    let alive = true;
+    api.monIndicators(formId).then((r) => { if (alive) setInds(r || []); }).catch(() => { if (alive) setInds([]); });
+    return () => { alive = false; };
+  }, [needsInd, formId]);
+  const entries = Object.entries(def.args || {});
+  if (!entries.length) return null;
+  const set = (k, v) => onChange({ ...(args || {}), [k]: v === '' || v == null ? undefined : v });
+  return (
+    <fieldset className="rd-checks"><legend>{tr('Paramètres des données')}</legend>
+      {entries.map(([k, a]) => {
+        const v = (args || {})[k];
+        if (a.choices === 'indicators') {
+          return (
+            <Field key={k} label={tr(a.label)} hint={formId ? null : tr('Choisissez d\'abord une activité (fiche) dans les filtres du bloc.')}>
+              <select className="select" value={v || ''} disabled={!formId} onChange={(e) => set(k, e.target.value)}>
+                <option value="">{tr('Choisir…')}</option>
+                {(inds || []).filter((i) => i.active !== false).map((i) => <option key={i.id} value={i.id}>{i.code ? `${i.code} — ${i.label}` : i.label}</option>)}
+              </select>
+            </Field>
+          );
+        }
+        if (a.type === 'enum') {
+          return (
+            <Field key={k} label={tr(a.label)}>
+              <select className="select" value={v || a.default || ''} onChange={(e) => set(k, e.target.value)}>
+                {a.choices.map((c) => <option key={c} value={c}>{tr(ARG_CHOICES[c] || c)}</option>)}
+              </select>
+            </Field>
+          );
+        }
+        if (a.type === 'number') {
+          return <Field key={k} label={tr(a.label)}><input className="input" type="number" value={v ?? ''} placeholder={a.default != null ? String(a.default) : ''} onChange={(e) => set(k, e.target.value === '' ? undefined : Number(e.target.value))} /></Field>;
+        }
+        return <Field key={k} label={tr(a.label)}><input className="input" value={v || ''} maxLength={200} onChange={(e) => set(k, e.target.value)} /></Field>;
+      })}
+    </fieldset>
   );
 }
 
@@ -593,6 +648,8 @@ function BlockProps({ block, parent, catalog, forms, offices, data, onChange, on
             ))}
           </select>
         </Field>
+        {def && def.origin && <p className="hint">{tr('Même calcul que : {page}', { page: tr(def.origin.page) })}</p>}
+        {def && def.available === false && <p className="hint">{tr(def.reason)}</p>}
         {def && <Field label={tr('Présentation')}><select className="select" value={p.view || def.defaultView} onChange={(e) => onChange({ view: e.target.value })}>
           {def.views.map((v) => <option key={v} value={v}>{tr(VIEW_LABELS[v] || v)}</option>)}
         </select></Field>}
@@ -609,7 +666,8 @@ function BlockProps({ block, parent, catalog, forms, offices, data, onChange, on
           </fieldset>
         )}
         <Field label={tr('Nombre de lignes max.')}><input className="input" type="number" min="1" max="500" value={p.limit || ''} onChange={(e) => onChange({ limit: e.target.value ? Math.max(1, Math.min(500, Number(e.target.value))) : undefined })} /></Field>
-        <BlockFilters filters={p.filters || {}} onChange={(f) => onChange({ filters: f })} forms={forms} offices={offices} supported={def ? def.filters : []} />
+        <BlockFilters filters={p.filters || {}} onChange={(f) => onChange({ filters: f })} forms={forms} offices={offices} supported={def ? def.filters : []} officeKinds={def ? def.officeKinds : undefined} />
+        {def && <ArgsEditor def={def} args={p.args} filters={p.filters} forms={forms} onChange={(args) => onChange({ args })} />}
       </>}
       {block.type === 'section' && <>
         <Field label={tr('Orientation')}><select className="select" value={p.orientation || 'portrait'} onChange={(e) => onChange({ orientation: e.target.value })}>

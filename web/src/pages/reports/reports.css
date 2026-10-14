@@ -349,3 +349,6 @@
     margin: 0 !important; padding: 0 !important; border: 0 !important; box-shadow: none !important; background: none !important; transform: none !important;
   }
 }
+
+/* Valeur absente expliquée (« — aucun plan »), lot 7a. */
+.rb-muted { color: var(--text-muted, #616a7a); }

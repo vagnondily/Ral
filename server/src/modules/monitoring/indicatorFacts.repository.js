@@ -2,7 +2,7 @@ const { indicatorKeys, unusedKeys, dataWithout } = require('./indicatorKeys');
 const { toPeriod } = require('../common/period');
 const { monthWithin } = require('../common/periodSql');
 const { submissionSiteKey } = require('../common/submissionSiteKey');
-const { talliesOf, mergeAll, resultsFromTallies } = require('./indicatorTallies');
+const { pageFacts, mergeAll, mergeVisits, resultsFromTallies } = require('./indicatorTallies');
 
 /**
  * Faits d'indicateurs d'une fiche, lus EN FLUX (lot 7a, C1) — lecture seule, sur le
@@ -64,21 +64,33 @@ const agentKeySql = (alias) => `COALESCE('id:' || ${alias}.agent_id::text, 'raw:
 
 /**
  * Filtre des soumissions d'un fait : hors exclues, période (bornes semi-ouvertes) et
- * filtres du rapport — `officeKey` (clé du bureau : 'id:…', 'lib:…', 'code:…', 'vide',
- * ou 'unlinked' = aucun bureau MEMS relié), `partnerId`, `agentKey`.
+ * filtres du rapport —
+ *  - `officeKey` : 'id:<bureau>' (le bureau MEMS ET ses antennes : un bureau couvre son
+ *    sous-arbre), 'lib:…' / 'code:…' (libellé ou code d'une fiche, jointure officeLabelSql
+ *    requise), 'unlinked' (aucun bureau MEMS relié) ;
+ *  - `partnerId`, `agentKey` ; `formId` et `activity` (catégorie d'activité des fiches)
+ *    pour les comptages qui portent sur plusieurs fiches.
  * Pousse ses paramètres ; renvoie « AND … ».
  */
-function factFilter(alias, { period, officeKey, partnerId, agentKey } = {}, params, office) {
+function factFilter(alias, { period, officeKey, partnerId, agentKey, formId, activity } = {}, params, office) {
   const a = `${alias}.`;
   const parts = [`NOT ${a}excluded`];
   const p = toPeriod(period);
   if (p) parts.push(monthWithin(`${a}period_month`, p, params));
   if (officeKey) {
     if (officeKey === 'unlinked') parts.push(`${a}field_office_id IS NULL`);
-    else {
+    else if (officeKey.startsWith('id:')) {
+      params.push(officeKey.slice(3));
+      parts.push(`${a}field_office_id IN (SELECT o.id FROM field_offices o WHERE o.tenant_id = ${a}tenant_id AND (o.id = $${params.length}::uuid OR o.parent_id = $${params.length}::uuid))`);
+    } else {
       if (!office) throw new Error('Filtre bureau : jointure des bureaux requise.');
       params.push(String(officeKey)); parts.push(`${office.key} = $${params.length}`);
     }
+  }
+  if (formId) { params.push(formId); parts.push(`${a}form_id = $${params.length}::uuid`); }
+  if (activity) {
+    params.push(String(activity));
+    parts.push(`${a}form_id IN (SELECT f.id FROM monitoring_forms f WHERE f.tenant_id = ${a}tenant_id AND lower(btrim(f.activity_category)) = lower(btrim($${params.length})))`);
   }
   if (partnerId) { params.push(partnerId); parts.push(`${a}partner_id = $${params.length}::uuid`); }
   if (agentKey) { params.push(String(agentKey)); parts.push(`${agentKeySql(alias)} = $${params.length}`); }
@@ -98,6 +110,7 @@ function groupSql(group, alias, office) {
 }
 
 const byBureau = (group) => group === 'bureau' || group === 'bureau_month';
+const needsOfficeJoin = (opts) => byBureau(opts.group) || (opts.officeKey && /^(lib|code):/.test(opts.officeKey));
 
 /**
  * Faits d'indicateurs d'une fiche.
@@ -114,12 +127,12 @@ const byBureau = (group) => group === 'bureau' || group === 'bureau_month';
 async function formFactsTx(client, tenantId, formId, opts = {}) {
   const inds = opts.inds || await activeIndicatorsTx(client, tenantId, formId);
   const defs = opts.defs || await calcDefsTx(client, tenantId, formId);
-  const withOffice = byBureau(opts.group) || (opts.officeKey && opts.officeKey !== 'unlinked');
+  const withOffice = needsOfficeJoin(opts);
   if (withOffice && !opts.officeSql) throw new Error('Bureau : officeSql requis.');
   // FROM … WHERE commun ; chaque requête a ses PROPRES paramètres.
   const base = (params) => {
     const office = withOffice ? opts.officeSql(params) : null;
-    const where = `s.tenant_id = $1 AND s.form_id = $2${factFilter('s', opts, params, office)}`;
+    const where = `s.tenant_id = $1 AND s.form_id = $2${factFilter('s', { ...opts, formId: null, activity: null }, params, office)}`;
     return { office, join: office ? office.join : '', where, g: groupSql(opts.group, 's', office) };
   };
 
@@ -140,6 +153,8 @@ async function formFactsTx(client, tenantId, formId, opts = {}) {
       GROUP BY 1`, cp);
   const counts = new Map(countRows.map((r) => [r.g, r]));
   const groups = new Map();
+  const visitGroups = new Map();
+  const visits = opts.visits ? { keep: opts.visits.keep || 50 } : null;
 
   // 2. Réponses utiles lues en flux, décomptées par groupe et par page.
   if (countRows.length && inds.length) {
@@ -150,15 +165,30 @@ async function formFactsTx(client, tenantId, formId, opts = {}) {
     if (drop.length) { pp.push(drop); data = dataWithout('s', `$${pp.length}`); }
     cursorSeq = (cursorSeq + 1) % 1e9;
     const cursor = `mems_facts_${cursorSeq}`;
+    // Identité de chaque visite (liste des visites urgentes) : seulement quand on la demande. Le nom
+    // du site MEMS est lu APRÈS, pour les seules visites gardées : une jointure aux sites dans le
+    // curseur coûtait 2,2 s sur 42 000 soumissions sous RLS (mesuré, lot 7a).
+    const meta = visits
+      ? `, s.id, to_char(s.period_month, 'YYYY-MM') AS month, NULLIF(btrim(s.site), '') AS site, s.site_id AS "siteId",
+         NULLIF(btrim(s.agent), '') AS agent`
+      : '';
     await client.query(
       `DECLARE ${cursor} NO SCROLL CURSOR FOR
-       SELECT ${pb.g} AS g, ${data} AS data FROM monitoring_submissions s ${pb.join} WHERE ${pb.where}`, pp);
+       SELECT ${pb.g} AS g, ${data} AS data${meta} FROM monitoring_submissions s ${pb.join} WHERE ${pb.where}`, pp);
     try {
       for (;;) {
         const { rows } = await client.query(`FETCH ${PAGE} FROM ${cursor}`);
         const byGroup = new Map();
-        for (const r of rows) { if (!byGroup.has(r.g)) byGroup.set(r.g, []); byGroup.get(r.g).push(r); }
-        for (const [g, list] of byGroup) groups.set(g, mergeAll([groups.get(g), talliesOf(inds, list, defs)], inds.length));
+        for (const r of rows) {
+          if (visits) r.meta = { id: r.id, month: r.month, site: r.site, siteId: r.siteId, agent: r.agent, group: r.g };
+          if (!byGroup.has(r.g)) byGroup.set(r.g, []);
+          byGroup.get(r.g).push(r);
+        }
+        for (const [g, list] of byGroup) {
+          const f = pageFacts(inds, list, defs, { visits: !!visits, keep: visits ? visits.keep : 0 });
+          groups.set(g, mergeAll([groups.get(g), f.tallies], inds.length));
+          if (visits) visitGroups.set(g, mergeVisits([visitGroups.get(g), f.visits], visits.keep));
+        }
         if (rows.length < PAGE) break;
       }
     } finally {
@@ -167,7 +197,24 @@ async function formFactsTx(client, tenantId, formId, opts = {}) {
     }
   }
   for (const g of counts.keys()) if (!groups.has(g)) groups.set(g, mergeAll([], inds.length));
-  return { inds, defs, overall: mergeAll([...groups.values()], inds.length), groups, counts };
+  const out = { inds, defs, overall: mergeAll([...groups.values()], inds.length), groups, counts };
+  if (visits) {
+    // Une soumission sans indicateur lu reste une visite (non évaluée).
+    for (const [g, c] of counts) if (!visitGroups.has(g)) visitGroups.set(g, { ...mergeVisits([]), n: c.total, classes: { exc: 0, sat: 0, imp: 0, urg: 0, na: c.total } });
+    out.visitGroups = visitGroups;
+    out.visits = mergeVisits([...visitGroups.values()], visits.keep);
+    await nameUrgentSitesTx(client, tenantId, [...visitGroups.values()]);
+  }
+  return out;
+}
+
+/** Nom du site MEMS des visites urgentes gardées (une lecture par index, ids distincts). */
+async function nameUrgentSitesTx(client, tenantId, visitList) {
+  const ids = [...new Set(visitList.flatMap((v) => v.urgent.map((u) => u.siteId)).filter(Boolean))];
+  if (!ids.length) return;
+  const { rows } = await client.query('SELECT id, name FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, ids]);
+  const name = new Map(rows.map((r) => [r.id, r.name]));
+  for (const v of visitList) for (const u of v.urgent) if (u.siteId && name.has(u.siteId)) u.site = name.get(u.siteId);
 }
 
 /**
@@ -189,5 +236,5 @@ const mergeGroups = (facts, keys) => mergeAll(keys.map((k) => facts.groups.get(k
 
 module.exports = {
   formFactsTx, formResultsTx, resultsOf, mergeGroups, calcDefsTx, activeIndicatorsTx, knownKeysTx,
-  factFilter, agentKeySql, PAGE,
+  factFilter, agentKeySql, needsOfficeJoin, PAGE,
 };
