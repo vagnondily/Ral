@@ -47,13 +47,13 @@ export default function PagePane({ doc, onChange }) {
             <option value="A4">A4</option><option value="16:9">16:9</option>
           </select>
         </Field>
-        <Field label={tr('Orientation')}>
+        <Field label={tr('Orientation par défaut')}>
           <select className="select" value={p.orientation || 'portrait'} onChange={(e) => onChange({ orientation: e.target.value })}>
             <option value="portrait">{tr('Portrait')}</option><option value="landscape">{tr('Paysage')}</option>
           </select>
         </Field>
       </div>
-      <p className="hint">{tr('Une section du rapport peut changer d\'orientation (bloc « Section »).')}</p>
+      <p className="hint">{tr('Toutes les pages sans réglage propre. Pour une seule page : onglet Pages, ou clic dans la marge de la page.')}</p>
       <fieldset className="rd-checks rd-margins"><legend>{tr('Marges (mm)')}</legend>
         <div className="rd-row2">
           {MARGINS.map(([k, l]) => (

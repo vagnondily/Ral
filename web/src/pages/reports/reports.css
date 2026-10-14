@@ -174,16 +174,28 @@
   color: var(--text); background: none; border: 0; border-radius: var(--radius-sm); cursor: pointer;
 }
 .rd-pages button:hover { background: var(--surface-2); }
+.rd-pages button.is-selected { background: var(--blue-50); }
+.rd-pages button.is-selected .rd-page-thumb { border-color: var(--blue-600); color: var(--blue-600); }
+.rd-pages-tag {
+  flex-shrink: 0; align-self: center; padding: 0 7px; font-size: 10.5px; font-weight: 600; line-height: 18px; white-space: nowrap;
+  color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px;
+}
+.rd-pages-tag.is-own { color: var(--blue-700); background: var(--blue-50); border-color: #cfe2f6; }
 .rd-page-thumb {
-  display: grid; place-items: center; flex-shrink: 0; width: 24px; height: 32px; color: var(--text-faint);
+  display: grid; place-items: center; flex-shrink: 0; width: 24px; height: 32px; margin: 0 4px; color: var(--text-faint);
   background: var(--surface); border: 1px solid var(--border-strong); border-radius: 2px;
 }
-.rd-page-thumb.is-landscape { width: 32px; height: 24px; }
-.rd-pages-l { display: flex; flex-direction: column; min-width: 0; }
+.rd-page-thumb.is-landscape { width: 32px; height: 24px; margin: 4px 0; }
+.rd-pages-l { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .rd-pages-l strong { font-size: 13px; font-weight: 600; color: var(--text-strong); }
 .rd-pages-l span { overflow: hidden; font-size: 11.5px; color: var(--text-muted); white-space: nowrap; text-overflow: ellipsis; }
 
 /* Propriétés. */
+.rd-field-l { margin: 4px 0 6px; font-size: 13px; font-weight: 500; color: var(--text-strong); }
+.rd-h3-muted { font-weight: 500; text-transform: none; letter-spacing: 0; }
+.rd-seg-lg button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 13px; }
+.rd-note-box { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 0; padding: 8px 10px; font-size: 12.5px; line-height: 1.45; color: var(--text); background: var(--blue-50); border: 1px solid #cfe2f6; border-radius: var(--radius-sm); }
+.rd-note-box svg { flex-shrink: 0; margin-top: 2px; color: var(--blue-600); }
 .rd-checks {
   display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto;
   margin: 0; padding: 6px 10px 10px; border: 1px solid var(--border); border-radius: var(--radius);
@@ -566,6 +578,8 @@
   position: relative; flex-shrink: 0; overflow: visible; background: #fff; border-radius: 2px;
   box-shadow: 0 1px 3px rgba(16, 24, 40, .1), 0 8px 24px rgba(16, 24, 40, .08);
 }
+/* Page sélectionnée (onglet Pages, clic dans la marge) : contour bleu, jamais imprimé. */
+.rd-sheet.is-page-selected { box-shadow: 0 0 0 2px var(--blue-600), 0 8px 24px rgba(16, 24, 40, .08); }
 .rd-sheet-h, .rd-sheet-f { position: absolute; z-index: 1; }
 .rd-sheet-body { position: absolute; z-index: 1; display: flex; flex-direction: column; gap: 12px; }
 .rd-sheet-body > .rd-block, .rd-mitem > .rd-block { margin: 0; }

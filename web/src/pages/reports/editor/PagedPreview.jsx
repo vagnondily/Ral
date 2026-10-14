@@ -20,7 +20,7 @@ const writeZoom = (z) => { try { localStorage.setItem(ZOOM_KEY, String(z)); } ca
 
 export default function PagedPreview({
   pages, geometryOf, sectionOf, renderPageItem, page, vars, pxPerMm, forceFit, printing, watermark,
-  selectedSection, onSelectSection, emptyNote, sheetsRef,
+  selectedSection, onSelectSection, emptyNote, sheetsRef, selectedPage, onSelectPage,
 }) {
   const { tr } = useI18n();
   const wrap = useRef(null);
@@ -74,8 +74,9 @@ export default function PagedPreview({
                 </button>
               )}
               <div className="rd-sheet-slot" style={{ width: `${g.w * zoom}mm`, height: `${g.h * zoom}mm` }}>
-              <div id={`rd-sheet-${pg.n}`} className={`rd-sheet rd-paper pg-${pageName(g.size, g.orientation)}`} data-page={pg.n}
-                style={{ width: `${g.w}mm`, height: `${g.h}mm`, transform: zoom !== 1 ? `scale(${zoom})` : undefined }}>
+              <div id={`rd-sheet-${pg.n}`} className={`rd-sheet rd-paper pg-${pageName(g.size, g.orientation)} ${selectedPage === pg.n ? 'is-page-selected' : ''}`} data-page={pg.n}
+                style={{ width: `${g.w}mm`, height: `${g.h}mm`, transform: zoom !== 1 ? `scale(${zoom})` : undefined }}
+                onClick={onSelectPage ? (e) => { e.stopPropagation(); onSelectPage(pg.n); } : undefined}>
                 {watermark && <div className="rd-watermark" aria-hidden="true"><span>{watermark}</span></div>}
                 {headerBand && (
                   <div className="rd-sheet-h" style={{ top: `${g.margins.top}mm`, left: `${g.margins.left}mm`, right: `${g.margins.right}mm` }}>

@@ -12,6 +12,7 @@ import { useBlockData } from '../useBlockData.js';
 import { RichTextEditor } from '../RichText.jsx';
 import {
   defaultBlock, defaultPage, cloneWithIds, findBlock, updateParams, removeBlock, duplicateBlock, moveBlock, moveBlockTo, insertBlock, iidOf, landscapeAround,
+  setPageLayout,
 } from '../reportDoc.js';
 import { localPlan, sectionsOfPlan, paginate, pageGeometry, pageName, tocEntries } from '../../../lib/reportPaginate.js';
 import { tableFit, MIN_SCALE } from '../../../lib/reportFit.js';
@@ -21,6 +22,7 @@ import CatalogPane from './CatalogPane.jsx';
 import OutlinePane from './OutlinePane.jsx';
 import PagesPane from './PagesPane.jsx';
 import PropertiesPane from './PropertiesPane.jsx';
+import PageLayoutPane from './PageLayoutPane.jsx';
 import PagedPreview from './PagedPreview.jsx';
 import MeasureLayer from './MeasureLayer.jsx';
 import { useFilterOptions } from './FiltersPane.jsx';
@@ -69,6 +71,7 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
   const doc = history.value;
   const [meta, setMeta] = useState(initial.meta);
   const [selected, setSelected] = useState(null); // id du bloc sélectionné
+  const [selPage, setSelPage] = useState(null); // n° de la page sélectionnée (onglet Pages, marge d'une feuille)
   const [dirty, setDirty] = useState(!initial.meta.id);
   const [saving, setSaving] = useState(false);
   const [forms, setForms] = useState([]);
@@ -134,6 +137,8 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
   }, [doc, dirty, meta.id, meta.version, final, draft]);
 
   const change = useCallback((fn) => { history.set(fn); setDirty(true); }, [history]);
+  // Un bloc sélectionné remplace la page sélectionnée (le volet droit montre le bloc).
+  useEffect(() => { if (selected) setSelPage(null); }, [selected]);
   // Bloc tout juste inséré : amené à l'écran (il peut être loin dans la page).
   const pendingScroll = useRef(null);
   useEffect(() => {
@@ -224,7 +229,7 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
       if (mod && key === 'd' && k.selected && k.editable) { e.preventDefault(); k.setBlocks((bs) => duplicateBlock(bs, k.selected)); return; }
       if (e.key === 'Delete' && k.selected && k.editable) { e.preventDefault(); k.remove(k.selected); return; }
       if (e.key === '/' && !mod) { e.preventDefault(); setLeftTab('catalog'); setLeftOpen(true); setTimeout(() => searchRef.current && searchRef.current.focus(), 0); return; }
-      if (e.key === 'Escape') k.setSelected(null);
+      if (e.key === 'Escape') { k.setSelected(null); setSelPage(null); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -315,13 +320,57 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
   const toc = useMemo(() => tocEntries(plan, pagination.pageOf, 2), [plan, pagination]);
   const measured = Object.keys(measures).length > 0 || plan.instances.length === 0;
 
+  // ---- Mise en page d'UNE page (retour 88) -----------------------------------------------
+  // Blocs de la page dans leur liste (racine, ou section répétée quand toute la page en vient) :
+  // reportDoc.setPageLayout les place dans une section propre, les autres pages ne changent pas.
+  const pageInfo = useMemo(() => {
+    const pg = selPage ? pagination.pages[selPage - 1] : null;
+    if (!pg) return null;
+    const g = geometry(pg.sectionId, pg.n === 1);
+    const base = { n: pg.n, total: pagination.total, size: g.size, orientation: g.orientation, sectionId: pg.sectionId };
+    const insts = pg.items.map((it) => instById[it.iid]).filter((i) => i && i.blockId);
+    if (!insts.length) return { ...base, scope: null };
+    const reps = new Set(insts.map((i) => i.repeatId || null));
+    const container = reps.size === 1 && [...reps][0] ? [...reps][0] : null;
+    const list = container ? ((findBlock(doc.blocks, container) || {}).block || { params: { blocks: [] } }).params.blocks : doc.blocks;
+    const idx = insts.map((i) => list.findIndex((b) => b.id === (container ? i.blockId : (i.repeatId || i.blockId)))).filter((x) => x >= 0);
+    if (!idx.length) return { ...base, scope: null };
+    const secIid = pg.sectionId !== '_doc' ? pg.sectionId : null;
+    const secBlock = secIid ? (findBlock(doc.blocks, secIid.split('~').pop()) || {}).block : null;
+    const first = pg.items[0];
+    const firstInst = instById[first.iid];
+    const startsMid = first.part && !first.first && firstInst ? frameLabel((findBlock(doc.blocks, firstInst.blockId) || {}).block || { type: firstInst.type, params: {} }, catalog, tr) : null;
+    const rb = container ? (findBlock(doc.blocks, container) || {}).block : null;
+    return {
+      ...base,
+      scope: { container, firstId: list[Math.min(...idx)].id, lastId: list[Math.max(...idx)].id },
+      firstIid: first.iid,
+      own: !!(secBlock && (secBlock.params.orientation || secBlock.params.size)),
+      repeatLabel: rb ? tr({ activity: 'Activité (fiche de suivi)', bureau: 'Bureau', partner: 'Partenaire' }[rb.params.over] || 'Section répétée') : null,
+      startsMid,
+    };
+  }, [selPage, pagination, geometry, instById, doc.blocks, catalog, tr]);
+  // Après un changement, la page reste sélectionnée : celle qui commence par le même bloc.
+  const pageAnchor = useRef(null);
+  useEffect(() => {
+    const a = pageAnchor.current;
+    if (!a) return;
+    const pg = pagination.pages.find((p) => p.items.some((it) => it.iid === a));
+    if (pg) { pageAnchor.current = null; setSelPage(pg.n); }
+  }, [pagination]);
+  const layoutPage = (patch) => {
+    if (!pageInfo || !pageInfo.scope) return;
+    pageAnchor.current = pageInfo.firstIid;
+    change((d) => ({ ...d, blocks: setPageLayout(d.blocks, { ...pageInfo.scope, patch }).blocks }));
+  };
+
   // ---- Exports ------------------------------------------------------------------------
   const sheetsRef = useRef(null);
   const cleanClone = () => {
     const root = sheetsRef.current.cloneNode(true);
     root.querySelectorAll('.rd-mini, .rd-add-between, .rd-sheet-chip, .rd-fitchip, .rd-repeat-chip, .rd-toobig, .rb-pagebreak span, .rt-toolbar, .rb-showdata').forEach((n) => n.remove());
     root.querySelectorAll('[contenteditable]').forEach((n) => n.removeAttribute('contenteditable'));
-    root.querySelectorAll('.is-selected').forEach((n) => n.classList.remove('is-selected'));
+    root.querySelectorAll('.is-selected, .is-page-selected').forEach((n) => n.classList.remove('is-selected', 'is-page-selected'));
     root.querySelectorAll('.rd-sheet').forEach((n) => { n.style.transform = ''; });
     root.querySelectorAll('.rd-sheet-slot').forEach((n) => { n.style.width = ''; n.style.height = ''; });
     return root;
@@ -508,12 +557,15 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
   const upgradedDraft = meta.upgradedFrom === 1 && !final;
   const pagesList = pagination.pages.map((pg) => {
     const h = pg.items.map((it) => instById[it.iid]).find((i) => i && i.type === 'heading');
-    return { n: pg.n, size: pg.size, orientation: pg.orientation, title: (h && h.text) || (sectionById[pg.sectionId] || {}).title || null };
+    const own = (pg.orientation || 'portrait') !== (page.orientation || 'portrait') || (pg.size || 'A4') !== (page.size || 'A4');
+    return { n: pg.n, size: pg.size, orientation: pg.orientation, title: (h && h.text) || (sectionById[pg.sectionId] || {}).title || null, own };
   });
   const goPage = (p) => {
     const el = document.getElementById(`rd-sheet-${p.n}`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    if (narrow) setLeftOpen(false);
+    // La page devient la sélection : le volet droit montre SA mise en page (orientation, format…).
+    setSelected(null); setSelPage(p.n);
+    if (narrow) { setLeftOpen(false); setRightOpen(true); }
   };
   const selectSection = (sectionId) => {
     if (sectionId === '_doc') { setSelected(null); setRightOpen(true); return; }
@@ -534,15 +586,28 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
           onMove={(id, dir) => setBlocks((bs) => moveBlock(bs, id, dir))} onMoveTo={(id, i) => setBlocks((bs) => moveBlockTo(bs, id, i))}
           onRemove={remove} onDuplicate={(id) => setBlocks((bs) => duplicateBlock(bs, id))} />
       )}
-      {leftTab === 'pages' && <PagesPane pages={pagesList} onGo={goPage} />}
+      {leftTab === 'pages' && <PagesPane pages={pagesList} selected={selPage} onGo={goPage} />}
     </>
   );
+  const pageMode = !sel && !!pageInfo;
   const rightPane = (
     <>
       {narrow && <div className="rd-drawer-h"><strong>{tr('Propriétés')}</strong><button type="button" className="rd-drawer-x" onClick={() => setRightOpen(false)} aria-label={tr('Fermer')}><X size={15} /></button></div>}
-      <PropertiesPane sel={sel} doc={doc} catalog={catalog} forms={forms} opts={opts} state={selIid ? states[selIid] : null}
-        onChangeBlock={(patch) => sel && updateBlock(sel.block.id, patch)} onRegenerate={() => sel && updateBlock(sel.block.id, { doc: undefined })}
-        onChangePage={(pg) => change((d) => ({ ...d, page: { ...(d.page || defaultPage()), ...pg } }))} />
+      {pageMode ? (
+        <>
+          <div className="rd-tabs" role="tablist">
+            <button type="button" role="tab" aria-selected="true" className="is-active">{tr('Cette page')}</button>
+            <button type="button" role="tab" aria-selected="false" onClick={() => setSelPage(null)}>{tr('Document')}</button>
+          </div>
+          <div className="rd-pane-body">
+            <PageLayoutPane info={pageInfo} docPage={page} onLayout={layoutPage} onReset={() => layoutPage({ orientation: undefined, size: undefined })} />
+          </div>
+        </>
+      ) : (
+        <PropertiesPane sel={sel} doc={doc} catalog={catalog} forms={forms} opts={opts} state={selIid ? states[selIid] : null}
+          onChangeBlock={(patch) => sel && updateBlock(sel.block.id, patch)} onRegenerate={() => sel && updateBlock(sel.block.id, { doc: undefined })}
+          onChangePage={(pg) => change((d) => ({ ...d, page: { ...(d.page || defaultPage()), ...pg } }))} />
+      )}
     </>
   );
   const exportBlocked = !fontsReady ? tr('Chargement des polices…') : !measured ? tr('Mise en page en cours…') : null;
@@ -579,7 +644,7 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
       <div className={`rd-body ${editable ? '' : 'is-readonly'}`}>
         {editable && (!narrow || leftOpen) && <aside className={`rd-left ${narrow ? 'is-drawer' : ''}`} aria-label={tr('Catalogue et plan')}>{leftPane}</aside>}
 
-        <main className="rd-canvas" onClick={() => setSelected(null)}
+        <main className="rd-canvas" onClick={() => { setSelected(null); setSelPage(null); }}
           onDragOver={(e) => { if (editable && isBlockDrag(e)) e.preventDefault(); }}
           onDrop={(e) => {
             if (!editable || !isBlockDrag(e)) return;
@@ -590,6 +655,7 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
           <PagedPreview pages={pagination.pages} geometryOf={(pg) => geometry(pg.sectionId, pg.n === 1)} sectionOf={(id) => sectionById[id]}
             renderPageItem={renderPageItem} page={page} vars={vars} pxPerMm={pxPerMm} forceFit={phone} watermark={watermark}
             selectedSection={selectedSection} onSelectSection={selectSection} sheetsRef={sheetsRef}
+            selectedPage={editable ? selPage : null} onSelectPage={editable ? (n) => { setSelected(null); setSelPage(n); if (narrow) setRightOpen(true); } : undefined}
             emptyNote={doc.blocks.length === 0 ? <p className="rd-empty-doc">{tr('Le rapport est vide : ajoutez des blocs depuis le catalogue (clic ou glisser sur la page).')}</p> : null} />
           <MeasureLayer sections={paginSections.map((s) => ({ id: s.id, bodyW: geometry(s.id).bodyW, items: s.items }))}
             renderItem={renderItem} splitOf={splitOf} onMeasure={onMeasure} onPxPerMm={onPxPerMm} />
