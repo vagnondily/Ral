@@ -1,5 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
-const { siteMonthFactsCtes, officeTreeSql } = require('../common/siteActivitySql');
+const { siteMonthFactsCtes, officeTreeSql, formSiteCompatibleSql } = require('../common/siteActivitySql');
 const { periodBounds } = require('../common/period');
 const { currentMonth } = require('../tpm/rbmMath');
 
@@ -65,18 +65,27 @@ async function factsByZoneTx(client, tenantId, { period, officeId, activity }) {
        SELECT v.site_id FROM site_visits v
         WHERE v.tenant_id = $1 AND v.status = 'realise' AND v.period_month < ${pHiExcl}::date
        UNION
+       -- Même règle que « réalisée » (dat) : une donnée ne vaut visite que d'une fiche compatible
+       -- avec l'activité du site (une fiche « transferts » sur un site cantine ne le visite pas).
        SELECT ms.site_id FROM monitoring_submissions ms
-        WHERE ms.tenant_id = $1 AND ms.site_id IS NOT NULL AND NOT ms.excluded AND ms.period_month < ${pHiExcl}::date),
+         JOIN monitoring_forms mf ON mf.id = ms.form_id AND mf.tenant_id = ms.tenant_id
+         JOIN sites s ON s.id = ms.site_id AND s.tenant_id = ms.tenant_id
+        WHERE ms.tenant_id = $1 AND ms.site_id IS NOT NULL AND NOT ms.excluded AND ms.period_month < ${pHiExcl}::date
+          AND ${formSiteCompatibleSql('mf.activity_category', "lower(NULLIF(btrim(s.activity), ''))")}),
      cdat AS MATERIALIZED (
        SELECT DISTINCT ms.adm3_pcode AS cp, lower(NULLIF(btrim(mf.activity_category), '')) AS cat
          FROM monitoring_submissions ms
          JOIN monitoring_forms mf ON mf.id = ms.form_id AND mf.tenant_id = ms.tenant_id
         WHERE ms.tenant_id = $1 AND NOT ms.excluded AND ms.site_id IS NULL AND ms.adm3_pcode IS NOT NULL
           AND ms.period_month >= ${pLo}::date AND ms.period_month < ${pHiExcl}::date${officeOfSub}),
+     -- Appartenances en sous-requêtes IN hachées (une construction), jamais une jointure ou un
+     -- EXISTS corrélé sur une CTE (boucle sur 10 000 sites quand la RLS fausse les estimations).
      ps AS (
-       SELECT p.*, e.site_id IS NULL AS never,
-              EXISTS (SELECT 1 FROM cdat c WHERE c.cp = p.cpcode AND (c.cat IS NULL OR p.act IS NULL OR c.cat = p.act)) AS commune_data
-         FROM per_site p LEFT JOIN ever e ON e.site_id = p.site_id)
+       SELECT p.*, NOT (p.site_id IN (SELECT site_id FROM ever)) AS never,
+              COALESCE(p.cpcode IN (SELECT cp FROM cdat WHERE cat IS NULL)
+                OR (p.act IS NULL AND p.cpcode IN (SELECT cp FROM cdat))
+                OR (p.cpcode, p.act) IN (SELECT cp, cat FROM cdat), false) AS commune_data
+         FROM per_site p)
      SELECT ${DIM_SQL}, ${MAP_COUNT_COLUMNS},
             (SELECT bool_and(known) FROM months) AS "knownAll", (SELECT bool_or(known) FROM months) AS "knownAny"
        FROM ps

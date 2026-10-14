@@ -65,6 +65,11 @@ test('faits par zone : service unique (withData + geo), réalisée = données AU
   const perSite = facts.sql.slice(facts.sql.indexOf('per_site AS ('));
   assert.doesNotMatch(perSite.slice(0, perSite.indexOf('ever AS')), /FROM fact\b/, 'per_site ne lit pas fact');
   assert.match(perSite, /FROM reg r FULL JOIN \(SELECT site_id,/, 'jointure hachée ou fusionnée, jamais une boucle');
+  // « Jamais visités » : même règle fiche ↔ activité du site que « réalisée » (une fiche incompatible ne visite pas).
+  const ever = facts.sql.slice(facts.sql.indexOf('ever AS MATERIALIZED'), facts.sql.indexOf('cdat AS MATERIALIZED'));
+  assert.match(ever, /JOIN monitoring_forms mf ON mf\.id = ms\.form_id AND mf\.tenant_id = ms\.tenant_id JOIN sites s ON s\.id = ms\.site_id AND s\.tenant_id = ms\.tenant_id/);
+  assert.match(ever, /\(NULLIF\(btrim\(mf\.activity_category\), ''\) IS NULL OR lower\(NULLIF\(btrim\(s\.activity\), ''\)\) IS NULL OR lower\(btrim\(mf\.activity_category\)\) = lower\(NULLIF\(btrim\(s\.activity\), ''\)\)\)/);
+  assert.match(facts.sql, /NOT \(p\.site_id IN \(SELECT site_id FROM ever\)\) AS never/);
   assert.match(facts.sql, /GROUP BY GROUPING SETS \(\(did, rid\), \(rid\), \(office_id\), \(activity\), \(cpcode\), \(\)\)/);
   // Bornes semi-ouvertes de la période.
   assert.deepEqual(facts.params.slice(1, 4), ['2026-09-01', '2026-09-01', '2026-10-01']);
