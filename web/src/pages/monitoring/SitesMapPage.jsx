@@ -98,7 +98,9 @@ function GeoRegister({ data }) {
   );
   return (
     <>
-      <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))', marginTop: 16 }}>
+      {/* 4 tuiles, 2 par ligne sous 1 100 px (cd-kpis-4) : une grille fixée en ligne ignorait les
+          règles responsives et débordait à 390 px. */}
+      <div className="biz-kpis cd-kpis-4" style={{ marginTop: 16 }}>
         <Kpi icon={MapPin} tone="blue" label={tr('Sites du registre')} value={formatInt(t.sites)} foot={tr('{n} actif(s) sur la période', { n: formatInt(t.active) })} />
         <Kpi icon={Layers} tone="blue" label={tr('Districts portant des sites')} value={formatInt(districtsWithSites)} foot={tr('{n} région(s)', { n: formatInt(tree.length) })} />
         <Kpi icon={Layers} tone={data.unplaced.sites || data.regionOnly.length ? 'amber' : 'green'} label={tr('Sans district reconnu')}
