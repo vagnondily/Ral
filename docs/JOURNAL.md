@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 12:48 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 12:54 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -509,5 +509,17 @@ _Dernière mise à jour : 14/10/2026 12:48 UTC_ — la branche `main` reçoit ch
   - 73 : trop de cartes, il en faut une seule de référence ;
   - 74 : beaucoup plus de fonctions de calcul (Excel, Tableau, DAX, statistiques), sans compromettre la sécurité ;
   - 75 : design professionnel et épuré, exigence permanente.
+
+- **12:50 → 13:00** 🔄 **Intégration du concepteur (7a, partie 1) dans `main` commencée** sur la branche locale `integ/7a`. Il y a 9 fichiers en conflit, environ 380 lignes.
+  - **Résolus** : contrats, PDD (filtre et cumul en centimes), consolidation (période du lot 1b et date de situation `until` du 7a, total `totalsOf`).
+  - **Restants** : faits site × mois, moteur des indicateurs (deux optimisations différentes de la même boucle), lecture des indicateurs du concepteur. Pour ce dernier, la **protection GPS du lot 6a doit être reportée dans le nouveau chemin de lecture du 7a**.
+
+  En pause pour traiter les retours de l'utilisateur. Elle reprend ensuite, puis passe par une vérification indépendante avant `main`.
+- **12:54** ✅ **Retour 76** publié (`18cbcd3`) :
+  - le rapport trimestriel devient la carte « Couverture par activité » de la Synthèse, sur la période de la page et au format des bureaux ;
+  - cartes d'une même rangée de même hauteur, tableau intérieur qui défile ;
+  - page séparée retirée.
+
+  📥 **Retour 77** : réponses « 999 / Autre » et leur texte précisé à compter dans les données.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
