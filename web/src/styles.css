@@ -2474,6 +2474,7 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .trend-dot.is-selected { fill: var(--blue-700); }
 .trend-cross { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 3 3; }
 .trend-hit { fill: transparent; cursor: crosshair; }
+.trend-band { fill: var(--blue-50); stroke: none; } /* période choisie (lot 1b) */
 .trend-tip { position: absolute; transform: translateX(-50%); pointer-events: none; z-index: 2; white-space: nowrap;
   background: var(--text-strong); color: var(--surface); border-radius: var(--radius-sm); padding: 5px 9px; font-size: 12px; box-shadow: var(--shadow-sm); }
 .trend-tip-m { font-weight: 650; }
@@ -2660,6 +2661,14 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
   background: var(--surface-2); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
 .period-session-note { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; font-size: 12.5px; color: var(--text-muted); }
 .cfilter .period-select { min-width: 0; }
+/* Écrans passés à la plage (lot 1b) : 5 KPI (Couverture (sites), Exécution du plan…), mention sous un KPI. */
+.biz-kpis.cd-kpis-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.biz-kpi-note { display: block; margin-top: 2px; color: var(--text-muted); }
+.cd-donut-none { font-size: var(--fs-sm); color: var(--text-muted); }
+.biz-kpi-value.is-text { font-size: var(--fs-lg); line-height: 1.6; color: var(--text-muted); }
+.activation-note { display: flex; margin-top: -4px; }
+@media (max-width: 1100px) { .biz-kpis.cd-kpis-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .biz-kpis.cd-kpis-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) {
   .pop-menu.period-pop { position: fixed; left: 16px; right: 16px; top: calc(var(--header-h) + 12px); width: auto; max-width: none;
     max-height: calc(100vh - var(--header-h) - 24px); overflow-y: auto; }

@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Gauge, ShieldCheck, Database, CalendarClock, MapPin, Activity, AlertTriangle, AlertCircle, Info, ArrowRight } from 'lucide-react';
+import { Gauge, ShieldCheck, Database, ListChecks, MapPin, Activity, AlertTriangle, AlertCircle, Info, ArrowRight } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
-import MonthSelect from '../../components/MonthSelect.jsx';
+import PeriodSelect from '../../components/PeriodSelect.jsx';
 import TrendChart from '../../components/charts/TrendChart.jsx';
 import CodeLabel from '../../components/CodeLabel.jsx';
-import { PeriodBanner, useDefaultMonth } from '../../components/PeriodBanner.jsx';
+import { ActivationNote, PeriodBanner, SessionPeriodNote, usePeriod } from '../../components/PeriodBanner.jsx';
 import { formatInt, monthLabel } from '../../lib/format.js';
+import { periodLabel, single, spanMonths } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
 
 /**
@@ -17,27 +18,37 @@ import { useI18n } from '../../lib/i18n.jsx';
  * Objectif : voir d'un coup l'état du suivi, PAR BUREAU (visites et données
  * reçues), et les bureaux à surveiller.
  *
- * Période : la règle commune (GET /api/monitoring/periods) — la page s'ouvre
- * sur le dernier mois substantiel avec des données et le dit (PeriodBanner).
+ * Période = plage de mois (lot 1b, retour n° 47) : URL, puis période de travail de
+ * la session, puis la règle commune (dernier mois substantiel avec des données, dite
+ * par PeriodBanner). Sur une plage : soumissions et visites SOMMÉES, sites et agents
+ * DISTINCTS, état RBM au DERNIER mois. Deux taux terrain distincts :
+ *   - Couverture (sites) = sites actifs réalisés ÷ sites actifs (distincts sur la période) ;
+ *   - Exécution du plan (visites) = visites réalisées ÷ visites prévues ; « — aucun plan ».
  * Bureaux : toujours par leur NOM (bureau MEMS ou libellé de la fiche) ; un
  * code non relié est montré comme tel, avec le lien pour le relier.
  * Fiabilité de l'affichage : chaque source est chargée indépendamment — si
  * l'une échoue, les cartes des autres restent affichées.
  */
 export default function ProcessDashboardPage({ onNavigate }) {
-  const { tr } = useI18n();
-  const { month, auto, counts, pick } = useDefaultMonth();
+  const { tr, lang } = useI18n();
+  const { period, ready, auto, counts, latest, today, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data' });
   const [res, setRes] = useState(null);       // { ov, field, rbm } : { data } | { error }
+  const key = period ? `${period.from}|${period.to}` : '';
 
   useEffect(() => {
-    if (!month) return undefined;
+    if (!ready || !period) return undefined;
     let alive = true;
     setRes(null);
     const settle = (p) => p.then((data) => ({ data }), (e) => ({ error: e.message }));
-    Promise.all([settle(api.monOverview(month)), settle(api.fieldSummary(month)), settle(api.rbmSites(month))])
-      .then(([ov, field, rbm]) => { if (alive) setRes({ ov, field, rbm }); });
+    // RBM : un état, lu au dernier mois de la période (le serveur prend `to`).
+    Promise.all([settle(api.monOverview(period)), settle(api.fieldSummary(period)), settle(api.rbmSites(period))])
+      .then(([ov, field, rbm]) => {
+        if (!alive) return;
+        setRes({ ov, field, rbm });
+        try { if (typeof performance !== 'undefined' && performance.mark) performance.mark('period:rendered'); } catch { /* sans incidence */ }
+      });
     return () => { alive = false; };
-  }, [month]);
+  }, [ready, key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ov = res?.ov.data;
   const field = res?.field.data;
@@ -53,15 +64,19 @@ export default function ProcessDashboardPage({ onNavigate }) {
   // (relié) se rapproche de ses visites, par son nom ; un libellé ou un code non relié reste sa propre ligne.
   const offices = useMemo(() => {
     const m = new Map();
-    const get = (key, init) => { if (!m.has(key)) m.set(key, { key, active: 0, realise: 0, rate: null, submissions: 0, sites: 0, ...init }); return m.get(key); };
+    const get = (k, init) => {
+      if (!m.has(k)) m.set(k, { key: k, active: 0, realise: 0, rate: null, sitesActive: 0, sitesRealised: 0, coverage: null, submissions: 0, sites: 0, ...init });
+      return m.get(k);
+    };
     const none = { status: 'relie', name: tr('Sans bureau') }; // sites sans bureau + formulaires sans bureau déclaré
     for (const o of field?.byOffice || []) {
       const r = o.key === '—' ? get('none', { row: none }) : get(`name:${o.label}`, { row: { status: 'relie', name: o.label } });
       r.active = o.active; r.realise = o.realise; r.rate = o.active > 0 ? o.rate : null;
+      r.sitesActive = o.sites?.active || 0; r.sitesRealised = o.sites?.realised || 0; r.coverage = o.coverage ?? null;
     }
     for (const b of ov?.byBureau || []) {
-      const key = b.status === 'vide' ? 'none' : b.status === 'relie' ? `name:${b.name}` : b.key;
-      const r = get(key, { row: b.status === 'vide' ? none : b });
+      const k = b.status === 'vide' ? 'none' : b.status === 'relie' ? `name:${b.name}` : b.key;
+      const r = get(k, { row: b.status === 'vide' ? none : b });
       r.submissions += b.submissions; r.sites += b.sites;
     }
     return [...m.values()].sort((a, b) => (b.active - a.active) || (b.submissions - a.submissions));
@@ -69,23 +84,28 @@ export default function ProcessDashboardPage({ onNavigate }) {
   const watch = offices.filter((o) => o.rate != null && o.rate < 0.8).sort((a, b) => a.rate - b.rate).slice(0, 8);
 
   const cov = field?.overall;
-  const noPlan = cov && !cov.active;
+  const visits = cov?.visits || {};
   const empty = ov && ov.totals.submissions === 0;
   const go = (mod, sub) => onNavigate && onNavigate(mod, sub);
+  const pLabel = period ? periodLabel(period, lang) : '';
+  const toLabel = period ? monthLabel(period.to) : '';
+  const months = period ? spanMonths(period) : 0;
+  const pct = (v) => tr('{p} %', { p: Math.round((v || 0) * 100) });
 
   return (
     <div className="page">
       <PageHeader title={tr('Suivi de processus — Synthèse')}
         description={tr("Vue d'ensemble du suivi par bureau : visites réalisées, données reçues et conformité (fiches & indicateurs), sites à suivre (RBM). Recalculé en direct.")}>
-        {month && <MonthSelect value={month} onChange={pick} counts={counts} />}
+        {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} align="right" />}
       </PageHeader>
 
-      <PeriodBanner auto={auto} onBack={pick} />
+      <PeriodBanner auto={auto} onBack={(m) => setPeriod(single(m))} />
+      <SessionPeriodNote source={source} onReset={resetToDefault} />
       {!auto && empty && (
         <div className="period-banner"><Alert tone="info" icon={Info}>
           {ov.latestMonth
-            ? <>{tr('Aucune donnée reçue pour le mois sélectionné ({m}). Dernières données : {last}.', { m: monthLabel(month), last: monthLabel(ov.latestMonth) })}{' '}
-              <button type="button" className="inline-link" onClick={() => pick(ov.latestMonth)}>{tr('Voir {m}', { m: monthLabel(ov.latestMonth) })}</button></>
+            ? <>{tr('Aucune donnée reçue sur la période ({p}).', { p: pLabel })} {tr('Dernières données : {last}.', { last: monthLabel(ov.latestMonth) })}{' '}
+              <button type="button" className="inline-link" onClick={() => setPeriod(single(ov.latestMonth))}>{tr('Voir {m}', { m: monthLabel(ov.latestMonth) })}</button></>
             : <>{tr('Aucune donnée reçue pour l\'instant.')}{' '}
               <button type="button" className="inline-link" onClick={() => go('processus', 'donnees')}>{tr('Importer des données')}</button></>}
         </Alert></div>
@@ -94,37 +114,49 @@ export default function ProcessDashboardPage({ onNavigate }) {
       {!res ? <Skeleton height={320} /> : (
         <>
           <div className="biz-kpis">
-            {/* Sans visite planifiée, « aucun plan » — jamais un 0 % qui se lirait comme un échec. */}
-            <Kpi icon={Gauge} tone={noPlan ? '' : 'blue'} label={tr('Couverture terrain')} error={res.field.error}
-              value={noPlan ? '—' : tr('{p} %', { p: Math.round((cov?.rate || 0) * 100) })}
-              foot={noPlan ? tr('aucun plan pour {m}', { m: monthLabel(month) }) : tr('{done} / {active} visites', { done: formatInt(cov?.realise || 0), active: formatInt(cov?.active || 0) })} />
+            {/* Couverture = sites actifs réalisés ÷ sites actifs, distincts sur la période. */}
+            <Kpi icon={Gauge} tone={cov && cov.coverage != null ? 'blue' : ''} label={tr('Couverture (sites)')} error={res.field.error}
+              value={cov?.coverage == null ? '—' : pct(cov.coverage)}
+              foot={<>
+                {tr('{r} / {a} sites actifs · distincts sur la période', { r: formatInt(cov?.sites?.realised || 0), a: formatInt(cov?.sites?.active || 0) })}
+                {cov?.sites?.realisedInactive > 0 && <> · {tr('{n} hors périmètre actif', { n: formatInt(cov.sites.realisedInactive) })}</>}
+              </>} />
+            {/* Exécution du plan = visites réalisées ÷ visites prévues ; sans plan, « — aucun plan », jamais 0 %. */}
+            <Kpi icon={ListChecks} tone={cov?.execution == null ? '' : 'blue'} label={tr('Exécution du plan (visites)')} error={res.field.error}
+              value={cov?.execution == null ? tr('— aucun plan') : pct(cov.execution)} textValue={cov?.execution == null}
+              foot={<>
+                {tr('{done} / {planned} visites prévues', { done: formatInt(visits.realised || 0), planned: formatInt(visits.planned || 0) })}
+                {visits.upcoming > 0 && <> · {tr('dont {n} visite(s) à venir', { n: formatInt(visits.upcoming) })}</>}
+                {cov?.annule > 0 && <> · {tr('{n} annulée(s)', { n: formatInt(cov.annule) })}</>}
+              </>} />
             <Kpi icon={ShieldCheck} tone={rbmStats.due ? 'amber' : 'green'} label={tr('Sites à jour')} error={res.rbm.error}
-              value={formatInt(rbmStats.total - rbmStats.due)} foot={tr('{due} à suivre / {total}', { due: formatInt(rbmStats.due), total: formatInt(rbmStats.total) })} />
+              value={formatInt(rbmStats.total - rbmStats.due)}
+              foot={<>{tr('{due} à suivre / {total}', { due: formatInt(rbmStats.due), total: formatInt(rbmStats.total) })} · {tr('état au {m}', { m: toLabel })}</>} />
             <Kpi icon={Database} tone="blue" label={tr('Données reçues')} error={res.ov.error}
-              value={formatInt(ov?.totals.submissions || 0)} foot={tr('{sites} site(s) · {agents} agent(s)', { sites: formatInt(ov?.totals.sites || 0), agents: formatInt(ov?.totals.agents || 0) })} />
+              value={formatInt(ov?.totals.submissions || 0)}
+              foot={<>{tr('{n} sites (données)', { n: formatInt(ov?.totals.sites || 0) })} · {tr('{n} agent(s)', { n: formatInt(ov?.totals.agents || 0) })} · {tr('{n} mois', { n: months })}</>} />
             <Kpi icon={Activity} tone="blue" label={tr('Indice de conformité')} error={res.ov.error}
               value={ov?.conformityIndex == null ? '—' : `${ov.conformityIndex}`}
-              foot={ov?.conformityIndex != null ? tr('sur 100 (indicateurs %)') : ov?.totals.indicators ? tr('Aucune donnée notée ce mois') : tr('Aucun indicateur défini')} />
-            <Kpi icon={CalendarClock} tone="blue" label={tr('Visites planifiées')} error={res.field.error}
-              value={formatInt(cov?.planifie || 0)} foot={noPlan ? tr('aucun plan pour ce mois') : tr('{n} annulée(s)', { n: formatInt(cov?.annule || 0) })} />
+              foot={ov?.conformityIndex != null ? tr('sur 100 (indicateurs %)') : ov?.totals.indicators ? tr('Aucune donnée notée sur la période') : tr('Aucun indicateur défini')} />
             <Kpi icon={MapPin} tone="blue" label={tr('Fiches · indicateurs')} error={res.ov.error}
               value={formatInt(ov?.totals.forms || 0)} foot={tr('{n} indicateur(s)', { n: formatInt(ov?.totals.indicators || 0) })} />
           </div>
+          <ActivationNote field={field} />
 
           <div className="syn-grid">
             <OfficesCard rows={offices} error={res.field.error || res.ov.error} onOpen={() => go('processus', 'sites')} onNavigate={onNavigate} />
             <div className="syn-side">
               <div className="card biz-card">
-                <div className="card-header"><div className="card-title">{tr('Données reçues — 12 derniers mois')}</div></div>
+                <div className="card-header"><div className="card-title">{tr('Données reçues par mois')}</div></div>
                 <div className="card-body syn-body">
                   {res.ov.error ? <CardError error={res.ov.error} /> : (
-                    <TrendChart data={ov?.trend} selected={month} height={150} unit={tr('formulaire(s)')}
-                      label={tr('Formulaires reçus par mois, 12 mois finissant en {m}', { m: monthLabel(month) })}
-                      empty={tr('Aucune donnée reçue sur ces 12 mois.')} />
+                    <TrendChart data={ov?.trend} selected={period} height={150} unit={tr('formulaire(s)')}
+                      label={tr('Formulaires reçus par mois, {n} mois finissant en {m} ; période surlignée : {p}', { n: (ov?.trend || []).length, m: toLabel, p: pLabel })}
+                      empty={tr('Aucune donnée reçue sur ces mois.')} />
                   )}
                 </div>
               </div>
-              <RiskCard stats={rbmStats} error={res.rbm.error} />
+              <RiskCard stats={rbmStats} error={res.rbm.error} asOf={toLabel} />
               <WatchCard rows={watch} error={res.field.error} onNavigate={onNavigate} />
             </div>
             <FormsCard forms={ov?.perForm} error={res.ov.error} onOpen={() => go('processus', 'donnees')} />
@@ -145,14 +177,14 @@ function CardError({ error }) {
   return <p className="muted" role="alert"><AlertCircle size={14} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 6 }} />{error}</p>;
 }
 
-function Kpi({ icon: Icon, label, value, foot, tone, error }) {
+function Kpi({ icon: Icon, label, value, foot, tone, error, textValue = false }) {
   const { tr } = useI18n();
   return (
     <div className="biz-kpi">
       <div className={`biz-kpi-ic ${error ? 'amber' : tone || ''}`}><Icon size={18} aria-hidden="true" /></div>
       <div className="biz-kpi-body">
         <div className="biz-kpi-label">{label}</div>
-        <div className="biz-kpi-value tabular">{error ? '—' : value}</div>
+        <div className={`biz-kpi-value tabular${textValue && !error ? ' is-text' : ''}`}>{error ? '—' : value}</div>
         {error ? <div className="biz-kpi-foot text-warn" title={error}>{tr('Indisponible')}</div> : foot && <div className="biz-kpi-foot">{foot}</div>}
       </div>
     </div>
@@ -161,24 +193,27 @@ function Kpi({ icon: Icon, label, value, foot, tone, error }) {
 
 const barColor = (pct) => (pct >= 80 ? 'var(--green)' : (pct >= 50 ? 'var(--blue-600)' : 'var(--orange)'));
 
-/** Par bureau : couverture des visites (réalisées / planifiées) et formulaires reçus — table dense. */
+/**
+ * Par bureau : exécution du plan (visites réalisées / prévues), couverture des sites
+ * (sites actifs réalisés / sites actifs) et formulaires reçus — table dense.
+ */
 function OfficesCard({ rows, error, onOpen, onNavigate }) {
   const { tr } = useI18n();
   const tot = rows.reduce((a, r) => ({ active: a.active + r.active, realise: a.realise + r.realise, submissions: a.submissions + r.submissions }), { active: 0, realise: 0, submissions: 0 });
   return (
     <div className="card biz-card syn-main">
       <div className="card-header"><div className="card-title">{tr('Couverture par bureau')}</div>
-        <div className="card-sub">{tr('Visites réalisées / planifiées · formulaires reçus')}</div></div>
+        <div className="card-sub">{tr('Visites réalisées / prévues · sites actifs réalisés · formulaires reçus')}</div></div>
       {error ? <div className="card-body"><CardError error={error} /></div> : rows.length === 0 ? (
-        <div className="card-body"><p className="muted">{tr('Aucune visite planifiée ni donnée reçue ce mois.')}{' '}
+        <div className="card-body"><p className="muted">{tr('Aucune visite planifiée ni donnée reçue sur la période.')}{' '}
           <button type="button" className="inline-link" onClick={onOpen}>{tr('Planifier les visites')}</button></p></div>
       ) : (
         <div className="table-wrap syn-scroll">
           <table className="table syn-table">
             <thead><tr>
               <th scope="col">{tr('Bureau')}</th>
-              <th scope="col" className="num">{tr('Visites')}</th>
-              <th scope="col">{tr('Couverture')}</th>
+              <th scope="col">{tr('Exécution du plan (visites)')}</th>
+              <th scope="col" className="num">{tr('Couverture (sites)')}</th>
               <th scope="col" className="num">{tr('Formulaires reçus')}</th>
               <th scope="col" className="num">{tr('Sites (données)')}</th>
             </tr></thead>
@@ -188,12 +223,14 @@ function OfficesCard({ rows, error, onOpen, onNavigate }) {
                 return (
                   <tr key={r.key}>
                     <td><CodeLabel row={r.row} onNavigate={onNavigate} showForm /></td>
-                    <td className="num tabular">{r.active ? `${formatInt(r.realise)} / ${formatInt(r.active)}` : '—'}</td>
-                    <td className="syn-cov">
-                      {pct == null ? <span className="muted">{tr('aucun plan')}</span> : (
+                    <td className="syn-cov" title={r.active ? tr('{done} / {planned} visites prévues', { done: formatInt(r.realise), planned: formatInt(r.active) }) : undefined}>
+                      {pct == null ? <span className="muted">{tr('— aucun plan')}</span> : (
                         <span className="syn-bar-cell"><span className="biz-bar"><span style={{ width: `${Math.min(100, pct)}%`, background: barColor(pct) }} /></span>
-                          <span className="tabular">{tr('{p} %', { p: pct })}</span></span>
+                          <span className="tabular">{tr('{p} %', { p: pct })} <span className="muted">· {formatInt(r.realise)}/{formatInt(r.active)}</span></span></span>
                       )}
+                    </td>
+                    <td className="num tabular" title={tr('{r} / {a} sites actifs · distincts sur la période', { r: formatInt(r.sitesRealised), a: formatInt(r.sitesActive) })}>
+                      {r.coverage == null ? '—' : tr('{p} %', { p: Math.round(r.coverage * 100) })}
                     </td>
                     <td className="num tabular">{formatInt(r.submissions)}</td>
                     <td className="num tabular">{r.sites ? formatInt(r.sites) : '—'}</td>
@@ -203,8 +240,10 @@ function OfficesCard({ rows, error, onOpen, onNavigate }) {
             </tbody>
             <tfoot><tr>
               <td>{tr('Total')}</td>
-              <td className="num tabular">{tot.active ? `${formatInt(tot.realise)} / ${formatInt(tot.active)}` : '—'}</td>
-              <td>{tot.active ? tr('{p} %', { p: Math.round((tot.realise / tot.active) * 100) }) : <span className="muted">{tr('aucun plan')}</span>}</td>
+              <td className="tabular">{tot.active
+                ? <>{tr('{p} %', { p: Math.round((tot.realise / tot.active) * 100) })} <span className="muted">· {formatInt(tot.realise)}/{formatInt(tot.active)}</span></>
+                : <span className="muted">{tr('— aucun plan')}</span>}</td>
+              <td />
               <td className="num tabular">{formatInt(tot.submissions)}</td>
               <td />
             </tr></tfoot>
@@ -236,7 +275,7 @@ function FormsCard({ forms, error, onOpen }) {
             </tr></thead>
             <tbody>
               {forms.map((f) => {
-                const todo = !f.indicators ? tr('aucun indicateur défini') : f.index == null ? tr('aucune donnée notée ce mois') : null;
+                const todo = !f.indicators ? tr('aucun indicateur défini') : f.index == null ? tr('aucune donnée notée sur la période') : null;
                 return (
                   <tr key={f.id}>
                     <td><strong title={f.label}>{f.label}</strong></td>
@@ -265,7 +304,7 @@ function FormsCard({ forms, error, onOpen }) {
   );
 }
 
-function RiskCard({ stats, error }) {
+function RiskCard({ stats, error, asOf }) {
   const { tr } = useI18n();
   const items = [
     { k: 'elevee', label: tr('Risque élevé'), n: stats.elevee, color: 'var(--red)' },
@@ -276,7 +315,7 @@ function RiskCard({ stats, error }) {
   return (
     <div className="card biz-card">
       <div className="card-header"><div className="card-title">{tr('Répartition des sites par risque')}</div>
-        <div className="card-sub">{tr('{n} site(s) à suivre ce mois (RBM)', { n: formatInt(stats.due) })}</div></div>
+        <div className="card-sub">{tr('{n} site(s) à suivre — état au {m} (RBM)', { n: formatInt(stats.due), m: asOf })}</div></div>
       <div className="card-body syn-body biz-gauges syn-compact">
         {error ? <CardError error={error} /> : items.map((i) => (
           <div className="biz-gauge" key={i.k}>
@@ -294,7 +333,7 @@ function WatchCard({ rows, error, onNavigate }) {
   return (
     <div className="card biz-card">
       <div className="card-header"><div className="card-title">{tr('Bureaux à surveiller')}</div>
-        <div className="card-sub">{tr('Bureaux dont la couverture des visites est < 80 %')}</div></div>
+        <div className="card-sub">{tr('Bureaux dont l\'exécution du plan (visites) est < 80 %')}</div></div>
       <div className="card-body syn-body biz-gauges syn-compact">
         {error ? <CardError error={error} /> : (!rows || rows.length === 0) ? <p className="muted">{tr('Tous les bureaux avec des visites planifiées sont à 80 % ou plus.')}</p> : rows.map((d) => {
           const pct = Math.round((d.rate || 0) * 100);

@@ -148,33 +148,19 @@ export function SessionPeriodNote({ source, onReset }) {
 }
 
 /**
- * Période par défaut des écrans d'analyse (retour n° 16) — UNE règle, celle du
- * serveur (GET /api/monitoring/periods → common/period.defaultPeriod) : le
- * dernier mois « substantiel » avec des données, jamais un mois futur.
- *
- * `month` reste null tant que la règle n'est pas connue (l'écran attend, au
- * lieu d'afficher un mois vide puis de sauter) ; si l'appel échoue, le mois
- * courant sert de repli. Un mois choisi par l'utilisateur n'est jamais remplacé.
- * `counts` = formulaires reçus par mois, pour le sélecteur de mois.
- * Remplacé par usePeriod (plage de mois) ; retiré quand ses deux écrans (Synthèse,
- * Couverture & performance) seront passés à la plage (lot 1b, C11).
+ * Sites actifs d'une période (faits site × mois, lot 1b) : sans grille d'activation importée
+ * (`field.activationKnown === false`), tout le registre compte comme actif — le dire sous les
+ * KPI, puisque la couverture des sites en dépend. Rien sinon.
  */
-export function useDefaultMonth() {
-  const [state, setState] = useState({ month: null, auto: null, periods: null });
-  useEffect(() => {
-    let alive = true;
-    const today = currentMonth();
-    api.monPeriods(today).then((p) => {
-      if (!alive) return;
-      const def = p.default || {};
-      const month = def.month || today;
-      setState((s) => (s.month ? s : { month, periods: p, auto: month !== (def.today || today) ? def : null }));
-    }, () => { if (alive) setState((s) => (s.month ? s : { month: today, auto: null, periods: null })); });
-    return () => { alive = false; };
-  }, []);
-  const pick = useCallback((m) => setState((s) => ({ ...s, month: m, auto: null })), []);
-  const counts = useMemo(() => countsOf(state.periods), [state.periods]);
-  return { month: state.month, auto: state.auto, periods: state.periods, counts, pick };
+export function ActivationNote({ field }) {
+  const { tr } = useI18n();
+  if (!field || field.activationKnown !== false) return null;
+  return (
+    <p className="period-session-note activation-note">
+      <Info size={14} aria-hidden="true" />
+      <span>{tr('grille d\'activation non importée : taux calculé sur tout le registre')}</span>
+    </p>
+  );
 }
 
 /**
