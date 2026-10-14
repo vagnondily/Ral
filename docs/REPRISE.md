@@ -1,6 +1,6 @@
 # Reprise du travail — passation entre sessions Claude
 
-_Mis à jour : 14/10/2026, 11:30 UTC, par la session principale (branche `claude/practical-meitner-2c1560`).
+_Mis à jour : 14/10/2026, 11:31 UTC, par la session principale (branche `claude/practical-meitner-2c1560`).
 Ce fichier est tenu à jour à chaque étape. Le détail heure par heure est dans [`JOURNAL.md`](JOURNAL.md)._
 
 **À qui s'adresse ce fichier ?** À toute session Claude qui reprend le projet, en particulier pendant une limite d'usage de la session principale. Il dit :
@@ -67,7 +67,7 @@ La consigne exacte de chaque agent est dans [`reprise/AGENTS_EN_COURS.md`](repri
 | C | **Retour 54** : tableau trimestriel par activité, nouvelle entrée « Rapport trimestriel » du Dashboard décisionnel, export Excel | session principale, agent `build:quarterly` | `wip/quarterly` | — | tout, puis vérification |
 | D | **Retour 56** : suppression des documents | session principale, agent `build:deletion` | `wip/deletion` | repart des 3 premiers commits de l'autre session | migration renumérotée `069` ; anglais ; avenants (⚠ l'autre session a aussi fait `4dcad08` après le lancement de l'agent : à la fusion, garder la meilleure des deux versions) ; données reliées listées dans le refus ; documents validés supprimables à l'écran par le valideur ou l'admin ; justificatif ≥ 10 caractères ; tests du dépôt et des routes ; puis vérification |
 | E | **Lot 7a partie 2** : en-tête et pied libres (062), fil de validation (063), cache (064), Word, PowerPoint | session principale, agent `build:7a-2` | `wip/7a` | partie 1 : C1 indicateurs rapides, C2 rendu progressif (fini la page blanche « Calcul… »), C3 modèle v2, C4 et C5 catalogue de toutes les données de MEMS, C6 éditeur à 3 volets, C7 pagination exacte et orientation par section | C8 à C13, puis vérification de tout le lot |
-| F | **Conception du lot 5 élargi** (retours 24, 25, 55) | session principale, workflow `design-lot5` (lecture seule) | — | — | spécification à écrire dans `docs/SPEC_LOT_5.md` |
+| F | **Conception du lot 5 élargi** (retours 24, 25, 55) | session principale | — | **v1 rendue** → [`SPEC_LOT_5.md`](SPEC_LOT_5.md) (critique et décisions provisoires incluses) | v2 : intégrer la critique (7 graves) et le retour 58, puis réalisation après la publication de 1b et 6a |
 | G | **Conception du retour 58** (onglet « Affectation des TPM » par région › district, défauts des contrats, raison obligatoire) | session principale, workflow `design-retour58-tpm-contrat` (lecture seule) | — | — | spécification à écrire dans `docs/SPEC_RETOUR_58.md` |
 | H | **Retour 57, socle** (point dans polygone, lecture des contours .shp, localisation GPS) | autre session (`76544a1`), réconcilié par la session principale | `wip/r57-core` | code de l'autre session repris ; un seul lecteur .shp | durcissement contre les fichiers piégés, mesure sur les vrais contours, vérification, puis `main` |
 
@@ -108,7 +108,7 @@ La consigne exacte de chaque agent est dans [`reprise/AGENTS_EN_COURS.md`](repri
   |---|---|
   | `061` | carte 6a (`061_map_geo.sql`) |
   | `062` à `064` | lot 7a |
-  | `065` à `068` | lot 5 |
+  | `065` à `068` | lot 5 (l'index éventuel du lot 1b prend un numéro ≥ `071`) |
   | `069` | journal des suppressions (retour 56) |
   | `070` | retour 58 (proposé) |
   | `071` et suivants | libres |

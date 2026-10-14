@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 11:28 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 11:31 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -35,7 +35,7 @@ _Dernière mise à jour : 14/10/2026 11:28 UTC_ — la branche `main` reçoit ch
 | Lot 7a | Concepteur de rapport riche (retours 18, 39, 40, 43, 45, 51–53) — [`SPEC_LOT_7A.md`](SPEC_LOT_7A.md) | 🔄 | En construction (rendu progressif fait ; catalogue, en-tête libre, orientation, validation, exports à suivre) |
 | Retour 56 | Suppression des documents : non validé → supprimable ; validé → seulement sans donnée reliée, avec justificatif ; journal des suppressions | 🔄 | Une autre session Claude l'avait commencé (3 commits, branche `claude/zealous-bardeen-p9ozcr`) : travail **repris** et en cours de correction (migration renumérotée 069, anglais, avenants, données reliées affichées, documents validés atteignables, justificatif ≥ 10 caractères, tests), puis vérification indépendante |
 | Retour 54 | Tableau trimestriel par activité (sites actifs / prévus / réalisés, couverture, exécution) | 🔄 | **En réalisation** (nouvelle entrée « Rapport trimestriel » du Dashboard décisionnel, export Excel) |
-| Lot 5 élargi | Calendrier d'activités (pop-up), plan MMR réaliste, priorités configurables, risque daté (retours 24, 25, 55) | 🔄 | Conception lancée le 14/10 |
+| Lot 5 élargi | Calendrier d'activités (pop-up), plan MMR réaliste, priorités configurables, risque daté (retours 24, 25, 55) | 🔄 | **Conception v1 rendue** → [`SPEC_LOT_5.md`](SPEC_LOT_5.md) (critique : 7 graves, 15 moyens, 6 mineurs) ; v2 avec le retour 58 dès sa conception rendue ; réalisation après la publication de 1b et 6a |
 | Retour 58 | Onglet « Affectation des TPM » par région › district, pré-rempli d'après les contrats ; raison obligatoire si on le change ; les visites reprennent le TPM de leur zone | 🔄 | Analyse et conception en cours (lecture seule) ; lot fixé ensuite |
 | Lots 2–3, 4, 8 | Référentiels et registre (avec retours 46 et 57 : code de localité ; plusieurs sites par site déclaré ou commune, rapprochement GPS par shapefile) ; réalisé issu des données ; Partenaires & TPM | ⏳ | Analyses faites ; dans l'ordre après 1b / 6a / 7a |
 | Contre-vérif. | Correctifs des imports, formules, correspondances et verrous (retours d'hier + 4 relectures) | ✅ | **Publié sur `main`** (`d8863bb`) : `ef7ed78` → `6241cb1` → `aec0c6c` → `d8863bb`. Dernier contrôle ciblé de la nouvelle garde Excel en cours |
@@ -408,5 +408,22 @@ _Dernière mise à jour : 14/10/2026 11:28 UTC_ — la branche `main` reçoit ch
 - **11:28** 📌 Demande : « publie sur main ce qui a été fait par tous, en vérifiant que rien ne bug ». L'ordre retenu est inscrit dans `REPRISE.md` § 3 :
   1. le socle du retour 57 d'abord ;
   2. puis, dès le tour de corrections rendu et vérifié, une intégration unique : 1b, carte 6a, trimestriel 54, suppression 56 (avec le travail de l'autre session), concepteur 7a. Elle passe par les migrations sur base neuve et sur copie de la base existante, les tests, le lint, le build, le balayage FR + EN et une vérification indépendante, avant `main`.
+
+- **11:31** ✅ **Conception du lot 5 élargi rendue** (55 min, lecture seule) → [`SPEC_LOT_5.md`](SPEC_LOT_5.md), 12 commits prévus, migrations 065–068. Contenu :
+  - calendrier d'activité en fenêtre : la durée réelle remplace la durée saisie ;
+  - risque et situation sécuritaire datés, avec un journal immuable et un motif imposé par la base ;
+  - règles de priorité « si / sinon / cas » versionnées. Le modèle par défaut reproduit le calcul actuel à l'identique : 0 écart sur 14 080 site × mois ;
+  - générateur de plan pur et déterministe : tournées par district et commune, journées multi-activités, capacité jamais dépassée, chaque choix et chaque report expliqués, projection de la couverture à 80 %. Mesuré à 108–264 ms pour 3 000 sites × 12 mois.
+
+  Constat chiffré : avec les capacités de l'écran MMR, l'objectif de 80 % n'est atteignable que pour le traitement de la malnutrition. Il manque 140 visites pour les repas scolaires.
+
+  La **critique** relève 7 points graves, par exemple :
+  - tournées et jours perdus à l'enregistrement ;
+  - 80 % mesurés sur l'horizon et non sur la période de l'activité ;
+  - règles cachées avant les règles configurables ;
+  - capacité inopérante sans personnes ni jours saisis ;
+  - zone interdite levée par un aller-retour Excel.
+
+  Décisions provisoires prises sur 9 questions : capacité par bureau, zone interdite qui suit la zone, risque MMR daté lui aussi, tournées par prestataire TPM (retour 58), calcul dans la requête sous un plafond mesuré. Une **v2** intègre la critique et le retour 58 avant toute réalisation.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
