@@ -1,6 +1,6 @@
 # Reprise du travail — passation entre sessions Claude
 
-_Mis à jour : 14/10/2026, 13:55 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
+_Mis à jour : 14/10/2026, 14:12 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
 Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOURNAL.md)._
 
 **À qui s'adresse ce fichier ?** À toute session Claude qui reprend le projet, en particulier pendant une limite d'usage de la session principale. Il dit :
@@ -37,6 +37,7 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 
 - **Revue du retour 56** (`31e015b`) : refus qui nomme les données reliées, justificatif ≥ 10 caractères (migration `068`), document validé réservé à l'administrateur. **Retour 79** : zones d'intervention du contrat en tableau.
 - **Retours 89 et 90** (`ac6eccf`) : suppression groupée de sites avec aperçu ; sites et activités par unité du répertoire.
+- **Retours 64 et 96** (`407d7e6`) : onglet « Sites (actifs / inactifs) » distinct (classeur d'activation, journal, migration `072`) ; espace RBM réorganisé.
 
 **Santé de `main`** (13:54) : 1 019 tests (1 018 réussis, 1 ignoré), lint propre, build OK, balayage 33 écrans × FR / EN sans erreur. Migrations `001` → `068`.
 
@@ -58,6 +59,9 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 | `wip/lot8` | oui | Agent : Partenaires & TPM — fiche 360°, formations, notation des agents, règle « prestataire actif » (retours 28.1–28.3, 30) | 🔄 depuis 13:47 |
 | `wip/r58` | oui | Agent : TPM tiré des contrats, motif si modifié, onglet d'affectation (retour 58, migration 070) | 🔄 depuis 13:53 |
 | `wip/lot5-gen` | oui | Agent : planification automatique d'après le RBM + paramètres (retour 82, lot 5 § 6–7, migrations 077–078) | 🔄 depuis 13:53 |
+| `wip/admin` | oui | Agent : état de l'application, remise à zéro annulable 24 h, annulation d'une suppression (retours 95, 60 ; migration 096) | 🔄 depuis 14:04 |
+| `wip/indicators` | oui | Agent : modèles d'indicateurs corrigés, modèle Résilience, proposition et rattachement automatiques (retours 66, 85 ; migration 098 si besoin) | 🔄 depuis 14:09 |
+| `wip/repeats` | oui | Agent : sous-tables (groupes répétés) à l'import, réponses « Autre, précisez » comptées (retours 77, 81 ; migrations 097, 099) | 🔄 depuis 14:09 |
 
 ## 3. Chantiers : en cours et à venir
 
@@ -103,7 +107,8 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `068` | justificatif ≥ 10 caractères (retour 56) | ✅ |
   | `069` | agent `wip/ui-polish` (si besoin) | 🔄 |
   | `070`–`071` | retour 58 (agent `wip/r58`) | 🔄 |
-  | `072`–`073` | lot 3 | ⏳ |
+  | `072` | journal des sites actifs / inactifs | ✅ |
+  | `073` | lot 3 | ⏳ |
   | `074`–`076` | lot 4 | ⏳ |
   | `077`–`078` | lot 5 § 6–7 (agent `wip/lot5-gen`) | 🔄 |
   | `079`–`080` | lot 5, suite (calendrier, risque daté, règles) | ⏳ |
@@ -111,7 +116,11 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `082`–`085` | multi-pays (conception) | ⏳ |
   | `086`–`089` | lot 8 (agent `wip/lot8`) | 🔄 |
   | `090`–`095` | programmes, projets, bailleurs, Output (conception) | ⏳ |
-  | `096` et suivants | libres | — |
+  | `096` | état de l'application, remise à zéro, archives 24 h (agent `wip/admin`) | 🔄 |
+  | `097` | sous-tables et « Autre » (agent `wip/repeats`) | 🔄 |
+  | `098` | indicateurs des fiches (agent `wip/indicators`, si besoin) | 🔄 |
+  | `099` | sous-tables, 2ᵉ fichier si besoin (agent `wip/repeats`) | 🔄 |
+  | `100` et suivants | libres | — |
 
 - **Publier sur `main`** seulement après :
   - `cd server && npm test && npm run lint` ;
@@ -137,6 +146,14 @@ node web/scripts/sweep-ecrans.cjs              # 33 écrans FR + EN (Playwright 
 - Les agents travaillent chacun sur une base jetable et sur leurs propres ports. Ils n'arrêtent jamais :9000 ni :5173.
 
 ## 6. À confirmer par l'utilisateur, risques connus
+
+**Multi-pays** ([`SPEC_MULTIPAYS.md`](SPEC_MULTIPAYS.md)), avec la valeur retenue par défaut :
+- Q1 — Bureaux régionaux et Siège : totaux seulement, ou aussi consultation des écrans d'un pays en lecture seule ? Défaut : les deux, jamais d'écriture sans être membre du pays, GPS des ménages jamais hors du pays.
+- Q2 — Taux de change saisis par chaque pays, ou table centrale du Siège ? Consolidation en USD ? Défaut : taux par pays, USD, le Siège voit les taux manquants.
+- Q3 — Une personne présente dans plusieurs espaces a-t-elle un seul compte ? Défaut : oui, mot de passe géré par elle ou par l'administrateur du Siège.
+- Q4 — Une seule base pour tous les pays, ou des données à garder dans le pays ? Défaut : une seule base ; un pays soumis à une obligation de résidence garde sa propre instance (hors champ).
+- Q5 — Le Siège impose-t-il des codes communs (activités, modèles d'indicateurs, lignes budgétaires) ? Défaut : comparaison sur les codes déjà communs ; le reste affiché « non comparable ».
+
 
 - **156 soumissions Nutrition** sont datées d'août 2024 à décembre 2025 d'après leur seule SvyDate : ces dates sont-elles fiables ?
 - **Connecteur DOTS / Palantir** (retour 65) : il faut l'adresse et les accès.
