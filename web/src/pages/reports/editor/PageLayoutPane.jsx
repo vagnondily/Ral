@@ -29,7 +29,7 @@ export default function PageLayoutPane({ info, docPage, onLayout, onReset, onAnn
     return (
       <div className="section-gap">
         <h3>{tr('Page {n}', { n: info.n })} · {tr('Annexe {l}', { l: info.annex.letter })}</h3>
-        <p className="hint">{info.annex.title}</p>
+        <p className="rd-state-line">{info.annex.title}</p>
         <div className="rd-field-l">{tr('Orientation de l\'annexe')}</div>
         {seg(info.annex.mode, info.annex.mode, onAnnexOrientation, [['auto', 'Automatique'], ...ORIENT])}
         <p className="hint">{tr('Automatique : paysage si le tableau est trop large pour une page portrait.')}</p>
@@ -44,8 +44,8 @@ export default function PageLayoutPane({ info, docPage, onLayout, onReset, onAnn
       <div className="rd-field-l">{tr('Format de cette page')}</div>
       {seg(info.size, info.size, (v) => onLayout({ size: v === docSize ? undefined : v }), [['A4', 'A4'], ['16:9', '16:9']])}
       <p className="rd-note-box"><Info size={13} aria-hidden="true" /> {tr('Seule cette page change : son contenu est placé dans une section propre. Les autres pages gardent leur mise en page.')}</p>
-      {info.repeatLabel && <p className="hint">{tr('Cette page fait partie de la section répétée « {name} » : la même page de chaque élément change aussi.', { name: info.repeatLabel })}</p>}
-      {info.startsMid && <p className="hint">{tr('Le bloc « {name} » commence sur la page précédente : il passe en entier dans cette mise en page.', { name: info.startsMid })}</p>}
+      {info.repeatLabel && <p className="rd-state-line">{tr('Cette page fait partie de la section répétée « {name} » : la même page de chaque élément change aussi.', { name: info.repeatLabel })}</p>}
+      {info.startsMid && <p className="rd-state-line">{tr('Le bloc « {name} » commence sur la page précédente : il passe en entier dans cette mise en page.', { name: info.startsMid })}</p>}
       {children}
       {info.own && (
         <Button size="sm" variant="secondary" icon={RotateCcw} onClick={onReset}>{tr('Revenir à la mise en page du document')}</Button>

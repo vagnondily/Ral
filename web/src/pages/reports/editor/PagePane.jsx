@@ -19,6 +19,28 @@ function setBandText(band, id, text, make) {
 }
 const MARGINS = [['top', 'Haut'], ['bottom', 'Bas'], ['left', 'Gauche'], ['right', 'Droite']];
 
+/** Annexes du document (retour 88) : envoyer en annexe les tableaux de plus de N lignes (5 à 500). */
+function AnnexesField({ value, onChange }) {
+  const { tr } = useI18n();
+  const n = value && value.autoRows != null ? value.autoRows : null;
+  const [text, setText] = useState(String(n || 25));
+  useEffect(() => { if (n != null) setText(String(n)); }, [n]);
+  const valid = (t) => { const v = Number(t); return Number.isInteger(v) && v >= 5 && v <= 500 ? v : null; };
+  return (
+    <fieldset className="rd-checks rd-annexes"><legend>{tr('Annexes')}</legend>
+      <label className="check"><input type="checkbox" checked={n != null} onChange={(e) => onChange(e.target.checked ? { autoRows: valid(text) || 25 } : undefined)} />
+        <span>{tr('Envoyer automatiquement en annexe les tableaux de plus de')}</span></label>
+      <div className="rd-inline">
+        <input className="input rd-num" type="number" min="5" max="500" step="1" value={text} disabled={n == null} aria-label={tr('Nombre de lignes')} aria-invalid={valid(text) == null || undefined}
+          onChange={(e) => { setText(e.target.value); const v = valid(e.target.value); if (v != null && n != null && v !== n) onChange({ autoRows: v }); }}
+          onBlur={() => { if (valid(text) == null) setText(String(n || 25)); }} />
+        <span>{tr('lignes')}</span>
+      </div>
+      <p className="hint">{tr('Chaque annexe commence sur une nouvelle page, à la fin du rapport (A, B, C…), et figure au sommaire. Un bloc peut aussi être placé en annexe depuis ses propriétés.')}</p>
+    </fieldset>
+  );
+}
+
 /** Marge en mm (5 à 40) : saisie libre, appliquée dès qu'elle est valable, rétablie à la sortie sinon. */
 function MarginInput({ value, onCommit }) {
   const [text, setText] = useState(String(value));
@@ -31,7 +53,7 @@ function MarginInput({ value, onCommit }) {
   );
 }
 
-export default function PagePane({ doc, onChange }) {
+export default function PagePane({ doc, onChange, onAnnexes, extra }) {
   const { tr } = useI18n();
   const p = doc.page || defaultPage();
   const m = { top: 16, right: 14, bottom: 16, left: 14, ...(p.margins || {}) };
@@ -82,6 +104,7 @@ export default function PagePane({ doc, onChange }) {
         onChange({ footer: { height: (p.footer && p.footer.height) || 12, elements: e.target.checked ? [...els, pageNumberElement()] : els } });
       }} /> {tr('Numéros de page (Page n / N)')}</label>
       <label className="check"><input type="checkbox" checked={p.draftWatermark !== false} onChange={(e) => onChange({ draftWatermark: e.target.checked })} /> {tr('Filigrane « BROUILLON » tant que le rapport n\'est pas validé')}</label>
+      {onAnnexes && <AnnexesField value={doc.annexes} onChange={onAnnexes} />}
       <p className="hint">{tr('Cliquez sur un bloc de la page pour le modifier ; écrivez directement dans les blocs de texte.')}</p>
     </div>
   );

@@ -66,6 +66,7 @@ export function BlockView({ block, ctx, editor }) {
         <Figure figure={fig} number={ctx.inst && ctx.inst.figure} title={title}
           subtitle={fig.subtitle ? subst(fig.subtitle) : null} meta={d && d.meta} note={fig.note}
           continued={!!(slice && !slice.first)} noFoot={!!(slice && !slice.last)} showData={ctx.showData} onToggleData={ctx.onToggleData}
+          bare={!!(ctx.inst && ctx.inst.annex) && !(slice && !slice.first)}
           table={chart && d && !slice ? <DataTable data={d} columns={p.columns} /> : null}>
           {part ? <DataView view={view} def={def} data={part} params={p} title={title} scale={(ctx.fit && ctx.fit.scale) || 1} /> : null}
         </Figure>
@@ -80,7 +81,7 @@ export function BlockView({ block, ctx, editor }) {
       return (
         <nav className="rb-toc" aria-label={tr('Sommaire')}>
           <p className="rb-toc-h">{tr('Sommaire')}</p>
-          <ol>{entries.map((e) => <li key={e.iid} className={`rb-toc-l${e.level}`}><span>{e.text}</span><i aria-hidden="true" /><b>{e.page == null ? '…' : e.page}</b></li>)}</ol>
+          <ol>{entries.map((e, i) => <li key={e.iid} className={`rb-toc-l${e.level} ${e.annex && !(entries[i - 1] || {}).annex ? 'rb-toc-annex-first' : ''}`}><span>{e.text}</span><i aria-hidden="true" /><b>{e.page == null ? '…' : e.page}</b></li>)}</ol>
         </nav>
       );
     }

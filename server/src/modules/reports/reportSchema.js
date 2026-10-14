@@ -148,6 +148,12 @@ const leafVariants = [
       // Constat saisi par ligne (clé stable de la ligne → texte riche) ; une note dont la ligne a
       // disparu est gardée (orpheline), jamais perdue.
       annotations: z.record(z.string().max(200), richDoc).optional(),
+      // Annexe (retour 88) : true = toujours en annexe, false = jamais (même au-delà du seuil du
+      // document), absent = règle du document (annexes.autoRows). Dans le corps, un renvoi
+      // « Voir l'annexe A » ; l'annexe, à la fin, sur sa propre page et dans son orientation
+      // (auto = paysage si le tableau est trop large pour une page portrait).
+      annex: z.boolean().optional(),
+      annexOrientation: z.enum(['auto', 'portrait', 'landscape']).optional(),
     }),
   }),
   z.object({ id, type: z.literal('image'), params: z.object({ assetId: z.string().uuid(), width: z.number().min(10).max(100).default(100), align: z.enum(['left', 'center', 'right']).default('center'), caption: z.string().max(300).optional() }) }),
@@ -213,6 +219,8 @@ const reportDocV2 = z.object({
   period: periodSchema,
   filters: reportFilters,
   page: pageSetup,
+  // Annexes (retour 88) : « Envoyer automatiquement en annexe les tableaux de plus de N lignes ».
+  annexes: z.object({ autoRows: z.number().int().min(5).max(500).nullable().optional() }).strict().optional(),
   blocks: z.array(block).max(MAX_BLOCKS),
   lang: z.enum(['fr', 'en']).optional(),
 }).superRefine((d, ctx) => {

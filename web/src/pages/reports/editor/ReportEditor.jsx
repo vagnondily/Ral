@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ChevronUp, ChevronDown, Copy, Trash2, Info, Repeat, Plus, SlidersHorizontal, PanelLeft, Monitor, X, AlertTriangle } from 'lucide-react';
+import { ChevronUp, ChevronDown, Copy, Trash2, Info, Repeat, Plus, SlidersHorizontal, PanelLeft, Monitor, X, AlertTriangle, Paperclip } from 'lucide-react';
 import { api } from '../../../api/client.js';
 import { Alert, Button } from '../../../components/ui.jsx';
 import { useToast } from '../../../components/Toast.jsx';
@@ -14,7 +14,7 @@ import {
   defaultBlock, defaultPage, cloneWithIds, findBlock, updateParams, removeBlock, duplicateBlock, moveBlock, moveBlockTo, insertBlock, iidOf, landscapeAround,
   setPageLayout,
 } from '../reportDoc.js';
-import { localPlan, sectionsOfPlan, paginate, pageGeometry, pageName, tocEntries } from '../../../lib/reportPaginate.js';
+import { localPlan, sectionsOfPlan, paginate, pageGeometry, pageName, tocEntries, annexDecision } from '../../../lib/reportPaginate.js';
 import { tableFit, MIN_SCALE } from '../../../lib/reportFit.js';
 import reportCss from '../reports.css?raw';
 import Topbar from './Topbar.jsx';
@@ -242,7 +242,30 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
   const vars = useMemo(() => ({ ...(data?.vars || {}), titre: doc.title, periode: data?.periodLabel || periodLabel(doc.period, uiLang) }), [data, doc.title, doc.period, uiLang]);
   const page = doc.page || defaultPage();
   const defaultView = useCallback((k) => ((catalog.datasets[k] || {}).defaultView || 'table'), [catalog]);
-  const plan = useMemo(() => localPlan(doc, { expansions: (data && data.expansions) || {}, vars, defaultView }), [doc, data, vars, defaultView]);
+  // Annexes (retour 88) : bloc marqué « en annexe », ou tableau de plus de N lignes (règle du
+  // document, lignes connues une fois les données arrivées) ; orientation « auto » = paysage si le
+  // tableau est trop large pour une page portrait.
+  const autoRows = doc.annexes && doc.annexes.autoRows != null ? doc.annexes.autoRows : null;
+  const portraitW = pageGeometry(page, { orientation: 'portrait' }).bodyW;
+  const rowsOf = useCallback((iid) => { const r = states[iid] && states[iid].result; return r && r.ok && r.data && Array.isArray(r.data.rows) ? r.data.rows.length : null; }, [states]);
+  const annexOpt = useMemo(() => ({
+    isAnnexed: (b, iid, view, inColumn) => annexDecision(b, { view, rows: rowsOf(iid), autoRows, inColumn }),
+    orientationOf: (inst, b) => {
+      const mode = (b.params && b.params.annexOrientation) || 'auto';
+      if (mode !== 'auto') return mode;
+      const r = states[inst.iid] && states[inst.iid].result;
+      const d = r && r.ok ? r.data : null;
+      if (d && (inst.view === 'table' || inst.view === 'heat') && d.rows && d.rows.length) {
+        // « Large » : la police devrait être réduite en portrait, le tableau occupe presque toute la
+        // largeur, ou il a 8 colonnes ou plus (cellules de texte trop étroites).
+        const f = tableFit(d, b.params.columns, portraitW);
+        const cols = (b.params.columns && b.params.columns.length) || (d.columns || []).length;
+        if (f.scale < 1 || f.tooWide || f.needed > portraitW * 0.9 || cols >= 8) return 'landscape';
+      }
+      return null; // orientation du document
+    },
+  }), [states, rowsOf, autoRows, portraitW]);
+  const plan = useMemo(() => localPlan(doc, { expansions: (data && data.expansions) || {}, vars, defaultView, annex: annexOpt }), [doc, data, vars, defaultView, annexOpt]);
   const instById = useMemo(() => Object.fromEntries(plan.instances.map((i) => [i.iid, i])), [plan]);
   const sectionById = useMemo(() => Object.fromEntries(plan.sections.map((s) => [s.id, s])), [plan]);
   // 1er élément de chaque section répétée (édition dans le 1er seulement) et 1re instance de chaque élément (étiquette).
@@ -311,13 +334,21 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
         items: s.items.map((inst) => {
           const m = measures[inst.iid];
           const scalable = inst.type === 'data' && !ROW_VIEWS.has(inst.view) && inst.view !== 'explain';
-          return { iid: inst.iid, h: m ? m.h : (DEFAULT_H[inst.type] || 40), split: m && m.split, keepWithNext: inst.type === 'heading', scalable, break: inst.type === 'pagebreak' };
+          return { iid: inst.iid, h: m ? m.h : (DEFAULT_H[inst.type] || 40), split: m && m.split, keepWithNext: inst.type === 'heading' || inst.type === 'annexhead', scalable, break: inst.type === 'pagebreak' };
         }),
       };
     });
     return paginate(secs, { gap: 12 });
   }, [paginSections, measures, pxPerMm, geometry]);
-  const toc = useMemo(() => tocEntries(plan, pagination.pageOf, 2), [plan, pagination]);
+  // Titre d'une annexe : titre de la figure (ou libellé du jeu), suivi de l'élément répété.
+  const annexTitle = useCallback((blockId, repeatLabel) => {
+    const f = findBlock(doc.blocks, blockId);
+    const p = f ? f.block.params || {} : {};
+    const def = catalog.datasets[p.dataset];
+    const t = (p.figure && p.figure.title ? p.figure.title.replace(/\{([a-z_]{2,40})\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m)) : null) || (def ? tr(def.label) : p.dataset || '');
+    return repeatLabel ? `${t} — ${repeatLabel}` : t;
+  }, [doc.blocks, catalog, vars, tr]);
+  const toc = useMemo(() => tocEntries(plan, pagination.pageOf, 2, (a) => `${tr('Annexe {l}', { l: a.letter })} — ${annexTitle(a.blockId, a.repeatLabel)}`), [plan, pagination, annexTitle, tr]);
   const measured = Object.keys(measures).length > 0 || plan.instances.length === 0;
 
   // ---- Mise en page d'UNE page (retour 88) -----------------------------------------------
@@ -328,6 +359,13 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
     if (!pg) return null;
     const g = geometry(pg.sectionId, pg.n === 1);
     const base = { n: pg.n, total: pagination.total, size: g.size, orientation: g.orientation, sectionId: pg.sectionId };
+    const psec = sectionById[pg.sectionId] || {};
+    if (psec.annex) {
+      // Page d'annexe : son orientation est un réglage du bloc annexé (auto, portrait, paysage).
+      const a = (plan.annexes || []).find((x) => x.iid === psec.annex.iid) || {};
+      const fb = a.blockId ? findBlock(doc.blocks, a.blockId) : null;
+      return { ...base, scope: null, annex: { letter: psec.annex.letter, blockId: a.blockId, title: annexTitle(a.blockId, a.repeatLabel), mode: (fb && fb.block.params.annexOrientation) || 'auto' } };
+    }
     const insts = pg.items.map((it) => instById[it.iid]).filter((i) => i && i.blockId);
     if (!insts.length) return { ...base, scope: null };
     const reps = new Set(insts.map((i) => i.repeatId || null));
@@ -349,7 +387,7 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
       repeatLabel: rb ? tr({ activity: 'Activité (fiche de suivi)', bureau: 'Bureau', partner: 'Partenaire' }[rb.params.over] || 'Section répétée') : null,
       startsMid,
     };
-  }, [selPage, pagination, geometry, instById, doc.blocks, catalog, tr]);
+  }, [selPage, pagination, geometry, instById, sectionById, plan, annexTitle, doc.blocks, catalog, tr]);
   // Après un changement, la page reste sélectionnée : celle qui commence par le même bloc.
   const pageAnchor = useRef(null);
   useEffect(() => {
@@ -432,13 +470,20 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
     if (r.error) { toast.error(tr(r.error)); return; }
     setBlocks(() => r.blocks);
   };
-  /** Mini-barre du bloc sélectionné : monter, descendre, dupliquer, supprimer, options. */
-  const miniBar = (b) => (
+  /** Bloc « données » effectivement en annexe (marqué, ou au-delà du seuil de lignes du document). */
+  const annexedIds = useMemo(() => new Set((plan.annexes || []).map((a) => a.blockId)), [plan]);
+  const toggleAnnex = (b) => updateBlock(b.id, { annex: annexedIds.has(b.id) ? false : true });
+  /** Mini-barre du bloc sélectionné : monter, descendre, dupliquer, supprimer, annexe, options. */
+  const miniBar = (b, { inColumns = false } = {}) => (
     <div className="rd-mini" onClick={(e) => e.stopPropagation()}>
       <button type="button" onClick={() => setBlocks((bs) => moveBlock(bs, b.id, -1))} aria-label={tr('Monter')} title={tr('Monter')}><ChevronUp size={14} /></button>
       <button type="button" onClick={() => setBlocks((bs) => moveBlock(bs, b.id, 1))} aria-label={tr('Descendre')} title={tr('Descendre')}><ChevronDown size={14} /></button>
       <button type="button" onClick={() => setBlocks((bs) => duplicateBlock(bs, b.id))} aria-label={tr('Dupliquer')} title={tr('Dupliquer (Ctrl+D)')}><Copy size={14} /></button>
       <button type="button" onClick={() => remove(b.id)} aria-label={tr('Supprimer')} title={tr('Supprimer (Suppr)')}><Trash2 size={14} /></button>
+      {b.type === 'data' && !inColumns && (
+        <button type="button" onClick={() => toggleAnnex(b)} aria-pressed={annexedIds.has(b.id)} className={annexedIds.has(b.id) ? 'is-on' : ''}
+          aria-label={tr(annexedIds.has(b.id) ? 'Remettre dans le corps du rapport' : 'Placer en annexe')} title={tr(annexedIds.has(b.id) ? 'Remettre dans le corps du rapport' : 'Placer en annexe')}><Paperclip size={14} /></button>
+      )}
       <button type="button" onClick={() => setRightOpen(true)} aria-label={tr('Options du bloc')} title={tr('Options du bloc')}><SlidersHorizontal size={14} /></button>
     </div>
   );
@@ -516,14 +561,45 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
           </div>
         )}
         {visible && o.tooTall && editable && <div className="rd-toobig" role="note"><AlertTriangle size={13} aria-hidden="true" /> {tr('Bloc plus haut qu\'une page')}</div>}
-        {showTools && isSel ? miniBar(b) : null}
+        {showTools && isSel ? miniBar(b, { inColumns: !!o.inColumns }) : null}
         {showTools && !repeat && !o.inColumns ? addBetween(b) : null}
       </div>
     );
   };
 
   /** Un élément de la pagination : bloc feuille ou colonnes (insécables). */
+  /** Renvoi « Voir l'annexe A — titre · page n » (corps) et titre de la page d'annexe. */
+  const renderAnnexItem = (inst, o) => {
+    const visible = !o.measure;
+    const isSel = selected === inst.blockId;
+    const letter = inst.annex ? inst.annex.letter : '?';
+    const title = annexTitle(inst.blockId, inst.repeatLabel);
+    const first = !inst.repeatId || firstKeyOf[inst.repeatId] === inst.repeatKey;
+    const isRef = inst.type === 'annexref';
+    const pg = pagination.pageOf[`annexhead~${inst.target}`];
+    const found = findBlock(doc.blocks, inst.blockId);
+    return (
+      <div key={inst.iid} data-block={inst.blockId} data-iid={visible ? inst.iid : undefined} className={`rd-block rd-block-${inst.type} ${visible && isSel ? 'is-selected' : ''}`}
+        onClick={visible ? (e) => { e.stopPropagation(); if (first) setSelected(inst.blockId); } : undefined}>
+        {isRef ? (
+          <p className="rb-annex-ref">
+            <Paperclip size={13} aria-hidden="true" className="rb-annex-ico" />
+            <span className="rb-annex-txt"><b>{tr('Voir l\'annexe {l}', { l: letter })}</b> — {title}</span>
+            {pg != null && <span className="rb-annex-pg">{tr('page {n}', { n: pg })}</span>}
+          </p>
+        ) : (
+          <div className="rb-annex-head">
+            <span className="rb-annex-l">{tr('Annexe {l}', { l: letter })}</span>
+            <h2 className="rb-annex-t">{title}</h2>
+          </div>
+        )}
+        {visible && editable && first && isSel && isRef && found ? miniBar(found.block) : null}
+      </div>
+    );
+  };
+
   const renderItem = (inst, o = {}) => {
+    if (inst.type === 'annexref' || inst.type === 'annexhead') return renderAnnexItem(inst, o);
     const found = findBlock(doc.blocks, inst.blockId);
     if (!found) return null;
     const b = found.block;
@@ -557,8 +633,13 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
   const upgradedDraft = meta.upgradedFrom === 1 && !final;
   const pagesList = pagination.pages.map((pg) => {
     const h = pg.items.map((it) => instById[it.iid]).find((i) => i && i.type === 'heading');
+    const sec = sectionById[pg.sectionId] || {};
+    if (sec.annex) {
+      const a = (plan.annexes || []).find((x) => x.iid === sec.annex.iid) || {};
+      return { n: pg.n, size: pg.size, orientation: pg.orientation, title: annexTitle(a.blockId, a.repeatLabel), annex: sec.annex.letter };
+    }
     const own = (pg.orientation || 'portrait') !== (page.orientation || 'portrait') || (pg.size || 'A4') !== (page.size || 'A4');
-    return { n: pg.n, size: pg.size, orientation: pg.orientation, title: (h && h.text) || (sectionById[pg.sectionId] || {}).title || null, own };
+    return { n: pg.n, size: pg.size, orientation: pg.orientation, title: (h && h.text) || sec.title || null, own };
   });
   const goPage = (p) => {
     const el = document.getElementById(`rd-sheet-${p.n}`);
@@ -600,13 +681,16 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
             <button type="button" role="tab" aria-selected="false" onClick={() => setSelPage(null)}>{tr('Document')}</button>
           </div>
           <div className="rd-pane-body">
-            <PageLayoutPane info={pageInfo} docPage={page} onLayout={layoutPage} onReset={() => layoutPage({ orientation: undefined, size: undefined })} />
+            <PageLayoutPane info={pageInfo} docPage={page} onLayout={layoutPage} onReset={() => layoutPage({ orientation: undefined, size: undefined })}
+              onAnnexOrientation={(v) => pageInfo.annex && pageInfo.annex.blockId && updateBlock(pageInfo.annex.blockId, { annexOrientation: v === 'auto' ? undefined : v })} />
           </div>
         </>
       ) : (
         <PropertiesPane sel={sel} doc={doc} catalog={catalog} forms={forms} opts={opts} state={selIid ? states[selIid] : null}
+          annex={sel && sel.block.type === 'data' ? { effective: annexedIds.has(sel.block.id), inColumn: !!(sel.parent && sel.parent.type === 'columns'), autoRows } : null}
           onChangeBlock={(patch) => sel && updateBlock(sel.block.id, patch)} onRegenerate={() => sel && updateBlock(sel.block.id, { doc: undefined })}
-          onChangePage={(pg) => change((d) => ({ ...d, page: { ...(d.page || defaultPage()), ...pg } }))} />
+          onChangePage={(pg) => change((d) => ({ ...d, page: { ...(d.page || defaultPage()), ...pg } }))}
+          onChangeAnnexes={(annexes) => change((d) => { const n = { ...d }; if (annexes) n.annexes = annexes; else delete n.annexes; return n; })} />
       )}
     </>
   );

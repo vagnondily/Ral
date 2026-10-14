@@ -8,7 +8,8 @@ const { periodLabel } = require('../common/period');
  *    partenaires) ; identifiants d'instance STABLES : `blocId` à la racine,
  *    `répétition~élément~blocId` dans une section répétée ;
  *  - figures et tableaux numérotés dans l'ordre du document (« Figure 1 », « Tableau 1 »),
- *    sections répétées et colonnes comprises ;
+ *    sections répétées et colonnes comprises ; un bloc placé en annexe n'est pas numéroté dans
+ *    le corps : il devient « Annexe A, B, C… » (retour 88) ;
  *  - filtres EFFECTIFS de chaque instance (bloc, élément répété, rapport ; « all » = aucun) ;
  *  - sections (géométrie de page) et variables simples remplies.
  */
@@ -57,6 +58,13 @@ function substitute(text, vars) {
   return String(text == null ? '' : text).replace(/\{([a-z_]{2,40})\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m));
 }
 
+/** Lettre d'une annexe : 0 → A, 25 → Z, 26 → AA (même règle que web/src/lib/reportPaginate.js). */
+function annexLetter(i) {
+  let s = ''; let n = i;
+  do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
+  return s;
+}
+
 /** Le bloc a-t-il besoin de données calculées ? */
 function needsData(b, kpiKeys) {
   if (b.type === 'data' || b.type === 'kpis' || b.type === 'bulletin') return true;
@@ -90,6 +98,7 @@ function buildPlan(doc, opts = {}) {
   const sections = [{ id: '_doc', index: 0, size: page.size || 'A4', orientation: page.orientation || 'portrait', header: 'inherit', footer: 'inherit', title: null }];
   const instances = [];
   const counters = { table: 0, figure: 0 };
+  const annexed = []; // instances placées en annexe (retour 88), dans l'ordre du document
   let section = sections[0];
 
   const startSection = (b, iid, repeat, item) => {
@@ -130,8 +139,13 @@ function buildPlan(doc, opts = {}) {
       const view = b.params.view || defaultView(b.params.dataset);
       inst.dataset = b.params.dataset;
       inst.view = view;
-      const kind = figureKind({ ...b, params: { ...b.params, view } });
-      if (kind) { counters[kind] += 1; inst.figure = { kind, n: counters[kind] }; }
+      // En annexe (demandé sur le bloc ; le seuil de lignes du document est appliqué par l'éditeur,
+      // qui connaît les lignes) : hors de la numérotation du corps, lettré A, B, C… à la fin.
+      if (b.params.annex === true && !column) annexed.push(inst);
+      else {
+        const kind = figureKind({ ...b, params: { ...b.params, view } });
+        if (kind) { counters[kind] += 1; inst.figure = { kind, n: counters[kind] }; }
+      }
     }
     if (b.type === 'heading') {
       inst.level = b.params.level || 2;
@@ -143,6 +157,7 @@ function buildPlan(doc, opts = {}) {
     }
   };
   for (const b of doc.blocks) visit(b);
+  annexed.forEach((inst, k) => { const letter = annexLetter(k); inst.annex = { letter }; inst.figure = { kind: 'annex', letter }; });
 
   // En-tête et pied de chaque section : textes remplis (variables simples + {section}).
   const bandTexts = (bandDef, sec) => Object.fromEntries(((bandDef && bandDef.elements) || [])
@@ -155,7 +170,7 @@ function buildPlan(doc, opts = {}) {
       sec.firstFooterText = bandTexts(page.firstFooter, sec);
     }
   }
-  return { periodLabel: pLabel, vars, sections, instances, expansions };
+  return { periodLabel: pLabel, vars, sections, instances, expansions, annexes: annexed.map((i) => ({ letter: i.annex.letter, iid: i.iid })) };
 }
 
 /** Variables d'un élément répété : {activite}, {bureau} ou {partenaire} = son libellé. */
@@ -183,6 +198,6 @@ function blockOfInstance(doc, iid) {
 }
 
 module.exports = {
-  buildPlan, effectiveFilters, richVariables, substitute, itemVars, blockOfInstance, figureKind,
+  buildPlan, effectiveFilters, richVariables, substitute, itemVars, blockOfInstance, figureKind, annexLetter,
   PlanError, MAX_INSTANCES, MAX_REPEAT_ITEMS,
 };
