@@ -21,6 +21,7 @@ const monitoringRoutes = require('./modules/monitoring/monitoring.routes');
 const pddRoutes = require('./modules/pdd/pdd.routes');
 const reportDesignerRoutes = require('./modules/reports/reports.routes');
 const alertsRoutes = require('./modules/dashboards/alerts.routes');
+const quarterlyRoutes = require('./modules/dashboards/quarterly.routes');
 const deletionsRoutes = require('./modules/deletions/deletions.routes');
 const siteRegistryRoutes = require('./modules/settings/sitesAdmin.routes');
 const mapRoutes = require('./modules/map/map.routes');
@@ -102,6 +103,7 @@ function createApp() {
   app.use('/api/pdd', pddRoutes);
   app.use('/api/report-designer', reportDesignerRoutes);
   app.use('/api/alerts', alertsRoutes);
+  app.use('/api/dashboards', quarterlyRoutes);
   app.use('/api/deletions', deletionsRoutes);
   app.use('/api/site-registry', siteRegistryRoutes);
   app.use('/api/map', mapRoutes);

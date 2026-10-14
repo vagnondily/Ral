@@ -2943,3 +2943,27 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .compact-list li { margin: 2px 0; }
 .check-row { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .check-row input { width: 16px; height: 16px; }
+
+/* Rapport trimestriel par activité (retour 54) */
+.year-nav { display: inline-flex; align-items: center; gap: 4px; }
+.year-nav strong { min-width: 44px; text-align: center; font-size: 15px; }
+.quarterly-wrap { overflow-x: auto; }
+.quarterly-table { font-size: 13px; }
+.quarterly-table th, .quarterly-table td { white-space: nowrap; padding: 8px 10px; }
+.quarterly-table .q-first { position: sticky; left: 0; z-index: 3; background: var(--surface); text-align: left; min-width: 220px; max-width: 320px; white-space: normal; }
+.quarterly-table thead .q-first { background: var(--canvas); }
+.quarterly-table .q-group { text-align: center; border-left: 1px solid var(--border-strong, #ccd2dc); }
+.quarterly-table .q-group.is-year { background: var(--blue-50, #eff6fc); }
+.quarterly-table .q-start { border-left: 1px solid var(--border-strong, #ccd2dc); }
+.quarterly-table .q-upcoming { font-weight: 400; color: var(--text-muted, #616a7a); text-transform: none; }
+.quarterly-table tr.is-total th, .quarterly-table tr.is-total td { font-weight: 700; border-top: 2px solid var(--border-strong, #ccd2dc); }
+.quarterly-table .q-rate { font-weight: 600; }
+.quarterly-table .band-low { background: #fbe3e1; color: #8a1c13; }
+.quarterly-table .band-mid { background: #fdf0d2; color: #7a4b00; }
+.quarterly-table .band-fair { background: #e6f2dc; color: #2f5d12; }
+.quarterly-table .band-high { background: #cdebd9; color: #13532f; }
+.quarterly-table .band-none { color: var(--text-faint, #8b93a1); }
+:root[data-theme="dark"] .quarterly-table .band-low { background: #4a1f1c; color: #ffc9c3; }
+:root[data-theme="dark"] .quarterly-table .band-mid { background: #4a3a12; color: #ffe2a3; }
+:root[data-theme="dark"] .quarterly-table .band-fair { background: #24391a; color: #cfeab8; }
+:root[data-theme="dark"] .quarterly-table .band-high { background: #163a27; color: #b4e6c8; }

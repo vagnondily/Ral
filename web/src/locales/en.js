@@ -24,11 +24,12 @@ import indicatorEditor from './en/indicatorEditor.js';
 import dashboards from './en/dashboards.js';
 import sites from './en/sites.js';
 import deletions from './en/deletions.js';
+import quarterly from './en/quarterly.js';
 import period from './en/period.js';
 import map from './en/map.js';
 
 export default {
   ...common, ...shell, ...contracts, ...tpmReports, ...tpmPlanning, ...monitoring,
   ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard, ...calc, ...importWizard, ...correspondences,
-  ...indicatorEditor, ...dashboards, ...sites, ...deletions, ...period, ...map,
+  ...indicatorEditor, ...dashboards, ...sites, ...deletions, ...quarterly, ...period, ...map,
 };

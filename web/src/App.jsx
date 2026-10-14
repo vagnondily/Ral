@@ -15,6 +15,7 @@ import ReportsPage from './pages/tpm/ReportsPage.jsx';
 import ConsolidationPage from './pages/dashboard/ConsolidationPage.jsx';
 import DashboardBIPage from './pages/dashboard/DashboardBIPage.jsx';
 import DashboardCoveragePage from './pages/dashboard/DashboardCoveragePage.jsx';
+import QuarterlyReportPage from './pages/dashboard/QuarterlyReportPage.jsx';
 import AlertsPage from './pages/dashboard/AlertsPage.jsx';
 import ReportingPage from './pages/dashboard/ReportingPage.jsx';
 import ReportDesignerPage from './pages/reports/ReportDesignerPage.jsx';
@@ -126,6 +127,7 @@ function Workspace() {
       {route.module === 'dashboard' && route.sub === 'apercu' && <DashboardBIPage onOpenContract={openContract} onNavigate={navigate} />}
       {route.module === 'dashboard' && route.sub === 'consolidation' && <ConsolidationPage onOpenContract={openContract} />}
       {route.module === 'dashboard' && route.sub === 'couverture' && <DashboardCoveragePage onNavigate={navigate} />}
+      {route.module === 'dashboard' && route.sub === 'trimestriel' && <QuarterlyReportPage />}
       {route.module === 'alertes' && <AlertsPage onNavigate={navigate} onOpenContract={openContract} />}
       {route.module === 'reporting' && route.sub === 'concepteur' && <ReportDesignerPage canEdit={canEdit} isAdmin={user.role === 'admin'} />}
       {route.module === 'reporting' && route.sub !== 'concepteur' && <ReportingPage onOpenContract={openContract} />}
