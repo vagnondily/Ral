@@ -11,7 +11,7 @@ const { badRequest, conflict } = require('../../middleware/errors');
 const { unattachedText } = require('../common/codeLabel');
 const { toPeriod, periodInfo, monthsOf, addMonths, MAX_SPAN } = require('../common/period');
 const { monthWithin } = require('../common/periodSql');
-const { siteMonthFactsCtes, districtNameSql, SITE_FACT_COLUMNS, MONTH_FACT_COLUMNS } = require('../common/siteActivitySql');
+const { siteMonthFactsCtes, siteDistrictCtes, DISTRICT_LABEL_SQL, SITE_FACT_COLUMNS, MONTH_FACT_COLUMNS } = require('../common/siteActivitySql');
 
 /** Période d'un appel : `period` ({ from, to } | null) si fourni, sinon l'ancien { month }. */
 const periodArg = (opts = {}) => (opts.period !== undefined ? opts.period : toPeriod(opts));
@@ -650,7 +650,7 @@ async function summary(tenantId, opts = {}) {
                    WHEN GROUPING(activity) = 0 THEN 'activity' ELSE 'overall' END AS dim,
               COALESCE(office, dkey, activity) AS key,
               -- Nom affiché du district : officiel (découpage), sinon une graphie qui n'est pas tout en capitales.
-              COALESCE(min(official), min(dname) FILTER (WHERE dname <> upper(dname)), min(dname)) AS "districtLabel",
+              ${DISTRICT_LABEL_SQL} AS "districtLabel",
               NULL::boolean AS known, ${SITE_FACT_COLUMNS}
          FROM per_site GROUP BY GROUPING SETS ((), (office), (dkey), (activity))
        UNION ALL
@@ -681,8 +681,8 @@ async function summary(tenantId, opts = {}) {
  * Récap de couverture (sites visités 1/2/3/4+ fois face au MMR) sur une période :
  * les sites ACTIFS sur la période (faits site × mois), chacun avec ses site × mois
  * réalisés pendant un mois actif ; puis le récap pur par niveau de risque
- * (coverageRecap). Filtrable par district (même clé que le résumé : nom officiel,
- * casse ignorée). Sans période : toutes les visites (60 mois au plus), comme avant.
+ * (coverageRecap). Filtrable par district (même clé que le résumé : siteDistrictCtes,
+ * graphie du site, jamais un district d'une autre région). Sans période : toutes les visites (60 mois au plus), comme avant.
  * `operationMonths` : visites requises MMR (défaut : durée de la période si elle est
  * donnée, sinon 12).
  */
@@ -699,14 +699,11 @@ async function coverageRecapSummary(tenantId, { district, operationMonths, perio
       params
     );
     const recap = coverageRecap(rows.map((r) => ({ riskLevel: r.riskLevel, visitCount: Number(r.visitCount) })), months);
-    // Liste des districts pour le filtre : un nom par district (nom officiel, sinon la première graphie).
-    const dn = districtNameSql('s', 'ad');
+    // Liste des districts pour le filtre : un nom par district, la même clé que le résumé
+    // (siteDistrictCtes : graphie du site, nom officiel seulement quand le P-code est d'accord).
     const { rows: districts } = await client.query(
-      `SELECT COALESCE(min(NULLIF(btrim(ad.name), '')), min(${dn}) FILTER (WHERE ${dn} <> upper(${dn})), min(${dn})) AS d
-         FROM sites s LEFT JOIN admin_areas ad ON ad.tenant_id = s.tenant_id AND ad.pcode = s.adm2_pcode
-        WHERE s.tenant_id = $1
-        GROUP BY lower(${dn}) HAVING lower(${dn}) <> '—'
-        ORDER BY 1`,
+      `WITH ${siteDistrictCtes()}
+       SELECT ${DISTRICT_LABEL_SQL} AS d FROM sdist WHERE dkey <> '—' GROUP BY dkey ORDER BY 1`,
       [tenantId]
     );
     return { ...recap, operationMonths: months, districts: districts.map((x) => x.d), period: periodInfo(given) };

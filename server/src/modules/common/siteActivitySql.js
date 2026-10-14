@@ -1,13 +1,60 @@
 const { periodBounds } = require('./period');
 
+/** Clé normalisée d'un nom (minuscules, lettres et chiffres ASCII) — jumelle de siteDistrict.districtKey. */
+const keySql = (expr) => `regexp_replace(lower(COALESCE(${expr}, '')), '[^a-z0-9]+', '', 'g')`;
+
 /**
- * Nom du district d'un site : le nom OFFICIEL du découpage (zone de pcode adm2_pcode),
- * sinon adm2, sinon district, sinon « — ». Le regroupement se fait sur lower(…) : les
- * doublons de casse (« AMBOASARY SUD » / « Amboasary Sud », retour 15) n'en font qu'un.
- * `s` = alias de sites, `ad` = alias de la zone jointe par adm2_pcode.
+ * District de chaque site (règle jumelle pure : common/siteDistrict.siteDistricts, parité
+ * vérifiée par le banc) — CTE à placer dans un WITH ; rend `sdist(site_id, okey, dkey, dname, official)`
+ * (okey = clé de la graphie propre du site).
+ *  - un site se range dans SA graphie (adm2, sinon district) : jamais dans le district d'une
+ *    autre région, même quand son P-code de district (adm2_pcode) y pointe ;
+ *  - le P-code n'est cru que s'il est « d'accord » (région de la zone = région du site, graphie
+ *    ignorée) ; ces sites apprennent, par graphie et par région, le nom officiel le plus fréquent,
+ *    que prennent tous les sites de cette graphie dans cette région (variantes réunies, retour 15) ;
+ *  - dkey = nom retenu normalisé (keySql), « — » sans nom ; official = nom du découpage retenu.
+ * Chaque CTE filtre tenant_id = $1 (sites, admin_areas).
  */
-const districtNameSql = (s = 's', ad = 'ad') =>
-  `COALESCE(NULLIF(btrim(${ad}.name), ''), NULLIF(btrim(${s}.adm2), ''), NULLIF(btrim(${s}.district), ''), '—')`;
+function siteDistrictCtes() {
+  return `sd0 AS MATERIALIZED (
+       SELECT s.id AS site_id,
+              COALESCE(NULLIF(btrim(s.adm2), ''), NULLIF(btrim(s.district), '')) AS own,
+              NULLIF(btrim(ad.name), '') AS pname,
+              ${keySql('s.adm1')} AS rkey, ${keySql('r.name')} AS prkey
+         FROM sites s
+         LEFT JOIN admin_areas ad ON ad.tenant_id = s.tenant_id AND ad.pcode = s.adm2_pcode
+         LEFT JOIN admin_areas r ON r.tenant_id = s.tenant_id AND r.id = ad.lineage[1]
+        WHERE s.tenant_id = $1),
+     sd1 AS MATERIALIZED (
+       SELECT site_id, own, pname, rkey, prkey, ${keySql('own')} AS okey,
+              (pname IS NOT NULL AND prkey <> '' AND (prkey = rkey OR (rkey = '' AND ${keySql('pname')} = ${keySql('own')}))) AS agrees
+         FROM sd0),
+     sdvote AS MATERIALIZED (
+       SELECT DISTINCT ON (okey, prkey) okey, prkey AS rkey, pname AS official
+         FROM (SELECT okey, prkey, pname, count(*) AS n FROM sd1 WHERE agrees AND okey <> '' GROUP BY 1, 2, 3) v
+        ORDER BY okey, prkey, n DESC, pname COLLATE "C"),
+     sdone AS MATERIALIZED (SELECT okey, min(official) AS official FROM sdvote GROUP BY okey HAVING count(*) = 1),
+     sdist AS MATERIALIZED (
+       SELECT site_id, okey,
+              CASE WHEN ${keySql('name0')} = '' THEN '—' ELSE ${keySql('name0')} END AS dkey,
+              CASE WHEN ${keySql('name0')} = '' THEN '—' ELSE name0 END AS dname,
+              CASE WHEN ${keySql('name0')} = '' THEN NULL ELSE official END AS official
+         FROM (SELECT d.site_id, d.okey,
+                      COALESCE(m.official, m1.official, d.own, CASE WHEN d.agrees THEN d.pname END) AS name0,
+                      COALESCE(m.official, m1.official, CASE WHEN d.own IS NULL AND d.agrees THEN d.pname END) AS official
+                 FROM sd1 d
+                 LEFT JOIN sdvote m ON d.rkey <> '' AND d.okey <> '' AND m.okey = d.okey AND m.rkey = d.rkey
+                 LEFT JOIN sdone m1 ON d.rkey = '' AND d.okey <> '' AND m1.okey = d.okey) x)`;
+}
+
+/** Nom affiché d'un groupe de district (lignes de sdist ou de reg) : officiel, sinon une graphie qui n'est pas toute en capitales. */
+const DISTRICT_LABEL_SQL = 'COALESCE(min(official), min(dname) FILTER (WHERE dname <> upper(dname)), min(dname))';
+
+/**
+ * Graphie propre d'un site (adm2, sinon district, sinon « — »), sans le découpage — pour un
+ * appelant qui ne lit pas sdist ; jamais le nom d'un district d'une autre région.
+ */
+const districtNameSql = (s = 's') => `COALESCE(NULLIF(btrim(${s}.adm2), ''), NULLIF(btrim(${s}.district), ''), '—')`;
 
 /**
  * SERVICE UNIQUE des faits site × mois (lot 1b, retour n° 47) — constructeur SQL
@@ -18,8 +65,8 @@ const districtNameSql = (s = 's', ad = 'ad') =>
  * (parité vérifiée par le banc sur le jeu synthétique).
  *
  * Rend le texte « WITH … » (sans SELECT final) qui définit :
- *   reg      une ligne par site du tenant : site_id, office, dkey/dname/official (district :
- *            clé en minuscules, nom affiché, nom officiel du découpage via adm2_pcode),
+ *   reg      une ligne par site du tenant : site_id, office, dkey/dname/official (district,
+ *            siteDistrictCtes : clé normalisée, nom retenu, nom officiel quand il est sûr),
  *            ckey/cname (commune), activity, risk, forbidden ;
  *   fact     une ligne par site × mois de la période (colonnes étroites, sans les dimensions) :
  *            site_id, m (1er du mois), known (le tenant a
@@ -41,7 +88,7 @@ const districtNameSql = (s = 's', ad = 'ad') =>
  *           unattached?: string, district?: string }} opts
  *   office 'site'   : antenne ou bureau propre du site (fo.name, « — » sans bureau) ;
  *          'bureau' : bureau parent (antenne comptée avec son bureau), libellé `unattached` sans bureau.
- *   district        : ne garder que les sites de ce district (même clé que dkey, casse ignorée).
+ *   district        : ne garder que les sites de ce district (nom affiché ou graphie, comparé par la clé dkey).
  * @param {any[]} params paramètres de la requête, $1 = tenant déjà présent ; complétés ici.
  */
 function siteMonthFactsCtes({ period, todayMonth, office = 'site', unattached = '(non rattaché)', district } = {}, params) {
@@ -53,8 +100,12 @@ function siteMonthFactsCtes({ period, todayMonth, office = 'site', unattached = 
     ? `COALESCE(par.name, fo.name, ${push(unattached)}::text)`
     : "COALESCE(fo.name, '—')";
   const parJoin = office === 'bureau' ? 'LEFT JOIN field_offices par ON par.id = fo.parent_id AND par.tenant_id = s.tenant_id' : '';
-  const dName = districtNameSql('s', 'ad');
-  const districtFilter = district ? ` AND lower(${dName}) = lower(btrim(${push(district)}::text))` : '';
+  // District demandé par son nom affiché ou par une graphie du registre (lien ancien) : tout le groupe.
+  let districtFilter = '';
+  if (district) {
+    const k = keySql(`${push(district)}::text`);
+    districtFilter = ` AND sd.dkey IN (SELECT x.dkey FROM sdist x WHERE x.dkey = ${k} OR x.okey = ${k})`;
+  }
   // Années où le tenant a une grille : une sonde d'index par année (année en entier, comparée par
   // un opérateur « leakproof » : sous RLS, une expression comme extract() ne peut pas servir de
   // condition d'index et la sonde relisait toute la grille du tenant).
@@ -65,15 +116,15 @@ function siteMonthFactsCtes({ period, todayMonth, office = 'site', unattached = 
        SELECT m::date AS m, gy.known
          FROM generate_series(${pLo}::date, ${pHi}::date, interval '1 month') AS m
          JOIN grid_years gy ON gy.y = extract(year FROM m)::int),
+     ${siteDistrictCtes()},
      reg AS MATERIALIZED (
-       SELECT s.id AS site_id, ${officeExpr} AS office,
-              lower(${dName}) AS dkey, ${dName} AS dname, NULLIF(btrim(ad.name), '') AS official,
+       SELECT s.id AS site_id, ${officeExpr} AS office, sd.dkey, sd.dname, sd.official,
               lower(COALESCE(NULLIF(btrim(s.adm3_pcode), ''), NULLIF(btrim(s.adm3), ''), NULLIF(btrim(s.commune), ''), '—')) AS ckey,
               COALESCE(NULLIF(btrim(s.adm3), ''), NULLIF(btrim(s.commune), ''), '—') AS cname,
               COALESCE(NULLIF(btrim(s.activity), ''), '—') AS activity, s.risk_level AS risk,
               COALESCE(s.security_situation, 0) >= 99 AS forbidden
          FROM sites s
-         LEFT JOIN admin_areas ad ON ad.tenant_id = s.tenant_id AND ad.pcode = s.adm2_pcode
+         JOIN sdist sd ON sd.site_id = s.id
          LEFT JOIN field_offices fo ON fo.id = s.field_office_id AND fo.tenant_id = s.tenant_id
          ${parJoin}
         WHERE s.tenant_id = $1${districtFilter}),
@@ -143,4 +194,4 @@ const MONTH_FACT_COLUMNS = `count(*) FILTER (WHERE active)::int AS "sitesActive"
        count(*) FILTER (WHERE st = 'planifie' AND NOT due)::int AS upcoming,
        COALESCE(sum(rp), 0)::int AS planifie, COALESCE(sum(rr), 0)::int AS realise, COALESCE(sum(ra), 0)::int AS annule`;
 
-module.exports = { siteMonthFactsCtes, districtNameSql, SITE_FACT_COLUMNS, MONTH_FACT_COLUMNS };
+module.exports = { siteMonthFactsCtes, siteDistrictCtes, districtNameSql, keySql, DISTRICT_LABEL_SQL, SITE_FACT_COLUMNS, MONTH_FACT_COLUMNS };

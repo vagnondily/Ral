@@ -50,7 +50,8 @@ test('faits site × mois : tenant_id dans chaque CTE, grille lue en ensemble, un
   const sql = siteMonthFactsCtes({ period: H1, todayMonth: '2026-10' }, params).replace(/\s+/g, ' ');
   for (const re of [
     /FROM site_month_status g WHERE g\.tenant_id = \$1/, // années avec grille
-    /FROM sites s LEFT JOIN admin_areas ad ON ad\.tenant_id = s\.tenant_id AND ad\.pcode = s\.adm2_pcode LEFT JOIN field_offices fo ON fo\.id = s\.field_office_id AND fo\.tenant_id = s\.tenant_id WHERE s\.tenant_id = \$1/,
+    /FROM sites s LEFT JOIN admin_areas ad ON ad\.tenant_id = s\.tenant_id AND ad\.pcode = s\.adm2_pcode LEFT JOIN admin_areas r ON r\.tenant_id = s\.tenant_id AND r\.id = ad\.lineage\[1\] WHERE s\.tenant_id = \$1/,
+    /FROM sites s JOIN sdist sd ON sd\.site_id = s\.id LEFT JOIN field_offices fo ON fo\.id = s\.field_office_id AND fo\.tenant_id = s\.tenant_id WHERE s\.tenant_id = \$1/,
     /FROM site_month_status x WHERE x\.tenant_id = \$1 AND x\.active AND x\.year BETWEEN \$6 AND \$7/,
     /FROM site_visits v WHERE v\.tenant_id = \$1 AND v\.period_month >= \$2::date AND v\.period_month < \$4::date/,
   ]) assert.match(sql, re);
@@ -62,8 +63,11 @@ test('faits site × mois : tenant_id dans chaque CTE, grille lue en ensemble, un
   assert.match(sql, /NOT r\.forbidden AND \(NOT mm\.known OR st\.site_id IS NOT NULL\) AS active/);
   // Statut unique d'un site × mois : réalisée > prévue > annulée.
   assert.match(sql, /CASE WHEN bool_or\(v\.status = 'realise'\) THEN 'realise' WHEN bool_or\(v\.status = 'planifie'\) THEN 'planifie' ELSE 'annule' END AS st/);
-  // District : nom officiel du découpage, sinon adm2 / district ; regroupé en minuscules.
-  assert.match(sql, /lower\(COALESCE\(NULLIF\(btrim\(ad\.name\), ''\), NULLIF\(btrim\(s\.adm2\), ''\), NULLIF\(btrim\(s\.district\), ''\), '—'\)\) AS dkey/);
+  // District (siteDistrictCtes) : graphie du site ; le P-code n'est cru que si sa région est celle du site.
+  assert.match(sql, /COALESCE\(NULLIF\(btrim\(s\.adm2\), ''\), NULLIF\(btrim\(s\.district\), ''\)\) AS own/);
+  assert.match(sql, /\(pname IS NOT NULL AND prkey <> '' AND \(prkey = rkey OR/);
+  assert.match(sql, /SELECT s\.id AS site_id, COALESCE\(fo\.name, '—'\) AS office, sd\.dkey, sd\.dname, sd\.official,/);
+  assert.doesNotMatch(sql, /COALESCE\(NULLIF\(btrim\(ad\.name\)/, 'jamais le nom du P-code sans contrôle de région');
   assert.deepEqual(params, [T, '2026-01-01', '2026-06-01', '2026-07-01', '2026-10-01', 2026, 2026]);
 });
 
@@ -72,7 +76,8 @@ test('faits en mode « bureau » (concepteur) : bureau parent, libellé « non r
   const sql = siteMonthFactsCtes({ period: H1, todayMonth: '2026-10', office: 'bureau', unattached: '(not attached)', district: 'Ambovombe' }, params);
   assert.match(sql, /COALESCE\(par\.name, fo\.name, \$8::text\) AS office/);
   assert.match(sql, /LEFT JOIN field_offices par ON par\.id = fo\.parent_id AND par\.tenant_id = s\.tenant_id/);
-  assert.match(sql, /= lower\(btrim\(\$9::text\)\)/);
+  // District demandé : par la clé du groupe (nom affiché) ou une graphie du registre — tout le groupe.
+  assert.match(sql, /AND sd\.dkey IN \(SELECT x\.dkey FROM sdist x WHERE x\.dkey = regexp_replace\(lower\(COALESCE\(\$9::text, ''\)\), '\[\^a-z0-9\]\+', '', 'g'\) OR x\.okey = /);
   assert.deepEqual(params.slice(7), ['(not attached)', 'Ambovombe']);
 });
 
@@ -84,8 +89,8 @@ test('récapitulatif : sites ACTIFS sur la période, site × mois réalisés pen
   assert.equal(out.operationMonths, 6, 'durée de la période');
   assert.deepEqual(out.period, { from: '2026-01', to: '2026-06', months: 6 });
   assert.ok(calls[0].params.includes('Bekily'));
-  // Liste des districts : même clé (minuscules), un nom par district.
-  assert.match(calls[1].sql, /GROUP BY lower\(COALESCE\(NULLIF\(btrim\(ad\.name\), ''\)/);
+  // Liste des districts : même clé que le résumé (sdist.dkey), un nom par district.
+  assert.match(calls[1].sql, /FROM sdist WHERE dkey <> '—' GROUP BY dkey ORDER BY 1$/);
   const explicit = await field.coverageRecapSummary(T, { period: H1, operationMonths: 12 });
   assert.equal(explicit.operationMonths, 12, 'valeur donnée gardée');
 });

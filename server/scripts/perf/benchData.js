@@ -6,7 +6,8 @@
  *
  * Volume (tenant A) :
  *  - découpage 19 370 zones (24 régions / 120 districts / 1 702 communes / 17 524 fokontany) ;
- *  - 3 000 sites (10 % sans pcode de commune, 3 % en zone interdite, district à casse variable) ;
+ *  - 3 000 sites (10 % sans pcode de commune, 3 % en zone interdite, district à casse variable,
+ *    2,4 % avec un P-code de district d'une autre région) ;
  *  - grille d'activation 2024-2026 (36 mois), 8 % de « Non », cases vides réalistes :
  *    5 % de sites jamais renseignés, 5 % ouverts en juillet 2025, 5 % fermés après mars 2026 ;
  *  - 3 fiches × 60 indicateurs (+ 1 champ calculé par fiche) ;
@@ -63,6 +64,13 @@ const STEPS = [
        JOIN admin_areas c ON c.id = md5('c'||(1 + (i*37) % 1702))::uuid
        JOIN admin_areas d ON d.id = c.parent_id
        JOIN admin_areas r ON r.id = d.parent_id`],
+  // P-code de district d'une AUTRE région (≈ 2,4 % des sites ; 205 / 1 081 sur la base de
+  // démonstration) : le site reste dans le district de sa graphie (common/siteDistrict).
+  ['sites (P-code d\'une autre région)', `UPDATE sites s SET adm2_pcode = d.pcode
+     FROM admin_areas d
+    WHERE s.tenant_id = $1 AND substr(s.code, 2)::int % 41 = 0
+      AND d.id = md5('d'||(1 + (substr(s.code, 2)::int * 7 + 17) % 120))::uuid
+      AND d.parent_id IS DISTINCT FROM (SELECT x.parent_id FROM admin_areas x WHERE x.tenant_id = $1 AND x.pcode = s.adm2_pcode)`],
   ['sites (tenant B)', `INSERT INTO sites (id, tenant_id, code, name, district, commune, activity)
      SELECT md5('s2-'||i)::uuid, $1, 'T'||i, 'Autre site '||i, 'District 001', 'Commune 0001', (${ACTIVITIES})[1 + i % 4]
        FROM generate_series(1,100) i`, 'B'],
