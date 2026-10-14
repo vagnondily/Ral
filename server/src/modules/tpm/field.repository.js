@@ -403,7 +403,10 @@ async function generateFromRbmTx(client, tenantId, userId, month, { risk } = {})
   const target = toMonth(month);
   if (!target) throw badRequest('Mois invalide (attendu : AAAA-MM).');
   await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`rbm-generate:${tenantId}:${target}`]);
-  const rows = await rbmSitesTx(client, tenantId, { month: target, risk });
+  // MÊME règle que GET /rbm/sites?month= (compteur « à planifier ») : état au mois cible (asOf) —
+  // dernière visite = dernier mois réalisé ≤ M (définition commune) ; pour un mois passé, une
+  // visite ou une donnée postérieure ne rend jamais le site « à jour ».
+  const rows = await rbmSitesTx(client, tenantId, { month: target, risk, asOf: target });
   const counts = planningCounts(rows, target);
   const todo = rows.filter((s) => s.toPlan);
   if (!todo.length) return { created: 0, ...counts };
