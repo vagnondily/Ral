@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 13:28 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 13:37 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -541,5 +541,8 @@ _Dernière mise à jour : 14/10/2026 13:28 UTC_ — la branche `main` reçoit ch
   - un contrat qui porte des rapports remplis, des plans, des avenants, un renouvellement ou des visites n'est jamais supprimé, quel que soit son statut (avant : 400 « Données invalides » sur un contrat renouvelé, et les plans d'un brouillon partaient en cascade) ;
   - plan validé : la donnée reliée est la facture remplie du même mois, plus ses propres postes.
 - **13:28** 📥 **Retour 79** : les zones d'intervention du contrat sont difficiles à lire → tableau. **Retour 80** : l'onglet « Données » d'une fiche est mal présenté (bandeau vide au-dessus des en-têtes, filtres collés au bord, communes affichées en codes, heure « 03:00 » sur une date). Les deux suivent la revue du retour 56.
+- **13:28 → 13:36** 📥 **Retours 81 à 86** : sous-tables (groupes répétés) à importer ; planification automatique du plan de suivi d'après le RBM, avec sa configuration, et onglet « Sites (actifs / inactifs) » distinct (rappel) ; zoom de la carte sur le bureau choisi ; lenteur (rappel du 61) ; tableau de bord des fiches vide (0 indicateur noté) ; sélecteur de période coupé dans « Nouveau rapport ».
+- **13:34** 🔎 **Lenteur mesurée** sur 2 222 sites : toutes les réponses de l'API en moins de 250 ms. Les écrans lents reçoivent de gros volumes, affichés d'un bloc : 1,5 Mo pour le RBM, 1,2 Mo pour le plan de suivi, 2 Mo pour 1 000 soumissions. La correction portera sur l'affichage (pagination, rendu progressif) et sur des réponses allégées.
+- **13:37** 🔄 **Analyse des 5 XLSForm** lancée (un agent, lecture seule) : indicateurs à proposer pour chaque fiche, groupes répétés, paires « Autre → précisez », et pourquoi vos fiches n'ont aucun indicateur noté.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
