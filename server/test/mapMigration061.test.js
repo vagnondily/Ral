@@ -1,8 +1,10 @@
 /**
  * Migration 061 (lecture du fichier SQL, comme pddMigration057.test.js) : la règle
  * SQL de la position GPS reprend EXACTEMENT les motifs de submissionGps.js, protège
- * chaque conversion, choisit dans le même ordre ; le déclencheur évalue la règle une
- * fois par ligne ; map_shape_links est isolée par compte (RLS forcée, même compte).
+ * chaque conversion, choisit dans le même ordre ; la règle est évaluée une fois par
+ * ligne réellement insérée (AFTER INSERT : jamais pour une ligne en conflit d'un
+ * ré-import) ou dont les réponses changent (BEFORE UPDATE) ; map_shape_links est
+ * isolée par compte (RLS forcée, même compte).
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -33,15 +35,24 @@ test('ordre de choix aligné sur JavaScript ; préfiltres ; une évaluation par 
   assert.match(sql, /e\.key ILIKE '%atitude%'/);
   assert.match(sql, /strpos\(e\.value #>> '\{\}', ' '\) > 0 AND strpos\(e\.value #>> '\{\}', '\.'\) > 0/);
   assert.match(sql, /g := mems_submission_gps\(NEW\.data\);/);
-  assert.equal((sql.match(/mems_submission_gps\(NEW\.data\)/g) || []).length, 1);
-  assert.match(sql, /BEFORE INSERT OR UPDATE OF data, gps_lat, gps_lng, gps_accuracy_m ON monitoring_submissions/);
+  // Une évaluation dans chacune des deux fonctions (insertion, mise à jour), jamais deux par ligne.
+  assert.equal((sql.match(/mems_submission_gps\(NEW\.data\)/g) || []).length, 2);
+  // PostgreSQL déclenche les BEFORE INSERT avant le contrôle de conflit : jamais de BEFORE INSERT
+  // (un ré-import ON CONFLICT DO UPDATE évaluerait la règle pour chaque ligne déjà présente).
+  assert.doesNotMatch(sql, /CREATE TRIGGER[^;]*BEFORE INSERT/);
+  assert.match(sql, /BEFORE UPDATE OF data, gps_lat, gps_lng, gps_accuracy_m ON monitoring_submissions\s+FOR EACH ROW EXECUTE FUNCTION mems_submission_gps_fill\(\);/);
+  assert.match(sql, /AFTER INSERT ON monitoring_submissions\s+FOR EACH ROW EXECUTE FUNCTION mems_submission_gps_insert\(\);/);
+  // L'insertion n'écrit que si la position lue diffère (aucune écriture pour une soumission sans GPS),
+  // sur la ligne de SON compte ; l'écriture qu'elle fait n'est pas réévaluée (profondeur > 1, mêmes réponses).
+  assert.match(sql, /IF v_lat IS DISTINCT FROM NEW\.gps_lat OR v_lng IS DISTINCT FROM NEW\.gps_lng OR v_acc IS DISTINCT FROM NEW\.gps_accuracy_m THEN/);
+  assert.match(sql, /WHERE id = NEW\.id AND tenant_id = NEW\.tenant_id;/);
+  assert.match(sql, /IF NEW\.data IS NOT DISTINCT FROM OLD\.data AND \(pg_trigger_depth\(\) > 1 OR \(/);
   assert.doesNotMatch(sql, /GENERATED ALWAYS/);
   assert.match(sql, /CASE WHEN g\[3\] IS NULL THEN NULL/); // LEAST ignore les NULL
-  // Ré-import identique : aucun recalcul (mesuré : 51 ms au lieu de 373 ms pour 562 lignes).
-  assert.match(sql, /IF TG_OP = 'UPDATE' AND NEW\.data IS NOT DISTINCT FROM OLD\.data/);
   // Rattrapage AVANT la création du déclencheur : une seule évaluation par ligne.
   assert.ok(sql.indexOf('UPDATE monitoring_submissions s') < sql.indexOf('CREATE TRIGGER trg_mon_sub_gps'));
-  assert.ok(sql.indexOf('DROP TRIGGER IF EXISTS trg_mon_sub_gps') < sql.indexOf('UPDATE monitoring_submissions s'));
+  assert.ok(sql.indexOf('DROP TRIGGER IF EXISTS trg_mon_sub_gps ') < sql.indexOf('UPDATE monitoring_submissions s'));
+  assert.ok(sql.indexOf('DROP TRIGGER IF EXISTS trg_mon_sub_gps_ins') < sql.indexOf('UPDATE monitoring_submissions s'));
 });
 
 test('map_shape_links : RLS activée et forcée, politique, GRANT mems2_app, contrôle même compte ; jamais mems_app', () => {

@@ -1,14 +1,21 @@
 -- MEMS 2.0 — Lot 6a « Carte exploitable » (retours 17, 27, 49, 50).
 --
--- 1. Position GPS de chaque soumission, lue UNE fois dans les réponses brutes (data) :
---    un déclencheur BEFORE INSERT / UPDATE OF data appelle mems_submission_gps(data)
---    une seule fois par ligne et remplit trois colonnes simples (gps_lat, gps_lng,
---    gps_accuracy_m), indexées partiellement. Tous les chemins d'écriture sont couverts
---    (imports CSV / XLSX / SAV / Kobo / Ona, ré-import ON CONFLICT DO UPDATE SET data)
---    sans toucher au code d'import ; une mise à jour d'autres colonnes (rattachements
---    aux lieux) ne recalcule rien. Coût mesuré : environ 0,5 ms par ligne (≈ 25 s pour
---    50 000 lignes au rattrapage ci-dessous). Référence lisible et testée de la même
---    règle : modules/map/submissionGps.js (mêmes motifs, même ordre de choix).
+-- 1. Position GPS de chaque soumission, lue UNE fois dans les réponses brutes (data),
+--    rangée dans trois colonnes simples (gps_lat, gps_lng, gps_accuracy_m) indexées
+--    partiellement. Tous les chemins d'écriture sont couverts (imports CSV / XLSX / SAV /
+--    Kobo / Ona, ré-import ON CONFLICT DO UPDATE SET data) sans toucher au code d'import :
+--      - AFTER INSERT (ligne réellement insérée) : la règle est évaluée une fois et la
+--        position écrite si elle diffère ; PostgreSQL déclenche les BEFORE INSERT AVANT
+--        le contrôle de conflit — un BEFORE INSERT évaluerait la règle pour chaque ligne
+--        d'un ré-import, même déjà présente (mesuré : ×7 sur 562 lignes identiques) ;
+--      - BEFORE UPDATE OF data / colonnes GPS : recalcul seulement si les réponses ou les
+--        colonnes changent (un ré-import identique ne recalcule rien) ; l'écriture faite
+--        par le déclencheur AFTER INSERT (pg_trigger_depth() > 1, mêmes réponses) n'est
+--        pas réévaluée.
+--    Une mise à jour d'autres colonnes (rattachements aux lieux) ne recalcule rien. Coût
+--    mesuré : environ 0,5 ms par ligne évaluée (≈ 25 s pour 50 000 lignes au rattrapage
+--    ci-dessous). Référence lisible et testée de la même règle :
+--    modules/map/submissionGps.js (mêmes motifs, même ordre de choix).
 --    Si la règle change : CREATE OR REPLACE la fonction, puis rejouer l'UPDATE de
 --    rattrapage ci-dessous (il ne réécrit que les lignes dont la position change).
 -- 2. map_shape_links : correction manuelle district (P-code) → contour de la carte.
@@ -56,16 +63,18 @@ ALTER TABLE monitoring_submissions
   ADD COLUMN IF NOT EXISTS gps_lng numeric(9,6),
   ADD COLUMN IF NOT EXISTS gps_accuracy_m numeric(10,1);
 
--- Une évaluation par ligne ; une écriture directe des colonnes GPS est elle aussi
--- recalculée depuis data (les colonnes ne peuvent pas diverger des réponses). Un
--- ré-import identique (ON CONFLICT DO UPDATE SET data = EXCLUDED.data, mêmes réponses)
--- ne recalcule rien : comparer deux jsonb coûte bien moins que la règle.
+-- Mise à jour (BEFORE UPDATE OF data, gps_*) : une évaluation par ligne dont les réponses ou
+-- les colonnes GPS changent ; une écriture directe des colonnes GPS est recalculée depuis
+-- data (les colonnes ne peuvent pas diverger des réponses). Un ré-import identique
+-- (ON CONFLICT DO UPDATE SET data = EXCLUDED.data, mêmes réponses) ne recalcule rien :
+-- comparer deux jsonb coûte bien moins que la règle. L'écriture du déclencheur AFTER
+-- INSERT ci-dessous (profondeur > 1, réponses inchangées) vient d'être calculée : gardée.
 CREATE OR REPLACE FUNCTION mems_submission_gps_fill() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE g numeric[];
 BEGIN
-  IF TG_OP = 'UPDATE' AND NEW.data IS NOT DISTINCT FROM OLD.data
-     AND NEW.gps_lat IS NOT DISTINCT FROM OLD.gps_lat AND NEW.gps_lng IS NOT DISTINCT FROM OLD.gps_lng
-     AND NEW.gps_accuracy_m IS NOT DISTINCT FROM OLD.gps_accuracy_m THEN
+  IF NEW.data IS NOT DISTINCT FROM OLD.data AND (pg_trigger_depth() > 1 OR (
+       NEW.gps_lat IS NOT DISTINCT FROM OLD.gps_lat AND NEW.gps_lng IS NOT DISTINCT FROM OLD.gps_lng
+       AND NEW.gps_accuracy_m IS NOT DISTINCT FROM OLD.gps_accuracy_m)) THEN
     RETURN NEW;
   END IF;
   g := mems_submission_gps(NEW.data);
@@ -76,9 +85,27 @@ BEGIN
   RETURN NEW;
 END $$;
 
+-- Insertion (AFTER INSERT, ligne réellement insérée — jamais une ligne en conflit d'un
+-- ré-import, qui passe par la mise à jour ci-dessus) : une évaluation ; écriture seulement
+-- si la position lue diffère des colonnes (aucune écriture pour une soumission sans GPS).
+CREATE OR REPLACE FUNCTION mems_submission_gps_insert() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE g numeric[]; v_lat numeric; v_lng numeric; v_acc numeric;
+BEGIN
+  g := mems_submission_gps(NEW.data);
+  v_lat := round(g[1], 6);
+  v_lng := round(g[2], 6);
+  v_acc := CASE WHEN g[3] IS NULL THEN NULL ELSE round(LEAST(g[3], 999999999), 1) END;
+  IF v_lat IS DISTINCT FROM NEW.gps_lat OR v_lng IS DISTINCT FROM NEW.gps_lng OR v_acc IS DISTINCT FROM NEW.gps_accuracy_m THEN
+    UPDATE monitoring_submissions SET gps_lat = v_lat, gps_lng = v_lng, gps_accuracy_m = v_acc
+     WHERE id = NEW.id AND tenant_id = NEW.tenant_id;
+  END IF;
+  RETURN NULL;
+END $$;
+
 -- Rattrapage des lignes existantes, AVANT le déclencheur (une évaluation par ligne ;
 -- idempotent). C'est aussi la commande de recalcul si la règle change.
 DROP TRIGGER IF EXISTS trg_mon_sub_gps ON monitoring_submissions;
+DROP TRIGGER IF EXISTS trg_mon_sub_gps_ins ON monitoring_submissions;
 UPDATE monitoring_submissions s
    SET gps_lat = round(x.g[1], 6), gps_lng = round(x.g[2], 6),
        gps_accuracy_m = CASE WHEN x.g[3] IS NULL THEN NULL ELSE round(LEAST(x.g[3], 999999999), 1) END
@@ -88,8 +115,11 @@ UPDATE monitoring_submissions s
         OR s.gps_accuracy_m IS DISTINCT FROM CASE WHEN x.g[3] IS NULL THEN NULL ELSE round(LEAST(x.g[3], 999999999), 1) END);
 
 CREATE TRIGGER trg_mon_sub_gps
-  BEFORE INSERT OR UPDATE OF data, gps_lat, gps_lng, gps_accuracy_m ON monitoring_submissions
+  BEFORE UPDATE OF data, gps_lat, gps_lng, gps_accuracy_m ON monitoring_submissions
   FOR EACH ROW EXECUTE FUNCTION mems_submission_gps_fill();
+CREATE TRIGGER trg_mon_sub_gps_ins
+  AFTER INSERT ON monitoring_submissions
+  FOR EACH ROW EXECUTE FUNCTION mems_submission_gps_insert();
 
 CREATE INDEX IF NOT EXISTS idx_mon_sub_period    ON monitoring_submissions (tenant_id, period_month) WHERE NOT excluded;
 CREATE INDEX IF NOT EXISTS idx_mon_sub_gps_month ON monitoring_submissions (tenant_id, period_month) WHERE gps_lat IS NOT NULL AND NOT excluded;
