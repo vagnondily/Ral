@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 13:07 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 13:35 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -533,5 +533,13 @@ _Dernière mise à jour : 14/10/2026 13:07 UTC_ — la branche `main` reçoit ch
   - **Contrôles.** 1 010 tests réussis, lint propre, build OK, balayage de 33 écrans en FR et EN sans erreur. Un rapport de 7 pages se rend en 1,5 s, sans « Calcul… ». Aucune migration.
 
   ⏳ Vérification adverse de l'ensemble à 15:30.
+
+- **13:22** 🔄 **Revue du retour 56 (suppression des documents)**, par la session principale :
+  - un refus nomme et compte les données reliées (ex. « 2 rapports, 1 plan de collecte ») ;
+  - justificatif d'au moins 10 caractères (migration `068`, filet de sécurité en base) ;
+  - un document validé ne se supprime que par un **administrateur** ;
+  - un contrat qui porte des rapports remplis, des plans, des avenants, un renouvellement ou des visites n'est jamais supprimé, quel que soit son statut (avant : 400 « Données invalides » sur un contrat renouvelé, et les plans d'un brouillon partaient en cascade) ;
+  - plan validé : la donnée reliée est la facture remplie du même mois, plus ses propres postes.
+- **13:35** 📥 **Retour 79** : les zones d'intervention du contrat sont difficiles à lire → tableau. **Retour 80** : l'onglet « Données » d'une fiche est mal présenté (bandeau vide au-dessus des en-têtes, filtres collés au bord, communes affichées en codes, heure « 03:00 » sur une date). Les deux suivent la revue du retour 56.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
