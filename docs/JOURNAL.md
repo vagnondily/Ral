@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 13/10/2026 18:17 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 05:32 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -329,5 +329,10 @@ _Dernière mise à jour : 13/10/2026 18:17 UTC_ — la branche `main` reçoit ch
 - **18:15** ℹ️ Le script de balayage des écrans avait été modifié par un sous-agent (il ne naviguait plus et ne testait que le français) : réécrit dans un dossier réservé, avec un contrôle que la navigation change bien de page.
 
 - **18:17** 🔄 **Réalisation des lots 1b, 6a et 7a lancée** (d'après `docs/SPEC_LOT_*.md`) : d'abord le socle 1b (modèle de période, sélecteur « du … au … », requête des régions accélérée, service unique des sites × mois), puis en parallèle les écrans 1b, la carte (6a) et le concepteur riche (7a, en deux parties). Chaque partie est vérifiée par un vérificateur indépendant. Le travail est enregistré au fil de l'eau (branches `wip/…`) pour reprendre sans perte si la limite d'usage l'interrompt ; point de contrôle automatique à 19:30.
+
+
+### Mardi 14 octobre 2026
+
+- **05:32** ⏸️→🔄 **Reprise** : la limite d'usage a interrompu hier vers 19:30 le socle du lot 1b ; le conteneur a redémarré (base, API et interface relancées, données intactes). Le socle avait déjà enregistré 6 de ses 7 commits (modèle de période côté serveur, banc de mesure, **requête des régions : 19 s → 10 ms**, API du suivi de processus sur une plage, lecture des seules réponses utiles, faits site × mois) : il reprend à partir d'eux, puis les écrans 1b, la carte 6a et le concepteur 7a suivent en parallèle. Bases jetables d'anciens contrôles supprimées.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
