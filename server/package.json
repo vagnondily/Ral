@@ -14,7 +14,9 @@
     "seed:test": "node src/db/seed-test.js",
     "test": "node --test test/**/*.test.js",
     "lint": "eslint src",
-    "perf:period": "node --expose-gc scripts/perfPeriod.js"
+    "perf:period": "node --expose-gc scripts/perfPeriod.js",
+    "bench:report": "node --expose-gc scripts/bench-report.js",
+    "seed:perf": "node src/db/seed-perf.js"
   },
   "dependencies": {
     "adm-zip": "^0.6.1",

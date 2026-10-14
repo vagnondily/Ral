@@ -224,28 +224,8 @@ function buildConsolidation(contracts, monthly, { today, period = null } = {}) {
     return row;
   });
 
-  // Grand Total row (recompute the rates on the summed cents).
-  const sum = rows.reduce(
-    (t, r) => {
-      t.budget += toCents(r.budget);
-      t.planned += toCents(r.planned);
-      t.actual += toCents(r.actual);
-      return t;
-    },
-    { budget: 0, planned: 0, actual: 0 }
-  );
-
-  const totals = {
-    budget: round2(sum.budget),
-    planned: round2(sum.planned),
-    actual: round2(sum.actual),
-    plannedRate: ratio(sum.planned, sum.budget),
-    actualRate: ratio(sum.actual, sum.budget),
-    planVsActual: ratio(sum.actual, sum.planned),
-    remaining: round2(sum.budget - sum.actual),
-    overspent: sum.actual > sum.budget,
-    contracts: rows.length,
-  };
+  // Ligne « Total » (sommes en centimes, taux recalculés) ; période (lot 1b) à côté du cumul.
+  const totals = totalsOf(rows);
   if (period) {
     const ps = periodSums;
     totals.period = {
@@ -273,4 +253,33 @@ function buildConsolidation(contracts, monthly, { today, period = null } = {}) {
   return out;
 }
 
-module.exports = { buildConsolidation, monthRange, monthsRemaining, monthIndex, monthlyBudgetCents, periodBudgetCents };
+/**
+ * Ligne « Total » de lignes de consolidation (toutes, ou celles d'un partenaire) : sommes
+ * en CENTIMES entiers, taux recalculés sur ces sommes — jamais une somme de flottants.
+ */
+function totalsOf(rows) {
+  const sum = (rows || []).reduce(
+    (t, r) => {
+      t.budget += toCents(r.budget);
+      t.planned += toCents(r.planned);
+      t.actual += toCents(r.actual);
+      t.projected += toCents(r.projectedTotal);
+      return t;
+    },
+    { budget: 0, planned: 0, actual: 0, projected: 0 }
+  );
+  return {
+    budget: round2(sum.budget),
+    planned: round2(sum.planned),
+    actual: round2(sum.actual),
+    plannedRate: ratio(sum.planned, sum.budget),
+    actualRate: ratio(sum.actual, sum.budget),
+    planVsActual: ratio(sum.actual, sum.planned),
+    remaining: round2(sum.budget - sum.actual),
+    overspent: sum.actual > sum.budget,
+    projectedTotal: round2(sum.projected),
+    contracts: (rows || []).length,
+  };
+}
+
+module.exports = { buildConsolidation, totalsOf, monthRange, monthsRemaining, monthIndex, monthlyBudgetCents, periodBudgetCents };

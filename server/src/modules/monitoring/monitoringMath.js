@@ -44,9 +44,9 @@ const SCALAR_AGGS = new Set(['count', 'sum', 'mean']);
 const isPercentAgg = (agg) => !SCALAR_AGGS.has(agg);
 /** Valeurs comptées comme positives (« 1|2 » → ['1', '2']). */
 const positiveList = (positiveValue) => (positiveValue == null ? [] : String(positiveValue).split('|').map((x) => x.trim()).filter(Boolean));
+const bumpBy = (map, k, w) => map.set(k, (map.get(k) || 0) + w);
 /** Clé d'affichage d'une réponse (comptage par valeur) : le texte sans espaces autour. */
 const valueKey = (v) => { const s = String(v); return s.trim() === '' ? s : s.trim(); };
-const bump = (map, k) => map.set(k, (map.get(k) || 0) + 1);
 
 /**
  * Décompte d'un indicateur sur des soumissions — LA boucle du calcul : la
@@ -56,12 +56,19 @@ const bump = (map, k) => map.set(k, (map.get(k) || 0) + 1);
  *   vide ; naExcluded = codes « hors base » écartés (par valeur) ; values =
  *   réponses comptées (par valeur) ; answered = nombre de réponses comptées ;
  *   positives (méthodes en %) ; numeric / sum (moyenne, somme).
+ *
+ * Le décompte est ADDITIF (lot 7a) : les soumissions lues page par page, ou par
+ * bureau, donnent des décomptes que mergeTallies réunit sans relire les données.
+ * La somme est faite par valeur distincte (byNumber), dans l'ordre croissant des
+ * valeurs (Σ valeur × effectif) : elle ne dépend ni de l'ordre des lignes ni de
+ * leur découpage — un décompte réuni est identique, au bit près, au décompte
+ * d'un seul tenant.
  */
 function tallyIndicator(indicator, submissions, names = [indicator.sourceField]) {
   const na = naSet(indicator.naValues);
   const pct = isPercentAgg(indicator.agg);
   const numericAgg = indicator.agg === 'sum' || indicator.agg === 'mean';
-  const t = { total: 0, absent: 0, blank: 0, naExcluded: new Map(), values: new Map(), answered: 0, positives: 0, numeric: 0, sum: 0 };
+  const t = emptyTally();
   // Lecture d'une réponse, mise en cache par valeur (Oui / Non / 3… se répètent sur des milliers de
   // soumissions) : mêmes fonctions qu'avant, appelées une fois par valeur distincte — résultat identique.
   const memo = new Map();
@@ -87,12 +94,41 @@ function tallyIndicator(indicator, submissions, names = [indicator.sourceField])
     if (v == null || v === '') { t.blank += 1; continue; } // non répondue : hors base
     const r = readValue(v);
     // Codes « hors base » écartés pour toutes les méthodes (une moyenne avec 9999 n'a pas de sens).
-    if (r.na) { bump(t.naExcluded, r.key); continue; }
+    if (r.na) { bumpBy(t.naExcluded, r.key, 1); continue; }
     t.answered += 1;
-    bump(t.values, r.key);
+    bumpBy(t.values, r.key, 1);
     if (pct) t.positives += r.yes;
-    else if (numericAgg && r.num != null) { t.numeric += 1; t.sum += r.num; }
+    // Somme par valeur distincte (décompte ADDITIF du lot 7a : byNumber, puis sumOf).
+    else if (numericAgg && r.num != null) { t.numeric += 1; bumpBy(t.byNumber, r.num, 1); }
   }
+  t.sum = sumOf(t.byNumber);
+  return t;
+}
+
+function emptyTally() {
+  return { total: 0, absent: 0, blank: 0, naExcluded: new Map(), values: new Map(), answered: 0, positives: 0, numeric: 0, byNumber: new Map(), sum: 0 };
+}
+
+/** Σ valeur × effectif, valeurs dans l'ordre croissant : indépendant de l'ordre de lecture. */
+function sumOf(byNumber) {
+  let sum = 0;
+  for (const [n, c] of [...byNumber.entries()].sort((a, b) => a[0] - b[0])) sum += n * c;
+  return sum;
+}
+
+/**
+ * Réunion de décomptes du MÊME indicateur (pages de lecture, bureaux, mois…) :
+ * identique au décompte de toutes leurs soumissions d'un seul tenant.
+ * @param {object[]} tallies décomptes de tallyIndicator (ou de mergeTallies)
+ */
+function mergeTallies(tallies) {
+  const t = emptyTally();
+  for (const x of tallies || []) {
+    if (!x) continue;
+    for (const k of ['total', 'absent', 'blank', 'answered', 'positives', 'numeric']) t[k] += x[k];
+    for (const k of ['naExcluded', 'values', 'byNumber']) for (const [v, c] of x[k]) bumpBy(t[k], v, c);
+  }
+  t.sum = sumOf(t.byNumber);
   return t;
 }
 
@@ -230,16 +266,24 @@ function keyIndex(submissions) {
   }
   return idx;
 }
-/** Noms à essayer pour une variable : le nom exact d'abord, puis ses variantes de casse présentes dans les données. */
+/**
+ * Noms à essayer pour une variable : le nom exact d'abord, puis ses variantes de
+ * casse présentes dans les données, dans un ordre FIXE (tri par code) — le choix
+ * d'une ligne qui porterait deux variantes ne dépend pas de l'ordre de lecture
+ * (le chemin par histogramme SQL applique la même priorité).
+ */
 function namesFor(field, idx) {
-  const alts = idx ? [...(idx.get(String(field).toLowerCase()) || [])].filter((k) => k !== field) : [];
+  const alts = idx ? [...(idx.get(String(field).toLowerCase()) || [])].filter((k) => k !== field).sort() : [];
   return [field, ...alts];
 }
 
-/** Compute every indicator of a form over the given submissions. */
-function computeAll(indicators, submissions) {
-  const idx = keyIndex(submissions);
-  return (indicators || []).map((ind) => ({
+/**
+ * Définition d'un indicateur telle que la renvoient les résultats (sans la valeur) :
+ * partagée par computeAll (soumissions une à une) et computeAllFromHistogram
+ * (histogrammes SQL) — un seul objet résultat.
+ */
+function indicatorMeta(ind) {
+  return {
     id: ind.id,
     code: ind.code,
     label: ind.label,
@@ -255,6 +299,14 @@ function computeAll(indicators, submissions) {
     naValues: Array.isArray(ind.naValues) ? ind.naValues : [],
     templateCode: ind.templateCode ?? null,
     active: ind.active !== false,
+  };
+}
+
+/** Compute every indicator of a form over the given submissions. */
+function computeAll(indicators, submissions) {
+  const idx = keyIndex(submissions);
+  return (indicators || []).map((ind) => ({
+    ...indicatorMeta(ind),
     ...computeIndicator(ind, submissions, namesFor(ind.sourceField, idx)),
   }));
 }
@@ -275,8 +327,12 @@ const round4 = (n) => Math.round(n * 1e4) / 1e4;
  *   distribution: Array<{value,label,n,role}>, others: {n, positives}, distinct, classification }}
  *   role ∈ positive | negative (méthodes en %), counted | ignored (moyenne, somme, nombre).
  */
-function explainIndicator(indicator, submissions, names = [indicator.sourceField], { choiceLabels, top = DISTRIBUTION_TOP } = {}) {
-  const t = tallyIndicator(indicator, submissions, names);
+function explainIndicator(indicator, submissions, names = [indicator.sourceField], opts = {}) {
+  return explainFromTally(indicator, tallyIndicator(indicator, submissions, names), opts);
+}
+
+/** Explication à partir d'un décompte déjà fait (tallyIndicator ou mergeTallies) : voir explainIndicator. */
+function explainFromTally(indicator, t, { choiceLabels, top = DISTRIBUTION_TOP } = {}) {
   const r = resultFromTally(indicator, t);
   const pct = isPercentAgg(indicator.agg);
   const labelOf = (v) => {
@@ -289,10 +345,13 @@ function explainIndicator(indicator, submissions, names = [indicator.sourceField
     if (indicator.agg === 'count') return 'counted';
     return toNumber(v) == null ? 'ignored' : 'counted';
   };
-  const sorted = [...t.values.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'fr', { numeric: true }));
+  // Ordre FIXE (effectif, puis valeur) : l'explication ne dépend pas de l'ordre de lecture des soumissions.
+  const byCount = (a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'fr', { numeric: true })
+    || (String(a[0]) < String(b[0]) ? -1 : String(a[0]) > String(b[0]) ? 1 : 0);
+  const sorted = [...t.values.entries()].sort(byCount);
   const distribution = sorted.slice(0, top).map(([value, n]) => ({ value, label: labelOf(value), n, role: roleOf(value) }));
   const rest = sorted.slice(top);
-  const na = [...t.naExcluded.entries()].sort((a, b) => b[1] - a[1]).map(([value, n]) => ({ value, label: labelOf(value), n }));
+  const na = [...t.naExcluded.entries()].sort(byCount).map(([value, n]) => ({ value, label: labelOf(value), n }));
   let numerator = null;
   let denominator = null;
   if (pct) { numerator = t.positives; denominator = t.answered; } else if (indicator.agg === 'mean') { numerator = round4(t.sum); denominator = t.numeric; } else if (indicator.agg === 'sum') numerator = round4(t.sum);
@@ -354,6 +413,107 @@ function overallIndex(indicatorResults) {
 }
 
 /**
+ * Score d'une VISITE (une soumission), lot 7a — la mesure du tableau de bord de
+ * référence (« sites urgents », classes par visite, signaux de risque) : moyenne des
+ * scores orientés des indicateurs EN % notés auxquels la visite a répondu (réponse
+ * positive = 100, sinon 0 ; « plus bas = mieux » → 100 − valeur), avec les MÊMES règles
+ * de réponse que le décompte (vide et codes « hors base » écartés). Classe : la règle
+ * unique (classify), bandes 80 / 65 / 50 — aucune deuxième règle.
+ * @param {object[]} indicators indicateurs actifs de la fiche
+ * @param {object} data réponses de la soumission (champs calculés fusionnés)
+ * @param {(ind) => string[]} namesOf noms à essayer pour chaque indicateur (namesFor)
+ * @returns {{ score: number|null, answered: number, rating: string }}
+ */
+function visitScore(indicators, data, namesOf) {
+  return visitScorer(indicators)(data, namesOf);
+}
+
+/**
+ * Score par visite PRÉPARÉ pour une liste d'indicateurs (valeurs positives et codes « hors
+ * base » lus une fois, classe mémorisée par score) — même résultat que visitScore, appelé
+ * pour chaque soumission d'une page (indicatorTallies.pageFacts).
+ * @returns {(data: object, namesOf?: (ind) => string[]) => { score, answered, rating }}
+ */
+function visitScorer(indicators) {
+  const list = (indicators || []).filter((ind) => ind.scored !== false && isPercentAgg(ind.agg)).map((ind) => ({
+    ind, na: naSet(ind.naValues), lower: ind.direction === 'lower_better',
+    pos: ind.positiveValue != null && ind.positiveValue !== '' ? new Set(positiveList(ind.positiveValue).map((x) => x.toLowerCase())) : null,
+  }));
+  const ratings = new Map();
+  const ratingOf = (score, answered) => {
+    if (!ratings.has(score)) ratings.set(score, classify({ value: score, base: answered, agg: 'percent_yes', target: null, direction: 'higher_better' }));
+    return ratings.get(score);
+  };
+  const has = Object.prototype.hasOwnProperty;
+  return (data, namesOf) => {
+    const d = data || {};
+    let sum = 0; let answered = 0;
+    for (const x of list) {
+      const names = namesOf ? namesOf(x.ind) : [x.ind.sourceField];
+      let field;
+      for (const n of names) if (has.call(d, n)) { field = n; break; }
+      if (field === undefined) continue;
+      const v = d[field];
+      if (v == null || v === '') continue;
+      const low = String(v).trim().toLowerCase();
+      if (x.na.has(low)) continue;
+      const yes = (x.pos ? x.pos.has(low) : YES.has(low)) ? 100 : 0;
+      sum += x.lower ? 100 - yes : yes;
+      answered += 1;
+    }
+    if (!answered) return { score: null, answered: 0, rating: 'na' };
+    const score = round1(sum / answered);
+    return { score, answered, rating: ratingOf(score, answered) };
+  };
+}
+
+const PHRASES = {
+  fr: {
+    pct: (r) => `${fmt(r.value, 'fr')} % des ${fmt(r.base, 'fr')} réponses comptées sont positives`,
+    mean: (r) => `Moyenne de ${fmt(r.value, 'fr')} sur ${fmt(r.base, 'fr')} réponses`,
+    sum: (r) => `Total de ${fmt(r.value, 'fr')} sur ${fmt(r.base, 'fr')} réponses`,
+    count: (r) => `${fmt(r.value, 'fr')} réponses comptées`,
+    target: (t) => ` (cible ${fmt(t, 'fr')}${' '}%)`,
+    targetScalar: (t) => ` (cible ${fmt(t, 'fr')})`,
+    na: 'Non évalué sur la période : aucune réponse comptée.',
+    rating: { exc: 'Excellent', sat: 'Satisfaisant', imp: 'À améliorer', urg: 'Action urgente', na: 'Non évalué' },
+    alert: 'Sous le seuil : action à engager.',
+  },
+  en: {
+    pct: (r) => `${fmt(r.value, 'en')}% of the ${fmt(r.base, 'en')} counted answers are positive`,
+    mean: (r) => `Average of ${fmt(r.value, 'en')} over ${fmt(r.base, 'en')} answers`,
+    sum: (r) => `Total of ${fmt(r.value, 'en')} over ${fmt(r.base, 'en')} answers`,
+    count: (r) => `${fmt(r.value, 'en')} counted answers`,
+    target: (t) => ` (target ${fmt(t, 'en')}%)`,
+    targetScalar: (t) => ` (target ${fmt(t, 'en')})`,
+    na: 'Not assessed over the period: no answer counted.',
+    rating: { exc: 'Excellent', sat: 'Satisfactory', imp: 'Needs improvement', urg: 'Urgent action', na: 'Not assessed' },
+    alert: 'Below the threshold: action required.',
+  },
+};
+function fmt(v, lang) { return Number(v).toLocaleString(lang === 'en' ? 'en-GB' : 'fr-FR', { maximumFractionDigits: 1 }); }
+
+/**
+ * Phrase d'interprétation d'un résultat d'indicateur (carte de résultat, retour 45),
+ * dans la langue du rapport : valeur, base, cible, classe — et une alerte sous le seuil
+ * (À améliorer, Action urgente). Mêmes chiffres que le résultat, rien de recalculé.
+ * @returns {{ sentence: string, rating: string, ratingLabel: string, alert: string|null }}
+ */
+function interpretIndicator(result, lang = 'fr') {
+  const T = PHRASES[lang === 'en' ? 'en' : 'fr'];
+  const rating = classify(result);
+  if (!result || result.value == null || !result.base) return { sentence: T.na, rating: 'na', ratingLabel: T.rating.na, alert: null };
+  const kind = isPercentAgg(result.agg) ? 'pct' : result.agg;
+  const t = result.target == null || result.target === '' ? null : Number(result.target);
+  const target = t == null || Number.isNaN(t) ? '' : (kind === 'pct' ? T.target(t) : T.targetScalar(t));
+  return {
+    sentence: `${(T[kind] || T.pct)(result)}${target}.`,
+    rating, ratingLabel: T.rating[rating],
+    alert: rating === 'imp' || rating === 'urg' ? T.alert : null,
+  };
+}
+
+/**
  * POURQUOI un indicateur est « Non évalué » (classify → na), sans changer la
  * règle de classe : c'est classify qui décide, naReason ne fait que l'expliquer.
  *   - 'no_data'         : aucune soumission sur la période ;
@@ -384,6 +544,7 @@ function naReason(result, { periodCount } = {}) {
 }
 
 module.exports = {
-  computeIndicator, computeAll, rate, classify, classifyDetail, displayGap, BANDS, TARGET_GAPS, overallIndex, orientedScore, toNumber, isYes,
-  keyIndex, namesFor, tallyIndicator, explainIndicator, isPercentAgg, positiveList, naReason,
+  computeIndicator, computeAll, rate, classify, classifyDetail, displayGap, BANDS, TARGET_GAPS, overallIndex, orientedScore, toNumber, isYes, visitScorer,
+  keyIndex, namesFor, tallyIndicator, mergeTallies, resultFromTally, indicatorMeta, explainIndicator, explainFromTally,
+  isPercentAgg, positiveList, naReason, visitScore, interpretIndicator,
 };

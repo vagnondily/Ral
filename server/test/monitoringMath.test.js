@@ -164,7 +164,8 @@ test('explainIndicator : base, numérateur et dénominateur d\'un %, codes hors 
   assert.equal(x.total, 12);
   assert.equal(x.absent, 1);   // { other }
   assert.equal(x.blank, 2);    // '' et null
-  assert.deepEqual(x.na, [{ value: '9999', label: 'Sans objet', n: 1 }, { value: '888', label: null, n: 1 }]);
+  // Ordre fixe (effectif, puis valeur) : il ne dépend plus de l'ordre de lecture des soumissions (lot 7a).
+  assert.deepEqual(x.na, [{ value: '888', label: null, n: 1 }, { value: '9999', label: 'Sans objet', n: 1 }]);
   assert.equal(x.naCount, 2);
   assert.equal(x.base, 7);     // 1 1 1 2 0 abc 3,5
   assert.equal(x.numerator, 4); // trois « 1 » et « 2 » (espaces ignorés)

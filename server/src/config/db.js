@@ -1,3 +1,4 @@
+const { AsyncLocalStorage } = require('node:async_hooks');
 const { Pool, types } = require('pg');
 const logger = require('./logger');
 
@@ -47,6 +48,21 @@ pool.on('error', (err) => {
 });
 
 /**
+ * Contexte de requête des transactions (lot 7a) : un calcul de rapport s'exécute dans
+ * `withQueryTimeout('15s', fn)` ; toute transaction ouverte pendant ce calcul — par
+ * N'IMPORTE QUEL dépôt, sans changer sa signature — reçoit `SET LOCAL statement_timeout`.
+ * Un dépassement (57014) devient l'erreur du bloc, jamais une connexion bloquée.
+ */
+const queryContext = new AsyncLocalStorage();
+const TIMEOUT_RE = /^\d{1,6}(ms|s)$/;
+
+/** Exécute `fn` avec un délai maximal par requête pour les transactions qu'il ouvre. */
+function withQueryTimeout(timeout, fn) {
+  if (!TIMEOUT_RE.test(String(timeout))) throw new Error(`Délai invalide : ${timeout}`);
+  return queryContext.run({ statementTimeout: String(timeout) }, fn);
+}
+
+/**
  * Run `fn` inside a single client checked out from the pool, wrapped in a
  * transaction (BEGIN / COMMIT / ROLLBACK). Use this for any write that spans
  * more than one statement so partial failures cannot leave the row set
@@ -56,6 +72,9 @@ async function withTransaction(fn) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const ctx = queryContext.getStore();
+    // Valeur contrôlée (TIMEOUT_RE) : SET n'accepte pas de paramètre lié.
+    if (ctx && ctx.statementTimeout) await client.query(`SET LOCAL statement_timeout = '${ctx.statementTimeout}'`);
     const result = await fn(client);
     await client.query('COMMIT');
     return result;
@@ -80,4 +99,4 @@ async function withTenantTransaction(tenantId, fn) {
   });
 }
 
-module.exports = { pool, withTransaction, withTenantTransaction, sessionOptions };
+module.exports = { pool, withTransaction, withTenantTransaction, withQueryTimeout, sessionOptions };

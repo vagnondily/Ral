@@ -25,11 +25,15 @@ db.withTenantTransaction = async (tenantId, fn) => fn({
     if (/FROM monitoring_forms f WHERE f\.tenant_id = \$1 AND f\.active = true/.test(s)) {
       return { rows: [{ id: FORM, code: 'GD', label: LONG, activityCategory: null, sitesActive: 0 }] };
     }
-    if (/AS "bureauKey"/.test(s)) {
+    // Concepteur v2 : bureaux du client et éléments de la section répétée par bureau.
+    if (/FROM field_offices WHERE tenant_id = \$1 ORDER BY lower\(name\)/.test(s)) return { rows: [{ id: 'o1', name: 'Bureau Sud', parentId: null, active: true }] };
+    if (/WITH top AS/.test(s)) return { rows: [{ id: 'o1', name: 'Bureau Sud' }] };
+    if (/SELECT EXISTS \(SELECT 1 FROM monitoring_submissions/.test(s)) return { rows: [{ any: true }] };
+    // Comptages par bureau des faits d'indicateurs (histogramme, lot 7a) : 2 soumissions du code 7, 1 du bureau relié.
+    if (/AS "officeStatus"/.test(s)) {
       return { rows: [
-        { data: {}, bureauKey: `code:${FORM}:7`, bureauStatus: 'non_relie', bureauName: null, bureauCode: '7', sitekey: 's1' },
-        { data: {}, bureauKey: `code:${FORM}:7`, bureauStatus: 'non_relie', bureauName: null, bureauCode: '7', sitekey: 's2' },
-        { data: {}, bureauKey: 'id:o1', bureauStatus: 'relie', bureauName: 'Antenne Bekily', bureauCode: '3', sitekey: 's3' },
+        { g: `code:${FORM}:7`, total: 2, sites: 2, officeStatus: 'non_relie', officeName: null, officeCode: '7' },
+        { g: 'id:o1', total: 1, sites: 1, officeStatus: 'relie', officeName: 'Antenne Bekily', officeCode: '3' },
       ] };
     }
     if (/count\(\*\)::int AS visits/.test(s)) return { rows: [{ visits: 3, sitesVisited: 3 }] };
@@ -49,7 +53,7 @@ db.withTenantTransaction = async (tenantId, fn) => fn({
 const monitoringRepo = require('../src/modules/monitoring/monitoring.repository');
 const fieldRepo = require('../src/modules/tpm/field.repository');
 const service = require('../src/modules/reports/reports.service');
-const { buildDataset, repeatItems } = require('../src/modules/reports/reportData');
+const { factFilter } = require('../src/modules/monitoring/indicatorFacts.repository');
 
 const PERIOD = { from: '2026-01', to: '2026-03' };
 
@@ -68,16 +72,26 @@ test('bureau non relié dans la langue du rapport ; identité avec la fiche, lib
   assert.equal(fr.forms[0].bureaux[0].bureau, `Code 7 (non relié) · ${LONG}`);
 });
 
-test('bureau_domains (une seule fiche) : le bureau sans le nom de la fiche ; filtre par identité inchangé', async () => {
-  const monitoring = await monitoringRepo.reportMonitoringData(T, PERIOD, { lang: 'en' });
-  const d = buildDataset('bureau_domains', { monitoring }, { formId: FORM }, PERIOD);
-  assert.deepEqual(d.rows.map((r) => r.bureau), ['Code 7 (not linked)', 'Antenne Bekily']);
-  assert.ok(d.rows.every((r) => !r.bureau.includes(LONG)));
-  // Section répétée par bureau : le filtre est l'identité (avec la fiche), la ligne reste courte.
-  const scoped = buildDataset('bureau_domains', { monitoring }, { formId: FORM, bureau: `Code 7 (not linked) · ${LONG}` }, PERIOD);
-  assert.deepEqual(scoped.rows.map((r) => [r.bureau, r.n]), [['Code 7 (not linked)', 2]]);
-  // Les sections répétées, qui mêlent les fiches, gardent le nom de la fiche.
-  assert.ok(repeatItems('bureau', { monitoring, field: { byOffice: [] } }).some((i) => i.label === `Code 7 (not linked) · ${LONG}`));
+test('scores par bureau (une seule fiche, catalogue v2) : le bureau sans le nom de la fiche', async () => {
+  const doc = { schemaVersion: 2, title: 'R', period: PERIOD, filters: {}, blocks: [
+    { id: 'b', type: 'data', params: { dataset: 'mon.domains_by_bureau', view: 'table', filters: { formId: FORM }, args: {} } },
+    { id: 'c', type: 'data', params: { dataset: 'mon.bureau_compare', view: 'table', filters: {}, args: {} } },
+  ] };
+  const out = await service.renderBlocks(T, doc, ['b', 'c'], { lang: 'en' });
+  assert.deepEqual(out.blocks.b.data.rows.map((r) => r.bureau), ['Code 7 (not linked)', 'Antenne Bekily']);
+  assert.ok(out.blocks.b.data.rows.every((r) => !r.bureau.includes(LONG)));
+  assert.equal(out.blocks.b.data.meta.n, 3);
+});
+
+test('filtre bureau des faits : clé MEMS = le bureau et ses antennes ; clé de fiche = jointure des libellés', () => {
+  const p = [T];
+  const sql = factFilter('s', { officeKey: 'id:o1' }, p, null);
+  assert.match(sql, /field_office_id IN \(SELECT o\.id FROM field_offices o WHERE o\.tenant_id = s\.tenant_id AND \(o\.id = \$2::uuid OR o\.parent_id = \$2::uuid\)\)/);
+  assert.deepEqual(p, [T, 'o1']);
+  assert.throws(() => factFilter('s', { officeKey: `code:${FORM}:7` }, [T], null), /jointure des bureaux requise/);
+  const q = [T];
+  assert.match(factFilter('s', { officeKey: `code:${FORM}:7` }, q, { key: 'KEY' }), /KEY = \$2/);
+  assert.match(factFilter('s', { officeKey: 'unlinked' }, [T], null), /s\.field_office_id IS NULL/);
 });
 
 test('terrain : site sans bureau « (not attached) » en anglais, « (non rattaché) » par défaut', async () => {
@@ -96,11 +110,13 @@ test('rendu du rapport : la langue de l\'interface arrive jusqu\'aux libellés d
     ],
   };
   const out = await service.renderReport(T, doc, { lang: 'en' });
-  assert.deepEqual(out.blocks.tb.rows.map((r) => r.bureau), ['Code 7 (not linked)', 'Antenne Bekily']);
-  const labels = out.repeats.rp.map((i) => i.label);
-  assert.ok(labels.includes(`Code 7 (not linked) · ${LONG}`));
-  assert.ok(labels.includes('(not attached)'));
-  assert.ok(labels.every((l) => !/non reli|non rattach/.test(l)), `aucun libellé français : ${labels}`);
+  assert.deepEqual(out.blocks.tb.data.rows.map((r) => r.bureau), ['Code 7 (not linked)', 'Antenne Bekily']);
+  // Section répétée par bureau (v2) : les bureaux MEMS, puis les soumissions sans bureau relié —
+  // libellé construit par le serveur dans la langue de l'interface.
+  const labels = out.expansions.rp.map((i) => i.label);
+  assert.deepEqual(labels, ['Bureau Sud', 'Submissions without a linked MEMS office']);
+  assert.deepEqual(out.expansions.rp.map((i) => i.filters.office), ['id:o1', 'unlinked']);
   const fr = await service.renderReport(T, doc, { lang: 'fr' });
-  assert.deepEqual(fr.blocks.tb.rows.map((r) => r.bureau), ['Code 7 (non relié)', 'Antenne Bekily']);
+  assert.deepEqual(fr.blocks.tb.data.rows.map((r) => r.bureau), ['Code 7 (non relié)', 'Antenne Bekily']);
+  assert.equal(fr.expansions.rp[1].label, 'Soumissions sans bureau MEMS relié');
 });

@@ -8,6 +8,7 @@ const { buildForecast } = require('./forecast');
 const { relinkByPath } = require('../common/placeMatch');
 const { isValidatedStatus, decideDocumentDeletion, refusalMessage } = require('../common/deletionPolicy');
 const { recordDeletion } = require('../deletions/deletions.repository');
+const { periodBounds } = require('../common/period');
 
 /**
  * Contrats — business rules. Partner comes from the Paramètres registry,
@@ -542,7 +543,25 @@ async function forecast(tenantId, id, { until } = {}) {
   });
 }
 
+/**
+ * Avenants demandés sur une période (concepteur de rapport, lot 7a), tous contrats, avec le
+ * changement de date de fin et le nombre de postes modifiés. Lecture seule.
+ */
+async function amendmentsReport(tenantId, { period = null, partnerId = null } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const params = [];
+    let periodSql = '';
+    if (period && period.from && period.to) {
+      const { lo, hiExcl } = periodBounds(period);
+      params.push(lo, hiExcl);
+      periodSql = ' AND a.created_at >= $2::date AND a.created_at < $3::date';
+    }
+    return repo.listAmendmentsReport(client, tenantId, { periodSql, params, partnerId });
+  });
+}
+
 module.exports = {
+  amendmentsReport,
   listContracts, listValidators, getContractDetail, getHistory, budgetWorkbook,
   createContract, updateDraft, submit, decide, requestAmendment, decideAmendment, renew, terminate,
   deleteDraft, deleteAmendment, forecast, allowedActions,

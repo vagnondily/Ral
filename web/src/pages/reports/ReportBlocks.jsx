@@ -1,180 +1,120 @@
 import React from 'react';
 import { AlertTriangle, CheckCircle2, Info, OctagonAlert } from 'lucide-react';
 import { useI18n } from '../../lib/i18n.jsx';
-import { formatInt, monthLabel } from '../../lib/format.js';
 import { RichTextView } from './RichText.jsx';
+import { substitute } from './reportDoc.js';
+import Figure from './views/Figure.jsx';
+import DataView, { CHART_VIEWS } from './views/DataView.jsx';
+import { DataTable } from './views/DataTable.jsx';
+import { KpiTiles } from './views/KpiStrip.jsx';
 
 /**
- * Rendu des blocs d'un rapport (aperçu de l'éditeur, impression/PDF, export
- * HTML/Word). Graphiques en SVG intégré, sans dépendance ; la couleur n'est
- * jamais seule porteuse de sens (légendes + étiquettes directes + valeurs).
- * Palette alignée sur les tableaux de bord : prévu = ambre, réalisé = bleu.
+ * Rendu des blocs d'un rapport v2 (aperçu de l'éditeur, impression/PDF, export HTML).
+ * Les vues (tableau, barres, colonnes, courbes, anneau, empilées, matrice, tuile, liste,
+ * carte de résultat, explication) vivent dans ./views et suivent le guide de visualisation
+ * (lib/reportViz.js) : axe à zéro, palette sobre en ordre fixe, le rouge jamais couleur de
+ * série, légende dès 2 séries, chaque bloc de données est une FIGURE numérotée avec sa
+ * source et n. Rien n'est recalculé ici : le serveur envoie les chiffres, l'écran les met en forme.
  */
-const C = { planned: '#c77700', done: '#0f6cbd' };
-const CAT = ['#0f6cbd', '#7c3aed', '#0f7b40', '#c77700', '#d13438', '#0891b2'];
-const BAND = {
-  exc: ['var(--cd-exc)', 'Excellent'], sat: ['var(--cd-sat)', 'Satisfaisant'], imp: ['var(--cd-imp)', 'À améliorer'],
-  urg: ['var(--cd-urg)', 'Action urgente'], na: ['var(--cd-na)', 'Non évalué'],
-};
-
-const num = (v, d = 0) => Number(v).toLocaleString(document.documentElement.lang === 'en' ? 'en-GB' : 'fr-FR', { maximumFractionDigits: d });
-
-/** Valeur formatée selon le type de colonne du jeu de données. */
-export function formatCell(type, v, tr) {
-  if (v == null || v === '') return '—';
-  switch (type) {
-    case 'pct': return `${num(v, 1)} %`;
-    case 'int': return formatInt(v);
-    case 'dec': return num(v, 3);
-    case 'money': return num(v, 0);
-    case 'month': return /^\d{4}-\d{2}$/.test(v) ? monthLabel(v) : v;
-    case 'band': return tr(BAND[v] ? BAND[v][1] : v);
-    default: return String(v);
-  }
-}
-
-// Seuils de couleur des pourcentages (comme le classeur RBM : < 50 rouge, < 90 ambre, ≥ 90 vert).
-const pctTone = (v) => (v == null ? 'na' : v >= 90 ? 'exc' : v >= 50 ? 'imp' : 'urg');
-
-const colLabel = (c, tr) => (c.key.startsWith('m:') ? monthLabel(c.key.slice(2)) : c.key.startsWith('d:') ? c.label : tr(c.label));
-
-export function DataTable({ data, columns: pick, matrix }) {
-  const { tr } = useI18n();
-  if (!data) return null;
-  const cols = pick && pick.length ? data.columns.filter((c) => pick.includes(c.key)) : data.columns;
-  if (data.note) return <p className="rb-note">{tr(data.note)}</p>;
-  if (!data.rows.length) return <p className="rb-note">{tr('Aucune donnée sur la période.')}</p>;
-  return (
-    <table className={`rb-table ${matrix ? 'rb-matrix' : ''}`}>
-      <thead><tr>{cols.map((c) => <th key={c.key} className={c.type === 'text' ? '' : 'num'}>{colLabel(c, tr)}</th>)}</tr></thead>
-      <tbody>
-        {data.rows.map((r, i) => (
-          <tr key={i}>
-            {cols.map((c) => {
-              const v = r[c.key];
-              if (c.type === 'band') return <td key={c.key}><span className={`rb-band rb-band-${v || 'na'}`}>{formatCell('band', v || 'na', tr)}</span></td>;
-              if (matrix && c.type === 'pct') return <td key={c.key} className={`num rb-heat rb-heat-${pctTone(v)}`}>{formatCell('pct', v, tr)}</td>;
-              return <td key={c.key} className={c.type === 'text' ? '' : 'num'}>{formatCell(c.type, v, tr)}</td>;
-            })}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-/** Barres : x = 1re colonne texte/mois ; séries = colonnes numériques (ou `metric`). */
-export function BarChart({ data, metric }) {
-  const { tr } = useI18n();
-  if (!data || !data.rows.length) return <p className="rb-note">{tr('Aucune donnée sur la période.')}</p>;
-  const xCol = data.columns.find((c) => c.type === 'text' || c.type === 'month');
-  let series = data.columns.filter((c) => ['int', 'money', 'dec'].includes(c.type));
-  if (metric) series = series.filter((c) => c.key === metric);
-  series = series.slice(0, 3);
-  const W = 640; const H = 240; const pad = { l: 44, r: 12, t: 12, b: 46 };
-  const max = Math.max(1, ...data.rows.flatMap((r) => series.map((s) => Number(r[s.key]) || 0)));
-  const groupW = (W - pad.l - pad.r) / data.rows.length; const barW = Math.max(4, Math.min(28, (groupW - 8) / series.length));
-  const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - v / max);
-  const color = (s, i) => (s.key === 'planned' ? C.planned : s.key === 'done' ? C.done : CAT[i % CAT.length]);
-  return (
-    <figure className="rb-chart">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={tr('Graphique en barres')}>
-        {[0, 0.5, 1].map((f) => <g key={f}><line x1={pad.l} x2={W - pad.r} y1={y(max * f)} y2={y(max * f)} className="rb-grid" /><text x={pad.l - 6} y={y(max * f) + 4} className="rb-axis" textAnchor="end">{formatInt(max * f)}</text></g>)}
-        {data.rows.map((r, i) => (
-          <g key={i} transform={`translate(${pad.l + i * groupW + (groupW - barW * series.length) / 2},0)`}>
-            {series.map((s, k) => { const v = Number(r[s.key]) || 0; return (
-              <g key={s.key}>
-                <rect x={k * barW} y={y(v)} width={barW - 2} height={H - pad.b - y(v)} rx="2" fill={color(s, k)}><title>{`${colLabel(s, tr)} : ${formatCell(s.type, v, tr)}`}</title></rect>
-                {barW >= 14 && <text x={k * barW + (barW - 2) / 2} y={y(v) - 3} className="rb-val" textAnchor="middle">{formatInt(v)}</text>}
-              </g>
-            ); })}
-            <text x={(barW * series.length) / 2} y={H - pad.b + 14} className="rb-axis" textAnchor="middle">{formatCell(xCol?.type, r[xCol?.key], tr).slice(0, 14)}</text>
-          </g>
-        ))}
-      </svg>
-      <figcaption className="rb-legend">{series.map((s, k) => <span key={s.key}><i style={{ background: color(s, k) }} />{colLabel(s, tr)}</span>)}</figcaption>
-    </figure>
-  );
-}
-
-/** Courbes : une série par ligne (ex. activité) sur les colonnes mensuelles « m:AAAA-MM ». */
-export function LineChart({ data }) {
-  const { tr } = useI18n();
-  const months = (data?.columns || []).filter((c) => c.key.startsWith('m:'));
-  if (!data || !data.rows.length || !months.length) return <p className="rb-note">{tr('Aucune donnée sur la période.')}</p>;
-  const W = 640; const H = 240; const pad = { l: 40, r: 12, t: 12, b: 36 };
-  const max = Math.max(10, ...data.rows.flatMap((r) => months.map((m) => Number(r[m.key]) || 0)));
-  const x = (i) => pad.l + (months.length === 1 ? 0 : (i * (W - pad.l - pad.r)) / (months.length - 1));
-  const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - v / max);
-  const label = data.columns[0].key;
-  return (
-    <figure className="rb-chart">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={tr('Graphique en courbes')}>
-        {[0, 0.5, 1].map((f) => <g key={f}><line x1={pad.l} x2={W - pad.r} y1={y(max * f)} y2={y(max * f)} className="rb-grid" /><text x={pad.l - 6} y={y(max * f) + 4} className="rb-axis" textAnchor="end">{`${Math.round(max * f)} %`}</text></g>)}
-        {months.map((m, i) => <text key={m.key} x={x(i)} y={H - pad.b + 16} className="rb-axis" textAnchor="middle">{monthLabel(m.key.slice(2)).slice(0, 4)}</text>)}
-        {data.rows.map((r, k) => {
-          const pts = months.map((m, i) => [x(i), y(Number(r[m.key]) || 0)]);
-          return (
-            <g key={k}>
-              <polyline points={pts.map((p) => p.join(',')).join(' ')} fill="none" stroke={CAT[k % CAT.length]} strokeWidth="2.2" />
-              {pts.map(([px, py], i) => <circle key={i} cx={px} cy={py} r="3" fill={CAT[k % CAT.length]}><title>{`${r[label]} · ${monthLabel(months[i].key.slice(2))} : ${formatCell('pct', r[months[i].key], tr)}`}</title></circle>)}
-            </g>
-          );
-        })}
-      </svg>
-      <figcaption className="rb-legend">{data.rows.map((r, k) => <span key={k}><i style={{ background: CAT[k % CAT.length] }} />{r[label]}</span>)}</figcaption>
-    </figure>
-  );
-}
-
-export function KpiTiles({ data, labels }) {
-  const { tr } = useI18n();
-  if (!data) return null;
-  const pctKeys = new Set(['coverage', 'execution_rate', 'conformity', 'consumption']);
-  return (
-    <div className="rb-kpis" style={{ '--n': Object.keys(data.values).length }}>
-      {Object.entries(data.values).map(([k, v]) => (
-        <div key={k} className="rb-kpi">
-          <span className="rb-kpi-v">{v == null ? '—' : pctKeys.has(k) ? `${num(v, 1)} %` : num(v, 1)}</span>
-          <span className="rb-kpi-l">{tr(labels[k] || k)}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 const CALLOUT = { info: Info, success: CheckCircle2, warning: AlertTriangle, critical: OctagonAlert };
 
+// Morceau d'un texte coupé entre deux pages (paragraphes [i, j[ de la pagination).
+const sliceDoc = (doc, slice) => (doc && slice && slice.part ? { nodes: (doc.nodes || []).slice(slice.part[0], slice.part[1]) } : doc);
+// Vues découpables ligne à ligne (tableau, matrice, liste).
+export const ROW_VIEWS = new Set(['table', 'heat', 'list']);
+
 /**
- * Un bloc rendu. `ctx` = { data, vars, labels, datasets, item (bloc répété) }.
+ * Un bloc rendu. `ctx` = { result ({ ok, data, meta } | { ok: false, error }), inst (instance
+ * du plan), vars (variables simples + élément répété), catalog, varLabels, pending,
+ * slice ({ part: [i, j], first, last } : morceau placé sur une page par la pagination),
+ * fit ({ scale } : police d'un tableau réduite pour tenir dans la largeur), toc (entrées du sommaire),
+ * showData / onToggleData (« Voir les données » d'un graphique, piloté par l'éditeur) }.
  * `editor` (optionnel) remplace le texte par un éditeur pour les blocs texte.
  */
 export function BlockView({ block, ctx, editor }) {
   const { tr } = useI18n();
   const p = block.params || {};
-  const d = ctx.data;
-  const subst = (s) => String(s || '').replace(/\{periode\}/g, ctx.vars?.periode || '').replace(/\{activite\}|\{bureau\}/g, ctx.item?.label || '');
-  const labelFor = (v) => tr(ctx.varLabels?.[v] || v);
+  const res = ctx.result;
+  const slice = ctx.slice || null;
+  const d = res && res.ok ? res.data : null;
+  const vars = { ...(ctx.vars || {}), ...((d && d.vars) || {}) };
+  const subst = (s) => substitute(s, ctx.vars || {});
+  const labelFor = (v) => tr((ctx.varLabels || {})[v] || v);
   switch (block.type) {
     case 'heading': { const Tag = `h${Math.min(3, p.level || 2)}`; return <Tag className={`rb-h rb-h${p.level || 2}`}>{subst(p.text)}</Tag>; }
-    case 'text': return editor || <RichTextView doc={p.doc} vars={ctx.vars} labelFor={labelFor} />;
+    case 'text': return editor || <RichTextView doc={sliceDoc(p.doc, slice)} vars={vars} labelFor={labelFor} pending={ctx.pending} />;
     case 'callout': { const Ico = CALLOUT[p.tone] || Info; return (
       <aside className={`rb-callout rb-callout-${p.tone || 'info'}`}>
-        <div className="rb-callout-h"><Ico size={16} aria-hidden="true" />{p.title && <strong>{subst(p.title)}</strong>}</div>
-        {editor || <RichTextView doc={p.doc} vars={ctx.vars} labelFor={labelFor} />}
+        {(!slice || slice.first) && <div className="rb-callout-h"><Ico size={16} aria-hidden="true" />{p.title && <strong>{subst(p.title)}</strong>}</div>}
+        {editor || <RichTextView doc={sliceDoc(p.doc, slice)} vars={vars} labelFor={labelFor} pending={ctx.pending} />}
       </aside>
     ); }
-    case 'bulletin': return editor || <RichTextView doc={p.doc || d?.doc} vars={ctx.vars} labelFor={labelFor} />;
-    case 'kpis': return <KpiTiles data={d} labels={ctx.labels} />;
-    case 'table': return <section>{p.title && <h4 className="rb-title">{subst(p.title)}</h4>}<DataTable data={d} columns={p.columns} /></section>;
-    case 'chart': return (
-      <section>
-        {p.title && <h4 className="rb-title">{subst(p.title)}</h4>}
-        {p.kind === 'matrix' ? <DataTable data={d} matrix /> : p.kind === 'line' ? <LineChart data={d} /> : <BarChart data={d} metric={p.metric} />}
-      </section>
-    );
+    case 'bulletin': return editor || <RichTextView doc={sliceDoc(p.doc || d?.doc, slice)} vars={vars} labelFor={labelFor} />;
+    case 'kpis': {
+      const kp = (ctx.catalog && ctx.catalog.kpis) || {};
+      return <KpiTiles data={d} labels={Object.fromEntries(Object.entries(kp).map(([k, x]) => [k, x.label]))} units={Object.fromEntries(Object.entries(kp).map(([k, x]) => [k, x.unit]))} />;
+    }
+    case 'data': {
+      const def = (ctx.catalog && ctx.catalog.datasets[p.dataset]) || null;
+      const fig = p.figure || {};
+      const view = p.view || (def && def.defaultView) || 'table';
+      const title = subst(fig.title) || (def ? tr(def.label) : p.dataset);
+      const chart = CHART_VIEWS.has(view);
+      // Morceau d'un tableau coupé entre deux pages : ses lignes seulement, en-tête répété.
+      const part = slice && slice.part && d && ROW_VIEWS.has(view) ? { ...d, rows: d.rows.slice(slice.part[0], slice.part[1]) } : d;
+      return (
+        <Figure figure={fig} number={ctx.inst && ctx.inst.figure} title={title}
+          subtitle={fig.subtitle ? subst(fig.subtitle) : null} meta={d && d.meta} note={fig.note}
+          continued={!!(slice && !slice.first)} noFoot={!!(slice && !slice.last)} showData={ctx.showData} onToggleData={ctx.onToggleData}
+          table={chart && d && !slice ? <DataTable data={d} columns={p.columns} /> : null}>
+          {part ? <DataView view={view} def={def} data={part} params={p} title={title} scale={(ctx.fit && ctx.fit.scale) || 1} /> : null}
+        </Figure>
+      );
+    }
     case 'pagebreak': return <div className="rb-pagebreak" aria-hidden="true"><span>{tr('Saut de page')}</span></div>;
     case 'divider': return <hr className="rb-divider" />;
+    case 'spacer': return <div className="rb-spacer" style={{ height: `${p.height || 8}mm` }} aria-hidden="true" />;
+    case 'toc': {
+      const entries = (ctx.toc || []).filter((e) => e.level <= (p.depth || 2));
+      if (!entries.length) return <p className="rb-note">{tr('Sommaire : ajoutez des titres au rapport.')}</p>;
+      return (
+        <nav className="rb-toc" aria-label={tr('Sommaire')}>
+          <p className="rb-toc-h">{tr('Sommaire')}</p>
+          <ol>{entries.map((e) => <li key={e.iid} className={`rb-toc-l${e.level}`}><span>{e.text}</span><i aria-hidden="true" /><b>{e.page == null ? '…' : e.page}</b></li>)}</ol>
+        </nav>
+      );
+    }
+    case 'approval': return <p className="rb-note">{tr('Cartouche de validation : rempli quand le rapport est soumis puis validé.')}</p>;
+    case 'image': return <p className="rb-note">{tr('Image')}</p>;
     default: return null;
   }
+}
+
+/**
+ * Bande d'en-tête ou de pied DESSINÉE : éléments placés (x et largeur en % de la largeur
+ * imprimable, y et hauteur en mm). Textes avec variables déjà remplies ; numéro de page
+ * « n / N » posé par la pagination (aperçu : modèle).
+ */
+export function Band({ band, texts, vars, pageNo, pages, className }) {
+  const { tr } = useI18n();
+  if (!band || !band.elements || !band.elements.length) return null;
+  return (
+    <div className={`rd-band ${className || ''}`} style={{ height: `${band.height}mm` }}>
+      {band.elements.map((e) => {
+        const box = { left: `${e.x}%`, top: `${e.y}mm`, width: `${e.w}%`, height: `${e.h}mm` };
+        const st = e.style || {};
+        const font = { fontFamily: st.font === 'Georgia' ? 'Georgia, serif' : st.font === 'Arial' ? 'Arial, sans-serif' : 'Inter, Arial, sans-serif', fontSize: `${st.size || 8}pt`, fontWeight: st.bold ? 700 : 400, fontStyle: st.italic ? 'italic' : 'normal', color: st.color, textAlign: st.align, background: st.background, padding: st.padding ? `${st.padding}mm` : undefined, borderRadius: st.radius ? `${st.radius}mm` : undefined };
+        if (e.kind === 'text') return <div key={e.id} className="rd-el rd-el-text" style={{ ...box, ...font }}>{texts && texts[e.id] != null ? texts[e.id] : substitute(e.text, vars)}</div>;
+        if (e.kind === 'pageNumber') {
+          const n = pageNo || 'n'; const N = pages || 'N';
+          const label = { n: `${n}`, 'n / N': `${n} / ${N}`, 'Page n': tr('Page {n}', { n }), 'Page n / N': tr('Page {n} / {N}', { n, N }) }[e.format || 'Page n / N'];
+          return <div key={e.id} className="rd-el rd-el-text rd-pageno" style={{ ...box, ...font }}>{label}</div>;
+        }
+        if (e.kind === 'line') return <div key={e.id} className="rd-el" style={{ ...box, height: 0, borderTop: `${e.thickness || 0.5}pt solid ${e.color || '#e7e9ef'}` }} />;
+        if (e.kind === 'rect') return <div key={e.id} className="rd-el" style={{ ...box, background: e.fill, border: e.border ? `0.5pt solid ${e.border}` : undefined, borderRadius: e.radius ? `${e.radius}mm` : undefined, opacity: e.opacity }} />;
+        if (e.kind === 'image') return <div key={e.id} className="rd-el rd-el-image" style={box} aria-label={tr('Image')} />;
+        return null;
+      })}
+    </div>
+  );
 }

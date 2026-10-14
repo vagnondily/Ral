@@ -116,7 +116,67 @@ async function deleteDocument(tenantId, id, { allowFinal = false } = {}) {
   });
 }
 
+// ---- Référentiels lus par le concepteur (lot 7a) ------------------------------------
+/** Bureaux du client (id, nom, bureau parent) : filtres par identifiant, mise à niveau v1 (nom → id). */
+async function listOffices(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT id, name, parent_id AS "parentId", active FROM field_offices WHERE tenant_id = $1 ORDER BY lower(name)`, [tenantId]);
+    return rows;
+  });
+}
+
+/**
+ * Éléments des sections répétées, par des comptages indexés (plan de rendu, sans calcul lourd) :
+ *  - activity : fiches actives ayant des soumissions (non exclues) sur la période ;
+ *  - bureau   : bureaux MEMS (de premier niveau) ayant des sites ou des soumissions sur la période,
+ *               plus « non relié » s'il reste des soumissions sans bureau MEMS ;
+ *  - partner  : prestataires actifs (partenaires d'un type TPM ou ayant des visites sur la période).
+ * @param {{ from, to }} period
+ */
+async function repeatCandidates(tenantId, over, period) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const lo = `${period.from}-01`;
+    const [y, m] = period.to.split('-').map(Number);
+    const hiExcl = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`;
+    if (over === 'activity') {
+      const { rows } = await client.query(
+        `SELECT f.id, f.label, f.activity_category AS "activityCategory", c.n
+           FROM monitoring_forms f
+           JOIN (SELECT form_id, count(*)::int AS n FROM monitoring_submissions
+                  WHERE tenant_id = $1 AND NOT excluded AND period_month >= $2::date AND period_month < $3::date
+                  GROUP BY form_id) c ON c.form_id = f.id
+          WHERE f.tenant_id = $1 AND f.active ORDER BY f.label`, [tenantId, lo, hiExcl]);
+      return rows;
+    }
+    if (over === 'bureau') {
+      const { rows } = await client.query(
+        `WITH top AS (SELECT o.id, o.name, COALESCE(o.parent_id, o.id) AS root FROM field_offices o WHERE o.tenant_id = $1),
+              used AS (
+                SELECT t.root FROM sites s JOIN top t ON t.id = s.field_office_id WHERE s.tenant_id = $1
+                UNION
+                SELECT t.root FROM monitoring_submissions ms JOIN top t ON t.id = ms.field_office_id
+                 WHERE ms.tenant_id = $1 AND NOT ms.excluded AND ms.period_month >= $2::date AND ms.period_month < $3::date)
+         SELECT o.id, o.name FROM field_offices o JOIN (SELECT DISTINCT root FROM used) u ON u.root = o.id
+          WHERE o.tenant_id = $1 ORDER BY lower(o.name)`, [tenantId, lo, hiExcl]);
+      const { rows: [un] } = await client.query(
+        `SELECT EXISTS (SELECT 1 FROM monitoring_submissions WHERE tenant_id = $1 AND NOT excluded AND field_office_id IS NULL
+                          AND period_month >= $2::date AND period_month < $3::date) AS any`, [tenantId, lo, hiExcl]);
+      return { offices: rows, unlinked: un.any };
+    }
+    const { rows } = await client.query(
+      `SELECT p.id, p.name FROM partners p
+        WHERE p.tenant_id = $1 AND p.active
+          AND (EXISTS (SELECT 1 FROM partner_types pt WHERE pt.id = p.partner_type_id AND pt.code ILIKE 'tpm%')
+               OR EXISTS (SELECT 1 FROM site_visits v WHERE v.tenant_id = $1 AND v.provider_id = p.id
+                            AND v.period_month >= $2::date AND v.period_month < $3::date))
+        ORDER BY lower(p.name)`, [tenantId, lo, hiExcl]);
+    return rows;
+  });
+}
+
 module.exports = {
   listTemplates, createTemplate, updateTemplate, deleteTemplate,
   listDocuments, getDocument, createDocument, updateDocument, finalizeDocument, deleteDocument,
+  listOffices, repeatCandidates,
 };

@@ -14,26 +14,28 @@ const BLOCK_TAGS = { P: 'p', DIV: 'p', H1: 'h2', H2: 'h2', H3: 'h3', H4: 'h3', B
 // Caractère invisible placé après une variable pour que le curseur ait où se poser ; jamais enregistré.
 const ZW = '\u200B';
 
-export function renderInline(seg, vars, key, labelFor) {
-  let content = seg.v ? formatVar(vars?.[seg.v], seg.v, labelFor) : seg.x;
+export function renderInline(seg, vars, key, labelFor, pending) {
+  let content = seg.v ? formatVar(vars?.[seg.v], seg.v, labelFor, pending) : seg.x;
   if (seg.u) content = <u>{content}</u>;
   if (seg.i) content = <em>{content}</em>;
   if (seg.b) content = <strong>{content}</strong>;
   return seg.v ? <span key={key} className="rt-var" data-var={seg.v}>{content}</span> : <React.Fragment key={key}>{content}</React.Fragment>;
 }
 
-function formatVar(value, name, labelFor) {
+function formatVar(value, name, labelFor, pending) {
+  // Valeur calculée pas encore arrivée : « … », remplie à l'arrivée du calcul (rendu progressif).
+  if ((value == null || value === '') && pending) return '…';
   if (value == null || value === '') return `{${labelFor ? labelFor(name) : name}}`;
   return typeof value === 'number' ? value.toLocaleString(document.documentElement.lang === 'en' ? 'en-GB' : 'fr-FR') : String(value);
 }
 
 /** Rendu en lecture (aperçu, impression, export HTML). */
-export function RichTextView({ doc, vars, labelFor }) {
+export function RichTextView({ doc, vars, labelFor, pending }) {
   const nodes = (doc && doc.nodes) || [];
   return (
     <div className="rt">
       {nodes.map((n, i) => {
-        const inl = (c) => (c || []).map((s, j) => renderInline(s, vars, j, labelFor));
+        const inl = (c) => (c || []).map((s, j) => renderInline(s, vars, j, labelFor, pending));
         if (n.t === 'ul' || n.t === 'ol') {
           const Tag = n.t;
           return <Tag key={i}>{(n.items || []).map((it, j) => <li key={j}>{inl(it)}</li>)}</Tag>;

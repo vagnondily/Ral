@@ -274,7 +274,31 @@ async function listExpenses(tenantId, planId) {
   });
 }
 
+/**
+ * Formations des agents TPM (concepteur de rapport, lot 7a) : sur la période (date de
+ * formation), filtrables par prestataire — agent, prestataire, thématique, jours.
+ * @param {{ lo?: string, hiExcl?: string, partnerId?: string }} opts bornes semi-ouvertes « AAAA-MM-01 »
+ */
+async function listFormationsReport(tenantId, { lo = null, hiExcl = null, partnerId = null } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const params = [tenantId];
+    let where = '';
+    if (lo && hiExcl) { params.push(lo, hiExcl); where += ` AND f.date_formation >= $2::date AND f.date_formation < $3::date`; }
+    if (partnerId) { params.push(partnerId); where += ` AND a.tpm_provider_id = $${params.length}::uuid`; }
+    const { rows } = await client.query(
+      `SELECT f.id, to_char(f.date_formation, 'YYYY-MM-DD') AS date, f.thematique, f.jours::float8 AS jours,
+              a.id AS "agentId", a.name AS "agentName", p.id AS "providerId", p.name AS "providerName"
+         FROM tpm_agent_formations f
+         JOIN tpm_agents a ON a.id = f.agent_id AND a.tenant_id = f.tenant_id
+         LEFT JOIN partners p ON p.id = a.tpm_provider_id AND p.tenant_id = a.tenant_id
+        WHERE f.tenant_id = $1${where}
+        ORDER BY f.date_formation DESC NULLS LAST, a.name LIMIT 500`, params);
+    return rows;
+  });
+}
+
 module.exports = {
+  listFormationsReport,
   listProviders,
   listAgentsEvaluation,
   listSites,

@@ -91,6 +91,11 @@ function errorHandler(err, req, res, _next) {
   if (err.code === '55P03' || err.code === '40P01' || err.code === '40001') {
     return res.status(503).json({ error: 'Une autre mise à jour des mêmes données est en cours : réessayez dans un instant.' });
   }
+  // Délai de requête dépassé (statement_timeout, calculs du concepteur de rapport) : 503 « réessayez »
+  // avec une piste, jamais une « erreur interne » (dans le rendu par blocs, c'est l'erreur DU bloc).
+  if (err.code === '57014') {
+    return res.status(503).json({ error: 'Calcul trop long : réduisez la période ou ajoutez un filtre, puis réessayez.' });
+  }
   if (DB_UNAVAILABLE.has(err.code) || /Connection terminated|timeout exceeded when trying to connect/i.test(err.message || '')) {
     req.log?.error({ err }, 'base de données injoignable');
     return res.status(503).json({ error: 'Base de données injoignable : vérifiez que PostgreSQL est démarré, puis réessayez.' });

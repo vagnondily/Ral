@@ -405,7 +405,26 @@ async function deleteAmendment(client, tenantId, amendmentId) {
   return rowCount === 1;
 }
 
+/**
+ * Avenants de TOUS les contrats (concepteur de rapport, lot 7a) : demandés sur la période,
+ * filtrables par partenaire ; bornés (500). `periodSql` = fragment « AND … » déjà paramétré.
+ */
+async function listAmendmentsReport(client, tenantId, { periodSql = '', params = [], partnerId = null } = {}) {
+  const p = [tenantId, ...params];
+  let where = periodSql;
+  if (partnerId) { p.push(partnerId); where += ` AND c.partner_id = $${p.length}::uuid`; }
+  const { rows } = await client.query(
+    `SELECT a.id, a.number, a.status, a.justification, a.new_date_fin AS "newDateFin", a.budget_changes AS "budgetChanges",
+            to_char(a.created_at, 'YYYY-MM-DD') AS "createdAt", to_char(a.decided_at, 'YYYY-MM-DD') AS "decidedAt",
+            c.id AS "contractId", c.numero, c.numero_fla AS "numeroFla", c.partner_name AS "partnerName", c.date_fin AS "dateFin"
+       FROM contract_amendments a JOIN contracts c ON c.id = a.contract_id AND c.tenant_id = a.tenant_id
+      WHERE a.tenant_id = $1${where}
+      ORDER BY a.created_at DESC, c.numero LIMIT 500`, p);
+  return rows;
+}
+
 module.exports = {
+  listAmendmentsReport,
   listContracts,
   getContract,
   deleteContract,

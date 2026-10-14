@@ -1,0 +1,163 @@
+/**
+ * Phrases construites par le SERVEUR pour un rapport (lot 7a), dans la langue de la
+ * requête (`?lang=`) : notes des blocs, lignes de source, éléments répétés, valeurs
+ * textuelles des lignes (raisons, signaux, libellés de classes). Les textes saisis par
+ * l'utilisateur ne sont jamais traduits. Parité fr / en testée (test/reportsI18n.test.js).
+ */
+const fmtNum = (lang) => (v, d = 1) => Number(v).toLocaleString(lang === 'en' ? 'en-GB' : 'fr-FR', { maximumFractionDigits: d });
+const nf = fmtNum('fr');
+const ne = fmtNum('en');
+
+// Libellés des groupes du catalogue (ligne de source « MEMS — groupe ») en anglais.
+const GROUP_EN = {
+  'Suivi de processus': 'Process monitoring', 'Couverture et plan': 'Coverage and plan',
+  'Risk-Based Monitoring et sites': 'Risk-Based Monitoring and sites', Carte: 'Map', 'Budget et contrats': 'Budget and contracts',
+  'Partenaires et TPM': 'Partners and TPM', "Distribution d'urgence": 'Emergency distribution', Alertes: 'Alerts', 'Qualité des données': 'Data quality',
+};
+
+const PHRASES = {
+  fr: {
+    notByOffice: 'Non disponible par bureau.',
+    notByActivity: 'Non disponible par activité.',
+    notByPartner: 'Non disponible par partenaire.',
+    notByForm: 'Non disponible par fiche.',
+    notByModule: 'Non disponible par domaine.',
+    notByUnlinkedOffice: 'Non disponible pour ce bureau (bureau non relié).',
+    chooseForm: 'Choisissez une activité (fiche).',
+    chooseIndicator: 'Choisissez un indicateur.',
+    unknownIndicator: 'Indicateur introuvable (supprimé ou désactivé).',
+    unknownDataset: 'Jeu de données inconnu.',
+    unlinkedOffice: 'Soumissions sans bureau MEMS relié',
+    tooLong: 'Calcul trop long : réduisez la période ou ajoutez un filtre.',
+    failed: 'Calcul impossible pour ce bloc.',
+    noData: 'Aucune donnée sur la période.',
+    source: (label) => `MEMS — ${label}`,
+    asOf: (d) => `au ${d}`,
+    total: 'Total',
+    allForms: 'Toutes les activités',
+    strength: 'Point fort',
+    weakness: 'Point faible',
+    noDomain: '(sans dimension)',
+    unassigned: 'Non affecté',
+    noOffice: 'Sans bureau',
+    risk: { elevee: 'Élevé', moyenne: 'Moyen', faible: 'Faible' },
+    level: { 0: 'Faible', 1: 'Moyen', 2: 'Élevé' },
+    priority: { Basse: 'Basse', Moyenne: 'Moyenne', Haute: 'Haute' },
+    yes: 'Oui',
+    no: 'Non',
+    chooseContract: 'Choisissez un contrat.',
+    choosePartner: 'Choisissez un partenaire.',
+    chooseReport: 'Choisissez une facture.',
+    projected: 'Projection',
+    actualLabel: 'Réalisé',
+    subtotal: 'Sous-total',
+    directTotal: 'Total des coûts directs',
+    managementFee: (p) => `Commission de gestion (${String(p).replace('.', ',')} %)`,
+    grandTotal: 'Total de l\'accord',
+    reportKind: { financier: 'Financier', technique: 'Technique' },
+    timelineKind: { contrat: 'Contrat', facture: 'Facture', terrain: 'Terrain', formation: 'Formation', evaluation: 'Évaluation' },
+    // Libellés RBM (rbmScore : raisons et actions, en français) : identiques en français.
+    rbm: {},
+    naReasons: {
+      no_data: 'Aucune soumission sur la période', variable_absent: 'Variable absente des soumissions',
+      only_na: 'Seulement des réponses « hors base »', no_answer: 'Variable toujours vide',
+      not_numeric: 'Réponses non numériques', no_target: 'Sans cible : aucune bande ne s\'applique', not_scored: 'Hors indice',
+    },
+    signals: {
+      urgent: (n) => `${nf(n, 0)} visite(s) en « Action urgente » — à auditer`,
+      naVisits: (p) => `${nf(p)} % des visites non évaluées`,
+      weakest: (label, v) => `Indicateur le plus faible : ${label} (${nf(v)} %)`,
+      lowCoverage: (label, p) => `Couverture faible : ${label} (${nf(p)} %)`,
+      none: 'Aucun signal sur la période.',
+    },
+    definitions: {
+      visitScore: 'Score d\'une visite = moyenne des scores orientés des indicateurs en % notés auxquels la visite a répondu ; classes : bandes 80 / 65 / 50 (même règle que les indicateurs).',
+      coverage: 'Couverture = sites actifs réalisés ÷ sites actifs sur la période (faits site × mois). Statut : ≥ 80 % Bon, ≥ 60 % Moyen, ≥ 30 % Faible, sinon Critique.',
+      agentQuality: 'Vides ou hors base = réponses vides ou codes « hors base » ÷ réponses attendues, sur les indicateurs notés (même décompte que les indicateurs).',
+    },
+  },
+  en: {
+    notByOffice: 'Not available by office.',
+    notByActivity: 'Not available by activity.',
+    notByPartner: 'Not available by partner.',
+    notByForm: 'Not available by form.',
+    notByModule: 'Not available by domain.',
+    notByUnlinkedOffice: 'Not available for this office (office not linked).',
+    chooseForm: 'Choose an activity (form).',
+    chooseIndicator: 'Choose an indicator.',
+    unknownIndicator: 'Indicator not found (deleted or deactivated).',
+    unknownDataset: 'Unknown dataset.',
+    unlinkedOffice: 'Submissions without a linked MEMS office',
+    tooLong: 'Computation took too long: shorten the period or add a filter.',
+    failed: 'This block could not be computed.',
+    noData: 'No data for the period.',
+    source: (label) => `MEMS — ${GROUP_EN[label] || label}`,
+    asOf: (d) => `as of ${d}`,
+    total: 'Total',
+    allForms: 'All activities',
+    strength: 'Strength',
+    weakness: 'Weakness',
+    noDomain: '(no domain)',
+    unassigned: 'Unassigned',
+    noOffice: 'No office',
+    risk: { elevee: 'High', moyenne: 'Medium', faible: 'Low' },
+    level: { 0: 'Low', 1: 'Medium', 2: 'High' },
+    priority: { Basse: 'Low', Moyenne: 'Medium', Haute: 'High' },
+    yes: 'Yes',
+    no: 'No',
+    chooseContract: 'Choose a contract.',
+    choosePartner: 'Choose a partner.',
+    chooseReport: 'Choose an invoice.',
+    projected: 'Projection',
+    actualLabel: 'Actual',
+    subtotal: 'Subtotal',
+    directTotal: 'Total direct costs',
+    managementFee: (p) => `Management fee (${p}%)`,
+    grandTotal: 'Agreement total',
+    reportKind: { financier: 'Financial', technique: 'Technical' },
+    timelineKind: { contrat: 'Contract', facture: 'Invoice', terrain: 'Field', formation: 'Training', evaluation: 'Evaluation' },
+    rbm: {
+      'Situation sécuritaire': 'Security situation',
+      'Problème de processus (suivi interne)': 'Process issue (internal monitoring)',
+      'Problème de rapport partenaire': 'Partner report issue',
+      'Problème signalé par le mécanisme de plainte (CFM)': 'Issue reported through the complaint & feedback mechanism (CFM)',
+      'Fraude et corruption': 'Fraud and corruption',
+      'Synergies de programme': 'Programme synergies',
+      'Taille (bénéficiaires)': 'Size (beneficiaries)',
+      Partenaire: 'Partner',
+      'Expérience du partenaire': 'Partner experience',
+      'Zone interdite : suivi à distance uniquement': 'No-go area: remote monitoring only',
+      'Signaler et planifier une vérification ciblée': 'Report it and plan a targeted check',
+      'Signaler et organiser une vérification à distance': 'Report it and arrange a remote check',
+      "Vérifier les conditions de sécurité et l'autorisation d'accès avant de planifier": 'Check security conditions and access authorisation before planning',
+      'Vérifier le problème signalé (processus / rapport / CFM) à distance': 'Check the reported issue (process / report / CFM) remotely',
+      'Vérifier le problème signalé (processus / rapport / CFM) lors de la prochaine visite': 'Check the reported issue (process / report / CFM) during the next visit',
+      'Visite prévue non réalisée : la marquer « réalisée » si elle a eu lieu, sinon la replanifier': 'Planned visit not carried out: mark it “completed” if it took place, otherwise re-plan it',
+      'Réaliser la visite déjà prévue ce mois, puis la marquer « réalisée »': 'Carry out the visit already planned this month, then mark it “completed”',
+      'Planifier une visite ce mois': 'Plan a visit this month',
+      'Aucune visite requise ce mois — prochain suivi dû': 'No visit required this month — next monitoring due',
+    },
+    naReasons: {
+      no_data: 'No submission over the period', variable_absent: 'Variable missing from submissions',
+      only_na: 'Only “not applicable” answers', no_answer: 'Variable always blank',
+      not_numeric: 'Non-numeric answers', no_target: 'No target: no band applies', not_scored: 'Not in the index',
+    },
+    signals: {
+      urgent: (n) => `${ne(n, 0)} visit(s) rated “Urgent action” — to be audited`,
+      naVisits: (p) => `${ne(p)}% of visits not assessed`,
+      weakest: (label, v) => `Weakest indicator: ${label} (${ne(v)}%)`,
+      lowCoverage: (label, p) => `Low coverage: ${label} (${ne(p)}%)`,
+      none: 'No signal over the period.',
+    },
+    definitions: {
+      visitScore: 'Visit score = mean oriented score of the scored % indicators the visit answered; classes: 80 / 65 / 50 bands (same rule as indicators).',
+      coverage: 'Coverage = active sites visited ÷ active sites over the period (site × month facts). Status: ≥ 80% Good, ≥ 60% Medium, ≥ 30% Low, otherwise Critical.',
+      agentQuality: 'Blank or N/A = blank answers or “not applicable” codes ÷ expected answers, on scored indicators (same tally as indicators).',
+    },
+  },
+};
+
+/** Phrases d'une langue (français par défaut). */
+const phrases = (lang) => PHRASES[lang === 'en' ? 'en' : 'fr'];
+
+module.exports = { PHRASES, phrases };

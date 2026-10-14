@@ -24,6 +24,8 @@ const HOUSES = [
 ];
 const CALC = [{ id: 'c1', name: 'lat_copy', label: 'Copie', kind: 'expression', expression: '[@_HHCoord_latitude]', sourceField: null, mapping: null, defaultValue: null, sort_order: 1 }];
 
+/** Curseurs ouverts (lecture en flux) : nom → clés retirées. */
+const cursors = new Map();
 /** Faux client : rend les lignes selon le SQL (seules les requêtes utiles sont jouées). */
 db.withTenantTransaction = async (_tenantId, fn) => fn({
   query: async (sql, params = []) => {
@@ -34,6 +36,19 @@ db.withTenantTransaction = async (_tenantId, fn) => fn({
       return { rows: ['@_HHCoord_latitude', '@_HHCoord_longitude', '@_HHCoord_precision', 'HHCoord', '_geolocation', 'q1'].map((k) => ({ k })) };
     }
     if (/^SELECT COALESCE\(\(SELECT jsonb_object_agg/.test(s)) return { rows: HOUSES.map((d) => ({ data: { ...d } })) };
+    // Lecture en flux du concepteur (lot 7a, indicatorFacts.formFactsTx) : comptage, puis curseur
+    // page par page. Le faux client rend les mêmes réponses (clés inutiles retirées) une fois.
+    if (/^SELECT '' AS g, count\(\*\)::int AS total/.test(s)) return { rows: [{ g: '', total: HOUSES.length, sites: 0, registrySites: 0, communes: 0, agents: 0 }] };
+    const declared = /^DECLARE (\S+) NO SCROLL CURSOR FOR SELECT '' AS g, (?:\(s\.data - \$(\d+)::text\[\]\)|s\.data) AS data/.exec(s);
+    if (declared) { cursors.set(declared[1], new Set(declared[2] ? params[Number(declared[2]) - 1] : [])); return { rows: [] }; }
+    const fetched = /^FETCH \d+ FROM (\S+)/.exec(s);
+    if (fetched) {
+      const drop = cursors.get(fetched[1]);
+      if (!drop) return { rows: [] };
+      cursors.delete(fetched[1]);
+      return { rows: HOUSES.map((d) => ({ g: '', data: Object.fromEntries(Object.entries(d).filter(([k]) => !drop.has(k))) })) };
+    }
+    if (/^CLOSE /.test(s)) return { rows: [] };
     // Lecture réduite des réponses (lot 1b, perf) : `data - clés inutiles` en SQL — le faux client
     // retire les mêmes clés pour rester fidèle.
     const reduced = /^SELECT \(s\.data - \$(\d+)::text\[\]\) AS data FROM monitoring_submissions s/.exec(s);

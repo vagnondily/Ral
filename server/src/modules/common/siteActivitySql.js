@@ -109,7 +109,8 @@ const districtNameSql = (s = 's') => `COALESCE(NULLIF(btrim(${s}.adm2), ''), NUL
  *   geo      : colonnes de rattachement dans reg et per_site : did / dpcode (district du
  *              découpage, par adm2_pcode), rid (région : parent du district, sinon la zone
  *              du site), cpcode (commune), office_id, has_gps, act (activité normalisée).
- *   officeId : sites du bureau ET de ses antennes (sous-arbre récursif de field_offices).
+ *   officeId : sites du bureau ET de ses antennes (sous-arbre récursif de field_offices) ;
+ *              'unlinked' = sites sans bureau (concepteur, lot 7a).
  *   activity : sites de cette activité (casse et espaces ignorés).
  *   drawable : (tableau d'identifiants) ne garder que les sites DESSINABLES — position GPS du
  *              registre, ou l'un de ces sites (positions déduites de leurs collectes) : la
@@ -135,8 +136,10 @@ function siteMonthFactsCtes({
     districtFilter = ` AND sd.dkey IN (SELECT x.dkey FROM sdist x WHERE x.dkey = ${k} OR x.okey = ${k})`;
   }
   const ext = withData || geo;
-  const officeTree = officeId ? officeTreeSql(push(officeId)) : '';
-  const officeFilter = officeId ? ' AND s.field_office_id IN (SELECT id FROM office_tree)' : '';
+  const unlinked = officeId === 'unlinked';
+  const officeTree = officeId && !unlinked ? officeTreeSql(push(officeId)) : '';
+  const officeFilter = unlinked ? ' AND s.field_office_id IS NULL'
+    : officeId ? ' AND s.field_office_id IN (SELECT id FROM office_tree)' : '';
   const activityFilter = activity ? ` AND lower(btrim(s.activity)) = lower(btrim(${push(activity)}::text))` : '';
   const drawableFilter = Array.isArray(drawable)
     ? ` AND ((s.gps_lat IS NOT NULL AND s.gps_lng IS NOT NULL) OR s.id = ANY(${push(drawable)}::uuid[]))` : '';
@@ -210,7 +213,7 @@ function siteMonthFactsCtes({
   // Années où le tenant a une grille : une sonde d'index par année (année en entier, comparée par
   // un opérateur « leakproof » : sous RLS, une expression comme extract() ne peut pas servir de
   // condition d'index et la sonde relisait toute la grille du tenant).
-  return `WITH ${officeId ? 'RECURSIVE ' : ''}${officeTree}grid_years AS MATERIALIZED (
+  return `WITH ${officeTree ? 'RECURSIVE ' : ''}${officeTree}grid_years AS MATERIALIZED (
        SELECT y, EXISTS (SELECT 1 FROM site_month_status g WHERE g.tenant_id = $1 AND g.year = y) AS known
          FROM generate_series(${pYlo}::int, ${pYhi}::int) AS y),
      months AS (
