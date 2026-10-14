@@ -93,10 +93,21 @@
 - **~11:30** ✅ Vérifications finales : `web build` OK ; serveur lint propre ;
   **680/681 tests** (0 échec). Prêt à pousser sur `claude/zealous-bardeen-p9ozcr`.
 
-## État : ✅ terminé (périmètre retenu)
+### 14 octobre 2026 (suite) — avenants
+
+- **~11:50** ✅ **Suppression des avenants** (type `contract_amendment`) :
+  `repo.deleteAmendment`, `service.deleteAmendment` (non validé → supprimable ;
+  approuvé → appliqué au contrat = donnée reliée → refus 409), route
+  `DELETE /api/contracts/:id/amendments/:amendmentId`, flag serveur
+  `actions.canWrite`, client `api.deleteAmendment`, bouton « Supprimer » sur
+  l'onglet Avenants (masqué pour un avenant approuvé), dialogue commun.
+- **~11:55** ✅ Vérifs : serveur lint propre, **680/681 tests**, `web build` OK ;
+  **intégration en base réelle** : avenant rejeté supprimé + journalisé,
+  avenant approuvé refusé (« approuvé et appliqué »).
+
+## État : ✅ terminé
 
 Fait : politique pure testée · migration 061 (journal append-only) · câblage
-rapports/plans/contrats + journal · endpoint et écran admin · dialogue frontend.
-Hors périmètre (assumé) : concepteur de rapport (aligné avec le lot 7a de la
-session principale) ; suppression d'un avenant par l'UI (type `contract_amendment`
-déjà prévu dans la politique et la migration, sans écran dédié pour l'instant).
+rapports / plans / contrats / **avenants** + journal · endpoint et écran admin ·
+dialogue frontend sur les 4 types. Hors périmètre (assumé) : concepteur de
+rapport (aligné avec le lot 7a de la session principale).

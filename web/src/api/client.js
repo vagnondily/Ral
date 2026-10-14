@@ -189,6 +189,7 @@ export const api = {
   renewContract: (id, input) => request(`/api/contracts/${id}/renew`, { method: 'POST', body: input }),
   terminateContract: (id, input) => request(`/api/contracts/${id}/terminate`, { method: 'POST', body: input }),
   deleteContract: (id, justification) => request(`/api/contracts/${id}`, { method: 'DELETE', body: justification ? { justification } : undefined }),
+  deleteAmendment: (id, amendmentId, justification) => request(`/api/contracts/${id}/amendments/${amendmentId}`, { method: 'DELETE', body: justification ? { justification } : undefined }),
 
   // Découpage administratif (localités) — référentiel par tenant/pays
   listAdminLevels: () => request('/api/settings/admin-levels'),

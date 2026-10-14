@@ -140,6 +140,7 @@ function allowedActions(contract, ctx, actor) {
     // ne l'est que sans donnée reliée + justificatif — vérifié à la suppression,
     // non proposé ici pour éviter un bouton presque toujours en échec.
     delete: write && !isValidatedStatus('contract', contract.status),
+    canWrite: write,
   };
 }
 
@@ -486,6 +487,42 @@ async function deleteDraft(tenantId, actor, id, { justification } = {}) {
 }
 
 /**
+ * Suppression d'un avenant (politique commune, retour 56).
+ *   - avenant NON validé (en validation, rejeté) → supprimable après confirmation ;
+ *   - avenant VALIDÉ (approuvé) → appliqué au contrat : il porte toujours une
+ *     donnée reliée, donc non supprimable (refus 409).
+ * Toute suppression est inscrite au journal des suppressions.
+ */
+async function deleteAmendment(tenantId, actor, contractId, amendmentId, { justification } = {}) {
+  assertCanWrite(actor);
+  await withTenantTransaction(tenantId, async (client) => {
+    const amendment = await repo.getAmendment(client, tenantId, contractId, amendmentId);
+    if (!amendment) throw notFound('Avenant introuvable');
+    const contract = await repo.getContract(client, tenantId, contractId);
+
+    const validated = isValidatedStatus('contract_amendment', amendment.status);
+    // Un avenant approuvé est déjà appliqué au contrat : donnée reliée.
+    const decision = decideDocumentDeletion({ validated, hasLinkedData: validated, justification });
+    if (!decision.allowed) {
+      if (decision.reason === 'justification_required') throw badRequest(refusalMessage('justification_required'));
+      throw conflict('Cet avenant est approuvé et appliqué au contrat : il ne peut pas être supprimé.');
+    }
+
+    await recordDeletion(client, tenantId, {
+      docType: 'contract_amendment',
+      docId: amendmentId,
+      docRef: `Avenant n° ${amendment.number} · ${contract ? contract.numero : contractId}`,
+      summary: JSON.stringify({ number: amendment.number, contract: contract?.numero, status: amendment.status, newDateFin: amendment.newDateFin || null }).slice(0, 4096),
+      statusAtDeletion: amendment.status,
+      validated,
+      justification: decision.justification,
+      deletedBy: actor.userId,
+    });
+    await repo.deleteAmendment(client, tenantId, amendmentId);
+  });
+}
+
+/**
  * Prévision de dépense d'un contrat jusqu'à sa fin ou jusqu'à un mois cible.
  * Lecture seule : recalculée en direct depuis le budget Suivi/TPM et le réalisé.
  */
@@ -508,5 +545,5 @@ async function forecast(tenantId, id, { until } = {}) {
 module.exports = {
   listContracts, listValidators, getContractDetail, getHistory, budgetWorkbook,
   createContract, updateDraft, submit, decide, requestAmendment, decideAmendment, renew, terminate,
-  deleteDraft, forecast, allowedActions,
+  deleteDraft, deleteAmendment, forecast, allowedActions,
 };

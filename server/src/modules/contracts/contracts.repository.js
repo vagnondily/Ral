@@ -398,10 +398,18 @@ async function deleteContract(client, tenantId, id) {
   return rowCount === 1;
 }
 
+async function deleteAmendment(client, tenantId, amendmentId) {
+  const { rowCount } = await client.query(
+    'DELETE FROM contract_amendments WHERE tenant_id = $1 AND id = $2', [tenantId, amendmentId]
+  );
+  return rowCount === 1;
+}
+
 module.exports = {
   listContracts,
   getContract,
   deleteContract,
+  deleteAmendment,
   forecastData,
   getContractActivities,
   getBudgetItems,
