@@ -22,4 +22,5 @@ export default {
   "Sans activité": "No activity",
   "Année précédente": "Previous year",
   "Année suivante": "Next year",
+  "Rapport trimestriel": "Quarterly report",
 };
