@@ -3,7 +3,8 @@ const { badRequest, payloadTooLarge, AppError } = require('../../middleware/erro
 const { withQueryTimeout } = require('../../config/db');
 const { createSemaphore } = require('./semaphore');
 const { upgradeDoc, upgradeSnapshot, isV1 } = require('./reportUpgrade');
-const { safeParseDocV2, walkBlocks } = require('./reportSchema');
+const { safeParseDocV2, walkBlocks, imageRefs } = require('./reportSchema');
+const assetsRepo = require('./reportAssets.repository');
 const { DATASETS, KPIS, GROUPS, datasetDef, kpiDef, validateBlockParams, catalogForClient } = require('./catalog');
 const { loadFor } = require('./sources');
 const { buildPlan, blockOfInstance, PlanError, richVariables } = require('./renderPlan');
@@ -68,6 +69,13 @@ async function normalizeDoc(tenantId, input, { offices } = {}) {
   }
   const issues = catalogIssues(r.data);
   if (issues.length) throw badRequest('Rapport invalide', { issues });
+  // Images citées (logos des bandes, blocs image) : celles du compte seulement, jamais prises pour vraies.
+  const refs = [...new Set(imageRefs(r.data))];
+  if (refs.length) {
+    const known = await assetsRepo.existingAssetIds(tenantId, refs);
+    const missing = refs.filter((id) => !known.has(id));
+    if (missing.length) throw badRequest('Image introuvable dans ce compte : téléversez-la à nouveau.', { code: 'asset_missing', ids: missing });
+  }
   return { doc: r.data, warnings: up.warnings, upgraded: up.upgraded, offices: idx };
 }
 

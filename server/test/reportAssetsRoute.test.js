@@ -1,0 +1,107 @@
+/**
+ * Logos du concepteur (lot 7a C8, retour 88) : routes /api/report-designer/assets SANS base — le
+ * dépôt est un espion qui garde les images par compte. On vérifie : 201 puis 200 (même octets,
+ * même identifiant), format nommé → 400, > 512 Ko → 413, écriture réservée (403), compte lu dans
+ * le jeton seulement (une image d'un autre compte → 404), en-têtes nosniff et CSP, image citée par
+ * un rapport contrôlée dans le compte (400 sinon).
+ */
+process.env.NODE_ENV = 'production';
+process.env.LOG_LEVEL = 'silent';
+process.env.JWT_SECRET = 'secret-de-test-des-logos-du-concepteur-0123456789abcdef';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const crypto = require('crypto');
+const express = require('express');
+const request = require('supertest');
+const jwt = require('jsonwebtoken');
+const assetsRepo = require('../src/modules/reports/reportAssets.repository');
+const reportsRepo = require('../src/modules/reports/reports.repository');
+const routes = require('../src/modules/reports/reports.routes');
+const { errorHandler, notFound } = require('../src/middleware/errors');
+
+const A = '11111111-1111-4111-8111-111111111111';
+const B = '22222222-2222-4222-8222-222222222222';
+const store = new Map(); // tenant → Map(sha → asset)
+assetsRepo.createAsset = async (tenantId, a, userId) => {
+  if (!store.has(tenantId)) store.set(tenantId, new Map());
+  const m = store.get(tenantId);
+  if (m.has(a.sha256)) return { asset: m.get(a.sha256).meta, created: false };
+  const meta = { id: crypto.randomUUID(), mime: a.mime, width: a.width, height: a.height, bytes: a.bytes, name: a.name, createdBy: userId };
+  m.set(a.sha256, { meta, data: a.data });
+  return { asset: meta, created: true };
+};
+assetsRepo.listAssets = async (tenantId) => [...(store.get(tenantId) || new Map()).values()].map((x) => x.meta);
+assetsRepo.getAssetData = async (tenantId, id) => {
+  const hit = [...(store.get(tenantId) || new Map()).values()].find((x) => x.meta.id === id);
+  if (!hit) throw notFound('Image introuvable');
+  return { mime: hit.meta.mime, data: hit.data };
+};
+assetsRepo.existingAssetIds = async (tenantId, ids) => new Set(ids.filter((id) => [...(store.get(tenantId) || new Map()).values()].some((x) => x.meta.id === id)));
+reportsRepo.listOffices = async () => [];
+
+const app = express();
+app.use(express.json());
+app.use((req, res, next) => { req.log = { info() {}, error() {} }; next(); });
+app.use('/api/report-designer', routes);
+app.use(errorHandler);
+const tok = (tenantId, role) => `Bearer ${jwt.sign({ sub: `u-${role}`, tenantId, role }, process.env.JWT_SECRET)}`;
+
+function png(width, height, pad = 0) {
+  const ihdr = Buffer.alloc(25);
+  ihdr.writeUInt32BE(13, 0); ihdr.write('IHDR', 4, 'latin1'); ihdr.writeUInt32BE(width, 8); ihdr.writeUInt32BE(height, 12);
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), ihdr, Buffer.alloc(pad)]);
+}
+const upload = (buf, auth = tok(A, 'admin'), name = 'logo.png') => request(app).post(`/api/report-designer/assets?name=${encodeURIComponent(name)}`)
+  .set({ Authorization: auth, 'Content-Type': 'application/octet-stream' }).send(buf);
+
+test('téléversement : 201 puis 200 pour les mêmes octets (une seule copie), dimensions lues', async () => {
+  const r1 = await upload(png(400, 120));
+  assert.equal(r1.status, 201);
+  assert.deepEqual([r1.body.mime, r1.body.width, r1.body.height, r1.body.name], ['image/png', 400, 120, 'logo.png']);
+  const r2 = await upload(png(400, 120), tok(A, 'manager'), 'autre nom');
+  assert.equal(r2.status, 200);
+  assert.equal(r2.body.id, r1.body.id);
+  const list = await request(app).get('/api/report-designer/assets').set({ Authorization: tok(A, 'viewer') });
+  assert.equal(list.status, 200);
+  assert.equal(list.body.length, 1);
+});
+
+test('refus : format nommé (400), trop lourd (413), vide (400), rôle lecteur (403)', async () => {
+  const svg = await upload(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>x</script></svg>'));
+  assert.equal(svg.status, 400);
+  assert.match(svg.body.error, /image SVG/);
+  assert.equal(svg.body.details.code, 'format');
+  const big = await upload(png(100, 100, 530 * 1024));
+  assert.equal(big.status, 413);
+  assert.match(big.body.error, /512 Ko/);
+  const empty = await upload(Buffer.alloc(0));
+  assert.equal(empty.status, 400);
+  const viewer = await upload(png(10, 10), tok(A, 'viewer'));
+  assert.equal(viewer.status, 403);
+});
+
+test('lecture : en-têtes nosniff et CSP, type déduit des octets ; image d\'un autre compte → 404', async () => {
+  const up = await upload(png(64, 32, 10));
+  const got = await request(app).get(`/api/report-designer/assets/${up.body.id}`).set({ Authorization: tok(A, 'viewer') });
+  assert.equal(got.status, 200);
+  assert.equal(got.headers['content-type'], 'image/png');
+  assert.equal(got.headers['x-content-type-options'], 'nosniff');
+  assert.equal(got.headers['content-security-policy'], "default-src 'none'");
+  assert.match(got.headers['cache-control'], /private/);
+  const other = await request(app).get(`/api/report-designer/assets/${up.body.id}`).set({ Authorization: tok(B, 'admin') });
+  assert.equal(other.status, 404);
+  const bad = await request(app).get('/api/report-designer/assets/pas-un-uuid').set({ Authorization: tok(A, 'admin') });
+  assert.equal(bad.status, 400);
+});
+
+test('un rapport ne cite que des images de SON compte (logo d\'un autre compte → 400)', async () => {
+  const up = await upload(png(80, 40, 20));
+  const header = (assetId) => ({ height: 14, elements: [{ id: 'logo', kind: 'image', x: 0, y: 1, w: 20, h: 12, assetId }] });
+  const doc = (assetId) => ({ schemaVersion: 2, title: 'R', period: { from: '2026-09', to: '2026-09' }, page: { header: header(assetId) }, blocks: [] });
+  const okPlan = await request(app).post('/api/report-designer/render/plan').set({ Authorization: tok(A, 'viewer') }).send({ doc: doc(up.body.id) });
+  assert.equal(okPlan.status, 200);
+  const foreign = await request(app).post('/api/report-designer/render/plan').set({ Authorization: tok(B, 'viewer') }).send({ doc: doc(up.body.id) });
+  assert.equal(foreign.status, 400);
+  assert.equal(foreign.body.details.code, 'asset_missing');
+});

@@ -1,10 +1,13 @@
-const { Router } = require('express');
+const express = require('express');
+
+const { Router } = express;
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest } = require('../../middleware/errors');
 const repo = require('./reports.repository');
 const service = require('./reports.service');
+const assets = require('./reportAssets.service');
 
 /**
  * Concepteur de rapport : catalogue (blocs, jeux de données, chiffres clés, modèles
@@ -55,6 +58,23 @@ router.post('/export.xlsx', asyncHandler(async (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="${name}.xlsx"`);
   await wb.xlsx.write(res);
   res.end();
+}));
+
+// ---- Images des en-têtes et pieds de page (logos, migration 062) -------------------
+// Octets bruts (600 Ko au plus reçus ; 512 Ko au plus acceptés, PNG ou JPEG reconnus par les octets).
+router.get('/assets', asyncHandler(async (req, res) => res.json(await assets.listAssets(t(req)))));
+router.post('/assets', WRITE, express.raw({ type: '*/*', limit: '600kb' }), asyncHandler(async (req, res) => {
+  const r = await assets.uploadAsset(t(req), Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), { name: req.query.name, userId: uid(req) });
+  res.status(r.created ? 201 : 200).json(r.asset);
+}));
+router.get('/assets/:id', asyncHandler(async (req, res) => {
+  const a = await assets.getAsset(t(req), uuid(req.params.id));
+  // Type déduit des octets à l'envoi ; jamais interprété autrement (nosniff), aucun script possible (CSP).
+  res.set({
+    'Content-Type': a.mime, 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'",
+    'Cache-Control': 'private, max-age=31536000, immutable', 'Content-Disposition': 'inline',
+  });
+  res.send(a.data);
 }));
 
 // ---- Modèles personnalisés -----------------------------------------------------
