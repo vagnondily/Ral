@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 10:41 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 10:42 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -36,7 +36,7 @@ _Dernière mise à jour : 14/10/2026 10:41 UTC_ — la branche `main` reçoit ch
 | Retour 56 | Suppression des documents : non validé → supprimable ; validé → seulement sans donnée reliée, avec justificatif ; journal des suppressions | 🔄 | Une autre session Claude l'avait commencé (3 commits, branche `claude/zealous-bardeen-p9ozcr`) : travail **repris** et en cours de correction (migration renumérotée 069, anglais, avenants, données reliées affichées, documents validés atteignables, justificatif ≥ 10 caractères, tests), puis vérification indépendante |
 | Retour 54 | Tableau trimestriel par activité (sites actifs / prévus / réalisés, couverture, exécution) | 🔄 | **En réalisation** (nouvelle entrée « Rapport trimestriel » du Dashboard décisionnel, export Excel) |
 | Lot 5 élargi | Calendrier d'activités (pop-up), plan MMR réaliste, priorités configurables, risque daté (retours 24, 25, 55) | 🔄 | Conception lancée le 14/10 |
-| Retour 58 | TPM du plan de suivi tiré des contrats ; raison obligatoire si on le change | 🔄 | Analyse et conception en cours (lecture seule) ; lot fixé ensuite |
+| Retour 58 | Onglet « Affectation des TPM » par région › district, pré-rempli d'après les contrats ; raison obligatoire si on le change ; les visites reprennent le TPM de leur zone | 🔄 | Analyse et conception en cours (lecture seule) ; lot fixé ensuite |
 | Lots 2–3, 4, 8 | Référentiels et registre (avec retours 46 et 57 : code de localité ; plusieurs sites par site déclaré ou commune, rapprochement GPS par shapefile) ; réalisé issu des données ; Partenaires & TPM | ⏳ | Analyses faites ; dans l'ordre après 1b / 6a / 7a |
 | Contre-vérif. | Correctifs des imports, formules, correspondances et verrous (retours d'hier + 4 relectures) | ✅ | **Publié sur `main`** (`d8863bb`) : `ef7ed78` → `6241cb1` → `aec0c6c` → `d8863bb`. Dernier contrôle ciblé de la nouvelle garde Excel en cours |
 | Refonte | Refonte UI/UX : menu par objets métier, fiches, liaisons visibles ; Partenaires & TPM (fiche 360°, formations avec pré/post-test, notation des agents) | 🔄 | Spécification ✅ [`docs/REFONTE_UX.md`](REFONTE_UX.md) (`5f6a6ef`) : « le site au centre », 6 groupes / 24 entrées, 13 lots A à M. Décisions de la section 8 adoptées avec les valeurs recommandées (modifiables). **Lot A** (navigation, adresses, redirections) en cours |
@@ -377,5 +377,7 @@ _Dernière mise à jour : 14/10/2026 10:41 UTC_ — la branche `main` reçoit ch
   - ce que les zones des contrats permettent d'en déduire, y compris les cas « aucun contrat » ou « deux contrats sur la même zone » ;
   - deux conceptions indépendantes, puis une critique.
   Le lot sera fixé quand l'analyse sera rendue.
+
+- **10:42** 📥 **Retour 58, précision** : un onglet dédié « Affectation des TPM » par région › district, toujours pré-rempli d'après les contrats. Toute modification exige une raison. Les visites reprennent le TPM de leur zone. 🔄 Analyse relancée avec cette forme (elle n'avait que 2 minutes, rien de perdu).
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
