@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 13:37 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 13:41 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -544,5 +544,12 @@ _Dernière mise à jour : 14/10/2026 13:37 UTC_ — la branche `main` reçoit ch
 - **13:28 → 13:36** 📥 **Retours 81 à 86** : sous-tables (groupes répétés) à importer ; planification automatique du plan de suivi d'après le RBM, avec sa configuration, et onglet « Sites (actifs / inactifs) » distinct (rappel) ; zoom de la carte sur le bureau choisi ; lenteur (rappel du 61) ; tableau de bord des fiches vide (0 indicateur noté) ; sélecteur de période coupé dans « Nouveau rapport ».
 - **13:34** 🔎 **Lenteur mesurée** sur 2 222 sites : toutes les réponses de l'API en moins de 250 ms. Les écrans lents reçoivent de gros volumes, affichés d'un bloc : 1,5 Mo pour le RBM, 1,2 Mo pour le plan de suivi, 2 Mo pour 1 000 soumissions. La correction portera sur l'affichage (pagination, rendu progressif) et sur des réponses allégées.
 - **13:37** 🔄 **Analyse des 5 XLSForm** lancée (un agent, lecture seule) : indicateurs à proposer pour chaque fiche, groupes répétés, paires « Autre → précisez », et pourquoi vos fiches n'ont aucun indicateur noté.
+- **13:40** ✅ **Revue du retour 56 et retour 79 publiés sur `main`** (`31e015b`) :
+  - suppression : refus qui nomme les données reliées, justificatif ≥ 10 caractères (migration `068`), document validé réservé à l'administrateur, contrat porteur de données jamais supprimé ;
+  - zones d'intervention du contrat en tableau.
+
+  Contrôles : 1 015 tests réussis (1 ignoré), lint propre, build OK, balayage 33 écrans × FR / EN sans erreur ni phrase manquante, migration essayée sur une base neuve (65 fichiers) et sur une copie. **Chez vous : `npm run migrate` puis redémarrer l'API.**
+
+  📥 **Retours 87 et 88** (concepteur) : axes et légendes des figures ; annexes pour les longs tableaux ; orientation d'une seule page ; en-tête libre avec modèles et logo déplaçable.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
