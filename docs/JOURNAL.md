@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 08:30 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 08:31 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -29,7 +29,13 @@ _Dernière mise à jour : 14/10/2026 08:30 UTC_ — la branche `main` reçoit ch
 | Analyse | Analyse de **vos fichiers réels** → feuille de route | ✅ + 🔄 | ✅ **Analyse des références terminée** (lancée à 06:28, finie à 09:13 — je l'avais crue abandonnée à tort) → [`docs/ANALYSE_REFERENCES.md`](ANALYSE_REFERENCES.md) (`597325b`) : 395 comportements attendus, 20 en place, 184 partiels, 191 absents ; feuille de route R0 à R13. 🔄 Analyse complémentaire en cours (lancée à 09:10) : vrais noms de lieux pour tester le moteur de rapprochement, notation des agents, formations avec évaluation, fiche prestataire |
 | Liaisons | Liaisons entre pages + rapprochement automatique des lieux importés | 🔄 | Analyse ✅ → [`docs/ANALYSE_LIAISONS.md`](ANALYSE_LIAISONS.md). **Lot 0** : 9 correctifs faits (commit local `cf0c46b`), relecture adverse en cours avant publication sur `main`. **Lot 2** : moteur de rapprochement des lieux (`4c22775`). **Lot 1** : réimport du découpage sans détacher les contrats (`afe463e`). Lots 0 à 2 publiés sur `main`. Prochaine étape : lot 3 (sites et bureaux rattachés au découpage, migration 048) |
 | Signalés 12/10 | Vos retours du jour | ✅ | régions du bureau · en-têtes figés · XLSForm (500 au réimport, gros fichiers, .xls) · concepteur (panneau gauche) · actions sur les fiches + rattachement au MMR |
-| Retours 13/10 | Plan par lots : [`PLAN_RETOURS_15_37.md`](PLAN_RETOURS_15_37.md). Retours n° 15 à 53 | 🔄 | **Lot 1 publié sur `main`** (`45493c7`, retours 16, 19, 20, 34, 35, 48). Conceptions 1b / 6a / 7a prêtes (`docs/SPEC_LOT_*.md`) ; réalisation lancée. Détail dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) |
+| Retours 13–14/10 | Plan par lots : [`PLAN_RETOURS_15_37.md`](PLAN_RETOURS_15_37.md). Retours n° 15 à 55 ; synthèse dans [`ETAT_DU_PROJET.md`](ETAT_DU_PROJET.md) | 🔄 | **Lot 1 publié sur `main`** (`45493c7`). En cours : 1b, 6a, 7a (lignes ci-dessous). Détail de chaque retour : [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) |
+| Lot 1b | Période = plage de mois (retour 47) — [`SPEC_LOT_1B.md`](SPEC_LOT_1B.md) | 🔄 | Socle (8 commits, régions 19 s → 10 ms) et écrans (9 commits) construits ; contre-vérification du socle : 1 grave + 4 moyens à corriger ; vérification des écrans en cours → un tour de corrections, puis publication |
+| Lot 6a | Carte exploitable + carte dans le Dashboard décisionnel (retours 17, 27, 41, 44, 49, 50) — [`SPEC_LOT_6A.md`](SPEC_LOT_6A.md) | 🔄 | Construit (12 commits), en vérification |
+| Lot 7a | Concepteur de rapport riche (retours 18, 39, 40, 43, 45, 51–53) — [`SPEC_LOT_7A.md`](SPEC_LOT_7A.md) | 🔄 | En construction (rendu progressif fait ; catalogue, en-tête libre, orientation, validation, exports à suivre) |
+| Retour 54 | Tableau trimestriel par activité (sites actifs / prévus / réalisés, couverture, exécution) | ⏳ | Juste après les correctifs 1b |
+| Lot 5 élargi | Calendrier d'activités (pop-up), plan MMR réaliste, priorités configurables, risque daté (retours 24, 25, 55) | 🔄 | Conception lancée le 14/10 |
+| Lots 2–3, 4, 8 | Référentiels et registre ; réalisé issu des données ; Partenaires & TPM | ⏳ | Analyses faites ; dans l'ordre après 1b / 6a / 7a |
 | Contre-vérif. | Correctifs des imports, formules, correspondances et verrous (retours d'hier + 4 relectures) | ✅ | **Publié sur `main`** (`d8863bb`) : `ef7ed78` → `6241cb1` → `aec0c6c` → `d8863bb`. Dernier contrôle ciblé de la nouvelle garde Excel en cours |
 | Refonte | Refonte UI/UX : menu par objets métier, fiches, liaisons visibles ; Partenaires & TPM (fiche 360°, formations avec pré/post-test, notation des agents) | 🔄 | Spécification ✅ [`docs/REFONTE_UX.md`](REFONTE_UX.md) (`5f6a6ef`) : « le site au centre », 6 groupes / 24 entrées, 13 lots A à M. Décisions de la section 8 adoptées avec les valeurs recommandées (modifiables). **Lot A** (navigation, adresses, redirections) en cours |
 
@@ -343,5 +349,7 @@ _Dernière mise à jour : 14/10/2026 08:30 UTC_ — la branche `main` reçoit ch
 - **08:14** 🔄 Vérifications de 1b (écrans) et 6a (carte) en cours ; contre-vérification du socle 1b rendue (1 grave : ~200 sites dont le P-code de district contredit le district → regrouper par le district du site ; 4 moyens ; 2 mineurs) — corrigés dans un seul tour avec les constats des écrans.
 
 - **08:30** 📥 **Retour n° 55** : calendrier d'activités (durée réelle) et plan de suivi réaliste selon le MMR (≥ 80 % des sites, tournées par commune / district multi-activités, capacité par jour, intervalle ajusté, dernière visite, recommandations urgentes, paramètres modifiables initialisés du MMR / RBM) → **lot 5 élargi** (avec 24 et 25). 🔄 Conception lancée maintenant (lecture seule), en parallèle des chantiers en cours.
+
+- **08:31** ✅ **Documents de suivi mis à jour** (« mettre toutes les informations sur l'avancement pour ne rien perdre ») : [`ETAT_DU_PROJET.md`](ETAT_DU_PROJET.md) réécrit (fait / en cours / reste à faire, santé du code, points d'attention, documents à lire) ; tableau « État courant » ci-dessus complété (1b, 6a, 7a, 54, lot 5, lots 2–3–4–8). Précision du retour 55 : le calendrier d'activité s'ouvre dans une fenêtre depuis le tableau MMR.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.

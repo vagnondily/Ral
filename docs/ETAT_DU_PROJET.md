@@ -1,104 +1,135 @@
-# MEMS 2.0 — État du projet (fait / reste à faire)
+# MEMS 2.0 — État du projet (fait / en cours / reste à faire)
 
-_Mise à jour : 12 octobre 2026 — branche `main` (commit `34be945`)._
+_Mise à jour : 14 octobre 2026. `main` contient le lot 1 et tous les correctifs de fiabilité (dernier commit de code : `45493c7`). Le travail en cours avance sur la branche `claude/practical-meitner-2c1560` et sur des branches de reprise `wip/…`._
 
-## Santé du code au moment de la reprise
+Documents de suivi, à lire dans cet ordre :
+
+| Document | Contenu |
+|---|---|
+| [`JOURNAL.md`](JOURNAL.md) | Chaque action, avec son heure (UTC), son statut, son commit et ses vérifications. Le tableau « État courant » est en tête. |
+| [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) | Chacun de vos retours (n° 1 à 55) : ce qu'il faut, la réponse prévue et son **état**. |
+| [`PLAN_RETOURS_15_37.md`](PLAN_RETOURS_15_37.md) | Les définitions communes (visite, réalisée, site actif, couverture, période…) et l'ordre des lots. |
+| [`SPEC_LOT_1B.md`](SPEC_LOT_1B.md), [`SPEC_LOT_6A.md`](SPEC_LOT_6A.md), [`SPEC_LOT_7A.md`](SPEC_LOT_7A.md) | Spécifications des lots en cours, avec les décisions prises et les corrections exigées par la critique. |
+| [`ANALYSE_REFERENCES.md`](ANALYSE_REFERENCES.md), [`ANALYSE_LIAISONS.md`](ANALYSE_LIAISONS.md), [`REFONTE_UX.md`](REFONTE_UX.md) | Analyses de fond (vos fichiers réels, liaisons entre pages, refonte UX). |
+
+## Santé du code sur `main`
 
 | Contrôle | Résultat |
 |---|---|
-| Tests serveur (`cd server && npm test`) | **136 / 136 OK** |
-| Lint serveur (`npm run lint`) | **propre** |
-| Build web (`cd web && npm run build`) | **OK** (avertissement de taille de bundle uniquement) |
-| Migrations | `001` → `040` |
+| Tests serveur (`cd server && npm test`) | **669** (668 réussis, 1 ignoré : il ne tourne qu'avec les exports réels) |
+| Lint serveur (`npm run lint`) | propre |
+| Build web (`cd web && npm run build`) | OK |
+| Balayage navigateur (31 écrans, FR et EN) | 0 erreur console ou API, 0 phrase anglaise manquante |
+| Migrations | `001` → `060` (061 à 064 arrivent avec les lots 6a et 7a) |
 
 ---
 
-## Ce qui a été fait (1er → 9 octobre, 77 commits)
+## ✅ Fait et publié sur `main`
 
-### Contrats, rapports et budget TPM
-- **Rapports** : liste façon COMET, rapport et facture combinés, suppression, vue en USD.
-- **Rapports** : gabarits mensuels générés automatiquement selon la durée du contrat, avec un statut « non applicable ».
-- **Rapports** : période placée dans la barre de filtres, colonnes Période et N° facture ajoutées.
-- **Planification & budget** : liste COMET, déplacée dans le groupe TPM.
-- **Fil guidé du rapportage** : Plan validé → Facture (pré-remplie depuis le plan) → Validation → Consolidation.
-- **Contrats** : prévision de dépense jusqu'à la fin du contrat ou sur une période donnée.
-- **Paramétrage › Taux de change** : la conversion en USD fonctionne de bout en bout.
+### Jusqu'au 12 octobre (base de l'application)
+- **Contrats** : cycle de vie complet, budget FLA par poste, avenants, aller-retour Excel.
+- **Rapports TPM** : facture fidèle au modèle réel, avec export Excel et PDF.
+- **Planification & budget** et **consolidation budgétaire**.
+- **Suivi de processus** :
+  - imports Kobo, ONA, SPSS, Excel et liens ;
+  - XLSForm ;
+  - indicateurs paramétrables ;
+  - champs calculés et aide aux calculs ;
+  - assistant d'import ;
+  - correspondances bureau / partenaire / agent.
+- **RBM et Plan de suivi (MMR)** ; **Affectation & visites**.
+- **Tableaux de bord** : Synthèse, Couverture & performance, Vue d'ensemble, Centre d'alertes.
+- **Distribution d'urgence (PDD)**.
+- **Concepteur de rapport**, première version.
+- **Paramétrage** : localités, bureaux, MMR, utilisateurs.
+- Interface en **français et en anglais**.
 
-### Suivi terrain, RBM et Plan de suivi (MMR)
-- **RBM** : scoring multicritère (FINAL SCORE + Priorité) fidèle au Plan de suivi, colonnes fidèles au classeur, filtre par bureau.
-- **RBM** : import complet du Plan de suivi (critères, score, GPS, activité), page alignée sur le patron COMET.
-- **MMR** : paramètres généraux du classeur repris tels quels (Overarching parameters).
-- **MMR** : capacité faisable calculée (personnes × suivis par jour et par activité × jours ouvrés).
-- **MMR** : un seul plan général, que chaque bureau peut ajuster (dérogation).
-- **Affectation & visites** : écran unique, l'ancien écran nominatif a été retiré du menu.
-- **Affectation & visites** : navigation par **tableau des mois** puis plan du mois, avec la situation du workflow.
-- **Données réelles → site** : rattachement par pcode de commune (migration 036). On voit la colonne « Dernière collecte (données) » et un onglet « Données réelles ».
-- **Carte des sites** : Leaflet sur fond OpenStreetMap, avec une couche choroplèthe par district.
+### 12 et 13 octobre — fiabilité (relectures indépendantes, 4 tours)
+- **Imports Excel sûrs.** Une garde lit chaque classeur en une passe, en temps linéaire. Elle refuse les fichiers piégés : fusions géantes, DOCTYPE, ouvertures non fermées. Les 14 classeurs réels donnent exactement les mêmes résultats qu'avant.
+- **Écritures concurrentes sans blocage.** Un verrou des rattachements empêche les pertes de mises à jour, sans immobiliser les autres utilisateurs. Après 20 s d'attente, le message est « réessayez ».
+- **Formules.** NOT, valeurs vides, `in()`, imbrication limitée.
+- **Rien ne s'efface quand des données existent.** Un agent qui porte des données ne se supprime plus : il se désactive.
+- **Exploitation.** Créer et migrer une autre base ne remet plus le mot de passe de `mems2_app` à sa valeur par défaut.
 
-### Suivi de processus (données Kobo / ONA)
-- Import de **définition XLSForm**, parseur **SPSS `.sav`** natif et import **`.zip` Kobo**.
-- **Connecteur « lien de données » ONA / MoDA** (export web, sans API), qui suit la pagination.
-- Fiches présentées en tableau, avec un détail en 5 onglets : Variables, Données importées, Résultats, Mapping MEMS, Configuration.
-- **Données importées** :
-  - en-têtes figés et libellés issus du XLSForm ou du `.sav` ;
-  - sélecteur de colonnes et sélection multiple ;
-  - filtres par bureau, zone administrative et date.
-- **Mapping MEMS** éditable : on peut corriger à la main ce que l'auto-détection propose.
-- **Nettoyage des données** : champs calculés (comme dans Tableau) et exclusion ou curation de soumissions.
-- **Indicateurs** : liste riche avec drawer de détail (implémente la maquette de la PR #2), écran guidé, regroupement.
-
-### Tableaux de bord
-- **Suivi de processus › Tableau de bord** relié aux données réelles.
-- **Dashboard › Couverture & performance du suivi** (nouveau) :
-  - KPI, bande de conformité en 5 niveaux, Plan vs Réalisé ;
-  - un onglet par activité ;
-  - noms de région en clair ;
-  - vues **Salle de contrôle**, **Bulletin** (texte généré automatiquement) et **Carte SVG de Madagascar**, sans dépendance externe.
-  - La logique est pure et testée (`coverageDashboard.js`, 9 tests).
-
-### Distribution d'urgence (PDD)
-- Nouveau module : distributions, synthèse et pipeline (besoin vs stock), import de la feuille « PDD base », navigation par mois.
-
-### Paramétrage et sécurité
-- Vue d'ensemble en cartes, page **Utilisateurs & accès**.
-- **Bureaux & antennes** : périmètre défini en communes, sites rattachés automatiquement, hiérarchie du Grand Sud corrigée.
-- **Sélecteur de périmètre** en cascade Région › District › Commune.
-- **Durcissement** :
-  - validation de la configuration au démarrage ;
-  - limitation des tentatives de login (Redis, avec repli en mémoire) ;
-  - CORS restreint.
-- **Correctif** : le login ne bloque plus quand `REDIS_URL` est défini mais que Redis est absent.
-
-### UI et design system
-- Modernisation des tokens et composants (look web-app 2025), mode sombre plus lisible.
-- Statuts affichés avec couleur, icône et libellé (accessibilité).
-- Composant de liste réutilisable `DataList` (format COMET).
-- Défilement horizontal propre sur les tableaux.
-- Interrupteurs icône seule (FR|EN, jour/nuit, Aides) et bascule globale des **Aides**.
-
-### Données de démonstration
-- `npm run seed:test` : jeu de données varié.
-- Seed avec les **vraies données** du Plan de suivi et d'un export Kobo.
+### 13 octobre — lot 1 (`45493c7`), retours 16, 19, 20, 31, 34, 35, 48
+- **Mois de collecte = date d'enquête.**
+  - Une soumission est rangée au mois de la première date d'enquête lisible.
+  - Les envois groupés tardifs restent au mois réel de l'enquête (règle des 2 ans).
+  - La vérification avant import annonce exactement ce que l'import écrira.
+  - Le **Mapping MEMS** se modifie et suit un cycle brouillon → soumis → validé. La personne qui valide doit être différente de celle qui a soumis.
+- **Indicateurs** :
+  - un seul éditeur pour créer et modifier, sans perte ;
+  - choix de la variable avec recherche et logique de saut ;
+  - « Comment c'est calculé » en direct ;
+  - écart à la cible cohérent avec la classe.
+- **Tableaux de bord** :
+  - période par défaut = dernier mois qui a des données ;
+  - étiquettes de mois lisibles ;
+  - bureaux nommés ;
+  - « — aucun plan » au lieu de « 0 % » ;
+  - raison de chaque « Non évalué » ;
+  - cloche = Centre d'alertes.
+- **RBM (retour 48)** :
+  - « Pourquoi ? / Conséquence / Que faire ? » sur chaque drapeau ;
+  - une visite seulement planifiée ne rend jamais un site « à jour » ;
+  - « Générer » ne crée plus de doublons et respecte les annulations et les mois inactifs.
+- **Zone centrale élargie** (retour 31).
 
 ---
 
-## Ce qui reste à faire (liste de tâches de la session précédente)
+## 🔄 En cours de réalisation (branches `wip/…`)
 
-| # | Tâche | Contenu prévu |
+| Lot | Contenu | Où en est-on (14/10) |
 |---|---|---|
-| 1b | **PDD : bouton « Modèle PDD »** | Télécharger un classeur `.xlsx` vierge au format exact attendu par l'import « PDD base », avec une note expliquant le format |
-| 2 | **MMR : édition enrichie et plus simple** | Éditer les paramètres du Plan de suivi plus confortablement (grille en ligne, validations, aperçu de la capacité) |
-| 3 | **Localités : édition / CRUD** | Créer, modifier et supprimer les localités adm1 à adm4 dans Paramétrage, en plus de l'import |
-| 4 | **i18n FR/EN** | Traduire les pages, en commençant par les plus utilisées (menu, tableaux de bord, listes) |
-| 6 | **Concepteur de rapport** | Bulletin éditable (le texte généré sert de point de départ) + modèles de rapport réutilisables |
-| 7 | **Plan de suivi « type Excel »** | Grille éditable + import/export `.xlsx` en aller-retour |
+| **1b** — période = plage de mois (retour 47) | Sélecteur « du … au … » avec préréglages (janvier–juin, 12 derniers mois…). Sites comptés une fois sur la période. Couverture (sites) et exécution du plan (visites) séparées. Budget de la période en centimes entiers. Tous les écrans concernés. | Socle (8 commits) et écrans (9 commits) **construits**. La requête des régions passe de **19 s à 10 ms**. La contre-vérification du socle a relevé 1 point grave (environ 200 sites dont le P-code de district contredit le district : regrouper par le district du site) et 4 moyens ; ils sont corrigés dans un seul tour avec les constats des écrans, puis le lot est publié. |
+| **6a** — carte exploitable (retours 17, 27, 41, 44, 49, 50) | Contours des 120 districts, couleur par thème (sites actifs, visités, couverture, risque, données versées), sites placés par GPS ou par leurs collectes, points de collecte, légende, fiche au survol, classement, section Carte dans le Dashboard décisionnel, export image / A4. | Construit (12 commits), **en vérification**. |
+| **7a** — concepteur de rapport riche (retours 18, 39, 40, 43, 45, 51–53) | Rendu rapide et progressif (fini la page blanche « Calcul… »). Catalogue de toutes les données de MEMS. En-tête et pied libres (logos, images, textes). Orientation par page. Fil de validation. Exports Word et PowerPoint. | En construction : rendu progressif fait, catalogue en cours. |
+| **54** — tableau trimestriel par activité | Sites actifs / prévus / réalisés, couverture, taux d'exécution, couleurs, total, export. | Réalisé juste après les correctifs 1b (même service « sites × mois »). |
+| **5 élargi** — plan MMR réaliste (retours 24, 25, 55) | Calendrier d'activités (durée réelle). Générateur de plan : au moins 80 % des sites, tournées par commune et district multi-activités, capacité par jour, intervalle ajusté, dernière visite, recommandations urgentes. Règles de priorité configurables. Risque par période avec historique. | **Conception** lancée le 14/10. |
 
-### Points techniques mineurs
-- `web/` n'a toujours ni lint ni tests automatisés. On contrôle avec le build et un balayage Playwright.
-- Le bundle web dépasse 500 kB : on pourrait découper le code (`import()` dynamique par page).
-- `web/src/pages/AssignmentPage.jsx` n'est plus utilisé et pourra être supprimé.
-- `CLAUDE.md` est à rafraîchir : nombre de tests, liste des migrations, nouveaux modules.
+## ⏳ Reste à faire (ordre décidé)
+
+1. **Lots 2–3**, référentiels et registre des sites (retours 12, 14, 23, 32, 33, 36, 37, 38, 46) :
+   - activités et sous-activités ;
+   - clés système immuables et suppression protégée partout ;
+   - codes de bureau des formulaires ;
+   - libellés et réponses « Autre » ;
+   - zones du contrat en tableau ;
+   - import du classeur d'activation (grille Oui / Non par mois) ;
+   - import des sites avec GPS → rattachement au découpage ;
+   - code de localité tiré du découpage (groupable par préfixe) ;
+   - Code POI proposé (fokontany + 00n).
+2. **Lot 4**, réalisé issu des données (retours 15, 21, 22, 26) :
+   - une soumission rattachée au site = visite réalisée, partout ;
+   - mois « données sans plan » ;
+   - plan P/R avec motif obligatoire quand on déclare une visite à la main ;
+   - couverture par sous-activité et par bureau (sites uniques).
+
+   C'est ce lot qui reproduira votre chiffre de référence de janvier à juin (170 sites distincts sur 208 actifs = 82 %).
+3. **Lot 5 élargi** (voir ci-dessus).
+4. **Lot 7b** : modèles fidèles à vos rapports de référence, et blocs issus des lots 4 et 5.
+5. **Lot 8**, Partenaires & TPM (retours 28 à 30) :
+   - fiche prestataire 360° et évaluation du TPM ;
+   - formations en sessions ;
+   - évaluation des agents (note tirée des données, plus une appréciation) ;
+   - planification et budget en Excel ;
+   - rapports attendus créés à l'approbation du plan (financier / technique, pièces jointes) ;
+   - TPM actif selon le contrat.
+
+   Constats déjà faits : un rapport technique ne s'ouvre pas ; créer un rapport le soumet d'office ; un rapport soumis peut être supprimé.
+6. **Autres** :
+   - PDD : rations, planification par commune, stock par donateur ;
+   - fidélité de la facture au gabarit de mai ;
+   - centre d'import multi-sources (écran).
+
+## Points d'attention
+
+- **À confirmer de votre côté.** Avec la règle « date d'enquête », 156 soumissions Nutrition reçues en avril 2026 sont rangées d'août 2024 à décembre 2025, d'après leur seule date SvyDate. Ces dates sont-elles fiables ?
+- **Classeur d'activation.** La colonne « Code POI » y est décalée par rapport aux lignes. Le rattachement se fait par le nom dans le district ; un export corrigé améliorerait les liens.
+- **Performance sur de longues périodes.** Sur un banc de 58 727 soumissions, certaines vues sur 12 à 24 mois dépassent leur budget (1,8 à 3 s). Les pistes sont dans [`SPEC_LOT_1B.md`](SPEC_LOT_1B.md) : décomptes additifs en cache, calcul dans le worker.
+- **Fonds de carte en ligne.** Les fonds OpenStreetMap sont optionnels : la carte vectorielle hors ligne est toujours dessinée.
+- **Reprise après une limite d'usage.** Le travail est enregistré au fil de l'eau sur `wip/1b-core`, `wip/1b-rest`, `wip/6a` et `wip/7a`. Un point de contrôle automatique relance ce qui s'est interrompu.
 
 ---
 
-_Ce document est mis à jour au fil des livraisons ; chaque tâche terminée y est cochée avec son commit._
+_Ce document est mis à jour à chaque publication sur `main` et à chaque changement de plan ; le détail heure par heure est dans le journal._
