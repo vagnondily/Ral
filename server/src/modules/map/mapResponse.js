@@ -35,6 +35,39 @@ function indexRows(facts, subs) {
   return out;
 }
 
+/**
+ * Bureaux du filtre dans l'ordre de l'ARBRE (bureau, puis ses antennes, puis leurs
+ * sous-antennes…, chaque niveau par nom) avec leur profondeur et `hasChildren` (« et ses
+ * antennes » : le filtre d'un bureau inclut tout son sous-arbre, à n'importe quel niveau).
+ * Un parent absent ou un cycle de parenté n'égare aucun bureau : il est rangé comme racine.
+ * @param {{id:string, name:string, parentId?:string|null}[]} offices
+ * @returns {object[]} mêmes objets + { depth, hasChildren }
+ */
+function officeTree(offices) {
+  const list = offices || [];
+  const byId = new Map(list.map((o) => [o.id, o]));
+  const children = new Map();
+  for (const o of list) {
+    const p = o.parentId && byId.has(o.parentId) && o.parentId !== o.id ? o.parentId : null;
+    if (!children.has(p)) children.set(p, []);
+    children.get(p).push(o);
+  }
+  const byName = (a, b) => String(a.name).localeCompare(String(b.name), 'fr') || String(a.id).localeCompare(String(b.id));
+  const out = [];
+  const seen = new Set();
+  const walk = (o, depth) => {
+    if (seen.has(o.id)) return;
+    seen.add(o.id);
+    const kids = (children.get(o.id) || []).filter((k) => !seen.has(k.id)).sort(byName);
+    out.push({ ...o, depth, hasChildren: kids.length > 0 });
+    for (const k of kids) walk(k, depth + 1);
+  };
+  for (const r of (children.get(null) || []).sort(byName)) walk(r, 0);
+  // Cycle de parenté (aucune racine) : chaque bureau non atteint devient une racine.
+  for (const o of [...list].sort(byName)) if (!seen.has(o.id)) walk(o, 0);
+  return out;
+}
+
 const sortZones = (list) => list.sort((a, b) => (b.counts.active - a.counts.active) || (b.counts.submissions - a.counts.submissions) || String(a.name).localeCompare(String(b.name)));
 
 /**
@@ -126,10 +159,10 @@ function buildDistrictsResponse(raw, { period, officeId = null, activity = null,
     unplaced: { sites: unplaced.sites, ...lite(unplaced) },
     submissionsUnlocated: unplaced.submissions,
     totals: zoneOf(total.counts),
-    filtersAvailable: raw.filters,
+    filtersAvailable: { ...raw.filters, offices: officeTree(raw.filters.offices) },
     countKeys: COUNT_KEYS,
     computedAt: now.toISOString(),
   };
 }
 
-module.exports = { buildDistrictsResponse, indexRows };
+module.exports = { buildDistrictsResponse, indexRows, officeTree };

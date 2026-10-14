@@ -198,7 +198,7 @@ async function shapeLinksTx(client, tenantId, shapeSet = SHAPE_SET) {
   return rows;
 }
 
-/** Filtres proposés : bureaux (avec leur bureau parent) et activités du registre (effectifs). */
+/** Filtres proposés : bureaux (avec leur bureau parent ; ordre de l'arbre : mapResponse.officeTree) et activités du registre (effectifs). */
 async function filtersAvailableTx(client, tenantId) {
   const { rows: offices } = await client.query(
     `SELECT f.id, f.name, f.code, f.parent_id AS "parentId", p.name AS "parentName"

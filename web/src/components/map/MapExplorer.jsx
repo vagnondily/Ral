@@ -204,8 +204,10 @@ export default function MapExplorer({
         <span>{tr('Bureau')}</span>
         <select className="select" value={officeId || ''} onChange={(e) => setOfficeId(e.target.value || null)}>
           <option value="">{tr('Tous')}</option>
+          {/* Ordre de l'arbre (serveur) : retrait par niveau ; tout bureau qui a des antennes, à
+              n'importe quel niveau, les inclut — et le dit. */}
           {data.filtersAvailable.offices.map((o) => (
-            <option key={o.id} value={o.id}>{o.parentId ? `  ${o.name}` : tr('{name} (et ses antennes)', { name: o.name })}</option>
+            <option key={o.id} value={o.id}>{`${'\u00a0\u00a0\u00a0'.repeat(o.depth || 0)}${o.hasChildren ? tr('{name} (et ses antennes)', { name: o.name }) : o.name}`}</option>
           ))}
         </select>
       </label>

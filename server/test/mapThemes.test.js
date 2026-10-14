@@ -170,3 +170,28 @@ test('réponse districts : district masqué (« ne pas dessiner ») et district 
   assert.deepEqual(r.shapes, []);
   assert.deepEqual(countsOf(r.totals.counts).active, 7);
 });
+
+test('filtre bureau : ordre de l\'arbre (bureau, antennes, sous-antennes), profondeur, « et ses antennes » à tout niveau ; cycle sans perte', () => {
+  const { officeTree } = require('../src/modules/map/mapResponse');
+  const offices = [
+    { id: 'bek', name: 'Antenne Bekily', parentId: 'amb' },
+    { id: 'tsi', name: 'Antenne Tsihombe', parentId: 'amb' },
+    { id: 'amp', name: 'Bureau Ampanihy', parentId: null },
+    { id: 'fd', name: 'Bureau Fort Dauphin', parentId: null },
+    { id: 'amb', name: 'Antenne Ambovombe', parentId: 'fd' },
+    { id: 'ama', name: 'Antenne Amboasary', parentId: 'fd' },
+    { id: 'orph', name: 'Antenne orpheline', parentId: 'inconnu' },
+  ];
+  const t = officeTree(offices);
+  assert.deepEqual(t.map((o) => [o.name, o.depth, o.hasChildren]), [
+    ['Antenne orpheline', 0, false],
+    ['Bureau Ampanihy', 0, false],
+    ['Bureau Fort Dauphin', 0, true],
+    ['Antenne Amboasary', 1, false],
+    ['Antenne Ambovombe', 1, true],
+    ['Antenne Bekily', 2, false],
+    ['Antenne Tsihombe', 2, false],
+  ]);
+  const cyc = officeTree([{ id: 'a', name: 'A', parentId: 'b' }, { id: 'b', name: 'B', parentId: 'a' }]);
+  assert.deepEqual(cyc.map((o) => [o.name, o.depth]), [['A', 0], ['B', 1]]);
+});
