@@ -423,9 +423,15 @@ async function indicatorPreview(tenantId, formId, def, period = null) {
     const isCalc = defs.some((d) => d.name.toLowerCase() === src.toLowerCase());
     const needed = isCalc ? calcReferences(defs) : new Set();
     needed.add(src.toLowerCase());
-    const p = [tenantId, formId, [...needed]];
+    // Réponses réduites comme pour les résultats (indicatorKeys) : les clés connues inutiles sont
+    // retirées en SQL (`data - clés`, une fonction C par ligne) — dérouler chaque réponse
+    // (jsonb_each, sous-requête par soumission) coûtait 2 à 3 fois plus (banc : 545 ms sur 12 mois).
+    const p = [tenantId, formId];
+    const drop = unusedKeys(await knownKeysTx(client, tenantId, formId), [...needed]);
+    let data = 's.data';
+    if (drop.length) { p.push(drop); data = dataWithout('s', `$${p.length}`); }
     const { rows } = await client.query(
-      `SELECT COALESCE((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(s.data) e WHERE lower(e.key) = ANY($3::text[])), '{}'::jsonb) AS data
+      `SELECT ${data} AS data
          FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${submissionFilter('s', period, p)}`, p);
     const subs = isCalc ? withCalc(rows, defs) : rows;
     // Variable décrite comme dans le sélecteur : question, option éclatée, colonne ou champ calculé.
@@ -1591,9 +1597,14 @@ async function processOverview(tenantId, periodLike = null) {
     const trend = await monthlyTrend(client, tenantId, period);
     // Dernier mois ayant des données (hors exclues, pas dans le futur) : l'écran
     // s'y place quand le mois demandé est vide, au lieu d'afficher des zéros.
+    // Fiche par fiche, par l'index (tenant, fiche, mois) lu à rebours : jamais toute la table.
     const { rows: [last] } = await client.query(
-      `SELECT to_char(max(period_month), 'YYYY-MM') AS month FROM monitoring_submissions
-        WHERE tenant_id = $1 AND NOT excluded AND period_month <= date_trunc('month', now())::date`,
+      `SELECT to_char(max(l.m), 'YYYY-MM') AS month
+         FROM monitoring_forms f
+         CROSS JOIN LATERAL (SELECT max(s.period_month) AS m FROM monitoring_submissions s
+                              WHERE s.tenant_id = $1 AND s.form_id = f.id AND NOT s.excluded
+                                AND s.period_month <= date_trunc('month', now())::date) l
+        WHERE f.tenant_id = $1`,
       [tenantId]
     );
     // Par bureau, toutes fiches : un nom (bureau MEMS ou libellé de la fiche), jamais un code nu ;

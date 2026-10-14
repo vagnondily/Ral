@@ -278,12 +278,14 @@ async function choiceContextTx(client, tenantId) {
     'SELECT form_id AS "formId", name, list_name AS "listName" FROM monitoring_form_fields WHERE tenant_id = $1', [tenantId]);
   // Colonnes réellement présentes dans les données : le XLSForm peut décrire « EnuPartner » alors
   // que l'export porte « CPList ». Une seule soumission par fiche est ouverte (LATERAL … LIMIT 1),
-  // jamais les clés JSON de toutes les soumissions.
+  // jamais les clés JSON de toutes les soumissions : celle du dernier mois de collecte, lue par
+  // l'index (tenant, fiche, mois) — trier sur created_at relisait toutes les soumissions de la
+  // fiche (banc : 90 ms par requête d'analyse, 1 ms ainsi).
   const { rows: samples } = await client.query(
     `SELECT f.id AS "formId", ARRAY(SELECT jsonb_object_keys(s.data)) AS keys
        FROM monitoring_forms f
        CROSS JOIN LATERAL (SELECT data FROM monitoring_submissions ms
-                            WHERE ms.tenant_id = $1 AND ms.form_id = f.id ORDER BY ms.created_at DESC LIMIT 1) s
+                            WHERE ms.tenant_id = $1 AND ms.form_id = f.id ORDER BY ms.period_month DESC LIMIT 1) s
       WHERE f.tenant_id = $1`, [tenantId]);
   const dataKeys = new Map(samples.map((r) => [r.formId, new Set((r.keys || []).map((k) => k.toLowerCase()))]));
   return { fields, dataKeys };
