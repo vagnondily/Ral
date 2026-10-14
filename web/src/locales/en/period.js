@@ -153,7 +153,8 @@ export default {
   // ---- Listes sur une plage : Rapports & dépenses, Distribution d'urgence, Couverture du suivi (C14)
   'Plan de distribution de la période : table fidèle au classeur, filtrable et exportable.': 'Distribution plan for the period: table faithful to the workbook, filterable and exportable.',
   '— plan de distribution de la période': '— distribution plan for the period',
-  '{n} premières lignes sur {total} : réduisez la période pour tout voir.': 'First {n} rows out of {total}: narrow the period to see them all.',
+  'La liste montre les {n} premières lignes sur {total} (filtres et CSV portent sur celles-ci) : réduisez la période pour tout voir. Les chiffres clés portent sur toute la période.':
+    'The list shows the first {n} rows out of {total} (filters and CSV apply to them): narrow the period to see them all. The key figures cover the whole period.',
   'Distributions de la période': 'Distributions over the period',
   'Tonnage de la période': 'Tonnage over the period',
   'Aucune distribution sur la période': 'No distribution over the period',

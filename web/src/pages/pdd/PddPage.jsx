@@ -28,6 +28,8 @@ import { useI18n } from '../../lib/i18n.jsx';
 
 /** Période d'une vue PDD : URL seulement, toutes les périodes par défaut. */
 const usePddPeriod = () => usePeriod({ scope: 'local', defaultRule: 'all' });
+// Lignes de distribution chargées au plus dans la liste (10 pages de 2 000) ; au-delà, la liste le dit.
+const PDD_LIST_MAX = 20000;
 /** Volume de lignes par mois { 'AAAA-MM': n } d'une synthèse (sélecteur de période). */
 const countsOfSummary = (s) => Object.fromEntries(Object.entries((s && s.byMonth) || {}).map(([m, a]) => [m, a.lines]));
 const latestOf = (counts) => { const ms = Object.keys(counts || {}).sort(); return ms.length ? ms[ms.length - 1] : null; };
@@ -79,7 +81,10 @@ function DistributionsView({ canEdit, onNavigate }) {
   const picking = !period;
   const key = period ? `${period.from}|${period.to}` : '';
   const [summary, setSummary] = useState(null); // tableau des mois : synthèse de toutes les périodes
-  const [total, setTotal] = useState(0);         // lignes de la période (la liste est bornée)
+  const [total, setTotal] = useState(0);         // lignes de la période (toutes, comptées en SQL)
+  // Chiffres clés de la période : agrégat SQL de la période (GET /pdd/summary), jamais une somme
+  // des lignes chargées dans la liste.
+  const [periodTotal, setPeriodTotal] = useState(null);
   const fileRef = useRef(null);
 
   const reloadSummary = useCallback(() => {
@@ -87,11 +92,13 @@ function DistributionsView({ canEdit, onNavigate }) {
     api.pddSummary({}).then(setSummary).catch((e) => setError(e.message));
   }, []);
   useEffect(() => { reloadSummary(); }, [reloadSummary]);
-  // Distributions de la période : lecture bornée (2 000 lignes), le total dit s'il y en a plus.
+  // Distributions de la période : toutes les pages (2 000 lignes par réponse) jusqu'à 20 000 lignes ;
+  // au-delà, la liste le dit — les chiffres clés restent ceux de toute la période.
   const reloadRows = useCallback(() => {
-    if (!period) { setRows(null); return; }
-    setRows(null);
-    api.pddDistributions({ period, limit: 2000 })
+    if (!period) { setRows(null); setPeriodTotal(null); return; }
+    setRows(null); setPeriodTotal(null);
+    api.pddSummary({ period }).then((s) => setPeriodTotal(s.total)).catch((e) => setError(e.message));
+    api.pddDistributionsAll({ period, max: PDD_LIST_MAX })
       .then((r) => { setRows(r.rows); setTotal(r.total); })
       .catch((e) => setError(e.message));
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -127,15 +134,8 @@ function DistributionsView({ canEdit, onNavigate }) {
     if (f) runImport(f);
   };
 
-  // Totaux de la période affichée (lignes chargées ; la liste est bornée, le total le dit).
-  const stats = useMemo(() => {
-    const s = { lines: 0, beneficiaries: 0, households: 0, cashUsd: 0, totalFood: 0 };
-    for (const r of rows || []) {
-      s.lines += 1; s.beneficiaries += r.beneficiaries || 0; s.households += r.households || 0;
-      s.cashUsd += Number(r.cashUsd) || 0; s.totalFood += Number(r.totalFood) || 0;
-    }
-    return s;
-  }, [rows]);
+  // Totaux de la période : l'agrégat SQL (toutes les lignes de la période), jamais la liste.
+  const stats = periodTotal;
 
   // Un enregistrement par mois pour le tableau de navigation — agrégé en SQL (synthèse).
   const monthsAgg = useMemo(() => (summary ? Object.entries(summary.byMonth || {})
@@ -226,7 +226,7 @@ function DistributionsView({ canEdit, onNavigate }) {
         onForce={canEdit && importReport.partialAllowed ? () => runImport(importReport.fileRef, { partial: true }) : null} />}
 
       {picking ? (
-        <PddMonthsTable data={monthsAgg} total={summary ? summary.total : stats} onOpen={openMonth}
+        <PddMonthsTable data={monthsAgg} total={summary ? summary.total : null} onOpen={openMonth}
           canEdit={canEdit} onTemplate={downloadTemplate} onImport={() => fileRef.current?.click()} />
       ) : (
         <>
@@ -235,15 +235,15 @@ function DistributionsView({ canEdit, onNavigate }) {
             <span className="muted">{spanMonths(period) > 1 ? tr('— plan de distribution de la période') : tr('— plan de distribution du mois')}</span>
           </div>
           {rows && total > rows.length && (
-            <Alert tone="info" icon={AlertTriangle}>{tr('{n} premières lignes sur {total} : réduisez la période pour tout voir.', { n: formatInt(rows.length), total: formatInt(total) })}</Alert>
+            <Alert tone="info" icon={AlertTriangle}>{tr('La liste montre les {n} premières lignes sur {total} (filtres et CSV portent sur celles-ci) : réduisez la période pour tout voir. Les chiffres clés portent sur toute la période.', { n: formatInt(rows.length), total: formatInt(total) })}</Alert>
           )}
 
           <Stats compact items={[
-            { label: tr('Lignes'), value: rows ? formatInt(stats.lines) : '—', foot: tr('Distributions de la période') },
-            { label: tr('Bénéficiaires'), value: rows ? formatInt(stats.beneficiaries) : '—', foot: spanMonths(period) > 1 ? tr('cumul sur la période') : tr('Toutes modalités') },
-            { label: tr('Ménages'), value: rows ? formatInt(stats.households) : '—', foot: spanMonths(period) > 1 ? tr('cumul sur la période') : tr('Toutes modalités') },
-            { label: tr('Vivres'), value: rows ? fmtMt(stats.totalFood) : '—', foot: tr('Tonnage de la période') },
-            { label: tr('Cash (CBT)'), value: rows ? fmtUsd(stats.cashUsd) : '—', foot: tr('Transferts monétaires') },
+            { label: tr('Lignes'), value: stats ? formatInt(stats.lines) : '—', foot: tr('Distributions de la période') },
+            { label: tr('Bénéficiaires'), value: stats ? formatInt(stats.beneficiaries) : '—', foot: spanMonths(period) > 1 ? tr('cumul sur la période') : tr('Toutes modalités') },
+            { label: tr('Ménages'), value: stats ? formatInt(stats.households) : '—', foot: spanMonths(period) > 1 ? tr('cumul sur la période') : tr('Toutes modalités') },
+            { label: tr('Vivres'), value: stats ? fmtMt(stats.totalFood) : '—', foot: tr('Tonnage de la période') },
+            { label: tr('Cash (CBT)'), value: stats ? fmtUsd(stats.cashUsd) : '—', foot: tr('Transferts monétaires') },
           ]} />
 
           {rows === null ? <Card><div className="card-body"><Skeleton height={200} /></div></Card> : <DataList

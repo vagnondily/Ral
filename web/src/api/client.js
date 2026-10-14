@@ -547,6 +547,21 @@ export const api = {
   pddCommodities: () => request('/api/pdd/commodities'),
   // Distributions : lecture bornée { rows, total, limit, offset } ; { period | month, hazard, region, district, limit, offset }.
   pddDistributions: ({ period, month, ...rest } = {}) => request('/api/pdd/distributions', { query: qs({ ...pq(period || month), ...rest }) }),
+  // Toutes les lignes de la période, page après page (2 000 par réponse, chacune bornée), jusqu'au
+  // total ou à `max` lignes : { rows, total } — la liste, ses filtres et son CSV portent sur tout.
+  pddDistributionsAll: async ({ period, month, max = 20000, ...rest } = {}) => {
+    const rows = [];
+    let total = 0;
+    while (rows.length < max) {
+      const page = await request('/api/pdd/distributions', {
+        query: qs({ ...pq(period || month), ...rest, limit: Math.min(2000, max - rows.length), offset: rows.length || undefined }),
+      });
+      total = page.total;
+      rows.push(...(page.rows || []));
+      if (!page.rows || !page.rows.length || rows.length >= total) break;
+    }
+    return { rows, total };
+  },
   // Synthèse : cumul sur la période + pic mensuel (`peak`).
   pddSummary: ({ period, month, ...rest } = {}) => request('/api/pdd/summary', { query: qs({ ...pq(period || month), ...rest }) }),
   // Pipeline : une période { from, to } (mois par mois) ou un mois « AAAA-MM » ; rien = tous les mois.
