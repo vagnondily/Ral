@@ -44,9 +44,7 @@ const SCALAR_AGGS = new Set(['count', 'sum', 'mean']);
 const isPercentAgg = (agg) => !SCALAR_AGGS.has(agg);
 /** Valeurs comptées comme positives (« 1|2 » → ['1', '2']). */
 const positiveList = (positiveValue) => (positiveValue == null ? [] : String(positiveValue).split('|').map((x) => x.trim()).filter(Boolean));
-/** Clé d'affichage d'une réponse (comptage par valeur) : le texte sans espaces autour. */
-const valueKey = (v) => { const s = String(v); return s.trim() === '' ? s : s.trim(); };
-const bump = (map, k) => map.set(k, (map.get(k) || 0) + 1);
+const bumpBy = (map, k, w) => map.set(k, (map.get(k) || 0) + w);
 
 /**
  * Décompte d'un indicateur sur des soumissions — LA boucle du calcul : la
@@ -56,30 +54,72 @@ const bump = (map, k) => map.set(k, (map.get(k) || 0) + 1);
  *   vide ; naExcluded = codes « hors base » écartés (par valeur) ; values =
  *   réponses comptées (par valeur) ; answered = nombre de réponses comptées ;
  *   positives (méthodes en %) ; numeric / sum (moyenne, somme).
+ *
+ * Le décompte est ADDITIF (lot 7a) : les soumissions lues page par page, ou par
+ * bureau, donnent des décomptes que mergeTallies réunit sans relire les données.
+ * La somme est faite par valeur distincte (byNumber), dans l'ordre croissant des
+ * valeurs (Σ valeur × effectif) : elle ne dépend ni de l'ordre des lignes ni de
+ * leur découpage — un décompte réuni est identique, au bit près, au décompte
+ * d'un seul tenant.
  */
 function tallyIndicator(indicator, submissions, names = [indicator.sourceField]) {
   const na = naSet(indicator.naValues);
   const pct = isPercentAgg(indicator.agg);
   const numericAgg = indicator.agg === 'sum' || indicator.agg === 'mean';
-  const t = { total: 0, absent: 0, blank: 0, naExcluded: new Map(), values: new Map(), answered: 0, positives: 0, numeric: 0, sum: 0 };
+  // Valeurs positives lues une fois (même règle que isYes, sans relire positiveValue à chaque ligne).
+  const posList = indicator.positiveValue != null && indicator.positiveValue !== '' ? new Set(positiveList(indicator.positiveValue).map((x) => x.toLowerCase())) : null;
+  const t = emptyTally();
+  const has = Object.prototype.hasOwnProperty;
   for (const s of submissions || []) {
     t.total += 1;
     const d = s.data || {};
-    const field = names.find((n) => Object.prototype.hasOwnProperty.call(d, n));
+    const field = names.find((n) => has.call(d, n));
     if (field === undefined) { t.absent += 1; continue; }
     const v = d[field];
     if (v == null || v === '') { t.blank += 1; continue; } // non répondue : hors base
+    const trimmed = String(v).trim();
+    const low = trimmed.toLowerCase();
+    // Clé d'affichage d'une réponse (comptage par valeur) : le texte sans espaces autour.
+    const key = trimmed === '' ? String(v) : trimmed;
     // Codes « hors base » écartés pour toutes les méthodes (une moyenne avec 9999 n'a pas de sens).
-    if (na.has(String(v).trim().toLowerCase())) { bump(t.naExcluded, valueKey(v)); continue; }
+    if (na.has(low)) { bumpBy(t.naExcluded, key, 1); continue; }
     t.answered += 1;
-    bump(t.values, valueKey(v));
+    bumpBy(t.values, key, 1);
     if (pct) {
-      if (isYes(v, indicator.positiveValue) === 1) t.positives += 1;
+      if (posList ? posList.has(low) : YES.has(low)) t.positives += 1;
     } else if (numericAgg) {
       const n = toNumber(v);
-      if (n != null) { t.numeric += 1; t.sum += n; }
+      if (n != null) { t.numeric += 1; bumpBy(t.byNumber, n, 1); }
     }
   }
+  t.sum = sumOf(t.byNumber);
+  return t;
+}
+
+function emptyTally() {
+  return { total: 0, absent: 0, blank: 0, naExcluded: new Map(), values: new Map(), answered: 0, positives: 0, numeric: 0, byNumber: new Map(), sum: 0 };
+}
+
+/** Σ valeur × effectif, valeurs dans l'ordre croissant : indépendant de l'ordre de lecture. */
+function sumOf(byNumber) {
+  let sum = 0;
+  for (const [n, c] of [...byNumber.entries()].sort((a, b) => a[0] - b[0])) sum += n * c;
+  return sum;
+}
+
+/**
+ * Réunion de décomptes du MÊME indicateur (pages de lecture, bureaux, mois…) :
+ * identique au décompte de toutes leurs soumissions d'un seul tenant.
+ * @param {object[]} tallies décomptes de tallyIndicator (ou de mergeTallies)
+ */
+function mergeTallies(tallies) {
+  const t = emptyTally();
+  for (const x of tallies || []) {
+    if (!x) continue;
+    for (const k of ['total', 'absent', 'blank', 'answered', 'positives', 'numeric']) t[k] += x[k];
+    for (const k of ['naExcluded', 'values', 'byNumber']) for (const [v, c] of x[k]) bumpBy(t[k], v, c);
+  }
+  t.sum = sumOf(t.byNumber);
   return t;
 }
 
@@ -214,16 +254,24 @@ function keyIndex(submissions) {
   }
   return idx;
 }
-/** Noms à essayer pour une variable : le nom exact d'abord, puis ses variantes de casse présentes dans les données. */
+/**
+ * Noms à essayer pour une variable : le nom exact d'abord, puis ses variantes de
+ * casse présentes dans les données, dans un ordre FIXE (tri par code) — le choix
+ * d'une ligne qui porterait deux variantes ne dépend pas de l'ordre de lecture
+ * (le chemin par histogramme SQL applique la même priorité).
+ */
 function namesFor(field, idx) {
-  const alts = idx ? [...(idx.get(String(field).toLowerCase()) || [])].filter((k) => k !== field) : [];
+  const alts = idx ? [...(idx.get(String(field).toLowerCase()) || [])].filter((k) => k !== field).sort() : [];
   return [field, ...alts];
 }
 
-/** Compute every indicator of a form over the given submissions. */
-function computeAll(indicators, submissions) {
-  const idx = keyIndex(submissions);
-  return (indicators || []).map((ind) => ({
+/**
+ * Définition d'un indicateur telle que la renvoient les résultats (sans la valeur) :
+ * partagée par computeAll (soumissions une à une) et computeAllFromHistogram
+ * (histogrammes SQL) — un seul objet résultat.
+ */
+function indicatorMeta(ind) {
+  return {
     id: ind.id,
     code: ind.code,
     label: ind.label,
@@ -239,6 +287,14 @@ function computeAll(indicators, submissions) {
     naValues: Array.isArray(ind.naValues) ? ind.naValues : [],
     templateCode: ind.templateCode ?? null,
     active: ind.active !== false,
+  };
+}
+
+/** Compute every indicator of a form over the given submissions. */
+function computeAll(indicators, submissions) {
+  const idx = keyIndex(submissions);
+  return (indicators || []).map((ind) => ({
+    ...indicatorMeta(ind),
     ...computeIndicator(ind, submissions, namesFor(ind.sourceField, idx)),
   }));
 }
@@ -259,8 +315,12 @@ const round4 = (n) => Math.round(n * 1e4) / 1e4;
  *   distribution: Array<{value,label,n,role}>, others: {n, positives}, distinct, classification }}
  *   role ∈ positive | negative (méthodes en %), counted | ignored (moyenne, somme, nombre).
  */
-function explainIndicator(indicator, submissions, names = [indicator.sourceField], { choiceLabels, top = DISTRIBUTION_TOP } = {}) {
-  const t = tallyIndicator(indicator, submissions, names);
+function explainIndicator(indicator, submissions, names = [indicator.sourceField], opts = {}) {
+  return explainFromTally(indicator, tallyIndicator(indicator, submissions, names), opts);
+}
+
+/** Explication à partir d'un décompte déjà fait (tallyIndicator ou mergeTallies) : voir explainIndicator. */
+function explainFromTally(indicator, t, { choiceLabels, top = DISTRIBUTION_TOP } = {}) {
   const r = resultFromTally(indicator, t);
   const pct = isPercentAgg(indicator.agg);
   const labelOf = (v) => {
@@ -273,10 +333,13 @@ function explainIndicator(indicator, submissions, names = [indicator.sourceField
     if (indicator.agg === 'count') return 'counted';
     return toNumber(v) == null ? 'ignored' : 'counted';
   };
-  const sorted = [...t.values.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'fr', { numeric: true }));
+  // Ordre FIXE (effectif, puis valeur) : l'explication ne dépend pas de l'ordre de lecture des soumissions.
+  const byCount = (a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'fr', { numeric: true })
+    || (String(a[0]) < String(b[0]) ? -1 : String(a[0]) > String(b[0]) ? 1 : 0);
+  const sorted = [...t.values.entries()].sort(byCount);
   const distribution = sorted.slice(0, top).map(([value, n]) => ({ value, label: labelOf(value), n, role: roleOf(value) }));
   const rest = sorted.slice(top);
-  const na = [...t.naExcluded.entries()].sort((a, b) => b[1] - a[1]).map(([value, n]) => ({ value, label: labelOf(value), n }));
+  const na = [...t.naExcluded.entries()].sort(byCount).map(([value, n]) => ({ value, label: labelOf(value), n }));
   let numerator = null;
   let denominator = null;
   if (pct) { numerator = t.positives; denominator = t.answered; } else if (indicator.agg === 'mean') { numerator = round4(t.sum); denominator = t.numeric; } else if (indicator.agg === 'sum') numerator = round4(t.sum);
@@ -369,5 +432,6 @@ function naReason(result, { periodCount } = {}) {
 
 module.exports = {
   computeIndicator, computeAll, rate, classify, classifyDetail, displayGap, BANDS, TARGET_GAPS, overallIndex, orientedScore, toNumber, isYes,
-  keyIndex, namesFor, tallyIndicator, explainIndicator, isPercentAgg, positiveList, naReason,
+  keyIndex, namesFor, tallyIndicator, mergeTallies, resultFromTally, indicatorMeta, explainIndicator, explainFromTally,
+  isPercentAgg, positiveList, naReason,
 };

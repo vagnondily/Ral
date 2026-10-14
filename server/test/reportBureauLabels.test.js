@@ -25,11 +25,11 @@ db.withTenantTransaction = async (tenantId, fn) => fn({
     if (/FROM monitoring_forms f WHERE f\.tenant_id = \$1 AND f\.active = true/.test(s)) {
       return { rows: [{ id: FORM, code: 'GD', label: LONG, activityCategory: null, sitesActive: 0 }] };
     }
-    if (/AS "bureauKey"/.test(s)) {
+    // Comptages par bureau des faits d'indicateurs (histogramme, lot 7a) : 2 soumissions du code 7, 1 du bureau relié.
+    if (/AS "officeStatus"/.test(s)) {
       return { rows: [
-        { data: {}, bureauKey: `code:${FORM}:7`, bureauStatus: 'non_relie', bureauName: null, bureauCode: '7', sitekey: 's1' },
-        { data: {}, bureauKey: `code:${FORM}:7`, bureauStatus: 'non_relie', bureauName: null, bureauCode: '7', sitekey: 's2' },
-        { data: {}, bureauKey: 'id:o1', bureauStatus: 'relie', bureauName: 'Antenne Bekily', bureauCode: '3', sitekey: 's3' },
+        { g: `code:${FORM}:7`, total: 2, sites: 2, officeStatus: 'non_relie', officeName: null, officeCode: '7' },
+        { g: 'id:o1', total: 1, sites: 1, officeStatus: 'relie', officeName: 'Antenne Bekily', officeCode: '3' },
       ] };
     }
     if (/count\(\*\)::int AS visits/.test(s)) return { rows: [{ visits: 3, sitesVisited: 3 }] };
