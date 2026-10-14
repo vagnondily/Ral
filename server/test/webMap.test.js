@@ -120,6 +120,36 @@ test('barre d\'échelle : longueur ronde, calculée à la latitude du centre, �
   assert.ok(m.scaleBar(tr, -19, { zoom: 4 }).km < sb.km);
 });
 
+test('export (buildExportSvg) : titre, période, filtres, légende, nord, échelle, carte de situation, pied ; textes échappés ; aucune URL', async (t) => {
+  const m = await load(t, 'mapExport.js'); if (!m) return;
+  const sq = (x, y, d = 1) => ({ type: 'Polygon', coordinates: [[[x, y], [x + d, y], [x + d, y + d], [x, y + d], [x, y]]] });
+  const features = [
+    { properties: { key: 'a', name: '<script>alert(1)</script>', label: [44.5, -24.5], bbox: [44, -25, 45, -24], area: 1 }, geometry: sq(44, -25) },
+    { properties: { key: 'b', name: 'Bekily & Co', label: [45.5, -24.5], bbox: [45, -25, 46, -24], area: 1 }, geometry: sq(45, -25) },
+    { properties: { key: 'c', name: 'Hors périmètre', label: [46.5, -20.5], bbox: [46, -21, 47, -20], area: 1 }, geometry: sq(46, -21) },
+  ];
+  const svg = m.buildExportSvg({
+    title: 'Couverture du suivi — Couverture par district', subtitle: 'Période : Septembre 2026 · Bureau : Tous · Activité : Toutes',
+    legendTitle: 'Couverture (%)', legend: [{ color: '#86b6ef', label: '0' }, { color: '#0d366b', label: '≥ 80' }],
+    extras: [{ kind: 'empty', label: 'Aucun site actif' }, { kind: 'hatch', label: '— aucun plan' }, { kind: 'site', status: 'realise', label: 'Site visité' }],
+    features, fills: { a: '#86b6ef', b: 'hatch' }, regions: { a: 'Androy', b: 'Androy', c: 'Anosy' }, withData: ['a', 'b'],
+    points: { sites: [{ lng: 44.5, lat: -24.6, status: 'realise' }], bins: [{ lng: 45.52, lat: -24.48, n: 3 }] },
+    footer: 'Source : registre des sites, visites et soumissions MEMS · période Sept. 2026 · calculé le 14/10/2026', locatorLabel: 'Carte de situation',
+  });
+  assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="1600" height="1100"/);
+  for (const s of ['Couverture du suivi — Couverture par district', 'Septembre 2026', 'Bureau : Tous', 'Couverture (%)', '≥ 80', 'Aucun site actif',
+    'id="x-locator"', 'Carte de situation', 'km</text>', '>N</text>', 'MEMS 2.0 · Suivi &amp; évaluation', 'calculé le 14/10/2026', 'url(#x-hatch)']) {
+    assert.ok(svg.includes(s), s);
+  }
+  assert.ok(!svg.includes('<script>'), 'nom neutralisé');
+  assert.ok(svg.includes('&lt;script&gt;alert(1)&lt;/script&gt;') || !svg.includes('alert(1)'));
+  assert.ok(svg.includes('Bekily &amp; Co'));
+  assert.doesNotMatch(svg, /WFP|PAM/);
+  assert.deepEqual([...svg.matchAll(/https?:\/\/[^"' )]+/g)].map((x) => x[0]), ['http://www.w3.org/2000/svg'], 'aucune URL externe, aucune tuile');
+  assert.match(svg, /fill="#6250d6" fill-opacity="\.55"/); // points de collecte en mailles
+  assert.equal(m.esc('"<a>"'), '&quot;&lt;a&gt;&quot;');
+});
+
 test('étiquettes : aucun chevauchement, priorité aux grandes aires, hors cadre omises', async (t) => {
   const m = await load(t, 'mapLabels.js'); if (!m) return;
   const items = [

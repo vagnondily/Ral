@@ -114,7 +114,14 @@ const DistrictMap = forwardRef(function DistrictMap({
     zoomToPoint: (lng, lat) => zoomToBbox([lng - 0.15, lat - 0.15, lng + 0.15, lat + 0.15]),
     svg: () => svgRef.current,
     view: () => view,
-  }), [zoomToBbox, reset, features, view]);
+    // Emprise affichée (degrés) quand la carte est zoomée, sinon null (cadre des données).
+    extent: () => {
+      if (!t || view.s <= 1.001) return null;
+      const [w0, n0] = t.invert((0 - view.x) / view.s, (0 - view.y) / view.s);
+      const [e0, s0] = t.invert((width - view.x) / view.s, (height - padBottom - view.y) / view.s);
+      return [w0, s0, e0, n0];
+    },
+  }), [zoomToBbox, reset, features, view, t, width, height, padBottom]);
 
   // Molette : seulement avec Ctrl (ou geste de pincement du pavé tactile) ; sinon la page défile.
   useEffect(() => {

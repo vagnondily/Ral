@@ -1,12 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Maximize2, SlidersHorizontal, X } from 'lucide-react';
+import { Download, Maximize2, Printer, SlidersHorizontal, X } from 'lucide-react';
+import interRegular from '@fontsource/inter/files/inter-latin-400-normal.woff2?url';
+import interBold from '@fontsource/inter/files/inter-latin-700-normal.woff2?url';
 import { Alert, Skeleton } from '../ui.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, monthLabel } from '../../lib/format.js';
 import { periodLabel } from '../../lib/period.js';
-import { scaleFor, valueOf } from '../../lib/mapScale.js';
+import { scaleFor, valueOf, classLabels } from '../../lib/mapScale.js';
+import { buildExportSvg, downloadPng, printSvg, interFontCss } from '../../lib/mapExport.js';
 import { unionBbox } from '../../lib/mapProjection.js';
 import { useMapData, useDarkTheme } from './useMapData.js';
+import { useToast } from '../Toast.jsx';
 import DistrictMap from './DistrictMap.jsx';
 import MapPanel from './MapPanel.jsx';
 import MapLayers from './MapLayers.jsx';
@@ -60,6 +64,8 @@ export default function MapExplorer({
   isAdmin = false, toolbarExtra = null, periodControl = null, onDataChange,
 }) {
   const { tr, lang } = useI18n();
+  const toast = useToast();
+  const [exporting, setExporting] = useState(false);
   const dark = useDarkTheme();
   const phone = useIsPhone();
   const compact = variant === 'compact';
@@ -168,7 +174,7 @@ export default function MapExplorer({
     return { type: 'collect', data: points.collect.points[i] };
   };
 
-  const filterBar = data && (
+  const renderFilterBar = (extra = null) => data && (
     <div className="mapx-toolbar">
       {periodControl && <div className="mapx-filter"><span>{tr('Période')}</span>{periodControl}</div>}
       <label className="mapx-filter">
@@ -203,6 +209,7 @@ export default function MapExplorer({
       )}
       <div className="mapx-toolbar-sp" />
       {toolbarExtra}
+      {extra}
     </div>
   );
 
@@ -248,6 +255,73 @@ export default function MapExplorer({
     </div>
   );
 
+  // ---- Export (image PNG, impression A4 paysage) : même contenu que l'écran, en clair,
+  // points de collecte en maille de 2 km et positions de moins de 5 relevés arrondies.
+  const exportModel = async () => {
+    const light = scaleFor(theme, data.shapes, { dark: false });
+    const fills = {};
+    for (const s of data.shapes) {
+      const v = valueOf(theme.id, s);
+      fills[s.key] = v === 'np' ? 'hatch' : (typeof v === 'number' ? light.fill(v) : null);
+    }
+    const snap2 = (p) => ({ ...p, lng: Math.round(p.lng / 0.02) * 0.02, lat: Math.round(p.lat / 0.02) * 0.02 });
+    const sites = !points ? [] : points.sites.filter((x) => (x.kind === 'gps' ? layers.gps : layers.derived))
+      .map((x) => (x.kind === 'gps' || (x.n || 0) >= 5 ? x : snap2(x)));
+    const communes = !points || !layers.communes ? [] : points.communes.map((c) => ({ ...((c.n || 0) >= 5 ? c : snap2(c)), n: c.sitesWithoutPosition }));
+    let bins = [];
+    if (points && layers.collect && points.collect) {
+      if (points.collect.mode === 'bins') bins = points.collect.bins;
+      else {
+        const m = new Map();
+        for (const p of points.collect.points) {
+          const k = `${Math.round(p.lat / 0.02)}|${Math.round(p.lng / 0.02)}`;
+          const b = m.get(k) || { lat: Math.round(p.lat / 0.02) * 0.02, lng: Math.round(p.lng / 0.02) * 0.02, n: 0 };
+          b.n += 1; m.set(k, b);
+        }
+        bins = [...m.values()];
+      }
+    }
+    const labels = classLabels(light, formatInt);
+    const officeName = officeId ? ((data.filtersAvailable.offices.find((o) => o.id === officeId) || {}).name || '') : tr('Tous');
+    const view = mapRef.current && mapRef.current.extent ? mapRef.current.extent() : null;
+    const extras = [{ kind: 'empty', label: theme.id === 'submissions' ? tr('Aucune donnée') : tr('Aucun site actif') }];
+    if (theme.id === 'planning' || theme.id === 'execution') extras.push({ kind: 'hatch', label: tr('— aucun plan') });
+    if (sites.length) {
+      for (const [st, lab] of [['realise', 'Site visité'], ['hors_plan', 'visité hors plan'], ['prevu', 'prévu'], ['non_prevu', 'non prévu'], ['inactif', 'inactif']]) extras.push({ kind: 'site', status: st, label: tr(lab) });
+    }
+    if (communes.length) extras.push({ kind: 'commune', label: tr('centre des collectes (commune)') });
+    if (bins.length) extras.push({ kind: 'collect', label: tr('points de collecte (maille de 2 km)') });
+    const fontCss = await interFontCss([[400, interRegular], [700, interBold]]);
+    return buildExportSvg({
+      title: tr('Couverture du suivi — {theme} par district', { theme: tr(theme.label) }),
+      subtitle: tr('Période : {p} · Bureau : {o} · Activité : {a}', { p: periodLabel(period, lang), o: officeName, a: activity || tr('Toutes') }),
+      legendTitle: `${tr(theme.label)}${theme.kind === 'pct' ? ' (%)' : ''}`,
+      legend: light.colors.map((c, i) => ({ color: c, label: theme.kind === 'sev' ? tr(labels[i]) : labels[i] })),
+      extras, features: geo.features, fills, regions: data.shapeRegions, withData: data.shapes.map((x) => x.key), frame: view,
+      points: { sites, communes, bins }, northLabel: tr('N'), locatorLabel: tr('Carte de situation'), fontCss,
+      footer: tr('Source : registre des sites, visites et soumissions MEMS · période {p} · sites distincts sur la période · contours des districts : {src} · calculé le {d}', {
+        p: periodText, src: data.geometry.source, d: new Date(data.computedAt).toLocaleDateString(lang === 'en' ? 'en-GB' : 'fr-FR'),
+      }),
+    });
+  };
+  const doExport = async (kind) => {
+    if (!geo || exporting) return;
+    setExporting(true);
+    try {
+      const svg = await exportModel();
+      if (kind === 'png') await downloadPng(svg, `carte-${theme.id}-${period.from}_${period.to}.png`, { scale: 2 });
+      else printSvg(svg);
+    } catch (e) {
+      toast.error(e.message || String(e));
+    } finally { setExporting(false); }
+  };
+  const exportButtons = !compact && geo && (
+    <div className="mapx-export">
+      <button type="button" className="btn btn-secondary" onClick={() => doExport('png')} disabled={exporting}><Download size={15} aria-hidden="true" />{tr('Image PNG')}</button>
+      <button type="button" className="btn btn-secondary" onClick={() => doExport('print')} disabled={exporting}><Printer size={15} aria-hidden="true" />{tr('Imprimer')}</button>
+    </div>
+  );
+
   const placed = points ? points.counts.gps + points.counts.derived : 0;
   const roSites = (data.regionOnly || []).reduce((a, x) => a + x.counts.sites, 0);
   const districtSites = data.districts.reduce((a, d) => a + d.counts.sites, 0);
@@ -281,7 +355,7 @@ export default function MapExplorer({
             )}
           </div>
         </div>
-        {filterBar}
+        {renderFilterBar()}
         <div className="mapx-cwrap">
           {mapBlock}
           <MapPanel data={data} theme={theme} scale={scale} compact level="district" onLevel={() => {}} order={order} onOrder={setOrder}
@@ -295,7 +369,7 @@ export default function MapExplorer({
 
   return (
     <div className="mapx mapx-full">
-      {filterBar}
+      {renderFilterBar(exportButtons)}
       <div className="mapx-banner">
         <b>{tr('{n} district(s) colorés', { n: formatInt(colored) })}</b>{' '}
         {tr('sur {total} contours · {d} sites rattachés à un district ({ro} à la région seulement, {u} sans localité) · {placed} site(s) placé(s) sur la carte + {c} au centre des collectes de leur commune', {

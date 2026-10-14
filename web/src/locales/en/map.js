@@ -161,6 +161,14 @@ export default {
   'dont au site': 'of which at the site',
   'Carte du suivi — tableau': 'Monitoring map — table',
   'Un contour par ligne · {p} · sites distincts sur la période': 'One outline per row · {p} · distinct sites over the period',
+  // ---- Export (image PNG, impression)
+  'Image PNG': 'PNG image',
+  'Imprimer': 'Print',
+  'points de collecte (maille de 2 km)': 'collection points (2 km grid)',
+  'Couverture du suivi — {theme} par district': 'Monitoring coverage — {theme} by district',
+  'Période : {p} · Bureau : {o} · Activité : {a}': 'Period: {p} · Office: {o} · Activity: {a}',
+  'Source : registre des sites, visites et soumissions MEMS · période {p} · sites distincts sur la période · contours des districts : {src} · calculé le {d}':
+    'Source: MEMS site registry, visits and submissions · period {p} · distinct sites over the period · district outlines: {src} · computed on {d}',
   // ---- Carte des sites (registre géographique)
   'Registre des sites sur le fond vectoriel des districts (hors ligne) : districts colorés selon le thème, sites GPS et positions déduites des collectes ; registre géographique région → district ci-dessous.':
     'Site registry on the offline vector map of districts: districts coloured by theme, GPS sites and positions derived from data collections; geographic register by region → district below.',

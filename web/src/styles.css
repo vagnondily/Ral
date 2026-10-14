@@ -2861,3 +2861,12 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .mapx-acts { overflow-x: auto; }
 .bi-map { margin-bottom: 16px; }
 .bi-map .mapx-compact { margin: 0; }
+.mapx-export { display: flex; gap: 8px; align-items: flex-end; }
+.mapx-export .btn { display: inline-flex; gap: 6px; align-items: center; height: 38px; }
+.mapx-print-root { display: none; }
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  body.is-printing-map > *:not(.mapx-print-root) { display: none !important; }
+  body.is-printing-map .mapx-print-root { display: block; }
+  .mapx-print-root svg { width: 100%; height: auto; }
+}
