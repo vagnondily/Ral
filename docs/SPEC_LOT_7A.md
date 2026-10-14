@@ -838,7 +838,7 @@ Questions ouvertes de la conception, tranchées pour avancer (modifiables) :
 
 - Qualité de saisie par agent : part des réponses vides ou « hors base » parmi les indicateurs notés (même décompte que les indicateurs) ; doublons et délais plus tard.
 - Validation : tout administrateur ou gestionnaire autre que le soumetteur et l'auteur peut valider (comme le Mapping).
-- Un rapport validé ne se supprime pas : il s'archive.
+- ~~Un rapport validé ne se supprime pas : il s'archive.~~ **Remplacé (retour 56, 14/10)** : rapport non validé → supprimable après confirmation ; rapport validé → supprimable seulement s'il n'a aucune donnée reliée, avec justificatif obligatoire, inscrit au journal des suppressions (politique commune).
 - PowerPoint : une taille de diapositive par fichier, les pages d'une autre orientation sont réduites et centrées.
 - Word : en-tête libre rendu en trois zones (gauche / centre / droite) en 7a ; placement au millimètre plus tard.
 - Filigrane « BROUILLON — non validé » sur les exports non validés : activé par défaut.

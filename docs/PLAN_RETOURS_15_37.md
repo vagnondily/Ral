@@ -1,4 +1,4 @@
-# Plan de réalisation — retours n° 15 à 55 (13/10/2026)
+# Plan de réalisation — retours n° 15 à 56 (13/10/2026)
 
 Ce plan découle des analyses multi-agents de vos retours (le détail de chaque retour
 est dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md), l'avancement dans
@@ -20,7 +20,7 @@ est dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md), l'avancement dans
 | **Bureau** | Bureau du site pour une visite ; sinon bureau reconnu de la soumission ; un code non relié s'affiche « Code 6 (non relié) » avec un lien vers les correspondances, jamais un chiffre seul. |
 | **Période** | Une plage de mois « du … au … » (un seul mois = plage d'un mois), la même partout ; sur une plage, les sites se comptent **une fois** (sites distincts). Par défaut : dernier mois qui a vraiment des données (avec un bandeau qui le dit), jamais un mois vide. |
 | **Prestataire actif** | Un contrat actif couvrant le mois rend son TPM sélectionnable partout (plan de suivi, planification, rapports, évaluations). |
-| **Suppression** | Un élément qui porte des données ne se supprime jamais : il se désactive. |
+| **Suppression** | Référentiel (site, agent, partenaire, bureau…) qui porte des données : jamais supprimé, il se désactive. **Document** (rapport, facture, plan, rapport du concepteur, contrat ou avenant en brouillon…) : non validé (brouillon, soumis, rejeté) → supprimable après confirmation ; validé → supprimable seulement si aucune donnée ne s'y rattache, avec un justificatif obligatoire ; toute suppression de document est inscrite au journal des suppressions (qui, quand, pourquoi, résumé). (retour 56) |
 
 ## Lots, dans l'ordre
 
@@ -29,6 +29,7 @@ est dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md), l'avancement dans
 | **0** | Correctifs de la relecture (imports Excel, formules, correspondances, import) + zone centrale élargie | contre-vérif., 31 |
 | **1** | Mois de collecte = date d'enquête + mapping modifiable et validé (brouillon → soumis → validé) · indicateurs : modification sans perte, « Nouvel indicateur » / « Modifier » partout, méthode de calcul visible · tableaux de bord : période par défaut, axe lisible, noms de bureau au lieu des codes, Synthèse dense, cloche = Centre d'alertes | 35, 20, 16, 19, 34 |
 | **1b** | Période = plage de mois partout : sélecteur « du … au … » avec préréglages (mois, trimestre, semestre, janvier–juin, année), API `from` / `to`, sites distincts sur la plage, filtres des tableaux de bord, des résultats, de la couverture, des alertes et du concepteur | 47 |
+| **56** | Suppression des documents : une seule politique (non validé → supprimable ; validé → seulement sans donnée reliée, avec justificatif), journal des suppressions, appliquée à tous les documents — prioritaire, juste après les correctifs 1b | 56 |
 | **54** | Tableau trimestriel par activité (sites actifs / prévus / réalisés, couverture, exécution) dans les tableaux de bord — juste après les correctifs 1b | 54 |
 | **6a** | **Carte exploitable, remontée en priorité** (retours 49, 50) : contours des 119 districts déjà embarqués, couleur par district (sites actifs, visités, couverture, risque, données versées), sites par GPS ou par la position de leurs collectes, points de collecte, légende graduée, fiche au survol, classement ; section « Carte » dans le Dashboard décisionnel. Le reste du lot 6 (communes, surcouches, export imprimable) suit | 49, 50 |
 | **2** | Référentiels : clés système immuables, suppression protégée partout, activités et sous-activités, codes de bureau des formulaires (1 Bekily … 10 Tulear), code de localité tiré du découpage (retour 46), libellés et réponses « Autre » dans les correspondances · zones du contrat en tableau (niveau, bureau, sites du registre et sites actifs par sous-activité, état ; P-code facultatif, colonne masquée par défaut) | 32, 33, 37, 38 |
