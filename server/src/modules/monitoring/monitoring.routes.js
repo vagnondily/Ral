@@ -18,6 +18,7 @@ const settingsRepo = require('../settings/settings.repository');
 const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
 const { sheetTable } = require('../common/sheetRows');
 const { readPeriod } = require('../../middleware/period');
+const { stripGps } = require('../map/submissionGps');
 
 // Durées maximales d'une période (lot 1b, mesurées au banc) : l'analyse des
 // soumissions charge les réponses de la période en mémoire (24 mois) ; une liste
@@ -387,10 +388,17 @@ router.post('/forms/:id/exclude', WRITE, body(exclSchema), asyncHandler(async (r
 }));
 
 // Soumissions brutes d'une fiche (données importées) — visualisation par fiche.
+// Vie privée (lot 6a) : les coordonnées GPS des réponses sont celles des ménages enquêtés ;
+// un lecteur ne les reçoit jamais (map/submissionGps.stripGps), seuls admin / gestionnaire.
 router.get('/forms/:id/submissions', asyncHandler(async (req, res) => {
   const period = readPeriod(req.query, { maxSpan: LIST_MAX_SPAN });
   const limit = Number(req.query.limit);
-  res.json(await repo.formSubmissions(t(req), uuidParam(req.params.id), { period, limit: Number.isFinite(limit) ? limit : undefined }));
+  const out = await repo.formSubmissions(t(req), uuidParam(req.params.id), { period, limit: Number.isFinite(limit) ? limit : undefined });
+  if (req.auth.role !== 'admin' && req.auth.role !== 'manager') {
+    const rows = Array.isArray(out) ? out : (out && out.rows);
+    for (const r of rows || []) if (r && r.data) r.data = stripGps(r.data);
+  }
+  res.json(out);
 }));
 
 // Import d'une DÉFINITION XLSForm (.xlsx Kobo/ODK : feuilles survey/choices/

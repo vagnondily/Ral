@@ -484,6 +484,12 @@ export const api = {
   mapDistricts: (period, { officeId, activity, levels } = {}) => request('/api/map/districts', {
     query: qs({ ...pq(period), office: officeId, activity, levels: levels && levels.length ? levels.join(',') : undefined }),
   }),
+  // Points : sites GPS, positions déduites des collectes, centres de commune, points de collecte
+  // (précis pour admin / gestionnaire, carroyage de 2 km sinon).
+  mapPoints: (period, { officeId, activity, layers, limit } = {}) => request('/api/map/points', {
+    query: qs({ ...pq(period), office: officeId, activity, layers: layers && layers.length ? layers.join(',') : undefined, limit }),
+  }),
+  mapSearch: (q) => request('/api/map/search', { query: { q } }),
 
   // Planification & budget — budget prévisionnel des vagues de collecte
   listPlans: (query) => request('/api/tpm/planning', { query }),

@@ -5,4 +5,12 @@ async function districts(req, res) {
   res.json(await service.districts(req.auth, req.valid));
 }
 
-module.exports = { districts };
+async function points(req, res) {
+  res.json(await service.points(req.auth, req.valid));
+}
+
+async function search(req, res) {
+  res.json(await service.search(req.auth, req.valid));
+}
+
+module.exports = { districts, points, search };

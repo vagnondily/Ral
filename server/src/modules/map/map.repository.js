@@ -226,7 +226,179 @@ async function districtData(tenantId, { period, officeId = null, activity = null
   });
 }
 
+/** Plafond de la couche « sites » (au-delà : bulles par district côté écran). */
+const SITES_CAP = 3000;
+
+/**
+ * Statut de période de chaque site du périmètre (mêmes faits que la carte), avec sa
+ * position GPS du registre s'il en a une. Statut sur UN mois : réalisé > hors plan >
+ * prévu > non prévu > inactif ; sur plusieurs mois l'écran lit aussi l'exécution
+ * (visites prévues réalisées ÷ prévues).
+ */
+async function siteStatusesTx(client, tenantId, { period, officeId, activity }) {
+  const params = [tenantId];
+  const ctes = siteMonthFactsCtes({ period, todayMonth: currentMonth(), withData: true, geo: true, officeId, activity }, params);
+  params.push(SITES_CAP + 1);
+  const cap = `$${params.length}`;
+  const { rows } = await client.query(
+    `${ctes}
+     SELECT p.site_id AS id, s.name, s.code, s.location_id AS "locationId", p.risk, p.dpcode AS "districtPcode", p.cpcode,
+            s.gps_lat::float8 AS lat, s.gps_lng::float8 AS lng, p.has_gps AS "hasGps",
+            CASE WHEN NOT p.active THEN 'inactif' WHEN p.realised_any AND p.planned THEN 'realise'
+                 WHEN p.realised_any THEN 'hors_plan' WHEN p.planned THEN 'prevu' ELSE 'non_prevu' END AS status,
+            p.v_planned AS "visitsPlanned", p.v_planned_realised AS "visitsPlannedRealised", p.realised_data AS "byData"
+       FROM per_site p JOIN sites s ON s.id = p.site_id AND s.tenant_id = $1
+      ORDER BY p.has_gps DESC, s.name
+      LIMIT ${cap}`,
+    params
+  );
+  return rows;
+}
+
+/**
+ * Médianes des positions GPS des soumissions (tout l'historique : une position est
+ * une propriété du lieu, pas de la période), par site rattaché ou par commune, avec la
+ * dispersion médiane et p90 (km, formule équirectangulaire de geoStats.distanceKm).
+ * Seuls les points de précision connue ≤ maxAccuracyM (ou inconnue) comptent.
+ * @param {'site'|'commune'} by
+ */
+async function gpsMediansTx(client, tenantId, by, { maxAccuracyM }) {
+  const key = by === 'site' ? 'ms.site_id' : 'ms.adm3_pcode';
+  const { rows } = await client.query(
+    `WITH pts AS MATERIALIZED (
+       SELECT ${key} AS k, ms.gps_lat::float8 AS lat, ms.gps_lng::float8 AS lng
+         FROM monitoring_submissions ms
+        WHERE ms.tenant_id = $1 AND NOT ms.excluded AND ms.gps_lat IS NOT NULL AND ${key} IS NOT NULL
+          AND COALESCE(ms.gps_accuracy_m, 0) <= $2),
+     med AS (
+       SELECT k, count(*)::int AS n,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY lat) AS lat,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY lng) AS lng
+         FROM pts GROUP BY k),
+     disp AS (
+       SELECT p.k,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY d.km) AS spread,
+              percentile_cont(0.9) WITHIN GROUP (ORDER BY d.km) AS p90
+         FROM pts p JOIN med m ON m.k = p.k
+         CROSS JOIN LATERAL (SELECT 6371 * sqrt(power(radians(p.lat - m.lat), 2)
+                + power(radians(p.lng - m.lng) * cos(radians((p.lat + m.lat) / 2)), 2)) AS km) d
+        GROUP BY p.k)
+     SELECT m.k::text AS key, m.n, m.lat, m.lng, d.spread AS "spreadKm", d.p90 AS "p90Km"
+       FROM med m JOIN disp d ON d.k = m.k`,
+    [tenantId, maxAccuracyM]
+  );
+  return rows;
+}
+
+/**
+ * Points de collecte de la PÉRIODE (positions de ménages) : au plus `limit` points
+ * précis (les plus récents), sinon — ou si `precise` est faux — un carroyage de 2 km
+ * avec effectifs. Filtre bureau : bureau du site rattaché, sinon de la soumission.
+ */
+async function collectPointsTx(client, tenantId, { period, officeId, maxAccuracyM, limit, precise }) {
+  const params = [tenantId];
+  const push = (v) => { params.push(v); return `$${params.length}`; };
+  const { lo, hiExcl } = periodBounds(period);
+  const pLo = push(lo); const pHiExcl = push(hiExcl); const pAcc = push(maxAccuracyM);
+  const tree = officeId ? officeTreeSql(push(officeId)) : '';
+  const officeCond = officeId ? ' AND COALESCE(s.field_office_id, ms.field_office_id) IN (SELECT id FROM office_tree)' : '';
+  const base = `FROM monitoring_submissions ms
+         LEFT JOIN sites s ON s.id = ms.site_id AND s.tenant_id = ms.tenant_id
+        WHERE ms.tenant_id = $1 AND NOT ms.excluded AND ms.gps_lat IS NOT NULL${officeCond}`;
+  const inPeriod = ` AND ms.period_month >= ${pLo}::date AND ms.period_month < ${pHiExcl}::date AND COALESCE(ms.gps_accuracy_m, 0) <= ${pAcc}`;
+  const head = `WITH ${officeId ? 'RECURSIVE ' : ''}${tree}`;
+  const { rows: statRows } = await client.query(
+    `${head}x AS (SELECT 1) SELECT
+       (SELECT count(*)::int ${base}${inPeriod}) AS total,
+       (SELECT count(*)::int ${base} AND ms.gps_accuracy_m > ${pAcc} AND ms.period_month >= ${pLo}::date AND ms.period_month < ${pHiExcl}::date) AS rejected,
+       (SELECT to_char(max(ms.period_month), 'YYYY-MM') ${base} AND COALESCE(ms.gps_accuracy_m, 0) <= ${pAcc}) AS "lastMonth"`,
+    params
+  );
+  const stats = statRows[0] || { total: 0, rejected: 0, lastMonth: null };
+  if (precise && stats.total <= limit) {
+    const pl = push(limit);
+    const { rows } = await client.query(
+      `${head}x AS (SELECT 1)
+       SELECT ms.gps_lat::float8 AS lat, ms.gps_lng::float8 AS lng, to_char(ms.period_month, 'YYYY-MM') AS month,
+              mf.label AS form, ms.site_id AS "siteId"
+         ${base.replace('FROM monitoring_submissions ms', 'FROM monitoring_submissions ms JOIN monitoring_forms mf ON mf.id = ms.form_id AND mf.tenant_id = ms.tenant_id')}${inPeriod}
+        ORDER BY ms.period_month DESC, ms.id
+        LIMIT ${pl}`,
+      params
+    );
+    return { mode: 'points', points: rows, total: stats.total, rejected: stats.rejected, lastMonth: stats.lastMonth };
+  }
+  const { rows } = await client.query(
+    `${head}x AS (SELECT 1)
+     SELECT round(round(ms.gps_lat / 0.02) * 0.02, 2)::float8 AS lat, round(round(ms.gps_lng / 0.02) * 0.02, 2)::float8 AS lng, count(*)::int AS n
+       ${base}${inPeriod}
+      GROUP BY 1, 2 ORDER BY 3 DESC`,
+    params
+  );
+  return { mode: 'bins', bins: rows, total: stats.total, rejected: stats.rejected, lastMonth: stats.lastMonth };
+}
+
+/**
+ * Toutes les lectures de GET /api/map/points (une transaction, requêtes l'une après l'autre) :
+ * statuts des sites du périmètre, médianes par site et par commune, points de collecte.
+ */
+async function pointsData(tenantId, { period, officeId = null, activity = null, layers, limit, precise, maxAccuracyM }) {
+  return withTenantTransaction(tenantId, async (client) => {
+    await client.query(JIT_OFF);
+    const sites = await siteStatusesTx(client, tenantId, { period, officeId, activity });
+    const bySite = layers.includes('derived') ? await gpsMediansTx(client, tenantId, 'site', { maxAccuracyM }) : [];
+    const byCommune = layers.includes('communes') ? await gpsMediansTx(client, tenantId, 'commune', { maxAccuracyM }) : [];
+    const communes = await communeNamesTx(client, tenantId, byCommune.map((c) => c.key));
+    const collect = layers.includes('collect') ? await collectPointsTx(client, tenantId, { period, officeId, maxAccuracyM, limit, precise }) : null;
+    return { sites, sitesCap: SITES_CAP, bySite, byCommune, communes, collect };
+  });
+}
+
+/** Échappe les métacaractères de LIKE (\, %, _) — ESCAPE '\'. */
+const likeEscape = (s) => String(s).replace(/[\\%_]/g, (c) => `\\${c}`);
+
+/**
+ * Recherche : districts et communes par début de nom (une requête par profondeur, pour
+ * l'index (tenant_id, depth, lower(name) text_pattern_ops)) ou par P-code ; sites par
+ * nom, code ou identifiant de lieu. 20 résultats au plus.
+ */
+async function search(tenantId, q) {
+  return withTenantTransaction(tenantId, async (client) => {
+    await client.query(JIT_OFF);
+    const prefix = `${likeEscape(q.toLowerCase())}%`;
+    const out = [];
+    for (const depth of [2, 3]) {
+      const { rows } = await client.query(
+        `SELECT a.pcode, a.name, a.depth, d.pcode AS "districtPcode", d.name AS district, r.name AS region
+           FROM admin_areas a
+           LEFT JOIN admin_areas d ON d.id = a.lineage[2] AND d.tenant_id = $1
+           LEFT JOIN admin_areas r ON r.id = a.lineage[1] AND r.tenant_id = $1
+          WHERE a.tenant_id = $1 AND a.depth = $2 AND (lower(a.name) LIKE $3 ESCAPE '\\' OR lower(a.pcode) = lower($4))
+          ORDER BY a.name LIMIT 10`,
+        [tenantId, depth, prefix, q]
+      );
+      for (const r of rows) {
+        out.push({ kind: depth === 2 ? 'district' : 'commune', pcode: r.pcode, name: r.name,
+          districtPcode: depth === 2 ? r.pcode : r.districtPcode, district: depth === 2 ? null : r.district, region: r.region });
+      }
+    }
+    const { rows: sites } = await client.query(
+      `SELECT s.id, s.name, s.code, s.location_id AS "locationId", s.adm2_pcode AS "districtPcode",
+              COALESCE(NULLIF(btrim(s.adm3), ''), s.commune) AS commune,
+              s.gps_lat::float8 AS lat, s.gps_lng::float8 AS lng
+         FROM sites s
+        WHERE s.tenant_id = $1
+          AND (lower(s.name) LIKE '%' || $2 ESCAPE '\\' OR upper(s.code) = upper($3) OR upper(s.location_id) = upper($3))
+        ORDER BY (lower(s.name) LIKE $4 ESCAPE '\\') DESC, s.name LIMIT 10`,
+      [tenantId, prefix, q, prefix]
+    );
+    for (const s of sites) out.push({ kind: 'site', ...s });
+    return out.slice(0, 20);
+  });
+}
+
 module.exports = {
-  SHAPE_SET, MAP_COUNT_COLUMNS,
+  SHAPE_SET, MAP_COUNT_COLUMNS, SITES_CAP,
   districtData, factsByZoneTx, submissionsByZoneTx, areaIndexTx, communeNamesTx, shapeLinksTx, filtersAvailableTx,
+  pointsData, siteStatusesTx, gpsMediansTx, collectPointsTx, search, likeEscape,
 };

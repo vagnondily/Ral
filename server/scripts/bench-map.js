@@ -93,6 +93,22 @@ async function main() {
       if (p95 > budget) failed = true;
       console.log(`${c.name.padEnd(20)} p50 ${pct(ms, 0.5).toFixed(1).padStart(6)} ms · p95 ${p95.toFixed(1).padStart(6)} ms · max ${Math.max(...ms).toFixed(1).padStart(6)} ms · ${JSON.stringify(out).length} o · contours ${out.shapes.length}${p95 > budget ? '  ✗ BUDGET' : ''}`);
     }
+    // GET /api/map/points (rôle admin : points précis) — budget p95 ≤ 100 ms, ≤ 300 Ko.
+    for (const n of [1, 10]) {
+      const opts = { period: { from: addMonths(args.to, -(n - 1)), to: args.to }, layers: ['gps', 'derived', 'communes', 'collect'], limit: 2000 };
+      for (let i = 0; i < args.warmup; i += 1) await service.points({ tenantId, role: 'admin' }, opts);
+      const ms = [];
+      let out = null;
+      for (let i = 0; i < args.runs; i += 1) {
+        const t0 = process.hrtime.bigint();
+        out = await service.points({ tenantId, role: 'admin' }, opts);
+        ms.push(Number(process.hrtime.bigint() - t0) / 1e6);
+      }
+      const p95 = pct(ms, 0.95); const bytes = JSON.stringify(out).length;
+      const over = p95 > (args.scale > 1 ? 400 : 100) || bytes > 300 * 1024;
+      if (over) failed = true;
+      console.log(`points ${String(n).padStart(2)} mois       p50 ${pct(ms, 0.5).toFixed(1).padStart(6)} ms · p95 ${p95.toFixed(1).padStart(6)} ms · ${bytes} o · sites ${out.counts.gps}+${out.counts.derived} · communes ${out.counts.communeCentres} · collecte ${out.collect.total}${over ? '  ✗ BUDGET' : ''}`);
+    }
     await explainFacts(su, tenantId, { from: addMonths(args.to, -11), to: args.to }, repo);
     if (args.verify) failed = (await verifyParity(su, tenantId, { from: addMonths(args.to, -9), to: args.to }, repo)) || failed;
     if (args.importCost) failed = (await importCost(su, tenantId, args.importCost)) || failed;

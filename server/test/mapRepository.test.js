@@ -88,3 +88,51 @@ test('soumissions : résolues par clés distinctes (une sonde par commune), dist
   const regions = calls.find((c) => /FROM admin_areas d LEFT JOIN admin_areas r ON r\.id = d\.parent_id AND r\.tenant_id = \$1/.test(c.sql));
   assert.ok(regions, 'jointure des régions filtrée par tenant');
 });
+
+test('points : précision maximale en paramètre, médianes sur tout l\'historique, collecte bornée à la période, LIMIT', async () => {
+  calls = []; maxInFlight = 0;
+  await repo.pointsData(T, { period: { from: '2026-01', to: '2026-03' }, layers: ['gps', 'derived', 'communes', 'collect'], limit: 2000, precise: true, maxAccuracyM: 100 });
+  assert.equal(calls[0].sql, 'SET LOCAL jit = off');
+  assert.equal(maxInFlight, 1);
+  const medians = calls.filter((c) => /percentile_cont\(0\.5\)/.test(c.sql));
+  assert.equal(medians.length, 2, 'par site et par commune');
+  for (const m of medians) {
+    assert.match(m.sql, /COALESCE\(ms\.gps_accuracy_m, 0\) <= \$2/);
+    assert.doesNotMatch(m.sql, /period_month/, 'une position est une propriété du lieu : tout l\'historique');
+    assert.deepEqual(m.params, [T, 100]);
+  }
+  const stats = calls.find((c) => /AS "lastMonth"/.test(c.sql));
+  assert.match(stats.sql, /ms\.period_month >= \$2::date AND ms\.period_month < \$3::date/);
+  assert.deepEqual(stats.params.slice(0, 4), [T, '2026-01-01', '2026-04-01', 100]);
+  // Rôle précis, total ≤ limit : points les plus récents, plafonnés ; sinon carroyage de 2 km.
+  const pts = calls.find((c) => /ORDER BY ms\.period_month DESC, ms\.id LIMIT \$\d+/.test(c.sql));
+  assert.ok(pts);
+  assert.equal(pts.params[pts.params.length - 1], 2000);
+  assert.ok(!calls.find((c) => /round\(ms\.gps_lat \/ 0\.02\)/.test(c.sql)));
+  calls = [];
+  await repo.pointsData(T, { period: { from: '2026-01', to: '2026-03' }, layers: ['collect'], limit: 2000, precise: false, maxAccuracyM: 100 });
+  assert.ok(calls.find((c) => /round\(round\(ms\.gps_lat \/ 0\.02\) \* 0\.02, 2\)/.test(c.sql)), 'lecteur : carroyage');
+  assert.ok(!calls.find((c) => /ORDER BY ms\.period_month DESC, ms\.id LIMIT/.test(c.sql)), 'lecteur : jamais de point précis');
+  assert.ok(!calls.find((c) => /percentile_cont/.test(c.sql)), 'couches non demandées : non lues');
+  calls = [];
+  await repo.pointsData(T, { period: { from: '2026-01', to: '2026-03' }, layers: ['gps', 'derived', 'communes', 'collect'], limit: 2000, precise: true, maxAccuracyM: 100 });
+  const statuses = calls.find((c) => /AS status/.test(c.sql));
+  assert.match(statuses.sql, /CASE WHEN NOT p\.active THEN 'inactif' WHEN p\.realised_any AND p\.planned THEN 'realise' WHEN p\.realised_any THEN 'hors_plan' WHEN p\.planned THEN 'prevu' ELSE 'non_prevu' END AS status/);
+  assert.match(statuses.sql, /LIMIT \$\d+$/);
+  assert.equal(statuses.params[statuses.params.length - 1], repo.SITES_CAP + 1);
+});
+
+test('recherche : métacaractères de LIKE échappés, une requête par profondeur (index), tenant $1', async () => {
+  calls = [];
+  assert.equal(repo.likeEscape('50%_a\\b'), '50\\%\\_a\\\\b');
+  await repo.search(T, '50%_x');
+  const areas = calls.filter((c) => /FROM admin_areas a/.test(c.sql));
+  assert.deepEqual(areas.map((c) => c.params[1]), [2, 3]);
+  for (const c of areas) {
+    assert.match(c.sql, /a\.tenant_id = \$1 AND a\.depth = \$2 AND \(lower\(a\.name\) LIKE \$3 ESCAPE '\\'/); // un seul caractère d'échappement
+    assert.equal(c.params[2], '50\\%\\_x%');
+  }
+  const sites = calls.find((c) => /FROM sites s/.test(c.sql));
+  assert.match(sites.sql, /s\.tenant_id = \$1/);
+  assert.equal(sites.params[0], T);
+});
