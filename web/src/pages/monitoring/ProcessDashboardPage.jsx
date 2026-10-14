@@ -10,6 +10,9 @@ import { formatInt, monthLabel } from '../../lib/format.js';
 import { periodLabel, single, spanMonths } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
 
+/** Durée maximale des endpoints d'analyse (overview, coverage-dashboard, field/summary) : 24 mois. */
+const ANALYSIS_MAX_SPAN = 24;
+
 /**
  * Dashboard « Suivi de processus » — Synthèse. Recalculé en direct (rien de
  * stocké) à partir de trois sources déjà en place :
@@ -31,7 +34,7 @@ import { useI18n } from '../../lib/i18n.jsx';
  */
 export default function ProcessDashboardPage({ onNavigate }) {
   const { tr, lang } = useI18n();
-  const { period, ready, auto, counts, latest, today, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data' });
+  const { period, ready, auto, counts, latest, today, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data', maxSpan: ANALYSIS_MAX_SPAN });
   const [res, setRes] = useState(null);       // { ov, field, rbm } : { data } | { error }
   const key = period ? `${period.from}|${period.to}` : '';
 
@@ -96,7 +99,7 @@ export default function ProcessDashboardPage({ onNavigate }) {
     <div className="page">
       <PageHeader title={tr('Suivi de processus — Synthèse')}
         description={tr("Vue d'ensemble du suivi par bureau : visites réalisées, données reçues et conformité (fiches & indicateurs), sites à suivre (RBM). Recalculé en direct.")}>
-        {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} align="right" />}
+        {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} maxSpan={ANALYSIS_MAX_SPAN} align="right" />}
       </PageHeader>
 
       <PeriodBanner auto={auto} onBack={(m) => setPeriod(single(m))} />
@@ -202,7 +205,7 @@ function OfficesCard({ rows, error, onOpen, onNavigate }) {
   const tot = rows.reduce((a, r) => ({ active: a.active + r.active, realise: a.realise + r.realise, submissions: a.submissions + r.submissions }), { active: 0, realise: 0, submissions: 0 });
   return (
     <div className="card biz-card syn-main">
-      <div className="card-header"><div className="card-title">{tr('Couverture par bureau')}</div>
+      <div className="card-header"><div className="card-title">{tr('Suivi par bureau')}</div>
         <div className="card-sub">{tr('Visites réalisées / prévues · sites actifs réalisés · formulaires reçus')}</div></div>
       {error ? <div className="card-body"><CardError error={error} /></div> : rows.length === 0 ? (
         <div className="card-body"><p className="muted">{tr('Aucune visite planifiée ni donnée reçue sur la période.')}{' '}
@@ -332,7 +335,7 @@ function WatchCard({ rows, error, onNavigate }) {
   const { tr } = useI18n();
   return (
     <div className="card biz-card">
-      <div className="card-header"><div className="card-title">{tr('Bureaux à surveiller')}</div>
+      <div className="card-header"><div className="card-title">{tr('Bureaux à surveiller — exécution du plan')}</div>
         <div className="card-sub">{tr('Bureaux dont l\'exécution du plan (visites) est < 80 %')}</div></div>
       <div className="card-body syn-body biz-gauges syn-compact">
         {error ? <CardError error={error} /> : (!rows || rows.length === 0) ? <p className="muted">{tr('Tous les bureaux avec des visites planifiées sont à 80 % ou plus.')}</p> : rows.map((d) => {

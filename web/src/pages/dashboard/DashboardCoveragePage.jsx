@@ -13,6 +13,9 @@ import { groupNaReasons } from '../../lib/naReasons.js';
 import { shortFormLabel as shortLabel } from '../../lib/formLabel.js';
 import { useI18n } from '../../lib/i18n.jsx';
 
+/** Durée maximale des endpoints d'analyse (overview, coverage-dashboard, field/summary) : 24 mois. */
+const ANALYSIS_MAX_SPAN = 24;
+
 /**
  * Dashboard décisionnel › « Couverture & performance du suivi ».
  * Reproduit (dans le design system de l'app, branding neutre) la synthèse du
@@ -49,7 +52,7 @@ const VIEWS = [
 
 export default function DashboardCoveragePage({ onNavigate }) {
   const { tr, lang } = useI18n();
-  const { period, ready, auto, counts, periods, latest, today, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data' });
+  const { period, ready, auto, counts, periods, latest, today, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data', maxSpan: ANALYSIS_MAX_SPAN });
   const pick = (m) => setPeriod(single(m));
   const key = period ? `${period.from}|${period.to}` : '';
   const [cd, setCd] = useState(null);
@@ -93,7 +96,7 @@ export default function DashboardCoveragePage({ onNavigate }) {
     <div className="page">
       <PageHeader title={tr('Couverture & performance du suivi')}
         description={tr('Vue analytique du suivi de processus : couverture terrain, données versées, conformité par bande, plan vs réalisé, et détail par activité (dimensions, indicateurs). Recalculé en direct.')}>
-        {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} align="right" />}
+        {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} maxSpan={ANALYSIS_MAX_SPAN} align="right" />}
       </PageHeader>
       <PeriodBanner auto={auto} onBack={pick} />
       <SessionPeriodNote source={source} onReset={resetToDefault} />
@@ -526,7 +529,7 @@ function WatchCard({ rows, onNavigate }) {
   const { tr } = useI18n();
   return (
     <div className="card biz-card">
-      <div className="card-header"><div className="card-title">{tr('Zones à surveiller')}</div>
+      <div className="card-header"><div className="card-title">{tr('Zones à surveiller — exécution du plan')}</div>
         <div className="card-sub">{tr('Districts dont l\'exécution du plan (visites) est < 80 %')}</div></div>
       <div className="card-body biz-gauges">
         {(!rows || rows.length === 0) ? <p className="muted">{tr('Toutes les zones couvertes sont ≥ 80 %.')}</p> : rows.map((d) => {

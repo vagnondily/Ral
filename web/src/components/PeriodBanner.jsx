@@ -5,8 +5,18 @@ import { Alert } from './ui.jsx';
 import { currentMonth, formatInt, monthLabel } from '../lib/format.js';
 import { useI18n } from '../lib/i18n.jsx';
 import {
-  isPeriod, readHashPeriod, readSessionPeriod, samePeriod, single, writeHashPeriod, writeSessionPeriod,
+  MAX_SPAN, addMonths, isPeriod, readHashPeriod, readSessionPeriod, samePeriod, single, spanMonths, writeHashPeriod, writeSessionPeriod,
 } from '../lib/period.js';
+
+/**
+ * Période ramenée au plafond de l'écran : au-delà de `maxSpan` mois, les `maxSpan` derniers
+ * mois (finissant à `to`) — une période de session plus longue, venue d'un autre écran
+ * (60 mois pour le budget), ne fait jamais échouer un écran d'analyse (24 mois).
+ */
+export function clampPeriod(p, maxSpan = MAX_SPAN) {
+  if (!isPeriod(p) || spanMonths(p) <= maxSpan) return p;
+  return { from: addMonths(p.to, -(maxSpan - 1)), to: p.to };
+}
 
 const sessionStore = () => { try { return window.sessionStorage; } catch { return null; } };
 
@@ -31,9 +41,11 @@ function countsOf(periods) {
  *   - 'current' : le mois courant ;
  *   - 'all'     : null (toutes les périodes : cumul).
  *
- * @param {{ scope?: 'analysis'|'local', defaultRule?: 'data'|'current'|'all', urlSync?: boolean }} [opts]
+ * @param {{ scope?: 'analysis'|'local', defaultRule?: 'data'|'current'|'all', urlSync?: boolean, maxSpan?: number }} [opts]
  *   scope 'analysis' : période partagée entre les tableaux de bord de la session ;
- *   'local' : ni lue ni écrite en session (ex. Centre d'alertes : URL seulement).
+ *   'local' : ni lue ni écrite en session (ex. Centre d'alertes : URL seulement) ;
+ *   maxSpan : durée maximale acceptée par les endpoints de l'écran (24 mois pour l'analyse,
+ *   60 pour le budget) — une période plus longue (URL, session) est ramenée aux derniers mois.
  * @returns {{ period: {from,to}|null|undefined, ready: boolean, auto: object|null, periods: object|null,
  *   counts: object|null, latest: string|null, today: string, source: 'url'|'session'|'default'|'user'|null,
  *   setPeriod: Function, resetToDefault: Function }}
@@ -42,14 +54,14 @@ function countsOf(periods) {
  *   `auto` (bandeau PeriodBanner) n'est rempli que si la période vient de la règle par défaut
  *   et diffère du mois courant.
  */
-export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = true } = {}) {
+export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = true, maxSpan = MAX_SPAN } = {}) {
   const today = useMemo(() => currentMonth(), []);
   const useSession = scope === 'analysis';
   const initial = useMemo(() => {
     const fromUrl = urlSync ? readHashPeriod(window.location.hash) : null;
-    if (fromUrl) return { period: fromUrl, source: 'url' };
+    if (fromUrl) return { period: clampPeriod(fromUrl, maxSpan), source: 'url' };
     const fromSession = useSession ? readSessionPeriod(sessionStore()) : null;
-    if (fromSession) return { period: fromSession, source: 'session' };
+    if (fromSession) return { period: clampPeriod(fromSession, maxSpan), source: 'session' };
     if (defaultRule === 'current') return { period: single(today), source: 'default' };
     if (defaultRule === 'all') return { period: null, source: 'default' };
     return { period: undefined, source: null }; // 'data' : en attente du serveur
@@ -83,12 +95,12 @@ export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = 
   useEffect(() => {
     if (!urlSync) return undefined;
     const onHash = () => {
-      const p = readHashPeriod(window.location.hash);
+      const p = clampPeriod(readHashPeriod(window.location.hash), maxSpan);
       if (p) setState((s) => (samePeriod(s.period, p) ? s : { period: p, source: 'url', auto: null }));
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
-  }, [urlSync]);
+  }, [urlSync, maxSpan]);
 
   // Une période venue de l'URL devient la période de travail de la session.
   useEffect(() => {
@@ -96,7 +108,7 @@ export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = 
   }, [useSession, state.source, state.period]);
 
   const setPeriod = useCallback((p) => {
-    const next = isPeriod(p) ? { from: p.from, to: p.to } : null;
+    const next = isPeriod(p) ? clampPeriod({ from: p.from, to: p.to }, maxSpan) : null;
     setState({ period: next, source: 'user', auto: null });
     if (urlSync) {
       try {
@@ -105,7 +117,7 @@ export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = 
       } catch { /* URL non modifiable : la période vit dans l'état */ }
     }
     if (useSession) writeSessionPeriod(sessionStore(), next);
-  }, [urlSync, useSession]);
+  }, [urlSync, useSession, maxSpan]);
 
   // « Revenir au dernier mois avec des données » : la règle de l'écran, session oubliée.
   const resetToDefault = useCallback(() => {
@@ -133,16 +145,17 @@ export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = 
 
 /**
  * Mention « période conservée de la session » (la période vient d'un autre écran de la
- * session) + « Revenir au dernier mois avec des données ». Rien sinon.
+ * session) + le retour à la règle de l'écran : « Revenir au dernier mois avec des données »
+ * (défaut), ou `resetLabel` (ex. « Revenir à toutes les périodes » sur les écrans budgétaires).
  */
-export function SessionPeriodNote({ source, onReset }) {
+export function SessionPeriodNote({ source, onReset, resetLabel }) {
   const { tr } = useI18n();
   if (source !== 'session') return null;
   return (
     <p className="period-session-note">
       <History size={14} aria-hidden="true" />
       <span>{tr('période conservée de la session')}</span>
-      <button type="button" className="inline-link" onClick={onReset}>{tr('Revenir au dernier mois avec des données')}</button>
+      <button type="button" className="inline-link" onClick={onReset}>{resetLabel || tr('Revenir au dernier mois avec des données')}</button>
     </p>
   );
 }
