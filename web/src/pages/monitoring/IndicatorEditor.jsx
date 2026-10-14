@@ -3,7 +3,8 @@ import { Check, AlertTriangle, Sparkles, X, Plus, TrendingUp, TrendingDown } fro
 import { api } from '../../api/client.js';
 import { Alert, Button, Field, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
-import MonthSelect from '../../components/MonthSelect.jsx';
+import PeriodSelect from '../../components/PeriodSelect.jsx';
+import { single } from '../../lib/period.js';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { choiceText, draftErrors, draftBody, draftPatch, editorTitle, indicatorErrorText, isPctAgg, previewBody, scoredControl, toDraft } from '../../lib/indicatorView.js';
@@ -58,8 +59,12 @@ function AddValue({ onAdd, placeholder, label }) {
 /**
  * @param {{ form: object, indicator?: object|null, period?: string|null, canEdit?: boolean,
  *   onClose: Function, onSaved: Function }} props
- *   indicator null = création ; period = mois de l'aperçu (« AAAA-MM »), '' = toutes les périodes.
+ *   indicator null = création ; period = période de l'aperçu ({ from, to }), null = toutes les
+ *   périodes, absente = le dernier mois de la fiche avec des données.
  */
+/** Durée maximale de l'aperçu (comme les résultats) : 24 mois. */
+const ANALYSIS_MAX_SPAN = 24;
+
 export default function IndicatorEditor({ form, indicator, period: initialPeriod, canEdit = true, onClose, onSaved }) {
   const { tr } = useI18n();
   const toast = useToast();
@@ -69,7 +74,8 @@ export default function IndicatorEditor({ form, indicator, period: initialPeriod
   const [list, setList] = useState([]);
   const [orig, setOrig] = useState(null);   // brouillon de l'indicateur enregistré
   const [draft, setDraft] = useState(null);
-  const [period, setPeriod] = useState(initialPeriod ?? null);
+  const [period, setPeriod] = useState(initialPeriod); // undefined = en attente du dernier mois de la fiche
+  const [latest, setLatest] = useState(null);
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState(null);
@@ -84,8 +90,9 @@ export default function IndicatorEditor({ form, indicator, period: initialPeriod
       if (!alive) return;
       setVars(v);
       setMonths(m.months || []);
+      setLatest(m.latest || null);
       setList(inds || []);
-      if (initialPeriod == null) setPeriod(m.latest || '');
+      if (initialPeriod === undefined) setPeriod(m.latest ? single(m.latest) : null);
       // Toujours la version enregistrée (la ligne des résultats peut dater).
       const fresh = editing ? (inds || []).find((i) => i.id === indicator.id) || indicator : null;
       const d0 = toDraft(fresh);
@@ -103,7 +110,7 @@ export default function IndicatorEditor({ form, indicator, period: initialPeriod
   const modules = useMemo(() => [...new Set(list.map((i) => i.module).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [list]);
   const selected = draft ? findVariable(variables, draft.sourceField) : null;
   const body = useMemo(() => (draft && draft.sourceField.trim() ? previewBody(draft, period || null) : null), [draft, period]);
-  const preview = useIndicatorPreview(form.id, body, { enabled: Boolean(draft) && period !== null });
+  const preview = useIndicatorPreview(form.id, body, { enabled: Boolean(draft) && period !== undefined });
 
   const title = tr(editorTitle({ editing, canEdit }));
   if (!draft) {
@@ -264,8 +271,8 @@ export default function IndicatorEditor({ form, indicator, period: initialPeriod
         <aside className="ie-explain" aria-label={tr('Comment c\'est calculé')}>
           <div className="ie-explain-head">
             <h3>{tr('Comment c\'est calculé')}</h3>
-            {period !== null && (
-              <MonthSelect allowAll value={period} onChange={setPeriod} options={months.map((m) => m.month)}
+            {period !== undefined && (
+              <PeriodSelect compact allowAll align="right" value={period} onChange={setPeriod} latest={latest} maxSpan={ANALYSIS_MAX_SPAN}
                 counts={Object.fromEntries(months.map((m) => [m.month, m.submissions]))} ariaLabel={tr('Période de l\'aperçu')} />
             )}
           </div>

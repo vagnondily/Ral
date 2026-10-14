@@ -134,4 +134,7 @@ export default {
   'Zones à surveiller — exécution du plan': 'Areas to watch — plan execution',
   'Bureaux à surveiller — exécution du plan': 'Offices to watch — plan execution',
   'Suivi par bureau': 'Monitoring by office',
+
+  // ---- Fiche › Résultats sur une plage (C13)
+  'sites (données) distincts sur la période': 'distinct sites (data) over the period',
 };

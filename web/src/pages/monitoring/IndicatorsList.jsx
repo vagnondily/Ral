@@ -6,7 +6,7 @@ import { usePopover } from '../../components/listView.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { downloadCsv } from '../../lib/csv.js';
 import { formatLocale } from '../../lib/format.js';
-import { CLASSES_STATUS_LABEL, INDEX_STATUS_LABEL, INDICATOR_STATUS, classesStatus, indexStatus, progress as progressOf } from '../../lib/indicatorView.js';
+import { CLASSES_STATUS_LABEL, INDEX_STATUS_LABEL, INDICATOR_STATUS, classesStatus, indexStatus, periodBody, progress as progressOf } from '../../lib/indicatorView.js';
 import IndicatorExplain, { useIndicatorPreview } from './IndicatorExplain.jsx';
 
 /**
@@ -62,10 +62,11 @@ function ProgressCell({ p, fill }) {
 /**
  * @param {{ indicators: object[], moduleLabel?: string, toolbarExtra?: React.ReactNode,
  *   canEdit?: boolean, onCreate?: Function, onEdit?: (ind) => void,
- *   formId?: string, period?: string, periodLabel?: string }} props
- *   period : mois des résultats (« AAAA-MM »), '' = toutes les périodes — pour expliquer le calcul.
+ *   formId?: string, period?: {from:string,to:string}|null, periodLabel?: string }} props
+ *   period : période des résultats ({ from, to }), null = toutes les périodes — pour expliquer le
+ *   calcul sur la MÊME période que la valeur affichée.
  */
-export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra, canEdit = false, onCreate, onEdit, formId, period = '', periodLabel }) {
+export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra, canEdit = false, onCreate, onEdit, formId, period = null, periodLabel }) {
   const { tr } = useI18n();
   const saved = loadView();
   const [q, setQ] = useState('');
@@ -242,7 +243,7 @@ function IndicatorDrawer({ ind, moduleLabel, formId, period, periodLabel, onEdit
   // « Méthode » : la définition enregistrée, expliquée sur la période des résultats (même calcul).
   const body = useMemo(() => ({
     sourceField: ind.sourceField, agg: ind.agg, positiveValue: ind.positiveValue ?? null, naValues: ind.naValues || [],
-    target: ind.target ?? null, direction: ind.direction, ...(period ? { month: period } : {}),
+    target: ind.target ?? null, direction: ind.direction, ...periodBody(period),
   }), [ind, period]);
   const preview = useIndicatorPreview(formId, body, { enabled: tab === 'method' && Boolean(formId) });
   const kv = [

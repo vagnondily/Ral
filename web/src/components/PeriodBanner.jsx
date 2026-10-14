@@ -39,7 +39,9 @@ function countsOf(periods) {
  *   - 'data'    : la période par défaut du serveur (GET /monitoring/periods → default :
  *                 dernier mois substantiel avec des données, jamais un mois futur) ;
  *   - 'current' : le mois courant ;
- *   - 'all'     : null (toutes les périodes : cumul).
+ *   - 'all'     : null (toutes les périodes : cumul) ;
+ *   - 'custom'  : `customDefault`, fourni par l'écran (ex. Résultats : dernier mois de la fiche) —
+ *                 undefined tant qu'il n'est pas connu, puis { from, to } ou null.
  *
  * @param {{ scope?: 'analysis'|'local', defaultRule?: 'data'|'current'|'all', urlSync?: boolean, maxSpan?: number }} [opts]
  *   scope 'analysis' : période partagée entre les tableaux de bord de la session ;
@@ -54,7 +56,7 @@ function countsOf(periods) {
  *   `auto` (bandeau PeriodBanner) n'est rempli que si la période vient de la règle par défaut
  *   et diffère du mois courant.
  */
-export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = true, maxSpan = MAX_SPAN } = {}) {
+export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = true, maxSpan = MAX_SPAN, customDefault } = {}) {
   const today = useMemo(() => currentMonth(), []);
   const useSession = scope === 'analysis';
   const initial = useMemo(() => {
@@ -64,14 +66,23 @@ export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = 
     if (fromSession) return { period: clampPeriod(fromSession, maxSpan), source: 'session' };
     if (defaultRule === 'current') return { period: single(today), source: 'default' };
     if (defaultRule === 'all') return { period: null, source: 'default' };
-    return { period: undefined, source: null }; // 'data' : en attente du serveur
+    return { period: undefined, source: null }; // 'data' / 'custom' : en attente de la règle
   }, []); // eslint-disable-line
   const [state, setState] = useState({ ...initial, auto: null });
   const [periods, setPeriods] = useState(null);
   const defaultRef = useRef(null); // période par défaut connue (règle de l'écran)
 
-  // Volume par mois et période par défaut du serveur (une fois).
+  // Règle propre à l'écran : appliquée dès qu'elle est connue (jamais par-dessus un choix).
   useEffect(() => {
+    if (defaultRule !== 'custom' || customDefault === undefined) return;
+    const ruled = isPeriod(customDefault) ? clampPeriod(customDefault, maxSpan) : null;
+    defaultRef.current = { period: ruled, auto: null };
+    setState((s) => (s.period !== undefined ? s : { period: ruled, source: 'default', auto: null }));
+  }, [defaultRule, customDefault && customDefault.from, customDefault && customDefault.to, customDefault === null]); // eslint-disable-line
+
+  // Volume par mois et période par défaut du serveur (une fois ; inutile pour la règle 'custom').
+  useEffect(() => {
+    if (defaultRule === 'custom') return undefined;
     let alive = true;
     api.monPeriods(today).then((p) => {
       if (!alive) return;

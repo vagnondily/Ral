@@ -239,6 +239,15 @@ export function draftErrors(d) {
   return e;
 }
 
+/**
+ * Période d'un corps d'aperçu : { from, to } (plage, lot 1b) ; l'ancien mois « AAAA-MM »
+ * donne { month } ; rien (null, '', undefined) = toutes les périodes.
+ */
+export function periodBody(period) {
+  if (period && typeof period === 'object') return period.from && period.to ? { from: period.from, to: period.to } : {};
+  return typeof period === 'string' && period ? { month: period } : {};
+}
+
 /** Corps de l'aperçu « Comment c'est calculé » : la définition en cours + la période. */
 export function previewBody(d, period) {
   const b = draftBody(d);
@@ -249,7 +258,7 @@ export function previewBody(d, period) {
     naValues: b.naValues,
     target: b.target,
     direction: b.direction,
-    ...(period ? { month: period } : {}),
+    ...periodBody(period),
   };
 }
 
