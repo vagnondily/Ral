@@ -1,0 +1,32 @@
+// Suppression des documents (retour 56) : dialogue commun et journal des suppressions.
+export default {
+  'Journal des suppressions': 'Deletion log',
+  'Traçabilité des documents supprimés (rapports, factures, plans, contrats) : qui, quand, pourquoi, et un résumé du document.':
+    'Traceability of deleted documents (reports, invoices, plans, contracts): who, when, why, and a summary of the document.',
+  'Un justificatif est obligatoire pour supprimer un document validé.': 'A justification is required to delete a validated document.',
+  'La suppression a échoué. Réessayez.': 'The deletion failed. Try again.',
+  'Supprimer ce document ?': 'Delete this document?',
+  'Ce document est validé. Il ne peut être supprimé que s’il ne porte aucune donnée reliée, et avec un justificatif qui sera inscrit au journal des suppressions.':
+    'This document is validated. It can only be deleted if no linked data depends on it, and with a justification recorded in the deletion log.',
+  'Cette action est définitive. La suppression sera inscrite au journal des suppressions.': 'This cannot be undone. The deletion will be recorded in the deletion log.',
+  'Justificatif': 'Justification',
+  'Pourquoi ce document validé est-il supprimé ?': 'Why is this validated document being deleted?',
+  'Ex. : doublon créé par erreur, document de test…': 'E.g. duplicate created by mistake, test document…',
+  'Journal indisponible': 'Log unavailable',
+  'Documents supprimés': 'Deleted documents',
+  '{n} entrée(s)': '{n} entry(ies)',
+  'Filtrer par type': 'Filter by type',
+  'Tous les types': 'All types',
+  'Rapport / facture TPM': 'TPM report / invoice',
+  'Plan de collecte': 'Collection plan',
+  'Aucune suppression': 'No deletion',
+  'Les suppressions de documents apparaîtront ici.': 'Document deletions will appear here.',
+  'Par': 'By',
+  'validé': 'validated',
+  'Supprimer ce contrat ?': 'Delete this contract?',
+  'Contrat supprimé.': 'Contract deleted.',
+  'Supprimer cet avenant ?': 'Delete this amendment?',
+  'Avenant supprimé.': 'Amendment deleted.',
+  'Supprimer ce rapport ?': 'Delete this report?',
+  'Supprimer ce plan de collecte ?': 'Delete this collection plan?',
+};

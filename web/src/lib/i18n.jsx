@@ -54,6 +54,8 @@ const DICT = {
     'nav.parametrage.activites': 'Activities',
     'nav.parametrage.types': 'Partner types',
     'nav.parametrage.localites': 'Localities',
+    'nav.parametrage.sites': 'Sites',
+    'nav.parametrage.suppressions': 'Deletion log',
     // shell
     'shell.soon': 'Greyed modules: coming soon',
     'shell.module': 'MEMS 2.0 · module 1 of 12',
