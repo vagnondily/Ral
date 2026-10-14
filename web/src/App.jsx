@@ -5,6 +5,7 @@ import { Alert } from './components/ui.jsx';
 import AppShell, { findRoute } from './components/AppShell.jsx';
 import { ToastProvider, useToast } from './components/Toast.jsx';
 import { I18nProvider, useI18n } from './lib/i18n.jsx';
+import { writeSessionPeriod } from './lib/period.js';
 import LoginPage from './pages/LoginPage.jsx';
 import ProvidersPage from './pages/ProvidersPage.jsx';
 import ContractsListPage from './pages/contracts/ContractsListPage.jsx';
@@ -44,11 +45,18 @@ const REDIRECTS = {
   'processus/plan': { module: 'processus', sub: 'rbm', extra: 'plan' },
 };
 
+// La requête du hash (#/dashboard/couverture?from=2026-01&to=2026-06 : période, lot 1b)
+// n'appartient pas à la route : elle est lue par usePeriod (lib/period.readHashPeriod).
 function parseHash() {
-  const [, mod, sub, extra, extra2] = window.location.hash.split('/');
+  const [, mod, sub, extra, extra2] = window.location.hash.split('?')[0].split('/');
   const redirect = REDIRECTS[`${mod}/${sub}`];
   if (redirect) return redirect;
   return findRoute(mod, sub) ? { module: mod, sub, extra: extra || null, extra2: extra2 || null } : DEFAULT_ROUTE;
+}
+
+// La période de travail de la session (usePeriod) n'est jamais transmise à l'utilisateur suivant.
+function forgetSessionPeriod() {
+  try { writeSessionPeriod(window.sessionStorage, null); } catch { /* stockage indisponible */ }
 }
 
 function Workspace() {
@@ -65,6 +73,7 @@ function Workspace() {
 
   useEffect(() => {
     onUnauthorized(() => {
+      forgetSessionPeriod();
       setUser(null);
       toast.info(tr('Votre session a expiré. Veuillez vous reconnecter.'));
     });
@@ -88,6 +97,7 @@ function Workspace() {
   }
 
   function handleLogout() {
+    forgetSessionPeriod();
     setSession(null, null);
     setUser(null);
   }

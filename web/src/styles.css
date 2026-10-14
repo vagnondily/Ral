@@ -2619,3 +2619,53 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .rbm-actions { padding-left: 20px; }
 .rbm-actions li { padding-left: 2px; }
 .rbm-action-month { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+
+/* ---- Période « du … au … » (lot 1b, retour 47) : components/PeriodSelect.jsx --------
+   Bouton 38 px (32 px en barre de filtres), fenêtre à deux colonnes : préréglages en
+   pilules (actif = style de la navigation), période personnalisée (Du / Au), mini-histogramme
+   des données (mois vide de la plage hachuré ET compté en texte), synthèse, pied. Jetons
+   seulement : le thème sombre suit. */
+.period-select { position: relative; display: inline-flex; }
+.period-trigger { height: 38px; gap: 8px; border-radius: var(--radius); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.period-trigger-label { color: var(--text-strong); font-weight: 600; }
+.period-trigger-span { color: var(--text-faint); font-weight: 500; }
+.period-select.is-compact .period-trigger { height: 32px; padding: 0 10px; font-size: var(--fs-sm); }
+.pop-menu.period-pop { width: 620px; max-width: calc(100vw - 32px); padding: 0; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
+.pop-menu.period-pop.is-right { left: auto; right: 0; }
+.period-cols { display: grid; grid-template-columns: 248px minmax(0, 1fr); }
+.period-presets { display: flex; flex-direction: column; gap: 2px; padding: 10px; border-right: 1px solid var(--border); }
+.period-preset { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 10px; width: 100%; min-height: 34px;
+  padding: 6px 12px; border: 0; border-radius: 999px; background: transparent; color: var(--text); font: inherit;
+  font-size: var(--fs-sm); text-align: left; cursor: pointer; transition: background-color .12s var(--ease); }
+.period-preset:hover { background: var(--surface-2); }
+.period-preset:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.period-preset[aria-pressed="true"] { background: var(--blue-50); color: var(--blue-600); font-weight: 600; }
+.period-preset-label { white-space: nowrap; }
+.period-hint { margin-left: auto; color: var(--text-faint); font-size: 12px; font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.period-preset[aria-pressed="true"] .period-hint { color: var(--blue-600); }
+.period-custom { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 10px 14px 12px; }
+.period-range { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.period-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 12px; color: var(--text-muted); }
+.period-field .select { width: 100%; font-variant-numeric: tabular-nums; }
+.period-field option.month-empty { color: var(--text-faint); }
+.period-strip { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); align-items: end; gap: 3px; height: 48px;
+  padding: 4px 0 0; border-bottom: 1px solid var(--border); }
+.period-bar { display: block; min-height: 3px; border-radius: 3px 3px 0 0; background: var(--border); }
+.period-bar.is-in { background: var(--blue-600); }
+.period-bar.is-empty { background: repeating-linear-gradient(135deg, var(--orange) 0 2px, transparent 2px 6px);
+  box-shadow: inset 0 0 0 1px var(--orange); opacity: .75; }
+.period-sum { margin: 0; font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.period-custom .field-error { margin: 0; }
+.period-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border);
+  background: var(--surface-2); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+.period-session-note { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; font-size: 12.5px; color: var(--text-muted); }
+.cfilter .period-select { min-width: 0; }
+@media (max-width: 640px) {
+  .pop-menu.period-pop { position: fixed; left: 16px; right: 16px; top: calc(var(--header-h) + 12px); width: auto; max-width: none;
+    max-height: calc(100vh - var(--header-h) - 24px); overflow-y: auto; }
+  .period-cols { grid-template-columns: 1fr; }
+  .period-presets { display: grid; grid-template-columns: 1fr 1fr; border-right: 0; border-bottom: 1px solid var(--border); }
+  .period-presets .pop-menu-label { grid-column: 1 / -1; }
+  .period-preset { border-radius: var(--radius); }
+  .period-range { grid-template-columns: 1fr; }
+}

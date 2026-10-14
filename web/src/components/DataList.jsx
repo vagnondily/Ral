@@ -8,6 +8,8 @@ import { usePopover, SortTh, makeViewStore } from './listView.jsx';
 import { useToast } from './Toast.jsx';
 import { useI18n } from '../lib/i18n.jsx';
 import { downloadCsv } from '../lib/csv.js';
+import { overlaps, periodFromSaved } from '../lib/period.js';
+import PeriodSelect from './PeriodSelect.jsx';
 
 /**
  * Liste réutilisable « façon COMET » (comme la liste des contrats) : barre de
@@ -17,7 +19,12 @@ import { downloadCsv } from '../lib/csv.js';
  * `filters` déclaratifs ici au lieu de ré-implémenter les mêmes contrôles.
  *
  * columns: { key: { label, num?, sortable?, sortVal?(row), render(row), csv?(row), width? } }
- * filters: { key: { label, type:'search'|'select', placeholder?, options?, match(row,val) } }
+ * filters: { key: { label, type:'search'|'select'|'period', placeholder?, options?, match(row,val) } }
+ *   type 'period' (lot 1b) : bouton compact + PeriodSelect (« Toutes les périodes » = '') ;
+ *   valeur { from, to }. Sans `match`, une ligne passe si son intervalle [start(row), end(row)]
+ *   (mois ou dates ; end facultatif) chevauche la période. Propriétés facultatives : start, end,
+ *   counts, today, latest, presets. Une vue enregistrée avec l'ancienne valeur « AAAA-MM » est
+ *   relue comme { from: v, to: v } (jamais rejetée).
  */
 export default function DataList({
   rows, columns, defaultColumns, filters = {}, defaultFilters = [],
@@ -35,7 +42,7 @@ export default function DataList({
 
   const saved = useMemo(() => viewStore.initial(), [viewStore]);
   const emptyValues = useMemo(() => Object.fromEntries(ALL_FILTERS.map((k) => [k, ''])), [storageKey]); // eslint-disable-line
-  const [values, setValues] = useState(() => ({ ...emptyValues, ...(saved?.values || {}) }));
+  const [values, setValues] = useState(() => readSavedValues(filters, { ...emptyValues, ...(saved?.values || {}) }));
   const [shownFilters, setShownFilters] = useState(() => saved?.shownFilters || (defaultFilters.length ? defaultFilters : ALL_FILTERS));
   const [cols, setCols] = useState(() => saved?.columns || defaultColumns || ALL_COLUMNS);
   const [sort, setSort] = useState(() => saved?.sort || defaultSort || { key: null, dir: 'asc' });
@@ -51,7 +58,9 @@ export default function DataList({
     let list = rows || [];
     list = list.filter((r) => shown.every((k) => {
       const v = values[k]; if (v === '' || v == null) return true;
-      return filters[k].match ? filters[k].match(r, v) : true;
+      if (filters[k].match) return filters[k].match(r, v);
+      if (filters[k].type === 'period') return overlaps(v, filters[k].start?.(r), filters[k].end?.(r));
+      return true;
     }));
     if (sort.key && columns[sort.key]?.sortVal) {
       const sv = columns[sort.key].sortVal;
@@ -93,7 +102,12 @@ export default function DataList({
     return (
       <div key={k} className="cfilter">
         <span className="cfilter-label">{f.label}</span>
-        {f.type === 'search' ? (
+        {f.type === 'period' ? (
+          <PeriodSelect
+            compact allowAll value={values[k] || null} onChange={(p) => setVal(k, p || '')}
+            counts={f.counts || null} today={f.today} latest={f.latest || null} presets={f.presets} ariaLabel={f.label}
+          />
+        ) : f.type === 'search' ? (
           <span className="input-wrap"><Search size={16} aria-hidden="true" />
             <input className="input" type="search" placeholder={f.placeholder || tr('Rechercher…')} value={values[k]} onChange={(e) => setVal(k, e.target.value)} />
           </span>
@@ -213,4 +227,13 @@ export default function DataList({
       )}
     </Card>
   );
+}
+
+/** Valeurs d'une vue enregistrée relues selon le type de filtre (période : ancien « AAAA-MM » converti). */
+function readSavedValues(filters, values) {
+  const out = { ...values };
+  for (const [k, f] of Object.entries(filters)) {
+    if (f.type === 'period') out[k] = periodFromSaved(out[k]);
+  }
+  return out;
 }

@@ -37,7 +37,8 @@ export function formatFileSize(bytes) {
   return `${n.replace(/ /g, ' ')} ${SIZE_UNIT[LANG]}`;
 }
 
-const MONTH_NAMES = {
+// Noms des mois (fr / en) — exportés pour lib/period.js (libellés de période, jumeaux du serveur).
+export const MONTH_NAMES = {
   fr: ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'],
   en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
 };
@@ -51,7 +52,7 @@ export function monthLabel(month) {
   return `${name.charAt(0).toUpperCase()}${name.slice(1)} ${y}`;
 }
 
-const MONTH_SHORT = {
+export const MONTH_SHORT = {
   fr: ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'],
   en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
 };

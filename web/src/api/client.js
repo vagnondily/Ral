@@ -1,3 +1,5 @@
+import { periodParams } from '../lib/period.js';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:9000';
 const TOKEN_KEY = 'mems2_tpm_token';
 const USER_KEY = 'mems2_tpm_user';
@@ -154,6 +156,12 @@ async function uploadSubmissions(path, file) {
   return data;
 }
 
+// Paramètres de période d'un appel (lot 1b) : { from, to } → ?from=&to= ; « AAAA-MM » → l'ancien
+// ?month= (toujours accepté par le serveur) ; rien → aucun paramètre. Voir lib/period.periodParams.
+export const pq = periodParams;
+/** Requête sans paramètres vides (undefined si aucun). */
+const qs = (o) => { const out = Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null && v !== '')); return Object.keys(out).length ? out : undefined; };
+
 let calcFunctionsCache = null; // le catalogue ne change qu'avec une nouvelle version de l'API
 
 export const api = {
@@ -303,13 +311,14 @@ export const api = {
   // « Comment c'est calculé » : une définition appliquée aux soumissions de la période (lecture seule).
   monIndicatorPreview: (id, body) => request(`/api/monitoring/forms/${id}/indicators/preview`, { method: 'POST', body }),
   monFormMonths: (id) => request(`/api/monitoring/forms/${id}/months`),
-  monValues: (id, month) => request(`/api/monitoring/forms/${id}/values`, { query: month ? { month } : undefined }),
-  monDashboard: (id, month) => request(`/api/monitoring/forms/${id}/dashboard`, { query: month ? { month } : undefined }),
-  monOverview: (month) => request('/api/monitoring/overview', { query: month ? { month } : undefined }),
-  monCoverageDashboard: (month) => request('/api/monitoring/coverage-dashboard', { query: month ? { month } : undefined }),
+  // Période : { from, to } (plage), « AAAA-MM » (un mois, ancien format) ou rien (toutes les périodes) — voir pq().
+  monValues: (id, period) => request(`/api/monitoring/forms/${id}/values`, { query: qs(pq(period)) }),
+  monDashboard: (id, period) => request(`/api/monitoring/forms/${id}/dashboard`, { query: qs(pq(period)) }),
+  monOverview: (period) => request('/api/monitoring/overview', { query: qs(pq(period)) }),
+  monCoverageDashboard: (period) => request('/api/monitoring/coverage-dashboard', { query: qs(pq(period)) }),
   // Volume de données par mois + période par défaut (dernier mois substantiel ≤ mois courant).
   monPeriods: (today) => request('/api/monitoring/periods', { query: today ? { today } : undefined }),
-  monSubmissions: (month) => request('/api/monitoring/submissions', { query: month ? { month } : undefined }),
+  monSubmissions: (period) => request('/api/monitoring/submissions', { query: qs(pq(period)) }),
   monCatalog: (id) => request(`/api/monitoring/forms/${id}/catalog`),
   monMemsMapping: (id) => request(`/api/monitoring/forms/${id}/mems-mapping`),
   monSetMemsMapping: (id, dimension, column) => request(`/api/monitoring/forms/${id}/mems-mapping`, { method: 'PUT', body: { dimension, column } }),
@@ -317,7 +326,7 @@ export const api = {
   monApplyMemsMapping: (id) => request(`/api/monitoring/forms/${id}/mems-mapping/apply`, { method: 'POST' }),
   // Cycle de vie du mapping : action ∈ submit | validate | reset.
   monMappingAction: (id, action) => request(`/api/monitoring/forms/${id}/mapping/${action}`, { method: 'POST' }),
-  monFormSubmissions: (id, { month, limit } = {}) => request(`/api/monitoring/forms/${id}/submissions`, { query: { ...(month ? { month } : {}), ...(limit ? { limit } : {}) } }),
+  monFormSubmissions: (id, { period, month, limit } = {}) => request(`/api/monitoring/forms/${id}/submissions`, { query: qs({ ...pq(period || month), limit }) }),
   monCalcFields: (id) => request(`/api/monitoring/forms/${id}/calc-fields`),
   // Éditeur de formule : catalogue des fonctions (mis en cache) et aperçu sur les soumissions réelles.
   monCalcFunctions: () => (calcFunctionsCache ||= request('/api/monitoring/calc-functions').catch((e) => { calcFunctionsCache = null; throw e; })),
@@ -392,19 +401,25 @@ export const api = {
   fieldSites: (q) => request('/api/tpm/field/sites', { query: q ? { q } : undefined }),
   fieldCreateSite: (input) => request('/api/tpm/field/sites', { method: 'POST', body: input }),
   fieldUpdateSite: (id, input) => request(`/api/tpm/field/sites/${id}`, { method: 'PATCH', body: input }),
-  fieldVisits: (query) => request('/api/tpm/field/visits', { query }),
-  fieldSummary: (month) => request('/api/tpm/field/summary', { query: month ? { month } : undefined }),
+  // Visites : { period | month, providerId, status } — 12 mois au plus sur une plage.
+  fieldVisits: ({ period, month, ...rest } = {}) => request('/api/tpm/field/visits', { query: qs({ ...pq(period || month), ...rest }) }),
+  // Faits site × mois sur la période (sites distincts actifs / prévus / réalisés, visites, taux).
+  fieldSummary: (period) => request('/api/tpm/field/summary', { query: qs(pq(period)) }),
   fieldCreateVisit: (input) => request('/api/tpm/field/visits', { method: 'POST', body: input }),
   fieldUpdateVisit: (id, input) => request(`/api/tpm/field/visits/${id}`, { method: 'PATCH', body: input }),
   fieldDeleteVisit: (id) => request(`/api/tpm/field/visits/${id}`, { method: 'DELETE' }),
   fieldCollectionDays: (month) => request('/api/tpm/field/collection-days', { query: month ? { month } : undefined }),
-  fieldCoverageRecap: ({ district, operationMonths } = {}) => request('/api/tpm/field/coverage-recap', { query: { ...(district ? { district } : {}), ...(operationMonths ? { operationMonths } : {}) } }),
-  fieldCoverageMatrix: (year) => request('/api/tpm/field/coverage-matrix', { query: year ? { year } : undefined }),
+  fieldCoverageRecap: ({ district, operationMonths, period } = {}) => request('/api/tpm/field/coverage-recap', { query: qs({ district, operationMonths, ...pq(period) }) }),
+  // Matrice : une année (nombre, 12 mois) ou une période { from, to } (colonnes = mois de la période).
+  fieldCoverageMatrix: (yearOrPeriod) => request('/api/tpm/field/coverage-matrix', {
+    query: qs(yearOrPeriod && typeof yearOrPeriod === 'object' ? pq(yearOrPeriod) : { year: yearOrPeriod }),
+  }),
   fieldMonths: (year) => request('/api/tpm/field/months', { query: year ? { year } : undefined }),
   fieldMap: () => request('/api/tpm/field/map'),
   fieldSetMonthStatus: (month, status) => request('/api/tpm/field/months/status', { method: 'PUT', body: { month, status } }),
   fieldSetTravelDays: (input) => request('/api/tpm/field/collection-days', { method: 'PUT', body: input }),
-  rbmSites: (month, risk) => request('/api/tpm/field/rbm/sites', { query: { ...(month ? { month } : {}), ...(risk ? { risk } : {}) } }),
+  // Mois de référence « AAAA-MM », ou une période { from, to } : l'état est lu au mois `to`.
+  rbmSites: (monthOrPeriod, risk) => request('/api/tpm/field/rbm/sites', { query: qs({ ...pq(monthOrPeriod), risk }) }),
   // Un site avec « Pourquoi ? / Conséquence / Que faire ? » (retour n° 48).
   rbmSiteExplain: (id, month) => request(`/api/tpm/field/rbm/sites/${encodeURIComponent(id)}`, { query: month ? { month } : {} }),
   rbmGenerate: (month, risk) => request(`/api/tpm/field/rbm/generate?month=${encodeURIComponent(month)}${risk ? `&risk=${risk}` : ''}`, { method: 'POST' }),
