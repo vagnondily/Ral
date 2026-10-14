@@ -158,7 +158,7 @@ function SiteMmrTab({ period }) {
               </tr></tfoot>
             </table></div>
           </div>
-          <div className="note"><Target size={18} aria-hidden="true" /><span>{tr("Visites requises = durée d'opération ÷ intervalle MMR (élevé : 1 mois · moyen : 2 · faible : 3). Un site est conforme s'il a atteint ce nombre de visites réalisées. Couverture = part des sites visités au moins une fois.")}</span></div>
+          <div className="note"><Target size={18} aria-hidden="true" /><span>{tr("Visites requises = durée d'opération ÷ intervalle MMR (élevé : 1 mois · moyen : 2 · faible : 3). Un site est conforme s'il a atteint ce nombre de visites réalisées. Couverture (sites) = part des sites actifs visités au moins une fois.")}</span></div>
         </>
       )}
     </>
