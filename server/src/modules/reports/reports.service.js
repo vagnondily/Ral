@@ -1,143 +1,300 @@
 const ExcelJS = require('exceljs');
-const { badRequest } = require('../../middleware/errors');
-const { parseReport, safeParseReport, periodLabel, variableValues, DATASETS, KPIS } = require('./reportModel');
-const { buildDataset, computeKpis, repeatItems, bulletinDoc } = require('./reportData');
+const { badRequest, payloadTooLarge, AppError } = require('../../middleware/errors');
+const { upgradeDoc, upgradeSnapshot, isV1 } = require('./reportUpgrade');
+const { safeParseDocV2, walkBlocks } = require('./reportSchema');
+const { DATASETS, KPIS, GROUPS, datasetDef, kpiDef, validateBlockParams, catalogForClient } = require('./catalog');
+const { loadFor } = require('./sources');
+const { legacyFilters } = require('./catalog/legacy');
+const { buildPlan, blockOfInstance, PlanError, richVariables } = require('./renderPlan');
+const { VARIABLES } = require('./reportModel');
 const { SYSTEM_TEMPLATES } = require('./reportTemplates');
+const { bulletinDoc, computeKpis } = require('./reportData');
+const { periodLabel } = require('../common/period');
+const { phrases } = require('./phrases');
 const repo = require('./reports.repository');
-const monitoringRepo = require('../monitoring/monitoring.repository');
-const fieldRepo = require('../tpm/field.repository');
-const pddRepo = require('../pdd/pdd.repository');
-const consolidationRepo = require('../tpm/consolidation.repository');
 
 /**
- * Concepteur de rapport — orchestration. Le rendu calcule UNE fois les sources
- * nécessaires aux blocs (en parallèle), puis met en forme chaque bloc (pure).
- * Un document finalisé renvoie ses données figées (snapshot).
+ * Concepteur de rapport — orchestration (lot 7a).
+ *  1. normalisation : document v1 mis à niveau (reportUpgrade), schéma v2 (reportSchema),
+ *     paramètres de chaque bloc contre le catalogue (jeu connu, vue permise, args) ;
+ *  2. plan (renderPlan, pur) : sections répétées dépliées, instances, figures numérotées ;
+ *  3. données : chaque instance calculée par son jeu de données (catalogue → source → mise
+ *     en forme), l'une après l'autre ; une erreur reste celle de SON bloc.
+ * Un document finalisé renvoie ses données figées (jamais recalculées).
  */
-const MONITORING_SETS = new Set(['activity_coverage', 'activity_domains', 'bureau_domains', 'indicator_list', 'completeness_monthly', 'region_submissions']);
-const FIELD_SETS = new Set(['bureau_coverage', 'plan_vs_actual']);
 
-function validate(input) {
-  const r = safeParseReport(input);
-  if (!r.success) throw badRequest('Rapport invalide', r.error.flatten());
-  return r.data;
+const today = () => new Date().toISOString().slice(0, 10);
+const langOf = (opts) => (opts && opts.lang === 'en' ? 'en' : 'fr');
+
+/** Bureaux du client : nom (minuscules) → id, id → nom. */
+async function officeIndex(tenantId) {
+  const rows = await repo.listOffices(tenantId);
+  return {
+    idByName: new Map(rows.map((o) => [String(o.name).trim().toLowerCase(), o.id])),
+    nameById: new Map(rows.map((o) => [o.id, o.name])),
+  };
 }
 
-// Variables insérées dans un texte riche ({ nodes: [{ c: [{ v }] | items: [[{ v }]] }] }).
-function docVariables(doc) {
-  const out = [];
-  for (const n of (doc && doc.nodes) || []) {
-    for (const s of [...(n.c || []), ...(n.items || []).flat()]) if (s && s.v) out.push(s.v);
+const viewsOf = (key) => { const d = datasetDef(key); return d ? { views: d.views, defaultView: d.defaultView } : null; };
+
+/** Paramètres de chaque bloc contre le catalogue (jeu connu et disponible, vue, args, chiffres clés). */
+function catalogIssues(doc) {
+  const issues = [];
+  walkBlocks(doc.blocks, (b, path) => {
+    if (b.type === 'data') {
+      for (const i of validateBlockParams(datasetDef(b.params.dataset), b.params)) issues.push({ path: [...path, 'params', ...i.path], message: i.message });
+    }
+    if (b.type === 'kpis') {
+      b.params.metrics.forEach((m, i) => { if (!kpiDef(m)) issues.push({ path: [...path, 'params', 'metrics', i], message: `Chiffre clé inconnu : ${m}` }); });
+    }
+  });
+  return issues;
+}
+
+/**
+ * Document reçu ou enregistré (v1 ou v2) → v2 validé.
+ * @returns {Promise<{ doc, warnings, upgraded, offices }>}
+ */
+async function normalizeDoc(tenantId, input, { offices } = {}) {
+  const idx = offices || await officeIndex(tenantId);
+  const up = upgradeDoc(input, { officeIdByName: idx.idByName, viewsOf });
+  const r = safeParseDocV2(up.doc);
+  if (!r.success) {
+    const big = r.error.issues.find((i) => i.params && i.params.code === 'doc_too_large');
+    if (big) throw payloadTooLarge(big.message, { code: 'doc_too_large' });
+    throw badRequest('Rapport invalide', r.error.flatten());
+  }
+  const issues = catalogIssues(r.data);
+  if (issues.length) throw badRequest('Rapport invalide', { issues });
+  return { doc: r.data, warnings: up.warnings, upgraded: up.upgraded, offices: idx };
+}
+
+/** Éléments des sections répétées (plan) : fiches, bureaux ou partenaires ayant des données. */
+async function expandRepeats(tenantId, doc, lang) {
+  const out = {};
+  const T = phrases(lang);
+  for (const b of doc.blocks) {
+    if (b.type !== 'repeat') continue;
+    const f = doc.filters || {};
+    if (b.params.over === 'activity') {
+      const rows = await repo.repeatCandidates(tenantId, 'activity', doc.period);
+      out[b.id] = rows.filter((r) => !f.formId || r.id === f.formId)
+        .filter((r) => !f.activity || (r.activityCategory || '').toLowerCase() === f.activity.toLowerCase())
+        .map((r) => ({ key: r.id, label: r.label, filters: { formId: r.id } }));
+    } else if (b.params.over === 'bureau') {
+      const { offices, unlinked } = await repo.repeatCandidates(tenantId, 'bureau', doc.period);
+      const items = offices.map((o) => ({ key: `id:${o.id}`, label: o.name, filters: { office: `id:${o.id}` } }));
+      if (unlinked) items.push({ key: 'unlinked', label: T.unlinkedOffice, filters: { office: 'unlinked' } });
+      out[b.id] = items.filter((it) => !f.office || it.key === f.office);
+    } else {
+      const rows = await repo.repeatCandidates(tenantId, 'partner', doc.period);
+      out[b.id] = rows.filter((r) => !f.partnerId || r.id === f.partnerId)
+        .map((r) => ({ key: r.id, label: r.name, filters: { partnerId: r.id } }));
+    }
   }
   return out;
 }
 
-/**
- * Sources requises par les blocs (dépliant les blocs répétés), y compris les
- * chiffres insérés comme variables dans les textes. La couverture a besoin du
- * terrain : sans catégorie d'activité sur les fiches, ses sites actifs
- * viennent des bureaux.
- */
-function requiredSources(blocks) {
-  const need = { monitoring: false, field: false, budget: false, pdd: false };
-  const metrics = (m) => {
-    if (m.some((k) => ['sites_active', 'sites_visited', 'coverage', 'submissions', 'conformity'].includes(k))) need.monitoring = true;
-    if (m.some((k) => ['sites_active', 'coverage', 'visits_done', 'visits_planned', 'execution_rate'].includes(k))) need.field = true;
-    if (m.some((k) => k.startsWith('budget') || k === 'consumption')) need.budget = true;
-    if (m.some((k) => k.startsWith('pdd'))) need.pdd = true;
-  };
-  const walk = (b) => {
-    if (b.type === 'repeat') { need.monitoring = true; need.field = true; b.params.blocks.forEach(walk); return; }
-    if (b.params && b.params.doc) metrics(docVariables(b.params.doc));
-    if (b.type === 'kpis') { metrics(b.params.metrics); return; }
-    if (b.type === 'bulletin') { need.monitoring = true; need.field = true; return; }
-    const ds = b.params && b.params.dataset;
-    if (!ds) return;
-    if (MONITORING_SETS.has(ds)) need.monitoring = true;
-    if (FIELD_SETS.has(ds)) need.field = true;
-    if (ds === 'budget_contracts') need.budget = true;
-    if (ds.startsWith('pdd')) need.pdd = true;
-  };
-  blocks.forEach(walk);
-  return need;
+const kpiKeys = () => new Set(Object.keys(KPIS));
+const planOf = (doc, expansions, lang) => {
+  try {
+    return buildPlan(doc, { expansions, kpiKeys: kpiKeys(), lang, today: today(), defaultView: (k) => (datasetDef(k) || {}).defaultView || 'table' });
+  } catch (e) {
+    if (e instanceof PlanError) throw badRequest(e.message, { code: e.code, ...e.details });
+    throw e;
+  }
+};
+
+// Filtre effectif → filtre déclaré par un jeu, et note quand il n'est pas pris en charge.
+const FILTER_OF = { office: ['office', 'notByOffice'], activity: ['activity', 'notByActivity'], partnerId: ['partner', 'notByPartner'], formId: ['form', 'notByForm'], module: ['module', 'notByModule'] };
+function unsupportedNote(def, eff, lang) {
+  for (const [k, [name, phrase]] of Object.entries(FILTER_OF)) {
+    if (eff[k] != null && !(def.filters || []).includes(name)) return phrases(lang)[phrase];
+  }
+  return null;
 }
 
-// `lang` : langue des libellés construits par le serveur (bureau non relié : « Code 7 (not linked) »).
-async function loadSources(tenantId, period, need, lang = 'fr') {
-  const [monitoring, field, budget, pdd] = await Promise.all([
-    need.monitoring ? monitoringRepo.reportMonitoringData(tenantId, period, { lang }) : null,
-    need.field ? fieldRepo.reportFieldData(tenantId, period, { lang }) : null,
-    need.budget ? consolidationRepo.consolidation(tenantId, { today: period.to }) : null,
-    need.pdd ? pddRepo.reportPddByMonth(tenantId, period) : null,
-  ]);
-  return { monitoring, field, budget, pdd };
+/** Tri (valeurs vides en dernier) et nombre de lignes au plus. */
+function sortAndLimit(rows, { sort, limit } = {}) {
+  let out = rows;
+  if (sort && sort.key) {
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    out = [...rows].sort((a, b) => {
+      const x = a[sort.key]; const y = b[sort.key];
+      if (x == null && y == null) return 0;
+      if (x == null) return 1;
+      if (y == null) return -1;
+      return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'fr', { numeric: true })) * dir;
+    });
+  }
+  return limit ? out.slice(0, limit) : out;
 }
 
-function renderBlock(b, sources, filters, period, ptext, lang) {
-  const f = { ...(b.params.filters || {}), ...filters };
-  switch (b.type) {
-    case 'table': case 'chart': {
-      const d = buildDataset(b.params.dataset, sources, f, period);
-      if (b.params.limit) d.rows = d.rows.slice(0, b.params.limit);
-      return d;
+/** Données d'un bloc « données ». */
+async function dataBlock(tenantId, block, eff, ctx) {
+  const T = phrases(ctx.lang);
+  const def = datasetDef(block.params.dataset);
+  if (!def) return { columns: [], rows: [], meta: { note: T.unknownDataset } };
+  if (def.available === false) return { columns: def.columns, rows: [], meta: { note: def.reason, unavailable: true } };
+  const note = unsupportedNote(def, eff, ctx.lang);
+  if (note) return { columns: def.columns, rows: [], meta: { note, unsupported: true } };
+  const raw = await loadFor(def, tenantId, eff, block.params.args, ctx);
+  const shaped = def.shape(raw, eff, { ...ctx, args: block.params.args || {} });
+  const rows = sortAndLimit(shaped.rows || [], block.params);
+  const groupLabel = (GROUPS.find((g) => g.key === def.group) || {}).label || '';
+  return {
+    columns: shaped.columns || def.columns,
+    rows,
+    meta: {
+      n: shaped.meta && shaped.meta.n != null ? shaped.meta.n : (shaped.rows || []).length,
+      nLabel: (shaped.meta && shaped.meta.nLabel) || null,
+      total: (shaped.rows || []).length,
+      source: (shaped.meta && shaped.meta.source) || T.source(def.sourceLabel || groupLabel),
+      asOf: (shaped.meta && shaped.meta.asOf) || null,
+      note: (shaped.meta && shaped.meta.note) || null,
+      definition: (shaped.meta && shaped.meta.definition) || null,
+      warnings: (shaped.meta && shaped.meta.warnings) || [],
+      periodMode: def.periodMode,
+      period: eff.period,
+    },
+  };
+}
+
+/** Valeurs de chiffres clés (bloc « kpis » et variables des textes). */
+async function kpiValues(tenantId, metrics, eff, ctx) {
+  const values = {}; const notes = {};
+  for (const m of metrics) {
+    const def = kpiDef(m);
+    if (!def || def.available === false) { values[m] = null; notes[m] = def ? def.reason : null; continue; }
+    const note = unsupportedNote(def, eff, ctx.lang);
+    if (note) { values[m] = null; notes[m] = note; continue; }
+    const raw = await loadFor(def, tenantId, eff, {}, ctx);
+    const r = def.pick(raw, eff, ctx) || {};
+    values[m] = r.value == null ? null : r.value;
+    if (r.note) notes[m] = r.note;
+  }
+  return { values, notes };
+}
+
+const BULLETIN_SOURCE = { key: 'bulletin', source: 'legacy', needs: ['field', 'monitoring'], filters: ['office', 'form'] };
+
+/** Données d'une instance (selon le type de bloc). */
+async function computeData(tenantId, doc, inst, block, ctx) {
+  const eff = inst.filters || { period: doc.period };
+  switch (block.type) {
+    case 'data': return dataBlock(tenantId, block, eff, ctx);
+    case 'kpis': return kpiValues(tenantId, block.params.metrics, eff, ctx);
+    case 'bulletin': {
+      if (block.params.doc) return { doc: block.params.doc, generated: false };
+      const raw = await loadFor(BULLETIN_SOURCE, tenantId, eff, {}, ctx);
+      const f = legacyFilters(eff, ctx);
+      const k = computeKpis(raw, f.unsupported ? {} : f);
+      return { doc: bulletinDoc(k, raw, periodLabel(eff.period, ctx.lang), ctx.lang), generated: true };
     }
-    case 'kpis': {
-      const k = computeKpis(sources, f);
-      return { values: Object.fromEntries(b.params.metrics.map((m) => [m, k[m] ?? null])) };
+    case 'text': case 'callout': {
+      const metrics = richVariables(block.params.doc).filter((v) => KPIS[v]);
+      const { values } = await kpiValues(tenantId, metrics, eff, ctx);
+      return { vars: values };
     }
-    case 'bulletin': return { doc: b.params.doc || bulletinDoc(computeKpis(sources, f), sources, ptext, lang), generated: !b.params.doc };
     default: return null;
   }
 }
 
-/**
- * Données d'un rapport : { periodLabel, variables, blocks: { [id]: data },
- * repeats: { [id]: [{ key, label, blocks: { [childId]: data } }] } }.
- */
-async function renderReport(tenantId, input, { lang = 'fr' } = {}) {
-  const doc = validate(input);
-  const period = doc.period;
-  const sources = await loadSources(tenantId, period, requiredSources(doc.blocks), lang);
-  const ptext = periodLabel(period, lang);
-  const out = { periodLabel: ptext, blocks: {}, repeats: {} };
-  for (const b of doc.blocks) {
-    if (b.type === 'repeat') {
-      out.repeats[b.id] = repeatItems(b.params.over, sources).map((it) => ({
-        key: it.key, label: it.label,
-        blocks: Object.fromEntries(b.params.blocks.map((c) => [c.id, renderBlock(c, sources, it.filters, period, ptext, lang)]).filter(([, v]) => v != null)),
-      }));
-    } else {
-      const d = renderBlock(b, sources, {}, period, ptext, lang);
-      if (d != null) out.blocks[b.id] = d;
-    }
+/** Instance calculée, son erreur isolée : { ok, data, meta: { ms } } | { ok: false, error }. */
+async function computeInstance(tenantId, doc, inst, ctx) {
+  const block = blockOfInstance(doc, inst.iid);
+  const t0 = Date.now();
+  try {
+    if (!block) return { ok: false, error: { code: 'unknown_block', message: `Bloc inconnu : ${inst.iid}` } };
+    const data = await computeData(tenantId, doc, inst, block, ctx);
+    return { ok: true, data, meta: { ms: Date.now() - t0 } };
+  } catch (e) {
+    const T = phrases(ctx.lang);
+    const timeout = e && e.code === '57014';
+    if (!timeout && !(e instanceof AppError)) ctx.log && ctx.log.error({ err: e, iid: inst.iid }, 'report.block');
+    return {
+      ok: false, meta: { ms: Date.now() - t0 },
+      error: { code: timeout ? 'timeout' : (e && e.statusCode ? 'invalid' : 'failed'), message: timeout ? T.tooLong : (e instanceof AppError ? e.message : T.failed) },
+    };
   }
-  out.variables = variableValues(period, computeKpis(sources, {}), new Date(), lang);
-  return out;
 }
 
-// ---- Documents ----------------------------------------------------------------------
+/** Contexte de rendu : langue, jour, bureaux, calculs partagés. */
+const renderCtx = (offices, opts) => ({ lang: langOf(opts), today: today(), officeNames: offices.nameById, memo: new Map(), log: opts && opts.log });
+
+/**
+ * Rendu complet (compatibilité, exports, soumission) : plan + données de toutes les instances.
+ * @returns {Promise<{ periodLabel, vars, sections, instances, expansions, blocks, warnings, upgraded }>}
+ */
+async function renderReport(tenantId, input, opts = {}) {
+  const lang = langOf(opts);
+  const { doc, warnings, upgraded, offices } = await normalizeDoc(tenantId, input);
+  const expansions = await expandRepeats(tenantId, doc, lang);
+  const plan = planOf(doc, expansions, lang);
+  const ctx = renderCtx(offices, opts);
+  const blocks = {};
+  for (const inst of plan.instances) if (inst.needsData) blocks[inst.iid] = await computeInstance(tenantId, doc, inst, ctx); // une à la fois
+  return { ...plan, blocks, warnings, upgraded };
+}
+
+// ---- Documents ----------------------------------------------------------------------------
+/** Document enregistré, contenu mis à niveau (v2) ; les données figées ne sont pas renvoyées ici. */
+async function getDocument(tenantId, id) {
+  const d = await repo.getDocument(tenantId, id);
+  const { snapshot: _snapshot, content, ...rest } = d;
+  const offices = await officeIndex(tenantId);
+  const up = upgradeDoc(content, { officeIdByName: offices.idByName, viewsOf });
+  return { ...rest, content: up.doc, upgradedFrom: isV1(content) ? 1 : null, warnings: up.warnings };
+}
+
+/** Données d'un document : figées s'il est finalisé (jamais recalculées), sinon calculées. */
 async function documentData(tenantId, id, opts) {
   const d = await repo.getDocument(tenantId, id);
-  if (d.status === 'final') return d.snapshot;
-  return renderReport(tenantId, d.content, opts);
+  if (d.status !== 'final') return renderReport(tenantId, d.content, opts);
+  const frozen = upgradeSnapshot(d.snapshot) || {};
+  const offices = await officeIndex(tenantId);
+  const up = upgradeDoc(d.content, { officeIdByName: offices.idByName, viewsOf });
+  const parsed = safeParseDocV2(up.doc);
+  if (!parsed.success) return { frozen: true, blocks: frozen.blocks || {}, instances: [], sections: [], expansions: {}, periodLabel: frozen.periodLabel };
+  const lang = (d.snapshot && d.snapshot.lang) || langOf(opts);
+  const plan = buildPlan(parsed.data, { expansions: frozen.expansions || {}, kpiKeys: kpiKeys(), lang, defaultView: (k) => (datasetDef(k) || {}).defaultView || 'table' });
+  const blocks = { ...(frozen.blocks || {}) };
+  // Texte avec chiffres clés (v1) : les valeurs figées du rapport.
+  for (const inst of plan.instances) {
+    if (inst.needsData && !blocks[inst.iid] && (inst.type === 'text' || inst.type === 'callout')) blocks[inst.iid] = { ok: true, data: { vars: frozen.vars || {} } };
+  }
+  return { ...plan, periodLabel: frozen.periodLabel || plan.periodLabel, blocks, frozen: true };
 }
 
-// Le snapshot figé garde la langue dans laquelle le rapport a été finalisé.
+// Les données figées gardent la langue dans laquelle le rapport a été finalisé.
 async function finalize(tenantId, id, version, userId, opts) {
   const d = await repo.getDocument(tenantId, id);
-  const snapshot = await renderReport(tenantId, d.content, opts);
+  const r = await renderReport(tenantId, d.content, opts);
+  const snapshot = { format: 2, frozen: true, lang: langOf(opts), periodLabel: r.periodLabel, expansions: r.expansions, blocks: r.blocks };
   return repo.finalizeDocument(tenantId, id, { version, snapshot }, userId);
+}
+
+/** Modèles d'équipe : contenu mis à niveau à la lecture. */
+async function listTemplates(tenantId) {
+  const rows = await repo.listTemplates(tenantId);
+  const offices = await officeIndex(tenantId);
+  return rows.map((t) => {
+    const up = upgradeDoc(t.content, { officeIdByName: offices.idByName, viewsOf });
+    return { ...t, content: up.doc };
+  });
 }
 
 function catalog() {
   return {
-    datasets: Object.fromEntries(Object.entries(DATASETS).map(([k, d]) => [k, { label: d.label, scope: d.scope, columns: d.columns.map(([key, label, type]) => ({ key, label, type })), dynamicColumns: d.dynamicColumns || null }])),
-    kpis: KPIS,
-    templates: SYSTEM_TEMPLATES.map((t) => ({ key: t.key, name: t.name, description: t.description, system: true, content: { title: t.name, page: t.page, blocks: t.blocks } })),
+    catalogVersion: 2,
+    ...catalogForClient(),
+    variables: VARIABLES,
+    templates: SYSTEM_TEMPLATES.map((t) => ({ key: t.key, name: t.name, description: t.description, system: true, content: t.content })),
+    pageSizes: { A4: { portrait: [210, 297], landscape: [297, 210] }, '16:9': { portrait: [190.5, 338.67], landscape: [338.67, 190.5] } },
   };
 }
 
-// ---- Export Excel : une feuille par bloc de données (tableaux, graphiques, chiffres clés) --
+// ---- Export Excel : une feuille par bloc de données, plus « Lisez-moi » -------------------
 function sheetName(wb, raw) {
   const base = String(raw || 'Données').replace(/[\\/*?:[\]]/g, ' ').slice(0, 28).trim() || 'Données';
   let name = base; let i = 2;
@@ -148,45 +305,64 @@ function sheetName(wb, raw) {
 function addTable(wb, title, data) {
   const ws = wb.addWorksheet(sheetName(wb, title));
   ws.addRow([title]).font = { bold: true, size: 13 };
+  if (data.meta && data.meta.source) ws.addRow([data.meta.source]).font = { italic: true, color: { argb: 'FF616A7A' } };
   ws.addRow([]);
   const header = ws.addRow(data.columns.map((c) => c.label));
   header.font = { bold: true }; header.eachCell((c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE7E9EF' } }; });
+  const headRow = header.number;
+  if (!data.rows.length && data.meta && data.meta.note) ws.addRow([data.meta.note]);
   for (const r of data.rows) ws.addRow(data.columns.map((c) => (r[c.key] == null ? '' : r[c.key])));
   data.columns.forEach((c, i) => {
     ws.getColumn(i + 1).width = c.type === 'text' ? 34 : 14;
     if (c.type === 'money') ws.getColumn(i + 1).numFmt = '#,##0';
     if (c.type === 'dec') ws.getColumn(i + 1).numFmt = '#,##0.000';
   });
-  ws.views = [{ state: 'frozen', ySplit: 3 }];
+  ws.views = [{ state: 'frozen', ySplit: headRow }];
 }
 
 async function exportXlsx(tenantId, input, opts) {
-  const doc = validate(input);
-  const data = await renderReport(tenantId, doc, opts);
+  const r = await renderReport(tenantId, input, opts);
+  const { doc } = await normalizeDoc(tenantId, input);
   const wb = new ExcelJS.Workbook(); wb.creator = 'MEMS 2.0';
-  // 1re passe : chiffres clés et tableaux à écrire (dans l'ordre du rapport).
-  const kpiRows = []; const tables = [];
-  const visit = (b, d, prefix = '') => {
-    if (!d) return;
-    if (b.type === 'table' || b.type === 'chart') tables.push([`${prefix}${b.params.title || DATASETS[b.params.dataset].label}`, d]);
-    if (b.type === 'kpis') Object.entries(d.values).forEach(([k, v]) => kpiRows.push([prefix.replace(/ — $/, '') || doc.title, KPIS[k], v]));
-  };
-  for (const b of doc.blocks) {
-    if (b.type === 'repeat') {
-      for (const item of data.repeats[b.id] || []) b.params.blocks.forEach((c) => visit(c, item.blocks[c.id], `${item.label} — `));
-    } else visit(b, data.blocks[b.id]);
+  const readme = wb.addWorksheet('Lisez-moi', { properties: { tabColor: { argb: 'FF0F6CBD' } } });
+  readme.addRow([doc.title]).font = { bold: true, size: 14 };
+  readme.addRow(['Période', r.periodLabel]);
+  const f = doc.filters || {};
+  readme.addRow(['Filtres du rapport', Object.entries(f).map(([k, v]) => `${k} = ${v}`).join(' · ') || '—']);
+  readme.addRow(['Édité le', today()]);
+  readme.addRow(['Statut', 'Brouillon — non validé']);
+  readme.addRow([]);
+  readme.addRow(['Feuille', 'Source']).font = { bold: true };
+  readme.columns = [{ width: 36 }, { width: 80 }];
+
+  const kpiRows = [];
+  for (const inst of r.instances) {
+    const res = r.blocks[inst.iid];
+    if (!res || !res.ok || !res.data) continue;
+    const block = blockOfInstance(doc, inst.iid);
+    const prefix = inst.repeatLabel ? `${inst.repeatLabel} — ` : '';
+    if (block.type === 'data') {
+      const def = DATASETS[block.params.dataset];
+      const title = `${prefix}${(block.params.figure && block.params.figure.title) || (def ? def.label : block.params.dataset)}`;
+      addTable(wb, title, res.data);
+      readme.addRow([title, (res.data.meta && res.data.meta.source) || '']);
+    }
+    if (block.type === 'kpis') {
+      for (const [k, v] of Object.entries(res.data.values || {})) kpiRows.push([prefix.replace(/ — $/, '') || doc.title, (KPIS[k] || {}).label || k, v]);
+    }
   }
   if (kpiRows.length) {
-    const ws = wb.addWorksheet('Chiffres clés', { properties: { tabColor: { argb: 'FF0F6CBD' } } });
-    ws.addRow([`${doc.title} — ${data.periodLabel}`]).font = { bold: true, size: 13 };
+    const ws = wb.addWorksheet('Chiffres clés');
+    ws.addRow([`${doc.title} — ${r.periodLabel}`]).font = { bold: true, size: 13 };
     ws.addRow([]);
     ws.addRow(['Périmètre', 'Indicateur', 'Valeur']).font = { bold: true };
-    kpiRows.forEach((r) => ws.addRow(r));
+    kpiRows.forEach((row) => ws.addRow(row));
     ws.columns = [{ width: 40 }, { width: 34 }, { width: 16 }];
   }
-  tables.forEach(([title, d]) => addTable(wb, title, d));
-  if (!wb.worksheets.length) wb.addWorksheet('Rapport').addRow(['Ce rapport ne contient pas de bloc de données.']);
   return wb;
 }
 
-module.exports = { renderReport, documentData, finalize, catalog, exportXlsx, validate, requiredSources, parseReport };
+module.exports = {
+  renderReport, normalizeDoc, expandRepeats, computeInstance, renderCtx, planOf, officeIndex,
+  getDocument, documentData, finalize, listTemplates, catalog, exportXlsx, catalogIssues,
+};

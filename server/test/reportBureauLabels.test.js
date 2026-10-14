@@ -25,6 +25,10 @@ db.withTenantTransaction = async (tenantId, fn) => fn({
     if (/FROM monitoring_forms f WHERE f\.tenant_id = \$1 AND f\.active = true/.test(s)) {
       return { rows: [{ id: FORM, code: 'GD', label: LONG, activityCategory: null, sitesActive: 0 }] };
     }
+    // Concepteur v2 : bureaux du client et éléments de la section répétée par bureau.
+    if (/FROM field_offices WHERE tenant_id = \$1 ORDER BY lower\(name\)/.test(s)) return { rows: [{ id: 'o1', name: 'Bureau Sud', parentId: null, active: true }] };
+    if (/WITH top AS/.test(s)) return { rows: [{ id: 'o1', name: 'Bureau Sud' }] };
+    if (/SELECT EXISTS \(SELECT 1 FROM monitoring_submissions/.test(s)) return { rows: [{ any: true }] };
     // Comptages par bureau des faits d'indicateurs (histogramme, lot 7a) : 2 soumissions du code 7, 1 du bureau relié.
     if (/AS "officeStatus"/.test(s)) {
       return { rows: [
@@ -96,11 +100,13 @@ test('rendu du rapport : la langue de l\'interface arrive jusqu\'aux libellés d
     ],
   };
   const out = await service.renderReport(T, doc, { lang: 'en' });
-  assert.deepEqual(out.blocks.tb.rows.map((r) => r.bureau), ['Code 7 (not linked)', 'Antenne Bekily']);
-  const labels = out.repeats.rp.map((i) => i.label);
-  assert.ok(labels.includes(`Code 7 (not linked) · ${LONG}`));
-  assert.ok(labels.includes('(not attached)'));
-  assert.ok(labels.every((l) => !/non reli|non rattach/.test(l)), `aucun libellé français : ${labels}`);
+  assert.deepEqual(out.blocks.tb.data.rows.map((r) => r.bureau), ['Code 7 (not linked)', 'Antenne Bekily']);
+  // Section répétée par bureau (v2) : les bureaux MEMS, puis les soumissions sans bureau relié —
+  // libellé construit par le serveur dans la langue de l'interface.
+  const labels = out.expansions.rp.map((i) => i.label);
+  assert.deepEqual(labels, ['Bureau Sud', 'Submissions without a linked MEMS office']);
+  assert.deepEqual(out.expansions.rp.map((i) => i.filters.office), ['id:o1', 'unlinked']);
   const fr = await service.renderReport(T, doc, { lang: 'fr' });
-  assert.deepEqual(fr.blocks.tb.rows.map((r) => r.bureau), ['Code 7 (non relié)', 'Antenne Bekily']);
+  assert.deepEqual(fr.blocks.tb.data.rows.map((r) => r.bureau), ['Code 7 (non relié)', 'Antenne Bekily']);
+  assert.equal(fr.expansions.rp[1].label, 'Soumissions sans bureau MEMS relié');
 });

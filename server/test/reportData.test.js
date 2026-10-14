@@ -1,7 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildDataset, computeKpis, repeatItems, bulletinDoc, monthsBetween } = require('../src/modules/reports/reportData');
-const { requiredSources } = require('../src/modules/reports/reports.service');
+const { datasetDef, kpiDef } = require('../src/modules/reports/catalog');
+const { richVariables } = require('../src/modules/reports/renderPlan');
 
 const SOURCES = {
   monitoring: {
@@ -80,15 +81,14 @@ test('bulletin auto : phrases chiffrées, domaines faibles et couverture insuffi
   assert.match(en, /D6 Gouvernance \(SMP: 52 %\)/); assert.doesNotMatch(en, /Sur la période|Domaines sous/);
 });
 
-test('sources requises : seulement celles des blocs présents', () => {
-  assert.deepEqual(requiredSources([{ type: 'table', params: { dataset: 'pdd_by_month' } }]), { monitoring: false, field: false, budget: false, pdd: true });
-  assert.deepEqual(requiredSources([{ type: 'kpis', params: { metrics: ['consumption'] } }]), { monitoring: false, field: false, budget: true, pdd: false });
-  assert.equal(requiredSources([{ type: 'heading', params: { text: 'x' } }]).monitoring, false);
+test('sources requises : chaque jeu et chaque chiffre clé ne charge que sa partie', () => {
+  assert.deepEqual(datasetDef('pdd.by_month').needs, ['pdd']);
+  assert.deepEqual(kpiDef('consumption').needs, ['budget']);
   // La couverture prend ses sites actifs au terrain quand les fiches n'ont pas de catégorie d'activité.
-  assert.deepEqual(requiredSources([{ type: 'kpis', params: { metrics: ['coverage'] } }]), { monitoring: true, field: true, budget: false, pdd: false });
-  // Un chiffre inséré comme variable dans un texte charge sa source.
-  const text = { type: 'text', params: { doc: { nodes: [{ t: 'p', c: [{ x: 'Budget : ' }, { x: '', v: 'budget_total' }] }, { t: 'ul', items: [[{ x: '', v: 'pdd_food' }]] }] } } };
-  assert.deepEqual(requiredSources([text]), { monitoring: false, field: false, budget: true, pdd: true });
+  assert.deepEqual([...kpiDef('coverage').needs].sort(), ['field', 'monitoring']);
+  // Un chiffre inséré comme variable dans un texte est calculé pour ce texte.
+  const text = { nodes: [{ t: 'p', c: [{ x: 'Budget : ' }, { x: '', v: 'budget_total' }] }, { t: 'ul', items: [[{ x: '', v: 'pdd_food' }]] }] };
+  assert.deepEqual(richVariables(text), ['budget_total', 'pdd_food']);
 });
 
 test('couverture : une fiche NON rattachée au MMR ne gonfle pas le numérateur', () => {

@@ -1,55 +1,44 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Plus, FileText, Save, Lock, Download, Printer, FileSpreadsheet, FileCode2, ChevronUp, ChevronDown, Copy, Trash2,
-  ArrowLeft, Heading1, Type, MessageSquareWarning, Gauge, Table2, BarChart3, Sparkles, SeparatorHorizontal, Minus, Repeat, LayoutTemplate, RefreshCw, GripVertical,
+  Plus, FileText, Save, Lock, Printer, FileSpreadsheet, FileCode2, ChevronUp, ChevronDown, Copy, Trash2, Info,
+  ArrowLeft, Heading1, Type, MessageSquareWarning, Gauge, Table2, Sparkles, SeparatorHorizontal, Minus, Repeat, LayoutTemplate, RefreshCw, GripVertical,
+  RectangleHorizontal, Columns2, MoveVertical,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
+import PeriodSelect from '../../components/PeriodSelect.jsx';
+import { usePeriod } from '../../components/PeriodBanner.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatDateTime } from '../../lib/format.js';
-import { BlockView } from './ReportBlocks.jsx';
+import { periodLabel, single } from '../../lib/period.js';
+import { BlockView, Band } from './ReportBlocks.jsx';
 import { RichTextEditor } from './RichText.jsx';
+import {
+  defaultBlock, defaultPage, cloneWithIds, findBlock, updateParams, removeBlock, duplicateBlock, moveBlock, moveBlockTo, insertBlock,
+  iidOf, textElement, pageNumberElement,
+} from './reportDoc.js';
 import reportCss from './reports.css?raw';
 import './reports.css';
 
 /**
- * Concepteur de rapport professionnel : documents faits de blocs (texte riche
- * éditable, chiffres clés, tableaux, graphiques, bulletin rédigé, sections
- * répétées par activité/bureau), modèles système et enregistrés, période,
+ * Concepteur de rapport professionnel : documents v2 faits de blocs (texte riche
+ * éditable, chiffres clés, blocs de données du catalogue, bulletin rédigé, sections
+ * avec leur orientation, colonnes, sections répétées par activité/bureau/partenaire),
+ * modèles système et enregistrés, période « du … au … » (60 mois au plus),
  * enregistrement versionné (verrou optimiste), finalisation figée, exports
  * PDF / HTML / Word / Excel. Les données sont calculées côté serveur.
  */
 const BLOCK_TYPES = [
   ['heading', 'Titre', Heading1], ['text', 'Texte', Type], ['callout', 'Encadré', MessageSquareWarning],
-  ['kpis', 'Chiffres clés', Gauge], ['table', 'Tableau', Table2], ['chart', 'Graphique', BarChart3],
-  ['bulletin', 'Bulletin rédigé', Sparkles], ['repeat', 'Section répétée', Repeat],
+  ['kpis', 'Chiffres clés', Gauge], ['data', 'Données', Table2],
+  ['bulletin', 'Bulletin rédigé', Sparkles], ['section', 'Section', RectangleHorizontal], ['columns', 'Colonnes', Columns2],
+  ['repeat', 'Section répétée', Repeat], ['spacer', 'Espace', MoveVertical],
   ['pagebreak', 'Saut de page', SeparatorHorizontal], ['divider', 'Séparateur', Minus],
 ];
 const TYPE_LABEL = Object.fromEntries(BLOCK_TYPES.map(([k, l]) => [k, l]));
 const TYPE_ICON = Object.fromEntries(BLOCK_TYPES.map(([k, , I]) => [k, I]));
-
-let seq = 0;
-const newId = (t) => `${t}-${Date.now().toString(36)}${(seq += 1).toString(36)}`;
-const emptyDoc = () => ({ nodes: [{ t: 'p', c: [{ x: '' }] }] });
-function defaultBlock(type) {
-  const id = newId(type);
-  switch (type) {
-    case 'heading': return { id, type, params: { text: 'Nouveau titre', level: 2 } };
-    case 'text': return { id, type, params: { doc: emptyDoc() } };
-    case 'callout': return { id, type, params: { tone: 'info', title: 'À retenir', doc: emptyDoc() } };
-    case 'kpis': return { id, type, params: { metrics: ['sites_visited', 'coverage', 'conformity'], filters: {} } };
-    case 'table': return { id, type, params: { title: '', dataset: 'activity_coverage', filters: {} } };
-    case 'chart': return { id, type, params: { title: '', dataset: 'plan_vs_actual', kind: 'bar', filters: {} } };
-    case 'bulletin': return { id, type, params: { filters: {} } };
-    case 'repeat': return { id, type, params: { over: 'activity', blocks: [{ id: newId('heading'), type: 'heading', params: { text: '{activite}', level: 2 } }, { id: newId('kpis'), type: 'kpis', params: { metrics: ['sites_visited', 'coverage', 'conformity'], filters: {} } }] } };
-    default: return { id, type, params: {} };
-  }
-}
-const cloneWithIds = (b) => (b.type === 'repeat'
-  ? { ...b, id: newId(b.type), params: { ...b.params, blocks: b.params.blocks.map((c) => ({ ...c, id: newId(c.type) })) } }
-  : { ...JSON.parse(JSON.stringify(b)), id: newId(b.type) });
 
 /**
  * Contenu d'un modèle SYSTÈME rédigé dans la langue de l'interface : en-tête,
@@ -64,24 +53,29 @@ function localizeTemplate(content, tr) {
     if (q.text) q.text = t(q.text);
     if (q.title) q.title = t(q.title);
     if (q.doc) q.doc = docOf(q.doc);
+    if (q.figure && q.figure.title) q.figure = { ...q.figure, title: t(q.figure.title) };
     if (b.type === 'repeat') q.blocks = q.blocks.map(block);
+    if (b.type === 'columns') q.cols = q.cols.map((col) => col.map(block));
     return { ...b, params: q };
   };
+  const band = (bd) => bd && { ...bd, elements: (bd.elements || []).map((e) => (e.kind === 'text' ? { ...e, text: t(e.text) } : e)) };
   const page = { ...(content.page || {}) };
-  if (page.header) page.header = t(page.header);
-  if (page.footer) page.footer = t(page.footer);
-  return { page, blocks: (content.blocks || []).map(block) };
+  for (const k of ['header', 'footer', 'firstHeader', 'firstFooter']) if (page[k]) page[k] = band(page[k]);
+  return { page, filters: content.filters || {}, blocks: (content.blocks || []).map(block) };
 }
-
-const thisYear = () => new Date().getFullYear();
-const defaultPeriod = () => ({ from: `${thisYear()}-01`, to: `${thisYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}` });
 
 // Signature des paramètres qui changent les DONNÉES (le texte n'en fait pas partie).
 function dataSignature(doc) {
-  const strip = (b) => (b.type === 'repeat' ? { t: b.type, o: b.params.over, c: b.params.blocks.map(strip) }
-    : ['table', 'chart', 'kpis'].includes(b.type) ? { t: b.type, i: b.id, p: { ...b.params, title: undefined } }
-      : b.type === 'bulletin' ? { t: b.type, i: b.id, g: !b.params.doc, f: b.params.filters } : null);
-  return JSON.stringify({ p: doc.period, b: doc.blocks.map(strip).filter(Boolean) });
+  const strip = (b) => {
+    if (b.type === 'repeat') return { t: b.type, o: b.params.over, c: b.params.blocks.map(strip) };
+    if (b.type === 'columns') return { t: b.type, c: b.params.cols.map((col) => col.map(strip)) };
+    if (b.type === 'data') return { t: b.type, i: b.id, p: { ...b.params, figure: undefined, annotations: undefined } };
+    if (b.type === 'kpis') return { t: b.type, i: b.id, p: b.params };
+    if (b.type === 'bulletin') return { t: b.type, i: b.id, g: !b.params.doc, f: b.params.filters };
+    if (b.type === 'text' || b.type === 'callout') return { t: b.type, i: b.id, v: JSON.stringify(b.params.doc).match(/"v":"[a-z_]+"/g), f: b.params.filters };
+    return null;
+  };
+  return JSON.stringify({ p: doc.period, f: doc.filters, b: doc.blocks.map(strip).filter(Boolean) });
 }
 
 export default function ReportDesignerPage({ canEdit, isAdmin }) {
@@ -104,12 +98,12 @@ export default function ReportDesignerPage({ canEdit, isAdmin }) {
   async function openDocument(id) {
     try {
       const d = await api.reportDocument(id);
-      setOpen({ doc: d.content, meta: { id: d.id, version: d.version, status: d.status, templateKey: d.templateKey, finalizedAt: d.finalizedAt } });
+      setOpen({ doc: d.content, meta: { id: d.id, version: d.version, status: d.status, templateKey: d.templateKey, finalizedAt: d.finalizedAt, upgradedFrom: d.upgradedFrom, warnings: d.warnings || [] } });
     } catch (e) { toast.error(e.message); }
   }
 
   if (open && catalog) {
-    return <ReportEditor catalog={catalog} initial={open} canEdit={canEdit} customTemplates={custom}
+    return <ReportEditor catalog={catalog} initial={open} canEdit={canEdit}
       onClose={() => { setOpen(null); loadLibrary(); }} onTemplatesChanged={loadLibrary} />;
   }
 
@@ -176,19 +170,29 @@ export default function ReportDesignerPage({ canEdit, isAdmin }) {
   );
 }
 
+/** Période d'un rapport : sélecteur « du … au … » commun (préréglages, volume par mois, 60 mois au plus). */
+function ReportPeriod({ value, onChange, disabled, compact, align }) {
+  const { counts, latest, today } = usePeriod({ scope: 'local', defaultRule: 'current', urlSync: false });
+  if (disabled) return <span className="rd-period-ro">{periodLabel(value, document.documentElement.lang === 'en' ? 'en' : 'fr')}</span>;
+  return <PeriodSelect value={value} onChange={(p) => p && onChange(p)} counts={counts} today={today} latest={latest} withFullYear maxSpan={60} compact={compact} align={align} />;
+}
+
 function NewReportModal({ templates, preset, onClose, onCreate }) {
   const { tr } = useI18n();
   const [key, setKey] = useState(preset ? preset.key : templates[0]?.key);
   const tpl = templates.find((t) => t.key === key);
   const [title, setTitle] = useState(preset ? tr(preset.name) : (tpl ? tr(tpl.name) : ''));
-  const [period, setPeriod] = useState(defaultPeriod);
-  const invalid = !title.trim() || period.from > period.to;
+  // Période par défaut : le dernier mois qui a des données (règle commune), sinon le mois courant.
+  const { latest, today } = usePeriod({ scope: 'local', defaultRule: 'current', urlSync: false });
+  const [period, setPeriod] = useState(null);
+  const effective = period || single(latest || today);
+  const invalid = !title.trim();
   return (
     <Modal open onClose={onClose} title={tr('Nouveau rapport')} subtitle={tr('Choisissez un modèle et la période ; tout reste modifiable ensuite.')}
       footer={<><Button variant="secondary" onClick={onClose}>{tr('Annuler')}</Button><Button disabled={invalid} onClick={() => {
-        const c = JSON.parse(JSON.stringify(tpl.content));
-        const { page, blocks } = tpl.system ? localizeTemplate(c, tr) : { page: c.page || {}, blocks: c.blocks || [] };
-        onCreate({ title: title.trim(), period, page, blocks }, tpl.key);
+        const c = JSON.parse(JSON.stringify(tpl.content || {}));
+        const { page, filters, blocks } = tpl.system ? localizeTemplate(c, tr) : { page: c.page || defaultPage(), filters: c.filters || {}, blocks: c.blocks || [] };
+        onCreate({ schemaVersion: 2, title: title.trim(), period: effective, filters, page: page || defaultPage(), blocks }, tpl.key);
       }}>{tr('Créer')}</Button></>}>
       <div className="section-gap">
         <Field label={tr('Modèle')}>
@@ -198,31 +202,9 @@ function NewReportModal({ templates, preset, onClose, onCreate }) {
         </Field>
         {tpl?.description && <p className="hint">{tr(tpl.description)}</p>}
         <Field label={tr('Titre')} required><input className="input" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} /></Field>
-        <PeriodPicker period={period} onChange={setPeriod} />
+        <Field label={tr('Période')}><ReportPeriod value={effective} onChange={setPeriod} /></Field>
       </div>
     </Modal>
-  );
-}
-
-function PeriodPicker({ period, onChange, compact }) {
-  const { tr } = useI18n();
-  const y = thisYear();
-  const presets = [
-    [tr('Année {y}', { y }), { from: `${y}-01`, to: `${y}-12` }],
-    [tr('1er semestre {y}', { y }), { from: `${y}-01`, to: `${y}-06` }],
-    [tr('2e semestre {y}', { y }), { from: `${y}-07`, to: `${y}-12` }],
-    [tr('Année {y}', { y: y - 1 }), { from: `${y - 1}-01`, to: `${y - 1}-12` }],
-  ];
-  return (
-    <div className={`rd-period ${compact ? 'is-compact' : ''}`}>
-      <label><span>{tr('Du')}</span><input className="input" type="month" value={period.from} onChange={(e) => e.target.value && onChange({ ...period, from: e.target.value })} /></label>
-      <label><span>{tr('au')}</span><input className="input" type="month" value={period.to} onChange={(e) => e.target.value && onChange({ ...period, to: e.target.value })} /></label>
-      <select className="select" value="" onChange={(e) => { const p = presets[Number(e.target.value)]; if (p) onChange(p[1]); }} aria-label={tr('Période prédéfinie')}>
-        <option value="">{tr('Période…')}</option>
-        {presets.map(([l], i) => <option key={l} value={i}>{l}</option>)}
-      </select>
-      {period.from > period.to && <span className="field-error">{tr('Le début est après la fin.')}</span>}
-    </div>
   );
 }
 
@@ -235,7 +217,7 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
   const [meta, setMeta] = useState(initial.meta);
   const [data, setData] = useState(null);
   const [loadingData, setLoadingData] = useState(false);
-  const [selected, setSelected] = useState(null); // { id, parent? }
+  const [selected, setSelected] = useState(null); // id du bloc sélectionné
   const [dirty, setDirty] = useState(!initial.meta.id);
   const [saving, setSaving] = useState(false);
   const [forms, setForms] = useState([]);
@@ -265,7 +247,6 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
   useEffect(() => {
     let alive = true;
     if (final && meta.id) { api.reportDocumentData(meta.id).then((d) => alive && setData(d)).catch((e) => toast.error(e.message)); return () => { alive = false; }; }
-    if (doc.period.from > doc.period.to) return undefined;
     setLoadingData(true);
     const h = setTimeout(() => {
       api.reportRender(doc).then((d) => alive && setData(d)).catch((e) => alive && toast.error(e.message)).finally(() => alive && setLoadingData(false));
@@ -283,34 +264,17 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
 
   const change = (fn) => { setDoc((d) => fn(d)); setDirty(true); };
   const setBlocks = (fn) => change((d) => ({ ...d, blocks: fn(d.blocks) }));
-
-  // Opérations sur un bloc (racine ou enfant d'une section répétée).
-  const mapBlock = (blocks, id, fn) => blocks.map((b) => (b.id === id ? fn(b) : b.type === 'repeat' ? { ...b, params: { ...b.params, blocks: mapBlock(b.params.blocks, id, fn) } } : b));
-  const updateBlock = (id, patch) => setBlocks((bs) => mapBlock(bs, id, (b) => ({ ...b, params: { ...b.params, ...patch } })));
-  const findBlock = (id, bs = doc.blocks) => { for (const b of bs) { if (b.id === id) return b; if (b.type === 'repeat') { const f = findBlock(id, b.params.blocks); if (f) return f; } } return null; };
-  const listOf = (bs, parent) => (parent ? bs.find((b) => b.id === parent).params.blocks : bs);
-  const withList = (bs, parent, fn) => (parent ? bs.map((b) => (b.id === parent ? { ...b, params: { ...b.params, blocks: fn(b.params.blocks) } } : b)) : fn(bs));
-  const move = (id, parent, dir) => setBlocks((bs) => withList(bs, parent, (list) => {
-    const i = list.findIndex((b) => b.id === id); const j = i + dir;
-    if (i < 0 || j < 0 || j >= list.length) return list;
-    const n = [...list]; [n[i], n[j]] = [n[j], n[i]]; return n;
-  }));
-  const moveTo = (id, parent, toIndex) => setBlocks((bs) => withList(bs, parent, (list) => {
-    const i = list.findIndex((b) => b.id === id); if (i < 0) return list;
-    const n = [...list]; const [it] = n.splice(i, 1); n.splice(Math.min(toIndex, n.length), 0, it); return n;
-  }));
-  const remove = (id, parent) => { setBlocks((bs) => withList(bs, parent, (list) => list.filter((b) => b.id !== id))); setSelected(null); };
-  const duplicate = (id, parent) => setBlocks((bs) => withList(bs, parent, (list) => { const i = list.findIndex((b) => b.id === id); const n = [...list]; n.splice(i + 1, 0, cloneWithIds(list[i])); return n; }));
+  const updateBlock = (id, patch) => setBlocks((bs) => updateParams(bs, id, patch));
+  const remove = (id) => { setBlocks((bs) => removeBlock(bs, id)); setSelected(null); };
   const add = (type) => {
-    const sel = selected && findBlock(selected.id);
-    const parent = selected?.parent || (sel && sel.type === 'repeat' && type !== 'repeat' ? sel.id : null);
-    if (parent && type === 'repeat') { toast.error(tr('Une section répétée ne peut pas en contenir une autre.')); return; }
-    const b = defaultBlock(type);
-    setBlocks((bs) => withList(bs, parent, (list) => {
-      const i = selected && !selected.parent && !parent ? list.findIndex((x) => x.id === selected.id) : list.findIndex((x) => x.id === selected?.id);
-      const n = [...list]; n.splice(i >= 0 ? i + 1 : n.length, 0, b); return n;
-    }));
-    setSelected({ id: b.id, parent });
+    const sel = selected ? findBlock(doc.blocks, selected) : null;
+    const b = defaultBlock(type, { catalog });
+    // Bloc sélectionné : une section répétée ou des colonnes reçoivent le bloc ; sinon il suit le bloc sélectionné.
+    const into = sel && (sel.block.type === 'repeat' || sel.block.type === 'columns') && !['repeat'].includes(type) ? { id: sel.block.id, col: 0 } : null;
+    const r = insertBlock(doc.blocks, b, into ? { into } : { afterId: sel ? sel.block.id : null });
+    if (r.error) { toast.error(tr(r.error)); return; }
+    setBlocks(() => r.blocks);
+    setSelected(b.id);
   };
 
   async function save() {
@@ -351,7 +315,7 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
   // ---- Exports -----------------------------------------------------------------
   const pageHtml = () => {
     const page = pageRef.current.cloneNode(true);
-    page.querySelectorAll('.rd-block-tools, .rb-pagebreak span, .rt-toolbar, .rd-repeat-tag, .rd-pageno').forEach((n) => n.remove());
+    page.querySelectorAll('.rd-block-tools, .rb-pagebreak span, .rt-toolbar, .rd-repeat-tag, .rd-section-tag').forEach((n) => n.remove());
     page.querySelectorAll('[contenteditable]').forEach((n) => n.removeAttribute('contenteditable'));
     page.querySelectorAll('.is-selected').forEach((n) => n.classList.remove('is-selected'));
     return page.outerHTML;
@@ -363,19 +327,11 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
   const fileBase = (doc.title || 'Rapport').replace(/[^\w\-À-ÿ ]+/g, '').trim().slice(0, 80) || 'Rapport';
   const exportHtml = () => download(`<!doctype html><html lang="${document.documentElement.lang || 'fr'}"><head><meta charset="utf-8"><title>${fileBase}</title><style>body{background:#f5f6f9;margin:0;padding:24px}${reportCss}</style></head><body>${pageHtml()}</body></html>`, `${fileBase}.html`, 'text/html;charset=utf-8');
   const exportWord = () => download(`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${fileBase}</title><style>${reportCss}.rd-page{font-family:Calibri,Arial,sans-serif;box-shadow:none}</style></head><body>${pageHtml()}</body></html>`, `${fileBase}.doc`, 'application/msword');
-  // PDF : impression du navigateur. En-tête, pied et numéros de page vont dans les
-  // marges @page, donc répétés sur chaque feuille (Chrome / Edge).
+  // PDF : impression du navigateur (pagination exacte et orientation par section : lot 7a, C7).
   const exportPdf = () => {
     setSelected(null);
-    const cssText = (s) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ')}"`;
-    const box = 'font: 8pt Inter, Arial, sans-serif; color: #616a7a;';
-    const header = subst(doc.page?.header); const footer = subst(doc.page?.footer);
     const style = document.createElement('style');
-    style.textContent = `@page { size: A4 ${doc.page?.orientation === 'landscape' ? 'landscape' : 'portrait'}; margin: 16mm 12mm;`
-      + (header ? ` @top-left { content: ${cssText(header)}; ${box} }` : '')
-      + (footer ? ` @bottom-left { content: ${cssText(footer)}; ${box} }` : '')
-      + (showPageNumbers ? ` @bottom-right { content: counter(page) " / " counter(pages); ${box} }` : '')
-      + ' }';
+    style.textContent = `@page { size: A4 ${doc.page?.orientation === 'landscape' ? 'landscape' : 'portrait'}; margin: 12mm; }`;
     document.head.appendChild(style);
     document.body.classList.add('rd-printing');
     const done = () => { document.body.classList.remove('rd-printing'); style.remove(); window.removeEventListener('afterprint', done); };
@@ -383,27 +339,61 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
     setTimeout(() => window.print(), 60); // laisse React retirer l'éditeur du bloc sélectionné
   };
 
-  const labels = catalog.kpis;
-  const varLabels = { periode: 'Période du rapport', date_edition: 'Date d\'édition', ...catalog.kpis };
-  const variableList = Object.entries(varLabels).map(([k, l]) => [k, tr(l)]);
-  const sel = selected ? findBlock(selected.id) : null;
-  const subst = (s) => String(s || '').replace(/\{periode\}/g, data?.periodLabel || '');
-  const showPageNumbers = doc.page?.showPageNumbers !== false;
+  const varLabels = { ...Object.fromEntries(Object.entries(catalog.variables || {})), ...Object.fromEntries(Object.entries(catalog.kpis).map(([k, v]) => [k, v.label])) };
+  const variableList = Object.entries(catalog.kpis).filter(([, v]) => v.available !== false).map(([k, v]) => [k, tr(v.label)]);
+  const sel = selected ? findBlock(doc.blocks, selected) : null;
+  const instances = useMemo(() => Object.fromEntries(((data && data.instances) || []).map((i) => [i.iid, i])), [data]);
+  const vars = { ...(data?.vars || {}), titre: doc.title, periode: data?.periodLabel || periodLabel(doc.period, document.documentElement.lang === 'en' ? 'en' : 'fr') };
+  const page = doc.page || defaultPage();
 
-  // Rendu d'un bloc dans la page (avec outils d'édition).
-  const renderBlock = (b, parent, ctx, keySuffix = '') => {
-    const isSel = selected?.id === b.id;
-    const editorFor = (b.type === 'text' || b.type === 'callout' || b.type === 'bulletin') && editable && isSel && !keySuffix
-      ? <RichTextEditor doc={b.params.doc || ctx.data?.doc} vars={ctx.vars} labelFor={(v) => tr(varLabels[v] || v)} variableList={variableList}
+  // Rendu d'un bloc dans la page (avec outils d'édition). `repeat` = { id, key, label, over } dans une section répétée.
+  const renderBlock = (b, repeat = null, first = true) => {
+    const iid = iidOf(b.id, repeat);
+    const isSel = selected === b.id;
+    if (b.type === 'section') {
+      const o = b.params.orientation || page.orientation;
+      return (
+        <div key={iid} className={`rd-block rd-section-sep ${isSel ? 'is-selected' : ''}`} onClick={(e) => { e.stopPropagation(); if (first) setSelected(b.id); }}>
+          <span className="rd-section-tag">{tr('Section')} · {b.params.size || page.size || 'A4'} {tr(o === 'landscape' ? 'paysage' : 'portrait')}{b.params.title ? ` · ${b.params.title}` : ''}</span>
+        </div>
+      );
+    }
+    if (b.type === 'columns') {
+      return (
+        <div key={iid} className={`rd-block rd-columns rd-cols-${b.params.ratio.replace(/:/g, '-')} ${isSel ? 'is-selected' : ''}`} onClick={(e) => { e.stopPropagation(); if (first) setSelected(b.id); }}>
+          {b.params.cols.map((col, c) => <div key={c} className="rd-col">{col.length ? col.map((cb) => renderBlock(cb, repeat, first)) : <p className="rb-note">{tr('Colonne vide : sélectionnez les colonnes puis ajoutez un bloc.')}</p>}</div>)}
+        </div>
+      );
+    }
+    if (b.type === 'repeat') {
+      const items = (data && data.expansions && data.expansions[b.id]) || [];
+      return (
+        <div key={iid} className={`rd-repeat ${isSel ? 'is-selected' : ''}`} onClick={(e) => { e.stopPropagation(); setSelected(b.id); }}>
+          <div className="rd-repeat-tag"><Repeat size={13} aria-hidden="true" /> {tr({ bureau: 'Section répétée par bureau ({n})', partner: 'Section répétée par partenaire ({n})' }[b.params.over] || 'Section répétée par activité ({n})', { n: items.length })}</div>
+          {data && items.length === 0 && <p className="rb-note">{tr('Aucune activité ou bureau avec des données sur la période.')}</p>}
+          {items.map((it, k) => (
+            <section key={it.key} className="rd-repeat-item">
+              {b.params.blocks.map((c) => renderBlock(c, { id: b.id, key: it.key, label: it.label, over: b.params.over }, k === 0))}
+            </section>
+          ))}
+        </div>
+      );
+    }
+    const res = data && data.blocks ? data.blocks[iid] : undefined;
+    const itemVars = repeat ? { [{ activity: 'activite', bureau: 'bureau', partner: 'partenaire' }[repeat.over]]: repeat.label } : {};
+    const editorFor = (b.type === 'text' || b.type === 'callout' || b.type === 'bulletin') && editable && isSel && first
+      ? <RichTextEditor doc={b.params.doc || res?.data?.doc} vars={{ ...vars, ...(res?.data?.vars || {}) }} labelFor={(v) => tr(varLabels[v] || v)} variableList={variableList}
         onChange={(d) => updateBlock(b.id, { doc: d })} /> : null;
     return (
-      <div key={b.id + keySuffix} className={`rd-block rd-block-${b.type} ${isSel ? 'is-selected' : ''}`}
-        onClick={(e) => { e.stopPropagation(); if (!keySuffix) setSelected({ id: b.id, parent }); }}>
-        <BlockView block={b} ctx={{ ...ctx, labels, varLabels }} editor={editorFor} />
+      <div key={iid} className={`rd-block rd-block-${b.type} ${isSel ? 'is-selected' : ''}`}
+        onClick={(e) => { e.stopPropagation(); if (first) setSelected(b.id); }}>
+        {res && !res.ok ? <p className="rb-error">{res.error.message}</p>
+          : <BlockView block={b} ctx={{ result: res, inst: instances[iid], vars: { ...vars, ...itemVars }, catalog, varLabels }} editor={editorFor} />}
       </div>
     );
   };
 
+  const upgradedDraft = meta.upgradedFrom === 1 && !final;
   return (
     <div className="rd-editor" style={{ '--rd-top': `${topbarH}px` }}>
       <div className="rd-topbar" ref={topbarRef}>
@@ -411,7 +401,7 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
         <input className="input rd-title" value={doc.title} disabled={!editable} maxLength={200} aria-label={tr('Titre du rapport')}
           onChange={(e) => change((d) => ({ ...d, title: e.target.value }))} />
         {final ? <Badge tone="green" icon={Lock}>{tr('Finalisé')}</Badge> : dirty ? <Badge tone="yellow">{tr('Non enregistré')}</Badge> : <Badge>{tr('Enregistré')}</Badge>}
-        <PeriodPicker compact period={doc.period} onChange={(p) => editable && change((d) => ({ ...d, period: p }))} />
+        <ReportPeriod compact value={doc.period} disabled={!editable} onChange={(p) => change((d) => ({ ...d, period: p }))} />
         <span className="mmr-spacer" />
         {loadingData && <span className="rd-loading"><RefreshCw size={14} className="spin" aria-hidden="true" /> {tr('Calcul…')}</span>}
         <div className="header-actions">
@@ -426,6 +416,8 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
         </div>
       </div>
       {final && <Alert tone="info" icon={Lock}>{tr('Rapport finalisé le {d} : contenu et chiffres sont figés. Dupliquez-le pour préparer une nouvelle version.', { d: formatDateTime(meta.finalizedAt) })}</Alert>}
+      {upgradedDraft && <Alert tone="info" icon={Info}>{tr('Les chiffres de couverture suivent désormais la définition commune (sites actifs réalisés ÷ sites actifs) : ils peuvent différer de l\'ancienne version.')}</Alert>}
+      {(meta.warnings || []).length > 0 && <Alert tone="warning">{meta.warnings.map((w) => <div key={w.blockId + w.message}>{UPGRADE_WARNINGS[w.code] ? tr(UPGRADE_WARNINGS[w.code], w.params) : w.message}</div>)}</Alert>}
 
       <div className={`rd-body ${editable ? '' : 'is-readonly'}`}>
         {editable && (
@@ -435,37 +427,25 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
               {BLOCK_TYPES.map(([k, l, Icon]) => <button key={k} type="button" onClick={() => add(k)}><Icon size={16} aria-hidden="true" /><span>{tr(l)}</span></button>)}
             </div>
             <h3>{tr('Plan du document')}</h3>
-            <Outline blocks={doc.blocks} selected={selected} onSelect={setSelected} onMove={move} onMoveTo={moveTo} onRemove={remove} onDuplicate={duplicate} />
+            <Outline blocks={doc.blocks} catalog={catalog} selected={selected} onSelect={setSelected}
+              onMove={(id, dir) => setBlocks((bs) => moveBlock(bs, id, dir))} onMoveTo={(id, i) => setBlocks((bs) => moveBlockTo(bs, id, i))}
+              onRemove={remove} onDuplicate={(id) => setBlocks((bs) => duplicateBlock(bs, id))} />
           </aside>
         )}
 
         <main className="rd-canvas" onClick={() => setSelected(null)}>
-          <article ref={pageRef} className={`rd-page ${doc.page?.orientation === 'landscape' ? 'is-landscape' : ''}`}>
-            {(doc.page?.header) && <header className="rd-page-h">{subst(doc.page.header)}</header>}
-            {data === null ? <Skeleton height={400} /> : doc.blocks.map((b) => {
-              if (b.type !== 'repeat') return renderBlock(b, null, { data: data.blocks[b.id], vars: data.variables });
-              const items = data.repeats[b.id] || [];
-              return (
-                <div key={b.id} className={`rd-repeat ${selected?.id === b.id ? 'is-selected' : ''}`} onClick={(e) => { e.stopPropagation(); setSelected({ id: b.id, parent: null }); }}>
-                  <div className="rd-repeat-tag"><Repeat size={13} aria-hidden="true" /> {b.params.over === 'bureau' ? tr('Section répétée par bureau ({n})', { n: items.length }) : tr('Section répétée par activité ({n})', { n: items.length })}</div>
-                  {items.length === 0 && <p className="rb-note">{tr('Aucune activité ou bureau avec des données sur la période.')}</p>}
-                  {items.map((it, k) => (
-                    <section key={it.key} className="rd-repeat-item">
-                      {b.params.blocks.map((c) => renderBlock(c, b.id, { data: it.blocks[c.id], vars: data.variables, item: it }, k === 0 ? '' : `@${k}`))}
-                    </section>
-                  ))}
-                </div>
-              );
-            })}
-            {(doc.page?.footer || showPageNumbers) && <footer className="rd-page-f"><span>{subst(doc.page?.footer)}</span>{showPageNumbers && <span className="rd-pageno">{tr('Page n / N')}</span>}</footer>}
+          <article ref={pageRef} className={`rd-page ${page.orientation === 'landscape' ? 'is-landscape' : ''}`}>
+            <Band band={page.header} vars={vars} texts={data?.sections?.[0]?.headerText} className="rd-page-h" />
+            {data === null ? <Skeleton height={400} /> : doc.blocks.map((b) => renderBlock(b))}
+            <Band band={page.footer} vars={vars} texts={data?.sections?.[0]?.footerText} className="rd-page-f" />
           </article>
         </main>
 
         {editable && (
           <aside className="rd-right" aria-label={tr('Propriétés')}>
-            {sel ? <BlockProps block={sel} catalog={catalog} forms={forms} offices={offices} data={data}
-              onChange={(patch) => updateBlock(sel.id, patch)} onRegenerate={() => updateBlock(sel.id, { doc: undefined })} />
-              : <DocProps doc={doc} onChange={(page) => change((d) => ({ ...d, page: { ...d.page, ...page } }))} />}
+            {sel ? <BlockProps block={sel.block} parent={sel.parent} catalog={catalog} forms={forms} offices={offices} data={data}
+              onChange={(patch) => updateBlock(sel.block.id, patch)} onRegenerate={() => updateBlock(sel.block.id, { doc: undefined })} />
+              : <DocProps doc={doc} onChange={(pg) => change((d) => ({ ...d, page: { ...d.page, ...pg } }))} />}
           </aside>
         )}
       </div>
@@ -473,30 +453,39 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
   );
 }
 
+/** Libellé d'un bloc dans le plan. */
+function outlineLabel(b, catalog, tr) {
+  if (b.type === 'heading') return b.params.text;
+  if (b.type === 'data') return (b.params.figure && b.params.figure.title) || tr((catalog.datasets[b.params.dataset] || {}).label || b.params.dataset);
+  if (b.type === 'section') return `${tr('Section')}${b.params.title ? ` · ${b.params.title}` : ''}`;
+  return b.params.title || tr(TYPE_LABEL[b.type] || b.type);
+}
+
 /** Plan du document : sélection, réordonnancement (glisser-déposer ou flèches), duplication, suppression. */
-function Outline({ blocks, selected, onSelect, onMove, onMoveTo, onRemove, onDuplicate, parent = null }) {
+function Outline({ blocks, catalog, selected, onSelect, onMove, onMoveTo, onRemove, onDuplicate, nested = false }) {
   const { tr } = useI18n();
   const drag = useRef(null);
-  const label = (b) => (b.type === 'heading' ? b.params.text : b.params.title || tr(TYPE_LABEL[b.type]));
   return (
-    <ol className={`rd-outline ${parent ? 'is-nested' : ''}`}>
+    <ol className={`rd-outline ${nested ? 'is-nested' : ''}`}>
       {blocks.map((b, i) => {
         const Icon = TYPE_ICON[b.type] || Type;
+        const label = String(outlineLabel(b, catalog, tr));
         return (
-          <li key={b.id} draggable onDragStart={() => { drag.current = b.id; }} onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (drag.current && drag.current !== b.id) onMoveTo(drag.current, parent, i); drag.current = null; }}>
-            <div className={`rd-ol-row ${selected?.id === b.id ? 'is-selected' : ''}`} onClick={() => onSelect({ id: b.id, parent })}>
+          <li key={b.id} draggable onDragStart={(e) => { e.stopPropagation(); drag.current = b.id; }} onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (drag.current && drag.current !== b.id) onMoveTo(drag.current, i); drag.current = null; }}>
+            <div className={`rd-ol-row ${selected === b.id ? 'is-selected' : ''}`} onClick={() => onSelect(b.id)}>
               <GripVertical size={13} className="rd-grip" aria-hidden="true" />
               <Icon size={14} aria-hidden="true" />
-              <span className="rd-ol-label" title={String(label(b))}>{String(label(b))}</span>
+              <span className="rd-ol-label" title={label}>{label}</span>
               <span className="rd-block-tools">
-                <button type="button" onClick={(e) => { e.stopPropagation(); onMove(b.id, parent, -1); }} aria-label={tr('Monter')} disabled={i === 0}><ChevronUp size={13} /></button>
-                <button type="button" onClick={(e) => { e.stopPropagation(); onMove(b.id, parent, 1); }} aria-label={tr('Descendre')} disabled={i === blocks.length - 1}><ChevronDown size={13} /></button>
-                <button type="button" onClick={(e) => { e.stopPropagation(); onDuplicate(b.id, parent); }} aria-label={tr('Dupliquer')}><Copy size={13} /></button>
-                <button type="button" onClick={(e) => { e.stopPropagation(); if (window.confirm(tr('Supprimer ce bloc ?'))) onRemove(b.id, parent); }} aria-label={tr('Supprimer')}><Trash2 size={13} /></button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); onMove(b.id, -1); }} aria-label={tr('Monter')} disabled={i === 0}><ChevronUp size={13} /></button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); onMove(b.id, 1); }} aria-label={tr('Descendre')} disabled={i === blocks.length - 1}><ChevronDown size={13} /></button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); onDuplicate(b.id); }} aria-label={tr('Dupliquer')}><Copy size={13} /></button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); if (window.confirm(tr('Supprimer ce bloc ?'))) onRemove(b.id); }} aria-label={tr('Supprimer')}><Trash2 size={13} /></button>
               </span>
             </div>
-            {b.type === 'repeat' && <Outline blocks={b.params.blocks} parent={b.id} selected={selected} onSelect={onSelect} onMove={onMove} onMoveTo={onMoveTo} onRemove={onRemove} onDuplicate={onDuplicate} />}
+            {b.type === 'repeat' && <Outline nested blocks={b.params.blocks} catalog={catalog} selected={selected} onSelect={onSelect} onMove={onMove} onMoveTo={onMoveTo} onRemove={onRemove} onDuplicate={onDuplicate} />}
+            {b.type === 'columns' && b.params.cols.map((col, c) => <Outline key={c} nested blocks={col} catalog={catalog} selected={selected} onSelect={onSelect} onMove={onMove} onMoveTo={onMoveTo} onRemove={onRemove} onDuplicate={onDuplicate} />)}
           </li>
         );
       })}
@@ -504,9 +493,19 @@ function Outline({ blocks, selected, onSelect, onMove, onMoveTo, onRemove, onDup
   );
 }
 
+/** Texte d'un élément de bande (en-tête / pied), modifiable comme une ligne. */
+const bandText = (band, id) => ((band && band.elements) || []).find((e) => e.id === id)?.text || '';
+function setBandText(band, id, text, make) {
+  const els = (band && band.elements) || [];
+  const has = els.some((e) => e.id === id);
+  const elements = text ? (has ? els.map((e) => (e.id === id ? { ...e, text } : e)) : [...els, make(text)]) : els.filter((e) => e.id !== id);
+  return { height: (band && band.height) || 14, elements };
+}
+
 function DocProps({ doc, onChange }) {
   const { tr } = useI18n();
-  const p = doc.page || {};
+  const p = doc.page || defaultPage();
+  const hasNumbers = ((p.footer && p.footer.elements) || []).some((e) => e.kind === 'pageNumber');
   return (
     <div className="section-gap">
       <h3>{tr('Mise en page')}</h3>
@@ -515,44 +514,55 @@ function DocProps({ doc, onChange }) {
           <option value="portrait">{tr('Portrait')}</option><option value="landscape">{tr('Paysage')}</option>
         </select>
       </Field>
-      <Field label={tr('En-tête')} hint={tr('{periode} est remplacé par la période.')}><input className="input" value={p.header || ''} maxLength={200} onChange={(e) => onChange({ header: e.target.value })} /></Field>
-      <Field label={tr('Pied de page')}><input className="input" value={p.footer || ''} maxLength={200} onChange={(e) => onChange({ footer: e.target.value })} /></Field>
-      <label className="check"><input type="checkbox" checked={p.showPageNumbers !== false} onChange={(e) => onChange({ showPageNumbers: e.target.checked })} /> {tr('Numéros de page (PDF)')}</label>
+      <Field label={tr('En-tête')} hint={tr('{periode} est remplacé par la période.')}>
+        <input className="input" value={bandText(p.header, 'h-text')} maxLength={300} onChange={(e) => onChange({ header: setBandText(p.header, 'h-text', e.target.value, (x) => textElement('h-text', x)) })} />
+      </Field>
+      <Field label={tr('Pied de page')}>
+        <input className="input" value={bandText(p.footer, 'f-text')} maxLength={300} onChange={(e) => onChange({ footer: setBandText(p.footer, 'f-text', e.target.value, (x) => textElement('f-text', x, { w: 66 })) })} />
+      </Field>
+      <label className="check"><input type="checkbox" checked={hasNumbers} onChange={(e) => {
+        const els = ((p.footer && p.footer.elements) || []).filter((x) => x.kind !== 'pageNumber');
+        onChange({ footer: { height: (p.footer && p.footer.height) || 12, elements: e.target.checked ? [...els, pageNumberElement()] : els } });
+      }} /> {tr('Numéros de page (PDF)')}</label>
       <p className="hint">{tr('Cliquez sur un bloc de la page pour le modifier ; écrivez directement dans les blocs de texte.')}</p>
     </div>
   );
 }
 
-function BlockProps({ block, catalog, forms, offices, data, onChange, onRegenerate }) {
+/** Filtres d'un bloc : vide = hérite du rapport ; « all » = ignorer le filtre du rapport. */
+function BlockFilters({ filters, onChange, forms, offices, supported = ['office', 'form'] }) {
   const { tr } = useI18n();
-  const p = block.params;
-  const ds = p.dataset ? catalog.datasets[p.dataset] : null;
-  const filters = p.filters || {};
-  const setFilter = (k, v) => onChange({ filters: { ...filters, [k]: v || undefined } });
-  const datasetSelect = (
-    <Field label={tr('Données')}>
-      <select className="select" value={p.dataset} onChange={(e) => onChange({ dataset: e.target.value, columns: undefined, metric: undefined })}>
-        {Object.entries(catalog.datasets).map(([k, d]) => <option key={k} value={k}>{tr(d.label)}</option>)}
-      </select>
-    </Field>
-  );
-  const filterFields = (
+  const set = (k, v) => onChange({ ...filters, [k]: v || undefined });
+  return (
     <>
-      <Field label={tr('Activité (fiche)')} hint={ds?.scope === 'form' ? tr('Obligatoire pour ces données, sauf dans une section répétée.') : undefined}>
-        <select className="select" value={filters.formId || ''} onChange={(e) => setFilter('formId', e.target.value)}>
-          <option value="">{tr('Toutes')}</option>{forms.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
-        </select>
-      </Field>
-      <Field label={tr('Bureau')}>
-        <select className="select" value={filters.bureau || ''} onChange={(e) => setFilter('bureau', e.target.value)}>
-          <option value="">{tr('Tous')}</option>{offices.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}
-        </select>
-      </Field>
+      {supported.includes('form') && (
+        <Field label={tr('Activité (fiche)')}>
+          <select className="select" value={filters.formId || ''} onChange={(e) => set('formId', e.target.value)}>
+            <option value="">{tr('Hérite du rapport')}</option><option value="all">{tr('Toutes (ignorer le filtre du rapport)')}</option>
+            {forms.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+          </select>
+        </Field>
+      )}
+      {supported.includes('office') && (
+        <Field label={tr('Bureau')}>
+          <select className="select" value={filters.office || ''} onChange={(e) => set('office', e.target.value)}>
+            <option value="">{tr('Hérite du rapport')}</option><option value="all">{tr('Tous (ignorer le filtre du rapport)')}</option>
+            {offices.map((o) => <option key={o.id} value={`id:${o.id}`}>{o.name}</option>)}
+          </select>
+        </Field>
+      )}
     </>
   );
+}
+
+function BlockProps({ block, parent, catalog, forms, offices, data, onChange, onRegenerate }) {
+  const { tr } = useI18n();
+  const p = block.params;
+  const def = block.type === 'data' ? catalog.datasets[p.dataset] : null;
   return (
     <div className="section-gap">
-      <h3>{tr(TYPE_LABEL[block.type])}</h3>
+      <h3>{tr(TYPE_LABEL[block.type] || block.type)}</h3>
+      {parent && parent.type === 'repeat' && <p className="hint">{tr('Dans une section répétée : recalculé pour chaque élément.')}</p>}
       {block.type === 'heading' && <>
         <Field label={tr('Texte')} hint={tr('{periode}, {activite} et {bureau} sont remplacés automatiquement.')}><input className="input" value={p.text} maxLength={300} onChange={(e) => onChange({ text: e.target.value })} /></Field>
         <Field label={tr('Niveau')}><select className="select" value={p.level} onChange={(e) => onChange({ level: Number(e.target.value) })}><option value={1}>{tr('Titre principal')}</option><option value={2}>{tr('Section')}</option><option value={3}>{tr('Sous-section')}</option></select></Field>
@@ -567,44 +577,76 @@ function BlockProps({ block, catalog, forms, offices, data, onChange, onRegenera
       {block.type === 'bulletin' && <>
         <p className="hint">{p.doc ? tr('Texte modifié à la main : il ne suit plus les chiffres.') : tr('Texte rédigé automatiquement à partir des chiffres de la période ; modifiez-le librement dans la page.')}</p>
         {p.doc && <Button size="sm" variant="secondary" icon={RefreshCw} onClick={onRegenerate}>{tr('Régénérer depuis les chiffres')}</Button>}
-        {filterFields}
+        <BlockFilters filters={p.filters || {}} onChange={(f) => onChange({ filters: f })} forms={forms} offices={offices} />
       </>}
       {block.type === 'kpis' && <>
         <fieldset className="rd-checks"><legend>{tr('Chiffres affichés')}</legend>
-          {Object.entries(catalog.kpis).map(([k, l]) => (
-            <label key={k} className="check"><input type="checkbox" checked={p.metrics.includes(k)} disabled={p.metrics.length >= 8 && !p.metrics.includes(k)}
-              onChange={(e) => { const m = e.target.checked ? [...p.metrics, k] : p.metrics.filter((x) => x !== k); if (m.length) onChange({ metrics: m }); }} /> {tr(l)}</label>
+          {Object.entries(catalog.kpis).map(([k, kp]) => (
+            <label key={k} className="check"><input type="checkbox" checked={p.metrics.includes(k)} disabled={(p.metrics.length >= 8 && !p.metrics.includes(k)) || kp.available === false}
+              onChange={(e) => { const m = e.target.checked ? [...p.metrics, k] : p.metrics.filter((x) => x !== k); if (m.length) onChange({ metrics: m }); }} /> {tr(kp.label)}</label>
           ))}
         </fieldset>
-        {filterFields}
+        <BlockFilters filters={p.filters || {}} onChange={(f) => onChange({ filters: f })} forms={forms} offices={offices} />
       </>}
-      {(block.type === 'table' || block.type === 'chart') && <>
-        <Field label={tr('Titre')}><input className="input" value={p.title || ''} maxLength={200} onChange={(e) => onChange({ title: e.target.value })} /></Field>
-        {datasetSelect}
-        {block.type === 'chart' && <Field label={tr('Type de graphique')}><select className="select" value={p.kind} onChange={(e) => onChange({ kind: e.target.value })}>
-          <option value="bar">{tr('Barres')}</option><option value="line">{tr('Courbes (par mois)')}</option><option value="matrix">{tr('Matrice colorée')}</option>
+      {block.type === 'data' && <>
+        <Field label={tr('Données')}>
+          <select className="select" value={p.dataset} onChange={(e) => { const d = catalog.datasets[e.target.value]; onChange({ dataset: e.target.value, view: d ? d.defaultView : 'table', columns: undefined, measure: undefined, sort: undefined }); }}>
+            {catalog.groups.map((g) => (
+              <optgroup key={g.key} label={tr(g.label)}>
+                {g.items.map((k) => <option key={k} value={k} disabled={catalog.datasets[k].available === false}>{tr(catalog.datasets[k].label)}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </Field>
+        {def && <Field label={tr('Présentation')}><select className="select" value={p.view || def.defaultView} onChange={(e) => onChange({ view: e.target.value })}>
+          {def.views.map((v) => <option key={v} value={v}>{tr(VIEW_LABELS[v] || v)}</option>)}
         </select></Field>}
-        {block.type === 'table' && ds && !ds.dynamicColumns && (
+        <Field label={tr('Titre')}><input className="input" value={(p.figure && p.figure.title) || ''} maxLength={200} onChange={(e) => onChange({ figure: { ...(p.figure || {}), title: e.target.value || undefined } })} /></Field>
+        {def && !def.dynamicColumns && (
           <fieldset className="rd-checks"><legend>{tr('Colonnes')}</legend>
-            {ds.columns.map((c) => {
-              const cols = p.columns || ds.columns.map((x) => x.key);
+            {def.columns.map((c) => {
+              const cols = p.columns || def.columns.map((x) => x.key);
               return <label key={c.key} className="check"><input type="checkbox" checked={cols.includes(c.key)} onChange={(e) => {
                 const next = e.target.checked ? [...cols, c.key] : cols.filter((x) => x !== c.key);
-                onChange({ columns: next.length === ds.columns.length ? undefined : ds.columns.map((x) => x.key).filter((k) => next.includes(k)) });
+                onChange({ columns: next.length === def.columns.length ? undefined : def.columns.map((x) => x.key).filter((k) => next.includes(k)) });
               }} /> {tr(c.label)}</label>;
             })}
           </fieldset>
         )}
-        {block.type === 'table' && <Field label={tr('Nombre de lignes max.')}><input className="input" type="number" min="1" max="500" value={p.limit || ''} onChange={(e) => onChange({ limit: e.target.value ? Math.max(1, Math.min(500, Number(e.target.value))) : undefined })} /></Field>}
-        {filterFields}
+        <Field label={tr('Nombre de lignes max.')}><input className="input" type="number" min="1" max="500" value={p.limit || ''} onChange={(e) => onChange({ limit: e.target.value ? Math.max(1, Math.min(500, Number(e.target.value))) : undefined })} /></Field>
+        <BlockFilters filters={p.filters || {}} onChange={(f) => onChange({ filters: f })} forms={forms} offices={offices} supported={def ? def.filters : []} />
       </>}
+      {block.type === 'section' && <>
+        <Field label={tr('Orientation')}><select className="select" value={p.orientation || 'portrait'} onChange={(e) => onChange({ orientation: e.target.value })}>
+          <option value="portrait">{tr('Portrait')}</option><option value="landscape">{tr('Paysage')}</option>
+        </select></Field>
+        <Field label={tr('Titre')}><input className="input" value={p.title || ''} maxLength={200} onChange={(e) => onChange({ title: e.target.value || undefined })} /></Field>
+        <p className="hint">{tr('Une section commence une nouvelle page avec sa propre orientation.')}</p>
+      </>}
+      {block.type === 'columns' && <Field label={tr('Répartition')}><select className="select" value={p.ratio} onChange={(e) => {
+        const ratio = e.target.value; const n = ratio.split(':').length;
+        const cols = [...p.cols]; while (cols.length < n) cols.push([]);
+        onChange({ ratio, cols: n < cols.length ? [...cols.slice(0, n - 1), cols.slice(n - 1).flat()] : cols });
+      }}>{['1:1', '2:1', '1:2', '1:1:1'].map((r) => <option key={r} value={r}>{r}</option>)}</select></Field>}
+      {block.type === 'spacer' && <Field label={tr('Hauteur (mm)')}><input className="input" type="number" min="1" max="200" value={p.height || 8} onChange={(e) => onChange({ height: Math.max(1, Math.min(200, Number(e.target.value) || 8)) })} /></Field>}
       {block.type === 'repeat' && <>
         <Field label={tr('Répéter pour chaque')}><select className="select" value={p.over} onChange={(e) => onChange({ over: e.target.value })}>
-          <option value="activity">{tr('Activité (fiche de suivi)')}</option><option value="bureau">{tr('Bureau')}</option>
+          <option value="activity">{tr('Activité (fiche de suivi)')}</option><option value="bureau">{tr('Bureau')}</option><option value="partner">{tr('Partenaire')}</option>
         </select></Field>
         <p className="hint">{tr('Les blocs de la section sont recalculés pour chaque activité ou bureau ayant des données sur la période. Sélectionnez la section puis ajoutez des blocs pour les y placer.')}</p>
-        {data?.repeats?.[block.id] && <p className="hint">{tr('{n} section(s) générée(s).', { n: data.repeats[block.id].length })}</p>}
+        {data?.expansions?.[block.id] && <p className="hint">{tr('{n} section(s) générée(s).', { n: data.expansions[block.id].length })}</p>}
       </>}
     </div>
   );
 }
+
+// Avertissements de la mise à niveau v1 → v2 (code + paramètres envoyés par le serveur).
+const UPGRADE_WARNINGS = {
+  office_removed: 'Filtre bureau « {name} » retiré : aucun bureau MEMS de ce nom (choisissez-le à nouveau).',
+  view_replaced: 'Présentation « {from} » remplacée par « {to} » (non proposée pour ces données).',
+};
+
+const VIEW_LABELS = {
+  table: 'Tableau', bar: 'Barres', column: 'Colonnes', line: 'Courbes', donut: 'Anneau', stacked: 'Barres empilées',
+  heat: 'Matrice colorée', kpi: 'Tuile', list: 'Liste', card: 'Carte de résultat', explain: 'Explication', map: 'Carte', gauge: 'Jauge',
+};
