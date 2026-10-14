@@ -161,3 +161,42 @@ activité » sont **laissés à une réconciliation ultérieure**.
 - Modèle « plusieurs sites par commune, un par activité » (schéma `sites`).
   → à faire quand les lots 2-3/6a seront poussés, pour éviter les conflits.
 
+---
+
+# Page de gestion des sites (Paramétrage › Sites) + attribution GPS
+
+> Demande utilisateur (14/10) : page dédiée de gestion des sites (insertion,
+> intégration…), liée ensuite à la planification. Colonnes : Identifiant,
+> Localité, Code POI, Field_office(+code), Region/Adm1Code, District/Adm2Code,
+> Commune/Adm3Code, Fokontany/Adm4Code, Activity_tag, Tag_code, Lat, Long —
+> avec **attribution automatique de la zone depuis le GPS**.
+
+## Décision d'architecture (clé de liaison) — demandée par l'utilisateur
+
+Les **pcodes ne servent PAS de clé de liaison** (ils changent lors d'un
+remaniement administratif). Clés retenues :
+- **site ↔ découpage = `admin_area_id` (UUID stable)** ; les pcodes
+  (`adm1..adm4_pcode`) sont des **attributs dérivés/affichés**, jamais la jointure ;
+- **identité du site = UUID `id` + Code POI `location_id` (compteur stable L###,
+  auto-généré)** ; jamais le `code` dérivé du nom ; la **planification se liera
+  au site par son UUID**.
+- Recommandation (réconciliation, non faite ici car cœur de l'autre session) :
+  faire passer le rapprochement **soumissions ↔ sites de `adm3_pcode` à
+  `admin_area_id`** pour survivre aux changements de pcode.
+
+## Fait (backend, additif — fichiers neufs, invariant respecté)
+
+- Migration `062_sites_tag_code.sql` : seule colonne manquante (`tag_code`).
+  Toutes les autres colonnes existent déjà sur `sites`.
+- `settings/sitesAdmin.repository.js` : liste complète (colonnes de la page,
+  jointure `field_offices`), `createSite`/`updateSite`/`deleteSite`,
+  `autoAttribute` (GPS → `admin_area_id` stable + noms adm1–4 ; les pcodes sont
+  déduits par le pipeline par nom). **Écritures via `withSubmissionLinks` +
+  `afterSitesChangedTx`** (réutilisés depuis `placeMatch.repository`, sans
+  toucher au fichier) → invariant de concurrence respecté, pas de doublon.
+- `settings/sitesAdmin.routes.js` monté sur `/api/site-registry` (chemin
+  distinct, aucun risque d'ordre). GET/POST/PATCH/DELETE + POST /auto-attribute.
+- Vérifs : lint propre, **711/712** tests ; **intégration en base réelle**
+  (création → Code POI auto `L###` ; auto-attribution → commune depuis le GPS,
+  `admin_area_id` stable posé, pcode `MG7101` seulement dérivé ; update ; delete).
+

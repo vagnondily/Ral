@@ -22,6 +22,7 @@ const pddRoutes = require('./modules/pdd/pdd.routes');
 const reportDesignerRoutes = require('./modules/reports/reports.routes');
 const alertsRoutes = require('./modules/dashboards/alerts.routes');
 const deletionsRoutes = require('./modules/deletions/deletions.routes');
+const siteRegistryRoutes = require('./modules/settings/sitesAdmin.routes');
 const asyncHandler = require('./middleware/asyncHandler');
 const { requireAuth } = require('./middleware/auth');
 const { checkSchema } = require('./db/schemaStatus');
@@ -101,6 +102,7 @@ function createApp() {
   app.use('/api/report-designer', reportDesignerRoutes);
   app.use('/api/alerts', alertsRoutes);
   app.use('/api/deletions', deletionsRoutes);
+  app.use('/api/site-registry', siteRegistryRoutes);
   // État de la base pour l'écran : migrations en attente (bandeau administrateur).
   // Nombre de mises à jour de schéma en attente pour tous ; leurs noms de fichiers pour l'admin seul.
   app.get('/api/system/status', requireAuth, asyncHandler(async (req, res) => {
