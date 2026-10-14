@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 06:49 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 08:14 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -338,5 +338,8 @@ _Dernière mise à jour : 14/10/2026 06:49 UTC_ — la branche `main` reçoit ch
 - **06:02** ℹ️ **Ordre confirmé** (« fait selon tes choix ») : socle 1b → écrans 1b, carte 6a et concepteur 7a en parallèle → lots 2–3 (référentiels, registre) → lot 4 (réalisé issu des données, retours 15, 21, 22, 26) → lot 5 (priorités, risque daté) → lot 8 (Partenaires & TPM). État de chaque retour mis à jour dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md).
 
 - **06:49** 🔄 **Point de contrôle** : socle 1b terminé (8 commits : modèle de période, régions 19 s → 10 ms, faits site × mois, sélecteur « du … au … »), en contre-vérification ; écrans 1b : 9 commits ; carte 6a : 2 commits (contours, positions GPS des soumissions) ; concepteur 7a démarré. Services en ordre.
+
+- **08:14** 📥 **Retour n° 54** : tableau trimestriel par activité (sites actifs / prévus / réalisés, couverture, taux d'exécution, couleurs, total) dans les tableaux de bord, rempli depuis MEMS → réalisé juste après les correctifs du lot 1b, sur le service « sites × mois » du socle.
+- **08:14** 🔄 Vérifications de 1b (écrans) et 6a (carte) en cours ; contre-vérification du socle 1b rendue (1 grave : ~200 sites dont le P-code de district contredit le district → regrouper par le district du site ; 4 moyens ; 2 mineurs) — corrigés dans un seul tour avec les constats des écrans.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
