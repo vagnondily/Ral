@@ -1642,7 +1642,7 @@ async function coverageDashboard(tenantId, periodLike = null) {
     const regionRows = await submissionRegionsTx(client, tenantId, period);
 
     const { rows: forms } = await client.query(
-      "SELECT id, code, label FROM monitoring_forms WHERE tenant_id = $1 AND active = true ORDER BY label",
+      'SELECT id, code, label, activity_category AS "activityCategory" FROM monitoring_forms WHERE tenant_id = $1 AND active = true ORDER BY label',
       [tenantId]
     );
 
@@ -1668,7 +1668,8 @@ async function coverageDashboard(tenantId, periodLike = null) {
       allResults = allResults.concat(results);
       const { top, flop } = topFlop(results);
       perForm.push({
-        id: fm.id, code: fm.code, label: fm.label,
+        // Activité rattachée : l'écran propose son modèle d'indicateurs quand la fiche n'en a aucun (retour 85).
+        id: fm.id, code: fm.code, label: fm.label, activityCategory: fm.activityCategory || null,
         submissions: count,
         indicatorCount: inds.length,
         index: overallIndex(results),

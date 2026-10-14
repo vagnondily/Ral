@@ -3037,3 +3037,38 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
   .dv-filters .cfilter { flex: 1 1 100%; }
   .dv-search { flex: 1 1 100%; }
 }
+
+/* Mention « période conservée de la session » : toujours sur sa propre ligne, sous la ligne de
+   période (retour 85) — jamais collée à un sélecteur de vue ou à un bouton qui la suit. */
+.period-session-note { display: flex; width: fit-content; max-width: 100%; }
+.period-summary + .period-session-note { margin-top: -8px; }
+
+/* Couverture & performance (retour 85) — en-tête : période + mention de session à gauche, vues à droite. */
+.cd-headbar { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 24px; margin: 0 0 16px; }
+.cd-headbar-period { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding-top: 6px; }
+.cd-headbar-period .period-summary, .cd-headbar-period .period-session-note { margin: 0; }
+.cd-headbar .cd-views { margin-bottom: 0; flex: none; }
+@media (max-width: 900px) { .cd-headbar .cd-views { width: 100%; } }
+/* Cartes d'une même rangée à la même hauteur (règle de la Synthèse, .syn-main) : la carte de
+   référence donne la hauteur, la liste voisine (.cd-fill) défile à l'intérieur — plus de trou. */
+.biz-grid.cd-grid-2 { align-items: stretch; }
+.cd-grid-2 > .biz-card, .cd-col > .biz-card { display: flex; flex-direction: column; min-width: 0; }
+.cd-grid-2 > .biz-card > .card-body { flex: 1 1 auto; }
+.cd-grid-2 > .biz-card.cd-fill > .card-body { flex: 1 1 0; min-height: 200px; overflow-y: auto; overscroll-behavior: contain;
+  /* Fondu sur la marge du bas : invisible quand tout tient, signale la suite quand la liste défile. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent); }
+.cd-grid-2 > .biz-card > .card-body.biz-gauges, .cd-col > .biz-card > .card-body { align-content: start; }
+.cd-col { display: flex; flex-direction: column; gap: 16px; }
+.cd-col > .biz-card:last-child { flex: 1 1 auto; }
+@media (max-width: 1100px) { .cd-grid-2 > .biz-card.cd-fill > .card-body { flex: none; max-height: 420px; } }
+/* Fiche sans indicateur : une explication et la marche à suivre, à côté des données reçues. */
+.cd-noind { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px; margin-bottom: 16px; align-items: stretch; }
+.cd-noind > .biz-kpi { height: 100%; }
+.cd-noind-card { display: flex; gap: 14px; align-items: flex-start; padding: 16px 18px; }
+.cd-noind-ic { flex: none; width: 38px; height: 38px; border-radius: var(--radius); display: grid; place-items: center; background: var(--blue-50); color: var(--blue-600); }
+.cd-noind-body { min-width: 0; }
+.cd-noind-title { font-weight: 650; color: var(--text-strong); font-size: 14.5px; letter-spacing: -0.01em; }
+.cd-noind-text { margin: 4px 0 12px; color: var(--text-muted); font-size: 13px; line-height: 1.5; max-width: 72ch; }
+.cd-noind-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cd-noind-actions .btn { display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 760px) { .cd-noind { grid-template-columns: minmax(0, 1fr); } }

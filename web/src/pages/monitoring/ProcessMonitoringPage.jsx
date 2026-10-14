@@ -354,7 +354,8 @@ function FormDeleteModal({ form, onClose, onDeleted }) {
 // ======================================================================
 function FormDetail({ form, canEdit, initialTab, onBack, onChanged }) {
   const { tr } = useI18n();
-  const [tab, setTab] = useState(initialTab || 'variables');
+  // « modele » (lien « Appliquer le modèle d'activité », retour 85) : Configuration, modèle en vue.
+  const [tab, setTab] = useState(initialTab === 'modele' ? 'config' : (initialTab || 'variables'));
   const [attaching, setAttaching] = useState(false);
   const [editingForm, setEditingForm] = useState(false); // nom, activité, statut de la fiche
   const { steps, next } = formSteps(form);
@@ -415,7 +416,7 @@ function FormDetail({ form, canEdit, initialTab, onBack, onChanged }) {
       {tab === 'donnees' && <DataViewTab form={form} canEdit={canEdit} onGoImport={() => setTab('importation')} />}
       {tab === 'resultats' && <ResultsTab form={form} canEdit={canEdit} onChanged={onChanged} onGoConfig={() => setTab('config')} onGoMapping={() => setTab('mapping')} />}
       {tab === 'mapping' && <MappingTab form={form} canEdit={canEdit} />}
-      {tab === 'config' && <ConfigTab form={form} canEdit={canEdit} onChanged={onChanged} />}
+      {tab === 'config' && <ConfigTab form={form} canEdit={canEdit} onChanged={onChanged} focusTemplate={initialTab === 'modele'} />}
     </div>
   );
 }
@@ -1217,18 +1218,24 @@ function MappingColumnsCard({ form, canEdit }) {
 }
 
 // ---- Configuration (indicateurs + modèle de l'activité + champs calculés) --
-function ConfigTab({ form, canEdit, onChanged }) {
+function ConfigTab({ form, canEdit, onChanged, focusTemplate = false }) {
   // Les deux cartes se rechargent l'une l'autre (création depuis le modèle ↔ indicateur enregistré ou
   // supprimé), UNE fois : la carte qui écrit recharge ses propres données, l'autre reçoit un nouveau
   // refreshKey. Plus de remontage des deux cartes (qui rechargeait deux fois indicateurs et variables).
   const [indRefresh, setIndRefresh] = useState(0);
   const [tplRefresh, setTplRefresh] = useState(0);
+  const indicatorsCard = (
+    <IndicatorsConfigCard key="ind" form={form} canEdit={canEdit} refreshKey={indRefresh}
+      onChanged={() => { setTplRefresh((v) => v + 1); onChanged?.(); }} />
+  );
+  const templateCard = (
+    <TemplateBindingCard key="tpl" form={form} canEdit={canEdit} refreshKey={tplRefresh}
+      onApplied={() => { setIndRefresh((v) => v + 1); onChanged?.(); }} />
+  );
   return (
     <div className="section-gap">
-      <IndicatorsConfigCard form={form} canEdit={canEdit} refreshKey={indRefresh}
-        onChanged={() => { setTplRefresh((v) => v + 1); onChanged?.(); }} />
-      <TemplateBindingCard form={form} canEdit={canEdit} refreshKey={tplRefresh}
-        onApplied={() => { setIndRefresh((v) => v + 1); onChanged?.(); }} />
+      {/* Ouvert depuis « Appliquer le modèle d'activité » (Couverture & performance) : le modèle d'abord. */}
+      {focusTemplate ? [templateCard, indicatorsCard] : [indicatorsCard, templateCard]}
       <CalcFieldsCard form={form} canEdit={canEdit} onChanged={onChanged} />
     </div>
   );
