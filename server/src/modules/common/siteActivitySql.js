@@ -55,8 +55,10 @@ const districtNameSql = (s = 's', ad = 'ad') =>
  *              seule commune. Ajoute le CTE dat et, dans fact, wd (données ce mois) et ua
  *              (visite non annulée sans prestataire) ; per_site gagne realised_any (déclaré
  *              OU données, pendant un mois actif), realised_data, et les visites (site × mois)
- *              v_planned, v_planned_realised, v_off_plan (données sans visite prévue),
- *              v_unassigned. Le lot 4 basculera ce mode par défaut partout.
+ *              v_planned, v_planned_realised (mois ÉCHUS seulement, règle du lot 1b : une
+ *              visite prévue d'un mois à venir n'est pas « non exécutée »), v_off_plan
+ *              (données sans visite prévue), v_unassigned. Le lot 4 basculera ce mode par
+ *              défaut partout.
  *   geo      : colonnes de rattachement dans reg et per_site : did / dpcode (district du
  *              découpage, par adm2_pcode), rid (région : parent du district, sinon la zone
  *              du site), cpcode (commune), office_id, has_gps, act (activité normalisée).
@@ -133,8 +135,8 @@ function siteMonthFactsCtes({
   const aggExt = ext ? `,
                       COALESCE(bool_or(active AND (st = 'realise' OR wd)), false) AS realised_any,
                       COALESCE(bool_or(active AND wd), false) AS realised_data,
-                      count(*) FILTER (WHERE active AND st IN ('planifie', 'realise'))::int AS v_planned,
-                      count(*) FILTER (WHERE active AND st IN ('planifie', 'realise') AND (st = 'realise' OR wd))::int AS v_planned_realised,
+                      count(*) FILTER (WHERE active AND due AND st IN ('planifie', 'realise'))::int AS v_planned,
+                      count(*) FILTER (WHERE active AND due AND st IN ('planifie', 'realise') AND (st = 'realise' OR wd))::int AS v_planned_realised,
                       count(*) FILTER (WHERE active AND (st IS NULL OR st = 'annule') AND wd)::int AS v_off_plan,
                       count(*) FILTER (WHERE active AND st IN ('planifie', 'realise') AND ua)::int AS v_unassigned` : '';
   // Années où le tenant a une grille : une sonde d'index par année (année en entier, comparée par

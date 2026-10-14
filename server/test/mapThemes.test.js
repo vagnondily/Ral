@@ -80,6 +80,12 @@ test('pur jumeau du mode « données » : réalisé par les données, hors plan,
   assert.equal(f.vPlanned, 2); // février, mars
   assert.equal(f.vPlannedRealised, 2); // février par les données, mars déclaré
   assert.equal(f.vOffPlan, 1); // avril : données sans visite prévue
+  // Exécution sur les mois ÉCHUS (lot 1b) : une visite prévue d'un mois à venir n'est pas manquée.
+  const future = siteRangeFacts({ ...site, visits: [...site.visits, { month: '2026-05', status: 'planifie' }] },
+    { from: '2026-01', to: '2026-06' }, { todayMonth: '2026-04' });
+  assert.equal(future.planned, true);
+  assert.equal(future.vPlanned, 2, 'mai (à venir) hors exécution');
+  assert.equal(future.vPlannedRealised, 2);
   // Données pendant un mois inactif (zone interdite) : jamais une réalisation.
   const g = siteRangeFacts({ forbidden: true, dataMonths: ['2026-02'] }, { from: '2026-01', to: '2026-03' });
   assert.equal(g.realisedAny, false);

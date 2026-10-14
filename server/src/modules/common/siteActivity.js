@@ -87,7 +87,8 @@ function siteRangeFacts(site, period, { todayMonth = '9999-12' } = {}) {
     if (m <= todayMonth) { if (st === 'planifie') out.duePlanifie += 1; if (st === 'realise') out.dueRealise += 1; }
     if (act && (st === 'realise' || wd)) out.realisedAny = true;
     if (act && wd) out.realisedData = true;
-    if (act && planned) { out.vPlanned += 1; if (st === 'realise' || wd) out.vPlannedRealised += 1; }
+    // Exécution : mois échus seulement (règle du lot 1b ; une visite à venir n'est pas manquée).
+    if (act && planned && m <= todayMonth) { out.vPlanned += 1; if (st === 'realise' || wd) out.vPlannedRealised += 1; }
     if (act && !planned && wd) out.vOffPlan += 1;
   }
   return out;

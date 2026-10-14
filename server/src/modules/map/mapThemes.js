@@ -7,8 +7,8 @@
  * Définitions communes (docs/PLAN_RETOURS_15_37.md) :
  *  - couverture   = sites actifs réalisés ÷ sites actifs (0 % est une vraie valeur) ;
  *  - planification = sites actifs prévus ÷ actifs — « — aucun plan » si aucun prévu ;
- *  - exécution    = visites (site × mois) prévues et réalisées ÷ visites prévues —
- *                   « — aucun plan » si aucune visite prévue ;
+ *  - exécution    = visites (site × mois) prévues et réalisées ÷ visites prévues, des mois
+ *                   ÉCHUS (≤ mois courant, comme le lot 1b) — « — aucun plan » si aucune ;
  *  - réalisé = données rattachées AU SITE ou visite déclarée réalisée, pendant un mois
  *    actif ; une donnée rattachée à la seule commune n'est jamais une visite.
  * Limite connue (lot 4) : une visite déclarée réalisée compte comme prévue (le motif
