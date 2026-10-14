@@ -135,7 +135,11 @@ function allowedActions(contract, ctx, actor) {
     decideAmendment: Boolean(pending) && pending.validatorId === actor.userId,
     renew: write && isActive && !ctx.renewal && d.renewalWindowOpen(contract.dateFin, today()),
     terminate: write && isActive,
-    delete: write && contract.status === 'brouillon',
+    // Politique commune (retour 56) : un contrat non validé (brouillon, en
+    // validation, rejeté) est supprimable ; un contrat validé (actif, résilié)
+    // ne l'est que sans donnée reliée + justificatif — vérifié à la suppression,
+    // non proposé ici pour éviter un bouton presque toujours en échec.
+    delete: write && !isValidatedStatus('contract', contract.status),
   };
 }
 

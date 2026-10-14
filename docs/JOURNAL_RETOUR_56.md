@@ -79,3 +79,24 @@
   contrats aux 4 cas (non validé → ok ; validé+donnée → 409 ; validé vide sans
   justif → 400 ; validé vide + justif → ok) ; journal = 5 entrées exactes ;
   `UPDATE`/`DELETE` du journal refusés à `mems2_app` (append-only confirmé).
+- **~11:20** ✅ **Frontend** : composant commun `components/DeleteDialog.jsx`
+  (confirmation ; justificatif obligatoire si validé ; affiche le refus serveur
+  409/400 sans fermer). Branché sur **Rapports** (`ReportsPage`), **Planification**
+  (`PlanningPage`) et **Contrats** (`ContractDetailPage`, bouton « Supprimer »
+  nouveau — le flag serveur `actions.delete` passe de « brouillon seul » à
+  « tout non validé », conforme à la politique). Client API `deleteReport/
+  deletePlan/deleteContract` acceptent un justificatif ; `listDeletions` ajouté.
+- **~11:25** ✅ Écran **« Paramétrage › Journal des suppressions »** (admin,
+  `DeletionsSection`) : table date / type / document / statut / justificatif /
+  auteur, filtre par type. Endpoint `GET /api/deletions` vérifié en base
+  (5 entrées, filtre par type = 2 plans).
+- **~11:30** ✅ Vérifications finales : `web build` OK ; serveur lint propre ;
+  **680/681 tests** (0 échec). Prêt à pousser sur `claude/zealous-bardeen-p9ozcr`.
+
+## État : ✅ terminé (périmètre retenu)
+
+Fait : politique pure testée · migration 061 (journal append-only) · câblage
+rapports/plans/contrats + journal · endpoint et écran admin · dialogue frontend.
+Hors périmètre (assumé) : concepteur de rapport (aligné avec le lot 7a de la
+session principale) ; suppression d'un avenant par l'UI (type `contract_amendment`
+déjà prévu dans la politique et la migration, sans écran dédié pour l'instant).

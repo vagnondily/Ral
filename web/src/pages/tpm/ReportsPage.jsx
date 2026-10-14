@@ -7,6 +7,7 @@ import {
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, EmptyState, Field, IconButton, Skeleton, StatusBadge, Stats } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
+import DeleteDialog from '../../components/DeleteDialog.jsx';
 import FactureDrawer from './FactureDrawer.jsx';
 import { usePopover, SortTh, makeViewStore } from '../../components/listView.jsx';
 import { useToast } from '../../components/Toast.jsx';
@@ -72,6 +73,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
 
   const [facture, setFacture] = useState(null); // {reportId?} | {kind} | null
   const [decide, setDecide] = useState(null);    // {report, approve}
+  const [del, setDel] = useState(null);          // rapport à supprimer (retour 56)
   const [genOpen, setGenOpen] = useState(false); // modale génération mensuelle
 
   const saved = viewStore.initial();
@@ -207,11 +209,9 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       toast.success(approve ? tr('Rapport validé.') : tr('Rapport rejeté.')); setDecide(null); reload();
     } catch (err) { toast.error(err.message); }
   }
-  async function removeReport(r) {
-    if (!window.confirm(tr('Supprimer le rapport {kind} de « {name} » ? Cette action est définitive.', { kind: tr(REPORT_KIND[r.kind].label).toLowerCase(), name: r.partnerName }))) return;
-    try { await api.deleteReport(r.id); toast.success(tr('Rapport supprimé.')); setSelectedId(null); reload(); }
-    catch (err) { toast.error(err.message); }
-  }
+  // Suppression (retour 56) : le dialogue commun gère la confirmation et, pour
+  // un rapport validé, le justificatif obligatoire.
+  function removeReport(r) { setDel(r); }
   // Soumettre un rapport « attendu » ou « rejeté » : le serveur vérifie la
   // transition et qu'une facture porte au moins un poste (message clair sinon).
   async function submitReport(r) {
@@ -433,6 +433,17 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
 
       {facture && <FactureDrawer reportId={facture.reportId} kind={facture.kind} initial={facture.initial} autoPrefill={facture.autoPrefill} context={context} month={month} onClose={() => setFacture(null)} onSaved={() => { setFacture(null); reload(); }} />}
       {decide && <DecideModal decide={decide} onClose={() => setDecide(null)} onConfirm={runDecision} />}
+      {del && (
+        <DeleteDialog
+          open
+          validated={del.status === 'valide'}
+          title={tr('Supprimer ce rapport ?')}
+          description={`${tr(REPORT_KIND[del.kind].label)} · ${del.partnerName} · ${del.contractNumero || ''}`}
+          onClose={() => setDel(null)}
+          onConfirm={(justification) => api.deleteReport(del.id, justification)}
+          onDone={() => { toast.success(tr('Rapport supprimé.')); setDel(null); setSelectedId(null); reload(); }}
+        />
+      )}
       {genOpen && <GenerateModal context={context} onClose={() => setGenOpen(false)} onDone={() => { setGenOpen(false); reload(); }} />}
     </div>
   );
