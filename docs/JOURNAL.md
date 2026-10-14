@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 12:39 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 12:48 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -498,5 +498,16 @@ _Dernière mise à jour : 14/10/2026 12:39 UTC_ — la branche `main` reçoit ch
   - la migration 070.
 
   Deux questions sont posées à l'utilisateur : qui est « le TPM d'un contrat », et les zones de contrat dont le district a été découpé.
+
+- **12:45** ✅ **Retour 54** publié (`1bd8e72`) : Dashboard décisionnel › Rapport trimestriel.
+  - Par activité et par trimestre : sites uniques actifs, prévus et réalisés, couverture et taux d'exécution.
+  - Total en sites distincts, couleurs avec la valeur affichée, CSV et Excel.
+  - Mêmes chiffres que la carte.
+- **12:47** ⚠️→✅ Une phrase anglaise manquait (« Rapport trimestriel ») : corrigée (`5c8de36`). La publication est désormais **bloquée** tant que le balayage n'est pas entièrement au vert.
+- **12:48** 📥 **Retours 72 à 75** :
+  - 72 : concepteur de rapport universel ;
+  - 73 : trop de cartes, il en faut une seule de référence ;
+  - 74 : beaucoup plus de fonctions de calcul (Excel, Tableau, DAX, statistiques), sans compromettre la sécurité ;
+  - 75 : design professionnel et épuré, exigence permanente.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
