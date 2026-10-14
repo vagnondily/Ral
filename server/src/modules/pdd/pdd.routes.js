@@ -7,6 +7,7 @@ const { badRequest } = require('../../middleware/errors');
 const { sniffFile } = require('../common/fileSniff');
 const { assertZipEntries, zipLimitsFromEnv } = require('../common/zipGuard');
 const repo = require('./pdd.repository');
+const { readPeriod } = require('../../middleware/period');
 const { parsePddWorkbook, issue } = require('./pddImport');
 const { buildPddTemplate } = require('./pddTemplate');
 const { isRefusal } = require('../common/xlsxGuard');
@@ -30,25 +31,38 @@ function body(schema) {
     return next();
   };
 }
-const monthQ = (req) => (/^\d{4}-\d{2}/.test(req.query.month || '') ? req.query.month : undefined);
+// Filtres communs : période (?from&to, ou l'ancien ?month ; null = toutes les périodes,
+// 400 avec details.code si mal formée), aléa, région, district.
+const str = (v) => (typeof v === 'string' && v ? v : undefined);
 const filters = (req) => ({
-  month: monthQ(req),
-  hazard: req.query.hazard || undefined,
-  region: req.query.region || undefined,
-  district: req.query.district || undefined,
+  period: readPeriod(req.query),
+  hazard: str(req.query.hazard),
+  region: str(req.query.region),
+  district: str(req.query.district),
+});
+const pageQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(5000).optional(),
+  offset: z.coerce.number().int().min(0).max(10_000_000).optional(),
 });
 
 // ---- Référentiel denrées -------------------------------------------------
 router.get('/commodities', asyncHandler(async (req, res) => res.json(await repo.listCommodities(t(req)))));
 
 // ---- Lignes de distribution (liste) --------------------------------------
-router.get('/distributions', asyncHandler(async (req, res) => res.json(await repo.listDistributions(t(req), filters(req)))));
+// Lecture bornée : { rows, total, limit, offset } (2 000 lignes par défaut, 5 000 au plus).
+router.get('/distributions', asyncHandler(async (req, res) => {
+  const f = filters(req);
+  const page = pageQuery.safeParse({ limit: str(req.query.limit), offset: str(req.query.offset) });
+  if (!page.success) throw badRequest('Pagination invalide', page.error.flatten());
+  res.json(await repo.listDistributions(t(req), f, page.data));
+}));
 
 // ---- Synthèse (totaux, par aléa, par mois, arbre zone) -------------------
 router.get('/summary', asyncHandler(async (req, res) => res.json(await repo.summaryData(t(req), filters(req)))));
 
 // ---- Pipeline (besoin planifié vs stock disponible, par denrée) ----------
-router.get('/pipeline', asyncHandler(async (req, res) => res.json(await repo.pipelineData(t(req), { month: monthQ(req) }))));
+// Sur une période : mois par mois, stock en vigueur chaque mois (dernier saisi ≤ mois).
+router.get('/pipeline', asyncHandler(async (req, res) => res.json(await repo.pipelineData(t(req), { period: readPeriod(req.query) }))));
 
 // ---- Stock disponible (saisie manuelle pour le pipeline) -----------------
 const stockSchema = z.object({

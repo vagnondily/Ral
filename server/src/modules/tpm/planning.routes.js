@@ -4,6 +4,7 @@ const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound, conflict } = require('../../middleware/errors');
 const repo = require('./planning.repository');
+const { readPeriod } = require('../../middleware/period');
 
 const router = Router();
 router.use(requireAuth);
@@ -38,12 +39,14 @@ const isPgText = (msg) => /Ligne budgétaire|désignation|invalide|Activité inc
 
 // Mois réel (01-12) : un mois mal formé ne doit jamais atteindre PostgreSQL (500).
 const monthS = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?$/, 'Mois invalide (AAAA-MM).');
-const listQuery = z.object({ month: monthS.optional(), contractId: z.string().uuid().optional() });
+const listQuery = z.object({ contractId: z.string().uuid().optional() });
 
+// Liste : ?from&to (ou l'ancien ?month) — plans dont le mois tombe dans la période ; sans période, tous.
 router.get('/', asyncHandler(async (req, res) => {
-  const q = listQuery.safeParse(req.query);
+  const period = readPeriod(req.query);
+  const q = listQuery.safeParse({ contractId: req.query.contractId || undefined });
   if (!q.success) throw badRequest('Filtres invalides', q.error.flatten());
-  res.json(await repo.listPlans(t(req), { month: q.data.month, contractId: q.data.contractId }));
+  res.json(await repo.listPlans(t(req), { period, contractId: q.data.contractId }));
 }));
 
 // Items of the plan matching a contract + month — used to pre-fill a facture.

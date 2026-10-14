@@ -68,7 +68,7 @@ function DistributionsView({ canEdit, onNavigate }) {
 
   const reload = useCallback(() => {
     setRows(null);
-    api.pddDistributions({}).then(setRows).catch((e) => setError(e.message));
+    api.pddDistributions({ limit: 5000 }).then((r) => setRows(r.rows)).catch((e) => setError(e.message));
   }, []);
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => { api.pddCommodities().then(setCommodities).catch(() => setCommodities([])); }, []);

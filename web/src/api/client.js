@@ -393,7 +393,8 @@ export const api = {
 
   // Rapports & dépenses TPM
   reportsContext: () => request('/api/tpm/reports/context'),
-  listReports: (query) => request('/api/tpm/reports', { query }),
+  // Rapports : { period | month, partnerId, contractId } — un rapport est retenu si sa période chevauche.
+  listReports: ({ period, month, ...rest } = {}) => request('/api/tpm/reports', { query: qs({ ...pq(period || month), ...rest }) }),
   getReport: (id) => request(`/api/tpm/reports/${id}`),
   reportInvoice: (id) => request(`/api/tpm/reports/${id}/invoice`),
 
@@ -476,12 +477,18 @@ export const api = {
 
   // Suivi budgétaire consolidé (Dashboard décisionnel) — interliaison
   // Budget (contrat) ↔ Planifié (plans) ↔ Réalisé (factures).
-  consolidation: (today) => request('/api/tpm/consolidation', { query: today ? { today } : undefined }),
+  // Consolidation : cumul « à date » ; avec { period } s'ajoutent les colonnes de la période.
+  // L'ancien appel consolidation('AAAA-MM') (mois de référence du cumul) reste accepté.
+  consolidation: (opts) => {
+    const { today, period } = typeof opts === 'string' ? { today: opts } : (opts || {});
+    return request('/api/tpm/consolidation', { query: qs({ today, ...pq(period) }) });
+  },
   // Centre d'alertes : une seule liste pour la page et la cloche de l'en-tête.
-  alerts: () => request('/api/alerts'),
+  // Alertes : sans période, le mois courant (la cloche) ; une période vaut pour le terrain et les rapports.
+  alerts: (period) => request('/api/alerts', { query: qs(pq(period)) }),
 
   // Planification & budget — budget prévisionnel des vagues de collecte
-  listPlans: (query) => request('/api/tpm/planning', { query }),
+  listPlans: ({ period, month, ...rest } = {}) => request('/api/tpm/planning', { query: qs({ ...pq(period || month), ...rest }) }),
   getPlan: (id) => request(`/api/tpm/planning/${id}`),
   createPlan: (input) => request('/api/tpm/planning', { method: 'POST', body: input }),
   updatePlan: (id, input) => request(`/api/tpm/planning/${id}`, { method: 'PUT', body: input }),
@@ -526,9 +533,12 @@ export const api = {
 
   // Plan de Distribution d'urgence (PDD) — distributions, synthèse, pipeline.
   pddCommodities: () => request('/api/pdd/commodities'),
-  pddDistributions: (query) => request('/api/pdd/distributions', { query }),
-  pddSummary: (query) => request('/api/pdd/summary', { query }),
-  pddPipeline: (month) => request('/api/pdd/pipeline', { query: month ? { month } : undefined }),
+  // Distributions : lecture bornée { rows, total, limit, offset } ; { period | month, hazard, region, district, limit, offset }.
+  pddDistributions: ({ period, month, ...rest } = {}) => request('/api/pdd/distributions', { query: qs({ ...pq(period || month), ...rest }) }),
+  // Synthèse : cumul sur la période + pic mensuel (`peak`).
+  pddSummary: ({ period, month, ...rest } = {}) => request('/api/pdd/summary', { query: qs({ ...pq(period || month), ...rest }) }),
+  // Pipeline : une période { from, to } (mois par mois) ou un mois « AAAA-MM » ; rien = tous les mois.
+  pddPipeline: (periodOrMonth) => request('/api/pdd/pipeline', { query: qs(pq(periodOrMonth)) }),
   pddSetStock: (input) => request('/api/pdd/stock', { method: 'PUT', body: input }),
   // `partial` : « Importer quand même » malgré des lignes ignorées dans les mois remplacés.
   pddImport: async (file, { partial = false } = {}) => {

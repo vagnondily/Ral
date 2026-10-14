@@ -19,6 +19,12 @@ const field = require('../src/modules/tpm/field.repository');
 const fieldRoutes = require('../src/modules/tpm/field.routes');
 const cons = require('../src/modules/tpm/consolidation.repository');
 const consolidationRoutes = require('../src/modules/tpm/consolidation.routes');
+const reportsRepo = require('../src/modules/tpm/reports.repository');
+const reportsRoutes = require('../src/modules/tpm/reports.routes');
+const planningRepo = require('../src/modules/tpm/planning.repository');
+const planningRoutes = require('../src/modules/tpm/planning.routes');
+const pddRepo = require('../src/modules/pdd/pdd.repository');
+const pddRoutes = require('../src/modules/pdd/pdd.routes');
 const { errorHandler } = require('../src/middleware/errors');
 
 const calls = [];
@@ -37,12 +43,20 @@ field.coverageRecapSummary = spy('recap');
 field.coverageMatrix = spy('matrix');
 field.rbmSites = spy('rbm', []);
 cons.consolidation = spy('consolidation', { rows: [] });
+reportsRepo.listReports = spy('reports', []);
+planningRepo.listPlans = spy('plans', []);
+pddRepo.listDistributions = spy('pddDistributions', { rows: [], total: 0 });
+pddRepo.summaryData = spy('pddSummary', {});
+pddRepo.pipelineData = spy('pddPipeline', []);
 
 const app = express();
 app.use(express.json());
 app.use('/api/monitoring', monitoringRoutes);
 app.use('/api/tpm/field', fieldRoutes);
 app.use('/api/tpm/consolidation', consolidationRoutes);
+app.use('/api/tpm/reports', reportsRoutes);
+app.use('/api/tpm/planning', planningRoutes);
+app.use('/api/pdd', pddRoutes);
 app.use(errorHandler);
 const TENANT = '11111111-1111-1111-1111-111111111111';
 const FORM = '22222222-2222-2222-2222-222222222222';
@@ -61,6 +75,11 @@ const MONITORING_AND_FIELD = [
   ['/api/tpm/field/summary', 'fieldSummary', (a) => a[1].period, 24],
   ['/api/tpm/field/visits', 'visits', (a) => a[1].period, 12],
   ['/api/tpm/field/coverage-recap', 'recap', (a) => a[1].period, 24],
+  ['/api/tpm/reports', 'reports', (a) => a[1].period, 60],
+  ['/api/tpm/planning', 'plans', (a) => a[1].period, 60],
+  ['/api/pdd/distributions', 'pddDistributions', (a) => a[1].period, 60],
+  ['/api/pdd/summary', 'pddSummary', (a) => a[1].period, 60],
+  ['/api/pdd/pipeline', 'pddPipeline', (a) => a[1].period, 60],
 ];
 
 const ERRORS = [
@@ -171,4 +190,21 @@ test('consolidation : période facultative (null = cumul seul), ?month ≡ from=
   }
   assert.equal((await get('/api/tpm/consolidation?from=2022-01&to=2026-12')).status, 200, '60 mois acceptés');
   assert.equal((await get('/api/tpm/consolidation?from=2021-12&to=2026-12')).body.details.code, 'period_span');
+});
+
+test('listes : filtres gardés (prestataire, contrat, aléa, zone, pagination), valeurs invalides refusées', async () => {
+  const P = '33333333-3333-3333-3333-333333333333';
+  await get(`/api/tpm/reports?from=2026-01&to=2026-03&partnerId=${P}&contractId=${FORM}`);
+  assert.deepEqual(last().args[1], { period: { from: '2026-01', to: '2026-03' }, partnerId: P, contractId: FORM });
+  const badId = await get('/api/tpm/reports?partnerId=abc');
+  assert.equal(badId.status, 400);
+  await get(`/api/tpm/planning?month=2026-02&contractId=${FORM}`);
+  assert.deepEqual(last().args[1], { period: { from: '2026-02', to: '2026-02' }, contractId: FORM });
+  assert.equal((await get('/api/tpm/planning?contractId=abc')).status, 400);
+  await get('/api/pdd/distributions?from=2026-01&to=2026-02&hazard=cyclone&region=Anosy&limit=50&offset=100');
+  assert.deepEqual(last().args[1], { period: { from: '2026-01', to: '2026-02' }, hazard: 'cyclone', region: 'Anosy', district: undefined });
+  assert.deepEqual(last().args[2], { limit: 50, offset: 100 });
+  assert.equal((await get('/api/pdd/distributions?limit=999999')).status, 400, 'au plus 5 000 lignes par page');
+  await get('/api/pdd/summary?month=2026-03&district=Amboasary');
+  assert.deepEqual(last().args[1], { period: { from: '2026-03', to: '2026-03' }, hazard: undefined, region: undefined, district: 'Amboasary' });
 });
