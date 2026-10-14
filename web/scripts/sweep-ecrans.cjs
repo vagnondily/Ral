@@ -9,7 +9,7 @@ const ROUTES = ['contrats/liste', 'tpm/prestataires', 'tpm/formations', 'tpm/eva
   'processus/synthese', 'processus/donnees', 'processus/sites', 'processus/rbm', 'processus/couverture', 'processus/carte', 'processus/calculs',
   'pdd/distributions', 'pdd/synthese', 'pdd/pipeline', 'dashboard/apercu', 'dashboard/consolidation', 'dashboard/couverture',
   'reporting/synthese', 'reporting/concepteur', 'alertes/centre', 'parametrage/apercu', 'parametrage/partenaires', 'parametrage/types',
-  'parametrage/activites', 'parametrage/taux', 'parametrage/localites', 'parametrage/bureaux', 'parametrage/sites', 'parametrage/mmr', 'parametrage/utilisateurs', 'parametrage/suppressions'];
+  'parametrage/activites', 'parametrage/taux', 'parametrage/localites', 'parametrage/bureaux', 'parametrage/localites/sites', 'parametrage/mmr', 'parametrage/utilisateurs', 'parametrage/suppressions'];
 const WEB = process.env.WEB_URL || 'http://localhost:5173';
 const API = `:${process.env.API_PORT || 9000}`;
 const TILE = /ERR_TUNNEL_CONNECTION_FAILED|tile\.openstreetmap/;

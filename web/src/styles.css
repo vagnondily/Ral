@@ -2934,3 +2934,10 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .choices-table td { padding: 4px 16px 4px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .choices-table tr:last-child td { border-bottom: 0; }
 .choices-table tr.is-hit td { background: var(--blue-50, #eff6fc); }
+
+/* Registre des sites : sélection multiple et actions groupées (retour 62) */
+.bulk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 20px 12px; padding: 8px 12px; border: 1px solid var(--blue-200, #b9d6f2); border-radius: var(--radius, 9px); background: var(--blue-50, #eff6fc); }
+.bulk-bar > strong { margin-right: 4px; color: var(--text-strong); }
+.table th.col-check, .table td.col-check { width: 36px; padding-left: 12px; padding-right: 4px; text-align: center; }
+.compact-list { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+.compact-list li { margin: 2px 0; }

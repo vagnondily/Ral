@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Download, Plus, Pencil, Trash2, Search, MapPinned, Globe2, Save, ChevronLeft, ChevronRight, Info, AlertTriangle, FileDown, Link2, Map as MapIcon } from 'lucide-react';
+import { Upload, Download, Plus, Pencil, Trash2, Search, MapPin, MapPinned, Globe2, Save, ChevronLeft, ChevronRight, Info, AlertTriangle, FileDown, Link2, Map as MapIcon } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
@@ -9,6 +9,7 @@ import { formatInt, formatDateTime } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
 import PlaceMatchQueue from './PlaceMatchQueue.jsx';
 import MapShapesTab from './MapShapesTab.jsx';
+import SitesSection from './SitesSection.jsx';
 
 /**
  * Paramétrage › Localités : (1) pays & découpage — identité, vocabulaire des
@@ -16,7 +17,7 @@ import MapShapesTab from './MapShapesTab.jsx';
  * liste paginée côté serveur (≈ 19 000 unités), filtres en cascade, recherche,
  * export, création / modification / suppression.
  */
-const TABS = ['pays', 'repertoire', 'rapprocher', 'contours'];
+const TABS = ['pays', 'repertoire', 'sites', 'rapprocher', 'contours'];
 
 export default function LocalitiesSection({ isAdmin, canEdit = isAdmin, initialTab }) {
   const { tr } = useI18n();
@@ -38,6 +39,9 @@ export default function LocalitiesSection({ isAdmin, canEdit = isAdmin, initialT
         <button type="button" role="tab" aria-selected={tab === 'repertoire'} aria-pressed={tab === 'repertoire'} onClick={() => setTab('repertoire')} disabled={!country?.levels?.length}>
           <MapPinned size={15} aria-hidden="true" /> {tr('Répertoire des localités')}
         </button>
+        <button type="button" role="tab" aria-selected={tab === 'sites'} aria-pressed={tab === 'sites'} onClick={() => setTab('sites')}>
+          <MapPin size={15} aria-hidden="true" /> {tr('Sites')}
+        </button>
         <button type="button" role="tab" aria-selected={tab === 'rapprocher'} aria-pressed={tab === 'rapprocher'} onClick={() => setTab('rapprocher')} disabled={!country?.levels?.length}>
           <Link2 size={15} aria-hidden="true" /> {tr('À rapprocher')}
         </button>
@@ -49,6 +53,7 @@ export default function LocalitiesSection({ isAdmin, canEdit = isAdmin, initialT
       </div>
       {country === null ? <Card><div className="card-body"><Skeleton height={220} /></div></Card>
         : tab === 'pays' ? <CountryTab country={country} isAdmin={isAdmin} onChanged={reload} />
+          : tab === 'sites' ? <SitesSection isAdmin={isAdmin} onOpenTab={setTab} />
           : tab === 'rapprocher' ? <PlaceMatchQueue canEdit={canEdit} />
             : tab === 'contours' ? <MapShapesTab isAdmin={isAdmin} />
             : <DirectoryTab levels={country.levels} isAdmin={isAdmin} onChanged={reload} />}

@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, Search, Trash2, Pencil, MapPin, LocateFixed, Download, Upload, FileSpreadsheet } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, Search, Trash2, Pencil, MapPin, LocateFixed, Download, Upload, FileSpreadsheet, X, Tag, Building2, Link2 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, Card, CardHeader, EmptyState, Field, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
+import { monthLabel } from '../../lib/format.js';
 
 /**
  * Registre des sites — page de gestion dédiée (Paramétrage › Sites).
@@ -12,9 +13,10 @@ import { useI18n } from '../../lib/i18n.jsx';
  * depuis le GPS (centroïde le plus proche). La liaison se fait par l'identité
  * stable du site (UUID / Code POI), jamais par pcode.
  */
+const LIST_CAP = 5000;
 const num = (v) => (v === '' || v === null || v === undefined ? undefined : Number(v));
 
-export default function SitesSection({ isAdmin }) {
+export default function SitesSection({ isAdmin, onOpenTab }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [rows, setRows] = useState(null);
@@ -24,17 +26,41 @@ export default function SitesSection({ isAdmin }) {
   const [edit, setEdit] = useState(null); // null | {} (nouveau) | ligne
   const [busyGps, setBusyGps] = useState(false);
   const [busyIo, setBusyIo] = useState(false);
+  const [sel, setSel] = useState(() => new Set()); // sites cochés (retour 62)
+  const [bulk, setBulk] = useState(null);         // 'activity' | 'office' | 'delete'
+  const [refused, setRefused] = useState(null);   // sites gardés après une suppression groupée
   const fileRef = useRef(null);
 
   const load = useCallback(() => {
     setRows(null); setError(null);
     Promise.all([
-      api.listSiteRegistry(q ? { q } : undefined),
+      // Tout le registre (plafond serveur 5 000), jamais tronqué en silence.
+      api.listSiteRegistry(q ? { q, limit: LIST_CAP } : { limit: LIST_CAP }),
       api.listOffices().catch(() => []),
     ]).then(([list, offs]) => { setRows(list); setOffices(offs || []); })
       .catch((e) => setError(e.message));
   }, [q]);
   useEffect(() => { const id = setTimeout(load, q ? 250 : 0); return () => clearTimeout(id); }, [load, q]);
+  // La sélection ne garde que des sites encore listés (après un rechargement ou une recherche).
+  useEffect(() => { if (rows) setSel((prev) => new Set(rows.filter((r) => prev.has(r.id)).map((r) => r.id))); }, [rows]);
+  const ids = useMemo(() => [...sel], [sel]);
+  const allChecked = !!rows && rows.length > 0 && rows.every((r) => sel.has(r.id));
+  const someChecked = sel.size > 0 && !allChecked;
+  const toggle = (id) => setSel((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleAll = () => setSel(allChecked ? new Set() : new Set((rows || []).map((r) => r.id)));
+
+  async function gpsSelection() {
+    setBusyGps(true);
+    try {
+      const r = await api.autoAttributeSites({ ids, onlyEmpty: false });
+      toast.success(tr('{n} site(s) rattaché(s) ; {s} sans correspondance.', { n: r.attributed, s: r.skipped }));
+      load();
+    } catch (e) { toast.error(e.message); } finally { setBusyGps(false); }
+  }
+  async function exportSelection() {
+    setBusyIo(true);
+    try { await api.siteRegistryExportSelection(ids); } catch (e) { toast.error(e.message); } finally { setBusyIo(false); }
+  }
 
   async function removeSite(s) {
     if (!window.confirm(tr('Supprimer le site « {name} » ?', { name: s.localite }))) return;
@@ -80,7 +106,8 @@ export default function SitesSection({ isAdmin }) {
 
   return (
     <Card>
-      <CardHeader title={tr('Registre des sites')} subtitle={rows ? tr('{n} site(s)', { n: rows.length }) : ''}>
+      <CardHeader title={tr('Registre des sites')}
+        subtitle={rows ? tr('{n} site(s) — le même registre que le RBM, le plan de suivi et les données reçues.', { n: rows.length }) : ''}>
         <div className="toolbar">
           <span className="input-wrap ind-search">
             <Search size={16} aria-hidden="true" />
@@ -95,6 +122,37 @@ export default function SitesSection({ isAdmin }) {
         </div>
       </CardHeader>
 
+      {rows && rows.length >= LIST_CAP && (
+        <Alert tone="warning">{tr('Affichage limité aux {n} premiers sites : affinez avec la recherche.', { n: LIST_CAP })}</Alert>
+      )}
+      {onOpenTab && (
+        <div className="note" style={{ margin: '0 20px 12px' }}>
+          <Link2 size={16} aria-hidden="true" />
+          <span>{tr('Les sites déclarés dans les formulaires reçus se relient à ce registre dans')}{' '}
+            <button type="button" className="link-btn" style={{ marginLeft: 0 }} onClick={() => onOpenTab('rapprocher')}>{tr('À rapprocher')}</button>.
+          </span>
+        </div>
+      )}
+
+      {sel.size > 0 && (
+        <div className="bulk-bar" role="region" aria-label={tr('Actions sur la sélection')}>
+          <strong>{tr('{n} site(s) sélectionné(s)', { n: sel.size })}</strong>
+          <Button size="sm" variant="secondary" icon={Tag} onClick={() => setBulk('activity')}>{tr('Changer l\'activité')}</Button>
+          <Button size="sm" variant="secondary" icon={Building2} onClick={() => setBulk('office')}>{tr('Changer le bureau')}</Button>
+          <Button size="sm" variant="secondary" icon={LocateFixed} loading={busyGps} onClick={gpsSelection}>{tr('Attribuer depuis le GPS')}</Button>
+          <Button size="sm" variant="secondary" icon={Download} loading={busyIo} onClick={exportSelection}>{tr('Exporter la sélection')}</Button>
+          <Button size="sm" variant="danger" icon={Trash2} onClick={() => setBulk('delete')}>{tr('Supprimer')}</Button>
+          <Button size="sm" variant="ghost" icon={X} onClick={() => setSel(new Set())}>{tr('Désélectionner')}</Button>
+        </div>
+      )}
+      {refused && refused.length > 0 && (
+        <Alert tone="warning">
+          {tr('{n} site(s) gardé(s) : ils portent des données (marquez-les inactifs dans la grille des sites actifs).', { n: refused.length })}
+          <ul className="compact-list">{refused.slice(0, 8).map((r) => <li key={r.id}><strong>{r.name}</strong> — {r.reason}</li>)}</ul>
+          {refused.length > 8 && <span className="muted">{tr('… et {n} autre(s).', { n: refused.length - 8 })}</span>}
+        </Alert>
+      )}
+
       {!rows ? <Skeleton height={220} /> : rows.length === 0 ? (
         <EmptyState icon={MapPin} title={tr('Aucun site')} action={<Button icon={Plus} onClick={() => setEdit({})}>{tr('Ajouter un site')}</Button>}>
           {tr('Ajoutez un site, ou importez-les. Avec des coordonnées GPS, « Attribuer depuis le GPS » rattache automatiquement la zone.')}
@@ -103,15 +161,25 @@ export default function SitesSection({ isAdmin }) {
         <div className="table-wrap" style={{ overflowX: 'auto' }}>
           <table className="table">
             <thead><tr>
+              <th className="col-check">
+                <input type="checkbox" checked={allChecked} ref={(el) => { if (el) el.indeterminate = someChecked; }}
+                  onChange={toggleAll} aria-label={tr('Tout sélectionner')} />
+              </th>
               <th>{tr('Identifiant')}</th><th>{tr('Localité')}</th><th>{tr('Code POI')}</th>
               <th>{tr('Field office')}</th><th>{tr('Code bureau')}</th>
               <th>{tr('Région')}</th><th>Adm1</th><th>{tr('District')}</th><th>Adm2</th>
               <th>{tr('Commune')}</th><th>Adm3</th><th>{tr('Fokontany')}</th><th>Adm4</th>
-              <th>{tr('Activité')}</th><th>{tr('Code tag')}</th><th>Lat</th><th>Long</th><th />
+              <th>{tr('Activité')}</th><th>{tr('Code tag')}</th>
+              <th title={tr('Mois de la dernière soumission rattachée à ce site')}>{tr('Dernière collecte (données)')}</th>
+              <th className="num">{tr('Soumissions')}</th><th className="num">{tr('Visites')}</th>
+              <th>Lat</th><th>Long</th><th />
             </tr></thead>
             <tbody>
               {rows.map((s) => (
-                <tr key={s.id}>
+                <tr key={s.id} className={sel.has(s.id) ? 'is-selected' : ''}>
+                  <td className="col-check">
+                    <input type="checkbox" checked={sel.has(s.id)} onChange={() => toggle(s.id)} aria-label={tr('Sélectionner « {name} »', { name: s.localite })} />
+                  </td>
                   <td className="mono">{s.identifiant}</td>
                   <td>{s.localite}</td>
                   <td className="mono">{s.codePoi || '—'}</td>
@@ -122,6 +190,8 @@ export default function SitesSection({ isAdmin }) {
                   <td>{s.commune || '—'}</td><td className="mono muted">{s.adm3Code || '—'}</td>
                   <td>{s.fokontany || '—'}</td><td className="mono muted">{s.adm4Code || '—'}</td>
                   <td>{s.activityTag || '—'}</td><td className="mono">{s.tagCode || '—'}</td>
+                  <td>{s.lastDataMonth ? monthLabel(s.lastDataMonth) : <span className="cell-empty">{tr('aucune')}</span>}</td>
+                  <td className="num tabular">{s.submissionCount || 0}</td><td className="num tabular">{s.visitCount || 0}</td>
                   <td className="tabular">{s.lat ?? '—'}</td><td className="tabular">{s.lng ?? '—'}</td>
                   <td className="nowrap">
                     <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setEdit(s)} aria-label={tr('Modifier')} />
@@ -135,7 +205,77 @@ export default function SitesSection({ isAdmin }) {
       )}
 
       {edit && <SiteFormModal site={edit} offices={offices} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}
+      {bulk && (
+        <BulkModal kind={bulk} ids={ids} offices={offices} onClose={() => setBulk(null)}
+          onDone={(r) => {
+            setBulk(null);
+            if (bulk === 'delete') {
+              setRefused(r.refused || []);
+              toast.success(tr('{n} site(s) supprimé(s).', { n: r.deleted }));
+            } else {
+              setRefused(null);
+              toast.success(tr('{n} site(s) modifié(s).', { n: r.updated }));
+            }
+            setSel(new Set());
+            load();
+          }} />
+      )}
     </Card>
+  );
+}
+
+/** Action groupée : changer l'activité, changer le bureau, ou supprimer (sites sans donnée reliée). */
+function BulkModal({ kind, ids, offices, onClose, onDone }) {
+  const { tr } = useI18n();
+  const [value, setValue] = useState('');
+  const [activities, setActivities] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    if (kind !== 'activity') return;
+    api.listMmr().then((rows) => setActivities([...new Set(rows.map((r) => String(r.activityCategory || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b))))
+      .catch(() => setActivities([]));
+  }, [kind]);
+  async function run() {
+    setBusy(true); setErr(null);
+    try {
+      const r = kind === 'delete'
+        ? await api.bulkSiteRegistry(ids, 'delete')
+        : await api.bulkSiteRegistry(ids, 'set', kind === 'activity' ? { activityTag: value || null } : { fieldOfficeId: value || null });
+      onDone(r);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+  const title = kind === 'delete' ? tr('Supprimer {n} site(s) ?', { n: ids.length })
+    : kind === 'activity' ? tr('Changer l\'activité de {n} site(s)', { n: ids.length }) : tr('Changer le bureau de {n} site(s)', { n: ids.length });
+  return (
+    <Modal open onClose={() => !busy && onClose()} title={title}
+      footer={(
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button>
+          <Button variant={kind === 'delete' ? 'danger' : 'primary'} loading={busy} onClick={run}>{kind === 'delete' ? tr('Supprimer') : tr('Appliquer')}</Button>
+        </>
+      )}>
+      {kind === 'delete' && <p>{tr('Seuls les sites sans donnée reliée (visites, soumissions, grille des sites actifs) sont supprimés ; les autres restent et sont listés. L\'action est définitive.')}</p>}
+      {kind === 'activity' && (
+        <Field label={tr('Activité')} hint={tr('Les activités viennent du MMR (Paramétrage › Paramètres MMR).')}>
+          {activities === null ? <Skeleton height={38} /> : (
+            <select className="select" value={value} onChange={(e) => setValue(e.target.value)}>
+              <option value="">{tr('— aucune (retirer l\'activité) —')}</option>
+              {activities.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+          )}
+        </Field>
+      )}
+      {kind === 'office' && (
+        <Field label={tr('Bureau')}>
+          <select className="select" value={value} onChange={(e) => setValue(e.target.value)}>
+            <option value="">{tr('— aucun (retirer le bureau) —')}</option>
+            {offices.map((o) => <option key={o.id} value={o.id}>{o.name}{o.code ? ` (${o.code})` : ''}</option>)}
+          </select>
+        </Field>
+      )}
+      {err && <Alert tone="danger">{err}</Alert>}
+    </Modal>
   );
 }
 

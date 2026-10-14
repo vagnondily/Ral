@@ -534,6 +534,8 @@ export const api = {
   siteRegistryTemplate: () => downloadFile('/api/site-registry/template.xlsx', 'Modele_sites_MEMS2.xlsx'),
   siteRegistryExport: (q) => downloadFile(`/api/site-registry/export.xlsx${q ? `?q=${encodeURIComponent(q)}` : ''}`, 'Sites_MEMS2.xlsx'),
   importSiteRegistry: (file) => uploadFile('/api/site-registry/import', file),
+  bulkSiteRegistry: (ids, action, patch) => request('/api/site-registry/bulk', { method: 'POST', body: { ids, action, patch } }),
+  siteRegistryExportSelection: (ids) => downloadPost('/api/site-registry/export.xlsx', { ids }, 'Sites_selection_MEMS2.xlsx'),
   // Liaison : postes du plan pour pré-remplir une facture (même contrat + mois)
   planningPrefill: (partnerId, contractId, month) => request('/api/tpm/planning/prefill', { query: { partnerId, contractId, month } }),
 

@@ -41,13 +41,19 @@ const LIST_COLS = `
   s.geo_status      AS "geoStatus",
   s.admin_area_id   AS "adminAreaId"`;
 
-/** Liste complète (recherche libre sur identifiant / localité / commune / district / code POI). */
-async function listSites(tenantId, { q, limit = 1000, offset = 0 } = {}) {
+/**
+ * Liste complète (recherche libre sur identifiant / localité / commune / district / code POI),
+ * avec le lien aux DONNÉES RÉELLES (retour 63) : dernière collecte rattachée au site, nombre de
+ * soumissions et de visites — agrégés en SQL une fois par requête (index idx_mon_sub_site).
+ * `ids` : seulement ces sites (export d'une sélection).
+ */
+async function listSites(tenantId, { q, limit = 1000, offset = 0, ids = null } = {}) {
   const cap = Math.min(Math.max(1, Number(limit) || 1000), 5000);
   const skip = Math.max(0, Number(offset) || 0);
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId];
     let where = 's.tenant_id = $1';
+    if (Array.isArray(ids)) { params.push(ids); where += ` AND s.id = ANY($${params.length}::uuid[])`; }
     if (q) {
       params.push(`%${q}%`);
       const p = `$${params.length}`;
@@ -56,9 +62,21 @@ async function listSites(tenantId, { q, limit = 1000, offset = 0 } = {}) {
     }
     params.push(cap, skip);
     const { rows } = await client.query(
-      `SELECT ${LIST_COLS}
+      `WITH sub AS (
+         SELECT site_id, max(period_month) AS last_m, count(*)::int AS n
+           FROM monitoring_submissions
+          WHERE tenant_id = $1 AND site_id IS NOT NULL AND NOT excluded
+          GROUP BY site_id),
+       vis AS (
+         SELECT site_id, count(*)::int AS n FROM site_visits WHERE tenant_id = $1 GROUP BY site_id)
+       SELECT ${LIST_COLS},
+              to_char(sub.last_m, 'YYYY-MM') AS "lastDataMonth",
+              COALESCE(sub.n, 0) AS "submissionCount",
+              COALESCE(vis.n, 0) AS "visitCount"
          FROM sites s
-         LEFT JOIN field_offices fo ON fo.id = s.field_office_id
+         LEFT JOIN field_offices fo ON fo.id = s.field_office_id AND fo.tenant_id = s.tenant_id
+         LEFT JOIN sub ON sub.site_id = s.id
+         LEFT JOIN vis ON vis.site_id = s.id
         WHERE ${where}
         ORDER BY COALESCE(s.adm2, s.district), COALESCE(s.adm3, s.commune), s.name
         LIMIT $${params.length - 1} OFFSET $${params.length}`,
@@ -242,17 +260,82 @@ async function importSites(tenantId, rows) {
   });
 }
 
-/** Supprime un site si aucune visite ne le référence (sinon 409 — référentiel). */
+/**
+ * Données reliées à des sites (règle « un site qui porte des données ne se supprime pas »,
+ * retour 33) : visites, soumissions rattachées, grille des sites actifs, ancienne affectation.
+ * Une requête, comptes par site ; seuls les sites qui ont au moins une donnée sont rendus.
+ * @returns {Promise<Map<string, {visits:number, submissions:number, activation:number, assignments:number}>>}
+ */
+async function linkedDataTx(client, tenantId, ids) {
+  const { rows } = await client.query(
+    `SELECT x.site_id,
+            count(*) FILTER (WHERE x.k = 'v')::int AS visits,
+            count(*) FILTER (WHERE x.k = 's')::int AS submissions,
+            count(*) FILTER (WHERE x.k = 'a')::int AS activation,
+            count(*) FILTER (WHERE x.k = 't')::int AS assignments
+       FROM (SELECT site_id, 'v' AS k FROM site_visits WHERE tenant_id = $1 AND site_id = ANY($2::uuid[])
+             UNION ALL
+             SELECT site_id, 's' FROM monitoring_submissions WHERE tenant_id = $1 AND site_id = ANY($2::uuid[])
+             UNION ALL
+             SELECT site_id, 'a' FROM site_month_status WHERE tenant_id = $1 AND site_id = ANY($2::uuid[])
+             UNION ALL
+             SELECT site_id, 't' FROM tpm_assignments WHERE tenant_id = $1 AND site_id = ANY($2::uuid[])) x
+      GROUP BY x.site_id`,
+    [tenantId, ids]
+  );
+  return new Map(rows.map((r) => [r.site_id, { visits: r.visits, submissions: r.submissions, activation: r.activation, assignments: r.assignments }]));
+}
+
+/** Supprime un site sans donnée reliée (sinon 'linked' + les comptes — référentiel). */
 async function deleteSite(tenantId, id) {
   return withSubmissionLinks(tenantId, async (client) => {
-    const { rows } = await client.query('SELECT 1 FROM sites WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
-    if (!rows.length) return 'not_found';
-    const { rows: v } = await client.query('SELECT 1 FROM site_visits WHERE tenant_id = $1 AND site_id = $2 LIMIT 1', [tenantId, id]);
-    if (v.length) return 'linked';
+    const { rows } = await client.query('SELECT 1 FROM sites WHERE tenant_id = $1 AND id = $2 FOR UPDATE', [tenantId, id]);
+    if (!rows.length) return { outcome: 'not_found' };
+    const linked = (await linkedDataTx(client, tenantId, [id])).get(id);
+    if (linked) return { outcome: 'linked', linked };
     await client.query('DELETE FROM sites WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
     await afterSitesChangedTx(client, tenantId);
-    return 'ok';
+    return { outcome: 'ok' };
   });
 }
 
-module.exports = { listSites, createSite, updateSite, autoAttribute, deleteSite, importSites };
+/**
+ * Actions groupées sur une sélection de sites (retour 62), tout-ou-rien dans UNE transaction
+ * (verrou des rattachements, lignes verrouillées) :
+ *  - 'delete' : supprime les sites SANS donnée reliée ; les autres sont rendus dans `refused`
+ *    avec leurs comptes (ils restent, comme pour la suppression d'un site seul) ;
+ *  - 'set'    : change l'activité et / ou le bureau de tous les sites sélectionnés.
+ * Le rattachement des lieux et des soumissions est ré-appliqué une fois.
+ */
+async function bulkSites(tenantId, { ids, action, patch = {} }) {
+  return withSubmissionLinks(tenantId, async (client) => {
+    const { rows: found } = await client.query(
+      'SELECT id, name FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[]) ORDER BY id FOR UPDATE', [tenantId, ids]);
+    const missing = ids.length - found.length;
+    if (action === 'delete') {
+      const linked = await linkedDataTx(client, tenantId, found.map((r) => r.id));
+      const free = found.filter((r) => !linked.has(r.id)).map((r) => r.id);
+      if (free.length) await client.query('DELETE FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, free]);
+      if (free.length) await afterSitesChangedTx(client, tenantId);
+      const refused = found.filter((r) => linked.has(r.id)).map((r) => ({ id: r.id, name: r.name, ...linked.get(r.id) }));
+      return { deleted: free.length, refused, missing };
+    }
+    // 'set' : un seul UPDATE (colonnes absentes du patch inchangées).
+    const sets = []; const params = [tenantId, found.map((r) => r.id)];
+    if (patch.activityTag !== undefined) { params.push(patch.activityTag || null); sets.push(`activity = $${params.length}`); }
+    if (patch.fieldOfficeId !== undefined) {
+      if (patch.fieldOfficeId) {
+        const { rows: fo } = await client.query('SELECT 1 FROM field_offices WHERE tenant_id = $1 AND id = $2', [tenantId, patch.fieldOfficeId]);
+        if (!fo.length) { const e = new Error('Bureau inconnu.'); e.code = 'BAD_OFFICE'; throw e; }
+      }
+      params.push(patch.fieldOfficeId || null); sets.push(`field_office_id = $${params.length}`);
+    }
+    if (!sets.length || !found.length) return { updated: 0, missing };
+    const { rowCount } = await client.query(
+      `UPDATE sites SET ${sets.join(', ')} WHERE tenant_id = $1 AND id = ANY($2::uuid[])`, params);
+    await afterSitesChangedTx(client, tenantId);
+    return { updated: rowCount, missing };
+  });
+}
+
+module.exports = { listSites, createSite, updateSite, autoAttribute, deleteSite, bulkSites, linkedDataTx, importSites };

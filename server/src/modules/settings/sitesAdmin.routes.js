@@ -23,6 +23,7 @@ function body(schema) {
 }
 
 const str = (max) => z.string().trim().max(max).optional().or(z.literal('').transform(() => undefined));
+const uuid = z.string().uuid();
 const lat = z.number().min(-90).max(90).nullable().optional();
 const lng = z.number().min(-180).max(180).nullable().optional();
 
@@ -100,11 +101,58 @@ router.patch('/:id', WRITE, body(updateSchema), asyncHandler(async (req, res) =>
   res.status(204).end();
 }));
 
+/** « 3 visite(s), 12 soumission(s)… » : ce qui empêche la suppression d'un site. */
+function linkedText(l) {
+  const parts = [];
+  if (l.visits) parts.push(`${l.visits} visite(s)`);
+  if (l.submissions) parts.push(`${l.submissions} soumission(s) rattachée(s)`);
+  if (l.activation) parts.push(`${l.activation} mois dans la grille des sites actifs`);
+  if (l.assignments) parts.push(`${l.assignments} affectation(s)`);
+  return parts.join(', ');
+}
+
 router.delete('/:id', WRITE, asyncHandler(async (req, res) => {
-  const outcome = await repo.deleteSite(t(req), req.params.id);
-  if (outcome === 'not_found') throw notFound('Site introuvable');
-  if (outcome === 'linked') throw conflict('Ce site porte des visites : il ne peut pas être supprimé (désactivez-le ou retirez ses visites).');
+  const id = uuid.safeParse(req.params.id);
+  if (!id.success) throw notFound('Site introuvable');
+  const r = await repo.deleteSite(t(req), id.data);
+  if (r.outcome === 'not_found') throw notFound('Site introuvable');
+  if (r.outcome === 'linked') {
+    throw conflict(`Ce site porte des données (${linkedText(r.linked)}) : il ne peut pas être supprimé. Marquez-le inactif dans la grille des sites actifs.`, { linked: r.linked });
+  }
   res.status(204).end();
+}));
+
+// Actions groupées sur une sélection (retour 62) : supprimer (sites sans donnée reliée) ou
+// changer l'activité / le bureau. Tout-ou-rien, une transaction.
+const bulkSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(5000),
+  action: z.enum(['delete', 'set']),
+  patch: z.object({
+    activityTag: z.string().trim().max(160).nullable().optional(),
+    fieldOfficeId: z.string().uuid().nullable().optional(),
+  }).optional(),
+}).refine((b) => b.action !== 'set' || (b.patch && (b.patch.activityTag !== undefined || b.patch.fieldOfficeId !== undefined)),
+  { message: 'Indiquez l\'activité ou le bureau à appliquer.' });
+router.post('/bulk', WRITE, body(bulkSchema), asyncHandler(async (req, res) => {
+  const ids = [...new Set(req.valid.ids)];
+  try {
+    const r = await repo.bulkSites(t(req), { ids, action: req.valid.action, patch: req.valid.patch || {} });
+    if (r.refused) r.refused = r.refused.map((x) => ({ ...x, reason: linkedText(x) }));
+    res.json(r);
+  } catch (e) {
+    if (e && e.code === 'BAD_OFFICE') throw badRequest('Bureau inconnu.');
+    throw e;
+  }
+}));
+
+// Export d'une sélection (mêmes colonnes que l'export complet).
+router.post('/export.xlsx', body(z.object({ ids: z.array(z.string().uuid()).min(1).max(5000) })), asyncHandler(async (req, res) => {
+  const sites = await repo.listSites(t(req), { ids: [...new Set(req.valid.ids)], limit: 5000 });
+  const wb = buildWorkbook({ title: 'Registre des sites — sélection (MEMS 2.0)', sites });
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="Sites_selection_MEMS2.xlsx"');
+  await wb.xlsx.write(res);
+  res.end();
 }));
 
 // Attribution automatique de la zone depuis le GPS (centroïde le plus proche).

@@ -43,6 +43,8 @@ const REDIRECTS = {
   'tpm/affectation': { module: 'processus', sub: 'sites' },
   // Le plan de suivi est un onglet de l'espace RBM (retour n° 7).
   'processus/plan': { module: 'processus', sub: 'rbm', extra: 'plan' },
+  // Le registre des sites est un onglet de Localités (retour 63).
+  'parametrage/sites': { module: 'parametrage', sub: 'localites', extra: 'sites' },
 };
 
 // La requête du hash (#/dashboard/couverture?from=2026-01&to=2026-06 : période, lot 1b)

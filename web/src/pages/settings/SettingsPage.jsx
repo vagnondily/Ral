@@ -7,7 +7,6 @@ import MoneyInput from '../../components/MoneyInput.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import MmrSection from './MmrSection.jsx';
 import LocalitiesSection from './LocalitiesSection.jsx';
-import SitesSection from './SitesSection.jsx';
 import { formatAr, formatInt, formatDateTime } from '../../lib/format.js';
 import { useI18n } from '../../lib/i18n.jsx';
 
@@ -18,9 +17,8 @@ const SECTIONS = {
   types: { label: 'Types de partenaire', icon: Tags, group: 'Référentiels', desc: 'Catégories de partenaire (TPM, prestataire, cabinet…).' },
   activites: { label: 'Activités', icon: ListChecks, group: 'Référentiels', desc: 'Activités de suivi disponibles en multi-sélection sur les contrats.' },
   taux: { label: 'Taux de change', icon: Coins, group: 'Finances', desc: 'Taux de référence (ariary pour 1 USD), horodatés, pour afficher les valeurs en dollars selon la période.' },
-  localites: { label: 'Localités', icon: MapPinned, group: 'Géographie', desc: 'Découpage administratif du pays (régions → districts → communes) pour les zones d\'intervention.' },
+  localites: { label: 'Localités', icon: MapPinned, group: 'Géographie', desc: 'Découpage administratif du pays (régions → districts → communes), registre des sites (identifiant, Code POI, bureau, activité, GPS, dernière collecte) et rapprochement des lieux des formulaires reçus.' },
   bureaux: { label: 'Bureaux & antennes', icon: Building2, group: 'Géographie', desc: 'Bureaux terrain et antennes, et leur périmètre (communes) pour le rattachement automatique des sites.' },
-  sites: { label: 'Sites', icon: MapPinned, group: 'Géographie', admin: true, desc: 'Registre des sites (insertion, modification, suppression) : identifiant, localité, Code POI, bureau, zone, activité et coordonnées GPS, avec attribution automatique de la zone depuis le GPS. Base de la planification du suivi.' },
   mmr: { label: 'Paramètres MMR', icon: Gauge, group: 'Suivi', admin: true, desc: 'Exigences minimales de suivi (MMR) par bureau × activité : durée, nombre de sites, niveau de risque → intervalle, fréquence et nombre de sites ciblés par mois (base du RBM).' },
   utilisateurs: { label: 'Utilisateurs & accès', icon: ShieldCheck, group: 'Sécurité', admin: true, desc: 'Comptes, rôles (administrateur / validateur / lecteur) et activation. Qui peut faire quoi dans l\'application.' },
   suppressions: { label: 'Journal des suppressions', icon: Trash2, group: 'Sécurité', admin: true, desc: 'Traçabilité des documents supprimés (rapports, factures, plans, contrats) : qui, quand, pourquoi, et un résumé du document.' },
@@ -56,7 +54,6 @@ export default function SettingsPage({ tab = 'apercu', sub = null, isAdmin, onNa
           {current === 'taux' && <ExchangeRatesSection isAdmin={isAdmin} />}
           {current === 'localites' && <LocalitiesSection isAdmin={isAdmin} initialTab={sub} />}
           {current === 'bureaux' && <BureauxSection isAdmin={isAdmin} />}
-          {current === 'sites' && <SitesSection isAdmin={isAdmin} />}
           {current === 'mmr' && <MmrSection isAdmin={isAdmin} />}
           {current === 'utilisateurs' && <UsersSection isAdmin={isAdmin} />}
           {current === 'suppressions' && <DeletionsSection isAdmin={isAdmin} />}
