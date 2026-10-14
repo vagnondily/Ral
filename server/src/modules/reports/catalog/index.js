@@ -33,7 +33,8 @@ const GROUPS = [
 ];
 const FILTER_KEYS = ['office', 'activity', 'partner', 'form', 'module'];
 const PERIOD_MODES = ['range', 'asOf', 'year', 'now'];
-const COLUMN_TYPES = ['text', 'int', 'dec', 'pct', 'money', 'month', 'band', 'status', 'date', 'rate'];
+// 'message' : phrase française à paramètres ({ text, params }), traduite à l'affichage (comme le Centre d'alertes).
+const COLUMN_TYPES = ['text', 'int', 'dec', 'pct', 'money', 'month', 'band', 'status', 'date', 'rate', 'message'];
 const UNITS = ['int', 'pct', 'money', 'dec', 'mt', 'rate'];
 // Clés de bureau qu'une source sait filtrer : 'id' (bureau MEMS et ses antennes), 'unlinked'
 // (sans bureau), 'lib' / 'code' (libellé ou code d'une fiche — soumissions seulement).
@@ -45,7 +46,11 @@ const DATASET_LIST = [
   ...require('./monitoring'),
   ...require('./coverage'),
   ...require('./rbm'),
-  ...require('./legacy'),
+  ...require('./alerts').filter((d) => d.group === 'map'),
+  ...require('./budget'),
+  ...require('./tpm'),
+  ...require('./pdd'),
+  ...require('./alerts').filter((d) => d.group !== 'map'),
 ];
 const KPI_LIST = [
   ...require('./kpis'),

@@ -352,3 +352,4 @@
 
 /* Valeur absente expliquée (« — aucun plan »), lot 7a. */
 .rb-muted { color: var(--text-muted, #616a7a); }
+.rb-table tr.rb-total td { font-weight: 600; background: var(--surface-2, #f6f8fb); }

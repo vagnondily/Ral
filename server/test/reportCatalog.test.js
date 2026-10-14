@@ -23,16 +23,37 @@ const EMPTY = {
   planBoard: { year: 2026, sites: [] },
   rbmSites: [],
   mmr: [],
-  legacy: { budget: null, pdd: null },
+  consolidation: { rows: [], totals: {}, months: [], monthlyTotals: [], today: '2026-03' },
+  contracts: [],
+  contractDetail: null,
+  contractForecast: null,
+  amendments: [],
+  tpmReports: [],
+  tpmPlans: [],
+  tpmProviders: [],
+  tpmEvaluations: [],
+  formations: [],
+  partnerSheet: null,
+  partnerTimeline: null,
+  invoice: null,
+  pddTotals: { distributions: 0, beneficiaries: 0, households: 0, cash: 0, food: 0 },
+  pddByMonth: [],
+  pddSummary: { total: { lines: 0, byCommodity: {} }, byHazard: {}, byMonth: {}, byZone: [] },
+  pddPipeline: [],
+  alerts: { today: '2026-03-31', counts: { critical: 0, warning: 0, info: 0, total: 0 }, items: [], unavailable: [] },
+  health: { rules: [], summary: {} },
+  linking: {},
 };
 
 test('registre : clés uniques et bien formées, groupes connus, aucune erreur de déclaration', () => {
   assert.deepEqual(checkRegistry(Object.values(DATASETS), Object.values(KPIS)), []);
   const groups = new Set(GROUPS.map((g) => g.key));
   for (const d of Object.values(DATASETS)) assert.ok(groups.has(d.group), d.key);
-  // Le catalogue du suivi, de la couverture et du RBM (C4) : au moins 42 jeux.
+  // Suivi, couverture et RBM (C4) : 42 jeux ; budget, contrats, TPM, PDD, alertes, carte et qualité (C5).
   const keys = Object.keys(DATASETS);
   assert.ok(keys.filter((k) => /^(mon|cov|plan|rbm|sites)\./.test(k)).length >= 42, `${keys.length} jeux`);
+  assert.ok(keys.filter((k) => /^(bud|ctr|tpm|pdd|alerts|map|quality)\./.test(k)).length >= 29, `${keys.length} jeux`);
+  assert.ok(Object.keys(KPIS).length >= 38);
 });
 
 test('chaque jeu et chaque chiffre clé cite une source existante qui déclare ses domaines et ses paramètres', () => {

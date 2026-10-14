@@ -1,5 +1,7 @@
 const { withTenantTransaction } = require('../../config/db');
 const { summarize, pipeline, latestStock } = require('./pddMath');
+const { monthWithin } = require('../common/periodSql');
+const { toPeriod } = require('../common/period');
 
 /** Seul le repository écrit du SQL. Toute requête filtre tenant_id (RLS). */
 
@@ -15,9 +17,12 @@ async function listCommodities(tenantId) {
   });
 }
 
-function distFilter(params, { month, hazard, region, district }) {
+function distFilter(params, { month, period, hazard, region, district }) {
   const where = ['d.tenant_id = $1'];
   if (month) { params.push(monthStart(month)); where.push(`d.period_month = $${params.length}`); }
+  // Plage de mois (concepteur de rapport, lot 7a) : bornes semi-ouvertes (common/periodSql).
+  const p = toPeriod(period);
+  if (p) where.push(monthWithin('d.period_month', p, params));
   if (hazard) { params.push(hazard); where.push(`d.hazard = $${params.length}`); }
   if (region) { params.push(region); where.push(`d.region = $${params.length}`); }
   if (district) { params.push(district); where.push(`d.district = $${params.length}`); }
@@ -145,6 +150,25 @@ async function insertDistributions(tenantId, userId, rows, { source = 'xlsx', re
   });
 }
 
+/**
+ * Totaux PDD d'une période (concepteur de rapport, lot 7a) — sommes SQL exactes (numeric),
+ * jamais une addition de mois en JS : bénéficiaires, ménages, distributions, cash (USD,
+ * centimes arrondis par la base) et vivres (t).
+ */
+async function reportPddTotals(tenantId, period) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const params = [tenantId];
+    const within = monthWithin('d.period_month', toPeriod(period), params);
+    const { rows: [r] } = await client.query(
+      `SELECT count(*)::int AS distributions, COALESCE(sum(d.beneficiaries), 0)::bigint AS beneficiaries,
+              COALESCE(sum(d.households), 0)::bigint AS households, round(COALESCE(sum(d.cash_usd), 0), 2)::text AS cash,
+              round(COALESCE((SELECT sum(i.qty_mt) FROM pdd_distribution_items i JOIN pdd_distributions dd ON dd.id = i.distribution_id
+                               WHERE i.tenant_id = $1 AND dd.tenant_id = $1 AND ${within.replace(/d\.period_month/g, 'dd.period_month')}), 0), 3)::text AS food
+         FROM pdd_distributions d WHERE d.tenant_id = $1 AND ${within}`, params);
+    return { distributions: r.distributions, beneficiaries: Number(r.beneficiaries), households: Number(r.households), cash: Number(r.cash), food: Number(r.food) };
+  });
+}
+
 /** Distributions d'urgence par mois sur une période [from, to] — agrégé en SQL. */
 async function reportPddByMonth(tenantId, { from, to }) {
   return withTenantTransaction(tenantId, async (client) => {
@@ -160,4 +184,4 @@ async function reportPddByMonth(tenantId, { from, to }) {
   });
 }
 
-module.exports = { reportPddByMonth, listCommodities, listDistributions, summaryData, pipelineData, setStock, insertDistributions };
+module.exports = { reportPddByMonth, reportPddTotals, listCommodities, listDistributions, summaryData, pipelineData, setStock, insertDistributions };

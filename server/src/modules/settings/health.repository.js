@@ -88,4 +88,9 @@ async function configHealth(tenantId) {
   });
 }
 
-module.exports = { configHealth, healthCounts };
+/** Comptages bruts de l'état des liaisons (concepteur de rapport, lot 7a) : mêmes requêtes que configHealth. */
+async function linkingCounts(tenantId) {
+  return withTenantTransaction(tenantId, (client) => healthCounts(client, tenantId));
+}
+
+module.exports = { configHealth, healthCounts, linkingCounts };

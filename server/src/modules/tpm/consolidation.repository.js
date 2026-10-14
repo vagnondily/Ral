@@ -18,12 +18,28 @@ const { buildConsolidation } = require('./consolidation');
 
 const num = (v) => (v == null ? 0 : Number(v));
 
-async function consolidation(tenantId, { today } = {}) {
+/**
+ * @param {{ today?: string, until?: string }} opts
+ *   until (« AAAA-MM », concepteur de rapport, lot 7a) : situation À CE MOIS — factures et plans
+ *   jusqu'à ce mois inclus, contrats actifs à cette date (commencés, et non résiliés avant ce
+ *   mois : un contrat résilié depuis reste compté), projection vue depuis ce mois. Sans `until`
+ *   (tableau de bord) : contrats actifs aujourd'hui, toutes les factures — un seul calcul.
+ */
+async function consolidation(tenantId, { today, until } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
-    // Active monitoring contracts with a non-zero « Suivi » budget.
+    const u = until ? String(until).slice(0, 7) : null;
+    const cp = [tenantId, MONITORING_LINE];
+    let status = "c.status = 'actif'";
+    if (u) {
+      cp.push(`${u}-01`);
+      status = `c.status IN ('actif', 'resilie') AND c.date_debut < ($3::date + interval '1 month')
+                AND (c.status = 'actif' OR c.termination_date >= $3::date)`;
+    }
+    // Monitoring contracts (active, or active at `until`) with a non-zero « Suivi » budget.
     const { rows: contracts } = await client.query(
       `SELECT c.id,
               c.numero,
+              c.partner_id         AS "partnerId",
               c.partner_name       AS "partnerName",
               c.date_debut         AS "dateDebut",
               c.date_fin           AS "dateFin",
@@ -36,11 +52,13 @@ async function consolidation(tenantId, { today } = {}) {
                  WHERE contract_id = c.id AND line_code = $2
               ) s ON true
         WHERE c.tenant_id = $1
-          AND c.status = 'actif'
+          AND ${status}
           AND COALESCE(s.total, 0) > 0
         ORDER BY c.partner_name, c.numero`,
-      [tenantId, MONITORING_LINE]
+      cp
     );
+    const untilSql = (alias, n) => (u ? ` AND ${alias}.period_month <= $${n}::date` : '');
+    const up = u ? [`${u}-01`] : [];
 
     // Monthly « Réalisé » per contract = funder share of VALIDATED financial
     // reports (single definition, see realised.js). Submitted ones are tracked
@@ -51,9 +69,9 @@ async function consolidation(tenantId, { today } = {}) {
               COALESCE(SUM(r.reported_amount) FILTER (WHERE r.status = $2), 0) AS actual,
               COALESCE(SUM(r.reported_amount) FILTER (WHERE r.status = $3), 0) AS pending
          FROM tpm_reports r
-        WHERE r.tenant_id = $1 AND r.kind = 'financier'
+        WHERE r.tenant_id = $1 AND r.kind = 'financier'${untilSql('r', 4)}
         GROUP BY r.contract_id, r.period_month`,
-      [tenantId, REALISED_STATUS, PENDING_STATUS]
+      [tenantId, REALISED_STATUS, PENDING_STATUS, ...up]
     );
     // En centimes entiers (jamais une somme de flottants), comme consolidation.js.
     const pendingCents = new Map();
@@ -67,9 +85,9 @@ async function consolidation(tenantId, { today } = {}) {
               COALESCE(SUM(i.unit_count * i.unit_cost * i.bailleur_pct), 0) AS planned
          FROM tpm_collection_plans p
          JOIN tpm_collection_plan_items i ON i.plan_id = p.id
-        WHERE p.tenant_id = $1
+        WHERE p.tenant_id = $1${untilSql('p', 2)}
         GROUP BY p.contract_id, p.period_month`,
-      [tenantId]
+      [tenantId, ...up]
     );
 
     // Merge planned + actual by (contract, month).
@@ -90,7 +108,7 @@ async function consolidation(tenantId, { today } = {}) {
     const shaped = contracts.map((c) => ({
       id: c.id,
       numero: c.numero,
-      partnerId: null,
+      partnerId: c.partnerId || null,
       partnerName: c.partnerName,
       dateDebut: c.dateDebut || null,
       dateFin: c.dateFin || null,
@@ -98,7 +116,7 @@ async function consolidation(tenantId, { today } = {}) {
       monitoringBudget: num(c.monitoringBudget),
     }));
 
-    const out = buildConsolidation(shaped, monthly, { today });
+    const out = buildConsolidation(shaped, monthly, { today: u || today });
     // Factures soumises non encore validées : montrées à côté du Réalisé, jamais dedans.
     out.rows = out.rows.map((r) => ({ ...r, pendingValidation: (pendingCents.get(r.contractId) || 0) / 100 }));
     const totalPendingCents = out.rows.reduce((a, r) => a + (pendingCents.get(r.contractId) || 0), 0);

@@ -1,7 +1,8 @@
 import React from 'react';
 import { AlertTriangle, CheckCircle2, Info, OctagonAlert } from 'lucide-react';
 import { useI18n } from '../../lib/i18n.jsx';
-import { formatInt, monthLabel } from '../../lib/format.js';
+import { dayLabel, formatInt, monthLabel } from '../../lib/format.js';
+import { formatParams } from '../../lib/alerts.js';
 import { RichTextView } from './RichText.jsx';
 import { substitute } from './reportDoc.js';
 
@@ -24,6 +25,10 @@ const STATUS = {
   bon: ['Bon', 'exc'], moyen: ['Moyen', 'sat'], faible: ['Faible', 'imp'], critique: ['Critique', 'urg'],
   elevee: ['Élevé', 'urg'], moyenne: ['Moyen', 'imp'],
   draft: ['Brouillon', 'na'], soumis: ['Soumis', 'sat'], valide: ['Validé', 'exc'], annule: ['Annulé', 'na'], non_applicable: ['Non applicable', 'na'], vide: ['Vide', 'na'],
+  brouillon: ['Brouillon', 'na'], en_validation: ['En validation', 'sat'], actif: ['Actif', 'exc'], rejete: ['Rejeté', 'urg'], resilie: ['Résilié', 'na'],
+  attendu: ['Attendu', 'imp'], rupture: ['Rupture', 'urg'], couvert: ['Couvert', 'exc'],
+  critical: ['Critique', 'urg'], warning: ['À surveiller', 'imp'], info: ['À traiter', 'sat'],
+  bloquant: ['Bloquant', 'urg'], a_completer: ['À compléter', 'imp'], pret: ['Prêt', 'exc'], non_mesurable: ['Pas encore mesurable', 'na'],
 };
 
 const num = (v, d = 0) => Number(v).toLocaleString(document.documentElement.lang === 'en' ? 'en-GB' : 'fr-FR', { maximumFractionDigits: d });
@@ -40,6 +45,9 @@ export function formatCell(type, v, tr) {
     case 'month': return /^\d{4}-\d{2}$/.test(v) ? monthLabel(v) : v;
     case 'band': return tr(BAND[v] ? BAND[v][1] : v);
     case 'status': return STATUS[v] ? tr(STATUS[v][0]) : String(v);
+    case 'date': return /^\d{4}-\d{2}-\d{2}/.test(String(v)) ? dayLabel(String(v).slice(0, 10)) : String(v);
+    // Phrase française à paramètres (alertes, parcours, état de la configuration) : traduite ici.
+    case 'message': return v && typeof v === 'object' ? tr(v.text, formatParams(v.params)) : String(v);
     default: return String(v); // donnée (nom, code) : jamais traduite
   }
 }
@@ -66,7 +74,7 @@ export function DataTable({ data, columns: pick, matrix }) {
         <thead><tr>{cols.map((c) => <th key={c.key} className={c.type === 'text' ? '' : 'num'}>{colLabel(c, tr)}</th>)}</tr></thead>
         <tbody>
           {data.rows.map((r, i) => (
-            <tr key={i}>
+            <tr key={i} className={r._total ? 'rb-total' : undefined}>
               {cols.map((c) => {
                 const v = r[c.key];
                 if (c.type === 'band') return <td key={c.key}><span className={`rb-band rb-band-${v || 'na'}`}>{formatCell('band', v || 'na', tr)}</span></td>;

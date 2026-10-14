@@ -16,7 +16,7 @@ const { memo, stableKey } = require('./memo');
 const SOURCES = Object.fromEntries([
   ...require('./monitoring'),
   ...require('./coverage'),
-  require('./legacy'),
+  ...require('./other'),
 ].map((s) => [s.key, s]));
 
 // Toute source citée par le catalogue existe (contrôle au chargement).

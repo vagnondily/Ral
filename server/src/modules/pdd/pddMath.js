@@ -8,13 +8,20 @@
 
 const zeroAgg = () => ({ lines: 0, beneficiaries: 0, households: 0, cashUsd: 0, totalFood: 0, byCommodity: {} });
 
+// Cash en CENTIMES entiers et tonnages en KILOGRAMMES entiers à chaque addition (jamais une somme
+// de flottants : 0,1 + 0,2 USD = 0,30 exactement) ; l'agrégat garde des valeurs lisibles.
+const cents = (v) => Math.round((Number(v) || 0) * 100);
+const kg = (v) => Math.round((Number(v) || 0) * 1000);
+const addMoney = (a, b) => (cents(a) + cents(b)) / 100;
+const addMt = (a, b) => (kg(a) + kg(b)) / 1000;
+
 function addInto(agg, d) {
   agg.lines += 1;
   agg.beneficiaries += Number(d.beneficiaries) || 0;
   agg.households += Number(d.households) || 0;
-  agg.cashUsd += Number(d.cashUsd) || 0;
-  agg.totalFood += Number(d.totalFood) || 0;
-  for (const [c, q] of Object.entries(d.items || {})) agg.byCommodity[c] = round3((agg.byCommodity[c] || 0) + (Number(q) || 0));
+  agg.cashUsd = addMoney(agg.cashUsd, d.cashUsd);
+  agg.totalFood = addMt(agg.totalFood, d.totalFood);
+  for (const [c, q] of Object.entries(d.items || {})) agg.byCommodity[c] = addMt(agg.byCommodity[c] || 0, q);
 }
 const round3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
 

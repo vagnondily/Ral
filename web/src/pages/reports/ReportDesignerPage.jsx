@@ -559,6 +559,34 @@ function BlockFilters({ filters, onChange, forms, offices, supported = ['office'
 
 /** Arguments d'un jeu de données (indicateur, seuil, regroupement…), déclarés par le catalogue. */
 const ARG_CHOICES = { activity: 'Programme (activité)', provider: 'Prestataire', office: 'Bureau', district: 'District' };
+// Listes de choix des arguments (contrat, partenaire, facture) : lues à la demande.
+const CHOICE_LOADERS = {
+  contracts: () => api.listContracts().then((r) => (r || []).filter((c) => c.status !== 'brouillon').map((c) => ({ id: c.id, label: `${c.numero} — ${c.partnerName || ''}` }))),
+  partners: () => api.listPartners().then((r) => (r || []).filter((p) => p.active !== false).map((p) => ({ id: p.id, label: p.name }))),
+  reports: () => api.listReports({ kind: 'financier' }).then((r) => (r || []).filter((x) => x.kind === 'financier').map((x) => ({ id: x.id, label: `${String(x.periodMonth || '').slice(0, 7)} · ${x.partnerName || ''} · ${x.contractNumero || ''}` }))),
+};
+function useChoices(kind) {
+  const [list, setList] = useState(null);
+  useEffect(() => {
+    if (!kind || !CHOICE_LOADERS[kind]) { setList(null); return undefined; }
+    let alive = true;
+    CHOICE_LOADERS[kind]().then((r) => { if (alive) setList(r); }).catch(() => { if (alive) setList([]); });
+    return () => { alive = false; };
+  }, [kind]);
+  return list;
+}
+function ChoiceArg({ name, spec, value, onChange }) {
+  const { tr } = useI18n();
+  const list = useChoices(spec.choices);
+  return (
+    <Field label={tr(spec.label)}>
+      <select className="select" value={value || ''} onChange={(e) => onChange(name, e.target.value)}>
+        <option value="">{spec.required ? tr('Choisir…') : tr('Hérite du rapport')}</option>
+        {(list || []).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+      </select>
+    </Field>
+  );
+}
 function ArgsEditor({ def, args, filters, forms, onChange }) {
   const { tr } = useI18n();
   const [inds, setInds] = useState(null);
@@ -587,6 +615,7 @@ function ArgsEditor({ def, args, filters, forms, onChange }) {
             </Field>
           );
         }
+        if (CHOICE_LOADERS[a.choices]) return <ChoiceArg key={k} name={k} spec={a} value={v} onChange={set} />;
         if (a.type === 'enum') {
           return (
             <Field key={k} label={tr(a.label)}>

@@ -10,8 +10,9 @@ const { parseDocV2, safeParseDocV2, schemas } = require('./reportSchema');
  */
 
 /**
- * Tables des 10 jeux de données v1 : colonnes des mises en forme reportData (pont
- * provisoire du catalogue v2, catalog/legacy.js — remplacé en C4 / C5).
+ * Tables des 10 jeux de données v1 (clés et colonnes du concepteur v1) : lues par la mise à
+ * niveau v1 → v2 (reportUpgrade) ; budget_contracts et pdd_by_month gardent leurs clés de
+ * colonnes dans bud.by_contract et pdd.by_month (modèles et rapports existants).
  */
 const DATASETS = {
   activity_coverage: {

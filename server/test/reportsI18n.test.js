@@ -58,4 +58,36 @@ test('modèles système : titres, textes d\'exemple, en-têtes et pieds ont leur
 test('phrases du serveur : mêmes clés en français et en anglais', () => {
   assert.deepEqual(Object.keys(PHRASES.en).sort(), Object.keys(PHRASES.fr).sort());
   for (const k of Object.keys(PHRASES.fr)) assert.equal(typeof PHRASES.en[k], typeof PHRASES.fr[k], k);
+  // Dictionnaires imbriqués (raisons, signaux, niveaux…) : mêmes clés (sauf rbm, traduction de libellés).
+  for (const k of Object.keys(PHRASES.fr)) {
+    if (k === 'rbm' || typeof PHRASES.fr[k] !== 'object') continue;
+    assert.deepEqual(Object.keys(PHRASES.en[k]).sort(), Object.keys(PHRASES.fr[k]).sort(), k);
+  }
+});
+
+test('phrases à paramètres du serveur montrées dans les rapports (parcours, état de la configuration, alertes) : anglais présent', async (t) => {
+  const en = await loadEn(t); if (!en) return;
+  const { EVENT_TEXT } = require('../src/modules/partners/partnerSheet');
+  const { evaluateHealth } = require('../src/modules/settings/healthRules');
+  const { buildAlerts } = require('../src/modules/dashboards/alertsMath');
+  const missing = new Set();
+  const need = (s) => { if (s && !Object.prototype.hasOwnProperty.call(en, s)) missing.add(s); };
+  Object.values(EVENT_TEXT).forEach(need);
+  const zero = { areas: { total: 10, communes: 4, communesWithPcode: 4 }, sites: { total: 5, withoutPcode: 0, withoutOffice: 0 }, queue: {}, submissions: { total: 0 }, tpm: { active: 0 }, profile: { currency: 'MGA', center: true }, validators: 3 };
+  const many = {
+    areas: { total: 10, communes: 4, communesWithPcode: 2 }, detachedZones: 2, sites: { total: 5, withoutPcode: 2, withoutOffice: 1 }, officesWithoutPerimeter: 1, activityWithoutMmr: 1,
+    formsWithoutActivity: 1, formsActive: 2, queue: { entries: 3, sitesOcc: 1, submissionsOcc: 2 }, submissions: { total: 9, withoutOffice: 2, monthTotal: 5, monthWithoutCommune: 2, month: '2026-03' },
+    tpm: { active: 2, withoutAgent: 1, withoutContract: 1, contractsWithoutLine: 1 }, draftPlansPast: 1, monthsWithoutRate: 1, profile: { currency: null, center: false }, validators: 1,
+  };
+  for (const c of [zero, many]) for (const r of evaluateHealth(c)) need(r.message.text);
+  const alerts = buildAlerts({
+    consolidationRows: [{ contractId: 'c', numero: 'N', overspent: true, budget: 1, actual: 2 }, { contractId: 'd', numero: 'M', budget: 10, actual: 1, pendingValidation: 20 },
+      { contractId: 'e', numero: 'O', budget: 10, actual: 1, projectedOverrun: 5, projectedTotal: 15 }],
+    contracts: [{ id: 'x', numero: 'X', status: 'en_validation', amendmentPending: true }, { id: 'y', numero: 'Y', status: 'actif', dateFin: '2026-01-01' }, { id: 'z', numero: 'Z', status: 'actif', dateFin: '2026-04-01' }],
+    reports: [{ status: 'soumis', kind: 'technique', actions: { decide: true } }, { status: 'soumis', kind: 'financier', actions: { decide: true } }],
+    field: { overall: { active: 10, rate: 0.1, realise: 1 }, byProvider: [{ key: 'p', label: 'P', active: 5, rate: 0.2, realise: 1 }, { key: 'non_affecte', total: 2 }] },
+    today: '2026-03-15',
+  });
+  for (const a of alerts) { need(a.title); need(a.detail); need(a.cat); }
+  assert.deepEqual([...missing], [], `phrases sans anglais : ${[...missing].join(' | ')}`);
 });
