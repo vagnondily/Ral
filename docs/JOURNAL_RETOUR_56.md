@@ -65,3 +65,17 @@
   migrations 001→061 appliquées ; grants = `INSERT, SELECT` ; RLS active ;
   trigger `trg_same_tenant` présent ; 5 insertions test → CHECK OK
   (validé sans justif refusé, justif vide refusé, non validé OK, doc_type inconnu refusé).
+- **~10:30** ✅ Module partagé `deletions/deletions.repository.js`
+  (`recordDeletion` dans la tx appelante, `listDeletions`) + câblage des 3 suppressions :
+  - rapports TPM (`reports.repository.deleteReport` + route : 409 donnée reliée, 400 justificatif) ;
+  - plans (`planning.repository.deletePlan` + route) ;
+  - contrats (`contracts.service.deleteDraft` généralisé : non validé supprimable,
+    validé seulement sans rapport/plan/avenant/visite + justificatif).
+  Endpoint `GET /api/deletions` (admin, filtre docType), monté dans `app.js`.
+- **~10:45** ✅ Lint propre ; suite serveur **680/681** (0 échec, 1 ignoré ;
+  +12 tests de la politique). Aucune régression.
+- **~10:55** ✅ **Intégration de bout en bout** contre la base réelle, connecté
+  comme `mems2_app` (RLS + append-only réellement exercés) : rapports / plans /
+  contrats aux 4 cas (non validé → ok ; validé+donnée → 409 ; validé vide sans
+  justif → 400 ; validé vide + justif → ok) ; journal = 5 entrées exactes ;
+  `UPDATE`/`DELETE` du journal refusés à `mems2_app` (append-only confirmé).

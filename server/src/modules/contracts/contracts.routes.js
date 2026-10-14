@@ -81,8 +81,12 @@ router.put('/:id', WRITE, body(v.updateContractSchema), asyncHandler(async (req,
   res.status(204).end();
 }));
 
+// Suppression (politique commune, retour 56) : contrat non validé supprimable
+// après confirmation ; contrat validé seulement sans donnée reliée et avec
+// justificatif. Inscrite au journal des suppressions.
 router.delete('/:id', WRITE, asyncHandler(async (req, res) => {
-  await service.deleteDraft(t(req), actor(req), req.params.id);
+  const justification = typeof req.body?.justification === 'string' ? req.body.justification : undefined;
+  await service.deleteDraft(t(req), actor(req), req.params.id, { justification });
   res.status(204).end();
 }));
 

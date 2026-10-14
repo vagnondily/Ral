@@ -6,6 +6,8 @@ const d = require('./contracts.domain');
 const { buildBudgetWorkbook } = require('./budgetXlsx');
 const { buildForecast } = require('./forecast');
 const { relinkByPath } = require('../common/placeMatch');
+const { isValidatedStatus, decideDocumentDeletion, refusalMessage } = require('../common/deletionPolicy');
+const { recordDeletion } = require('../deletions/deletions.repository');
 
 /**
  * Contrats — business rules. Partner comes from the Paramètres registry,
@@ -433,13 +435,48 @@ async function terminate(tenantId, actor, id, { reason, effectiveDate, version }
  * dès qu'il est soumis/actif il porte un historique d'audit et, actif, des
  * dépenses — on passe alors par résiliation, jamais par suppression.
  */
-async function deleteDraft(tenantId, actor, id) {
+/**
+ * Suppression d'un contrat (politique commune, retour 56).
+ *   - contrat NON validé (brouillon, en validation, rejeté) → supprimable après
+ *     confirmation, sans justificatif ;
+ *   - contrat VALIDÉ (actif, résilié) → supprimable seulement s'il ne porte
+ *     AUCUNE donnée reliée (aucun rapport, plan, avenant ou visite) ET avec un
+ *     justificatif ; toute suppression est inscrite au journal des suppressions.
+ */
+async function deleteDraft(tenantId, actor, id, { justification } = {}) {
   assertCanWrite(actor);
   await withTenantTransaction(tenantId, async (client) => {
     const contract = await loadForUpdate(client, tenantId, id);
-    if (contract.status !== 'brouillon') {
-      throw conflict(`Seul un contrat en brouillon peut être supprimé (statut actuel : « ${d.STATUS_LABELS[contract.status]} »).`);
+    const validated = isValidatedStatus('contract', contract.status);
+
+    let hasLinkedData = false;
+    if (validated) {
+      const { rows } = await client.query(
+        `SELECT EXISTS (SELECT 1 FROM tpm_reports            WHERE tenant_id = $1 AND contract_id = $2)
+             OR EXISTS (SELECT 1 FROM tpm_collection_plans   WHERE tenant_id = $1 AND contract_id = $2)
+             OR EXISTS (SELECT 1 FROM contract_amendments    WHERE tenant_id = $1 AND contract_id = $2)
+             OR EXISTS (SELECT 1 FROM site_visits            WHERE tenant_id = $1 AND contract_id = $2) AS linked`,
+        [tenantId, id]
+      );
+      hasLinkedData = rows[0].linked;
     }
+
+    const decision = decideDocumentDeletion({ validated, hasLinkedData, justification });
+    if (!decision.allowed) {
+      if (decision.reason === 'justification_required') throw badRequest(refusalMessage('justification_required'));
+      throw conflict('Ce contrat est validé et porte des données reliées (rapports, plans, avenants ou visites) : il ne peut pas être supprimé.');
+    }
+
+    await recordDeletion(client, tenantId, {
+      docType: 'contract',
+      docId: id,
+      docRef: `Contrat ${contract.numero || ''} · ${contract.partnerName || ''}`.trim(),
+      summary: JSON.stringify({ numero: contract.numero, partner: contract.partnerName, status: contract.status }).slice(0, 4096),
+      statusAtDeletion: contract.status,
+      validated,
+      justification: decision.justification,
+      deletedBy: actor.userId,
+    });
     await repo.deleteContract(client, tenantId, id);
   });
 }
