@@ -13,13 +13,13 @@
 ## État courant
 
 > **Pour demain matin (résumé tenu à jour pendant la nuit)**
-> - **Publié sur `main` aujourd'hui après-midi** : suppression des documents revue (refus expliqués, administrateur, justificatif ≥ 10) ; zones du contrat en tableau ; suppression groupée de sites avec aperçu ; sites et activités par localité ; **onglet « Sites (actifs / inactifs) »** distinct, au format de votre classeur ; **espace RBM réorganisé** (Priorités · Plan de suivi · Sites actifs · Configuration RBM).
+> - **Publié sur `main` aujourd'hui après-midi** : suppression des documents revue (refus expliqués, administrateur, justificatif ≥ 10) ; zones du contrat en tableau ; suppression groupée de sites avec aperçu ; sites et activités par localité ; **onglet « Sites (actifs / inactifs) »** distinct, au format de votre classeur ; **espace RBM réorganisé** (Priorités · Plan de suivi · Sites actifs · Configuration RBM) ; **identifiant de site `S-XXXX-XXXX`**.
 > - **En cours chez les agents** (chacun sur sa copie, publié seulement après contrôle) : concepteur partie 2 (en-tête libre, annexes, orientation d'une page) ; finitions d'écrans (période, onglet Données, tableau de bord des fiches, carte : zoom bureau, activités, légende) ; lenteur ; Partenaires & TPM (fiche 360°, formations, notation des agents) ; TPM tiré des contrats ; planification automatique RBM ; état de l'application et remise à zéro annulable 24 h ; indicateurs de vos 5 fiches ; sous-tables et « Autre ».
-> - **Chez vous après mise à jour** : `npm run migrate` (migrations 068 et 072), puis redémarrer l'API.
+> - **Chez vous après mise à jour** : `npm run migrate` (migrations 068, 072 et 073), puis redémarrer l'API.
 > - **Questions qui vous attendent** : `REPRISE.md` § 6 (multi-pays Q1–Q5, TPM d'un contrat, découpage d'Ambovombe).
 
 
-_Dernière mise à jour : 14/10/2026 14:11 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 14:19 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -587,3 +587,4 @@ _Dernière mise à jour : 14/10/2026 14:11 UTC_ — la branche `main` reçoit ch
 - **14:07** ✅ **Analyses rendues** :
   - **5 XLSForm** → [`ANALYSE_XLSFORM.md`](ANALYSE_XLSFORM.md). Vos tableaux de bord sont vides parce que rien ne crée les indicateurs tout seul : l'activité doit être rattachée, puis il faut cliquer « Créer » ; la fiche Résilience n'a aucun modèle. 346 indicateurs proposés, 244 paires « Autre / précisez ».
   - **Multi-pays** → [`SPEC_MULTIPAYS.md`](SPEC_MULTIPAYS.md). Recommandation : chaque bureau pays reste un espace isolé, avec une arborescence Siège › bureaux régionaux › pays au-dessus ; lecture consolidée pays par pays, sans affaiblir l'isolement. 5 questions pour vous (voir `REPRISE.md` § 6).
+- **14:12 → 14:18** ✅ **Identifiant professionnel des sites** (retour 64), publié sur `main` à 14:18 (`0968ba4`) : chaque site porte `S-XXXX-XXXX` (8 symboles tirés au hasard, sans I, L, O, U ; unique ; immuable), migration `073`. Registre, plan de suivi et sites actifs l'affichent et le cherchent (saisie tolérante : casse, tirets, O → 0, I / L → 1) ; les anciens codes (PLAN-0001, L001) restent reconnus à l'import ; le classeur d'activation gagne une colonne « ID MEMS ». Contrôles : 1 033 tests réussis, lint propre, build OK, balayage 33 × 2 sans erreur, migration + seed sur base neuve, aller-retour du registre (21 mis à jour, 0 doublon).

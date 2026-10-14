@@ -1,6 +1,6 @@
 # Reprise du travail — passation entre sessions Claude
 
-_Mis à jour : 14/10/2026, 14:12 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
+_Mis à jour : 14/10/2026, 14:19 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
 Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOURNAL.md)._
 
 **À qui s'adresse ce fichier ?** À toute session Claude qui reprend le projet, en particulier pendant une limite d'usage de la session principale. Il dit :
@@ -37,7 +37,7 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 
 - **Revue du retour 56** (`31e015b`) : refus qui nomme les données reliées, justificatif ≥ 10 caractères (migration `068`), document validé réservé à l'administrateur. **Retour 79** : zones d'intervention du contrat en tableau.
 - **Retours 89 et 90** (`ac6eccf`) : suppression groupée de sites avec aperçu ; sites et activités par unité du répertoire.
-- **Retours 64 et 96** (`407d7e6`) : onglet « Sites (actifs / inactifs) » distinct (classeur d'activation, journal, migration `072`) ; espace RBM réorganisé.
+- **Retours 64 et 96** (`407d7e6`, `0968ba4`) : onglet « Sites (actifs / inactifs) » distinct (classeur d'activation, journal, migration `072`) ; espace RBM réorganisé ; identifiant `S-XXXX-XXXX` (migration `073`).
 
 **Santé de `main`** (13:54) : 1 019 tests (1 018 réussis, 1 ignoré), lint propre, build OK, balayage 33 écrans × FR / EN sans erreur. Migrations `001` → `068`.
 
@@ -62,6 +62,8 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 | `wip/admin` | oui | Agent : état de l'application, remise à zéro annulable 24 h, annulation d'une suppression (retours 95, 60 ; migration 096) | 🔄 depuis 14:04 |
 | `wip/indicators` | oui | Agent : modèles d'indicateurs corrigés, modèle Résilience, proposition et rattachement automatiques (retours 66, 85 ; migration 098 si besoin) | 🔄 depuis 14:09 |
 | `wip/repeats` | oui | Agent : sous-tables (groupes répétés) à l'import, réponses « Autre, précisez » comptées (retours 77, 81 ; migrations 097, 099) | 🔄 depuis 14:09 |
+| `wip/calc` | oui | Agent : fonctions de calcul (Excel, Tableau, DAX, statistiques), sans exécution de code (retour 74) | 🔄 depuis 14:12 |
+| `wip/pdd` | oui | Agent : PDD — vue d'ensemble, tableau récapitulatif par mois, date d'ajout (retour 69, migration 100) | 🔄 depuis 14:12 |
 
 ## 3. Chantiers : en cours et à venir
 
@@ -108,7 +110,7 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `069` | agent `wip/ui-polish` (si besoin) | 🔄 |
   | `070`–`071` | retour 58 (agent `wip/r58`) | 🔄 |
   | `072` | journal des sites actifs / inactifs | ✅ |
-  | `073` | lot 3 | ⏳ |
+  | `073` | identifiant des sites `S-XXXX-XXXX` | ✅ |
   | `074`–`076` | lot 4 | ⏳ |
   | `077`–`078` | lot 5 § 6–7 (agent `wip/lot5-gen`) | 🔄 |
   | `079`–`080` | lot 5, suite (calendrier, risque daté, règles) | ⏳ |
@@ -120,7 +122,8 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `097` | sous-tables et « Autre » (agent `wip/repeats`) | 🔄 |
   | `098` | indicateurs des fiches (agent `wip/indicators`, si besoin) | 🔄 |
   | `099` | sous-tables, 2ᵉ fichier si besoin (agent `wip/repeats`) | 🔄 |
-  | `100` et suivants | libres | — |
+  | `100` | PDD : date d'ajout (agent `wip/pdd`) | 🔄 |
+  | `101` et suivants | libres | — |
 
 - **Publier sur `main`** seulement après :
   - `cd server && npm test && npm run lint` ;
