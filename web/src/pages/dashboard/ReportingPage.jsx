@@ -97,7 +97,7 @@ export default function ReportingPage({ onOpenContract }) {
         </div>
       </div>
 
-      <PeriodBanner auto={auto} onBack={(m) => setPeriod(single(m))} />
+      <PeriodBanner auto={auto} period={period} />
       <SessionPeriodNote source={source} capped={capped} onReset={resetToDefault} />
       {error && <Alert tone="error">{error}</Alert>}
 

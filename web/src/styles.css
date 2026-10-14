@@ -2979,3 +2979,8 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .syn-full .card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .act-table td:first-child { max-width: 360px; white-space: normal; }
 @media (max-width: 1100px) { .syn-main { min-height: 0; } .syn-main > .syn-scroll { flex: none; max-height: 440px; } }
+
+/* Ligne de période (retour 78) : information sobre, pas de bandeau. */
+.period-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: -4px 0 14px; font-size: 13px; color: var(--text); }
+.period-summary svg { color: var(--text-muted, #616a7a); }
+.period-summary strong { color: var(--text-strong); font-weight: 600; }

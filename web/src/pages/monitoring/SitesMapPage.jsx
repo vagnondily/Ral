@@ -33,7 +33,7 @@ export default function SitesMapPage({ onNavigate, isAdmin = false }) {
         description={tr('Registre des sites sur le fond vectoriel des districts (hors ligne) : districts colorés selon le thème, sites GPS et positions déduites des collectes ; registre géographique région → district ci-dessous.')}>
         {per.ready && <PeriodSelect value={per.period} onChange={(p) => per.setPeriod(p)} counts={per.counts} latest={per.latest} today={per.today} maxSpan={MAP_MAX_SPAN} align="right" />}
       </PageHeader>
-      <PeriodBanner auto={per.auto} onBack={(m) => per.setPeriod(single(m))} />
+      <PeriodBanner auto={per.auto} period={per.period} />
       <SessionPeriodNote source={per.source} onReset={per.resetToDefault} />
       <MapExplorer variant="full" period={per.period || undefined} initial={initial} onNavigate={onNavigate} isAdmin={isAdmin}
         storageKey="mems.map.sites" onDataChange={setData} />

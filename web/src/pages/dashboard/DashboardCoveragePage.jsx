@@ -112,7 +112,7 @@ export default function DashboardCoveragePage({ onNavigate }) {
         description={tr('Vue analytique du suivi de processus : couverture terrain, données versées, conformité par bande, plan vs réalisé, et détail par activité (dimensions, indicateurs). Recalculé en direct.')}>
         {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} maxSpan={ANALYSIS_MAX_SPAN} align="right" />}
       </PageHeader>
-      <PeriodBanner auto={auto} onBack={pick} />
+      <PeriodBanner auto={auto} period={period} />
       <SessionPeriodNote source={source} onReset={resetToDefault} />
 
       <div className="cd-views" role="tablist" aria-label={tr('Vues')}>

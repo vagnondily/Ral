@@ -185,4 +185,8 @@ export default {
   'Exécution du plan par prestataire': 'Plan execution by provider',
   'Exécution du plan par district': 'Plan execution by district',
   'Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. Exécution du plan = réalisées ÷ (planifiées + réalisées), annulées exclues.': 'Click a month (or “Open / Plan”) to access its visit plan. Plan execution = completed ÷ (planned + completed), cancelled excluded.',
+  "Période": "Period",
+  "du {a} au {b}": "from {a} to {b}",
+  "{n} mois": "{n} month(s)",
+  "dernier mois avec des données": "latest month with data",
 };

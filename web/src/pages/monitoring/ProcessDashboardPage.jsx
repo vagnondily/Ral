@@ -124,7 +124,7 @@ export default function ProcessDashboardPage({ onNavigate }) {
         {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} maxSpan={ANALYSIS_MAX_SPAN} align="right" />}
       </PageHeader>
 
-      <PeriodBanner auto={auto} onBack={(m) => setPeriod(single(m))} />
+      <PeriodBanner auto={auto} period={period} />
       <SessionPeriodNote source={source} capped={capped} onReset={resetToDefault} />
       {!auto && empty && (
         <div className="period-banner"><Alert tone="info" icon={Info}>
