@@ -36,6 +36,15 @@ function cached(kind, period, opts, fetcher) {
   return promise;
 }
 
+/**
+ * Vide le cache des réponses de la carte : à appeler après toute écriture qui change ce que la
+ * carte montre (correspondance district ↔ contour, centres de district) — sinon l'écran garde
+ * jusqu'à 60 s une réponse antérieure à la correction.
+ */
+export function clearMapCache() {
+  cache.clear();
+}
+
 /** GET /api/map/districts mis en cache (60 s) — partagé par la carte et les tuiles de la page. */
 export function fetchMapDistricts(period, { officeId = null, activity = null, levels = [] } = {}) {
   return cached('d', period, { officeId, activity, levels }, () => api.mapDistricts(period, { officeId, activity, levels }));

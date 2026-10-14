@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Link2, MapPinned, PenLine, EyeOff, AlertTriangle, CircleDashed, Crosshair } from 'lucide-react';
 import { api } from '../../api/client.js';
+import { clearMapCache } from '../../components/map/useMapData.js';
 import { Alert, Badge, Button, Card, CardHeader, Skeleton } from '../../components/ui.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
@@ -54,6 +55,7 @@ export default function MapShapesTab({ isAdmin }) {
     try {
       if (value === AUTO) await api.mapShapeLinkClear(d.pcode);
       else await api.mapShapeLinkSet(d.pcode, value === HIDE ? null : value);
+      clearMapCache(); // la carte relit la correspondance à la prochaine ouverture (pas de réponse de 60 s périmée)
       toast.success(tr('Correspondance enregistrée : visible aussitôt sur la carte.'));
       load();
     } catch (e) { toast.error(e.message); } finally { setBusy(null); }
@@ -62,6 +64,7 @@ export default function MapShapesTab({ isAdmin }) {
     setBusy('centres');
     try {
       const r = await api.mapFillCentres();
+      clearMapCache();
       toast.success(tr('{n} centre(s) de district renseigné(s).', { n: formatInt(r.updated) }));
       load();
     } catch (e) { toast.error(e.message); } finally { setBusy(null); }
