@@ -159,4 +159,10 @@ export default {
   'Financiers validés, comptés au mois de début': 'Validated financial reports, counted in their start month',
   '{n} mois (durée de la période)': '{n} month(s) (length of the period)',
   'Aucune visite sur la période ({p}). Planifiez des visites (Affectation & visites) pour alimenter la couverture.': 'No visit over the period ({p}). Plan visits (Assignment & visits) to feed the coverage.',
+
+  // ---- Affectation & visites : le taux des visites s'appelle exécution du plan
+  '{p} % d\'exécution du plan': '{p}% plan execution',
+  'Exécution du plan par prestataire': 'Plan execution by provider',
+  'Exécution du plan par district': 'Plan execution by district',
+  'Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. Exécution du plan = réalisées ÷ (planifiées + réalisées), annulées exclues.': 'Click a month (or “Open / Plan”) to access its visit plan. Plan execution = completed ÷ (planned + completed), cancelled excluded.',
 };
