@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 12:06 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 12:20 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -30,8 +30,8 @@ _Dernière mise à jour : 14/10/2026 12:06 UTC_ — la branche `main` reçoit ch
 | Liaisons | Liaisons entre pages + rapprochement automatique des lieux importés | 🔄 | Analyse ✅ → [`docs/ANALYSE_LIAISONS.md`](ANALYSE_LIAISONS.md). **Lot 0** : 9 correctifs faits (commit local `cf0c46b`), relecture adverse en cours avant publication sur `main`. **Lot 2** : moteur de rapprochement des lieux (`4c22775`). **Lot 1** : réimport du découpage sans détacher les contrats (`afe463e`). Lots 0 à 2 publiés sur `main`. Prochaine étape : lot 3 (sites et bureaux rattachés au découpage, migration 048) |
 | Signalés 12/10 | Vos retours du jour | ✅ | régions du bureau · en-têtes figés · XLSForm (500 au réimport, gros fichiers, .xls) · concepteur (panneau gauche) · actions sur les fiches + rattachement au MMR |
 | Retours 13–14/10 | Plan par lots : [`PLAN_RETOURS_15_37.md`](PLAN_RETOURS_15_37.md). Retours n° 15 à 55 ; synthèse dans [`ETAT_DU_PROJET.md`](ETAT_DU_PROJET.md) | 🔄 | **Lot 1 publié sur `main`** (`45493c7`). En cours : 1b, 6a, 7a (lignes ci-dessous). Détail de chaque retour : [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) |
-| Lot 1b | Période = plage de mois (retour 47) — [`SPEC_LOT_1B.md`](SPEC_LOT_1B.md) | 🔄 | Construit (socle 8 + écrans 9 commits) ; vérifications rendues (socle : 1 grave + 4 moyens ; écrans : 3 moyens + 6 mineurs) → **tour de corrections en cours** |
-| Lot 6a | Carte exploitable + carte dans le Dashboard décisionnel (retours 17, 27, 41, 44, 49, 50) — [`SPEC_LOT_6A.md`](SPEC_LOT_6A.md) | 🔄 | Construit (12 commits) ; vérification : 1 grave (coordonnées GPS des ménages lisibles par un lecteur via l'aperçu des champs calculés) + 5 moyens + 5 mineurs → **intégration dans les écrans 1b + corrections en cours** |
+| Lot 1b | Période = plage de mois (retour 47) — [`SPEC_LOT_1B.md`](SPEC_LOT_1B.md) | ✅ | **Publié sur `main`** (`de3b6f6`) avec les corrections des 16 constats ; vérification adverse de l'ensemble à 15:30 UTC (fin de la limite des agents) |
+| Lot 6a | Carte exploitable + carte dans le Dashboard décisionnel — [`SPEC_LOT_6A.md`](SPEC_LOT_6A.md) | ✅ | **Publié sur `main`** (`de3b6f6`) avec les corrections des 11 constats et la règle de district des tableaux ; suite : carte décisionnelle dédiée (retour 65) |
 | Lot 7a | Concepteur de rapport riche (retours 18, 39, 40, 43, 45, 51–53) — [`SPEC_LOT_7A.md`](SPEC_LOT_7A.md) | 🔄 | En construction (rendu progressif fait ; catalogue, en-tête libre, orientation, validation, exports à suivre) |
 | Retour 56 | Suppression des documents : non validé → supprimable ; validé → seulement sans donnée reliée, avec justificatif ; journal des suppressions | 🔄 | Une autre session Claude l'avait commencé (3 commits, branche `claude/zealous-bardeen-p9ozcr`) : travail **repris** et en cours de correction (migration renumérotée 069, anglais, avenants, données reliées affichées, documents validés atteignables, justificatif ≥ 10 caractères, tests), puis vérification indépendante |
 | Retour 54 | Tableau trimestriel par activité (sites actifs / prévus / réalisés, couverture, exécution) | 🔄 | **En réalisation** (nouvelle entrée « Rapport trimestriel » du Dashboard décisionnel, export Excel) |
@@ -437,8 +437,8 @@ _Dernière mise à jour : 14/10/2026 12:06 UTC_ — la branche `main` reçoit ch
   - migrations 065 / 066 appliquées sans erreur sur une copie de la base existante, puis sur la base de démonstration.
 
   ⛔ **Bogue** : « Sites » et « Journal des suppressions » renvoyaient vers Contrats, car les adresses n'étaient pas déclarées dans le menu. ⛔ Il manquait aussi 50 textes anglais.
-- **12:02** ✅ Corrigé et publié (`0e2c062`) : balayage de 33 écrans en FR et EN, 0 erreur, 0 phrase manquante.
-- **12:08** ✅ **Retour 59** publié (`fe5c38c`) : renommer une fiche et changer son activité depuis sa page.
+- **12:01** ✅ Corrigé et publié (`0e2c062`) : balayage de 33 écrans en FR et EN, 0 erreur, 0 phrase manquante.
+- **12:05** ✅ **Retour 59** publié (`fe5c38c`) : renommer une fiche et changer son activité depuis sa page.
 - **12:06** 📥 **Retours 60, 61 et 62** :
   - 60 : annuler une suppression depuis le journal ;
   - 61 : MEMS ralentit quand il y a beaucoup de données ou de calculs ;
@@ -450,5 +450,23 @@ _Dernière mise à jour : 14/10/2026 12:06 UTC_ — la branche `main` reçoit ch
   - vérification adverse de l'ensemble ;
   - conception des lots 3–4, du retour 60 et de l'audit de performance (retour 61) ;
   - trimestriel (54), concepteur 7a (partie 2), lot 5 v2.
+
+- **12:07 → 12:20** ✅ **Intégration et publication des lots 1b et 6a**, faites par la session principale pendant la limite des agents (`9b0df2d`, `fbed0cf`, `8b9ef75`, `de3b6f6`) :
+  - **Fusions.** `wip/fix-6a` (socle et écrans 1b, carte 6a, 11 constats corrigés), puis `wip/fix-1b` (16 constats, dont le grave). Le conflit sur le calcul des districts a été résolu à la main : district du site d'après sa propre région, et options de la carte conservées.
+  - **Carte.** Même règle de district que les tableaux. Le P-code n'est cru que s'il concorde avec la région du site. Sur septembre 2026 : 1 270 sites placés au lieu de 1 081 ; Vangaindrano, Farafangana et Mananjary passent à 0 site (ils étaient faux) ; Amboasary-Atsimo compte 12 sites réalisés, comme le tableau. Un test est ajouté.
+  - **Vie privée.** Le test « aucune coordonnée GPS précise pour un lecteur » a été adapté à la nouvelle lecture des réponses. La garantie est inchangée.
+  - **Contrôles.**
+    - 932 tests (931 réussis, 1 ignoré), lint propre, build OK.
+    - Migrations sur une **base neuve** (001 → 066, puis données de démonstration et de test) et sur une **copie de la base existante** (061 appliquée après 065 / 066).
+    - Balayage de 33 écrans en FR et EN sur la version intégrée, puis sur l'application en service : 0 erreur, 0 phrase manquante.
+    - Captures de la carte : 0 erreur.
+  - **Base de démonstration** migrée (061), API relancée.
+
+  ⏳ La **vérification adverse** de l'ensemble se fera à 15:30 UTC.
+
+- **12:20** 📥 **Retours 63, 64 et 65** :
+  - 63 : les sites deviennent un onglet de Localités, reliés aux données réelles ;
+  - 64 : classeur de référence `mems_activation_2026_1.xlsx` pour le plan de suivi et les sites actifs, et des identifiants de site professionnels (lot 3) ;
+  - 65 : carte décisionnelle dédiée, modules Output (population, ciblage, plan de distribution, réalisé, logistique, lien DOTS / Palantir) et gestion des programmes et projets. Conception à 15:30 UTC.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
