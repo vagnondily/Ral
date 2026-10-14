@@ -97,8 +97,15 @@ router.put('/:id', WRITE, body(updateSchema), asyncHandler(async (req, res) => {
   }
 }));
 
+// Suppression (politique commune, retour 56) : plan non validé supprimable
+// après confirmation ; plan validé seulement sans poste planifié et avec
+// justificatif. Inscrite au journal des suppressions.
 router.delete('/:id', WRITE, asyncHandler(async (req, res) => {
-  if (!(await repo.deletePlan(t(req), req.params.id))) throw notFound('Plan introuvable');
+  const justification = typeof req.body?.justification === 'string' ? req.body.justification : undefined;
+  const outcome = await repo.deletePlan(t(req), req.params.id, { actorId: req.auth.userId, justification });
+  if (outcome === null) throw notFound('Plan introuvable');
+  if (outcome === 'linked_data') throw conflict('Ce plan est validé et porte des postes planifiés : il ne peut pas être supprimé.');
+  if (outcome === 'justification_required') throw badRequest('Un justificatif est obligatoire pour supprimer un plan validé.');
   res.status(204).end();
 }));
 

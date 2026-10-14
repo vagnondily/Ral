@@ -177,12 +177,16 @@ router.post('/:id/not-applicable', WRITE, asyncHandler(async (req, res) => {
   res.status(204).end();
 }));
 
-// Supprimer un rapport encore en brouillon (non validé). Un rapport validé
-// alimente la consommation budgétaire : il est verrouillé.
+// Suppression (politique commune, retour 56) : un rapport non validé est
+// supprimable après confirmation ; un rapport validé seulement sans donnée
+// reliée (montant ≠ 0 ou postes) et avec un justificatif. Toute suppression
+// est inscrite au journal des suppressions.
 router.delete('/:id', WRITE, asyncHandler(async (req, res) => {
-  const outcome = await repo.deleteReport(t(req), req.params.id);
+  const justification = typeof req.body?.justification === 'string' ? req.body.justification : undefined;
+  const outcome = await repo.deleteReport(t(req), req.params.id, { actorId: req.auth.userId, justification });
   if (outcome === null) throw notFound('Rapport introuvable');
-  if (outcome === 'locked') throw conflict('Un rapport validé ne peut pas être supprimé.');
+  if (outcome === 'linked_data') throw conflict('Ce rapport est validé et porte des dépenses comptées : il ne peut pas être supprimé.');
+  if (outcome === 'justification_required') throw badRequest('Un justificatif est obligatoire pour supprimer un rapport validé.');
   res.status(204).end();
 }));
 

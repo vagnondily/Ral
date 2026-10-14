@@ -5,6 +5,8 @@ const {
 const { normalizeItems, summarize } = require('./reportMath');
 const { assertItemActivities } = require('./activityRefs');
 const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
+const { isValidatedStatus, decideDocumentDeletion } = require('../common/deletionPolicy');
+const { recordDeletion } = require('../deletions/deletions.repository');
 
 /**
  * Rapports & dépenses (sub-module of Partenaires & TPM). Monthly financial /
@@ -327,13 +329,47 @@ async function replaceReportItems(tenantId, id, items, { invoiceNo, periodEnd, a
 /**
  * Supprime un rapport encore en brouillon (non validé). Les lignes de l'état
  * des dépenses disparaissent par cascade (FK ON DELETE CASCADE). Renvoie
- * 'ok' si supprimé, 'locked' si déjà validé (non supprimable), null si absent.
+ * Politique commune (retour 56, deletionPolicy) :
+ *   - rapport NON validé (attendu/soumis/rejeté/non applicable) → supprimable
+ *     après confirmation, sans justificatif ;
+ *   - rapport VALIDÉ → supprimable seulement sans donnée reliée (montant ≠ 0 ou
+ *     au moins un poste) ET avec justificatif ; chaque suppression journalisée.
+ * Retour : 'ok' si supprimé, null si absent, sinon le code de refus de la
+ * politique ('linked_data' → 409, 'justification_required' → 400).
  */
-async function deleteReport(tenantId, id) {
+async function deleteReport(tenantId, id, { actorId, justification } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const report = await getReportRow(client, tenantId, id);
     if (!report) return null;
-    if (report.status === 'valide') return 'locked';
+
+    const validated = isValidatedStatus('tpm_report', report.status);
+    let hasLinkedData = false;
+    if (validated) {
+      const { rows } = await client.query(
+        'SELECT 1 FROM contract_report_items WHERE tenant_id = $1 AND report_id = $2 LIMIT 1',
+        [tenantId, id]
+      );
+      hasLinkedData = Number(report.reportedAmount) !== 0 || rows.length > 0;
+    }
+
+    const decision = decideDocumentDeletion({ validated, hasLinkedData, justification });
+    if (!decision.allowed) return decision.reason;
+
+    const month = String(report.periodMonth).slice(0, 7);
+    await recordDeletion(client, tenantId, {
+      docType: 'tpm_report',
+      docId: id,
+      docRef: `${report.kind === 'financier' ? 'Facture' : 'Rapport technique'} ${month} · ${report.partnerName || ''}`.trim(),
+      summary: JSON.stringify({
+        kind: report.kind, month, partner: report.partnerName,
+        contract: report.contractNumero, reportedAmount: report.reportedAmount,
+        invoiceNo: report.invoiceNo || null,
+      }).slice(0, 4096),
+      statusAtDeletion: report.status,
+      validated,
+      justification: decision.justification,
+      deletedBy: actorId,
+    });
     await client.query('DELETE FROM tpm_reports WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
     return 'ok';
   });

@@ -188,7 +188,8 @@ export const api = {
     request(`/api/contracts/${id}/amendments/${amendmentId}/reject`, { method: 'POST', body: input }),
   renewContract: (id, input) => request(`/api/contracts/${id}/renew`, { method: 'POST', body: input }),
   terminateContract: (id, input) => request(`/api/contracts/${id}/terminate`, { method: 'POST', body: input }),
-  deleteContract: (id) => request(`/api/contracts/${id}`, { method: 'DELETE' }),
+  deleteContract: (id, justification) => request(`/api/contracts/${id}`, { method: 'DELETE', body: justification ? { justification } : undefined }),
+  deleteAmendment: (id, amendmentId, justification) => request(`/api/contracts/${id}/amendments/${amendmentId}`, { method: 'DELETE', body: justification ? { justification } : undefined }),
 
   // Découpage administratif (localités) — référentiel par tenant/pays
   listAdminLevels: () => request('/api/settings/admin-levels'),
@@ -455,7 +456,7 @@ export const api = {
   submitReport: (id) => request(`/api/tpm/reports/${id}/submit`, { method: 'POST', body: {} }),
   approveReport: (id, input) => request(`/api/tpm/reports/${id}/approve`, { method: 'POST', body: input }),
   rejectReport: (id, input) => request(`/api/tpm/reports/${id}/reject`, { method: 'POST', body: input }),
-  deleteReport: (id) => request(`/api/tpm/reports/${id}`, { method: 'DELETE' }),
+  deleteReport: (id, justification) => request(`/api/tpm/reports/${id}`, { method: 'DELETE', body: justification ? { justification } : undefined }),
   generateMonthlyReports: (input) => request('/api/tpm/reports/generate-monthly', { method: 'POST', body: input }),
   reportNotApplicable: (id) => request(`/api/tpm/reports/${id}/not-applicable`, { method: 'POST', body: {} }),
 
@@ -470,7 +471,20 @@ export const api = {
   getPlan: (id) => request(`/api/tpm/planning/${id}`),
   createPlan: (input) => request('/api/tpm/planning', { method: 'POST', body: input }),
   updatePlan: (id, input) => request(`/api/tpm/planning/${id}`, { method: 'PUT', body: input }),
-  deletePlan: (id) => request(`/api/tpm/planning/${id}`, { method: 'DELETE' }),
+  deletePlan: (id, justification) => request(`/api/tpm/planning/${id}`, { method: 'DELETE', body: justification ? { justification } : undefined }),
+
+  // Journal des suppressions (retour 56), admin.
+  listDeletions: (query) => request('/api/deletions', { query }),
+
+  // Registre des sites (page de gestion des sites).
+  listSiteRegistry: (query) => request('/api/site-registry', { query }),
+  createSiteRegistry: (body) => request('/api/site-registry', { method: 'POST', body }),
+  updateSiteRegistry: (id, body) => request(`/api/site-registry/${id}`, { method: 'PATCH', body }),
+  deleteSiteRegistry: (id) => request(`/api/site-registry/${id}`, { method: 'DELETE' }),
+  autoAttributeSites: (body) => request('/api/site-registry/auto-attribute', { method: 'POST', body }),
+  siteRegistryTemplate: () => downloadFile('/api/site-registry/template.xlsx', 'Modele_sites_MEMS2.xlsx'),
+  siteRegistryExport: (q) => downloadFile(`/api/site-registry/export.xlsx${q ? `?q=${encodeURIComponent(q)}` : ''}`, 'Sites_MEMS2.xlsx'),
+  importSiteRegistry: (file) => uploadFile('/api/site-registry/import', file),
   // Liaison : postes du plan pour pré-remplir une facture (même contrat + mois)
   planningPrefill: (partnerId, contractId, month) => request('/api/tpm/planning/prefill', { query: { partnerId, contractId, month } }),
 

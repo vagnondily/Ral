@@ -6,6 +6,7 @@ import {
 import { api } from '../../api/client.js';
 import { Alert, Button, Card, EmptyState, IconButton, Skeleton, StatusBadge, Stats } from '../../components/ui.jsx';
 import PlanBudgetDrawer from './PlanBudgetDrawer.jsx';
+import DeleteDialog from '../../components/DeleteDialog.jsx';
 import { usePopover, SortTh, makeViewStore } from '../../components/listView.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatAr, formatInt, monthLabel } from '../../lib/format.js';
@@ -65,6 +66,7 @@ export default function PlanningPage({ canEdit, onNavigate }) {
   const [currency, setCurrency] = useState('Ar');
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState(null);
+  const [del, setDel] = useState(null); // plan à supprimer (retour 56)
 
   const filterMenu = usePopover();
   const colMenu = usePopover();
@@ -156,11 +158,8 @@ export default function PlanningPage({ canEdit, onNavigate }) {
   const money = (ar) => (currency === 'USD' ? formatUsdFor(ar, rates, monthStart) : formatAr(ar));
   const hasRates = rates.length > 0;
 
-  async function remove(p) {
-    if (!window.confirm(tr('Supprimer le plan de « {name} » ? Cette action est définitive.', { name: p.partnerName }))) return;
-    try { await api.deletePlan(p.id); toast.success(tr('Plan supprimé.')); setSelectedId(null); reload(); }
-    catch (e) { toast.error(e.message); }
-  }
+  // Suppression (retour 56) : dialogue commun (justificatif si plan validé).
+  function remove(p) { setDel(p); }
   // Fil guidé : passe le relais à « Rapports & dépenses » qui ouvrira une
   // facture pré-remplie depuis ce plan (même contrat + mois).
   function createFacture(p) {
@@ -335,6 +334,17 @@ export default function PlanningPage({ canEdit, onNavigate }) {
       <div className="note"><Info size={18} aria-hidden="true" /><span>{richText(tr('La <strong>part bailleur</strong> des postes prévus est le « Planifié » comparé au budget de suivi. Depuis une facture, « Pré-remplir depuis le plan » reprend ces postes. Bascule <strong>Ar/USD</strong> selon les taux de Paramétrage.'))}</span></div>
 
       {drawer && <PlanBudgetDrawer planId={drawer.planId} context={context} month={month} onClose={() => setDrawer(null)} onSaved={() => { setDrawer(null); reload(); }} />}
+      {del && (
+        <DeleteDialog
+          open
+          validated={del.status === 'valide'}
+          title={tr('Supprimer ce plan de collecte ?')}
+          description={`${del.partnerName} · ${del.contractNumero || ''} · ${monthLabel((del.periodMonth || '').slice(0, 7))}`}
+          onClose={() => setDel(null)}
+          onConfirm={(justification) => api.deletePlan(del.id, justification)}
+          onDone={() => { toast.success(tr('Plan supprimé.')); setDel(null); setSelectedId(null); reload(); }}
+        />
+      )}
     </div>
   );
 }

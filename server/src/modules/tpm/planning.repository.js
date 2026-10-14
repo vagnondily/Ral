@@ -2,6 +2,8 @@ const { withTenantTransaction } = require('../../config/db');
 const { normalizeItems, summarize } = require('./reportMath');
 const { assertItemActivities } = require('./activityRefs');
 const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
+const { isValidatedStatus, decideDocumentDeletion } = require('../common/deletionPolicy');
+const { recordDeletion } = require('../deletions/deletions.repository');
 
 /**
  * Planification & budget — budget prévisionnel d'une vague de collecte.
@@ -167,10 +169,52 @@ async function updatePlan(tenantId, id, { items, title, status }) {
   });
 }
 
-async function deletePlan(tenantId, id) {
+/**
+ * Suppression (politique commune, retour 56). Plan NON validé (brouillon) →
+ * supprimable après confirmation ; plan VALIDÉ → seulement sans donnée reliée
+ * (aucun poste planifié) et avec justificatif. Toute suppression journalisée.
+ * Retour : 'ok' | null (absent) | code de refus ('linked_data' | 'justification_required').
+ */
+async function deletePlan(tenantId, id, { actorId, justification } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
-    const { rowCount } = await client.query('DELETE FROM tpm_collection_plans WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
-    return rowCount === 1;
+    const { rows } = await client.query(
+      `SELECT p.status, p.period_month AS "periodMonth", p.title,
+              pa.name AS "partnerName", c.numero AS "contractNumero"
+         FROM tpm_collection_plans p
+         JOIN partners pa ON pa.id = p.partner_id
+         JOIN contracts c ON c.id = p.contract_id
+        WHERE p.tenant_id = $1 AND p.id = $2 FOR UPDATE OF p`,
+      [tenantId, id]
+    );
+    const plan = rows[0];
+    if (!plan) return null;
+
+    const validated = isValidatedStatus('collection_plan', plan.status);
+    let hasLinkedData = false;
+    if (validated) {
+      const { rows: it } = await client.query(
+        'SELECT 1 FROM tpm_collection_plan_items WHERE tenant_id = $1 AND plan_id = $2 LIMIT 1',
+        [tenantId, id]
+      );
+      hasLinkedData = it.length > 0;
+    }
+
+    const decision = decideDocumentDeletion({ validated, hasLinkedData, justification });
+    if (!decision.allowed) return decision.reason;
+
+    const month = String(plan.periodMonth).slice(0, 7);
+    await recordDeletion(client, tenantId, {
+      docType: 'collection_plan',
+      docId: id,
+      docRef: `Plan de collecte ${month} · ${plan.partnerName || ''}`.trim(),
+      summary: JSON.stringify({ month, partner: plan.partnerName, contract: plan.contractNumero, title: plan.title || null }).slice(0, 4096),
+      statusAtDeletion: plan.status,
+      validated,
+      justification: decision.justification,
+      deletedBy: actorId,
+    });
+    await client.query('DELETE FROM tpm_collection_plans WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+    return 'ok';
   });
 }
 

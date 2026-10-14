@@ -7,6 +7,7 @@ import MoneyInput from '../../components/MoneyInput.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import MmrSection from './MmrSection.jsx';
 import LocalitiesSection from './LocalitiesSection.jsx';
+import SitesSection from './SitesSection.jsx';
 import { formatAr, formatInt, formatDateTime } from '../../lib/format.js';
 import { useI18n } from '../../lib/i18n.jsx';
 
@@ -19,8 +20,10 @@ const SECTIONS = {
   taux: { label: 'Taux de change', icon: Coins, group: 'Finances', desc: 'Taux de référence (ariary pour 1 USD), horodatés, pour afficher les valeurs en dollars selon la période.' },
   localites: { label: 'Localités', icon: MapPinned, group: 'Géographie', desc: 'Découpage administratif du pays (régions → districts → communes) pour les zones d\'intervention.' },
   bureaux: { label: 'Bureaux & antennes', icon: Building2, group: 'Géographie', desc: 'Bureaux terrain et antennes, et leur périmètre (communes) pour le rattachement automatique des sites.' },
+  sites: { label: 'Sites', icon: MapPinned, group: 'Géographie', admin: true, desc: 'Registre des sites (insertion, modification, suppression) : identifiant, localité, Code POI, bureau, zone, activité et coordonnées GPS, avec attribution automatique de la zone depuis le GPS. Base de la planification du suivi.' },
   mmr: { label: 'Paramètres MMR', icon: Gauge, group: 'Suivi', admin: true, desc: 'Exigences minimales de suivi (MMR) par bureau × activité : durée, nombre de sites, niveau de risque → intervalle, fréquence et nombre de sites ciblés par mois (base du RBM).' },
   utilisateurs: { label: 'Utilisateurs & accès', icon: ShieldCheck, group: 'Sécurité', admin: true, desc: 'Comptes, rôles (administrateur / validateur / lecteur) et activation. Qui peut faire quoi dans l\'application.' },
+  suppressions: { label: 'Journal des suppressions', icon: Trash2, group: 'Sécurité', admin: true, desc: 'Traçabilité des documents supprimés (rapports, factures, plans, contrats) : qui, quand, pourquoi, et un résumé du document.' },
 };
 const GROUPS = ['Référentiels', 'Finances', 'Géographie', 'Suivi', 'Sécurité'];
 
@@ -53,8 +56,10 @@ export default function SettingsPage({ tab = 'apercu', isAdmin, onNavigate }) {
           {current === 'taux' && <ExchangeRatesSection isAdmin={isAdmin} />}
           {current === 'localites' && <LocalitiesSection isAdmin={isAdmin} />}
           {current === 'bureaux' && <BureauxSection isAdmin={isAdmin} />}
+          {current === 'sites' && <SitesSection isAdmin={isAdmin} />}
           {current === 'mmr' && <MmrSection isAdmin={isAdmin} />}
           {current === 'utilisateurs' && <UsersSection isAdmin={isAdmin} />}
+          {current === 'suppressions' && <DeletionsSection isAdmin={isAdmin} />}
         </>
       )}
     </div>
@@ -707,5 +712,68 @@ function CodeLabelModal({ title, onClose, onSubmit, onSaved }) {
         </Field>
       </form>
     </Modal>
+  );
+}
+
+// Journal des suppressions (retour 56) — lecture seule, admin. Trace chaque
+// document supprimé : type, référence, statut au moment de la suppression,
+// justificatif (si validé), auteur et date.
+const DOC_TYPE_LABEL = {
+  tpm_report: 'Rapport / facture TPM',
+  collection_plan: 'Plan de collecte',
+  contract: 'Contrat',
+  contract_amendment: 'Avenant',
+};
+
+function DeletionsSection({ isAdmin }) {
+  const { tr } = useI18n();
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState(null);
+  const [filter, setFilter] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    setRows(null); setError(null);
+    api.listDeletions(filter ? { docType: filter } : undefined)
+      .then((r) => { if (alive) setRows(r); })
+      .catch((e) => { if (alive) setError(e.message); });
+    return () => { alive = false; };
+  }, [filter]);
+
+  if (!isAdmin) return null;
+  if (error) return <Card><EmptyState icon={Trash2} title={tr('Journal indisponible')}>{error}</EmptyState></Card>;
+  if (!rows) return <Card><Skeleton height={180} /></Card>;
+
+  return (
+    <Card>
+      <CardHeader title={tr('Documents supprimés')} subtitle={tr('{n} entrée(s)', { n: rows.length })}>
+        <select className="input" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label={tr('Filtrer par type')}>
+          <option value="">{tr('Tous les types')}</option>
+          {Object.entries(DOC_TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{tr(v)}</option>)}
+        </select>
+      </CardHeader>
+      {rows.length === 0 ? (
+        <EmptyState icon={Trash2} title={tr('Aucune suppression')}>{tr('Les suppressions de documents apparaîtront ici.')}</EmptyState>
+      ) : (
+        <div className="table-wrap"><table className="table">
+          <thead><tr>
+            <th>{tr('Date')}</th><th>{tr('Type')}</th><th>{tr('Document')}</th>
+            <th>{tr('Statut')}</th><th>{tr('Justificatif')}</th><th>{tr('Par')}</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="tabular"><span className="site-meta">{formatDateTime(r.deletedAt)}</span></td>
+                <td>{tr(DOC_TYPE_LABEL[r.docType] || r.docType)}</td>
+                <td>{r.docRef || '—'}</td>
+                <td>{r.validated ? <Badge tone="green">{tr('validé')}</Badge> : <Badge>{r.statusAtDeletion}</Badge>}</td>
+                <td className="muted">{r.justification || '—'}</td>
+                <td className="muted">{r.deletedByEmail || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      )}
+    </Card>
   );
 }

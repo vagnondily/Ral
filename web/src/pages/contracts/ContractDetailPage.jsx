@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ArrowLeft, Pencil, Send, ShieldCheck, X, FilePlus2, RefreshCw, Ban, Info, AlertCircle, ExternalLink,
-  Download, MapPin, ChevronDown, ChevronRight,
+  Download, MapPin, ChevronDown, ChevronRight, Trash2,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Skeleton, Usage } from '../../components/ui.jsx';
@@ -13,6 +13,7 @@ import {
   AMENDMENT_STATUS, CONTRACT_STATUS, HISTORY_LABELS, amendmentCode, contractFlags, formatDate, periodLabel, richText,
 } from '../../lib/contracts.js';
 import { SubmitDialog, DecisionDialog, RenewDialog, TerminateDialog } from './ContractDialogs.jsx';
+import DeleteDialog from '../../components/DeleteDialog.jsx';
 
 const TABS = [
   { id: 'budget', label: 'Détail budgétaire' },
@@ -100,6 +101,7 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
             {a.amend && <Button variant="secondary" icon={FilePlus2} onClick={() => onAmend(contractId)}>{tr('Avenant')}</Button>}
             {a.renew && <Button variant="secondary" icon={RefreshCw} onClick={() => setDialog({ type: 'renew' })}>{tr('Renouveler')}</Button>}
             {a.terminate && <Button variant="secondary" icon={Ban} onClick={() => setDialog({ type: 'terminate' })}>{tr('Résilier')}</Button>}
+            {a.delete && <Button variant="secondary" icon={Trash2} onClick={() => setDialog({ type: 'delete' })}>{tr('Supprimer')}</Button>}
           </div>
         </div>
       </div>
@@ -191,7 +193,7 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
         </div>
         {tab === 'budget' && <BudgetItemsView budget={detail.budget} monthlyCeiling={c.monthlyCeiling} />}
         {tab === 'forecast' && <ForecastTab contractId={contractId} dateFin={c.dateFin} />}
-        {tab === 'amendments' && <AmendmentsTab detail={detail} canDecide={a.decideAmendment} onDecide={(am, approve) => setDialog({ type: 'decideAmendment', amendment: am, approve })} onAdd={a.amend ? () => onAmend(contractId) : null} />}
+        {tab === 'amendments' && <AmendmentsTab detail={detail} canDecide={a.decideAmendment} canWrite={a.canWrite} onDelete={(am) => setDialog({ type: 'deleteAmendment', amendment: am })} onDecide={(am, approve) => setDialog({ type: 'decideAmendment', amendment: am, approve })} onAdd={a.amend ? () => onAmend(contractId) : null} />}
         {tab === 'history' && <HistoryTab history={history} />}
       </Card>
 
@@ -200,6 +202,28 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
       {dialog?.type === 'decideAmendment' && <DecisionDialog open onClose={() => setDialog(null)} detail={detail} amendment={dialog.amendment} approve={dialog.approve} onDone={afterAction} />}
       {dialog?.type === 'renew' && <RenewDialog open onClose={() => setDialog(null)} detail={detail} onDone={(id) => { setDialog(null); onOpen(id); }} />}
       {dialog?.type === 'terminate' && <TerminateDialog open onClose={() => setDialog(null)} detail={detail} onDone={afterAction} />}
+      {dialog?.type === 'delete' && (
+        <DeleteDialog
+          open
+          validated={c.status === 'actif' || c.status === 'resilie'}
+          title={tr('Supprimer ce contrat ?')}
+          description={`${c.numero} · ${c.partnerName}`}
+          onClose={() => setDialog(null)}
+          onConfirm={(justification) => api.deleteContract(contractId, justification)}
+          onDone={() => { toast.success(tr('Contrat supprimé.')); setDialog(null); onBack(); }}
+        />
+      )}
+      {dialog?.type === 'deleteAmendment' && (
+        <DeleteDialog
+          open
+          validated={dialog.amendment.status === 'approuve'}
+          title={tr('Supprimer cet avenant ?')}
+          description={`${amendmentCode(dialog.amendment.number)} · ${c.numero}`}
+          onClose={() => setDialog(null)}
+          onConfirm={(justification) => api.deleteAmendment(contractId, dialog.amendment.id, justification)}
+          onDone={() => { toast.success(tr('Avenant supprimé.')); afterAction(); }}
+        />
+      )}
     </div>
   );
 }
@@ -322,7 +346,7 @@ function amendmentSummary(am, tr) {
   return tr('Détail non enregistré');
 }
 
-function AmendmentsTab({ detail, canDecide, onDecide, onAdd }) {
+function AmendmentsTab({ detail, canDecide, canWrite, onDelete, onDecide, onAdd }) {
   const { tr } = useI18n();
   const { amendments } = detail;
   const [openId, setOpenId] = useState(null);
@@ -372,12 +396,17 @@ function AmendmentsTab({ detail, canDecide, onDecide, onAdd }) {
                               <strong className="amend-code">{amendmentCode(am.number)}</strong>
                               <span className="muted" style={{ fontSize: 14, marginLeft: 8 }}>{tr('Demandé le {date} · {email}', { date: formatDateTime(am.createdAt), email: am.createdByEmail || '' })}</span>
                             </div>
-                            {canDecide && am.status === 'en_validation' && (
-                              <div className="toolbar">
-                                <Button size="sm" variant="secondary" icon={X} onClick={(e) => { e.stopPropagation(); onDecide(am, false); }}>{tr('Rejeter')}</Button>
-                                <Button size="sm" icon={ShieldCheck} onClick={(e) => { e.stopPropagation(); onDecide(am, true); }}>{tr('Approuver')}</Button>
-                              </div>
-                            )}
+                            <div className="toolbar">
+                              {canDecide && am.status === 'en_validation' && (
+                                <>
+                                  <Button size="sm" variant="secondary" icon={X} onClick={(e) => { e.stopPropagation(); onDecide(am, false); }}>{tr('Rejeter')}</Button>
+                                  <Button size="sm" icon={ShieldCheck} onClick={(e) => { e.stopPropagation(); onDecide(am, true); }}>{tr('Approuver')}</Button>
+                                </>
+                              )}
+                              {canWrite && onDelete && am.status !== 'approuve' && (
+                                <Button size="sm" variant="ghost" icon={Trash2} onClick={(e) => { e.stopPropagation(); onDelete(am); }}>{tr('Supprimer')}</Button>
+                              )}
+                            </div>
                           </div>
                           <p className="amend-just">{tr('« {text} »', { text: am.justification || '' })}</p>
                           <div className="amend-diff-title">{tr('Ce qui a changé')}</div>
