@@ -76,6 +76,9 @@ export default {
   'Exécution du plan faible ce mois': 'Low plan execution this month',
   'Exécution du plan faible sur la période': 'Low plan execution over the period',
   'Sites planifiés sans prestataire TPM sur la période': 'Sites planned without a TPM provider over the period',
+  // Un mois choisi (passé) est nommé : « ce mois » est réservé à la cloche (mois courant, sans période).
+  'Exécution du plan faible ({m})': 'Low plan execution ({m})',
+  'Sites planifiés sans prestataire TPM ({m})': 'Sites planned without a TPM provider ({m})',
 
   // ---- Synthèse et Couverture & performance sur une plage (C11)
   'Dernières données : {last}.': 'Latest data: {last}.',

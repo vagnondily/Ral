@@ -63,3 +63,18 @@ test('sans période (la cloche) : terrain du mois courant, tous les rapports ; a
   assert.deepEqual(page.period, { from: '2026-01', to: '2026-06', months: 6 });
   assert.equal(page.items.find((a) => a.cat === 'Rapports').scope, 'periode');
 });
+
+test('libellé du terrain : « ce mois » pour la cloche seulement ; un mois passé choisi est nommé ; une plage « sur la période »', async () => {
+  const saved = fieldRepo.summary;
+  fieldRepo.summary = async () => ({ overall: { active: 22, realise: 4, rate: 4 / 22 }, byProvider: [] });
+  try {
+    const low = (out) => out.items.find((a) => a.kind === 'field_low_coverage');
+    const bell = low(await alerts({ tenantId: 't', userId: 'u2', role: 'admin' }, TODAY));
+    assert.equal(bell.title, 'Exécution du plan faible ce mois');
+    const sept = low(await alerts({ tenantId: 't', userId: 'u2', role: 'admin' }, { ...TODAY, period: { from: '2026-09', to: '2026-09' } }));
+    assert.equal(sept.title, 'Exécution du plan faible ({m})');
+    assert.deepEqual(sept.params.m, { month: '2026-09' });
+    const h1 = low(await alerts({ tenantId: 't', userId: 'u2', role: 'admin' }, { ...TODAY, period: { from: '2026-01', to: '2026-06' } }));
+    assert.equal(h1.title, 'Exécution du plan faible sur la période');
+  } finally { fieldRepo.summary = saved; }
+});
