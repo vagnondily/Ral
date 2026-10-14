@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 08:33 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 08:50 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -30,11 +30,11 @@ _Dernière mise à jour : 14/10/2026 08:33 UTC_ — la branche `main` reçoit ch
 | Liaisons | Liaisons entre pages + rapprochement automatique des lieux importés | 🔄 | Analyse ✅ → [`docs/ANALYSE_LIAISONS.md`](ANALYSE_LIAISONS.md). **Lot 0** : 9 correctifs faits (commit local `cf0c46b`), relecture adverse en cours avant publication sur `main`. **Lot 2** : moteur de rapprochement des lieux (`4c22775`). **Lot 1** : réimport du découpage sans détacher les contrats (`afe463e`). Lots 0 à 2 publiés sur `main`. Prochaine étape : lot 3 (sites et bureaux rattachés au découpage, migration 048) |
 | Signalés 12/10 | Vos retours du jour | ✅ | régions du bureau · en-têtes figés · XLSForm (500 au réimport, gros fichiers, .xls) · concepteur (panneau gauche) · actions sur les fiches + rattachement au MMR |
 | Retours 13–14/10 | Plan par lots : [`PLAN_RETOURS_15_37.md`](PLAN_RETOURS_15_37.md). Retours n° 15 à 55 ; synthèse dans [`ETAT_DU_PROJET.md`](ETAT_DU_PROJET.md) | 🔄 | **Lot 1 publié sur `main`** (`45493c7`). En cours : 1b, 6a, 7a (lignes ci-dessous). Détail de chaque retour : [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) |
-| Lot 1b | Période = plage de mois (retour 47) — [`SPEC_LOT_1B.md`](SPEC_LOT_1B.md) | 🔄 | Socle (8 commits, régions 19 s → 10 ms) et écrans (9 commits) construits ; contre-vérification du socle : 1 grave + 4 moyens à corriger ; vérification des écrans en cours → un tour de corrections, puis publication |
-| Lot 6a | Carte exploitable + carte dans le Dashboard décisionnel (retours 17, 27, 41, 44, 49, 50) — [`SPEC_LOT_6A.md`](SPEC_LOT_6A.md) | 🔄 | Construit (12 commits), en vérification |
+| Lot 1b | Période = plage de mois (retour 47) — [`SPEC_LOT_1B.md`](SPEC_LOT_1B.md) | 🔄 | Construit (socle 8 + écrans 9 commits) ; vérifications rendues (socle : 1 grave + 4 moyens ; écrans : 3 moyens + 6 mineurs) → **tour de corrections en cours** |
+| Lot 6a | Carte exploitable + carte dans le Dashboard décisionnel (retours 17, 27, 41, 44, 49, 50) — [`SPEC_LOT_6A.md`](SPEC_LOT_6A.md) | 🔄 | Construit (12 commits) ; vérification : 1 grave (coordonnées GPS des ménages lisibles par un lecteur via l'aperçu des champs calculés) + 5 moyens + 5 mineurs → **intégration dans les écrans 1b + corrections en cours** |
 | Lot 7a | Concepteur de rapport riche (retours 18, 39, 40, 43, 45, 51–53) — [`SPEC_LOT_7A.md`](SPEC_LOT_7A.md) | 🔄 | En construction (rendu progressif fait ; catalogue, en-tête libre, orientation, validation, exports à suivre) |
-| Retour 56 | Suppression des documents : non validé → supprimable ; validé → seulement sans donnée reliée, avec justificatif ; journal des suppressions | ⏳ | Prioritaire, juste après les correctifs 1b ; le concepteur (7a) sera aligné |
-| Retour 54 | Tableau trimestriel par activité (sites actifs / prévus / réalisés, couverture, exécution) | ⏳ | Juste après les correctifs 1b |
+| Retour 56 | Suppression des documents : non validé → supprimable ; validé → seulement sans donnée reliée, avec justificatif ; journal des suppressions | 🔄 | **En réalisation** (politique unique, journal, tous les documents sauf ceux du concepteur, alignés avec le lot 7a) |
+| Retour 54 | Tableau trimestriel par activité (sites actifs / prévus / réalisés, couverture, exécution) | 🔄 | **En réalisation** (nouvelle entrée « Rapport trimestriel » du Dashboard décisionnel, export Excel) |
 | Lot 5 élargi | Calendrier d'activités (pop-up), plan MMR réaliste, priorités configurables, risque daté (retours 24, 25, 55) | 🔄 | Conception lancée le 14/10 |
 | Lots 2–3, 4, 8 | Référentiels et registre ; réalisé issu des données ; Partenaires & TPM | ⏳ | Analyses faites ; dans l'ordre après 1b / 6a / 7a |
 | Contre-vérif. | Correctifs des imports, formules, correspondances et verrous (retours d'hier + 4 relectures) | ✅ | **Publié sur `main`** (`d8863bb`) : `ef7ed78` → `6241cb1` → `aec0c6c` → `d8863bb`. Dernier contrôle ciblé de la nouvelle garde Excel en cours |
@@ -354,5 +354,7 @@ _Dernière mise à jour : 14/10/2026 08:33 UTC_ — la branche `main` reçoit ch
 - **08:31** ✅ **Documents de suivi mis à jour** (« mettre toutes les informations sur l'avancement pour ne rien perdre ») : [`ETAT_DU_PROJET.md`](ETAT_DU_PROJET.md) réécrit (fait / en cours / reste à faire, santé du code, points d'attention, documents à lire) ; tableau « État courant » ci-dessus complété (1b, 6a, 7a, 54, lot 5, lots 2–3–4–8). Précision du retour 55 : le calendrier d'activité s'ouvre dans une fenêtre depuis le tableau MMR.
 
 - **08:33** 📥 **Retour n° 56** : supprimer les documents non validés (fini les brouillons partout) ; un document validé seulement sans donnée reliée et avec justificatif → règle commune inscrite dans le plan (définition « Suppression »), une seule politique + journal des suppressions pour tous les documents, prioritaire après les correctifs 1b ; la décision du concepteur (« un rapport validé ne se supprime jamais ») est remplacée par cette règle.
+
+- **08:50** 🔄 **Quatre chantiers lancés en parallèle**, chacun suivi d'une vérification indépendante : (A) intégration de la carte 6a dans les écrans 1b (la carte suit la période de la page) + les 11 constats de la carte, dont le grave : un lecteur pouvait lire les coordonnées GPS exactes des ménages via l'aperçu des champs calculés ; (B) les 16 constats du lot 1b, dont le grave : environ 200 sites rangés dans le district d'une autre région à cause de P-codes contradictoires ; (C) tableau trimestriel par activité (retour 54) ; (D) suppression des documents avec journal (retour 56). Le concepteur (7a) continue de son côté.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
