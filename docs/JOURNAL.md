@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 11:31 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 12:06 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -425,5 +425,30 @@ _Dernière mise à jour : 14/10/2026 11:31 UTC_ — la branche `main` reçoit ch
   - zone interdite levée par un aller-retour Excel.
 
   Décisions provisoires prises sur 9 questions : capacité par bureau, zone interdite qui suit la zone, risque MMR daté lui aussi, tournées par prestataire TPM (retour 58), calcul dans la requête sous un plafond mesuré. Une **v2** intègre la critique et le retour 58 avant toute réalisation.
+
+- **11:47** ℹ️ **L'autre session a publié sur `main`** (`e8624e0`) :
+  - retour 56 : suppression des documents, avec ses migrations renumérotées `065` (journal) et `066` (sites) ;
+  - socle du retour 57 ;
+  - nouvelle page **Paramétrage › Sites** : registre, attribution GPS, import / export Excel.
+
+  Les numéros `065`–`066` sont donc pris : `069` n'est plus utilisé. Le lot 5 passera à `077`+, les lots 3 et 4 à `071`–`076`.
+- **11:57** 🔎 **Analyse de `main`** (demandée) :
+  - 718 tests (0 échec), lint propre, build OK ;
+  - migrations 065 / 066 appliquées sans erreur sur une copie de la base existante, puis sur la base de démonstration.
+
+  ⛔ **Bogue** : « Sites » et « Journal des suppressions » renvoyaient vers Contrats, car les adresses n'étaient pas déclarées dans le menu. ⛔ Il manquait aussi 50 textes anglais.
+- **12:02** ✅ Corrigé et publié (`0e2c062`) : balayage de 33 écrans en FR et EN, 0 erreur, 0 phrase manquante.
+- **12:08** ✅ **Retour 59** publié (`fe5c38c`) : renommer une fiche et changer son activité depuis sa page.
+- **12:06** 📥 **Retours 60, 61 et 62** :
+  - 60 : annuler une suppression depuis le journal ;
+  - 61 : MEMS ralentit quand il y a beaucoup de données ou de calculs ;
+  - 62 : sélection multiple dans Paramétrage › Sites.
+
+  Rappels de l'utilisateur : les filtres de période (1b), la carte (6a), la révision du plan de suivi et les sites actifs / inactifs (lots 3–4) et le dispatch automatique du plan (lot 5) ne sont pas encore sur `main`. Aujourd'hui, la page Plan de suivi est identique à la page Sites actifs (retour 22).
+
+  ⏸️ Limite d'usage des agents jusqu'à 15:30 UTC. D'ici là, je fais moi-même l'**intégration de 1b et 6a** sur `main`, avec tests, migrations, balayage et contrôles des constats graves, puis le retour 62. À 15:30 :
+  - vérification adverse de l'ensemble ;
+  - conception des lots 3–4, du retour 60 et de l'audit de performance (retour 61) ;
+  - trimestriel (54), concepteur 7a (partie 2), lot 5 v2.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
