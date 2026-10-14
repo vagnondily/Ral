@@ -111,3 +111,53 @@ Fait : politique pure testée · migration 061 (journal append-only) · câblage
 rapports / plans / contrats / **avenants** + journal · endpoint et écran admin ·
 dialogue frontend sur les 4 types. Hors périmètre (assumé) : concepteur de
 rapport (aligné avec le lot 7a de la session principale).
+
+---
+
+# Retour 57 — plusieurs sites par site déclaré / commune (un par activité) + rapprochement GPS par shapefile
+
+> Demandé par l'utilisateur le 14/10 (figurait dans la liste de tâches de la
+> session principale). Analysé ici avant toute écriture.
+
+## Constat d'entanglement (⚠️ différent du retour 56)
+
+- Table `sites` : **une seule `activity`** (colonne texte), `gps_lat/lng`,
+  `adm1–adm4`, `adm2_pcode/adm3_pcode`, `UNIQUE (tenant_id, code)`.
+- Rapprochement des lieux = **par nom** (`common/placeMatch.js`, migrations
+  045/050). **Aucun** PostGIS / géométrie / point-dans-polygone dans le dépôt.
+- Les **contours/polygones** sont construits par le **lot 6a** (carte) de la
+  session principale — en cours, non poussé.
+
+Le retour 57 touche donc le **cœur du registre des sites** et recoupe les
+**lots 2-3** (registre + import des sites) et **6a** (polygones) de la session
+principale → **risque de conflit élevé** s'il est fait en parallèle sur une
+autre branche. Décision demandée à l'utilisateur avant implémentation.
+
+## Décision de l'utilisateur : « seulement la partie sûre »
+
+Je livre uniquement le **socle PUR** du rapprochement GPS par shapefile, 100 %
+additif (nouveaux fichiers dans `common/`, aucun changement de schéma `sites`,
+rien touché dans `settings/` ni dans `shpReader.js` de la session principale).
+La liaison aux contours (lot 6a), à `admin_areas` et le modèle « un site par
+activité » sont **laissés à une réconciliation ultérieure**.
+
+### Fait (14/10, ~12:30)
+
+- `common/pointInPolygon.js` — point-dans-polygone pur (ray casting pair/impair,
+  gère trous et archipels, indépendant du sens ESRI) + bbox. **9 tests.**
+- `common/shpGeometry.js` — parseur `.shp` renvoyant les **anneaux complets**
+  (polygone/polyligne), les points et multipoints, par enregistrement (ordre
+  `.dbf`), variantes Z/M lues. Distinct de `settings/shpReader.js` (centroïdes)
+  pour ne pas toucher au fichier de la session principale. **6 tests.**
+- `common/gpsLocate.js` — `buildFeatures` / `locate` / `locateRef` / `locateAll`
+  avec pré-filtre bbox ; rattache un point à son contour (commune / district),
+  renvoie une `ref` opaque (pcode, index `.dbf`…). **7 tests.**
+- Vérifs : lint propre, suite serveur **702/703** (+22), 0 échec.
+
+### Reste (réconciliation avec la session principale, non fait ici)
+
+- Stockage des contours (géométrie) — dépend du modèle du lot 6a.
+- Branchement à l'import des sites / `admin_areas` (lots 2-3).
+- Modèle « plusieurs sites par commune, un par activité » (schéma `sites`).
+  → à faire quand les lots 2-3/6a seront poussés, pour éviter les conflits.
+
