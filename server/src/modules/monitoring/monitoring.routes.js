@@ -18,7 +18,7 @@ const settingsRepo = require('../settings/settings.repository');
 const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
 const { sheetTable } = require('../common/sheetRows');
 const { readPeriod } = require('../../middleware/period');
-const { stripGps } = require('../map/submissionGps');
+const { stripGps, seesPreciseGps } = require('../map/submissionGps');
 
 // Durées maximales d'une période (lot 1b, mesurées au banc) : l'analyse des
 // soumissions charge les réponses de la période en mémoire (24 mois) ; une liste
@@ -151,7 +151,8 @@ const previewSchema = z.object({
 router.post('/forms/:id/indicators/preview', body(previewSchema), asyncHandler(async (req, res) => {
   const { month, from, to, ...def } = req.valid;
   const period = readPeriod({ month, from, to }, { maxSpan: ANALYSIS_MAX_SPAN });
-  const out = await repo.indicatorPreview(t(req), uuidParam(req.params.id), { agg: 'percent_yes', ...def }, period);
+  // Vie privée (lot 6a) : coordonnées des ménages retirées pour les rôles autres qu'admin / gestionnaire.
+  const out = await repo.indicatorPreview(t(req), uuidParam(req.params.id), { agg: 'percent_yes', ...def }, period, { precise: seesPreciseGps(req.auth.role) });
   if (!out) throw notFound('Fiche introuvable');
   res.json(out);
 }));
@@ -357,7 +358,8 @@ router.get('/calc-functions', (req, res) => res.json(functionCatalog()));
 // Aperçu d'un champ calculé sur les soumissions réelles de la fiche (rien n'est enregistré).
 router.post('/forms/:id/calc-fields/preview', body(z.object({ ...calcDefinition, excludeId: z.string().uuid().optional() })), asyncHandler(async (req, res) => {
   const { excludeId, ...def } = req.valid;
-  const out = await repo.calcPreview(t(req), uuidParam(req.params.id), def, { excludeId });
+  // Vie privée (lot 6a) : coordonnées des ménages retirées pour les rôles autres qu'admin / gestionnaire.
+  const out = await repo.calcPreview(t(req), uuidParam(req.params.id), def, { excludeId, precise: seesPreciseGps(req.auth.role) });
   if (!out) throw notFound('Fiche introuvable');
   res.json(out);
 }));
@@ -393,8 +395,10 @@ router.post('/forms/:id/exclude', WRITE, body(exclSchema), asyncHandler(async (r
 router.get('/forms/:id/submissions', asyncHandler(async (req, res) => {
   const period = readPeriod(req.query, { maxSpan: LIST_MAX_SPAN });
   const limit = Number(req.query.limit);
-  const out = await repo.formSubmissions(t(req), uuidParam(req.params.id), { period, limit: Number.isFinite(limit) ? limit : undefined });
-  if (req.auth.role !== 'admin' && req.auth.role !== 'manager') {
+  const precise = seesPreciseGps(req.auth.role);
+  // Le dépôt retire les coordonnées avant les champs calculés ; second filet ici, sur la réponse.
+  const out = await repo.formSubmissions(t(req), uuidParam(req.params.id), { period, limit: Number.isFinite(limit) ? limit : undefined, precise });
+  if (!precise) {
     const rows = Array.isArray(out) ? out : (out && out.rows);
     for (const r of rows || []) if (r && r.data) r.data = stripGps(r.data);
   }

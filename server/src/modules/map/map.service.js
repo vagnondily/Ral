@@ -1,7 +1,7 @@
 const repo = require('./map.repository');
 const { buildDistrictsResponse } = require('./mapResponse');
 const { buildPointsResponse } = require('./mapPoints');
-const { MAX_ACCURACY_M } = require('./submissionGps');
+const { MAX_ACCURACY_M, PRECISE_ROLES, seesPreciseGps } = require('./submissionGps');
 const SHAPE_INDEX = require('./shapes/mdg-adm2.v1.json');
 const { matchDistricts } = require('./geoMatch');
 const { badRequest, notFound } = require('../../middleware/errors');
@@ -18,12 +18,10 @@ async function districts(auth, { period, officeId = null, activity = null, level
   return buildDistrictsResponse(raw, { period, officeId, activity, index: SHAPE_INDEX, withCommunes: levels.includes('commune') });
 }
 
-/** Rôles qui voient les points de collecte précis (positions de ménages) ; les autres : grille de 2 km. */
-const PRECISE_ROLES = new Set(['admin', 'manager']);
-
 /** GET /api/map/points : sites GPS, positions déduites, centres de commune, points de collecte. */
 async function points(auth, { period, officeId = null, activity = null, layers, limit = 2000 }) {
-  const precise = PRECISE_ROLES.has(auth.role);
+  // Points précis (positions de ménages) : admin / gestionnaire ; les autres : grille de 2 km.
+  const precise = seesPreciseGps(auth.role);
   const raw = await repo.pointsData(auth.tenantId, { period, officeId, activity, layers, limit, precise, maxAccuracyM: MAX_ACCURACY_M });
   return buildPointsResponse(raw, { layers, precise, maxAccuracyM: MAX_ACCURACY_M, limit });
 }

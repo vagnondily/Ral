@@ -78,4 +78,18 @@ function stripGps(data) {
   return out;
 }
 
-module.exports = { LAT_KEY_RE, GEOPOINT_RE, GPS_KEY_RE, MAX_ACCURACY_M, extractGps, usable, stripGps };
+/**
+ * Rôles qui voient les positions GPS précises des ménages (points de collecte, réponses
+ * brutes, aperçus de calcul) ; tous les autres reçoivent des réponses sans coordonnées
+ * et une carte en carroyage de 2 km. UNE règle pour la carte et le suivi de processus.
+ */
+const PRECISE_ROLES = new Set(['admin', 'manager']);
+const seesPreciseGps = (role) => PRECISE_ROLES.has(role);
+
+/** Réponses d'une liste de lignes { data } sans coordonnées, sauf pour un rôle précis (copies). */
+function stripRowsGps(rows, precise) {
+  if (precise) return rows;
+  return (rows || []).map((r) => (r && r.data ? { ...r, data: stripGps(r.data) } : r));
+}
+
+module.exports = { LAT_KEY_RE, GEOPOINT_RE, GPS_KEY_RE, MAX_ACCURACY_M, PRECISE_ROLES, extractGps, usable, stripGps, stripRowsGps, seesPreciseGps };

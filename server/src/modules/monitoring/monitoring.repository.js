@@ -18,6 +18,7 @@ const { toPeriod, trendWindow, periodInfo } = require('../common/period');
 const { monthWithin } = require('../common/periodSql');
 const { submissionSiteKey } = require('../common/submissionSiteKey');
 const { indicatorKeys, calcReferences, unusedKeys, dataWithout } = require('./indicatorKeys');
+const { stripRowsGps } = require('../map/submissionGps');
 
 /** Période d'un appel : `period` ({ from, to } | null) si fourni, sinon l'ancien { month } / { from, to }. */
 const periodArg = (opts = {}) => (opts.period !== undefined ? opts.period : toPeriod(opts));
@@ -414,7 +415,7 @@ async function formMonths(tenantId, formId) {
  * calculés que les résultats ; seules les réponses utiles sont lues.
  * @returns {Promise<null|{ variable, check, n, period, explain }>} null si la fiche n'existe pas
  */
-async function indicatorPreview(tenantId, formId, def, period = null) {
+async function indicatorPreview(tenantId, formId, def, period = null, { precise = false } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
     if (!f[0]) return null;
@@ -427,7 +428,10 @@ async function indicatorPreview(tenantId, formId, def, period = null) {
     const { rows } = await client.query(
       `SELECT COALESCE((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(s.data) e WHERE lower(e.key) = ANY($3::text[])), '{}'::jsonb) AS data
          FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${submissionFilter('s', period, p)}`, p);
-    const subs = isCalc ? withCalc(rows, defs) : rows;
+    // Vie privée (lot 6a) : hors admin / gestionnaire, coordonnées des ménages retirées AVANT les
+    // champs calculés et l'explication (valeurs, répartition) — une variable GPS y est « absente ».
+    const base = stripRowsGps(rows, precise);
+    const subs = isCalc ? withCalc(base, defs) : base;
     // Variable décrite comme dans le sélecteur : question, option éclatée, colonne ou champ calculé.
     const parent = optionParentName(src);
     const { catalog, choicesByList } = await catalogTx(client, tenantId, formId,
@@ -751,10 +755,13 @@ async function formSubmissions(tenantId, formId, opts = {}) {
       cp
     );
     // Champs calculés : fusionnés dans le `data` renvoyé (colonnes de la grille).
+    // Vie privée (lot 6a) : hors admin / gestionnaire, coordonnées retirées AVANT les champs
+    // calculés (une formule ne peut pas les recopier sous un autre nom).
     const calcFields = await calcDefsFor(client, tenantId, formId);
+    const safeRows = stripRowsGps(rows, opts.precise === true);
     const outRows = calcFields.length
-      ? rows.map((r) => ({ ...r, data: { ...r.data, ...computeCalcFields(calcFields, r.data || {}) } }))
-      : rows;
+      ? safeRows.map((r) => ({ ...r, data: { ...r.data, ...computeCalcFields(calcFields, r.data || {}) } }))
+      : safeRows;
     return { rows: outRows, total: cnt[0]?.total ?? rows.length, excluded: cnt[0]?.excluded ?? 0, limit: params[params.length - 1], calcFields, period: periodInfo(p) };
   });
 }
@@ -1857,7 +1864,7 @@ async function listCalcFields(tenantId, formId) {
  * utilisées par les formules sont lues.
  * @returns {Promise<null|{check:object, n?:number}>} null si la fiche n'existe pas
  */
-async function calcPreview(tenantId, formId, def, { excludeId } = {}) {
+async function calcPreview(tenantId, formId, def, { excludeId, precise = false } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
     if (!f[0]) return null;
@@ -1896,7 +1903,9 @@ async function calcPreview(tenantId, formId, def, { excludeId } = {}) {
         WHERE s.tenant_id = $1 AND s.form_id = $2 AND NOT s.excluded
         ORDER BY s.submitted_at DESC NULLS LAST, s.created_at DESC LIMIT 300`,
       [tenantId, formId, [...needed].filter(Boolean).map((k) => String(k).toLowerCase())]);
-    return { check, ...previewCalc(def, sample.map((r) => r.data), prior) };
+    // Vie privée (lot 6a) : hors admin / gestionnaire, les coordonnées des ménages sont retirées
+    // AVANT le calcul — ni dans les lignes d'exemple, ni dans la répartition, ni via une formule.
+    return { check, ...previewCalc(def, stripRowsGps(sample, precise).map((r) => r.data), prior) };
   });
 }
 
