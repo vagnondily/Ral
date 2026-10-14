@@ -35,7 +35,7 @@ const TABS = [
 /**
  * Couverture du suivi — trois lectures d'une même réalité (sites + visites) :
  *  • Par site (MMR) : sites visités 1/2/3/4+ fois vs exigences minimales ;
- *  • Programme : taux de couverture mensuel par activité (tendance + matrice) ;
+ *  • Programme : exécution du plan (visites) mensuelle par activité (tendance + matrice) ;
  *  • Partenaire / TPM : idem par prestataire.
  * Tout est recalculé en direct ; aucune donnée stockée.
  *
@@ -126,7 +126,7 @@ function SiteMmrTab({ period }) {
                 <th className="num">{tr('Sites actifs')}</th>
                 <th className="num">{tr('Jamais visités')}</th>
                 <th className="num">{tr('1 fois')}</th><th className="num">{tr('2 fois')}</th><th className="num">{tr('3 fois')}</th><th className="num">{tr('4 fois +')}</th>
-                <th className="num">{tr('Couverture')}</th><th className="num">{tr('Conformité MMR')}</th>
+                <th className="num">{tr('Couverture (sites)')}</th><th className="num">{tr('Conformité MMR')}</th>
               </tr></thead>
               <tbody>
                 {groups.map((g) => (
@@ -208,14 +208,16 @@ function CoverageMatrixView({ by, groupHead, period }) {
         <>
           <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
             <Kpi icon={Boxes} tone="blue" label={by === 'activity' ? tr('Programmes suivis') : tr('Prestataires')} value={matrix.groups.length} foot={scopeLabel} />
-            <Kpi icon={Repeat} tone="blue" label={tr('Visites réalisées')} value={formatInt(matrix.total.realise)} foot={tr('sur {n} actives', { n: formatInt(matrix.total.active) })} />
+            <Kpi icon={Repeat} tone="blue" label={tr('Visites réalisées')} value={formatInt(matrix.total.realise)} foot={tr('sur {n} prévues ou réalisées', { n: formatInt(matrix.total.active) })} />
             <Kpi icon={Target} tone="amber" label={tr('Planifiées restantes')} value={formatInt(matrix.total.planifie)} foot={tr('non encore réalisées')} />
-            <Kpi icon={ShieldCheck} tone={matrix.total.rate == null ? 'blue' : compTone(matrix.total.rate)} label={tr('Taux de couverture')} value={pct(matrix.total.rate, tr)} foot={tr('réalisées / actives')} />
+            {/* Taux des VISITES (pas des sites) : « Exécution du plan », jamais « couverture » — la
+                Couverture (sites) est l'onglet « Par site (MMR) » (définitions communes). */}
+            <Kpi icon={ShieldCheck} tone={matrix.total.rate == null ? 'blue' : compTone(matrix.total.rate)} label={tr('Exécution du plan (visites)')} value={pct(matrix.total.rate, tr)} foot={tr('réalisées ÷ (prévues + réalisées)')} />
           </div>
 
           <div className="card biz-card">
             <div className="card-header">
-              <div><div className="card-title"><TrendingUp size={16} aria-hidden="true" /> {tr('Tendance mensuelle du taux de couverture')}</div>
+              <div><div className="card-title"><TrendingUp size={16} aria-hidden="true" /> {tr('Tendance mensuelle de l\'exécution du plan (visites)')}</div>
                 <div className="card-sub">{by === 'activity'
                   ? tr('Part des visites réalisées (vs planifiées + réalisées), par programme, mois par mois.')
                   : tr('Part des visites réalisées (vs planifiées + réalisées), par prestataire, mois par mois.')}</div></div>
@@ -231,10 +233,10 @@ function CoverageMatrixView({ by, groupHead, period }) {
           </div>
 
           <div className="card biz-card">
-            <div className="card-header"><div><div className="card-title"><LayoutGrid size={16} aria-hidden="true" /> {tr('Matrice de couverture mensuelle')}</div>
+            <div className="card-header"><div><div className="card-title"><LayoutGrid size={16} aria-hidden="true" /> {tr('Matrice mensuelle de l\'exécution du plan (visites)')}</div>
               <div className="card-sub">{by === 'activity'
-                ? tr('Taux par programme et par mois (réalisées / actives). « — » = aucune visite.')
-                : tr('Taux par prestataire et par mois (réalisées / actives). « — » = aucune visite.')}</div></div></div>
+                ? tr('Exécution du plan par programme et par mois : visites réalisées ÷ (prévues + réalisées). « — » = aucune visite.')
+                : tr('Exécution du plan par prestataire et par mois : visites réalisées ÷ (prévues + réalisées). « — » = aucune visite.')}</div></div></div>
             <div className="table-wrap">
               <table className="table cov-matrix">
                 <thead><tr>
@@ -287,7 +289,7 @@ function CovTrend({ matrix, colorOf }) {
   const y = (v) => padT + plotH * (1 - v / 100);
   const grid = [0, 25, 50, 75, 100];
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="cov-svg" role="img" aria-label={tr('Tendance mensuelle du taux de couverture')}>
+    <svg viewBox={`0 0 ${W} ${H}`} className="cov-svg" role="img" aria-label={tr('Tendance mensuelle de l\'exécution du plan (visites)')}>
       {grid.map((v) => (
         <g key={v}>
           <line x1={padL} x2={W - padR} y1={y(v)} y2={y(v)} stroke="var(--border)" strokeWidth="1" />
