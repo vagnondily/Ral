@@ -94,3 +94,18 @@ test('graphie sans région connue de deux régions : gardée telle quelle (aucun
   assert.equal(d.get('b').name, 'Centre Sud');
   assert.deepEqual(d.get('c'), { key: 'centre', name: 'Centre', official: null });
 });
+
+// Carte (lot 6a) : même règle de district que les tableaux. Le P-code de district n'est cru que
+// s'il est « d'accord » avec la région du site ; sinon, la zone qui porte le nom retenu DANS la
+// région du site — jamais un site dessiné dans le district d'une autre région.
+test('carte : le contour du district suit sdist, pas un P-code contradictoire', () => {
+  const { siteMonthFactsCtes } = require('../src/modules/common/siteActivitySql');
+  const params = ['tenant'];
+  const sql = siteMonthFactsCtes({ period: { from: '2026-09', to: '2026-09' }, todayMonth: '2026-10', geo: true }, params);
+  assert.doesNotMatch(sql, /LEFT JOIN admin_areas ad ON ad\.tenant_id = s\.tenant_id AND ad\.pcode = s\.adm2_pcode\s+LEFT JOIN admin_areas aa/,
+    'plus de jointure brute par adm2_pcode pour la carte');
+  assert.match(sql, /CASE WHEN g1\.agrees OR g1\.rkey = '' THEN g1\.pid ELSE dna\.id END/);
+  assert.match(sql, /dna\.k = sd\.dkey AND dna\.rk = g1\.rkey/, 'nom retenu cherché dans la région du site');
+  const plain = siteMonthFactsCtes({ period: { from: '2026-09', to: '2026-09' }, todayMonth: '2026-10' }, ['tenant']);
+  assert.doesNotMatch(plain, /\bdna\b/, 'hors carte, aucun coût ajouté');
+});

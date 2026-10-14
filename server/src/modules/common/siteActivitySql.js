@@ -19,14 +19,14 @@ function siteDistrictCtes() {
   return `sd0 AS MATERIALIZED (
        SELECT s.id AS site_id,
               COALESCE(NULLIF(btrim(s.adm2), ''), NULLIF(btrim(s.district), '')) AS own,
-              NULLIF(btrim(ad.name), '') AS pname,
+              NULLIF(btrim(ad.name), '') AS pname, ad.id AS pid,
               ${keySql('s.adm1')} AS rkey, ${keySql('r.name')} AS prkey
          FROM sites s
          LEFT JOIN admin_areas ad ON ad.tenant_id = s.tenant_id AND ad.pcode = s.adm2_pcode
          LEFT JOIN admin_areas r ON r.tenant_id = s.tenant_id AND r.id = ad.lineage[1]
         WHERE s.tenant_id = $1),
      sd1 AS MATERIALIZED (
-       SELECT site_id, own, pname, rkey, prkey, ${keySql('own')} AS okey,
+       SELECT site_id, own, pname, pid, rkey, prkey, ${keySql('own')} AS okey,
               (pname IS NOT NULL AND prkey <> '' AND (prkey = rkey OR (rkey = '' AND ${keySql('pname')} = ${keySql('own')}))) AS agrees
          FROM sd0),
      sdvote AS MATERIALIZED (
@@ -147,10 +147,23 @@ function siteMonthFactsCtes({
               COALESCE(ad.parent_id, CASE WHEN aa.depth = 1 THEN aa.id WHEN aa.depth > 1 THEN aa.lineage[1] END) AS rid,
               NULLIF(btrim(s.adm3_pcode), '') AS cpcode, s.field_office_id AS office_id,
               (s.gps_lat IS NOT NULL AND s.gps_lng IS NOT NULL) AS has_gps` : '';
-  // Carte : contour du district par son P-code (adm2_pcode), comme au lot 6a ; le regroupement des
-  // tableaux, lui, lit sdist (jamais le district d'une autre région).
+  // Carte : contour du district du SITE, même règle que les tableaux (sdist) — le P-code de
+  // district (adm2_pcode) n'est cru que s'il est « d'accord » avec la région du site (ou si le site
+  // n'a pas de région) ; sinon, la zone du découpage qui porte le nom retenu (dkey) DANS la région
+  // du site. Jamais un site dessiné dans le district d'une autre région.
+  const dnaCte = geo ? `
+     dna AS MATERIALIZED (
+       SELECT DISTINCT ON (k, rk) id, k, rk
+         FROM (SELECT a.id, a.pcode, ${keySql('a.name')} AS k, ${keySql('r.name')} AS rk
+                 FROM admin_areas a
+                 JOIN admin_areas r ON r.tenant_id = a.tenant_id AND r.id = a.lineage[1]
+                WHERE a.tenant_id = $1 AND a.depth = 2) x
+        ORDER BY k, rk, pcode),` : '';
   const geoJoin = geo ? `
-         LEFT JOIN admin_areas ad ON ad.tenant_id = s.tenant_id AND ad.pcode = s.adm2_pcode
+         JOIN sd1 g1 ON g1.site_id = s.id
+         LEFT JOIN dna ON NOT g1.agrees AND g1.rkey <> '' AND dna.k = sd.dkey AND dna.rk = g1.rkey
+         LEFT JOIN admin_areas ad ON ad.tenant_id = s.tenant_id
+               AND ad.id = CASE WHEN g1.agrees OR g1.rkey = '' THEN g1.pid ELSE dna.id END
          LEFT JOIN admin_areas aa ON aa.id = s.admin_area_id AND aa.tenant_id = s.tenant_id` : '';
   // Données rattachées : d'abord les soumissions de la période (peu nombreuses, index partiel),
   // regroupées par site × fiche × mois et MATÉRIALISÉES, puis seulement le registre — jamais
@@ -204,7 +217,7 @@ function siteMonthFactsCtes({
        SELECT m::date AS m, gy.known
          FROM generate_series(${pLo}::date, ${pHi}::date, interval '1 month') AS m
          JOIN grid_years gy ON gy.y = extract(year FROM m)::int),
-     ${siteDistrictCtes()},
+     ${siteDistrictCtes()},${dnaCte}
      reg AS MATERIALIZED (
        SELECT s.id AS site_id, ${officeExpr} AS office, sd.dkey, sd.dname, sd.official,
               lower(COALESCE(NULLIF(btrim(s.adm3_pcode), ''), NULLIF(btrim(s.adm3), ''), NULLIF(btrim(s.commune), ''), '—')) AS ckey,
