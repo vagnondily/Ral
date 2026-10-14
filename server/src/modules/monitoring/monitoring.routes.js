@@ -393,12 +393,18 @@ router.post('/forms/:id/exclude', WRITE, body(exclSchema), asyncHandler(async (r
 // Soumissions brutes d'une fiche (données importées) — visualisation par fiche.
 // Vie privée (lot 6a) : les coordonnées GPS des réponses sont celles des ménages enquêtés ;
 // un lecteur ne les reçoit jamais (map/submissionGps.stripGps), seuls admin / gestionnaire.
+// Pages : limit 1…2 000, offset ≥ 0 (l'écran « Données » charge la suite à la demande, retour 80).
+const pageQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(2000).optional(),
+  offset: z.coerce.number().int().min(0).max(10000000).optional(),
+});
 router.get('/forms/:id/submissions', asyncHandler(async (req, res) => {
   const period = readPeriod(req.query, { maxSpan: LIST_MAX_SPAN });
-  const limit = Number(req.query.limit);
+  const page = pageQuery.safeParse({ limit: req.query.limit || undefined, offset: req.query.offset || undefined });
+  if (!page.success) throw badRequest('Pagination invalide (limit 1 à 2 000, offset ≥ 0).', page.error.flatten());
   const precise = seesPreciseGps(req.auth.role);
   // Le dépôt retire les coordonnées avant les champs calculés ; second filet ici, sur la réponse.
-  const out = await repo.formSubmissions(t(req), uuidParam(req.params.id), { period, limit: Number.isFinite(limit) ? limit : undefined, precise });
+  const out = await repo.formSubmissions(t(req), uuidParam(req.params.id), { period, ...page.data, precise });
   if (!precise) {
     const rows = Array.isArray(out) ? out : (out && out.rows);
     for (const r of rows || []) if (r && r.data) r.data = stripGps(r.data);

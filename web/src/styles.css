@@ -3002,3 +3002,38 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .areas-table td.areas-leaf { color: var(--text-strong); font-weight: 600; }
 .areas-table .areas-state-col { width: 1%; white-space: nowrap; }
 .areas-count { color: var(--text-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* Données d'une fiche — soumissions importées (retour 80) : grille dense et alignée.
+   Filtres dans la bande commune (.filters-bar : marges intérieures, largeurs égales), barre
+   d'outils (.data-toolbar), en-têtes sur deux lignes au plus (libellé tronqué + nom technique,
+   texte complet au survol) : plus de bande vide au-dessus des en-têtes ; case « tout
+   sélectionner » sur la ligne des libellés ; colonnes de texte bornées (titre au survol). */
+.dv-filters .comet-fields { gap: 10px 12px; }
+.dv-filters .cfilter { flex: 1 1 140px; min-width: 128px; max-width: 210px; }
+.dv-toolbar .data-toolbar-left { flex: 1 1 auto; min-width: 0; gap: 10px 12px; }
+.dv-search { flex: 0 1 280px; min-width: 200px; }
+.dv-search .input { height: 34px; }
+.dv-count { font-size: 12.5px; color: var(--text-muted); }
+.dv-count strong { color: var(--text-strong); font-weight: 600; }
+.dv-batch { margin: 10px 20px 0; }
+.table.data-grid { font-size: 13px; }
+.table.data-grid thead th { padding: 9px 12px; vertical-align: bottom; line-height: 1.3; }
+.table.data-grid td { padding: 8px 12px; line-height: 1.35; }
+.table.data-grid th.data-cb, .table.data-grid td.data-cb { width: 40px; min-width: 40px; padding-left: 12px; padding-right: 4px; text-align: left; }
+.table.data-grid thead th.data-cb input { display: block; margin: 0 0 1px; }
+.data-grid th.data-first, .data-grid td.data-first { left: 40px; }
+.data-grid th.data-var { min-width: 104px; max-width: 176px; white-space: normal; }
+.data-grid .dv-th-label { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.data-grid thead .dv-th-label .th-sub { display: inline; margin-left: 2px; font-size: 10.5px; white-space: nowrap; }
+.data-grid td.data-var.mono-cell { max-width: 168px; }
+.data-grid td.dv-meta { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.data-grid td.dv-siteName, .data-grid td.dv-siteLabel { max-width: 200px; }
+.data-grid td.dv-date { color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.data-expand-row { gap: 8px; flex-wrap: wrap; }
+.data-expand.is-more { color: var(--blue-600); }
+.data-expand.is-more:hover { background: var(--blue-50); }
+.data-expand[disabled] { cursor: progress; opacity: .7; }
+@media (max-width: 640px) {
+  .dv-filters .cfilter { flex: 1 1 100%; }
+  .dv-search { flex: 1 1 100%; }
+}

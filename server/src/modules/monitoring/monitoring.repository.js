@@ -12,7 +12,7 @@ const { buildLookup, collectionColumns, overrideColumns, prepareImport, previewI
 const { collectionUpdates } = require('./collectionDate');
 const { templateForActivity, moduleLabel, suggestBindings, indicatorFromItem } = require('./indicatorTemplates');
 const { OTHER_VALUES } = require('./memsMapping');
-const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx, loadPartiesTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
+const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx, choiceContextTx, loadPartiesTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
 const { resolvePartner, resolveAgent } = require('../common/partyMatch');
 const { toPeriod, trendWindow, periodInfo } = require('../common/period');
 const { monthWithin } = require('../common/periodSql');
@@ -564,6 +564,7 @@ async function formCatalog(tenantId, formId) {
 // Clés des noms de lieux d'une soumission (résolus ensuite par placeNamesTx, sur les
 // clés DISTINCTES des lignes rendues — jamais une sous-requête par ligne).
 const PLACE_KEYS = `ms.site_status AS "siteStatus", ms.admin2 AS "_districtKey", COALESCE(ms.adm3_pcode, ms.admin3) AS "_communeKey",
+              ms.admin1 AS "_regionKey", ms.admin4 AS "_fokontanyKey",
               ms.site_id AS "_siteId", ms.field_office_id AS "_officeId"`;
 
 /**
@@ -572,7 +573,8 @@ const PLACE_KEYS = `ms.site_status AS "siteStatus", ms.admin2 AS "_districtKey",
  * Localités) d'abord, sinon le référentiel de sites (même pcode, le premier nom par
  * ordre alphabétique). Une sous-requête par ligne relisait le registre de sites pour
  * chaque soumission (adm2_pcode sans index) : 0,9 s pour 300 lignes au banc.
- * Ajoute districtName, communeName, siteName, officeName ; retire les clés internes.
+ * Ajoute regionName, districtName, communeName, fokontanyName (P-code du découpage), siteName,
+ * officeName ; retire les clés internes.
  */
 async function placeNamesTx(client, tenantId, rows) {
   const uniq = (k) => [...new Set(rows.map((r) => r[k]).filter((v) => v != null && v !== ''))];
@@ -580,7 +582,7 @@ async function placeNamesTx(client, tenantId, rows) {
   const siteIds = uniq('_siteId'); const officeIds = uniq('_officeId');
   const areaName = new Map(); const districtOfSite = new Map(); const communeOfSite = new Map();
   const siteName = new Map(); const officeName = new Map();
-  const pcodes = [...new Set([...districts, ...communes])];
+  const pcodes = [...new Set([...districts, ...communes, ...uniq('_regionKey'), ...uniq('_fokontanyKey')])];
   if (pcodes.length) {
     const { rows: a } = await client.query(
       'SELECT pcode, name FROM admin_areas WHERE tenant_id = $1 AND pcode = ANY($2::text[])', [tenantId, pcodes]);
@@ -612,7 +614,10 @@ async function placeNamesTx(client, tenantId, rows) {
     r.communeName = (ck != null && (areaName.get(ck) ?? communeOfSite.get(ck))) || null;
     r.siteName = (r._siteId && siteName.get(r._siteId)) || null;
     r.officeName = (r._officeId && officeName.get(r._officeId)) || null;
+    r.regionName = (r._regionKey != null && areaName.get(r._regionKey)) || null;
+    r.fokontanyName = (r._fokontanyKey != null && areaName.get(r._fokontanyKey)) || null;
     delete r._districtKey; delete r._communeKey; delete r._siteId; delete r._officeId;
+    delete r._regionKey; delete r._fokontanyKey;
   }
   return rows;
 }
@@ -669,19 +674,39 @@ async function submissionRegionsTx(client, tenantId, period) {
   return rows;
 }
 
+// Dimension MEMS → [colonne de la soumission, libellé rendu] : valeurs codées lues dans la liste
+// de choix de la colonne qui alimente la dimension (mapping MEMS, sinon table d'alias).
+const SUBMISSION_LABEL_COLUMNS = {
+  field_office: ['fieldOffice', 'fieldOfficeLabel'],
+  admin1: ['admin1', 'regionLabel'],
+  admin2: ['admin2', 'districtLabel'],
+  admin3: ['admin3', 'communeLabel'],
+  admin4: ['admin4', 'fokontanyLabel'],
+  site: ['site', 'siteLabel'],
+  partner: ['partner', 'partnerLabel'],
+  agent: ['agent', 'agentLabel'],
+};
+
 /**
  * Soumissions brutes d'une fiche (données importées), pour la visualisation :
  * champs typés (date, bureau, zones, site, partenaire, agent) + réponses brutes
- * (JSONB). Bornée par `limit`, filtrable par période ({ period } ou l'ancien
- * { month }). Noms de lieux résolus sur les clés distinctes (placeNamesTx).
+ * (JSONB). Par pages (`limit` ≤ 2 000, `offset`) dans un ordre STABLE (date, mois, id) :
+ * l'écran charge la suite à la demande et dit combien il en reste (retour 80), jamais
+ * une limite silencieuse. Filtrable par période ({ period } ou l'ancien { month }).
+ * Noms de lieux résolus sur les clés distinctes (placeNamesTx) ; libellés des valeurs
+ * codées (bureau, région → fokontany, site, partenaire, agent) d'après les listes de la
+ * fiche (« 89 » → « Tomboarivo »).
  */
 async function formSubmissions(tenantId, formId, opts = {}) {
   const { limit = 200 } = opts;
+  const offset = Math.max(0, Math.trunc(Number(opts.offset) || 0));
   const p = periodArg(opts);
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId, formId];
     const where = `ms.tenant_id = $1 AND ms.form_id = $2 AND ${monthWithin('ms.period_month', p, params)}`;
     params.push(Math.min(Math.max(Number(limit) || 200, 1), 2000));
+    const limitAt = params.length;
+    params.push(offset);
     const { rows } = await client.query(
       `SELECT ms.id, ms.external_id AS "externalId", to_char(ms.period_month, 'YYYY-MM') AS "periodMonth",
               ms.submitted_at AS "submittedAt", ms.field_office AS "fieldOffice",
@@ -690,22 +715,24 @@ async function formSubmissions(tenantId, formId, opts = {}) {
               ${PLACE_KEYS}
          FROM monitoring_submissions ms
         WHERE ${where}
-        ORDER BY ms.submitted_at DESC NULLS LAST, ms.period_month DESC
-        LIMIT $${params.length}`,
+        ORDER BY ms.submitted_at DESC NULLS LAST, ms.period_month DESC, ms.id
+        LIMIT $${limitAt} OFFSET $${params.length}`,
       params
     );
     await placeNamesTx(client, tenantId, rows);
-    // Codes → libellés (« 6 » → « Ambovombe ») des colonnes typées, d'après les listes de la fiche.
-    // Une requête à la fois sur le client de la transaction (pg ne les parallélise pas).
+    // Codes → libellés (« 6 » → « Ambovombe », « 89 » → « Tomboarivo ») des colonnes typées,
+    // d'après les listes de la fiche. Catalogue lu UNE fois pour toutes les dimensions ; une
+    // requête à la fois sur le client de la transaction (pg ne les parallélise pas).
+    const ctx = await choiceContextTx(client, tenantId);
     const labelMaps = {};
-    for (const dim of ['field_office', 'partner', 'agent', 'site']) {
-      labelMaps[dim] = ((await choiceLabelsTx(client, tenantId, dim)).get(formId)) || new Map();
+    for (const [dim, [col]] of Object.entries(SUBMISSION_LABEL_COLUMNS)) {
+      const values = [...new Set(rows.map((r) => r[col]).filter((v) => v != null && v !== '').map(String))];
+      labelMaps[dim] = ((await choiceLabelsTx(client, tenantId, dim, ctx, { formId, values })).get(formId)) || new Map();
     }
     for (const r of rows) {
-      r.fieldOfficeLabel = (r.fieldOffice != null && labelMaps.field_office.get(String(r.fieldOffice))) || null;
-      r.partnerLabel = (r.partner != null && labelMaps.partner.get(String(r.partner))) || null;
-      r.agentLabel = (r.agent != null && labelMaps.agent.get(String(r.agent))) || null;
-      r.siteLabel = (r.site != null && labelMaps.site.get(String(r.site))) || null;
+      for (const [dim, [col, out]] of Object.entries(SUBMISSION_LABEL_COLUMNS)) {
+        r[out] = (r[col] != null && r[col] !== '' && labelMaps[dim].get(String(r[col]))) || null;
+      }
     }
     // Comptage : ses PROPRES paramètres (tenant, fiche, période), jamais une tranche positionnelle de ceux de la liste.
     const cp = [tenantId, formId];
@@ -722,7 +749,10 @@ async function formSubmissions(tenantId, formId, opts = {}) {
     const outRows = calcFields.length
       ? safeRows.map((r) => ({ ...r, data: { ...r.data, ...computeCalcFields(calcFields, r.data || {}) } }))
       : safeRows;
-    return { rows: outRows, total: cnt[0]?.total ?? rows.length, excluded: cnt[0]?.excluded ?? 0, limit: params[params.length - 1], calcFields, period: periodInfo(p) };
+    return {
+      rows: outRows, total: cnt[0]?.total ?? rows.length, excluded: cnt[0]?.excluded ?? 0,
+      limit: params[limitAt - 1], offset, calcFields, period: periodInfo(p),
+    };
   });
 }
 
