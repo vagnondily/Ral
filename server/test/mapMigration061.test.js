@@ -37,6 +37,11 @@ test('ordre de choix aligné sur JavaScript ; préfiltres ; une évaluation par 
   assert.match(sql, /BEFORE INSERT OR UPDATE OF data, gps_lat, gps_lng, gps_accuracy_m ON monitoring_submissions/);
   assert.doesNotMatch(sql, /GENERATED ALWAYS/);
   assert.match(sql, /CASE WHEN g\[3\] IS NULL THEN NULL/); // LEAST ignore les NULL
+  // Ré-import identique : aucun recalcul (mesuré : 51 ms au lieu de 373 ms pour 562 lignes).
+  assert.match(sql, /IF TG_OP = 'UPDATE' AND NEW\.data IS NOT DISTINCT FROM OLD\.data/);
+  // Rattrapage AVANT la création du déclencheur : une seule évaluation par ligne.
+  assert.ok(sql.indexOf('UPDATE monitoring_submissions s') < sql.indexOf('CREATE TRIGGER trg_mon_sub_gps'));
+  assert.ok(sql.indexOf('DROP TRIGGER IF EXISTS trg_mon_sub_gps') < sql.indexOf('UPDATE monitoring_submissions s'));
 });
 
 test('map_shape_links : RLS activée et forcée, politique, GRANT mems2_app, contrôle même compte ; jamais mems_app', () => {

@@ -9,8 +9,8 @@
 --    aux lieux) ne recalcule rien. Coût mesuré : environ 0,5 ms par ligne (≈ 25 s pour
 --    50 000 lignes au rattrapage ci-dessous). Référence lisible et testée de la même
 --    règle : modules/map/submissionGps.js (mêmes motifs, même ordre de choix).
---    Si la règle change : CREATE OR REPLACE la fonction, puis
---    UPDATE monitoring_submissions SET gps_lat = NULL (le déclencheur recalcule).
+--    Si la règle change : CREATE OR REPLACE la fonction, puis rejouer l'UPDATE de
+--    rattrapage ci-dessous (il ne réécrit que les lignes dont la position change).
 -- 2. map_shape_links : correction manuelle district (P-code) → contour de la carte.
 
 CREATE OR REPLACE FUNCTION mems_submission_gps(d jsonb) RETURNS numeric[]
@@ -57,10 +57,17 @@ ALTER TABLE monitoring_submissions
   ADD COLUMN IF NOT EXISTS gps_accuracy_m numeric(10,1);
 
 -- Une évaluation par ligne ; une écriture directe des colonnes GPS est elle aussi
--- recalculée depuis data (les colonnes ne peuvent pas diverger des réponses).
+-- recalculée depuis data (les colonnes ne peuvent pas diverger des réponses). Un
+-- ré-import identique (ON CONFLICT DO UPDATE SET data = EXCLUDED.data, mêmes réponses)
+-- ne recalcule rien : comparer deux jsonb coûte bien moins que la règle.
 CREATE OR REPLACE FUNCTION mems_submission_gps_fill() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE g numeric[];
 BEGIN
+  IF TG_OP = 'UPDATE' AND NEW.data IS NOT DISTINCT FROM OLD.data
+     AND NEW.gps_lat IS NOT DISTINCT FROM OLD.gps_lat AND NEW.gps_lng IS NOT DISTINCT FROM OLD.gps_lng
+     AND NEW.gps_accuracy_m IS NOT DISTINCT FROM OLD.gps_accuracy_m THEN
+    RETURN NEW;
+  END IF;
   g := mems_submission_gps(NEW.data);
   NEW.gps_lat := round(g[1], 6);
   NEW.gps_lng := round(g[2], 6);
@@ -69,13 +76,20 @@ BEGIN
   RETURN NEW;
 END $$;
 
+-- Rattrapage des lignes existantes, AVANT le déclencheur (une évaluation par ligne ;
+-- idempotent). C'est aussi la commande de recalcul si la règle change.
 DROP TRIGGER IF EXISTS trg_mon_sub_gps ON monitoring_submissions;
+UPDATE monitoring_submissions s
+   SET gps_lat = round(x.g[1], 6), gps_lng = round(x.g[2], 6),
+       gps_accuracy_m = CASE WHEN x.g[3] IS NULL THEN NULL ELSE round(LEAST(x.g[3], 999999999), 1) END
+  FROM (SELECT id, mems_submission_gps(data) AS g FROM monitoring_submissions) x
+ WHERE x.id = s.id
+   AND (s.gps_lat IS DISTINCT FROM round(x.g[1], 6) OR s.gps_lng IS DISTINCT FROM round(x.g[2], 6)
+        OR s.gps_accuracy_m IS DISTINCT FROM CASE WHEN x.g[3] IS NULL THEN NULL ELSE round(LEAST(x.g[3], 999999999), 1) END);
+
 CREATE TRIGGER trg_mon_sub_gps
   BEFORE INSERT OR UPDATE OF data, gps_lat, gps_lng, gps_accuracy_m ON monitoring_submissions
   FOR EACH ROW EXECUTE FUNCTION mems_submission_gps_fill();
-
--- Rattrapage des lignes existantes (le déclencheur recalcule ; idempotent).
-UPDATE monitoring_submissions SET gps_lat = NULL;
 
 CREATE INDEX IF NOT EXISTS idx_mon_sub_period    ON monitoring_submissions (tenant_id, period_month) WHERE NOT excluded;
 CREATE INDEX IF NOT EXISTS idx_mon_sub_gps_month ON monitoring_submissions (tenant_id, period_month) WHERE gps_lat IS NOT NULL AND NOT excluded;
