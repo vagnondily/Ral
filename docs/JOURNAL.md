@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 12:54 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 13:07 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -32,7 +32,7 @@ _Dernière mise à jour : 14/10/2026 12:54 UTC_ — la branche `main` reçoit ch
 | Retours 13–14/10 | Plan par lots : [`PLAN_RETOURS_15_37.md`](PLAN_RETOURS_15_37.md). Retours n° 15 à 55 ; synthèse dans [`ETAT_DU_PROJET.md`](ETAT_DU_PROJET.md) | 🔄 | **Lot 1 publié sur `main`** (`45493c7`). En cours : 1b, 6a, 7a (lignes ci-dessous). Détail de chaque retour : [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) |
 | Lot 1b | Période = plage de mois (retour 47) — [`SPEC_LOT_1B.md`](SPEC_LOT_1B.md) | ✅ | **Publié sur `main`** (`de3b6f6`) avec les corrections des 16 constats ; vérification adverse de l'ensemble à 15:30 UTC (fin de la limite des agents) |
 | Lot 6a | Carte exploitable + carte dans le Dashboard décisionnel — [`SPEC_LOT_6A.md`](SPEC_LOT_6A.md) | ✅ | **Publié sur `main`** (`de3b6f6`) avec les corrections des 11 constats et la règle de district des tableaux ; suite : carte décisionnelle dédiée (retour 65) |
-| Lot 7a | Concepteur de rapport riche (retours 18, 39, 40, 43, 45, 51–53) — [`SPEC_LOT_7A.md`](SPEC_LOT_7A.md) | 🔄 | En construction (rendu progressif fait ; catalogue, en-tête libre, orientation, validation, exports à suivre) |
+| Lot 7a | Concepteur de rapport riche (retours 18, 39, 40, 43, 45, 51–53, 72) — [`SPEC_LOT_7A.md`](SPEC_LOT_7A.md) | 🔄 | **Partie 1 publiée** (`e6e07f1`) : catalogue, éditeur à 3 volets, rendu progressif, pagination et orientation par section. Partie 2 : en-tête et pied libres, validation, Word / PowerPoint, calculs personnalisés (retour 74) |
 | Retour 56 | Suppression des documents : non validé → supprimable ; validé → seulement sans donnée reliée, avec justificatif ; journal des suppressions | 🔄 | Une autre session Claude l'avait commencé (3 commits, branche `claude/zealous-bardeen-p9ozcr`) : travail **repris** et en cours de correction (migration renumérotée 069, anglais, avenants, données reliées affichées, documents validés atteignables, justificatif ≥ 10 caractères, tests), puis vérification indépendante |
 | Retour 54 | Tableau trimestriel par activité (sites actifs / prévus / réalisés, couverture, exécution) | 🔄 | **En réalisation** (nouvelle entrée « Rapport trimestriel » du Dashboard décisionnel, export Excel) |
 | Lot 5 élargi | Calendrier d'activités (pop-up), plan MMR réaliste, priorités configurables, risque daté (retours 24, 25, 55) | 🔄 | **Conception v1 rendue** → [`SPEC_LOT_5.md`](SPEC_LOT_5.md) (critique : 7 graves, 15 moyens, 6 mineurs) ; v2 avec le retour 58 dès sa conception rendue ; réalisation après la publication de 1b et 6a |
@@ -510,7 +510,7 @@ _Dernière mise à jour : 14/10/2026 12:54 UTC_ — la branche `main` reçoit ch
   - 74 : beaucoup plus de fonctions de calcul (Excel, Tableau, DAX, statistiques), sans compromettre la sécurité ;
   - 75 : design professionnel et épuré, exigence permanente.
 
-- **12:50 → 13:00** 🔄 **Intégration du concepteur (7a, partie 1) dans `main` commencée** sur la branche locale `integ/7a`. Il y a 9 fichiers en conflit, environ 380 lignes.
+- **12:47 → 12:52** 🔄 **Intégration du concepteur (7a, partie 1) dans `main` commencée** sur la branche locale `integ/7a`. Il y a 9 fichiers en conflit, environ 380 lignes.
   - **Résolus** : contrats, PDD (filtre et cumul en centimes), consolidation (période du lot 1b et date de situation `until` du 7a, total `totalsOf`).
   - **Restants** : faits site × mois, moteur des indicateurs (deux optimisations différentes de la même boucle), lecture des indicateurs du concepteur. Pour ce dernier, la **protection GPS du lot 6a doit être reportée dans le nouveau chemin de lecture du 7a**.
 
@@ -521,5 +521,17 @@ _Dernière mise à jour : 14/10/2026 12:54 UTC_ — la branche `main` reçoit ch
   - page séparée retirée.
 
   📥 **Retour 77** : réponses « 999 / Autre » et leur texte précisé à compter dans les données.
+
+- **12:57** ✅ **Retour 78 (1)** publié (`408271b`) : le bandeau « Placé sur … » est remplacé par une ligne sobre « Période : … du … au … · n mois ». 📥 (2) Le filtre bureau partout est inscrit pour la conception de 15:30.
+- **13:00 → 13:07** ✅ **Concepteur riche, partie 1, publié sur `main`** (`ab750b1` + `e6e07f1`). Intégration faite par la session principale :
+  - **Conflits.** 9 fichiers en conflit, tous résolus en gardant les deux côtés.
+  - **Vie privée.** La protection GPS est reportée dans la lecture en flux du concepteur. Le test échoue si on la retire.
+  - **Concordance mesurée sur une copie des données**, `main` comparé à la version fusionnée :
+    - identiques : Synthèse, résumé terrain, couverture, carte, alertes, tableaux de bord et valeurs de 3 fiches ;
+    - consolidation : seulement des ajouts (identifiant du partenaire, projection totale) ;
+    - PDD : seulement la suppression des erreurs d'arrondi (4 351,310000000002 → 4 351,31).
+  - **Contrôles.** 1 010 tests réussis, lint propre, build OK, balayage de 33 écrans en FR et EN sans erreur. Un rapport de 7 pages se rend en 1,5 s, sans « Calcul… ». Aucune migration.
+
+  ⏳ Vérification adverse de l'ensemble à 15:30.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.

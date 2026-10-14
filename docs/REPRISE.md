@@ -1,6 +1,6 @@
 # Reprise du travail — passation entre sessions Claude
 
-_Mis à jour : 14/10/2026, 12:40 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
+_Mis à jour : 14/10/2026, 13:07 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
 Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOURNAL.md)._
 
 **À qui s'adresse ce fichier ?** À toute session Claude qui reprend le projet, en particulier pendant une limite d'usage de la session principale. Il dit :
@@ -43,7 +43,7 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 |---|---|---|---|
 | `main` = `claude/practical-meitner-2c1560` | oui | Tout ce qui est publié | ✅ |
 | `wip/1b-core`, `wip/1b-rest`, `wip/6a`, `wip/fix-1b`, `wip/fix-6a` | oui | Lots 1b et 6a et leurs corrections | ✅ **fusionnées dans `main`** — ne plus y travailler |
-| `wip/7a` | oui | Concepteur riche, partie 1 (C1 à C7), par-dessus `wip/1b-core` (ancienne base) | 🔄 partie 2 à faire ; à rebaser ou fusionner sur `main` |
+| `wip/7a` | oui | Concepteur riche, partie 1 (C1 à C7) | ✅ **fusionnée dans `main`** (`e6e07f1`) ; la partie 2 (C8 à C13) part de `main` |
 | `wip/r57-core` | oui | Réconciliation du socle GPS (un seul lecteur `.shp`), interrompue | ⏸️ le socle est déjà sur `main` (autre session) ; reste à fusionner `settings/shpReader.js` et `common/shpGeometry.js` (lot 3) |
 | `claude/zealous-bardeen-p9ozcr` | oui | Autre session : retours 56 et 57, page Sites | ✅ fusionnée dans `main` par l'autre session (`e8624e0`) |
 | `claude/friendly-carson-ze6mtp` | oui | Ancienne (09/10), déjà dans `main` | à ignorer |
@@ -55,10 +55,10 @@ Les agents de la session principale sont bloqués par la limite d'usage jusqu'à
 | | Chantier | Retours | Qui | État |
 |---|---|---|---|---|
 | A | Vérification adverse de `main` (1b + 6a intégrés, sites, suppression) | — | session principale, 15:30 | ⏳ |
-| B | Tableau trimestriel par activité | 54 | session principale | ⏳ |
+| B | Tableau trimestriel par activité → carte « Couverture par activité » de la Synthèse | 54, 76 | session principale | ✅ `18cbcd3` |
 | C | Lots 3 et 4 : **sites actifs / inactifs** (grille Oui / Non par mois, classeur `mems_activation_2026_1.xlsx`), **révision du plan de suivi** (P / R, réalisé issu des données), identifiants `S-XXXX-XXXX`, plusieurs sites par site déclaré, GPS par contours | 21, 22, 23, 33, 46, 57, 64 | session principale, conception à 15:30 | ⏳ (la conception lancée à 12:55 a échoué sur la limite) |
 | D | Lot 5 v2 : plan MMR réaliste, dispatch automatique selon la configuration, calendrier, priorités, risque daté, avec le retour 58 | 24, 25, 55, 58 | session principale | v1 + critique dans `SPEC_LOT_5.md` ; analyse du retour 58 faite (résultat à transcrire) |
-| E | Lot 7a partie 2 + concepteur enrichi d'après les maquettes | 18, 39, 40, 51–53, 67 | session principale | ⏳ |
+| E | Lot 7a partie 2 + concepteur universel (calculs personnalisés, tableaux croisés, en-tête libre) d'après les maquettes | 18, 39, 40, 51–53, 67, 72, 74 | session principale | partie 1 publiée (`e6e07f1`) ; partie 2 ⏳ |
 | F | Tableaux de bord riches d'après les 5 XLSForm et les 4 maquettes | 40, 66, 67 | session principale | ⏳ conception |
 | G | Sélection multiple de mois dans tous les filtres de date | 68 | — | ⏳ conception |
 | H | Annuler une suppression depuis le journal | 60 | — | ⏳ conception |
