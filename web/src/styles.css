@@ -2672,7 +2672,18 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .period-trigger-span { color: var(--text-faint); font-weight: 500; }
 .period-select.is-compact .period-trigger { height: 32px; padding: 0 10px; font-size: var(--fs-sm); }
 .pop-menu.period-pop { width: 620px; max-width: calc(100vw - 32px); padding: 0; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
-.pop-menu.period-pop.is-right { left: auto; right: 0; }
+/* Retour 86 : fenêtre dans un portail (document.body), position fixe calculée depuis le bouton
+   (lib/popoverPlacement) — au-dessus des fenêtres modales (50), sous les messages (60) ; jamais
+   coupée par un conteneur, défilement interne quand l'écran est trop bas. */
+.pop-menu.period-pop.is-floating { position: fixed; right: auto; z-index: 55; display: flex; flex-direction: column; overflow: hidden; }
+/* Hauteur bornée : seules les colonnes défilent, « Annuler / Appliquer » reste visible. */
+.pop-menu.period-pop.is-floating > .period-cols { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.pop-menu.period-pop.is-floating > .period-foot { flex: none; }
+.pop-menu.period-pop.is-below { animation: period-pop-down .14s ease; }
+.pop-menu.period-pop.is-above { animation: period-pop-up .14s ease; }
+@keyframes period-pop-down { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes period-pop-up { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .pop-menu.period-pop.is-below, .pop-menu.period-pop.is-above { animation: none; } }
 .period-cols { display: grid; grid-template-columns: 248px minmax(0, 1fr); }
 .period-presets { display: flex; flex-direction: column; gap: 2px; padding: 10px; border-right: 1px solid var(--border); }
 .period-preset { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 10px; width: 100%; min-height: 34px;
@@ -2729,10 +2740,7 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 @media (max-width: 1100px) { .biz-kpis.cd-kpis-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .biz-kpis.cd-kpis-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) {
-  .pop-menu.period-pop { position: fixed; left: 16px; right: 16px; top: calc(var(--header-h) + 12px); width: auto; max-width: none;
-    max-height: calc(100vh - var(--header-h) - 24px); overflow-y: auto; }
-  /* Aligné à droite sur bureau : sur téléphone, mêmes marges de 16 px des deux côtés. */
-  .pop-menu.period-pop.is-right { left: 16px; right: 16px; }
+  /* Position et hauteur : calculées depuis le bouton (marges de 16 px des deux côtés, défilement interne). */
   /* minmax(0, 1fr) : une colonne ne s'élargit jamais à la largeur de son contenu (libellé, liste
      de mois) — sinon pilules et listes « Du » / « Au » débordaient de la fenêtre à 360-390 px. */
   .period-cols { grid-template-columns: minmax(0, 1fr); }
