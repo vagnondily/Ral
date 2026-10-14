@@ -103,6 +103,11 @@ test('fitTransform : la bbox remplit la fenêtre (marges comprises), inverse exa
   const [lng, lat] = tr.invert(...tr.project(46.7, -19.5));
   assert.ok(Math.abs(lng - 46.7) < 1e-9 && Math.abs(lat + 19.5) < 1e-9);
   assert.match(m.pathOf({ type: 'Polygon', coordinates: [[[44, -20], [45, -20], [45, -21], [44, -20]]] }, tr.project), /^M[\d.]+,[\d.]+L.*Z$/);
+  // Calcul en ligne (paramètres de fitTransform) = projection générique, au caractère près.
+  const multi = { type: 'MultiPolygon', coordinates: [[[[44.123, -20.987], [45.5, -20.2], [45.01, -21.33], [44.123, -20.987]]], [[[47.2, -15.1], [48, -15], [47.6, -16], [47.2, -15.1]]]] };
+  const generic = (lng, lat) => tr.project(lng, lat);
+  assert.equal(m.pathOf(multi, tr.project), m.pathOf(multi, generic));
+  assert.equal((m.pathOf(multi, tr.project).match(/Z/g) || []).length, 2);
 });
 
 test('barre d\'échelle : longueur ronde, calculée à la latitude du centre, ≥ 70 px', async (t) => {

@@ -128,17 +128,24 @@ export function scaleFor(theme, zones, { dark = false } = {}) {
   return { kind: 'count', breaks, colors, ticks: breaks.map(String), classOf: cls, fill: (v) => { const i = cls(v); return i == null ? null : colors[i]; } };
 }
 
+const NF = new Map();
+const nf = (loc, digits) => {
+  const k = `${loc}|${digits}`;
+  if (!NF.has(k)) NF.set(k, new Intl.NumberFormat(loc, { minimumFractionDigits: digits, maximumFractionDigits: digits }));
+  return NF.get(k);
+};
+
 /** Taux affiché : 0 → « 0 % », < 10 % → une décimale (« 1,3 % »), sinon entier (« 44 % »). */
 export function formatRate(v, lang = 'fr') {
   if (v == null || !Number.isFinite(v)) return '—';
   const pct = v * 100;
   const loc = lang === 'en' ? 'en-GB' : 'fr-FR';
   if (pct > 0 && pct < 0.05) { // jamais « 0,0 % » pour un taux non nul
-    const tiny = new Intl.NumberFormat(loc, { minimumFractionDigits: 1 }).format(0.1);
+    const tiny = nf(loc, 1).format(0.1);
     return lang === 'en' ? `< ${tiny}%` : `< ${tiny}\u00a0%`;
   }
   const digits = pct === 0 || pct >= 10 ? 0 : 1;
-  const n = new Intl.NumberFormat(loc, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(pct);
+  const n = nf(loc, digits).format(pct);
   return lang === 'en' ? `${n}%` : `${n} %`;
 }
 

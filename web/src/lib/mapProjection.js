@@ -50,23 +50,39 @@ export function fitTransform(bbox, width, height, pad = {}) {
   const ox = p.left + (w - (x1 - x0) * k) / 2;
   const oy = p.top + (h - (y1 - y0) * k) / 2;
   const project = (lng, lat) => { const [x, y] = mercator([lng, lat]); return [ox + (x - x0) * k, oy + (y1 - y) * k]; };
+  // Paramètres exposés : pathOf calcule les chemins sans allouer un tableau par sommet.
+  project.params = { k, x0, y1, ox, oy };
   const invert = (px, py) => unmercator([x0 + (px - ox) / k, y1 - (py - oy) / k]);
   return { k, x0, y1, ox, oy, project, invert };
 }
 
-/** Chemin SVG d'une géométrie (coordonnées à 1 décimale, une sous-forme par anneau). */
+const r1 = (v) => Math.round(v * 10) / 10;
+
+/**
+ * Chemin SVG d'une géométrie (coordonnées à 1 décimale, une sous-forme par anneau).
+ * Projection de fitTransform : calcul en ligne (premier rendu ≈ 30 000 sommets) ;
+ * toute autre fonction project(lng, lat) → [x, y] reste acceptée.
+ */
 export function pathOf(geometry, project) {
-  let d = '';
+  const q = project.params;
+  const parts = [];
   for (const poly of polygonsOf(geometry)) {
     for (const ring of poly) {
       for (let i = 0; i < ring.length; i += 1) {
-        const [x, y] = project(ring[i][0], ring[i][1]);
-        d += `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`;
+        let x; let y;
+        if (q) {
+          const phi = Math.max(-85.0511, Math.min(85.0511, ring[i][1])) * D2R;
+          x = q.ox + (ring[i][0] * D2R - q.x0) * q.k;
+          y = q.oy + (q.y1 - Math.log(Math.tan(Math.PI / 4 + phi / 2))) * q.k;
+        } else {
+          [x, y] = project(ring[i][0], ring[i][1]);
+        }
+        parts.push(`${i ? 'L' : 'M'}${r1(x)},${r1(y)}`);
       }
-      d += 'Z';
+      parts.push('Z');
     }
   }
-  return d;
+  return parts.join('');
 }
 
 /**
