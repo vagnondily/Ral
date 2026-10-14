@@ -23,9 +23,10 @@ import correspondences from './en/correspondences.js';
 import indicatorEditor from './en/indicatorEditor.js';
 import dashboards from './en/dashboards.js';
 import period from './en/period.js';
+import map from './en/map.js';
 
 export default {
   ...common, ...shell, ...contracts, ...tpmReports, ...tpmPlanning, ...monitoring,
   ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard, ...calc, ...importWizard, ...correspondences,
-  ...indicatorEditor, ...dashboards, ...period,
+  ...indicatorEditor, ...dashboards, ...period, ...map,
 };
