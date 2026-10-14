@@ -23,12 +23,11 @@ const store = (kind) => { try { return kind === 'session' ? window.sessionStorag
 function readJson(kind, key) { try { const s = store(kind); return s ? JSON.parse(s.getItem(key) || 'null') : null; } catch { return null; } }
 function writeJson(kind, key, v) { try { const s = store(kind); if (s) { if (v == null) s.removeItem(key); else s.setItem(key, JSON.stringify(v)); } } catch { /* stockage indisponible */ } }
 
-/** Réglages passés par « Ouvrir la carte » (lus une fois, puis oubliés). */
-export function takeMapOpen() {
-  const v = readJson('session', MAP_OPEN_KEY);
-  if (v) writeJson('session', MAP_OPEN_KEY, null);
-  return v;
+/** Réglages passés par « Ouvrir la carte » (lecture pure : l'appelant les oublie après le montage, forgetMapOpen). */
+export function peekMapOpen() {
+  return readJson('session', MAP_OPEN_KEY);
 }
+export function forgetMapOpen() { writeJson('session', MAP_OPEN_KEY, null); }
 
 const useIsPhone = () => {
   const q = '(max-width: 760px)';
@@ -58,7 +57,7 @@ const useIsPhone = () => {
  */
 export default function MapExplorer({
   variant = 'full', period, initial = {}, onNavigate, onOpenFull, storageKey = 'mems.map.prefs', title,
-  isAdmin = false, toolbarExtra = null, onDataChange,
+  isAdmin = false, toolbarExtra = null, periodControl = null, onDataChange,
 }) {
   const { tr, lang } = useI18n();
   const dark = useDarkTheme();
@@ -171,6 +170,7 @@ export default function MapExplorer({
 
   const filterBar = data && (
     <div className="mapx-toolbar">
+      {periodControl && <div className="mapx-filter"><span>{tr('Période')}</span>{periodControl}</div>}
       <label className="mapx-filter">
         <span>{tr('Bureau')}</span>
         <select className="select" value={officeId || ''} onChange={(e) => setOfficeId(e.target.value || null)}>

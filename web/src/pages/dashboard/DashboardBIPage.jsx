@@ -2,7 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { TrendingUp, Wallet, CheckCircle2, AlertTriangle, Users, FileSignature } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Skeleton, PageHeader } from '../../components/ui.jsx';
-import { formatAr, formatInt, currentMonth } from '../../lib/format.js';
+import { formatAr, formatInt } from '../../lib/format.js';
+import { single } from '../../lib/period.js';
+import PeriodSelect from '../../components/PeriodSelect.jsx';
+import { PeriodBanner, SessionPeriodNote, usePeriod } from '../../components/PeriodBanner.jsx';
+import MapExplorer, { MAP_OPEN_KEY } from '../../components/map/MapExplorer.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 
 /**
@@ -179,15 +183,20 @@ function Donut({ items, onTip }) {
   );
 }
 
-export default function DashboardBIPage({ onOpenContract }) {
+export default function DashboardBIPage({ onOpenContract, onNavigate }) {
   const { tr } = useI18n();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [field, setField] = useState(null); // couverture terrain du mois courant
   const [tip, setTip] = useState(null);
 
   useEffect(() => { api.consolidation().then(setData).catch((e) => setError(e.message)); }, []);
-  useEffect(() => { api.fieldSummary(currentMonth()).then(setField).catch(() => setField(null)); }, []);
+  // Carte du suivi (lot 6a) : période de travail de la session, sinon la période par défaut
+  // (dernier mois substantiel avec des données) — jamais un mois vide.
+  const mapP = usePeriod({ scope: 'analysis', defaultRule: 'data' });
+  const openMap = (state) => {
+    try { window.sessionStorage.setItem(MAP_OPEN_KEY, JSON.stringify({ view: 'carte', ...state })); } catch { /* stockage indisponible */ }
+    if (onNavigate) onNavigate('dashboard', 'couverture');
+  };
 
   const donutItems = useMemo(() => {
     if (!data) return [];
@@ -218,6 +227,17 @@ export default function DashboardBIPage({ onOpenContract }) {
         <Kpi icon={AlertTriangle} label={tr('Alertes')} value={formatInt(alerts.length)} foot={tr('Dépassement / projection')} tone={alerts.length ? 'red' : 'green'} />
         <Kpi icon={Users} label={tr('Taux global')} value={`${Math.round((totals.actualRate || 0) * 100)}`} suffix="%" foot={tr('Consommation')} tone="blue" />
       </div>
+
+      {/* Carte du suivi : pleine largeur sous les tuiles, même service que Couverture & performance › Carte
+          (remplace « Couverture terrain — mois courant », ancienne règle visites réalisées ÷ planifiées). */}
+      <section className="bi-map" aria-label={tr('Carte du suivi')}>
+        <PeriodBanner auto={mapP.auto} onBack={(m) => mapP.setPeriod(single(m))} />
+        <SessionPeriodNote source={mapP.source} onReset={mapP.resetToDefault} />
+        <MapExplorer variant="compact" period={mapP.period || undefined} onNavigate={onNavigate} onOpenFull={openMap}
+          periodControl={mapP.ready ? (
+            <PeriodSelect value={mapP.period} onChange={(p) => mapP.setPeriod(p)} counts={mapP.counts} latest={mapP.latest} today={mapP.today} maxSpan={36} compact ariaLabel={tr('Période de la carte')} />
+          ) : null} />
+      </section>
 
       <div className="biz-grid">
         <div className="card biz-card biz-span2">
@@ -267,23 +287,6 @@ export default function DashboardBIPage({ onOpenContract }) {
           </div>
         </div>
 
-        {field?.overall?.total > 0 && (
-          <div className="card biz-card biz-span2">
-            <div className="card-header"><div className="card-title">{tr('Couverture terrain — mois courant')}</div>
-              <div className="card-sub">{tr('Visites réalisées / planifiées par district ({done}/{active} · {p} %).', { done: field.overall.realise, active: field.overall.active, p: Math.round((field.overall.rate || 0) * 100) })}</div></div>
-            <div className="card-body biz-gauges" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', display: 'grid', gap: 14 }}>
-              {field.byDistrict.map((d) => {
-                const col = d.rate >= 0.8 ? 'var(--green)' : d.rate >= 0.5 ? 'var(--blue-600)' : 'var(--orange)';
-                return (
-                  <div className="biz-gauge" key={d.key}>
-                    <div className="biz-gauge-head"><span>{d.label}</span><span className="tabular" style={{ color: col }}>{d.realise}/{d.active} · {Math.round(d.rate * 100)} %</span></div>
-                    <div className="biz-bar"><span style={{ width: `${Math.round(d.rate * 100)}%`, background: col }} /></div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
 
       {alerts.length > 0 && (

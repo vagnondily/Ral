@@ -66,6 +66,7 @@ export default {
   'Districts colorés selon le thème · même période et mêmes filtres que la carte complète': 'Districts coloured by theme · same period and filters as the full map',
   'Thème de la carte': 'Map theme',
   'Ouvrir la carte': 'Open the map',
+  'Période de la carte': 'Map period',
   '{n} district(s) colorés': '{n} district(s) coloured',
   'sur {total} contours · {d} sites rattachés à un district ({ro} à la région seulement, {u} sans localité) · {placed} site(s) placé(s) sur la carte + {c} au centre des collectes de leur commune':
     'out of {total} outlines · {d} sites linked to a district ({ro} to the region only, {u} without locality) · {placed} site(s) placed on the map + {c} at their commune data-collection centre',

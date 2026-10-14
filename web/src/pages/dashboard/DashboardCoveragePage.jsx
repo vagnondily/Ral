@@ -7,7 +7,7 @@ import TrendChart from '../../components/charts/TrendChart.jsx';
 import CodeLabel from '../../components/CodeLabel.jsx';
 import { PeriodBanner, useDefaultMonth } from '../../components/PeriodBanner.jsx';
 import { formatInt, monthLabel } from '../../lib/format.js';
-import MapExplorer from '../../components/map/MapExplorer.jsx';
+import MapExplorer, { peekMapOpen, forgetMapOpen } from '../../components/map/MapExplorer.jsx';
 import { fetchMapDistricts } from '../../components/map/useMapData.js';
 import { formatRate } from '../../lib/mapScale.js';
 import { groupNaReasons } from '../../lib/naReasons.js';
@@ -54,7 +54,11 @@ export default function DashboardCoveragePage({ onNavigate }) {
   const [rbm, setRbm] = useState(null);
   const [mapData, setMapData] = useState(null); // totaux de la carte : la tuile « Couverture » lit la MÊME réponse que la carte
   const [error, setError] = useState(null);
-  const [view, setView] = useState('synthese');
+  // « Ouvrir la carte » (Vue d'ensemble) : même thème, même période, mêmes filtres, lus une fois.
+  const [opened] = useState(() => peekMapOpen());
+  useEffect(() => { forgetMapOpen(); }, []);
+  const [view, setView] = useState(opened ? 'carte' : 'synthese');
+  const [periodOverride, setPeriodOverride] = useState(opened && opened.period ? opened.period : null);
   const [tab, setTab] = useState('_OV');
 
   useEffect(() => {
@@ -69,8 +73,8 @@ export default function DashboardCoveragePage({ onNavigate }) {
     fetchMapDistricts({ from: month, to: month }).then((d) => { if (alive) setMapData(d); }, () => { if (alive) setMapData(false); });
     return () => { alive = false; };
   }, [month]);
-  const mapPeriod = useMemo(() => (month ? { from: month, to: month } : undefined), [month]);
-  const mapInitial = useMemo(() => ({}), []);
+  const mapPeriod = useMemo(() => periodOverride || (month ? { from: month, to: month } : undefined), [month, periodOverride]);
+  const mapInitial = useMemo(() => (opened ? { theme: opened.theme, officeId: opened.officeId, activity: opened.activity } : {}), [opened]);
 
   const rbmStats = useMemo(() => {
     const s = { total: 0, due: 0, elevee: 0, moyenne: 0, faible: 0 };
@@ -87,7 +91,7 @@ export default function DashboardCoveragePage({ onNavigate }) {
     <div className="page">
       <PageHeader title={tr('Couverture & performance du suivi')}
         description={tr('Vue analytique du suivi de processus : couverture terrain, données versées, conformité par bande, plan vs réalisé, et détail par activité (dimensions, indicateurs). Recalculé en direct.')}>
-        {month && <MonthSelect value={month} onChange={pick} counts={counts} />}
+        {month && <MonthSelect value={periodOverride && periodOverride.from === periodOverride.to ? periodOverride.to : month} onChange={(m) => { setPeriodOverride(null); pick(m); }} counts={counts} />}
       </PageHeader>
       <PeriodBanner auto={auto} onBack={pick} />
 

@@ -2859,3 +2859,5 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .mapx-levels button { padding-left: 4px; padding-right: 4px; font-size: 12.5px; white-space: nowrap; }
 .mapx-label.on-light { fill: #14181f; stroke: rgba(255, 255, 255, .75); }
 .mapx-acts { overflow-x: auto; }
+.bi-map { margin-bottom: 16px; }
+.bi-map .mapx-compact { margin: 0; }
