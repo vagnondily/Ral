@@ -46,4 +46,23 @@ function toUsd(amountAr, rate) {
   return Math.round((v / r) * 100) / 100;
 }
 
-module.exports = { monthKey, pickRate, toUsd };
+/**
+ * Total en USD de montants datés, en CENTIMES ENTIERS : chaque montant est converti au taux de
+ * SON mois (pickRate) et arrondi au cent — exactement la valeur de sa cellule —, puis les cents
+ * sont sommés. Un total sur plusieurs mois n'est jamais converti au taux d'un seul mois.
+ * @param {{ amountAr:number, period:string }[]} items
+ * @returns {number|null} cents ; null si un montant non nul n'a pas de taux applicable
+ */
+function sumUsdCents(items, rates) {
+  let cents = 0;
+  for (const it of items || []) {
+    const v = Number(it.amountAr) || 0;
+    if (v === 0) continue;
+    const usd = toUsd(v, pickRate(rates, it.period));
+    if (usd == null) return null;
+    cents += Math.round(usd * 100);
+  }
+  return cents;
+}
+
+module.exports = { monthKey, pickRate, toUsd, sumUsdCents };
