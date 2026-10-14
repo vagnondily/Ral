@@ -9,7 +9,7 @@ import { Cell, Empty, colLabel, isNumeric } from './common.jsx';
  * total en gras, classes et statuts avec icône + libellé. `annotate` (cov.by_activity) ajoute
  * la colonne « Constat » éditée par ligne (texte riche du document, clé de ligne stable).
  */
-export function DataTable({ data, columns: pick, annotate, annotations }) {
+export function DataTable({ data, columns: pick, annotate, annotations, scale = 1 }) {
   const { tr } = useI18n();
   if (!data) return null;
   const cols = pick && pick.length ? data.columns.filter((c) => pick.includes(c.key)) : data.columns;
@@ -17,7 +17,7 @@ export function DataTable({ data, columns: pick, annotate, annotations }) {
   const notes = annotations || {};
   return (
     <div className="rb-table-wrap">
-      <table className="rb-table">
+      <table className="rb-table" style={scale < 1 ? { '--rb-scale': scale } : undefined}>
         <thead><tr>
           {cols.map((c) => <th key={c.key} className={isNumeric(c) ? 'num' : ''}>{colLabel(c, tr)}</th>)}
           {annotate && <th>{tr(annotate.label)}</th>}
@@ -39,7 +39,7 @@ export function DataTable({ data, columns: pick, annotate, annotations }) {
  * Matrice colorée : intensité sur la rampe bleue unique (guide de visualisation), valeur
  * toujours écrite ; texte clair sur les cases foncées.
  */
-export function HeatTable({ data, columns: pick }) {
+export function HeatTable({ data, columns: pick, scale = 1 }) {
   const { tr } = useI18n();
   if (!data) return null;
   const cols = pick && pick.length ? data.columns.filter((c) => pick.includes(c.key)) : data.columns;
@@ -48,7 +48,7 @@ export function HeatTable({ data, columns: pick }) {
   const max = heat.some((c) => c.type === 'pct') ? 100 : Math.max(1, ...data.rows.flatMap((r) => heat.map((c) => Number(r[c.key]) || 0)));
   return (
     <div className="rb-table-wrap">
-      <table className="rb-table rb-matrix">
+      <table className="rb-table rb-matrix" style={scale < 1 ? { '--rb-scale': scale } : undefined}>
         <thead><tr>{cols.map((c) => <th key={c.key} className={isNumeric(c) ? 'num' : ''}>{colLabel(c, tr)}</th>)}</tr></thead>
         <tbody>
           {data.rows.map((r, i) => (

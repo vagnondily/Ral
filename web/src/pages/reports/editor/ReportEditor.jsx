@@ -1,24 +1,28 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ChevronUp, ChevronDown, Copy, Trash2, Info, Repeat, Plus, SlidersHorizontal, PanelLeft, Monitor, X } from 'lucide-react';
+import { ChevronUp, ChevronDown, Copy, Trash2, Info, Repeat, Plus, SlidersHorizontal, PanelLeft, Monitor, X, AlertTriangle } from 'lucide-react';
 import { api } from '../../../api/client.js';
 import { Alert, Button } from '../../../components/ui.jsx';
 import { useToast } from '../../../components/Toast.jsx';
 import { useI18n } from '../../../lib/i18n.jsx';
 import { formatDateTime } from '../../../lib/format.js';
 import { periodLabel } from '../../../lib/period.js';
-import { BlockView, Band } from '../ReportBlocks.jsx';
+import { BlockView, ROW_VIEWS } from '../ReportBlocks.jsx';
 import BlockFrame from '../BlockFrame.jsx';
 import { useBlockData } from '../useBlockData.js';
 import { RichTextEditor } from '../RichText.jsx';
 import {
-  defaultBlock, defaultPage, cloneWithIds, findBlock, updateParams, removeBlock, duplicateBlock, moveBlock, moveBlockTo, insertBlock, iidOf,
+  defaultBlock, defaultPage, cloneWithIds, findBlock, updateParams, removeBlock, duplicateBlock, moveBlock, moveBlockTo, insertBlock, iidOf, landscapeAround,
 } from '../reportDoc.js';
+import { localPlan, sectionsOfPlan, paginate, pageGeometry, pageName, tocEntries } from '../../../lib/reportPaginate.js';
+import { tableFit, MIN_SCALE } from '../../../lib/reportFit.js';
 import reportCss from '../reports.css?raw';
 import Topbar from './Topbar.jsx';
 import CatalogPane from './CatalogPane.jsx';
 import OutlinePane from './OutlinePane.jsx';
 import PagesPane from './PagesPane.jsx';
 import PropertiesPane from './PropertiesPane.jsx';
+import PagedPreview from './PagedPreview.jsx';
+import MeasureLayer from './MeasureLayer.jsx';
 import { useFilterOptions } from './FiltersPane.jsx';
 import { useHistory } from './useHistory.js';
 import { FRAMED, DEFAULT_H, frameLabel, UPGRADE_WARNINGS } from './blockTypes.js';
@@ -27,9 +31,10 @@ import { FRAMED, DEFAULT_H, frameLabel, UPGRADE_WARNINGS } from './blockTypes.js
  * Éditeur du concepteur de rapport (lot 7a) — 3 volets :
  *  - gauche : Catalogue (recherche, groupes, « Même calcul que »), Plan (arbre, glisser,
  *    monter / descendre), Pages ;
- *  - centre : la page (contenu fixe affiché tout de suite, blocs de données calculés bloc par
- *    bloc), bloc sélectionné entouré de bleu avec sa mini-barre, « + » au survol, dépôt d'un
- *    élément du catalogue entre deux blocs ;
+ *  - centre : l'aperçu PAGINÉ (C7 : feuilles A4 / 16:9, portrait ou paysage par section,
+ *    pagination calculée une fois depuis les hauteurs mesurées — l'aperçu est le PDF ; contenu
+ *    fixe affiché tout de suite, blocs de données calculés bloc par bloc), bloc sélectionné
+ *    entouré de bleu avec sa mini-barre, « + » au survol, dépôt d'un élément du catalogue ;
  *  - droite : Bloc / Filtres / Page.
  * Raccourcis : Ctrl+S, Ctrl+Z / Ctrl+Y (50 états), Suppr, Ctrl+D, « / » (recherche), Échap.
  * Brouillon local (localStorage, try/catch) pour récupérer une fermeture accidentelle — il ne
@@ -78,7 +83,6 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
   });
   const narrow = useMedia('(max-width: 1180px)');
   const phone = useMedia('(max-width: 640px)');
-  const pageRef = useRef(null);
   const topbarRef = useRef(null);
   const searchRef = useRef(null);
   const [topbarH, setTopbarH] = useState(64);
@@ -226,45 +230,130 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // ---- Exports -----------------------------------------------------------------
-  const pageHtml = () => {
-    const page = pageRef.current.cloneNode(true);
-    page.querySelectorAll('.rd-mini, .rd-add-between, .rb-pagebreak span, .rt-toolbar, .rd-repeat-tag, .rd-section-tag, .rb-showdata, .rd-drop-line').forEach((n) => n.remove());
-    page.querySelectorAll('[contenteditable]').forEach((n) => n.removeAttribute('contenteditable'));
-    page.querySelectorAll('.is-selected').forEach((n) => n.classList.remove('is-selected'));
-    return page.outerHTML;
+  // ---- Plan local (toujours à jour), géométrie des pages, mesure et pagination -------------
+  const varLabels = { ...Object.fromEntries(Object.entries(catalog.variables || {})), ...Object.fromEntries(Object.entries(catalog.kpis).map(([k, v]) => [k, v.label])) };
+  const variableList = Object.entries(catalog.kpis).filter(([, v]) => v.available !== false).map(([k, v]) => [k, tr(v.label)]);
+  const sel = selected ? findBlock(doc.blocks, selected) : null;
+  const vars = useMemo(() => ({ ...(data?.vars || {}), titre: doc.title, periode: data?.periodLabel || periodLabel(doc.period, uiLang) }), [data, doc.title, doc.period, uiLang]);
+  const page = doc.page || defaultPage();
+  const defaultView = useCallback((k) => ((catalog.datasets[k] || {}).defaultView || 'table'), [catalog]);
+  const plan = useMemo(() => localPlan(doc, { expansions: (data && data.expansions) || {}, vars, defaultView }), [doc, data, vars, defaultView]);
+  const instById = useMemo(() => Object.fromEntries(plan.instances.map((i) => [i.iid, i])), [plan]);
+  const sectionById = useMemo(() => Object.fromEntries(plan.sections.map((s) => [s.id, s])), [plan]);
+  // 1er élément de chaque section répétée (édition dans le 1er seulement) et 1re instance de chaque élément (étiquette).
+  const firstKeyOf = useMemo(() => Object.fromEntries(Object.entries(plan.expansions || {}).map(([k, items]) => [k, items[0] && items[0].key])), [plan]);
+  const firstOfItem = useMemo(() => {
+    const seen = new Set(); const out = new Set();
+    for (const i of plan.instances) {
+      if (!i.repeatId || i.column || i.type === 'section') continue;
+      const k = `${i.repeatId}~${i.repeatKey}`;
+      if (!seen.has(k)) { seen.add(k); out.add(i.iid); }
+    }
+    return out;
+  }, [plan]);
+  // Instance du bloc sélectionné (la 1re dans une section répétée) : ses données pour le volet droit.
+  const selIid = useMemo(() => {
+    if (!selected) return null;
+    if (states[selected]) return selected;
+    const inst = plan.instances.find((i) => i.blockId === selected);
+    return inst ? inst.iid : selected;
+  }, [selected, states, plan]);
+  const geometry = useCallback((sectionId, first = false) => pageGeometry(page, sectionById[sectionId] || {}, { first }), [page, sectionById]);
+  const bodyWOf = (sectionId) => geometry(sectionId).bodyW;
+
+  const [measures, setMeasures] = useState({});
+  // Graphiques montrés en tableau (« Voir les données ») : même vue dans la page et dans la mesure.
+  const [dataViews, setDataViews] = useState(() => new Set());
+  const toggleDataView = useCallback((iid) => setDataViews((s) => { const n = new Set(s); if (n.has(iid)) n.delete(iid); else n.add(iid); return n; }), []);
+  // Correction MESURÉE de la police des tableaux trop larges (l'estimation de reportFit est affinée
+  // par la largeur réelle : facteur par tableau, jusqu'à l'échelle minimale 0,8).
+  const [fitFix, setFitFix] = useState({});
+  const fitRefs = useRef({}); // iid → { key, scale } du dernier rendu
+  const onMeasure = useCallback((m) => {
+    setMeasures(m);
+    setFitFix((prev) => {
+      let next = prev;
+      for (const [iid, info] of Object.entries(m)) {
+        const ref = fitRefs.current[iid];
+        if (!info.wide || !ref || ref.scale <= MIN_SCALE + 1e-9) continue;
+        if (next === prev) next = { ...prev };
+        next[ref.key] = (prev[ref.key] || 1) * info.wide * 0.99;
+      }
+      return next;
+    });
+  }, []);
+  const [pxPerMm, setPxPerMm] = useState(96 / 25.4);
+  const onPxPerMm = useCallback((v) => setPxPerMm((x) => (Math.abs(x - v) > 0.001 ? v : x)), []);
+  const [fontsReady, setFontsReady] = useState(() => !document.fonts || document.fonts.status === 'loaded');
+  useEffect(() => { if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => setFontsReady(true)); }, []);
+  const paginSections = useMemo(() => sectionsOfPlan(plan), [plan]);
+  const splitOf = (inst) => {
+    if (inst.column || (editable && selected === inst.blockId && ['text', 'callout', 'bulletin'].includes(inst.type))) return null;
+    if (inst.type === 'text' || inst.type === 'callout' || inst.type === 'bulletin') return 'nodes';
+    if (inst.type === 'data') {
+      const st = states[inst.iid];
+      if (!st || st.status !== 'ready') return null;
+      return inst.view === 'list' ? 'list' : ROW_VIEWS.has(inst.view) ? 'rows' : null;
+    }
+    return null;
+  };
+  const pagination = useMemo(() => {
+    const secs = paginSections.map((s) => {
+      const g = geometry(s.id); const g1 = geometry(s.id, true);
+      return {
+        id: s.id, size: g.size, orientation: g.orientation,
+        bodyH: Math.floor(g.bodyH * pxPerMm) - 2, firstBodyH: Math.floor(g1.bodyH * pxPerMm) - 2,
+        items: s.items.map((inst) => {
+          const m = measures[inst.iid];
+          const scalable = inst.type === 'data' && !ROW_VIEWS.has(inst.view) && inst.view !== 'explain';
+          return { iid: inst.iid, h: m ? m.h : (DEFAULT_H[inst.type] || 40), split: m && m.split, keepWithNext: inst.type === 'heading', scalable, break: inst.type === 'pagebreak' };
+        }),
+      };
+    });
+    return paginate(secs, { gap: 12 });
+  }, [paginSections, measures, pxPerMm, geometry]);
+  const toc = useMemo(() => tocEntries(plan, pagination.pageOf, 2), [plan, pagination]);
+  const measured = Object.keys(measures).length > 0 || plan.instances.length === 0;
+
+  // ---- Exports ------------------------------------------------------------------------
+  const sheetsRef = useRef(null);
+  const cleanClone = () => {
+    const root = sheetsRef.current.cloneNode(true);
+    root.querySelectorAll('.rd-mini, .rd-add-between, .rd-sheet-chip, .rd-fitchip, .rd-repeat-chip, .rd-toobig, .rb-pagebreak span, .rt-toolbar, .rb-showdata').forEach((n) => n.remove());
+    root.querySelectorAll('[contenteditable]').forEach((n) => n.removeAttribute('contenteditable'));
+    root.querySelectorAll('.is-selected').forEach((n) => n.classList.remove('is-selected'));
+    root.querySelectorAll('.rd-sheet').forEach((n) => { n.style.transform = ''; });
+    root.querySelectorAll('.rd-sheet-slot').forEach((n) => { n.style.width = ''; n.style.height = ''; });
+    return root;
   };
   const download = (content, name, type) => {
     const url = URL.createObjectURL(new Blob([content], { type }));
     const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
   };
   const fileBase = (doc.title || 'Rapport').replace(/[^\w\-À-ÿ ]+/g, '').trim().slice(0, 80) || 'Rapport';
-  const exportHtml = () => download(`<!doctype html><html lang="${document.documentElement.lang || 'fr'}"><head><meta charset="utf-8"><title>${fileBase}</title><style>body{background:#f5f6f9;margin:0;padding:24px}${reportCss}</style></head><body>${pageHtml()}</body></html>`, `${fileBase}.html`, 'text/html;charset=utf-8');
-  const exportWord = () => download(`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${fileBase}</title><style>${reportCss}.rd-page{font-family:Calibri,Arial,sans-serif;box-shadow:none}</style></head><body>${pageHtml()}</body></html>`, `${fileBase}.doc`, 'application/msword');
-  const exportPdf = () => {
-    setSelected(null);
-    const style = document.createElement('style');
-    style.textContent = `@page { size: A4 ${doc.page?.orientation === 'landscape' ? 'landscape' : 'portrait'}; margin: 12mm; }`;
-    document.head.appendChild(style);
-    document.body.classList.add('rd-printing');
-    const done = () => { document.body.classList.remove('rd-printing'); style.remove(); window.removeEventListener('afterprint', done); };
-    window.addEventListener('afterprint', done);
-    setTimeout(() => window.print(), 60); // laisse React retirer l'éditeur du bloc sélectionné
+  // HTML : les feuilles paginées, styles en ligne (impression identique à l'aperçu).
+  const exportHtml = () => download(`<!doctype html><html lang="${document.documentElement.lang || 'fr'}"><head><meta charset="utf-8"><title>${fileBase}</title><style>body{background:#f5f6f9;margin:0;padding:24px}${reportCss}</style></head><body class="rd-export">${cleanClone().outerHTML}</body></html>`, `${fileBase}.html`, 'text/html;charset=utf-8');
+  // Word (HTML lu par Word) : le contenu des pages à la suite, un saut de page entre deux feuilles.
+  const exportWord = () => {
+    const bodies = [...cleanClone().querySelectorAll('.rd-sheet-body')].map((b) => b.innerHTML).join('<br clear="all" style="page-break-before:always">');
+    download(`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${fileBase}</title><style>${reportCss}.rd-word{font-family:Calibri,Arial,sans-serif}</style></head><body><article class="rd-word rd-paper">${bodies}</article></body></html>`, `${fileBase}.doc`, 'application/msword');
   };
-
-  const varLabels = { ...Object.fromEntries(Object.entries(catalog.variables || {})), ...Object.fromEntries(Object.entries(catalog.kpis).map(([k, v]) => [k, v.label])) };
-  const variableList = Object.entries(catalog.kpis).filter(([, v]) => v.available !== false).map(([k, v]) => [k, tr(v.label)]);
-  const sel = selected ? findBlock(doc.blocks, selected) : null;
-  const instances = useMemo(() => Object.fromEntries(((data && data.instances) || []).map((i) => [i.iid, i])), [data]);
-  // Instance du bloc sélectionné (la 1re dans une section répétée) : ses données pour le volet droit.
-  const selIid = useMemo(() => {
-    if (!selected) return null;
-    if (states[selected]) return selected;
-    const inst = ((data && data.instances) || []).find((i) => i.blockId === selected);
-    return inst ? inst.iid : selected;
-  }, [selected, states, data]);
-  const vars = { ...(data?.vars || {}), titre: doc.title, periode: data?.periodLabel || periodLabel(doc.period, uiLang) };
-  const page = doc.page || defaultPage();
+  // PDF : impression des feuilles pré-découpées (pages nommées a4p / a4l / s169l…).
+  const exportPdf = async () => {
+    const kinds = new Set(pagination.pages.map((p) => pageName(p.size, p.orientation)));
+    const named = typeof CSS !== 'undefined' && CSS.supports && CSS.supports('page', 'a4l');
+    if (kinds.size > 1 && !named && !window.confirm(tr('Ce navigateur imprime toutes les pages dans la même orientation : utilisez Chrome ou Edge, ou l\'export Word. Imprimer quand même ?'))) return;
+    setSelected(null);
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    setTimeout(() => window.print(), 80); // laisse React retirer la sélection et les outils
+  };
+  // Impression (bouton ou Ctrl+P) : seules les feuilles sont imprimées.
+  useEffect(() => {
+    const on = () => document.body.classList.add('rd-printing');
+    const off = () => document.body.classList.remove('rd-printing');
+    window.addEventListener('beforeprint', on); window.addEventListener('afterprint', off);
+    return () => { window.removeEventListener('beforeprint', on); window.removeEventListener('afterprint', off); off(); };
+  }, []);
 
   // ---- Glisser-déposer depuis le catalogue (ligne d'insertion avant / après un bloc) ----------
   const isBlockDrag = (e) => [...(e.dataTransfer?.types || [])].includes('text/x-mems-block');
@@ -288,6 +377,12 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
     },
   } : {});
 
+  /** « Mettre ce bloc sur une page paysage » : sections insérées autour du bloc (reportDoc.landscapeAround). */
+  const toLandscape = (blockId, previous) => {
+    const r = landscapeAround(doc.blocks, blockId, previous);
+    if (r.error) { toast.error(tr(r.error)); return; }
+    setBlocks(() => r.blocks);
+  };
   /** Mini-barre du bloc sélectionné : monter, descendre, dupliquer, supprimer, options. */
   const miniBar = (b) => (
     <div className="rd-mini" onClick={(e) => e.stopPropagation()}>
@@ -305,73 +400,125 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
     </button>
   );
 
-  // Rendu d'un bloc dans la page (avec outils d'édition). `repeat` = { id, key, label, over } dans une section répétée.
-  const renderBlock = (b, repeat = null, first = true) => {
+  /**
+   * Un bloc FEUILLE dans la page ou dans le calque de mesure. `repeat` = { id, key, label, over } ;
+   * `o` = { measure, slice, scale, tooTall, inst, inColumns }.
+   */
+  const renderLeaf = (b, repeat, first, o = {}) => {
     const iid = iidOf(b.id, repeat);
+    const inst = o.inst || instById[iid] || { iid, sectionId: '_doc' };
+    const visible = !o.measure;
     const isSel = selected === b.id;
-    const pick = (e) => { e.stopPropagation(); if (first) setSelected(b.id); };
-    const dropCls = drop && drop.id === b.id ? (drop.before ? 'is-drop-before' : 'is-drop-after') : '';
-    const tools = editable && isSel && first ? miniBar(b) : null;
-    const plus = editable && first && !repeat ? addBetween(b) : null;
-    if (b.type === 'section') {
-      const o = b.params.orientation || page.orientation;
-      return (
-        <div key={iid} data-block={b.id} id={`rd-sec-${iid}`} className={`rd-block rd-section-sep ${isSel ? 'is-selected' : ''} ${dropCls}`} onClick={pick} {...dragProps(b)}>
-          <span className="rd-section-tag">{tr('Section')} · {b.params.size || page.size || 'A4'} {tr(o === 'landscape' ? 'paysage' : 'portrait')}{b.params.title ? ` · ${b.params.title}` : ''}</span>
-          {tools}{plus}
-        </div>
-      );
-    }
-    if (b.type === 'columns') {
-      return (
-        <div key={iid} data-block={b.id} className={`rd-block rd-columns rd-cols-${b.params.ratio.replace(/:/g, '-')} ${isSel ? 'is-selected' : ''} ${dropCls}`} onClick={pick} {...dragProps(b)}>
-          {b.params.cols.map((col, c) => <div key={c} className="rd-col">{col.length ? col.map((cb) => renderBlock(cb, repeat, first)) : <p className="rb-note">{tr('Colonne vide : sélectionnez les colonnes puis ajoutez un bloc.')}</p>}</div>)}
-          {tools}{plus}
-        </div>
-      );
-    }
-    if (b.type === 'repeat') {
-      const items = (data && data.expansions && data.expansions[b.id]) || [];
-      return (
-        <div key={iid} data-block={b.id} className={`rd-repeat ${isSel ? 'is-selected' : ''} ${dropCls}`} onClick={(e) => { e.stopPropagation(); setSelected(b.id); }} {...dragProps(b)}>
-          <div className="rd-repeat-tag"><Repeat size={13} aria-hidden="true" /> {tr({ bureau: 'Section répétée par bureau ({n})', partner: 'Section répétée par partenaire ({n})' }[b.params.over] || 'Section répétée par activité ({n})', { n: items.length })}</div>
-          {data && data.expansions && items.length === 0 && <p className="rb-note">{tr('Aucune activité ou bureau avec des données sur la période.')}</p>}
-          {items.map((it, k) => (
-            <section key={it.key} className="rd-repeat-item">
-              {b.params.blocks.map((c) => renderBlock(c, { id: b.id, key: it.key, label: it.label, over: b.params.over }, k === 0))}
-            </section>
-          ))}
-          {tools}{plus}
-        </div>
-      );
-    }
+    const slice = o.slice || null;
+    const editing = (b.type === 'text' || b.type === 'callout' || b.type === 'bulletin') && editable && isSel && first && visible;
+    if (editing && slice && !slice.first) return null; // texte en cours d'édition : en entier sur son 1er morceau
     const st = states[iid];
     const res = st ? st.result : undefined;
+    const ready = res && res.ok ? res.data : null;
+    const p = b.params || {};
     const itemVars = repeat ? { [{ activity: 'activite', bureau: 'bureau', partner: 'partenaire' }[repeat.over]]: repeat.label } : {};
-    const editorFor = (b.type === 'text' || b.type === 'callout' || b.type === 'bulletin') && editable && isSel && first
-      ? <RichTextEditor doc={b.params.doc || res?.data?.doc} vars={{ ...vars, ...(res?.data?.vars || {}) }} labelFor={(v) => tr(varLabels[v] || v)} variableList={variableList}
+    const editor = editing
+      ? <RichTextEditor doc={p.doc || res?.data?.doc} vars={{ ...vars, ...(res?.data?.vars || {}) }} labelFor={(v) => tr(varLabels[v] || v)} variableList={variableList}
         onChange={(d) => updateBlock(b.id, { doc: d })} /> : null;
-    const ctx = { result: res, inst: instances[iid], vars: { ...vars, ...itemVars }, catalog, varLabels };
+    // Largeur du tableau : police réduite (≥ 0,8) ou « trop large » (même calcul dans la mesure et la page).
+    const view = p.view || defaultView(p.dataset);
+    const def = b.type === 'data' ? catalog.datasets[p.dataset] : null;
+    let fit = null;
+    if (b.type === 'data' && ready && (view === 'table' || view === 'heat') && ready.rows && ready.rows.length) {
+      const widthMm = o.inColumns ? bodyWOf(inst.sectionId) / 2 : bodyWOf(inst.sectionId);
+      const est = tableFit(ready, p.columns, widthMm, def && def.annotate ? { extra: [{ key: '_annot', type: 'text', label: def.annotate.label, maxChars: 30, maxWord: 12 }] } : undefined);
+      const key = `${iid}|${(p.columns || []).join(',')}|${ready.rows.length}|${Math.round(widthMm)}`;
+      const raw = est.scale * (fitFix[key] || 1);
+      const scale = Math.max(MIN_SCALE, Math.floor(raw * 100) / 100);
+      if (o.measure) fitRefs.current[iid] = { key, scale };
+      fit = { scale, tooWide: est.tooWide || raw < MIN_SCALE || (scale <= MIN_SCALE && !!(measures[iid] && measures[iid].wide)) };
+    }
+    const ctx = { result: res, inst, vars: { ...vars, ...itemVars }, catalog, varLabels, slice, fit, toc, showData: dataViews.has(iid), onToggleData: () => toggleDataView(iid) };
+    const showTools = visible && editable && first && (!slice || slice.first);
+    const dropCls = visible && drop && drop.id === b.id ? (drop.before ? 'is-drop-before' : 'is-drop-after') : '';
+    const sectionOrient = (sectionById[inst.sectionId] || {}).orientation || page.orientation || 'portrait';
+    const body = FRAMED.has(b.type)
+      ? (
+        <BlockFrame iid={iid} state={st} label={frameLabel(b, catalog, tr)} height={heights.current.get(iid) || DEFAULT_H[b.type]}
+          onRetry={visible ? retry : undefined} observe={visible ? observe : undefined} onHeight={o.measure ? onHeight : undefined}>
+          <BlockView block={b} ctx={ctx} editor={editor} />
+        </BlockFrame>
+      )
+      : <BlockView block={b} ctx={{ ...ctx, pending: st && st.status !== 'ready' && st.status !== 'error' }} editor={editor} />;
+    const scaled = o.scale && o.scale < 1 && measures[iid]
+      ? <div className="rd-scaled" style={{ height: `${measures[iid].h * o.scale}px` }}><div style={{ transform: `scale(${o.scale})`, width: `${100 / o.scale}%` }}>{body}</div></div>
+      : body;
     return (
-      <div key={iid} data-block={b.id} className={`rd-block rd-block-${b.type} ${isSel ? 'is-selected' : ''} ${dropCls}`} onClick={pick} {...(repeat ? {} : dragProps(b))}>
-        {FRAMED.has(b.type)
-          ? (
-            <BlockFrame iid={iid} state={st} label={frameLabel(b, catalog, tr)} height={heights.current.get(iid) || DEFAULT_H[b.type]}
-              onRetry={retry} observe={observe} onHeight={onHeight}>
-              <BlockView block={b} ctx={ctx} editor={editorFor} />
-            </BlockFrame>
-          )
-          : <BlockView block={b} ctx={{ ...ctx, pending: st && st.status !== 'ready' && st.status !== 'error' }} editor={editorFor} />}
-        {tools}{plus}
+      <div key={slice ? `${iid}:${slice.part[0]}` : iid} data-block={b.id} data-iid={visible ? iid : undefined} className={`rd-block rd-block-${b.type} ${visible && isSel ? 'is-selected' : ''} ${dropCls}`}
+        onClick={visible ? (e) => { e.stopPropagation(); if (first) setSelected(b.id); } : undefined} {...(visible && !repeat && !o.inColumns ? dragProps(b) : {})}>
+        {visible && repeat && firstOfItem.has(iid) && (!slice || slice.first) && (
+          <button type="button" className="rd-repeat-chip" onClick={(e) => { e.stopPropagation(); setSelected(repeat.id); }}>
+            <Repeat size={11} aria-hidden="true" /> {repeat.label}
+          </button>
+        )}
+        {scaled}
+        {visible && fit && fit.tooWide && editable && (!slice || slice.first) && (
+          <div className="rd-fitchip" role="note" onClick={(e) => e.stopPropagation()}>
+            <AlertTriangle size={13} aria-hidden="true" />
+            <span>{tr(sectionOrient === 'landscape' ? 'Tableau trop large, même en paysage : choisissez moins de colonnes.' : 'Tableau trop large pour la page.')}</span>
+            {sectionOrient !== 'landscape' && !o.inColumns && (
+              <button type="button" onClick={() => toLandscape(b.id, sectionOrient)}>{tr('Mettre ce bloc sur une page paysage')}</button>
+            )}
+          </div>
+        )}
+        {visible && o.tooTall && editable && <div className="rd-toobig" role="note"><AlertTriangle size={13} aria-hidden="true" /> {tr('Bloc plus haut qu\'une page')}</div>}
+        {showTools && isSel ? miniBar(b) : null}
+        {showTools && !repeat && !o.inColumns ? addBetween(b) : null}
       </div>
     );
   };
 
+  /** Un élément de la pagination : bloc feuille ou colonnes (insécables). */
+  const renderItem = (inst, o = {}) => {
+    const found = findBlock(doc.blocks, inst.blockId);
+    if (!found) return null;
+    const b = found.block;
+    const rb = inst.repeatId ? findBlock(doc.blocks, inst.repeatId) : null;
+    const repeat = inst.repeatId ? { id: inst.repeatId, key: inst.repeatKey, label: inst.repeatLabel, over: rb ? rb.block.params.over : 'activity' } : null;
+    const first = !repeat || firstKeyOf[inst.repeatId] === inst.repeatKey;
+    if (b.type !== 'columns') return renderLeaf(b, repeat, first, { ...o, inst });
+    const visible = !o.measure;
+    const isSel = selected === b.id;
+    const dropCls = visible && drop && drop.id === b.id ? (drop.before ? 'is-drop-before' : 'is-drop-after') : '';
+    return (
+      <div key={inst.iid} data-block={b.id} data-iid={visible ? inst.iid : undefined} className={`rd-block rd-columns rd-cols-${b.params.ratio.replace(/:/g, '-')} ${visible && isSel ? 'is-selected' : ''} ${dropCls}`}
+        onClick={visible ? (e) => { e.stopPropagation(); if (first) setSelected(b.id); } : undefined} {...(visible && !repeat ? dragProps(b) : {})}>
+        {b.params.cols.map((col, c) => (
+          <div key={c} className="rd-col">
+            {col.length ? col.map((cb) => renderLeaf(cb, repeat, first, { ...o, inst: instById[iidOf(cb.id, repeat)], inColumns: true, slice: null }))
+              : visible && editable ? <p className="rb-note">{tr('Colonne vide : sélectionnez les colonnes puis ajoutez un bloc.')}</p> : null}
+          </div>
+        ))}
+        {visible && editable && first && isSel ? miniBar(b) : null}
+        {visible && editable && first && !repeat ? addBetween(b) : null}
+      </div>
+    );
+  };
+  const renderPageItem = (it) => {
+    const inst = instById[it.iid];
+    if (!inst) return null;
+    return renderItem(inst, { slice: it.part ? { part: it.part, first: it.first, last: it.last } : null, scale: it.scale, tooTall: it.tooTall });
+  };
+
   const upgradedDraft = meta.upgradedFrom === 1 && !final;
-  const goSection = (s) => {
-    const el = s.id && s.id !== '_doc' ? document.getElementById(`rd-sec-${s.id}`) : pageRef.current;
+  const pagesList = pagination.pages.map((pg) => {
+    const h = pg.items.map((it) => instById[it.iid]).find((i) => i && i.type === 'heading');
+    return { n: pg.n, size: pg.size, orientation: pg.orientation, title: (h && h.text) || (sectionById[pg.sectionId] || {}).title || null };
+  });
+  const goPage = (p) => {
+    const el = document.getElementById(`rd-sheet-${p.n}`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     if (narrow) setLeftOpen(false);
+  };
+  const selectSection = (sectionId) => {
+    if (sectionId === '_doc') { setSelected(null); setRightOpen(true); return; }
+    const inst = instById[sectionId];
+    setSelected(inst ? inst.blockId : sectionId);
   };
   const leftPane = (
     <>
@@ -387,7 +534,7 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
           onMove={(id, dir) => setBlocks((bs) => moveBlock(bs, id, dir))} onMoveTo={(id, i) => setBlocks((bs) => moveBlockTo(bs, id, i))}
           onRemove={remove} onDuplicate={(id) => setBlocks((bs) => duplicateBlock(bs, id))} />
       )}
-      {leftTab === 'pages' && <PagesPane sections={(data && data.sections) || []} onGo={(p) => goSection(((data && data.sections) || [])[p.n - 1] || {})} />}
+      {leftTab === 'pages' && <PagesPane pages={pagesList} onGo={goPage} />}
     </>
   );
   const rightPane = (
@@ -398,11 +545,14 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
         onChangePage={(pg) => change((d) => ({ ...d, page: { ...(d.page || defaultPage()), ...pg } }))} />
     </>
   );
+  const exportBlocked = !fontsReady ? tr('Chargement des polices…') : !measured ? tr('Mise en page en cours…') : null;
+  const watermark = !final && page.draftWatermark !== false ? tr('BROUILLON — non validé') : null;
+  const selectedSection = sel && sel.block.type === 'section' ? (plan.instances.find((i) => i.blockId === sel.block.id) || {}).iid : null;
 
   return (
     <div className={`rd-editor ${narrow ? 'is-narrow' : ''}`} style={{ '--rd-top': `${topbarH}px` }}>
       <Topbar doc={doc} meta={meta} dirty={dirty} saving={saving} editable={editable} canEdit={canEdit && !phone} final={final}
-        computing={computing} progress={progress} history={history} forms={forms} opts={opts} topbarRef={topbarRef}
+        computing={computing} progress={progress} history={history} forms={forms} opts={opts} topbarRef={topbarRef} exportBlocked={exportBlocked}
         onBack={back} onTitle={(title) => change((d) => ({ ...d, title }))} onPeriod={(period) => change((d) => ({ ...d, period }))}
         onFilters={(filters) => change((d) => ({ ...d, filters }))} onRefresh={refresh} onSave={save} onFinalize={finalize}
         onTemplate={saveAsTemplate} onDuplicate={duplicateDoc} onPdf={exportPdf} onHtml={exportHtml} onWord={exportWord}
@@ -437,12 +587,12 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
             let payload = null; try { payload = JSON.parse(e.dataTransfer.getData('text/x-mems-block')); } catch { /* glisser étranger */ }
             onDropPayload(payload, {});
           }}>
-          <article ref={pageRef} className={`rd-page ${page.orientation === 'landscape' ? 'is-landscape' : ''}`}>
-            <Band band={page.header} vars={vars} texts={data?.sections?.[0]?.headerText} className="rd-page-h" />
-            {doc.blocks.length === 0 && <p className="rd-empty-doc">{tr('Le rapport est vide : ajoutez des blocs depuis le catalogue (clic ou glisser sur la page).')}</p>}
-            {doc.blocks.map((b) => renderBlock(b))}
-            <Band band={page.footer} vars={vars} texts={data?.sections?.[0]?.footerText} className="rd-page-f" />
-          </article>
+          <PagedPreview pages={pagination.pages} geometryOf={(pg) => geometry(pg.sectionId, pg.n === 1)} sectionOf={(id) => sectionById[id]}
+            renderPageItem={renderPageItem} page={page} vars={vars} pxPerMm={pxPerMm} forceFit={phone} watermark={watermark}
+            selectedSection={selectedSection} onSelectSection={selectSection} sheetsRef={sheetsRef}
+            emptyNote={doc.blocks.length === 0 ? <p className="rd-empty-doc">{tr('Le rapport est vide : ajoutez des blocs depuis le catalogue (clic ou glisser sur la page).')}</p> : null} />
+          <MeasureLayer sections={paginSections.map((s) => ({ id: s.id, bodyW: geometry(s.id).bodyW, items: s.items }))}
+            renderItem={renderItem} splitOf={splitOf} onMeasure={onMeasure} onPxPerMm={onPxPerMm} />
         </main>
 
         {editable && (!narrow || rightOpen) && <aside className={`rd-right ${narrow ? 'is-drawer' : ''}`} aria-label={tr('Propriétés')}>{rightPane}</aside>}

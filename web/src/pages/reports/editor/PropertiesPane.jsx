@@ -4,9 +4,9 @@ import { api } from '../../../api/client.js';
 import { useI18n } from '../../../lib/i18n.jsx';
 import { Button, Field } from '../../../components/ui.jsx';
 import { chartSeries, viewAdvice } from '../../../lib/reportViz.js';
-import { defaultPage, textElement, pageNumberElement } from '../reportDoc.js';
 import { TYPE_LABEL, VIEW_LABELS, VIEW_ADVICE } from './blockTypes.js';
 import FiltersPane from './FiltersPane.jsx';
+import PagePane from './PagePane.jsx';
 
 const CHART = new Set(['bar', 'column', 'line', 'donut', 'stacked']);
 
@@ -33,7 +33,7 @@ export default function PropertiesPane({ sel, doc, catalog, forms, opts, state, 
             officeKinds={def ? def.officeKinds : null}
             onChange={(filters) => onChangeBlock({ filters })} />
         )}
-        {t === 'page' && <DocProps doc={doc} onChange={onChangePage} />}
+        {t === 'page' && <PagePane doc={doc} onChange={onChangePage} />}
       </div>
     </>
   );
@@ -81,7 +81,15 @@ function BlockProps({ block, parent, catalog, forms, state, onChange, onRegenera
         <Field label={tr('Format')}><select className="select" value={p.size || ''} onChange={(e) => onChange({ size: e.target.value || undefined })}>
           <option value="">{tr('Comme le document')}</option><option value="A4">A4</option><option value="16:9">16:9</option>
         </select></Field>
-        <Field label={tr('Titre')}><input className="input" value={p.title || ''} maxLength={200} onChange={(e) => onChange({ title: e.target.value || undefined })} /></Field>
+        <Field label={tr('Titre')} hint={tr('Repris dans le sommaire, le volet Pages et la variable {section} de l\'en-tête.')}><input className="input" value={p.title || ''} maxLength={200} onChange={(e) => onChange({ title: e.target.value || undefined })} /></Field>
+        <div className="rd-row2">
+          <Field label={tr('En-tête')}><select className="select" value={p.header || 'inherit'} onChange={(e) => onChange({ header: e.target.value })}>
+            <option value="inherit">{tr('Celui du document')}</option><option value="none">{tr('Aucun')}</option>
+          </select></Field>
+          <Field label={tr('Pied de page')}><select className="select" value={p.footer || 'inherit'} onChange={(e) => onChange({ footer: e.target.value })}>
+            <option value="inherit">{tr('Celui du document')}</option><option value="none">{tr('Aucun')}</option>
+          </select></Field>
+        </div>
         <p className="hint">{tr('Une section commence une nouvelle page avec sa propre orientation.')}</p>
       </>}
       {block.type === 'columns' && <Field label={tr('Répartition')}><select className="select" value={p.ratio} onChange={(e) => {
@@ -280,50 +288,5 @@ function ArgsEditor({ def, args, filters, forms, onChange }) {
         return <Field key={k} label={tr(a.label)}><input className="input" value={v || ''} maxLength={200} onChange={(e) => set(k, e.target.value)} /></Field>;
       })}
     </fieldset>
-  );
-}
-
-/* ------------------------------------------------------------------ Page (document) */
-/** Texte d'un élément de bande (en-tête / pied), modifiable comme une ligne. */
-const bandText = (band, id) => ((band && band.elements) || []).find((e) => e.id === id)?.text || '';
-function setBandText(band, id, text, make) {
-  const els = (band && band.elements) || [];
-  const has = els.some((e) => e.id === id);
-  const elements = text ? (has ? els.map((e) => (e.id === id ? { ...e, text } : e)) : [...els, make(text)]) : els.filter((e) => e.id !== id);
-  return { height: (band && band.height) || 14, elements };
-}
-
-function DocProps({ doc, onChange }) {
-  const { tr } = useI18n();
-  const p = doc.page || defaultPage();
-  const hasNumbers = ((p.footer && p.footer.elements) || []).some((e) => e.kind === 'pageNumber');
-  return (
-    <div className="section-gap">
-      <h3>{tr('Mise en page')}</h3>
-      <div className="rd-row2">
-        <Field label={tr('Format')}>
-          <select className="select" value={p.size || 'A4'} onChange={(e) => onChange({ size: e.target.value })}>
-            <option value="A4">A4</option><option value="16:9">16:9</option>
-          </select>
-        </Field>
-        <Field label={tr('Orientation')}>
-          <select className="select" value={p.orientation || 'portrait'} onChange={(e) => onChange({ orientation: e.target.value })}>
-            <option value="portrait">{tr('Portrait')}</option><option value="landscape">{tr('Paysage')}</option>
-          </select>
-        </Field>
-      </div>
-      <Field label={tr('En-tête')} hint={tr('{periode} est remplacé par la période.')}>
-        <input className="input" value={bandText(p.header, 'h-text')} maxLength={300} onChange={(e) => onChange({ header: setBandText(p.header, 'h-text', e.target.value, (x) => textElement('h-text', x)) })} />
-      </Field>
-      <Field label={tr('Pied de page')}>
-        <input className="input" value={bandText(p.footer, 'f-text')} maxLength={300} onChange={(e) => onChange({ footer: setBandText(p.footer, 'f-text', e.target.value, (x) => textElement('f-text', x, { w: 66 })) })} />
-      </Field>
-      <label className="check"><input type="checkbox" checked={hasNumbers} onChange={(e) => {
-        const els = ((p.footer && p.footer.elements) || []).filter((x) => x.kind !== 'pageNumber');
-        onChange({ footer: { height: (p.footer && p.footer.height) || 12, elements: e.target.checked ? [...els, pageNumberElement()] : els } });
-      }} /> {tr('Numéros de page (PDF)')}</label>
-      <label className="check"><input type="checkbox" checked={p.draftWatermark !== false} onChange={(e) => onChange({ draftWatermark: e.target.checked })} /> {tr('Filigrane « BROUILLON » tant que le rapport n\'est pas validé')}</label>
-      <p className="hint">{tr('Cliquez sur un bloc de la page pour le modifier ; écrivez directement dans les blocs de texte.')}</p>
-    </div>
   );
 }

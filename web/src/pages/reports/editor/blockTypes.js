@@ -1,6 +1,6 @@
 import {
   Heading1, Type, MessageSquareWarning, Gauge, Table2, Sparkles, SeparatorHorizontal, Minus, Repeat,
-  RectangleHorizontal, Columns2, MoveVertical,
+  RectangleHorizontal, Columns2, MoveVertical, ListOrdered,
 } from 'lucide-react';
 
 /**
@@ -11,7 +11,7 @@ export const BLOCK_TYPES = [
   ['heading', 'Titre', Heading1], ['text', 'Texte', Type], ['callout', 'Encadré', MessageSquareWarning],
   ['kpis', 'Chiffres clés', Gauge], ['data', 'Données', Table2],
   ['bulletin', 'Bulletin rédigé', Sparkles], ['section', 'Section', RectangleHorizontal], ['columns', 'Colonnes', Columns2],
-  ['repeat', 'Section répétée', Repeat], ['spacer', 'Espace', MoveVertical],
+  ['repeat', 'Section répétée', Repeat], ['toc', 'Sommaire', ListOrdered], ['spacer', 'Espace', MoveVertical],
   ['pagebreak', 'Saut de page', SeparatorHorizontal], ['divider', 'Séparateur', Minus],
 ];
 export const TYPE_LABEL = Object.fromEntries(BLOCK_TYPES.map(([k, l]) => [k, l]));

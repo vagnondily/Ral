@@ -210,8 +210,9 @@
 }
 
 /* ---------------------------------------------------------------- Page (papier) */
-.rd-page {
-  /* Jetons papier : toujours clairs (écran sombre compris), comme une feuille imprimée. */
+/* Jetons « papier » : toujours clairs (écran sombre compris), comme une feuille imprimée —
+   feuilles de l'aperçu paginé, calque de mesure, export Word, page continue. */
+.rd-paper, .rd-page {
   --text: #3a4150; --text-strong: #14181f; --text-muted: #616a7a; --text-faint: #8b93a1;
   --border: #e7e9ef; --border-strong: #ccd2dc; --canvas: #f1f3f7; --surface: #fff; --surface-2: #f6f8fb;
   --blue-50: #eff6fc; --blue-600: #0f6cbd; --blue-700: #0b5394;
@@ -219,13 +220,16 @@
   --orange: #c77700; --orange-bg: #fdf1de; --orange-text: #8a5300;
   --green: #0f7b40; --green-bg: #e4f4ea; --green-text: #0a6333;
   --cd-exc: #16a34a; --cd-sat: #65a30d; --cd-imp: #f59e0b; --cd-urg: #ef4444; --cd-na: #b4bcc9;
-  box-sizing: border-box; width: 100%; max-width: 210mm; min-height: 297mm; margin: 0 auto; padding: 16mm 14mm;
   font-family: Inter, 'Segoe UI', Arial, sans-serif; font-size: 13px; line-height: 1.5; color: var(--text);
-  background: #fff; border-radius: 2px; box-shadow: 0 1px 3px rgba(16, 24, 40, .1), 0 8px 24px rgba(16, 24, 40, .08);
   -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
+.rd-paper *, .rd-paper *::before, .rd-paper *::after, .rd-page *, .rd-page *::before, .rd-page *::after { box-sizing: border-box; }
+/* Page continue (ancienne présentation, gardée pour les exports existants). */
+.rd-page {
+  box-sizing: border-box; width: 100%; max-width: 210mm; min-height: 297mm; margin: 0 auto; padding: 16mm 14mm;
+  background: #fff; border-radius: 2px; box-shadow: 0 1px 3px rgba(16, 24, 40, .1), 0 8px 24px rgba(16, 24, 40, .08);
+}
 .rd-page.is-landscape { max-width: 297mm; min-height: 210mm; }
-.rd-page *, .rd-page *::before, .rd-page *::after { box-sizing: border-box; }
 .rd-page-h { margin: -8mm 0 8px; }
 .rd-page-f { margin: 16px 0 -8mm; }
 /* En-tête et pied DESSINÉS : éléments placés (x, largeur en % ; y, hauteur en mm). */
@@ -341,14 +345,15 @@
 .rb-spacer { width: 100%; }
 .rb-kpi-n { font-size: 10.5px; color: var(--text-faint); }
 
-.rb-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.rb-table { width: 100%; border-collapse: collapse; font-size: calc(12px * var(--rb-scale, 1)); font-variant-numeric: tabular-nums; }
 .rb-table thead { display: table-header-group; }
 .rb-table th {
-  padding: 6px 8px; font-size: 10.5px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; text-align: left;
+  padding: calc(6px * var(--rb-scale, 1)) calc(8px * var(--rb-scale, 1)); font-size: calc(10.5px * var(--rb-scale, 1)); font-weight: 600; letter-spacing: .03em; text-transform: uppercase; text-align: left;
   color: var(--text-muted); background: var(--canvas); border-bottom: 1px solid var(--border-strong);
 }
-.rb-table td { padding: 5px 8px; vertical-align: top; border-bottom: 1px solid var(--border); }
+.rb-table td { padding: calc(5px * var(--rb-scale, 1)) calc(8px * var(--rb-scale, 1)); vertical-align: top; border-bottom: 1px solid var(--border); }
 .rb-table .num { text-align: right; white-space: nowrap; }
+.rb-table th.num { white-space: normal; }
 .rb-table tr { break-inside: avoid; page-break-inside: avoid; }
 .rb-matrix td.num, .rb-matrix th.num { text-align: center; }
 .rb-heat { font-weight: 600; }
@@ -412,33 +417,33 @@
   .rd-topbar { position: static; }
   .rd-editor { --rd-top: 0px; }
   .rd-canvas { padding: 8px; }
-  .rd-page { padding: 18px 14px; min-height: 0; }
-  .rd-page-h { margin-top: 0; }
-  .rd-columns { grid-template-columns: 1fr; }
-  .rb-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* ---------------------------------------------------------------- Impression */
 @media print {
-  .rd-page {
-    width: auto; max-width: none; min-height: 0; margin: 0; padding: 0;
-    box-shadow: none; border-radius: 0; font-size: 10pt;
+  .rd-sheets { display: block !important; gap: 0 !important; }
+  .rd-sheet-slot { display: contents !important; }
+  .rd-sheet {
+    margin: 0 !important; overflow: hidden !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important;
+    break-after: page; page-break-after: always; break-inside: avoid;
   }
+  .rd-sheet-slot:last-child > .rd-sheet { break-after: auto; page-break-after: auto; }
+  .rd-watermark { display: flex !important; }
+  .rd-sheet-chip, .rd-zoombar, .rd-measure, .rd-fitchip, .rd-toobig, .rd-repeat-chip, .rd-repeat-tag, .rt-toolbar, .rd-block-tools,
+  .rd-mini, .rd-add-between, .rb-showdata { display: none !important; }
   .rb-pagebreak { height: 0; margin: 0; overflow: hidden; }
   .rb-pagebreak::before, .rb-pagebreak::after, .rb-pagebreak span { display: none; }
-  .rd-repeat { margin: 0; padding: 0; border: 0; }
-  .rd-repeat-tag, .rt-toolbar, .rd-block-tools, .rd-mini, .rd-add-between, .rb-showdata { display: none !important; }
-  .rd-block { margin-bottom: 10px; outline: none !important; }
+  .rd-block { outline: none !important; box-shadow: none !important; }
   .rt-var { padding: 0; background: none !important; box-shadow: none !important; }
   .rt-editor { border: 0; box-shadow: none !important; }
   .rt-editable { min-height: 0; padding: 0; }
+  .rb-table-wrap { overflow: visible; }
 
-  /* Impression depuis l'application : seule la page du rapport est imprimée.
-     En-tête, pied et numéros passent dans les marges @page (posées par l'éditeur),
-     répétés sur chaque feuille. */
+  /* Impression depuis l'application (bouton PDF ou Ctrl+P) : seules les feuilles sont imprimées,
+     chacune avec ses marges, son en-tête et son pied (dans la feuille), sur sa page nommée. */
   body.rd-printing { background: #fff !important; }
-  body.rd-printing *:not(:has(.rd-page)):not(.rd-page):not(.rd-page *) { display: none !important; }
-  body.rd-printing :has(.rd-page) {
+  body.rd-printing *:not(:has(.rd-sheets)):not(.rd-sheets):not(.rd-sheets *) { display: none !important; }
+  body.rd-printing :has(.rd-sheets) {
     display: block !important; position: static !important; overflow: visible !important;
     width: auto !important; max-width: none !important; height: auto !important; min-height: 0 !important; max-height: none !important;
     margin: 0 !important; padding: 0 !important; border: 0 !important; box-shadow: none !important; background: none !important; transform: none !important;
@@ -530,5 +535,83 @@
 .rb-list-detail { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .rb-list-detail em { font-style: normal; color: var(--text-faint); }
 /* Constat par ligne (tableau de couverture par activité). */
-.rb-annot { min-width: 160px; font-size: 11.5px; }
+.rb-annot { min-width: 26mm; font-size: 11.5px; }
 .rb-annot .rt p { margin: 0; }
+
+/* ---------------------------------------------------------------- Aperçu paginé (lot 7a, C7) */
+/* Feuilles de taille fixe (mm) découpées par la pagination ; zoom par la propriété `zoom`
+   (le calque de mesure, lui, n'est jamais zoomé). Ces feuilles sont aussi celles imprimées. */
+.rd-paged { position: relative; }
+.rd-zoombar {
+  position: sticky; top: 0; z-index: 7; display: flex; align-items: center; gap: 10px;
+  margin: -10px 0 12px; padding: 6px 0; background: var(--canvas);
+}
+.rd-zoom-n { margin-right: auto; font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.rd-zoombar .rd-seg button { padding: 3px 9px; font-size: 12px; }
+.rd-sheets { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.rd-sheet-slot { flex-shrink: 0; }
+.rd-sheet-slot > .rd-sheet { transform-origin: top left; }
+.rd-sheet {
+  position: relative; flex-shrink: 0; overflow: visible; background: #fff; border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, .1), 0 8px 24px rgba(16, 24, 40, .08);
+}
+.rd-sheet-h, .rd-sheet-f { position: absolute; z-index: 1; }
+.rd-sheet-body { position: absolute; z-index: 1; display: flex; flex-direction: column; gap: 12px; }
+.rd-sheet-body > .rd-block, .rd-mitem > .rd-block { margin: 0; }
+.rd-sheet-chip {
+  display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 -8px; padding: 3px 12px;
+  font: inherit; font-size: 11.5px; font-weight: 600; color: var(--blue-700); background: var(--blue-50);
+  border: 1px solid #cfe2f6; border-radius: 999px; cursor: pointer;
+}
+.rd-sheet-chip:hover { border-color: var(--blue-600); }
+.rd-sheet-chip.is-selected { border-color: var(--blue-600); box-shadow: 0 0 0 2px rgba(15, 108, 189, .2); }
+/* Filigrane des exports non validés : imprimé seulement. */
+.rd-watermark { position: absolute; inset: 0; z-index: 0; display: none; align-items: center; justify-content: center; pointer-events: none; overflow: hidden; }
+.rd-watermark span { font-size: 40px; font-weight: 700; letter-spacing: .06em; color: rgba(20, 24, 31, .07); white-space: nowrap; transform: rotate(-30deg); }
+/* Calque de mesure (invisible, hors écran, mêmes styles que la page, jamais zoomé). */
+.rd-measure { position: absolute; top: 0; left: -100000px; visibility: hidden; pointer-events: none; }
+.rd-measure-sec { display: flex; flex-direction: column; gap: 12px; }
+.rd-measure-sec + .rd-measure-sec { margin-top: 40px; }
+.rd-measure-probe { position: absolute; width: 1px; height: 100mm; }
+/* Bloc insécable plus haut qu'une page : réduit à l'échelle. */
+.rd-scaled { overflow: hidden; }
+.rd-scaled > div { transform-origin: top left; }
+/* Pastilles de l'éditeur (jamais imprimées) : tableau trop large, bloc trop haut, élément répété. */
+.rd-fitchip, .rd-toobig {
+  position: absolute; top: -13px; left: 50%; z-index: 6; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 92%;
+  padding: 3px 8px; font-size: 11px; line-height: 1.3; color: #8a5300; background: #fdf1de; border: 1px solid #f0d29c; border-radius: 999px;
+  transform: translateX(-50%); white-space: nowrap;
+}
+.rd-fitchip button {
+  padding: 1px 8px; font: inherit; font-size: 11px; font-weight: 600; color: var(--blue-700); background: #fff;
+  border: 1px solid #cfe2f6; border-radius: 999px; cursor: pointer;
+}
+.rd-fitchip button:hover { border-color: var(--blue-600); }
+.rd-repeat-chip {
+  position: absolute; top: -12px; left: -4px; z-index: 6; display: inline-flex; align-items: center; gap: 4px; max-width: 70%;
+  padding: 1px 8px; overflow: hidden; font: inherit; font-size: 10.5px; font-weight: 600; color: var(--blue-700); white-space: nowrap; text-overflow: ellipsis;
+  background: var(--blue-50); border: 1px dashed #9cc3e8; border-radius: 999px; cursor: pointer;
+}
+/* Sommaire (numéros de page de la pagination). */
+.rb-toc-h { margin: 0 0 8px; font-size: 15px; font-weight: 650; color: var(--text-strong); letter-spacing: -0.012em; }
+.rb-toc ol { margin: 0; padding: 0; list-style: none; }
+.rb-toc li { display: flex; align-items: baseline; gap: 6px; padding: 3px 0; font-size: 12.5px; }
+.rb-toc li span { color: var(--text); }
+.rb-toc li.rb-toc-l1 span { font-weight: 600; color: var(--text-strong); }
+.rb-toc li.rb-toc-l2 { padding-left: 14px; }
+.rb-toc li i { flex: 1; min-width: 12px; border-bottom: 1px dotted var(--border-strong); transform: translateY(-3px); }
+.rb-toc li b { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-strong); }
+.rb-cont { font-weight: 400; color: var(--text-muted); }
+
+/* Pages nommées : chaque feuille s'imprime dans SON format et SON orientation. */
+@page a4p { size: A4 portrait; margin: 0; }
+@page a4l { size: A4 landscape; margin: 0; }
+@page s169l { size: 338.67mm 190.5mm; margin: 0; }
+@page s169p { size: 190.5mm 338.67mm; margin: 0; }
+.rd-sheet.pg-a4p { page: a4p; }
+.rd-sheet.pg-a4l { page: a4l; }
+.rd-sheet.pg-s169l { page: s169l; }
+.rd-sheet.pg-s169p { page: s169p; }
+/* Export HTML : les feuilles, sans l'éditeur. */
+.rd-export .rd-sheet-slot { display: contents; }
+.rd-export .rd-watermark { display: flex; }

@@ -18,29 +18,38 @@ import { KpiTiles } from './views/KpiStrip.jsx';
  */
 const CALLOUT = { info: Info, success: CheckCircle2, warning: AlertTriangle, critical: OctagonAlert };
 
+// Morceau d'un texte coupé entre deux pages (paragraphes [i, j[ de la pagination).
+const sliceDoc = (doc, slice) => (doc && slice && slice.part ? { nodes: (doc.nodes || []).slice(slice.part[0], slice.part[1]) } : doc);
+// Vues découpables ligne à ligne (tableau, matrice, liste).
+export const ROW_VIEWS = new Set(['table', 'heat', 'list']);
+
 /**
  * Un bloc rendu. `ctx` = { result ({ ok, data, meta } | { ok: false, error }), inst (instance
- * du plan), vars (variables simples + élément répété), catalog, varLabels, pending }.
+ * du plan), vars (variables simples + élément répété), catalog, varLabels, pending,
+ * slice ({ part: [i, j], first, last } : morceau placé sur une page par la pagination),
+ * fit ({ scale } : police d'un tableau réduite pour tenir dans la largeur), toc (entrées du sommaire),
+ * showData / onToggleData (« Voir les données » d'un graphique, piloté par l'éditeur) }.
  * `editor` (optionnel) remplace le texte par un éditeur pour les blocs texte.
  */
 export function BlockView({ block, ctx, editor }) {
   const { tr } = useI18n();
   const p = block.params || {};
   const res = ctx.result;
+  const slice = ctx.slice || null;
   const d = res && res.ok ? res.data : null;
   const vars = { ...(ctx.vars || {}), ...((d && d.vars) || {}) };
   const subst = (s) => substitute(s, ctx.vars || {});
   const labelFor = (v) => tr((ctx.varLabels || {})[v] || v);
   switch (block.type) {
     case 'heading': { const Tag = `h${Math.min(3, p.level || 2)}`; return <Tag className={`rb-h rb-h${p.level || 2}`}>{subst(p.text)}</Tag>; }
-    case 'text': return editor || <RichTextView doc={p.doc} vars={vars} labelFor={labelFor} pending={ctx.pending} />;
+    case 'text': return editor || <RichTextView doc={sliceDoc(p.doc, slice)} vars={vars} labelFor={labelFor} pending={ctx.pending} />;
     case 'callout': { const Ico = CALLOUT[p.tone] || Info; return (
       <aside className={`rb-callout rb-callout-${p.tone || 'info'}`}>
-        <div className="rb-callout-h"><Ico size={16} aria-hidden="true" />{p.title && <strong>{subst(p.title)}</strong>}</div>
-        {editor || <RichTextView doc={p.doc} vars={vars} labelFor={labelFor} pending={ctx.pending} />}
+        {(!slice || slice.first) && <div className="rb-callout-h"><Ico size={16} aria-hidden="true" />{p.title && <strong>{subst(p.title)}</strong>}</div>}
+        {editor || <RichTextView doc={sliceDoc(p.doc, slice)} vars={vars} labelFor={labelFor} pending={ctx.pending} />}
       </aside>
     ); }
-    case 'bulletin': return editor || <RichTextView doc={p.doc || d?.doc} vars={vars} labelFor={labelFor} />;
+    case 'bulletin': return editor || <RichTextView doc={sliceDoc(p.doc || d?.doc, slice)} vars={vars} labelFor={labelFor} />;
     case 'kpis': {
       const kp = (ctx.catalog && ctx.catalog.kpis) || {};
       return <KpiTiles data={d} labels={Object.fromEntries(Object.entries(kp).map(([k, x]) => [k, x.label]))} units={Object.fromEntries(Object.entries(kp).map(([k, x]) => [k, x.unit]))} />;
@@ -51,18 +60,30 @@ export function BlockView({ block, ctx, editor }) {
       const view = p.view || (def && def.defaultView) || 'table';
       const title = subst(fig.title) || (def ? tr(def.label) : p.dataset);
       const chart = CHART_VIEWS.has(view);
+      // Morceau d'un tableau coupé entre deux pages : ses lignes seulement, en-tête répété.
+      const part = slice && slice.part && d && ROW_VIEWS.has(view) ? { ...d, rows: d.rows.slice(slice.part[0], slice.part[1]) } : d;
       return (
         <Figure figure={fig} number={ctx.inst && ctx.inst.figure} title={title}
           subtitle={fig.subtitle ? subst(fig.subtitle) : null} meta={d && d.meta} note={fig.note}
-          table={chart && d ? <DataTable data={d} columns={p.columns} /> : null}>
-          {d ? <DataView view={view} def={def} data={d} params={p} title={title} /> : null}
+          continued={!!(slice && !slice.first)} noFoot={!!(slice && !slice.last)} showData={ctx.showData} onToggleData={ctx.onToggleData}
+          table={chart && d && !slice ? <DataTable data={d} columns={p.columns} /> : null}>
+          {part ? <DataView view={view} def={def} data={part} params={p} title={title} scale={(ctx.fit && ctx.fit.scale) || 1} /> : null}
         </Figure>
       );
     }
     case 'pagebreak': return <div className="rb-pagebreak" aria-hidden="true"><span>{tr('Saut de page')}</span></div>;
     case 'divider': return <hr className="rb-divider" />;
     case 'spacer': return <div className="rb-spacer" style={{ height: `${p.height || 8}mm` }} aria-hidden="true" />;
-    case 'toc': return <p className="rb-note">{tr('Sommaire (numéros de page dans l\'aperçu paginé).')}</p>;
+    case 'toc': {
+      const entries = (ctx.toc || []).filter((e) => e.level <= (p.depth || 2));
+      if (!entries.length) return <p className="rb-note">{tr('Sommaire : ajoutez des titres au rapport.')}</p>;
+      return (
+        <nav className="rb-toc" aria-label={tr('Sommaire')}>
+          <p className="rb-toc-h">{tr('Sommaire')}</p>
+          <ol>{entries.map((e) => <li key={e.iid} className={`rb-toc-l${e.level}`}><span>{e.text}</span><i aria-hidden="true" /><b>{e.page == null ? '…' : e.page}</b></li>)}</ol>
+        </nav>
+      );
+    }
     case 'approval': return <p className="rb-note">{tr('Cartouche de validation : rempli quand le rapport est soumis puis validé.')}</p>;
     case 'image': return <p className="rb-note">{tr('Image')}</p>;
     default: return null;

@@ -138,6 +138,31 @@ export function insertBlock(blocks, block, { afterId = null, beforeId = null, in
   return { blocks: [...(blocks || []), block], error: null };
 }
 
+/**
+ * « Mettre ce bloc sur une page paysage » (tableau trop large) : une section paysage AVANT le bloc
+ * (ou la section qui le précède directement, réorientée) et une section de l'orientation
+ * précédente APRÈS lui, sauf s'il est le dernier de sa liste ou déjà suivi d'une section. Refusé
+ * dans des colonnes (une colonne ne contient pas de section). Renvoie { blocks, error }.
+ */
+export function landscapeAround(blocks, id, previous = 'portrait') {
+  const at = findBlock(blocks, id);
+  if (!at) return { blocks, error: null };
+  if (at.parent && at.parent.type === 'columns') return { blocks, error: 'Une colonne ne contient que des blocs simples.' };
+  const section = (orientation) => ({ id: newId('section'), type: 'section', params: { orientation, header: 'inherit', footer: 'inherit' } });
+  return {
+    error: null,
+    blocks: mapContainer(blocks, id, (list, i) => {
+      const out = [...list];
+      const after = out[i + 1];
+      if (after && after.type !== 'section') out.splice(i + 1, 0, section(previous === 'landscape' ? 'portrait' : previous));
+      const before = out[i - 1];
+      if (before && before.type === 'section') out[i - 1] = { ...before, params: { ...before.params, orientation: 'landscape' } };
+      else out.splice(i, 0, section('landscape'));
+      return out;
+    }),
+  };
+}
+
 /** Identifiant d'instance d'un bloc (racine ou section répétée). */
 export const iidOf = (blockId, repeat = null) => (repeat ? `${repeat.id}~${repeat.key}~${blockId}` : blockId);
 

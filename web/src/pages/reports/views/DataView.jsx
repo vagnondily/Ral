@@ -14,7 +14,8 @@ import ListView from './ListView.jsx';
 export const CHART_VIEWS = new Set(['bar', 'column', 'line', 'donut', 'stacked']);
 
 /** Corps d'un bloc « données » selon sa vue (repli sur le tableau pour une vue inconnue). */
-export default function DataView({ view, def, data, params, title }) {
+/** `scale` : police réduite d'un tableau pour tenir dans la largeur de la page (reportFit, ≥ 0,8). */
+export default function DataView({ view, def, data, params, title, scale = 1 }) {
   const p = params || {};
   switch (view) {
     case 'bar': return <BarChart def={def} data={data} measure={p.measure} title={title} />;
@@ -22,11 +23,11 @@ export default function DataView({ view, def, data, params, title }) {
     case 'line': return <LineChart def={def} data={data} measure={p.measure} title={title} />;
     case 'donut': return <DonutChart def={def} data={data} measure={p.measure} title={title} />;
     case 'stacked': return <StackedBar def={def} data={data} />;
-    case 'heat': return <HeatTable data={data} columns={p.columns} />;
+    case 'heat': return <HeatTable data={data} columns={p.columns} scale={scale} />;
     case 'kpi': case 'gauge': return <KpiStrip data={data} columns={p.columns} />;
     case 'card': return <IndicatorCard data={data} />;
     case 'explain': return <ExplainView data={data} />;
     case 'list': return <ListView data={data} columns={p.columns} />;
-    default: return <DataTable data={data} columns={p.columns} annotate={def && def.annotate} annotations={p.annotations} />;
+    default: return <DataTable data={data} columns={p.columns} annotate={def && def.annotate} annotations={p.annotations} scale={scale} />;
   }
 }
