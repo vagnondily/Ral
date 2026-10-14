@@ -17,6 +17,8 @@ const mon = require('../src/modules/monitoring/monitoring.repository');
 const monitoringRoutes = require('../src/modules/monitoring/monitoring.routes');
 const field = require('../src/modules/tpm/field.repository');
 const fieldRoutes = require('../src/modules/tpm/field.routes');
+const cons = require('../src/modules/tpm/consolidation.repository');
+const consolidationRoutes = require('../src/modules/tpm/consolidation.routes');
 const { errorHandler } = require('../src/middleware/errors');
 
 const calls = [];
@@ -34,11 +36,13 @@ field.listVisits = spy('visits', []);
 field.coverageRecapSummary = spy('recap');
 field.coverageMatrix = spy('matrix');
 field.rbmSites = spy('rbm', []);
+cons.consolidation = spy('consolidation', { rows: [] });
 
 const app = express();
 app.use(express.json());
 app.use('/api/monitoring', monitoringRoutes);
 app.use('/api/tpm/field', fieldRoutes);
+app.use('/api/tpm/consolidation', consolidationRoutes);
 app.use(errorHandler);
 const TENANT = '11111111-1111-1111-1111-111111111111';
 const FORM = '22222222-2222-2222-2222-222222222222';
@@ -149,4 +153,22 @@ test('RBM : ?from&to → mois de référence = to (un état se lit à un mois), 
   await get('/api/tpm/field/rbm/sites');
   assert.deepEqual(last().args[1], { month: undefined, asOf: null, risk: undefined });
   assert.equal((await get('/api/tpm/field/rbm/sites?month=abc')).body.details.code, 'period_format');
+});
+
+test('consolidation : période facultative (null = cumul seul), ?month ≡ from=to, today à part, 60 mois au plus', async () => {
+  await get('/api/tpm/consolidation?today=2026-10');
+  assert.deepEqual(last().args[1], { today: '2026-10', period: null });
+  await get('/api/tpm/consolidation?from=2026-01&to=2026-06&today=2026-10-14');
+  assert.deepEqual(last().args[1], { today: '2026-10', period: { from: '2026-01', to: '2026-06' } });
+  await get('/api/tpm/consolidation?month=2026-07');
+  assert.deepEqual(last().args[1], { today: undefined, period: { from: '2026-07', to: '2026-07' } });
+  await get('/api/tpm/consolidation?today=2026-13');
+  assert.equal(last().args[1].today, undefined, 'mois de référence invalide ignoré (comportement historique)');
+  for (const [q, code] of ERRORS) {
+    const res = await get(`/api/tpm/consolidation?${q}`);
+    assert.equal(res.status, 400, q);
+    assert.equal(res.body.details.code, code, q);
+  }
+  assert.equal((await get('/api/tpm/consolidation?from=2022-01&to=2026-12')).status, 200, '60 mois acceptés');
+  assert.equal((await get('/api/tpm/consolidation?from=2021-12&to=2026-12')).body.details.code, 'period_span');
 });
