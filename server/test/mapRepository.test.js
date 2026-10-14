@@ -14,13 +14,14 @@ const OFFICE = '22222222-2222-2222-2222-222222222222';
 let calls = [];
 let inFlight = 0;
 let maxInFlight = 0;
+let rowCount = 0;
 db.withTenantTransaction = async (_tenantId, fn) => fn({
   query: async (sql, params = []) => {
     inFlight += 1; maxInFlight = Math.max(maxInFlight, inFlight);
     await new Promise((r) => setImmediate(r));
     inFlight -= 1;
     calls.push({ sql: sql.replace(/\s+/g, ' ').trim(), params });
-    return { rows: [] };
+    return { rows: [], rowCount };
   },
 });
 const repo = require('../src/modules/map/map.repository');
@@ -120,6 +121,27 @@ test('points : précision maximale en paramètre, médianes sur tout l\'historiq
   assert.match(statuses.sql, /CASE WHEN NOT p\.active THEN 'inactif' WHEN p\.realised_any AND p\.planned THEN 'realise' WHEN p\.realised_any THEN 'hors_plan' WHEN p\.planned THEN 'prevu' ELSE 'non_prevu' END AS status/);
   assert.match(statuses.sql, /LIMIT \$\d+$/);
   assert.equal(statuses.params[statuses.params.length - 1], repo.SITES_CAP + 1);
+});
+
+test('corrections de contour : district du compte vérifié, upsert ON CONFLICT, updated_by ; centres : valeurs vides seulement', async () => {
+  calls = [];
+  await repo.upsertShapeLink(T, 'u1', 'MG52516a', 'bekily');
+  assert.match(calls[0].sql, /FROM admin_areas WHERE tenant_id = \$1 AND depth = 2 AND pcode = \$2/);
+  // Le faux client ne trouve aucun district : rien n'est écrit (404 côté service).
+  assert.equal(calls.length, 1);
+  rowCount = 1; // le district existe
+  calls = [];
+  assert.equal(await repo.upsertShapeLink(T, 'u1', 'MG52516a', null), true);
+  assert.match(calls[1].sql, /INSERT INTO map_shape_links \(tenant_id, shape_set, area_pcode, shape_key, updated_by, updated_at\) VALUES \(\$1, \$2, \$3, \$4, \$5, now\(\)\) ON CONFLICT \(tenant_id, shape_set, area_pcode\) DO UPDATE SET shape_key = EXCLUDED\.shape_key, updated_by = EXCLUDED\.updated_by/);
+  assert.deepEqual(calls[1].params, [T, 'mdg-adm2.v1', 'MG52516a', null, 'u1']);
+  calls = [];
+  await repo.deleteShapeLink(T, 'MG52516a');
+  assert.match(calls[1].sql, /^DELETE FROM map_shape_links WHERE tenant_id = \$1 AND shape_set = \$2 AND area_pcode = \$3$/);
+  calls = [];
+  await repo.fillDistrictCentres(T, [{ pcode: 'MG1', lat: -24.1, lng: 45.3 }]);
+  assert.match(calls[0].sql, /a\.tenant_id = \$1 AND a\.depth = 2 AND a\.pcode = v\.pcode AND a\.lat IS NULL AND a\.lng IS NULL/);
+  assert.deepEqual(calls[0].params, [T, ['MG1'], [-24.1], [45.3]]);
+  rowCount = 0;
 });
 
 test('recherche : métacaractères de LIKE échappés, une requête par profondeur (index), tenant $1', async () => {

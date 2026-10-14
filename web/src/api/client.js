@@ -489,6 +489,11 @@ export const api = {
     query: qs({ ...pq(period), office: officeId, activity, layers: layers && layers.length ? layers.join(',') : undefined, limit }),
   }),
   mapSearch: (q) => request('/api/map/search', { query: { q } }),
+  // Paramétrage › Localités › Contours de la carte (administrateur).
+  mapShapeLinks: () => request('/api/map/shape-links'),
+  mapShapeLinkSet: (pcode, shapeKey) => request(`/api/map/shape-links/${encodeURIComponent(pcode)}`, { method: 'PUT', body: { shapeKey } }),
+  mapShapeLinkClear: (pcode) => request(`/api/map/shape-links/${encodeURIComponent(pcode)}`, { method: 'DELETE' }),
+  mapFillCentres: () => request('/api/map/shape-links/fill-centres', { method: 'POST' }),
 
   // Planification & budget — budget prévisionnel des vagues de collecte
   listPlans: (query) => request('/api/tpm/planning', { query }),

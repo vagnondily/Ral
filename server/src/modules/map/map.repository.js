@@ -397,8 +397,85 @@ async function search(tenantId, q) {
   });
 }
 
+// ---- Corrections district → contour (Paramétrage › Localités › Contours de la carte) ----
+
+/** Districts du découpage du compte, avec leur nombre de sites, et les corrections enregistrées. */
+async function shapeLinkData(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: districts } = await client.query(
+      `SELECT d.pcode, d.name, r.name AS region, COALESCE(sc.n, 0)::int AS sites,
+              (d.lat IS NOT NULL AND d.lng IS NOT NULL) AS "hasCentre"
+         FROM admin_areas d
+         LEFT JOIN admin_areas r ON r.id = d.parent_id AND r.tenant_id = $1
+         LEFT JOIN (SELECT adm2_pcode, count(*)::int AS n FROM sites WHERE tenant_id = $1 AND adm2_pcode IS NOT NULL GROUP BY 1) sc
+                ON sc.adm2_pcode = d.pcode
+        WHERE d.tenant_id = $1 AND d.depth = 2 AND d.pcode IS NOT NULL
+        ORDER BY r.name NULLS LAST, d.name`,
+      [tenantId]
+    );
+    const links = await shapeLinksTx(client, tenantId);
+    return { districts, links };
+  });
+}
+
+/** District (profondeur 2) du compte portant ce P-code ? */
+async function districtExistsTx(client, tenantId, pcode) {
+  const { rowCount } = await client.query(
+    'SELECT 1 FROM admin_areas WHERE tenant_id = $1 AND depth = 2 AND pcode = $2', [tenantId, pcode]);
+  return rowCount > 0;
+}
+
+/**
+ * Correction manuelle (upsert) : shapeKey = clé d'un contour, ou null = « ne pas dessiner ».
+ * @returns {Promise<boolean>} false si le P-code n'est pas un district du compte
+ */
+async function upsertShapeLink(tenantId, userId, pcode, shapeKey, shapeSet = SHAPE_SET) {
+  return withTenantTransaction(tenantId, async (client) => {
+    if (!(await districtExistsTx(client, tenantId, pcode))) return false;
+    await client.query(
+      `INSERT INTO map_shape_links (tenant_id, shape_set, area_pcode, shape_key, updated_by, updated_at)
+       VALUES ($1, $2, $3, $4, $5, now())
+       ON CONFLICT (tenant_id, shape_set, area_pcode)
+       DO UPDATE SET shape_key = EXCLUDED.shape_key, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+      [tenantId, shapeSet, pcode, shapeKey, userId || null]
+    );
+    return true;
+  });
+}
+
+/** Retour au rapprochement automatique. @returns {Promise<boolean>} false si le P-code n'est pas un district du compte */
+async function deleteShapeLink(tenantId, pcode, shapeSet = SHAPE_SET) {
+  return withTenantTransaction(tenantId, async (client) => {
+    if (!(await districtExistsTx(client, tenantId, pcode))) return false;
+    await client.query('DELETE FROM map_shape_links WHERE tenant_id = $1 AND shape_set = $2 AND area_pcode = $3', [tenantId, shapeSet, pcode]);
+    return true;
+  });
+}
+
+/**
+ * Centres des districts (admin_areas.lat / lng, vides aujourd'hui) remplis depuis le point
+ * d'étiquette de leur contour — UNE requête multi-lignes ; seules les valeurs vides sont
+ * écrites (jamais une saisie existante). Le plan de suivi place alors les sites rattachés
+ * à un district (repli « centre du district »).
+ * @param {{pcode:string, lat:number, lng:number}[]} centres
+ * @returns {Promise<number>} lignes mises à jour
+ */
+async function fillDistrictCentres(tenantId, centres) {
+  if (!centres.length) return 0;
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rowCount } = await client.query(
+      `UPDATE admin_areas a SET lat = v.lat, lng = v.lng
+         FROM unnest($2::text[], $3::numeric[], $4::numeric[]) AS v(pcode, lat, lng)
+        WHERE a.tenant_id = $1 AND a.depth = 2 AND a.pcode = v.pcode AND a.lat IS NULL AND a.lng IS NULL`,
+      [tenantId, centres.map((c) => c.pcode), centres.map((c) => c.lat), centres.map((c) => c.lng)]
+    );
+    return rowCount;
+  });
+}
+
 module.exports = {
   SHAPE_SET, MAP_COUNT_COLUMNS, SITES_CAP,
+  shapeLinkData, upsertShapeLink, deleteShapeLink, fillDistrictCentres,
   districtData, factsByZoneTx, submissionsByZoneTx, areaIndexTx, communeNamesTx, shapeLinksTx, filtersAvailableTx,
   pointsData, siteStatusesTx, gpsMediansTx, collectPointsTx, search, likeEscape,
 };

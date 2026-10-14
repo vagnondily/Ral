@@ -151,3 +151,56 @@ test('soumissions d\'une fiche : un lecteur ne reçoit aucune coordonnée GPS de
   const a = await request(monApp).get(`/api/monitoring/forms/${FORM}/submissions`).set(as(manager));
   assert.equal(a.body.rows[0].data['@_HHCoord_latitude'], '-24.1222355');
 });
+
+// ---- Contours de la carte (Paramétrage › Localités) ----------------------------------
+const DISTRICTS = [{ pcode: 'MG52516', name: 'Ambovombe-Androy', region: 'Androy', sites: 58, hasCentre: false },
+  { pcode: 'MG52516a', name: 'Antanimora Sud', region: 'Androy', sites: 58, hasCentre: false }];
+repo.shapeLinkData = async (tenantId) => { calls.push({ fn: 'shapeLinkData', tenantId }); return { districts: DISTRICTS, links: [] }; };
+repo.upsertShapeLink = async (tenantId, userId, pcode, shapeKey) => { calls.push({ fn: 'upsert', tenantId, userId, pcode, shapeKey }); return DISTRICTS.some((d) => d.pcode === pcode); };
+repo.deleteShapeLink = async (tenantId, pcode) => { calls.push({ fn: 'delete', tenantId, pcode }); return DISTRICTS.some((d) => d.pcode === pcode); };
+repo.fillDistrictCentres = async (tenantId, centres) => { calls.push({ fn: 'fill', tenantId, centres }); return centres.length; };
+
+test('contours : PUT / DELETE / GET réservés à l\'administrateur (403 gestionnaire et lecteur)', async () => {
+  const n = calls.length;
+  for (const tok of [manager, viewer]) {
+    assert.equal((await request(app).put('/api/map/shape-links/MG52516a').set(as(tok)).send({ shapeKey: 'bekily' })).status, 403);
+    assert.equal((await request(app).delete('/api/map/shape-links/MG52516a').set(as(tok))).status, 403);
+    assert.equal((await request(app).get('/api/map/shape-links').set(as(tok))).status, 403);
+  }
+  assert.equal(calls.length, n);
+});
+
+test('contours : liste avec rapprochement (contour parent), correction, « ne pas dessiner », retour à l\'automatique', async () => {
+  const list = await request(app).get('/api/map/shape-links').set(as(admin));
+  assert.equal(list.status, 200);
+  assert.equal(list.body.shapes.length, 119);
+  assert.deepEqual(list.body.districts.map((d) => [d.pcode, d.how, d.shapeKey]), [['MG52516', 'exact', 'ambovombe androy'], ['MG52516a', 'parent', 'ambovombe androy']]);
+  assert.equal((await request(app).put('/api/map/shape-links/MG52516a').set(as(admin)).send({ shapeKey: 'bekily' })).status, 204);
+  assert.deepEqual(last(), { fn: 'upsert', tenantId: TENANT, userId: 'u1', pcode: 'MG52516a', shapeKey: 'bekily' });
+  assert.equal((await request(app).put('/api/map/shape-links/MG52516a').set(as(admin)).send({ shapeKey: null })).status, 204);
+  assert.equal(last().shapeKey, null); // « ne pas dessiner »
+  assert.equal((await request(app).delete('/api/map/shape-links/MG52516a').set(as(admin))).status, 204);
+  assert.deepEqual(last(), { fn: 'delete', tenantId: TENANT, pcode: 'MG52516a' });
+});
+
+test('contours : 404 hors du découpage du compte, 400 contour inconnu de l\'index ou corps invalide', async () => {
+  assert.equal((await request(app).put('/api/map/shape-links/MG99999').set(as(admin)).send({ shapeKey: 'bekily' })).status, 404);
+  assert.equal((await request(app).delete('/api/map/shape-links/MG99999').set(as(admin))).status, 404);
+  const n = calls.length;
+  const unknown = await request(app).put('/api/map/shape-links/MG52516a').set(as(admin)).send({ shapeKey: 'contour inventé' });
+  assert.equal(unknown.status, 400);
+  assert.match(unknown.body.error, /Contour inconnu/);
+  assert.equal((await request(app).put('/api/map/shape-links/MG52516a').set(as(admin)).send({})).status, 400);
+  assert.equal((await request(app).put('/api/map/shape-links/MG52516a').set(as(admin)).send({ shapeKey: 'bekily', tenantId: 'x' })).status, 400);
+  assert.equal((await request(app).put('/api/map/shape-links/x%20y').set(as(admin)).send({ shapeKey: 'bekily' })).status, 400);
+  assert.equal(calls.length, n, 'rien n\'a atteint le dépôt');
+});
+
+test('centres des districts : remplis depuis le point d\'étiquette de leur contour', async () => {
+  const r = await request(app).post('/api/map/shape-links/fill-centres').set(as(admin));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.updated, 2);
+  const c = last().centres;
+  assert.deepEqual(c.map((x) => x.pcode), ['MG52516', 'MG52516a']);
+  assert.ok(c[0].lat < -24 && c[0].lat > -26 && c[0].lng > 45 && c[0].lng < 47);
+});

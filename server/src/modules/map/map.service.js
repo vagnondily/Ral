@@ -3,6 +3,8 @@ const { buildDistrictsResponse } = require('./mapResponse');
 const { buildPointsResponse } = require('./mapPoints');
 const { MAX_ACCURACY_M } = require('./submissionGps');
 const SHAPE_INDEX = require('./shapes/mdg-adm2.v1.json');
+const { matchDistricts } = require('./geoMatch');
+const { badRequest, notFound } = require('../../middleware/errors');
 
 /**
  * Carte du suivi (lot 6a) — règles de l'API. Le tenant vient TOUJOURS de req.auth
@@ -31,4 +33,46 @@ async function search(auth, { q }) {
   return { results: await repo.search(auth.tenantId, q) };
 }
 
-module.exports = { districts, points, search, SHAPE_INDEX, PRECISE_ROLES };
+/**
+ * Paramétrage › Localités › Contours de la carte : chaque district du découpage avec
+ * son rapprochement (automatique ou manuel), le nombre de sites, et la liste des contours.
+ */
+async function shapeLinks(auth) {
+  const { districts, links } = await repo.shapeLinkData(auth.tenantId);
+  const manual = new Map(links.map((l) => [l.pcode, l.shapeKey]));
+  const match = matchDistricts({ districts, shapes: SHAPE_INDEX.shapes, links: manual });
+  const names = new Map(SHAPE_INDEX.shapes.map((s) => [s.key, s.name]));
+  return {
+    shapeSet: SHAPE_INDEX.shapeSet,
+    shapes: SHAPE_INDEX.shapes.map((s) => ({ key: s.key, name: s.name })),
+    districts: districts.map((d) => {
+      const m = match.byPcode[d.pcode] || { shapeKey: null, how: 'aucun', sharedWith: [] };
+      return {
+        ...d, shapeKey: m.shapeKey, shapeName: m.shapeKey ? names.get(m.shapeKey) : null, how: m.how,
+        sharedWith: m.sharedWith, manual: manual.has(d.pcode), stale: match.staleLinks.includes(d.pcode),
+      };
+    }),
+    conflicts: match.conflicts,
+  };
+}
+
+/** Correction manuelle : contour de l'index, ou null (« ne pas dessiner »). 404 hors du découpage, 400 contour inconnu. */
+async function setShapeLink(auth, pcode, shapeKey) {
+  if (shapeKey !== null && !SHAPE_INDEX.shapes.some((s) => s.key === shapeKey)) throw badRequest('Contour inconnu.', { shapeKey });
+  if (!(await repo.upsertShapeLink(auth.tenantId, auth.userId, pcode, shapeKey))) throw notFound('District introuvable dans le découpage du compte.');
+}
+
+async function clearShapeLink(auth, pcode) {
+  if (!(await repo.deleteShapeLink(auth.tenantId, pcode))) throw notFound('District introuvable dans le découpage du compte.');
+}
+
+/** Centres des districts vides ← point d'étiquette de leur contour (rapprochement courant). */
+async function fillCentres(auth) {
+  const data = await shapeLinks(auth);
+  const labels = new Map(SHAPE_INDEX.shapes.map((s) => [s.key, s.label]));
+  const centres = data.districts.filter((d) => d.shapeKey && !d.hasCentre && labels.get(d.shapeKey))
+    .map((d) => ({ pcode: d.pcode, lng: labels.get(d.shapeKey)[0], lat: labels.get(d.shapeKey)[1] }));
+  return { updated: await repo.fillDistrictCentres(auth.tenantId, centres) };
+}
+
+module.exports = { districts, points, search, shapeLinks, setShapeLink, clearShapeLink, fillCentres, SHAPE_INDEX, PRECISE_ROLES };

@@ -140,7 +140,7 @@ function Workspace() {
       {route.module === 'processus' && route.sub === 'carte' && <SitesMapPage onNavigate={navigate} isAdmin={user.role === 'admin'} />}
       {route.module === 'processus' && route.sub === 'calculs' && <CalcDocsPage />}
       {route.module === 'pdd' && <PddPage canEdit={canEdit} view={route.sub} onNavigate={navigate} />}
-      {route.module === 'parametrage' && <SettingsPage tab={route.sub} isAdmin={user.role === 'admin'} onNavigate={navigate} />}
+      {route.module === 'parametrage' && <SettingsPage tab={route.sub} sub={route.extra} isAdmin={user.role === 'admin'} onNavigate={navigate} />}
     </AppShell>
   );
 }
