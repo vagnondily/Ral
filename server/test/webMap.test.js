@@ -217,3 +217,16 @@ test('étiquettes : aucun chevauchement, priorité aux grandes aires, hors cadre
     assert.ok(a[2] <= b[0] || b[2] <= a[0] || a[3] <= b[1] || b[3] <= a[1]);
   }
 });
+
+test('couverture de la page (tuile, Bulletin) : chargement et erreur jamais confondus avec « aucun site actif »', async (t) => {
+  const m = await load(t, 'mapScale.js'); if (!m) return;
+  assert.deepEqual(m.coverageState(undefined), { state: 'loading', rate: null });
+  assert.deepEqual(m.coverageState(null), { state: 'error', rate: null });
+  assert.deepEqual(m.coverageState(false), { state: 'error', rate: null });
+  const totals = (active, realised) => ({ totals: { counts: { active, realised, realisedData: 1 }, rates: { coverage: { value: active ? realised / active : null } } } });
+  assert.deepEqual(m.coverageState(totals(0, 0)), { state: 'ok', rate: null, realised: 0, active: 0, realisedData: 1 });
+  const ok = m.coverageState(totals(1280, 21));
+  assert.equal(ok.state, 'ok');
+  assert.match(m.formatRate(ok.rate, 'fr'), /^1,6\s%$/);
+  assert.match(m.formatRate(0, 'fr'), /^0\s%$/, '0 % est une vraie valeur');
+});

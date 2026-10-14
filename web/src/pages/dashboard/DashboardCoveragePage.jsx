@@ -10,7 +10,7 @@ import { formatInt, monthLabel } from '../../lib/format.js';
 import { periodLabel, single } from '../../lib/period.js';
 import MapExplorer, { peekMapOpen, forgetMapOpen } from '../../components/map/MapExplorer.jsx';
 import { fetchMapDistricts } from '../../components/map/useMapData.js';
-import { formatRate } from '../../lib/mapScale.js';
+import { coverageState, formatRate } from '../../lib/mapScale.js';
 import { groupNaReasons } from '../../lib/naReasons.js';
 import { shortFormLabel as shortLabel } from '../../lib/formLabel.js';
 import { useI18n } from '../../lib/i18n.jsx';
@@ -156,18 +156,6 @@ export default function DashboardCoveragePage({ onNavigate }) {
       )}
     </div>
   );
-}
-
-/**
- * État de la couverture des sites lue dans la réponse de la carte : 'loading' (requête en
- * cours), 'error' (échec : jamais « aucun site actif »), 'ok' — rate null seulement quand la
- * période n'a vraiment aucun site actif (totals.counts.active === 0).
- */
-function coverageState(mapData) {
-  if (mapData === undefined) return { state: 'loading', rate: null };
-  if (!mapData || !mapData.totals) return { state: 'error', rate: null };
-  const { counts, rates } = mapData.totals;
-  return { state: 'ok', rate: rates.coverage.value, realised: counts.realised, active: counts.active, realisedData: counts.realisedData };
 }
 
 function coverageFoot(c, tr) {

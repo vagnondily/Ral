@@ -136,6 +136,19 @@ const nf = (loc, digits) => {
 };
 
 /** Taux affiché : 0 → « 0 % », < 10 % → une décimale (« 1,3 % »), sinon entier (« 44 % »). */
+/**
+ * État de la couverture des sites lue dans une réponse de /api/map/districts (tuile et Bulletin
+ * de Couverture & performance) : 'loading' (réponse attendue : undefined), 'error' (échec : null
+ * — jamais « aucun site actif »), 'ok' ; rate null seulement si la période n'a vraiment aucun
+ * site actif (totals.counts.active === 0).
+ */
+export function coverageState(mapData) {
+  if (mapData === undefined) return { state: 'loading', rate: null };
+  if (!mapData || !mapData.totals) return { state: 'error', rate: null };
+  const { counts, rates } = mapData.totals;
+  return { state: 'ok', rate: rates.coverage.value, realised: counts.realised, active: counts.active, realisedData: counts.realisedData };
+}
+
 export function formatRate(v, lang = 'fr') {
   if (v == null || !Number.isFinite(v)) return '—';
   const pct = v * 100;
