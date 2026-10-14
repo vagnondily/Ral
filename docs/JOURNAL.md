@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 13:41 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 13:54 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -551,5 +551,16 @@ _Dernière mise à jour : 14/10/2026 13:41 UTC_ — la branche `main` reçoit ch
   Contrôles : 1 015 tests réussis (1 ignoré), lint propre, build OK, balayage 33 écrans × FR / EN sans erreur ni phrase manquante, migration essayée sur une base neuve (65 fichiers) et sur une copie. **Chez vous : `npm run migrate` puis redémarrer l'API.**
 
   📥 **Retours 87 et 88** (concepteur) : axes et légendes des figures ; annexes pour les longs tableaux ; orientation d'une seule page ; en-tête libre avec modèles et logo déplaçable.
+- **13:42 → 13:52** 🔄 **Agents en parallèle** (chacun sur sa propre copie du code et de la base, jamais sur vos serveurs) :
+  - concepteur, partie 2 (retours 87, 88) → branche `wip/7a-p2` ;
+  - finitions d'écrans : sélecteur de période, onglet « Données », tableau de bord des fiches, carte (retours 80, 83, 85, 86, 94) → `wip/ui-polish` ;
+  - lenteur, mesure puis correction (retours 61, 84) → `wip/perf` ;
+  - Partenaires & TPM : fiche 360°, formations, notation des agents (lot 8, retours 28 et 30) → `wip/lot8` ;
+  - TPM tiré des contrats, motif obligatoire si on le change (retour 58) → `wip/r58` ;
+  - planification automatique d'après le RBM, et ses paramètres (retour 82, lot 5 § 6–7) → `wip/lot5-gen` ;
+  - conceptions : 5 XLSForm (retours 66, 77, 81, 85), multi-pays (retour 91), programmes, projets, bailleurs et Output (retours 65, 69, 73, 92, 93).
+
+  📥 Retours 89 à 94 (voir `RETOURS_UTILISATEUR.md`).
+- **13:54** ✅ **Retours 89 et 90 publiés sur `main`** (`ac6eccf`) : suppression groupée de sites avec aperçu avant et compte rendu clair ; sites et activités par unité du répertoire (fokontany 67 s → 0,2 s). Contrôles : 1 018 tests réussis (1 ignoré), lint propre, build OK, balayage 33 écrans × FR / EN sans erreur. Aucune migration.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
