@@ -21,8 +21,10 @@
  *   --import-cost <n>           coût du déclencheur GPS (migration 061) : insère n soumissions
  *                               synthétiques DANS UNE TRANSACTION ANNULÉE, avec puis sans le
  *                               déclencheur (base 6a_… ou bench_… seulement)
+ *   --budget <ms>               budget p95 imposé (ex. 400 sur une base déjà agrandie ×8 hors banc)
  *   --runs 20 · --warmup 3 · --to 2026-10 · --spans 1,10,24,36
- * Budgets : p95 ≤ 150 ms (≤ 400 ms avec --scale) ; import ≤ 6 s pour 10 000 lignes.
+ * Budgets : p95 ≤ 150 ms (≤ 400 ms avec --scale) ; points ≤ 100 ms (même budget agrandi) ;
+ * import ≤ 6 s pour 10 000 lignes.
  */
 const path = require('path');
 const pg = require('pg');
@@ -42,6 +44,7 @@ function parseArgs(argv) {
     else if (a === '--warmup') out.warmup = Number(next());
     else if (a === '--to') out.to = next();
     else if (a === '--spans') out.spans = next().split(',').map(Number);
+    else if (a === '--budget') out.budget = Number(next());
     else throw new Error(`Option inconnue : ${a}`);
   }
   if (!out.db) throw new Error('--db <url superutilisateur> est requis');
@@ -73,7 +76,8 @@ async function main() {
     const office = (await su.query('SELECT field_office_id AS id FROM sites WHERE tenant_id = $1 AND field_office_id IS NOT NULL GROUP BY 1 ORDER BY count(*) DESC LIMIT 1', [tenantId])).rows[0]?.id || null;
     const activity = (await su.query("SELECT btrim(activity) AS a FROM sites WHERE tenant_id = $1 AND NULLIF(btrim(activity), '') IS NOT NULL GROUP BY 1 ORDER BY count(*) DESC LIMIT 1", [tenantId])).rows[0]?.a || null;
     const sites = Number((await su.query('SELECT count(*) FROM sites WHERE tenant_id = $1', [tenantId])).rows[0].count);
-    const budget = args.scale > 1 ? 400 : 150;
+    const scaled = args.scale > 1 || !!args.budget;
+    const budget = args.budget || (args.scale > 1 ? 400 : 150);
     const cases = [
       ...args.spans.map((n) => ({ name: `${n} mois`, opts: { period: { from: addMonths(args.to, -(n - 1)), to: args.to } } })),
       { name: '1 mois · bureau', opts: { period: { from: args.to, to: args.to }, officeId: office } },
@@ -105,7 +109,7 @@ async function main() {
         ms.push(Number(process.hrtime.bigint() - t0) / 1e6);
       }
       const p95 = pct(ms, 0.95); const bytes = JSON.stringify(out).length;
-      const over = p95 > (args.scale > 1 ? 400 : 100) || bytes > 300 * 1024;
+      const over = p95 > (scaled ? budget : 100) || bytes > 300 * 1024;
       if (over) failed = true;
       console.log(`points ${String(n).padStart(2)} mois       p50 ${pct(ms, 0.5).toFixed(1).padStart(6)} ms · p95 ${p95.toFixed(1).padStart(6)} ms · ${bytes} o · sites ${out.counts.gps}+${out.counts.derived} · communes ${out.counts.communeCentres} · collecte ${out.collect.total}${over ? '  ✗ BUDGET' : ''}`);
     }
@@ -218,7 +222,10 @@ async function importCost(su, tenantId, n) {
   const run = async (withTrigger) => {
     await su.query('BEGIN');
     try {
-      if (!withTrigger) await su.query('ALTER TABLE monitoring_submissions DISABLE TRIGGER trg_mon_sub_gps');
+      if (!withTrigger) {
+        await su.query('ALTER TABLE monitoring_submissions DISABLE TRIGGER trg_mon_sub_gps');
+        await su.query('ALTER TABLE monitoring_submissions DISABLE TRIGGER trg_mon_sub_gps_ins');
+      }
       const t0 = process.hrtime.bigint();
       await su.query(
         `INSERT INTO monitoring_submissions (tenant_id, form_id, external_id, period_month, data, source)

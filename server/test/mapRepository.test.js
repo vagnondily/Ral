@@ -50,14 +50,21 @@ test('faits par zone : service unique (withData + geo), réalisée = données AU
   await repo.districtData(T, { period: { from: '2026-09', to: '2026-09' } });
   const facts = calls.find((c) => /per_site AS/.test(c.sql));
   assert.ok(facts);
-  assert.match(facts.sql, /dat AS \( SELECT ms\.site_id, date_trunc\('month', ms\.period_month\)::date AS m FROM monitoring_submissions ms JOIN monitoring_forms mf ON mf\.id = ms\.form_id AND mf\.tenant_id = ms\.tenant_id JOIN reg r ON r\.site_id = ms\.site_id WHERE ms\.tenant_id = \$1 AND NOT ms\.excluded AND ms\.site_id IS NOT NULL/);
+  // Données rattachées AU SITE : soumissions de la période d'abord (matérialisées), puis le registre.
+  assert.match(facts.sql, /datraw AS MATERIALIZED \( SELECT ms\.site_id, ms\.form_id, date_trunc\('month', ms\.period_month\)::date AS m FROM monitoring_submissions ms WHERE ms\.tenant_id = \$1 AND NOT ms\.excluded AND ms\.site_id IS NOT NULL/);
+  assert.match(facts.sql, /dat AS \( SELECT x\.site_id, x\.m FROM datraw x JOIN monitoring_forms mf ON mf\.id = x\.form_id AND mf\.tenant_id = \$1 JOIN sites s ON s\.id = x\.site_id AND s\.tenant_id = \$1 WHERE x\.site_id IN \(SELECT site_id FROM reg\)/);
   assert.match(facts.sql, /bool_or\(active AND \(st = 'realise' OR wd\)\)/);
   // Une donnée de commune n'est qu'une indication (communeDataOnly), jamais une réalisation.
   assert.match(facts.sql, /cdat AS MATERIALIZED \(.* ms\.site_id IS NULL .*\)/);
-  const dat = facts.sql.slice(facts.sql.indexOf('dat AS ('), facts.sql.indexOf('fact AS MATERIALIZED'));
+  const dat = facts.sql.slice(facts.sql.indexOf('datraw AS'), facts.sql.indexOf('fact AS MATERIALIZED'));
   assert.doesNotMatch(dat, /adm3_pcode|commune/, 'les données qui réalisent sont celles DU site');
   assert.match(facts.sql, /COALESCE\(bool_or\(active AND \(st = 'realise' OR wd\)\), false\) AS realised_any/);
-  assert.match(facts.sql, /d\.site_id IS NOT NULL AS wd FROM act a LEFT JOIN vis v ON v\.site_id = a\.site_id AND v\.m = a\.m LEFT JOIN dat d ON d\.site_id = a\.site_id AND d\.m = a\.m/);
+  // per_site : faits creux (visites et données réunies par FULL JOIN), jamais la grille complète site × mois.
+  assert.match(facts.sql, /FROM vis v FULL JOIN dat d ON d\.site_id = v\.site_id AND d\.m = v\.m/);
+  assert.match(facts.sql, /sf AS MATERIALIZED \(/);
+  const perSite = facts.sql.slice(facts.sql.indexOf('per_site AS ('));
+  assert.doesNotMatch(perSite.slice(0, perSite.indexOf('ever AS')), /FROM fact\b/, 'per_site ne lit pas fact');
+  assert.match(perSite, /FROM reg r FULL JOIN \(SELECT site_id,/, 'jointure hachée ou fusionnée, jamais une boucle');
   assert.match(facts.sql, /GROUP BY GROUPING SETS \(\(did, rid\), \(rid\), \(office_id\), \(activity\), \(cpcode\), \(\)\)/);
   // Bornes semi-ouvertes de la période.
   assert.deepEqual(facts.params.slice(1, 4), ['2026-09-01', '2026-09-01', '2026-10-01']);

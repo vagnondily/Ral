@@ -28,6 +28,11 @@ const districtNameSql = (s = 's', ad = 'ad') =>
  *   per_site une ligne par site : active / planned / realised / realised_inactive (sur la période),
  *            sm_* (site × mois par statut), due_* (mois échus ≤ mois courant), upcoming,
  *            realise_active (site × mois réalisés pendant un mois actif), rp/rr/ra.
+ *            Calculé SANS la grille complète site × mois (fact, 120 000 lignes à 10 000 sites
+ *            sur 12 mois) : « actif sur la période » se lit par site (zone interdite, année
+ *            sans grille, au moins un « Oui » de la période), et les autres colonnes ne
+ *            dépendent que des site × mois qui ont une visite (ou des données) — sf, creux.
+ *            fact reste défini pour les séries mensuelles ; non référencé, il n'est pas calculé.
  *
  * Site actif un mois M : jamais en zone interdite (security_situation ≥ 99, valeur actuelle) ;
  * si le tenant a une grille cette année-là, seul un « Oui » explicite à M ; sinon tout le registre.
@@ -90,22 +95,40 @@ function siteMonthFactsCtes({
               NULLIF(btrim(s.adm3_pcode), '') AS cpcode, s.field_office_id AS office_id,
               (s.gps_lat IS NOT NULL AND s.gps_lng IS NOT NULL) AS has_gps` : '';
   const geoJoin = geo ? '\n         LEFT JOIN admin_areas aa ON aa.id = s.admin_area_id AND aa.tenant_id = s.tenant_id' : '';
+  // Données rattachées : d'abord les soumissions de la période (peu nombreuses, index partiel),
+  // regroupées par site × fiche × mois et MATÉRIALISÉES, puis seulement le registre — jamais
+  // une sonde d'index par site du registre (estimation faussée par la RLS : 80 ms à 10 000 sites).
   const datCte = withData ? `
-     dat AS (
-       SELECT ms.site_id, date_trunc('month', ms.period_month)::date AS m
+     datraw AS MATERIALIZED (
+       SELECT ms.site_id, ms.form_id, date_trunc('month', ms.period_month)::date AS m
          FROM monitoring_submissions ms
-         JOIN monitoring_forms mf ON mf.id = ms.form_id AND mf.tenant_id = ms.tenant_id
-         JOIN reg r ON r.site_id = ms.site_id
         WHERE ms.tenant_id = $1 AND NOT ms.excluded AND ms.site_id IS NOT NULL
           AND ms.period_month >= ${pLo}::date AND ms.period_month < ${pHiExcl}::date
-          AND ${formSiteCompatibleSql('mf.activity_category', 'r.act')}
+        GROUP BY 1, 2, 3),
+     dat AS (
+       SELECT x.site_id, x.m
+         FROM datraw x
+         JOIN monitoring_forms mf ON mf.id = x.form_id AND mf.tenant_id = $1
+         JOIN sites s ON s.id = x.site_id AND s.tenant_id = $1
+        WHERE x.site_id IN (SELECT site_id FROM reg)
+          AND ${formSiteCompatibleSql('mf.activity_category', "lower(NULLIF(btrim(s.activity), ''))")}
         GROUP BY 1, 2),` : '';
   const visExt = ext ? `,
               bool_or(v.status <> 'annule' AND v.provider_id IS NULL) AS ua` : '';
   const factExt = ext ? `, COALESCE(v.ua, false) AS ua, ${withData ? 'd.site_id IS NOT NULL' : 'false'} AS wd` : '';
   const datJoin = withData ? ' LEFT JOIN dat d ON d.site_id = a.site_id AND d.m = a.m' : '';
+  // Site × mois « creux » (visite ou données) : seules lignes qui comptent pour per_site, hors « actif ».
+  // Visites et données réunies par FULL JOIN (exécuté par hachage ou fusion, jamais en boucle).
+  const evSql = withData
+    ? `SELECT COALESCE(v.site_id, d.site_id) AS site_id, COALESCE(v.m, d.m) AS m, v.st, v.rp, v.rr, v.ra,
+              COALESCE(v.ua, false) AS ua, d.site_id IS NOT NULL AS wd
+         FROM vis v FULL JOIN dat d ON d.site_id = v.site_id AND d.m = v.m`
+    : `SELECT v.site_id, v.m, v.st, v.rp, v.rr, v.ra${ext ? ', COALESCE(v.ua, false) AS ua, false AS wd' : ''} FROM vis v`;
+  const sfExt = ext ? ', e.ua, e.wd' : '';
   const psExt = ext ? `,
-              a.realised_any, a.realised_data, a.v_planned, a.v_planned_realised, a.v_off_plan, a.v_unassigned, r.act` : '';
+              COALESCE(a.realised_any, false) AS realised_any, COALESCE(a.realised_data, false) AS realised_data,
+              COALESCE(a.v_planned, 0) AS v_planned, COALESCE(a.v_planned_realised, 0) AS v_planned_realised,
+              COALESCE(a.v_off_plan, 0) AS v_off_plan, COALESCE(a.v_unassigned, 0) AS v_unassigned, r.act` : '';
   const psGeo = geo ? ', r.did, r.dpcode, r.rid, r.cpcode, r.office_id, r.has_gps' : '';
   const aggExt = ext ? `,
                       COALESCE(bool_or(active AND (st = 'realise' OR wd)), false) AS realised_any,
@@ -159,12 +182,34 @@ function siteMonthFactsCtes({
        SELECT a.*, v.st, COALESCE(v.rp, 0) AS rp, COALESCE(v.rr, 0) AS rr, COALESCE(v.ra, 0) AS ra,
               a.m <= ${pToday}::date AS due${factExt}
          FROM act a LEFT JOIN vis v ON v.site_id = a.site_id AND v.m = a.m${datJoin}),
+     ev AS (
+       ${evSql}),
+     -- Robustesse du plan : sous RLS, chaque table est estimée à 0,5 % de ses lignes ; une jointure
+     -- de deux CTE peut alors tourner en boucle imbriquée (constaté : 10 s avec le filtre activité à
+     -- 10 000 sites). Les appartenances (périmètre, site non interdit, « Oui » de la grille, mois sans
+     -- grille) sont donc des sous-requêtes IN non corrélées — un ensemble haché, construit une fois
+     -- (sf MATÉRIALISÉ : « active » est calculé une fois par ligne, pas recopié dans chaque agrégat).
+     sf AS MATERIALIZED (
+       SELECT e.site_id,
+              e.site_id IN (SELECT site_id FROM reg WHERE NOT forbidden)
+                AND (e.m IN (SELECT m FROM months WHERE NOT known) OR (e.site_id, e.m) IN (SELECT site_id, m FROM st)) AS active,
+              e.st, COALESCE(e.rp, 0) AS rp, COALESCE(e.rr, 0) AS rr, COALESCE(e.ra, 0) AS ra,
+              e.m <= ${pToday}::date AS due${sfExt}
+         FROM ev e
+        WHERE e.site_id IN (SELECT site_id FROM reg)),
      per_site AS (
        SELECT r.site_id, r.office, r.dkey, r.dname, r.official, r.ckey, r.cname, r.activity, r.risk,
-              a.active, a.planned, a.realised, a.realised_inactive, a.sm_planifie, a.sm_realise, a.sm_annule,
-              a.due_planifie, a.due_realise, a.upcoming, a.realise_active, a.rp, a.rr, a.ra${psExt}${psGeo}
-         FROM (SELECT site_id,
-                      bool_or(active) AS active,
+              NOT r.forbidden AND ((SELECT bool_or(NOT known) FROM months) OR r.site_id IN (SELECT site_id FROM st)) AS active,
+              COALESCE(a.planned, false) AS planned, COALESCE(a.realised, false) AS realised,
+              COALESCE(a.realised_inactive, false) AS realised_inactive,
+              COALESCE(a.sm_planifie, 0) AS sm_planifie, COALESCE(a.sm_realise, 0) AS sm_realise, COALESCE(a.sm_annule, 0) AS sm_annule,
+              COALESCE(a.due_planifie, 0) AS due_planifie, COALESCE(a.due_realise, 0) AS due_realise,
+              COALESCE(a.upcoming, 0) AS upcoming, COALESCE(a.realise_active, 0) AS realise_active,
+              COALESCE(a.rp, 0) AS rp, COALESCE(a.rr, 0) AS rr, COALESCE(a.ra, 0) AS ra${psExt}${psGeo}
+         -- FULL JOIN = LEFT JOIN ici (tout site de sf est dans reg) : exécuté par hachage ou fusion,
+         -- jamais en boucle imbriquée, quelles que soient les estimations.
+         FROM reg r
+         FULL JOIN (SELECT site_id,
                       COALESCE(bool_or(active AND st IN ('planifie', 'realise')), false) AS planned,
                       COALESCE(bool_or(active AND st = 'realise'), false) AS realised,
                       COALESCE(bool_or(NOT active AND st = 'realise'), false) AS realised_inactive,
@@ -176,8 +221,7 @@ function siteMonthFactsCtes({
                       count(*) FILTER (WHERE st = 'planifie' AND NOT due)::int AS upcoming,
                       count(*) FILTER (WHERE active AND st = 'realise')::int AS realise_active,
                       sum(rp)::int AS rp, sum(rr)::int AS rr, sum(ra)::int AS ra${aggExt}
-                 FROM fact GROUP BY site_id) a
-         JOIN reg r ON r.site_id = a.site_id)`;
+                 FROM sf GROUP BY site_id) a ON a.site_id = r.site_id)`;
 }
 
 /**
