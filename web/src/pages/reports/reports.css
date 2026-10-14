@@ -374,9 +374,15 @@
 .rb-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; }
 .rb-axis { font-size: 10px; fill: var(--text-muted); font-family: inherit; }
 .rb-val { font-size: 9.5px; font-weight: 600; fill: var(--text); font-family: inherit; }
-.rb-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 4px; font-size: 11.5px; color: var(--text); }
+.rb-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 6px; font-size: 11.5px; color: var(--text); }
 .rb-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .rb-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.rb-legend.is-line i { width: 14px; height: 3px; border-radius: 2px; }
+.rb-end { fill: var(--text-strong); }
+/* Période des données quand elle diffère de celle du rapport (« 12 mois jusqu'à sept. 2026 »). */
+.rb-fig-scope { font-weight: 400; color: var(--text-muted); }
+.rb-title-bare { min-height: 0; margin-bottom: 4px; }
+.rb-title-bare:empty { display: none; }
 
 .rb-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px; break-inside: avoid; page-break-inside: avoid; }
 .rb-kpi { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; }
@@ -455,11 +461,16 @@
 .rb-table tr.rb-total td { font-weight: 600; background: var(--surface-2, #f6f8fb); }
 
 /* ---------------------------------------------------------------- Toile : interactions (lot 7a) */
-/* Mini-barre du bloc sélectionné, « + » au survol, ligne d'insertion d'un glisser. */
+/* Mini-barre du bloc sélectionné : VERTICALE, dans la marge droite de la feuille, à hauteur du haut
+   du bloc — elle ne recouvre jamais le contenu (titre, « Voir les données », retour 87). Dans des
+   colonnes : marge gauche pour la 1re colonne, au-dessus du bloc pour une colonne du milieu.
+   « + » au survol, ligne d'insertion d'un glisser. */
 .rd-mini {
-  position: absolute; top: -15px; right: 6px; z-index: 6; display: inline-flex; gap: 1px; padding: 2px;
+  position: absolute; top: -2px; left: calc(100% + 10px); z-index: 6; display: inline-flex; flex-direction: column; gap: 1px; padding: 2px;
   background: #fff; border: 1px solid var(--blue-600); border-radius: 8px; box-shadow: 0 2px 6px rgba(16, 24, 40, .12);
 }
+.rd-col:first-child:not(:last-child) .rd-mini { left: auto; right: calc(100% + 10px); }
+.rd-cols-1-1-1 .rd-col:nth-child(2) .rd-mini { top: auto; bottom: calc(100% + 6px); left: 50%; flex-direction: row; transform: translateX(-50%); }
 .rd-mini button {
   display: inline-grid; place-items: center; width: 26px; height: 24px; padding: 0;
   color: var(--text-muted); background: none; border: 0; border-radius: 5px; cursor: pointer;

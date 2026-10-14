@@ -3,7 +3,7 @@ import { RefreshCw, Lightbulb } from 'lucide-react';
 import { api } from '../../../api/client.js';
 import { useI18n } from '../../../lib/i18n.jsx';
 import { Button, Field } from '../../../components/ui.jsx';
-import { chartSeries, viewAdvice } from '../../../lib/reportViz.js';
+import { categoryColumn, chartSeries, viewAdvice } from '../../../lib/reportViz.js';
 import { TYPE_LABEL, VIEW_LABELS, VIEW_ADVICE } from './blockTypes.js';
 import FiltersPane from './FiltersPane.jsx';
 import PagePane from './PagePane.jsx';
@@ -115,7 +115,7 @@ function DataProps({ p, def, catalog, forms, data, result, onChange }) {
   const setFig = (patch) => onChange({ figure: { ...fig, ...patch } });
   // Mesures possibles : toutes les colonnes numériques des données (hors colonnes mensuelles / domaines).
   const series = data ? (data.columns || []).filter((c) => ['int', 'dec', 'pct', 'money', 'rate'].includes(c.type) && !/^[md]:/.test(c.key)) : [];
-  const advice = data ? viewAdvice(view, { rows: data.rows.length, series: chartSeries(def, data, { measure: p.measure }).length }) : null;
+  const advice = data ? viewAdvice(view, { rows: data.rows.length, series: chartSeries(def, data, { measure: p.measure }).length, timeSeries: (categoryColumn(data) || {}).type === 'month' }) : null;
   return (
     <>
       <Field label={tr('Données')}>

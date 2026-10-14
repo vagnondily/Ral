@@ -27,9 +27,10 @@ import deletions from './en/deletions.js';
 import activityCoverage from './en/activityCoverage.js';
 import period from './en/period.js';
 import map from './en/map.js';
+import reportLayout from './en/reportLayout.js';
 
 export default {
   ...common, ...shell, ...contracts, ...tpmReports, ...tpmPlanning, ...monitoring,
   ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard, ...calc, ...importWizard, ...correspondences,
-  ...indicatorEditor, ...dashboards, ...sites, ...deletions, ...activityCoverage, ...period, ...map,
+  ...indicatorEditor, ...dashboards, ...sites, ...deletions, ...activityCoverage, ...period, ...map, ...reportLayout,
 };

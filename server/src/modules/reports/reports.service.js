@@ -166,8 +166,20 @@ async function dataBlock(tenantId, block, eff, ctx) {
       warnings: m.warnings || [],
       periodMode: def.periodMode,
       period: eff.period,
+      dataPeriod: m.dataPeriod || dataPeriodOf(def.periodMode, eff),
     },
   };
+}
+
+/**
+ * Période réellement couverte quand elle diffère de la plage du bloc (dite dans la légende de la
+ * figure, retour 87) : l'exercice entier d'un jeu « année ». Un jeu « situation au » porte déjà sa
+ * date (`asOf`) ; un jeu « plage » couvre la plage.
+ */
+function dataPeriodOf(mode, eff) {
+  if (mode !== 'year' || !eff.period) return null;
+  const y = String(eff.period.to).slice(0, 4);
+  return { from: `${y}-01`, to: `${y}-12` };
 }
 
 /** Arguments d'un bloc complétés par les valeurs par défaut déclarées par le jeu. */
