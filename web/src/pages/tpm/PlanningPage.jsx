@@ -54,7 +54,7 @@ const readSaved = (values) => ({ ...values, period: periodFromSaved(values.perio
  * COMET (filtres, colonnes, tri, pagination, vue Ar/USD). La part bailleur
  * alimente le « Planifié » de la consolidation et pré-remplit la facture.
  */
-export default function PlanningPage({ canEdit, onNavigate }) {
+export default function PlanningPage({ canEdit, isAdmin = false, onNavigate }) {
   const { tr, lang } = useI18n();
   const toast = useToast();
   const [context, setContext] = useState(null);
@@ -296,7 +296,7 @@ export default function PlanningPage({ canEdit, onNavigate }) {
             {selected && <Button size="sm" variant="secondary" icon={ExternalLink} onClick={() => setDrawer({ planId: selected.id })}>{tr('Ouvrir / éditer')}</Button>}
             {canEdit && selected && <Button size="sm" variant="secondary" icon={FileText} onClick={() => createFacture(selected)}
               title={tr('Ouvre une facture pré-remplie depuis ce plan (Rapports & dépenses).')}>{tr('Créer la facture')}</Button>}
-            {canEdit && selected && <Button size="sm" variant="ghost" icon={Trash2} onClick={() => remove(selected)}>{tr('Supprimer')}</Button>}
+            {canEdit && selected && (selected.status !== 'valide' || isAdmin) && <Button size="sm" variant="ghost" icon={Trash2} onClick={() => remove(selected)}>{tr('Supprimer')}</Button>}
             {selected && <Button size="sm" variant="ghost" icon={ExternalLink} onClick={() => setSelectedId(null)} style={{ display: 'none' }} />}
           </div>
           <div className="data-toolbar-right">

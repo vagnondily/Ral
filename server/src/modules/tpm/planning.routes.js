@@ -113,7 +113,7 @@ router.delete('/:id', WRITE, asyncHandler(async (req, res) => {
   if (outcome !== 'ok') {
     throw deletionRefusal(outcome.reason, {
       subject: 'ce plan de collecte validé', linked: outcome.linked,
-      hint: 'Supprimez d\'abord la facture du mois, ou gardez le plan.',
+      hint: 'La consolidation compare la facture du même mois à ce plan.',
     });
   }
   res.status(204).end();

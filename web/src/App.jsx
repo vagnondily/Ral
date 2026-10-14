@@ -131,7 +131,7 @@ function Workspace() {
       {route.module === 'alertes' && <AlertsPage onNavigate={navigate} onOpenContract={openContract} />}
       {route.module === 'reporting' && route.sub === 'concepteur' && <ReportDesignerPage canEdit={canEdit} isAdmin={user.role === 'admin'} />}
       {route.module === 'reporting' && route.sub !== 'concepteur' && <ReportingPage onOpenContract={openContract} />}
-      {route.module === 'tpm' && route.sub === 'budget' && <PlanningPage canEdit={canEdit} onNavigate={navigate} />}
+      {route.module === 'tpm' && route.sub === 'budget' && <PlanningPage canEdit={canEdit} isAdmin={user.role === 'admin'} onNavigate={navigate} />}
       {route.module === 'processus' && route.sub === 'synthese' && <ProcessDashboardPage onNavigate={navigate} />}
       {route.module === 'processus' && route.sub === 'donnees' && (
         <ProcessMonitoringPage canEdit={canEdit} isAdmin={user.role === 'admin'} formId={route.extra} tab={route.extra2} onNavigate={navigate} />

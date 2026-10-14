@@ -374,4 +374,12 @@ export default {
   "Cette zone n'existe plus dans le découpage (Paramétrage › Localités) : retirez-la puis resélectionnez-la.":
     'This area no longer exists in the administrative breakdown (Settings › Localities): remove it, then select it again.',
   "Une zone n'existe plus dans le découpage : retirez-la puis resélectionnez-la.": 'An area no longer exists in the administrative breakdown: remove it, then select it again.',
+  // Zones d'intervention en tableau (retour 79).
+  '{n} zone(s) · {d} à resélectionner': '{n} area(s) · {d} to reselect',
+  '{n} zone(s) affectée(s) au prestataire': '{n} area(s) assigned to the provider',
+  'Les zones « à resélectionner » n\'existent plus dans le découpage (Paramétrage › Localités), par exemple après un réimport. Modifiez le contrat (ou passez par un avenant s\'il est actif) pour les retirer puis les resélectionner.':
+    'Areas marked “to reselect” no longer exist in the administrative breakdown (Settings › Localities), for example after a re-import. Edit the contract (or use an amendment if it is active) to remove and reselect them.',
+  'Toute la zone': 'Whole area',
+  'Reliée au découpage': 'Linked to the breakdown',
+  'À resélectionner': 'To reselect',
 };

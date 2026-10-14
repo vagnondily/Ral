@@ -144,6 +144,7 @@ test('données reliées nommées et comptées', () => {
     { key: 'renewals', count: 1, label: 'renouvellement' },
   ]);
   assert.equal(linkedText(linked), '2 rapports, 1 plan de collecte, 1 renouvellement');
+  assert.equal(linkedText(linkedSummary({ items: 3, booked: 1 })), '3 postes de dépense, montant compté dans la consolidation');
   assert.deepEqual(linkedSummary({}), []);
   assert.deepEqual(linkedSummary(undefined), []);
   const msg = refusalMessage('linked_data', { subject: 'ce contrat', linked, hint: 'Résiliez-le plutôt.' });

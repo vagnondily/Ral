@@ -2984,3 +2984,13 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .period-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: -4px 0 14px; font-size: 13px; color: var(--text); }
 .period-summary svg { color: var(--text-muted, #616a7a); }
 .period-summary strong { color: var(--text-strong); font-weight: 600; }
+
+/* Dialogue de suppression : données reliées qui empêchent la suppression (retour 56). */
+.linked-list { margin: 6px 0 2px; padding-left: 18px; }
+.linked-list li { margin: 2px 0; font-variant-numeric: tabular-nums; }
+
+/* Zones d'intervention du contrat en tableau (retour 79). */
+.areas-note { padding-bottom: 0; }
+.areas-table td.areas-leaf { color: var(--text-strong); font-weight: 600; }
+.areas-table .areas-state-col { width: 1%; white-space: nowrap; }
+.areas-count { color: var(--text-muted); font-size: 13px; font-variant-numeric: tabular-nums; }

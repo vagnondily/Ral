@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ArrowLeft, Pencil, Send, ShieldCheck, X, FilePlus2, RefreshCw, Ban, Info, AlertCircle, ExternalLink,
-  Download, MapPin, ChevronDown, ChevronRight, Trash2,
+  Download, ChevronDown, ChevronRight, Trash2, CheckCircle2, AlertTriangle,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Skeleton, Usage } from '../../components/ui.jsx';
@@ -159,22 +159,8 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
         </div>
       </Card>
 
-      {/* Zones d'intervention affectées au prestataire */}
-      {(detail.areas || []).length > 0 && (
-        <Card>
-          <CardHeader title={tr("Zones d'intervention")} subtitle={tr('Districts / communes affectés au prestataire.')} />
-          <div className="card-body">
-            <div className="chips areas-chips">
-              {detail.areas.map((z) => (
-                <span key={z.adminAreaId || z.path} className={`chip is-static ${z.adminAreaId ? '' : 'is-detached'}`}
-                  title={z.adminAreaId ? undefined : tr('Cette zone n\'existe plus dans le découpage (Paramétrage › Localités) : retirez-la puis resélectionnez-la.')}>
-                  <MapPin size={14} aria-hidden="true" /> {z.path}{!z.adminAreaId && <> · {tr('à resélectionner')}</>}
-                </span>
-              ))}
-            </div>
-          </div>
-        </Card>
-      )}
+      {/* Zones d'intervention affectées au prestataire (retour 79 : en tableau) */}
+      {(detail.areas || []).length > 0 && <AreasCard areas={detail.areas} />}
 
       <Card>
         <div className="tabs-bar">
@@ -206,6 +192,8 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
         <DeleteDialog
           open
           validated={c.status === 'actif' || c.status === 'resilie'}
+          blockers={a.deleteBlockers || []}
+          blockedHint={c.status === 'actif' || c.status === 'resilie' ? tr('Résiliez-le plutôt que de le supprimer.') : null}
           title={tr('Supprimer ce contrat ?')}
           description={`${c.numero} · ${c.partnerName}`}
           onClose={() => setDialog(null)}
@@ -225,6 +213,78 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
         />
       )}
     </div>
+  );
+}
+
+/** Niveaux par défaut du découpage quand le pays n'en déclare pas (profondeur 1 = région). */
+const DEFAULT_LEVELS = { 1: 'Région', 2: 'District', 3: 'Commune', 4: 'Fokontany' };
+
+/**
+ * Zones d'intervention du contrat en tableau (retour 79) : une colonne par
+ * niveau du découpage, et l'état de chaque zone — reliée au découpage, ou à
+ * resélectionner (elle n'y existe plus) avec ce qu'il faut faire.
+ */
+function AreasCard({ areas }) {
+  const { tr } = useI18n();
+  const [levels, setLevels] = useState(DEFAULT_LEVELS);
+  useEffect(() => {
+    let live = true;
+    api.listAdminLevels()
+      .then((rows) => {
+        if (!live || !Array.isArray(rows) || !rows.length) return;
+        setLevels({ ...DEFAULT_LEVELS, ...Object.fromEntries(rows.map((l) => [l.depth, l.label])) });
+      })
+      .catch(() => { /* libellés par défaut */ });
+    return () => { live = false; };
+  }, []);
+
+  const rows = areas.map((z) => ({ ...z, parts: String(z.path || '').split('>').map((x) => x.trim()).filter(Boolean) }));
+  const width = Math.max(1, ...rows.map((r) => r.parts.length));
+  const detached = rows.filter((r) => !r.adminAreaId).length;
+
+  return (
+    <Card>
+      <CardHeader title={tr("Zones d'intervention")}>
+        <span className="areas-count">
+          {detached
+            ? tr('{n} zone(s) · {d} à resélectionner', { n: rows.length, d: detached })
+            : tr('{n} zone(s) affectée(s) au prestataire', { n: rows.length })}
+        </span>
+      </CardHeader>
+      {detached > 0 && (
+        <div className="card-body areas-note">
+          <Alert tone="warn">
+            {tr('Les zones « à resélectionner » n\'existent plus dans le découpage (Paramétrage › Localités), par exemple après un réimport. Modifiez le contrat (ou passez par un avenant s\'il est actif) pour les retirer puis les resélectionner.')}
+          </Alert>
+        </div>
+      )}
+      <div className="table-wrap">
+        <table className="table grid areas-table">
+          <thead>
+            <tr>
+              {Array.from({ length: width }, (_, i) => <th key={i} scope="col">{tr(levels[i + 1] || DEFAULT_LEVELS[i + 1] || `Niveau ${i + 1}`)}</th>)}
+              <th scope="col" className="areas-state-col">{tr('État')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.adminAreaId || r.path}>
+                {Array.from({ length: width }, (_, i) => (
+                  <td key={i} className={i === r.parts.length - 1 ? 'areas-leaf' : undefined}>
+                    {r.parts[i] || (i >= r.parts.length ? <span className="muted">{tr('Toute la zone')}</span> : null)}
+                  </td>
+                ))}
+                <td className="areas-state-col">
+                  {r.adminAreaId
+                    ? <Badge tone="green" icon={CheckCircle2}>{tr('Reliée au découpage')}</Badge>
+                    : <Badge tone="orange" icon={AlertTriangle}>{tr('À resélectionner')}</Badge>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 

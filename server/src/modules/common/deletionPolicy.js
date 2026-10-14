@@ -147,9 +147,12 @@ function linkedSummary(counts = {}) {
   return out;
 }
 
+/** Données reliées qui se nomment sans compte (il n'y en a qu'une). */
+const UNCOUNTED = new Set(['booked', 'applied']);
+
 /** « 2 rapports, 1 plan de collecte » (chaîne vide si rien). */
 function linkedText(list = []) {
-  return list.map((l) => `${l.count} ${l.label}`).join(', ');
+  return list.map((l) => (UNCOUNTED.has(l.key) ? l.label : `${l.count} ${l.label}`)).join(', ');
 }
 
 /** Statut HTTP d'un code de refus. */
