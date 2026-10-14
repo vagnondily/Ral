@@ -6,7 +6,8 @@ const d = require('./contracts.domain');
 const { buildBudgetWorkbook } = require('./budgetXlsx');
 const { buildForecast } = require('./forecast');
 const { relinkByPath } = require('../common/placeMatch');
-const { isValidatedStatus, decideDocumentDeletion, refusalMessage } = require('../common/deletionPolicy');
+const { isValidatedStatus, decideDocumentDeletion, linkedSummary } = require('../common/deletionPolicy');
+const { deletionRefusal } = require('../deletions/deletionRefusal');
 const { recordDeletion } = require('../deletions/deletions.repository');
 const { periodBounds } = require('../common/period');
 
@@ -136,11 +137,12 @@ function allowedActions(contract, ctx, actor) {
     decideAmendment: Boolean(pending) && pending.validatorId === actor.userId,
     renew: write && isActive && !ctx.renewal && d.renewalWindowOpen(contract.dateFin, today()),
     terminate: write && isActive,
-    // Politique commune (retour 56) : un contrat non validé (brouillon, en
-    // validation, rejeté) est supprimable ; un contrat validé (actif, résilié)
-    // ne l'est que sans donnée reliée + justificatif — vérifié à la suppression,
-    // non proposé ici pour éviter un bouton presque toujours en échec.
-    delete: write && !isValidatedStatus('contract', contract.status),
+    // Politique commune (retour 56) : un contrat non validé est supprimable ;
+    // un contrat validé (actif, résilié) par un administrateur seulement. Le
+    // dialogue nomme d'emblée les données reliées qui l'empêchent
+    // (`deleteBlockers`) ; le serveur revérifie à la suppression.
+    delete: write && (!isValidatedStatus('contract', contract.status) || actor.role === 'admin'),
+    deleteBlockers: ctx.deleteBlockers || [],
     canWrite: write,
   };
 }
@@ -155,6 +157,7 @@ async function getContractDetail(tenantId, id, actor) {
     const spent = await repo.monitoringSpent(client, tenantId, id);
     const amendments = await repo.listAmendments(client, tenantId, id);
     const renewal = await repo.findRenewal(client, tenantId, id);
+    const deleteBlockers = canWrite(actor) ? await contractLinks(client, tenantId, id) : [];
     let renewedFrom = null;
     if (contract.renewedFromId) {
       const prev = await repo.getContract(client, tenantId, contract.renewedFromId);
@@ -181,7 +184,7 @@ async function getContractDetail(tenantId, id, actor) {
       amendments,
       renewal,
       renewedFrom,
-      actions: allowedActions(contract, { amendments, renewal }, actor),
+      actions: allowedActions(contract, { amendments, renewal, deleteBlockers }, actor),
     };
   });
 }
@@ -437,40 +440,52 @@ async function terminate(tenantId, actor, id, { reason, effectiveDate, version }
 }
 
 /**
- * Supprime un contrat encore en brouillon. Seul un brouillon est supprimable :
- * dès qu'il est soumis/actif il porte un historique d'audit et, actif, des
- * dépenses — on passe alors par résiliation, jamais par suppression.
+ * Données reliées d'un contrat, comptées : rapports remplis (les gabarits
+ * « attendu » vides et les « non applicable » ne comptent pas), plans de
+ * collecte, avenants, renouvellements (clé étrangère sans cascade) et visites
+ * de terrain. Leur suppression en cascade détruirait d'autres documents : un
+ * contrat qui en porte n'est jamais supprimable, quel que soit son statut —
+ * on le résilie.
  */
+async function contractLinks(client, tenantId, id) {
+  const { rows } = await client.query(
+    `SELECT
+       (SELECT count(*) FROM tpm_reports
+         WHERE tenant_id = $1 AND contract_id = $2
+           AND (status IN ('soumis', 'valide', 'rejete') OR reported_amount <> 0))::int AS reports,
+       (SELECT count(*) FROM tpm_collection_plans WHERE tenant_id = $1 AND contract_id = $2)::int AS plans,
+       (SELECT count(*) FROM contract_amendments WHERE tenant_id = $1 AND contract_id = $2)::int AS amendments,
+       (SELECT count(*) FROM contracts WHERE tenant_id = $1 AND renewed_from_id = $2)::int AS renewals,
+       (SELECT count(*) FROM site_visits WHERE tenant_id = $1 AND contract_id = $2)::int AS visits`,
+    [tenantId, id]
+  );
+  return linkedSummary(rows[0]);
+}
+
 /**
  * Suppression d'un contrat (politique commune, retour 56).
+ *   - contrat porteur de données reliées (contractLinks) → jamais supprimable,
+ *     quel que soit son statut : le refus les nomme ;
  *   - contrat NON validé (brouillon, en validation, rejeté) → supprimable après
  *     confirmation, sans justificatif ;
- *   - contrat VALIDÉ (actif, résilié) → supprimable seulement s'il ne porte
- *     AUCUNE donnée reliée (aucun rapport, plan, avenant ou visite) ET avec un
- *     justificatif ; toute suppression est inscrite au journal des suppressions.
+ *   - contrat VALIDÉ (actif, résilié) → par un administrateur seulement, avec
+ *     un justificatif. Toute suppression est inscrite au journal.
  */
 async function deleteDraft(tenantId, actor, id, { justification } = {}) {
   assertCanWrite(actor);
   await withTenantTransaction(tenantId, async (client) => {
     const contract = await loadForUpdate(client, tenantId, id);
     const validated = isValidatedStatus('contract', contract.status);
+    const linked = await contractLinks(client, tenantId, id);
 
-    let hasLinkedData = false;
-    if (validated) {
-      const { rows } = await client.query(
-        `SELECT EXISTS (SELECT 1 FROM tpm_reports            WHERE tenant_id = $1 AND contract_id = $2)
-             OR EXISTS (SELECT 1 FROM tpm_collection_plans   WHERE tenant_id = $1 AND contract_id = $2)
-             OR EXISTS (SELECT 1 FROM contract_amendments    WHERE tenant_id = $1 AND contract_id = $2)
-             OR EXISTS (SELECT 1 FROM site_visits            WHERE tenant_id = $1 AND contract_id = $2) AS linked`,
-        [tenantId, id]
-      );
-      hasLinkedData = rows[0].linked;
-    }
-
-    const decision = decideDocumentDeletion({ validated, hasLinkedData, justification });
+    const decision = decideDocumentDeletion({
+      validated, dependents: linked.length > 0, isAdmin: actor.role === 'admin', justification,
+    });
     if (!decision.allowed) {
-      if (decision.reason === 'justification_required') throw badRequest(refusalMessage('justification_required'));
-      throw conflict('Ce contrat est validé et porte des données reliées (rapports, plans, avenants ou visites) : il ne peut pas être supprimé.');
+      throw deletionRefusal(decision.reason, {
+        subject: 'ce contrat', linked,
+        hint: validated ? 'Résiliez-le plutôt que de le supprimer.' : '',
+      });
     }
 
     await recordDeletion(client, tenantId, {
@@ -503,10 +518,15 @@ async function deleteAmendment(tenantId, actor, contractId, amendmentId, { justi
 
     const validated = isValidatedStatus('contract_amendment', amendment.status);
     // Un avenant approuvé est déjà appliqué au contrat : donnée reliée.
-    const decision = decideDocumentDeletion({ validated, hasLinkedData: validated, justification });
+    const linked = validated ? linkedSummary({ applied: 1 }) : [];
+    const decision = decideDocumentDeletion({
+      validated, hasLinkedData: linked.length > 0, isAdmin: actor.role === 'admin', justification,
+    });
     if (!decision.allowed) {
-      if (decision.reason === 'justification_required') throw badRequest(refusalMessage('justification_required'));
-      throw conflict('Cet avenant est approuvé et appliqué au contrat : il ne peut pas être supprimé.');
+      throw deletionRefusal(decision.reason, {
+        subject: 'cet avenant approuvé', linked,
+        hint: 'Pour revenir en arrière, préparez un nouvel avenant.',
+      });
     }
 
     await recordDeletion(client, tenantId, {

@@ -3,6 +3,7 @@ const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound, conflict } = require('../../middleware/errors');
+const { deletionRefusal } = require('../deletions/deletionRefusal');
 const repo = require('./planning.repository');
 const { readPeriod } = require('../../middleware/period');
 
@@ -101,14 +102,20 @@ router.put('/:id', WRITE, body(updateSchema), asyncHandler(async (req, res) => {
 }));
 
 // Suppression (politique commune, retour 56) : plan non validé supprimable
-// après confirmation ; plan validé seulement sans poste planifié et avec
-// justificatif. Inscrite au journal des suppressions.
+// après confirmation ; plan validé seulement par un administrateur, avec
+// justificatif, et sans facture remplie du même mois. Inscrite au journal.
 router.delete('/:id', WRITE, asyncHandler(async (req, res) => {
   const justification = typeof req.body?.justification === 'string' ? req.body.justification : undefined;
-  const outcome = await repo.deletePlan(t(req), req.params.id, { actorId: req.auth.userId, justification });
+  const outcome = await repo.deletePlan(t(req), req.params.id, {
+    actorId: req.auth.userId, isAdmin: req.auth.role === 'admin', justification,
+  });
   if (outcome === null) throw notFound('Plan introuvable');
-  if (outcome === 'linked_data') throw conflict('Ce plan est validé et porte des postes planifiés : il ne peut pas être supprimé.');
-  if (outcome === 'justification_required') throw badRequest('Un justificatif est obligatoire pour supprimer un plan validé.');
+  if (outcome !== 'ok') {
+    throw deletionRefusal(outcome.reason, {
+      subject: 'ce plan de collecte validé', linked: outcome.linked,
+      hint: 'Supprimez d\'abord la facture du mois, ou gardez le plan.',
+    });
+  }
   res.status(204).end();
 }));
 

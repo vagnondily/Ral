@@ -7,7 +7,7 @@ const {
 const { normalizeItems, summarize } = require('./reportMath');
 const { assertItemActivities } = require('./activityRefs');
 const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
-const { isValidatedStatus, decideDocumentDeletion } = require('../common/deletionPolicy');
+const { isValidatedStatus, decideDocumentDeletion, linkedSummary } = require('../common/deletionPolicy');
 const { recordDeletion } = require('../deletions/deletions.repository');
 
 /**
@@ -338,33 +338,33 @@ async function replaceReportItems(tenantId, id, items, { invoiceNo, periodEnd, a
 }
 
 /**
- * Supprime un rapport encore en brouillon (non validé). Les lignes de l'état
- * des dépenses disparaissent par cascade (FK ON DELETE CASCADE). Renvoie
- * Politique commune (retour 56, deletionPolicy) :
+ * Suppression d'un rapport (politique commune, retour 56, deletionPolicy) :
  *   - rapport NON validé (attendu/soumis/rejeté/non applicable) → supprimable
- *     après confirmation, sans justificatif ;
- *   - rapport VALIDÉ → supprimable seulement sans donnée reliée (montant ≠ 0 ou
- *     au moins un poste) ET avec justificatif ; chaque suppression journalisée.
- * Retour : 'ok' si supprimé, null si absent, sinon le code de refus de la
- * politique ('linked_data' → 409, 'justification_required' → 400).
+ *     après confirmation, sans justificatif ; ses postes disparaissent par
+ *     cascade (FK ON DELETE CASCADE) ;
+ *   - rapport VALIDÉ → réservé à l'administrateur, avec justificatif, et
+ *     seulement sans donnée reliée : ni poste ni montant (le montant d'une
+ *     facture validée est compté dans la consolidation). Règle prudente.
+ * Chaque suppression est journalisée.
+ * Retour : 'ok' si supprimé, null si absent, sinon { reason, linked }.
  */
-async function deleteReport(tenantId, id, { actorId, justification } = {}) {
+async function deleteReport(tenantId, id, { actorId, isAdmin = false, justification } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const report = await getReportRow(client, tenantId, id);
     if (!report) return null;
 
     const validated = isValidatedStatus('tpm_report', report.status);
-    let hasLinkedData = false;
+    let linked = [];
     if (validated) {
       const { rows } = await client.query(
-        'SELECT 1 FROM contract_report_items WHERE tenant_id = $1 AND report_id = $2 LIMIT 1',
+        'SELECT count(*)::int AS n FROM contract_report_items WHERE tenant_id = $1 AND report_id = $2',
         [tenantId, id]
       );
-      hasLinkedData = Number(report.reportedAmount) !== 0 || rows.length > 0;
+      linked = linkedSummary({ items: rows[0].n, booked: Number(report.reportedAmount) !== 0 ? 1 : 0 });
     }
 
-    const decision = decideDocumentDeletion({ validated, hasLinkedData, justification });
-    if (!decision.allowed) return decision.reason;
+    const decision = decideDocumentDeletion({ validated, hasLinkedData: linked.length > 0, isAdmin, justification });
+    if (!decision.allowed) return { reason: decision.reason, linked };
 
     const month = String(report.periodMonth).slice(0, 7);
     await recordDeletion(client, tenantId, {

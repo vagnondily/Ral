@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 13:35 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 13:28 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -540,6 +540,6 @@ _Dernière mise à jour : 14/10/2026 13:35 UTC_ — la branche `main` reçoit ch
   - un document validé ne se supprime que par un **administrateur** ;
   - un contrat qui porte des rapports remplis, des plans, des avenants, un renouvellement ou des visites n'est jamais supprimé, quel que soit son statut (avant : 400 « Données invalides » sur un contrat renouvelé, et les plans d'un brouillon partaient en cascade) ;
   - plan validé : la donnée reliée est la facture remplie du même mois, plus ses propres postes.
-- **13:35** 📥 **Retour 79** : les zones d'intervention du contrat sont difficiles à lire → tableau. **Retour 80** : l'onglet « Données » d'une fiche est mal présenté (bandeau vide au-dessus des en-têtes, filtres collés au bord, communes affichées en codes, heure « 03:00 » sur une date). Les deux suivent la revue du retour 56.
+- **13:28** 📥 **Retour 79** : les zones d'intervention du contrat sont difficiles à lire → tableau. **Retour 80** : l'onglet « Données » d'une fiche est mal présenté (bandeau vide au-dessus des en-têtes, filtres collés au bord, communes affichées en codes, heure « 03:00 » sur une date). Les deux suivent la revue du retour 56.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.

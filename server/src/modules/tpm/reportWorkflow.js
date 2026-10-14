@@ -151,7 +151,7 @@ function notApplicableError(report) {
  * @param {{ status: string, kind: string, createdBy?: string, submittedBy?: string|null, editedBy?: string|null }} report
  * @param {{ userId: string, canWrite: boolean }} actor  canWrite = rôle admin ou gestionnaire
  */
-function reportActions(report, { userId, canWrite }) {
+function reportActions(report, { userId, canWrite, isAdmin = false }) {
   // Seule une facture porte un état des dépenses éditable.
   const editErr = report.kind === 'financier' ? editError(report, userId) : { code: 'kind', message: null };
   const decideErr = decisionError(report, userId);
@@ -160,7 +160,10 @@ function reportActions(report, { userId, canWrite }) {
     submit: Boolean(canWrite) && !submitTransitionError(report, userId),
     decide: Boolean(canWrite) && !decideErr,
     notApplicable: Boolean(canWrite) && !notApplicableError(report),
-    remove: Boolean(canWrite) && report.status !== 'valide',
+    // Suppression (retour 56) : un rapport validé, par un administrateur
+    // seulement, et s'il n'a aucun montant compté (le serveur revérifie).
+    remove: Boolean(canWrite) && (report.status !== 'valide'
+      || (Boolean(isAdmin) && Number(report.reportedAmount || 0) === 0)),
     // Pourquoi une action attendue est indisponible (aide affichée à l'écran).
     editReason: canWrite && editErr && editErr.code !== 'kind' ? editErr.message : null,
     decideReason: canWrite && decideErr && decideErr.code === 'self' ? decideErr.message : null,

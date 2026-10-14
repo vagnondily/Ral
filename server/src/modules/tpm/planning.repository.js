@@ -4,7 +4,7 @@ const { monthWithin } = require('../common/periodSql');
 const { normalizeItems, summarize } = require('./reportMath');
 const { assertItemActivities } = require('./activityRefs');
 const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
-const { isValidatedStatus, decideDocumentDeletion } = require('../common/deletionPolicy');
+const { isValidatedStatus, decideDocumentDeletion, linkedSummary } = require('../common/deletionPolicy');
 const { recordDeletion } = require('../deletions/deletions.repository');
 
 /**
@@ -175,14 +175,18 @@ async function updatePlan(tenantId, id, { items, title, status }) {
 
 /**
  * Suppression (politique commune, retour 56). Plan NON validé (brouillon) →
- * supprimable après confirmation ; plan VALIDÉ → seulement sans donnée reliée
- * (aucun poste planifié) et avec justificatif. Toute suppression journalisée.
- * Retour : 'ok' | null (absent) | code de refus ('linked_data' | 'justification_required').
+ * supprimable après confirmation ; plan VALIDÉ → seulement par un
+ * administrateur, avec justificatif, et s'il n'a pas de donnée reliée. Ses
+ * propres postes ne comptent pas (ils disparaissent avec lui) : la donnée
+ * reliée est une FACTURE déjà remplie du même prestataire × contrat × mois, que
+ * la consolidation compare à ce plan. Toute suppression est journalisée.
+ * Retour : 'ok' | null (absent) | { reason, linked } (refus).
  */
-async function deletePlan(tenantId, id, { actorId, justification } = {}) {
+async function deletePlan(tenantId, id, { actorId, isAdmin = false, justification } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
       `SELECT p.status, p.period_month AS "periodMonth", p.title,
+              p.partner_id AS "partnerId", p.contract_id AS "contractId",
               pa.name AS "partnerName", c.numero AS "contractNumero"
          FROM tpm_collection_plans p
          JOIN partners pa ON pa.id = p.partner_id
@@ -194,17 +198,20 @@ async function deletePlan(tenantId, id, { actorId, justification } = {}) {
     if (!plan) return null;
 
     const validated = isValidatedStatus('collection_plan', plan.status);
-    let hasLinkedData = false;
+    let linked = [];
     if (validated) {
-      const { rows: it } = await client.query(
-        'SELECT 1 FROM tpm_collection_plan_items WHERE tenant_id = $1 AND plan_id = $2 LIMIT 1',
-        [tenantId, id]
+      const { rows: f } = await client.query(
+        `SELECT count(*)::int AS n FROM tpm_reports
+          WHERE tenant_id = $1 AND partner_id = $2 AND contract_id = $3
+            AND period_month = $4 AND kind = 'financier'
+            AND status IN ('soumis', 'valide', 'rejete')`,
+        [tenantId, plan.partnerId, plan.contractId, plan.periodMonth]
       );
-      hasLinkedData = it.length > 0;
+      linked = linkedSummary({ factures: f[0].n });
     }
 
-    const decision = decideDocumentDeletion({ validated, hasLinkedData, justification });
-    if (!decision.allowed) return decision.reason;
+    const decision = decideDocumentDeletion({ validated, hasLinkedData: linked.length > 0, isAdmin, justification });
+    if (!decision.allowed) return { reason: decision.reason, linked };
 
     const month = String(plan.periodMonth).slice(0, 7);
     await recordDeletion(client, tenantId, {

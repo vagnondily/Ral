@@ -125,6 +125,12 @@ test('actions permises : l\'écran n\'offre que ce que le serveur acceptera', ()
   // Validé : rien, sauf la consultation.
   const done = reportActions({ ...own, status: 'valide', decidedBy: 'v' }, W('v'));
   assert.deepEqual([done.edit, done.submit, done.decide, done.notApplicable, done.remove], [false, false, false, false, false]);
+  // Suppression d'un validé (retour 56) : l'administrateur seulement, et sans montant compté.
+  const adminW = { userId: 'x', canWrite: true, isAdmin: true };
+  assert.equal(reportActions({ ...own, status: 'valide', reportedAmount: 125000 }, adminW).remove, false);
+  assert.equal(reportActions({ ...own, status: 'valide', reportedAmount: 0 }, adminW).remove, true);
+  assert.equal(reportActions({ ...own, status: 'valide', reportedAmount: 0 }, W('x')).remove, false);
+  assert.equal(reportActions({ ...own, status: 'valide', reportedAmount: 0 }, { ...adminW, canWrite: false }).remove, false);
 });
 
 // La base impose les mêmes règles (migration 058) : la liste des transitions et

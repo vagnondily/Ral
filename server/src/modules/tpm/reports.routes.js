@@ -3,6 +3,7 @@ const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound, conflict, forbidden } = require('../../middleware/errors');
+const { deletionRefusal } = require('../deletions/deletionRefusal');
 const repo = require('./reports.repository');
 const { readPeriod } = require('../../middleware/period');
 const { buildInvoiceWorkbook } = require('./factureXlsx');
@@ -17,7 +18,9 @@ const WRITE = requireRole(...REPORT_WRITE_ROLES);
 // calculées par les règles qui s'appliquent à l'écriture (reportWorkflow).
 const withActions = (req) => (report) => ({
   ...report,
-  actions: reportActions(report, { userId: req.auth.userId, canWrite: canWriteReports(req.auth.role) }),
+  actions: reportActions(report, {
+    userId: req.auth.userId, canWrite: canWriteReports(req.auth.role), isAdmin: req.auth.role === 'admin',
+  }),
 });
 
 function body(schema) {
@@ -185,15 +188,18 @@ router.post('/:id/not-applicable', WRITE, asyncHandler(async (req, res) => {
 }));
 
 // Suppression (politique commune, retour 56) : un rapport non validé est
-// supprimable après confirmation ; un rapport validé seulement sans donnée
-// reliée (montant ≠ 0 ou postes) et avec un justificatif. Toute suppression
-// est inscrite au journal des suppressions.
+// supprimable après confirmation ; un rapport validé seulement par un
+// administrateur, avec justificatif, et sans poste ni montant compté. Toute
+// suppression est inscrite au journal des suppressions.
 router.delete('/:id', WRITE, asyncHandler(async (req, res) => {
   const justification = typeof req.body?.justification === 'string' ? req.body.justification : undefined;
-  const outcome = await repo.deleteReport(t(req), req.params.id, { actorId: req.auth.userId, justification });
+  const outcome = await repo.deleteReport(t(req), req.params.id, {
+    actorId: req.auth.userId, isAdmin: req.auth.role === 'admin', justification,
+  });
   if (outcome === null) throw notFound('Rapport introuvable');
-  if (outcome === 'linked_data') throw conflict('Ce rapport est validé et porte des dépenses comptées : il ne peut pas être supprimé.');
-  if (outcome === 'justification_required') throw badRequest('Un justificatif est obligatoire pour supprimer un rapport validé.');
+  if (outcome !== 'ok') {
+    throw deletionRefusal(outcome.reason, { subject: 'ce rapport validé', linked: outcome.linked });
+  }
   res.status(204).end();
 }));
 
