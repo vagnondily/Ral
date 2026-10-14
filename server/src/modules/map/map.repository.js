@@ -226,18 +226,19 @@ async function districtData(tenantId, { period, officeId = null, activity = null
   });
 }
 
-/** Plafond de la couche « sites » (au-delà : bulles par district côté écran). */
+/** Plafond de la couche « sites » dessinés un par un (au-delà : liste tronquée, signalée à l'écran). */
 const SITES_CAP = 3000;
 
 /**
- * Statut de période de chaque site du périmètre (mêmes faits que la carte), avec sa
- * position GPS du registre s'il en a une. Statut sur UN mois : réalisé > hors plan >
- * prévu > non prévu > inactif ; sur plusieurs mois l'écran lit aussi l'exécution
- * (visites prévues réalisées ÷ prévues).
+ * Statut de période des sites DESSINABLES du périmètre (mêmes faits que la carte) : sites
+ * avec position GPS du registre, et sites candidats à une position déduite de leurs collectes
+ * (`candidateIds`, en premier). Les faits ne sont calculés QUE pour ces sites (option
+ * `drawable` du service unique), jamais pour tout le registre. Statut sur UN mois : réalisé >
+ * hors plan > prévu > non prévu > inactif ; sur plusieurs mois l'écran lit aussi l'exécution.
  */
-async function siteStatusesTx(client, tenantId, { period, officeId, activity }) {
+async function siteStatusesTx(client, tenantId, { period, officeId, activity, candidateIds = [] }) {
   const params = [tenantId];
-  const ctes = siteMonthFactsCtes({ period, todayMonth: currentMonth(), withData: true, geo: true, officeId, activity }, params);
+  const ctes = siteMonthFactsCtes({ period, todayMonth: currentMonth(), withData: true, geo: true, officeId, activity, drawable: candidateIds }, params);
   params.push(SITES_CAP + 1);
   const cap = `$${params.length}`;
   const { rows } = await client.query(
@@ -248,11 +249,56 @@ async function siteStatusesTx(client, tenantId, { period, officeId, activity }) 
                  WHEN p.realised_any THEN 'hors_plan' WHEN p.planned THEN 'prevu' ELSE 'non_prevu' END AS status,
             p.v_planned AS "visitsPlanned", p.v_planned_realised AS "visitsPlannedRealised", p.realised_data AS "byData"
        FROM per_site p JOIN sites s ON s.id = p.site_id AND s.tenant_id = $1
-      ORDER BY p.has_gps DESC, s.name
+      ORDER BY p.has_gps, s.name, p.site_id
       LIMIT ${cap}`,
     params
   );
   return rows;
+}
+
+/** Filtres de périmètre d'une requête sur `sites s` (bureau et ses antennes, activité) — mêmes règles que les faits. */
+function perimeterSql(params, { officeId, activity }) {
+  const push = (v) => { params.push(v); return `$${params.length}`; };
+  const tree = officeId ? officeTreeSql(push(officeId)) : '';
+  const where = `${officeId ? ' AND s.field_office_id IN (SELECT id FROM office_tree)' : ''}${activity ? ` AND lower(btrim(s.activity)) = lower(btrim(${push(activity)}::text))` : ''}`;
+  return { head: officeId ? `WITH RECURSIVE ${tree}` : 'WITH ', where };
+}
+
+/**
+ * Périmètre COMPLET de la couche de points (registre seul, sans faits) : nombre de sites,
+ * dont avec GPS, et, par commune ayant un centre de collectes possible (`communeKeys`),
+ * les sites SANS position (ni GPS du registre, ni candidats à une position déduite —
+ * `candidateIds`, rendus un par un) : effectif et les 10 premiers noms. Aucune troncature :
+ * les comptes de la carte valent pour tout le périmètre, même au-delà de SITES_CAP.
+ */
+async function perimeterCountsTx(client, tenantId, { officeId, activity, candidateIds = [], communeKeys = [] }) {
+  const params = [tenantId];
+  const { head, where } = perimeterSql(params, { officeId, activity });
+  const { rows: [totals] } = await client.query(
+    `${head}x AS (SELECT 1)
+     SELECT count(*)::int AS perimeter, count(*) FILTER (WHERE s.gps_lat IS NOT NULL AND s.gps_lng IS NOT NULL)::int AS gps
+       FROM sites s WHERE s.tenant_id = $1${where}`,
+    params
+  );
+  const tot = totals || { perimeter: 0, gps: 0 };
+  if (!communeKeys.length) return { totals: tot, communes: [] };
+  const cp = [tenantId];
+  const p2 = perimeterSql(cp, { officeId, activity });
+  cp.push(communeKeys); const pKeys = `$${cp.length}`;
+  cp.push(candidateIds); const pCand = `$${cp.length}`;
+  const { rows: communes } = await client.query(
+    `${p2.head}x AS (SELECT 1)
+     SELECT NULLIF(btrim(s.adm3_pcode), '') AS cpcode, count(*)::int AS n,
+            to_json((array_agg(json_build_object('id', s.id, 'name', s.name) ORDER BY s.name, s.id))[1:10]) AS sites
+       FROM sites s
+      WHERE s.tenant_id = $1${p2.where}
+        AND NULLIF(btrim(s.adm3_pcode), '') = ANY(${pKeys}::text[])
+        AND NOT (s.gps_lat IS NOT NULL AND s.gps_lng IS NOT NULL)
+        AND NOT (s.id = ANY(${pCand}::uuid[]))
+      GROUP BY 1`,
+    cp
+  );
+  return { totals: tot, communes };
 }
 
 /**
@@ -340,17 +386,21 @@ async function collectPointsTx(client, tenantId, { period, officeId, maxAccuracy
 
 /**
  * Toutes les lectures de GET /api/map/points (une transaction, requêtes l'une après l'autre) :
- * statuts des sites du périmètre, médianes par site et par commune, points de collecte.
+ * médianes par site et par commune (tout l'historique), statuts des seuls sites dessinables
+ * (GPS du registre + candidats à une position déduite), comptes du périmètre COMPLET
+ * (sites sans position par commune), points de collecte de la période.
  */
 async function pointsData(tenantId, { period, officeId = null, activity = null, layers, limit, precise, maxAccuracyM }) {
   return withTenantTransaction(tenantId, async (client) => {
     await client.query(JIT_OFF);
-    const sites = await siteStatusesTx(client, tenantId, { period, officeId, activity });
     const bySite = layers.includes('derived') ? await gpsMediansTx(client, tenantId, 'site', { maxAccuracyM }) : [];
     const byCommune = layers.includes('communes') ? await gpsMediansTx(client, tenantId, 'commune', { maxAccuracyM }) : [];
+    const candidateIds = bySite.map((m) => m.key);
+    const sites = await siteStatusesTx(client, tenantId, { period, officeId, activity, candidateIds });
+    const perimeter = await perimeterCountsTx(client, tenantId, { officeId, activity, candidateIds, communeKeys: byCommune.map((c) => c.key) });
     const communes = await communeNamesTx(client, tenantId, byCommune.map((c) => c.key));
     const collect = layers.includes('collect') ? await collectPointsTx(client, tenantId, { period, officeId, maxAccuracyM, limit, precise }) : null;
-    return { sites, sitesCap: SITES_CAP, bySite, byCommune, communes, collect };
+    return { sites, sitesCap: SITES_CAP, perimeter: perimeter.totals, communeSites: perimeter.communes, bySite, byCommune, communes, collect };
   });
 }
 
@@ -477,5 +527,5 @@ module.exports = {
   SHAPE_SET, MAP_COUNT_COLUMNS, SITES_CAP,
   shapeLinkData, upsertShapeLink, deleteShapeLink, fillDistrictCentres,
   districtData, factsByZoneTx, submissionsByZoneTx, areaIndexTx, communeNamesTx, shapeLinksTx, filtersAvailableTx,
-  pointsData, siteStatusesTx, gpsMediansTx, collectPointsTx, search, likeEscape,
+  pointsData, siteStatusesTx, perimeterCountsTx, gpsMediansTx, collectPointsTx, search, likeEscape,
 };

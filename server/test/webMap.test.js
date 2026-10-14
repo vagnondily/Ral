@@ -181,6 +181,27 @@ test('export (buildExportSvg) : titre, période, filtres, légende, nord, échel
   assert.equal(m.esc('"<a>"'), '&quot;&lt;a&gt;&quot;');
 });
 
+test('export : positions déduites, centres de commune et points de collecte TOUJOURS en maille de 2 km (quel que soit n) ; sites GPS du registre intacts', async (t) => {
+  const m = await load(t, 'mapExport.js'); if (!m) return;
+  const points = {
+    sites: [
+      { kind: 'gps', lat: -24.1234567, lng: 45.7654321, status: 'realise' },
+      { kind: 'collectes', lat: -21.2031341, lng: 48.2250182, n: 7, status: 'prevu' },
+    ],
+    communes: [{ lat: -25.192399, lng: 45.778324, n: 5, sitesWithoutPosition: 12 }],
+    collect: { mode: 'points', points: [{ lat: -24.7840622, lng: 45.1925514 }, { lat: -24.7841, lng: 45.1926 }] },
+  };
+  const out = m.exportPoints(points, { gps: true, derived: true, communes: true, collect: true });
+  const decimals = (v) => (String(v).split('.')[1] || '').length;
+  assert.deepEqual(out.sites[0], points.sites[0], 'site GPS du registre : position du lieu');
+  for (const p of [out.sites[1], ...out.communes, ...out.bins]) assert.ok(decimals(p.lat) <= 2 && decimals(p.lng) <= 2, `${p.lat}, ${p.lng}`);
+  assert.deepEqual([out.sites[1].lat, out.sites[1].lng], [-21.2, 48.22]);
+  assert.equal(out.communes[0].n, 12);
+  assert.deepEqual(out.bins, [{ lat: -24.78, lng: 45.2, n: 2 }]);
+  assert.deepEqual(m.exportPoints(points, { gps: false, derived: false, communes: false, collect: false }), { sites: [], communes: [], bins: [] });
+  assert.deepEqual(m.exportPoints(null, {}), { sites: [], communes: [], bins: [] });
+});
+
 test('étiquettes : aucun chevauchement, priorité aux grandes aires, hors cadre omises', async (t) => {
   const m = await load(t, 'mapLabels.js'); if (!m) return;
   const items = [

@@ -57,11 +57,14 @@ const districtNameSql = (s = 's', ad = 'ad') =>
  *              du site), cpcode (commune), office_id, has_gps, act (activité normalisée).
  *   officeId : sites du bureau ET de ses antennes (sous-arbre récursif de field_offices).
  *   activity : sites de cette activité (casse et espaces ignorés).
+ *   drawable : (tableau d'identifiants) ne garder que les sites DESSINABLES — position GPS du
+ *              registre, ou l'un de ces sites (positions déduites de leurs collectes) : la
+ *              couche de points de la carte ne calcule pas les faits des 10 000 sites.
  * @param {any[]} params paramètres de la requête, $1 = tenant déjà présent ; complétés ici.
  */
 function siteMonthFactsCtes({
   period, todayMonth, office = 'site', unattached = '(non rattaché)', district,
-  withData = false, geo = false, officeId = null, activity = null,
+  withData = false, geo = false, officeId = null, activity = null, drawable = null,
 } = {}, params) {
   const { lo, hi, hiExcl } = periodBounds(period);
   const push = (v) => { params.push(v); return `$${params.length}`; };
@@ -77,6 +80,8 @@ function siteMonthFactsCtes({
   const officeTree = officeId ? officeTreeSql(push(officeId)) : '';
   const officeFilter = officeId ? ' AND s.field_office_id IN (SELECT id FROM office_tree)' : '';
   const activityFilter = activity ? ` AND lower(btrim(s.activity)) = lower(btrim(${push(activity)}::text))` : '';
+  const drawableFilter = Array.isArray(drawable)
+    ? ` AND ((s.gps_lat IS NOT NULL AND s.gps_lng IS NOT NULL) OR s.id = ANY(${push(drawable)}::uuid[]))` : '';
   const regExt = ext ? `,
               lower(NULLIF(btrim(s.activity), '')) AS act` : '';
   const regGeo = geo ? `,
@@ -130,7 +135,7 @@ function siteMonthFactsCtes({
          LEFT JOIN admin_areas ad ON ad.tenant_id = s.tenant_id AND ad.pcode = s.adm2_pcode
          LEFT JOIN field_offices fo ON fo.id = s.field_office_id AND fo.tenant_id = s.tenant_id
          ${parJoin}${geoJoin}
-        WHERE s.tenant_id = $1${districtFilter}${officeFilter}${activityFilter}),
+        WHERE s.tenant_id = $1${districtFilter}${officeFilter}${activityFilter}${drawableFilter}),
      st AS MATERIALIZED (
        SELECT x.site_id, make_date(x.year, x.month, 1) AS m
          FROM site_month_status x

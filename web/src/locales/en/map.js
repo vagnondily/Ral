@@ -197,4 +197,6 @@ export default {
   'Aucun site actif sur la période (couverture des sites non mesurable).': 'No active site in the period (site coverage not measurable).',
   'Couverture des sites : chargement…': 'Site coverage: loading…',
   'Couverture des sites indisponible (erreur de chargement).': 'Site coverage unavailable (loading error).',
+  '{shown} site(s) GPS dessiné(s) sur {total} (liste limitée à {cap} ; les comptes couvrent tout le périmètre)':
+    '{shown} GPS site(s) drawn out of {total} (list limited to {cap}; the counts cover the whole perimeter)',
 };

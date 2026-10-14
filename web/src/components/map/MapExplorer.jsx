@@ -7,7 +7,7 @@ import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, monthLabel } from '../../lib/format.js';
 import { periodLabel } from '../../lib/period.js';
 import { scaleFor, valueOf, classLabels } from '../../lib/mapScale.js';
-import { buildExportSvg, downloadPng, printSvg, interFontCss } from '../../lib/mapExport.js';
+import { buildExportSvg, downloadPng, exportPoints, printSvg, interFontCss } from '../../lib/mapExport.js';
 import { unionBbox } from '../../lib/mapProjection.js';
 import { useMapData, useDarkTheme } from './useMapData.js';
 import { useToast } from '../Toast.jsx';
@@ -285,8 +285,8 @@ export default function MapExplorer({
     </div>
   );
 
-  // ---- Export (image PNG, impression A4 paysage) : même contenu que l'écran, en clair,
-  // points de collecte en maille de 2 km et positions de moins de 5 relevés arrondies.
+  // ---- Export (image PNG, impression A4 paysage) : même contenu que l'écran, en clair ;
+  // positions déduites des collectes et points de collecte en maille de 2 km (exportPoints).
   const exportModel = async () => {
     const light = scaleFor(theme, data.shapes, { dark: false });
     const fills = {};
@@ -294,23 +294,8 @@ export default function MapExplorer({
       const v = valueOf(theme.id, s);
       fills[s.key] = v === 'np' ? 'hatch' : (typeof v === 'number' ? light.fill(v) : null);
     }
-    const snap2 = (p) => ({ ...p, lng: Math.round(p.lng / 0.02) * 0.02, lat: Math.round(p.lat / 0.02) * 0.02 });
-    const sites = !points ? [] : points.sites.filter((x) => (x.kind === 'gps' ? layers.gps : layers.derived))
-      .map((x) => (x.kind === 'gps' || (x.n || 0) >= 5 ? x : snap2(x)));
-    const communes = !points || !layers.communes ? [] : points.communes.map((c) => ({ ...((c.n || 0) >= 5 ? c : snap2(c)), n: c.sitesWithoutPosition }));
-    let bins = [];
-    if (points && layers.collect && points.collect) {
-      if (points.collect.mode === 'bins') bins = points.collect.bins;
-      else {
-        const m = new Map();
-        for (const p of points.collect.points) {
-          const k = `${Math.round(p.lat / 0.02)}|${Math.round(p.lng / 0.02)}`;
-          const b = m.get(k) || { lat: Math.round(p.lat / 0.02) * 0.02, lng: Math.round(p.lng / 0.02) * 0.02, n: 0 };
-          b.n += 1; m.set(k, b);
-        }
-        bins = [...m.values()];
-      }
-    }
+    // Vie privée : positions déduites, centres de commune et points de collecte en maille de 2 km.
+    const { sites, communes, bins } = exportPoints(points, layers);
     const labels = classLabels(light, formatInt);
     const officeName = officeId ? ((data.filtersAvailable.offices.find((o) => o.id === officeId) || {}).name || '') : tr('Tous');
     const view = mapRef.current && mapRef.current.extent ? mapRef.current.extent() : null;
@@ -406,6 +391,12 @@ export default function MapExplorer({
           total: formatInt(geo ? geo.features.length : 0), d: formatInt(districtSites), ro: formatInt(roSites), u: formatInt(data.unplaced.sites),
           placed: formatInt(placed), c: formatInt(points ? points.counts.sitesInCommuneCentres : 0),
         })}
+        {points && points.sitesTruncated && (
+          // Liste des sites dessinés plafonnée : le dire ; les comptes, eux, couvrent tout le périmètre.
+          <> · <b className="mapx-trunc">{tr('{shown} site(s) GPS dessiné(s) sur {total} (liste limitée à {cap} ; les comptes couvrent tout le périmètre)', {
+            shown: formatInt(points.counts.gps), total: formatInt(points.counts.gpsTotal), cap: formatInt(points.limits.sites),
+          })}</b></>
+        )}
         {points && points.collect && points.collect.total === 0 && points.collect.lastMonth && (
           <> · <b>{tr('Aucun point de collecte GPS sur la période')}</b> {tr('(derniers : {m})', { m: monthLabel(points.collect.lastMonth) })}</>
         )}

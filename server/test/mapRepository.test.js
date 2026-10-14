@@ -121,6 +121,36 @@ test('points : précision maximale en paramètre, médianes sur tout l\'historiq
   assert.match(statuses.sql, /CASE WHEN NOT p\.active THEN 'inactif' WHEN p\.realised_any AND p\.planned THEN 'realise' WHEN p\.realised_any THEN 'hors_plan' WHEN p\.planned THEN 'prevu' ELSE 'non_prevu' END AS status/);
   assert.match(statuses.sql, /LIMIT \$\d+$/);
   assert.equal(statuses.params[statuses.params.length - 1], repo.SITES_CAP + 1);
+  // Faits calculés pour les seuls sites dessinables (GPS du registre ou candidats), jamais tout le registre.
+  assert.match(statuses.sql, /AND \(\(s\.gps_lat IS NOT NULL AND s\.gps_lng IS NOT NULL\) OR s\.id = ANY\(\$\d+::uuid\[\]\)\)\)/);
+  assert.ok(calls.findIndex((c) => /percentile_cont/.test(c.sql)) < calls.indexOf(statuses), 'médianes d\'abord : les candidats sont connus');
+  // Comptes du périmètre COMPLET : registre seul, sans LIMIT, tenant $1.
+  const totals = calls.find((c) => /AS perimeter/.test(c.sql));
+  assert.ok(totals);
+  assert.doesNotMatch(totals.sql, /LIMIT/);
+  assert.match(totals.sql, /FROM sites s WHERE s\.tenant_id = \$1/);
+});
+
+test('points : comptes du périmètre filtrés comme les faits (bureau + antennes, activité) ; sites sans position par commune', async () => {
+  const fake = { query: async (sql, params = []) => {
+    const s = sql.replace(/\s+/g, ' ').trim();
+    calls.push({ sql: s, params });
+    if (/AS perimeter/.test(s)) return { rows: [{ perimeter: 10, gps: 2 }] };
+    return { rows: [] };
+  } };
+  calls = [];
+  const out = await repo.perimeterCountsTx(fake, T, { officeId: OFFICE, activity: 'School meal', candidateIds: ['c1'], communeKeys: ['MG1'] });
+  assert.deepEqual(out.totals, { perimeter: 10, gps: 2 });
+  const [tot, com] = calls;
+  for (const c of [tot, com]) {
+    assert.match(c.sql, /^WITH RECURSIVE office_tree AS/);
+    assert.match(c.sql, /s\.field_office_id IN \(SELECT id FROM office_tree\)/);
+    assert.match(c.sql, /lower\(btrim\(s\.activity\)\) = lower\(btrim\(\$\d+::text\)\)/);
+    assert.equal(c.params[0], T);
+  }
+  assert.match(com.sql, /NOT \(s\.id = ANY\(\$\d+::uuid\[\]\)\)/, 'candidats exclus (rendus un par un)');
+  assert.match(com.sql, /GROUP BY 1$/);
+  assert.deepEqual(com.params.slice(-2), [['MG1'], ['c1']]);
 });
 
 test('corrections de contour : district du compte vérifié, upsert ON CONFLICT, updated_by ; centres : valeurs vides seulement', async () => {

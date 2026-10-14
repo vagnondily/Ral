@@ -4,14 +4,15 @@
  * Une position déduite (site sans GPS placé par ses propres collectes, centre des
  * collectes d'une commune) est la MÉDIANE des points GPS des soumissions — des
  * positions de ménages enquêtés. Vie privée : jamais moins de 3 relevés pour placer
- * quoi que ce soit (la médiane d'un seul point EST la position d'un ménage) ; pour
- * les lecteurs et dans tout export, les positions de moins de 5 relevés et tous les
- * points de collecte sont ramenés à une grille de 2 km.
+ * quoi que ce soit (la médiane d'un seul point EST la position d'un ménage) ; hors
+ * admin / gestionnaire et dans tout export, TOUTES les positions déduites et tous les
+ * points de collecte sont ramenés à une grille de 2 km — quel que soit le nombre de
+ * relevés : la médiane par axe d'un petit effectif impair peut redonner exactement la
+ * latitude ET la longitude d'un même ménage (constaté avec n = 5 et n = 7).
  */
 
 const EARTH_KM = 6371;
 const MIN_POINTS = 3;
-const SNAP_BELOW = 5;
 const GRID_DEG = 0.02; // ≈ 2,2 km en latitude
 const QUALITY = Object.freeze({ reliable: 'fiable', indicative: 'indicative', scattered: 'dispersee', insufficient: 'insuffisant' });
 
@@ -61,15 +62,15 @@ function snap(lat, lng, step = GRID_DEG) {
 }
 
 /**
- * Position déduite publiée selon le rôle : précise pour admin / gestionnaire ; pour un
- * lecteur (et dans l'export), précise seulement à partir de 5 relevés, sinon ramenée à
- * la grille de 2 km. `coarse` dit si la position a été arrondie.
- * @param {{lat:number,lng:number,n:number}} p
+ * Position déduite publiée selon le rôle : précise pour admin / gestionnaire ; pour tout
+ * autre rôle (et dans l'export), TOUJOURS ramenée à la grille de 2 km, quel que soit le
+ * nombre de relevés. `coarse` dit si la position a été arrondie.
+ * @param {{lat:number,lng:number}} p
  * @param {{ precise:boolean }} opts precise = rôle admin / manager
  */
 function publishedPosition(p, { precise }) {
-  if (precise || p.n >= SNAP_BELOW) return { lat: p.lat, lng: p.lng, coarse: false };
+  if (precise) return { lat: p.lat, lng: p.lng, coarse: false };
   return { ...snap(p.lat, p.lng), coarse: true };
 }
 
-module.exports = { EARTH_KM, MIN_POINTS, SNAP_BELOW, GRID_DEG, QUALITY, distanceKm, haversineKm, positionQuality, placeable, snap, publishedPosition };
+module.exports = { EARTH_KM, MIN_POINTS, GRID_DEG, QUALITY, distanceKm, haversineKm, positionQuality, placeable, snap, publishedPosition };

@@ -31,6 +31,42 @@ function siteSymbol(x, y, status, C) {
   return `<rect x="${f(x - r + 0.6)}" y="${f(y - r + 0.6)}" width="${f(2 * r - 1.2)}" height="${f(2 * r - 1.2)}" fill="${C.ink}" stroke="${C.halo}" stroke-width="1.3"/>`;
 }
 
+/** Point ramené au centre de sa maille de 2 km (deux décimales) — même grille que le serveur (geoStats.snap). */
+export function snap2km(p) {
+  const r = (v) => Math.round(Math.round(v / 0.02) * 0.02 * 100) / 100;
+  return { ...p, lat: r(p.lat), lng: r(p.lng) };
+}
+
+/**
+ * Points de l'export (PUR, testé) — vie privée : un export circule ; TOUTES les positions
+ * déduites des collectes (sites placés, centres de commune : médianes de positions de
+ * ménages) et tous les points de collecte y sont sur la grille de 2 km, quel que soit le
+ * rôle de qui exporte et le nombre de relevés. Seuls les sites GPS du registre (positions
+ * de lieux, pas de ménages) gardent leur position.
+ * @param {{ sites:object[], communes:object[], collect?:object|null }|null} points réponse de /api/map/points
+ * @param {{ gps?:boolean, derived?:boolean, communes?:boolean, collect?:boolean }} layers couches affichées
+ * @returns {{ sites:object[], communes:object[], bins:{lat:number,lng:number,n:number}[] }}
+ */
+export function exportPoints(points, layers) {
+  if (!points) return { sites: [], communes: [], bins: [] };
+  const sites = (points.sites || []).filter((x) => (x.kind === 'gps' ? layers.gps : layers.derived))
+    .map((x) => (x.kind === 'gps' ? x : snap2km(x)));
+  const communes = !layers.communes ? [] : (points.communes || []).map((c) => ({ ...snap2km(c), n: c.sitesWithoutPosition }));
+  let bins = [];
+  if (layers.collect && points.collect) {
+    const m = new Map();
+    const src = points.collect.mode === 'bins' ? points.collect.bins : points.collect.points.map((p) => ({ ...p, n: 1 }));
+    for (const p of src || []) {
+      const g = snap2km(p);
+      const k = `${g.lat}|${g.lng}`;
+      const b = m.get(k) || { lat: g.lat, lng: g.lng, n: 0 };
+      b.n += p.n || 1; m.set(k, b);
+    }
+    bins = [...m.values()];
+  }
+  return { sites, communes, bins };
+}
+
 /**
  * @param {{
  *   title:string, subtitle:string, footer:string, legendTitle:string,
