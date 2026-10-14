@@ -190,6 +190,58 @@ async function autoAttribute(tenantId, { ids = null, onlyEmpty = false } = {}) {
   });
 }
 
+/**
+ * Import en masse depuis un classeur parsé (sitesXlsx.parseSitesWorkbook).
+ * Upsert par identifiant (code) : met à jour s'il existe, crée sinon. Les
+ * colonnes dérivées (Code POI, pcodes) ne sont jamais écrites. Un seul
+ * re-rattachement des lieux en fin de lot (afterSitesChangedTx).
+ * @returns { created, updated, skipped, total }
+ */
+async function importSites(tenantId, rows) {
+  return withSubmissionLinks(tenantId, async (client) => {
+    // Résolution des bureaux par code (Field_office_code).
+    const { rows: offs } = await client.query('SELECT id, code FROM field_offices WHERE tenant_id = $1', [tenantId]);
+    const officeByCode = new Map(offs.map((o) => [String(o.code || '').trim().toLowerCase(), o.id]));
+
+    let created = 0; let updated = 0; const skipped = [];
+    for (const r of rows || []) {
+      if (!r.localite || !String(r.localite).trim()) { skipped.push({ row: r._row, reason: 'Localité manquante.' }); continue; }
+      const code = r.identifiant && String(r.identifiant).trim()
+        ? String(r.identifiant).trim().slice(0, 120)
+        : siteCode({ district: r.district, commune: r.commune, name: r.localite });
+      const fieldOfficeId = r.fieldOfficeCode
+        ? (officeByCode.get(String(r.fieldOfficeCode).trim().toLowerCase()) || null)
+        : undefined;
+      const patch = {
+        name: r.localite, activity: r.activityTag, tagCode: r.tagCode,
+        region: r.region, district: r.district, commune: r.commune, fokontany: r.fokontany,
+        lat: r.lat ?? null, lng: r.lng ?? null,
+        ...(fieldOfficeId !== undefined ? { fieldOfficeId } : {}),
+      };
+      const { rows: ex } = await client.query('SELECT id FROM sites WHERE tenant_id = $1 AND code = $2', [tenantId, code]);
+      if (ex.length) {
+        const { sets, values } = buildSets(patch, 3);
+        if (sets.length) {
+          await client.query(`UPDATE sites SET ${sets.join(', ')} WHERE tenant_id = $1 AND id = $2`, [tenantId, ex[0].id, ...values]);
+        }
+        updated += 1;
+      } else {
+        const { sets, values } = buildSets(patch, 3);
+        const cols = sets.map((s) => s.split(' = ')[0]);
+        const ph = values.map((_, i) => `$${3 + i}`);
+        await client.query(
+          `INSERT INTO sites (tenant_id, code${cols.length ? ', ' : ''}${cols.join(', ')})
+           VALUES ($1, $2${ph.length ? ', ' : ''}${ph.join(', ')})`,
+          [tenantId, code, ...values]
+        );
+        created += 1;
+      }
+    }
+    await afterSitesChangedTx(client, tenantId);
+    return { created, updated, skipped, total: (rows || []).length };
+  });
+}
+
 /** Supprime un site si aucune visite ne le référence (sinon 409 — référentiel). */
 async function deleteSite(tenantId, id) {
   return withSubmissionLinks(tenantId, async (client) => {
@@ -203,4 +255,4 @@ async function deleteSite(tenantId, id) {
   });
 }
 
-module.exports = { listSites, createSite, updateSite, autoAttribute, deleteSite };
+module.exports = { listSites, createSite, updateSite, autoAttribute, deleteSite, importSites };

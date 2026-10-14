@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Plus, Search, Trash2, Pencil, MapPin, LocateFixed } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Plus, Search, Trash2, Pencil, MapPin, LocateFixed, Download, Upload, FileSpreadsheet } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, Card, CardHeader, EmptyState, Field, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
@@ -23,6 +23,8 @@ export default function SitesSection({ isAdmin }) {
   const [q, setQ] = useState('');
   const [edit, setEdit] = useState(null); // null | {} (nouveau) | ligne
   const [busyGps, setBusyGps] = useState(false);
+  const [busyIo, setBusyIo] = useState(false);
+  const fileRef = useRef(null);
 
   const load = useCallback(() => {
     setRows(null); setError(null);
@@ -38,6 +40,29 @@ export default function SitesSection({ isAdmin }) {
     if (!window.confirm(tr('Supprimer le site « {name} » ?', { name: s.localite }))) return;
     try { await api.deleteSiteRegistry(s.id); toast.success(tr('Site supprimé.')); load(); }
     catch (e) { toast.error(e.message); }
+  }
+
+  async function doExport() {
+    setBusyIo(true);
+    try { await api.siteRegistryExport(q); } catch (e) { toast.error(e.message); } finally { setBusyIo(false); }
+  }
+  async function doTemplate() {
+    setBusyIo(true);
+    try { await api.siteRegistryTemplate(); } catch (e) { toast.error(e.message); } finally { setBusyIo(false); }
+  }
+  async function onImportFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (fileRef.current) fileRef.current.value = '';
+    if (!file) return;
+    setBusyIo(true);
+    try {
+      const r = await api.importSiteRegistry(file);
+      const nSkip = (r.skipped || []).length;
+      toast.success(tr('Import : {c} créé(s), {u} mis à jour{s}.', {
+        c: r.created, u: r.updated, s: nSkip ? tr(' ; {n} ignoré(s)', { n: nSkip }) : '',
+      }));
+      load();
+    } catch (e2) { toast.error(e2.message); } finally { setBusyIo(false); }
   }
 
   async function runGps() {
@@ -62,6 +87,10 @@ export default function SitesSection({ isAdmin }) {
             <input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Rechercher (nom, commune, code POI…)')} aria-label={tr('Rechercher un site')} />
           </span>
           <Button size="sm" variant="secondary" icon={LocateFixed} loading={busyGps} onClick={runGps}>{tr('Attribuer depuis le GPS')}</Button>
+          <Button size="sm" variant="ghost" icon={FileSpreadsheet} loading={busyIo} onClick={doTemplate}>{tr('Modèle')}</Button>
+          <Button size="sm" variant="ghost" icon={Download} loading={busyIo} onClick={doExport}>{tr('Exporter')}</Button>
+          <Button size="sm" variant="ghost" icon={Upload} loading={busyIo} onClick={() => fileRef.current && fileRef.current.click()}>{tr('Importer')}</Button>
+          <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={onImportFile} />
           <Button size="sm" icon={Plus} onClick={() => setEdit({})}>{tr('Nouveau site')}</Button>
         </div>
       </CardHeader>

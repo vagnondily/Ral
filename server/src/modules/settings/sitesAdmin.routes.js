@@ -1,9 +1,12 @@
+const express = require('express');
 const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound, conflict } = require('../../middleware/errors');
 const repo = require('./sitesAdmin.repository');
+const { buildWorkbook, parseSitesWorkbook } = require('./sitesXlsx');
+const { isRefusal } = require('../common/xlsxGuard');
 
 const router = Router();
 router.use(requireAuth);
@@ -35,6 +38,48 @@ const createSchema = z.object({
   lat, lng,
 });
 const updateSchema = createSchema.partial().extend({ localite: str(200) });
+
+// Modèle Excel vide (en-têtes fidèles à la demande).
+router.get('/template.xlsx', asyncHandler(async (req, res) => {
+  const wb = buildWorkbook({ title: 'Registre des sites — modèle (MEMS 2.0)', sites: [] });
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="Modele_sites_MEMS2.xlsx"');
+  await wb.xlsx.write(res);
+  res.end();
+}));
+
+// Export des sites existants (mêmes colonnes).
+router.get('/export.xlsx', asyncHandler(async (req, res) => {
+  const sites = await repo.listSites(t(req), { q: req.query.q, limit: 5000 });
+  const wb = buildWorkbook({ title: 'Registre des sites (MEMS 2.0)', sites });
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="Sites_MEMS2.xlsx"');
+  await wb.xlsx.write(res);
+  res.end();
+}));
+
+// Import depuis un classeur rempli (upsert par identifiant). Rien d'autre côté
+// client : le résultat annonce créés / mis à jour / ignorés.
+router.post('/import', WRITE, express.raw({ type: '*/*', limit: '20mb' }), asyncHandler(async (req, res) => {
+  if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
+  let parsed;
+  try {
+    parsed = await parseSitesWorkbook(req.body);
+  } catch (err) {
+    if (isRefusal(err)) throw err;
+    if (err && err.code === 'NO_SHEET') throw badRequest('Le fichier ne contient pas de feuille de sites. Téléchargez et remplissez le modèle.');
+    if (err && err.code === 'NO_HEADER') throw badRequest('En-têtes introuvables : la 1re ligne doit contenir « Identifiant » / « Localité ». Utilisez le modèle.');
+    throw badRequest('Fichier Excel illisible ou format non reconnu (utilisez le modèle).');
+  }
+  if (!parsed.rows.length) {
+    throw badRequest(parsed.skipped.length
+      ? `Aucun site valide. ${parsed.skipped.length} ligne(s) ignorée(s) : ${parsed.skipped.slice(0, 3).map((s) => `L${s.row} — ${s.reason}`).join(' ; ')}`
+      : 'Aucun site trouvé dans le fichier.');
+  }
+  const result = await repo.importSites(t(req), parsed.rows);
+  result.skipped = [...parsed.skipped, ...(result.skipped || [])];
+  res.json(result);
+}));
 
 // Liste complète (colonnes de la page). Lecture pour tout utilisateur du tenant.
 router.get('/', asyncHandler(async (req, res) => {

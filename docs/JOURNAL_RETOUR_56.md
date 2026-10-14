@@ -214,11 +214,54 @@ remaniement administratif). Clés retenues :
   POST 201 (Code POI `L002`), GET 200, auto-attribute 200 (commune depuis GPS),
   PATCH 204, DELETE 204, sans auth 401.
 
+## Fait (import / export Excel)
+
+- `settings/sitesXlsx.js` : modèle vide, export, et parse — **en-têtes fidèles**
+  à la demande (Identifiant, Localité, Code POI, Field_office, Field_office_code,
+  Region, Adm1Code, District, Adm2Code, Commune, Adm3Code, Fokontany, Adm4Code,
+  Activity_tag, Tag_code, Lat, Long). Lecture bornée (`sheetRows.sheetTable`) +
+  garde (`xlsxGuard.loadWorkbook`). Tolère « Longitude »/« Latitude » et un
+  ordre de colonnes différent ; colonnes dérivées ignorées à l'import. 6 tests.
+- `repo.importSites` : upsert par identifiant, un seul `afterSitesChangedTx` en
+  fin de lot ; routes `GET /template.xlsx`, `GET /export.xlsx`, `POST /import`.
+- Frontend : boutons **Modèle / Exporter / Importer** sur la page Sites.
+- Vérifs : **718/719** tests, lint propre, `web build` OK ; **HTTP en base
+  réelle** : template 200, import (créés=2), export 200, puis attribution GPS →
+  « Commune B » depuis les coordonnées importées.
+
 ## Reste (suite possible, non bloquant)
 
-- Import / export Excel au format exact des colonnes (gabarit téléchargeable) —
-  à ajouter sur la même page.
 - Attribution GPS en **point-dans-polygone** quand les contours (lot 6a) seront
   disponibles : il suffira de passer `features` à `geoAttribution` (déjà prévu).
 - Modèle « un site par activité » et liaison planification par UUID du site.
+
+---
+
+# Continuité de session (important pour la reprise)
+
+- **Propriété du travail** : le 14/10, l'utilisateur a indiqué que **l'autre
+  session (`claude/practical-meitner-2c1560`) a atteint sa limite mensuelle**.
+  Cette session reprend donc **tout le travail restant + les réconciliations +
+  le push vers `main`**.
+- **Travail de l'autre session NON disponible** : ses lots **1b, 6a, 7a** (et
+  2-5, 8) ont été construits dans **son conteneur local, jamais poussés** — ni
+  sur `main`, ni sur sa branche distante (restée identique à `main`). Ils sont
+  donc **inaccessibles** et, sauf reprise de ce conteneur, **à refaire**.
+- **Branche de travail** : tout est sur `claude/zealous-bardeen-p9ozcr`,
+  **committé et poussé à chaque étape** → aucun travail perdu en cas de coupure.
+- **Auto-reprise** : si une limite d'usage interrompt la session, l'état est
+  entièrement récupérable depuis le dernier commit + ce journal + la liste de
+  tâches. Reprendre en lisant « Reste à faire » ci-dessous.
+- **Limites de session** : le budget de contexte reste large ; les écritures
+  en base sont testées sur un **cluster PostgreSQL 16 jetable** (dans `/tmp`,
+  non versionné) démarré à la demande sous l'utilisateur `postgres`.
+
+## Feuille de route reprise (ordre proposé)
+
+1. **Fusion sur `main`** de la branche `claude/zealous-bardeen-p9ozcr`
+   (retour 56 complet, socle GPS retour 57, page de gestion des sites + Excel).
+2. Retour 54 — tableau trimestriel par activité (Dashboard décisionnel).
+3. Lots non disponibles de l'autre session, à refaire par priorité :
+   1b (période = plage de mois), 4 (réalisé issu des données), 6a (carte), 7a.
+4. Import/attribution GPS en point-dans-polygone une fois les contours en base.
 

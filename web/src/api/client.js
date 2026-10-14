@@ -482,6 +482,9 @@ export const api = {
   updateSiteRegistry: (id, body) => request(`/api/site-registry/${id}`, { method: 'PATCH', body }),
   deleteSiteRegistry: (id) => request(`/api/site-registry/${id}`, { method: 'DELETE' }),
   autoAttributeSites: (body) => request('/api/site-registry/auto-attribute', { method: 'POST', body }),
+  siteRegistryTemplate: () => downloadFile('/api/site-registry/template.xlsx', 'Modele_sites_MEMS2.xlsx'),
+  siteRegistryExport: (q) => downloadFile(`/api/site-registry/export.xlsx${q ? `?q=${encodeURIComponent(q)}` : ''}`, 'Sites_MEMS2.xlsx'),
+  importSiteRegistry: (file) => uploadFile('/api/site-registry/import', file),
   // Liaison : postes du plan pour pré-remplir une facture (même contrat + mois)
   planningPrefill: (partnerId, contractId, month) => request('/api/tpm/planning/prefill', { query: { partnerId, contractId, month } }),
 
