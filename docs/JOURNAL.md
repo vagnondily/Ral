@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 05:32 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 06:02 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -334,5 +334,7 @@ _Dernière mise à jour : 14/10/2026 05:32 UTC_ — la branche `main` reçoit ch
 ### Mardi 14 octobre 2026
 
 - **05:32** ⏸️→🔄 **Reprise** : la limite d'usage a interrompu hier vers 19:30 le socle du lot 1b ; le conteneur a redémarré (base, API et interface relancées, données intactes). Le socle avait déjà enregistré 6 de ses 7 commits (modèle de période côté serveur, banc de mesure, **requête des régions : 19 s → 10 ms**, API du suivi de processus sur une plage, lecture des seules réponses utiles, faits site × mois) : il reprend à partir d'eux, puis les écrans 1b, la carte 6a et le concepteur 7a suivent en parallèle. Bases jetables d'anciens contrôles supprimées.
+
+- **06:02** ℹ️ **Ordre confirmé** (« fait selon tes choix ») : socle 1b → écrans 1b, carte 6a et concepteur 7a en parallèle → lots 2–3 (référentiels, registre) → lot 4 (réalisé issu des données, retours 15, 21, 22, 26) → lot 5 (priorités, risque daté) → lot 8 (Partenaires & TPM). État de chaque retour mis à jour dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md).
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
