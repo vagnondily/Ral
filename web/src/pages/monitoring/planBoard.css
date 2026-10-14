@@ -101,6 +101,7 @@
 .pb-legend span { display: inline-flex; align-items: center; gap: 8px; }
 .pb-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 50%; }
 .pb-legend i.is-approx { border: 2px dashed var(--text-muted); background: transparent; }
+.pb-legend-check { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; cursor: pointer; }
 .pb-map-note { margin: 8px 0 0; }
 .pb-pop { display: flex; flex-direction: column; gap: 2px; font: 12.5px/1.4 Inter, sans-serif; }
 .pb-pop strong { font-size: 13px; }

@@ -18,7 +18,16 @@ const { buildConsolidation } = require('./consolidation');
 
 const num = (v) => (v == null ? 0 : Number(v));
 
-async function consolidation(tenantId, { today } = {}) {
+/**
+ * @param {{ today?: string, period?: {from,to}|null }} opts  today = mois de référence du cumul
+ *   (« AAAA-MM ») ; period (lot 1b) = budget, planifié, réalisé et en attente DE LA PÉRIODE
+ *   à côté du cumul (consolidation.buildConsolidation). Le SQL ne change pas : les flux sont
+ *   déjà groupés par mois et le cumul du contrat a besoin de tous les mois.
+ *   Une facture est comptée au mois de son `period_month` (même règle partout : la liste
+ *   des rapports retient une facture pluri-mensuelle qui chevauche, mais le « Réalisé »
+ *   d'une période ne somme que les factures dont le mois de début y tombe).
+ */
+async function consolidation(tenantId, { today, period = null } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     // Active monitoring contracts with a non-zero « Suivi » budget.
     const { rows: contracts } = await client.query(
@@ -75,10 +84,10 @@ async function consolidation(tenantId, { today } = {}) {
     // Merge planned + actual by (contract, month).
     const byKey = new Map();
     const keyOf = (cId, m) => `${cId}|${m}`;
-    for (const r of actualRows) byKey.set(keyOf(r.contractId, r.month), { contractId: r.contractId, month: r.month, planned: 0, actual: num(r.actual) });
+    for (const r of actualRows) byKey.set(keyOf(r.contractId, r.month), { contractId: r.contractId, month: r.month, planned: 0, actual: num(r.actual), pending: num(r.pending) });
     for (const r of plannedRows) {
       const k = keyOf(r.contractId, r.month);
-      const cur = byKey.get(k) || { contractId: r.contractId, month: r.month, planned: 0, actual: 0 };
+      const cur = byKey.get(k) || { contractId: r.contractId, month: r.month, planned: 0, actual: 0, pending: 0 };
       cur.planned = num(r.planned);
       byKey.set(k, cur);
     }
@@ -98,7 +107,7 @@ async function consolidation(tenantId, { today } = {}) {
       monitoringBudget: num(c.monitoringBudget),
     }));
 
-    const out = buildConsolidation(shaped, monthly, { today });
+    const out = buildConsolidation(shaped, monthly, { today, period });
     // Factures soumises non encore validées : montrées à côté du Réalisé, jamais dedans.
     out.rows = out.rows.map((r) => ({ ...r, pendingValidation: (pendingCents.get(r.contractId) || 0) / 100 }));
     const totalPendingCents = out.rows.reduce((a, r) => a + (pendingCents.get(r.contractId) || 0), 0);

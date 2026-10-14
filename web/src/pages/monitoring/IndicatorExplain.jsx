@@ -3,7 +3,8 @@ import { BookOpen, CheckCircle2, MinusCircle, Ban, AlertTriangle, Circle, Loader
 import { api } from '../../api/client.js';
 import { Alert, Badge, Skeleton, StatusBadge } from '../../components/ui.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
-import { formatInt, formatLocale, monthLabel } from '../../lib/format.js';
+import { formatInt, formatLocale } from '../../lib/format.js';
+import { periodLabel as labelOfPeriod } from '../../lib/period.js';
 import {
   INDICATOR_STATUS, choiceText, classesStatus, classificationRule, explainSegments, indexStatus, indicatorErrorText, segmentShareText, unknownVariableText,
 } from '../../lib/indicatorView.js';
@@ -124,7 +125,7 @@ function Formula({ x, positives }) {
  * @param {{ preview: {loading, data, error}, direction?: string, scored?: boolean, periodLabel?: string }} props
  */
 export default function IndicatorExplain({ preview, direction, scored, periodLabel }) {
-  const { tr } = useI18n();
+  const { tr, lang } = useI18n();
   const d = preview.data;
   if (preview.error) return <Alert tone="error" icon={AlertTriangle}>{indicatorErrorText(preview.error, tr)}</Alert>;
   if (!d) {
@@ -136,7 +137,8 @@ export default function IndicatorExplain({ preview, direction, scored, periodLab
     ? x.positiveValues.map((v) => tr('« {v} »', { v: withLabel(v, labels.get(v)) })).join(tr(' ou '))
     : tr('« oui » (oui, yes, 1, true, vrai)');
   const segments = explainSegments(x);
-  const period = d.period?.month ? monthLabel(d.period.month) : (periodLabel || tr('Toutes les périodes'));
+  // Période réellement calculée (réponse du serveur) : plage ou mois, sinon toutes les périodes.
+  const period = d.period?.from && d.period?.to ? labelOfPeriod(d.period, lang) : (periodLabel || tr('Toutes les périodes'));
   return (
     <div className={`ix${preview.loading ? ' is-stale' : ''}`} aria-live="polite">
       {preview.loading && <span className="ix-loading muted"><Loader2 size={13} className="spin" aria-hidden="true" /> {tr('Recalcul…')}</span>}

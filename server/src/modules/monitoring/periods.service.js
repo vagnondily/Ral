@@ -23,7 +23,8 @@ async function periods(tenantId, { todayMonth }) {
   const months = [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month))
     .map((m) => ({ ...m, future: m.month > todayMonth }));
   const def = defaultPeriod(months.map((m) => ({ month: m.month, n: m.submissions })), todayMonth);
-  return { today: todayMonth, months, latestMonth: def.latestMonth, default: def };
+  // Période par défaut sous la forme commune (lot 1b) : une plage d'un mois, from = to = month.
+  return { today: todayMonth, months, latestMonth: def.latestMonth, default: { ...def, from: def.month, to: def.month } };
 }
 
 module.exports = { periods };

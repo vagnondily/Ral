@@ -1,16 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Gauge, ShieldCheck, Database, TrendingUp, LayoutGrid, LayoutList, Map as MapIcon, FileText, HelpCircle, Info } from 'lucide-react';
+import { Gauge, ShieldCheck, Database, TrendingUp, LayoutGrid, LayoutList, ListChecks, Map as MapIcon, FileText, HelpCircle, Info } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
-import MonthSelect from '../../components/MonthSelect.jsx';
+import PeriodSelect from '../../components/PeriodSelect.jsx';
 import TrendChart from '../../components/charts/TrendChart.jsx';
 import CodeLabel from '../../components/CodeLabel.jsx';
-import { PeriodBanner, useDefaultMonth } from '../../components/PeriodBanner.jsx';
+import { ActivationNote, PeriodBanner, SessionPeriodNote, usePeriod } from '../../components/PeriodBanner.jsx';
 import { formatInt, monthLabel } from '../../lib/format.js';
-import { MAP, project } from '../../lib/madagascarMap.js';
+import { periodLabel, single } from '../../lib/period.js';
+import MapExplorer, { peekMapOpen, forgetMapOpen } from '../../components/map/MapExplorer.jsx';
+import { fetchMapDistricts } from '../../components/map/useMapData.js';
+import { coverageState, formatRate } from '../../lib/mapScale.js';
 import { groupNaReasons } from '../../lib/naReasons.js';
 import { shortFormLabel as shortLabel } from '../../lib/formLabel.js';
 import { useI18n } from '../../lib/i18n.jsx';
+
+/** Durée maximale des endpoints d'analyse (overview, coverage-dashboard, field/summary) : 24 mois. */
+const ANALYSIS_MAX_SPAN = 24;
 
 /**
  * Dashboard décisionnel › « Couverture & performance du suivi ».
@@ -19,12 +25,20 @@ import { useI18n } from '../../lib/i18n.jsx';
  * plan vs réalisé, et un détail par activité (= fiche) — dimensions, top/flop
  * d'indicateurs, tendance, bureaux. Tout est recalculé en direct :
  *   • conformité/indicateurs ← /monitoring/coverage-dashboard
- *   • couverture terrain      ← /tpm/field/summary
+ *   • couverture (sites)       ← /map/districts (la MÊME réponse que la vue Carte)
+ *   • exécution du plan, zones ← /tpm/field/summary
  *   • sites à suivre (RBM)     ← /tpm/field/rbm/sites
- * Période : la règle commune (GET /api/monitoring/periods) — la page s'ouvre
- * sur le dernier mois substantiel avec des données et le dit (retour n° 16).
- * Sans visite planifiée, la couverture terrain affiche « aucun plan », jamais
- * 0 % ni « Situation critique ».
+ * Période = plage de mois (lot 1b, retour n° 47) : URL, puis période de travail de la
+ * session, puis la règle commune (dernier mois substantiel avec des données, dite par
+ * PeriodBanner). Flux sommés, sites distincts, état RBM au dernier mois de la période.
+ * Deux taux terrain : Couverture (sites) = sites actifs réalisés ÷ sites actifs ;
+ * Exécution du plan (visites) = visites réalisées ÷ prévues — sans plan, « — aucun
+ * plan », jamais 0 % ni « Situation critique ».
+ * La tuile « Couverture », le Bulletin et la vue Carte lisent la même réponse de
+ * /api/map/districts pour la période de la page (cache partagé) : jamais deux
+ * couvertures différentes sur la page (lot 6a). « Ouvrir la carte » (Vue d'ensemble)
+ * passe la période par l'URL (#/dashboard/couverture?from=…&to=…, lue par usePeriod)
+ * et le thème / les filtres par sessionStorage['mems.map.open'].
  */
 
 const BANDS = [
@@ -45,28 +59,41 @@ const VIEWS = [
 ];
 
 export default function DashboardCoveragePage({ onNavigate }) {
-  const { tr } = useI18n();
-  const { month, auto, counts, periods, pick } = useDefaultMonth();
+  const { tr, lang } = useI18n();
+  const { period, ready, auto, counts, periods, latest, today, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data', maxSpan: ANALYSIS_MAX_SPAN });
+  const pick = (m) => setPeriod(single(m));
+  const key = period ? `${period.from}|${period.to}` : '';
   const [cd, setCd] = useState(null);
   const [field, setField] = useState(null);
   const [rbm, setRbm] = useState(null);
-  const [map, setMap] = useState(null);
+  // Totaux de la carte pour la période : undefined = en cours, null = échec, objet = réponse.
+  const [mapData, setMapData] = useState(undefined);
   const [error, setError] = useState(null);
-  const [view, setView] = useState('synthese');
+  // « Ouvrir la carte » (Vue d'ensemble) : même thème et mêmes filtres, lus une fois ; la
+  // période arrive par l'URL (usePeriod).
+  const [opened] = useState(() => peekMapOpen());
+  useEffect(() => { forgetMapOpen(); }, []);
+  const [view, setView] = useState(opened ? 'carte' : 'synthese');
   const [tab, setTab] = useState('_OV');
 
   useEffect(() => {
-    if (!month) return undefined;
+    if (!ready || !period) return undefined;
     let alive = true;
-    setCd(null); setField(null); setRbm(null); setError(null);
-    Promise.all([api.monCoverageDashboard(month), api.fieldSummary(month), api.rbmSites(month)])
-      .then(([c, f, r]) => { if (alive) { setCd(c); setField(f); setRbm(r); } })
+    setCd(null); setField(null); setRbm(null); setMapData(undefined); setError(null);
+    // RBM : un état, lu au dernier mois de la période (le serveur prend `to`).
+    Promise.all([api.monCoverageDashboard(period), api.fieldSummary(period), api.rbmSites(period)])
+      .then(([c, f, r]) => {
+        if (!alive) return;
+        setCd(c); setField(f); setRbm(r);
+        try { if (typeof performance !== 'undefined' && performance.mark) performance.mark('period:rendered'); } catch { /* sans incidence */ }
+      })
       .catch((e) => { if (alive) setError(e.message); });
+    // Couverture (définition commune) : sites actifs réalisés ÷ actifs, sites distincts — la
+    // tuile, le Bulletin et la carte lisent la même réponse (cache partagé de useMapData).
+    fetchMapDistricts(period).then((d) => { if (alive) setMapData(d); }, () => { if (alive) setMapData(null); });
     return () => { alive = false; };
-  }, [month]);
-
-  // Carte : référentiel de sites géolocalisés (indépendant du mois), chargé une fois.
-  useEffect(() => { api.fieldMap().then(setMap).catch(() => setMap({ communes: [], points: [] })); }, []);
+  }, [ready, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const mapInitial = useMemo(() => (opened ? { theme: opened.theme, officeId: opened.officeId, activity: opened.activity } : {}), [opened]);
 
   const rbmStats = useMemo(() => {
     const s = { total: 0, due: 0, elevee: 0, moyenne: 0, faible: 0 };
@@ -83,9 +110,10 @@ export default function DashboardCoveragePage({ onNavigate }) {
     <div className="page">
       <PageHeader title={tr('Couverture & performance du suivi')}
         description={tr('Vue analytique du suivi de processus : couverture terrain, données versées, conformité par bande, plan vs réalisé, et détail par activité (dimensions, indicateurs). Recalculé en direct.')}>
-        {month && <MonthSelect value={month} onChange={pick} counts={counts} />}
+        {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} maxSpan={ANALYSIS_MAX_SPAN} align="right" />}
       </PageHeader>
       <PeriodBanner auto={auto} onBack={pick} />
+      <SessionPeriodNote source={source} onReset={resetToDefault} />
 
       <div className="cd-views" role="tablist" aria-label={tr('Vues')}>
         {VIEWS.map((v) => (
@@ -97,12 +125,13 @@ export default function DashboardCoveragePage({ onNavigate }) {
       </div>
 
       {error && <Alert tone="error">{error}</Alert>}
-      {!auto && cd && month && (cd.totals?.submissions || 0) === 0 && (
+      {!auto && cd && period && (cd.totals?.submissions || 0) === 0 && (
         <div className="period-banner"><Alert tone="info" icon={Info}>
-          {periods?.latestMonth && periods.latestMonth !== month
-            ? <>{tr('Aucune donnée reçue pour le mois sélectionné ({m}). Dernières données : {last}.', { m: monthLabel(month), last: monthLabel(periods.latestMonth) })}{' '}
+          {tr('Aucune donnée reçue sur la période ({p}).', { p: periodLabel(period, lang) })}
+          {periods?.latestMonth && (periods.latestMonth < period.from || periods.latestMonth > period.to) && (
+            <>{' '}{tr('Dernières données : {last}.', { last: monthLabel(periods.latestMonth) })}{' '}
               <button type="button" className="inline-link" onClick={() => pick(periods.default?.month || periods.latestMonth)}>{tr('Voir {m}', { m: monthLabel(periods.default?.month || periods.latestMonth) })}</button></>
-            : tr('Aucune donnée reçue pour le mois sélectionné ({m}).', { m: monthLabel(month) })}
+          )}
         </Alert></div>
       )}
       {loading && !error ? <Skeleton height={360} /> : !error && (
@@ -116,17 +145,24 @@ export default function DashboardCoveragePage({ onNavigate }) {
                 ))}
               </div>
               {tab === '_OV'
-                ? <Overview cd={cd} cov={cov} field={field} rbmStats={rbmStats} onNavigate={onNavigate} />
-                : activeForm && <ActivityView form={activeForm} month={month} periods={periods} onPick={pick} onNavigate={onNavigate} />}
+                ? <Overview cd={cd} cov={cov} field={field} rbmStats={rbmStats} period={period} mapData={mapData} onNavigate={onNavigate} />
+                : activeForm && <ActivityView form={activeForm} period={period} periods={periods} onPick={pick} onNavigate={onNavigate} />}
             </>
           )}
           {view === 'controle' && <ControlRoom cd={cd} />}
-          {view === 'carte' && <MapView map={map} regions={cd.regions || []} rbmStats={rbmStats} />}
-          {view === 'bulletin' && <Bulletin cd={cd} cov={cov} rbmStats={rbmStats} month={month} />}
+          {view === 'carte' && <MapExplorer variant="full" period={period || undefined} onNavigate={onNavigate} initial={mapInitial} />}
+          {view === 'bulletin' && <Bulletin cd={cd} cov={cov} field={field} rbmStats={rbmStats} period={period} mapData={mapData} />}
         </>
       )}
     </div>
   );
+}
+
+function coverageFoot(c, tr) {
+  if (c.state === 'loading') return tr('chargement…');
+  if (c.state === 'error') return tr('couverture indisponible (erreur de chargement)');
+  if (!(c.active > 0)) return tr('aucun site actif sur la période');
+  return tr('{r} / {a} sites actifs · distincts sur la période', { r: formatInt(c.realised), a: formatInt(c.active) });
 }
 
 function TabBtn({ id, label, active, onClick }) {
@@ -137,23 +173,29 @@ function TabBtn({ id, label, active, onClick }) {
 }
 
 // ---------------------------------------------------------------- Vue d'ensemble
-function Overview({ cd, cov, field, rbmStats, onNavigate }) {
-  const { tr } = useI18n();
-  // Sans visite planifiée : pas de taux (« aucun plan »), jamais 0 %.
-  const covPct = cov && cov.active > 0 ? Math.round(cov.rate * 100) : null;
+function Overview({ cd, cov, field, rbmStats, period, mapData, onNavigate }) {
+  const { tr, lang } = useI18n();
+  // Couverture (sites) : la valeur de la carte (même réponse) ; exécution du plan (visites) :
+  // null = « — » / « — aucun plan », jamais 0 %.
+  const covState = coverageState(mapData);
+  const covPct = covState.rate == null ? null : covState.rate * 100;
+  const execPct = cov?.execution == null ? null : Math.round(cov.execution * 100);
+  const sites = cov?.sites || {};
+  const visits = cov?.visits || {};
+  const toLabel = period ? monthLabel(period.to) : '';
   const upToDate = rbmStats.total - rbmStats.due;
   const sitesPct = rbmStats.total ? Math.round((upToDate / rbmStats.total) * 100) : 0;
   const cls = cd.classes || {};
   const urgentPct = cls.scored ? Math.round((cls.urg / cls.scored) * 100) : 0;
 
-  // Plan vs réalisé — trois sources (visites, sites RBM, soumissions).
+  // Plan vs réalisé — trois sources (visites, sites prévus, soumissions), sur la période.
   const received = cd.totals?.communes || 0;
   const pvr = [
-    { label: tr('Visites de terrain'), sub: tr('planifiées → réalisées ce mois'),
-      planned: (cov?.realise || 0) + (cov?.planifie || 0), done: cov?.realise || 0, unit: tr('visite(s)') },
-    { label: tr('Sites à suivre (RBM)'), sub: tr('dus ce mois → visités (terrain)'),
-      planned: rbmStats.due, done: cov?.realise || 0, unit: tr('site(s)') },
-    { label: tr('Données versées'), sub: tr('communes attendues (RBM) → ayant versé'),
+    { label: tr('Visites de terrain'), sub: tr('prévues → réalisées sur la période (site × mois)'),
+      planned: visits.planned || 0, done: visits.realised || 0, unit: tr('visite(s)') },
+    { label: tr('Sites prévus'), sub: tr('sites distincts prévus → réalisés pendant un mois actif'),
+      planned: sites.planned || 0, done: sites.realised || 0, unit: tr('site(s)') },
+    { label: tr('Données versées'), sub: tr('communes attendues (RBM, état au {m}) → ayant versé sur la période', { m: toLabel }),
       planned: rbmStats.due, done: received, unit: tr('commune(s)') },
   ];
 
@@ -169,16 +211,23 @@ function Overview({ cd, cov, field, rbmStats, onNavigate }) {
 
   return (
     <>
-      <div className="biz-kpis cd-kpis-4">
-        <DonutKpi icon={Gauge} label={tr('Couverture')} pct={covPct}
-          foot={covPct == null ? tr('aucun plan ce mois') : tr('{done} / {planned} visites', { done: formatInt(cov?.realise || 0), planned: formatInt((cov?.realise || 0) + (cov?.planifie || 0)) })} />
+      <div className="biz-kpis cd-kpis-5">
+        <DonutKpi icon={Gauge} label={tr('Couverture (sites)')} pct={covPct} display={covState.rate == null ? null : formatRate(covState.rate, lang)}
+          loading={covState.state === 'loading'} noneLabel={covState.state === 'error' ? tr('indisponible') : null}
+          foot={coverageFoot(covState, tr)} />
+        <DonutKpi icon={ListChecks} label={tr('Exécution du plan (visites)')} pct={execPct} noneLabel={tr('— aucun plan')}
+          foot={<>
+            {tr('{done} / {planned} visites prévues', { done: formatInt(visits.realised || 0), planned: formatInt(visits.planned || 0) })}
+            {visits.upcoming > 0 && <> · {tr('dont {n} visite(s) à venir', { n: formatInt(visits.upcoming) })}</>}
+          </>} />
         <DonutKpi icon={ShieldCheck} label={tr('Sites à jour')} pct={sitesPct} tone={rbmStats.due ? 'amber' : 'green'}
-          foot={tr('{due} à suivre / {total}', { due: formatInt(rbmStats.due), total: formatInt(rbmStats.total) })} />
+          foot={<>{tr('{due} à suivre / {total}', { due: formatInt(rbmStats.due), total: formatInt(rbmStats.total) })} · {tr('état au {m}', { m: toLabel })}</>} />
         <Kpi icon={Database} label={tr('Données versées')} value={formatInt(cd.totals?.submissions || 0)}
           foot={tr('{communes} commune(s) · {agents} agent(s)', { communes: formatInt(cd.totals?.communes || 0), agents: formatInt(cd.totals?.agents || 0) })} />
         <Kpi icon={LayoutGrid} label={tr('Fiches · indicateurs')} value={formatInt(cd.totals?.forms || 0)}
           foot={tr('{n} indicateur(s)', { n: formatInt(cd.totals?.indicators || 0) })} />
       </div>
+      <ActivationNote field={field} />
 
       {/* Bande conformité : indice + répartition 5 bandes + action urgente */}
       <div className="card biz-card cd-conf">
@@ -220,8 +269,10 @@ function Overview({ cd, cov, field, rbmStats, onNavigate }) {
 }
 
 // ---------------------------------------------------------------- Activité (fiche)
-function ActivityView({ form, month, periods, onPick, onNavigate }) {
-  const { tr } = useI18n();
+function ActivityView({ form, period, periods, onPick, onNavigate }) {
+  const { tr, lang } = useI18n();
+  const pLabel = period ? periodLabel(period, lang) : tr('Toutes les périodes');
+  const inPeriod = (m) => !period || (m >= period.from && m <= period.to);
   const cls = form.classes || {};
   const groups = groupNaReasons(form.indicators);
   const outside = (form.indicators || []).filter((i) => i.scored === false).length;
@@ -253,13 +304,13 @@ function ActivityView({ form, month, periods, onPick, onNavigate }) {
       {groups.length > 0 && (
         <div className="card biz-card cd-why">
           <div className="card-header"><div className="card-title"><HelpCircle size={16} aria-hidden="true" className="cd-why-ic" />{tr('Pourquoi « Non évalué » ?')}</div>
-            <div className="card-sub">{tr('{n} indicateur(s) sans bande sur {m}', { n: formatInt(cls.na || 0), m: monthLabel(month) })}</div></div>
+            <div className="card-sub">{tr('{n} indicateur(s) sans bande sur {m}', { n: formatInt(cls.na || 0), m: pLabel })}</div></div>
           <div className="card-body cd-why-list">
             {groups.map((g) => (
               <div className="cd-why-row" key={g.reason}>
                 <div className="cd-why-head">
                   <strong>{tr(g.label)}</strong> <span className="badge cd-why-n tabular">{formatInt(g.indicators.length)}</span>
-                  {g.action === 'period' && formLast && formLast !== month && (
+                  {g.action === 'period' && formLast && !inPeriod(formLast) && (
                     <button type="button" className="inline-link" onClick={() => onPick(formLast)}>{tr('Voir {m}', { m: monthLabel(formLast) })}</button>
                   )}
                   {g.action === 'config' && onNavigate && (
@@ -291,8 +342,8 @@ function ActivityView({ form, month, periods, onPick, onNavigate }) {
         <div className="card biz-card">
           <div className="card-header"><div className="card-title">{tr('Données versées — tendance mensuelle')}</div></div>
           <div className="card-body">
-            <TrendChart data={form.trend} selected={month} height={160} unit={tr('formulaire(s)')}
-              label={tr('Formulaires reçus par mois, 12 mois finissant en {m}', { m: monthLabel(month) })}
+            <TrendChart data={form.trend} selected={period} height={160} unit={tr('formulaire(s)')}
+              label={tr('Formulaires reçus par mois, {n} mois finissant en {m} ; période surlignée : {p}', { n: (form.trend || []).length, m: period ? monthLabel(period.to) : '', p: pLabel })}
               empty={tr('Aucune donnée versée.')} />
           </div>
         </div>
@@ -308,7 +359,7 @@ function BureauCard({ rows, onNavigate }) {
   const max = Math.max(1, ...rows.map((r) => r.submissions || 0));
   return (
     <div className="card biz-card">
-      <div className="card-header"><div className="card-title">{tr('Données par bureau')}</div><div className="card-sub">{tr('soumissions sur le mois')}</div></div>
+      <div className="card-header"><div className="card-title">{tr('Données par bureau')}</div><div className="card-sub">{tr('soumissions sur la période')}</div></div>
       <div className="card-body biz-gauges">
         {rows.length === 0 ? <p className="muted">{tr('Aucune donnée.')}</p> : rows.map((r) => (
           <div className="biz-gauge" key={r.key}>
@@ -335,22 +386,27 @@ function Kpi({ icon: Icon, label, value, foot, tone }) {
   );
 }
 
-/** KPI avec anneau de progression (donut SVG, dépendance zéro). */
-function DonutKpi({ icon: Icon, label, pct, foot, tone }) {
+/**
+ * KPI avec anneau de progression (donut SVG, dépendance zéro) ; sans base, « — » (ou `noneLabel`).
+ * `display` remplace le texte du centre (ex. « 1,3 % » de formatRate) ; `loading` : anneau vide « … ».
+ */
+function DonutKpi({ icon: Icon, label, pct, foot, tone, noneLabel, display, loading }) {
   const none = pct == null; // pas de dénominateur (aucun plan) : anneau vide et « — », pas de couleur d'alerte
   const v = none ? 0 : Math.max(0, Math.min(100, Math.round(pct)));
   const R = 22; const C = 2 * Math.PI * R;
   const color = tone === 'green' || v >= 80 ? 'var(--green)' : (tone === 'amber' || v >= 50 ? 'var(--orange)' : 'var(--red)');
+  const text = loading ? '…' : none ? '—' : (display || `${v}%`);
   return (
-    <div className="biz-kpi cd-donutkpi">
-      <svg className="cd-ring" viewBox="0 0 56 56" role="img" aria-label={none ? `${label} —` : `${label} ${v}%`}>
+    <div className="biz-kpi cd-donutkpi" aria-busy={loading ? 'true' : undefined}>
+      <svg className="cd-ring" viewBox="0 0 56 56" role="img" aria-label={`${label} ${text}`}>
         <circle cx="28" cy="28" r={R} fill="none" stroke="var(--canvas-sunken)" strokeWidth="6" />
-        {!none && <circle cx="28" cy="28" r={R} fill="none" stroke={color} strokeWidth="6" strokeLinecap="round"
+        {!none && !loading && <circle cx="28" cy="28" r={R} fill="none" stroke={color} strokeWidth="6" strokeLinecap="round"
           strokeDasharray={`${(v / 100) * C} ${C}`} transform="rotate(-90 28 28)" />}
-        <text x="28" y="31" textAnchor="middle" className="cd-ring-t tabular">{none ? '—' : `${v}%`}</text>
+        <text x="28" y="31" textAnchor="middle" className="cd-ring-t tabular">{text}</text>
       </svg>
       <div className="biz-kpi-body">
         <div className="biz-kpi-label"><Icon size={13} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 5 }} />{label}</div>
+        {none && noneLabel && <div className="biz-kpi-value tabular cd-donut-none">{noneLabel}</div>}
         {foot && <div className="biz-kpi-foot" style={{ marginTop: 4 }}>{foot}</div>}
       </div>
     </div>
@@ -389,7 +445,7 @@ function PlanVsReal({ rows }) {
   return (
     <div className="card biz-card">
       <div className="card-header"><div className="card-title">{tr('Plan vs Réalisé')}</div>
-        <div className="card-sub">{tr('Avancement du mois par rapport au plan')}</div></div>
+        <div className="card-sub">{tr('Avancement de la période par rapport au plan')}</div></div>
       <div className="card-body cd-pvr">
         {rows.map((r) => {
           const pct = r.planned > 0 ? Math.round((Math.max(0, r.done) / r.planned) * 100) : null;
@@ -399,7 +455,7 @@ function PlanVsReal({ rows }) {
               <div className="cd-pvr-head">
                 <span className="cd-pvr-name">{r.label}</span>
                 {pct == null
-                  ? <span className="cd-pvr-v muted">{tr('aucun plan')}{r.done ? ` · ${formatInt(r.done)} ${r.unit}` : ''}</span>
+                  ? <span className="cd-pvr-v muted">{tr('— aucun plan')}{r.done ? ` · ${formatInt(r.done)} ${r.unit}` : ''}</span>
                   : <span className="tabular cd-pvr-v">{formatInt(r.done)} / {formatInt(r.planned)} {r.unit} · <b style={{ color: tone }}>{pct}%</b></span>}
               </div>
               <div className="cd-pvr-sub">{r.sub}</div>
@@ -501,8 +557,8 @@ function WatchCard({ rows, onNavigate }) {
   const { tr } = useI18n();
   return (
     <div className="card biz-card">
-      <div className="card-header"><div className="card-title">{tr('Zones à surveiller')}</div>
-        <div className="card-sub">{tr('Districts dont la couverture terrain est < 80 %')}</div></div>
+      <div className="card-header"><div className="card-title">{tr('Zones à surveiller — exécution du plan')}</div>
+        <div className="card-sub">{tr('Districts dont l\'exécution du plan (visites) est < 80 %')}</div></div>
       <div className="card-body biz-gauges">
         {(!rows || rows.length === 0) ? <p className="muted">{tr('Toutes les zones couvertes sont ≥ 80 %.')}</p> : rows.map((d) => {
           const pct = Math.round((d.rate || 0) * 100);
@@ -524,7 +580,7 @@ function WatchCard({ rows, onNavigate }) {
 function ControlRoom({ cd }) {
   const { tr } = useI18n();
   const forms = (cd.forms || []).filter((f) => (f.indicators || []).length);
-  if (!forms.length) return <p className="muted">{tr('Aucun indicateur à afficher pour ce mois.')}</p>;
+  if (!forms.length) return <p className="muted">{tr('Aucun indicateur à afficher pour cette période.')}</p>;
   return (
     <>
       <div className="cd-legend" style={{ marginBottom: 14 }}>
@@ -564,44 +620,6 @@ function fmtVal(ind) {
   return formatInt(Math.round(ind.value));
 }
 
-// ------------------------------------------------------------------------- Carte
-const RISK_COLOR = { elevee: 'var(--red)', moyenne: 'var(--orange)', faible: 'var(--green)' };
-/** Carte SVG de Madagascar (silhouette fournie par le métier, sans dépendance)
- * avec les sites géolocalisés réels en points, colorés par niveau de risque.
- * À côté : données versées par région. */
-function MapView({ map, regions, rbmStats }) {
-  const { tr } = useI18n();
-  const points = (map?.points || []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
-  return (
-    <div className="biz-grid cd-grid-2 cd-grid-flush">
-      <div className="card biz-card">
-        <div className="card-header"><div className="card-title">{tr('Sites de suivi — Sud Madagascar')}</div>
-          <div className="card-sub">{tr('{n} site(s) géolocalisé(s) · couleur = niveau de risque', { n: formatInt(points.length) })}</div></div>
-        <div className="card-body">
-          <svg className="cd-map" viewBox={`0 0 ${MAP.W} ${MAP.H}`} role="img" aria-label={tr('Carte des sites de suivi')}>
-            <path d={MAP.outline} fill="var(--canvas-sunken)" stroke="var(--border-strong)" strokeWidth="1.5" />
-            {points.map((p) => {
-              const [x, y] = project(p.lat, p.lng);
-              return <circle key={p.id} cx={x.toFixed(1)} cy={y.toFixed(1)} r="4" fill={RISK_COLOR[p.riskLevel] || 'var(--blue-600)'} fillOpacity="0.85" stroke="#fff" strokeWidth="0.8" />;
-            })}
-          </svg>
-          <div className="cd-legend" style={{ marginTop: 10 }}>
-            <span><i className="cd-dot" style={{ background: 'var(--red)' }} />{tr('Risque élevé')} <b className="tabular">{formatInt(rbmStats.elevee)}</b></span>
-            <span><i className="cd-dot" style={{ background: 'var(--orange)' }} />{tr('Risque moyen')} <b className="tabular">{formatInt(rbmStats.moyenne)}</b></span>
-            <span><i className="cd-dot" style={{ background: 'var(--green)' }} />{tr('Risque faible')} <b className="tabular">{formatInt(rbmStats.faible)}</b></span>
-          </div>
-          {points.length < rbmStats.total && (
-            <div className="biz-kpi-foot" style={{ marginTop: 8 }}>
-              {tr('{n} site(s) sur {total} ont des coordonnées GPS ; la carte se densifie à mesure que le référentiel est géocodé (import Master Data).', { n: formatInt(points.length), total: formatInt(rbmStats.total) })}
-            </div>
-          )}
-        </div>
-      </div>
-      <RegionsCard regions={regions.slice(0, 10)} />
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------- Bulletin
 /** Phrase traduite dont les {variables} sont remplacées par des nœuds React
  * (chiffres en gras du bulletin) : chaque phrase reste entière pour la traduction. */
@@ -609,13 +627,20 @@ function richText(template, vars) {
   return template.split(/\{(\w+)\}/).map((part, i) => (i % 2 ? <React.Fragment key={i}>{vars[part]}</React.Fragment> : part));
 }
 
-/** Bulletin narratif : synthèse en clair générée à partir des chiffres. */
-function Bulletin({ cd, cov, rbmStats, month }) {
-  const { tr } = useI18n();
+/**
+ * Bulletin narratif : synthèse en clair générée à partir des chiffres de la période.
+ * Le verdict lit l'exécution du plan (visites), comme avant ; la couverture des sites
+ * est dite à côté. Sans visite planifiée, l'exécution est inconnue (« aucun plan ») :
+ * elle n'entre pas dans le verdict.
+ */
+function Bulletin({ cd, cov, field, rbmStats, period, mapData }) {
+  const { tr, lang } = useI18n();
   const cls = cd.classes || {};
   const idx = cd.conformityIndex;
-  // Sans visite planifiée, la couverture est inconnue (« aucun plan ») : elle n'entre pas dans le verdict.
-  const covPct = cov && cov.active > 0 ? Math.round(cov.rate * 100) : null;
+  const covPct = cov?.execution == null ? null : Math.round(cov.execution * 100);
+  // Couverture des sites : la valeur de la carte et de la tuile (même réponse de /api/map/districts).
+  const covState = coverageState(mapData);
+  const toLabel = period ? monthLabel(period.to) : '';
   const urgentPct = cls.scored ? Math.round((cls.urg / cls.scored) * 100) : 0;
   const topRegions = (cd.regions || []).filter((r) => r.region !== '(non renseigné)').slice(0, 3);
   // Indicateurs les plus faibles, toutes fiches confondues.
@@ -631,7 +656,7 @@ function Bulletin({ cd, cov, rbmStats, month }) {
   return (
     <div className="card biz-card cd-bull">
       <div className="card-body">
-        <div className="cd-bk">{tr('Bulletin de suivi · {period}', { period: month ? monthLabel(month) : tr('toutes périodes') })}</div>
+        <div className="cd-bk">{tr('Bulletin de suivi · {period}', { period: period ? periodLabel(period, lang) : tr('toutes périodes') })}</div>
         <h3>{tr(verdict)}</h3>
         <p>
           {richText(tr('Sur la période, {submissions} soumission(s) ont été versées par {agents} agent(s) sur {communes} commune(s), réparties sur {forms} fiche(s) de suivi ({indicators} indicateurs).'), {
@@ -639,12 +664,19 @@ function Bulletin({ cd, cov, rbmStats, month }) {
             forms: bold(cd.totals?.forms), indicators: bold(cd.totals?.indicators),
           })}{' '}
           {covPct == null
-            ? richText(tr('Aucune visite de terrain n\'est planifiée ce mois (couverture non mesurable), et le RBM signale {due} site(s) à suivre ce mois sur {total}.'), {
-              due: bold(rbmStats.due), total: formatInt(rbmStats.total),
+            ? richText(tr('Aucune visite de terrain n\'est planifiée sur la période (exécution du plan non mesurable), et le RBM signale {due} site(s) à suivre au {m} sur {total}.'), {
+              due: bold(rbmStats.due), total: formatInt(rbmStats.total), m: toLabel,
             })
-            : richText(tr('La couverture terrain atteint {coverage} ({visits} visite(s) réalisée(s)), et le RBM signale {due} site(s) à suivre ce mois sur {total}.'), {
-              coverage: <b>{tr('{p} %', { p: covPct })}</b>, visits: formatInt(cov?.realise || 0), due: bold(rbmStats.due), total: formatInt(rbmStats.total),
-            })}
+            : richText(tr('L\'exécution du plan atteint {execution} ({visits} visite(s) réalisée(s)), et le RBM signale {due} site(s) à suivre au {m} sur {total}.'), {
+              execution: <b>{tr('{p} %', { p: covPct })}</b>, visits: formatInt(cov?.visits?.realised || 0), due: bold(rbmStats.due), total: formatInt(rbmStats.total), m: toLabel,
+            })}{' '}
+          {covState.state === 'ok' && covState.rate != null && richText(tr('La couverture des sites atteint {coverage} ({r} site(s) réalisé(s) sur {a} actif(s)).'), {
+            coverage: <b>{formatRate(covState.rate, lang)}</b>, r: formatInt(covState.realised), a: formatInt(covState.active),
+          })}
+          {covState.state === 'ok' && covState.rate == null && tr('Aucun site actif sur la période (couverture des sites non mesurable).')}
+          {covState.state === 'loading' && <span className="muted">{tr('Couverture des sites : chargement…')}</span>}
+          {covState.state === 'error' && <span className="muted">{tr('Couverture des sites indisponible (erreur de chargement).')}</span>}
+          {field && field.activationKnown === false && <>{' '}{tr('sites actifs : tout le registre (aucune grille d\'activation)')}.</>}
         </p>
         <p>
           {richText(tr('L\'indice de conformité global est de {index}.'), { index: <b>{idx == null ? '—' : `${idx}/100`}</b> })}{' '}

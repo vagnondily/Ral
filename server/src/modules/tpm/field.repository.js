@@ -2,13 +2,32 @@ const { withTenantTransaction } = require('../../config/db');
 const { afterSitesChangedTx, lockSubmissionLinksTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
 const { sitePatchSql } = require('./sitePatch');
 const { chunkRows } = require('../../db/batch');
-const { summarizeVisits, collectionDays, buildCoverageMatrix } = require('./fieldMath');
+const { shapeRangeSummary, collectionDays, buildCoverageMatrix } = require('./fieldMath');
 const { isDue, frequencyFor, visitState, currentMonth, toMonth, needsPlanning, planningCounts } = require('./rbmMath');
 const { scoreSite, normalizeSecurity } = require('./rbmScore');
 const { coverageRecap } = require('./coverageRecap');
 const { mmrLookup, siteCounters, rankSites, boardKpis, normalizeChanges, currentStatus, mmrKeyOf, mmrCapacity, autoPlanMonths, norm } = require('./planBoard');
 const { badRequest, conflict } = require('../../middleware/errors');
 const { unattachedText } = require('../common/codeLabel');
+const { toPeriod, periodInfo, monthsOf, addMonths, MAX_SPAN } = require('../common/period');
+const { monthWithin } = require('../common/periodSql');
+const { siteMonthFactsCtes, districtNameSql, SITE_FACT_COLUMNS, MONTH_FACT_COLUMNS } = require('../common/siteActivitySql');
+
+/** Période d'un appel : `period` ({ from, to } | null) si fourni, sinon l'ancien { month }. */
+const periodArg = (opts = {}) => (opts.period !== undefined ? opts.period : toPeriod(opts));
+
+/**
+ * Période « toutes les visites » quand aucune n'est demandée : du premier au dernier mois
+ * des visites du tenant, plafonnée aux 60 derniers mois (MAX_SPAN) ; sans visite, le mois courant.
+ */
+async function visitSpanTx(client, tenantId) {
+  const { rows: [r] } = await client.query(
+    `SELECT to_char(min(period_month), 'YYYY-MM') AS lo, to_char(max(period_month), 'YYYY-MM') AS hi
+       FROM site_visits WHERE tenant_id = $1`, [tenantId]);
+  if (!r || !r.hi) { const m = currentMonth(); return { from: m, to: m }; }
+  const floor = addMonths(r.hi, -(MAX_SPAN - 1));
+  return { from: r.lo < floor ? floor : r.lo, to: r.hi };
+}
 
 /**
  * Suivi terrain — planification/réalisation des visites, affectées aux
@@ -112,7 +131,20 @@ const SUBMISSION_OF_SITE = `(ms.site_id = s.id OR (ms.site_id IS NULL AND s.adm3
 const SUBMISSION_COUNTS_FOR_SITE = `NOT ms.excluded
          AND (mf.activity_category IS NULL OR s.activity IS NULL OR lower(btrim(mf.activity_category)) = lower(btrim(s.activity)))`;
 
-const RBM_SELECT = `
+/**
+ * SELECT RBM (sites + dernière visite effective). `asOfRef` (« $n », 1er du mois de
+ * référence, facultatif) lit l'ÉTAT À CE MOIS (lot 1b) : les visites réalisées, les données
+ * reçues et la date du registre POSTÉRIEURES au mois de référence sont ignorées — un site
+ * visité en août n'est pas « à jour » en juin. Les visites PRÉVUES ne sont jamais bornées
+ * (« à planifier » regarde le plan à venir).
+ */
+function rbmSelect(asOfRef = null) {
+  const doneBound = asOfRef ? ` AND v.period_month <= ${asOfRef}::date` : '';
+  const dataBound = asOfRef ? `\n         AND ms.period_month <= ${asOfRef}::date` : '';
+  const lastVisitDate = asOfRef
+    ? `CASE WHEN s.last_visit_date < (${asOfRef}::date + interval '1 month') THEN to_char(s.last_visit_date, 'YYYY-MM-DD') END`
+    : "to_char(s.last_visit_date, 'YYYY-MM-DD')";
+  return `
   SELECT s.id, s.code, s.name, s.district, s.commune, s.activity, s.risk_level AS "riskLevel",
          s.adm1, s.adm2, s.adm3, s.adm4, s.fokontany,
          s.gps_lat AS "gpsLat", s.gps_lng AS "gpsLng",
@@ -125,7 +157,7 @@ const RBM_SELECT = `
          s.issues_cfm AS "issuesCFM", s.fraud_suspected AS "fraud",
          s.location_id AS "locationId", s.poi_subtype AS "poiSubtype", s.urban_area AS "urbanArea",
          s.modality_type AS "modalityType", s.beneficiary_number AS "beneficiaryNumber",
-         s.experienced_partner AS "experiencedPartner", to_char(s.last_visit_date, 'YYYY-MM-DD') AS "lastVisitDate",
+         s.experienced_partner AS "experiencedPartner", ${lastVisitDate} AS "lastVisitDate",
          s.adm3_pcode AS "adm3Pcode",
          -- Dernière visite effective = rbmMath.visitState (une seule règle, testée) : la plus
          -- récente entre une visite RÉALISÉE, la COLLECTE RÉELLE (données uploadées) et la date
@@ -141,7 +173,7 @@ const RBM_SELECT = `
     LEFT JOIN field_offices ant ON ant.id = s.field_office_id
     LEFT JOIN field_offices par ON par.id = ant.parent_id
     LEFT JOIN LATERAL (
-      SELECT max(v.period_month) FILTER (WHERE v.status = 'realise') AS last_done,
+      SELECT max(v.period_month) FILTER (WHERE v.status = 'realise'${doneBound}) AS last_done,
              array_agg(DISTINCT to_char(v.period_month, 'YYYY-MM')) FILTER (WHERE v.status = 'planifie') AS planned
         FROM site_visits v
        WHERE v.tenant_id = s.tenant_id AND v.site_id = s.id AND v.status IN ('realise', 'planifie')
@@ -155,16 +187,23 @@ const RBM_SELECT = `
         FROM monitoring_submissions ms
         JOIN monitoring_forms mf ON mf.id = ms.form_id
        WHERE ms.tenant_id = s.tenant_id AND ${SUBMISSION_OF_SITE}
-         AND ${SUBMISSION_COUNTS_FOR_SITE}
+         AND ${SUBMISSION_COUNTS_FOR_SITE}${dataBound}
     ) dv ON true
    WHERE s.tenant_id = $1`;
+}
+const RBM_SELECT = rbmSelect();
 
-/** Lignes du SELECT RBM avec l'état des visites (dernière visite effective, visites prévues). */
-async function rbmRowsTx(client, tenantId, { risk, siteId, targetMonth, ordered = false } = {}) {
+/**
+ * Lignes du SELECT RBM avec l'état des visites (dernière visite effective, visites prévues).
+ * `asOf` (« AAAA-MM ») : état au mois de référence (rbmSelect).
+ */
+async function rbmRowsTx(client, tenantId, { risk, siteId, targetMonth, ordered = false, asOf = null } = {}) {
   const params = [tenantId]; let where = '';
+  let asOfRef = null;
+  if (asOf) { params.push(`${String(asOf).slice(0, 7)}-01`); asOfRef = `$${params.length}`; }
   if (risk) { params.push(risk); where += ` AND s.risk_level = $${params.length}`; }
   if (siteId) { params.push(siteId); where += ` AND s.id = $${params.length}`; }
-  const { rows } = await client.query(`${RBM_SELECT}${where}${ordered ? ' ORDER BY s.district, s.commune, s.name' : ''}`, params);
+  const { rows } = await client.query(`${rbmSelect(asOfRef)}${where}${ordered ? ' ORDER BY s.district, s.commune, s.name' : ''}`, params);
   return rows.map((r) => ({ ...r, ...visitState(r, targetMonth) }));
 }
 
@@ -178,8 +217,8 @@ async function rbmSites(tenantId, opts = {}) {
  * calculée par la MÊME fonction que la liste : servie à la demande pour que la liste
  * de tous les sites reste légère (+50 % de JSON sinon). null si le site n'existe pas.
  */
-async function rbmSiteExplain(tenantId, siteId, { month } = {}) {
-  return withTenantTransaction(tenantId, async (client) => (await rbmSitesTx(client, tenantId, { month, siteId, explain: true }))[0] || null);
+async function rbmSiteExplain(tenantId, siteId, { month, asOf } = {}) {
+  return withTenantTransaction(tenantId, async (client) => (await rbmSitesTx(client, tenantId, { month, asOf, siteId, explain: true }))[0] || null);
 }
 
 /** Sites dont la visite du mois a été ANNULÉE, et sites « Inactive » ce mois (grille d'activation). */
@@ -196,9 +235,9 @@ async function monthBlocksTx(client, tenantId, target) {
   return { cancelled: new Set(c.map((r) => r.site_id)), inactive: new Set(i.map((r) => r.site_id)) };
 }
 
-async function rbmSitesTx(client, tenantId, { month, risk, siteId, explain = false } = {}) {
+async function rbmSitesTx(client, tenantId, { month, risk, siteId, explain = false, asOf = null } = {}) {
   const target = month ? String(month).slice(0, 7) : null;
-  const rows = await rbmRowsTx(client, tenantId, { risk, siteId, targetMonth: target, ordered: true });
+  const rows = await rbmRowsTx(client, tenantId, { risk, siteId, targetMonth: target, ordered: true, asOf });
   const blocks = await monthBlocksTx(client, tenantId, target);
   return rows.map((r) => {
     // Intervalle de référence : fréquence RBM selon le niveau de risque
@@ -424,29 +463,76 @@ const VISIT_COLS = `
   v.id, v.site_id AS "siteId", s.name AS "siteName", s.district, s.commune, s.fokontany,
   v.activity, to_char(v.period_month, 'YYYY-MM') AS "periodMonth",
   v.contract_id AS "contractId", v.provider_id AS "providerId", p.name AS "providerName",
-  v.agent, v.status, v.visit_date AS "visitDate",
-  -- Dernière collecte réelle (données uploadées) : site reconnu, sinon commune du site.
-  (SELECT to_char(max(ms.period_month), 'YYYY-MM') FROM monitoring_submissions ms
-     JOIN monitoring_forms mf ON mf.id = ms.form_id
-     WHERE ms.tenant_id = s.tenant_id AND ${SUBMISSION_OF_SITE}
-       AND ${SUBMISSION_COUNTS_FOR_SITE}) AS "dataVisitMonth"`;
+  v.agent, v.status, v.visit_date AS "visitDate"`;
 
-async function listVisits(tenantId, { month, providerId, status } = {}) {
+/**
+ * Collecte réelle (données uploadées) d'un ensemble de sites, en ENSEMBLE (jamais une
+ * sous-requête par ligne) — même règle que SUBMISSION_OF_SITE / SUBMISSION_COUNTS_FOR_SITE :
+ * une soumission reliée à CE site, ou, faute de site reconnu, de la même commune (pcode),
+ * hors soumissions écartées et hors fiches d'une AUTRE activité que celle du site.
+ * `sitesSql` rend (id, adm3_pcode, act = lower(btrim(activity))) ; `asOf` (« AAAA-MM-01 »,
+ * facultatif) borne les données à ce mois. Rend le SELECT : id, last (date), last_at, n, site_n.
+ */
+function siteDataFactsSql(sitesSql, params, { asOf } = {}) {
+  let bound = '';
+  if (asOf) { params.push(asOf); bound = ` AND ms.period_month <= $${params.length}::date`; }
+  return `WITH ts AS MATERIALIZED (${sitesSql}),
+     by_site AS MATERIALIZED (
+       SELECT ms.site_id, lower(btrim(mf.activity_category)) AS cat,
+              max(ms.period_month) AS last, max(ms.submitted_at) AS last_at, count(*)::int AS n
+         FROM monitoring_submissions ms JOIN monitoring_forms mf ON mf.id = ms.form_id AND mf.tenant_id = ms.tenant_id
+        WHERE ms.tenant_id = $1 AND NOT ms.excluded AND ms.site_id = ANY (ARRAY(SELECT id FROM ts))${bound}
+        GROUP BY 1, 2),
+     by_commune AS MATERIALIZED (
+       SELECT ms.adm3_pcode, lower(btrim(mf.activity_category)) AS cat,
+              max(ms.period_month) AS last, max(ms.submitted_at) AS last_at, count(*)::int AS n
+         FROM monitoring_submissions ms JOIN monitoring_forms mf ON mf.id = ms.form_id AND mf.tenant_id = ms.tenant_id
+        WHERE ms.tenant_id = $1 AND NOT ms.excluded AND ms.site_id IS NULL
+          AND ms.adm3_pcode = ANY (ARRAY(SELECT DISTINCT adm3_pcode FROM ts WHERE adm3_pcode IS NOT NULL))${bound}
+        GROUP BY 1, 2),
+     bs AS (SELECT ts.id, max(b.last) AS last, max(b.last_at) AS last_at, sum(b.n)::int AS n
+              FROM ts JOIN by_site b ON b.site_id = ts.id AND (b.cat IS NULL OR ts.act IS NULL OR b.cat = ts.act)
+             GROUP BY ts.id),
+     bc AS (SELECT ts.id, max(c.last) AS last, max(c.last_at) AS last_at, sum(c.n)::int AS n
+              FROM ts JOIN by_commune c ON c.adm3_pcode = ts.adm3_pcode AND (c.cat IS NULL OR ts.act IS NULL OR c.cat = ts.act)
+             GROUP BY ts.id)
+     SELECT ts.id, GREATEST(bs.last, bc.last) AS last, GREATEST(bs.last_at, bc.last_at) AS last_at,
+            COALESCE(bs.n, 0) + COALESCE(bc.n, 0) AS n, COALESCE(bs.n, 0) AS site_n
+       FROM ts LEFT JOIN bs ON bs.id = ts.id LEFT JOIN bc ON bc.id = ts.id`;
+}
+
+/**
+ * Visites, filtrables par période ({ period } ou l'ancien { month } — 12 mois au plus,
+ * contrôlé par la route), prestataire et statut ; avec la dernière collecte réelle du
+ * site (`dataVisitMonth`), calculée en ensemble sur les sites de la liste.
+ */
+async function listVisits(tenantId, opts = {}) {
+  const { providerId, status } = opts;
+  const period = periodArg(opts);
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId];
-    const where = ['v.tenant_id = $1'];
-    if (month) { params.push(`${String(month).slice(0, 7)}-01`); where.push(`v.period_month = $${params.length}`); }
+    const where = ['v.tenant_id = $1', monthWithin('v.period_month', period, params)];
     if (providerId) { params.push(providerId); where.push(`v.provider_id = $${params.length}`); }
     if (status) { params.push(status); where.push(`v.status = $${params.length}`); }
     const { rows } = await client.query(
       `SELECT ${VISIT_COLS}
          FROM site_visits v
-         JOIN sites s ON s.id = v.site_id
-         LEFT JOIN partners p ON p.id = v.provider_id
+         JOIN sites s ON s.id = v.site_id AND s.tenant_id = v.tenant_id
+         LEFT JOIN partners p ON p.id = v.provider_id AND p.tenant_id = v.tenant_id
         WHERE ${where.join(' AND ')}
         ORDER BY s.district, s.commune, s.name`,
       params
     );
+    const ids = [...new Set(rows.map((r) => r.siteId))];
+    const last = new Map();
+    if (ids.length) {
+      const dp = [tenantId, ids];
+      const { rows: data } = await client.query(
+        `${siteDataFactsSql(`SELECT s.id, s.adm3_pcode, lower(btrim(s.activity)) AS act FROM sites s
+                              WHERE s.tenant_id = $1 AND s.id = ANY($2::uuid[])`, dp)}`, dp);
+      for (const d of data) if (d.last) last.set(d.id, String(d.last).slice(0, 7));
+    }
+    for (const r of rows) r.dataVisitMonth = last.get(r.siteId) || null;
     return rows;
   });
 }
@@ -495,40 +581,6 @@ async function monthsOverview(tenantId, { year } = {}) {
   });
 }
 
-/**
- * Données pour la carte des sites : agrégation géographique (région → district
- * → commune avec mix de risque et couverture) + points GPS des sites qui en ont.
- * Agrégé en SQL. Filtrable par bureau (sous-arbre côté client via field_office_id).
- */
-async function mapData(tenantId) {
-  return withTenantTransaction(tenantId, async (client) => {
-    const { rows: communes } = await client.query(
-      `SELECT COALESCE(s.adm1, '') AS region, COALESCE(s.adm2, s.district, '') AS district,
-              COALESCE(s.adm3, s.commune, '') AS commune,
-              count(*)::int AS sites,
-              count(*) FILTER (WHERE s.risk_level = 'elevee')::int AS elevee,
-              count(*) FILTER (WHERE s.risk_level = 'moyenne')::int AS moyenne,
-              count(*) FILTER (WHERE s.risk_level = 'faible')::int AS faible,
-              count(DISTINCT v.site_id)::int AS visited
-         FROM sites s
-         LEFT JOIN site_visits v ON v.site_id = s.id AND v.tenant_id = s.tenant_id AND v.status = 'realise'
-        WHERE s.tenant_id = $1
-        GROUP BY 1, 2, 3
-        ORDER BY 1, 2, 3`,
-      [tenantId]
-    );
-    const { rows: points } = await client.query(
-      `SELECT s.id, s.name, s.gps_lat::float8 AS lat, s.gps_lng::float8 AS lng,
-              s.risk_level AS "riskLevel", COALESCE(s.adm2, s.district) AS district,
-              COALESCE(s.adm3, s.commune) AS commune, ant.name AS "antenneName"
-         FROM sites s LEFT JOIN field_offices ant ON ant.id = s.field_office_id
-        WHERE s.tenant_id = $1 AND s.gps_lat IS NOT NULL AND s.gps_lng IS NOT NULL`,
-      [tenantId]
-    );
-    return { communes, points };
-  });
-}
-
 /** Définit (upsert) la situation du plan mensuel. */
 async function setMonthStatus(tenantId, { month, status }, userId) {
   const pm = `${String(month).slice(0, 7)}-01`;
@@ -544,62 +596,101 @@ async function setMonthStatus(tenantId, { month, status }, userId) {
   });
 }
 
-async function summary(tenantId, { month } = {}) {
+/**
+ * Résumé terrain sur une période (lot 1b) — faits site × mois (common/siteActivitySql,
+ * UNE requête GROUPING SETS + série mensuelle) et une requête prestataires (une visite
+ * porte le prestataire, pas le site), mis en forme par fieldMath.shapeRangeSummary.
+ * Les champs hérités (planifie / realise / annule / total / active / rate, lignes de
+ * visites) gardent leur sens : alertsMath.fieldAlerts et les cartes les lisent tels quels.
+ * Sans période : toutes les visites (de la première à la dernière, 60 mois au plus).
+ * @param {{ period?: {from,to}|null, month?: string }} opts
+ */
+async function summary(tenantId, opts = {}) {
   return withTenantTransaction(tenantId, async (client) => {
+    const period = periodArg(opts) || await visitSpanTx(client, tenantId);
     const params = [tenantId];
-    const where = ['v.tenant_id = $1'];
-    if (month) { params.push(`${String(month).slice(0, 7)}-01`); where.push(`v.period_month = $${params.length}`); }
+    const ctes = siteMonthFactsCtes({ period, todayMonth: currentMonth() }, params);
     const { rows } = await client.query(
-      `SELECT v.status, v.provider_id AS "providerId", p.name AS "providerName", s.district, fo.name AS office, v.activity
-         FROM site_visits v JOIN sites s ON s.id = v.site_id
-         LEFT JOIN partners p ON p.id = v.provider_id
-         LEFT JOIN field_offices fo ON fo.id = s.field_office_id AND fo.tenant_id = s.tenant_id
-        WHERE ${where.join(' AND ')}`,
+      `${ctes}
+       SELECT CASE WHEN GROUPING(office) = 0 THEN 'office' WHEN GROUPING(dkey) = 0 THEN 'district'
+                   WHEN GROUPING(activity) = 0 THEN 'activity' ELSE 'overall' END AS dim,
+              COALESCE(office, dkey, activity) AS key,
+              -- Nom affiché du district : officiel (découpage), sinon une graphie qui n'est pas tout en capitales.
+              COALESCE(min(official), min(dname) FILTER (WHERE dname <> upper(dname)), min(dname)) AS "districtLabel",
+              NULL::boolean AS known, ${SITE_FACT_COLUMNS}
+         FROM per_site GROUP BY GROUPING SETS ((), (office), (dkey), (activity))
+       UNION ALL
+       SELECT 'month', to_char(m, 'YYYY-MM'), NULL, bool_or(known), ${MONTH_FACT_COLUMNS}
+         FROM fact GROUP BY m`,
       params
     );
-    const providerLabel = {};
-    for (const r of rows) if (r.providerId) providerLabel[r.providerId] = r.providerName;
-    return summarizeVisits(rows, providerLabel);
+    // Prestataires : mêmes bornes (semi-ouvertes) que les faits.
+    const pp = [tenantId];
+    const within = monthWithin('v.period_month', period, pp);
+    const { rows: providers } = await client.query(
+      `SELECT COALESCE(v.provider_id::text, 'non_affecte') AS key, min(p.name) AS label,
+              count(*) FILTER (WHERE v.status = 'planifie')::int AS planifie,
+              count(*) FILTER (WHERE v.status = 'realise')::int AS realise,
+              count(*) FILTER (WHERE v.status = 'annule')::int AS annule,
+              count(DISTINCT v.site_id) FILTER (WHERE v.status <> 'annule')::int AS "sitesPlanned",
+              count(DISTINCT v.site_id) FILTER (WHERE v.status = 'realise')::int AS "sitesRealised"
+         FROM site_visits v LEFT JOIN partners p ON p.id = v.provider_id AND p.tenant_id = v.tenant_id
+        WHERE v.tenant_id = $1 AND ${within}
+        GROUP BY 1`,
+      pp
+    );
+    return { period: periodInfo(period), ...shapeRangeSummary(rows, providers) };
   });
 }
 
 /**
- * Récap de couverture : par site, le nombre de visites RÉALISÉES (agrégé en
- * SQL), puis le récap pur par niveau de risque (coverageRecap). Optionnellement
- * filtré par district (adm2). `operationMonths` fixe les visites requises MMR.
+ * Récap de couverture (sites visités 1/2/3/4+ fois face au MMR) sur une période :
+ * les sites ACTIFS sur la période (faits site × mois), chacun avec ses site × mois
+ * réalisés pendant un mois actif ; puis le récap pur par niveau de risque
+ * (coverageRecap). Filtrable par district (même clé que le résumé : nom officiel,
+ * casse ignorée). Sans période : toutes les visites (60 mois au plus), comme avant.
+ * `operationMonths` : visites requises MMR (défaut : durée de la période si elle est
+ * donnée, sinon 12).
  */
-async function coverageRecapSummary(tenantId, { district, operationMonths = 12 } = {}) {
+async function coverageRecapSummary(tenantId, { district, operationMonths, period: asked, month } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
+    const given = periodArg({ period: asked, month });
+    const period = given || await visitSpanTx(client, tenantId);
+    const months = operationMonths || (given ? monthsOf(given).length : 12);
     const params = [tenantId];
-    const where = ['s.tenant_id = $1'];
-    if (district) { params.push(district); where.push(`(s.adm2 = $${params.length} OR s.district = $${params.length})`); }
+    const ctes = siteMonthFactsCtes({ period, todayMonth: currentMonth(), district }, params);
     const { rows } = await client.query(
-      `SELECT s.risk_level AS "riskLevel",
-              COUNT(v.id) FILTER (WHERE v.status = 'realise') AS "visitCount"
-         FROM sites s
-         LEFT JOIN site_visits v ON v.site_id = s.id AND v.tenant_id = s.tenant_id
-        WHERE ${where.join(' AND ')}
-        GROUP BY s.id, s.risk_level`,
+      `${ctes}
+       SELECT risk AS "riskLevel", realise_active AS "visitCount" FROM per_site WHERE active`,
       params
     );
-    const recap = coverageRecap(rows.map((r) => ({ riskLevel: r.riskLevel, visitCount: Number(r.visitCount) })), operationMonths);
-    // Liste des districts pour le filtre.
+    const recap = coverageRecap(rows.map((r) => ({ riskLevel: r.riskLevel, visitCount: Number(r.visitCount) })), months);
+    // Liste des districts pour le filtre : un nom par district (nom officiel, sinon la première graphie).
+    const dn = districtNameSql('s', 'ad');
     const { rows: districts } = await client.query(
-      `SELECT DISTINCT COALESCE(adm2, district) AS d FROM sites WHERE tenant_id = $1 AND COALESCE(adm2, district) IS NOT NULL ORDER BY d`,
+      `SELECT COALESCE(min(NULLIF(btrim(ad.name), '')), min(${dn}) FILTER (WHERE ${dn} <> upper(${dn})), min(${dn})) AS d
+         FROM sites s LEFT JOIN admin_areas ad ON ad.tenant_id = s.tenant_id AND ad.pcode = s.adm2_pcode
+        WHERE s.tenant_id = $1
+        GROUP BY lower(${dn}) HAVING lower(${dn}) <> '—'
+        ORDER BY 1`,
       [tenantId]
     );
-    return { ...recap, operationMonths, districts: districts.map((x) => x.d) };
+    return { ...recap, operationMonths: months, districts: districts.map((x) => x.d), period: periodInfo(given) };
   });
 }
 
 /**
- * Matrice de couverture mensuelle pour une année : par programme (activité) et
- * par prestataire TPM — planifiées/réalisées et taux par mois. Agrégé en SQL,
- * mis en forme par la logique pure testée `buildCoverageMatrix`.
+ * Matrice de couverture mensuelle par programme (activité de la visite) et par
+ * prestataire TPM — planifiées/réalisées et taux par mois. Une année (`year`,
+ * comportement historique) ou une période (`period` : colonnes = mois de la période).
+ * Agrégé en SQL, mis en forme par la logique pure testée `buildCoverageMatrix`.
  */
-async function coverageMatrix(tenantId, { year } = {}) {
+async function coverageMatrix(tenantId, { year, period } = {}) {
   const y = Number(year) || new Date().getFullYear();
+  const p = period || { from: `${y}-01`, to: `${y}-12` };
   return withTenantTransaction(tenantId, async (client) => {
+    const ap = [tenantId];
+    const aw = monthWithin('period_month', p, ap);
     const { rows: act } = await client.query(
       `SELECT to_char(period_month, 'YYYY-MM') AS month,
               COALESCE(NULLIF(activity, ''), '—') AS key,
@@ -607,10 +698,12 @@ async function coverageMatrix(tenantId, { year } = {}) {
               count(*) FILTER (WHERE status = 'planifie')::int AS planifie,
               count(*) FILTER (WHERE status = 'realise')::int AS realise
          FROM site_visits
-        WHERE tenant_id = $1 AND date_part('year', period_month) = $2
+        WHERE tenant_id = $1 AND ${aw}
         GROUP BY 1, 2, 3`,
-      [tenantId, y]
+      ap
     );
+    const pp = [tenantId];
+    const pw = monthWithin('v.period_month', p, pp);
     const { rows: prov } = await client.query(
       `SELECT to_char(v.period_month, 'YYYY-MM') AS month,
               COALESCE(v.provider_id::text, 'non_affecte') AS key,
@@ -618,16 +711,20 @@ async function coverageMatrix(tenantId, { year } = {}) {
               count(*) FILTER (WHERE v.status = 'planifie')::int AS planifie,
               count(*) FILTER (WHERE v.status = 'realise')::int AS realise
          FROM site_visits v LEFT JOIN partners p ON p.id = v.provider_id
-        WHERE v.tenant_id = $1 AND date_part('year', v.period_month) = $2
+        WHERE v.tenant_id = $1 AND ${pw}
         GROUP BY 1, 2, 3`,
-      [tenantId, y]
+      pp
     );
     // Années disponibles (pour le sélecteur).
     const { rows: yrs } = await client.query(
       `SELECT DISTINCT date_part('year', period_month)::int AS y FROM site_visits WHERE tenant_id = $1 ORDER BY y DESC`,
       [tenantId]
     );
-    return { year: y, years: yrs.map((r) => r.y), byActivity: buildCoverageMatrix(act, y), byProvider: buildCoverageMatrix(prov, y) };
+    const cols = period ? monthsOf(period) : y;
+    return {
+      year: period ? null : y, period: periodInfo(period || null), years: yrs.map((r) => r.y),
+      byActivity: buildCoverageMatrix(act, cols), byProvider: buildCoverageMatrix(prov, cols),
+    };
   });
 }
 
@@ -763,32 +860,38 @@ async function importPlanning(tenantId, userId, month, rows) {
 }
 
 /**
- * Données « terrain » d'un rapport sur une période [from, to] (mois inclus) :
- * par bureau (antenne comptée avec son bureau parent) — sites du référentiel,
- * visites planifiées (non annulées) et réalisées — et par mois. Agrégé en SQL.
- * Un site sans bureau est compté sous « (non rattaché) », dans la langue du rapport.
+ * Données « terrain » d'un rapport sur une période [from, to] (mois inclus) — faits
+ * site × mois (common/siteActivitySql, le même service que le résumé terrain) :
+ *   byOffice : par bureau (antenne comptée avec son bureau parent ; un site sans bureau
+ *     sous « (non rattaché) » dans la langue du rapport) — sitesActive = sites ACTIFS au
+ *     moins un mois de la période (plus tout le registre), sitesVisited = sites réalisés
+ *     PENDANT un mois actif (inclus dans les actifs : plus de « 407,7 % »), planned / done
+ *     = visites (site × mois, comptées une fois) prévues non annulées / réalisées ;
+ *   monthly  : par mois de la période (mois sans visite compris) : planned, done.
+ * Mêmes noms de champs qu'avant (reportData : bureau_coverage, plan_vs_actual) ; les faits
+ * complets (sitesPlanned, sitesRealisedInactive, upcoming…) sont ajoutés.
  */
 async function reportFieldData(tenantId, { from, to }, { lang = 'fr' } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
-    const p = [tenantId, `${from}-01`, `${to}-01`];
-    const { rows: byOffice } = await client.query(
-      `WITH s AS (
-         SELECT st.id, COALESCE(par.name, o.name, $4::text) AS bureau
-           FROM sites st LEFT JOIN field_offices o ON o.id = st.field_office_id LEFT JOIN field_offices par ON par.id = o.parent_id
-          WHERE st.tenant_id = $1)
-       SELECT s.bureau, count(DISTINCT s.id)::int AS "sitesActive",
-              count(v.id) FILTER (WHERE v.status <> 'annule')::int AS planned,
-              count(v.id) FILTER (WHERE v.status = 'realise')::int AS done,
-              count(DISTINCT v.site_id) FILTER (WHERE v.status = 'realise')::int AS "sitesVisited"
-         FROM s LEFT JOIN site_visits v ON v.site_id = s.id AND v.tenant_id = $1 AND v.period_month BETWEEN $2 AND $3
-        GROUP BY s.bureau ORDER BY "sitesActive" DESC`, [...p, unattachedText(lang)]);
-    const { rows: monthly } = await client.query(
-      `SELECT to_char(period_month, 'YYYY-MM') AS month,
-              count(*) FILTER (WHERE status <> 'annule')::int AS planned,
-              count(*) FILTER (WHERE status = 'realise')::int AS done
-         FROM site_visits WHERE tenant_id = $1 AND period_month BETWEEN $2 AND $3
-        GROUP BY 1 ORDER BY 1`, p);
-    return { byOffice, monthly };
+    const period = { from: String(from).slice(0, 7), to: String(to).slice(0, 7) };
+    const params = [tenantId];
+    const ctes = siteMonthFactsCtes({ period, todayMonth: currentMonth(), office: 'bureau', unattached: unattachedText(lang) }, params);
+    const { rows } = await client.query(
+      `${ctes}
+       SELECT 'office' AS dim, office AS key, ${SITE_FACT_COLUMNS} FROM per_site GROUP BY office
+       UNION ALL
+       SELECT 'month', to_char(m, 'YYYY-MM'), ${MONTH_FACT_COLUMNS} FROM fact GROUP BY m`,
+      params
+    );
+    const visits = (r) => ({ planned: r.smPlanifie + r.smRealise, done: r.smRealise });
+    return {
+      period: periodInfo(period),
+      byOffice: rows.filter((r) => r.dim === 'office')
+        .map(({ dim: _dim, key, ...r }) => ({ bureau: key, ...r, ...visits(r), sitesVisited: r.sitesRealised }))
+        .sort((a, b) => b.sitesActive - a.sitesActive || String(a.bureau).localeCompare(String(b.bureau))),
+      monthly: rows.filter((r) => r.dim === 'month').map((r) => ({ month: r.key, ...visits(r) }))
+        .sort((a, b) => a.month.localeCompare(b.month)),
+    };
   });
 }
 
@@ -1180,6 +1283,6 @@ module.exports = {
   reportFieldData, planBoard, setPlannedMonths, setMonthStatuses, bulkUpdateSites, addSite, locationsExportData, importLocations,
   listSites, createSite, createSiteTx, upsertSites, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
-  collectionDaysSummary, setTravelDays, coverageRecapSummary, coverageMatrix, monthsOverview, setMonthStatus, mapData,
-  rbmSites, rbmSitesTx, rbmSiteExplain, importMasterData, importPlanSites, generateFromRbm, generateFromRbmTx, planBoardTx,
+  collectionDaysSummary, setTravelDays, coverageRecapSummary, coverageMatrix, monthsOverview, setMonthStatus,
+  siteDataFactsSql, rbmSites, rbmSitesTx, rbmSiteExplain, importMasterData, importPlanSites, generateFromRbm, generateFromRbmTx, planBoardTx,
 };

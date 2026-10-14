@@ -78,3 +78,73 @@ test('pipeline sur plusieurs mois : stock du DERNIER mois renseigné par denrée
   assert.deepEqual(s.Huile, { qty: 4, donor: null, month: '2025-10' });
   assert.deepEqual(latestStock([]), {});
 });
+
+// ---- Période (lot 1b) ----------------------------------------------------------
+const { peakMonth, pipelineOverMonths } = require('../src/modules/pdd/pddMath');
+
+test('latestStock sur les stocks ≤ to : un stock saisi après la période est ignoré par le dépôt', () => {
+  const rows = [
+    { commodity: 'Riz', qty: 80, month: '2025-11' },
+    { commodity: 'Riz', qty: 120, month: '2026-02' },
+  ];
+  const upTo = (to) => latestStock(rows.filter((r) => r.month <= to));
+  assert.equal(upTo('2026-01').Riz.qty, 80);
+  assert.equal(upTo('2026-03').Riz.qty, 120);
+});
+
+test('summarize : groupes agrégés en SQL (avec `lines`) ≡ lignes brutes', () => {
+  const grouped = [
+    { periodMonth: '2025-10', hazard: 'drought', region: 'Anosy', district: 'Amboasary', commune: 'Ebelo', lines: 1, beneficiaries: 13318, households: 2664, cashUsd: 0, totalFood: 115.958, items: { Sorgho: 95.892, Huile: 6.992 } },
+    { periodMonth: '2025-10', hazard: 'drought', region: 'Anosy', district: 'Amboasary', commune: 'Ifotaka', lines: 1, beneficiaries: 12167, households: 2433, cashUsd: 65888, totalFood: 0, items: {} },
+    { periodMonth: '2025-11', hazard: 'cyclone', region: 'Androy', district: 'Ambovombe', commune: 'Ambanisarika', lines: 1, beneficiaries: 7937, households: 1587, cashUsd: 0, totalFood: 11.31, items: { Sorgho: 4.0, Huile: 4.167 } },
+  ];
+  assert.deepEqual(summarize(grouped), summarize(sample));
+  // Deux lignes du même groupe agrégées en une seule ligne avec lines = 2.
+  const doubled = summarize([{ ...grouped[0], lines: 2, beneficiaries: 2 * 13318 }]);
+  assert.equal(doubled.total.lines, 2);
+  assert.equal(doubled.total.beneficiaries, 2 * 13318);
+});
+
+test('peakMonth : mois où le plus de bénéficiaires ont été servis (cumul ≠ personnes)', () => {
+  const { byMonth } = summarize(sample);
+  assert.deepEqual(peakMonth(byMonth), { month: '2025-10', beneficiaries: 13318 + 12167, households: 2664 + 2433 });
+  assert.equal(peakMonth({}), null);
+  assert.equal(peakMonth({ '2026-02': { beneficiaries: 5, households: 1 }, '2026-01': { beneficiaries: 5, households: 2 } }).month, '2026-01', 'égalité : le plus ancien');
+});
+
+test('pipelineOverMonths : besoin de chaque mois face au stock en vigueur ce mois-là, jamais additionné', () => {
+  const need = [
+    { commodity: 'Riz', month: '2026-01', qty: 50 },
+    { commodity: 'Riz', month: '2026-02', qty: 50 },
+    { commodity: 'Riz', month: '2026-03', qty: 50 },
+    { commodity: 'Huile', month: '2026-02', qty: 2 },
+  ];
+  const stock = [
+    { commodity: 'Riz', month: '2025-12', qty: 60, donor: 'A' },
+    { commodity: 'Riz', month: '2026-03', qty: 30, donor: 'B' },
+    { commodity: 'Riz', month: '2026-05', qty: 999 }, // après la période : ignoré
+    { commodity: 'Huile', month: '2026-01', qty: 5 },
+  ];
+  const rows = pipelineOverMonths(need, stock, ['2026-01', '2026-02', '2026-03']);
+  const riz = rows.find((r) => r.commodity === 'Riz');
+  assert.equal(riz.need, 150, 'besoin = somme des mois');
+  assert.equal(riz.available, 30, 'stock au dernier mois, pas une somme');
+  assert.equal(riz.stockMonth, '2026-03');
+  assert.equal(riz.donor, 'B');
+  assert.deepEqual(riz.months.map((m) => [m.month, m.available, m.stockMonth, m.shortfall]), [
+    ['2026-01', 60, '2025-12', false], ['2026-02', 60, '2025-12', false], ['2026-03', 30, '2026-03', true],
+  ]);
+  assert.equal(riz.shortfallMonths, 1);
+  assert.equal(riz.uncovered, 20);
+  assert.equal(riz.gap, -20);
+  assert.ok(Math.abs(riz.coverage - 130 / 150) < 1e-9);
+  const huile = rows.find((r) => r.commodity === 'Huile');
+  assert.equal(huile.shortfall, false);
+  assert.equal(huile.months[0].need, 0);
+  // Sur un seul mois : la règle de toujours (écart = stock − besoin, couverture = stock ÷ besoin).
+  const [one] = pipelineOverMonths(need.filter((r) => r.commodity === 'Riz'), stock, ['2026-01']);
+  const legacy = pipeline({ Riz: 50 }, { Riz: 60 })[0];
+  assert.equal(one.gap, legacy.gap);
+  assert.equal(one.coverage, legacy.coverage);
+  assert.deepEqual(pipelineOverMonths(need, stock, []), []);
+});

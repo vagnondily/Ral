@@ -29,7 +29,7 @@ const GROUPS = ['Référentiels', 'Finances', 'Géographie', 'Suivi', 'Sécurit�
 
 const normCommune = (s) => String(s || '').trim().toLowerCase();
 
-export default function SettingsPage({ tab = 'apercu', isAdmin, onNavigate }) {
+export default function SettingsPage({ tab = 'apercu', sub = null, isAdmin, onNavigate }) {
   const { tr } = useI18n();
   const current = SECTIONS[tab] ? tab : 'apercu';
   if (current === 'apercu') {
@@ -54,7 +54,7 @@ export default function SettingsPage({ tab = 'apercu', isAdmin, onNavigate }) {
           {current === 'activites' && <ActivitiesSection isAdmin={isAdmin} />}
           {current === 'types' && <TypesSection isAdmin={isAdmin} />}
           {current === 'taux' && <ExchangeRatesSection isAdmin={isAdmin} />}
-          {current === 'localites' && <LocalitiesSection isAdmin={isAdmin} />}
+          {current === 'localites' && <LocalitiesSection isAdmin={isAdmin} initialTab={sub} />}
           {current === 'bureaux' && <BureauxSection isAdmin={isAdmin} />}
           {current === 'sites' && <SitesSection isAdmin={isAdmin} />}
           {current === 'mmr' && <MmrSection isAdmin={isAdmin} />}

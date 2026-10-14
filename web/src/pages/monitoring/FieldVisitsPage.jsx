@@ -40,7 +40,8 @@ const ROLES = ['Agent 1', 'Agent 2', 'Agent 3', 'Agent 4', 'Superviseur 1', 'Sup
  *  2) Affectation : chaque visite est confiée à un prestataire TPM et à un
  *     rôle générique (Agent 1 / Superviseur 1, non nominatif) — l'assignation
  *     se fait donc APRÈS la planification.
- * La réalisation alimente la couverture (réalisées / planifiées).
+ * La réalisation alimente l'exécution du plan (réalisées / planifiées) ; la « couverture »
+ * désigne les sites (sites actifs réalisés ÷ sites actifs, tableaux de bord — lot 1b).
  */
 export default function FieldVisitsPage({ canEdit }) {
   const { tr } = useI18n();
@@ -238,13 +239,13 @@ export default function FieldVisitsPage({ canEdit }) {
             <Kpi icon={MapPin} tone="blue" label={tr('Sites du mois')} value={formatInt(ov.total)} foot={tr('{n} commune(s)', { n: communeCount })} />
             <Kpi icon={UserPlus} tone={unassigned ? 'amber' : 'green'} label={tr('À affecter')} value={formatInt(unassigned)} foot={tr('Sans prestataire')} />
             <Kpi icon={CalendarClock} tone="blue" label={tr('Planifiées')} value={formatInt(ov.planifie)} foot={tr('À réaliser')} />
-            <Kpi icon={CheckCircle2} tone="green" label={tr('Réalisées')} value={formatInt(ov.realise)} foot={tr('{p} % de couverture', { p: Math.round(ov.rate * 100) })} />
+            <Kpi icon={CheckCircle2} tone="green" label={tr('Réalisées')} value={formatInt(ov.realise)} foot={tr('{p} % d\'exécution du plan', { p: Math.round(ov.rate * 100) })} />
             <Kpi icon={Ban} tone="red" label={tr('Annulées')} value={formatInt(ov.annule)} foot={tr('Exclues du taux')} />
           </div>
         )}
         <div className="biz-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
-          {summary?.byProvider?.length > 0 && <CoverageCard title={tr('Couverture par prestataire')} rows={summary.byProvider} />}
-          {summary?.byDistrict?.length > 0 && <CoverageCard title={tr('Couverture par district')} rows={summary.byDistrict} />}
+          {summary?.byProvider?.length > 0 && <CoverageCard title={tr('Exécution du plan par prestataire')} rows={summary.byProvider} />}
+          {summary?.byDistrict?.length > 0 && <CoverageCard title={tr('Exécution du plan par district')} rows={summary.byDistrict} />}
         </div>
         {collDays.length > 0 && (
           <div className="card biz-card" style={{ marginTop: 16 }}>
@@ -361,7 +362,7 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
           <thead><tr>
             <th>{tr('Mois')}</th><th>{tr('Situation')}</th><th className="num">{tr('Sites')}</th><th className="num">{tr('Planifiées')}</th>
             <th className="num">{tr('Réalisées')}</th><th className="num">{tr('Annulées')}</th><th className="num">{tr('Prestataires')}</th>
-            <th>{tr('Couverture')}</th><th aria-label={tr('Action')} />
+            <th>{tr('Exécution du plan')}</th><th aria-label={tr('Action')} />
           </tr></thead>
           <tbody>
             {months.map((m) => {
@@ -398,7 +399,7 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
           </tbody>
         </table></div>
       )}
-      <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>{tr('Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. Couverture = réalisées ÷ (planifiées + réalisées), annulées exclues.')}</span></div>
+      <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>{tr('Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. Exécution du plan = réalisées ÷ (planifiées + réalisées), annulées exclues.')}</span></div>
     </div>
   );
 }

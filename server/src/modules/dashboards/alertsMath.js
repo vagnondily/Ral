@@ -93,15 +93,20 @@ function contractAlerts(contracts, today) {
 }
 
 /**
- * Terrain (mois courant), sur le résumé des visites (field.summary) — mêmes
- * chiffres que « Affectation & visites ». Sans visite planifiée (active = 0),
- * aucune alerte de couverture : « aucun plan » n'est pas « couverture 0 % ».
+ * Terrain (mois courant, ou la période choisie au Centre d'alertes), sur le résumé des
+ * visites (field.summary) — mêmes chiffres que « Affectation & visites ». Le taux lu est
+ * l'EXÉCUTION DU PLAN (visites réalisées ÷ visites prévues), libellée comme telle — la
+ * « couverture » désigne désormais les sites (lot 1b). Sans visite planifiée (active = 0),
+ * aucune alerte : « aucun plan » n'est pas « 0 % ».
+ * @param {object} field  résumé des visites
+ * @param {{ range?: boolean }} [opts] range = la période dépasse un mois (« sur la période »)
  */
-function fieldAlerts(field) {
+function fieldAlerts(field, { range = false } = {}) {
   const out = [];
   const ov = field && field.overall;
   if (ov && ov.active > 0 && ov.rate < 0.5) {
-    out.push({ sev: 'warning', cat: 'Terrain', kind: 'field_low_coverage', title: 'Couverture terrain faible ce mois',
+    out.push({ sev: 'warning', cat: 'Terrain', kind: 'field_low_coverage',
+      title: range ? 'Exécution du plan faible sur la période' : 'Exécution du plan faible ce mois',
       detail: '{done}/{active} visites réalisées ({p} %)', params: { done: ov.realise, active: ov.active, p: Math.round(ov.rate * 100) }, go: FIELD_GO });
   }
   const providers = (field && field.byProvider) || [];
@@ -114,23 +119,29 @@ function fieldAlerts(field) {
   const naf = providers.find((p) => p.key === 'non_affecte');
   if (naf && naf.total > 0) {
     out.push({ sev: 'info', cat: 'Terrain', kind: 'visits_unassigned', title: '{n} visite(s) non affectée(s)',
-      detail: 'Sites planifiés sans prestataire TPM ce mois', params: { n: naf.total }, go: FIELD_GO });
+      detail: range ? 'Sites planifiés sans prestataire TPM sur la période' : 'Sites planifiés sans prestataire TPM ce mois',
+      params: { n: naf.total }, go: FIELD_GO });
   }
   return out;
 }
 
 /**
  * Toutes les alertes, triées par gravité (Critique → À surveiller → À traiter),
- * l'ordre des catégories étant conservé à gravité égale.
+ * l'ordre des catégories étant conservé à gravité égale. Chaque alerte porte `scope` :
+ * 'a_date' (budget et contrats, toujours calculés à date ; rapports quand aucune période
+ * n'est choisie) ou 'periode' (terrain ; rapports filtrés par la période choisie).
  * @param {{ consolidationRows?:object[], reports?:object[], contracts?:object[], field?:object,
- *           today:string }} src  today = « AAAA-MM-JJ » ; field = résumé des visites du mois courant
+ *           today:string, range?:boolean, reportsInPeriod?:boolean }} src
+ *   today = « AAAA-MM-JJ » ; field = résumé des visites de la période (mois courant par défaut) ;
+ *   range = la période dépasse un mois ; reportsInPeriod = rapports filtrés par la période
  */
-function buildAlerts({ consolidationRows, reports, contracts, field, today } = {}) {
+function buildAlerts({ consolidationRows, reports, contracts, field, today, range = false, reportsInPeriod = false } = {}) {
+  const scoped = (list, scope) => list.map((a) => ({ ...a, scope }));
   const all = [
-    ...budgetAlerts(consolidationRows),
-    ...reportAlerts(reports),
-    ...contractAlerts(contracts, today),
-    ...fieldAlerts(field),
+    ...scoped(budgetAlerts(consolidationRows), 'a_date'),
+    ...scoped(reportAlerts(reports), reportsInPeriod ? 'periode' : 'a_date'),
+    ...scoped(contractAlerts(contracts, today), 'a_date'),
+    ...scoped(fieldAlerts(field, { range }), 'periode'),
   ];
   return all.map((a, i) => ({ a, i })).sort((x, y) => (RANK[x.a.sev] - RANK[y.a.sev]) || (x.i - y.i)).map((x) => x.a);
 }

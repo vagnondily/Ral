@@ -2,9 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { MapPin, ShieldCheck, Repeat, Target, LayoutGrid, Boxes, Handshake, TrendingUp } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
+import PeriodSelect from '../../components/PeriodSelect.jsx';
+import { usePeriod } from '../../components/PeriodBanner.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatInt } from '../../lib/format.js';
+import { periodLabel, spanMonths } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
+
+/** Durée maximale (faits site × mois, matrice lisible) : 24 mois. */
+const RECAP_MAX_SPAN = 24;
 
 const RISK = {
   elevee: { label: 'Risque élevé', tone: 'red', color: 'var(--red)', bg: 'var(--red-bg)', text: 'var(--red-text)' },
@@ -31,13 +37,21 @@ const TABS = [
  *  • Programme : taux de couverture mensuel par activité (tendance + matrice) ;
  *  • Partenaire / TPM : idem par prestataire.
  * Tout est recalculé en direct ; aucune donnée stockée.
+ *
+ * Période (lot 1b) : « Toutes les périodes » par défaut (comportement historique : toutes les
+ * visites pour le MMR, l'année pour la matrice) ; une plage choisie (gardée dans l'URL) donne
+ * les sites actifs sur la plage, une durée d'opération proposée égale à la plage, et une
+ * matrice dont les colonnes sont les mois de la plage.
  */
 export default function CoverageRecapPage() {
   const { tr } = useI18n();
   const [tab, setTab] = useState('mmr');
+  const { period, ready, today, setPeriod } = usePeriod({ scope: 'local', defaultRule: 'all', maxSpan: RECAP_MAX_SPAN });
   return (
     <div className="section-gap">
-      <PageHeader title={tr('Couverture du suivi')} description={tr('Combien de sites sont couverts, par niveau de risque (MMR), par programme et par prestataire. Recalculé en direct depuis les sites et les visites.')} />
+      <PageHeader title={tr('Couverture du suivi')} description={tr('Combien de sites sont couverts, par niveau de risque (MMR), par programme et par prestataire. Recalculé en direct depuis les sites et les visites.')}>
+        {ready && <PeriodSelect value={period} onChange={setPeriod} today={today} allowAll withFullYear maxSpan={RECAP_MAX_SPAN} align="right" />}
+      </PageHeader>
       <div className="seg" role="tablist" aria-label={tr('Vue de couverture')}>
         {TABS.map((x) => { const Icon = x.icon; return (
           <button key={x.id} role="tab" aria-selected={tab === x.id} className={tab === x.id ? 'is-active' : ''} onClick={() => setTab(x.id)}>
@@ -45,28 +59,33 @@ export default function CoverageRecapPage() {
           </button>
         ); })}
       </div>
-      {tab === 'mmr' && <SiteMmrTab />}
-      {tab === 'program' && <CoverageMatrixView by="activity" groupHead={tr('Programme')} />}
-      {tab === 'partner' && <CoverageMatrixView by="provider" groupHead={tr('Prestataire TPM')} />}
+      {ready && tab === 'mmr' && <SiteMmrTab period={period} />}
+      {ready && tab === 'program' && <CoverageMatrixView by="activity" groupHead={tr('Programme')} period={period} />}
+      {ready && tab === 'partner' && <CoverageMatrixView by="provider" groupHead={tr('Prestataire TPM')} period={period} />}
     </div>
   );
 }
 
 // ---- Par site (MMR) : récap existant --------------------------------------
-function SiteMmrTab() {
-  const { tr } = useI18n();
+function SiteMmrTab({ period }) {
+  const { tr, lang } = useI18n();
   const toast = useToast();
+  const span = period ? spanMonths(period) : null;
+  const key = period ? `${period.from}|${period.to}` : '';
   const [district, setDistrict] = useState('');
-  const [months, setMonths] = useState(12);
+  // Durée d'opération : proposée égale à la durée de la période (12 mois sans période).
+  const [months, setMonths] = useState(span || 12);
+  useEffect(() => { setMonths(span || 12); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const monthOptions = [...new Set([3, 6, 9, 12, ...(span ? [span] : []), months])].sort((a, b) => a - b);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    setData(null);
-    api.fieldCoverageRecap({ district, operationMonths: months })
+    setData(null); setError(null);
+    api.fieldCoverageRecap({ district, operationMonths: months, period })
       .then(setData).catch((e) => { setError(e.message); toast.error(e.message); });
     /* eslint-disable-next-line */
-  }, [district, months]);
+  }, [district, months, key]);
 
   const districts = useMemo(() => data?.districts || [], [data]);
   const groups = data?.groups || [];
@@ -83,7 +102,7 @@ function SiteMmrTab() {
         </div>
         <div className="field"><span className="field-label">{tr("Durée d'opération")}</span>
           <select className="select" value={months} onChange={(e) => setMonths(Number(e.target.value))} aria-label={tr("Durée d'opération")}>
-            {[3, 6, 9, 12].map((m) => <option key={m} value={m}>{tr('{n} mois', { n: m })}</option>)}
+            {monthOptions.map((m) => <option key={m} value={m}>{m === span ? tr('{n} mois (durée de la période)', { n: m }) : tr('{n} mois', { n: m })}</option>)}
           </select>
         </div>
       </div>
@@ -91,7 +110,8 @@ function SiteMmrTab() {
       {data === null ? <Skeleton height={320} /> : (
         <>
           <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
-            <Kpi icon={MapPin} tone="blue" label={tr('Sites actifs')} value={formatInt(total.active)} foot={`${district || tr('tous districts')}`} />
+            <Kpi icon={MapPin} tone="blue" label={tr('Sites actifs')} value={formatInt(total.active)}
+              foot={`${district || tr('tous districts')} · ${period ? periodLabel(period, lang) : tr('Toutes les périodes')}`} />
             <Kpi icon={Repeat} tone="blue" label={tr('Visités au moins une fois')} value={formatInt(total.visitedToDate)} foot={pct(total.coverageRate, tr)} />
             <Kpi icon={Target} tone="amber" label={tr('Jamais visités')} value={formatInt(total.notVisited)} foot={tr('à planifier')} />
             <Kpi icon={ShieldCheck} tone={compTone(total.compliance)} label={tr('Conformité MMR')} value={pct(total.compliance, tr)} foot={tr('sites au nombre de visites requis')} />
@@ -144,19 +164,22 @@ function SiteMmrTab() {
 }
 
 // ---- Programme / Partenaire : tendance mensuelle + matrice ----------------
-function CoverageMatrixView({ by, groupHead }) {
-  const { tr } = useI18n();
+function CoverageMatrixView({ by, groupHead, period }) {
+  const { tr, lang } = useI18n();
   const toast = useToast();
   const [year, setYear] = useState(null);
   const [data, setData] = useState(null);
+  const key = period ? `${period.from}|${period.to}` : '';
 
+  // Une période choisie : colonnes = mois de la période ; sinon une année (sélecteur d'année).
   useEffect(() => {
     setData(null);
-    api.fieldCoverageMatrix(year || undefined)
-      .then((d) => { setData(d); if (year == null) setYear(d.year); })
+    api.fieldCoverageMatrix(period || year || undefined)
+      .then((d) => { setData(d); if (!period && year == null) setYear(d.year); })
       .catch((e) => toast.error(e.message));
     /* eslint-disable-next-line */
-  }, [year]);
+  }, [year, key]);
+  const scopeLabel = period ? periodLabel(period, lang) : tr('année {year}', { year: String(year) });
 
   const matrix = data ? (by === 'activity' ? data.byActivity : data.byProvider) : null;
   const years = data?.years?.length ? data.years : (data ? [data.year] : []);
@@ -165,20 +188,24 @@ function CoverageMatrixView({ by, groupHead }) {
 
   return (
     <>
-      <div className="comet-filters">
-        <div className="field"><span className="field-label">{tr('Année')}</span>
-          <select className="select" value={year || ''} onChange={(e) => setYear(Number(e.target.value))} aria-label={tr('Année')}>
-            {years.map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
+      {!period && (
+        <div className="comet-filters">
+          <div className="field"><span className="field-label">{tr('Année')}</span>
+            <select className="select" value={year || ''} onChange={(e) => setYear(Number(e.target.value))} aria-label={tr('Année')}>
+              {years.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
         </div>
-      </div>
+      )}
 
       {matrix === null ? <Skeleton height={340} /> : matrix.groups.length === 0 ? (
-        <div className="card biz-card"><div className="card-body"><div className="empty"><TrendingUp size={28} aria-hidden="true" /><p>{tr('Aucune visite en {year}. Planifiez des visites (Affectation & visites) pour alimenter la couverture.', { year: String(year) })}</p></div></div></div>
+        <div className="card biz-card"><div className="card-body"><div className="empty"><TrendingUp size={28} aria-hidden="true" /><p>{period
+          ? tr('Aucune visite sur la période ({p}). Planifiez des visites (Affectation & visites) pour alimenter la couverture.', { p: scopeLabel })
+          : tr('Aucune visite en {year}. Planifiez des visites (Affectation & visites) pour alimenter la couverture.', { year: String(year) })}</p></div></div></div>
       ) : (
         <>
           <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
-            <Kpi icon={Boxes} tone="blue" label={by === 'activity' ? tr('Programmes suivis') : tr('Prestataires')} value={matrix.groups.length} foot={tr('année {year}', { year: String(year) })} />
+            <Kpi icon={Boxes} tone="blue" label={by === 'activity' ? tr('Programmes suivis') : tr('Prestataires')} value={matrix.groups.length} foot={scopeLabel} />
             <Kpi icon={Repeat} tone="blue" label={tr('Visites réalisées')} value={formatInt(matrix.total.realise)} foot={tr('sur {n} actives', { n: formatInt(matrix.total.active) })} />
             <Kpi icon={Target} tone="amber" label={tr('Planifiées restantes')} value={formatInt(matrix.total.planifie)} foot={tr('non encore réalisées')} />
             <Kpi icon={ShieldCheck} tone={matrix.total.rate == null ? 'blue' : compTone(matrix.total.rate)} label={tr('Taux de couverture')} value={pct(matrix.total.rate, tr)} foot={tr('réalisées / actives')} />
@@ -252,7 +279,9 @@ function CovTrend({ matrix, colorOf }) {
   const { tr } = useI18n();
   const W = 820; const H = 240; const padL = 32; const padR = 14; const padT = 12; const padB = 26;
   const plotW = W - padL - padR; const plotH = H - padT - padB;
-  const x = (i) => padL + (plotW * i) / 11;
+  // Une colonne par mois de la matrice (12 pour une année, la durée de la période sinon).
+  const n = Math.max(1, matrix.months.length - 1);
+  const x = (i) => padL + (plotW * i) / n;
   const y = (v) => padT + plotH * (1 - v / 100);
   const grid = [0, 25, 50, 75, 100];
   return (

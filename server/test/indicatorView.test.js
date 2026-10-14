@@ -201,3 +201,16 @@ test('écrans modifiés (éditeur, détail, explication, import, choix de la var
   }
   assert.ok(checked >= 100, `phrases vérifiées : ${checked}`);
 });
+
+test('aperçu « Comment c\'est calculé » : la période des résultats (plage, mois hérité, toutes)', async (t) => {
+  const v = await load(t); if (!v) return;
+  const d = v.toDraft({ code: 'X', label: 'X', sourceField: 'q1', agg: 'percent_yes', positiveValue: null, naValues: [], target: null, direction: 'higher_better', scored: true, active: true });
+  assert.deepEqual(v.periodBody({ from: '2026-01', to: '2026-06' }), { from: '2026-01', to: '2026-06' });
+  assert.deepEqual(v.periodBody('2026-07'), { month: '2026-07' }, 'ancien mois « AAAA-MM »');
+  for (const none of [null, undefined, '', { from: '2026-01' }]) assert.deepEqual(v.periodBody(none), {}, 'toutes les périodes');
+  const body = v.previewBody(d, { from: '2026-01', to: '2026-06' });
+  assert.equal(body.from, '2026-01');
+  assert.equal(body.to, '2026-06');
+  assert.equal('month' in body, false);
+  assert.equal('from' in v.previewBody(d, null), false);
+});

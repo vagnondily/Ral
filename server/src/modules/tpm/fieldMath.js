@@ -3,6 +3,8 @@
  * No I/O. A visit has a status ∈ (planifie, realise, annule); coverage is the
  * share of non-cancelled visits actually realised.
  */
+const { ratesOf } = require('../common/siteActivity');
+
 const STATUSES = ['planifie', 'realise', 'annule'];
 
 function blank() { return { planifie: 0, realise: 0, annule: 0, total: 0, active: 0, rate: 0 }; }
@@ -51,6 +53,65 @@ function summarizeVisits(visits, providerLabel = {}) {
 }
 
 /**
+ * Mise en forme du résumé terrain sur une PLAGE (lot 1b) à partir des faits site × mois
+ * agrégés en SQL (common/siteActivitySql) — pure, testée.
+ *
+ * Chaque ligne garde les champs HÉRITÉS au même sens qu'avant (lignes de visites :
+ * planifie / realise / annule / total / active = planifie + realise / rate — lus par
+ * alertsMath.fieldAlerts et les cartes de couverture) et ajoute :
+ *   sites  { active, planned, realised, realisedInactive } — sites DISTINCTS sur la période ;
+ *   visits { planned, realised, cancelled, upcoming } — une visite = site × mois, comptée une fois ;
+ *   coverage = sites réalisés ÷ sites actifs, planning = sites prévus ÷ sites actifs,
+ *   execution = visites réalisées ÷ prévues sur les mois échus (common/siteActivity.ratesOf :
+ *   null, jamais 0 %, sans site actif / sans plan / sans visite).
+ * Les tableaux hérités (byOffice, byDistrict, byActivity, byProvider) ne listent que les
+ * groupes qui ont des visites (total > 0), comme avant ; le total couvre tous les sites.
+ *
+ * @param {object[]} groupRows lignes { dim: 'overall'|'office'|'district'|'activity'|'month', key, districtLabel, known, …colonnes }
+ * @param {object[]} providerRows lignes { key, label, planifie, realise, annule, sitesPlanned, sitesRealised }
+ */
+function shapeRangeSummary(groupRows, providerRows = []) {
+  const n = (v) => Number(v) || 0;
+  const legacy = (r) => {
+    const planifie = n(r.planifie); const realise = n(r.realise); const annule = n(r.annule);
+    const active = planifie + realise;
+    return { planifie, realise, annule, total: planifie + realise + annule, active, rate: active > 0 ? realise / active : 0 };
+  };
+  const facts = (r) => {
+    const sites = { active: n(r.sitesActive), planned: n(r.sitesPlanned), realised: n(r.sitesRealised), realisedInactive: n(r.sitesRealisedInactive) };
+    const visits = { planned: n(r.smPlanifie) + n(r.smRealise), realised: n(r.smRealise), cancelled: n(r.smAnnule), upcoming: n(r.upcoming) };
+    const rates = ratesOf({ sitesActive: sites.active, sitesPlanned: sites.planned, sitesRealised: sites.realised, planifie: n(r.duePlanifie), realise: n(r.dueRealise) });
+    return { sites, visits, ...rates };
+  };
+  const byLabel = (a, b) => b.total - a.total || String(a.label).localeCompare(String(b.label));
+  const rowsOf = (dim, labelOf) => groupRows.filter((r) => r.dim === dim)
+    .map((r) => ({ key: r.key, label: labelOf(r), ...legacy(r), ...facts(r) }))
+    .filter((r) => r.total > 0).sort(byLabel);
+  const overallRow = groupRows.find((r) => r.dim === 'overall') || {};
+  const monthly = groupRows.filter((r) => r.dim === 'month').map((r) => {
+    const f = facts(r);
+    return {
+      month: r.key, activationKnown: r.known === true,
+      sitesActive: f.sites.active, sitesPlanned: f.sites.planned, sitesRealised: f.sites.realised, sitesRealisedInactive: f.sites.realisedInactive,
+      ...legacy(r), visits: f.visits, coverage: f.coverage, planning: f.planning, execution: f.execution,
+    };
+  }).sort((a, b) => a.month.localeCompare(b.month));
+  const byProvider = providerRows.map((r) => ({
+    key: r.key, label: r.key === 'non_affecte' ? 'Non affecté' : (r.label || r.key), ...legacy(r),
+    sites: { planned: n(r.sitesPlanned), realised: n(r.sitesRealised) },
+  })).sort(byLabel);
+  return {
+    activationKnown: monthly.length > 0 && monthly.every((m) => m.activationKnown),
+    overall: { ...legacy(overallRow), ...facts(overallRow) },
+    byProvider,
+    byDistrict: rowsOf('district', (r) => r.districtLabel || r.key),
+    byOffice: rowsOf('office', (r) => (r.key === '—' ? 'Sans bureau' : r.key)),
+    byActivity: rowsOf('activity', (r) => r.key),
+    monthly,
+  };
+}
+
+/**
  * Jours de collecte par prestataire = nombre de visites datées (non annulées)
  * + jours de déplacement (majoration manuelle). `visits` carry providerId,
  * status and visitDate; `travelByProvider` maps providerId → travel days;
@@ -91,9 +152,11 @@ function coverageRate(planifie, realise) {
  * mois et global. `rows` = [{month:'YYYY-MM', key, label, planifie, realise}].
  * Logique pure, testée.
  */
-function buildCoverageMatrix(rows, year) {
-  const y = Number(year);
-  const months = Array.from({ length: 12 }, (_, i) => `${y}-${String(i + 1).padStart(2, '0')}`);
+function buildCoverageMatrix(rows, yearOrMonths) {
+  // Une année (12 colonnes, comportement historique) ou la liste des mois d'une période (lot 1b).
+  const byMonths = Array.isArray(yearOrMonths);
+  const y = byMonths ? null : Number(yearOrMonths);
+  const months = byMonths ? [...yearOrMonths] : Array.from({ length: 12 }, (_, i) => `${y}-${String(i + 1).padStart(2, '0')}`);
   const groups = new Map();
   for (const r of rows || []) {
     if (!groups.has(r.key)) groups.set(r.key, { key: r.key, label: r.label, byMonth: new Map() });
@@ -119,4 +182,4 @@ function buildCoverageMatrix(rows, year) {
   return { year: y, months, groups: shaped, monthlyTotals, total: coverageRate(gp, gr) };
 }
 
-module.exports = { STATUSES, summarizeVisits, collectionDays, coverageRate, buildCoverageMatrix };
+module.exports = { STATUSES, summarizeVisits, shapeRangeSummary, collectionDays, coverageRate, buildCoverageMatrix };

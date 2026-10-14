@@ -8,6 +8,22 @@ const logger = require('./logger');
 // 'YYYY-MM-DD' string end to end.
 types.setTypeParser(1082, (value) => value);
 
+/**
+ * Options de session des connexions du pool (paramètre `options` du protocole,
+ * comme PGOPTIONS). Défaut : `-c jit=off` (lot 1b). Sous RLS, le planificateur
+ * surestime le coût des requêtes d'analyse (soumissions d'une plage de mois) et
+ * déclenche la compilation JIT, qui coûte des centaines de millisecondes par
+ * requête sans rien faire gagner sur ces volumes (mesure avant / après au journal,
+ * banc `npm run perf:period -- --jit on|off`). PG_OPTIONS remplace ce défaut
+ * (ex. « -c jit=on ») ; une valeur vide garde les réglages du serveur.
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string|undefined}
+ */
+function sessionOptions(env = process.env) {
+  const v = env.PG_OPTIONS !== undefined ? env.PG_OPTIONS : '-c jit=off';
+  return v.trim() ? v.trim() : undefined;
+}
+
 // Single shared connection pool. Reused across the process — never create a
 // new Pool per request, that is the classic way to exhaust Postgres
 // connections under load.
@@ -20,6 +36,7 @@ const pool = new Pool({
   max: Number(process.env.PG_POOL_MAX || 20),
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
+  options: sessionOptions(),
 });
 
 pool.on('error', (err) => {
@@ -63,4 +80,4 @@ async function withTenantTransaction(tenantId, fn) {
   });
 }
 
-module.exports = { pool, withTransaction, withTenantTransaction };
+module.exports = { pool, withTransaction, withTenantTransaction, sessionOptions };

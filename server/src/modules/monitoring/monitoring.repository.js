@@ -14,6 +14,24 @@ const { templateForActivity, moduleLabel, suggestBindings, indicatorFromItem } =
 const { OTHER_VALUES } = require('./memsMapping');
 const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx, loadPartiesTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
 const { resolvePartner, resolveAgent } = require('../common/partyMatch');
+const { toPeriod, trendWindow, periodInfo } = require('../common/period');
+const { monthWithin } = require('../common/periodSql');
+const { submissionSiteKey } = require('../common/submissionSiteKey');
+const { indicatorKeys, calcReferences, unusedKeys, dataWithout } = require('./indicatorKeys');
+const { stripRowsGps } = require('../map/submissionGps');
+
+/** Période d'un appel : `period` ({ from, to } | null) si fourni, sinon l'ancien { month } / { from, to }. */
+const periodArg = (opts = {}) => (opts.period !== undefined ? opts.period : toPeriod(opts));
+/** Champs de période d'une réponse : period { from, to, months } | null, et les champs hérités (month = from si un seul mois). */
+const periodFields = (p) => ({
+  period: periodInfo(p),
+  month: p && p.from === p.to ? p.from : null,
+  from: p ? p.from : null,
+  to: p ? p.to : null,
+});
+const currentMonthUTC = () => new Date().toISOString().slice(0, 7);
+// « Sites (données) » distincts : UNE clé pour tous les écrans (common/submissionSiteKey).
+const SITE_KEY = submissionSiteKey('s');
 
 /** Charge les champs calculés d'une fiche (ordre), pour l'analyse et la grille. */
 async function calcDefsFor(client, tenantId, formId) {
@@ -28,6 +46,32 @@ async function calcDefsFor(client, tenantId, formId) {
 function withCalc(subs, defs) {
   if (!defs || !defs.length) return subs;
   return subs.map((s) => ({ ...s, data: { ...s.data, ...computeCalcFields(defs, s.data || {}) } }));
+}
+
+// Taille de l'échantillon de réponses qui complète le catalogue pour connaître les clés d'une fiche.
+const KEY_SAMPLE = 200;
+
+/** Clés connues d'une fiche : son catalogue (XLSForm / .sav) et les clés d'un échantillon de réponses. */
+async function knownKeysTx(client, tenantId, formId) {
+  const { rows } = await client.query(
+    `SELECT name AS k FROM monitoring_form_fields WHERE tenant_id = $1 AND form_id = $2
+     UNION
+     SELECT DISTINCT jsonb_object_keys(s.data)
+       FROM (SELECT data FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 LIMIT $3) s`,
+    [tenantId, formId, KEY_SAMPLE]);
+  return rows.map((r) => r.k);
+}
+
+/**
+ * `alias.data` réduit aux réponses utiles au calcul des indicateurs (lot 1b,
+ * monitoring/indicatorKeys) : les clés connues inutiles sont retirées en SQL —
+ * résultats identiques, JSON lu divisé. Pousse la liste des clés retirées dans `params`.
+ */
+async function usefulDataTx(client, tenantId, formId, alias, params, inds, defs) {
+  const drop = unusedKeys(await knownKeysTx(client, tenantId, formId), indicatorKeys(inds, defs));
+  if (!drop.length) return `${alias}.data`;
+  params.push(drop);
+  return dataWithout(alias, `$${params.length}`);
 }
 
 /**
@@ -294,15 +338,7 @@ async function catalogTx(client, tenantId, formId, names = null) {
 // Taux de remplissage des variables : mesuré sur les soumissions les plus récentes (non exclues).
 const FILL_SAMPLE = 1000;
 
-/** Références (variables lues) des champs calculés d'une fiche, en minuscules. */
-function calcReferences(defs) {
-  const refs = new Set();
-  for (const d of defs || []) {
-    const list = d.kind === 'recode' ? [d.sourceField] : checkExpression(d.expression).references;
-    for (const r of list) if (r) refs.add(String(r).toLowerCase());
-  }
-  return refs;
-}
+// calcReferences (variables lues par les champs calculés) : monitoring/indicatorKeys.
 
 /**
  * Variables d'une fiche pour choisir la variable d'un indicateur et pour
@@ -379,7 +415,7 @@ async function formMonths(tenantId, formId) {
  * calculés que les résultats ; seules les réponses utiles sont lues.
  * @returns {Promise<null|{ variable, check, n, period, explain }>} null si la fiche n'existe pas
  */
-async function indicatorPreview(tenantId, formId, def, period = {}) {
+async function indicatorPreview(tenantId, formId, def, period = null, { precise = false } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
     if (!f[0]) return null;
@@ -392,7 +428,10 @@ async function indicatorPreview(tenantId, formId, def, period = {}) {
     const { rows } = await client.query(
       `SELECT COALESCE((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(s.data) e WHERE lower(e.key) = ANY($3::text[])), '{}'::jsonb) AS data
          FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${submissionFilter('s', period, p)}`, p);
-    const subs = isCalc ? withCalc(rows, defs) : rows;
+    // Vie privée (lot 6a) : hors admin / gestionnaire, coordonnées des ménages retirées AVANT les
+    // champs calculés et l'explication (valeurs, répartition) — une variable GPS y est « absente ».
+    const base = stripRowsGps(rows, precise);
+    const subs = isCalc ? withCalc(base, defs) : base;
     // Variable décrite comme dans le sélecteur : question, option éclatée, colonne ou champ calculé.
     const parent = optionParentName(src);
     const { catalog, choicesByList } = await catalogTx(client, tenantId, formId,
@@ -421,7 +460,8 @@ async function indicatorPreview(tenantId, formId, def, period = {}) {
       variable: variable && { name: variable.name, label: variable.label, kind: variable.kind, type: variable.type, group: variable.group, choices: variable.choices.slice(0, 200) },
       check,
       n: subs.length,
-      period: { month: period.month || null, from: period.from || null, to: period.to || null },
+      // Période renvoyée : { from, to, month } — month (hérité) = from quand la période fait un mois.
+      period: (({ from, to, month }) => ({ from, to, month }))(periodFields(toPeriod(period))),
       explain,
     };
   });
@@ -561,58 +601,140 @@ async function formCatalog(tenantId, formId) {
   });
 }
 
-// Noms de district et de commune d'une soumission géocodée par pcode : le découpage
-// (Paramétrage › Localités) d'abord, sinon le référentiel de sites (même pcode).
-const PLACE_NAMES = `
-              COALESCE((SELECT a.name FROM admin_areas a WHERE a.tenant_id = ms.tenant_id AND a.pcode = ms.admin2 LIMIT 1),
-                       (SELECT s.district FROM sites s WHERE s.tenant_id = ms.tenant_id AND s.adm2_pcode = ms.admin2 LIMIT 1)) AS "districtName",
-              COALESCE((SELECT a.name FROM admin_areas a WHERE a.tenant_id = ms.tenant_id AND a.pcode = COALESCE(ms.adm3_pcode, ms.admin3) LIMIT 1),
-                       (SELECT s.commune FROM sites s WHERE s.tenant_id = ms.tenant_id AND s.adm3_pcode IS NOT NULL
-                           AND s.adm3_pcode = COALESCE(ms.adm3_pcode, ms.admin3) LIMIT 1)) AS "communeName",
-              (SELECT st.name FROM sites st WHERE st.tenant_id = ms.tenant_id AND st.id = ms.site_id) AS "siteName",
-              ms.site_status AS "siteStatus",
-              (SELECT o.name FROM field_offices o WHERE o.tenant_id = ms.tenant_id AND o.id = ms.field_office_id) AS "officeName"`;
+// Clés des noms de lieux d'une soumission (résolus ensuite par placeNamesTx, sur les
+// clés DISTINCTES des lignes rendues — jamais une sous-requête par ligne).
+const PLACE_KEYS = `ms.site_status AS "siteStatus", ms.admin2 AS "_districtKey", COALESCE(ms.adm3_pcode, ms.admin3) AS "_communeKey",
+              ms.site_id AS "_siteId", ms.field_office_id AS "_officeId"`;
 
-// Région en clair d'une soumission : par le code de commune rattaché (découpage
-// officiel d'abord, registre de sites en repli), sinon par un code de région
-// (admin1 = MG51), sinon la valeur brute. Une région = un libellé.
-const REGION_CTE = `WITH pcode_region AS (
-         SELECT DISTINCT ON (pcode) pcode, region FROM (
-           SELECT c.pcode, r.name AS region, 0 AS src FROM admin_areas c JOIN admin_areas r ON r.id = c.lineage[1]
-            WHERE c.tenant_id = $1 AND c.pcode IS NOT NULL AND cardinality(c.lineage) >= 1
-           UNION ALL
-           SELECT r.pcode, r.name, 0 FROM admin_areas r WHERE r.tenant_id = $1 AND r.depth = 1 AND r.pcode IS NOT NULL
-           UNION ALL
-           SELECT adm3_pcode, adm1, 1 FROM sites WHERE tenant_id = $1 AND adm3_pcode IS NOT NULL AND NULLIF(adm1, '') IS NOT NULL
-         ) x ORDER BY pcode, src)`;
-const REGION_JOIN = (a) => `LEFT JOIN pcode_region pr ON pr.pcode = COALESCE(${a}.adm3_pcode, ${a}.admin3)
-         LEFT JOIN pcode_region pr1 ON pr1.pcode = upper(btrim(${a}.admin1))`;
-const REGION_OF = (a) => `COALESCE(pr.region, pr1.region, NULLIF(${a}.admin1, ''), '(non renseigné)')`;
+/**
+ * Noms de district, de commune, de site et de bureau des soumissions rendues, en
+ * quelques lectures sur les clés distinctes (par index) : le découpage (Paramétrage ›
+ * Localités) d'abord, sinon le référentiel de sites (même pcode, le premier nom par
+ * ordre alphabétique). Une sous-requête par ligne relisait le registre de sites pour
+ * chaque soumission (adm2_pcode sans index) : 0,9 s pour 300 lignes au banc.
+ * Ajoute districtName, communeName, siteName, officeName ; retire les clés internes.
+ */
+async function placeNamesTx(client, tenantId, rows) {
+  const uniq = (k) => [...new Set(rows.map((r) => r[k]).filter((v) => v != null && v !== ''))];
+  const districts = uniq('_districtKey'); const communes = uniq('_communeKey');
+  const siteIds = uniq('_siteId'); const officeIds = uniq('_officeId');
+  const areaName = new Map(); const districtOfSite = new Map(); const communeOfSite = new Map();
+  const siteName = new Map(); const officeName = new Map();
+  const pcodes = [...new Set([...districts, ...communes])];
+  if (pcodes.length) {
+    const { rows: a } = await client.query(
+      'SELECT pcode, name FROM admin_areas WHERE tenant_id = $1 AND pcode = ANY($2::text[])', [tenantId, pcodes]);
+    for (const r of a) areaName.set(r.pcode, r.name);
+  }
+  if (districts.length) {
+    const { rows: d } = await client.query(
+      `SELECT DISTINCT ON (adm2_pcode) adm2_pcode AS k, district AS name FROM sites
+        WHERE tenant_id = $1 AND adm2_pcode = ANY($2::text[]) ORDER BY adm2_pcode, district`, [tenantId, districts]);
+    for (const r of d) districtOfSite.set(r.k, r.name);
+  }
+  if (communes.length) {
+    const { rows: c } = await client.query(
+      `SELECT DISTINCT ON (adm3_pcode) adm3_pcode AS k, commune AS name FROM sites
+        WHERE tenant_id = $1 AND adm3_pcode = ANY($2::text[]) ORDER BY adm3_pcode, commune`, [tenantId, communes]);
+    for (const r of c) communeOfSite.set(r.k, r.name);
+  }
+  if (siteIds.length) {
+    const { rows: s } = await client.query('SELECT id, name FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, siteIds]);
+    for (const r of s) siteName.set(r.id, r.name);
+  }
+  if (officeIds.length) {
+    const { rows: o } = await client.query('SELECT id, name FROM field_offices WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, officeIds]);
+    for (const r of o) officeName.set(r.id, r.name);
+  }
+  for (const r of rows) {
+    const dk = r._districtKey; const ck = r._communeKey;
+    r.districtName = (dk != null && (areaName.get(dk) ?? districtOfSite.get(dk))) || null;
+    r.communeName = (ck != null && (areaName.get(ck) ?? communeOfSite.get(ck))) || null;
+    r.siteName = (r._siteId && siteName.get(r._siteId)) || null;
+    r.officeName = (r._officeId && officeName.get(r._officeId)) || null;
+    delete r._districtKey; delete r._communeKey; delete r._siteId; delete r._officeId;
+  }
+  return rows;
+}
+
+/**
+ * Soumissions par région (en clair) — requête unique, réutilisée par la Couverture
+ * & performance, le concepteur de rapport (lot 7a) et la carte (lot 6a).
+ *
+ * Région d'une soumission, dans cet ordre (une région = un libellé) :
+ *   1. la région (racine de la lignée) de la zone du découpage dont le pcode est
+ *      le code de commune rattaché (adm3_pcode, sinon admin3) ;
+ *   2. une région (profondeur 1) dont le pcode est admin1 (« MG51 ») ;
+ *   3. le registre de sites : adm1 d'un site de même pcode de commune — le premier
+ *      dans l'ordre alphabétique (déterministe) ;
+ *   4. la valeur brute d'admin1, sinon « (non renseigné) ».
+ *
+ * Performance (lot 1b, préalable) : on AGRÈGE d'abord les soumissions par clés
+ * distinctes (g), puis on résout chaque clé distincte par un index
+ * (uq_admin_areas_pcode, admin_areas_pkey, idx_sites_adm3_pcode). L'ancienne forme
+ * (un CTE de tout le découpage joint à chaque soumission) faisait choisir au
+ * planificateur, sous RLS (estimations ÷ 200), une boucle imbriquée de
+ * 19 370 zones × N soumissions, deux fois : 6 s pour 562 soumissions.
+ * Sortie identique (mêmes régions, soumissions et communes), ordre déterministe.
+ *
+ * @param {string} filterSql fragment « AND … » sur l'alias s (submissionFilter), paramètres déjà poussés ($1 = tenant)
+ */
+function regionRowsSql(filterSql) {
+  return `WITH g AS MATERIALIZED (
+       SELECT COALESCE(s.adm3_pcode, s.admin3) AS pc, upper(btrim(s.admin1)) AS a1,
+              NULLIF(s.admin1, '') AS raw1, NULLIF(s.admin3, '') AS commune, count(*)::int AS n
+         FROM monitoring_submissions s
+        WHERE s.tenant_id = $1${filterSql}
+        GROUP BY 1, 2, 3, 4),
+     k AS MATERIALIZED (SELECT pc AS key FROM g WHERE pc IS NOT NULL UNION SELECT a1 FROM g WHERE a1 IS NOT NULL),
+     pr AS MATERIALIZED (
+       SELECT k.key AS pcode, COALESCE(
+         (SELECT r.name FROM admin_areas c JOIN admin_areas r ON r.id = c.lineage[1] AND r.tenant_id = c.tenant_id
+           WHERE c.tenant_id = $1 AND c.pcode = k.key AND cardinality(c.lineage) >= 1 LIMIT 1),
+         (SELECT r.name FROM admin_areas r WHERE r.tenant_id = $1 AND r.depth = 1 AND r.pcode = k.key LIMIT 1),
+         (SELECT st.adm1 FROM sites st WHERE st.tenant_id = $1 AND st.adm3_pcode = k.key
+             AND NULLIF(st.adm1, '') IS NOT NULL ORDER BY st.adm1 LIMIT 1)) AS region
+         FROM k)
+     SELECT COALESCE(p3.region, p1.region, g.raw1, '(non renseigné)') AS region,
+            sum(g.n)::int AS submissions, count(DISTINCT g.commune)::int AS communes
+       FROM g LEFT JOIN pr p3 ON p3.pcode = g.pc LEFT JOIN pr p1 ON p1.pcode = g.a1
+      GROUP BY 1 ORDER BY submissions DESC, 1`;
+}
+
+/** Soumissions et communes par région sur la période (hors exclues) — voir regionRowsSql. */
+async function submissionRegionsTx(client, tenantId, period) {
+  const p = [tenantId];
+  const f = submissionFilter('s', period, p);
+  const { rows } = await client.query(regionRowsSql(f), p);
+  return rows;
+}
 
 /**
  * Soumissions brutes d'une fiche (données importées), pour la visualisation :
  * champs typés (date, bureau, zones, site, partenaire, agent) + réponses brutes
- * (JSONB). Bornée par `limit`, filtrable par mois. Nom de commune résolu depuis
- * le référentiel de sites (même pcode adm3) comme ailleurs.
+ * (JSONB). Bornée par `limit`, filtrable par période ({ period } ou l'ancien
+ * { month }). Noms de lieux résolus sur les clés distinctes (placeNamesTx).
  */
-async function formSubmissions(tenantId, formId, { month, limit = 200 } = {}) {
+async function formSubmissions(tenantId, formId, opts = {}) {
+  const { limit = 200 } = opts;
+  const p = periodArg(opts);
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId, formId];
-    const where = ['ms.tenant_id = $1', 'ms.form_id = $2'];
-    if (month) { params.push(`${String(month).slice(0, 7)}-01`); where.push(`ms.period_month = $${params.length}`); }
+    const where = `ms.tenant_id = $1 AND ms.form_id = $2 AND ${monthWithin('ms.period_month', p, params)}`;
     params.push(Math.min(Math.max(Number(limit) || 200, 1), 2000));
     const { rows } = await client.query(
       `SELECT ms.id, ms.external_id AS "externalId", to_char(ms.period_month, 'YYYY-MM') AS "periodMonth",
               ms.submitted_at AS "submittedAt", ms.field_office AS "fieldOffice",
               ms.admin1, ms.admin2, ms.admin3, ms.admin4, ms.site, ms.partner, ms.agent, ms.source, ms.data,
               ms.excluded, ms.exclude_reason AS "excludeReason",
-              ${PLACE_NAMES}
+              ${PLACE_KEYS}
          FROM monitoring_submissions ms
-        WHERE ${where.join(' AND ')}
+        WHERE ${where}
         ORDER BY ms.submitted_at DESC NULLS LAST, ms.period_month DESC
         LIMIT $${params.length}`,
       params
     );
+    await placeNamesTx(client, tenantId, rows);
     // Codes → libellés (« 6 » → « Ambovombe ») des colonnes typées, d'après les listes de la fiche.
     // Une requête à la fois sur le client de la transaction (pg ne les parallélise pas).
     const labelMaps = {};
@@ -625,17 +747,22 @@ async function formSubmissions(tenantId, formId, { month, limit = 200 } = {}) {
       r.agentLabel = (r.agent != null && labelMaps.agent.get(String(r.agent))) || null;
       r.siteLabel = (r.site != null && labelMaps.site.get(String(r.site))) || null;
     }
+    // Comptage : ses PROPRES paramètres (tenant, fiche, période), jamais une tranche positionnelle de ceux de la liste.
+    const cp = [tenantId, formId];
     const { rows: cnt } = await client.query(
       `SELECT count(*)::int AS total, count(*) FILTER (WHERE excluded)::int AS excluded
-         FROM monitoring_submissions ms WHERE ${where.slice(0, month ? 3 : 2).join(' AND ')}`,
-      params.slice(0, month ? 3 : 2)
+         FROM monitoring_submissions ms WHERE ms.tenant_id = $1 AND ms.form_id = $2 AND ${monthWithin('ms.period_month', p, cp)}`,
+      cp
     );
     // Champs calculés : fusionnés dans le `data` renvoyé (colonnes de la grille).
+    // Vie privée (lot 6a) : hors admin / gestionnaire, coordonnées retirées AVANT les champs
+    // calculés (une formule ne peut pas les recopier sous un autre nom).
     const calcFields = await calcDefsFor(client, tenantId, formId);
+    const safeRows = stripRowsGps(rows, opts.precise === true);
     const outRows = calcFields.length
-      ? rows.map((r) => ({ ...r, data: { ...r.data, ...computeCalcFields(calcFields, r.data || {}) } }))
-      : rows;
-    return { rows: outRows, total: cnt[0]?.total ?? rows.length, excluded: cnt[0]?.excluded ?? 0, limit: params[params.length - 1], calcFields };
+      ? safeRows.map((r) => ({ ...r, data: { ...r.data, ...computeCalcFields(calcFields, r.data || {}) } }))
+      : safeRows;
+    return { rows: outRows, total: cnt[0]?.total ?? rows.length, excluded: cnt[0]?.excluded ?? 0, limit: params[params.length - 1], calcFields, period: periodInfo(p) };
   });
 }
 
@@ -1249,13 +1376,14 @@ async function importPreview(tenantId, formId, submissions, fieldNames) {
   });
 }
 
-/** Compute the form's indicator values over submissions (optional month filter). */
-async function computeValues(tenantId, formId, { month } = {}) {
+/**
+ * Valeurs des indicateurs d'une fiche sur la période ({ period } ou l'ancien { month } ;
+ * null = toutes les périodes) : UN calcul sur toutes les soumissions de la période
+ * (agrégation poolée), jamais une moyenne de taux mensuels.
+ */
+async function computeValues(tenantId, formId, opts = {}) {
+  const p = periodArg(opts);
   return withTenantTransaction(tenantId, async (client) => {
-    const params = [tenantId, formId];
-    let where = 's.tenant_id = $1 AND s.form_id = $2 AND NOT s.excluded';
-    if (month) { params.push(`${month.slice(0, 7)}-01`); where += ` AND s.period_month = $${params.length}`; }
-    const { rows: subs } = await client.query(`SELECT data FROM monitoring_submissions s WHERE ${where}`, params);
     const { rows: inds } = await client.query(
       `SELECT id, code, label, module, source_field AS "sourceField", agg,
               positive_value AS "positiveValue", target, direction, sort_order,
@@ -1264,24 +1392,29 @@ async function computeValues(tenantId, formId, { month } = {}) {
         ORDER BY sort_order, label`,
       [tenantId, formId]
     );
-    const subsC = withCalc(subs, await calcDefsFor(client, tenantId, formId));
-    return { count: subsC.length, indicators: computeAll(inds, subsC) };
+    const defs = await calcDefsFor(client, tenantId, formId);
+    const params = [tenantId, formId];
+    const where = `s.tenant_id = $1 AND s.form_id = $2${submissionFilter('s', p, params)}`;
+    const data = await usefulDataTx(client, tenantId, formId, 's', params, inds, defs);
+    const { rows: subs } = await client.query(`SELECT ${data} AS data FROM monitoring_submissions s WHERE ${where}`, params);
+    const subsC = withCalc(subs, defs);
+    return { count: subsC.length, indicators: computeAll(inds, subsC), period: periodInfo(p) };
   });
 }
 
 /** Dashboard restitution: coverage counts + per-bureau split + indicator values. */
-async function dashboard(tenantId, formId, { month } = {}) {
+async function dashboard(tenantId, formId, opts = {}) {
+  const p = periodArg(opts);
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId, formId];
-    let where = 's.tenant_id = $1 AND s.form_id = $2 AND NOT s.excluded';
-    if (month) { params.push(`${month.slice(0, 7)}-01`); where += ` AND s.period_month = $${params.length}`; }
+    const where = `s.tenant_id = $1 AND s.form_id = $2${submissionFilter('s', p, params)}`;
 
     // Bureau par son nom (bureau MEMS rattaché, sinon libellé de la fiche), jamais un code nu.
     const bp = [...params];
     const office = officeLabelSql(await officeLabelsTx(client, tenantId), 's', bp);
     const { rows: cov } = await client.query(
       `SELECT count(*)::int AS submissions,
-              count(DISTINCT NULLIF(s.site, ''))::int AS sites,
+              count(DISTINCT ${SITE_KEY})::int AS sites,
               count(DISTINCT NULLIF(s.agent, ''))::int AS agents,
               count(DISTINCT NULLIF(s.partner, ''))::int AS partners,
               count(DISTINCT ${office.key}) FILTER (WHERE ${office.status} <> 'vide')::int AS "fieldOffices"
@@ -1291,12 +1424,11 @@ async function dashboard(tenantId, formId, { month } = {}) {
     const { rows: byBureau } = await client.query(
       `SELECT ${officeCols(office)},
               count(*)::int AS submissions,
-              count(DISTINCT NULLIF(s.site, ''))::int AS sites
+              count(DISTINCT ${SITE_KEY})::int AS sites
          FROM monitoring_submissions s ${office.join} WHERE ${where}
         GROUP BY 1 ORDER BY submissions DESC, 1`,
       bp
     );
-    const { rows: subs } = await client.query(`SELECT data FROM monitoring_submissions s WHERE ${where}`, params);
     const { rows: inds } = await client.query(
       `SELECT id, code, label, module, source_field AS "sourceField", agg,
               positive_value AS "positiveValue", target, direction, sort_order,
@@ -1305,27 +1437,30 @@ async function dashboard(tenantId, formId, { month } = {}) {
         ORDER BY sort_order, label`,
       [tenantId, formId]
     );
-    const subsC = withCalc(subs, await calcDefsFor(client, tenantId, formId));
+    const defs = await calcDefsFor(client, tenantId, formId);
+    const dp = [...params];
+    const data = await usefulDataTx(client, tenantId, formId, 's', dp, inds, defs);
+    const { rows: subs } = await client.query(`SELECT ${data} AS data FROM monitoring_submissions s WHERE ${where}`, dp);
+    const subsC = withCalc(subs, defs);
     const indicators = computeAll(inds, subsC);
-    return { coverage: cov[0], byBureau: byBureau.map((r) => withOfficeText(r)), indicators, overallIndex: overallIndex(indicators) };
+    return { coverage: cov[0], byBureau: byBureau.map((r) => withOfficeText(r)), indicators, overallIndex: overallIndex(indicators), period: periodInfo(p) };
   });
 }
 
 /**
- * Filtre période des soumissions — un mois, ou un intervalle de mois inclusif
- * [from, to] — et TOUJOURS hors soumissions exclues au nettoyage (comme les
- * onglets Résultats/Tableau de bord d'une fiche). Pousse ses paramètres dans
- * `params` et renvoie le fragment SQL « AND … ».
+ * Filtre période des soumissions — { from, to } (bornes incluses ; l'ancien { month }
+ * reste accepté, normalisé par toPeriod ; null = toutes les périodes) — et TOUJOURS
+ * hors soumissions exclues au nettoyage (comme les onglets Résultats/Tableau de bord
+ * d'une fiche). Borne semi-ouverte (common/periodSql.monthWithin) : une date du 15
+ * n'est jamais perdue. Pousse ses paramètres dans `params` et renvoie « AND … ».
  */
-function submissionFilter(alias, { month, from, to, bureau } = {}, params) {
+function submissionFilter(alias, periodLike, params) {
   const a = alias ? `${alias}.` : '';
+  const pl = periodLike || {};
   const parts = [`NOT ${a}excluded`];
-  if (bureau) { params.push(bureau); parts.push(`COALESCE(NULLIF(${a}field_office, ''), '(non renseigné)') = $${params.length}`); }
-  const m = (v) => `${String(v).slice(0, 7)}-01`;
-  if (month) { params.push(m(month)); parts.push(`${a}period_month = $${params.length}`); } else {
-    if (from) { params.push(m(from)); parts.push(`${a}period_month >= $${params.length}`); }
-    if (to) { params.push(m(to)); parts.push(`${a}period_month <= $${params.length}`); }
-  }
+  if (pl.bureau) { params.push(pl.bureau); parts.push(`COALESCE(NULLIF(${a}field_office, ''), '(non renseigné)') = $${params.length}`); }
+  const p = toPeriod(pl);
+  if (p) parts.push(monthWithin(`${a}period_month`, p, params));
   return ` AND ${parts.join(' AND ')}`;
 }
 
@@ -1339,9 +1474,13 @@ async function formResults(client, tenantId, formId, period) {
       ORDER BY sort_order, label`,
     [tenantId, formId]
   );
+  const defs = await calcDefsFor(client, tenantId, formId);
   const p = [tenantId, formId];
-  const { rows: subs } = await client.query(`SELECT data FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${submissionFilter('s', period, p)}`, p);
-  const subsC = withCalc(subs, await calcDefsFor(client, tenantId, formId));
+  const f = submissionFilter('s', period, p);
+  const data = await usefulDataTx(client, tenantId, formId, 's', p, inds, defs);
+  const { rows: subs } = await client.query(
+    `SELECT ${data} AS data FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${f}`, p);
+  const subsC = withCalc(subs, defs);
   return { inds, count: subsC.length, results: computeAll(inds, subsC) };
 }
 
@@ -1418,37 +1557,38 @@ async function monthCounts(tenantId) {
   });
 }
 
-/** Dernier mois d'une période (« AAAA-MM-01 ») : le mois choisi, sinon la borne haute, sinon null (mois courant). */
-const periodEnd = ({ month, to } = {}) => ((month || to) ? `${String(month || to).slice(0, 7)}-01` : null);
-
 /**
- * Soumissions par mois sur les 12 mois qui finissent au mois de la période
- * (mois courant par défaut), mois vides compris — une date aberrante (tablette
- * remise à zéro) ne déforme plus l'axe. `formId` restreint à une fiche.
+ * Soumissions par mois sur la fenêtre des tendances (common/period.trendWindow) :
+ * au moins 12 mois finissant au dernier mois de la période (mois courant sans
+ * période), étendue vers le passé quand la période est plus longue ; mois vides
+ * compris — une date aberrante (tablette remise à zéro) ne déforme pas l'axe.
+ * `formId` restreint à une fiche.
  */
 async function monthlyTrend(client, tenantId, period, formId = null) {
+  const w = trendWindow(toPeriod(period), currentMonthUTC());
+  const params = [tenantId, formId];
+  const within = monthWithin('s.period_month', w, params);
   const { rows } = await client.query(
-    `WITH b AS (SELECT COALESCE($2::date, date_trunc('month', now())::date) AS hi)
-     SELECT to_char(m, 'YYYY-MM') AS month, COALESCE(c.n, 0)::int AS submissions
-       FROM b CROSS JOIN generate_series(b.hi - interval '11 months', b.hi, interval '1 month') AS m
-       LEFT JOIN (SELECT s.period_month, count(*) AS n FROM monitoring_submissions s, b
-                   WHERE s.tenant_id = $1 AND NOT s.excluded AND ($3::uuid IS NULL OR s.form_id = $3)
-                     AND s.period_month BETWEEN (b.hi - interval '11 months')::date AND b.hi
-                   GROUP BY 1) c ON c.period_month = m::date
+    `SELECT to_char(m, 'YYYY-MM') AS month, COALESCE(c.n, 0)::int AS submissions
+       FROM generate_series($3::date, ($4::date - interval '1 month'), interval '1 month') AS m
+       LEFT JOIN (SELECT date_trunc('month', s.period_month)::date AS pm, count(*) AS n FROM monitoring_submissions s
+                   WHERE s.tenant_id = $1 AND NOT s.excluded AND ($2::uuid IS NULL OR s.form_id = $2) AND ${within}
+                   GROUP BY 1) c ON c.pm = m::date
       ORDER BY m`,
-    [tenantId, periodEnd(period), formId]
+    params
   );
   return rows;
 }
 
-async function processOverview(tenantId, period = {}) {
+async function processOverview(tenantId, periodLike = null) {
+  const period = toPeriod(periodLike);
   return withTenantTransaction(tenantId, async (client) => {
     const p = [tenantId];
     const f = submissionFilter('s', period, p);
     const office = officeLabelSql(await officeLabelsTx(client, tenantId), 's', p);
     const { rows: tot } = await client.query(
       `SELECT count(*)::int AS submissions,
-              count(DISTINCT NULLIF(s.site, ''))::int AS sites,
+              count(DISTINCT ${SITE_KEY})::int AS sites,
               count(DISTINCT NULLIF(s.agent, ''))::int AS agents,
               count(DISTINCT NULLIF(s.partner, ''))::int AS partners,
               count(DISTINCT ${office.key}) FILTER (WHERE ${office.status} <> 'vide')::int AS "fieldOffices"
@@ -1468,7 +1608,7 @@ async function processOverview(tenantId, period = {}) {
     const { rows: byBureau } = await client.query(
       `SELECT ${officeCols(office)},
               min(CASE WHEN ${office.formId} IS NOT NULL THEN mf.label END) AS "formLabel",
-              count(*)::int AS submissions, count(DISTINCT NULLIF(s.site, ''))::int AS sites
+              count(*)::int AS submissions, count(DISTINCT ${SITE_KEY})::int AS sites
          FROM monitoring_submissions s ${office.join}
          LEFT JOIN monitoring_forms mf ON mf.id = s.form_id AND mf.tenant_id = s.tenant_id
         WHERE s.tenant_id = $1${f}
@@ -1495,6 +1635,7 @@ async function processOverview(tenantId, period = {}) {
     }
 
     return {
+      ...periodFields(period),
       totals: { ...tot[0], forms: forms.length, indicators: indicatorsCount },
       latestMonth: last ? last.month : null,
       trend,
@@ -1516,33 +1657,22 @@ async function processOverview(tenantId, period = {}) {
  * soumissions). La couverture terrain et le RBM restent fournis par leurs
  * propres endpoints (field/summary, field/rbm) et sont combinés côté client.
  */
-async function coverageDashboard(tenantId, period = {}) {
+async function coverageDashboard(tenantId, periodLike = null) {
+  const period = toPeriod(periodLike);
   return withTenantTransaction(tenantId, async (client) => {
     const p = [tenantId];
     const f = submissionFilter('s', period, p);
     const { rows: tot } = await client.query(
       `SELECT count(*)::int AS submissions,
-              count(DISTINCT NULLIF(site, ''))::int AS sites,
+              count(DISTINCT ${SITE_KEY})::int AS sites,
               count(DISTINCT NULLIF(agent, ''))::int AS agents,
               count(DISTINCT NULLIF(partner, ''))::int AS partners,
               count(DISTINCT NULLIF(admin3, ''))::int AS communes
          FROM monitoring_submissions s WHERE s.tenant_id = $1${f}`,
       p
     );
-    // Région en clair : la soumission porte un pcode de commune (admin3) ; on
-    // le résout en NOM de région via le référentiel de sites (sites.adm3_pcode
-    // → sites.adm1). Repli sur le pcode brut puis « (non renseigné) ».
-    const { rows: regionRows } = await client.query(
-      `${REGION_CTE}
-       SELECT ${REGION_OF('s')} AS region,
-              count(*)::int AS submissions,
-              count(DISTINCT NULLIF(s.admin3, ''))::int AS communes
-         FROM monitoring_submissions s
-         ${REGION_JOIN('s')}
-        WHERE s.tenant_id = $1${f}
-        GROUP BY 1 ORDER BY submissions DESC`,
-      p
-    );
+    // Région en clair (découpage, sinon registre de sites, sinon valeur brute) : regionRowsSql.
+    const regionRows = await submissionRegionsTx(client, tenantId, period);
 
     const { rows: forms } = await client.query(
       "SELECT id, code, label FROM monitoring_forms WHERE tenant_id = $1 AND active = true ORDER BY label",
@@ -1563,7 +1693,7 @@ async function coverageDashboard(tenantId, period = {}) {
       const office = officeLabelSql(officeLabels, 's', bp);
       const { rows: formBureau } = await client.query(
         `SELECT ${officeCols(office)},
-                count(*)::int AS submissions, count(DISTINCT NULLIF(s.site, ''))::int AS sites
+                count(*)::int AS submissions, count(DISTINCT ${SITE_KEY})::int AS sites
            FROM monitoring_submissions s ${office.join} WHERE s.tenant_id = $1 AND s.form_id = $2${bf}
           GROUP BY 1 ORDER BY submissions DESC, 1`,
         bp
@@ -1592,9 +1722,7 @@ async function coverageDashboard(tenantId, period = {}) {
     }
 
     return {
-      month: period.month || null,
-      from: period.month ? null : (period.from || null),
-      to: period.month ? null : (period.to || null),
+      ...periodFields(period),
       totals: { ...tot[0], forms: forms.length, indicators: indicatorsCount },
       conformityIndex: overallIndex(allResults),
       classes: classDistribution(allResults),
@@ -1636,12 +1764,14 @@ async function reportMonitoringData(tenantId, period, { lang = 'fr' } = {}) {
       const f = submissionFilter('s', period, p);
       // Bureau par son nom (jamais « 6 ») ; un code non relié porte le nom de sa fiche,
       // pour ne jamais se mêler au même code d'une autre fiche dans un rapport répété par bureau.
+      const defs = await calcDefsFor(client, tenantId, fm.id);
       const sp = [...p];
       const office = officeLabelSql(officeLabels, 's', sp);
+      const data = await usefulDataTx(client, tenantId, fm.id, 's', sp, inds, defs);
       const { rows: subs } = await client.query(
-        `SELECT s.data, ${office.key} AS "bureauKey", ${office.status} AS "bureauStatus", ${office.name} AS "bureauName",
+        `SELECT ${data} AS data, ${office.key} AS "bureauKey", ${office.status} AS "bureauStatus", ${office.name} AS "bureauName",
                 ${office.code} AS "bureauCode",
-                COALESCE(s.site_id::text, NULLIF(s.site, ''), NULLIF(s.admin3, '')) AS sitekey
+                ${SITE_KEY} AS sitekey
            FROM monitoring_submissions s ${office.join}
           WHERE s.tenant_id = $1 AND s.form_id = $2${f}`, sp);
       for (const sub of subs) {
@@ -1650,13 +1780,12 @@ async function reportMonitoringData(tenantId, period, { lang = 'fr' } = {}) {
         sub.bureauLabel = codeLabelText(v, { lang });
       }
       const { rows: cnt } = await client.query(
-        `SELECT count(*)::int AS visits, count(DISTINCT COALESCE(site_id::text, NULLIF(site, ''), NULLIF(admin3, '')))::int AS "sitesVisited"
+        `SELECT count(*)::int AS visits, count(DISTINCT ${SITE_KEY})::int AS "sitesVisited"
            FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${f}`, p);
       const { rows: monthly } = await client.query(
-        `SELECT to_char(period_month, 'YYYY-MM') AS month, count(DISTINCT COALESCE(site_id::text, NULLIF(site, ''), NULLIF(admin3, '')))::int AS sites
+        `SELECT to_char(period_month, 'YYYY-MM') AS month, count(DISTINCT ${SITE_KEY})::int AS sites
            FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2${f}
           GROUP BY 1 ORDER BY 1`, p);
-      const defs = await calcDefsFor(client, tenantId, fm.id);
       const subsC = withCalc(subs, defs);
       const results = computeAll(inds, subsC);
       const byBureau = new Map();
@@ -1676,14 +1805,7 @@ async function reportMonitoringData(tenantId, period, { lang = 'fr' } = {}) {
         bureaux,
       });
     }
-    const rp = [tenantId];
-    const rf = submissionFilter('s', period, rp);
-    const { rows: regions } = await client.query(
-      `${REGION_CTE}
-       SELECT ${REGION_OF('s')} AS region,
-              count(*)::int AS submissions, count(DISTINCT NULLIF(s.admin3, ''))::int AS communes
-         FROM monitoring_submissions s ${REGION_JOIN('s')}
-        WHERE s.tenant_id = $1${rf} GROUP BY 1 ORDER BY submissions DESC`, rp);
+    const regions = await submissionRegionsTx(client, tenantId, period);
     const tp = [tenantId];
     const tf = submissionFilter('s', period, tp);
     const { rows: tot } = await client.query(`SELECT count(*)::int AS submissions FROM monitoring_submissions s WHERE s.tenant_id = $1${tf}`, tp);
@@ -1697,18 +1819,19 @@ async function reportMonitoringData(tenantId, period, { lang = 'fr' } = {}) {
  * à partir du pcode (adm3) via le référentiel de sites, pour afficher un nom
  * lisible plutôt que le seul code. Filtrable par mois.
  */
-async function listSubmissions(tenantId, { month, limit = 300 } = {}) {
+async function listSubmissions(tenantId, opts = {}) {
+  const { limit = 300 } = opts;
+  const p = periodArg(opts);
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId];
-    const where = ['ms.tenant_id = $1'];
-    if (month) { params.push(`${String(month).slice(0, 7)}-01`); where.push(`ms.period_month = $${params.length}`); }
+    const where = ['ms.tenant_id = $1', monthWithin('ms.period_month', p, params)];
     params.push(Math.min(Math.max(Number(limit) || 300, 1), 2000));
     const { rows } = await client.query(
       `SELECT ms.external_id AS "externalId", to_char(ms.period_month, 'YYYY-MM') AS "periodMonth",
               ms.submitted_at AS "submittedAt", ms.field_office AS "fieldOffice",
               ms.admin1, ms.admin2, ms.admin3, ms.partner, ms.source,
               ms.excluded, f.label AS "formLabel", f.activity_category AS "activityCategory",
-              ${PLACE_NAMES}
+              ${PLACE_KEYS}
          FROM monitoring_submissions ms
          JOIN monitoring_forms f ON f.id = ms.form_id AND f.tenant_id = ms.tenant_id
         WHERE ${where.join(' AND ')}
@@ -1716,7 +1839,7 @@ async function listSubmissions(tenantId, { month, limit = 300 } = {}) {
         LIMIT $${params.length}`,
       params
     );
-    return rows;
+    return placeNamesTx(client, tenantId, rows);
   });
 }
 
@@ -1741,7 +1864,7 @@ async function listCalcFields(tenantId, formId) {
  * utilisées par les formules sont lues.
  * @returns {Promise<null|{check:object, n?:number}>} null si la fiche n'existe pas
  */
-async function calcPreview(tenantId, formId, def, { excludeId } = {}) {
+async function calcPreview(tenantId, formId, def, { excludeId, precise = false } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
     if (!f[0]) return null;
@@ -1780,7 +1903,9 @@ async function calcPreview(tenantId, formId, def, { excludeId } = {}) {
         WHERE s.tenant_id = $1 AND s.form_id = $2 AND NOT s.excluded
         ORDER BY s.submitted_at DESC NULLS LAST, s.created_at DESC LIMIT 300`,
       [tenantId, formId, [...needed].filter(Boolean).map((k) => String(k).toLowerCase())]);
-    return { check, ...previewCalc(def, sample.map((r) => r.data), prior) };
+    // Vie privée (lot 6a) : hors admin / gestionnaire, les coordonnées des ménages sont retirées
+    // AVANT le calcul — ni dans les lignes d'exemple, ni dans la répartition, ni via une formule.
+    return { check, ...previewCalc(def, stripRowsGps(sample, precise).map((r) => r.data), prior) };
   });
 }
 
@@ -1830,7 +1955,7 @@ async function setExclusion(tenantId, formId, { ids, excluded, reason } = {}) {
 }
 
 module.exports = {
-  monthCounts, officeLabelSql,
+  monthCounts, officeLabelSql, regionRowsSql, submissionRegionsTx,
   reliftSubmissionsTx, formTemplate, applyTemplate,
   listCalcFields, calcPreview, formVariables, formMonths, indicatorPreview, importPreview, formCorrespondences, setCorrespondence, createCalcField, updateCalcField, deleteCalcField, setExclusion,
   setFormSource, formSourceContext, reportMonitoringData,

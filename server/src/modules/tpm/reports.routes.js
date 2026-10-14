@@ -4,6 +4,7 @@ const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound, conflict, forbidden } = require('../../middleware/errors');
 const repo = require('./reports.repository');
+const { readPeriod } = require('../../middleware/period');
 const { buildInvoiceWorkbook } = require('./factureXlsx');
 const { reportActions, REPORT_WRITE_ROLES, canWriteReports } = require('./reportWorkflow');
 
@@ -31,8 +32,14 @@ const t = (req) => req.auth.tenantId;
 
 router.get('/context', asyncHandler(async (req, res) => res.json(await repo.reportContext(t(req)))));
 
+// Liste : ?from&to (ou l'ancien ?month) — rapports dont la période chevauche ; sans période, tous.
+const idQ = (v) => (typeof v === 'string' && v ? v : undefined);
 router.get('/', asyncHandler(async (req, res) => {
-  const rows = await repo.listReports(t(req), { month: req.query.month, partnerId: req.query.partnerId, contractId: req.query.contractId });
+  const period = readPeriod(req.query);
+  for (const k of ['partnerId', 'contractId']) {
+    if (idQ(req.query[k]) && !z.string().uuid().safeParse(req.query[k]).success) throw badRequest('Filtres invalides', { field: k });
+  }
+  const rows = await repo.listReports(t(req), { period, partnerId: idQ(req.query.partnerId), contractId: idQ(req.query.contractId) });
   res.json(rows.map(withActions(req)));
 }));
 

@@ -36,7 +36,7 @@ test('GET /rbm/sites/:id : explication d\'un site, compte du jeton, mois transmi
   const res = await request(app).get(`/api/tpm/field/rbm/sites/${SITE}?month=2026-10`).set(as(viewer));
   assert.equal(res.status, 200);
   assert.deepEqual(Object.keys(res.body).sort(), ['actions', 'consequence', 'id', 'name', 'reasons']);
-  assert.deepEqual(calls.at(-1), { tenantId: TENANT, id: SITE, opts: { month: '2026-10' } });
+  assert.deepEqual(calls.at(-1), { tenantId: TENANT, id: SITE, opts: { month: '2026-10', asOf: '2026-10' } }); // état au mois de référence (lot 1b)
 });
 
 test('GET /rbm/sites/:id : sans mois → mois courant ; site inconnu → 404 ; identifiant invalide → 400 sans appel au dépôt', async () => {

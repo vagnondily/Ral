@@ -1,15 +1,37 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { TrendingUp, Wallet, CheckCircle2, AlertTriangle, Users, FileSignature } from 'lucide-react';
+import { TrendingUp, Wallet, CheckCircle2, AlertTriangle, Users, FileSignature, Info } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Skeleton, PageHeader } from '../../components/ui.jsx';
-import { formatAr, formatInt, currentMonth } from '../../lib/format.js';
+import PeriodSelect from '../../components/PeriodSelect.jsx';
+import { SessionPeriodNote, clampPeriod, usePeriod } from '../../components/PeriodBanner.jsx';
+import MapExplorer, { MAP_OPEN_KEY } from '../../components/map/MapExplorer.jsx';
+import { formatAr, formatInt } from '../../lib/format.js';
+import { periodLabel, single, spanMonths, writeHashPeriod } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
+
+/**
+ * Plafond de la carte du suivi sur cette page : celui de Couverture & performance (analyse,
+ * 24 mois), pour que « Ouvrir la carte » y montre exactement la même période.
+ */
+const MAP_PAGE_SPAN = 24;
 
 /**
  * Tableau de bord décisionnel « façon Power BI » : cartes KPI, barres groupées
  * Budget / Planifié / Réalisé par contrat, tendance mensuelle, répartition du
  * réalisé par prestataire, jauges de consommation et alertes. Tout est
  * recalculé en direct depuis la consolidation (contrats + plans + factures).
+ *
+ * Période (lot 1b) : par défaut le cumul de toute la durée des contrats (comportement
+ * historique) ; une période choisie (URL, session ou sélecteur) donne le budget DE LA
+ * PÉRIODE (parts mensuelles en centimes), le planifié et le réalisé de ses mois, la
+ * tendance limitée à ses mois et la carte du suivi de la période ; le budget restant, la
+ * projection, les alertes et la consommation par contrat restent « à date ».
+ *
+ * Carte du suivi (lot 6a) : la PÉRIODE DE LA PAGE (ramenée aux 24 derniers mois, plafond
+ * de l'analyse) ; « toutes les périodes » (cumul budgétaire) n'a pas de sens pour des sites
+ * actifs : la carte montre alors le dernier mois avec des données, et le dit. Elle remplace
+ * l'ancienne carte « Couverture terrain » (une seule règle : Couverture = sites actifs
+ * réalisés ÷ actifs, même service que Couverture & performance).
  *
  * Couleurs validées (dataviz) : Réalisé = bleu #0f6cbd, Planifié = ambre
  * #c77700, Budget = gris de référence ; palette catégorielle pour la
@@ -165,7 +187,15 @@ function Donut({ items, onTip }) {
   };
   return (
     <svg viewBox="0 0 180 180" className="biz-donut" role="img" aria-label={tr('Répartition du réalisé par prestataire')}>
-      {items.map((it, i) => (
+      {items.length === 1 && (
+        <circle cx={cx} cy={cy} r={(R + r) / 2} fill="none" stroke={items[0].color} strokeWidth={R - r}
+          onMouseMove={(e) => onTip({ x: e.clientX, y: e.clientY, title: items[0].label, rows: [
+            { label: tr('Réalisé'), value: formatAr(items[0].value), color: items[0].color },
+            { label: tr('Part'), value: '100 %', color: items[0].color },
+          ] })}
+          onMouseLeave={() => onTip(null)} />
+      )}
+      {items.length > 1 && items.map((it) => (
         <path key={it.label} d={arc(it.value / total)} fill={it.color} stroke="var(--surface)" strokeWidth="2"
           onMouseMove={(e) => onTip({ x: e.clientX, y: e.clientY, title: it.label, rows: [
             { label: tr('Réalisé'), value: formatAr(it.value), color: it.color },
@@ -179,55 +209,122 @@ function Donut({ items, onTip }) {
   );
 }
 
-export default function DashboardBIPage({ onOpenContract }) {
-  const { tr } = useI18n();
+export default function DashboardBIPage({ onOpenContract, onNavigate }) {
+  const { tr, lang } = useI18n();
+  const { period, ready, counts, latest, today, periods, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'all' });
+  const key = period ? `${period.from}|${period.to}` : 'all';
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [field, setField] = useState(null); // couverture terrain du mois courant
   const [tip, setTip] = useState(null);
 
-  useEffect(() => { api.consolidation().then(setData).catch((e) => setError(e.message)); }, []);
-  useEffect(() => { api.fieldSummary(currentMonth()).then(setField).catch(() => setField(null)); }, []);
+  useEffect(() => {
+    if (!ready) return undefined;
+    let alive = true;
+    setData(null); setError(null);
+    api.consolidation({ period }).then((d) => {
+      if (!alive) return;
+      setData(d);
+      try { if (typeof performance !== 'undefined' && performance.mark) performance.mark('period:rendered'); } catch { /* sans incidence */ }
+    }, (e) => { if (alive) setError(e.message); });
+    return () => { alive = false; };
+  }, [ready, key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Période de la carte : celle de la page (≤ 24 mois) ; sans période, le dernier mois avec des
+  // données (undefined tant qu'il n'est pas connu : la carte attend au lieu d'afficher un mois vide).
+  const mapPeriod = useMemo(() => {
+    if (!ready) return undefined;
+    if (period) return clampPeriod(period, MAP_PAGE_SPAN);
+    if (!periods) return undefined;
+    return single(latest || today);
+  }, [ready, key, periods, latest, today]); // eslint-disable-line react-hooks/exhaustive-deps
+  const mapClamped = !!(period && spanMonths(period) > MAP_PAGE_SPAN);
+  // « Ouvrir la carte » : Couverture & performance › Carte avec la MÊME période (dans l'URL : la
+  // page la lit par usePeriod, comme un lien partagé) ; thème et filtres passés par la session.
+  const openMap = (state) => {
+    const { theme, officeId, activity } = state || {};
+    try { window.sessionStorage.setItem(MAP_OPEN_KEY, JSON.stringify({ view: 'carte', theme, officeId, activity })); } catch { /* stockage indisponible */ }
+    if (mapPeriod) window.location.hash = writeHashPeriod('#/dashboard/couverture', mapPeriod);
+    else if (onNavigate) onNavigate('dashboard', 'couverture');
+  };
+
+  // Avec une période : les chiffres DE LA PÉRIODE par contrat (budget de la période, planifié, réalisé).
+  const shown = useMemo(() => (data ? data.rows.map((r) => (period && r.period
+    ? { ...r, budget: r.period.budget || 0, planned: r.period.planned, actual: r.period.actual }
+    : r)) : []), [data, period]);
 
   const donutItems = useMemo(() => {
-    if (!data) return [];
     const byPartner = new Map();
-    for (const r of data.rows) byPartner.set(r.partnerName, (byPartner.get(r.partnerName) || 0) + r.actual);
+    for (const r of shown) byPartner.set(r.partnerName, (byPartner.get(r.partnerName) || 0) + r.actual);
     return [...byPartner.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
       .map(([label, value], i) => ({ label, value, color: CAT[i % CAT.length] }));
-  }, [data]);
+  }, [shown]);
 
-  if (error) return <div className="page"><PageHeader title={tr('Tableau de bord')} /><Alert tone="error" icon={AlertTriangle}>{error}</Alert></div>;
-  if (!data) return <div className="page"><PageHeader title={tr('Tableau de bord')} /><Skeleton height={320} /></div>;
+  const picker = ready && (
+    <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} allowAll align="right" />
+  );
+  if (error) return <div className="page"><PageHeader title={tr('Tableau de bord décisionnel')}>{picker}</PageHeader><Alert tone="error" icon={AlertTriangle}>{error}</Alert></div>;
+  if (!data) return <div className="page"><PageHeader title={tr('Tableau de bord décisionnel')}>{picker}</PageHeader><Skeleton height={320} /></div>;
 
   const { rows, totals, months, monthlyTotals } = data;
   const alerts = rows.filter((r) => r.overspent || (r.projectedOverrun && r.projectedOverrun > 0));
+  const tp = period && totals.period;
+  const pctOf = (rate) => (rate == null ? '—' : `${Math.round(rate * 100)}`);
+  const pLabel = period ? periodLabel(period, lang) : '';
+  let mapNote = null;
+  if (mapPeriod && !period) mapNote = tr('Toutes les périodes : la carte montre {m}, dernier mois avec des données.', { m: periodLabel(mapPeriod, lang) });
+  else if (mapPeriod && mapClamped) mapNote = tr('La carte montre les 24 derniers mois de la période ({p}).', { p: periodLabel(mapPeriod, lang) });
 
   return (
     <div className="page" onMouseLeave={() => setTip(null)}>
-      <PageHeader title={tr('Tableau de bord décisionnel')} description={tr('Vue analytique du suivi budgétaire TPM — budget, planifié, réalisé, tendance et alertes, recalculés en direct.')} />
+      <PageHeader title={tr('Tableau de bord décisionnel')} description={tr('Vue analytique du suivi budgétaire TPM — budget, planifié, réalisé, tendance et alertes, recalculés en direct.')}>
+        {picker}
+      </PageHeader>
+      <SessionPeriodNote source={source} onReset={resetToDefault} resetLabel={tr('Revenir à toutes les périodes')} />
 
-      <div className="biz-kpis">
-        <Kpi icon={Wallet} label={tr('Budget de suivi')} value={fmtM(totals.budget, tr)} suffix="Ar" foot={tr('{n} contrat(s)', { n: totals.contracts })} tone="blue" />
-        <Kpi icon={TrendingUp} label={tr('Planifié')} value={fmtM(totals.planned, tr)} suffix="Ar" foot={tr('{p} % du budget', { p: Math.round((totals.plannedRate || 0) * 100) })} tone="amber" />
-        <Kpi icon={CheckCircle2} label={tr('Réalisé (factures validées)')} value={fmtM(totals.actual, tr)} suffix="Ar"
-          foot={totals.pendingValidation > 0
-            ? tr('{p} % du budget · {amount} Ar en attente de validation', { p: Math.round((totals.actualRate || 0) * 100), amount: formatInt(totals.pendingValidation) })
-            : tr('{p} % du budget', { p: Math.round((totals.actualRate || 0) * 100) })} tone="blue" />
-        <Kpi icon={Wallet} label={tr('Budget restant')} value={fmtM(totals.remaining, tr)} suffix="Ar" foot={tr('Disponible')} tone={totals.remaining < 0 ? 'red' : 'green'} />
-        <Kpi icon={AlertTriangle} label={tr('Alertes')} value={formatInt(alerts.length)} foot={tr('Dépassement / projection')} tone={alerts.length ? 'red' : 'green'} />
-        <Kpi icon={Users} label={tr('Taux global')} value={`${Math.round((totals.actualRate || 0) * 100)}`} suffix="%" foot={tr('Consommation')} tone="blue" />
-      </div>
+      {tp ? (
+        <div className="biz-kpis">
+          <Kpi icon={Wallet} label={tr('Budget de la période')} value={fmtM(tp.budget, tr)} suffix="Ar"
+            foot={tr('{n} mois · budget total {amount} Ar', { n: tp.months, amount: fmtM(totals.budget, tr) })} tone="blue" />
+          <Kpi icon={TrendingUp} label={tr('Planifié')} value={fmtM(tp.planned, tr)} suffix="Ar"
+            foot={tp.plannedRate == null ? tr('— aucun budget sur la période') : tr('{p} % du budget de la période', { p: pctOf(tp.plannedRate) })} tone="amber" />
+          <Kpi icon={CheckCircle2} label={tr('Réalisé (factures validées)')} value={fmtM(tp.actual, tr)} suffix="Ar"
+            foot={tp.pending > 0
+              ? tr('{p} % du budget de la période · {amount} Ar en attente de validation', { p: pctOf(tp.actualRate), amount: formatInt(tp.pending) })
+              : tr('{p} % du budget de la période', { p: pctOf(tp.actualRate) })} tone="blue" />
+          <Kpi icon={Wallet} label={tr('Budget restant')} value={fmtM(totals.remaining, tr)} suffix="Ar" foot={tr('à date')} tone={totals.remaining < 0 ? 'red' : 'green'} />
+          <Kpi icon={AlertTriangle} label={tr('Alertes')} value={formatInt(alerts.length)} foot={tr('Dépassement / projection · à date')} tone={alerts.length ? 'red' : 'green'} />
+          <Kpi icon={Users} label={tr('Taux de la période')} value={pctOf(tp.actualRate)} suffix={tp.actualRate == null ? '' : '%'} foot={tr('Réalisé ÷ budget de la période')} tone="blue" />
+        </div>
+      ) : (
+        <div className="biz-kpis">
+          <Kpi icon={Wallet} label={tr('Budget de suivi')} value={fmtM(totals.budget, tr)} suffix="Ar" foot={tr('{n} contrat(s)', { n: totals.contracts })} tone="blue" />
+          <Kpi icon={TrendingUp} label={tr('Planifié')} value={fmtM(totals.planned, tr)} suffix="Ar" foot={tr('{p} % du budget', { p: Math.round((totals.plannedRate || 0) * 100) })} tone="amber" />
+          <Kpi icon={CheckCircle2} label={tr('Réalisé (factures validées)')} value={fmtM(totals.actual, tr)} suffix="Ar"
+            foot={totals.pendingValidation > 0
+              ? tr('{p} % du budget · {amount} Ar en attente de validation', { p: Math.round((totals.actualRate || 0) * 100), amount: formatInt(totals.pendingValidation) })
+              : tr('{p} % du budget', { p: Math.round((totals.actualRate || 0) * 100) })} tone="blue" />
+          <Kpi icon={Wallet} label={tr('Budget restant')} value={fmtM(totals.remaining, tr)} suffix="Ar" foot={tr('Disponible')} tone={totals.remaining < 0 ? 'red' : 'green'} />
+          <Kpi icon={AlertTriangle} label={tr('Alertes')} value={formatInt(alerts.length)} foot={tr('Dépassement / projection')} tone={alerts.length ? 'red' : 'green'} />
+          <Kpi icon={Users} label={tr('Taux global')} value={`${Math.round((totals.actualRate || 0) * 100)}`} suffix="%" foot={tr('Consommation')} tone="blue" />
+        </div>
+      )}
+
+      {/* Carte du suivi : pleine largeur sous les tuiles, même service que Couverture & performance › Carte
+          (remplace « Couverture terrain », ancienne règle visites réalisées ÷ planifiées). */}
+      <section className="bi-map" aria-label={tr('Carte du suivi')}>
+        {mapNote && <p className="period-session-note"><Info size={14} aria-hidden="true" /><span>{mapNote}</span></p>}
+        <MapExplorer variant="compact" period={mapPeriod} onNavigate={onNavigate} onOpenFull={openMap} />
+      </section>
 
       <div className="biz-grid">
         <div className="card biz-card biz-span2">
-          <div className="card-header"><div className="card-title">{tr('Budget · Planifié · Réalisé par contrat')}</div>
-            <Legend items={[[tr('Budget'), C.budget], [tr('Planifié'), C.planned], [tr('Réalisé'), C.actual]]} /></div>
-          <div className="card-body"><GroupedBars rows={rows} onTip={setTip} onOpen={onOpenContract} /></div>
+          <div className="card-header"><div className="card-title">{period ? tr('Budget · Planifié · Réalisé par contrat — {p}', { p: pLabel }) : tr('Budget · Planifié · Réalisé par contrat')}</div>
+            <Legend items={[[period ? tr('Budget de la période') : tr('Budget'), C.budget], [tr('Planifié'), C.planned], [tr('Réalisé'), C.actual]]} /></div>
+          <div className="card-body"><GroupedBars rows={shown} onTip={setTip} onOpen={onOpenContract} /></div>
         </div>
 
         <div className="card biz-card">
-          <div className="card-header"><div className="card-title">{tr('Réalisé par prestataire')}</div></div>
+          <div className="card-header"><div className="card-title">{period ? tr('Réalisé par prestataire — {p}', { p: pLabel }) : tr('Réalisé par prestataire')}</div></div>
           <div className="card-body biz-donut-wrap">
             {donutItems.length ? <Donut items={donutItems} onTip={setTip} /> : <p className="muted">{tr('Aucun réalisé.')}</p>}
             <div className="biz-legend-col">
@@ -251,7 +348,7 @@ export default function DashboardBIPage({ onOpenContract }) {
         </div>
 
         <div className="card biz-card">
-          <div className="card-header"><div className="card-title">{tr('Consommation par contrat')}</div></div>
+          <div className="card-header"><div className="card-title">{tr('Consommation par contrat (à date)')}</div></div>
           <div className="card-body biz-gauges">
             {rows.map((r) => {
               const rate = Math.min(1.2, r.actualRate || 0);
@@ -267,23 +364,6 @@ export default function DashboardBIPage({ onOpenContract }) {
           </div>
         </div>
 
-        {field?.overall?.total > 0 && (
-          <div className="card biz-card biz-span2">
-            <div className="card-header"><div className="card-title">{tr('Couverture terrain — mois courant')}</div>
-              <div className="card-sub">{tr('Visites réalisées / planifiées par district ({done}/{active} · {p} %).', { done: field.overall.realise, active: field.overall.active, p: Math.round((field.overall.rate || 0) * 100) })}</div></div>
-            <div className="card-body biz-gauges" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', display: 'grid', gap: 14 }}>
-              {field.byDistrict.map((d) => {
-                const col = d.rate >= 0.8 ? 'var(--green)' : d.rate >= 0.5 ? 'var(--blue-600)' : 'var(--orange)';
-                return (
-                  <div className="biz-gauge" key={d.key}>
-                    <div className="biz-gauge-head"><span>{d.label}</span><span className="tabular" style={{ color: col }}>{d.realise}/{d.active} · {Math.round(d.rate * 100)} %</span></div>
-                    <div className="biz-bar"><span style={{ width: `${Math.round(d.rate * 100)}%`, background: col }} /></div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
 
       {alerts.length > 0 && (

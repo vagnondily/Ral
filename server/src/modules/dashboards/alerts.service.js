@@ -5,6 +5,7 @@ const reportsRepo = require('../tpm/reports.repository');
 const fieldRepo = require('../tpm/field.repository');
 const { reportActions, canWriteReports } = require('../tpm/reportWorkflow');
 const { buildAlerts, countAlerts } = require('./alertsMath');
+const { single, spanMonths, periodInfo } = require('../common/period');
 
 /**
  * Centre d'alertes — UNE source pour la page et la cloche de l'en-tête.
@@ -21,9 +22,18 @@ const { buildAlerts, countAlerts } = require('./alertsMath');
  */
 const isoDay = (d) => d.toISOString().slice(0, 10);
 
-async function alerts(auth, { today = isoDay(new Date()) } = {}) {
+/**
+ * @param {object} auth  req.auth (tenant, utilisateur, rôle)
+ * @param {{ today?: string, period?: {from,to}|null }} [opts]
+ *   period (lot 1b, Centre d'alertes) : vaut pour le TERRAIN (résumé des visites de la
+ *   période) et les RAPPORTS à valider (chevauchement de leur période) ; sans période
+ *   (la cloche) : terrain du mois courant, tous les rapports — sortie inchangée. Le
+ *   budget et les échéances de contrat sont toujours calculés à date (scope 'a_date').
+ */
+async function alerts(auth, { today = isoDay(new Date()), period = null } = {}) {
   const { tenantId, userId, role } = auth;
   const month = today.slice(0, 7);
+  const fieldPeriod = period || single(month);
   const unavailable = [];
   const read = async (source, fn, fallback) => {
     try { return await fn(); } catch (err) {
@@ -36,12 +46,15 @@ async function alerts(auth, { today = isoDay(new Date()) } = {}) {
   const contracts = await read('contrats', () => contractsService.listContracts(tenantId, {}), []);
   const reports = await read('rapports', async () => {
     const canWrite = canWriteReports(role);
-    return (await reportsRepo.listReports(tenantId, {})).map((r) => ({ ...r, actions: reportActions(r, { userId, canWrite }) }));
+    return (await reportsRepo.listReports(tenantId, period ? { period } : {})).map((r) => ({ ...r, actions: reportActions(r, { userId, canWrite }) }));
   }, []);
-  const field = await read('terrain', () => fieldRepo.summary(tenantId, { month }), null);
+  const field = await read('terrain', () => fieldRepo.summary(tenantId, { period: fieldPeriod }), null);
 
-  const items = buildAlerts({ consolidationRows: cons ? cons.rows : [], contracts, reports, field, today });
-  return { today, month, counts: countAlerts(items), items, unavailable };
+  const items = buildAlerts({
+    consolidationRows: cons ? cons.rows : [], contracts, reports, field, today,
+    range: spanMonths(fieldPeriod) > 1, reportsInPeriod: !!period,
+  });
+  return { today, month, period: periodInfo(fieldPeriod), counts: countAlerts(items), items, unavailable };
 }
 
 module.exports = { alerts };

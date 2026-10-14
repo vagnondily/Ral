@@ -9,7 +9,9 @@ import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, IconButton, PageHeader, Skeleton, Stats, StatusBadge } from '../../components/ui.jsx';
 import { MAPPING_STATUS, DATE_KEYS, dateStats } from '../../lib/mappingWorkflow.js';
 import Modal from '../../components/Modal.jsx';
-import MonthSelect from '../../components/MonthSelect.jsx';
+import PeriodSelect from '../../components/PeriodSelect.jsx';
+import { SessionPeriodNote, usePeriod } from '../../components/PeriodBanner.jsx';
+import { periodLabel as labelOfPeriod, single } from '../../lib/period.js';
 import { usePopover } from '../../components/listView.jsx';
 import IndicatorsList from './IndicatorsList.jsx';
 import IndicatorEditor from './IndicatorEditor.jsx';
@@ -19,7 +21,7 @@ import ImportWizard from './ImportWizard.jsx';
 import CorrespondencesCard from './Correspondences.jsx';
 import CodeLabel from '../../components/CodeLabel.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import { formatDateTime, formatInt, formatLocale, monthLabel } from '../../lib/format.js';
+import { formatDateTime, formatInt, formatLocale } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { suggestActivity } from '../../lib/activitySuggest.js';
@@ -806,40 +808,55 @@ function SubmissionDrawer({ sub, varCols, metaCols, metaVal, labelOf, cell, onCl
 }
 
 // ---- Résultats (indicateurs recalculés · période dans la barre d'outils) --
+/** Durée maximale des résultats d'une fiche (comme les endpoints d'analyse) : 24 mois. */
+const RESULTS_MAX_SPAN = 24;
+
+/**
+ * Résultats d'une fiche sur une PÉRIODE (lot 1b) : un seul calcul sur toutes les soumissions
+ * de la période (jamais une moyenne de moyennes mensuelles). Période : URL, puis période de
+ * travail de la session, puis le dernier mois de la fiche avec des données ; « Toutes les
+ * périodes » reste proposé. Le détail « Comment c'est calculé » et l'éditeur d'indicateur
+ * reçoivent la même période : la valeur expliquée est la valeur affichée.
+ */
 function ResultsTab({ form, canEdit, onGoConfig, onChanged, onGoMapping }) {
-  const { tr } = useI18n();
+  const { tr, lang } = useI18n();
   const toast = useToast();
   const [months, setMonths] = useState(null); // mois ayant des données : [{ month, submissions }]
-  const [month, setMonth] = useState(null);   // null = pas encore choisi ; '' = toutes les périodes
+  const [formLatest, setFormLatest] = useState(undefined); // dernier mois de la fiche : undefined = en attente
   const [data, setData] = useState(null);
   const [edit, setEdit] = useState(null);     // indicateur à modifier | {} (création) | null
 
   // Période par défaut : le dernier mois qui a des données (jamais un mois courant vide présenté comme tel).
   useEffect(() => {
     let alive = true;
-    setMonths(null); setMonth(null);
+    setMonths(null);
     api.monFormMonths(form.id)
-      .then((r) => { if (alive) { setMonths(r.months || []); setMonth(r.latest || ''); } })
-      .catch(() => { if (alive) { setMonths([]); setMonth(''); } });
+      .then((r) => { if (alive) { setMonths(r.months || []); setFormLatest(r.latest ? single(r.latest) : null); } })
+      .catch(() => { if (alive) { setMonths([]); setFormLatest(null); } });
     return () => { alive = false; };
   }, [form.id]);
+  const { period, ready, source, setPeriod, resetToDefault } = usePeriod({
+    scope: 'analysis', defaultRule: 'custom', customDefault: formLatest, maxSpan: RESULTS_MAX_SPAN,
+  });
+  const key = period ? `${period.from}|${period.to}` : 'all';
 
   async function reload() {
-    try { setData(await api.monDashboard(form.id, month || undefined)); }
-    catch (e) { toast.error(e.message); setData({ coverage: {}, byBureau: [], indicators: [], overallIndex: null }); }
+    try {
+      setData(await api.monDashboard(form.id, period));
+      try { if (typeof performance !== 'undefined' && performance.mark) performance.mark('period:rendered'); } catch { /* sans incidence */ }
+    } catch (e) { toast.error(e.message); setData({ coverage: {}, byBureau: [], indicators: [], overallIndex: null }); }
   }
-  useEffect(() => { if (month === null) return; setData(null); reload(); /* eslint-disable-next-line */ }, [form.id, month]);
+  useEffect(() => { if (!ready) return; setData(null); reload(); /* eslint-disable-next-line */ }, [form.id, ready, key]);
 
   const cov = data?.coverage || {};
-  const periodLabel = month ? monthLabel(month) : tr('Toutes les périodes');
-  const periodControl = (
-    <>
-      <label className="ind-period">{tr('Période')} <MonthSelect allowAll value={month || ''} onChange={setMonth}
-        options={(months || []).map((m) => m.month)} counts={Object.fromEntries((months || []).map((m) => [m.month, m.submissions]))} /></label>
-    </>
+  const periodLabel = period ? labelOfPeriod(period, lang) : tr('Toutes les périodes');
+  const counts = useMemo(() => Object.fromEntries((months || []).map((m) => [m.month, m.submissions])), [months]);
+  const periodControl = ready && (
+    <span className="ind-period">{tr('Période')} <PeriodSelect compact allowAll value={period} onChange={setPeriod}
+      counts={counts} latest={formLatest ? formLatest.to : null} maxSpan={RESULTS_MAX_SPAN} /></span>
   );
   const editor = edit && (
-    <IndicatorEditor form={form} indicator={edit.id ? edit : null} period={month || ''} canEdit={canEdit}
+    <IndicatorEditor form={form} indicator={edit.id ? edit : null} period={period} canEdit={canEdit}
       onClose={() => setEdit(null)} onSaved={() => { setEdit(null); reload(); onChanged?.(); }} />
   );
 
@@ -857,15 +874,16 @@ function ResultsTab({ form, canEdit, onGoConfig, onChanged, onGoMapping }) {
   }
   return (
     <div className="section-gap">
+      <SessionPeriodNote source={source} onReset={resetToDefault} />
       <Stats items={[
         { label: tr('Soumissions'), value: cov.submissions ?? 0, foot: tr('{period} · {n} bureau(x)', { period: periodLabel, n: cov.fieldOffices ?? 0 }) },
-        { label: tr('Sites suivis'), value: cov.sites ?? 0, foot: tr('sites distincts') },
+        { label: tr('Sites suivis'), value: cov.sites ?? 0, foot: tr('sites (données) distincts sur la période') },
         { label: tr('Agents'), value: cov.agents ?? 0, foot: tr('{n} prestataire(s)', { n: cov.partners ?? 0 }) },
         { label: tr('Indice moyen'), value: data.overallIndex == null ? '—' : data.overallIndex, suffix: data.overallIndex == null ? '' : '%', foot: tr('moyenne des indicateurs %') },
       ]} />
       <IndicatorsList indicators={data.indicators} moduleLabel={form.label} toolbarExtra={periodControl}
         canEdit={canEdit} onCreate={() => setEdit({})} onEdit={(i) => setEdit(i)}
-        formId={form.id} period={month || ''} periodLabel={periodLabel} />
+        formId={form.id} period={period} periodLabel={periodLabel} />
       {editor}
       {data.byBureau?.length > 0 && (
         <Card aria-label={tr('Par bureau')}>

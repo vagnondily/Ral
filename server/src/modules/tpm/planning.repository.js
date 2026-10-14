@@ -1,4 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
+const { toPeriod } = require('../common/period');
+const { monthWithin } = require('../common/periodSql');
 const { normalizeItems, summarize } = require('./reportMath');
 const { assertItemActivities } = require('./activityRefs');
 const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
@@ -79,11 +81,13 @@ const FROM = `
   JOIN partners pa ON pa.id = p.partner_id
   JOIN contracts c ON c.id = p.contract_id`;
 
-async function listPlans(tenantId, { month, contractId } = {}) {
+/** Plans de collecte, filtrés par période ({ from, to } | null ; l'ancien { month } reste lu) et contrat. */
+async function listPlans(tenantId, { period, month, contractId } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId];
     const where = ['p.tenant_id = $1'];
-    if (month) { params.push(`${month.slice(0, 7)}-01`); where.push(`p.period_month = $${params.length}`); }
+    const pr = period !== undefined ? period : toPeriod({ month });
+    if (pr) where.push(monthWithin('p.period_month', pr, params));
     if (contractId) { params.push(contractId); where.push(`p.contract_id = $${params.length}`); }
     const { rows } = await client.query(
       `SELECT ${HEAD},

@@ -122,8 +122,11 @@ test('aperçu du calcul : lecture pour tout utilisateur, période transmise, mé
     .send({ sourceField: 'MOInfoSession', positiveValue: '1', naValues: ['9999'], month: '2026-07' });
   assert.equal(res.status, 200);
   assert.deepEqual(last().def, { agg: 'percent_yes', sourceField: 'MOInfoSession', positiveValue: '1', naValues: ['9999'] });
-  assert.deepEqual(last().period, { month: '2026-07', from: undefined, to: undefined });
-  assert.equal((await request(app).post(`/api/monitoring/forms/${FORM}/indicators/preview`).set(as(viewer)).send({ sourceField: 'q', month: '07/2026' })).status, 400);
+  // Période commune (lot 1b) : { month } hérité ≡ { from, to } d'un mois.
+  assert.deepEqual(last().period, { from: '2026-07', to: '2026-07' });
+  const bad = await request(app).post(`/api/monitoring/forms/${FORM}/indicators/preview`).set(as(viewer)).send({ sourceField: 'q', month: '07/2026' });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.body.details.code, 'period_format');
   assert.equal((await request(app).post(`/api/monitoring/forms/${FORM}/indicators/preview`).set(as(viewer)).send({ agg: 'mean' })).status, 400);
 });
 

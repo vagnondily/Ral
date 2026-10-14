@@ -93,3 +93,101 @@ test('buildCoverageMatrix shapes 12-month rows per group with group/month/global
   // tri par réalisées décroissantes : Cantines (4) avant PREVMA (2)
   assert.equal(m.groups[0].key, 'Cantines');
 });
+
+// ---- Lot 1b : résumé sur une plage (faits site × mois) ------------------------------
+const { shapeRangeSummary } = require('../src/modules/tpm/fieldMath');
+const { fieldAlerts } = require('../src/modules/dashboards/alertsMath');
+
+// Visites d'un mois (septembre 2026) : prestataires, sites, statuts — dont une ligne en double du même site × mois.
+const SEPT = [
+  ...Array.from({ length: 9 }, (_, i) => ({ status: i < 2 ? 'planifie' : 'realise', providerId: 'p1', providerName: 'YPA', siteId: `a${i}` })),
+  ...Array.from({ length: 6 }, (_, i) => ({ status: i < 4 ? 'planifie' : 'realise', providerId: 'p2', providerName: 'SAHY', siteId: `b${i}` })),
+  { status: 'annule', providerId: 'p2', providerName: 'SAHY', siteId: 'b9' },
+  ...Array.from({ length: 3 }, (_, i) => ({ status: 'planifie', providerId: null, siteId: `c${i}` })),
+  { status: 'realise', providerId: 'p1', providerName: 'YPA', siteId: 'a0' }, // a0 : 2 lignes (planifiée + réalisée) ce mois
+];
+// Ce que rendent les deux requêtes SQL sur ces visites : faits (ligne « overall ») et prestataires.
+const count = (list, st) => list.filter((v) => v.status === st).length;
+function sqlRows(visits) {
+  const providers = new Map();
+  for (const v of visits) {
+    const k = v.providerId || 'non_affecte';
+    if (!providers.has(k)) providers.set(k, { key: k, label: v.providerName || null, list: [] });
+    providers.get(k).list.push(v);
+  }
+  const bySite = new Map();
+  for (const v of visits) { if (!bySite.has(v.siteId)) bySite.set(v.siteId, []); bySite.get(v.siteId).push(v.status); }
+  const collapsed = [...bySite.values()].map((st) => (st.includes('realise') ? 'realise' : st.includes('planifie') ? 'planifie' : 'annule'));
+  const sm = (st) => collapsed.filter((x) => x === st).length;
+  const overall = {
+    dim: 'overall', key: null, planifie: count(visits, 'planifie'), realise: count(visits, 'realise'), annule: count(visits, 'annule'),
+    sitesActive: 100, sitesPlanned: sm('planifie') + sm('realise'), sitesRealised: sm('realise'), sitesRealisedInactive: 0,
+    smPlanifie: sm('planifie'), smRealise: sm('realise'), smAnnule: sm('annule'), duePlanifie: sm('planifie'), dueRealise: sm('realise'), upcoming: 0,
+  };
+  const prov = [...providers.values()].map((p) => ({
+    key: p.key, label: p.label, planifie: count(p.list, 'planifie'), realise: count(p.list, 'realise'), annule: count(p.list, 'annule'),
+    sitesPlanned: new Set(p.list.filter((v) => v.status !== 'annule').map((v) => v.siteId)).size,
+    sitesRealised: new Set(p.list.filter((v) => v.status === 'realise').map((v) => v.siteId)).size,
+  }));
+  return { groups: [overall, { ...overall, dim: 'month', key: '2026-09', known: false }], prov };
+}
+const legacyOf = ({ key, label, planifie, realise, annule, total, active, rate }) => ({ key, label, planifie, realise, annule, total, active, rate });
+
+test('plage d\'un mois : champs hérités du total et des prestataires identiques à summarizeVisits', () => {
+  const old = summarizeVisits(SEPT, { p1: 'YPA', p2: 'SAHY' });
+  const { groups, prov } = sqlRows(SEPT);
+  const s = shapeRangeSummary(groups, prov);
+  assert.deepEqual(legacyOf({ key: undefined, label: undefined, ...s.overall }), legacyOf({ key: undefined, label: undefined, ...old.overall }));
+  const byKey = (a, b) => a.key.localeCompare(b.key);
+  assert.deepEqual(s.byProvider.map(legacyOf).sort(byKey), old.byProvider.map(legacyOf).sort(byKey));
+  // Sites distincts et visites site × mois en plus : a0 (2 lignes) compte une fois.
+  assert.deepEqual(s.overall.visits, { planned: 18, realised: 10, cancelled: 1, upcoming: 0 });
+  assert.deepEqual([s.overall.planifie, s.overall.realise], [9, 10], 'lignes de visites : sens hérité inchangé (a0 compte 2 lignes)');
+  assert.deepEqual(s.byProvider.find((p) => p.key === 'p1').sites, { planned: 9, realised: 8 });
+  assert.equal(s.byProvider.find((p) => p.key === 'non_affecte').label, 'Non affecté');
+  assert.equal(s.activationKnown, false);
+});
+
+test('alertes terrain identiques avec l\'ancien et le nouveau résumé du même mois', () => {
+  const old = summarizeVisits(SEPT, { p1: 'YPA', p2: 'SAHY' });
+  const { groups, prov } = sqlRows(SEPT);
+  const alertsOld = fieldAlerts(old);
+  assert.ok(alertsOld.some((a) => a.kind === 'provider_late'), 'le cas couvre un retard de prestataire');
+  assert.ok(alertsOld.some((a) => a.kind === 'visits_unassigned'), 'et des visites non affectées');
+  assert.deepEqual(fieldAlerts(shapeRangeSummary(groups, prov)), alertsOld);
+});
+
+test('taux : couverture et planification sur les sites actifs, exécution null sans visite (« — aucun plan »)', () => {
+  const empty = shapeRangeSummary([{ dim: 'overall', sitesActive: 40 }], []);
+  assert.deepEqual([empty.overall.coverage, empty.overall.planning, empty.overall.execution, empty.overall.rate], [0, null, null, 0]);
+  assert.deepEqual(empty.byOffice, []);
+  const none = shapeRangeSummary([{ dim: 'overall' }], []);
+  assert.equal(none.overall.coverage, null, 'aucun site actif : « — »');
+  const s = shapeRangeSummary([
+    { dim: 'overall', sitesActive: 208, sitesPlanned: 183, sitesRealised: 170, sitesRealisedInactive: 2, duePlanifie: 13, dueRealise: 170, smPlanifie: 13, smRealise: 170, planifie: 13, realise: 170 },
+    { dim: 'district', key: 'ambovombe', districtLabel: 'Ambovombe', planifie: 0, realise: 0, sitesActive: 50 },
+    { dim: 'office', key: '—', planifie: 2, realise: 1, sitesActive: 3 },
+  ], []);
+  assert.equal(s.overall.planning.toFixed(3), '0.880');
+  assert.equal(s.overall.coverage.toFixed(3), '0.817');
+  assert.deepEqual(s.overall.sites, { active: 208, planned: 183, realised: 170, realisedInactive: 2 });
+  assert.deepEqual(s.byDistrict, [], 'groupe sans visite : absent des tableaux hérités, comme avant');
+  assert.equal(s.byOffice[0].label, 'Sans bureau');
+});
+
+test('série mensuelle : un mois par ligne, triée, avec l\'état de la grille d\'activation', () => {
+  const s = shapeRangeSummary([
+    { dim: 'month', key: '2026-02', known: true, sitesActive: 10, sitesRealised: 5, smRealise: 5, dueRealise: 5 },
+    { dim: 'month', key: '2026-01', known: false, sitesActive: 12 },
+  ], []);
+  assert.deepEqual(s.monthly.map((m) => [m.month, m.activationKnown, m.sitesActive, m.coverage]), [['2026-01', false, 12, 0], ['2026-02', true, 10, 0.5]]);
+  assert.equal(s.activationKnown, false, 'un mois sans grille : activation non connue sur la période');
+});
+
+test('matrice de couverture : colonnes = mois d\'une période (au lieu d\'une année)', () => {
+  const m = buildCoverageMatrix([{ month: '2025-12', key: 'A', label: 'A', planifie: 1, realise: 2 }], ['2025-11', '2025-12', '2026-01']);
+  assert.deepEqual(m.months, ['2025-11', '2025-12', '2026-01']);
+  assert.equal(m.year, null);
+  assert.equal(m.groups[0].cells[1].realise, 2);
+  assert.equal(buildCoverageMatrix([], 2026).months.length, 12);
+});

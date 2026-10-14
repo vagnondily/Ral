@@ -1,4 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
+const { toPeriod } = require('../common/period');
+const { spanOverlaps } = require('../common/periodSql');
 const {
   decisionError, submitError, editError, notApplicableError, DECIDABLE, SUBMITTABLE,
 } = require('./reportWorkflow');
@@ -107,11 +109,20 @@ async function insertItems(client, tenantId, reportId, items) {
   return clean;
 }
 
-async function listReports(tenantId, { month, partnerId, contractId } = {}) {
+/**
+ * Rapports du tenant, filtrés par prestataire, contrat et période (lot 1b).
+ * `period` ({ from, to } | null ; l'ancien { month } reste lu) : un rapport est
+ * retenu si [period_month, COALESCE(period_end, period_month)] CHEVAUCHE la
+ * période — une facture pluri-mensuelle apparaît dans chaque période qu'elle
+ * touche. Son montant reste compté au mois de period_month (consolidation,
+ * « Réalisé validé ») : la liste montre, la somme ne double jamais.
+ */
+async function listReports(tenantId, { period, month, partnerId, contractId } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId];
     const where = ['r.tenant_id = $1'];
-    if (month) { params.push(`${month.slice(0, 7)}-01`); where.push(`r.period_month = $${params.length}`); }
+    const p = period !== undefined ? period : toPeriod({ month });
+    if (p) where.push(spanOverlaps('r.period_month', 'r.period_end', p, params));
     if (partnerId) { params.push(partnerId); where.push(`r.partner_id = $${params.length}`); }
     if (contractId) { params.push(contractId); where.push(`r.contract_id = $${params.length}`); }
     const { rows } = await client.query(

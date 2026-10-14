@@ -16,6 +16,8 @@ import { formatUsdFor } from '../../lib/currency.js';
 import { REPORT_KIND, REPORT_STATUS, richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { downloadCsv } from '../../lib/csv.js';
+import { overlaps, periodFromSaved, periodLabel, single } from '../../lib/period.js';
+import PeriodSelect from '../../components/PeriodSelect.jsx';
 
 const STATUSES = [
   { id: '', label: 'Tous les statuts' },
@@ -28,11 +30,13 @@ const PAGE_SIZE = 12;
 const viewStore = makeViewStore('mems.reports.view');
 
 // Filtres disponibles (seuls les filtres cochés s'affichent et s'appliquent).
-// La « Période » remplace l'ancien sélecteur de mois en haut de page : elle vit
-// dans la barre de filtres COMET, comme les autres filtres.
+// La « Période » (lot 1b : plage de mois { from, to }, '' = toutes) vit dans la barre de
+// filtres COMET : un rapport est montré si sa période [mois, fin] CHEVAUCHE la plage
+// (facture pluri-mensuelle comprise) ; le « Réalisé validé » ne somme que les factures dont
+// le mois de début tombe dans la plage — la règle de la consolidation, jamais un double compte.
 const FILTERS = {
   q:        { label: 'Recherche', type: 'search', ph: 'Prestataire, contrat, facture, réf…' },
-  period:   { label: 'Période', type: 'select' },
+  period:   { label: 'Période', type: 'period' },
   partnerId: { label: 'Prestataire', type: 'select' },
   contractId: { label: 'Contrat', type: 'select' },
   kind:     { label: 'Type', type: 'select' },
@@ -60,10 +64,13 @@ const COLUMNS = {
 const ALL_COLUMNS = Object.keys(COLUMNS);
 const DEFAULT_COLUMNS = ['partner', 'contract', 'period', 'kind', 'invoiceNo', 'planned', 'reported', 'status'];
 
-const emptyValues = () => ({ q: '', period: currentMonth(), partnerId: '', contractId: '', kind: '', status: '' });
+const emptyValues = () => ({ q: '', period: single(currentMonth()), partnerId: '', contractId: '', kind: '', status: '' });
+// Vue enregistrée : une ancienne période « AAAA-MM » est relue comme { from: v, to: v }, jamais rejetée.
+const readSaved = (values) => ({ ...values, period: periodFromSaved(values.period) });
+const inPeriod = (p, month) => !p || (!!month && String(month).slice(0, 7) >= p.from && String(month).slice(0, 7) <= p.to);
 
 export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
-  const { tr } = useI18n();
+  const { tr, lang } = useI18n();
   const toast = useToast();
   const [context, setContext] = useState(null);
   const [reports, setReports] = useState(null);
@@ -77,7 +84,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
   const [genOpen, setGenOpen] = useState(false); // modale génération mensuelle
 
   const saved = viewStore.initial();
-  const [values, setValues] = useState(() => ({ ...emptyValues(), ...(saved?.values || {}) }));
+  const [values, setValues] = useState(() => readSaved({ ...emptyValues(), ...(saved?.values || {}) }));
   const [shownFilters, setShownFilters] = useState(() => saved?.shownFilters || DEFAULT_FILTERS);
   const [columns, setColumns] = useState(() => saved?.columns || DEFAULT_COLUMNS);
   const [sort, setSort] = useState(() => saved?.sort || { key: 'partner', dir: 'asc' });
@@ -88,9 +95,10 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
   const filterMenu = usePopover();
   const colMenu = usePopover();
 
-  // Mois de référence (création de facture, fil guidé, stats du mois) = la
-  // période choisie dans la barre de filtres, sinon le mois courant.
-  const month = (values.period && /^\d{4}-\d{2}/.test(values.period)) ? values.period.slice(0, 7) : currentMonth();
+  // Mois de référence (fil guidé, conversion en USD) = le DERNIER mois de la période
+  // choisie dans la barre de filtres (« Fil du mois de {to} »), sinon le mois courant.
+  const period = values.period && values.period.from ? values.period : null;
+  const month = period ? period.to : currentMonth();
 
   async function reload() {
     setError(null);
@@ -112,7 +120,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
     let intent = null;
     try { const raw = sessionStorage.getItem('mems.tpm.newFacture'); if (raw) { intent = JSON.parse(raw); sessionStorage.removeItem('mems.tpm.newFacture'); } } catch { /* ignore */ }
     if (!intent) return;
-    if (intent.month) setValues((s) => ({ ...s, period: intent.month }));
+    if (intent.month) setValues((s) => ({ ...s, period: single(String(intent.month).slice(0, 7)) }));
     setFacture({ kind: 'financier', initial: { partnerId: intent.partnerId, contractId: intent.contractId }, autoPrefill: true });
   }, []);
 
@@ -138,7 +146,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       if (!v) return true;
       switch (k) {
         case 'q': { const q = v.toLowerCase(); return [r.partnerName, r.contractPartner, r.contractNumero, r.reference, r.invoiceNo].some((x) => x && String(x).toLowerCase().includes(q)); }
-        case 'period': return (r.periodMonth || '').slice(0, 7) === v;
+        case 'period': return overlaps(v, r.periodMonth, r.periodEnd);
         case 'partnerId': return r.partnerId === v;
         case 'contractId': return r.contractId === v;
         case 'kind': return r.kind === v;
@@ -158,15 +166,17 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
     });
   }, [reports, values, shown, sort]);
 
-  // Stats = reflet des lignes affichées (filtres actifs, période comprise).
+  // Stats = reflet des lignes affichées (filtres actifs, période comprise). « Réalisé validé » :
+  // factures validées comptées au mois de leur début (period_month), comme la consolidation.
+  const periodShown = shown.includes('period') ? period : null;
   const stats = useMemo(() => {
     const fin = filtered.filter((r) => r.kind === 'financier');
     return {
       total: filtered.length, tech: filtered.filter((r) => r.kind === 'technique').length,
-      justified: fin.filter((r) => r.status === 'valide').reduce((n, r) => n + (r.reportedAmount || 0), 0),
+      justified: fin.filter((r) => r.status === 'valide' && inPeriod(periodShown, r.periodMonth)).reduce((n, r) => n + (r.reportedAmount || 0), 0),
       pending: filtered.filter((r) => r.status === 'soumis').length,
     };
-  }, [filtered]);
+  }, [filtered, periodShown]);
 
   const sig = JSON.stringify({ values, shownFilters, sort });
   useEffect(() => { setPage(1); /* eslint-disable-next-line */ }, [sig]);
@@ -182,16 +192,19 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
   function currentPayload() { return { values, shownFilters, columns, sort }; }
   function resetView() { setValues(emptyValues()); viewStore.clear(); toast.info(tr('Filtres réinitialisés.')); }
 
-  // Périodes disponibles = mois présents dans les rapports (+ le mois courant).
-  const periodOptions = useMemo(() => {
-    const set = new Set([currentMonth()]);
-    for (const r of reports || []) if (r.periodMonth) set.add(String(r.periodMonth).slice(0, 7));
-    return [...set].sort().reverse();
+  // Rapports par mois (sélecteur de période : volume par mois, dernier mois avec des rapports).
+  const reportCounts = useMemo(() => {
+    const out = {};
+    for (const r of reports || []) if (r.periodMonth) { const m = String(r.periodMonth).slice(0, 7); out[m] = (out[m] || 0) + 1; }
+    return out;
   }, [reports]);
+  const latestReport = useMemo(() => {
+    const ms = Object.keys(reportCounts).filter((m) => m <= currentMonth()).sort();
+    return ms.length ? ms[ms.length - 1] : null;
+  }, [reportCounts]);
 
   function optionsFor(k) {
     switch (k) {
-      case 'period': return [{ id: '', label: tr('Toutes les périodes') }, ...periodOptions.map((m) => ({ id: m, label: monthLabel(m) }))];
       case 'partnerId': return [{ id: '', label: tr('Tous les prestataires') }, ...(context?.partners || []).map((p) => ({ id: p.id, label: p.name }))];
       case 'contractId': return [{ id: '', label: tr('Tous les contrats') }, ...(context?.contracts || []).map((c) => ({ id: c.id, label: `${c.partnerName} · ${c.numero}` }))];
       case 'kind': return KINDS.map((o) => ({ ...o, label: tr(o.label) }));
@@ -244,14 +257,22 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
         default: return '';
       }
     };
-    downloadCsv(`rapports_${month}.csv`, [head, ...filtered.map((r) => cols.map((k) => cell(r, k)))]);
+    downloadCsv(`rapports_${periodShown ? `${periodShown.from}_${periodShown.to}` : 'toutes-periodes'}.csv`, [head, ...filtered.map((r) => cols.map((k) => cell(r, k)))]);
   }
 
   function renderCell(r, k) {
     switch (k) {
       case 'partner': return <strong>{r.partnerName}</strong>;
       case 'contract': return <><button type="button" className="link-cell" onClick={(e) => { e.stopPropagation(); onOpenContract(r.contractId); }}>{r.contractPartner}</button><div className="site-meta mono">{r.contractNumero}</div></>;
-      case 'period': return <span className="tabular">{r.periodMonth ? monthLabel(String(r.periodMonth).slice(0, 7)) : '—'}{r.periodEnd ? <div className="site-meta">→ {monthLabel(String(r.periodEnd).slice(0, 7))}</div> : null}</span>;
+      case 'period': return (
+        <span className="tabular">{r.periodMonth ? monthLabel(String(r.periodMonth).slice(0, 7)) : '—'}
+          {r.periodEnd ? <div className="site-meta">→ {monthLabel(String(r.periodEnd).slice(0, 7))}</div> : null}
+          {/* Facture pluri-mensuelle qui commence avant la période : montrée, comptée au mois de son début. */}
+          {periodShown && r.periodMonth && !inPeriod(periodShown, r.periodMonth) && (
+            <div className="site-meta text-warn">{tr('comptée en {m}', { m: monthLabel(String(r.periodMonth).slice(0, 7)) })}</div>
+          )}
+        </span>
+      );
       case 'kind': return <Badge tone={REPORT_KIND[r.kind].tone}>{tr(REPORT_KIND[r.kind].label)}</Badge>;
       case 'planned': return r.plannedAmount != null ? money(r.plannedAmount, r.periodMonth) : <span className="cell-empty">—</span>;
       case 'reported': return r.kind === 'financier' ? money(r.reportedAmount || 0, r.periodMonth) : <span className="cell-empty">—</span>;
@@ -271,7 +292,10 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
     return (
       <div key={k} className="cfilter">
         <span className="cfilter-label">{tr(f.label)}</span>
-        {f.type === 'search' ? (
+        {f.type === 'period' ? (
+          <PeriodSelect compact allowAll value={values.period || null} onChange={(p) => setVal('period', p || '')}
+            counts={reportCounts} latest={latestReport} ariaLabel={tr(f.label)} />
+        ) : f.type === 'search' ? (
           <span className="input-wrap"><Search size={16} aria-hidden="true" />
             <input className="input" type="search" placeholder={tr(f.ph)} value={values[k]} onChange={(e) => setVal(k, e.target.value)} />
           </span>
@@ -302,8 +326,10 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
         onNewFacture={canEdit ? () => setFacture({ kind: 'financier' }) : undefined} />
 
       <Stats items={[
-        { label: tr('Rapports du mois'), value: reports ? stats.total : '—', foot: tr('{n} technique(s)', { n: stats.tech }) },
-        { label: tr('Réalisé validé'), value: reports ? (currency === 'USD' ? formatUsdFor(stats.justified, rates, `${month}-01`) : formatInt(stats.justified)) : '—', suffix: currency === 'USD' ? '' : 'Ar', foot: tr('Financiers validés') },
+        { label: periodShown ? tr('Rapports de la période') : tr('Rapports'), value: reports ? stats.total : '—',
+          foot: periodShown ? `${periodLabel(periodShown, lang)} · ${tr('{n} technique(s)', { n: stats.tech })}` : tr('{n} technique(s)', { n: stats.tech }) },
+        { label: tr('Réalisé validé'), value: reports ? (currency === 'USD' ? formatUsdFor(stats.justified, rates, `${month}-01`) : formatInt(stats.justified)) : '—', suffix: currency === 'USD' ? '' : 'Ar',
+          foot: periodShown ? tr('Financiers validés, comptés au mois de début') : tr('Financiers validés') },
         { label: tr('En attente'), value: reports ? stats.pending : '—', foot: tr('Statut « soumis »') },
         { label: tr('Contrats suivis'), value: context ? context.contracts.length : '—', foot: tr('Avec budget Suivi/TPM') },
       ]} />
@@ -455,6 +481,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
  */
 function GuidedFlow({ flow, month, ready, onNavigate, onNewFacture }) {
   const { tr } = useI18n();
+  const title = tr('Fil du mois de {m}', { m: monthLabel(month) });
   const steps = [
     {
       key: 'plan', n: 1, icon: Wallet, label: tr('Plan validé'),
@@ -486,6 +513,8 @@ function GuidedFlow({ flow, month, ready, onNavigate, onNewFacture }) {
     },
   ];
   return (
+    <>
+    <div className="flow-title">{title}</div>
     <div className="flow" aria-label={tr('Fil guidé du rapportage — {month}', { month: monthLabel(month) })}>
       {steps.map((s, i) => {
         const Icon = s.icon;
@@ -505,6 +534,7 @@ function GuidedFlow({ flow, month, ready, onNavigate, onNewFacture }) {
         );
       })}
     </div>
+    </>
   );
 }
 

@@ -41,6 +41,17 @@ test('libellé de période', () => {
   assert.equal(periodLabel({ from: '2026-08', to: '2026-08' }, 'en'), 'August 2026');
   assert.equal(periodLabel({ from: '2026-01', to: '2026-12' }, 'en'), 'Year 2026');
   assert.equal(periodLabel({ from: '2025-10', to: '2026-03' }, 'en'), 'October 2025 to March 2026');
+  // Réexporté depuis common/period : un seul libellé de période côté serveur.
+  assert.equal(periodLabel, require('../src/modules/common/period').periodLabel);
+});
+
+test('période du document : 60 mois au plus (même plafond que partout), années bornées', () => {
+  const base = { title: 'X', blocks: [] };
+  assert.equal(safeParseReport({ ...base, period: { from: '2021-01', to: '2025-12' } }).success, true);
+  const long = safeParseReport({ ...base, period: { from: '2021-01', to: '2026-01' } });
+  assert.equal(long.success, false);
+  assert.match(long.error.issues[0].message, /60 mois au plus \(demandé : 61\)/);
+  assert.equal(safeParseReport({ ...base, period: { from: '1999-01', to: '2000-01' } }).success, false);
 });
 
 test('variables et besoins en données (dédupliqués)', () => {

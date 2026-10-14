@@ -22,8 +22,9 @@ const SUBMITTED = {
 let fieldFails = false;
 consolidationRepo.consolidation = async () => ({ rows: [] });
 contractsService.listContracts = async () => [];
-reportsRepo.listReports = async () => [SUBMITTED];
-fieldRepo.summary = async () => { if (fieldFails) throw new Error('base indisponible'); return { overall: { active: 0, rate: null }, byProvider: [] }; };
+const seen = { reports: [], field: [] };
+reportsRepo.listReports = async (tenantId, opts) => { seen.reports.push(opts); return [SUBMITTED]; };
+fieldRepo.summary = async (tenantId, opts) => { seen.field.push(opts); if (fieldFails) throw new Error('base indisponible'); return { overall: { active: 0, rate: null }, byProvider: [] }; };
 
 const TODAY = { today: '2026-10-13' };
 const reportAlerts = (out) => out.items.filter((a) => a.cat === 'Rapports');
@@ -47,4 +48,18 @@ test('source illisible : signalée dans `unavailable`, les autres alertes resten
     assert.deepEqual(out.unavailable, ['terrain']);
     assert.equal(reportAlerts(out).length, 1);
   } finally { fieldFails = false; }
+});
+
+test('sans période (la cloche) : terrain du mois courant, tous les rapports ; avec une période : les deux filtrés', async () => {
+  seen.reports.length = 0; seen.field.length = 0;
+  const bell = await alerts({ tenantId: 't', userId: 'u2', role: 'admin' }, TODAY);
+  assert.deepEqual(seen.field[0], { period: { from: '2026-10', to: '2026-10' } });
+  assert.deepEqual(seen.reports[0], {});
+  assert.deepEqual(bell.period, { from: '2026-10', to: '2026-10', months: 1 });
+  assert.equal(bell.month, '2026-10');
+  const page = await alerts({ tenantId: 't', userId: 'u2', role: 'admin' }, { ...TODAY, period: { from: '2026-01', to: '2026-06' } });
+  assert.deepEqual(seen.field[1], { period: { from: '2026-01', to: '2026-06' } });
+  assert.deepEqual(seen.reports[1], { period: { from: '2026-01', to: '2026-06' } });
+  assert.deepEqual(page.period, { from: '2026-01', to: '2026-06', months: 6 });
+  assert.equal(page.items.find((a) => a.cat === 'Rapports').scope, 'periode');
 });

@@ -4,6 +4,8 @@ import {
   Filter, Layers, ListChecks, Map as MapIcon, PauseCircle, Plus, RotateCcw, Save, Search, ShieldAlert, Upload, X,
 } from 'lucide-react';
 import L from 'leaflet';
+import { TILES_URL, probeTiles } from '../../components/map/TileUnderlay.jsx';
+import { loadGeo } from '../../components/map/useMapData.js';
 import 'leaflet/dist/leaflet.css';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, Field, Skeleton, Stats } from '../../components/ui.jsx';
@@ -445,7 +447,7 @@ function VisitedTable({ rows, year, selected, onSelect, allSelected, onSelectAll
   );
 }
 
-/* ------------------------------------------------------------- Carte (fond libre, sans clé d'API) */
+/* ------------------------------------------------------------- Carte (fond vectoriel hors ligne ; OSM facultatif) */
 const TONE_COLOR = { ok: '#0f7b40', warn: '#c77700', bad: '#d13438', na: '#8b93a1' };
 
 function PlanMap({ sites }) {
@@ -453,6 +455,11 @@ function PlanMap({ sites }) {
   const el = useRef(null);
   const map = useRef(null);
   const layer = useRef(null);
+  const outlines = useRef(null);
+  const tileLayer = useRef(null);
+  const probeSeq = useRef(0);
+  // Fond en ligne : éteint par défaut (lot 6a) ; false · 'probing' · true.
+  const [tiles, setTiles] = useState(false);
   const [tilesDown, setTilesDown] = useState(false);
   const placed = sites.filter((s) => s.mapLat != null && s.mapLng != null);
   const approx = placed.filter((s) => s.geo !== 'gps').length;
@@ -460,13 +467,44 @@ function PlanMap({ sites }) {
   useEffect(() => {
     if (!el.current || map.current) return undefined;
     map.current = L.map(el.current, { zoomControl: true, preferCanvas: true }).setView([-19, 46.8], 6);
-    let errors = 0;
-    const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap' });
-    // Fond indisponible (hors ligne, réseau filtré) : on retire les tuiles, les points restent lisibles.
-    tiles.on('tileerror', () => { errors += 1; if (errors === 4) { map.current.removeLayer(tiles); setTilesDown(true); } });
-    tiles.addTo(map.current);
-    return () => { map.current.remove(); map.current = null; };
+    // Fond hors ligne : contours des districts embarqués (mêmes que la carte du suivi), sous les points.
+    map.current.createPane('mems-outlines').style.zIndex = 350;
+    let alive = true;
+    loadGeo().then((geo) => {
+      if (!alive || !map.current) return;
+      const css = getComputedStyle(document.documentElement);
+      const tok = (n, d) => css.getPropertyValue(n).trim() || d;
+      outlines.current = L.geoJSON(geo, {
+        pane: 'mems-outlines', interactive: false,
+        style: { color: tok('--map-line', '#b9c0cc'), weight: 0.8, fillColor: tok('--map-empty', '#eef1f5'), fillOpacity: 1 },
+      }).addTo(map.current);
+    }).catch(() => { /* contours absents : les points restent lisibles */ });
+    return () => { alive = false; probeSeq.current += 1; map.current.remove(); map.current = null; };
   }, []);
+
+  // Fond OpenStreetMap seulement après UNE tuile sonde réussie : hors connexion, jamais de rafale
+  // de tuiles en échec ; une erreur de tuile ensuite coupe la couche.
+  const toggleTiles = async (on) => {
+    const seq = probeSeq.current + 1; probeSeq.current = seq;
+    setTilesDown(false);
+    const drop = () => {
+      if (tileLayer.current && map.current) map.current.removeLayer(tileLayer.current);
+      tileLayer.current = null;
+      if (outlines.current) outlines.current.setStyle({ fillOpacity: 1 });
+    };
+    if (!on) { drop(); setTiles(false); return; }
+    setTiles('probing');
+    const ok = await probeTiles();
+    if (probeSeq.current !== seq || !map.current) return;
+    if (!ok) { setTiles(false); setTilesDown(true); return; }
+    let errors = 0;
+    const layerT = L.tileLayer(TILES_URL, { maxZoom: 18, attribution: '© OpenStreetMap' });
+    layerT.on('tileerror', () => { errors += 1; if (errors === 4) { probeSeq.current += 1; drop(); setTiles(false); setTilesDown(true); } });
+    layerT.addTo(map.current);
+    tileLayer.current = layerT;
+    if (outlines.current) outlines.current.setStyle({ fillOpacity: 0 });
+    setTiles(true);
+  };
 
   useEffect(() => {
     if (!map.current) return;
@@ -502,10 +540,16 @@ function PlanMap({ sites }) {
         <strong>{tr('Visites réalisées / prévues')}</strong>
         {[['ok', tr('≥ 90 %')], ['warn', tr('50 à 90 %')], ['bad', tr('< 50 %')], ['na', tr('Aucune visite')]].map(([k, l]) => <span key={k}><i style={{ background: TONE_COLOR[k] }} />{l}</span>)}
         <span><i className="is-approx" />{tr('Position approximative')}</span>
+        {TILES_URL && (
+          <label className="pb-legend-check">
+            <input type="checkbox" checked={tiles !== false} disabled={tiles === 'probing'} onChange={(e) => toggleTiles(e.target.checked)} />
+            {tr('Fond OpenStreetMap (en ligne)')}
+          </label>
+        )}
       </div>
       <p className="hint pb-map-note">
         {tr('{n} site(s) placé(s) dont {a} approximatif(s) ; {m} sans position (ni GPS ni commune localisée).', { n: formatInt(placed.length), a: formatInt(approx), m: formatInt(sites.length - placed.length) })}
-        {tilesDown && ` ${tr('Fond de carte indisponible : points affichés sans fond.')}`}
+        {tilesDown && ` ${tr('Fond en ligne indisponible (hors connexion) : la carte reste complète sans fond')}`}
       </p>
     </div>
   );

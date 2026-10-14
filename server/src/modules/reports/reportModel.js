@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { periodLabel, periodSchema } = require('../common/period');
 
 /**
  * Concepteur de rapport — modèle PUR (testé, sans I/O).
@@ -113,7 +114,6 @@ const repeatBlock = z.object({
 });
 const block = z.union([leafBlock, repeatBlock]);
 
-const monthStr = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 const page = z.object({
   orientation: z.enum(['portrait', 'landscape']).default('portrait'),
   header: z.string().max(200).optional(), footer: z.string().max(200).optional(),
@@ -122,7 +122,8 @@ const page = z.object({
 
 const reportDoc = z.object({
   title: z.string().trim().min(1).max(200),
-  period: z.object({ from: monthStr, to: monthStr }).refine((p) => p.from <= p.to, 'Période : début après la fin'),
+  // Période du document : même règle que partout (ordre, années 2000-2100, 60 mois au plus).
+  period: periodSchema,
   page,
   blocks: z.array(block).max(200),
 }).superRefine((d, ctx) => {
@@ -142,22 +143,8 @@ const parseReport = (input) => reportDoc.parse(input);
 const safeParseReport = (input) => reportDoc.safeParse(input);
 
 // ---- Variables -------------------------------------------------------------------
-const MONTHS = {
-  fr: ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'],
-  en: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
-};
-/** Libellé de période dans la langue du rapport (fr par défaut, en). */
-function periodLabel({ from, to }, lang = 'fr') {
-  const en = lang === 'en';
-  const names = en ? MONTHS.en : MONTHS.fr;
-  const lab = (m) => { const [y, mm] = m.split('-').map(Number); return { y, name: names[mm - 1] }; };
-  const a = lab(from); const b = lab(to);
-  const cap = (s) => s[0].toUpperCase() + s.slice(1);
-  const sep = en ? 'to' : 'à';
-  if (from === to) return `${cap(a.name)} ${a.y}`;
-  if (a.y === b.y && from.endsWith('-01') && to.endsWith('-12')) return `${en ? 'Year' : 'Année'} ${a.y}`;
-  return a.y === b.y ? `${cap(a.name)} ${sep} ${b.name} ${a.y}` : `${cap(a.name)} ${a.y} ${sep} ${b.name} ${b.y}`;
-}
+// periodLabel (« Janvier à mai 2026 », « January to May 2026 ») vient de common/period
+// — un seul libellé de période pour le serveur, réexporté ici pour les appelants existants.
 
 /** Variables disponibles dans le texte : période + chiffres clés calculés. */
 const VARIABLES = {

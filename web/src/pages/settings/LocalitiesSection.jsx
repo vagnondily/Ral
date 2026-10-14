@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Download, Plus, Pencil, Trash2, Search, MapPinned, Globe2, Save, ChevronLeft, ChevronRight, Info, AlertTriangle, FileDown, Link2 } from 'lucide-react';
+import { Upload, Download, Plus, Pencil, Trash2, Search, MapPinned, Globe2, Save, ChevronLeft, ChevronRight, Info, AlertTriangle, FileDown, Link2, Map as MapIcon } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
@@ -8,6 +8,7 @@ import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, formatDateTime } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
 import PlaceMatchQueue from './PlaceMatchQueue.jsx';
+import MapShapesTab from './MapShapesTab.jsx';
 
 /**
  * Paramétrage › Localités : (1) pays & découpage — identité, vocabulaire des
@@ -15,9 +16,11 @@ import PlaceMatchQueue from './PlaceMatchQueue.jsx';
  * liste paginée côté serveur (≈ 19 000 unités), filtres en cascade, recherche,
  * export, création / modification / suppression.
  */
-export default function LocalitiesSection({ isAdmin, canEdit = isAdmin }) {
+const TABS = ['pays', 'repertoire', 'rapprocher', 'contours'];
+
+export default function LocalitiesSection({ isAdmin, canEdit = isAdmin, initialTab }) {
   const { tr } = useI18n();
-  const [tab, setTab] = useState('pays');
+  const [tab, setTab] = useState(TABS.includes(initialTab) ? initialTab : 'pays');
   const [country, setCountry] = useState(null);
   const toast = useToast();
 
@@ -38,10 +41,16 @@ export default function LocalitiesSection({ isAdmin, canEdit = isAdmin }) {
         <button type="button" role="tab" aria-selected={tab === 'rapprocher'} aria-pressed={tab === 'rapprocher'} onClick={() => setTab('rapprocher')} disabled={!country?.levels?.length}>
           <Link2 size={15} aria-hidden="true" /> {tr('À rapprocher')}
         </button>
+        {isAdmin && (
+          <button type="button" role="tab" aria-selected={tab === 'contours'} aria-pressed={tab === 'contours'} onClick={() => setTab('contours')} disabled={!country?.levels?.length}>
+            <MapIcon size={15} aria-hidden="true" /> {tr('Contours de la carte')}
+          </button>
+        )}
       </div>
       {country === null ? <Card><div className="card-body"><Skeleton height={220} /></div></Card>
         : tab === 'pays' ? <CountryTab country={country} isAdmin={isAdmin} onChanged={reload} />
           : tab === 'rapprocher' ? <PlaceMatchQueue canEdit={canEdit} />
+            : tab === 'contours' ? <MapShapesTab isAdmin={isAdmin} />
             : <DirectoryTab levels={country.levels} isAdmin={isAdmin} onChanged={reload} />}
     </div>
   );

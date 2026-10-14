@@ -15,7 +15,11 @@ import { pickTicks, yScale } from '../../lib/chartAxis.js';
  * (shortMonthLabel) ; graduations horizontales discrètes ; survol = repère
  * vertical + info-bulle (et <title> pour les lecteurs d'écran).
  *
- * @param {{ data: {month:string}[], valueKey?:string, selected?:string, height?:number,
+ * `selected` : un mois « AAAA-MM », ou une période { from, to } (lot 1b) — les mois de la
+ * période sont surlignés par une bande de fond et leurs points marqués ; le premier et le
+ * dernier mois de la période sont toujours étiquetés.
+ *
+ * @param {{ data: {month:string}[], valueKey?:string, selected?:string|{from:string,to:string}, height?:number,
  *           label:string, unit?:string, empty:React.ReactNode, format?:(n:number)=>string }} props
  */
 const AXIS_PX = 11;  // taille de police de .trend-axis (styles.css)
@@ -87,9 +91,17 @@ export default function TrendChart({ data, valueKey = 'submissions', selected, h
   const area = `${x(0).toFixed(1)},${y(0)} ${pts} ${x(n - 1).toFixed(1)},${y(0)}`;
   // Étiquettes mesurées puis choisies sans chevauchement (mois choisi, puis dernier mois, toujours montrés).
   const texts = rows.map((r) => shortMonthLabel(r.month));
-  const sel = rows.findIndex((r) => r.month === selected);
-  const marks = pickTicks(rows.map((r, i) => x(i)), texts.map((tx, i) => textWidth(tx, i === sel, family)),
-    { width: w, forced: [sel, n - 1], gap: LABEL_GAP });
+  const range = selected && typeof selected === 'object' ? selected : (selected ? { from: selected, to: selected } : null);
+  const isSel = (m) => !!range && m >= range.from && m <= range.to;
+  const selIdx = rows.map((r, i) => (isSel(r.month) ? i : -1)).filter((i) => i >= 0);
+  const selFirst = selIdx.length ? selIdx[0] : -1;
+  const selLast = selIdx.length ? selIdx[selIdx.length - 1] : -1;
+  const marks = pickTicks(rows.map((r, i) => x(i)), texts.map((tx, i) => textWidth(tx, isSel(rows[i].month), family)),
+    { width: w, forced: [selFirst, selLast, n - 1], gap: LABEL_GAP });
+  // Bande de la période : de la moitié de l'intervalle avant le premier mois à la moitié après le dernier.
+  const half = n > 1 ? step / 2 : 12;
+  const band = selIdx.length > 1 || (selIdx.length === 1 && range.from !== range.to)
+    ? { x0: Math.max(pad.l, x(selFirst) - half), x1: Math.min(w - pad.r, x(selLast) + half) } : null;
   const tipFor = (i) => `${monthLabel(rows[i].month)} : ${format(values[i])}${unit ? ` ${unit}` : ''}`;
 
   return (
@@ -101,17 +113,18 @@ export default function TrendChart({ data, valueKey = 'submissions', selected, h
             <text className="trend-axis" x={pad.l - 6} y={y(tv) + 3.5} textAnchor="end">{format(tv)}</text>
           </g>
         ))}
+        {band && <rect className="trend-band" x={band.x0} y={pad.t} width={Math.max(0, band.x1 - band.x0)} height={plotH} />}
         <polygon className="trend-area" points={area} />
         <polyline className="trend-line" points={pts} />
         {hover != null && <line className="trend-cross" x1={x(hover)} x2={x(hover)} y1={pad.t} y2={pad.t + plotH} />}
         {values.map((v, i) => (
-          <circle key={rows[i].month} className={`trend-dot${rows[i].month === selected ? ' is-selected' : ''}`}
-            cx={x(i)} cy={y(v)} r={rows[i].month === selected || hover === i ? 5 : 3.5}>
+          <circle key={rows[i].month} className={`trend-dot${isSel(rows[i].month) ? ' is-selected' : ''}`}
+            cx={x(i)} cy={y(v)} r={isSel(rows[i].month) || hover === i ? 5 : 3.5}>
             <title>{tipFor(i)}</title>
           </circle>
         ))}
         {marks.map(({ index: i, anchor }) => (
-          <text key={`t${rows[i].month}`} className={`trend-axis trend-month${i === sel ? ' is-selected' : ''}`}
+          <text key={`t${rows[i].month}`} className={`trend-axis trend-month${isSel(rows[i].month) ? ' is-selected' : ''}`}
             x={x(i)} y={height - 7} textAnchor={anchor}>{texts[i]}</text>
         ))}
         {/* Zones de survol plus larges que les points (une colonne par mois). */}
