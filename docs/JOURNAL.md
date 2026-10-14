@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 12:20 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 12:31 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -468,5 +468,22 @@ _Dernière mise à jour : 14/10/2026 12:20 UTC_ — la branche `main` reçoit ch
   - 63 : les sites deviennent un onglet de Localités, reliés aux données réelles ;
   - 64 : classeur de référence `mems_activation_2026_1.xlsx` pour le plan de suivi et les sites actifs, et des identifiants de site professionnels (lot 3) ;
   - 65 : carte décisionnelle dédiée, modules Output (population, ciblage, plan de distribution, réalisé, logistique, lien DOTS / Palantir) et gestion des programmes et projets. Conception à 15:30 UTC.
+
+- **12:23** ✅ **Retour 66** publié (`5ff8a30`) : liste des choix d'une question dépliable dans les variables d'une fiche ; la recherche porte aussi sur les choix.
+- **12:30** ✅ **Retours 62 et 63** publiés (`a8ca28a`) :
+  - les sites deviennent un onglet de Localités ;
+  - sélection multiple et actions groupées en une transaction ;
+  - colonnes « dernière collecte », soumissions et visites.
+
+  Deux défauts de la page de l'autre session sont corrigés :
+  - un site qui porte des soumissions pouvait être supprimé et perdre ses données en silence ; il est désormais refusé, avec ce qui le relie ;
+  - la liste s'arrêtait à 1 000 sites sur 1 280.
+- **12:31** 📥 **Retours 67, 68 et 69**, et précision du 64 :
+  - 67 : quatre maquettes à reproduire (tableaux de bord et rapports), concepteur à enrichir ;
+  - 68 : sélection multiple dans tous les filtres de date ;
+  - 69 : PDD avec vue d'ensemble, tableau des mois, lien avec l'Output et date d'ajout ;
+  - 64 : identifiant de site affiché `S-XXXX-XXXX` aléatoire et immuable, UUID interne caché, anciens codes en alias.
+
+  Les fichiers fournis sont rangés à part et non commités : 5 XLSForm, 4 maquettes HTML et le classeur d'activation 2026_1.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.

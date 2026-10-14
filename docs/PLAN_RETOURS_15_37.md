@@ -10,7 +10,7 @@ est dans [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md), l'avancement dans
 | Notion | Règle |
 |---|---|
 | **Mois de collecte** | Mois de la **date d'enquête** (SvyDate) quand elle précède l'envoi au serveur de 0 à 92 jours ; sinon mois de l'envoi. (Aujourd'hui MEMS prend le mois d'envoi : 503 soumissions SMP sur 1 290 sont au mauvais mois.) |
-| **Site** | Une ligne du registre (lieu × activité), avec une **clé système immuable** (ex. `S-000123`), un **code de localité** tiré du découpage (P-code du fokontany, sinon de la commune, + numéro d'ordre : `MG11101001001-001`, groupable par préfixe) et le Code POI de vos fichiers. |
+| **Site** | Une ligne du registre (lieu × activité), avec une **clé système immuable** (ex. `S-000123`), un **code de localité** tiré du découpage (P-code du fokontany, sinon de la commune, + numéro d'ordre : `MG11101001001-001`, groupable par préfixe) et le Code POI de vos fichiers. · **Identifiants** (retour 64) : UUID interne caché ; identifiant affiché `S-XXXX-XXXX` (Crockford base 32, aléatoire, unique, immuable) ; code de localité hiérarchique à part ; anciens codes gardés en alias. |
 | **Visite** | Site × mois de collecte, comptée une fois quel que soit le nombre de soumissions. |
 | **Réalisée** | Au moins une soumission rattachée **au site** ce mois-là (« données »), ou une visite déclarée réalisée **avec motif obligatoire** (« déclarée sans donnée », signalée). Une donnée rattachée seulement à la commune n'est jamais une visite. |
 | **Prévue / Hors plan** | Prévue = visite planifiée ce mois ; Hors plan = réalisée sans être prévue (mois sans plan : « Données sans plan »). |
