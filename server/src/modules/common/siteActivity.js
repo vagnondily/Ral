@@ -69,17 +69,26 @@ function siteRangeFacts(site, period, { todayMonth = '9999-12' } = {}) {
   const out = {
     active: false, planned: false, realised: false, realisedInactive: false,
     planifie: 0, realise: 0, annule: 0, duePlanifie: 0, dueRealise: 0, upcoming: 0, realiseActive: 0,
+    // Mode « données » (carte, lot 6a — jumeau de siteMonthFactsCtes({ withData })) :
+    realisedAny: false, realisedData: false, vPlanned: 0, vPlannedRealised: 0, vOffPlan: 0,
   };
+  const data = new Set((site.dataMonths || []).map((m) => String(m).slice(0, 7)));
   for (const m of monthsOf(period)) {
     const act = activeAt(site.statuses, m, site);
     const st = collapseStatus(byMonth.get(m));
+    const wd = data.has(m);
+    const planned = st === 'planifie' || st === 'realise';
     if (act) out.active = true;
-    if (act && (st === 'planifie' || st === 'realise')) out.planned = true;
+    if (act && planned) out.planned = true;
     if (act && st === 'realise') { out.realised = true; out.realiseActive += 1; }
     if (!act && st === 'realise') out.realisedInactive = true;
     if (st) out[st] += 1;
     if (st === 'planifie' && m > todayMonth) out.upcoming += 1;
     if (m <= todayMonth) { if (st === 'planifie') out.duePlanifie += 1; if (st === 'realise') out.dueRealise += 1; }
+    if (act && (st === 'realise' || wd)) out.realisedAny = true;
+    if (act && wd) out.realisedData = true;
+    if (act && planned) { out.vPlanned += 1; if (st === 'realise' || wd) out.vPlannedRealised += 1; }
+    if (act && !planned && wd) out.vOffPlan += 1;
   }
   return out;
 }

@@ -479,6 +479,11 @@ export const api = {
   consolidation: (today) => request('/api/tpm/consolidation', { query: today ? { today } : undefined }),
   // Centre d'alertes : une seule liste pour la page et la cloche de l'en-tête.
   alerts: () => request('/api/alerts'),
+  // Carte du suivi (lot 6a) : tous les thèmes par district sur une période (requise) ;
+  // filtres bureau (avec ses antennes) et activité ; levels: ['commune'] = classement par commune.
+  mapDistricts: (period, { officeId, activity, levels } = {}) => request('/api/map/districts', {
+    query: qs({ ...pq(period), office: officeId, activity, levels: levels && levels.length ? levels.join(',') : undefined }),
+  }),
 
   // Planification & budget — budget prévisionnel des vagues de collecte
   listPlans: (query) => request('/api/tpm/planning', { query }),
