@@ -1,225 +1,26 @@
 import React from 'react';
 import { AlertTriangle, CheckCircle2, Info, OctagonAlert } from 'lucide-react';
 import { useI18n } from '../../lib/i18n.jsx';
-import { dayLabel, formatInt, monthLabel } from '../../lib/format.js';
-import { formatParams } from '../../lib/alerts.js';
 import { RichTextView } from './RichText.jsx';
 import { substitute } from './reportDoc.js';
+import Figure from './views/Figure.jsx';
+import DataView, { CHART_VIEWS } from './views/DataView.jsx';
+import { DataTable } from './views/DataTable.jsx';
+import { KpiTiles } from './views/KpiStrip.jsx';
 
 /**
- * Rendu des blocs d'un rapport v2 (aperçu de l'éditeur, impression/PDF, export
- * HTML). Graphiques en SVG intégré, sans dépendance ; la couleur n'est jamais
- * seule porteuse de sens (légendes + étiquettes directes + valeurs).
- * Palette alignée sur les tableaux de bord : prévu = ambre, réalisé = bleu ; le
- * rouge n'est jamais une couleur de série (il signale « Action urgente »).
+ * Rendu des blocs d'un rapport v2 (aperçu de l'éditeur, impression/PDF, export HTML).
+ * Les vues (tableau, barres, colonnes, courbes, anneau, empilées, matrice, tuile, liste,
+ * carte de résultat, explication) vivent dans ./views et suivent le guide de visualisation
+ * (lib/reportViz.js) : axe à zéro, palette sobre en ordre fixe, le rouge jamais couleur de
+ * série, légende dès 2 séries, chaque bloc de données est une FIGURE numérotée avec sa
+ * source et n. Rien n'est recalculé ici : le serveur envoie les chiffres, l'écran les met en forme.
  */
-const C = { planned: '#c77700', done: '#0f6cbd' };
-const CAT = ['#0f6cbd', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6'];
-const BAND = {
-  exc: ['var(--cd-exc)', 'Excellent'], sat: ['var(--cd-sat)', 'Satisfaisant'], imp: ['var(--cd-imp)', 'À améliorer'],
-  urg: ['var(--cd-urg)', 'Action urgente'], na: ['var(--cd-na)', 'Non évalué'],
-};
-
-// Statuts codés renvoyés par le serveur (couverture, risque, plan de visites) → libellé + ton.
-const STATUS = {
-  bon: ['Bon', 'exc'], moyen: ['Moyen', 'sat'], faible: ['Faible', 'imp'], critique: ['Critique', 'urg'],
-  elevee: ['Élevé', 'urg'], moyenne: ['Moyen', 'imp'],
-  draft: ['Brouillon', 'na'], soumis: ['Soumis', 'sat'], valide: ['Validé', 'exc'], annule: ['Annulé', 'na'], non_applicable: ['Non applicable', 'na'], vide: ['Vide', 'na'],
-  brouillon: ['Brouillon', 'na'], en_validation: ['En validation', 'sat'], actif: ['Actif', 'exc'], rejete: ['Rejeté', 'urg'], resilie: ['Résilié', 'na'],
-  attendu: ['Attendu', 'imp'], rupture: ['Rupture', 'urg'], couvert: ['Couvert', 'exc'],
-  critical: ['Critique', 'urg'], warning: ['À surveiller', 'imp'], info: ['À traiter', 'sat'],
-  bloquant: ['Bloquant', 'urg'], a_completer: ['À compléter', 'imp'], pret: ['Prêt', 'exc'], non_mesurable: ['Pas encore mesurable', 'na'],
-};
-
-const num = (v, d = 0) => Number(v).toLocaleString(document.documentElement.lang === 'en' ? 'en-GB' : 'fr-FR', { maximumFractionDigits: d });
-
-/** Valeur formatée selon le type de colonne du jeu de données. */
-export function formatCell(type, v, tr) {
-  if (v == null || v === '') return '—';
-  switch (type) {
-    case 'pct': return `${num(v, 1)} %`;
-    case 'rate': return `${num(Number(v) * 100, 1)} %`;
-    case 'int': return formatInt(v);
-    case 'dec': return num(v, 3);
-    case 'money': return num(v, 0);
-    case 'month': return /^\d{4}-\d{2}$/.test(v) ? monthLabel(v) : v;
-    case 'band': return tr(BAND[v] ? BAND[v][1] : v);
-    case 'status': return STATUS[v] ? tr(STATUS[v][0]) : String(v);
-    case 'date': return /^\d{4}-\d{2}-\d{2}/.test(String(v)) ? dayLabel(String(v).slice(0, 10)) : String(v);
-    // Phrase française à paramètres (alertes, parcours, état de la configuration) : traduite ici.
-    case 'message': return v && typeof v === 'object' ? tr(v.text, formatParams(v.params)) : String(v);
-    default: return String(v); // donnée (nom, code) : jamais traduite
-  }
-}
-
-// Seuils de couleur des pourcentages (comme le classeur RBM : < 50 rouge, < 90 ambre, ≥ 90 vert).
-const pctTone = (v) => (v == null ? 'na' : v >= 90 ? 'exc' : v >= 50 ? 'imp' : 'urg');
-
-const colLabel = (c, tr) => (c.key.startsWith('m:') ? monthLabel(c.key.slice(2)) : c.key.startsWith('d:') ? c.label : tr(c.label));
-
-// Note d'un bloc vide : phrase du serveur, déjà dans la langue du rapport (jamais retraduite).
-const Empty = ({ note }) => {
-  const { tr } = useI18n();
-  return <p className="rb-note">{note || tr('Aucune donnée sur la période.')}</p>;
-};
-
-export function DataTable({ data, columns: pick, matrix }) {
-  const { tr } = useI18n();
-  if (!data) return null;
-  const cols = pick && pick.length ? data.columns.filter((c) => pick.includes(c.key)) : data.columns;
-  if (!data.rows.length) return <Empty note={data.meta && data.meta.note} />;
-  return (
-    <div className="rb-table-wrap">
-      <table className={`rb-table ${matrix ? 'rb-matrix' : ''}`}>
-        <thead><tr>{cols.map((c) => <th key={c.key} className={c.type === 'text' ? '' : 'num'}>{colLabel(c, tr)}</th>)}</tr></thead>
-        <tbody>
-          {data.rows.map((r, i) => (
-            <tr key={i} className={r._total ? 'rb-total' : undefined}>
-              {cols.map((c) => {
-                const v = r[c.key];
-                if (c.type === 'band') return <td key={c.key}><span className={`rb-band rb-band-${v || 'na'}`}>{formatCell('band', v || 'na', tr)}</span></td>;
-                if (c.type === 'status') return <td key={c.key}>{v == null ? <span className="rb-muted">{tr('— aucun plan')}</span> : <span className={`rb-band rb-band-${(STATUS[v] || [])[1] || 'na'}`}>{formatCell('status', v, tr)}</span>}</td>;
-                if (matrix && c.type === 'pct') return <td key={c.key} className={`num rb-heat rb-heat-${pctTone(v)}`}>{formatCell('pct', v, tr)}</td>;
-                return <td key={c.key} className={c.type === 'text' ? '' : 'num'}>{formatCell(c.type, v, tr)}</td>;
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/** Barres : x = 1re colonne texte/mois ; séries = colonnes numériques (ou `metric`). Axe à zéro. */
-export function BarChart({ data, metric }) {
-  const { tr } = useI18n();
-  if (!data || !data.rows.length) return <Empty note={data && data.meta && data.meta.note} />;
-  const xCol = data.columns.find((c) => c.type === 'text' || c.type === 'month');
-  let series = data.columns.filter((c) => ['int', 'money', 'dec', 'pct'].includes(c.type) && !c.key.startsWith('m:'));
-  if (metric) series = series.filter((c) => c.key === metric);
-  else if (series.some((c) => c.type !== 'pct')) series = series.filter((c) => c.type !== 'pct');
-  series = series.slice(0, 3);
-  if (!series.length) return <DataTable data={data} />;
-  const W = 640; const H = 240; const pad = { l: 44, r: 12, t: 12, b: 46 };
-  const max = Math.max(1, ...data.rows.flatMap((r) => series.map((s) => Number(r[s.key]) || 0)));
-  const groupW = (W - pad.l - pad.r) / data.rows.length; const barW = Math.max(4, Math.min(28, (groupW - 8) / series.length));
-  const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - v / max);
-  const color = (s, i) => (s.key === 'planned' ? C.planned : s.key === 'done' ? C.done : CAT[i % CAT.length]);
-  return (
-    <figure className="rb-chart">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={tr('Graphique en barres')}>
-        {[0, 0.5, 1].map((f) => <g key={f}><line x1={pad.l} x2={W - pad.r} y1={y(max * f)} y2={y(max * f)} className="rb-grid" /><text x={pad.l - 6} y={y(max * f) + 4} className="rb-axis" textAnchor="end">{formatInt(max * f)}</text></g>)}
-        {data.rows.map((r, i) => (
-          <g key={i} transform={`translate(${pad.l + i * groupW + (groupW - barW * series.length) / 2},0)`}>
-            {series.map((s, k) => { const v = Number(r[s.key]) || 0; return (
-              <g key={s.key}>
-                <rect x={k * barW} y={y(v)} width={barW - 2} height={H - pad.b - y(v)} rx="2" fill={color(s, k)}><title>{`${colLabel(s, tr)} : ${formatCell(s.type, v, tr)}`}</title></rect>
-                {barW >= 14 && <text x={k * barW + (barW - 2) / 2} y={y(v) - 3} className="rb-val" textAnchor="middle">{formatInt(v)}</text>}
-              </g>
-            ); })}
-            <text x={(barW * series.length) / 2} y={H - pad.b + 14} className="rb-axis" textAnchor="middle">{formatCell(xCol?.type, r[xCol?.key], tr).slice(0, 14)}</text>
-          </g>
-        ))}
-      </svg>
-      <figcaption className="rb-legend">{series.map((s, k) => <span key={s.key}><i style={{ background: color(s, k) }} />{colLabel(s, tr)}</span>)}</figcaption>
-    </figure>
-  );
-}
-
-/** Courbes : une série par ligne (ex. activité) sur les colonnes mensuelles « m:AAAA-MM » ; sinon barres. */
-export function LineChart({ data }) {
-  const { tr } = useI18n();
-  const months = (data?.columns || []).filter((c) => c.key.startsWith('m:'));
-  if (!data || !data.rows.length) return <Empty note={data && data.meta && data.meta.note} />;
-  if (!months.length) return <BarChart data={data} />;
-  const W = 640; const H = 240; const pad = { l: 40, r: 12, t: 12, b: 36 };
-  const max = Math.max(10, ...data.rows.flatMap((r) => months.map((m) => Number(r[m.key]) || 0)));
-  const x = (i) => pad.l + (months.length === 1 ? 0 : (i * (W - pad.l - pad.r)) / (months.length - 1));
-  const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - v / max);
-  const label = data.columns[0].key;
-  return (
-    <figure className="rb-chart">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={tr('Graphique en courbes')}>
-        {[0, 0.5, 1].map((f) => <g key={f}><line x1={pad.l} x2={W - pad.r} y1={y(max * f)} y2={y(max * f)} className="rb-grid" /><text x={pad.l - 6} y={y(max * f) + 4} className="rb-axis" textAnchor="end">{`${Math.round(max * f)} %`}</text></g>)}
-        {months.map((m, i) => <text key={m.key} x={x(i)} y={H - pad.b + 16} className="rb-axis" textAnchor="middle">{monthLabel(m.key.slice(2)).slice(0, 4)}</text>)}
-        {data.rows.map((r, k) => {
-          const pts = months.map((m, i) => [x(i), y(Number(r[m.key]) || 0)]);
-          return (
-            <g key={k}>
-              <polyline points={pts.map((p) => p.join(',')).join(' ')} fill="none" stroke={CAT[k % CAT.length]} strokeWidth="2.2" />
-              {pts.map(([px, py], i) => <circle key={i} cx={px} cy={py} r="3" fill={CAT[k % CAT.length]}><title>{`${r[label]} · ${monthLabel(months[i].key.slice(2))} : ${formatCell('pct', r[months[i].key], tr)}`}</title></circle>)}
-            </g>
-          );
-        })}
-      </svg>
-      <figcaption className="rb-legend">{data.rows.map((r, k) => <span key={k}><i style={{ background: CAT[k % CAT.length] }} />{r[label]}</span>)}</figcaption>
-    </figure>
-  );
-}
-
-export function KpiTiles({ data, labels, units }) {
-  const { tr } = useI18n();
-  if (!data || !data.values) return null;
-  return (
-    <div className="rb-kpis" style={{ '--n': Object.keys(data.values).length }}>
-      {Object.entries(data.values).map(([k, v]) => {
-        const unit = units && units[k];
-        const note = data.notes && data.notes[k];
-        return (
-          <div key={k} className="rb-kpi">
-            <span className="rb-kpi-v">{v == null ? '—' : unit === 'pct' ? `${num(v, 1)} %` : unit === 'rate' ? `${num(v * 100, 1)} %` : num(v, unit === 'dec' || unit === 'mt' ? 1 : 0)}</span>
-            <span className="rb-kpi-l">{tr(labels[k] || k)}</span>
-            {v == null && note && <span className="rb-kpi-n">{note}</span>}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/**
- * Figure : numéro (« Figure 2 », « Tableau 1 »), titre, sous-titre, corps, source et n, note.
- * Chaque bloc de données est une figure (guide de visualisation).
- */
-function Figure({ figure, number, title, subtitle, meta, note, children }) {
-  const { tr } = useI18n();
-  const f = figure || {};
-  const showN = f.showN !== false && meta && meta.n != null;
-  return (
-    <figure className="rb-figure">
-      {(title || number) && (
-        <figcaption className="rb-title">
-          {number && <span className="rb-fig-no">{tr(number.kind === 'table' ? 'Tableau {n}' : 'Figure {n}', { n: number.n })}</span>}
-          {number && title ? ' · ' : ''}{title}
-        </figcaption>
-      )}
-      {subtitle && <p className="rb-subtitle">{subtitle}</p>}
-      {children}
-      {(meta && (meta.source || showN)) && (
-        <p className="rb-source">
-          {meta.source}{showN ? ` · n = ${formatInt(meta.n)}` : ''}
-        </p>
-      )}
-      {note && <p className="rb-fig-note">{note}</p>}
-    </figure>
-  );
-}
-
 const CALLOUT = { info: Info, success: CheckCircle2, warning: AlertTriangle, critical: OctagonAlert };
-
-/** Corps d'un bloc « données » selon sa vue. */
-function DataView({ view, data, params }) {
-  switch (view) {
-    case 'heat': return <DataTable data={data} matrix columns={params.columns} />;
-    case 'bar': case 'column': case 'stacked': return <BarChart data={data} metric={params.measure} />;
-    case 'line': return <LineChart data={data} />;
-    default: return <DataTable data={data} columns={params.columns} />;
-  }
-}
 
 /**
  * Un bloc rendu. `ctx` = { result ({ ok, data, meta } | { ok: false, error }), inst (instance
- * du plan), vars (variables simples + élément répété), catalog, item }.
+ * du plan), vars (variables simples + élément répété), catalog, varLabels, pending }.
  * `editor` (optionnel) remplace le texte par un éditeur pour les blocs texte.
  */
 export function BlockView({ block, ctx, editor }) {
@@ -248,10 +49,13 @@ export function BlockView({ block, ctx, editor }) {
       const def = (ctx.catalog && ctx.catalog.datasets[p.dataset]) || null;
       const fig = p.figure || {};
       const view = p.view || (def && def.defaultView) || 'table';
+      const title = subst(fig.title) || (def ? tr(def.label) : p.dataset);
+      const chart = CHART_VIEWS.has(view);
       return (
-        <Figure figure={fig} number={ctx.inst && ctx.inst.figure} title={subst(fig.title) || (def ? tr(def.label) : p.dataset)}
-          subtitle={fig.subtitle ? subst(fig.subtitle) : null} meta={d && { ...d.meta, source: fig.source || (d.meta && d.meta.source) }} note={fig.note}>
-          {d ? <DataView view={view} data={d} params={p} /> : null}
+        <Figure figure={fig} number={ctx.inst && ctx.inst.figure} title={title}
+          subtitle={fig.subtitle ? subst(fig.subtitle) : null} meta={d && d.meta} note={fig.note}
+          table={chart && d ? <DataTable data={d} columns={p.columns} /> : null}>
+          {d ? <DataView view={view} def={def} data={d} params={p} title={title} /> : null}
         </Figure>
       );
     }

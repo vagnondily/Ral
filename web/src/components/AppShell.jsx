@@ -116,16 +116,25 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem(SIDEBAR_KEY) === 'collapsed'; } catch { return false; }
   });
+  // Mode rail PASSAGER demandé par un écran large (concepteur de rapport) : événement
+  // `mems:rail` (true à l'ouverture, false à la fermeture) ; jamais mémorisé.
+  const [railFor, setRailFor] = useState(false);
   const { t, tr } = useI18n();
   const current = findRoute(route.module, route.sub);
+  const rail = collapsed || railFor;
 
   useEffect(() => setNavOpen(false), [route.module, route.sub]);
   useEffect(() => {
     try { localStorage.setItem(SIDEBAR_KEY, collapsed ? 'collapsed' : 'expanded'); } catch { /* ignore */ }
   }, [collapsed]);
+  useEffect(() => {
+    const on = (e) => setRailFor(Boolean(e.detail));
+    window.addEventListener('mems:rail', on);
+    return () => window.removeEventListener('mems:rail', on);
+  }, []);
 
   return (
-    <div className={`shell ${navOpen ? 'nav-open' : ''} ${collapsed ? 'is-collapsed' : ''}`}>
+    <div className={`shell ${navOpen ? 'nav-open' : ''} ${rail ? 'is-collapsed' : ''}`}>
       <aside className="sidebar" aria-label={tr('Navigation principale')}>
         <div className="brand">
           <LogoMark size={34} />
@@ -134,11 +143,11 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
             <div className="brand-sub">{tr('Suivi & évaluation')}</div>
           </div>
           <IconButton
-            icon={collapsed ? PanelLeftOpen : PanelLeftClose}
-            label={collapsed ? t('shell.expandMenu', 'Agrandir le menu') : t('shell.collapseMenu', 'Réduire le menu')}
+            icon={rail ? PanelLeftOpen : PanelLeftClose}
+            label={rail ? t('shell.expandMenu', 'Agrandir le menu') : t('shell.collapseMenu', 'Réduire le menu')}
             size="sm"
             className="collapse-toggle"
-            onClick={() => setCollapsed((c) => !c)}
+            onClick={() => (railFor ? setRailFor(false) : setCollapsed((c) => !c))}
           />
         </div>
 

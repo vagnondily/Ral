@@ -8,6 +8,13 @@ const fmtNum = (lang) => (v, d = 1) => Number(v).toLocaleString(lang === 'en' ? 
 const nf = fmtNum('fr');
 const ne = fmtNum('en');
 
+// Libellés des groupes du catalogue (ligne de source « MEMS — groupe ») en anglais.
+const GROUP_EN = {
+  'Suivi de processus': 'Process monitoring', 'Couverture et plan': 'Coverage and plan',
+  'Risk-Based Monitoring et sites': 'Risk-Based Monitoring and sites', Carte: 'Map', 'Budget et contrats': 'Budget and contracts',
+  'Partenaires et TPM': 'Partners and TPM', "Distribution d'urgence": 'Emergency distribution', Alertes: 'Alerts', 'Qualité des données': 'Data quality',
+};
+
 const PHRASES = {
   fr: {
     notByOffice: 'Non disponible par bureau.',
@@ -84,7 +91,7 @@ const PHRASES = {
     tooLong: 'Computation took too long: shorten the period or add a filter.',
     failed: 'This block could not be computed.',
     noData: 'No data for the period.',
-    source: (label) => `MEMS — ${label}`,
+    source: (label) => `MEMS — ${GROUP_EN[label] || label}`,
     asOf: (d) => `as of ${d}`,
     total: 'Total',
     allForms: 'All activities',

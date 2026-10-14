@@ -23,13 +23,16 @@ export const defaultPage = () => ({
   footer: { height: 12, elements: [textElement('f-text', 'Suivi & évaluation', { w: 66 }), pageNumberElement()] },
 });
 
-/** Bloc par défaut d'un type (dataset : jeu choisi dans le catalogue, avec sa vue par défaut). */
-export function defaultBlock(type, { dataset, catalog } = {}) {
+/**
+ * Bloc par défaut d'un type (dataset : jeu choisi dans le catalogue, avec sa vue par défaut).
+ * `t` traduit les textes d'exemple dans la langue de l'interface (ils deviennent du contenu).
+ */
+export function defaultBlock(type, { dataset, catalog, t = (x) => x } = {}) {
   const id = newId(type);
   switch (type) {
-    case 'heading': return { id, type, params: { text: 'Nouveau titre', level: 2 } };
+    case 'heading': return { id, type, params: { text: t('Nouveau titre'), level: 2 } };
     case 'text': return { id, type, params: { doc: emptyRich(), filters: {} } };
-    case 'callout': return { id, type, params: { tone: 'info', title: 'À retenir', doc: emptyRich(), filters: {} } };
+    case 'callout': return { id, type, params: { tone: 'info', title: t('À retenir'), doc: emptyRich(), filters: {} } };
     case 'kpis': return { id, type, params: { metrics: ['sites_realised', 'coverage', 'conformity'], filters: {} } };
     case 'bulletin': return { id, type, params: { filters: {} } };
     case 'data': {
@@ -107,12 +110,21 @@ export const moveBlockTo = (blocks, id, toIndex) => mapContainer(blocks, id, (li
 });
 
 /**
- * Insère `block` après le bloc `afterId` (dans la même liste), ou à la fin de la section
- * répétée / de la colonne `into` ({ id, col }), ou à la fin du document.
+ * Insère `block` après le bloc `afterId` ou avant le bloc `beforeId` (dans la même liste), ou
+ * à la fin de la section répétée / de la colonne `into` ({ id, col }), ou à la fin du document.
  * Refuse ce que le serveur refuserait : répétition dans une répétition, colonnes ou section
  * dans des colonnes, colonnes dans… des colonnes. Renvoie { blocks, error }.
  */
-export function insertBlock(blocks, block, { afterId = null, into = null } = {}) {
+export function insertBlock(blocks, block, { afterId = null, beforeId = null, into = null } = {}) {
+  if (beforeId && !into) {
+    const at = findBlock(blocks, beforeId);
+    if (at) {
+      const c = at.parent;
+      if (c && c.type === 'repeat' && block.type === 'repeat') return { blocks, error: 'Une section répétée ne peut pas en contenir une autre.' };
+      if (c && c.type === 'columns' && ['columns', 'section', 'repeat'].includes(block.type)) return { blocks, error: 'Une colonne ne contient que des blocs simples.' };
+      return { blocks: mapContainer(blocks, beforeId, (list, i) => [...list.slice(0, i), block, ...list.slice(i)]), error: null };
+    }
+  }
   const target = into ? findBlock(blocks, into.id) : afterId ? findBlock(blocks, afterId) : null;
   const container = into ? target && target.block : target && target.parent;
   if (container && container.type === 'repeat' && block.type === 'repeat') return { blocks, error: 'Une section répétée ne peut pas en contenir une autre.' };

@@ -138,7 +138,9 @@ function validateBlockParams(def, params) {
 function catalogForClient() {
   const pub = (d) => ({
     label: d.label, group: d.group, origin: d.origin || null, views: d.views, defaultView: d.defaultView,
-    filters: d.filters, periodMode: d.periodMode, args: d.args, columns: d.columns, measures: d.measures || numericColumns(d),
+    filters: d.filters, periodMode: d.periodMode, args: d.args, columns: d.columns,
+    // Mesures DÉCLARÉES (séries par défaut d'un graphique) ; `numeric` = toutes les mesures possibles.
+    measures: d.measures || null, numeric: numericColumns(d),
     dynamicColumns: d.dynamicColumns || null, available: d.available !== false, reason: d.reason || null, keywords: d.keywords || [],
     officeKinds: d.officeKinds || OFFICE_KINDS, annotate: d.annotate || null,
   });

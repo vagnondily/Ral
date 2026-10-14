@@ -91,3 +91,21 @@ test('phrases à paramètres du serveur montrées dans les rapports (parcours, �
   for (const a of alerts) { need(a.title); need(a.detail); need(a.cat); }
   assert.deepEqual([...missing], [], `phrases sans anglais : ${[...missing].join(' | ')}`);
 });
+
+test('pied de figure : effectifs « n = … » (nLabel) et ligne de source traduits en anglais', async (t) => {
+  const en = await loadEn(t); if (!en) return;
+  const { GROUPS } = require('../src/modules/reports/catalog');
+  const { phrases } = require('../src/modules/reports/phrases');
+  // Effectifs renvoyés par les mises en forme (en français, traduits par l'interface).
+  const dir = path.join(__dirname, '../src/modules/reports/catalog');
+  const labels = new Set();
+  for (const f of fs.readdirSync(dir)) {
+    for (const m of fs.readFileSync(path.join(dir, f), 'utf8').matchAll(/nLabel: '([^']+)'/g)) labels.add(m[1]);
+  }
+  assert.ok(labels.size > 10);
+  const missing = [...labels].filter((s) => !Object.prototype.hasOwnProperty.call(en, s));
+  assert.deepEqual(missing, [], `effectifs sans anglais : ${missing.join(' | ')}`);
+  // « MEMS — groupe » : le groupe du catalogue est nommé en anglais dans un rapport anglais.
+  for (const g of GROUPS) assert.notEqual(phrases('en').source(g.label), `MEMS — ${g.label}`, g.label);
+  assert.equal(phrases('fr').source('Couverture et plan'), 'MEMS — Couverture et plan');
+});
