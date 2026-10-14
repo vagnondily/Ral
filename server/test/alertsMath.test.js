@@ -94,3 +94,31 @@ test('liste triée par gravité, ordre des catégories conservé ; décompte pou
 test('sources absentes : aucune alerte, aucune erreur', () => {
   assert.deepEqual(buildAlerts({ today: TODAY }), []);
 });
+
+// ---- Période (lot 1b) --------------------------------------------------------------
+test('terrain : libellé « Exécution du plan » (le taux lu est visites réalisées ÷ prévues), « sur la période » au-delà d\'un mois', () => {
+  const field = { overall: { active: 10, realise: 4, rate: 0.4 }, byProvider: [{ key: 'non_affecte', label: 'Non affecté', active: 2, realise: 0, rate: 0, total: 2 }] };
+  const month = fieldAlerts(field);
+  assert.equal(month[0].title, 'Exécution du plan faible ce mois');
+  assert.equal(month[1].detail, 'Sites planifiés sans prestataire TPM ce mois');
+  const range = fieldAlerts(field, { range: true });
+  assert.equal(range[0].title, 'Exécution du plan faible sur la période');
+  assert.equal(range[1].detail, 'Sites planifiés sans prestataire TPM sur la période');
+  assert.deepEqual(range.map((a) => a.params), month.map((a) => a.params), 'mêmes chiffres');
+});
+
+test('portée de chaque alerte : budget et contrats à date ; terrain sur la période ; rapports selon le filtre', () => {
+  const src = {
+    consolidationRows: [{ contractId: 'c1', numero: 'X', overspent: true, actual: 11, budget: 10 }],
+    reports: [{ status: 'soumis', kind: 'financier', actions: { decide: true }, periodMonth: '2026-09-01' }],
+    contracts: [{ id: 'k', numero: 'K', status: 'actif', dateFin: '2026-01-01' }],
+    field: { overall: { active: 4, realise: 0, rate: 0 }, byProvider: [] },
+    today: TODAY,
+  };
+  const scopeOf = (list) => Object.fromEntries(list.map((a) => [a.kind, a.scope]));
+  assert.deepEqual(scopeOf(buildAlerts(src)), {
+    budget_overspent: 'a_date', report_to_validate: 'a_date', contract_expired: 'a_date', field_low_coverage: 'periode',
+  });
+  assert.equal(scopeOf(buildAlerts({ ...src, reportsInPeriod: true })).report_to_validate, 'periode');
+  assert.equal(buildAlerts({ ...src, range: true }).find((a) => a.kind === 'field_low_coverage').title, 'Exécution du plan faible sur la période');
+});

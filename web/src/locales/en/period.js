@@ -59,4 +59,9 @@ export default {
   'hors périmètre actif': 'outside the active scope',
   'dont {n} visite(s) à venir': 'including {n} upcoming visit(s)',
   'sites (données)': 'sites (data)',
+
+  // ---- Centre d'alertes et cloche : le taux terrain est l'exécution du plan (visites)
+  'Exécution du plan faible ce mois': 'Low plan execution this month',
+  'Exécution du plan faible sur la période': 'Low plan execution over the period',
+  'Sites planifiés sans prestataire TPM sur la période': 'Sites planned without a TPM provider over the period',
 };

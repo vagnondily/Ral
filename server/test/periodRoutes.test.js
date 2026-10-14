@@ -25,6 +25,8 @@ const planningRepo = require('../src/modules/tpm/planning.repository');
 const planningRoutes = require('../src/modules/tpm/planning.routes');
 const pddRepo = require('../src/modules/pdd/pdd.repository');
 const pddRoutes = require('../src/modules/pdd/pdd.routes');
+const alertsService = require('../src/modules/dashboards/alerts.service');
+const alertsRoutes = require('../src/modules/dashboards/alerts.routes');
 const { errorHandler } = require('../src/middleware/errors');
 
 const calls = [];
@@ -48,6 +50,7 @@ planningRepo.listPlans = spy('plans', []);
 pddRepo.listDistributions = spy('pddDistributions', { rows: [], total: 0 });
 pddRepo.summaryData = spy('pddSummary', {});
 pddRepo.pipelineData = spy('pddPipeline', []);
+alertsService.alerts = spy('alerts', { items: [] });
 
 const app = express();
 app.use(express.json());
@@ -57,6 +60,7 @@ app.use('/api/tpm/consolidation', consolidationRoutes);
 app.use('/api/tpm/reports', reportsRoutes);
 app.use('/api/tpm/planning', planningRoutes);
 app.use('/api/pdd', pddRoutes);
+app.use('/api/alerts', alertsRoutes);
 app.use(errorHandler);
 const TENANT = '11111111-1111-1111-1111-111111111111';
 const FORM = '22222222-2222-2222-2222-222222222222';
@@ -80,6 +84,7 @@ const MONITORING_AND_FIELD = [
   ['/api/pdd/distributions', 'pddDistributions', (a) => a[1].period, 60],
   ['/api/pdd/summary', 'pddSummary', (a) => a[1].period, 60],
   ['/api/pdd/pipeline', 'pddPipeline', (a) => a[1].period, 60],
+  ['/api/alerts', 'alerts', (a) => a[1].period, 24],
 ];
 
 const ERRORS = [
@@ -98,7 +103,7 @@ for (const [url, name, periodOf, maxSpan] of MONITORING_AND_FIELD) {
     assert.equal((await get(`${url}?month=2026-07`)).status, 200);
     const a = last(); assert.equal(a.name, name);
     assert.deepEqual(periodOf(a.args), { from: '2026-07', to: '2026-07' });
-    assert.equal(a.args[0], TENANT, 'le tenant vient du jeton');
+    assert.equal(a.args[0].tenantId || a.args[0], TENANT, 'le tenant vient du jeton');
     await get(`${url}?from=2026-07&to=2026-07`);
     assert.deepEqual(periodOf(last().args), { from: '2026-07', to: '2026-07' });
     await get(`${url}?from=2026-01&to=2026-06`);
@@ -207,4 +212,11 @@ test('listes : filtres gardés (prestataire, contrat, aléa, zone, pagination), 
   assert.equal((await get('/api/pdd/distributions?limit=999999')).status, 400, 'au plus 5 000 lignes par page');
   await get('/api/pdd/summary?month=2026-03&district=Amboasary');
   assert.deepEqual(last().args[1], { period: { from: '2026-03', to: '2026-03' }, hazard: undefined, region: undefined, district: 'Amboasary' });
+});
+
+test('alertes : la session donne tenant, utilisateur et rôle ; la requête ne donne que la période', async () => {
+  await get('/api/alerts?from=2026-01&to=2026-06&tenantId=autre');
+  assert.equal(last().args[0].tenantId, TENANT);
+  assert.equal(last().args[0].role, 'viewer');
+  assert.deepEqual(last().args[1], { period: { from: '2026-01', to: '2026-06' } });
 });
