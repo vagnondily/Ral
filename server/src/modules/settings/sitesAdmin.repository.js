@@ -17,6 +17,7 @@
 const { withTenantTransaction } = require('../../config/db');
 const { withSubmissionLinks, afterSitesChangedTx } = require('./placeMatch.repository');
 const { attributeByGps } = require('../common/geoAttribution');
+const { summarizeSiteDeletion } = require('./siteDeletion');
 
 const LIST_COLS = `
   s.id,
@@ -323,11 +324,12 @@ async function bulkSites(tenantId, { ids, action, patch = {} }) {
     const missing = ids.length - found.length;
     if (action === 'delete') {
       const linked = await linkedDataTx(client, tenantId, found.map((r) => r.id));
-      const free = found.filter((r) => !linked.has(r.id)).map((r) => r.id);
-      if (free.length) await client.query('DELETE FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, free]);
-      if (free.length) await afterSitesChangedTx(client, tenantId);
-      const refused = found.filter((r) => linked.has(r.id)).map((r) => ({ id: r.id, name: r.name, ...linked.get(r.id) }));
-      return { deleted: free.length, refused, missing };
+      const sum = summarizeSiteDeletion(found, linked);
+      if (sum.deletable.length) {
+        await client.query('DELETE FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, sum.deletable]);
+        await afterSitesChangedTx(client, tenantId);
+      }
+      return { deleted: sum.deletable.length, keptCount: sum.kept.length, keptIds: sum.kept, byReason: sum.byReason, sample: sum.sample, missing };
     }
     // 'set' : un seul UPDATE (colonnes absentes du patch inchangées).
     const sets = []; const params = [tenantId, found.map((r) => r.id)];
@@ -347,4 +349,22 @@ async function bulkSites(tenantId, { ids, action, patch = {} }) {
   });
 }
 
-module.exports = { listSites, createSite, updateSite, autoAttribute, deleteSite, bulkSites, linkedDataTx, importSites };
+/**
+ * Aperçu d'une suppression groupée (retour 89), en LECTURE seule : combien de
+ * sites seraient supprimés, combien gardés (ils portent des données) et pourquoi.
+ * Même règle que bulkSites('delete').
+ */
+async function previewBulkDelete(tenantId, ids) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: found } = await client.query(
+      'SELECT id, name FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[]) ORDER BY name, id', [tenantId, ids]);
+    const linked = await linkedDataTx(client, tenantId, found.map((r) => r.id));
+    const sum = summarizeSiteDeletion(found, linked);
+    return {
+      total: sum.total, deletable: sum.deletable.length, keptCount: sum.kept.length,
+      byReason: sum.byReason, sample: sum.sample, missing: ids.length - found.length,
+    };
+  });
+}
+
+module.exports = { listSites, createSite, updateSite, autoAttribute, deleteSite, bulkSites, previewBulkDelete, linkedDataTx, importSites };

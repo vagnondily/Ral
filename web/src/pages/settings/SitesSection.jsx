@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Trash2, Pencil, MapPin, LocateFixed, Download, Upload, FileSpreadsheet, X, Tag, Building2, Link2 } from 'lucide-react';
+import { Plus, Search, Trash2, Pencil, MapPin, LocateFixed, Download, Upload, FileSpreadsheet, X, Tag, Building2, Link2, CheckCircle2 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, Card, CardHeader, EmptyState, Field, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
-import { monthLabel } from '../../lib/format.js';
+import { formatInt, monthLabel } from '../../lib/format.js';
 
 /**
  * Registre des sites — page de gestion dédiée (Paramétrage › Sites).
@@ -146,13 +146,7 @@ export default function SitesSection({ isAdmin, onOpenTab, showAdmCodes = true }
           <Button size="sm" variant="ghost" icon={X} onClick={() => setSel(new Set())}>{tr('Désélectionner')}</Button>
         </div>
       )}
-      {refused && refused.length > 0 && (
-        <Alert tone="warning">
-          {tr('{n} site(s) gardé(s) : ils portent des données (marquez-les inactifs dans la grille des sites actifs).', { n: refused.length })}
-          <ul className="compact-list">{refused.slice(0, 8).map((r) => <li key={r.id}><strong>{r.name}</strong> — {r.reason}</li>)}</ul>
-          {refused.length > 8 && <span className="muted">{tr('… et {n} autre(s).', { n: refused.length - 8 })}</span>}
-        </Alert>
-      )}
+      {refused && <DeleteResult result={refused} onSelectKept={() => { setSel(new Set(refused.keptIds || [])); setRefused(null); }} onClose={() => setRefused(null)} />}
 
       {!rows ? <Skeleton height={220} /> : rows.length === 0 ? (
         <EmptyState icon={MapPin} title={tr('Aucun site')} action={<Button icon={Plus} onClick={() => setEdit({})}>{tr('Ajouter un site')}</Button>}>
@@ -211,8 +205,10 @@ export default function SitesSection({ isAdmin, onOpenTab, showAdmCodes = true }
           onDone={(r) => {
             setBulk(null);
             if (bulk === 'delete') {
-              setRefused(r.refused || []);
-              toast.success(tr('{n} site(s) supprimé(s).', { n: r.deleted }));
+              setRefused(r.keptCount ? r : null);
+              toast.success(r.keptCount
+                ? tr('{n} site(s) supprimé(s) · {k} gardé(s).', { n: r.deleted, k: r.keptCount })
+                : tr('{n} site(s) supprimé(s).', { n: r.deleted }));
             } else {
               setRefused(null);
               toast.success(tr('{n} site(s) modifié(s).', { n: r.updated }));
@@ -232,6 +228,15 @@ function BulkModal({ kind, ids, offices, onClose, onDone }) {
   const [activities, setActivities] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [preview, setPreview] = useState(null); // aperçu de la suppression (retour 89)
+  useEffect(() => {
+    if (kind !== 'delete') return;
+    let live = true;
+    api.previewBulkSiteDelete(ids)
+      .then((p) => { if (live) setPreview(p); })
+      .catch((e) => { if (live) setErr(e.message); });
+    return () => { live = false; };
+  }, [kind, ids]);
   useEffect(() => {
     if (kind !== 'activity') return;
     api.listMmr().then((rows) => setActivities([...new Set(rows.map((r) => String(r.activityCategory || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b))))
@@ -253,10 +258,14 @@ function BulkModal({ kind, ids, offices, onClose, onDone }) {
       footer={(
         <>
           <Button variant="ghost" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button>
-          <Button variant={kind === 'delete' ? 'danger' : 'primary'} loading={busy} onClick={run}>{kind === 'delete' ? tr('Supprimer') : tr('Appliquer')}</Button>
+          {kind === 'delete' ? (
+            <Button variant="danger" icon={Trash2} loading={busy} disabled={!preview || preview.deletable === 0} onClick={run}>
+              {preview ? tr('Supprimer {n} site(s)', { n: preview.deletable }) : tr('Supprimer')}
+            </Button>
+          ) : <Button loading={busy} onClick={run}>{tr('Appliquer')}</Button>}
         </>
       )}>
-      {kind === 'delete' && <p>{tr('Seuls les sites sans donnée reliée (visites, soumissions, grille des sites actifs) sont supprimés ; les autres restent et sont listés. L\'action est définitive.')}</p>}
+      {kind === 'delete' && (preview ? <DeletePreview p={preview} /> : !err && <Skeleton height={160} />)}
       {kind === 'activity' && (
         <Field label={tr('Activité')} hint={tr('Les activités viennent du MMR (Paramétrage › Paramètres MMR).')}>
           {activities === null ? <Skeleton height={38} /> : (
@@ -277,6 +286,83 @@ function BulkModal({ kind, ids, offices, onClose, onDone }) {
       )}
       {err && <Alert tone="danger">{err}</Alert>}
     </Modal>
+  );
+}
+
+/** Raisons pour lesquelles un site est gardé (mêmes clés que le serveur : siteDeletion.KEEP_REASONS). */
+const KEEP_LABELS = {
+  visits: ['{n} site avec des visites', '{n} sites avec des visites'],
+  submissions: ['{n} site avec des soumissions rattachées', '{n} sites avec des soumissions rattachées'],
+  activation: ['{n} site dans la grille des sites actifs', '{n} sites dans la grille des sites actifs'],
+  assignments: ['{n} site avec des affectations', '{n} sites avec des affectations'],
+};
+
+function KeepReasons({ byReason }) {
+  const { tr } = useI18n();
+  const items = Object.entries(KEEP_LABELS).filter(([k]) => (byReason?.[k] || 0) > 0);
+  if (!items.length) return null;
+  return (
+    <ul className="del-reasons">
+      {items.map(([k, [one, many]]) => {
+        const n = byReason[k];
+        return <li key={k}>{tr(n === 1 ? one : many, { n: formatInt(n) })}</li>;
+      })}
+    </ul>
+  );
+}
+
+/**
+ * Aperçu AVANT la suppression groupée (retour 89) : ce qui part, ce qui reste
+ * et pourquoi. Rien n'est écrit tant que l'utilisateur ne confirme pas.
+ */
+function DeletePreview({ p }) {
+  const { tr } = useI18n();
+  return (
+    <div className="del-preview">
+      <div className="del-tiles">
+        <div className={`del-tile ${p.deletable ? 'is-danger' : ''}`}>
+          <span className="del-tile-value">{formatInt(p.deletable)}</span>
+          <span className="del-tile-label">{tr('seront supprimés')}</span>
+          <span className="del-tile-foot">{tr('aucune donnée reliée')}</span>
+        </div>
+        <div className={`del-tile ${p.keptCount ? 'is-kept' : ''}`}>
+          <span className="del-tile-value">{formatInt(p.keptCount)}</span>
+          <span className="del-tile-label">{tr('seront gardés')}</span>
+          <span className="del-tile-foot">{tr('ils portent des données')}</span>
+        </div>
+      </div>
+      {p.keptCount > 0 && (
+        <div className="del-why">
+          <div className="del-why-title">{tr('Pourquoi certains sites sont gardés')}</div>
+          <KeepReasons byReason={p.byReason} />
+          <p className="muted del-why-hint">{tr('Un site qui porte des données n\'est jamais supprimé. Pour le retirer du suivi, marquez-le inactif dans la grille des sites actifs.')}</p>
+        </div>
+      )}
+      {p.deletable === 0
+        ? <Alert tone="info">{tr('Aucun des sites sélectionnés ne peut être supprimé.')}</Alert>
+        : <p className="muted del-final">{tr('La suppression est définitive.')}</p>}
+    </div>
+  );
+}
+
+/** Compte rendu APRÈS une suppression groupée qui a gardé des sites (retour 89). */
+function DeleteResult({ result, onSelectKept, onClose }) {
+  const { tr } = useI18n();
+  return (
+    <div className="del-result" role="status">
+      <div className="del-result-head">
+        <CheckCircle2 size={18} aria-hidden="true" className="del-result-ic" />
+        <div className="del-result-text">
+          <strong>{tr('Suppression terminée')}</strong>
+          <span>{tr('{n} site(s) supprimé(s) · {k} gardé(s) car ils portent des données.', { n: formatInt(result.deleted), k: formatInt(result.keptCount) })}</span>
+        </div>
+        <div className="del-result-actions">
+          <Button size="sm" variant="secondary" onClick={onSelectKept}>{tr('Sélectionner les sites gardés')}</Button>
+          <Button size="sm" variant="ghost" icon={X} onClick={onClose} aria-label={tr('Fermer')} />
+        </div>
+      </div>
+      <KeepReasons byReason={result.byReason} />
+    </div>
   );
 }
 
