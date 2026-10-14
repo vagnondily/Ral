@@ -496,6 +496,24 @@ or navy rail.
 - **Shell**: left sidebar, collapsible (rail mode), header with notifications +
   user menu (FR/EN language, light/dark theme), no office filter.
 
+- **Période = plage de mois (lot 1b, publié)** : `common/period.js` (`parsePeriod`, `periodBounds`,
+  plafonds partagés `common/periodCaps`), `middleware/period.readPeriod` (`?from=&to=`, l'ancien
+  `?month=` reste lu) ; côté web `PeriodSelect` + `usePeriod` (URL > session > défaut). Sur une plage, les
+  sites se comptent UNE fois : service unique `common/siteActivitySql.siteMonthFactsCtes` — ne pas
+  ré-implémenter actif / prévu / réalisé ailleurs. Couverture (sites) ≠ Exécution du plan (visites).
+- **District d'un site** : `siteDistrictCtes` / `common/siteDistrict` — la graphie du site dans SA région ;
+  le P-code `adm2_pcode` n'est cru que s'il concorde avec la région. La carte (lot 6a, `modules/map/*`)
+  suit la même règle (`geo: true`). Positions GPS de ménages : jamais pour un rôle hors admin / manager
+  (`map/submissionGps.seesPreciseGps`, retirées AVANT les champs calculés).
+- **Registre des sites** = onglet « Sites » de Paramétrage › Localités (`SitesSection.jsx`,
+  `settings/sitesAdmin.*`, `/api/site-registry`) : actions groupées en une transaction
+  (`withSubmissionLinks`), un site qui porte des données (visites, soumissions, grille des sites actifs,
+  affectations) ne se supprime jamais (`linkedDataTx`, refus détaillé) ; un identifiant saisi n'est jamais
+  adopté. Toute nouvelle page doit être déclarée dans `AppShell.jsx` (sinon l'adresse renvoie à Contrats).
+- **Suppression des documents** (retour 56) : `common/deletionPolicy.js` + journal `document_deletions`
+  (migration 065, inscription seule) — non validé → supprimable ; validé → seulement sans donnée reliée,
+  avec justificatif.
+
 ## Known / open items
 - **Rapportage fidèle à la facture** — DONE. Financial reports now hold a
   line-item « état des dépenses » (facture) faithful to the real YPA invoice

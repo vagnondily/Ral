@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 12:31 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 12:38 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -485,5 +485,10 @@ _Dernière mise à jour : 14/10/2026 12:31 UTC_ — la branche `main` reçoit ch
   - 64 : identifiant de site affiché `S-XXXX-XXXX` aléatoire et immuable, UUID interne caché, anciens codes en alias.
 
   Les fichiers fournis sont rangés à part et non commités : 5 XLSForm, 4 maquettes HTML et le classeur d'activation 2026_1.
+
+- **12:38** ✅ **Retours 70 et 71** publiés (`7fa3142`) :
+  - un code inventé dans le modèle n'est plus repris à l'import ;
+  - les codes Adm s'affichent ou non selon une option de Localités (migration 067) ;
+  - Localités suit l'onglet indiqué dans l'adresse.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.

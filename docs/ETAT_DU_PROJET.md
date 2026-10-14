@@ -1,6 +1,6 @@
 # MEMS 2.0 — État du projet (fait / en cours / reste à faire)
 
-_Mise à jour : 14 octobre 2026. `main` contient le lot 1 et tous les correctifs de fiabilité (dernier commit de code : `45493c7`). Le travail en cours avance sur la branche `claude/practical-meitner-2c1560` et sur des branches de reprise `wip/…`._
+_Mise à jour : 14 octobre 2026, 12:40 UTC. `main` contient les lots 0, 1, 1b, 6a, le retour 56 et le registre des sites (dernier commit de code : `7fa3142`). La passation entre sessions est dans [`REPRISE.md`](REPRISE.md)._
 
 Documents de suivi, à lire dans cet ordre :
 
@@ -8,7 +8,7 @@ Documents de suivi, à lire dans cet ordre :
 |---|---|
 | [`REPRISE.md`](REPRISE.md) | **Passation entre sessions** : ce qui est publié, ce que fait chaque agent (branche, avancement, consigne exacte), ce qui reste, règles pour travailler à deux. |
 | [`JOURNAL.md`](JOURNAL.md) | Chaque action, avec son heure (UTC), son statut, son commit et ses vérifications. Le tableau « État courant » est en tête. |
-| [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) | Chacun de vos retours (n° 1 à 58) : ce qu'il faut, la réponse prévue et son **état**. |
+| [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) | Chacun de vos retours (n° 1 à 71) : ce qu'il faut, la réponse prévue et son **état**. |
 | [`PLAN_RETOURS_15_37.md`](PLAN_RETOURS_15_37.md) | Les définitions communes (visite, réalisée, site actif, couverture, période…) et l'ordre des lots. |
 | [`SPEC_LOT_1B.md`](SPEC_LOT_1B.md), [`SPEC_LOT_6A.md`](SPEC_LOT_6A.md), [`SPEC_LOT_7A.md`](SPEC_LOT_7A.md) | Spécifications des lots en cours, avec les décisions prises et les corrections exigées par la critique. |
 | [`ANALYSE_REFERENCES.md`](ANALYSE_REFERENCES.md), [`ANALYSE_LIAISONS.md`](ANALYSE_LIAISONS.md), [`REFONTE_UX.md`](REFONTE_UX.md) | Analyses de fond (vos fichiers réels, liaisons entre pages, refonte UX). |
@@ -17,11 +17,11 @@ Documents de suivi, à lire dans cet ordre :
 
 | Contrôle | Résultat |
 |---|---|
-| Tests serveur (`cd server && npm test`) | **669** (668 réussis, 1 ignoré : il ne tourne qu'avec les exports réels) |
+| Tests serveur (`cd server && npm test`) | **937** (936 réussis, 1 ignoré : il ne tourne qu'avec les exports réels) |
 | Lint serveur (`npm run lint`) | propre |
 | Build web (`cd web && npm run build`) | OK |
-| Balayage navigateur (31 écrans, FR et EN) | 0 erreur console ou API, 0 phrase anglaise manquante |
-| Migrations | `001` → `060` (061 à 064 arrivent avec les lots 6a et 7a) |
+| Balayage navigateur (33 écrans, FR et EN — `node web/scripts/sweep-ecrans.cjs`) | 0 erreur console ou API, 0 phrase anglaise manquante |
+| Migrations | `001` → `067` (062–064 : lot 7a ; numéros réservés dans `REPRISE.md`) |
 
 ---
 
@@ -75,6 +75,27 @@ Documents de suivi, à lire dans cet ordre :
   - une visite seulement planifiée ne rend jamais un site « à jour » ;
   - « Générer » ne crée plus de doublons et respecte les annulations et les mois inactifs.
 - **Zone centrale élargie** (retour 31).
+
+### 14 octobre — publiés dans la journée
+- **Lot 1b — période « du … au … » partout** (retour 47) :
+  - préréglages ;
+  - sites comptés une fois sur la période ;
+  - Couverture (sites) et Exécution du plan (visites) séparées ;
+  - budget de la période en centimes entiers ;
+  - requête des régions passée de 19 s à 10 ms.
+- **Lot 6a — carte exploitable** (retours 17, 41, 44, 49, 50) :
+  - contours des districts, thèmes, légende, points, export image et A4 ;
+  - section carte du Dashboard décisionnel ;
+  - un site n'est jamais rangé dans le district d'une autre région ;
+  - les coordonnées GPS des ménages ne sont jamais montrées à un lecteur.
+- **Retour 56 — suppression des documents** : rapports, factures, plans, contrats et avenants, avec un journal. Réalisé par une autre session ; la session principale a corrigé le menu et l'anglais.
+- **Registre des sites** (retours 62, 63, 70, 71) :
+  - onglet de Localités, avec sélection multiple et actions groupées ;
+  - suppression protégée et expliquée ;
+  - dernière collecte par site ;
+  - codes saisis jamais repris ;
+  - affichage des codes Adm en option.
+- **Fiches de suivi** : renommer une fiche et changer son activité depuis sa page (retour 59) ; voir la liste des choix d'une question (retour 66).
 
 ---
 
