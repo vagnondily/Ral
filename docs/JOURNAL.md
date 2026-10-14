@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 12:38 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 12:39 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -36,7 +36,7 @@ _Dernière mise à jour : 14/10/2026 12:38 UTC_ — la branche `main` reçoit ch
 | Retour 56 | Suppression des documents : non validé → supprimable ; validé → seulement sans donnée reliée, avec justificatif ; journal des suppressions | 🔄 | Une autre session Claude l'avait commencé (3 commits, branche `claude/zealous-bardeen-p9ozcr`) : travail **repris** et en cours de correction (migration renumérotée 069, anglais, avenants, données reliées affichées, documents validés atteignables, justificatif ≥ 10 caractères, tests), puis vérification indépendante |
 | Retour 54 | Tableau trimestriel par activité (sites actifs / prévus / réalisés, couverture, exécution) | 🔄 | **En réalisation** (nouvelle entrée « Rapport trimestriel » du Dashboard décisionnel, export Excel) |
 | Lot 5 élargi | Calendrier d'activités (pop-up), plan MMR réaliste, priorités configurables, risque daté (retours 24, 25, 55) | 🔄 | **Conception v1 rendue** → [`SPEC_LOT_5.md`](SPEC_LOT_5.md) (critique : 7 graves, 15 moyens, 6 mineurs) ; v2 avec le retour 58 dès sa conception rendue ; réalisation après la publication de 1b et 6a |
-| Retour 58 | Onglet « Affectation des TPM » par région › district, pré-rempli d'après les contrats ; raison obligatoire si on le change ; les visites reprennent le TPM de leur zone | 🔄 | Analyse et conception en cours (lecture seule) ; lot fixé ensuite |
+| Retour 58 | Onglet « Affectation des TPM » par région › district, pré-rempli d'après les contrats ; raison obligatoire si on le change ; les visites reprennent le TPM de leur zone | 🔄 | **Conception v1** → [`SPEC_RETOUR_58.md`](SPEC_RETOUR_58.md) (migration 070, 7 commits) ; critique adverse à 15:30 ; 2 questions posées à l'utilisateur |
 | Lots 2–3, 4, 8 | Référentiels et registre (avec retours 46 et 57 : code de localité ; plusieurs sites par site déclaré ou commune, rapprochement GPS par shapefile) ; réalisé issu des données ; Partenaires & TPM | ⏳ | Analyses faites ; dans l'ordre après 1b / 6a / 7a |
 | Contre-vérif. | Correctifs des imports, formules, correspondances et verrous (retours d'hier + 4 relectures) | ✅ | **Publié sur `main`** (`d8863bb`) : `ef7ed78` → `6241cb1` → `aec0c6c` → `d8863bb`. Dernier contrôle ciblé de la nouvelle garde Excel en cours |
 | Refonte | Refonte UI/UX : menu par objets métier, fiches, liaisons visibles ; Partenaires & TPM (fiche 360°, formations avec pré/post-test, notation des agents) | 🔄 | Spécification ✅ [`docs/REFONTE_UX.md`](REFONTE_UX.md) (`5f6a6ef`) : « le site au centre », 6 groupes / 24 entrées, 13 lots A à M. Décisions de la section 8 adoptées avec les valeurs recommandées (modifiables). **Lot A** (navigation, adresses, redirections) en cours |
@@ -490,5 +490,13 @@ _Dernière mise à jour : 14/10/2026 12:38 UTC_ — la branche `main` reçoit ch
   - un code inventé dans le modèle n'est plus repris à l'import ;
   - les codes Adm s'affichent ou non selon une option de Localités (migration 067) ;
   - Localités suit l'onglet indiqué dans l'adresse.
+
+- **12:39** ✅ **Conception du retour 58** transcrite → [`SPEC_RETOUR_58.md`](SPEC_RETOUR_58.md). Elle prévoit :
+  - un TPM selon le contrat, recalculé à chaque lecture, avec trois états : selon contrat, sans contrat, à arbitrer ;
+  - des modifications par zone et par mois, avec une raison de 10 caractères au moins et un journal inaltérable ;
+  - des visites qui héritent du TPM de leur zone ;
+  - la migration 070.
+
+  Deux questions sont posées à l'utilisateur : qui est « le TPM d'un contrat », et les zones de contrat dont le district a été découpé.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
