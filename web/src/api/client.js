@@ -475,6 +475,13 @@ export const api = {
 
   // Journal des suppressions (retour 56), admin.
   listDeletions: (query) => request('/api/deletions', { query }),
+
+  // Registre des sites (page de gestion des sites).
+  listSiteRegistry: (query) => request('/api/site-registry', { query }),
+  createSiteRegistry: (body) => request('/api/site-registry', { method: 'POST', body }),
+  updateSiteRegistry: (id, body) => request(`/api/site-registry/${id}`, { method: 'PATCH', body }),
+  deleteSiteRegistry: (id) => request(`/api/site-registry/${id}`, { method: 'DELETE' }),
+  autoAttributeSites: (body) => request('/api/site-registry/auto-attribute', { method: 'POST', body }),
   // Liaison : postes du plan pour pré-remplir une facture (même contrat + mois)
   planningPrefill: (partnerId, contractId, month) => request('/api/tpm/planning/prefill', { query: { partnerId, contractId, month } }),
 

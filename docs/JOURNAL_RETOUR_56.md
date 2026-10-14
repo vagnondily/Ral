@@ -200,3 +200,25 @@ remaniement administratif). Clés retenues :
   (création → Code POI auto `L###` ; auto-attribution → commune depuis le GPS,
   `admin_area_id` stable posé, pcode `MG7101` seulement dérivé ; update ; delete).
 
+## Fait (frontend)
+
+- `web/src/pages/settings/SitesSection.jsx` (fichier neuf) : tableau avec toutes
+  les colonnes (Identifiant, Localité, Code POI, Field office + code, Région /
+  Adm1, District / Adm2, Commune / Adm3, Fokontany / Adm4, Activité, Code tag,
+  Lat, Long), recherche, **« Nouveau site »** (modal), édition, suppression, et
+  **« Attribuer depuis le GPS »** (appelle `/api/site-registry/auto-attribute`).
+- Client API : `listSiteRegistry` / `createSiteRegistry` / `updateSiteRegistry` /
+  `deleteSiteRegistry` / `autoAttributeSites`.
+- Nav : nouvelle rubrique **« Paramétrage › Sites »** (groupe Géographie, admin).
+- Vérifs : `web build` OK ; **couche HTTP testée** (supertest, base réelle) :
+  POST 201 (Code POI `L002`), GET 200, auto-attribute 200 (commune depuis GPS),
+  PATCH 204, DELETE 204, sans auth 401.
+
+## Reste (suite possible, non bloquant)
+
+- Import / export Excel au format exact des colonnes (gabarit téléchargeable) —
+  à ajouter sur la même page.
+- Attribution GPS en **point-dans-polygone** quand les contours (lot 6a) seront
+  disponibles : il suffira de passer `features` à `geoAttribution` (déjà prévu).
+- Modèle « un site par activité » et liaison planification par UUID du site.
+
