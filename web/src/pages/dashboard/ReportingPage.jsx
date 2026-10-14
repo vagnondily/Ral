@@ -50,6 +50,7 @@ export default function ReportingPage({ onOpenContract }) {
   const t = cons?.totals;
   const tp = t?.period;
   const ov = field?.overall;
+  const others = field?.others?.byDistrict || { groups: 0, sitesActive: 0 };
   const ovPct = coveragePct(ov);
   const pLabel = period ? periodLabel(period, lang) : '';
   const suffix = period ? `${period.from}_${period.to}` : '';
@@ -76,6 +77,10 @@ export default function ReportingPage({ onOpenContract }) {
       rows.push([d.label, d.planifie, d.realise, d.annule, p == null ? tr('aucun plan') : `${p}%`,
         d.sites.active, d.sites.realised, d.coverage == null ? '' : `${Math.round(d.coverage * 100)}%`]);
     }
+    // Districts sans visite (leurs sites actifs comptent dans la couverture) : la colonne se rapproche du total.
+    if (others.groups) rows.push([tr('Autres districts (sans visite) : {n}', { n: others.groups }), 0, 0, 0, tr('aucun plan'), others.sitesActive, 0, '0%']);
+    rows.push([tr('Total'), ov.planifie, ov.realise, ov.annule, coveragePct(ov) == null ? tr('aucun plan') : `${coveragePct(ov)}%`,
+      ov.sites.active, ov.sites.realised, ov.coverage == null ? '' : `${Math.round(ov.coverage * 100)}%`]);
     downloadCsv(`visites-terrain_${suffix}.csv`, rows);
   };
 
@@ -178,6 +183,15 @@ export default function ReportingPage({ onOpenContract }) {
                   <td className="num mono">{sitesCell(d)}</td>
                 </tr>
               ))}
+              {/* Districts sans visite : leurs sites actifs comptent dans la couverture (0 réalisé) —
+                  la colonne « Couverture (sites) » se rapproche ainsi du total. */}
+              {others.groups > 0 && (
+                <tr className="row-others"><td>{tr('Autres districts (sans visite) : {n}', { n: formatInt(others.groups) })}</td>
+                  <td className="num mono">0</td><td className="num mono">0</td><td className="num mono">0</td>
+                  <td className="num mono"><span className="muted">{tr('— aucun plan')}</span></td>
+                  <td className="num mono">{`0 / ${formatInt(others.sitesActive)} · 0 %`}</td>
+                </tr>
+              )}
             </tbody>
             <tfoot><tr><td><strong>{tr('Total')}</strong></td>
               <td className="num mono"><strong>{formatInt(ov.planifie)}</strong></td>

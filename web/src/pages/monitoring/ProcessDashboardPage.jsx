@@ -78,6 +78,12 @@ export default function ProcessDashboardPage({ onNavigate }) {
       r.active = o.active; r.realise = o.realise; r.rate = o.active > 0 ? o.rate : null;
       r.sitesActive = o.sites?.active || 0; r.sitesRealised = o.sites?.realised || 0; r.coverage = o.coverage ?? null;
     }
+    // Bureaux sans visite sur la période mais avec des sites actifs : listés aussi (0 réalisé), pour
+    // que la colonne « Couverture (sites) » se rapproche du total — ce sont ceux qui demandent action.
+    for (const o of field?.others?.byOffice?.list || []) {
+      const r = o.key === '—' ? get('none', { row: none }) : get(`name:${o.label}`, { row: { status: 'relie', name: o.label } });
+      r.sitesActive = o.sitesActive; r.sitesRealised = 0; r.coverage = o.sitesActive > 0 ? 0 : null;
+    }
     for (const b of ov?.byBureau || []) {
       const k = b.status === 'vide' ? 'none' : b.status === 'relie' ? `name:${b.name}` : b.key;
       const r = get(k, { row: b.status === 'vide' ? none : b });
@@ -148,7 +154,7 @@ export default function ProcessDashboardPage({ onNavigate }) {
           <ActivationNote field={field} />
 
           <div className="syn-grid">
-            <OfficesCard rows={offices} error={res.field.error || res.ov.error} onOpen={() => go('processus', 'sites')} onNavigate={onNavigate} />
+            <OfficesCard rows={offices} overall={field?.overall} error={res.field.error || res.ov.error} onOpen={() => go('processus', 'sites')} onNavigate={onNavigate} />
             <div className="syn-side">
               <div className="card biz-card">
                 <div className="card-header"><div className="card-title">{tr('Données reçues par mois')}</div></div>
@@ -201,7 +207,7 @@ const barColor = (pct) => (pct >= 80 ? 'var(--green)' : (pct >= 50 ? 'var(--blue
  * Par bureau : exécution du plan (visites réalisées / prévues), couverture des sites
  * (sites actifs réalisés / sites actifs) et formulaires reçus — table dense.
  */
-function OfficesCard({ rows, error, onOpen, onNavigate }) {
+function OfficesCard({ rows, overall, error, onOpen, onNavigate }) {
   const { tr } = useI18n();
   const tot = rows.reduce((a, r) => ({ active: a.active + r.active, realise: a.realise + r.realise, submissions: a.submissions + r.submissions }), { active: 0, realise: 0, submissions: 0 });
   return (
@@ -229,8 +235,9 @@ function OfficesCard({ rows, error, onOpen, onNavigate }) {
                     <td><CodeLabel row={r.row} onNavigate={onNavigate} showForm /></td>
                     <td className="syn-cov" title={r.active ? tr('{done} / {planned} visites prévues', { done: formatInt(r.realise), planned: formatInt(r.active) }) : undefined}>
                       {pct == null ? <span className="muted">{tr('— aucun plan')}</span> : (
+                        // Cellule compacte : barre courte, « 22/34 » sous le pourcentage (la table tient à 1 366 px).
                         <span className="syn-bar-cell"><span className="biz-bar"><span style={{ width: `${Math.min(100, pct)}%`, background: barColor(pct) }} /></span>
-                          <span className="tabular">{tr('{p} %', { p: pct })} <span className="muted">· {formatInt(r.realise)}/{formatInt(r.active)}</span></span></span>
+                          <span className="tabular syn-pct">{tr('{p} %', { p: pct })}<span className="syn-sub">{formatInt(r.realise)}/{formatInt(r.active)}</span></span></span>
                       )}
                     </td>
                     <td className="num tabular" title={tr('{r} / {a} sites actifs · distincts sur la période', { r: formatInt(r.sitesRealised), a: formatInt(r.sitesActive) })}>
@@ -245,9 +252,12 @@ function OfficesCard({ rows, error, onOpen, onNavigate }) {
             <tfoot><tr>
               <td>{tr('Total')}</td>
               <td className="tabular">{tot.active
-                ? <>{tr('{p} %', { p: Math.round((tot.realise / tot.active) * 100) })} <span className="muted">· {formatInt(tot.realise)}/{formatInt(tot.active)}</span></>
+                ? <span className="syn-pct">{tr('{p} %', { p: Math.round((tot.realise / tot.active) * 100) })}<span className="syn-sub">{formatInt(tot.realise)}/{formatInt(tot.active)}</span></span>
                 : <span className="muted">{tr('— aucun plan')}</span>}</td>
-              <td />
+              {/* Total des sites : chaque bureau qui a des sites actifs est listé, la colonne se rapproche de ce total. */}
+              <td className="num tabular" title={overall ? tr('{r} / {a} sites actifs · distincts sur la période', { r: formatInt(overall.sites.realised), a: formatInt(overall.sites.active) }) : undefined}>
+                {overall && overall.coverage != null ? tr('{p} %', { p: Math.round(overall.coverage * 100) }) : '—'}
+              </td>
               <td className="num tabular">{formatInt(tot.submissions)}</td>
               <td />
             </tr></tfoot>

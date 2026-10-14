@@ -142,6 +142,10 @@ export default {
   'Visites de terrain par district — {p}': 'Field visits by district — {p}',
   'Visites prévues, réalisées et annulées de la période ; exécution du plan = réalisées ÷ (prévues + réalisées) ; couverture = sites actifs réalisés ÷ sites actifs.': 'Visits planned, completed and cancelled over the period; plan execution = completed ÷ (planned + completed); coverage = active sites completed ÷ active sites.',
   'Aucune visite sur la période': 'No visit over the period',
+  // Suivi budgétaire consolidé avec une période : détail du cumul du contrat replié par défaut.
+  'Tout le cumul (+6 colonnes)': 'Full contract-to-date (+6 columns)',
+  // Tableaux par groupe : les groupes sans visite sont regroupés (leurs sites actifs comptent dans la couverture).
+  'Autres districts (sans visite) : {n}': 'Other districts (no visit): {n}',
 
   // ---- Titres explicites (le sous-titre des cartes est masqué par défaut)
   'Consommation par contrat (à date)': 'Consumption by contract (to date)',
