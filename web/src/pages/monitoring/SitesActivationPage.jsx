@@ -67,7 +67,7 @@ export default function SitesActivationPage({ canEdit }) {
     if (!data) return [];
     const q = filters.q.trim().toLowerCase();
     return data.filter((r) => {
-      if (q && ![r.ident, r.name, r.commune, r.district, r.fokontany].some((v) => String(v || '').toLowerCase().includes(q))) return false;
+      if (q && ![r.ident, r.publicId, r.name, r.commune, r.district, r.fokontany].some((v) => String(v || '').toLowerCase().includes(q))) return false;
       if (filters.bureau && r.bureau !== filters.bureau) return false;
       if (filters.district && r.district !== filters.district) return false;
       if (filters.activity && r.activity !== filters.activity) return false;
@@ -239,7 +239,10 @@ export default function SitesActivationPage({ canEdit }) {
                 {rows.map((r) => (
                   <tr key={r.id} className={selected.has(r.id) ? 'is-selected' : undefined}>
                     {canEdit && <td className="act-check"><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSel(r.id)} aria-label={tr('Sélectionner {n}', { n: r.name })} /></td>}
-                    <td className="act-ident"><span className="mono">{r.ident || '—'}</span></td>
+                    <td className="act-ident">
+                      <span className="mono act-ident-main">{r.ident || '—'}</span>
+                      {r.publicId && r.publicId !== r.ident && <span className="mono act-sub" title={tr('Identifiant du site dans MEMS')}>{r.publicId}</span>}
+                    </td>
                     <td className="act-name"><strong>{r.name}</strong>{r.activity && <span className="act-sub" title={r.activity}>{r.activity}</span>}</td>
                     <td className="act-place">
                       <span>{[r.commune, r.district].filter(Boolean).join(' · ') || '—'}</span>

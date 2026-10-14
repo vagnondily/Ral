@@ -16,7 +16,7 @@ const { MONTH_HEADERS, MONTHS, parseYesNo, yesNo, identifierOf } = require('./ac
 const SHEET = 'Site Actif';
 const HEADERS = ['Identifiant', 'Localité', 'Code POI', 'Field_office', 'Field_office_code', 'Region', 'Adm1Code', 'District',
   'Adm2Code', 'Commune', 'Adm3Code', 'Fokontany', 'Adm4Code', 'Activity_tag', 'Tag_code', 'Lat', 'Long', 'Année', 'Actif',
-  ...MONTH_HEADERS, 'Motif du changement'];
+  ...MONTH_HEADERS, 'Motif du changement', 'ID MEMS'];
 const COL = Object.fromEntries(HEADERS.map((h, i) => [h, i + 1]));
 const FIRST_MONTH = COL.Jan; // T
 const LAST_MONTH = COL['Déc']; // AE
@@ -25,6 +25,7 @@ const HINTS = {
   Année: 'rempli, ne pas modifier',
   Actif: 'calculé (au moins un mois à Oui)',
   'Motif du changement': 'Pourquoi ce site sort du plan, ou y entre. Facultatif, mais relu longtemps après.',
+  'ID MEMS': 'identifiant du site dans MEMS, ne pas modifier',
 };
 const colLetter = (n) => { let s = ''; let x = n; while (x > 0) { const m = (x - 1) % 26; s = String.fromCharCode(65 + m) + s; x = Math.floor((x - 1) / 26); } return s; };
 
@@ -55,7 +56,7 @@ function buildActivationWorkbook({ year, sites = [], office = 'tous les bureaux'
       s.activity || '', s.tagCode || '',
       s.lat == null ? null : Number(s.lat), s.lng == null ? null : Number(s.lng), year,
       { formula: `IF(COUNTIF(${L('Jan')}${r}:${L('Déc')}${r},"Oui")>0,"Oui","Non")`, result: active },
-      ...months, s.reason || '',
+      ...months, s.reason || '', s.publicId || '',
     ]);
     for (let c = FIRST_MONTH; c <= LAST_MONTH; c += 1) {
       row.getCell(c).dataValidation = {
@@ -65,7 +66,7 @@ function buildActivationWorkbook({ year, sites = [], office = 'tous les bureaux'
       row.getCell(c).alignment = { horizontal: 'center' };
     }
   });
-  const widths = { Identifiant: 24, Localité: 26, 'Code POI': 18, Field_office: 16, Region: 16, District: 18, Commune: 18, Fokontany: 18, Activity_tag: 30, 'Motif du changement': 40 };
+  const widths = { 'ID MEMS': 14, Identifiant: 24, Localité: 26, 'Code POI': 18, Field_office: 16, Region: 16, District: 18, Commune: 18, Fokontany: 18, Activity_tag: 30, 'Motif du changement': 40 };
   HEADERS.forEach((h, i) => { ws.getColumn(i + 1).width = widths[h] || (MONTH_HEADERS.includes(h) ? 6 : 11); });
   ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: HEADERS.length } };
 
@@ -100,6 +101,7 @@ const FIELD_ALIASES = {
   tagCode: ['tag_code', 'tag code'],
   year: ['annee', 'année', 'year', 'exercice'],
   reason: ['motif du changement', 'motif'],
+  publicId: ['id mems', 'identifiant mems'],
 };
 const MONTH_ALIASES = [
   ['jan', 'janv', 'janvier', 'january'], ['fev', 'fevr', 'fevrier', 'feb', 'february'], ['mar', 'mars', 'march'],
@@ -173,7 +175,8 @@ async function parseActivationWorkbook(buffer) {
       if (!p.ok) errors.push({ line: r, message: `${MONTH_HEADERS[i]} : « ${t} » — Oui ou Non attendu.` });
       else if (p.value !== null) monthsOut[i + 1] = p.value;
     });
-    rows.push({ line: r, ident, codePoi, tagCode, name, months: monthsOut, reason: cellText(at(row, 'reason')) || null });
+    rows.push({ line: r, ident, codePoi, tagCode, name, months: monthsOut, reason: cellText(at(row, 'reason')) || null,
+      ...(map.publicId ? { publicId: cellText(at(row, 'publicId')) || null } : {}) });
   }
   const fileYears = [...years].filter(Number.isFinite);
   if (fileYears.length > 1) errors.push({ line: null, message: `Plusieurs exercices dans le fichier (${fileYears.sort().join(', ')}) : un seul par import.` });

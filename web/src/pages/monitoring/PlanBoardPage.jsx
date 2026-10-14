@@ -85,7 +85,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
   }, [sites, filters.district]);
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
-    return sites.filter((s) => (!q || [s.locationId, s.name, s.commune, s.district].some((v) => String(v || '').toLowerCase().includes(q)))
+    return sites.filter((s) => (!q || [s.publicId, s.locationId, s.name, s.commune, s.district].some((v) => String(v || '').toLowerCase().includes(q)))
       && (!filters.bureau || s.bureau === filters.bureau) && (!filters.district || s.district === filters.district)
       && (!filters.commune || s.commune === filters.commune) && (!filters.activity || s.activity === filters.activity)
       && (!filters.status || (filters.status === 'none' ? !s.status : s.status === filters.status))
@@ -314,7 +314,7 @@ function PlanTable({ rows, offset, allRows, capacity, pending, canEdit, selected
           <tr key={s.id}>
             {canEdit && <SelectCell id={s.id} selected={selected} onSelect={onSelect} label={tr('Sélectionner {name}', { name: s.name })} />}
             <td className="num muted pb-stick pb-stick-rank">{offset + i + 1}</td>
-            <td className="pb-stick pb-stick-name"><span className="pb-name" title={s.name}>{s.name}</span><span className="pb-id">{s.locationId}</span></td>
+            <td className="pb-stick pb-stick-name"><span className="pb-name" title={s.name}>{s.name}</span><span className="pb-id" title={s.locationId ? `${tr('Code POI')} : ${s.locationId}` : undefined}>{s.publicId || s.locationId}</span></td>
             <td className="pb-clip" title={s.bureau || ''}>{s.bureau || '—'}</td><td className="pb-clip">{s.district}</td><td className="pb-clip" title={s.commune}>{s.commune}</td>
             <td className="pb-act" title={s.activity || ''}>{s.activity || <span className="muted">—</span>}</td>
             <td className="pb-clip" title={s.providers || ''}>{s.providers || <span className="muted" title={tr('Aucune visite affectée à un prestataire')}>{tr('à affecter')}</span>}</td>
@@ -445,7 +445,7 @@ function VisitedTable({ rows, year, selected, onSelect, allSelected, onSelectAll
       <tbody>{rows.map((s) => (
         <tr key={s.id}>
           {canEdit && <SelectCell id={s.id} selected={selected} onSelect={onSelect} label={tr('Sélectionner {name}', { name: s.name })} />}
-          <td><span className="pb-name">{s.name}</span><span className="pb-id">{s.locationId}</span></td>
+          <td><span className="pb-name">{s.name}</span><span className="pb-id" title={s.locationId ? `${tr('Code POI')} : ${s.locationId}` : undefined}>{s.publicId || s.locationId}</span></td>
           <td>{s.bureau || '—'}</td><td>{s.district}</td><td>{s.commune}</td><td className="pb-act">{s.activity || '—'}</td>
           <td className="num">{s.done}</td>
           <td className="pb-dates">{(s.months || []).filter((m) => m.status === 'realise').map((m) => m.date || monthLabel(`${year}-${String(m.month).padStart(2, '0')}`)).join(' · ')}</td>

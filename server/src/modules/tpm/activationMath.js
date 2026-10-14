@@ -14,6 +14,8 @@
 const MONTH_HEADERS = Object.freeze(['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']);
 const MONTHS = Object.freeze([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
+const { normalizePublicId } = require('../common/publicId');
+
 const fold = (v) => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
 
 const YES = new Set(['oui', 'o', 'yes', 'y', '1', 'active', 'actif', 'true', 'vrai', 'x']);
@@ -62,14 +64,17 @@ function buildSiteIndex(sites = []) {
     else byKey.set(key, id);
   };
   for (const s of sites) {
+    if (s.publicId) add(identKey(s.publicId), s.id);
     add(identKey(identifierOf(s)), s.id);
     if (s.code) add(identKey(s.code), s.id);
   }
   for (const k of ambiguous) byKey.delete(k);
   return {
     /** @returns {{ siteId: string|null, ambiguous: boolean }} */
-    resolve(ident, { locationId, tagCode } = {}) {
-      const keys = [identKey(ident), identKey(`${locationId ?? ''}${tagCode ?? ''}`)].filter(Boolean);
+    resolve(ident, { locationId, tagCode, publicId } = {}) {
+      // L'identifiant MEMS (« S-XXXX-XXXX », saisie tolérante) prime : il ne change jamais.
+      const pid = normalizePublicId(publicId);
+      const keys = [pid ? identKey(pid) : '', identKey(ident), identKey(`${locationId ?? ''}${tagCode ?? ''}`)].filter(Boolean);
       for (const k of keys) {
         if (ambiguous.has(k)) return { siteId: null, ambiguous: true };
         if (byKey.has(k)) return { siteId: byKey.get(k), ambiguous: false };

@@ -175,7 +175,7 @@ export default function SitesSection({ isAdmin, onOpenTab, showAdmCodes = true }
                   <td className="col-check">
                     <input type="checkbox" checked={sel.has(s.id)} onChange={() => toggle(s.id)} aria-label={tr('Sélectionner « {name} »', { name: s.localite })} />
                   </td>
-                  <td className="mono">{s.identifiant}</td>
+                  <td className="mono" title={s.ancienCode ? tr('Ancien code : {c}', { c: s.ancienCode }) : undefined}>{s.identifiant}</td>
                   <td>{s.localite}</td>
                   <td className="mono">{s.codePoi || '—'}</td>
                   <td>{s.fieldOffice || '—'}</td>

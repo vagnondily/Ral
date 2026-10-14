@@ -28,7 +28,7 @@ async function activationGrid(tenantId, { year }) {
            FROM site_activation_changes
           WHERE tenant_id = $1 AND year = $2 AND reason IS NOT NULL
           ORDER BY site_id, changed_at DESC, id)
-       SELECT s.id, s.code, s.location_id AS "locationId", s.tag_code AS "tagCode", s.name,
+       SELECT s.id, s.code, s.public_id AS "publicId", s.location_id AS "locationId", s.tag_code AS "tagCode", s.name,
               o.name AS "officeName", o.code AS "officeCode", COALESCE(par.name, o.name) AS bureau,
               s.adm1, s.adm1_pcode AS "adm1Pcode", COALESCE(s.adm2, s.district) AS district, s.adm2_pcode AS "adm2Pcode",
               COALESCE(s.adm3, s.commune) AS commune, s.adm3_pcode AS "adm3Pcode",
@@ -53,7 +53,7 @@ async function activationGridCompact(tenantId, { year }) {
   return {
     year,
     rows: rows.map((r) => ({
-      id: r.id, ident: r.ident, name: r.name, activity: r.activity, bureau: r.bureau, office: r.officeName,
+      id: r.id, ident: r.ident, publicId: r.publicId, name: r.name, activity: r.activity, bureau: r.bureau, office: r.officeName,
       region: r.adm1, district: r.district, commune: r.commune, fokontany: r.fokontany,
       m: packMonths(r.months), reason: r.reason, reasonAt: r.reasonAt,
     })),
@@ -119,12 +119,12 @@ async function saveActivation(tenantId, userId, { year, changes, reason }) {
 async function importActivation(tenantId, userId, { year, rows }, { commit = false } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows: sites } = await client.query(
-      'SELECT id, code, location_id AS "locationId", tag_code AS "tagCode" FROM sites WHERE tenant_id = $1', [tenantId]);
+      'SELECT id, code, public_id AS "publicId", location_id AS "locationId", tag_code AS "tagCode" FROM sites WHERE tenant_id = $1', [tenantId]);
     const index = buildSiteIndex(sites);
     const unknown = []; const ambiguous = []; const duplicates = [];
     const wanted = []; const firstLine = new Map();
     for (const r of rows) {
-      const hit = index.resolve(r.ident, { locationId: r.codePoi, tagCode: r.tagCode });
+      const hit = index.resolve(r.ident, { locationId: r.codePoi, tagCode: r.tagCode, publicId: r.publicId });
       if (!hit.siteId) { (hit.ambiguous ? ambiguous : unknown).push({ line: r.line, ident: r.ident, name: r.name || null }); continue; }
       if (firstLine.has(hit.siteId)) { duplicates.push({ line: r.line, ident: r.ident, firstLine: firstLine.get(hit.siteId) }); continue; }
       firstLine.set(hit.siteId, r.line);

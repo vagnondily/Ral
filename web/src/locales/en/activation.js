@@ -76,4 +76,7 @@ export default {
   'Journal · {n}': 'Log · {n}',
   'Aucun changement enregistré pour {y}.': 'No change recorded for {y}.',
   'import': 'import',
+  // Identifiant professionnel des sites (retour 64, migration 073).
+  'Identifiant du site dans MEMS': 'Site identifier in MEMS',
+  'Ancien code : {c}': 'Former code: {c}',
 };

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { buildActivationWorkbook, parseActivationWorkbook, HEADERS } = require('../src/modules/tpm/activationXlsx');
 
 const sites = [
-  { code: 'PLAN-0001', locationId: 'MG23209031001001', tagCode: 'STUNT', name: 'Tsaravary', officeName: 'Manakara', officeCode: '4',
+  { code: 'PLAN-0001', publicId: 'S-7K3F-9Q2X', locationId: 'MG23209031001001', tagCode: 'STUNT', name: 'Tsaravary', officeName: 'Manakara', officeCode: '4',
     adm1: 'Vatovavy', district: 'Mananjary', commune: 'Tsaravary', fokontany: 'Tsaravary', activity: 'Prevention of stunting',
     lat: -21.23748, lng: 48.29978, months: { 1: true, 2: true, 3: false }, reason: 'fin du cycle' },
   { code: 'PLAN-0002', locationId: null, tagCode: null, name: 'Sans code POI', months: {} },
@@ -32,7 +32,7 @@ test('aller-retour : mois remplis seulement (vide = inchangé), motif, exercice,
   assert.deepEqual(p.errors, []);
   assert.equal(p.rows.length, 2);
   assert.deepEqual(p.rows[0], { line: 3, ident: 'MG23209031001001STUNT', codePoi: 'MG23209031001001', tagCode: 'STUNT', name: 'Tsaravary',
-    months: { 1: true, 2: true, 3: false }, reason: 'fin du cycle' });
+    months: { 1: true, 2: true, 3: false }, reason: 'fin du cycle', publicId: 'S-7K3F-9Q2X' });
   // Sans Code POI : l'identifiant exporté est le code MEMS (résultat de la formule).
   assert.equal(p.rows[1].ident, 'PLAN-0002');
   assert.equal(p.rows[1].name, 'Sans code POI');

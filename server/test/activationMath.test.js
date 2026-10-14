@@ -32,6 +32,17 @@ test('rapprochement : identifiant, Code POI + Tag_code recalculé, code MEMS ; a
   assert.deepEqual(idx.resolve('INCONNU'), { siteId: null, ambiguous: false });
 });
 
+test('rapprochement : l\'identifiant MEMS (S-XXXX-XXXX, saisie tolérante) prime sur le reste', () => {
+  const idx = m.buildSiteIndex([
+    { id: 'a', publicId: 'S-7K3F-9Q2X', locationId: 'MG1', tagCode: 'SMP' },
+    { id: 'b', publicId: 'S-0000-1111', locationId: 'MG2', tagCode: 'SMP' },
+  ]);
+  // Identifiant du classeur modifié par erreur : l'ID MEMS désigne toujours le bon site.
+  assert.deepEqual(idx.resolve('MG2SMP', { publicId: 's 7k3f 9q2x' }), { siteId: 'a', ambiguous: false });
+  assert.deepEqual(idx.resolve('S-0000-IIII'), { siteId: null, ambiguous: false }); // pas une colonne ID MEMS
+  assert.deepEqual(idx.resolve('', { publicId: 'S-0000-IIII' }), { siteId: 'b', ambiguous: false }); // I → 1
+});
+
 test('écarts : seuls les mois qui changent ; vide (undefined) = inchangé ; null = effacer', () => {
   const current = new Map([['a', { 1: true, 2: true, 3: false }]]);
   const changes = m.diffActivation(current, [
