@@ -41,6 +41,7 @@ async function getCountry(tenantId) {
     const [{ rows: prof }, { rows: levels }, { rows: tenant }] = [
       await client.query(
         `SELECT name, iso3, currency, center_lat::float8 AS "centerLat", center_lng::float8 AS "centerLng", note,
+                show_adm_codes AS "showAdmCodes",
                 breakdown_source AS "breakdownSource", breakdown_imported_at AS "breakdownImportedAt", updated_at AS "updatedAt"
            FROM country_profiles WHERE tenant_id = $1`, [tenantId]),
       await client.query(
@@ -51,19 +52,22 @@ async function getCountry(tenantId) {
           WHERE l.tenant_id = $1 GROUP BY l.depth, l.label, l.label_plural, l.code ORDER BY l.depth`, [tenantId]),
       await client.query('SELECT name FROM tenants WHERE id = $1', [tenantId]),
     ];
-    return { profile: prof[0] || { name: null, iso3: null, currency: null, centerLat: null, centerLng: null, note: null }, levels, tenantName: tenant[0]?.name || null };
+    return { profile: prof[0] || { name: null, iso3: null, currency: null, centerLat: null, centerLng: null, note: null, showAdmCodes: false }, levels, tenantName: tenant[0]?.name || null };
   });
 }
 
 /** Profil + libellés des niveaux, tout ou rien. */
-async function saveCountry(tenantId, { name, iso3, currency, centerLat, centerLng, note, levels = [] }) {
+async function saveCountry(tenantId, { name, iso3, currency, centerLat, centerLng, note, showAdmCodes, levels = [] }) {
   return withTenantTransaction(tenantId, async (client) => {
+    // showAdmCodes absent : valeur enregistrée inchangée.
     await client.query(
-      `INSERT INTO country_profiles (tenant_id, name, iso3, currency, center_lat, center_lng, note)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO country_profiles (tenant_id, name, iso3, currency, center_lat, center_lng, note, show_adm_codes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7, COALESCE($8::boolean, false))
        ON CONFLICT (tenant_id) DO UPDATE SET name = EXCLUDED.name, iso3 = EXCLUDED.iso3, currency = EXCLUDED.currency,
-         center_lat = EXCLUDED.center_lat, center_lng = EXCLUDED.center_lng, note = EXCLUDED.note, updated_at = now()`,
-      [tenantId, name, iso3 || null, currency || null, centerLat ?? null, centerLng ?? null, note || null]);
+         center_lat = EXCLUDED.center_lat, center_lng = EXCLUDED.center_lng, note = EXCLUDED.note,
+         show_adm_codes = COALESCE($8::boolean, country_profiles.show_adm_codes), updated_at = now()`,
+      [tenantId, name, iso3 || null, currency || null, centerLat ?? null, centerLng ?? null, note || null,
+        typeof showAdmCodes === 'boolean' ? showAdmCodes : null]);
     if (levels.length) {
       const params = [tenantId]; const tuples = levels.map((l) => {
         params.push(l.depth, l.label, l.labelPlural);

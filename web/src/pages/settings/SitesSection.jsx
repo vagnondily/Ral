@@ -16,7 +16,7 @@ import { monthLabel } from '../../lib/format.js';
 const LIST_CAP = 5000;
 const num = (v) => (v === '' || v === null || v === undefined ? undefined : Number(v));
 
-export default function SitesSection({ isAdmin, onOpenTab }) {
+export default function SitesSection({ isAdmin, onOpenTab, showAdmCodes = true }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [rows, setRows] = useState(null);
@@ -87,6 +87,7 @@ export default function SitesSection({ isAdmin, onOpenTab }) {
       toast.success(tr('Import : {c} créé(s), {u} mis à jour{s}.', {
         c: r.created, u: r.updated, s: nSkip ? tr(' ; {n} ignoré(s)', { n: nSkip }) : '',
       }));
+      if (r.ignoredCodes) toast.info(tr('{n} identifiant(s) saisi(s) dans le modèle et inconnu(s) de MEMS : non repris, les sites ont reçu l\'identifiant de MEMS.', { n: r.ignoredCodes }));
       load();
     } catch (e2) { toast.error(e2.message); } finally { setBusyIo(false); }
   }
@@ -167,8 +168,8 @@ export default function SitesSection({ isAdmin, onOpenTab }) {
               </th>
               <th>{tr('Identifiant')}</th><th>{tr('Localité')}</th><th>{tr('Code POI')}</th>
               <th>{tr('Field office')}</th><th>{tr('Code bureau')}</th>
-              <th>{tr('Région')}</th><th>Adm1</th><th>{tr('District')}</th><th>Adm2</th>
-              <th>{tr('Commune')}</th><th>Adm3</th><th>{tr('Fokontany')}</th><th>Adm4</th>
+              <th>{tr('Région')}</th>{showAdmCodes && <th>Adm1</th>}<th>{tr('District')}</th>{showAdmCodes && <th>Adm2</th>}
+              <th>{tr('Commune')}</th>{showAdmCodes && <th>Adm3</th>}<th>{tr('Fokontany')}</th>{showAdmCodes && <th>Adm4</th>}
               <th>{tr('Activité')}</th><th>{tr('Code tag')}</th>
               <th title={tr('Mois de la dernière soumission rattachée à ce site')}>{tr('Dernière collecte (données)')}</th>
               <th className="num">{tr('Soumissions')}</th><th className="num">{tr('Visites')}</th>
@@ -185,10 +186,10 @@ export default function SitesSection({ isAdmin, onOpenTab }) {
                   <td className="mono">{s.codePoi || '—'}</td>
                   <td>{s.fieldOffice || '—'}</td>
                   <td className="mono">{s.fieldOfficeCode || '—'}</td>
-                  <td>{s.region || '—'}</td><td className="mono muted">{s.adm1Code || '—'}</td>
-                  <td>{s.district || '—'}</td><td className="mono muted">{s.adm2Code || '—'}</td>
-                  <td>{s.commune || '—'}</td><td className="mono muted">{s.adm3Code || '—'}</td>
-                  <td>{s.fokontany || '—'}</td><td className="mono muted">{s.adm4Code || '—'}</td>
+                  <td>{s.region || '—'}</td>{showAdmCodes && <td className="mono muted">{s.adm1Code || '—'}</td>}
+                  <td>{s.district || '—'}</td>{showAdmCodes && <td className="mono muted">{s.adm2Code || '—'}</td>}
+                  <td>{s.commune || '—'}</td>{showAdmCodes && <td className="mono muted">{s.adm3Code || '—'}</td>}
+                  <td>{s.fokontany || '—'}</td>{showAdmCodes && <td className="mono muted">{s.adm4Code || '—'}</td>}
                   <td>{s.activityTag || '—'}</td><td className="mono">{s.tagCode || '—'}</td>
                   <td>{s.lastDataMonth ? monthLabel(s.lastDataMonth) : <span className="cell-empty">{tr('aucune')}</span>}</td>
                   <td className="num tabular">{s.submissionCount || 0}</td><td className="num tabular">{s.visitCount || 0}</td>

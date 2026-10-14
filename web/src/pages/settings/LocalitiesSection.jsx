@@ -22,6 +22,8 @@ const TABS = ['pays', 'repertoire', 'sites', 'rapprocher', 'contours'];
 export default function LocalitiesSection({ isAdmin, canEdit = isAdmin, initialTab }) {
   const { tr } = useI18n();
   const [tab, setTab] = useState(TABS.includes(initialTab) ? initialTab : 'pays');
+  // Adresse #/parametrage/localites/<onglet> suivie aussi quand la page est déjà ouverte.
+  useEffect(() => { if (TABS.includes(initialTab)) setTab(initialTab); }, [initialTab]);
   const [country, setCountry] = useState(null);
   const toast = useToast();
 
@@ -53,7 +55,7 @@ export default function LocalitiesSection({ isAdmin, canEdit = isAdmin, initialT
       </div>
       {country === null ? <Card><div className="card-body"><Skeleton height={220} /></div></Card>
         : tab === 'pays' ? <CountryTab country={country} isAdmin={isAdmin} onChanged={reload} />
-          : tab === 'sites' ? <SitesSection isAdmin={isAdmin} onOpenTab={setTab} />
+          : tab === 'sites' ? <SitesSection isAdmin={isAdmin} onOpenTab={setTab} showAdmCodes={Boolean(country.profile?.showAdmCodes)} />
           : tab === 'rapprocher' ? <PlaceMatchQueue canEdit={canEdit} />
             : tab === 'contours' ? <MapShapesTab isAdmin={isAdmin} />
             : <DirectoryTab levels={country.levels} isAdmin={isAdmin} onChanged={reload} />}
@@ -77,6 +79,7 @@ function CountryTab({ country, isAdmin, onChanged }) {
     setForm({
       name: p.name || country.tenantName || '', iso3: p.iso3 || '', currency: p.currency || '',
       centerLat: p.centerLat ?? '', centerLng: p.centerLng ?? '', note: p.note || '',
+      showAdmCodes: Boolean(p.showAdmCodes),
       levels: country.levels.map((l) => ({ depth: l.depth, code: l.code, label: l.label, labelPlural: l.labelPlural })),
     });
   }, [country]);
@@ -96,6 +99,7 @@ function CountryTab({ country, isAdmin, onChanged }) {
       await api.saveCountry({
         name: form.name.trim(), iso3: form.iso3.trim() || null, currency: form.currency.trim() || null,
         centerLat: num(form.centerLat), centerLng: num(form.centerLng), note: form.note.trim() || null,
+        showAdmCodes: form.showAdmCodes,
         levels: form.levels.map((l) => ({ depth: l.depth, label: l.label.trim(), labelPlural: l.labelPlural.trim() })),
       });
       toast.success(tr('Identité du pays enregistrée.'));
@@ -145,6 +149,12 @@ function CountryTab({ country, isAdmin, onChanged }) {
             <Field label={tr('Latitude du centre')} hint={tr('Cadre la carte avant tout import de contours')}><input className="input tabular" type="number" step="any" min="-90" max="90" value={form.centerLat} disabled={!isAdmin} onChange={(e) => set('centerLat', e.target.value)} /></Field>
             <Field label={tr('Longitude du centre')}><input className="input tabular" type="number" step="any" min="-180" max="180" value={form.centerLng} disabled={!isAdmin} onChange={(e) => set('centerLng', e.target.value)} /></Field>
             <Field label={tr('Note')}><input className="input" value={form.note} disabled={!isAdmin} maxLength={500} onChange={(e) => set('note', e.target.value)} /></Field>
+            <Field label={tr('Codes du découpage (Adm1 à Adm4)')} hint={tr('Affiche ou masque les colonnes de codes dans la liste des sites. Les modèles et exports Excel les gardent toujours.')}>
+              <label className="check-row">
+                <input type="checkbox" checked={form.showAdmCodes} disabled={!isAdmin} onChange={(e) => set('showAdmCodes', e.target.checked)} />
+                <span>{tr('Afficher les codes Adm dans les listes')}</span>
+              </label>
+            </Field>
           </div>
           <div className="field">
             <span className="field-label">{tr('Libellés des niveaux administratifs')}</span>

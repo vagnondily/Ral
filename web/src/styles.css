@@ -2941,3 +2941,5 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .table th.col-check, .table td.col-check { width: 36px; padding-left: 12px; padding-right: 4px; text-align: center; }
 .compact-list { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
 .compact-list li { margin: 2px 0; }
+.check-row { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.check-row input { width: 16px; height: 16px; }

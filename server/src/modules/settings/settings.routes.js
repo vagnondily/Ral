@@ -261,6 +261,7 @@ router.put('/country', ADMIN, body(z.object({
   currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, 'Devise : code ISO à 3 lettres').nullable().optional().or(z.literal('').transform(() => null)),
   centerLat: latS, centerLng: lngS,
   note: z.string().trim().max(500).nullable().optional(),
+  showAdmCodes: z.boolean().optional(),
   levels: z.array(z.object({ depth: z.number().int().min(1).max(9), label: z.string().trim().min(1).max(60), labelPlural: z.string().trim().min(1).max(60) })).max(9).default([]),
 })), asyncHandler(async (req, res) => res.json(await loc.saveCountry(t(req), req.valid))));
 

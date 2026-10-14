@@ -124,14 +124,13 @@ function siteCode({ district, commune, name }) {
 
 /** Crée un site. Renvoie { id } ou lève un conflit (409) si le code existe déjà. */
 async function createSite(tenantId, data) {
-  const code = data.identifiant && String(data.identifiant).trim()
-    ? String(data.identifiant).trim().slice(0, 120)
-    : siteCode({ district: data.district, commune: data.commune, name: data.localite });
+  // L'identifiant d'un nouveau site est toujours celui de MEMS (retour 70), jamais un code saisi.
+  const code = siteCode({ district: data.district, commune: data.commune, name: data.localite });
   return withSubmissionLinks(tenantId, async (client) => {
     const { rows: dup } = await client.query('SELECT id FROM sites WHERE tenant_id = $1 AND code = $2', [tenantId, code]);
     if (dup.length) { const e = new Error('duplicate'); e.code = 'DUP'; e.siteId = dup[0].id; throw e; }
     const patch = {
-      name: data.localite, activity: data.activityTag, tagCode: data.tagCode, locationId: data.codePoi,
+      name: data.localite, activity: data.activityTag, tagCode: data.tagCode,
       fieldOfficeId: data.fieldOfficeId || null, lat: data.lat ?? null, lng: data.lng ?? null,
       region: data.region, district: data.district, commune: data.commune, fokontany: data.fokontany,
     };
@@ -221,11 +220,21 @@ async function importSites(tenantId, rows) {
     const { rows: offs } = await client.query('SELECT id, code FROM field_offices WHERE tenant_id = $1', [tenantId]);
     const officeByCode = new Map(offs.map((o) => [String(o.code || '').trim().toLowerCase(), o.id]));
 
-    let created = 0; let updated = 0; const skipped = [];
+    // Identifiant fourni (retour 70) : seul un identifiant DÉJÀ ATTRIBUÉ par MEMS (classeur exporté
+    // puis repris hors ligne) désigne un site à mettre à jour ; un code saisi dans le modèle et inconnu
+    // de MEMS n'est jamais adopté — le site est créé avec l'identifiant de MEMS (compté dans le bilan).
+    const given = [...new Set((rows || []).map((r) => String(r.identifiant || '').trim()).filter(Boolean))];
+    const { rows: known } = given.length
+      ? await client.query('SELECT code FROM sites WHERE tenant_id = $1 AND code = ANY($2::text[])', [tenantId, given])
+      : { rows: [] };
+    const knownCodes = new Set(known.map((k) => k.code));
+    let created = 0; let updated = 0; let ignoredCodes = 0; const skipped = [];
     for (const r of rows || []) {
       if (!r.localite || !String(r.localite).trim()) { skipped.push({ row: r._row, reason: 'Localité manquante.' }); continue; }
-      const code = r.identifiant && String(r.identifiant).trim()
-        ? String(r.identifiant).trim().slice(0, 120)
+      const givenCode = String(r.identifiant || '').trim();
+      if (givenCode && !knownCodes.has(givenCode)) ignoredCodes += 1;
+      const code = givenCode && knownCodes.has(givenCode)
+        ? givenCode
         : siteCode({ district: r.district, commune: r.commune, name: r.localite });
       const fieldOfficeId = r.fieldOfficeCode
         ? (officeByCode.get(String(r.fieldOfficeCode).trim().toLowerCase()) || null)
@@ -256,7 +265,7 @@ async function importSites(tenantId, rows) {
       }
     }
     await afterSitesChangedTx(client, tenantId);
-    return { created, updated, skipped, total: (rows || []).length };
+    return { created, updated, ignoredCodes, skipped, total: (rows || []).length };
   });
 }
 

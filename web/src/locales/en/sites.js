@@ -60,4 +60,8 @@ export default {
   "Tout sélectionner": "Select all",
   "Découpage administratif du pays (régions → districts → communes), registre des sites (identifiant, Code POI, bureau, activité, GPS, dernière collecte) et rapprochement des lieux des formulaires reçus.": "Country administrative breakdown (regions → districts → communes), site registry (identifier, POI code, office, activity, GPS, last collection) and matching of places from received forms.",
   "Affichage limité aux {n} premiers sites : affinez avec la recherche.": "Showing the first {n} sites only: narrow down with the search.",
+  "Codes du découpage (Adm1 à Adm4)": "Breakdown codes (Adm1 to Adm4)",
+  "Affiche ou masque les colonnes de codes dans la liste des sites. Les modèles et exports Excel les gardent toujours.": "Shows or hides the code columns in the site list. Excel templates and exports always keep them.",
+  "Afficher les codes Adm dans les listes": "Show Adm codes in lists",
+  "{n} identifiant(s) saisi(s) dans le modèle et inconnu(s) de MEMS : non repris, les sites ont reçu l'identifiant de MEMS.": "{n} identifier(s) typed in the template and unknown to MEMS: not used, the sites received the MEMS identifier.",
 };
