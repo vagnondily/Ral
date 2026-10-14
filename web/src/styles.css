@@ -2686,9 +2686,19 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 @media (max-width: 640px) {
   .pop-menu.period-pop { position: fixed; left: 16px; right: 16px; top: calc(var(--header-h) + 12px); width: auto; max-width: none;
     max-height: calc(100vh - var(--header-h) - 24px); overflow-y: auto; }
-  .period-cols { grid-template-columns: 1fr; }
-  .period-presets { display: grid; grid-template-columns: 1fr 1fr; border-right: 0; border-bottom: 1px solid var(--border); }
+  /* Aligné à droite sur bureau : sur téléphone, mêmes marges de 16 px des deux côtés. */
+  .pop-menu.period-pop.is-right { left: 16px; right: 16px; }
+  /* minmax(0, 1fr) : une colonne ne s'élargit jamais à la largeur de son contenu (libellé, liste
+     de mois) — sinon pilules et listes « Du » / « Au » débordaient de la fenêtre à 360-390 px. */
+  .period-cols { grid-template-columns: minmax(0, 1fr); }
+  .period-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-right: 0; border-bottom: 1px solid var(--border); }
   .period-presets .pop-menu-label { grid-column: 1 / -1; }
-  .period-preset { border-radius: var(--radius); }
-  .period-range { grid-template-columns: 1fr; }
+  .period-preset { min-width: 0; border-radius: var(--radius); }
+  .period-preset-label, .period-hint { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+  .period-hint { margin-left: 0; }
+  .period-range { grid-template-columns: minmax(0, 1fr); }
+  .period-field .select { min-width: 0; max-width: 100%; }
+}
+@media (max-width: 420px) {
+  .period-presets { grid-template-columns: minmax(0, 1fr); }
 }
