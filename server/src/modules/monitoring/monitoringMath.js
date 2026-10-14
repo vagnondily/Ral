@@ -62,23 +62,36 @@ function tallyIndicator(indicator, submissions, names = [indicator.sourceField])
   const pct = isPercentAgg(indicator.agg);
   const numericAgg = indicator.agg === 'sum' || indicator.agg === 'mean';
   const t = { total: 0, absent: 0, blank: 0, naExcluded: new Map(), values: new Map(), answered: 0, positives: 0, numeric: 0, sum: 0 };
+  // Lecture d'une réponse, mise en cache par valeur (Oui / Non / 3… se répètent sur des milliers de
+  // soumissions) : mêmes fonctions qu'avant, appelées une fois par valeur distincte — résultat identique.
+  const memo = new Map();
+  const readValue = (v) => {
+    const cacheable = typeof v !== 'object';
+    if (cacheable && memo.has(v)) return memo.get(v);
+    const r = { na: na.has(String(v).trim().toLowerCase()), key: valueKey(v), yes: 0, num: null };
+    if (!r.na) {
+      if (pct) r.yes = isYes(v, indicator.positiveValue) === 1 ? 1 : 0;
+      else if (numericAgg) r.num = toNumber(v);
+    }
+    if (cacheable) memo.set(v, r);
+    return r;
+  };
+  const single = names.length === 1 ? names[0] : null;
+  const has = Object.prototype.hasOwnProperty;
   for (const s of submissions || []) {
     t.total += 1;
     const d = s.data || {};
-    const field = names.find((n) => Object.prototype.hasOwnProperty.call(d, n));
+    const field = single !== null ? (has.call(d, single) ? single : undefined) : names.find((n) => has.call(d, n));
     if (field === undefined) { t.absent += 1; continue; }
     const v = d[field];
     if (v == null || v === '') { t.blank += 1; continue; } // non répondue : hors base
+    const r = readValue(v);
     // Codes « hors base » écartés pour toutes les méthodes (une moyenne avec 9999 n'a pas de sens).
-    if (na.has(String(v).trim().toLowerCase())) { bump(t.naExcluded, valueKey(v)); continue; }
+    if (r.na) { bump(t.naExcluded, r.key); continue; }
     t.answered += 1;
-    bump(t.values, valueKey(v));
-    if (pct) {
-      if (isYes(v, indicator.positiveValue) === 1) t.positives += 1;
-    } else if (numericAgg) {
-      const n = toNumber(v);
-      if (n != null) { t.numeric += 1; t.sum += n; }
-    }
+    bump(t.values, r.key);
+    if (pct) t.positives += r.yes;
+    else if (numericAgg && r.num != null) { t.numeric += 1; t.sum += r.num; }
   }
   return t;
 }
@@ -205,8 +218,11 @@ function rate(value, indicator) {
  */
 function keyIndex(submissions) {
   const idx = new Map();
+  const seen = new Set(); // clés réelles déjà rangées : chacune n'est mise en minuscules qu'une fois
   for (const s of submissions || []) {
     for (const k of Object.keys(s.data || {})) {
+      if (seen.has(k)) continue;
+      seen.add(k);
       const l = k.toLowerCase();
       if (!idx.has(l)) idx.set(l, new Set());
       idx.get(l).add(k);

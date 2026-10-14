@@ -12,7 +12,7 @@ import FactureDrawer from './FactureDrawer.jsx';
 import { usePopover, SortTh, makeViewStore } from '../../components/listView.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatAr, formatInt, monthLabel } from '../../lib/format.js';
-import { formatUsdFor } from '../../lib/currency.js';
+import { formatUsdCents, formatUsdFor, sumUsdCents } from '../../lib/currency.js';
 import { REPORT_KIND, REPORT_STATUS, richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { downloadCsv } from '../../lib/csv.js';
@@ -171,12 +171,16 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
   const periodShown = shown.includes('period') ? period : null;
   const stats = useMemo(() => {
     const fin = filtered.filter((r) => r.kind === 'financier');
+    const validated = fin.filter((r) => r.status === 'valide' && inPeriod(periodShown, r.periodMonth));
     return {
       total: filtered.length, tech: filtered.filter((r) => r.kind === 'technique').length,
-      justified: fin.filter((r) => r.status === 'valide' && inPeriod(periodShown, r.periodMonth)).reduce((n, r) => n + (r.reportedAmount || 0), 0),
+      justified: validated.reduce((n, r) => n + (r.reportedAmount || 0), 0),
+      // En dollars : chaque facture au taux de SON mois, en cents entiers (= somme des cellules
+      // du tableau) — jamais le total de plusieurs mois au taux du dernier.
+      justifiedUsdCents: sumUsdCents(validated.map((r) => ({ amountAr: r.reportedAmount || 0, period: r.periodMonth })), rates),
       pending: filtered.filter((r) => r.status === 'soumis').length,
     };
-  }, [filtered, periodShown]);
+  }, [filtered, periodShown, rates]);
 
   const sig = JSON.stringify({ values, shownFilters, sort });
   useEffect(() => { setPage(1); /* eslint-disable-next-line */ }, [sig]);
@@ -294,7 +298,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
         <span className="cfilter-label">{tr(f.label)}</span>
         {f.type === 'period' ? (
           <PeriodSelect compact allowAll value={values.period || null} onChange={(p) => setVal('period', p || '')}
-            counts={reportCounts} latest={latestReport} ariaLabel={tr(f.label)} />
+            counts={reportCounts} countLabel="{n} rapport(s) sur la période" latest={latestReport} ariaLabel={tr(f.label)} />
         ) : f.type === 'search' ? (
           <span className="input-wrap"><Search size={16} aria-hidden="true" />
             <input className="input" type="search" placeholder={tr(f.ph)} value={values[k]} onChange={(e) => setVal(k, e.target.value)} />
@@ -328,7 +332,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       <Stats items={[
         { label: periodShown ? tr('Rapports de la période') : tr('Rapports'), value: reports ? stats.total : '—',
           foot: periodShown ? `${periodLabel(periodShown, lang)} · ${tr('{n} technique(s)', { n: stats.tech })}` : tr('{n} technique(s)', { n: stats.tech }) },
-        { label: tr('Réalisé validé'), value: reports ? (currency === 'USD' ? formatUsdFor(stats.justified, rates, `${month}-01`) : formatInt(stats.justified)) : '—', suffix: currency === 'USD' ? '' : 'Ar',
+        { label: tr('Réalisé validé'), value: reports ? (currency === 'USD' ? formatUsdCents(stats.justifiedUsdCents) : formatInt(stats.justified)) : '—', suffix: currency === 'USD' ? '' : 'Ar',
           foot: periodShown ? tr('Financiers validés, comptés au mois de début') : tr('Financiers validés') },
         { label: tr('En attente'), value: reports ? stats.pending : '—', foot: tr('Statut « soumis »') },
         { label: tr('Contrats suivis'), value: context ? context.contracts.length : '—', foot: tr('Avec budget Suivi/TPM') },

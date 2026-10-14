@@ -7,11 +7,12 @@ import { ActivationNote, PeriodBanner, SessionPeriodNote, usePeriod } from '../.
 import { formatAr, formatInt } from '../../lib/format.js';
 import { periodLabel, single } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { coveragePct } from '../../lib/coverage.js';
 
-/** Plafond commun à la consolidation de la période et aux faits terrain (field/summary) : 24 mois. */
-const REPORT_MAX_SPAN = 24;
+/** Plafond commun à la consolidation de la période et aux faits terrain (field/summary) : lib/periodCaps.facts. */
+const REPORT_MAX_SPAN = Math.min(PERIOD_CAPS.document, PERIOD_CAPS.facts);
 
 /**
  * Reporting — rapport de synthèse S&E pour une PÉRIODE (lot 1b : plage de mois, défaut =
@@ -26,7 +27,7 @@ const REPORT_MAX_SPAN = 24;
 
 export default function ReportingPage({ onOpenContract }) {
   const { tr, lang } = useI18n();
-  const { period, ready, auto, counts, latest, today, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data', maxSpan: REPORT_MAX_SPAN });
+  const { period, ready, auto, counts, latest, today, source, capped, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data', maxSpan: REPORT_MAX_SPAN });
   const key = period ? `${period.from}|${period.to}` : '';
   const [cons, setCons] = useState(null);
   const [field, setField] = useState(null);
@@ -49,6 +50,7 @@ export default function ReportingPage({ onOpenContract }) {
   const t = cons?.totals;
   const tp = t?.period;
   const ov = field?.overall;
+  const others = field?.others?.byDistrict || { groups: 0, sitesActive: 0 };
   const ovPct = coveragePct(ov);
   const pLabel = period ? periodLabel(period, lang) : '';
   const suffix = period ? `${period.from}_${period.to}` : '';
@@ -75,6 +77,10 @@ export default function ReportingPage({ onOpenContract }) {
       rows.push([d.label, d.planifie, d.realise, d.annule, p == null ? tr('aucun plan') : `${p}%`,
         d.sites.active, d.sites.realised, d.coverage == null ? '' : `${Math.round(d.coverage * 100)}%`]);
     }
+    // Districts sans visite (leurs sites actifs comptent dans la couverture) : la colonne se rapproche du total.
+    if (others.groups) rows.push([tr('Autres districts (sans visite) : {n}', { n: others.groups }), 0, 0, 0, tr('aucun plan'), others.sitesActive, 0, '0%']);
+    rows.push([tr('Total'), ov.planifie, ov.realise, ov.annule, coveragePct(ov) == null ? tr('aucun plan') : `${coveragePct(ov)}%`,
+      ov.sites.active, ov.sites.realised, ov.coverage == null ? '' : `${Math.round(ov.coverage * 100)}%`]);
     downloadCsv(`visites-terrain_${suffix}.csv`, rows);
   };
 
@@ -92,7 +98,7 @@ export default function ReportingPage({ onOpenContract }) {
       </div>
 
       <PeriodBanner auto={auto} onBack={(m) => setPeriod(single(m))} />
-      <SessionPeriodNote source={source} onReset={resetToDefault} />
+      <SessionPeriodNote source={source} capped={capped} onReset={resetToDefault} />
       {error && <Alert tone="error">{error}</Alert>}
 
       <Stats compact items={[
@@ -177,6 +183,15 @@ export default function ReportingPage({ onOpenContract }) {
                   <td className="num mono">{sitesCell(d)}</td>
                 </tr>
               ))}
+              {/* Districts sans visite : leurs sites actifs comptent dans la couverture (0 réalisé) —
+                  la colonne « Couverture (sites) » se rapproche ainsi du total. */}
+              {others.groups > 0 && (
+                <tr className="row-others"><td>{tr('Autres districts (sans visite) : {n}', { n: formatInt(others.groups) })}</td>
+                  <td className="num mono">0</td><td className="num mono">0</td><td className="num mono">0</td>
+                  <td className="num mono"><span className="muted">{tr('— aucun plan')}</span></td>
+                  <td className="num mono">{`0 / ${formatInt(others.sitesActive)} · 0 %`}</td>
+                </tr>
+              )}
             </tbody>
             <tfoot><tr><td><strong>{tr('Total')}</strong></td>
               <td className="num mono"><strong>{formatInt(ov.planifie)}</strong></td>

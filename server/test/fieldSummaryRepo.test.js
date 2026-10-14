@@ -50,7 +50,8 @@ test('faits site × mois : tenant_id dans chaque CTE, grille lue en ensemble, un
   const sql = siteMonthFactsCtes({ period: H1, todayMonth: '2026-10' }, params).replace(/\s+/g, ' ');
   for (const re of [
     /FROM site_month_status g WHERE g\.tenant_id = \$1/, // années avec grille
-    /FROM sites s LEFT JOIN admin_areas ad ON ad\.tenant_id = s\.tenant_id AND ad\.pcode = s\.adm2_pcode LEFT JOIN field_offices fo ON fo\.id = s\.field_office_id AND fo\.tenant_id = s\.tenant_id WHERE s\.tenant_id = \$1/,
+    /FROM sites s LEFT JOIN admin_areas ad ON ad\.tenant_id = s\.tenant_id AND ad\.pcode = s\.adm2_pcode LEFT JOIN admin_areas r ON r\.tenant_id = s\.tenant_id AND r\.id = ad\.lineage\[1\] WHERE s\.tenant_id = \$1/,
+    /FROM sites s JOIN sdist sd ON sd\.site_id = s\.id LEFT JOIN field_offices fo ON fo\.id = s\.field_office_id AND fo\.tenant_id = s\.tenant_id WHERE s\.tenant_id = \$1/,
     /FROM site_month_status x WHERE x\.tenant_id = \$1 AND x\.active AND x\.year BETWEEN \$6 AND \$7/,
     /FROM site_visits v WHERE v\.tenant_id = \$1 AND v\.period_month >= \$2::date AND v\.period_month < \$4::date/,
   ]) assert.match(sql, re);
@@ -62,8 +63,11 @@ test('faits site × mois : tenant_id dans chaque CTE, grille lue en ensemble, un
   assert.match(sql, /NOT r\.forbidden AND \(NOT mm\.known OR st\.site_id IS NOT NULL\) AS active/);
   // Statut unique d'un site × mois : réalisée > prévue > annulée.
   assert.match(sql, /CASE WHEN bool_or\(v\.status = 'realise'\) THEN 'realise' WHEN bool_or\(v\.status = 'planifie'\) THEN 'planifie' ELSE 'annule' END AS st/);
-  // District : nom officiel du découpage, sinon adm2 / district ; regroupé en minuscules.
-  assert.match(sql, /lower\(COALESCE\(NULLIF\(btrim\(ad\.name\), ''\), NULLIF\(btrim\(s\.adm2\), ''\), NULLIF\(btrim\(s\.district\), ''\), '—'\)\) AS dkey/);
+  // District (siteDistrictCtes) : graphie du site ; le P-code n'est cru que si sa région est celle du site.
+  assert.match(sql, /COALESCE\(NULLIF\(btrim\(s\.adm2\), ''\), NULLIF\(btrim\(s\.district\), ''\)\) AS own/);
+  assert.match(sql, /\(pname IS NOT NULL AND prkey <> '' AND \(prkey = rkey OR/);
+  assert.match(sql, /SELECT s\.id AS site_id, COALESCE\(fo\.name, '—'\) AS office, sd\.dkey, sd\.dname, sd\.official,/);
+  assert.doesNotMatch(sql, /COALESCE\(NULLIF\(btrim\(ad\.name\)/, 'jamais le nom du P-code sans contrôle de région');
   assert.deepEqual(params, [T, '2026-01-01', '2026-06-01', '2026-07-01', '2026-10-01', 2026, 2026]);
 });
 
@@ -72,7 +76,8 @@ test('faits en mode « bureau » (concepteur) : bureau parent, libellé « non r
   const sql = siteMonthFactsCtes({ period: H1, todayMonth: '2026-10', office: 'bureau', unattached: '(not attached)', district: 'Ambovombe' }, params);
   assert.match(sql, /COALESCE\(par\.name, fo\.name, \$8::text\) AS office/);
   assert.match(sql, /LEFT JOIN field_offices par ON par\.id = fo\.parent_id AND par\.tenant_id = s\.tenant_id/);
-  assert.match(sql, /= lower\(btrim\(\$9::text\)\)/);
+  // District demandé : par la clé du groupe (nom affiché) ou une graphie du registre — tout le groupe.
+  assert.match(sql, /AND sd\.dkey IN \(SELECT x\.dkey FROM sdist x WHERE x\.dkey = regexp_replace\(lower\(COALESCE\(\$9::text, ''\)\), '\[\^a-z0-9\]\+', '', 'g'\) OR x\.okey = /);
   assert.deepEqual(params.slice(7), ['(not attached)', 'Ambovombe']);
 });
 
@@ -84,8 +89,8 @@ test('récapitulatif : sites ACTIFS sur la période, site × mois réalisés pen
   assert.equal(out.operationMonths, 6, 'durée de la période');
   assert.deepEqual(out.period, { from: '2026-01', to: '2026-06', months: 6 });
   assert.ok(calls[0].params.includes('Bekily'));
-  // Liste des districts : même clé (minuscules), un nom par district.
-  assert.match(calls[1].sql, /GROUP BY lower\(COALESCE\(NULLIF\(btrim\(ad\.name\), ''\)/);
+  // Liste des districts : même clé que le résumé (sdist.dkey), un nom par district.
+  assert.match(calls[1].sql, /FROM sdist WHERE dkey <> '—' GROUP BY dkey ORDER BY 1$/);
   const explicit = await field.coverageRecapSummary(T, { period: H1, operationMonths: 12 });
   assert.equal(explicit.operationMonths, 12, 'valeur donnée gardée');
 });
@@ -111,13 +116,48 @@ test('liste des visites : période semi-ouverte, dernière collecte réelle calc
     if (/WITH ts AS MATERIALIZED/.test(s)) return [{ id: sid, last: '2026-05-01' }];
     return [];
   };
-  const rows = await field.listVisits(T, { period: H1, status: 'realise' });
+  const out = await field.listVisits(T, { period: H1, status: 'realise' });
   assert.match(calls[0].sql, /v\.tenant_id = \$1 AND v\.period_month >= \$2::date AND v\.period_month < \$3::date AND v\.status = \$4/);
   assert.doesNotMatch(calls[0].sql, /SELECT to_char\(max\(ms\.period_month\)/, 'plus de sous-requête par visite');
   assert.deepEqual(calls[1].params, [T, [sid]], 'un site distinct, une seule lecture');
   assert.match(calls[1].sql, /ms\.site_id = ANY \(ARRAY\(SELECT id FROM ts\)\)/);
   assert.match(calls[1].sql, /ms\.site_id IS NULL AND ms\.adm3_pcode = ANY \(ARRAY\(SELECT DISTINCT adm3_pcode FROM ts WHERE adm3_pcode IS NOT NULL\)\)/);
-  assert.deepEqual(rows.map((r) => r.dataVisitMonth), ['2026-05', '2026-05']);
+  assert.deepEqual(out.items.map((r) => r.dataVisitMonth), ['2026-05', '2026-05']);
+});
+
+test('liste des visites : paginée (1 000 par défaut, 2 000 au plus), ordre stable, total, colonnes utiles seulement', async () => {
+  calls = [];
+  rowsFor = (s) => (/FROM site_visits v JOIN sites s/.test(s) ? [{ id: 'v1', siteId: 's1', _total: 3456 }] : []);
+  const out = await field.listVisits(T, { period: H1 });
+  assert.deepEqual({ total: out.total, limit: out.limit, offset: out.offset }, { total: 3456, limit: 1000, offset: 0 });
+  assert.equal(out.items[0]._total, undefined, 'le total ne reste pas dans les lignes');
+  assert.match(calls[0].sql, /count\(\*\) OVER \(\)::int AS _total/);
+  assert.match(calls[0].sql, /ORDER BY s\.district, s\.commune, s\.name, v\.period_month, v\.id LIMIT \$4 OFFSET \$5$/);
+  assert.deepEqual(calls[0].params.slice(-2), [1000, 0]);
+  assert.doesNotMatch(calls[0].sql, /contract_id/, 'contrat jamais affiché : pas lu');
+  calls = [];
+  await field.listVisits(T, { period: H1, limit: 99999, offset: 2000 });
+  assert.deepEqual(calls[0].params.slice(-2), [2000, 2000], '2 000 au plus par page');
+  // Page au-delà de la fin : total recompté (la fenêtre n'a rien rendu).
+  calls = []; rowsFor = (s) => (/SELECT count\(\*\)::int AS n FROM site_visits v/.test(s) ? [{ n: 12 }] : []);
+  const past = await field.listVisits(T, { period: H1, offset: 5000 });
+  assert.deepEqual({ items: past.items, total: past.total }, { items: [], total: 12 });
+});
+
+test('sans période : les visites des 24 derniers mois de visites au plus (jamais plus long qu\'une période demandée)', async () => {
+  // Visites de janvier 2020 à octobre 2026 (82 mois) : la lecture s'arrête aux 24 derniers mois.
+  calls = []; rowsFor = (s) => (/SELECT to_char\(min\(period_month\)/.test(s) ? [{ lo: '2020-01', hi: '2026-10' }] : []);
+  const out = await field.summary(T, {});
+  assert.deepEqual(out.period, { from: '2024-11', to: '2026-10', months: 24 });
+  assert.deepEqual(factsCall().params.slice(1, 4), ['2024-11-01', '2026-10-01', '2026-11-01']);
+  calls = [];
+  const recap = await field.coverageRecapSummary(T, {});
+  assert.equal(recap.period, null, 'aucune période demandée');
+  assert.deepEqual(recap.span, { from: '2024-11', to: '2026-10', months: 24 }, 'mois réellement lus, dits à l\'écran');
+  assert.equal(recap.operationMonths, 12);
+  // Moins de 24 mois de visites : toutes.
+  rowsFor = (s) => (/SELECT to_char\(min\(period_month\)/.test(s) ? [{ lo: '2026-03', hi: '2026-09' }] : []);
+  assert.deepEqual((await field.summary(T, {})).period, { from: '2026-03', to: '2026-09', months: 7 });
 });
 
 test('RBM : état au mois de référence — visites réalisées, données et date du registre bornées, plan à venir non borné', async () => {

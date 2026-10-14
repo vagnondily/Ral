@@ -1,8 +1,9 @@
 const service = require('./alerts.service');
 const { readPeriod } = require('../../middleware/period');
+const { PERIOD_CAPS } = require('../common/periodCaps');
 
-/** Même plafond que le résumé des visites (faits site × mois) : 24 mois. */
-const ALERTS_MAX_SPAN = 24;
+/** Même plafond que le résumé des visites (faits site × mois, common/periodCaps.facts). */
+const ALERTS_MAX_SPAN = PERIOD_CAPS.facts;
 
 /**
  * HTTP ↔ service : le tenant, l'utilisateur et son rôle viennent de la session (req.auth),

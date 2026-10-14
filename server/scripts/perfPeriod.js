@@ -9,7 +9,7 @@
  * de 6 s — il masquerait le défaut).
  *
  * Sécurité :
- *  - la base cible doit s'appeler bench_… ; mems2_tpm et la base de DATABASE_URL
+ *  - la base cible contient le mot bench (bench_…, fix1b_bench) ; mems2_tpm et la base de DATABASE_URL
  *    sont refusées ; la base est créée, migrée, chargée puis SUPPRIMÉE (sauf --keep) ;
  *  - depuis cc89c57, migrer une base jetable ne remet plus le mot de passe de
  *    mems2_app ; le rôle mems_app (autre système) n'est jamais touché.
@@ -61,9 +61,12 @@ function parseArgs(argv) {
 const dbNameOf = (url) => decodeURIComponent(new URL(url).pathname.replace(/^\//, ''));
 const withDb = (url, name) => { const u = new URL(url); u.pathname = `/${name}`; return u.href; };
 
+// Base jetable : le mot « bench » en tête ou après un préfixe de chantier (bench_periode, fix1b_bench).
+const BENCH_DB_RE = /^([a-z0-9]+_)?bench(_[a-z0-9_]+)?$/;
+
 function assertSafeTarget(dbUrl) {
   const name = dbNameOf(dbUrl);
-  if (!/^bench_[a-z0-9_]+$/.test(name)) throw new Error(`Base refusée (« ${name} ») : le nom doit commencer par bench_ (base jetable).`);
+  if (!BENCH_DB_RE.test(name)) throw new Error(`Base refusée (« ${name} ») : le nom doit contenir le mot bench (bench_…, <chantier>_bench — base jetable).`);
   if (name === 'mems2_tpm') throw new Error('Base refusée : mems2_tpm est la base de l\'application.');
   for (const v of ['DATABASE_URL', 'APP_DATABASE_URL']) {
     if (process.env[v] && dbNameOf(process.env[v]) === name) throw new Error(`Base refusée : c'est la base de ${v}.`);
@@ -181,6 +184,36 @@ async function factsParity(withTenantTransaction, period, todayMonth) {
   });
 }
 
+/**
+ * District de chaque site : SQL (common/siteActivitySql.siteDistrictCtes) = règle pure
+ * (common/siteDistrict.siteDistricts), site par site, sous RLS. Compte aussi les sites dont le
+ * P-code de district pointe dans une autre région (jamais déplacés).
+ * @returns {{ sites:number, mismatches:number, otherRegion:number, groups:number, sample:object[] }}
+ */
+async function districtParity(withTenantTransaction, tenantId = T1) {
+  const { siteDistrictCtes } = require('../src/modules/common/siteActivitySql');
+  const { siteDistricts, districtKey } = require('../src/modules/common/siteDistrict');
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: sqlRows } = await client.query(`WITH ${siteDistrictCtes()} SELECT site_id, dkey, dname, official FROM sdist`, [tenantId]);
+    const { rows: sites } = await client.query(
+      `SELECT s.id, s.adm1, s.adm2, s.district, ad.name AS "pcodeName", r.name AS "pcodeRegion"
+         FROM sites s
+         LEFT JOIN admin_areas ad ON ad.tenant_id = s.tenant_id AND ad.pcode = s.adm2_pcode
+         LEFT JOIN admin_areas r ON r.tenant_id = s.tenant_id AND r.id = ad.lineage[1]
+        WHERE s.tenant_id = $1`, [tenantId]);
+    const js = siteDistricts(sites);
+    let mismatches = 0; const sample = [];
+    for (const q of sqlRows) {
+      const j = js.get(q.site_id) || {};
+      const same = q.dkey === j.key && q.dname === j.name && (q.official || null) === (j.official || null);
+      if (!same) { mismatches += 1; if (sample.length < 3) sample.push({ site: q.site_id, sql: q, js: j }); }
+    }
+    const otherRegion = sites.filter((s) => s.pcodeRegion && districtKey(s.adm1) && districtKey(s.adm1) !== districtKey(s.pcodeRegion)).length;
+    return { sites: sites.length, mismatches: mismatches + Math.abs(sites.length - sqlRows.length), otherRegion,
+      groups: new Set(sqlRows.map((r) => r.dkey)).size, sample };
+  });
+}
+
 // ---- Mesure -------------------------------------------------------------------------
 const pct = (sorted, q) => sorted[Math.min(sorted.length - 1, Math.ceil(q * sorted.length) - 1)];
 const ms = (ns) => Number(ns) / 1e6;
@@ -265,7 +298,7 @@ function report(rows, extra) {
     lines.push(`| ${r.label} | ${plage}${r.tooSlow ? ' (arrêté : trop lent)' : ''} | ${f(r.p50, 1)} | ${f(r.p95, 1)}${over} | ${f(r.max, 1)} | ${f(r.budget)} | ${f(r.alloc, 1)} | ${f(r.retained, 1)} | ${r.bytes == null ? '—' : f(r.bytes / 1024)} | ${guard} |`);
   }
   lines.push('', `Régression connue (ancienne résolution des régions) : ${extra.regression}`);
-  if (extra.parity) lines.push('', `Parité faits site × mois (SQL / règle pure) : ${extra.parity}`);
+  if (extra.parity) lines.push('', `Parité SQL / règle pure (faits site × mois, districts) : ${extra.parity}`);
   return lines.join('\n');
 }
 
@@ -348,6 +381,10 @@ async function main() {
       if (r.mismatches) { failed = true; log(`  parité ${span} mois : ${JSON.stringify(r.sample)}`); }
       parity.push(`${span} mois : ${r.mismatches ? `⛔ ${r.mismatches} site(s) différent(s)` : 'identique'} (${r.sites} sites)`);
     }
+    // Parité du district de chaque site (P-code d'une autre région jamais suivi).
+    const dp = await districtParity(withTenantTransaction);
+    if (dp.mismatches) { failed = true; log(`  parité districts : ${JSON.stringify(dp.sample)}`); }
+    parity.push(`districts : ${dp.mismatches ? `⛔ ${dp.mismatches} site(s) différent(s)` : 'identique'} (${dp.sites} sites, ${dp.otherRegion} au P-code d'une autre région, ${dp.groups} districts)`);
     const md = report(rows, { jit, regression, parity: parity.join(' · ') });
     log(`\n${md}\n`);
     if (opts.out) fs.writeFileSync(opts.out, `${md}\n`);
@@ -366,4 +403,4 @@ if (require.main === module) {
   main().catch((err) => { process.stderr.write(`Banc interrompu : ${err.message}\n`); process.exit(2); });
 }
 
-module.exports = { parseArgs, assertSafeTarget, budgetFor, periodOf };
+module.exports = { parseArgs, assertSafeTarget, budgetFor, periodOf, districtParity, factsParity };

@@ -9,23 +9,26 @@ const { coverageRecap } = require('./coverageRecap');
 const { mmrLookup, siteCounters, rankSites, boardKpis, normalizeChanges, currentStatus, mmrKeyOf, mmrCapacity, autoPlanMonths, norm } = require('./planBoard');
 const { badRequest, conflict } = require('../../middleware/errors');
 const { unattachedText } = require('../common/codeLabel');
-const { toPeriod, periodInfo, monthsOf, addMonths, MAX_SPAN } = require('../common/period');
+const { toPeriod, periodInfo, monthsOf, addMonths } = require('../common/period');
+const { PERIOD_CAPS } = require('../common/periodCaps');
 const { monthWithin } = require('../common/periodSql');
-const { siteMonthFactsCtes, districtNameSql, SITE_FACT_COLUMNS, MONTH_FACT_COLUMNS } = require('../common/siteActivitySql');
+const { siteMonthFactsCtes, siteDistrictCtes, DISTRICT_LABEL_SQL, SITE_FACT_COLUMNS, MONTH_FACT_COLUMNS } = require('../common/siteActivitySql');
 
 /** Période d'un appel : `period` ({ from, to } | null) si fourni, sinon l'ancien { month }. */
 const periodArg = (opts = {}) => (opts.period !== undefined ? opts.period : toPeriod(opts));
 
 /**
  * Période « toutes les visites » quand aucune n'est demandée : du premier au dernier mois
- * des visites du tenant, plafonnée aux 60 derniers mois (MAX_SPAN) ; sans visite, le mois courant.
+ * des visites du tenant, plafonnée aux derniers mois que permettent les faits site × mois
+ * (common/periodCaps.facts, 24 mois — la même durée maximale qu'une période demandée : sans
+ * période, la requête ne coûte jamais plus qu'avec) ; sans visite, le mois courant.
  */
 async function visitSpanTx(client, tenantId) {
   const { rows: [r] } = await client.query(
     `SELECT to_char(min(period_month), 'YYYY-MM') AS lo, to_char(max(period_month), 'YYYY-MM') AS hi
        FROM site_visits WHERE tenant_id = $1`, [tenantId]);
   if (!r || !r.hi) { const m = currentMonth(); return { from: m, to: m }; }
-  const floor = addMonths(r.hi, -(MAX_SPAN - 1));
+  const floor = addMonths(r.hi, -(PERIOD_CAPS.facts - 1));
   return { from: r.lo < floor ? floor : r.lo, to: r.hi };
 }
 
@@ -403,7 +406,10 @@ async function generateFromRbmTx(client, tenantId, userId, month, { risk } = {})
   const target = toMonth(month);
   if (!target) throw badRequest('Mois invalide (attendu : AAAA-MM).');
   await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`rbm-generate:${tenantId}:${target}`]);
-  const rows = await rbmSitesTx(client, tenantId, { month: target, risk });
+  // MÊME règle que GET /rbm/sites?month= (compteur « à planifier ») : état au mois cible (asOf) —
+  // dernière visite = dernier mois réalisé ≤ M (définition commune) ; pour un mois passé, une
+  // visite ou une donnée postérieure ne rend jamais le site « à jour ».
+  const rows = await rbmSitesTx(client, tenantId, { month: target, risk, asOf: target });
   const counts = planningCounts(rows, target);
   const todo = rows.filter((s) => s.toPlan);
   if (!todo.length) return { created: 0, ...counts };
@@ -459,11 +465,17 @@ async function upsertSites(client, tenantId, sites) {
   return { map, inserted };
 }
 
+// Colonnes de la liste des visites : celles que les écrans lisent (plan du mois, budget de collecte) —
+// sans le contrat de la visite (jamais affiché ; 50 octets par ligne) : la page reste sous 1 Mo.
 const VISIT_COLS = `
   v.id, v.site_id AS "siteId", s.name AS "siteName", s.district, s.commune, s.fokontany,
   v.activity, to_char(v.period_month, 'YYYY-MM') AS "periodMonth",
-  v.contract_id AS "contractId", v.provider_id AS "providerId", p.name AS "providerName",
+  v.provider_id AS "providerId", p.name AS "providerName",
   v.agent, v.status, v.visit_date AS "visitDate"`;
+
+/** Taille d'une page de la liste des visites (et maximum accepté) : ≈ 0,3 Mo par page de 1 000. */
+const VISIT_PAGE = 1000;
+const VISIT_PAGE_MAX = 2000;
 
 /**
  * Collecte réelle (données uploadées) d'un ensemble de sites, en ENSEMBLE (jamais une
@@ -504,25 +516,40 @@ function siteDataFactsSql(sitesSql, params, { asOf } = {}) {
 /**
  * Visites, filtrables par période ({ period } ou l'ancien { month } — 12 mois au plus,
  * contrôlé par la route), prestataire et statut ; avec la dernière collecte réelle du
- * site (`dataVisitMonth`), calculée en ensemble sur les sites de la liste.
+ * site (`dataVisitMonth`), calculée en ensemble sur les sites de la page.
+ * Paginée : `limit` (1 000 par défaut, 2 000 au plus) et `offset` ; ordre stable (district,
+ * commune, site, mois, identifiant). Rend { items, total, limit, offset } — une réponse reste
+ * bornée (< 1 Mo) quel que soit le volume ; l'écran lit les pages jusqu'à `total`.
  */
 async function listVisits(tenantId, opts = {}) {
   const { providerId, status } = opts;
   const period = periodArg(opts);
+  const limit = Math.min(VISIT_PAGE_MAX, Math.max(1, Math.floor(Number(opts.limit)) || VISIT_PAGE));
+  const offset = Math.max(0, Math.floor(Number(opts.offset)) || 0);
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId];
     const where = ['v.tenant_id = $1', monthWithin('v.period_month', period, params)];
     if (providerId) { params.push(providerId); where.push(`v.provider_id = $${params.length}`); }
     if (status) { params.push(status); where.push(`v.status = $${params.length}`); }
-    const { rows } = await client.query(
-      `SELECT ${VISIT_COLS}
+    params.push(limit, offset);
+    const { rows: page } = await client.query(
+      `SELECT ${VISIT_COLS}, count(*) OVER ()::int AS _total
          FROM site_visits v
          JOIN sites s ON s.id = v.site_id AND s.tenant_id = v.tenant_id
          LEFT JOIN partners p ON p.id = v.provider_id AND p.tenant_id = v.tenant_id
         WHERE ${where.join(' AND ')}
-        ORDER BY s.district, s.commune, s.name`,
+        ORDER BY s.district, s.commune, s.name, v.period_month, v.id
+        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params
     );
+    let total = page.length ? page[0]._total : 0;
+    if (!page.length && offset > 0) {
+      // Page au-delà de la fin : le total vient d'un comptage (la fenêtre n'a rien rendu).
+      const { rows: [c] } = await client.query(
+        `SELECT count(*)::int AS n FROM site_visits v WHERE ${where.join(' AND ')}`, params.slice(0, -2));
+      total = c ? c.n : 0;
+    }
+    const rows = page.map(({ _total, ...r }) => r);
     const ids = [...new Set(rows.map((r) => r.siteId))];
     const last = new Map();
     if (ids.length) {
@@ -533,7 +560,7 @@ async function listVisits(tenantId, opts = {}) {
       for (const d of data) if (d.last) last.set(d.id, String(d.last).slice(0, 7));
     }
     for (const r of rows) r.dataVisitMonth = last.get(r.siteId) || null;
-    return rows;
+    return { items: rows, total, limit, offset };
   });
 }
 
@@ -616,7 +643,7 @@ async function summary(tenantId, opts = {}) {
                    WHEN GROUPING(activity) = 0 THEN 'activity' ELSE 'overall' END AS dim,
               COALESCE(office, dkey, activity) AS key,
               -- Nom affiché du district : officiel (découpage), sinon une graphie qui n'est pas tout en capitales.
-              COALESCE(min(official), min(dname) FILTER (WHERE dname <> upper(dname)), min(dname)) AS "districtLabel",
+              ${DISTRICT_LABEL_SQL} AS "districtLabel",
               NULL::boolean AS known, ${SITE_FACT_COLUMNS}
          FROM per_site GROUP BY GROUPING SETS ((), (office), (dkey), (activity))
        UNION ALL
@@ -647,8 +674,9 @@ async function summary(tenantId, opts = {}) {
  * Récap de couverture (sites visités 1/2/3/4+ fois face au MMR) sur une période :
  * les sites ACTIFS sur la période (faits site × mois), chacun avec ses site × mois
  * réalisés pendant un mois actif ; puis le récap pur par niveau de risque
- * (coverageRecap). Filtrable par district (même clé que le résumé : nom officiel,
- * casse ignorée). Sans période : toutes les visites (60 mois au plus), comme avant.
+ * (coverageRecap). Filtrable par district (même clé que le résumé : siteDistrictCtes,
+ * graphie du site, jamais un district d'une autre région). Sans période : les visites des 24 derniers
+ * mois de visites au plus (visitSpanTx, common/periodCaps.facts), rendus dans `span`.
  * `operationMonths` : visites requises MMR (défaut : durée de la période si elle est
  * donnée, sinon 12).
  */
@@ -665,17 +693,15 @@ async function coverageRecapSummary(tenantId, { district, operationMonths, perio
       params
     );
     const recap = coverageRecap(rows.map((r) => ({ riskLevel: r.riskLevel, visitCount: Number(r.visitCount) })), months);
-    // Liste des districts pour le filtre : un nom par district (nom officiel, sinon la première graphie).
-    const dn = districtNameSql('s', 'ad');
+    // Liste des districts pour le filtre : un nom par district, la même clé que le résumé
+    // (siteDistrictCtes : graphie du site, nom officiel seulement quand le P-code est d'accord).
     const { rows: districts } = await client.query(
-      `SELECT COALESCE(min(NULLIF(btrim(ad.name), '')), min(${dn}) FILTER (WHERE ${dn} <> upper(${dn})), min(${dn})) AS d
-         FROM sites s LEFT JOIN admin_areas ad ON ad.tenant_id = s.tenant_id AND ad.pcode = s.adm2_pcode
-        WHERE s.tenant_id = $1
-        GROUP BY lower(${dn}) HAVING lower(${dn}) <> '—'
-        ORDER BY 1`,
+      `WITH ${siteDistrictCtes()}
+       SELECT ${DISTRICT_LABEL_SQL} AS d FROM sdist WHERE dkey <> '—' GROUP BY dkey ORDER BY 1`,
       [tenantId]
     );
-    return { ...recap, operationMonths: months, districts: districts.map((x) => x.d), period: periodInfo(given) };
+    // span : mois réellement lus (la période demandée, sinon les visites des 24 derniers mois) — l'écran le dit.
+    return { ...recap, operationMonths: months, districts: districts.map((x) => x.d), period: periodInfo(given), span: periodInfo(period) };
   });
 }
 

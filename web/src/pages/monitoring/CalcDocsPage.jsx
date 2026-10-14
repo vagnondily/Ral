@@ -168,10 +168,14 @@ export default function CalcDocsPage() {
 
       <Section id="terrain" title={tr('Suivi terrain et RBM')} icon={MapPinned}>
         <ul className="doc-list">
-          <li>{tr('Couverture terrain = visites réalisées ÷ (planifiées + réalisées) ; les visites annulées ne comptent pas.')}</li>
+          {/* Les trois taux des définitions communes (docs/PLAN_RETOURS_15_37.md) : couverture = SITES,
+              exécution du plan = VISITES — jamais l'un pour l'autre. */}
+          <li>{tr('Couverture (sites) = sites actifs ayant au moins une visite réalisée pendant un mois actif ÷ sites actifs. Sur une période, chaque site compte une fois (actif au moins un mois de la période) ; sans grille d\'activation importée, tout le registre est actif. Une visite sur un site inactif est comptée à part.')}</li>
+          <li>{tr('Planification = sites actifs ayant au moins une visite prévue ÷ sites actifs ; « — aucun plan » quand aucune visite n\'est prévue, jamais 0 %.')}</li>
+          <li>{tr('Exécution du plan (visites) = visites réalisées ÷ (prévues + réalisées). Une visite = un site × un mois, comptée une fois ; les visites annulées et celles des mois à venir ne comptent pas.')}</li>
           <li>{tr('Jours de collecte d\'un prestataire = visites datées non annulées + jours de déplacement saisis.')}</li>
           <li>{tr('Fréquence de suivi selon le risque du site : élevé = chaque mois, moyen = tous les 2 mois, faible = tous les 3 mois.')}</li>
-          <li>{tr('Un site est « à suivre » s\'il n\'a jamais été visité, si cette fréquence est atteinte depuis sa dernière visite, ou si son score de priorité le signale en retard. Dernière visite = la plus récente entre la dernière visite planifiée ou réalisée, la dernière soumission reçue pour le site (ou sa commune) et la date du registre.')}</li>
+          <li>{tr('Un site est « à suivre » s\'il n\'a jamais été visité, si cette fréquence est atteinte depuis sa dernière visite, ou si son score de priorité le signale en retard. Dernière visite = le dernier mois réalisé au mois de référence ou avant : visite réalisée, soumission reçue pour le site (ou sa commune) ou date du registre ; une visite seulement prévue ne compte jamais.')}</li>
         </ul>
       </Section>
     </div>

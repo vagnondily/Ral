@@ -65,7 +65,9 @@ function summarizeVisits(visits, providerLabel = {}) {
  *   execution = visites réalisées ÷ prévues sur les mois échus (common/siteActivity.ratesOf :
  *   null, jamais 0 %, sans site actif / sans plan / sans visite).
  * Les tableaux hérités (byOffice, byDistrict, byActivity, byProvider) ne listent que les
- * groupes qui ont des visites (total > 0), comme avant ; le total couvre tous les sites.
+ * groupes qui ont des visites (total > 0), comme avant ; le total couvre tous les sites, et
+ * `others.byDistrict|byOffice|byActivity` = { groups, sitesActive, list } dit les groupes SANS visite
+ * (leurs sites actifs) : un tableau par groupe + « autres (sans visite) » = le total.
  *
  * @param {object[]} groupRows lignes { dim: 'overall'|'office'|'district'|'activity'|'month', key, districtLabel, known, …colonnes }
  * @param {object[]} providerRows lignes { key, label, planifie, realise, annule, sitesPlanned, sitesRealised }
@@ -84,9 +86,19 @@ function shapeRangeSummary(groupRows, providerRows = []) {
     return { sites, visits, ...rates };
   };
   const byLabel = (a, b) => b.total - a.total || String(a.label).localeCompare(String(b.label));
-  const rowsOf = (dim, labelOf) => groupRows.filter((r) => r.dim === dim)
-    .map((r) => ({ key: r.key, label: labelOf(r), ...legacy(r), ...facts(r) }))
-    .filter((r) => r.total > 0).sort(byLabel);
+  const allOf = (dim, labelOf) => groupRows.filter((r) => r.dim === dim)
+    .map((r) => ({ key: r.key, label: labelOf(r), ...legacy(r), ...facts(r) }));
+  const rowsOf = (dim, labelOf) => allOf(dim, labelOf).filter((r) => r.total > 0).sort(byLabel);
+  // Groupes SANS visite (absents des tableaux par groupe) : leurs sites actifs, pour qu'un tableau
+  // « par district / bureau / activité » se rapproche toujours du total (ligne « autres (sans visite) »).
+  const othersOf = (dim, labelOf) => {
+    const list = allOf(dim, labelOf).filter((r) => r.total === 0 && r.sites.active > 0)
+      .map((r) => ({ key: r.key, label: r.label, sitesActive: r.sites.active }))
+      .sort((a, b) => b.sitesActive - a.sitesActive || String(a.label).localeCompare(String(b.label)));
+    return { groups: list.length, sitesActive: list.reduce((n, r) => n + r.sitesActive, 0), list };
+  };
+  const officeLabel = (r) => (r.key === '—' ? 'Sans bureau' : r.key);
+  const districtLabel = (r) => r.districtLabel || r.key;
   const overallRow = groupRows.find((r) => r.dim === 'overall') || {};
   const monthly = groupRows.filter((r) => r.dim === 'month').map((r) => {
     const f = facts(r);
@@ -104,9 +116,14 @@ function shapeRangeSummary(groupRows, providerRows = []) {
     activationKnown: monthly.length > 0 && monthly.every((m) => m.activationKnown),
     overall: { ...legacy(overallRow), ...facts(overallRow) },
     byProvider,
-    byDistrict: rowsOf('district', (r) => r.districtLabel || r.key),
-    byOffice: rowsOf('office', (r) => (r.key === '—' ? 'Sans bureau' : r.key)),
+    byDistrict: rowsOf('district', districtLabel),
+    byOffice: rowsOf('office', officeLabel),
     byActivity: rowsOf('activity', (r) => r.key),
+    others: {
+      byDistrict: othersOf('district', districtLabel),
+      byOffice: othersOf('office', officeLabel),
+      byActivity: othersOf('activity', (r) => r.key),
+    },
     monthly,
   };
 }

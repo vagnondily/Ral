@@ -15,6 +15,7 @@
  */
 
 const { z } = require('zod');
+const { PERIOD_CAPS } = require('./periodCaps');
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -77,8 +78,8 @@ function defaultPeriod(monthCounts, todayMonth, { minShare = 0.25, lookback = 6 
  * Lu au bord HTTP par parsePeriod (via middleware/period.readPeriod), traduit en
  * SQL par common/periodSql (intervalle semi-ouvert), libellé par periodLabel.
  */
-/** Durée maximale d'une période (mois) — le même plafond que consolidation.monthRange. */
-const MAX_SPAN = 60;
+/** Durée maximale d'une période (mois) — le même plafond que consolidation.monthRange (common/periodCaps.document). */
+const MAX_SPAN = PERIOD_CAPS.document;
 const YEAR_MIN = 2000;
 const YEAR_MAX = 2100;
 // « AAAA-MM » ou « AAAA-MM-JJ » (l'ancien ?month=2026-07-15 passait : tronqué au mois).

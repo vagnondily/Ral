@@ -8,8 +8,10 @@
  * Le libellé (periodLabel) est le jumeau exact de celui du serveur — parité testée.
  */
 import { MONTH_NAMES, MONTH_SHORT } from './format.js';
+import { PERIOD_CAPS } from './periodCaps.js';
 
-export const MAX_SPAN = 60;
+/** Durée maximale d'une période (60 mois : budget, documents) — common/periodCaps côté serveur. */
+export const MAX_SPAN = PERIOD_CAPS.document;
 export const SESSION_KEY = 'mems.period.v1';
 const MONTH_RE = /^(\d{4})-(0[1-9]|1[0-2])$/;
 

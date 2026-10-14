@@ -24,6 +24,7 @@ import { useToast } from '../../components/Toast.jsx';
 import { formatDateTime, formatInt, formatLocale } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 import { suggestActivity } from '../../lib/activitySuggest.js';
 
 /**
@@ -808,8 +809,8 @@ function SubmissionDrawer({ sub, varCols, metaCols, metaVal, labelOf, cell, onCl
 }
 
 // ---- Résultats (indicateurs recalculés · période dans la barre d'outils) --
-/** Durée maximale des résultats d'une fiche (comme les endpoints d'analyse) : 24 mois. */
-const RESULTS_MAX_SPAN = 24;
+/** Durée maximale des résultats d'une fiche (comme les endpoints d'analyse) : lib/periodCaps.analysis. */
+const RESULTS_MAX_SPAN = PERIOD_CAPS.analysis;
 
 /**
  * Résultats d'une fiche sur une PÉRIODE (lot 1b) : un seul calcul sur toutes les soumissions
@@ -835,7 +836,7 @@ function ResultsTab({ form, canEdit, onGoConfig, onChanged, onGoMapping }) {
       .catch(() => { if (alive) { setMonths([]); setFormLatest(null); } });
     return () => { alive = false; };
   }, [form.id]);
-  const { period, ready, source, setPeriod, resetToDefault } = usePeriod({
+  const { period, ready, source, capped, setPeriod, resetToDefault } = usePeriod({
     scope: 'analysis', defaultRule: 'custom', customDefault: formLatest, maxSpan: RESULTS_MAX_SPAN,
   });
   const key = period ? `${period.from}|${period.to}` : 'all';
@@ -874,7 +875,7 @@ function ResultsTab({ form, canEdit, onGoConfig, onChanged, onGoMapping }) {
   }
   return (
     <div className="section-gap">
-      <SessionPeriodNote source={source} onReset={resetToDefault} />
+      <SessionPeriodNote source={source} capped={capped} onReset={resetToDefault} />
       <Stats items={[
         { label: tr('Soumissions'), value: cov.submissions ?? 0, foot: tr('{period} · {n} bureau(x)', { period: periodLabel, n: cov.fieldOffices ?? 0 }) },
         { label: tr('Sites suivis'), value: cov.sites ?? 0, foot: tr('sites (données) distincts sur la période') },

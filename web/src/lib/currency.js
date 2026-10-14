@@ -37,3 +37,26 @@ export function formatUsdFor(amountAr, rates, period) {
   const usd = toUsd(amountAr, pickRate(rates, period));
   return usd == null ? '—' : `$ ${USD_FMT.format(usd)}`;
 }
+
+/**
+ * Total en USD de montants datés, en CENTIMES ENTIERS — jumeau de currencyMath.sumUsdCents (parité
+ * testée) : chaque montant au taux de SON mois, arrondi au cent comme sa cellule, puis sommé.
+ * @param {{ amountAr:number, period:string }[]} items
+ * @returns {number|null} cents ; null si un montant non nul n'a pas de taux
+ */
+export function sumUsdCents(items, rates) {
+  let cents = 0;
+  for (const it of items || []) {
+    const v = Number(it.amountAr) || 0;
+    if (v === 0) continue;
+    const usd = toUsd(v, pickRate(rates, it.period));
+    if (usd == null) return null;
+    cents += Math.round(usd * 100);
+  }
+  return cents;
+}
+
+/** « $ 3 221,66 » d'un total en cents (sumUsdCents), ou '—'. */
+export function formatUsdCents(cents) {
+  return cents == null ? '—' : `$ ${USD_FMT.format(cents / 100)}`;
+}

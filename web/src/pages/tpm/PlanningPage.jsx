@@ -7,23 +7,26 @@ import { api } from '../../api/client.js';
 import { Alert, Button, Card, EmptyState, IconButton, Skeleton, StatusBadge, Stats } from '../../components/ui.jsx';
 import PlanBudgetDrawer from './PlanBudgetDrawer.jsx';
 import DeleteDialog from '../../components/DeleteDialog.jsx';
+import PeriodSelect from '../../components/PeriodSelect.jsx';
 import { usePopover, SortTh, makeViewStore } from '../../components/listView.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatAr, formatInt, monthLabel } from '../../lib/format.js';
-import { formatUsdFor } from '../../lib/currency.js';
+import { formatUsdCents, formatUsdFor, sumUsdCents } from '../../lib/currency.js';
 import { richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { downloadCsv } from '../../lib/csv.js';
+import { overlaps, periodFromSaved, periodLabel, single } from '../../lib/period.js';
 
 const PLAN_STATUS = { brouillon: { label: 'Brouillon', tone: 'yellow', icon: 'draft' }, valide: { label: 'Validé', tone: 'green', icon: 'check' } };
 const STATUSES = [{ id: '', label: 'Tous les statuts' }, { id: 'brouillon', label: 'Brouillon' }, { id: 'valide', label: 'Validé' }];
 const PAGE_SIZE = 12;
 const viewStore = makeViewStore('mems.planning.view');
 
-// La « Période » vit dans la barre de filtres (plus de sélecteur de mois en haut).
+// La « Période » vit dans la barre de filtres : une plage « du … au … » (lot 1b, retour 47),
+// comme Rapports & dépenses ; un plan (un mois) est retenu si son mois tombe dans la plage.
 const FILTERS = {
   q:        { label: 'Recherche', type: 'search', ph: 'Prestataire, contrat, intitulé…' },
-  period:   { label: 'Période', type: 'select' },
+  period:   { label: 'Période', type: 'period' },
   partnerId: { label: 'Prestataire', type: 'select' },
   contractId: { label: 'Contrat', type: 'select' },
   status:   { label: 'Statut', type: 'select' },
@@ -42,7 +45,9 @@ const COLUMNS = {
 };
 const ALL_COLUMNS = Object.keys(COLUMNS);
 const DEFAULT_COLUMNS = ['partner', 'contract', 'period', 'title', 'funder', 'total', 'status'];
-const emptyValues = () => ({ q: '', period: currentMonth(), partnerId: '', contractId: '', status: '' });
+const emptyValues = () => ({ q: '', period: single(currentMonth()), partnerId: '', contractId: '', status: '' });
+// Vue enregistrée : une ancienne période « AAAA-MM » est relue comme { from: v, to: v }, jamais rejetée.
+const readSaved = (values) => ({ ...values, period: periodFromSaved(values.period) });
 
 /**
  * Planification & budget — budgets prévisionnels des vagues de collecte, façon
@@ -50,7 +55,7 @@ const emptyValues = () => ({ q: '', period: currentMonth(), partnerId: '', contr
  * alimente le « Planifié » de la consolidation et pré-remplit la facture.
  */
 export default function PlanningPage({ canEdit, onNavigate }) {
-  const { tr } = useI18n();
+  const { tr, lang } = useI18n();
   const toast = useToast();
   const [context, setContext] = useState(null);
   const [plans, setPlans] = useState(null);
@@ -59,7 +64,7 @@ export default function PlanningPage({ canEdit, onNavigate }) {
   const [drawer, setDrawer] = useState(null);
 
   const saved = viewStore.initial();
-  const [values, setValues] = useState(() => ({ ...emptyValues(), ...(saved?.values || {}) }));
+  const [values, setValues] = useState(() => readSaved({ ...emptyValues(), ...(saved?.values || {}) }));
   const [shownFilters, setShownFilters] = useState(() => saved?.shownFilters || DEFAULT_FILTERS);
   const [columns, setColumns] = useState(() => saved?.columns || DEFAULT_COLUMNS);
   const [sort, setSort] = useState(() => saved?.sort || { key: 'partner', dir: 'asc' });
@@ -71,8 +76,9 @@ export default function PlanningPage({ canEdit, onNavigate }) {
   const filterMenu = usePopover();
   const colMenu = usePopover();
 
-  // Mois de référence (création de plan) = la période choisie, sinon mois courant.
-  const month = (values.period && /^\d{4}-\d{2}/.test(values.period)) ? values.period.slice(0, 7) : currentMonth();
+  // Mois de référence (nouveau plan) = le DERNIER mois de la période choisie, sinon le mois courant.
+  const period = values.period && values.period.from ? values.period : null;
+  const month = period ? period.to : currentMonth();
 
   async function reload() {
     setError(null);
@@ -85,19 +91,23 @@ export default function PlanningPage({ canEdit, onNavigate }) {
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
   useEffect(() => { api.listExchangeRates().then(setRates).catch(() => setRates([])); }, []);
 
+  const shown = ALL_FILTERS.filter((k) => shownFilters.includes(k));
+  const cols = ALL_COLUMNS.filter((k) => columns.includes(k));
+  // Chiffres clés : plans de la période choisie (toutes les périodes si le filtre est masqué ou vide).
+  const periodShown = shown.includes('period') ? period : null;
   const stats = useMemo(() => {
-    const list = plans || [];
+    const list = (plans || []).filter((p) => overlaps(periodShown, p.periodMonth));
+    // En dollars : chaque plan au taux de SON mois, en cents entiers (= somme des cellules).
+    const usd = (key) => sumUsdCents(list.map((p) => ({ amountAr: p[key] || 0, period: p.periodMonth })), rates);
     return {
       count: list.length,
       planned: list.reduce((n, p) => n + (p.plannedFunder || 0), 0),
       total: list.reduce((n, p) => n + (p.plannedTotal || 0), 0),
+      plannedUsdCents: usd('plannedFunder'),
+      totalUsdCents: usd('plannedTotal'),
       valides: list.filter((p) => p.status === 'valide').length,
     };
-  }, [plans]);
-
-  const shown = ALL_FILTERS.filter((k) => shownFilters.includes(k));
-  const cols = ALL_COLUMNS.filter((k) => columns.includes(k));
-  const monthStart = `${month}-01`;
+  }, [plans, periodShown, rates]);
 
   const filtered = useMemo(() => {
     let list = plans || [];
@@ -106,7 +116,7 @@ export default function PlanningPage({ canEdit, onNavigate }) {
       if (!v) return true;
       switch (k) {
         case 'q': { const q = v.toLowerCase(); return [p.partnerName, p.contractPartner, p.contractNumero, p.title].some((x) => x && String(x).toLowerCase().includes(q)); }
-        case 'period': return (p.periodMonth || '').slice(0, 7) === v;
+        case 'period': return overlaps(v, p.periodMonth);
         case 'partnerId': return p.partnerId === v;
         case 'contractId': return p.contractId === v;
         case 'status': return p.status === v;
@@ -139,15 +149,19 @@ export default function PlanningPage({ canEdit, onNavigate }) {
   function currentPayload() { return { values, shownFilters, columns, sort }; }
   function resetView() { setValues(emptyValues()); viewStore.clear(); toast.info(tr('Filtres réinitialisés.')); }
 
-  const periodOptions = useMemo(() => {
-    const set = new Set([currentMonth()]);
-    for (const p of plans || []) if (p.periodMonth) set.add(String(p.periodMonth).slice(0, 7));
-    return [...set].sort().reverse();
+  // Plans par mois (sélecteur de période : volume par mois, dernier mois avec des plans).
+  const planCounts = useMemo(() => {
+    const out = {};
+    for (const p of plans || []) if (p.periodMonth) { const m = String(p.periodMonth).slice(0, 7); out[m] = (out[m] || 0) + 1; }
+    return out;
   }, [plans]);
+  const latestPlan = useMemo(() => {
+    const ms = Object.keys(planCounts).filter((m) => m <= currentMonth()).sort();
+    return ms.length ? ms[ms.length - 1] : null;
+  }, [planCounts]);
 
   function optionsFor(k) {
     switch (k) {
-      case 'period': return [{ id: '', label: tr('Toutes les périodes') }, ...periodOptions.map((m) => ({ id: m, label: monthLabel(m) }))];
       case 'partnerId': return [{ id: '', label: tr('Tous les prestataires') }, ...(context?.partners || []).map((p) => ({ id: p.id, label: p.name }))];
       case 'contractId': return [{ id: '', label: tr('Tous les contrats') }, ...(context?.contracts || []).map((c) => ({ id: c.id, label: `${c.partnerName} · ${c.numero}` }))];
       case 'status': return STATUSES.map((s) => ({ ...s, label: tr(s.label) }));
@@ -155,7 +169,8 @@ export default function PlanningPage({ canEdit, onNavigate }) {
     }
   }
 
-  const money = (ar) => (currency === 'USD' ? formatUsdFor(ar, rates, monthStart) : formatAr(ar));
+  // Une cellule en dollars : au taux du mois de SON plan.
+  const money = (ar, planMonth) => (currency === 'USD' ? formatUsdFor(ar, rates, planMonth) : formatAr(ar));
   const hasRates = rates.length > 0;
 
   // Suppression (retour 56) : dialogue commun (justificatif si plan validé).
@@ -163,7 +178,9 @@ export default function PlanningPage({ canEdit, onNavigate }) {
   // Fil guidé : passe le relais à « Rapports & dépenses » qui ouvrira une
   // facture pré-remplie depuis ce plan (même contrat + mois).
   function createFacture(p) {
-    try { sessionStorage.setItem('mems.tpm.newFacture', JSON.stringify({ contractId: p.contractId, partnerId: p.partnerId, month })); } catch { /* ignore */ }
+    // Le mois de la facture est celui du PLAN (la période filtrée peut couvrir plusieurs mois).
+    const planMonth = p.periodMonth ? String(p.periodMonth).slice(0, 7) : month;
+    try { sessionStorage.setItem('mems.tpm.newFacture', JSON.stringify({ contractId: p.contractId, partnerId: p.partnerId, month: planMonth })); } catch { /* ignore */ }
     if (onNavigate) onNavigate('tpm', 'rapports'); else toast.info(tr('Ouvrez « Rapports & dépenses » pour créer la facture.'));
   }
 
@@ -171,11 +188,13 @@ export default function PlanningPage({ canEdit, onNavigate }) {
     const head = cols.map((k) => tr(COLUMNS[k].label));
     const cell = (p, k) => ({
       partner: p.partnerName, contract: `${p.contractPartner} (${p.contractNumero})`, title: p.title || '',
-      funder: currency === 'USD' ? money(p.plannedFunder) : Math.round(p.plannedFunder || 0),
-      total: currency === 'USD' ? money(p.plannedTotal) : Math.round(p.plannedTotal || 0),
+      period: p.periodMonth ? String(p.periodMonth).slice(0, 7) : '',
+      funder: currency === 'USD' ? money(p.plannedFunder, p.periodMonth) : Math.round(p.plannedFunder || 0),
+      total: currency === 'USD' ? money(p.plannedTotal, p.periodMonth) : Math.round(p.plannedTotal || 0),
       status: PLAN_STATUS[p.status] ? tr(PLAN_STATUS[p.status].label) : p.status,
     }[k]);
-    downloadCsv(`plans_${month}.csv`, [head, ...filtered.map((p) => cols.map((k) => cell(p, k)))]);
+    const scope = periodShown ? `${periodShown.from}_${periodShown.to}` : 'toutes';
+    downloadCsv(`plans_${scope}.csv`, [head, ...filtered.map((p) => cols.map((k) => cell(p, k)))]);
   }
 
   function renderCell(p, k) {
@@ -184,8 +203,8 @@ export default function PlanningPage({ canEdit, onNavigate }) {
       case 'contract': return <>{p.contractPartner}<div className="site-meta mono">{p.contractNumero}</div></>;
       case 'period': return <span className="tabular">{p.periodMonth ? monthLabel(String(p.periodMonth).slice(0, 7)) : '—'}</span>;
       case 'title': return p.title || <span className="cell-empty">—</span>;
-      case 'funder': return money(p.plannedFunder);
-      case 'total': return money(p.plannedTotal);
+      case 'funder': return money(p.plannedFunder, p.periodMonth);
+      case 'total': return money(p.plannedTotal, p.periodMonth);
       case 'status': return <StatusBadge def={PLAN_STATUS[p.status]} />;
       default: return null;
     }
@@ -196,7 +215,10 @@ export default function PlanningPage({ canEdit, onNavigate }) {
     return (
       <div key={k} className="cfilter">
         <span className="cfilter-label">{tr(f.label)}</span>
-        {f.type === 'search' ? (
+        {f.type === 'period' ? (
+          <PeriodSelect compact allowAll value={values.period || null} onChange={(p) => setVal('period', p || '')}
+            counts={planCounts} countLabel="{n} plan(s) sur la période" latest={latestPlan} ariaLabel={tr(f.label)} />
+        ) : f.type === 'search' ? (
           <span className="input-wrap"><Search size={16} aria-hidden="true" />
             <input className="input" type="search" placeholder={tr(f.ph)} value={values[k]} onChange={(e) => setVal(k, e.target.value)} />
           </span>
@@ -222,9 +244,10 @@ export default function PlanningPage({ canEdit, onNavigate }) {
       </div>
 
       <Stats items={[
-        { label: tr('Plans du mois'), value: plans ? stats.count : '—', foot: tr('{n} validé(s)', { n: stats.valides }) },
-        { label: tr('Planifié (part bailleur)'), value: plans ? (currency === 'USD' ? formatUsdFor(stats.planned, rates, monthStart) : formatInt(stats.planned)) : '—', suffix: currency === 'USD' ? '' : 'Ar', foot: tr('Alimente la consolidation') },
-        { label: tr('Budget total prévu'), value: plans ? (currency === 'USD' ? formatUsdFor(stats.total, rates, monthStart) : formatInt(stats.total)) : '—', suffix: currency === 'USD' ? '' : 'Ar', foot: tr('Bailleur + ONG') },
+        { label: periodShown ? tr('Plans de la période') : tr('Plans'), value: plans ? stats.count : '—',
+          foot: periodShown ? `${periodLabel(periodShown, lang)} · ${tr('{n} validé(s)', { n: stats.valides })}` : tr('{n} validé(s)', { n: stats.valides }) },
+        { label: tr('Planifié (part bailleur)'), value: plans ? (currency === 'USD' ? formatUsdCents(stats.plannedUsdCents) : formatInt(stats.planned)) : '—', suffix: currency === 'USD' ? '' : 'Ar', foot: tr('Alimente la consolidation') },
+        { label: tr('Budget total prévu'), value: plans ? (currency === 'USD' ? formatUsdCents(stats.totalUsdCents) : formatInt(stats.total)) : '—', suffix: currency === 'USD' ? '' : 'Ar', foot: tr('Bailleur + ONG') },
         { label: tr('Contrats couverts'), value: context ? context.contracts.length : '—', foot: tr('Avec budget Suivi/TPM') },
       ]} />
 

@@ -173,6 +173,26 @@ test('taux : couverture et planification sur les sites actifs, exécution null s
   assert.deepEqual(s.overall.sites, { active: 208, planned: 183, realised: 170, realisedInactive: 2 });
   assert.deepEqual(s.byDistrict, [], 'groupe sans visite : absent des tableaux hérités, comme avant');
   assert.equal(s.byOffice[0].label, 'Sans bureau');
+  // … mais compté à part : « autres (sans visite) » rapproche le tableau du total.
+  assert.deepEqual(s.others.byDistrict, { groups: 1, sitesActive: 50, list: [{ key: 'ambovombe', label: 'Ambovombe', sitesActive: 50 }] });
+  assert.deepEqual(s.others.byOffice, { groups: 0, sitesActive: 0, list: [] });
+});
+
+test('tableaux par groupe + « autres (sans visite) » = total des sites actifs (Jul–Oct 2026 : 573 + 707 = 1 280)', () => {
+  const s = shapeRangeSummary([
+    { dim: 'overall', sitesActive: 1280, sitesRealised: 18, planifie: 7, realise: 25 },
+    { dim: 'district', key: 'a', districtLabel: 'A', planifie: 4, realise: 20, sitesActive: 400, sitesRealised: 15 },
+    { dim: 'district', key: 'b', districtLabel: 'B', planifie: 3, realise: 5, sitesActive: 173, sitesRealised: 3 },
+    { dim: 'district', key: 'c', districtLabel: 'C', sitesActive: 600 },
+    { dim: 'district', key: 'd', districtLabel: 'D', sitesActive: 107 },
+    { dim: 'district', key: 'e', districtLabel: 'E', sitesActive: 0 },
+  ], []);
+  const shown = s.byDistrict.reduce((n, d) => n + d.sites.active, 0);
+  assert.equal(shown, 573);
+  assert.equal(s.others.byDistrict.sitesActive, 707);
+  assert.equal(s.others.byDistrict.groups, 2, 'un groupe sans site actif n\'est pas compté');
+  assert.equal(shown + s.others.byDistrict.sitesActive, s.overall.sites.active);
+  assert.deepEqual(s.others.byDistrict.list.map((x) => x.label), ['C', 'D'], 'plus de sites actifs d\'abord');
 });
 
 test('série mensuelle : un mois par ligne, triée, avec l\'état de la grille d\'activation', () => {

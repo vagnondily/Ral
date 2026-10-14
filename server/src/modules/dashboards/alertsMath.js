@@ -98,16 +98,21 @@ function contractAlerts(contracts, today) {
  * l'EXÉCUTION DU PLAN (visites réalisées ÷ visites prévues), libellée comme telle — la
  * « couverture » désigne désormais les sites (lot 1b). Sans visite planifiée (active = 0),
  * aucune alerte : « aucun plan » n'est pas « 0 % ».
+ * Libellé du moment : « ce mois » seulement sans période choisie (la cloche, le mois courant) ;
+ * un mois choisi est nommé (« (Septembre 2026) ») ; une plage dit « sur la période ».
  * @param {object} field  résumé des visites
- * @param {{ range?: boolean }} [opts] range = la période dépasse un mois (« sur la période »)
+ * @param {{ range?: boolean, month?: string|null }} [opts] range = la période dépasse un mois ;
+ *   month = le mois choisi (« AAAA-MM ») quand la période est un seul mois
  */
-function fieldAlerts(field, { range = false } = {}) {
+function fieldAlerts(field, { range = false, month = null } = {}) {
   const out = [];
   const ov = field && field.overall;
+  const when = (current, named, period) => (range ? period : (month ? named : current));
+  const whenParams = month && !range ? { m: { month } } : {};
   if (ov && ov.active > 0 && ov.rate < 0.5) {
     out.push({ sev: 'warning', cat: 'Terrain', kind: 'field_low_coverage',
-      title: range ? 'Exécution du plan faible sur la période' : 'Exécution du plan faible ce mois',
-      detail: '{done}/{active} visites réalisées ({p} %)', params: { done: ov.realise, active: ov.active, p: Math.round(ov.rate * 100) }, go: FIELD_GO });
+      title: when('Exécution du plan faible ce mois', 'Exécution du plan faible ({m})', 'Exécution du plan faible sur la période'),
+      detail: '{done}/{active} visites réalisées ({p} %)', params: { done: ov.realise, active: ov.active, p: Math.round(ov.rate * 100), ...whenParams }, go: FIELD_GO });
   }
   const providers = (field && field.byProvider) || [];
   for (const p of providers) {
@@ -119,8 +124,8 @@ function fieldAlerts(field, { range = false } = {}) {
   const naf = providers.find((p) => p.key === 'non_affecte');
   if (naf && naf.total > 0) {
     out.push({ sev: 'info', cat: 'Terrain', kind: 'visits_unassigned', title: '{n} visite(s) non affectée(s)',
-      detail: range ? 'Sites planifiés sans prestataire TPM sur la période' : 'Sites planifiés sans prestataire TPM ce mois',
-      params: { n: naf.total }, go: FIELD_GO });
+      detail: when('Sites planifiés sans prestataire TPM ce mois', 'Sites planifiés sans prestataire TPM ({m})', 'Sites planifiés sans prestataire TPM sur la période'),
+      params: { n: naf.total, ...whenParams }, go: FIELD_GO });
   }
   return out;
 }
@@ -131,17 +136,18 @@ function fieldAlerts(field, { range = false } = {}) {
  * 'a_date' (budget et contrats, toujours calculés à date ; rapports quand aucune période
  * n'est choisie) ou 'periode' (terrain ; rapports filtrés par la période choisie).
  * @param {{ consolidationRows?:object[], reports?:object[], contracts?:object[], field?:object,
- *           today:string, range?:boolean, reportsInPeriod?:boolean }} src
+ *           today:string, range?:boolean, month?:string|null, reportsInPeriod?:boolean }} src
  *   today = « AAAA-MM-JJ » ; field = résumé des visites de la période (mois courant par défaut) ;
- *   range = la période dépasse un mois ; reportsInPeriod = rapports filtrés par la période
+ *   range = la période dépasse un mois ; month = le mois choisi (période d'un mois) ;
+ *   reportsInPeriod = rapports filtrés par la période
  */
-function buildAlerts({ consolidationRows, reports, contracts, field, today, range = false, reportsInPeriod = false } = {}) {
+function buildAlerts({ consolidationRows, reports, contracts, field, today, range = false, month = null, reportsInPeriod = false } = {}) {
   const scoped = (list, scope) => list.map((a) => ({ ...a, scope }));
   const all = [
     ...scoped(budgetAlerts(consolidationRows), 'a_date'),
     ...scoped(reportAlerts(reports), reportsInPeriod ? 'periode' : 'a_date'),
     ...scoped(contractAlerts(contracts, today), 'a_date'),
-    ...scoped(fieldAlerts(field, { range }), 'periode'),
+    ...scoped(fieldAlerts(field, { range, month }), 'periode'),
   ];
   return all.map((a, i) => ({ a, i })).sort((x, y) => (RANK[x.a.sev] - RANK[y.a.sev]) || (x.i - y.i)).map((x) => x.a);
 }

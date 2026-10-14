@@ -26,7 +26,7 @@ const CALC = [{ id: 'c1', name: 'lat_copy', label: 'Copie', kind: 'expression', 
 
 /** Faux client : rend les lignes selon le SQL (seules les requêtes utiles sont jouées). */
 db.withTenantTransaction = async (_tenantId, fn) => fn({
-  query: async (sql) => {
+  query: async (sql, params = []) => {
     const s = sql.replace(/\s+/g, ' ').trim();
     if (/^SELECT id FROM monitoring_forms WHERE tenant_id = \$1 AND id = \$2/.test(s)) return { rows: [{ id: FORM }] };
     if (/FROM monitoring_calc_fields WHERE tenant_id = \$1 AND form_id = \$2 ORDER BY sort_order, name/.test(s)) return { rows: CALC };
@@ -34,6 +34,13 @@ db.withTenantTransaction = async (_tenantId, fn) => fn({
       return { rows: ['@_HHCoord_latitude', '@_HHCoord_longitude', '@_HHCoord_precision', 'HHCoord', '_geolocation', 'q1'].map((k) => ({ k })) };
     }
     if (/^SELECT COALESCE\(\(SELECT jsonb_object_agg/.test(s)) return { rows: HOUSES.map((d) => ({ data: { ...d } })) };
+    // Lecture réduite des réponses (lot 1b, perf) : `data - clés inutiles` en SQL — le faux client
+    // retire les mêmes clés pour rester fidèle.
+    const reduced = /^SELECT \(s\.data - \$(\d+)::text\[\]\) AS data FROM monitoring_submissions s/.exec(s);
+    if (reduced || /^SELECT s\.data AS data FROM monitoring_submissions s/.test(s)) {
+      const drop = new Set(reduced ? params[Number(reduced[1]) - 1] : []);
+      return { rows: HOUSES.map((d) => ({ data: Object.fromEntries(Object.entries(d).filter(([k]) => !drop.has(k))) })) };
+    }
     if (/^SELECT ms\.id, ms\.external_id AS "externalId"/.test(s)) return { rows: HOUSES.map((d, i) => ({ id: `s${i}`, data: { ...d } })) };
     return { rows: [] };
   },

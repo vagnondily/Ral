@@ -5,18 +5,21 @@ import { Alert } from './ui.jsx';
 import { currentMonth, formatInt, monthLabel } from '../lib/format.js';
 import { useI18n } from '../lib/i18n.jsx';
 import {
-  MAX_SPAN, addMonths, isPeriod, readHashPeriod, readSessionPeriod, samePeriod, single, spanMonths, writeHashPeriod, writeSessionPeriod,
+  MAX_SPAN, addMonths, isPeriod, periodLabel, readHashPeriod, readSessionPeriod, samePeriod, single, spanMonths, writeHashPeriod, writeSessionPeriod,
 } from '../lib/period.js';
 
 /**
  * Période ramenée au plafond de l'écran : au-delà de `maxSpan` mois, les `maxSpan` derniers
- * mois (finissant à `to`) — une période de session plus longue, venue d'un autre écran
- * (60 mois pour le budget), ne fait jamais échouer un écran d'analyse (24 mois).
+ * mois (finissant à `to`). Sert seulement à une règle par défaut propre à l'écran ; une période
+ * d'URL ou de session trop longue n'est jamais tronquée en silence : elle est écartée (usePeriod).
  */
 export function clampPeriod(p, maxSpan = MAX_SPAN) {
   if (!isPeriod(p) || spanMonths(p) <= maxSpan) return p;
   return { from: addMonths(p.to, -(maxSpan - 1)), to: p.to };
 }
+
+/** Vrai si la période dépasse la durée maximale de l'écran. */
+const tooLongFor = (p, maxSpan) => isPeriod(p) && spanMonths(p) > maxSpan;
 
 const sessionStore = () => { try { return window.sessionStorage; } catch { return null; } };
 
@@ -46,10 +49,13 @@ function countsOf(periods) {
  * @param {{ scope?: 'analysis'|'local', defaultRule?: 'data'|'current'|'all', urlSync?: boolean, maxSpan?: number }} [opts]
  *   scope 'analysis' : période partagée entre les tableaux de bord de la session ;
  *   'local' : ni lue ni écrite en session (ex. Centre d'alertes : URL seulement) ;
- *   maxSpan : durée maximale acceptée par les endpoints de l'écran (24 mois pour l'analyse,
- *   60 pour le budget) — une période plus longue (URL, session) est ramenée aux derniers mois.
+ *   maxSpan : durée maximale acceptée par les endpoints de l'écran (lib/periodCaps, la table du
+ *   serveur) — une période d'URL ou de session plus longue (lien partagé, période choisie sur le
+ *   budget) est ÉCARTÉE : l'écran prend sa période par défaut et le dit (source 'capped',
+ *   SessionPeriodNote), au lieu d'échouer sur un refus du serveur.
  * @returns {{ period: {from,to}|null|undefined, ready: boolean, auto: object|null, periods: object|null,
- *   counts: object|null, latest: string|null, today: string, source: 'url'|'session'|'default'|'user'|null,
+ *   counts: object|null, latest: string|null, today: string,
+ *   source: 'url'|'session'|'default'|'capped'|'user'|null, capped: { period, maxSpan }|null,
  *   setPeriod: Function, resetToDefault: Function }}
  *   `period` vaut undefined tant que la règle 'data' n'est pas connue (l'écran attend au lieu
  *   d'afficher une période vide puis de sauter) ; si l'appel échoue, le mois courant sert de repli.
@@ -60,24 +66,41 @@ export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = 
   const today = useMemo(() => currentMonth(), []);
   const useSession = scope === 'analysis';
   const initial = useMemo(() => {
+    // Règle par défaut de l'écran (undefined pour 'data' / 'custom' : en attente de la règle).
+    const byRule = (extra) => {
+      if (defaultRule === 'current') return { period: single(today), source: 'default', ...extra };
+      if (defaultRule === 'all') return { period: null, source: 'default', ...extra };
+      return { period: undefined, source: null, ...extra };
+    };
     const fromUrl = urlSync ? readHashPeriod(window.location.hash) : null;
-    if (fromUrl) return { period: clampPeriod(fromUrl, maxSpan), source: 'url' };
+    if (fromUrl && !tooLongFor(fromUrl, maxSpan)) return { period: fromUrl, source: 'url' };
+    if (fromUrl) {
+      // Lien plus long que l'écran ne le permet : retiré de l'URL, période par défaut, mention.
+      try {
+        const hash = writeHashPeriod(window.location.hash, null);
+        if (hash !== window.location.hash) window.history.replaceState(window.history.state, '', hash || '#');
+      } catch { /* URL non modifiable : sans incidence */ }
+      return byRule({ capped: { period: fromUrl, maxSpan }, source: 'capped' });
+    }
     const fromSession = useSession ? readSessionPeriod(sessionStore()) : null;
-    if (fromSession) return { period: clampPeriod(fromSession, maxSpan), source: 'session' };
-    if (defaultRule === 'current') return { period: single(today), source: 'default' };
-    if (defaultRule === 'all') return { period: null, source: 'default' };
-    return { period: undefined, source: null }; // 'data' / 'custom' : en attente de la règle
+    if (fromSession && !tooLongFor(fromSession, maxSpan)) return { period: fromSession, source: 'session' };
+    // Période de session plus longue (venue du budget, 60 mois) : écartée ici, gardée en session.
+    if (fromSession) return byRule({ capped: { period: fromSession, maxSpan }, source: 'capped' });
+    return byRule({});
   }, []); // eslint-disable-line
-  const [state, setState] = useState({ ...initial, auto: null });
+  const [state, setState] = useState({ capped: null, ...initial, auto: null });
   const [periods, setPeriods] = useState(null);
   const defaultRef = useRef(null); // période par défaut connue (règle de l'écran)
+  // Période par défaut appliquée quand elle est connue : la mention « période écartée » reste.
+  const applyDefault = (s, ruled, auto) => (s.period !== undefined ? s
+    : { ...s, period: ruled, source: s.source === 'capped' ? 'capped' : 'default', auto });
 
   // Règle propre à l'écran : appliquée dès qu'elle est connue (jamais par-dessus un choix).
   useEffect(() => {
     if (defaultRule !== 'custom' || customDefault === undefined) return;
     const ruled = isPeriod(customDefault) ? clampPeriod(customDefault, maxSpan) : null;
     defaultRef.current = { period: ruled, auto: null };
-    setState((s) => (s.period !== undefined ? s : { period: ruled, source: 'default', auto: null }));
+    setState((s) => applyDefault(s, ruled, null));
   }, [defaultRule, customDefault && customDefault.from, customDefault && customDefault.to, customDefault === null]); // eslint-disable-line
 
   // Volume par mois et période par défaut du serveur (une fois ; inutile pour la règle 'custom').
@@ -92,22 +115,29 @@ export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = 
       const ruled = defaultRule === 'data' ? single(month) : (defaultRule === 'current' ? single(today) : null);
       const auto = defaultRule === 'data' && month !== (def.today || today) ? def : null;
       defaultRef.current = { period: ruled, auto };
-      setState((s) => (s.period !== undefined ? s : { period: ruled, source: 'default', auto }));
+      setState((s) => applyDefault(s, ruled, auto));
     }, () => {
       if (!alive) return;
       const ruled = defaultRule === 'all' ? null : single(today);
       defaultRef.current = { period: ruled, auto: null };
-      setState((s) => (s.period !== undefined ? s : { period: ruled, source: 'default', auto: null }));
+      setState((s) => applyDefault(s, ruled, null));
     });
     return () => { alive = false; };
   }, []); // eslint-disable-line
 
-  // Lien suivi dans la même page (#/route?from=…&to=…) : la période de l'URL s'applique.
+  // Lien suivi dans la même page (#/route?from=…&to=…) : la période de l'URL s'applique ;
+  // trop longue pour l'écran, elle est écartée (période par défaut, mention).
   useEffect(() => {
     if (!urlSync) return undefined;
     const onHash = () => {
-      const p = clampPeriod(readHashPeriod(window.location.hash), maxSpan);
-      if (p) setState((s) => (samePeriod(s.period, p) ? s : { period: p, source: 'url', auto: null }));
+      const p = readHashPeriod(window.location.hash);
+      if (!p) return;
+      if (tooLongFor(p, maxSpan)) {
+        const def = defaultRef.current;
+        setState((s) => ({ ...s, period: def ? def.period : s.period, source: 'capped', capped: { period: p, maxSpan }, auto: null }));
+        return;
+      }
+      setState((s) => (samePeriod(s.period, p) ? s : { period: p, source: 'url', capped: null, auto: null }));
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
@@ -119,8 +149,13 @@ export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = 
   }, [useSession, state.source, state.period]);
 
   const setPeriod = useCallback((p) => {
-    const next = isPeriod(p) ? clampPeriod({ from: p.from, to: p.to }, maxSpan) : null;
-    setState({ period: next, source: 'user', auto: null });
+    // Le sélecteur ne propose jamais plus que maxSpan ; un appel plus long est écarté, jamais tronqué.
+    if (tooLongFor(p, maxSpan)) {
+      setState((s) => ({ ...s, source: 'capped', capped: { period: { from: p.from, to: p.to }, maxSpan } }));
+      return;
+    }
+    const next = isPeriod(p) ? { from: p.from, to: p.to } : null;
+    setState({ period: next, source: 'user', capped: null, auto: null });
     if (urlSync) {
       try {
         const hash = writeHashPeriod(window.location.hash, next);
@@ -140,7 +175,7 @@ export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = 
         if (hash !== window.location.hash) window.history.replaceState(window.history.state, '', hash || '#');
       } catch { /* sans incidence */ }
     }
-    setState({ period: def.period, source: 'default', auto: def.auto });
+    setState({ period: def.period, source: 'default', capped: null, auto: def.auto });
   }, [defaultRule, today, urlSync, useSession]);
 
   const counts = useMemo(() => countsOf(periods), [periods]);
@@ -149,8 +184,9 @@ export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = 
   const def = periods && periods.default;
   const latest = def && def.reason !== 'none' ? (def.month || null) : null;
   return {
-    period: state.period, ready: state.period !== undefined, auto: state.source === 'default' ? state.auto : null,
-    periods, counts, latest, today, source: state.source, setPeriod, resetToDefault,
+    period: state.period, ready: state.period !== undefined,
+    auto: state.source === 'default' || state.source === 'capped' ? state.auto : null,
+    periods, counts, latest, today, source: state.source, capped: state.source === 'capped' ? state.capped : null, setPeriod, resetToDefault,
   };
 }
 
@@ -159,8 +195,23 @@ export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = 
  * session) + le retour à la règle de l'écran : « Revenir au dernier mois avec des données »
  * (défaut), ou `resetLabel` (ex. « Revenir à toutes les périodes » sur les écrans budgétaires).
  */
-export function SessionPeriodNote({ source, onReset, resetLabel }) {
-  const { tr } = useI18n();
+export function SessionPeriodNote({ source, onReset, resetLabel, capped }) {
+  const { tr, lang } = useI18n();
+  // Période d'un lien ou de la session écartée : plus longue que l'écran ne le permet (lib/periodCaps).
+  if (source === 'capped') {
+    return (
+      <p className="period-session-note is-capped" role="status">
+        <Info size={14} aria-hidden="true" />
+        <span>
+          {capped && isPeriod(capped.period)
+            ? tr('Période demandée ({p}, {n} mois) plus longue que les {max} mois que permet cet écran : période par défaut affichée.', {
+              p: periodLabel(capped.period, lang), n: spanMonths(capped.period), max: capped.maxSpan,
+            })
+            : tr('Période demandée plus longue que ce que permet cet écran : période par défaut affichée.')}
+        </span>
+      </p>
+    );
+  }
   if (source !== 'session') return null;
   return (
     <p className="period-session-note">

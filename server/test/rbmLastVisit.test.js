@@ -186,6 +186,58 @@ test('« Générer » cliqué 3 fois : n, 0, 0 visites — plus de doublon d\'ac
   assert.equal(rows.filter((s) => s.toPlan).length, 0);
 });
 
+/**
+ * Client à état qui applique la borne « état au mois » (asOf) du SELECT RBM : la dernière visite
+ * réalisée ne compte que si elle est ≤ au mois de référence ($2 quand le SELECT est borné).
+ */
+function asOfClient(sites, visits) {
+  const inner = stateClient(sites, visits);
+  return {
+    calls: [],
+    async query(sql, params) {
+      this.calls.push({ sql, params });
+      if (/AS last_done/.test(sql)) {
+        const asOf = /v\.period_month <= \$2::date/.test(sql) ? params[1] : null;
+        const done = (id) => visits.filter((v) => v.siteId === id && v.status === 'realise' && (!asOf || v.pm <= asOf))
+          .map((v) => v.pm.slice(0, 7)).sort().pop() || null;
+        const planned = (id) => [...new Set(visits.filter((v) => v.siteId === id && v.status === 'planifie').map((v) => v.pm.slice(0, 7)))];
+        return { rows: sites.map((s) => ({ ...s, fieldVisitMonth: done(s.id), plannedMonths: planned(s.id) })) };
+      }
+      return inner.query(sql, params);
+    },
+  };
+}
+
+test('mois PASSÉ : « à planifier » de la liste (?month=M, état au mois M) = visites créées par « Générer » (même règle)', async () => {
+  // Mai 2026, consulté en octobre : des sites ont été visités APRÈS mai (juin, août) ;
+  // en mai ils étaient « à suivre » (dernière visite ≤ mai : aucune, ou trop ancienne).
+  const sites = [
+    row({ id: 'visite-en-aout' }),
+    row({ id: 'visite-en-juin', riskLevel: 'moyenne' }),
+    row({ id: 'visite-en-avril', riskLevel: 'faible' }),
+    row({ id: 'jamais' }),
+  ];
+  const visits = [
+    { siteId: 'visite-en-aout', pm: '2026-08-01', status: 'realise' },
+    { siteId: 'visite-en-juin', pm: '2026-06-01', status: 'realise' },
+    { siteId: 'visite-en-avril', pm: '2026-04-01', status: 'realise' },
+  ];
+  const M = '2026-05';
+  // GET /rbm/sites?month=M → rbmSites({ month: M, asOf: M }) (route, test periodRoutes).
+  const listed = await rbmSitesTx(asOfClient(sites, visits.slice()), TENANT, { month: M, asOf: M });
+  const toPlan = listed.filter((s) => s.toPlan).map((s) => s.id).sort();
+  assert.deepEqual(toPlan, ['jamais', 'visite-en-aout', 'visite-en-juin'], 'la visite d\'avril (faible : tous les 3 mois) suffit en mai');
+  // POST /rbm/generate?month=M : même état (asOf = M), donc autant de visites créées que de sites « à planifier ».
+  const genVisits = visits.slice();
+  const client = asOfClient(sites, genVisits);
+  const r = await generateFromRbmTx(client, TENANT, 'user-1', M);
+  assert.equal(r.created, toPlan.length);
+  assert.equal(r.toPlan, toPlan.length);
+  const rbmCall = client.calls.find((c) => /AS last_done/.test(c.sql));
+  assert.equal(rbmCall.params[1], '2026-05-01', 'SELECT RBM borné au mois cible');
+  assert.deepEqual(genVisits.filter((v) => v.status === 'planifie').map((v) => v.siteId).sort(), toPlan);
+});
+
 test('liste RBM : drapeau « à planifier » par site (à suivre, hors zone interdite, sans visite prévue ce mois)', async () => {
   const client = fakeClient([
     row({ id: 'todo' }),

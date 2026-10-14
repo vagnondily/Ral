@@ -10,12 +10,14 @@ const { buildLocationsWorkbook, parseLocationsWorkbook, POI_SUBTYPES, MODALITIES
 const { officeResolver } = require('./mmrXlsx');
 const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
 const { readPeriod } = require('../../middleware/period');
+const { PERIOD_CAPS } = require('../common/periodCaps');
 
-// Durées maximales d'une période (lot 1b, mesurées au banc : 3 000 sites, sous RLS) : la
-// liste des visites se lit sur 12 mois au plus ; les faits site × mois (résumé,
-// récapitulatif) sur 24 mois (≈ 200 ms ; 60 mois ≈ 400 ms, au-delà du budget de 250 ms).
-const VISITS_MAX_SPAN = 12;
-const FACTS_MAX_SPAN = 24;
+// Durées maximales d'une période (lot 1b, mesurées au banc : 3 000 sites, sous RLS —
+// common/periodCaps, la même table que les écrans) : la liste des visites se lit sur 12 mois
+// au plus ; les faits site × mois (résumé, récapitulatif) sur 24 mois (≈ 0,3 s ; 60 mois
+// ≈ 0,45 s, au-delà du budget de 250 ms).
+const VISITS_MAX_SPAN = PERIOD_CAPS.list;
+const FACTS_MAX_SPAN = PERIOD_CAPS.facts;
 
 /**
  * Suivi terrain — sites (établissements) et planification/affectation des
@@ -257,11 +259,21 @@ router.post('/rbm/import-plan', WRITE, express.raw({ type: '*/*', limit: '60mb' 
 }));
 
 // ---- Visits --------------------------------------------------------------
+// Paginée (?limit= 1 000 par défaut, 2 000 au plus ; ?offset=) : { items, total, limit, offset }.
+const pageQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(2000).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+}).passthrough();
 router.get('/visits', asyncHandler(async (req, res) => {
   const period = readPeriod(req.query, { maxSpan: VISITS_MAX_SPAN });
-  res.json(await repo.listVisits(t(req), { period, providerId: req.query.providerId, status: req.query.status }));
+  const page = pageQuery.safeParse(req.query);
+  if (!page.success) throw badRequest('Pagination invalide : limit (1 à 2 000) et offset (≥ 0) entiers.');
+  res.json(await repo.listVisits(t(req), {
+    period, providerId: req.query.providerId, status: req.query.status, limit: page.data.limit, offset: page.data.offset,
+  }));
 }));
-// Résumé terrain sur une période (?from=&to= ou ?month=) ; sans paramètre : toutes les visites.
+// Résumé terrain sur une période (?from=&to= ou ?month=) ; sans paramètre : les visites des
+// 24 derniers mois de visites au plus (common/periodCaps.facts), rendus dans `period`.
 router.get('/summary', asyncHandler(async (req, res) => res.json(await repo.summary(t(req), { period: readPeriod(req.query, { maxSpan: FACTS_MAX_SPAN }) }))));
 
 // Vue par mois (une ligne par mois de l'année, avec stats) — pour la navigation.
@@ -277,8 +289,8 @@ router.put('/months/status', WRITE, body(monthStatusSchema), asyncHandler(async 
 }));
 
 // Récap de couverture (sites visités 1/2/3/4+ fois vs MMR) — lecture seule.
-// Période facultative (?from=&to= ou ?month=) : sites actifs sur la période ; sans période,
-// toutes les visites. operationMonths : donné, sinon la durée de la période, sinon 12.
+// Période facultative (?from=&to= ou ?month=) : sites actifs sur la période ; sans période, les
+// visites des 24 derniers mois de visites (`span`). operationMonths : donné, sinon la durée de la période, sinon 12.
 router.get('/coverage-recap', asyncHandler(async (req, res) => {
   const period = readPeriod(req.query, { maxSpan: FACTS_MAX_SPAN });
   const om = Number(req.query.operationMonths);

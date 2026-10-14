@@ -335,27 +335,28 @@ export default {
   '2 fois': 'Twice',
   '3 fois': '3 times',
   '4 fois +': '4+ times',
-  "Visites requises = durée d'opération ÷ intervalle MMR (élevé : 1 mois · moyen : 2 · faible : 3). Un site est conforme s'il a atteint ce nombre de visites réalisées. Couverture = part des sites visités au moins une fois.":
-    'Required visits = operation duration ÷ MMR interval (high: 1 month · medium: 2 · low: 3). A site is compliant once it has reached this number of completed visits. Coverage = share of sites visited at least once.',
+  "Visites requises = durée d'opération ÷ intervalle MMR (élevé : 1 mois · moyen : 2 · faible : 3). Un site est conforme s'il a atteint ce nombre de visites réalisées. Couverture (sites) = part des sites actifs visités au moins une fois.":
+    'Required visits = operation duration ÷ MMR interval (high: 1 month · medium: 2 · low: 3). A site is compliant once it has reached this number of completed visits. Coverage (sites) = share of active sites visited at least once.',
   'Année': 'Year',
   'Aucune visite en {year}. Planifiez des visites (Affectation & visites) pour alimenter la couverture.':
     'No visits in {year}. Plan visits (Assignment & visits) to feed coverage.',
   'Programmes suivis': 'Programmes monitored',
   'année {year}': 'year {year}',
   'Visites réalisées': 'Completed visits',
-  'sur {n} actives': 'out of {n} active',
+  'sur {n} prévues ou réalisées': 'out of {n} planned or completed',
   'Planifiées restantes': 'Remaining planned',
   'non encore réalisées': 'not yet completed',
-  'Taux de couverture': 'Coverage rate',
-  'réalisées / actives': 'completed / active',
-  'Tendance mensuelle du taux de couverture': 'Monthly coverage rate trend',
+  'réalisées ÷ (prévues + réalisées)': 'completed ÷ (planned + completed)',
+  'Tendance mensuelle de l\'exécution du plan (visites)': 'Monthly plan execution trend (visits)',
   'Part des visites réalisées (vs planifiées + réalisées), par programme, mois par mois.':
     'Share of completed visits (vs planned + completed), by programme, month by month.',
   'Part des visites réalisées (vs planifiées + réalisées), par prestataire, mois par mois.':
     'Share of completed visits (vs planned + completed), by provider, month by month.',
-  'Matrice de couverture mensuelle': 'Monthly coverage matrix',
-  'Taux par programme et par mois (réalisées / actives). « — » = aucune visite.': 'Rate by programme and month (completed / active). “—” = no visits.',
-  'Taux par prestataire et par mois (réalisées / actives). « — » = aucune visite.': 'Rate by provider and month (completed / active). “—” = no visits.',
+  'Matrice mensuelle de l\'exécution du plan (visites)': 'Monthly plan execution matrix (visits)',
+  'Exécution du plan par programme et par mois : visites réalisées ÷ (prévues + réalisées). « — » = aucune visite.':
+    'Plan execution by programme and month: completed visits ÷ (planned + completed). “—” = no visits.',
+  'Exécution du plan par prestataire et par mois : visites réalisées ÷ (prévues + réalisées). « — » = aucune visite.':
+    'Plan execution by provider and month: completed visits ÷ (planned + completed). “—” = no visits.',
   '{done} réalisée(s) / {active} active(s)': '{done} completed / {active} active',
   '{group} · {month} : {p} % ({done}/{active})': '{group} · {month}: {p}% ({done}/{active})',
   // Mois abrégés (MO)

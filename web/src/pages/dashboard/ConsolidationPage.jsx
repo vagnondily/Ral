@@ -8,6 +8,7 @@ import { formatAr, formatInt, monthLabel } from '../../lib/format.js';
 import { periodLabel } from '../../lib/period.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 
 const MATRIX_VIEWS = [
   { id: 'actual', label: 'Réalisé' },
@@ -37,11 +38,14 @@ const pctOrDash = (rate) => (rate == null ? '—' : pct(rate));
  */
 export default function ConsolidationPage({ onOpenContract }) {
   const { tr, lang } = useI18n();
-  const { period, ready, counts, latest, today, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'all' });
+  const { period, ready, counts, latest, today, source, capped, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'all', maxSpan: PERIOD_CAPS.document });
   const key = period ? `${period.from}|${period.to}` : 'all';
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [view, setView] = useState('actual');
+  // Avec une période, le détail du cumul du contrat (6 colonnes) est replié par défaut : restent
+  // « Restant » et « Projection fin » (à date) ; la table tient alors à 1 366 px. Un bouton le déplie.
+  const [showCumul, setShowCumul] = useState(false);
 
   useEffect(() => {
     if (!ready) return undefined;
@@ -59,6 +63,8 @@ export default function ConsolidationPage({ onOpenContract }) {
 
   const t = data?.totals || {};
   const tp = period ? t.period : null;
+  // Détail du cumul du contrat affiché : toujours sans période ; replié par défaut avec une période.
+  const cumul = !tp || showCumul;
   const rows = data?.rows || [];
   const months = data?.months || [];
   const pLabel = period ? periodLabel(period, lang) : '';
@@ -96,7 +102,7 @@ export default function ConsolidationPage({ onOpenContract }) {
         {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} allowAll align="right" />}
         <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!rows.length}>{tr('Exporter (CSV)')}</Button>
       </PageHeader>
-      <SessionPeriodNote source={source} onReset={resetToDefault} resetLabel={tr('Revenir à toutes les périodes')} />
+      <SessionPeriodNote source={source} capped={capped} onReset={resetToDefault} resetLabel={tr('Revenir à toutes les périodes')} />
 
       {tp ? (
         <Stats items={[
@@ -138,13 +144,18 @@ export default function ConsolidationPage({ onOpenContract }) {
           </EmptyState>
         ) : (
           <div className="table-wrap">
-            <table className="table">
+            <table className="table cons-table">
               <thead>
                 {tp && (
                   <tr className="th-group">
                     <th scope="colgroup" colSpan={2} />
                     <th scope="colgroup" colSpan={4} className="th-group-period">{tr('Période · {p}', { p: pLabel })}</th>
-                    <th scope="colgroup" colSpan={8}>{tr('Cumul du contrat (à date)')}</th>
+                    <th scope="colgroup" colSpan={cumul ? 8 : 2}>
+                      {tr('Cumul du contrat (à date)')}{' '}
+                      <button type="button" className="inline-link th-group-toggle" aria-expanded={cumul} onClick={() => setShowCumul((v) => !v)}>
+                        {cumul ? tr('Replier') : tr('Tout le cumul (+6 colonnes)')}
+                      </button>
+                    </th>
                   </tr>
                 )}
                 <tr>
@@ -156,12 +167,14 @@ export default function ConsolidationPage({ onOpenContract }) {
                     <th scope="col" className="num">{tr('Réalisé')}</th>
                     <th scope="col" className="num">{tr('Taux')}</th>
                   </>}
-                  <th scope="col" className="num">{tr('Budget suivi')}</th>
-                  <th scope="col" className="num">{tr('Planifié')}</th>
-                  <th scope="col" className="num">{tr('Réalisé')}</th>
-                  <th scope="col">{tr('Consommation')}</th>
-                  <th scope="col" className="num">{tr('Plan / Réel')}</th>
-                  <th scope="col" className="num">{tr('Mois rest.')}</th>
+                  {cumul && <>
+                    <th scope="col" className="num">{tr('Budget suivi')}</th>
+                    <th scope="col" className="num">{tr('Planifié')}</th>
+                    <th scope="col" className="num">{tr('Réalisé')}</th>
+                    <th scope="col">{tr('Consommation')}</th>
+                    <th scope="col" className="num">{tr('Plan / Réel')}</th>
+                    <th scope="col" className="num">{tr('Mois rest.')}</th>
+                  </>}
                   <th scope="col" className="num">{tr('Restant')}</th>
                   <th scope="col" className="num">{tr('Projection fin')}</th>
                 </tr>
@@ -180,12 +193,14 @@ export default function ConsolidationPage({ onOpenContract }) {
                       <td className="num mono">{formatAr(r.period.actual)}</td>
                       <td className="num mono">{r.period.actualRate == null ? <span className="cell-empty">—</span> : pct(r.period.actualRate)}</td>
                     </>}
-                    <td className="num mono">{formatAr(r.budget)}</td>
-                    <td className="num mono">{formatAr(r.planned)}</td>
-                    <td className="num mono">{formatAr(r.actual)}</td>
-                    <td style={{ minWidth: 120 }}><Usage rate={r.actualRate} /></td>
-                    <td className="num mono">{r.planned > 0 ? pct(r.planVsActual) : <span className="cell-empty">—</span>}</td>
-                    <td className="num mono">{r.monthsRemaining}</td>
+                    {cumul && <>
+                      <td className="num mono">{formatAr(r.budget)}</td>
+                      <td className="num mono">{formatAr(r.planned)}</td>
+                      <td className="num mono">{formatAr(r.actual)}</td>
+                      <td style={{ minWidth: 120 }}><Usage rate={r.actualRate} /></td>
+                      <td className="num mono">{r.planned > 0 ? pct(r.planVsActual) : <span className="cell-empty">—</span>}</td>
+                      <td className="num mono">{r.monthsRemaining}</td>
+                    </>}
                     <td className="num mono">
                       {r.overspent ? <Badge tone="red">{formatAr(r.remaining)}</Badge> : formatAr(r.remaining)}
                     </td>
@@ -206,12 +221,14 @@ export default function ConsolidationPage({ onOpenContract }) {
                     <td className="num mono"><strong>{formatAr(tp.actual)}</strong></td>
                     <td className="num mono"><strong>{pctOrDash(tp.actualRate)}</strong></td>
                   </>}
-                  <td className="num mono"><strong>{formatAr(t.budget)}</strong></td>
-                  <td className="num mono"><strong>{formatAr(t.planned)}</strong></td>
-                  <td className="num mono"><strong>{formatAr(t.actual)}</strong></td>
-                  <td><Usage rate={t.actualRate} /></td>
-                  <td className="num mono">{t.planned > 0 ? pct(t.planVsActual) : '—'}</td>
-                  <td className="num" />
+                  {cumul && <>
+                    <td className="num mono"><strong>{formatAr(t.budget)}</strong></td>
+                    <td className="num mono"><strong>{formatAr(t.planned)}</strong></td>
+                    <td className="num mono"><strong>{formatAr(t.actual)}</strong></td>
+                    <td><Usage rate={t.actualRate} /></td>
+                    <td className="num mono">{t.planned > 0 ? pct(t.planVsActual) : '—'}</td>
+                    <td className="num" />
+                  </>}
                   <td className="num mono"><strong>{formatAr(t.remaining)}</strong></td>
                   <td className="num" />
                 </tr>

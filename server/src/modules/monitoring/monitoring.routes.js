@@ -19,12 +19,13 @@ const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
 const { sheetTable } = require('../common/sheetRows');
 const { readPeriod } = require('../../middleware/period');
 const { stripGps, seesPreciseGps } = require('../map/submissionGps');
+const { PERIOD_CAPS } = require('../common/periodCaps');
 
-// Durées maximales d'une période (lot 1b, mesurées au banc) : l'analyse des
-// soumissions charge les réponses de la période en mémoire (24 mois) ; une liste
-// de soumissions se lit sur 12 mois au plus.
-const ANALYSIS_MAX_SPAN = 24;
-const LIST_MAX_SPAN = 12;
+// Durées maximales d'une période (lot 1b, mesurées au banc — common/periodCaps, la même table
+// que les écrans) : l'analyse des soumissions relit les réponses de la période (12 mois) ; une
+// liste de soumissions se lit sur 12 mois au plus.
+const ANALYSIS_MAX_SPAN = PERIOD_CAPS.analysis;
+const LIST_MAX_SPAN = PERIOD_CAPS.list;
 
 /**
  * Suivi de processus — forms, configurable indicators (mapping) and real

@@ -7,6 +7,7 @@ import PeriodSelect from '../../components/PeriodSelect.jsx';
 import { single } from '../../lib/period.js';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
+import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 import { choiceText, draftErrors, draftBody, draftPatch, editorTitle, indicatorErrorText, isPctAgg, previewBody, scoredControl, toDraft } from '../../lib/indicatorView.js';
 import VariablePicker, { findVariable } from './VariablePicker.jsx';
 import IndicatorExplain, { useIndicatorPreview } from './IndicatorExplain.jsx';
@@ -62,8 +63,8 @@ function AddValue({ onAdd, placeholder, label }) {
  *   indicator null = création ; period = période de l'aperçu ({ from, to }), null = toutes les
  *   périodes, absente = le dernier mois de la fiche avec des données.
  */
-/** Durée maximale de l'aperçu (comme les résultats) : 24 mois. */
-const ANALYSIS_MAX_SPAN = 24;
+/** Durée maximale de l'aperçu (comme les résultats) : lib/periodCaps.analysis, la table du serveur. */
+const ANALYSIS_MAX_SPAN = PERIOD_CAPS.analysis;
 
 export default function IndicatorEditor({ form, indicator, period: initialPeriod, canEdit = true, onClose, onSaved }) {
   const { tr } = useI18n();

@@ -18,6 +18,8 @@ export default {
   'Budget prévisionnel des vagues de collecte : postes prévus par prestataire et contrat. La part bailleur alimente le « Planifié » de la consolidation et sert de base à la facture.': 'Provisional budget for data collection rounds: planned items by provider and contract. The funder share feeds the “Planned” figure of the consolidation and is the basis for the invoice.',
   'Nouveau plan': 'New plan',
   'Plans du mois': 'Plans for the month',
+  'Plans de la période': 'Plans for the period',
+  'Plans': 'Plans',
   '{n} validé(s)': '{n} validated',
   'Planifié (part bailleur)': 'Planned (funder share)',
   'Alimente la consolidation': 'Feeds the consolidation',

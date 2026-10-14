@@ -16,7 +16,11 @@ import {
  *   counts     { 'AAAA-MM': n } — formulaires reçus par mois (histogramme, options)
  *   today      mois courant (défaut : celui du navigateur) ; latest = dernier mois avec des données
  *   presets    identifiants des préréglages proposés (défaut : tous) ; withFullYear (documents)
- *   maxSpan    durée maximale (60 mois) ; forward = mois futurs proposés (3)
+ *   maxSpan    durée maximale (lib/periodCaps : celle des endpoints de l'écran ; 60 mois par
+ *              défaut) — un préréglage plus long n'est pas proposé, et la fenêtre le dit
+ *   forward    mois futurs proposés (3)
+ *   countLabel phrase du volume de `counts` (défaut « {n} formulaire(s) reçu(s) sur la période » ;
+ *              ex. « {n} rapport(s) sur la période », « {n} ligne(s) de distribution sur la période »)
  *   align      'left' | 'right' ; compact (barre de filtres) ; ariaLabel
  *
  * L'état n'est jamais invalide : si « Du » dépasse « Au », l'autre borne suit.
@@ -27,6 +31,7 @@ import {
 export default function PeriodSelect({
   value, onChange, counts = null, today, latest = null, allowAll = false, presets: presetIds,
   withFullYear = false, maxSpan = MAX_SPAN, forward = 3, align = 'left', ariaLabel, compact = false,
+  countLabel = '{n} formulaire(s) reçu(s) sur la période',
 }) {
   const { tr, lang } = useI18n();
   const T = today || currentMonth();
@@ -37,9 +42,10 @@ export default function PeriodSelect({
   const popRef = useRef(null);
 
   const list = useMemo(() => {
-    const all = buildPresets(T, latest, { withFullYear });
+    const all = buildPresets(T, latest, { withFullYear })
+      .filter((p) => spanMonths(p.period) <= maxSpan); // jamais une période que l'écran refuserait
     return presetIds ? all.filter((p) => presetIds.includes(p.id)) : all;
-  }, [T, latest, withFullYear, presetIds]);
+  }, [T, latest, withFullYear, presetIds, maxSpan]);
   const activePreset = value ? presetOf(value, list) : (allowAll ? 'all' : null);
 
   // Le bouton reste monté : le focus y revient tout de suite (avant que la fenêtre, et le
@@ -167,10 +173,12 @@ export default function PeriodSelect({
               )}
               <p className="period-sum">
                 {tr('{n} mois', { n: span })}
-                {sum && <> · {tr('{n} formulaire(s) reçu(s) sur la période', { n: formatInt(sum.submissions) })}</>}
+                {sum && <> · {tr(countLabel, { n: formatInt(sum.submissions) })}</>}
                 {sum && <> · {sum.emptyMonths ? tr('{n} mois sans données', { n: sum.emptyMonths }) : tr('chaque mois a des données')}</>}
               </p>
-              {tooLong && <p className="field-error">{tr('{n} mois au plus', { n: maxSpan })}</p>}
+              {tooLong
+                ? <p className="field-error">{tr('{n} mois au plus', { n: maxSpan })}</p>
+                : maxSpan < MAX_SPAN && <p className="period-cap">{tr('{n} mois au plus sur cet écran (temps de calcul).', { n: maxSpan })}</p>}
             </div>
           </div>
           <div className="period-foot">
