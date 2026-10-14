@@ -424,9 +424,11 @@ function VariablesTab({ form }) {
   const toast = useToast();
   const [cat, setCat] = useState(null);
   const [q, setQ] = useState('');
+  const [open, setOpen] = useState(() => new Set()); // questions dont la liste des choix est dépliée
 
   useEffect(() => {
     setCat(null);
+    setOpen(new Set());
     api.monCatalog(form.id).then(setCat).catch((e) => { toast.error(e.message); setCat({ fields: [], choices: [] }); });
     /* eslint-disable-next-line */
   }, [form.id]);
@@ -441,14 +443,24 @@ function VariablesTab({ form }) {
     const list = cat?.fields || [];
     if (!q) return list;
     const s = q.toLowerCase();
-    return list.filter((f) => [f.name, f.label, f.group, f.type, f.relevant].some((x) => x && String(x).toLowerCase().includes(s)));
-  }, [cat, q]);
+    // La recherche porte aussi sur les choix (code ou libellé) : « Manakara » retrouve sa question.
+    return list.filter((f) => [f.name, f.label, f.group, f.type, f.relevant].some((x) => x && String(x).toLowerCase().includes(s))
+      || (f.listName && (choicesByList[f.listName] || []).some((c) => `${c.value} ${c.label || ''}`.toLowerCase().includes(s))));
+  }, [cat, q, choicesByList]);
+  const toggle = (name) => setOpen((prev) => { const n = new Set(prev); if (n.has(name)) n.delete(name); else n.add(name); return n; });
+  const withChoices = (cat?.fields || []).filter((f) => f.listName && (choicesByList[f.listName] || []).length);
+  const allOpen = withChoices.length > 0 && withChoices.every((f) => open.has(f.name));
 
   return (
     <Card aria-labelledby="vars-title">
       <CardHeader id="vars-title" title={tr('Variables du formulaire (XLSForm)')}
         subtitle={tr('Nom technique et libellé de chaque question, son type, son groupe, sa logique de saut (relevant) et ses choix — pour comprendre les données et les relier aux indicateurs.')}>
-        {cat && <span className="input-wrap ind-search"><input className="input" type="search" placeholder={tr('Filtrer les variables…')} value={q} onChange={(e) => setQ(e.target.value)} /></span>}
+        {cat && withChoices.length > 0 && (
+          <Button size="sm" variant="secondary" onClick={() => setOpen(allOpen ? new Set() : new Set(withChoices.map((f) => f.name)))}>
+            {allOpen ? tr('Replier tous les choix') : tr('Déplier tous les choix')}
+          </Button>
+        )}
+        {cat && <span className="input-wrap ind-search"><input className="input" type="search" placeholder={tr('Filtrer les variables ou les choix…')} value={q} onChange={(e) => setQ(e.target.value)} /></span>}
       </CardHeader>
       {cat === null ? <div className="card-body"><Skeleton height={140} /></div>
         : (cat.fields || []).length === 0 ? (
@@ -460,22 +472,54 @@ function VariablesTab({ form }) {
             <table className="table">
               <thead><tr>
                 <th scope="col">{tr('Libellé (label)')}</th><th scope="col">{tr('Nom (name)')}</th><th scope="col">{tr('Type')}</th>
-                <th scope="col">{tr('Groupe')}</th><th scope="col">{tr('Logique de saut (skip)')}</th><th scope="col">{tr('Choix')}</th>
+                <th scope="col">{tr('Choix')}</th><th scope="col">{tr('Groupe')}</th><th scope="col">{tr('Logique de saut (skip)')}</th>
               </tr></thead>
               <tbody>
                 {fields.map((f) => {
                   const opts = f.listName ? (choicesByList[f.listName] || []) : [];
+                  const isOpen = open.has(f.name);
+                  const ql = q.toLowerCase();
                   return (
-                    <tr key={f.name}>
-                      <td><strong>{f.label || f.name}</strong>{f.required ? <> <Badge tone="blue">{tr('obligatoire')}</Badge></> : null}</td>
-                      <td><span className="mono">{f.name}</span></td>
-                      <td className="muted">{f.type || '—'}</td>
-                      <td className="muted">{f.group || '—'}</td>
-                      <td>{f.relevant ? <code className="skip-expr" title={f.relevant}>{f.relevant}</code> : <span className="cell-empty">—</span>}</td>
-                      <td>{opts.length
-                        ? <span title={opts.map((o) => `${o.value} = ${o.label}`).join('\n')}>{tr('{n} choix', { n: opts.length })} <span className="site-meta">({f.listName})</span></span>
-                        : <span className="cell-empty">—</span>}</td>
-                    </tr>
+                    <React.Fragment key={f.name}>
+                      <tr>
+                        <td><strong>{f.label || f.name}</strong>{f.required ? <> <Badge tone="blue">{tr('obligatoire')}</Badge></> : null}</td>
+                        <td><span className="mono">{f.name}</span></td>
+                        <td className="muted">{f.type || '—'}</td>
+                        <td>{opts.length
+                          ? (
+                            <button type="button" className="choices-toggle" aria-expanded={isOpen} aria-controls={`choices-${f.name}`} onClick={() => toggle(f.name)}>
+                              {isOpen ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+                              {tr('{n} choix', { n: opts.length })} <span className="site-meta">({f.listName})</span>
+                            </button>
+                          )
+                          : <span className="cell-empty">—</span>}</td>
+                        <td className="muted">{f.group || '—'}</td>
+                        <td>{f.relevant ? <code className="skip-expr" title={f.relevant}>{f.relevant}</code> : <span className="cell-empty">—</span>}</td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="choices-row" id={`choices-${f.name}`}>
+                          <td colSpan={6}>
+                            <div className="choices-scroll">
+                            <table className="choices-table">
+                              <caption className="sr-only">{tr('Choix de « {q} »', { q: f.label || f.name })}</caption>
+                              <thead><tr><th scope="col">{tr('Code (valeur)')}</th><th scope="col">{tr('Libellé')}</th></tr></thead>
+                              <tbody>
+                                {opts.map((o) => {
+                                  const hit = ql && `${o.value} ${o.label || ''}`.toLowerCase().includes(ql);
+                                  return (
+                                    <tr key={o.value} className={hit ? 'is-hit' : ''}>
+                                      <td><span className="mono">{o.value}</span></td>
+                                      <td>{o.label || <span className="cell-empty">—</span>}</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
