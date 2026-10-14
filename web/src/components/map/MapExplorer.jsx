@@ -17,6 +17,7 @@ import MapLayers from './MapLayers.jsx';
 import MapLegend from './MapLegend.jsx';
 import MapHoverCard, { PointCard } from './MapHoverCard.jsx';
 import MapTable from './MapTable.jsx';
+import TileUnderlay, { TILES_URL, probeTiles } from './TileUnderlay.jsx';
 
 /** Passage « Ouvrir la carte » (Vue d'ensemble → Couverture & performance › Carte). */
 export const MAP_OPEN_KEY = 'mems.map.open';
@@ -84,6 +85,23 @@ export default function MapExplorer({
   const [legendCollapsed, setLegendCollapsed] = useState(compact || phone);
   const [tableOpen, setTableOpen] = useState(false);
   const [layersOpen, setLayersOpen] = useState(!phone);
+  // Fond en ligne : éteint par défaut, activé seulement après une sonde réussie ; coupé hors connexion.
+  // tiles : false (éteint) · 'probing' (sonde en cours : case cochée, désactivée) · true (fond affiché).
+  const [tiles, setTiles] = useState(false);
+  const [tilesDown, setTilesDown] = useState(false);
+  const probeSeq = useRef(0);
+  const toggleTiles = async (on) => {
+    const seq = probeSeq.current + 1; probeSeq.current = seq;
+    setTilesDown(false);
+    if (!on) { setTiles(false); return; }
+    setTiles('probing');
+    const ok = await probeTiles();
+    if (probeSeq.current !== seq) return; // décoché ou démonté entre-temps
+    setTiles(ok);
+    setTilesDown(!ok);
+  };
+  useEffect(() => () => { probeSeq.current += 1; }, []);
+  const tilesFailed = useCallback(() => { probeSeq.current += 1; setTiles(false); setTilesDown(true); }, []);
   const mapRef = useRef(null);
   const colRef = useRef(null);
 
@@ -237,7 +255,14 @@ export default function MapExplorer({
       <DistrictMap ref={mapRef} geo={geo} shapes={data.shapes} shapeRegions={data.shapeRegions} theme={theme} scale={scale} dark={dark}
         points={points} pointLayers={pointLayers} showLabels={showLabels} showRegions={showRegions} height={height} padBottom={legendPad}
         hoverKey={hover ? hover.key : null} pinnedKey={pinned ? pinned.key : null} onHover={onMapHover} onPick={onMapPick}
-        onPointHover={onPointHover} ariaLabel={ariaLabel} uid={compact ? 'mapxc' : 'mapxf'} />
+        onPointHover={onPointHover} ariaLabel={ariaLabel} uid={compact ? 'mapxc' : 'mapxf'}
+        underlay={tiles === true ? (args) => <TileUnderlay {...args} onFail={tilesFailed} /> : null} />
+      {tilesDown && (
+        <div className="mapx-tiles-down" role="status">
+          <span>{tr('Fond en ligne indisponible (hors connexion) : la carte reste complète sans fond')}</span>
+          <button type="button" className="mapx-icon-btn" aria-label={tr('Fermer')} title={tr('Fermer')} onClick={() => setTilesDown(false)}><X size={14} /></button>
+        </div>
+      )}
       <MapLegend theme={theme} scale={scale} periodText={periodText} pointLayers={pointLayers} collapsed={legendCollapsed}
         onToggle={() => setLegendCollapsed((c) => !c)} />
       {cardZone && cardPos && !pt && (
@@ -396,7 +421,11 @@ export default function MapExplorer({
           {layersOpen && (
             <MapLayers themes={themes} theme={theme} onTheme={setThemeId} layers={layers} onLayer={(id, on) => setLayers((l) => ({ ...l, [id]: on }))}
               points={points} data={data} labels={showLabels} onLabels={setShowLabels} regions={showRegions} onRegions={setShowRegions}
-              onNavigate={onNavigate} isAdmin={isAdmin} />
+              onNavigate={onNavigate} isAdmin={isAdmin}
+              extra={TILES_URL ? (
+                <label className="mapx-check"><input type="checkbox" checked={tiles !== false} disabled={tiles === 'probing'} onChange={(e) => toggleTiles(e.target.checked)} />
+                  <span>{tr('Fond OpenStreetMap (en ligne)')}</span></label>
+              ) : null} />
           )}
         </div>
       </div>

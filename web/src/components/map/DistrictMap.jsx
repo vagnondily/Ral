@@ -203,12 +203,14 @@ const DistrictMap = forwardRef(function DistrictMap({
     return [...m.entries()];
   }, [features, shapeRegions]);
 
+  // Avec le fond en ligne : contours sans valeur transparents, contours colorés translucides.
+  const empty = underlay ? 'transparent' : 'var(--map-empty)';
   const fillOf = (key) => {
     const z = byKey.get(key);
-    if (!z || !scale) return 'var(--map-empty)';
+    if (!z || !scale) return empty;
     const v = valueOf(theme.id, z);
     if (v === 'np') return `url(#${uid}-hatch)`;
-    return scale.fill(v) || 'var(--map-empty)';
+    return scale.fill(v) || empty;
   };
 
   // Écran ← carte : coordonnées de base puis vue stable.
@@ -267,7 +269,7 @@ const DistrictMap = forwardRef(function DistrictMap({
                   <path key={`r-${k}`} d={paths.get(k)} fill="none" stroke="var(--map-region)" strokeWidth="2.6" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
                 ))}
                 {keys.map((k) => (
-                  <path key={k} data-key={k} d={paths.get(k)} fill={fillOf(k)} stroke="var(--map-line)" strokeWidth={lines}
+                  <path key={k} data-key={k} d={paths.get(k)} fill={fillOf(k)} fillOpacity={underlay ? 0.78 : 1} stroke="var(--map-line)" strokeWidth={lines}
                     strokeLinejoin="round" vectorEffect="non-scaling-stroke" className={byKey.has(k) ? 'mapx-shape has-data' : 'mapx-shape'} />
                 ))}
               </g>

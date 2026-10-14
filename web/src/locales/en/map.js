@@ -189,4 +189,8 @@ export default {
     'No active site in the period (coverage cannot be measured), and the RBM flags {due} site(s) to monitor this month out of {total}.',
   'La couverture du suivi atteint {coverage} ({done} site(s) réalisé(s) sur {active} actif(s), sites distincts), et le RBM signale {due} site(s) à suivre ce mois sur {total}.':
     'Monitoring coverage reaches {coverage} ({done} site(s) visited out of {active} active, distinct sites), and the RBM flags {due} site(s) to monitor this month out of {total}.',
+  // ---- Fond en ligne facultatif
+  'Fond OpenStreetMap (en ligne)': 'OpenStreetMap background (online)',
+  'Fond en ligne indisponible (hors connexion) : la carte reste complète sans fond':
+    'Online background unavailable (offline): the map stays complete without it',
 };

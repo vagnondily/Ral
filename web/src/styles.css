@@ -2870,3 +2870,9 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
   body.is-printing-map .mapx-print-root { display: block; }
   .mapx-print-root svg { width: 100%; height: auto; }
 }
+.mapx-tiles { position: absolute; inset: 0; overflow: hidden; background: var(--map-bg); }
+.mapx-tiles img { position: absolute; max-width: none; user-select: none; pointer-events: none; }
+.mapx-tiles-attr { position: absolute; right: 6px; bottom: 4px; font-size: 10.5px; color: #3a4150; background: rgba(255,255,255,.8); padding: 0 4px; border-radius: 3px; }
+.mapx-canvas .mapx-svg { position: relative; }
+.mapx-tiles-down { position: absolute; left: 12px; top: 12px; right: 64px; z-index: 2; display: flex; align-items: center; gap: 8px; justify-content: space-between; background: var(--map-warn-bg); color: var(--map-warn-text); border-radius: var(--radius); padding: 6px 6px 6px 10px; font-size: 12.5px; box-shadow: var(--shadow-sm); }
+.mapx-tiles-down .mapx-icon-btn { color: inherit; background: transparent; border: 0; cursor: pointer; display: inline-flex; padding: 2px; border-radius: var(--radius-sm); }

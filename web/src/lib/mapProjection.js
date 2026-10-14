@@ -87,3 +87,35 @@ export function haversineKm([lng1, lat1], [lng2, lat2]) {
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * D2R) * Math.cos(lat2 * D2R) * Math.sin(dLng / 2) ** 2;
   return 2 * 6371 * Math.asin(Math.sqrt(h));
 }
+
+/**
+ * Tuiles XYZ (Web Mercator) qui couvrent une emprise affichée, au niveau de zoom dont
+ * les tuiles font environ 256 px à l'écran (borné 1–17). Aucune tuile sans URL.
+ * @param {{ bbox:number[], widthPx:number }} view emprise visible (degrés) et largeur (px)
+ * @param {string} url modèle « …/{z}/{x}/{y}.png » ; vide = aucun fond
+ * @returns {{ z:number, x:number, y:number, url:string, bbox:number[] }[]}
+ */
+export function tilesFor({ bbox, widthPx }, url, { maxTiles = 64 } = {}) {
+  if (!url || !bbox || !(widthPx > 0)) return [];
+  const lngSpan = Math.max(1e-6, bbox[2] - bbox[0]);
+  const z = Math.max(1, Math.min(17, Math.round(Math.log2((360 * widthPx) / (256 * lngSpan)))));
+  const n = 2 ** z;
+  const tx = (lng) => Math.floor(((lng + 180) / 360) * n);
+  const ty = (lat) => {
+    const r = Math.max(-85.0511, Math.min(85.0511, lat)) * D2R;
+    return Math.floor(((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n);
+  };
+  const lngOf = (x) => (x / n) * 360 - 180;
+  const latOf = (y) => Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) / D2R;
+  const xa = Math.max(0, tx(bbox[0])); const xb = Math.min(n - 1, tx(bbox[2]));
+  const ya = Math.max(0, ty(bbox[3])); const yb = Math.min(n - 1, ty(bbox[1]));
+  const out = [];
+  for (let y = ya; y <= yb; y += 1) {
+    for (let x = xa; x <= xb; x += 1) {
+      out.push({ z, x, y, url: url.replace('{z}', z).replace('{x}', x).replace('{y}', y).replace('{s}', 'abc'[(x + y) % 3]),
+        bbox: [lngOf(x), latOf(y + 1), lngOf(x + 1), latOf(y)] });
+      if (out.length >= maxTiles) return out;
+    }
+  }
+  return out;
+}

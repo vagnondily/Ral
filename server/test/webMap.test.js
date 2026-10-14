@@ -120,6 +120,32 @@ test('barre d\'échelle : longueur ronde, calculée à la latitude du centre, �
   assert.ok(m.scaleBar(tr, -19, { zoom: 4 }).km < sb.km);
 });
 
+test('fond en ligne (tilesFor) : tuiles ≈ 256 px couvrant l\'emprise, zoom borné 1–17, aucune sans URL', async (t) => {
+  const m = await load(t, 'mapProjection.js'); if (!m) return;
+  const url = 'https://tiles.example/{z}/{x}/{y}.png';
+  const bbox = [43.2, -25.6, 50.5, -11.9];
+  const tiles = m.tilesFor({ bbox, widthPx: 800 }, url);
+  assert.ok(tiles.length > 0 && tiles.length <= 64);
+  const z = tiles[0].z;
+  assert.ok(tiles.every((x) => x.z === z) && z >= 1 && z <= 17);
+  // Couverture : l'union des tuiles contient l'emprise affichée.
+  const w = Math.min(...tiles.map((x) => x.bbox[0])); const e = Math.max(...tiles.map((x) => x.bbox[2]));
+  const s = Math.min(...tiles.map((x) => x.bbox[1])); const n = Math.max(...tiles.map((x) => x.bbox[3]));
+  assert.ok(w <= bbox[0] && e >= bbox[2] && s <= bbox[1] && n >= bbox[3], `${[w, s, e, n]}`);
+  // Taille à l'écran ≈ 256 px (facteur 2 au plus, l'arrondi du zoom).
+  const px = ((tiles[0].bbox[2] - tiles[0].bbox[0]) / (bbox[2] - bbox[0])) * 800;
+  assert.ok(px >= 128 && px <= 512, `${px}`);
+  assert.equal(tiles[0].url, `https://tiles.example/${z}/${tiles[0].x}/${tiles[0].y}.png`);
+  // Bornes de zoom : très petite emprise → 17 ; monde entier → 1.
+  assert.equal(m.tilesFor({ bbox: [46, -19, 46.0001, -18.9999], widthPx: 800 }, url)[0].z, 17);
+  assert.equal(m.tilesFor({ bbox: [-180, -80, 180, 80], widthPx: 300 }, url)[0].z, 1);
+  // Jamais de rafale : plafond de tuiles respecté.
+  assert.ok(m.tilesFor({ bbox, widthPx: 4000 }, url, { maxTiles: 10 }).length <= 10);
+  // URL vide (VITE_MAP_TILES_URL="") ou largeur nulle : aucun fond, aucune requête.
+  assert.deepEqual(m.tilesFor({ bbox, widthPx: 800 }, ''), []);
+  assert.deepEqual(m.tilesFor({ bbox, widthPx: 0 }, url), []);
+});
+
 test('export (buildExportSvg) : titre, période, filtres, légende, nord, échelle, carte de situation, pied ; textes échappés ; aucune URL', async (t) => {
   const m = await load(t, 'mapExport.js'); if (!m) return;
   const sq = (x, y, d = 1) => ({ type: 'Polygon', coordinates: [[[x, y], [x + d, y], [x + d, y + d], [x, y + d], [x, y]]] });
