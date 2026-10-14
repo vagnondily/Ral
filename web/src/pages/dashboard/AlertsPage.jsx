@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronRight, AlertCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronRight, AlertCircle, Clock } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
+import PeriodSelect from '../../components/PeriodSelect.jsx';
+import { usePeriod } from '../../components/PeriodBanner.jsx';
+import { samePeriod, single } from '../../lib/period.js';
 import SeverityBadge, { SEV_ICON } from '../../components/SeverityBadge.jsx';
 import { SEVERITY, alertText, alertsState, goArgs, sourceList } from '../../lib/alerts.js';
 import { useI18n } from '../../lib/i18n.jsx';
@@ -15,18 +18,52 @@ import { useI18n } from '../../lib/i18n.jsx';
  * échéance et faible couverture terrain du mois. Chaque alerte ouvre le module concerné.
  * Jamais « tout est au vert » quand une source n'a pas pu être lue (alertsState).
  * Sur téléphone, le tableau passe en cartes empilées (styles.css, .alerts-table).
+ *
+ * Période (lot 1b) : le mois courant par défaut — exactement la liste de la cloche (aucun
+ * paramètre envoyé). Une autre période (URL seulement, jamais la période de session) vaut
+ * pour le terrain (visites de la période) et les rapports à valider (période chevauchante) ;
+ * les alertes budgétaires et d'échéance restent calculées à date, et chaque ligne le dit.
  */
+const ALERTS_MAX_SPAN = 24;
+
 export default function AlertsPage({ onNavigate }) {
   const { tr } = useI18n();
+  const { period, ready, today, setPeriod } = usePeriod({ scope: 'local', defaultRule: 'current', maxSpan: ALERTS_MAX_SPAN });
+  const isBell = !period || samePeriod(period, single(today));
+  const key = period ? `${period.from}|${period.to}` : '';
   const [state, setState] = useState({ loading: true });
 
   useEffect(() => {
+    if (!ready) return undefined;
     let alive = true;
-    api.alerts().then((data) => alive && setState({ loading: false, data }), (e) => alive && setState({ loading: false, error: e.message }));
+    setState({ loading: true });
+    // Mois courant : la requête de la cloche, sans paramètre (mêmes alertes, mêmes compteurs).
+    api.alerts(isBell ? undefined : period).then((data) => {
+      if (!alive) return;
+      setState({ loading: false, data });
+      try { if (typeof performance !== 'undefined' && performance.mark) performance.mark('period:rendered'); } catch { /* sans incidence */ }
+    }, (e) => alive && setState({ loading: false, error: e.message }));
     return () => { alive = false; };
-  }, []);
+  }, [ready, key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (state.loading) return <div className="page"><PageHeader title={tr('Centre d\'alertes')} /><Skeleton height={320} /></div>;
+  const header = (
+    <PageHeader title={tr('Centre d\'alertes')} description={tr('Tout ce qui demande votre attention, recalculé en direct : budget, rapports à valider, contrats et couverture terrain.')}>
+      {ready && (
+        <span className="alerts-period">
+          <span className="alerts-period-label">{tr('Période (terrain et rapports)')}</span>
+          <PeriodSelect value={period} onChange={setPeriod} today={today} maxSpan={ALERTS_MAX_SPAN} align="right" ariaLabel={tr('Période (terrain et rapports)')} />
+        </span>
+      )}
+    </PageHeader>
+  );
+  const note = (
+    <p className="period-session-note">
+      <Clock size={14} aria-hidden="true" />
+      <span>{tr('Les alertes budgétaires et d\'échéance sont calculées à date.')}</span>
+    </p>
+  );
+
+  if (state.loading) return <div className="page">{header}{note}<Skeleton height={320} /></div>;
 
   const items = state.data?.items || [];
   const counts = state.data?.counts || { critical: 0, warning: 0, info: 0 };
@@ -35,7 +72,8 @@ export default function AlertsPage({ onNavigate }) {
 
   return (
     <div className="page">
-      <PageHeader title={tr('Centre d\'alertes')} description={tr('Tout ce qui demande votre attention, recalculé en direct : budget, rapports à valider, contrats et couverture terrain.')} />
+      {header}
+      {note}
 
       {state.error && <Alert tone="error" icon={AlertCircle}>{state.error}</Alert>}
       {status === 'alerts' && unavailable.length > 0 && (
@@ -79,7 +117,7 @@ export default function AlertsPage({ onNavigate }) {
                 return (
                   <tr role="row" key={`${a.kind}-${i}`} onClick={() => open(a)} style={{ cursor: 'pointer' }}>
                     <td role="cell" className="al-sev"><SeverityBadge sev={a.sev} /></td>
-                    <td role="cell" className="al-cat">{tr(a.cat)}</td>
+                    <td role="cell" className="al-cat">{tr(a.cat)}{!isBell && a.scope === 'a_date' && <span className="muted"> · {tr('à date')}</span>}</td>
                     <td role="cell" className="al-title"><strong>{title}</strong></td>
                     <td role="cell" className="al-detail muted">{detail}</td>
                     <td role="cell" className="al-go">
