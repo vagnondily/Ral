@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { History, Info } from 'lucide-react';
+import { CalendarRange, History, Info } from 'lucide-react';
 import { api } from '../api/client.js';
 import { Alert } from './ui.jsx';
 import { currentMonth, formatInt, monthLabel } from '../lib/format.js';
@@ -242,25 +242,28 @@ export function ActivationNote({ field }) {
  * Bandeau « Placé sur juillet 2026, dernier mois avec des données » + retour au
  * mois courant. Dit toujours OÙ la page s'est placée et POURQUOI.
  */
-export function PeriodBanner({ auto, onBack }) {
-  const { tr } = useI18n();
-  if (!auto) return null;
-  const shown = monthLabel(auto.month);
-  const today = monthLabel(auto.today);
-  let why;
-  if (auto.reason === 'latest_substantial' && auto.todayCount > 0) {
-    why = tr('{today} : seulement {n} formulaire(s) reçu(s) pour l\'instant.', { today, n: formatInt(auto.todayCount) });
-  } else if (auto.reason === 'latest_substantial') {
-    why = tr('{today} : aucune donnée ; les mois suivants n\'ont que quelques formulaires.', { today });
-  } else {
-    why = tr('{today} : aucune donnée pour l\'instant.', { today });
-  }
+/**
+ * Ligne de période (retour 78) : « Période : septembre 2026 — du 01/09/2026 au 30/09/2026 · 1 mois ».
+ * Sobre, sans bandeau ; quand la période par défaut a été placée sur le dernier mois qui a des
+ * données, une simple mention discrète le dit (le sélecteur permet de revenir à un autre mois).
+ * `onBack` est gardé pour compatibilité des appels.
+ */
+export function PeriodBanner({ auto, period }) {
+  const { tr, lang } = useI18n();
+  const p = period || (auto ? { from: auto.month, to: auto.month } : null);
+  if (!p) return null;
+  const dayOf = (m, last) => {
+    const [y, mm] = m.split('-').map(Number);
+    const d = last ? new Date(Date.UTC(y, mm, 0)).getUTCDate() : 1;
+    return lang === 'en' ? `${String(mm).padStart(2, '0')}/${String(d).padStart(2, '0')}/${y}` : `${String(d).padStart(2, '0')}/${String(mm).padStart(2, '0')}/${y}`;
+  };
+  const n = spanMonths(p);
   return (
-    <div className="period-banner">
-      <Alert tone="info" icon={Info}>
-        {tr('Placé sur {shown}, dernier mois avec des données.', { shown })} <span className="muted">{why}</span>{' '}
-        <button type="button" className="inline-link" onClick={() => onBack(auto.today)}>{tr('Revenir à {m}', { m: today })}</button>
-      </Alert>
-    </div>
+    <p className="period-summary">
+      <CalendarRange size={14} aria-hidden="true" />
+      <span>{tr('Période')} : <strong>{periodLabel(p, lang)}</strong></span>
+      <span className="muted">{tr('du {a} au {b}', { a: dayOf(p.from, false), b: dayOf(p.to, true) })} · {tr('{n} mois', { n })}</span>
+      {auto && <span className="muted">· {tr('dernier mois avec des données')}</span>}
+    </p>
   );
 }

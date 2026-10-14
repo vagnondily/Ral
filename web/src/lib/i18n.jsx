@@ -39,7 +39,6 @@ const DICT = {
     'nav.processus.carte': 'Site map',
     'nav.dashboard.apercu': 'Overview',
     'nav.dashboard.consolidation': 'Consolidated budget tracking',
-    'nav.dashboard.trimestriel': 'Quarterly report',
     'nav.dashboard': 'Decision dashboard',
     'nav.reporting': 'Reporting',
     'nav.reporting.synthese': 'Synthesis report',

@@ -2967,3 +2967,20 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 :root[data-theme="dark"] .quarterly-table .band-mid { background: #4a3a12; color: #ffe2a3; }
 :root[data-theme="dark"] .quarterly-table .band-fair { background: #24391a; color: #cfeab8; }
 :root[data-theme="dark"] .quarterly-table .band-high { background: #163a27; color: #b4e6c8; }
+
+/* Synthèse du suivi : les cartes d'une rangée gardent la même hauteur, le tableau intérieur
+   défile — jamais de zone vide sous une carte (retour 76). */
+.syn-grid { align-items: stretch; }
+.syn-main { display: flex; flex-direction: column; min-height: 320px; }
+.syn-main > .syn-scroll { flex: 1 1 0; min-height: 0; max-height: none; overflow: auto; }
+.syn-main > .card-body { flex: 1 1 auto; }
+.syn-side { align-content: stretch; }
+.syn-side > .card:last-child { flex: 1 1 auto; }
+.syn-full .card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.act-table td:first-child { max-width: 360px; white-space: normal; }
+@media (max-width: 1100px) { .syn-main { min-height: 0; } .syn-main > .syn-scroll { flex: none; max-height: 440px; } }
+
+/* Ligne de période (retour 78) : information sobre, pas de bandeau. */
+.period-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: -4px 0 14px; font-size: 13px; color: var(--text); }
+.period-summary svg { color: var(--text-muted, #616a7a); }
+.period-summary strong { color: var(--text-strong); font-weight: 600; }

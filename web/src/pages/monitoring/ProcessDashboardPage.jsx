@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Gauge, ShieldCheck, Database, ListChecks, MapPin, Activity, AlertTriangle, AlertCircle, Info, ArrowRight } from 'lucide-react';
+import { Gauge, ShieldCheck, Database, ListChecks, MapPin, Activity, AlertTriangle, AlertCircle, Info, ArrowRight, Download } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
+import { Alert, Button, PageHeader, Skeleton } from '../../components/ui.jsx';
 import PeriodSelect from '../../components/PeriodSelect.jsx';
 import TrendChart from '../../components/charts/TrendChart.jsx';
 import CodeLabel from '../../components/CodeLabel.jsx';
@@ -10,6 +10,7 @@ import { formatInt, monthLabel } from '../../lib/format.js';
 import { periodLabel, single, spanMonths } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { PERIOD_CAPS } from '../../lib/periodCaps.js';
+import { downloadCsv } from '../../lib/csv.js';
 
 /** Durée maximale de l'écran : la plus courte de ses endpoints (overview = analyse ; field/summary = faits) — lib/periodCaps. */
 const ANALYSIS_MAX_SPAN = Math.min(PERIOD_CAPS.analysis, PERIOD_CAPS.facts);
@@ -93,6 +94,20 @@ export default function ProcessDashboardPage({ onNavigate }) {
   }, [field, ov, tr]);
   const watch = offices.filter((o) => o.rate != null && o.rate < 0.8).sort((a, b) => a.rate - b.rate).slice(0, 8);
 
+  // Par activité (retour 54, présenté comme « par bureau », retour 76) : sites DISTINCTS sur la
+  // période choisie — actifs, prévus, réalisés —, couverture (réalisés ÷ actifs) et exécution
+  // (réalisés ÷ prévus). Même source et mêmes règles que les chiffres clés de la page.
+  const activities = useMemo(() => {
+    const m = new Map();
+    for (const a of field?.byActivity || []) {
+      m.set(a.key, { key: a.key, label: a.key === '—' ? null : a.label, active: a.sites?.active || 0, planned: a.sites?.planned || 0, realised: a.sites?.realised || 0 });
+    }
+    for (const a of field?.others?.byActivity?.list || []) {
+      if (!m.has(a.key)) m.set(a.key, { key: a.key, label: a.key === '—' ? null : a.label, active: a.sitesActive || 0, planned: 0, realised: 0 });
+    }
+    return [...m.values()].sort((a, b) => (b.active - a.active) || String(a.label || '~').localeCompare(String(b.label || '~')));
+  }, [field]);
+
   const cov = field?.overall;
   const visits = cov?.visits || {};
   const empty = ov && ov.totals.submissions === 0;
@@ -109,7 +124,7 @@ export default function ProcessDashboardPage({ onNavigate }) {
         {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} maxSpan={ANALYSIS_MAX_SPAN} align="right" />}
       </PageHeader>
 
-      <PeriodBanner auto={auto} onBack={(m) => setPeriod(single(m))} />
+      <PeriodBanner auto={auto} period={period} />
       <SessionPeriodNote source={source} capped={capped} onReset={resetToDefault} />
       {!auto && empty && (
         <div className="period-banner"><Alert tone="info" icon={Info}>
@@ -169,6 +184,7 @@ export default function ProcessDashboardPage({ onNavigate }) {
               <RiskCard stats={rbmStats} error={res.rbm.error} asOf={toLabel} />
               <WatchCard rows={watch} error={res.field.error} onNavigate={onNavigate} />
             </div>
+            <ActivitiesCard rows={activities} overall={field?.overall} error={res.field.error} periodText={pLabel} />
             <FormsCard forms={ov?.perForm} error={res.ov.error} onOpen={() => go('processus', 'donnees')} />
           </div>
 
@@ -269,6 +285,77 @@ function OfficesCard({ rows, overall, error, onOpen, onNavigate }) {
 }
 
 /** Conformité par fiche ; une fiche sans indicateur ou non rattachée dit quoi faire. */
+/**
+ * Couverture par activité (retours 54 et 76) : une ligne par activité, sur la période de la page
+ * (le sélecteur « du … au … » remplace les colonnes par trimestre) ; même présentation que la
+ * carte des bureaux. Ligne Total = sites distincts de tout le registre (jamais une somme).
+ */
+function ActivitiesCard({ rows, overall, error, periodText }) {
+  const { tr } = useI18n();
+  const pctOf = (n, d) => (d > 0 ? Math.round((n / d) * 100) : null);
+  const tot = overall?.sites || { active: 0, planned: 0, realised: 0 };
+  const exportCsv = () => downloadCsv(`couverture_par_activite_${periodText || ''}.csv`.replace(/\s+/g, '_'), [
+    [tr('Activité'), tr('Sites actifs'), tr('Sites prévus'), tr('Sites réalisés'), tr('Couverture (sites) %'), tr('Exécution (sites) %')],
+    ...rows.map((r) => [r.label || tr('Sans activité'), r.active, r.planned, r.realised, pctOf(r.realised, r.active) ?? '', pctOf(r.realised, r.planned) ?? '']),
+    [tr('Total (sites distincts)'), tot.active, tot.planned, tot.realised, pctOf(tot.realised, tot.active) ?? '', pctOf(tot.realised, tot.planned) ?? ''],
+  ]);
+  return (
+    <div className="card biz-card syn-full">
+      <div className="card-header">
+        <div><div className="card-title">{tr('Couverture par activité')}</div>
+          <div className="card-sub">{tr('Sites distincts sur la période : actifs, prévus, réalisés · couverture = réalisés ÷ actifs · exécution = réalisés ÷ prévus')}</div></div>
+        {!error && rows.length > 0 && <Button size="sm" variant="ghost" icon={Download} onClick={exportCsv}>CSV</Button>}
+      </div>
+      {error ? <div className="card-body"><CardError error={error} /></div> : rows.length === 0 ? (
+        <div className="card-body"><p className="muted">{tr('Aucun site actif sur la période.')}</p></div>
+      ) : (
+        <div className="table-wrap syn-scroll">
+          <table className="table syn-table act-table">
+            <thead><tr>
+              <th scope="col">{tr('Activité')}</th>
+              <th scope="col" className="num">{tr('Sites actifs')}</th>
+              <th scope="col" className="num">{tr('Prévus')}</th>
+              <th scope="col" className="num">{tr('Réalisés')}</th>
+              <th scope="col">{tr('Couverture (sites)')}</th>
+              <th scope="col">{tr('Exécution (sites)')}</th>
+            </tr></thead>
+            <tbody>
+              {rows.map((r) => {
+                const cov = pctOf(r.realised, r.active);
+                const exe = pctOf(r.realised, r.planned);
+                return (
+                  <tr key={r.key}>
+                    <td>{r.label || <span className="muted">{tr('Sans activité')}</span>}</td>
+                    <td className="num tabular">{formatInt(r.active)}</td>
+                    <td className="num tabular">{r.planned ? formatInt(r.planned) : <span className="cell-empty">—</span>}</td>
+                    <td className="num tabular">{r.realised ? formatInt(r.realised) : <span className="cell-empty">—</span>}</td>
+                    <td className="syn-cov">{cov == null ? <span className="muted">—</span> : (
+                      <span className="syn-bar-cell"><span className="biz-bar"><span style={{ width: `${Math.min(100, cov)}%`, background: barColor(cov) }} /></span>
+                        <span className="tabular syn-pct">{tr('{p} %', { p: cov })}<span className="syn-sub">{formatInt(r.realised)}/{formatInt(r.active)}</span></span></span>
+                    )}</td>
+                    <td className="syn-cov">{exe == null ? <span className="muted">{tr('— aucun plan')}</span> : (
+                      <span className="syn-bar-cell"><span className="biz-bar"><span style={{ width: `${Math.min(100, exe)}%`, background: barColor(exe) }} /></span>
+                        <span className="tabular syn-pct">{tr('{p} %', { p: exe })}<span className="syn-sub">{formatInt(r.realised)}/{formatInt(r.planned)}</span></span></span>
+                    )}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot><tr>
+              <td>{tr('Total (sites distincts)')}</td>
+              <td className="num tabular">{formatInt(tot.active)}</td>
+              <td className="num tabular">{formatInt(tot.planned)}</td>
+              <td className="num tabular">{formatInt(tot.realised)}</td>
+              <td className="tabular">{pctOf(tot.realised, tot.active) == null ? '—' : tr('{p} %', { p: pctOf(tot.realised, tot.active) })}</td>
+              <td className="tabular">{pctOf(tot.realised, tot.planned) == null ? <span className="muted">{tr('— aucun plan')}</span> : tr('{p} %', { p: pctOf(tot.realised, tot.planned) })}</td>
+            </tr></tfoot>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FormsCard({ forms, error, onOpen }) {
   const { tr } = useI18n();
   return (
