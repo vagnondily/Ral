@@ -1,0 +1,78 @@
+# Consignes des agents en cours (texte exact)
+
+> Ce fichier reprend **mot pour mot** la tâche confiée à chaque agent de la session principale.
+> Une autre session peut ainsi reprendre un chantier interrompu sans rien réinventer.
+> Les consignes sont en anglais, comme elles ont été données aux agents.
+> L'état de chaque chantier (fait / en cours / reste) est dans [`../REPRISE.md`](../REPRISE.md).
+> Règles communes à tous les agents : `CLAUDE.md` ; travail sur une branche `wip/<clé>`, à partir de `wip/1b-rest` (lot 1b complet) sauf mention ; commits en français ; aucun arrêt de l'API :9000 ni de l'interface :5173 ; une base jetable par agent ; avant de finir, `npm test`, `npm run lint`, `npm run build` (web) et le balayage FR + EN (`node web/scripts/sweep-ecrans.cjs`) au vert.
+> Chaque construction est suivie d'une **vérification adverse indépendante** : refaire le problème d'origine, montrer qu'il a disparu, chercher les régressions, l'isolation par compte, les transactions, les centimes entiers et la protection des données, et mesurer les performances annoncées.
+
+## 1. Tour de corrections 1b / 6a + retours 54 et 56 (workflow `fix-1b-6a-plus-54-56`)
+
+Base commune : `wip/1b-rest`. Chaque agent travaille sur sa branche `wip/<clé>`.
+
+### Agent `build:fix-6a` → branche `wip/fix-6a`
+
+```text
+(1) MERGE branch wip/6a (the map, built on the 1b core) into your branch (which starts at wip/1b-rest = lot 1b complete): git merge --no-ff wip/6a. Resolve conflicts with this rule: the 1b period model WINS everywhere (usePeriod / PeriodSelect / from-to, Couverture (sites) vs Exécution du plan (visites), « — aucun plan »), and the 6a map uses THE PAGE'S PERIOD (Couverture & performance › Carte and the Vue d'ensemble « Carte du suivi » section read the same period as the rest of the page; « Ouvrir la carte » hands over the period to the page's usePeriod; the old « Couverture terrain — mois courant » card is replaced by the map section as 6a decided; the Couverture tile and the map read the same service so the page never shows two coverage values). (2) Then fix ALL findings in docs/reprise/CONSTATS_6A.md (high first: viewers must never get exact household GPS — also via calc-fields preview and indicator preview/explain; snap derived/commune positions to the 2 km grid for non-precise roles; GPS trigger must not run on conflicting re-imports; /points per-commune counts over the full perimeter with visible truncation; perf at 10k sites; cache invalidation after shape-link changes; neverVisited form↔site compatibility; office filter tree; 390 px scroll; loading vs zero states).
+```
+
+### Agent `build:fix-1b` → branche `wip/fix-1b`
+
+```text
+Fix ALL findings in docs/reprise/CONSTATS_1B.md on lot 1b (socle + screens), EXCEPT anything in web/src/pages/dashboard/DashboardBIPage.jsx and DashboardCoveragePage.jsx (another worker integrates the map there; the BI « Couverture terrain » card is being replaced by the map section) and EXCEPT the report-designer coverage item (lot 7a owns it — mention it in left_undone). Key items: HIGH — field coverage by district must group on the site's own district text (lower(COALESCE(adm2, district))), using the official admin_areas name only when the pcode agrees with the site (same region lineage), never moving visits into another region; RBM: /rbm/sites and « Générer » must use ONE rule for a past month (pass asOf: target in generateFromRbmTx and test toPlan === created); client period caps = server caps (usePeriod/PeriodSelect/lib/period get the screen's maxSpan from one shared module or from /monitoring/periods; an over-long URL/session period falls back to the screen default with a notice); performance: cap visitSpanTx at the facts max span or require a period, keep /field/visits under 1 MB (slim columns or paginate), lower ANALYSIS_MAX_SPAN to what the bench supports and say so in the UI; PDD KPIs from the SQL aggregate (never from the bounded rows) + paging; Planning list filter = PeriodSelect range (convert saved views); rename visit-rate « couverture » to « Exécution du plan (visites) » on CoverageRecapPage and CalcDocs (+ add the Couverture (sites) definition to CalcDocs); alerts wording (« ce mois » only without period); USD conversion per report month in integer cents; PeriodSelect unit label prop; group tables reconcile with totals (« autres (sans visite) » row); compact wide tables; PeriodSelect on phones (no clipping at 360/390 px); extend the perf bench to consolidation/reports/planning/PDD/alerts.
+```
+
+### Agent `build:quarterly` → branche `wip/quarterly`
+
+```text
+Build retour 54: a quarterly coverage report table in the decision dashboards, populated from MEMS data, faithful to the user's workbook ((capture du classeur trimestriel fournie par l'utilisateur, décrite au retour 54 de RETOURS_UTILISATEUR.md) — look at it): rows = activities (grouped under a country row, optional grouping by bureau), columns per quarter Q1–Q4 of a chosen year: Total Unique Active Sites, Total Planned Sites, Total Actual Sites, Coverage (Actual/Active), Execution Rate (Actual/Planned), plus a Total row and a year column; conditional colour scale red→green WITH the value shown (statuses never colour only); « — » instead of #DIV/0!; export Excel (.xlsx with the same layout, via exceljs) and CSV. Sites are counted DISTINCT per quarter, using ONLY the lot 1b site × month facts service (server/src/modules/common/siteActivitySql.js siteMonthFactsCtes — read it; do not re-implement active/planned/realised rules); « réalisé » = what that service counts today (realised visits; lot 4 will add site-attached data — say so in a small note under the table). Execution here = sites réalisés ÷ sites prévus (the workbook's MMR rule; name it « Taux d'exécution (réalisés ÷ prévus) » and explain it in a tooltip). Put it as a new entry « Rapport trimestriel » under Dashboard décisionnel (nav + route), NOT inside DashboardCoveragePage/DashboardBIPage (another worker edits those). Pure shaping module + tests; one SQL aggregation per request; FR+EN.
+```
+
+### Agent `build:deletion` → branche `wip/deletion`
+
+```text
+Retour 56 (user: « donne la possibilité de supprimer les documents non validés avec le reste etc, sinon ce sera complexe d'avoir des drafts partout ; et si document validé, on ne peut le supprimer que s'il n'y a pas de donnée reliée, avec justificatif »). Another Claude session ALREADY STARTED it on branch origin/claude/zealous-bardeen-p9ozcr: 3 commits 97f0835 (pure policy server/src/modules/common/deletionPolicy.js + 12 tests + migration 061_document_deletions.sql, append-only log with RLS/same-tenant), a76f20d (policy applied to TPM reports/factures, collection plans, contracts; GET /api/deletions admin), 3838254 (web DeleteDialog, Reports/Planning/Contract detail wiring, Paramétrage › Journal des suppressions). If your branch does not contain them yet: git cherry-pick 97f0835 a76f20d 3838254 (resolve conflicts; the lot 1b period model wins on shared screens). Then fix the main session's review of that work and complete the retour: (1) HIGH — migration number collides with lot 6a (061_map_geo.sql; 061–068 are reserved for 6a/7a/lot 5): git mv to 069_document_deletions.sql and update every comment that cites 061. (2) HIGH — no English: every new tr() phrase (DeleteDialog, the three dialogs, Journal des suppressions screen and its labels) must exist in web/src/locales/en/*.js; the FR+EN sweep must show 0 missing EN phrase. (3) Avenants are in DOCUMENT_TYPES but not implemented: a non-validated avenant (check the real statuses of contract_amendments) must be deletable after confirmation — DELETE /api/contracts/:id/amendments/:amendmentId, contract row locked FOR UPDATE, log row 'contract_amendment', and an entry in the contract's immutable history saying a pending avenant was withdrawn; button in the Avenants tab; an approved avenant is never deletable (it rewrote the contract) — say why in the UI. (4) « Donnée reliée » must be precise and SHOWN: a 409 lists what is linked with counts (e.g. « 3 rapports, 1 plan, 12 visites ») via a structured error detail that DeleteDialog renders. Define it per type in ONE place (repository count queries + a pure shaping function in deletionPolicy), with a comment and a test for each rule: contract → its reports, collection plans, avenants, site visits, assignments, and renewals (contracts.renewed_from_id = this id — today that is an FK failure with a generic 400); the contract's own children (budget postes, zones, history) are NOT linked data. Collection plan → its own postes are NOT linked data; linked = a facture (tpm_reports kind financier, any status) for the same partner × contract × month, or field visits of that month assigned to that partner/contract. Validated facture/report → keep the conservative rule (reportedAmount ≠ 0 or postes = counted in the contract consumption → linked) but say it in the message. (5) Validated documents must be reachable: the UI must OFFER « Supprimer » on validated contracts/reports/plans too (with the justification field) — server action flags expose delete + needsJustification; deleting a VALIDATED document requires the validator role or admin (separation of duties), enforced server-side (403) and hidden otherwise. (6) Justification ≥ 10 characters after trim (policy, zod at the route, DB CHECK in 069, dialog counter). (7) Tests beyond the pure policy: repository/route tests with fake clients per type — non-validated deleted + log row in the same transaction; validated without links + justification; validated with links → 409 with counts; missing/short justification → 400; tenant id only from req.auth; FOR UPDATE lock. (8) Journal screen: paging + type filter, FR+EN. (9) Report designer documents stay out (lot 7a rebuilds them) — put it in left_undone. Referentials (sites, agents, partners, offices) keep the « désactiver » rule. In your summary, give a short verdict on the quality of the other session's work (what was right, what you had to change).
+```
+
+
+## 2. Concepteur de rapport riche, partie 2 (workflow `build-1b-6a-7a`, agent `build:7a-2`) → branche `wip/7a`
+
+```text
+TASK (part 2 of 2): lot 7a from docs/SPEC_LOT_7A.md commits C8 to C13 (migrations 062–064), continuing after part 1 (wip/7a already points to its HEAD). The user: « rajoute configuration de l'en-tête où on peut le formater à volonté, déplacer chaque chose où l'on veut, insérer des logos, image, texte, etc. comme dans mes templates », « mettre la possibilité de l'orientation de page spécifique », plus a validation workflow for reports.
+```
+La partie 1 (C1 à C7) est faite : voir `REPRISE.md`. Elle sera vérifiée avec la partie 2.
+
+## 3. Conception du lot 5 élargi (workflow `design-lot5`, lecture seule)
+
+Retours couverts : 24, 25, 48 (prolongé) et 55 — texte des retours dans `RETOURS_UTILISATEUR.md`.
+
+```text
+TASK: write the implementable spec for LOT 5 ÉLARGI (migration numbers from 065 on): (1) activity calendar per activity category and year (months × assistance days, popup from the MMR table; derived real duration feeds the MMR instead of a typed duration; keep manual override with reason); (2) configurable plan parameters with initial values seeded from the MMR and the RBM workbook (show exactly which workbook cell/column each default comes from); (3) a pure, unit-tested, deterministic plan generator: inputs = sites (activity, commune/district, risk by period, last real visit, urgent recommendation flags, active per month, forbidden), MMR per activity (capacity per day × persons × working days, adjusted interval, target ≥ 80 % of sites over the activity period), outputs = monthly plan of visits grouped into tournées (same commune first, then same district, multi-activity on the same day when capacity allows), never exceeding capacity, explaining why each site was chosen or postponed, with a coverage projection; preview before saving, saving through the existing site_visits rules (no duplicates, cancellations respected), runnable in the BullMQ worker if heavy (measure on 3 000 sites × 12 months); (4) configurable priority rules (retour 24): a safe rule table (si / sinon / cas) over available site fields with preview, versions and explanation reused by « Pourquoi ? » — no eval, reuse the calcFields safe engine if suitable; (5) risk level by period with an immutable history log (who, when, before→after, reason) and risk-as-of-month used everywhere. Include UI (popup calendar, parameters screen, generator preview with map-free list grouped by tournée, rule editor), API contracts, data model, tests, performance budget, ordered commits each shippable alone.
+```
+Puis un critique de complétude confronte la spécification au code réel, au classeur RBM et aux mots de l'utilisateur. Résultat attendu : `docs/SPEC_LOT_5.md`, à écrire par la session principale.
+
+## 4. Conception du retour 58 (workflow `design-retour58-tpm-contrat`, lecture seule)
+
+Demande : le TPM du plan de suivi vient des contrats. Précision de l'utilisateur : un **onglet dédié « Affectation des TPM »** par région › district, toujours pré-rempli d'après les contrats, avec une **raison obligatoire** pour toute modification.
+
+Étapes :
+1. Trois lectures en parallèle :
+   - où un prestataire est attribué aujourd'hui ;
+   - ce que les zones des contrats permettent de déduire, avec les cas 0 ou ≥ 2 contrats par zone ;
+   - le contexte et les conflits avec les chantiers en cours.
+2. Deux conceptions indépendantes :
+   - fiabilité d'abord : table par zone dérivée des contrats à la lecture, seules les modifications sont stockées ;
+   - usage d'abord : l'onglet par région › district.
+3. Une synthèse, puis une critique adverse.
+
+Résultat attendu : `docs/SPEC_RETOUR_58.md`. Migration proposée : `070`.
+
+## 5. Réconciliation du socle GPS du retour 57 (workflow `reconcile-retour57-core`) → branche `wip/r57-core`
+
+```text
+Bring in the code of commit 76544a1 (other session: common/pointInPolygon.js, shpGeometry.js, gpsLocate.js + tests) on top of origin/main without its docs change, crediting it. RECONCILE with the existing server/src/modules/settings/shpReader.js: ONE .shp parser (shpReader derives its points from shpGeometry's rings, identical output, unchanged API). HARDEN the parser for untrusted uploads (bounded loops, counts checked against the buffer before allocating, truncated file → clear error, cap on total points, a test per malformed case). CHECK on the real district contours of lot 6a (mdg-adm2.v1.json on wip/fix-6a): locate every dev-DB site with GPS and report agreement with the site's own district and time per 1 000 points (measurement only). npm test, lint, web build green.
+```
+Ensuite :
+- deux vérificateurs : robustesse sur fichiers piégés, et parité / non-régression de l'import du découpage ;
+- un tour de correction si besoin, puis une revérification.

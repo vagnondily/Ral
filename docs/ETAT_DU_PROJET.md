@@ -6,6 +6,7 @@ Documents de suivi, à lire dans cet ordre :
 
 | Document | Contenu |
 |---|---|
+| [`REPRISE.md`](REPRISE.md) | **Passation entre sessions** : ce qui est publié, ce que fait chaque agent (branche, avancement, consigne exacte), ce qui reste, règles pour travailler à deux. |
 | [`JOURNAL.md`](JOURNAL.md) | Chaque action, avec son heure (UTC), son statut, son commit et ses vérifications. Le tableau « État courant » est en tête. |
 | [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) | Chacun de vos retours (n° 1 à 58) : ce qu'il faut, la réponse prévue et son **état**. |
 | [`PLAN_RETOURS_15_37.md`](PLAN_RETOURS_15_37.md) | Les définitions communes (visite, réalisée, site actif, couverture, période…) et l'ordre des lots. |

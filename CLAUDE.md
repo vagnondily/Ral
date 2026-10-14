@@ -2,6 +2,19 @@
 
 Context for continuing this project in Claude Code. Read this first.
 
+## Reprise entre sessions (à lire d'abord)
+Plusieurs sessions Claude peuvent travailler en parallèle sur ce dépôt, par exemple pendant une limite
+d'usage. Avant toute action, lire **`docs/REPRISE.md`**. Il donne :
+- ce qui est publié ;
+- ce qui est en cours : branche `wip/…`, avancement et consigne exacte de chaque agent
+  (`docs/reprise/AGENTS_EN_COURS.md`) ;
+- les constats ouverts des vérificateurs ;
+- les numéros de migration réservés et les règles pour travailler à deux.
+
+Ne jamais pousser sur une branche `wip/…` ni sur la branche d'une autre session ; publier sur `main`
+seulement après tests, lint, build, balayage `node web/scripts/sweep-ecrans.cjs` et vérification
+indépendante.
+
 ## What this is
 MEMS 2.0 is an enterprise contract-management + third-party monitoring (TPM /
 « tierce partie de suivi ») web app. First delivered module: **Contrats** +

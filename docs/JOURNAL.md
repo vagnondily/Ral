@@ -12,7 +12,7 @@
 
 ## État courant
 
-_Dernière mise à jour : 14/10/2026 10:42 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 14/10/2026 11:28 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -379,5 +379,34 @@ _Dernière mise à jour : 14/10/2026 10:42 UTC_ — la branche `main` reçoit ch
   Le lot sera fixé quand l'analyse sera rendue.
 
 - **10:42** 📥 **Retour 58, précision** : un onglet dédié « Affectation des TPM » par région › district, toujours pré-rempli d'après les contrats. Toute modification exige une raison. Les visites reprennent le TPM de leur zone. 🔄 Analyse relancée avec cette forme (elle n'avait que 2 minutes, rien de perdu).
+
+- **11:28** ✅ **Passation entre sessions** (« consigne tout ce qui est fait, ce qui est en cours, même ce que font tes agents ») : nouveau [`REPRISE.md`](REPRISE.md), signalé en tête de `CLAUDE.md` (que toute session lit en premier). Il contient :
+  - les branches, leur tête et leur état ;
+  - les 8 chantiers en cours (qui, branche, fait, reste) et l'ordre de la suite ;
+  - la revue de l'autre session et les règles pour travailler à deux ;
+  - les numéros de migration réservés et l'environnement.
+
+  Pièces jointes :
+  - la consigne exacte de chaque agent : [`reprise/AGENTS_EN_COURS.md`](reprise/AGENTS_EN_COURS.md) ;
+  - les constats ouverts des vérificateurs : [`reprise/CONSTATS_1B.md`](reprise/CONSTATS_1B.md) et [`reprise/CONSTATS_6A.md`](reprise/CONSTATS_6A.md) ;
+  - le balayage des 31 écrans, désormais dans le dépôt (`web/scripts/sweep-ecrans.cjs`) : sur `main`, 0 erreur FR / EN et 0 phrase anglaise manquante.
+
+  Les branches de travail `wip/…` sont poussées sur GitHub pour qu'une autre session puisse reprendre le code non publié.
+
+- **11:28** 📥 L'autre session a ajouté, depuis la revue de 10:37 :
+  - `4dcad08` : suppression des avenants non validés (retour 56) ;
+  - `76544a1` : socle pur du **retour 57**, avec point dans polygone, lecture des anneaux `.shp` et localisation GPS, et leurs tests.
+
+  🔄 Le socle du retour 57 est en **réconciliation** :
+  - un seul lecteur `.shp`, car `settings/shpReader.js` existait déjà ;
+  - durcissement contre les fichiers piégés ;
+  - mesure sur les vrais contours des districts ;
+  - deux vérificateurs.
+
+  Il part sur `main` dès qu'il est vérifié. L'avenant `4dcad08` sera comparé à la version du chantier « suppression » à la fusion.
+
+- **11:28** 📌 Demande : « publie sur main ce qui a été fait par tous, en vérifiant que rien ne bug ». L'ordre retenu est inscrit dans `REPRISE.md` § 3 :
+  1. le socle du retour 57 d'abord ;
+  2. puis, dès le tour de corrections rendu et vérifié, une intégration unique : 1b, carte 6a, trimestriel 54, suppression 56 (avec le travail de l'autre session), concepteur 7a. Elle passe par les migrations sur base neuve et sur copie de la base existante, les tests, le lint, le build, le balayage FR + EN et une vérification indépendante, avant `main`.
 
 > ℹ️ **Astuce** : une interruption (bouton « stop ») arrête aussi les analyses qui tournent en arrière-plan. Pour ajouter une information sans les arrêter, envoyez simplement un message — il est pris en compte sans interrompre.
