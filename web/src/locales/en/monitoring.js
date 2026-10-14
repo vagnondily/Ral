@@ -315,6 +315,8 @@ export default {
   'Fiche avec données : désactivez-la (seul un administrateur peut la supprimer).': 'Form with data: deactivate it (only an administrator can delete it).',
   'Fiche mise à jour.': 'Form updated.',
   'Modifier la fiche': 'Edit form',
+  'Changer': 'Change',
+  'Changer l\'activité': 'Change activity',
   'Nom de la fiche': 'Form name',
   'Relie la fiche aux sites de cette activité : couverture, sites actifs et plan de suivi en dépendent. Les activités se définissent dans Paramétrage › Paramètres MMR.': 'Links the form to the sites of this activity: coverage, active sites and the monitoring plan depend on it. Activities are defined in Settings › MMR parameters.',
   '— Non rattachée —': '— Not linked —',

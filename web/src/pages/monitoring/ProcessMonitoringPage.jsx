@@ -351,13 +351,16 @@ function FormDetail({ form, canEdit, initialTab, onBack, onChanged }) {
   const { tr } = useI18n();
   const [tab, setTab] = useState(initialTab || 'variables');
   const [attaching, setAttaching] = useState(false);
+  const [editingForm, setEditingForm] = useState(false); // nom, activité, statut de la fiche
   const { steps, next } = formSteps(form);
   return (
     <div className="section-gap">
       <div className="detail-head">
         <Button variant="ghost" size="sm" icon={ArrowLeft} onClick={onBack}>{tr('Toutes les fiches')}</Button>
       </div>
-      <PageHeader title={form.label} description={tr('Code {code} · {n} indicateur(s) · {m} soumission(s).', { code: form.code, n: form.indicatorCount ?? 0, m: form.submissionCount ?? 0 })} />
+      <PageHeader title={form.label} description={tr('Code {code} · {n} indicateur(s) · {m} soumission(s).', { code: form.code, n: form.indicatorCount ?? 0, m: form.submissionCount ?? 0 })}>
+        {canEdit && <Button variant="secondary" icon={Pencil} onClick={() => setEditingForm(true)}>{tr('Modifier la fiche')}</Button>}
+      </PageHeader>
 
       {next ? (
         <Card aria-label={tr('Étapes de la fiche')}>
@@ -371,6 +374,9 @@ function FormDetail({ form, canEdit, initialTab, onBack, onChanged }) {
                     <strong>{tr(st.label)}</strong>
                     <span className="muted">{st.id === 'activity' && st.done ? form.activityCategory : tr(st.hint)}</span>
                   </div>
+                  {st.done && st.id === 'activity' && canEdit && (
+                    <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setEditingForm(true)}>{tr('Changer')}</Button>
+                  )}
                   {!st.done && (canEdit || st.id === 'data') && (
                     <Button size="sm" variant={st === next ? 'primary' : 'secondary'}
                       onClick={() => (st.id === 'activity' ? setAttaching(true) : setTab(st.tab))}>{tr(st.id === 'activity' ? 'Rattacher' : st.id === 'data' ? 'Importer' : 'Définir')}</Button>
@@ -381,9 +387,11 @@ function FormDetail({ form, canEdit, initialTab, onBack, onChanged }) {
           </div>
         </Card>
       ) : (
-        <p className="hint"><CheckCircle2 size={14} aria-hidden="true" style={{ verticalAlign: '-2px', color: 'var(--green)' }} /> {tr('Fiche prête : rattachée à « {activity} », elle alimente la Synthèse, Couverture & performance et le concepteur de rapport.', { activity: form.activityCategory })}</p>
+        <p className="hint"><CheckCircle2 size={14} aria-hidden="true" style={{ verticalAlign: '-2px', color: 'var(--green)' }} /> {tr('Fiche prête : rattachée à « {activity} », elle alimente la Synthèse, Couverture & performance et le concepteur de rapport.', { activity: form.activityCategory })}
+          {canEdit && <> <button type="button" className="link-btn" onClick={() => setEditingForm(true)}>{tr('Changer l\'activité')}</button></>}</p>
       )}
       {attaching && <AttachActivityModal form={form} onClose={() => setAttaching(false)} onSaved={async () => { setAttaching(false); await onChanged?.(); }} />}
+      {editingForm && <FormEditModal form={form} onClose={() => setEditingForm(false)} onSaved={async () => { setEditingForm(false); await onChanged?.(); }} />}
 
       <div className="seg" role="tablist" aria-label={tr('Sections de la fiche')}>
         {DETAIL_TABS.map((x) => {
