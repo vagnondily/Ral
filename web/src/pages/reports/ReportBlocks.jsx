@@ -215,11 +215,11 @@ export function BlockView({ block, ctx, editor }) {
   const labelFor = (v) => tr((ctx.varLabels || {})[v] || v);
   switch (block.type) {
     case 'heading': { const Tag = `h${Math.min(3, p.level || 2)}`; return <Tag className={`rb-h rb-h${p.level || 2}`}>{subst(p.text)}</Tag>; }
-    case 'text': return editor || <RichTextView doc={p.doc} vars={vars} labelFor={labelFor} />;
+    case 'text': return editor || <RichTextView doc={p.doc} vars={vars} labelFor={labelFor} pending={ctx.pending} />;
     case 'callout': { const Ico = CALLOUT[p.tone] || Info; return (
       <aside className={`rb-callout rb-callout-${p.tone || 'info'}`}>
         <div className="rb-callout-h"><Ico size={16} aria-hidden="true" />{p.title && <strong>{subst(p.title)}</strong>}</div>
-        {editor || <RichTextView doc={p.doc} vars={vars} labelFor={labelFor} />}
+        {editor || <RichTextView doc={p.doc} vars={vars} labelFor={labelFor} pending={ctx.pending} />}
       </aside>
     ); }
     case 'bulletin': return editor || <RichTextView doc={p.doc || d?.doc} vars={vars} labelFor={labelFor} />;

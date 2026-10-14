@@ -1,5 +1,7 @@
 const ExcelJS = require('exceljs');
 const { badRequest, payloadTooLarge, AppError } = require('../../middleware/errors');
+const { withQueryTimeout } = require('../../config/db');
+const { createSemaphore } = require('./semaphore');
 const { upgradeDoc, upgradeSnapshot, isV1 } = require('./reportUpgrade');
 const { safeParseDocV2, walkBlocks } = require('./reportSchema');
 const { DATASETS, KPIS, GROUPS, datasetDef, kpiDef, validateBlockParams, catalogForClient } = require('./catalog');
@@ -219,6 +221,28 @@ async function computeInstance(tenantId, doc, inst, ctx) {
   }
 }
 
+// Rendu par blocs (lot 7a) : 8 instances au plus par appel ; au plus REPORT_HEAVY_MAX (4) calculs
+// simultanés par processus, attente 20 s au plus (503 « réessayez ») ; 15 s par requête SQL.
+const MAX_IIDS = 8;
+const QUERY_TIMEOUT = '15s';
+const heavy = createSemaphore(Math.max(1, Number(process.env.REPORT_HEAVY_MAX) || 4));
+
+/** Calcul d'une instance sous le sémaphore et le délai par requête. */
+async function computeGuarded(tenantId, doc, inst, ctx) {
+  let release;
+  try {
+    release = await heavy.acquire(20000);
+  } catch (e) {
+    if (e.code === 'queue_timeout') throw new AppError(503, e.message, { code: 'queue_timeout' });
+    throw e;
+  }
+  try {
+    return await withQueryTimeout(QUERY_TIMEOUT, () => computeInstance(tenantId, doc, inst, ctx));
+  } finally {
+    release();
+  }
+}
+
 /** Contexte de rendu : langue, jour, bureaux, calculs partagés. */
 const renderCtx = (offices, opts) => ({ lang: langOf(opts), today: today(), officeNames: offices.nameById, memo: new Map(), log: opts && opts.log });
 
@@ -233,8 +257,49 @@ async function renderReport(tenantId, input, opts = {}) {
   const plan = planOf(doc, expansions, lang);
   const ctx = renderCtx(offices, opts);
   const blocks = {};
-  for (const inst of plan.instances) if (inst.needsData) blocks[inst.iid] = await computeInstance(tenantId, doc, inst, ctx); // une à la fois
+  for (const inst of plan.instances) if (inst.needsData) blocks[inst.iid] = await computeGuarded(tenantId, doc, inst, ctx); // une à la fois
   return { ...plan, blocks, warnings, upgraded };
+}
+
+/**
+ * PLAN seul (rendu progressif) : document validé, sections répétées dépliées par des
+ * comptages, instances, figures numérotées, variables — sans calcul lourd.
+ */
+async function renderPlanFor(tenantId, input, opts = {}) {
+  const t0 = Date.now();
+  const lang = langOf(opts);
+  const { doc, warnings, upgraded } = await normalizeDoc(tenantId, input);
+  const expansions = await expandRepeats(tenantId, doc, lang);
+  const plan = planOf(doc, expansions, lang);
+  return { ...plan, warnings, upgraded, computedAt: new Date().toISOString(), ms: Date.now() - t0 };
+}
+
+/**
+ * Données de quelques instances (8 au plus), l'une après l'autre ; l'erreur d'un bloc
+ * reste celle de ce bloc. Un identifiant inconnu (document modifié entre-temps) → 400.
+ * @returns {Promise<{ blocks: Object<string, object>, timings: {iid, ms, ok}[], planMs: number }>}
+ */
+async function renderBlocks(tenantId, input, iids, opts = {}) {
+  if (!Array.isArray(iids) || !iids.length || iids.length > MAX_IIDS || iids.some((x) => typeof x !== 'string' || x.length > 400)) {
+    throw badRequest(`Demandez de 1 à ${MAX_IIDS} blocs à la fois.`, { code: 'bad_iids', max: MAX_IIDS });
+  }
+  const t0 = Date.now();
+  const lang = langOf(opts);
+  const { doc, offices } = await normalizeDoc(tenantId, input);
+  const expansions = await expandRepeats(tenantId, doc, lang);
+  const plan = planOf(doc, expansions, lang);
+  const byIid = new Map(plan.instances.map((i) => [i.iid, i]));
+  const unknown = iids.filter((x) => !byIid.has(x));
+  if (unknown.length) throw badRequest('Bloc inconnu : rechargez le plan du rapport.', { code: 'unknown_iid', iids: unknown });
+  const planMs = Date.now() - t0;
+  const ctx = renderCtx(offices, opts);
+  const blocks = {}; const timings = [];
+  for (const iid of [...new Set(iids)]) {
+    const inst = byIid.get(iid);
+    blocks[iid] = inst.needsData ? await computeGuarded(tenantId, doc, inst, ctx) : { ok: true, data: null, meta: { ms: 0 } };
+    timings.push({ iid, ms: blocks[iid].meta ? blocks[iid].meta.ms : 0, ok: blocks[iid].ok });
+  }
+  return { blocks, timings, planMs };
 }
 
 // ---- Documents ----------------------------------------------------------------------------
@@ -363,6 +428,6 @@ async function exportXlsx(tenantId, input, opts) {
 }
 
 module.exports = {
-  renderReport, normalizeDoc, expandRepeats, computeInstance, renderCtx, planOf, officeIndex,
+  renderReport, renderPlanFor, renderBlocks, MAX_IIDS, normalizeDoc, expandRepeats, computeInstance, renderCtx, planOf, officeIndex,
   getDocument, documentData, finalize, listTemplates, catalog, exportXlsx, catalogIssues,
 };

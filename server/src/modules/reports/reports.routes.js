@@ -24,8 +24,29 @@ const uuid = (v) => { if (!z.string().uuid().safeParse(v).success) throw badRequ
 
 router.get('/catalog', (req, res) => res.json(service.catalog()));
 
-// Rendu des données d'un rapport (non enregistré ou en cours d'édition).
+// Rendu des données d'un rapport (non enregistré ou en cours d'édition) — complet (exports, compatibilité).
 router.post('/render', asyncHandler(async (req, res) => res.json(await service.renderReport(t(req), req.body, lang(req)))));
+
+/** En-tête Server-Timing (outils du navigateur) : plan et durée de chaque bloc. */
+function serverTiming(planMs, timings) {
+  const parts = [`plan;dur=${Math.round(planMs)}`];
+  timings.forEach((x, i) => parts.push(`blk${i};dur=${Math.round(x.ms)};desc="${String(x.iid).replace(/[^\w~:.-]/g, '_').slice(0, 80)}${x.ok ? '' : ' (erreur)'}"`));
+  return parts.join(', ');
+}
+
+// Rendu progressif (lot 7a) : le PLAN d'abord (sans calcul lourd), puis les blocs par lots de 8.
+router.post('/render/plan', asyncHandler(async (req, res) => {
+  const plan = await service.renderPlanFor(t(req), req.body && req.body.doc, lang(req));
+  res.setHeader('Server-Timing', `plan;dur=${Math.round(plan.ms)}`);
+  res.json(plan);
+}));
+router.post('/render/blocks', asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const r = await service.renderBlocks(t(req), body.doc, body.iids, lang(req));
+  res.setHeader('Server-Timing', serverTiming(r.planMs, r.timings));
+  req.log.info({ report: { blocks: r.timings, planMs: r.planMs } }, 'report.blocks');
+  res.json({ blocks: r.blocks });
+}));
 
 router.post('/export.xlsx', asyncHandler(async (req, res) => {
   const wb = await service.exportXlsx(t(req), req.body, lang(req));

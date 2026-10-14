@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, FileText, Save, Lock, Printer, FileSpreadsheet, FileCode2, ChevronUp, ChevronDown, Copy, Trash2, Info,
-  ArrowLeft, Heading1, Type, MessageSquareWarning, Gauge, Table2, Sparkles, SeparatorHorizontal, Minus, Repeat, LayoutTemplate, RefreshCw, GripVertical,
+  ArrowLeft, RotateCw, Heading1, Type, MessageSquareWarning, Gauge, Table2, Sparkles, SeparatorHorizontal, Minus, Repeat, LayoutTemplate, RefreshCw, GripVertical,
   RectangleHorizontal, Columns2, MoveVertical,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
@@ -14,6 +14,8 @@ import { useI18n } from '../../lib/i18n.jsx';
 import { formatDateTime } from '../../lib/format.js';
 import { periodLabel, single } from '../../lib/period.js';
 import { BlockView, Band } from './ReportBlocks.jsx';
+import BlockFrame from './BlockFrame.jsx';
+import { useBlockData } from './useBlockData.js';
 import { RichTextEditor } from './RichText.jsx';
 import {
   defaultBlock, defaultPage, cloneWithIds, findBlock, updateParams, removeBlock, duplicateBlock, moveBlock, moveBlockTo, insertBlock,
@@ -64,19 +66,7 @@ function localizeTemplate(content, tr) {
   return { page, filters: content.filters || {}, blocks: (content.blocks || []).map(block) };
 }
 
-// Signature des paramètres qui changent les DONNÉES (le texte n'en fait pas partie).
-function dataSignature(doc) {
-  const strip = (b) => {
-    if (b.type === 'repeat') return { t: b.type, o: b.params.over, c: b.params.blocks.map(strip) };
-    if (b.type === 'columns') return { t: b.type, c: b.params.cols.map((col) => col.map(strip)) };
-    if (b.type === 'data') return { t: b.type, i: b.id, p: { ...b.params, figure: undefined, annotations: undefined } };
-    if (b.type === 'kpis') return { t: b.type, i: b.id, p: b.params };
-    if (b.type === 'bulletin') return { t: b.type, i: b.id, g: !b.params.doc, f: b.params.filters };
-    if (b.type === 'text' || b.type === 'callout') return { t: b.type, i: b.id, v: JSON.stringify(b.params.doc).match(/"v":"[a-z_]+"/g), f: b.params.filters };
-    return null;
-  };
-  return JSON.stringify({ p: doc.period, f: doc.filters, b: doc.blocks.map(strip).filter(Boolean) });
-}
+const mark = (name) => { try { if (typeof performance !== 'undefined' && performance.mark) performance.mark(name); } catch { /* sans incidence */ } };
 
 export default function ReportDesignerPage({ canEdit, isAdmin }) {
   const { tr } = useI18n();
@@ -96,6 +86,7 @@ export default function ReportDesignerPage({ canEdit, isAdmin }) {
   useEffect(() => { loadLibrary(); }, [loadLibrary]);
 
   async function openDocument(id) {
+    mark('rd:open');
     try {
       const d = await api.reportDocument(id);
       setOpen({ doc: d.content, meta: { id: d.id, version: d.version, status: d.status, templateKey: d.templateKey, finalizedAt: d.finalizedAt, upgradedFrom: d.upgradedFrom, warnings: d.warnings || [] } });
@@ -165,7 +156,7 @@ export default function ReportDesignerPage({ canEdit, isAdmin }) {
       </Card>
 
       {creating && catalog && <NewReportModal templates={templates} preset={creating.template} onClose={() => setCreating(false)}
-        onCreate={(doc, templateKey) => { setCreating(false); setOpen({ doc, meta: { id: null, version: null, status: 'draft', templateKey } }); }} />}
+        onCreate={(doc, templateKey) => { mark('rd:open'); setCreating(false); setOpen({ doc, meta: { id: null, version: null, status: 'draft', templateKey } }); }} />}
     </div>
   );
 }
@@ -215,8 +206,6 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
   const toast = useToast();
   const [doc, setDoc] = useState(initial.doc);
   const [meta, setMeta] = useState(initial.meta);
-  const [data, setData] = useState(null);
-  const [loadingData, setLoadingData] = useState(false);
   const [selected, setSelected] = useState(null); // id du bloc sélectionné
   const [dirty, setDirty] = useState(!initial.meta.id);
   const [saving, setSaving] = useState(false);
@@ -242,18 +231,14 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
     api.listOffices().then((o) => setOffices(o.filter((x) => x.active))).catch(() => setOffices([]));
   }, []);
 
-  // Données : document finalisé → données figées ; sinon rendu serveur (anti-rebond) quand un paramètre de données change.
-  const signature = useMemo(() => dataSignature(doc), [doc]);
-  useEffect(() => {
-    let alive = true;
-    if (final && meta.id) { api.reportDocumentData(meta.id).then((d) => alive && setData(d)).catch((e) => toast.error(e.message)); return () => { alive = false; }; }
-    setLoadingData(true);
-    const h = setTimeout(() => {
-      api.reportRender(doc).then((d) => alive && setData(d)).catch((e) => alive && toast.error(e.message)).finally(() => alive && setLoadingData(false));
-    }, 500);
-    return () => { alive = false; clearTimeout(h); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature, final, meta.id]);
+  // Données bloc par bloc (plan puis blocs, cache par signature) ; finalisé → données figées.
+  const uiLang = document.documentElement.lang === 'en' ? 'en' : 'fr';
+  const { plan: data, planError, states, retry, refresh, progress, observe } = useBlockData({ doc, frozenId: final ? meta.id : null, lang: uiLang });
+  const heights = useRef(new Map()); // dernière hauteur mesurée de chaque instance (squelettes à la bonne taille)
+  const onHeight = useCallback((iid, h) => { heights.current.set(iid, h); }, []);
+  // Premier contenu : le contenu fixe est peint sans attendre aucune donnée.
+  useLayoutEffect(() => { mark('rd:first-content'); }, []);
+  const computing = progress.total > 0 && progress.done < progress.total;
 
   useEffect(() => {
     if (!dirty) return undefined;
@@ -370,7 +355,7 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
       return (
         <div key={iid} className={`rd-repeat ${isSel ? 'is-selected' : ''}`} onClick={(e) => { e.stopPropagation(); setSelected(b.id); }}>
           <div className="rd-repeat-tag"><Repeat size={13} aria-hidden="true" /> {tr({ bureau: 'Section répétée par bureau ({n})', partner: 'Section répétée par partenaire ({n})' }[b.params.over] || 'Section répétée par activité ({n})', { n: items.length })}</div>
-          {data && items.length === 0 && <p className="rb-note">{tr('Aucune activité ou bureau avec des données sur la période.')}</p>}
+          {data && data.expansions && items.length === 0 && <p className="rb-note">{tr('Aucune activité ou bureau avec des données sur la période.')}</p>}
           {items.map((it, k) => (
             <section key={it.key} className="rd-repeat-item">
               {b.params.blocks.map((c) => renderBlock(c, { id: b.id, key: it.key, label: it.label, over: b.params.over }, k === 0))}
@@ -379,7 +364,8 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
         </div>
       );
     }
-    const res = data && data.blocks ? data.blocks[iid] : undefined;
+    const st = states[iid];
+    const res = st ? st.result : undefined;
     const itemVars = repeat ? { [{ activity: 'activite', bureau: 'bureau', partner: 'partenaire' }[repeat.over]]: repeat.label } : {};
     const editorFor = (b.type === 'text' || b.type === 'callout' || b.type === 'bulletin') && editable && isSel && first
       ? <RichTextEditor doc={b.params.doc || res?.data?.doc} vars={{ ...vars, ...(res?.data?.vars || {}) }} labelFor={(v) => tr(varLabels[v] || v)} variableList={variableList}
@@ -387,8 +373,14 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
     return (
       <div key={iid} className={`rd-block rd-block-${b.type} ${isSel ? 'is-selected' : ''}`}
         onClick={(e) => { e.stopPropagation(); if (first) setSelected(b.id); }}>
-        {res && !res.ok ? <p className="rb-error">{res.error.message}</p>
-          : <BlockView block={b} ctx={{ result: res, inst: instances[iid], vars: { ...vars, ...itemVars }, catalog, varLabels }} editor={editorFor} />}
+        {FRAMED.has(b.type)
+          ? (
+            <BlockFrame iid={iid} state={st} label={frameLabel(b, catalog, tr)} height={heights.current.get(iid) || DEFAULT_H[b.type]}
+              onRetry={retry} observe={observe} onHeight={onHeight}>
+              <BlockView block={b} ctx={{ result: res, inst: instances[iid], vars: { ...vars, ...itemVars }, catalog, varLabels }} editor={editorFor} />
+            </BlockFrame>
+          )
+          : <BlockView block={b} ctx={{ result: res, inst: instances[iid], vars: { ...vars, ...itemVars }, catalog, varLabels, pending: st && st.status !== 'ready' && st.status !== 'error' }} editor={editorFor} />}
       </div>
     );
   };
@@ -403,11 +395,13 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
         {final ? <Badge tone="green" icon={Lock}>{tr('Finalisé')}</Badge> : dirty ? <Badge tone="yellow">{tr('Non enregistré')}</Badge> : <Badge>{tr('Enregistré')}</Badge>}
         <ReportPeriod compact value={doc.period} disabled={!editable} onChange={(p) => change((d) => ({ ...d, period: p }))} />
         <span className="mmr-spacer" />
-        {loadingData && <span className="rd-loading"><RefreshCw size={14} className="spin" aria-hidden="true" /> {tr('Calcul…')}</span>}
+        {computing && <span className="rd-loading" aria-live="polite"><RefreshCw size={14} className="spin" aria-hidden="true" /> {tr('{done} blocs sur {total} calculés', progress)}</span>}
+        {!final && <Button variant="ghost" size="sm" icon={RotateCw} onClick={refresh} title={tr('Recalculer tous les blocs (nouvelles données importées)')}>{tr('Actualiser les données')}</Button>}
         <div className="header-actions">
-          <Button variant="secondary" icon={Printer} onClick={exportPdf} title={tr('Imprimer ou enregistrer en PDF')}>PDF</Button>
-          <Button variant="secondary" icon={FileCode2} onClick={exportHtml}>HTML</Button>
-          <Button variant="secondary" icon={FileText} onClick={exportWord}>Word</Button>
+          {/* Impression et exports de la page : seulement quand tous les blocs sont calculés (rien d'exporté à moitié). */}
+          <Button variant="secondary" icon={Printer} onClick={exportPdf} disabled={computing} title={computing ? tr('Attendez la fin du calcul des blocs') : tr('Imprimer ou enregistrer en PDF')}>PDF</Button>
+          <Button variant="secondary" icon={FileCode2} onClick={exportHtml} disabled={computing}>HTML</Button>
+          <Button variant="secondary" icon={FileText} onClick={exportWord} disabled={computing}>Word</Button>
           <Button variant="secondary" icon={FileSpreadsheet} onClick={() => api.reportExportXlsx(doc, `${fileBase}.xlsx`).catch((e) => toast.error(e.message))}>Excel</Button>
           {canEdit && <Button variant="ghost" icon={LayoutTemplate} onClick={saveAsTemplate}>{tr('Enregistrer comme modèle')}</Button>}
           {canEdit && final && <Button variant="secondary" icon={Copy} onClick={duplicateDoc}>{tr('Dupliquer')}</Button>}
@@ -415,6 +409,7 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
           {editable && <Button icon={Save} loading={saving} onClick={save} disabled={!dirty || !doc.title.trim()}>{tr('Enregistrer')}</Button>}
         </div>
       </div>
+      {planError && <Alert tone="warning">{planError}</Alert>}
       {final && <Alert tone="info" icon={Lock}>{tr('Rapport finalisé le {d} : contenu et chiffres sont figés. Dupliquez-le pour préparer une nouvelle version.', { d: formatDateTime(meta.finalizedAt) })}</Alert>}
       {upgradedDraft && <Alert tone="info" icon={Info}>{tr('Les chiffres de couverture suivent désormais la définition commune (sites actifs réalisés ÷ sites actifs) : ils peuvent différer de l\'ancienne version.')}</Alert>}
       {(meta.warnings || []).length > 0 && <Alert tone="warning">{meta.warnings.map((w) => <div key={w.blockId + w.message}>{UPGRADE_WARNINGS[w.code] ? tr(UPGRADE_WARNINGS[w.code], w.params) : w.message}</div>)}</Alert>}
@@ -436,7 +431,7 @@ function ReportEditor({ catalog, initial, canEdit, onClose, onTemplatesChanged }
         <main className="rd-canvas" onClick={() => setSelected(null)}>
           <article ref={pageRef} className={`rd-page ${page.orientation === 'landscape' ? 'is-landscape' : ''}`}>
             <Band band={page.header} vars={vars} texts={data?.sections?.[0]?.headerText} className="rd-page-h" />
-            {data === null ? <Skeleton height={400} /> : doc.blocks.map((b) => renderBlock(b))}
+            {doc.blocks.map((b) => renderBlock(b))}
             <Band band={page.footer} vars={vars} texts={data?.sections?.[0]?.footerText} className="rd-page-f" />
           </article>
         </main>
@@ -638,6 +633,14 @@ function BlockProps({ block, parent, catalog, forms, offices, data, onChange, on
       </>}
     </div>
   );
+}
+
+// Blocs qui attendent leurs données dans un cadre nommé (squelette, chronomètre, erreur + Réessayer).
+const FRAMED = new Set(['data', 'kpis', 'bulletin']);
+const DEFAULT_H = { data: 220, kpis: 84, bulletin: 120 };
+function frameLabel(b, catalog, tr) {
+  if (b.type === 'data') return (b.params.figure && b.params.figure.title) || tr((catalog.datasets[b.params.dataset] || {}).label || b.params.dataset);
+  return tr(TYPE_LABEL[b.type] || b.type);
 }
 
 // Avertissements de la mise à niveau v1 → v2 (code + paramètres envoyés par le serveur).

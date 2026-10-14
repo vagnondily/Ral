@@ -276,6 +276,9 @@ export const api = {
   reportCatalog: () => request('/api/report-designer/catalog'),
   // lang = langue de l'interface : libellé de période et bulletin auto-rédigé.
   reportRender: (doc) => request('/api/report-designer/render', { method: 'POST', body: doc, query: { lang: uiLang() } }),
+  // Rendu progressif (lot 7a) : le plan (sans calcul lourd), puis les blocs par lots de 8 au plus.
+  reportPlan: (doc) => request('/api/report-designer/render/plan', { method: 'POST', body: { doc }, query: { lang: uiLang() } }),
+  reportBlocks: (doc, iids) => request('/api/report-designer/render/blocks', { method: 'POST', body: { doc, iids }, query: { lang: uiLang() } }),
   reportExportXlsx: (doc, filename) => downloadPost(`/api/report-designer/export.xlsx?lang=${uiLang()}`, doc, filename),
   reportTemplates: () => request('/api/report-designer/templates'),
   reportCreateTemplate: (input) => request('/api/report-designer/templates', { method: 'POST', body: input }),

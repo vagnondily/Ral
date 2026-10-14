@@ -223,6 +223,15 @@ export default {
   'Page {n}': 'Page {n}',
   'Page {n} / {N}': 'Page {n} / {N}',
 
+  // Rendu progressif (plan puis blocs)
+  'calcul en cours · {s} s': 'computing · {s} s',
+  'en attente du calcul': 'waiting to be computed',
+  'Calcul impossible pour ce bloc.': 'This block could not be computed.',
+  '{done} blocs sur {total} calculés': '{done} of {total} blocks computed',
+  'Actualiser les données': 'Refresh data',
+  'Recalculer tous les blocs (nouvelles données importées)': 'Recompute every block (newly imported data)',
+  'Attendez la fin du calcul des blocs': 'Wait until all blocks are computed',
+
   // Vues d'un bloc « données »
   'Courbes': 'Lines',
   'Anneau': 'Donut',
