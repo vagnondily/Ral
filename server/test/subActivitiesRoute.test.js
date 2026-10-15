@@ -1,7 +1,8 @@
 /**
- * Sous-activités (retour n° 92) — routes de bout en bout, SANS base : le dépôt
- * est remplacé par des stubs en mémoire. Vérifie le mapping retour → HTTP
- * (NOACT→404, DUP→409, linked→409, code_locked→409, not_found→404), les rôles
+ * Sous-activités (retour n° 92 ; rattachées aux activités de programme, migration 105) — routes
+ * de bout en bout, SANS base : le dépôt est remplacé par des stubs en mémoire. Vérifie le mapping
+ * retour → HTTP (NOACT→404, BUCKET→400, DUP→409, linked→409 avec les comptes, code_locked→409,
+ * not_found→404), les rôles
  * (lecture pour tous, écriture admin → 403 sinon), la validation d'entrée (400)
  * et que le compte vient toujours du jeton.
  */
@@ -28,10 +29,10 @@ let behaviour;
 const reset = () => {
   calls = [];
   behaviour = {
-    list: [{ id: SUB, activityId: ACT, code: 'GD', label: 'Distribution générale', info: null, sortOrder: 0, active: true }],
+    list: [{ id: SUB, programmeActivityId: ACT, code: 'GD', label: 'Distribution générale', info: null, sortOrder: 0, active: true }],
     create: { id: SUB },
     update: 'ok',
-    del: 'ok',
+    del: { outcome: 'ok' },
   };
 };
 reset();
@@ -77,58 +78,72 @@ const as = (role = 'admin') => {
 
 const dupError = () => { const e = new Error('dup'); e.code = 'DUP'; return e; };
 const noActError = () => { const e = new Error('act'); e.code = 'NOACT'; return e; };
+const bucketError = () => { const e = new Error('bucket'); e.code = 'BUCKET'; return e; };
 
 test('GET / — lecture autorisée à tous, transmet les filtres', async () => {
   reset();
-  const res = await as('viewer').get(`/api/sub-activities?activityId=${ACT}&active=true`);
+  const res = await as('viewer').get(`/api/sub-activities?programmeActivityId=${ACT}&active=true`);
   assert.equal(res.status, 200);
   assert.equal(res.body.length, 1);
-  assert.deepEqual(calls[0], ['list', { activityId: ACT, activeOnly: true }]);
+  assert.deepEqual(calls[0], ['list', { programmeActivityId: ACT, activeOnly: true }]);
 });
 
-test('GET / — activityId non-UUID → 400', async () => {
+test('GET / — programmeActivityId non-UUID → 400', async () => {
   reset();
-  const res = await as('viewer').get('/api/sub-activities?activityId=pas-un-uuid');
+  const res = await as('viewer').get('/api/sub-activities?programmeActivityId=pas-un-uuid');
   assert.equal(res.status, 400);
 });
 
 test('POST / — sans jeton → 401', async () => {
   reset();
-  const res = await request(app).post('/api/sub-activities').send({ activityId: ACT, code: 'GD', label: 'Test' });
+  const res = await request(app).post('/api/sub-activities').send({ programmeActivityId: ACT, code: 'GD', label: 'Test' });
   assert.equal(res.status, 401);
 });
 
 test('POST / — rôle non-admin → 403', async () => {
   reset();
-  const res = await as('manager').post('/api/sub-activities', { activityId: ACT, code: 'GD', label: 'Distribution' });
+  const res = await as('manager').post('/api/sub-activities', { programmeActivityId: ACT, code: 'GD', label: 'Distribution' });
   assert.equal(res.status, 403);
 });
 
 test('POST / — création valide → 201', async () => {
   reset();
-  const res = await as('admin').post('/api/sub-activities', { activityId: ACT, code: 'GD', label: 'Distribution générale', info: 'note' });
+  const res = await as('admin').post('/api/sub-activities', { programmeActivityId: ACT, code: 'GD', label: 'Distribution générale', info: 'note' });
   assert.equal(res.status, 201);
   assert.deepEqual(res.body, { id: SUB });
-  assert.deepEqual(calls[0], ['create', { activityId: ACT, code: 'GD', label: 'Distribution générale', info: 'note' }]);
+  assert.deepEqual(calls[0], ['create', { programmeActivityId: ACT, code: 'GD', label: 'Distribution générale', info: 'note' }]);
 });
 
-test('POST / — entrée invalide (label trop court, activityId manquant) → 400', async () => {
+test('POST / — entrée invalide (label trop court, activité manquante, code sans lettre ni chiffre) → 400', async () => {
   reset();
   const res = await as('admin').post('/api/sub-activities', { code: 'GD', label: 'X' });
   assert.equal(res.status, 400);
+  const noAlnum = await as('admin').post('/api/sub-activities', { programmeActivityId: ACT, code: '—', label: 'Tiret' });
+  assert.equal(noAlnum.status, 400);
+  const oldParam = await as('admin').post('/api/sub-activities', { activityId: ACT, code: 'GD', label: 'Distribution' });
+  assert.equal(oldParam.status, 400, 'l\'ancien lien vers les prestations contractuelles n\'est plus accepté');
+  assert.equal(calls.length, 0);
 });
 
-test('POST / — activité parente absente (NOACT) → 404', async () => {
+test('POST / — « À classer » choisi comme parent (BUCKET) → 400', async () => {
+  reset();
+  behaviour.create = bucketError();
+  const res = await as('admin').post('/api/sub-activities', { programmeActivityId: ACT, code: 'GD', label: 'Distribution' });
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /À classer/);
+});
+
+test('POST / — activité de programme absente (NOACT) → 404', async () => {
   reset();
   behaviour.create = noActError();
-  const res = await as('admin').post('/api/sub-activities', { activityId: ACT, code: 'GD', label: 'Distribution' });
+  const res = await as('admin').post('/api/sub-activities', { programmeActivityId: ACT, code: 'GD', label: 'Distribution' });
   assert.equal(res.status, 404);
 });
 
 test('POST / — code déjà pris (DUP) → 409', async () => {
   reset();
   behaviour.create = dupError();
-  const res = await as('admin').post('/api/sub-activities', { activityId: ACT, code: 'GD', label: 'Distribution' });
+  const res = await as('admin').post('/api/sub-activities', { programmeActivityId: ACT, code: 'GD', label: 'Distribution' });
   assert.equal(res.status, 409);
 });
 
@@ -184,16 +199,30 @@ test('DELETE /:id — rôle non-admin → 403', async () => {
   assert.equal(res.status, 403);
 });
 
-test('DELETE /:id — utilisée par des sites (linked) → 409', async () => {
+test('DELETE /:id — portée par des sites (linked) → 409 avec les comptes', async () => {
   reset();
-  behaviour.del = 'linked';
+  behaviour.del = { outcome: 'linked', sites: 12 };
   const res = await as('admin').del(`/api/sub-activities/${SUB}`);
   assert.equal(res.status, 409);
+  assert.match(res.body.error, /12 sites/);
+  assert.deepEqual(res.body.details, { reason: 'linked_data', linked: [{ key: 'sites', count: 12, label: 'sites' }] });
+});
+
+test('PATCH /:id — ranger sous une autre activité de programme ; « À classer » refusé ; activité absente → 404', async () => {
+  reset();
+  const ok = await as('admin').patch(`/api/sub-activities/${SUB}`, { programmeActivityId: ACT });
+  assert.equal(ok.status, 204);
+  assert.deepEqual(calls[0], ['update', SUB, { programmeActivityId: ACT }]);
+  behaviour.update = 'BUCKET';
+  assert.equal((await as('admin').patch(`/api/sub-activities/${SUB}`, { programmeActivityId: ACT })).status, 400);
+  behaviour.update = 'NOACT';
+  assert.equal((await as('admin').patch(`/api/sub-activities/${SUB}`, { programmeActivityId: ACT })).status, 404);
+  assert.equal((await as('admin').patch(`/api/sub-activities/${SUB}`, { activityId: ACT })).status, 400, 'clé inconnue refusée');
 });
 
 test('DELETE /:id — introuvable → 404', async () => {
   reset();
-  behaviour.del = 'not_found';
+  behaviour.del = { outcome: 'not_found' };
   const res = await as('admin').del(`/api/sub-activities/${SUB}`);
   assert.equal(res.status, 404);
 });

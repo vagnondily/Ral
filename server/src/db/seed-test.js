@@ -23,6 +23,7 @@ require('dotenv').config();
 const { Client } = require('pg');
 const logger = require('../config/logger');
 const { requireConnString, explainConnError } = require('../config/connString');
+const { seedProgrammeReferential } = require('./seedProgrammeActivities');
 
 const MONITORING_LINE = 'IV.suivi';
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -444,6 +445,10 @@ async function main() {
       }
     }
     logger.info({ distributions: pddRows.length, items: pddItems, stockCommodities: Object.keys(needByCommodity).length }, 'seed-test: PDD inséré');
+
+    // Libellés d'activité des données de test (plan, MMR, visites, PDD) : tous résolus par le
+    // référentiel des activités de programme (migration 105).
+    logger.info(await seedProgrammeReferential(client, tenantId), 'seed-test: activités de programme');
 
     logger.info({ submissions: n, realSubmissions: monData.submissions.length, offices: 3, rates: 3 }, 'seed-test complet — connectez-vous (admin@mems.mg / changeme123) pour inspecter');
   } finally {

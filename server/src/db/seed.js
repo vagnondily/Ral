@@ -15,6 +15,7 @@ const { Client } = require('pg');
 const bcrypt = require('bcryptjs');
 const logger = require('../config/logger');
 const { requireConnString, explainConnError } = require('../config/connString');
+const { seedProgrammeReferential } = require('./seedProgrammeActivities');
 
 const PARTNER_TYPES = [
   ['tpm', 'TPM (Tierce partie de suivi)', 1],
@@ -433,6 +434,11 @@ async function main() {
        VALUES ($1,'Cash','Cash (CBT)','USD','cash',$2)
        ON CONFLICT (tenant_id, code) DO UPDATE SET label = EXCLUDED.label, sort_order = EXCLUDED.sort_order`,
       [tenantId, pddOrder]);
+
+    // Activités de programme (suivi de processus) › sous-activités : référentiel de démonstration,
+    // puis reprise de tout libellé encore inconnu (migration 105) — chaque texte d'activité se résout.
+    const programme = await seedProgrammeReferential(client, tenantId);
+    logger.info(programme, 'seed: activités de programme');
 
     logger.info({ tenantId, admin: 'admin@mems.mg / changeme123', validator: 'validateur@mems.mg / changeme123' }, 'seed complete');
   } finally {
