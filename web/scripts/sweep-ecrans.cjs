@@ -12,6 +12,12 @@ const ROUTES = ['contrats/liste', 'tpm/prestataires', 'tpm/formations', 'tpm/eva
   'parametrage/activites', 'parametrage/taux', 'parametrage/localites', 'parametrage/bureaux', 'parametrage/localites/sites', 'parametrage/mmr', 'parametrage/utilisateurs', 'parametrage/suppressions'];
 const WEB = process.env.WEB_URL || 'http://localhost:5173';
 const API = `:${process.env.API_PORT || 9000}`;
+// Écrans à identifiant (lot 8) : l'identifiant est lu par l'API après la connexion, puis chaque
+// onglet est balayé comme une route ordinaire.
+const DYNAMIC = [
+  { api: '/api/partners/providers', pick: (rows) => (rows.find((r) => r.typeCode === 'tpm') || rows[0] || {}).id,
+    routes: (id) => [`tpm/prestataires/${id}`, ...['contrats', 'rapports', 'suivis', 'agents', 'formations', 'evaluation'].map((t) => `tpm/prestataires/${id}/${t}`)] },
+];
 const TILE = /ERR_TUNNEL_CONNECTION_FAILED|tile\.openstreetmap/;
 (async () => {
   const b = await chromium.launch({ executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium' });
@@ -23,6 +29,14 @@ const TILE = /ERR_TUNNEL_CONNECTION_FAILED|tile\.openstreetmap/;
   await p.goto(`${WEB}/`);
   await p.fill('input[type=email]', process.env.SWEEP_USER || 'admin@mems.mg'); await p.fill('input[type=password]', process.env.SWEEP_PASSWORD || 'changeme123');
   await p.click('button[type=submit]'); await p.waitForSelector('.page-title', { timeout: 20000 });
+  for (const d of DYNAMIC) {
+    const rows = await p.evaluate(async ([base, path]) => {
+      const r = await fetch(base + path, { headers: { Authorization: `Bearer ${localStorage.getItem('mems2_tpm_token')}` } });
+      return r.ok ? r.json() : [];
+    }, [`http://localhost${API}`, d.api]);
+    const id = Array.isArray(rows) && rows.length ? d.pick(rows) : null;
+    if (id) ROUTES.push(...d.routes(id)); else console.log(`(aucune donnée pour ${d.api} : écrans à identifiant non balayés)`);
+  }
   const total = { fr: 0, en: 0 }; const missing = new Set(); const titles = new Map();
   for (const lang of ['fr', 'en']) {
     await p.evaluate((l) => { localStorage.setItem('mems.lang', l); window.__memsMissingTr = new Set(); }, lang);

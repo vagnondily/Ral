@@ -76,6 +76,15 @@ test('critères par défaut : codes valides et uniques par portée', () => {
   assert.ok(DEFAULT_CRITERIA.prestataire.some(([c]) => c === 'delai_rapportage'));
 });
 
+test('critères par défaut : libellé et aide ont leur anglais (traduits à l\'affichage par tr())', async (t) => {
+  const file = path.join(__dirname, '../../web/src/locales/en.js');
+  if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }
+  const en = (await import(pathToFileURL(file).href)).default;
+  const missing = Object.values(DEFAULT_CRITERIA).flat().flatMap(([, label, help]) => [label, help])
+    .filter((s) => !Object.prototype.hasOwnProperty.call(en, s));
+  assert.deepEqual(missing, []);
+});
+
 test('miroir d\'affichage du navigateur (web/src/lib/evaluation.js) : même note, même bande', async (t) => {
   const file = path.join(__dirname, '../../web/src/lib/evaluation.js');
   if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }

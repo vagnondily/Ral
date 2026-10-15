@@ -89,7 +89,7 @@ router.post('/providers/:partnerId', WRITE, ids('partnerId'), body(providerCreat
   res.status(201).json(await service.createProviderEvaluation(t(req), req.params.partnerId, req.valid, req.auth.userId));
 }));
 router.patch('/providers/:partnerId/:id', WRITE, ids('partnerId', 'id'), body(providerPatch), asyncHandler(async (req, res) => {
-  res.json(await service.updateProviderEvaluation(t(req), req.params.partnerId, req.params.id, req.valid));
+  res.json(await service.updateProviderEvaluation(t(req), req.params.partnerId, req.params.id, req.valid, req.auth.userId));
 }));
 router.post('/providers/:partnerId/:id/validate', WRITE, ids('partnerId', 'id'), asyncHandler(async (req, res) => {
   res.json(await service.validateProviderEvaluation(t(req), req.params.partnerId, req.params.id, req.auth.userId));

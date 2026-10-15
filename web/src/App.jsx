@@ -12,6 +12,7 @@ import ContractsListPage from './pages/contracts/ContractsListPage.jsx';
 import ContractDetailPage from './pages/contracts/ContractDetailPage.jsx';
 import ContractFormPage from './pages/contracts/ContractFormPage.jsx';
 import ReportsPage from './pages/tpm/ReportsPage.jsx';
+import ProviderSheetPage from './pages/tpm/ProviderSheetPage.jsx';
 import ConsolidationPage from './pages/dashboard/ConsolidationPage.jsx';
 import DashboardBIPage from './pages/dashboard/DashboardBIPage.jsx';
 import DashboardCoveragePage from './pages/dashboard/DashboardCoveragePage.jsx';
@@ -121,7 +122,9 @@ function Workspace() {
         if (route.extra) return <ContractDetailPage contractId={route.extra} onBack={back} onOpen={openContract} onEdit={editContract} onAmend={amendContract} />;
         return <ContractsListPage canEdit={canEdit} onOpen={openContract} onNew={newContract} onEdit={editContract} onAmend={amendContract} />;
       })()}
-      {route.sub === 'prestataires' && <ProvidersPage canEdit={canEdit} onNavigate={navigate} />}
+      {route.module === 'tpm' && route.sub === 'prestataires' && (route.extra
+        ? <ProviderSheetPage providerId={route.extra} tab={route.extra2} canEdit={canEdit} user={user} onNavigate={navigate} onOpenContract={openContract} />
+        : <ProvidersPage canEdit={canEdit} onNavigate={navigate} />)}
       {route.module === 'tpm' && route.sub === 'formations' && <FormationsPage canEdit={canEdit} />}
       {route.module === 'tpm' && route.sub === 'evaluation' && <EvaluationPage canEdit={canEdit} />}
       {route.module === 'tpm' && route.sub === 'rapports' && <ReportsPage canEdit={canEdit} onOpenContract={openContract} onNavigate={navigate} />}

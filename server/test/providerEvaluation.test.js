@@ -17,13 +17,15 @@ test('brouillon : une ligne par critère actif (libellé et poids copiés), note
   assert.throws(() => buildGrid(criteria, [{ code: 'inconnu', rating: 2 }]), (e) => e instanceof RuleError && e.code === 'unknown_criterion');
 });
 
-test('modification : seulement les critères de SA grille, jamais une évaluation validée', () => {
-  const current = { status: 'brouillon', scores: buildGrid(criteria, []).scores };
-  const r = applyRatings(current, [{ code: 'proactivite', rating: 1 }]);
+test('modification : seulement les critères de SA grille, par son évaluateur, jamais une évaluation validée', () => {
+  const current = { status: 'brouillon', evaluatedBy: 'u1', scores: buildGrid(criteria, []).scores };
+  const r = applyRatings(current, [{ code: 'proactivite', rating: 1 }], 'u1');
   assert.deepEqual(r.scores.map((s) => [s.code, s.rating]), [['proactivite', 1]], 'seules les lignes modifiées repartent en base');
   assert.equal(r.gridScore, 0);
-  assert.throws(() => applyRatings({ ...current, status: 'validee' }, []), (e) => e.code === 'validated');
-  assert.throws(() => applyRatings(current, [{ code: 'autre', rating: 1 }]), (e) => e.code === 'unknown_criterion');
+  assert.throws(() => applyRatings({ ...current, status: 'validee' }, [], 'u1'), (e) => e.code === 'validated');
+  assert.throws(() => applyRatings(current, [{ code: 'autre', rating: 1 }], 'u1'), (e) => e.code === 'unknown_criterion');
+  assert.throws(() => applyRatings(current, [{ code: 'proactivite', rating: 4 }], 'u2'), (e) => e.code === 'duty', 'le valideur ne retouche pas la grille');
+  assert.throws(() => applyRatings(current, []), (e) => e.code === 'duty', 'sans auteur connu : refusé');
 });
 
 test('validation : déjà validée (409), même personne (403), grille incomplète (400 avec la liste)', () => {

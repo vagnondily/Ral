@@ -2,6 +2,7 @@
 // server/src/modules/evaluation/gridScore.js (même arithmétique entière, parité testée par
 // server/test/gridScore.test.js). Le serveur reste la source : il recalcule et fige les notes ;
 // ce miroir ne sert qu'à l'aperçu pendant la saisie.
+import { formatLocale } from './format.js';
 
 export const SCALE = 20;
 export const RATINGS = [
@@ -48,8 +49,8 @@ export function bandOf(score) {
   return BAND_ORDER.find((k) => Number(score) >= BANDS[k].min);
 }
 
-/** « 13,3 / 20 » dans la langue de l'écran. */
-export function formatScore(score, lang = 'fr') {
+/** « 13,3 / 20 » dans la langue de l'écran (format de lib/format.js). */
+export function formatScore(score) {
   if (score == null) return '—';
-  return `${Number(score).toLocaleString(lang === 'en' ? 'en-GB' : 'fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} / ${SCALE}`;
+  return `${Number(score).toLocaleString(formatLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })} / ${SCALE}`;
 }

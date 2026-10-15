@@ -51,14 +51,14 @@ async function createProviderEvaluation(tenantId, partnerId, input, userId) {
   return e;
 }
 
-async function updateProviderEvaluation(tenantId, partnerId, id, input) {
+async function updateProviderEvaluation(tenantId, partnerId, id, input, userId) {
   const e = await rules(() => repo.updateProviderEvaluation(tenantId, partnerId, id, (current) => {
     const header = {
       periodFrom: input.periodFrom ?? current.periodFrom, periodTo: input.periodTo ?? current.periodTo,
       evaluatedOn: input.evaluatedOn ?? current.evaluatedOn, comment: input.comment !== undefined ? input.comment : current.comment,
     };
     if (header.periodTo < header.periodFrom) throw new RuleError('period', 'La fin de la période précède son début.');
-    return { header, ...applyRatings(current, input.ratings || []) };
+    return { header, ...applyRatings(current, input.ratings || [], userId) };
   }));
   if (!e) throw notFound('Évaluation introuvable');
   return e;

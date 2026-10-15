@@ -39,9 +39,15 @@ function buildGrid(criteria, ratings) {
   return { scores, gridScore: gridScore(scores).score };
 }
 
-/** Brouillon modifié : seules les lignes de SA grille ; un critère absent de la grille est refusé. */
-function applyRatings(current, ratings) {
+/**
+ * Brouillon modifié : seules les lignes de SA grille ; un critère absent de la grille est refusé.
+ * Seul l'évaluateur modifie son brouillon (le valideur relit puis valide, sans retoucher la grille).
+ */
+function applyRatings(current, ratings, userId) {
   if (current.status !== 'brouillon') throw new RuleError('validated', 'Évaluation validée : elle ne peut plus être modifiée.');
+  if (current.evaluatedBy !== userId) {
+    throw new RuleError('duty', 'Seul l\'évaluateur modifie son brouillon ; la personne qui valide ne retouche pas la grille.');
+  }
   const given = ratingsByCode(ratings, new Set(current.scores.map((s) => s.code)));
   const scores = current.scores.map((s) => (given.has(s.code) ? { ...s, ...given.get(s.code) } : s));
   return { scores: scores.filter((s) => given.has(s.code)), gridScore: gridScore(scores).score };
