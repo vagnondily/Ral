@@ -138,6 +138,29 @@ test('résumé : couverture, mmrDriven, rbmFallback', () => {
   assert.equal(r.summary.coverageRate, 100);
 });
 
+test('byActivity : paramètres de base du MMR + résultat par activité', () => {
+  const sites = [
+    site({ id: 'a1', parametered: true, required: 2, mmrKey: 'k', activity: 'School meal activities', commune: 'Alpha' }),
+    site({ id: 'a2', parametered: true, required: 2, mmrKey: 'k', activity: 'School meal activities', commune: 'Beta' }),
+    site({ id: 'b1', parametered: false, riskLevel: 'faible', activity: 'Nutrition' }),
+  ];
+  const mmr = { k: { activity: 'School meal activities', riskLevel: 2, operationDuration: 12, numberOfSites: 50, frequency: 2, interval: 6, adjustedInterval: 6, targetedPerMonth: 8.3, feasible: 10 } };
+  const r = generatePlan(sites, mmr, {}, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], YEAR);
+  assert.ok(Array.isArray(r.byActivity));
+  const mmrLine = r.byActivity.find((x) => x.parametered);
+  assert.equal(mmrLine.activity, 'School meal activities');
+  assert.equal(mmrLine.mmr.interval, 6);
+  assert.equal(mmrLine.mmr.frequency, 2);
+  assert.equal(mmrLine.mmr.targetedPerMonth, 8.3);
+  assert.equal(mmrLine.mmr.feasible, 10);
+  assert.equal(mmrLine.stepUsed, 6);          // intervalle arrondi au supérieur
+  assert.equal(mmrLine.sites, 2);
+  assert.equal(mmrLine.planned, 4);           // 2 sites × 2 visites
+  const rbmLine = r.byActivity.find((x) => !x.parametered);
+  assert.equal(rbmLine.mmr, null);            // pas de MMR → paramètres nuls
+  assert.equal(rbmLine.activity, 'Nutrition');
+});
+
 test('perMonth couvre toute la période ; plan vide sans erreur', () => {
   const r = generatePlan([site({ id: 'a', parametered: true, required: 2, mmrKey: 'k' })], { k: { interval: 2, feasible: 9 } }, {}, H1, YEAR);
   assert.deepEqual(r.perMonth.map((m) => m.month), ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06']);

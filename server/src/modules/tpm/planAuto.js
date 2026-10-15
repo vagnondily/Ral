@@ -94,15 +94,17 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
 
   const assignments = [];
   const covered = new Set();
+  const byActivity = [];
   let unplaced = 0; let mmrDriven = 0; let rbmFallback = 0; let latePlannedTotal = 0;
 
   for (const [, g] of groups) {
+    const c = g.parametered ? (mmrByKey[g.mmrKey] || {}) : {};
     let interval;
     if (g.parametered) {
-      const c = mmrByKey[g.mmrKey] || {};
       interval = cfg.adjusted && c.adjustedInterval ? c.adjustedInterval : (c.interval || frequencyFor(g.riskLevel, cfg.frequency));
     } else interval = frequencyFor(g.riskLevel, cfg.frequency);
     const step = Math.max(1, Math.ceil(interval)); // arrondi au supérieur : l'intervalle minimal n'est jamais réduit (4,5 → 5)
+    let gPlanned = 0; const gCovered = new Set();  // compteurs de l'activité (ligne MMR)
 
     // Regroupement par commune (tournées) ; communes réparties en phases sur l'intervalle.
     const byCommune = new Map();
@@ -145,12 +147,44 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
           bump(s.mmrKey, m);
           assignments.push({ siteId: s.id, month: ym(year, m), monthNum: m, activity: s.activity || null, riskLevel: s.riskLevel || null, source: g.parametered ? 'mmr' : 'rbm' });
           covered.add(s.id);
+          gCovered.add(s.id);
+          gPlanned += 1;
           placed += 1;
           minMonth = m + step;        // la prochaine visite ≥ intervalle après celle-ci
         }
       }
     });
+
+    // Aperçu par activité (ligne MMR) : paramètres de base + résultat du groupe.
+    const activities = [...new Set(g.sites.map((s) => s.activity).filter(Boolean))];
+    byActivity.push({
+      activity: c.activity || (activities.length === 1 ? activities[0] : (activities[0] || null)),
+      fieldOffice: g.parametered ? (c.fieldOffice || null) : null,  // null = plan général (tous bureaux)
+      mixedActivities: activities.length > 1,
+      parametered: g.parametered,
+      riskLevel: g.riskLevel || null,
+      mmr: g.parametered ? {
+        operationDuration: c.operationDuration ?? null,
+        numberOfSites: c.numberOfSites ?? null,
+        frequency: c.frequency ?? null,
+        interval: c.interval ?? null,
+        adjustedInterval: c.adjustedInterval ?? null,
+        targetedPerMonth: c.targetedPerMonth ?? null,
+        feasible: c.feasible ?? null,
+        feasibleOverridden: Boolean(c.feasibleOverridden),
+      } : null,
+      intervalUsed: Math.round(interval * 100) / 100,
+      stepUsed: step,
+      sites: g.sites.length,
+      planned: gPlanned,
+      covered: gCovered.size,
+    });
   }
+
+  byActivity.sort((a, b) => Number(b.parametered) - Number(a.parametered)
+    || String(a.activity || '').localeCompare(String(b.activity || ''), 'fr')
+    || String(a.fieldOffice || '').localeCompare(String(b.fieldOffice || ''), 'fr')
+    || (b.planned - a.planned));
 
   assignments.sort((a, b) => a.monthNum - b.monthNum
     || (RISK_RANK[b.riskLevel] || 0) - (RISK_RANK[a.riskLevel] || 0)
@@ -161,6 +195,7 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
     year,
     months: period,
     assignments: assignments.map(({ monthNum: _m, ...a }) => a),
+    byActivity,
     perMonth: period.map((m) => ({ month: ym(year, m), count: perMonth.get(m) || 0 })),
     summary: {
       sitesConsidered: considered.length,

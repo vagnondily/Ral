@@ -22,11 +22,14 @@ const { restampVisitsTx } = require('./tpmAttribution.repository');
 async function mmrRows(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      `SELECT field_office_id AS "fieldOfficeId", activity_category AS "activityCategory",
-              operation_duration AS "operationDuration", number_of_sites AS "numberOfSites",
-              risk_level AS "riskLevel", feasible, persons_to_deploy AS "personsToDeploy",
-              visits_per_day::float8 AS "visitsPerDay", working_days AS "workingDays"
-         FROM mmr_parameters WHERE tenant_id = $1`, [tenantId]);
+      `SELECT m.field_office_id AS "fieldOfficeId", o.name AS "fieldOfficeName",
+              m.activity_category AS "activityCategory",
+              m.operation_duration AS "operationDuration", m.number_of_sites AS "numberOfSites",
+              m.risk_level AS "riskLevel", m.feasible, m.persons_to_deploy AS "personsToDeploy",
+              m.visits_per_day::float8 AS "visitsPerDay", m.working_days AS "workingDays"
+         FROM mmr_parameters m
+         LEFT JOIN field_offices o ON o.tenant_id = m.tenant_id AND o.id = m.field_office_id
+        WHERE m.tenant_id = $1`, [tenantId]);
     return rows;
   });
 }
@@ -45,11 +48,20 @@ async function sitesForPlanning(tenantId, { year, adjusted = false, risk, capaci
     const key = mmrKeyOf(r);
     const cap = (board.capacity || {})[key] || {};
     mmrByKey[key] = {
-      interval: d.interval,
+      // Paramètres de base du MMR (pour l'aperçu « par activité »).
+      activity: r.activityCategory || cap.activity || null,
+      fieldOffice: r.fieldOfficeName || null,         // null = plan général (tous bureaux)
+      riskLevel: Number(r.riskLevel) || null,         // 1 faible · 2 moyen · 3 élevé
+      operationDuration: d.operationDuration,
+      numberOfSites: d.numberOfSites,
+      frequency: d.frequency,                         // visites exigées / site / exercice
+      interval: d.interval,                           // mois entre 2 visites
       adjustedInterval: d.adjustedInterval,
+      adjustedFrequency: d.adjustedFrequency,
       targetedPerMonth: cap.targeted != null ? cap.targeted : d.targetedPerMonth,
       // Capacité/mois : surcharge saisie dans l'assistant > faisable du MMR.
       feasible: Number(capacityOverride) > 0 ? Number(capacityOverride) : (cap.feasible != null ? cap.feasible : d.feasible),
+      feasibleOverridden: Number(capacityOverride) > 0,
     };
   }
   const sites = (board.sites || [])

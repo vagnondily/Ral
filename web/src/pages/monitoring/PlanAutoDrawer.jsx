@@ -22,6 +22,10 @@ const shortMonth = (m) => {
   try { return new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 1, 1)).toLocaleString(formatLocale(), { month: 'short', timeZone: 'UTC' }); }
   catch { return m; }
 };
+// Niveau de risque : numérique MMR (1/2/3) ou libellé site → clé i18n.
+const RISK_LABEL = { 1: 'Faible', 2: 'Moyen', 3: 'Élevé', faible: 'Faible', moyenne: 'Moyen', elevee: 'Élevé' };
+// Nombre à une décimale au plus, locale FR (ex. intervalle « 4,5 »).
+const num1 = (n) => (n == null ? '—' : Number(n).toLocaleString(formatLocale(), { maximumFractionDigits: 1 }));
 
 /**
  * Assistant de génération automatique du plan de suivi sur une PÉRIODE (retour 82).
@@ -111,14 +115,14 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
     if (!preview) return [];
     const bySite = new Map();
     for (const a of preview.assignments || []) {
-      if (!bySite.has(a.siteId)) bySite.set(a.siteId, { name: a.name || '—', commune: a.commune, district: a.district, months: [] });
+      if (!bySite.has(a.siteId)) bySite.set(a.siteId, { name: a.name || '—', commune: a.commune, district: a.district, activity: a.activity || null, months: [] });
       bySite.get(a.siteId).months.push(a.month);
     }
     return [...bySite.values()].slice(0, 8).map((s) => ({ ...s, months: [...new Set(s.months)].sort() }));
   }, [preview]);
 
   return (
-    <Modal open onClose={() => !busy && onClose()} title={tr('Générer le plan de suivi')} wide
+    <Modal open onClose={() => !busy && onClose()} title={tr('Générer le plan de suivi')} size="editor"
       footer={<>
         <Button variant="ghost" icon={Trash2} onClick={clearPlanned} disabled={busy || invalid}
           title={tr('Supprimer les visites planifiées de la période pour repartir d\'un plan propre.')}>{tr('Effacer les planifications')}</Button>
@@ -227,16 +231,67 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
               {preview.summary.forbidden > 0 && <span className="muted">{tr('Zones interdites exclues')} : {formatInt(preview.summary.forbidden)}</span>}
               {preview.summary.unplaced > 0 && <span className="muted">{tr('Non placées (capacité)')} : {formatInt(preview.summary.unplaced)}</span>}
             </div>
+            {Array.isArray(preview.byActivity) && preview.byActivity.length > 0 && (
+              <div style={{ display: 'grid', gap: 6 }}>
+                <span className="muted" style={{ fontSize: 12 }}>{tr('Par activité — paramètres de base du MMR et résultat')}</span>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="table" style={{ background: 'var(--surface)', minWidth: 760 }}>
+                    <thead>
+                      <tr>
+                        <th scope="col">{tr('Activité')}</th>
+                        <th scope="col">{tr('Risque')}</th>
+                        <th scope="col" className="num" title={tr('Visites exigées par site sur l\'exercice')}>{tr('Fréq./an')}</th>
+                        <th scope="col" className="num" title={tr('Mois entre deux visites (arrondi au supérieur pour le plan)')}>{tr('Intervalle')}</th>
+                        <th scope="col" className="num" title={tr('Sites à visiter par mois')}>{tr('Cible/mois')}</th>
+                        <th scope="col" className="num" title={tr('Visites réalisables par mois')}>{tr('Capacité/mois')}</th>
+                        <th scope="col" className="num">{tr('Sites')}</th>
+                        <th scope="col" className="num">{tr('Planifiées')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.byActivity.map((a, i) => {
+                        // Intervalle effectif : ajusté (si demandé) sinon de base ; le MMR peut
+                        // ne pas être paramétré (durée 0) → intervalle/fréquence absents.
+                        const mmrItv = a.mmr && (preview.settings.adjusted && a.mmr.adjustedInterval ? a.mmr.adjustedInterval : a.mmr.interval);
+                        const hasItv = a.parametered && Number(mmrItv) > 0;
+                        const freq = a.parametered && a.mmr && Number(a.mmr.frequency) > 0 ? a.mmr.frequency : null;
+                        const showStep = hasItv && a.stepUsed !== Number(mmrItv); // « pas » utile seulement si l'arrondi change l'intervalle (ex. 4,5 → 5)
+                        return (
+                          <tr key={`${a.activity || 'rbm'}-${i}`}>
+                            <td>
+                              <strong>{a.activity || tr('Sans activité')}</strong>
+                              <div className="muted" style={{ fontSize: 11 }}>{a.parametered ? (a.fieldOffice || tr('Tous (plan général)')) : tr('repli RBM')}</div>
+                            </td>
+                            <td className="muted">{tr(RISK_LABEL[(a.mmr && a.mmr.riskLevel) || a.riskLevel] || '—')}</td>
+                            <td className="num">{freq != null ? num1(freq) : '—'}</td>
+                            <td className="num">{hasItv ? num1(mmrItv) : '—'}{showStep ? <span className="muted"> ({tr('pas')} {a.stepUsed})</span> : null}</td>
+                            <td className="num">{a.parametered && a.mmr ? num1(a.mmr.targetedPerMonth) : '—'}</td>
+                            <td className="num">{a.parametered && a.mmr ? num1(a.mmr.feasible) : '—'}{a.mmr && a.mmr.feasibleOverridden ? '*' : ''}</td>
+                            <td className="num">{formatInt(a.sites)}</td>
+                            <td className="num"><strong>{formatInt(a.planned)}</strong></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <span className="muted" style={{ fontSize: 11 }}>
+                  {tr('Intervalle = mois entre deux visites ; « pas » = intervalle arrondi au supérieur appliqué au plan.')}
+                  {preview.byActivity.some((a) => a.mmr && a.mmr.feasibleOverridden) ? ` ${tr('* capacité saisie dans l\'assistant.')}` : ''}
+                </span>
+              </div>
+            )}
             {sample.length > 0 && (
               <div style={{ display: 'grid', gap: 6 }}>
                 <span className="muted" style={{ fontSize: 12 }}>{tr('Exemples de sites et leurs visites prévues')}</span>
                 <table className="table" style={{ background: 'var(--surface)' }}>
-                  <thead><tr><th scope="col">{tr('Site')}</th><th scope="col">{tr('Commune')}</th><th scope="col">{tr('Mois prévus')}</th></tr></thead>
+                  <thead><tr><th scope="col">{tr('Site')}</th><th scope="col">{tr('Commune')}</th><th scope="col">{tr('Activité')}</th><th scope="col">{tr('Mois prévus')}</th></tr></thead>
                   <tbody>
                     {sample.map((s, i) => (
                       <tr key={`${s.name}-${i}`}>
                         <td><strong>{s.name}</strong></td>
                         <td className="muted">{s.commune || '—'}</td>
+                        <td className="muted">{s.activity || '—'}</td>
                         <td>{s.months.map((m) => shortMonth(m)).join(' · ')}</td>
                       </tr>
                     ))}

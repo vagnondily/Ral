@@ -20,7 +20,15 @@
 > - **Bureaux** : types à niveaux facultatifs, périmètre choisi par région › district › commune ; **bureau, TPM et activités déduits de la configuration** partout ; **référentiel des activités** (aucune activité créée hors Paramétrage).
 > - **Sites (actifs / inactifs)** à la forme du Plan de suivi : publié.
 
-_Dernière mise à jour : 15/10/2026 11:38 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 15/10/2026 18:35 UTC_ — la branche `main` reçoit chaque lot vérifié
+
+> **18:35 UTC — Aperçu de la planification automatique enrichi (retour 82).** ✅ L'aperçu
+> « Générer le plan de suivi » affiche maintenant, en plus de la couverture et de la
+> répartition par mois : **l'activité** sur chaque site de l'échantillon, et un tableau
+> **« Par activité — paramètres de base du MMR et résultat »** (bureau, risque, fréquence/an,
+> intervalle + pas appliqué, cible/mois, capacité/mois, sites, planifiées). Les lignes MMR non
+> paramétrées (durée 0) s'affichent en « — » (plus de « 0 » trompeur). Fenêtre élargie pour la
+> table. Tests 1203 ✅, lint ✅, build ✅, 0 erreur console (captures Playwright). Captures livrées.
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
