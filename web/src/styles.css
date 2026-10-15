@@ -3041,7 +3041,7 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
    texte complet au survol) : plus de bande vide au-dessus des en-têtes ; case « tout
    sélectionner » sur la ligne des libellés ; colonnes de texte bornées (titre au survol). */
 .dv-filters .comet-fields { gap: 10px 12px; }
-.dv-filters .cfilter { flex: 1 1 140px; min-width: 128px; max-width: 210px; }
+.dv-filters .cfilter { flex: 1 1 124px; min-width: 116px; max-width: 200px; }
 .dv-toolbar .data-toolbar-left { flex: 1 1 auto; min-width: 0; gap: 10px 12px; }
 .dv-search { flex: 0 1 280px; min-width: 200px; }
 .dv-search .input { height: 34px; }
