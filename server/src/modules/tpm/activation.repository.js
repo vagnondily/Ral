@@ -8,7 +8,7 @@
 const { withTenantTransaction } = require('../../config/db');
 const { insertRows } = require('../../db/batch');
 const { monthStatusesTx } = require('./field.repository');
-const { MONTHS, buildSiteIndex, diffActivation, summarizeChanges, cleanReason, identifierOf } = require('./activationMath');
+const { MONTHS, buildSiteIndex, diffActivation, blankFill, summarizeChanges, cleanReason, identifierOf } = require('./activationMath');
 
 /** Mois du site → « OON-… » (O actif, N inactif, - non renseigné) : 12 caractères au lieu d'un objet. */
 const packMonths = (months = {}) => MONTHS.map((m) => (months[m] === true ? 'O' : months[m] === false ? 'N' : '-')).join('');
@@ -111,6 +111,25 @@ async function saveActivation(tenantId, userId, { year, changes, reason }) {
 }
 
 /**
+ * « Renseigner les cases vides » (tout ou rien) : seules les cases SANS statut des
+ * sites donnés, sur les mois [from..to], prennent `value` ; journalisé comme une
+ * saisie à l'écran, avec le motif. Le calcul est fait ici, sous verrou : la
+ * requête reste petite même pour 3 000 sites × 12 mois.
+ */
+async function fillBlankActivation(tenantId, userId, { year, from, to, value, siteIds, reason }) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const ids = [...new Set(siteIds)].sort();
+    const { known, current } = await lockedStatusTx(client, tenantId, year, ids);
+    if (known.size !== ids.length) {
+      const e = new Error('Site inconnu (ou hors de ce compte).'); e.code = 'UNKNOWN_SITE'; throw e;
+    }
+    const diff = diffActivation(current, blankFill(current, ids, { from, to, value, reason: cleanReason(reason) }));
+    await applyChangesTx(client, tenantId, userId, year, diff, 'ecran');
+    return summarizeChanges(diff);
+  });
+}
+
+/**
  * Import du classeur d'activation : rapprochement des lignes, écarts, aperçu ;
  * `commit` applique en une transaction. Les sites viennent du registre : une
  * ligne inconnue n'en crée jamais, elle est listée.
@@ -165,4 +184,4 @@ async function activationHistory(tenantId, { siteId, year }) {
   });
 }
 
-module.exports = { activationGrid, activationGridCompact, saveActivation, importActivation, activationHistory, packMonths };
+module.exports = { activationGrid, activationGridCompact, saveActivation, fillBlankActivation, importActivation, activationHistory, packMonths };

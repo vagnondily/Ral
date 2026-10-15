@@ -66,6 +66,16 @@ test('intégrité : identifiants uniques (répétitions et colonnes comprises), 
   assert.ok(MAX_DOC_BYTES < 1024 * 1024);
 });
 
+test('annexes (retour 88) : bloc « en annexe » et orientation, seuil de lignes du document borné', () => {
+  const d = ok(base([data('a', { annex: true, annexOrientation: 'landscape' }), data('b', { annex: false })], { annexes: { autoRows: 25 } }));
+  assert.equal(d.blocks[0].params.annex, true);
+  assert.equal(d.annexes.autoRows, 25);
+  ok(base([], { annexes: { autoRows: null } }));
+  ko(base([], { annexes: { autoRows: 2 } }));
+  ko(base([], { annexes: { autoRows: 25, autre: 1 } }));
+  ko(base([data('a', { annexOrientation: 'diagonale' })]));
+});
+
 test('texte riche : aucun HTML, types de nœuds fermés', () => {
   ko(base([{ id: 'a', type: 'text', params: { doc: { nodes: [{ t: 'script', c: [{ x: 'alert(1)' }] }] } } }]));
   ko(base([{ id: 'a', type: 'html', params: { html: '<img onerror>' } }]));

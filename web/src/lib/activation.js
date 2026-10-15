@@ -45,3 +45,16 @@ export function totals(rows, pending) {
 
 /** Au moins un mois actif sur l'exercice (colonne « Actif » du classeur). */
 export const activeInYear = (row, pending) => MONTHS.some((m) => cellValue(row.months, pending, row.id, m) === true);
+
+/**
+ * Règle UNIQUE « site actif au mois M » — la même que les tableaux de bord
+ * (server common/siteActivitySql) et que la planification : dès que l'exercice a
+ * une grille (au moins un statut saisi ou importé), seul « Oui » est actif et une
+ * case vide compte INACTIVE ; sans aucune grille pour l'exercice, tous les sites
+ * comptent actifs.
+ */
+export const isActiveMonth = (value, yearHasGrid) => (yearHasGrid ? value === true : value !== false);
+
+/** L'exercice a-t-il une grille ? Statuts enregistrés, ou en attente d'enregistrement. */
+export const hasGrid = (rows = [], pending = {}) =>
+  rows.some((r) => Object.keys(r.months || {}).length > 0) || Object.values(pending).some((v) => v !== null);

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ChevronUp, ChevronDown, Copy, Trash2, Info, Repeat, Plus, SlidersHorizontal, PanelLeft, Monitor, X, AlertTriangle } from 'lucide-react';
+import { ChevronUp, ChevronDown, Copy, Trash2, Info, Repeat, Plus, SlidersHorizontal, PanelLeft, Monitor, X, AlertTriangle, Paperclip } from 'lucide-react';
 import { api } from '../../../api/client.js';
 import { Alert, Button } from '../../../components/ui.jsx';
 import { useToast } from '../../../components/Toast.jsx';
@@ -12,8 +12,9 @@ import { useBlockData } from '../useBlockData.js';
 import { RichTextEditor } from '../RichText.jsx';
 import {
   defaultBlock, defaultPage, cloneWithIds, findBlock, updateParams, removeBlock, duplicateBlock, moveBlock, moveBlockTo, insertBlock, iidOf, landscapeAround,
+  setPageLayout,
 } from '../reportDoc.js';
-import { localPlan, sectionsOfPlan, paginate, pageGeometry, pageName, tocEntries } from '../../../lib/reportPaginate.js';
+import { localPlan, sectionsOfPlan, paginate, pageGeometry, pageName, tocEntries, annexDecision } from '../../../lib/reportPaginate.js';
 import { tableFit, MIN_SCALE } from '../../../lib/reportFit.js';
 import reportCss from '../reports.css?raw';
 import Topbar from './Topbar.jsx';
@@ -21,9 +22,12 @@ import CatalogPane from './CatalogPane.jsx';
 import OutlinePane from './OutlinePane.jsx';
 import PagesPane from './PagesPane.jsx';
 import PropertiesPane from './PropertiesPane.jsx';
+import PageLayoutPane from './PageLayoutPane.jsx';
 import PagedPreview from './PagedPreview.jsx';
 import MeasureLayer from './MeasureLayer.jsx';
-import { useFilterOptions } from './FiltersPane.jsx';
+import { useFilterOptions, filterValueLabel } from './FiltersPane.jsx';
+import HeaderDesigner from './HeaderDesigner.jsx';
+import { assetDataUrl } from '../useAssets.js';
 import { useHistory } from './useHistory.js';
 import { FRAMED, DEFAULT_H, frameLabel, UPGRADE_WARNINGS } from './blockTypes.js';
 
@@ -69,6 +73,8 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
   const doc = history.value;
   const [meta, setMeta] = useState(initial.meta);
   const [selected, setSelected] = useState(null); // id du bloc sélectionné
+  const [selPage, setSelPage] = useState(null); // n° de la page sélectionnée (onglet Pages, marge d'une feuille)
+  const [bandEditor, setBandEditor] = useState(null); // concepteur d'en-tête ouvert : { scope, startZone, sectionBlockId? }
   const [dirty, setDirty] = useState(!initial.meta.id);
   const [saving, setSaving] = useState(false);
   const [forms, setForms] = useState([]);
@@ -134,6 +140,8 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
   }, [doc, dirty, meta.id, meta.version, final, draft]);
 
   const change = useCallback((fn) => { history.set(fn); setDirty(true); }, [history]);
+  // Un bloc sélectionné remplace la page sélectionnée (le volet droit montre le bloc).
+  useEffect(() => { if (selected) setSelPage(null); }, [selected]);
   // Bloc tout juste inséré : amené à l'écran (il peut être loin dans la page).
   const pendingScroll = useRef(null);
   useEffect(() => {
@@ -224,7 +232,7 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
       if (mod && key === 'd' && k.selected && k.editable) { e.preventDefault(); k.setBlocks((bs) => duplicateBlock(bs, k.selected)); return; }
       if (e.key === 'Delete' && k.selected && k.editable) { e.preventDefault(); k.remove(k.selected); return; }
       if (e.key === '/' && !mod) { e.preventDefault(); setLeftTab('catalog'); setLeftOpen(true); setTimeout(() => searchRef.current && searchRef.current.focus(), 0); return; }
-      if (e.key === 'Escape') k.setSelected(null);
+      if (e.key === 'Escape') { k.setSelected(null); setSelPage(null); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -234,10 +242,38 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
   const varLabels = { ...Object.fromEntries(Object.entries(catalog.variables || {})), ...Object.fromEntries(Object.entries(catalog.kpis).map(([k, v]) => [k, v.label])) };
   const variableList = Object.entries(catalog.kpis).filter(([, v]) => v.available !== false).map(([k, v]) => [k, tr(v.label)]);
   const sel = selected ? findBlock(doc.blocks, selected) : null;
-  const vars = useMemo(() => ({ ...(data?.vars || {}), titre: doc.title, periode: data?.periodLabel || periodLabel(doc.period, uiLang) }), [data, doc.title, doc.period, uiLang]);
+  // Variables des en-têtes et des textes : celles du plan du serveur, précédées de valeurs locales
+  // ({date} du jour, {bureau} du filtre du rapport) pour que l'en-tête s'affiche tout de suite.
+  const today = new Date();
+  const todayText = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+  const officeText = doc.filters && doc.filters.office ? filterValueLabel('office', doc.filters.office, { ...opts, forms }, tr) : tr('Tous les bureaux');
+  const vars = useMemo(() => ({ date: todayText, bureau: officeText, ...(data?.vars || {}), titre: doc.title, periode: data?.periodLabel || periodLabel(doc.period, uiLang) }), [data, doc.title, doc.period, uiLang, todayText, officeText]);
   const page = doc.page || defaultPage();
   const defaultView = useCallback((k) => ((catalog.datasets[k] || {}).defaultView || 'table'), [catalog]);
-  const plan = useMemo(() => localPlan(doc, { expansions: (data && data.expansions) || {}, vars, defaultView }), [doc, data, vars, defaultView]);
+  // Annexes (retour 88) : bloc marqué « en annexe », ou tableau de plus de N lignes (règle du
+  // document, lignes connues une fois les données arrivées) ; orientation « auto » = paysage si le
+  // tableau est trop large pour une page portrait.
+  const autoRows = doc.annexes && doc.annexes.autoRows != null ? doc.annexes.autoRows : null;
+  const portraitW = pageGeometry(page, { orientation: 'portrait' }).bodyW;
+  const rowsOf = useCallback((iid) => { const r = states[iid] && states[iid].result; return r && r.ok && r.data && Array.isArray(r.data.rows) ? r.data.rows.length : null; }, [states]);
+  const annexOpt = useMemo(() => ({
+    isAnnexed: (b, iid, view, inColumn) => annexDecision(b, { view, rows: rowsOf(iid), autoRows, inColumn }),
+    orientationOf: (inst, b) => {
+      const mode = (b.params && b.params.annexOrientation) || 'auto';
+      if (mode !== 'auto') return mode;
+      const r = states[inst.iid] && states[inst.iid].result;
+      const d = r && r.ok ? r.data : null;
+      if (d && (inst.view === 'table' || inst.view === 'heat') && d.rows && d.rows.length) {
+        // « Large » : la police devrait être réduite en portrait, le tableau occupe presque toute la
+        // largeur, ou il a 8 colonnes ou plus (cellules de texte trop étroites).
+        const f = tableFit(d, b.params.columns, portraitW);
+        const cols = (b.params.columns && b.params.columns.length) || (d.columns || []).length;
+        if (f.scale < 1 || f.tooWide || f.needed > portraitW * 0.9 || cols >= 8) return 'landscape';
+      }
+      return null; // orientation du document
+    },
+  }), [states, rowsOf, autoRows, portraitW]);
+  const plan = useMemo(() => localPlan(doc, { expansions: (data && data.expansions) || {}, vars, defaultView, annex: annexOpt }), [doc, data, vars, defaultView, annexOpt]);
   const instById = useMemo(() => Object.fromEntries(plan.instances.map((i) => [i.iid, i])), [plan]);
   const sectionById = useMemo(() => Object.fromEntries(plan.sections.map((s) => [s.id, s])), [plan]);
   // 1er élément de chaque section répétée (édition dans le 1er seulement) et 1re instance de chaque élément (étiquette).
@@ -306,22 +342,140 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
         items: s.items.map((inst) => {
           const m = measures[inst.iid];
           const scalable = inst.type === 'data' && !ROW_VIEWS.has(inst.view) && inst.view !== 'explain';
-          return { iid: inst.iid, h: m ? m.h : (DEFAULT_H[inst.type] || 40), split: m && m.split, keepWithNext: inst.type === 'heading', scalable, break: inst.type === 'pagebreak' };
+          return { iid: inst.iid, h: m ? m.h : (DEFAULT_H[inst.type] || 40), split: m && m.split, keepWithNext: inst.type === 'heading' || inst.type === 'annexhead', scalable, break: inst.type === 'pagebreak' };
         }),
       };
     });
     return paginate(secs, { gap: 12 });
   }, [paginSections, measures, pxPerMm, geometry]);
-  const toc = useMemo(() => tocEntries(plan, pagination.pageOf, 2), [plan, pagination]);
+  // Titre d'une annexe : titre de la figure (ou libellé du jeu), suivi de l'élément répété.
+  const annexTitle = useCallback((blockId, repeatLabel) => {
+    const f = findBlock(doc.blocks, blockId);
+    const p = f ? f.block.params || {} : {};
+    const def = catalog.datasets[p.dataset];
+    const t = (p.figure && p.figure.title ? p.figure.title.replace(/\{([a-z_]{2,40})\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m)) : null) || (def ? tr(def.label) : p.dataset || '');
+    return repeatLabel ? `${t} — ${repeatLabel}` : t;
+  }, [doc.blocks, catalog, vars, tr]);
+  const toc = useMemo(() => tocEntries(plan, pagination.pageOf, 2, (a) => `${tr('Annexe {l}', { l: a.letter })} — ${annexTitle(a.blockId, a.repeatLabel)}`), [plan, pagination, annexTitle, tr]);
   const measured = Object.keys(measures).length > 0 || plan.instances.length === 0;
+
+  // ---- Mise en page d'UNE page (retour 88) -----------------------------------------------
+  // Blocs de la page dans leur liste (racine, ou section répétée quand toute la page en vient) :
+  // reportDoc.setPageLayout les place dans une section propre, les autres pages ne changent pas.
+  const pageInfo = useMemo(() => {
+    const pg = selPage ? pagination.pages[selPage - 1] : null;
+    if (!pg) return null;
+    const g = geometry(pg.sectionId, pg.n === 1);
+    const base = { n: pg.n, total: pagination.total, size: g.size, orientation: g.orientation, sectionId: pg.sectionId };
+    const psec = sectionById[pg.sectionId] || {};
+    if (psec.annex) {
+      // Page d'annexe : son orientation est un réglage du bloc annexé (auto, portrait, paysage).
+      const a = (plan.annexes || []).find((x) => x.iid === psec.annex.iid) || {};
+      const fb = a.blockId ? findBlock(doc.blocks, a.blockId) : null;
+      return { ...base, scope: null, annex: { letter: psec.annex.letter, blockId: a.blockId, title: annexTitle(a.blockId, a.repeatLabel), mode: (fb && fb.block.params.annexOrientation) || 'auto' } };
+    }
+    const insts = pg.items.map((it) => instById[it.iid]).filter((i) => i && i.blockId);
+    if (!insts.length) return { ...base, scope: null };
+    const reps = new Set(insts.map((i) => i.repeatId || null));
+    const container = reps.size === 1 && [...reps][0] ? [...reps][0] : null;
+    const list = container ? ((findBlock(doc.blocks, container) || {}).block || { params: { blocks: [] } }).params.blocks : doc.blocks;
+    const idx = insts.map((i) => list.findIndex((b) => b.id === (container ? i.blockId : (i.repeatId || i.blockId)))).filter((x) => x >= 0);
+    if (!idx.length) return { ...base, scope: null };
+    const secIid = pg.sectionId !== '_doc' ? pg.sectionId : null;
+    const secBlock = secIid ? (findBlock(doc.blocks, secIid.split('~').pop()) || {}).block : null;
+    const first = pg.items[0];
+    const firstInst = instById[first.iid];
+    const startsMid = first.part && !first.first && firstInst ? frameLabel((findBlock(doc.blocks, firstInst.blockId) || {}).block || { type: firstInst.type, params: {} }, catalog, tr) : null;
+    const rb = container ? (findBlock(doc.blocks, container) || {}).block : null;
+    return {
+      ...base,
+      scope: { container, firstId: list[Math.min(...idx)].id, lastId: list[Math.max(...idx)].id },
+      firstIid: first.iid,
+      own: !!(secBlock && (secBlock.params.orientation || secBlock.params.size || (secBlock.params.header || 'inherit') !== 'inherit' || (secBlock.params.footer || 'inherit') !== 'inherit')),
+      secBlockId: secBlock ? secBlock.id : null,
+      header: secBlock ? secBlock.params.header || 'inherit' : 'inherit',
+      footer: secBlock ? secBlock.params.footer || 'inherit' : 'inherit',
+      repeatLabel: rb ? tr({ activity: 'Activité (fiche de suivi)', bureau: 'Bureau', partner: 'Partenaire' }[rb.params.over] || 'Section répétée') : null,
+      startsMid,
+    };
+  }, [selPage, pagination, geometry, instById, sectionById, plan, annexTitle, doc.blocks, catalog, tr]);
+  // Après un changement, la page reste sélectionnée : celle qui commence par le même bloc.
+  const pageAnchor = useRef(null);
+  useEffect(() => {
+    const a = pageAnchor.current;
+    if (!a) return;
+    const pg = pagination.pages.find((p) => p.items.some((it) => it.iid === a));
+    if (pg) { pageAnchor.current = null; setSelPage(pg.n); }
+  }, [pagination]);
+  const layoutPage = (patch) => {
+    if (!pageInfo || !pageInfo.scope) return;
+    pageAnchor.current = pageInfo.firstIid;
+    change((d) => ({ ...d, blocks: setPageLayout(d.blocks, { ...pageInfo.scope, patch }).blocks }));
+  };
+
+  // ---- Concepteur d'en-tête et de pied de page (retours 51 et 88) -----------------------
+  const emptyBand = (h) => ({ height: h, elements: [] });
+  /** En-tête / pied de CETTE page : du document, aucun, ou propres (copie de ceux en vigueur, à redessiner). */
+  const setPageBands = (patch) => {
+    const p = {};
+    for (const k of ['header', 'footer']) {
+      if (patch[k] == null) continue;
+      const bandKey = k === 'header' ? 'headerBand' : 'footerBand';
+      p[k] = patch[k];
+      p[bandKey] = patch[k] === 'own' ? JSON.parse(JSON.stringify(page[k] && page[k].elements && page[k].elements.length ? page[k] : emptyBand(k === 'header' ? 14 : 10))) : undefined;
+    }
+    layoutPage(p);
+  };
+  /** Ouverture : depuis l'onglet Page (document), un double-clic sur une bande, ou une page à en-tête propre. */
+  const onEditBand = ({ place, sectionId, first }) => {
+    const sec = sectionById[sectionId] || {};
+    const mode = place === 'header' ? sec.header : sec.footer;
+    if (mode === 'own' && sectionId !== '_doc') { setBandEditor({ scope: 'section', sectionBlockId: String(sectionId).split('~').pop(), startZone: place }); return; }
+    const firstOwn = first && page.firstPage === 'own';
+    setBandEditor({ scope: 'doc', startZone: firstOwn ? (place === 'header' ? 'firstHeader' : 'firstFooter') : place });
+  };
+  const bandSetup = useMemo(() => {
+    if (!bandEditor) return null;
+    if (bandEditor.scope === 'section') {
+      const f = findBlock(doc.blocks, bandEditor.sectionBlockId);
+      if (!f) return null;
+      const p = f.block.params || {};
+      const zones = ['header', 'footer'].filter((k) => p[k] === 'own');
+      return {
+        zones: zones.length ? zones : ['header'],
+        initial: { header: p.headerBand || emptyBand(14), footer: p.footerBand || emptyBand(10) },
+        orientation: p.orientation || page.orientation || 'portrait', size: p.size || page.size || 'A4',
+      };
+    }
+    return {
+      zones: null,
+      initial: { header: page.header || emptyBand(14), footer: page.footer || emptyBand(10), firstPage: page.firstPage || 'same', firstHeader: page.firstHeader, firstFooter: page.firstFooter },
+      orientation: page.orientation || 'portrait', size: page.size || 'A4',
+    };
+  }, [bandEditor, doc.blocks, page]);
+  const applyBands = (v) => {
+    const be = bandEditor;
+    if (be.scope === 'section') {
+      const f = findBlock(doc.blocks, be.sectionBlockId);
+      const p = (f && f.block.params) || {};
+      updateBlock(be.sectionBlockId, { ...(p.header === 'own' ? { headerBand: v.header } : {}), ...(p.footer === 'own' ? { footerBand: v.footer } : {}) });
+    } else {
+      change((d) => {
+        const pg = { ...(d.page || defaultPage()), header: v.header, footer: v.footer, firstPage: v.firstPage || 'same' };
+        if (pg.firstPage === 'own') { pg.firstHeader = v.firstHeader; pg.firstFooter = v.firstFooter; } else { delete pg.firstHeader; delete pg.firstFooter; }
+        return { ...d, page: pg };
+      });
+    }
+    setBandEditor(null);
+  };
 
   // ---- Exports ------------------------------------------------------------------------
   const sheetsRef = useRef(null);
   const cleanClone = () => {
     const root = sheetsRef.current.cloneNode(true);
-    root.querySelectorAll('.rd-mini, .rd-add-between, .rd-sheet-chip, .rd-fitchip, .rd-repeat-chip, .rd-toobig, .rb-pagebreak span, .rt-toolbar, .rb-showdata').forEach((n) => n.remove());
+    root.querySelectorAll('.rd-mini, .rd-add-between, .rd-sheet-chip, .rd-fitchip, .rd-repeat-chip, .rd-toobig, .rb-pagebreak span, .rt-toolbar, .rb-showdata, .rd-el-ph').forEach((n) => n.remove());
     root.querySelectorAll('[contenteditable]').forEach((n) => n.removeAttribute('contenteditable'));
-    root.querySelectorAll('.is-selected').forEach((n) => n.classList.remove('is-selected'));
+    root.querySelectorAll('.is-selected, .is-page-selected').forEach((n) => n.classList.remove('is-selected', 'is-page-selected'));
     root.querySelectorAll('.rd-sheet').forEach((n) => { n.style.transform = ''; });
     root.querySelectorAll('.rd-sheet-slot').forEach((n) => { n.style.width = ''; n.style.height = ''; });
     return root;
@@ -332,7 +486,15 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
   };
   const fileBase = (doc.title || 'Rapport').replace(/[^\w\-À-ÿ ]+/g, '').trim().slice(0, 80) || 'Rapport';
   // HTML : les feuilles paginées, styles en ligne (impression identique à l'aperçu).
-  const exportHtml = () => download(`<!doctype html><html lang="${document.documentElement.lang || 'fr'}"><head><meta charset="utf-8"><title>${fileBase}</title><style>body{background:#f5f6f9;margin:0;padding:24px}${reportCss}</style></head><body class="rd-export">${cleanClone().outerHTML}</body></html>`, `${fileBase}.html`, 'text/html;charset=utf-8');
+  // Les logos (URL blob: de la session) deviennent des images data: : le fichier HTML est autonome.
+  const exportHtml = async () => {
+    const root = cleanClone();
+    for (const img of root.querySelectorAll('img[data-asset]')) {
+      const d = await assetDataUrl(img.getAttribute('data-asset'));
+      if (d) img.setAttribute('src', d); else img.remove();
+    }
+    download(`<!doctype html><html lang="${document.documentElement.lang || 'fr'}"><head><meta charset="utf-8"><title>${fileBase}</title><style>body{background:#f5f6f9;margin:0;padding:24px}${reportCss}</style></head><body class="rd-export">${root.outerHTML}</body></html>`, `${fileBase}.html`, 'text/html;charset=utf-8');
+  };
   // Word (HTML lu par Word) : le contenu des pages à la suite, un saut de page entre deux feuilles.
   const exportWord = () => {
     const bodies = [...cleanClone().querySelectorAll('.rd-sheet-body')].map((b) => b.innerHTML).join('<br clear="all" style="page-break-before:always">');
@@ -383,13 +545,20 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
     if (r.error) { toast.error(tr(r.error)); return; }
     setBlocks(() => r.blocks);
   };
-  /** Mini-barre du bloc sélectionné : monter, descendre, dupliquer, supprimer, options. */
-  const miniBar = (b) => (
+  /** Bloc « données » effectivement en annexe (marqué, ou au-delà du seuil de lignes du document). */
+  const annexedIds = useMemo(() => new Set((plan.annexes || []).map((a) => a.blockId)), [plan]);
+  const toggleAnnex = (b) => updateBlock(b.id, { annex: annexedIds.has(b.id) ? false : true });
+  /** Mini-barre du bloc sélectionné : monter, descendre, dupliquer, supprimer, annexe, options. */
+  const miniBar = (b, { inColumns = false } = {}) => (
     <div className="rd-mini" onClick={(e) => e.stopPropagation()}>
       <button type="button" onClick={() => setBlocks((bs) => moveBlock(bs, b.id, -1))} aria-label={tr('Monter')} title={tr('Monter')}><ChevronUp size={14} /></button>
       <button type="button" onClick={() => setBlocks((bs) => moveBlock(bs, b.id, 1))} aria-label={tr('Descendre')} title={tr('Descendre')}><ChevronDown size={14} /></button>
       <button type="button" onClick={() => setBlocks((bs) => duplicateBlock(bs, b.id))} aria-label={tr('Dupliquer')} title={tr('Dupliquer (Ctrl+D)')}><Copy size={14} /></button>
       <button type="button" onClick={() => remove(b.id)} aria-label={tr('Supprimer')} title={tr('Supprimer (Suppr)')}><Trash2 size={14} /></button>
+      {b.type === 'data' && !inColumns && (
+        <button type="button" onClick={() => toggleAnnex(b)} aria-pressed={annexedIds.has(b.id)} className={annexedIds.has(b.id) ? 'is-on' : ''}
+          aria-label={tr(annexedIds.has(b.id) ? 'Remettre dans le corps du rapport' : 'Placer en annexe')} title={tr(annexedIds.has(b.id) ? 'Remettre dans le corps du rapport' : 'Placer en annexe')}><Paperclip size={14} /></button>
+      )}
       <button type="button" onClick={() => setRightOpen(true)} aria-label={tr('Options du bloc')} title={tr('Options du bloc')}><SlidersHorizontal size={14} /></button>
     </div>
   );
@@ -467,14 +636,45 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
           </div>
         )}
         {visible && o.tooTall && editable && <div className="rd-toobig" role="note"><AlertTriangle size={13} aria-hidden="true" /> {tr('Bloc plus haut qu\'une page')}</div>}
-        {showTools && isSel ? miniBar(b) : null}
+        {showTools && isSel ? miniBar(b, { inColumns: !!o.inColumns }) : null}
         {showTools && !repeat && !o.inColumns ? addBetween(b) : null}
       </div>
     );
   };
 
   /** Un élément de la pagination : bloc feuille ou colonnes (insécables). */
+  /** Renvoi « Voir l'annexe A — titre · page n » (corps) et titre de la page d'annexe. */
+  const renderAnnexItem = (inst, o) => {
+    const visible = !o.measure;
+    const isSel = selected === inst.blockId;
+    const letter = inst.annex ? inst.annex.letter : '?';
+    const title = annexTitle(inst.blockId, inst.repeatLabel);
+    const first = !inst.repeatId || firstKeyOf[inst.repeatId] === inst.repeatKey;
+    const isRef = inst.type === 'annexref';
+    const pg = pagination.pageOf[`annexhead~${inst.target}`];
+    const found = findBlock(doc.blocks, inst.blockId);
+    return (
+      <div key={inst.iid} data-block={inst.blockId} data-iid={visible ? inst.iid : undefined} className={`rd-block rd-block-${inst.type} ${visible && isSel ? 'is-selected' : ''}`}
+        onClick={visible ? (e) => { e.stopPropagation(); if (first) setSelected(inst.blockId); } : undefined}>
+        {isRef ? (
+          <p className="rb-annex-ref">
+            <Paperclip size={13} aria-hidden="true" className="rb-annex-ico" />
+            <span className="rb-annex-txt"><b>{tr('Voir l\'annexe {l}', { l: letter })}</b> — {title}</span>
+            {pg != null && <span className="rb-annex-pg">{tr('page {n}', { n: pg })}</span>}
+          </p>
+        ) : (
+          <div className="rb-annex-head">
+            <span className="rb-annex-l">{tr('Annexe {l}', { l: letter })}</span>
+            <h2 className="rb-annex-t">{title}</h2>
+          </div>
+        )}
+        {visible && editable && first && isSel && isRef && found ? miniBar(found.block) : null}
+      </div>
+    );
+  };
+
   const renderItem = (inst, o = {}) => {
+    if (inst.type === 'annexref' || inst.type === 'annexhead') return renderAnnexItem(inst, o);
     const found = findBlock(doc.blocks, inst.blockId);
     if (!found) return null;
     const b = found.block;
@@ -508,12 +708,20 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
   const upgradedDraft = meta.upgradedFrom === 1 && !final;
   const pagesList = pagination.pages.map((pg) => {
     const h = pg.items.map((it) => instById[it.iid]).find((i) => i && i.type === 'heading');
-    return { n: pg.n, size: pg.size, orientation: pg.orientation, title: (h && h.text) || (sectionById[pg.sectionId] || {}).title || null };
+    const sec = sectionById[pg.sectionId] || {};
+    if (sec.annex) {
+      const a = (plan.annexes || []).find((x) => x.iid === sec.annex.iid) || {};
+      return { n: pg.n, size: pg.size, orientation: pg.orientation, title: annexTitle(a.blockId, a.repeatLabel), annex: sec.annex.letter };
+    }
+    const own = (pg.orientation || 'portrait') !== (page.orientation || 'portrait') || (pg.size || 'A4') !== (page.size || 'A4');
+    return { n: pg.n, size: pg.size, orientation: pg.orientation, title: (h && h.text) || sec.title || null, own };
   });
   const goPage = (p) => {
     const el = document.getElementById(`rd-sheet-${p.n}`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    if (narrow) setLeftOpen(false);
+    // La page devient la sélection : le volet droit montre SA mise en page (orientation, format…).
+    setSelected(null); setSelPage(p.n);
+    if (narrow) { setLeftOpen(false); setRightOpen(true); }
   };
   const selectSection = (sectionId) => {
     if (sectionId === '_doc') { setSelected(null); setRightOpen(true); return; }
@@ -534,15 +742,33 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
           onMove={(id, dir) => setBlocks((bs) => moveBlock(bs, id, dir))} onMoveTo={(id, i) => setBlocks((bs) => moveBlockTo(bs, id, i))}
           onRemove={remove} onDuplicate={(id) => setBlocks((bs) => duplicateBlock(bs, id))} />
       )}
-      {leftTab === 'pages' && <PagesPane pages={pagesList} onGo={goPage} />}
+      {leftTab === 'pages' && <PagesPane pages={pagesList} selected={selPage} onGo={goPage} />}
     </>
   );
+  const pageMode = !sel && !!pageInfo;
   const rightPane = (
     <>
       {narrow && <div className="rd-drawer-h"><strong>{tr('Propriétés')}</strong><button type="button" className="rd-drawer-x" onClick={() => setRightOpen(false)} aria-label={tr('Fermer')}><X size={15} /></button></div>}
-      <PropertiesPane sel={sel} doc={doc} catalog={catalog} forms={forms} opts={opts} state={selIid ? states[selIid] : null}
-        onChangeBlock={(patch) => sel && updateBlock(sel.block.id, patch)} onRegenerate={() => sel && updateBlock(sel.block.id, { doc: undefined })}
-        onChangePage={(pg) => change((d) => ({ ...d, page: { ...(d.page || defaultPage()), ...pg } }))} />
+      {pageMode ? (
+        <>
+          <div className="rd-tabs" role="tablist">
+            <button type="button" role="tab" aria-selected="true" className="is-active">{tr('Cette page')}</button>
+            <button type="button" role="tab" aria-selected="false" onClick={() => setSelPage(null)}>{tr('Document')}</button>
+          </div>
+          <div className="rd-pane-body">
+            <PageLayoutPane info={pageInfo} docPage={page} onLayout={layoutPage} onReset={() => layoutPage({ orientation: undefined, size: undefined, header: 'inherit', footer: 'inherit', headerBand: undefined, footerBand: undefined })}
+              onBands={setPageBands} onDesignBands={() => pageInfo && pageInfo.secBlockId && setBandEditor({ scope: 'section', sectionBlockId: pageInfo.secBlockId, startZone: pageInfo.header === 'own' ? 'header' : 'footer' })}
+              onAnnexOrientation={(v) => pageInfo.annex && pageInfo.annex.blockId && updateBlock(pageInfo.annex.blockId, { annexOrientation: v === 'auto' ? undefined : v })} />
+          </div>
+        </>
+      ) : (
+        <PropertiesPane sel={sel} doc={doc} catalog={catalog} forms={forms} opts={opts} state={selIid ? states[selIid] : null}
+          annex={sel && sel.block.type === 'data' ? { effective: annexedIds.has(sel.block.id), inColumn: !!(sel.parent && sel.parent.type === 'columns'), autoRows } : null}
+          onChangeBlock={(patch) => sel && updateBlock(sel.block.id, patch)} onRegenerate={() => sel && updateBlock(sel.block.id, { doc: undefined })}
+          onChangePage={(pg) => change((d) => ({ ...d, page: { ...(d.page || defaultPage()), ...pg } }))}
+          pageExtra={{ vars, onDesignBands: () => setBandEditor({ scope: 'doc', startZone: 'header' }) }}
+          onChangeAnnexes={(annexes) => change((d) => { const n = { ...d }; if (annexes) n.annexes = annexes; else delete n.annexes; return n; })} />
+      )}
     </>
   );
   const exportBlocked = !fontsReady ? tr('Chargement des polices…') : !measured ? tr('Mise en page en cours…') : null;
@@ -579,7 +805,7 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
       <div className={`rd-body ${editable ? '' : 'is-readonly'}`}>
         {editable && (!narrow || leftOpen) && <aside className={`rd-left ${narrow ? 'is-drawer' : ''}`} aria-label={tr('Catalogue et plan')}>{leftPane}</aside>}
 
-        <main className="rd-canvas" onClick={() => setSelected(null)}
+        <main className="rd-canvas" onClick={() => { setSelected(null); setSelPage(null); }}
           onDragOver={(e) => { if (editable && isBlockDrag(e)) e.preventDefault(); }}
           onDrop={(e) => {
             if (!editable || !isBlockDrag(e)) return;
@@ -590,6 +816,8 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
           <PagedPreview pages={pagination.pages} geometryOf={(pg) => geometry(pg.sectionId, pg.n === 1)} sectionOf={(id) => sectionById[id]}
             renderPageItem={renderPageItem} page={page} vars={vars} pxPerMm={pxPerMm} forceFit={phone} watermark={watermark}
             selectedSection={selectedSection} onSelectSection={selectSection} sheetsRef={sheetsRef}
+            selectedPage={editable ? selPage : null} onSelectPage={editable ? (n) => { setSelected(null); setSelPage(n); if (narrow) setRightOpen(true); } : undefined}
+            onEditBand={editable ? onEditBand : undefined}
             emptyNote={doc.blocks.length === 0 ? <p className="rd-empty-doc">{tr('Le rapport est vide : ajoutez des blocs depuis le catalogue (clic ou glisser sur la page).')}</p> : null} />
           <MeasureLayer sections={paginSections.map((s) => ({ id: s.id, bodyW: geometry(s.id).bodyW, items: s.items }))}
             renderItem={renderItem} splitOf={splitOf} onMeasure={onMeasure} onPxPerMm={onPxPerMm} />
@@ -598,6 +826,10 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
         {editable && (!narrow || rightOpen) && <aside className={`rd-right ${narrow ? 'is-drawer' : ''}`} aria-label={tr('Propriétés')}>{rightPane}</aside>}
       </div>
       {editable && narrow && (leftOpen || rightOpen) && <div className="rd-drawer-backdrop" onClick={() => { setLeftOpen(false); setRightOpen(false); }} aria-hidden="true" />}
+      {editable && bandEditor && bandSetup && (
+        <HeaderDesigner initial={bandSetup.initial} scope={bandEditor.scope} zones={bandSetup.zones} page={page} orientation={bandSetup.orientation} size={bandSetup.size}
+          vars={vars} startZone={bandEditor.startZone} canSave={canEdit} onApply={applyBands} onClose={() => setBandEditor(null)} />
+      )}
     </div>
   );
 }

@@ -522,6 +522,12 @@ or navy rail.
   chaque changement est journalisé (`site_activation_changes`, append-only, avant → après, motif, source
   écran / import). Import : rapprochement par identifiant, aperçu sans écriture, une case VIDE laisse le
   mois inchangé, un site inconnu n'est jamais créé (il vient du registre). Règles pures `activationMath`.
+  **Forme du Plan de suivi** (retour 98) : mêmes classes `pb-*` (planBoard.css), `activation.css` ne porte
+  que le propre à la grille (tout préfixé `act-`). **Règle UNIQUE « site actif au mois M »** = celle des
+  tableaux de bord (`common/siteActivitySql`) : dès que l'exercice a une grille, seul « Oui » est actif
+  (case vide = inactive, badge « À renseigner ») ; sans aucune grille, tous les sites comptent actifs
+  (`web/src/lib/activation.isActiveMonth`). « Renseigner les cases vides » = `POST …/activation/fill`
+  (`activationMath.blankFill`, sous verrou, une transaction ; un Oui / Non saisi ne change jamais).
 - **Identifiant des sites** (retour 64, migration 073, `common/publicId.js`) : chaque site porte un
   identifiant affiché `S-XXXX-XXXX` (8 symboles Crockford base 32 sans I, L, O, U, tirés au hasard par
   la base `mems_site_public_id()`, uniques par compte, IMMUABLES — déclencheur). L'UUID interne reste la
@@ -531,15 +537,28 @@ or navy rail.
 - **Espace RBM** : onglets Priorités du mois · Plan de suivi (plan, déjà visités, carte) · Sites
   (actifs / inactifs) · Configuration RBM (critères de risque des sites = ancienne « vue standard »,
   exigences MMR, planification automatique). Ne pas remettre la vue standard dans le Plan de suivi.
-- **Affectation des TPM par zone** (retour 58, migration 070, `tpm/tpmAttribution*.js`, écrans `Tpm*.jsx`,
-  onglet `TpmAttributionTab` de l'espace RBM) : le TPM d'une zone (district, ou commune portée) pour un
-  mois = celui des contrats de suivi qui la couvrent (TPM rattaché par plan / facture, sinon titulaire —
-  règle commune du lot 8 `activeProvider`) ; une modification = zone × mois + raison (10–500) + journal
-  inaltérable (`tpm_attribution_log`). Le TPM d'une visite « zone » n'est écrit que par `mems_tpm_stamp`
-  (garde AVANT + estampille DIFFÉRÉE au COMMIT : un écrivain qui l'ignore est couvert) ; tout écrivain
-  de visites appelle `restampVisitsTx` (test `visitWritersGuard`). Re-dérivation automatique : visites
-  PRÉVUES, non « antérieures », non facturées seulement (`AUTO_RESTAMPABLE_SQL`, même filtre en base) —
-  ne jamais réécrire qui a fait une visite. Autre TPM pour une visite = écart motivé (`provider_source = 'visite'`).
+- **Publié le 15/10** :
+  - sélecteur de période en surcouche (portail, `web/src/lib/popoverPlacement.js`) : jamais coupé par
+    une fenêtre ; onglet « Données » d'une fiche par pages de 1 000 dans un ordre stable, le compteur dit
+    « chargée(s) sur N » (jamais de limite silencieuse), lieux par leur nom (P-code puis liste de choix) ;
+  - carte : couleur des points par activité (`web/src/lib/mapPoints.activitySlots`, rang dans le registre :
+    un filtre ne recolore jamais) ou par statut ; légende en groupes titrés ; un bureau choisi recadre ;
+  - concepteur : images d'en-tête PNG / JPEG reconnues par les octets, IMMUABLES (`report_assets`, 062,
+    quotas sous verrou) ; bandes d'en-tête / pied validées (couleurs `#RRGGBB`, polices d'une liste,
+    20 éléments au plus, positions bornées) ; annexes ; orientation et format par page ;
+  - écrans qui n'affichent que des totaux RBM : `GET /api/tpm/field/rbm/counts` (mêmes lignes que
+    `/rbm/sites`), jamais la liste complète.
+- **TPM d'une visite = contrat de la zone** (retour 58, migration 070, `tpm/tpmAttribution.js` + jumelle SQL
+  `mems_tpm_cells`) : TPM du contrat de suivi actif qui couvre la zone (commune sinon district) du site ce
+  mois-là ; seules les MODIFICATIONS sont stockées (`tpm_zone_overrides`, raison 10–500) et journalisées
+  (`tpm_attribution_log`, inscription seule). La base estampille au COMMIT toute visite « zone » sans TPM
+  (déclencheur différé `mems_tpm_stamp`) : un écrivain n'a pas à choisir le TPM. Seules les visites
+  PRÉVUES sont réattribuées — réalisées, annulées, figées (« antérieur »), facturées ou motivées jamais.
+  TPM d'un contrat = TPM rattaché par plan / facture, sinon titulaire (règle commune du lot 8
+  `activeProvider`) ; tout écrivain de visites appelle `restampVisitsTx` (test `visitWritersGuard`) ;
+  filtre des réattributions automatiques `AUTO_RESTAMPABLE_SQL` (même filtre dans `mems_tpm_stamp`).
+  Onglet « Affectation des TPM » (`TpmAttributionTab`, espace RBM) : zones région › district, changement
+  motivé avec aperçu, retour au contrat, journal ; autre TPM pour une visite = écart motivé (`provider_source = 'visite'`).
 
 ## Known / open items
 - **Rapportage fidèle à la facture** — DONE. Financial reports now hold a

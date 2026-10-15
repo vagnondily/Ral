@@ -76,6 +76,16 @@ test('couche de points : GPS, placé par ses collectes (≥ 3 relevés), centres
   for (const s of r.sites.filter((x) => x.kind !== 'gps')) for (const v of [s.lat, s.lng]) assert.ok(Math.abs(v * 100 - Math.round(v * 100)) < 1e-9);
 });
 
+test('couche de points : activité du registre portée par chaque site dessiné (couleur par activité, retour 94)', () => {
+  const r = buildPointsResponse({
+    sites: [site('A', { hasGps: true, lat: 1, lng: 1, activity: 'School meal activities' }), site('B', { hasGps: true, lat: 2, lng: 2 }),
+      site('C', { activity: 'Nutrition treatment activities' })],
+    sitesCap: 3000, bySite: [{ key: 'C', n: 5, lat: -24.2, lng: 45.2, spreadKm: 0.3 }], byCommune: [], communes: [], collect: null,
+  }, { layers: ['gps', 'derived'], precise: true, maxAccuracyM: 100, limit: 2000 });
+  assert.deepEqual(r.sites.map((s) => [s.id, s.kind, s.activity]), [
+    ['A', 'gps', 'School meal activities'], ['B', 'gps', null], ['C', 'collectes', 'Nutrition treatment activities']]);
+});
+
 test('couche de points : plafond de la couche « sites » signalé', () => {
   const r = buildPointsResponse({ sites: [site('A', { hasGps: true, lat: 1, lng: 1 }), site('B', { hasGps: true, lat: 2, lng: 2 })], sitesCap: 1, bySite: [], byCommune: [], communes: [], collect: null },
     { layers: ['gps'], precise: true, maxAccuracyM: 100, limit: 10 });

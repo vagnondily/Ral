@@ -73,3 +73,26 @@ test('motif : nettoyé, borné à 500 caractères, vide = null', () => {
   assert.equal(m.cleanReason(42), null);
   assert.equal([...m.cleanReason('é'.repeat(600))].length, 500);
 });
+
+test('cases vides : seules les cases SANS statut prennent la valeur ; un Oui / Non saisi ne change jamais', () => {
+  const current = new Map([['a', { 1: true, 2: false }], ['b', {}]]);
+  const wanted = m.blankFill(current, ['a', 'b', 'c', 'a'], { from: 1, to: 3, value: true, reason: 'ouverture' });
+  assert.deepEqual(wanted, [
+    { siteId: 'a', months: { 3: true }, reason: 'ouverture' },
+    { siteId: 'b', months: { 1: true, 2: true, 3: true }, reason: 'ouverture' },
+    { siteId: 'c', months: { 1: true, 2: true, 3: true }, reason: 'ouverture' },
+  ]);
+  // Branché sur diffActivation : les écarts partent de « non renseigné ».
+  const diff = m.diffActivation(current, wanted);
+  assert.equal(diff.length, 7);
+  assert.ok(diff.every((c) => c.before === null && c.after === true));
+  assert.deepEqual(m.summarizeChanges(diff), { changes: 7, sites: 3, activated: 7, deactivated: 0, cleared: 0 });
+});
+
+test('cases vides : bornes remises dans l\'ordre et dans 1..12 ; rien à remplir = aucun écart ; valeur booléenne exigée', () => {
+  const full = new Map([['a', Object.fromEntries(m.MONTHS.map((x) => [x, false]))]]);
+  assert.deepEqual(m.blankFill(full, ['a'], { from: 1, to: 12, value: true }), []);
+  const w = m.blankFill(new Map(), ['a'], { from: 14, to: 11, value: false });
+  assert.deepEqual(w, [{ siteId: 'a', months: { 11: false, 12: false }, reason: null }]);
+  assert.throws(() => m.blankFill(new Map(), ['a'], { from: 1, to: 2, value: null }), TypeError);
+});

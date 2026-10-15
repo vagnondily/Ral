@@ -297,14 +297,23 @@ async function choiceContextTx(client, tenantId) {
   return { fields, dataKeys };
 }
 
-async function choiceLabelsTx(client, tenantId, dimension, ctx) {
+/**
+ * @param {object} [ctx] choiceContextTx déjà lu (partagé entre dimensions)
+ * @param {{ formId?: string, values?: string[] }} [only] une seule fiche et / ou seulement ces
+ *   valeurs (écran des données d'une fiche : jamais toute une liste de 17 000 fokontany)
+ */
+async function choiceLabelsTx(client, tenantId, dimension, ctx, only = {}) {
   const { fields, dataKeys } = ctx || await choiceContextTx(client, tenantId);
   const { rows: overrides } = await client.query(
     'SELECT form_id AS "formId", column_name AS "columnName" FROM monitoring_field_map WHERE tenant_id = $1 AND dimension = $2',
     [tenantId, dimension]);
   const forced = new Map(overrides.map((o) => [o.formId, (o.columnName || '').trim()]));
   const byForm = new Map();
-  for (const f of fields) { if (!byForm.has(f.formId)) byForm.set(f.formId, []); byForm.get(f.formId).push(f); }
+  for (const f of fields) {
+    if (only.formId && f.formId !== only.formId) continue;
+    if (!byForm.has(f.formId)) byForm.set(f.formId, []);
+    byForm.get(f.formId).push(f);
+  }
   const lists = [];
   for (const [formId, list] of byForm) {
     const inData = dataKeys.get(formId);
@@ -315,11 +324,13 @@ async function choiceLabelsTx(client, tenantId, dimension, ctx) {
     if (field && field.listName) lists.push([formId, field.listName]);
   }
   const out = new Map();
-  if (!lists.length) return out;
+  if (!lists.length || (Array.isArray(only.values) && !only.values.length)) return out;
+  const params = [tenantId, lists.map((l) => l[0]), lists.map((l) => l[1])];
+  if (Array.isArray(only.values)) params.push(only.values.map(String));
   const { rows } = await client.query(
     `SELECT c.form_id AS "formId", c.value, c.label FROM monitoring_choices c
        JOIN unnest($2::uuid[], $3::text[]) AS l(form_id, list_name) ON l.form_id = c.form_id AND l.list_name = c.list_name
-      WHERE c.tenant_id = $1`, [tenantId, lists.map((l) => l[0]), lists.map((l) => l[1])]);
+      WHERE c.tenant_id = $1${params.length > 3 ? ' AND c.value = ANY($4::text[])' : ''}`, params);
   for (const r of rows) {
     if (!out.has(r.formId)) out.set(r.formId, new Map());
     out.get(r.formId).set(String(r.value), r.label);
@@ -703,7 +714,7 @@ async function applyAll(tenantId) {
 
 module.exports = {
   loadPlaceIndexTx, applySitesGeoTx, syncQueueTx, resolvePerimeterTx, attachUnassignedSitesTx, afterSitesChangedTx, applySubmissionsGeoTx,
-  officeChoiceLabelsTx, choiceLabelsTx, applySubmissionSitesTx, loadSiteIndexTx,
+  officeChoiceLabelsTx, choiceLabelsTx, choiceContextTx, applySubmissionSitesTx, loadSiteIndexTx,
   loadValueLinksTx, loadPartiesTx, applySubmissionPartiesTx, lockSubmissionLinksTx, withSubmissionLinks, relinkPartiesTx,
   listQueue, listAliases, decideQueue, deleteAlias, applyAll,
 };
