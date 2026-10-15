@@ -134,7 +134,10 @@ test('liste des visites : paginée (1 000 par défaut, 2 000 au plus), ordre sta
   assert.match(calls[0].sql, /count\(\*\) OVER \(\)::int AS _total/);
   assert.match(calls[0].sql, /ORDER BY s\.district, s\.commune, s\.name, v\.period_month, v\.id LIMIT \$4 OFFSET \$5$/);
   assert.deepEqual(calls[0].params.slice(-2), [1000, 0]);
-  assert.doesNotMatch(calls[0].sql, /contract_id/, 'contrat jamais affiché : pas lu');
+  // Retour 58 : la cellule TPM affiche le contrat de la zone (« contrat FLA-… ») — lu dans la
+  // MÊME requête, par jointure limitée au même compte (pas de lecture par ligne).
+  assert.match(calls[0].sql, /LEFT JOIN contracts c ON c\.id = v\.contract_id AND c\.tenant_id = v\.tenant_id/, 'contrat affiché : lu par jointure, même compte');
+  assert.match(calls[0].sql, /COALESCE\(c\.numero_fla, c\.numero\) AS "contractLabel"/);
   calls = [];
   await field.listVisits(T, { period: H1, limit: 99999, offset: 2000 });
   assert.deepEqual(calls[0].params.slice(-2), [2000, 2000], '2 000 au plus par page');
