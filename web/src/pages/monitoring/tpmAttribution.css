@@ -13,6 +13,7 @@
 .pb-tpm-name.tpm-none { color: var(--red-text); }
 .pb-tpm-link { color: var(--red-text); text-decoration: underline; text-underline-offset: 2px; }
 .pb-tpm-link:hover { color: var(--red); }
+.pb-tpm-todo { color: var(--red-text); cursor: help; }
 .pb-tpm-origin, .pb-tpm-more { display: block; font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pb-tpm-more { color: var(--text-faint); }
 .pb-tpm-diff {
