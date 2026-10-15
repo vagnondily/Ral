@@ -194,6 +194,23 @@ L'interface s'ouvre sur `http://localhost:5173` et pointe par défaut sur l'API
 `http://localhost:9000` — aucune configuration supplémentaire n'est requise.
 Connectez-vous avec `admin@mems.mg` / `changeme123`.
 
+> **Usage quotidien : `npm run serve` plutôt que `npm run dev`.** `npm run dev`
+> est le mode développeur : chaque module est servi séparément et recompilé à la
+> volée, React rend chaque écran deux fois pour détecter les erreurs — il est
+> nettement plus lent (premier chargement ~1,5 s et 13,7 Mo contre ~0,5 s et
+> 0,6 Mo ; onglet « Données » d'une fiche 8,2 s contre 1,4 s, mesures
+> `docs/reprise/PERF_MESURES.md`). Pour travailler dans l'application, lancez à
+> la place :
+>
+> ```cmd
+> npm run serve
+> ```
+>
+> Il construit la version optimisée puis la sert sur le même port
+> `http://localhost:5173`. Relancez-le après chaque mise à jour du code (pas de
+> rechargement automatique). L'identifiant de démonstration n'est pas
+> pré-rempli dans ce mode.
+
 **6. (Optionnel) Recalcul des dépenses en tâche de fond.** Ce calcul tourne
 dans un worker qui a besoin de **Redis**. Sans Redis, toute l'application
 reste utilisable ; seul le recalcul asynchrone des jours de mission est en
