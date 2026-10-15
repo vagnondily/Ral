@@ -6,6 +6,7 @@ const { shapeRangeSummary, shapeCoverageFacts, collectionDays, buildCoverageMatr
 const { isDue, frequencyFor, visitState, currentMonth, toMonth, needsPlanning, planningCounts } = require('./rbmMath');
 const { scoreSite, normalizeSecurity } = require('./rbmScore');
 const { coverageRecap } = require('./coverageRecap');
+const { rbmCounts: countRbm } = require('./rbmSummary');
 const { mmrLookup, siteCounters, rankSites, boardKpis, normalizeChanges, currentStatus, mmrKeyOf, mmrCapacity, autoPlanMonths, norm } = require('./planBoard');
 const { badRequest, conflict } = require('../../middleware/errors');
 const { unattachedText } = require('../common/codeLabel');
@@ -13,6 +14,10 @@ const { toPeriod, periodInfo, monthsOf, addMonths } = require('../common/period'
 const { PERIOD_CAPS } = require('../common/periodCaps');
 const { monthWithin } = require('../common/periodSql');
 const { siteMonthFactsCtes, siteDistrictCtes, DISTRICT_LABEL_SQL, SITE_FACT_COLUMNS, MONTH_FACT_COLUMNS } = require('../common/siteActivitySql');
+// Retour 58 : TPM des visites = celui de leur zone (toute écriture de visites finit par restampVisitsTx ;
+// filet de sécurité en base : migration 070). Verrou d'attribution AVANT toute ligne de visite mise à jour.
+const { restampVisitsTx, lockAttributionTx, applyVisitRequestTx, boardTpmTx } = require('./tpmAttribution.repository');
+const { visitErrorMessage } = require('./tpmAttribution');
 
 /** Période d'un appel : `period` ({ from, to } | null) si fourni, sinon l'ancien { month }. */
 const periodArg = (opts = {}) => (opts.period !== undefined ? opts.period : toPeriod(opts));
@@ -141,14 +146,14 @@ const SUBMISSION_COUNTS_FOR_SITE = `NOT ms.excluded
  * visité en août n'est pas « à jour » en juin. Les visites PRÉVUES ne sont jamais bornées
  * (« à planifier » regarde le plan à venir).
  */
-function rbmSelect(asOfRef = null) {
+function rbmSelect(asOfRef = null, { factsCte = null } = {}) {
   const doneBound = asOfRef ? ` AND v.period_month <= ${asOfRef}::date` : '';
   const dataBound = asOfRef ? `\n         AND ms.period_month <= ${asOfRef}::date` : '';
   const lastVisitDate = asOfRef
     ? `CASE WHEN s.last_visit_date < (${asOfRef}::date + interval '1 month') THEN to_char(s.last_visit_date, 'YYYY-MM-DD') END`
     : "to_char(s.last_visit_date, 'YYYY-MM-DD')";
   return `
-  SELECT s.id, s.code, s.name, s.district, s.commune, s.activity, s.risk_level AS "riskLevel",
+  SELECT s.id, s.code, s.public_id AS "publicId", s.name, s.district, s.commune, s.activity, s.risk_level AS "riskLevel",
          s.adm1, s.adm2, s.adm3, s.adm4, s.fokontany,
          s.gps_lat AS "gpsLat", s.gps_lng AS "gpsLng",
          s.field_office_id AS "fieldOfficeId",
@@ -170,8 +175,8 @@ function rbmSelect(asOfRef = null) {
          COALESCE(pv.planned, '{}'::text[]) AS "plannedMonths",
          to_char(dv.last, 'YYYY-MM') AS "dataVisitMonth",
          dv.last_at AS "dataVisitAt",
-         COALESCE(dv.n, 0) AS "dataVisitCount",
-         COALESCE(dv.site_n, 0) AS "dataVisitSiteCount"
+         COALESCE(dv.n, 0)::bigint AS "dataVisitCount",
+         COALESCE(dv.site_n, 0)::bigint AS "dataVisitSiteCount"
     FROM sites s
     LEFT JOIN field_offices ant ON ant.id = s.field_office_id
     LEFT JOIN field_offices par ON par.id = ant.parent_id
@@ -181,7 +186,7 @@ function rbmSelect(asOfRef = null) {
         FROM site_visits v
        WHERE v.tenant_id = s.tenant_id AND v.site_id = s.id AND v.status IN ('realise', 'planifie')
     ) pv ON true
-    LEFT JOIN LATERAL (
+    ${factsCte ? `LEFT JOIN ${factsCte} dv ON dv.id = s.id` : `LEFT JOIN LATERAL (
       -- Collecte réelle : la soumission la plus récente reliée à ce site (site
       -- reconnu à l'import), ou, faute de site reconnu, de la même commune ;
       -- hors soumissions écartées au nettoyage et hors fiches d'une AUTRE activité.
@@ -191,7 +196,7 @@ function rbmSelect(asOfRef = null) {
         JOIN monitoring_forms mf ON mf.id = ms.form_id
        WHERE ms.tenant_id = s.tenant_id AND ${SUBMISSION_OF_SITE}
          AND ${SUBMISSION_COUNTS_FOR_SITE}${dataBound}
-    ) dv ON true
+    ) dv ON true`}
    WHERE s.tenant_id = $1`;
 }
 const RBM_SELECT = rbmSelect();
@@ -203,16 +208,32 @@ const RBM_SELECT = rbmSelect();
 async function rbmRowsTx(client, tenantId, { risk, siteId, targetMonth, ordered = false, asOf = null } = {}) {
   const params = [tenantId]; let where = '';
   let asOfRef = null;
-  if (asOf) { params.push(`${String(asOf).slice(0, 7)}-01`); asOfRef = `$${params.length}`; }
+  const asOfDay = asOf ? `${String(asOf).slice(0, 7)}-01` : null;
+  if (asOfDay) { params.push(asOfDay); asOfRef = `$${params.length}`; }
   if (risk) { params.push(risk); where += ` AND s.risk_level = $${params.length}`; }
   if (siteId) { params.push(siteId); where += ` AND s.id = $${params.length}`; }
-  const { rows } = await client.query(`${rbmSelect(asOfRef)}${where}${ordered ? ' ORDER BY s.district, s.commune, s.name' : ''}`, params);
+  // Collecte réelle calculée en ENSEMBLE (siteDataFactsSql, même règle que la sous-requête
+  // par site du SELECT RBM) : ≈ 10× plus rapide à 2 500 sites qu'une sous-requête par ligne.
+  const facts = siteDataFactsSql(
+    `SELECT s.id, s.adm3_pcode, lower(btrim(s.activity)) AS act FROM sites s WHERE s.tenant_id = $1${where}`,
+    params, { asOfRef: asOfRef || undefined });
+  const { rows } = await client.query(
+    `WITH facts AS (${facts})${rbmSelect(asOfRef, { factsCte: 'facts' })}${where}${ordered ? ' ORDER BY s.district, s.commune, s.name' : ''}`, params);
   return rows.map((r) => ({ ...r, ...visitState(r, targetMonth) }));
 }
 
 /** Site registry with risk level, last visit and whether it is due for `month`. */
 async function rbmSites(tenantId, opts = {}) {
   return withTenantTransaction(tenantId, (client) => rbmSitesTx(client, tenantId, opts));
+}
+
+/**
+ * Compteurs de l'état RBM (rbmSummary.rbmCounts) sur les MÊMES lignes que /rbm/sites : les
+ * écrans qui n'affichent que des totaux ne téléchargent plus la liste complète des sites.
+ */
+async function rbmCounts(tenantId, opts = {}) {
+  const rows = await rbmSites(tenantId, opts);
+  return { month: opts.month ? String(opts.month).slice(0, 7) : null, ...countRbm(rows) };
 }
 
 /**
@@ -427,7 +448,9 @@ async function generateFromRbmTx(client, tenantId, userId, month, { risk } = {})
      ON CONFLICT (tenant_id, site_id, period_month, activity) DO NOTHING`,
     [tenantId, `${target}-01`, userId || null, todo.map((s) => s.id), todo.map((s) => s.activity || null), y, m]
   );
-  return { created: rowCount, ...counts };
+  // Retour 58 : les visites créées prennent le TPM de leur zone (compte rendu par état).
+  const tpm = await restampVisitsTx(client, tenantId);
+  return { created: rowCount, ...counts, tpm: { byState: tpm.byState } };
 }
 
 /**
@@ -471,6 +494,8 @@ const VISIT_COLS = `
   v.id, v.site_id AS "siteId", s.name AS "siteName", s.district, s.commune, s.fokontany,
   v.activity, to_char(v.period_month, 'YYYY-MM') AS "periodMonth",
   v.provider_id AS "providerId", p.name AS "providerName",
+  v.provider_source AS "providerSource", v.provider_zone_state AS "providerZoneState", v.provider_reason AS "providerReason",
+  COALESCE(c.numero_fla, c.numero) AS "contractLabel",
   v.agent, v.status, v.visit_date AS "visitDate"`;
 
 /** Taille d'une page de la liste des visites (et maximum accepté) : ≈ 0,3 Mo par page de 1 000. */
@@ -483,11 +508,13 @@ const VISIT_PAGE_MAX = 2000;
  * une soumission reliée à CE site, ou, faute de site reconnu, de la même commune (pcode),
  * hors soumissions écartées et hors fiches d'une AUTRE activité que celle du site.
  * `sitesSql` rend (id, adm3_pcode, act = lower(btrim(activity))) ; `asOf` (« AAAA-MM-01 »,
- * facultatif) borne les données à ce mois. Rend le SELECT : id, last (date), last_at, n, site_n.
+ * facultatif) borne les données à ce mois — ou `asOfRef`, le même paramètre déjà présent
+ * (« $n »). Rend le SELECT : id, last (date), last_at, n, site_n.
  */
-function siteDataFactsSql(sitesSql, params, { asOf } = {}) {
+function siteDataFactsSql(sitesSql, params, { asOf, asOfRef } = {}) {
   let bound = '';
-  if (asOf) { params.push(asOf); bound = ` AND ms.period_month <= $${params.length}::date`; }
+  if (asOfRef) bound = ` AND ms.period_month <= ${asOfRef}::date`; // paramètre déjà présent (« $n »)
+  else if (asOf) { params.push(asOf); bound = ` AND ms.period_month <= $${params.length}::date`; }
   return `WITH ts AS MATERIALIZED (${sitesSql}),
      by_site AS MATERIALIZED (
        SELECT ms.site_id, lower(btrim(mf.activity_category)) AS cat,
@@ -537,6 +564,7 @@ async function listVisits(tenantId, opts = {}) {
          FROM site_visits v
          JOIN sites s ON s.id = v.site_id AND s.tenant_id = v.tenant_id
          LEFT JOIN partners p ON p.id = v.provider_id AND p.tenant_id = v.tenant_id
+         LEFT JOIN contracts c ON c.id = v.contract_id AND c.tenant_id = v.tenant_id
         WHERE ${where.join(' AND ')}
         ORDER BY s.district, s.commune, s.name, v.period_month, v.id
         LIMIT $${params.length - 1} OFFSET $${params.length}`,
@@ -799,7 +827,8 @@ async function setTravelDays(tenantId, { providerId, month, travelDays }) {
 
 // Une clé étrangère ne voit pas la RLS : un identifiant d'un AUTRE tenant passerait.
 // Chaque référence d'une visite est donc vérifiée dans le tenant courant.
-const VISIT_REFS = [['siteId', 'sites', 'Site inconnu.'], ['providerId', 'partners', 'Prestataire inconnu.'], ['contractId', 'contracts', 'Contrat inconnu.']];
+// Le contrat d'une visite est dérivé de sa zone (retour 58) : il n'est plus reçu du client.
+const VISIT_REFS = [['siteId', 'sites', 'Site inconnu.'], ['providerId', 'partners', 'Prestataire inconnu.']];
 async function assertVisitRefs(client, tenantId, v) {
   for (const [key, table, message] of VISIT_REFS) {
     if (!v[key]) continue;
@@ -808,41 +837,65 @@ async function assertVisitRefs(client, tenantId, v) {
   }
 }
 
+/** Décision de TPM refusée par la règle (raison manquante, prestataire non sélectionnable…) → 400. */
+const visitRuleError = (res) => badRequest(visitErrorMessage(res), { code: res.error });
+
+/**
+ * Nouvelle visite : elle prend le TPM de sa zone (retour 58). Un autre TPM (`providerId`, y
+ * compris null) n'est accepté qu'avec sa raison (`providerReason`, déjà nettoyée par la route) ;
+ * choisir la valeur de la zone ne demande rien. Le contrat est dérivé, jamais reçu.
+ */
 async function createVisit(tenantId, userId, v) {
   return withTenantTransaction(tenantId, async (client) => {
-    await assertVisitRefs(client, tenantId, v);
+    await lockAttributionTx(client, tenantId);
+    await assertVisitRefs(client, tenantId, { siteId: v.siteId, providerId: v.providerId });
+    let id;
     try {
-      const { rows } = await client.query(
-        `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, contract_id, provider_id, agent, status, visit_date, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+      ({ rows: [{ id }] } = await client.query(
+        `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, agent, status, visit_date, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
         [tenantId, v.siteId, `${String(v.periodMonth).slice(0, 7)}-01`, v.activity || null,
-          v.contractId || null, v.providerId || null, v.agent || null, v.status || 'planifie', v.visitDate || null, userId]
-      );
-      return rows[0].id;
+          v.agent || null, v.status || 'planifie', v.visitDate || null, userId]
+      ));
     } catch (err) {
       if (err.code === '23505') throw conflict('Une visite existe déjà pour ce site, ce mois et cette activité.');
       throw err;
     }
+    await restampVisitsTx(client, tenantId);
+    if (v.providerId !== undefined) {
+      const res = await applyVisitRequestTx(client, tenantId, userId, [id], { action: 'set', providerId: v.providerId || null, reason: v.providerReason || null });
+      if (res.error) throw visitRuleError(res);
+    }
+    return id;
   });
 }
 
-/** Mise à jour partielle d'une visite : champ absent = inchangé, null = effacé (désaffectation possible). */
-async function updateVisit(tenantId, id, patch) {
+/**
+ * Mise à jour partielle d'une visite : champ absent = inchangé, null = effacé. Le TPM passe par la
+ * règle (retour 58) : `followZone` rend la visite à sa zone ; `providerId` (null = désaffecter)
+ * différent de la zone exige `providerReason`. Une visite re-planifiée reprend le TPM de sa zone
+ * (garde en base), sauf écart motivé.
+ */
+async function updateVisit(tenantId, id, patch, userId = null) {
   const given = (k) => patch[k] !== undefined;
   return withTenantTransaction(tenantId, async (client) => {
-    await assertVisitRefs(client, tenantId, { providerId: patch.providerId, contractId: patch.contractId });
+    await lockAttributionTx(client, tenantId);
+    await assertVisitRefs(client, tenantId, { providerId: patch.providerId });
     const { rowCount } = await client.query(
       `UPDATE site_visits
-          SET provider_id = CASE WHEN $3::boolean THEN $4::uuid ELSE provider_id END,
-              agent = CASE WHEN $5::boolean THEN $6 ELSE agent END,
-              contract_id = CASE WHEN $7::boolean THEN $8::uuid ELSE contract_id END,
-              status = COALESCE($9, status),
-              visit_date = CASE WHEN $10::boolean THEN $11::date ELSE visit_date END, updated_at = now()
+          SET agent = CASE WHEN $3::boolean THEN $4 ELSE agent END,
+              status = COALESCE($5, status),
+              visit_date = CASE WHEN $6::boolean THEN $7::date ELSE visit_date END, updated_at = now()
         WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id, given('providerId'), patch.providerId ?? null, given('agent'), patch.agent ?? null,
-        given('contractId'), patch.contractId ?? null, patch.status ?? null, given('visitDate'), patch.visitDate ?? null]
+      [tenantId, id, given('agent'), patch.agent ?? null, patch.status ?? null, given('visitDate'), patch.visitDate ?? null]
     );
-    return rowCount > 0;
+    if (!rowCount) return false;
+    let res = null;
+    if (patch.followZone) res = await applyVisitRequestTx(client, tenantId, userId, [id], { action: 'zone' });
+    else if (given('providerId')) res = await applyVisitRequestTx(client, tenantId, userId, [id], { action: 'set', providerId: patch.providerId || null, reason: patch.providerReason || null });
+    if (res && res.error) throw visitRuleError(res);
+    await restampVisitsTx(client, tenantId);
+    return true;
   });
 }
 
@@ -984,7 +1037,16 @@ async function coverageFacts(tenantId, { period: asked = null, officeId = null, 
  * priorité et classement par la logique pure (planBoard, rbmScore).
  */
 async function planBoard(tenantId, opts) {
-  return withTenantTransaction(tenantId, (client) => planBoardTx(client, tenantId, opts));
+  return withTenantTransaction(tenantId, async (client) => {
+    const board = await planBoardTx(client, tenantId, opts);
+    // Retour 58 : TPM de la zone de chaque site — mois courant s'il est dans l'exercice (sinon
+    // décembre d'un exercice passé, janvier d'un exercice à venir) et segments de l'exercice.
+    const y = Number(board.year); const cur = currentMonth();
+    const refMonth = cur.startsWith(`${y}-`) ? cur : (String(y) < cur.slice(0, 4) ? `${y}-12` : `${y}-01`);
+    const tpm = await boardTpmTx(client, tenantId, { year: y, refMonth, siteIds: board.sites.map((s) => s.id) });
+    for (const s of board.sites) s.tpm = tpm.get(s.id) || null;
+    return { ...board, tpmRefMonth: refMonth };
+  });
 }
 
 async function planBoardTx(client, tenantId, { year, adjusted = false }) {
@@ -1023,7 +1085,7 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
        LEFT JOIN LATERAL (
          -- Visites de l'exercice, avec le prestataire de suivi (TPM) affecté à chacune.
          SELECT json_agg(json_build_object('month', extract(month FROM v.period_month)::int, 'status', v.status,
-                                           'date', to_char(v.visit_date, 'YYYY-MM-DD'), 'provider', p.name) ORDER BY v.period_month) AS months,
+                                           'date', to_char(v.visit_date, 'YYYY-MM-DD'), 'provider', p.name, 'src', v.provider_source) ORDER BY v.period_month) AS months,
                 string_agg(DISTINCT p.name, ', ') AS providers
            FROM site_visits v
            LEFT JOIN partners p ON p.id = v.provider_id AND p.tenant_id = v.tenant_id
@@ -1046,7 +1108,7 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
     const counters = siteCounters({ months: s.months }, mmrRow, { adjusted });
     const status = currentStatus(s.monthStatus);
     return {
-      id: s.id, code: s.code, locationId: s.locationId, name: s.name, region: s.adm1, district: s.district, commune: s.commune,
+      id: s.id, code: s.code, publicId: s.publicId, locationId: s.locationId, name: s.name, region: s.adm1, district: s.district, commune: s.commune,
       activity: s.activity, bureau: s.subOfficeName || s.antenneName || null, fieldOfficeId: s.fieldOfficeId, mmrKey: mmrKeyOf(mmrRow),
       riskLevel: s.riskLevel, priority: score.priorityLabel, finalScore: score.finalScore,
       forbidden: Number(s.security) >= 99,
@@ -1083,6 +1145,7 @@ async function planMonthsTx(client, tenantId, userId, year, changes) {
   const { remove } = normalizeChanges(changes);
   const ids = [...new Set([...add, ...remove].map(([id]) => id))];
   if (!ids.length) return { added: 0, removed: 0 };
+  await lockAttributionTx(client, tenantId); // une visite annulée re-cochée est mise à jour (retour 58)
   const { rows: known } = await client.query('SELECT id, activity FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, ids]);
   if (known.length !== ids.length) throw badRequest('Site inconnu (ou hors de ce compte).');
   const activity = new Map(known.map((k) => [k.id, k.activity || null]));
@@ -1114,6 +1177,8 @@ async function planMonthsTx(client, tenantId, userId, year, changes) {
         WHERE v.tenant_id = $1 AND v.site_id = x.site_id AND v.period_month = x.pm AND v.status = 'planifie'`, params);
     removed += rowCount;
   }
+  // Retour 58 : visites prévues (ou re-planifiées) au TPM de leur zone, sauf écart motivé.
+  await restampVisitsTx(client, tenantId);
   return { added, removed, skippedInactive };
 }
 
@@ -1366,5 +1431,6 @@ module.exports = {
   listSites, createSite, createSiteTx, upsertSites, updateSite,
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
   collectionDaysSummary, setTravelDays, coverageRecapSummary, coverageMatrix, monthsOverview, setMonthStatus,
-  siteDataFactsSql, rbmSites, rbmSitesTx, rbmSiteExplain, importMasterData, importPlanSites, generateFromRbm, generateFromRbmTx, planBoardTx,
+  siteDataFactsSql, rbmSites, rbmCounts, rbmSitesTx, rbmSiteExplain, importMasterData, importPlanSites, generateFromRbm, generateFromRbmTx, planBoardTx,
+  monthStatusesTx,
 };

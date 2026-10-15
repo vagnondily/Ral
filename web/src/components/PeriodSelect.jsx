@@ -1,10 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CalendarRange, ChevronDown } from 'lucide-react';
 import { useI18n } from '../lib/i18n.jsx';
 import { currentMonth, formatInt, monthLabel } from '../lib/format.js';
 import {
   MAX_SPAN, addMonths, monthsOf, normalize, periodLabel, presetOf, presets as buildPresets, samePeriod, spanMonths, summarizeCounts,
 } from '../lib/period.js';
+import { placePopover, scrollClosesPopover } from '../lib/popoverPlacement.js';
+
+const FOCUSABLE = 'button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * Sélecteur de période « du … au … » (lot 1b, retour n° 47) : préréglages +
@@ -24,9 +28,16 @@ import {
  *   align      'left' | 'right' ; compact (barre de filtres) ; ariaLabel
  *
  * L'état n'est jamais invalide : si « Du » dépasse « Au », l'autre borne suit.
- * Accessibilité : bouton aria-haspopup="dialog" / aria-expanded ; fenêtre role="dialog" ;
- * à l'ouverture le focus va sur le préréglage actif ; Échap ou un clic dehors ferme et
- * rend le focus au bouton.
+ * Accessibilité : bouton aria-haspopup="dialog" / aria-expanded / aria-controls ; fenêtre
+ * role="dialog" ; à l'ouverture le focus va sur le préréglage actif ; Tab reste dans la
+ * fenêtre ; Échap ferme et rend le focus au bouton ; un clic dehors ferme.
+ *
+ * Fenêtre flottante (retour 86) : rendue dans un PORTAIL (document.body) en position fixe,
+ * ancrée au bouton (lib/popoverPlacement : sous le bouton, sinon au-dessus, ramenée dans
+ * l'écran, hauteur bornée et défilement interne s'il le faut). Elle n'est donc plus coupée
+ * par une fenêtre modale ou une carte, et ne crée plus de barre de défilement horizontale.
+ * Le défilement d'un conteneur du bouton (page, fenêtre modale, tiroir) la ferme ; un
+ * redimensionnement la replace.
  */
 export default function PeriodSelect({
   value, onChange, counts = null, today, latest = null, allowAll = false, presets: presetIds,
@@ -56,24 +67,82 @@ export default function PeriodSelect({
   };
   const openPop = () => { setDraft(value || { from: T, to: T }); setOpen(true); };
 
-  // Clic dehors : ferme (le focus reste où l'utilisateur a cliqué).
+  // Position de la fenêtre (portail, position fixe) : null tant qu'elle n'est pas mesurée.
+  const [pos, setPos] = useState(null);
+  const popId = `period-pop${useId().replace(/:/g, '')}`;
+  const place = useCallback(() => {
+    const trig = triggerRef.current; const pop = popRef.current;
+    if (!trig || !pop) return;
+    const r = trig.getBoundingClientRect();
+    // Taille naturelle : largeur imposée par la feuille de style (620 px au plus) ; hauteur du
+    // contenu ENTIER, même quand la fenêtre est déjà bornée (seules les colonnes défilent).
+    const cols = pop.querySelector('.period-cols');
+    const height = cols ? pop.offsetHeight - cols.clientHeight + cols.scrollHeight : pop.scrollHeight;
+    const next = placePopover({
+      anchor: { top: r.top, bottom: r.bottom, left: r.left, right: r.right },
+      size: { width: pop.offsetWidth, height },
+      viewport: { width: document.documentElement.clientWidth || window.innerWidth, height: window.innerHeight },
+      align,
+    });
+    setPos((p) => (p && p.top === next.top && p.left === next.left && p.maxHeight === next.maxHeight && p.placement === next.placement ? p : next));
+  }, [align]);
+  // Mesure avant affichage (pas de saut), puis à chaque changement de taille du contenu.
+  useLayoutEffect(() => {
+    if (!open) { setPos(null); return undefined; }
+    place();
+    const pop = popRef.current;
+    if (!pop || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => place());
+    ro.observe(pop);
+    return () => ro.disconnect();
+  }, [open, place]);
+
+  // Clic dehors (ni le bouton ni la fenêtre) : ferme, le focus reste où l'utilisateur a cliqué.
+  // Défilement d'un conteneur du bouton : ferme (la fenêtre ne suivrait plus son bouton).
+  // Redimensionnement : replace.
   useEffect(() => {
     if (!open) return undefined;
-    const onDown = (e) => { if (rootRef.current && !rootRef.current.contains(e.target)) close(false); };
+    const inside = (t) => (rootRef.current && rootRef.current.contains(t)) || (popRef.current && popRef.current.contains(t));
+    const onDown = (e) => { if (!inside(e.target)) close(false); };
+    const onScroll = (e) => { if (scrollClosesPopover(e.target, triggerRef.current, popRef.current)) close(false); };
+    const onResize = () => place();
     document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [open]);
+    document.addEventListener('touchstart', onDown, { passive: true });
+    document.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+      document.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [open, place]); // eslint-disable-line react-hooks/exhaustive-deps
   // Échap (focus dans le sélecteur) : ferme et rend le focus au bouton, sans fermer aussi le
-  // tiroir ou la fenêtre qui contient le sélecteur (propagation arrêtée ici).
+  // tiroir ou la fenêtre qui contient le sélecteur (propagation arrêtée ici — la fenêtre est
+  // dans un portail, mais l'évènement React remonte quand même par ce composant).
   const onKeyDown = (e) => {
     if (open && e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); close(true); }
   };
-  // À l'ouverture : focus sur le préréglage actif (sinon le premier).
+  // Tab reste dans la fenêtre (dernier → premier, premier → dernier) : rendue à la fin du
+  // document, elle enverrait sinon le focus hors de la page (ou hors de la fenêtre modale).
+  const onPopKeyDown = (e) => {
+    if (e.key !== 'Tab' || !popRef.current) return;
+    const items = [...popRef.current.querySelectorAll(FOCUSABLE)];
+    if (!items.length) return;
+    const first = items[0]; const last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); e.stopPropagation(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); e.stopPropagation(); first.focus(); }
+    else e.stopPropagation(); // le piège de focus d'une fenêtre modale parente ne s'en mêle pas
+  };
+  // À l'ouverture (une fois placée) : focus sur le préréglage actif (sinon le premier).
+  const focused = useRef(false);
   useEffect(() => {
-    if (!open || !popRef.current) return;
+    if (!open) { focused.current = false; return; }
+    if (!pos || focused.current || !popRef.current) return;
+    focused.current = true;
     const el = popRef.current.querySelector('.period-preset[aria-pressed="true"]') || popRef.current.querySelector('.period-preset');
-    if (el) el.focus();
-  }, [open]);
+    if (el) el.focus({ preventScroll: true });
+  }, [open, pos]);
 
   const apply = (p, preset = null) => {
     try { if (typeof performance !== 'undefined' && performance.mark) performance.mark('period:apply'); } catch { /* sans incidence */ }
@@ -113,7 +182,7 @@ export default function PeriodSelect({
       <button
         type="button" ref={triggerRef}
         className="btn btn-secondary period-trigger"
-        aria-haspopup="dialog" aria-expanded={open}
+        aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? popId : undefined}
         aria-label={`${ariaLabel || tr('Période')} — ${value ? periodLabel(value, lang) : tr('Toutes les périodes')}`}
         onClick={() => (open ? close(false) : openPop())}
       >
@@ -122,8 +191,12 @@ export default function PeriodSelect({
         {valueSpan > 1 && <span className="period-trigger-span">· {tr('{n} mois', { n: valueSpan })}</span>}
         <ChevronDown size={14} aria-hidden="true" />
       </button>
-      {open && (
-        <div className={`pop-menu period-pop ${align === 'right' ? 'is-right' : ''}`} role="dialog" aria-label={tr('Choisir la période')} ref={popRef}>
+      {open && createPortal(
+        <div id={popId} className={`pop-menu period-pop is-floating${pos ? ` is-${pos.placement}` : ''}`} role="dialog" aria-label={tr('Choisir la période')} ref={popRef}
+          onKeyDown={onPopKeyDown}
+          style={pos
+            ? { top: pos.top, left: pos.left, maxHeight: pos.maxHeight == null ? undefined : pos.maxHeight }
+            : { top: 0, left: 0, visibility: 'hidden' }}>
           <div className="period-cols">
             <div className="period-presets" role="group" aria-label={tr('Préréglages')}>
               <div className="pop-menu-label">{tr('Préréglages')}</div>
@@ -188,7 +261,8 @@ export default function PeriodSelect({
               {tr('Appliquer')}
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

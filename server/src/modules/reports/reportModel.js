@@ -68,8 +68,8 @@ const DATASETS = {
  * variables des textes riches.
  */
 const VARIABLES = {
-  titre: 'Titre du rapport', periode: 'Période du rapport', date_edition: 'Date d\'édition',
-  bureau: 'Bureau (section répétée)', activite: 'Activité (section répétée)', partenaire: 'Partenaire (section répétée)',
+  titre: 'Titre du rapport', periode: 'Période du rapport', date_edition: 'Date d\'édition', date: 'Date d\'édition (jj/mm/aaaa)',
+  bureau: 'Bureau (filtre du rapport ou section répétée)', activite: 'Activité (section répétée)', partenaire: 'Partenaire (section répétée)',
   statut: 'Statut du rapport', version: 'Version', valide_par: 'Validé par', valide_le: 'Validé le',
   section: 'Titre de la section', page: 'Numéro de page', pages: 'Nombre de pages',
 };

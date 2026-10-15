@@ -1,6 +1,7 @@
 /**
  * Réponse de GET /api/map/points (lot 6a) — mise en forme PURE, testée
- * (test/geoStats.test.js) : sites GPS du registre (statut de la période), sites placés
+ * (test/geoStats.test.js) : sites GPS du registre (statut de la période et activité du registre,
+ * qui colore les points au choix — retour 94), sites placés
  * par leurs propres collectes, centres des collectes de commune, points de collecte.
  * Vie privée : rien n'est placé sous 3 relevés ; hors admin / gestionnaire, TOUTES les
  * positions déduites (sites placés, centres de commune) et les points de collecte sont sur
@@ -38,7 +39,7 @@ function buildPointsResponse(raw, { layers, precise, maxAccuracyM, limit }) {
     for (const s of drawn) {
       if (!s.hasGps) continue;
       out.push({ id: s.id, name: s.name, code: s.code, lat: s.lat, lng: s.lng, kind: 'gps', status: s.status,
-        execution: execOf(s), byData: !!s.byData, risk: s.risk, districtPcode: s.districtPcode });
+        execution: execOf(s), byData: !!s.byData, risk: s.risk, districtPcode: s.districtPcode, activity: s.activity || null });
     }
   }
   const placed = new Set();
@@ -51,7 +52,8 @@ function buildPointsResponse(raw, { layers, precise, maxAccuracyM, limit }) {
       const pos = publishedPosition({ lat: m.lat, lng: m.lng, n: m.n }, { precise });
       placed.add(s.id);
       out.push({ id: s.id, name: s.name, code: s.code, lat: round6(pos.lat), lng: round6(pos.lng), coarse: pos.coarse, kind: 'collectes',
-        n: m.n, spreadKm: round1(m.spreadKm), quality, status: s.status, execution: execOf(s), byData: !!s.byData, risk: s.risk, districtPcode: s.districtPcode });
+        n: m.n, spreadKm: round1(m.spreadKm), quality, status: s.status, execution: execOf(s), byData: !!s.byData, risk: s.risk, districtPcode: s.districtPcode,
+        activity: s.activity || null });
     }
   }
   const communes = [];

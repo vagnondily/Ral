@@ -62,7 +62,9 @@ test('faits par zone : service unique (withData + geo), réalisée = données AU
   // per_site : faits creux (visites et données réunies par FULL JOIN), jamais la grille complète site × mois.
   assert.match(facts.sql, /FROM vis v FULL JOIN dat d ON d\.site_id = v\.site_id AND d\.m = v\.m/);
   assert.match(facts.sql, /sf AS MATERIALIZED \(/);
-  const perSite = facts.sql.slice(facts.sql.indexOf('per_site AS ('));
+  // per_site MATÉRIALISÉ : un filtre de l'appelant ne réduit jamais le FULL JOIN en LEFT JOIN (boucle).
+  assert.match(facts.sql, /per_site AS MATERIALIZED \(/);
+  const perSite = facts.sql.slice(facts.sql.indexOf('per_site AS MATERIALIZED ('));
   assert.doesNotMatch(perSite.slice(0, perSite.indexOf('ever AS')), /FROM fact\b/, 'per_site ne lit pas fact');
   assert.match(perSite, /FROM reg r FULL JOIN \(SELECT site_id,/, 'jointure hachée ou fusionnée, jamais une boucle');
   // « Jamais visités » : même règle fiche ↔ activité du site que « réalisée » (une fiche incompatible ne visite pas).

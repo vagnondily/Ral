@@ -230,3 +230,121 @@ test('couverture de la page (tuile, Bulletin) : chargement et erreur jamais conf
   assert.match(m.formatRate(ok.rate, 'fr'), /^1,6\s%$/);
   assert.match(m.formatRate(0, 'fr'), /^0\s%$/, '0 % est une vraie valeur');
 });
+
+// ---- Retour 94 : points colorés par activité, légende lisible -------------------------------
+const REGISTRY = [
+  { value: 'School meal activities', sites: 824 }, { value: 'Nutrition treatment activities', sites: 271 },
+  { value: 'Climate adaptation and risk management activities', sites: 54 }, { value: 'Malnutrition prevention activities', sites: 54 },
+  { value: 'Unconditional resource transfers to support access to food', sites: 39 }, { value: 'Smallholder agricultural market support activities', sites: 16 },
+  { value: 'Asset creation and livelihood support activities', sites: 9 }, { value: 'RRP', sites: 3 }, { value: 'GD', sites: 2 },
+];
+
+test('couleur par activité : rang du REGISTRE (8 couleurs, ordre fixe), « Autres » au-delà, jamais repeinte par un filtre', async (t) => {
+  const m = await load(t, 'mapPoints.js'); if (!m) return;
+  const slots = m.activitySlots(REGISTRY);
+  assert.equal(slots.size, 8);
+  assert.equal(m.slotOf('School meal activities', slots), 1);
+  assert.equal(m.slotOf('  nutrition TREATMENT activities ', slots), 2, 'sans casse ni espaces');
+  assert.equal(m.slotOf('RRP', slots), 8);
+  assert.equal(m.slotOf('GD', slots), 0, '9e activité : « Autres »');
+  assert.equal(m.slotOf(null, slots), 0);
+  // Une vue filtrée (moins de points, d'autres effectifs) ne change pas la couleur d'une activité.
+  const sites = [{ kind: 'gps', status: 'realise', activity: 'Malnutrition prevention activities' }];
+  const legend = m.pointsLegend({ sites, communes: [] }, { gps: true }, { colorBy: 'activity', slots });
+  assert.deepEqual(legend.color.map((c) => [c.slot, c.label, c.n]), [[4, 'Malnutrition prevention activities', 1]]);
+});
+
+test('légende des points : seulement ce qui est dessiné, avec ses effectifs ; « Autres » regroupé en dernier', async (t) => {
+  const m = await load(t, 'mapPoints.js'); if (!m) return;
+  const slots = m.activitySlots(REGISTRY);
+  const points = {
+    sites: [
+      { kind: 'gps', status: 'non_prevu', activity: 'School meal activities' },
+      { kind: 'gps', status: 'realise', activity: 'School meal activities' },
+      { kind: 'gps', status: 'non_prevu', activity: 'GD' },
+      { kind: 'collectes', status: 'prevu', activity: 'Nutrition treatment activities', quality: 'indicative' },
+      { kind: 'gps', status: 'inactif', activity: null },
+    ],
+    communes: [{ sitesWithoutPosition: 20 }, { sitesWithoutPosition: 8 }],
+    collect: { mode: 'bins', total: 0, bins: [] },
+  };
+  const all = { gps: true, derived: true, communes: true, collect: true };
+  const byStatus = m.pointsLegend(points, all);
+  assert.deepEqual(byStatus.color, [{ id: 'realise', n: 1 }, { id: 'prevu', n: 1 }, { id: 'non_prevu', n: 2 }, { id: 'inactif', n: 1 }]);
+  assert.deepEqual(byStatus.shape, [{ id: 'gps', n: 4 }, { id: 'derived', n: 1, indicative: 1 }, { id: 'commune', n: 2, sites: 28 }],
+    'aucun point de collecte sur la période : absent de la légende');
+  const byActivity = m.pointsLegend(points, all, { colorBy: 'activity', slots });
+  assert.deepEqual(byActivity.color.map((c) => [c.slot, c.label, c.n, c.names]), [
+    [1, 'School meal activities', 2, ['School meal activities']],
+    [2, 'Nutrition treatment activities', 1, ['Nutrition treatment activities']],
+    [0, null, 2, ['GD']],
+  ]);
+  // Couche décochée : ses points ne sont ni dessinés ni comptés.
+  const gpsOnly = m.pointsLegend(points, { gps: true }, { colorBy: 'status' });
+  assert.equal(gpsOnly.sites, 4);
+  assert.deepEqual(gpsOnly.shape.map((s) => s.id), ['gps']);
+  assert.deepEqual(m.pointsLegend(null, all), { color: [], shape: [], sites: 0 });
+  // Chaque statut et chaque forme a son libellé clair et sa phrase d'explication.
+  for (const st of m.STATUS_ORDER) assert.ok(m.STATUS_TEXT[st].label && m.STATUS_TEXT[st].help.endsWith('.'), st);
+  for (const id of ['gps', 'derived', 'commune', 'collect']) assert.ok(m.SHAPE_TEXT[id].label && m.SHAPE_TEXT[id].help.endsWith('.'), id);
+});
+
+test('survol de la légende : seuls les points de l\'élément survolé restent nets', async (t) => {
+  const m = await load(t, 'mapPoints.js'); if (!m) return;
+  const slots = m.activitySlots(REGISTRY);
+  const site = { kind: 'gps', status: 'prevu', activity: 'Nutrition treatment activities' };
+  assert.equal(m.matchesFocus(site, null, slots), true);
+  assert.equal(m.matchesFocus(site, { by: 'status', value: 'prevu' }, slots), true);
+  assert.equal(m.matchesFocus(site, { by: 'status', value: 'realise' }, slots), false);
+  assert.equal(m.matchesFocus(site, { by: 'activity', value: 2 }, slots), true);
+  assert.equal(m.matchesFocus(site, { by: 'activity', value: 1 }, slots), false);
+  assert.equal(m.matchesFocus(site, { by: 'shape', value: 'gps' }, slots), true);
+  assert.equal(m.matchesFocus({ ...site, kind: 'collectes' }, { by: 'shape', value: 'derived' }, slots), true);
+  assert.equal(m.matchesFocus({ kind: 'commune' }, { by: 'shape', value: 'commune' }, slots), true);
+  assert.equal(m.matchesFocus({ kind: 'commune' }, { by: 'activity', value: 2 }, slots), false);
+});
+
+test('palette des activités : celle validée par dataviz (clair et sombre), la même à l\'écran et à l\'export', async (t) => {
+  const exp = await load(t, 'mapExport.js'); if (!exp) return;
+  const LIGHT = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'];
+  const DARK = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
+  assert.deepEqual(exp.EXPORT_ACTIVITY_COLORS.slice(1), LIGHT);
+  const css = fs.readFileSync(path.join(__dirname, '../../web/src/styles.css'), 'utf8');
+  const tokens = [...css.matchAll(/--map-act-([1-8]): (#[0-9a-f]{6})/g)].map((x) => [Number(x[1]), x[2]]);
+  assert.deepEqual(tokens.slice(0, 8).map((x) => x[1]), LIGHT, 'thème clair');
+  assert.deepEqual(tokens.slice(8, 16).map((x) => x[1]), DARK, 'thème sombre');
+  // Export : un site coloré par son activité porte sa couleur, la légende aussi.
+  const feature = { type: 'Feature', properties: { key: 'a', name: 'A', label: [46, -20], bbox: [45, -21, 47, -19], area: 1 }, geometry: { type: 'Polygon', coordinates: [[[45, -21], [47, -21], [47, -19], [45, -19], [45, -21]]] } };
+  const svg = exp.buildExportSvg({
+    title: 'T', subtitle: 'S', footer: 'F', legendTitle: 'L', legend: [], features: [feature], fills: {}, withData: ['a'],
+    extras: [{ kind: 'site', color: '#eb6834', label: 'Nutrition' }], points: { sites: [{ lng: 46, lat: -20, status: 'prevu', color: '#2a78d6' }] },
+  });
+  assert.match(svg, /fill="#2a78d6"/);
+  assert.match(svg, /fill="#eb6834"/);
+});
+
+test('légende de la carte (retour 94) : chaque phrase affichée a sa traduction anglaise', async (t) => {
+  const en = await load(t, '../locales/en.js'); if (!en) return;
+  const m = await load(t, 'mapPoints.js'); if (!m) return;
+  const EN = en.default;
+  const phrases = [m.ACTIVITY_HELP, m.OTHER_LABEL];
+  for (const x of Object.values(m.STATUS_TEXT)) phrases.push(x.label, x.help);
+  for (const x of Object.values(m.SHAPE_TEXT)) phrases.push(x.label, x.help);
+  const src = fs.readFileSync(path.join(__dirname, '../../web/src/components/map/MapLegend.jsx'), 'utf8');
+  for (const [, raw] of src.matchAll(/\btr\(\s*'((?:[^'\\]|\\.)*)'/g)) phrases.push(raw.replace(/\\'/g, '\''));
+  for (const [, raw] of src.matchAll(/return '((?:[^'\\]|\\.)*)';/g)) phrases.push(raw.replace(/\\'/g, '\''));
+  for (const p of phrases) assert.ok(EN[p] !== undefined, `« ${p} » sans traduction anglaise`);
+  assert.ok(phrases.length >= 30, `phrases vérifiées : ${phrases.length}`);
+});
+
+test('carte (retour 83) : bureau choisi → cadrage sur ses districts ; bureau cliqué dans la liste = filtre ; filtre retiré → vue d\'ensemble', (t) => {
+  const file = path.join(__dirname, '../../web/src/components/map/MapExplorer.jsx');
+  if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }
+  const src = fs.readFileSync(file, 'utf8');
+  assert.match(src, /mapRef\.current\.fitKeys\(/);
+  assert.match(src, /if \(!officeId && !activity\) \{ if \(!first\) mapRef\.current\.reset\(\); return; \}/);
+  assert.match(src, /if \(lvl === 'office'\) \{/);
+  assert.match(src, /if \(z\.id !== officeId\) \{ setOfficeId\(z\.id\); return; \}/);
+  const map = fs.readFileSync(path.join(__dirname, '../../web/src/components/map/DistrictMap.jsx'), 'utf8');
+  assert.match(map, /const fitKeys = useCallback\(/);
+});

@@ -3,6 +3,7 @@ import { Home, Minus, Plus } from 'lucide-react';
 import { fitTransform, pathOf, scaleBar, unionBbox } from '../../lib/mapProjection.js';
 import { layoutLabels } from '../../lib/mapLabels.js';
 import { valueOf, inkOn, ALERT_LEVELS } from '../../lib/mapScale.js';
+import { matchesFocus, slotOf } from '../../lib/mapPoints.js';
 import { useI18n } from '../../lib/i18n.jsx';
 
 /**
@@ -24,6 +25,14 @@ const STATUS_STYLE = {
 };
 export const POINT_STATUS = STATUS_STYLE;
 
+/**
+ * Symbole d'un site coloré par son ACTIVITÉ (retour 94) : disque de la couleur de l'activité
+ * (`slot` 1…8, 0 = « Autres »), cerné du fond pour rester lisible sur un district coloré.
+ */
+export function ActivitySymbol({ slot = 0, x = 0, y = 0, r = 5 }) {
+  return <circle cx={x} cy={y} r={r} fill={`var(--map-act-${slot})`} stroke="var(--map-halo-solid)" strokeWidth="1.8" />;
+}
+
 /** Symbole d'un site selon son statut (forme + couleur : jamais la couleur seule). */
 export function StatusSymbol({ status, x = 0, y = 0, r = 4.5 }) {
   const st = STATUS_STYLE[status] || STATUS_STYLE.non_prevu;
@@ -39,6 +48,7 @@ const DistrictMap = forwardRef(function DistrictMap({
   geo, shapes, shapeRegions = {}, theme, scale, dark = false, points = null, pointLayers = {},
   showLabels = true, showRegions = true, height = 560, padBottom = 24, hoverKey = null, pinnedKey = null,
   onHover, onPick, onPointHover, ariaLabel, uid = 'mapx', underlay = null,
+  pointColorBy = 'status', activitySlots = null, pointFocus = null,
 }, ref) {
   const { tr } = useI18n();
   const boxRef = useRef(null);
@@ -97,19 +107,28 @@ const DistrictMap = forwardRef(function DistrictMap({
     });
   }, [clampView]);
 
-  const zoomToBbox = useCallback((bbox) => {
+  const zoomToBbox = useCallback((bbox, fill = 0.7) => {
     if (!t || !bbox) return;
     const [x0, y1] = t.project(bbox[0], bbox[1]);
     const [x1, y0] = t.project(bbox[2], bbox[3]);
     const bw = Math.max(8, x1 - x0); const bh = Math.max(8, y1 - y0);
-    const s = Math.max(1, Math.min(MAX_ZOOM, Math.min((width * 0.7) / bw, ((height - padBottom) * 0.7) / bh)));
+    const s = Math.max(1, Math.min(MAX_ZOOM, Math.min((width * fill) / bw, ((height - padBottom) * fill) / bh)));
     const cx = (x0 + x1) / 2; const cy = (y0 + y1) / 2;
     setView(clampView({ s, x: width / 2 - cx * s, y: (height - padBottom) / 2 - cy * s }));
   }, [t, width, height, padBottom, clampView]);
 
   const reset = useCallback(() => setView({ s: 1, x: 0, y: 0 }), []);
+  // Emprise de plusieurs contours (bureau choisi, région…) avec une marge ; si elle couvre déjà
+  // presque tout le cadre (toutes les données), la vue d'ensemble suffit.
+  const fitKeys = useCallback((keys) => {
+    const wanted = new Set(keys || []);
+    const bb = unionBbox(features.filter((f) => wanted.has(f.properties.key)).map((f) => f.properties.bbox));
+    if (!bb || !frame) { reset(); return; }
+    const cover = ((bb[2] - bb[0]) / Math.max(1e-9, frame[2] - frame[0])) >= 0.9 && ((bb[3] - bb[1]) / Math.max(1e-9, frame[3] - frame[1])) >= 0.9;
+    if (cover) reset(); else zoomToBbox(bb, 0.8);
+  }, [features, frame, reset, zoomToBbox]);
   useImperativeHandle(ref, () => ({
-    zoomToBbox, reset,
+    zoomToBbox, reset, fitKeys,
     zoomToKey: (key) => { const f = features.find((x) => x.properties.key === key); if (f) zoomToBbox(f.properties.bbox); },
     zoomToPoint: (lng, lat) => zoomToBbox([lng - 0.15, lat - 0.15, lng + 0.15, lat + 0.15]),
     svg: () => svgRef.current,
@@ -121,7 +140,7 @@ const DistrictMap = forwardRef(function DistrictMap({
       const [e0, s0] = t.invert((width - view.x) / view.s, (height - padBottom - view.y) / view.s);
       return [w0, s0, e0, n0];
     },
-  }), [zoomToBbox, reset, features, view, t, width, height, padBottom]);
+  }), [zoomToBbox, reset, fitKeys, features, view, t, width, height, padBottom]);
 
   // Molette : seulement avec Ctrl (ou geste de pincement du pavé tactile) ; sinon la page défile.
   useEffect(() => {
@@ -204,14 +223,34 @@ const DistrictMap = forwardRef(function DistrictMap({
   }, [features, shapeRegions]);
 
   // Avec le fond en ligne : contours sans valeur transparents, contours colorés translucides.
-  const empty = underlay ? 'transparent' : 'var(--map-empty)';
-  const fillOf = (key) => {
-    const z = byKey.get(key);
-    if (!z || !scale) return empty;
-    const v = valueOf(theme.id, z);
-    if (v === 'np') return `url(#${uid}-hatch)`;
-    return scale.fill(v) || empty;
-  };
+  const hasUnderlay = !!underlay;
+  const empty = hasUnderlay ? 'transparent' : 'var(--map-empty)';
+  const themeId = theme ? theme.id : null;
+  const lines = view.s > 4 ? 0.9 : 0.7;
+
+  // Contours mémorisés (performance) : un survol, un épinglage ou un déplacement de la souris ne
+  // reconstruit pas les ~120 × 2 chemins ; seuls le thème, les données, la taille ou le seuil de
+  // zoom du trait les refont. Le zoom ne change que la transformation du groupe parent.
+  const shapesLayer = useMemo(() => {
+    const fillOf = (key) => {
+      const z = byKey.get(key);
+      if (!z || !scale) return empty;
+      const v = valueOf(themeId, z);
+      if (v === 'np') return `url(#${uid}-hatch)`;
+      return scale.fill(v) || empty;
+    };
+    return regionGroups.map(([region, keys]) => (
+      <g key={region || '_'}>
+        {showRegions && region && keys.map((k) => (
+          <path key={`r-${k}`} d={paths.get(k)} fill="none" stroke="var(--map-region)" strokeWidth="2.6" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        ))}
+        {keys.map((k) => (
+          <path key={k} data-key={k} d={paths.get(k)} fill={fillOf(k)} fillOpacity={hasUnderlay ? 0.78 : 1} stroke="var(--map-line)" strokeWidth={lines}
+            strokeLinejoin="round" vectorEffect="non-scaling-stroke" className={byKey.has(k) ? 'mapx-shape has-data' : 'mapx-shape'} />
+        ))}
+      </g>
+    ));
+  }, [regionGroups, paths, byKey, scale, themeId, uid, empty, hasUnderlay, showRegions, lines]);
 
   // Écran ← carte : coordonnées de base puis vue stable.
   const toScreen = useCallback((lng, lat, v = settled) => {
@@ -232,19 +271,47 @@ const DistrictMap = forwardRef(function DistrictMap({
     return layoutLabels(items, { size: 10.5, bounds: { width, height } });
   }, [t, showLabels, features, byKey, settled, toScreen, width, height]);
 
-  // Encre d'une étiquette posée sur un contour coloré : blanc ou encre, le plus contrasté
-  // avec la couleur de la classe (même règle que les pastilles du classement).
-  const labelInk = (key) => {
-    const z = byKey.get(key);
-    if (!z || !scale) return null;
-    const v = valueOf(theme.id, z);
-    const fill = typeof v === 'number' ? scale.fill(v) : null;
-    return fill ? inkOn(fill) : null;
-  };
+  // Étiquettes mémorisées (comme les contours). Encre d'une étiquette posée sur un contour
+  // coloré : blanc ou encre, le plus contrasté avec la couleur de la classe (même règle que les
+  // pastilles du classement).
+  const labelsLayer = useMemo(() => {
+    if (!labels.length) return null;
+    const labelInk = (key) => {
+      const z = byKey.get(key);
+      if (!z || !scale) return null;
+      const v = valueOf(themeId, z);
+      const fill = typeof v === 'number' ? scale.fill(v) : null;
+      return fill ? inkOn(fill) : null;
+    };
+    return (
+      <g className="mapx-labels" pointerEvents="none">
+        {labels.map((l) => {
+          const ink = labelInk(l.key);
+          const z = byKey.get(l.key);
+          const lvl = themeId === 'alerts' && z ? z.alertLevel : null;
+          return (
+            <text key={l.key} x={l.x.toFixed(1)} y={(l.y + 3.6).toFixed(1)} textAnchor="middle"
+              className={ink === '#ffffff' ? 'mapx-label on-dark' : ink ? 'mapx-label on-light' : 'mapx-label'}>
+              {lvl != null ? `${ALERT_LEVELS[lvl].icon} ` : ''}{l.text}
+            </text>
+          );
+        })}
+      </g>
+    );
+  }, [labels, byKey, scale, themeId]);
+
+  // Points mémorisés : recalculés quand les points, les couches affichées ou la vue changent
+  // (pas au survol). Les couches arrivent dans un objet neuf à chaque rendu : clé par valeur.
+  const layersKey = Object.entries(pointLayers).filter(([, on]) => on).map(([k]) => k).sort().join('|');
+  const pointsLayer = useMemo(() => {
+    if (!points || !t) return null;
+    const on = Object.fromEntries(layersKey.split('|').filter(Boolean).map((k) => [k, true]));
+    return <PointsLayer points={points} layers={on} toScreen={(lng, lat) => { const [x, y] = t.project(lng, lat); return [x * view.s + view.x, y * view.s + view.y]; }}
+      colorBy={pointColorBy} slots={activitySlots} focus={pointFocus} />;
+  }, [points, layersKey, t, view, pointColorBy, activitySlots, pointFocus]);
 
   if (!geo) return <div ref={boxRef} className="mapx-canvas" style={{ height }} />;
   const sb = t ? scaleBar(t, (frame[1] + frame[3]) / 2, { zoom: settled.s }) : null;
-  const lines = view.s > 4 ? 0.9 : 0.7;
   const hoverPath = hoverKey && paths.get(hoverKey);
   const pinPath = pinnedKey && pinnedKey !== hoverKey && paths.get(pinnedKey);
 
@@ -263,36 +330,12 @@ const DistrictMap = forwardRef(function DistrictMap({
           </defs>
           {!underlay && <rect width={width} height={height} fill="var(--map-bg)" />}
           <g className="mapx-shapes" transform={`translate(${view.x.toFixed(2)},${view.y.toFixed(2)}) scale(${view.s.toFixed(4)})`}>
-            {regionGroups.map(([region, keys]) => (
-              <g key={region || '_'}>
-                {showRegions && region && keys.map((k) => (
-                  <path key={`r-${k}`} d={paths.get(k)} fill="none" stroke="var(--map-region)" strokeWidth="2.6" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-                ))}
-                {keys.map((k) => (
-                  <path key={k} data-key={k} d={paths.get(k)} fill={fillOf(k)} fillOpacity={underlay ? 0.78 : 1} stroke="var(--map-line)" strokeWidth={lines}
-                    strokeLinejoin="round" vectorEffect="non-scaling-stroke" className={byKey.has(k) ? 'mapx-shape has-data' : 'mapx-shape'} />
-                ))}
-              </g>
-            ))}
+            {shapesLayer}
             {pinPath && <path d={pinPath} fill="none" stroke="var(--map-ink)" strokeWidth="2.4" strokeDasharray="5 3" vectorEffect="non-scaling-stroke" pointerEvents="none" />}
             {hoverPath && <path d={hoverPath} fill="none" stroke="var(--map-ink)" strokeWidth="2.4" vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           </g>
-          {points && <PointsLayer points={points} layers={pointLayers} toScreen={(lng, lat) => toScreen(lng, lat, view)} />}
-          {labels.length > 0 && view === settled && (
-            <g className="mapx-labels" pointerEvents="none">
-              {labels.map((l) => {
-                const ink = labelInk(l.key);
-                const z = byKey.get(l.key);
-                const lvl = theme.id === 'alerts' && z ? z.alertLevel : null;
-                return (
-                  <text key={l.key} x={l.x.toFixed(1)} y={(l.y + 3.6).toFixed(1)} textAnchor="middle"
-                    className={ink === '#ffffff' ? 'mapx-label on-dark' : ink ? 'mapx-label on-light' : 'mapx-label'}>
-                    {lvl != null ? `${ALERT_LEVELS[lvl].icon} ` : ''}{l.text}
-                  </text>
-                );
-              })}
-            </g>
-          )}
+          {pointsLayer}
+          {view === settled && labelsLayer}
           {sb && (
             <g className="mapx-furniture" transform={`translate(${width - 22},${height - padBottom - 8})`} pointerEvents="none">
               <g transform={`translate(-${(sb.px / 2 + 6).toFixed(1)},-62)`}>
@@ -321,24 +364,31 @@ const DistrictMap = forwardRef(function DistrictMap({
 
 export default DistrictMap;
 
-/** Couches de points (taille d'écran constante). */
-function PointsLayer({ points, layers, toScreen }) {
+/**
+ * Couches de points (taille d'écran constante). Couleur : statut de visite ou activité
+ * (`colorBy`) ; la forme dit la précision de la position (anneau = placé par ses collectes).
+ * `focus` (élément de légende survolé) : les autres points sont estompés.
+ */
+function PointsLayer({ points, layers, toScreen, colorBy = 'status', slots = null, focus = null }) {
   const out = [];
   const collect = points.collect;
+  const dim = (pt) => (focus && !matchesFocus(pt, focus, slots) ? 'is-dim' : undefined);
   if (layers.collect && collect) {
+    const cls = dim({ kind: 'collect' });
     if (collect.mode === 'points') {
-      collect.points.forEach((p, i) => { const [x, y] = toScreen(p.lng, p.lat); out.push(<circle key={`c${i}`} data-pt={`c:${i}`} cx={x.toFixed(1)} cy={y.toFixed(1)} r="2.6" className="mapx-collect" />); });
+      collect.points.forEach((p, i) => { const [x, y] = toScreen(p.lng, p.lat); out.push(<circle key={`c${i}`} data-pt={`c:${i}`} cx={x.toFixed(1)} cy={y.toFixed(1)} r="2.6" className={`mapx-collect${cls ? ` ${cls}` : ''}`} />); });
     } else {
       const max = Math.max(1, ...collect.bins.map((b) => b.n));
-      collect.bins.forEach((b, i) => { const [x, y] = toScreen(b.lng, b.lat); out.push(<circle key={`b${i}`} data-pt={`b:${i}`} cx={x.toFixed(1)} cy={y.toFixed(1)} r={(2.4 + 4 * Math.sqrt(b.n / max)).toFixed(1)} className="mapx-collect is-bin" />); });
+      collect.bins.forEach((b, i) => { const [x, y] = toScreen(b.lng, b.lat); out.push(<circle key={`b${i}`} data-pt={`b:${i}`} cx={x.toFixed(1)} cy={y.toFixed(1)} r={(2.4 + 4 * Math.sqrt(b.n / max)).toFixed(1)} className={`mapx-collect is-bin${cls ? ` ${cls}` : ''}`} />); });
     }
   }
   if (layers.communes) {
+    const cls = dim({ kind: 'commune' });
     points.communes.forEach((c, i) => {
       const [x, y] = toScreen(c.lng, c.lat);
       const r = Math.min(13, 5 + Math.sqrt(c.sitesWithoutPosition) * 1.4);
       out.push(
-        <g key={`m${c.pcode}`} data-pt={`m:${i}`}>
+        <g key={`m${c.pcode}`} data-pt={`m:${i}`} className={cls}>
           <circle cx={x.toFixed(1)} cy={y.toFixed(1)} r={r.toFixed(1)} className="mapx-commune" />
           {c.sitesWithoutPosition > 1 && r >= 8 && <text x={x.toFixed(1)} y={(y + 3.3).toFixed(1)} textAnchor="middle" className="mapx-commune-n">{c.sitesWithoutPosition}</text>}
         </g>
@@ -349,14 +399,17 @@ function PointsLayer({ points, layers, toScreen }) {
     if (s.kind === 'gps' && !layers.gps) return;
     if (s.kind === 'collectes' && !layers.derived) return;
     const [x, y] = toScreen(s.lng, s.lat);
+    const px = +x.toFixed(1); const py = +y.toFixed(1);
     out.push(
-      <g key={`s${s.id}`} data-pt={`s:${i}`}>
-        {s.kind === 'collectes' && <circle cx={x.toFixed(1)} cy={y.toFixed(1)} r="7.5" className={s.quality === 'fiable' ? 'mapx-derived' : 'mapx-derived is-indicative'} />}
-        <StatusSymbol status={s.status} x={+x.toFixed(1)} y={+y.toFixed(1)} />
+      <g key={`s${s.id}`} data-pt={`s:${i}`} className={dim(s)}>
+        {s.kind === 'collectes' && <circle cx={px} cy={py} r="7.5" className={s.quality === 'fiable' ? 'mapx-derived' : 'mapx-derived is-indicative'} />}
+        {colorBy === 'activity'
+          ? <ActivitySymbol slot={slotOf(s.activity, slots)} x={px} y={py} />
+          : <StatusSymbol status={s.status} x={px} y={py} />}
       </g>
     );
   });
-  return <g className="mapx-points">{out}</g>;
+  return <g className={`mapx-points${focus ? ' has-focus' : ''}`}>{out}</g>;
 }
 
 /** Carte de situation : silhouette + rectangle de l'emprise affichée (au zoom). */

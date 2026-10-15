@@ -7,10 +7,13 @@ const { badRequest, notFound } = require('../../middleware/errors');
 const repo = require('./field.repository');
 const settingsRepo = require('../settings/settings.repository');
 const { buildLocationsWorkbook, parseLocationsWorkbook, POI_SUBTYPES, MODALITIES } = require('./locationsXlsx');
+const activation = require('./activation.repository');
+const { buildActivationWorkbook, parseActivationWorkbook } = require('./activationXlsx');
 const { officeResolver } = require('./mmrXlsx');
 const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
 const { readPeriod } = require('../../middleware/period');
 const { PERIOD_CAPS } = require('../common/periodCaps');
+const { checkReason } = require('../common/reasonText');
 
 // Durées maximales d'une période (lot 1b, mesurées au banc : 3 000 sites, sous RLS —
 // common/periodCaps, la même table que les écrans) : la liste des visites se lit sur 12 mois
@@ -80,6 +83,15 @@ router.patch('/sites/:id', WRITE, body(siteSchema.partial().extend({
 router.get('/rbm/sites', asyncHandler(async (req, res) => {
   const p = readPeriod(req.query);
   res.json(await repo.rbmSites(t(req), { month: p ? p.to : undefined, asOf: p ? p.to : null, risk: req.query.risk }));
+}));
+// Compteurs seuls (total, par risque, à suivre, à planifier) sur les MÊMES lignes que /rbm/sites :
+// pour les écrans qui n'affichent que des totaux (Synthèse, Couverture, Affectation & visites).
+const rbmCountsQuery = z.object({ risk: z.enum(['faible', 'moyenne', 'elevee']).optional() }).passthrough();
+router.get('/rbm/counts', asyncHandler(async (req, res) => {
+  const q = rbmCountsQuery.safeParse(req.query);
+  if (!q.success) throw badRequest('Niveau de risque invalide : faible, moyenne ou elevee.');
+  const p = readPeriod(req.query);
+  res.json(await repo.rbmCounts(t(req), { month: p ? p.to : undefined, asOf: p ? p.to : null, risk: q.data.risk }));
 }));
 // Pourquoi ce score / ce drapeau, conséquence, que faire (retour n° 48) — un site, à la demande.
 const uuid = z.string().uuid();
@@ -208,6 +220,74 @@ router.post('/plan-board/locations/import', WRITE, express.raw({ type: '*/*', li
     warnings: parsed.warnings.slice(0, 500), warningCount: parsed.warnings.length });
 }));
 
+// ---- Sites (actifs / inactifs) : grille du classeur d'activation (retour 64) ----
+// Lecture compacte pour l'écran ; enregistrement journalisé (motif facultatif) ;
+// export / import du classeur au format de la feuille « Site Actif ».
+router.get('/activation', asyncHandler(async (req, res) => {
+  res.json(await activation.activationGridCompact(t(req), { year: yearQ(req) }));
+}));
+const activationSave = z.object({
+  year: z.number().int().min(2000).max(2100),
+  changes: z.array(z.object({ siteId: z.string().uuid(), month: z.number().int().min(1).max(12), active: z.boolean().nullable() })).min(1).max(60000),
+  reason: z.string().max(2000).optional(),
+});
+router.put('/activation', WRITE, asyncHandler(async (req, res) => {
+  const p = activationSave.safeParse(req.body);
+  if (!p.success) throw badRequest('Données invalides', p.error.flatten());
+  try {
+    res.json(await activation.saveActivation(t(req), uid(req), p.data));
+  } catch (e) {
+    if (e && e.code === 'UNKNOWN_SITE') throw badRequest(e.message);
+    throw e;
+  }
+}));
+// « Renseigner les cases vides » : calculé côté serveur, sous verrou, en une transaction.
+const activationFill = z.object({
+  year: z.number().int().min(2000).max(2100),
+  from: z.number().int().min(1).max(12),
+  to: z.number().int().min(1).max(12),
+  value: z.boolean(),
+  siteIds: z.array(z.string().uuid()).min(1).max(20000),
+  reason: z.string().max(2000).optional(),
+}).refine((v) => v.from <= v.to, { message: 'Le premier mois doit précéder le dernier.', path: ['to'] });
+router.post('/activation/fill', WRITE, asyncHandler(async (req, res) => {
+  const p = activationFill.safeParse(req.body);
+  if (!p.success) throw badRequest('Données invalides', p.error.flatten());
+  try {
+    res.json(await activation.fillBlankActivation(t(req), uid(req), p.data));
+  } catch (e) {
+    if (e && e.code === 'UNKNOWN_SITE') throw badRequest(e.message);
+    throw e;
+  }
+}));
+router.get('/activation/history', asyncHandler(async (req, res) => {
+  const siteId = z.string().uuid().safeParse(req.query.siteId);
+  if (!siteId.success) throw badRequest('Site requis (?siteId=).');
+  res.json(await activation.activationHistory(t(req), { siteId: siteId.data, year: yearQ(req) }));
+}));
+router.get('/activation.xlsx', asyncHandler(async (req, res) => {
+  const year = yearQ(req);
+  const { rows } = await activation.activationGrid(t(req), { year });
+  const wb = buildActivationWorkbook({ year, sites: rows, generatedAt: new Date().toISOString() });
+  await sendXlsx(res, wb, `Sites_actifs_${year}.xlsx`);
+}));
+// Import : ?commit=0 → aperçu (rien n'est écrit) ; ?commit=1 → enregistrement en une transaction.
+router.post('/activation/import', WRITE, express.raw({ type: '*/*', limit: '50mb' }), asyncHandler(async (req, res) => {
+  if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
+  let parsed;
+  try { parsed = await parseActivationWorkbook(req.body); } catch (err) {
+    if (isRefusal(err)) throw err;
+    if (err && err.code === 'NO_SHEET') throw badRequest('Aucune feuille reconnue : il faut les colonnes « Identifiant » (ou « Code POI ») et les 12 mois (Jan … Déc), comme la feuille « Site Actif ».');
+    throw badRequest('Fichier Excel illisible.');
+  }
+  const blocking = parsed.errors.filter((e) => e.line === null);
+  if (blocking.length) throw badRequest(blocking[0].message);
+  const year = parsed.year || yearQ(req);
+  const commit = req.query.commit === '1';
+  const result = await activation.importActivation(t(req), uid(req), { year, rows: parsed.rows }, { commit });
+  res.json({ ...result, sheet: parsed.sheet, errorCount: parsed.errors.length, errors: parsed.errors.slice(0, 200) });
+}));
+
 router.post('/rbm/generate', WRITE, asyncHandler(async (req, res) => {
   const month = monthQ(req);
   if (!month) throw badRequest('Mois requis (?month=YYYY-MM).');
@@ -320,18 +400,29 @@ router.put('/collection-days', WRITE, body(travelSchema), asyncHandler(async (re
   res.status(204).end();
 }));
 
+// Retour 58 : le TPM d'une visite est celui de sa zone ; un autre TPM exige `providerReason`
+// (nettoyée et bornée 10..500 : common/reasonText). Le contrat est dérivé de la zone : un
+// `contractId` envoyé par un ancien client est ignoré (zod retire les clés inconnues).
+const providerReason = z.string().max(2000).optional().nullable();
+/** Raison du TPM nettoyée (ou 400 reason_*) — absente : null. */
+function cleanProviderReason(req, res, next) {
+  const r = checkReason(req.valid.providerReason, { required: false });
+  if (!r.ok) return next(badRequest(r.message, { code: r.code }));
+  req.valid.providerReason = r.reason;
+  return next();
+}
 const visitSchema = z.object({
   siteId: z.string().uuid(),
   periodMonth: z.string().regex(/^\d{4}-\d{2}(-\d{2})?$/),
   activity: z.string().trim().max(160).optional().or(z.literal('').transform(() => undefined)),
-  contractId: z.string().uuid().optional().or(z.literal('').transform(() => undefined)),
   providerId: z.string().uuid().optional().or(z.literal('').transform(() => undefined)),
+  providerReason,
   agent: z.string().trim().max(120).optional().or(z.literal('').transform(() => undefined)),
   status: z.enum(['planifie', 'realise', 'annule']).optional(),
   visitDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 // Doublon (site + mois + activité) : le dépôt lève un conflit explicite (409).
-router.post('/visits', WRITE, body(visitSchema), asyncHandler(async (req, res) => {
+router.post('/visits', WRITE, body(visitSchema), cleanProviderReason, asyncHandler(async (req, res) => {
   res.status(201).json({ id: await repo.createVisit(t(req), uid(req), req.valid) });
 }));
 
@@ -339,13 +430,15 @@ router.post('/visits', WRITE, body(visitSchema), asyncHandler(async (req, res) =
 const clearable = (schema) => schema.nullable().optional().or(z.literal('').transform(() => null));
 const patchSchema = z.object({
   providerId: clearable(z.string().uuid()),
+  providerReason,
+  followZone: z.literal(true).optional(),
   agent: clearable(z.string().trim().max(120)),
-  contractId: clearable(z.string().uuid()),
   status: z.enum(['planifie', 'realise', 'annule']).optional(),
   visitDate: clearable(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
-});
-router.patch('/visits/:id', WRITE, body(patchSchema), asyncHandler(async (req, res) => {
-  if (!(await repo.updateVisit(t(req), req.params.id, req.valid))) throw notFound('Visite introuvable');
+}).refine((p) => !(p.followZone && p.providerId !== undefined), { message: '« Revenir à la zone » et un TPM choisi sont exclusifs.' });
+router.patch('/visits/:id', WRITE, body(patchSchema), cleanProviderReason, asyncHandler(async (req, res) => {
+  if (!uuid.safeParse(req.params.id).success) throw badRequest('Identifiant de visite invalide');
+  if (!(await repo.updateVisit(t(req), req.params.id, req.valid, uid(req)))) throw notFound('Visite introuvable');
   res.status(204).end();
 }));
 router.delete('/visits/:id', WRITE, asyncHandler(async (req, res) => {

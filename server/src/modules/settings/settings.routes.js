@@ -5,7 +5,7 @@ const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, conflict } = require('../../middleware/errors');
 const repo = require('./settings.repository');
-const { parseUpload } = require('./adminImport');
+const { runCpu } = require('../common/cpuPool');
 const loc = require('./localities.repository');
 const places = require('./placeMatch.repository');
 const { configHealth } = require('./health.repository');
@@ -261,7 +261,10 @@ router.post('/admin-breakdown/import', ADMIN, express.raw({ type: '*/*', limit: 
   const filename = decoded.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 255) || 'upload.csv';
   if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
   let parsed;
-  try { parsed = await parseUpload(req.body, filename); } catch (err) { throw badRequest(err.message); }
+  // Lecture (.shp, .dbf, .zip, XLSForm) sur un fil de calcul : un shapefile de 200 Mo ne bloque plus
+  // les autres requêtes. Erreur du pool lui-même (occupé, trop long, mémoire) : gardée telle quelle.
+  try { parsed = await runCpu('parseAdminUpload', [req.body, filename], { transfer: true }); }
+  catch (err) { if (err.pool) throw err; throw badRequest(err.message); }
   if (!parsed.levels.length || !parsed.rows.length) throw badRequest('Aucune unité administrative détectée dans le fichier.');
   res.status(201).json(await loc.replaceBreakdown(t(req), parsed, { confirm: req.query.confirm === '1' }));
 }));

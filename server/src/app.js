@@ -13,6 +13,7 @@ const tpmConsolidationRoutes = require('./modules/tpm/consolidation.routes');
 const tpmPlanningRoutes = require('./modules/tpm/planning.routes');
 const tpmPostesRoutes = require('./modules/tpm/postes.routes');
 const tpmFieldRoutes = require('./modules/tpm/field.routes');
+const tpmAttributionRoutes = require('./modules/tpm/tpmAttribution.routes');
 const contractsRoutes = require('./modules/contracts/contracts.routes');
 const settingsRoutes = require('./modules/settings/settings.routes');
 const partnersRoutes = require('./modules/partners/partners.routes');
@@ -23,11 +24,15 @@ const reportDesignerRoutes = require('./modules/reports/reports.routes');
 const alertsRoutes = require('./modules/dashboards/alerts.routes');
 const deletionsRoutes = require('./modules/deletions/deletions.routes');
 const siteRegistryRoutes = require('./modules/settings/sitesAdmin.routes');
+const subActivitiesRoutes = require('./modules/settings/subActivities.routes');
 const mapRoutes = require('./modules/map/map.routes');
 const evaluationRoutes = require('./modules/evaluation/evaluation.routes');
 const trainingsRoutes = require('./modules/trainings/trainings.routes');
 const asyncHandler = require('./middleware/asyncHandler');
-const { requireAuth } = require('./middleware/auth');
+const { requireAuth, requireRole } = require('./middleware/auth');
+const { runtimeSnapshot } = require('./modules/common/runtimeStats');
+const { cpuPool } = require('./modules/common/cpuPool');
+const { pool } = require('./config/db');
 const { checkSchema } = require('./db/schemaStatus');
 
 function createApp() {
@@ -43,7 +48,10 @@ function createApp() {
   const corsOrigin = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim())
     : '*';
-  app.use(cors({ origin: corsOrigin }));
+  // Pré-vol CORS mis en cache 10 min (Access-Control-Max-Age) : sans lui, le navigateur
+  // le refait toutes les 5 s, soit un aller-retour de plus devant presque chaque appel
+  // (en-tête Authorization) quand l'interface et l'API sont sur deux ports.
+  app.use(cors({ origin: corsOrigin, maxAge: 600 }));
   app.use(express.json({ limit: '1mb' }));
   app.use(pinoHttp({ logger }));
 
@@ -95,6 +103,7 @@ function createApp() {
   app.use('/api/tpm/planning', tpmPlanningRoutes);
   app.use('/api/tpm/postes', tpmPostesRoutes);
   app.use('/api/tpm/field', tpmFieldRoutes);
+  app.use('/api/tpm/attribution', tpmAttributionRoutes); // retour 58 : affectation des TPM par zone
   app.use('/api/tpm', tpmRoutes);
   app.use('/api/contracts', contractsRoutes);
   app.use('/api/settings', settingsRoutes);
@@ -106,6 +115,7 @@ function createApp() {
   app.use('/api/alerts', alertsRoutes);
   app.use('/api/deletions', deletionsRoutes);
   app.use('/api/site-registry', siteRegistryRoutes);
+  app.use('/api/sub-activities', subActivitiesRoutes);
   app.use('/api/map', mapRoutes);
   app.use('/api/evaluation', evaluationRoutes);
   app.use('/api/trainings', trainingsRoutes);
@@ -115,6 +125,12 @@ function createApp() {
     const pending = await checkSchema();
     res.json({ pendingCount: pending.length, ...(req.auth.role === 'admin' ? { pendingMigrations: pending } : {}) });
   }));
+
+  // Santé du processus (administrateur) : retard de la boucle d'événements, pool PostgreSQL, fils de
+  // calcul ; ?reset=1 remet la mesure à zéro (banc de réactivité).
+  app.get('/api/system/runtime', requireAuth, requireRole('admin'), (req, res) => {
+    res.json(runtimeSnapshot({ reset: req.query.reset === '1', pool, extra: { cpuPool: cpuPool().stats() } }));
+  });
 
   // Anything else is a routing mistake, not a server error.
   app.use((req, res, next) => next(notFound('Route introuvable')));

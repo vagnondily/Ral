@@ -21,7 +21,7 @@ import ImportWizard from './ImportWizard.jsx';
 import CorrespondencesCard from './Correspondences.jsx';
 import CodeLabel from '../../components/CodeLabel.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import { formatDateTime, formatInt, formatLocale } from '../../lib/format.js';
+import { formatCollectDate, formatDateTime, formatInt, formatLocale } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { PERIOD_CAPS } from '../../lib/periodCaps.js';
@@ -57,14 +57,16 @@ const DETAIL_TABS = [
 
 // Colonnes « méta » typées (référentiels MEMS) affichées avant les variables.
 const META_COLS = [
-  { key: 'submittedAt', label: 'Date', fmt: (v) => (v ? formatDateTime(v) : '—') },
+  // Date sans heure (date d'enquête) : la date seule, jamais « à 03:00 » (retour 80).
+  { key: 'submittedAt', label: 'Date', fmt: (v) => formatCollectDate(v), cls: 'dv-date' },
   // Libellé d'abord (bureau MEMS rattaché, sinon libellé du choix : « 6 » → « Ambovombe »), code en repli ;
   // `code` = la valeur brute affichée en mode « Codes ».
   { key: 'officeName', alt: ['fieldOfficeLabel', 'fieldOffice'], code: 'fieldOffice', label: 'Bureau' },
-  // admin2 = District, admin3 = Commune, admin4 = Fokontany (memsMapping) ; nom résolu par pcode sinon valeur brute.
-  { key: 'districtName', alt: 'admin2', code: 'admin2', label: 'District' },
-  { key: 'communeName', alt: 'admin3', code: 'admin3', label: 'Commune' },
-  { key: 'admin4', label: 'Fokontany' },
+  // admin2 = District, admin3 = Commune, admin4 = Fokontany (memsMapping) : nom du découpage (P-code),
+  // sinon libellé de la liste de choix de la fiche (« 89 » → « Tomboarivo »), sinon la valeur brute.
+  { key: 'districtName', alt: ['districtLabel', 'admin2'], code: 'admin2', label: 'District' },
+  { key: 'communeName', alt: ['communeLabel', 'admin3'], code: 'admin3', label: 'Commune' },
+  { key: 'fokontanyName', alt: ['fokontanyLabel', 'admin4'], code: 'admin4', label: 'Fokontany' },
   { key: 'siteLabel', alt: 'site', code: 'site', label: 'Site' },
   // Site du référentiel reconnu à l'import (DPName, POIName, école…) ; vide = à rapprocher.
   { key: 'siteName', label: 'Site du référentiel' },
@@ -352,7 +354,8 @@ function FormDeleteModal({ form, onClose, onDeleted }) {
 // ======================================================================
 function FormDetail({ form, canEdit, initialTab, onBack, onChanged }) {
   const { tr } = useI18n();
-  const [tab, setTab] = useState(initialTab || 'variables');
+  // « modele » (lien « Appliquer le modèle d'activité », retour 85) : Configuration, modèle en vue.
+  const [tab, setTab] = useState(initialTab === 'modele' ? 'config' : (initialTab || 'variables'));
   const [attaching, setAttaching] = useState(false);
   const [editingForm, setEditingForm] = useState(false); // nom, activité, statut de la fiche
   const { steps, next } = formSteps(form);
@@ -413,7 +416,7 @@ function FormDetail({ form, canEdit, initialTab, onBack, onChanged }) {
       {tab === 'donnees' && <DataViewTab form={form} canEdit={canEdit} onGoImport={() => setTab('importation')} />}
       {tab === 'resultats' && <ResultsTab form={form} canEdit={canEdit} onChanged={onChanged} onGoConfig={() => setTab('config')} onGoMapping={() => setTab('mapping')} />}
       {tab === 'mapping' && <MappingTab form={form} canEdit={canEdit} />}
-      {tab === 'config' && <ConfigTab form={form} canEdit={canEdit} onChanged={onChanged} />}
+      {tab === 'config' && <ConfigTab form={form} canEdit={canEdit} onChanged={onChanged} focusTemplate={initialTab === 'modele'} />}
     </div>
   );
 }
@@ -532,6 +535,7 @@ function VariablesTab({ form }) {
 
 // ---- Données importées (visualisation des soumissions brutes) ------------
 const DATAVIEW_DEFAULT_VARS = 8; // nb de variables affichées par défaut (lisibilité)
+const DV_PAGE = 1000; // soumissions chargées par page (« Charger les N suivantes »)
 const DATAVIEW_STORE = 'mems.dataview.cols.v1';
 function loadVarCols(formId) {
   try { return (JSON.parse(localStorage.getItem(DATAVIEW_STORE)) || {})[formId] || null; } catch { return null; }
@@ -568,10 +572,10 @@ const DV_MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juill
 // de période imposé.
 const DV_DIMS = [
   { key: 'bureau', label: 'Bureau', get: (r) => r.officeName || r.fieldOfficeLabel || r.fieldOffice },
-  { key: 'region', label: 'Région', get: (r) => r.admin1 },
-  { key: 'district', label: 'District', get: (r) => r.districtName || r.admin2 },
-  { key: 'commune', label: 'Commune', get: (r) => r.communeName || r.admin3 },
-  { key: 'fokontany', label: 'Fokontany', get: (r) => r.admin4 },
+  { key: 'region', label: 'Région', get: (r) => r.regionName || r.regionLabel || r.admin1 },
+  { key: 'district', label: 'District', get: (r) => r.districtName || r.districtLabel || r.admin2 },
+  { key: 'commune', label: 'Commune', get: (r) => r.communeName || r.communeLabel || r.admin3 },
+  { key: 'fokontany', label: 'Fokontany', get: (r) => r.fokontanyName || r.fokontanyLabel || r.admin4 },
   { key: 'year', label: 'Année', get: (r) => (r.periodMonth ? r.periodMonth.slice(0, 4) : null) },
   // Nom du mois dans la langue de l'interface (formatLocale suit la langue ; en français, identique à DV_MONTHS).
   { key: 'mon', label: 'Mois', get: (r) => (r.periodMonth ? r.periodMonth.slice(5, 7) : null), fmt: (v) => (DV_MONTHS[Number(v) - 1] ? new Date(2000, Number(v) - 1, 1).toLocaleString(formatLocale(), { month: 'long' }) : v) },
@@ -587,17 +591,34 @@ function DataViewTab({ form, canEdit, onGoImport }) {
 
   const [view, setView] = useState('all'); // all | kept | excluded
 
+  // Par pages de DV_PAGE (retour 80) : la suite se charge à la demande, et l'écran dit
+  // toujours combien de soumissions restent à charger — jamais une limite silencieuse.
+  const [loadingMore, setLoadingMore] = useState(false);
   function loadData() {
     setRes(null);
     Promise.all([
       api.monCatalog(form.id).catch(() => ({ fields: [], choices: [] })),
-      api.monFormSubmissions(form.id, { limit: 1000 }),
+      api.monFormSubmissions(form.id, { limit: DV_PAGE, offset: 0 }),
     ]).then(([c, r]) => { setCat(c || { fields: [], choices: [] }); setRes(r); })
       .catch((e) => { toast.error(e.message); setCat({ fields: [], choices: [] }); setRes({ rows: [], total: 0, limit: 0 }); });
+  }
+  async function loadMore() {
+    if (!res || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const r = await api.monFormSubmissions(form.id, { limit: DV_PAGE, offset: res.rows.length });
+      setRes((prev) => {
+        // Ordre stable côté serveur ; une soumission déjà chargée (import entre-temps) n'est pas doublée.
+        const seen = new Set(prev.rows.map((x) => x.id));
+        return { ...prev, rows: [...prev.rows, ...r.rows.filter((x) => !seen.has(x.id))], total: r.total, excluded: r.excluded };
+      });
+    } catch (e) { toast.error(e.message); } finally { setLoadingMore(false); }
   }
   useEffect(() => { setCat(null); setFilters({}); setView('all'); loadData(); /* eslint-disable-next-line */ }, [form.id]);
 
   const rows = res?.rows || [];
+  const remaining = res ? Math.max(0, (res.total || 0) - rows.length) : 0;
+  const nextPage = Math.min(DV_PAGE, remaining);
   // Retour n° 2 : bascule « Libellés / Codes » (mémorisée), pour lire « Ambovombe » ou vérifier « 6 ».
   const [showCodes, setShowCodes] = useState(() => { try { return localStorage.getItem('mems.dv.codes') === '1'; } catch { return false; } });
   const toggleCodes = (v) => { setShowCodes(v); try { localStorage.setItem('mems.dv.codes', v ? '1' : '0'); } catch { /* stockage indisponible */ } };
@@ -664,19 +685,19 @@ function DataViewTab({ form, canEdit, onGoImport }) {
     return m.fmt ? m.fmt(v) : (v == null || v === '' ? '—' : String(v));
   };
 
-  const shown = useMemo(() => {
-    const active = DV_DIMS.filter((d) => filters[d.key]);
+  // Filtres de la grille (vue, référentiels, recherche) : les mêmes pour l'affichage et l'export.
+  const matchRow = (r) => {
+    if (view === 'kept' && r.excluded) return false;
+    if (view === 'excluded' && !r.excluded) return false;
+    for (const d of DV_DIMS) { if (filters[d.key] && String(d.get(r) ?? '') !== filters[d.key]) return false; }
+    if (!q) return true;
     const s = q.toLowerCase();
-    return rows.filter((r) => {
-      if (view === 'kept' && r.excluded) return false;
-      if (view === 'excluded' && !r.excluded) return false;
-      for (const d of active) { if (String(d.get(r) ?? '') !== filters[d.key]) return false; }
-      if (!q) return true;
-      if (metaCols.some((m) => String(metaVal(r, m)).toLowerCase().includes(s))) return true;
-      return Object.values(r.data || {}).some((v) => String(v ?? '').toLowerCase().includes(s));
-    });
+    if (metaCols.some((m) => String(metaVal(r, m)).toLowerCase().includes(s))) return true;
+    return Object.values(r.data || {}).some((v) => String(v ?? '').toLowerCase().includes(s));
+  };
+  const shown = useMemo(() => rows.filter(matchRow),
     /* eslint-disable-next-line */
-  }, [rows, q, filters, view, metaCols]);
+    [rows, q, filters, view, metaCols, showCodes]);
 
   const [open, setOpen] = useState(null);
   const [expanded, setExpanded] = useState(false); // hauteur compacte ↔ liste complète
@@ -702,8 +723,32 @@ function DataViewTab({ form, canEdit, onGoImport }) {
   const toggleAll = () => setSel(allSel ? new Set() : new Set(shownKeys));
   const toggleOne = (k) => setSel((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
-  function exportCsv(which) {
-    const list = which === 'sel' ? shown.filter((r, i) => sel.has(rowKey(r, i))) : shown;
+  // Toutes les soumissions de la fiche (pages restantes) : l'export « tout » n'est jamais tronqué.
+  async function fetchRest() {
+    setLoadingMore(true);
+    try {
+      let all = res.rows; let { total, excluded } = res;
+      const seen = new Set(all.map((x) => x.id));
+      while (all.length < total) {
+        const r = await api.monFormSubmissions(form.id, { limit: 2000, offset: all.length });
+        total = r.total; excluded = r.excluded;
+        const fresh = r.rows.filter((x) => !seen.has(x.id));
+        if (!fresh.length) break;
+        fresh.forEach((x) => seen.add(x.id));
+        all = [...all, ...fresh];
+      }
+      setRes((prev) => ({ ...prev, rows: all, total, excluded }));
+      return all;
+    } catch (e) { toast.error(e.message); return null; } finally { setLoadingMore(false); }
+  }
+
+  async function exportCsv(which) {
+    let list = which === 'sel' ? shown.filter((r, i) => sel.has(rowKey(r, i))) : shown;
+    if (which !== 'sel' && remaining > 0) {
+      const all = await fetchRest();
+      if (!all) return;
+      list = all.filter(matchRow);
+    }
     const head = [...metaCols.map((m) => tr(m.label)), ...varCols.map((v) => v.label || v.name)];
     // Réponses brutes importées (texte libre) : formules neutralisées par downloadCsv.
     const lines = list.map((r) => [
@@ -726,59 +771,84 @@ function DataViewTab({ form, canEdit, onGoImport }) {
           </EmptyState>
         ) : (
           <>
-            <div className="comet-filters">
-              <div className="field">
-                <span className="field-label">{tr('Vue')}</span>
-                <select className="select" value={view} onChange={(e) => setView(e.target.value)} aria-label={tr('Vue')}>
-                  <option value="all">{tr('Toutes')}</option>
-                  <option value="kept">{tr('Retenues (analyse)')}</option>
-                  <option value="excluded">{tr('Exclues')}</option>
-                </select>
-              </div>
-              {dimOptions.map((d) => (
-                <div className="field" key={d.key}>
-                  <span className="field-label">{tr(d.label)}</span>
-                  <select className="select" value={filters[d.key] || ''} aria-label={tr(d.label)}
-                    onChange={(e) => setFilters((f) => ({ ...f, [d.key]: e.target.value }))}>
-                    <option value="">{tr('Tous')}</option>
-                    {d.vals.map((v) => <option key={v} value={v}>{d.fmt ? d.fmt(v) : v}</option>)}
+            <div className="filters-bar comet-filters dv-filters">
+              <div className="comet-fields">
+                <div className="cfilter">
+                  <span className="cfilter-label">{tr('Vue')}</span>
+                  <select className="select" value={view} onChange={(e) => setView(e.target.value)} aria-label={tr('Vue')}>
+                    <option value="all">{tr('Toutes')}</option>
+                    <option value="kept">{tr('Retenues (analyse)')}</option>
+                    <option value="excluded">{tr('Exclues')}</option>
                   </select>
                 </div>
-              ))}
-              {(DV_DIMS.some((d) => filters[d.key]) || view !== 'all') && <Button variant="ghost" size="sm" onClick={() => { setFilters({}); setView('all'); }}>{tr('Réinitialiser')}</Button>}
-            </div>
-            <div className="ind-toolbar">
-              <span className="input-wrap ind-search"><Search size={16} aria-hidden="true" />
-                <input className="input" type="search" placeholder={tr('Filtrer les soumissions…')} value={q} onChange={(e) => setQ(e.target.value)} />
-              </span>
-              <span className="ind-hint">{res.excluded
-                ? tr('{n} affichée(s) · {k} retenue(s) · {x} exclue(s)', { n: shown.length, k: res.total - (res.excluded || 0), x: res.excluded })
-                : tr('{n} affichée(s) · {k} retenue(s)', { n: shown.length, k: res.total - (res.excluded || 0) })}</span>
-              <span className="ind-tsp" />
-              <div className="segmented" role="group" aria-label={tr('Affichage des réponses')}>
-                <button type="button" aria-pressed={!showCodes} onClick={() => toggleCodes(false)} title={tr('Afficher le libellé des réponses codées (« 6 » → « Ambovombe »)')}>{tr('Libellés')}</button>
-                <button type="button" aria-pressed={showCodes} onClick={() => toggleCodes(true)} title={tr('Afficher les codes tels que reçus')}>{tr('Codes')}</button>
-              </div>
-              <div className="pop-anchor" ref={colMenu.ref}>
-                <IconButton icon={Columns3} label={tr('Colonnes ({a}/{b})', { a: shownVarCols.length, b: varCols.length })} variant="secondary" size="sm" onClick={() => colMenu.setOpen((o) => !o)} />
-                {colMenu.open && (
-                  <div className="pop-menu filter-menu" role="menu" style={{ maxHeight: 340, overflow: 'auto' }}>
-                    <div className="pop-menu-label">{tr('Variables affichées ({a}/{b})', { a: shownVarCols.length, b: varCols.length })}</div>
-                    {varCols.map((v) => (
-                      <label key={v.name} className="filter-pick">
-                        <input type="checkbox" checked={shownVarCols.some((s) => s.name === v.name)} onChange={() => toggleVar(v.name)} />
-                        <span>{v.label || v.name}{v.label && v.label !== v.name ? <span className="site-meta"> · {v.name}</span> : null}</span>
-                      </label>
-                    ))}
-                    <button type="button" className="pop-reset" onClick={() => setVisible(varCols.map((v) => v.name))}>{tr('Tout afficher')}</button>
-                    <button type="button" className="pop-reset" onClick={() => setVisible(varCols.slice(0, DATAVIEW_DEFAULT_VARS).map((v) => v.name))}>{tr('Réduire ({n} premières)', { n: DATAVIEW_DEFAULT_VARS })}</button>
+                {dimOptions.map((d) => (
+                  <div className="cfilter" key={d.key}>
+                    <span className="cfilter-label">{tr(d.label)}</span>
+                    <select className="select" value={filters[d.key] || ''} aria-label={tr(d.label)}
+                      onChange={(e) => setFilters((f) => ({ ...f, [d.key]: e.target.value }))}>
+                      <option value="">{tr('Tous')}</option>
+                      {d.vals.map((v) => <option key={v} value={v}>{d.fmt ? d.fmt(v) : v}</option>)}
+                    </select>
                   </div>
+                ))}
+              </div>
+              {(DV_DIMS.some((d) => filters[d.key]) || view !== 'all') && (
+                <div className="comet-icons"><Button variant="ghost" size="sm" icon={RotateCcw} onClick={() => { setFilters({}); setView('all'); }}>{tr('Réinitialiser')}</Button></div>
+              )}
+            </div>
+            <div className="data-toolbar dv-toolbar">
+              <div className="data-toolbar-left">
+                <span className="input-wrap dv-search"><Search size={16} aria-hidden="true" />
+                  <input className="input" type="search" placeholder={tr('Filtrer les soumissions…')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={tr('Filtrer les soumissions…')} />
+                </span>
+                {/* Jamais de limite silencieuse : ce qui est chargé, sur combien, et la suite à charger. */}
+                <span className="dv-count tabular" role="status">
+                  {remaining > 0
+                    ? <>
+                      {shown.length !== rows.length && <>{tr('{n} affichée(s)', { n: formatInt(shown.length) })} · </>}
+                      <strong>{tr('{loaded} chargée(s) sur {total}', { loaded: formatInt(rows.length), total: formatInt(res.total) })}</strong>
+                    </>
+                    : <>
+                      {shown.length !== rows.length
+                        ? tr('{n} affichée(s) sur {total}', { n: formatInt(shown.length), total: formatInt(res.total) })
+                        : tr('{n} soumission(s)', { n: formatInt(res.total) })}
+                      {' · '}{tr('{k} retenue(s)', { k: formatInt(res.total - (res.excluded || 0)) })}
+                      {res.excluded > 0 && <> · {tr('{x} exclue(s)', { x: formatInt(res.excluded) })}</>}
+                    </>}
+                </span>
+                {remaining > 0 && (
+                  <Button size="sm" variant="secondary" icon={ChevronDown} onClick={loadMore} disabled={loadingMore}
+                    title={tr('Filtres et recherche portent sur les lignes chargées.')}>
+                    {loadingMore ? tr('Chargement…') : tr('Charger les {m} suivantes', { m: formatInt(nextPage) })}
+                  </Button>
                 )}
               </div>
-              <IconButton icon={Download} label={tr('Exporter tout (CSV)')} variant="secondary" size="sm" onClick={() => exportCsv('all')} />
+              <div className="data-toolbar-right">
+                <div className="segmented" role="group" aria-label={tr('Affichage des réponses')}>
+                  <button type="button" aria-pressed={!showCodes} onClick={() => toggleCodes(false)} title={tr('Afficher le libellé des réponses codées (« 6 » → « Ambovombe »)')}>{tr('Libellés')}</button>
+                  <button type="button" aria-pressed={showCodes} onClick={() => toggleCodes(true)} title={tr('Afficher les codes tels que reçus')}>{tr('Codes')}</button>
+                </div>
+                <div className="pop-anchor" ref={colMenu.ref}>
+                  <IconButton icon={Columns3} label={tr('Colonnes ({a}/{b})', { a: shownVarCols.length, b: varCols.length })} variant="secondary" size="sm" onClick={() => colMenu.setOpen((o) => !o)} />
+                  {colMenu.open && (
+                    <div className="pop-menu filter-menu" role="menu" style={{ maxHeight: 340, overflow: 'auto' }}>
+                      <div className="pop-menu-label">{tr('Variables affichées ({a}/{b})', { a: shownVarCols.length, b: varCols.length })}</div>
+                      {varCols.map((v) => (
+                        <label key={v.name} className="filter-pick">
+                          <input type="checkbox" checked={shownVarCols.some((s) => s.name === v.name)} onChange={() => toggleVar(v.name)} />
+                          <span>{v.label || v.name}{v.label && v.label !== v.name ? <span className="site-meta"> · {v.name}</span> : null}</span>
+                        </label>
+                      ))}
+                      <button type="button" className="pop-reset" onClick={() => setVisible(varCols.map((v) => v.name))}>{tr('Tout afficher')}</button>
+                      <button type="button" className="pop-reset" onClick={() => setVisible(varCols.slice(0, DATAVIEW_DEFAULT_VARS).map((v) => v.name))}>{tr('Réduire ({n} premières)', { n: DATAVIEW_DEFAULT_VARS })}</button>
+                    </div>
+                  )}
+                </div>
+                <IconButton icon={Download} label={tr('Exporter tout (CSV)')} variant="secondary" size="sm" onClick={() => exportCsv('all')} />
+              </div>
             </div>
             {sel.size > 0 && (
-              <div className="ind-batch">
+              <div className="ind-batch dv-batch">
                 <span className="ind-batch-n">{tr('{n} sélectionnée(s)', { n: sel.size })}</span>
                 {canEdit && <Button size="sm" variant="ghost" icon={Ban} onClick={() => setExcluded(true)}>{tr("Exclure de l'analyse")}</Button>}
                 {canEdit && <Button size="sm" variant="ghost" icon={Undo2} onClick={() => setExcluded(false)}>{tr('Réintégrer')}</Button>}
@@ -789,9 +859,17 @@ function DataViewTab({ form, canEdit, onGoImport }) {
             <div className={`table-wrap data-scroll ${expanded ? 'is-expanded' : ''}`}>
               <table className="table data-grid">
                 <thead><tr>
-                  <th className="data-cb"><input type="checkbox" checked={allSel} onChange={toggleAll} aria-label={tr('Tout sélectionner')} /></th>
-                  {metaCols.map((m, mi) => <th key={m.key} scope="col" className={mi === 0 ? 'data-first' : ''}>{tr(m.label)}</th>)}
-                  {shownVarCols.map((v) => <th key={v.name} scope="col" className={`data-var ${v.calc ? 'is-calc' : ''}`}><span>{v.calc ? `ƒ ${v.label || v.name}` : (v.label || v.name)}</span><div className="th-sub mono">{v.name}</div></th>)}
+                  <th className="data-cb" scope="col"><input type="checkbox" checked={allSel} onChange={toggleAll} aria-label={tr('Tout sélectionner')} /></th>
+                  {metaCols.map((m, mi) => <th key={m.key} scope="col" className={`dv-meta dv-${m.key}${mi === 0 ? ' data-first' : ''}`}>{tr(m.label)}</th>)}
+                  {shownVarCols.map((v) => {
+                    const label = v.calc ? `ƒ ${v.label || v.name}` : (v.label || v.name);
+                    return (
+                      <th key={v.name} scope="col" className={`data-var ${v.calc ? 'is-calc' : ''}`} title={label !== v.name ? `${label} · ${v.name}` : label}>
+                        {/* Libellé puis nom technique, sur deux lignes au plus (texte complet au survol). */}
+                        <span className="dv-th-label">{label}{label !== v.name && <> <span className="th-sub mono">{v.name}</span></>}</span>
+                      </th>
+                    );
+                  })}
                 </tr></thead>
                 <tbody>
                   {shown.map((r, i) => {
@@ -801,10 +879,18 @@ function DataViewTab({ form, canEdit, onGoImport }) {
                       <td className="data-cb" onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" checked={isSel} onChange={() => toggleOne(k)} aria-label={tr('Sélectionner la soumission')} />
                       </td>
-                      {metaCols.map((m, mi) => <td key={m.key} className={`${m.key === 'submittedAt' ? 'tabular' : ''} ${mi === 0 ? 'data-first' : ''}`}>{mi === 0 && r.excluded ? <><Badge tone="red">{tr('exclue')}</Badge> </> : null}{metaVal(r, m)}</td>)}
+                      {metaCols.map((m, mi) => {
+                        const text = metaVal(r, m);
+                        return (
+                          <td key={m.key} className={`dv-meta dv-${m.key}${m.cls ? ` ${m.cls}` : ''}${mi === 0 ? ' data-first' : ''}`} title={text !== '—' ? text : undefined}>
+                            {mi === 0 && r.excluded ? <><Badge tone="red">{tr('exclue')}</Badge> </> : null}{text}
+                          </td>
+                        );
+                      })}
                       {shownVarCols.map((v) => {
                         const raw = cell(r, v.name);
-                        return <td key={v.name} className={`mono-cell data-var ${v.calc ? 'is-calc' : ''}`}>{raw == null || raw === '' ? <span className="cell-empty">—</span> : labelOf(v, raw)}</td>;
+                        const text = raw == null || raw === '' ? null : labelOf(v, raw);
+                        return <td key={v.name} className={`mono-cell data-var ${v.calc ? 'is-calc' : ''}`} title={text || undefined}>{text == null ? <span className="cell-empty">—</span> : text}</td>;
                       })}
                     </tr>
                     );
@@ -812,12 +898,20 @@ function DataViewTab({ form, canEdit, onGoImport }) {
                 </tbody>
               </table>
             </div>
-            {shown.length > 8 && (
+            {(shown.length > 8 || remaining > 0) && (
               <div className="data-expand-row">
-                <button type="button" className="data-expand" aria-expanded={expanded} onClick={() => setExpanded((e) => !e)}>
-                  {expanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
-                  <span>{expanded ? tr('Réduire le tableau') : tr('Afficher les {n} lignes', { n: shown.length })}</span>
-                </button>
+                {shown.length > 8 && (
+                  <button type="button" className="data-expand" aria-expanded={expanded} onClick={() => setExpanded((e) => !e)}>
+                    {expanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
+                    <span>{expanded ? tr('Réduire le tableau') : tr('Afficher les {n} lignes', { n: formatInt(shown.length) })}</span>
+                  </button>
+                )}
+                {remaining > 0 && (
+                  <button type="button" className="data-expand is-more" onClick={loadMore} disabled={loadingMore}>
+                    <Download size={15} aria-hidden="true" />
+                    <span>{loadingMore ? tr('Chargement…') : tr('Charger les {m} suivantes ({loaded} sur {total} chargées)', { m: formatInt(nextPage), loaded: formatInt(rows.length), total: formatInt(res.total) })}</span>
+                  </button>
+                )}
               </div>
             )}
           </>
@@ -832,7 +926,7 @@ function SubmissionDrawer({ sub, varCols, metaCols, metaVal, labelOf, cell, onCl
   const extraKeys = Object.keys(sub.data || {}).filter((k) => !varCols.some((v) => v.name.toLowerCase() === k.toLowerCase()));
   return (
     <Modal open variant="drawer" size="md" title={tr('Soumission')}
-      subtitle={sub.externalId ? sub.externalId : (sub.submittedAt ? formatDateTime(sub.submittedAt) : undefined)}
+      subtitle={sub.externalId ? sub.externalId : (sub.submittedAt ? formatCollectDate(sub.submittedAt) : undefined)}
       onClose={onClose} footer={<Button variant="secondary" onClick={onClose}>{tr('Fermer')}</Button>}>
       <dl className="ind-kv">
         {metaCols.map((m) => (<React.Fragment key={m.key}><dt>{tr(m.label)}</dt><dd>{metaVal(sub, m)}</dd></React.Fragment>))}
@@ -1124,18 +1218,24 @@ function MappingColumnsCard({ form, canEdit }) {
 }
 
 // ---- Configuration (indicateurs + modèle de l'activité + champs calculés) --
-function ConfigTab({ form, canEdit, onChanged }) {
+function ConfigTab({ form, canEdit, onChanged, focusTemplate = false }) {
   // Les deux cartes se rechargent l'une l'autre (création depuis le modèle ↔ indicateur enregistré ou
   // supprimé), UNE fois : la carte qui écrit recharge ses propres données, l'autre reçoit un nouveau
   // refreshKey. Plus de remontage des deux cartes (qui rechargeait deux fois indicateurs et variables).
   const [indRefresh, setIndRefresh] = useState(0);
   const [tplRefresh, setTplRefresh] = useState(0);
+  const indicatorsCard = (
+    <IndicatorsConfigCard key="ind" form={form} canEdit={canEdit} refreshKey={indRefresh}
+      onChanged={() => { setTplRefresh((v) => v + 1); onChanged?.(); }} />
+  );
+  const templateCard = (
+    <TemplateBindingCard key="tpl" form={form} canEdit={canEdit} refreshKey={tplRefresh}
+      onApplied={() => { setIndRefresh((v) => v + 1); onChanged?.(); }} />
+  );
   return (
     <div className="section-gap">
-      <IndicatorsConfigCard form={form} canEdit={canEdit} refreshKey={indRefresh}
-        onChanged={() => { setTplRefresh((v) => v + 1); onChanged?.(); }} />
-      <TemplateBindingCard form={form} canEdit={canEdit} refreshKey={tplRefresh}
-        onApplied={() => { setIndRefresh((v) => v + 1); onChanged?.(); }} />
+      {/* Ouvert depuis « Appliquer le modèle d'activité » (Couverture & performance) : le modèle d'abord. */}
+      {focusTemplate ? [templateCard, indicatorsCard] : [indicatorsCard, templateCard]}
       <CalcFieldsCard form={form} canEdit={canEdit} onChanged={onChanged} />
     </div>
   );
