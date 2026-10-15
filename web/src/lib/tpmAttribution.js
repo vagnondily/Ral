@@ -1,4 +1,4 @@
-import { monthLabel, shortMonthLabel } from './format.js';
+import { formatInt, monthLabel, shortMonthLabel } from './format.js';
 
 /**
  * Affectation des TPM par zone (retour 58) — statuts et libellés partagés par l'onglet
@@ -38,7 +38,7 @@ export const TPM_VISIT = {
   'zone:anterieur': { label: 'Antérieur à la règle', tone: null, icon: 'na' },
   'zone:': { label: 'En cours d\'affectation', tone: null, icon: 'clock' },
   visite: { label: 'Modifié pour cette visite', tone: 'orange', icon: 'edit' },
-  reprise: { label: 'Saisi avant (à vérifier)', tone: 'blue', icon: 'draft' },
+  reprise: { label: 'TPM saisi avant la règle', tone: 'blue', icon: 'draft' },
 };
 
 /** Clé TPM_VISIT d'une visite ({ providerSource, providerZoneState }). */
@@ -50,6 +50,25 @@ export function visitTpmKey(v) {
 /** Une visite est-elle « à affecter » (aucun TPM, et ce n'est pas une décision) ? */
 export const visitToAssign = (v) => (v.providerSource || 'zone') === 'zone'
   && ['sans_contrat', 'district_inconnu'].includes(v.providerZoneState);
+
+/**
+ * Compte rendu de « Appliquer les TPM des contrats » (Affectation & visites, onglet Affectation des
+ * TPM) : visites PRÉVUES mises à jour, et celles gardées telles quelles (réalisées ou annulées, déjà
+ * facturées, au TPM motivé, antérieures à la règle) — `v` = réponse `visits` de POST /apply.
+ */
+export function applyResultMessage(tr, v, emptyPhrase) {
+  const k = (v && v.kept) || {};
+  const kept = [
+    k.done && tr('{n} réalisée(s) ou annulée(s)', { n: formatInt(k.done) }),
+    k.invoiced && tr('{n} déjà facturée(s)', { n: formatInt(k.invoiced) }),
+    k.reasoned && tr('{n} au TPM motivé', { n: formatInt(k.reasoned) }),
+    k.anterieur && tr('{n} antérieure(s) à la règle', { n: formatInt(k.anterieur) }),
+  ].filter(Boolean);
+  const main = v && v.changed
+    ? tr('TPM des contrats appliqués : {n} visite(s) prévue(s) mise(s) à jour sur {t}.', { n: formatInt(v.changed), t: formatInt(v.visits) })
+    : tr(emptyPhrase);
+  return kept.length ? `${main} ${tr('Gardées telles quelles : {list}.', { list: kept.join(', ') })}` : main;
+}
 
 /** Libellé d'une plage de mois : « Octobre 2026 » ou « oct. 26 – déc. 26 ». */
 export function rangeLabel(from, to) {

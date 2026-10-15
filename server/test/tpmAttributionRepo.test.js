@@ -236,21 +236,32 @@ test('trop de cellules, zone hors district / commune → 400 avant toute lecture
   assert.equal(state.calls.some((c) => /^SELECT c\.id, c\.numero/.test(c.sql)), false);
 });
 
-test('restampVisitsTx : portées (visites prévues « zone » seulement ; antérieures seulement pour Réappliquer)', async () => {
+// Visites qu'une re-dérivation automatique peut toucher : prévues, non figées (« antérieur »), pas
+// encore facturées (facture soumise ou validée de leur TPM, ce mois-là) — jamais une visite
+// réalisée ou annulée.
+const NOT_INVOICED = /v\.status = 'planifie' AND v\.provider_zone_state IS DISTINCT FROM 'anterieur' AND NOT EXISTS \(SELECT 1 FROM tpm_reports r WHERE r\.tenant_id = v\.tenant_id AND r\.partner_id = v\.provider_id AND r\.period_month = v\.period_month AND r\.kind = 'financier' AND r\.status IN \('soumis', 'valide'\)\)/;
+
+test('restampVisitsTx : portées (visites prévues « zone », non figées, non facturées seulement ; antérieures jamais)', async () => {
   const calls = [];
   const client = { query: async (sql, params) => { calls.push({ sql: sql.replace(/\s+/g, ' '), params }); return { rows: [] }; } };
   await repo.restampVisitsTx(client, T);
   assert.match(calls.at(-1).sql, /FROM mems_tpm_stamp\(\$1, '\{\}'::uuid\[\]\)/);
   await repo.restampVisitsTx(client, T, { fromMonth: '2026-10' });
-  assert.match(calls.at(-1).sql, /v\.provider_source = 'zone' AND v\.status = 'planifie' AND v\.period_month >= \$2::date AND v\.provider_zone_state IS DISTINCT FROM 'anterieur'/);
+  assert.match(calls.at(-1).sql, /v\.provider_source = 'zone' AND v\.status = 'planifie' AND v\.provider_zone_state IS DISTINCT FROM 'anterieur' AND NOT EXISTS \(SELECT 1 FROM tpm_reports r .*\) AND v\.period_month >= \$2::date\)/);
+  assert.match(calls.at(-1).sql, NOT_INVOICED);
   assert.deepEqual(calls.at(-1).params, [T, '2026-10-01']);
+  await repo.restampVisitsTx(client, T, { areaIds: [D1], months: ['2026-10'] });
+  assert.match(calls.at(-1).sql, NOT_INVOICED);
   await repo.restampVisitsTx(client, T, { from: '2026-01', to: '2026-03' });
   assert.match(calls.at(-1).sql, /v\.period_month BETWEEN \$2::date AND \$3::date\)/);
-  assert.doesNotMatch(calls.at(-1).sql, /anterieur/);
+  assert.match(calls.at(-1).sql, NOT_INVOICED, 'Réappliquer : antérieures figées aussi');
+  // Visites que les seeds viennent de créer : rendues « à estampiller », puis estampillées une fois.
   await repo.restampVisitsTx(client, T, { visitIds: [V1] });
-  assert.match(calls.at(-1).sql, /v\.provider_source = 'zone' AND v\.id = ANY \(\$2::uuid\[\]\)/);
+  assert.match(calls.at(-2).sql, /^UPDATE site_visits v SET provider_zone_state = NULL, updated_at = now\(\) WHERE v\.tenant_id = \$1 AND v\.provider_source = 'zone' AND v\.id = ANY \(\$2::uuid\[\]\)/);
+  assert.deepEqual(calls.at(-2).params, [T, [V1]]);
+  assert.match(calls.at(-1).sql, /FROM mems_tpm_stamp\(\$1, '\{\}'::uuid\[\]\)/);
   // Toujours sous le verrou d'attribution.
-  assert.equal(calls.filter((c) => /pg_advisory_xact_lock/.test(c.sql)).length, 4);
+  assert.equal(calls.filter((c) => /pg_advisory_xact_lock/.test(c.sql)).length, 5);
 });
 
 test('TPM de visites : verrou, lecture FOR UPDATE, une instruction d\'écriture, estampille, journal ; autre TPM sans raison → 400', async () => {
@@ -290,14 +301,14 @@ test('onglet : lignes région › district (› commune portée), comptes de sit
   assert.deepEqual(t.regions, [{ id: R1, name: 'Androy' }]);
 });
 
-test('appliquer les TPM des contrats : jamais une visite « visite » ; « reprise » rendue à sa zone ; journal des changements', async () => {
+test('appliquer les TPM des contrats : prévues seulement — jamais une visite motivée, réalisée, annulée ou facturée ; « reprise » rendue à sa zone ; journal', async () => {
   reset();
   const calls = [];
   const client = {
     query: async (sql, params) => {
       const q = sql.replace(/\s+/g, ' ').trim();
       calls.push({ sql: q, params });
-      if (/^SELECT count\(\*\)::int AS n/.test(q)) return { rows: [{ n: 3, reprise: 1, lo: '2026-09', hi: '2026-10' }] };
+      if (/^SELECT count\(\*\) FILTER/.test(q)) return { rows: [{ n: 3, reprise: 1, reasoned: 2, done: 4, anterieur: 5, invoiced: 1, lo: '2026-09', hi: '2026-10' }] };
       if (/FROM mems_tpm_stamp/.test(q)) return { rows: [{ id: V1, fromProviderId: YPA, providerId: AINA, zoneState: 'contrat', dated: false }] };
       if (/^SELECT v\.id, to_char/.test(q)) return { rows: [{ id: V1, month: '2026-09', site: 'S-ABCD-EFGH' }] };
       return { rows: [], rowCount: 0 };
@@ -305,19 +316,41 @@ test('appliquer les TPM des contrats : jamais une visite « visite » ; « repri
   };
   const r = await repo.applyContractsTx(client, T, USER, { period: { from: '2026-09', to: '2026-10' } });
   assert.deepEqual([r.visits, r.converted, r.changed], [3, 1, 1]);
+  assert.deepEqual(r.kept, { reasoned: 2, done: 4, anterieur: 5, invoiced: 1 }, 'gardées telles quelles, et comptées');
   assert.match(calls[1].sql, /pg_advisory_xact_lock/);
   const scope = calls.find((c) => /^SELECT count/.test(c.sql));
-  assert.match(scope.sql, /v\.provider_source IN \('zone', 'reprise'\) AND v\.period_month BETWEEN \$2::date AND \$3::date/);
+  assert.match(scope.sql, /count\(\*\) FILTER \(WHERE v\.provider_source IN \('zone', 'reprise'\) AND v\.status = 'planifie' AND v\.provider_zone_state IS DISTINCT FROM 'anterieur' AND NOT EXISTS/);
+  assert.match(scope.sql, /WHERE v\.tenant_id = \$1 AND v\.period_month BETWEEN \$2::date AND \$3::date$/);
   const convert = calls.find((c) => /^UPDATE site_visits/.test(c.sql));
   assert.match(convert.sql, /SET provider_source = 'zone', provider_reason = NULL/);
-  assert.match(convert.sql, /WHERE v\.tenant_id = \$1 AND v\.provider_source = 'reprise'/);
-  assert.equal(calls.filter((c) => /provider_source = 'visite'|IN \('visite'/.test(c.sql)).length, 0, 'jamais une visite motivée');
+  assert.match(convert.sql, /WHERE v\.tenant_id = \$1 AND v\.provider_source = 'reprise' AND v\.status = 'planifie' AND v\.provider_zone_state IS DISTINCT FROM 'anterieur' AND NOT EXISTS/);
+  assert.match(convert.sql, NOT_INVOICED);
   const stamp = calls.find((c) => /mems_tpm_stamp/.test(c.sql));
-  assert.match(stamp.sql, /v\.provider_source = 'zone' AND v\.period_month BETWEEN/);
+  assert.match(stamp.sql, /v\.provider_source = 'zone' AND v\.status = 'planifie' AND v\.provider_zone_state IS DISTINCT FROM 'anterieur' AND NOT EXISTS .* AND v\.period_month BETWEEN/);
+  assert.match(stamp.sql, NOT_INVOICED);
+  // Aucune écriture ne vise une visite motivée, réalisée ou annulée.
+  for (const w of [convert, stamp]) {
+    assert.doesNotMatch(w.sql, /'visite'|'realise'|'annule'/, 'jamais une visite motivée, réalisée ou annulée');
+  }
   const log = calls.find((c) => /^INSERT INTO tpm_attribution_log/.test(c.sql));
   assert.deepEqual(log.params[3], ['lot', 'visite']);
   assert.deepEqual(log.params[4], ['reappliquer', 'visite_zone']);
   assert.deepEqual(log.params[12], [null, YPA], 'ancien TPM gardé au journal');
+});
+
+test('appliquer les TPM des contrats : rien d\'éligible → aucune écriture, aucun journal, visites gardées comptées', async () => {
+  const calls = [];
+  const client = {
+    query: async (sql) => {
+      const q = sql.replace(/\s+/g, ' ').trim();
+      calls.push(q);
+      if (/^SELECT count\(\*\) FILTER/.test(q)) return { rows: [{ n: 0, reprise: 0, reasoned: 1, done: 7, anterieur: 2, invoiced: 0, lo: null, hi: null }] };
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  const r = await repo.applyContractsTx(client, T, null, {});
+  assert.deepEqual(r, { visits: 0, converted: 0, changed: 0, byState: {}, moves: [], kept: { reasoned: 1, done: 7, anterieur: 2, invoiced: 0 } });
+  assert.equal(calls.filter((q) => /^(UPDATE|INSERT)|mems_tpm_stamp/.test(q)).length, 0);
 });
 
 test('cellsForSitesTx : TPM de la zone de sites × mois (lot 5), même règle que l estampille', async () => {

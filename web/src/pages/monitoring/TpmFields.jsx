@@ -82,7 +82,7 @@ export function VisitTpmCell({ visit, canEdit, onEdit }) {
   const src = visit.providerSource || 'zone';
   const origin = src === 'visite'
     ? tr('modifié : {r}', { r: visit.providerReason || '' })
-    : src === 'reprise' ? tr('saisi avant la règle (à vérifier)')
+    : src === 'reprise' ? ({ realise: tr('visite réalisée : TPM gardé'), annule: tr('visite annulée : TPM gardé') }[visit.status] || tr('TPM gardé tel qu\'il a été saisi'))
       : visit.providerZoneState === 'sans_contrat' ? tr('aucun contrat actif sur cette zone ce mois')
         : visit.providerZoneState === 'district_inconnu' ? tr('district du site non reconnu')
           : visit.providerZoneState === 'a_arbitrer' ? tr('plusieurs contrats : choisir')

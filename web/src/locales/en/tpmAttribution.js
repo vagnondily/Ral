@@ -19,7 +19,13 @@ export default {
   'Antérieur à la règle': 'Before the rule',
   'En cours d\'affectation': 'Being assigned',
   'Modifié pour cette visite': 'Changed for this visit',
-  'Saisi avant (à vérifier)': 'Entered before (to check)',
+  'TPM saisi avant la règle': 'TPM entered before the rule',
+  '{n} réalisée(s) ou annulée(s)': '{n} done or cancelled',
+  '{n} déjà facturée(s)': '{n} already invoiced',
+  '{n} au TPM motivé': '{n} with a justified TPM',
+  '{n} antérieure(s) à la règle': '{n} before the rule',
+  'TPM des contrats appliqués : {n} visite(s) prévue(s) mise(s) à jour sur {t}.': 'Contract TPMs applied: {n} planned visit(s) updated out of {t}.',
+  'Gardées telles quelles : {list}.': 'Kept as they are: {list}.',
   'Contrat en cours de renouvellement': 'Contract being renewed',
   'Capacité insuffisante du prestataire': 'Insufficient provider capacity',
   'Accès / sécurité': 'Access / security',
@@ -54,7 +60,9 @@ export default {
   'Obligatoire : {n} caractères au moins, relue longtemps après.': 'Required: at least {n} characters, read long afterwards.',
   'Laissez une trace si utile.': 'Leave a note if useful.',
   'Suggestions de raison': 'Suggested reasons',
-  'saisi avant la règle (à vérifier)': 'entered before the rule (to check)',
+  'visite réalisée : TPM gardé': 'visit done: TPM kept',
+  'visite annulée : TPM gardé': 'visit cancelled: TPM kept',
+  'TPM gardé tel qu\'il a été saisi': 'TPM kept as entered',
   'aucun contrat actif sur cette zone ce mois': 'no active contract on this area this month',
   'plusieurs contrats : choisir': 'several contracts: choose',
   'Changer le TPM de {s}': 'Change the TPM of {s}',
@@ -80,14 +88,13 @@ export default {
     'For a whole area (district, commune) and several months, use the TPM assignment tab: every visit of the area follows.',
 
   // Affectation & visites (FieldVisitsPage, ajout d'une visite).
-  'TPM des contrats appliqués : {n} visite(s) mises à jour sur {t}.': 'Contract TPMs applied: {n} visit(s) updated out of {t}.',
-  'Toutes les visites du mois portent déjà le TPM de leur zone.': 'All visits of the month already carry their area\'s TPM.',
+  'Toutes les visites prévues du mois portent déjà le TPM de leur zone.': 'All planned visits of the month already carry their area\'s TPM.',
   'Origine du TPM': 'TPM origin',
   '— À affecter (aucun contrat) —': '— To assign (no contract) —',
   'Toutes les origines': 'All origins',
   'Modifiés (zone ou visite)': 'Changed (area or visit)',
-  'Chaque visite du mois sans TPM choisi avec une raison reprend le TPM du contrat qui couvre sa zone (journalisé).':
-    'Every visit of the month without a TPM chosen with a reason takes the TPM of the contract covering its area (logged).',
+  'Chaque visite prévue du mois sans TPM choisi avec une raison reprend le TPM du contrat qui couvre sa zone (journalisé) ; une visite réalisée, annulée ou déjà facturée garde son TPM.':
+    'Every planned visit of the month without a TPM chosen with a reason takes the TPM of the contract covering its area (logged); a visit done, cancelled or already invoiced keeps its TPM.',
   'Appliquer les TPM des contrats': 'Apply contract TPMs',
   'Le TPM de chaque visite vient du contrat de suivi qui couvre la zone du site ce mois-là : rien à saisir. Un autre TPM se motive (crayon) ; pour toute une zone :':
     'Each visit\'s TPM comes from the monitoring contract covering the site\'s area that month: nothing to enter. Another TPM needs a reason (pencil); for a whole area:',
@@ -103,9 +110,9 @@ export default {
     'To assign: no active contract on area {z} this month. For the whole area, use the TPM assignment tab.',
 
   // Onglet « Affectation des TPM » (TpmAttributionTab).
-  'Appliquer les TPM des contrats aux visites de {p} ? Les visites dont le TPM a été choisi avec une raison ne changent pas.':
-    'Apply contract TPMs to the visits of {p}? Visits whose TPM was chosen with a reason do not change.',
-  'Toutes les visites de la période portent déjà le TPM de leur zone.': 'All visits of the period already carry their area\'s TPM.',
+  'Appliquer les TPM des contrats aux visites prévues de {p} ? Une visite au TPM choisi avec une raison, réalisée, annulée ou déjà facturée ne change pas.':
+    'Apply contract TPMs to the planned visits of {p}? A visit with a TPM chosen with a reason, done, cancelled or already invoiced does not change.',
+  'Toutes les visites prévues de la période portent déjà le TPM de leur zone.': 'All planned visits of the period already carry their area\'s TPM.',
   'TPM selon contrat': 'TPM per contract',
   'TPM retenu': 'TPM applied',
   'Premier mois': 'First month',

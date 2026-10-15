@@ -110,15 +110,17 @@ ALTER TABLE site_visits
   ADD COLUMN IF NOT EXISTS provider_set_by     uuid REFERENCES users(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS provider_set_at     timestamptz;
 
--- Reprise de l'existant — rien n'est perdu :
+-- Reprise de l'existant — rien n'est perdu, l'histoire n'est jamais réécrite :
 --  a) visites qui portent déjà un TPM (ou un contrat), saisi à la main SANS raison : gardées telles
---     quelles ici (« reprise ») ; au démarrage de l'API, la réparation r58_tpm_zones leur applique le
---     TPM des contrats de leur zone (applyContractsTx) et inscrit chaque changement au journal
---     (avant → après). Seul un TPM choisi à la main AVEC une raison (origine « visite ») est gardé ;
+--     quelles ici (« reprise », affiché « TPM saisi avant la règle ») ; au démarrage de l'API, la
+--     réparation r58_tpm_zones rend à leur zone les seules visites PRÉVUES et pas encore facturées
+--     (applyContractsTx) et inscrit chaque changement au journal (avant → après). Une visite
+--     réalisée ou annulée garde le TPM qui l'a faite (jours de collecte, base de facture) ;
 UPDATE site_visits SET provider_source = 'reprise', provider_set_at = now(),
        provider_reason = 'Reprise : TPM saisi avant l''affectation par zone (retour 58).'
  WHERE provider_id IS NOT NULL OR contract_id IS NOT NULL;
---  b) sans TPM, réalisées, annulées ou d'un mois passé : figées (« antérieur à la règle ») ;
+--  b) sans TPM, réalisées, annulées ou d'un mois passé : figées (« antérieur à la règle ») — aucune
+--     re-dérivation automatique ne les touche ensuite ;
 UPDATE site_visits SET provider_zone_state = 'anterieur'
  WHERE provider_source = 'zone' AND (status <> 'planifie' OR period_month < date_trunc('month', now())::date);
 --  c) sans TPM, prévues pour le mois courant ou après : restent « à estampiller » — la réparation
@@ -236,10 +238,14 @@ LANGUAGE sql STABLE AS $fn$
     LEFT JOIN tpm_zone_overrides o ON o.tenant_id = p_tenant AND o.admin_area_id = tg.aid AND o.period_month = tg.m
 $fn$;
 
--- Estampille : visites « zone » demandées (p_ids) + toutes celles « à estampiller » du compte ;
--- n'écrit que les lignes qui changent (idempotent) et rend ce qui a changé. Sous le verrou
--- d'attribution du compte (le même que tpmAttribution.repository.lockAttributionTx : attente
--- bornée à 20 s, puis 55P03 → 503 « réessayez »).
+-- Estampille : toutes les visites « zone » « à estampiller » du compte (nouvelles ou rendues à leur
+-- zone, quel que soit leur statut : estampillées une fois), plus celles demandées (p_ids) — mais
+-- d'une demande, SEULEMENT les visites prévues, non figées (« antérieur ») et pas encore facturées
+-- (facture soumise ou validée de leur TPM ce mois) : une visite réalisée, annulée ou facturée garde
+-- le TPM qui l'a faite, quel que soit l'appelant (défense en profondeur ; jumelle :
+-- tpmAttribution.repository.AUTO_RESTAMPABLE_SQL). N'écrit que les lignes qui changent
+-- (idempotent) et rend ce qui a changé. Sous le verrou d'attribution du compte (le même que
+-- lockAttributionTx : attente bornée à 20 s, puis 55P03 → 503 « réessayez »).
 CREATE OR REPLACE FUNCTION mems_tpm_stamp(p_tenant uuid, p_ids uuid[])
 RETURNS TABLE (o_id uuid, o_old_provider uuid, o_new_provider uuid, o_state text, o_dated boolean)
 LANGUAGE plpgsql AS $fn$
@@ -254,7 +260,13 @@ BEGIN
            v.contract_id AS old_k, (v.visit_date IS NOT NULL AND v.status <> 'annule') AS dated
       FROM site_visits v
      WHERE v.tenant_id = p_tenant AND v.provider_source = 'zone'
-       AND (v.provider_zone_state IS NULL OR v.id = ANY (COALESCE(p_ids, '{}'::uuid[])))
+       AND (v.provider_zone_state IS NULL
+            OR (v.id = ANY (COALESCE(p_ids, '{}'::uuid[]))
+                AND v.status = 'planifie' AND v.provider_zone_state <> 'anterieur'
+                AND NOT EXISTS (SELECT 1 FROM tpm_reports r
+                                 WHERE r.tenant_id = p_tenant AND r.partner_id = v.provider_id
+                                   AND r.period_month = v.period_month AND r.kind = 'financier'
+                                   AND r.status IN ('soumis', 'valide'))))
      ORDER BY v.id
        FOR UPDATE OF v),
   cells AS (

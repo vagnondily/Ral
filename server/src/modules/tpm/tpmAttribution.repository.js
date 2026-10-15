@@ -77,34 +77,59 @@ async function refreshSiteZonesTx(client, tenantId) {
 }
 
 /**
+ * Visite « déjà facturée » : le TPM qu'elle porte a une facture (rapport financier) SOUMISE ou
+ * VALIDÉE pour son mois — ses jours de collecte ont servi à facturer. Aucune re-dérivation
+ * automatique (réparation de démarrage, « Appliquer les TPM des contrats », changement de contrat,
+ * de zone ou de géographie) ne la touche ; seul un choix explicite, motivé, le peut.
+ * Lu par l'index idx_tpm_reports_partner (tenant_id, partner_id, period_month). Alias de visite : v.
+ */
+const INVOICED_SQL = `EXISTS (SELECT 1 FROM tpm_reports r
+   WHERE r.tenant_id = v.tenant_id AND r.partner_id = v.provider_id AND r.period_month = v.period_month
+     AND r.kind = 'financier' AND r.status IN ('soumis', 'valide'))`;
+/**
+ * Visites qu'une re-dérivation automatique peut toucher : PRÉVUES, non figées (« antérieur à la
+ * règle », migration 070 b) et pas encore facturées — jamais une visite réalisée ou annulée, dont
+ * le TPM est celui qui l'a faite (jours de collecte, base de facture). L'origine « visite » (TPM
+ * choisi avec une raison) est exclue par chaque appelant. Jumelle en base : le filtre des p_ids de
+ * mems_tpm_stamp (défense en profondeur). Alias de visite : v.
+ */
+const AUTO_RESTAMPABLE_SQL = `v.status = 'planifie' AND v.provider_zone_state IS DISTINCT FROM 'anterieur' AND NOT ${INVOICED_SQL}`;
+
+/**
  * Re-dérivation du TPM des visites « zone » (mems_tpm_stamp, migration 070 : jumelle SQL de la
  * règle, seule à écrire le TPM d'une visite « zone »). Inclut TOUJOURS les visites « à
- * estampiller » ; la portée ajoute des visites prévues :
+ * estampiller » ; la portée ajoute des visites prévues, non figées et non facturées
+ * (AUTO_RESTAMPABLE_SQL) :
  *   {}                    rien de plus (écrivains de visites) ;
  *   { fromMonth }         prévues des mois ≥ fromMonth (contrats, géographie des sites) ;
  *   { areaIds, months }   prévues dont le district OU la commune est visé, ces mois-là, passés
  *                         compris (modification d'une zone) ;
- *   { from, to }          prévues de la plage, « antérieures à la règle » comprises (Réappliquer) ;
- *   { visitIds }          ces visites « zone », quel que soit leur statut (données de départ
- *                         insérées par les seeds : jamais une visite existante d'un autre auteur).
- * Les visites réalisées ou annulées déjà estampillées, « visite », « reprise » et « antérieures »
- * (hors Réappliquer) ne sont jamais recalculées. Idempotent : un 2ᵉ appel n'écrit rien.
+ *   { from, to }          prévues de la plage (« Réappliquer ») ;
+ *   { visitIds }          visites que l'appelant VIENT de créer (seeds, avant que les zones des sites
+ *                         soient connues) : rendues « à estampiller » puis estampillées comme à leur
+ *                         création, quel que soit leur statut — jamais une visite d'un autre auteur.
+ * Une visite réalisée, annulée, figée (« antérieur ») ou déjà facturée (INVOICED_SQL), « visite »
+ * ou « reprise » n'est jamais recalculée par une portée. Idempotent : un 2ᵉ appel n'écrit rien.
  * @returns {Promise<{ changed, byState, moves }>}
  */
 async function restampVisitsTx(client, tenantId, scope = {}) {
   await lockAttributionTx(client, tenantId);
   const params = [tenantId];
   let where = null;
-  const planned = "v.provider_source = 'zone' AND v.status = 'planifie'";
+  const planned = `v.provider_source = 'zone' AND ${AUTO_RESTAMPABLE_SQL}`;
   if (Array.isArray(scope.visitIds)) {
-    params.push(scope.visitIds);
-    where = "v.provider_source = 'zone' AND v.id = ANY ($2::uuid[])";
+    if (scope.visitIds.length) {
+      await client.query(
+        `UPDATE site_visits v SET provider_zone_state = NULL, updated_at = now()
+          WHERE v.tenant_id = $1 AND v.provider_source = 'zone' AND v.id = ANY ($2::uuid[])
+            AND v.provider_zone_state IS NOT NULL`, [tenantId, scope.visitIds]);
+    }
   } else if (scope.fromMonth) {
     params.push(`${String(scope.fromMonth).slice(0, 7)}-01`);
-    where = `${planned} AND v.period_month >= $2::date AND v.provider_zone_state IS DISTINCT FROM 'anterieur'`;
+    where = `${planned} AND v.period_month >= $2::date`;
   } else if (Array.isArray(scope.areaIds) && Array.isArray(scope.months)) {
     params.push(scope.areaIds, scope.months.map((m) => `${String(m).slice(0, 7)}-01`));
-    where = `${planned} AND v.provider_zone_state IS DISTINCT FROM 'anterieur' AND v.period_month = ANY ($3::date[])
+    where = `${planned} AND v.period_month = ANY ($3::date[])
              AND EXISTS (SELECT 1 FROM sites s WHERE s.tenant_id = $1 AND s.id = v.site_id
                           AND (s.zone_district_id = ANY ($2::uuid[]) OR s.zone_commune_id = ANY ($2::uuid[])))`;
   } else if (scope.from && scope.to) {
@@ -243,15 +268,18 @@ async function expandRegionsTx(client, tenantId, regionIds) {
   return rows.map((r) => r.id);
 }
 
-/** Visites prévues « zone » (hors antérieures) d'aires × mois, avec la zone de leur site (aperçu). */
+/**
+ * Visites prévues « zone » (hors antérieures et déjà facturées : AUTO_RESTAMPABLE_SQL) d'aires × mois,
+ * avec la zone de leur site : exactement celles que restampVisitsTx({ areaIds, months }) recalcule
+ * (aperçu = enregistrement).
+ */
 async function plannedZoneVisitsTx(client, tenantId, { areaIds, months }) {
   const { rows } = await client.query(
     `SELECT v.id, s.zone_district_id AS "districtId", s.zone_commune_id AS "communeId", to_char(v.period_month, 'YYYY-MM') AS month,
             v.provider_id AS "providerId", v.provider_zone_state AS "zoneState", v.contract_id AS "contractId",
             (v.visit_date IS NOT NULL) AS dated
        FROM site_visits v JOIN sites s ON s.tenant_id = v.tenant_id AND s.id = v.site_id
-      WHERE v.tenant_id = $1 AND v.provider_source = 'zone' AND v.status = 'planifie'
-        AND v.provider_zone_state IS DISTINCT FROM 'anterieur'
+      WHERE v.tenant_id = $1 AND v.provider_source = 'zone' AND ${AUTO_RESTAMPABLE_SQL}
         AND v.period_month = ANY ($3::date[])
         AND (s.zone_district_id = ANY ($2::uuid[]) OR s.zone_commune_id = ANY ($2::uuid[]))`,
     [tenantId, areaIds, months.map(toMonthDate)]);
@@ -564,31 +592,47 @@ async function cellsForSitesTx(client, tenantId, pairs) {
 
 /**
  * « Appliquer les TPM des contrats » — et reprise de l'existant au démarrage (réparation r58) :
- * les visites de la période (toutes sans période) dont le TPM n'a PAS été choisi à la main avec
- * une raison reprennent le TPM de leur zone : origine « zone » (prévues, réalisées, annulées,
- * antérieures) et « reprise » (TPM saisi avant la règle, sans raison). Une visite « visite »
- * (écart motivé) n'est JAMAIS touchée. Journal : un lot, plus une ligne par visite dont le TPM
- * change (avant → après) — l'ancienne saisie reste lisible. Sous le verrou d'attribution.
+ * les visites PRÉVUES de la période (toutes sans période) dont le TPM n'a PAS été choisi à la main
+ * avec une raison reprennent le TPM de leur zone : origine « zone » et « reprise » (TPM saisi avant
+ * la règle, sans raison, rendue à sa zone). Jamais touchées, et comptées dans `kept` : une visite
+ * « visite » (écart motivé), une visite réalisée ou annulée (elle garde le TPM qui l'a faite ; une
+ * « reprise » réalisée reste « TPM saisi avant la règle »), une visite figée « antérieur à la
+ * règle », une visite déjà facturée (INVOICED_SQL). Journal : un lot, plus une ligne par visite
+ * dont le TPM change (avant → après) — l'ancienne saisie reste lisible. Sous le verrou
+ * d'attribution ; idempotent : rejoué, ne change plus rien.
+ * @returns {Promise<{ visits, converted, changed, byState, moves, kept: { reasoned, done, anterieur, invoiced }, batchId? }>}
  */
 async function applyContractsTx(client, tenantId, actorId, { period = null, reason = null, label = null } = {}) {
   await lockAttributionTx(client, tenantId);
   const params = [tenantId];
   let range = '';
   if (period) { params.push(toMonthDate(period.from), toMonthDate(period.to)); range = ' AND v.period_month BETWEEN $2::date AND $3::date'; }
+  const eligible = `v.provider_source IN ('zone', 'reprise') AND ${AUTO_RESTAMPABLE_SQL}`;
   const { rows: [span] } = await client.query(
-    `SELECT count(*)::int AS n, count(*) FILTER (WHERE v.provider_source = 'reprise')::int AS reprise,
-            to_char(min(v.period_month), 'YYYY-MM') AS lo, to_char(max(v.period_month), 'YYYY-MM') AS hi
-       FROM site_visits v WHERE v.tenant_id = $1 AND v.provider_source IN ('zone', 'reprise')${range}`, params);
-  if (!span || !span.n) return { visits: 0, converted: 0, changed: 0, byState: {}, moves: [] };
+    `SELECT count(*) FILTER (WHERE ${eligible})::int AS n,
+            count(*) FILTER (WHERE ${eligible} AND v.provider_source = 'reprise')::int AS reprise,
+            count(*) FILTER (WHERE v.provider_source = 'visite')::int AS reasoned,
+            count(*) FILTER (WHERE v.provider_source <> 'visite' AND v.status <> 'planifie')::int AS done,
+            count(*) FILTER (WHERE v.provider_source <> 'visite' AND v.status = 'planifie'
+                               AND v.provider_zone_state = 'anterieur')::int AS anterieur,
+            count(*) FILTER (WHERE v.provider_source <> 'visite' AND v.status = 'planifie'
+                               AND v.provider_zone_state IS DISTINCT FROM 'anterieur' AND ${INVOICED_SQL})::int AS invoiced,
+            to_char(min(v.period_month) FILTER (WHERE ${eligible}), 'YYYY-MM') AS lo,
+            to_char(max(v.period_month) FILTER (WHERE ${eligible}), 'YYYY-MM') AS hi
+       FROM site_visits v WHERE v.tenant_id = $1${range}`, params);
+  const kept = {};
+  for (const k of ['reasoned', 'done', 'anterieur', 'invoiced']) kept[k] = (span && span[k]) || 0;
+  if (!span || !span.n) return { visits: 0, converted: 0, changed: 0, byState: {}, moves: [], kept };
   if (span.reprise) {
     await client.query(
       `UPDATE site_visits v SET provider_source = 'zone', provider_reason = NULL, provider_set_by = $${params.length + 1},
               provider_set_at = now(), updated_at = now()
-        WHERE v.tenant_id = $1 AND v.provider_source = 'reprise'${range}`, [...params, actorId || null]);
+        WHERE v.tenant_id = $1 AND v.provider_source = 'reprise' AND ${AUTO_RESTAMPABLE_SQL}${range}`, [...params, actorId || null]);
   }
   const { rows } = await client.query(
     `SELECT o_id AS id, o_old_provider AS "fromProviderId", o_new_provider AS "providerId", o_state AS "zoneState", o_dated AS dated
-       FROM mems_tpm_stamp($1, ARRAY(SELECT v.id FROM site_visits v WHERE v.tenant_id = $1 AND v.provider_source = 'zone'${range}))`, params);
+       FROM mems_tpm_stamp($1, ARRAY(SELECT v.id FROM site_visits v
+                                      WHERE v.tenant_id = $1 AND v.provider_source = 'zone' AND ${AUTO_RESTAMPABLE_SQL}${range}))`, params);
   const moved = rows.filter((r) => (r.fromProviderId || null) !== (r.providerId || null));
   const where = new Map();
   if (moved.length) {
@@ -613,13 +657,13 @@ async function applyContractsTx(client, tenantId, actorId, { period = null, reas
       };
     }),
   ]);
-  return { visits: span.n, converted: span.reprise, batchId, ...summarizeRestamp(rows) };
+  return { visits: span.n, converted: span.reprise, batchId, kept, ...summarizeRestamp(rows) };
 }
 
 module.exports = {
   cellsForSitesTx, applyContractsTx, slimCell,
   tableForSitesTx, boardTpmTx, applyVisitRequestTx,
-  ATTRIBUTION_KEY, ZONE_CTES, lockAttributionTx, refreshSiteZonesTx, restampVisitsTx,
+  ATTRIBUTION_KEY, ZONE_CTES, INVOICED_SQL, AUTO_RESTAMPABLE_SQL, lockAttributionTx, refreshSiteZonesTx, restampVisitsTx,
   partnersTx, loadInputsTx, overridesTx, areasTx, communeRowIds, zoneRowsTx, visitGroupsTx, expandRegionsTx,
   plannedZoneVisitsTx, visitsForUpdateTx, siteZoneTx, monthPlanStatusesTx,
   deleteOverridesTx, upsertOverridesTx, applyVisitDecisionsTx, insertLogTx, listLogTx, attributionCountsTx, siteZonesTx,

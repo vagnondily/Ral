@@ -60,3 +60,16 @@ test('070 : filet de sécurité — garde AVANT écriture, estampille DIFFÉRÉE
   // La garde est créée APRÈS la reprise de l'existant (les UPDATE de reprise ne la déclenchent pas).
   assert.ok(SQL.indexOf("provider_source = 'reprise'") < SQL.indexOf('CREATE TRIGGER trg_site_visits_tpm_guard'));
 });
+
+test('070 : défense en profondeur — une visite demandée (p_ids) n\'est ré-estampillée que prévue, non figée, non facturée', () => {
+  const fn = SQL.slice(SQL.indexOf('CREATE OR REPLACE FUNCTION mems_tpm_stamp'), SQL.indexOf('CREATE OR REPLACE FUNCTION mems_site_visit_tpm_guard'));
+  const flat = fn.slice(fn.indexOf('WITH tv AS MATERIALIZED'), fn.indexOf('cells AS')).replace(/\s+/g, ' ');
+  // « À estampiller » (nouvelle, ou rendue à sa zone) : une fois, quel que soit son statut ; sinon prévue seulement…
+  assert.match(flat, /AND \(v\.provider_zone_state IS NULL OR \(v\.id = ANY \(COALESCE\(p_ids, '\{\}'::uuid\[\]\)\) AND v\.status = 'planifie' AND v\.provider_zone_state <> 'anterieur' AND NOT EXISTS \(SELECT 1 FROM tpm_reports r/);
+  // … et pas encore facturée : même prédicat que le dépôt (INVOICED_SQL, AUTO_RESTAMPABLE_SQL).
+  const invoiced = /r\.partner_id = v\.provider_id AND r\.period_month = v\.period_month AND r\.kind = 'financier' AND r\.status IN \('soumis', 'valide'\)/;
+  assert.match(flat, invoiced);
+  const { INVOICED_SQL, AUTO_RESTAMPABLE_SQL } = require('../src/modules/tpm/tpmAttribution.repository');
+  assert.match(INVOICED_SQL.replace(/\s+/g, ' '), invoiced);
+  assert.match(AUTO_RESTAMPABLE_SQL, /^v\.status = 'planifie' AND v\.provider_zone_state IS DISTINCT FROM 'anterieur' AND NOT EXISTS/);
+});

@@ -8,7 +8,7 @@ import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatInt, monthLabel } from '../../lib/format.js';
 import { richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
-import { REASON_MIN, TPM_VISIT, visitTpmKey, visitToAssign } from '../../lib/tpmAttribution.js';
+import { REASON_MIN, TPM_VISIT, applyResultMessage, visitTpmKey, visitToAssign } from '../../lib/tpmAttribution.js';
 import { applyVisitPatch } from '../../lib/fieldVisits.js';
 import { NONE, ProviderSelect, ReasonField, VisitTpmCell } from './TpmFields.jsx';
 import TpmVisitDialog from './TpmVisitDialog.jsx';
@@ -148,16 +148,14 @@ export default function FieldVisitsPage({ canEdit }) {
       reload();
     } catch (err) { toast.error(err.message); } finally { setGenerating(false); }
   };
-  // « Appliquer les TPM des contrats » au mois : toute visite sans TPM choisi avec une raison
-  // reprend celui de sa zone (journalisé) ; une visite motivée n'est jamais touchée.
+  // « Appliquer les TPM des contrats » au mois : toute visite PRÉVUE sans TPM choisi avec une raison
+  // reprend celui de sa zone (journalisé) ; une visite motivée, réalisée, annulée ou déjà facturée
+  // n'est jamais touchée (le compte rendu les compte).
   const applyContracts = async () => {
     setApplying(true);
     try {
       const r = await api.tpmAttributionApply({ from: month, to: month });
-      const v = r.visits || {};
-      toast.success(v.changed
-        ? tr('TPM des contrats appliqués : {n} visite(s) mises à jour sur {t}.', { n: formatInt(v.changed), t: formatInt(v.visits) })
-        : tr('Toutes les visites du mois portent déjà le TPM de leur zone.'));
+      toast.success(applyResultMessage(tr, r.visits, 'Toutes les visites prévues du mois portent déjà le TPM de leur zone.'));
       reload();
     } catch (err) { toast.error(err.message); } finally { setApplying(false); }
   };
@@ -250,7 +248,7 @@ export default function FieldVisitsPage({ canEdit }) {
             {rbmToPlan ? tr('Générer depuis le RBM ({n})', { n: rbmToPlan }) : tr('Générer depuis le RBM')}</Button>
           <Button variant="secondary" icon={Upload} loading={importing} onClick={() => fileRef.current?.click()}>{tr('Importer planning')}</Button>
           <Button variant="secondary" icon={RefreshCw} loading={applying} onClick={applyContracts}
-            title={tr('Chaque visite du mois sans TPM choisi avec une raison reprend le TPM du contrat qui couvre sa zone (journalisé).')}>
+            title={tr('Chaque visite prévue du mois sans TPM choisi avec une raison reprend le TPM du contrat qui couvre sa zone (journalisé) ; une visite réalisée, annulée ou déjà facturée garde son TPM.')}>
             {tr('Appliquer les TPM des contrats')}</Button>
           <Button icon={Plus} onClick={() => setAddOpen(true)}>{tr('Ajouter une visite')}</Button></>}
       </PageHeader>
