@@ -227,6 +227,7 @@ const DEFAULT_LEVELS = { 1: 'Région', 2: 'District', 3: 'Commune', 4: 'Fokontan
 function AreasCard({ areas }) {
   const { tr } = useI18n();
   const [levels, setLevels] = useState(DEFAULT_LEVELS);
+  const [showPcode, setShowPcode] = useState(false); // P-code masqué par défaut (retour 38)
   useEffect(() => {
     let live = true;
     api.listAdminLevels()
@@ -241,6 +242,9 @@ function AreasCard({ areas }) {
   const rows = areas.map((z) => ({ ...z, parts: String(z.path || '').split('>').map((x) => x.trim()).filter(Boolean) }));
   const width = Math.max(1, ...rows.map((r) => r.parts.length));
   const detached = rows.filter((r) => !r.adminAreaId).length;
+  const anySites = rows.some((r) => (r.siteCount || 0) > 0);
+  const anyOffices = rows.some((r) => (r.offices || []).length > 0);
+  const anyPcode = rows.some((r) => r.pcode);
 
   return (
     <Card>
@@ -250,6 +254,12 @@ function AreasCard({ areas }) {
             ? tr('{n} zone(s) · {d} à resélectionner', { n: rows.length, d: detached })
             : tr('{n} zone(s) affectée(s) au prestataire', { n: rows.length })}
         </span>
+        {anyPcode && (
+          <Button size="sm" variant="ghost" onClick={() => setShowPcode((v) => !v)}
+            aria-pressed={showPcode}>
+            {showPcode ? tr('Masquer les P-codes') : tr('Afficher les P-codes')}
+          </Button>
+        )}
       </CardHeader>
       {detached > 0 && (
         <div className="card-body areas-note">
@@ -263,6 +273,9 @@ function AreasCard({ areas }) {
           <thead>
             <tr>
               {Array.from({ length: width }, (_, i) => <th key={i} scope="col">{tr(levels[i + 1] || DEFAULT_LEVELS[i + 1] || `Niveau ${i + 1}`)}</th>)}
+              {showPcode && <th scope="col">{tr('P-code')}</th>}
+              {anyOffices && <th scope="col">{tr('Bureau')}</th>}
+              {anySites && <th scope="col" className="num">{tr('Sites')}</th>}
               <th scope="col" className="areas-state-col">{tr('État')}</th>
             </tr>
           </thead>
@@ -274,6 +287,24 @@ function AreasCard({ areas }) {
                     {r.parts[i] || (i >= r.parts.length ? <span className="muted">{tr('Toute la zone')}</span> : null)}
                   </td>
                 ))}
+                {showPcode && <td className="mono">{r.pcode || <span className="muted">—</span>}</td>}
+                {anyOffices && (
+                  <td>
+                    {(r.offices || []).length === 0
+                      ? <span className="muted">—</span>
+                      : r.offices.length === 1
+                        ? r.offices[0]
+                        : <span title={r.offices.join(', ')}>{tr('{n} bureaux', { n: r.offices.length })}</span>}
+                  </td>
+                )}
+                {anySites && (
+                  <td className="num">
+                    {r.siteCount || 0}
+                    {r.subActivityCount > 0 && (
+                      <span className="muted"> · {tr('{n} sous-act.', { n: r.subActivityCount })}</span>
+                    )}
+                  </td>
+                )}
                 <td className="areas-state-col">
                   {r.adminAreaId
                     ? <Badge tone="green" icon={CheckCircle2}>{tr('Reliée au découpage')}</Badge>

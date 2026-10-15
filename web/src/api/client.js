@@ -394,6 +394,11 @@ export const api = {
   deleteOffice: (id, { confirm } = {}) => request(`/api/settings/offices/${id}`, { method: 'DELETE', query: confirm ? { confirm: 1 } : undefined }),
   createActivity: (input) => request('/api/settings/activities', { method: 'POST', body: input }),
   setActivityActive: (id, active) => request(`/api/settings/activities/${id}`, { method: 'PATCH', body: { active } }),
+  // Sous-activités (retour 92) : activité › sous-activité (activity_tag) › information.
+  listSubActivities: (query) => request('/api/sub-activities', { query }),
+  createSubActivity: (input) => request('/api/sub-activities', { method: 'POST', body: input }),
+  updateSubActivity: (id, input) => request(`/api/sub-activities/${id}`, { method: 'PATCH', body: input }),
+  deleteSubActivity: (id) => request(`/api/sub-activities/${id}`, { method: 'DELETE' }),
   listPartners: (type) => request('/api/settings/partners', { query: type ? { type } : undefined }),
   createPartner: (input) => request('/api/settings/partners', { method: 'POST', body: input }),
   updatePartner: (id, input) => request(`/api/settings/partners/${id}`, { method: 'PATCH', body: input }),
