@@ -548,6 +548,12 @@ or navy rail.
     20 éléments au plus, positions bornées) ; annexes ; orientation et format par page ;
   - écrans qui n'affichent que des totaux RBM : `GET /api/tpm/field/rbm/counts` (mêmes lignes que
     `/rbm/sites`), jamais la liste complète.
+- **TPM d'une visite = contrat de la zone** (retour 58, migration 070, `tpm/tpmAttribution.js` + jumelle SQL
+  `mems_tpm_cells`) : TPM du contrat de suivi actif qui couvre la zone (commune sinon district) du site ce
+  mois-là ; seules les MODIFICATIONS sont stockées (`tpm_zone_overrides`, raison 10–500) et journalisées
+  (`tpm_attribution_log`, inscription seule). La base estampille au COMMIT toute visite « zone » sans TPM
+  (déclencheur différé `mems_tpm_stamp`) : un écrivain n'a pas à choisir le TPM. Seules les visites
+  PRÉVUES sont réattribuées — réalisées, annulées, figées (« antérieur »), facturées ou motivées jamais.
 
 ## Known / open items
 - **Rapportage fidèle à la facture** — DONE. Financial reports now hold a

@@ -1,0 +1,57 @@
+/* Affectation des TPM par zone (retour 58) — colonne du Plan de suivi, onglet « Affectation des TPM »,
+   TPM des visites. Couleur + icône + libellé, jamais la couleur seule. Jetons : bloc v6 de styles.css. */
+
+/* ---- Colonne « Prestataire (TPM) » du Plan de suivi ------------------------------------------ */
+.pb-tpm { min-width: 170px; max-width: 230px; line-height: 1.25; vertical-align: middle; }
+.pb-tpm-main { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.pb-tpm-ic { flex: 0 0 auto; color: var(--text-faint); }
+.tpm-tone-green .pb-tpm-ic { color: var(--green); }
+.tpm-tone-orange .pb-tpm-ic { color: var(--orange); }
+.tpm-tone-red .pb-tpm-ic { color: var(--red); }
+.tpm-tone-blue .pb-tpm-ic { color: var(--blue-600); }
+.pb-tpm-name { font-weight: 600; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pb-tpm-name.tpm-none { color: var(--red-text); }
+.pb-tpm-link { color: var(--red-text); text-decoration: underline; text-underline-offset: 2px; }
+.pb-tpm-link:hover { color: var(--red); }
+.pb-tpm-origin, .pb-tpm-more { display: block; font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-tpm-more { color: var(--text-faint); }
+.pb-tpm-diff {
+  flex: 0 0 auto; font-size: 11px; font-weight: 600; padding: 0 5px; border-radius: 999px;
+  background: var(--orange-bg); color: var(--orange-text); font-variant-numeric: tabular-nums;
+}
+
+/* ---- TPM d'une visite (Affectation & visites) -------------------------------------------------- */
+.tpm-visit { min-width: 170px; max-width: 240px; line-height: 1.25; }
+.tpm-edit {
+  flex: 0 0 auto; display: inline-grid; place-items: center; width: 24px; height: 24px; margin-left: 2px;
+  border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); cursor: pointer;
+}
+.tpm-edit:hover { border-color: var(--border); background: var(--surface-2); color: var(--blue-600); }
+.tpm-edit:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.tpm-rule-note { margin: 2px 0 10px; font-size: 13px; color: var(--text-muted); }
+.tpm-rule-note a { color: var(--blue-600); font-weight: 600; }
+
+/* ---- Formulaires (nouvelle visite, changement de TPM) ----------------------------------------- */
+.tpm-zone-line { margin: 2px 0 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--green-bg); color: var(--green-text); font-size: 13px; }
+.tpm-zone-line.is-none { background: var(--red-bg); color: var(--red-text); }
+.tpm-zone-line.muted { background: var(--surface-2); color: var(--text-muted); }
+.tpm-other { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--text); }
+.tpm-dialog { display: grid; gap: 14px; }
+.tpm-dialog-now, .tpm-dialog-note { margin: 0; font-size: 13px; }
+.tpm-options { display: grid; gap: 8px; }
+.tpm-option {
+  display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface); cursor: pointer;
+}
+.tpm-option > span { display: grid; gap: 2px; font-size: 13px; }
+.tpm-option.is-active { border-color: var(--blue-600); background: var(--blue-50); }
+.tpm-option input { margin-top: 3px; }
+.tpm-reason-input { min-height: 72px; resize: vertical; height: auto; padding-top: 8px; }
+.tpm-reason-foot { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; margin-top: 4px; }
+.tpm-reason-err { color: var(--red-text); }
+.tpm-suggest { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.tpm-chip {
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); color: var(--text);
+  font-size: 12px; padding: 3px 10px; cursor: pointer;
+}
+.tpm-chip:hover { border-color: var(--blue-600); color: var(--blue-600); }
