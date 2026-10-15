@@ -3,8 +3,8 @@ import { PencilLine } from 'lucide-react';
 import { STATUS_ICONS } from '../../components/ui.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, shortMonthLabel } from '../../lib/format.js';
-import { REASON_MAX, REASON_MIN, REASON_SUGGESTIONS, TPM_VISIT, TPM_ZONE_STATE, detachedHint, visitTpmKey } from '../../lib/tpmAttribution.js';
-import { TPM_TAB_HREF } from './TpmZoneCell.jsx';
+import { REASON_MAX, REASON_MIN, REASON_SUGGESTIONS, TPM_VISIT, TPM_ZONE_STATE, detachedHint, visitTpmKey, visitToAssign } from '../../lib/tpmAttribution.js';
+import { tpmTabHref } from './TpmZoneCell.jsx';
 import './tpmAttribution.css';
 
 /** Valeur du sélecteur pour « aucun TPM » (zone non suivie, visite désaffectée). */
@@ -94,7 +94,9 @@ export function VisitTpmCell({ visit, canEdit, onEdit }) {
     <div className={`tpm-visit tpm-tone-${def.tone || 'none'}`} title={`${tr(def.label)} — ${origin}`}>
       <span className="pb-tpm-main">
         <Icon size={13} aria-hidden="true" className="pb-tpm-ic" />
-        <span className={`pb-tpm-name ${visit.providerId ? '' : 'tpm-none'}`}>{visit.providerName || tr('À affecter')}</span>
+        {visit.providerId || !visitToAssign(visit)
+          ? <span className={`pb-tpm-name ${visit.providerId ? '' : 'tpm-none'}`}>{visit.providerName || tr('À affecter')}</span>
+          : <a className="pb-tpm-name pb-tpm-link" href={tpmTabHref({ zone: visit.zoneDistrictId, month: visit.periodMonth })}>{tr('À affecter')}</a>}
         {canEdit && (
           <button type="button" className="tpm-edit" onClick={() => onEdit(visit)} aria-label={tr('Changer le TPM de {s}', { s: visit.siteName })} title={tr('Changer le TPM (raison obligatoire)')}>
             <PencilLine size={13} aria-hidden="true" />
@@ -124,7 +126,7 @@ export function zoneTpmOrigin(tr, tpm) {
  * règle que les visites : couleur + icône + libellé, origine en dessous ; sans TPM, « À affecter »
  * mène à l'onglet Affectation des TPM.
  */
-export function ZoneTpmLabel({ tpm }) {
+export function ZoneTpmLabel({ tpm, month }) {
   const { tr } = useI18n();
   if (!tpm) return <span className="cell-empty">—</span>;
   const def = TPM_ZONE_STATE[tpm.state] || TPM_ZONE_STATE.sans_contrat;
@@ -136,7 +138,7 @@ export function ZoneTpmLabel({ tpm }) {
         <Icon size={13} aria-hidden="true" className="pb-tpm-ic" />
         {tpm.providerId
           ? <span className="pb-tpm-name">{tpm.providerName}</span>
-          : <a className="pb-tpm-name pb-tpm-link" href={TPM_TAB_HREF} onClick={(e) => e.stopPropagation()}>{tr('À affecter')}</a>}
+          : <a className="pb-tpm-name pb-tpm-link" href={tpmTabHref({ zone: tpm.areaId, month })} onClick={(e) => e.stopPropagation()}>{tr('À affecter')}</a>}
       </span>
       <span className="pb-tpm-origin">{origin}</span>
     </div>

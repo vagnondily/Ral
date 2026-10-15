@@ -1,17 +1,20 @@
 import React from 'react';
-import { ShieldAlert, ListChecks, MapPin, SlidersHorizontal } from 'lucide-react';
+import { ShieldAlert, ListChecks, MapPin, SlidersHorizontal, UserCog } from 'lucide-react';
 import { PageHeader } from '../../components/ui.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import RbmPage from './RbmPage.jsx';
 import PlanBoardPage from './PlanBoardPage.jsx';
 import SitesActivationPage from './SitesActivationPage.jsx';
 import MmrSection from '../settings/MmrSection.jsx';
+import TpmAttributionTab from './TpmAttributionTab.jsx';
 
 /**
  * Espace « RBM » : tout le suivi par les risques au même endroit, en onglets
  * nettement séparés (retour du 14/10 : « divise bien ») :
  *   - Priorités du mois : niveau de risque, sites à suivre, génération des visites ;
  *   - Plan de suivi : QUAND visiter — le plan, les sites déjà visités, la carte ;
+ *   - Affectation des TPM : QUI suit chaque zone chaque mois — le TPM des contrats de
+ *     suivi, modifiable avec une raison (retour 58 ; lien profond ?zone=…&m=AAAA-MM) ;
  *   - Sites (actifs / inactifs) : SI un site est actif chaque mois, avant de
  *     planifier (grille du classeur d'activation, journal des changements) ;
  *   - Configuration RBM : critères de risque des sites (vue standard du
@@ -23,6 +26,7 @@ const TABS = [
   { id: 'priorites', label: 'Priorités du mois', icon: ShieldAlert },
   { id: 'plan', label: 'Plan de suivi', icon: ListChecks },
   { id: 'sites', label: 'Sites (actifs / inactifs)', icon: MapPin },
+  { id: 'tpm', label: 'Affectation des TPM', icon: UserCog },
   { id: 'configuration', label: 'Configuration RBM', icon: SlidersHorizontal },
 ];
 const CONFIG_SECTIONS = [
@@ -33,6 +37,7 @@ const TAB_HELP = {
   priorites: 'Sites à suivre ce mois selon leur niveau de risque ; « Générer » planifie leurs visites.',
   plan: 'Visites exigées par le MMR, faites, prévues et restantes, avec le prestataire de suivi affecté.',
   sites: 'Pour chaque site du registre, actif (Oui) ou inactif (Non) chaque mois, avant de planifier. Exportez le classeur, complétez-le hors ligne, puis réimportez-le.',
+  tpm: 'Qui suit quelle zone chaque mois : le TPM des contrats de suivi par région › district, modifiable avec une raison.',
   configuration: 'Ce qui règle le suivi par les risques : les critères de risque de chaque site et les exigences minimales de suivi (MMR) par bureau et activité.',
 };
 // Anciennes adresses : « exigences » mène à Configuration › Exigences (MMR).
@@ -57,6 +62,7 @@ export default function RbmSpacePage({ canEdit, isAdmin, tab, onTab }) {
         {current === 'priorites' && <RbmPage canEdit={canEdit} embedded />}
         {current === 'plan' && <PlanBoardPage key="plan" canEdit={canEdit} embedded initialView="plan" views={['plan', 'visited', 'map']} />}
         {current === 'sites' && <SitesActivationPage canEdit={canEdit} />}
+        {current === 'tpm' && <TpmAttributionTab canEdit={canEdit} />}
         {current === 'configuration' && (
           <>
             <div className="segmented rbm-config-nav" role="tablist" aria-label={tr('Configuration RBM')}>

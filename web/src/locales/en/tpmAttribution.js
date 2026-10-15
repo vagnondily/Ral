@@ -96,8 +96,6 @@ export default {
   'Chaque visite prévue du mois sans TPM choisi avec une raison reprend le TPM du contrat qui couvre sa zone (journalisé) ; une visite réalisée, annulée ou déjà facturée garde son TPM.':
     'Every planned visit of the month without a TPM chosen with a reason takes the TPM of the contract covering its area (logged); a visit done, cancelled or already invoiced keeps its TPM.',
   'Appliquer les TPM des contrats': 'Apply contract TPMs',
-  'Le TPM de chaque visite vient du contrat de suivi qui couvre la zone du site ce mois-là : rien à saisir. Un autre TPM se motive (crayon) ; pour toute une zone :':
-    'Each visit\'s TPM comes from the monitoring contract covering the site\'s area that month: nothing to enter. Another TPM needs a reason (pencil); for a whole area:',
   'Affectation des TPM': 'TPM assignment',
   'Aucun contrat actif sur la zone': 'No active contract on the area',
   'Choisir un autre TPM pour cette visite (raison obligatoire)': 'Choose another TPM for this visit (reason required)',
@@ -233,4 +231,5 @@ export default {
   'Ce prestataire n\'est pas le TPM de ce contrat ({p}) : vérifiez le couple prestataire × contrat.':
     'This provider is not the TPM of this contract ({p}): check the provider × contract pair.',
   'zone à resélectionner (avenant) : contrat {n}': 'zone to reselect (amendment): contract {n}',
+  'Pour toute une zone et plusieurs mois :': 'For a whole area and several months:',
 };

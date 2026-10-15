@@ -8,6 +8,15 @@ import './tpmAttribution.css';
 /** Adresse de l'onglet « Affectation des TPM » de l'espace RBM. */
 export const TPM_TAB_HREF = '#/processus/rbm/tpm';
 
+/** Lien vers l'onglet ouvert sur une zone (district ou commune) et un mois : `?zone=…&m=AAAA-MM`. */
+export function tpmTabHref({ zone = null, month = null } = {}) {
+  const q = new URLSearchParams();
+  if (zone) q.set('zone', zone);
+  if (month && /^\d{4}-\d{2}$/.test(String(month).slice(0, 7))) q.set('m', String(month).slice(0, 7));
+  const s = q.toString();
+  return s ? `${TPM_TAB_HREF}?${s}` : TPM_TAB_HREF;
+}
+
 /** Visites de l'exercice dont le TPM diffère de celui de leur zone ce mois-là (écart motivé ou reprise). */
 export function divergentVisits(months, segments, year) {
   let n = 0;
@@ -24,8 +33,8 @@ export function divergentVisits(months, segments, year) {
  * Colonne « Prestataire (TPM) » du Plan de suivi (retour 58) : le TPM de la ZONE du site
  * (contrats de suivi, ou modification motivée), au mois de référence, avec son origine — couleur +
  * icône + libellé, jamais la couleur seule. L'infobulle donne les segments de l'exercice et les
- * visites qui portent un autre TPM. Sans TPM : « À affecter » dit, au survol, comment en obtenir un
- * (jamais un lien vers un onglet qui n'existe pas encore).
+ * visites qui portent un autre TPM. Sans TPM : « À affecter » ouvre l'onglet Affectation des TPM sur
+ * la zone du site et le mois de référence ; l'infobulle dit aussi comment en obtenir un.
  * @param {{ tpm: { ref, refMonth, segments }|null, months: object[] }} props
  */
 export default function TpmZoneCell({ tpm, months }) {
@@ -67,7 +76,7 @@ export default function TpmZoneCell({ tpm, months }) {
         <Icon size={13} aria-hidden="true" className="pb-tpm-ic" />
         {assigned
           ? <span className="pb-tpm-name">{ref.providerName}</span>
-          : <span className="pb-tpm-name pb-tpm-todo">{tr('À affecter')}</span>}
+          : <a className="pb-tpm-name pb-tpm-link" href={tpmTabHref({ zone: ref.areaId, month: refMonth })}>{tr('À affecter')}</a>}
         {diff > 0 && <span className="pb-tpm-diff" aria-label={tr('{n} visite(s) avec un autre TPM', { n: diff })}>≠ {diff}</span>}
       </span>
       <span className="pb-tpm-origin">{origin}</span>

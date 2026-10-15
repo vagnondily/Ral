@@ -22,12 +22,22 @@ import './tpmAttribution.css';
  * changement exige une raison et reste au journal ; les visites prévues reprennent le TPM de leur
  * zone. Calculs côté serveur (/api/tpm/attribution) ; l'écran n'affiche que.
  * Props : { canEdit } (admin / manager : modifier, revenir au contrat, appliquer aux visites).
+ * Lien profond : `?zone=<aire>&m=<AAAA-MM>` ouvre l'onglet sur cette zone, la période partant de ce mois
+ * (« À affecter » du Plan de suivi, des Priorités du mois et d'Affectation & visites).
  */
 const PILLS = [
   ['all', 'Toutes'], ['modifie', 'Modifiées'], ['a_confirmer', 'À confirmer'], ['sans_contrat', 'Sans contrat'],
   ['a_arbitrer', 'Plusieurs contrats'], ['ecarts', 'Écarts avec les visites'],
 ];
 const contractHref = (id) => `#/contrats/liste/${id}`;
+const TAB_HASH = '#/processus/rbm/tpm';
+
+/** Zone et mois demandés par l'adresse (#/processus/rbm/tpm?zone=…&m=AAAA-MM), ou rien. */
+function readFocus() {
+  const q = new URLSearchParams(String(window.location.hash || '').split('?')[1] || '');
+  const m = q.get('m');
+  return { zone: q.get('zone') || null, month: /^\d{4}-(0[1-9]|1[0-2])$/.test(m || '') ? m : null };
+}
 const sumVisits = (row) => row.visits.reduce((a, v) => ({
   planned: a.planned + v.planned, realised: a.realised + v.realised, divergent: a.divergent + v.divergent,
 }), { planned: 0, realised: 0, divergent: 0 });
@@ -38,7 +48,21 @@ export default function TpmAttributionTab({ canEdit }) {
   const { tr } = useI18n();
   const toast = useToast();
   const cur = currentMonth();
-  const [period, setPeriod] = useState({ from: cur, to: shiftMonth(cur, 5) });
+  const [focus, setFocus] = useState(readFocus);
+  const [period, setPeriod] = useState(() => {
+    const m = focus.month || cur;
+    return { from: m, to: shiftMonth(m, 5) };
+  });
+  // Un nouveau lien profond alors que l'onglet est déjà ouvert : zone et période suivent l'adresse.
+  useEffect(() => {
+    const onHash = () => {
+      const f = readFocus();
+      setFocus(f);
+      if (f.month) setPeriod({ from: f.month, to: shiftMonth(f.month, 5) });
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
   const [all, setAll] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -75,11 +99,23 @@ export default function TpmAttributionTab({ canEdit }) {
   };
   const rows = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
-    return (data?.rows || []).filter((r) => (!filters.region || r.regionId === filters.region)
+    return (data?.rows || []).filter((r) => (!focus.zone || r.id === focus.zone || r.districtId === focus.zone)
+      && (!filters.region || r.regionId === filters.region)
       && (!filters.provider || r.segments.some((s) => s.providerId === filters.provider))
       && (!q || `${r.name} ${r.path}`.toLowerCase().includes(q))
       && pillTest[filters.pill](r));
-  }, [data, filters]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, filters, focus.zone]); // eslint-disable-line react-hooks/exhaustive-deps
+  const focusRow = focus.zone ? (data?.rows || []).find((r) => r.id === focus.zone) : null;
+  const clearFocus = () => { window.location.hash = TAB_HASH; };
+  // Lien profond : la ligne de la zone demandée est amenée à l'écran une fois les données lues.
+  useEffect(() => {
+    if (!focus.zone || !data) return undefined;
+    const t = setTimeout(() => {
+      const el = document.querySelector('.tpa-table tr.is-focused');
+      if (el) el.scrollIntoView({ block: 'center' });
+    }, 50);
+    return () => clearTimeout(t);
+  }, [focus.zone, data]);
   const pillCount = (k) => (data?.rows || []).filter(pillTest[k]).length;
 
   const groups = useMemo(() => {
@@ -181,6 +217,12 @@ export default function TpmAttributionTab({ canEdit }) {
 
           <div className="card tpa-card">
             <div className="pb-filters tpa-filters">
+              {focus.zone && (
+                <span className="tpa-filter-chip">
+                  {tr('Zone : {z}', { z: focusRow ? focusRow.name : '…' })}
+                  <button type="button" onClick={clearFocus} aria-label={tr('Toutes les zones')}><X size={13} aria-hidden="true" /></button>
+                </span>
+              )}
               <label className="pb-search">
                 <Search size={15} aria-hidden="true" />
                 <input className="input" placeholder={tr('District, commune…')} value={filters.q} onChange={(e) => setFilter('q', e.target.value)} />
@@ -255,7 +297,7 @@ export default function TpmAttributionTab({ canEdit }) {
                               </div>
                             </th>
                           </tr>
-                          {open && g.rows.map((r) => <ZoneRow key={r.id} row={r} canEdit={canEdit} selected={selected.has(r.id)} onSelect={() => toggleSel(r.id)}
+                          {open && g.rows.map((r) => <ZoneRow key={r.id} row={r} canEdit={canEdit} selected={selected.has(r.id)} focused={r.id === focus.zone} onSelect={() => toggleSel(r.id)}
                             onChange={() => openChange([r], tr('Changer le TPM · {z}', { z: r.name }))}
                             onRevert={() => openChange([r], tr('Revenir au contrat · {z}', { z: r.name }), 'revenir')}
                             onHistory={() => { setLogArea({ id: r.id, name: r.name }); setView('journal'); }} />)}
@@ -296,7 +338,7 @@ function contractText(tr, c) {
  * TPM RETENU mois par mois (couleur + icône + libellé) ; sous une modification, ce que dit le
  * contrat et la raison — la valeur par défaut reste lisible à côté de l'écart.
  */
-function ZoneRow({ row, canEdit, selected, onSelect, onChange, onRevert, onHistory }) {
+function ZoneRow({ row, canEdit, selected, focused, onSelect, onChange, onRevert, onHistory }) {
   const { tr } = useI18n();
   const v = sumVisits(row);
   const contracts = [];
@@ -312,7 +354,7 @@ function ZoneRow({ row, canEdit, selected, onSelect, onChange, onRevert, onHisto
   const modified = row.segments.some((s) => s.override);
   const contractAt = (m) => row.contractSegments.find((c) => c.from <= m && m <= c.to);
   return (
-    <tr className={`${row.depth === 3 ? 'tpa-commune' : ''} ${selected ? 'is-selected' : ''}`}>
+    <tr className={`${row.depth === 3 ? 'tpa-commune' : ''} ${selected ? 'is-selected' : ''} ${focused ? 'is-focused' : ''}`}>
       {canEdit && <td className="tpa-check"><input type="checkbox" checked={selected} onChange={onSelect} aria-label={tr('Sélectionner {n}', { n: row.name })} /></td>}
       <td className="tpa-zone">
         <strong>{row.name}</strong>

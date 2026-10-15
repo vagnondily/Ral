@@ -135,7 +135,7 @@ export default function RbmPage({ canEdit, embedded = false }) {
       fokontany: { label: tr('Fokontany'), sortVal: (s) => s.fokontany || '', csv: (s) => s.fokontany || '', render: (s) => s.fokontany || '—' },
       // Retour 58 : TPM de la zone du site ce mois-là — celui du contrat de suivi, ou une modification motivée.
       tpm: { label: tr('TPM de la zone'), sortVal: (s) => (s.tpm && s.tpm.providerName) || '', csv: (s) => (s.tpm && s.tpm.providerName) || '',
-        render: (s) => <ZoneTpmLabel tpm={s.tpm} /> },
+        render: (s) => <ZoneTpmLabel tpm={s.tpm} month={month} /> },
       idSite: { label: tr('ID site'), sortVal: (s) => s.code || '', csv: (s) => s.code || '', render: (s) => <span className="mono">{s.code || '—'}</span> },
       gpsLat: { label: tr('GPS Lat.'), num: true, sortVal: (s) => s.gpsLat ?? -999, csv: (s) => s.gpsLat ?? '', render: (s) => (s.gpsLat ?? '—') },
       gpsLng: { label: tr('GPS Long.'), num: true, sortVal: (s) => s.gpsLng ?? -999, csv: (s) => s.gpsLng ?? '', render: (s) => (s.gpsLng ?? '—') },
