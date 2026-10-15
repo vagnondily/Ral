@@ -8,6 +8,7 @@
 const { COLUMNS, KEYS } = require('./planSettings');
 const { chunkRows } = require('../../db/batch');
 const { lockVisitMonthsTx } = require('./visitLocks');
+const { activeMonthSql } = require('../common/siteActivity');
 
 // Données rattachées AU SITE (jamais à la seule commune), hors soumissions écartées et hors
 // fiches d'une autre activité — même filtre que la collecte réelle du RBM (SUBMISSION_COUNTS_FOR_SITE).
@@ -114,8 +115,9 @@ async function setRunCreatedTx(client, tenantId, runId, created) {
 /**
  * Visites générées, par lots multi-lignes (unnest). Re-vérifié EN BASE, sous les verrous des
  * mois : jamais sur un site × mois qui a déjà une visite (annulée comprise : une annulation est
- * une décision), jamais un mois « Non » de la grille (même règle que les coches du Plan de
- * suivi), jamais en zone interdite. Le prestataire n'est pas choisi ici (retour 58).
+ * une décision), jamais un mois inactif (règle commune siteActivity.isActiveMonth : année avec
+ * grille → « Oui » explicite seulement), jamais en zone interdite. Le prestataire n'est pas choisi
+ * ici (retour 58 : la base l'estampille d'après le contrat de la zone).
  * @returns nombre de visites créées
  */
 async function insertGeneratedTx(client, tenantId, userId, { year, runId, visits }) {
@@ -129,8 +131,7 @@ async function insertGeneratedTx(client, tenantId, userId, { year, runId, visits
         WHERE s.security_situation < 99
           AND NOT EXISTS (SELECT 1 FROM site_visits v
                            WHERE v.tenant_id = $1 AND v.site_id = t.site_id AND v.period_month = make_date($3, t.m, 1))
-          AND NOT EXISTS (SELECT 1 FROM site_month_status g
-                           WHERE g.tenant_id = $1 AND g.site_id = t.site_id AND g.year = $3 AND g.month = t.m AND NOT g.active)
+          AND ${activeMonthSql({ site: 't.site_id', year: '$3', month: 't.m' })}
        ON CONFLICT DO NOTHING`,
       [tenantId, userId || null, year, runId, slice.map((v) => v.siteId), slice.map((v) => v.month), slice.map((v) => v.why),
         slice.map((v) => JSON.stringify(v.detail || {})), slice.map((v) => v.tour || null), slice.map((v) => v.day || null)]);

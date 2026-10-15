@@ -58,6 +58,17 @@ function isActiveMonth(value, yearHasGrid) {
   return yearHasGrid ? value === true : value !== false;
 }
 
+/**
+ * Jumeau SQL de isActiveMonth pour UN site × mois (garde des écritures de visites, sous les
+ * verrous des mois) : actif si l'année n'a aucune grille, sinon seulement sur un « Oui »
+ * explicite. `tenant`, `site`, `year`, `month` : expressions SQL (paramètres ou colonnes).
+ */
+function activeMonthSql({ tenant = '$1', site, year, month }) {
+  return `(NOT EXISTS (SELECT 1 FROM site_month_status gy WHERE gy.tenant_id = ${tenant} AND gy.year = ${year})
+        OR EXISTS (SELECT 1 FROM site_month_status gm WHERE gm.tenant_id = ${tenant} AND gm.site_id = ${site}
+                     AND gm.year = ${year} AND gm.month = ${month} AND gm.active))`;
+}
+
 function activeAt(statuses, month, { forbidden = false, gridYears = [] } = {}) {
   if (forbidden) return false;
   const years = gridYears instanceof Set ? gridYears : new Set(gridYears);
@@ -136,4 +147,4 @@ function sumFacts(list) {
   return t;
 }
 
-module.exports = { isActiveMonth, activeAt, collapseStatus, siteRangeFacts, ratesOf, sumFacts };
+module.exports = { isActiveMonth, activeMonthSql, activeAt, collapseStatus, siteRangeFacts, ratesOf, sumFacts };

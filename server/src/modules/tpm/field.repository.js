@@ -3,6 +3,7 @@ const { afterSitesChangedTx, lockSubmissionLinksTx, withSubmissionLinks } = requ
 const { sitePatchSql } = require('./sitePatch');
 const { chunkRows } = require('../../db/batch');
 const { lockVisitMonthsTx } = require('./visitLocks');
+const { isActiveMonth, activeMonthSql } = require('../common/siteActivity');
 const { shapeRangeSummary, shapeCoverageFacts, collectionDays, buildCoverageMatrix } = require('./fieldMath');
 const { isDue, frequencyFor, visitState, currentMonth, toMonth, needsPlanning, planningCounts } = require('./rbmMath');
 const { scoreSite, normalizeSecurity } = require('./rbmScore');
@@ -242,18 +243,34 @@ async function rbmSiteExplain(tenantId, siteId, { month, asOf } = {}) {
   return withTenantTransaction(tenantId, async (client) => (await rbmSitesTx(client, tenantId, { month, asOf, siteId, explain: true }))[0] || null);
 }
 
-/** Sites dont la visite du mois a été ANNULÉE, et sites « Inactive » ce mois (grille d'activation). */
+/**
+ * Statuts d'activité d'un exercice (grille « Sites (actifs / inactifs) ») : l'année a-t-elle
+ * une grille, et les cases (site × mois) renseignées. Lus pour appliquer LA règle commune
+ * (siteActivity.isActiveMonth : année avec grille → « Oui » explicite seulement).
+ */
+async function yearActivityTx(client, tenantId, year, { month = null, siteIds = null } = {}) {
+  const { rows: [g] } = await client.query(
+    'SELECT EXISTS (SELECT 1 FROM site_month_status WHERE tenant_id = $1 AND year = $2) AS has_grid', [tenantId, year]);
+  const params = [tenantId, year]; let where = '';
+  if (month) { params.push(month); where += ` AND month = $${params.length}`; }
+  if (siteIds) { params.push(siteIds); where += ` AND site_id = ANY($${params.length}::uuid[])`; }
+  const { rows } = await client.query(`SELECT site_id, month, active FROM site_month_status WHERE tenant_id = $1 AND year = $2${where}`, params);
+  const cells = new Map(rows.map((r) => [`${r.site_id}|${r.month}`, r.active]));
+  const hasGrid = Boolean(g && g.has_grid);
+  return { hasGrid, isActive: (siteId, m) => isActiveMonth(cells.get(`${siteId}|${m}`), hasGrid) };
+}
+
+/** Sites dont la visite du mois a été ANNULÉE, et sites inactifs ce mois (règle commune). */
 async function monthBlocksTx(client, tenantId, target) {
-  if (!target) return { cancelled: new Set(), inactive: new Set() };
+  if (!target) return { cancelled: new Set(), isInactive: () => false };
   const [y, m] = target.split('-').map(Number);
   const { rows: c } = await client.query(
     `SELECT DISTINCT site_id FROM site_visits WHERE tenant_id = $1 AND period_month = $2::date AND status = 'annule'
        AND NOT EXISTS (SELECT 1 FROM site_visits o WHERE o.tenant_id = $1 AND o.site_id = site_visits.site_id
                          AND o.period_month = $2::date AND o.status <> 'annule')`,
     [tenantId, `${target}-01`]);
-  const { rows: i } = await client.query(
-    'SELECT site_id FROM site_month_status WHERE tenant_id = $1 AND year = $2 AND month = $3 AND NOT active', [tenantId, y, m]);
-  return { cancelled: new Set(c.map((r) => r.site_id)), inactive: new Set(i.map((r) => r.site_id)) };
+  const act = await yearActivityTx(client, tenantId, y, { month: m });
+  return { cancelled: new Set(c.map((r) => r.site_id)), isInactive: (siteId) => !act.isActive(siteId, m) };
 }
 
 async function rbmSitesTx(client, tenantId, { month, risk, siteId, explain = false, asOf = null } = {}) {
@@ -270,7 +287,7 @@ async function rbmSitesTx(client, tenantId, { month, risk, siteId, explain = fal
     const due = target ? (score.due || isDue(r.riskLevel, r.lastVisitMonth, target)) : false;
     // « À planifier » (compteur et bouton « Générer ») : à suivre, hors zone interdite, sans visite prévue ce mois.
     const cancelledThisMonth = blocks.cancelled.has(r.id);
-    const inactiveThisMonth = blocks.inactive.has(r.id);
+    const inactiveThisMonth = blocks.isInactive(r.id);
     const toPlan = needsPlanning({ due, forbidden: score.forbidden, nextPlannedMonth: r.nextPlannedMonth, cancelledThisMonth, inactiveThisMonth }, target);
     return { ...r, ...score, due, toPlan, cancelledThisMonth, inactiveThisMonth, interval, ...(explain ? { reasons, consequence, actions } : {}) };
   });
@@ -432,7 +449,8 @@ async function generateFromRbmTx(client, tenantId, userId, month, { risk } = {})
   const todo = rows.filter((s) => s.toPlan);
   if (!todo.length) return { created: 0, ...counts };
   // Une seule instruction ; jamais sur un site qui a DÉJÀ une visite ce mois (quel que soit son
-  // statut : une visite annulée est une décision, elle n'est pas ressuscitée) ni « Inactive » ce mois.
+  // statut : une visite annulée est une décision, elle n'est pas ressuscitée) ni inactif ce mois
+  // (règle commune : année avec grille → « Oui » explicite seulement).
   const [y, m] = target.split('-').map(Number);
   const { rowCount } = await client.query(
     `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by)
@@ -440,8 +458,7 @@ async function generateFromRbmTx(client, tenantId, userId, month, { risk } = {})
        FROM unnest($4::uuid[], $5::text[]) AS t(site_id, activity)
       WHERE NOT EXISTS (SELECT 1 FROM site_visits v
                          WHERE v.tenant_id = $1 AND v.site_id = t.site_id AND v.period_month = $2::date)
-        AND NOT EXISTS (SELECT 1 FROM site_month_status ms
-                         WHERE ms.tenant_id = $1 AND ms.site_id = t.site_id AND ms.year = $6 AND ms.month = $7 AND NOT ms.active)
+        AND ${activeMonthSql({ site: 't.site_id', year: '$6', month: '$7' })}
      ON CONFLICT (tenant_id, site_id, period_month, activity) DO NOTHING`,
     [tenantId, `${target}-01`, userId || null, todo.map((s) => s.id), todo.map((s) => s.activity || null), y, m]
   );
@@ -1057,6 +1074,8 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
        FROM mmr_parameters WHERE tenant_id = $1`, [tenantId]);
   const lookup = mmrLookup(mmr);
   const target = `${y}-12`;
+  // L'exercice a-t-il une grille d'activation (au moins un statut) ? → règle commune isActiveMonth.
+  const yearHasGrid = sites.some((r) => r.monthStatus && Object.keys(r.monthStatus).length > 0);
   const out = sites.map((row) => {
     // Dernière visite = visite réalisée ou collecte réelle (jamais une visite seulement prévue) ;
     // la prochaine visite prévue est rendue à part, vue depuis le mois courant.
@@ -1064,13 +1083,16 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
     const mmrRow = lookup(s.fieldOfficeId, s.parentOfficeId, s.activity);
     const score = scoreSite(s, { targetMonth: target });
     const counters = siteCounters({ months: s.months }, mmrRow, { adjusted });
+    // Statut affiché = dernier mois renseigné (colonne Status du classeur). Règle commune : une
+    // année qui a une grille ne planifie que les « Oui » ; un site sans aucun statut cette année-là
+    // est donc « non renseigné », non planifiable (inactive), jamais « actif par défaut ».
     const status = currentStatus(s.monthStatus);
     return {
       id: s.id, code: s.code, publicId: s.publicId, locationId: s.locationId, name: s.name, region: s.adm1, district: s.district, commune: s.commune,
       activity: s.activity, bureau: s.subOfficeName || s.antenneName || null, fieldOfficeId: s.fieldOfficeId, mmrKey: mmrKeyOf(mmrRow),
       riskLevel: s.riskLevel, priority: score.priorityLabel, finalScore: score.finalScore,
       forbidden: Number(s.security) >= 99,
-      status, inactive: status === 'Inactive', monthStatus: s.monthStatus || {},
+      status, inactive: status === 'Inactive' || (yearHasGrid && !status), monthStatus: s.monthStatus || {},
       lastVisitMonth: s.lastVisitMonth, lastVisitSource: s.lastVisitSource, nextPlannedMonth: s.nextPlannedMonth,
       dataCount: s.dataVisitCount, months: s.months,
       // Registre « Locations Management » (vue standard, carte)
@@ -1086,7 +1108,7 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
   const counted = new Map();
   for (const s of out) if (s.mmrKey && !s.inactive && !s.forbidden) counted.set(s.mmrKey, (counted.get(s.mmrKey) || 0) + 1);
   const capacity = mmrCapacity(mmr.map((r) => (r.numberOfSites == null ? { ...r, numberOfSites: counted.get(mmrKeyOf(r)) || 0 } : r)));
-  return { year: y, adjusted, sites: rankSites(out), kpis: boardKpis(out), capacity };
+  return { year: y, adjusted, yearHasGrid, sites: rankSites(out), kpis: boardKpis(out), capacity };
 }
 
 /**
@@ -1111,12 +1133,10 @@ async function planMonthsTx(client, tenantId, userId, year, changes) {
   // écritures du même site × mois sont mises en file, jamais croisées.
   await lockVisitMonthsTx(client, tenantId, [...add, ...remove].map(([, m]) => pm(m)));
   let added = 0; let removed = 0;
-  // Un site « Inactive » sur un mois n'est pas planifiable ce mois-là.
-  const { rows: inactive } = await client.query(
-    'SELECT site_id, month FROM site_month_status WHERE tenant_id = $1 AND year = $2 AND NOT active AND site_id = ANY($3::uuid[])', [tenantId, year, ids]);
-  const blocked = new Set(inactive.map((r) => `${r.site_id}|${r.month}`));
-  const skippedInactive = add.filter(([id, m]) => blocked.has(`${id}|${m}`)).length;
-  add = add.filter(([id, m]) => !blocked.has(`${id}|${m}`));
+  // Un site inactif un mois (règle commune isActiveMonth) n'est pas planifiable ce mois-là.
+  const act = await yearActivityTx(client, tenantId, year, { siteIds: ids });
+  const skippedInactive = add.filter(([id, m]) => !act.isActive(id, m)).length;
+  add = add.filter(([id, m]) => act.isActive(id, m));
   // Par lots (limite de paramètres de PostgreSQL) : 5 000 sites × 12 mois en une modification groupée.
   for (const slice of chunkRows(add, 3)) {
     const params = [tenantId, userId]; const tuples = slice.map(([id, m]) => {
@@ -1132,6 +1152,7 @@ async function planMonthsTx(client, tenantId, userId, year, changes) {
        SELECT $1, t.site_id, t.pm, t.activity, 'planifie', $2 FROM (VALUES ${tuples.join(',')}) AS t(site_id, pm, activity)
         WHERE NOT EXISTS (SELECT 1 FROM site_visits o WHERE o.tenant_id = $1 AND o.site_id = t.site_id AND o.period_month = t.pm
                             AND o.status <> 'annule')
+          AND ${activeMonthSql({ site: 't.site_id', year: 'extract(year FROM t.pm)::int', month: 'extract(month FROM t.pm)::int' })}
        ON CONFLICT (tenant_id, site_id, period_month, activity) DO UPDATE SET status = 'planifie', updated_at = now()
          WHERE site_visits.status = 'annule'`, params);
     added += rowCount;
@@ -1345,7 +1366,8 @@ async function bulkUpdateSites(tenantId, userId, { year, siteIds, set = {}, stat
         if (!wanted.has(s.id)) continue;
         if (s.forbidden || s.inactive || !s.parametered) { skipped += 1; continue; }
         const busy = (s.months || []).map((m) => m.month);
-        const inactive = Object.entries(s.monthStatus || {}).filter(([, a]) => a === false).map(([m]) => Number(m));
+        // Mois inactifs = règle commune (année avec grille → « Oui » explicite seulement).
+        const inactive = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].filter((m) => !isActiveMonth((s.monthStatus || {})[m], board.yearHasGrid));
         autoPlanMonths({ toPlan: s.toPlan, fromMonth: plan.fromMonth, busy, inactive }).forEach((m) => changes.push({ siteId: s.id, month: m, planned: true }));
       }
       result.plan = changes.length ? await planMonthsTx(client, tenantId, userId, year, changes) : { added: 0, removed: 0, skippedInactive: 0 };

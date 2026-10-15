@@ -117,7 +117,9 @@ test('génération du plan du mois : un site seulement planifié reste « à sui
   // activité NULL comprise) et site actif ce mois ; un conflit ne modifie rien.
   assert.match(inserts[0].sql, /INSERT INTO site_visits[\s\S]*SELECT \$1, t\.site_id[\s\S]*FROM unnest\(\$4::uuid\[\], \$5::text\[\]\)/);
   assert.match(inserts[0].sql, /WHERE NOT EXISTS \(SELECT 1 FROM site_visits v\s+WHERE v\.tenant_id = \$1 AND v\.site_id = t\.site_id AND v\.period_month = \$2::date\)/);
-  assert.match(inserts[0].sql, /NOT EXISTS \(SELECT 1 FROM site_month_status ms[\s\S]*NOT ms\.active\)/);
+  // Site actif ce mois = règle commune (siteActivity.activeMonthSql, jumeau de isActiveMonth) :
+  // l'année n'a pas de grille, ou la case du mois est un « Oui » explicite.
+  assert.match(inserts[0].sql, /AND \(NOT EXISTS \(SELECT 1 FROM site_month_status gy WHERE gy\.tenant_id = \$1 AND gy\.year = \$6\)\s+OR EXISTS \(SELECT 1 FROM site_month_status gm WHERE gm\.tenant_id = \$1 AND gm\.site_id = t\.site_id\s+AND gm\.year = \$6 AND gm\.month = \$7 AND gm\.active\)\)/);
   assert.match(inserts[0].sql, /ON CONFLICT \(tenant_id, site_id, period_month, activity\) DO NOTHING/);
   assert.doesNotMatch(inserts[0].sql, /DO UPDATE/);
 });
@@ -134,7 +136,7 @@ test('génération : rien à planifier ⇒ aucune écriture ; mois illisible ref
  * et l'INSERT … SELECT … WHERE NOT EXISTS … ON CONFLICT de la génération, y compris le
  * piège d'origine : UNIQUE (…, activity) laisse passer deux visites d'activité NULL.
  */
-function stateClient(sites, visits, inactive = []) {
+function stateClient(sites, visits, inactive = [], active = []) {
   return {
     async query(sql, params) {
       if (/pg_advisory_xact_lock/.test(sql)) return { rows: [] };
@@ -148,7 +150,11 @@ function stateClient(sites, visits, inactive = []) {
         });
         return { rows: [], rowCount: n };
       }
-      if (/FROM site_month_status/.test(sql)) return { rows: (inactive || []).map((id) => ({ site_id: id })) };
+      if (/AS has_grid/.test(sql)) return { rows: [{ has_grid: inactive.length + active.length > 0 }] };
+      if (/FROM site_month_status/.test(sql)) {
+        const month = params[2];
+        return { rows: [...inactive.map((id) => ({ site_id: id, month, active: false })), ...active.map((id) => ({ site_id: id, month, active: true }))] };
+      }
       if (/status = 'annule'/.test(sql) && /SELECT DISTINCT site_id FROM site_visits/.test(sql)) {
         const [, pm] = params;
         const ids = [...new Set(visits.filter((v) => v.pm === pm && v.status === 'annule').map((v) => v.siteId))]
@@ -255,10 +261,15 @@ test('liste RBM : drapeau « à planifier » par site (à suivre, hors zone inte
   assert.deepEqual([noMonth[0].due, noMonth[0].toPlan], [false, false]);
 });
 
-test('« Générer » : un site « Inactive » ce mois n\'est ni planifié ni compté « à planifier »', async () => {
+test('« Générer » : un site « Inactive » ce mois — ou sans statut quand l\'année a une grille — n\'est ni planifié ni compté « à planifier »', async () => {
   const visits = [];
-  const client = stateClient([row({ id: 'actif', activity: null }), row({ id: 'inactif', activity: null })], visits, ['inactif']);
+  const sites = [row({ id: 'actif', activity: null }), row({ id: 'inactif', activity: null }), row({ id: 'vide', activity: null })];
+  const client = stateClient(sites, visits, ['inactif'], ['actif']);
   const r = await generateFromRbmTx(client, TENANT, 'user-1', '2026-10');
-  assert.deepEqual([r.created, r.toPlan, r.inactive], [1, 1, 1]);
+  assert.deepEqual([r.created, r.toPlan, r.inactive], [1, 1, 2]);
   assert.deepEqual(visits.map((v) => v.siteId), ['actif']);
+  // Année sans aucune grille : tout le registre est actif.
+  const v2 = [];
+  const r2 = await generateFromRbmTx(stateClient(sites, v2), TENANT, 'user-1', '2026-10');
+  assert.deepEqual([r2.created, r2.inactive], [3, 0]);
 });
