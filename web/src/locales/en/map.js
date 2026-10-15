@@ -199,4 +199,44 @@ export default {
   'Couverture des sites indisponible (erreur de chargement).': 'Site coverage unavailable (loading error).',
   '{shown} site(s) GPS dessiné(s) sur {total} (liste limitée à {cap} ; les comptes couvrent tout le périmètre)':
     '{shown} GPS site(s) drawn out of {total} (list limited to {cap}; the counts cover the whole perimeter)',
+  // ---- Légende en trois groupes, points colorés par activité (retour 94 : lib/mapPoints.js, MapLegend)
+  'Fond des districts': 'District fill',
+  'Couleur des points': 'Point colour',
+  'Colorer les points par': 'Colour points by',
+  'Statut de visite': 'Visit status',
+  'Forme des points': 'Point shape',
+  'Forme': 'Shape',
+  'précision de la position': 'position accuracy',
+  'Que signifie « {x} » ?': 'What does “{x}” mean?',
+  'Autres activités': 'Other activities',
+  '{n} site(s) regroupé(s)': '{n} site(s) grouped',
+  'dont {n} indicative(s)': 'incl. {n} indicative',
+  'par maille de 2 km': 'on a 2 km grid',
+  'Chaque district prend la couleur du signal le plus grave relevé sur la période.': 'Each district takes the colour of the most severe signal found over the period.',
+  'Chaque district est coloré selon ce taux sur la période : plus la teinte est foncée, plus le taux est élevé.':
+    'Each district is coloured by this rate over the period: the darker the shade, the higher the rate.',
+  'Chaque district est coloré selon ce nombre sur la période : plus la teinte est foncée, plus il est élevé.':
+    'Each district is coloured by this number over the period: the darker the shade, the higher it is.',
+  'Visité comme prévu': 'Visited as planned',
+  'Site prévu au plan de la période et visité (données reçues ou visite déclarée).': 'Site planned for the period and visited (data received or visit declared).',
+  'Site visité sur la période sans avoir été prévu au plan.': 'Site visited over the period without being in the plan.',
+  'Prévu, pas encore visité': 'Planned, not visited yet',
+  'Site prévu au plan de la période, sans visite enregistrée pour l\'instant.': 'Site planned for the period, with no visit recorded so far.',
+  'Actif, ni prévu ni visité': 'Active, neither planned nor visited',
+  'Site actif sur la période, absent du plan et sans visite.': 'Site active over the period, not in the plan and not visited.',
+  'Inactif sur la période': 'Inactive over the period',
+  'Site déclaré inactif pour ces mois (grille des sites actifs) : il n\'est pas attendu.': 'Site declared inactive for these months (active sites grid): it is not expected.',
+  'Position GPS du site': 'Site GPS position',
+  'Coordonnées GPS enregistrées dans le registre des sites : la position exacte du site.': 'GPS coordinates recorded in the site registry: the exact position of the site.',
+  'Position déduite de ses collectes': 'Position derived from its collections',
+  'Site sans GPS, placé au centre des positions de ses propres collectes (3 relevés au moins) ; anneau pointillé = position indicative (relevés dispersés).':
+    'Site without GPS, placed at the centre of its own collections\' positions (at least 3 readings); dashed ring = indicative position (scattered readings).',
+  'Centre de la commune (position approximative)': 'Commune centre (approximate position)',
+  'Sites sans position, regroupés au centre des collectes de leur commune ; le chiffre indique le nombre de sites.':
+    'Sites without a position, grouped at the centre of their commune\'s collections; the number shows how many sites.',
+  'Point de collecte (ménage)': 'Collection point (household)',
+  'Position GPS d\'une collecte reçue ; hors administrateur et gestionnaire, regroupée par maille de 2 km.':
+    'GPS position of a received collection; except for administrators and managers, grouped on a 2 km grid.',
+  'Couleur = activité du site dans le registre (les 8 activités qui ont le plus de sites, les autres regroupées). Survolez une activité pour ne voir que ses points.':
+    'Colour = the site\'s activity in the registry (the 8 activities with the most sites, the others grouped). Hover over an activity to see only its points.',
 };

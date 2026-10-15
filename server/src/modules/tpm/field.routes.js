@@ -83,6 +83,15 @@ router.get('/rbm/sites', asyncHandler(async (req, res) => {
   const p = readPeriod(req.query);
   res.json(await repo.rbmSites(t(req), { month: p ? p.to : undefined, asOf: p ? p.to : null, risk: req.query.risk }));
 }));
+// Compteurs seuls (total, par risque, à suivre, à planifier) sur les MÊMES lignes que /rbm/sites :
+// pour les écrans qui n'affichent que des totaux (Synthèse, Couverture, Affectation & visites).
+const rbmCountsQuery = z.object({ risk: z.enum(['faible', 'moyenne', 'elevee']).optional() }).passthrough();
+router.get('/rbm/counts', asyncHandler(async (req, res) => {
+  const q = rbmCountsQuery.safeParse(req.query);
+  if (!q.success) throw badRequest('Niveau de risque invalide : faible, moyenne ou elevee.');
+  const p = readPeriod(req.query);
+  res.json(await repo.rbmCounts(t(req), { month: p ? p.to : undefined, asOf: p ? p.to : null, risk: q.data.risk }));
+}));
 // Pourquoi ce score / ce drapeau, conséquence, que faire (retour n° 48) — un site, à la demande.
 const uuid = z.string().uuid();
 router.get('/rbm/sites/:id', asyncHandler(async (req, res) => {
@@ -226,6 +235,25 @@ router.put('/activation', WRITE, asyncHandler(async (req, res) => {
   if (!p.success) throw badRequest('Données invalides', p.error.flatten());
   try {
     res.json(await activation.saveActivation(t(req), uid(req), p.data));
+  } catch (e) {
+    if (e && e.code === 'UNKNOWN_SITE') throw badRequest(e.message);
+    throw e;
+  }
+}));
+// « Renseigner les cases vides » : calculé côté serveur, sous verrou, en une transaction.
+const activationFill = z.object({
+  year: z.number().int().min(2000).max(2100),
+  from: z.number().int().min(1).max(12),
+  to: z.number().int().min(1).max(12),
+  value: z.boolean(),
+  siteIds: z.array(z.string().uuid()).min(1).max(20000),
+  reason: z.string().max(2000).optional(),
+}).refine((v) => v.from <= v.to, { message: 'Le premier mois doit précéder le dernier.', path: ['to'] });
+router.post('/activation/fill', WRITE, asyncHandler(async (req, res) => {
+  const p = activationFill.safeParse(req.body);
+  if (!p.success) throw badRequest('Données invalides', p.error.flatten());
+  try {
+    res.json(await activation.fillBlankActivation(t(req), uid(req), p.data));
   } catch (e) {
     if (e && e.code === 'UNKNOWN_SITE') throw badRequest(e.message);
     throw e;

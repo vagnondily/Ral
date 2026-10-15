@@ -63,6 +63,12 @@ export function shortMonthLabel(month) {
   return `${(MONTH_SHORT[LANG] || MONTH_SHORT.fr)[m - 1]} ${String(y).slice(2)}`;
 }
 
+/** "2026-09" -> "sept. 2026" : mois abrégé et année entière (légendes des figures). */
+export function shortMonthYear(month) {
+  const [y, m] = month.split('-').map(Number);
+  return `${(MONTH_SHORT[LANG] || MONTH_SHORT.fr)[m - 1]} ${y}`;
+}
+
 export function shiftMonth(month, delta) {
   const [y, m] = month.split('-').map(Number);
   const idx = y * 12 + (m - 1) + delta;

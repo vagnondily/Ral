@@ -8,6 +8,7 @@ import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatInt, monthLabel } from '../../lib/format.js';
 import { richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { applyVisitPatch } from '../../lib/fieldVisits.js';
 
 const STATUS = {
   planifie: { label: 'Planifiée', color: 'var(--blue-600)', Icon: CalendarClock },
@@ -70,18 +71,27 @@ export default function FieldVisitsPage({ canEdit }) {
 
   useEffect(() => { setMonthsData(null); api.fieldMonths(year).then(setMonthsData).catch(() => setMonthsData({ year, months: [] })); }, [year]);
 
-  const reload = useCallback(() => {
-    setVisits(null);
+  // Données du mois OUVERT (visites, résumé, jours, compteur RBM) : lues seulement quand un mois
+  // est ouvert — le tableau des mois n'en a pas besoin. `quiet` : relecture après une
+  // modification, sans vider la grille (pas de squelette, la page et les filtres restent) ;
+  // seule la dernière relecture lancée est appliquée.
+  const loadSeq = useRef(0);
+  const loadMonth = useCallback(({ quiet = false } = {}) => {
+    const id = loadSeq.current + 1; loadSeq.current = id;
+    const live = () => loadSeq.current === id;
+    if (!quiet) setVisits(null);
     Promise.all([api.fieldVisits({ month }), api.fieldSummary(month), api.fieldCollectionDays(month)])
-      .then(([v, s, c]) => { setVisits(v); setSummary(s); setCollDays(c); })
-      .catch((e) => setError(e.message));
-    // Combien de sites restent « à planifier » ce mois d'après le RBM (indicatif, non bloquant).
-    api.rbmSites(month).then((rows) => setRbmToPlan(rows.filter((r) => r.toPlan).length)).catch(() => setRbmToPlan(null));
+      .then(([v, s, c]) => { if (live()) { setVisits(v); setSummary(s); setCollDays(c); } })
+      .catch((e) => { if (live()) setError(e.message); });
+    // Combien de sites restent « à planifier » ce mois d'après le RBM (indicatif, non bloquant) :
+    // le compteur seul (GET /rbm/counts, même règle « toPlan » que « Générer »), pas la liste des sites.
+    api.rbmCounts(month).then((r) => { if (live()) setRbmToPlan(r.toPlan); }).catch(() => { if (live()) setRbmToPlan(null); });
     // Rafraîchit les stats par mois (le tableau des mois).
     api.fieldMonths(month.slice(0, 4)).then(setMonthsData).catch(() => {});
   }, [month]);
+  const reload = useCallback(() => loadMonth({ quiet: true }), [loadMonth]);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { if (!picking) loadMonth(); }, [picking, loadMonth]);
   useEffect(() => { api.listProviders().then((p) => setProviders(p.map((x) => ({ id: x.id, name: x.name })))).catch(() => setProviders([])); }, []);
   // Données réelles du mois (chargées à l'ouverture de l'onglet).
   useEffect(() => {
@@ -101,13 +111,19 @@ export default function FieldVisitsPage({ canEdit }) {
     } catch (err) { toast.error(err.message); } finally { setImporting(false); }
   }
 
+  // Modification d'une visite : la ligne change tout de suite (même règle que le serveur,
+  // lib/fieldVisits.applyVisitPatch), puis une relecture silencieuse confirme et met à jour les
+  // totaux ; en cas d'erreur, la relecture rétablit l'état du serveur.
   const patch = async (v, body) => {
-    try { await api.fieldUpdateVisit(v.id, body); reload(); }
+    setVisits((list) => (list ? list.map((x) => (x.id === v.id ? applyVisitPatch(x, body, providers) : x)) : list));
+    try { await api.fieldUpdateVisit(v.id, body); }
     catch (err) { toast.error(err.message); }
+    reload();
   };
   const remove = async (v) => {
     if (!window.confirm(tr('Supprimer la visite de « {site} » ?', { site: v.siteName }))) return;
-    try { await api.fieldDeleteVisit(v.id); reload(); } catch (err) { toast.error(err.message); }
+    try { await api.fieldDeleteVisit(v.id); setVisits((list) => (list ? list.filter((x) => x.id !== v.id) : list)); reload(); }
+    catch (err) { toast.error(err.message); }
   };
   // Génère la planification du mois à partir du RBM : chaque site « à planifier »
   // (à suivre — jamais visité ou échéance atteinte —, hors zone interdite, sans

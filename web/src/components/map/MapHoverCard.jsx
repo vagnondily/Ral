@@ -109,6 +109,7 @@ export function PointCard({ point, pos, box, periodText, onClose }) {
         <h4>{s.name}</h4>
         <div className="mapx-card-sub">{[s.code, periodText].filter(Boolean).join(' · ')}</div>
         <table className="mapx-card-rows"><tbody>
+          {s.activity && <tr><td>{tr('Activité')}</td><td>{s.activity}</td></tr>}
           <tr><td>{tr('Statut de la période')}</td><td>{tr(STATUS[s.status] || s.status)}</td></tr>
           {s.execution != null && <tr><td>{tr('Exécution du plan (visites)')}</td><td className="tabular">{formatRate(s.execution, lang)}</td></tr>}
           <tr><td>{tr('Position')}</td><td>{s.kind === 'gps' ? tr('GPS du registre') : tr('placé par ses collectes ({n} relevés, {q})', { n: formatInt(s.n), q: tr(QUAL[s.quality] || s.quality) })}</td></tr>

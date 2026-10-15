@@ -24,6 +24,7 @@ const alertsRoutes = require('./modules/dashboards/alerts.routes');
 const performanceRoutes = require('./modules/dashboards/performance.routes');
 const deletionsRoutes = require('./modules/deletions/deletions.routes');
 const siteRegistryRoutes = require('./modules/settings/sitesAdmin.routes');
+const subActivitiesRoutes = require('./modules/settings/subActivities.routes');
 const mapRoutes = require('./modules/map/map.routes');
 const asyncHandler = require('./middleware/asyncHandler');
 const { requireAuth } = require('./middleware/auth');
@@ -42,7 +43,10 @@ function createApp() {
   const corsOrigin = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim())
     : '*';
-  app.use(cors({ origin: corsOrigin }));
+  // Pré-vol CORS mis en cache 10 min (Access-Control-Max-Age) : sans lui, le navigateur
+  // le refait toutes les 5 s, soit un aller-retour de plus devant presque chaque appel
+  // (en-tête Authorization) quand l'interface et l'API sont sur deux ports.
+  app.use(cors({ origin: corsOrigin, maxAge: 600 }));
   app.use(express.json({ limit: '1mb' }));
   app.use(pinoHttp({ logger }));
 
@@ -106,6 +110,7 @@ function createApp() {
   app.use('/api/dashboards/performance', performanceRoutes);
   app.use('/api/deletions', deletionsRoutes);
   app.use('/api/site-registry', siteRegistryRoutes);
+  app.use('/api/sub-activities', subActivitiesRoutes);
   app.use('/api/map', mapRoutes);
   // État de la base pour l'écran : migrations en attente (bandeau administrateur).
   // Nombre de mises à jour de schéma en attente pour tous ; leurs noms de fichiers pour l'admin seul.

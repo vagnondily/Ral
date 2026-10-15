@@ -53,9 +53,9 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 | `wip/r57-core` | oui | Réconciliation du socle GPS (un seul lecteur `.shp`), interrompue | ⏸️ le socle est déjà sur `main` (autre session) ; reste à fusionner `settings/shpReader.js` et `common/shpGeometry.js` (lot 3) |
 | `claude/zealous-bardeen-p9ozcr` | oui | Autre session : retours 56 et 57, page Sites | ✅ fusionnée dans `main` par l'autre session (`e8624e0`) |
 | `claude/friendly-carson-ze6mtp` | oui | Ancienne (09/10), déjà dans `main` | à ignorer |
-| `wip/7a-p2` | oui (au fil de l'eau) | Agent : concepteur partie 2 — en-tête libre et modèles, annexes, orientation par page, figures (retours 87, 88) | 🔄 depuis 13:42 |
-| `wip/ui-polish` | oui | Agent : sélecteur de période dans les fenêtres, onglet « Données », tableau de bord des fiches, carte (zoom bureau, activités, légende) (retours 80, 83, 85, 86, 94) | 🔄 depuis 13:42 |
-| `wip/perf` | oui | Agent : lenteur mesurée puis corrigée, hors plan de suivi et hors Localités (retours 61, 84) | 🔄 depuis 13:42 |
+| `wip/7a-p2` | oui (au fil de l'eau) | Agent : concepteur partie 2 — en-tête libre et modèles, annexes, orientation par page, figures (retours 87, 88) | ✅ **fusionnée dans `main` jusqu'à `a948e7f`** (graphiques, annexes, orientation par page, logos, concepteur d'en-tête) ; reste : filtres du rapportage (retour 102) — ⏸️ arrêté par la limite |
+| `wip/ui-polish` | oui | Agent : sélecteur de période dans les fenêtres, onglet « Données », tableau de bord des fiches, carte (zoom bureau, activités, légende) (retours 80, 83, 85, 86, 94) | ✅ **terminée et fusionnée dans `main`** (`1b348b5`) |
+| `wip/perf` | oui | Agent : lenteur mesurée puis corrigée, hors plan de suivi et hors Localités (retours 61, 84) | ✅ **premier lot fusionné dans `main`** (`a471f83`) ; en cours : fils séparés, tâches de fond (081), connexions réservées — ⏸️ arrêté par la limite |
 | `wip/lot8` | oui | Agent : Partenaires & TPM — fiche 360°, formations, notation des agents, règle « prestataire actif » (retours 28.1–28.3, 30) | 🔄 depuis 13:47 |
 | `wip/r58` | oui | Agent : TPM tiré des contrats, motif si modifié, onglet d'affectation (retour 58, migration 070) | 🔄 depuis 13:53 |
 | `wip/lot5-gen` | oui | Agent : planification automatique d'après le RBM + paramètres (retour 82, lot 5 § 6–7, migrations 077–078) | 🔄 depuis 13:53 |
@@ -63,7 +63,11 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 | `wip/indicators` | oui | Agent : modèles d'indicateurs corrigés, modèle Résilience, proposition et rattachement automatiques (retours 66, 85 ; migration 098 si besoin) | 🔄 depuis 14:09 |
 | `wip/repeats` | oui | Agent : sous-tables (groupes répétés) à l'import, réponses « Autre, précisez » comptées (retours 77, 81 ; migrations 097, 099) | 🔄 depuis 14:09 |
 | `wip/calc` | oui | Agent : fonctions de calcul (Excel, Tableau, DAX, statistiques), sans exécution de code (retour 74) | 🔄 depuis 14:12 |
-| `wip/pdd` | oui | Agent : PDD — vue d'ensemble, tableau récapitulatif par mois, date d'ajout (retour 69, migration 100) | 🔄 depuis 14:12 |
+| `wip/pdd` | oui | Agent : PDD — vue d'ensemble, tableau récapitulatif par mois, date d'ajout (retour 69, migration 100) | ⏸️ arrêté par la limite du 14/10, pas encore relancé |
+| `wip/dash-template` | oui (au fil de l'eau) | Agent : « Couverture & performance du suivi » fidèle à la maquette de l'utilisateur (retours 40, 66, 67, 85, 101 ; migration 101 si besoin) | 🔄 depuis 15/10 ≈ 05:33 |
+| `wip/offices` | oui (au fil de l'eau) | Agent : types de bureau à niveaux facultatifs, périmètre en arbre Région › District › Commune, bureau d'un site déduit des périmètres (retours 105, 106 ; migrations 102–103) | 🔄 depuis 15/10 ≈ 05:39 |
+| `wip/activities` | oui (au fil de l'eau) | Agent : suite du référentiel des activités — **sur la base de `sub_activities` (`101`, publié par l'autre session)** : reprise des libellés existants, listes du référentiel partout, activités inconnues refusées (retours 92, 106 ; migration 105) | ⏸️ arrêté par la limite à ≈ 06:00, à relancer avec la nouvelle base |
+| `claude/zealous-bardeen-p9ozcr` (15/10) | oui | **Autre session** : sous-activités (retour 92, migration 101), zones du contrat enrichies (retour 38), revue du plan de suivi (`docs/REVUE_PLAN_SUIVI.md`), passation (`docs/SESSION_HANDOFF_zealous.md`) | ✅ **fusionnée dans `main`** (PR #3, 10:09 UTC) |
 
 ## 3. Chantiers : en cours et à venir
 
@@ -107,7 +111,7 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `066` | `sites.tag_code` | ✅ |
   | `067` | option des codes Adm | ✅ |
   | `068` | justificatif ≥ 10 caractères (retour 56) | ✅ |
-  | `069` | agent `wip/ui-polish` (si besoin) | 🔄 |
+  | `069` | libre (l'agent `wip/ui-polish` n'en a pas eu besoin) | — |
   | `070`–`071` | retour 58 (agent `wip/r58`) | 🔄 |
   | `072` | journal des sites actifs / inactifs | ✅ |
   | `073` | identifiant des sites `S-XXXX-XXXX` | ✅ |
@@ -117,13 +121,20 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `081` | agent `wip/perf` (index, si besoin) | 🔄 |
   | `082`–`085` | multi-pays (conception) | ⏳ |
   | `086`–`089` | lot 8 (agent `wip/lot8`) | 🔄 |
-  | `090`–`095` | programmes, projets, bailleurs, Output (conception) | ⏳ |
+  | `090` | **abandonné** : le référentiel des activités est arrivé par l'autre session (`101`) | — |
+  | `091`–`095` | **à renuméroter après `101`** (bailleurs, programmes, projets, cadre logique, Output, connecteur) : ces fichiers référencent `sub_activities` (`101`) ; sur une base neuve, un numéro plus petit tournerait avant elle → numéros `110`–`115` | ⏳ |
   | `096` | état de l'application, remise à zéro, archives 24 h (agent `wip/admin`) | 🔄 |
   | `097` | sous-tables et « Autre » (agent `wip/repeats`) | 🔄 |
   | `098` | indicateurs des fiches (agent `wip/indicators`, si besoin) | 🔄 |
   | `099` | sous-tables, 2ᵉ fichier si besoin (agent `wip/repeats`) | 🔄 |
   | `100` | PDD : date d'ajout (agent `wip/pdd`) | 🔄 |
-  | `101` et suivants | libres | — |
+  | `101` | **sous-activités** (référentiel activités › sous-activités › information, retour 92) — autre session `claude/zealous-bardeen-p9ozcr`, PR #3 fusionnée sur `main` le 15/10 à 10:09 UTC | ✅ |
+  | `102`–`103` | types de bureau, périmètre, bureau déduit (agent `wip/offices`) | 🔄 |
+  | `104` | tableau de bord d'après la maquette (agent `wip/dash-template`, si besoin) | 🔄 |
+  | `105` | référentiel des activités, suite (reprise des libellés, listes partout, refus des activités inconnues ; agent `wip/activities`, sur la base de `101`) | 🔄 |
+  | `106` à `109` | libres | — |
+  | `110`–`115` | programmes, projets, bailleurs, Output (conception, ex-`091`–`095`) | ⏳ |
+  | `116` et suivants | libres | — |
 
 - **Publier sur `main`** seulement après :
   - `cd server && npm test && npm run lint` ;

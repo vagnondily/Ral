@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarRange, ChevronDown } from 'lucide-react';
 import { useI18n } from '../lib/i18n.jsx';
@@ -69,7 +69,7 @@ export default function PeriodSelect({
 
   // Position de la fenêtre (portail, position fixe) : null tant qu'elle n'est pas mesurée.
   const [pos, setPos] = useState(null);
-  const popId = useMemo(() => `period-pop-${Math.random().toString(36).slice(2, 9)}`, []);
+  const popId = `period-pop${useId().replace(/:/g, '')}`;
   const place = useCallback(() => {
     const trig = triggerRef.current; const pop = popRef.current;
     if (!trig || !pop) return;

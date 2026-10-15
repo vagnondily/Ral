@@ -5,8 +5,9 @@ const keySql = (expr) => `regexp_replace(lower(COALESCE(${expr}, '')), '[^a-z0-9
 
 /**
  * District de chaque site (règle jumelle pure : common/siteDistrict.siteDistricts, parité
- * vérifiée par le banc) — CTE à placer dans un WITH ; rend `sdist(site_id, okey, dkey, dname, official)`
- * (okey = clé de la graphie propre du site).
+ * vérifiée par le banc) — CTE à placer dans un WITH ; rend `sdist(site_id, okey, dkey, dname, official,
+ * agrees, rkey, pid)` (okey = clé de la graphie propre du site ; agrees / rkey / pid : accord du P-code,
+ * clé de la région du site et zone du P-code, lus par la carte sans rejoindre sd1).
  *  - un site se range dans SA graphie (adm2, sinon district) : jamais dans le district d'une
  *    autre région, même quand son P-code de district (adm2_pcode) y pointe ;
  *  - le P-code n'est cru que s'il est « d'accord » (région de la zone = région du site, graphie
@@ -38,8 +39,9 @@ function siteDistrictCtes() {
        SELECT site_id, okey,
               CASE WHEN ${keySql('name0')} = '' THEN '—' ELSE ${keySql('name0')} END AS dkey,
               CASE WHEN ${keySql('name0')} = '' THEN '—' ELSE name0 END AS dname,
-              CASE WHEN ${keySql('name0')} = '' THEN NULL ELSE official END AS official
-         FROM (SELECT d.site_id, d.okey,
+              CASE WHEN ${keySql('name0')} = '' THEN NULL ELSE official END AS official,
+              agrees, rkey, pid
+         FROM (SELECT d.site_id, d.okey, d.agrees, d.rkey, d.pid,
                       COALESCE(m.official, m1.official, d.own, CASE WHEN d.agrees THEN d.pname END) AS name0,
                       COALESCE(m.official, m1.official, CASE WHEN d.own IS NULL AND d.agrees THEN d.pname END) AS official
                  FROM sd1 d
@@ -162,11 +164,12 @@ function siteMonthFactsCtes({
                  JOIN admin_areas r ON r.tenant_id = a.tenant_id AND r.id = a.lineage[1]
                 WHERE a.tenant_id = $1 AND a.depth = 2) x
         ORDER BY k, rk, pcode),` : '';
+  // Accord du P-code lu dans sdist (même ligne par site que sd1) : une seconde jointure à sd1,
+  // estimée à 13 lignes sous RLS, tournait en boucle imbriquée — 2 560² comparaisons, 0,5 s.
   const geoJoin = geo ? `
-         JOIN sd1 g1 ON g1.site_id = s.id
-         LEFT JOIN dna ON NOT g1.agrees AND g1.rkey <> '' AND dna.k = sd.dkey AND dna.rk = g1.rkey
+         LEFT JOIN dna ON NOT sd.agrees AND sd.rkey <> '' AND dna.k = sd.dkey AND dna.rk = sd.rkey
          LEFT JOIN admin_areas ad ON ad.tenant_id = s.tenant_id
-               AND ad.id = CASE WHEN g1.agrees OR g1.rkey = '' THEN g1.pid ELSE dna.id END
+               AND ad.id = CASE WHEN sd.agrees OR sd.rkey = '' THEN sd.pid ELSE dna.id END
          LEFT JOIN admin_areas aa ON aa.id = s.admin_area_id AND aa.tenant_id = s.tenant_id` : '';
   // Données rattachées : d'abord les soumissions de la période (peu nombreuses, index partiel),
   // regroupées par site × fiche × mois et MATÉRIALISÉES, puis seulement le registre — jamais
@@ -270,7 +273,10 @@ function siteMonthFactsCtes({
               e.m <= ${pToday}::date AS due${sfExt}
          FROM ev e
         WHERE e.site_id IN (SELECT site_id FROM reg)),
-     per_site AS (
+     -- MATÉRIALISÉ : un filtre de l'appelant (« WHERE active », jointure sur site_id) ne peut pas
+     -- réduire le FULL JOIN ci-dessous en LEFT JOIN, que les estimations sous RLS exécutaient en
+     -- boucle imbriquée (récapitulatif de couverture : 2 560 × 972 lignes comparées, 0,5 s).
+     per_site AS MATERIALIZED (
        SELECT r.site_id, r.office, r.dkey, r.dname, r.official, r.ckey, r.cname, r.activity, r.risk,
               NOT r.forbidden AND ((SELECT bool_or(NOT known) FROM months) OR r.site_id IN (SELECT site_id FROM st)) AS active,
               COALESCE(a.planned, false) AS planned, COALESCE(a.realised, false) AS realised,
