@@ -253,6 +253,7 @@ async function siteStatusesTx(client, tenantId, { period, officeId, activity, ca
   const { rows } = await client.query(
     `${ctes}
      SELECT p.site_id AS id, s.name, s.code, s.location_id AS "locationId", p.risk, p.dpcode AS "districtPcode", p.cpcode,
+            NULLIF(btrim(s.activity), '') AS activity,
             s.gps_lat::float8 AS lat, s.gps_lng::float8 AS lng, p.has_gps AS "hasGps",
             CASE WHEN NOT p.active THEN 'inactif' WHEN p.realised_any AND p.planned THEN 'realise'
                  WHEN p.realised_any THEN 'hors_plan' WHEN p.planned THEN 'prevu' ELSE 'non_prevu' END AS status,
