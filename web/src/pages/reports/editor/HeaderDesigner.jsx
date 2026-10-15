@@ -38,7 +38,7 @@ const ZONES = {
 };
 const ADD = [
   ['text', 'Texte', Type], ['image', 'Logo', ImageIcon], ['band', 'Bandeau', RectangleHorizontal],
-  ['rect', 'Forme', Square], ['line', 'Trait', Minus], ['pageNumber', 'N° de page', Hash],
+  ['rect', 'Forme', Square], ['line', 'Trait', Minus], ['pageNumber', 'N° page', Hash],
 ];
 const KIND_ICON = { text: Type, image: ImageIcon, rect: Square, line: Minus, pageNumber: Hash };
 const MAX_ELEMENTS = 20;
@@ -46,7 +46,7 @@ const clone = (x) => (x ? JSON.parse(JSON.stringify(x)) : x);
 const THUMB_PAGE = { size: 'A4', orientation: 'portrait', margins: { top: 12, right: 14, bottom: 12, left: 14 } };
 
 /** Vignette d'un modèle : le haut et le bas d'une page A4 avec l'en-tête et le pied RÉELS. */
-export function TemplateThumb({ content, vars, label, active, onPick, onDelete, deleteLabel }) {
+export function TemplateThumb({ content, vars, label, tag = null, active, onPick, onDelete, deleteLabel }) {
   const g = pageGeometry(THUMB_PAGE, {});
   const H = 92; // mm montrés (page coupée)
   const hb = content.header && content.header.elements && content.header.elements.length ? content.header : null;
@@ -63,7 +63,7 @@ export function TemplateThumb({ content, vars, label, active, onPick, onDelete, 
             {fb && <span className="hd-tpl-band" style={{ bottom: `${g.margins.bottom}mm`, left: `${g.margins.left}mm`, width: `${g.bodyW}mm` }}><Band band={fb} vars={vars} pageNo={1} pages={3} edges={g.margins} place="footer" /></span>}
           </span>
         </span>
-        <span className="hd-tpl-name">{label}</span>
+        <span className="hd-tpl-name">{tag && <i className="hd-tpl-tag">{tag}</i>}{label}</span>
       </button>
       {onDelete && <button type="button" className="hd-tpl-del" onClick={onDelete} aria-label={deleteLabel} title={deleteLabel}><X size={12} aria-hidden="true" /></button>}
     </div>
@@ -174,17 +174,17 @@ export default function HeaderDesigner({
               </div>
             )}
           </div>
+          {/* « Mes en-têtes » d'abord (ceux de l'équipe), puis les modèles prédéfinis. */}
           <div className="hd-tpl-strip">
+            {(saved || []).map((row) => (
+              <TemplateThumb key={row.id} content={row.content} vars={sampleVars} label={row.name} tag={tr('Mes en-têtes')} active={picked === row.id}
+                onPick={() => applyContent(row.content, row.id)} onDelete={canSave ? () => deleteMine(row) : null} deleteLabel={tr('Supprimer cet en-tête enregistré')} />
+            ))}
+            {(saved || []).length > 0 && <span className="hd-tpl-sep" aria-hidden="true" />}
             {systemTemplates.map((t) => (
               <TemplateThumb key={t.key} content={t.content} vars={sampleVars} label={tr(t.name)} active={picked === t.key} onPick={() => applyContent(t.content, t.key)} />
             ))}
-            {(saved || []).length > 0 && <span className="hd-tpl-sep" aria-hidden="true" />}
-            {(saved || []).map((row) => (
-              <TemplateThumb key={row.id} content={row.content} vars={sampleVars} label={row.name} active={picked === row.id}
-                onPick={() => applyContent(row.content, row.id)} onDelete={canSave ? () => deleteMine(row) : null} deleteLabel={tr('Supprimer cet en-tête enregistré')} />
-            ))}
           </div>
-          {(saved || []).length > 0 && <p className="hd-mine-note">{tr('Après le séparateur : mes en-têtes (enregistrés par l\'équipe).')}</p>}
         </section>
 
         <div className="hd-main">

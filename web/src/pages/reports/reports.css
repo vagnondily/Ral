@@ -269,7 +269,7 @@
 .rd-bands-card { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); }
 .rd-bands-card .hd-tpl { align-self: center; }
 .rd-bands-card .hd-tpl-name { display: none; }
-.rd-page-bands { align-items: end; }
+.rd-page-bands { grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .rd-pageno { font-variant-numeric: tabular-nums; }
 
 /* Blocs dans l'éditeur : contour au survol, contour plein si sélectionné. */
