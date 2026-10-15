@@ -57,7 +57,7 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 | `wip/ui-polish` | oui | Agent : sélecteur de période dans les fenêtres, onglet « Données », tableau de bord des fiches, carte (zoom bureau, activités, légende) (retours 80, 83, 85, 86, 94) | ✅ **terminée et fusionnée dans `main`** (`1b348b5`) |
 | `wip/perf` | oui | Agent : lenteur mesurée puis corrigée, hors plan de suivi et hors Localités (retours 61, 84) | ✅ **premier lot fusionné dans `main`** (`a471f83`) ; en cours : fils séparés, tâches de fond (081), connexions réservées — ⏸️ arrêté par la limite |
 | `wip/lot8` | oui | Agent : Partenaires & TPM — fiche 360°, formations, notation des agents, règle « prestataire actif » (retours 28.1–28.3, 30) | 🔄 depuis 13:47 |
-| `wip/r58` | oui | Agent : TPM tiré des contrats, motif si modifié, onglet d'affectation (retour 58, migration 070) | 🔄 depuis 13:53 |
+| `wip/r58` | oui | Agent : TPM tiré des contrats, motif si modifié, onglet d'affectation (retour 58, migration 070) | ✅ **publiée jusqu'à `1da3dc4`** (colonne TPM, visites, reprise sûre) ; reste : onglet « Affectation des TPM », autres pages |
 | `wip/lot5-gen` | oui | Agent : planification automatique d'après le RBM + paramètres (retour 82, lot 5 § 6–7, migrations 077–078) | 🔄 depuis 13:53 |
 | `wip/admin` | oui | Agent : état de l'application, remise à zéro annulable 24 h, annulation d'une suppression (retours 95, 60 ; migration 096) | 🔄 depuis 14:04 |
 | `wip/indicators` | oui | Agent : modèles d'indicateurs corrigés, modèle Résilience, proposition et rattachement automatiques (retours 66, 85 ; migration 098 si besoin) | 🔄 depuis 14:09 |
@@ -112,7 +112,8 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `067` | option des codes Adm | ✅ |
   | `068` | justificatif ≥ 10 caractères (retour 56) | ✅ |
   | `069` | libre (l'agent `wip/ui-polish` n'en a pas eu besoin) | — |
-  | `070`–`071` | retour 58 (agent `wip/r58`) | 🔄 |
+  | `070` | retour 58 : TPM par zone d'après les contrats (publiée) | ✅ |
+  | `071` | retour 58, suite si besoin (agent `wip/r58`) | 🔄 |
   | `072` | journal des sites actifs / inactifs | ✅ |
   | `073` | identifiant des sites `S-XXXX-XXXX` | ✅ |
   | `074`–`076` | lot 4 | ⏳ |
