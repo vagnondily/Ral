@@ -39,7 +39,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
   const start = monthFromNow(1);
   const [from, setFrom] = useState(start);
   const [to, setTo] = useState(`${yearOf(start)}-12`); // par défaut : jusqu'à décembre (même exercice)
-  const [freq, setFreq] = useState({ elevee: 2, moyenne: 3, faible: 4 }); // repli RBM adouci (retour 82)
+  const [freq, setFreq] = useState({ elevee: 1, moyenne: 2, faible: 3 }); // repli = fréquence RBM (retour 82)
   const [capacity, setCapacity] = useState('');
   const [useMmrCapacity, setUseMmrCapacity] = useState(true);
   const [adjusted, setAdjusted] = useState(false);
@@ -72,7 +72,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
     from, to, adjusted,
     ...(risk ? { risk } : {}),
     settings: {
-      frequency: { elevee: Number(freq.elevee) || 2, moyenne: Number(freq.moyenne) || 3, faible: Number(freq.faible) || 4 },
+      frequency: { elevee: Number(freq.elevee) || 1, moyenne: Number(freq.moyenne) || 2, faible: Number(freq.faible) || 3 },
       ...(Number(capacity) > 0 ? { capacityPerMonth: Number(capacity) } : {}),
       ...(Number(tpmCapacity) > 0 ? { tpmCapacityPerMonth: Number(tpmCapacity) } : {}),
       useMmrCapacity,
@@ -242,9 +242,14 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
               {preview.summary.forbidden > 0 && <span className="muted">{tr('Zones interdites exclues')} : {formatInt(preview.summary.forbidden)}</span>}
               {preview.summary.unplaced > 0 && <span className="muted">{tr('Non placées (capacité)')} : {formatInt(preview.summary.unplaced)}</span>}
             </div>
-            {preview.summary.rbmFallback > 0 && (
+            {preview.summary.noActivity > 0 && (
               <Alert tone="warning">
-                {tr('{n} site(s) sans paramètre MMR : planifiés au repli RBM (fréquence adoucie). Complétez leur activité et leur MMR dans la Configuration pour un suivi exact.', { n: formatInt(preview.summary.rbmFallback) })}
+                {tr('{n} site(s) sans activité : non planifiés. Renseignez leur activité (et leur MMR) dans la Configuration pour les suivre.', { n: formatInt(preview.summary.noActivity) })}
+              </Alert>
+            )}
+            {preview.summary.rbmFallback > 0 && (
+              <Alert tone="info">
+                {tr('{n} site(s) avec activité mais sans paramètre MMR : planifiés au repli RBM (fréquence du risque). Complétez leur MMR dans la Configuration pour un suivi exact.', { n: formatInt(preview.summary.rbmFallback) })}
               </Alert>
             )}
             {Array.isArray(preview.byActivity) && preview.byActivity.length > 0 && (
@@ -313,7 +318,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
                     <tbody>
                       {preview.byTpm.map((t, i) => (
                         <tr key={`${t.tpm || 'na'}-${i}`}>
-                          <td>{t.assigned ? <strong>{t.tpm}</strong> : <span className="muted">{tr('Non affecté (zone sans TPM)')}</span>}</td>
+                          <td>{t.assigned ? <strong>{t.tpm}</strong> : <span className="muted">{tr('Bureau (suivi interne — zone sans TPM)')}</span>}</td>
                           <td className="num">{formatInt(t.sites)}</td>
                           <td className="num"><strong>{formatInt(t.planned)}</strong></td>
                           {t.perMonth.map((m) => <td key={m.month} className="num">{m.count ? formatInt(m.count) : <span className="muted">·</span>}</td>)}
@@ -322,7 +327,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
                     </tbody>
                   </table>
                 </div>
-                <span className="muted" style={{ fontSize: 11 }}>{tr('Le TPM d\'un site = contrat de suivi actif de sa zone. La charge est répartie sur la période pour utiliser tous les TPM.')}</span>
+                <span className="muted" style={{ fontSize: 11 }}>{tr('Le TPM d\'un site = contrat de suivi actif de sa zone ; sans contrat, le suivi est fait par le bureau (en interne). La charge est répartie sur la période pour éviter les mois vides.')}</span>
               </div>
             )}
             {sample.length > 0 && (
@@ -336,7 +341,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
                         <td><strong>{s.name}</strong></td>
                         <td className="muted">{s.commune || '—'}</td>
                         <td className="muted">{s.activity || '—'}</td>
-                        <td className="muted">{s.tpm || '—'}</td>
+                        <td className="muted">{s.tpm || tr('Bureau')}</td>
                         <td>{s.months.map((m) => shortMonth(m)).join(' · ')}</td>
                       </tr>
                     ))}

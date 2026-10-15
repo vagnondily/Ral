@@ -20,7 +20,17 @@
 > - **Bureaux** : types à niveaux facultatifs, périmètre choisi par région › district › commune ; **bureau, TPM et activités déduits de la configuration** partout ; **référentiel des activités** (aucune activité créée hors Paramétrage).
 > - **Sites (actifs / inactifs)** à la forme du Plan de suivi : publié.
 
-_Dernière mise à jour : 15/10/2026 19:05 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 15/10/2026 19:45 UTC_ — la branche `main` reçoit chaque lot vérifié
+
+> **19:45 UTC — Plan auto : règles affinées par le responsable S&E (retour 82).** ✅
+> 1) **Site sans activité → non planifié** (ex. ECOLE…FENOARIVO SUD sort du plan ; avertissement
+> « N sites sans activité »). 2) **Fréquences = RBM/MMR** (fin de l'adoucissement : risque élevé
+> suit le RBM, pas de mensuel inutile = gaspillage). 3) **Zones sans TPM = « Bureau (suivi
+> interne) »** (c'est nous par défaut) dans le tableau Par TPM et l'échantillon. 4) **Aucun mois
+> vide par TPM** : départ de chaque tournée choisi sur le coût cumulé de TOUS ses mois de visite
+> (fenêtre élargie) → charge étalée sur l'année, les creux de fin d'année d'un TPM reflètent la fin
+> de son contrat (visites reprises par le bureau). 5) Catch-up / réalisé-non-planifié confirmés.
+> Tests 1209 ✅, lint ✅, build ✅, smoke API (ECOLE 0 visite, bureau 654 sites) ✅, 0 erreur console.
 
 > **19:05 UTC — Plan auto : regroupement au plus proche + TPM + repli adouci (retour 82).** ✅
 > 1) **Regroupement « au plus proche »** : tournées par **GPS** quand les coordonnées existent

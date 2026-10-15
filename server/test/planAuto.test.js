@@ -12,7 +12,7 @@ const site = (o) => ({ forbidden: false, parametered: false, required: 0, visits
 
 test('normalizeSettings : défauts et bornes', () => {
   const s = normalizeSettings();
-  assert.deepEqual(s.frequency, { elevee: 2, moyenne: 3, faible: 4 }); // repli RBM adouci (retour 82)
+  assert.deepEqual(s.frequency, { elevee: 1, moyenne: 2, faible: 3 }); // repli = fréquence RBM (retour 82)
   assert.equal(s.useMmrCapacity, true);
   assert.equal(s.adjusted, false);
   assert.equal(s.useGps, true);
@@ -123,16 +123,26 @@ test('capacité globale par mois : surplus glissé', () => {
   assert.ok(Object.values(byMonth).every((n) => n <= 1));
 });
 
-test('repli RBM pour un site sans paramètre MMR', () => {
-  const r = generatePlan([site({ id: 'b', parametered: false, riskLevel: 'faible' })], {}, {}, H1, YEAR);
-  assert.equal(r.assignments.length, 2); // faible = tous les 3 mois → 1 et 4
+test('repli RBM pour un site AVEC activité sans paramètre MMR', () => {
+  const r = generatePlan([site({ id: 'b', parametered: false, riskLevel: 'faible', activity: 'Suivi' })], {}, {}, H1, YEAR);
+  assert.equal(r.assignments.length, 2); // faible = tous les 3 mois (RBM) → 1 et 4
   assert.equal(r.summary.rbmFallback, 1);
+});
+
+test('site SANS activité ni MMR : jamais planifié (retour 82)', () => {
+  const r = generatePlan([
+    site({ id: 'na', parametered: false, riskLevel: 'elevee' }),              // pas d'activité → ignoré
+    site({ id: 'ok', parametered: false, riskLevel: 'faible', activity: 'X' }),
+  ], {}, {}, H1, YEAR);
+  assert.ok(r.assignments.every((a) => a.siteId !== 'na'));
+  assert.equal(r.summary.noActivity, 1);
+  assert.equal(r.summary.sitesActivePlannable, 1);   // seul 'ok' est planifiable
 });
 
 test('résumé : couverture, mmrDriven, rbmFallback', () => {
   const sites = [
     site({ id: 'a', parametered: true, required: 2, mmrKey: 'k' }),
-    site({ id: 'b', parametered: false, riskLevel: 'elevee' }),
+    site({ id: 'b', parametered: false, riskLevel: 'elevee', activity: 'Suivi' }),
     site({ id: 'c', forbidden: true }),
   ];
   const r = generatePlan(sites, { k: { interval: 2, feasible: 100 } }, {}, H1, YEAR);
@@ -221,12 +231,10 @@ test('TPM : plafond mensuel par TPM respecté (glissement)', () => {
   assert.equal(t.planned, 3);
 });
 
-test('repli RBM adouci : site élevé sans MMR pas tous les mois', () => {
-  const r = generatePlan([site({ id: 'e', parametered: false, riskLevel: 'elevee' })], {}, {}, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], YEAR);
-  const months = r.assignments.map((x) => Number(x.month.slice(5, 7))).sort((a, b) => a - b);
-  // Repli élevé adouci = tous les 2 mois (défaut), donc PAS 12 visites.
-  assert.ok(r.assignments.length < 12);
-  for (let i = 1; i < months.length; i += 1) assert.ok(months[i] - months[i - 1] >= 2);
+test('risque élevé avec activité sans MMR : suit le RBM (tous les mois)', () => {
+  // Retour 82 : pour un site à risque élevé, on priorise le RBM (élevé = tous les mois).
+  const r = generatePlan([site({ id: 'e', parametered: false, riskLevel: 'elevee', activity: 'Suivi' })], {}, {}, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], YEAR);
+  assert.equal(r.assignments.length, 12); // RBM élevé = chaque mois
 });
 
 test('perMonth couvre toute la période ; plan vide sans erreur', () => {

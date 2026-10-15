@@ -19,13 +19,12 @@
  * `mmrByKey` : { mmrKey: { interval, adjustedInterval, targetedPerMonth, feasible } }
  * `months` : mois de la période (numéros 1..12 de `year`), croissants.
  */
-const { frequencyFor } = require('./rbmMath');
+const { frequencyFor, DEFAULT_FREQUENCY } = require('./rbmMath');
 
 const RISK_RANK = { elevee: 3, moyenne: 2, faible: 1 };
-// Repli RBM ADOUCI pour les sites SANS paramètre MMR (mois entre deux visites) :
-// un site non paramétré, même à risque élevé, n'est pas suivi tous les mois par défaut
-// (retour 82 : « fréquence de repli plus douce »). Réglable dans l'assistant.
-const SOFT_FALLBACK = { elevee: 2, moyenne: 3, faible: 4 };
+// Repli des sites AVEC activité mais SANS paramètre MMR : on suit le RBM (mois entre deux
+// visites par niveau de risque), pas un mensuel forcé (gaspillage de ressources) — retour 82.
+// Risque élevé = ce que dit le RBM (tous les mois) ; moyen/faible = fréquence RBM. Réglable.
 
 function normalizeSettings(s = {}) {
   const f = s.frequency || {};
@@ -36,9 +35,9 @@ function normalizeSettings(s = {}) {
   const grid = Number(s.gpsGridDeg);
   return {
     frequency: {
-      elevee: n(f.elevee, SOFT_FALLBACK.elevee),
-      moyenne: n(f.moyenne, SOFT_FALLBACK.moyenne),
-      faible: n(f.faible, SOFT_FALLBACK.faible),
+      elevee: n(f.elevee, DEFAULT_FREQUENCY.elevee),
+      moyenne: n(f.moyenne, DEFAULT_FREQUENCY.moyenne),
+      faible: n(f.faible, DEFAULT_FREQUENCY.faible),
     },
     capacityPerMonth: cap == null || cap === '' || !(Number(cap) > 0) ? null : Math.floor(Number(cap)),
     overflowPct: Number.isFinite(ov) && ov >= 0 ? Math.min(100, ov) : 0,
@@ -83,7 +82,10 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
 
   const considered = (sites || []).filter((s) => s && s.id);
   const forbidden = considered.filter((s) => s.forbidden);
-  const plannable = considered.filter((s) => !s.forbidden);
+  // Un site SANS activité ET sans paramètre MMR n'est pas planifié (retour 82 : « inutile de
+  // le planifier »). Un site paramétré (ligne MMR) a une activité par construction.
+  const noActivity = considered.filter((s) => !s.forbidden && !s.activity && !s.parametered);
+  const plannable = considered.filter((s) => !s.forbidden && (s.activity || s.parametered));
 
   const globalCap = cfg.capacityPerMonth;
   const monthlyKeyCap = (key) => {
@@ -170,15 +172,30 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
       const rep = clusterSites[0];
       let startMonth = periodStart;
       if (periodOpen.length) {
-        // Fenêtre de phase = les `step` premiers mois ouverts : démarrer la tournée dans cette
-        // fenêtre garantit que toutes les visites exigées (espacées de `step`) tiennent dans
-        // la période ; on y choisit le mois qui équilibre le mieux la charge du TPM.
-        const window = periodOpen.slice(0, Math.max(1, Math.min(step, periodOpen.length)));
+        // Fenêtre de phase = tous les mois où la tournée peut DÉMARRER en laissant tenir ses
+        // visites exigées (espacées de `step`) dans la période. On élargit ainsi au-delà des
+        // seuls premiers mois pour remplir aussi la fin d'année (objectif « aucun mois vide »
+        // par TPM), puis on choisit le mois qui équilibre le mieux la charge du TPM.
+        const reqs = clusterSites.map((s) => (g.parametered ? siteRemaining(s, periodStart).remaining : 1)).filter((r) => r > 0);
+        const maxReq = reqs.length ? Math.max(...reqs) : 1;
+        const lastOpen = periodOpen[periodOpen.length - 1];
+        const latestStart = lastOpen - (maxReq - 1) * step;
+        let window = periodOpen.filter((m) => m <= latestStart);
+        if (!window.length) window = [periodOpen[0]];
+        const aKey = g.parametered ? g.mmrKey : null;
         let best = null;
         for (const m of window) {
-          const t = tpmAt(rep, m);
-          const tLoad = cfg.balanceByTpm && t.assigned ? (perTpmMonth.get(`${t.key}|${m}`) || 0) : 0;
-          const aLoad = perKeyMonth.get(kM(g.parametered ? g.mmrKey : null, m)) || 0;
+          // Coût de la tournée = charge CUMULÉE sur TOUS ses mois de visite (m, m+step, …),
+          // pas seulement le premier : un départ qui remplit des mois encore vides (fin
+          // d'année comprise) est préféré → charge TPM étalée, aucun mois laissé vide.
+          let tLoad = 0; let aLoad = 0;
+          for (let i = 0; i < maxReq; i += 1) {
+            const vm = m + i * step;
+            if (vm > lastOpen) break;
+            const t = tpmAt(rep, vm);
+            if (cfg.balanceByTpm && t.assigned) tLoad += perTpmMonth.get(`${t.key}|${vm}`) || 0;
+            aLoad += perKeyMonth.get(kM(aKey, vm)) || 0;
+          }
           const score = [tLoad, aLoad, m];
           if (best === null || score[0] < best.score[0]
             || (score[0] === best.score[0] && (score[1] < best.score[1]
@@ -281,6 +298,7 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
     summary: {
       sitesConsidered: considered.length,
       forbidden: forbidden.length,
+      noActivity: noActivity.length,     // sites non planifiés faute d'activité
       planned: assignments.length,
       sitesCovered: covered.size,
       sitesActivePlannable: plannable.length,
