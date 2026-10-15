@@ -12,7 +12,6 @@ import { REASON_MIN, TPM_VISIT, applyResultMessage, visitTpmKey, visitToAssign }
 import { applyVisitPatch } from '../../lib/fieldVisits.js';
 import { NONE, ProviderSelect, ReasonField, VisitTpmCell } from './TpmFields.jsx';
 import TpmVisitDialog from './TpmVisitDialog.jsx';
-import { TPM_TAB_HREF } from './TpmZoneCell.jsx';
 
 const STATUS = {
   planifie: { label: 'Planifiée', color: 'var(--blue-600)', Icon: CalendarClock },
@@ -275,8 +274,7 @@ export default function FieldVisitsPage({ canEdit }) {
       </div>
 
       <p className="tpm-rule-note">
-        {tr('Le TPM de chaque visite vient du contrat de suivi qui couvre la zone du site ce mois-là : rien à saisir. Un autre TPM se motive (crayon) ; pour toute une zone :')}{' '}
-        <a href={TPM_TAB_HREF}>{tr('Affectation des TPM')}</a>.
+        {tr('Le TPM de chaque visite vient du contrat de suivi qui couvre la zone du site ce mois-là : rien à saisir. Un autre TPM se motive (crayon) ; une zone sans contrat s\'ajoute aux zones d\'intervention d\'un contrat de suivi.')}
       </p>
 
       {/* Deux vues : la grille de planification (simple, par défaut) et la couverture (analytique). */}
