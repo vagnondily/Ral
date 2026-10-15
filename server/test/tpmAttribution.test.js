@@ -98,13 +98,26 @@ test('précision : un district SAHY l emporte sur une région RANO', () => {
   assert.equal(a.defaultFor(D2, '2026-01', [region, district]).providerId, 'rano');
 });
 
-test('deux titulaires de même précision : à arbitrer, candidats triés, aucun choix', () => {
+test('deux titulaires de même précision : « plusieurs contrats », TPM par défaut déterministe, candidats triés', () => {
   const x = contract({ id: 'kx', numero: 'CTR-2', partnerId: 'ypa', partnerName: 'YPA', zones: [zone(D1)] });
   const y = contract({ id: 'ky', numero: 'CTR-1', partnerId: 'rano', partnerName: 'RANO', zones: [zone(D1)] });
   const d = a.defaultFor(D1, '2026-01', [x, y]);
   assert.equal(d.state, 'a_arbitrer');
-  assert.equal(d.providerId, null);
+  // Même date de début : le plus petit numéro (ordre binaire) — jamais un blanc, jamais un tirage.
+  assert.equal(d.providerId, 'rano');
+  assert.equal(d.contractId, 'ky');
   assert.deepEqual(d.candidates.map((c) => c.providerId), ['rano', 'ypa']);
+  // Début le plus récent d'abord ; l'ordre d'entrée ne change rien.
+  const later = contract({ id: 'kz', numero: 'CTR-9', partnerId: 'ypa', partnerName: 'YPA', dateDebut: '2026-01-01', zones: [zone(D1)] });
+  assert.equal(a.defaultFor(D1, '2026-01', [later, y]).providerId, 'ypa');
+  assert.equal(a.defaultFor(D1, '2026-01', [y, later]).providerId, 'ypa');
+  assert.ok(a.WITH_PROVIDER.includes('a_arbitrer'));
+});
+
+test('libellé du contrat : numéro FLA s il existe, sinon numéro MEMS', () => {
+  const fla = contract({ numeroFla: 'FLA-2025-0042', zones: [zone(D1)] });
+  assert.equal(a.defaultFor(D1, '2026-01', [fla]).contractLabel, 'FLA-2025-0042');
+  assert.equal(a.defaultFor(D1, '2026-01', [AINA]).contractLabel, 'CTR-2026-0001');
 });
 
 test('même titulaire sur deux contrats : selon contrat, contrat au début le plus récent puis plus petit numéro', () => {
@@ -155,7 +168,7 @@ test('cellule : redondante quand le contrat rejoint la modification ; contrat d 
   assert.equal(c.contractId, 'ky');
   const rano = contract({ id: 'kr', numero: 'CTR-R', partnerId: 'rano', partnerName: 'RANO', zones: [zone(D1)] });
   const arb = a.defaultFor(D1, '2026-01', [ypaContract, rano]);
-  const chosen = a.resolveCell(arb, ov({ providerId: 'rano', expectedState: 'a_arbitrer', expectedProviderId: null }));
+  const chosen = a.resolveCell(arb, ov({ providerId: 'rano', expectedState: 'a_arbitrer', expectedProviderId: 'rano' }));
   assert.equal(chosen.state, 'modifie');
   assert.equal(chosen.contractId, 'kr');
   assert.equal(chosen.flags.includes('a_confirmer'), false);
@@ -290,4 +303,19 @@ test('districtAreaFor : unique, absent, ambigu', () => {
   assert.equal(a.districtAreaFor('manja', '', areas), null); // ambigu sans région
   assert.equal(a.districtAreaFor('manja', 'menabe', areas), 'dx');
   assert.equal(a.districtAreaFor('—', '', areas), null);
+});
+
+test('plusieurs contrats : choisir explicitement le TPM par défaut est une décision (modification), le signal disparaît', () => {
+  const x = contract({ id: 'kx', numero: 'CTR-2', partnerId: 'ypa', partnerName: 'YPA', zones: [zone(D1)] });
+  const y = contract({ id: 'ky', numero: 'CTR-1', partnerId: 'rano', partnerName: 'RANO', zones: [zone(D1)] });
+  const t = a.buildZoneTable({ areas: [D1], months: ['2026-01'], contracts: [x, y], overrides: [], partners });
+  const plan = a.planOverrides({ targets: [{ areaId: 'd1', month: '2026-01', cell: t.cells.get('d1|2026-01') }], providerId: 'rano', reason: 'Arbitrage entre deux contrats' });
+  assert.equal(plan.counts.created, 1);
+  assert.deepEqual([plan.upserts[0].expectedState, plan.upserts[0].expectedProviderId], ['a_arbitrer', 'rano']);
+  const after = a.buildZoneTable({
+    areas: [D1], months: ['2026-01'], contracts: [x, y], partners,
+    overrides: [ov({ providerId: 'rano', expectedState: 'a_arbitrer', expectedProviderId: 'rano' })],
+  });
+  const c = after.cells.get('d1|2026-01');
+  assert.deepEqual([c.state, c.providerId, c.contractId, c.flags.includes('a_confirmer')], ['modifie', 'rano', 'ky', false]);
 });

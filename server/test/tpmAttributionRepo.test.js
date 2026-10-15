@@ -46,8 +46,8 @@ reset();
 
 const rowsFor = (s, params) => {
   if (/^SET LOCAL lock_timeout/.test(s) || /^SELECT pg_advisory_xact_lock/.test(s)) return [];
-  if (/^SELECT c\.id, c\.numero, c\.status/.test(s)) {
-    return [{ id: K1, numero: 'CTR-2026-0001', status: 'actif', partnerId: AINA, partnerName: 'ASSOCIATION AINA', dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, hasMonitoringBudget: true }];
+  if (/^SELECT c\.id, c\.numero, c\.numero_fla AS "numeroFla", c\.status/.test(s)) {
+    return [{ id: K1, numero: 'CTR-2026-0001', numeroFla: 'FLA-2025-0007', status: 'actif', partnerId: AINA, partnerName: 'ASSOCIATION AINA', dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, hasMonitoringBudget: true }];
   }
   if (/^SELECT z\.contract_id AS "contractId"/.test(s)) {
     return [
@@ -285,4 +285,53 @@ test('onglet : lignes région › district (› commune portée), comptes de sit
   assert.deepEqual(t.quality.detachedContractZones.map((z) => z.path), ['Androy > Ambovombe']);
   assert.equal(t.quality.sitesWithoutDistrict, 2);
   assert.deepEqual(t.regions, [{ id: R1, name: 'Androy' }]);
+});
+
+test('appliquer les TPM des contrats : jamais une visite « visite » ; « reprise » rendue à sa zone ; journal des changements', async () => {
+  reset();
+  const calls = [];
+  const client = {
+    query: async (sql, params) => {
+      const q = sql.replace(/\s+/g, ' ').trim();
+      calls.push({ sql: q, params });
+      if (/^SELECT count\(\*\)::int AS n/.test(q)) return { rows: [{ n: 3, reprise: 1, lo: '2026-09', hi: '2026-10' }] };
+      if (/FROM mems_tpm_stamp/.test(q)) return { rows: [{ id: V1, fromProviderId: YPA, providerId: AINA, zoneState: 'contrat', dated: false }] };
+      if (/^SELECT v\.id, to_char/.test(q)) return { rows: [{ id: V1, month: '2026-09', site: 'S-ABCD-EFGH' }] };
+      return { rows: [], rowCount: 0 };
+    },
+  };
+  const r = await repo.applyContractsTx(client, T, USER, { period: { from: '2026-09', to: '2026-10' } });
+  assert.deepEqual([r.visits, r.converted, r.changed], [3, 1, 1]);
+  assert.match(calls[1].sql, /pg_advisory_xact_lock/);
+  const scope = calls.find((c) => /^SELECT count/.test(c.sql));
+  assert.match(scope.sql, /v\.provider_source IN \('zone', 'reprise'\) AND v\.period_month BETWEEN \$2::date AND \$3::date/);
+  const convert = calls.find((c) => /^UPDATE site_visits/.test(c.sql));
+  assert.match(convert.sql, /SET provider_source = 'zone', provider_reason = NULL/);
+  assert.match(convert.sql, /WHERE v\.tenant_id = \$1 AND v\.provider_source = 'reprise'/);
+  assert.equal(calls.filter((c) => /provider_source = 'visite'|IN \('visite'/.test(c.sql)).length, 0, 'jamais une visite motivée');
+  const stamp = calls.find((c) => /mems_tpm_stamp/.test(c.sql));
+  assert.match(stamp.sql, /v\.provider_source = 'zone' AND v\.period_month BETWEEN/);
+  const log = calls.find((c) => /^INSERT INTO tpm_attribution_log/.test(c.sql));
+  assert.deepEqual(log.params[3], ['lot', 'visite']);
+  assert.deepEqual(log.params[4], ['reappliquer', 'visite_zone']);
+  assert.deepEqual(log.params[12], [null, YPA], 'ancien TPM gardé au journal');
+});
+
+test('cellsForSitesTx : TPM de la zone de sites × mois (lot 5), même règle que l estampille', async () => {
+  reset();
+  const client = {
+    query: async (sql, params) => {
+      const q = sql.replace(/\s+/g, ' ').trim();
+      if (/^SELECT id, zone_district_id AS "districtId"/.test(q)) return { rows: [{ id: 's1', districtId: D1, communeId: C1 }, { id: 's2', districtId: null, communeId: null }] };
+      const rows = rowsFor(q, params);
+      if (rows === null) throw new Error(`requête inattendue : ${q.slice(0, 120)}`);
+      return { rows };
+    },
+  };
+  const cells = await repo.cellsForSitesTx(client, T, [{ siteId: 's1', month: '2026-08' }, { siteId: 's1', month: '2026-10' }, { siteId: 's2', month: '2026-08' }, { siteId: 's1', month: 'n/a' }]);
+  assert.equal(cells.size, 3);
+  const aug = cells.get('s1|2026-08');
+  assert.deepEqual([aug.state, aug.providerId, aug.providerName, aug.contractLabel], ['contrat', AINA, 'ASSOCIATION AINA', 'FLA-2025-0007']);
+  assert.equal(cells.get('s1|2026-10').state, 'sans_contrat');
+  assert.equal(cells.get('s2|2026-08').state, 'district_inconnu');
 });

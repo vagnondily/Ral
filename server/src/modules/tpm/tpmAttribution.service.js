@@ -30,7 +30,7 @@ function cellView(c) {
   const o = c.override;
   return {
     state: c.state, providerId: c.providerId || null, providerName: c.providerName || null,
-    contractId: c.contractId || null, numero: c.numero || null, flags: c.flags || [],
+    contractId: c.contractId || null, numero: c.numero || null, contractLabel: c.contractLabel || null, flags: c.flags || [],
     override: o ? {
       id: o.id, reason: o.reason, by: o.updatedByName || null, at: o.updatedAt, expectedLabel: o.expectedLabel || null,
       expectedState: o.expectedState, batchId: o.batchId || null,
@@ -42,7 +42,7 @@ function cellView(c) {
 function defaultView(def, inputs) {
   return {
     state: def.state, providerId: def.providerId || null, providerName: providerName(inputs, def.providerId),
-    contractId: def.contractId || null, numero: def.numero || null, partiel: Boolean(def.partiel),
+    contractId: def.contractId || null, numero: def.numero || null, contractLabel: def.contractLabel || null, partiel: Boolean(def.partiel),
     candidates: def.candidates.map((x) => ({ ...x, providerName: providerName(inputs, x.providerId) || x.providerName })),
   };
 }
@@ -292,17 +292,17 @@ async function revert(tenantId, actor, { target, reason, stamp }) {
   });
 }
 
-/** « Réappliquer aux visites prévues » d'une plage (antérieures comprises) — journal « reappliquer ». */
+/**
+ * « Appliquer les TPM des contrats » sur une période : toutes les visites dont le TPM n'a pas été
+ * choisi à la main avec une raison reprennent celui de leur zone (journalisé, visite par visite).
+ */
 async function reapply(tenantId, actor, { period, reason }) {
   const clean = reasonOf(reason, { required: false });
-  return withTenantTransaction(tenantId, async (client) => {
-    const visits = await repo.restampVisitsTx(client, tenantId, { from: period.from, to: period.to });
-    await repo.insertLogTx(client, tenantId, actor.userId, [{
-      batch_id: crypto.randomUUID(), scope: 'lot', action: 'reappliquer', label: `Visites prévues · ${periodLabel(period)}`.slice(0, 300),
-      month_from: period.from, month_to: period.to, visits_updated: visits.changed, reason: clean,
-    }]);
-    return { visits };
-  });
+  return withTenantTransaction(tenantId, async (client) => ({
+    visits: await repo.applyContractsTx(client, tenantId, actor.userId, {
+      period, reason: clean, label: `TPM des contrats appliqués aux visites · ${periodLabel(period)}`,
+    }),
+  }));
 }
 
 /** Traduction d'une erreur de règle de visite en 400 (avec le site et le mois quand on les connaît). */

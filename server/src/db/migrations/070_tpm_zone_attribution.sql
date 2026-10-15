@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS tpm_zone_overrides (
   created_at           timestamptz NOT NULL DEFAULT now(),
   updated_by           uuid REFERENCES users(id) ON DELETE SET NULL,
   updated_at           timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT tpm_zone_overrides_expected_ck CHECK ((expected_state = 'contrat') = (expected_provider_id IS NOT NULL)),
+  -- « selon contrat » et « plusieurs contrats » portent un TPM (le titulaire ; le TPM par défaut) :
+  CONSTRAINT tpm_zone_overrides_expected_ck CHECK ((expected_state IN ('contrat', 'a_arbitrer')) = (expected_provider_id IS NOT NULL)),
   -- une modification DIFFÈRE de ce que disait le contrat au moment de la décision :
   CONSTRAINT tpm_zone_overrides_differs_ck  CHECK (expected_state <> 'contrat' OR provider_id IS DISTINCT FROM expected_provider_id),
   -- « aucun TPM » là où aucun contrat ne couvre n'est pas une modification :
@@ -109,8 +110,11 @@ ALTER TABLE site_visits
   ADD COLUMN IF NOT EXISTS provider_set_by     uuid REFERENCES users(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS provider_set_at     timestamptz;
 
--- Reprise de l'existant — rien n'est perdu, rien n'est réécrit en silence :
---  a) visites qui portent déjà un TPM (ou un contrat) : gardées telles quelles, « à vérifier » ;
+-- Reprise de l'existant — rien n'est perdu :
+--  a) visites qui portent déjà un TPM (ou un contrat), saisi à la main SANS raison : gardées telles
+--     quelles ici (« reprise ») ; au démarrage de l'API, la réparation r58_tpm_zones leur applique le
+--     TPM des contrats de leur zone (applyContractsTx) et inscrit chaque changement au journal
+--     (avant → après). Seul un TPM choisi à la main AVEC une raison (origine « visite ») est gardé ;
 UPDATE site_visits SET provider_source = 'reprise', provider_set_at = now(),
        provider_reason = 'Reprise : TPM saisi avant l''affectation par zone (retour 58).'
  WHERE provider_id IS NOT NULL OR contract_id IS NOT NULL;
@@ -124,16 +128,16 @@ ALTER TABLE site_visits
   ADD CONSTRAINT site_visits_provider_source_ck CHECK (provider_source IN ('zone', 'visite', 'reprise')),
   ADD CONSTRAINT site_visits_zone_state_ck CHECK (provider_zone_state IS NULL OR provider_zone_state IN
       ('contrat', 'modifie', 'aucun_tpm', 'a_arbitrer', 'sans_contrat', 'district_inconnu', 'anterieur')),
-  -- « selon contrat » ou « modifié » ⇒ un TPM ; tout autre état ⇒ aucun TPM ; un écart (visite,
-  -- reprise) ⇒ une raison de 10 à 500 caractères.
+  -- « selon contrat », « modifié » ou « plusieurs contrats » (TPM par défaut) ⇒ un TPM ; tout autre
+  -- état ⇒ aucun TPM ; un écart (visite, reprise) ⇒ une raison de 10 à 500 caractères.
   ADD CONSTRAINT site_visits_zone_shape_ck CHECK (CASE
       WHEN provider_source = 'zone' THEN provider_reason IS NULL
            AND (provider_zone_state IS NULL
-                OR (provider_zone_state IN ('contrat', 'modifie')) = (provider_id IS NOT NULL))
+                OR (provider_zone_state IN ('contrat', 'modifie', 'a_arbitrer')) = (provider_id IS NOT NULL))
       ELSE provider_zone_state IS NULL AND char_length(btrim(COALESCE(provider_reason, ''))) BETWEEN 10 AND 500 END),
   -- Le contrat d'une visite est DÉRIVÉ de sa zone (jamais posé à la main), sauf reprise.
   ADD CONSTRAINT site_visits_contract_derived_ck CHECK (contract_id IS NULL OR provider_source = 'reprise'
-      OR (provider_source = 'zone' AND (provider_zone_state IS NULL OR provider_zone_state IN ('contrat', 'modifie'))));
+      OR (provider_source = 'zone' AND (provider_zone_state IS NULL OR provider_zone_state IN ('contrat', 'modifie', 'a_arbitrer'))));
 
 CREATE INDEX IF NOT EXISTS idx_site_visits_tpm_zone ON site_visits (tenant_id, period_month)
   WHERE status = 'planifie' AND provider_source = 'zone';
@@ -189,7 +193,8 @@ LANGUAGE sql STABLE AS $fn$
       JOIN admin_areas ar ON ar.tenant_id = p_tenant AND ar.id = tg.aid
       JOIN cz ON cz.m = tg.m AND (cz.zid = tg.aid OR cz.zid = ANY (ar.lineage))),
   besthits AS (SELECT * FROM hits WHERE zdepth = best),
-  -- Un titulaire : son contrat au début le plus récent, puis au plus petit numéro (ordre binaire).
+  -- Contrat retenu (un titulaire, ou TPM par défaut de plusieurs) : début le plus récent, puis plus
+  -- petit numéro (ordre binaire) — jumelle de tpmAttribution.defaultFor (byDefault).
   dflt AS (
     SELECT site_id, m, count(DISTINCT partner_id) AS holders,
            (array_agg(partner_id ORDER BY date_debut DESC, numero COLLATE "C"))[1] AS p,
@@ -204,12 +209,12 @@ LANGUAGE sql STABLE AS $fn$
               ELSE 'sans_contrat' END,
          CASE WHEN tg.aid IS NULL THEN NULL
               WHEN o.id IS NOT NULL THEN o.provider_id
-              WHEN d.holders = 1 THEN d.p END,
+              WHEN d.holders >= 1 THEN d.p END,
          CASE WHEN tg.aid IS NULL THEN NULL
               WHEN o.id IS NOT NULL THEN (SELECT (array_agg(x.contract_id ORDER BY x.date_debut DESC, x.numero COLLATE "C"))[1]
                                             FROM besthits x
                                            WHERE x.site_id = tg.site_id AND x.m = tg.m AND x.partner_id = o.provider_id)
-              WHEN d.holders = 1 THEN d.k END
+              WHEN d.holders >= 1 THEN d.k END
     FROM tg
     LEFT JOIN dflt d ON d.site_id = tg.site_id AND d.m = tg.m
     LEFT JOIN tpm_zone_overrides o ON o.tenant_id = p_tenant AND o.admin_area_id = tg.aid AND o.period_month = tg.m

@@ -12,8 +12,10 @@ const { PERIOD_CAPS } = require('../common/periodCaps');
  *    contrats de SUIVI (ligne IV.suivi > 0) qui COUVRENT M — « actif » de mois(début) à
  *    mois(fin), « résilié » jusqu'au mois de résiliation, les dates décident seules — et dont
  *    une zone, liée par identifiant, contient la zone. La zone de contrat la plus précise
- *    l'emporte. Un titulaire : « selon contrat » ; aucun : « sans contrat » ; plusieurs :
- *    « à arbitrer », jamais tranché automatiquement. Recalculé à chaque lecture.
+ *    l'emporte. Un titulaire : « selon contrat » ; aucun : « sans contrat » (« à affecter ») ;
+ *    plusieurs : « plusieurs contrats : choisir » — le TPM par défaut est le titulaire du contrat
+ *    au début le plus récent (puis au plus petit numéro), affiché comme tel et signalé ; un choix
+ *    explicite (modification motivée) lève le signal. Recalculé à chaque lecture.
  *  - TPM retenu : la modification enregistrée pour la zone et le mois (raison obligatoire,
  *    instantané du contrat, journal), sinon le TPM selon contrat. Une modification n'est
  *    jamais écrasée par un changement de contrat : elle passe « à confirmer ».
@@ -35,8 +37,8 @@ const ZONE_STATES = ['contrat', 'modifie', 'aucun_tpm', 'a_arbitrer', 'sans_cont
 const VISIT_ZONE_STATES = [...ZONE_STATES, 'district_inconnu', 'anterieur'];
 /** Ce que disait le contrat au moment d'une modification (tpm_zone_overrides.expected_state). */
 const DEFAULT_STATES = ['contrat', 'sans_contrat', 'a_arbitrer'];
-/** États qui portent un TPM (provider_id NOT NULL). */
-const WITH_PROVIDER = ['contrat', 'modifie'];
+/** États qui portent un TPM (provider_id NOT NULL) — « à arbitrer » porte le TPM par défaut. */
+const WITH_PROVIDER = ['contrat', 'modifie', 'a_arbitrer'];
 /** Origine du TPM d'une visite : la zone, la visite elle-même (raison), ou la reprise de l'existant. */
 const VISIT_SOURCES = ['zone', 'visite', 'reprise'];
 /** Statuts d'un contrat qui peuvent couvrir un mois. */
@@ -83,13 +85,18 @@ function coverOf(area, zone) {
   return null;
 }
 
-/** Contrat retenu pour un titulaire : début le plus récent, puis plus petit numéro (ordre binaire). */
-const pickContract = (hits) => hits.slice().sort((a, b) => cmp(b.c.dateDebut, a.c.dateDebut) || cmp(a.c.numero, b.c.numero))[0];
+/** Ordre « par défaut » des contrats : début le plus récent, puis plus petit numéro (ordre binaire). */
+const byDefault = (a, b) => cmp(b.dateDebut, a.dateDebut) || cmp(a.numero, b.numero);
+/** Contrat retenu pour un titulaire (même ordre). */
+const pickContract = (hits) => hits.slice().sort((a, b) => byDefault(a.c, b.c))[0];
+/** Libellé d'un contrat pour l'écran : son numéro FLA s'il en a un, sinon son numéro MEMS. */
+const contractLabelOf = (c) => c.numeroFla || c.numero;
 
 /**
- * TPM selon contrat d'une aire pour un mois.
- * @returns {{ state:'contrat'|'sans_contrat'|'a_arbitrer', providerId, contractId, numero,
- *            candidates:[{providerId, providerName, contractId, numero, zonePath, via, endMonth}],
+ * TPM selon contrat d'une aire pour un mois. Plusieurs titulaires : « à arbitrer », avec le TPM
+ * par défaut (contrat au début le plus récent, puis au plus petit numéro) — jamais un blanc.
+ * @returns {{ state:'contrat'|'sans_contrat'|'a_arbitrer', providerId, contractId, numero, contractLabel,
+ *            candidates:[{providerId, providerName, contractId, numero, contractLabel, dateDebut, zonePath, via, endMonth}],
  *            partiel:boolean, exactHit:boolean }}
  */
 function defaultFor(area, month, contracts) {
@@ -103,7 +110,7 @@ function defaultFor(area, month, contracts) {
     }
   }
   const exactHit = hits.some((h) => h.cov === 'exact');
-  if (!hits.length) return { state: 'sans_contrat', providerId: null, contractId: null, numero: null, candidates: [], partiel, exactHit };
+  if (!hits.length) return { state: 'sans_contrat', providerId: null, contractId: null, numero: null, contractLabel: null, candidates: [], partiel, exactHit };
   const best = Math.max(...hits.map((h) => Number(h.z.depth)));
   const byHolder = new Map();
   for (const h of hits.filter((x) => Number(x.z.depth) === best)) {
@@ -115,21 +122,23 @@ function defaultFor(area, month, contracts) {
     const pick = pickContract(hs);
     return {
       providerId, providerName: pick.c.partnerName || null, contractId: pick.c.id, numero: pick.c.numero,
+      contractLabel: contractLabelOf(pick.c), dateDebut: pick.c.dateDebut,
       zonePath: pick.z.path || null, via: pick.cov === 'exact' ? 'exact' : 'parent', endMonth: contractEndMonth(pick.c),
     };
   }).sort((a, b) => cmp(a.providerName || '', b.providerName || '') || cmp(a.numero, b.numero));
-  if (candidates.length === 1) {
-    const [one] = candidates;
-    return { state: 'contrat', providerId: one.providerId, contractId: one.contractId, numero: one.numero, candidates, partiel, exactHit };
-  }
-  return { state: 'a_arbitrer', providerId: null, contractId: null, numero: null, candidates, partiel, exactHit };
+  const chosen = candidates.length === 1 ? candidates[0] : candidates.slice().sort(byDefault)[0];
+  return {
+    state: candidates.length === 1 ? 'contrat' : 'a_arbitrer',
+    providerId: chosen.providerId, contractId: chosen.contractId, numero: chosen.numero, contractLabel: chosen.contractLabel,
+    candidates, partiel, exactHit,
+  };
 }
 
 /** Libellé de ce que dit le contrat (instantané d'une modification, journal). */
 function defaultLabel(def, partnersById) {
   const name = (c) => (partnersById && partnersById.get(c.providerId) ? partnersById.get(c.providerId).name : c.providerName) || '—';
-  if (def.state === 'contrat') return `${def.candidates[0].numero} · ${name(def.candidates[0])}`.slice(0, 300);
-  if (def.state === 'a_arbitrer') return `${def.candidates.length} contrats : ${def.candidates.map((c) => `${name(c)} (${c.numero})`).join(', ')}`.slice(0, 300);
+  if (def.state === 'contrat') return `${def.candidates[0].contractLabel || def.candidates[0].numero} · ${name(def.candidates[0])}`.slice(0, 300);
+  if (def.state === 'a_arbitrer') return `${def.candidates.length} contrats : ${def.candidates.map((c) => `${name(c)} (${c.contractLabel || c.numero})`).join(', ')}`.slice(0, 300);
   return 'Sans contrat';
 }
 
@@ -150,13 +159,13 @@ function resolveCell(def, override, { partnersById = new Map(), holders = null }
     const cand = providerId ? def.candidates.find((x) => x.providerId === providerId) : null;
     cell = {
       state: providerId ? 'modifie' : 'aucun_tpm', providerId,
-      contractId: cand ? cand.contractId : null, numero: cand ? cand.numero : null,
+      contractId: cand ? cand.contractId : null, numero: cand ? cand.numero : null, contractLabel: cand ? cand.contractLabel : null,
     };
     if ((override.expectedState || null) !== def.state || (override.expectedProviderId || null) !== (def.providerId || null)) flags.push('a_confirmer');
     if ((def.state === 'contrat' && def.providerId === providerId) || (def.state === 'sans_contrat' && providerId === null)) flags.push('redondante');
     if (providerId && holders && !holders.has(providerId)) flags.push('hors_contrat');
   } else {
-    cell = { state: def.state, providerId: def.providerId || null, contractId: def.contractId || null, numero: def.numero || null };
+    cell = { state: def.state, providerId: def.providerId || null, contractId: def.contractId || null, numero: def.numero || null, contractLabel: def.contractLabel || null };
   }
   if (def.partiel) flags.push('partiel');
   const p = cell.providerId ? partnersById.get(cell.providerId) : null;
@@ -395,7 +404,7 @@ function notSelectableMonths(providerId, months, selectable) {
  */
 function visitDecision({ visit, cell, request, selectable }) {
   if (request.action === 'zone') return { source: 'zone' };
-  const zoneDecides = cell && !['a_arbitrer', 'district_inconnu'].includes(cell.state);
+  const zoneDecides = cell && cell.state !== 'district_inconnu';
   if (request.action === 'set') {
     const p = request.providerId || null;
     if (zoneDecides && p === (cell.providerId || null)) return { source: 'zone' };

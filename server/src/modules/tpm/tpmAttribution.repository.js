@@ -135,7 +135,7 @@ async function partnersTx(client, tenantId) {
  */
 async function loadInputsTx(client, tenantId, { from, to }) {
   const { rows: contracts } = await client.query(
-    `SELECT c.id, c.numero, c.status, c.partner_id AS "partnerId", COALESCE(p.name, c.partner_name) AS "partnerName",
+    `SELECT c.id, c.numero, c.numero_fla AS "numeroFla", c.status, c.partner_id AS "partnerId", COALESCE(p.name, c.partner_name) AS "partnerName",
             c.date_debut AS "dateDebut", c.date_fin AS "dateFin", c.termination_date AS "terminationDate",
             (SELECT COALESCE(sum(b.unit_count * b.unit_cost), 0) FROM contract_budget_items b
               WHERE b.tenant_id = $1 AND b.contract_id = c.id AND b.line_code = $4) > 0 AS "hasMonitoringBudget"
@@ -454,6 +454,14 @@ async function relinkOverridesTx(client, tenantId, pairs) {
 }
 
 // ---- Table de zones pour un ensemble de sites / visites ------------------------------
+/** Cellule réduite pour l'écran et pour les autres modules (TPM, origine, contrat, raison, drapeaux). */
+const slimCell = (c) => (c ? {
+  state: c.state, providerId: c.providerId || null, providerName: c.providerName || null,
+  contractId: c.contractId || null, numero: c.numero || null, contractLabel: c.contractLabel || null,
+  reason: c.override ? c.override.reason : null, flags: (c.flags || []).filter((f) => f !== 'titulaire_non_tpm'),
+  candidates: c.state === 'a_arbitrer' && c.default ? c.default.candidates.map((x) => ({ providerId: x.providerId, providerName: x.providerName, contractLabel: x.contractLabel })) : undefined,
+} : null);
+
 /**
  * Table zone × mois qui suffit pour situer des sites : leurs districts et communes, plus les
  * communes qui peuvent avoir leur propre ligne. Lecture seule ; l'appelant tient le verrou s'il écrit.
@@ -477,10 +485,7 @@ async function boardTpmTx(client, tenantId, { year, refMonth, siteIds }) {
   const zones = await siteZonesTx(client, tenantId, siteIds);
   const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
   const { table } = await tableForSitesTx(client, tenantId, { zones, months });
-  const slim = (c) => (c ? {
-    state: c.state, providerId: c.providerId || null, providerName: c.providerName || null, numero: c.numero || null,
-    reason: c.override ? c.override.reason : null, flags: (c.flags || []).filter((f) => f !== 'titulaire_non_tpm'),
-  } : null);
+  const slim = slimCell;
   const out = new Map();
   for (const z of zones) {
     const cells = months.map((m) => { const c = cellForSite(z, m, table); return c ? { ...c, month: m, flags: c.flags || [] } : null; }).filter(Boolean);
@@ -535,7 +540,84 @@ async function applyVisitRequestTx(client, tenantId, actorId, visitIds, request)
   return { updated: decisions.length, batchId, visits: stamped };
 }
 
+/**
+ * TPM de la zone de sites pour des mois — pour les autres modules (planification automatique du
+ * lot 5, aperçus) : lecture seule, MÊME règle que l'estampille des visites (une visite insérée
+ * sans TPM reçoit cette valeur au COMMIT). `pairs` : [{ siteId, month: 'AAAA-MM' }].
+ * @returns {Promise<Map<string, object>>} clé `${siteId}|${month}` → { state, providerId,
+ *   providerName, contractId, numero, contractLabel, reason, flags, candidates? } ; site inconnu : absent.
+ */
+async function cellsForSitesTx(client, tenantId, pairs) {
+  const out = new Map();
+  const list = (pairs || []).filter((p) => p && p.siteId && /^\d{4}-\d{2}$/.test(String(p.month || '').slice(0, 7)));
+  if (!list.length) return out;
+  const zones = await siteZonesTx(client, tenantId, [...new Set(list.map((p) => p.siteId))]);
+  const { table } = await tableForSitesTx(client, tenantId, { zones, months: list.map((p) => String(p.month).slice(0, 7)) });
+  const byId = new Map(zones.map((z) => [z.id, z]));
+  for (const p of list) {
+    const z = byId.get(p.siteId);
+    const m = String(p.month).slice(0, 7);
+    if (z) out.set(`${p.siteId}|${m}`, slimCell(cellForSite(z, m, table)));
+  }
+  return out;
+}
+
+/**
+ * « Appliquer les TPM des contrats » — et reprise de l'existant au démarrage (réparation r58) :
+ * les visites de la période (toutes sans période) dont le TPM n'a PAS été choisi à la main avec
+ * une raison reprennent le TPM de leur zone : origine « zone » (prévues, réalisées, annulées,
+ * antérieures) et « reprise » (TPM saisi avant la règle, sans raison). Une visite « visite »
+ * (écart motivé) n'est JAMAIS touchée. Journal : un lot, plus une ligne par visite dont le TPM
+ * change (avant → après) — l'ancienne saisie reste lisible. Sous le verrou d'attribution.
+ */
+async function applyContractsTx(client, tenantId, actorId, { period = null, reason = null, label = null } = {}) {
+  await lockAttributionTx(client, tenantId);
+  const params = [tenantId];
+  let range = '';
+  if (period) { params.push(toMonthDate(period.from), toMonthDate(period.to)); range = ' AND v.period_month BETWEEN $2::date AND $3::date'; }
+  const { rows: [span] } = await client.query(
+    `SELECT count(*)::int AS n, count(*) FILTER (WHERE v.provider_source = 'reprise')::int AS reprise,
+            to_char(min(v.period_month), 'YYYY-MM') AS lo, to_char(max(v.period_month), 'YYYY-MM') AS hi
+       FROM site_visits v WHERE v.tenant_id = $1 AND v.provider_source IN ('zone', 'reprise')${range}`, params);
+  if (!span || !span.n) return { visits: 0, converted: 0, changed: 0, byState: {}, moves: [] };
+  if (span.reprise) {
+    await client.query(
+      `UPDATE site_visits v SET provider_source = 'zone', provider_reason = NULL, provider_set_by = $${params.length + 1},
+              provider_set_at = now(), updated_at = now()
+        WHERE v.tenant_id = $1 AND v.provider_source = 'reprise'${range}`, [...params, actorId || null]);
+  }
+  const { rows } = await client.query(
+    `SELECT o_id AS id, o_old_provider AS "fromProviderId", o_new_provider AS "providerId", o_state AS "zoneState", o_dated AS dated
+       FROM mems_tpm_stamp($1, ARRAY(SELECT v.id FROM site_visits v WHERE v.tenant_id = $1 AND v.provider_source = 'zone'${range}))`, params);
+  const moved = rows.filter((r) => (r.fromProviderId || null) !== (r.providerId || null));
+  const where = new Map();
+  if (moved.length) {
+    const { rows: w } = await client.query(
+      `SELECT v.id, to_char(v.period_month, 'YYYY-MM') AS month, COALESCE(s.public_id, s.location_id, s.name) AS site
+         FROM site_visits v JOIN sites s ON s.tenant_id = v.tenant_id AND s.id = v.site_id
+        WHERE v.tenant_id = $1 AND v.id = ANY ($2::uuid[])`, [tenantId, moved.map((r) => r.id)]);
+    for (const x of w) where.set(x.id, x);
+  }
+  const from = period ? period.from : span.lo;
+  const to = period ? period.to : span.hi;
+  const batchId = crypto.randomUUID();
+  await insertLogTx(client, tenantId, actorId, [
+    { batch_id: batchId, scope: 'lot', action: 'reappliquer', label: (label || `TPM des contrats appliqués aux visites · ${from} → ${to}`).slice(0, 300),
+      month_from: from, month_to: to, visits_updated: rows.length, reason: reason || null },
+    ...moved.map((r) => {
+      const x = where.get(r.id) || {};
+      return {
+        batch_id: batchId, scope: 'visite', action: 'visite_zone', label: `${x.site || '—'} · ${x.month || ''}`.slice(0, 300),
+        period_month: x.month || from, visit_id: r.id, old_provider_id: r.fromProviderId || null,
+        new_state: r.zoneState, new_provider_id: r.providerId || null,
+      };
+    }),
+  ]);
+  return { visits: span.n, converted: span.reprise, batchId, ...summarizeRestamp(rows) };
+}
+
 module.exports = {
+  cellsForSitesTx, applyContractsTx, slimCell,
   tableForSitesTx, boardTpmTx, applyVisitRequestTx,
   ATTRIBUTION_KEY, ZONE_CTES, lockAttributionTx, refreshSiteZonesTx, restampVisitsTx,
   partnersTx, loadInputsTx, overridesTx, areasTx, communeRowIds, zoneRowsTx, visitGroupsTx, expandRegionsTx,

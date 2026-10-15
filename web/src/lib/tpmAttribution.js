@@ -12,9 +12,9 @@ export const TPM_ZONE_STATE = {
   contrat: { label: 'Selon contrat', tone: 'green', icon: 'check' },
   modifie: { label: 'Modifié', tone: 'orange', icon: 'edit' },
   aucun_tpm: { label: 'Aucun TPM (décidé)', tone: null, icon: 'ban' },
-  a_arbitrer: { label: 'Deux contrats — à arbitrer', tone: 'red', icon: 'warn' },
-  sans_contrat: { label: 'Sans contrat', tone: null, icon: 'na' },
-  district_inconnu: { label: 'District inconnu', tone: 'orange', icon: 'warn' },
+  a_arbitrer: { label: 'Plusieurs contrats : choisir', tone: 'orange', icon: 'warn' },
+  sans_contrat: { label: 'Aucun contrat (à affecter)', tone: 'red', icon: 'na' },
+  district_inconnu: { label: 'District inconnu (à affecter)', tone: 'red', icon: 'warn' },
 };
 
 /** Drapeaux d'une cellule (affichés à côté de l'état). */
@@ -32,9 +32,9 @@ export const TPM_VISIT = {
   'zone:contrat': { label: 'Selon contrat', tone: 'green', icon: 'check' },
   'zone:modifie': { label: 'Modifié (zone)', tone: 'orange', icon: 'edit' },
   'zone:aucun_tpm': { label: 'Aucun TPM (zone)', tone: null, icon: 'ban' },
-  'zone:a_arbitrer': { label: 'À affecter — deux contrats', tone: 'red', icon: 'warn' },
-  'zone:sans_contrat': { label: 'À affecter — sans contrat', tone: 'orange', icon: 'clock' },
-  'zone:district_inconnu': { label: 'À affecter — district inconnu', tone: 'orange', icon: 'warn' },
+  'zone:a_arbitrer': { label: 'Plusieurs contrats : choisir', tone: 'orange', icon: 'warn' },
+  'zone:sans_contrat': { label: 'À affecter — aucun contrat', tone: 'red', icon: 'na' },
+  'zone:district_inconnu': { label: 'À affecter — district inconnu', tone: 'red', icon: 'warn' },
   'zone:anterieur': { label: 'Antérieur à la règle', tone: null, icon: 'na' },
   'zone:': { label: 'En cours d\'affectation', tone: null, icon: 'clock' },
   visite: { label: 'Modifié pour cette visite', tone: 'orange', icon: 'edit' },
@@ -49,7 +49,7 @@ export function visitTpmKey(v) {
 
 /** Une visite est-elle « à affecter » (aucun TPM, et ce n'est pas une décision) ? */
 export const visitToAssign = (v) => (v.providerSource || 'zone') === 'zone'
-  && ['sans_contrat', 'a_arbitrer', 'district_inconnu'].includes(v.providerZoneState);
+  && ['sans_contrat', 'district_inconnu'].includes(v.providerZoneState);
 
 /** Libellé d'une plage de mois : « Octobre 2026 » ou « oct. 26 – déc. 26 ». */
 export function rangeLabel(from, to) {

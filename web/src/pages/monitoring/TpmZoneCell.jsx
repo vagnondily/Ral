@@ -36,11 +36,11 @@ export default function TpmZoneCell({ tpm, months }) {
   const year = refMonth.slice(0, 4);
   const when = shortMonthLabel(refMonth);
   const origin = {
-    contrat: tr('selon contrat {n}', { n: ref.numero || '' }),
+    contrat: tr('contrat {n}', { n: ref.contractLabel || ref.numero || '' }),
     modifie: tr('modifié : {r}', { r: ref.reason || '' }),
     aucun_tpm: tr('aucun TPM, décidé : {r}', { r: ref.reason || '' }),
-    a_arbitrer: tr('plusieurs contrats sur la zone : à arbitrer'),
-    sans_contrat: tr('aucun contrat ne couvre cette zone ({m})', { m: when }),
+    a_arbitrer: tr('{n} contrats : choisir', { n: (ref.candidates || []).length || 2 }),
+    sans_contrat: tr('aucun contrat actif sur cette zone ce mois ({m})', { m: when }),
     district_inconnu: tr('district du site non reconnu'),
   }[ref.state] || '';
   const assigned = Boolean(ref.providerId);
@@ -49,11 +49,12 @@ export default function TpmZoneCell({ tpm, months }) {
   const diff = divergentVisits(months, segments, year);
   const segText = (s) => {
     const what = s.providerName
-      ? `${s.providerName} (${s.state === 'contrat' ? tr('selon contrat {n}', { n: s.numero || '' }) : tr((TPM_ZONE_STATE[s.state] || def).label)})`
+      ? `${s.providerName} (${s.state === 'contrat' ? tr('contrat {n}', { n: s.contractLabel || s.numero || '' }) : tr((TPM_ZONE_STATE[s.state] || def).label)})`
       : tr((TPM_ZONE_STATE[s.state] || def).label);
     return `${rangeLabel(s.from, s.to)} : ${what}`;
   };
   const tooltip = [
+    tr('Règle : le TPM d\'un site est le titulaire du contrat de suivi actif qui couvre son district (ou sa commune) ce mois-là ; une modification exige une raison.'),
     tr('TPM de la zone du site, exercice {y} :', { y: year }),
     ...segments.map(segText),
     ...(diff ? [tr('{n} visite(s) de l\'exercice portent un autre TPM (écart motivé ou saisi avant la règle).', { n: diff })] : []),

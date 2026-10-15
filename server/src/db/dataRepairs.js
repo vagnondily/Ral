@@ -59,16 +59,16 @@ const REPAIRS = [
   {
     // R58 : affectation des TPM par zone (retour 58, migration 070). Zone (district / commune) de
     // chaque site — règle du lot 1b, que le SQL d'une migration ne sait pas calculer — puis TPM des
-    // visites prévues du mois courant et après, et de celles laissées « à estampiller » par la
-    // migration. Visites réalisées, annulées ou passées : jamais réécrites. Idempotent.
+    // contrats appliqué aux visites existantes dont le TPM n'a pas été choisi avec une raison (saisi
+    // à la main avant la règle, ou absent) ; chaque changement est inscrit au journal (avant → après).
     key: 'r58_tpm_zones',
     async run(client, tenantId) {
       const places = require('../modules/settings/placeMatch.repository');
       const tpm = require('../modules/tpm/tpmAttribution.repository');
       await places.lockSubmissionLinksTx(client, tenantId); // même ordre que les écritures de sites
       const zones = await tpm.refreshSiteZonesTx(client, tenantId);
-      const visits = await tpm.restampVisitsTx(client, tenantId, { fromMonth: new Date().toISOString().slice(0, 7) });
-      return { zones: zones.changed, visits: visits.changed, byState: visits.byState };
+      const visits = await tpm.applyContractsTx(client, tenantId, null, { label: 'Reprise : TPM des contrats appliqué aux visites existantes (retour 58)' });
+      return { zones: zones.changed, visits: visits.visits, converted: visits.converted, changed: visits.changed, byState: visits.byState };
     },
   },
 ];
