@@ -607,40 +607,186 @@ function ActivitiesSection({ isAdmin }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [items, setItems] = useState(null);
-  const [modal, setModal] = useState(false);
+  const [subs, setSubs] = useState([]);          // toutes les sous-activités, groupées à l'affichage
+  const [modal, setModal] = useState(false);       // création d'activité
+  const [open, setOpen] = useState(() => new Set()); // activités dépliées (id)
+  const [subModal, setSubModal] = useState(null);  // { activityId, sub? } création/édition d'une sous-activité
 
-  async function reload() { try { setItems(await api.listActivities()); } catch (e) { toast.error(e.message); setItems([]); } }
+  async function reload() {
+    try {
+      const [acts, sa] = await Promise.all([api.listActivities(), api.listSubActivities()]);
+      setItems(acts); setSubs(sa);
+    } catch (e) { toast.error(e.message); setItems([]); setSubs([]); }
+  }
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
+
+  const byActivity = useMemo(() => {
+    const m = new Map();
+    for (const s of subs) { if (!m.has(s.activityId)) m.set(s.activityId, []); m.get(s.activityId).push(s); }
+    return m;
+  }, [subs]);
 
   async function toggle(a) {
     try { await api.setActivityActive(a.id, !a.active); reload(); }
     catch (e) { toast.error(e.message); }
   }
+  function toggleOpen(id) {
+    setOpen((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }
+  async function toggleSub(s) {
+    try { await api.updateSubActivity(s.id, { active: !s.active }); reload(); }
+    catch (e) { toast.error(e.message); }
+  }
+  async function removeSub(s) {
+    if (!window.confirm(tr('Supprimer la sous-activité « {label} » ?', { label: s.label }))) return;
+    try { await api.deleteSubActivity(s.id); reload(); }
+    catch (e) { toast.error(e.message); }
+  }
 
   return (
     <Card aria-labelledby="act-title">
-      <CardHeader id="act-title" title={tr('Activités de suivi')} subtitle={tr('Multi-sélection sur les contrats. Ex. suivi, ciblage, PDM, distribution, évaluation.')}>
+      <CardHeader id="act-title" title={tr('Activités de suivi')} subtitle={tr('Chaque activité se décline en sous-activités (le « tag » porté par les sites) avec une information libre.')}>
         {isAdmin && <Button icon={Plus} onClick={() => setModal(true)}>{tr('Nouvelle activité')}</Button>}
       </CardHeader>
       {items === null ? <div className="card-body"><Skeleton height={100} /></div> : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th scope="col">{tr('Activité')}</th><th scope="col">{tr('Code')}</th><th scope="col">{tr('État')}</th>{isAdmin && <th scope="col" />}</tr></thead>
+            <thead><tr>
+              <th scope="col" style={{ width: 32 }} />
+              <th scope="col">{tr('Activité')}</th><th scope="col">{tr('Code')}</th>
+              <th scope="col" className="num">{tr('Sous-activités')}</th>
+              <th scope="col">{tr('État')}</th>{isAdmin && <th scope="col" />}
+            </tr></thead>
             <tbody>
-              {items.map((a) => (
-                <tr key={a.id}>
-                  <td><strong>{a.label}</strong></td>
-                  <td><span className="mono">{a.code}</span></td>
-                  <td><Badge tone={a.active ? 'green' : null}>{a.active ? tr('Active') : tr('Inactive')}</Badge></td>
-                  {isAdmin && <td style={{ textAlign: 'right' }}><Button size="sm" variant="ghost" onClick={() => toggle(a)}>{a.active ? tr('Désactiver') : tr('Activer')}</Button></td>}
-                </tr>
-              ))}
+              {items.map((a) => {
+                const list = byActivity.get(a.id) || [];
+                const isOpen = open.has(a.id);
+                return (
+                  <React.Fragment key={a.id}>
+                    <tr>
+                      <td>
+                        <Button size="sm" variant="ghost" aria-expanded={isOpen}
+                          aria-label={tr('Afficher les sous-activités')} onClick={() => toggleOpen(a.id)}>
+                          <ChevronRight size={16} style={{ transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />
+                        </Button>
+                      </td>
+                      <td><strong>{a.label}</strong></td>
+                      <td><span className="mono">{a.code}</span></td>
+                      <td className="num">{list.length}</td>
+                      <td><Badge tone={a.active ? 'green' : null}>{a.active ? tr('Active') : tr('Inactive')}</Badge></td>
+                      {isAdmin && <td style={{ textAlign: 'right' }}><Button size="sm" variant="ghost" onClick={() => toggle(a)}>{a.active ? tr('Désactiver') : tr('Activer')}</Button></td>}
+                    </tr>
+                    {isOpen && (
+                      <tr>
+                        <td colSpan={isAdmin ? 6 : 5} style={{ background: 'var(--surface-2)', padding: '12px 16px' }}>
+                          <SubActivityList
+                            subs={list} isAdmin={isAdmin}
+                            onAdd={() => setSubModal({ activityId: a.id })}
+                            onEdit={(s) => setSubModal({ activityId: a.id, sub: s })}
+                            onToggle={toggleSub} onRemove={removeSub}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
       {modal && <CodeLabelModal title={tr('Nouvelle activité')} onClose={() => setModal(false)} onSubmit={(v) => api.createActivity(v)} onSaved={() => { setModal(false); reload(); }} />}
+      {subModal && (
+        <SubActivityModal
+          activityId={subModal.activityId} sub={subModal.sub}
+          onClose={() => setSubModal(null)}
+          onSaved={() => { setSubModal(null); reload(); }}
+        />
+      )}
     </Card>
+  );
+}
+
+// Liste des sous-activités d'une activité (dépliée) : code (tag), libellé,
+// information, état, et actions admin.
+function SubActivityList({ subs, isAdmin, onAdd, onEdit, onToggle, onRemove }) {
+  const { tr } = useI18n();
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <strong style={{ fontSize: 13 }}>{tr('Sous-activités')}</strong>
+        {isAdmin && <Button size="sm" icon={Plus} variant="secondary" onClick={onAdd}>{tr('Ajouter une sous-activité')}</Button>}
+      </div>
+      {subs.length === 0 ? (
+        <div className="muted" style={{ fontSize: 13 }}>{tr('Aucune sous-activité. Ajoutez-en une.')}</div>
+      ) : (
+        <table className="table" style={{ background: 'var(--surface)' }}>
+          <thead><tr>
+            <th scope="col">{tr('Code (tag)')}</th><th scope="col">{tr('Sous-activité')}</th>
+            <th scope="col">{tr('Information')}</th><th scope="col">{tr('État')}</th>{isAdmin && <th scope="col" />}
+          </tr></thead>
+          <tbody>
+            {subs.map((s) => (
+              <tr key={s.id}>
+                <td><span className="mono">{s.code}</span></td>
+                <td>{s.label}</td>
+                <td className="muted" style={{ maxWidth: 360, whiteSpace: 'pre-wrap' }}>{s.info || '—'}</td>
+                <td><Badge tone={s.active ? 'green' : null}>{s.active ? tr('Active') : tr('Inactive')}</Badge></td>
+                {isAdmin && (
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <Button size="sm" variant="ghost" icon={Pencil} onClick={() => onEdit(s)}>{tr('Modifier')}</Button>
+                    <Button size="sm" variant="ghost" onClick={() => onToggle(s)}>{s.active ? tr('Désactiver') : tr('Activer')}</Button>
+                    <Button size="sm" variant="ghost" icon={Trash2} onClick={() => onRemove(s)} aria-label={tr('Supprimer')} />
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// Création / édition d'une sous-activité : code (tag), libellé, information.
+function SubActivityModal({ activityId, sub, onClose, onSaved }) {
+  const { tr } = useI18n();
+  const toast = useToast();
+  const editing = Boolean(sub);
+  const [form, setForm] = useState({ code: sub?.code || '', label: sub?.label || '', info: sub?.info || '' });
+  const [touched, setTouched] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const errs = {
+    label: form.label.trim().length < 2 ? tr('Libellé requis.') : null,
+    code: !/^[a-z0-9_-]{1,60}$/i.test(form.code.trim()) ? tr('Code : lettres/chiffres/tiret, 1 à 60.') : null,
+  };
+  async function save(e) {
+    e.preventDefault();
+    setTouched(true);
+    if (errs.label || errs.code) return;
+    setSaving(true);
+    try {
+      const payload = { code: form.code.trim(), label: form.label.trim(), info: form.info.trim() };
+      if (editing) await api.updateSubActivity(sub.id, payload);
+      else await api.createSubActivity({ activityId, ...payload });
+      toast.success(tr('Enregistré.')); onSaved();
+    } catch (err) { toast.error(err.message); } finally { setSaving(false); }
+  }
+  return (
+    <Modal open onClose={() => !saving && onClose()} title={editing ? tr('Modifier la sous-activité') : tr('Nouvelle sous-activité')} initialFocus="#sa-label"
+      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button type="submit" form="sa-form" loading={saving}>{editing ? tr('Enregistrer') : tr('Créer')}</Button></>}>
+      <form id="sa-form" onSubmit={save} noValidate style={{ display: 'grid', gap: 16 }}>
+        <Field label={tr('Sous-activité')} htmlFor="sa-label" required error={touched ? errs.label : undefined}>
+          <input id="sa-label" className="input" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} />
+        </Field>
+        <Field label={tr('Code (tag)')} htmlFor="sa-code" required hint={tr('Le « tag » porté par les sites (ex. GD, MAM).')} error={touched ? errs.code : undefined}>
+          <input id="sa-code" className="input mono" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+        </Field>
+        <Field label={tr('Information')} htmlFor="sa-info" hint={tr('Définition ou notes (facultatif).')}>
+          <textarea id="sa-info" className="input" rows={3} value={form.info} onChange={(e) => setForm({ ...form, info: e.target.value })} />
+        </Field>
+      </form>
+    </Modal>
   );
 }
 

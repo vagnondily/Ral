@@ -11,6 +11,7 @@ import { periodLabel, single, spanMonths } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 import { downloadCsv } from '../../lib/csv.js';
+import { rbmStatsOf } from '../../lib/rbmCounts.js';
 
 /** Durée maximale de l'écran : la plus courte de ses endpoints (overview = analyse ; field/summary = faits) — lib/periodCaps. */
 const ANALYSIS_MAX_SPAN = Math.min(PERIOD_CAPS.analysis, PERIOD_CAPS.facts);
@@ -46,7 +47,7 @@ export default function ProcessDashboardPage({ onNavigate }) {
     setRes(null);
     const settle = (p) => p.then((data) => ({ data }), (e) => ({ error: e.message }));
     // RBM : un état, lu au dernier mois de la période (le serveur prend `to`).
-    Promise.all([settle(api.monOverview(period)), settle(api.fieldSummary(period)), settle(api.rbmSites(period))])
+    Promise.all([settle(api.monOverview(period)), settle(api.fieldSummary(period)), settle(api.rbmCounts(period))])
       .then(([ov, field, rbm]) => {
         if (!alive) return;
         setRes({ ov, field, rbm });
@@ -59,11 +60,9 @@ export default function ProcessDashboardPage({ onNavigate }) {
   const field = res?.field.data;
   const rbm = res?.rbm.data;
 
-  const rbmStats = useMemo(() => {
-    const s = { total: 0, due: 0, elevee: 0, moyenne: 0, faible: 0 };
-    for (const x of rbm || []) { s.total += 1; s[x.riskLevel] = (s[x.riskLevel] || 0) + 1; if (x.due) s.due += 1; }
-    return s;
-  }, [rbm]);
+  // Compteurs calculés par le serveur (GET /rbm/counts) : « à suivre » = drapeau due, zones
+  // interdites comprises, comme avant sur la liste complète.
+  const rbmStats = useMemo(() => rbmStatsOf(rbm), [rbm]);
 
   // Par bureau : visites (sites rattachés au bureau MEMS) et formulaires reçus. Seul un bureau MEMS
   // (relié) se rapproche de ses visites, par son nom ; un libellé ou un code non relié reste sa propre ligne.

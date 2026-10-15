@@ -317,6 +317,7 @@ export const api = {
   // Sites (actifs / inactifs) : grille du classeur d'activation (retour 64).
   activationGrid: (year) => request('/api/tpm/field/activation', { query: { year } }),
   saveActivation: (input) => request('/api/tpm/field/activation', { method: 'PUT', body: input }),
+  activationFill: (input) => request('/api/tpm/field/activation/fill', { method: 'POST', body: input }),
   activationHistory: (siteId, year) => request('/api/tpm/field/activation/history', { query: { siteId, year } }),
   activationExport: (year) => downloadFile(`/api/tpm/field/activation.xlsx?year=${year}`, `Sites_actifs_${year}.xlsx`),
   activationImport: (file, { commit, year } = {}) => uploadFile(`/api/tpm/field/activation/import?commit=${commit ? 1 : 0}&year=${year}`, file),
@@ -407,6 +408,11 @@ export const api = {
   deleteOffice: (id, { confirm } = {}) => request(`/api/settings/offices/${id}`, { method: 'DELETE', query: confirm ? { confirm: 1 } : undefined }),
   createActivity: (input) => request('/api/settings/activities', { method: 'POST', body: input }),
   setActivityActive: (id, active) => request(`/api/settings/activities/${id}`, { method: 'PATCH', body: { active } }),
+  // Sous-activités (retour 92) : activité › sous-activité (activity_tag) › information.
+  listSubActivities: (query) => request('/api/sub-activities', { query }),
+  createSubActivity: (input) => request('/api/sub-activities', { method: 'POST', body: input }),
+  updateSubActivity: (id, input) => request(`/api/sub-activities/${id}`, { method: 'PATCH', body: input }),
+  deleteSubActivity: (id) => request(`/api/sub-activities/${id}`, { method: 'DELETE' }),
   listPartners: (type) => request('/api/settings/partners', { query: type ? { type } : undefined }),
   createPartner: (input) => request('/api/settings/partners', { method: 'POST', body: input }),
   updatePartner: (id, input) => request(`/api/settings/partners/${id}`, { method: 'PATCH', body: input }),
@@ -460,6 +466,10 @@ export const api = {
   fieldSetTravelDays: (input) => request('/api/tpm/field/collection-days', { method: 'PUT', body: input }),
   // Mois de référence « AAAA-MM », ou une période { from, to } : l'état est lu au mois `to`.
   rbmSites: (monthOrPeriod, risk) => request('/api/tpm/field/rbm/sites', { query: qs({ ...pq(monthOrPeriod), risk }) }),
+  // Compteurs seuls de l'état RBM ({ total, byRisk, due, dueOpen, upToDate, toPlan }) — mêmes lignes
+  // et mêmes règles que rbmSites, sans télécharger la liste (≈ 1,3 Ko par site) quand l'écran
+  // n'affiche que des totaux.
+  rbmCounts: (monthOrPeriod, risk) => request('/api/tpm/field/rbm/counts', { query: qs({ ...pq(monthOrPeriod), risk }) }),
   // Un site avec « Pourquoi ? / Conséquence / Que faire ? » (retour n° 48).
   rbmSiteExplain: (id, month) => request(`/api/tpm/field/rbm/sites/${encodeURIComponent(id)}`, { query: month ? { month } : {} }),
   rbmGenerate: (month, risk) => request(`/api/tpm/field/rbm/generate?month=${encodeURIComponent(month)}${risk ? `&risk=${risk}` : ''}`, { method: 'POST' }),
@@ -642,3 +652,24 @@ export const api = {
     return data;
   },
 };
+
+// ---- Affectation des TPM par zone (retour 58) — /api/tpm/attribution ------------------------
+// Ajouts en fin de fichier (fichier partagé par toutes les branches).
+Object.assign(api, {
+  // Table région › district (› commune) : TPM selon contrat et TPM retenu, par segments de mois.
+  tpmAttribution: ({ period, regionId, all } = {}) => request('/api/tpm/attribution', { query: qs({ ...pq(period), regionId, all: all ? 1 : undefined }) }),
+  // Prestataires : titulaires d'un contrat de suivi (avec leurs mois) puis autres TPM actifs.
+  tpmAttributionProviders: (period) => request('/api/tpm/attribution/providers', { query: qs(pq(period)) }),
+  // TPM de la zone d'un site pour un mois (formulaire de visite).
+  tpmAttributionResolve: (siteId, month) => request('/api/tpm/attribution/resolve', { query: { siteId, month } }),
+  // Aperçu sans écriture : { areaIds, regionIds, from, to, mode: 'modifier' | 'revenir', providerId, reason }.
+  tpmAttributionPreview: (input) => request('/api/tpm/attribution/preview', { method: 'POST', body: input }),
+  // Enregistrer (raison obligatoire, empreinte de l'aperçu) : 409 si l'affectation a changé entre-temps.
+  tpmAttributionSave: (input) => request('/api/tpm/attribution/overrides', { method: 'PUT', body: input }),
+  tpmAttributionRevert: (input) => request('/api/tpm/attribution/revert', { method: 'POST', body: input }),
+  tpmAttributionApply: (input) => request('/api/tpm/attribution/apply', { method: 'POST', body: input }),
+  // TPM de visites : { visitIds, action: 'zone' | 'set' | 'keep', providerId, reason }.
+  tpmAttributionVisits: (input) => request('/api/tpm/attribution/visits', { method: 'POST', body: input }),
+  // Journal : lots paginés ({ areaId, from, to, action, limit, offset }) ou détail d'un lot ({ batchId }).
+  tpmAttributionLog: (filters = {}) => request('/api/tpm/attribution/log', { query: qs(filters) }),
+});
