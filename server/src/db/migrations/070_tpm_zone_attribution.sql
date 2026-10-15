@@ -144,7 +144,7 @@ CREATE INDEX IF NOT EXISTS idx_site_visits_tpm_zone ON site_visits (tenant_id, p
 CREATE INDEX IF NOT EXISTS idx_site_visits_tpm_pending ON site_visits (tenant_id)
   WHERE provider_source = 'zone' AND provider_zone_state IS NULL;
 
--- (5) Jumelle SQL de la règle (tpmAttribution.defaultFor / resolveCell / cellForSite) : la cellule
+-- (5) Jumelle SQL de la règle (tpmAttribution.contractTpms / defaultFor / resolveCell / cellForSite) : la cellule
 -- (aire, état, TPM, contrat) de chaque couple site × mois demandé. Parité avec la règle pure
 -- vérifiée par server/scripts/tpmParity.js. Ligne de suivi = budgetCatalog.MONITORING_LINE.
 CREATE OR REPLACE FUNCTION mems_tpm_cells(p_tenant uuid, p_sites uuid[], p_months date[])
@@ -158,19 +158,35 @@ LANGUAGE sql STABLE AS $fn$
     SELECT req.site_id, req.m, s.zone_district_id AS did, s.zone_commune_id AS cid
       FROM req JOIN sites s ON s.tenant_id = p_tenant AND s.id = req.site_id),
   mon AS (SELECT DISTINCT m FROM t),
-  -- Contrats de suivi (IV.suivi > 0) avec titulaire qui couvrent chaque mois : « actif » de
-  -- mois(début) à mois(fin), « résilié » jusqu'au mois de résiliation ; les dates décident.
-  cc AS (
-    SELECT c.id, c.numero, c.partner_id, c.date_debut, mon.m
+  -- Contrats de suivi (IV.suivi > 0) qui couvrent chaque mois : « actif » de mois(début) à
+  -- mois(fin), « résilié » jusqu'au mois de résiliation ; les dates décident (règle commune du lot 8).
+  cc0 AS (
+    SELECT c.id, c.numero, c.partner_id, c.partner_name, c.date_debut, mon.m
       FROM contracts c
       JOIN mon ON mon.m >= date_trunc('month', c.date_debut)::date
               AND mon.m <= date_trunc('month', CASE WHEN c.status = 'resilie' THEN c.termination_date ELSE c.date_fin END)::date
-     WHERE c.tenant_id = p_tenant AND c.status IN ('actif', 'resilie') AND c.partner_id IS NOT NULL
+     WHERE c.tenant_id = p_tenant AND c.status IN ('actif', 'resilie')
        AND (SELECT COALESCE(sum(b.unit_count * b.unit_cost), 0) FROM contract_budget_items b
              WHERE b.tenant_id = p_tenant AND b.contract_id = c.id AND b.line_code = 'IV.suivi') > 0),
+  -- TPM d'un contrat (D1, jumelle de tpmAttribution.contractTpms) : partenaires ACTIFS de type TPM
+  -- rattachés au contrat par un plan de collecte ou une facture / un rapport ; à défaut, le titulaire.
+  tl AS (
+    SELECT DISTINCT x.contract_id, x.partner_id, p.name
+      FROM (SELECT contract_id, partner_id FROM tpm_collection_plans WHERE tenant_id = p_tenant
+            UNION SELECT contract_id, partner_id FROM tpm_reports WHERE tenant_id = p_tenant) x
+      JOIN partners p ON p.tenant_id = p_tenant AND p.id = x.partner_id AND p.active
+      JOIN partner_types t ON t.tenant_id = p_tenant AND t.id = p.partner_type_id AND t.code = 'tpm'
+     WHERE x.contract_id IN (SELECT id FROM cc0)),
+  cc AS (
+    SELECT cc0.id, cc0.numero, cc0.date_debut, cc0.m, tl.partner_id, tl.name AS pname
+      FROM cc0 JOIN tl ON tl.contract_id = cc0.id
+    UNION ALL
+    SELECT cc0.id, cc0.numero, cc0.date_debut, cc0.m, cc0.partner_id, COALESCE(hp.name, cc0.partner_name)
+      FROM cc0 LEFT JOIN partners hp ON hp.tenant_id = p_tenant AND hp.id = cc0.partner_id
+     WHERE cc0.partner_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM tl WHERE tl.contract_id = cc0.id)),
   -- Leurs zones LIÉES (une zone détachée ne donne rien ; un fokontany est trop fin).
   cz AS (
-    SELECT cc.id, cc.numero, cc.partner_id, cc.date_debut, cc.m, a.id AS zid, a.depth AS zdepth
+    SELECT cc.id, cc.numero, cc.partner_id, cc.pname, cc.date_debut, cc.m, a.id AS zid, a.depth AS zdepth
       FROM cc
       JOIN contract_areas z ON z.tenant_id = p_tenant AND z.contract_id = cc.id
       JOIN admin_areas a ON a.tenant_id = p_tenant AND a.id = z.admin_area_id AND a.depth <= 3),
@@ -187,18 +203,18 @@ LANGUAGE sql STABLE AS $fn$
       FROM t),
   -- Zones de contrat qui contiennent l'aire (exacte ou ancêtre) ; la plus précise l'emporte.
   hits AS (
-    SELECT tg.site_id, tg.m, cz.partner_id, cz.id AS contract_id, cz.numero, cz.date_debut, cz.zdepth,
+    SELECT tg.site_id, tg.m, cz.partner_id, cz.pname, cz.id AS contract_id, cz.numero, cz.date_debut, cz.zdepth,
            max(cz.zdepth) OVER (PARTITION BY tg.site_id, tg.m) AS best
       FROM tg
       JOIN admin_areas ar ON ar.tenant_id = p_tenant AND ar.id = tg.aid
       JOIN cz ON cz.m = tg.m AND (cz.zid = tg.aid OR cz.zid = ANY (ar.lineage))),
   besthits AS (SELECT * FROM hits WHERE zdepth = best),
-  -- Contrat retenu (un titulaire, ou TPM par défaut de plusieurs) : début le plus récent, puis plus
-  -- petit numéro (ordre binaire) — jumelle de tpmAttribution.defaultFor (byDefault).
+  -- TPM retenu (un seul, ou TPM par défaut de plusieurs) : contrat au début le plus récent, puis plus
+  -- petit numéro, puis TPM (nom, identifiant) en ordre binaire — jumelle de tpmAttribution.byDefault.
   dflt AS (
     SELECT site_id, m, count(DISTINCT partner_id) AS holders,
-           (array_agg(partner_id ORDER BY date_debut DESC, numero COLLATE "C"))[1] AS p,
-           (array_agg(contract_id ORDER BY date_debut DESC, numero COLLATE "C"))[1] AS k
+           (array_agg(partner_id ORDER BY date_debut DESC, numero COLLATE "C", pname COLLATE "C", partner_id::text COLLATE "C"))[1] AS p,
+           (array_agg(contract_id ORDER BY date_debut DESC, numero COLLATE "C", pname COLLATE "C", partner_id::text COLLATE "C"))[1] AS k
       FROM besthits GROUP BY site_id, m)
   SELECT tg.site_id, tg.m, tg.aid,
          CASE WHEN tg.aid IS NULL THEN 'district_inconnu'

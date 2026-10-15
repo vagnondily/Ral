@@ -23,7 +23,7 @@ const partners = [
 ];
 const contract = (over) => ({
   id: 'k', numero: 'CTR-X', status: 'actif', partnerId: 'aina', partnerName: 'ASSOCIATION AINA',
-  dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, hasMonitoringBudget: true, zones: [], ...over,
+  dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, monitoring: true, zones: [], ...over,
 });
 const AINA = contract({ id: 'k1', numero: 'CTR-2026-0001', zones: [zone(D1), zone(D2), DETACHED] });
 const TOHANA = contract({ id: 'k2', numero: 'CTR-2026-0002', partnerId: 'tohana', partnerName: 'TOHANA', dateDebut: '2026-03-15', dateFin: '2026-11-30', zones: [zone(D3)] });
@@ -48,7 +48,7 @@ test('couverture : résilié jusqu au mois de résiliation inclus ; brouillon, e
 });
 
 test('contrat sans budget de suivi ou sans titulaire : exclu (et signalé)', () => {
-  const noBudget = contract({ hasMonitoringBudget: false, zones: [zone(D1)] });
+  const noBudget = contract({ monitoring: false, zones: [zone(D1)] });
   assert.equal(a.defaultFor(D1, '2026-01', [noBudget]).state, 'sans_contrat');
   const noHolder = contract({ partnerId: null, zones: [zone(D1)] });
   assert.equal(a.defaultFor(D1, '2026-01', [noHolder]).state, 'sans_contrat');
@@ -252,10 +252,14 @@ test('planOverrides : choisir la valeur du contrat supprime la modification ; nu
   assert.deepEqual(r.deletes, ['o1']);
 });
 
+/** Liens de la règle commune (lot 8) : un titulaire par contrat. */
+const linksOf = (contracts) => contracts.map((c) => ({ partnerId: c.partnerId, contractId: c.id, numero: c.numero, status: c.status,
+  dateDebut: c.dateDebut, dateFin: c.dateFin, terminationDate: c.terminationDate, monitoring: c.monitoring, via: ['titulaire'] }));
+
 test('visitDecision : valeur de la zone, autre valeur, null, keep, non sélectionnable', () => {
   const t = tableOf();
   const cell = t.cells.get('d1|2026-01');
-  const sel = a.selectableProviders({ contracts: [AINA, TOHANA], partners, months: ['2026-01'] });
+  const sel = a.selectableProviders({ links: linksOf([AINA, TOHANA]), partners, months: ['2026-01'] });
   const visit = { id: 'v1', month: '2026-01', providerId: 'rano' };
   assert.deepEqual(a.visitDecision({ visit, cell, request: { action: 'set', providerId: 'aina' }, selectable: sel }), { source: 'zone' });
   assert.deepEqual(a.visitDecision({ visit, cell, request: { action: 'zone' }, selectable: sel }), { source: 'zone' });
@@ -268,15 +272,39 @@ test('visitDecision : valeur de la zone, autre valeur, null, keep, non sélectio
   assert.deepEqual(a.visitDecision({ visit, cell, request: { action: 'set', providerId: 'tohana', reason: 'Raison valable ici' }, selectable: sel }), { error: 'provider_not_selectable' });
 });
 
-test('prestataires : titulaires puis TPM actifs ; inactif exclu ; mois par prestataire ; ordre stable', () => {
-  const sel = a.selectableProviders({ contracts: [AINA, TOHANA], partners, months: ['2026-02', '2026-03'] });
-  assert.deepEqual(sel.holders.map((h) => [h.id, h.months]), [['aina', ['2026-02', '2026-03']], ['tohana', ['2026-03']]]);
-  assert.deepEqual(sel.holders[0].contracts, [{ id: 'k1', numero: 'CTR-2026-0001' }]);
-  assert.deepEqual(sel.others.map((p) => p.id), ['rano', 'sahy', 'ypa']);
+test('prestataires : la règle commune (lot 8) — actifs (contrats couvrants) puis autres TPM actifs ; inactif exclu', () => {
+  const sel = a.selectableProviders({ links: linksOf([AINA, TOHANA]), partners, months: ['2026-02', '2026-03'] });
+  const [contrat, tpm] = sel.groups;
+  assert.deepEqual(contrat.providers.map((h) => [h.id, h.months]), [['aina', ['2026-02', '2026-03']], ['tohana', ['2026-03']]]);
+  assert.deepEqual(contrat.providers[0].contracts.map((c) => c.numero), ['CTR-2026-0001']);
+  assert.deepEqual(tpm.providers.map((p) => p.id), ['rano', 'sahy', 'ypa']);
   assert.deepEqual(a.notSelectableMonths('tohana', ['2026-02', '2026-03'], sel), ['2026-02']);
   assert.deepEqual(a.notSelectableMonths('ypa', ['2026-02'], sel), []);
   assert.deepEqual(a.notSelectableMonths('old', ['2026-02'], sel), ['2026-02']);
-  assert.deepEqual(a.activeProviders({ contracts: [AINA, TOHANA], partners, month: '2026-10' }).map((p) => p.id), ['tohana']);
+  assert.deepEqual(a.activeProviders({ links: linksOf([AINA, TOHANA]), partners, month: '2026-10' }).map((p) => p.id), ['tohana']);
+});
+
+test('D1 : le TPM d un contrat est le TPM rattaché (plan, facture) ; à défaut son titulaire', () => {
+  const links = [
+    { partnerId: 'aina', contractId: 'k1', via: ['titulaire'] },
+    { partnerId: 'rano', contractId: 'k1', via: ['plan', 'rapport'] },
+    { partnerId: 'sahy', contractId: 'k1', via: ['visite'] }, // une visite découle de la règle : jamais un lien de TPM
+    { partnerId: 'old', contractId: 'k1', via: ['rapport'] }, // fiche désactivée
+    { partnerId: 'tohana', contractId: 'k2', via: ['plan'] }, // pas de type TPM
+  ];
+  const tpms = a.tpmsByContract(links, partners);
+  assert.deepEqual(tpms.get('k1'), [{ id: 'rano', name: 'RANO Control' }]);
+  assert.equal(tpms.has('k2'), false);
+  const withTpm = { ...AINA, tpms: tpms.get('k1') };
+  const d = a.defaultFor(D1, '2026-01', [withTpm]);
+  assert.deepEqual([d.state, d.providerId, d.contractId], ['contrat', 'rano', 'k1']);
+  assert.deepEqual(a.contractTpms(TOHANA), [{ id: 'tohana', name: 'TOHANA' }], 'sans TPM rattaché : le titulaire');
+  // Deux TPM rattachés au même contrat : « plusieurs », TPM par défaut = ordre du nom.
+  const two = a.defaultFor(D1, '2026-01', [{ ...AINA, tpms: [{ id: 'ypa', name: 'YPA' }, { id: 'rano', name: 'RANO Control' }] }]);
+  assert.deepEqual([two.state, two.providerId, two.candidates.length], ['a_arbitrer', 'rano', 2]);
+  const q = a.qualityOf({ contracts: [withTpm, TOHANA], partners, months: ['2026-03'] });
+  assert.deepEqual(q.contractsWithoutTpm.map((c) => c.numero), ['CTR-2026-0002']);
+  assert.deepEqual(q.holdersNotTpm.map((h) => h.providerId), ['tohana']);
 });
 
 test('restampPlan : seulement les lignes qui changent ; deuxième passage vide', () => {

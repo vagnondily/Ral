@@ -130,7 +130,7 @@ async function providers(tenantId, { period }) {
   return withTenantTransaction(tenantId, async (client) => {
     const months = monthsOf(period);
     const inputs = await repo.loadInputsTx(client, tenantId, period);
-    return { months, ...rule.selectableProviders({ contracts: inputs.contracts, partners: inputs.partners, months }) };
+    return rule.selectableProviders({ links: inputs.links, partners: inputs.partners, months });
   });
 }
 
@@ -145,7 +145,7 @@ async function resolve(tenantId, { siteId, month }) {
     return {
       siteId, month, area: area ? { id: area.id, name: area.name, path: area.path, depth: area.depth } : null,
       ...cellView(cell), contract: cell && cell.default ? defaultView(cell.default, inputs) : null,
-      selectable: rule.selectableProviders({ contracts: inputs.contracts, partners: inputs.partners, months: [month] }),
+      selectable: rule.selectableProviders({ links: inputs.links, partners: inputs.partners, months: [month] }),
     };
   });
 }
@@ -196,14 +196,15 @@ async function prepareChangeTx(client, tenantId, { target, mode, providerId = nu
   const summary = rule.summarizeRestamp(visitChanges);
   summary.moves = summary.moves.map((m) => ({ ...m, fromName: providerName(inputs, m.fromProviderId), toName: providerName(inputs, m.toProviderId) }));
 
-  const selectable = rule.selectableProviders({ contracts: inputs.contracts, partners: inputs.partners, months });
+  const selectable = rule.selectableProviders({ links: inputs.links, partners: inputs.partners, months });
   const notSelectable = mode === 'revenir' ? [] : rule.notSelectableMonths(providerId, months, selectable);
   const warnings = [];
   const plans = await repo.monthPlanStatusesTx(client, tenantId, months);
   const validated = plans.filter((p) => p.status === 'valide').map((p) => p.month);
   if (validated.length) warnings.push({ code: 'plan_valide', months: validated });
   if (mode !== 'revenir' && providerId) {
-    const holderMonths = new Set((selectable.holders.find((h) => h.id === providerId) || { months: [] }).months);
+    const active = (selectable.groups.find((g) => g.key === 'contrat') || { providers: [] }).providers;
+    const holderMonths = new Set((active.find((h) => h.id === providerId) || { months: [] }).months);
     const outside = months.filter((m) => !holderMonths.has(m));
     if (outside.length && !notSelectable.length) warnings.push({ code: 'hors_contrat', months: outside, providerName: providerName(inputs, providerId) });
   }

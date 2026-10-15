@@ -47,7 +47,7 @@ reset();
 const rowsFor = (s, params) => {
   if (/^SET LOCAL lock_timeout/.test(s) || /^SELECT pg_advisory_xact_lock/.test(s)) return [];
   if (/^SELECT c\.id, c\.numero, c\.numero_fla AS "numeroFla", c\.status/.test(s)) {
-    return [{ id: K1, numero: 'CTR-2026-0001', numeroFla: 'FLA-2025-0007', status: 'actif', partnerId: AINA, partnerName: 'ASSOCIATION AINA', dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, hasMonitoringBudget: true }];
+    return [{ id: K1, numero: 'CTR-2026-0001', numeroFla: 'FLA-2025-0007', status: 'actif', partnerId: AINA, partnerName: 'ASSOCIATION AINA', dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, monitoring: true }];
   }
   if (/^SELECT z\.contract_id AS "contractId"/.test(s)) {
     return [
@@ -59,7 +59,10 @@ const rowsFor = (s, params) => {
   if (/^SELECT o\.id, o\.admin_area_id AS "adminAreaId"/.test(s)) {
     return state.overrides.filter((o) => `${o.month}-01` >= params[1] && `${o.month}-01` <= params[2]);
   }
-  if (/^SELECT p\.id, p\.name, t\.code AS "typeCode"/.test(s)) {
+  if (/^WITH provider_contracts AS/.test(s)) {
+    return [{ partnerId: AINA, contractId: K1, numero: 'CTR-2026-0001', status: 'actif', dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, monitoring: true, via: ['titulaire'] }];
+  }
+  if (/^SELECT p\.id, p\.name, p\.short_name AS "shortName", t\.code AS "typeCode"/.test(s)) {
     return [
       { id: AINA, name: 'ASSOCIATION AINA', typeCode: 'prestataire', active: true },
       { id: TOHANA, name: 'TOHANA', typeCode: 'prestataire', active: true },

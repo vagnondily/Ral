@@ -1,5 +1,6 @@
 const crypto = require('node:crypto');
 const { PERIOD_CAPS } = require('../common/periodCaps');
+const activeProvider = require('./activeProvider');
 
 /**
  * Attribution des TPM par zone (retour 58) — règle PURE, sans I/O, testée
@@ -7,23 +8,29 @@ const { PERIOD_CAPS } = require('../common/periodCaps');
  * toute la décision vit ici. Jumelle SQL : la fonction `mems_tpm_cells` de la migration
  * 070 (estampille des visites en base) — parité vérifiée par scripts/tpmParity.js.
  *
+ * UNE règle commune avec le lot 8 (« prestataire actif au mois M », tpm/activeProvider.js) :
+ * contrat de suivi (IV.suivi > 0), contrat qui couvre un mois, liens prestataire ↔ contrat et
+ * listes de choix viennent de ce module — jamais réécrits ici.
+ *
  * Règle (docs/SPEC_RETOUR_58.md) :
- *  - TPM selon contrat d'une zone (district ou commune) pour un mois M : titulaire des
- *    contrats de SUIVI (ligne IV.suivi > 0) qui COUVRENT M — « actif » de mois(début) à
- *    mois(fin), « résilié » jusqu'au mois de résiliation, les dates décident seules — et dont
- *    une zone, liée par identifiant, contient la zone. La zone de contrat la plus précise
- *    l'emporte. Un titulaire : « selon contrat » ; aucun : « sans contrat » (« à affecter ») ;
- *    plusieurs : « plusieurs contrats : choisir » — le TPM par défaut est le titulaire du contrat
- *    au début le plus récent (puis au plus petit numéro), affiché comme tel et signalé ; un choix
- *    explicite (modification motivée) lève le signal. Recalculé à chaque lecture.
+ *  - TPM d'un CONTRAT (D1, décidé par défaut le 15/10, à confirmer) : le ou les partenaires de
+ *    type TPM, actifs, RATTACHÉS au contrat par un plan de collecte ou une facture / un rapport
+ *    (liens « plan » et « rapport » de la règle commune) ; à défaut, son titulaire. Dans les
+ *    données : CTR-2026-0001 (titulaire ASSOCIATION AINA) → RANO Control, qui y facture le suivi.
+ *    `contractTpms` est le SEUL endroit qui dépend de ce choix.
+ *  - TPM selon contrat d'une zone (district ou commune) pour un mois M : TPM des contrats de
+ *    SUIVI qui COUVRENT M (« actif » de mois(début) à mois(fin), « résilié » jusqu'au mois de
+ *    résiliation, les dates décident seules) et dont une zone, liée par identifiant, contient la
+ *    zone. La zone de contrat la plus précise l'emporte. Un TPM : « selon contrat » ; aucun :
+ *    « sans contrat » (« à affecter ») ; plusieurs : « plusieurs contrats : choisir » — le TPM
+ *    par défaut est celui du contrat au début le plus récent (puis plus petit numéro, puis nom),
+ *    affiché comme tel et signalé ; un choix explicite (modification motivée) lève le signal.
  *  - TPM retenu : la modification enregistrée pour la zone et le mois (raison obligatoire,
  *    instantané du contrat, journal), sinon le TPM selon contrat. Une modification n'est
  *    jamais écrasée par un changement de contrat : elle passe « à confirmer ».
  *  - TPM d'un site (et de ses visites) : la cellule de sa commune si la commune a sa propre
  *    ligne ce mois-là (modification posée sur la commune, ou zone de contrat exactement sur
  *    la commune), sinon celle de son district ; sans district reconnu : « district inconnu ».
- *  - D1 (décidé par défaut le 14/10, à confirmer) : le TPM d'un contrat est son titulaire —
- *    `contractTpm` est le SEUL endroit qui dépend de ce choix.
  */
 
 const MAX_SPAN_MONTHS = PERIOD_CAPS.facts; // 24 mois, comme les faits site × mois (lot 1b)
@@ -45,31 +52,50 @@ const VISIT_SOURCES = ['zone', 'visite', 'reprise'];
 const COVERING_STATUSES = ['actif', 'resilie'];
 /** Actions du journal (tpm_attribution_log.action). */
 const LOG_ACTIONS = ['modifier', 'confirmer', 'revenir_contrat', 'reappliquer', 'visite_modifier', 'visite_garder', 'visite_zone'];
+/** Liens de la règle commune qui désignent le TPM d'un contrat (jamais « visite » : elle en découle). */
+const TPM_LINK_KINDS = ['plan', 'rapport'];
 
 const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0); // ordre binaire, comme COLLATE "C"
 const monthOfDate = (d) => (d ? String(d).slice(0, 7) : null);
 
-/** D1 : le TPM d'un contrat est son titulaire (hypothèse A, décidée par défaut le 14/10). */
-const contractTpm = (c) => (c && c.partnerId) || null;
-/** Contrat de suivi : budget IV.suivi > 0 (booléen calculé en SQL, jamais une somme en JS). */
-const isMonitoringContract = (c) => Boolean(c) && c.hasMonitoringBudget === true;
+/** Règle commune (lot 8) : contrat de suivi, contrat qui couvre un mois. */
+const { contractCoversMonth, isMonitoringContract } = activeProvider;
+
+/**
+ * TPM rattachés à chaque contrat, d'après les liens de la règle commune (activeProvider.repository
+ * .providerLinksTx) : partenaires ACTIFS de type TPM liés par un plan de collecte ou un rapport /
+ * une facture. @returns {Map<string, {id, name}[]>} contractId → TPM (ordre du nom).
+ */
+function tpmsByContract(links, partners) {
+  const byId = new Map((partners || []).map((p) => [p.id, p]));
+  const out = new Map();
+  for (const l of links || []) {
+    const p = byId.get(l.partnerId);
+    const via = Array.isArray(l.via) ? l.via : [l.via];
+    if (!p || p.active === false || p.typeCode !== 'tpm' || !via.some((v) => TPM_LINK_KINDS.includes(v))) continue;
+    if (!out.has(l.contractId)) out.set(l.contractId, new Map());
+    out.get(l.contractId).set(p.id, { id: p.id, name: p.name });
+  }
+  return new Map([...out].map(([k, m]) => [k, [...m.values()].sort((a, b) => cmp(a.name, b.name) || cmp(a.id, b.id))]));
+}
+
+/** D1 : TPM d'un contrat = ses TPM rattachés (plans, factures), sinon son titulaire. */
+function contractTpms(c) {
+  if (!c) return [];
+  if (Array.isArray(c.tpms) && c.tpms.length) return c.tpms;
+  return c.partnerId ? [{ id: c.partnerId, name: c.partnerName || null }] : [];
+}
+/** Le TPM « principal » d'un contrat (le premier de contractTpms). */
+const contractTpm = (c) => (contractTpms(c)[0] || {}).id || null;
 
 /** Dernier mois couvert : mois de fin, ou mois de résiliation pour un contrat résilié. */
 function contractEndMonth(c) {
   return c.status === 'resilie' ? monthOfDate(c.terminationDate) : monthOfDate(c.dateFin);
 }
 
-/** Le contrat couvre-t-il le mois M (« AAAA-MM ») ? Un mois entamé compte ; les dates décident. */
-function contractCoversMonth(c, m) {
-  if (!c || !COVERING_STATUSES.includes(c.status)) return false;
-  const start = monthOfDate(c.dateDebut);
-  const end = contractEndMonth(c);
-  return Boolean(start && end && m && start <= m && m <= end);
-}
-
-/** Contrats de suivi avec titulaire qui couvrent M. */
+/** Contrats de suivi avec un TPM qui couvrent M. */
 const coveringContracts = (contracts, m) =>
-  (contracts || []).filter((c) => isMonitoringContract(c) && contractTpm(c) && contractCoversMonth(c, m));
+  (contracts || []).filter((c) => isMonitoringContract(c) && contractTpms(c).length && contractCoversMonth(c, m));
 
 /**
  * Relation entre une aire (district ou commune) et une zone de contrat :
@@ -85,16 +111,15 @@ function coverOf(area, zone) {
   return null;
 }
 
-/** Ordre « par défaut » des contrats : début le plus récent, puis plus petit numéro (ordre binaire). */
-const byDefault = (a, b) => cmp(b.dateDebut, a.dateDebut) || cmp(a.numero, b.numero);
-/** Contrat retenu pour un titulaire (même ordre). */
-const pickContract = (hits) => hits.slice().sort((a, b) => byDefault(a.c, b.c))[0];
+/** Ordre « par défaut » : contrat au début le plus récent, puis plus petit numéro, puis TPM (nom, id). */
+const byDefault = (a, b) => cmp(b.dateDebut, a.dateDebut) || cmp(a.numero, b.numero)
+  || cmp(a.providerName || '', b.providerName || '') || cmp(a.providerId || '', b.providerId || '');
 /** Libellé d'un contrat pour l'écran : son numéro FLA s'il en a un, sinon son numéro MEMS. */
 const contractLabelOf = (c) => c.numeroFla || c.numero;
 
 /**
- * TPM selon contrat d'une aire pour un mois. Plusieurs titulaires : « à arbitrer », avec le TPM
- * par défaut (contrat au début le plus récent, puis au plus petit numéro) — jamais un blanc.
+ * TPM selon contrat d'une aire pour un mois. Plusieurs TPM : « à arbitrer », avec le TPM par
+ * défaut (byDefault) — jamais un blanc.
  * @returns {{ state:'contrat'|'sans_contrat'|'a_arbitrer', providerId, contractId, numero, contractLabel,
  *            candidates:[{providerId, providerName, contractId, numero, contractLabel, dateDebut, zonePath, via, endMonth}],
  *            partiel:boolean, exactHit:boolean }}
@@ -112,20 +137,20 @@ function defaultFor(area, month, contracts) {
   const exactHit = hits.some((h) => h.cov === 'exact');
   if (!hits.length) return { state: 'sans_contrat', providerId: null, contractId: null, numero: null, contractLabel: null, candidates: [], partiel, exactHit };
   const best = Math.max(...hits.map((h) => Number(h.z.depth)));
-  const byHolder = new Map();
+  // Un candidat par TPM : son contrat retenu (ordre par défaut) parmi les zones les plus précises.
+  const byProvider = new Map();
   for (const h of hits.filter((x) => Number(x.z.depth) === best)) {
-    const p = contractTpm(h.c);
-    if (!byHolder.has(p)) byHolder.set(p, []);
-    byHolder.get(p).push(h);
+    for (const t of contractTpms(h.c)) {
+      const cand = {
+        providerId: t.id, providerName: t.name || null, contractId: h.c.id, numero: h.c.numero,
+        contractLabel: contractLabelOf(h.c), dateDebut: h.c.dateDebut,
+        zonePath: h.z.path || null, via: h.cov === 'exact' ? 'exact' : 'parent', endMonth: contractEndMonth(h.c),
+      };
+      const prev = byProvider.get(t.id);
+      if (!prev || byDefault(cand, prev) < 0) byProvider.set(t.id, cand);
+    }
   }
-  const candidates = [...byHolder.entries()].map(([providerId, hs]) => {
-    const pick = pickContract(hs);
-    return {
-      providerId, providerName: pick.c.partnerName || null, contractId: pick.c.id, numero: pick.c.numero,
-      contractLabel: contractLabelOf(pick.c), dateDebut: pick.c.dateDebut,
-      zonePath: pick.z.path || null, via: pick.cov === 'exact' ? 'exact' : 'parent', endMonth: contractEndMonth(pick.c),
-    };
-  }).sort((a, b) => cmp(a.providerName || '', b.providerName || '') || cmp(a.numero, b.numero));
+  const candidates = [...byProvider.values()].sort((a, b) => cmp(a.providerName || '', b.providerName || '') || cmp(a.numero, b.numero));
   const chosen = candidates.length === 1 ? candidates[0] : candidates.slice().sort(byDefault)[0];
   return {
     state: candidates.length === 1 ? 'contrat' : 'a_arbitrer',
@@ -177,7 +202,7 @@ function resolveCell(def, override, { partnersById = new Map(), holders = null }
 
 /** Titulaires (ensemble d'identifiants) de chaque mois. */
 function holdersByMonth(contracts, months) {
-  return new Map(months.map((m) => [m, new Set(coveringContracts(contracts, m).map(contractTpm))]));
+  return new Map(months.map((m) => [m, new Set(coveringContracts(contracts, m).flatMap((c) => contractTpms(c).map((t) => t.id)))]));
 }
 
 /**
@@ -197,15 +222,20 @@ function qualityOf({ contracts = [], partners = [], overrides = [], months = [],
       else if (Number(z.depth) >= 4) tooFineZones.push({ ...ref(c), path: z.path });
     }
   }
+  // Contrat sans TPM rattaché (aucun plan, aucune facture d'un TPM) : son titulaire est retenu.
   const holders = new Map();
   for (const c of overlapping) {
-    const p = contractTpm(c) && partnersById.get(contractTpm(c));
-    if (p && p.typeCode !== 'tpm') holders.set(p.id, { providerId: p.id, name: p.name, typeCode: p.typeCode });
+    for (const t of contractTpms(c)) {
+      const p = partnersById.get(t.id);
+      if (p && p.typeCode !== 'tpm') holders.set(p.id, { providerId: p.id, name: p.name, typeCode: p.typeCode });
+    }
   }
   return {
     detachedContractZones,
     tooFineZones,
-    contractsWithoutHolder: overlapping.filter((c) => !contractTpm(c)).map(ref),
+    contractsWithoutHolder: overlapping.filter((c) => !contractTpms(c).length).map(ref),
+    contractsWithoutTpm: overlapping.filter((c) => !(Array.isArray(c.tpms) && c.tpms.length) && c.partnerId)
+      .map((c) => ({ ...ref(c), holder: c.partnerName || null })),
     holdersNotTpm: [...holders.values()].sort((a, b) => cmp(a.name, b.name)),
     expiredStillActive: today
       ? overlapping.filter((c) => c.status === 'actif' && monthOfDate(c.dateFin) < today).map((c) => ({ ...ref(c), endMonth: monthOfDate(c.dateFin), holder: c.partnerName || null }))
@@ -357,40 +387,18 @@ function summarizeRestamp(changes) {
 }
 
 /**
- * Prestataires sélectionnables sur des mois : d'abord les titulaires actifs d'un contrat de
- * suivi qui couvre ces mois (avec leurs mois et contrats), puis les autres partenaires actifs
- * de type TPM, à part (les choisir est une modification motivée).
+ * Prestataires sélectionnables sur des mois : la règle COMMUNE (lot 8, activeProvider
+ * .selectableProviders) — groupe « contrat » (prestataires actifs, avec leurs mois et contrats)
+ * puis groupe « tpm » (autres TPM actifs, choix hors contrat). Entrées : liens et partenaires.
  */
-function selectableProviders({ contracts = [], partners = [], months = [] }) {
-  const partnersById = new Map(partners.map((p) => [p.id, p]));
-  const holders = new Map();
-  for (const m of months) {
-    for (const c of coveringContracts(contracts, m)) {
-      const p = partnersById.get(contractTpm(c));
-      if (!p || p.active === false) continue;
-      if (!holders.has(p.id)) holders.set(p.id, { id: p.id, name: p.name, typeCode: p.typeCode, months: new Set(), contracts: new Map() });
-      const h = holders.get(p.id);
-      h.months.add(m);
-      h.contracts.set(c.id, { id: c.id, numero: c.numero });
-    }
-  }
-  const holderList = [...holders.values()]
-    .map((h) => ({ ...h, months: [...h.months].sort(), contracts: [...h.contracts.values()].sort((a, b) => cmp(a.numero, b.numero)) }))
-    .sort((a, b) => cmp(a.name, b.name));
-  const others = partners.filter((p) => p.active !== false && p.typeCode === 'tpm' && !holders.has(p.id))
-    .map((p) => ({ id: p.id, name: p.name, typeCode: p.typeCode }))
-    .sort((a, b) => cmp(a.name, b.name));
-  return { holders: holderList, others };
-}
+const { selectableProviders, activeProviders } = activeProvider;
 
-/** Titulaires actifs d'un contrat de suivi qui couvre le mois (« prestataire actif »). */
-const activeProviders = ({ contracts, partners, month }) => selectableProviders({ contracts, partners, months: [month] }).holders;
-
-/** Un prestataire est-il sélectionnable pour CHAQUE mois ? (titulaire ce mois-là, ou TPM actif). */
+/** Mois de `months` où le prestataire n'est PAS sélectionnable (ni actif ce mois-là, ni TPM actif). */
 function notSelectableMonths(providerId, months, selectable) {
   if (!providerId) return [];
-  if (selectable.others.some((p) => p.id === providerId)) return [];
-  const h = selectable.holders.find((p) => p.id === providerId);
+  const group = (key) => ((selectable.groups || []).find((g) => g.key === key) || { providers: [] }).providers;
+  if (group('tpm').some((p) => p.id === providerId)) return [];
+  const h = group('contrat').find((p) => p.id === providerId);
   return months.filter((m) => !h || !h.months.includes(m));
 }
 
@@ -444,7 +452,7 @@ const VISIT_ERROR_MESSAGES = {
 const visitErrorMessage = (res) => `${VISIT_ERROR_MESSAGES[res.error] || 'Données invalides.'}${res.visit ? ` (${res.visit.siteName} · ${res.visit.month})` : ''}`;
 
 module.exports = {
-  VISIT_ERROR_MESSAGES, visitErrorMessage,
+  VISIT_ERROR_MESSAGES, visitErrorMessage, TPM_LINK_KINDS, tpmsByContract, contractTpms,
   MAX_SPAN_MONTHS, MAX_AREAS, MAX_REGIONS, MAX_CELLS, MAX_VISITS,
   ZONE_STATES, VISIT_ZONE_STATES, DEFAULT_STATES, WITH_PROVIDER, VISIT_SOURCES, COVERING_STATUSES, LOG_ACTIONS,
   contractTpm, isMonitoringContract, contractEndMonth, contractCoversMonth, coveringContracts, coverOf,

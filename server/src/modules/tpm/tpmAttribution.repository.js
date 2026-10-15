@@ -2,8 +2,10 @@ const crypto = require('node:crypto');
 const { siteDistrictCtes, keySql } = require('../common/siteActivitySql');
 const { MONITORING_LINE } = require('../contracts/budgetCatalog');
 const {
-  summarizeRestamp, buildZoneTable, cellForSite, segments, selectableProviders, visitDecision,
+  summarizeRestamp, buildZoneTable, cellForSite, segments, selectableProviders, visitDecision, tpmsByContract,
 } = require('./tpmAttribution');
+// Règle commune « prestataire actif » (lot 8) : liens prestataire ↔ contrat et fiches partenaires.
+const activeProviderRepo = require('./activeProvider.repository');
 
 /**
  * Affectation des TPM par zone (retour 58) — SEUL fichier de ce chantier qui écrit du SQL.
@@ -119,26 +121,21 @@ async function restampVisitsTx(client, tenantId, scope = {}) {
 // ---- Entrées de la règle ------------------------------------------------------------
 const toMonthDate = (m) => `${String(m).slice(0, 7)}-01`;
 
-/** Partenaires du compte avec le code de leur type (« tpm », « prestataire »…). */
-async function partnersTx(client, tenantId) {
-  const { rows } = await client.query(
-    `SELECT p.id, p.name, t.code AS "typeCode", p.active
-       FROM partners p JOIN partner_types t ON t.id = p.partner_type_id AND t.tenant_id = p.tenant_id
-      WHERE p.tenant_id = $1 ORDER BY p.name`, [tenantId]);
-  return rows;
-}
+/** Partenaires du compte avec le code de leur type (« tpm », « prestataire »…) — règle commune (lot 8). */
+const partnersTx = (client, tenantId) => activeProviderRepo.partnersTx(client, tenantId);
 
 /**
  * Entrées de la règle pour une plage de mois : contrats « actif » ou « résilié » qui la
- * chevauchent (avec « contrat de suivi » calculé en SQL et leurs zones : profondeur, chemin et
- * lignée lus dans le découpage), modifications de ces mois (liées et détachées), partenaires.
+ * chevauchent (avec « contrat de suivi » calculé en SQL, leurs zones — profondeur, chemin et
+ * lignée lus dans le découpage — et leurs TPM rattachés), modifications de ces mois (liées et
+ * détachées), partenaires et liens prestataire ↔ contrat de la règle commune (lot 8).
  */
 async function loadInputsTx(client, tenantId, { from, to }) {
   const { rows: contracts } = await client.query(
     `SELECT c.id, c.numero, c.numero_fla AS "numeroFla", c.status, c.partner_id AS "partnerId", COALESCE(p.name, c.partner_name) AS "partnerName",
             c.date_debut AS "dateDebut", c.date_fin AS "dateFin", c.termination_date AS "terminationDate",
             (SELECT COALESCE(sum(b.unit_count * b.unit_cost), 0) FROM contract_budget_items b
-              WHERE b.tenant_id = $1 AND b.contract_id = c.id AND b.line_code = $4) > 0 AS "hasMonitoringBudget"
+              WHERE b.tenant_id = $1 AND b.contract_id = c.id AND b.line_code = $4) > 0 AS monitoring
        FROM contracts c LEFT JOIN partners p ON p.tenant_id = c.tenant_id AND p.id = c.partner_id
       WHERE c.tenant_id = $1 AND c.status IN ('actif', 'resilie')
         AND date_trunc('month', c.date_debut)::date <= $3::date
@@ -155,7 +152,10 @@ async function loadInputsTx(client, tenantId, { from, to }) {
   for (const z of zones) byContract.get(z.contractId).push({ adminAreaId: z.adminAreaId, depth: Number(z.depth), path: z.path, lineage: z.lineage || [] });
   const overrides = await overridesTx(client, tenantId, { from, to });
   const partners = await partnersTx(client, tenantId);
-  return { contracts, overrides, partners };
+  const links = await activeProviderRepo.providerLinksTx(client, tenantId);
+  const tpms = tpmsByContract(links, partners);
+  for (const c of contracts) c.tpms = tpms.get(c.id) || [];
+  return { contracts, overrides, partners, links };
 }
 
 /** Modifications des mois [from, to] (liées et détachées), avec l'auteur de la dernière décision. */
@@ -509,7 +509,7 @@ async function applyVisitRequestTx(client, tenantId, actorId, visitIds, request)
   const visits = await visitsForUpdateTx(client, tenantId, visitIds);
   if (visits.length !== new Set(visitIds).size) return { error: 'visit_unknown' };
   const { table, inputs, months } = await tableForSitesTx(client, tenantId, { zones: visits, months: visits.map((v) => v.month) });
-  const selectable = selectableProviders({ contracts: inputs.contracts, partners: inputs.partners, months });
+  const selectable = selectableProviders({ links: inputs.links, partners: inputs.partners, months });
   const decisions = [];
   for (const v of visits) {
     const cell = cellForSite(v, v.month, table);
