@@ -152,6 +152,21 @@ export default {
   'Libellé': 'Label',
   'Identifiant court, sans espace (ex. pdm).': 'Short identifier, no spaces (e.g. pdm).',
 
+  // Sous-activités (activité › sous-activité › information)
+  'Chaque activité se décline en sous-activités (le « tag » porté par les sites) avec une information libre.': 'Each activity breaks down into sub-activities (the “tag” carried by sites) with free-form information.',
+  'Sous-activités': 'Sub-activities',
+  'Sous-activité': 'Sub-activity',
+  'Afficher les sous-activités': 'Show sub-activities',
+  'Ajouter une sous-activité': 'Add a sub-activity',
+  'Aucune sous-activité. Ajoutez-en une.': 'No sub-activity yet. Add one.',
+  'Code (tag)': 'Code (tag)',
+  'Nouvelle sous-activité': 'New sub-activity',
+  'Modifier la sous-activité': 'Edit sub-activity',
+  'Supprimer la sous-activité « {label} » ?': 'Delete the sub-activity “{label}”?',
+  'Code : lettres/chiffres/tiret, 1 à 60.': 'Code: letters/digits/hyphen, 1 to 60.',
+  'Le « tag » porté par les sites (ex. GD, MAM).': 'The “tag” carried by sites (e.g. GD, MAM).',
+  'Définition ou notes (facultatif).': 'Definition or notes (optional).',
+
   // Paramètres MMR — grille
   'Supprimer « {cat} » du plan général et ses {n} dérogation(s) ?': 'Delete “{cat}” from the general plan and its {n} override(s)?',
   'Supprimer « {cat} » du plan général ?': 'Delete “{cat}” from the general plan?',
