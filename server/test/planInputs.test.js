@@ -10,7 +10,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { assemble, poolCapacity } = require('../src/modules/tpm/planInputs');
-const { fromRow, withOverrides } = require('../src/modules/tpm/planSettings');
+const { fromRow, generatorParams } = require('../src/modules/tpm/planSettings');
+
+/** Paramètres du générateur (réglages internes fixés + stratégie « capacité »). */
+const BASE = { ...generatorParams({ ...fromRow(null), strategy: 'capacite' }), coverageTargetPct: 80 };
 const { U, costUnits, generatePlan } = require('../src/modules/tpm/planGenerator');
 const { fingerprintInputs, changedSections, canonical } = require('../src/modules/tpm/planFingerprint');
 const { checkInvariants } = require('../src/modules/tpm/planInvariants');
@@ -27,7 +30,7 @@ const site = (id, o = {}) => ({
   adm3: 'Commune X', commune: 'Commune X', riskLevel: 'elevee', security: 0, lastVisitDate: null, ...o,
 });
 const raw = (o = {}) => ({ offices, mmr, sites: [site('s1')], grid: [], gridKnown: false, visits: [], lastBefore: [], data: [], ...o });
-const opts = (o = {}) => ({ year: 2027, todayMonth: '2026-10', from: 1, to: 12, settings: fromRow(null), ...o });
+const opts = (o = {}) => ({ year: 2027, todayMonth: '2026-10', from: 1, to: 12, settings: BASE, ...o });
 const one = (a, id = 's1') => a.input.sites.find((s) => s.id === id);
 
 test('dernière visite réelle : la plus récente entre visite réalisée, donnée DU site et date déclarée (avant le 1er mois planifiable)', () => {
@@ -97,7 +100,7 @@ test('pool : dérogation du bureau, sinon du bureau parent, sinon plan général
   assert.equal(info.general, true);
   assert.equal(info.officeName, 'Bureau 1');
   assert.equal(info.sitesRegistry, 2);
-  const common = assemble(raw({ sites }), opts({ settings: withOverrides(fromRow(null), { generalRowMode: 'commune' }) }));
+  const common = assemble(raw({ sites }), opts({ settings: { ...BASE, generalRowMode: 'commune' } }));
   assert.equal(one(common, 's1').poolKey, 'general|school meal activities');
   assert.equal(one(common, 's4').poolKey, 'general|school meal activities');
   assert.equal(one(common, 's3').poolKey, 'b2|school meal activities');

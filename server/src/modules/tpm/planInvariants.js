@@ -11,7 +11,11 @@
  *  4. aucune journée remplie au-delà de 100 % ;
  *  5. jours-personne utilisés ≤ capacité (sauf dépassement SIGNALÉ par des engagements existants) ;
  *  6. intervalle de revisite respecté en arrière et en avant (urgent : écart minimal urgent ;
- *     anticipée : intervalle − anticipation).
+ *     anticipée : intervalle − anticipation) ;
+ *  7. plan selon les besoins (stratégie « besoins », sans plafond de capacité : les contrôles 3
+ *     et 5 ne s'appliquent pas) : au plus les visites RESTANTES exigées par le MMR pour chaque
+ *     site (dues − réalisées ou prévues dans l'exercice), l'écart minimal valant pour tous,
+ *     urgents compris ; jamais dans une commune exclue pour l'accès.
  */
 const { U } = require('./planGenerator');
 
@@ -21,6 +25,7 @@ function checkInvariants(input, result) {
   const v = [];
   const { year, fromMonth } = input;
   const params = { urgentMinGapMonths: 1, anticipationMonths: 0, ...input.params };
+  const needs = params.strategy === 'besoins';
   const sites = new Map((input.sites || []).map((s) => [s.id, s]));
   const pools = input.pools || {};
   const seen = new Set();
@@ -41,6 +46,7 @@ function checkInvariants(input, result) {
     if (!running) v.push({ code: 'ne_tourne_pas', siteId: p.siteId, month: p.month });
     if (c.forbidden) v.push({ code: 'zone_interdite', siteId: p.siteId, month: p.month });
     if (!c.active) v.push({ code: 'inactif', siteId: p.siteId, month: p.month });
+    if (s.excluded) v.push({ code: 'acces', siteId: p.siteId, month: p.month });
     if (p.month < fromMonth) v.push({ code: 'mois_passe', siteId: p.siteId, month: p.month });
     const pm = `${s.poolKey}|${p.month}`;
     byPoolMonth.set(pm, (byPoolMonth.get(pm) || 0) + 1);
@@ -54,6 +60,7 @@ function checkInvariants(input, result) {
       const gen = byPoolMonth.get(`${key}|${mo.month}`) || 0;
       genByPool.set(key, (genByPool.get(key) || 0) + gen);
       if (gen !== c.generated) v.push({ code: 'compte_incoherent', pool: key, month: mo.month, gen, reported: c.generated });
+      if (c.visitsCap == null) continue; // plan selon les besoins : aucun plafond de capacité
       if (gen > Math.max(0, c.visitsCap - c.existing)) v.push({ code: 'capacite_visites', pool: key, month: mo.month, gen, cap: c.visitsCap, existing: c.existing });
       // 5. jours-personne
       if (c.dayCapUnits != null && !c.over && c.dayUsedUnits > c.dayCapUnits) v.push({ code: 'capacite_jours', pool: key, month: mo.month });
@@ -88,7 +95,8 @@ function checkInvariants(input, result) {
     for (const p of list) {
       const at = year * 12 + (p.month - 1);
       let gate;
-      if (p.reason === 'urgent') gate = params.urgentMinGapMonths;
+      if (needs) gate = p.detail.gate;
+      else if (p.reason === 'urgent') gate = params.urgentMinGapMonths;
       else if (p.reason === 'anticipee') gate = Math.max(1, (p.detail.gate || 1) - params.anticipationMonths);
       else gate = p.detail.gate;
       if (!(gate >= 1)) { v.push({ code: 'intervalle_inconnu', siteId, month: p.month }); continue; }
@@ -96,6 +104,12 @@ function checkInvariants(input, result) {
       const after = existing.filter((d) => d > at);
       const bad = before.find((d) => at - d < gate) ?? after.find((d) => d - at < gate);
       if (bad !== undefined) v.push({ code: 'intervalle', siteId, month: p.month, other: bad, gate });
+    }
+    // 7. au plus les visites restantes exigées par le MMR (fréquence = visites par site sur l'exercice)
+    if (needs) {
+      const done = s.months.filter((c, i) => c.st === 'realise' || (c.st === 'planifie' && i + 1 >= fromMonth)).length;
+      const required = Math.round(Number(pool.frequency) || 0);
+      if (list.length > Math.max(0, required - done)) v.push({ code: 'au_dela_exigence', siteId, n: list.length, required, done });
     }
   }
   return v;

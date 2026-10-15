@@ -43,6 +43,51 @@
 .ap-rules li svg { color: var(--text-faint); flex: none; position: relative; top: 2px; }
 .ap-foot-spacer { flex: 1; }
 
+/* Stratégie : deux choix, une phrase chacun (retour 108) */
+.ap-strategies, .ps-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ap-strategy { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); cursor: pointer; }
+.ap-strategy:hover { border-color: var(--blue-500); }
+.ap-strategy.is-on { border-color: var(--blue-500); background: var(--blue-50); box-shadow: inset 0 0 0 1px var(--blue-500); }
+.ap-strategy.is-disabled { cursor: default; }
+.ap-strategy input { margin: 3px 0 0; accent-color: var(--blue-600); flex: none; }
+.ap-strategy-text { display: grid; gap: 4px; }
+.ap-strategy-label { font-weight: 600; color: var(--text-strong); font-size: 13.5px; }
+.ap-strategy.is-on .ap-strategy-label { color: var(--blue-700); }
+.ap-strategy-help { font-size: 12.5px; color: var(--text-muted); line-height: 1.4; }
+.ap-default { font-weight: 500; color: var(--text-muted); }
+
+/* Ce que MEMS reprend (lecture seule) */
+.ap-known { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.ap-known li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; font-size: 13px; color: var(--text); padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-2); }
+.ap-known li > svg { color: var(--text-muted); margin-top: 2px; }
+.ap-known-text { line-height: 1.45; }
+.ap-known-text strong { color: var(--text-strong); }
+.ap-known-src { display: inline-block; margin-left: 8px; font-size: 11.5px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; background: var(--surface); }
+.ap-known li .ap-link, .ap-known li .ps-open { white-space: nowrap; }
+
+/* Ajustements (avancé) : communes exclues */
+.ap-adjust { display: grid; gap: 14px; }
+.ap-communes { display: grid; gap: 8px; }
+.ap-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.ap-chip-x { border: 0; background: none; padding: 0 0 0 4px; cursor: pointer; color: inherit; display: inline-flex; vertical-align: middle; }
+.ap-search { display: flex; align-items: center; gap: 8px; max-width: 360px; }
+.ap-search svg { color: var(--text-muted); flex: none; }
+.ap-commune-list { margin: 0; padding: 6px 10px; list-style: none; max-height: 190px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); display: grid; gap: 2px; font-size: 13px; }
+
+/* Aperçu : synthèse des besoins (cœur de l'aperçu) */
+.ap-statement { padding: 14px 16px; border-radius: var(--radius); background: var(--blue-50); border: 1px solid var(--blue-100); color: var(--text-strong); font-size: 13.5px; line-height: 1.55; display: grid; gap: 6px; }
+.ap-statement p { margin: 0; }
+.ap-gaps { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.ap-gaps li { display: flex; gap: 8px; align-items: baseline; color: var(--red-text); font-weight: 600; }
+.ap-gaps li svg { flex: none; position: relative; top: 2px; }
+.ap-row-gap td { background: var(--red-bg); }
+.ap-table .badge { margin-left: 6px; }
+.ap-src { color: var(--orange-text); font-weight: 700; }
+.ap-zones { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; font-size: 12.5px; }
+.ap-zones li { display: grid; gap: 2px; }
+.ap-zone-head { display: inline-flex; align-items: center; gap: 6px; color: var(--text-strong); font-weight: 600; }
+.ap-zone-communes { color: var(--text-muted); padding-left: 19px; }
+
 /* ---- Panneau : aperçu ------------------------------------------------------------------ */
 .ap-preview { display: grid; gap: 16px; }
 .ap-period-line { margin: 0; display: flex; align-items: center; gap: 8px; color: var(--text-strong); font-weight: 600; }
@@ -116,6 +161,8 @@
 .ps-card .card-body { display: grid; gap: 16px; }
 .ps-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; }
 .ps-item { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.ps-item.is-wide { grid-column: 1 / -1; }
+.ps-known li { background: var(--surface-2); }
 .ps-item.is-changed { border-color: var(--orange); box-shadow: inset 3px 0 0 var(--orange); }
 .ps-item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ps-item-label { font-weight: 600; color: var(--text-strong); font-size: 13.5px; }
@@ -124,11 +171,25 @@
 .ps-help { font-size: 12px; color: var(--text-muted); }
 .ps-default { font-size: 11.5px; color: var(--text-faint); }
 .ps-readonly { background: var(--surface-2); }
-.ps-actions { display: flex; gap: 10px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.ps-actions { display: flex; gap: 10px; align-items: center; justify-content: flex-end; flex-wrap: wrap; padding-top: 4px; border-top: 1px solid var(--border); }
 .ps-meta { margin-right: auto; color: var(--text-muted); font-size: 12.5px; }
+.ps-group { display: grid; gap: 10px; }
+.ps-item-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ps-unsaved { font-size: 11.5px; color: var(--blue-700); font-weight: 600; }
+.ps-legend { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); }
+.ps-legend-changed { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; }
+.ps-source.is-classeur { color: var(--green-text); background: var(--green-bg); border-color: transparent; }
+.ps-source.is-retour { color: var(--blue-700); background: var(--blue-50); border-color: transparent; }
+.ps-freq { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text); display: grid; gap: 2px; }
+.ps-open { margin-left: 0; justify-self: start; display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; }
+.ps-bool { font-size: 13px; }
+.ps-help svg { vertical-align: -2px; }
+.ap-level.is-disabled { cursor: default; opacity: 0.85; }
 
 @media (max-width: 900px) {
   .ap-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ap-grid3, .ap-grid2, .ps-grid, .ap-period { grid-template-columns: minmax(0, 1fr); }
+  .ap-grid3, .ap-grid2, .ps-grid, .ap-period, .ap-strategies, .ps-choices { grid-template-columns: minmax(0, 1fr); }
+  .ap-known li { grid-template-columns: auto minmax(0, 1fr); }
+  .ap-known li .ap-link, .ap-known li .ps-open { grid-column: 2; }
   .ap-reason-list li, .ap-props li { grid-template-columns: minmax(0, 1fr); }
 }

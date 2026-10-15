@@ -55,9 +55,10 @@ const RISK_RANK = { elevee: 3, moyenne: 2, faible: 1 };
  * Codes de report, du plus « actionnable » au moins : la raison principale d'un site non
  * planifié est le premier rencontré dans cet ordre sur l'horizon.
  */
-const POSTPONE_ORDER = ['capacite_visites', 'capacite_jours', 'capacite_exercice', 'quota_couverture', 'intervalle',
-  'deja_couvert', 'non_du', 'hors_calendrier', 'inactif', 'zone_interdite', 'annulee', 'sans_mmr'];
-const WHY = ['urgent', 'du', 'meme_lieu', 'meme_commune', 'meme_district', 'couverture', 'anticipee'];
+const POSTPONE_ORDER = ['capacite_visites', 'capacite_jours', 'capacite_exercice', 'quota_couverture', 'plus_tard', 'intervalle',
+  'deja_couvert', 'besoin_couvert', 'non_du', 'acces', 'hors_calendrier', 'inactif', 'zone_interdite', 'annulee', 'sans_mmr'];
+/** Pourquoi une visite est proposée (les deux stratégies ; « echeance » : plan selon les besoins). */
+const WHY = ['urgent', 'echeance', 'du', 'meme_lieu', 'meme_commune', 'meme_district', 'couverture', 'anticipee'];
 /** Codes « durs » pour le mois : inutile de réessayer le site ce mois-là. */
 const HARD = new Set(['capacite_visites', 'capacite_exercice', 'quota_couverture']);
 
@@ -206,7 +207,7 @@ function generatePlan(input) {
         if (!force && ps.dayCap != null && ps.dayUsed + need > ps.dayCap) return { fail: 'capacite_jours' };
         const t = tourOf(s, true);
         const stop = stopOf(t, s, true);
-        day = { used: 0, span, pool: pool.key, visits: [], generatedOpen: !force };
+        day = { used: 0, span, pool: pool.key, visits: [], todo: [], generatedOpen: !force };
         stop.days.push(day);
         ps.toursCharged.add(t.key);
         ps.dayUsed += need;
@@ -231,7 +232,8 @@ function generatePlan(input) {
       e.urgentUsed = true; // une visite au plan sur l'horizon : l'écart urgent ne s'applique plus
       const pool = pools[s.poolKey];
       if (pool && mp[pool.key]) {
-        place(s, pool, { force: true });
+        const r0 = place(s, pool, { force: true });
+        if (c.st === 'planifie' && r0.day) r0.day.todo.push(s.id); // à faire : appelle des ressources
         mp[pool.key].existing += 1; poolState[pool.key].existing += 1;
       }
     }
@@ -249,6 +251,7 @@ function generatePlan(input) {
       if (!runningAt(pool, M)) { code('hors_calendrier'); continue; }
       if (c.forbidden) { code('zone_interdite'); continue; }
       if (!c.active) { code('inactif'); continue; }
+      if (s.excluded) { code('acces'); continue; } // commune exclue pour l'accès (exception du mois)
       if (c.st === 'annule') { code('annulee'); continue; }
       const since = e.last ? monthIdx(mStr) - monthIdx(e.last) : null;
       const next = nextExisting(s, M);
@@ -310,6 +313,7 @@ function generatePlan(input) {
       const r = place(c.site, c.pool, { tier: c.tier });
       if (r.fail) { if (!c.fail || !HARD.has(c.fail)) c.fail = r.fail; return false; }
       c.done = true; c.day = r.day; c.placedWhy = why; c.anchor = anchor ? anchor.site.id : null;
+      r.day.todo.push(c.site.id);
       const ps = mp[c.pool.key];
       ps.generated += 1; poolState[c.pool.key].generated += 1;
       if (c.tier === 3) ps.coverageGenerated += 1;
@@ -355,7 +359,7 @@ function generatePlan(input) {
         const t = tourOf(c.site, false); const stop = t ? stopOf(t, c.site, false) : null;
         const day = stop && stop.days.find((d) => d.span === 1 && d.used + c.pool.costUnits <= U && (params.multiActivityDays || d.pool === c.pool.key));
         if (!day) continue;
-        day.used += c.pool.costUnits; day.visits.push(c.site.id);
+        day.used += c.pool.costUnits; day.visits.push(c.site.id); day.todo.push(c.site.id);
         ps.used += 1; ps.yearLeft -= 1; poolState[c.pool.key].usedYear += 1;
         ps.generated += 1; poolState[c.pool.key].generated += 1;
         Object.assign(c, { done: true, day, placedWhy: 'anticipee', why: 'anticipee', level: c.level || null });
@@ -402,7 +406,7 @@ function generatePlan(input) {
       month: M, capacity,
       tours: tourList.map((t) => ({
         no: tourNo.get(t.key), district: t.key,
-        stops: [...t.stops.values()].map((sp) => ({ key: sp.key, days: sp.days.map((d) => ({ no: d.no, span: d.span, pool: d.pool, used: d.used, visits: d.visits })) })),
+        stops: [...t.stops.values()].map((sp) => ({ key: sp.key, days: sp.days.map((d) => ({ no: d.no, span: d.span, pool: d.pool, used: d.used, visits: d.visits, todo: d.todo })) })),
       })),
     });
   }

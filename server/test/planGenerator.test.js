@@ -1,5 +1,8 @@
 /**
- * Générateur de plan réaliste (lot 5, § 7) — module pur. Chaque scénario vérifie aussi les
+ * Générateur de plan LIMITÉ À LA CAPACITÉ (lot 5, § 7 ; stratégie « capacite » depuis les
+ * retours 107 et 108 — le plan selon les besoins est testé dans planNeeds.test.js) — module pur.
+ * Les réglages internes (planSettings.FIXED) restent des paramètres du générateur : les
+ * scénarios les font varier directement. Chaque scénario vérifie aussi les
  * invariants (planInvariants, recalcul indépendant) : ≤ 1 visite par site × mois, jamais sur
  * un garde-fou, capacité de visites et de jours-personne, journée ≤ 100 %, intervalle de
  * revisite. Puis jeux synthétiques à graine fixe : invariants, déterminisme et indépendance
@@ -8,7 +11,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { generatePlan, costUnits, mainReason, U } = require('../src/modules/tpm/planGenerator');
-const { effectiveInterval, fromRow, withOverrides } = require('../src/modules/tpm/planSettings');
+const { effectiveInterval, fromRow, generatorParams } = require('../src/modules/tpm/planSettings');
+
+/** Paramètres du générateur « capacité » ; part de couverture 80 % comme les scénarios d'origine. */
+const BASE = { ...generatorParams({ ...fromRow(null), strategy: 'capacite' }), coverageTargetPct: 80 };
 const { checkInvariants } = require('../src/modules/tpm/planInvariants');
 const { fingerprintResult } = require('../src/modules/tpm/planFingerprint');
 const { assemble } = require('../src/modules/tpm/planInputs');
@@ -33,7 +39,7 @@ function pool(o = {}) {
   };
 }
 function run(sites, pools, params = {}, { from = 1, to = 12 } = {}) {
-  const input = { year: 2027, fromMonth: from, toMonth: to, sites, pools: Object.fromEntries([].concat(pools).map((p) => [p.key, p])), params: { ...fromRow(null), ...params } };
+  const input = { year: 2027, fromMonth: from, toMonth: to, sites, pools: Object.fromEntries([].concat(pools).map((p) => [p.key, p])), params: { ...BASE, ...params } };
   const r = generatePlan(input);
   assert.deepEqual(checkInvariants(input, r), [], 'invariants');
   return { input, r, at: (id, m) => r.proposals.find((p) => p.siteId === id && (m == null || p.month === m)), code: (id, m) => r.sites.find((s) => s.siteId === id).codes[m] };
@@ -294,7 +300,7 @@ test('jeux synthétiques : 0 violation d\'invariant, déterministe, indépendant
   let total = 0;
   VARIANTS.forEach((v, i) => {
     const raw = synthRaw({ n: 400 + i * 50, seed: 7 + i, year: 2027, gridShare: i % 2, persons: i % 3 === 0 });
-    const settings = withOverrides(fromRow(null), v);
+    const settings = { ...BASE, ...v };
     const a = assemble(raw, { year: 2027, todayMonth: '2026-10', from: 1, to: 12, settings, scope: i === 4 ? { district: 'District 3' } : {} });
     const r1 = generatePlan(a.input);
     assert.deepEqual(checkInvariants(a.input, r1), [], `invariants, variante ${i}`);
@@ -310,7 +316,7 @@ test('jeux synthétiques : 0 violation d\'invariant, déterministe, indépendant
 
 test('jeu synthétique : mois courant au milieu de l\'exercice — rien avant, engagements existants respectés', () => {
   const raw = synthRaw({ n: 600, seed: 3, year: 2026, gridShare: 1 });
-  const a = assemble(raw, { year: 2026, todayMonth: '2026-10', from: 1, to: 12, settings: fromRow(null) });
+  const a = assemble(raw, { year: 2026, todayMonth: '2026-10', from: 1, to: 12, settings: BASE });
   assert.equal(a.input.fromMonth, 10);
   const r = generatePlan(a.input);
   assert.deepEqual(checkInvariants(a.input, r), []);

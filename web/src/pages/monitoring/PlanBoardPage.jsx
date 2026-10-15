@@ -14,7 +14,7 @@ import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, formatLocale, monthLabel } from '../../lib/format.js';
 import { applyPending, boardKpis, isActiveMonth, monthTotals, pendingKey, rateTone, visitRate } from '../../lib/planBoard.js';
-import { keptProposals, mergePending, proposalText } from '../../lib/planGen.js';
+import { communeChoices, keptProposals, mergePending, proposalText } from '../../lib/planGen.js';
 import AutoPlanDrawer from './AutoPlanDrawer.jsx';
 import './planBoard.css';
 
@@ -160,7 +160,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
     setAutoRun({ body, fingerprint: result.fingerprint, sections: result.sections, sites: result.sites, total: result.proposals.length });
     setOnlyProposed(true); setView('plan'); setPage(1); setAutoOpen(false);
   }
-  const proposalTitle = (p) => `${tr('Proposé')} · ${tr('tournée {t}, journée {d}', { t: p.tour, d: p.day })} · ${proposalText(p, tr, (id) => (autoRun?.sites?.[id] || {}).name || null)}`;
+  const proposalTitle = (p) => `${tr('Proposé')} · ${tr('tournée {t}', { t: p.tour })} · ${proposalText(p, tr, (id) => (autoRun?.sites?.[id] || {}).name || null)}`;
 
   const toggleSel = (id) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const allSelected = rows.length > 0 && rows.every((s) => selected.has(s.id));
@@ -301,7 +301,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
         )}
       </>}
 
-      {autoOpen && data && <AutoPlanDrawer year={year} activities={refs.activities} districts={options.districts}
+      {autoOpen && data && <AutoPlanDrawer year={year} activities={refs.activities} districts={options.districts} communes={communeChoices(data.sites || [])}
         onClose={() => setAutoOpen(false)} onShowInGrid={showProposals}
         onApplied={async () => { setAutoOpen(false); setPending({}); clearProposals(); await load(); }} />}
       {modal === 'bulk' && <BulkModal year={year} siteIds={[...selected]} refs={refs} onClose={() => setModal(null)}

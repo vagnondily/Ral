@@ -11,10 +11,12 @@
  *    tableaux de bord, le Plan de suivi et « Générer ») : jamais en zone interdite ; si l'année a
  *    une grille (au moins un statut), seulement sur un « Oui » explicite — une case vide n'est pas
  *    planifiée, et l'aperçu dit combien de sites sont dans ce cas ; sans grille, tout le registre.
- *  - Pool (capacité) = ligne MMR effective : dérogation du bureau du site, sinon de son
- *    bureau parent, sinon le plan général (même recherche que le Plan de suivi). Une ligne du
- *    plan général est, par défaut, un MODÈLE appliqué à chaque bureau (capacité par bureau
- *    racine) ; le paramètre generalRowMode = 'commune' en fait une capacité unique.
+ *  - Pool (exigence et capacité) = ligne MMR effective : dérogation du bureau du site, sinon
+ *    de son bureau parent, sinon le plan général (même recherche que le Plan de suivi). Une
+ *    ligne du plan général est un MODÈLE appliqué à chaque bureau (une capacité par bureau
+ *    racine ; réglage fixé, planSettings.FIXED.generalRowMode).
+ *  - Communes exclues pour l'accès (exception d'un aperçu, saison des pluies) : leurs sites ne
+ *    sont jamais planifiés dans ce plan (raison « acces ») ; l'aperçu dit combien.
  *  - Nombre de sites d'un pool = sites ÉLIGIBLES du registre (actifs au moins un mois de
  *    l'exercice, hors zone interdite) ; un écart > 10 % avec le nombre saisi au MMR est signalé.
  *  - Sans calendrier d'activité (lot 5 § 3, à venir) : l'activité peut être suivie chaque
@@ -84,6 +86,7 @@ function mmrIndex(rows = []) {
 /** Capacités entières d'un pool (visites / mois, exercice, unités de journées-personne). */
 function poolCapacity(row, { marginPct, defaultVpd, eligible, objective, runningMonths }) {
   const derived = deriveMmr({ ...row, numberOfSites: eligible });
+  // (exigence du MMR : visites par site = fréquence, sites par mois = sites ÷ intervalle)
   const interval = effectiveInterval({ ...row, numberOfSites: eligible }, objective);
   const feasible = derived.feasible;
   const visitsCap = feasible == null ? 0 : Math.floor((Math.round(Number(feasible) * 100) * marginPct) / 10000);
@@ -107,7 +110,7 @@ function poolCapacity(row, { marginPct, defaultVpd, eligible, objective, running
     derived, interval, feasible, feasibleSource: derived.feasibleSource, visitsCap,
     yearCap: interval.running ? visitsCap * months : 0,
     vpd, vpdSource: rowVpd ? 'mmr' : 'defaut', costUnits: cost, persons, workingDays, dayCapUnits, capacityMode,
-    frequency: derived.frequency,
+    frequency: derived.frequency, targetedPerMonth: derived.targetedPerMonth,
   };
 }
 
@@ -121,6 +124,9 @@ function assemble(raw, opts) {
   const { year, todayMonth, settings } = opts;
   const objective = opts.objective || settings.objective;
   const scope = opts.scope || {};
+  // Communes exclues pour l'accès : clé « district|commune » normalisée, comme communeKey.
+  const excludedKeys = new Set(((opts.adjust || {}).excludedCommunes || [])
+    .map((c) => `${districtKey(c.district) || '—'}|${districtKey(c.commune) || '—'}`));
   const [ty, tm] = String(todayMonth).split('-').map(Number);
   // Premier mois planifiable : jamais avant le mois courant (un plan ne se fait pas au passé).
   const current = ty * 12 + tm;
@@ -177,7 +183,7 @@ function assemble(raw, opts) {
     const inScope = (!scope.officeId || ancestors.includes(scope.officeId))
       && (!scope.activity || norm(scope.activity) === norm(s.activity))
       && (!scope.district || districtKey(scope.district) === d.key);
-    return { s, row, months, d, communeName, communeKey, lastReal, lastSource, u, inScope };
+    return { s, row, months, d, communeName, communeKey, lastReal, lastSource, u, inScope, excluded: excludedKeys.has(communeKey) };
   });
 
   // Pools : clé = (bureau de la dérogation | bureau racine du site pour un modèle général) × activité.
@@ -206,7 +212,7 @@ function assemble(raw, opts) {
     const officeId = row.fieldOfficeId || (key.startsWith('general|') || key.startsWith('-|') ? null : key.split('|')[0]);
     pools[key] = {
       key, interval: cap.interval, runningMonths, visitsCap: cap.visitsCap, yearCap: cap.yearCap, costUnits: cap.costUnits,
-      dayCapUnits: cap.dayCapUnits, frequency: cap.frequency, workingDays: cap.workingDays, vpd: cap.vpd,
+      dayCapUnits: cap.dayCapUnits, frequency: cap.frequency, targetedPerMonth: cap.targetedPerMonth, workingDays: cap.workingDays, vpd: cap.vpd,
     };
     const typed = Number(row.numberOfSites) || 0;
     poolInfo.push({
@@ -219,6 +225,8 @@ function assemble(raw, opts) {
       gateCoverage: cap.interval.coverage, interval: cap.interval.interval, adjustedInterval: cap.interval.adjustedInterval,
       coverageRatio: cap.interval.coverageRatio, calendar: runningMonths ? 'calendrier' : 'duree',
       sitesRegistry: eligibleAll, sitesTyped: typed,
+      perSite: cap.interval.running ? Math.round(Number(cap.frequency) || 0) : 0, gap: cap.interval.coverage,
+      targetedPerMonth: cap.targetedPerMonth, inScope: poolSites.get(key).some((p) => p.inScope),
     });
   }
   // Nombre de sites saisi au MMR ↔ registre : par LIGNE MMR (une ligne du plan général servant de
@@ -239,7 +247,7 @@ function assemble(raw, opts) {
     id: p.s.id, code: p.s.code || p.s.id, inScope: p.inScope, poolKey: p.poolKey,
     districtKey: p.d.key, communeKey: p.communeKey, placeKey: `${p.communeKey}|${districtKey(p.s.name) || p.s.id}`,
     risk: p.s.riskLevel || 'moyenne', urgent: p.u.urgent, urgentSignals: p.u.signals, finalScore: p.u.finalScore,
-    lastReal: p.lastReal, months: p.months,
+    lastReal: p.lastReal, months: p.months, excluded: p.excluded || undefined,
   }));
   // Ce qui est montré à l'écran pour chaque site (noms, lieux) : séparé des entrées du calcul.
   const siteInfo = new Map(pre.map((p) => [p.s.id, {
@@ -247,8 +255,21 @@ function assemble(raw, opts) {
     district: p.d.name, commune: p.communeName, poolKey: p.poolKey, lastReal: p.lastReal, lastSource: p.lastSource,
   }]));
   const warnings = [];
-  const noPool = pre.filter((p) => p.inScope && !p.poolKey).length;
-  if (noPool) warnings.push({ code: 'sans_mmr', count: noPool });
+  const noPool = pre.filter((p) => p.inScope && !p.poolKey);
+  if (noPool.length) {
+    // Activités sans ligne MMR : « à paramétrer » (l'écran renvoie vers Exigences).
+    const acts = [...new Set(noPool.map((p) => String(p.s.activity || '').trim() || '—'))].sort((a, b) => a.localeCompare(b, 'fr'));
+    warnings.push({ code: 'sans_mmr', count: noPool.length, activities: acts.slice(0, 20) });
+  }
+  const inScopeInfo = poolInfo.filter((pi) => pi.inScope);
+  const vpdDefault = inScopeInfo.filter((pi) => pi.vpdSource === 'defaut' && pi.mode !== 'non_planifiable');
+  if (vpdDefault.length) warnings.push({ code: 'vpd_defaut', pools: vpdDefault.map((pi) => pi.key), activities: [...new Set(vpdDefault.map((pi) => pi.activity))] });
+  const wdDefault = inScopeInfo.filter((pi) => !pi.workingDays && pi.mode !== 'non_planifiable');
+  if (wdDefault.length) warnings.push({ code: 'jours_defaut', pools: wdDefault.map((pi) => pi.key), activities: [...new Set(wdDefault.map((pi) => pi.activity))] });
+  if (excludedKeys.size) {
+    const hit = pre.filter((p) => p.inScope && p.excluded);
+    warnings.push({ code: 'communes_exclues', communes: excludedKeys.size, matched: new Set(hit.map((p) => p.communeKey)).size, sites: hit.length });
+  }
   for (const [k, r] of perRow) {
     if (r.pools[0].sitesGap) warnings.push({ code: 'mmr_sites_ecart', mmrId: k, pools: r.pools.map((p) => p.key), activity: r.activity, officeId: r.officeId, typed: r.typed, registry: r.registry });
   }

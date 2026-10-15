@@ -27,26 +27,22 @@ function body(schema) {
 }
 
 const int = (lo, hi) => z.number().int().min(lo).max(hi);
+// Seuls paramètres du compte (retours 107 et 108) : tout le reste vient du MMR, du RBM et des contrats.
 const settingsSchema = z.object({
   revision: z.number().int().min(0),
-  objective: z.enum(S.OBJECTIVES),
-  coverageTargetPct: int(...S.BOUNDS.coverageTargetPct),
-  levels: z.array(z.enum(S.LEVELS)).min(1).max(3).refine((l) => new Set(l).size === l.length, 'Niveaux en double.'),
-  coverageCatchUp: z.boolean(),
-  dayGrouping: z.enum(S.DAY_GROUPINGS),
-  fillDistrict: z.boolean(),
-  multiActivityDays: z.boolean(),
-  capacityMarginPct: int(...S.BOUNDS.capacityMarginPct),
-  travelDaysPerTour: int(...S.BOUNDS.travelDaysPerTour),
-  urgentMinGapMonths: int(...S.BOUNDS.urgentMinGapMonths),
-  anticipationMonths: int(...S.BOUNDS.anticipationMonths),
-  defaultVisitsPerDay: z.number().min(S.BOUNDS.defaultVisitsPerDay[0]).max(S.BOUNDS.defaultVisitsPerDay[1])
-    .refine((v) => Number.isInteger(v * 2), 'Par pas de 0,5.'),
-  generalRowMode: z.enum(S.GENERAL_ROW_MODES),
-  minMonthsSinceVisit: int(...S.BOUNDS.minMonthsSinceVisit),
+  strategy: z.enum(S.STRATEGIES),
+  agentsPerVehicle: int(...S.BOUNDS.agentsPerVehicle),
+  fieldDaysPerMonth: int(...S.BOUNDS.fieldDaysPerMonth),
 }).strict();
-// Critères ajustés pour UN aperçu (jamais enregistrés) : mêmes bornes que les paramètres.
+// Choix changés pour UN aperçu (jamais enregistrés) : mêmes bornes que les paramètres.
 const overridesSchema = settingsSchema.omit({ revision: true }).partial().strict();
+// Exceptions du mois : communes inaccessibles (saison des pluies, route coupée).
+const adjustSchema = z.object({
+  excludedCommunes: z.array(z.object({
+    district: z.string().trim().max(120).optional().default(''),
+    commune: z.string().trim().min(1).max(160),
+  }).strict()).max(S.ADJUST_BOUNDS.excludedCommunes[1]).optional().default([]),
+}).strict();
 
 const month = int(1, 12);
 const optText = (max) => z.string().trim().max(max).optional().nullable().transform((v) => v || null);
@@ -58,6 +54,7 @@ const previewSchema = z.object({
   activity: optText(160),
   district: optText(120),
   params: overridesSchema.optional().default({}),
+  adjust: adjustSchema.optional().default({}),
 }).strict().refine((b) => b.from <= b.to, { message: 'Le mois de début est après le mois de fin.', path: ['from'] });
 
 const hex64 = z.string().regex(/^[0-9a-f]{64}$/);
@@ -70,6 +67,7 @@ const applySchema = z.object({
   activity: optText(160),
   district: optText(120),
   params: overridesSchema.optional().default({}),
+  adjust: adjustSchema.optional().default({}),
   fingerprint: hex64,
   sections: z.record(z.string().max(20), hex64).optional().default({}),
   keep: z.array(cell).min(1).max(5000),

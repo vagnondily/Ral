@@ -1,13 +1,15 @@
 -- MEMS 2.0 — Lot 5, § 7 : traçabilité du plan généré automatiquement. Migration 078.
 --
 -- 1. plan_runs : une ligne par plan APPLIQUÉ (« Appliquer » du panneau « Planifier
---    automatiquement ») — qui, quand, horizon, objectif, périmètre, paramètres et valeurs
---    MMR utilisés (copie), empreinte des entrées, résumé. Les aperçus ne sont PAS stockés :
+--    automatiquement ») — qui, quand, horizon, stratégie (besoins | capacite), périmètre,
+--    paramètres et valeurs MMR utilisés (copie), empreinte des entrées, résumé, ressources
+--    nécessaires calculées (agents, véhicules : `needs`). Les aperçus ne sont PAS stockés :
 --    le générateur est pur et déterministe, il est relancé à l'application sous les verrous
 --    des mois et l'empreinte des entrées est comparée (409 si les données ont changé).
 -- 2. site_visits : pourquoi chaque visite générée a été choisie (code + paramètres, rendus
---    en FR / EN à l'écran — jamais un texte figé), et sa tournée / journée dans le mois.
---    Le prestataire (provider_id) n'est JAMAIS choisi par le générateur (retour 58 : la
+--    en FR / EN à l'écran — jamais un texte figé), sa tournée et son jour de terrain dans le
+--    mois (plan_tour, plan_day) ; le rôle générique (agent) et la date (visit_date) existent
+--    déjà. Le prestataire (provider_id) n'est JAMAIS choisi par le générateur (retour 58 : la
 --    base l'estampille d'après les contrats).
 CREATE TABLE IF NOT EXISTS plan_runs (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -15,11 +17,12 @@ CREATE TABLE IF NOT EXISTS plan_runs (
   year            integer  NOT NULL CHECK (year BETWEEN 2000 AND 2100),
   from_month      smallint NOT NULL CHECK (from_month BETWEEN 1 AND 12),
   to_month        smallint NOT NULL CHECK (to_month BETWEEN 1 AND 12),
-  objective       text     NOT NULL CHECK (objective IN ('auto', 'mmr_complet', 'couverture')),
+  strategy        text     NOT NULL CHECK (strategy IN ('besoins', 'capacite')),
   scope           jsonb    NOT NULL DEFAULT '{}'::jsonb CHECK (pg_column_size(scope) <= 4096),
-  params          jsonb    NOT NULL CHECK (pg_column_size(params) <= 16384),
+  params          jsonb    NOT NULL CHECK (pg_column_size(params) <= 65536),
   pools           jsonb    NOT NULL CHECK (pg_column_size(pools) <= 262144),
   summary         jsonb    NOT NULL CHECK (pg_column_size(summary) <= 262144),
+  needs           jsonb    NOT NULL DEFAULT '{}'::jsonb CHECK (pg_column_size(needs) <= 262144),
   fingerprint     text     NOT NULL CHECK (fingerprint ~ '^[0-9a-f]{64}$'),
   proposed        integer  NOT NULL CHECK (proposed >= 0),
   kept            integer  NOT NULL CHECK (kept >= 0 AND kept <= proposed),
@@ -59,7 +62,7 @@ ALTER TABLE site_visits
   ADD COLUMN IF NOT EXISTS plan_day    smallint;
 ALTER TABLE site_visits DROP CONSTRAINT IF EXISTS site_visits_plan_why_check;
 ALTER TABLE site_visits ADD CONSTRAINT site_visits_plan_why_check
-  CHECK (plan_why IS NULL OR plan_why IN ('urgent', 'du', 'meme_lieu', 'meme_commune', 'meme_district', 'couverture', 'anticipee'));
+  CHECK (plan_why IS NULL OR plan_why IN ('urgent', 'echeance', 'du', 'meme_lieu', 'meme_commune', 'meme_district', 'couverture', 'anticipee'));
 ALTER TABLE site_visits DROP CONSTRAINT IF EXISTS site_visits_plan_detail_check;
 ALTER TABLE site_visits ADD CONSTRAINT site_visits_plan_detail_check
   CHECK (plan_detail IS NULL OR (jsonb_typeof(plan_detail) = 'object' AND pg_column_size(plan_detail) <= 2048));

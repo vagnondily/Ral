@@ -1,153 +1,152 @@
 /**
- * Paramètres de la planification automatique (lot 5, § 6 « Paramètres du plan ») —
- * logique PURE, testée (test/planSettings.test.js).
+ * Paramètres de la planification automatique (lot 5, § 6 ; regard S&E, retours 107 et 108,
+ * SPEC_LOT_5 § 6.4) — logique PURE, testée (test/planSettings.test.js).
  *
- * Deux niveaux, une seule saisie chacun :
- *  - PAR ACTIVITÉ (durée, nombre de sites, risque, faisable, personnes, suivis/jour,
- *    jours ouvrés) : la grille MMR (Exigences), inchangée ;
- *  - GLOBAUX (ce module) : table plan_settings, une ligne par compte (migration 077).
- *    Sans ligne, les DEFAULTS ci-dessous s'appliquent ; la migration en recopie les
- *    valeurs (un test statique compare les deux).
+ * Le plan part des BESOINS du MMR : ce que MEMS sait déjà n'est jamais redemandé —
+ * univers (grille Sites actifs / inactifs, règle unique), exigence (MMR par bureau ×
+ * activité : écart minimal, visites par site, sites par mois, période), suivis par jour et
+ * jours ouvrés (MMR), ordre de priorité (RBM), prestataire (contrat de la zone).
  *
- * Chaque valeur initiale dit d'où elle vient (SOURCES) : classeur RBM (cellule), retour
- * de l'utilisateur, ou choix MEMS — l'écran l'affiche en puce.
+ * Le compte ne règle que ce qui n'existe nulle part ailleurs (table plan_settings, une ligne
+ * par compte, migration 077 ; sans ligne, les DEFAULTS — un test statique compare les deux) :
+ *   - la stratégie : « besoins » (défaut : le plan suit le MMR et calcule les agents et
+ *     véhicules nécessaires) ou « capacite » (le plan reste dans la capacité déclarée) ;
+ *   - les agents par véhicule (pour compter les véhicules) ;
+ *   - les jours de terrain par agent et par mois, utilisés SEULEMENT si le MMR ne les donne pas.
+ * Un aperçu peut changer ces choix pour lui seul et noter les communes inaccessibles (ADJUST).
+ * Les anciens réglages internes de l'algorithme sont FIXÉS (FIXED), dits dans les notes de calcul.
  *
- * `effectiveInterval` est LA définition de l'intervalle de revisite du plan (une seule,
- * partagée avec le générateur ; les règles de priorité du § 5 la liront aussi).
+ * `effectiveInterval` reste LA définition de l'intervalle de revisite d'une activité.
  */
 const { deriveMmr } = require('./mmrMath');
 
-const OBJECTIVES = ['auto', 'mmr_complet', 'couverture'];
-const LEVELS = ['haute', 'moyenne', 'basse'];
-const DAY_GROUPINGS = ['lieu', 'commune', 'district'];
-const GENERAL_ROW_MODES = ['par_bureau', 'commune'];
+const STRATEGIES = ['besoins', 'capacite'];
 
 const DEFAULTS = Object.freeze({
-  objective: 'auto',
-  coverageTargetPct: 80,
-  levels: Object.freeze(['haute', 'moyenne', 'basse']),
-  coverageCatchUp: true,
-  dayGrouping: 'commune',
-  fillDistrict: true,
-  multiActivityDays: true,
-  capacityMarginPct: 100,
-  travelDaysPerTour: 0,
-  urgentMinGapMonths: 1,
-  anticipationMonths: 0,
-  defaultVisitsPerDay: 1,
-  generalRowMode: 'par_bureau',
-  minMonthsSinceVisit: 0,
+  strategy: 'besoins',
+  agentsPerVehicle: 4,
+  fieldDaysPerMonth: 20,
 });
 
-/** Bornes des valeurs numériques (mêmes CHECK en base, migration 077). */
-const BOUNDS = Object.freeze({
-  coverageTargetPct: [1, 100],
-  capacityMarginPct: [10, 200],
-  travelDaysPerTour: [0, 10],
-  urgentMinGapMonths: [1, 12],
-  anticipationMonths: [0, 6],
-  defaultVisitsPerDay: [0.5, 10],
-  minMonthsSinceVisit: [0, 24],
-});
+/** Bornes (mêmes CHECK en base, migration 077). */
+const BOUNDS = Object.freeze({ agentsPerVehicle: [1, 10], fieldDaysPerMonth: [1, 26] });
+/** Exceptions d'un aperçu : au plus 500 communes exclues pour l'accès. */
+const ADJUST_BOUNDS = Object.freeze({ excludedCommunes: [0, 500] });
 
 /** Colonne SQL de chaque paramètre (plan_settings). */
 const COLUMNS = Object.freeze({
-  objective: 'objective',
-  coverageTargetPct: 'coverage_target_pct',
-  levels: 'levels',
-  coverageCatchUp: 'coverage_catch_up',
-  dayGrouping: 'day_grouping',
-  fillDistrict: 'fill_district',
-  multiActivityDays: 'multi_activity_days',
-  capacityMarginPct: 'capacity_margin_pct',
-  travelDaysPerTour: 'travel_days_per_tour',
-  urgentMinGapMonths: 'urgent_min_gap_months',
-  anticipationMonths: 'anticipation_months',
-  defaultVisitsPerDay: 'default_visits_per_day',
-  generalRowMode: 'general_row_mode',
-  minMonthsSinceVisit: 'min_months_since_visit',
+  strategy: 'strategy',
+  agentsPerVehicle: 'agents_per_vehicle',
+  fieldDaysPerMonth: 'field_days_per_month',
 });
 const KEYS = Object.keys(DEFAULTS);
 
 /**
  * Source de chaque valeur initiale (puce de l'écran) : `kind` = classeur | retour | mems,
- * `label` = phrase française (traduite à l'écran), `ref` = cellule ou n° de retour.
+ * `ref` = cellule ou n° de retour, `label` = phrase française (traduite à l'écran).
  */
 const SOURCES = Object.freeze({
-  objective: { kind: 'retour', ref: 'Retour 55', label: '« tous les sites selon le MMR … ou un minimum de 80 % » ; capacité ÷ ciblé du classeur (Overreaching Parameters!O = K/J)' },
-  coverageTargetPct: { kind: 'retour', ref: 'Retour 55', label: '« un minimum de 80 % des sites » sur la période d\'activité' },
-  levels: { kind: 'mems', ref: 'Priorités du mois', label: 'Niveaux de priorité du RBM (score et retard de visite)' },
-  coverageCatchUp: { kind: 'retour', ref: 'Retour 55', label: 'Rattraper les sites jamais suivis sur l\'exercice pour tenir l\'objectif de couverture' },
-  dayGrouping: { kind: 'retour', ref: 'Retour 55', label: '« prioriser les sites proches … même commune, même district »' },
-  fillDistrict: { kind: 'retour', ref: 'Retour 55', label: 'Compléter la tournée dans le même district' },
-  multiActivityDays: { kind: 'retour', ref: 'Retours 55, 57', label: 'Un lieu porte plusieurs sites (un par activité) : une équipe les suit le même jour' },
-  capacityMarginPct: { kind: 'mems', ref: 'MEMS', label: 'Part de la capacité MMR mise au plan (100 % = toute la capacité)' },
-  travelDaysPerTour: { kind: 'mems', ref: 'MEMS', label: 'Même notion que les jours de déplacement des jours de collecte' },
-  urgentMinGapMonths: { kind: 'mems', ref: 'MEMS', label: 'Écart minimal entre deux visites d\'un site à recommandation urgente' },
-  anticipationMonths: { kind: 'mems', ref: 'MEMS', label: 'Compléter une journée ouverte avec un site dû dans les N mois (0 = désactivé)' },
-  defaultVisitsPerDay: { kind: 'mems', ref: 'MEMS', label: 'Suivis par jour et par agent quand la colonne « Suivis/j » du MMR est vide (valeur prudente)' },
-  minMonthsSinceVisit: { kind: 'retour', ref: 'Retour 82', label: 'Ne proposer que les sites non visités depuis au moins N mois (0 = l\'intervalle du MMR suffit)' },
-  generalRowMode: { kind: 'mems', ref: 'Décision lot 5', label: 'Ligne du plan général : modèle appliqué à chaque bureau (capacité par bureau), ou une capacité commune' },
+  strategy: { kind: 'retour', ref: 'Retour 108', label: 'Le plan suit le MMR et en déduit les agents et les véhicules nécessaires ; la capacité déclarée est une information' },
+  agentsPerVehicle: { kind: 'retour', ref: 'Retour 108', label: '« le nombre de véhicules pour un suivi bien fait » : agents qui partent ensemble dans un véhicule' },
+  fieldDaysPerMonth: { kind: 'mems', ref: 'MEMS', label: 'Utilisé seulement quand la colonne « jours ouvrés » du MMR est vide' },
 });
 
-/** Valeurs en lecture seule montrées avec les paramètres (elles ne se règlent pas ici). */
+/**
+ * Ce que la planification REPREND d'ailleurs (lecture seule, avec sa source et l'endroit où
+ * cela se règle) : montré dans le panneau et dans la carte des paramètres.
+ */
 const READ_ONLY = Object.freeze([
-  { key: 'rbmFrequency', value: { elevee: 1, moyenne: 2, faible: 3 }, source: { kind: 'mems', ref: 'rbmMath', label: 'Fréquence RBM par niveau de risque du site (mois), Priorités du mois' } },
-  { key: 'perActivity', value: null, source: { kind: 'classeur', ref: 'Overreaching Parameters!E:K', label: 'Durée, nombre de sites, risque, faisable : grille Exigences (MMR), par activité et par bureau' } },
+  { key: 'univers', link: 'sites', source: { kind: 'mems', ref: 'Sites (actifs / inactifs)', label: 'Sites actifs du mois selon la grille Sites (actifs / inactifs), moins les zones interdites (sécurité ≥ 99)' } },
+  { key: 'exigence', link: 'mmr', source: { kind: 'classeur', ref: 'Overreaching Parameters!E:J', label: 'MMR par bureau et activité : écart minimal = durée ÷ risque, visites par site = risque, sites par mois = sites ÷ écart, période = durée' } },
+  { key: 'rythme', link: 'mmr', source: { kind: 'mems', ref: 'Exigences (MMR)', label: 'Suivis par jour et par agent, jours ouvrés et personnes déclarées : colonnes du MMR' } },
+  { key: 'priorite', link: 'priorites', source: { kind: 'mems', ref: 'Priorités du mois', label: 'RBM : recommandation urgente, risque élevé, jamais visité, puis la plus longue absence de visite' } },
+  { key: 'budget', link: null, source: { kind: 'mems', ref: 'Contrats', label: 'Plafond du contrat TPM (ligne IV.suivi ÷ mois) : non vérifié, le coût d\'une journée de collecte n\'est pas connu' } },
+  { key: 'prestataire', link: null, source: { kind: 'retour', ref: 'Retour 58', label: 'Prestataire du contrat de la zone, attribué à l\'enregistrement' } },
 ]);
 
-const isInt = (v) => Number.isInteger(v);
-const inBounds = (k, v) => v >= BOUNDS[k][0] && v <= BOUNDS[k][1];
-const halfSteps = (v) => Number.isFinite(v) && Math.abs(v * 2 - Math.round(v * 2)) < 1e-9;
-
 /**
- * Contrôle complet d'un jeu de paramètres. @returns {Array<{field, message}>} (vide = valide)
+ * Réglages internes de l'algorithme, FIXÉS (retour 107 : un spécialiste ne les reconnaît pas).
+ * Chacun est dit dans les notes de calcul de l'aperçu.
  */
+const FIXED = Object.freeze({
+  levels: Object.freeze(['haute', 'moyenne', 'basse']), // tous ; l'ordre vient du RBM
+  dayGrouping: 'commune', // une journée = une commune, toutes activités ; tournée = district
+  fillDistrict: true,
+  multiActivityDays: true,
+  coverageCatchUp: true,
+  travelDaysPerTour: 0, // les jours de déplacement restent ceux des jours de collecte
+  urgentMinGapMonths: 1,
+  anticipationMonths: 0,
+  defaultVisitsPerDay: 1, // colonne « Suivis/j » du MMR vide : 1 par journée, signalé « à paramétrer »
+  generalRowMode: 'par_bureau', // ligne du plan général : modèle appliqué à chaque bureau
+  coverageTargetPct: 100,
+  minMonthsSinceVisit: 0,
+  capacityMarginPct: 100,
+});
+
+/** Stratégie → objectif de l'intervalle (effectiveInterval) : les besoins suivent l'intervalle du MMR. */
+const OBJECTIVE_OF = Object.freeze({ besoins: 'mmr_complet', capacite: 'auto' });
+
+const isInt = (v) => Number.isInteger(v);
+const inBounds = (b, v) => v >= b[0] && v <= b[1];
+
+/** Contrôle complet d'un jeu de paramètres. @returns {Array<{field, message}>} (vide = valide) */
 function validateSettings(s) {
   const errors = [];
   const err = (field, message) => errors.push({ field, message });
-  if (!OBJECTIVES.includes(s.objective)) err('objective', 'Objectif inconnu.');
-  if (!isInt(s.coverageTargetPct) || !inBounds('coverageTargetPct', s.coverageTargetPct)) err('coverageTargetPct', 'Part minimale : entier de 1 à 100 %.');
-  if (!Array.isArray(s.levels) || !s.levels.length || s.levels.some((l) => !LEVELS.includes(l)) || new Set(s.levels).size !== s.levels.length) {
-    err('levels', 'Niveaux : au moins un parmi haute, moyenne, basse, sans doublon.');
+  if (!STRATEGIES.includes(s.strategy)) err('strategy', 'Stratégie inconnue.');
+  for (const k of ['agentsPerVehicle', 'fieldDaysPerMonth']) {
+    if (!isInt(s[k]) || !inBounds(BOUNDS[k], s[k])) err(k, `Entier de ${BOUNDS[k][0]} à ${BOUNDS[k][1]}.`);
   }
-  for (const k of ['coverageCatchUp', 'fillDistrict', 'multiActivityDays']) if (typeof s[k] !== 'boolean') err(k, 'Valeur oui / non attendue.');
-  if (!DAY_GROUPINGS.includes(s.dayGrouping)) err('dayGrouping', 'Regroupement : lieu, commune ou district.');
-  if (!GENERAL_ROW_MODES.includes(s.generalRowMode)) err('generalRowMode', 'Plan général : par bureau ou commun.');
-  for (const k of ['capacityMarginPct', 'travelDaysPerTour', 'urgentMinGapMonths', 'anticipationMonths', 'minMonthsSinceVisit']) {
-    if (!isInt(s[k]) || !inBounds(k, s[k])) err(k, `Entier de ${BOUNDS[k][0]} à ${BOUNDS[k][1]}.`);
-  }
-  if (!halfSteps(s.defaultVisitsPerDay) || !inBounds('defaultVisitsPerDay', s.defaultVisitsPerDay)) err('defaultVisitsPerDay', 'De 0,5 à 10, par pas de 0,5.');
   return errors;
+}
+
+/** Exceptions d'un aperçu (communes inaccessibles), normalisées et dédoublonnées. */
+function normalizeAdjust(adjust = {}) {
+  const errors = [];
+  const seen = new Set(); const excludedCommunes = [];
+  for (const c of adjust.excludedCommunes || []) {
+    const district = String((c && c.district) || '').trim(); const commune = String((c && c.commune) || '').trim();
+    if (!commune) continue;
+    const k = `${district.toLowerCase()}|${commune.toLowerCase()}`;
+    if (seen.has(k)) continue;
+    seen.add(k); excludedCommunes.push({ district, commune });
+  }
+  excludedCommunes.sort((a, b) => a.district.localeCompare(b.district, 'fr') || a.commune.localeCompare(b.commune, 'fr'));
+  if (excludedCommunes.length > ADJUST_BOUNDS.excludedCommunes[1]) errors.push({ field: 'excludedCommunes', message: 'Au plus 500 communes exclues.' });
+  return { adjust: { excludedCommunes }, errors };
 }
 
 /** Ligne SQL (ou null) → paramètres complets ; une colonne nulle prend le défaut. */
 function fromRow(row) {
-  const out = { ...DEFAULTS, levels: [...DEFAULTS.levels] };
+  const out = { ...DEFAULTS };
   if (!row) return out;
   for (const k of KEYS) {
     const v = row[COLUMNS[k]];
-    if (v === null || v === undefined) continue;
-    out[k] = k === 'defaultVisitsPerDay' ? Number(v) : k === 'levels' ? LEVELS.filter((l) => v.includes(l)) : v;
+    if (v !== null && v !== undefined) out[k] = v;
   }
   return out;
 }
 
 /** Paramètres modifiés par rapport aux valeurs initiales (marque « modifié » de l'écran). */
 function changedKeys(s) {
-  return KEYS.filter((k) => (k === 'levels'
-    ? [...s.levels].sort().join(',') !== [...DEFAULTS.levels].sort().join(',')
-    : s[k] !== DEFAULTS[k]));
+  return KEYS.filter((k) => s[k] !== DEFAULTS[k]);
 }
 
-/**
- * Surcharges d'un aperçu (non enregistrées) appliquées aux paramètres du compte.
- * Seules les clés connues passent ; le résultat est revalidé par l'appelant.
- */
+/** Choix d'un aperçu (non enregistrés) appliqués aux paramètres du compte ; seules les clés connues passent. */
 function withOverrides(settings, overrides = {}) {
-  const out = { ...settings, levels: [...settings.levels] };
-  for (const k of KEYS) if (overrides[k] !== undefined) out[k] = k === 'levels' ? [...overrides[k]] : overrides[k];
+  const out = { ...settings };
+  for (const k of KEYS) if (overrides[k] !== undefined) out[k] = overrides[k];
   return out;
+}
+
+/** Paramètres du GÉNÉRATEUR : choix du compte (ou de l'aperçu) + réglages fixés. */
+function generatorParams(settings) {
+  return {
+    ...FIXED, levels: [...FIXED.levels],
+    strategy: settings.strategy, objective: OBJECTIVE_OF[settings.strategy] || 'mmr_complet',
+    agentsPerVehicle: settings.agentsPerVehicle, fieldDaysPerMonth: settings.fieldDaysPerMonth,
+  };
 }
 
 const ceilMonths = (v) => Math.ceil(Number(v) - 1e-9);
@@ -163,8 +162,7 @@ const ceilMonths = (v) => Math.ceil(Number(v) - 1e-9);
  *             interval:number|null, adjustedInterval:number|null, coverageRatio:number|null }}
  *   due      : mois minimum depuis la dernière visite pour être « dû » (null en mode couverture :
  *              dû = pas encore suivi sur l'exercice) ;
- *   coverage : intervalle minimal MMR (durée ÷ risque) qu'un site non encore couvert doit
- *              respecter pour être rattrapé au titre de la couverture.
+ *   coverage : intervalle minimal MMR (durée ÷ risque) — l'écart minimal entre deux visites.
  */
 function effectiveInterval(mmr, objective = 'auto') {
   const d = deriveMmr(mmr || {});
@@ -183,6 +181,6 @@ function effectiveInterval(mmr, objective = 'auto') {
 }
 
 module.exports = {
-  DEFAULTS, BOUNDS, COLUMNS, KEYS, SOURCES, READ_ONLY, OBJECTIVES, LEVELS, DAY_GROUPINGS, GENERAL_ROW_MODES,
-  validateSettings, fromRow, changedKeys, withOverrides, effectiveInterval,
+  DEFAULTS, BOUNDS, ADJUST_BOUNDS, COLUMNS, KEYS, SOURCES, READ_ONLY, FIXED, STRATEGIES, OBJECTIVE_OF,
+  validateSettings, normalizeAdjust, fromRow, changedKeys, withOverrides, generatorParams, effectiveInterval,
 };

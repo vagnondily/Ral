@@ -1,7 +1,9 @@
 /**
- * Paramètres de la planification automatique (lot 5, § 6) : valeurs initiales identiques
- * en JS et en base (lecture de la migration 077), chaque paramètre a une source, contrôles,
- * marque « modifié », et l'intervalle de revisite effectif (une seule définition).
+ * Paramètres de la planification automatique (lot 5, § 6.4 ; retours 107 et 108) : seulement
+ * ce que le MMR, le RBM et les contrats ne disent pas (stratégie, agents par véhicule, jours de
+ * terrain de repli) ; valeurs initiales identiques en JS et en base (lecture de la migration
+ * 077), chaque paramètre a une source, contrôles, marque « modifié », réglages internes fixés,
+ * et l'intervalle de revisite effectif (une seule définition).
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -20,8 +22,7 @@ test('valeurs initiales : DEFAULT de la migration 077 = DEFAULTS du code', () =>
   for (const k of S.KEYS) {
     const def = colDef(S.COLUMNS[k]);
     const v = S.DEFAULTS[k];
-    if (Array.isArray(v)) assert.match(def, new RegExp(`DEFAULT ARRAY\\[${v.map((x) => `'${x}'`).join(', ')}\\]`), k);
-    else if (typeof v === 'string') assert.match(def, new RegExp(`DEFAULT '${v}'`), k);
+    if (typeof v === 'string') assert.match(def, new RegExp(`DEFAULT '${v}'`), k);
     else assert.match(def, new RegExp(`DEFAULT ${v}\\b`), k);
   }
 });
@@ -30,10 +31,25 @@ test('bornes : CHECK de la migration 077 = BOUNDS du code ; énumérations ident
   for (const [k, [lo, hi]] of Object.entries(S.BOUNDS)) {
     assert.match(colDef(S.COLUMNS[k]), new RegExp(`BETWEEN ${lo} AND ${hi}`), k);
   }
-  assert.match(colDef('objective'), new RegExp(S.OBJECTIVES.map((o) => `'${o}'`).join(', ')));
-  assert.match(colDef('day_grouping'), new RegExp(S.DAY_GROUPINGS.map((o) => `'${o}'`).join(', ')));
-  assert.match(colDef('general_row_mode'), new RegExp(S.GENERAL_ROW_MODES.map((o) => `'${o}'`).join(', ')));
-  assert.match(sql, new RegExp(`levels <@ ARRAY\\[${S.LEVELS.map((x) => `'${x}'`).join(', ')}\\]`));
+  assert.match(colDef('strategy'), new RegExp(`CHECK \\(strategy IN \\(${S.STRATEGIES.map((o) => `'${o}'`).join(', ')}\\)\\)`));
+});
+
+test('retour 107 : aucun paramètre ne redemande ce que le MMR ou le RBM donnent déjà', () => {
+  // Suivis par jour, part minimale, niveaux, « non visités depuis N mois », regroupement… : jamais réglables.
+  for (const k of ['defaultVisitsPerDay', 'coverageTargetPct', 'levels', 'minMonthsSinceVisit', 'capacityMarginPct', 'travelDaysPerTour',
+    'urgentMinGapMonths', 'anticipationMonths', 'generalRowMode', 'dayGrouping', 'objective']) {
+    assert.ok(!S.KEYS.includes(k), `${k} ne doit pas être un paramètre du compte`);
+    assert.doesNotMatch(sql, new RegExp(`\\b${k.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)}\\b`), `${k} absent de 077`);
+  }
+  assert.deepEqual([...S.KEYS].sort(), ['agentsPerVehicle', 'fieldDaysPerMonth', 'strategy']);
+  // Réglages internes fixés, dits dans les notes : une seule valeur, jamais demandée.
+  const gp = S.generatorParams(S.fromRow(null));
+  assert.equal(gp.strategy, 'besoins');
+  assert.equal(gp.objective, 'mmr_complet');
+  assert.equal(gp.dayGrouping, 'commune');
+  assert.equal(gp.defaultVisitsPerDay, 1);
+  assert.equal(gp.agentsPerVehicle, 4);
+  assert.equal(S.generatorParams({ ...S.fromRow(null), strategy: 'capacite' }).objective, 'auto');
 });
 
 test('migration 077 : RLS activée et forcée, politique USING + WITH CHECK, droits mems2_app, même compte ; jamais mems_app', () => {
@@ -57,37 +73,45 @@ test('chaque paramètre a une source (classeur, retour ou MEMS) avec un libellé
 
 test('validateSettings : défauts valides ; chaque erreur nomme son champ', () => {
   assert.deepEqual(S.validateSettings(S.fromRow(null)), []);
-  const bad = {
-    ...S.fromRow(null), objective: 'tout', coverageTargetPct: 0, levels: [], coverageCatchUp: 'oui', dayGrouping: 'region',
-    capacityMarginPct: 300, travelDaysPerTour: -1, urgentMinGapMonths: 0, anticipationMonths: 7, defaultVisitsPerDay: 0.7, generalRowMode: 'x',
-  };
-  const fields = S.validateSettings(bad).map((e) => e.field).sort();
-  assert.deepEqual(fields, ['anticipationMonths', 'capacityMarginPct', 'coverageCatchUp', 'coverageTargetPct', 'dayGrouping', 'defaultVisitsPerDay',
-    'generalRowMode', 'levels', 'objective', 'travelDaysPerTour', 'urgentMinGapMonths'].sort());
-  assert.equal(S.validateSettings({ ...S.fromRow(null), levels: ['haute', 'haute'] })[0].field, 'levels');
-  assert.equal(S.validateSettings({ ...S.fromRow(null), coverageTargetPct: 80.5 })[0].field, 'coverageTargetPct');
-  assert.deepEqual(S.validateSettings({ ...S.fromRow(null), defaultVisitsPerDay: 2.5 }), []);
+  const bad = { ...S.fromRow(null), strategy: 'tout', agentsPerVehicle: 0, fieldDaysPerMonth: 27 };
+  assert.deepEqual(S.validateSettings(bad).map((e) => e.field).sort(), ['agentsPerVehicle', 'fieldDaysPerMonth', 'strategy']);
+  assert.equal(S.validateSettings({ ...S.fromRow(null), agentsPerVehicle: 3.5 })[0].field, 'agentsPerVehicle');
+  assert.deepEqual(S.validateSettings({ ...S.fromRow(null), strategy: 'capacite', agentsPerVehicle: 10, fieldDaysPerMonth: 1 }), []);
 });
 
-test('fromRow : colonne nulle → défaut ; niveaux dans l\'ordre canonique ; changedKeys', () => {
-  const s = S.fromRow({ objective: 'couverture', coverage_target_pct: 90, levels: ['moyenne', 'haute'], default_visits_per_day: '1.5', fill_district: null });
-  assert.equal(s.objective, 'couverture');
-  assert.equal(s.coverageTargetPct, 90);
-  assert.deepEqual(s.levels, ['haute', 'moyenne']);
-  assert.equal(s.defaultVisitsPerDay, 1.5);
-  assert.equal(s.fillDistrict, true);
-  assert.deepEqual(S.changedKeys(s).sort(), ['coverageTargetPct', 'defaultVisitsPerDay', 'levels', 'objective']);
+test('fromRow : colonne nulle → défaut ; changedKeys', () => {
+  const s = S.fromRow({ strategy: 'capacite', agents_per_vehicle: 3, field_days_per_month: null });
+  assert.equal(s.strategy, 'capacite');
+  assert.equal(s.agentsPerVehicle, 3);
+  assert.equal(s.fieldDaysPerMonth, 20);
+  assert.deepEqual(S.changedKeys(s).sort(), ['agentsPerVehicle', 'strategy']);
   assert.deepEqual(S.changedKeys(S.fromRow(null)), []);
-  assert.deepEqual(S.changedKeys({ ...S.fromRow(null), levels: ['basse', 'moyenne', 'haute'] }), []);
 });
 
 test('withOverrides : seules les clés connues, copie (les paramètres du compte restent intacts)', () => {
   const base = S.fromRow(null);
-  const o = S.withOverrides(base, { objective: 'mmr_complet', levels: ['haute'], inconnu: 1 });
-  assert.equal(o.objective, 'mmr_complet');
-  assert.deepEqual(o.levels, ['haute']);
+  const o = S.withOverrides(base, { strategy: 'capacite', inconnu: 1 });
+  assert.equal(o.strategy, 'capacite');
   assert.equal(o.inconnu, undefined);
-  assert.deepEqual(base.levels, ['haute', 'moyenne', 'basse']);
+  assert.equal(base.strategy, 'besoins');
+});
+
+test('exceptions d\'un aperçu : communes exclues dédoublonnées (casse), vides ignorées, triées, au plus 500', () => {
+  const { adjust, errors } = S.normalizeAdjust({ excludedCommunes: [
+    { district: 'Ampanihy', commune: 'Ankilizato' }, { district: 'ampanihy', commune: 'ANKILIZATO' }, { district: 'Bekily', commune: '' },
+    { district: 'Ambovombe', commune: 'Ambazoa' },
+  ] });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(adjust.excludedCommunes, [{ district: 'Ambovombe', commune: 'Ambazoa' }, { district: 'Ampanihy', commune: 'Ankilizato' }]);
+  const many = Array.from({ length: 501 }, (_, i) => ({ district: 'D', commune: `C${i}` }));
+  assert.equal(S.normalizeAdjust({ excludedCommunes: many }).errors[0].field, 'excludedCommunes');
+  assert.deepEqual(S.normalizeAdjust({}).adjust, { excludedCommunes: [] });
+});
+
+test('lecture seule : univers, exigence, rythme, priorité, budget, prestataire — chacun avec sa source', () => {
+  assert.deepEqual(S.READ_ONLY.map((r) => r.key), ['univers', 'exigence', 'rythme', 'priorite', 'budget', 'prestataire']);
+  for (const r of S.READ_ONLY) assert.ok(['classeur', 'retour', 'mems'].includes(r.source.kind) && r.source.label && r.source.ref, r.key);
+  assert.match(S.READ_ONLY.find((r) => r.key === 'budget').source.label, /non vérifié/);
 });
 
 // Valeurs de la capture MMR du 14/10 (repas scolaires : durée 10, 824 sites, risque 2, faisable 52).

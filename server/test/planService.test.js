@@ -2,8 +2,10 @@
  * Service de la planification automatique (lot 5), SANS base : transaction et dépôts
  * remplacés par des espions. Vérifie l'ordre « verrous des mois → rechargement → empreinte »,
  * le 409 quand les données ont changé (avec les sections), le refus d'une proposition inconnue,
- * la coche manuelle qui l'emporte, le verrou optimiste des paramètres, et qu'aucune visite
- * générée ne porte de prestataire (retour 58 : la base l'estampille d'après les contrats).
+ * la coche manuelle qui l'emporte, le verrou optimiste des paramètres, qu'aucune visite
+ * générée ne porte de prestataire (retour 58 : la base l'estampille d'après les contrats), et
+ * que chaque visite enregistrée porte son jour de terrain, son rôle générique et sa date, avec
+ * les ressources nécessaires gardées dans la trace (retour 108).
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -18,7 +20,11 @@ let savedRow = null;
 db.withTenantTransaction = async (tenantId, fn) => fn({ tenantId });
 repo.getSettingsTx = async () => savedRow;
 repo.lockSettingsTx = async () => (savedRow ? savedRow.revision : 0);
-repo.saveSettingsTx = async (client, tenantId, userId, s) => { log.push(['save', s]); savedRow = { revision: (savedRow ? savedRow.revision : 0) + 1, objective: s.objective }; return savedRow.revision; };
+repo.saveSettingsTx = async (client, tenantId, userId, s) => {
+  log.push(['save', s]);
+  savedRow = { revision: (savedRow ? savedRow.revision : 0) + 1, strategy: s.strategy, agents_per_vehicle: s.agentsPerVehicle, field_days_per_month: s.fieldDaysPerMonth };
+  return savedRow.revision;
+};
 repo.lockMonthsTx = async (client, tenantId, months) => { log.push(['lock', [...new Set(months)].sort()]); };
 repo.loadPlanInputsTx = async () => { log.push(['load']); return raw; };
 repo.insertRunTx = async (client, tenantId, userId, run) => { log.push(['run', run]); return 'run-1'; };
@@ -67,7 +73,17 @@ test('application : verrous des mois AVANT le rechargement ; visites générées
   assert.ok(ins.visits.every((v) => v.why && !('providerId' in v) && !('provider_id' in v)));
   assert.equal(ins.runId, 'run-1');
   assert.equal(r.created, 4);
-  assert.equal(log.find((l) => l[0] === 'run')[1].kept, 4);
+  const run = log.find((l) => l[0] === 'run')[1];
+  assert.equal(run.kept, 4);
+  // Retour 108 : jour de terrain, rôle générique « Agent N » et date dans le mois ; ressources gardées.
+  for (const v of ins.visits) {
+    assert.match(v.agent, /^Agent \d+$/);
+    assert.ok(v.day >= 1 && v.day <= 26);
+    assert.ok(v.date.startsWith(`2027-0${v.month}-`), v.date);
+  }
+  assert.equal(run.strategy, 'besoins');
+  assert.ok(run.needs.months.length > 0 && run.needs.peak.agents > 0);
+  assert.ok(Array.isArray(run.pools) && Array.isArray(run.params.excludedCommunes));
 });
 
 test('application : données changées depuis l\'aperçu → 409 avec les sections, rien d\'écrit', async () => {
@@ -97,23 +113,37 @@ test('application : proposition absente de l\'aperçu → 400, rien d\'écrit', 
   assert.ok(!log.some((l) => ['manual', 'run', 'insert'].includes(l[0])));
 });
 
-test('critères ajustés pour un aperçu : revalidés, signalés « ajustés », dans l\'empreinte', async () => {
+test('choix changés pour un aperçu : revalidés, signalés « ajustés », dans l\'empreinte ; communes exclues jamais planifiées', async () => {
   const a = await service.preview(T, body, { now: NOW });
-  const b = await service.preview(T, { ...body, params: { levels: ['haute'], minMonthsSinceVisit: 6 } }, { now: NOW });
+  assert.equal(a.strategy, 'besoins');
+  assert.ok(a.needs && a.needs.months.length === 3 && a.proposals.every((p) => p.agent && p.fieldDay && p.date));
+  const b = await service.preview(T, { ...body, params: { strategy: 'capacite' } }, { now: NOW });
   assert.notEqual(a.fingerprint, b.fingerprint);
-  assert.deepEqual(b.overridden.sort(), ['levels', 'minMonthsSinceVisit']);
-  assert.ok(b.proposals.length <= a.proposals.length);
-  await assert.rejects(service.preview(T, { ...body, params: { coverageTargetPct: 0 } }, { now: NOW }), (e) => e.statusCode === 400);
+  assert.deepEqual(b.overridden, ['strategy']);
+  assert.equal(b.strategy, 'capacite');
+  const c = await service.preview(T, { ...body, params: { agentsPerVehicle: 2 } }, { now: NOW });
+  assert.notEqual(c.fingerprint, a.fingerprint, 'les agents par véhicule font partie de l\'empreinte');
+  assert.ok(c.needs.peak.vehicles >= a.needs.peak.vehicles);
+  await assert.rejects(service.preview(T, { ...body, params: { agentsPerVehicle: 0 } }, { now: NOW }), (e) => e.statusCode === 400);
+  // Exclure la commune d'un site proposé : il ne l'est plus, raison « acces ».
+  const p0 = a.proposals[0]; const s0 = a.sites[p0.siteId];
+  const d = await service.preview(T, { ...body, adjust: { excludedCommunes: [{ district: s0.district, commune: s0.commune }] } }, { now: NOW });
+  assert.notEqual(d.fingerprint, a.fingerprint);
+  assert.ok(!d.proposals.some((p) => p.siteId === p0.siteId));
+  assert.equal(d.unplanned.find((u) => u.siteId === p0.siteId).code, 'acces');
+  assert.ok(d.warnings.some((w) => w.code === 'communes_exclues' && w.sites > 0));
 });
 
 test('paramètres : verrou optimiste (révision périmée → 409), valeurs contrôlées avant toute écriture', async () => {
   savedRow = null; log.length = 0;
   const { DEFAULTS } = require('../src/modules/tpm/planSettings');
-  const r1 = await service.saveSettings(T, 'u1', { ...DEFAULTS, levels: ['haute', 'moyenne'], revision: 0 });
+  const r1 = await service.saveSettings(T, 'u1', { ...DEFAULTS, agentsPerVehicle: 3, revision: 0 });
   assert.equal(r1.revision, 1);
+  assert.equal(r1.settings.agentsPerVehicle, 3);
+  assert.deepEqual(r1.changed, ['agentsPerVehicle']);
   await assert.rejects(service.saveSettings(T, 'u1', { ...DEFAULTS, revision: 0 }), (e) => e.statusCode === 409 && e.details.code === 'revision' && e.details.current === 1);
   const before = log.length;
-  await assert.rejects(service.saveSettings(T, 'u1', { ...DEFAULTS, objective: 'x', revision: 1 }), (e) => e.statusCode === 400);
+  await assert.rejects(service.saveSettings(T, 'u1', { ...DEFAULTS, strategy: 'x', revision: 1 }), (e) => e.statusCode === 400);
   assert.equal(log.length, before);
   savedRow = null;
 });

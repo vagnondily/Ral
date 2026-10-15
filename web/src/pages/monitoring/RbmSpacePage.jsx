@@ -6,6 +6,7 @@ import RbmPage from './RbmPage.jsx';
 import PlanBoardPage from './PlanBoardPage.jsx';
 import SitesActivationPage from './SitesActivationPage.jsx';
 import MmrSection from '../settings/MmrSection.jsx';
+import PlanSettingsCard from './PlanSettingsCard.jsx';
 
 /**
  * Espace « RBM » : tout le suivi par les risques au même endroit, en onglets
@@ -15,8 +16,9 @@ import MmrSection from '../settings/MmrSection.jsx';
  *   - Sites (actifs / inactifs) : SI un site est actif chaque mois, avant de
  *     planifier (grille du classeur d'activation, journal des changements) ;
  *   - Configuration RBM : critères de risque des sites (vue standard du
- *     registre RBM) et exigences minimales de suivi (MMR) ; la planification
- *     automatique s'y ajoutera.
+ *     registre RBM), exigences minimales de suivi (MMR) et paramètres de la
+ *     planification automatique (lot 5) — chaque section a son adresse :
+ *     #/processus/rbm/configuration/<risques | mmr | planification>.
  * Chaque onglet réutilise l'écran existant : une seule saisie, un seul calcul.
  */
 const TABS = [
@@ -28,21 +30,27 @@ const TABS = [
 const CONFIG_SECTIONS = [
   { id: 'risques', label: 'Critères de risque des sites' },
   { id: 'mmr', label: 'Exigences (MMR)' },
+  { id: 'planification', label: 'Planification automatique' },
 ];
 const TAB_HELP = {
   priorites: 'Sites à suivre ce mois selon leur niveau de risque ; « Générer » planifie leurs visites.',
   plan: 'Visites exigées par le MMR, faites, prévues et restantes, avec le prestataire de suivi affecté.',
   sites: 'Pour chaque site du registre, actif (Oui) ou inactif (Non) chaque mois, avant de planifier. Exportez le classeur, complétez-le hors ligne, puis réimportez-le.',
-  configuration: 'Ce qui règle le suivi par les risques : les critères de risque de chaque site et les exigences minimales de suivi (MMR) par bureau et activité.',
+  configuration: 'Ce qui règle le suivi par les risques : les critères de risque de chaque site, les exigences minimales de suivi (MMR) par bureau et activité, et les paramètres de la planification automatique.',
 };
 // Anciennes adresses : « exigences » mène à Configuration › Exigences (MMR).
 const LEGACY = { exigences: ['configuration', 'mmr'] };
 
-export default function RbmSpacePage({ canEdit, isAdmin, tab, onTab }) {
+export default function RbmSpacePage({ canEdit, isAdmin, tab, section: sectionProp, onTab, onSection }) {
   const { tr } = useI18n();
   const [legacyTab, legacySection] = LEGACY[tab] || [];
   const current = legacyTab || (TABS.some((x) => x.id === tab) ? tab : 'priorites');
-  const [section, setSection] = React.useState(legacySection || 'risques');
+  // Section de la Configuration : celle de l'adresse (…/configuration/planification), sinon la
+  // dernière choisie ; un choix met l'adresse à jour quand la page sait naviguer (onSection).
+  const [localSection, setLocalSection] = React.useState(legacySection || 'risques');
+  const fromRoute = CONFIG_SECTIONS.some((x) => x.id === sectionProp) ? sectionProp : null;
+  const section = legacySection || fromRoute || localSection;
+  const setSection = (id) => { setLocalSection(id); if (onSection) onSection(id); };
   return (
     <div className="section-gap">
       <PageHeader title={tr('RBM — suivi par les risques')} description={tr(TAB_HELP[current])} />
@@ -66,6 +74,7 @@ export default function RbmSpacePage({ canEdit, isAdmin, tab, onTab }) {
             </div>
             {section === 'risques' && <PlanBoardPage key="risques" canEdit={canEdit} embedded initialView="standard" views={['standard']} />}
             {section === 'mmr' && <MmrSection isAdmin={isAdmin} />}
+            {section === 'planification' && <PlanSettingsCard isAdmin={isAdmin} onSection={setSection} />}
           </>
         )}
       </div>

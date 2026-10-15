@@ -33,7 +33,7 @@ const tok = (role, sub = 'u1') => jwt.sign({ sub, tenantId: TENANT, role }, proc
 const as = (role) => ({ Authorization: `Bearer ${tok(role)}` });
 const SITE = '44444444-4444-4444-4444-444444444444';
 const FP = 'a'.repeat(64);
-const settingsBody = { ...DEFAULTS, levels: [...DEFAULTS.levels], revision: 0 };
+const settingsBody = { ...DEFAULTS, revision: 0 };
 
 test('GET /settings : tout utilisateur connecté, compte du jeton ; sans jeton → 401', async () => {
   const res = await request(app).get('/api/tpm/plan/settings').set(as('viewer'));
@@ -46,19 +46,21 @@ test('PUT /settings : administrateur seulement ; corps strict et borné, rien n\
   for (const role of ['viewer', 'manager']) assert.equal((await request(app).put('/api/tpm/plan/settings').set(as(role)).send(settingsBody)).status, 403);
   const n = calls.length;
   const bad = [
-    { ...settingsBody, coverageTargetPct: 0 },
-    { ...settingsBody, levels: ['urgent'] },
-    { ...settingsBody, levels: ['haute', 'haute'] },
-    { ...settingsBody, defaultVisitsPerDay: 0.7 },
-    { ...settingsBody, minMonthsSinceVisit: 30 },
+    { ...settingsBody, strategy: 'mmr' },
+    { ...settingsBody, agentsPerVehicle: 0 },
+    { ...settingsBody, agentsPerVehicle: 2.5 },
+    { ...settingsBody, fieldDaysPerMonth: 27 },
+    // Retour 107 : ce que le MMR ou le RBM donnent déjà n'est pas un paramètre (corps strict).
+    { ...settingsBody, defaultVisitsPerDay: 2 },
+    { ...settingsBody, coverageTargetPct: 80 },
     { ...settingsBody, tenantId: '22222222-2222-2222-2222-222222222222' },
     (({ revision, ...rest }) => rest)(settingsBody),
   ];
   for (const b of bad) assert.equal((await request(app).put('/api/tpm/plan/settings').set(as('admin')).send(b)).status, 400, JSON.stringify(b).slice(0, 80));
   assert.equal(calls.length, n);
-  const ok = await request(app).put('/api/tpm/plan/settings').set(as('admin')).send({ ...settingsBody, coverageTargetPct: 90 });
+  const ok = await request(app).put('/api/tpm/plan/settings').set(as('admin')).send({ ...settingsBody, agentsPerVehicle: 3 });
   assert.equal(ok.status, 200);
-  assert.deepEqual([calls.at(-1).tenantId, calls.at(-1).userId, calls.at(-1).body.coverageTargetPct], [TENANT, 'u1', 90]);
+  assert.deepEqual([calls.at(-1).tenantId, calls.at(-1).userId, calls.at(-1).body.agentsPerVehicle], [TENANT, 'u1', 3]);
 });
 
 test('POST /preview : administrateur ou gestionnaire ; plage, périmètre et critères validés', async () => {
@@ -66,17 +68,22 @@ test('POST /preview : administrateur ou gestionnaire ; plage, périmètre et cri
   const n = calls.length;
   for (const b of [{ year: 2026, from: 5, to: 4 }, { year: 2026, from: 0, to: 4 }, { year: 1990, from: 1, to: 2 },
     { year: 2026, from: 1, to: 2, officeId: 'pas-un-uuid' }, { year: 2026, from: 1, to: 2, params: { inconnu: 1 } },
-    { year: 2026, from: 1, to: 2, params: { capacityMarginPct: 500 } }, { year: 2026, from: 1, to: 2, tenantId: TENANT }]) {
+    { year: 2026, from: 1, to: 2, params: { capacityMarginPct: 100 } }, { year: 2026, from: 1, to: 2, params: { agentsPerVehicle: 11 } },
+    { year: 2026, from: 1, to: 2, adjust: { excludedCommunes: [{ district: 'D' }] } },
+    { year: 2026, from: 1, to: 2, adjust: { excludedCommunes: Array.from({ length: 501 }, (_, i) => ({ commune: `C${i}` })) } },
+    { year: 2026, from: 1, to: 2, adjust: { capacityPct: 80 } }, { year: 2026, from: 1, to: 2, tenantId: TENANT }]) {
     assert.equal((await request(app).post('/api/tpm/plan/preview').set(as('manager')).send(b)).status, 400, JSON.stringify(b));
   }
   assert.equal(calls.length, n);
   const res = await request(app).post('/api/tpm/plan/preview').set(as('manager'))
-    .send({ year: 2026, from: 10, to: 12, activity: '  ', params: { levels: ['haute'], minMonthsSinceVisit: 3 } });
+    .send({ year: 2026, from: 10, to: 12, activity: '  ', params: { strategy: 'capacite', agentsPerVehicle: 3 },
+      adjust: { excludedCommunes: [{ district: ' Ampanihy ', commune: ' Ankilizato ' }] } });
   assert.equal(res.status, 200);
   const c = calls.at(-1);
   assert.equal(c.tenantId, TENANT);
   assert.equal(c.body.activity, null);
-  assert.deepEqual(c.body.params, { levels: ['haute'], minMonthsSinceVisit: 3 });
+  assert.deepEqual(c.body.params, { strategy: 'capacite', agentsPerVehicle: 3 });
+  assert.deepEqual(c.body.adjust, { excludedCommunes: [{ district: 'Ampanihy', commune: 'Ankilizato' }] });
 });
 
 test('POST /apply : empreinte, propositions gardées (1 à 5 000) et coches manuelles validées', async () => {

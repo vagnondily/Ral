@@ -138,7 +138,8 @@ function Workspace() {
       )}
       {route.module === 'processus' && route.sub === 'sites' && <FieldVisitsPage canEdit={canEdit} />}
       {route.module === 'processus' && route.sub === 'rbm' && (
-        <RbmSpacePage canEdit={canEdit} isAdmin={user.role === 'admin'} tab={route.extra} onTab={(tab) => navigate('processus', 'rbm', tab)} />
+        <RbmSpacePage canEdit={canEdit} isAdmin={user.role === 'admin'} tab={route.extra} section={route.extra2}
+          onTab={(tab) => navigate('processus', 'rbm', tab)} onSection={(s) => navigate('processus', 'rbm', 'configuration', s)} />
       )}
       {route.module === 'processus' && route.sub === 'couverture' && <CoverageRecapPage />}
       {route.module === 'processus' && route.sub === 'carte' && <SitesMapPage onNavigate={navigate} isAdmin={user.role === 'admin'} />}

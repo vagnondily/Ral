@@ -97,14 +97,22 @@ async function loadPlanInputsTx(client, tenantId, { year }) {
   return { offices, sites, grid, gridKnown: grid.length > 0, visits, lastBefore, data: data.map((d) => ({ ...d, months: d.months || [] })), mmr };
 }
 
+/**
+ * Valeur d'un paramètre jsonb : TOUJOURS sérialisée ici. node-pg transforme un tableau JS en
+ * littéral de tableau Postgres (« {…} »), pas en JSON — un tableau (pools) passé tel quel
+ * faisait échouer l'insertion (22P02 « invalid input syntax for type json »).
+ */
+const asJson = (v) => JSON.stringify(v === undefined ? null : v);
+
 /** Trace d'un plan appliqué. @returns id */
 async function insertRunTx(client, tenantId, userId, run) {
   const { rows } = await client.query(
-    `INSERT INTO plan_runs (tenant_id, year, from_month, to_month, objective, scope, params, pools, summary, fingerprint,
+    `INSERT INTO plan_runs (tenant_id, year, from_month, to_month, strategy, scope, params, pools, summary, needs, fingerprint,
                             proposed, kept, manual_changes, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
-    [tenantId, run.year, run.fromMonth, run.toMonth, run.objective, run.scope, run.params, run.pools, run.summary, run.fingerprint,
-      run.proposed, run.kept, run.manualChanges, userId || null]);
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15) RETURNING id`,
+    [tenantId, run.year, run.fromMonth, run.toMonth, run.strategy, asJson(run.scope || {}), asJson(run.params || {}),
+      asJson(run.pools || []), asJson(run.summary || {}), asJson(run.needs || {}), run.fingerprint, run.proposed, run.kept,
+      run.manualChanges, userId || null]);
   return rows[0].id;
 }
 
@@ -117,16 +125,21 @@ async function setRunCreatedTx(client, tenantId, runId, created) {
  * mois : jamais sur un site × mois qui a déjà une visite (annulée comprise : une annulation est
  * une décision), jamais un mois inactif (règle commune siteActivity.isActiveMonth : année avec
  * grille → « Oui » explicite seulement), jamais en zone interdite. Le prestataire n'est pas choisi
- * ici (retour 58 : la base l'estampille d'après le contrat de la zone).
+ * ici (retour 58 : la base l'estampille d'après le contrat de la zone). Chaque visite porte sa
+ * tournée et son jour de terrain (plan_tour, plan_day), son rôle générique (« Agent N ») et sa
+ * date (le jour de terrain dans le mois) : les jours de collecte suivent.
  * @returns nombre de visites créées
  */
 async function insertGeneratedTx(client, tenantId, userId, { year, runId, visits }) {
   let created = 0;
   for (const slice of chunkRows(visits, 8)) {
     const { rowCount } = await client.query(
-      `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by, plan_run_id, plan_why, plan_detail, plan_tour, plan_day)
-       SELECT $1, t.site_id, make_date($3, t.m, 1), s.activity, 'planifie', $2, $4, t.why, t.detail, t.tour, t.day
-         FROM unnest($5::uuid[], $6::int[], $7::text[], $8::jsonb[], $9::smallint[], $10::smallint[]) AS t(site_id, m, why, detail, tour, day)
+      `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by, plan_run_id, plan_why, plan_detail,
+                               plan_tour, plan_day, agent, visit_date)
+       SELECT $1, t.site_id, make_date($3, t.m, 1), s.activity, 'planifie', $2, $4, t.why, t.detail, t.tour, t.day, t.agent,
+              CASE WHEN date_trunc('month', t.d)::date = make_date($3, t.m, 1) THEN t.d END
+         FROM unnest($5::uuid[], $6::int[], $7::text[], $8::jsonb[], $9::smallint[], $10::smallint[], $11::text[], $12::date[])
+              AS t(site_id, m, why, detail, tour, day, agent, d)
          JOIN sites s ON s.id = t.site_id AND s.tenant_id = $1
         WHERE s.security_situation < 99
           AND NOT EXISTS (SELECT 1 FROM site_visits v
@@ -134,7 +147,8 @@ async function insertGeneratedTx(client, tenantId, userId, { year, runId, visits
           AND ${activeMonthSql({ site: 't.site_id', year: '$3', month: 't.m' })}
        ON CONFLICT DO NOTHING`,
       [tenantId, userId || null, year, runId, slice.map((v) => v.siteId), slice.map((v) => v.month), slice.map((v) => v.why),
-        slice.map((v) => JSON.stringify(v.detail || {})), slice.map((v) => v.tour || null), slice.map((v) => v.day || null)]);
+        slice.map((v) => JSON.stringify(v.detail || {})), slice.map((v) => v.tour || null), slice.map((v) => v.day || null),
+        slice.map((v) => v.agent || null), slice.map((v) => v.date || null)]);
     created += rowCount;
   }
   return created;
