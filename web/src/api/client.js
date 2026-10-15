@@ -624,3 +624,24 @@ export const api = {
     return data;
   },
 };
+
+// ---- Affectation des TPM par zone (retour 58) — /api/tpm/attribution ------------------------
+// Ajouts en fin de fichier (fichier partagé par toutes les branches).
+Object.assign(api, {
+  // Table région › district (› commune) : TPM selon contrat et TPM retenu, par segments de mois.
+  tpmAttribution: ({ period, regionId, all } = {}) => request('/api/tpm/attribution', { query: qs({ ...pq(period), regionId, all: all ? 1 : undefined }) }),
+  // Prestataires : titulaires d'un contrat de suivi (avec leurs mois) puis autres TPM actifs.
+  tpmAttributionProviders: (period) => request('/api/tpm/attribution/providers', { query: qs(pq(period)) }),
+  // TPM de la zone d'un site pour un mois (formulaire de visite).
+  tpmAttributionResolve: (siteId, month) => request('/api/tpm/attribution/resolve', { query: { siteId, month } }),
+  // Aperçu sans écriture : { areaIds, regionIds, from, to, mode: 'modifier' | 'revenir', providerId, reason }.
+  tpmAttributionPreview: (input) => request('/api/tpm/attribution/preview', { method: 'POST', body: input }),
+  // Enregistrer (raison obligatoire, empreinte de l'aperçu) : 409 si l'affectation a changé entre-temps.
+  tpmAttributionSave: (input) => request('/api/tpm/attribution/overrides', { method: 'PUT', body: input }),
+  tpmAttributionRevert: (input) => request('/api/tpm/attribution/revert', { method: 'POST', body: input }),
+  tpmAttributionApply: (input) => request('/api/tpm/attribution/apply', { method: 'POST', body: input }),
+  // TPM de visites : { visitIds, action: 'zone' | 'set' | 'keep', providerId, reason }.
+  tpmAttributionVisits: (input) => request('/api/tpm/attribution/visits', { method: 'POST', body: input }),
+  // Journal : lots paginés ({ areaId, from, to, action, limit, offset }) ou détail d'un lot ({ batchId }).
+  tpmAttributionLog: (filters = {}) => request('/api/tpm/attribution/log', { query: qs(filters) }),
+});

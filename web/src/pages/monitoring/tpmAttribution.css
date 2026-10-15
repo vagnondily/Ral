@@ -1,0 +1,20 @@
+/* Affectation des TPM par zone (retour 58) — colonne du Plan de suivi, onglet « Affectation des TPM »,
+   TPM des visites. Couleur + icône + libellé, jamais la couleur seule. Jetons : bloc v6 de styles.css. */
+
+/* ---- Colonne « Prestataire (TPM) » du Plan de suivi ------------------------------------------ */
+.pb-tpm { min-width: 170px; max-width: 230px; line-height: 1.25; vertical-align: middle; }
+.pb-tpm-main { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.pb-tpm-ic { flex: 0 0 auto; color: var(--text-faint); }
+.tpm-tone-green .pb-tpm-ic { color: var(--green); }
+.tpm-tone-orange .pb-tpm-ic { color: var(--orange); }
+.tpm-tone-red .pb-tpm-ic { color: var(--red); }
+.tpm-tone-blue .pb-tpm-ic { color: var(--blue-600); }
+.pb-tpm-name { font-weight: 600; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pb-tpm-link { color: var(--orange-text); text-decoration: underline; text-underline-offset: 2px; }
+.pb-tpm-link:hover { color: var(--orange); }
+.pb-tpm-origin, .pb-tpm-more { display: block; font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-tpm-more { color: var(--text-faint); }
+.pb-tpm-diff {
+  flex: 0 0 auto; font-size: 11px; font-weight: 600; padding: 0 5px; border-radius: 999px;
+  background: var(--orange-bg); color: var(--orange-text); font-variant-numeric: tabular-nums;
+}

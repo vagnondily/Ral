@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  ChevronRight, CheckCircle2, XCircle, Clock, Ban, CircleDashed, Circle, AlertTriangle, MinusCircle,
+  ChevronRight, CheckCircle2, XCircle, Clock, Ban, CircleDashed, Circle, AlertTriangle, MinusCircle, PencilLine,
 } from 'lucide-react';
 import { initials, RISK } from '../lib/format.js';
 import { useI18n } from '../lib/i18n.jsx';
@@ -10,6 +10,7 @@ import { useI18n } from '../lib/i18n.jsx';
 export const STATUS_ICONS = {
   check: CheckCircle2, x: XCircle, clock: Clock, ban: Ban,
   draft: CircleDashed, dot: Circle, warn: AlertTriangle, na: MinusCircle,
+  edit: PencilLine, // modifié avec une raison (retour 58)
 };
 
 export function Button({ variant = 'primary', size, block, loading, disabled, icon: Icon, children, className = '', type = 'button', ...props }) {
