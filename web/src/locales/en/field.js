@@ -454,4 +454,15 @@ export default {
   '« Appliquer » crée ces visites comme « planifiées ». Idempotent : un site déjà prévu ce mois n\'est pas dupliqué.':
     '“Apply” creates these visits as “planned”. Idempotent: a site already planned that month is not duplicated.',
   'Cliquez sur « Aperçu » pour voir la répartition avant d\'écrire.': 'Click “Preview” to see the breakdown before writing.',
+  'Pilotées par le MMR': 'Driven by the MMR',
+  'Repli RBM (sans MMR)': 'RBM fallback (no MMR)',
+  'Prévues antérieures re-planifiées': 'Earlier plans re-scheduled',
+  'Couverture des sites': 'Site coverage',
+  'Respecter la capacité mensuelle du MMR': 'Respect the MMR monthly capacity',
+  'Fréquence MMR ajustée (CO adjusted)': 'Adjusted MMR frequency (CO adjusted)',
+  'Capacité': 'Capacity',
+  'Plafond global de visites planifiées par mois ; le surplus glisse au mois suivant.': 'Global cap on planned visits per month; the surplus slides to the next month.',
+  'Fréquence des sites sans paramètre MMR (mois entre deux visites)': 'Frequency for sites without an MMR parameter (months between two visits)',
+  'La période doit tenir dans un seul exercice (même année).': 'The period must fit within a single exercise (same year).',
+  'Les visites exigées viennent du MMR (bureau × activité) et la priorité du RBM ; la « fréquence par risque » ci-dessous ne sert qu\'aux sites sans paramètre MMR. Zones interdites exclues ; mois déjà visité, inactif ou exclu sauté. Rien n\'est écrit avant « Appliquer ».': 'Required visits come from the MMR (office × activity) and priority from the RBM; the “frequency by risk” below only applies to sites without an MMR parameter. Forbidden areas excluded; a month already visited, inactive or excluded is skipped. Nothing is written before “Apply”.',
 };

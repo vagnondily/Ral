@@ -1,162 +1,174 @@
 /**
  * Planification automatique du suivi SUR UNE PÉRIODE (retour n° 82) — logique
- * PURE, testée, sans I/O. Répartit les visites à planifier sur les mois d'une
- * période « du … au … » selon des critères CONFIGURABLES, au lieu de ne générer
- * que le mois courant (`generateFromRbm`).
+ * PURE, testée, sans I/O. Fidèle au MMR et au RBM.
  *
- * Critères (`settings`) — tous facultatifs, valeurs par défaut = le comportement
- * RBM actuel :
- *   frequency        { elevee, moyenne, faible } : mois entre deux visites par
- *                    niveau de risque (défaut 1 / 2 / 3, comme rbmMath).
- *   capacityPerMonth nombre maximum de visites planifiées par mois (null = illimité).
- *   excludeMonths    ['YYYY-MM'] : mois où l'on ne planifie jamais (saison, congés).
- *   targetCoverage   objectif de couverture (0..1, défaut 0.8) — informatif (résumé).
+ * Pour chaque site sur la période (mois de l'exercice) :
+ *   - PARAMÉTRÉ au MMR : on planifie `toPlan` visites (= FRÉQ MMR exigée − faites
+ *     − déjà prévues, fourni par planBoard/siteCounters), ESPACÉES de l'INTERVALLE
+ *     MMR (durée ÷ risque, ou l'intervalle « ajusté » si demandé) ;
+ *   - SANS paramètre MMR : repli sur la FRÉQUENCE RBM par risque (configurable),
+ *     cadencée du même pas.
+ * Le débit mensuel par activité est borné par la CAPACITÉ mensuelle du MMR
+ * (faisable, sinon ciblé/mois) et, en option, par un plafond global. L'ordre de
+ * traitement suit la priorité RBM (sites déjà classés par rankSites en amont).
  *
- * Entrée `sites` : [{ id, activity, riskLevel, forbidden, lastVisitMonth,
- *   busyMonths: ['YYYY-MM'…] (visite déjà présente, quel que soit le statut),
- *   inactiveMonths: ['YYYY-MM'…] (grille d'activation : site inactif ce mois) }].
- * `months` : les mois de la période, croissants ['YYYY-MM', …].
- *
- * Règles (cohérentes avec rbmMath / generateFromRbm) :
- *   - un site `forbidden` (zone interdite) n'est jamais planifié ;
- *   - cadence : 1ʳᵉ visite = max(lastVisit + fréquence, début de période) ; jamais
- *     avant la dernière visite réelle ; puis tous les `fréquence` mois ;
- *   - un mois exclu, inactif ou déjà occupé (busy) est sauté → reporté au prochain
- *     mois autorisé ; on ne crée jamais deux visites le même mois pour un site ;
- *   - priorité (pour la capacité) : risque élevé d'abord, puis le plus en retard
- *     (jamais visité avant tout), puis l'ordre d'entrée — la capacité d'un mois va
- *     aux sites les plus prioritaires ; le surplus glisse au prochain mois libre.
+ * Entrée `sites` (sortie de planBoard, enrichie) :
+ *   { id, activity, riskLevel, forbidden, mmrKey, parametered, toPlan,
+ *     lastVisitMonth:'YYYY-MM'|null, monthStatus:{m:bool}, busyMonths:[int] }
+ * `mmrByKey` : { mmrKey: { interval, adjustedInterval, targetedPerMonth, feasible } }
+ * `months` : mois de la période (numéros 1..12 de `year`), croissants.
  */
-const { frequencyFor, monthsBetween, addMonths, toMonth, DEFAULT_FREQUENCY } = require('./rbmMath');
+const { frequencyFor, DEFAULT_FREQUENCY } = require('./rbmMath');
 
 const RISK_RANK = { elevee: 3, moyenne: 2, faible: 1 };
 
 function normalizeSettings(s = {}) {
   const f = s.frequency || {};
-  const num = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : d);
+  const n = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : d);
   const cap = s.capacityPerMonth;
   return {
     frequency: {
-      elevee: num(f.elevee, DEFAULT_FREQUENCY.elevee),
-      moyenne: num(f.moyenne, DEFAULT_FREQUENCY.moyenne),
-      faible: num(f.faible, DEFAULT_FREQUENCY.faible),
+      elevee: n(f.elevee, DEFAULT_FREQUENCY.elevee),
+      moyenne: n(f.moyenne, DEFAULT_FREQUENCY.moyenne),
+      faible: n(f.faible, DEFAULT_FREQUENCY.faible),
     },
     capacityPerMonth: cap == null || cap === '' || !(Number(cap) > 0) ? null : Math.floor(Number(cap)),
-    excludeMonths: [...new Set((s.excludeMonths || []).map(toMonth).filter(Boolean))],
+    excludeMonths: [...new Set((s.excludeMonths || []).map((m) => Number(String(m).slice(5, 7)) || Number(m)).filter((m) => m >= 1 && m <= 12))],
+    useMmrCapacity: s.useMmrCapacity !== false,
+    adjusted: Boolean(s.adjusted),
     targetCoverage: Number.isFinite(Number(s.targetCoverage)) ? Math.min(1, Math.max(0, Number(s.targetCoverage))) : 0.8,
   };
 }
 
-/** Rang de priorité d'un site (élevé = traité d'abord pour la capacité). */
-function priorityOf(site, firstMonth) {
-  const risk = RISK_RANK[site.riskLevel] || RISK_RANK.moyenne;
-  // Mois de retard au début de période : jamais visité = très en retard.
-  const last = toMonth(site.lastVisitMonth);
-  const overdue = last ? monthsBetween(last, firstMonth) : 9999;
-  return { risk, overdue };
-}
+const ym = (year, m) => `${year}-${String(m).padStart(2, '0')}`;
+const monthNum = (m) => { const n = Number(String(m).slice(5, 7)); return n >= 1 && n <= 12 ? n : null; };
+const yearOf = (m) => Number(String(m).slice(0, 4));
 
 /**
- * Mois « cadencés » d'un site sur la période (avant capacité) : suite théorique
- * tous les `freq` mois, à partir de max(lastVisit+freq, début de période),
- * bornée à la période, hors mois exclus/inactifs/occupés (reportés au prochain
- * mois autorisé). Renvoie une liste croissante de 'YYYY-MM'.
+ * Mois de visite d'un site (numéros), cadence tous les `interval` mois à partir
+ * de `start`, dans `allowed`, au plus `maxCount` visites. Pas de doublon.
  */
-function cadenceMonths(site, months, freq, blocked) {
-  if (!months.length) return [];
-  const first = months[0];
-  const last = months[months.length - 1];
-  const allowed = months.filter((m) => !blocked.has(m) && !(site.inactiveMonths || []).includes(m) && !(site.busyMonths || []).includes(m));
-  if (!allowed.length) return [];
-  const lastVisit = toMonth(site.lastVisitMonth);
-  // Mois « dû » de départ : lastVisit + fréquence, sinon le début de période.
-  let due = lastVisit ? addMonths(lastVisit, freq) : first;
-  if (!due || due < first) due = first;
+function cadence(start, interval, allowed, maxCount) {
+  if (!allowed.length || maxCount <= 0) return [];
+  const step = Math.max(1, Math.round(interval || 1));
   const out = [];
-  let cursor = due;
-  // Garde-fou : au plus un passage par mois de la période.
-  for (let guard = 0; guard <= months.length && cursor && cursor <= last; guard += 1) {
-    // Premier mois AUTORISÉ ≥ cursor.
+  let cursor = start;
+  const last = allowed[allowed.length - 1];
+  for (let guard = 0; guard <= 12 && out.length < maxCount && cursor <= last; guard += 1) {
     const m = allowed.find((x) => x >= cursor && !out.includes(x));
-    if (!m) break;
+    if (m == null) break;
     out.push(m);
-    const next = addMonths(m, freq);
-    if (!next || next <= m) break;
-    cursor = next;
+    cursor = m + step;
   }
   return out;
 }
 
-/**
- * Génère le plan de la période. Renvoie :
- *   assignments : [{ siteId, month, activity }] (croissant par mois puis priorité) ;
- *   perMonth    : [{ month, count }] pour chaque mois de la période ;
- *   summary     : compteurs (sites considérés, interdits, planifiés, non placés
- *                 faute de capacité, sites couverts au moins une fois, cible).
- */
-function generatePlan(sites = [], settings = {}, months = []) {
+/** @param {number} year  année de l'exercice */
+function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], year = new Date().getUTCFullYear()) {
   const cfg = normalizeSettings(settings);
-  const mList = [...new Set((months || []).map(toMonth).filter(Boolean))].sort();
-  const blocked = new Set(cfg.excludeMonths);
-  const capacity = cfg.capacityPerMonth;
-  const perMonthCount = new Map(mList.map((m) => [m, 0]));
-  const openMonths = mList.filter((m) => !blocked.has(m));
+  const period = [...new Set((months || []).filter((m) => m >= 1 && m <= 12))].sort((a, b) => a - b);
+  const excluded = new Set(cfg.excludeMonths);
+  const periodStart = period[0] || 1;
+
+  const perMonth = new Map(period.map((m) => [m, 0]));
+  const perKeyMonth = new Map();
+  const kM = (k, m) => `${k || ''}|${m}`;
 
   const considered = (sites || []).filter((s) => s && s.id);
   const forbidden = considered.filter((s) => s.forbidden);
-  const active = considered.filter((s) => !s.forbidden);
+  const plannable = considered.filter((s) => !s.forbidden);
 
-  // Candidats (site, mois voulu), triés par priorité de site.
-  const firstMonth = mList[0] || null;
-  const ranked = active
-    .map((s) => ({ s, p: priorityOf(s, firstMonth) }))
-    .sort((a, b) => b.p.risk - a.p.risk || b.p.overdue - a.p.overdue);
+  const globalCap = cfg.capacityPerMonth;
+  const monthlyMmrCap = (key) => {
+    if (!cfg.useMmrCapacity || !key) return Infinity;
+    const c = mmrByKey[key];
+    if (!c) return Infinity;
+    const lim = c.feasible != null ? c.feasible : (c.targetedPerMonth != null ? c.targetedPerMonth : null);
+    return lim == null ? Infinity : Math.max(1, Math.ceil(lim));
+  };
+  const room = (key, m) => (perMonth.get(m) || 0) < (globalCap == null ? Infinity : globalCap)
+    && (perKeyMonth.get(kM(key, m)) || 0) < monthlyMmrCap(key);
+  const take = (key, m) => { perMonth.set(m, (perMonth.get(m) || 0) + 1); perKeyMonth.set(kM(key, m), (perKeyMonth.get(kM(key, m)) || 0) + 1); };
 
   const assignments = [];
-  const coveredSites = new Set();
-  let unplaced = 0;
-  const hasRoom = (m) => capacity == null || (perMonthCount.get(m) || 0) < capacity;
+  const covered = new Set();
+  let unplaced = 0; let mmrDriven = 0; let rbmFallback = 0; let latePlanned = 0;
 
-  for (const { s } of ranked) {
-    const freq = frequencyFor(s.riskLevel, cfg.frequency);
-    const wanted = cadenceMonths(s, mList, freq, blocked);
-    const taken = new Set(); // mois déjà pris pour CE site dans ce plan
+  for (const s of plannable) {
+    const visits = s.visits || [];
+    // Mois déjà occupés (prévus OU réalisés) : on ne crée jamais une 2ᵉ visite ce mois.
+    const busy = new Set(visits.map((v) => Number(v.month)));
+    const realiseMonths = visits.filter((v) => v.status === 'realise').map((v) => Number(v.month));
+    const plannedMonths = visits.filter((v) => v.status === 'planifie').map((v) => Number(v.month));
+    const inactive = new Set(Object.entries(s.monthStatus || {}).filter(([, a]) => a === false).map(([m]) => Number(m)));
+    const allowed = period.filter((m) => !excluded.has(m) && !busy.has(m) && !inactive.has(m));
+    if (!allowed.length) continue;
+
+    // Reste à planifier SUR LA PÉRIODE et intervalle, selon MMR ou repli RBM.
+    let interval; let maxCount;
+    if (s.parametered) {
+      const c = mmrByKey[s.mmrKey] || {};
+      interval = cfg.adjusted && c.adjustedInterval ? c.adjustedInterval : (c.interval || frequencyFor(s.riskLevel, cfg.frequency));
+      // Reste = exigées MMR − réalisées(exercice) − prévues DANS la période.
+      // Les prévues AVANT la période non réalisées ne comptent pas → re-planifiées (catch-up MMR).
+      const plannedInPeriod = plannedMonths.filter((m) => m >= periodStart).length;
+      const required = Math.max(0, Number(s.required) || 0);
+      maxCount = Math.max(0, required - realiseMonths.length - plannedInPeriod);
+      latePlanned += plannedMonths.filter((m) => m < periodStart).length; // prévues passées non réalisées
+      if (maxCount > 0) mmrDriven += 1;
+    } else {
+      interval = frequencyFor(s.riskLevel, cfg.frequency);
+      maxCount = allowed.length; // repli : autant que la cadence en pose sur la période
+      if (maxCount > 0) rbmFallback += 1;
+    }
+    if (!maxCount) continue;
+
+    // Départ : dernière visite RÉALISÉE (même exercice) + intervalle, sinon début de période.
+    let start = periodStart;
+    const lastRealise = realiseMonths.length ? Math.max(...realiseMonths) : null;
+    if (lastRealise != null) start = Math.max(periodStart, lastRealise + Math.max(1, Math.round(interval)));
+    else {
+      const lv = s.lastVisitMonth;
+      if (lv && yearOf(lv) === year) { const n = monthNum(lv); if (n != null) start = Math.max(periodStart, n + Math.max(1, Math.round(interval))); }
+    }
+
+    const wanted = cadence(start, interval, allowed, maxCount);
+    const placedForSite = new Set();
     for (const w of wanted) {
-      let placed = null;
-      if (hasRoom(w)) placed = w;
-      else {
-        // Glisser au prochain mois autorisé avec de la place, sans doubler ce site.
-        placed = openMonths.find((m) => m >= w && hasRoom(m)
-          && !taken.has(m) && !(s.busyMonths || []).includes(m) && !(s.inactiveMonths || []).includes(m));
-      }
-      if (!placed || taken.has(placed)) { if (!placed) unplaced += 1; continue; }
-      taken.add(placed);
-      perMonthCount.set(placed, (perMonthCount.get(placed) || 0) + 1);
-      assignments.push({ siteId: s.id, month: placed, activity: s.activity || null, riskLevel: s.riskLevel || null });
-      coveredSites.add(s.id);
+      let m = room(s.mmrKey, w) ? w : allowed.find((x) => x >= w && !placedForSite.has(x) && room(s.mmrKey, x))
+        || allowed.find((x) => !placedForSite.has(x) && room(s.mmrKey, x));
+      if (m == null || placedForSite.has(m)) { unplaced += 1; continue; }
+      placedForSite.add(m);
+      take(s.mmrKey, m);
+      assignments.push({ siteId: s.id, month: ym(year, m), monthNum: m, activity: s.activity || null, riskLevel: s.riskLevel || null, source: s.parametered ? 'mmr' : 'rbm' });
+      covered.add(s.id);
     }
   }
 
-  assignments.sort((a, b) => a.month.localeCompare(b.month)
+  assignments.sort((a, b) => a.monthNum - b.monthNum
     || (RISK_RANK[b.riskLevel] || 0) - (RISK_RANK[a.riskLevel] || 0)
     || String(a.siteId).localeCompare(String(b.siteId)));
 
   return {
     settings: cfg,
-    months: mList,
-    assignments,
-    perMonth: mList.map((m) => ({ month: m, count: perMonthCount.get(m) || 0 })),
+    year,
+    months: period,
+    assignments: assignments.map(({ monthNum: _m, ...a }) => a),
+    perMonth: period.map((m) => ({ month: ym(year, m), count: perMonth.get(m) || 0 })),
     summary: {
       sitesConsidered: considered.length,
       forbidden: forbidden.length,
       planned: assignments.length,
-      sitesCovered: coveredSites.size,
-      sitesActivePlannable: active.length,
+      sitesCovered: covered.size,
+      sitesActivePlannable: plannable.length,
+      mmrDriven,
+      rbmFallback,
+      latePlanned,
       unplaced,
       targetCoverage: cfg.targetCoverage,
-      coverageRate: active.length ? Math.round((coveredSites.size / active.length) * 1000) / 10 : null,
+      coverageRate: plannable.length ? Math.round((covered.size / plannable.length) * 1000) / 10 : null,
     },
   };
 }
 
-module.exports = { generatePlan, normalizeSettings, cadenceMonths, priorityOf, DEFAULT_SETTINGS: normalizeSettings() };
+module.exports = { generatePlan, normalizeSettings, cadence, DEFAULT_SETTINGS: normalizeSettings() };

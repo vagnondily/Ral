@@ -1,60 +1,88 @@
 /**
  * Planification automatique sur une période (retour n° 82) — accès base, en
- * fichier NEUF (ne touche pas field.repository.js, disputé par plusieurs
- * chantiers). SQL uniquement ici. Le calcul est pur (`planAuto.generatePlan`).
+ * fichier NEUF (ne touche pas field.repository.js, disputé). SQL/lecture ici ;
+ * le calcul est pur (`planAuto.generatePlan`).
  *
- * Lecture : pour chaque site, les éléments dont le moteur a besoin — risque,
- * zone interdite (sécurité ≥ 99), dernière visite EFFECTIVE (mois réalisé le plus
- * récent OU date de dernière visite du registre — jamais une visite seulement
- * planifiée), mois déjà occupés et mois inactifs (grille d'activation) sur la
- * période. Écriture : une visite « planifie » par affectation, idempotente
- * (jamais deux visites le même site + mois), sous verrou consultatif ; la base
- * estampille le TPM de zone au commit (déclencheur retour 58).
+ * Lecture : on réutilise `field.repository.planBoard(year)` — la MÊME source que
+ * l'écran Plan de suivi — qui donne, par site, les visites EXIGÉES par le MMR
+ * (deriveMmr), le reste à planifier (`toPlan`), la priorité RBM, l'état mensuel
+ * d'activation et la capacité mensuelle MMR. Aucune règle dupliquée.
+ * Écriture : une visite « planifie » par affectation, idempotente (jamais deux
+ * visites le même site + mois ; jamais un mois « Inactive »), sous verrou ; la
+ * base estampille le TPM de zone au commit (déclencheur retour 58).
  */
 const { withTenantTransaction } = require('../../config/db');
-// Retour 58 : toute écriture de visites finit par restampVisitsTx — le TPM des
-// visites « zone » créées est celui de leur zone, pris sous le verrou d'attribution.
+const field = require('./field.repository');
+const { mmrKeyOf } = require('./planBoard');
+const { deriveMmr } = require('./mmrMath');
+// Retour 58 : toute écriture de visites finit par restampVisitsTx.
 const { restampVisitsTx } = require('./tpmAttribution.repository');
 
-/** Sites + faits nécessaires au moteur, sur la période [from, to] ('YYYY-MM'). */
-async function sitesForPlanning(tenantId, { from, to, risk } = {}) {
+/** Lignes MMR du compte (pour l'intervalle et la capacité par activité). */
+async function mmrRows(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
-    const fromD = `${from}-01`;
-    const toD = `${to}-01`;
-    const params = [tenantId, fromD, toD];
-    let riskFilter = '';
-    if (risk) { params.push(risk); riskFilter = ` AND s.risk_level = $${params.length}`; }
     const { rows } = await client.query(
-      `SELECT s.id, s.name, s.district, s.commune, s.activity, s.risk_level AS "riskLevel",
-              (COALESCE(s.security_situation, 0) >= 99) AS forbidden,
-              to_char(GREATEST(
-                (SELECT max(v.period_month) FROM site_visits v
-                  WHERE v.tenant_id = s.tenant_id AND v.site_id = s.id AND v.status = 'realise'),
-                s.last_visit_date
-              ), 'YYYY-MM') AS "lastVisitMonth",
-              COALESCE((SELECT array_agg(DISTINCT to_char(v.period_month, 'YYYY-MM'))
-                 FROM site_visits v
-                WHERE v.tenant_id = s.tenant_id AND v.site_id = s.id
-                  AND v.period_month >= $2::date AND v.period_month <= $3::date), '{}') AS "busyMonths",
-              COALESCE((SELECT array_agg(to_char(make_date(ms.year, ms.month, 1), 'YYYY-MM'))
-                 FROM site_month_status ms
-                WHERE ms.tenant_id = s.tenant_id AND ms.site_id = s.id AND NOT ms.active
-                  AND make_date(ms.year, ms.month, 1) >= $2::date
-                  AND make_date(ms.year, ms.month, 1) <= $3::date), '{}') AS "inactiveMonths"
-         FROM sites s
-        WHERE s.tenant_id = $1${riskFilter}`,
-      params
-    );
+      `SELECT field_office_id AS "fieldOfficeId", activity_category AS "activityCategory",
+              operation_duration AS "operationDuration", number_of_sites AS "numberOfSites",
+              risk_level AS "riskLevel", feasible, persons_to_deploy AS "personsToDeploy",
+              visits_per_day::float8 AS "visitsPerDay", working_days AS "workingDays"
+         FROM mmr_parameters WHERE tenant_id = $1`, [tenantId]);
     return rows;
   });
 }
 
 /**
+ * Sites + faits MMR/RBM pour l'exercice `year` (via planBoard), mis à la forme
+ * attendue par le moteur. `risk` filtre un niveau de risque.
+ * @returns {{ sites: object[], capacity: object }}
+ */
+async function sitesForPlanning(tenantId, { year, adjusted = false, risk, capacityOverride } = {}) {
+  const board = await field.planBoard(tenantId, { year, adjusted });
+  // Intervalle + capacité mensuelle par ligne MMR (même clé que les sites du board).
+  const mmrByKey = {};
+  for (const r of await mmrRows(tenantId)) {
+    const d = deriveMmr(r);
+    const key = mmrKeyOf(r);
+    const cap = (board.capacity || {})[key] || {};
+    mmrByKey[key] = {
+      interval: d.interval,
+      adjustedInterval: d.adjustedInterval,
+      targetedPerMonth: cap.targeted != null ? cap.targeted : d.targetedPerMonth,
+      // Capacité/mois : surcharge saisie dans l'assistant > faisable du MMR.
+      feasible: Number(capacityOverride) > 0 ? Number(capacityOverride) : (cap.feasible != null ? cap.feasible : d.feasible),
+    };
+  }
+  const sites = (board.sites || [])
+    .filter((s) => !risk || s.riskLevel === risk)
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      district: s.district,
+      commune: s.commune,
+      activity: s.activity,
+      riskLevel: s.riskLevel,
+      forbidden: Boolean(s.forbidden),
+      inactive: Boolean(s.inactive),
+      mmrKey: s.mmrKey || null,
+      parametered: Boolean(s.parametered),
+      required: Number(s.required) || 0,       // visites exigées par le MMR sur l'exercice
+      lastVisitMonth: s.lastVisitMonth || null,
+      monthStatus: s.monthStatus || {},
+      // Visites de l'exercice (prévues / réalisées), avec leur mois et statut : le moteur
+      // recalcule le reste à planifier SUR LA PÉRIODE (les prévues avant la période non
+      // réalisées redeviennent à planifier, pour ne pas sortir du MMR).
+      visits: (s.months || [])
+        .map((m) => ({ month: Number(m.month), status: m.status }))
+        .filter((m) => m.month >= 1 && m.month <= 12),
+    }));
+  return { sites, mmrByKey };
+}
+
+/**
  * Écrit les visites planifiées (affectations du moteur) en une transaction, sous
- * verrou consultatif par compte (deux générations simultanées sérialisées).
- * Idempotent : jamais de 2ᵉ visite pour un même site + mois ; jamais sur un mois
- * « Inactive ». Renvoie le nombre réellement créé.
- * @param {{siteId, month, activity}[]} assignments
+ * verrou consultatif. Idempotent : jamais de 2ᵉ visite pour un même site + mois ;
+ * jamais sur un mois « Inactive ». Renvoie le nombre réellement créé.
+ * @param {{siteId, month}[]} assignments  month = 'YYYY-MM'
  */
 async function applyPlan(tenantId, userId, assignments = []) {
   const clean = (assignments || []).filter((a) => a && a.siteId && /^\d{4}-\d{2}$/.test(String(a.month)));

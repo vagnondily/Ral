@@ -1,10 +1,9 @@
 /**
  * Planification automatique sur une période (retour n° 82) — routes, fichier
- * NEUF monté à part (`/api/tpm/plan-auto`) pour ne pas toucher field.routes.js
- * (disputé). Deux temps, comme le reste des imports/générations de MEMS :
+ * NEUF monté à part (`/api/tpm/plan-auto`). Deux temps :
  *   POST /preview : calcule le plan (aucune écriture) → aperçu + explication ;
  *   POST /apply   : écrit les visites planifiées (idempotent).
- * Le calcul est pur (`planAuto.generatePlan`) ; la base fait foi à l'écriture.
+ * Les chiffres MMR/RBM viennent du Plan de suivi (planBoard) ; le calcul est pur.
  */
 const { Router } = require('express');
 const { z } = require('zod');
@@ -13,15 +12,12 @@ const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest } = require('../../middleware/errors');
 const repo = require('./planAuto.repository');
 const { generatePlan } = require('./planAuto');
-const { toMonth, addMonths, monthsBetween } = require('./rbmMath');
 
 const router = Router();
 router.use(requireAuth);
 const WRITE = requireRole('admin', 'manager');
 const t = (req) => req.auth.tenantId;
 const uid = (req) => req.auth.userId || req.auth.sub;
-
-const MAX_SPAN = 24; // mois : borne de sécurité (cohérent avec PERIOD_CAPS.facts)
 
 const month = z.string().regex(/^\d{4}-\d{2}$/, 'Mois AAAA-MM requis');
 const settingsSchema = z.object({
@@ -31,35 +27,41 @@ const settingsSchema = z.object({
     faible: z.number().int().min(1).max(12).optional(),
   }).partial().optional(),
   capacityPerMonth: z.number().int().min(1).max(100000).nullable().optional(),
-  excludeMonths: z.array(month).max(60).optional(),
+  excludeMonths: z.array(month).max(12).optional(),
+  useMmrCapacity: z.boolean().optional(),
   targetCoverage: z.number().min(0).max(1).optional(),
 }).partial().optional();
 
 const bodySchema = z.object({
   from: month,
   to: month,
+  adjusted: z.boolean().optional(),
   risk: z.enum(['faible', 'moyenne', 'elevee']).optional(),
   settings: settingsSchema,
-}).refine((v) => v.from <= v.to, { message: 'La période est inversée (from > to).', path: ['to'] });
+}).refine((v) => v.from <= v.to, { message: 'La période est inversée (from > to).', path: ['to'] })
+  .refine((v) => v.from.slice(0, 4) === v.to.slice(0, 4), { message: 'La période doit tenir dans un seul exercice (même année).', path: ['to'] });
 
 function parseBody(req) {
   const parsed = bodySchema.safeParse(req.body);
   if (!parsed.success) throw badRequest('Données invalides', parsed.error.flatten());
   const { from, to } = parsed.data;
-  const span = monthsBetween(from, to) + 1;
-  if (span < 1) throw badRequest('Période vide.');
-  if (span > MAX_SPAN) throw badRequest(`Période trop longue (${span} mois) ; maximum ${MAX_SPAN} mois.`);
+  const year = Number(from.slice(0, 4));
+  const m0 = Number(from.slice(5, 7));
+  const m1 = Number(to.slice(5, 7));
   const months = [];
-  for (let m = toMonth(from), g = 0; m && m <= to && g < MAX_SPAN; m = addMonths(m, 1), g += 1) months.push(m);
-  return { ...parsed.data, months };
+  for (let m = m0; m <= m1; m += 1) months.push(m);
+  return { ...parsed.data, year, months };
 }
 
 /** Construit le plan (sans écriture) pour une période + critères. */
 async function build(req) {
-  const { from, to, risk, settings, months } = parseBody(req);
-  const sites = await repo.sitesForPlanning(t(req), { from, to, risk });
-  const plan = generatePlan(sites, settings || {}, months);
-  // Libellés pour l'aperçu (nom / district / commune du site).
+  const { risk, adjusted, settings, months, year } = parseBody(req);
+  const s = settings || {};
+  const { sites, mmrByKey } = await repo.sitesForPlanning(t(req), {
+    year, adjusted: Boolean(adjusted), risk, capacityOverride: s.capacityPerMonth,
+  });
+  // L'ajustement MMR (CO adjusted) est transmis au moteur pour l'intervalle.
+  const plan = generatePlan(sites, mmrByKey, { ...s, adjusted: Boolean(adjusted) }, months, year);
   const label = new Map(sites.map((s) => [s.id, { name: s.name, district: s.district, commune: s.commune }]));
   plan.assignments = plan.assignments.map((a) => ({ ...a, ...(label.get(a.siteId) || {}) }));
   return plan;
