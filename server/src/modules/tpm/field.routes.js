@@ -231,6 +231,25 @@ router.put('/activation', WRITE, asyncHandler(async (req, res) => {
     throw e;
   }
 }));
+// « Renseigner les cases vides » : calculé côté serveur, sous verrou, en une transaction.
+const activationFill = z.object({
+  year: z.number().int().min(2000).max(2100),
+  from: z.number().int().min(1).max(12),
+  to: z.number().int().min(1).max(12),
+  value: z.boolean(),
+  siteIds: z.array(z.string().uuid()).min(1).max(20000),
+  reason: z.string().max(2000).optional(),
+}).refine((v) => v.from <= v.to, { message: 'Le premier mois doit précéder le dernier.', path: ['to'] });
+router.post('/activation/fill', WRITE, asyncHandler(async (req, res) => {
+  const p = activationFill.safeParse(req.body);
+  if (!p.success) throw badRequest('Données invalides', p.error.flatten());
+  try {
+    res.json(await activation.fillBlankActivation(t(req), uid(req), p.data));
+  } catch (e) {
+    if (e && e.code === 'UNKNOWN_SITE') throw badRequest(e.message);
+    throw e;
+  }
+}));
 router.get('/activation/history', asyncHandler(async (req, res) => {
   const siteId = z.string().uuid().safeParse(req.query.siteId);
   if (!siteId.success) throw badRequest('Site requis (?siteId=).');

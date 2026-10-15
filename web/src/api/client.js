@@ -299,6 +299,7 @@ export const api = {
   // Sites (actifs / inactifs) : grille du classeur d'activation (retour 64).
   activationGrid: (year) => request('/api/tpm/field/activation', { query: { year } }),
   saveActivation: (input) => request('/api/tpm/field/activation', { method: 'PUT', body: input }),
+  activationFill: (input) => request('/api/tpm/field/activation/fill', { method: 'POST', body: input }),
   activationHistory: (siteId, year) => request('/api/tpm/field/activation/history', { query: { siteId, year } }),
   activationExport: (year) => downloadFile(`/api/tpm/field/activation.xlsx?year=${year}`, `Sites_actifs_${year}.xlsx`),
   activationImport: (file, { commit, year } = {}) => uploadFile(`/api/tpm/field/activation/import?commit=${commit ? 1 : 0}&year=${year}`, file),
