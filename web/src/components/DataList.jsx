@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   Search, SlidersHorizontal, Columns3, Save, Clock, RotateCcw, Download,
   ChevronLeft, ChevronRight,
@@ -9,6 +9,7 @@ import { useToast } from './Toast.jsx';
 import { useI18n } from '../lib/i18n.jsx';
 import { downloadCsv } from '../lib/csv.js';
 import { overlaps, periodFromSaved } from '../lib/period.js';
+import { sortRows } from '../lib/dataList.js';
 import PeriodSelect from './PeriodSelect.jsx';
 
 /**
@@ -51,27 +52,29 @@ export default function DataList({
   const filterMenu = usePopover();
   const colMenu = usePopover();
 
-  const shown = ALL_FILTERS.filter((k) => shownFilters.includes(k));
+  // Mémorisés : une sélection de ligne, un survol ou une saisie ne refiltrent ni ne retrient
+  // les milliers de lignes ; seul un changement de données, de filtre ou de tri le fait.
+  const shown = useMemo(() => ALL_FILTERS.filter((k) => shownFilters.includes(k)), [filters, shownFilters]); // eslint-disable-line react-hooks/exhaustive-deps
   const shownCols = ALL_COLUMNS.filter((k) => cols.includes(k));
+  // Filtrage différé (React 18) : la saisie s'affiche tout de suite, le tableau suit dès que
+  // le navigateur est libre (la frappe suivante interrompt un filtrage en cours).
+  const deferredValues = useDeferredValue(values);
 
   const filtered = useMemo(() => {
     let list = rows || [];
-    list = list.filter((r) => shown.every((k) => {
-      const v = values[k]; if (v === '' || v == null) return true;
-      if (filters[k].match) return filters[k].match(r, v);
-      if (filters[k].type === 'period') return overlaps(v, filters[k].start?.(r), filters[k].end?.(r));
-      return true;
-    }));
-    if (sort.key && columns[sort.key]?.sortVal) {
-      const sv = columns[sort.key].sortVal;
-      list = [...list].sort((a, b) => {
-        const va = sv(a); const vb = sv(b);
-        const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va ?? '').localeCompare(String(vb ?? ''));
-        return sort.dir === 'asc' ? cmp : -cmp;
-      });
+    const active = shown.filter((k) => { const v = deferredValues[k]; return !(v === '' || v == null); });
+    if (active.length) {
+      list = list.filter((r) => active.every((k) => {
+        const v = deferredValues[k];
+        if (filters[k].match) return filters[k].match(r, v);
+        if (filters[k].type === 'period') return overlaps(v, filters[k].start?.(r), filters[k].end?.(r));
+        return true;
+      }));
     }
+    // Tri stable, même ordre qu'avant (lib/dataList : clé lue une fois par ligne, un seul Intl.Collator).
+    if (sort.key && columns[sort.key]?.sortVal) list = sortRows(list, columns[sort.key].sortVal, sort.dir);
     return list;
-  }, [rows, values, shown, sort]); // eslint-disable-line
+  }, [rows, deferredValues, shown, sort, columns]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sig = JSON.stringify({ values, shownFilters, sort });
   useEffect(() => { setPage(1); }, [sig]); // eslint-disable-line
@@ -86,10 +89,18 @@ export default function DataList({
   const payload = () => ({ values, shownFilters, columns: cols, sort });
   function resetView() { setValues(emptyValues); viewStore.clear(); toast.info(tr('Filtres réinitialisés.')); }
 
-  function optionsFor(k) {
-    const f = filters[k];
-    return typeof f.options === 'function' ? f.options(rows || [], values) : (f.options || []);
-  }
+  // Listes des filtres « select » (souvent dérivées des lignes : régions, districts…) : une fois
+  // par changement de données ou de valeurs, pas à chaque rendu.
+  const optionLists = useMemo(() => {
+    const out = {};
+    for (const k of shown) {
+      const f = filters[k];
+      if (f.type === 'search' || f.type === 'period') continue;
+      out[k] = typeof f.options === 'function' ? f.options(rows || [], values) : (f.options || []);
+    }
+    return out;
+  }, [rows, values, shown]); // eslint-disable-line react-hooks/exhaustive-deps
+  const optionsFor = (k) => optionLists[k] || [];
 
   function exportCsv() {
     const head = shownCols.map((k) => columns[k].label);

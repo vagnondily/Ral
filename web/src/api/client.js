@@ -436,6 +436,10 @@ export const api = {
   fieldSetTravelDays: (input) => request('/api/tpm/field/collection-days', { method: 'PUT', body: input }),
   // Mois de référence « AAAA-MM », ou une période { from, to } : l'état est lu au mois `to`.
   rbmSites: (monthOrPeriod, risk) => request('/api/tpm/field/rbm/sites', { query: qs({ ...pq(monthOrPeriod), risk }) }),
+  // Compteurs seuls de l'état RBM ({ total, byRisk, due, dueOpen, upToDate, toPlan }) — mêmes lignes
+  // et mêmes règles que rbmSites, sans télécharger la liste (≈ 1,3 Ko par site) quand l'écran
+  // n'affiche que des totaux.
+  rbmCounts: (monthOrPeriod, risk) => request('/api/tpm/field/rbm/counts', { query: qs({ ...pq(monthOrPeriod), risk }) }),
   // Un site avec « Pourquoi ? / Conséquence / Que faire ? » (retour n° 48).
   rbmSiteExplain: (id, month) => request(`/api/tpm/field/rbm/sites/${encodeURIComponent(id)}`, { query: month ? { month } : {} }),
   rbmGenerate: (month, risk) => request(`/api/tpm/field/rbm/generate?month=${encodeURIComponent(month)}${risk ? `&risk=${risk}` : ''}`, { method: 'POST' }),
