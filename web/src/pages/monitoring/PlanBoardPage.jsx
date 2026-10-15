@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ArrowDownCircle, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleDot, Columns3, Download, FileSpreadsheet,
-  Filter, Layers, ListChecks, Map as MapIcon, PauseCircle, Plus, RotateCcw, Save, Search, ShieldAlert, Upload, X,
+  Filter, Layers, ListChecks, Map as MapIcon, PauseCircle, Plus, RotateCcw, Save, Search, ShieldAlert, Upload, Wand2, X,
 } from 'lucide-react';
 import L from 'leaflet';
 import { TILES_URL, probeTiles } from '../../components/map/TileUnderlay.jsx';
@@ -13,7 +13,9 @@ import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, formatLocale, monthLabel } from '../../lib/format.js';
-import { applyPending, boardKpis, monthTotals, pendingKey, rateTone, visitRate } from '../../lib/planBoard.js';
+import { applyPending, boardKpis, isActiveMonth, monthTotals, pendingKey, rateTone, visitRate } from '../../lib/planBoard.js';
+import { keptProposals, mergePending, proposalText } from '../../lib/planGen.js';
+import AutoPlanDrawer from './AutoPlanDrawer.jsx';
 import './planBoard.css';
 
 /**
@@ -56,25 +58,37 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
   const [page, setPage] = useState(1);
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState(null); // 'bulk' | 'add' | 'template' | { import }
+  // Planification automatique (lot 5) : propositions de l'aperçu montrées « proposé » dans la grille,
+  // décochables (excluded) avant « Appliquer » ; autoRun garde la requête et l'empreinte de l'aperçu.
+  const [autoOpen, setAutoOpen] = useState(false);
+  const [proposals, setProposals] = useState(() => new Map());
+  const [excluded, setExcluded] = useState(() => new Set());
+  const [autoRun, setAutoRun] = useState(null);
+  const [onlyProposed, setOnlyProposed] = useState(false);
+  const clearProposals = () => { setProposals(new Map()); setExcluded(new Set()); setAutoRun(null); setOnlyProposed(false); };
   const fileRef = useRef(null);
 
   const load = useCallback(async () => {
     setError(null);
     try { setData(await api.planBoard(year, { adjusted })); } catch (e) { setError(e.message); }
   }, [year, adjusted]);
-  useEffect(() => { setData(null); setPending({}); setSelected(new Set()); load(); }, [load]);
+  useEffect(() => { setData(null); setPending({}); setSelected(new Set()); clearProposals(); load(); }, [load]);
 
   const refs = data?.refs || { activities: [], poiSubtypes: [], modalities: [] };
   const pendingCount = Object.keys(pending).length;
+  const keepCount = proposals.size - excluded.size;
+  const dirty = pendingCount > 0 || proposals.size > 0;
   useEffect(() => {
-    if (!pendingCount) return undefined;
+    if (!dirty) return undefined;
     const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [pendingCount]);
+  }, [dirty]);
 
   const original = useMemo(() => new Map((data?.sites || []).map((s) => [s.id, s])), [data]);
-  const sites = useMemo(() => applyPending(data?.sites || [], pending), [data, pending]);
+  const effectivePending = useMemo(() => mergePending(pending, proposals, excluded), [pending, proposals, excluded]);
+  const sites = useMemo(() => applyPending(data?.sites || [], effectivePending), [data, effectivePending]);
+  const proposedSites = useMemo(() => new Set([...proposals.values()].map((p) => p.siteId)), [proposals]);
   const options = useMemo(() => {
     const uniq = (arr) => [...new Set(arr.filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'fr'));
     return {
@@ -93,7 +107,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
   }, [sites, filters]);
   const kpis = useMemo(() => boardKpis(filtered), [filtered]);
   const rows = useMemo(() => {
-    if (view === 'plan') return filtered.filter((s) => !s.inactive && !s.forbidden);
+    if (view === 'plan') return filtered.filter((s) => !s.inactive && !s.forbidden && (!onlyProposed || proposedSites.has(s.id)));
     if (view === 'visited') return filtered.filter((s) => s.done > 0);
     return filtered;
   }, [filtered, view]);
@@ -103,6 +117,12 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
   const activeFilters = Object.entries(filters).filter(([, v]) => v).length;
 
   function toggleMonth(site, month, planned) {
+    const k = pendingKey(site.id, month);
+    // Case proposée par la planification automatique : décocher l'exclut, recocher la reprend.
+    if (proposals.has(k)) {
+      setExcluded((x) => { const n = new Set(x); if (planned) n.delete(k); else n.add(k); return n; });
+      return;
+    }
     const base = original.get(site.id);
     const was = (base.months || []).some((m) => m.month === month && m.status === 'planifie');
     setPending((p) => {
@@ -116,12 +136,31 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
     setSaving(true);
     try {
       const changes = Object.entries(pending).map(([k, planned]) => { const [siteId, m] = k.split('|'); return { siteId, month: Number(m), planned }; });
-      const r = await api.planBoardSetMonths({ year, changes });
-      toast.success(tr('Planification enregistrée : {a} visite(s) ajoutée(s), {r} retirée(s).', { a: r.added, r: r.removed }));
-      if (r.skippedInactive) toast.error(tr('{n} mois inactif(s) non planifié(s).', { n: r.skippedInactive }));
-      setPending({}); await load();
-    } catch (e) { toast.error(e.message); } finally { setSaving(false); }
+      const keep = keptProposals(proposals, excluded, pending);
+      if (keep.length && autoRun) {
+        // Propositions gardées + coches manuelles : UNE transaction côté serveur (empreinte vérifiée).
+        const r = await api.planApply({ ...autoRun.body, fingerprint: autoRun.fingerprint, sections: autoRun.sections, keep, changes });
+        toast.success(tr('Plan enregistré : {n} visite(s) planifiée(s).', { n: formatInt(r.created + (r.manual?.added || 0)) }));
+        if (r.skipped) toast.error(tr('{n} visite(s) non créée(s) : la case a changé entre-temps.', { n: r.skipped }));
+      } else {
+        const r = await api.planBoardSetMonths({ year, changes });
+        toast.success(tr('Planification enregistrée : {a} visite(s) ajoutée(s), {r} retirée(s).', { a: r.added, r: r.removed }));
+        if (r.skippedInactive) toast.error(tr('{n} mois inactif(s) non planifié(s).', { n: r.skippedInactive }));
+      }
+      setPending({}); clearProposals(); await load();
+    } catch (e) {
+      if (e.status === 409 && e.details && e.details.code === 'plan_inputs_changed') toast.error(tr('Les données ont changé depuis l\'aperçu : relancez « Planification automatique ».'));
+      else toast.error(e.message);
+    } finally { setSaving(false); }
   }
+
+  function showProposals(result, body) {
+    setProposals(new Map(result.proposals.map((p) => [pendingKey(p.siteId, p.month), p])));
+    setExcluded(new Set());
+    setAutoRun({ body, fingerprint: result.fingerprint, sections: result.sections, sites: result.sites, total: result.proposals.length });
+    setOnlyProposed(true); setView('plan'); setPage(1); setAutoOpen(false);
+  }
+  const proposalTitle = (p) => `${tr('Proposé')} · ${tr('tournée {t}, journée {d}', { t: p.tour, d: p.day })} · ${proposalText(p, tr, (id) => (autoRun?.sites?.[id] || {}).name || null)}`;
 
   const toggleSel = (id) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const allSelected = rows.length > 0 && rows.every((s) => selected.has(s.id));
@@ -145,8 +184,9 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
           <p className="page-desc">{tr('Visites exigées par le MMR de chaque site (bureau × activité), faites, prévues et restantes sur l\'exercice ; planifiez en cochant les mois.')}</p>
         </div>
         <div className="header-actions">
+          {canEdit && <Button icon={Wand2} onClick={() => setAutoOpen(true)} title={tr('Proposer les visites du mois d\'après le RBM, le MMR et vos critères ; rien n\'est enregistré avant « Appliquer ».')}>{tr('Planification automatique')}</Button>}
           <label className="pb-year"><span>{tr('Exercice')}</span>
-            <select className="select" value={year} onChange={(e) => { if (!pendingCount || window.confirm(tr('Abandonner les modifications non enregistrées ?'))) setYear(Number(e.target.value)); }}>
+            <select className="select" value={year} onChange={(e) => { if (!dirty || window.confirm(tr('Abandonner les modifications non enregistrées ?'))) setYear(Number(e.target.value)); }}>
               {years.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
           </label>
@@ -158,7 +198,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
             <Button variant="secondary" icon={FileSpreadsheet} onClick={() => setModal('template')}>{tr('Gabarit d\'activité')}</Button>
             <Button variant="secondary" icon={Upload} onClick={() => fileRef.current?.click()}>{tr('Importer')}</Button>
             <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={(e) => onImportFile(e.target.files[0])} />
-            <Button icon={Plus} onClick={() => setModal('add')}>{tr('Ajouter un site')}</Button>
+            <Button variant="secondary" icon={Plus} onClick={() => setModal('add')}>{tr('Ajouter un site')}</Button>
           </>}
         </div>
       </div>
@@ -210,6 +250,9 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
               </div>
             )}
             <span className="pb-count">{tr('{n} site(s)', { n: formatInt(rows.length) })}{view === 'plan' ? ` · ${tr('classés par reste à faire, priorité puis ancienneté')}` : ''}</span>
+            {view === 'plan' && proposals.size > 0 && (
+              <label className="check pb-only-proposed"><input type="checkbox" checked={onlyProposed} onChange={(e) => { setOnlyProposed(e.target.checked); setPage(1); }} /> {tr('Seulement les sites proposés ({n})', { n: formatInt(proposedSites.size) })}</label>
+            )}
             {view === 'standard' && <ColumnChooser />}
           </div>
 
@@ -226,6 +269,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
           ) : (
             <div className="table-wrap pb-table-wrap">
               {view === 'plan' && <PlanTable rows={pageRows} offset={(page - 1) * PAGE} allRows={rows} capacity={data.capacity} pending={pending}
+                proposals={proposals} excluded={excluded} proposalTitle={proposalTitle} yearHasGrid={Boolean(data.yearHasGrid)}
                 canEdit={canEdit} selected={selected} onSelect={toggleSel} allSelected={allSelected} onSelectAll={toggleAll} onToggle={toggleMonth} />}
               {view === 'standard' && <StandardTable rows={pageRows} selected={selected} onSelect={toggleSel} allSelected={allSelected} onSelectAll={toggleAll} canEdit={canEdit} />}
               {view === 'visited' && <VisitedTable rows={pageRows} year={year} selected={selected} onSelect={toggleSel} allSelected={allSelected} onSelectAll={toggleAll} canEdit={canEdit} />}
@@ -240,7 +284,15 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
           )}
         </Card>
 
-        {pendingCount > 0 && (
+        {proposals.size > 0 ? (
+          <div className="mmr-savebar pb-savebar pb-proposal-bar" role="region" aria-label={tr('Plan proposé')}>
+            <span className="pb-proposal-key"><i aria-hidden="true"><Check size={11} /></i> {tr('{k} visite(s) proposée(s) sur {n} gardée(s)', { k: formatInt(keepCount), n: formatInt(proposals.size) })}
+              {pendingCount > 0 && ` · ${tr('{n} modification(s) manuelle(s)', { n: pendingCount })}`}</span>
+            <Button variant="ghost" icon={Wand2} onClick={() => setAutoOpen(true)}>{tr('Revoir l\'aperçu')}</Button>
+            <Button variant="secondary" onClick={() => { setPending({}); clearProposals(); }}>{tr('Abandonner')}</Button>
+            <Button icon={Save} loading={saving} disabled={keepCount === 0 && pendingCount === 0} onClick={savePlan}>{tr('Appliquer')}</Button>
+          </div>
+        ) : pendingCount > 0 && (
           <div className="mmr-savebar pb-savebar">
             <span>{tr('{n} modification(s) de planification non enregistrée(s)', { n: pendingCount })}</span>
             <Button variant="secondary" onClick={() => setPending({})}>{tr('Annuler')}</Button>
@@ -249,6 +301,9 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
         )}
       </>}
 
+      {autoOpen && data && <AutoPlanDrawer year={year} activities={refs.activities} districts={options.districts}
+        onClose={() => setAutoOpen(false)} onShowInGrid={showProposals}
+        onApplied={async () => { setAutoOpen(false); setPending({}); clearProposals(); await load(); }} />}
       {modal === 'bulk' && <BulkModal year={year} siteIds={[...selected]} refs={refs} onClose={() => setModal(null)}
         onDone={async () => { setModal(null); setSelected(new Set()); setPending({}); await load(); }} />}
       {modal === 'add' && <AddSiteModal refs={refs} onClose={() => setModal(null)} onDone={async () => { setModal(null); await load(); }} />}
@@ -278,7 +333,8 @@ function StatusCell({ site }) {
   if (site.forbidden) return <Badge tone="red" icon={ShieldAlert}>{tr('Zone interdite')}</Badge>;
   if (site.status === 'Active') return <Badge tone="green" icon={CheckCircle2}>{tr('Active')}</Badge>;
   if (site.status === 'Inactive') return <Badge icon={PauseCircle}>{tr('Inactive')}</Badge>;
-  // Aucun mois renseigné : le site compte comme actif (planifiable) — on le dit au lieu d'un « — ».
+  // Aucun mois renseigné. Règle commune : exercice ouvert (grille) → non planifiable ; sinon actif.
+  if (site.inactive) return <span className="muted" title={tr('La grille d\'activation de l\'exercice est ouverte : un site sans « Oui » n\'est pas planifié. Renseignez-le dans Sites (actifs / inactifs).')}>{tr('Non renseigné (non planifiable)')}</span>;
   return <span className="muted" title={tr('Aucun statut saisi pour l\'exercice : le site est considéré comme actif.')}>{tr('Active (par défaut)')}</span>;
 }
 
@@ -292,7 +348,7 @@ function SelectAllHead({ allSelected, onSelectAll, label }) {
 }
 
 /* ------------------------------------------------------------- Sites proposés + grille des mois */
-function PlanTable({ rows, offset, allRows, capacity, pending, canEdit, selected, onSelect, allSelected, onSelectAll, onToggle }) {
+function PlanTable({ rows, offset, allRows, capacity, pending, proposals = new Map(), excluded = new Set(), proposalTitle, yearHasGrid = false, canEdit, selected, onSelect, allSelected, onSelectAll, onToggle }) {
   const { tr } = useI18n();
   const totals = useMemo(() => monthTotals(allRows, capacity), [allRows, capacity]);
   return (
@@ -328,13 +384,21 @@ function PlanTable({ rows, offset, allRows, capacity, pending, canEdit, selected
             </td>
             {MONTHS.map((m) => {
               const cell = (s.months || []).find((x) => x.month === m);
-              const inactive = s.monthStatus && s.monthStatus[m] === false;
+              // Règle commune (isActiveMonth) : exercice avec grille → « Oui » explicite seulement.
+              const inactive = !isActiveMonth((s.monthStatus || {})[m], yearHasGrid);
               const label = `${s.name} — ${monthLabel(`2026-${String(m).padStart(2, '0')}`).replace(/ \d+$/, '')}`;
               if (cell && cell.status === 'realise') return <td key={m} className="pb-m is-done" title={`${tr('Réalisée{d}', { d: cell.date ? ` (${cell.date})` : '' })}${cell.provider ? ` · ${cell.provider}` : ''}`}><Check size={14} aria-label={tr('Réalisée')} /></td>;
-              const isPending = pending[pendingKey(s.id, m)] !== undefined;
+              const key = pendingKey(s.id, m);
+              const proposal = pending[key] === undefined ? proposals.get(key) : null;
+              const off = proposal && excluded.has(key);
+              const isPending = pending[key] !== undefined;
+              const cls = proposal ? (off ? 'is-proposed-off' : 'is-proposed') : isPending ? 'is-pending' : '';
+              const title = inactive ? tr('Mois inactif : non planifiable')
+                : proposal ? (off ? `${tr('Proposé puis décoché : ne sera pas enregistré')} · ${proposalTitle(proposal)}` : proposalTitle(proposal))
+                  : [cell?.why && tr('Planifiée automatiquement'), cell?.provider && `${tr('Prévue')} · ${cell.provider}`].filter(Boolean).join(' · ') || undefined;
               return (
-                <td key={m} className={`pb-m ${inactive ? 'is-inactive' : ''} ${isPending ? 'is-pending' : ''}`} title={inactive ? tr('Mois inactif : non planifiable') : (cell?.provider ? `${tr('Prévue')} · ${cell.provider}` : undefined)}>
-                  <input type="checkbox" checked={Boolean(cell)} disabled={!canEdit || inactive} aria-label={label}
+                <td key={m} className={`pb-m ${inactive ? 'is-inactive' : ''} ${cls}`} title={title}>
+                  <input type="checkbox" checked={Boolean(cell)} disabled={!canEdit || inactive} aria-label={proposal ? `${label} — ${tr('proposé')}` : label}
                     onChange={(e) => onToggle(s, m, e.target.checked)} />
                 </td>
               );

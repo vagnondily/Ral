@@ -27,10 +27,11 @@ import deletions from './en/deletions.js';
 import activityCoverage from './en/activityCoverage.js';
 import period from './en/period.js';
 import map from './en/map.js';
+import planGenerator from './en/planGenerator.js';
 import activation from './en/activation.js';
 
 export default {
   ...common, ...shell, ...contracts, ...tpmReports, ...tpmPlanning, ...monitoring,
   ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard, ...calc, ...importWizard, ...correspondences,
-  ...indicatorEditor, ...dashboards, ...sites, ...deletions, ...activityCoverage, ...period, ...map, ...activation,
+  ...indicatorEditor, ...dashboards, ...sites, ...deletions, ...activityCoverage, ...period, ...map, ...planGenerator, ...activation,
 };

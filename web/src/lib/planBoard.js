@@ -82,6 +82,13 @@ export function monthTotals(sites, capacity = {}) {
   }));
 }
 
+/**
+ * LA règle « site actif au mois M » — miroir de server/src/modules/common/siteActivity.isActiveMonth
+ * (une seule règle partout) : si l'exercice a une grille d'activation, seul un « Oui » explicite
+ * rend le site actif (une case vide n'est pas planifiable) ; sans grille, tout le registre.
+ */
+export const isActiveMonth = (value, yearHasGrid) => (yearHasGrid ? value === true : value !== false);
+
 /** % des visites de l'exercice réalisées (réalisées ÷ (réalisées + prévues)) — couleur des points de la carte. */
 export function visitRate(s) {
   const total = (s.done || 0) + (s.planned || 0);

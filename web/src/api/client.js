@@ -307,6 +307,11 @@ export const api = {
   planBoardAddSite: (input) => request('/api/tpm/field/plan-board/sites', { method: 'POST', body: input }),
   planBoardTemplate: (year, activity) => downloadFile(`/api/tpm/field/plan-board/template.xlsx?year=${year}${activity ? `&activity=${encodeURIComponent(activity)}` : ''}`, `Gabarit_sites${activity ? `_${activity.replace(/[^\w]+/g, '_').slice(0, 40)}` : ''}_${year}.xlsx`),
   planBoardImport: (file, { commit, skipErrors } = {}) => uploadFile(`/api/tpm/field/plan-board/locations/import?commit=${commit ? 1 : 0}${skipErrors ? '&skipErrors=1' : ''}`, file),
+  // Planification automatique (lot 5) : paramètres, aperçu (rien d'écrit), application.
+  planSettings: () => request('/api/tpm/plan/settings'),
+  planSettingsSave: (body) => request('/api/tpm/plan/settings', { method: 'PUT', body }),
+  planPreview: (body) => request('/api/tpm/plan/preview', { method: 'POST', body }),
+  planApply: (body) => request('/api/tpm/plan/apply', { method: 'POST', body }),
   linkPull: (formId, input) => request(`/api/monitoring/forms/${formId}/link-pull`, { method: 'POST', body: input }),
   monCreateForm: (input) => request('/api/monitoring/forms', { method: 'POST', body: input }),
   monUpdateForm: (id, input) => request(`/api/monitoring/forms/${id}`, { method: 'PATCH', body: input }),
