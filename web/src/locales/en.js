@@ -28,9 +28,11 @@ import activityCoverage from './en/activityCoverage.js';
 import period from './en/period.js';
 import map from './en/map.js';
 import activation from './en/activation.js';
+import tpmAttribution from './en/tpmAttribution.js';
 
 export default {
   ...common, ...shell, ...contracts, ...tpmReports, ...tpmPlanning, ...monitoring,
   ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard, ...calc, ...importWizard, ...correspondences,
   ...indicatorEditor, ...dashboards, ...sites, ...deletions, ...activityCoverage, ...period, ...map, ...activation,
+  ...tpmAttribution,
 };

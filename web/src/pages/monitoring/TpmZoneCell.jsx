@@ -54,7 +54,7 @@ export default function TpmZoneCell({ tpm, months }) {
     return `${rangeLabel(s.from, s.to)} : ${what}`;
   };
   const tooltip = [
-    tr('Règle : le TPM d\'un site est le titulaire du contrat de suivi actif qui couvre son district (ou sa commune) ce mois-là ; une modification exige une raison.'),
+    tr('Règle : le TPM d\'un site est celui du contrat de suivi actif qui couvre son district (ou sa commune) ce mois-là — le TPM qui facture sur ce contrat, sinon son titulaire ; une modification exige une raison.'),
     tr('TPM de la zone du site, exercice {y} :', { y: year }),
     ...segments.map(segText),
     ...(diff ? [tr('{n} visite(s) de l\'exercice portent un autre TPM (écart motivé ou saisi avant la règle).', { n: diff })] : []),
