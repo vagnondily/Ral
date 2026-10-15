@@ -345,6 +345,10 @@ export const api = {
   monDashboard: (id, period) => request(`/api/monitoring/forms/${id}/dashboard`, { query: qs(pq(period)) }),
   monOverview: (period) => request('/api/monitoring/overview', { query: qs(pq(period)) }),
   monCoverageDashboard: (period) => request('/api/monitoring/coverage-dashboard', { query: qs(pq(period)) }),
+  // Mesures de couverture d'une période (retour 110) : UNE réponse pour la Synthèse et pour
+  // « Couverture & performance » (univers, suivis, exécution, sites prévus, sites à jour, communes,
+  // par activité / bureau / district). Bureau facultatif (le bureau et ses antennes).
+  dashCoverage: (period, { officeId } = {}) => request('/api/dashboards/coverage', { query: qs({ ...pq(period), office: officeId }) }),
   // Volume de données par mois + période par défaut (dernier mois substantiel ≤ mois courant).
   monPeriods: (today) => request('/api/monitoring/periods', { query: today ? { today } : undefined }),
   monSubmissions: (period) => request('/api/monitoring/submissions', { query: qs(pq(period)) }),
