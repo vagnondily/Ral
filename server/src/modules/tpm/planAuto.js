@@ -131,27 +131,22 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
         const lastRealise = realise.length ? Math.max(...realise) : null;
         let cursor = lastRealise != null ? Math.max(startMonth, lastRealise + step) : startMonth;
 
-        // 1) Mois IDÉAUX, cadencés de l'intervalle, dans la période (bornés par maxCount
-        //    ET par ce que l'intervalle permet réellement : jamais de visite en trop).
-        const ideal = [];
-        for (let guard = 0; guard <= 12 && ideal.length < maxCount; guard += 1) {
-          const m = allowed.find((x) => x >= cursor && !ideal.includes(x));
-          if (m == null) break;
-          ideal.push(m);
-          cursor = m + step;
-        }
-        // 2) Placement : le mois idéal si sa capacité le permet, sinon GLISSEMENT (débordement)
-        //    vers le mois autorisé le plus proche avec de la place — sans ajouter de visite.
-        const placedForSite = new Set();
-        for (const w of ideal) {
-          let m = hasRoom(s.mmrKey, w) && !placedForSite.has(w) ? w
-            : (allowed.find((x) => x >= w && !placedForSite.has(x) && hasRoom(s.mmrKey, x))
-               || allowed.find((x) => !placedForSite.has(x) && hasRoom(s.mmrKey, x)));
-          if (m == null) { unplaced += 1; continue; }
-          placedForSite.add(m);
+        // Placement : chaque visite au moins `step` (= intervalle MMR) mois après la
+        // précédente. Si le mois voulu est plein (capacité), on GLISSE VERS L'AVANT
+        // seulement (jamais sur un mois antérieur : l'intervalle ne doit jamais être
+        // violé). S'il ne reste plus de mois respectant l'intervalle, on n'ajoute rien.
+        const placedForSite = [];
+        let minMonth = cursor;        // plus tôt autorisé pour la PROCHAINE visite
+        let placed = 0;
+        for (let guard = 0; guard <= 12 && placed < maxCount; guard += 1) {
+          const m = allowed.find((x) => x >= minMonth && !placedForSite.includes(x) && hasRoom(s.mmrKey, x));
+          if (m == null) { unplaced += (maxCount - placed); break; }
+          placedForSite.push(m);
           bump(s.mmrKey, m);
           assignments.push({ siteId: s.id, month: ym(year, m), monthNum: m, activity: s.activity || null, riskLevel: s.riskLevel || null, source: g.parametered ? 'mmr' : 'rbm' });
           covered.add(s.id);
+          placed += 1;
+          minMonth = m + step;        // la prochaine visite ≥ intervalle après celle-ci
         }
       }
     });

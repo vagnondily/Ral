@@ -27,6 +27,19 @@ test('siteRemaining : exigées − réalisées − prévues dans la période', (
   assert.equal(r.latePlanned, 1);   // la prévue de février
 });
 
+test('intervalle minimal respecté même sous capacité (jamais 2 visites adjacentes — cas A.BEDARO)', () => {
+  const FULL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const sites = Array.from({ length: 4 }, (_, i) => site({ id: `s${i}`, parametered: true, required: 2, mmrKey: 'k', commune: `C${i}` }));
+  // intervalle 5, capacité serrée (1/mois) → glissements, MAIS jamais sous l'intervalle.
+  const r = generatePlan(sites, { k: { interval: 5, feasible: 1 } }, {}, FULL, YEAR);
+  const bySite = {};
+  for (const a of r.assignments) (bySite[a.siteId] = bySite[a.siteId] || []).push(Number(a.month.slice(5, 7)));
+  for (const k of Object.keys(bySite)) {
+    const ms = bySite[k].sort((a, b) => a - b);
+    for (let i = 1; i < ms.length; i += 1) assert.ok(ms[i] - ms[i - 1] >= 5, `${k}: ${ms} — écart < intervalle`);
+  }
+});
+
 test('regroupement par commune + étalement par phase (pas de pic)', () => {
   // 2 communes, intervalle 2 → phases 0 et 1 → une commune démarre jan, l'autre fév.
   const sites = [
