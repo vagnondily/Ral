@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Eye, Wand2, Trash2 } from 'lucide-react';
+import { Eye, Wand2, Trash2, SlidersHorizontal, ChevronDown, ChevronRight, CalendarRange } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, Field } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
@@ -14,32 +14,47 @@ function monthFromNow(n) {
   d.setUTCMonth(d.getUTCMonth() + n);
   return d.toISOString().slice(0, 7);
 }
-const decemberOf = (ym) => `${ym.slice(0, 4)}-12`;
+const yearOf = (ym) => ym.slice(0, 4);
+const mOf = (ym) => Number(ym.slice(5, 7));
+const ym = (y, m) => `${y}-${String(Math.min(12, Math.max(1, m))).padStart(2, '0')}`;
 
 /**
  * Assistant de génération automatique du plan de suivi sur une PÉRIODE (retour 82).
- * Les visites EXIGÉES viennent du MMR (bureau × activité) et la priorité du RBM ;
- * la « fréquence par risque » ne sert qu'aux sites SANS paramètre MMR. Deux temps :
- * « Aperçu » (aucune écriture) puis « Appliquer ». Le calcul fait foi côté serveur.
+ * Simple par défaut : choisir la période → Aperçu → Appliquer. Les réglages fins
+ * (capacité, débordement, fréquence de repli…) sont dans « Options avancées ».
+ * Les visites EXIGÉES viennent du MMR (fréquence + intervalle) et la priorité du RBM.
  */
 export default function PlanAutoDrawer({ onClose, onDone }) {
   const { tr } = useI18n();
   const toast = useToast();
-  const [from, setFrom] = useState(() => monthFromNow(1));
-  const [to, setTo] = useState(() => decemberOf(monthFromNow(1))); // par défaut : jusqu'à décembre (même exercice)
+  const start = monthFromNow(1);
+  const [from, setFrom] = useState(start);
+  const [to, setTo] = useState(`${yearOf(start)}-12`); // par défaut : jusqu'à décembre (même exercice)
   const [freq, setFreq] = useState({ elevee: 1, moyenne: 2, faible: 3 });
   const [capacity, setCapacity] = useState('');
   const [useMmrCapacity, setUseMmrCapacity] = useState(true);
   const [adjusted, setAdjusted] = useState(false);
   const [risk, setRisk] = useState('');
   const [exclude, setExclude] = useState('');
-  const [overflow, setOverflow] = useState(10);        // débordement autorisé (%)
+  const [overflow, setOverflow] = useState(10);
   const [groupByCommune, setGroupByCommune] = useState(true);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  const sameYear = from.slice(0, 4) === to.slice(0, 4);
+  const sameYear = yearOf(from) === yearOf(to);
   const invalid = !from || !to || from > to || !sameYear;
+  const reset = () => setPreview(null);
+  const setPeriod = (f, t) => { setFrom(f); setTo(t); reset(); };
+
+  // Préréglages de période (dans l'exercice du mois de départ).
+  const y = yearOf(from);
+  const presets = [
+    { key: 'rest', label: tr('Reste de l\'année'), f: from, t: `${y}-12` },
+    { key: 'quarter', label: tr('Trimestre'), f: from, t: ym(y, mOf(from) + 2) },
+    { key: 'semester', label: tr('Semestre'), f: from, t: ym(y, mOf(from) + 5) },
+    { key: 'year', label: tr('Toute l\'année'), f: `${y}-01`, t: `${y}-12` },
+  ];
 
   const payload = useMemo(() => ({
     from, to, adjusted,
@@ -61,7 +76,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
     catch (e) { toast.error(e.message); } finally { setBusy(false); }
   }
   async function apply() {
-    if (invalid) return;
+    if (invalid || !preview) return;
     setBusy(true);
     try {
       const r = await api.planAutoApply(payload);
@@ -76,85 +91,119 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
     try {
       const r = await api.planAutoClear({ from, to, ...(risk ? { risk } : {}) });
       toast.success(tr('{n} planification(s) effacée(s).', { n: r.deleted }));
-      setPreview(null);
+      reset();
       onDone();
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   }
 
   const maxCount = preview ? Math.max(1, ...preview.perMonth.map((m) => m.count)) : 1;
   const cov = preview ? (preview.summary.coverageRate ?? 0) : 0;
+  const covColor = cov >= 80 ? 'var(--green-500, #2e9e5b)' : cov >= 50 ? 'var(--amber-500, #d99100)' : 'var(--red-500, #d64545)';
+  const presetActive = (p) => from === p.f && to === p.t;
 
   return (
-    <Modal open onClose={() => !busy && onClose()} title={tr('Générer le plan de suivi (période)')} wide
+    <Modal open onClose={() => !busy && onClose()} title={tr('Générer le plan de suivi')} wide
       footer={<>
-        <Button variant="ghost" icon={Trash2} onClick={clearPlanned} disabled={busy || invalid} title={tr('Supprimer les visites planifiées de la période pour repartir d\'un plan propre.')}>{tr('Effacer les planifications')}</Button>
+        <Button variant="ghost" icon={Trash2} onClick={clearPlanned} disabled={busy || invalid}
+          title={tr('Supprimer les visites planifiées de la période pour repartir d\'un plan propre.')}>{tr('Effacer les planifications')}</Button>
         <span style={{ flex: 1 }} />
         <Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button>
-        <Button variant="secondary" icon={Eye} loading={busy && !preview} disabled={invalid} onClick={runPreview}>{tr('Aperçu')}</Button>
-        <Button icon={Wand2} loading={busy} disabled={invalid || !preview} onClick={apply}>{tr('Appliquer')}</Button>
+        {!preview
+          ? <Button icon={Eye} loading={busy} disabled={invalid} onClick={runPreview}>{tr('Aperçu')}</Button>
+          : <>
+            <Button variant="secondary" icon={Eye} loading={busy} disabled={invalid} onClick={runPreview}>{tr('Recalculer')}</Button>
+            <Button icon={Wand2} loading={busy} disabled={invalid} onClick={apply}>{tr('Appliquer')}</Button>
+          </>}
       </>}>
-      <div style={{ display: 'grid', gap: 16 }}>
+      <div style={{ display: 'grid', gap: 18 }}>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          {tr('Les visites exigées viennent du MMR (bureau × activité) et la priorité du RBM ; la « fréquence par risque » ci-dessous ne sert qu\'aux sites sans paramètre MMR. Zones interdites exclues ; mois déjà visité, inactif ou exclu sauté. Rien n\'est écrit avant « Appliquer ».')}
+          {tr('Le plan reprend les visites exigées par le MMR (fréquence et intervalle) et la priorité du RBM. Choisissez la période, prévisualisez, puis appliquez — rien n\'est écrit avant « Appliquer ».')}
         </p>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Field label={tr('Du mois')} htmlFor="pa-from"><input id="pa-from" type="month" className="input" value={from} onChange={(e) => { setFrom(e.target.value); setPreview(null); }} /></Field>
-          <Field label={tr('Au mois')} htmlFor="pa-to" error={from > to ? tr('Période invalide.') : (!sameYear ? tr('La période doit tenir dans un seul exercice (même année).') : undefined)}>
-            <input id="pa-to" type="month" className="input" value={to} onChange={(e) => { setTo(e.target.value); setPreview(null); }} />
-          </Field>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Field label={tr('Niveau de risque (facultatif)')} htmlFor="pa-risk" hint={tr('Limiter la génération à un niveau de risque.')}>
-            <select id="pa-risk" className="select" value={risk} onChange={(e) => { setRisk(e.target.value); setPreview(null); }}>
-              <option value="">{tr('Tous')}</option>
-              <option value="elevee">{tr('Risque élevé')}</option>
-              <option value="moyenne">{tr('Risque moyen')}</option>
-              <option value="faible">{tr('Risque faible')}</option>
-            </select>
-          </Field>
-          <Field label={tr('Mois à exclure (facultatif)')} htmlFor="pa-excl" hint={tr('Mois AAAA-MM séparés par des virgules (ex. saison des pluies).')}>
-            <input id="pa-excl" className="input" value={exclude} onChange={(e) => { setExclude(e.target.value); setPreview(null); }} placeholder="2026-01, 2026-02" />
-          </Field>
-        </div>
-        <fieldset style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 12, margin: 0 }}>
-          <legend style={{ padding: '0 6px', fontSize: 13, fontWeight: 600 }}>{tr('Capacité')}</legend>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <label className="check"><input type="checkbox" checked={useMmrCapacity} onChange={(e) => { setUseMmrCapacity(e.target.checked); setPreview(null); }} /> {tr('Respecter la capacité mensuelle du MMR')}</label>
-            <label className="check"><input type="checkbox" checked={adjusted} onChange={(e) => { setAdjusted(e.target.checked); setPreview(null); }} /> {tr('Fréquence MMR ajustée (CO adjusted)')}</label>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label={tr('Capacité par mois (facultatif)')} htmlFor="pa-cap" hint={tr('Plafond global de visites planifiées par mois ; le surplus glisse au mois suivant.')}>
-              <input id="pa-cap" type="number" min="1" className="input" value={capacity} onChange={(e) => { setCapacity(e.target.value); setPreview(null); }} placeholder={tr('Illimité')} />
-            </Field>
-            <Field label={tr('Débordement autorisé (%)')} htmlFor="pa-ov" hint={tr('Dépassement toléré de la capacité mensuelle avant de reporter au mois suivant.')}>
-              <input id="pa-ov" type="number" min="0" max="100" className="input" value={overflow} onChange={(e) => { setOverflow(e.target.value); setPreview(null); }} />
-            </Field>
-          </div>
-          <label className="check" style={{ marginTop: 10 }}><input type="checkbox" checked={groupByCommune} onChange={(e) => { setGroupByCommune(e.target.checked); setPreview(null); }} /> {tr('Regrouper les sites par commune (tournées)')}</label>
-        </fieldset>
-        <fieldset style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 12, margin: 0 }}>
-          <legend style={{ padding: '0 6px', fontSize: 13, fontWeight: 600 }}>{tr('Fréquence des sites sans paramètre MMR (mois entre deux visites)')}</legend>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-            <Field label={tr('Risque élevé')} htmlFor="pa-fe"><input id="pa-fe" type="number" min="1" max="12" className="input" value={freq.elevee} onChange={(e) => { setFreq({ ...freq, elevee: e.target.value }); setPreview(null); }} /></Field>
-            <Field label={tr('Risque moyen')} htmlFor="pa-fm"><input id="pa-fm" type="number" min="1" max="12" className="input" value={freq.moyenne} onChange={(e) => { setFreq({ ...freq, moyenne: e.target.value }); setPreview(null); }} /></Field>
-            <Field label={tr('Risque faible')} htmlFor="pa-ff"><input id="pa-ff" type="number" min="1" max="12" className="input" value={freq.faible} onChange={(e) => { setFreq({ ...freq, faible: e.target.value }); setPreview(null); }} /></Field>
-          </div>
-        </fieldset>
 
+        {/* Étape 1 — Période */}
+        <section style={{ display: 'grid', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <CalendarRange size={16} className="muted" />
+            <strong style={{ fontSize: 13 }}>{tr('Période')}</strong>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {presets.map((p) => (
+              <button key={p.key} type="button" className={`chip ${presetActive(p) ? 'is-on' : ''}`}
+                onClick={() => setPeriod(p.f, p.t)}
+                style={{ cursor: 'pointer', border: '1px solid var(--border)', borderRadius: 999, padding: '4px 12px', fontSize: 13,
+                  background: presetActive(p) ? 'var(--blue-50, #eff6fc)' : 'var(--surface)', color: presetActive(p) ? 'var(--blue-700, #1f4fd6)' : 'var(--text)', fontWeight: presetActive(p) ? 600 : 400 }}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Field label={tr('Du mois')} htmlFor="pa-from"><input id="pa-from" type="month" className="input" value={from} onChange={(e) => { setFrom(e.target.value); reset(); }} /></Field>
+            <Field label={tr('Au mois')} htmlFor="pa-to" error={from > to ? tr('Période invalide.') : (!sameYear ? tr('La période doit tenir dans un seul exercice (même année).') : undefined)}>
+              <input id="pa-to" type="month" className="input" value={to} onChange={(e) => { setTo(e.target.value); reset(); }} />
+            </Field>
+          </div>
+        </section>
+
+        {/* Options avancées (repliées par défaut) */}
+        <section>
+          <button type="button" onClick={() => setShowAdvanced((v) => !v)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text)', fontSize: 13, fontWeight: 600 }}>
+            {showAdvanced ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            <SlidersHorizontal size={15} className="muted" /> {tr('Options avancées')}
+          </button>
+          {showAdvanced && (
+            <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Field label={tr('Niveau de risque')} htmlFor="pa-risk" hint={tr('Limiter la génération à un niveau de risque.')}>
+                  <select id="pa-risk" className="select" value={risk} onChange={(e) => { setRisk(e.target.value); reset(); }}>
+                    <option value="">{tr('Tous')}</option>
+                    <option value="elevee">{tr('Risque élevé')}</option>
+                    <option value="moyenne">{tr('Risque moyen')}</option>
+                    <option value="faible">{tr('Risque faible')}</option>
+                  </select>
+                </Field>
+                <Field label={tr('Mois à exclure')} htmlFor="pa-excl" hint={tr('Mois AAAA-MM séparés par des virgules (ex. saison des pluies).')}>
+                  <input id="pa-excl" className="input" value={exclude} onChange={(e) => { setExclude(e.target.value); reset(); }} placeholder="2026-01, 2026-02" />
+                </Field>
+              </div>
+              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+                <label className="check"><input type="checkbox" checked={groupByCommune} onChange={(e) => { setGroupByCommune(e.target.checked); reset(); }} /> {tr('Regrouper les sites par commune (tournées)')}</label>
+                <label className="check"><input type="checkbox" checked={useMmrCapacity} onChange={(e) => { setUseMmrCapacity(e.target.checked); reset(); }} /> {tr('Respecter la capacité mensuelle du MMR')}</label>
+                <label className="check"><input type="checkbox" checked={adjusted} onChange={(e) => { setAdjusted(e.target.checked); reset(); }} /> {tr('Fréquence MMR ajustée (CO adjusted)')}</label>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Field label={tr('Capacité par mois')} htmlFor="pa-cap" hint={tr('Plafond global de visites par mois ; le surplus glisse au mois suivant.')}>
+                  <input id="pa-cap" type="number" min="1" className="input" value={capacity} onChange={(e) => { setCapacity(e.target.value); reset(); }} placeholder={tr('Illimité')} />
+                </Field>
+                <Field label={tr('Débordement autorisé (%)')} htmlFor="pa-ov" hint={tr('Dépassement toléré de la capacité avant de reporter au mois suivant.')}>
+                  <input id="pa-ov" type="number" min="0" max="100" className="input" value={overflow} onChange={(e) => { setOverflow(e.target.value); reset(); }} />
+                </Field>
+              </div>
+              <Field label={tr('Fréquence des sites sans paramètre MMR (mois entre deux visites)')} htmlFor="pa-fe">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                  <label className="muted" style={{ fontSize: 12 }}>{tr('Risque élevé')}<input id="pa-fe" type="number" min="1" max="12" className="input" value={freq.elevee} onChange={(e) => { setFreq({ ...freq, elevee: e.target.value }); reset(); }} /></label>
+                  <label className="muted" style={{ fontSize: 12 }}>{tr('Risque moyen')}<input type="number" min="1" max="12" className="input" value={freq.moyenne} onChange={(e) => { setFreq({ ...freq, moyenne: e.target.value }); reset(); }} /></label>
+                  <label className="muted" style={{ fontSize: 12 }}>{tr('Risque faible')}<input type="number" min="1" max="12" className="input" value={freq.faible} onChange={(e) => { setFreq({ ...freq, faible: e.target.value }); reset(); }} /></label>
+                </div>
+              </Field>
+            </div>
+          )}
+        </section>
+
+        {/* Étape 2 — Résultat */}
         {preview ? (
-          <div style={{ display: 'grid', gap: 10, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-            <strong style={{ fontSize: 13 }}>{tr('Aperçu')}</strong>
-            {/* Barre de progression : couverture des sites. */}
+          <section style={{ display: 'grid', gap: 12, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+            <strong style={{ fontSize: 13 }}>{tr('Aperçu du plan')}</strong>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
                 <span className="muted">{tr('Couverture des sites')}</span>
                 <span><strong>{formatInt(preview.summary.sitesCovered)}</strong> / {formatInt(preview.summary.sitesActivePlannable)}{preview.summary.coverageRate != null ? ` · ${preview.summary.coverageRate} %` : ''}</span>
               </div>
               <div style={{ height: 10, borderRadius: 5, background: 'var(--surface-2)', overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${Math.min(100, cov)}%`, background: cov >= 80 ? 'var(--green-500, #2e9e5b)' : cov >= 50 ? 'var(--amber-500, #d99100)' : 'var(--red-500, #d64545)', transition: 'width .3s' }} />
+                <div style={{ height: '100%', width: `${Math.min(100, cov)}%`, background: covColor, transition: 'width .3s' }} />
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13 }}>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13 }}>
               <span>{tr('Visites planifiées')} : <strong>{formatInt(preview.summary.planned)}</strong></span>
               <span className="muted">{tr('Pilotées par le MMR')} : {formatInt(preview.summary.mmrDriven)}</span>
               <span className="muted">{tr('Repli RBM (sans MMR)')} : {formatInt(preview.summary.rbmFallback)}</span>
@@ -175,8 +224,8 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
               </tbody>
             </table>
             <p className="muted" style={{ margin: 0, fontSize: 12 }}>{tr('« Appliquer » crée ces visites comme « planifiées ». Idempotent : un site déjà prévu ce mois n\'est pas dupliqué.')}</p>
-          </div>
-        ) : <Alert tone="info">{tr('Cliquez sur « Aperçu » pour voir la répartition avant d\'écrire.')}</Alert>}
+          </section>
+        ) : <Alert tone="info">{tr('Choisissez la période puis cliquez sur « Aperçu » pour voir la répartition avant d\'écrire.')}</Alert>}
       </div>
     </Modal>
   );
