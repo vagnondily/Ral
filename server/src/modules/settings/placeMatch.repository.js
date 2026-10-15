@@ -5,6 +5,7 @@ const { buildPlaceIndex, resolvePath, groupUnmatched, normPlace, parentKeyOf, lo
 const { detectMapping } = require('../monitoring/memsMapping');
 const { buildSiteIndex, resolveSite, queueKeyOf, isAutomaticSite } = require('../common/siteMatch');
 const { buildPartnerIndex, resolvePartner, buildAgentIndex, resolveAgent } = require('../common/partyMatch');
+const tpmAttribution = require('../tpm/tpmAttribution.repository');
 
 /**
  * Rapprochement des lieux — SEUL fichier de ce chantier qui écrit du SQL. La
@@ -131,8 +132,13 @@ async function applySitesGeoTx(client, tenantId) {
              OR (v.p1 IS NOT NULL AND t.adm1_pcode IS DISTINCT FROM v.p1) OR (v.p4 IS NOT NULL AND t.adm4_pcode IS DISTINCT FROM v.p4))`,
   });
   await syncQueueTx(client, tenantId, 'sites', groupUnmatched(unmatched));
-  return { sites: updates.length, combinations: combos.length, resolved, pending };
+  // Retour 58 : zone de chaque site (district / commune, règle du lot 1b) puis TPM des visites
+  // prévues à partir du mois courant — sans condition : le district dépend aussi des graphies.
+  const zones = await tpmAttribution.refreshSiteZonesTx(client, tenantId);
+  const tpm = await tpmAttribution.restampVisitsTx(client, tenantId, { fromMonth: currentMonthUtc() });
+  return { sites: updates.length, combinations: combos.length, resolved, pending, zonesChanged: zones.changed, tpmVisitsChanged: tpm.changed };
 }
+const currentMonthUtc = () => new Date().toISOString().slice(0, 7);
 
 // ---- Bureaux : périmètre et rattachement des sites -----------------------------------
 /**

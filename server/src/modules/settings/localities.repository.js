@@ -4,6 +4,7 @@ const { chunkRows } = require('../../db/batch');
 const { planBreakdown, matchBreakdown, relinkByPath, siteColumnFor } = require('./localities.domain');
 const { normPlace, parentKeyOf } = require('../common/placeMatch');
 const { applySitesGeoTx, withSubmissionLinks } = require('./placeMatch.repository');
+const tpmAttribution = require('../tpm/tpmAttribution.repository');
 
 /**
  * Référentiel géographique du tenant (pays) : profil pays, vocabulaire des
@@ -217,6 +218,18 @@ async function replaceBreakdown(tenantId, parsed, { confirm = false } = {}) {
       set: 'admin_area_id = v.area, path = (SELECT path FROM admin_areas WHERE id = v.area), depth = (SELECT depth FROM admin_areas WHERE id = v.area)',
       rows: [...relinked], values: ([ref, area]) => [ref, area],
     });
+    // Retour 58 : modifications du TPM par zone — verrou d'attribution AVANT d'y toucher (même ordre
+    // que les écritures de l'onglet : jamais d'interblocage), chemins à jour, puis rattachement des
+    // modifications détachées par chemin (une collision zone × mois garde la modification vivante).
+    await tpmAttribution.lockAttributionTx(client, tenantId);
+    const detachedOverrides = await tpmAttribution.refreshOverridePathsTx(client, tenantId);
+    const overrideTargets = relinkByPath(detachedOverrides, plan.byDepth.flat().filter((n) => n.depth === 2 || n.depth === 3)
+      .map((n) => ({ id: idByKey.get(n.key), path: n.path })));
+    const seen = new Set();
+    const overridePairs = detachedOverrides.filter((o) => overrideTargets.has(o.ref))
+      .map((o) => [o.ref, overrideTargets.get(o.ref), o.month])
+      .filter(([, area, m]) => { const k = `${area}|${m}`; if (seen.has(k)) return false; seen.add(k); return true; });
+    const tpmOverridesRelinked = await tpmAttribution.relinkOverridesTx(client, tenantId, overridePairs);
 
     await client.query(
       `INSERT INTO country_profiles (tenant_id, name, breakdown_source, breakdown_imported_at)
@@ -229,6 +242,7 @@ async function replaceBreakdown(tenantId, parsed, { confirm = false } = {}) {
       levels: plan.levels.length, areas: idByKey.size, withPcode: plan.withPcode, withGps: pts.length,
       kept: stats.kept, added: stats.added, removed: stats.removed, sitesGeo,
       contractZonesDetached: impact.zones, contractZonesRelinked: relinked.size, contractZonesStillDetached: detached.length - relinked.size,
+      tpmOverridesRelinked, tpmOverridesStillDetached: detachedOverrides.length - tpmOverridesRelinked,
       warnings: [...(parsed.warnings || []), ...plan.warnings],
     };
   });

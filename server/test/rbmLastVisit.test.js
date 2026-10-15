@@ -21,6 +21,7 @@ function fakeClient(rows) {
     calls,
     async query(sql, params) {
       calls.push({ sql, params });
+      if (/mems_tpm_stamp|SET LOCAL/.test(sql)) return { rows: [] }; // retour 58 : estampille (aucune visite à changer ici)
       if (/^\s*INSERT INTO site_visits/.test(sql)) return { rows: [], rowCount: Array.isArray(params[3]) ? params[3].length : 1 };
       return { rows };
     },
@@ -106,7 +107,10 @@ test('génération du plan du mois : un site seulement planifié reste « à sui
   ]);
   const r = await generateFromRbmTx(client, TENANT, 'user-1', '2026-10');
   // « À suivre » hors zone interdite : planned-only + never ; seul never est encore à planifier.
-  assert.deepEqual(r, { created: 1, due: 2, toPlan: 1, cancelled: 0, inactive: 0 });
+  assert.deepEqual(r, { created: 1, due: 2, toPlan: 1, cancelled: 0, inactive: 0, tpm: { byState: {} } });
+  // Retour 58 : les visites créées prennent le TPM de leur zone — estampille APRÈS l'insertion.
+  const stampAt = client.calls.findIndex((c) => /mems_tpm_stamp/.test(c.sql));
+  assert.ok(stampAt > client.calls.findIndex((c) => /INSERT INTO site_visits/.test(c.sql)));
   // Deux « Générer » simultanés du même mois sont mis en file (verrou pris AVANT la lecture).
   assert.match(client.calls[0].sql, /pg_advisory_xact_lock/);
   assert.deepEqual(client.calls[0].params, [`rbm-generate:${TENANT}:2026-10`]);
@@ -137,7 +141,7 @@ test('génération : rien à planifier ⇒ aucune écriture ; mois illisible ref
 function stateClient(sites, visits, inactive = []) {
   return {
     async query(sql, params) {
-      if (/pg_advisory_xact_lock/.test(sql)) return { rows: [] };
+      if (/pg_advisory_xact_lock|mems_tpm_stamp|SET LOCAL/.test(sql)) return { rows: [] };
       if (/^\s*INSERT INTO site_visits/.test(sql)) {
         const [, pm, , ids, acts] = params;
         let n = 0;

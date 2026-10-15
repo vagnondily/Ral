@@ -424,7 +424,18 @@ function districtAreaFor(dkey, regionKey, districtAreas) {
   return hits.length === 1 ? hits[0].id : null;
 }
 
+/** Messages des erreurs de décision pour une visite (visitDecision → 400 avec details.code). */
+const VISIT_ERROR_MESSAGES = {
+  reason_required: 'Indiquez la raison du changement (10 caractères au moins).',
+  provider_not_selectable: 'Ce prestataire n\'est pas sélectionnable au mois de la visite (ni titulaire d\'un contrat de suivi, ni TPM actif).',
+  visit_unknown: 'Visite inconnue (ou hors de ce compte).',
+  action_unknown: 'Action inconnue.',
+};
+/** Message d'une erreur de décision, avec le site et le mois quand on les connaît. */
+const visitErrorMessage = (res) => `${VISIT_ERROR_MESSAGES[res.error] || 'Données invalides.'}${res.visit ? ` (${res.visit.siteName} · ${res.visit.month})` : ''}`;
+
 module.exports = {
+  VISIT_ERROR_MESSAGES, visitErrorMessage,
   MAX_SPAN_MONTHS, MAX_AREAS, MAX_REGIONS, MAX_CELLS, MAX_VISITS,
   ZONE_STATES, VISIT_ZONE_STATES, DEFAULT_STATES, WITH_PROVIDER, VISIT_SOURCES, COVERING_STATUSES, LOG_ACTIONS,
   contractTpm, isMonitoringContract, contractEndMonth, contractCoversMonth, coveringContracts, coverOf,

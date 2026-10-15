@@ -15,6 +15,7 @@ const { Client } = require('pg');
 const bcrypt = require('bcryptjs');
 const logger = require('../config/logger');
 const { requireConnString, explainConnError } = require('../config/connString');
+const tpmZones = require('../modules/tpm/tpmAttribution.repository');
 
 const PARTNER_TYPES = [
   ['tpm', 'TPM (Tierce partie de suivi)', 1],
@@ -286,22 +287,24 @@ async function main() {
     }
 
     // Visites de terrain de démo (module « Sites & visites ») : planification du
-    // mois courant, affectée à des prestataires TPM avec un rôle générique
+    // mois courant, au TPM de la zone de chaque site (retour 58) avec un rôle générique
     // (Agent 1 / Superviseur 1) ; ~1/3 réalisées pour alimenter la couverture,
     // le tableau de bord et les alertes.
+    const seededVisitIds = [];
     if ((await client.query('SELECT 1 FROM site_visits WHERE tenant_id=$1 LIMIT 1', [tenantId])).rows.length === 0) {
       const siteRows = (await client.query('SELECT id, activity FROM sites WHERE tenant_id=$1 ORDER BY code', [tenantId])).rows;
-      const tpmIds = TPM_PARTNERS.map(([nm]) => partnerId[nm]).filter(Boolean);
       const VISIT_ROLES = ['Agent 1', 'Agent 2', 'Superviseur 1'];
+      // Retour 58 : le TPM d'une visite est celui de sa zone (contrats) — estampillé en fin de seed,
+      // une fois les contrats et leurs zones en place ; aucun TPM posé à la main ici.
       for (let i = 0; i < siteRows.length; i += 1) {
         const s = siteRows[i];
-        const prov = tpmIds.length ? tpmIds[i % tpmIds.length] : null;
-        await client.query(
-          `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, provider_id, agent, status, created_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-           ON CONFLICT (tenant_id, site_id, period_month, activity) DO NOTHING`,
-          [tenantId, s.id, periodISO, s.activity || 'Suivi', prov, VISIT_ROLES[i % VISIT_ROLES.length],
+        const { rows: ins } = await client.query(
+          `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, agent, status, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)
+           ON CONFLICT (tenant_id, site_id, period_month, activity) DO NOTHING RETURNING id`,
+          [tenantId, s.id, periodISO, s.activity || 'Suivi', VISIT_ROLES[i % VISIT_ROLES.length],
             i % 3 === 0 ? 'realise' : 'planifie', users.admin]);
+        seededVisitIds.push(...ins.map((r) => r.id));
       }
     }
 
@@ -433,6 +436,15 @@ async function main() {
        VALUES ($1,'Cash','Cash (CBT)','USD','cash',$2)
        ON CONFLICT (tenant_id, code) DO UPDATE SET label = EXCLUDED.label, sort_order = EXCLUDED.sort_order`,
       [tenantId, pddOrder]);
+
+    // Retour 58 : zone de chaque site (district / commune), puis TPM des visites insérées par CE seed
+    // selon les contrats de suivi et leurs zones — en une transaction.
+    await client.query('BEGIN');
+    try {
+      await tpmZones.refreshSiteZonesTx(client, tenantId);
+      if (seededVisitIds.length) await tpmZones.restampVisitsTx(client, tenantId, { visitIds: seededVisitIds });
+      await client.query('COMMIT');
+    } catch (err) { await client.query('ROLLBACK'); throw err; }
 
     logger.info({ tenantId, admin: 'admin@mems.mg / changeme123', validator: 'validateur@mems.mg / changeme123' }, 'seed complete');
   } finally {

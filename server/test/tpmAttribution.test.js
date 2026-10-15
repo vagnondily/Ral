@@ -9,7 +9,6 @@ const D1 = { id: 'd1', depth: 2, name: 'Bekily', path: 'Androy > Bekily', lineag
 const D2 = { id: 'd2', depth: 2, name: 'Beloha', path: 'Androy > Beloha', lineage: ['r1'] };
 const D3 = { id: 'd3', depth: 2, name: 'Amboasary', path: 'Anosy > Amboasary', lineage: ['r2'] };
 const C1 = { id: 'c1', depth: 3, name: 'C1', path: 'Androy > Bekily > C1', lineage: ['r1', 'd1'] };
-const C2 = { id: 'c2', depth: 3, name: 'C2', path: 'Androy > Bekily > C2', lineage: ['r1', 'd1'] };
 const zone = (area) => ({ adminAreaId: area.id, depth: area.depth, path: area.path || area.name, lineage: area.lineage });
 const DETACHED = { adminAreaId: null, depth: 2, path: 'Androy > Ambovombe', lineage: [] };
 const F1 = { adminAreaId: 'f1', depth: 4, path: 'Androy > Bekily > C1 > F1', lineage: ['r1', 'd1', 'c1'] };

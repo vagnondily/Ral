@@ -11,6 +11,7 @@ const { officeResolver } = require('./mmrXlsx');
 const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
 const { readPeriod } = require('../../middleware/period');
 const { PERIOD_CAPS } = require('../common/periodCaps');
+const { checkReason } = require('../common/reasonText');
 
 // Durées maximales d'une période (lot 1b, mesurées au banc : 3 000 sites, sous RLS —
 // common/periodCaps, la même table que les écrans) : la liste des visites se lit sur 12 mois
@@ -320,18 +321,29 @@ router.put('/collection-days', WRITE, body(travelSchema), asyncHandler(async (re
   res.status(204).end();
 }));
 
+// Retour 58 : le TPM d'une visite est celui de sa zone ; un autre TPM exige `providerReason`
+// (nettoyée et bornée 10..500 : common/reasonText). Le contrat est dérivé de la zone : un
+// `contractId` envoyé par un ancien client est ignoré (zod retire les clés inconnues).
+const providerReason = z.string().max(2000).optional().nullable();
+/** Raison du TPM nettoyée (ou 400 reason_*) — absente : null. */
+function cleanProviderReason(req, res, next) {
+  const r = checkReason(req.valid.providerReason, { required: false });
+  if (!r.ok) return next(badRequest(r.message, { code: r.code }));
+  req.valid.providerReason = r.reason;
+  return next();
+}
 const visitSchema = z.object({
   siteId: z.string().uuid(),
   periodMonth: z.string().regex(/^\d{4}-\d{2}(-\d{2})?$/),
   activity: z.string().trim().max(160).optional().or(z.literal('').transform(() => undefined)),
-  contractId: z.string().uuid().optional().or(z.literal('').transform(() => undefined)),
   providerId: z.string().uuid().optional().or(z.literal('').transform(() => undefined)),
+  providerReason,
   agent: z.string().trim().max(120).optional().or(z.literal('').transform(() => undefined)),
   status: z.enum(['planifie', 'realise', 'annule']).optional(),
   visitDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 // Doublon (site + mois + activité) : le dépôt lève un conflit explicite (409).
-router.post('/visits', WRITE, body(visitSchema), asyncHandler(async (req, res) => {
+router.post('/visits', WRITE, body(visitSchema), cleanProviderReason, asyncHandler(async (req, res) => {
   res.status(201).json({ id: await repo.createVisit(t(req), uid(req), req.valid) });
 }));
 
@@ -339,13 +351,15 @@ router.post('/visits', WRITE, body(visitSchema), asyncHandler(async (req, res) =
 const clearable = (schema) => schema.nullable().optional().or(z.literal('').transform(() => null));
 const patchSchema = z.object({
   providerId: clearable(z.string().uuid()),
+  providerReason,
+  followZone: z.literal(true).optional(),
   agent: clearable(z.string().trim().max(120)),
-  contractId: clearable(z.string().uuid()),
   status: z.enum(['planifie', 'realise', 'annule']).optional(),
   visitDate: clearable(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
-});
-router.patch('/visits/:id', WRITE, body(patchSchema), asyncHandler(async (req, res) => {
-  if (!(await repo.updateVisit(t(req), req.params.id, req.valid))) throw notFound('Visite introuvable');
+}).refine((p) => !(p.followZone && p.providerId !== undefined), { message: '« Revenir à la zone » et un TPM choisi sont exclusifs.' });
+router.patch('/visits/:id', WRITE, body(patchSchema), cleanProviderReason, asyncHandler(async (req, res) => {
+  if (!uuid.safeParse(req.params.id).success) throw badRequest('Identifiant de visite invalide');
+  if (!(await repo.updateVisit(t(req), req.params.id, req.valid, uid(req)))) throw notFound('Visite introuvable');
   res.status(204).end();
 }));
 router.delete('/visits/:id', WRITE, asyncHandler(async (req, res) => {
