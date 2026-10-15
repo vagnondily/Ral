@@ -133,4 +133,9 @@ export default {
   'Non dessiné': 'Not drawn',
   'Conflit': 'Conflict',
   'Aucun contour': 'No outline',
+  // Sites et activités par unité (retour 90).
+  'Sites et activités comptés avec leurs sous-unités : les {n} sites du registre sont localisés jusqu\'à ce niveau.':
+    'Sites and activities are counted with their sub-units: all {n} registry sites are located down to this level.',
+  'Sites et activités comptés avec leurs sous-unités. Seuls {k} sites sur {n} sont localisés jusqu\'à ce niveau (unité renseignée ou rattachée) : les autres n\'apparaissent qu\'aux niveaux supérieurs.':
+    'Sites and activities are counted with their sub-units. Only {k} of {n} sites are located down to this level (unit filled in or linked): the others only appear at higher levels.',
 };

@@ -152,7 +152,7 @@ function rbmSelect(asOfRef = null) {
     ? `CASE WHEN s.last_visit_date < (${asOfRef}::date + interval '1 month') THEN to_char(s.last_visit_date, 'YYYY-MM-DD') END`
     : "to_char(s.last_visit_date, 'YYYY-MM-DD')";
   return `
-  SELECT s.id, s.code, s.name, s.district, s.commune, s.activity, s.risk_level AS "riskLevel",
+  SELECT s.id, s.code, s.public_id AS "publicId", s.name, s.district, s.commune, s.activity, s.risk_level AS "riskLevel",
          s.adm1, s.adm2, s.adm3, s.adm4, s.fokontany,
          s.gps_lat AS "gpsLat", s.gps_lng AS "gpsLng",
          s.field_office_id AS "fieldOfficeId",
@@ -1087,7 +1087,7 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
     const counters = siteCounters({ months: s.months }, mmrRow, { adjusted });
     const status = currentStatus(s.monthStatus);
     return {
-      id: s.id, code: s.code, locationId: s.locationId, name: s.name, region: s.adm1, district: s.district, commune: s.commune,
+      id: s.id, code: s.code, publicId: s.publicId, locationId: s.locationId, name: s.name, region: s.adm1, district: s.district, commune: s.commune,
       activity: s.activity, bureau: s.subOfficeName || s.antenneName || null, fieldOfficeId: s.fieldOfficeId, mmrKey: mmrKeyOf(mmrRow),
       riskLevel: s.riskLevel, priority: score.priorityLabel, finalScore: score.finalScore,
       forbidden: Number(s.security) >= 99,
@@ -1411,4 +1411,5 @@ module.exports = {
   listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
   collectionDaysSummary, setTravelDays, coverageRecapSummary, coverageMatrix, monthsOverview, setMonthStatus,
   siteDataFactsSql, rbmSites, rbmSitesTx, rbmSiteExplain, importMasterData, importPlanSites, generateFromRbm, generateFromRbmTx, planBoardTx,
+  monthStatusesTx,
 };

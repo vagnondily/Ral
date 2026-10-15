@@ -272,22 +272,52 @@ async function directory(tenantId, { depth, ancestorId, q, page = 1, pageSize = 
     const { params, where } = directoryWhere(tenantId, { depth, ancestorId, q });
     params.push(pageSize, (page - 1) * pageSize);
     const lim = params.length - 1;
-    const siteMatch = siteCol
-      ? `(SELECT count(*)::int FROM sites s WHERE s.tenant_id = a.tenant_id AND (
-            ${level.code === 'adm3' ? '(a.pcode IS NOT NULL AND s.adm3_pcode = a.pcode) OR' : ''}
-            (lower(btrim(${siteCol})) = lower(a.name)${parentCol ? ` AND (p.name IS NULL OR lower(btrim(${parentCol})) = lower(p.name))` : ''})))`
-      : 'NULL::int';
+    // Sites d'une unité (retour 90) : rattachés à l'unité ou à l'une de ses
+    // sous-unités (admin_area_id, P-code du niveau), ou, à défaut, nommés comme
+    // elle au même niveau (et sous le même parent). Comptés une fois chacun ;
+    // activités distinctes de ces sites. Calculé pour la page seulement.
+    const pcodeCol = /^adm[1-4]$/.test(level.code) ? `s.${level.code}_pcode` : null;
+    const nameMatch = siteCol
+      ? `(lower(btrim(${siteCol})) = lower(a.name)${parentCol ? ` AND (p.name IS NULL OR lower(btrim(${parentCol})) = lower(p.name))` : ''})`
+      : 'false';
+    // La page d'abord (50 lignes), puis les comptes pour ces lignes seulement :
+    // jamais pour les milliers d'unités du niveau (17 000 fokontany).
+    const order = `${SORTS[sort] || SORTS.path}, a.id`;
     const { rows } = await client.query(
-      `SELECT a.id, a.name, a.pcode, a.lat::float8 AS lat, a.lng::float8 AS lng, a.depth, a.parent_id AS "parentId", a.path,
-              a.updated_at AS "updatedAt", count(*) OVER()::int AS total,
+      `WITH pg AS MATERIALIZED (
+         SELECT a.id, count(*) OVER()::int AS total FROM admin_areas a
+          WHERE ${where} ORDER BY ${order} LIMIT $${lim} OFFSET $${lim + 1})
+       SELECT a.id, a.name, a.pcode, a.lat::float8 AS lat, a.lng::float8 AS lng, a.depth, a.parent_id AS "parentId", a.path,
+              a.updated_at AS "updatedAt", pg.total,
               (SELECT count(*)::int FROM admin_areas c WHERE c.parent_id = a.id) AS "childCount",
-              ${siteMatch} AS "siteCount"
-         FROM admin_areas a LEFT JOIN admin_areas p ON p.id = a.parent_id
-        WHERE ${where}
-        ORDER BY ${SORTS[sort] || SORTS.path}, a.id
-        LIMIT $${lim} OFFSET $${lim + 1}`, params);
+              sc.n AS "siteCount", sc.acts AS "activityCount"
+         FROM pg JOIN admin_areas a ON a.id = pg.id
+         LEFT JOIN admin_areas p ON p.id = a.parent_id
+         LEFT JOIN LATERAL (
+           SELECT count(DISTINCT s.id)::int AS n,
+                  count(DISTINCT NULLIF(btrim(s.activity), ''))::int AS acts
+             FROM sites s LEFT JOIN admin_areas sa ON sa.id = s.admin_area_id
+            WHERE s.tenant_id = a.tenant_id AND (
+                  sa.id = a.id
+               OR sa.lineage @> ARRAY[a.id]
+               ${pcodeCol ? `OR (a.pcode IS NOT NULL AND ${pcodeCol} = a.pcode)` : ''}
+               OR ${nameMatch})
+         ) sc ON true
+        ORDER BY ${order}`, params);
+    // Combien de sites sont localisés jusqu'à ce niveau (pour dire pourquoi une unité affiche « — »).
+    const located = (await client.query(
+      `SELECT count(*)::int AS total,
+              count(*) FILTER (WHERE sa.depth >= $2
+                                  ${pcodeCol ? `OR ${pcodeCol} IS NOT NULL` : ''}
+                                  ${siteCol ? `OR NULLIF(btrim(${siteCol}), '') IS NOT NULL` : ''})::int AS located
+         FROM sites s LEFT JOIN admin_areas sa ON sa.id = s.admin_area_id
+        WHERE s.tenant_id = $1`, [tenantId, depth])).rows[0];
     const total = rows[0]?.total ?? (page > 1 ? (await client.query(`SELECT count(*)::int AS n FROM admin_areas a WHERE ${where}`, params.slice(0, -2))).rows[0].n : 0);
-    return { rows: rows.map(({ total: _t, ...r }) => ({ ...r, ancestors: r.path.split(' > ').slice(0, -1) })), total, page, pageSize };
+    return {
+      rows: rows.map(({ total: _t, ...r }) => ({ ...r, ancestors: r.path.split(' > ').slice(0, -1) })),
+      total, page, pageSize,
+      sites: { total: located.total, locatedAtLevel: located.located },
+    };
   });
 }
 

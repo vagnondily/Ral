@@ -137,12 +137,20 @@ router.post('/bulk', WRITE, body(bulkSchema), asyncHandler(async (req, res) => {
   const ids = [...new Set(req.valid.ids)];
   try {
     const r = await repo.bulkSites(t(req), { ids, action: req.valid.action, patch: req.valid.patch || {} });
-    if (r.refused) r.refused = r.refused.map((x) => ({ ...x, reason: linkedText(x) }));
+    if (r.sample) r.sample = r.sample.map((x) => ({ ...x, reason: linkedText(x.counts) }));
     res.json(r);
   } catch (e) {
     if (e && e.code === 'BAD_OFFICE') throw badRequest('Bureau inconnu.');
     throw e;
   }
+}));
+
+// Aperçu d'une suppression groupée (retour 89), sans rien écrire : combien de
+// sites seraient supprimés, combien gardés car ils portent des données, et pourquoi.
+router.post('/bulk/preview', WRITE, body(z.object({ ids: z.array(z.string().uuid()).min(1).max(5000) })), asyncHandler(async (req, res) => {
+  const r = await repo.previewBulkDelete(t(req), [...new Set(req.valid.ids)]);
+  r.sample = r.sample.map((x) => ({ ...x, reason: linkedText(x.counts) }));
+  res.json(r);
 }));
 
 // Export d'une sélection (mêmes colonnes que l'export complet).
