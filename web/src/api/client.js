@@ -296,6 +296,12 @@ export const api = {
   planBoard: (year, { adjusted } = {}) => request('/api/tpm/field/plan-board', { query: { year, adjusted: adjusted ? 1 : undefined } }),
   planBoardSetMonths: (input) => request('/api/tpm/field/plan-board/months', { method: 'PUT', body: input }),
   planBoardSetStatus: (input) => request('/api/tpm/field/plan-board/status', { method: 'PUT', body: input }),
+  // Sites (actifs / inactifs) : grille du classeur d'activation (retour 64).
+  activationGrid: (year) => request('/api/tpm/field/activation', { query: { year } }),
+  saveActivation: (input) => request('/api/tpm/field/activation', { method: 'PUT', body: input }),
+  activationHistory: (siteId, year) => request('/api/tpm/field/activation/history', { query: { siteId, year } }),
+  activationExport: (year) => downloadFile(`/api/tpm/field/activation.xlsx?year=${year}`, `Sites_actifs_${year}.xlsx`),
+  activationImport: (file, { commit, year } = {}) => uploadFile(`/api/tpm/field/activation/import?commit=${commit ? 1 : 0}&year=${year}`, file),
   planBoardExport: (year) => downloadFile(`/api/tpm/field/plan-board/locations.xlsx?year=${year}`, `Plan_de_suivi_sites_${year}.xlsx`),
   planBoardBulk: (input) => request('/api/tpm/field/plan-board/bulk', { method: 'POST', body: input }),
   planBoardAddSite: (input) => request('/api/tpm/field/plan-board/sites', { method: 'POST', body: input }),
@@ -542,6 +548,7 @@ export const api = {
   siteRegistryExport: (q) => downloadFile(`/api/site-registry/export.xlsx${q ? `?q=${encodeURIComponent(q)}` : ''}`, 'Sites_MEMS2.xlsx'),
   importSiteRegistry: (file) => uploadFile('/api/site-registry/import', file),
   bulkSiteRegistry: (ids, action, patch) => request('/api/site-registry/bulk', { method: 'POST', body: { ids, action, patch } }),
+  previewBulkSiteDelete: (ids) => request('/api/site-registry/bulk/preview', { method: 'POST', body: { ids } }),
   siteRegistryExportSelection: (ids) => downloadPost('/api/site-registry/export.xlsx', { ids }, 'Sites_selection_MEMS2.xlsx'),
   // Liaison : postes du plan pour pré-remplir une facture (même contrat + mois)
   planningPrefill: (partnerId, contractId, month) => request('/api/tpm/planning/prefill', { query: { partnerId, contractId, month } }),

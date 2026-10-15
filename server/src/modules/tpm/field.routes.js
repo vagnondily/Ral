@@ -7,6 +7,8 @@ const { badRequest, notFound } = require('../../middleware/errors');
 const repo = require('./field.repository');
 const settingsRepo = require('../settings/settings.repository');
 const { buildLocationsWorkbook, parseLocationsWorkbook, POI_SUBTYPES, MODALITIES } = require('./locationsXlsx');
+const activation = require('./activation.repository');
+const { buildActivationWorkbook, parseActivationWorkbook } = require('./activationXlsx');
 const { officeResolver } = require('./mmrXlsx');
 const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
 const { readPeriod } = require('../../middleware/period');
@@ -215,6 +217,55 @@ router.post('/plan-board/locations/import', WRITE, express.raw({ type: '*/*', li
   const result = await repo.importLocations(t(req), uid(req), { year, rows: parsed.rows }, { commit });
   res.json({ ...result, year, sheet: parsed.sheet, rejected, errors: parsed.errors.slice(0, 500), errorCount: parsed.errors.length,
     warnings: parsed.warnings.slice(0, 500), warningCount: parsed.warnings.length });
+}));
+
+// ---- Sites (actifs / inactifs) : grille du classeur d'activation (retour 64) ----
+// Lecture compacte pour l'écran ; enregistrement journalisé (motif facultatif) ;
+// export / import du classeur au format de la feuille « Site Actif ».
+router.get('/activation', asyncHandler(async (req, res) => {
+  res.json(await activation.activationGridCompact(t(req), { year: yearQ(req) }));
+}));
+const activationSave = z.object({
+  year: z.number().int().min(2000).max(2100),
+  changes: z.array(z.object({ siteId: z.string().uuid(), month: z.number().int().min(1).max(12), active: z.boolean().nullable() })).min(1).max(60000),
+  reason: z.string().max(2000).optional(),
+});
+router.put('/activation', WRITE, asyncHandler(async (req, res) => {
+  const p = activationSave.safeParse(req.body);
+  if (!p.success) throw badRequest('Données invalides', p.error.flatten());
+  try {
+    res.json(await activation.saveActivation(t(req), uid(req), p.data));
+  } catch (e) {
+    if (e && e.code === 'UNKNOWN_SITE') throw badRequest(e.message);
+    throw e;
+  }
+}));
+router.get('/activation/history', asyncHandler(async (req, res) => {
+  const siteId = z.string().uuid().safeParse(req.query.siteId);
+  if (!siteId.success) throw badRequest('Site requis (?siteId=).');
+  res.json(await activation.activationHistory(t(req), { siteId: siteId.data, year: yearQ(req) }));
+}));
+router.get('/activation.xlsx', asyncHandler(async (req, res) => {
+  const year = yearQ(req);
+  const { rows } = await activation.activationGrid(t(req), { year });
+  const wb = buildActivationWorkbook({ year, sites: rows, generatedAt: new Date().toISOString() });
+  await sendXlsx(res, wb, `Sites_actifs_${year}.xlsx`);
+}));
+// Import : ?commit=0 → aperçu (rien n'est écrit) ; ?commit=1 → enregistrement en une transaction.
+router.post('/activation/import', WRITE, express.raw({ type: '*/*', limit: '50mb' }), asyncHandler(async (req, res) => {
+  if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
+  let parsed;
+  try { parsed = await parseActivationWorkbook(req.body); } catch (err) {
+    if (isRefusal(err)) throw err;
+    if (err && err.code === 'NO_SHEET') throw badRequest('Aucune feuille reconnue : il faut les colonnes « Identifiant » (ou « Code POI ») et les 12 mois (Jan … Déc), comme la feuille « Site Actif ».');
+    throw badRequest('Fichier Excel illisible.');
+  }
+  const blocking = parsed.errors.filter((e) => e.line === null);
+  if (blocking.length) throw badRequest(blocking[0].message);
+  const year = parsed.year || yearQ(req);
+  const commit = req.query.commit === '1';
+  const result = await activation.importActivation(t(req), uid(req), { year, rows: parsed.rows }, { commit });
+  res.json({ ...result, sheet: parsed.sheet, errorCount: parsed.errors.length, errors: parsed.errors.slice(0, 200) });
 }));
 
 router.post('/rbm/generate', WRITE, asyncHandler(async (req, res) => {
