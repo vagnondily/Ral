@@ -243,6 +243,7 @@ function AreasCard({ areas }) {
   const width = Math.max(1, ...rows.map((r) => r.parts.length));
   const detached = rows.filter((r) => !r.adminAreaId).length;
   const anySites = rows.some((r) => (r.siteCount || 0) > 0);
+  const anyOffices = rows.some((r) => (r.offices || []).length > 0);
   const anyPcode = rows.some((r) => r.pcode);
 
   return (
@@ -273,6 +274,7 @@ function AreasCard({ areas }) {
             <tr>
               {Array.from({ length: width }, (_, i) => <th key={i} scope="col">{tr(levels[i + 1] || DEFAULT_LEVELS[i + 1] || `Niveau ${i + 1}`)}</th>)}
               {showPcode && <th scope="col">{tr('P-code')}</th>}
+              {anyOffices && <th scope="col">{tr('Bureau')}</th>}
               {anySites && <th scope="col" className="num">{tr('Sites')}</th>}
               <th scope="col" className="areas-state-col">{tr('État')}</th>
             </tr>
@@ -286,6 +288,15 @@ function AreasCard({ areas }) {
                   </td>
                 ))}
                 {showPcode && <td className="mono">{r.pcode || <span className="muted">—</span>}</td>}
+                {anyOffices && (
+                  <td>
+                    {(r.offices || []).length === 0
+                      ? <span className="muted">—</span>
+                      : r.offices.length === 1
+                        ? r.offices[0]
+                        : <span title={r.offices.join(', ')}>{tr('{n} bureaux', { n: r.offices.length })}</span>}
+                  </td>
+                )}
                 {anySites && (
                   <td className="num">
                     {r.siteCount || 0}

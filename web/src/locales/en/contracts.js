@@ -385,4 +385,5 @@ export default {
   'Afficher les P-codes': 'Show P-codes',
   'Masquer les P-codes': 'Hide P-codes',
   '{n} sous-act.': '{n} sub-act.',
+  '{n} bureaux': '{n} offices',
 };
