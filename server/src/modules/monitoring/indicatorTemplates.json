@@ -1,5 +1,5 @@
 {
- "version": 1,
+ "version": 2,
  "source": "Modèles de tableau de bord et de rapport de suivi de processus (référence du responsable S&E, 12/10/2026).",
  "bands": {
   "exc": 80,
@@ -11,12 +11,17 @@
    "key": "GD",
    "label": "GD / PREVMA",
    "mmrCategory": "Unconditional resource transfers to support access to food",
+   "alsoFor": [],
+   "mmrAliases": [
+    "Transferts inconditionnels de ressources pour soutenir l'accès à la nourriture",
+    "Transferts de ressources inconditionnels pour soutenir l'accès à l'alimentation"
+   ],
    "formHints": [
     "GD",
     "PREVMA",
     "GDALL",
     "GD_PREVMA",
-    "Distribution"
+    "Distribution générale"
    ],
    "domains": [
     {
@@ -48,10 +53,6 @@
      "label": "Sécurité / intégrité"
     },
     {
-     "code": "KPI",
-     "label": "Chiffres clés"
-    },
-    {
      "code": "M1",
      "label": "Conditions de distribution"
     },
@@ -78,6 +79,10 @@
     {
      "code": "M9",
      "label": "Sécurité"
+    },
+    {
+     "code": "KPI",
+     "label": "Chiffres clés"
     }
    ],
    "items": [
@@ -112,7 +117,7 @@
     },
     {
      "code": "GD_LIST_COMPLETE",
-     "label": "Liste complète et sans doublon",
+     "label": "Liste de distribution complète (noms, n° d'identification, signature)",
      "domain": "D1",
      "direction": "higher_better",
      "agg": "percent_yes",
@@ -120,8 +125,7 @@
      "naValues": [],
      "scored": true,
      "variables": [
-      "MODisListComplete",
-      "MODistrList"
+      "MODisListComplete"
      ],
      "warnings": []
     },
@@ -186,144 +190,8 @@
      "warnings": []
     },
     {
-     "code": "GD_DUPLICATION",
-     "label": "Absence de doublons dans la liste",
-     "domain": "M4",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "MODuplicationBenef"
-     ],
-     "warnings": [
-      "sens"
-     ]
-    },
-    {
-     "code": "GD_SIGNED_LIST",
-     "label": "Liste de distribution signée",
-     "domain": "M4",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "MOSignedDisList"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "GD_BENEF_OTHER",
-     "label": "Bénéficiaires porteurs de la carte d'une autre personne",
-     "domain": "M4",
-     "direction": "lower_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "MOBenefOther"
-     ],
-     "warnings": [
-      "ratio"
-     ]
-    },
-    {
-     "code": "GD_BENEF_OTHER_ASSISTED",
-     "label": "Porteurs d'une autre carte ayant reçu l'assistance",
-     "domain": "M4",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "MOBenefOtherWhatAss"
-     ],
-     "warnings": [
-      "sens"
-     ]
-    },
-    {
-     "code": "GD_DIST_DIV_OBS",
-     "label": "Diversion observée",
-     "domain": "M1",
-     "direction": "lower_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "MODistDiv"
-     ],
-     "warnings": [
-      "ratio"
-     ]
-    },
-    {
-     "code": "GD_FRAUD_OBS",
-     "label": "Inquiétude de fraude observée",
-     "domain": "M1",
-     "direction": "lower_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "MOFraudConcerns"
-     ],
-     "warnings": [
-      "ratio"
-     ]
-    },
-    {
-     "code": "GD_BEN_CHECK",
-     "label": "Vérification des bénéficiaires",
-     "domain": "M1",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "MOBenCheck"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "GD_BEN_CHECK_BIO",
-     "label": "Vérification biométrique / carte",
-     "domain": "M1",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "MOBenCheckBio"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "GD_DIST_LIST",
-     "label": "Liste de distribution présente",
-     "domain": "M1",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "MODistrList"
-     ],
-     "warnings": []
-    },
-    {
      "code": "GD_DIGN_QUEUE",
-     "label": "Séparation file hommes/femmes",
+     "label": "Contrôle des foules / files d'attente",
      "domain": "D2",
      "direction": "higher_better",
      "agg": "percent_yes",
@@ -351,7 +219,7 @@
     },
     {
      "code": "GD_DIGN_SEATS",
-     "label": "Zone de repos disponible",
+     "label": "Espaces pour s'asseoir",
      "domain": "D2",
      "direction": "higher_better",
      "agg": "percent_yes",
@@ -365,7 +233,7 @@
     },
     {
      "code": "GD_DIGN_LATRINES",
-     "label": "Latrines séparées H/F",
+     "label": "Toilettes séparées hommes / femmes",
      "domain": "D2",
      "direction": "higher_better",
      "agg": "percent_yes",
@@ -379,7 +247,7 @@
     },
     {
      "code": "GD_DIGN_CHILDREN",
-     "label": "Espace jeux enfants",
+     "label": "Accès à des services pour enfants",
      "domain": "D2",
      "direction": "higher_better",
      "agg": "percent_yes",
@@ -406,27 +274,161 @@
      "warnings": []
     },
     {
-     "code": "GD_DIGN_BREASTFEED",
-     "label": "Espace allaitement",
+     "code": "GD_DIGN_HANDWASH",
+     "label": "Dispositif de lavage des mains",
      "domain": "D2",
      "direction": "higher_better",
      "agg": "percent_yes",
      "positiveValue": "1",
      "naValues": [],
      "scored": true,
-     "variables": [],
+     "variables": [
+      "MODistPtsDign/5"
+     ],
      "warnings": []
     },
     {
-     "code": "GD_DIGN_HEALTH",
-     "label": "Personnel santé sur site",
+     "code": "GD_DIGN_DISTANCE",
+     "label": "Distance du personnel respectée",
      "domain": "D2",
      "direction": "higher_better",
      "agg": "percent_yes",
      "positiveValue": "1",
      "naValues": [],
      "scored": true,
-     "variables": [],
+     "variables": [
+      "MODistPtsDign/6"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_DIGN_PWD",
+     "label": "Accessibilité personnes handicapées",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODistPtsDign/9"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_DIGN_HELPDESK",
+     "label": "Point d'assistance (dignité)",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODistPtsDign/10"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_DIGN_BOX",
+     "label": "Boîte de doléance",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODistPtsDign/11"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_KNOW_FREQ",
+     "label": "Connaît la fréquence de l'assistance",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHAsstKnowFreq"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_INFO_RECEIVED",
+     "label": "Informations reçues pendant le cycle de distribution",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHAsstRecInfo"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_MC_KNOW",
+     "label": "Connaît le comité de gestion et son rôle",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "9999"
+     ],
+     "scored": true,
+     "variables": [
+      "HHAsstMCKnow"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_RESPECT",
+     "label": "Traité avec respect",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHAsstRespect"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_NOT_PAID",
+     "label": "N'a pas payé l'assistance",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "0",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHAsstPayEnt"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_ENT_AS_ANNOUNCED",
+     "label": "Dû reçu = dû annoncé",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "HHAsstEntRcCm"
+     ],
      "warnings": []
     },
     {
@@ -447,12 +449,14 @@
     },
     {
      "code": "GD_HOTLINE_DISPLAYED",
-     "label": "CFM affiché sur site",
+     "label": "Numéro vert (hotline) affiché de manière visible",
      "domain": "D4",
      "direction": "higher_better",
      "agg": "percent_yes",
      "positiveValue": "1",
-     "naValues": [],
+     "naValues": [
+      "2"
+     ],
      "scored": true,
      "variables": [
       "HHAsstRecInfoLe",
@@ -462,7 +466,7 @@
     },
     {
      "code": "GD_CFM_VISIBLE",
-     "label": "CFM distribué (flyers)",
+     "label": "Informations sur le mécanisme de plainte affichées",
      "domain": "D4",
      "direction": "higher_better",
      "agg": "percent_yes",
@@ -539,90 +543,561 @@
      "warnings": []
     },
     {
-     "code": "GD_VISIBILITY",
-     "label": "Éléments de visibilité affichés",
-     "domain": "M5",
+     "code": "GD_HELPDESK_HH",
+     "label": "Help desk présent (ménages)",
+     "domain": "D4",
      "direction": "higher_better",
      "agg": "percent_yes",
      "positiveValue": "1",
      "naValues": [
-      "9999"
+      "2"
      ],
-     "scored": false,
-     "variables": [
-      "MOVisibDisplayed"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "GD_KNOW_FREQ",
-     "label": "Connaît fréquence assistan.",
-     "domain": "D3",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
      "scored": true,
      "variables": [
-      "HHAsstKnowFreq"
+      "HHAsstRecInfoYa"
      ],
      "warnings": []
     },
     {
-     "code": "GD_INFO_RECEIVED",
-     "label": "A reçu info CFM",
-     "domain": "D3",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "HHAsstRecInfo"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "GD_MC_KNOW",
-     "label": "Connaît mécanisme plainte",
-     "domain": "D3",
+     "code": "GD_COMPLAINT_CMTE",
+     "label": "Comité de plainte existant (ménages)",
+     "domain": "D4",
      "direction": "higher_better",
      "agg": "percent_yes",
      "positiveValue": "1",
      "naValues": [
-      "9999"
+      "2"
      ],
      "scored": true,
      "variables": [
-      "HHAsstMCKnow"
+      "HHAsstRecInfoEx"
      ],
      "warnings": []
     },
     {
-     "code": "GD_RESPECT",
-     "label": "Traité avec respect",
-     "domain": "D3",
+     "code": "GD_PSEA_POSTERS",
+     "label": "Affiches PSEA / fraude visibles",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "2"
+     ],
+     "scored": true,
+     "variables": [
+      "HHAsstRecInfo_Le"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_DPMC_PRESENT_DIST",
+     "label": "Comité de gestion représenté à la distribution",
+     "domain": "D5",
      "direction": "higher_better",
      "agg": "percent_yes",
      "positiveValue": "1",
      "naValues": [],
      "scored": true,
      "variables": [
-      "HHAsstRespect"
+      "MODPMCPresenctYN",
+      "MODPMCMemb"
      ],
      "warnings": []
     },
     {
-     "code": "GD_NOT_PAID",
-     "label": "N'a pas payé l'assistance",
-     "domain": "D3",
+     "code": "GD_DPMC_EXISTS",
+     "label": "PV de nomination du comité de gestion disponible",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODPMC"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_DPMC_TRAINED",
+     "label": "Membres du comité présents lors de la visite",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "MODPMCMemb"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_DPMC_ROLES",
+     "label": "DPMC rôles clairs",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODPMCRoles"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_DPMC_REPORT",
+     "label": "DPMC rapport produit",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "MODPMCReport"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_DPMC_REPRES",
+     "label": "Comité représentatif des communautés",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "MODPMCRepres"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_DPMC_PV_ONSITE",
+     "label": "PV de nomination consultable sur place",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODPMCNomination"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_DPMC_BRIEFED",
+     "label": "Membres du comité informés (briefing)",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "MODPMDistMtg"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_WH_CONDITION",
+     "label": "Conditions stockage OK",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOStorageCondition"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_WH_PALLETS",
+     "label": "Vivres sur palettes",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWhStackPall/1",
+      "MOWhStackPall"
+     ],
+     "warnings": [
+      "base"
+     ]
+    },
+    {
+     "code": "GD_WH_STOCK_RECORD",
+     "label": "Registre mvt stock",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWhReceipt/1",
+      "MOWhStockCard",
+      "MOStockMovementRecord"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_WH_DELIVERY",
+     "label": "Livraison dans délais",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODeliveryOnTime"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_WH_DAMAGED_ISOL",
+     "label": "Produits avariés isolés",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWHBadCommodIsol",
+      "MOWhBadCommodIsol"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_WH_STAFF_TRAINED",
+     "label": "Personnel du magasin formé",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWhHrtrain"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_WH_DOCS_SIGNED",
+     "label": "Documents signés / cachetés",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWhDocsSigned"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_WH_WAYBILL_ACCURATE",
+     "label": "Lettres de voiture exactes",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWhWayBillRep"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_WH_LOSS_REPORTED",
+     "label": "Pertes / dommages signalés",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWhAllDamageRep"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_WH_FEFO",
+     "label": "Piles séparées par date de péremption",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWhBatchBBD"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_WH_DAMAGED",
+     "label": "Vivres détériorés / infestés",
+     "domain": "D6",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWHBadCommodoui"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_WH_LOCKED",
+     "label": "Magasin fermé à clé",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOStorageLocked"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_WH_NFI_MIXED",
+     "label": "Non-vivres stockés avec les vivres",
+     "domain": "D6",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MONFIwithFood"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_WH_INSPECTIONS",
+     "label": "Inspections régulières du stock",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWhRegInsp"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_WH_RECEIPT_MATCH",
+     "label": "Réception conforme à la lettre de voiture (par denrée)",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOFoodReceivedMatch"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "GD_WH_STACKED",
+     "label": "Sacs / cartons correctement empilés",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWhStackProp"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_ARMED",
+     "label": "Personnel armé présent",
+     "domain": "D7",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOAsstArmed"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_DIVERSION_HH",
+     "label": "Détournement rapporté",
+     "domain": "D7",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHDistDiv"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_FRAUD_HH",
+     "label": "Fraude suspectée",
+     "domain": "D7",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHFraudConcerns"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_SAFE_ACCESS",
+     "label": "Accès sûr/très sûr",
+     "domain": "D7",
      "direction": "higher_better",
      "agg": "percent_value",
-     "positiveValue": "0",
+     "positiveValue": "1|2",
      "naValues": [],
      "scored": true,
      "variables": [
-      "HHAsstPayEnt"
+      "HHAsstSafeLevel"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_RATION_CUT",
+     "label": "Réduction / substitution de ration",
+     "domain": "D7",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "MOAsstIKRed"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_ACCESS_DIFF",
+     "label": "Difficultés d'accès à l'assistance",
+     "domain": "D7",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "HHAsstAccessLast"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_DIST_DIV_OBS",
+     "label": "Diversion observée",
+     "domain": "M1",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MODistDiv"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_FRAUD_OBS",
+     "label": "Inquiétude de fraude observée",
+     "domain": "M1",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MOFraudConcerns"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_BEN_CHECK",
+     "label": "Vérification des bénéficiaires",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MOBenCheck"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_BEN_CHECK_BIO",
+     "label": "Vérification biométrique / carte",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MOBenCheckBio"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_DIST_LIST",
+     "label": "Liste de distribution présente",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MODistrList"
      ],
      "warnings": []
     },
@@ -638,13 +1113,11 @@
      "variables": [
       "HHAsstPayTrsp"
      ],
-     "warnings": [
-      "ratio"
-     ]
+     "warnings": []
     },
     {
      "code": "GD_TRAVEL_DAY",
-     "label": "Se déplace le jour de distribution",
+     "label": "Retour possible avant la nuit",
      "domain": "M2",
      "direction": "higher_better",
      "agg": "percent_yes",
@@ -655,6 +1128,38 @@
      "scored": false,
      "variables": [
       "HHAsstTrvlDay"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_START_LT30",
+     "label": "Démarrage avec moins de 30 min de retard",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": false,
+     "variables": [
+      "HHDTPDelay"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_WALK_LT1H",
+     "label": "Trajet aller ≤ 1 h",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "100|201",
+     "naValues": [
+      "888"
+     ],
+     "scored": false,
+     "variables": [
+      "HHDTPTimeWalk"
      ],
      "warnings": []
     },
@@ -701,6 +1206,96 @@
      "warnings": []
     },
     {
+     "code": "GD_DUPLICATION",
+     "label": "Bénéficiaires présents dans la liste de distribution",
+     "domain": "M4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MODuplicationBenef"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_SIGNED_LIST",
+     "label": "Liste de distribution signée",
+     "domain": "M4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MOSignedDisList"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_BENEF_OTHER",
+     "label": "Bénéficiaires porteurs de la carte d'une autre personne",
+     "domain": "M4",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MOBenefOther"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_BENEF_OTHER_ASSISTED",
+     "label": "Porteurs d'une autre carte ayant reçu l'assistance",
+     "domain": "M4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MOBenefOtherWhatAss"
+     ],
+     "warnings": [
+      "sens"
+     ]
+    },
+    {
+     "code": "GD_VISIBILITY",
+     "label": "Éléments de visibilité affichés",
+     "domain": "M5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "9999"
+     ],
+     "scored": false,
+     "variables": [
+      "MOVisibDisplayed"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "GD_IK_COND_OK",
+     "label": "Denrée distribuée sans problème de qualité (par denrée)",
+     "domain": "M5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MOAsstIKRecCond/0"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
      "code": "GD_MC_REPORTS",
      "label": "Comité rend compte",
      "domain": "M7",
@@ -743,218 +1338,48 @@
      "variables": [
       "HHAsstTime"
      ],
-     "warnings": [
-      "ratio"
-     ]
+     "warnings": []
     },
     {
-     "code": "GD_ARMED",
-     "label": "Personnel armé présent",
-     "domain": "D7",
-     "direction": "lower_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOAsstArmed"
-     ],
-     "warnings": [
-      "ratio"
-     ]
-    },
-    {
-     "code": "GD_DIVERSION_HH",
-     "label": "Détournement rapporté",
-     "domain": "D7",
-     "direction": "lower_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "HHDistDiv"
-     ],
-     "warnings": [
-      "ratio"
-     ]
-    },
-    {
-     "code": "GD_FRAUD_HH",
-     "label": "Fraude suspectée",
-     "domain": "D7",
-     "direction": "lower_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "HHFraudConcerns"
-     ],
-     "warnings": [
-      "ratio"
-     ]
-    },
-    {
-     "code": "GD_SAFE_ACCESS",
-     "label": "Accès sûr/très sûr",
-     "domain": "D7",
+     "code": "GD_PART_RATE_80",
+     "label": "Taux de participation ≥ 80 % du prévu",
+     "domain": "KPI",
      "direction": "higher_better",
      "agg": "percent_value",
-     "positiveValue": "1|2",
+     "positiveValue": "5",
      "naValues": [],
-     "scored": true,
+     "scored": false,
      "variables": [
-      "HHAsstSafeLevel"
+      "MOBenSizePlnAct"
      ],
      "warnings": []
     },
     {
-     "code": "GD_DPMC_PRESENT_DIST",
-     "label": "DPMC représenté distrib.",
-     "domain": "D5",
+     "code": "GD_SPI",
+     "label": "Indice de performance du site (formulaire)",
+     "domain": "KPI",
      "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
+     "agg": "mean",
+     "positiveValue": null,
      "naValues": [],
-     "scored": true,
+     "scored": false,
      "variables": [
-      "MODPMCPresenctYN",
-      "MODPMCMemb"
+      "SitePerformanceIndex"
      ],
-     "warnings": []
+     "warnings": [],
+     "target": 75
     },
     {
-     "code": "GD_DPMC_EXISTS",
-     "label": "DPMC présent sur site",
-     "domain": "D5",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
+     "code": "GD_SITE_RISK",
+     "label": "Site à risque (formulaire)",
+     "domain": "KPI",
+     "direction": "lower_better",
+     "agg": "percent_value",
+     "positiveValue": "Oui",
      "naValues": [],
-     "scored": true,
+     "scored": false,
      "variables": [
-      "MODPMC"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "GD_DPMC_TRAINED",
-     "label": "DPMC membres formés",
-     "domain": "D5",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [
-      "888"
-     ],
-     "scored": true,
-     "variables": [
-      "MODPMCMemb"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "GD_DPMC_ROLES",
-     "label": "DPMC rôles clairs",
-     "domain": "D5",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MODPMCRoles"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "GD_DPMC_REPORT",
-     "label": "DPMC rapport produit",
-     "domain": "D5",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [
-      "888"
-     ],
-     "scored": true,
-     "variables": [
-      "MODPMCReport"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "GD_WH_CONDITION",
-     "label": "Conditions stockage OK",
-     "domain": "D6",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOStorageCondition"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "GD_WH_PALLETS",
-     "label": "Produits sur palettes",
-     "domain": "D6",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOWhStackProp",
-      "MOWhStackPall"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "GD_WH_STOCK_RECORD",
-     "label": "Registre mvt stock",
-     "domain": "D6",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOWhReceipt/1",
-      "MOWhStockCard",
-      "MOStockMovementRecord"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "GD_WH_DELIVERY",
-     "label": "Livraison dans délais",
-     "domain": "D6",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MODeliveryOnTime"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "GD_WH_DAMAGED_ISOL",
-     "label": "Produits avariés isolés",
-     "domain": "D6",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOWHBadCommodIsol",
-      "MOWhBadCommodIsol"
+      "SiteRiskFlag"
      ],
      "warnings": []
     }
@@ -964,6 +1389,12 @@
    "key": "SMP",
    "label": "SMP · Cantines Scolaires",
    "mmrCategory": "School meal activities",
+   "alsoFor": [],
+   "mmrAliases": [
+    "Activités de repas scolaires",
+    "Alimentation scolaire",
+    "Cantines scolaires"
+   ],
    "formHints": [
     "SMP",
     "SBP",
@@ -1019,159 +1450,13 @@
     {
      "code": "M7",
      "label": "Service & distribution"
+    },
+    {
+     "code": "KPI",
+     "label": "Chiffres clés"
     }
    ],
    "items": [
-    {
-     "code": "SMP_CFM_USED",
-     "label": "CFM utilisé",
-     "domain": "M1",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "HHAsstUseCFM"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_CFM_KNOW",
-     "label": "Connaissance du CFM",
-     "domain": "M1",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "HHInfoCFMKnowAcc"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_CFM_SUPPORT",
-     "label": "Soutien via le CFM",
-     "domain": "M1",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "HHInfoCFMSupport"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_COOKS_INCENTIVE",
-     "label": "Cuisinières rémunérées / incitations",
-     "domain": "M2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "CooksRecInc"
-     ],
-     "warnings": [
-      "sens"
-     ]
-    },
-    {
-     "code": "SMP_COOKS_CHALLENGE",
-     "label": "Cuisinières en difficulté pour préparer",
-     "domain": "M2",
-     "direction": "lower_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "CooksChlgaHand"
-     ],
-     "warnings": [
-      "ratio"
-     ]
-    },
-    {
-     "code": "SMP_COOKS_SUGGEST",
-     "label": "Cuisinières ayant des suggestions",
-     "domain": "M2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "CooksSug"
-     ],
-     "warnings": [
-      "sens"
-     ]
-    },
-    {
-     "code": "SMP_COOKS_TRAINED_FGD",
-     "label": "Cuisinières formées (déclaratif)",
-     "domain": "M2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "CooksRecTrain"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_COOKS_RATION",
-     "label": "Cuisinières connaissant la ration",
-     "domain": "M2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "CooksRation"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_COOKS_CONSENT",
-     "label": "Consentement entretien cuisinières",
-     "domain": "M2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "SBPCooksConsent"
-     ],
-     "warnings": [
-      "sens"
-     ]
-    },
-    {
-     "code": "SMP_MGMT_COMMITTEE",
-     "label": "Comité de gestion actif",
-     "domain": "D6",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOPTAMgmt",
-      "Q66clg",
-      "ProjectMgmtComm"
-     ],
-     "warnings": []
-    },
     {
      "code": "SMP_KITCHEN_ONSITE",
      "label": "Cuisine présente sur site",
@@ -1218,7 +1503,7 @@
     },
     {
      "code": "SMP_KITCHEN_CLEAN",
-     "label": "Cuisine propre",
+     "label": "Zone séparée dédiée au stockage des aliments (cuisine)",
      "domain": "D1",
      "direction": "higher_better",
      "agg": "percent_yes",
@@ -1256,6 +1541,834 @@
      "scored": true,
      "variables": [
       "MOHighRiskFoods"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_HYG_COOKS",
+     "label": "Hygiène personnelle des cuisiniers",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "MOCooksGoodHyg"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_HYG_UTENSILS",
+     "label": "Ustensiles lavés avant usage",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "MOCookingUtensilsWashed"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_WASH_COOK_WATER",
+     "label": "Eau de cuisson adéquate",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "3",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWaterCook",
+      "Q411eau"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_WASH_COOK_AREA",
+     "label": "Lieu de cuisson sanitaire",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "3",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOCookArea"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_WASH_EAT_AREA",
+     "label": "Coin repas approprié",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "3",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOEatArea",
+      "Q42refect"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_WASH_HANDWASH",
+     "label": "Lavage des mains",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "3",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOHandwashing",
+      "Q53savon"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_WASH_LATRINES",
+     "label": "Latrines fonctionnelles",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "3",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOLatrines",
+      "Q54latrine"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_HANDWASH_CHILD",
+     "label": "Élèves se lavant les mains avant le repas",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "MOChildWashHands"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_WASH_STATION",
+     "label": "Station de lavage équipée",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "9999"
+     ],
+     "scored": true,
+     "variables": [
+      "MOWashStation"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_FOOD_STORED",
+     "label": "Vivres stockés sur place",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOFoodStored",
+      "Q44magasin"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_ON_PALLETS",
+     "label": "Produits sur palettes / poteaux",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWhStackPall",
+      "Q44non"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_STORE_SECURE",
+     "label": "Stockage sécurisé",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOStoreWellSec",
+      "Q44magasin"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_ADEQ_SIZE",
+     "label": "Taille adéquate",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOAdeqSize",
+      "Q44non"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_WH_DRAIN",
+     "label": "Drainage OK",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWhStoreDrain"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_NO_EXPIRED",
+     "label": "Absence d'articles expirés",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "0",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOExpItem"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_DOC_WAYBILL",
+     "label": "Lettre de voiture / waybill",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [
+      "777"
+     ],
+     "scored": true,
+     "variables": [
+      "DIRTranspWaybills"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_DOC_CONSUMPTION",
+     "label": "Cahier de consommation",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [
+      "777"
+     ],
+     "scored": true,
+     "variables": [
+      "DIRSchFeedingRecord",
+      "ch_disp"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_DOC_ATTENDANCE",
+     "label": "Cahier de présence élèves",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [
+      "777"
+     ],
+     "scored": true,
+     "variables": [
+      "DIRSchAttendanceRecord",
+      "reg_disp"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_DOC_STOCK",
+     "label": "Fiche de stock",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [
+      "777"
+     ],
+     "scored": true,
+     "variables": [
+      "DIRFoodStockMovementRecord",
+      "Q44non"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_DOC_CASHBOOK",
+     "label": "Journal de caisse",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [
+      "777"
+     ],
+     "scored": true,
+     "variables": [
+      "DIRCashReceivedRecord",
+      "journal_caisse_a"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_DOC_NFI",
+     "label": "Fiche d'inventaire NFI",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [
+      "777"
+     ],
+     "scored": true,
+     "variables": [
+      "DIRNFIRecRecords"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_DOC_CONTRIB",
+     "label": "Suivi contributions communauté",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [
+      "777"
+     ],
+     "scored": true,
+     "variables": [
+      "DIRComContributors",
+      "R1"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_DOC_SUPPLIERS",
+     "label": "Liste fournisseurs et contrats",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [
+      "777"
+     ],
+     "scored": true,
+     "variables": [
+      "DIRListSupplRecord",
+      "journal_achat3"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_REC_ATTEND_OK",
+     "label": "Cahier de présence rempli et à jour",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "DIRSchAttendanceRecord2"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_REC_CASH_OK",
+     "label": "Journal de caisse rempli et à jour",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "DIRCashReceivedRecord2"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_REC_WAYBILL_OK",
+     "label": "Lettres de voiture correctes",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "DIRTranspWaybills2"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_REC_FEEDING_OK",
+     "label": "Registre des jours d'alimentation à jour",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "DIRSchFeedingRecord2"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_REC_STOCK_OK",
+     "label": "Registre des mouvements de stock à jour",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "DIRFoodStockMovementRecord2"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_ATT_DISCREP",
+     "label": "Écart présence numérique / registre",
+     "domain": "D5",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "DIRDiscRec"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_MGMT_COMMITTEE",
+     "label": "Comité de gestion actif",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOPTAMgmt",
+      "Q66clg",
+      "ProjectMgmtComm"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_MENU_DISPLAYED",
+     "label": "Menu affiché et disponible",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "DIRNBSchMealMenu",
+      "Respect_menu"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_COOKS_TRAINED",
+     "label": "Cuisiniers formés",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "DIRCooksRecTraining"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_DEDICATED_STORAGE",
+     "label": "Gardien dédié au stockage des aliments",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "DIRDedicStorage"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_COMPL_ACT",
+     "label": "Suivi des activités complémentaires",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "DIRComplActYN",
+      "jardin_eleve1"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_DAYS_SERVED",
+     "label": "Jours de repas servis (sur 20 jours d'école)",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "DIRNBSchMealsProvided"
+     ],
+     "warnings": [],
+     "target": 20
+    },
+    {
+     "code": "SMP_COOKS_INC_DIR",
+     "label": "Cuisiniers rémunérés (directeur)",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "DIRCooksRecIncentives"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_PTA_PARITY",
+     "label": "Comité PTA paritaire",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "3",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOPTAMgmtGender"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_TEACHER_SATISF",
+     "label": "Enseignants satisfaits du programme",
+     "domain": "D7",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "TEASatisfaction",
+      "Q83satis",
+      "SatisfactionLevelFeedback"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "SMP_TEACHER_INVOLVED",
+     "label": "Enseignants très impliqués",
+     "domain": "D7",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "2",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "TEALvlInvolvement"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "SMP_DIVERSION",
+     "label": "Signes de détournement observés (stockage, entretien directeur)",
+     "domain": "D7",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHDistDiv",
+      "pertes"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_STU_ATE",
+     "label": "Élèves ayant mangé à l'école le jour de la visite",
+     "domain": "D7",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "STUEatMeal"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "SMP_STU_LIKE",
+     "label": "Élèves aimant les repas",
+     "domain": "D7",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "STULikeFoodSchool"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "SMP_STU_HUNGRY",
+     "label": "Élèves ayant encore faim après le repas",
+     "domain": "D7",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "STUFeelHungryAfter"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "SMP_CFM_USED",
+     "label": "CFM utilisé",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "HHAsstUseCFM"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_CFM_KNOW",
+     "label": "Connaissance du CFM",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "HHInfoCFMKnowAcc"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_CFM_SUPPORT",
+     "label": "Soutien via le CFM",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "HHInfoCFMSupport"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_CFM_RESOLVED",
+     "label": "Problème résolu après recours au CFM",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": false,
+     "variables": [
+      "HHAsstUseCFMSol"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_COOKS_INCENTIVE",
+     "label": "Cuisinières rémunérées / incitations",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "CooksRecInc"
+     ],
+     "warnings": [
+      "sens"
+     ]
+    },
+    {
+     "code": "SMP_COOKS_CHALLENGE",
+     "label": "Cuisinières en difficulté pour préparer",
+     "domain": "M2",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "CooksChlgaHand"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_COOKS_SUGGEST",
+     "label": "Cuisinières ayant des suggestions",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "CooksSug"
+     ],
+     "warnings": [
+      "sens"
+     ]
+    },
+    {
+     "code": "SMP_COOKS_TRAINED_FGD",
+     "label": "Cuisinières formées (déclaratif)",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "CooksRecTrain"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_COOKS_RATION",
+     "label": "Cuisinières connaissant la ration",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "CooksRation"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_COOKS_FOOD_ENOUGH",
+     "label": "Nourriture suffisante (cuisinières)",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "9999"
+     ],
+     "scored": false,
+     "variables": [
+      "CooksFoodEnough"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_COOKS_INC_TIMELY",
+     "label": "Incitation versée à temps",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "CooksTimelyIncentive"
      ],
      "warnings": []
     },
@@ -1418,164 +2531,16 @@
      "warnings": []
     },
     {
-     "code": "SMP_WASH_COOK_WATER",
-     "label": "Eau de cuisson adéquate",
-     "domain": "D3",
+     "code": "SMP_FINISHED_MEAL",
+     "label": "Plus de la moitié des enfants finissent leur repas",
+     "domain": "M5",
      "direction": "higher_better",
      "agg": "percent_value",
-     "positiveValue": "3",
+     "positiveValue": "1|2",
      "naValues": [],
-     "scored": true,
+     "scored": false,
      "variables": [
-      "MOWaterCook",
-      "Q411eau"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_WASH_COOK_AREA",
-     "label": "Lieu de cuisson sanitaire",
-     "domain": "D3",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "3",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOCookArea"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_WASH_EAT_AREA",
-     "label": "Coin repas approprié",
-     "domain": "D3",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "3",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOEatArea",
-      "Q42refect"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_WASH_HANDWASH",
-     "label": "Lavage des mains",
-     "domain": "D3",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "3",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOHandwashing",
-      "Q53savon"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_WASH_LATRINES",
-     "label": "Latrines fonctionnelles",
-     "domain": "D3",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "3",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOLatrines",
-      "Q54latrine"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_FOOD_STORED",
-     "label": "Vivres stockés sur place",
-     "domain": "D4",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOFoodStored",
-      "Q44magasin"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_ON_PALLETS",
-     "label": "Sur palettes",
-     "domain": "D4",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOWhStackPall",
-      "Q44non"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_STORE_SECURE",
-     "label": "Stockage sécurisé",
-     "domain": "D4",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOStoreWellSec",
-      "Q44magasin"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_ADEQ_SIZE",
-     "label": "Taille adéquate",
-     "domain": "D4",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOAdeqSize",
-      "Q44non"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_WH_DRAIN",
-     "label": "Drainage OK",
-     "domain": "D4",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOWhStoreDrain"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_NO_EXPIRED",
-     "label": "Absence d'articles expirés",
-     "domain": "D4",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "0",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOExpItem"
+      "MOPercRecSM"
      ],
      "warnings": []
     },
@@ -1663,9 +2628,7 @@
      "variables": [
       "MOWhBadCom"
      ],
-     "warnings": [
-      "ratio"
-     ]
+     "warnings": []
     },
     {
      "code": "SMP_WH_BAD_COM_ISOL",
@@ -1729,6 +2692,50 @@
      ]
     },
     {
+     "code": "SMP_STOCK_RECORDS_MATCH",
+     "label": "Registres de stock = inventaire physique",
+     "domain": "M6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "9999"
+     ],
+     "scored": false,
+     "variables": [
+      "MOStockMovRec"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_RECEIPT_ANY",
+     "label": "Au moins une denrée reçue conforme (formulaire)",
+     "domain": "M6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "any_received_match"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "SMP_BALANCE_ANY",
+     "label": "Au moins un solde conforme (formulaire)",
+     "domain": "M6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "any_balance_match"
+     ],
+     "warnings": []
+    },
+    {
      "code": "SMP_FOOD_DISTR_OBS",
      "label": "Distribution observée lors de la visite",
      "domain": "M7",
@@ -1760,249 +2767,49 @@
      "warnings": []
     },
     {
-     "code": "SMP_DOC_WAYBILL",
-     "label": "Lettre de voiture / waybill",
-     "domain": "D5",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "1",
-     "naValues": [
-      "777"
-     ],
-     "scored": true,
-     "variables": [
-      "DIRTranspWaybills"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_DOC_CONSUMPTION",
-     "label": "Cahier de consommation",
-     "domain": "D5",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "1",
-     "naValues": [
-      "777"
-     ],
-     "scored": true,
-     "variables": [
-      "DIRSchFeedingRecord",
-      "ch_disp"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_DOC_ATTENDANCE",
-     "label": "Cahier de présence élèves",
-     "domain": "D5",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "1",
-     "naValues": [
-      "777"
-     ],
-     "scored": true,
-     "variables": [
-      "DIRSchAttendanceRecord",
-      "reg_disp"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_DOC_STOCK",
-     "label": "Fiche de stock",
-     "domain": "D5",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "1",
-     "naValues": [
-      "777"
-     ],
-     "scored": true,
-     "variables": [
-      "DIRFoodStockMovementRecord",
-      "Q44non"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_DOC_CASHBOOK",
-     "label": "Journal de caisse",
-     "domain": "D5",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "1",
-     "naValues": [
-      "777"
-     ],
-     "scored": true,
-     "variables": [
-      "DIRCashReceivedRecord",
-      "journal_caisse_a"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_DOC_NFI",
-     "label": "Fiche d'inventaire NFI",
-     "domain": "D5",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "1",
-     "naValues": [
-      "777"
-     ],
-     "scored": true,
-     "variables": [
-      "DIRNFIRecRecords"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_DOC_CONTRIB",
-     "label": "Suivi contributions communauté",
-     "domain": "D5",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "1",
-     "naValues": [
-      "777"
-     ],
-     "scored": true,
-     "variables": [
-      "DIRComContributors",
-      "R1"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_DOC_SUPPLIERS",
-     "label": "Liste fournisseurs et contrats",
-     "domain": "D5",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "1",
-     "naValues": [
-      "777"
-     ],
-     "scored": true,
-     "variables": [
-      "DIRListSupplRecord",
-      "journal_achat3"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_MENU_DISPLAYED",
-     "label": "Menu affiché et disponible",
-     "domain": "D6",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "DIRNBSchMealMenu",
-      "Respect_menu"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_COOKS_TRAINED",
-     "label": "Cuisiniers formés",
-     "domain": "D6",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "DIRCooksRecTraining"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_DEDICATED_STORAGE",
-     "label": "Stockage dédié disponible",
-     "domain": "D6",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "DIRDedicStorage"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "SMP_COMPL_ACT",
-     "label": "Suivi des activités complémentaires",
-     "domain": "D6",
+     "code": "SMP_FOOD_ENOUGH_OBS",
+     "label": "Nourriture suffisante (observation)",
+     "domain": "M7",
      "direction": "higher_better",
      "agg": "percent_yes",
      "positiveValue": "1",
      "naValues": [
       "888"
      ],
-     "scored": true,
+     "scored": false,
      "variables": [
-      "DIRComplActYN",
-      "jardin_eleve1"
+      "MOFoodEnough"
      ],
      "warnings": []
     },
     {
-     "code": "SMP_TEACHER_SATISF",
-     "label": "Enseignants satisfaits du programme",
-     "domain": "D7",
+     "code": "SMP_PERF",
+     "label": "Score global de performance du site",
+     "domain": "KPI",
      "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
+     "agg": "mean",
+     "positiveValue": null,
      "naValues": [],
-     "scored": true,
+     "scored": false,
      "variables": [
-      "TEASatisfaction",
-      "Q83satis",
-      "SatisfactionLevelFeedback"
+      "PERF_OVERALL"
      ],
-     "warnings": [
-      "groupe"
-     ]
+     "warnings": [],
+     "target": 80
     },
     {
-     "code": "SMP_TEACHER_INVOLVED",
-     "label": "Enseignants très impliqués",
-     "domain": "D7",
+     "code": "SMP_PERF_GREEN",
+     "label": "Sites au niveau Vert",
+     "domain": "KPI",
      "direction": "higher_better",
      "agg": "percent_value",
-     "positiveValue": "2",
+     "positiveValue": "3",
      "naValues": [],
-     "scored": true,
+     "scored": false,
      "variables": [
-      "TEALvlInvolvement"
+      "perf_tier"
      ],
-     "warnings": [
-      "groupe"
-     ]
-    },
-    {
-     "code": "SMP_DIVERSION",
-     "label": "Ménages signalant des indices de détournement",
-     "domain": "D7",
-     "direction": "lower_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "HHDistDiv",
-      "pertes"
-     ],
-     "warnings": [
-      "ratio"
-     ]
+     "warnings": []
     }
    ]
   },
@@ -2010,6 +2817,11 @@
    "key": "MAM",
    "label": "MAM · PECMAM",
    "mmrCategory": "Nutrition treatment activities",
+   "alsoFor": [],
+   "mmrAliases": [
+    "Activités de traitement nutritionnel",
+    "Traitement de la malnutrition"
+   ],
    "formHints": [
     "NutritionAIM",
     "PECMAM",
@@ -2038,15 +2850,828 @@
      "label": "Entrepôt / stock"
     },
     {
+     "code": "D6",
+     "label": "FARNE"
+    },
+    {
      "code": "M1",
      "label": "Mères (FGD/KII)"
     },
     {
      "code": "M2",
      "label": "Agent communautaire"
+    },
+    {
+     "code": "KPI",
+     "label": "Chiffres clés"
     }
    ],
    "items": [
+    {
+     "code": "MAM_REG_UPTODATE",
+     "label": "Registre à jour",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOUpdBenefList",
+      "MODRegAba"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_REG_EXITS",
+     "label": "Sorties notées au registre",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODRegSort"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_DIST_LIST",
+     "label": "Liste de distribution présente",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODistrList"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_LIST_COMPLETE",
+     "label": "Liste de distribution complète",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODisListComplete"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_REGISTER",
+     "label": "Registre bénéficiaires présent",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOBeneficiaryRegister"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_MUAC_RECORDED",
+     "label": "PB reporté fiche + registre",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MUACReg"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_ID_AT_ADMISSION",
+     "label": "Identification à l'admission",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOVerifAdm"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_REG_ABSENCES",
+     "label": "Absences / abandons notés",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODRegAba"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_HEAD_TRAINED",
+     "label": "Chef de site formé PECMAM",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOHeadTrained"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_ADM_CRIT",
+     "label": "Critères admission respectés",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOAdmCritAdhered"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_CHILD_MUAC",
+     "label": "Bande MUAC fonctionnelle disponible (enfants)",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOChildMUAC"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_PROTOCOL",
+     "label": "Protocole PECMAM disponible",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOProtocolAvailable"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_SCALE",
+     "label": "Balance fonctionnelle",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOScaleFunctional"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_ADM_DISPLAYED",
+     "label": "Critères d'admission affichés sur le site",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOAdminAff"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_EXIT_DISPLAYED",
+     "label": "Critères de sortie affichés sur le site",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOSortAff"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_WOMEN_MUAC",
+     "label": "Bande PB fonctionnelle disponible (femmes)",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWomenMUAC"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_HEIGHT_BOARD",
+     "label": "Toise disponible",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOHeightBoardAvailable"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_WEIGHT_OK",
+     "label": "Pesée correcte (enfant nu)",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWeiMeas"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_MUAC_TECH",
+     "label": "Technique PB respectée",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOMUACMeas"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_OEDEMA",
+     "label": "Contrôle des œdèmes",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOOedamaCheck"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_SAM_REFERRED",
+     "label": "MAS orientés vers le CRENAS",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOMalArrRef"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_EXIT_CRIT",
+     "label": "Critères de sortie respectés",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODischCrit"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_NONRESP_FOLLOW",
+     "label": "Suivi des non-répondants",
+     "domain": "D2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "9999"
+     ],
+     "scored": true,
+     "variables": [
+      "MONonrespFollowup"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_ON_TIME",
+     "label": "Distribution à l'heure",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOTimelyDistribution"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_SITE_ORG",
+     "label": "Site organisé",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOSiteOrganized"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_SCREENING",
+     "label": "Dépistage réalisé",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODep"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_RATION",
+     "label": "Ration conforme",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MORation"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_SCREEN_CORRECT",
+     "label": "Dépistage correct",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODepDoneCorrectly"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_REG_VISITS",
+     "label": "Visites supervision régulières",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "ACRegvist"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_AC_TRAINED",
+     "label": "Agent SBCC formé (job aid)",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "ACJobAidTrained"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_AGENT_MASTERY",
+     "label": "Messages maîtrisés par agents",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "SBAgenMast"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_MOTHERS_PARTICIPATE",
+     "label": "Participation des mères",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "SBBenPart"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_SBCC_LOCAL_LANG",
+     "label": "SBCC en langue locale",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "SBSBCLocalLang"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_SBCC_SESSION",
+     "label": "Séance SBCC présente lors visite",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "SBNutEduPres"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_SBCC_EVIDENCE",
+     "label": "Preuves de SBCC (sans séance observée)",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "SBNutEduProv"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_SBCC_MATERIAL",
+     "label": "Matériel SBCC présent",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "SBSBCMatPres"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_NEW_BEN_INFORMED",
+     "label": "Nouveaux bénéficiaires informés",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "9999"
+     ],
+     "scored": true,
+     "variables": [
+      "SBNewBenPrep"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_STOCK_MATCH",
+     "label": "Réception conforme à la lettre de voiture (par denrée)",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOFoodReceivedMatch"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "MAM_WH_STOCKCARD",
+     "label": "Fiches de lot à jour",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWhStockCard"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_WH_ON_TIME",
+     "label": "Livraisons dans les délais",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODeliveryOnTime"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_WH_INPUTS_SEP",
+     "label": "Intrants séparés par activité",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOInputsSeparated"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_WH_DAMAGED",
+     "label": "Vivres endommagés / infestés",
+     "domain": "D5",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWHBadCommod"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_FARNE_EXISTS",
+     "label": "Site doté d'un FARNE",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "FARNE_Exists"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_FARNE_FUNCTIONAL",
+     "label": "FARNE fonctionnel",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FARNE_Site"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_FARNE_MEAL",
+     "label": "Repas chaud préparé",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FARNE_Meal"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_FARNE_LOCAL",
+     "label": "Recettes / produits locaux",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FARNE_LocalRecipe"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_FARNE_MOTHERS_COOK",
+     "label": "Mères participant à la préparation",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FARNE_MotherCook"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_FARNE_HYGIENE",
+     "label": "Hygiène respectée (entièrement)",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FARNE_Hygiene"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_FARNE_EDUC",
+     "label": "Séance d'éducation nutritionnelle",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FARNE_EducSession"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_FARNE_SCREEN",
+     "label": "Dépistage PB et référencement",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FARNE_ScreeningLink"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_FARNE_HOME",
+     "label": "Pratiques reproduites à la maison",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FARNE_HomeAdoption"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_FARNE_REGISTER",
+     "label": "Registre FARNE à jour",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FARNE_Register"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_FARNE_DEMO",
+     "label": "Démonstration culinaire",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FARNE_CookingDemo"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_FARNE_MATERIAL",
+     "label": "Matériel de cuisine disponible",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FARNE_Materials"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_FARNE_WEIGHT",
+     "label": "Poids suivi pendant le cycle",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FARNE_WeightMonitored"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_FARNE_COMPLETION",
+     "label": "Cycle généralement terminé",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FARNE_Completion"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_FARNE_SUPERVISED",
+     "label": "Supervision CSB / agent de santé",
+     "domain": "D6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FARNE_Supervision"
+     ],
+     "warnings": []
+    },
     {
      "code": "MAM_ACCESS_DIFF",
      "label": "Mères rencontrant des difficultés d'accès",
@@ -2060,9 +3685,7 @@
       "MMFGDAccDif",
       "MMKIIAccDif"
      ],
-     "warnings": [
-      "ratio"
-     ]
+     "warnings": []
     },
     {
      "code": "MAM_TECH_LAST_VISIT",
@@ -2152,6 +3775,68 @@
      "warnings": []
     },
     {
+     "code": "MAM_PLUMPY_EXPLAINED",
+     "label": "Raison du Plumpy Sup expliquée (FGD)",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MMFGDWhy"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MAM_KII_INFO",
+     "label": "Mères informées de leurs droits (KII)",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MMKIIInfo"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "MAM_KII_ACCESS_DIFF",
+     "label": "Difficultés d'accès (KII)",
+     "domain": "M1",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MMKIIAccDif"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "MAM_KII_KNOW_USE",
+     "label": "Savent utiliser les produits (KII)",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MMKIIKnowUse"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
      "code": "MAM_TECH_VISIT",
      "label": "Visite technique réalisée",
      "domain": "M2",
@@ -2162,20 +3847,6 @@
      "scored": false,
      "variables": [
       "ACTechVis"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_REG_VISITS",
-     "label": "Visites supervision régulières",
-     "domain": "D4",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "ACRegvist"
      ],
      "warnings": []
     },
@@ -2194,357 +3865,34 @@
      "warnings": []
     },
     {
-     "code": "MAM_AC_TRAINED",
-     "label": "Agent SBCC formé (job aid)",
-     "domain": "D4",
+     "code": "MAM_FARNE_SCORE",
+     "label": "Score FARNE (formulaire)",
+     "domain": "KPI",
      "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
+     "agg": "mean",
+     "positiveValue": null,
      "naValues": [],
-     "scored": true,
+     "scored": false,
      "variables": [
-      "ACJobAidTrained"
+      "score_farne"
      ],
-     "warnings": []
+     "warnings": [],
+     "target": 80
     },
     {
-     "code": "MAM_REG_UPTODATE",
-     "label": "Registre à jour",
-     "domain": "D1",
+     "code": "MAM_SCORE_TOTAL",
+     "label": "Score total du site (formulaire)",
+     "domain": "KPI",
      "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "1",
+     "agg": "mean",
+     "positiveValue": null,
      "naValues": [],
-     "scored": true,
+     "scored": false,
      "variables": [
-      "MOUpdBenefList",
-      "MODRegAba"
+      "score_total"
      ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_REG_EXITS",
-     "label": "Sorties notées au registre",
-     "domain": "D1",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MODRegSort"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_DIST_LIST",
-     "label": "Liste de distribution présente",
-     "domain": "D1",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MODistrList"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_LIST_COMPLETE",
-     "label": "Liste de distribution complète",
-     "domain": "D1",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MODisListComplete"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_REGISTER",
-     "label": "Registre bénéficiaires présent",
-     "domain": "D1",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOBeneficiaryRegister"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_ON_TIME",
-     "label": "Distribution à l'heure",
-     "domain": "D3",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOTimelyDistribution"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_SITE_ORG",
-     "label": "Site organisé",
-     "domain": "D3",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOSiteOrganized"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_SCREENING",
-     "label": "Dépistage réalisé",
-     "domain": "D3",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MODep"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_RATION",
-     "label": "Ration conforme",
-     "domain": "D3",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MORation"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_SCREEN_CORRECT",
-     "label": "Dépistage correct",
-     "domain": "D3",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MODepDoneCorrectly"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_HEAD_TRAINED",
-     "label": "Chef de site formé PECMAM",
-     "domain": "D2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOHeadTrained"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_ADM_CRIT",
-     "label": "Critères admission respectés",
-     "domain": "D2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOAdmCritAdhered"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_CHILD_MUAC",
-     "label": "MUAC enfants réalisé",
-     "domain": "D2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOChildMUAC"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_PROTOCOL",
-     "label": "Protocole PECMAM disponible",
-     "domain": "D2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOProtocolAvailable"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_SCALE",
-     "label": "Balance fonctionnelle",
-     "domain": "D2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOScaleFunctional"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_ADM_DISPLAYED",
-     "label": "Registre admission affiché",
-     "domain": "D2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOAdminAff"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_EXIT_DISPLAYED",
-     "label": "Registre sortie affiché",
-     "domain": "D2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOSortAff"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_WOMEN_MUAC",
-     "label": "MUAC femmes enceintes/allait.",
-     "domain": "D2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOWomenMUAC"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_HEIGHT_BOARD",
-     "label": "Toise disponible",
-     "domain": "D2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOHeightBoardAvailable"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_AGENT_MASTERY",
-     "label": "Messages maîtrisés par agents",
-     "domain": "D4",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "SBAgenMast"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_MOTHERS_PARTICIPATE",
-     "label": "Participation des mères",
-     "domain": "D4",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "SBBenPart"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_SBCC_LOCAL_LANG",
-     "label": "SBCC en langue locale",
-     "domain": "D4",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "SBSBCLocalLang"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_SBCC_SESSION",
-     "label": "Séance SBCC présente lors visite",
-     "domain": "D4",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "SBNutEduPres"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MAM_STOCK_MATCH",
-     "label": "Stock conforme",
-     "domain": "D5",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "MOFoodReceivedMatch"
-     ],
-     "warnings": [
-      "groupe"
-     ]
+     "warnings": [],
+     "target": 80
     }
    ]
   },
@@ -2552,10 +3900,14 @@
    "key": "STUNT",
    "label": "STUNT · MIARO",
    "mmrCategory": "Malnutrition prevention activities",
+   "alsoFor": [],
+   "mmrAliases": [
+    "Activités de prévention de la malnutrition",
+    "Prévention de la malnutrition"
+   ],
    "formHints": [
     "MIARO",
-    "STUNT",
-    "MG03"
+    "STUNT"
    ],
    "domains": [
     {
@@ -2567,8 +3919,12 @@
      "label": "Jardins potagers"
     },
     {
-     "code": "KPI",
-     "label": "Chiffres clés"
+     "code": "D4",
+     "label": "Élevage"
+    },
+    {
+     "code": "D5",
+     "label": "Entrepôt / stock"
     },
     {
      "code": "M1",
@@ -2589,220 +3945,13 @@
     {
      "code": "M6",
      "label": "Sécurité"
+    },
+    {
+     "code": "KPI",
+     "label": "Chiffres clés"
     }
    ],
    "items": [
-    {
-     "code": "MIARO_SBCC_MSG",
-     "label": "SBCC : messages retenus",
-     "domain": "M1",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "r_sbcc_msg2"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_SBCC_SATISF",
-     "label": "SBCC : satisfaction",
-     "domain": "M1",
-     "direction": "higher_better",
-     "agg": "mean",
-     "positiveValue": null,
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "r_sbcc_satisf"
-     ],
-     "warnings": [
-      "ratio"
-     ]
-    },
-    {
-     "code": "MIARO_SBCC_PARTIC",
-     "label": "SBCC : participation",
-     "domain": "M1",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "HHSbcPartic",
-      "r_sbcc_partic"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_SBCC_APPLY",
-     "label": "SBCC : pratiques appliquées",
-     "domain": "M1",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "HHSbcPracticeApplied",
-      "r_sbcc_apply"
-     ],
-     "warnings": [
-      "groupe"
-     ]
-    },
-    {
-     "code": "MIARO_NO_DELAY",
-     "label": "Absence de retard",
-     "domain": "M2",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "0",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "risk_delay",
-      "HHDTPDelay",
-      "r_no_delay"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_CFM_USED",
-     "label": "CFM utilisé",
-     "domain": "M2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "HHAsstUseCFM",
-      "r_aap_cfmuse"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_KNOW_RIGHTS",
-     "label": "Connaît ses droits",
-     "domain": "M2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "HHAsstKnowEnt",
-      "r_aap_rights"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_HELP_CFM",
-     "label": "Helpdesk / CFM présent",
-     "domain": "M2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "r_help_cfm"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_MC_FUNC",
-     "label": "Comité fonctionnel",
-     "domain": "M2",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "r_mc_func"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_GARDEN_FENCED",
-     "label": "Jardin clôturé",
-     "domain": "D3",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "GDIsFenced",
-      "r_gd_fenced"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_GARDEN_IRRIG",
-     "label": "Irrigation régulière",
-     "domain": "D3",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "GDIrrigRegular",
-      "r_gd_irrig"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_GARDEN_SEED",
-     "label": "Semences disponibles",
-     "domain": "D3",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": true,
-     "variables": [
-      "GDSeedAvail",
-      "r_gd_seed"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_DIGNITY",
-     "label": "Distribution digne",
-     "domain": "M4",
-     "direction": "higher_better",
-     "agg": "mean",
-     "positiveValue": null,
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "r_dign_prop"
-     ],
-     "warnings": [
-      "ratio"
-     ]
-    },
-    {
-     "code": "MIARO_SCOPE_OK",
-     "label": "SCOPE utilisé correctement",
-     "domain": "M4",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "r_scope_ok"
-     ],
-     "warnings": []
-    },
     {
      "code": "MIARO_ON_TIME",
      "label": "Distribution dans les délais",
@@ -2815,96 +3964,6 @@
      "variables": [
       "MOTimelyDistribution",
       "r_on_time"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_NO_DIV_OBS",
-     "label": "Pas de diversion observée",
-     "domain": "M4",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "0",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "MODistDiv",
-      "r_no_div_obs"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_LIST_MATCH",
-     "label": "Liste concordante",
-     "domain": "M4",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "MOActBenListMATCHBenDisList",
-      "r_matchlist"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_FARNE_LOCAL",
-     "label": "FARNE : aliments locaux",
-     "domain": "M5",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "FRUseLocalFoods",
-      "r_farne_local"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_FARNE_MUAC",
-     "label": "FARNE : dépistage MUAC",
-     "domain": "M5",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "FRScreeningMUAC",
-      "r_farne_muac"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_FARNE_REFCSB",
-     "label": "FARNE : référencement CSB",
-     "domain": "M5",
-     "direction": "higher_better",
-     "agg": "percent_yes",
-     "positiveValue": "1",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "FRRefCSB",
-      "r_farne_refcsb"
-     ],
-     "warnings": []
-    },
-    {
-     "code": "MIARO_NO_SEC_INC",
-     "label": "Absence d'incident de sécurité",
-     "domain": "M6",
-     "direction": "higher_better",
-     "agg": "percent_value",
-     "positiveValue": "0",
-     "naValues": [],
-     "scored": false,
-     "variables": [
-      "HHAsstSecurity",
-      "r_sec_no_inc"
      ],
      "warnings": []
     },
@@ -2980,8 +4039,879 @@
      "warnings": []
     },
     {
+     "code": "MIARO_INFO_SESSION",
+     "label": "Séance d'information",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "9999"
+     ],
+     "scored": true,
+     "variables": [
+      "MOInfoSession"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_STAFF_VISIBLE",
+     "label": "Personnel visible",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "9999"
+     ],
+     "scored": true,
+     "variables": [
+      "MOStaffVisibility"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_STAFF_MIXED",
+     "label": "Personnel mixte",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "9999"
+     ],
+     "scored": true,
+     "variables": [
+      "MOStaffMixGender"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_RIGHTS_DISPLAYED",
+     "label": "Droits affichés",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "9999"
+     ],
+     "scored": true,
+     "variables": [
+      "MOPictDisplay"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_PRIOR_VULN",
+     "label": "Priorité aux vulnérables",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "9999"
+     ],
+     "scored": true,
+     "variables": [
+      "MOPriorVuln"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_RATION_CUT",
+     "label": "Réduction / substitution de ration",
+     "domain": "D1",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "MOAsstIKRedNut"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_IK_RECEIVED",
+     "label": "Dû en nature reçu",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHAsstEntIK"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_IK_AS_ANNOUNCED",
+     "label": "Dû reçu = dû annoncé",
+     "domain": "D1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "HHAsstEntRcCm"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_GARDEN_FENCED",
+     "label": "Jardin clôturé",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "GDIsFenced",
+      "r_gd_fenced"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_GARDEN_IRRIG",
+     "label": "Irrigation régulière",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "GDIrrigRegular",
+      "r_gd_irrig"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_GARDEN_SEED",
+     "label": "Semences disponibles",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "GDSeedAvail",
+      "r_gd_seed"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_GARDEN_HARVEST",
+     "label": "Récolte au cours des 2 derniers mois",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "GDHarvest2M"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_GARDEN_RECORD",
+     "label": "Cahier de gestion du jardin",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "GDHasRecord"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_GARDEN_AGROECO",
+     "label": "Techniques agroécologiques",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "GDAgroEco"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_GARDEN_TECH",
+     "label": "Visites régulières du technicien",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "TechVisitRegular"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_GARDEN_RECO",
+     "label": "Recommandations du technicien appliquées",
+     "domain": "D3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "TechRecoApplied"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_LV_NO_DECR",
+     "label": "Cheptel non diminué (% ménages)",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "r_lv_no_decr_pct"
+     ],
+     "warnings": [],
+     "target": 80
+    },
+    {
+     "code": "MIARO_LV_VACC",
+     "label": "Animaux vaccinés à jour (% ménages)",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "r_lv_vacc_pct"
+     ],
+     "warnings": [],
+     "target": 80
+    },
+    {
+     "code": "MIARO_LV_ENCL",
+     "label": "Enclos présent (% ménages)",
+     "domain": "D4",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "r_lv_encl_pct"
+     ],
+     "warnings": [],
+     "target": 80
+    },
+    {
+     "code": "MIARO_STOCK_EQ",
+     "label": "Stocks sans écart (part des denrées)",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "r_stock_eq0_pct"
+     ],
+     "warnings": [],
+     "target": 80
+    },
+    {
+     "code": "MIARO_WH_CONDITION",
+     "label": "Magasin propre et en bon état",
+     "domain": "D5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOStorageCondition"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "MIARO_WH_DAMAGED",
+     "label": "Vivres endommagés / infestés",
+     "domain": "D5",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWHBadCommodouinon"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "MIARO_SBCC_MSG",
+     "label": "SBCC : messages retenus",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "r_sbcc_msg2"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_SBCC_SATISF",
+     "label": "SBCC : satisfaction (0–100)",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "r_sbcc_satisf_pct"
+     ],
+     "warnings": [],
+     "target": 80
+    },
+    {
+     "code": "MIARO_SBCC_PARTIC",
+     "label": "SBCC : participation",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "HHSbcPartic",
+      "r_sbcc_partic"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_SBCC_APPLY",
+     "label": "SBCC : au moins une recommandation appliquée (%)",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "r_sbcc_apply_pct"
+     ],
+     "warnings": [],
+     "target": 80
+    },
+    {
+     "code": "MIARO_SBCC_NO_BARRIER",
+     "label": "Aucun obstacle à la participation SBCC",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "r_sbcc_nobar"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_FP_VISITS",
+     "label": "Visites régulières du responsable SBCC",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "FPVisitRegular"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_SBCC_SESSION_OBS",
+     "label": "Séance SBCC en cours lors de la visite",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MOSbcSession"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "MIARO_SBCC_QUALITY",
+     "label": "Qualité SBCC bonne / très bonne",
+     "domain": "M1",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1|2",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MOSbcStaffApprec"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "MIARO_NO_DELAY",
+     "label": "Pas de retard au démarrage de la distribution",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "r_no_delay"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_CFM_USED",
+     "label": "CFM utilisé",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "HHAsstUseCFM",
+      "r_aap_cfmuse"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_KNOW_RIGHTS",
+     "label": "Connaît ses droits",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "HHAsstKnowEnt",
+      "r_aap_rights"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_HELP_CFM",
+     "label": "Helpdesk / CFM présent",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "r_help_cfm"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_MC_FUNC",
+     "label": "Comité fonctionnel",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "r_mc_func"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_KNOW_TARGETING",
+     "label": "Connaît les critères de sélection",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "HHAsstKnowPeople"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_EXCLUSION",
+     "label": "Exclusion de personnes éligibles perçue",
+     "domain": "M2",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": false,
+     "variables": [
+      "HHAsstNeedExcl"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_RESPECT",
+     "label": "Traité avec respect",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "HHAsstRespect"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_CFM_RESOLVED",
+     "label": "Problème résolu après CFM",
+     "domain": "M2",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": false,
+     "variables": [
+      "HHAsstUseCFMSol"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_DIGNITY",
+     "label": "Éléments de dignité en place (% des éléments)",
+     "domain": "M4",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "r_dign_prop_pct"
+     ],
+     "warnings": [],
+     "target": 80
+    },
+    {
+     "code": "MIARO_SCOPE_OK",
+     "label": "SCOPE utilisé correctement",
+     "domain": "M4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "r_scope_ok"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_NO_DIV_OBS",
+     "label": "Pas de diversion observée",
+     "domain": "M4",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "0",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MODistDiv",
+      "r_no_div_obs"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_LIST_MATCH",
+     "label": "Liste concordante",
+     "domain": "M4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MOActBenListMATCHBenDisList",
+      "r_matchlist"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_SCOPE_USED",
+     "label": "SCOPE utilisé sur le site",
+     "domain": "M4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MOScopeUsed"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_SCOPE_FUNC",
+     "label": "Matériel SCOPE fonctionnel",
+     "domain": "M4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MOScopeFunc"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_FARNE_LOCAL",
+     "label": "FARNE : aliments locaux",
+     "domain": "M5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "FRUseLocalFoods",
+      "r_farne_local"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_FARNE_MUAC",
+     "label": "FARNE : dépistage MUAC",
+     "domain": "M5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "FRScreeningMUAC",
+      "r_farne_muac"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_FARNE_REFCSB",
+     "label": "FARNE : référencement CSB",
+     "domain": "M5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "FRRefCSB",
+      "r_farne_refcsb"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_FARNE_OPERATIONAL",
+     "label": "FARNE opérationnel",
+     "domain": "M5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "FROperational"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_FARNE_EDUC",
+     "label": "Messages nutrition / hygiène",
+     "domain": "M5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "FRNutriHygEd"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_FARNE_HANDWASH",
+     "label": "Eau + lavage des mains",
+     "domain": "M5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "FRWaterHWashOK"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_FARNE_SUPERV",
+     "label": "Supervision régulière",
+     "domain": "M5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "FRTechSupVis"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_NO_SEC_INC",
+     "label": "Absence d'incident de sécurité",
+     "domain": "M6",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "0",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "HHAsstSecurity",
+      "r_sec_no_inc"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_ARMED",
+     "label": "Acteurs armés présents",
+     "domain": "M6",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MOAsstArmed"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_FRAUD_OBS",
+     "label": "Inquiétude de fraude (observation)",
+     "domain": "M6",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MOFraudConcerns"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_PAY_TRANSPORT",
+     "label": "A payé le transport",
+     "domain": "M6",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "HHAsstPayTrsp"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_SAFE_ACCESS",
+     "label": "Accès sûr / très sûr",
+     "domain": "M6",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1|2",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "HHAsstSafeLevel"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_FAVOUR",
+     "label": "Faveur / paiement exigé",
+     "domain": "M6",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "HHAsstPayEnt"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "MIARO_DIV_HH",
+     "label": "Détournement rapporté (ménages)",
+     "domain": "M6",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "HHDistDiv"
+     ],
+     "warnings": []
+    },
+    {
      "code": "MIARO_SPI",
-     "label": "Score SPI",
+     "label": "Indice de performance du site (formulaire)",
      "domain": "KPI",
      "direction": "higher_better",
      "agg": "mean",
@@ -2991,7 +4921,8 @@
      "variables": [
       "SitePerformanceIndex"
      ],
-     "warnings": []
+     "warnings": [],
+     "target": 75
     },
     {
      "code": "MIARO_ISSUES_OPEN",
@@ -3006,9 +4937,1857 @@
       "reso_status"
      ],
      "warnings": [
-      "groupe",
-      "ratio"
+      "groupe"
      ]
+    },
+    {
+     "code": "MIARO_SITE_SCORE_W",
+     "label": "Score pondéré du site",
+     "domain": "KPI",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "site_score_w"
+     ],
+     "warnings": [],
+     "target": 80
+    },
+    {
+     "code": "MIARO_SITE_RISK",
+     "label": "Site à risque (automatique)",
+     "domain": "KPI",
+     "direction": "lower_better",
+     "agg": "percent_value",
+     "positiveValue": "Oui",
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "SiteRiskAuto"
+     ],
+     "warnings": []
+    }
+   ]
+  },
+  {
+   "key": "RES",
+   "label": "RES · Résilience / SAMS",
+   "mmrCategory": "Smallholder agricultural market support activities",
+   "alsoFor": [
+    "Asset creation and livelihood support activities",
+    "Climate adaptation and risk management activities"
+   ],
+   "mmrAliases": [
+    "Activités d'appui à l'accès des petits producteurs aux marchés agricoles",
+    "Appui aux petits producteurs agricoles",
+    "Activités de création d'actifs et d'appui aux moyens d'existence",
+    "Création d'actifs",
+    "Activités d'adaptation au climat et de gestion des risques",
+    "Adaptation au climat"
+   ],
+   "formHints": [
+    "RESILIENCE",
+    "Résilience",
+    "SAMS"
+   ],
+   "domains": [
+    {
+     "code": "R1",
+     "label": "SAMS — appuis agricoles"
+    },
+    {
+     "code": "R2",
+     "label": "SAMS — formation"
+    },
+    {
+     "code": "R3",
+     "label": "Distribution & redevabilité"
+    },
+    {
+     "code": "R4",
+     "label": "Organisations paysannes"
+    },
+    {
+     "code": "R5",
+     "label": "Champ école paysan"
+    },
+    {
+     "code": "R6",
+     "label": "Post-récolte"
+    },
+    {
+     "code": "R7",
+     "label": "Magasin"
+    },
+    {
+     "code": "R8",
+     "label": "Détournement de marché"
+    },
+    {
+     "code": "R9",
+     "label": "FFA — création d'actifs"
+    },
+    {
+     "code": "R10",
+     "label": "VSLA / AVEC"
+    },
+    {
+     "code": "R11",
+     "label": "Assurance agricole"
+    },
+    {
+     "code": "R12",
+     "label": "Transformation"
+    },
+    {
+     "code": "R13",
+     "label": "Hub RRT"
+    },
+    {
+     "code": "KPI",
+     "label": "Scores du formulaire"
+    }
+   ],
+   "items": [
+    {
+     "code": "RES_SAMS_TIMELY",
+     "label": "Intrants reçus au bon moment",
+     "domain": "R1",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "2",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHSAMSTimely"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_SAMS_QTY",
+     "label": "Quantité attendue reçue",
+     "domain": "R1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "HHSAMSQuant"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_SAMS_QUAL",
+     "label": "Qualité attendue reçue",
+     "domain": "R1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "HHSAMSQual"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_SAMS_EQ_FUNC",
+     "label": "Équipement / infrastructure fonctionnel",
+     "domain": "R1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "HHSAMSEqFunc"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_SAMS_ACCESS",
+     "label": "Accès des membres aux appuis",
+     "domain": "R1",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHSAMSAggreg"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_SAMS_PAY",
+     "label": "Paiements / frais exigés",
+     "domain": "R1",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHSAMSPay"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_SAMS_INPUT_USEFUL",
+     "label": "Intrants utiles (assez / très)",
+     "domain": "R1",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "3|4",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "HHSAMSInputHelp"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_SAMS_EQUIP_USEFUL",
+     "label": "Équipement utile (assez / très)",
+     "domain": "R1",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "3|4",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "HHSAMSEquipHelp"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_SAMS_INFO_USE",
+     "label": "Info claire sur l'usage attendu",
+     "domain": "R1",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "2|3",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHSAMSInfoUse"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_SAMS_INFO_CFM",
+     "label": "Info claire sur le mécanisme de plainte",
+     "domain": "R1",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "2|3",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHSAMSInfoCFM"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_TRAIN_TIMELY",
+     "label": "Formation reçue au bon moment",
+     "domain": "R2",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "2",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHSAMSTrainTimeliness"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_TRAIN_ACCESS",
+     "label": "Lieu de formation accessible",
+     "domain": "R2",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHSAMSTrainAccess"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_TRAIN_SAFE",
+     "label": "Lieu sûr",
+     "domain": "R2",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHSAMSTrainSafe"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_TRAIN_MOBILITY",
+     "label": "Accès mobilité réduite",
+     "domain": "R2",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHSAMSTrainMob"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_TRAIN_UNDERSTOOD",
+     "label": "Contenu compris",
+     "domain": "R2",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHSAMSTrainRelUnd"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_TRAIN_SKILLS",
+     "label": "Compétences utiles (production)",
+     "domain": "R2",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHSAMSTrainRelCap"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_TRAIN_TRAINERS",
+     "label": "Formateurs compétents",
+     "domain": "R2",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHSAMSEvalKnow"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_TRAIN_SATISF",
+     "label": "Entièrement satisfait de la formation",
+     "domain": "R2",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHSAMSEvalDeliv"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_TRAIN_PAY",
+     "label": "Paiement exigé pour la formation",
+     "domain": "R2",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHSAMSTrainPay"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_ENT_AS_ANNOUNCED",
+     "label": "Dû reçu = dû annoncé",
+     "domain": "R3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "HHAsstEntRcCm"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_START_ON_TIME",
+     "label": "Pas de retard ou < 30 min",
+     "domain": "R3",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "0|1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "HHDTPDelay"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_WAIT_2H",
+     "label": "Attente ≥ 2 h",
+     "domain": "R3",
+     "direction": "lower_better",
+     "agg": "percent_value",
+     "positiveValue": "4",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "HHAsstTime"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_FAVOUR",
+     "label": "Faveur / paiement exigé",
+     "domain": "R3",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHAsstPayEnt"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_DIVERSION",
+     "label": "Détournement rapporté",
+     "domain": "R3",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHDistDiv"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_FRAUD",
+     "label": "Fraude suspectée (ciblage)",
+     "domain": "R3",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHFraudConcerns"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_ACCESS_DIFF",
+     "label": "Difficultés d'accès",
+     "domain": "R3",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "HHAsstAccessLast"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_MC_KNOW",
+     "label": "Connaît le comité de gestion",
+     "domain": "R3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "9999"
+     ],
+     "scored": true,
+     "variables": [
+      "HHAsstMCKnow"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_RESPECT",
+     "label": "Traité avec respect",
+     "domain": "R3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHAsstRespect"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_KNOW_ENT",
+     "label": "Connaît son dû",
+     "domain": "R3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHAsstKnowEnt"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_KNOW_TARGETING",
+     "label": "Connaît les critères de sélection",
+     "domain": "R3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHAsstKnowPeople"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_EXCLUSION",
+     "label": "Exclusion d'éligibles perçue",
+     "domain": "R3",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "HHAsstNeedExcl"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_CFM_KNOW",
+     "label": "Sait qui contacter (accès)",
+     "domain": "R3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHInfoCFMKnowAcc"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_CFM_RESOLVED",
+     "label": "Problème résolu après CFM",
+     "domain": "R3",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "HHAsstUseCFMSol"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_SECURITY",
+     "label": "Incident de sécurité",
+     "domain": "R3",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHAsstSecurity"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_SAFE_ACCESS",
+     "label": "Accès sûr / très sûr",
+     "domain": "R3",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1|2",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "HHAsstSafeLevel"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_OP_LEGAL",
+     "label": "Statuts, liste des membres, PV",
+     "domain": "R4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "COOPLegalDocs"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_OP_BANK",
+     "label": "Compte bancaire actif",
+     "domain": "R4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "COOPBankAccount"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_OP_COMMITTEE",
+     "label": "Comité de gestion actif",
+     "domain": "R4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "COOPMeetingParticipation"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_OP_MEETINGS",
+     "label": "Réunions régulières avec PV",
+     "domain": "R4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "COOPMeetingCount"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_OP_ATTENDANCE",
+     "label": "Participation aux réunions > 50 %",
+     "domain": "R4",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "4|5",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "COOPManagementCommittee"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_OP_DUES",
+     "label": "Membres à jour de cotisation > 50 %",
+     "domain": "R4",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "4|5",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "COOPMemberContributionRate"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_OP_INPUT_REGISTER",
+     "label": "Distribution d'intrants documentée",
+     "domain": "R4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "COOPInputRegistry"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_OP_ADVISORY_SAT",
+     "label": "Conseil agricole jugé satisfaisant",
+     "domain": "R4",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "COOPAdvisorySatisfaction"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_OP_SALES_EVIDENCE",
+     "label": "Preuves de vente disponibles",
+     "domain": "R4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "COOPSalesEvidence"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_OP_PRICE",
+     "label": "Prix supérieurs ou comparables",
+     "domain": "R4",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1|2",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "COOPPriceComparison"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_OP_INCOME_UP",
+     "label": "Revenu des producteurs en hausse",
+     "domain": "R4",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "COOPIncomeIncrease"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_OP_VOLUME_UP",
+     "label": "Volume commercialisé en hausse",
+     "domain": "R4",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "COOPVolumeIncrease"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_OP_PTA",
+     "label": "Plan de travail annuel",
+     "domain": "R4",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "COOPActionPlanExistence"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_CEP_LAYOUT",
+     "label": "Champ conforme aux critères",
+     "domain": "R5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FieldLayoutCriteria"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_CEP_PLOTS",
+     "label": "Parcelles expérimentales de bonne qualité",
+     "domain": "R5",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "ExperimentalPlotQuality"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_CEP_TOOLS",
+     "label": "Outils pédagogiques utilisés",
+     "domain": "R5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "EducationalToolsAvailability"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_CEP_ATTENDANCE",
+     "label": "Présence > 50 % aux sessions",
+     "domain": "R5",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "4|5",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MemberAttendanceRate"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_CEP_WOMEN_YOUTH",
+     "label": "Femmes et jeunes > 50 %",
+     "domain": "R5",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "4|5",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "WomenYouthParticipationRate"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_CEP_SESSIONS",
+     "label": "Sessions réalisées > 75 % du plan",
+     "domain": "R5",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "4",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "TrackingNotebooksStatus"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_CEP_PARTICIPATORY",
+     "label": "Méthodes participatives",
+     "domain": "R5",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "LessonsLearnedParticipYes"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_CEP_ADOPTION",
+     "label": "Adoption des pratiques > 50 %",
+     "domain": "R5",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "4|5",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "PracticeAdoptionRate"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_PH_SYSTEM",
+     "label": "Suivi post-récolte en place",
+     "domain": "R6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOPostHarvestMonitoring"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_PH_DRYING",
+     "label": "Séchage correct",
+     "domain": "R6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODrying"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_PH_PACKAGING",
+     "label": "Conditionnement adapté",
+     "domain": "R6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOPackaging"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_PH_STORAGE",
+     "label": "Stockage approprié",
+     "domain": "R6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOStorageQuality"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_PH_QC",
+     "label": "Contrôle qualité à la réception",
+     "domain": "R6",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOQualityControl"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_PH_ACCEPTED_90",
+     "label": "Quantité acceptée ≥ 90 %",
+     "domain": "R6",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "4",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOAcceptedQuantityRatio"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_PH_LOSS_RATE",
+     "label": "Taux de pertes post-récolte (%)",
+     "domain": "R6",
+     "direction": "lower_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "MOPostHarvestLossRate"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_WH_CONDITION",
+     "label": "Magasin propre et en bon état",
+     "domain": "R7",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOStorageCondition"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_WH_STOCKCARD",
+     "label": "Fiches de lot à jour",
+     "domain": "R7",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWhStockCard"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_WH_DAMAGED_ISOL",
+     "label": "Zone isolée pour vivres avariés",
+     "domain": "R7",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOWHBadCommodIsol"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_WH_ON_TIME",
+     "label": "Livraisons dans les délais",
+     "domain": "R7",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MODeliveryOnTime"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_WH_RECEIPT_MATCH",
+     "label": "Réception conforme (par denrée)",
+     "domain": "R7",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "MOFoodReceivedMatch"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "RES_MDM_TRADER_HEARD",
+     "label": "Commerçants ayant entendu parler de ventes",
+     "domain": "R8",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "777",
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "TrdMktDiverSellYN"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "RES_MDM_TRADER_OFFERED",
+     "label": "Commerçants sollicités pour acheter",
+     "domain": "R8",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "777",
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "TrdMktDiverBuyYN"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "RES_MDM_CLIENT_HEARD",
+     "label": "Clients ayant entendu parler de ventes",
+     "domain": "R8",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "777",
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "RESPMktDiverSellYN"
+     ],
+     "warnings": [
+      "groupe"
+     ]
+    },
+    {
+     "code": "RES_FFA_PCP",
+     "label": "Ouvrage inscrit au PCP / 3PA",
+     "domain": "R9",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FFA_PCPlinked"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_FFA_PROGRESS",
+     "label": "Avancement des travaux (%)",
+     "domain": "R9",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "FFA_Progress"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_FFA_CONFORM",
+     "label": "Ouvrage conforme aux normes",
+     "domain": "R9",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FFA_TechConform"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_FFA_SUPERVISED",
+     "label": "Supervision technique",
+     "domain": "R9",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FFA_TechSupervised"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_FFA_MOU",
+     "label": "MOU de gestion signé",
+     "domain": "R9",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FFA_MOUsigned"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_FFA_MAINT_DONE",
+     "label": "Entretien réalisé",
+     "domain": "R9",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FFA_MaintDone"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_FFA_TARGETING",
+     "label": "Ciblage des vulnérables respecté",
+     "domain": "R9",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FFA_Targeting"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_FFA_SAFETY",
+     "label": "Sécurité de chantier appliquée",
+     "domain": "R9",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FFA_Safety"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_FFA_ENV",
+     "label": "Criblage environnemental réalisé",
+     "domain": "R9",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "FFA_EnvScreen"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_FFA_SURVIVAL",
+     "label": "Taux de survie des plants (%)",
+     "domain": "R9",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "FFA_NurserySurvival"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_VSLA_FUNCTIONAL",
+     "label": "Groupe VSLA fonctionnel",
+     "domain": "R10",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "VSLA_Exists"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_VSLA_COMMITTEE",
+     "label": "Comité de 5 élu",
+     "domain": "R10",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "VSLA_Committee"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_VSLA_CASHBOX",
+     "label": "Caisse à plusieurs clés",
+     "domain": "R10",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "VSLA_Cashbox"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_VSLA_PASSBOOKS",
+     "label": "Carnets à jour",
+     "domain": "R10",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "VSLA_Passbooks"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_VSLA_RULES",
+     "label": "Règlement intérieur écrit",
+     "domain": "R10",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "VSLA_Constitution"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_VSLA_SOCIAL_FUND",
+     "label": "Fonds social en place",
+     "domain": "R10",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "VSLA_SocialFund"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_VSLA_REPAY",
+     "label": "Taux de remboursement (%)",
+     "domain": "R10",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "VSLA_LoanRepayRate"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_VSLA_FEMALE_PRES",
+     "label": "Présidente femme",
+     "domain": "R10",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "0",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "VSLA_PresidentSex"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_INS_UNDERSTAND",
+     "label": "Produit d'assurance compris",
+     "domain": "R11",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "INS_Understand"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_INS_PREMIUM",
+     "label": "Prime payée",
+     "domain": "R11",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "9999"
+     ],
+     "scored": true,
+     "variables": [
+      "INS_PremiumPaid"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_INS_PAYOUT_RECEIVED",
+     "label": "Indemnisation reçue",
+     "domain": "R11",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "INS_PayoutReceived"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_INS_PAYOUT_DELAY",
+     "label": "Délai d'indemnisation (jours)",
+     "domain": "R11",
+     "direction": "lower_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "INS_PayoutDelayDays"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_INS_SATISF",
+     "label": "Satisfait / très satisfait",
+     "domain": "R11",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1|2",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "INS_Satisfaction"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_INS_COMPLAINT",
+     "label": "Peut déposer une plainte",
+     "domain": "R11",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "INS_Complaint"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_PROC_FUNCTIONAL",
+     "label": "Unité fonctionnelle",
+     "domain": "R12",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "PROC_Functional"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_PROC_HYGIENE",
+     "label": "Hygiène du personnel",
+     "domain": "R12",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "PROC_HygienePersonnel"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_PROC_TEMP",
+     "label": "Maîtrise de la température",
+     "domain": "R12",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "PROC_TempControl"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_PROC_WATER",
+     "label": "Eau potable",
+     "domain": "R12",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "PROC_WaterSafe"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_PROC_TRACE",
+     "label": "Traçabilité des lots",
+     "domain": "R12",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "PROC_Traceability"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_PROC_HACCP",
+     "label": "Points critiques documentés",
+     "domain": "R12",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "888"
+     ],
+     "scored": true,
+     "variables": [
+      "PROC_HACCP"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_PROC_EQUIP_GOOD",
+     "label": "Équipements en bon état",
+     "domain": "R12",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "PROC_EquipCondition"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_RRT_OPERATIONAL",
+     "label": "Hub en place et opérationnel",
+     "domain": "R13",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "RRT_HubExists"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_RRT_SOLAR",
+     "label": "Solaire fonctionnel",
+     "domain": "R13",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "RRT_SolarFunctional"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_RRT_WATER",
+     "label": "Point d'eau fonctionnel",
+     "domain": "R13",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [
+      "9999"
+     ],
+     "scored": true,
+     "variables": [
+      "RRT_WaterFunctional"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_RRT_MAINT",
+     "label": "Dispositif de maintenance",
+     "domain": "R13",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "RRT_Maintenance"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_RRT_INCLUSIVE",
+     "label": "Accès inclusif",
+     "domain": "R13",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "RRT_Inclusive"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_RRT_CONFLICT",
+     "label": "Conflit sur le site",
+     "domain": "R13",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "RRT_SiteConflict"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_RRT_EXCLUSION",
+     "label": "Ménages exclus",
+     "domain": "R13",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "RRT_HHExcluded"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_RRT_FUNDS",
+     "label": "Gestion des fonds transparente",
+     "domain": "R13",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "fund_management"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_RRT_SAFE",
+     "label": "Site sûr pour femmes et hommes",
+     "domain": "R13",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "safe_women_men"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_RRT_INCIDENT",
+     "label": "Incident de sécurité",
+     "domain": "R13",
+     "direction": "lower_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "security_incident"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_RRT_KNOW_USE",
+     "label": "Sait utiliser les éléments RRT",
+     "domain": "R13",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "RRT_KnowUse"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_RRT_CMTE_EFFECTIVE",
+     "label": "Comité jugé efficace (entièrement ou partiellement satisfait)",
+     "domain": "R13",
+     "direction": "higher_better",
+     "agg": "percent_value",
+     "positiveValue": "1|2",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "RRT_CommitteeEffective"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_RRT_VSLA_TRANSFER",
+     "label": "Part RRT versée au VSLA",
+     "domain": "R13",
+     "direction": "higher_better",
+     "agg": "percent_yes",
+     "positiveValue": "1",
+     "naValues": [],
+     "scored": true,
+     "variables": [
+      "RRT_VSLARevenueTransfer"
+     ],
+     "warnings": []
+    },
+    {
+     "code": "RES_FFA_SCORE",
+     "label": "Score FFA (formulaire)",
+     "domain": "KPI",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "FFA_score"
+     ],
+     "warnings": [],
+     "target": 80
+    },
+    {
+     "code": "RES_VSLA_SCORE",
+     "label": "Score VSLA (formulaire)",
+     "domain": "KPI",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "VSLA_score"
+     ],
+     "warnings": [],
+     "target": 80
+    },
+    {
+     "code": "RES_PROC_SCORE",
+     "label": "Score transformation (formulaire)",
+     "domain": "KPI",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "PROC_score"
+     ],
+     "warnings": [],
+     "target": 80
+    },
+    {
+     "code": "RES_RRT_SCORE",
+     "label": "Score RRT (formulaire)",
+     "domain": "KPI",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "RRT_score"
+     ],
+     "warnings": [],
+     "target": 80
+    },
+    {
+     "code": "RES_INS_SCORE",
+     "label": "Score assurance (formulaire)",
+     "domain": "KPI",
+     "direction": "higher_better",
+     "agg": "mean",
+     "positiveValue": null,
+     "naValues": [],
+     "scored": false,
+     "variables": [
+      "INS_score"
+     ],
+     "warnings": [],
+     "target": 80
     }
    ]
   }
