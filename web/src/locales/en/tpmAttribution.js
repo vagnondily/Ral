@@ -167,4 +167,8 @@ export default {
   'Rapprocher dans Paramétrage › Localités': 'Match in Settings › Localities',
   '{n} modification(s) portent sur une zone qui n\'existe plus dans le découpage : sans effet.':
     '{n} change(s) concern an area that no longer exists in the breakdown: no effect.',
+  'Pour affecter un TPM : ajoutez cette zone aux zones d\'intervention d\'un contrat de suivi actif (Contrats), ou choisissez un TPM pour une visite, avec une raison (Affectation & visites, crayon).':
+    'To assign a TPM: add this area to the intervention areas of an active monitoring contract (Contracts), or choose a TPM for a visit, with a reason (Assignment & visits, pencil).',
+  'Le TPM de chaque visite vient du contrat de suivi qui couvre la zone du site ce mois-là : rien à saisir. Un autre TPM se motive (crayon) ; une zone sans contrat s\'ajoute aux zones d\'intervention d\'un contrat de suivi.':
+    'Each visit\'s TPM comes from the monitoring contract covering the site\'s area that month: nothing to enter. Another TPM needs a reason (pencil); an area without a contract is added to the intervention areas of a monitoring contract.',
 };

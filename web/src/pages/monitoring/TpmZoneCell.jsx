@@ -24,7 +24,8 @@ export function divergentVisits(months, segments, year) {
  * Colonne « Prestataire (TPM) » du Plan de suivi (retour 58) : le TPM de la ZONE du site
  * (contrats de suivi, ou modification motivée), au mois de référence, avec son origine — couleur +
  * icône + libellé, jamais la couleur seule. L'infobulle donne les segments de l'exercice et les
- * visites qui portent un autre TPM. Sans TPM : « À affecter » mène à l'onglet Affectation des TPM.
+ * visites qui portent un autre TPM. Sans TPM : « À affecter » dit, au survol, comment en obtenir un
+ * (jamais un lien vers un onglet qui n'existe pas encore).
  * @param {{ tpm: { ref, refMonth, segments }|null, months: object[] }} props
  */
 export default function TpmZoneCell({ tpm, months }) {
@@ -58,6 +59,7 @@ export default function TpmZoneCell({ tpm, months }) {
     tr('TPM de la zone du site, exercice {y} :', { y: year }),
     ...segments.map(segText),
     ...(diff ? [tr('{n} visite(s) de l\'exercice portent un autre TPM (écart motivé ou saisi avant la règle).', { n: diff })] : []),
+    ...(ref.providerId ? [] : [tr('Pour affecter un TPM : ajoutez cette zone aux zones d\'intervention d\'un contrat de suivi actif (Contrats), ou choisissez un TPM pour une visite, avec une raison (Affectation & visites, crayon).')]),
   ].join('\n');
   return (
     <td className={`pb-tpm tpm-tone-${def.tone || 'none'}`} title={tooltip}>
@@ -65,7 +67,7 @@ export default function TpmZoneCell({ tpm, months }) {
         <Icon size={13} aria-hidden="true" className="pb-tpm-ic" />
         {assigned
           ? <span className="pb-tpm-name">{ref.providerName}</span>
-          : <a className="pb-tpm-name pb-tpm-link" href={TPM_TAB_HREF}>{tr('À affecter')}</a>}
+          : <span className="pb-tpm-name pb-tpm-todo">{tr('À affecter')}</span>}
         {diff > 0 && <span className="pb-tpm-diff" aria-label={tr('{n} visite(s) avec un autre TPM', { n: diff })}>≠ {diff}</span>}
       </span>
       <span className="pb-tpm-origin">{origin}</span>
