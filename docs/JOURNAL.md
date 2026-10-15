@@ -20,7 +20,7 @@
 > - **Bureaux** : types à niveaux facultatifs, périmètre choisi par région › district › commune ; **bureau, TPM et activités déduits de la configuration** partout ; **référentiel des activités** (aucune activité créée hors Paramétrage).
 > - **Sites (actifs / inactifs)** à la forme du Plan de suivi : publié.
 
-_Dernière mise à jour : 15/10/2026 10:40 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 15/10/2026 10:55 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -614,3 +614,6 @@ _Dernière mise à jour : 15/10/2026 10:40 UTC_ — la branche `main` reçoit ch
 - **10:22** 🔄 Reprise. `main` fusionné dans ma branche (`e934941`) : 1 054 tests réussis, build OK. Numéros de migration revus (`101` pris par les sous-activités ; tableau de bord → `104` ; suite du référentiel des activités → `105`, bâtie sur `101` ; programmes → `110`–`115`).
 - **10:25** 🔄 **Rythme revu** : moins d'agents à la fois, par ordre de priorité, pour avancer sans longue pause. D'abord la planification automatique et le TPM des contrats, puis la publication de ce qui est prêt (sites actifs, finitions d'écrans, premier lot de réactivité, en-têtes de rapport).
 - **10:26 → 10:40** 🔄 puis ✅ **Intégration vérifiée** (branche `integ/15a`) : `wip/ui-polish` (terminé), `wip/perf` (premier lot), `wip/7a-p2` (concepteur jusqu'à l'en-tête libre), sites actifs, `main` à jour. Un conflit résolu dans la carte (points mémorisés + couleur par activité). Contrôles : **1 109 tests** (1 ignoré), lint propre, build, migrations sur base neuve et sur copie (69 fichiers, deux passages), **balayage 33 écrans × FR / EN : 0 erreur, 0 phrase manquante** ; concepteur d'en-tête vu à l'écran. Relecture : migration `062` (images reconnues par les octets, immuables, quotas sous verrou, RLS), validation des en-têtes (couleurs `#RRGGBB`, polices d'une liste, 20 éléments au plus, positions bornées), rendu React sans HTML injecté. `wip/r58` attend ses traductions et sa relecture.
+- **10:44 → 10:52** 🔄 **Planification automatique intégrée à l'essai** (`wip/lot5-gen` `dfcc86b` + `main`) : 1 170 tests, lint, build, migrations `077`–`078` sur base neuve et copie, balayage 33 × 2 sans erreur. Bouton, critères et aperçu expliqué vus à l'écran (405 visites proposées d'octobre à décembre). ⛔ **Pas publié** : « Appliquer » échoue (paramètres JSON transmis comme tableau Postgres, `invalid input syntax for type json`) — renvoyé à l'agent avec un test sur vraie base exigé.
+- **10:50** 📥 Retour 107 : paramètres « enfantins », en doublon du MMR et du RBM ; « penser comme un spécialiste S&E humanitaire ». 🔄 Panneau à refaire : tout ce que MEMS sait (sites actifs, MMR, RBM, capacité, TPM du contrat) en lecture seule avec sa source ; contrainte qui limite énoncée ; seuls choix : période, périmètre, stratégie ; avancé replié.
+
