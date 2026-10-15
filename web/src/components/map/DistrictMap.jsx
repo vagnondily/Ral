@@ -204,14 +204,34 @@ const DistrictMap = forwardRef(function DistrictMap({
   }, [features, shapeRegions]);
 
   // Avec le fond en ligne : contours sans valeur transparents, contours colorés translucides.
-  const empty = underlay ? 'transparent' : 'var(--map-empty)';
-  const fillOf = (key) => {
-    const z = byKey.get(key);
-    if (!z || !scale) return empty;
-    const v = valueOf(theme.id, z);
-    if (v === 'np') return `url(#${uid}-hatch)`;
-    return scale.fill(v) || empty;
-  };
+  const hasUnderlay = !!underlay;
+  const empty = hasUnderlay ? 'transparent' : 'var(--map-empty)';
+  const themeId = theme ? theme.id : null;
+  const lines = view.s > 4 ? 0.9 : 0.7;
+
+  // Contours mémorisés (performance) : un survol, un épinglage ou un déplacement de la souris ne
+  // reconstruit pas les ~120 × 2 chemins ; seuls le thème, les données, la taille ou le seuil de
+  // zoom du trait les refont. Le zoom ne change que la transformation du groupe parent.
+  const shapesLayer = useMemo(() => {
+    const fillOf = (key) => {
+      const z = byKey.get(key);
+      if (!z || !scale) return empty;
+      const v = valueOf(themeId, z);
+      if (v === 'np') return `url(#${uid}-hatch)`;
+      return scale.fill(v) || empty;
+    };
+    return regionGroups.map(([region, keys]) => (
+      <g key={region || '_'}>
+        {showRegions && region && keys.map((k) => (
+          <path key={`r-${k}`} d={paths.get(k)} fill="none" stroke="var(--map-region)" strokeWidth="2.6" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        ))}
+        {keys.map((k) => (
+          <path key={k} data-key={k} d={paths.get(k)} fill={fillOf(k)} fillOpacity={hasUnderlay ? 0.78 : 1} stroke="var(--map-line)" strokeWidth={lines}
+            strokeLinejoin="round" vectorEffect="non-scaling-stroke" className={byKey.has(k) ? 'mapx-shape has-data' : 'mapx-shape'} />
+        ))}
+      </g>
+    ));
+  }, [regionGroups, paths, byKey, scale, themeId, uid, empty, hasUnderlay, showRegions, lines]);
 
   // Écran ← carte : coordonnées de base puis vue stable.
   const toScreen = useCallback((lng, lat, v = settled) => {
@@ -232,19 +252,46 @@ const DistrictMap = forwardRef(function DistrictMap({
     return layoutLabels(items, { size: 10.5, bounds: { width, height } });
   }, [t, showLabels, features, byKey, settled, toScreen, width, height]);
 
-  // Encre d'une étiquette posée sur un contour coloré : blanc ou encre, le plus contrasté
-  // avec la couleur de la classe (même règle que les pastilles du classement).
-  const labelInk = (key) => {
-    const z = byKey.get(key);
-    if (!z || !scale) return null;
-    const v = valueOf(theme.id, z);
-    const fill = typeof v === 'number' ? scale.fill(v) : null;
-    return fill ? inkOn(fill) : null;
-  };
+  // Étiquettes mémorisées (comme les contours). Encre d'une étiquette posée sur un contour
+  // coloré : blanc ou encre, le plus contrasté avec la couleur de la classe (même règle que les
+  // pastilles du classement).
+  const labelsLayer = useMemo(() => {
+    if (!labels.length) return null;
+    const labelInk = (key) => {
+      const z = byKey.get(key);
+      if (!z || !scale) return null;
+      const v = valueOf(themeId, z);
+      const fill = typeof v === 'number' ? scale.fill(v) : null;
+      return fill ? inkOn(fill) : null;
+    };
+    return (
+      <g className="mapx-labels" pointerEvents="none">
+        {labels.map((l) => {
+          const ink = labelInk(l.key);
+          const z = byKey.get(l.key);
+          const lvl = themeId === 'alerts' && z ? z.alertLevel : null;
+          return (
+            <text key={l.key} x={l.x.toFixed(1)} y={(l.y + 3.6).toFixed(1)} textAnchor="middle"
+              className={ink === '#ffffff' ? 'mapx-label on-dark' : ink ? 'mapx-label on-light' : 'mapx-label'}>
+              {lvl != null ? `${ALERT_LEVELS[lvl].icon} ` : ''}{l.text}
+            </text>
+          );
+        })}
+      </g>
+    );
+  }, [labels, byKey, scale, themeId]);
+
+  // Points mémorisés : recalculés quand les points, les couches affichées ou la vue changent
+  // (pas au survol). Les couches arrivent dans un objet neuf à chaque rendu : clé par valeur.
+  const layersKey = Object.entries(pointLayers).filter(([, on]) => on).map(([k]) => k).sort().join('|');
+  const pointsLayer = useMemo(() => {
+    if (!points || !t) return null;
+    const on = Object.fromEntries(layersKey.split('|').filter(Boolean).map((k) => [k, true]));
+    return <PointsLayer points={points} layers={on} toScreen={(lng, lat) => { const [x, y] = t.project(lng, lat); return [x * view.s + view.x, y * view.s + view.y]; }} />;
+  }, [points, layersKey, t, view]);
 
   if (!geo) return <div ref={boxRef} className="mapx-canvas" style={{ height }} />;
   const sb = t ? scaleBar(t, (frame[1] + frame[3]) / 2, { zoom: settled.s }) : null;
-  const lines = view.s > 4 ? 0.9 : 0.7;
   const hoverPath = hoverKey && paths.get(hoverKey);
   const pinPath = pinnedKey && pinnedKey !== hoverKey && paths.get(pinnedKey);
 
@@ -263,36 +310,12 @@ const DistrictMap = forwardRef(function DistrictMap({
           </defs>
           {!underlay && <rect width={width} height={height} fill="var(--map-bg)" />}
           <g className="mapx-shapes" transform={`translate(${view.x.toFixed(2)},${view.y.toFixed(2)}) scale(${view.s.toFixed(4)})`}>
-            {regionGroups.map(([region, keys]) => (
-              <g key={region || '_'}>
-                {showRegions && region && keys.map((k) => (
-                  <path key={`r-${k}`} d={paths.get(k)} fill="none" stroke="var(--map-region)" strokeWidth="2.6" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-                ))}
-                {keys.map((k) => (
-                  <path key={k} data-key={k} d={paths.get(k)} fill={fillOf(k)} fillOpacity={underlay ? 0.78 : 1} stroke="var(--map-line)" strokeWidth={lines}
-                    strokeLinejoin="round" vectorEffect="non-scaling-stroke" className={byKey.has(k) ? 'mapx-shape has-data' : 'mapx-shape'} />
-                ))}
-              </g>
-            ))}
+            {shapesLayer}
             {pinPath && <path d={pinPath} fill="none" stroke="var(--map-ink)" strokeWidth="2.4" strokeDasharray="5 3" vectorEffect="non-scaling-stroke" pointerEvents="none" />}
             {hoverPath && <path d={hoverPath} fill="none" stroke="var(--map-ink)" strokeWidth="2.4" vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           </g>
-          {points && <PointsLayer points={points} layers={pointLayers} toScreen={(lng, lat) => toScreen(lng, lat, view)} />}
-          {labels.length > 0 && view === settled && (
-            <g className="mapx-labels" pointerEvents="none">
-              {labels.map((l) => {
-                const ink = labelInk(l.key);
-                const z = byKey.get(l.key);
-                const lvl = theme.id === 'alerts' && z ? z.alertLevel : null;
-                return (
-                  <text key={l.key} x={l.x.toFixed(1)} y={(l.y + 3.6).toFixed(1)} textAnchor="middle"
-                    className={ink === '#ffffff' ? 'mapx-label on-dark' : ink ? 'mapx-label on-light' : 'mapx-label'}>
-                    {lvl != null ? `${ALERT_LEVELS[lvl].icon} ` : ''}{l.text}
-                  </text>
-                );
-              })}
-            </g>
-          )}
+          {pointsLayer}
+          {view === settled && labelsLayer}
           {sb && (
             <g className="mapx-furniture" transform={`translate(${width - 22},${height - padBottom - 8})`} pointerEvents="none">
               <g transform={`translate(-${(sb.px / 2 + 6).toFixed(1)},-62)`}>
