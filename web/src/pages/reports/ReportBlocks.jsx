@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, CheckCircle2, Info, OctagonAlert } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info, OctagonAlert, Image as ImageIcon } from 'lucide-react';
 import { useI18n } from '../../lib/i18n.jsx';
 import { RichTextView } from './RichText.jsx';
 import { substitute } from './reportDoc.js';
@@ -7,6 +7,7 @@ import Figure from './views/Figure.jsx';
 import DataView, { CHART_VIEWS } from './views/DataView.jsx';
 import { DataTable } from './views/DataTable.jsx';
 import { KpiTiles } from './views/KpiStrip.jsx';
+import { useAssetUrl } from './useAssets.js';
 
 /**
  * Rendu des blocs d'un rapport v2 (aperçu de l'éditeur, impression/PDF, export HTML).
@@ -66,6 +67,7 @@ export function BlockView({ block, ctx, editor }) {
         <Figure figure={fig} number={ctx.inst && ctx.inst.figure} title={title}
           subtitle={fig.subtitle ? subst(fig.subtitle) : null} meta={d && d.meta} note={fig.note}
           continued={!!(slice && !slice.first)} noFoot={!!(slice && !slice.last)} showData={ctx.showData} onToggleData={ctx.onToggleData}
+          bare={!!(ctx.inst && ctx.inst.annex) && !(slice && !slice.first)}
           table={chart && d && !slice ? <DataTable data={d} columns={p.columns} /> : null}>
           {part ? <DataView view={view} def={def} data={part} params={p} title={title} scale={(ctx.fit && ctx.fit.scale) || 1} /> : null}
         </Figure>
@@ -80,7 +82,7 @@ export function BlockView({ block, ctx, editor }) {
       return (
         <nav className="rb-toc" aria-label={tr('Sommaire')}>
           <p className="rb-toc-h">{tr('Sommaire')}</p>
-          <ol>{entries.map((e) => <li key={e.iid} className={`rb-toc-l${e.level}`}><span>{e.text}</span><i aria-hidden="true" /><b>{e.page == null ? '…' : e.page}</b></li>)}</ol>
+          <ol>{entries.map((e, i) => <li key={e.iid} className={`rb-toc-l${e.level} ${e.annex && !(entries[i - 1] || {}).annex ? 'rb-toc-annex-first' : ''}`}><span>{e.text}</span><i aria-hidden="true" /><b>{e.page == null ? '…' : e.page}</b></li>)}</ol>
         </nav>
       );
     }
@@ -91,28 +93,68 @@ export function BlockView({ block, ctx, editor }) {
 }
 
 /**
- * Bande d'en-tête ou de pied DESSINÉE : éléments placés (x et largeur en % de la largeur
- * imprimable, y et hauteur en mm). Textes avec variables déjà remplies ; numéro de page
- * « n / N » posé par la pagination (aperçu : modèle).
+ * Logo d'une bande : l'image du compte, contenue dans son cadre et alignée. Emplacement vide (modèle)
+ * ou image pas encore lue : cadre « Logo » dans l'éditeur seulement — rien à l'impression.
  */
-export function Band({ band, texts, vars, pageNo, pages, className }) {
+function BandImage({ e, box, editing }) {
+  const { tr } = useI18n();
+  const url = useAssetUrl(e.assetId || null);
+  if (!url) {
+    return editing ? <div className="rd-el rd-el-ph" style={box}><ImageIcon size={13} aria-hidden="true" /><span>{tr('Logo')}</span></div> : null;
+  }
+  return <img className="rd-el rd-el-img" data-asset={e.assetId} src={url} alt="" style={{ ...box, objectFit: 'contain', objectPosition: `${e.align || 'left'} center` }} />;
+}
+
+const FONT_STACK = { Georgia: 'Georgia, serif', Arial: 'Arial, Helvetica, sans-serif', Inter: 'Inter, Arial, sans-serif' };
+
+/**
+ * Bande d'en-tête ou de pied DESSINÉE (retours 51 et 88) : éléments placés (x et largeur en % de
+ * la largeur imprimable, y et hauteur en mm), dans l'ordre d'empilement. Textes avec variables
+ * ({titre}, {periode}, {bureau}, {date}, {section}…, {page} et {pages} posés par la pagination) ;
+ * n° de page ; trait horizontal ou vertical ; rectangle (bandeau BORD À BORD si `bleed` : jusqu'aux
+ * bords de la feuille, `edges` = marges en mm, et jusqu'au bord haut / bas qu'il touche) ; logo.
+ * Même rendu dans l'aperçu, l'impression, l'export HTML et le concepteur d'en-tête.
+ */
+export function Band({ band, texts, vars, pageNo, pages, className, edges = null, place = 'header', editing = false }) {
   const { tr } = useI18n();
   if (!band || !band.elements || !band.elements.length) return null;
+  const pv = { ...(vars || {}), page: pageNo != null ? pageNo : (vars || {}).page, pages: pages != null ? pages : (vars || {}).pages };
   return (
     <div className={`rd-band ${className || ''}`} style={{ height: `${band.height}mm` }}>
       {band.elements.map((e) => {
         const box = { left: `${e.x}%`, top: `${e.y}mm`, width: `${e.w}%`, height: `${e.h}mm` };
         const st = e.style || {};
-        const font = { fontFamily: st.font === 'Georgia' ? 'Georgia, serif' : st.font === 'Arial' ? 'Arial, sans-serif' : 'Inter, Arial, sans-serif', fontSize: `${st.size || 8}pt`, fontWeight: st.bold ? 700 : 400, fontStyle: st.italic ? 'italic' : 'normal', color: st.color, textAlign: st.align, background: st.background, padding: st.padding ? `${st.padding}mm` : undefined, borderRadius: st.radius ? `${st.radius}mm` : undefined };
-        if (e.kind === 'text') return <div key={e.id} className="rd-el rd-el-text" style={{ ...box, ...font }}>{texts && texts[e.id] != null ? texts[e.id] : substitute(e.text, vars)}</div>;
+        const font = {
+          fontFamily: FONT_STACK[st.font] || FONT_STACK.Inter, fontSize: `${st.size || 8}pt`, fontWeight: st.bold ? 700 : 400, fontStyle: st.italic ? 'italic' : 'normal',
+          color: st.color, textAlign: st.align, justifyContent: st.align === 'center' ? 'center' : st.align === 'right' ? 'flex-end' : 'flex-start',
+          background: st.background, padding: st.padding ? `0 ${st.padding}mm` : st.background ? '0 1.2mm' : undefined, borderRadius: st.radius ? `${st.radius}mm` : undefined,
+          textTransform: st.caps ? 'uppercase' : undefined, letterSpacing: st.caps ? '0.08em' : undefined,
+        };
+        if (e.kind === 'text') {
+          const raw = texts && texts[e.id] != null ? texts[e.id] : e.text;
+          return <div key={e.id} className="rd-el rd-el-text" style={{ ...box, ...font }}><span>{substitute(raw, pv)}</span></div>;
+        }
         if (e.kind === 'pageNumber') {
           const n = pageNo || 'n'; const N = pages || 'N';
           const label = { n: `${n}`, 'n / N': `${n} / ${N}`, 'Page n': tr('Page {n}', { n }), 'Page n / N': tr('Page {n} / {N}', { n, N }) }[e.format || 'Page n / N'];
-          return <div key={e.id} className="rd-el rd-el-text rd-pageno" style={{ ...box, ...font }}>{label}</div>;
+          return <div key={e.id} className="rd-el rd-el-text rd-pageno" style={{ ...box, ...font }}><span>{label}</span></div>;
         }
-        if (e.kind === 'line') return <div key={e.id} className="rd-el" style={{ ...box, height: 0, borderTop: `${e.thickness || 0.5}pt solid ${e.color || '#e7e9ef'}` }} />;
-        if (e.kind === 'rect') return <div key={e.id} className="rd-el" style={{ ...box, background: e.fill, border: e.border ? `0.5pt solid ${e.border}` : undefined, borderRadius: e.radius ? `${e.radius}mm` : undefined, opacity: e.opacity }} />;
-        if (e.kind === 'image') return <div key={e.id} className="rd-el rd-el-image" style={box} aria-label={tr('Image')} />;
+        if (e.kind === 'line') {
+          const t = `${e.thickness || 0.5}pt solid ${e.color || '#e7e9ef'}`;
+          return e.dir === 'v'
+            ? <div key={e.id} className="rd-el" style={{ ...box, width: 0, borderLeft: t }} />
+            : <div key={e.id} className="rd-el" style={{ ...box, height: 0, borderTop: t }} />;
+        }
+        if (e.kind === 'rect') {
+          const b = { ...box };
+          if (e.bleed && edges) {
+            b.left = `-${edges.left}mm`; b.width = `calc(100% + ${edges.left + edges.right}mm)`;
+            if (place === 'header' && e.y <= 0.01) { b.top = `-${edges.top}mm`; b.height = `${e.h + edges.top}mm`; }
+            if (place === 'footer' && e.y + e.h >= band.height - 0.01) b.height = `${e.h + edges.bottom}mm`;
+          }
+          return <div key={e.id} className="rd-el" style={{ ...b, background: e.fill, border: e.border ? `0.5pt solid ${e.border}` : undefined, borderRadius: e.radius && !e.bleed ? `${e.radius}mm` : undefined, opacity: e.opacity }} />;
+        }
+        if (e.kind === 'image') return <BandImage key={e.id} e={e} box={box} editing={editing} />;
         return null;
       })}
     </div>

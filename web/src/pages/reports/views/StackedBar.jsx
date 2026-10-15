@@ -25,6 +25,7 @@ export default function StackedBar({ def, data }) {
   if (!x || parts.length < 2) return <DataTable data={data} />;
   return (
     <figure className="rb-chart rb-stacked">
+      <Legend items={parts} />
       <div role="img" aria-label={tr('Barres empilées')}>
         {data.rows.map((r, i) => {
           const total = parts.reduce((a, p) => a + (Number(r[p.key]) || 0), 0);
@@ -48,7 +49,6 @@ export default function StackedBar({ def, data }) {
           );
         })}
       </div>
-      <Legend items={parts} />
     </figure>
   );
 }

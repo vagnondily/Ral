@@ -60,7 +60,10 @@ const trendSubmissions = ds('mon.trend_submissions', {
   columns: TREND_COLS,
   shape(raw) {
     const rows = raw.trend || [];
-    return { columns: TREND_COLS, rows, meta: { n: rows.reduce((a, r) => a + r.submissions, 0), nLabel: 'soumissions' } };
+    // Fenêtre des tendances (12 mois au moins jusqu'à la fin de la période) : dite dans la légende
+    // de la figure quand elle diffère de la période du rapport (retour 87).
+    const dataPeriod = rows.length ? { from: rows[0].month, to: rows[rows.length - 1].month } : null;
+    return { columns: TREND_COLS, rows, meta: { n: rows.reduce((a, r) => a + r.submissions, 0), nLabel: 'soumissions', dataPeriod } };
   },
 });
 

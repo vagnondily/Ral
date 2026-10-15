@@ -2924,10 +2924,12 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .mapx-export { display: flex; gap: 8px; align-items: flex-end; }
 .mapx-export .btn { display: inline-flex; gap: 6px; align-items: center; height: 38px; }
 .mapx-print-root { display: none; }
+/* Page NOMMÉE (et non une règle @page globale) : une règle globale imposait le paysage à toute
+   impression de l'application, rapports compris (retour 88 : « tout devient paysage »). */
+@page mapx { size: A4 landscape; margin: 10mm; }
 @media print {
-  @page { size: A4 landscape; margin: 10mm; }
   body.is-printing-map > *:not(.mapx-print-root) { display: none !important; }
-  body.is-printing-map .mapx-print-root { display: block; }
+  body.is-printing-map .mapx-print-root { display: block; page: mapx; }
   .mapx-print-root svg { width: 100%; height: auto; }
 }
 .mapx-tiles { position: absolute; inset: 0; overflow: hidden; background: var(--map-bg); }
