@@ -478,6 +478,7 @@ const VISIT_COLS = `
   v.activity, to_char(v.period_month, 'YYYY-MM') AS "periodMonth",
   v.provider_id AS "providerId", p.name AS "providerName",
   v.provider_source AS "providerSource", v.provider_zone_state AS "providerZoneState", v.provider_reason AS "providerReason",
+  COALESCE(c.numero_fla, c.numero) AS "contractLabel",
   v.agent, v.status, v.visit_date AS "visitDate"`;
 
 /** Taille d'une page de la liste des visites (et maximum accepté) : ≈ 0,3 Mo par page de 1 000. */
@@ -544,6 +545,7 @@ async function listVisits(tenantId, opts = {}) {
          FROM site_visits v
          JOIN sites s ON s.id = v.site_id AND s.tenant_id = v.tenant_id
          LEFT JOIN partners p ON p.id = v.provider_id AND p.tenant_id = v.tenant_id
+         LEFT JOIN contracts c ON c.id = v.contract_id AND c.tenant_id = v.tenant_id
         WHERE ${where.join(' AND ')}
         ORDER BY s.district, s.commune, s.name, v.period_month, v.id
         LIMIT $${params.length - 1} OFFSET $${params.length}`,
