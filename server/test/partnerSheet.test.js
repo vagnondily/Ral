@@ -1,19 +1,53 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildFacts, mergeZones, shapeTimeline } = require('../src/modules/partners/partnerSheet');
+const { buildSheet, contractRows, budgetRecap, reportSummary, mergeZones, shapeTimeline } = require('../src/modules/partners/partnerSheet');
 
-test('faits : consommation sur la ligne de suivi, visites du mois ; non mesurable plutôt que 0', () => {
-  const f = buildFacts({
-    contract: { id: 'c', numero: 'CTR-1', dateFin: '2026-12-31', budget: 2000000, actual: 500000, pending: 100000 },
-    month: '2026-10', visitsAssigned: 8, visitsRealised: 6, agentsActive: 4, agentsTotal: 5, invoicesPending: 1, sitesFollowed: 30,
+const fig = (o) => ({
+  id: 'c1', numero: 'CTR-1', status: 'actif', holderId: 'h1', holderName: 'Aina', dateDebut: '2026-01-01', dateFin: '2026-12-31',
+  terminationDate: null, feePct: '0.07', directCents: '1000000001', monitoringCents: '200000000', providerActualCents: '50000000',
+  providerPendingCents: '10000000', contractActualCents: '80000000', providerPlannedCents: '60000000', ...o,
+});
+const link = (o) => ({ contractId: 'c1', partnerId: 'p1', status: 'actif', dateDebut: '2026-01-01', dateFin: '2026-12-31', monitoring: true, via: ['rapport'], ...o });
+
+test('contrats : total de l\'accord = direct + commission (centimes entiers), part du prestataire, consommation du contrat', () => {
+  const [r] = contractRows([fig()], [link()], { partnerId: 'p1', month: '2026-10' });
+  assert.equal(r.total, 10700000.01, '10 000 000,01 + 7 % arrondi au centime');
+  assert.equal(r.monitoringBudget, 2000000);
+  assert.deepEqual([r.providerActual, r.providerPending, r.providerPlanned, r.contractActual], [500000, 100000, 600000, 800000]);
+  assert.equal(r.consumption, 40);
+  assert.equal(r.remaining, 1200000);
+  assert.deepEqual([r.isHolder, r.via, r.coversMonth], [false, ['rapport'], true]);
+  // Contrat de suivi actif présent dans la Consolidation : même Réalisé, même projection.
+  const cons = new Map([['c1', { actual: 900000, monthsRemaining: 3, projectedOverrun: -5000 }]]);
+  const [c] = contractRows([fig()], [link()], { partnerId: 'p1', month: '2026-10', consolidation: cons });
+  assert.deepEqual([c.contractActual, c.consumption, c.monthsRemaining, c.projectedOverrun], [900000, 45, 3, -5000]);
+  // Sans ligne de suivi : consommation « — », jamais 0 %.
+  const [z] = contractRows([fig({ monitoringCents: '0', contractActualCents: '0' })], [link({ monitoring: false })], { partnerId: 'h1', month: '2027-01' });
+  assert.deepEqual([z.consumption, z.remaining, z.isHolder, z.coversMonth], [null, null, true, false]);
+});
+
+test('récapitulatif : sommes en centimes ; la consommation ne compte que les contrats de suivi', () => {
+  const rows = contractRows([fig(), fig({ id: 'c2', numero: 'CTR-2', monitoringCents: '0', contractActualCents: '0', providerActualCents: '0' })],
+    [link(), link({ contractId: 'c2', monitoring: false })], { partnerId: 'p1', month: '2026-10' });
+  const b = budgetRecap(rows);
+  assert.deepEqual([b.contracts, b.monitoringContracts, b.monitoringBudget, b.providerActual, b.consumption, b.providerShare],
+    [2, 1, 2000000, 500000, 40, 25]);
+  assert.equal(budgetRecap([]).consumption, null);
+});
+
+test('fiche : statut selon contrat, visites du mois (jamais « 0 % » sans affectation), rapports à valider', () => {
+  const s = buildSheet({
+    partner: { id: 'p1', name: 'YPA' }, links: [link()], contracts: [fig()],
+    counts: { month: '2026-10', today: '2026-10-14', visitsAssigned: 0, visitsRealised: 0, agentsActive: 2, agentsTotal: 3, submissions12: 9, submissionsExcluded12: 1 },
+    reports: [{ kind: 'financier', status: 'soumis', n: 2 }, { kind: 'technique', status: 'valide', n: 1 }],
+    lastEval: { id: 'e1', score: '13.3', band: 'bon' }, zones: [], districts: [],
   });
-  assert.equal(f.contract.consumption, 25);
-  assert.equal(f.visits.rate, 75);
-  assert.equal(f.submissions.status, 'non_mesurable');
-  assert.equal(f.agentScore.status, 'non_mesurable');
-  const none = buildFacts({ contract: null, visitsAssigned: 0, visitsRealised: 0 });
-  assert.equal(none.contract.status, 'aucun');
-  assert.equal(none.visits.rate, null); // jamais « 0 % » quand rien n'est affecté
+  assert.equal(s.status.state, 'actif');
+  assert.equal(s.facts.visits.rate, null);
+  assert.equal(s.facts.submissions.excludedRate, 10);
+  assert.deepEqual([s.facts.reports.total, s.facts.reports.toValidate], [3, 2]);
+  assert.equal(s.facts.evaluation.score, 13.3);
+  assert.deepEqual(reportSummary([{ kind: 'autre', status: 'soumis', n: 4 }]).total, 0);
 });
 
 test('zones : contrats + districts des visites, sans doublon de graphie', () => {

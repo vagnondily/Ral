@@ -1,0 +1,57 @@
+const repo = require('./partners.repository');
+const consolidationRepo = require('../tpm/consolidation.repository');
+const activeRepo = require('../tpm/activeProvider.repository');
+const { buildSheet, contractRows, providerListRows } = require('./partnerSheet');
+const { addMonths } = require('../common/period');
+const { monthsOf } = require('../tpm/activeProvider');
+
+/**
+ * Fiche prestataire 360° (lot 8, retour 28.1) — règles d'assemblage. Les routes appellent ce
+ * service ; le dépôt lit, les modules purs (partnerSheet, activeProvider) décident.
+ */
+
+/** Consolidation du compte (contrats de suivi actifs), indexée par contrat : même Réalisé, même projection. */
+async function consolidationByContract(tenantId, month) {
+  const cons = await consolidationRepo.consolidation(tenantId, { today: month });
+  return new Map((cons.rows || []).map((r) => [r.contractId, r]));
+}
+
+/** Liste des partenaires avec leur statut selon contrat (liste des prestataires TPM). */
+async function providers(tenantId) {
+  const { rows, links } = await repo.providersList(tenantId);
+  return providerListRows(rows, links);
+}
+
+async function sheet(tenantId, id) {
+  const raw = await repo.sheet(tenantId, id);
+  if (!raw) return null;
+  return buildSheet(raw, { consolidation: await consolidationByContract(tenantId, raw.counts.month) });
+}
+
+async function contracts(tenantId, id) {
+  const raw = await repo.contractsOf(tenantId, id);
+  if (!raw) return null;
+  const month = raw.today.slice(0, 7);
+  return contractRows(raw.contracts, raw.links, { partnerId: id, month, consolidation: await consolidationByContract(tenantId, month) });
+}
+
+/** Période par défaut des suivis : les 12 derniers mois jusqu'au mois courant. */
+function defaultFollowupPeriod(todayMonth) {
+  return { from: addMonths(todayMonth, -11), to: todayMonth };
+}
+
+async function followups(tenantId, id, period, todayMonth) {
+  const p = period || defaultFollowupPeriod(todayMonth);
+  const r = await repo.followups(tenantId, id, p);
+  return r && { period: p, months: monthsOf(p.from, p.to), ...r };
+}
+
+/** Listes de choix des prestataires pour des mois (retour 30) : groupes « contrat » puis « tpm ». */
+async function selectable(tenantId, period) {
+  return activeRepo.selectable(tenantId, monthsOf(period.from, period.to));
+}
+
+module.exports = {
+  providers, sheet, contracts, followups, selectable, defaultFollowupPeriod,
+  reports: repo.reportsOf, timeline: repo.timeline,
+};
