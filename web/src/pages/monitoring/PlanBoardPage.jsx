@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ArrowDownCircle, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleDot, Columns3, Download, FileSpreadsheet,
-  Filter, Layers, ListChecks, Map as MapIcon, PauseCircle, Plus, RotateCcw, Save, Search, ShieldAlert, Upload, X,
+  Filter, Layers, ListChecks, Map as MapIcon, PauseCircle, Plus, RotateCcw, Save, Search, ShieldAlert, Upload, X, CalendarRange,
 } from 'lucide-react';
 import L from 'leaflet';
 import { TILES_URL, probeTiles } from '../../components/map/TileUnderlay.jsx';
@@ -14,6 +14,7 @@ import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, formatLocale, monthLabel } from '../../lib/format.js';
 import { applyPending, boardKpis, monthTotals, pendingKey, rateTone, visitRate } from '../../lib/planBoard.js';
+import PlanAutoDrawer from './PlanAutoDrawer.jsx';
 import './planBoard.css';
 import TpmZoneCell from './TpmZoneCell.jsx';
 
@@ -156,6 +157,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
           </label>
           <Button variant="secondary" icon={Download} onClick={() => api.planBoardExport(year).catch((e) => toast.error(e.message))}>{tr('Exporter')}</Button>
           {canEdit && <>
+            <Button variant="secondary" icon={CalendarRange} onClick={() => setModal('autoplan')}>{tr('Planifier (période)')}</Button>
             <Button variant="secondary" icon={FileSpreadsheet} onClick={() => setModal('template')}>{tr('Gabarit d\'activité')}</Button>
             <Button variant="secondary" icon={Upload} onClick={() => fileRef.current?.click()}>{tr('Importer')}</Button>
             <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={(e) => onImportFile(e.target.files[0])} />
@@ -253,6 +255,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
       {modal === 'bulk' && <BulkModal year={year} siteIds={[...selected]} refs={refs} onClose={() => setModal(null)}
         onDone={async () => { setModal(null); setSelected(new Set()); setPending({}); await load(); }} />}
       {modal === 'add' && <AddSiteModal refs={refs} onClose={() => setModal(null)} onDone={async () => { setModal(null); await load(); }} />}
+      {modal === 'autoplan' && <PlanAutoDrawer year={year} onClose={() => setModal(null)} onDone={async () => { setModal(null); setPending({}); await load(); }} />}
       {modal === 'template' && <TemplateModal year={year} refs={refs} onClose={() => setModal(null)} />}
       {modal?.import && <ImportModal state={modal.import} onClose={() => setModal(null)} onDone={async () => { setModal(null); setPending({}); await load(); }} />}
     </div>

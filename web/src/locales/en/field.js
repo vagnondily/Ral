@@ -428,4 +428,30 @@ export default {
   'Toutes les zones couvertes sont ≥ 80 %.': 'All covered areas are at ≥ 80%.',
   'Ouvrir Sites & visites': 'Open Sites & visits',
   'Aucune donnée versée.': 'No data uploaded.',
+
+  // Génération automatique du plan de suivi sur une période (retour 82)
+  'Planifier (période)': 'Plan (period)',
+  'Générer le plan de suivi (période)': 'Generate the monitoring plan (period)',
+  'Aperçu': 'Preview',
+  'Du mois': 'From month',
+  'Au mois': 'To month',
+  'Période invalide.': 'Invalid period.',
+  'Fréquence (mois entre deux visites)': 'Frequency (months between two visits)',
+  'Capacité par mois (facultatif)': 'Capacity per month (optional)',
+  'Niveau de risque (facultatif)': 'Risk level (optional)',
+  'Mois à exclure (facultatif)': 'Months to exclude (optional)',
+  'Sites couverts': 'Sites covered',
+  'Zones interdites exclues': 'Forbidden areas excluded',
+  'Non placées (capacité)': 'Unplaced (capacity)',
+  'Visites planifiées': 'Planned visits',
+  'Illimité': 'Unlimited',
+  'Limiter la génération à un niveau de risque.': 'Limit generation to one risk level.',
+  'Nombre maximum de visites planifiées par mois ; le surplus glisse au mois suivant.': 'Maximum planned visits per month; the surplus slides to the next month.',
+  'Mois AAAA-MM séparés par des virgules (ex. saison des pluies).': 'YYYY-MM months separated by commas (e.g. rainy season).',
+  '{n} visite(s) planifiée(s).': '{n} visit(s) planned.',
+  'Répartit les visites à planifier sur les mois de la période selon le risque et la capacité. Les zones interdites sont exclues ; un mois déjà visité, inactif ou exclu est sauté. Rien n\'est écrit avant « Appliquer ».':
+    'Spreads the visits to plan across the months of the period by risk and capacity. Forbidden areas are excluded; a month already visited, inactive or excluded is skipped. Nothing is written before “Apply”.',
+  '« Appliquer » crée ces visites comme « planifiées ». Idempotent : un site déjà prévu ce mois n\'est pas dupliqué.':
+    '“Apply” creates these visits as “planned”. Idempotent: a site already planned that month is not duplicated.',
+  'Cliquez sur « Aperçu » pour voir la répartition avant d\'écrire.': 'Click “Preview” to see the breakdown before writing.',
 };
