@@ -462,6 +462,52 @@ Par activité, les paramètres restent dans la grille MMR (une seule saisie). Le
   - « Rétablir les valeurs initiales » ;
   - lecture seule pour les non-administrateurs.
 
+### 6.4 Paramètres de la planification — regard S&E (retours 107 et 108)
+
+**Retour 107** : « analyse bien tes paramètres parce que là c'est enfantin, en plus d'autres paramètres existent déjà depuis le MMR ou le RBM, un calcul déjà fait » ; « pense comme un spécialiste en suivi-évaluation de projet humanitaire ».
+
+**Retour 108 (15/10)** : « le MMR te donne déjà le nombre de sites à suivre minimal par mois et le nombre total de suivis à faire par site, avec les écarts minimaux, la période de l'activité, etc. Ce qui me reste, c'est de définir le nombre de suivis par jour à faire par agent (déjà dans le MMR je crois), et donc calculer le nombre de sites à faire par jour par zone (idéalement pour ne pas faire de va-et-vient, prioriser les mêmes communes sans distinction d'activités), et ça te donne les sites à suivre par mois. C'est à partir d'une telle répartition qu'on calcule le nombre d'agents dont on a besoin pour faire un suivi, et le nombre de véhicules pour un suivi bien fait, et que l'on puisse atteindre nos objectifs. »
+
+Le plan part donc des **besoins** : ce que le MMR exige, réparti mois par mois et zone par zone, donne les **ressources nécessaires** (agents, véhicules). La capacité déclarée est comparée à ces besoins, pour information : ce n'est pas une limite par défaut. La v1 faisait l'inverse : elle bornait le plan à la capacité, redemandait des valeurs déjà connues (suivis par jour, part minimale, « non visités depuis N mois ») et montrait des réglages internes de l'algorithme. Ils sont retirés.
+
+**Méthode (stratégie par défaut « Planifier selon les besoins du MMR »).**
+1. Exigence, par bureau × activité (ligne MMR effective, `mmrMath.deriveMmr`, sites = sites éligibles du registre) : écart minimal entre deux visites d'un site = intervalle H = durée ÷ risque ; visites dues par site sur la période = fréquence (= risque) ; sites à suivre au minimum par mois = J = sites ÷ H ; période = durée d'opération, mois actifs du site selon la grille « Sites (actifs / inactifs) ».
+2. Répartition dans l'exercice : chaque site reçoit ses visites restantes (dues moins réalisées ou prévues dans l'exercice), à H mois d'écart au moins, dans ses mois actifs. Chaque mois, l'activité reçoit sa part équilibrée, soit visites restantes ÷ mois restants. Un site dont c'est le dernier mois possible pour tenir ses visites passe d'abord (« échéance »). Parmi les sites possibles, le RBM fixe l'ordre : recommandation urgente, risque élevé, jamais visité, puis le plus ancien. La répartition couvre toute la fin de l'exercice ; l'aperçu n'en montre que la période choisie.
+3. Zones : chaque mois, les visites d'une même commune, toutes activités confondues, forment des journées (une journée = un agent dans une commune). Un site possible de la même commune est ajouté à la journée plutôt que laissé pour un autre déplacement : « regroupé, même commune ». Les communes d'un district forment une tournée. Journées-agent d'une commune = ⌈Σ (1 ÷ suivis par jour de l'activité)⌉, avec les suivis par jour du MMR.
+4. Ressources nécessaires, par mois et par bureau :
+   - agents = ⌈journées-agent ÷ jours de terrain par agent⌉, avec les jours ouvrés du MMR, sinon le paramètre « jours de terrain par agent et par mois » ;
+   - journées réparties entre ces agents dans l'ordre des tournées (district par district), la journée suivante allant à l'agent libre le plus tôt ;
+   - véhicules d'un jour = Σ par district ⌈agents de ce district ce jour ÷ agents par véhicule⌉ ; l'aperçu donne le pic et la moyenne du mois.
+   - comparé au déclaré (personnes du MMR ; agents du TPM du contrat quand MEMS les connaîtra) : « il manque 3 agents et 1 véhicule en novembre à Ampanihy ». Information, jamais une limite.
+5. « Appliquer » enregistre chaque visite avec son mois, sa tournée (`plan_tour`), son jour de terrain (`plan_day`), son rôle générique (« Agent N ») et sa date (le N-ième jour ouvré du mois). Les jours de collecte suivent (visites datées). Le prestataire reste celui du contrat de la zone (retour 58, estampillé par la base).
+
+Stratégie secondaire, `capacite` : « Limiter à la capacité déclarée ». C'est le comportement de la v1 : le plan reste dans la capacité du MMR, et le RBM fixe l'ordre de priorité. Les ressources nécessaires et l'écart à l'exigence sont montrés de la même façon.
+
+| Paramètre | Source dans MEMS | Lecture seule / réglable | Défaut | Pourquoi |
+|---|---|---|---|---|
+| Sites à suivre au mois M (univers) | Registre × grille « Sites (actifs / inactifs) », règle unique `isActiveMonth`, moins les zones interdites (sécurité ≥ 99) et les visites annulées | lecture seule, lien vers Sites (actifs / inactifs) | — | on ne planifie que ce qui fonctionne et reste accessible |
+| Écart minimal, visites par site, sites par mois, période | Exigences (MMR) par bureau × activité : H = durée ÷ risque, fréquence, J = sites ÷ H, durée | lecture seule, lien vers Exigences (MMR) ; activité sans MMR = « à paramétrer » | — | déjà saisi une fois |
+| Suivis par jour et par agent | MMR, colonne « Suivis/j » | lecture seule ; vide = 1 par journée, signalé « à paramétrer » | — | déjà dans le MMR |
+| Jours de terrain par agent et par mois | MMR, colonne « jours ouvrés » ; sinon `plan_settings.field_days_per_month` | lecture seule, sauf la valeur de repli | 20 | seulement quand le MMR ne le dit pas |
+| Ordre de priorité | RBM, Priorités du mois (`rbmScore` : recommandations urgentes, niveau, retard, jamais visité) | lecture seule, lien vers Priorités du mois | — | le RBM le calcule déjà |
+| Agents déclarés | MMR, colonne « personnes » (agents du TPM du contrat quand connus) | lecture seule, comparé aux besoins | — | l'écart est une information |
+| Plafond budgétaire du contrat TPM | contrat de suivi (ligne IV.suivi ÷ mois) | lecture seule : **non vérifié** tant que le coût d'une journée de collecte n'est pas connu | — | dit tel quel, jamais deviné |
+| Prestataire (TPM) | contrat de la zone (retour 58), estampillé par la base | lecture seule | — | règle des contrats |
+| Stratégie | `plan_settings.strategy` | réglable (compte, et pour un plan) | « Planifier selon les besoins du MMR » | « Limiter à la capacité déclarée » reste possible |
+| Agents par véhicule | `plan_settings.agents_per_vehicle` | réglable | 4 | le seul chiffre que MEMS ne connaît pas pour compter les véhicules |
+| Communes exclues pour l'accès | aperçu seulement (`adjust.excludedCommunes`) | ajustement avancé | aucune | saison des pluies, route coupée |
+
+**Retirés.** Chacun est dérivé, ou fixé à une valeur qui n'appelle aucune réflexion ; les notes de calcul le disent : part minimale de sites couverts (c'est l'exigence du MMR) ; suivis par jour par défaut (colonne du MMR) ; « non visités depuis N mois » (écart du MMR, ordre du RBM) ; niveaux retenus (tous) ; regroupement des journées (toujours la commune, toutes activités, tournée par district) ; jours de déplacement par tournée (0 : ils restent ceux des jours de collecte) ; marge de capacité ; écart minimal d'un site urgent (1 mois) ; anticipation (non) ; ligne du plan général du MMR (modèle appliqué à chaque bureau) ; tirage aléatoire (non retenu pour l'instant).
+
+**Aperçu.** En tête, la phrase qui résume : « Le MMR demande V visites de S sites sur la période (au moins J sites par mois). Regroupées par commune, toutes activités, elles font D journées-agent : il faut A agents au mois le plus chargé et K véhicules au jour le plus chargé ; le MMR en déclare P. » Suivent :
+- par mois : sites, visites, minimum du MMR, journées-agent, agents nécessaires et déclarés, écart, véhicules (pic, moyenne) ;
+- par bureau et par mois : les écarts mis en évidence ;
+- par zone (district › commune) : journées et sites par jour ;
+- les règles appliquées avec leur source (ligne MMR, niveau RBM, grille d'activation) ;
+- les visites proposées dans la grille et les sites non planifiés avec leur raison.
+
+**Stockage.** Les migrations 077 et 078 ne sont pas encore publiées : elles sont réécrites. `plan_settings` contient `strategy` ('besoins' | 'capacite'), `agents_per_vehicle` (1 à 10), `field_days_per_month` (1 à 26), `revision`, `updated_by` et `updated_at`. `plan_runs.strategy` remplace `objective`, et `plan_runs.needs` garde les ressources nécessaires calculées. Les raisons `site_visits.plan_why` ajoutent « echeance ».
+
 ## 7. Générateur de plan réaliste (retour 55-2)
 
 ### 7.1 Contrat du module pur — `server/src/modules/tpm/planGenerator.js`
