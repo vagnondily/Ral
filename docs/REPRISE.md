@@ -63,7 +63,10 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 | `wip/indicators` | oui | Agent : modèles d'indicateurs corrigés, modèle Résilience, proposition et rattachement automatiques (retours 66, 85 ; migration 098 si besoin) | 🔄 depuis 14:09 |
 | `wip/repeats` | oui | Agent : sous-tables (groupes répétés) à l'import, réponses « Autre, précisez » comptées (retours 77, 81 ; migrations 097, 099) | 🔄 depuis 14:09 |
 | `wip/calc` | oui | Agent : fonctions de calcul (Excel, Tableau, DAX, statistiques), sans exécution de code (retour 74) | 🔄 depuis 14:12 |
-| `wip/pdd` | oui | Agent : PDD — vue d'ensemble, tableau récapitulatif par mois, date d'ajout (retour 69, migration 100) | 🔄 depuis 14:12 |
+| `wip/pdd` | oui | Agent : PDD — vue d'ensemble, tableau récapitulatif par mois, date d'ajout (retour 69, migration 100) | ⏸️ arrêté par la limite du 14/10, pas encore relancé |
+| `wip/dash-template` | oui (au fil de l'eau) | Agent : « Couverture & performance du suivi » fidèle à la maquette de l'utilisateur (retours 40, 66, 67, 85, 101 ; migration 101 si besoin) | 🔄 depuis 15/10 05:37 |
+| `wip/offices` | oui (au fil de l'eau) | Agent : types de bureau à niveaux facultatifs, périmètre en arbre Région › District › Commune, bureau d'un site déduit des périmètres (retours 105, 106 ; migrations 102–103) | 🔄 depuis 15/10 05:47 |
+| `wip/activities` | oui (au fil de l'eau) | Agent : référentiel des activités à 3 niveaux, reprise des libellés, listes partout, activités inconnues refusées (retours 92, 106 ; migration 090) | 🔄 depuis 15/10 05:50 |
 
 ## 3. Chantiers : en cours et à venir
 
@@ -107,7 +110,7 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `066` | `sites.tag_code` | ✅ |
   | `067` | option des codes Adm | ✅ |
   | `068` | justificatif ≥ 10 caractères (retour 56) | ✅ |
-  | `069` | agent `wip/ui-polish` (si besoin) | 🔄 |
+  | `069` | libre (l'agent `wip/ui-polish` n'en a pas eu besoin) | — |
   | `070`–`071` | retour 58 (agent `wip/r58`) | 🔄 |
   | `072` | journal des sites actifs / inactifs | ✅ |
   | `073` | identifiant des sites `S-XXXX-XXXX` | ✅ |
@@ -117,13 +120,16 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `081` | agent `wip/perf` (index, si besoin) | 🔄 |
   | `082`–`085` | multi-pays (conception) | ⏳ |
   | `086`–`089` | lot 8 (agent `wip/lot8`) | 🔄 |
-  | `090`–`095` | programmes, projets, bailleurs, Output (conception) | ⏳ |
+  | `090` | référentiel des activités (agent `wip/activities`, étape 3 de `SPEC_PROGRAMMES`) | 🔄 |
+  | `091`–`095` | bailleurs, programmes, projets, cadre logique, Output, connecteur (conception) | ⏳ |
   | `096` | état de l'application, remise à zéro, archives 24 h (agent `wip/admin`) | 🔄 |
   | `097` | sous-tables et « Autre » (agent `wip/repeats`) | 🔄 |
   | `098` | indicateurs des fiches (agent `wip/indicators`, si besoin) | 🔄 |
   | `099` | sous-tables, 2ᵉ fichier si besoin (agent `wip/repeats`) | 🔄 |
   | `100` | PDD : date d'ajout (agent `wip/pdd`) | 🔄 |
-  | `101` et suivants | libres | — |
+  | `101` | tableau de bord d'après la maquette (agent `wip/dash-template`, si besoin) | 🔄 |
+  | `102`–`103` | types de bureau, périmètre, bureau déduit (agent `wip/offices`) | 🔄 |
+  | `104` et suivants | libres | — |
 
 - **Publier sur `main`** seulement après :
   - `cd server && npm test && npm run lint` ;

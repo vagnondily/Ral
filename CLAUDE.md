@@ -522,6 +522,12 @@ or navy rail.
   chaque changement est journalisé (`site_activation_changes`, append-only, avant → après, motif, source
   écran / import). Import : rapprochement par identifiant, aperçu sans écriture, une case VIDE laisse le
   mois inchangé, un site inconnu n'est jamais créé (il vient du registre). Règles pures `activationMath`.
+  **Forme du Plan de suivi** (retour 98) : mêmes classes `pb-*` (planBoard.css), `activation.css` ne porte
+  que le propre à la grille (tout préfixé `act-`). **Règle UNIQUE « site actif au mois M »** = celle des
+  tableaux de bord (`common/siteActivitySql`) : dès que l'exercice a une grille, seul « Oui » est actif
+  (case vide = inactive, badge « À renseigner ») ; sans aucune grille, tous les sites comptent actifs
+  (`web/src/lib/activation.isActiveMonth`). « Renseigner les cases vides » = `POST …/activation/fill`
+  (`activationMath.blankFill`, sous verrou, une transaction ; un Oui / Non saisi ne change jamais).
 - **Identifiant des sites** (retour 64, migration 073, `common/publicId.js`) : chaque site porte un
   identifiant affiché `S-XXXX-XXXX` (8 symboles Crockford base 32 sans I, L, O, U, tirés au hasard par
   la base `mems_site_public_id()`, uniques par compte, IMMUABLES — déclencheur). L'UUID interne reste la
