@@ -408,7 +408,18 @@ export const api = {
   deleteOffice: (id, { confirm } = {}) => request(`/api/settings/offices/${id}`, { method: 'DELETE', query: confirm ? { confirm: 1 } : undefined }),
   createActivity: (input) => request('/api/settings/activities', { method: 'POST', body: input }),
   setActivityActive: (id, active) => request(`/api/settings/activities/${id}`, { method: 'PATCH', body: { active } }),
-  // Sous-activités (retour 92) : activité › sous-activité (activity_tag) › information.
+  // Activités de programme (suivi de processus, migration 105) › sous-activités › information.
+  listProgrammeActivities: () => request('/api/programme-activities'),
+  programmeActivityReferential: () => request('/api/programme-activities/referential'),
+  createProgrammeActivity: (input) => request('/api/programme-activities', { method: 'POST', body: input }),
+  updateProgrammeActivity: (id, input) => request(`/api/programme-activities/${id}`, { method: 'PATCH', body: input }),
+  deleteProgrammeActivity: (id) => request(`/api/programme-activities/${id}`, { method: 'DELETE' }),
+  mergeProgrammeActivity: (id, targetId) => request(`/api/programme-activities/${id}/merge`, { method: 'POST', body: { targetId } }),
+  convertProgrammeActivity: (id, input) => request(`/api/programme-activities/${id}/convert`, { method: 'POST', body: input }),
+  linkProgrammeLabel: (input) => request('/api/programme-activities/aliases', { method: 'POST', body: input }),
+  unlinkProgrammeLabel: (id, key) => request(`/api/programme-activities/${id}/aliases/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+  repriseProgrammeActivities: () => request('/api/programme-activities/reprise', { method: 'POST' }),
+  // Sous-activités (retour 92) : activité de programme › sous-activité (Activity_tag) › information.
   listSubActivities: (query) => request('/api/sub-activities', { query }),
   createSubActivity: (input) => request('/api/sub-activities', { method: 'POST', body: input }),
   updateSubActivity: (id, input) => request(`/api/sub-activities/${id}`, { method: 'PATCH', body: input }),

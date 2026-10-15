@@ -3155,3 +3155,77 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 @media (max-width: 760px) {
   .mapx-legend-groups { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ---- Paramétrage › Activités : activités de programme › sous-activités › information (migration 105) ---- */
+.actref-purpose { margin: 0; padding: 0 20px 14px; max-width: 120ch; color: var(--text); font-size: var(--fs-sm); line-height: 1.5; }
+.actref-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr); gap: 16px; align-items: start; }
+.actref-listcard, .actref-infocard { min-width: 0; }
+.actref-infocard { position: sticky; top: 64px; }
+.actref-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
+.actref-toolbar .card-title { margin: 0; }
+.actref-search { position: relative; display: flex; align-items: center; flex: 0 1 280px; min-width: 0; }
+.actref-search svg { position: absolute; left: 10px; color: var(--text-faint); pointer-events: none; }
+.actref-search .input { padding-left: 32px; width: 100%; }
+.actref-tree, .actref-tree ul { list-style: none; margin: 0; padding: 0; }
+.actref-node { border-bottom: 1px solid var(--border); }
+.actref-node:last-child { border-bottom: 0; }
+.actref-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 52px;
+  padding: 6px 14px 6px 8px; cursor: pointer; transition: background-color .12s var(--ease); }
+.actref-row:hover { background: var(--surface-2); }
+.actref-row.is-selected { background: var(--blue-50); box-shadow: inset 2px 0 0 var(--blue-600); }
+.actref-row.is-off .actref-label, .actref-row.is-off .actref-sublabel { color: var(--text-muted); }
+.actref-chevron { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-muted); cursor: pointer; }
+.actref-chevron svg { transition: transform .15s var(--ease); }
+.actref-chevron:hover:not(:disabled) { background: var(--canvas-sunken); color: var(--text-strong); }
+.actref-chevron:disabled { opacity: .35; cursor: default; }
+.actref-chevron:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.actref-ic { display: grid; place-items: center; width: 26px; color: var(--orange); }
+.actref-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.actref-label { font-weight: 600; color: var(--text-strong); overflow-wrap: anywhere; }
+.actref-short { font-size: var(--fs-sm); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actref-meta { font-size: 12px; color: var(--text-muted); text-align: right; line-height: 1.35; white-space: nowrap; }
+.actref-badges { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.actref-subrow { grid-template-columns: 28px auto minmax(0, 1fr) auto auto; min-height: 40px; padding-left: 22px; background: var(--surface); }
+.actref-subnode + .actref-subnode .actref-subrow { border-top: 1px dashed var(--border); }
+.actref-branch { justify-self: center; color: var(--text-faint); }
+.actref-tag { font-size: 12.5px; font-weight: 600; color: var(--blue-700); background: var(--blue-50); padding: 1px 7px; border-radius: var(--radius-sm); }
+.actref-sublabel { color: var(--text); overflow-wrap: anywhere; }
+.actref-node.is-bucket > .actref-row { grid-template-columns: 28px minmax(0, 1fr) auto; background: var(--orange-bg); }
+.actref-empty { padding: 18px 16px; color: var(--text-muted); }
+.actref-sheet { display: grid; gap: 10px; }
+.actref-sheet-head { display: grid; gap: 6px; }
+.actref-sheet-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--fs-lg); font-weight: 650; color: var(--text-strong); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.actref-sheet-sub { color: var(--text-muted); font-size: var(--fs-sm); }
+.actref-sheet-head .actref-badges { justify-content: flex-start; }
+.actref-desc { margin: 0; color: var(--text); white-space: pre-wrap; }
+.actref-h { margin: 8px 0 0; font-size: 11.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.actref-usage { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; margin: 0; }
+.actref-usage > div { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 7px 10px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface); }
+.actref-usage dt { font-size: var(--fs-sm); color: var(--text); }
+.actref-usage dd { margin: 0; font-weight: 650; color: var(--text-strong); }
+.actref-usage > div.is-zero dd, .actref-usage > div.is-zero dt { color: var(--text-faint); font-weight: 500; }
+.actref-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.actref-chips li { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--surface-2); font-size: var(--fs-sm); color: var(--text); max-width: 100%; }
+.actref-chips li > span:first-child { overflow-wrap: anywhere; }
+.actref-chips svg { color: var(--text-faint); flex-shrink: 0; }
+.actref-chip-src { font-size: 11px; color: var(--text-faint); }
+.actref-chip-x { display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: transparent;
+  color: var(--text-faint); cursor: pointer; }
+.actref-chip-x:hover { background: var(--red-bg); color: var(--red-text); }
+.actref-chip-x:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.actref-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--border); }
+.actref-form { display: grid; gap: 14px; }
+@media (max-width: 1100px) {
+  .actref-grid { grid-template-columns: minmax(0, 1fr); }
+  .actref-infocard { position: static; }
+}
+@media (max-width: 560px) {
+  .actref-row { grid-template-columns: 26px minmax(0, 1fr) auto; padding-right: 10px; }
+  .actref-row .actref-meta { display: none; }
+  .actref-subrow { grid-template-columns: 22px auto minmax(0, 1fr) auto; padding-left: 10px; }
+  .actref-search { flex: 1 1 100%; }
+  .actref-usage { grid-template-columns: minmax(0, 1fr); }
+}
