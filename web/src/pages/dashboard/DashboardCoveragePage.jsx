@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Gauge, ShieldCheck, Database, TrendingUp, LayoutGrid, LayoutList, ListChecks, Map as MapIcon, FileText, HelpCircle, Info } from 'lucide-react';
+import { Gauge, ShieldCheck, Database, TrendingUp, LayoutGrid, LayoutList, ListChecks, Map as MapIcon, FileText, HelpCircle, Info, SlidersHorizontal, Sparkles, Link2 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, PageHeader, Skeleton } from '../../components/ui.jsx';
 import PeriodSelect from '../../components/PeriodSelect.jsx';
@@ -112,16 +112,22 @@ export default function DashboardCoveragePage({ onNavigate }) {
         description={tr('Vue analytique du suivi de processus : couverture terrain, données versées, conformité par bande, plan vs réalisé, et détail par activité (dimensions, indicateurs). Recalculé en direct.')}>
         {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} maxSpan={ANALYSIS_MAX_SPAN} align="right" />}
       </PageHeader>
-      <PeriodBanner auto={auto} period={period} />
-      <SessionPeriodNote source={source} onReset={resetToDefault} />
 
-      <div className="cd-views" role="tablist" aria-label={tr('Vues')}>
-        {VIEWS.map((v) => (
-          <button key={v.id} type="button" role="tab" aria-selected={view === v.id}
-            className={`cd-view${view === v.id ? ' is-active' : ''}`} onClick={() => setView(v.id)}>
-            <v.icon size={15} aria-hidden="true" />{tr(v.label)}
-          </button>
-        ))}
+      {/* Retour 85 : la période (et la mention de session, en dessous) à gauche, le choix de la vue à
+          droite — plus de mention collée au sélecteur de vue. */}
+      <div className="cd-headbar">
+        <div className="cd-headbar-period">
+          <PeriodBanner auto={auto} period={period} />
+          <SessionPeriodNote source={source} onReset={resetToDefault} />
+        </div>
+        <div className="cd-views" role="tablist" aria-label={tr('Vues')}>
+          {VIEWS.map((v) => (
+            <button key={v.id} type="button" role="tab" aria-selected={view === v.id}
+              className={`cd-view${view === v.id ? ' is-active' : ''}`} onClick={() => setView(v.id)}>
+              <v.icon size={15} aria-hidden="true" />{tr(v.label)}
+            </button>
+          ))}
+        </div>
       </div>
 
       {error && <Alert tone="error">{error}</Alert>}
@@ -250,7 +256,7 @@ function Overview({ cd, cov, field, rbmStats, period, mapData, onNavigate }) {
 
       <div className="biz-grid cd-grid-2">
         <PlanVsReal rows={pvr} />
-        <BarsCard title={tr('Performance par activité')} sub={tr('Indice de conformité par fiche')}
+        <BarsCard fill title={tr('Performance par activité')} sub={tr('Indice de conformité par fiche')}
           rows={byActivity.map((a) => ({
             key: a.key, label: a.label, pct: a.pct,
             // Sans indicateur (ou sans donnée notée) : le dire, au lieu d'un « 0 · ok » trompeur.
@@ -281,6 +287,34 @@ function ActivityView({ form, period, periods, onPick, onNavigate }) {
     const ms = (periods?.months || []).filter((m) => !m.future && (m.byForm || {})[form.id] > 0).map((m) => m.month);
     return ms.length ? ms[ms.length - 1] : null;
   }, [periods, form.id]);
+  const trendCard = (
+    <div className="card biz-card">
+      <div className="card-header"><div className="card-title">{tr('Données versées — tendance mensuelle')}</div></div>
+      <div className="card-body">
+        <TrendChart data={form.trend} selected={period} height={190} unit={tr('formulaire(s)')}
+          label={tr('Formulaires reçus par mois, {n} mois finissant en {m} ; période surlignée : {p}', { n: (form.trend || []).length, m: period ? monthLabel(period.to) : '', p: pLabel })}
+          empty={tr('Aucune donnée versée.')} />
+      </div>
+    </div>
+  );
+
+  // Retour 85 : fiche sans indicateur — une seule explication et la marche à suivre, au lieu de
+  // zéros, de « — » et de cartes vides ; les cartes qui ont un contenu (données) restent.
+  if (!form.indicatorCount) {
+    return (
+      <>
+        <div className="cd-noind">
+          <Kpi icon={Database} label={tr('Données versées')} value={formatInt(form.submissions || 0)} foot={tr('soumissions de la fiche')} />
+          <NoIndicatorCard form={form} onNavigate={onNavigate} />
+        </div>
+        <div className="biz-grid cd-grid-2">
+          {trendCard}
+          <BureauCard rows={form.byBureau || []} onNavigate={onNavigate} />
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <div className="biz-kpis cd-kpis-3">
@@ -339,17 +373,50 @@ function ActivityView({ form, period, periods, onPick, onNavigate }) {
       </div>
 
       <div className="biz-grid cd-grid-2">
-        <div className="card biz-card">
-          <div className="card-header"><div className="card-title">{tr('Données versées — tendance mensuelle')}</div></div>
-          <div className="card-body">
-            <TrendChart data={form.trend} selected={period} height={160} unit={tr('formulaire(s)')}
-              label={tr('Formulaires reçus par mois, {n} mois finissant en {m} ; période surlignée : {p}', { n: (form.trend || []).length, m: period ? monthLabel(period.to) : '', p: pLabel })}
-              empty={tr('Aucune donnée versée.')} />
-          </div>
-        </div>
+        {trendCard}
         <BureauCard rows={form.byBureau || []} onNavigate={onNavigate} />
       </div>
     </>
+  );
+}
+
+/**
+ * Fiche reçue mais sans indicateur (retour 85) : dire pourquoi les résultats sont vides et
+ * mener à la configuration — définir les indicateurs, appliquer le modèle de l'activité
+ * rattachée, ou d'abord rattacher la fiche à une activité.
+ */
+function NoIndicatorCard({ form, onNavigate }) {
+  const { tr } = useI18n();
+  const go = (tab) => onNavigate && onNavigate('processus', 'donnees', form.id, tab);
+  return (
+    <div className="card biz-card cd-noind-card" role="status">
+      <span className="cd-noind-ic" aria-hidden="true"><ListChecks size={20} /></span>
+      <div className="cd-noind-body">
+        <div className="cd-noind-title">{tr('Aucun indicateur n\'est encore configuré pour cette fiche')}</div>
+        <p className="cd-noind-text">
+          {(form.submissions || 0) > 0
+            ? tr('Les données arrivent ({n} soumission(s) sur la période), mais aucun indicateur ne les transforme encore en résultats : conformité, dimensions et points forts apparaîtront dès qu\'un indicateur sera défini.', { n: formatInt(form.submissions) })
+            : tr('Aucun indicateur ne transforme encore les données de cette fiche en résultats : conformité, dimensions et points forts apparaîtront dès qu\'un indicateur sera défini.')}
+        </p>
+        {onNavigate && (
+          <div className="cd-noind-actions">
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => go('config')}>
+              <SlidersHorizontal size={15} aria-hidden="true" />{tr('Configurer les indicateurs')}
+            </button>
+            {form.activityCategory
+              ? (
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => go('modele')} title={tr('Modèle de l\'activité « {a} »', { a: form.activityCategory })}>
+                  <Sparkles size={15} aria-hidden="true" />{tr('Appliquer le modèle d\'activité')}
+                </button>
+              ) : (
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => go(null)}>
+                  <Link2 size={15} aria-hidden="true" />{tr('Rattacher à une activité')}
+                </button>
+              )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -358,7 +425,7 @@ function BureauCard({ rows, onNavigate }) {
   const { tr } = useI18n();
   const max = Math.max(1, ...rows.map((r) => r.submissions || 0));
   return (
-    <div className="card biz-card">
+    <div className="card biz-card cd-fill">
       <div className="card-header"><div className="card-title">{tr('Données par bureau')}</div><div className="card-sub">{tr('soumissions sur la période')}</div></div>
       <div className="card-body biz-gauges">
         {rows.length === 0 ? <p className="muted">{tr('Aucune donnée.')}</p> : rows.map((r) => (
@@ -469,10 +536,10 @@ function PlanVsReal({ rows }) {
 }
 
 /** Carte à barres horizontales génériques (pct 0–100 ou count relatif). */
-function BarsCard({ title, sub, rows, empty, mode = 'pct' }) {
+function BarsCard({ title, sub, rows, empty, mode = 'pct', fill = false }) {
   const max = mode === 'count' ? Math.max(1, ...rows.map((r) => r.count || 0)) : 100;
   return (
-    <div className="card biz-card">
+    <div className={`card biz-card${fill ? ' cd-fill' : ''}`}>
       <div className="card-header"><div className="card-title">{title}</div>{sub && <div className="card-sub">{sub}</div>}</div>
       <div className="card-body biz-gauges">
         {(!rows || rows.length === 0) ? <p className="muted">{empty}</p> : rows.map((r) => {
@@ -495,7 +562,7 @@ function BarsCard({ title, sub, rows, empty, mode = 'pct' }) {
 function DimsCard({ dims }) {
   const { tr } = useI18n();
   return (
-    <div className="card biz-card">
+    <div className="card biz-card cd-fill">
       <div className="card-header"><div className="card-title">{tr('Dimensions du suivi')}</div>
         <div className="card-sub">{tr('Score moyen par dimension (les plus faibles d\'abord)')}</div></div>
       <div className="card-body biz-gauges">
@@ -556,7 +623,7 @@ function RegionsCard({ regions }) {
 function WatchCard({ rows, onNavigate }) {
   const { tr } = useI18n();
   return (
-    <div className="card biz-card">
+    <div className="card biz-card cd-fill">
       <div className="card-header"><div className="card-title">{tr('Zones à surveiller — exécution du plan')}</div>
         <div className="card-sub">{tr('Districts dont l\'exécution du plan (visites) est < 80 %')}</div></div>
       <div className="card-body biz-gauges">
