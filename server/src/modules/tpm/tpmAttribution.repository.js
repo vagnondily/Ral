@@ -488,6 +488,7 @@ const slimCell = (c) => (c ? {
   contractId: c.contractId || null, numero: c.numero || null, contractLabel: c.contractLabel || null,
   reason: c.override ? c.override.reason : null, flags: (c.flags || []).filter((f) => f !== 'titulaire_non_tpm'),
   candidates: c.state === 'a_arbitrer' && c.default ? c.default.candidates.map((x) => ({ providerId: x.providerId, providerName: x.providerName, contractLabel: x.contractLabel })) : undefined,
+  detached: c.detached || undefined, // zone de contrat à resélectionner (indice, aucun TPM)
 } : null);
 
 /**

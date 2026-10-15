@@ -12,6 +12,7 @@ import { useI18n } from '../../lib/i18n.jsx';
 // Libellés des critères (échelles du classeur RBM) et formulaire « Éditer les critères » : module pur testé.
 import { LABEL01, LABEL02, RBM_CRITERIA, caseloadOf, criteriaForm, criteriaPatch, hasBeneficiaryNumber, securityLabel } from '../../lib/rbmCriteria.js';
 import { RbmExplainDrawer, ScoreButton, UrgentButton } from './RbmExplain.jsx';
+import { ZoneTpmLabel } from './TpmFields.jsx';
 
 const RISK = {
   elevee: { label: 'Élevé', color: 'var(--red)', bg: 'var(--red-bg)', text: 'var(--red-text)', freq: 'tous les mois' },
@@ -132,6 +133,9 @@ export default function RbmPage({ canEdit, embedded = false }) {
       district: { label: tr('District'), sortVal: (s) => s.adm2 || s.district || '', csv: (s) => s.adm2 || s.district || '', render: (s) => s.adm2 || s.district || '—' },
       communes: { label: tr('Commune'), sortVal: (s) => s.adm3 || s.commune || '', csv: (s) => s.adm3 || s.commune || '', render: (s) => s.adm3 || s.commune || '—' },
       fokontany: { label: tr('Fokontany'), sortVal: (s) => s.fokontany || '', csv: (s) => s.fokontany || '', render: (s) => s.fokontany || '—' },
+      // Retour 58 : TPM de la zone du site ce mois-là — celui du contrat de suivi, ou une modification motivée.
+      tpm: { label: tr('TPM de la zone'), sortVal: (s) => (s.tpm && s.tpm.providerName) || '', csv: (s) => (s.tpm && s.tpm.providerName) || '',
+        render: (s) => <ZoneTpmLabel tpm={s.tpm} /> },
       idSite: { label: tr('ID site'), sortVal: (s) => s.code || '', csv: (s) => s.code || '', render: (s) => <span className="mono">{s.code || '—'}</span> },
       gpsLat: { label: tr('GPS Lat.'), num: true, sortVal: (s) => s.gpsLat ?? -999, csv: (s) => s.gpsLat ?? '', render: (s) => (s.gpsLat ?? '—') },
       gpsLng: { label: tr('GPS Long.'), num: true, sortVal: (s) => s.gpsLng ?? -999, csv: (s) => s.gpsLng ?? '', render: (s) => (s.gpsLng ?? '—') },
@@ -200,7 +204,7 @@ export default function RbmPage({ canEdit, embedded = false }) {
       match: (s, v) => (v === 'due' ? !!s.due : !s.due) },
   }), [offices, officeById, descendantsOf, tr]); // eslint-disable-line
 
-  const DEFAULT_COLS = ['subOffice', 'antenne', 'name', 'district', 'communes', 'risk', 'lastVisit', 'dataVisit', 'finalScore', 'due'];
+  const DEFAULT_COLS = ['subOffice', 'antenne', 'name', 'district', 'communes', 'tpm', 'risk', 'lastVisit', 'dataVisit', 'finalScore', 'due'];
 
   return (
     <div className="section-gap">
@@ -238,7 +242,7 @@ export default function RbmPage({ canEdit, embedded = false }) {
       <DataList
         rows={sites} columns={columns} defaultColumns={DEFAULT_COLS}
         filters={filters} defaultFilters={['q', 'office', 'risk', 'due']}
-        storageKey="mems.rbm.view.v4" pageSize={15} defaultSort={{ key: 'finalScore', dir: 'desc' }}
+        storageKey="mems.rbm.view.v5" pageSize={15} defaultSort={{ key: 'finalScore', dir: 'desc' }}
         csvName={`rbm_${month}.csv`} emptyIcon={MapPin} emptyTitle={tr('Aucun site référencé')}
         emptyChildren={tr('Importez le référentiel Master Data (.xlsx) pour alimenter le RBM.')}
         selectable selectedId={selectedId} onSelect={setSelectedId}

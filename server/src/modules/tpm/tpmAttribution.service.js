@@ -31,6 +31,7 @@ function cellView(c) {
   return {
     state: c.state, providerId: c.providerId || null, providerName: c.providerName || null,
     contractId: c.contractId || null, numero: c.numero || null, contractLabel: c.contractLabel || null, flags: c.flags || [],
+    detached: c.detached || undefined,
     override: o ? {
       id: o.id, reason: o.reason, by: o.updatedByName || null, at: o.updatedAt, expectedLabel: o.expectedLabel || null,
       expectedState: o.expectedState, batchId: o.batchId || null,
@@ -129,7 +130,8 @@ const areaName = (areas, id) => (areas.find((a) => a.id === id) || { name: '' })
 
 /**
  * Prestataires actifs (titulaires) et sélectionnables sur une plage, avec leurs mois et contrats
- * (règle commune du lot 8) ; chaque contrat porte en plus son libellé d'écran (n° FLA, sinon numéro).
+ * (règle commune du lot 8) ; chaque contrat porte en plus son libellé d'écran (n° FLA, sinon numéro) ;
+ * `contractTpms` : contrat de suivi → son ou ses TPM (règle unique du retour 58).
  */
 async function providers(tenantId, { period }) {
   return withTenantTransaction(tenantId, async (client) => {
@@ -140,6 +142,10 @@ async function providers(tenantId, { period }) {
     for (const g of out.groups || []) {
       for (const p of g.providers || []) p.contracts = (p.contracts || []).map((c) => ({ ...c, contractLabel: label.get(c.id) || c.numero }));
     }
+    // TPM de chaque contrat de suivi de la plage (rule.contractTpms : TPM rattaché par plan ou
+    // facture, sinon titulaire) — la valeur par défaut des formulaires prestataire × contrat.
+    out.contractTpms = Object.fromEntries(inputs.contracts.filter((c) => rule.isMonitoringContract(c))
+      .map((c) => [c.id, rule.contractTpms(c).map((p) => ({ id: p.id, name: p.name }))]));
     return out;
   });
 }
@@ -330,11 +336,25 @@ async function setVisitsProvider(tenantId, actor, { visitIds, action, providerId
   });
 }
 
+/**
+ * TPM de la zone de chaque site d'une liste pour un mois (Priorités du mois du RBM, autres listes de
+ * sites) : `row.tpm` = { state, providerId, providerName, contractLabel, reason, candidates? } — la
+ * MÊME règle que l'estampille des visites (cellsForSitesTx). Lecture seule ; les lignes sont rendues
+ * telles quelles, complétées. `idOf` : identifiant du site dans la ligne (défaut : row.id).
+ */
+async function withZoneTpm(tenantId, rows, month, { idOf = (r) => r.id } = {}) {
+  const list = rows || [];
+  if (!list.length || !/^\d{4}-\d{2}$/.test(String(month || '').slice(0, 7))) return list;
+  const m = String(month).slice(0, 7);
+  const cells = await withTenantTransaction(tenantId, (client) => repo.cellsForSitesTx(client, tenantId, list.map((r) => ({ siteId: idOf(r), month: m }))));
+  return list.map((r) => ({ ...r, tpm: cells.get(`${idOf(r)}|${m}`) || null }));
+}
+
 async function listLog(tenantId, filters) {
   return withTenantTransaction(tenantId, (client) => repo.listLogTx(client, tenantId, filters));
 }
 
 module.exports = {
-  getTable, providers, resolve, preview, setOverrides, revert, reapply, setVisitsProvider, listLog,
+  getTable, providers, resolve, preview, setOverrides, revert, reapply, setVisitsProvider, listLog, withZoneTpm,
   prepareChangeTx, reasonOf, visitError, contractSegments,
 };

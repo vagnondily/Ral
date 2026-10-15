@@ -222,4 +222,11 @@ export default {
   'Aucun changement visite par visite (rien n\'a changé).': 'No visit-by-visit change (nothing changed).',
   'Afficher {n} de plus': 'Show {n} more',
   '… et {n} autre(s) ligne(s).': '… and {n} other line(s).',
+
+  // Autres écrans : Priorités du mois (RBM), Planification & budget.
+  'TPM de la zone': 'Area TPM',
+  'TPM du contrat : {p}': 'Contract TPM: {p}',
+  'Ce prestataire n\'est pas le TPM de ce contrat ({p}) : vérifiez le couple prestataire × contrat.':
+    'This provider is not the TPM of this contract ({p}): check the provider × contract pair.',
+  'zone à resélectionner (avenant) : contrat {n}': 'zone to reselect (amendment): contract {n}',
 };

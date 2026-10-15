@@ -2,7 +2,7 @@ import React from 'react';
 import { STATUS_ICONS } from '../../components/ui.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { shortMonthLabel } from '../../lib/format.js';
-import { TPM_ZONE_STATE, rangeLabel } from '../../lib/tpmAttribution.js';
+import { TPM_ZONE_STATE, detachedHint, rangeLabel } from '../../lib/tpmAttribution.js';
 import './tpmAttribution.css';
 
 /** Adresse de l'onglet « Affectation des TPM » de l'espace RBM. */
@@ -40,7 +40,7 @@ export default function TpmZoneCell({ tpm, months }) {
     modifie: tr('modifié : {r}', { r: ref.reason || '' }),
     aucun_tpm: tr('aucun TPM, décidé : {r}', { r: ref.reason || '' }),
     a_arbitrer: tr('{n} contrats : choisir', { n: (ref.candidates || []).length || 2 }),
-    sans_contrat: tr('aucun contrat actif sur cette zone ce mois ({m})', { m: when }),
+    sans_contrat: detachedHint(tr, ref) || tr('aucun contrat actif sur cette zone ce mois ({m})', { m: when }),
     district_inconnu: tr('district du site non reconnu'),
   }[ref.state] || '';
   const assigned = Boolean(ref.providerId);

@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const { PERIOD_CAPS } = require('../common/periodCaps');
 const activeProvider = require('./activeProvider');
+const { districtKey } = require('../common/siteDistrict');
 
 /**
  * Attribution des TPM par zone (retour 58) — règle PURE, sans I/O, testée
@@ -200,6 +201,54 @@ function resolveCell(def, override, { partnersById = new Map(), holders = null }
   return { ...cell, providerName: p ? p.name : (fallbackName || null), override: override || null, default: def, flags };
 }
 
+/**
+ * Zones de contrat DÉTACHÉES (découpage réimporté : l'aire n'existe plus sous ce chemin) des
+ * contrats de suivi « actif » ou « résilié » qui couvrent au moins un des mois : nom normalisé du
+ * dernier segment et de la région (siteDistrict.districtKey), mois couverts, contrat. Sert d'INDICE
+ * seulement (detachedHintFor) : jamais un TPM deviné (questions Ambovombe / Ampanihy).
+ * @returns {{ key, regionKey, months: Set<string>, contractId, numero, contractLabel }[]}
+ */
+function detachedZones(contracts, months) {
+  const out = [];
+  for (const c of contracts || []) {
+    if (!isMonitoringContract(c) || !COVERING_STATUSES.includes(c.status)) continue;
+    const covered = new Set((months || []).filter((m) => contractCoversMonth(c, m)));
+    if (!covered.size) continue;
+    for (const z of c.zones || []) {
+      if (z.adminAreaId || !z.path) continue;
+      const parts = String(z.path).split('>');
+      const key = districtKey(parts[parts.length - 1]);
+      if (!key) continue;
+      out.push({ key, regionKey: parts.length > 1 ? districtKey(parts[0]) : '', months: covered,
+        contractId: c.id, numero: c.numero, contractLabel: c.numeroFla || c.numero });
+    }
+  }
+  return out;
+}
+
+/**
+ * Contrats dont une zone détachée correspond, ce mois-là, à une zone SANS contrat : même région (si
+ * connue des deux côtés) et même nom normalisé, ou l'un préfixe de l'autre (5 caractères au moins :
+ * « Ampanihy » ↔ « Ampanihy Ouest » après un réimport). Indice « zone de contrat à resélectionner ».
+ * @param {{ name: string, regionName?: string }} area
+ */
+function detachedHintFor(area, month, zones) {
+  const key = districtKey(area && area.name);
+  if (!key || !zones.length) return [];
+  const regionKey = districtKey(area.regionName);
+  const close = (a, b) => a === b || (Math.min(a.length, b.length) >= 5 && (a.startsWith(b) || b.startsWith(a)));
+  const seen = new Set();
+  const out = [];
+  for (const z of zones) {
+    if (!z.months.has(month) || !close(key, z.key)) continue;
+    if (regionKey && z.regionKey && regionKey !== z.regionKey) continue;
+    if (seen.has(z.contractId)) continue;
+    seen.add(z.contractId);
+    out.push({ contractId: z.contractId, numero: z.numero, contractLabel: z.contractLabel });
+  }
+  return out;
+}
+
 /** Titulaires (ensemble d'identifiants) de chaque mois. */
 function holdersByMonth(contracts, months) {
   return new Map(months.map((m) => [m, new Set(coveringContracts(contracts, m).flatMap((c) => contractTpms(c).map((t) => t.id)))]));
@@ -255,12 +304,16 @@ function buildZoneTable({ areas = [], months = [], contracts = [], overrides = [
   const partnersById = new Map(partners.map((p) => [p.id, p]));
   const ovByKey = new Map(overrides.filter((o) => o.adminAreaId).map((o) => [`${o.adminAreaId}|${o.month}`, o]));
   const holders = holdersByMonth(contracts, months);
+  const detached = detachedZones(contracts, months);
   const cells = new Map();
   for (const a of areas) {
     for (const m of months) {
       const def = defaultFor(a, m, contracts);
       const ov = ovByKey.get(`${a.id}|${m}`) || null;
       const cell = resolveCell(def, ov, { partnersById, holders: holders.get(m) });
+      // Aucun contrat ne couvre, mais un contrat de suivi y a une zone détachée de même nom : indice.
+      const hint = cell.state === 'sans_contrat' ? detachedHintFor(a, m, detached) : [];
+      if (hint.length) { cell.flags.push('zone_a_reselectionner'); cell.detached = hint; }
       cells.set(`${a.id}|${m}`, { areaId: a.id, month: m, own: Number(a.depth) === 3 ? Boolean(ov || def.exactHit) : true, ...cell });
     }
   }
@@ -283,7 +336,8 @@ function cellForSite({ districtId, communeId }, month, table) {
  * lot, même raison), pas par ligne : six mois modifiés d'un coup forment un seul segment.
  */
 const segmentKey = (c) => [c.state, c.providerId || '', c.contractId || '',
-  c.override ? `${c.override.batchId || c.override.id}~${c.override.reason || ''}` : '', c.flags.includes('a_confirmer') ? 1 : 0].join('|');
+  c.override ? `${c.override.batchId || c.override.id}~${c.override.reason || ''}` : '', c.flags.includes('a_confirmer') ? 1 : 0,
+  c.flags.includes('zone_a_reselectionner') ? 1 : 0].join('|');
 
 /** Mois consécutifs identiques (même état, TPM, contrat, décision de modification) → { from, to, cell }. */
 function segments(cellsOfArea) {
@@ -462,5 +516,5 @@ module.exports = {
   contractTpm, isMonitoringContract, contractEndMonth, contractCoversMonth, coveringContracts, coverOf,
   defaultFor, defaultLabel, resolveCell, holdersByMonth, qualityOf, buildZoneTable, cellForSite, segments, stampOf,
   planOverrides, planRevert, restampPlan, summarizeRestamp, selectableProviders, activeProviders, notSelectableMonths,
-  visitDecision, districtAreaFor,
+  visitDecision, districtAreaFor, detachedZones, detachedHintFor,
 };
