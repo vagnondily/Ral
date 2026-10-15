@@ -81,6 +81,15 @@ router.get('/rbm/sites', asyncHandler(async (req, res) => {
   const p = readPeriod(req.query);
   res.json(await repo.rbmSites(t(req), { month: p ? p.to : undefined, asOf: p ? p.to : null, risk: req.query.risk }));
 }));
+// Compteurs seuls (total, par risque, à suivre, à planifier) sur les MÊMES lignes que /rbm/sites :
+// pour les écrans qui n'affichent que des totaux (Synthèse, Couverture, Affectation & visites).
+const rbmCountsQuery = z.object({ risk: z.enum(['faible', 'moyenne', 'elevee']).optional() }).passthrough();
+router.get('/rbm/counts', asyncHandler(async (req, res) => {
+  const q = rbmCountsQuery.safeParse(req.query);
+  if (!q.success) throw badRequest('Niveau de risque invalide : faible, moyenne ou elevee.');
+  const p = readPeriod(req.query);
+  res.json(await repo.rbmCounts(t(req), { month: p ? p.to : undefined, asOf: p ? p.to : null, risk: q.data.risk }));
+}));
 // Pourquoi ce score / ce drapeau, conséquence, que faire (retour n° 48) — un site, à la demande.
 const uuid = z.string().uuid();
 router.get('/rbm/sites/:id', asyncHandler(async (req, res) => {

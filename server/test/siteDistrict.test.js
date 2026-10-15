@@ -104,8 +104,11 @@ test('carte : le contour du district suit sdist, pas un P-code contradictoire', 
   const sql = siteMonthFactsCtes({ period: { from: '2026-09', to: '2026-09' }, todayMonth: '2026-10', geo: true }, params);
   assert.doesNotMatch(sql, /LEFT JOIN admin_areas ad ON ad\.tenant_id = s\.tenant_id AND ad\.pcode = s\.adm2_pcode\s+LEFT JOIN admin_areas aa/,
     'plus de jointure brute par adm2_pcode pour la carte');
-  assert.match(sql, /CASE WHEN g1\.agrees OR g1\.rkey = '' THEN g1\.pid ELSE dna\.id END/);
-  assert.match(sql, /dna\.k = sd\.dkey AND dna\.rk = g1\.rkey/, 'nom retenu cherché dans la région du site');
+  assert.match(sql, /CASE WHEN sd\.agrees OR sd\.rkey = '' THEN sd\.pid ELSE dna\.id END/);
+  assert.match(sql, /dna\.k = sd\.dkey AND dna\.rk = sd\.rkey/, 'nom retenu cherché dans la région du site');
+  // Accord du P-code lu dans sdist : plus de seconde jointure à sd1 (boucle imbriquée quadratique sous RLS).
+  assert.doesNotMatch(sql, /JOIN sd1 g1/);
+  assert.match(sql, /sdist AS MATERIALIZED \([\s\S]*agrees, rkey, pid/);
   const plain = siteMonthFactsCtes({ period: { from: '2026-09', to: '2026-09' }, todayMonth: '2026-10' }, ['tenant']);
   assert.doesNotMatch(plain, /\bdna\b/, 'hors carte, aucun coût ajouté');
 });
