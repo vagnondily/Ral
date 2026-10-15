@@ -495,7 +495,7 @@ const VISIT_COLS = `
   v.activity, to_char(v.period_month, 'YYYY-MM') AS "periodMonth",
   v.provider_id AS "providerId", p.name AS "providerName",
   v.provider_source AS "providerSource", v.provider_zone_state AS "providerZoneState", v.provider_reason AS "providerReason",
-  COALESCE(c.numero_fla, c.numero) AS "contractLabel",
+  COALESCE(c.numero_fla, c.numero) AS "contractLabel", s.zone_district_id AS "zoneDistrictId",
   v.agent, v.status, v.visit_date AS "visitDate"`;
 
 /** Taille d'une page de la liste des visites (et maximum accepté) : ≈ 0,3 Mo par page de 1 000. */

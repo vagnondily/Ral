@@ -554,6 +554,11 @@ or navy rail.
   (`tpm_attribution_log`, inscription seule). La base estampille au COMMIT toute visite « zone » sans TPM
   (déclencheur différé `mems_tpm_stamp`) : un écrivain n'a pas à choisir le TPM. Seules les visites
   PRÉVUES sont réattribuées — réalisées, annulées, figées (« antérieur »), facturées ou motivées jamais.
+  TPM d'un contrat = TPM rattaché par plan / facture, sinon titulaire (règle commune du lot 8
+  `activeProvider`) ; tout écrivain de visites appelle `restampVisitsTx` (test `visitWritersGuard`) ;
+  filtre des réattributions automatiques `AUTO_RESTAMPABLE_SQL` (même filtre dans `mems_tpm_stamp`).
+  Onglet « Affectation des TPM » (`TpmAttributionTab`, espace RBM) : zones région › district, changement
+  motivé avec aperçu, retour au contrat, journal ; autre TPM pour une visite = écart motivé (`provider_source = 'visite'`).
 
 ## Known / open items
 - **Rapportage fidèle à la facture** — DONE. Financial reports now hold a
