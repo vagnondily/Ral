@@ -43,7 +43,10 @@ function createApp() {
   const corsOrigin = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim())
     : '*';
-  app.use(cors({ origin: corsOrigin }));
+  // Pré-vol CORS mis en cache 10 min (Access-Control-Max-Age) : sans lui, le navigateur
+  // le refait toutes les 5 s, soit un aller-retour de plus devant presque chaque appel
+  // (en-tête Authorization) quand l'interface et l'API sont sur deux ports.
+  app.use(cors({ origin: corsOrigin, maxAge: 600 }));
   app.use(express.json({ limit: '1mb' }));
   app.use(pinoHttp({ logger }));
 
