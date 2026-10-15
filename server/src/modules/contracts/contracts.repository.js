@@ -112,14 +112,46 @@ async function getBudgetItems(client, tenantId, contractId) {
   return rows.map((r) => ({ ...r, unitCount: num(r.unitCount), unitCost: num(r.unitCost) }));
 }
 
-/** Geographic areas assigned to the provider: [{ adminAreaId, path, depth }]. */
+/**
+ * Geographic areas assigned to the provider (retours 38 / 79) :
+ * [{ adminAreaId, path, depth, pcode, siteCount, subActivityCount, offices }].
+ * `pcode`, `siteCount`, `subActivityCount` et `offices` enrichissent le tableau
+ * des zones. Les sites d'une zone = ceux rattachés à l'unité ou à l'une de ses
+ * sous-unités (même règle `admin_area_id` + `lineage` que le répertoire des
+ * localités, retour 90, pour un décompte cohérent) ; sous-activités = `tag_code`
+ * distincts de ces sites (retours 66 / 92) ; bureaux = `field_offices` distincts
+ * de ces sites (honnête : ce que portent vraiment les sites, pas un périmètre
+ * déduit). Une zone « à resélectionner » (unité absente du découpage) a `pcode`
+ * null, des comptes à 0 et aucun bureau.
+ */
 async function getContractAreas(client, tenantId, contractId) {
   const { rows } = await client.query(
-    `SELECT admin_area_id AS "adminAreaId", path, depth FROM contract_areas
-      WHERE tenant_id = $1 AND contract_id = $2 ORDER BY path`,
+    `SELECT ca.admin_area_id AS "adminAreaId", ca.path, ca.depth,
+            aa.pcode,
+            COALESCE(sc.n, 0) AS "siteCount",
+            COALESCE(sc.subacts, 0) AS "subActivityCount",
+            COALESCE(sc.offices, '{}') AS offices
+       FROM contract_areas ca
+       LEFT JOIN admin_areas aa ON aa.id = ca.admin_area_id AND aa.tenant_id = ca.tenant_id
+       LEFT JOIN LATERAL (
+         SELECT count(DISTINCT s.id)::int AS n,
+                count(DISTINCT NULLIF(btrim(s.tag_code), ''))::int AS subacts,
+                array_remove(array_agg(DISTINCT fo.name), NULL) AS offices
+           FROM sites s
+           LEFT JOIN admin_areas sa ON sa.id = s.admin_area_id
+           LEFT JOIN field_offices fo ON fo.id = s.field_office_id AND fo.tenant_id = s.tenant_id
+          WHERE s.tenant_id = ca.tenant_id AND aa.id IS NOT NULL
+            AND (sa.id = aa.id OR sa.lineage @> ARRAY[aa.id])
+       ) sc ON true
+      WHERE ca.tenant_id = $1 AND ca.contract_id = $2
+      ORDER BY ca.path`,
     [tenantId, contractId]
   );
-  return rows.map((r) => ({ adminAreaId: r.adminAreaId, path: r.path, depth: r.depth }));
+  return rows.map((r) => ({
+    adminAreaId: r.adminAreaId, path: r.path, depth: r.depth,
+    pcode: r.pcode || null, siteCount: r.siteCount, subActivityCount: r.subActivityCount,
+    offices: r.offices || [],
+  }));
 }
 
 async function replaceAreas(client, tenantId, contractId, areas) {
