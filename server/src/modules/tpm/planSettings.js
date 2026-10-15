@@ -36,6 +36,7 @@ const DEFAULTS = Object.freeze({
   anticipationMonths: 0,
   defaultVisitsPerDay: 1,
   generalRowMode: 'par_bureau',
+  minMonthsSinceVisit: 0,
 });
 
 /** Bornes des valeurs numériques (mêmes CHECK en base, migration 077). */
@@ -46,6 +47,7 @@ const BOUNDS = Object.freeze({
   urgentMinGapMonths: [1, 12],
   anticipationMonths: [0, 6],
   defaultVisitsPerDay: [0.5, 10],
+  minMonthsSinceVisit: [0, 24],
 });
 
 /** Colonne SQL de chaque paramètre (plan_settings). */
@@ -63,6 +65,7 @@ const COLUMNS = Object.freeze({
   anticipationMonths: 'anticipation_months',
   defaultVisitsPerDay: 'default_visits_per_day',
   generalRowMode: 'general_row_mode',
+  minMonthsSinceVisit: 'min_months_since_visit',
 });
 const KEYS = Object.keys(DEFAULTS);
 
@@ -82,7 +85,8 @@ const SOURCES = Object.freeze({
   travelDaysPerTour: { kind: 'mems', ref: 'MEMS', label: 'Même notion que les jours de déplacement des jours de collecte' },
   urgentMinGapMonths: { kind: 'mems', ref: 'MEMS', label: 'Écart minimal entre deux visites d\'un site à recommandation urgente' },
   anticipationMonths: { kind: 'mems', ref: 'MEMS', label: 'Compléter une journée ouverte avec un site dû dans les N mois (0 = désactivé)' },
-  defaultVisitsPerDay: { kind: 'mems', ref: 'MEMS', label: 'Suivis par jour et par personne quand la colonne « Suivis/j » du MMR est vide (valeur prudente)' },
+  defaultVisitsPerDay: { kind: 'mems', ref: 'MEMS', label: 'Suivis par jour et par agent quand la colonne « Suivis/j » du MMR est vide (valeur prudente)' },
+  minMonthsSinceVisit: { kind: 'retour', ref: 'Retour 82', label: 'Ne proposer que les sites non visités depuis au moins N mois (0 = l\'intervalle du MMR suffit)' },
   generalRowMode: { kind: 'mems', ref: 'Décision lot 5', label: 'Ligne du plan général : modèle appliqué à chaque bureau (capacité par bureau), ou une capacité commune' },
 });
 
@@ -110,7 +114,7 @@ function validateSettings(s) {
   for (const k of ['coverageCatchUp', 'fillDistrict', 'multiActivityDays']) if (typeof s[k] !== 'boolean') err(k, 'Valeur oui / non attendue.');
   if (!DAY_GROUPINGS.includes(s.dayGrouping)) err('dayGrouping', 'Regroupement : lieu, commune ou district.');
   if (!GENERAL_ROW_MODES.includes(s.generalRowMode)) err('generalRowMode', 'Plan général : par bureau ou commun.');
-  for (const k of ['capacityMarginPct', 'travelDaysPerTour', 'urgentMinGapMonths', 'anticipationMonths']) {
+  for (const k of ['capacityMarginPct', 'travelDaysPerTour', 'urgentMinGapMonths', 'anticipationMonths', 'minMonthsSinceVisit']) {
     if (!isInt(s[k]) || !inBounds(k, s[k])) err(k, `Entier de ${BOUNDS[k][0]} à ${BOUNDS[k][1]}.`);
   }
   if (!halfSteps(s.defaultVisitsPerDay) || !inBounds('defaultVisitsPerDay', s.defaultVisitsPerDay)) err('defaultVisitsPerDay', 'De 0,5 à 10, par pas de 0,5.');

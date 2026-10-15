@@ -107,3 +107,17 @@ test('sur un seul mois, la règle de la plage est la règle mensuelle', () => {
   assert.deepEqual([jan.active, jan.realised], [true, false]);
   assert.deepEqual([feb.active, feb.realised, feb.realisedInactive], [false, false, true]);
 });
+
+test('isActiveMonth : LA règle « actif au mois M » (une seule pour tous les écrans)', () => {
+  const { isActiveMonth } = require('../src/modules/common/siteActivity');
+  // Année avec grille : seul un « Oui » explicite ; vide = inactif.
+  assert.equal(isActiveMonth(true, true), true);
+  assert.equal(isActiveMonth(false, true), false);
+  assert.equal(isActiveMonth(undefined, true), false);
+  assert.equal(isActiveMonth(null, true), false);
+  // Année sans grille : tout le registre.
+  assert.equal(isActiveMonth(undefined, false), true);
+  assert.equal(isActiveMonth(null, false), true);
+  // Même fonction pour la page « Sites (actifs / inactifs) ».
+  assert.equal(require('../src/modules/tpm/activationMath').isActiveMonth, isActiveMonth);
+});

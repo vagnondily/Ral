@@ -117,6 +117,21 @@ test('intervalle de revisite en arrière ET en avant (une visite déjà prévue 
   assert.equal(code('b', 6), 'intervalle');
 });
 
+test('critère « non visité depuis au moins N mois » : s\'ajoute à l\'intervalle du MMR, jamais aux urgents', () => {
+  const sites = [site('r4', { lastReal: '2026-09' }), site('r8', { lastReal: '2026-05', commune: 'c2' }), site('jamais', { commune: 'c3' }),
+    site('urg', { lastReal: '2026-12', urgent: true, commune: 'c4' })];
+  const p = pool({ cap: 5, duration: 6, risk: 2, dayCap: 10 * U }); // intervalle MMR 3 mois
+  const off = run(sites, p, {}, { from: 1, to: 1 });
+  assert.ok(off.at('r4'));
+  const on = run(sites, p, { minMonthsSinceVisit: 6 }, { from: 1, to: 1 });
+  assert.equal(on.at('r4'), undefined);
+  assert.equal(on.code('r4', 1), 'intervalle');
+  assert.equal(on.r.sites.find((s) => s.siteId === 'r4').codes[1], 'intervalle');
+  assert.equal(on.at('r8').detail.gate, 6);
+  assert.ok(on.at('jamais'));
+  assert.equal(on.at('urg').why, 'urgent');
+});
+
 test('couverture : objectif sur l\'exercice — un site réalisé en mars n\'est pas un candidat « couverture » en octobre', () => {
   const sites = [site('mars', { monthsOver: { 3: { st: 'realise' } } }), site('jamais', { commune: 'c2' })];
   const { at, code, r } = run(sites, pool({ cap: 5 }), { levels: ['haute'] }, { from: 10, to: 12 });

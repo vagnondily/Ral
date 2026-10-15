@@ -69,10 +69,13 @@ test('chargeur : seules les données rattachées AU SITE (jamais la commune) —
   assert.doesNotMatch(loader, /Promise\.all/);
 });
 
-test('site actif (lot 1b) : grille connue → « Oui » explicite seulement ; sinon tout le registre ; zone interdite jamais', () => {
+test('site actif (règle commune isActiveMonth) : année avec grille → « Oui » explicite seulement ; sans grille → tout le registre', () => {
   const grid = [{ siteId: 's1', month: 1, active: true }, { siteId: 's1', month: 2, active: false }];
-  const known = assemble(raw({ grid, gridKnown: true }), opts());
+  const known = assemble(raw({ grid, gridKnown: true, sites: [site('s1'), site('s2')] }), opts());
   assert.deepEqual(one(known).months.slice(0, 3).map((c) => c.active), [true, false, false]);
+  assert.ok(one(known, 's2').months.every((c) => !c.active), 'case vide d\'une année ouverte : non planifiée');
+  const w = known.warnings.find((x) => x.code === 'statut_non_renseigne');
+  assert.deepEqual([w.count, w.month, w.year], [1, '2027-01', 2027]); // s2 n'a aucun statut en janvier ; s1 a « Oui »
   const unknown = assemble(raw(), opts());
   assert.ok(one(unknown).months.every((c) => c.active));
   assert.ok(unknown.warnings.some((w) => w.code === 'grille_inconnue'));

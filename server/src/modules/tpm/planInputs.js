@@ -7,8 +7,10 @@
  *    site_id = le site) — une donnée rattachée seulement à la commune n'est jamais une
  *    visite (définitions communes). Plus la date « dernière visite » déclarée du registre
  *    (colonne T du classeur RBM), bornée avant le premier mois planifiable.
- *  - Site actif à M = common/siteActivity.activeAt (lot 1b) : zone interdite jamais ; si le
- *    compte a une grille d'activation cette année-là, seul un « Oui » explicite.
+ *  - Site actif à M = LA règle commune (common/siteActivity.isActiveMonth, la même que les
+ *    tableaux de bord, le Plan de suivi et « Générer ») : jamais en zone interdite ; si l'année a
+ *    une grille (au moins un statut), seulement sur un « Oui » explicite — une case vide n'est pas
+ *    planifiée, et l'aperçu dit combien de sites sont dans ce cas ; sans grille, tout le registre.
  *  - Pool (capacité) = ligne MMR effective : dérogation du bureau du site, sinon de son
  *    bureau parent, sinon le plan général (même recherche que le Plan de suivi). Une ligne du
  *    plan général est, par défaut, un MODÈLE appliqué à chaque bureau (capacité par bureau
@@ -27,8 +29,8 @@ const { deriveMmr } = require('./mmrMath');
 const { scoreSite } = require('./rbmScore');
 const { effectiveInterval } = require('./planSettings');
 const { costUnits, U } = require('./planGenerator');
-const { activeAt } = require('../common/siteActivity');
 const { siteDistricts, districtKey } = require('../common/siteDistrict');
+const { isActiveMonth } = require('../common/siteActivity');
 
 const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const pad = (m) => String(m).padStart(2, '0');
@@ -130,7 +132,6 @@ function assemble(raw, opts) {
   const tree = officeTree(raw.offices || []);
   const lookup = mmrIndex(raw.mmr || []);
   const districts = siteDistricts(raw.sites || []);
-  const gridYears = raw.gridKnown ? [year] : [];
 
   const statuses = new Map(); // siteId → { 'AAAA-MM': bool }
   for (const g of raw.grid || []) {
@@ -157,11 +158,10 @@ function assemble(raw, opts) {
     const forbidden = securityAt(s) >= 99;
     const st = statuses.get(s.id) || {};
     const vs = visitSt.get(s.id) || Array(12).fill(null);
-    const months = Array.from({ length: 12 }, (_, i) => ({
-      active: activeAt(st, `${year}-${pad(i + 1)}`, { forbidden, gridYears }),
-      forbidden,
-      st: vs[i],
-    }));
+    const months = Array.from({ length: 12 }, (_, i) => {
+      const cell = st[`${year}-${pad(i + 1)}`];
+      return { active: !forbidden && isActiveMonth(cell, Boolean(raw.gridKnown)), forbidden, st: vs[i], known: cell !== undefined };
+    });
     const parentId = s.fieldOfficeId ? (tree.byId.get(s.fieldOfficeId) || {}).parentId || null : null;
     const row = lookup(s.fieldOfficeId, parentId, s.activity);
     const d = districts.get(s.id) || { key: '—', name: '—' };
@@ -243,7 +243,7 @@ function assemble(raw, opts) {
   }));
   // Ce qui est montré à l'écran pour chaque site (noms, lieux) : séparé des entrées du calcul.
   const siteInfo = new Map(pre.map((p) => [p.s.id, {
-    id: p.s.id, code: p.s.code, locationId: p.s.locationId || null, name: p.s.name, activity: p.s.activity || null,
+    id: p.s.id, code: p.s.code, publicId: p.s.publicId || null, locationId: p.s.locationId || null, name: p.s.name, activity: p.s.activity || null,
     district: p.d.name, commune: p.communeName, poolKey: p.poolKey, lastReal: p.lastReal, lastSource: p.lastSource,
   }]));
   const warnings = [];
@@ -254,6 +254,13 @@ function assemble(raw, opts) {
   }
   if (poolInfo.some((pi) => pi.calendar === 'duree')) warnings.push({ code: 'sans_calendrier' });
   if (!raw.gridKnown) warnings.push({ code: 'grille_inconnue' });
+  else {
+    // Grille ouverte mais incomplète : sites du périmètre sans statut au 1er mois planifiable —
+    // non planifiés (règle commune) ; l'écran renvoie vers « Sites (actifs / inactifs) ».
+    const m0 = Math.min(fromMonth, 12) - 1;
+    const unknown = pre.filter((p) => p.inScope && !p.months[m0].forbidden && !p.months[m0].known).length;
+    if (unknown) warnings.push({ code: 'statut_non_renseigne', count: unknown, month: firstMonth, year });
+  }
 
   return {
     input: {

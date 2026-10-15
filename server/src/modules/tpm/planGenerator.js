@@ -91,7 +91,9 @@ function rankCompare(a, b) {
 function generatePlan(input) {
   const { year, fromMonth, toMonth } = input;
   const params = { levels: ['haute', 'moyenne', 'basse'], coverageCatchUp: true, dayGrouping: 'commune', fillDistrict: true,
-    multiActivityDays: true, travelDaysPerTour: 0, urgentMinGapMonths: 1, anticipationMonths: 0, coverageTargetPct: 80, ...input.params };
+    multiActivityDays: true, travelDaysPerTour: 0, urgentMinGapMonths: 1, anticipationMonths: 0, coverageTargetPct: 80, minMonthsSinceVisit: 0, ...input.params };
+  // Critère « non visité depuis au moins N mois » : s'ajoute à l'intervalle du MMR (jamais aux urgents).
+  const atLeast = (g) => (g == null ? g : Math.max(g, params.minMonthsSinceVisit || 0));
   const levelOf = params.levelOf || defaultLevelOf;
   const pools = input.pools || {};
   const sites = sortedSites(input.sites || []);
@@ -256,15 +258,16 @@ function generatePlan(input) {
       if (s.urgent && !e.urgentUsed && gap(params.urgentMinGapMonths)) {
         Object.assign(cand, { tier: 0, why: 'urgent', level: 'haute', urgentPick: true, gate: params.urgentMinGapMonths });
       } else {
-        const dueGate = iv.mode === 'couverture' ? iv.coverage : iv.due;
+        const dueGate = atLeast(iv.mode === 'couverture' ? iv.coverage : iv.due);
+        const coverageGate = atLeast(iv.coverage);
         const dueOk = gap(dueGate) && (iv.mode !== 'couverture' || !e.covered);
         let lvl = null;
         if (dueOk) {
           lvl = levelOf(s, { month: mStr, since, gate: dueGate });
           if (params.levels.includes(lvl)) Object.assign(cand, { tier: TIER_OF_LEVEL[lvl], why: 'du', level: lvl, gate: dueGate });
         }
-        if (cand.tier == null && params.coverageCatchUp && !e.covered && gap(iv.coverage)) {
-          Object.assign(cand, { tier: 3, why: 'couverture', level: lvl || 'basse', gate: iv.coverage });
+        if (cand.tier == null && params.coverageCatchUp && !e.covered && gap(coverageGate)) {
+          Object.assign(cand, { tier: 3, why: 'couverture', level: lvl || 'basse', gate: coverageGate });
         }
         if (cand.tier == null) {
           if (dueOk) code('non_du', { level: lvl });

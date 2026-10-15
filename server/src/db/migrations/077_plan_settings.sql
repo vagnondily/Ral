@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS plan_settings (
                          CHECK (default_visits_per_day BETWEEN 0.5 AND 10 AND default_visits_per_day * 2 = trunc(default_visits_per_day * 2)),
   general_row_mode       text     NOT NULL DEFAULT 'par_bureau'
                          CHECK (general_row_mode IN ('par_bureau', 'commune')),
+  min_months_since_visit smallint NOT NULL DEFAULT 0 CHECK (min_months_since_visit BETWEEN 0 AND 24),
   revision               integer  NOT NULL DEFAULT 1 CHECK (revision >= 1),
   updated_by             uuid REFERENCES users(id) ON DELETE SET NULL,
   updated_at             timestamptz NOT NULL DEFAULT now()

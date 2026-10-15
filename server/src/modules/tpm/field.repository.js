@@ -2,6 +2,7 @@ const { withTenantTransaction } = require('../../config/db');
 const { afterSitesChangedTx, lockSubmissionLinksTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
 const { sitePatchSql } = require('./sitePatch');
 const { chunkRows } = require('../../db/batch');
+const { lockVisitMonthsTx } = require('./visitLocks');
 const { shapeRangeSummary, shapeCoverageFacts, collectionDays, buildCoverageMatrix } = require('./fieldMath');
 const { isDue, frequencyFor, visitState, currentMonth, toMonth, needsPlanning, planningCounts } = require('./rbmMath');
 const { scoreSite, normalizeSecurity } = require('./rbmScore');
@@ -405,7 +406,7 @@ async function generateFromRbm(tenantId, userId, month, opts = {}) {
 async function generateFromRbmTx(client, tenantId, userId, month, { risk } = {}) {
   const target = toMonth(month);
   if (!target) throw badRequest('Mois invalide (attendu : AAAA-MM).');
-  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`rbm-generate:${tenantId}:${target}`]);
+  await lockVisitMonthsTx(client, tenantId, [target]); // même verrou que le Plan de suivi et le plan généré
   // MÊME règle que GET /rbm/sites?month= (compteur « à planifier ») : état au mois cible (asOf) —
   // dernière visite = dernier mois réalisé ≤ M (définition commune) ; pour un mois passé, une
   // visite ou une donnée postérieure ne rend jamais le site « à jour ».
@@ -1023,7 +1024,7 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
        LEFT JOIN LATERAL (
          -- Visites de l'exercice, avec le prestataire de suivi (TPM) affecté à chacune.
          SELECT json_agg(json_build_object('month', extract(month FROM v.period_month)::int, 'status', v.status,
-                                           'date', to_char(v.visit_date, 'YYYY-MM-DD'), 'provider', p.name) ORDER BY v.period_month) AS months,
+                                           'date', to_char(v.visit_date, 'YYYY-MM-DD'), 'provider', p.name, 'why', v.plan_why) ORDER BY v.period_month) AS months,
                 string_agg(DISTINCT p.name, ', ') AS providers
            FROM site_visits v
            LEFT JOIN partners p ON p.id = v.provider_id AND p.tenant_id = v.tenant_id
@@ -1087,6 +1088,9 @@ async function planMonthsTx(client, tenantId, userId, year, changes) {
   if (known.length !== ids.length) throw badRequest('Site inconnu (ou hors de ce compte).');
   const activity = new Map(known.map((k) => [k.id, k.activity || null]));
   const pm = (m) => `${year}-${String(m).padStart(2, '0')}-01`;
+  // Mêmes verrous de mois que « Générer depuis le RBM » et le plan généré (lot 5) : deux
+  // écritures du même site × mois sont mises en file, jamais croisées.
+  await lockVisitMonthsTx(client, tenantId, [...add, ...remove].map(([, m]) => pm(m)));
   let added = 0; let removed = 0;
   // Un site « Inactive » sur un mois n'est pas planifiable ce mois-là.
   const { rows: inactive } = await client.query(
@@ -1099,10 +1103,16 @@ async function planMonthsTx(client, tenantId, userId, year, changes) {
     const params = [tenantId, userId]; const tuples = slice.map(([id, m]) => {
       params.push(id, pm(m), activity.get(id));
       const b = params.length - 2;
-      return `($1, $${b}::uuid, $${b + 1}::date, $${b + 2}, 'planifie', $2)`;
+      return `($${b}::uuid, $${b + 1}::date, $${b + 2}::text)`;
     });
+    // Une visite = site × mois : jamais une 2ᵉ visite non annulée le même mois (la contrainte unique
+    // inclut l'activité et laisse passer ce doublon, et tout doublon quand l'activité est vide) ;
+    // une visite ANNULÉE de même activité est replanifiée (décision de l'utilisateur sur la grille).
     const { rowCount } = await client.query(
-      `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by) VALUES ${tuples.join(',')}
+      `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by)
+       SELECT $1, t.site_id, t.pm, t.activity, 'planifie', $2 FROM (VALUES ${tuples.join(',')}) AS t(site_id, pm, activity)
+        WHERE NOT EXISTS (SELECT 1 FROM site_visits o WHERE o.tenant_id = $1 AND o.site_id = t.site_id AND o.period_month = t.pm
+                            AND o.status <> 'annule')
        ON CONFLICT (tenant_id, site_id, period_month, activity) DO UPDATE SET status = 'planifie', updated_at = now()
          WHERE site_visits.status = 'annule'`, params);
     added += rowCount;

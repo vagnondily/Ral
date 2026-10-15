@@ -148,8 +148,11 @@ function monthTotals(rows = []) {
 /** « Actif » de l'exercice, comme la colonne du classeur : au moins un mois à Oui. */
 const activeInYear = (months = {}) => MONTHS.some((m) => months[m] === true);
 
+// LA règle « site actif au mois M » (une seule pour tous les écrans) : common/siteActivity.
+const { isActiveMonth } = require('../common/siteActivity');
+
 module.exports = {
   MONTH_HEADERS, MONTHS,
   parseYesNo, yesNo, identKey, identifierOf, buildSiteIndex,
-  diffActivation, cleanReason, summarizeChanges, monthTotals, activeInYear,
+  diffActivation, cleanReason, summarizeChanges, monthTotals, activeInYear, isActiveMonth,
 };
