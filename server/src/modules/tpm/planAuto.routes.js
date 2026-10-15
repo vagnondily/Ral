@@ -31,6 +31,10 @@ const settingsSchema = z.object({
   excludeMonths: z.array(month).max(12).optional(),
   useMmrCapacity: z.boolean().optional(),
   groupByCommune: z.boolean().optional(),
+  useGps: z.boolean().optional(),
+  gpsGridDeg: z.number().min(0.01).max(5).optional(),
+  balanceByTpm: z.boolean().optional(),
+  tpmCapacityPerMonth: z.number().int().min(1).max(100000).nullable().optional(),
   targetCoverage: z.number().min(0).max(1).optional(),
 }).partial().optional();
 

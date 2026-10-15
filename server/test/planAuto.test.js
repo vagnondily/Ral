@@ -12,13 +12,20 @@ const site = (o) => ({ forbidden: false, parametered: false, required: 0, visits
 
 test('normalizeSettings : défauts et bornes', () => {
   const s = normalizeSettings();
-  assert.deepEqual(s.frequency, { elevee: 1, moyenne: 2, faible: 3 });
+  assert.deepEqual(s.frequency, { elevee: 2, moyenne: 3, faible: 4 }); // repli RBM adouci (retour 82)
   assert.equal(s.useMmrCapacity, true);
   assert.equal(s.adjusted, false);
-  const c = normalizeSettings({ excludeMonths: ['2026-04', 5], useMmrCapacity: false, adjusted: true });
+  assert.equal(s.useGps, true);
+  assert.equal(s.gpsGridDeg, 0.1);
+  assert.equal(s.balanceByTpm, true);
+  assert.equal(s.tpmCapacityPerMonth, null);
+  const c = normalizeSettings({ excludeMonths: ['2026-04', 5], useMmrCapacity: false, adjusted: true, useGps: false, balanceByTpm: false, tpmCapacityPerMonth: 5 });
   assert.deepEqual(c.excludeMonths.sort(), [4, 5]);
   assert.equal(c.useMmrCapacity, false);
   assert.equal(c.adjusted, true);
+  assert.equal(c.useGps, false);
+  assert.equal(c.balanceByTpm, false);
+  assert.equal(c.tpmCapacityPerMonth, 5);
 });
 
 test('siteRemaining : exigées − réalisées − prévues dans la période', () => {
@@ -159,6 +166,67 @@ test('byActivity : paramètres de base du MMR + résultat par activité', () => 
   const rbmLine = r.byActivity.find((x) => !x.parametered);
   assert.equal(rbmLine.mmr, null);            // pas de MMR → paramètres nuls
   assert.equal(rbmLine.activity, 'Nutrition');
+});
+
+test('regroupement GPS : deux sites proches = même tournée (même mois)', () => {
+  // Deux sites de communes différentes mais GPS quasi identiques → même cellule → même tournée.
+  const sites = [
+    site({ id: 'g1', parametered: true, required: 1, mmrKey: 'k', commune: 'C1', gpsLat: -18.90, gpsLng: 47.52 }),
+    site({ id: 'g2', parametered: true, required: 1, mmrKey: 'k', commune: 'C2', gpsLat: -18.91, gpsLng: 47.53 }),
+    site({ id: 'far', parametered: true, required: 1, mmrKey: 'k', commune: 'C3', gpsLat: -22.00, gpsLng: 43.00 }),
+  ];
+  const r = generatePlan(sites, { k: { interval: 2, feasible: 100 } }, {}, H1, YEAR);
+  const m = Object.fromEntries(r.assignments.map((x) => [x.siteId, x.month]));
+  assert.equal(m.g1, m.g2);        // proches → même mois (même cellule GPS)
+  assert.notEqual(m.g1, m.far);    // loin → autre mois
+});
+
+test('GPS ignoré si useGps=false → regroupement par commune', () => {
+  const sites = [
+    site({ id: 'g1', parametered: true, required: 1, mmrKey: 'k', commune: 'C1', gpsLat: -18.90, gpsLng: 47.52 }),
+    site({ id: 'g2', parametered: true, required: 1, mmrKey: 'k', commune: 'C2', gpsLat: -18.91, gpsLng: 47.53 }),
+  ];
+  const r = generatePlan(sites, { k: { interval: 2, feasible: 100 } }, { useGps: false }, H1, YEAR);
+  const m = Object.fromEntries(r.assignments.map((x) => [x.siteId, x.month]));
+  assert.notEqual(m.g1, m.g2);     // communes différentes → mois différents
+});
+
+test('TPM : charge équilibrée entre les TPM + byTpm', () => {
+  // 2 TPM, 2 sites chacun, intervalle 1 (toutes les visites possibles). Chaque TPM doit
+  // voir ses visites réparties, pas toutes le même mois.
+  const seg = (name) => [{ from: `${YEAR}-01`, to: `${YEAR}-12`, providerId: name, providerName: name }];
+  const sites = [
+    site({ id: 'a1', parametered: true, required: 2, mmrKey: 'k', commune: 'A', tpmSegments: seg('TPM-1') }),
+    site({ id: 'a2', parametered: true, required: 2, mmrKey: 'k', commune: 'B', tpmSegments: seg('TPM-1') }),
+    site({ id: 'b1', parametered: true, required: 2, mmrKey: 'k', commune: 'C', tpmSegments: seg('TPM-2') }),
+  ];
+  const r = generatePlan(sites, { k: { interval: 2, feasible: 100 } }, {}, H1, YEAR);
+  assert.ok(Array.isArray(r.byTpm));
+  const t1 = r.byTpm.find((t) => t.tpm === 'TPM-1');
+  const t2 = r.byTpm.find((t) => t.tpm === 'TPM-2');
+  assert.ok(t1 && t2);
+  assert.equal(t1.sites, 2);
+  assert.equal(t1.planned, 4);       // 2 sites × 2 visites
+  assert.equal(t2.planned, 2);
+  // Les assignments portent le TPM.
+  assert.ok(r.assignments.every((x) => x.tpm === 'TPM-1' || x.tpm === 'TPM-2'));
+});
+
+test('TPM : plafond mensuel par TPM respecté (glissement)', () => {
+  const seg = [{ from: `${YEAR}-01`, to: `${YEAR}-12`, providerId: 'T', providerName: 'T' }];
+  const sites = [1, 2, 3].map((i) => site({ id: `s${i}`, parametered: true, required: 1, mmrKey: `k${i}`, commune: `C${i}`, tpmSegments: seg }));
+  const r = generatePlan(sites, {}, { tpmCapacityPerMonth: 1 }, H1, YEAR);
+  const t = r.byTpm.find((x) => x.tpm === 'T');
+  assert.ok(t.perMonth.every((m) => m.count <= 1));   // jamais 2 visites du même TPM le même mois
+  assert.equal(t.planned, 3);
+});
+
+test('repli RBM adouci : site élevé sans MMR pas tous les mois', () => {
+  const r = generatePlan([site({ id: 'e', parametered: false, riskLevel: 'elevee' })], {}, {}, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], YEAR);
+  const months = r.assignments.map((x) => Number(x.month.slice(5, 7))).sort((a, b) => a - b);
+  // Repli élevé adouci = tous les 2 mois (défaut), donc PAS 12 visites.
+  assert.ok(r.assignments.length < 12);
+  for (let i = 1; i < months.length; i += 1) assert.ok(months[i] - months[i - 1] >= 2);
 });
 
 test('perMonth couvre toute la période ; plan vide sans erreur', () => {

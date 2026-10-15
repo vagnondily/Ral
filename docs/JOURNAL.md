@@ -20,7 +20,18 @@
 > - **Bureaux** : types à niveaux facultatifs, périmètre choisi par région › district › commune ; **bureau, TPM et activités déduits de la configuration** partout ; **référentiel des activités** (aucune activité créée hors Paramétrage).
 > - **Sites (actifs / inactifs)** à la forme du Plan de suivi : publié.
 
-_Dernière mise à jour : 15/10/2026 18:35 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 15/10/2026 19:05 UTC_ — la branche `main` reçoit chaque lot vérifié
+
+> **19:05 UTC — Plan auto : regroupement au plus proche + TPM + repli adouci (retour 82).** ✅
+> 1) **Regroupement « au plus proche »** : tournées par **GPS** quand les coordonnées existent
+> (cellule de grille ~11 km), sinon **commune** ; les sites d'une même tournée sont visités le
+> même mois. 2) **Affectation TPM prise en compte** : le TPM de chaque site = contrat de suivi de
+> sa zone ; la charge de chaque TPM est **équilibrée** sur la période (fenêtre de phase) pour que
+> tous les TPM soient utilisés, avec **plafond mensuel par TPM** réglable + tableau **« Par TPM —
+> charge mensuelle »** et **colonne TPM** dans l'échantillon. 3) **Sites sans MMR** : repli RBM
+> **adouci** par défaut (élevé = tous les 2 mois, plus tous les mois) **+ avertissement** « N sites
+> sans paramètre MMR — à compléter ». Moteur pur + 6 tests ajoutés (GPS, TPM, plafond, repli).
+> Tests 1208 ✅, lint ✅, build ✅, smoke API (4 TPM, charge répartie) ✅, 0 erreur console.
 
 > **18:35 UTC — Aperçu de la planification automatique enrichi (retour 82).** ✅ L'aperçu
 > « Générer le plan de suivi » affiche maintenant, en plus de la couverture et de la

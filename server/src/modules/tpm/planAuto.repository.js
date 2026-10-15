@@ -80,6 +80,13 @@ async function sitesForPlanning(tenantId, { year, adjusted = false, risk, capaci
       required: Number(s.required) || 0,       // visites exigées par le MMR sur l'exercice
       lastVisitMonth: s.lastVisitMonth || null,
       monthStatus: s.monthStatus || {},
+      // Regroupement « au plus proche » : GPS du site quand il existe (retour 82).
+      gpsLat: s.gpsLat != null ? Number(s.gpsLat) : null,
+      gpsLng: s.gpsLng != null ? Number(s.gpsLng) : null,
+      // TPM de la zone par mois (contrat de suivi, retour 58) : pour équilibrer la charge.
+      tpmSegments: (s.tpm && Array.isArray(s.tpm.segments))
+        ? s.tpm.segments.map((seg) => ({ from: seg.from, to: seg.to, providerId: seg.providerId || null, providerName: seg.providerName || null }))
+        : [],
       // Visites de l'exercice (prévues / réalisées), avec leur mois et statut : le moteur
       // recalcule le reste à planifier SUR LA PÉRIODE (les prévues avant la période non
       // réalisées redeviennent à planifier, pour ne pas sortir du MMR).

@@ -515,4 +515,14 @@ export default {
   'Faible': 'Low',
   'Moyen': 'Medium',
   'Élevé': 'High',
+  // ---- Regroupement GPS + TPM + repli (retour 82)
+  'Regrouper au plus proche (GPS si disponible)': 'Group nearest (GPS when available)',
+  'Équilibrer la charge entre les TPM': 'Balance the load across TPMs',
+  'Capacité par TPM et par mois': 'Capacity per TPM per month',
+  'Plafond de visites par TPM et par mois ; le surplus glisse au mois suivant.': 'Cap on visits per TPM per month; the surplus slides to the next month.',
+  '{n} site(s) sans paramètre MMR : planifiés au repli RBM (fréquence adoucie). Complétez leur activité et leur MMR dans la Configuration pour un suivi exact.': '{n} site(s) without an MMR parameter: planned with the RBM fallback (softened frequency). Complete their activity and MMR in Configuration for exact monitoring.',
+  'Par TPM — charge mensuelle (contrat de suivi de la zone)': 'By TPM — monthly load (zone monitoring contract)',
+  'TPM': 'TPM',
+  'Non affecté (zone sans TPM)': 'Unassigned (zone without a TPM)',
+  'Le TPM d\'un site = contrat de suivi actif de sa zone. La charge est répartie sur la période pour utiliser tous les TPM.': 'A site\'s TPM = the active monitoring contract of its zone. The load is spread over the period to use all TPMs.',
 };

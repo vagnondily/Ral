@@ -39,7 +39,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
   const start = monthFromNow(1);
   const [from, setFrom] = useState(start);
   const [to, setTo] = useState(`${yearOf(start)}-12`); // par défaut : jusqu'à décembre (même exercice)
-  const [freq, setFreq] = useState({ elevee: 1, moyenne: 2, faible: 3 });
+  const [freq, setFreq] = useState({ elevee: 2, moyenne: 3, faible: 4 }); // repli RBM adouci (retour 82)
   const [capacity, setCapacity] = useState('');
   const [useMmrCapacity, setUseMmrCapacity] = useState(true);
   const [adjusted, setAdjusted] = useState(false);
@@ -47,6 +47,9 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
   const [exclude, setExclude] = useState('');
   const [overflow, setOverflow] = useState(10);
   const [groupByCommune, setGroupByCommune] = useState(true);
+  const [useGps, setUseGps] = useState(true);
+  const [balanceByTpm, setBalanceByTpm] = useState(true);
+  const [tpmCapacity, setTpmCapacity] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -69,14 +72,17 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
     from, to, adjusted,
     ...(risk ? { risk } : {}),
     settings: {
-      frequency: { elevee: Number(freq.elevee) || 1, moyenne: Number(freq.moyenne) || 2, faible: Number(freq.faible) || 3 },
+      frequency: { elevee: Number(freq.elevee) || 2, moyenne: Number(freq.moyenne) || 3, faible: Number(freq.faible) || 4 },
       ...(Number(capacity) > 0 ? { capacityPerMonth: Number(capacity) } : {}),
+      ...(Number(tpmCapacity) > 0 ? { tpmCapacityPerMonth: Number(tpmCapacity) } : {}),
       useMmrCapacity,
       overflowPct: Number(overflow) || 0,
       groupByCommune,
+      useGps,
+      balanceByTpm,
       excludeMonths: exclude.split(',').map((s) => s.trim()).filter((s) => /^\d{4}-\d{2}$/.test(s)),
     },
-  }), [from, to, risk, freq, capacity, useMmrCapacity, overflow, groupByCommune, adjusted, exclude]);
+  }), [from, to, risk, freq, capacity, tpmCapacity, useMmrCapacity, overflow, groupByCommune, useGps, balanceByTpm, adjusted, exclude]);
 
   async function runPreview() {
     if (invalid) return;
@@ -115,7 +121,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
     if (!preview) return [];
     const bySite = new Map();
     for (const a of preview.assignments || []) {
-      if (!bySite.has(a.siteId)) bySite.set(a.siteId, { name: a.name || '—', commune: a.commune, district: a.district, activity: a.activity || null, months: [] });
+      if (!bySite.has(a.siteId)) bySite.set(a.siteId, { name: a.name || '—', commune: a.commune, district: a.district, activity: a.activity || null, tpm: a.tpm || null, months: [] });
       bySite.get(a.siteId).months.push(a.month);
     }
     return [...bySite.values()].slice(0, 8).map((s) => ({ ...s, months: [...new Set(s.months)].sort() }));
@@ -188,12 +194,17 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
               </div>
               <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
                 <label className="check"><input type="checkbox" checked={groupByCommune} onChange={(e) => { setGroupByCommune(e.target.checked); reset(); }} /> {tr('Regrouper les sites par commune (tournées)')}</label>
+                <label className="check"><input type="checkbox" checked={useGps} onChange={(e) => { setUseGps(e.target.checked); reset(); }} /> {tr('Regrouper au plus proche (GPS si disponible)')}</label>
+                <label className="check"><input type="checkbox" checked={balanceByTpm} onChange={(e) => { setBalanceByTpm(e.target.checked); reset(); }} /> {tr('Équilibrer la charge entre les TPM')}</label>
                 <label className="check"><input type="checkbox" checked={useMmrCapacity} onChange={(e) => { setUseMmrCapacity(e.target.checked); reset(); }} /> {tr('Respecter la capacité mensuelle du MMR')}</label>
                 <label className="check"><input type="checkbox" checked={adjusted} onChange={(e) => { setAdjusted(e.target.checked); reset(); }} /> {tr('Fréquence MMR ajustée (CO adjusted)')}</label>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <Field label={tr('Capacité par mois')} htmlFor="pa-cap" hint={tr('Plafond global de visites par mois ; le surplus glisse au mois suivant.')}>
                   <input id="pa-cap" type="number" min="1" className="input" value={capacity} onChange={(e) => { setCapacity(e.target.value); reset(); }} placeholder={tr('Illimité')} />
+                </Field>
+                <Field label={tr('Capacité par TPM et par mois')} htmlFor="pa-tcap" hint={tr('Plafond de visites par TPM et par mois ; le surplus glisse au mois suivant.')}>
+                  <input id="pa-tcap" type="number" min="1" className="input" value={tpmCapacity} onChange={(e) => { setTpmCapacity(e.target.value); reset(); }} placeholder={tr('Illimité')} />
                 </Field>
                 <Field label={tr('Débordement autorisé (%)')} htmlFor="pa-ov" hint={tr('Dépassement toléré de la capacité avant de reporter au mois suivant.')}>
                   <input id="pa-ov" type="number" min="0" max="100" className="input" value={overflow} onChange={(e) => { setOverflow(e.target.value); reset(); }} />
@@ -231,6 +242,11 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
               {preview.summary.forbidden > 0 && <span className="muted">{tr('Zones interdites exclues')} : {formatInt(preview.summary.forbidden)}</span>}
               {preview.summary.unplaced > 0 && <span className="muted">{tr('Non placées (capacité)')} : {formatInt(preview.summary.unplaced)}</span>}
             </div>
+            {preview.summary.rbmFallback > 0 && (
+              <Alert tone="warning">
+                {tr('{n} site(s) sans paramètre MMR : planifiés au repli RBM (fréquence adoucie). Complétez leur activité et leur MMR dans la Configuration pour un suivi exact.', { n: formatInt(preview.summary.rbmFallback) })}
+              </Alert>
+            )}
             {Array.isArray(preview.byActivity) && preview.byActivity.length > 0 && (
               <div style={{ display: 'grid', gap: 6 }}>
                 <span className="muted" style={{ fontSize: 12 }}>{tr('Par activité — paramètres de base du MMR et résultat')}</span>
@@ -281,17 +297,46 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
                 </span>
               </div>
             )}
+            {Array.isArray(preview.byTpm) && preview.byTpm.length > 0 && (
+              <div style={{ display: 'grid', gap: 6 }}>
+                <span className="muted" style={{ fontSize: 12 }}>{tr('Par TPM — charge mensuelle (contrat de suivi de la zone)')}</span>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="table" style={{ background: 'var(--surface)', minWidth: 640 }}>
+                    <thead>
+                      <tr>
+                        <th scope="col">{tr('TPM')}</th>
+                        <th scope="col" className="num">{tr('Sites')}</th>
+                        <th scope="col" className="num">{tr('Planifiées')}</th>
+                        {preview.byTpm[0].perMonth.map((m) => <th key={m.month} scope="col" className="num">{shortMonth(m.month)}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.byTpm.map((t, i) => (
+                        <tr key={`${t.tpm || 'na'}-${i}`}>
+                          <td>{t.assigned ? <strong>{t.tpm}</strong> : <span className="muted">{tr('Non affecté (zone sans TPM)')}</span>}</td>
+                          <td className="num">{formatInt(t.sites)}</td>
+                          <td className="num"><strong>{formatInt(t.planned)}</strong></td>
+                          {t.perMonth.map((m) => <td key={m.month} className="num">{m.count ? formatInt(m.count) : <span className="muted">·</span>}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <span className="muted" style={{ fontSize: 11 }}>{tr('Le TPM d\'un site = contrat de suivi actif de sa zone. La charge est répartie sur la période pour utiliser tous les TPM.')}</span>
+              </div>
+            )}
             {sample.length > 0 && (
               <div style={{ display: 'grid', gap: 6 }}>
                 <span className="muted" style={{ fontSize: 12 }}>{tr('Exemples de sites et leurs visites prévues')}</span>
                 <table className="table" style={{ background: 'var(--surface)' }}>
-                  <thead><tr><th scope="col">{tr('Site')}</th><th scope="col">{tr('Commune')}</th><th scope="col">{tr('Activité')}</th><th scope="col">{tr('Mois prévus')}</th></tr></thead>
+                  <thead><tr><th scope="col">{tr('Site')}</th><th scope="col">{tr('Commune')}</th><th scope="col">{tr('Activité')}</th><th scope="col">{tr('TPM')}</th><th scope="col">{tr('Mois prévus')}</th></tr></thead>
                   <tbody>
                     {sample.map((s, i) => (
                       <tr key={`${s.name}-${i}`}>
                         <td><strong>{s.name}</strong></td>
                         <td className="muted">{s.commune || '—'}</td>
                         <td className="muted">{s.activity || '—'}</td>
+                        <td className="muted">{s.tpm || '—'}</td>
                         <td>{s.months.map((m) => shortMonth(m)).join(' · ')}</td>
                       </tr>
                     ))}
