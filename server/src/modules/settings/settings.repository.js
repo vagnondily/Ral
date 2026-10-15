@@ -152,8 +152,8 @@ async function createEvaluation(tenantId, partnerId, agentId, { periode, note, a
   return withTenantTransaction(tenantId, async (client) => {
     if (!(await agentBelongs(client, tenantId, partnerId, agentId))) return null;
     const { rows } = await client.query(
-      `INSERT INTO tpm_agent_evaluations (tenant_id, agent_id, periode, note, appreciation, commentaire, evaluated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, periode, note, appreciation, commentaire`,
+      `INSERT INTO tpm_agent_evaluations (tenant_id, agent_id, periode, period_to, status, legacy, note, appreciation, commentaire, evaluated_by)
+       VALUES ($1,$2,$3,$3,'validee',true,$4,$5,$6,$7) RETURNING id, periode, note, appreciation, commentaire`,
       [tenantId, agentId, periode, note ?? null, appreciation || null, commentaire || null, userId || null]);
     return { ...rows[0], note: rows[0].note == null ? null : Number(rows[0].note) };
   });

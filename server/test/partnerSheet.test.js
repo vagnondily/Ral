@@ -47,6 +47,9 @@ test('fiche : statut selon contrat, visites du mois (jamais « 0 % » sans affec
   assert.equal(s.facts.submissions.excludedRate, 10);
   assert.deepEqual([s.facts.reports.total, s.facts.reports.toValidate], [3, 2]);
   assert.equal(s.facts.evaluation.score, 13.3);
+  // Bloc « Fiche 360° » du concepteur de rapport : contrat en cours et compteurs à l'ancienne forme.
+  assert.deepEqual([s.facts.contract.status, s.facts.contract.numero, s.facts.contract.budget, s.facts.contract.consumption, s.facts.invoicesPending],
+    ['mesure', 'CTR-1', 2000000, 40, 2]);
   assert.deepEqual(reportSummary([{ kind: 'autre', status: 'soumis', n: 4 }]).total, 0);
 });
 

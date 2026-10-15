@@ -279,8 +279,9 @@ async function main() {
         if (EVALS[nm]) {
           const [note, appr, com] = EVALS[nm];
           await client.query(
-            `INSERT INTO tpm_agent_evaluations (tenant_id, agent_id, periode, note, appreciation, commentaire, evaluated_by)
-             SELECT $1,$2,$3,$4,$5,$6,$7 WHERE NOT EXISTS (SELECT 1 FROM tpm_agent_evaluations WHERE agent_id=$2 AND periode=$3)`,
+            // Note saisie à la main = « ancienne évaluation » (lot 8, migration 088), lisible à part.
+            `INSERT INTO tpm_agent_evaluations (tenant_id, agent_id, periode, period_to, status, legacy, note, appreciation, commentaire, evaluated_by)
+             SELECT $1,$2,$3,$3,'validee',true,$4,$5,$6,$7 WHERE NOT EXISTS (SELECT 1 FROM tpm_agent_evaluations WHERE agent_id=$2 AND periode=$3)`,
             [tenantId, ag.id, periodISO, note, appr, com, validator]);
         }
       }

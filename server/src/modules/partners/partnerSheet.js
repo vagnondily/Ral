@@ -111,6 +111,9 @@ function buildSheet(raw, { consolidation } = {}) {
   const contracts = contractRows(raw.contracts, raw.links, { partnerId: raw.partner.id, month: c.month, consolidation });
   const recap = budgetRecap(contracts);
   const reports = reportSummary(raw.reports);
+  // Contrat « en cours » (bloc « Fiche 360° » du concepteur de rapport, lot 7a) : le premier contrat de
+  // suivi qui couvre le mois, chiffres du contrat (Consolidation) et factures en attente du prestataire.
+  const current = contracts.find((x) => x.monitoring && x.coversMonth) || null;
   return {
     partner: raw.partner,
     status: providerStatus(raw.links, c.today),
@@ -126,6 +129,12 @@ function buildSheet(raw, { consolidation } = {}) {
       reports,
       trainings: c.trainings || 0,
       evaluation: raw.lastEval ? { ...raw.lastEval, score: raw.lastEval.score == null ? null : Number(raw.lastEval.score) } : null,
+      contract: current ? {
+        status: 'mesure', id: current.id, numero: current.numero, dateFin: current.dateFin, budget: current.monitoringBudget,
+        actual: current.contractActual, consumption: current.consumption, pending: current.providerPending,
+      } : { status: 'aucun' },
+      sitesFollowed: c.sitesFollowed || 0,
+      invoicesPending: reports.toValidate,
     },
     contracts,
     zones: mergeZones(raw.zones, raw.districts),
