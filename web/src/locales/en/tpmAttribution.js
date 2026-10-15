@@ -232,4 +232,10 @@ export default {
     'This provider is not the TPM of this contract ({p}): check the provider × contract pair.',
   'zone à resélectionner (avenant) : contrat {n}': 'zone to reselect (amendment): contract {n}',
   'Pour toute une zone et plusieurs mois :': 'For a whole area and several months:',
+  // Pastilles de l'onglet (PILLS).
+  'Modifiées': 'Changed',
+  'À confirmer': 'To confirm',
+  'Sans contrat': 'No contract',
+  'Plusieurs contrats': 'Several contracts',
+  'Écarts avec les visites': 'Diverging visits',
 };
