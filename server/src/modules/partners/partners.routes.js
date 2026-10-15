@@ -42,7 +42,7 @@ const email = z.string().trim().email('Courriel invalide').max(160).nullable().o
 // Listes de choix des prestataires (retour 30) : « actif selon contrat » pour les mois demandés
 // (?month= ou ?from=&to=, mois courant par défaut), puis les autres TPM actifs.
 router.get('/selectable', asyncHandler(async (req, res) => {
-  const period = readPeriod(req.query, { maxSpan: PERIOD_CAPS.facts }) || { from: currentMonth(), to: currentMonth() };
+  const period = readPeriod(req.query, { maxSpan: PERIOD_CAPS.document }) || { from: currentMonth(), to: currentMonth() };
   res.json(await service.selectable(t(req), period));
 }));
 

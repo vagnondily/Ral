@@ -11,6 +11,7 @@ import { richText } from '../../lib/contracts.js';
 import { openFacturePrint } from '../../lib/facturePrint.js';
 import { SECTIONS } from '../../lib/budgetCatalog.js';
 import PostesEditor, { newPoste, rowsFromItems, itemsFromRows, posteFunder } from './PostesEditor.jsx';
+import ProviderSelect from '../../components/ProviderSelect.jsx';
 import { invalidPctRows } from '../../lib/postesMath.js';
 
 /**
@@ -204,9 +205,9 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
             {!editing && (
               <>
                 <Field label={tr('Prestataire TPM')} required error={touched && !head.partnerId ? tr('Requis.') : undefined}>
-                  <select className={`select ${head.partnerId ? '' : 'is-empty'}`} value={head.partnerId} onChange={(e) => setHead({ ...head, partnerId: e.target.value })}>
-                    <option value="">{tr('Choisir…')}</option>{partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
+                  {/* Règle commune « prestataire actif » (retour 30) : d'abord les prestataires dont un contrat couvre le mois. */}
+                  <ProviderSelect period={month ? { from: String(month).slice(0, 7), to: String(month).slice(0, 7) } : null}
+                    value={head.partnerId} onChange={(id) => setHead({ ...head, partnerId: id })} ariaLabel={tr('Prestataire TPM')} />
                 </Field>
                 <Field label={tr('Contrat suivi')} required error={touched && !head.contractId ? tr('Requis.') : undefined}>
                   <select className={`select ${head.contractId ? '' : 'is-empty'}`} value={head.contractId} onChange={(e) => setHead({ ...head, contractId: e.target.value })}>

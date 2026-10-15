@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { UserPlus, Pencil, Trash2, Users } from 'lucide-react';
+import { UserPlus, Pencil, Trash2, Users, CheckCircle2, MinusCircle } from 'lucide-react';
 import { api } from '../../../api/client.js';
 import { Alert, Avatar, Badge, Button, EmptyState, Field, IconButton, Skeleton } from '../../../components/ui.jsx';
 import { useToast } from '../../../components/Toast.jsx';
@@ -97,7 +97,7 @@ export default function ProviderAgentsTab({ providerId, canEdit, onChanged }) {
                     {canEdit && <td className="pv-nowrap">{a.phone || <span className="cell-empty">—</span>}</td>}
                     <td className="num tabular">{a.submissions || <span className="cell-empty">0</span>}</td>
                     <td className="num tabular">{a.trainings || <span className="cell-empty">0</span>}</td>
-                    <td>{a.active ? <Badge tone="green">{tr('Actif')}</Badge> : <Badge>{tr('Inactif')}</Badge>}</td>
+                    <td>{a.active ? <Badge tone="green" icon={CheckCircle2}>{tr('Actif')}</Badge> : <Badge icon={MinusCircle}>{tr('Inactif')}</Badge>}</td>
                     {canEdit && (
                       <td><div className="row-actions">
                         <IconButton icon={Pencil} label={tr('Modifier {name}', { name: a.name })} size="sm" onClick={() => (edit && edit.id === a.id ? setEdit(null) : startEdit(a))} />

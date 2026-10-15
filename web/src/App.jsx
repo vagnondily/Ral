@@ -29,6 +29,7 @@ import CoverageRecapPage from './pages/monitoring/CoverageRecapPage.jsx';
 import SitesMapPage from './pages/monitoring/SitesMapPage.jsx';
 import PddPage from './pages/pdd/PddPage.jsx';
 import FormationsPage from './pages/tpm/FormationsPage.jsx';
+import TrainingSessionPage from './pages/tpm/TrainingSessionPage.jsx';
 import EvaluationPage from './pages/tpm/EvaluationPage.jsx';
 import SettingsPage from './pages/settings/SettingsPage.jsx';
 
@@ -125,7 +126,9 @@ function Workspace() {
       {route.module === 'tpm' && route.sub === 'prestataires' && (route.extra
         ? <ProviderSheetPage providerId={route.extra} tab={route.extra2} canEdit={canEdit} user={user} onNavigate={navigate} onOpenContract={openContract} />
         : <ProvidersPage canEdit={canEdit} onNavigate={navigate} />)}
-      {route.module === 'tpm' && route.sub === 'formations' && <FormationsPage canEdit={canEdit} />}
+      {route.module === 'tpm' && route.sub === 'formations' && (route.extra
+        ? <TrainingSessionPage sessionId={route.extra} canEdit={canEdit} onNavigate={navigate} />
+        : <FormationsPage canEdit={canEdit} onNavigate={navigate} />)}
       {route.module === 'tpm' && route.sub === 'evaluation' && <EvaluationPage canEdit={canEdit} />}
       {route.module === 'tpm' && route.sub === 'rapports' && <ReportsPage canEdit={canEdit} onOpenContract={openContract} onNavigate={navigate} />}
       {route.module === 'dashboard' && route.sub === 'apercu' && <DashboardBIPage onOpenContract={openContract} onNavigate={navigate} />}

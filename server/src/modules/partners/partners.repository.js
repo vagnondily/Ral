@@ -109,9 +109,10 @@ async function providersList(tenantId) {
   });
 }
 
-// Sessions de formation suivies par les agents du prestataire (formations structurées, retour 28.2).
-const TRAININGS_COUNT_SQL = `SELECT count(DISTINCT f.id) FROM tpm_agent_formations f
-   JOIN tpm_agents a ON a.id = f.agent_id AND a.tenant_id = f.tenant_id WHERE f.tenant_id = $1 AND a.tpm_provider_id = $2`;
+// Sessions de formation suivies par les agents du prestataire (formations en sessions, retour 28.2) :
+// prestataire de l'agent AU MOMENT de la session (training_participants.provider_id).
+const TRAININGS_COUNT_SQL = `SELECT count(DISTINCT p.session_id) FROM training_participants p
+   WHERE p.tenant_id = $1 AND p.provider_id = $2`;
 
 /**
  * Chiffres de chaque contrat du prestataire, en CENTIMES entiers (sommes SQL, jamais en JS) :
@@ -236,9 +237,12 @@ async function timeline(tenantId, id, { before = null, limit = 50 } = {}) {
           WHERE v.tenant_id = $1 AND v.provider_id = $2 AND v.status <> 'annule'
           GROUP BY COALESCE(NULLIF(s.adm2, ''), s.district) HAVING max(v.period_month) > min(v.period_month)
          UNION ALL
-         SELECT COALESCE(f.date_formation::timestamptz, f.created_at), 'formation', 'formation', f.thematique, a.id::text, a.name
-           FROM tpm_agent_formations f JOIN tpm_agents a ON a.id = f.agent_id AND a.tenant_id = f.tenant_id
-          WHERE f.tenant_id = $1 AND a.tpm_provider_id = $2
+         SELECT s.start_date::timestamptz, 'formation', 'formation', s.title, s.id::text, string_agg(a.name, ', ' ORDER BY a.name)
+           FROM training_participants p
+           JOIN training_sessions s ON s.id = p.session_id AND s.tenant_id = p.tenant_id
+           JOIN tpm_agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
+          WHERE p.tenant_id = $1 AND p.provider_id = $2 AND s.status <> 'annulee'
+          GROUP BY s.id
          UNION ALL
          SELECT e.created_at, 'evaluation', 'evaluation', to_char(e.periode, 'MM/YYYY'), a.id::text, a.name
            FROM tpm_agent_evaluations e JOIN tpm_agents a ON a.id = e.agent_id AND a.tenant_id = e.tenant_id
@@ -254,7 +258,7 @@ async function timeline(tenantId, id, { before = null, limit = 50 } = {}) {
 // ---- Équipe (seul endroit où l'on crée ou désactive un agent) -----------------------
 const AGENT_COLS = `a.id, a.name, a.fonction, a.code, a.phone, a.email, a.sex, a.active, a.started_on AS "startedOn",
   a.ended_on AS "endedOn", a.created_at AS "createdAt",
-  (SELECT count(*) FROM tpm_agent_formations f WHERE f.tenant_id = a.tenant_id AND f.agent_id = a.id)::int AS trainings,
+  (SELECT count(*) FROM training_participants f WHERE f.tenant_id = a.tenant_id AND f.agent_id = a.id)::int AS trainings,
   (SELECT count(*) FROM monitoring_submissions s WHERE s.tenant_id = a.tenant_id AND s.agent_id = a.id AND NOT s.excluded)::int AS submissions`;
 
 /** Agents d'un prestataire ; téléphone, courriel et sexe seulement pour les rôles en écriture. */
@@ -324,6 +328,7 @@ async function deleteAgent(tenantId, partnerId, agentId) {
     const { rows } = await client.query(
       `SELECT a.id,
               EXISTS (SELECT 1 FROM tpm_agent_formations f WHERE f.tenant_id = $1 AND f.agent_id = a.id)
+           OR EXISTS (SELECT 1 FROM training_participants tp WHERE tp.tenant_id = $1 AND tp.agent_id = a.id)
            OR EXISTS (SELECT 1 FROM tpm_agent_evaluations e WHERE e.tenant_id = $1 AND e.agent_id = a.id)
            OR EXISTS (SELECT 1 FROM tpm_assignments x WHERE x.tenant_id = $1 AND x.tpm_agent_id = a.id)
            OR EXISTS (SELECT 1 FROM monitoring_submissions ms WHERE ms.tenant_id = $1 AND ms.agent_id = a.id)

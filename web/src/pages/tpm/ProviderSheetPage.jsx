@@ -17,6 +17,7 @@ import ProviderContractsTab from './provider/ProviderContractsTab.jsx';
 import ProviderReportsTab from './provider/ProviderReportsTab.jsx';
 import ProviderFollowupsTab from './provider/ProviderFollowupsTab.jsx';
 import ProviderAgentsTab from './provider/ProviderAgentsTab.jsx';
+import ProviderTrainingsTab from './provider/ProviderTrainingsTab.jsx';
 import ProviderEvaluationTab from './provider/ProviderEvaluationTab.jsx';
 
 /**
@@ -31,6 +32,7 @@ const TABS = [
   { id: 'rapports', label: 'Rapports & factures', count: 'reports' },
   { id: 'suivis', label: 'Suivis effectués' },
   { id: 'agents', label: 'Agents', count: 'agents' },
+  { id: 'formations', label: 'Formations', count: 'trainings' },
   { id: 'evaluation', label: 'Évaluation du TPM', count: 'evaluations' },
 ];
 
@@ -131,6 +133,7 @@ export default function ProviderSheetPage({ providerId, tab: tabProp, canEdit, u
         {tab === 'rapports' && <ProviderReportsTab providerId={providerId} onNavigate={onNavigate} onChanged={reload} />}
         {tab === 'suivis' && <ProviderFollowupsTab providerId={providerId} onNavigate={onNavigate} />}
         {tab === 'agents' && <ProviderAgentsTab providerId={providerId} canEdit={canEdit} onChanged={reload} />}
+        {tab === 'formations' && <ProviderTrainingsTab providerId={providerId} canEdit={canEdit} onNavigate={onNavigate} />}
         {tab === 'evaluation' && <ProviderEvaluationTab providerId={providerId} provider={p} canEdit={canEdit} user={user} onChanged={reload}
           startNew={newEval} onStarted={() => setNewEval(false)} />}
       </Card>

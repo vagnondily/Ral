@@ -9,6 +9,7 @@ import { Alert, Badge, Button, Card, EmptyState, Field, IconButton, Skeleton, St
 import Modal from '../../components/Modal.jsx';
 import DeleteDialog from '../../components/DeleteDialog.jsx';
 import FactureDrawer from './FactureDrawer.jsx';
+import ProviderSelect from '../../components/ProviderSelect.jsx';
 import { usePopover, SortTh, makeViewStore } from '../../components/listView.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatAr, formatInt, monthLabel } from '../../lib/format.js';
@@ -545,7 +546,6 @@ function GuidedFlow({ flow, month, ready, onNavigate, onNewFacture }) {
 function GenerateModal({ context, onClose, onDone }) {
   const { tr } = useI18n();
   const toast = useToast();
-  const partners = context?.partners || [];
   const contracts = context?.contracts || [];
   const [form, setForm] = useState({ contractId: '', partnerId: '' });
   const [busy, setBusy] = useState(false);
@@ -571,9 +571,9 @@ function GenerateModal({ context, onClose, onDone }) {
           </select>
         </Field>
         <Field label={tr('Prestataire TPM')}>
-          <select className={`select ${form.partnerId ? '' : 'is-empty'}`} value={form.partnerId} onChange={(e) => setForm({ ...form, partnerId: e.target.value })}>
-            <option value="">{tr('Choisir…')}</option>{partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          {/* Rapports attendus : prestataires actifs selon contrat sur la période du contrat choisi (retour 30). */}
+          <ProviderSelect period={contract ? { from: String(contract.dateDebut).slice(0, 7), to: String(contract.dateFin).slice(0, 7) } : null}
+            value={form.partnerId} onChange={(id) => setForm({ ...form, partnerId: id })} ariaLabel={tr('Prestataire TPM')} />
         </Field>
         {contract && <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>{tr('Un rapport financier « attendu » sera créé pour chaque mois de la période du contrat ({n} mois). Les mois déjà présents ne sont pas dupliqués.', { n: contract.periodMonths })}</span></div>}
       </div>

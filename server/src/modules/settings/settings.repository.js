@@ -143,26 +143,9 @@ async function agentBelongs(client, tenantId, partnerId, agentId) {
   return rows.length === 1;
 }
 
-async function createFormation(tenantId, partnerId, agentId, { thematique, date, jours }) {
-  return withTenantTransaction(tenantId, async (client) => {
-    if (!(await agentBelongs(client, tenantId, partnerId, agentId))) return null;
-    const { rows } = await client.query(
-      `INSERT INTO tpm_agent_formations (tenant_id, agent_id, thematique, date_formation, jours)
-       VALUES ($1,$2,$3,$4,$5) RETURNING id, thematique, date_formation AS "date", jours`,
-      [tenantId, agentId, thematique, date || null, jours ?? 1]);
-    return { ...rows[0], jours: Number(rows[0].jours) };
-  });
-}
-
-async function deleteFormation(tenantId, partnerId, agentId, formationId) {
-  return withTenantTransaction(tenantId, async (client) => {
-    if (!(await agentBelongs(client, tenantId, partnerId, agentId))) return false;
-    const { rowCount } = await client.query(
-      'DELETE FROM tpm_agent_formations WHERE tenant_id = $1 AND agent_id = $2 AND id = $3',
-      [tenantId, agentId, formationId]);
-    return rowCount === 1;
-  });
-}
+// Les formations « par agent » (tpm_agent_formations) sont devenues des SESSIONS (lot 8, retour 28.2,
+// migration 087 qui les a reprises) : on les saisit dans /api/trainings ; la table d'origine est
+// conservée en lecture (historique), plus aucune écriture n'y est faite.
 
 // ---- Évaluation d'un agent (période, note /20, appréciation, commentaire)
 async function createEvaluation(tenantId, partnerId, agentId, { periode, note, appreciation, commentaire }, userId) {
@@ -531,7 +514,7 @@ module.exports = {
   listPartnerTypes, createPartnerType,
   listActivities, createActivity, setActivityActive,
   listPartners, createPartner, updatePartner, partnerTypeById, createAgent, deleteAgent,
-  createFormation, deleteFormation, createEvaluation, deleteEvaluation,
+  createEvaluation, deleteEvaluation,
   listExchangeRates, upsertExchangeRate, deleteExchangeRate,
   listCommunes, officesWithCounts, officePerimeter, createOffice, updateOffice, deleteOffice,
   listMmr, upsertMmr, deleteMmr, mmrRegistry, bulkSaveMmr, officeRefs,

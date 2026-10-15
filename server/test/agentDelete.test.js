@@ -13,7 +13,7 @@ test('agent qui porte des données : suppression refusée (409) par les DEUX éc
     sql.length = 0;
     await assert.rejects(del('t1', 'p1', 'a1'), (e) => e.statusCode === 409 && /désactivez-le/.test(e.message));
     const check = sql.find((q) => /AS history/.test(q));
-    for (const table of ['tpm_agent_formations', 'tpm_agent_evaluations', 'tpm_assignments', 'monitoring_submissions', 'monitoring_value_links']) {
+    for (const table of ['tpm_agent_formations', 'training_participants', 'tpm_agent_evaluations', 'tpm_assignments', 'monitoring_submissions', 'monitoring_value_links']) {
       assert.match(check, new RegExp(table), `historique : ${table}`);
     }
     assert.ok(!sql.some((q) => /^\s*DELETE/i.test(q)), 'aucune suppression');
