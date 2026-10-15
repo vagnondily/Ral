@@ -20,7 +20,7 @@
 > - **Bureaux** : types à niveaux facultatifs, périmètre choisi par région › district › commune ; **bureau, TPM et activités déduits de la configuration** partout ; **référentiel des activités** (aucune activité créée hors Paramétrage).
 > - **Sites (actifs / inactifs)** à la forme du Plan de suivi : publié.
 
-_Dernière mise à jour : 15/10/2026 11:22 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 15/10/2026 11:33 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -621,5 +621,5 @@ _Dernière mise à jour : 15/10/2026 11:22 UTC_ — la branche `main` reçoit ch
 - **≈ 11:09** 📥 Retour 110 : incohérences de « Couverture & performance » (deux définitions de « réalisé », deux univers de sites, communes divisées par des sites, 0,48 % affiché 0 %). Analysé dans le code : causes confirmées. 🔄 Correctif de cohérence confié à l'agent dash-template, à publier à part avant la refonte d'après la maquette.
 - **11:10 → 11:16** ✅ **Réactivité, deuxième lot publié** (`wip/perf` `a537c21`) : les lectures de fichiers (SPSS, Excel, zip, XLSForm, shapefile) passent dans des fils de calcul séparés (file bornée, délai maximal, mémoire bornée, fil remplacé s'il tombe). Mesures pendant l'import d'un classeur de 5 000 lignes × 480 colonnes, une requête légère toutes les 200 ms : p95 **6,8 s → 89 ms**, requêtes en échec **37 → 0**, attente maximale de la boucle 5,9 s → 0,96 s ; vérification d'import p95 5,3 s → 62 ms ; résultat de l'import identique.
 - **≈ 11:12** 📥 « Si je clique « À affecter », ça m'envoie ailleurs » → ✅ corrigé et publié (`6df1235`) : le lien visait l'onglet « Affectation des TPM », pas encore monté ; « À affecter » explique désormais au survol comment obtenir un TPM. Contrôles de l'ensemble : 1 185 tests (2 ignorés), lint, build, migrations sur copie, balayage 33 × 2 sans erreur ni phrase manquante.
-- **≈ 11:20** 📥 Retour 112 : en-tête de rapport pas assez professionnel ; première page différente des suivantes, et pieds de page. 🔄 Agent 7a-p2 relancé (paires première page / pages suivantes, modèles refaits d'après vos rapports de référence, bloc « Couverture par activité » cohérent, puis filtres du rapportage). Le référentiel des activités de programme est prêt côté serveur (`wip/activities` `795ec0f`) : publié avec son écran, pour ne pas casser Paramétrage › Activités.
+- **≈ 11:28** 📥 Retour 112 : en-tête de rapport pas assez professionnel ; première page différente des suivantes, et pieds de page. 🔄 Agent 7a-p2 relancé (paires première page / pages suivantes, modèles refaits d'après vos rapports de référence, bloc « Couverture par activité » cohérent, puis filtres du rapportage). Le référentiel des activités de programme est prêt côté serveur (`wip/activities` `795ec0f`) : publié avec son écran, pour ne pas casser Paramétrage › Activités.
 
