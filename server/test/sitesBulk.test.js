@@ -43,7 +43,10 @@ test('suppression groupée : seuls les sites sans donnée reliée partent, les a
   client = fake({ sites: [{ id: A, name: 'Site A' }, { id: B, name: 'Site B' }, { id: C, name: 'Site C' }], linked: { B: null, [B]: { visits: 2, submissions: 5 } } });
   const r = await repo.bulkSites(T, { ids: [A, B, C], action: 'delete' });
   assert.equal(r.deleted, 2);
-  assert.deepEqual(r.refused.map((x) => [x.id, x.visits, x.submissions]), [[B, 2, 5]]);
+  assert.equal(r.keptCount, 1);
+  assert.deepEqual(r.keptIds, [B]);
+  assert.deepEqual(r.sample.map((x) => [x.id, x.counts.visits, x.counts.submissions]), [[B, 2, 5]]);
+  assert.deepEqual(r.byReason, { visits: 1, submissions: 1, activation: 0, assignments: 0 });
   const del = client.calls.find((c) => c.s.startsWith('DELETE FROM sites'));
   assert.deepEqual(del.params, [T, [A, C]], 'un seul DELETE, tenant en $1');
   assert.ok(client.calls[0].s.includes('FOR UPDATE'), 'lignes verrouillées d\'abord');

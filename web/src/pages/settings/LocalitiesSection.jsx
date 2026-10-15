@@ -336,6 +336,13 @@ function DirectoryTab({ levels, isAdmin, onChanged }) {
         {data && <span className="loc-count" aria-live="polite">{tr('{n} {label} · page {p} sur {t}', { n: data.total, label: (data.total > 1 ? level?.labelPlural : level?.label)?.toLowerCase() || '', p: page, t: pages })}</span>}
       </div>
 
+      {data?.sites && data.sites.total > 0 && (
+        <p className="loc-sites-note">
+          {data.sites.locatedAtLevel >= data.sites.total
+            ? tr('Sites et activités comptés avec leurs sous-unités : les {n} sites du registre sont localisés jusqu\'à ce niveau.', { n: formatInt(data.sites.total) })
+            : tr('Sites et activités comptés avec leurs sous-unités. Seuls {k} sites sur {n} sont localisés jusqu\'à ce niveau (unité renseignée ou rattachée) : les autres n\'apparaissent qu\'aux niveaux supérieurs.', { k: formatInt(data.sites.locatedAtLevel), n: formatInt(data.sites.total) })}
+        </p>
+      )}
       {data === null ? <div className="card-body"><Skeleton height={300} /></div> : data.rows.length === 0 ? (
         <EmptyState icon={MapPinned} title={tr('Aucune localité')}>{debounced || ancestorId ? tr('Aucun résultat pour ces filtres.') : tr('Ce niveau ne contient encore aucune unité.')}</EmptyState>
       ) : (
@@ -347,6 +354,7 @@ function DirectoryTab({ levels, isAdmin, onChanged }) {
             <th scope="col" className="num">{tr('Latitude')}</th><th scope="col" className="num">{tr('Longitude')}</th>
             {depth < levels.length && <th scope="col" className="num">{tr('Sous-unités')}</th>}
             <th scope="col" className="num">{tr('Sites')}</th>
+            <th scope="col" className="num">{tr('Activités')}</th>
             {isAdmin && <th scope="col" aria-label={tr('Actions')} />}
           </tr></thead>
           <tbody>{data.rows.map((r) => (
@@ -358,6 +366,7 @@ function DirectoryTab({ levels, isAdmin, onChanged }) {
               <td className="num tabular">{r.lng == null ? '—' : r.lng.toFixed(5)}</td>
               {depth < levels.length && <td className="num tabular">{formatInt(r.childCount)}</td>}
               <td className="num tabular">{r.siteCount ? formatInt(r.siteCount) : <span className="cell-empty">—</span>}</td>
+              <td className="num tabular">{r.activityCount ? formatInt(r.activityCount) : <span className="cell-empty">—</span>}</td>
               {isAdmin && <td className="mmr-actions">
                 <Button size="sm" variant="ghost" icon={Pencil} aria-label={tr('Modifier')} title={tr('Modifier')} onClick={() => setEdit({ row: r, depth })} />
                 <Button size="sm" variant="ghost" icon={Trash2} aria-label={tr('Supprimer')} title={tr('Supprimer')} onClick={() => remove(r)} />
