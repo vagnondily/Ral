@@ -30,6 +30,27 @@ export function pageSize(size = 'A4', orientation = 'portrait') {
 const bandH = (band) => (band && Array.isArray(band.elements) && band.elements.length ? Number(band.height) || 0 : 0);
 
 /**
+ * En-tête et pied d'une page, par ordre de priorité : ceux de sa SECTION (« aucun » ou « propres »,
+ * réglés pour cette page), puis la règle de la 1re page du document (aucun / propres), puis ceux du
+ * document. Mêmes règles pour la géométrie (zone utile), l'aperçu et l'impression.
+ * @returns {{ header: object|null, footer: object|null }}
+ */
+export function pageBands(page = {}, section = {}, { first = false } = {}) {
+  const fp = page.firstPage || 'same';
+  const pick = (mode, own, firstBand, docBand) => {
+    if (mode === 'none') return null;
+    if (mode === 'own') return own || null;
+    if (first && fp === 'none') return null;
+    if (first && fp === 'own') return firstBand || null;
+    return docBand || null;
+  };
+  return {
+    header: pick(section.header, section.headerBand, page.firstHeader, page.header),
+    footer: pick(section.footer, section.footerBand, page.firstFooter, page.footer),
+  };
+}
+
+/**
  * Géométrie d'une page (mm) : dimensions, marges, hauteurs d'en-tête et de pied, zone utile.
  * @param {object} page mise en page du document ; @param {object} section { size, orientation, header, footer }
  * @param {{ first?: boolean }} opts première page du document (règle `firstPage` : same / none / own)
@@ -39,11 +60,9 @@ export function pageGeometry(page = {}, section = {}, { first = false } = {}) {
   const orientation = section.orientation || page.orientation || 'portrait';
   const { w, h } = pageSize(size, orientation);
   const m = { top: 16, right: 14, bottom: 16, left: 14, ...(page.margins || {}) };
-  const fp = page.firstPage || 'same';
-  let header = section.header === 'none' ? 0 : bandH(page.header);
-  let footer = section.footer === 'none' ? 0 : bandH(page.footer);
-  if (first && fp === 'none') { header = 0; footer = 0; }
-  if (first && fp === 'own') { header = section.header === 'none' ? 0 : bandH(page.firstHeader); footer = section.footer === 'none' ? 0 : bandH(page.firstFooter); }
+  const { header: hb, footer: fb } = pageBands(page, section, { first });
+  const header = bandH(hb);
+  const footer = bandH(fb);
   return {
     size, orientation, w, h, margins: m, headerH: header, footerH: footer,
     bodyW: Math.max(10, w - m.left - m.right), bodyH: Math.max(10, h - m.top - m.bottom - header - footer),
@@ -199,7 +218,12 @@ export function localPlan(doc, { expansions = {}, vars = {}, defaultView = () =>
       repeatLabel: item ? item.label : null, column: column ? column.iid : null, columnIndex: column ? column.index : null, needsData: false,
     };
     if (b.type === 'section') {
-      cur = { id: iid, index: sections.length, size: p.size || page.size || 'A4', orientation: p.orientation || page.orientation || 'portrait', header: p.header || 'inherit', footer: p.footer || 'inherit', title: p.title ? subst(p.title, { ...vars, ...iv }) : null };
+      cur = {
+        id: iid, index: sections.length, size: p.size || page.size || 'A4', orientation: p.orientation || page.orientation || 'portrait',
+        header: p.header || 'inherit', footer: p.footer || 'inherit',
+        headerBand: p.header === 'own' ? p.headerBand || null : null, footerBand: p.footer === 'own' ? p.footerBand || null : null,
+        title: p.title ? subst(p.title, { ...vars, ...iv }) : null,
+      };
       sections.push(cur);
       instances.push({ ...base, sectionId: cur.id });
       return;

@@ -25,7 +25,9 @@ import PropertiesPane from './PropertiesPane.jsx';
 import PageLayoutPane from './PageLayoutPane.jsx';
 import PagedPreview from './PagedPreview.jsx';
 import MeasureLayer from './MeasureLayer.jsx';
-import { useFilterOptions } from './FiltersPane.jsx';
+import { useFilterOptions, filterValueLabel } from './FiltersPane.jsx';
+import HeaderDesigner from './HeaderDesigner.jsx';
+import { assetDataUrl } from '../useAssets.js';
 import { useHistory } from './useHistory.js';
 import { FRAMED, DEFAULT_H, frameLabel, UPGRADE_WARNINGS } from './blockTypes.js';
 
@@ -72,6 +74,7 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
   const [meta, setMeta] = useState(initial.meta);
   const [selected, setSelected] = useState(null); // id du bloc sélectionné
   const [selPage, setSelPage] = useState(null); // n° de la page sélectionnée (onglet Pages, marge d'une feuille)
+  const [bandEditor, setBandEditor] = useState(null); // concepteur d'en-tête ouvert : { scope, startZone, sectionBlockId? }
   const [dirty, setDirty] = useState(!initial.meta.id);
   const [saving, setSaving] = useState(false);
   const [forms, setForms] = useState([]);
@@ -239,7 +242,12 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
   const varLabels = { ...Object.fromEntries(Object.entries(catalog.variables || {})), ...Object.fromEntries(Object.entries(catalog.kpis).map(([k, v]) => [k, v.label])) };
   const variableList = Object.entries(catalog.kpis).filter(([, v]) => v.available !== false).map(([k, v]) => [k, tr(v.label)]);
   const sel = selected ? findBlock(doc.blocks, selected) : null;
-  const vars = useMemo(() => ({ ...(data?.vars || {}), titre: doc.title, periode: data?.periodLabel || periodLabel(doc.period, uiLang) }), [data, doc.title, doc.period, uiLang]);
+  // Variables des en-têtes et des textes : celles du plan du serveur, précédées de valeurs locales
+  // ({date} du jour, {bureau} du filtre du rapport) pour que l'en-tête s'affiche tout de suite.
+  const today = new Date();
+  const todayText = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+  const officeText = doc.filters && doc.filters.office ? filterValueLabel('office', doc.filters.office, { ...opts, forms }, tr) : tr('Tous les bureaux');
+  const vars = useMemo(() => ({ date: todayText, bureau: officeText, ...(data?.vars || {}), titre: doc.title, periode: data?.periodLabel || periodLabel(doc.period, uiLang) }), [data, doc.title, doc.period, uiLang, todayText, officeText]);
   const page = doc.page || defaultPage();
   const defaultView = useCallback((k) => ((catalog.datasets[k] || {}).defaultView || 'table'), [catalog]);
   // Annexes (retour 88) : bloc marqué « en annexe », ou tableau de plus de N lignes (règle du
@@ -383,7 +391,10 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
       ...base,
       scope: { container, firstId: list[Math.min(...idx)].id, lastId: list[Math.max(...idx)].id },
       firstIid: first.iid,
-      own: !!(secBlock && (secBlock.params.orientation || secBlock.params.size)),
+      own: !!(secBlock && (secBlock.params.orientation || secBlock.params.size || (secBlock.params.header || 'inherit') !== 'inherit' || (secBlock.params.footer || 'inherit') !== 'inherit')),
+      secBlockId: secBlock ? secBlock.id : null,
+      header: secBlock ? secBlock.params.header || 'inherit' : 'inherit',
+      footer: secBlock ? secBlock.params.footer || 'inherit' : 'inherit',
       repeatLabel: rb ? tr({ activity: 'Activité (fiche de suivi)', bureau: 'Bureau', partner: 'Partenaire' }[rb.params.over] || 'Section répétée') : null,
       startsMid,
     };
@@ -402,11 +413,67 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
     change((d) => ({ ...d, blocks: setPageLayout(d.blocks, { ...pageInfo.scope, patch }).blocks }));
   };
 
+  // ---- Concepteur d'en-tête et de pied de page (retours 51 et 88) -----------------------
+  const emptyBand = (h) => ({ height: h, elements: [] });
+  /** En-tête / pied de CETTE page : du document, aucun, ou propres (copie de ceux en vigueur, à redessiner). */
+  const setPageBands = (patch) => {
+    const p = {};
+    for (const k of ['header', 'footer']) {
+      if (patch[k] == null) continue;
+      const bandKey = k === 'header' ? 'headerBand' : 'footerBand';
+      p[k] = patch[k];
+      p[bandKey] = patch[k] === 'own' ? JSON.parse(JSON.stringify(page[k] && page[k].elements && page[k].elements.length ? page[k] : emptyBand(k === 'header' ? 14 : 10))) : undefined;
+    }
+    layoutPage(p);
+  };
+  /** Ouverture : depuis l'onglet Page (document), un double-clic sur une bande, ou une page à en-tête propre. */
+  const onEditBand = ({ place, sectionId, first }) => {
+    const sec = sectionById[sectionId] || {};
+    const mode = place === 'header' ? sec.header : sec.footer;
+    if (mode === 'own' && sectionId !== '_doc') { setBandEditor({ scope: 'section', sectionBlockId: String(sectionId).split('~').pop(), startZone: place }); return; }
+    const firstOwn = first && page.firstPage === 'own';
+    setBandEditor({ scope: 'doc', startZone: firstOwn ? (place === 'header' ? 'firstHeader' : 'firstFooter') : place });
+  };
+  const bandSetup = useMemo(() => {
+    if (!bandEditor) return null;
+    if (bandEditor.scope === 'section') {
+      const f = findBlock(doc.blocks, bandEditor.sectionBlockId);
+      if (!f) return null;
+      const p = f.block.params || {};
+      const zones = ['header', 'footer'].filter((k) => p[k] === 'own');
+      return {
+        zones: zones.length ? zones : ['header'],
+        initial: { header: p.headerBand || emptyBand(14), footer: p.footerBand || emptyBand(10) },
+        orientation: p.orientation || page.orientation || 'portrait', size: p.size || page.size || 'A4',
+      };
+    }
+    return {
+      zones: null,
+      initial: { header: page.header || emptyBand(14), footer: page.footer || emptyBand(10), firstPage: page.firstPage || 'same', firstHeader: page.firstHeader, firstFooter: page.firstFooter },
+      orientation: page.orientation || 'portrait', size: page.size || 'A4',
+    };
+  }, [bandEditor, doc.blocks, page]);
+  const applyBands = (v) => {
+    const be = bandEditor;
+    if (be.scope === 'section') {
+      const f = findBlock(doc.blocks, be.sectionBlockId);
+      const p = (f && f.block.params) || {};
+      updateBlock(be.sectionBlockId, { ...(p.header === 'own' ? { headerBand: v.header } : {}), ...(p.footer === 'own' ? { footerBand: v.footer } : {}) });
+    } else {
+      change((d) => {
+        const pg = { ...(d.page || defaultPage()), header: v.header, footer: v.footer, firstPage: v.firstPage || 'same' };
+        if (pg.firstPage === 'own') { pg.firstHeader = v.firstHeader; pg.firstFooter = v.firstFooter; } else { delete pg.firstHeader; delete pg.firstFooter; }
+        return { ...d, page: pg };
+      });
+    }
+    setBandEditor(null);
+  };
+
   // ---- Exports ------------------------------------------------------------------------
   const sheetsRef = useRef(null);
   const cleanClone = () => {
     const root = sheetsRef.current.cloneNode(true);
-    root.querySelectorAll('.rd-mini, .rd-add-between, .rd-sheet-chip, .rd-fitchip, .rd-repeat-chip, .rd-toobig, .rb-pagebreak span, .rt-toolbar, .rb-showdata').forEach((n) => n.remove());
+    root.querySelectorAll('.rd-mini, .rd-add-between, .rd-sheet-chip, .rd-fitchip, .rd-repeat-chip, .rd-toobig, .rb-pagebreak span, .rt-toolbar, .rb-showdata, .rd-el-ph').forEach((n) => n.remove());
     root.querySelectorAll('[contenteditable]').forEach((n) => n.removeAttribute('contenteditable'));
     root.querySelectorAll('.is-selected, .is-page-selected').forEach((n) => n.classList.remove('is-selected', 'is-page-selected'));
     root.querySelectorAll('.rd-sheet').forEach((n) => { n.style.transform = ''; });
@@ -419,7 +486,15 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
   };
   const fileBase = (doc.title || 'Rapport').replace(/[^\w\-À-ÿ ]+/g, '').trim().slice(0, 80) || 'Rapport';
   // HTML : les feuilles paginées, styles en ligne (impression identique à l'aperçu).
-  const exportHtml = () => download(`<!doctype html><html lang="${document.documentElement.lang || 'fr'}"><head><meta charset="utf-8"><title>${fileBase}</title><style>body{background:#f5f6f9;margin:0;padding:24px}${reportCss}</style></head><body class="rd-export">${cleanClone().outerHTML}</body></html>`, `${fileBase}.html`, 'text/html;charset=utf-8');
+  // Les logos (URL blob: de la session) deviennent des images data: : le fichier HTML est autonome.
+  const exportHtml = async () => {
+    const root = cleanClone();
+    for (const img of root.querySelectorAll('img[data-asset]')) {
+      const d = await assetDataUrl(img.getAttribute('data-asset'));
+      if (d) img.setAttribute('src', d); else img.remove();
+    }
+    download(`<!doctype html><html lang="${document.documentElement.lang || 'fr'}"><head><meta charset="utf-8"><title>${fileBase}</title><style>body{background:#f5f6f9;margin:0;padding:24px}${reportCss}</style></head><body class="rd-export">${root.outerHTML}</body></html>`, `${fileBase}.html`, 'text/html;charset=utf-8');
+  };
   // Word (HTML lu par Word) : le contenu des pages à la suite, un saut de page entre deux feuilles.
   const exportWord = () => {
     const bodies = [...cleanClone().querySelectorAll('.rd-sheet-body')].map((b) => b.innerHTML).join('<br clear="all" style="page-break-before:always">');
@@ -681,7 +756,8 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
             <button type="button" role="tab" aria-selected="false" onClick={() => setSelPage(null)}>{tr('Document')}</button>
           </div>
           <div className="rd-pane-body">
-            <PageLayoutPane info={pageInfo} docPage={page} onLayout={layoutPage} onReset={() => layoutPage({ orientation: undefined, size: undefined })}
+            <PageLayoutPane info={pageInfo} docPage={page} onLayout={layoutPage} onReset={() => layoutPage({ orientation: undefined, size: undefined, header: 'inherit', footer: 'inherit', headerBand: undefined, footerBand: undefined })}
+              onBands={setPageBands} onDesignBands={() => pageInfo && pageInfo.secBlockId && setBandEditor({ scope: 'section', sectionBlockId: pageInfo.secBlockId, startZone: pageInfo.header === 'own' ? 'header' : 'footer' })}
               onAnnexOrientation={(v) => pageInfo.annex && pageInfo.annex.blockId && updateBlock(pageInfo.annex.blockId, { annexOrientation: v === 'auto' ? undefined : v })} />
           </div>
         </>
@@ -690,6 +766,7 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
           annex={sel && sel.block.type === 'data' ? { effective: annexedIds.has(sel.block.id), inColumn: !!(sel.parent && sel.parent.type === 'columns'), autoRows } : null}
           onChangeBlock={(patch) => sel && updateBlock(sel.block.id, patch)} onRegenerate={() => sel && updateBlock(sel.block.id, { doc: undefined })}
           onChangePage={(pg) => change((d) => ({ ...d, page: { ...(d.page || defaultPage()), ...pg } }))}
+          pageExtra={{ vars, onDesignBands: () => setBandEditor({ scope: 'doc', startZone: 'header' }) }}
           onChangeAnnexes={(annexes) => change((d) => { const n = { ...d }; if (annexes) n.annexes = annexes; else delete n.annexes; return n; })} />
       )}
     </>
@@ -740,6 +817,7 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
             renderPageItem={renderPageItem} page={page} vars={vars} pxPerMm={pxPerMm} forceFit={phone} watermark={watermark}
             selectedSection={selectedSection} onSelectSection={selectSection} sheetsRef={sheetsRef}
             selectedPage={editable ? selPage : null} onSelectPage={editable ? (n) => { setSelected(null); setSelPage(n); if (narrow) setRightOpen(true); } : undefined}
+            onEditBand={editable ? onEditBand : undefined}
             emptyNote={doc.blocks.length === 0 ? <p className="rd-empty-doc">{tr('Le rapport est vide : ajoutez des blocs depuis le catalogue (clic ou glisser sur la page).')}</p> : null} />
           <MeasureLayer sections={paginSections.map((s) => ({ id: s.id, bodyW: geometry(s.id).bodyW, items: s.items }))}
             renderItem={renderItem} splitOf={splitOf} onMeasure={onMeasure} onPxPerMm={onPxPerMm} />
@@ -748,6 +826,10 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
         {editable && (!narrow || rightOpen) && <aside className={`rd-right ${narrow ? 'is-drawer' : ''}`} aria-label={tr('Propriétés')}>{rightPane}</aside>}
       </div>
       {editable && narrow && (leftOpen || rightOpen) && <div className="rd-drawer-backdrop" onClick={() => { setLeftOpen(false); setRightOpen(false); }} aria-hidden="true" />}
+      {editable && bandEditor && bandSetup && (
+        <HeaderDesigner initial={bandSetup.initial} scope={bandEditor.scope} zones={bandSetup.zones} page={page} orientation={bandSetup.orientation} size={bandSetup.size}
+          vars={vars} startZone={bandEditor.startZone} canSave={canEdit} onApply={applyBands} onClose={() => setBandEditor(null)} />
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { RectangleHorizontal, RectangleVertical } from 'lucide-react';
 import { useI18n } from '../../../lib/i18n.jsx';
-import { pageName } from '../../../lib/reportPaginate.js';
+import { pageName, pageBands } from '../../../lib/reportPaginate.js';
 import { Band } from '../ReportBlocks.jsx';
 
 /**
@@ -20,7 +20,7 @@ const writeZoom = (z) => { try { localStorage.setItem(ZOOM_KEY, String(z)); } ca
 
 export default function PagedPreview({
   pages, geometryOf, sectionOf, renderPageItem, page, vars, pxPerMm, forceFit, printing, watermark,
-  selectedSection, onSelectSection, emptyNote, sheetsRef, selectedPage, onSelectPage,
+  selectedSection, onSelectSection, emptyNote, sheetsRef, selectedPage, onSelectPage, onEditBand,
 }) {
   const { tr } = useI18n();
   const wrap = useRef(null);
@@ -59,11 +59,10 @@ export default function PagedPreview({
           const sec = sectionOf(pg.sectionId) || {};
           const startsSection = i === 0 ? pg.sectionId !== '_doc' : pages[i - 1].sectionId !== pg.sectionId;
           const first = pg.n === 1;
-          const own = first && page.firstPage === 'own';
-          const noBands = first && page.firstPage === 'none';
-          const headerBand = noBands || sec.header === 'none' ? null : own ? page.firstHeader : page.header;
-          const footerBand = noBands || sec.footer === 'none' ? null : own ? page.firstFooter : page.footer;
+          const { header: headerBand, footer: footerBand } = pageBands(page, sec, { first });
           const sv = { ...vars, section: sec.title || '' };
+          // Double-clic sur l'en-tête ou le pied : concepteur d'en-tête (celui de la section s'il lui est propre).
+          const editBand = (place) => (onEditBand ? (e) => { e.stopPropagation(); onEditBand({ place, sectionId: pg.sectionId, first }); } : undefined);
           const isSel = selectedSection && selectedSection === pg.sectionId;
           return (
             <React.Fragment key={pg.n}>
@@ -79,8 +78,9 @@ export default function PagedPreview({
                 onClick={onSelectPage ? (e) => { e.stopPropagation(); onSelectPage(pg.n); } : undefined}>
                 {watermark && <div className="rd-watermark" aria-hidden="true"><span>{watermark}</span></div>}
                 {headerBand && (
-                  <div className="rd-sheet-h" style={{ top: `${g.margins.top}mm`, left: `${g.margins.left}mm`, right: `${g.margins.right}mm` }}>
-                    <Band band={headerBand} vars={sv} texts={own ? sec.firstHeaderText : sec.headerText} pageNo={pg.n} pages={pages.length} />
+                  <div className={`rd-sheet-h ${onEditBand ? 'is-editable' : ''}`} style={{ top: `${g.margins.top}mm`, left: `${g.margins.left}mm`, right: `${g.margins.right}mm` }}
+                    onDoubleClick={editBand('header')} title={onEditBand ? tr('Double-cliquez pour concevoir l\'en-tête') : undefined}>
+                    <Band band={headerBand} vars={sv} pageNo={pg.n} pages={pages.length} edges={g.margins} place="header" editing={!!onEditBand} />
                   </div>
                 )}
                 <div className="rd-sheet-body" style={{ top: `${g.margins.top + g.headerH}mm`, left: `${g.margins.left}mm`, width: `${g.bodyW}mm`, height: `${g.bodyH}mm` }}>
@@ -88,8 +88,9 @@ export default function PagedPreview({
                   {!pg.items.length && emptyNote}
                 </div>
                 {footerBand && (
-                  <div className="rd-sheet-f" style={{ bottom: `${g.margins.bottom}mm`, left: `${g.margins.left}mm`, right: `${g.margins.right}mm` }}>
-                    <Band band={footerBand} vars={sv} texts={own ? sec.firstFooterText : sec.footerText} pageNo={pg.n} pages={pages.length} />
+                  <div className={`rd-sheet-f ${onEditBand ? 'is-editable' : ''}`} style={{ bottom: `${g.margins.bottom}mm`, left: `${g.margins.left}mm`, right: `${g.margins.right}mm` }}
+                    onDoubleClick={editBand('footer')} title={onEditBand ? tr('Double-cliquez pour concevoir le pied de page') : undefined}>
+                    <Band band={footerBand} vars={sv} pageNo={pg.n} pages={pages.length} edges={g.margins} place="footer" editing={!!onEditBand} />
                   </div>
                 )}
               </div>

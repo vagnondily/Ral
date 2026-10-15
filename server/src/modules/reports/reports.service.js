@@ -106,9 +106,22 @@ async function expandRepeats(tenantId, doc, lang) {
 }
 
 const kpiKeys = () => new Set(Object.keys(KPIS));
-const planOf = (doc, expansions, lang) => {
+/**
+ * {bureau} des en-têtes et pieds : le bureau filtré par le rapport (nom MEMS, libellé d'une fiche,
+ * « Soumissions sans bureau MEMS relié »), sinon « Tous les bureaux ».
+ */
+function officeVar(doc, offices, lang) {
+  const o = (doc.filters || {}).office;
+  const T = phrases(lang);
+  if (!o) return T.allOffices;
+  if (o === 'unlinked') return T.unlinkedOffice;
+  if (o.startsWith('id:')) return (offices && offices.nameById && offices.nameById.get(o.slice(3))) || T.allOffices;
+  if (o.startsWith('lib:')) return o.slice(4);
+  return o.split(':').slice(2).join(':') || T.allOffices; // code:<fiche>:<code>
+}
+const planOf = (doc, expansions, lang, offices = null) => {
   try {
-    return buildPlan(doc, { expansions, kpiKeys: kpiKeys(), lang, today: today(), defaultView: (k) => (datasetDef(k) || {}).defaultView || 'table' });
+    return buildPlan(doc, { expansions, kpiKeys: kpiKeys(), lang, today: today(), defaultView: (k) => (datasetDef(k) || {}).defaultView || 'table', simpleVars: { bureau: officeVar(doc, offices, lang) } });
   } catch (e) {
     if (e instanceof PlanError) throw badRequest(e.message, { code: e.code, ...e.details });
     throw e;
@@ -293,7 +306,7 @@ async function renderReport(tenantId, input, opts = {}) {
   const lang = langOf(opts);
   const { doc, warnings, upgraded, offices } = await normalizeDoc(tenantId, input);
   const expansions = await expandRepeats(tenantId, doc, lang);
-  const plan = planOf(doc, expansions, lang);
+  const plan = planOf(doc, expansions, lang, offices);
   const ctx = renderCtx(offices, opts);
   const blocks = {};
   for (const inst of plan.instances) if (inst.needsData) blocks[inst.iid] = await computeGuarded(tenantId, doc, inst, ctx); // une à la fois
@@ -307,9 +320,9 @@ async function renderReport(tenantId, input, opts = {}) {
 async function renderPlanFor(tenantId, input, opts = {}) {
   const t0 = Date.now();
   const lang = langOf(opts);
-  const { doc, warnings, upgraded } = await normalizeDoc(tenantId, input);
+  const { doc, warnings, upgraded, offices } = await normalizeDoc(tenantId, input);
   const expansions = await expandRepeats(tenantId, doc, lang);
-  const plan = planOf(doc, expansions, lang);
+  const plan = planOf(doc, expansions, lang, offices);
   return { ...plan, warnings, upgraded, computedAt: new Date().toISOString(), ms: Date.now() - t0 };
 }
 
@@ -326,7 +339,7 @@ async function renderBlocks(tenantId, input, iids, opts = {}) {
   const lang = langOf(opts);
   const { doc, offices } = await normalizeDoc(tenantId, input);
   const expansions = await expandRepeats(tenantId, doc, lang);
-  const plan = planOf(doc, expansions, lang);
+  const plan = planOf(doc, expansions, lang, offices);
   const byIid = new Map(plan.instances.map((i) => [i.iid, i]));
   const unknown = iids.filter((x) => !byIid.has(x));
   if (unknown.length) throw badRequest('Bloc inconnu : rechargez le plan du rapport.', { code: 'unknown_iid', iids: unknown });
@@ -468,5 +481,5 @@ async function exportXlsx(tenantId, input, opts) {
 
 module.exports = {
   renderReport, renderPlanFor, renderBlocks, MAX_IIDS, normalizeDoc, expandRepeats, computeInstance, renderCtx, planOf, officeIndex,
-  getDocument, documentData, finalize, listTemplates, catalog, exportXlsx, catalogIssues, unsupportedNote,
+  getDocument, documentData, finalize, listTemplates, catalog, exportXlsx, catalogIssues, unsupportedNote, officeVar,
 };

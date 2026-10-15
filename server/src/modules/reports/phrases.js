@@ -28,6 +28,7 @@ const PHRASES = {
     unknownIndicator: 'Indicateur introuvable (supprimé ou désactivé).',
     unknownDataset: 'Jeu de données inconnu.',
     unlinkedOffice: 'Soumissions sans bureau MEMS relié',
+    allOffices: 'Tous les bureaux', // variable {bureau} d'un en-tête sans filtre de bureau
     tooLong: 'Calcul trop long : réduisez la période ou ajoutez un filtre.',
     failed: 'Calcul impossible pour ce bloc.',
     noData: 'Aucune donnée sur la période.',
@@ -88,6 +89,7 @@ const PHRASES = {
     unknownIndicator: 'Indicator not found (deleted or deactivated).',
     unknownDataset: 'Unknown dataset.',
     unlinkedOffice: 'Submissions without a linked MEMS office',
+    allOffices: 'All offices',
     tooLong: 'Computation took too long: shorten the period or add a filter.',
     failed: 'This block could not be computed.',
     noData: 'No data for the period.',

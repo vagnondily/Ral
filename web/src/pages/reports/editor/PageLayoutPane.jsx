@@ -1,5 +1,5 @@
 import React from 'react';
-import { RectangleHorizontal, RectangleVertical, RotateCcw, Info } from 'lucide-react';
+import { RectangleHorizontal, RectangleVertical, RotateCcw, Info, PenLine } from 'lucide-react';
 import { useI18n } from '../../../lib/i18n.jsx';
 import { Button } from '../../../components/ui.jsx';
 
@@ -10,7 +10,7 @@ import { Button } from '../../../components/ui.jsx';
  * document reste celui par défaut (onglet « Page » sans sélection).
  * @param {{ info: { n, total, size, orientation, own, repeatLabel, startsMid, annex }, docPage, onLayout, onReset, onAnnex, children }} props
  */
-export default function PageLayoutPane({ info, docPage, onLayout, onReset, onAnnexOrientation, children }) {
+export default function PageLayoutPane({ info, docPage, onLayout, onReset, onAnnexOrientation, onBands, onDesignBands, children }) {
   const { tr } = useI18n();
   if (!info) return null;
   const docOrient = (docPage && docPage.orientation) || 'portrait';
@@ -43,6 +43,22 @@ export default function PageLayoutPane({ info, docPage, onLayout, onReset, onAnn
       {seg(info.orientation, info.orientation, (v) => onLayout({ orientation: v === docOrient ? undefined : v }), ORIENT)}
       <div className="rd-field-l">{tr('Format de cette page')}</div>
       {seg(info.size, info.size, (v) => onLayout({ size: v === docSize ? undefined : v }), [['A4', 'A4'], ['16:9', '16:9']])}
+      {onBands && (
+        <div className="rd-row2 rd-page-bands">
+          {[['header', 'En-tête'], ['footer', 'Pied de page']].map(([k, l]) => (
+            <label key={k} className="hd-field"><span className="rd-field-l">{tr(l)}</span>
+              <select className="select" value={info[k] || 'inherit'} onChange={(e) => onBands({ [k]: e.target.value })}>
+                <option value="inherit">{tr('Celui du document')}</option>
+                <option value="none">{tr('Aucun')}</option>
+                <option value="own">{tr('Propre à cette page')}</option>
+              </select>
+            </label>
+          ))}
+        </div>
+      )}
+      {onDesignBands && (info.header === 'own' || info.footer === 'own') && (
+        <Button size="sm" icon={PenLine} onClick={onDesignBands}>{tr('Concevoir l\'en-tête de cette page')}</Button>
+      )}
       <p className="rd-note-box"><Info size={13} aria-hidden="true" /> {tr('Seule cette page change : son contenu est placé dans une section propre. Les autres pages gardent leur mise en page.')}</p>
       {info.repeatLabel && <p className="rd-state-line">{tr('Cette page fait partie de la section répétée « {name} » : la même page de chaque élément change aussi.', { name: info.repeatLabel })}</p>}
       {info.startsMid && <p className="rd-state-line">{tr('Le bloc « {name} » commence sur la page précédente : il passe en entier dans cette mise en page.', { name: info.startsMid })}</p>}

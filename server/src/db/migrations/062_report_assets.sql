@@ -1,5 +1,5 @@
 -- MEMS 2.0 — Concepteur de rapport (lot 7a, C8, retours 51 et 88) : images des en-têtes et
--- pieds de page (logos). Migration 062.
+-- pieds de page (logos) et « mes en-têtes » enregistrés. Migration 062.
 --
 -- Une image est téléversée UNE fois par compte (empreinte SHA-256 unique par compte) et citée par
 -- son identifiant dans les documents et modèles (élément « image » d'une bande). Le format est
@@ -41,3 +41,25 @@ GRANT SELECT, INSERT ON report_assets TO mems2_app;
 REVOKE UPDATE, DELETE ON report_assets FROM mems2_app;
 
 SELECT mems_install_same_tenant('report_assets');
+
+-- « Mes en-têtes » (retour 88) : en-têtes et pieds de page dessinés, enregistrés par le compte et
+-- réutilisables dans tout rapport (galerie du concepteur d'en-tête, à côté des modèles prédéfinis).
+-- Contenu { header, footer } validé par le schéma zod des bandes (reportSchema) ; les logos cités
+-- sont contrôlés dans le compte ; nom unique par compte (sans casse).
+CREATE TABLE IF NOT EXISTS report_band_templates (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name        text NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 120),
+  content     jsonb NOT NULL CHECK (jsonb_typeof(content) = 'object' AND octet_length(content::text) <= 200000),
+  created_by  uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_report_band_templates_name ON report_band_templates (tenant_id, lower(name));
+
+ALTER TABLE report_band_templates ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON report_band_templates;
+CREATE POLICY tenant_isolation ON report_band_templates USING (tenant_id::text = current_setting('app.tenant_id', true));
+GRANT SELECT, INSERT, UPDATE, DELETE ON report_band_templates TO mems2_app;
+
+SELECT mems_install_same_tenant('report_band_templates');

@@ -197,6 +197,26 @@ test('annexes (retour 88) : renvoi dans le corps, annexes lettrées à la fin su
   assert.deepEqual([0, 25, 26, 51].map(p.annexLetter), ['A', 'Z', 'AA', 'AZ']);
 });
 
+test('en-tête et pied d\'une page (retour 88) : ceux de sa section (aucun / propres) priment sur la règle de la 1re page, puis le document', async (t) => {
+  const p = await load(t); if (!p) return;
+  const band = (id, h = 12) => ({ height: h, elements: [{ id, kind: 'text', x: 0, y: 0, w: 50, h: 6, text: id }] });
+  const page = { header: band('doc'), footer: band('docf'), firstPage: 'own', firstHeader: band('first', 30), firstFooter: band('firstf') };
+  const id = (b) => (b ? b.elements[0].id : null);
+  // Page 1 sans réglage propre : la 1re page du document.
+  assert.deepEqual(Object.values(p.pageBands(page, { header: 'inherit', footer: 'inherit' }, { first: true })).map(id), ['first', 'firstf']);
+  // Une page à en-tête PROPRE (même la 1re) : le sien ; « aucun » : rien.
+  const own = { header: 'own', headerBand: band('own', 20), footer: 'none' };
+  assert.deepEqual(Object.values(p.pageBands(page, own, { first: true })).map(id), ['own', null]);
+  assert.deepEqual(Object.values(p.pageBands(page, { header: 'inherit' }, { first: false })).map(id), ['doc', 'docf']);
+  assert.deepEqual(Object.values(p.pageBands({ ...page, firstPage: 'none' }, {}, { first: true })).map(id), [null, null]);
+  // La zone utile suit la bande effective (30 mm pour la 1re page, 20 mm pour l'en-tête propre).
+  const g1 = p.pageGeometry(page, {}, { first: true });
+  const g2 = p.pageGeometry(page, own, { first: false });
+  assert.equal(g1.headerH, 30);
+  assert.equal(g2.headerH, 20);
+  assert.equal(g2.footerH, 0);
+});
+
 test('annexes : le plan du serveur numérote comme le plan local pour un bloc marqué « en annexe »', async (t) => {
   const p = await load(t); if (!p) return;
   const { buildPlan } = require('../src/modules/reports/renderPlan');

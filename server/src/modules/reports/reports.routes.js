@@ -77,6 +77,11 @@ router.get('/assets/:id', asyncHandler(async (req, res) => {
   res.send(a.data);
 }));
 
+// « Mes en-têtes » : en-têtes et pieds de page enregistrés par le compte, réutilisables.
+router.get('/band-templates', asyncHandler(async (req, res) => res.json(await assets.listBandTemplates(t(req)))));
+router.post('/band-templates', WRITE, asyncHandler(async (req, res) => res.status(201).json(await assets.saveBandTemplate(t(req), req.body, uid(req)))));
+router.delete('/band-templates/:id', WRITE, asyncHandler(async (req, res) => res.json(await assets.deleteBandTemplate(t(req), uuid(req.params.id)))));
+
 // ---- Modèles personnalisés -----------------------------------------------------
 const tplBody = z.object({ name: z.string().trim().min(1).max(120), description: z.string().trim().max(500).optional(), content: z.any() });
 const parseTpl = async (tenantId, body) => {

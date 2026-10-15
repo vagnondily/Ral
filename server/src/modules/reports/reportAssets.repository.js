@@ -1,5 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
-const { notFound, payloadTooLarge } = require('../../middleware/errors');
+const { notFound, payloadTooLarge, conflict } = require('../../middleware/errors');
 
 /**
  * Images des en-têtes et pieds de page du concepteur (migration 062) — seule couche qui écrit
@@ -58,4 +58,40 @@ async function existingAssetIds(tenantId, ids) {
   });
 }
 
-module.exports = { createAsset, listAssets, getAssetData, existingAssetIds, QUOTA };
+// ---- « Mes en-têtes » : en-têtes et pieds enregistrés par le compte ------------------------
+const BT_COLS = `id, name, content, created_at AS "createdAt", updated_at AS "updatedAt"`;
+const MAX_BAND_TEMPLATES = 100;
+
+async function listBandTemplates(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query(`SELECT ${BT_COLS} FROM report_band_templates WHERE tenant_id = $1 ORDER BY lower(name) LIMIT ${MAX_BAND_TEMPLATES}`, [tenantId]);
+    return rows;
+  });
+}
+
+/** Enregistre un en-tête (contenu déjà validé) ; nom déjà pris → 409 ; 100 au plus par compte. */
+async function createBandTemplate(tenantId, { name, content }, userId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const n = await client.query('SELECT count(*)::int AS n FROM report_band_templates WHERE tenant_id = $1', [tenantId]);
+    if (n.rows[0].n >= MAX_BAND_TEMPLATES) throw conflict(`${MAX_BAND_TEMPLATES} en-têtes enregistrés au plus : supprimez-en un.`, { code: 'band_template_quota' });
+    const dup = await client.query('SELECT 1 FROM report_band_templates WHERE tenant_id = $1 AND lower(name) = lower($2)', [tenantId, name]);
+    if (dup.rows.length) throw conflict('Un en-tête enregistré porte déjà ce nom.', { code: 'band_template_name' });
+    const { rows } = await client.query(
+      `INSERT INTO report_band_templates (tenant_id, name, content, created_by) VALUES ($1, $2, $3, $4) RETURNING ${BT_COLS}`,
+      [tenantId, name, content, userId || null]);
+    return rows[0];
+  });
+}
+
+async function deleteBandTemplate(tenantId, id) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rowCount } = await client.query('DELETE FROM report_band_templates WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+    if (!rowCount) throw notFound('En-tête introuvable');
+    return { deleted: 1 };
+  });
+}
+
+module.exports = {
+  createAsset, listAssets, getAssetData, existingAssetIds, QUOTA,
+  listBandTemplates, createBandTemplate, deleteBandTemplate,
+};

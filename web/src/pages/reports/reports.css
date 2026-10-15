@@ -250,10 +250,26 @@
 /* En-tête et pied DESSINÉS : éléments placés (x, largeur en % ; y, hauteur en mm). */
 .rd-band { position: relative; width: 100%; }
 .rd-el { position: absolute; box-sizing: border-box; overflow: hidden; }
-.rd-el-text { white-space: nowrap; text-overflow: ellipsis; line-height: 1.25; display: flex; align-items: center; }
-.rd-el-text[style*="text-align: center"] { justify-content: center; }
-.rd-el-text[style*="text-align: right"] { justify-content: flex-end; }
-.rd-el-image { background: repeating-linear-gradient(45deg, var(--surface-2), var(--surface-2) 4px, var(--border) 4px, var(--border) 5px); border-radius: 2px; }
+.rd-el-text { white-space: nowrap; line-height: 1.25; display: flex; align-items: center; }
+.rd-el-text > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rd-el-img { display: block; }
+/* Emplacement de logo vide (modèle) : visible dans l'éditeur seulement, jamais imprimé ni exporté. */
+.rd-el-ph {
+  display: flex; align-items: center; justify-content: center; gap: 1mm; font-size: 7pt; font-weight: 600; color: #6b7a90;
+  border: 1px dashed #9cc3e8; border-radius: 1mm; background: rgba(239, 246, 252, .7);
+}
+/* Bandes de l'aperçu : double-clic pour les concevoir (repère discret au survol, jamais imprimé). */
+.rd-sheet-h.is-editable, .rd-sheet-f.is-editable { cursor: pointer; border-radius: 2px; outline: 1px dashed transparent; outline-offset: 1.5mm; transition: outline-color .15s; }
+.rd-sheet-h.is-editable:hover, .rd-sheet-f.is-editable:hover { outline-color: #9cc3e8; }
+@media print {
+  .rd-el-ph { display: none !important; }
+  .rd-sheet-h, .rd-sheet-f { outline: none !important; }
+}
+/* Onglet Page : aperçu de l'en-tête et du pied du document, bouton du concepteur. */
+.rd-bands-card { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); }
+.rd-bands-card .hd-tpl { align-self: center; }
+.rd-bands-card .hd-tpl-name { display: none; }
+.rd-page-bands { align-items: end; }
 .rd-pageno { font-variant-numeric: tabular-nums; }
 
 /* Blocs dans l'éditeur : contour au survol, contour plein si sélectionné. */

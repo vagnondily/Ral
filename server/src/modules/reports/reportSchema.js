@@ -55,14 +55,19 @@ const textStyle = z.object({
   background: color.optional(),
   padding: z.number().min(0).max(10).default(0),
   radius: z.number().min(0).max(6).default(0),
+  caps: z.boolean().optional(), // petites capitales espacées (libellés « RAPPORT OFFICIEL »)
 }).default({});
 const el = { id, x: pct, y: mm, w: pct.min(1), h: mm.min(2) };
+// Éléments placés d'une bande (retours 51 et 88). Une image sans `assetId` est un EMPLACEMENT de
+// logo (modèle prédéfini) : cadre pointillé dans l'éditeur, rien à l'impression. Un rectangle
+// `bleed` (bandeau) va d'un bord à l'autre de la feuille, et jusqu'au bord haut (en-tête) ou bas
+// (pied) quand il touche ce bord de la bande. Un trait `dir: 'v'` est vertical (séparateur).
 const bandElement = z.discriminatedUnion('kind', [
   z.object({ ...el, kind: z.literal('text'), text: z.string().max(300), style: textStyle }),
-  z.object({ ...el, kind: z.literal('image'), assetId: z.string().uuid() }),
+  z.object({ ...el, kind: z.literal('image'), assetId: z.string().uuid().nullable().optional(), align: z.enum(['left', 'center', 'right']).optional() }),
   z.object({ ...el, kind: z.literal('pageNumber'), format: z.enum(['n', 'n / N', 'Page n', 'Page n / N']).default('Page n / N'), style: textStyle }),
-  z.object({ ...el, kind: z.literal('line'), thickness: z.number().min(0.25).max(3).default(0.5), color: color.default('#e7e9ef') }),
-  z.object({ ...el, kind: z.literal('rect'), fill: color.default('#eff6fc'), border: color.optional(), radius: z.number().min(0).max(6).default(0), opacity: z.number().min(0.1).max(1).default(1) }),
+  z.object({ ...el, kind: z.literal('line'), thickness: z.number().min(0.25).max(3).default(0.5), color: color.default('#e7e9ef'), dir: z.enum(['h', 'v']).optional() }),
+  z.object({ ...el, kind: z.literal('rect'), fill: color.default('#eff6fc'), border: color.optional(), radius: z.number().min(0).max(6).default(0), opacity: z.number().min(0.1).max(1).default(1), bleed: z.boolean().optional() }),
 ]);
 const band = z.object({
   height: z.number().min(0).max(60).default(14),
@@ -169,8 +174,11 @@ const sectionBlock = z.object({
   params: z.object({
     orientation: z.enum(['portrait', 'landscape']).optional(), // absent = celle du document
     size: z.enum(['A4', '16:9']).optional(),
-    header: z.enum(['inherit', 'none']).default('inherit'),
-    footer: z.enum(['inherit', 'none']).default('inherit'),
+    // En-tête / pied de la section : ceux du document, aucun, ou PROPRES (dessinés pour ces pages).
+    header: z.enum(['inherit', 'none', 'own']).default('inherit'),
+    footer: z.enum(['inherit', 'none', 'own']).default('inherit'),
+    headerBand: band.optional(),
+    footerBand: band.optional(),
     title: z.string().max(200).optional(), // pour le plan et le sommaire
   }).default({}),
 });
@@ -202,14 +210,16 @@ function walkBlocks(blocks, visit, path = ['blocks'], parent = null) {
   });
 }
 
-/** Images citées (blocs image et éléments d'en-tête / pied). */
+/** Images citées (blocs image, éléments d'en-tête / pied du document et des sections) ; les emplacements vides ne comptent pas. */
 function imageRefs(doc) {
   const out = [];
-  walkBlocks(doc.blocks, (b) => { if (b.type === 'image') out.push(b.params.assetId); });
+  const fromBand = (bd) => { for (const e of (bd && bd.elements) || []) if (e.kind === 'image' && e.assetId) out.push(e.assetId); };
+  walkBlocks(doc.blocks, (b) => {
+    if (b.type === 'image') out.push(b.params.assetId);
+    if (b.type === 'section') { fromBand(b.params.headerBand); fromBand(b.params.footerBand); }
+  });
   const page = doc.page || {};
-  for (const bd of [page.header, page.footer, page.firstHeader, page.firstFooter]) {
-    for (const e of (bd && bd.elements) || []) if (e.kind === 'image') out.push(e.assetId);
-  }
+  for (const bd of [page.header, page.footer, page.firstHeader, page.firstFooter]) fromBand(bd);
   return out;
 }
 

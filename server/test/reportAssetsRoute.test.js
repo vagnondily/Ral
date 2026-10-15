@@ -18,7 +18,7 @@ const jwt = require('jsonwebtoken');
 const assetsRepo = require('../src/modules/reports/reportAssets.repository');
 const reportsRepo = require('../src/modules/reports/reports.repository');
 const routes = require('../src/modules/reports/reports.routes');
-const { errorHandler, notFound } = require('../src/middleware/errors');
+const { errorHandler, notFound, conflict } = require('../src/middleware/errors');
 
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
@@ -39,6 +39,15 @@ assetsRepo.getAssetData = async (tenantId, id) => {
 };
 assetsRepo.existingAssetIds = async (tenantId, ids) => new Set(ids.filter((id) => [...(store.get(tenantId) || new Map()).values()].some((x) => x.meta.id === id)));
 reportsRepo.listOffices = async () => [];
+const bandStore = new Map(); // tenant → [{ id, name, content }]
+assetsRepo.listBandTemplates = async (tenantId) => bandStore.get(tenantId) || [];
+assetsRepo.createBandTemplate = async (tenantId, { name, content }) => {
+  const list = bandStore.get(tenantId) || [];
+  if (list.some((x) => x.name.toLowerCase() === name.toLowerCase())) throw conflict('Un en-tête enregistré porte déjà ce nom.');
+  const row = { id: crypto.randomUUID(), name, content };
+  bandStore.set(tenantId, [...list, row]);
+  return row;
+};
 
 const app = express();
 app.use(express.json());
@@ -104,4 +113,28 @@ test('un rapport ne cite que des images de SON compte (logo d\'un autre compte �
   const foreign = await request(app).post('/api/report-designer/render/plan').set({ Authorization: tok(B, 'viewer') }).send({ doc: doc(up.body.id) });
   assert.equal(foreign.status, 400);
   assert.equal(foreign.body.details.code, 'asset_missing');
+});
+
+test('« mes en-têtes » : enregistré par compte, validé par le schéma des bandes, logos du compte seulement, nom unique', async () => {
+  const logo = (await upload(png(90, 30, 30))).body.id;
+  const header = { height: 18, elements: [{ id: 'logo', kind: 'image', x: 0, y: 1, w: 20, h: 14, assetId: logo }, { id: 't', kind: 'text', x: 25, y: 4, w: 75, h: 7, text: '{titre}' }] };
+  const footer = { height: 10, elements: [{ id: 'p', kind: 'pageNumber', x: 70, y: 2, w: 30, h: 6 }] };
+  const post = (body, auth = tok(A, 'admin')) => request(app).post('/api/report-designer/band-templates').set({ Authorization: auth }).send(body);
+  const ok = await post({ name: 'Bandeau du bureau', header, footer });
+  assert.equal(ok.status, 201);
+  assert.equal(ok.body.content.header.elements[0].assetId, logo);
+  assert.equal((await post({ name: 'bandeau DU bureau', header, footer })).status, 409);
+  // Élément hors de la bande, propriété inconnue, nom vide : 400.
+  assert.equal((await post({ name: 'X', header: { height: 10, elements: [{ id: 't', kind: 'text', x: 90, y: 0, w: 20, h: 6, text: 'x' }] }, footer })).status, 400);
+  assert.equal((await post({ name: 'X', header, footer, extra: 1 })).status, 400);
+  assert.equal((await post({ name: '  ', header, footer })).status, 400);
+  // Le logo d'un autre compte : refusé ; un lecteur ne peut pas enregistrer.
+  const foreign = await post({ name: 'Autre', header, footer }, tok(B, 'admin'));
+  assert.equal(foreign.status, 400);
+  assert.equal(foreign.body.details.code, 'asset_missing');
+  assert.equal((await post({ name: 'Lecteur', header, footer }, tok(A, 'viewer'))).status, 403);
+  const list = await request(app).get('/api/report-designer/band-templates').set({ Authorization: tok(A, 'viewer') });
+  assert.deepEqual(list.body.map((x) => x.name), ['Bandeau du bureau']);
+  const other = await request(app).get('/api/report-designer/band-templates').set({ Authorization: tok(B, 'viewer') });
+  assert.deepEqual(other.body, []);
 });

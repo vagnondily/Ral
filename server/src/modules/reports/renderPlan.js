@@ -94,7 +94,8 @@ function buildPlan(doc, opts = {}) {
   const { expansions = {}, kpiKeys = new Set(), lang = 'fr', today = new Date().toISOString().slice(0, 10), defaultView = () => 'table', maxInstances = MAX_INSTANCES } = opts;
   const page = doc.page || {};
   const pLabel = periodLabel(doc.period, lang);
-  const vars = { titre: doc.title, periode: pLabel, date_edition: today, ...(opts.simpleVars || {}) };
+  // {date} : date d'édition au format jj/mm/aaaa (en-têtes et pieds) ; {date_edition} reste l'ISO.
+  const vars = { titre: doc.title, periode: pLabel, date_edition: today, date: String(today).split('-').reverse().join('/'), ...(opts.simpleVars || {}) };
   const sections = [{ id: '_doc', index: 0, size: page.size || 'A4', orientation: page.orientation || 'portrait', header: 'inherit', footer: 'inherit', title: null }];
   const instances = [];
   const counters = { table: 0, figure: 0 };
@@ -106,6 +107,7 @@ function buildPlan(doc, opts = {}) {
     section = {
       id: iid, index: sections.length, size: p.size || page.size || 'A4', orientation: p.orientation || page.orientation || 'portrait',
       header: p.header || 'inherit', footer: p.footer || 'inherit',
+      headerBand: p.header === 'own' ? p.headerBand || null : null, footerBand: p.footer === 'own' ? p.footerBand || null : null,
       title: p.title ? substitute(p.title, { ...vars, ...itemVars(repeat, item) }) : null,
     };
     sections.push(section);
@@ -162,9 +164,11 @@ function buildPlan(doc, opts = {}) {
   // En-tête et pied de chaque section : textes remplis (variables simples + {section}).
   const bandTexts = (bandDef, sec) => Object.fromEntries(((bandDef && bandDef.elements) || [])
     .filter((e) => e.kind === 'text').map((e) => [e.id, substitute(e.text, { ...vars, section: sec.title || '' })]));
+  // En-tête / pied PROPRES d'une section (dessinés pour ses pages) : priment sur ceux du document.
+  const bandOf = (mode, own, doc) => (mode === 'none' ? null : mode === 'own' ? own : doc);
   for (const sec of sections) {
-    sec.headerText = sec.header === 'none' ? {} : bandTexts(page.header, sec);
-    sec.footerText = sec.footer === 'none' ? {} : bandTexts(page.footer, sec);
+    sec.headerText = bandTexts(bandOf(sec.header, sec.headerBand, page.header), sec);
+    sec.footerText = bandTexts(bandOf(sec.footer, sec.footerBand, page.footer), sec);
     if (page.firstPage === 'own') {
       sec.firstHeaderText = bandTexts(page.firstHeader, sec);
       sec.firstFooterText = bandTexts(page.firstFooter, sec);

@@ -81,6 +81,32 @@ test('sections : géométrie propre, titre avec variables de l\'élément ; en-t
   assert.equal(substitute('{aa} {bb}', { aa: 1 }), '1 {bb}');
 });
 
+test('en-tête PROPRE à une section (retour 88) et variables {date} et {bureau} des bandes', () => {
+  const band = (text) => ({ height: 12, elements: [{ id: 't', kind: 'text', x: 0, y: 0, w: 80, h: 6, text }] });
+  const d = parseDocV2({
+    schemaVersion: 2, title: 'R', period: { from: '2026-09', to: '2026-09' },
+    page: { header: band('{titre} · {bureau}') },
+    blocks: [
+      { id: 'a', type: 'heading', params: { text: 'A', level: 2 } },
+      { id: 's', type: 'section', params: { header: 'own', headerBand: band('Page à part · édité le {date}'), footer: 'none' } },
+      { id: 'b', type: 'heading', params: { text: 'B', level: 2 } },
+    ],
+  });
+  const p = buildPlan(d, { lang: 'fr', today: '2026-10-15', simpleVars: { bureau: 'Bureau Sud' } });
+  assert.equal(p.vars.date, '15/10/2026');
+  assert.equal(p.sections[0].headerText.t, 'R · Bureau Sud');
+  assert.equal(p.sections[1].headerText.t, 'Page à part · édité le 15/10/2026');
+  assert.equal(p.sections[1].headerBand.elements[0].text, 'Page à part · édité le {date}');
+  assert.deepEqual(p.sections[1].footerText, {});
+  // {bureau} sans filtre : « Tous les bureaux » ; filtre « id: » → nom MEMS ; « lib: » → libellé.
+  const { officeVar } = require('../src/modules/reports/reports.service');
+  const offices = { nameById: new Map([['33333333-3333-4333-8333-333333333333', 'Bureau Sud']]) };
+  assert.equal(officeVar({ filters: {} }, offices, 'fr'), 'Tous les bureaux');
+  assert.equal(officeVar({ filters: {} }, offices, 'en'), 'All offices');
+  assert.equal(officeVar({ filters: { office: 'id:33333333-3333-4333-8333-333333333333' } }, offices, 'fr'), 'Bureau Sud');
+  assert.equal(officeVar({ filters: { office: 'lib:Antenne Nord' } }, offices, 'fr'), 'Antenne Nord');
+});
+
 test('limites : 30 éléments répétés, 300 instances — sinon erreur « filtrez »', () => {
   const many = { rep: Array.from({ length: MAX_REPEAT_ITEMS + 1 }, (_, i) => ({ key: `k${i}`, label: `L${i}`, filters: {} })) };
   assert.throws(() => buildPlan(doc, { expansions: many }), (e) => e.code === 'too_many_items');
