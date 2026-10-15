@@ -13,6 +13,7 @@ const tpmConsolidationRoutes = require('./modules/tpm/consolidation.routes');
 const tpmPlanningRoutes = require('./modules/tpm/planning.routes');
 const tpmPostesRoutes = require('./modules/tpm/postes.routes');
 const tpmFieldRoutes = require('./modules/tpm/field.routes');
+const tpmPlanAutoRoutes = require('./modules/tpm/planAuto.routes');
 const tpmAttributionRoutes = require('./modules/tpm/tpmAttribution.routes');
 const contractsRoutes = require('./modules/contracts/contracts.routes');
 const settingsRoutes = require('./modules/settings/settings.routes');
@@ -101,6 +102,7 @@ function createApp() {
   app.use('/api/tpm/planning', tpmPlanningRoutes);
   app.use('/api/tpm/postes', tpmPostesRoutes);
   app.use('/api/tpm/field', tpmFieldRoutes);
+  app.use('/api/tpm/plan-auto', tpmPlanAutoRoutes);
   app.use('/api/tpm/attribution', tpmAttributionRoutes); // retour 58 : affectation des TPM par zone
   app.use('/api/tpm', tpmRoutes);
   app.use('/api/contracts', contractsRoutes);
