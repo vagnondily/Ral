@@ -537,6 +537,17 @@ or navy rail.
 - **Espace RBM** : onglets Priorités du mois · Plan de suivi (plan, déjà visités, carte) · Sites
   (actifs / inactifs) · Configuration RBM (critères de risque des sites = ancienne « vue standard »,
   exigences MMR, planification automatique). Ne pas remettre la vue standard dans le Plan de suivi.
+- **Publié le 15/10** :
+  - sélecteur de période en surcouche (portail, `web/src/lib/popoverPlacement.js`) : jamais coupé par
+    une fenêtre ; onglet « Données » d'une fiche par pages de 1 000 dans un ordre stable, le compteur dit
+    « chargée(s) sur N » (jamais de limite silencieuse), lieux par leur nom (P-code puis liste de choix) ;
+  - carte : couleur des points par activité (`web/src/lib/mapPoints.activitySlots`, rang dans le registre :
+    un filtre ne recolore jamais) ou par statut ; légende en groupes titrés ; un bureau choisi recadre ;
+  - concepteur : images d'en-tête PNG / JPEG reconnues par les octets, IMMUABLES (`report_assets`, 062,
+    quotas sous verrou) ; bandes d'en-tête / pied validées (couleurs `#RRGGBB`, polices d'une liste,
+    20 éléments au plus, positions bornées) ; annexes ; orientation et format par page ;
+  - écrans qui n'affichent que des totaux RBM : `GET /api/tpm/field/rbm/counts` (mêmes lignes que
+    `/rbm/sites`), jamais la liste complète.
 
 ## Known / open items
 - **Rapportage fidèle à la facture** — DONE. Financial reports now hold a

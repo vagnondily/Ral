@@ -53,9 +53,9 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 | `wip/r57-core` | oui | Réconciliation du socle GPS (un seul lecteur `.shp`), interrompue | ⏸️ le socle est déjà sur `main` (autre session) ; reste à fusionner `settings/shpReader.js` et `common/shpGeometry.js` (lot 3) |
 | `claude/zealous-bardeen-p9ozcr` | oui | Autre session : retours 56 et 57, page Sites | ✅ fusionnée dans `main` par l'autre session (`e8624e0`) |
 | `claude/friendly-carson-ze6mtp` | oui | Ancienne (09/10), déjà dans `main` | à ignorer |
-| `wip/7a-p2` | oui (au fil de l'eau) | Agent : concepteur partie 2 — en-tête libre et modèles, annexes, orientation par page, figures (retours 87, 88) | 🔄 depuis 13:42 |
-| `wip/ui-polish` | oui | Agent : sélecteur de période dans les fenêtres, onglet « Données », tableau de bord des fiches, carte (zoom bureau, activités, légende) (retours 80, 83, 85, 86, 94) | 🔄 depuis 13:42 |
-| `wip/perf` | oui | Agent : lenteur mesurée puis corrigée, hors plan de suivi et hors Localités (retours 61, 84) | 🔄 depuis 13:42 |
+| `wip/7a-p2` | oui (au fil de l'eau) | Agent : concepteur partie 2 — en-tête libre et modèles, annexes, orientation par page, figures (retours 87, 88) | ✅ **fusionnée dans `main` jusqu'à `a948e7f`** (graphiques, annexes, orientation par page, logos, concepteur d'en-tête) ; reste : filtres du rapportage (retour 102) — ⏸️ arrêté par la limite |
+| `wip/ui-polish` | oui | Agent : sélecteur de période dans les fenêtres, onglet « Données », tableau de bord des fiches, carte (zoom bureau, activités, légende) (retours 80, 83, 85, 86, 94) | ✅ **terminée et fusionnée dans `main`** (`1b348b5`) |
+| `wip/perf` | oui | Agent : lenteur mesurée puis corrigée, hors plan de suivi et hors Localités (retours 61, 84) | ✅ **premier lot fusionné dans `main`** (`a471f83`) ; en cours : fils séparés, tâches de fond (081), connexions réservées — ⏸️ arrêté par la limite |
 | `wip/lot8` | oui | Agent : Partenaires & TPM — fiche 360°, formations, notation des agents, règle « prestataire actif » (retours 28.1–28.3, 30) | 🔄 depuis 13:47 |
 | `wip/r58` | oui | Agent : TPM tiré des contrats, motif si modifié, onglet d'affectation (retour 58, migration 070) | 🔄 depuis 13:53 |
 | `wip/lot5-gen` | oui | Agent : planification automatique d'après le RBM + paramètres (retour 82, lot 5 § 6–7, migrations 077–078) | 🔄 depuis 13:53 |
