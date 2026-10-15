@@ -531,6 +531,15 @@ or navy rail.
 - **Espace RBM** : onglets Priorités du mois · Plan de suivi (plan, déjà visités, carte) · Sites
   (actifs / inactifs) · Configuration RBM (critères de risque des sites = ancienne « vue standard »,
   exigences MMR, planification automatique). Ne pas remettre la vue standard dans le Plan de suivi.
+- **Affectation des TPM par zone** (retour 58, migration 070, `tpm/tpmAttribution*.js`, écrans `Tpm*.jsx`,
+  onglet `TpmAttributionTab` de l'espace RBM) : le TPM d'une zone (district, ou commune portée) pour un
+  mois = celui des contrats de suivi qui la couvrent (TPM rattaché par plan / facture, sinon titulaire —
+  règle commune du lot 8 `activeProvider`) ; une modification = zone × mois + raison (10–500) + journal
+  inaltérable (`tpm_attribution_log`). Le TPM d'une visite « zone » n'est écrit que par `mems_tpm_stamp`
+  (garde AVANT + estampille DIFFÉRÉE au COMMIT : un écrivain qui l'ignore est couvert) ; tout écrivain
+  de visites appelle `restampVisitsTx` (test `visitWritersGuard`). Re-dérivation automatique : visites
+  PRÉVUES, non « antérieures », non facturées seulement (`AUTO_RESTAMPABLE_SQL`, même filtre en base) —
+  ne jamais réécrire qui a fait une visite. Autre TPM pour une visite = écart motivé (`provider_source = 'visite'`).
 
 ## Known / open items
 - **Rapportage fidèle à la facture** — DONE. Financial reports now hold a
