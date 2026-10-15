@@ -1,5 +1,6 @@
-# Dependencies
+# Dependencies (sans barre finale : couvre aussi un lien symbolique node_modules)
 node_modules/
+node_modules
 
 # Local environment (use .env.example as the template)
 .env
