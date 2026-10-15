@@ -1,6 +1,6 @@
 # Reprise du travail — passation entre sessions Claude
 
-_Mis à jour : 14/10/2026, 13:07 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
+_Mis à jour : 14/10/2026, 14:19 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
 Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOURNAL.md)._
 
 **À qui s'adresse ce fichier ?** À toute session Claude qui reprend le projet, en particulier pendant une limite d'usage de la session principale. Il dit :
@@ -13,7 +13,7 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 
 1. `CLAUDE.md` : règles du projet.
 2. Ce fichier, puis le tableau « État courant » de [`JOURNAL.md`](JOURNAL.md).
-3. [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) : chaque retour (n° 1 à 71) et son état. [`ETAT_DU_PROJET.md`](ETAT_DU_PROJET.md) : la synthèse.
+3. [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) : chaque retour (n° 1 à 94) et son état. [`ETAT_DU_PROJET.md`](ETAT_DU_PROJET.md) : la synthèse.
 4. [`PLAN_RETOURS_15_37.md`](PLAN_RETOURS_15_37.md) : **définitions communes**, qui s'imposent à tous.
 5. Spécifications :
    - [`SPEC_LOT_1B.md`](SPEC_LOT_1B.md) et [`SPEC_LOT_6A.md`](SPEC_LOT_6A.md) (publiés) ;
@@ -35,7 +35,13 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 - **Fiches de suivi.** Renommer, changer l'activité, voir la liste des choix (retours 59, 66).
 - **Outil de contrôle des écrans.** `node web/scripts/sweep-ecrans.cjs` : 33 écrans en FR et EN.
 
-**Santé de `main`** : 937 tests (936 réussis, 1 ignoré), lint propre, build OK, balayage de 33 écrans × FR / EN sans erreur ni phrase anglaise manquante. Migrations `001` → `067`, essayées sur une base neuve et sur une copie de la base existante.
+- **Revue du retour 56** (`31e015b`) : refus qui nomme les données reliées, justificatif ≥ 10 caractères (migration `068`), document validé réservé à l'administrateur. **Retour 79** : zones d'intervention du contrat en tableau.
+- **Retours 89 et 90** (`ac6eccf`) : suppression groupée de sites avec aperçu ; sites et activités par unité du répertoire.
+- **Retours 64 et 96** (`407d7e6`, `0968ba4`) : onglet « Sites (actifs / inactifs) » distinct (classeur d'activation, journal, migration `072`) ; espace RBM réorganisé ; identifiant `S-XXXX-XXXX` (migration `073`).
+
+**Santé de `main`** (13:54) : 1 019 tests (1 018 réussis, 1 ignoré), lint propre, build OK, balayage 33 écrans × FR / EN sans erreur. Migrations `001` → `068`.
+
+**Ancienne mesure (12:40)** : 937 tests (936 réussis, 1 ignoré), lint propre, build OK, balayage de 33 écrans × FR / EN sans erreur ni phrase anglaise manquante. Migrations `001` → `067`, essayées sur une base neuve et sur une copie de la base existante.
 
 ## 2. Où est le code
 
@@ -47,25 +53,40 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 | `wip/r57-core` | oui | Réconciliation du socle GPS (un seul lecteur `.shp`), interrompue | ⏸️ le socle est déjà sur `main` (autre session) ; reste à fusionner `settings/shpReader.js` et `common/shpGeometry.js` (lot 3) |
 | `claude/zealous-bardeen-p9ozcr` | oui | Autre session : retours 56 et 57, page Sites | ✅ fusionnée dans `main` par l'autre session (`e8624e0`) |
 | `claude/friendly-carson-ze6mtp` | oui | Ancienne (09/10), déjà dans `main` | à ignorer |
+| `wip/7a-p2` | oui (au fil de l'eau) | Agent : concepteur partie 2 — en-tête libre et modèles, annexes, orientation par page, figures (retours 87, 88) | 🔄 depuis 13:42 |
+| `wip/ui-polish` | oui | Agent : sélecteur de période dans les fenêtres, onglet « Données », tableau de bord des fiches, carte (zoom bureau, activités, légende) (retours 80, 83, 85, 86, 94) | 🔄 depuis 13:42 |
+| `wip/perf` | oui | Agent : lenteur mesurée puis corrigée, hors plan de suivi et hors Localités (retours 61, 84) | 🔄 depuis 13:42 |
+| `wip/lot8` | oui | Agent : Partenaires & TPM — fiche 360°, formations, notation des agents, règle « prestataire actif » (retours 28.1–28.3, 30) | 🔄 depuis 13:47 |
+| `wip/r58` | oui | Agent : TPM tiré des contrats, motif si modifié, onglet d'affectation (retour 58, migration 070) | 🔄 depuis 13:53 |
+| `wip/lot5-gen` | oui | Agent : planification automatique d'après le RBM + paramètres (retour 82, lot 5 § 6–7, migrations 077–078) | 🔄 depuis 13:53 |
+| `wip/admin` | oui | Agent : état de l'application, remise à zéro annulable 24 h, annulation d'une suppression (retours 95, 60 ; migration 096) | 🔄 depuis 14:04 |
+| `wip/indicators` | oui | Agent : modèles d'indicateurs corrigés, modèle Résilience, proposition et rattachement automatiques (retours 66, 85 ; migration 098 si besoin) | 🔄 depuis 14:09 |
+| `wip/repeats` | oui | Agent : sous-tables (groupes répétés) à l'import, réponses « Autre, précisez » comptées (retours 77, 81 ; migrations 097, 099) | 🔄 depuis 14:09 |
+| `wip/calc` | oui | Agent : fonctions de calcul (Excel, Tableau, DAX, statistiques), sans exécution de code (retour 74) | 🔄 depuis 14:12 |
+| `wip/pdd` | oui | Agent : PDD — vue d'ensemble, tableau récapitulatif par mois, date d'ajout (retour 69, migration 100) | 🔄 depuis 14:12 |
 
 ## 3. Chantiers : en cours et à venir
 
-Les agents de la session principale sont bloqués par la limite d'usage jusqu'à **15:30 UTC**. D'ici là, la session principale travaille seule, sur `main`.
+Les agents fonctionnent de nouveau depuis 13:37 : la vague prévue à 15:30 est lancée (voir § 2). La session principale intègre leurs branches sur `main` après contrôle, et réalise elle-même l'onglet « Sites (actifs / inactifs) » (retour 64).
 
 | | Chantier | Retours | Qui | État |
 |---|---|---|---|---|
 | A | Vérification adverse de `main` (1b + 6a intégrés, sites, suppression) | — | session principale, 15:30 | ⏳ |
 | B | Tableau trimestriel par activité → carte « Couverture par activité » de la Synthèse | 54, 76 | session principale | ✅ `18cbcd3` |
-| C | Lots 3 et 4 : **sites actifs / inactifs** (grille Oui / Non par mois, classeur `mems_activation_2026_1.xlsx`), **révision du plan de suivi** (P / R, réalisé issu des données), identifiants `S-XXXX-XXXX`, plusieurs sites par site déclaré, GPS par contours | 21, 22, 23, 33, 46, 57, 64 | session principale, conception à 15:30 | ⏳ (la conception lancée à 12:55 a échoué sur la limite) |
-| D | Lot 5 v2 : plan MMR réaliste, dispatch automatique selon la configuration, calendrier, priorités, risque daté, avec le retour 58 | 24, 25, 55, 58 | session principale | v1 + critique dans `SPEC_LOT_5.md` ; analyse du retour 58 faite (résultat à transcrire) |
-| E | Lot 7a partie 2 + concepteur universel (calculs personnalisés, tableaux croisés, en-tête libre) d'après les maquettes | 18, 39, 40, 51–53, 67, 72, 74 | session principale | partie 1 publiée (`e6e07f1`) ; partie 2 ⏳ |
+| C | Lots 3 et 4 : **sites actifs / inactifs** (grille Oui / Non par mois, classeur `mems_activation_2026_1.xlsx`), **révision du plan de suivi** (P / R, réalisé issu des données), identifiants `S-XXXX-XXXX`, plusieurs sites par site déclaré, GPS par contours | 21, 22, 23, 33, 46, 57, 64 | session principale : onglet « Sites (actifs / inactifs) » distinct (en cours) ; le reste ensuite | 🔄 |
+| D | Lot 5 v2 : plan MMR réaliste, dispatch automatique selon la configuration, calendrier, priorités, risque daté, avec le retour 58 | 24, 25, 55, 58, 82 | agents `wip/lot5-gen` (§ 6–7) et `wip/r58` | 🔄 ; calendrier, risque daté, règles de priorité : ensuite |
+| E | Lot 7a partie 2 + concepteur universel (calculs personnalisés, tableaux croisés, en-tête libre) d'après les maquettes | 18, 39, 40, 51–53, 67, 72, 74, 87, 88 | agent `wip/7a-p2` | partie 1 publiée (`e6e07f1`) ; partie 2 🔄 |
 | F | Tableaux de bord riches d'après les 5 XLSForm et les 4 maquettes | 40, 66, 67 | session principale | ⏳ conception |
 | G | Sélection multiple de mois dans tous les filtres de date | 68 | — | ⏳ conception |
 | H | Annuler une suppression depuis le journal | 60 | — | ⏳ conception |
-| I | Performance avec beaucoup de données ou de calculs | 61 | — | ⏳ audit mesuré |
+| I | Performance avec beaucoup de données ou de calculs | 61, 84 | agent `wip/perf` | 🔄 (API < 250 ms partout ; lenteur à l'affichage) |
 | J | Carte décisionnelle dédiée, modules **Output** (population, ciblage, plan de distribution, réalisé, logistique, connecteur DOTS / Palantir), **Programmes & projets** | 65 | — | ⏳ conception |
 | K | PDD : vue d'ensemble, tableau des mois, lien avec l'Output, date d'ajout | 69 | — | ⏳ avec J |
-| L | Reste de la revue du retour 56 : refus qui nomme la donnée reliée, avenants validés, rôle du valideur, justificatif ≥ 10 caractères, tests des routes | 56 | — | ⏳ |
+| L | Reste de la revue du retour 56 : refus qui nomme la donnée reliée, avenants validés, rôle du valideur, justificatif ≥ 10 caractères, tests des routes | 56 | session principale | ✅ `31e015b` |
+| M | Multi-pays : siège › bureau régional › bureau pays | 91 | agent (conception) | 🔄 `docs/SPEC_MULTIPAYS.md` |
+| N | Programmes & projets, cycle de projet, cadre logique, bailleurs et financements, Output, carte décisionnelle, référentiel des activités | 65, 69, 73, 92, 93 | agent (conception) | 🔄 `docs/SPEC_PROGRAMMES.md` |
+| O | Partenaires & TPM (lot 8) | 28, 30 | agent `wip/lot8` | 🔄 |
+| P | Sous-tables (groupes répétés) à l'import, « Autre, précisez », indicateurs proposés pour vos fiches | 66, 77, 81, 85 | agent (analyse des 5 XLSForm) | 🔄 |
 
 Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) :
 - `mems_activation_2026_1.xlsx` (sites actifs, plan de suivi) ;
@@ -85,12 +106,24 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `065` | journal des suppressions | ✅ |
   | `066` | `sites.tag_code` | ✅ |
   | `067` | option des codes Adm | ✅ |
-  | `068`–`069` | libres | — |
-  | `070` | retour 58 | ⏳ |
-  | `071`–`073` | lot 3 | ⏳ |
+  | `068` | justificatif ≥ 10 caractères (retour 56) | ✅ |
+  | `069` | agent `wip/ui-polish` (si besoin) | 🔄 |
+  | `070`–`071` | retour 58 (agent `wip/r58`) | 🔄 |
+  | `072` | journal des sites actifs / inactifs | ✅ |
+  | `073` | identifiant des sites `S-XXXX-XXXX` | ✅ |
   | `074`–`076` | lot 4 | ⏳ |
-  | `077`–`080` | lot 5 (renumérotation de la v1) | ⏳ |
-  | `081` et suivants | libres | — |
+  | `077`–`078` | lot 5 § 6–7 (agent `wip/lot5-gen`) | 🔄 |
+  | `079`–`080` | lot 5, suite (calendrier, risque daté, règles) | ⏳ |
+  | `081` | agent `wip/perf` (index, si besoin) | 🔄 |
+  | `082`–`085` | multi-pays (conception) | ⏳ |
+  | `086`–`089` | lot 8 (agent `wip/lot8`) | 🔄 |
+  | `090`–`095` | programmes, projets, bailleurs, Output (conception) | ⏳ |
+  | `096` | état de l'application, remise à zéro, archives 24 h (agent `wip/admin`) | 🔄 |
+  | `097` | sous-tables et « Autre » (agent `wip/repeats`) | 🔄 |
+  | `098` | indicateurs des fiches (agent `wip/indicators`, si besoin) | 🔄 |
+  | `099` | sous-tables, 2ᵉ fichier si besoin (agent `wip/repeats`) | 🔄 |
+  | `100` | PDD : date d'ajout (agent `wip/pdd`) | 🔄 |
+  | `101` et suivants | libres | — |
 
 - **Publier sur `main`** seulement après :
   - `cd server && npm test && npm run lint` ;
@@ -116,6 +149,14 @@ node web/scripts/sweep-ecrans.cjs              # 33 écrans FR + EN (Playwright 
 - Les agents travaillent chacun sur une base jetable et sur leurs propres ports. Ils n'arrêtent jamais :9000 ni :5173.
 
 ## 6. À confirmer par l'utilisateur, risques connus
+
+**Multi-pays** ([`SPEC_MULTIPAYS.md`](SPEC_MULTIPAYS.md)), avec la valeur retenue par défaut :
+- Q1 — Bureaux régionaux et Siège : totaux seulement, ou aussi consultation des écrans d'un pays en lecture seule ? Défaut : les deux, jamais d'écriture sans être membre du pays, GPS des ménages jamais hors du pays.
+- Q2 — Taux de change saisis par chaque pays, ou table centrale du Siège ? Consolidation en USD ? Défaut : taux par pays, USD, le Siège voit les taux manquants.
+- Q3 — Une personne présente dans plusieurs espaces a-t-elle un seul compte ? Défaut : oui, mot de passe géré par elle ou par l'administrateur du Siège.
+- Q4 — Une seule base pour tous les pays, ou des données à garder dans le pays ? Défaut : une seule base ; un pays soumis à une obligation de résidence garde sa propre instance (hors champ).
+- Q5 — Le Siège impose-t-il des codes communs (activités, modèles d'indicateurs, lignes budgétaires) ? Défaut : comparaison sur les codes déjà communs ; le reste affiché « non comparable ».
+
 
 - **156 soumissions Nutrition** sont datées d'août 2024 à décembre 2025 d'après leur seule SvyDate : ces dates sont-elles fiables ?
 - **Connecteur DOTS / Palantir** (retour 65) : il faut l'adresse et les accès.

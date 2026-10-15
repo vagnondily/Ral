@@ -514,6 +514,24 @@ or navy rail.
   (migration 065, inscription seule) — non validé → supprimable ; validé → seulement sans donnée reliée,
   avec justificatif.
 
+- **Sites (actifs / inactifs)** (retour 64 ; `server/src/modules/tpm/activation*.js`,
+  `web/src/pages/monitoring/SitesActivationPage.jsx`, migration 072) : onglet DISTINCT du plan de
+  suivi (« divise bien » : ici on dit SI un site est actif chaque mois, le plan dit QUAND le visiter).
+  Fidèle à la feuille « Site Actif » du classeur d'activation : Oui / Non / vide par mois, Identifiant
+  = Code POI & Tag_code (sinon code MEMS), « Motif du changement ». État courant = `site_month_status` ;
+  chaque changement est journalisé (`site_activation_changes`, append-only, avant → après, motif, source
+  écran / import). Import : rapprochement par identifiant, aperçu sans écriture, une case VIDE laisse le
+  mois inchangé, un site inconnu n'est jamais créé (il vient du registre). Règles pures `activationMath`.
+- **Identifiant des sites** (retour 64, migration 073, `common/publicId.js`) : chaque site porte un
+  identifiant affiché `S-XXXX-XXXX` (8 symboles Crockford base 32 sans I, L, O, U, tirés au hasard par
+  la base `mems_site_public_id()`, uniques par compte, IMMUABLES — déclencheur). L'UUID interne reste la
+  clé technique, jamais montré ; les anciens codes (`code` PLAN-0001, `location_id` L001) restent dans
+  leurs colonnes et sont reconnus à l'import. Saisie tolérante (casse, tirets, O→0, I/L→1) partout où un
+  identifiant est cherché ou importé (`normalizePublicId`).
+- **Espace RBM** : onglets Priorités du mois · Plan de suivi (plan, déjà visités, carte) · Sites
+  (actifs / inactifs) · Configuration RBM (critères de risque des sites = ancienne « vue standard »,
+  exigences MMR, planification automatique). Ne pas remettre la vue standard dans le Plan de suivi.
+
 ## Known / open items
 - **Rapportage fidèle à la facture** — DONE. Financial reports now hold a
   line-item « état des dépenses » (facture) faithful to the real YPA invoice

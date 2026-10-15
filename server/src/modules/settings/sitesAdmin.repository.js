@@ -17,10 +17,13 @@
 const { withTenantTransaction } = require('../../config/db');
 const { withSubmissionLinks, afterSitesChangedTx } = require('./placeMatch.repository');
 const { attributeByGps } = require('../common/geoAttribution');
+const { summarizeSiteDeletion } = require('./siteDeletion');
+const { normalizePublicId } = require('../common/publicId');
 
 const LIST_COLS = `
   s.id,
-  s.code            AS "identifiant",
+  s.public_id       AS "identifiant",
+  s.code            AS "ancienCode",
   s.name            AS "localite",
   s.location_id     AS "codePoi",
   s.field_office_id AS "fieldOfficeId",
@@ -57,8 +60,12 @@ async function listSites(tenantId, { q, limit = 1000, offset = 0, ids = null } =
     if (q) {
       params.push(`%${q}%`);
       const p = `$${params.length}`;
-      where += ` AND (s.name ILIKE ${p} OR s.code ILIKE ${p} OR s.commune ILIKE ${p}
-                   OR s.district ILIKE ${p} OR s.location_id ILIKE ${p} OR s.adm3 ILIKE ${p})`;
+      // Identifiant « S-XXXX-XXXX » saisi librement (casse, tirets, O/0, I/L/1) : égalité exacte.
+      const pid = normalizePublicId(q);
+      let exact = '';
+      if (pid) { params.push(pid); exact = ` OR s.public_id = $${params.length}`; }
+      where += ` AND (s.name ILIKE ${p} OR s.code ILIKE ${p} OR s.public_id ILIKE ${p} OR s.commune ILIKE ${p}
+                   OR s.district ILIKE ${p} OR s.location_id ILIKE ${p} OR s.adm3 ILIKE ${p}${exact})`;
     }
     params.push(cap, skip);
     const { rows } = await client.query(
@@ -220,22 +227,26 @@ async function importSites(tenantId, rows) {
     const { rows: offs } = await client.query('SELECT id, code FROM field_offices WHERE tenant_id = $1', [tenantId]);
     const officeByCode = new Map(offs.map((o) => [String(o.code || '').trim().toLowerCase(), o.id]));
 
-    // Identifiant fourni (retour 70) : seul un identifiant DÉJÀ ATTRIBUÉ par MEMS (classeur exporté
-    // puis repris hors ligne) désigne un site à mettre à jour ; un code saisi dans le modèle et inconnu
-    // de MEMS n'est jamais adopté — le site est créé avec l'identifiant de MEMS (compté dans le bilan).
+    // Identifiant fourni (retours 70 et 64) : seul un identifiant DÉJÀ ATTRIBUÉ par MEMS (classeur
+    // exporté puis repris hors ligne) désigne un site à mettre à jour — l'identifiant « S-XXXX-XXXX »
+    // (saisie tolérante) ou, pour les anciens classeurs, l'ancien code (PLAN-0001). Un code saisi dans
+    // le modèle et inconnu de MEMS n'est jamais adopté : le site est créé avec son propre identifiant.
     const given = [...new Set((rows || []).map((r) => String(r.identifiant || '').trim()).filter(Boolean))];
+    const givenPids = [...new Set(given.map(normalizePublicId).filter(Boolean))];
     const { rows: known } = given.length
-      ? await client.query('SELECT code FROM sites WHERE tenant_id = $1 AND code = ANY($2::text[])', [tenantId, given])
+      ? await client.query(
+        'SELECT id, code, public_id FROM sites WHERE tenant_id = $1 AND (public_id = ANY($2::text[]) OR code = ANY($3::text[]))',
+        [tenantId, givenPids, given])
       : { rows: [] };
-    const knownCodes = new Set(known.map((k) => k.code));
+    const knownId = new Map();
+    for (const k of known) { knownId.set(k.public_id, k.id); knownId.set(k.code, k.id); }
     let created = 0; let updated = 0; let ignoredCodes = 0; const skipped = [];
     for (const r of rows || []) {
       if (!r.localite || !String(r.localite).trim()) { skipped.push({ row: r._row, reason: 'Localité manquante.' }); continue; }
       const givenCode = String(r.identifiant || '').trim();
-      if (givenCode && !knownCodes.has(givenCode)) ignoredCodes += 1;
-      const code = givenCode && knownCodes.has(givenCode)
-        ? givenCode
-        : siteCode({ district: r.district, commune: r.commune, name: r.localite });
+      const knownSite = givenCode ? (knownId.get(normalizePublicId(givenCode)) || knownId.get(givenCode) || null) : null;
+      if (givenCode && !knownSite) ignoredCodes += 1;
+      const code = siteCode({ district: r.district, commune: r.commune, name: r.localite });
       const fieldOfficeId = r.fieldOfficeCode
         ? (officeByCode.get(String(r.fieldOfficeCode).trim().toLowerCase()) || null)
         : undefined;
@@ -245,7 +256,9 @@ async function importSites(tenantId, rows) {
         lat: r.lat ?? null, lng: r.lng ?? null,
         ...(fieldOfficeId !== undefined ? { fieldOfficeId } : {}),
       };
-      const { rows: ex } = await client.query('SELECT id FROM sites WHERE tenant_id = $1 AND code = $2', [tenantId, code]);
+      const { rows: ex } = knownSite
+        ? { rows: [{ id: knownSite }] }
+        : await client.query('SELECT id FROM sites WHERE tenant_id = $1 AND code = $2', [tenantId, code]);
       if (ex.length) {
         const { sets, values } = buildSets(patch, 3);
         if (sets.length) {
@@ -323,11 +336,12 @@ async function bulkSites(tenantId, { ids, action, patch = {} }) {
     const missing = ids.length - found.length;
     if (action === 'delete') {
       const linked = await linkedDataTx(client, tenantId, found.map((r) => r.id));
-      const free = found.filter((r) => !linked.has(r.id)).map((r) => r.id);
-      if (free.length) await client.query('DELETE FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, free]);
-      if (free.length) await afterSitesChangedTx(client, tenantId);
-      const refused = found.filter((r) => linked.has(r.id)).map((r) => ({ id: r.id, name: r.name, ...linked.get(r.id) }));
-      return { deleted: free.length, refused, missing };
+      const sum = summarizeSiteDeletion(found, linked);
+      if (sum.deletable.length) {
+        await client.query('DELETE FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, sum.deletable]);
+        await afterSitesChangedTx(client, tenantId);
+      }
+      return { deleted: sum.deletable.length, keptCount: sum.kept.length, keptIds: sum.kept, byReason: sum.byReason, sample: sum.sample, missing };
     }
     // 'set' : un seul UPDATE (colonnes absentes du patch inchangées).
     const sets = []; const params = [tenantId, found.map((r) => r.id)];
@@ -347,4 +361,22 @@ async function bulkSites(tenantId, { ids, action, patch = {} }) {
   });
 }
 
-module.exports = { listSites, createSite, updateSite, autoAttribute, deleteSite, bulkSites, linkedDataTx, importSites };
+/**
+ * Aperçu d'une suppression groupée (retour 89), en LECTURE seule : combien de
+ * sites seraient supprimés, combien gardés (ils portent des données) et pourquoi.
+ * Même règle que bulkSites('delete').
+ */
+async function previewBulkDelete(tenantId, ids) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: found } = await client.query(
+      'SELECT id, name FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[]) ORDER BY name, id', [tenantId, ids]);
+    const linked = await linkedDataTx(client, tenantId, found.map((r) => r.id));
+    const sum = summarizeSiteDeletion(found, linked);
+    return {
+      total: sum.total, deletable: sum.deletable.length, keptCount: sum.kept.length,
+      byReason: sum.byReason, sample: sum.sample, missing: ids.length - found.length,
+    };
+  });
+}
+
+module.exports = { listSites, createSite, updateSite, autoAttribute, deleteSite, bulkSites, previewBulkDelete, linkedDataTx, importSites };
