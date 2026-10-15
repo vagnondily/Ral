@@ -115,6 +115,29 @@ test('Centre d\'alertes sur téléphone (320–390 px) : la catégorie passe à 
   assert.match(rule('.alerts-table tbody tr'), /padding:\s*12px 52px 12px 14px/);
 });
 
+test('Couverture & performance (retour 85) : période et vues séparées, fiche sans indicateur expliquée, cartes d\'une rangée à la même hauteur', async (t) => {
+  const en = await load(t, 'locales', 'en.js'); if (!en) return;
+  const src = fs.readFileSync(webFile('pages', 'dashboard', 'DashboardCoveragePage.jsx'), 'utf8');
+  // La mention de session est sous la ligne de période, le choix de la vue à part.
+  assert.match(src, /<div className="cd-headbar-period">\s*<PeriodBanner[^>]*\/>\s*<SessionPeriodNote/);
+  // Fiche sans indicateur : une explication et la marche à suivre (configuration, modèle d'activité ou rattachement).
+  assert.match(src, /if \(!form\.indicatorCount\) \{/);
+  assert.match(src, /Aucun indicateur n\\'est encore configuré pour cette fiche/);
+  assert.match(src, /go\('config'\)/);
+  assert.match(src, /go\('modele'\)/);
+  for (const [, raw] of src.matchAll(/\btr\(\s*'((?:[^'\\]|\\.)*)'/g)) {
+    const phrase = raw.replace(/\\'/g, '\'');
+    assert.ok(en.default[phrase] !== undefined, `« ${phrase} » sans traduction anglaise`);
+  }
+  const css = fs.readFileSync(webFile('styles.css'), 'utf8');
+  assert.match(css, /\.biz-grid\.cd-grid-2 \{ align-items: stretch; \}/);
+  assert.match(css, /\.cd-grid-2 > \.biz-card\.cd-fill > \.card-body \{ flex: 1 1 0;[^}]*overflow-y: auto/);
+  assert.match(css, /\.period-session-note \{ display: flex;/);
+  // Fiche ouverte sur son modèle d'activité (« Appliquer le modèle d'activité »).
+  const pm = fs.readFileSync(webFile('pages', 'monitoring', 'ProcessMonitoringPage.jsx'), 'utf8');
+  assert.match(pm, /initialTab === 'modele' \? 'config'/);
+});
+
 test('commentaires du front : chaque test cité existe (server/test/…)', (t) => {
   const dir = webFile('lib');
   if (!fs.existsSync(dir)) { t.skip('web/ absent'); return; }

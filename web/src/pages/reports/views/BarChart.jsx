@@ -8,7 +8,7 @@ import { DataTable } from './DataTable.jsx';
 /**
  * Barres HORIZONTALES (comparaison) : axe des valeurs à zéro, séries groupées (≤ 3), étiquette
  * de valeur au bout de chaque barre (texte en encre, jamais de la couleur de la série),
- * catégories lisibles à gauche, « Autres » au-delà de 7 catégories.
+ * catégories lisibles à gauche, « Autres » au-delà de 7 catégories, légende au-dessus dès 2 séries.
  */
 export default function BarChart({ def, data, measure, title }) {
   const c = useChartData(def, data, measure);
@@ -25,6 +25,7 @@ export default function BarChart({ def, data, measure, title }) {
   const desc = c.rows.map((r) => `${c.label(r)} : ${c.series.map((s) => formatCell(s.type, r[s.key], c.tr)).join(' / ')}`).join(' ; ');
   return (
     <figure className="rb-chart">
+      <Legend items={c.legend} />
       <ChartSvg width={W} height={H} title={title || c.tr('Graphique en barres')} desc={desc}>
         {sc.ticks.map((tv) => (
           <g key={tv}>
@@ -39,7 +40,7 @@ export default function BarChart({ def, data, measure, title }) {
               <text x={pad.l - 8} y={y0 + (barH * c.series.length) / 2 + 4} className="rb-axis rb-cat" textAnchor="end"><title>{c.label(r)}</title>{clip(c.label(r), 28)}</text>
               {c.series.map((s, k) => {
                 const v = Number(r[s.key]);
-                if (!Number.isFinite(v)) return null;
+                if (r[s.key] == null || !Number.isFinite(v)) return null;
                 const x0 = xOf(0); const x1 = xOf(v);
                 return (
                   <g key={s.key}>
@@ -54,7 +55,6 @@ export default function BarChart({ def, data, measure, title }) {
           );
         })}
       </ChartSvg>
-      <Legend items={c.legend} />
     </figure>
   );
 }

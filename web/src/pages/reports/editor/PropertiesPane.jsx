@@ -3,7 +3,7 @@ import { RefreshCw, Lightbulb } from 'lucide-react';
 import { api } from '../../../api/client.js';
 import { useI18n } from '../../../lib/i18n.jsx';
 import { Button, Field } from '../../../components/ui.jsx';
-import { chartSeries, viewAdvice } from '../../../lib/reportViz.js';
+import { categoryColumn, chartSeries, viewAdvice } from '../../../lib/reportViz.js';
 import { TYPE_LABEL, VIEW_LABELS, VIEW_ADVICE } from './blockTypes.js';
 import FiltersPane from './FiltersPane.jsx';
 import PagePane from './PagePane.jsx';
@@ -11,7 +11,7 @@ import PagePane from './PagePane.jsx';
 const CHART = new Set(['bar', 'column', 'line', 'donut', 'stacked']);
 
 /** Volet droit : onglets Bloc / Filtres (bloc sélectionné) ou Page (document). */
-export default function PropertiesPane({ sel, doc, catalog, forms, opts, state, onChangeBlock, onRegenerate, onChangePage }) {
+export default function PropertiesPane({ sel, doc, catalog, forms, opts, state, annex, onChangeBlock, onRegenerate, onChangePage, onChangeAnnexes, pageExtra }) {
   const { tr } = useI18n();
   const [tab, setTab] = useState('block');
   const block = sel ? sel.block : null;
@@ -26,21 +26,21 @@ export default function PropertiesPane({ sel, doc, catalog, forms, opts, state, 
         <button type="button" role="tab" aria-selected={t === 'page'} className={t === 'page' ? 'is-active' : ''} onClick={() => setTab('page')}>{tr('Page')}</button>
       </div>
       <div className="rd-pane-body">
-        {t === 'block' && block && <BlockProps block={block} parent={sel.parent} catalog={catalog} forms={forms} state={state} onChange={onChangeBlock} onRegenerate={onRegenerate} />}
+        {t === 'block' && block && <BlockProps block={block} parent={sel.parent} catalog={catalog} forms={forms} state={state} annex={annex} onChange={onChangeBlock} onRegenerate={onRegenerate} />}
         {t === 'filters' && block && (
           <FiltersPane block={block} doc={doc} forms={forms} opts={opts}
             supported={def ? def.filters : block.type === 'kpis' ? null : ['office', 'form', 'activity', 'partner']}
             officeKinds={def ? def.officeKinds : null}
             onChange={(filters) => onChangeBlock({ filters })} />
         )}
-        {t === 'page' && <PagePane doc={doc} onChange={onChangePage} />}
+        {t === 'page' && <PagePane doc={doc} onChange={onChangePage} onAnnexes={onChangeAnnexes} extra={pageExtra} />}
       </div>
     </>
   );
 }
 
 /* ------------------------------------------------------------------ Bloc sélectionné */
-function BlockProps({ block, parent, catalog, forms, state, onChange, onRegenerate }) {
+function BlockProps({ block, parent, catalog, forms, state, annex, onChange, onRegenerate }) {
   const { tr } = useI18n();
   const p = block.params;
   const def = block.type === 'data' ? catalog.datasets[p.dataset] : null;
@@ -73,7 +73,7 @@ function BlockProps({ block, parent, catalog, forms, state, onChange, onRegenera
           ))}
         </fieldset>
       )}
-      {block.type === 'data' && <DataProps p={p} def={def} catalog={catalog} forms={forms} data={data} result={result} onChange={onChange} />}
+      {block.type === 'data' && <DataProps p={p} def={def} catalog={catalog} forms={forms} data={data} result={result} annex={annex} onChange={onChange} />}
       {block.type === 'section' && <>
         <Field label={tr('Orientation')}><select className="select" value={p.orientation || 'portrait'} onChange={(e) => onChange({ orientation: e.target.value })}>
           <option value="portrait">{tr('Portrait')}</option><option value="landscape">{tr('Paysage')}</option>
@@ -108,14 +108,14 @@ function BlockProps({ block, parent, catalog, forms, state, onChange, onRegenera
   );
 }
 
-function DataProps({ p, def, catalog, forms, data, result, onChange }) {
+function DataProps({ p, def, catalog, forms, data, result, annex, onChange }) {
   const { tr } = useI18n();
   const view = p.view || (def && def.defaultView) || 'table';
   const fig = p.figure || {};
   const setFig = (patch) => onChange({ figure: { ...fig, ...patch } });
   // Mesures possibles : toutes les colonnes numériques des données (hors colonnes mensuelles / domaines).
   const series = data ? (data.columns || []).filter((c) => ['int', 'dec', 'pct', 'money', 'rate'].includes(c.type) && !/^[md]:/.test(c.key)) : [];
-  const advice = data ? viewAdvice(view, { rows: data.rows.length, series: chartSeries(def, data, { measure: p.measure }).length }) : null;
+  const advice = data ? viewAdvice(view, { rows: data.rows.length, series: chartSeries(def, data, { measure: p.measure }).length, timeSeries: (categoryColumn(data) || {}).type === 'month' }) : null;
   return (
     <>
       <Field label={tr('Données')}>
@@ -137,6 +137,7 @@ function DataProps({ p, def, catalog, forms, data, result, onChange }) {
         </Field>
       )}
       {advice && <p className="rd-advice"><Lightbulb size={13} aria-hidden="true" /> {tr(VIEW_ADVICE[advice])}</p>}
+      {annex && !annex.inColumn && <AnnexProps p={p} annex={annex} onChange={onChange} />}
       {def && CHART.has(view) && series.length > 1 && (
         <Field label={tr('Mesure')}>
           <select className="select" value={p.measure || ''} onChange={(e) => onChange({ measure: e.target.value || undefined })}>
@@ -184,6 +185,34 @@ function DataProps({ p, def, catalog, forms, data, result, onChange }) {
       {def && def.annotate && <Annotations rows={data ? data.rows : []} label={def.annotate.label} value={p.annotations || {}} labelOf={(r) => r[def.columns[0].key]} onChange={(annotations) => onChange({ annotations })} />}
       {result && result.meta && result.meta.ms != null && <p className="hint">{tr('Calculé en {s} s.', { s: (result.meta.ms / 1000).toLocaleString(document.documentElement.lang === 'en' ? 'en-GB' : 'fr-FR', { maximumFractionDigits: 2 }) })}</p>}
     </>
+  );
+}
+
+/**
+ * Annexe (retour 88) : « Placer en annexe » — dans le corps, un renvoi « Voir l'annexe A » ; le bloc
+ * est imprimé à la fin du rapport, sur sa propre page, dans son orientation. Coché automatiquement
+ * au-delà du seuil de lignes du document (décocher le garde dans le corps).
+ */
+function AnnexProps({ p, annex, onChange }) {
+  const { tr } = useI18n();
+  const hint = !annex.effective ? tr('Le bloc est remplacé dans le corps par un renvoi ; il est imprimé à la fin du rapport, sur sa propre page.')
+    : p.annex === true ? tr('Dans le corps : « Voir l\'annexe … » ; le bloc est à la fin du rapport, sur sa propre page.')
+      : tr('En annexe automatiquement : plus de {n} lignes (réglage du document). Décochez pour le garder dans le corps.', { n: annex.autoRows });
+  return (
+    <fieldset className="rd-checks"><legend>{tr('Annexe')}</legend>
+      <label className="check"><input type="checkbox" checked={annex.effective} onChange={(e) => onChange({ annex: e.target.checked })} /> {tr('Placer en annexe')}</label>
+      {/* L'annexe automatique est un ÉTAT (toujours affiché) ; les autres phrases sont des astuces. */}
+      <p className={annex.effective && p.annex !== true ? 'rd-state-line' : 'hint'}>{hint}</p>
+      {annex.effective && (
+        <Field label={tr('Orientation de l\'annexe')}>
+          <select className="select" value={p.annexOrientation || 'auto'} onChange={(e) => onChange({ annexOrientation: e.target.value === 'auto' ? undefined : e.target.value })}>
+            <option value="auto">{tr('Automatique (paysage si le tableau est large)')}</option>
+            <option value="portrait">{tr('Portrait')}</option>
+            <option value="landscape">{tr('Paysage')}</option>
+          </select>
+        </Field>
+      )}
+    </fieldset>
   );
 }
 

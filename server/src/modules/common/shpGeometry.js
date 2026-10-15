@@ -21,8 +21,9 @@ const HEADER = 100;
 function readParts(buf, start, numParts, numPoints, partsAt, ptsAt) {
   const rings = [];
   for (let p = 0; p < numParts; p += 1) {
-    const from = buf.readInt32LE(partsAt + 4 * p);
-    const to = p + 1 < numParts ? buf.readInt32LE(partsAt + 4 * (p + 1)) : numPoints;
+    // Indices de début bornés à [0, numPoints] : un index de partie aberrant ne lit jamais hors des points.
+    const from = Math.min(Math.max(0, buf.readInt32LE(partsAt + 4 * p)), numPoints);
+    const to = p + 1 < numParts ? Math.min(Math.max(from, buf.readInt32LE(partsAt + 4 * (p + 1))), numPoints) : numPoints;
     const ring = [];
     for (let k = from; k < to; k += 1) {
       ring.push([buf.readDoubleLE(ptsAt + 16 * k), buf.readDoubleLE(ptsAt + 16 * k + 8)]);
@@ -65,6 +66,8 @@ function readShpGeometries(buffer) {
     if (base === 8) { // MultiPoint (8/18/28) : bbox + numPoints + points
       const numPoints = buf.readInt32LE(start + 36);
       const ptsAt = start + 40;
+      // Bornes : les points doivent tenir dans l'enregistrement (fichier corrompu → enregistrement ignoré).
+      if (numPoints < 0 || 40 + 16 * numPoints > contentLen) { out.push(null); continue; }
       const points = [];
       for (let k = 0; k < numPoints; k += 1) {
         points.push({ lng: buf.readDoubleLE(ptsAt + 16 * k), lat: buf.readDoubleLE(ptsAt + 16 * k + 8) });
@@ -76,6 +79,8 @@ function readShpGeometries(buffer) {
     if (base === 3 || base === 5) { // PolyLine (3) / Polygon (5), + Z/M variantes
       const numParts = buf.readInt32LE(start + 36);
       const numPoints = buf.readInt32LE(start + 40);
+      // Bornes : parties et points doivent tenir dans l'enregistrement (fichier corrompu → ignoré).
+      if (numParts < 0 || numPoints < 0 || 44 + 4 * numParts + 16 * numPoints > contentLen) { out.push(null); continue; }
       const partsAt = start + 44;
       const ptsAt = partsAt + 4 * numParts;
       const rings = readParts(buf, start, numParts, numPoints, partsAt, ptsAt);

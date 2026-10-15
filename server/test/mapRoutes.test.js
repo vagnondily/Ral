@@ -152,6 +152,27 @@ test('soumissions d\'une fiche : un lecteur ne reçoit aucune coordonnée GPS de
   assert.equal(a.body.rows[0].data['@_HHCoord_latitude'], '-24.1222355');
 });
 
+test('soumissions d\'une fiche (retour 80) : pages bornées au bord (limit 1…2 000, offset ≥ 0), 400 sinon', async () => {
+  const monRepo = require('../src/modules/monitoring/monitoring.repository');
+  const seen = [];
+  monRepo.formSubmissions = async (tenantId, formId, opts) => { seen.push({ tenantId, opts }); return { rows: [], total: 1311 }; };
+  const monApp = express();
+  monApp.use(express.json());
+  monApp.use('/api/monitoring', require('../src/modules/monitoring/monitoring.routes'));
+  monApp.use(errorHandler);
+  const FORM = '33333333-3333-3333-3333-333333333333';
+  const ok = await request(monApp).get(`/api/monitoring/forms/${FORM}/submissions?limit=1000&offset=1000`).set(as(viewer));
+  assert.equal(ok.status, 200);
+  assert.equal(seen[0].tenantId, TENANT);
+  assert.equal(seen[0].opts.limit, 1000);
+  assert.equal(seen[0].opts.offset, 1000);
+  for (const q of ['limit=5000', 'limit=0', 'offset=-1', 'offset=abc', 'limit=1.5']) {
+    const bad = await request(monApp).get(`/api/monitoring/forms/${FORM}/submissions?${q}`).set(as(viewer));
+    assert.equal(bad.status, 400, q);
+  }
+  assert.equal(seen.length, 1, 'le dépôt n\'est jamais appelé avec une page invalide');
+});
+
 // ---- Contours de la carte (Paramétrage › Localités) ----------------------------------
 const DISTRICTS = [{ pcode: 'MG52516', name: 'Ambovombe-Androy', region: 'Androy', sites: 58, hasCentre: false },
   { pcode: 'MG52516a', name: 'Antanimora Sud', region: 'Androy', sites: 58, hasCentre: false }];

@@ -145,6 +145,27 @@ function monthTotals(rows = []) {
   });
 }
 
+/**
+ * « Renseigner les cases vides » : pour chaque site et chaque mois de [from..to],
+ * la valeur voulue seulement là où AUCUN statut n'existe ; un Oui / Non saisi ne
+ * change jamais. Sortie au format de `diffActivation`.
+ * @param {Map<string, Record<number, boolean>>} current
+ * @param {string[]} siteIds
+ * @param {{from:number, to:number, value:boolean, reason?:string|null}} opts
+ */
+function blankFill(current, siteIds = [], { from, to, value, reason = null } = {}) {
+  if (typeof value !== 'boolean') throw new TypeError('value doit valoir true ou false');
+  const lo = Math.max(1, Math.min(from, to)); const hi = Math.min(12, Math.max(from, to));
+  const out = [];
+  for (const siteId of new Set(siteIds)) {
+    const cur = current.get(siteId) || {};
+    const months = {};
+    for (let m = lo; m <= hi; m += 1) if (cur[m] === undefined) months[m] = value;
+    if (Object.keys(months).length) out.push({ siteId, months, reason });
+  }
+  return out;
+}
+
 /** « Actif » de l'exercice, comme la colonne du classeur : au moins un mois à Oui. */
 const activeInYear = (months = {}) => MONTHS.some((m) => months[m] === true);
 
@@ -154,5 +175,5 @@ const { isActiveMonth } = require('../common/siteActivity');
 module.exports = {
   MONTH_HEADERS, MONTHS,
   parseYesNo, yesNo, identKey, identifierOf, buildSiteIndex,
-  diffActivation, cleanReason, summarizeChanges, monthTotals, activeInYear, isActiveMonth,
+  diffActivation, blankFill, cleanReason, summarizeChanges, monthTotals, activeInYear, isActiveMonth,
 };

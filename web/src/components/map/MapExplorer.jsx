@@ -7,8 +7,8 @@ import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, monthLabel } from '../../lib/format.js';
 import { periodLabel } from '../../lib/period.js';
 import { scaleFor, valueOf, classLabels } from '../../lib/mapScale.js';
-import { buildExportSvg, downloadPng, exportPoints, printSvg, interFontCss } from '../../lib/mapExport.js';
-import { unionBbox } from '../../lib/mapProjection.js';
+import { EXPORT_ACTIVITY_COLORS, buildExportSvg, downloadPng, exportPoints, printSvg, interFontCss } from '../../lib/mapExport.js';
+import { OTHER_LABEL, SHAPE_TEXT, STATUS_TEXT, activitySlots, pointsLegend, slotOf } from '../../lib/mapPoints.js';
 import { useMapData, useDarkTheme } from './useMapData.js';
 import { useToast } from '../Toast.jsx';
 import DistrictMap from './DistrictMap.jsx';
@@ -23,6 +23,8 @@ import TileUnderlay, { TILES_URL, probeTiles } from './TileUnderlay.jsx';
 export const MAP_OPEN_KEY = 'mems.map.open';
 const COMPACT_THEMES = ['coverage', 'active', 'submissions', 'alerts'];
 const DEFAULT_LAYERS = { gps: true, derived: true, communes: true, collect: false };
+
+const activityKeyOf = (v) => String(v == null ? '' : v).trim().toLowerCase();
 
 const store = (kind) => { try { return kind === 'session' ? window.sessionStorage : window.localStorage; } catch { return null; } };
 function readJson(kind, key) { try { const s = store(kind); return s ? JSON.parse(s.getItem(key) || 'null') : null; } catch { return null; } }
@@ -77,6 +79,9 @@ export default function MapExplorer({
   const [layers, setLayers] = useState({ ...DEFAULT_LAYERS, ...(prefs.layers || {}), ...(initial.layers || {}) });
   const [showLabels, setShowLabels] = useState(prefs.labels !== false);
   const [showRegions, setShowRegions] = useState(prefs.regions !== false);
+  // Couleur des points : statut de visite (défaut) ou activité du site (retour 94) ; mémorisée.
+  const [colorBy, setColorBy] = useState(prefs.colorBy === 'activity' ? 'activity' : 'status');
+  const [pointFocus, setPointFocus] = useState(null); // élément de légende survolé : les autres points s'estompent
   const [level, setLevel] = useState('district');
   const [order, setOrder] = useState('desc');
   const [hover, setHover] = useState(null); // { key, pos }
@@ -105,8 +110,8 @@ export default function MapExplorer({
   const mapRef = useRef(null);
   const colRef = useRef(null);
 
-  useEffect(() => { if (!compact) writeJson('local', storageKey, { theme: themeId, layers, labels: showLabels, regions: showRegions }); },
-    [compact, storageKey, themeId, layers, showLabels, showRegions]);
+  useEffect(() => { if (!compact) writeJson('local', storageKey, { theme: themeId, layers, labels: showLabels, regions: showRegions, colorBy }); },
+    [compact, storageKey, themeId, layers, showLabels, showRegions, colorBy]);
 
   const levels = level === 'commune' ? ['commune'] : [];
   const { geo, geoError, data, points, loading, error } = useMapData(period, { officeId, activity, withPoints: true, levels });
@@ -137,6 +142,27 @@ export default function MapExplorer({
     for (const f of (geo ? geo.features : [])) m.set(f.properties.name.toLowerCase(), f.properties.key);
     return m;
   }, [geo]);
+  // Couleur de chaque activité : rang dans le registre (stable quels que soient les filtres).
+  const slots = useMemo(() => activitySlots(data && data.filtersAvailable ? data.filtersAvailable.activities : []), [data]);
+
+  // Retour 83 : un bureau (ou une activité) choisi → la carte se cadre sur l'emprise de ses
+  // districts, avec une marge ; filtre retiré → vue d'ensemble. Une fois les données du NOUVEAU
+  // filtre arrivées (jamais sur la réponse précédente) ; au premier affichage, rien ne bouge.
+  const fitDone = useRef(null);
+  const filterKey = `${officeId || ''}|${activity || ''}`;
+  useEffect(() => { setPinned(null); setHover(null); setPointTip(null); setPointFocus(null); }, [filterKey]);
+  useEffect(() => {
+    if (!data || !geo || !mapRef.current) return;
+    const f = data.filters || {};
+    if ((f.officeId || '') !== (officeId || '') || activityKeyOf(f.activity) !== activityKeyOf(activity)) return;
+    if (fitDone.current === filterKey) return;
+    const first = fitDone.current === null;
+    fitDone.current = filterKey;
+    if (!officeId && !activity) { if (!first) mapRef.current.reset(); return; }
+    const keys = data.shapes.filter((z) => z.counts.sites > 0 || z.counts.submissions > 0).map((z) => z.key);
+    mapRef.current.fitKeys(keys.length ? keys : data.shapes.map((z) => z.key));
+  }, [data, geo, filterKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const shapeOfDistrictPcode = useCallback((pcode) => {
     const d = data && data.districts.find((x) => x.pcode === pcode);
     return d ? d.shapeKey : null;
@@ -148,7 +174,15 @@ export default function MapExplorer({
     if (lvl === 'district') { m.zoomToKey(z.key); setPinned({ key: z.key, pos: null }); return; }
     if (lvl === 'region' && geo && data) {
       const keys = Object.entries(data.shapeRegions).filter(([, r]) => r === z.name).map(([k]) => k);
-      m.zoomToBbox(unionBbox(geo.features.filter((f) => keys.includes(f.properties.key)).map((f) => f.properties.bbox)));
+      m.fitKeys(keys);
+      return;
+    }
+    // Bureau (retour 83) : appliqué comme filtre — la carte se cadre sur ses districts (effet
+    // ci-dessus) ; déjà choisi : recadrer. « Sans bureau » n'est pas un filtre.
+    if (lvl === 'office') {
+      if (!z.id) return;
+      if (z.id !== officeId) { setOfficeId(z.id); return; }
+      m.fitKeys(data.shapes.filter((x) => x.counts.sites > 0 || x.counts.submissions > 0).map((x) => x.key));
       return;
     }
     if (lvl === 'commune') {
@@ -242,8 +276,8 @@ export default function MapExplorer({
   if (error && !data) return <Alert tone="error">{error}</Alert>;
   if (!data || !theme) return <Skeleton height={compact ? 460 : 640} />;
 
-  const height = phone ? 420 : compact ? 470 : 640;
-  const legendPad = legendCollapsed ? 54 : (compact ? 120 : 132);
+  // Hauteur de la carte seule : la légende est posée SOUS la carte (retour 94), jamais par-dessus.
+  const height = phone ? 380 : compact ? 400 : 580;
   const hoverZone = hover && shapeByKey.get(hover.key);
   const pinZone = pinned && shapeByKey.get(pinned.key);
   const cardZone = hoverZone || pinZone;
@@ -254,36 +288,42 @@ export default function MapExplorer({
   const pointLayers = { ...layers, collect: layers.collect && !!(points && points.collect && points.collect.total) };
   const pt = pointTip && pointOf(pointTip.id);
   const geoMissing = !geo && geoError;
+  // Légende des points : seulement ce qui est dessiné, avec les effectifs (lib/mapPoints).
+  const legendModel = pointsLegend(points, pointLayers, { colorBy, slots });
 
   const colW = colRef.current ? colRef.current.clientWidth : 900;
   const mapBlock = (
     <div className="mapx-mapcol" ref={colRef}>
       {geoMissing && <Alert tone="warning">{tr('Contours de la carte indisponibles : le classement et le tableau restent exacts.')}</Alert>}
-      <DistrictMap ref={mapRef} geo={geo} shapes={data.shapes} shapeRegions={data.shapeRegions} theme={theme} scale={scale} dark={dark}
-        points={points} pointLayers={pointLayers} showLabels={showLabels} showRegions={showRegions} height={height} padBottom={legendPad}
-        hoverKey={hover ? hover.key : null} pinnedKey={pinned ? pinned.key : null} onHover={onMapHover} onPick={onMapPick}
-        onPointHover={onPointHover} ariaLabel={ariaLabel} uid={compact ? 'mapxc' : 'mapxf'}
-        underlay={tiles === true ? (args) => <TileUnderlay {...args} onFail={tilesFailed} /> : null} />
-      {tilesDown && (
-        <div className="mapx-tiles-down" role="status">
-          <span>{tr('Fond en ligne indisponible (hors connexion) : la carte reste complète sans fond')}</span>
-          <button type="button" className="mapx-icon-btn" aria-label={tr('Fermer')} title={tr('Fermer')} onClick={() => setTilesDown(false)}><X size={14} /></button>
-        </div>
-      )}
-      <MapLegend theme={theme} scale={scale} periodText={periodText} pointLayers={pointLayers} collapsed={legendCollapsed}
+      <div className="mapx-stage">
+        <DistrictMap ref={mapRef} geo={geo} shapes={data.shapes} shapeRegions={data.shapeRegions} theme={theme} scale={scale} dark={dark}
+          points={points} pointLayers={pointLayers} showLabels={showLabels} showRegions={showRegions} height={height} padBottom={24}
+          hoverKey={hover ? hover.key : null} pinnedKey={pinned ? pinned.key : null} onHover={onMapHover} onPick={onMapPick}
+          onPointHover={onPointHover} ariaLabel={ariaLabel} uid={compact ? 'mapxc' : 'mapxf'}
+          pointColorBy={colorBy} activitySlots={slots} pointFocus={pointFocus}
+          underlay={tiles === true ? (args) => <TileUnderlay {...args} onFail={tilesFailed} /> : null} />
+        {tilesDown && (
+          <div className="mapx-tiles-down" role="status">
+            <span>{tr('Fond en ligne indisponible (hors connexion) : la carte reste complète sans fond')}</span>
+            <button type="button" className="mapx-icon-btn" aria-label={tr('Fermer')} title={tr('Fermer')} onClick={() => setTilesDown(false)}><X size={14} /></button>
+          </div>
+        )}
+        {cardZone && cardPos && !pt && (
+          <MapHoverCard zone={cardZone} theme={theme} periodText={periodText} pos={cardPos} box={{ width: colW, height }}
+            pinned={!hoverZone && !!pinZone} onClose={() => setPinned(null)} multiMonth={multiMonth}
+            onShowSites={onNavigate ? () => onNavigate('processus', 'carte') : null} />
+        )}
+        {pt && pt.data && <PointCard point={pt} pos={pointTip.pos} box={{ width: colW, height }} periodText={periodText} onClose={pointTip.pinned ? () => setPointTip(null) : null} />}
+        {empty && (
+          <div className="mapx-empty">
+            <p>{officeId || activity ? tr('Aucun site pour ce bureau / cette activité.') : tr('Aucun site dans le registre.')}</p>
+            {(officeId || activity) && <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setOfficeId(null); setActivity(null); }}>{tr('Réinitialiser les filtres')}</button>}
+          </div>
+        )}
+      </div>
+      <MapLegend theme={theme} scale={scale} periodText={periodText} collapsed={legendCollapsed} model={legendModel}
+        colorBy={colorBy} onColorBy={(v) => { setColorBy(v); setPointFocus(null); }} onFocus={setPointFocus}
         onToggle={() => setLegendCollapsed((c) => !c)} />
-      {cardZone && cardPos && !pt && (
-        <MapHoverCard zone={cardZone} theme={theme} periodText={periodText} pos={cardPos} box={{ width: colW, height }}
-          pinned={!hoverZone && !!pinZone} onClose={() => setPinned(null)} multiMonth={multiMonth}
-          onShowSites={onNavigate ? () => onNavigate('processus', 'carte') : null} />
-      )}
-      {pt && pt.data && <PointCard point={pt} pos={pointTip.pos} box={{ width: colW, height }} periodText={periodText} onClose={pointTip.pinned ? () => setPointTip(null) : null} />}
-      {empty && (
-        <div className="mapx-empty">
-          <p>{officeId || activity ? tr('Aucun site pour ce bureau / cette activité.') : tr('Aucun site dans le registre.')}</p>
-          {(officeId || activity) && <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setOfficeId(null); setActivity(null); }}>{tr('Réinitialiser les filtres')}</button>}
-        </div>
-      )}
     </div>
   );
 
@@ -297,16 +337,24 @@ export default function MapExplorer({
       fills[s.key] = v === 'np' ? 'hatch' : (typeof v === 'number' ? light.fill(v) : null);
     }
     // Vie privée : positions déduites, centres de commune et points de collecte en maille de 2 km.
-    const { sites, communes, bins } = exportPoints(points, layers);
+    const exported = exportPoints(points, layers);
+    const { communes, bins } = exported;
+    // Même couleur des points qu'à l'écran (statut de visite ou activité).
+    const sites = colorBy === 'activity'
+      ? exported.sites.map((x) => ({ ...x, color: EXPORT_ACTIVITY_COLORS[slotOf(x.activity, slots)] }))
+      : exported.sites;
     const labels = classLabels(light, formatInt);
     const officeName = officeId ? ((data.filtersAvailable.offices.find((o) => o.id === officeId) || {}).name || '') : tr('Tous');
     const view = mapRef.current && mapRef.current.extent ? mapRef.current.extent() : null;
     const extras = [{ kind: 'empty', label: theme.id === 'submissions' ? tr('Aucune donnée') : tr('Aucun site actif') }];
     if (theme.id === 'planning' || theme.id === 'execution') extras.push({ kind: 'hatch', label: tr('— aucun plan') });
-    if (sites.length) {
-      for (const [st, lab] of [['realise', 'Site visité'], ['hors_plan', 'visité hors plan'], ['prevu', 'prévu'], ['non_prevu', 'non prévu'], ['inactif', 'inactif']]) extras.push({ kind: 'site', status: st, label: tr(lab) });
+    // Légende des points : les éléments dessinés, mêmes libellés qu'à l'écran (lib/mapPoints).
+    for (const c of legendModel.color) {
+      if (colorBy === 'activity') {
+        extras.push({ kind: 'site', color: EXPORT_ACTIVITY_COLORS[c.slot], label: c.slot ? c.label : (c.names.length ? tr(OTHER_LABEL) : tr('Sans activité')) });
+      } else extras.push({ kind: 'site', status: c.id, label: tr(STATUS_TEXT[c.id].label) });
     }
-    if (communes.length) extras.push({ kind: 'commune', label: tr('centre des collectes (commune)') });
+    if (communes.length) extras.push({ kind: 'commune', label: tr(SHAPE_TEXT.commune.label) });
     if (bins.length) extras.push({ kind: 'collect', label: tr('points de collecte (maille de 2 km)') });
     const fontCss = await interFontCss([[400, interRegular], [700, interBold]]);
     return buildExportSvg({

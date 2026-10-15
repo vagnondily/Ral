@@ -198,6 +198,15 @@ export default {
   'Points forts': 'Strengths',
   'Données versées — tendance mensuelle': 'Data uploaded — monthly trend',
   'Données par bureau': 'Data by office',
+  // Fiche sans indicateur (retour 85).
+  'Aucun indicateur n\'est encore configuré pour cette fiche': 'No indicator has been configured for this form yet',
+  'Les données arrivent ({n} soumission(s) sur la période), mais aucun indicateur ne les transforme encore en résultats : conformité, dimensions et points forts apparaîtront dès qu\'un indicateur sera défini.':
+    'Data is coming in ({n} submission(s) over the period), but no indicator turns it into results yet: compliance, dimensions and strengths will appear as soon as an indicator is defined.',
+  'Aucun indicateur ne transforme encore les données de cette fiche en résultats : conformité, dimensions et points forts apparaîtront dès qu\'un indicateur sera défini.':
+    'No indicator turns this form\'s data into results yet: compliance, dimensions and strengths will appear as soon as an indicator is defined.',
+  'Configurer les indicateurs': 'Configure indicators',
+  'Appliquer le modèle d\'activité': 'Apply the activity template',
+  'Modèle de l\'activité « {a} »': 'Template of the “{a}” activity',
   'soumissions sur le mois': 'submissions this month',
   'Aucune donnée.': 'No data.',
   'Répartition des indicateurs par bande': 'Indicator breakdown by band',

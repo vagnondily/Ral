@@ -83,11 +83,12 @@ export function monthTotals(sites, capacity = {}) {
 }
 
 /**
- * LA règle « site actif au mois M » — miroir de server/src/modules/common/siteActivity.isActiveMonth
- * (une seule règle partout) : si l'exercice a une grille d'activation, seul un « Oui » explicite
- * rend le site actif (une case vide n'est pas planifiable) ; sans grille, tout le registre.
+ * LA règle « site actif au mois M » — UNE définition côté web (lib/activation.js, celle de l'onglet
+ * Sites actifs / inactifs), miroir de server/src/modules/common/siteActivity.isActiveMonth : si
+ * l'exercice a une grille d'activation, seul un « Oui » explicite rend le site actif (une case vide
+ * n'est pas planifiable) ; sans grille, tout le registre. Réexportée ici pour la grille du plan.
  */
-export const isActiveMonth = (value, yearHasGrid) => (yearHasGrid ? value === true : value !== false);
+export { isActiveMonth } from './activation.js';
 
 /** % des visites de l'exercice réalisées (réalisées ÷ (réalisées + prévues)) — couleur des points de la carte. */
 export function visitRate(s) {

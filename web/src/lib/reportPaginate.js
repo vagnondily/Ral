@@ -30,6 +30,27 @@ export function pageSize(size = 'A4', orientation = 'portrait') {
 const bandH = (band) => (band && Array.isArray(band.elements) && band.elements.length ? Number(band.height) || 0 : 0);
 
 /**
+ * En-tête et pied d'une page, par ordre de priorité : ceux de sa SECTION (« aucun » ou « propres »,
+ * réglés pour cette page), puis la règle de la 1re page du document (aucun / propres), puis ceux du
+ * document. Mêmes règles pour la géométrie (zone utile), l'aperçu et l'impression.
+ * @returns {{ header: object|null, footer: object|null }}
+ */
+export function pageBands(page = {}, section = {}, { first = false } = {}) {
+  const fp = page.firstPage || 'same';
+  const pick = (mode, own, firstBand, docBand) => {
+    if (mode === 'none') return null;
+    if (mode === 'own') return own || null;
+    if (first && fp === 'none') return null;
+    if (first && fp === 'own') return firstBand || null;
+    return docBand || null;
+  };
+  return {
+    header: pick(section.header, section.headerBand, page.firstHeader, page.header),
+    footer: pick(section.footer, section.footerBand, page.firstFooter, page.footer),
+  };
+}
+
+/**
  * Géométrie d'une page (mm) : dimensions, marges, hauteurs d'en-tête et de pied, zone utile.
  * @param {object} page mise en page du document ; @param {object} section { size, orientation, header, footer }
  * @param {{ first?: boolean }} opts première page du document (règle `firstPage` : same / none / own)
@@ -39,11 +60,9 @@ export function pageGeometry(page = {}, section = {}, { first = false } = {}) {
   const orientation = section.orientation || page.orientation || 'portrait';
   const { w, h } = pageSize(size, orientation);
   const m = { top: 16, right: 14, bottom: 16, left: 14, ...(page.margins || {}) };
-  const fp = page.firstPage || 'same';
-  let header = section.header === 'none' ? 0 : bandH(page.header);
-  let footer = section.footer === 'none' ? 0 : bandH(page.footer);
-  if (first && fp === 'none') { header = 0; footer = 0; }
-  if (first && fp === 'own') { header = section.header === 'none' ? 0 : bandH(page.firstHeader); footer = section.footer === 'none' ? 0 : bandH(page.firstFooter); }
+  const { header: hb, footer: fb } = pageBands(page, section, { first });
+  const header = bandH(hb);
+  const footer = bandH(fb);
   return {
     size, orientation, w, h, margins: m, headerH: header, footerH: footer,
     bodyW: Math.max(10, w - m.left - m.right), bodyH: Math.max(10, h - m.top - m.bottom - header - footer),
@@ -146,19 +165,49 @@ const ITEM_VAR = { activity: 'activite', bureau: 'bureau', partner: 'partenaire'
 const DATA_TYPES = new Set(['data', 'kpis', 'bulletin']);
 const subst = (text, vars) => String(text == null ? '' : text).replace(/\{([a-z_]{2,40})\}/g, (m, k) => (vars && vars[k] != null ? String(vars[k]) : m));
 
+/** Lettre d'une annexe : 0 → A, 25 → Z, 26 → AA (même règle que le plan du serveur). */
+export function annexLetter(i) {
+  let s = ''; let n = i;
+  do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
+  return s;
+}
+
+/** Vues découpées ligne à ligne : celles que le seuil « plus de N lignes » envoie en annexe. */
+export const ANNEX_ROW_VIEWS = new Set(['table', 'heat', 'list']);
+
+/**
+ * Un bloc « données » est-il placé en annexe (retour 88) ? `annex: true` → toujours ; `false` →
+ * jamais ; absent → la règle du document : tableau (ou matrice, liste) de PLUS de `autoRows` lignes.
+ * Jamais un bloc d'une colonne (une colonne garde ses blocs).
+ * @param {object} block @param {{ view: string, rows?: number|null, autoRows?: number|null, inColumn?: boolean }} o
+ */
+export function annexDecision(block, { view, rows = null, autoRows = null, inColumn = false } = {}) {
+  if (!block || block.type !== 'data' || inColumn) return false;
+  const p = block.params || {};
+  if (p.annex === true) return true;
+  if (p.annex === false) return false;
+  return autoRows != null && ANNEX_ROW_VIEWS.has(view) && rows != null && rows > autoRows;
+}
+
 /**
  * Plan LOCAL, toujours à jour avec le document affiché (le plan du serveur arrive après un court
  * délai) : sections, instances avec les MÊMES identifiants que le serveur (`blocId`, ou
  * `répétition~élément~blocId`), figures et tableaux numérotés dans l'ordre du document, textes des
  * titres remplis. Les éléments des sections répétées viennent du dernier plan du serveur
  * (`expansions`). Permet d'afficher et de paginer la page tout de suite (jamais de page blanche).
- * @param {object} doc @param {{ expansions?: object, vars?: object, defaultView?: (dataset) => string }} opts
+ * ANNEXES (retour 88) : une instance annexée (`annex.isAnnexed`) est remplacée dans le corps par un
+ * RENVOI (`annexref~iid`) ; elle est placée à la fin, lettrée A, B, C…, chacune dans sa section
+ * (nouvelle page, orientation `annex.orientationOf`) précédée de son titre (`annexhead~iid`), et
+ * n'entre pas dans la numérotation des figures et tableaux du corps.
+ * @param {object} doc @param {{ expansions?: object, vars?: object, defaultView?: (dataset) => string,
+ *   annex?: { isAnnexed: (block, iid, view, inColumn) => boolean, orientationOf?: (inst, block) => string|null } }} opts
  */
-export function localPlan(doc, { expansions = {}, vars = {}, defaultView = () => 'table' } = {}) {
+export function localPlan(doc, { expansions = {}, vars = {}, defaultView = () => 'table', annex = null } = {}) {
   const page = (doc && doc.page) || {};
   const sections = [{ id: '_doc', index: 0, size: page.size || 'A4', orientation: page.orientation || 'portrait', header: 'inherit', footer: 'inherit', title: null }];
   const instances = [];
   const counters = { table: 0, figure: 0 };
+  const annexed = []; // { inst, ref, block }
   let cur = sections[0];
   const visit = (b, { repeat = null, item = null, column = null } = {}) => {
     const iid = repeat ? `${repeat.id}~${item.key}~${b.id}` : b.id;
@@ -169,7 +218,12 @@ export function localPlan(doc, { expansions = {}, vars = {}, defaultView = () =>
       repeatLabel: item ? item.label : null, column: column ? column.iid : null, columnIndex: column ? column.index : null, needsData: false,
     };
     if (b.type === 'section') {
-      cur = { id: iid, index: sections.length, size: p.size || page.size || 'A4', orientation: p.orientation || page.orientation || 'portrait', header: p.header || 'inherit', footer: p.footer || 'inherit', title: p.title ? subst(p.title, { ...vars, ...iv }) : null };
+      cur = {
+        id: iid, index: sections.length, size: p.size || page.size || 'A4', orientation: p.orientation || page.orientation || 'portrait',
+        header: p.header || 'inherit', footer: p.footer || 'inherit',
+        headerBand: p.header === 'own' ? p.headerBand || null : null, footerBand: p.footer === 'own' ? p.footerBand || null : null,
+        title: p.title ? subst(p.title, { ...vars, ...iv }) : null,
+      };
       sections.push(cur);
       instances.push({ ...base, sectionId: cur.id });
       return;
@@ -190,6 +244,13 @@ export function localPlan(doc, { expansions = {}, vars = {}, defaultView = () =>
       const view = p.view || defaultView(p.dataset);
       inst.dataset = p.dataset;
       inst.view = view;
+      if (annex && annex.isAnnexed && annex.isAnnexed(b, iid, view, !!column)) {
+        // Dans le corps : le renvoi « Voir l'annexe A » ; l'instance part à la fin du document.
+        const ref = { ...base, iid: `annexref~${iid}`, type: 'annexref', target: iid, needsData: false };
+        instances.push(ref);
+        annexed.push({ inst, ref, block: b });
+        return;
+      }
       const numbered = !(p.figure && p.figure.numbered === false);
       const kind = !numbered ? null : TABLE_VIEWS.has(view) ? 'table' : FIGURE_VIEWS.has(view) ? 'figure' : null;
       if (kind) { counters[kind] += 1; inst.figure = { kind, n: counters[kind] }; }
@@ -198,7 +259,19 @@ export function localPlan(doc, { expansions = {}, vars = {}, defaultView = () =>
     instances.push(inst);
   };
   for (const b of (doc && doc.blocks) || []) visit(b);
-  return { sections, instances, expansions, local: true };
+  // Annexes : une section (nouvelle page) chacune, à la fin, dans l'ordre du document.
+  const annexes = annexed.map(({ inst, ref, block }, k) => {
+    const letter = annexLetter(k);
+    const orientation = (annex.orientationOf && annex.orientationOf(inst, block)) || page.orientation || 'portrait';
+    const sec = { id: `annex~${inst.iid}`, index: sections.length, size: page.size || 'A4', orientation, header: 'inherit', footer: 'inherit', title: null, annex: { letter, iid: inst.iid } };
+    sections.push(sec);
+    const mark = { letter };
+    ref.annex = mark;
+    instances.push({ ...ref, iid: `annexhead~${inst.iid}`, type: 'annexhead', sectionId: sec.id, annex: mark });
+    instances.push({ ...inst, sectionId: sec.id, annex: mark, figure: { kind: 'annex', letter } });
+    return { letter, iid: inst.iid, blockId: inst.blockId, sectionId: sec.id, orientation, repeatLabel: inst.repeatLabel };
+  });
+  return { sections, instances, expansions, annexes, local: true };
 }
 
 /**
@@ -217,8 +290,14 @@ export function sectionsOfPlan(plan) {
   return out;
 }
 
-/** Sommaire : titres (niveau ≤ profondeur) avec leur page. */
-export function tocEntries(plan, pageOf, depth = 2) {
-  return (plan.instances || []).filter((i) => i.type === 'heading' && (i.level || 2) <= depth && pageOf[i.iid] != null)
+/**
+ * Sommaire : titres (niveau ≤ profondeur) avec leur page, puis les ANNEXES (toujours listées,
+ * niveau 1 ; `annexTitle(annexe)` donne « Annexe A — titre »).
+ */
+export function tocEntries(plan, pageOf, depth = 2, annexTitle = null) {
+  const heads = (plan.instances || []).filter((i) => i.type === 'heading' && (i.level || 2) <= depth && pageOf[i.iid] != null)
     .map((i) => ({ iid: i.iid, level: i.level || 2, text: i.text || '', page: pageOf[i.iid] }));
+  const annexes = (plan.annexes || []).filter((a) => pageOf[`annexhead~${a.iid}`] != null)
+    .map((a) => ({ iid: `annexhead~${a.iid}`, level: 1, annex: a.letter, text: annexTitle ? annexTitle(a) : a.letter, page: pageOf[`annexhead~${a.iid}`] }));
+  return [...heads, ...annexes];
 }
