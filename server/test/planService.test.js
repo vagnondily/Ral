@@ -28,7 +28,7 @@ repo.saveSettingsTx = async (client, tenantId, userId, s) => {
 repo.lockMonthsTx = async (client, tenantId, months) => { log.push(['lock', [...new Set(months)].sort()]); };
 repo.loadPlanInputsTx = async () => { log.push(['load']); return raw; };
 repo.insertRunTx = async (client, tenantId, userId, run) => { log.push(['run', run]); return 'run-1'; };
-repo.insertGeneratedTx = async (client, tenantId, userId, a) => { log.push(['insert', a]); return a.visits.length; };
+repo.insertGeneratedTx = async (client, tenantId, userId, a) => { log.push(['insert', a]); return { created: a.visits.length, tpm: { changed: a.visits.length, byState: {} } }; };
 repo.setRunCreatedTx = async (client, tenantId, runId, n) => { log.push(['created', runId, n]); };
 fieldRepo.planMonthsTx = async (client, tenantId, userId, year, changes) => { log.push(['manual', changes]); return { added: changes.length, removed: 0, skippedInactive: 0 }; };
 const service = require('../src/modules/tpm/plan.service');

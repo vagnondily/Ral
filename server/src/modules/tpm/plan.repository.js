@@ -9,6 +9,9 @@ const { COLUMNS, KEYS } = require('./planSettings');
 const { chunkRows } = require('../../db/batch');
 const { lockVisitMonthsTx } = require('./visitLocks');
 const { activeMonthSql } = require('../common/siteActivity');
+// Retour 58 : le TPM d'une visite est celui du contrat de sa zone — tout écrivain de visites
+// finit par restampVisitsTx (verrou d'attribution pris EN DERNIER, après les verrous des mois).
+const { restampVisitsTx } = require('./tpmAttribution.repository');
 
 // Données rattachées AU SITE (jamais à la seule commune), hors soumissions écartées et hors
 // fiches d'une autre activité — même filtre que la collecte réelle du RBM (SUBMISSION_COUNTS_FOR_SITE).
@@ -125,10 +128,11 @@ async function setRunCreatedTx(client, tenantId, runId, created) {
  * mois : jamais sur un site × mois qui a déjà une visite (annulée comprise : une annulation est
  * une décision), jamais un mois inactif (règle commune siteActivity.isActiveMonth : année avec
  * grille → « Oui » explicite seulement), jamais en zone interdite. Le prestataire n'est pas choisi
- * ici (retour 58 : la base l'estampille d'après le contrat de la zone). Chaque visite porte sa
+ * ici : restampVisitsTx l'estampille d'après le contrat de la zone (retour 58), dans la même
+ * transaction, sous le verrou d'attribution pris après ceux des mois. Chaque visite porte sa
  * tournée et son jour de terrain (plan_tour, plan_day), son rôle générique (« Agent N ») et sa
  * date (le jour de terrain dans le mois) : les jours de collecte suivent.
- * @returns nombre de visites créées
+ * @returns {{ created:number, tpm:{ changed:number, byState:object } }}
  */
 async function insertGeneratedTx(client, tenantId, userId, { year, runId, visits }) {
   let created = 0;
@@ -151,7 +155,8 @@ async function insertGeneratedTx(client, tenantId, userId, { year, runId, visits
         slice.map((v) => v.agent || null), slice.map((v) => v.date || null)]);
     created += rowCount;
   }
-  return created;
+  const tpm = await restampVisitsTx(client, tenantId);
+  return { created, tpm: { changed: tpm.changed, byState: tpm.byState } };
 }
 
 module.exports = { getSettingsTx, lockSettingsTx, saveSettingsTx, lockMonthsTx, loadPlanInputsTx, insertRunTx, setRunCreatedTx, insertGeneratedTx };

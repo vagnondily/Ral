@@ -5,9 +5,13 @@ const { pool } = require('./config/db');
 const { validateEnv } = require('./config/validateEnv');
 const { checkSchema } = require('./db/schemaStatus');
 const { runDataRepairs } = require('./db/dataRepairs');
+const { startLoopMonitor } = require('./modules/common/runtimeStats');
 
 // Échoue vite si la config est dangereuse (secret manquant, RLS contournée…).
 validateEnv();
+
+// Retard de la boucle d'événements mesuré en continu (GET /api/system/runtime).
+startLoopMonitor();
 
 const port = Number(process.env.PORT || 9000);
 const app = createApp();

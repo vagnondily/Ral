@@ -132,7 +132,7 @@ async function apply(tenantId, userId, body, { now = new Date() } = {}) {
       proposed: r.proposals.length, kept: kept.length, manualChanges: body.changes.length,
     });
     // Jour de terrain, rôle générique et date : la répartition des journées entre les agents nécessaires.
-    const created = await repo.insertGeneratedTx(client, tenantId, userId, {
+    const { created, tpm } = await repo.insertGeneratedTx(client, tenantId, userId, {
       year: body.year, runId,
       visits: kept.map((p) => {
         const sl = needs.slots[keyOf(p.siteId, p.month)] || null;
@@ -143,7 +143,7 @@ async function apply(tenantId, userId, body, { now = new Date() } = {}) {
       }),
     });
     await repo.setRunCreatedTx(client, tenantId, runId, created);
-    return { runId, created, skipped: kept.length - created, manual };
+    return { runId, created, skipped: kept.length - created, manual, tpm };
   });
 }
 
