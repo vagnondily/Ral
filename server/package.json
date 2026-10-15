@@ -15,6 +15,7 @@
     "test": "node --test test/**/*.test.js",
     "lint": "eslint src",
     "perf:period": "node --expose-gc scripts/perfPeriod.js",
+    "perf:plan": "node scripts/perfPlan.js",
     "bench:report": "node --expose-gc scripts/bench-report.js",
     "seed:perf": "node src/db/seed-perf.js"
   },
