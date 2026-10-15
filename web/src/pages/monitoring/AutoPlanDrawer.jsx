@@ -128,7 +128,7 @@ export default function AutoPlanDrawer({ year, activities = [], districts = [], 
 
   return (
     <Modal open onClose={onClose} variant="drawer" size="xl" title={tr('Planification automatique')}
-      subtitle={tr('Exercice {y} — visites proposées d\'après le RBM, le MMR et vos critères. Rien n\'est enregistré avant « Appliquer ».', { y: year })}
+      subtitle={tr('Exercice {y} — visites proposées d\'après le RBM, le MMR et vos critères. Rien n\'est enregistré avant « Appliquer ».', { y: String(year) })}
       footer={footer}>
       <div ref={anchor} className="ap-root">
         {error && <Alert tone="danger" icon={AlertTriangle}>{error}</Alert>}
@@ -145,7 +145,7 @@ export default function AutoPlanDrawer({ year, activities = [], districts = [], 
 
 /* ------------------------------------------------------------- Critères */
 function CriteriaForm({ year, scope, setScope, crit, setCrit, saved, overrides, offices, activities, districts, pastYear, monthName }) {
-  const { tr } = useI18n();
+  const { t, tr } = useI18n();
   const now = new Date();
   const thisMonth = now.getFullYear() === year ? now.getMonth() + 1 : 1;
   const set = (k, v) => setCrit((c) => ({ ...c, [k]: v }));
@@ -233,7 +233,7 @@ function CriteriaForm({ year, scope, setScope, crit, setCrit, saved, overrides, 
                   return (
                     <label key={k} className={`ap-level ap-level-${l.tone} ${on ? 'is-on' : ''}`}>
                       <input type="checkbox" checked={on} onChange={(e) => set('levels', e.target.checked ? Object.keys(LEVELS).filter((x) => x === k || crit.levels.includes(x)) : crit.levels.filter((x) => x !== k))} />
-                      <Icon size={14} aria-hidden="true" /> {tr(l.label)}
+                      <Icon size={14} aria-hidden="true" /> {t(`priority.${l.label}`, l.label)}
                     </label>
                   );
                 })}
@@ -294,8 +294,8 @@ function CriteriaForm({ year, scope, setScope, crit, setCrit, saved, overrides, 
 function warningText(w, tr, { monthName, poolName, year }) {
   switch (w.code) {
     case 'statut_non_renseigne':
-      return { tone: 'warn', text: tr('{n} site(s) sans statut en {m} : non planifiés (la grille {y} est ouverte) — renseignez-les dans Sites (actifs / inactifs).', { n: formatInt(w.count), m: monthName(Number(String(w.month).slice(5, 7))), y: w.year || year }), href: SITES_HASH, link: tr('Ouvrir Sites (actifs / inactifs)') };
-    case 'grille_inconnue': return { tone: 'info', text: tr('Aucune grille d\'activation pour {y} : tous les sites du registre comptent comme actifs.', { y: year }), href: SITES_HASH, link: tr('Ouvrir Sites (actifs / inactifs)') };
+      return { tone: 'warn', text: tr('{n} site(s) sans statut en {m} : non planifiés (la grille {y} est ouverte) — renseignez-les dans Sites (actifs / inactifs).', { n: formatInt(w.count), m: monthName(Number(String(w.month).slice(5, 7))), y: String(w.year || year) }), href: SITES_HASH, link: tr('Ouvrir Sites (actifs / inactifs)') };
+    case 'grille_inconnue': return { tone: 'info', text: tr('Aucune grille d\'activation pour {y} : tous les sites du registre comptent comme actifs.', { y: String(year) }), href: SITES_HASH, link: tr('Ouvrir Sites (actifs / inactifs)') };
     case 'sans_mmr': return { tone: 'warn', text: tr('{n} site(s) dont l\'activité est absente du MMR : non planifiés.', { n: formatInt(w.count) }) };
     case 'mmr_sites_ecart': return { tone: 'info', text: tr('{a} : {t} site(s) saisi(s) au MMR, {r} au registre — la capacité est rapportée aux sites du registre.', { a: w.activity, t: formatInt(w.typed), r: formatInt(w.registry) }) };
     case 'sans_calendrier': return { tone: 'info', text: tr('Sans calendrier d\'activité : chaque mois au plus le « faisable » du MMR, et au plus faisable × durée sur l\'exercice.') };

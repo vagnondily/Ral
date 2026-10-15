@@ -36,9 +36,9 @@ export const POSTPONE_ORDER = Object.keys(POSTPONE);
 
 /** Niveaux de priorité (couleur + libellé ; l'icône est choisie par l'écran). */
 export const LEVELS = {
-  haute: { label: 'Haute', tone: 'red' },
-  moyenne: { label: 'Moyenne', tone: 'orange' },
-  basse: { label: 'Basse', tone: 'green' },
+  haute: { label: 'Haute', tone: 'red', phrase: 'priorité haute', skipped: 'Priorité haute non retenue dans les critères' },
+  moyenne: { label: 'Moyenne', tone: 'orange', phrase: 'priorité moyenne', skipped: 'Priorité moyenne non retenue dans les critères' },
+  basse: { label: 'Basse', tone: 'green', phrase: 'priorité basse', skipped: 'Priorité basse non retenue dans les critères' },
 };
 
 const RISK = { elevee: 'élevé', moyenne: 'moyen', faible: 'faible' };
@@ -71,7 +71,7 @@ export function proposalText(p, tr, nameOf = () => null) {
     if (d.since == null) parts.push(risk ? tr('Dû : risque {r}, jamais visité', { r: risk }) : tr('Dû : jamais visité'));
     else parts.push(tr('Dû : risque {r}, dernière visite il y a {n} mois (intervalle {g} mois)', { r: risk || '—', n: d.since, g: d.gate ?? '—' }));
   }
-  if (lvl && p.reason !== 'couverture') parts.push(tr('priorité {l}', { l: tr(lvl.label).toLowerCase() }));
+  if (lvl && p.reason !== 'couverture') parts.push(tr(lvl.phrase));
   const anchor = p.anchor ? nameOf(p.anchor) : null;
   if (p.why === 'meme_lieu') parts.push(anchor ? tr('regroupé avec {a} (même lieu)', { a: anchor }) : tr('regroupé (même lieu)'));
   if (p.why === 'meme_commune') parts.push(anchor ? tr('regroupé avec {a} (même commune)', { a: anchor }) : tr('regroupé (même commune)'));
@@ -92,7 +92,7 @@ export function postponeText(u, tr, monthName = (m) => m, year = null) {
       if (d.next) return tr('Visite déjà prévue en {m} : trop proche (intervalle {g} mois)', { m: monthName(d.next), g: d.gate ?? '—' });
       return tr('Dernière visite il y a {n} mois : intervalle de {g} mois non atteint', { n: d.since ?? '—', g: d.gate ?? '—' });
     case 'inactif': return mo ? tr('Inactif en {m} (grille Sites actifs / inactifs)', { m: mo }) : tr('Inactif ce mois (grille Sites actifs / inactifs)');
-    case 'non_du': return d.level ? tr('Priorité {l} non retenue dans les critères', { l: tr((LEVELS[d.level] || {}).label || d.level).toLowerCase() }) : tr('Pas prioritaire ce mois');
+    case 'non_du': return LEVELS[d.level] ? tr(LEVELS[d.level].skipped) : tr('Pas prioritaire ce mois');
     case 'capacite_visites': return tr('Capacité de visites de l\'activité atteinte ce mois');
     case 'capacite_jours': return tr('Journées-agent de l\'activité épuisées ce mois');
     case 'capacite_exercice': return tr('Capacité de l\'exercice épuisée (faisable × durée)');
