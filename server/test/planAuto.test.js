@@ -4,7 +4,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { generatePlan, normalizeSettings, cadence } = require('../src/modules/tpm/planAuto');
+const { generatePlan, normalizeSettings, siteRemaining } = require('../src/modules/tpm/planAuto');
 
 const H1 = [1, 2, 3, 4, 5, 6];
 const YEAR = 2026;
@@ -21,11 +21,21 @@ test('normalizeSettings : défauts et bornes', () => {
   assert.equal(c.adjusted, true);
 });
 
-test('cadence : espace les visites de l\'intervalle, borne à maxCount', () => {
-  assert.deepEqual(cadence(1, 2, [1, 2, 3, 4, 5, 6], 3), [1, 3, 5]);
-  assert.deepEqual(cadence(1, 3, [1, 2, 3, 4, 5, 6], 9), [1, 4]);
-  assert.deepEqual(cadence(3, 2, [1, 2, 3, 4, 5, 6], 2), [3, 5]);
-  assert.deepEqual(cadence(1, 2, [], 3), []);
+test('siteRemaining : exigées − réalisées − prévues dans la période', () => {
+  const r = siteRemaining({ required: 2, visits: [{ month: 2, status: 'planifie' }, { month: 5, status: 'realise' }] }, 4);
+  assert.equal(r.remaining, 1);     // 2 − 1 réalisée − 0 prévue dans la période (mois 2 < 4)
+  assert.equal(r.latePlanned, 1);   // la prévue de février
+});
+
+test('regroupement par commune + étalement par phase (pas de pic)', () => {
+  // 2 communes, intervalle 2 → phases 0 et 1 → une commune démarre jan, l'autre fév.
+  const sites = [
+    { id: 'a1', parametered: true, required: 1, mmrKey: 'k', commune: 'Alpha' },
+    { id: 'b1', parametered: true, required: 1, mmrKey: 'k', commune: 'Beta' },
+  ];
+  const r = generatePlan(sites, { k: { interval: 2, feasible: 100 } }, {}, H1, YEAR);
+  const m = Object.fromEntries(r.assignments.map((x) => [x.siteId, x.month]));
+  assert.notEqual(m.a1, m.b1); // communes étalées sur des mois différents
 });
 
 test('site MMR : exactement les visites exigées, espacées de l\'intervalle (pas tous les mois)', () => {

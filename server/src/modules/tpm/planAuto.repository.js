@@ -113,4 +113,41 @@ async function applyPlan(tenantId, userId, assignments = []) {
   });
 }
 
-module.exports = { sitesForPlanning, applyPlan };
+/**
+ * Efface les visites PLANIFIÉES (status = 'planifie') de la période, pour
+ * repartir d'un plan propre. Ne touche JAMAIS une visite réalisée, annulée,
+ * figée (« antérieur »), facturée ou motivée (retour 58) : seules les prévues
+ * « libres » sont supprimées. Sous verrou ; renvoie le nombre supprimé.
+ * @param {number} year  exercice ; from/to = numéros de mois (1..12).
+ */
+async function clearPlanned(tenantId, { year, from, to, risk } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`plan-auto:${tenantId}`]);
+    const fromD = `${year}-${String(from).padStart(2, '0')}-01`;
+    const toD = `${year}-${String(to).padStart(2, '0')}-01`;
+    const params = [tenantId, fromD, toD];
+    let riskFilter = '';
+    if (risk) {
+      params.push(risk);
+      riskFilter = ` AND v.site_id IN (SELECT id FROM sites WHERE tenant_id = $1 AND risk_level = $${params.length})`;
+    }
+    // Colonnes de « figement » tolérées (selon migrations présentes) : on ne supprime
+    // que les prévues réellement libres.
+    const { rows: cols } = await client.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'site_visits' AND column_name IN ('frozen','billed','locked','provider_source')`);
+    const names = new Set(cols.map((c) => c.column_name));
+    let guard = '';
+    if (names.has('frozen')) guard += ' AND COALESCE(v.frozen, false) = false';
+    if (names.has('billed')) guard += ' AND COALESCE(v.billed, false) = false';
+    if (names.has('locked')) guard += ' AND COALESCE(v.locked, false) = false';
+    const { rowCount } = await client.query(
+      `DELETE FROM site_visits v
+        WHERE v.tenant_id = $1 AND v.status = 'planifie'
+          AND v.period_month >= $2::date AND v.period_month <= $3::date${riskFilter}${guard}`,
+      params);
+    return { deleted: rowCount };
+  });
+}
+
+module.exports = { sitesForPlanning, applyPlan, clearPlanned };

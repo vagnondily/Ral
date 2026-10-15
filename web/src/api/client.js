@@ -326,6 +326,7 @@ export const api = {
   // Planification automatique sur une période selon des critères configurables (retour 82).
   planAutoPreview: (input) => request('/api/tpm/plan-auto/preview', { method: 'POST', body: input }),
   planAutoApply: (input) => request('/api/tpm/plan-auto/apply', { method: 'POST', body: input }),
+  planAutoClear: (input) => request('/api/tpm/plan-auto/clear', { method: 'POST', body: input }),
   planBoardAddSite: (input) => request('/api/tpm/field/plan-board/sites', { method: 'POST', body: input }),
   planBoardTemplate: (year, activity) => downloadFile(`/api/tpm/field/plan-board/template.xlsx?year=${year}${activity ? `&activity=${encodeURIComponent(activity)}` : ''}`, `Gabarit_sites${activity ? `_${activity.replace(/[^\w]+/g, '_').slice(0, 40)}` : ''}_${year}.xlsx`),
   planBoardImport: (file, { commit, skipErrors } = {}) => uploadFile(`/api/tpm/field/plan-board/locations/import?commit=${commit ? 1 : 0}${skipErrors ? '&skipErrors=1' : ''}`, file),

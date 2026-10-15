@@ -27,8 +27,10 @@ const settingsSchema = z.object({
     faible: z.number().int().min(1).max(12).optional(),
   }).partial().optional(),
   capacityPerMonth: z.number().int().min(1).max(100000).nullable().optional(),
+  overflowPct: z.number().min(0).max(100).optional(),
   excludeMonths: z.array(month).max(12).optional(),
   useMmrCapacity: z.boolean().optional(),
+  groupByCommune: z.boolean().optional(),
   targetCoverage: z.number().min(0).max(1).optional(),
 }).partial().optional();
 
@@ -75,6 +77,13 @@ router.post('/apply', WRITE, asyncHandler(async (req, res) => {
   const plan = await build(req);
   const { created } = await repo.applyPlan(t(req), uid(req), plan.assignments);
   res.json({ created, planned: plan.assignments.length, summary: plan.summary, perMonth: plan.perMonth });
+}));
+
+// Effacement des visites PLANIFIÉES de la période (pour repartir d'un plan propre).
+router.post('/clear', WRITE, asyncHandler(async (req, res) => {
+  const { risk, months, year } = parseBody(req);
+  const { deleted } = await repo.clearPlanned(t(req), { year, from: months[0], to: months[months.length - 1], risk });
+  res.json({ deleted });
 }));
 
 module.exports = router;

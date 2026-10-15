@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Eye, Wand2 } from 'lucide-react';
+import { Eye, Wand2, Trash2 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, Field } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
@@ -33,6 +33,8 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
   const [adjusted, setAdjusted] = useState(false);
   const [risk, setRisk] = useState('');
   const [exclude, setExclude] = useState('');
+  const [overflow, setOverflow] = useState(10);        // débordement autorisé (%)
+  const [groupByCommune, setGroupByCommune] = useState(true);
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -46,9 +48,11 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
       frequency: { elevee: Number(freq.elevee) || 1, moyenne: Number(freq.moyenne) || 2, faible: Number(freq.faible) || 3 },
       ...(Number(capacity) > 0 ? { capacityPerMonth: Number(capacity) } : {}),
       useMmrCapacity,
+      overflowPct: Number(overflow) || 0,
+      groupByCommune,
       excludeMonths: exclude.split(',').map((s) => s.trim()).filter((s) => /^\d{4}-\d{2}$/.test(s)),
     },
-  }), [from, to, risk, freq, capacity, useMmrCapacity, adjusted, exclude]);
+  }), [from, to, risk, freq, capacity, useMmrCapacity, overflow, groupByCommune, adjusted, exclude]);
 
   async function runPreview() {
     if (invalid) return;
@@ -65,6 +69,17 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
       onDone();
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   }
+  async function clearPlanned() {
+    if (invalid) return;
+    if (!window.confirm(tr('Effacer toutes les visites PLANIFIÉES de la période ? Les visites réalisées, annulées ou figées sont conservées.'))) return;
+    setBusy(true);
+    try {
+      const r = await api.planAutoClear({ from, to, ...(risk ? { risk } : {}) });
+      toast.success(tr('{n} planification(s) effacée(s).', { n: r.deleted }));
+      setPreview(null);
+      onDone();
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  }
 
   const maxCount = preview ? Math.max(1, ...preview.perMonth.map((m) => m.count)) : 1;
   const cov = preview ? (preview.summary.coverageRate ?? 0) : 0;
@@ -72,6 +87,8 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
   return (
     <Modal open onClose={() => !busy && onClose()} title={tr('Générer le plan de suivi (période)')} wide
       footer={<>
+        <Button variant="ghost" icon={Trash2} onClick={clearPlanned} disabled={busy || invalid} title={tr('Supprimer les visites planifiées de la période pour repartir d\'un plan propre.')}>{tr('Effacer les planifications')}</Button>
+        <span style={{ flex: 1 }} />
         <Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button>
         <Button variant="secondary" icon={Eye} loading={busy && !preview} disabled={invalid} onClick={runPreview}>{tr('Aperçu')}</Button>
         <Button icon={Wand2} loading={busy} disabled={invalid || !preview} onClick={apply}>{tr('Appliquer')}</Button>
@@ -105,9 +122,15 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
             <label className="check"><input type="checkbox" checked={useMmrCapacity} onChange={(e) => { setUseMmrCapacity(e.target.checked); setPreview(null); }} /> {tr('Respecter la capacité mensuelle du MMR')}</label>
             <label className="check"><input type="checkbox" checked={adjusted} onChange={(e) => { setAdjusted(e.target.checked); setPreview(null); }} /> {tr('Fréquence MMR ajustée (CO adjusted)')}</label>
           </div>
-          <Field label={tr('Capacité par mois (facultatif)')} htmlFor="pa-cap" hint={tr('Plafond global de visites planifiées par mois ; le surplus glisse au mois suivant.')}>
-            <input id="pa-cap" type="number" min="1" className="input" value={capacity} onChange={(e) => { setCapacity(e.target.value); setPreview(null); }} placeholder={tr('Illimité')} />
-          </Field>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Field label={tr('Capacité par mois (facultatif)')} htmlFor="pa-cap" hint={tr('Plafond global de visites planifiées par mois ; le surplus glisse au mois suivant.')}>
+              <input id="pa-cap" type="number" min="1" className="input" value={capacity} onChange={(e) => { setCapacity(e.target.value); setPreview(null); }} placeholder={tr('Illimité')} />
+            </Field>
+            <Field label={tr('Débordement autorisé (%)')} htmlFor="pa-ov" hint={tr('Dépassement toléré de la capacité mensuelle avant de reporter au mois suivant.')}>
+              <input id="pa-ov" type="number" min="0" max="100" className="input" value={overflow} onChange={(e) => { setOverflow(e.target.value); setPreview(null); }} />
+            </Field>
+          </div>
+          <label className="check" style={{ marginTop: 10 }}><input type="checkbox" checked={groupByCommune} onChange={(e) => { setGroupByCommune(e.target.checked); setPreview(null); }} /> {tr('Regrouper les sites par commune (tournées)')}</label>
         </fieldset>
         <fieldset style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 12, margin: 0 }}>
           <legend style={{ padding: '0 6px', fontSize: 13, fontWeight: 600 }}>{tr('Fréquence des sites sans paramètre MMR (mois entre deux visites)')}</legend>
