@@ -157,7 +157,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
           </label>
           <Button variant="secondary" icon={Download} onClick={() => api.planBoardExport(year).catch((e) => toast.error(e.message))}>{tr('Exporter')}</Button>
           {canEdit && <>
-            <Button variant="secondary" icon={CalendarRange} onClick={() => setModal('autoplan')}>{tr('Planifier (période)')}</Button>
+            <Button variant="secondary" icon={CalendarRange} onClick={() => setModal('autoplan')}>{tr('Générer le plan automatiquement')}</Button>
             <Button variant="secondary" icon={FileSpreadsheet} onClick={() => setModal('template')}>{tr('Gabarit d\'activité')}</Button>
             <Button variant="secondary" icon={Upload} onClick={() => fileRef.current?.click()}>{tr('Importer')}</Button>
             <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={(e) => onImportFile(e.target.files[0])} />

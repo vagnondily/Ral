@@ -5,7 +5,7 @@ import { Alert, Button, Field } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
-import { formatInt } from '../../lib/format.js';
+import { formatInt, formatLocale } from '../../lib/format.js';
 
 // Mois AAAA-MM décalé de n mois à partir d'aujourd'hui.
 function monthFromNow(n) {
@@ -17,6 +17,11 @@ function monthFromNow(n) {
 const yearOf = (ym) => ym.slice(0, 4);
 const mOf = (ym) => Number(ym.slice(5, 7));
 const ym = (y, m) => `${y}-${String(Math.min(12, Math.max(1, m))).padStart(2, '0')}`;
+// 'YYYY-MM' → nom de mois court (ex. « mars »).
+const shortMonth = (m) => {
+  try { return new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 1, 1)).toLocaleString(formatLocale(), { month: 'short', timeZone: 'UTC' }); }
+  catch { return m; }
+};
 
 /**
  * Assistant de génération automatique du plan de suivi sur une PÉRIODE (retour 82).
@@ -100,6 +105,17 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
   const cov = preview ? (preview.summary.coverageRate ?? 0) : 0;
   const covColor = cov >= 80 ? 'var(--green-500, #2e9e5b)' : cov >= 50 ? 'var(--amber-500, #d99100)' : 'var(--red-500, #d64545)';
   const presetActive = (p) => from === p.f && to === p.t;
+
+  // Échantillon de sites réels (avec leurs mois prévus) pour un aperçu concret.
+  const sample = useMemo(() => {
+    if (!preview) return [];
+    const bySite = new Map();
+    for (const a of preview.assignments || []) {
+      if (!bySite.has(a.siteId)) bySite.set(a.siteId, { name: a.name || '—', commune: a.commune, district: a.district, months: [] });
+      bySite.get(a.siteId).months.push(a.month);
+    }
+    return [...bySite.values()].slice(0, 8).map((s) => ({ ...s, months: [...new Set(s.months)].sort() }));
+  }, [preview]);
 
   return (
     <Modal open onClose={() => !busy && onClose()} title={tr('Générer le plan de suivi')} wide
@@ -211,6 +227,25 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
               {preview.summary.forbidden > 0 && <span className="muted">{tr('Zones interdites exclues')} : {formatInt(preview.summary.forbidden)}</span>}
               {preview.summary.unplaced > 0 && <span className="muted">{tr('Non placées (capacité)')} : {formatInt(preview.summary.unplaced)}</span>}
             </div>
+            {sample.length > 0 && (
+              <div style={{ display: 'grid', gap: 6 }}>
+                <span className="muted" style={{ fontSize: 12 }}>{tr('Exemples de sites et leurs visites prévues')}</span>
+                <table className="table" style={{ background: 'var(--surface)' }}>
+                  <thead><tr><th scope="col">{tr('Site')}</th><th scope="col">{tr('Commune')}</th><th scope="col">{tr('Mois prévus')}</th></tr></thead>
+                  <tbody>
+                    {sample.map((s, i) => (
+                      <tr key={`${s.name}-${i}`}>
+                        <td><strong>{s.name}</strong></td>
+                        <td className="muted">{s.commune || '—'}</td>
+                        <td>{s.months.map((m) => shortMonth(m)).join(' · ')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <span className="muted" style={{ fontSize: 11 }}>{tr('Échantillon · le plan complet couvre {n} site(s).', { n: formatInt(preview.summary.sitesCovered) })}</span>
+              </div>
+            )}
+            <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{tr('Répartition par mois')}</div>
             <table className="table" style={{ background: 'var(--surface)' }}>
               <thead><tr><th scope="col">{tr('Mois')}</th><th scope="col" className="num">{tr('Visites')}</th><th scope="col" style={{ width: '55%' }} /></tr></thead>
               <tbody>

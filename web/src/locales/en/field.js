@@ -454,6 +454,11 @@ export default {
   '« Appliquer » crée ces visites comme « planifiées ». Idempotent : un site déjà prévu ce mois n\'est pas dupliqué.':
     '“Apply” creates these visits as “planned”. Idempotent: a site already planned that month is not duplicated.',
   'Cliquez sur « Aperçu » pour voir la répartition avant d\'écrire.': 'Click “Preview” to see the breakdown before writing.',
+  'Générer le plan automatiquement': 'Generate the plan automatically',
+  'Exemples de sites et leurs visites prévues': 'Example sites and their planned visits',
+  'Mois prévus': 'Planned months',
+  'Répartition par mois': 'Breakdown by month',
+  'Échantillon · le plan complet couvre {n} site(s).': 'Sample · the full plan covers {n} site(s).',
   'Reste de l\'année': 'Rest of the year',
   'Trimestre': 'Quarter',
   'Semestre': 'Half-year',
