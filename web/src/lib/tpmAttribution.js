@@ -21,7 +21,7 @@ export const TPM_ZONE_STATE = {
 export const TPM_FLAGS = {
   a_confirmer: { label: 'À confirmer (contrat changé)', tone: 'orange', icon: 'clock' },
   partiel: { label: 'Partiel (par commune)', tone: 'blue', icon: 'dot' },
-  hors_contrat: { label: 'Hors contrat ce mois', tone: 'orange', icon: 'warn' },
+  hors_contrat: { label: 'TPM hors contrat', tone: 'orange', icon: 'warn' },
   prestataire_inactif: { label: 'Prestataire désactivé', tone: 'red', icon: 'ban' },
 };
 /** Drapeaux montrés ligne par ligne (« titulaire non TPM » est dit une fois, en bannière). */
@@ -40,6 +40,20 @@ export const TPM_VISIT = {
   visite: { label: 'Modifié pour cette visite', tone: 'orange', icon: 'edit' },
   reprise: { label: 'TPM saisi avant la règle', tone: 'blue', icon: 'draft' },
 };
+
+/** Actions du journal d'affectation (tpm_attribution_log.action) : couleur + icône + libellé. */
+export const TPM_LOG_ACTION = {
+  modifier: { label: 'TPM modifié', tone: 'orange', icon: 'edit' },
+  confirmer: { label: 'Modification confirmée', tone: 'green', icon: 'check' },
+  revenir_contrat: { label: 'Retour au contrat', tone: 'blue', icon: 'dot' },
+  reappliquer: { label: 'TPM des contrats appliqués', tone: 'blue', icon: 'check' },
+  visite_modifier: { label: 'TPM d\'une visite modifié', tone: 'orange', icon: 'edit' },
+  visite_garder: { label: 'TPM saisi avant la règle gardé', tone: 'orange', icon: 'edit' },
+  visite_zone: { label: 'Visite rendue à sa zone', tone: 'green', icon: 'check' },
+};
+
+/** Libellé d'un état inscrit au journal : état de zone, origine de visite (« visite », « reprise »). */
+export const tpmStateLabel = (s) => (TPM_ZONE_STATE[s] || TPM_VISIT[s] || TPM_VISIT[`zone:${s}`] || {}).label || s || '';
 
 /** Clé TPM_VISIT d'une visite ({ providerSource, providerZoneState }). */
 export function visitTpmKey(v) {

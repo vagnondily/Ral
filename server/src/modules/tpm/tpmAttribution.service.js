@@ -91,8 +91,10 @@ async function getTable(tenantId, { period, regionId = null, all = false }) {
       const v = visitsByArea.get(k);
       if (g.status === 'planifie') v.planned += g.n; else if (g.status === 'realise') v.realised += g.n; else v.cancelled += g.n;
       if (g.status !== 'annule' && g.source === 'reprise') v.reprise += g.n;
+      // Écart = visite PRÉVUE dont le TPM diffère de celui de sa zone (écart motivé, ou saisi avant la
+      // règle et déjà facturé) ; une visite réalisée garde le TPM qui l'a faite : ce n'est pas un écart à traiter.
       const frozen = g.source === 'zone' && g.zoneState === 'anterieur';
-      if (g.status !== 'annule' && !frozen && (g.providerId || null) !== (cell.providerId || null)) v.divergent += g.n;
+      if (g.status === 'planifie' && !frozen && (g.providerId || null) !== (cell.providerId || null)) v.divergent += g.n;
     }
     const rows = areas
       .filter((a) => !regionId || a.regionId === regionId)
@@ -125,12 +127,20 @@ async function getTable(tenantId, { period, regionId = null, all = false }) {
 }
 const areaName = (areas, id) => (areas.find((a) => a.id === id) || { name: '' }).name;
 
-/** Prestataires actifs (titulaires) et sélectionnables sur une plage, avec leurs mois et contrats. */
+/**
+ * Prestataires actifs (titulaires) et sélectionnables sur une plage, avec leurs mois et contrats
+ * (règle commune du lot 8) ; chaque contrat porte en plus son libellé d'écran (n° FLA, sinon numéro).
+ */
 async function providers(tenantId, { period }) {
   return withTenantTransaction(tenantId, async (client) => {
     const months = monthsOf(period);
     const inputs = await repo.loadInputsTx(client, tenantId, period);
-    return rule.selectableProviders({ links: inputs.links, partners: inputs.partners, months });
+    const out = rule.selectableProviders({ links: inputs.links, partners: inputs.partners, months });
+    const label = new Map(inputs.contracts.map((c) => [c.id, c.numeroFla || c.numero]));
+    for (const g of out.groups || []) {
+      for (const p of g.providers || []) p.contracts = (p.contracts || []).map((c) => ({ ...c, contractLabel: label.get(c.id) || c.numero }));
+    }
+    return out;
   });
 }
 
@@ -294,8 +304,9 @@ async function revert(tenantId, actor, { target, reason, stamp }) {
 }
 
 /**
- * « Appliquer les TPM des contrats » sur une période : toutes les visites dont le TPM n'a pas été
- * choisi à la main avec une raison reprennent celui de leur zone (journalisé, visite par visite).
+ * « Appliquer les TPM des contrats » sur une période : les visites PRÉVUES dont le TPM n'a pas été
+ * choisi à la main avec une raison reprennent celui de leur zone (journalisé, visite par visite) ;
+ * réalisées, annulées, antérieures à la règle et déjà facturées gardent leur TPM (compte rendu `kept`).
  */
 async function reapply(tenantId, actor, { period, reason }) {
   const clean = reasonOf(reason, { required: false });

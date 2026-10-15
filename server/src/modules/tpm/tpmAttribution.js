@@ -278,10 +278,14 @@ function cellForSite({ districtId, communeId }, month, table) {
   return table.cells.get(`${districtId}|${month}`) || null;
 }
 
-/** Clé de regroupement des mois consécutifs identiques. */
-const segmentKey = (c) => [c.state, c.providerId || '', c.contractId || '', c.override ? c.override.id : '', c.flags.includes('a_confirmer') ? 1 : 0].join('|');
+/**
+ * Clé de regroupement des mois consécutifs identiques. Une modification compte par DÉCISION (même
+ * lot, même raison), pas par ligne : six mois modifiés d'un coup forment un seul segment.
+ */
+const segmentKey = (c) => [c.state, c.providerId || '', c.contractId || '',
+  c.override ? `${c.override.batchId || c.override.id}~${c.override.reason || ''}` : '', c.flags.includes('a_confirmer') ? 1 : 0].join('|');
 
-/** Mois consécutifs identiques (même état, TPM, contrat, modification) → { from, to, cell }. */
+/** Mois consécutifs identiques (même état, TPM, contrat, décision de modification) → { from, to, cell }. */
 function segments(cellsOfArea) {
   const out = [];
   for (const c of [...cellsOfArea].sort((a, b) => cmp(a.month, b.month))) {

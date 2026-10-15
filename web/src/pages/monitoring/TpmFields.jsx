@@ -29,7 +29,7 @@ export function ProviderSelect({ id, selectable, value, onChange, allowNone = tr
       <option value="">{placeholder || tr('Choisir un TPM…')}</option>
       {contrat.length > 0 && (
         <optgroup label={tr('Sous contrat de suivi sur la période')}>
-          {contrat.map((p) => <option key={p.id} value={p.id}>{p.name}{p.contracts?.length ? ` — ${p.contracts.map((c) => c.numero).join(', ')}` : ''}{partial(p)}</option>)}
+          {contrat.map((p) => <option key={p.id} value={p.id}>{p.name}{p.contracts?.length ? ` — ${p.contracts.map((c) => c.contractLabel || c.numero).join(', ')}` : ''}{partial(p)}</option>)}
         </optgroup>
       )}
       {others.length > 0 && (
@@ -43,7 +43,7 @@ export function ProviderSelect({ id, selectable, value, onChange, allowNone = tr
 }
 
 /** Raison d'un changement : zone de texte avec compteur, suggestions qui insèrent un texte modifiable. */
-export function ReasonField({ id, value, onChange, required, hint }) {
+export function ReasonField({ id, value, onChange, required, hint, placeholder, suggestions = true }) {
   const { tr } = useI18n();
   const n = [...value.trim()].length;
   const short = required && n > 0 && n < REASON_MIN;
@@ -54,18 +54,20 @@ export function ReasonField({ id, value, onChange, required, hint }) {
       </label>
       <textarea id={id} className="input tpm-reason-input" rows={3} maxLength={REASON_MAX} value={value}
         onChange={(e) => onChange(e.target.value)} aria-describedby={`${id}-hint`} aria-invalid={short || undefined}
-        placeholder={tr('Pourquoi ce TPM ? Ex. contrat en cours de renouvellement, accès, capacité…')} />
+        placeholder={placeholder || tr('Pourquoi ce TPM ? Ex. contrat en cours de renouvellement, accès, capacité…')} />
       <div className="tpm-reason-foot" id={`${id}-hint`}>
         <span className={short ? 'tpm-reason-err' : 'muted'}>
           {hint || (required ? tr('Obligatoire : {n} caractères au moins, relue longtemps après.', { n: REASON_MIN }) : tr('Laissez une trace si utile.'))}
         </span>
         <span className="muted tabular">{formatInt(n)} / {formatInt(REASON_MAX)}</span>
       </div>
-      <div className="tpm-suggest" role="group" aria-label={tr('Suggestions de raison')}>
-        {REASON_SUGGESTIONS.map((s) => (
-          <button key={s} type="button" className="tpm-chip" onClick={() => onChange(value.trim() ? `${value.trim()} — ${tr(s)}` : `${tr(s)} : `)}>{tr(s)}</button>
-        ))}
-      </div>
+      {suggestions && (
+        <div className="tpm-suggest" role="group" aria-label={tr('Suggestions de raison')}>
+          {REASON_SUGGESTIONS.map((s) => (
+            <button key={s} type="button" className="tpm-chip" onClick={() => onChange(value.trim() ? `${value.trim()} — ${tr(s)}` : `${tr(s)} : `)}>{tr(s)}</button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

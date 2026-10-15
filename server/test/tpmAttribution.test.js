@@ -208,6 +208,15 @@ test('segments : fusion des mois identiques ; empreinte stable et sensible', () 
   assert.notEqual(a.stampOf(all), a.stampOf([...t2.cells.values()]));
 });
 
+test('segments : une décision sur plusieurs mois (même lot, même raison) = un seul segment ; deux raisons = deux', () => {
+  const same = tableOf({ overrides: [ov({ id: 'o1', batchId: 'b1' }), ov({ id: 'o2', month: '2026-02', batchId: 'b1' })] });
+  const cells = ['2026-01', '2026-02', '2026-03'].map((m) => same.cells.get(`d1|${m}`));
+  assert.deepEqual(a.segments(cells).map((x) => [x.from, x.to, x.cell.state]), [['2026-01', '2026-02', 'modifie'], ['2026-03', '2026-03', 'contrat']]);
+  const two = tableOf({ overrides: [ov({ id: 'o1', batchId: 'b1' }), ov({ id: 'o2', month: '2026-02', batchId: 'b2', reason: 'Autre raison, autre décision' })] });
+  const cells2 = ['2026-01', '2026-02'].map((m) => two.cells.get(`d1|${m}`));
+  assert.deepEqual(a.segments(cells2).map((x) => [x.from, x.to]), [['2026-01', '2026-01'], ['2026-02', '2026-02']]);
+});
+
 const targetsOf = (t, areaIds, months) => areaIds.flatMap((id) => months.map((m) => ({ areaId: id, month: m, cell: t.cells.get(`${id}|${m}`) })));
 
 test('planOverrides : région de 3 districts × 12 mois dont un déjà RANO par contrat', () => {
