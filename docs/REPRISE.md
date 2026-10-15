@@ -64,9 +64,10 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 | `wip/repeats` | oui | Agent : sous-tables (groupes répétés) à l'import, réponses « Autre, précisez » comptées (retours 77, 81 ; migrations 097, 099) | 🔄 depuis 14:09 |
 | `wip/calc` | oui | Agent : fonctions de calcul (Excel, Tableau, DAX, statistiques), sans exécution de code (retour 74) | 🔄 depuis 14:12 |
 | `wip/pdd` | oui | Agent : PDD — vue d'ensemble, tableau récapitulatif par mois, date d'ajout (retour 69, migration 100) | ⏸️ arrêté par la limite du 14/10, pas encore relancé |
-| `wip/dash-template` | oui (au fil de l'eau) | Agent : « Couverture & performance du suivi » fidèle à la maquette de l'utilisateur (retours 40, 66, 67, 85, 101 ; migration 101 si besoin) | 🔄 depuis 15/10 05:37 |
-| `wip/offices` | oui (au fil de l'eau) | Agent : types de bureau à niveaux facultatifs, périmètre en arbre Région › District › Commune, bureau d'un site déduit des périmètres (retours 105, 106 ; migrations 102–103) | 🔄 depuis 15/10 05:47 |
-| `wip/activities` | oui (au fil de l'eau) | Agent : référentiel des activités à 3 niveaux, reprise des libellés, listes partout, activités inconnues refusées (retours 92, 106 ; migration 090) | 🔄 depuis 15/10 05:50 |
+| `wip/dash-template` | oui (au fil de l'eau) | Agent : « Couverture & performance du suivi » fidèle à la maquette de l'utilisateur (retours 40, 66, 67, 85, 101 ; migration 101 si besoin) | 🔄 depuis 15/10 ≈ 05:33 |
+| `wip/offices` | oui (au fil de l'eau) | Agent : types de bureau à niveaux facultatifs, périmètre en arbre Région › District › Commune, bureau d'un site déduit des périmètres (retours 105, 106 ; migrations 102–103) | 🔄 depuis 15/10 ≈ 05:39 |
+| `wip/activities` | oui (au fil de l'eau) | Agent : suite du référentiel des activités — **sur la base de `sub_activities` (`101`, publié par l'autre session)** : reprise des libellés existants, listes du référentiel partout, activités inconnues refusées (retours 92, 106 ; migration 105) | ⏸️ arrêté par la limite à ≈ 06:00, à relancer avec la nouvelle base |
+| `claude/zealous-bardeen-p9ozcr` (15/10) | oui | **Autre session** : sous-activités (retour 92, migration 101), zones du contrat enrichies (retour 38), revue du plan de suivi (`docs/REVUE_PLAN_SUIVI.md`), passation (`docs/SESSION_HANDOFF_zealous.md`) | ✅ **fusionnée dans `main`** (PR #3, 10:09 UTC) |
 
 ## 3. Chantiers : en cours et à venir
 
@@ -120,16 +121,20 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `081` | agent `wip/perf` (index, si besoin) | 🔄 |
   | `082`–`085` | multi-pays (conception) | ⏳ |
   | `086`–`089` | lot 8 (agent `wip/lot8`) | 🔄 |
-  | `090` | référentiel des activités (agent `wip/activities`, étape 3 de `SPEC_PROGRAMMES`) | 🔄 |
-  | `091`–`095` | bailleurs, programmes, projets, cadre logique, Output, connecteur (conception) | ⏳ |
+  | `090` | **abandonné** : le référentiel des activités est arrivé par l'autre session (`101`) | — |
+  | `091`–`095` | **à renuméroter après `101`** (bailleurs, programmes, projets, cadre logique, Output, connecteur) : ces fichiers référencent `sub_activities` (`101`) ; sur une base neuve, un numéro plus petit tournerait avant elle → numéros `110`–`115` | ⏳ |
   | `096` | état de l'application, remise à zéro, archives 24 h (agent `wip/admin`) | 🔄 |
   | `097` | sous-tables et « Autre » (agent `wip/repeats`) | 🔄 |
   | `098` | indicateurs des fiches (agent `wip/indicators`, si besoin) | 🔄 |
   | `099` | sous-tables, 2ᵉ fichier si besoin (agent `wip/repeats`) | 🔄 |
   | `100` | PDD : date d'ajout (agent `wip/pdd`) | 🔄 |
-  | `101` | tableau de bord d'après la maquette (agent `wip/dash-template`, si besoin) | 🔄 |
+  | `101` | **sous-activités** (référentiel activités › sous-activités › information, retour 92) — autre session `claude/zealous-bardeen-p9ozcr`, PR #3 fusionnée sur `main` le 15/10 à 10:09 UTC | ✅ |
   | `102`–`103` | types de bureau, périmètre, bureau déduit (agent `wip/offices`) | 🔄 |
-  | `104` et suivants | libres | — |
+  | `104` | tableau de bord d'après la maquette (agent `wip/dash-template`, si besoin) | 🔄 |
+  | `105` | référentiel des activités, suite (reprise des libellés, listes partout, refus des activités inconnues ; agent `wip/activities`, sur la base de `101`) | 🔄 |
+  | `106` à `109` | libres | — |
+  | `110`–`115` | programmes, projets, bailleurs, Output (conception, ex-`091`–`095`) | ⏳ |
+  | `116` et suivants | libres | — |
 
 - **Publier sur `main`** seulement après :
   - `cd server && npm test && npm run lint` ;

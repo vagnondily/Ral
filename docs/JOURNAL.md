@@ -20,7 +20,7 @@
 > - **Bureaux** : types à niveaux facultatifs, périmètre choisi par région › district › commune ; **bureau, TPM et activités déduits de la configuration** partout ; **référentiel des activités** (aucune activité créée hors Paramétrage).
 > - **Sites (actifs / inactifs)** à la forme du Plan de suivi : publié.
 
-_Dernière mise à jour : 15/10/2026 05:55 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 15/10/2026 10:25 UTC_ — la branche `main` reçoit chaque lot vérifié
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -596,7 +596,7 @@ _Dernière mise à jour : 15/10/2026 05:55 UTC_ — la branche `main` reçoit ch
 - **05:25** 🔄 Agents relancés là où ils s'étaient arrêtés : finitions d'écrans, concepteur partie 2, TPM des contrats, planification automatique, Partenaires & TPM. Conception Programmes & projets publiée (`1e7eba4`).
 - **05:25** 📥 Retour 98 : « Sites actifs / inactifs » doit avoir la forme du Plan de suivi. 🔄 Écran refait.
 - **05:31 → 05:50** 📥 Retours 99 à 106 (détail dans `RETOURS_UTILISATEUR.md`) : planification automatique toujours invisible ; lenteur pendant les tâches de fond ; tableaux de bord hors gabarit ; filtres du rapportage ; en-tête des rapports ; 3 000 lignes à planifier et TPM « à affecter » ; bureaux (types, périmètre par niveau) ; tout doit se déduire de la configuration (bureau, TPM, activités).
-- **05:33 → 05:50** 🔄 Répartition :
+- **05:31 → 05:45** 🔄 Répartition :
   - planification automatique, bouton et aperçu en priorité, règle unique « site actif » (grille ouverte → seul « Oui » est actif) → `wip/lot5-gen` ;
   - TPM d'après les contrats sur toutes les pages, une seule règle avec le lot 8 → `wip/r58` ;
   - réactivité : fils séparés pour les lectures de fichiers, tâches de fond en base (081), connexions réservées aux écrans → `wip/perf` (relancé) ;
@@ -607,5 +607,9 @@ _Dernière mise à jour : 15/10/2026 05:55 UTC_ — la branche `main` reçoit ch
   - référentiel des activités à 3 niveaux, refus des activités inconnues → nouvel agent `wip/activities` (migration 090).
 - **05:50** ✅ Finitions d'écrans terminées par leur agent (`wip/ui-polish` `1b348b5`) : sélecteur de période jamais coupé, onglet « Données » propre (communes par leur nom, dates sans heure, pages de 1 000 annoncées), Couverture & performance (fiche sans indicateur expliquée, cartes de même hauteur), carte recadrée sur le bureau choisi, couleur par activité et légende claire. À vérifier puis publier.
 - **05:50** ✅ Concepteur d'en-tête et de pied de page poussé par son agent (`wip/7a-p2` `642455f`). À vérifier puis publier.
-- **05:52** ⚠️ Par erreur, j'ai arrêté quelques serveurs de test d'agents (pas les vôtres). Les agents concernés ont été prévenus et les relancent ; aucune donnée touchée.
-- **05:58** ✅ **Sites (actifs / inactifs) à la forme du Plan de suivi** (retour 98) — `51f702b`, prêt à publier après relecture indépendante : mêmes bandeaux, filtres, tableau à colonnes figées et grille des 12 mois que le plan ; règle unique « site actif » (celle des tableaux de bord : dès que l'année a une grille, seul « Oui » compte, une case vide est signalée « À renseigner ») ; bouton « Renseigner les cases vides » (une transaction côté serveur, 3 838 cases en 1,5 s). Lecteur `.shp` unifié (`f06bbfc`). Contrôles : 1 036 tests, lint, build, balayage 33 × 2 sans erreur ni phrase manquante.
+- **≈ 05:45** ⚠️ Par erreur, j'ai arrêté quelques serveurs de test d'agents (pas les vôtres). Les agents concernés ont été prévenus et les relancent ; aucune donnée touchée.
+- **05:52** ✅ **Sites (actifs / inactifs) à la forme du Plan de suivi** (retour 98) — `51f702b`, prêt à publier après relecture indépendante : mêmes bandeaux, filtres, tableau à colonnes figées et grille des 12 mois que le plan ; règle unique « site actif » (celle des tableaux de bord : dès que l'année a une grille, seul « Oui » compte, une case vide est signalée « À renseigner ») ; bouton « Renseigner les cases vides » (une transaction côté serveur, 3 838 cases en 1,5 s). Lecteur `.shp` unifié (`f06bbfc`). Contrôles : 1 036 tests, lint, build, balayage 33 × 2 sans erreur ni phrase manquante.
+- **≈ 06:00** ⏸️ **Limite d'usage atteinte** (13 agents en parallèle ont épuisé le quota en 40 minutes) : tous les agents se sont arrêtés au milieu de leur étape ; leur travail est gardé. Reprise possible à 10:20 UTC.
+- **10:09** ✅ L'autre session (`claude/zealous-bardeen-p9ozcr`) est fusionnée dans `main` par vous (PR #3) : référentiel activités › sous-activités › information (retour 92, migration `101`), zones du contrat enrichies (retour 38 : P-code masquable, sites et sous-activités par zone, bureau), revue du plan de suivi.
+- **10:22** 🔄 Reprise. `main` fusionné dans ma branche (`e934941`) : 1 054 tests réussis, build OK. Numéros de migration revus (`101` pris par les sous-activités ; tableau de bord → `104` ; suite du référentiel des activités → `105`, bâtie sur `101` ; programmes → `110`–`115`).
+- **10:25** 🔄 **Rythme revu** : moins d'agents à la fois, par ordre de priorité, pour avancer sans longue pause. D'abord la planification automatique et le TPM des contrats, puis la publication de ce qui est prêt (sites actifs, finitions d'écrans, premier lot de réactivité, en-têtes de rapport).
