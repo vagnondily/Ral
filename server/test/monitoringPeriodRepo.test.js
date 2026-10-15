@@ -30,8 +30,8 @@ test('formSubmissions : liste et comptage filtrés sur la plage, chacun avec SES
   const out = await repo.formSubmissions(T, FORM, { period: H1, limit: 50 });
   const list = calls.find((c) => /ORDER BY ms\.submitted_at DESC/.test(c.sql));
   assert.match(list.sql, /ms\.tenant_id = \$1 AND ms\.form_id = \$2 AND ms\.period_month >= \$3::date AND ms\.period_month < \$4::date/);
-  assert.match(list.sql, /LIMIT \$5$/);
-  assert.deepEqual(list.params, [T, FORM, '2026-01-01', '2026-07-01', 50]);
+  assert.match(list.sql, /LIMIT \$5 OFFSET \$6$/);
+  assert.deepEqual(list.params, [T, FORM, '2026-01-01', '2026-07-01', 50, 0]);
   const cnt = calls.find((c) => /count\(\*\)::int AS total/.test(c.sql));
   assert.deepEqual(cnt.params, [T, FORM, '2026-01-01', '2026-07-01']);
   assert.match(cnt.sql, /ms\.period_month >= \$3::date AND ms\.period_month < \$4::date$/);
@@ -66,10 +66,43 @@ test('noms de lieux : une lecture par type de clé distincte, jamais une sous-re
     ['Ambovombe', null, 'EPP Ambovombe', null],
     ['Ambovombe', 'Commune du registre', null, 'Bureau Sud'],
   ]);
-  assert.ok(out.every((r) => !('_siteId' in r) && !('_districtKey' in r)), 'clés internes retirées');
+  assert.ok(out.every((r) => !('_siteId' in r) && !('_districtKey' in r) && !('_regionKey' in r) && !('_fokontanyKey' in r)), 'clés internes retirées');
   assert.ok(!calls.some((c) => /\(SELECT a\.name FROM admin_areas a WHERE a\.tenant_id = ms\.tenant_id/.test(c.sql)), 'aucune sous-requête par ligne');
   const areas = calls.find((c) => /FROM admin_areas WHERE tenant_id = \$1 AND pcode = ANY/.test(c.sql));
   assert.deepEqual(areas.params[1].sort(), ['MG0101', 'MG010101', 'MG010199']);
+});
+
+test('données d\'une fiche (retour 80) : pages dans un ordre stable, commune codée lue dans la liste de la fiche (« 89 » → « Tomboarivo »)', async () => {
+  calls = [];
+  const subs = [
+    { id: 'x1', admin1: 'MG53', admin3: '89', fieldOffice: '1', _districtKey: null, _communeKey: '89', _regionKey: 'MG53', _fokontanyKey: null, _siteId: null, _officeId: null },
+    { id: 'x2', admin1: 'MG53', admin3: '91', fieldOffice: '1', _districtKey: null, _communeKey: '91', _regionKey: 'MG53', _fokontanyKey: null, _siteId: null, _officeId: null },
+  ];
+  rowsFor = (s, p) => {
+    if (/ORDER BY ms\.submitted_at DESC/.test(s)) return subs.map((r) => ({ ...r }));
+    if (/count\(\*\)::int AS total/.test(s)) return [{ total: 1311, excluded: 0 }];
+    if (/FROM admin_areas WHERE tenant_id = \$1 AND pcode = ANY/.test(s)) return [{ pcode: 'MG53', name: 'Anosy' }];
+    if (/FROM monitoring_form_fields/.test(s)) return [{ formId: FORM, name: 'Adm3Code_SMP', listName: 'ADM3CODE' }, { formId: 'autre', name: 'Adm3Code_SMP', listName: 'ADM3CODE' }];
+    if (/FROM monitoring_field_map/.test(s)) return p[1] === 'admin3' ? [{ formId: FORM, columnName: 'Adm3Code_SMP' }] : [];
+    if (/FROM monitoring_choices c/.test(s)) {
+      return [{ formId: FORM, value: '89', label: 'TOMBOARIVO' }, { formId: FORM, value: '91', label: 'TSIVORY' }].filter((c) => p[3].includes(c.value));
+    }
+    return [];
+  };
+  const out = await repo.formSubmissions(T, FORM, { limit: 1000, offset: 1000 });
+  const list = calls.find((c) => /ORDER BY ms\.submitted_at DESC/.test(c.sql));
+  assert.match(list.sql, /ORDER BY ms\.submitted_at DESC NULLS LAST, ms\.period_month DESC, ms\.id LIMIT \$3 OFFSET \$4$/);
+  assert.deepEqual(list.params, [T, FORM, 1000, 1000]);
+  assert.equal(out.offset, 1000);
+  assert.equal(out.limit, 1000);
+  assert.equal(out.total, 1311);
+  assert.deepEqual(out.rows.map((r) => [r.communeLabel, r.regionName]), [['TOMBOARIVO', 'Anosy'], ['TSIVORY', 'Anosy']]);
+  // Une seule fiche, seulement les valeurs présentes dans la page (jamais toute une liste).
+  const choices = calls.find((c) => /FROM monitoring_choices c/.test(c.sql));
+  assert.deepEqual(choices.params[1], [FORM]);
+  assert.deepEqual(choices.params[3].sort(), ['89', '91']);
+  // Catalogue de la fiche lu une fois pour toutes les dimensions.
+  assert.equal(calls.filter((c) => /FROM monitoring_form_fields/.test(c.sql)).length, 1);
 });
 
 test('tendance : fenêtre de 12 mois finissant à `to`, étendue pour une plage plus longue', async () => {

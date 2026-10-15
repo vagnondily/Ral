@@ -354,7 +354,7 @@ export const api = {
   monApplyMemsMapping: (id) => request(`/api/monitoring/forms/${id}/mems-mapping/apply`, { method: 'POST' }),
   // Cycle de vie du mapping : action ∈ submit | validate | reset.
   monMappingAction: (id, action) => request(`/api/monitoring/forms/${id}/mapping/${action}`, { method: 'POST' }),
-  monFormSubmissions: (id, { period, month, limit } = {}) => request(`/api/monitoring/forms/${id}/submissions`, { query: qs({ ...pq(period || month), limit }) }),
+  monFormSubmissions: (id, { period, month, limit, offset } = {}) => request(`/api/monitoring/forms/${id}/submissions`, { query: qs({ ...pq(period || month), limit, offset }) }),
   monCalcFields: (id) => request(`/api/monitoring/forms/${id}/calc-fields`),
   // Éditeur de formule : catalogue des fonctions (mis en cache) et aperçu sur les soumissions réelles.
   monCalcFunctions: () => (calcFunctionsCache ||= request('/api/monitoring/calc-functions').catch((e) => { calcFunctionsCache = null; throw e; })),

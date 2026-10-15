@@ -112,6 +112,33 @@ export function formatDateTime(value) {
   return `${date} ${LANG === 'en' ? 'at' : 'à'} ${time}`;
 }
 
+// Valeur sans heure : « 2026-09-27 », ou minuit UTC exact (date d'enquête rangée par l'import).
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}(?:[T ]00:00(?::00(?:\.0+)?)?(?:Z|[+-]00:?00)?)?$/;
+
+/** Vrai si la valeur ne porte pas d'heure (date seule, ou minuit UTC exact). */
+export function isDateOnly(value) {
+  if (value == null || value === '') return false;
+  if (value instanceof Date) {
+    return !Number.isNaN(value.getTime()) && value.getUTCHours() === 0 && value.getUTCMinutes() === 0
+      && value.getUTCSeconds() === 0 && value.getUTCMilliseconds() === 0;
+  }
+  return DATE_ONLY.test(String(value).trim());
+}
+
+/**
+ * Date d'une soumission (retour 80) : sans heure, la DATE SEULE, le jour écrit (lu en UTC) —
+ * jamais « à 03:00 » ni la veille / le lendemain selon le fuseau du navigateur ; avec une
+ * heure, date et heure locales (formatDateTime).
+ */
+export function formatCollectDate(value) {
+  if (!value) return '—';
+  if (!isDateOnly(value)) return formatDateTime(value);
+  const iso = value instanceof Date ? value.toISOString() : String(value).trim();
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString(LOCALES[LANG], { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
+}
+
 export function formatTime(value) {
   if (!value) return '—';
   return new Date(value).toLocaleTimeString(LOCALES[LANG], { hour: '2-digit', minute: '2-digit' });
