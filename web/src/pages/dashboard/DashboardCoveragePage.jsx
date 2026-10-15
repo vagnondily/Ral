@@ -14,6 +14,7 @@ import { coverageState, formatRate } from '../../lib/mapScale.js';
 import { groupNaReasons } from '../../lib/naReasons.js';
 import { shortFormLabel as shortLabel } from '../../lib/formLabel.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { rbmStatsOf } from '../../lib/rbmCounts.js';
 
 /** Durée maximale des endpoints d'analyse (overview, coverage-dashboard, field/summary) : 24 mois. */
 const ANALYSIS_MAX_SPAN = 24;
@@ -27,7 +28,7 @@ const ANALYSIS_MAX_SPAN = 24;
  *   • conformité/indicateurs ← /monitoring/coverage-dashboard
  *   • couverture (sites)       ← /map/districts (la MÊME réponse que la vue Carte)
  *   • exécution du plan, zones ← /tpm/field/summary
- *   • sites à suivre (RBM)     ← /tpm/field/rbm/sites
+ *   • sites à suivre (RBM)     ← /tpm/field/rbm/counts (compteurs seuls)
  * Période = plage de mois (lot 1b, retour n° 47) : URL, puis période de travail de la
  * session, puis la règle commune (dernier mois substantiel avec des données, dite par
  * PeriodBanner). Flux sommés, sites distincts, état RBM au dernier mois de la période.
@@ -81,7 +82,7 @@ export default function DashboardCoveragePage({ onNavigate }) {
     let alive = true;
     setCd(null); setField(null); setRbm(null); setMapData(undefined); setError(null);
     // RBM : un état, lu au dernier mois de la période (le serveur prend `to`).
-    Promise.all([api.monCoverageDashboard(period), api.fieldSummary(period), api.rbmSites(period)])
+    Promise.all([api.monCoverageDashboard(period), api.fieldSummary(period), api.rbmCounts(period)])
       .then(([c, f, r]) => {
         if (!alive) return;
         setCd(c); setField(f); setRbm(r);
@@ -95,11 +96,8 @@ export default function DashboardCoveragePage({ onNavigate }) {
   }, [ready, key]); // eslint-disable-line react-hooks/exhaustive-deps
   const mapInitial = useMemo(() => (opened ? { theme: opened.theme, officeId: opened.officeId, activity: opened.activity } : {}), [opened]);
 
-  const rbmStats = useMemo(() => {
-    const s = { total: 0, due: 0, elevee: 0, moyenne: 0, faible: 0 };
-    for (const x of rbm || []) { s.total += 1; s[x.riskLevel] = (s[x.riskLevel] || 0) + 1; if (x.due) s.due += 1; }
-    return s;
-  }, [rbm]);
+  // Compteurs calculés par le serveur (GET /rbm/counts), mêmes règles qu'avant sur la liste complète.
+  const rbmStats = useMemo(() => rbmStatsOf(rbm), [rbm]);
 
   const cov = field?.overall;
   const loading = !cd || !field || !rbm;

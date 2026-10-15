@@ -60,6 +60,26 @@ function rbmSummary(sites) {
 }
 
 /**
+ * Compteurs de l'état RBM tels que les écrans les affichent (Synthèse, Couverture &
+ * performance, Affectation & visites, Priorités du mois) — servis par
+ * GET /api/tpm/field/rbm/counts au lieu de la liste complète des sites (≈ 1,3 Ko par site) :
+ *   total, byRisk (niveau saisi), due (« à suivre », zones interdites comprises — Synthèse,
+ *   Couverture), dueOpen (à suivre hors zones interdites — Priorités, même définition que
+ *   « Générer »), toPlan (ce que « Générer » planifiera), upToDate = total − due.
+ * Les drapeaux viennent des lignes de rbmSitesTx : rien n'est recalculé ici.
+ */
+function rbmCounts(sites) {
+  const out = { total: 0, due: 0, dueOpen: 0, upToDate: 0, toPlan: 0, byRisk: { elevee: 0, moyenne: 0, faible: 0 } };
+  for (const s of sites || []) {
+    out.total += 1;
+    if (s.due) { out.due += 1; if (!s.forbidden) out.dueOpen += 1; } else out.upToDate += 1;
+    if (s.toPlan) out.toPlan += 1;
+    if (RISK_LEVELS.includes(s.riskLevel)) out.byRisk[s.riskLevel] += 1;
+  }
+  return out;
+}
+
+/**
  * Sites à suivre, du plus prioritaire au moins prioritaire : drapeaux urgents, priorité,
  * niveau calculé, jamais visité, ancienneté de la dernière visite, nom — ordre déterministe.
  */
@@ -70,4 +90,4 @@ function dueSites(sites) {
     || last(a).localeCompare(last(b)) || String(a.name || '').localeCompare(String(b.name || ''), 'fr'));
 }
 
-module.exports = { rbmSummary, scopeSites, dueSites, RISK_LEVELS, RISK_LABELS };
+module.exports = { rbmSummary, rbmCounts, scopeSites, dueSites, RISK_LEVELS, RISK_LABELS };

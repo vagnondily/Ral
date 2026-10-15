@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { rbmSummary, scopeSites, dueSites } = require('../src/modules/tpm/rbmSummary');
+const { rbmSummary, rbmCounts, scopeSites, dueSites } = require('../src/modules/tpm/rbmSummary');
 const { coverageStatus } = require('../src/modules/common/coverageStatus');
 
 const S = (o) => ({ id: o.id, name: o.id, riskLevel: 'moyenne', due: false, toPlan: false, neverVisited: false, urgentFlags: false, forbidden: false, finalScore: 1, priority: 1, reasons: [], ...o });
@@ -18,6 +18,19 @@ test('synthèse RBM : comme le tableau de bord (total, à suivre, par risque) + 
   assert.equal(s.urgent, 1); assert.equal(s.forbidden, 1); assert.equal(s.neverVisited, 1);
   assert.deepEqual(s.flags.map((f) => [f.code, f.sites, f.urgent]), [['fraud', 1, 1], ['synergies', 2, 0]]);
   assert.deepEqual(rbmSummary([]).byRisk, { elevee: 0, moyenne: 0, faible: 0 });
+});
+
+test('compteurs RBM des écrans : mêmes totaux que la synthèse ; « à suivre » avec et sans zones interdites', () => {
+  const c = rbmCounts(SITES);
+  const s = rbmSummary(SITES);
+  assert.deepEqual(c, { total: 4, due: 3, dueOpen: 2, upToDate: 1, toPlan: 1, byRisk: { elevee: 2, moyenne: 1, faible: 1 } });
+  for (const k of ['total', 'due', 'upToDate', 'toPlan']) assert.equal(c[k], s[k], k);
+  assert.deepEqual(c.byRisk, s.byRisk);
+  // Les règles que les écrans appliquaient sur la liste complète, ligne à ligne.
+  assert.equal(c.dueOpen, SITES.filter((x) => x.due && !x.forbidden).length);
+  assert.equal(c.toPlan, SITES.filter((x) => x.toPlan).length);
+  assert.deepEqual(rbmCounts([]), { total: 0, due: 0, dueOpen: 0, upToDate: 0, toPlan: 0, byRisk: { elevee: 0, moyenne: 0, faible: 0 } });
+  assert.equal(rbmCounts(null).total, 0);
 });
 
 test('périmètre : un bureau couvre ses antennes ; « sans bureau » ; activité sans casse', () => {
