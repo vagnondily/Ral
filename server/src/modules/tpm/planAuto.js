@@ -102,7 +102,7 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
       const c = mmrByKey[g.mmrKey] || {};
       interval = cfg.adjusted && c.adjustedInterval ? c.adjustedInterval : (c.interval || frequencyFor(g.riskLevel, cfg.frequency));
     } else interval = frequencyFor(g.riskLevel, cfg.frequency);
-    const step = Math.max(1, Math.round(interval));
+    const step = Math.max(1, Math.ceil(interval)); // arrondi au supérieur : l'intervalle minimal n'est jamais réduit (4,5 → 5)
 
     // Regroupement par commune (tournées) ; communes réparties en phases sur l'intervalle.
     const byCommune = new Map();
