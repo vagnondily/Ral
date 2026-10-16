@@ -41,6 +41,24 @@ export function groupOptions(options, order = []) {
     .map(({ group, items }) => ({ group, items }));
 }
 
+/**
+ * Au plus `limit` options affichées (les premières, dans l'ordre des groupes) ; le reste est compté
+ * — jamais tronqué en silence : l'écran dit « N autres : affinez la recherche ».
+ * @returns {{ groups: { group: string, items: object[] }[], hidden: number }}
+ */
+export function limitGroups(groups, limit) {
+  if (!(limit > 0)) return { groups: groups || [], hidden: 0 };
+  let left = limit; let hidden = 0;
+  const out = [];
+  for (const g of groups || []) {
+    const shown = g.items.slice(0, Math.max(0, left));
+    hidden += g.items.length - shown.length;
+    left -= shown.length;
+    if (shown.length) out.push({ group: g.group, items: shown });
+  }
+  return { groups: out, hidden };
+}
+
 /** Options choisissables, à plat, dans l'ordre d'affichage (pour la navigation au clavier). */
 export function flatOptions(groups) {
   return (groups || []).flatMap((g) => g.items).filter((o) => !o.disabled);

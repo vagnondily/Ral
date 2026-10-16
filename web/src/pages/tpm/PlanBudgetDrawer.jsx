@@ -127,11 +127,16 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
               </>
             )}
             <Field label={tr('Intitulé du plan')} hint={tr('ex. Collecte septembre — cantines scolaires')}><input className="input" value={head.title} onChange={(e) => setHead({ ...head, title: e.target.value })} /></Field>
-            <Field label={tr('Statut')}>
-              <select className="select" value={head.status} onChange={(e) => setHead({ ...head, status: e.target.value })}>
-                <option value="brouillon">{tr('Brouillon')}</option><option value="valide">{tr('Validé')}</option>
-              </select>
-            </Field>
+            <div className="field">
+              <span className="field-label" id="pbd-status-label">{tr('Statut')}</span>
+              {/* Deux valeurs exclusives : un choix segmenté, pas une liste. */}
+              <div className="seg" role="radiogroup" aria-labelledby="pbd-status-label">
+                {[['brouillon', tr('Brouillon')], ['valide', tr('Validé')]].map(([v, label]) => (
+                  <button key={v} type="button" role="radio" aria-checked={head.status === v} className={head.status === v ? 'is-active' : ''}
+                    onClick={() => setHead({ ...head, status: v })}>{label}</button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {otherTpm && (

@@ -67,7 +67,7 @@ export default function AlertsPage({ onNavigate }) {
     </>
   );
 
-  if (state.loading) return <div className="page">{header}{note}<Skeleton height={320} /></div>;
+  if (state.loading) return <div className="section-gap">{header}{note}<Skeleton height={320} /></div>;
 
   const items = state.data?.items || [];
   const counts = state.data?.counts || { critical: 0, warning: 0, info: 0 };
@@ -75,7 +75,7 @@ export default function AlertsPage({ onNavigate }) {
   const open = (a) => { const args = goArgs(a.go); if (args && onNavigate) onNavigate(...args); };
 
   return (
-    <div className="page">
+    <div className="section-gap">
       {header}
       {note}
 

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import { useI18n } from '../lib/i18n.jsx';
 import { placePopover, scrollClosesPopover } from '../lib/popoverPlacement.js';
-import { filterOptions, flatOptions, groupOptions, moveActive, showSearch } from '../lib/entityPicker.js';
+import { filterOptions, flatOptions, groupOptions, limitGroups, moveActive, showSearch } from '../lib/entityPicker.js';
 
 /**
  * Choix d'un objet métier (prestataire TPM, contrat, site, bureau…) — remplace la liste déroulante
@@ -16,6 +16,7 @@ import { filterOptions, flatOptions, groupOptions, moveActive, showSearch } from
  *   groupOrder  ordre des titres de groupe (ex. « TPM de ce contrat » avant « Autres prestataires TPM »)
  *   placeholder texte sans choix ; clearable (bouton « effacer ») ; invalid ; disabled ; id (pour <Field htmlFor>)
  *   emptyText   texte quand la recherche ne trouve rien
+ *   limit       options affichées au plus (300) ; les autres sont comptées (« affinez la recherche »)
  *
  * Accessibilité : bouton role="combobox" aria-haspopup="listbox" / aria-expanded / aria-controls ;
  * liste role="listbox", groupes role="group" titrés, options role="option" aria-selected ; la recherche
@@ -24,7 +25,7 @@ import { filterOptions, flatOptions, groupOptions, moveActive, showSearch } from
  */
 export default function EntityPicker({
   value, onChange, options, groupOrder = [], placeholder, clearable = false, invalid = false, disabled = false,
-  id, emptyText, ariaLabel, searchPlaceholder,
+  id, emptyText, ariaLabel, searchPlaceholder, limit = 300,
 }) {
   const { tr } = useI18n();
   const uid = useId().replace(/:/g, '');
@@ -40,7 +41,7 @@ export default function EntityPicker({
 
   const all = options || [];
   const selected = all.find((o) => o.value === value) || null;
-  const groups = useMemo(() => groupOptions(filterOptions(all, query), groupOrder), [all, query, groupOrder]);
+  const { groups, hidden } = useMemo(() => limitGroups(groupOptions(filterOptions(all, query), groupOrder), limit), [all, query, groupOrder, limit]);
   const flat = useMemo(() => flatOptions(groups), [groups]);
   const withSearch = showSearch(all);
   const optId = (o) => `picker-${uid}-${String(o.value).replace(/[^\w-]/g, '_')}`;
@@ -53,7 +54,7 @@ export default function EntityPicker({
   const openList = () => {
     if (disabled) return;
     setOpen(true);
-    setActive(Math.max(0, flatOptions(groupOptions(all, groupOrder)).findIndex((o) => o.value === value)));
+    setActive(Math.max(0, flatOptions(limitGroups(groupOptions(all, groupOrder), limit).groups).findIndex((o) => o.value === value)));
   };
   const pick = (o) => {
     if (!o || o.disabled) return;
@@ -201,6 +202,7 @@ export default function EntityPicker({
                 })}
               </div>
             ))}
+            {hidden > 0 && <div className="picker-more">{tr('{n} autre(s) : affinez la recherche.', { n: hidden })}</div>}
           </div>
         </div>,
         document.body,

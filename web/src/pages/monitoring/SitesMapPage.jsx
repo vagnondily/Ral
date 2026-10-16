@@ -28,7 +28,7 @@ export default function SitesMapPage({ onNavigate, isAdmin = false }) {
   const initial = useMemo(() => ({ theme: 'active', layers: { gps: true, derived: true, communes: true, collect: false } }), []);
 
   return (
-    <div className="page">
+    <div className="section-gap">
       <PageHeader title={tr('Carte des sites')}
         description={tr('Registre des sites sur le fond vectoriel des districts (hors ligne) : districts colorés selon le thème, sites GPS et positions déduites des collectes ; registre géographique région → district ci-dessous.')}>
         {per.ready && <PeriodSelect value={per.period} onChange={(p) => per.setPeriod(p)} counts={per.counts} latest={per.latest} today={per.today} maxSpan={MAP_MAX_SPAN} align="right" />}

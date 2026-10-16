@@ -99,7 +99,7 @@ export default function PostesEditor({ rows, onChange, readOnly = false, funderL
           <div key={sec.code} className="facture-sec">
             <div className="facture-sec-head">
               <h3 className="facture-sec-title">{sec.code}. {tr(sec.label)}</h3>
-              <span className="mono muted">{formatAr(totals.bySec[sec.code] || 0)}</span>
+              <span className="tabular muted">{formatAr(totals.bySec[sec.code] || 0)}</span>
             </div>
             {secRows.length > 0 && (
               <div className="table-wrap">
@@ -128,7 +128,7 @@ export default function PostesEditor({ rows, onChange, readOnly = false, funderL
                         <td><input className="input" style={{ width: 90 }} value={r.unit} disabled={readOnly} placeholder={tr('jour')} onChange={(e) => setRow(r.key, { unit: e.target.value })} /></td>
                         <td className="num"><input className="input tabular" style={{ width: 72, textAlign: 'right' }} inputMode="decimal" value={r.unitCount} disabled={readOnly} onChange={(e) => setRow(r.key, { unitCount: e.target.value })} /></td>
                         <td className="num" style={{ minWidth: 130 }}><MoneyInput value={r.unitCost === '' ? '' : Number(r.unitCost)} disabled={readOnly} onChange={(v) => setRow(r.key, { unitCost: v })} /></td>
-                        <td className="num mono">{formatAr(posteAmount(r))}</td>
+                        <td className="num tabular">{formatAr(posteAmount(r))}</td>
                         <td>
                           <select className={`select ${r.activityId ? '' : 'is-empty'}`} style={{ minWidth: 130 }} value={r.activityId} disabled={readOnly} onChange={(e) => setRow(r.key, { activityId: e.target.value })} aria-label={tr('Activité 1')}>
                             <option value="">{tr('— Activité —')}</option>
@@ -151,7 +151,7 @@ export default function PostesEditor({ rows, onChange, readOnly = false, funderL
                         <td className="num">
                           <input className="input tabular" style={{ width: 64, textAlign: 'right' }} inputMode="decimal" value={r.bailleurPct} placeholder="100" disabled={readOnly} onChange={(e) => setRow(r.key, { bailleurPct: e.target.value })} aria-label={tr('Pourcentage à la charge du bailleur')} />
                         </td>
-                        <td className="num mono">{formatAr(posteFunder(r))}</td>
+                        <td className="num tabular">{formatAr(posteFunder(r))}</td>
                         <td><input className="input" value={r.observation} disabled={readOnly} onChange={(e) => setRow(r.key, { observation: e.target.value })} /></td>
                         {!readOnly && <td><Button size="sm" variant="ghost" icon={Trash2} aria-label={tr('Supprimer le poste')} onClick={() => removeRow(r.key)} /></td>}
                       </tr>

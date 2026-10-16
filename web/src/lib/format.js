@@ -24,6 +24,15 @@ export function formatInt(value) {
   return nf.format(Number(value) || 0).replace(/ /g, ' ');
 }
 
+/** 63.14 -> « 63,1 » en français, « 63.1 » en anglais : nombre décimal dans la langue de l'interface
+ * (jamais le point de toFixed dans une interface française), `digits` décimales fixes. */
+export function formatDecimal(value, digits = 1) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  return new Intl.NumberFormat(LOCALES[LANG], { minimumFractionDigits: digits, maximumFractionDigits: digits })
+    .format(n).replace(/\u202f/g, '\u00a0');
+}
+
 // Unité des tailles de fichier selon la langue de l'interface (Mo / MB).
 const SIZE_UNIT = { fr: 'Mo', en: 'MB' };
 /**

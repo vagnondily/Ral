@@ -12,4 +12,7 @@ export default {
   'TPM de ce contrat': 'TPM of this contract',
   'Autres prestataires TPM': 'Other TPM providers',
   'Aucun contrat de suivi rattaché': 'No linked monitoring contract',
+  'District non renseigné': 'District not set',
+  '{n} autre(s) : affinez la recherche.': '{n} more: refine your search.',
+  'Rechercher un site, une commune, un district…': 'Search a site, a commune, a district…',
 };

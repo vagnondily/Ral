@@ -107,3 +107,25 @@ test('le contrat propose son TPM, le TPM son contrat (retour 58), sans écraser 
   assert.deepEqual(m.withPartner(empty, 'p1', [CONTRACTS[0]], tpmsOf), { partnerId: 'p1', contractId: 'k1' }, 'un seul contrat : pris');
   assert.deepEqual(m.withPartner({ partnerId: '', contractId: 'k2' }, 'p1', CONTRACTS, tpmsOf), { partnerId: 'p1', contractId: 'k2' }, 'contrat déjà choisi : jamais changé');
 });
+
+test('au plus N options affichées, le reste compté (jamais tronqué en silence)', async (t) => {
+  const m = await load(t, 'entityPicker.js'); if (!m) return;
+  const groups = [{ group: 'A', items: [{ value: '1' }, { value: '2' }] }, { group: 'B', items: [{ value: '3' }, { value: '4' }, { value: '5' }] }];
+  const r = m.limitGroups(groups, 3);
+  assert.deepEqual(r.groups.map((g) => [g.group, g.items.map((o) => o.value)]), [['A', ['1', '2']], ['B', ['3']]]);
+  assert.equal(r.hidden, 2);
+  assert.equal(m.limitGroups(groups, 0).hidden, 0, 'sans limite');
+  assert.deepEqual(m.limitGroups(groups, 2).groups.map((g) => g.group), ['A'], 'groupe vide retiré');
+});
+
+test('nombre décimal dans la langue de l\'interface : virgule en français, point en anglais', async (t) => {
+  const m = await load(t, 'format.js'); if (!m) return;
+  m.setFormatLocale('fr');
+  assert.equal(m.formatDecimal(63.14), '63,1');
+  assert.equal(m.formatDecimal(31.5, 1), '31,5');
+  assert.equal(m.formatDecimal(1234.5, 1), '1 234,5', 'séparateur de milliers insécable lisible');
+  assert.equal(m.formatDecimal(Number.NaN), '—');
+  m.setFormatLocale('en');
+  assert.equal(m.formatDecimal(63.14), '63.1');
+  m.setFormatLocale('fr');
+});

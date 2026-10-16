@@ -3,6 +3,7 @@ import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, UserPlus, Trash
 import { api } from '../../api/client.js';
 import { Alert, Button, PageHeader, Skeleton } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
+import EntityPicker from '../../components/EntityPicker.jsx';
 import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatInt, monthLabel } from '../../lib/format.js';
@@ -236,7 +237,7 @@ export default function FieldVisitsPage({ canEdit }) {
   const activeStatus = (monthsData?.months || []).find((m) => m.month === month)?.status || 'vide';
 
   return (
-    <div className="page">
+    <div className="section-gap">
       <PageHeader title={tr('Affectation & visites de terrain')}
         description={picking
           ? tr("L'écran unique du suivi terrain : planifiez les visites du mois (depuis le RBM), affectez les prestataires TPM, suivez les jours/budget, la couverture et les données réelles. Choisissez un mois pour ouvrir son plan.")
@@ -389,7 +390,7 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
   const { tr } = useI18n();
   const all = data?.months || [];
   const months = statusFilter ? all.filter((m) => m.status === statusFilter) : all;
-  const pctClass = (c) => (c >= 0.8 ? 'green' : c >= 0.5 ? 'amber' : 'red');
+  const pctClass = (c) => (c >= 0.8 ? 'green' : c >= 0.5 ? 'orange' : 'red');
   const tot = all.reduce((a, m) => ({ planifie: a.planifie + m.planifie, realise: a.realise + m.realise, annule: a.annule + m.annule, sites: a.sites + m.sites }), { planifie: 0, realise: 0, annule: 0, sites: 0 });
   const totCov = tot.planifie + tot.realise > 0 ? tot.realise / (tot.planifie + tot.realise) : 0;
   const activeMonths = all.filter((m) => m.total > 0).length;
@@ -541,8 +542,12 @@ function AddVisitModal({ month, roles, onClose, onSaved }) {
   }
 
   const reasonMissing = Boolean(other && provider && [...reason.trim()].length < REASON_MIN);
+  const siteOptions = useMemo(() => sites.map((s) => ({
+    value: s.id, label: s.name, sub: [s.commune, s.activity].filter(Boolean).join(' · ') || undefined,
+    group: s.district || tr('District non renseigné'), keywords: [s.district, s.commune, s.fokontany, s.activity].filter(Boolean),
+  })), [sites, tr]);
   return (
-    <Modal open size="md" title={tr('Ajouter une visite')} subtitle={tr('Mois : {month}', { month })} onClose={onClose}
+    <Modal open size="md" title={tr('Ajouter une visite')} subtitle={tr('Mois : {month}', { month: monthLabel(month) })} onClose={onClose}
       footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button onClick={save} loading={saving} disabled={reasonMissing}>{tr('Planifier')}</Button></>}>
       <div style={{ display: 'grid', gap: 14 }}>
         <div className="seg" role="group" aria-label={tr('Type de site')}>
@@ -550,12 +555,11 @@ function AddVisitModal({ month, roles, onClose, onSaved }) {
           <button type="button" className={mode === 'new' ? 'is-active' : ''} onClick={() => setMode('new')}>{tr('Nouveau site')}</button>
         </div>
         {mode === 'existing' ? (
-          <label className="field"><span className="field-label">{tr('Site')}</span>
-            <select className={`select ${form.siteId ? '' : 'is-empty'}`} value={form.siteId} onChange={(e) => setForm({ ...form, siteId: e.target.value })}>
-              <option value="">{tr('Choisir un site…')}</option>
-              {sites.map((s) => <option key={s.id} value={s.id}>{s.district} › {s.commune} › {s.name}</option>)}
-            </select>
-          </label>
+          <div className="field"><label className="field-label" htmlFor="add-visit-site">{tr('Site')}</label>
+            {/* 1 000+ sites : liste avec recherche, groupée par district (jamais une liste brute du navigateur). */}
+            <EntityPicker id="add-visit-site" value={form.siteId} onChange={(siteId) => setForm({ ...form, siteId })}
+              options={siteOptions} placeholder={tr('Choisir un site…')} searchPlaceholder={tr('Rechercher un site, une commune, un district…')} />
+          </div>
         ) : (
           <div className="form-grid">
             <label className="field"><span className="field-label">{tr('District')}</span><input className="input" value={newSite.district} onChange={(e) => setNewSite({ ...newSite, district: e.target.value })} /></label>
