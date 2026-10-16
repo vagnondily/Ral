@@ -22,6 +22,12 @@
 
 _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot vérifié
 
+> **Option « couvrir tous les sites au moins une fois » (retour 82).** ✅ Nouvelle case de
+> l'assistant : le 1er passage de chaque site est FORCÉ même si la capacité mensuelle est dépassée
+> (les visites suivantes la respectent). Couverture démo 93,5 % → **98,9 %** (le reste = sites
+> inactifs toute la période ou déjà couverts). Moteur pur + test ajouté (1210 tests). Réglage zod,
+> case + i18n EN. Tests ✅ lint ✅ build ✅.
+
 > **Couverture max + démarrage NSSM (retour 82).** ✅
 > - **Couverture 61 % → 96 %** : placement EN LARGEUR (une visite par site d'abord, puis les
 >   répétitions) → la capacité couvre un MAXIMUM de sites distincts ; MMR non configuré (durée 0,

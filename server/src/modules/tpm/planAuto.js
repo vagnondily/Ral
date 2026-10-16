@@ -48,6 +48,9 @@ function normalizeSettings(s = {}) {
     // Regroupement « au plus proche » : GPS quand il existe, sinon commune (retour 82).
     useGps: s.useGps !== false,
     gpsGridDeg: Number.isFinite(grid) && grid > 0 ? grid : 0.1,   // ~11 km par cellule
+    // Couvrir CHAQUE site au moins une fois, même si la capacité mensuelle est dépassée (retour 82) :
+    // le 1er passage est forcé, les visites suivantes respectent la capacité.
+    coverAllOnce: Boolean(s.coverAllOnce),
     // Affectation TPM : équilibrer la charge mensuelle par TPM pour que tous soient utilisés.
     balanceByTpm: s.balanceByTpm !== false,
     tpmCapacityPerMonth: tcap == null || tcap === '' || !(Number(tcap) > 0) ? null : Math.floor(Number(tcap)),
@@ -244,8 +247,11 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
       let any = false;
       for (const st of states) {
         if (st.placed >= st.maxCount) continue;
+        // « Couvrir tous les sites au moins une fois » : le 1er passage ignore la capacité (forcé) ;
+        // les visites suivantes la respectent toujours.
+        const forceOnce = cfg.coverAllOnce && st.placed === 0;
         const m = st.allowed.find((x) => x >= st.nextMin && !st.placedMonths.includes(x)
-          && hasRoom(st.s.mmrKey, x) && tpmRoom(tpmAt(st.s, x).key, x));
+          && (forceOnce || (hasRoom(st.s.mmrKey, x) && tpmRoom(tpmAt(st.s, x).key, x))));
         if (m == null) continue;
         st.placedMonths.push(m); st.nextMin = m + step; st.placed += 1;
         bump(st.s.mmrKey, m);

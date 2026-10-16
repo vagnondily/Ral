@@ -49,6 +49,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
   const [groupByCommune, setGroupByCommune] = useState(true);
   const [useGps, setUseGps] = useState(true);
   const [balanceByTpm, setBalanceByTpm] = useState(true);
+  const [coverAllOnce, setCoverAllOnce] = useState(false);
   const [tpmCapacity, setTpmCapacity] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [preview, setPreview] = useState(null);
@@ -80,9 +81,10 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
       groupByCommune,
       useGps,
       balanceByTpm,
+      coverAllOnce,
       excludeMonths: exclude.split(',').map((s) => s.trim()).filter((s) => /^\d{4}-\d{2}$/.test(s)),
     },
-  }), [from, to, risk, freq, capacity, tpmCapacity, useMmrCapacity, overflow, groupByCommune, useGps, balanceByTpm, adjusted, exclude]);
+  }), [from, to, risk, freq, capacity, tpmCapacity, useMmrCapacity, overflow, groupByCommune, useGps, balanceByTpm, coverAllOnce, adjusted, exclude]);
 
   async function runPreview() {
     if (invalid) return;
@@ -196,6 +198,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
                 <label className="check"><input type="checkbox" checked={groupByCommune} onChange={(e) => { setGroupByCommune(e.target.checked); reset(); }} /> {tr('Regrouper les sites par commune (tournées)')}</label>
                 <label className="check"><input type="checkbox" checked={useGps} onChange={(e) => { setUseGps(e.target.checked); reset(); }} /> {tr('Regrouper au plus proche (GPS si disponible)')}</label>
                 <label className="check"><input type="checkbox" checked={balanceByTpm} onChange={(e) => { setBalanceByTpm(e.target.checked); reset(); }} /> {tr('Équilibrer la charge entre les TPM')}</label>
+                <label className="check" title={tr('Force au moins une visite par site même si la capacité mensuelle est dépassée. À réserver aux cas où la couverture prime sur la capacité réelle.')}><input type="checkbox" checked={coverAllOnce} onChange={(e) => { setCoverAllOnce(e.target.checked); reset(); }} /> {tr('Couvrir tous les sites au moins une fois (ignorer la capacité)')}</label>
                 <label className="check"><input type="checkbox" checked={useMmrCapacity} onChange={(e) => { setUseMmrCapacity(e.target.checked); reset(); }} /> {tr('Respecter la capacité mensuelle du MMR')}</label>
                 <label className="check"><input type="checkbox" checked={adjusted} onChange={(e) => { setAdjusted(e.target.checked); reset(); }} /> {tr('Fréquence MMR ajustée (CO adjusted)')}</label>
               </div>

@@ -518,6 +518,8 @@ export default {
   // ---- Regroupement GPS + TPM + repli (retour 82)
   'Regrouper au plus proche (GPS si disponible)': 'Group nearest (GPS when available)',
   'Équilibrer la charge entre les TPM': 'Balance the load across TPMs',
+  'Couvrir tous les sites au moins une fois (ignorer la capacité)': 'Cover every site at least once (ignore capacity)',
+  'Force au moins une visite par site même si la capacité mensuelle est dépassée. À réserver aux cas où la couverture prime sur la capacité réelle.': 'Forces at least one visit per site even if the monthly capacity is exceeded. Use only when coverage matters more than real capacity.',
   'Capacité par TPM et par mois': 'Capacity per TPM per month',
   'Plafond de visites par TPM et par mois ; le surplus glisse au mois suivant.': 'Cap on visits per TPM per month; the surplus slides to the next month.',
   '{n} site(s) sans activité : non planifiés. Renseignez leur activité (et leur MMR) dans la Configuration pour les suivre.': '{n} site(s) without an activity: not planned. Set their activity (and MMR) in Configuration to monitor them.',

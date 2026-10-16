@@ -34,6 +34,7 @@ const settingsSchema = z.object({
   useGps: z.boolean().optional(),
   gpsGridDeg: z.number().min(0.01).max(5).optional(),
   balanceByTpm: z.boolean().optional(),
+  coverAllOnce: z.boolean().optional(),
   tpmCapacityPerMonth: z.number().int().min(1).max(100000).nullable().optional(),
   targetCoverage: z.number().min(0).max(1).optional(),
 }).partial().optional();

@@ -237,6 +237,17 @@ test('risque élevé avec activité sans MMR : suit le RBM (tous les mois)', () 
   assert.equal(r.assignments.length, 12); // RBM élevé = chaque mois
 });
 
+test('coverAllOnce : chaque site couvert au moins une fois malgré la capacité', () => {
+  // 5 sites, capacité 1/mois (feasible 1) : sans coverAllOnce certains ne sont pas couverts ;
+  // avec, tous le sont (1er passage forcé).
+  const sites = Array.from({ length: 5 }, (_, i) => site({ id: `s${i}`, parametered: true, required: 2, mmrKey: 'k', commune: `C${i}`, activity: 'X' }));
+  const tight = { k: { interval: 1, feasible: 1 } };
+  const sans = generatePlan(sites, tight, {}, [1, 2, 3], YEAR);
+  assert.ok(sans.summary.sitesCovered < 5);                   // capacité serrée → pas tous couverts
+  const avec = generatePlan(sites, tight, { coverAllOnce: true }, [1, 2, 3], YEAR);
+  assert.equal(avec.summary.sitesCovered, 5);                 // tous couverts au moins une fois
+});
+
 test('perMonth couvre toute la période ; plan vide sans erreur', () => {
   const r = generatePlan([site({ id: 'a', parametered: true, required: 2, mmrKey: 'k' })], { k: { interval: 2, feasible: 9 } }, {}, H1, YEAR);
   assert.deepEqual(r.perMonth.map((m) => m.month), ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06']);
