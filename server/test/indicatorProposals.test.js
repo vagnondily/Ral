@@ -37,12 +37,12 @@ const EXPECTED = {
   MDG_PROCESS_MONITORING_RESILIENCE_SAMS_V2_1: 'RES',
 };
 
-test('chacun des 5 formulaires reçoit SON modèle, avec une couverture qui permet le rattachement automatique', () => {
+test('chacun des 5 formulaires reçoit SON modèle, reconnu sans ambiguïté', () => {
   for (const [formId, key] of Object.entries(EXPECTED)) {
     const p = P.proposeTemplate({ fields: fixtureFields(formId), form: { code: formId, label: FIXTURE.forms[formId].title } });
     assert.equal(p.best.key, key, formId);
     assert.equal(p.ambiguous, false, formId);
-    assert.equal(p.auto, true, formId);
+    assert.equal(p.strong, true, formId);
     assert.ok(p.best.coverage >= 0.95, `${formId} : ${p.best.coverage}`);
     // Le deuxième est loin derrière (MIARO couvre une bonne part du modèle GD : distribution et ménages communs).
     assert.ok(p.best.coverage - p.ranking[1].coverage > P.TIE_MARGIN, `${formId} : ${p.ranking[1].key}`);
@@ -52,7 +52,7 @@ test('chacun des 5 formulaires reçoit SON modèle, avec une couverture qui perm
 test('le nom de la fiche ne choisit pas seul : sans variables, aucun modèle (même « Suivi SMP »)', () => {
   const p = P.proposeTemplate({ fields: [{ name: 'q1', type: 'select_one' }], form: { code: 'SMP', label: 'Suivi SMP' } });
   assert.equal(p.best, null);
-  assert.equal(p.auto, false);
+  assert.equal(p.strong, false);
 });
 
 test('départage par formHints quand deux modèles sont à moins de 5 points ; sinon ambigu', () => {
@@ -68,7 +68,7 @@ test('départage par formHints quand deux modèles sont à moins de 5 points ; s
   assert.equal(byHint.ambiguous, false);
   const none = P.proposeTemplate({ fields, form: { code: 'X', label: 'Sans indice' }, catalog });
   assert.equal(none.ambiguous, true);
-  assert.equal(none.auto, false);
+  assert.equal(none.strong, false);
   assert.equal(P.hintScore(catalog.activities[1], P.formTokens({ label: 'Bêta — suivi' })), 1); // accents et casse ignorés
 });
 
@@ -168,24 +168,6 @@ test('un clic : seuls les éléments précochés, ni déjà créés ni à code p
     { total: 7, proposed: 1, existing: 1, taken: 1, subtable: 1, pendingData: 1, toCheck: 1, missing: 1 });
 });
 
-test('rattachement automatique : jamais sur un choix de l\'utilisateur, jamais hors brouillon, seulement si le MMR a l\'activité', () => {
-  const proposal = P.proposeTemplate({ fields: fixtureFields('MDG_SMP_2025_2026'), form: { code: 'MDG_SMP_2025_2026' } });
-  const mmr = ['School  meal activities', 'Nutrition treatment activities'];
-  assert.deepEqual(P.decideAutoAttach({ form: {}, proposal, tenantCategories: mmr }), { attach: 'School  meal activities', reason: 'attached' });
-  assert.equal(P.decideAutoAttach({ form: { activityCategory: 'Nutrition treatment activities' }, proposal, tenantCategories: mmr }).reason, 'already_attached');
-  assert.equal(P.decideAutoAttach({ form: { mappingStatus: 'valide' }, proposal, tenantCategories: mmr }).reason, 'mapping_locked');
-  assert.equal(P.decideAutoAttach({ form: { mappingStatus: 'soumis' }, proposal, tenantCategories: mmr }).reason, 'mapping_locked');
-  assert.deepEqual(P.decideAutoAttach({ form: {}, proposal, tenantCategories: ['Nutrition treatment activities'] }),
-    { attach: null, reason: 'not_in_mmr', category: 'School meal activities' });
-  assert.equal(P.decideAutoAttach({ form: {}, proposal: { best: null }, tenantCategories: mmr }).reason, 'no_template');
-  assert.equal(P.decideAutoAttach({ form: {}, proposal: { ...proposal, ambiguous: true }, tenantCategories: mmr }).reason, 'ambiguous');
-  assert.equal(P.decideAutoAttach({ form: {}, proposal: { ...proposal, best: { ...proposal.best, coverage: 0.5 } }, tenantCategories: mmr }).reason, 'low_coverage');
-  // Résilience : la catégorie principale manque, une catégorie couverte suffit.
-  const res = P.proposeTemplate({ fields: fixtureFields('MDG_PROCESS_MONITORING_RESILIENCE_SAMS_V2_1'), form: {} });
-  assert.equal(P.decideAutoAttach({ form: {}, proposal: res, tenantCategories: ['Asset creation and livelihood support activities'] }).attach,
-    'Asset creation and livelihood support activities');
-});
-
 test('modèle montré : demandé, sinon celui de l\'activité, sinon le proposé ; un autre que celui de l\'activité est refusé', () => {
   const proposal = { best: { key: 'RES' } };
   assert.equal(P.effectiveTemplate({ activityCategory: 'School meal activities', proposal }).template.key, 'SMP');
@@ -198,13 +180,60 @@ test('modèle montré : demandé, sinon celui de l\'activité, sinon le proposé
   assert.deepEqual(P.effectiveTemplate({}), { template: null, source: null });
 });
 
-test('définition XLSForm → variables de liaison (listes jointes, sous-table transmise)', () => {
-  const fields = P.fieldsFromXlsform(
-    [{ name: 'q', type: 'select_one', label: 'Q', listName: 'Yesno' }, { name: 'r', type: 'integer', repeat: 'rep' }, { type: 'note' }],
-    { Yesno: [{ value: '0', label: 'Non' }, { value: '1', label: 'Oui' }] });
-  assert.deepEqual(fields, [
-    { name: 'q', label: 'Q', type: 'select_one', choices: [{ value: '0', label: 'Non' }, { value: '1', label: 'Oui' }], repeat: null },
-    { name: 'r', label: null, type: 'integer', choices: [], repeat: 'rep' },
-  ]);
-  assert.ok(CATALOG.activities.length === 5);
+test('indicateur créé avant une correction du modèle : signalé « à mettre à jour », avec la modification à envoyer', () => {
+  const miaro = templateByKey('STUNT');
+  const item = miaro.items.find((i) => i.code === 'MIARO_NO_DELAY');
+  const binding = P.bindTemplate({ items: [item] }, [{ name: 'r_no_delay', type: 'calculate', choices: [] }])[0];
+  // Définition d'avant (risk_delay, % = valeur 0) : biaisée, telle qu'elle a été créée avant le 14/10.
+  const old = { label: 'Absence de retard', sourceField: 'risk_delay', agg: 'percent_value', positiveValue: '0', naValues: [], target: null, direction: 'higher_better' };
+  const d = P.templateDrift(item, binding, old);
+  assert.equal(d.kind, 'definition');
+  assert.equal(d.former, true);
+  assert.deepEqual(d.patch, { sourceField: 'r_no_delay', agg: 'percent_yes', positiveValue: '1', label: item.label });
+  assert.deepEqual(d.changes.map((c) => c.key), ['sourceField', 'agg', 'positiveValue', 'label']);
+  // À jour : rien à signaler.
+  assert.equal(P.templateDrift(item, binding, { ...old, sourceField: 'r_no_delay', agg: 'percent_yes', positiveValue: '1', label: item.label }), null);
+});
+
+test('écart : libellé renommé par l\'utilisateur, autre variable connue du modèle, cible saisie — jamais signalés', () => {
+  const gd = templateByKey('GD');
+  const item = gd.items.find((i) => i.code === 'GD_DPMC_TRAINED');
+  const binding = P.bindTemplate({ items: [item] }, [{ name: 'MODPMCMemb', type: 'select_one', choices: [{ value: '0', label: 'Non' }, { value: '1', label: 'Oui' }, { value: '888', label: 'Ne sait pas' }] }])[0];
+  const base = { sourceField: 'MODPMCMemb', agg: 'percent_yes', positiveValue: '1', naValues: ['888'], target: 90, direction: 'higher_better' };
+  // Ancien libellé du modèle (« formés ») : la question porte sur les membres PRÉSENTS.
+  const stale = P.templateDrift(item, binding, { ...base, label: 'DPMC membres formés' });
+  assert.deepEqual([stale.kind, stale.patch], ['label', { label: item.label }]);
+  assert.equal(P.templateDrift(item, binding, { ...base, label: 'Mon libellé à moi' }), null);
+  // Variable de repli connue du modèle (formulaire plus ancien) : pas un écart.
+  const list = gd.items.find((i) => i.code === 'GD_DIST_LIST_NUT');
+  assert.equal(P.templateDrift(list, null, { label: list.label, sourceField: 'modistrlist', agg: 'percent_yes', positiveValue: '1', naValues: [], target: null, direction: 'higher_better' }), null);
+});
+
+test('écart : variable du modèle pas encore dans les données → signalée sans variable à écrire ; cible du modèle ajoutée', () => {
+  const gd = templateByKey('GD');
+  const pallets = gd.items.find((i) => i.code === 'GD_WH_PALLETS');
+  const d = P.templateDrift(pallets, { field: null, naValues: [] }, { label: 'Produits sur palettes', sourceField: 'MOWhStackProp', agg: 'percent_yes', positiveValue: '1', naValues: [], target: null, direction: 'higher_better' });
+  assert.equal(d.kind, 'definition');
+  assert.equal(d.former, true);
+  assert.deepEqual(d.changes.find((c) => c.key === 'sourceField'), { key: 'sourceField', from: 'MOWhStackProp', to: null });
+  assert.equal('sourceField' in d.patch, false);
+  const smp = templateByKey('SMP');
+  const days = smp.items.find((i) => i.code === 'SMP_DAYS_SERVED');
+  const t = P.templateDrift(days, null, { label: days.label, sourceField: 'DIRNBSchMealsProvided', agg: 'mean', positiveValue: null, naValues: ['888'], target: null, direction: 'higher_better' });
+  assert.deepEqual(t.patch, { target: 20 });
+});
+
+test('catalogue : chaque élément corrigé garde sa définition d\'avant (formerly), les autres non', () => {
+  const corrected = CATALOG.activities.flatMap((a) => a.items).filter((i) => i.formerly);
+  assert.ok(corrected.length >= 25, `${corrected.length}`);
+  for (const i of corrected) {
+    const f = i.formerly[0];
+    assert.ok(f.label && Array.isArray(f.variables) && f.agg, i.code);
+    assert.ok(f.label !== i.label || f.agg !== i.agg || f.variables.join() !== i.variables.join() || String(f.positiveValue) !== String(i.positiveValue)
+      || (f.naValues || []).join() !== (i.naValues || []).join(), i.code);
+  }
+  for (const code of ['MIARO_NO_DELAY', 'MIARO_SBCC_SATISF', 'MIARO_DIGNITY', 'MIARO_SBCC_APPLY', 'GD_LIST_COMPLETE', 'GD_WH_PALLETS',
+    'GD_DUPLICATION', 'GD_DPMC_EXISTS', 'GD_DPMC_TRAINED', 'SMP_KITCHEN_CLEAN', 'SMP_DEDICATED_STORAGE']) {
+    assert.ok(corrected.some((i) => i.code === code), code);
+  }
 });

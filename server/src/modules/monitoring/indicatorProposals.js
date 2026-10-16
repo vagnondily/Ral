@@ -4,7 +4,9 @@
  *
  * Problème réglé : une fiche avec 191 ou 1 159 soumissions n'avait aucun
  * indicateur noté, parce que rien ne choisissait son modèle ni ne le proposait.
- * Ce module, appelé à l'import de la définition et par la carte du modèle :
+ * Ce module est appelé par la carte du modèle (monitoring.repository.formTemplate)
+ * et par la création des indicateurs (applyTemplate) — la MÊME règle pour la case
+ * cochée d'office et pour « Créer les N indicateurs proposés » :
  *
  *  1. CHOISIT le modèle d'après les variables de la fiche : pour chaque modèle,
  *     la part de ses éléments dont une variable existe dans la fiche avec un type
@@ -13,25 +15,26 @@
  *     de la fiche) ; sinon le choix reste à l'utilisateur (« ambigu »).
  *  2. LIE chaque élément par le nom (indicatorTemplates.suggestBindings), puis
  *     CONTRÔLE le type de la variable (une moyenne veut un nombre, un % une
- *     question à choix unique ou une option) et la liste : chaque valeur comptée
- *     doit exister ; un code hors base absent de la liste, ou libellé « Autre »,
- *     est retiré — « Autre » (999…) est une RÉPONSE : dans la base, comptée non
- *     positive (règle du retour 81).
+ *     question à choix unique ou une option — jamais le parent d'un choix
+ *     multiple, dont la valeur « 1 3 » ne vaut pas « 1 ») et la liste : chaque
+ *     valeur comptée doit exister ; un code hors base absent de la liste, ou
+ *     libellé « Autre », est retiré — « Autre » (999…) est une RÉPONSE : dans la
+ *     base, comptée non positive (règle du retour 81).
  *  3. PRÉCOCHE seulement ce qui est sûr : variable trouvée par son nom, sans
- *     défaut, hors sous-table (groupe répété : « disponible après import des
- *     sous-tables ») et hors base biaisée (avertissement `base`).
- *  4. DÉCIDE le rattachement automatique à l'import : jamais si une activité est
- *     déjà rattachée (le choix de l'utilisateur prime), jamais hors brouillon du
- *     Mapping MEMS (une écriture automatique ne touche pas un mapping soumis ou
- *     validé), seulement si la couverture atteint AUTO_MIN et que le MMR du
- *     compte contient l'activité du modèle.
+ *     défaut, hors sous-table et hors base biaisée (avertissement `base`). Une
+ *     sous-table (groupe répété, que l'import ne lit pas encore : seule la 1re
+ *     feuille) est reconnue par l'avertissement `groupe` du modèle — vérifié
+ *     contre les 5 formulaires réels — ou par `field.repeat` quand le catalogue
+ *     de la fiche le fournira (import des sous-tables).
+ *  4. SIGNALE un indicateur déjà créé dont la définition diffère du modèle
+ *     actuel (templateDrift) : « à mettre à jour », jamais réécrit seul.
  */
 const {
-  CATALOG, nameKey, templateForActivity, templateByKey, tenantCategoryFor, suggestBindings,
+  CATALOG, nameKey, templateForActivity, templateByKey, suggestBindings,
 } = require('./indicatorTemplates');
 
-/** Couverture minimale pour rattacher seul l'activité à l'import (60 % des éléments du modèle). */
-const AUTO_MIN = 0.6;
+/** Couverture d'un modèle « reconnu » (60 % de ses éléments) : la carte le dit sans réserve. */
+const STRONG_MIN = 0.6;
 /** En dessous, aucun modèle n'est proposé : la carte invite à en choisir un. */
 const SHOW_MIN = 0.3;
 /** Deux modèles plus proches que ceci (5 points) sont départagés par formHints. */
@@ -55,20 +58,6 @@ function typeIssue(agg, type) {
   if (NUMERIC_AGGS.has(agg)) return NUMERIC_TYPES.has(t) ? null : 'type';
   if (PERCENT_AGGS.has(agg)) return PERCENT_TYPES.has(t) ? null : 'type';
   return null;
-}
-
-/**
- * Variables d'une définition XLSForm (xlsformImport.parseXlsformRows) au format
- * du catalogue de liaison : { name, label, type, choices, repeat }.
- */
-function fieldsFromXlsform(fields, choicesMap = {}) {
-  return (fields || []).filter((f) => f && f.name).map((f) => ({
-    name: f.name,
-    label: f.label || null,
-    type: f.type || null,
-    choices: (f.listName && choicesMap[f.listName] ? choicesMap[f.listName] : []).map((c) => ({ value: String(c.value), label: c.label == null ? null : String(c.label) })),
-    repeat: f.repeat || null,
-  }));
 }
 
 /**
@@ -131,8 +120,8 @@ function hintScore(template, tokens) {
  * Modèle proposé pour une fiche d'après ses variables.
  * @param {{ fields: Array<{name,type?,choices?}>, form?: {code?, label?}, catalog?: object }} input
  * @returns {{ best: null|{key,label,mmrCategory,found,total,coverage,hints}, ranking: object[],
- *   ambiguous: boolean, auto: boolean }}
- *   auto = la couverture permet un rattachement automatique (decideAutoAttach dit le reste).
+ *   ambiguous: boolean, strong: boolean }}
+ *   strong = modèle reconnu (couverture ≥ STRONG_MIN, non ambigu).
  */
 function proposeTemplate({ fields, form = {}, catalog = CATALOG } = {}) {
   const idx = presenceIndex(fields);
@@ -141,7 +130,7 @@ function proposeTemplate({ fields, form = {}, catalog = CATALOG } = {}) {
     key: t.key, label: t.label, mmrCategory: t.mmrCategory, ...templateCoverage(t, idx), hints: hintScore(t, tokens),
   })).sort((a, b) => b.coverage - a.coverage || b.hints - a.hints || a.key.localeCompare(b.key));
   const top = ranking[0];
-  if (!top || top.coverage < SHOW_MIN) return { best: null, ranking, ambiguous: false, auto: false };
+  if (!top || top.coverage < SHOW_MIN) return { best: null, ranking, ambiguous: false, strong: false };
   // Modèles proches du premier : départagés par les indices du nom (formHints), sinon ambigus.
   const close = ranking.filter((r) => top.coverage - r.coverage <= TIE_MARGIN + 1e-9);
   let best = top;
@@ -152,24 +141,7 @@ function proposeTemplate({ fields, form = {}, catalog = CATALOG } = {}) {
     if (maxHints > 0 && withMax.length === 1) best = withMax[0];
     else ambiguous = true;
   }
-  return { best, ranking, ambiguous, auto: !ambiguous && best.coverage >= AUTO_MIN };
-}
-
-/**
- * Rattachement automatique de l'activité à l'import de la définition.
- * @param {{ form: {activityCategory?, mappingStatus?}, proposal: object, tenantCategories: string[], catalog?: object }} input
- * @returns {{ attach: string|null, reason: 'attached'|'already_attached'|'no_template'|'ambiguous'|'low_coverage'|'mapping_locked'|'not_in_mmr', category?: string }}
- */
-function decideAutoAttach({ form = {}, proposal, tenantCategories = [], catalog = CATALOG } = {}) {
-  if (form.activityCategory) return { attach: null, reason: 'already_attached' };
-  if (!proposal || !proposal.best) return { attach: null, reason: 'no_template' };
-  if (proposal.ambiguous) return { attach: null, reason: 'ambiguous' };
-  if (proposal.best.coverage < AUTO_MIN) return { attach: null, reason: 'low_coverage' };
-  if (form.mappingStatus && form.mappingStatus !== 'brouillon') return { attach: null, reason: 'mapping_locked' };
-  const template = templateByKey(proposal.best.key, catalog);
-  const category = template && tenantCategoryFor(template, tenantCategories);
-  if (!category) return { attach: null, reason: 'not_in_mmr', category: proposal.best.mmrCategory };
-  return { attach: category, reason: 'attached' };
+  return { best, ranking, ambiguous, strong: !ambiguous && best.coverage >= STRONG_MIN };
 }
 
 /**
@@ -271,8 +243,56 @@ function bindingSummary(bindings, { done = new Set(), taken = new Set() } = {}) 
   return s;
 }
 
+const valueSet = (v) => String(v == null ? '' : v).split('|').map((x) => x.trim()).filter(Boolean).sort().join('|');
+const listSet = (l) => [...new Set((l || []).map(String))].sort().join('|');
+
+/**
+ * Écart entre un indicateur DÉJÀ créé depuis le modèle et la définition actuelle
+ * de son élément (les modèles ont été corrigés le 14/10 : MIARO_NO_DELAY lisait
+ * risk_delay, GD_WH_PALLETS l'empilage…). Rien n'est réécrit : l'écran le signale
+ * et propose `patch`, envoyé par l'utilisateur via PATCH /indicators/:id (mêmes
+ * contrôles qu'une modification à la main). Le libellé n'est signalé que s'il est
+ * encore l'ANCIEN libellé du modèle (`formerly`) — un libellé renommé par
+ * l'utilisateur ne l'est jamais. Une cible saisie par l'utilisateur non plus.
+ * @param {object} item  élément du modèle
+ * @param {object|null} binding  bindItem : variable proposée pour CETTE fiche
+ * @param {{ label, sourceField, agg, positiveValue, naValues, target, direction }} ind  indicateur enregistré
+ * @returns {null | { kind: 'definition'|'label', former: boolean, changes: Array<{ key, from, to }>, patch: object }}
+ *   former : l'indicateur porte encore la définition d'avant la correction ;
+ *   un changement de variable sans variable du modèle dans la fiche a `to: null` (pas dans `patch`).
+ */
+function templateDrift(item, binding, ind) {
+  const changes = [];
+  const patch = {};
+  const change = (key, from, to, inPatch = true) => {
+    changes.push({ key, from: from == null ? null : from, to: to == null ? null : to });
+    if (inPatch) patch[key] = to == null ? null : to;
+  };
+  const known = new Set((item.variables || []).map(nameKey));
+  if (!known.has(nameKey(ind.sourceField))) {
+    const usable = binding && binding.field && !(binding.issues || []).length ? binding.field : null;
+    change('sourceField', ind.sourceField, usable, Boolean(usable));
+  }
+  if (ind.agg !== item.agg) change('agg', ind.agg, item.agg);
+  const percent = PERCENT_AGGS.has(item.agg);
+  const wantedPositive = percent ? ((binding && binding.field ? binding.positiveValue : item.positiveValue) || null) : null;
+  if (valueSet(ind.positiveValue) !== valueSet(wantedPositive)) change('positiveValue', ind.positiveValue || null, wantedPositive);
+  const wantedNa = binding && binding.field ? binding.naValues : (item.naValues || []);
+  if (listSet(ind.naValues) !== listSet(wantedNa)) change('naValues', ind.naValues || [], wantedNa);
+  if (item.target != null && ind.target == null) change('target', null, Number(item.target));
+  if (item.direction && ind.direction && ind.direction !== item.direction) change('direction', ind.direction, item.direction);
+  const formerly = item.formerly || [];
+  if (ind.label !== item.label && formerly.some((f) => f.label === ind.label)) change('label', ind.label, item.label);
+  if (!changes.length) return null;
+  const former = formerly.some((f) => (f.variables || []).some((v) => nameKey(v) === nameKey(ind.sourceField))
+    && f.agg === ind.agg && valueSet(f.positiveValue) === valueSet(ind.positiveValue));
+  // « % = valeur » sans valeur comptée serait refusé : la valeur suit toujours la méthode.
+  if (patch.agg && PERCENT_AGGS.has(patch.agg) && !('positiveValue' in patch) && !ind.positiveValue) patch.positiveValue = item.positiveValue || null;
+  return { kind: changes.some((c) => c.key !== 'label') ? 'definition' : 'label', former, changes, patch };
+}
+
 module.exports = {
-  AUTO_MIN, SHOW_MIN, TIE_MARGIN,
-  typeIssue, fieldsFromXlsform, presenceIndex, templateCoverage, formTokens, hintScore,
-  proposeTemplate, decideAutoAttach, effectiveTemplate, bindItem, bindTemplate, proposedSelection, bindingSummary,
+  STRONG_MIN, SHOW_MIN, TIE_MARGIN,
+  typeIssue, presenceIndex, templateCoverage, formTokens, hintScore,
+  proposeTemplate, effectiveTemplate, bindItem, bindTemplate, proposedSelection, bindingSummary, templateDrift,
 };

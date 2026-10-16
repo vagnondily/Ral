@@ -141,6 +141,13 @@ test('corrections de l\'analyse des 5 XLSForm (docs/ANALYSE_XLSFORM.md § 2 à 6
   assert.equal(item('MIARO_DIGNITY').variables[0], 'r_dign_prop_pct');
   assert.deepEqual([item('MIARO_SBCC_APPLY').variables[0], item('MIARO_SBCC_APPLY').agg], ['r_sbcc_apply_pct', 'mean']);
   assert.ok(item('MIARO_ISSUES_OPEN').warnings.includes('groupe'));
+  // « Nombre » compte toutes les réponses : la part des problèmes « En attente » (code 4) est un « % = valeur ».
+  assert.deepEqual([item('MIARO_ISSUES_OPEN').agg, item('MIARO_ISSUES_OPEN').positiveValue, item('MIARO_ISSUES_OPEN').direction], ['percent_value', '4', 'lower_better']);
+  // Jamais le parent d'un choix multiple (« 1 3 » n'est pas « 1 ») : seule l'option.
+  assert.deepEqual(item('GD_WH_PALLETS').variables, ['MOWhStackPall/1']);
+  // « PREVMA » seul = prévention (comme web/lib/activitySuggest) ; « GD_PREVMA » reste un indice GD.
+  assert.ok(!templateByKey('GD').formHints.includes('PREVMA'));
+  assert.ok(templateByKey('GD').formHints.includes('GD_PREVMA'));
   // « Moyenne × 100 » seulement sur une moyenne.
   for (const a of CATALOG.activities) for (const i of a.items) if ((i.warnings || []).includes('ratio')) assert.equal(i.agg, 'mean', i.code);
 });
