@@ -208,6 +208,38 @@ test('segments : fusion des mois identiques ; empreinte stable et sensible', () 
   assert.notEqual(a.stampOf(all), a.stampOf([...t2.cells.values()]));
 });
 
+test('zone de contrat détachée : indice « à resélectionner » sur la zone de même nom, jamais un TPM deviné', () => {
+  const AMBOVOMBE = { id: 'd9', depth: 2, name: 'Ambovombe', path: 'Androy > Ambovombe', lineage: ['r1'] };
+  const t = tableOf({ areas: [D1, D3, AMBOVOMBE] });
+  const c = t.cells.get('d9|2026-01');
+  assert.equal(c.state, 'sans_contrat');
+  assert.equal(c.providerId, null, 'aucun TPM deviné');
+  assert.ok(c.flags.includes('zone_a_reselectionner'));
+  assert.deepEqual(c.detached, [{ contractId: 'k1', numero: 'CTR-2026-0001', contractLabel: 'CTR-2026-0001' }]);
+  // Pas d'indice là où un contrat couvre, ni sur une zone d'un autre nom.
+  assert.equal(t.cells.get('d1|2026-01').flags.includes('zone_a_reselectionner'), false);
+  assert.equal(t.cells.get('d3|2026-01').flags.includes('zone_a_reselectionner'), false);
+  // Le contrat ne couvre plus le mois : plus d'indice.
+  const later = tableOf({ areas: [AMBOVOMBE], months: ['2027-06'] });
+  assert.equal(later.cells.get('d9|2027-06').flags.includes('zone_a_reselectionner'), false);
+  // Réimport qui renomme : « Ampanihy » (zone du contrat) ↔ « Ampanihy Ouest » (découpage), même région.
+  const miaro = contract({ id: 'k5', numero: 'CTR-5', numeroFla: 'FLA-5', zones: [{ adminAreaId: null, path: 'Atsimo Andrefana > Ampanihy' }] });
+  const zones = a.detachedZones([miaro], ['2026-01']);
+  assert.deepEqual(a.detachedHintFor({ name: 'Ampanihy Ouest', regionName: 'Atsimo-Andrefana' }, '2026-01', zones), [{ contractId: 'k5', numero: 'CTR-5', contractLabel: 'FLA-5' }]);
+  assert.deepEqual(a.detachedHintFor({ name: 'Ampanihy Ouest', regionName: 'Androy' }, '2026-01', zones), [], 'autre région');
+  assert.deepEqual(a.detachedHintFor({ name: 'Ampa', regionName: 'Atsimo Andrefana' }, '2026-01', zones), [], 'préfixe trop court');
+  assert.deepEqual(a.detachedHintFor({ name: 'Ampanihy Ouest' }, '2026-02', zones), [], 'mois non couvert par la plage lue');
+});
+
+test('segments : une décision sur plusieurs mois (même lot, même raison) = un seul segment ; deux raisons = deux', () => {
+  const same = tableOf({ overrides: [ov({ id: 'o1', batchId: 'b1' }), ov({ id: 'o2', month: '2026-02', batchId: 'b1' })] });
+  const cells = ['2026-01', '2026-02', '2026-03'].map((m) => same.cells.get(`d1|${m}`));
+  assert.deepEqual(a.segments(cells).map((x) => [x.from, x.to, x.cell.state]), [['2026-01', '2026-02', 'modifie'], ['2026-03', '2026-03', 'contrat']]);
+  const two = tableOf({ overrides: [ov({ id: 'o1', batchId: 'b1' }), ov({ id: 'o2', month: '2026-02', batchId: 'b2', reason: 'Autre raison, autre décision' })] });
+  const cells2 = ['2026-01', '2026-02'].map((m) => two.cells.get(`d1|${m}`));
+  assert.deepEqual(a.segments(cells2).map((x) => [x.from, x.to]), [['2026-01', '2026-01'], ['2026-02', '2026-02']]);
+});
+
 const targetsOf = (t, areaIds, months) => areaIds.flatMap((id) => months.map((m) => ({ areaId: id, month: m, cell: t.cells.get(`${id}|${m}`) })));
 
 test('planOverrides : région de 3 districts × 12 mois dont un déjà RANO par contrat', () => {

@@ -1,8 +1,49 @@
 # Retour 58 — Affectation des TPM par zone, valeurs par défaut tirées des contrats
 
-> **État : conception v1 (14/10/2026), critique adverse à faire.** Trois lectures du code et des données, deux conceptions indépendantes (fiabilité d'abord, usage d'abord), puis une synthèse — rendues avant la limite d'usage ; la critique adverse a échoué sur la limite et sera faite avant toute réalisation.
-> **Numéros de migration** : la v1 a été écrite avec l'ancienne réservation (065–068 lot 5, 069 suppressions). Réservation à jour : voir `REPRISE.md` § 4 — **070 reste celui du retour 58** ; le lot 5 passe à 077–080 ; le journal des suppressions est en 065 (publié).
-> **Demande de l'utilisateur** (retour 58 et précision) : le TPM du plan de suivi vient des contrats ; « un onglet spécifique par région, district où on affecte les TPM, mais toujours mettre les valeurs par défaut émanant des contrats » ; toute modification exige une raison.
+> **État : réalisé sur `wip/r58` (15/10/2026)** — voir « Réalisation » ci-dessous (décisions prises par défaut, écarts avec la conception, ce qui est livré, points ouverts). La conception d'origine suit, inchangée ; là où la réalisation s'en écarte, c'est la section « Réalisation » qui fait foi.
+> **Numéro de migration** : 070 (réservé au retour 58, `REPRISE.md` § 4).
+> **Demande de l'utilisateur** (retour 58 et précision) : le TPM du plan de suivi vient des contrats ; « un onglet spécifique par région, district où on affecte les TPM, mais toujours mettre les valeurs par défaut émanant des contrats » ; toute modification exige une raison. Puis (15/10) : le TPM tiré des contrats doit être le même sur TOUTES les pages qui montrent ou demandent un TPM pour une zone et un mois.
+
+## Réalisation (wip/r58, 15/10/2026)
+
+### Décisions prises par défaut (à confirmer par l'utilisateur)
+
+- **D1 — « le TPM d'un contrat ».** Décidé par défaut le 14/10 : (A) le titulaire. **Révisé le 15/10** pour ne faire qu'UNE règle avec le lot 8 (« prestataire actif au mois M », `tpm/activeProvider.js`) : le TPM d'un contrat de suivi est le ou les partenaires **actifs de type TPM rattachés au contrat par un plan de collecte ou une facture / un rapport** ; à défaut, son **titulaire** (`tpmAttribution.contractTpms`, jumelle SQL dans `mems_tpm_cells`). Aucune colonne ajoutée au contrat. **À confirmer.**
+- **Plusieurs contrats couvrent la même zone** : la zone reçoit un **TPM par défaut** (contrat au début le plus récent, puis plus petit numéro, puis nom du TPM) signalé « Plusieurs contrats : choisir » ; la conception initiale ne tranchait pas. **À confirmer.**
+- **Zones de contrat détachées par un réimport du découpage** (« Androy > Ambovombe », « Atsimo Andrefana > Ampanihy » → « Ampanihy Ouest ») : **question ouverte**. Rien n'est deviné : ces zones restent « Aucun contrat (à affecter) » et portent l'indice « zone à resélectionner (avenant) : contrat … » (même région, même nom normalisé ou l'un préfixe de l'autre, 5 caractères au moins), avec le lien vers le contrat dans la bannière de l'onglet.
+
+### Écarts avec la conception (et pourquoi)
+
+- **Filet de sécurité en base : estampille, pas refus.** Au lieu de refuser au COMMIT une visite « à estampiller », la base l'**estampille** elle-même : garde AVANT écriture (`mems_site_visit_tpm_guard` : toute visite « zone » insérée, déplacée, re-planifiée ou dont le TPM est écrit directement repasse « à estampiller ») et déclencheur de contrainte DIFFÉRÉ (`trg_site_visits_tpm_stamp` → `mems_tpm_stamp`). Un écrivain qui ignore la règle (générateur du lot 5, seeds, import) obtient donc le TPM des contrats sans rien faire.
+- **L'histoire n'est jamais réécrite** (revue du 15/10). Toute re-dérivation automatique — réparation de démarrage, « Appliquer les TPM des contrats », changement de contrat, de zone ou de géographie — ne touche que les visites **prévues**, **non figées** (« antérieur à la règle ») et **pas encore facturées** (facture soumise ou validée de leur TPM ce mois-là) : `AUTO_RESTAMPABLE_SQL` dans le dépôt, et le même filtre dans `mems_tpm_stamp` pour toute visite demandée (défense en profondeur). Une visite réalisée ou annulée garde le TPM qui l'a faite (jours de collecte, base de facture) ; une « reprise » réalisée reste « TPM saisi avant la règle ». Seule une visite **nouvelle** (« à estampiller ») est estampillée une fois quel que soit son statut. Un TPM choisi avec une raison (visite ou zone) n'est jamais touché.
+- **Reprise de l'existant au démarrage** (`dataRepairs` `r58_tpm_zones`) : zones des sites calculées (règle du lot 1b), puis TPM des contrats appliqué aux visites prévues ; une transaction par compte, sous verrou consultatif (deux API lancées ensemble : une seule exécution), idempotente, marquée seulement en cas de succès ; un échec est journalisé et l'API reste démarrée. Compte rendu `kept` (motivées, réalisées ou annulées, antérieures, facturées).
+- **« Appliquer les TPM des contrats »** (Affectation & visites, onglet) : même fonction que la reprise, sur une période, journalisée visite par visite.
+- **Segments d'affichage** : une modification compte par DÉCISION (même lot, même raison) — six mois modifiés d'un coup forment un seul segment.
+- **Écarts comptés** sur les seules visites prévues (une visite réalisée n'est pas un écart à traiter).
+
+### Ce qui est livré
+
+- **Règle pure** `server/src/modules/tpm/tpmAttribution.js` (+ `common/reasonText.js`) ; règle commune du lot 8 reprise telle quelle (`activeProvider*.js`, commit 4185750). Parité JS ↔ SQL : `server/scripts/tpmParity.js` (copie de la base de dev au 15/10 : 1 280 sites × 12 mois = 15 360 cellules, 0 écart ; JS 223 ms, SQL 442 ms).
+- **Migration 070** : `sites.zone_district_id/zone_commune_id`, `tpm_zone_overrides` (raison 10–500, instantané du contrat, CHECK « diffère du contrat », RLS USING + WITH CHECK), `tpm_attribution_log` (inscription seule : REVOKE UPDATE/DELETE/TRUNCATE), colonnes d'origine du TPM sur `site_visits` + CHECK de forme, `mems_tpm_cells` / `mems_tpm_stamp`, garde et estampille différée, `mems_install_same_tenant`.
+- **API** `/api/tpm/attribution` : `GET /` (onglet), `GET /providers` (sélectionnables du mois + `contractTpms`), `GET /resolve` (TPM d'un site pour un mois), `GET /log`, `POST /preview`, `PUT /overrides` (empreinte → 409 si périmée), `POST /revert`, `POST /apply`, `POST /visits`. `GET /api/tpm/field/rbm/sites` porte `tpm` (TPM de la zone de chaque site).
+- **Écrans** :
+  - Plan de suivi : colonne « Prestataire (TPM) » (`TpmZoneCell.jsx`) — TPM de la zone + origine (« contrat FLA-… », « aucun contrat actif sur cette zone ce mois », « 2 contrats : choisir », « zone à resélectionner »), infobulle avec la règle et les segments de l'exercice ;
+  - Affectation & visites : TPM de chaque visite + origine, crayon → changement motivé (`TpmVisitDialog.jsx`), filtre « Origine du TPM », « Appliquer les TPM des contrats », nouvelle visite = TPM de la zone ;
+  - onglet **« Affectation des TPM »** de l'espace RBM (`TpmAttributionTab.jsx`, props `{ canEdit }`, onglet `tpm` de `RbmSpacePage`, adresse `#/processus/rbm/tpm`) avec `TpmChangeDialog.jsx` (aperçu sans écriture, raison obligatoire, retour au contrat) et `TpmAttributionLog.jsx` (journal) ; **lien profond** `?zone=<aire>&m=<AAAA-MM>` (zone filtrée et surlignée, période depuis ce mois) — c'est là que mène « À affecter » du Plan de suivi, des Priorités du mois et d'Affectation & visites ;
+  - Priorités du mois : colonne « TPM de la zone » ; Planification & budget : le contrat propose son TPM (et inversement), un autre couple est signalé.
+- **Tests** : règle pure, migration (texte), dépôt et service (faux client), routes, gardes des écrivains de visites, démarrage (`dataRepairsRunner.test.js`) et, en base réelle sur demande, `tpmRepairDb.test.js` (deux démarrages simultanés, rejouée = 0 changement, visites motivées / réalisées / annulées / antérieures / facturées inchangées par la reprise ET par l'action, `mems_tpm_stamp` qui refuse en base).
+
+### Points de choix d'un prestataire (avant → après)
+
+| Écran / chemin | Avant | Après |
+|---|---|---|
+| Plan de suivi, colonne TPM | Noms des prestataires saisis sur les visites | TPM de la zone selon contrat (ou modification motivée), origine affichée |
+| Affectation & visites, visite | Liste de tous les prestataires, sans raison | TPM de la zone ; autre TPM = écart motivé (raison obligatoire, journal) |
+| Nouvelle visite, import « Planning », génération RBM | Aucun TPM | TPM de la zone estampillé au COMMIT (l'import « Planning » ne lit aucune colonne TPM : rien à contredire) |
+| Priorités du mois (RBM) | Aucun TPM | Colonne « TPM de la zone » |
+| Planification & budget (plan) | Prestataire et contrat choisis séparément | Le contrat propose son TPM, le TPM propose son contrat ; autre couple signalé |
+| Factures, rapports attendus, évaluations, formations | Listes complètes | Règle commune du lot 8 (`ProviderSelect` du lot 8, branche `wip/lot8`) |
+| Jours de collecte | Visites datées par prestataire | Inchangé : suit le TPM estampillé des visites |
 
 ## Règle « Attribution des TPM »
 
@@ -1367,5 +1408,5 @@ La construction peut commencer avec A. En cas de B, l'écart se limite à ces aj
 
 ## Questions pour l'utilisateur
 
-1. Qui est « le TPM d'un contrat » ? Deux possibilités. (A) Le titulaire du contrat lui-même : c'est ce que supposent vos retours 30 et 58, le formulaire du contrat et la Consolidation. On corrige alors les contrats de démonstration pour que RANO, SAHY et YPA en soient titulaires. (B) Le contrat est signé avec un partenaire de mise en œuvre (AINA, TOHANA, MIARO) et désigne un TPM distinct : on ajoute alors un champ « TPM désigné » au contrat et à l'avenant, pré-rempli quand un seul TPM facture déjà le contrat. Je recommande A. Ce choix ne bloque que les valeurs par défaut affichées, pas la construction.
-2. Deux zones de contrat ne correspondent plus au découpage actuel. L'ancien district « Ambovombe » (CTR-2026-0001) a été découpé en Ambovombe-Androy et Antanimora Sud : le contrat doit-il couvrir les deux, ou seulement Ambovombe-Androy ? Et « Ampanihy » (CTR-2026-0003) correspond-il bien à Ampanihy Ouest ? Tant que ces zones ne sont pas re-sélectionnées par avenant, leurs 299 sites restent « Sans contrat » dans l'onglet.
+1. *(Décidé par défaut le 14/10 : A ; révisé le 15/10 pour ne faire qu'une règle avec le lot 8 : TPM rattaché au contrat par un plan de collecte ou une facture, sinon titulaire — à confirmer.)* Qui est « le TPM d'un contrat » ? Deux possibilités. (A) Le titulaire du contrat lui-même : c'est ce que supposent vos retours 30 et 58, le formulaire du contrat et la Consolidation. On corrige alors les contrats de démonstration pour que RANO, SAHY et YPA en soient titulaires. (B) Le contrat est signé avec un partenaire de mise en œuvre (AINA, TOHANA, MIARO) et désigne un TPM distinct : on ajoute alors un champ « TPM désigné » au contrat et à l'avenant, pré-rempli quand un seul TPM facture déjà le contrat. Je recommande A. Ce choix ne bloque que les valeurs par défaut affichées, pas la construction.
+2. *(Question ouverte ; en attendant, ces zones portent l'indice « zone à resélectionner (avenant) », aucun TPM deviné.)* Deux zones de contrat ne correspondent plus au découpage actuel. L'ancien district « Ambovombe » (CTR-2026-0001) a été découpé en Ambovombe-Androy et Antanimora Sud : le contrat doit-il couvrir les deux, ou seulement Ambovombe-Androy ? Et « Ampanihy » (CTR-2026-0003) correspond-il bien à Ampanihy Ouest ? Tant que ces zones ne sont pas re-sélectionnées par avenant, leurs 299 sites restent « Sans contrat » dans l'onglet.

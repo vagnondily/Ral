@@ -71,6 +71,9 @@ function siteRangeFacts(site, period, { todayMonth = '9999-12' } = {}) {
     planifie: 0, realise: 0, annule: 0, duePlanifie: 0, dueRealise: 0, upcoming: 0, realiseActive: 0,
     // Mode « données » (carte, lot 6a — jumeau de siteMonthFactsCtes({ withData })) :
     realisedAny: false, realisedData: false, vPlanned: 0, vPlannedRealised: 0, vOffPlan: 0,
+    // Définitions des tableaux de bord (retour 110) : prévu un mois actif échu, visites prévues
+    // échues suivies par visite déclarée / par données, visites prévues à venir.
+    plannedDue: false, vPlannedVisit: 0, vPlannedData: 0, vUpcoming: 0,
   };
   const data = new Set((site.dataMonths || []).map((m) => String(m).slice(0, 7)));
   for (const m of monthsOf(period)) {
@@ -88,7 +91,13 @@ function siteRangeFacts(site, period, { todayMonth = '9999-12' } = {}) {
     if (act && (st === 'realise' || wd)) out.realisedAny = true;
     if (act && wd) out.realisedData = true;
     // Exécution : mois échus seulement (règle du lot 1b ; une visite à venir n'est pas manquée).
-    if (act && planned && m <= todayMonth) { out.vPlanned += 1; if (st === 'realise' || wd) out.vPlannedRealised += 1; }
+    if (act && planned && m <= todayMonth) {
+      out.vPlanned += 1; out.plannedDue = true;
+      if (st === 'realise' || wd) out.vPlannedRealised += 1;
+      if (st === 'realise') out.vPlannedVisit += 1;
+      if (wd) out.vPlannedData += 1;
+    }
+    if (act && planned && m > todayMonth) out.vUpcoming += 1;
     if (act && !planned && wd) out.vOffPlan += 1;
   }
   return out;
