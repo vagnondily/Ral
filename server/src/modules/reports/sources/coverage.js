@@ -1,18 +1,35 @@
 const field = require('../../tpm/field.repository');
 const settings = require('../../settings/settings.repository');
+const dashCoverage = require('../../dashboards/coverage.repository');
+const { shapeCoverage } = require('../../dashboards/coverageDefinitions');
 const { periodFor, siteOffice } = require('./scope');
 
 /**
  * Sources « Couverture, plan, RBM et sites » (lot 7a, C4) — seules à appeler les dépôts du
  * terrain et du paramétrage :
- *  - covFacts : faits site × mois (service unique du lot 1b) par bureau, district, activité
- *    et mois, visites par prestataire (field.coverageFacts) ;
+ *  - covDash : la couverture des TABLEAUX DE BORD (retour 110, « une seule source ») — même
+ *    univers (sites actifs de la période), même « suivi » (visite déclarée OU données reçues
+ *    rattachées au site), mêmes découpages (activité, bureau, district) que la Synthèse et
+ *    « Couverture & performance » : dashboards/coverage.repository + coverageDefinitions ;
+ *  - covFacts : faits site × mois (service unique du lot 1b) par mois et par prestataire
+ *    (field.coverageFacts) — séries mensuelles des visites déclarées ;
  *  - covMatrix, covRecap, collectionDays, monthsOverview, planBoard : les calculs des écrans
  *    Affectation & visites et Plan de suivi, appelés tels quels ;
  *  - rbmSites : sites RBM avec leur explication, au dernier mois de la période ;
  *  - mmr : paramètres MMR.
  */
 const SITES = ['sites', 'visits', 'offices'];
+
+// Le filtre d'activité se lit dans la réponse (découpage par activité = partition de l'univers) :
+// catalog/coverage.dashScope ; la requête des tableaux de bord est appelée telle quelle.
+const covDash = {
+  key: 'covDash', domains: [...SITES, 'activation', 'submissions'], varies: ['today'],
+  params: (def, eff) => ({ period: periodFor('range', eff), officeId: siteOffice(eff) }),
+  load: async (tenantId, p) => {
+    const { rows, refMonth } = await dashCoverage.coverageFacts(tenantId, p);
+    return shapeCoverage(rows, { refMonth });
+  },
+};
 
 const covFacts = {
   key: 'covFacts', domains: [...SITES, 'activation'], varies: ['lang'],
@@ -62,4 +79,4 @@ const mmr = {
   load: (tenantId) => settings.listMmr(tenantId),
 };
 
-module.exports = [covFacts, covMatrix, covRecap, collectionDays, monthsOverview, planBoard, rbmSites, mmr];
+module.exports = [covDash, covFacts, covMatrix, covRecap, collectionDays, monthsOverview, planBoard, rbmSites, mmr];

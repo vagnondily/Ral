@@ -4,7 +4,7 @@ const { rbmSummary } = require('../../tpm/rbmSummary');
 const { ratePct, pctOf, visitsOf } = require('./facts');
 const { allResults } = require('./monitoring');
 const { sitesOf } = require('./rbm');
-const { SITE_OFFICE } = require('./coverage');
+const { SITE_OFFICE, dashScope } = require('./coverage');
 const { totalsOf } = require('../../tpm/consolidation');
 const { contractAlerts } = require('../../dashboards/alertsMath');
 
@@ -18,7 +18,9 @@ const { contractAlerts } = require('../../dashboards/alertsMath');
  */
 
 const MON = ['office', 'activity', 'partner', 'form'];
-const cov = (key, label, unit, pick) => ({ key, label, unit, group: 'coverage', source: 'covFacts', filters: ['office', 'activity'], officeKinds: SITE_OFFICE, periodMode: 'range', pick });
+// Couverture : la source des TABLEAUX DE BORD (retour 110, une seule source : coverageDefinitions).
+// Filtre d'activité : le groupe de l'activité dans la réponse (dashScope), même univers, même « suivi ».
+const cov = (key, label, unit, pick) => ({ key, label, unit, group: 'coverage', source: 'covDash', filters: ['office', 'activity'], officeKinds: SITE_OFFICE, periodMode: 'range', pick: (raw, eff) => pick(dashScope(raw, eff), eff) });
 const data = (key, label, field) => ({ key, label, unit: 'int', group: 'monitoring', source: 'monData', filters: MON, periodMode: 'range', pick: (raw) => ({ value: (raw.totals || {})[field] ?? null }) });
 const conf = (key, label, unit, pick) => ({ key, label, unit, group: 'monitoring', source: 'monForms', filters: MON, periodMode: 'range', pick });
 const rbm = (key, label, pick) => ({ key, label, unit: 'int', group: 'rbm', source: 'rbmSites', filters: ['office', 'activity'], officeKinds: SITE_OFFICE, periodMode: 'asOf', pick });
@@ -40,15 +42,15 @@ const partnerRows = (raw, eff) => ((raw && raw.rows) || []).filter((r) => !eff.p
 const inRange = (eff, month) => !eff.period || (String(month).slice(0, 7) >= eff.period.from && String(month).slice(0, 7) <= eff.period.to);
 
 module.exports = [
-  // Couverture terrain (faits site × mois du lot 1b)
-  cov('sites_active', 'Sites actifs', 'int', (r) => ({ value: r.overall.sites.active })),
-  cov('sites_planned', 'Sites prévus', 'int', (r) => ({ value: r.overall.sites.planned })),
-  cov('sites_realised', 'Sites réalisés', 'int', (r) => ({ value: r.overall.sites.realised })),
-  cov('coverage', 'Couverture des sites', 'pct', (r) => ({ value: ratePct(r.overall.coverage) })),
-  cov('planning_rate', 'Taux de planification', 'pct', (r) => ({ value: ratePct(r.overall.planning) })),
-  cov('execution_rate', 'Exécution du plan', 'pct', (r) => ({ value: ratePct(r.overall.execution) })),
-  cov('visits_planned', 'Visites prévues', 'int', (r) => ({ value: r.overall.visits.planned })),
-  cov('visits_realised', 'Visites réalisées', 'int', (r) => ({ value: r.overall.visits.realised })),
+  // Couverture terrain : univers = sites actifs de la période ; suivi = visite déclarée OU données reçues.
+  cov('sites_active', 'Sites actifs', 'int', (r) => ({ value: r.overall.sites })),
+  cov('sites_planned', 'Sites prévus', 'int', (r) => ({ value: r.overall.plannedSites.planned })),
+  cov('sites_realised', 'Sites suivis', 'int', (r) => ({ value: r.overall.coverage.covered })),
+  cov('coverage', 'Couverture des sites', 'pct', (r) => ({ value: ratePct(r.overall.coverage.rate) })),
+  cov('planning_rate', 'Taux de planification', 'pct', (r) => ({ value: pctOf(r.overall.plannedSites.planned, r.overall.sites) })),
+  cov('execution_rate', 'Exécution du plan', 'pct', (r) => ({ value: ratePct(r.overall.execution.rate) })),
+  cov('visits_planned', 'Visites prévues', 'int', (r) => ({ value: r.overall.execution.planned })),
+  cov('visits_realised', 'Visites suivies', 'int', (r) => ({ value: r.overall.execution.covered })),
   { key: 'visits_unplanned', label: 'Visites hors plan', unit: 'int', group: 'coverage', source: 'covFacts', filters: [], periodMode: 'range', available: false, reason: 'Disponible avec le lot 4' },
   // Données versées (comptages SQL)
   data('submissions', 'Données versées', 'submissions'),

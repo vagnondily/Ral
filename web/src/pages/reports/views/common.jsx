@@ -61,7 +61,8 @@ export function Tone({ tone, children }) {
 export function Cell({ col, value, tr }) {
   if (col.type === 'band') return <Tone tone={value || 'na'}>{formatCell('band', value || 'na', tr)}</Tone>;
   if (col.type === 'status') {
-    if (value == null) return <span className="rb-muted">{tr('— aucun plan')}</span>;
+    // Statut sans valeur (aucune base : pas de site actif, risque non renseigné) : « — », jamais « aucun plan ».
+    if (value == null) return <span className="rb-muted">—</span>;
     return <Tone tone={(STATUS[value] || [])[1] || 'na'}>{formatCell('status', value, tr)}</Tone>;
   }
   return formatCell(col.type, value, tr);

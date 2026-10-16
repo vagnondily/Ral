@@ -30,22 +30,24 @@ function bulletinFindings(mon, cov) {
     if (!n) continue;
     for (const d of dimGroups(resultsFromTallies(f.facts.inds, f.facts.overall))) if (d.score < 60) weak.push({ name: d.name, form: f.label, score: d.score });
   }
-  const lowCov = ((cov && cov.byActivity) || []).filter((a) => a.coverage != null && a.coverage < 0.3)
-    .map((a) => ({ label: a.label, pct: pct1(a.coverage) }));
+  // Couverture des tableaux de bord (une seule source) : { coverage: { rate } } par activité de l'univers.
+  const rateOf = (a) => (a.coverage && typeof a.coverage === 'object' ? a.coverage.rate : a.coverage);
+  const lowCov = ((cov && cov.byActivity) || []).filter((a) => a.key !== '—' && rateOf(a) != null && rateOf(a) < 0.3)
+    .map((a) => ({ label: a.label, pct: pct1(rateOf(a)) }));
   return { weak: weak.slice(0, 5), lowCov };
 }
 
 // Phrases du bulletin auto-rédigé, par langue du rapport.
 const BULLETIN_TEXT = {
   fr: {
-    intro: (p) => `Sur la période ${String(p).charAt(0).toLowerCase()}${String(p).slice(1)}, `, sites: (n, a) => `${n} site(s) actif(s) sur ${a}`, collected: ' ont reçu au moins une visite réalisée',
-    coverage: (n) => `, soit une couverture de ${n} %`, visits: (d, p) => `. ${d} visite(s) réalisée(s) sur ${p} prévue(s)`,
+    intro: (p) => `Sur la période ${String(p).charAt(0).toLowerCase()}${String(p).slice(1)}, `, sites: (n, a) => `${n} site(s) actif(s) sur ${a}`, collected: ' ont été suivis (visite déclarée ou données reçues)',
+    coverage: (n) => `, soit une couverture de ${n} %`, visits: (d, p) => `. ${d} visite(s) prévue(s) sur ${p} ont été suivies`,
     conformity: 'L\'indice de conformité moyen s\'établit à ', weak: 'Domaines sous 60 % : ', lowCov: 'Couverture insuffisante (< 30 %) : ',
     pctSep: ' : ', locale: 'fr-FR',
   },
   en: {
-    intro: (p) => `Over the period ${p}, `, sites: (n, a) => `${n} of ${a} active site(s)`, collected: ' received at least one completed visit',
-    coverage: (n) => `, i.e. a coverage of ${n} %`, visits: (d, p) => `. ${d} visit(s) carried out out of ${p} planned`,
+    intro: (p) => `Over the period ${p}, `, sites: (n, a) => `${n} of ${a} active site(s)`, collected: ' were monitored (declared visit or data received)',
+    coverage: (n) => `, i.e. a coverage of ${n} %`, visits: (d, p) => `. ${d} of ${p} planned visit(s) were monitored`,
     conformity: 'The average compliance index stands at ', weak: 'Domains below 60 %: ', lowCov: 'Insufficient coverage (< 30 %): ',
     pctSep: ': ', locale: 'en-GB',
   },

@@ -36,6 +36,12 @@ fieldRepo.coverageFacts = async () => {
   if (fieldFails) throw fieldFails;
   return { ...shapeCoverageFacts([{ dim: 'office', key: 'Bureau Sud', sitesActive: 4, sitesRealised: 1, smRealise: 1, smPlanifie: 1 }]), byProvider: [] };
 };
+// Couverture du concepteur = celle des tableaux de bord (retour 110) : dashboards/coverage.repository.
+const dashRepo = require('../src/modules/dashboards/coverage.repository');
+dashRepo.coverageFacts = async () => {
+  if (fieldFails) throw fieldFails;
+  return { refMonth: '2026-03', rows: [{ dim: 'overall', key: null, registry: 4, sites: 4, covered: 1, coveredVisit: 1 }, { dim: 'office', key: 'Bureau Sud', registry: 4, sites: 4, covered: 1, coveredVisit: 1 }] };
+};
 
 const app = express();
 app.use(express.json());

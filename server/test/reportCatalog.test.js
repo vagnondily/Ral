@@ -9,6 +9,7 @@ const { DATASETS, KPIS, GROUPS, checkRegistry, validateBlockParams, catalogForCl
 const { SOURCES } = require('../src/modules/reports/sources');
 const { shapeCoverageFacts, buildCoverageMatrix } = require('../src/modules/tpm/fieldMath');
 const { coverageRecap } = require('../src/modules/tpm/coverageRecap');
+const { shapeCoverage } = require('../src/modules/dashboards/coverageDefinitions');
 
 const EMPTY = {
   monForms: { forms: [] },
@@ -16,6 +17,7 @@ const EMPTY = {
   monAgents: { forms: [], agentNames: new Map() },
   monSubmissions: [],
   covFacts: { ...shapeCoverageFacts([]), byProvider: [] },
+  covDash: shapeCoverage([], { refMonth: '2026-03' }),
   covMatrix: { byActivity: buildCoverageMatrix([], ['2026-01']), byProvider: buildCoverageMatrix([], ['2026-01']) },
   covRecap: coverageRecap([]),
   collectionDays: [],
