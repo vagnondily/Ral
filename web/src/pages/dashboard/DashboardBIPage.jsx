@@ -5,7 +5,7 @@ import { Alert, Skeleton, PageHeader } from '../../components/ui.jsx';
 import PeriodSelect from '../../components/PeriodSelect.jsx';
 import { SessionPeriodNote, clampPeriod, usePeriod } from '../../components/PeriodBanner.jsx';
 import MapExplorer, { MAP_OPEN_KEY } from '../../components/map/MapExplorer.jsx';
-import { formatAr, formatInt } from '../../lib/format.js';
+import { formatAr, formatDecimal, formatInt } from '../../lib/format.js';
 import { periodLabel, single, spanMonths, writeHashPeriod } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
 
@@ -46,8 +46,8 @@ const C = {
 const CAT = ['#0f6cbd', '#7c3aed', '#0f7b40', '#c77700', '#d13438', '#0891b2'];
 const fmtM = (n, tr) => {
   const v = Number(n) || 0;
-  if (Math.abs(v) >= 1e9) return tr('{v} Md', { v: (v / 1e9).toFixed(1) });
-  if (Math.abs(v) >= 1e6) return `${(v / 1e6).toFixed(1)} M`;
+  if (Math.abs(v) >= 1e9) return tr('{v} Md', { v: formatDecimal(v / 1e9) });
+  if (Math.abs(v) >= 1e6) return `${formatDecimal(v / 1e6)} M`;
   if (Math.abs(v) >= 1e3) return `${Math.round(v / 1e3)} k`;
   return String(Math.round(v));
 };
@@ -262,8 +262,8 @@ export default function DashboardBIPage({ onOpenContract, onNavigate }) {
   const picker = ready && (
     <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} allowAll align="right" />
   );
-  if (error) return <div className="page"><PageHeader title={tr('Tableau de bord décisionnel')}>{picker}</PageHeader><Alert tone="error" icon={AlertTriangle}>{error}</Alert></div>;
-  if (!data) return <div className="page"><PageHeader title={tr('Tableau de bord décisionnel')}>{picker}</PageHeader><Skeleton height={320} /></div>;
+  if (error) return <div className="section-gap"><PageHeader title={tr('Tableau de bord décisionnel')}>{picker}</PageHeader><Alert tone="error" icon={AlertTriangle}>{error}</Alert></div>;
+  if (!data) return <div className="section-gap"><PageHeader title={tr('Tableau de bord décisionnel')}>{picker}</PageHeader><Skeleton height={320} /></div>;
 
   const { rows, totals, months, monthlyTotals } = data;
   const alerts = rows.filter((r) => r.overspent || (r.projectedOverrun && r.projectedOverrun > 0));
@@ -275,7 +275,7 @@ export default function DashboardBIPage({ onOpenContract, onNavigate }) {
   else if (mapPeriod && mapClamped) mapNote = tr('La carte montre les 24 derniers mois de la période ({p}).', { p: periodLabel(mapPeriod, lang) });
 
   return (
-    <div className="page" onMouseLeave={() => setTip(null)}>
+    <div className="section-gap" onMouseLeave={() => setTip(null)}>
       <PageHeader title={tr('Tableau de bord décisionnel')} description={tr('Vue analytique du suivi budgétaire TPM — budget, planifié, réalisé, tendance et alertes, recalculés en direct.')}>
         {picker}
       </PageHeader>

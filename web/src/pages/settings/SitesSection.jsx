@@ -161,7 +161,7 @@ export default function SitesSection({ isAdmin, onOpenTab, showAdmCodes = true }
                   onChange={toggleAll} aria-label={tr('Tout sélectionner')} />
               </th>
               <th>{tr('Identifiant')}</th><th>{tr('Localité')}</th><th>{tr('Code POI')}</th>
-              <th>{tr('Field office')}</th><th>{tr('Code bureau')}</th>
+              <th>{tr('Bureau terrain')}</th><th>{tr('Code bureau')}</th>
               <th>{tr('Région')}</th>{showAdmCodes && <th>Adm1</th>}<th>{tr('District')}</th>{showAdmCodes && <th>Adm2</th>}
               <th>{tr('Commune')}</th>{showAdmCodes && <th>Adm3</th>}<th>{tr('Fokontany')}</th>{showAdmCodes && <th>Adm4</th>}
               <th>{tr('Activité')}</th><th>{tr('Code tag')}</th>
@@ -408,7 +408,7 @@ function SiteFormModal({ site, offices, onClose, onSaved }) {
       )}>
       <div className="form-grid">
         <Field label={tr('Localité (nom du site)')} required><input value={f.localite} onChange={set('localite')} maxLength={200} /></Field>
-        <Field label={tr('Field office')}>
+        <Field label={tr('Bureau terrain')}>
           <select value={f.fieldOfficeId} onChange={set('fieldOfficeId')}>
             <option value="">{tr('— aucun —')}</option>
             {offices.map((o) => <option key={o.id} value={o.id}>{o.name}{o.code ? ` (${o.code})` : ''}</option>)}

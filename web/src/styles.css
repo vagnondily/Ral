@@ -721,7 +721,7 @@ button:disabled { cursor: not-allowed; }
 
 .usage { display: flex; align-items: center; gap: 8px; min-width: 120px; }
 .usage .progress { flex: 1; }
-.usage span { font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; }
+.usage > span { font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; }
 .progress.is-over > span { background: var(--red); }
 .progress.is-high > span { background: var(--orange); }
 
@@ -3232,4 +3232,25 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .picker-option-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-muted); }
 .picker-check { flex: none; color: var(--blue-600); }
 .picker-empty { padding: 12px 10px; font-size: var(--fs-sm); color: var(--text-muted); }
+.picker-more { margin-top: 4px; padding: 8px 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-muted); }
 @media (prefers-reduced-motion: reduce) { .picker-pop.is-below, .picker-pop.is-above, .picker-chevron { animation: none; transition: none; } }
+
+/* ==========================================================================
+   Corrections de l'audit design du 16/10 (couche d'autorité, en dernier).
+   ========================================================================== */
+/* Contrôles natifs (cases, dates, nombres, listes ouvertes) au thème de l'écran. */
+:root { color-scheme: light; --table-head-bg: #f8f9fb; }
+:root[data-theme="dark"] { color-scheme: dark; --table-head-bg: var(--canvas-sunken); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme: dark; --table-head-bg: var(--canvas-sunken); } }
+/* En-têtes de ligne (régions, districts) lisibles en sombre : plus de fond clair codé en dur
+   (les en-têtes de colonne gardent leur règle, plus précise : .table thead th). */
+.table th { background: var(--table-head-bg); }
+/* Liens sans classe : jamais le bleu du navigateur (illisible sur fond sombre). */
+a { color: var(--blue-600); }
+a:hover { color: var(--blue-700); }
+/* Zones de texte : même police que le reste (elles prenaient la chasse fixe du navigateur). */
+textarea { font: inherit; color: inherit; }
+/* Chiffres : Inter à chiffres tabulaires ; la chasse fixe est réservée aux codes et identifiants. */
+.table td.num, .facture-table td.num, .facture-totals .stat-value { font-family: inherit; font-variant-numeric: tabular-nums; }
+/* Codes et identifiants (n° FLA, S-XXXX-XXXX) : jamais coupés lettre par lettre. */
+.table td.mono, .table td .mono, .table td code { white-space: nowrap; }
