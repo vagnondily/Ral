@@ -6,8 +6,12 @@ import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { dayLabel, formatAr, formatInt, monthLabel } from '../../lib/format.js';
 import { richText } from '../../lib/contracts.js';
+import { periodLabel } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import PostesEditor, { newPoste, rowsFromItems, itemsFromRows } from './PostesEditor.jsx';
+import EntityPicker from '../../components/EntityPicker.jsx';
+import { contractOptions, tpmOptions, withContract, withPartner } from '../../lib/tpmPickers.js';
+import useContractTpms from '../../lib/useContractTpms.js';
 import { invalidPctRows } from '../../lib/postesMath.js';
 
 /**
@@ -17,7 +21,7 @@ import { invalidPctRows } from '../../lib/postesMath.js';
  * base au pré-remplissage de la facture.
  */
 export default function PlanBudgetDrawer({ planId, context, month, onClose, onSaved }) {
-  const { tr } = useI18n();
+  const { tr, lang } = useI18n();
   const toast = useToast();
   const editing = Boolean(planId);
   const [loading, setLoading] = useState(editing);
@@ -33,25 +37,18 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
 
   // Retour 58 — règle unique : le TPM d'un contrat de suivi est le TPM rattaché (plans, factures),
   // sinon son titulaire. Choisir le contrat propose ce TPM ; choisir le TPM propose son contrat.
-  const [contractTpms, setContractTpms] = useState({});
-  useEffect(() => {
-    if (editing || !month) return undefined;
-    let alive = true;
-    const m = String(month).slice(0, 7);
-    api.tpmAttributionProviders({ from: m, to: m }).then((r) => { if (alive) setContractTpms(r.contractTpms || {}); }).catch(() => {});
-    return () => { alive = false; };
-  }, [editing, month]);
-  const tpmsOf = (contractId) => contractTpms[contractId] || [];
-  const choosePartner = (partnerId) => setHead((h) => {
-    if (h.contractId || !partnerId) return { ...h, partnerId };
-    const own = contracts.filter((c) => tpmsOf(c.id).some((p) => p.id === partnerId));
-    return { ...h, partnerId, contractId: own.length === 1 ? own[0].id : '' };
-  });
-  const chooseContract = (contractId) => setHead((h) => {
-    const tpms = tpmsOf(contractId);
-    return { ...h, contractId, partnerId: h.partnerId || (tpms.length === 1 ? tpms[0].id : '') };
-  });
+  const tpmsOf = useContractTpms(month, !editing);
+  const choosePartner = (partnerId) => setHead((h) => withPartner(h, partnerId, contracts, tpmsOf));
+  const chooseContract = (contractId) => setHead((h) => withContract(h, contractId, tpmsOf));
   const headTpms = tpmsOf(head.contractId);
+  const pickContracts = contractOptions(contracts, {
+    month, tpmsOf, fmtPeriod: (from, to) => periodLabel({ from, to }, lang, { short: true }),
+    labels: { covering: tr('Couvrent {month}', { month: month ? monthLabel(String(month).slice(0, 7)) : '' }), others: tr('Autres contrats actifs'), tpm: tr('TPM') },
+  });
+  const pickTpms = tpmOptions(partners, {
+    contracts, contractId: head.contractId, tpmsOf,
+    labels: { ofContract: tr('TPM de ce contrat'), others: tr('Autres prestataires TPM'), noContract: tr('Aucun contrat de suivi rattaché') },
+  });
   const otherTpm = Boolean(head.contractId && head.partnerId && headTpms.length && !headTpms.some((p) => p.id === head.partnerId));
 
   // Jours de collecte issus de la planification terrain (visites datées +
@@ -115,16 +112,17 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
           <div className="form-grid">
             {!editing && (
               <>
-                <Field label={tr('Prestataire TPM')} required error={touched && !head.partnerId ? tr('Requis.') : undefined}
-                  hint={headTpms.length ? tr('TPM du contrat : {p}', { p: headTpms.map((p) => p.name).join(', ') }) : undefined}>
-                  <select className={`select ${head.partnerId ? '' : 'is-empty'}`} value={head.partnerId} onChange={(e) => choosePartner(e.target.value)}>
-                    <option value="">{tr('Choisir…')}</option>{partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
+                {/* Le contrat d'abord : il donne le TPM (retour 58 — TPM rattaché, sinon titulaire). */}
+                <Field label={tr('Contrat suivi')} htmlFor="pbd-contract" required error={touched && !head.contractId ? tr('Requis.') : undefined}>
+                  <EntityPicker id="pbd-contract" value={head.contractId} onChange={chooseContract} invalid={touched && !head.contractId}
+                    options={pickContracts.options} groupOrder={pickContracts.order} placeholder={tr('Choisir un contrat…')}
+                    searchPlaceholder={tr('Rechercher un n° de contrat, un partenaire, un TPM…')} emptyText={tr('Aucun contrat actif avec un budget Suivi/TPM ne correspond.')} />
                 </Field>
-                <Field label={tr('Contrat suivi')} required error={touched && !head.contractId ? tr('Requis.') : undefined}>
-                  <select className={`select ${head.contractId ? '' : 'is-empty'}`} value={head.contractId} onChange={(e) => chooseContract(e.target.value)}>
-                    <option value="">{tr('Choisir…')}</option>{contracts.map((c) => <option key={c.id} value={c.id}>{c.partnerName} · {c.numero}</option>)}
-                  </select>
+                <Field label={tr('Prestataire TPM')} htmlFor="pbd-tpm" required error={touched && !head.partnerId ? tr('Requis.') : undefined}
+                  hint={headTpms.length ? tr('TPM du contrat : {p}', { p: headTpms.map((p) => p.name).join(', ') }) : undefined}>
+                  <EntityPicker id="pbd-tpm" value={head.partnerId} onChange={choosePartner} invalid={touched && !head.partnerId}
+                    options={pickTpms.options} groupOrder={pickTpms.order} placeholder={tr('Choisir un prestataire TPM…')}
+                    searchPlaceholder={tr('Rechercher un prestataire TPM…')} />
                 </Field>
               </>
             )}

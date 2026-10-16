@@ -5,7 +5,11 @@ import { Alert, Button, Field, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import MoneyInput from '../../components/MoneyInput.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import { formatAr } from '../../lib/format.js';
+import { formatAr, monthLabel } from '../../lib/format.js';
+import { periodLabel } from '../../lib/period.js';
+import EntityPicker from '../../components/EntityPicker.jsx';
+import { contractOptions, tpmOptions, withContract, withPartner } from '../../lib/tpmPickers.js';
+import useContractTpms from '../../lib/useContractTpms.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { richText } from '../../lib/contracts.js';
 import { openFacturePrint } from '../../lib/facturePrint.js';
@@ -20,7 +24,7 @@ import { invalidPctRows } from '../../lib/postesMath.js';
  * bailleur. Peut être pré-rempli depuis le plan de collecte du mois.
  */
 export default function FactureDrawer({ reportId, kind: kindProp = 'financier', initial, autoPrefill = false, context, month, onClose, onSaved }) {
-  const { tr } = useI18n();
+  const { tr, lang } = useI18n();
   const toast = useToast();
   const editing = Boolean(reportId);
   const [loading, setLoading] = useState(editing);
@@ -51,6 +55,20 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
   const partners = context?.partners || [];
   const contracts = context?.contracts || [];
   const contract = contracts.find((c) => c.id === head.contractId);
+  // Retour 58 — même règle que la planification : le contrat propose son TPM, le TPM son contrat.
+  const tpmsOf = useContractTpms(month, !editing);
+  const choosePartner = (partnerId) => setHead((h) => withPartner(h, partnerId, contracts, tpmsOf));
+  const chooseContract = (contractId) => setHead((h) => withContract(h, contractId, tpmsOf));
+  const headTpms = tpmsOf(head.contractId);
+  const otherTpm = Boolean(head.contractId && head.partnerId && headTpms.length && !headTpms.some((p) => p.id === head.partnerId));
+  const pickContracts = contractOptions(contracts, {
+    month, tpmsOf, fmtPeriod: (from, to) => periodLabel({ from, to }, lang, { short: true }),
+    labels: { covering: tr('Couvrent {month}', { month: month ? monthLabel(String(month).slice(0, 7)) : '' }), others: tr('Autres contrats actifs'), tpm: tr('TPM') },
+  });
+  const pickTpms = tpmOptions(partners, {
+    contracts, contractId: head.contractId, tpmsOf,
+    labels: { ofContract: tr('TPM de ce contrat'), others: tr('Autres prestataires TPM'), noContract: tr('Aucun contrat de suivi rattaché') },
+  });
 
   useEffect(() => {
     if (!editing) return;
@@ -203,15 +221,17 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
           <div className="form-grid">
             {!editing && (
               <>
-                <Field label={tr('Prestataire TPM')} required error={touched && !head.partnerId ? tr('Requis.') : undefined}>
-                  <select className={`select ${head.partnerId ? '' : 'is-empty'}`} value={head.partnerId} onChange={(e) => setHead({ ...head, partnerId: e.target.value })}>
-                    <option value="">{tr('Choisir…')}</option>{partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
+                {/* Le contrat d'abord : il donne le TPM (retour 58 — TPM rattaché, sinon titulaire). */}
+                <Field label={tr('Contrat suivi')} htmlFor="fd-contract" required error={touched && !head.contractId ? tr('Requis.') : undefined}>
+                  <EntityPicker id="fd-contract" value={head.contractId} onChange={chooseContract} invalid={touched && !head.contractId}
+                    options={pickContracts.options} groupOrder={pickContracts.order} placeholder={tr('Choisir un contrat…')}
+                    searchPlaceholder={tr('Rechercher un n° de contrat, un partenaire, un TPM…')} emptyText={tr('Aucun contrat actif avec un budget Suivi/TPM ne correspond.')} />
                 </Field>
-                <Field label={tr('Contrat suivi')} required error={touched && !head.contractId ? tr('Requis.') : undefined}>
-                  <select className={`select ${head.contractId ? '' : 'is-empty'}`} value={head.contractId} onChange={(e) => setHead({ ...head, contractId: e.target.value })}>
-                    <option value="">{tr('Choisir…')}</option>{contracts.map((c) => <option key={c.id} value={c.id}>{c.partnerName} · {c.numero}</option>)}
-                  </select>
+                <Field label={tr('Prestataire TPM')} htmlFor="fd-tpm" required error={touched && !head.partnerId ? tr('Requis.') : undefined}
+                  hint={headTpms.length ? tr('TPM du contrat : {p}', { p: headTpms.map((p) => p.name).join(', ') }) : undefined}>
+                  <EntityPicker id="fd-tpm" value={head.partnerId} onChange={choosePartner} invalid={touched && !head.partnerId}
+                    options={pickTpms.options} groupOrder={pickTpms.order} placeholder={tr('Choisir un prestataire TPM…')}
+                    searchPlaceholder={tr('Rechercher un prestataire TPM…')} />
                 </Field>
               </>
             )}
@@ -222,6 +242,9 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
             </>}
           </div>
 
+          {otherTpm && (
+            <Alert tone="warn">{tr('Ce prestataire n\'est pas le TPM de ce contrat ({p}) : vérifiez le couple prestataire × contrat.', { p: headTpms.map((p) => p.name).join(', ') })}</Alert>
+          )}
           {contract && <div className="note"><Coins size={18} aria-hidden="true" /><span>{richText(tr('Budget Suivi/TPM du contrat : <strong>{budget}</strong> · barème mensuel <strong>{ceiling}</strong>', { budget: formatAr(contract.monitoringBudget), ceiling: formatAr(contract.monthlyCeiling) }))}</span></div>}
 
           {isFin && status === 'rejete' && comment && <Alert tone="warn">{readOnly
