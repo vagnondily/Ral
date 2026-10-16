@@ -22,6 +22,11 @@
 
 _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot vérifié
 
+> **Export budget du plan (retour 82).** ✅ Bouton « Budget (CSV) » dans l'aperçu : exporte le plan
+> par **TPM/bureau × mois** = visites (= **jours de collecte**, modèle existant 1 visite = 1 jour)
+> + **agents**, avec lignes Total/pic. Base directe du budget (on y ajoute les coûts journaliers
+> dans Excel). Réutilise `lib/csv.downloadCsv`. Build ✅ lint ✅.
+
 > **Dimensionnement des agents (retour 82).** ✅ L'automatisation calcule maintenant le **nombre
 > d'agents à mobiliser** par activité ET par TPM / par le bureau (suivi interne), à partir du
 > **quota journalier × jours ouvrés** du MMR : agents d'un mois = ⌈visites ÷ (quota × jours)⌉, le

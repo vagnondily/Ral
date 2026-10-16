@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { Eye, Wand2, Trash2, SlidersHorizontal, ChevronDown, ChevronRight, CalendarRange } from 'lucide-react';
+import { Eye, Wand2, Trash2, SlidersHorizontal, ChevronDown, ChevronRight, CalendarRange, Download } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, Field } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, formatLocale } from '../../lib/format.js';
+import { downloadCsv } from '../../lib/csv.js';
 
 // Mois AAAA-MM décalé de n mois à partir d'aujourd'hui.
 function monthFromNow(n) {
@@ -101,6 +102,23 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
       onDone();
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   }
+  // Export CSV « base de budget » : par TPM/bureau et par mois — visites (= jours de collecte)
+  // et agents. On y ajoute ses coûts journaliers dans Excel pour obtenir le budget.
+  function exportBudget() {
+    if (!preview) return;
+    const bureau = tr('Bureau (suivi interne)');
+    const rows = [[tr('Unité (TPM / bureau)'), tr('Mois'), tr('Visites (jours de collecte)'), tr('Agents')]];
+    for (const t of preview.byTpm || []) {
+      const label = t.assigned ? t.tpm : bureau;
+      (t.perMonth || []).forEach((m, i) => {
+        const agents = t.agentMonths && t.agentMonths[i] ? t.agentMonths[i].agents : '';
+        rows.push([label, m.month, m.count, agents]);
+      });
+      rows.push([label, tr('Total / pic'), t.planned, t.agentsPeak != null ? `${t.agentsKnown ? '' : '≥ '}${t.agentsPeak}` : '']);
+    }
+    downloadCsv(`plan-suivi-budget-${from}_${to}.csv`, rows);
+    toast.success(tr('Export CSV téléchargé.'));
+  }
   async function clearPlanned() {
     if (invalid) return;
     if (!window.confirm(tr('Effacer toutes les visites PLANIFIÉES de la période ? Les visites réalisées, annulées ou figées sont conservées.'))) return;
@@ -139,6 +157,8 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
         {!preview
           ? <Button icon={Eye} loading={busy} disabled={invalid} onClick={runPreview}>{tr('Aperçu')}</Button>
           : <>
+            <Button variant="secondary" icon={Download} onClick={exportBudget} disabled={busy}
+              title={tr('Exporter le plan (visites = jours de collecte, agents) par TPM/bureau et par mois — base du budget.')}>{tr('Budget (CSV)')}</Button>
             <Button variant="secondary" icon={Eye} loading={busy} disabled={invalid} onClick={runPreview}>{tr('Recalculer')}</Button>
             <Button icon={Wand2} loading={busy} disabled={invalid} onClick={apply}>{tr('Appliquer')}</Button>
           </>}
