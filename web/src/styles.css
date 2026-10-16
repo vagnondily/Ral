@@ -3252,5 +3252,7 @@ a:hover { color: var(--blue-700); }
 textarea { font: inherit; color: inherit; }
 /* Chiffres : Inter à chiffres tabulaires ; la chasse fixe est réservée aux codes et identifiants. */
 .table td.num, .facture-table td.num, .facture-totals .stat-value { font-family: inherit; font-variant-numeric: tabular-nums; }
-/* Codes et identifiants (n° FLA, S-XXXX-XXXX) : jamais coupés lettre par lettre. */
-.table td.mono, .table td .mono, .table td code { white-space: nowrap; }
+/* Codes et identifiants : une largeur minimale de colonne — un code court (S-XXXX-XXXX, CTR-2026-0001)
+   tient sur une ligne, un long n° FLA ne se coupe qu'aux tirets, en deux lignes au plus ; jamais un
+   tableau poussé hors de l'écran pour un code. */
+.table td.mono, .table td:has(> .mono), .table td:has(> code) { min-width: 16ch; }
