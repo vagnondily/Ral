@@ -28,6 +28,15 @@
 
 _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot vérifié
 
+> **Déploiement simplifié : l'API sert l'interface (un seul service).** ✅ `app.js` sert `web/dist`
+> (statique + repli index.html pour le routage par hash) sur le port 9000 quand le build existe —
+> plus de serveur web séparé ni de CORS. Le client web choisit son API automatiquement : DEV =
+> localhost:9000, PROD = même origine que la page (accès réseau `http://SERVEUR:9000` sans
+> `VITE_API_URL` ni `CORS_ORIGIN`). CSP helmet désactivée (parité avec vite). README : NSSM à UN
+> seul service `MEMS-API` (réponse à « NSSM/`npm run serve` ne démarrent pas » : `npm run serve`
+> n'existe que dans `web/` ; plus de service web). Note « tester sans données de test » (seed sans
+> seed:test, sinon recréer la base). Tests 1225 ✅, lint ✅, build ✅, smoke (/ sert l'app, /api 401) ✅.
+
 > **Correctif couverture + bouton (retour 82).** ✅
 > - **Bug couverture** : regénérer sur un plan DÉJÀ appliqué affichait 3 % (et une fausse alerte
 >   « capacité insuffisante ») car seuls les sites NOUVELLEMENT planifiés comptaient. Désormais un
