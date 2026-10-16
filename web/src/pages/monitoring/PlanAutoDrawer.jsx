@@ -121,11 +121,12 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
   }
   async function clearPlanned() {
     if (invalid) return;
-    if (!window.confirm(tr('Effacer toutes les visites PLANIFIÉES de la période ? Les visites réalisées, annulées ou figées sont conservées.'))) return;
+    if (!window.confirm(tr('Effacer les visites prévues libres de la période ? Sont toujours conservées : les visites réalisées ou annulées, celles des mois échus, celles déjà facturées, figées, datées, affectées à un agent ou dont le TPM a été choisi avec une raison.'))) return;
     setBusy(true);
     try {
       const r = await api.planAutoClear({ from, to, ...(risk ? { risk } : {}) });
-      toast.success(tr('{n} planification(s) effacée(s).', { n: r.deleted }));
+      toast.success(r.kept ? tr('{n} planification(s) effacée(s) · {k} conservée(s) (mois échus, facturées, figées, datées, affectées ou motivées).', { n: r.deleted, k: r.kept })
+        : tr('{n} planification(s) effacée(s).', { n: r.deleted }));
       reset();
       onDone();
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
