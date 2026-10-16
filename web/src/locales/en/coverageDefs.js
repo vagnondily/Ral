@@ -49,6 +49,25 @@ export default {
   'Suivis': 'Monitored',
   'dont par données reçues': 'of which by data received',
   'dont par visites déclarées': 'of which by declared visits',
+  // Suites du retour 110 (relecture du 16/10)
+  'Mesures de couverture indisponibles : {e}': 'Coverage measures unavailable: {e}',
+  'règle RBM : visite réalisée, données de la commune ou date du registre':
+    'RBM rule: completed visit, commune data or registry date',
+  'Sur la période, {submissions} soumission(s) ont été versées par {agents} agent(s), réparties sur {forms} fiche(s) de suivi ({indicators} indicateurs).':
+    'Over the period, {submissions} submission(s) were sent by {agents} agent(s), across {forms} monitoring form(s) ({indicators} indicators).',
+  'Visites prévues (mois échus)': 'Planned visits (past months)',
+  'Suivies dans leur mois': 'Monitored in their month',
+  'District inconnu': 'Unknown district',
+  'Suivi de terrain par district — {p}': 'Field monitoring by district — {p}',
+  'Sites actifs de la période ; suivi = visite déclarée ou données reçues · couverture = sites suivis ÷ sites actifs · exécution du plan = visites prévues (mois échus) suivies dans leur mois ÷ prévues.':
+    'Active sites of the period; monitored = declared visit or data received · coverage = monitored sites ÷ active sites · plan execution = planned visits (past months) monitored in their month ÷ planned.',
+  'Aucun site actif sur la période': 'No active site in the period',
+  'Aucun site actif pour {month} : renseignez la grille des sites actifs (RBM › Sites).': 'No active site for {month}: fill in the active-sites grid (RBM › Sites).',
+  '{n} site(s) ont une visite déclarée ou des données pendant un mois sans « Oui » : non comptées.':
+    '{n} site(s) have a declared visit or data in a month without “Yes”: not counted.',
+  '{n} visite(s) annulée(s), hors calcul.': '{n} cancelled visit(s), not counted.',
+  '{n} à venir, dont {m} sur des mois sans « Oui »': '{n} upcoming, of which {m} in months without “Yes”',
+  '{done}/{planned} visites prévues suivies ({p})': '{done}/{planned} planned visits monitored ({p})',
   'Une ligne par libellé d\'activité du registre des sites : deux libellés différents restent deux lignes tant que le référentiel des activités ne les relie pas.':
     'One row per activity label of the site registry: two different labels stay two rows until the activities referential links them.',
 };

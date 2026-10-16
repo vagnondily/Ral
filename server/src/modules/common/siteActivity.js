@@ -74,6 +74,8 @@ function siteRangeFacts(site, period, { todayMonth = '9999-12' } = {}) {
     // Définitions des tableaux de bord (retour 110) : prévu un mois actif échu, visites prévues
     // échues suivies par visite déclarée / par données, visites prévues à venir.
     plannedDue: false, vPlannedVisit: 0, vPlannedData: 0, vUpcoming: 0,
+    // Activité hors des mois actifs, visites annulées d'un mois actif, prévues à venir sur un mois non actif.
+    coveredInactive: false, vCancelled: 0, vUpcomingUnset: 0,
   };
   const data = new Set((site.dataMonths || []).map((m) => String(m).slice(0, 7)));
   for (const m of monthsOf(period)) {
@@ -98,6 +100,9 @@ function siteRangeFacts(site, period, { todayMonth = '9999-12' } = {}) {
       if (wd) out.vPlannedData += 1;
     }
     if (act && planned && m > todayMonth) out.vUpcoming += 1;
+    if (!act && planned && m > todayMonth) out.vUpcomingUnset += 1;
+    if (!act && (st === 'realise' || wd)) out.coveredInactive = true;
+    if (act && st === 'annule') out.vCancelled += 1;
     if (act && !planned && wd) out.vOffPlan += 1;
   }
   return out;

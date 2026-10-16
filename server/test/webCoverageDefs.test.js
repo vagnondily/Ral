@@ -33,8 +33,18 @@ test('taux : une décimale sous 10 % (0,48 % → « 0,5 % », jamais « 0 % »),
   assert.equal(m.rateText(0.55, 'fr'), '55\u00a0%');
   assert.equal(m.rateText(0, 'fr'), '0\u00a0%');
   assert.equal(m.rateText(null, 'fr'), '—');
+  // Décimales choisies après l'arrondi : 9,96 % → « 10 % », jamais « 10,0 % » ; 9,94 % → « 9,9 % ».
+  assert.equal(m.rateText(0.0996, 'fr'), '10\u00a0%');
+  assert.equal(m.rateText(0.0994, 'fr'), '9,9\u00a0%');
   assert.equal(m.barPct(null), null);
   assert.equal(m.barPct(1.2), 100);
+});
+
+test('Centre d\'alertes : l\'exécution du plan (taux des mesures communes) s\'écrit comme sur les pages', async (t) => {
+  const a = await load(t, 'lib', 'alerts.js'); if (!a) return;
+  assert.equal(a.formatParam({ rate: 16 / 3346 }), '0,5\u00a0%');
+  assert.equal(a.formatParam({ rate: null }), '—');
+  assert.deepEqual(a.formatParams({ done: 4, planned: 10, p: { rate: 0.4 } }), { done: 4, planned: 10, p: '40\u00a0%' });
 });
 
 test('« dont … par données reçues · … par visites déclarées », recouvrement dit, rien sans suivi', async (t) => {
@@ -44,12 +54,19 @@ test('« dont … par données reçues · … par visites déclarées », recouv
   assert.equal(m.waysText(tr, { covered: 3, byData: 3, byVisit: 0, both: 0 }), 'dont 3 par données reçues · 0 par visites déclarées');
   assert.equal(m.waysText(tr, { covered: 0, byData: 0, byVisit: 0, both: 0 }), '');
   assert.equal(m.waysText(tr, null), '');
+  // À venir : celles des mois pas encore « Oui » sont dites.
+  assert.equal(m.upcomingText(tr, { upcoming: 2, upcomingUnset: 0 }), '2 à venir');
+  assert.equal(m.upcomingText(tr, { upcoming: 1, upcomingUnset: 3 }), '4 à venir, dont 3 sur des mois sans « Oui »');
+  assert.equal(m.upcomingText(tr, { upcoming: 0, upcomingUnset: 0 }), '');
+  // « Sites à jour » : « n (x %) » sur les deux pages ; « — » sans site actif au mois de référence.
+  assert.equal(m.upToDateText({ sites: 75, upToDate: 16, rate: 16 / 75 }, 'fr'), '16 (21\u00a0%)');
+  assert.equal(m.upToDateText({ sites: 0, upToDate: 0, rate: null }, 'fr'), '—');
 });
 
 test('univers énoncé, plan vs réalisé dans la même unité, tableau par activité = tuiles, bureaux à surveiller', async (t) => {
   const m = await load(t, 'lib', 'coverageDefs.js'); if (!m) return;
   const cov = sample();
-  assert.deepEqual(m.universeOf(cov), { kind: 'grid', sites: 3, inactive: 0, forbidden: 0, registry: 3 });
+  assert.deepEqual(m.universeOf(cov), { kind: 'grid', sites: 3, inactive: 0, forbidden: 0, registry: 3, outside: 0, cancelled: 0 });
   assert.equal(m.universeOf({ universe: { activation: 'none', sites: 5 } }).kind, 'none');
   assert.equal(m.universeOf(null), null);
   const [v, s, c] = m.planVsRealRows(cov);
@@ -81,6 +98,9 @@ test('les deux pages lisent la même réponse (dashboards/coverage), énoncent l
     assert.match(src, /<CoverageUniverse cov=/, `${p.join('/')} : univers énoncé`);
     assert.match(src, /<ActivityCoverageCard cov=/, `${p.join('/')} : tableau par activité partagé`);
     assert.match(src, /rateText\(o\.execution\.rate, lang\)/, `${p.join('/')} : taux écrit par rateText (« 0,5 % », jamais « 0 % » pour 0,48 %)`);
+    assert.match(src, /upToDateText\(o\.rbm, lang, formatInt\)/, `${p.join('/')} : « Sites à jour » écrit « n (x %) »`);
+    assert.match(src, /règle RBM : visite réalisée, données de la commune ou date du registre/, `${p.join('/')} : règle RBM dite`);
+    assert.match(src, /<div className="section-gap">/, `${p.join('/')} : pas de second .page dans main.page`);
   }
 });
 
@@ -89,6 +109,7 @@ test('mesures de couverture : chaque phrase affichée a sa traduction anglaise',
   const files = [
     ['pages', 'monitoring', 'ProcessDashboardPage.jsx'], ['pages', 'dashboard', 'DashboardCoveragePage.jsx'],
     ['components', 'ActivityCoverageCard.jsx'], ['components', 'CoverageUniverse.jsx'], ['lib', 'coverageDefs.js'],
+    ['pages', 'dashboard', 'ReportingPage.jsx'],
   ];
   let checked = 0;
   for (const f of files) {

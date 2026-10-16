@@ -54,13 +54,19 @@ async function coverageFacts(tenantId, { period, officeId = null }) {
                  OR r.site_id IN (SELECT site_id FROM st WHERE m = ${pRef}::date))),
        due AS MATERIALIZED (SELECT unnest(${pDue}::uuid[]) AS site_id),
        -- Communes ayant reçu des données NON rattachées à un site (même règle que la carte : fiche
-       -- compatible avec l'activité du site — sans catégorie = compatible avec tout).
+       -- compatible avec l'activité du site — sans catégorie = compatible avec tout ; bureau de la
+       -- soumission dans le périmètre choisi).
        cdat AS MATERIALIZED (
          SELECT DISTINCT lower(btrim(ms.adm3_pcode)) AS cp, lower(NULLIF(btrim(mf.activity_category), '')) AS cat
            FROM monitoring_submissions ms
            JOIN monitoring_forms mf ON mf.id = ms.form_id AND mf.tenant_id = ms.tenant_id
           WHERE ms.tenant_id = $1 AND NOT ms.excluded AND ms.site_id IS NULL AND NULLIF(btrim(ms.adm3_pcode), '') IS NOT NULL
-            AND ms.period_month >= ${pLo}::date AND ms.period_month < ${pHiExcl}::date),
+            AND ms.period_month >= ${pLo}::date AND ms.period_month < ${pHiExcl}::date${officeId ? `
+            AND ms.field_office_id IN (SELECT id FROM office_tree)` : ''}),
+       -- Sites dont la commune porte un P-code : sinon la commune n'est connue que par son nom, et deux
+       -- communes de même nom dans deux districts restent deux communes (clé district | nom).
+       pcs AS MATERIALIZED (
+         SELECT s.id FROM sites s WHERE s.tenant_id = $1 AND NULLIF(btrim(s.adm3_pcode), '') IS NOT NULL),
        -- Appartenances en sous-requêtes IN hachées (une construction), jamais une jointure corrélée.
        ps AS (
          SELECT p.*, CASE WHEN p.activity = '—' THEN '—' ELSE lower(regexp_replace(p.activity, '\\s+', ' ', 'g')) END AS akey,
@@ -68,12 +74,15 @@ async function coverageFacts(tenantId, { period, officeId = null }) {
                 p.site_id IN (SELECT site_id FROM due) AS rbm_due,
                 COALESCE(p.ckey IN (SELECT cp FROM cdat WHERE cat IS NULL)
                   OR (p.act IS NULL AND p.ckey IN (SELECT cp FROM cdat))
-                  OR (p.ckey, p.act) IN (SELECT cp, cat FROM cdat), false) AS commune_data
+                  OR (p.ckey, p.act) IN (SELECT cp, cat FROM cdat), false) AS commune_data,
+                CASE WHEN p.ckey = '—' THEN NULL WHEN p.site_id IN (SELECT id FROM pcs) THEN p.ckey
+                     ELSE p.dkey || '|' || p.ckey END AS cmk
            FROM per_site p)
        SELECT CASE WHEN GROUPING(akey) = 0 THEN 'activity' WHEN GROUPING(office) = 0 THEN 'office'
                    WHEN GROUPING(dkey) = 0 THEN 'district' ELSE 'overall' END AS dim,
               COALESCE(akey, office, dkey) AS key,
-              min(activity) AS "activityLabel", ${DISTRICT_LABEL_SQL} AS "districtLabel",
+              -- Libellé affiché : la graphie la plus fréquente, à égalité l'ordre binaire (jamais la collation).
+              mode() WITHIN GROUP (ORDER BY activity COLLATE "C") AS "activityLabel", ${DISTRICT_LABEL_SQL} AS "districtLabel",
               count(*)::int AS registry,
               count(*) FILTER (WHERE forbidden)::int AS forbidden,
               count(*) FILTER (WHERE active)::int AS sites,
@@ -89,13 +98,16 @@ async function coverageFacts(tenantId, { period, officeId = null }) {
               COALESCE(sum(v_planned_data) FILTER (WHERE active), 0)::int AS "visitsData",
               COALESCE(sum(v_planned_visit) FILTER (WHERE active), 0)::int AS "visitsVisit",
               COALESCE(sum(v_upcoming) FILTER (WHERE active), 0)::int AS "visitsUpcoming",
+              COALESCE(sum(v_upcoming_unset), 0)::int AS "visitsUpcomingUnset",
+              COALESCE(sum(v_cancelled) FILTER (WHERE active), 0)::int AS "visitsCancelled",
+              count(*) FILTER (WHERE covered_inactive)::int AS "coveredInactive",
               count(*) FILTER (WHERE active_ref)::int AS "refSites",
               count(*) FILTER (WHERE active_ref AND rbm_due)::int AS "refDue",
               count(*) FILTER (WHERE active_ref AND risk = 'elevee')::int AS "refHigh",
               count(*) FILTER (WHERE active_ref AND risk = 'moyenne')::int AS "refMid",
               count(*) FILTER (WHERE active_ref AND risk = 'faible')::int AS "refLow",
-              count(DISTINCT ckey) FILTER (WHERE active AND ckey <> '—')::int AS communes,
-              count(DISTINCT ckey) FILTER (WHERE active AND ckey <> '—' AND (realised_data OR commune_data))::int AS "communesData",
+              count(DISTINCT cmk) FILTER (WHERE active)::int AS communes,
+              count(DISTINCT cmk) FILTER (WHERE active AND (realised_data OR commune_data))::int AS "communesData",
               (SELECT bool_and(known) FROM months) AS "knownAll", (SELECT bool_or(known) FROM months) AS "knownAny"
          FROM ps
         GROUP BY GROUPING SETS ((), (akey), (office), (dkey))`,

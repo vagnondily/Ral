@@ -3,6 +3,7 @@ const consolidationRepo = require('../tpm/consolidation.repository');
 const contractsService = require('../contracts/contracts.service');
 const reportsRepo = require('../tpm/reports.repository');
 const fieldRepo = require('../tpm/field.repository');
+const coverageService = require('./coverage.service');
 const { reportActions, canWriteReports } = require('../tpm/reportWorkflow');
 const { buildAlerts, countAlerts } = require('./alertsMath');
 const { single, spanMonths, periodInfo } = require('../common/period');
@@ -48,14 +49,16 @@ async function alerts(auth, { today = isoDay(new Date()), period = null } = {}) 
     const canWrite = canWriteReports(role);
     return (await reportsRepo.listReports(tenantId, period ? { period } : {})).map((r) => ({ ...r, actions: reportActions(r, { userId, canWrite }) }));
   }, []);
+  // Terrain : exécution du plan = mesures communes (retour 110) ; prestataires et visites non affectées = visites.
+  const coverage = await read('terrain', () => coverageService.coverage({ tenantId }, { period: fieldPeriod }), null);
   const field = await read('terrain', () => fieldRepo.summary(tenantId, { period: fieldPeriod }), null);
 
   const items = buildAlerts({
-    consolidationRows: cons ? cons.rows : [], contracts, reports, field, today,
+    consolidationRows: cons ? cons.rows : [], contracts, reports, field, coverage, today,
     // « ce mois » seulement sans période (la cloche) ; un mois choisi est nommé ; une plage : « sur la période ».
     range: spanMonths(fieldPeriod) > 1, month: period && spanMonths(period) === 1 ? period.from : null, reportsInPeriod: !!period,
   });
-  return { today, month, period: periodInfo(fieldPeriod), counts: countAlerts(items), items, unavailable };
+  return { today, month, period: periodInfo(fieldPeriod), counts: countAlerts(items), items, unavailable: [...new Set(unavailable)] };
 }
 
 module.exports = { alerts };

@@ -24,6 +24,12 @@ export function formatInt(value) {
   return nf.format(Number(value) || 0).replace(/ /g, ' ');
 }
 
+/** Nombre décimal dans la langue de l'interface (« 31,5 » / « 31.5 »), `digits` décimales au plus ; « — » sans valeur. */
+export function formatDecimal(value, digits = 1) {
+  if (value == null || value === '' || !Number.isFinite(Number(value))) return '—';
+  return new Intl.NumberFormat(LOCALES[LANG], { maximumFractionDigits: digits }).format(Number(value)).replace(/\u202f/g, '\u00a0');
+}
+
 // Unité des tailles de fichier selon la langue de l'interface (Mo / MB).
 const SIZE_UNIT = { fr: 'Mo', en: 'MB' };
 /**

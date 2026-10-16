@@ -30,6 +30,25 @@ export function waysText(tr, m, fmt = String) {
 }
 
 /**
+ * Visites prévues à venir (jamais « non exécutées ») : « {n} à venir », et celles posées sur des mois
+ * pas encore « Oui » (grille non renseignée pour la fin d'année, par exemple) le disent ; vide sans visite.
+ */
+export function upcomingText(tr, ex, fmt = String) {
+  if (!ex) return '';
+  const n = (ex.upcoming || 0) + (ex.upcomingUnset || 0);
+  if (!n) return '';
+  return ex.upcomingUnset > 0
+    ? tr('{n} à venir, dont {m} sur des mois sans « Oui »', { n: fmt(n), m: fmt(ex.upcomingUnset) })
+    : tr('{n} à venir', { n: fmt(n) });
+}
+
+/** « Sites à jour » écrit de la même façon sur les deux pages : « 16 (21 %) » ; « — » sans site actif au mois de référence. */
+export function upToDateText(rbm, lang = 'fr', fmt = String) {
+  if (!rbm || !(rbm.sites > 0)) return '—';
+  return `${fmt(rbm.upToDate)} (${rateText(rbm.rate, lang)})`;
+}
+
+/**
  * Univers de la page : `grid` (grille des sites actifs pour toute la période), `none` (aucune grille :
  * tout le registre hors zones interdites), `partial` (une année sans grille : tout le registre).
  * null sans réponse.
@@ -38,7 +57,12 @@ export function universeOf(cov) {
   const u = cov && cov.universe;
   if (!u) return null;
   const kind = u.activation === 'grid' ? 'grid' : u.activation === 'partial' ? 'partial' : 'none';
-  return { kind, sites: u.sites || 0, inactive: u.inactive || 0, forbidden: u.forbidden || 0, registry: u.registry || 0 };
+  const o = cov.overall || {};
+  return {
+    kind, sites: u.sites || 0, inactive: u.inactive || 0, forbidden: u.forbidden || 0, registry: u.registry || 0,
+    // Dit sous l'univers, jamais compté : activité pendant un mois sans « Oui », visites annulées.
+    outside: o.outside || 0, cancelled: (o.execution && o.execution.cancelled) || 0,
+  };
 }
 
 /**

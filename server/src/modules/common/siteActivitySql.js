@@ -111,7 +111,11 @@ const districtNameSql = (s = 's') => `COALESCE(NULLIF(btrim(${s}.adm2), ''), NUL
  *              dashboards/coverageDefinitions) : planned_due (une visite prévue un mois actif
  *              ÉCHU), v_planned_visit / v_planned_data (visites prévues échues suivies par une
  *              visite déclarée / par des données, les deux peuvent se recouvrir), v_upcoming
- *              (visites prévues des mois à venir, jamais « non exécutées ») et forbidden.
+ *              (visites prévues des mois à venir, jamais « non exécutées ») et forbidden ;
+ *              covered_inactive (visite déclarée ou données pendant un mois NON actif — « Non »,
+ *              case vide d'une année avec grille ou zone interdite : jamais un suivi, dit à part),
+ *              v_cancelled (visites annulées d'un mois actif), v_upcoming_unset (visites prévues
+ *              de mois à venir pas encore actifs, ex. grille non renseignée pour la fin d'année).
  *   geo      : colonnes de rattachement dans reg et per_site : did / dpcode (district du
  *              découpage, par adm2_pcode), rid (région : parent du district, sinon la zone
  *              du site), cpcode (commune), office_id, has_gps, act (activité normalisée).
@@ -210,7 +214,9 @@ function siteMonthFactsCtes({
               COALESCE(a.v_planned, 0) AS v_planned, COALESCE(a.v_planned_realised, 0) AS v_planned_realised,
               COALESCE(a.v_off_plan, 0) AS v_off_plan, COALESCE(a.v_unassigned, 0) AS v_unassigned, r.act,
               COALESCE(a.planned_due, false) AS planned_due, COALESCE(a.v_planned_visit, 0) AS v_planned_visit,
-              COALESCE(a.v_planned_data, 0) AS v_planned_data, COALESCE(a.v_upcoming, 0) AS v_upcoming, r.forbidden` : '';
+              COALESCE(a.v_planned_data, 0) AS v_planned_data, COALESCE(a.v_upcoming, 0) AS v_upcoming, r.forbidden,
+              COALESCE(a.covered_inactive, false) AS covered_inactive, COALESCE(a.v_cancelled, 0) AS v_cancelled,
+              COALESCE(a.v_upcoming_unset, 0) AS v_upcoming_unset` : '';
   const psGeo = geo ? ', r.did, r.dpcode, r.rid, r.cpcode, r.office_id, r.has_gps' : '';
   const aggExt = ext ? `,
                       COALESCE(bool_or(active AND (st = 'realise' OR wd)), false) AS realised_any,
@@ -222,7 +228,10 @@ function siteMonthFactsCtes({
                       COALESCE(bool_or(active AND due AND st IN ('planifie', 'realise')), false) AS planned_due,
                       count(*) FILTER (WHERE active AND due AND st = 'realise')::int AS v_planned_visit,
                       count(*) FILTER (WHERE active AND due AND st IN ('planifie', 'realise') AND wd)::int AS v_planned_data,
-                      count(*) FILTER (WHERE active AND NOT due AND st IN ('planifie', 'realise'))::int AS v_upcoming` : '';
+                      count(*) FILTER (WHERE active AND NOT due AND st IN ('planifie', 'realise'))::int AS v_upcoming,
+                      COALESCE(bool_or(NOT active AND (st = 'realise' OR wd)), false) AS covered_inactive,
+                      count(*) FILTER (WHERE active AND st = 'annule')::int AS v_cancelled,
+                      count(*) FILTER (WHERE NOT active AND NOT due AND st IN ('planifie', 'realise'))::int AS v_upcoming_unset` : '';
   // Années où le tenant a une grille : une sonde d'index par année (année en entier, comparée par
   // un opérateur « leakproof » : sous RLS, une expression comme extract() ne peut pas servir de
   // condition d'index et la sonde relisait toute la grille du tenant).

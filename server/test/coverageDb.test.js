@@ -149,6 +149,10 @@ test('couverture en base : service = jumeau pur, découpages sommés aux tuiles,
       assert.deepEqual([o.execution.planned, o.execution.covered, o.execution.byData, o.execution.byVisit], [11, 6, 1, 5]);
       assert.deepEqual([o.plannedSites.planned, o.plannedSites.covered], [11, 6]);
       assert.equal(o.rbm.sites, 9, 'actifs en juin : i % 3 = 0, sans la zone interdite');
+      // Jamais comptés, dits à part : activité pendant un mois non actif (4 : données de mai « Non » ; 5, 17, 29 :
+      // visites de mars sans case ; 20 : données de février sans case), visites annulées d'un mois actif (6, 18).
+      assert.equal(o.outside, 5);
+      assert.equal(o.execution.cancelled, 2);
     }
 
     // ---- La carte : même couverture ---------------------------------------------------------

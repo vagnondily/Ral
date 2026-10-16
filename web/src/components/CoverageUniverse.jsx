@@ -8,7 +8,8 @@ import { universeOf } from '../lib/coverageDefs.js';
 /**
  * Univers des mesures de couverture, énoncé UNE fois par page (retour 110) : les sites actifs de la
  * période (règle unique : grille des sites actifs, zones interdites exclues), ce qui n'est pas
- * compté, et le lien pour renseigner la grille (RBM › Sites actifs / inactifs).
+ * compté, et le lien pour renseigner la grille (RBM › Sites actifs / inactifs) ; dessous, ce qui
+ * n'est jamais compté : visites ou données pendant un mois sans « Oui », visites annulées.
  * `cov` = réponse de GET /api/dashboards/coverage.
  */
 export default function CoverageUniverse({ cov, period, onNavigate }) {
@@ -36,6 +37,13 @@ export default function CoverageUniverse({ cov, period, onNavigate }) {
           <>{' — '}<button type="button" className="inline-link" onClick={() => onNavigate('processus', 'rbm', 'sites')}>
             {u.kind === 'grid' ? tr('Renseigner') : tr('Renseigner la grille')}
           </button></>
+        )}
+        {(u.outside > 0 || u.cancelled > 0) && (
+          <span className="coverage-universe-more">
+            {u.outside > 0 && tr('{n} site(s) ont une visite déclarée ou des données pendant un mois sans « Oui » : non comptées.', { n: formatInt(u.outside) })}
+            {u.outside > 0 && u.cancelled > 0 && ' '}
+            {u.cancelled > 0 && tr('{n} visite(s) annulée(s), hors calcul.', { n: formatInt(u.cancelled) })}
+          </span>
         )}
       </span>
     </p>
