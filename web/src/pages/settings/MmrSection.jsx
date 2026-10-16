@@ -154,6 +154,26 @@ export default function MmrSection({ isAdmin }) {
     toast.success(n ? tr('{n} ligne(s) alignée(s) sur le référentiel de sites.', { n }) : tr('Déjà aligné sur le référentiel.'));
   }
 
+  // Compléter depuis le référentiel (plan général) : aligne les lignes existantes
+  // sur le vrai nombre de sites par activité ET crée les activités manquantes
+  // (celles qui ont des sites au registre mais pas de ligne MMR).
+  function completeFromRegistry() {
+    const allReg = registryCounts(registry, null); // normCat → nb de sites
+    const existing = new Set(plan.map((p) => p.key));
+    const toAdd = [...allReg.entries()].filter(([k, n]) => !existing.has(k) && n > 0).map(([k, n]) => ({
+      key: tmpKey(), id: null, fieldOfficeId: null,
+      activityCategory: registry.find((r) => normCat(r.activity) === k)?.activity || k,
+      operationDuration: 12, numberOfSites: n, riskLevel: 2, personsToDeploy: '', visitsPerDay: '', workingDays: '', feasible: '', note: '',
+    }));
+    const toSync = live.filter((r) => !r.deleted && !r.fieldOfficeId
+      && allReg.get(normCat(r.activityCategory)) != null
+      && Number(r.numberOfSites) !== allReg.get(normCat(r.activityCategory)));
+    const syncKeys = new Set(toSync.map((r) => r.key));
+    if (!toAdd.length && !toSync.length) { toast.success(tr('Déjà complet et aligné sur le référentiel.')); return; }
+    setWork((w) => w.map((r) => (syncKeys.has(r.key) ? { ...r, numberOfSites: allReg.get(normCat(r.activityCategory)) } : r)).concat(toAdd));
+    toast.success(tr('{a} activité(s) ajoutée(s), {s} ligne(s) alignée(s). Pensez à enregistrer.', { a: toAdd.length, s: toSync.length }));
+  }
+
   function applyBulk(field, value) {
     const targets = plan.filter((p) => selected.has(p.key));
     targets.forEach((p) => edit(p, field, value)); // la barre d'enregistrement affiche le compte
@@ -198,6 +218,9 @@ export default function MmrSection({ isAdmin }) {
   const allShownSelected = shown.length > 0 && shown.every((p) => selected.has(p.key));
   const officeName = scope ? offices.find((o) => o.id === scope)?.name : null;
   const syncable = plan.filter((p) => regCounts.has(p.key) && Number(p.row.numberOfSites) !== regCounts.get(p.key));
+  // Activités qui ont des sites au registre mais pas de ligne (plan général seulement).
+  const missingCats = scope ? 0 : [...registryCounts(registry, null).entries()]
+    .filter(([k, n]) => n > 0 && !plan.some((p) => p.key === k)).length;
 
   // ---- rendu --------------------------------------------------------------
   return (
@@ -230,6 +253,10 @@ export default function MmrSection({ isAdmin }) {
           <input className="input" placeholder={tr('Filtrer les catégories…')} value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
         <span className="mmr-spacer" />
+        {isAdmin && !scope && (syncable.length > 0 || missingCats > 0) && (
+          <Button size="sm" variant="secondary" icon={RefreshCw} onClick={completeFromRegistry}
+            title={tr('Aligne le nombre de sites sur le référentiel ET ajoute les activités du registre sans paramètre MMR.')}>{tr('Compléter depuis le référentiel ({n})', { n: syncable.length + missingCats })}</Button>
+        )}
         {isAdmin && syncable.length > 0 && (
           <Button size="sm" variant="ghost" icon={RefreshCw} onClick={() => syncSites(syncable)}
             title={tr('Reprend le nombre de sites du référentiel (sites par activité, antennes comptées avec leur bureau).')}>{tr('Nb sites ← référentiel ({n})', { n: syncable.length })}</Button>

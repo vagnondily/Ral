@@ -23,6 +23,7 @@ require('dotenv').config();
 const { Client } = require('pg');
 const logger = require('../config/logger');
 const { requireConnString, explainConnError } = require('../config/connString');
+const tpmZones = require('../modules/tpm/tpmAttribution.repository');
 
 const MONITORING_LINE = 'IV.suivi';
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -97,6 +98,7 @@ async function main() {
     }
     // Dernières visites du plan → une visite réalisée datée, pour que le RBM et
     // la couverture reflètent l'historique (idempotent : marquées via la source).
+    const seededVisitIds = []; // retour 58 : estampillées en fin de seed (TPM de leur zone)
     if (lastVisits.length) {
       const codeIds = new Map((await client.query("SELECT id, code FROM sites WHERE tenant_id=$1 AND code LIKE 'PLAN-%'", [tenantId])).rows.map((r) => [r.code, r.id]));
       for (let i = 0; i < lastVisits.length; i += CH) {
@@ -104,9 +106,10 @@ async function main() {
         if (!slice.length) continue;
         const params = [tenantId, admin]; const vals = [];
         slice.forEach((x) => { params.push(codeIds.get(x.code), `${x.month}-01`); const b = params.length; vals.push(`($1,$${b - 1},$${b},'realise',$2)`); });
-        await client.query(
+        const { rows: ins } = await client.query(
           `INSERT INTO site_visits (tenant_id, site_id, period_month, status, created_by)
-           VALUES ${vals.join(',')} ON CONFLICT DO NOTHING`, params);
+           VALUES ${vals.join(',')} ON CONFLICT DO NOTHING RETURNING id`, params);
+        seededVisitIds.push(...ins.map((r) => r.id));
       }
     }
     logger.info({ offices: plan.offices.length, sites: plan.sites.length, lastVisits: lastVisits.length }, 'seed-test: données réelles du plan insérées');
@@ -140,11 +143,13 @@ async function main() {
       const target = officeId ? '(tenant_id, field_office_id, activity_category) WHERE field_office_id IS NOT NULL'
         : '(tenant_id, activity_category) WHERE field_office_id IS NULL';
       await client.query(
-        `INSERT INTO mmr_parameters (tenant_id, field_office_id, activity_category, operation_duration, number_of_sites, risk_level, feasible, note, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'seed-plan',$8)
+        `INSERT INTO mmr_parameters (tenant_id, field_office_id, activity_category, operation_duration, number_of_sites, risk_level, feasible, visits_per_day, working_days, note, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,2,20,'seed-plan',$8)
          ON CONFLICT ${target} DO UPDATE SET
            operation_duration=EXCLUDED.operation_duration, number_of_sites=EXCLUDED.number_of_sites,
-           risk_level=EXCLUDED.risk_level, feasible=EXCLUDED.feasible, note='seed-plan', updated_at=now()`,
+           risk_level=EXCLUDED.risk_level, feasible=EXCLUDED.feasible,
+           visits_per_day=EXCLUDED.visits_per_day, working_days=EXCLUDED.working_days,
+           note='seed-plan', updated_at=now()`,
         [tenantId, officeId, cat, dur, nb, risk, feas, admin]);
     };
     const REF = 'FDA'; // bureau de référence (Fort Dauphin) pour le plan général
@@ -265,18 +270,26 @@ async function main() {
         const yyyymm = pm.slice(0, 7);
         for (let i = 0; i < siteFull.length; i += 1) {
           const s = siteFull[i];
-          const prov = tpmIds.length ? tpmIds[i % tpmIds.length] : null;
+          // Retour 58 : TPM de la zone (contrats) ; une seule exception motivée, pour la démonstration.
+          const exception = i === 0 && mi === 0 && tpmIds.length > 0;
           // ~55 % réalisées, ~10 % annulées, le reste planifiées.
           const mod = (i + mi) % 10;
           const status = mod < 6 ? 'realise' : (mod === 9 ? 'annule' : 'planifie');
           const day = String((i % 26) + 1).padStart(2, '0');
           const visitDate = status === 'annule' ? null : `${yyyymm}-${day}`;
-          await client.query(
-            `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, provider_id, agent, status, visit_date, created_by)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+          const { rows: ins } = await client.query(
+            `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, agent, status, visit_date, created_by,
+                                      provider_source, provider_id, provider_reason)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
              ON CONFLICT (tenant_id, site_id, period_month, activity) DO UPDATE
-               SET status = EXCLUDED.status, visit_date = EXCLUDED.visit_date, provider_id = EXCLUDED.provider_id, agent = EXCLUDED.agent`,
-            [tenantId, s.id, pm, s.activity || 'Suivi', prov, ROLES[i % ROLES.length], status, visitDate, admin]);
+               SET status = EXCLUDED.status, visit_date = EXCLUDED.visit_date, agent = EXCLUDED.agent,
+                   provider_source = EXCLUDED.provider_source, provider_id = EXCLUDED.provider_id,
+                   provider_reason = EXCLUDED.provider_reason, provider_zone_state = NULL, contract_id = NULL
+             RETURNING id`,
+            [tenantId, s.id, pm, s.activity || 'Suivi', ROLES[i % ROLES.length], status, visitDate, admin,
+              exception ? 'visite' : 'zone', exception ? tpmIds[0] : null,
+              exception ? 'Démonstration : visite confiée à un autre TPM que celui de la zone (seed-test).' : null]);
+          seededVisitIds.push(...ins.map((r) => r.id));
         }
         // Jours de déplacement (majoration manuelle) par prestataire, pour le budget.
         for (const pid of tpmIds) {
@@ -444,6 +457,14 @@ async function main() {
       }
     }
     logger.info({ distributions: pddRows.length, items: pddItems, stockCommodities: Object.keys(needByCommodity).length }, 'seed-test: PDD inséré');
+
+    // Retour 58 : zone de chaque site (district / commune), puis TPM des visites insérées par CE seed.
+    await client.query('BEGIN');
+    try {
+      await tpmZones.refreshSiteZonesTx(client, tenantId);
+      if (seededVisitIds.length) await tpmZones.restampVisitsTx(client, tenantId, { visitIds: seededVisitIds });
+      await client.query('COMMIT');
+    } catch (err) { await client.query('ROLLBACK'); throw err; }
 
     logger.info({ submissions: n, realSubmissions: monData.submissions.length, offices: 3, rates: 3 }, 'seed-test complet — connectez-vous (admin@mems.mg / changeme123) pour inspecter');
   } finally {

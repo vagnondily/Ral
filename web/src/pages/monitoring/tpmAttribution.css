@@ -1,0 +1,160 @@
+/* Affectation des TPM par zone (retour 58) — colonne du Plan de suivi, onglet « Affectation des TPM »,
+   TPM des visites. Couleur + icône + libellé, jamais la couleur seule. Jetons : bloc v6 de styles.css. */
+
+/* ---- Colonne « Prestataire (TPM) » du Plan de suivi ------------------------------------------ */
+.pb-tpm { min-width: 170px; max-width: 230px; line-height: 1.25; vertical-align: middle; }
+.pb-tpm-main { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.pb-tpm-ic { flex: 0 0 auto; color: var(--text-faint); }
+.tpm-tone-green .pb-tpm-ic { color: var(--green); }
+.tpm-tone-orange .pb-tpm-ic { color: var(--orange); }
+.tpm-tone-red .pb-tpm-ic { color: var(--red); }
+.tpm-tone-blue .pb-tpm-ic { color: var(--blue-600); }
+.pb-tpm-name { font-weight: 600; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pb-tpm-name.tpm-none { color: var(--red-text); }
+.pb-tpm-link { color: var(--red-text); text-decoration: underline; text-underline-offset: 2px; }
+.pb-tpm-link:hover { color: var(--red); }
+.pb-tpm-todo { color: var(--red-text); cursor: help; }
+.pb-tpm-origin, .pb-tpm-more { display: block; font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-tpm-more { color: var(--text-faint); }
+.pb-tpm-diff {
+  flex: 0 0 auto; font-size: 11px; font-weight: 600; padding: 0 5px; border-radius: 999px;
+  background: var(--orange-bg); color: var(--orange-text); font-variant-numeric: tabular-nums;
+}
+
+/* ---- TPM d'une visite (Affectation & visites) -------------------------------------------------- */
+.tpm-visit { min-width: 170px; max-width: 240px; line-height: 1.25; }
+.tpm-edit {
+  flex: 0 0 auto; display: inline-grid; place-items: center; width: 24px; height: 24px; margin-left: 2px;
+  border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); cursor: pointer;
+}
+.tpm-edit:hover { border-color: var(--border); background: var(--surface-2); color: var(--blue-600); }
+.tpm-edit:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.tpm-rule-note { margin: 2px 0 10px; font-size: 13px; color: var(--text-muted); }
+.tpm-rule-note a { color: var(--blue-600); font-weight: 600; }
+
+/* ---- Formulaires (nouvelle visite, changement de TPM) ----------------------------------------- */
+.tpm-zone-line { margin: 2px 0 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--green-bg); color: var(--green-text); font-size: 13px; }
+.tpm-zone-line.is-none { background: var(--red-bg); color: var(--red-text); }
+.tpm-zone-line.muted { background: var(--surface-2); color: var(--text-muted); }
+.tpm-other { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--text); }
+.tpm-dialog { display: grid; gap: 14px; }
+.tpm-dialog-now, .tpm-dialog-note { margin: 0; font-size: 13px; }
+.tpm-options { display: grid; gap: 8px; }
+.tpm-option {
+  display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface); cursor: pointer;
+}
+.tpm-option > span { display: grid; gap: 2px; font-size: 13px; }
+.tpm-option.is-active { border-color: var(--blue-600); background: var(--blue-50); }
+.tpm-option input { margin-top: 3px; }
+.tpm-reason-input { min-height: 72px; resize: vertical; height: auto; padding-top: 8px; font-family: inherit; line-height: 1.4; }
+.tpm-reason-foot { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; margin-top: 4px; }
+.tpm-reason-err { color: var(--red-text); }
+.tpm-suggest { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.tpm-chip {
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); color: var(--text);
+  font-size: 12px; padding: 3px 10px; cursor: pointer;
+}
+.tpm-chip:hover { border-color: var(--blue-600); color: var(--blue-600); }
+
+/* ---- Changement de TPM d'une sélection de zones (aperçu avant enregistrement) ----------------- */
+.tpm-change-period { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 13px; color: var(--text-muted); }
+.tpm-change-period label { display: inline-flex; align-items: center; gap: 6px; }
+.tpm-preview { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+.tpm-preview-title { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); }
+.tpm-preview-line { margin: 0; font-size: 13px; color: var(--text); }
+.tpm-preview-note { margin: 2px 0 0; font-size: 12px; }
+.tpm-contract-now { font-size: 13px; }
+.tpm-contract-now-h { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 2px; }
+.tpm-contract-now ul, .tpm-moves ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
+.tpm-moves li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 13px; }
+.tpm-moves li svg { color: var(--text-faint); }
+
+/* ---- Onglet « Affectation des TPM » (espace RBM) --------------------------------------------- */
+.tpa-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.tpa-head .seg button { display: inline-flex; align-items: center; gap: 6px; }
+.tpa-period { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; color: var(--text-muted); }
+.tpa-period label { display: inline-flex; align-items: center; gap: 6px; }
+.tpa-presets { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.tpa-card { overflow: hidden; }
+.tpa-filters .tpa-all { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); }
+.tpa-pills { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 18px; border-bottom: 1px solid var(--border); }
+.tpa-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--surface); color: var(--text); font-size: 13px; cursor: pointer;
+}
+.tpa-pill:hover { border-color: var(--border-strong); }
+.tpa-pill.is-active { border-color: var(--blue-600); background: var(--blue-50); color: var(--blue-700); font-weight: 600; }
+.tpa-pill:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.tpa-pill-n { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.tpa-pill.is-active .tpa-pill-n { color: var(--blue-700); }
+.tpa-banners { display: grid; gap: 8px; }
+.tpa-table td, .tpa-table th { vertical-align: top; }
+.tpa-table .tpa-check { width: 36px; }
+.tpa-table .tpa-zone { min-width: 150px; }
+.tpa-table .tpa-actions { width: 96px; white-space: nowrap; text-align: right; }
+.tpa-region > th { background: var(--canvas); font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text); padding: 6px 12px; }
+.tpa-region-in { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; }
+.tpa-region-in strong { color: var(--text-strong); font-size: 14px; }
+.tpa-names { color: var(--text-muted); font-size: 12px; }
+.tpa-commune .tpa-zone { padding-left: 30px; }
+.tpa-table tr.is-focused > td { background: var(--blue-50); }
+.tpa-table tr.is-focused > td:first-child { box-shadow: inset 3px 0 0 var(--blue-600); }
+.tpa-tag { margin-left: 6px; font-size: 11px; padding: 0 6px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted); }
+.tpa-contracts { min-width: 190px; }
+.tpa-contract { display: grid; gap: 1px; padding: 2px 0; color: inherit; text-decoration: none; }
+.tpa-contract .mono { color: var(--blue-600); font-size: 12.5px; }
+.tpa-contract:hover .mono { text-decoration: underline; }
+.tpa-contract .muted { font-size: 12px; }
+.tpa-segs { min-width: 260px; }
+.tpa-seg { padding: 3px 0; }
+.tpa-seg + .tpa-seg { border-top: 1px dashed var(--border); }
+.tpa-seg-main { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.tpa-seg-why {
+  margin-top: 2px; font-size: 12px; color: var(--text-muted); max-width: 360px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.tpa-seg-why .tpa-reason-text { display: inline; font-size: 12px; color: var(--text); }
+.tpa-seg-name { font-weight: 600; color: var(--text-strong); }
+.tpa-seg-range { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.tpa-reason-text {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 12.5px; color: var(--text);
+}
+.tpa-visits { white-space: nowrap; font-size: 13px; }
+.tpa-visits > span { display: block; }
+.tpa-visits .tpa-diff { display: inline-block; margin: 2px 0 0; }
+.tpa-diff {
+  display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 999px;
+  background: var(--orange-bg); color: var(--orange-text);
+}
+
+/* ---- Journal de l'affectation ---------------------------------------------------------------- */
+.tpa-filter-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border-radius: 999px;
+  background: var(--blue-50); border: 1px solid #b9d5f0; color: var(--blue-700); font-size: 13px; font-weight: 600;
+}
+.tpa-filter-chip button { display: inline-grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; }
+.tpa-filter-chip button:hover { background: #d6e7f7; }
+.tpa-log td { vertical-align: top; }
+.tpa-log .nowrap { white-space: nowrap; }
+.tpa-log .tpa-log-when { width: 110px; }
+.tpa-log .tpa-log-who { min-width: 120px; max-width: 170px; overflow-wrap: anywhere; }
+.tpa-log .tpa-log-scope { min-width: 200px; }
+.tpa-log .tpa-reason { min-width: 160px; max-width: 260px; }
+.tpa-log-counts { white-space: nowrap; font-size: 13px; }
+.tpa-log-counts > span { display: block; }
+.tpa-log-detail > td { background: var(--surface-2); }
+.tpa-log-lines { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 13px; }
+.tpa-log-lines li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.tpa-log-where { min-width: 220px; color: var(--text); }
+.tpa-log-change { display: inline-flex; align-items: center; gap: 6px; }
+.tpa-log-change svg { color: var(--text-faint); }
+.tpa-log-contract { font-size: 12px; }
+.tpa-more { display: flex; justify-content: center; }
+
+@media (max-width: 760px) {
+  .tpa-head { align-items: stretch; }
+  .tpa-table .tpa-zone { min-width: 120px; }
+  .tpa-log-where { min-width: 0; }
+}

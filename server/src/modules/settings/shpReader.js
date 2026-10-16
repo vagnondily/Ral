@@ -9,7 +9,7 @@
  * l'anneau extérieur le plus grand (robuste aux îles) ; repli sur le centre de
  * l'emprise si l'aire est nulle. Format : ESRI Shapefile Technical Description.
  */
-const HEADER = 100;
+const { readShpGeometries } = require('../common/shpGeometry');
 
 function ringCentroid(pts) {
   let a = 0; let cx = 0; let cy = 0;
@@ -23,39 +23,27 @@ function ringCentroid(pts) {
   return { area: Math.abs(a), x: cx / (6 * a), y: cy / (6 * a) };
 }
 
-function readShp(buffer) {
-  const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
-  if (buf.length < HEADER || buf.readInt32BE(0) !== 9994) throw new Error('Fichier .shp invalide (code 9994 attendu).');
-  const out = [];
-  let off = HEADER;
-  while (off + 8 <= buf.length) {
-    const contentLen = buf.readInt32BE(off + 4) * 2; // mots de 16 bits
-    const start = off + 8;
-    off = start + contentLen;
-    if (off > buf.length || contentLen < 4) { out.push(null); break; }
-    const type = buf.readInt32LE(start);
-    const base = type % 10 === 1 ? 1 : type; // 11/21 → 1
-    if (type === 0) { out.push(null); continue; }
-    if (base === 1) { out.push({ lng: buf.readDoubleLE(start + 4), lat: buf.readDoubleLE(start + 12) }); continue; }
-    const xmin = buf.readDoubleLE(start + 4); const ymin = buf.readDoubleLE(start + 12);
-    const xmax = buf.readDoubleLE(start + 20); const ymax = buf.readDoubleLE(start + 28);
-    const bboxCenter = { lng: (xmin + xmax) / 2, lat: (ymin + ymax) / 2 };
-    const kind = type % 10; // 3 polyligne, 5 polygone, 8 multipoint
-    if (kind !== 5) { out.push(bboxCenter); continue; }
-    const numParts = buf.readInt32LE(start + 36); const numPoints = buf.readInt32LE(start + 40);
-    const partsAt = start + 44; const ptsAt = partsAt + 4 * numParts;
-    let best = null;
-    for (let p = 0; p < numParts; p += 1) {
-      const from = buf.readInt32LE(partsAt + 4 * p);
-      const to = p + 1 < numParts ? buf.readInt32LE(partsAt + 4 * (p + 1)) : numPoints;
-      const ring = [];
-      for (let k = from; k < to; k += 1) ring.push([buf.readDoubleLE(ptsAt + 16 * k), buf.readDoubleLE(ptsAt + 16 * k + 8)]);
-      const c = ringCentroid(ring);
-      if (c && (!best || c.area > best.area)) best = c;
-    }
-    out.push(best ? { lng: best.x, lat: best.y } : bboxCenter);
+/** Point représentatif d'une géométrie (common/shpGeometry) : voir l'en-tête. */
+function representativePoint(g) {
+  if (!g) return null;
+  if (g.type === 'point') return g.point;
+  const [xmin, ymin, xmax, ymax] = g.bbox;
+  const bboxCenter = { lng: (xmin + xmax) / 2, lat: (ymin + ymax) / 2 };
+  if (g.type !== 'polygon') return bboxCenter;
+  let best = null;
+  for (const ring of g.rings) {
+    const c = ringCentroid(ring);
+    if (c && (!best || c.area > best.area)) best = c;
   }
-  return out;
+  return best ? { lng: best.x, lat: best.y } : bboxCenter;
+}
+
+/**
+ * Un point par enregistrement (ordre .dbf), ou null. Lecture binaire UNIQUE :
+ * common/shpGeometry (retour 57 : un seul lecteur de shapefile dans MEMS).
+ */
+function readShp(buffer) {
+  return readShpGeometries(buffer).map(representativePoint);
 }
 
 /** Le .prj décrit-il des coordonnées géographiques (degrés) ? Sinon, pas de lat/lng. */
@@ -69,4 +57,4 @@ function isGeographicPrj(prjText) {
 const plausible = (p) => Boolean(p) && Number.isFinite(p.lat) && Number.isFinite(p.lng) && Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180
   && !(p.lat === 0 && p.lng === 0);
 
-module.exports = { readShp, isGeographicPrj, plausible, ringCentroid };
+module.exports = { readShp, isGeographicPrj, plausible, ringCentroid, representativePoint };

@@ -148,3 +148,89 @@ test('plan local = plan du serveur : mêmes instances, mêmes numéros de figure
   assert.deepEqual(local.instances.map(pick), server.instances.map(pick));
   assert.deepEqual(local.sections.map((s) => [s.id, s.orientation, s.title]), server.sections.map((s) => [s.id, s.orientation, s.title]));
 });
+
+test('annexes (retour 88) : renvoi dans le corps, annexes lettrées à la fin sur leur page, hors numérotation, au sommaire', async (t) => {
+  const p = await load(t); if (!p) return;
+  const doc = {
+    page: { size: 'A4', orientation: 'portrait' },
+    blocks: [
+      { id: 'h1', type: 'heading', params: { text: 'Rapport', level: 1 } },
+      { id: 'big', type: 'data', params: { dataset: 'cov.by_office', view: 'table' } },
+      { id: 'd2', type: 'data', params: { dataset: 'cov.by_activity', view: 'table' } },
+      { id: 'chart', type: 'data', params: { dataset: 'cov.monthly', view: 'column', annex: true, annexOrientation: 'portrait' } },
+      { id: 'keep', type: 'data', params: { dataset: 'cov.by_district', view: 'table', annex: false } },
+    ],
+  };
+  const rows = { big: 40, d2: 10, keep: 90 };
+  const annex = {
+    isAnnexed: (b, iid, view, inColumn) => p.annexDecision(b, { view, rows: rows[iid] ?? null, autoRows: 25, inColumn }),
+    orientationOf: (inst, b) => (b.params.annexOrientation && b.params.annexOrientation !== 'auto' ? b.params.annexOrientation : 'landscape'),
+  };
+  const plan = p.localPlan(doc, { annex });
+  const body = plan.instances.filter((i) => i.sectionId === '_doc').map((i) => i.iid);
+  // Le tableau de 40 lignes (> 25) et le graphique marqué partent en annexe ; « keep » (annex: false) reste.
+  assert.deepEqual(body, ['h1', 'annexref~big', 'd2', 'annexref~chart', 'keep']);
+  // Numérotation du corps sans les annexes : d2 = Tableau 1, keep = Tableau 2.
+  const by = Object.fromEntries(plan.instances.map((i) => [i.iid, i]));
+  assert.deepEqual(by.d2.figure, { kind: 'table', n: 1 });
+  assert.deepEqual(by.keep.figure, { kind: 'table', n: 2 });
+  // Annexes A puis B, chacune sa section (nouvelle page) et son orientation, titre puis bloc.
+  assert.deepEqual(plan.annexes.map((a) => [a.letter, a.iid, a.orientation]), [['A', 'big', 'landscape'], ['B', 'chart', 'portrait']]);
+  assert.deepEqual(by.big.figure, { kind: 'annex', letter: 'A' });
+  assert.equal(by['annexref~big'].annex.letter, 'A');
+  const secs = p.sectionsOfPlan(plan);
+  assert.deepEqual(secs.map((s) => [s.id, s.orientation, s.items.map((i) => i.iid)]), [
+    ['_doc', 'portrait', ['h1', 'annexref~big', 'd2', 'annexref~chart', 'keep']],
+    ['annex~big', 'landscape', ['annexhead~big', 'big']],
+    ['annex~chart', 'portrait', ['annexhead~chart', 'chart']],
+  ]);
+  // Pagination : chaque annexe commence une nouvelle page ; le sommaire les liste après les titres.
+  const pg = p.paginate(secs.map((s) => ({ id: s.id, size: s.size, orientation: s.orientation, bodyH: 1000, items: s.items.map((i) => ({ iid: i.iid, h: 20, keepWithNext: i.type === 'annexhead' })) })));
+  assert.deepEqual(pg.pages.map((x) => [x.n, x.orientation]), [[1, 'portrait'], [2, 'landscape'], [3, 'portrait']]);
+  const toc = p.tocEntries(plan, pg.pageOf, 2, (a) => `Annexe ${a.letter}`);
+  assert.deepEqual(toc.map((e) => [e.text, e.page, e.level]), [['Rapport', 1, 1], ['Annexe A', 2, 1], ['Annexe B', 3, 1]]);
+  // Règle de décision : jamais dans une colonne ; seuil sur les vues en lignes seulement ; données pas encore là → corps.
+  assert.equal(p.annexDecision(doc.blocks[1], { view: 'table', rows: 40, autoRows: 25, inColumn: true }), false);
+  assert.equal(p.annexDecision(doc.blocks[1], { view: 'bar', rows: 40, autoRows: 25 }), false);
+  assert.equal(p.annexDecision(doc.blocks[1], { view: 'table', rows: null, autoRows: 25 }), false);
+  assert.equal(p.annexDecision(doc.blocks[1], { view: 'table', rows: 25, autoRows: 25 }), false);
+  assert.deepEqual([0, 25, 26, 51].map(p.annexLetter), ['A', 'Z', 'AA', 'AZ']);
+});
+
+test('en-tête et pied d\'une page (retour 88) : ceux de sa section (aucun / propres) priment sur la règle de la 1re page, puis le document', async (t) => {
+  const p = await load(t); if (!p) return;
+  const band = (id, h = 12) => ({ height: h, elements: [{ id, kind: 'text', x: 0, y: 0, w: 50, h: 6, text: id }] });
+  const page = { header: band('doc'), footer: band('docf'), firstPage: 'own', firstHeader: band('first', 30), firstFooter: band('firstf') };
+  const id = (b) => (b ? b.elements[0].id : null);
+  // Page 1 sans réglage propre : la 1re page du document.
+  assert.deepEqual(Object.values(p.pageBands(page, { header: 'inherit', footer: 'inherit' }, { first: true })).map(id), ['first', 'firstf']);
+  // Une page à en-tête PROPRE (même la 1re) : le sien ; « aucun » : rien.
+  const own = { header: 'own', headerBand: band('own', 20), footer: 'none' };
+  assert.deepEqual(Object.values(p.pageBands(page, own, { first: true })).map(id), ['own', null]);
+  assert.deepEqual(Object.values(p.pageBands(page, { header: 'inherit' }, { first: false })).map(id), ['doc', 'docf']);
+  assert.deepEqual(Object.values(p.pageBands({ ...page, firstPage: 'none' }, {}, { first: true })).map(id), [null, null]);
+  // La zone utile suit la bande effective (30 mm pour la 1re page, 20 mm pour l'en-tête propre).
+  const g1 = p.pageGeometry(page, {}, { first: true });
+  const g2 = p.pageGeometry(page, own, { first: false });
+  assert.equal(g1.headerH, 30);
+  assert.equal(g2.headerH, 20);
+  assert.equal(g2.footerH, 0);
+});
+
+test('annexes : le plan du serveur numérote comme le plan local pour un bloc marqué « en annexe »', async (t) => {
+  const p = await load(t); if (!p) return;
+  const { buildPlan } = require('../src/modules/reports/renderPlan');
+  const doc = {
+    title: 'R', period: { from: '2026-01', to: '2026-03' }, filters: {}, page: { size: 'A4', orientation: 'portrait' },
+    blocks: [
+      { id: 'a', type: 'data', params: { dataset: 'cov.by_office', view: 'table', annex: true, filters: {} } },
+      { id: 'b', type: 'data', params: { dataset: 'cov.by_office', view: 'table', filters: {} } },
+    ],
+  };
+  const server = buildPlan(doc, { defaultView: () => 'table', lang: 'fr' });
+  const local = p.localPlan(doc, { annex: { isAnnexed: (b, iid, view, inColumn) => p.annexDecision(b, { view, inColumn }) } });
+  const fig = (plan, iid) => plan.instances.find((i) => i.iid === iid).figure;
+  assert.deepEqual(fig(server, 'a'), fig(local, 'a'));
+  assert.deepEqual(fig(server, 'b'), fig(local, 'b'));
+  assert.deepEqual(server.annexes, [{ letter: 'A', iid: 'a' }]);
+});

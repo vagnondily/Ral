@@ -20,10 +20,17 @@ export const EXPORT_COLORS = {
   halo: '#ffffff', hatchA: '#b9c1cc', hatchB: '#eef0f4', done: '#0f7b40', plan: '#c77700', collect: '#6250d6', frame: '#ccd2dc',
 };
 
-/** Symbole d'un site (forme + couleur, comme à l'écran). */
-function siteSymbol(x, y, status, C) {
+/**
+ * Couleurs littérales des activités (retour 94) : même palette que l'écran (--map-act-0…8,
+ * thème clair) ; index = numéro de couleur (0 = « Autres »).
+ */
+export const EXPORT_ACTIVITY_COLORS = ['#8b93a1', '#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'];
+
+/** Symbole d'un site (forme + couleur, comme à l'écran) ; `color` : point coloré par son activité. */
+function siteSymbol(x, y, status, C, color = null) {
   const r = 5;
   const f = (n) => n.toFixed(1);
+  if (color) return `<circle cx="${f(x)}" cy="${f(y)}" r="${r}" fill="${esc(color)}" stroke="${C.halo}" stroke-width="1.8"/>`;
   if (status === 'realise') return `<circle cx="${f(x)}" cy="${f(y)}" r="${r}" fill="${C.done}" stroke="${C.halo}" stroke-width="1.5"/>`;
   if (status === 'hors_plan') return `<path d="M${f(x)},${f(y - r - 1)}L${f(x + r + 1)},${f(y)}L${f(x)},${f(y + r + 1)}L${f(x - r - 1)},${f(y)}Z" fill="${C.done}" stroke="${C.halo}" stroke-width="1.3"/>`;
   if (status === 'prevu') return `<circle cx="${f(x)}" cy="${f(y)}" r="${r - 0.6}" fill="${C.halo}" stroke="${C.plan}" stroke-width="2.4"/>`;
@@ -73,8 +80,8 @@ export function exportPoints(points, layers) {
  *   features:{properties:{key,name,label,bbox,area},geometry:object}[],
  *   fills: Record<string, string|'hatch'|null>, regions?: Record<string,string>,
  *   frame?: number[], withData?: string[],
- *   legend: {color:string,label:string}[], extras?: {kind:'empty'|'hatch'|'site'|'commune'|'collect', label:string, status?:string}[],
- *   points?: { sites?: {lng,lat,status}[], communes?: {lng,lat,n}[], bins?: {lng,lat,n}[] },
+ *   legend: {color:string,label:string}[], extras?: {kind:'empty'|'hatch'|'site'|'commune'|'collect', label:string, status?:string, color?:string}[],
+ *   points?: { sites?: {lng,lat,status,color?}[], communes?: {lng,lat,n}[], bins?: {lng,lat,n}[] },
  *   northLabel?:string, locatorLabel?:string, fontCss?:string, width?:number, height?:number,
  * }} m
  * @returns {string} SVG autonome
@@ -124,7 +131,7 @@ export function buildExportSvg(m) {
     const [x, y] = proj(c.lng, c.lat); const r = Math.min(14, 5.5 + Math.sqrt(c.n || 1) * 1.5);
     out.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${C.halo}" fill-opacity=".85" stroke="${C.ink}" stroke-width="1.2" stroke-dasharray="2.5 2"/>`);
   }
-  for (const s of pts.sites || []) { const [x, y] = proj(s.lng, s.lat); out.push(siteSymbol(x, y, s.status, C)); }
+  for (const s of pts.sites || []) { const [x, y] = proj(s.lng, s.lat); out.push(siteSymbol(x, y, s.status, C, s.color)); }
   // Étiquettes sans chevauchement (priorité aux contours avec données, puis aux grandes aires).
   const items = features.filter((f) => (m.withData || []).includes(f.properties.key)).map((f) => {
     const [x, y] = proj(f.properties.label[0], f.properties.label[1]);
@@ -153,7 +160,7 @@ export function buildExportSvg(m) {
   for (const e of m.extras || []) {
     let sw;
     if (e.kind === 'hatch') sw = `<rect x="${lx}" y="${ly - 12}" width="16" height="16" fill="url(#x-hatch)" stroke="${C.frame}"/>`;
-    else if (e.kind === 'site') sw = siteSymbol(lx + 8, ly - 4, e.status, C);
+    else if (e.kind === 'site') sw = siteSymbol(lx + 8, ly - 4, e.status, C, e.color);
     else if (e.kind === 'commune') sw = `<circle cx="${lx + 8}" cy="${ly - 4}" r="7" fill="none" stroke="${C.ink}" stroke-width="1.2" stroke-dasharray="2.5 2"/>`;
     else if (e.kind === 'collect') sw = `<circle cx="${lx + 8}" cy="${ly - 4}" r="5" fill="${C.collect}" fill-opacity=".55"/>`;
     else sw = `<rect x="${lx}" y="${ly - 12}" width="16" height="16" fill="${C.empty}" stroke="${C.frame}"/>`;

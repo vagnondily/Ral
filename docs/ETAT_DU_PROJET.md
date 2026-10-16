@@ -1,6 +1,6 @@
 # MEMS 2.0 — État du projet (fait / en cours / reste à faire)
 
-_Mise à jour : 14 octobre 2026, 12:40 UTC. `main` contient les lots 0, 1, 1b, 6a, le retour 56 et le registre des sites (dernier commit de code : `7fa3142`). La passation entre sessions est dans [`REPRISE.md`](REPRISE.md)._
+_Mise à jour : 15 octobre 2026, 10:40 UTC. `main` contient les lots 0, 1, 1b, 6a, le retour 56, le registre des sites, les sites actifs / inactifs, l'identifiant des sites, les finitions d'écrans du 15/10, le premier lot de réactivité, le concepteur partie 2 (en-tête libre, annexes, orientation par page) et le référentiel des sous-activités (autre session). La passation entre sessions est dans [`REPRISE.md`](REPRISE.md)._
 
 Documents de suivi, à lire dans cet ordre :
 
@@ -8,7 +8,7 @@ Documents de suivi, à lire dans cet ordre :
 |---|---|
 | [`REPRISE.md`](REPRISE.md) | **Passation entre sessions** : ce qui est publié, ce que fait chaque agent (branche, avancement, consigne exacte), ce qui reste, règles pour travailler à deux. |
 | [`JOURNAL.md`](JOURNAL.md) | Chaque action, avec son heure (UTC), son statut, son commit et ses vérifications. Le tableau « État courant » est en tête. |
-| [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) | Chacun de vos retours (n° 1 à 71) : ce qu'il faut, la réponse prévue et son **état**. |
+| [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) | Chacun de vos retours (n° 1 à 106) : ce qu'il faut, la réponse prévue et son **état**. |
 | [`PLAN_RETOURS_15_37.md`](PLAN_RETOURS_15_37.md) | Les définitions communes (visite, réalisée, site actif, couverture, période…) et l'ordre des lots. |
 | [`SPEC_LOT_1B.md`](SPEC_LOT_1B.md), [`SPEC_LOT_6A.md`](SPEC_LOT_6A.md), [`SPEC_LOT_7A.md`](SPEC_LOT_7A.md) | Spécifications des lots en cours, avec les décisions prises et les corrections exigées par la critique. |
 | [`ANALYSE_REFERENCES.md`](ANALYSE_REFERENCES.md), [`ANALYSE_LIAISONS.md`](ANALYSE_LIAISONS.md), [`REFONTE_UX.md`](REFONTE_UX.md) | Analyses de fond (vos fichiers réels, liaisons entre pages, refonte UX). |
@@ -17,11 +17,11 @@ Documents de suivi, à lire dans cet ordre :
 
 | Contrôle | Résultat |
 |---|---|
-| Tests serveur (`cd server && npm test`) | **937** (936 réussis, 1 ignoré : il ne tourne qu'avec les exports réels) |
+| Tests serveur (`cd server && npm test`) | **1 228** (1 224 réussis, 4 ignorés : ils ne tournent qu'avec les exports réels ou une base jetable — passés à part sur base réelle le 16/10) |
 | Lint serveur (`npm run lint`) | propre |
 | Build web (`cd web && npm run build`) | OK |
-| Balayage navigateur (33 écrans, FR et EN — `node web/scripts/sweep-ecrans.cjs`) | 0 erreur console ou API, 0 phrase anglaise manquante |
-| Migrations | `001` → `067` (062–064 : lot 7a ; numéros réservés dans `REPRISE.md`) |
+| Balayage navigateur (35 écrans, FR et EN — `node web/scripts/sweep-ecrans.cjs`) | 0 erreur console ou API, 0 phrase anglaise manquante (16/10, 06:25) |
+| Migrations | `001` → `073` + `101` (69 fichiers ; numéros réservés dans `REPRISE.md`) — essayées sur base neuve et sur copie |
 
 ---
 
@@ -97,9 +97,23 @@ Documents de suivi, à lire dans cet ordre :
   - affichage des codes Adm en option.
 - **Fiches de suivi** : renommer une fiche et changer son activité depuis sa page (retour 59) ; voir la liste des choix d'une question (retour 66).
 
+### 16 octobre — publiés le matin
+- **Mêmes chiffres de couverture partout** (retour 110) : une seule source (`/api/dashboards/coverage`) pour la Synthèse et « Couverture & performance » ; un univers ; « suivi » = visite OU données ; total par activité toujours visible ; « Sites prévus → suivis » distinct de l'exécution du plan.
+- **Effacer les planifications** : ne supprime plus que les visites prévues libres (défaut grave de la planification automatique, corrigé avec un test sur vraie base).
+- **Planification automatique** (retour 82, publiée par l'autre session dans la nuit) : bouton « Générer le plan », règles MMR / RBM, regroupement, TPM équilibrés, agents, export « base de budget ». Fiabilité et retours 107–108 en cours.
+
+### 15 octobre — publiés dans la matinée
+- **Sites (actifs / inactifs) à la forme du Plan de suivi** (retour 98) : mêmes bandeaux, filtres, tableau à colonnes figées et grille des mois ; règle unique « site actif » (celle des tableaux de bord) ; « Renseigner les cases vides » en une transaction.
+- **Finitions d'écrans** (retours 80, 83, 85 partie 1, 86, 94) : sélecteur de période jamais coupé ; onglet « Données » propre (noms de lieux, dates sans heure, pages de 1 000 annoncées) ; fiche sans indicateur expliquée et cartes de même hauteur ; carte recadrée sur le bureau choisi, couleur par activité, légende claire.
+- **Concepteur de rapport, partie 2** (retours 87, 88, 103) : graphiques lisibles ; annexes ; orientation et format par page ; logos téléversés (PNG / JPEG reconnus par les octets) ; **concepteur d'en-tête et de pied de page** (8 modèles, éléments déplaçables sur grille, « mes en-têtes »).
+- **Réactivité, premier lot** (retours 61, 84, 100) : compteurs RBM légers (3,2 Mo → 138 o), carte et récapitulatif de couverture 3 fois plus rapides, modifications de visite sans rechargement, pré-vol CORS mis en cache.
+- **Autre session** (PR #3) : référentiel activités › sous-activités › information (retour 92) ; zones du contrat enrichies (retour 38).
+
 ---
 
 ## 🔄 En cours de réalisation (branches `wip/…`)
+
+> **Au 15/10, 10:40 UTC** — le tableau ci-dessous date du 14/10 ; l'état à jour de chaque agent est dans [`REPRISE.md`](REPRISE.md) § 2 : planification automatique (`wip/lot5-gen`), TPM des contrats (`wip/r58`), tâches de fond (`wip/perf`), tableau de bord fidèle à la maquette (`wip/dash-template`), indicateurs de vos 5 fiches (`wip/indicators`), filtres du rapportage (`wip/7a-p2`), bureaux (`wip/offices`), activités partout (`wip/activities`), Partenaires & TPM (`wip/lot8`), état de l'application (`wip/admin`), sous-tables (`wip/repeats`), fonctions de calcul (`wip/calc`), PDD (`wip/pdd`).
 
 | Lot | Contenu | Où en est-on (14/10) |
 |---|---|---|

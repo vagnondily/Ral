@@ -163,6 +163,62 @@ export function landscapeAround(blocks, id, previous = 'portrait') {
   };
 }
 
+/** Liste de blocs qui contient les blocs d'une page : la racine, ou les blocs d'une section répétée. */
+const listOf = (blocks, container) => {
+  if (!container) return blocks || [];
+  const c = findBlock(blocks, container);
+  return c && c.block.type === 'repeat' ? c.block.params.blocks : null;
+};
+const withList = (blocks, container, fn) => (container
+  ? mapBlock(blocks, container, (r) => ({ ...r, params: { ...r.params, blocks: fn(r.params.blocks) } }))
+  : fn(blocks));
+const sectionBlock = (params) => ({ id: newId('section'), type: 'section', params: { header: 'inherit', footer: 'inherit', ...params } });
+/** Réglages d'une section sans ses valeurs « absentes » (absente = celle du document). */
+const cleanParams = (p) => Object.fromEntries(Object.entries(p || {}).filter(([, v]) => v !== undefined));
+
+/**
+ * Mise en page d'UNE page (onglet Pages, retour 88) : orientation, format, en-tête et pied de
+ * CETTE page seulement. Son contenu — les blocs [firstId … lastId] d'une même liste (racine, ou
+ * section répétée `container`) — passe dans une section propre, et une section de RÉTABLISSEMENT
+ * après lui rend aux pages suivantes la mise en page d'avant : les autres pages ne changent pas.
+ * Si une section commence déjà exactement au 1er bloc de la page, elle est modifiée (et rétablie
+ * après la page si elle allait plus loin). `patch` : { orientation, size, header, footer,
+ * headerBand, footerBand } (undefined = celle du document).
+ * @returns {{ blocks: object[], sectionId: string|null }}
+ */
+export function setPageLayout(blocks, { container = null, firstId, lastId, patch }) {
+  const list = listOf(blocks, container);
+  if (!list) return { blocks, sectionId: null };
+  const i = list.findIndex((b) => b.id === firstId);
+  const j = list.findIndex((b) => b.id === lastId);
+  if (i < 0 || j < i) return { blocks, sectionId: null };
+  let k = i - 1;
+  while (k >= 0 && list[k].type !== 'section') k -= 1;
+  const prev = k >= 0 ? list[k] : null; // section en vigueur avant la page (null = le document)
+  const next = list.findIndex((b, x) => x > i && b.type === 'section');
+  const end = next < 0 ? list.length : next; // fin de la section qui contient la page
+  let sectionId = null;
+  const out = withList(blocks, container, (l) => {
+    const n = [...l];
+    const restoreAfter = (params) => { if (j + 1 < n.length && n[j + 1].type !== 'section') n.splice(j + 1, 0, sectionBlock(params)); };
+    if (prev && k === i - 1) {
+      // Une section commence au 1er bloc de la page : on la modifie ; si elle continue après la page, on rétablit.
+      const old = prev.params || {};
+      n[k] = { ...prev, params: cleanParams({ ...old, ...patch }) };
+      sectionId = prev.id;
+      if (end - 1 > j) restoreAfter(cleanParams(old));
+    } else {
+      const base = prev ? cleanParams(prev.params) : {};
+      restoreAfter(base);
+      const s = sectionBlock(cleanParams({ ...base, ...patch }));
+      sectionId = s.id;
+      n.splice(i, 0, s);
+    }
+    return n;
+  });
+  return { blocks: out, sectionId };
+}
+
 /** Identifiant d'instance d'un bloc (racine ou section répétée). */
 export const iidOf = (blockId, repeat = null) => (repeat ? `${repeat.id}~${repeat.key}~${blockId}` : blockId);
 

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ArrowDownCircle, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleDot, Columns3, Download, FileSpreadsheet,
-  Filter, Layers, ListChecks, Map as MapIcon, PauseCircle, Plus, RotateCcw, Save, Search, ShieldAlert, Upload, X,
+  Filter, Layers, ListChecks, Map as MapIcon, PauseCircle, Plus, RotateCcw, Save, Search, ShieldAlert, Upload, X, CalendarRange,
 } from 'lucide-react';
 import L from 'leaflet';
 import { TILES_URL, probeTiles } from '../../components/map/TileUnderlay.jsx';
@@ -14,7 +14,9 @@ import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, formatLocale, monthLabel } from '../../lib/format.js';
 import { applyPending, boardKpis, monthTotals, pendingKey, rateTone, visitRate } from '../../lib/planBoard.js';
+import PlanAutoDrawer from './PlanAutoDrawer.jsx';
 import './planBoard.css';
+import TpmZoneCell from './TpmZoneCell.jsx';
 
 /**
  * Plan de suivi « type Excel » (classeur RBM) : par exercice, chaque site porte
@@ -155,6 +157,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
           </label>
           <Button variant="secondary" icon={Download} onClick={() => api.planBoardExport(year).catch((e) => toast.error(e.message))}>{tr('Exporter')}</Button>
           {canEdit && <>
+            <Button variant="secondary" icon={CalendarRange} onClick={() => setModal('autoplan')}>{tr('Générer le plan automatiquement')}</Button>
             <Button variant="secondary" icon={FileSpreadsheet} onClick={() => setModal('template')}>{tr('Gabarit d\'activité')}</Button>
             <Button variant="secondary" icon={Upload} onClick={() => fileRef.current?.click()}>{tr('Importer')}</Button>
             <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={(e) => onImportFile(e.target.files[0])} />
@@ -252,6 +255,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
       {modal === 'bulk' && <BulkModal year={year} siteIds={[...selected]} refs={refs} onClose={() => setModal(null)}
         onDone={async () => { setModal(null); setSelected(new Set()); setPending({}); await load(); }} />}
       {modal === 'add' && <AddSiteModal refs={refs} onClose={() => setModal(null)} onDone={async () => { setModal(null); await load(); }} />}
+      {modal === 'autoplan' && <PlanAutoDrawer year={year} onClose={() => setModal(null)} onDone={async () => { setModal(null); setPending({}); await load(); }} />}
       {modal === 'template' && <TemplateModal year={year} refs={refs} onClose={() => setModal(null)} />}
       {modal?.import && <ImportModal state={modal.import} onClose={() => setModal(null)} onDone={async () => { setModal(null); setPending({}); await load(); }} />}
     </div>
@@ -302,7 +306,7 @@ function PlanTable({ rows, offset, allRows, capacity, pending, canEdit, selected
           {canEdit && <SelectAllHead allSelected={allSelected} onSelectAll={onSelectAll} label={tr('Tout sélectionner')} />}
           <th scope="col" className="num pb-stick pb-stick-rank">{tr('Rang')}</th><th scope="col" className="pb-stick pb-stick-name">{tr('Localité')}</th><th scope="col">{tr('Bureau')}</th>
           <th scope="col">{tr('District')}</th><th scope="col">{tr('Commune')}</th><th scope="col">{tr('Activité')}</th>
-          <th scope="col" title={tr('Prestataire de suivi affecté aux visites de l\'exercice')}>{tr('Prestataire (TPM)')}</th><th scope="col">{tr('Priorité')}</th>
+          <th scope="col" title={tr('TPM de la zone du site : celui des contrats de suivi, ou une modification motivée (onglet Affectation des TPM)')}>{tr('Prestataire (TPM)')}</th><th scope="col">{tr('Priorité')}</th>
           <th scope="col" className="num" title={tr('Visites exigées par le MMR sur l\'exercice')}>{tr('Exigées')}</th>
           <th scope="col" className="num">{tr('Faites')}</th><th scope="col" className="num">{tr('Prévues')}</th><th scope="col" className="num">{tr('Reste')}</th>
           <th scope="col">{tr('Dernière visite')}</th>
@@ -317,7 +321,7 @@ function PlanTable({ rows, offset, allRows, capacity, pending, canEdit, selected
             <td className="pb-stick pb-stick-name"><span className="pb-name" title={s.name}>{s.name}</span><span className="pb-id" title={s.locationId ? `${tr('Code POI')} : ${s.locationId}` : undefined}>{s.publicId || s.locationId}</span></td>
             <td className="pb-clip" title={s.bureau || ''}>{s.bureau || '—'}</td><td className="pb-clip">{s.district}</td><td className="pb-clip" title={s.commune}>{s.commune}</td>
             <td className="pb-act" title={s.activity || ''}>{s.activity || <span className="muted">—</span>}</td>
-            <td className="pb-clip" title={s.providers || ''}>{s.providers || <span className="muted" title={tr('Aucune visite affectée à un prestataire')}>{tr('à affecter')}</span>}</td>
+            <TpmZoneCell tpm={s.tpm} months={s.months} />
             <td><PriorityBadge value={s.priority} /></td>
             <td className="num">{s.required == null ? <span className="muted" title={tr('Activité absente du MMR')}>—</span> : s.required}</td>
             <td className="num">{s.done}</td><td className="num">{s.planned}</td>

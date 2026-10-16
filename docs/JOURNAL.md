@@ -12,14 +12,77 @@
 
 ## État courant
 
-> **Pour demain matin (résumé tenu à jour pendant la nuit)**
-> - **Publié sur `main` aujourd'hui après-midi** : suppression des documents revue (refus expliqués, administrateur, justificatif ≥ 10) ; zones du contrat en tableau ; suppression groupée de sites avec aperçu ; sites et activités par localité ; **onglet « Sites (actifs / inactifs) »** distinct, au format de votre classeur ; **espace RBM réorganisé** (Priorités · Plan de suivi · Sites actifs · Configuration RBM) ; **identifiant de site `S-XXXX-XXXX`**.
-> - **En cours chez les agents** (chacun sur sa copie, publié seulement après contrôle) : concepteur partie 2 (en-tête libre, annexes, orientation d'une page) ; finitions d'écrans (période, onglet Données, tableau de bord des fiches, carte : zoom bureau, activités, légende) ; lenteur ; Partenaires & TPM (fiche 360°, formations, notation des agents) ; TPM tiré des contrats ; planification automatique RBM ; état de l'application et remise à zéro annulable 24 h ; indicateurs de vos 5 fiches ; sous-tables et « Autre ».
-> - **Chez vous après mise à jour** : `npm run migrate` (migrations 068, 072 et 073), puis redémarrer l'API.
-> - **Questions qui vous attendent** : `REPRISE.md` § 6 (multi-pays Q1–Q5, TPM d'un contrat, découpage d'Ambovombe).
+> **Ce matin (16/10)** — reprise à 06:05 UTC. Une autre session a publié sur `main` la **planification automatique** (retour 82 : bouton « Générer le plan », règles MMR / RBM, regroupement par commune ou GPS, équilibrage des TPM, agents à mobiliser, export « base de budget »). Elle devient la base : je n'y ajoute que ce qui manque (véhicules, règle unique « site actif », traçabilité), sans doublon.
+> - 🔄 Analyse de toutes les mises à jour et revue du design de chaque écran (captures), à commencer par les listes déroulantes brutes de « Planification & budget ».
+> - ✅ **Publié (06:28)** : « Couverture & performance » et la Synthèse ont maintenant les mêmes chiffres (retour 110), et « Effacer les planifications » ne supprime plus que les visites prévues libres (un défaut grave trouvé par l'analyse : il effaçait aussi les visites facturées, figées ou au TPM choisi avec une raison).
+> - 🔄 Planification automatique : fiabilité (intervalle MMR, idempotence, capacité, règle « site actif », transaction) puis retours 107–108 (besoins → agents et véhicules, communes regroupées toutes activités), sur la version de `main`.
+> - 🔄 Listes de choix professionnelles (recherche, groupes, contrat d'abord puis son TPM) à la place des listes brutes du navigateur.
 
+> **Ce matin (15/10)** — vos messages de 05:25 à 05:50 sont tous pris en charge (retours 98 à 106) :
+> - **Planification automatique** dans le Plan de suivi (critères configurables, aperçu, « Appliquer ») : écran attendu vers 08:00 UTC, paramètres vers 09:00.
+> - **TPM tiré des contrats** : colonne du Plan de suivi faite (branche `wip/r58`), visites et autres pages ensuite.
+> - **Réactivité** : tâches lourdes sorties de la requête (fils séparés, tâches de fond avec avancement).
+> - **Tableaux de bord** fidèles à votre maquette + indicateurs de vos 5 fiches ; **en-têtes de rapport** libres (prêts, en vérification) puis **filtres du rapportage** prouvés par les chiffres.
+> - **Bureaux** : types à niveaux facultatifs, périmètre choisi par région › district › commune ; **bureau, TPM et activités déduits de la configuration** partout ; **référentiel des activités** (aucune activité créée hors Paramétrage).
+> - **Sites (actifs / inactifs)** à la forme du Plan de suivi : publié.
 
-_Dernière mise à jour : 14/10/2026 14:19 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot vérifié
+
+> **Export budget du plan (retour 82).** ✅ Bouton « Budget (CSV) » dans l'aperçu : exporte le plan
+> par **TPM/bureau × mois** = visites (= **jours de collecte**, modèle existant 1 visite = 1 jour)
+> + **agents**, avec lignes Total/pic. Base directe du budget (on y ajoute les coûts journaliers
+> dans Excel). Réutilise `lib/csv.downloadCsv`. Build ✅ lint ✅.
+
+> **Dimensionnement des agents (retour 82).** ✅ L'automatisation calcule maintenant le **nombre
+> d'agents à mobiliser** par activité ET par TPM / par le bureau (suivi interne), à partir du
+> **quota journalier × jours ouvrés** du MMR : agents d'un mois = ⌈visites ÷ (quota × jours)⌉, le
+> pic = l'effectif. Colonnes « Agents (pic) » dans les tableaux Par activité et Par TPM, chip
+> « Effectif à mobiliser (pic) », et message quand le quota n'est pas renseigné (« — » / « + »).
+> `seed:test` renseigne désormais quota=2/j × 20 j pour la démo. Moteur pur + test (1211 tests).
+
+> **Option « couvrir tous les sites au moins une fois » (retour 82).** ✅ Nouvelle case de
+> l'assistant : le 1er passage de chaque site est FORCÉ même si la capacité mensuelle est dépassée
+> (les visites suivantes la respectent). Couverture démo 93,5 % → **98,9 %** (le reste = sites
+> inactifs toute la période ou déjà couverts). Moteur pur + test ajouté (1210 tests). Réglage zod,
+> case + i18n EN. Tests ✅ lint ✅ build ✅.
+
+> **Couverture max + démarrage NSSM (retour 82).** ✅
+> - **Couverture 61 % → 96 %** : placement EN LARGEUR (une visite par site d'abord, puis les
+>   répétitions) → la capacité couvre un MAXIMUM de sites distincts ; MMR non configuré (durée 0,
+>   ex. Climate) basculé au repli RBM (plus jamais 0 visite) ; projection pour étaler les tournées.
+>   Les sites encore non couverts le sont par CAPACITÉ insuffisante — message dédié qui dit quoi faire.
+> - **Démarrage Windows mis à jour** : section README « Lancer MEMS 2.0 comme service Windows avec
+>   NSSM » (API + web `dist` + worker en services auto-démarrés/auto-redémarrés, pilotage, mise à
+>   jour, réseau/CORS) ; rappel dans CLAUDE.md. Tests 1209 ✅, lint ✅, build ✅.
+
+> **19:45 UTC — Plan auto : règles affinées par le responsable S&E (retour 82).** ✅
+> 1) **Site sans activité → non planifié** (ex. ECOLE…FENOARIVO SUD sort du plan ; avertissement
+> « N sites sans activité »). 2) **Fréquences = RBM/MMR** (fin de l'adoucissement : risque élevé
+> suit le RBM, pas de mensuel inutile = gaspillage). 3) **Zones sans TPM = « Bureau (suivi
+> interne) »** (c'est nous par défaut) dans le tableau Par TPM et l'échantillon. 4) **Aucun mois
+> vide par TPM** : départ de chaque tournée choisi sur le coût cumulé de TOUS ses mois de visite
+> (fenêtre élargie) → charge étalée sur l'année, les creux de fin d'année d'un TPM reflètent la fin
+> de son contrat (visites reprises par le bureau). 5) Catch-up / réalisé-non-planifié confirmés.
+> Tests 1209 ✅, lint ✅, build ✅, smoke API (ECOLE 0 visite, bureau 654 sites) ✅, 0 erreur console.
+
+> **19:05 UTC — Plan auto : regroupement au plus proche + TPM + repli adouci (retour 82).** ✅
+> 1) **Regroupement « au plus proche »** : tournées par **GPS** quand les coordonnées existent
+> (cellule de grille ~11 km), sinon **commune** ; les sites d'une même tournée sont visités le
+> même mois. 2) **Affectation TPM prise en compte** : le TPM de chaque site = contrat de suivi de
+> sa zone ; la charge de chaque TPM est **équilibrée** sur la période (fenêtre de phase) pour que
+> tous les TPM soient utilisés, avec **plafond mensuel par TPM** réglable + tableau **« Par TPM —
+> charge mensuelle »** et **colonne TPM** dans l'échantillon. 3) **Sites sans MMR** : repli RBM
+> **adouci** par défaut (élevé = tous les 2 mois, plus tous les mois) **+ avertissement** « N sites
+> sans paramètre MMR — à compléter ». Moteur pur + 6 tests ajoutés (GPS, TPM, plafond, repli).
+> Tests 1208 ✅, lint ✅, build ✅, smoke API (4 TPM, charge répartie) ✅, 0 erreur console.
+
+> **18:35 UTC — Aperçu de la planification automatique enrichi (retour 82).** ✅ L'aperçu
+> « Générer le plan de suivi » affiche maintenant, en plus de la couverture et de la
+> répartition par mois : **l'activité** sur chaque site de l'échantillon, et un tableau
+> **« Par activité — paramètres de base du MMR et résultat »** (bureau, risque, fréquence/an,
+> intervalle + pas appliqué, cible/mois, capacité/mois, sites, planifiées). Les lignes MMR non
+> paramétrées (durée 0) s'affichent en « — » (plus de « 0 » trompeur). Fenêtre élargie pour la
+> table. Tests 1203 ✅, lint ✅, build ✅, 0 erreur console (captures Playwright). Captures livrées.
 
 | # | Tâche | Statut | Détail / prochaine étape |
 |---|---|---|---|
@@ -588,3 +651,55 @@ _Dernière mise à jour : 14/10/2026 14:19 UTC_ — la branche `main` reçoit ch
   - **5 XLSForm** → [`ANALYSE_XLSFORM.md`](ANALYSE_XLSFORM.md). Vos tableaux de bord sont vides parce que rien ne crée les indicateurs tout seul : l'activité doit être rattachée, puis il faut cliquer « Créer » ; la fiche Résilience n'a aucun modèle. 346 indicateurs proposés, 244 paires « Autre / précisez ».
   - **Multi-pays** → [`SPEC_MULTIPAYS.md`](SPEC_MULTIPAYS.md). Recommandation : chaque bureau pays reste un espace isolé, avec une arborescence Siège › bureaux régionaux › pays au-dessus ; lecture consolidée pays par pays, sans affaiblir l'isolement. 5 questions pour vous (voir `REPRISE.md` § 6).
 - **14:12 → 14:18** ✅ **Identifiant professionnel des sites** (retour 64), publié sur `main` à 14:18 (`0968ba4`) : chaque site porte `S-XXXX-XXXX` (8 symboles tirés au hasard, sans I, L, O, U ; unique ; immuable), migration `073`. Registre, plan de suivi et sites actifs l'affichent et le cherchent (saisie tolérante : casse, tirets, O → 0, I / L → 1) ; les anciens codes (PLAN-0001, L001) restent reconnus à l'import ; le classeur d'activation gagne une colonne « ID MEMS ». Contrôles : 1 033 tests réussis, lint propre, build OK, balayage 33 × 2 sans erreur, migration + seed sur base neuve, aller-retour du registre (21 mis à jour, 0 doublon).
+
+### Jeudi 15 octobre 2026
+
+- **05:21** ✅ Reprise après la limite d'usage : serveurs de démonstration relancés (API :9000, écran :5173), base `mems2_tpm` migrée (068, 072, 073).
+- **05:25** 🔄 Agents relancés là où ils s'étaient arrêtés : finitions d'écrans, concepteur partie 2, TPM des contrats, planification automatique, Partenaires & TPM. Conception Programmes & projets publiée (`1e7eba4`).
+- **05:25** 📥 Retour 98 : « Sites actifs / inactifs » doit avoir la forme du Plan de suivi. 🔄 Écran refait.
+- **05:31 → 05:50** 📥 Retours 99 à 106 (détail dans `RETOURS_UTILISATEUR.md`) : planification automatique toujours invisible ; lenteur pendant les tâches de fond ; tableaux de bord hors gabarit ; filtres du rapportage ; en-tête des rapports ; 3 000 lignes à planifier et TPM « à affecter » ; bureaux (types, périmètre par niveau) ; tout doit se déduire de la configuration (bureau, TPM, activités).
+- **05:31 → 05:45** 🔄 Répartition :
+  - planification automatique, bouton et aperçu en priorité, règle unique « site actif » (grille ouverte → seul « Oui » est actif) → `wip/lot5-gen` ;
+  - TPM d'après les contrats sur toutes les pages, une seule règle avec le lot 8 → `wip/r58` ;
+  - réactivité : fils séparés pour les lectures de fichiers, tâches de fond en base (081), connexions réservées aux écrans → `wip/perf` (relancé) ;
+  - tableau de bord fidèle à la maquette « Couverture & performance du suivi » → nouvel agent `wip/dash-template` ;
+  - indicateurs de vos 5 fiches, pour que les tableaux de bord se remplissent → `wip/indicators` (relancé) ;
+  - en-tête et pied de rapport libres, puis filtres du rapportage → `wip/7a-p2` ;
+  - bureaux : types Bureau pays › Bureau de zone › Sous-bureau › Antenne (niveaux facultatifs), périmètre en arbre, bureau d'un site déduit → nouvel agent `wip/offices` (migrations 102–103) ;
+  - référentiel des activités à 3 niveaux, refus des activités inconnues → nouvel agent `wip/activities` (migration 090).
+- **05:50** ✅ Finitions d'écrans terminées par leur agent (`wip/ui-polish` `1b348b5`) : sélecteur de période jamais coupé, onglet « Données » propre (communes par leur nom, dates sans heure, pages de 1 000 annoncées), Couverture & performance (fiche sans indicateur expliquée, cartes de même hauteur), carte recadrée sur le bureau choisi, couleur par activité et légende claire. À vérifier puis publier.
+- **05:50** ✅ Concepteur d'en-tête et de pied de page poussé par son agent (`wip/7a-p2` `642455f`). À vérifier puis publier.
+- **≈ 05:45** ⚠️ Par erreur, j'ai arrêté quelques serveurs de test d'agents (pas les vôtres). Les agents concernés ont été prévenus et les relancent ; aucune donnée touchée.
+- **05:52** ✅ **Sites (actifs / inactifs) à la forme du Plan de suivi** (retour 98) — `51f702b`, prêt à publier après relecture indépendante : mêmes bandeaux, filtres, tableau à colonnes figées et grille des 12 mois que le plan ; règle unique « site actif » (celle des tableaux de bord : dès que l'année a une grille, seul « Oui » compte, une case vide est signalée « À renseigner ») ; bouton « Renseigner les cases vides » (une transaction côté serveur, 3 838 cases en 1,5 s). Lecteur `.shp` unifié (`f06bbfc`). Contrôles : 1 036 tests, lint, build, balayage 33 × 2 sans erreur ni phrase manquante.
+- **≈ 06:00** ⏸️ **Limite d'usage atteinte** (13 agents en parallèle ont épuisé le quota en 40 minutes) : tous les agents se sont arrêtés au milieu de leur étape ; leur travail est gardé. Reprise possible à 10:20 UTC.
+- **10:09** ✅ L'autre session (`claude/zealous-bardeen-p9ozcr`) est fusionnée dans `main` par vous (PR #3) : référentiel activités › sous-activités › information (retour 92, migration `101`), zones du contrat enrichies (retour 38 : P-code masquable, sites et sous-activités par zone, bureau), revue du plan de suivi.
+- **10:22** 🔄 Reprise. `main` fusionné dans ma branche (`e934941`) : 1 054 tests réussis, build OK. Numéros de migration revus (`101` pris par les sous-activités ; tableau de bord → `104` ; suite du référentiel des activités → `105`, bâtie sur `101` ; programmes → `110`–`115`).
+- **10:25** 🔄 **Rythme revu** : moins d'agents à la fois, par ordre de priorité, pour avancer sans longue pause. D'abord la planification automatique et le TPM des contrats, puis la publication de ce qui est prêt (sites actifs, finitions d'écrans, premier lot de réactivité, en-têtes de rapport).
+- **10:26 → 10:40** 🔄 puis ✅ **Intégration vérifiée** (branche `integ/15a`) : `wip/ui-polish` (terminé), `wip/perf` (premier lot), `wip/7a-p2` (concepteur jusqu'à l'en-tête libre), sites actifs, `main` à jour. Un conflit résolu dans la carte (points mémorisés + couleur par activité). Contrôles : **1 109 tests** (1 ignoré), lint propre, build, migrations sur base neuve et sur copie (69 fichiers, deux passages), **balayage 33 écrans × FR / EN : 0 erreur, 0 phrase manquante** ; concepteur d'en-tête vu à l'écran. Relecture : migration `062` (images reconnues par les octets, immuables, quotas sous verrou, RLS), validation des en-têtes (couleurs `#RRGGBB`, polices d'une liste, 20 éléments au plus, positions bornées), rendu React sans HTML injecté. `wip/r58` attend ses traductions et sa relecture.
+- **10:44 → 10:52** 🔄 **Planification automatique intégrée à l'essai** (`wip/lot5-gen` `dfcc86b` + `main`) : 1 170 tests, lint, build, migrations `077`–`078` sur base neuve et copie, balayage 33 × 2 sans erreur. Bouton, critères et aperçu expliqué vus à l'écran (405 visites proposées d'octobre à décembre). ⛔ **Pas publié** : « Appliquer » échoue (paramètres JSON transmis comme tableau Postgres, `invalid input syntax for type json`) — renvoyé à l'agent avec un test sur vraie base exigé.
+- **10:50** 📥 Retour 107 : paramètres « enfantins », en doublon du MMR et du RBM ; « penser comme un spécialiste S&E humanitaire ». 🔄 Panneau à refaire : tout ce que MEMS sait (sites actifs, MMR, RBM, capacité, TPM du contrat) en lecture seule avec sa source ; contrainte qui limite énoncée ; seuls choix : période, périmètre, stratégie ; avancé replié.
+- **10:53 → 11:00** 📥 Retours 108 (planification guidée par les besoins : MMR → sites par mois, regroupement par commune, agents et véhicules nécessaires) et 109 (activités de programme ≠ prestations des contrats ; sous-activités à rattacher aux activités de programme). Transmis aux agents lot5-gen et activities (migration 105).
+- **10:58 → 11:08** ✅ **TPM tiré des contrats publié** (retour 58, `wip/r58` `1da3dc4`, migration `070`) : colonne « Prestataire (TPM) » du Plan de suivi et TPM des visites = contrat de suivi qui couvre la zone du site ce mois-là ; « À affecter » seulement sans contrat, avec la raison ; reprise des TPM saisis à la main limitée aux visites PRÉVUES (réalisées, annulées, facturées, figées ou motivées jamais touchées — garde en JavaScript ET en base). Contrôles : 1 175 tests (2 ignorés), lint, build, migrations sur base neuve et sur copie (70 fichiers), balayage 33 × 2 sans erreur ; reprise au démarrage mesurée sur une copie : 2 s (1 272 zones, 8 visites prévues reprises) ; test sur vraie base de la reprise (démarrages simultanés, rejeu = 0, visites protégées) réussi.
+- **≈ 11:09** 📥 Retour 110 : incohérences de « Couverture & performance » (deux définitions de « réalisé », deux univers de sites, communes divisées par des sites, 0,48 % affiché 0 %). Analysé dans le code : causes confirmées. 🔄 Correctif de cohérence confié à l'agent dash-template, à publier à part avant la refonte d'après la maquette.
+- **11:10 → 11:16** ✅ **Réactivité, deuxième lot publié** (`wip/perf` `a537c21`) : les lectures de fichiers (SPSS, Excel, zip, XLSForm, shapefile) passent dans des fils de calcul séparés (file bornée, délai maximal, mémoire bornée, fil remplacé s'il tombe). Mesures pendant l'import d'un classeur de 5 000 lignes × 480 colonnes, une requête légère toutes les 200 ms : p95 **6,8 s → 89 ms**, requêtes en échec **37 → 0**, attente maximale de la boucle 5,9 s → 0,96 s ; vérification d'import p95 5,3 s → 62 ms ; résultat de l'import identique.
+- **≈ 11:12** 📥 « Si je clique « À affecter », ça m'envoie ailleurs » → ✅ corrigé et publié (`6df1235`) : le lien visait l'onglet « Affectation des TPM », pas encore monté ; « À affecter » explique désormais au survol comment obtenir un TPM. Contrôles de l'ensemble : 1 185 tests (2 ignorés), lint, build, migrations sur copie, balayage 33 × 2 sans erreur ni phrase manquante.
+- **≈ 11:28** 📥 Retour 112 : en-tête de rapport pas assez professionnel ; première page différente des suivantes, et pieds de page. 🔄 Agent 7a-p2 relancé (paires première page / pages suivantes, modèles refaits d'après vos rapports de référence, bloc « Couverture par activité » cohérent, puis filtres du rapportage). Le référentiel des activités de programme est prêt côté serveur (`wip/activities` `795ec0f`) : publié avec son écran, pour ne pas casser Paramétrage › Activités.
+- **≈ 11:30** 📥 Retour 113 : « regarde ce bazar » (Prestataires TPM, Contrats, Paramétrage › Partenaires, Rapports, Planification : rôles et contrats nommés différemment d'une page à l'autre). 🔄 Agent lot8 relancé : deux rôles nommés partout (partenaires de mise en œuvre / TPM), contrat toujours « n° FLA · partenaire », lien TPM ↔ contrat visible, un seul espace « Partenaires & TPM » avec fiche 360°.
+- **11:22 → 11:37** ✅ **Affectation des TPM par zone publiée** (`wip/r58` `311cf8c`) : onglet « Affectation des TPM » de l'espace RBM (aperçu sans écriture, raison obligatoire, retour au contrat, journal) ; « À affecter » mène à la zone et au mois concernés ; TPM de la zone dans les Priorités du mois ; dans Planification & budget, contrat et TPM se proposent l'un l'autre. Contrôles : 1 188 tests (2 ignorés), lint, build, migrations sur copie, balayage 35 écrans × FR / EN sans erreur ni phrase manquante ; parité JS ↔ SQL 15 360 cellules, 0 écart.
+- **≈ 11:35** 📥 Retour 114 : sans contrat — ou TPM indisponible — le suivi est fait en interne ; pas de planification → pas de rapport (« non applicable » d'office) ; suivi interne → un rapport interne. 🔄 Confié à l'agent r58.
+
+### Vendredi 16 octobre 2026
+
+- **06:05** 🔄 Reprise. `main` a reçu 18 commits d'une autre session (planification automatique du retour 82, démarrage Windows par NSSM). Ma branche est alignée sur `main` (`9fa5199`).
+- **06:07** 🔄 Analyse en parallèle : planification automatique de `main` face aux retours 82, 99, 104, 107 et 108 ; ce que `wip/lot5-gen` apporte encore ; état de chaque branche `wip/…` ; revue du design de tous les écrans.
+- **06:12** 🔄 Correctif de cohérence de la couverture (retour 110) réappliqué sur la nouvelle `main` (branche `integ/16a`, sans conflit) : tests, lint, build, migrations et balayage en cours.
+- **06:12 → 06:20** ⚠️ Le conteneur a redémarré vers 06:04 : PostgreSQL était arrêté. Relancé, base de démonstration migrée, serveurs de démonstration relancés (API :9000, écran :5173).
+- **06:20** 📋 Analyse de la planification automatique de `main` (deux audits indépendants, avec des scripts de preuve) : base solide (moteur pur, écriture en une requête, zones interdites exclues), mais **un défaut grave** — « Effacer les planifications » supprimait TOUTES les visites prévues de la période, y compris facturées, figées, datées, affectées ou au TPM choisi avec une raison — et plusieurs défauts de fiabilité (réappliquer ajoute des visites, intervalle MMR ignoré à côté des visites déjà prévues et d'une année sur l'autre, capacité qui ignore les visites déjà du mois, case vide de la grille comptée active, mois échus planifiables). Écarts aux retours 107–108 : pas de véhicules, communes regroupées par activité, priorité RBM non utilisée, paramètres redemandés.
+- **06:23** 🔄 Décision : la version de `main` reste la base ; `wip/lot5-gen` n'est pas fusionnée (ce serait un 2ᵉ planificateur) — ses points forts (règle unique « site actif », intervalle dans les deux sens, priorité RBM, agents ET véhicules par commune toutes activités, date et « Agent N » à l'application, contrôle « données changées depuis l'aperçu », test sur vraie base) sont portés dans la version de `main` par son agent (branche `wip/planauto-port`). Migrations `077`–`078` abandonnées.
+- **06:28** ✅ **Publié sur `main`** (`2bb2167` → `fbadbdf`) :
+  - **Retour 110 — mêmes chiffres partout** : `GET /api/dashboards/coverage` lu par la Synthèse ET par « Couverture & performance » ; un univers (sites actifs de la période), « suivi » = visite déclarée OU données reçues rattachées au site, « dont … par données · … par visites » sur chaque mesure, communes comparées à des communes, 0,48 % affiché 0,5 % ; le total du tableau par activité reste visible quand il défile (la ligne « Sans activité » et le total étaient cachés, d'où l'impression d'écart) ; la colonne « Exécution (sites) » devient « Sites prévus → suivis » (même mesure que la tuile du même nom, distincte de l'exécution du plan visite par visite).
+  - **Effacer les planifications** : seules les visites prévues libres d'un mois en cours ou à venir sont supprimées ; la réponse et le message disent combien sont conservées et pourquoi.
+  - Contrôles : 1 228 tests (4 ignorés, 0 échec), lint, build, migrations sur base neuve et sur copie, tests sur vraie base (couverture, effacement — ce dernier échoue sur l'ancien code), balayage 35 écrans × FR / EN sans erreur ni phrase manquante, relecture indépendante (rien de bloquant ; suites notées dans `REPRISE.md` § 6).
+- **06:35** 📋 Audit design (78 captures, clair et sombre, 37 écrans + tiroirs) : listes brutes du navigateur partout (122) et **chevron effacé** par la couche de style (elles ressemblaient à des champs de saisie) ; barres de progression fausses (0 % dessiné comme 21 %, barres 50–79 % invisibles) ; textes illisibles en sombre ; « Prestataire » pour deux rôles différents (la colonne « Prestataire TPM » de la consolidation montre le titulaire) ; tableaux coupés ; marges doublées sur 6 pages ; chiffres avec un point. Plan en voies séparées (aucun fichier édité par deux chantiers à la fois).
+- **06:40** 🔄 Agents relancés : `wip/lot8` (construction réparée `4f66a46`, puis vocabulaire unique « Titulaire » / « TPM », retour 113) ; `wip/7a-p2` (en-têtes première page / pages suivantes et pieds, retour 112, puis filtres du rapportage, retour 102) ; `wip/dash-template` (suites de la relecture du retour 110, puis maquette, retour 101).
+- **06:45** 🔄 Lot design en contrôle (`integ/16b`) : listes de choix avec recherche et groupes (contrat d'abord puis son TPM, dans Planification & budget et la facture ; 1 280 sites cherchables dans « Ajouter une visite ») ; chevron rendu aux 122 listes ; barres justes ; sombre lisible ; marges ; chiffres « 63,1 M » ; + modèles d'indicateurs vérifiés sur les 5 XLSForm (`wip/indicators`).

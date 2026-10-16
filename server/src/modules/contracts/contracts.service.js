@@ -10,6 +10,15 @@ const { isValidatedStatus, decideDocumentDeletion, linkedSummary } = require('..
 const { deletionRefusal } = require('../deletions/deletionRefusal');
 const { recordDeletion } = require('../deletions/deletions.repository');
 const { periodBounds } = require('../common/period');
+const { restampVisitsTx } = require('../tpm/tpmAttribution.repository');
+
+/**
+ * Retour 58 : un contrat de suivi décide du TPM par défaut de ses zones. Quand il devient actif,
+ * qu'un avenant est approuvé ou qu'il est résilié, les visites PRÉVUES à partir du mois courant
+ * reprennent le TPM de leur zone (le passé n'est jamais réécrit en silence : un avenant n'a pas
+ * de date d'effet). Appelé APRÈS le verrou de la ligne du contrat (ordre des verrous).
+ */
+const restampFromNow = (client, tenantId) => restampVisitsTx(client, tenantId, { fromMonth: today().slice(0, 7) });
 
 /**
  * Contrats — business rules. Partner comes from the Paramètres registry,
@@ -291,6 +300,7 @@ async function decide(tenantId, actor, id, { approve, comment, version }) {
         dateDebut: contract.dateDebut, dateFin: contract.dateFin,
         budgetTotal: d.grandTotal(items, contract.managementFeePct),
       });
+      await restampFromNow(client, tenantId);
       activated = true;
     }
   });
@@ -384,6 +394,7 @@ async function decideAmendment(tenantId, actor, id, amendmentId, { approve, comm
         contractId: id, tenantId, amendment: code, newDateFin: dateFin,
         newFeePct: snap.feePct ?? null,
       });
+      await restampFromNow(client, tenantId);
       modified = true;
     }
     await repo.addHistory(client, tenantId, id, {
@@ -417,6 +428,10 @@ async function renew(tenantId, actor, id, { newDateFin, numeroFla }) {
     });
     await repo.setContractActivities(client, tenantId, newId, activities.map((a) => a.id));
     await repo.replaceBudget(client, tenantId, newId, items);
+    // Retour 58 : le renouvellement garde ses zones (donc le TPM par défaut de ces zones) ; une zone
+    // détachée du découpage n'est pas copiée — elle est à resélectionner.
+    const linkedAreas = (await repo.getContractAreas(client, tenantId, id)).filter((a) => a.adminAreaId);
+    await repo.replaceAreas(client, tenantId, newId, await repo.getAdminAreasByIds(client, tenantId, linkedAreas.map((a) => a.adminAreaId)));
     await repo.addHistory(client, tenantId, newId, { action: 'creation', actorId: actor.userId, details: { numero, renewedFrom: contract.numero } });
     await repo.addHistory(client, tenantId, id, { action: 'renouvellement', actorId: actor.userId, details: { newContract: numero } });
     return { id: newId, numero };
@@ -435,6 +450,7 @@ async function terminate(tenantId, actor, id, { reason, effectiveDate, version }
     await saveContract(client, tenantId, contract, { status: to, terminationReason: reason, terminationDate: effectiveDate });
     await repo.addHistory(client, tenantId, id, { action: 'resiliation', actorId: actor.userId, comment: reason, details: { effectiveDate } });
     await repo.addEvent(client, tenantId, 'ContratResilie', id, { contractId: id, tenantId, dateEffet: effectiveDate, motif: reason });
+    await restampFromNow(client, tenantId);
   });
   nudgeOutbox();
 }

@@ -174,16 +174,31 @@
   color: var(--text); background: none; border: 0; border-radius: var(--radius-sm); cursor: pointer;
 }
 .rd-pages button:hover { background: var(--surface-2); }
+.rd-pages button.is-selected { background: var(--blue-50); }
+.rd-pages button.is-selected .rd-page-thumb { border-color: var(--blue-600); color: var(--blue-600); }
+.rd-pages-tag {
+  flex-shrink: 0; align-self: center; padding: 0 7px; font-size: 10.5px; font-weight: 600; line-height: 18px; white-space: nowrap;
+  color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px;
+}
+.rd-pages-tag.is-own { color: var(--blue-700); background: var(--blue-50); border-color: #cfe2f6; }
 .rd-page-thumb {
-  display: grid; place-items: center; flex-shrink: 0; width: 24px; height: 32px; color: var(--text-faint);
+  display: grid; place-items: center; flex-shrink: 0; width: 24px; height: 32px; margin: 0 4px; color: var(--text-faint);
   background: var(--surface); border: 1px solid var(--border-strong); border-radius: 2px;
 }
-.rd-page-thumb.is-landscape { width: 32px; height: 24px; }
-.rd-pages-l { display: flex; flex-direction: column; min-width: 0; }
+.rd-page-thumb.is-landscape { width: 32px; height: 24px; margin: 4px 0; }
+.rd-pages-l { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .rd-pages-l strong { font-size: 13px; font-weight: 600; color: var(--text-strong); }
 .rd-pages-l span { overflow: hidden; font-size: 11.5px; color: var(--text-muted); white-space: nowrap; text-overflow: ellipsis; }
 
 /* Propriétés. */
+.rd-inline { display: flex; align-items: center; gap: 8px; padding-left: 24px; font-size: 13px; color: var(--text); }
+.rd-num { width: 84px; }
+.rd-state-line { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--text-muted); }
+.rd-field-l { margin: 4px 0 6px; font-size: 13px; font-weight: 500; color: var(--text-strong); }
+.rd-h3-muted { font-weight: 500; text-transform: none; letter-spacing: 0; }
+.rd-seg-lg button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 13px; }
+.rd-note-box { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 0; padding: 8px 10px; font-size: 12.5px; line-height: 1.45; color: var(--text); background: var(--blue-50); border: 1px solid #cfe2f6; border-radius: var(--radius-sm); }
+.rd-note-box svg { flex-shrink: 0; margin-top: 2px; color: var(--blue-600); }
 .rd-checks {
   display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto;
   margin: 0; padding: 6px 10px 10px; border: 1px solid var(--border); border-radius: var(--radius);
@@ -235,10 +250,26 @@
 /* En-tête et pied DESSINÉS : éléments placés (x, largeur en % ; y, hauteur en mm). */
 .rd-band { position: relative; width: 100%; }
 .rd-el { position: absolute; box-sizing: border-box; overflow: hidden; }
-.rd-el-text { white-space: nowrap; text-overflow: ellipsis; line-height: 1.25; display: flex; align-items: center; }
-.rd-el-text[style*="text-align: center"] { justify-content: center; }
-.rd-el-text[style*="text-align: right"] { justify-content: flex-end; }
-.rd-el-image { background: repeating-linear-gradient(45deg, var(--surface-2), var(--surface-2) 4px, var(--border) 4px, var(--border) 5px); border-radius: 2px; }
+.rd-el-text { white-space: nowrap; line-height: 1.25; display: flex; align-items: center; }
+.rd-el-text > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rd-el-img { display: block; }
+/* Emplacement de logo vide (modèle) : visible dans l'éditeur seulement, jamais imprimé ni exporté. */
+.rd-el-ph {
+  display: flex; align-items: center; justify-content: center; gap: 1mm; font-size: 7pt; font-weight: 600; color: #6b7a90;
+  border: 1px dashed #9cc3e8; border-radius: 1mm; background: rgba(239, 246, 252, .7);
+}
+/* Bandes de l'aperçu : double-clic pour les concevoir (repère discret au survol, jamais imprimé). */
+.rd-sheet-h.is-editable, .rd-sheet-f.is-editable { cursor: pointer; border-radius: 2px; outline: 1px dashed transparent; outline-offset: 1.5mm; transition: outline-color .15s; }
+.rd-sheet-h.is-editable:hover, .rd-sheet-f.is-editable:hover { outline-color: #9cc3e8; }
+@media print {
+  .rd-el-ph { display: none !important; }
+  .rd-sheet-h, .rd-sheet-f { outline: none !important; }
+}
+/* Onglet Page : aperçu de l'en-tête et du pied du document, bouton du concepteur. */
+.rd-bands-card { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); }
+.rd-bands-card .hd-tpl { align-self: center; }
+.rd-bands-card .hd-tpl-name { display: none; }
+.rd-page-bands { grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .rd-pageno { font-variant-numeric: tabular-nums; }
 
 /* Blocs dans l'éditeur : contour au survol, contour plein si sélectionné. */
@@ -374,9 +405,15 @@
 .rb-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; }
 .rb-axis { font-size: 10px; fill: var(--text-muted); font-family: inherit; }
 .rb-val { font-size: 9.5px; font-weight: 600; fill: var(--text); font-family: inherit; }
-.rb-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 4px; font-size: 11.5px; color: var(--text); }
+.rb-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 6px; font-size: 11.5px; color: var(--text); }
 .rb-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .rb-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.rb-legend.is-line i { width: 14px; height: 3px; border-radius: 2px; }
+.rb-end { fill: var(--text-strong); }
+/* Période des données quand elle diffère de celle du rapport (« 12 mois jusqu'à sept. 2026 »). */
+.rb-fig-scope { font-weight: 400; color: var(--text-muted); }
+.rb-title-bare { min-height: 0; margin-bottom: 4px; }
+.rb-title-bare:empty { display: none; }
 
 .rb-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px; break-inside: avoid; page-break-inside: avoid; }
 .rb-kpi { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; }
@@ -455,11 +492,16 @@
 .rb-table tr.rb-total td { font-weight: 600; background: var(--surface-2, #f6f8fb); }
 
 /* ---------------------------------------------------------------- Toile : interactions (lot 7a) */
-/* Mini-barre du bloc sélectionné, « + » au survol, ligne d'insertion d'un glisser. */
+/* Mini-barre du bloc sélectionné : VERTICALE, dans la marge droite de la feuille, à hauteur du haut
+   du bloc — elle ne recouvre jamais le contenu (titre, « Voir les données », retour 87). Dans des
+   colonnes : marge gauche pour la 1re colonne, au-dessus du bloc pour une colonne du milieu.
+   « + » au survol, ligne d'insertion d'un glisser. */
 .rd-mini {
-  position: absolute; top: -15px; right: 6px; z-index: 6; display: inline-flex; gap: 1px; padding: 2px;
+  position: absolute; top: -2px; left: calc(100% + 10px); z-index: 6; display: inline-flex; flex-direction: column; gap: 1px; padding: 2px;
   background: #fff; border: 1px solid var(--blue-600); border-radius: 8px; box-shadow: 0 2px 6px rgba(16, 24, 40, .12);
 }
+.rd-col:first-child:not(:last-child) .rd-mini { left: auto; right: calc(100% + 10px); }
+.rd-cols-1-1-1 .rd-col:nth-child(2) .rd-mini { top: auto; bottom: calc(100% + 6px); left: 50%; flex-direction: row; transform: translateX(-50%); }
 .rd-mini button {
   display: inline-grid; place-items: center; width: 26px; height: 24px; padding: 0;
   color: var(--text-muted); background: none; border: 0; border-radius: 5px; cursor: pointer;
@@ -555,6 +597,8 @@
   position: relative; flex-shrink: 0; overflow: visible; background: #fff; border-radius: 2px;
   box-shadow: 0 1px 3px rgba(16, 24, 40, .1), 0 8px 24px rgba(16, 24, 40, .08);
 }
+/* Page sélectionnée (onglet Pages, clic dans la marge) : contour bleu, jamais imprimé. */
+.rd-sheet.is-page-selected { box-shadow: 0 0 0 2px var(--blue-600), 0 8px 24px rgba(16, 24, 40, .08); }
 .rd-sheet-h, .rd-sheet-f { position: absolute; z-index: 1; }
 .rd-sheet-body { position: absolute; z-index: 1; display: flex; flex-direction: column; gap: 12px; }
 .rd-sheet-body > .rd-block, .rd-mitem > .rd-block { margin: 0; }
@@ -602,6 +646,24 @@
 .rb-toc li i { flex: 1; min-width: 12px; border-bottom: 1px dotted var(--border-strong); transform: translateY(-3px); }
 .rb-toc li b { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-strong); }
 .rb-cont { font-weight: 400; color: var(--text-muted); }
+.rb-toc li.rb-toc-annex-first { margin-top: 6px; padding-top: 7px; border-top: 1px solid var(--border); }
+
+/* ---------------------------------------------------------------- Annexes (retour 88) */
+/* Renvoi dans le corps : une ligne sobre, filet bleu à gauche, n° de page à droite. */
+.rb-annex-ref {
+  display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 12px; font-size: 12.5px; color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--blue-600); border-radius: 6px;
+  break-inside: avoid; page-break-inside: avoid;
+}
+.rb-annex-ico { flex-shrink: 0; color: var(--blue-600); }
+.rb-annex-txt { flex: 1; min-width: 0; }
+.rb-annex-txt b { font-weight: 600; color: var(--text-strong); }
+.rb-annex-pg { flex-shrink: 0; font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* Titre de la page d'annexe : « ANNEXE A » en petites capitales bleues, titre, filet. */
+.rb-annex-head { padding-bottom: 8px; border-bottom: 2px solid var(--blue-600); break-after: avoid; page-break-after: avoid; }
+.rb-annex-l { display: block; margin-bottom: 2px; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--blue-600); }
+.rb-annex-t { margin: 0; font-size: 18px; font-weight: 650; line-height: 1.3; letter-spacing: -0.015em; color: var(--text-strong); }
+.rd-mini button.is-on { color: var(--blue-700); background: var(--blue-50); }
 
 /* Pages nommées : chaque feuille s'imprime dans SON format et SON orientation. */
 @page a4p { size: A4 portrait; margin: 0; }

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, UserPlus, Trash2, Wand2, ChevronLeft, ChevronRight, ChevronRight as GoIcon, Filter, CircleDashed, Clock, MinusCircle } from 'lucide-react';
+import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, UserPlus, Trash2, Wand2, ChevronLeft, ChevronRight, ChevronRight as GoIcon, Filter, CircleDashed, Clock, MinusCircle, RefreshCw } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, PageHeader, Skeleton } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
@@ -8,6 +8,11 @@ import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatInt, monthLabel } from '../../lib/format.js';
 import { richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { REASON_MIN, TPM_VISIT, applyResultMessage, visitTpmKey, visitToAssign } from '../../lib/tpmAttribution.js';
+import { applyVisitPatch } from '../../lib/fieldVisits.js';
+import { NONE, ProviderSelect, ReasonField, VisitTpmCell } from './TpmFields.jsx';
+import TpmVisitDialog from './TpmVisitDialog.jsx';
+import { tpmTabHref } from './TpmZoneCell.jsx';
 
 const STATUS = {
   planifie: { label: 'Planifiée', color: 'var(--blue-600)', Icon: CalendarClock },
@@ -37,9 +42,10 @@ const ROLES = ['Agent 1', 'Agent 2', 'Agent 3', 'Agent 4', 'Superviseur 1', 'Sup
  * Suivi terrain — outil du responsable S&E. Deux temps :
  *  1) Planification générale : le bureau recense les sites à visiter dans le
  *     mois (district › commune › établissement › activité).
- *  2) Affectation : chaque visite est confiée à un prestataire TPM et à un
- *     rôle générique (Agent 1 / Superviseur 1, non nominatif) — l'assignation
- *     se fait donc APRÈS la planification.
+ *  2) Affectation : le prestataire TPM de chaque visite vient du CONTRAT de suivi qui
+ *     couvre la zone du site ce mois-là (retour 58 — rien à saisir) ; un autre TPM est
+ *     un écart motivé (raison obligatoire). Le bureau donne un rôle générique (Agent 1 /
+ *     Superviseur 1, non nominatif).
  * La réalisation alimente l'exécution du plan (réalisées / planifiées) ; la « couverture »
  * désigne les sites (sites actifs réalisés ÷ sites actifs, tableaux de bord — lot 1b).
  */
@@ -58,6 +64,8 @@ export default function FieldVisitsPage({ canEdit }) {
   const [importing, setImporting] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [tpmVisits, setTpmVisits] = useState(null); // visites dont on change le TPM (raison obligatoire)
+  const [applying, setApplying] = useState(false);
   const [view, setView] = useState('plan');          // 'plan' | 'couverture' | 'donnees'
   const [subs, setSubs] = useState(null);             // données réelles (soumissions) du mois
   // Navigation par TABLEAU des mois : on choisit l'année, on voit un mois par
@@ -70,18 +78,27 @@ export default function FieldVisitsPage({ canEdit }) {
 
   useEffect(() => { setMonthsData(null); api.fieldMonths(year).then(setMonthsData).catch(() => setMonthsData({ year, months: [] })); }, [year]);
 
-  const reload = useCallback(() => {
-    setVisits(null);
+  // Données du mois OUVERT (visites, résumé, jours, compteur RBM) : lues seulement quand un mois
+  // est ouvert — le tableau des mois n'en a pas besoin. `quiet` : relecture après une
+  // modification, sans vider la grille (pas de squelette, la page et les filtres restent) ;
+  // seule la dernière relecture lancée est appliquée.
+  const loadSeq = useRef(0);
+  const loadMonth = useCallback(({ quiet = false } = {}) => {
+    const id = loadSeq.current + 1; loadSeq.current = id;
+    const live = () => loadSeq.current === id;
+    if (!quiet) setVisits(null);
     Promise.all([api.fieldVisits({ month }), api.fieldSummary(month), api.fieldCollectionDays(month)])
-      .then(([v, s, c]) => { setVisits(v); setSummary(s); setCollDays(c); })
-      .catch((e) => setError(e.message));
-    // Combien de sites restent « à planifier » ce mois d'après le RBM (indicatif, non bloquant).
-    api.rbmSites(month).then((rows) => setRbmToPlan(rows.filter((r) => r.toPlan).length)).catch(() => setRbmToPlan(null));
+      .then(([v, s, c]) => { if (live()) { setVisits(v); setSummary(s); setCollDays(c); } })
+      .catch((e) => { if (live()) setError(e.message); });
+    // Combien de sites restent « à planifier » ce mois d'après le RBM (indicatif, non bloquant) :
+    // le compteur seul (GET /rbm/counts, même règle « toPlan » que « Générer »), pas la liste des sites.
+    api.rbmCounts(month).then((r) => { if (live()) setRbmToPlan(r.toPlan); }).catch(() => { if (live()) setRbmToPlan(null); });
     // Rafraîchit les stats par mois (le tableau des mois).
     api.fieldMonths(month.slice(0, 4)).then(setMonthsData).catch(() => {});
   }, [month]);
+  const reload = useCallback(() => loadMonth({ quiet: true }), [loadMonth]);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { if (!picking) loadMonth(); }, [picking, loadMonth]);
   useEffect(() => { api.listProviders().then((p) => setProviders(p.map((x) => ({ id: x.id, name: x.name })))).catch(() => setProviders([])); }, []);
   // Données réelles du mois (chargées à l'ouverture de l'onglet).
   useEffect(() => {
@@ -101,13 +118,19 @@ export default function FieldVisitsPage({ canEdit }) {
     } catch (err) { toast.error(err.message); } finally { setImporting(false); }
   }
 
+  // Modification d'une visite : la ligne change tout de suite (même règle que le serveur,
+  // lib/fieldVisits.applyVisitPatch), puis une relecture silencieuse confirme et met à jour les
+  // totaux ; en cas d'erreur, la relecture rétablit l'état du serveur.
   const patch = async (v, body) => {
-    try { await api.fieldUpdateVisit(v.id, body); reload(); }
+    setVisits((list) => (list ? list.map((x) => (x.id === v.id ? applyVisitPatch(x, body, providers) : x)) : list));
+    try { await api.fieldUpdateVisit(v.id, body); }
     catch (err) { toast.error(err.message); }
+    reload();
   };
   const remove = async (v) => {
     if (!window.confirm(tr('Supprimer la visite de « {site} » ?', { site: v.siteName }))) return;
-    try { await api.fieldDeleteVisit(v.id); reload(); } catch (err) { toast.error(err.message); }
+    try { await api.fieldDeleteVisit(v.id); setVisits((list) => (list ? list.filter((x) => x.id !== v.id) : list)); reload(); }
+    catch (err) { toast.error(err.message); }
   };
   // Génère la planification du mois à partir du RBM : chaque site « à planifier »
   // (à suivre — jamais visité ou échéance atteinte —, hors zone interdite, sans
@@ -125,6 +148,17 @@ export default function FieldVisitsPage({ canEdit }) {
       reload();
     } catch (err) { toast.error(err.message); } finally { setGenerating(false); }
   };
+  // « Appliquer les TPM des contrats » au mois : toute visite PRÉVUE sans TPM choisi avec une raison
+  // reprend celui de sa zone (journalisé) ; une visite motivée, réalisée, annulée ou déjà facturée
+  // n'est jamais touchée (le compte rendu les compte).
+  const applyContracts = async () => {
+    setApplying(true);
+    try {
+      const r = await api.tpmAttributionApply({ from: month, to: month });
+      toast.success(applyResultMessage(tr, r.visits, 'Toutes les visites prévues du mois portent déjà le TPM de leur zone.'));
+      reload();
+    } catch (err) { toast.error(err.message); } finally { setApplying(false); }
+  };
   const setTravel = async (providerId, travelDays) => {
     try { await api.fieldSetTravelDays({ providerId, month, travelDays: Math.max(0, Math.round(Number(travelDays) || 0)) }); reload(); }
     catch (err) { toast.error(err.message); }
@@ -134,7 +168,7 @@ export default function FieldVisitsPage({ canEdit }) {
 
   const communeCount = useMemo(() => new Set((visits || []).map((v) => `${v.district} › ${v.commune}`)).size, [visits]);
   const ov = summary?.overall;
-  const unassigned = (visits || []).filter((v) => !v.providerId).length;
+  const unassigned = (visits || []).filter(visitToAssign).length;
 
   // Colonnes & filtres de la grille de planification (liste façon COMET).
   const columns = useMemo(() => {
@@ -145,11 +179,11 @@ export default function FieldVisitsPage({ canEdit }) {
         render: (v) => <>{v.district || '—'} › {v.commune || '—'}</> },
       activity: { label: tr('Activité'), sortVal: (v) => v.activity || '', csv: (v) => v.activity || '',
         render: (v) => v.activity || '—' },
+      // Retour 58 : TPM tiré du contrat qui couvre la zone ; changer = raison obligatoire.
       provider: { label: tr('Prestataire TPM'), sortVal: (v) => v.providerName || '', csv: (v) => v.providerName || '',
-        render: (v) => (canEdit
-          ? <select className={`select ${v.providerId ? '' : 'is-empty'}`} style={{ minWidth: 150 }} value={v.providerId || ''} onChange={(e) => patch(v, { providerId: e.target.value || '' })} aria-label={tr('Prestataire')}>
-              <option value="">{tr('— Non affecté —')}</option>{providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
-          : (v.providerName || '—')) },
+        render: (v) => <VisitTpmCell visit={v} canEdit={canEdit} onEdit={(x) => setTpmVisits([x])} /> },
+      tpmOrigin: { label: tr('Origine du TPM'), sortVal: (v) => visitTpmKey(v), csv: (v) => tr((TPM_VISIT[visitTpmKey(v)] || TPM_VISIT['zone:']).label),
+        render: (v) => tr((TPM_VISIT[visitTpmKey(v)] || TPM_VISIT['zone:']).label) },
       role: { label: tr('Rôle'), sortVal: (v) => v.agent || '', csv: (v) => v.agent || '',
         render: (v) => (canEdit
           ? <select className={`select ${v.agent ? '' : 'is-empty'}`} style={{ minWidth: 130 }} value={v.agent || ''} onChange={(e) => patch(v, { agent: e.target.value })} aria-label={tr('Rôle')}>
@@ -176,8 +210,19 @@ export default function FieldVisitsPage({ canEdit }) {
     q: { label: tr('Recherche'), type: 'search', placeholder: tr('Site, commune, district…'),
       match: (v, val) => [v.siteName, v.commune, v.district, v.activity].some((x) => x && String(x).toLowerCase().includes(val.toLowerCase())) },
     provider: { label: tr('Prestataire'), type: 'select',
-      options: [{ id: '', label: tr('Tous les prestataires') }, { id: 'non_affecte', label: tr('— Non affectés —') }, ...providers.map((p) => ({ id: p.id, label: p.name }))],
-      match: (v, val) => (val === 'non_affecte' ? !v.providerId : v.providerId === val) },
+      options: [{ id: '', label: tr('Tous les prestataires') }, { id: 'non_affecte', label: tr('— À affecter (aucun contrat) —') }, ...providers.map((p) => ({ id: p.id, label: p.name }))],
+      match: (v, val) => (val === 'non_affecte' ? visitToAssign(v) : v.providerId === val) },
+    tpmOrigin: { label: tr('Origine du TPM'), type: 'select',
+      options: [{ id: '', label: tr('Toutes les origines') }, { id: 'contrat', label: tr('Selon contrat') }, { id: 'modifie', label: tr('Modifiés (zone ou visite)') },
+        { id: 'a_affecter', label: tr('À affecter') }, { id: 'plusieurs', label: tr('Plusieurs contrats : choisir') }],
+      match: (v, val) => {
+        const src = v.providerSource || 'zone';
+        if (val === 'contrat') return src === 'zone' && v.providerZoneState === 'contrat';
+        if (val === 'modifie') return src !== 'zone' || v.providerZoneState === 'modifie' || v.providerZoneState === 'aucun_tpm';
+        if (val === 'a_affecter') return visitToAssign(v);
+        if (val === 'plusieurs') return src === 'zone' && v.providerZoneState === 'a_arbitrer';
+        return true;
+      } },
     status: { label: tr('Statut'), type: 'select',
       options: [{ id: '', label: tr('Tous les statuts') }, ...Object.entries(STATUS).map(([k, s]) => ({ id: k, label: tr(s.label) }))],
       match: (v, val) => v.status === val },
@@ -202,6 +247,9 @@ export default function FieldVisitsPage({ canEdit }) {
             title={tr("Planifie automatiquement les sites « à suivre » ce mois d'après leur niveau de risque (RBM). Le nombre indique ceux qui n'ont pas encore de visite ce mois (hors zones interdites).")}>
             {rbmToPlan ? tr('Générer depuis le RBM ({n})', { n: rbmToPlan }) : tr('Générer depuis le RBM')}</Button>
           <Button variant="secondary" icon={Upload} loading={importing} onClick={() => fileRef.current?.click()}>{tr('Importer planning')}</Button>
+          <Button variant="secondary" icon={RefreshCw} loading={applying} onClick={applyContracts}
+            title={tr('Chaque visite prévue du mois sans TPM choisi avec une raison reprend le TPM du contrat qui couvre sa zone (journalisé) ; une visite réalisée, annulée ou déjà facturée garde son TPM.')}>
+            {tr('Appliquer les TPM des contrats')}</Button>
           <Button icon={Plus} onClick={() => setAddOpen(true)}>{tr('Ajouter une visite')}</Button></>}
       </PageHeader>
 
@@ -226,6 +274,11 @@ export default function FieldVisitsPage({ canEdit }) {
         )}
       </div>
 
+      <p className="tpm-rule-note">
+        {tr('Le TPM de chaque visite vient du contrat de suivi qui couvre la zone du site ce mois-là : rien à saisir. Un autre TPM se motive (crayon) ; une zone sans contrat s\'ajoute aux zones d\'intervention d\'un contrat de suivi.')}{' '}
+        {tr('Pour toute une zone et plusieurs mois :')} <a href={tpmTabHref({ month })}>{tr('Affectation des TPM')}</a>.
+      </p>
+
       {/* Deux vues : la grille de planification (simple, par défaut) et la couverture (analytique). */}
       <div className="seg" role="group" aria-label={tr('Vue')} style={{ marginBottom: 4 }}>
         <button type="button" className={view === 'plan' ? 'is-active' : ''} onClick={() => setView('plan')}>{tr('Planification')}</button>
@@ -237,7 +290,7 @@ export default function FieldVisitsPage({ canEdit }) {
         {ov && (
           <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(5, minmax(0,1fr))' }}>
             <Kpi icon={MapPin} tone="blue" label={tr('Sites du mois')} value={formatInt(ov.total)} foot={tr('{n} commune(s)', { n: communeCount })} />
-            <Kpi icon={UserPlus} tone={unassigned ? 'amber' : 'green'} label={tr('À affecter')} value={formatInt(unassigned)} foot={tr('Sans prestataire')} />
+            <Kpi icon={UserPlus} tone={unassigned ? 'amber' : 'green'} label={tr('À affecter')} value={formatInt(unassigned)} foot={tr('Aucun contrat actif sur la zone')} />
             <Kpi icon={CalendarClock} tone="blue" label={tr('Planifiées')} value={formatInt(ov.planifie)} foot={tr('À réaliser')} />
             <Kpi icon={CheckCircle2} tone="green" label={tr('Réalisées')} value={formatInt(ov.realise)} foot={tr('{p} % d\'exécution du plan', { p: Math.round(ov.rate * 100) })} />
             <Kpi icon={Ban} tone="red" label={tr('Annulées')} value={formatInt(ov.annule)} foot={tr('Exclues du taux')} />
@@ -277,8 +330,8 @@ export default function FieldVisitsPage({ canEdit }) {
       {view === 'plan' && (
         <DataList
           rows={visits} columns={columns} defaultColumns={['site', 'zone', 'activity', 'provider', 'role', 'visitDate', 'dataVisit', 'status', ...(canEdit ? ['action'] : [])]}
-          filters={filters} defaultFilters={['q', 'provider', 'status']}
-          storageKey="mems.fieldvisits.view.v2" pageSize={15} defaultSort={{ key: 'zone', dir: 'asc' }}
+          filters={filters} defaultFilters={['q', 'provider', 'tpmOrigin', 'status']}
+          storageKey="mems.fieldvisits.view.v3" pageSize={15} defaultSort={{ key: 'zone', dir: 'asc' }}
           csvName={`visites_${month}.csv`} emptyIcon={MapPin} emptyTitle={tr('Aucune visite ce mois-ci')}
           emptyAction={canEdit && rbmToPlan > 0 && <Button icon={Wand2} loading={generating} onClick={generateFromRbm}>{tr('Générer {n} visite(s) depuis le RBM', { n: rbmToPlan })}</Button>}
           emptyChildren={rbmToPlan
@@ -324,7 +377,8 @@ export default function FieldVisitsPage({ canEdit }) {
       )}
       </>}
 
-      {addOpen && <AddVisitModal month={month} providers={providers} roles={ROLES} onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); reload(); }} />}
+      {addOpen && <AddVisitModal month={month} roles={ROLES} onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); reload(); }} />}
+      {tpmVisits && <TpmVisitDialog visits={tpmVisits} onClose={() => setTpmVisits(null)} onSaved={() => { setTpmVisits(null); reload(); }} />}
     </div>
   );
 }
@@ -434,16 +488,28 @@ function CoverageCard({ title, rows }) {
   );
 }
 
-function AddVisitModal({ month, providers, roles, onClose, onSaved }) {
+function AddVisitModal({ month, roles, onClose, onSaved }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [sites, setSites] = useState([]);
-  const [form, setForm] = useState({ siteId: '', activity: '', providerId: '', agent: '' });
+  const [form, setForm] = useState({ siteId: '', activity: '', agent: '' });
   const [newSite, setNewSite] = useState({ district: '', commune: '', name: '', activity: '' });
   const [mode, setMode] = useState('existing');
   const [saving, setSaving] = useState(false);
+  // Retour 58 : le TPM de la visite est celui de la zone du site ; « autre TPM » exige une raison.
+  const [zoneTpm, setZoneTpm] = useState(null);
+  const [other, setOther] = useState(false);
+  const [provider, setProvider] = useState('');
+  const [reason, setReason] = useState('');
 
   useEffect(() => { api.fieldSites().then(setSites).catch(() => setSites([])); }, []);
+  useEffect(() => {
+    setZoneTpm(null);
+    if (mode !== 'existing' || !form.siteId) return undefined;
+    let live = true;
+    api.tpmAttributionResolve(form.siteId, month).then((r) => { if (live) setZoneTpm(r); }).catch(() => { if (live) setZoneTpm(false); });
+    return () => { live = false; };
+  }, [form.siteId, mode, month]);
 
   async function save() {
     setSaving(true);
@@ -465,15 +531,19 @@ function AddVisitModal({ month, providers, roles, onClose, onSaved }) {
         siteId = created.id; activity = activity || newSite.activity;
       }
       if (!siteId) { toast.error(tr('Choisissez un site.')); setSaving(false); return; }
-      await api.fieldCreateVisit({ siteId, periodMonth: month, activity: activity || undefined, providerId: form.providerId || undefined, agent: form.agent || undefined });
+      await api.fieldCreateVisit({
+        siteId, periodMonth: month, activity: activity || undefined, agent: form.agent || undefined,
+        ...(other && provider ? { providerId: provider === NONE ? null : provider, providerReason: reason.trim() } : {}),
+      });
       toast.success(tr('Visite planifiée.'));
       onSaved();
     } catch (e) { toast.error(e.message); } finally { setSaving(false); }
   }
 
+  const reasonMissing = Boolean(other && provider && [...reason.trim()].length < REASON_MIN);
   return (
     <Modal open size="md" title={tr('Ajouter une visite')} subtitle={tr('Mois : {month}', { month })} onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button onClick={save} loading={saving}>{tr('Planifier')}</Button></>}>
+      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button onClick={save} loading={saving} disabled={reasonMissing}>{tr('Planifier')}</Button></>}>
       <div style={{ display: 'grid', gap: 14 }}>
         <div className="seg" role="group" aria-label={tr('Type de site')}>
           <button type="button" className={mode === 'existing' ? 'is-active' : ''} onClick={() => setMode('existing')}>{tr('Site existant')}</button>
@@ -494,21 +564,47 @@ function AddVisitModal({ month, providers, roles, onClose, onSaved }) {
           </div>
         )}
         <label className="field"><span className="field-label">{tr('Activité')}</span><input className="input" value={form.activity} placeholder={tr('Ex. Suivi cantines scolaires')} onChange={(e) => setForm({ ...form, activity: e.target.value })} /></label>
-        <div className="form-grid">
-          <label className="field"><span className="field-label">{tr('Prestataire TPM (optionnel)')}</span>
-            <select className="select" value={form.providerId} onChange={(e) => setForm({ ...form, providerId: e.target.value })}>
-              <option value="">{tr('— Non affecté —')}</option>
-              {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </label>
-          <label className="field"><span className="field-label">{tr('Rôle (optionnel)')}</span>
-            <select className="select" value={form.agent} onChange={(e) => setForm({ ...form, agent: e.target.value })}>
-              <option value="">{tr('— Rôle —')}</option>
-              {roles.map((r) => <option key={r} value={r}>{tr(r)}</option>)}
-            </select>
-          </label>
+        <div className="field">
+          <span className="field-label">{tr('Prestataire TPM')}</span>
+          <ZoneTpmLine resolved={zoneTpm} mode={mode} />
+          {mode === 'existing' && zoneTpm && (
+            <label className="tpm-other">
+              <input type="checkbox" checked={other} onChange={(e) => setOther(e.target.checked)} /> {tr('Choisir un autre TPM pour cette visite (raison obligatoire)')}
+            </label>
+          )}
         </div>
+        {other && mode === 'existing' && (
+          <>
+            <div className="field">
+              <label className="field-label" htmlFor="add-visit-provider">{tr('Autre TPM')}</label>
+              <ProviderSelect id="add-visit-provider" selectable={zoneTpm && zoneTpm.selectable} value={provider} onChange={setProvider} noneLabel={tr('Aucun TPM (désaffecter)')} />
+            </div>
+            <ReasonField id="add-visit-reason" value={reason} onChange={setReason} required />
+          </>
+        )}
+        <label className="field"><span className="field-label">{tr('Rôle (optionnel)')}</span>
+          <select className="select" value={form.agent} onChange={(e) => setForm({ ...form, agent: e.target.value })}>
+            <option value="">{tr('— Rôle —')}</option>
+            {roles.map((r) => <option key={r} value={r}>{tr(r)}</option>)}
+          </select>
+        </label>
       </div>
     </Modal>
   );
+}
+
+/** TPM de la zone du site choisi (règle des contrats), en lecture. */
+function ZoneTpmLine({ resolved, mode }) {
+  const { tr } = useI18n();
+  if (mode === 'new') return <p className="muted tpm-zone-line">{tr('Le TPM sera celui du contrat qui couvre la zone du nouveau site.')}</p>;
+  if (resolved === null) return <p className="muted tpm-zone-line">{tr('Choisissez un site : son TPM vient du contrat qui couvre sa zone.')}</p>;
+  if (resolved === false) return <p className="muted tpm-zone-line">{tr('TPM de la zone indisponible.')}</p>;
+  const zone = resolved.area ? resolved.area.name : '—';
+  const origin = resolved.state === 'modifie'
+    ? tr('modifié : {r}', { r: (resolved.override && resolved.override.reason) || '' })
+    : tr('contrat {n}', { n: resolved.contractLabel || resolved.numero || '' });
+  const text = resolved.providerId
+    ? tr('{p}, selon la zone {z} ({o})', { p: resolved.providerName, z: zone, o: origin })
+    : tr('À affecter : aucun contrat actif sur la zone {z} ce mois. Pour toute la zone, utilisez l\'onglet Affectation des TPM.', { z: zone });
+  return <p className={`tpm-zone-line ${resolved.providerId ? '' : 'is-none'}`}>{text}</p>;
 }

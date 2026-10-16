@@ -3,7 +3,8 @@ const { badRequest, payloadTooLarge, AppError } = require('../../middleware/erro
 const { withQueryTimeout } = require('../../config/db');
 const { createSemaphore } = require('./semaphore');
 const { upgradeDoc, upgradeSnapshot, isV1 } = require('./reportUpgrade');
-const { safeParseDocV2, walkBlocks } = require('./reportSchema');
+const { safeParseDocV2, walkBlocks, imageRefs } = require('./reportSchema');
+const assetsRepo = require('./reportAssets.repository');
 const { DATASETS, KPIS, GROUPS, datasetDef, kpiDef, validateBlockParams, catalogForClient } = require('./catalog');
 const { loadFor } = require('./sources');
 const { buildPlan, blockOfInstance, PlanError, richVariables } = require('./renderPlan');
@@ -68,6 +69,13 @@ async function normalizeDoc(tenantId, input, { offices } = {}) {
   }
   const issues = catalogIssues(r.data);
   if (issues.length) throw badRequest('Rapport invalide', { issues });
+  // Images citées (logos des bandes, blocs image) : celles du compte seulement, jamais prises pour vraies.
+  const refs = [...new Set(imageRefs(r.data))];
+  if (refs.length) {
+    const known = await assetsRepo.existingAssetIds(tenantId, refs);
+    const missing = refs.filter((id) => !known.has(id));
+    if (missing.length) throw badRequest('Image introuvable dans ce compte : téléversez-la à nouveau.', { code: 'asset_missing', ids: missing });
+  }
   return { doc: r.data, warnings: up.warnings, upgraded: up.upgraded, offices: idx };
 }
 
@@ -98,9 +106,22 @@ async function expandRepeats(tenantId, doc, lang) {
 }
 
 const kpiKeys = () => new Set(Object.keys(KPIS));
-const planOf = (doc, expansions, lang) => {
+/**
+ * {bureau} des en-têtes et pieds : le bureau filtré par le rapport (nom MEMS, libellé d'une fiche,
+ * « Soumissions sans bureau MEMS relié »), sinon « Tous les bureaux ».
+ */
+function officeVar(doc, offices, lang) {
+  const o = (doc.filters || {}).office;
+  const T = phrases(lang);
+  if (!o) return T.allOffices;
+  if (o === 'unlinked') return T.unlinkedOffice;
+  if (o.startsWith('id:')) return (offices && offices.nameById && offices.nameById.get(o.slice(3))) || T.allOffices;
+  if (o.startsWith('lib:')) return o.slice(4);
+  return o.split(':').slice(2).join(':') || T.allOffices; // code:<fiche>:<code>
+}
+const planOf = (doc, expansions, lang, offices = null) => {
   try {
-    return buildPlan(doc, { expansions, kpiKeys: kpiKeys(), lang, today: today(), defaultView: (k) => (datasetDef(k) || {}).defaultView || 'table' });
+    return buildPlan(doc, { expansions, kpiKeys: kpiKeys(), lang, today: today(), defaultView: (k) => (datasetDef(k) || {}).defaultView || 'table', simpleVars: { bureau: officeVar(doc, offices, lang) } });
   } catch (e) {
     if (e instanceof PlanError) throw badRequest(e.message, { code: e.code, ...e.details });
     throw e;
@@ -166,8 +187,20 @@ async function dataBlock(tenantId, block, eff, ctx) {
       warnings: m.warnings || [],
       periodMode: def.periodMode,
       period: eff.period,
+      dataPeriod: m.dataPeriod || dataPeriodOf(def.periodMode, eff),
     },
   };
+}
+
+/**
+ * Période réellement couverte quand elle diffère de la plage du bloc (dite dans la légende de la
+ * figure, retour 87) : l'exercice entier d'un jeu « année ». Un jeu « situation au » porte déjà sa
+ * date (`asOf`) ; un jeu « plage » couvre la plage.
+ */
+function dataPeriodOf(mode, eff) {
+  if (mode !== 'year' || !eff.period) return null;
+  const y = String(eff.period.to).slice(0, 4);
+  return { from: `${y}-01`, to: `${y}-12` };
 }
 
 /** Arguments d'un bloc complétés par les valeurs par défaut déclarées par le jeu. */
@@ -273,7 +306,7 @@ async function renderReport(tenantId, input, opts = {}) {
   const lang = langOf(opts);
   const { doc, warnings, upgraded, offices } = await normalizeDoc(tenantId, input);
   const expansions = await expandRepeats(tenantId, doc, lang);
-  const plan = planOf(doc, expansions, lang);
+  const plan = planOf(doc, expansions, lang, offices);
   const ctx = renderCtx(offices, opts);
   const blocks = {};
   for (const inst of plan.instances) if (inst.needsData) blocks[inst.iid] = await computeGuarded(tenantId, doc, inst, ctx); // une à la fois
@@ -287,9 +320,9 @@ async function renderReport(tenantId, input, opts = {}) {
 async function renderPlanFor(tenantId, input, opts = {}) {
   const t0 = Date.now();
   const lang = langOf(opts);
-  const { doc, warnings, upgraded } = await normalizeDoc(tenantId, input);
+  const { doc, warnings, upgraded, offices } = await normalizeDoc(tenantId, input);
   const expansions = await expandRepeats(tenantId, doc, lang);
-  const plan = planOf(doc, expansions, lang);
+  const plan = planOf(doc, expansions, lang, offices);
   return { ...plan, warnings, upgraded, computedAt: new Date().toISOString(), ms: Date.now() - t0 };
 }
 
@@ -306,7 +339,7 @@ async function renderBlocks(tenantId, input, iids, opts = {}) {
   const lang = langOf(opts);
   const { doc, offices } = await normalizeDoc(tenantId, input);
   const expansions = await expandRepeats(tenantId, doc, lang);
-  const plan = planOf(doc, expansions, lang);
+  const plan = planOf(doc, expansions, lang, offices);
   const byIid = new Map(plan.instances.map((i) => [i.iid, i]));
   const unknown = iids.filter((x) => !byIid.has(x));
   if (unknown.length) throw badRequest('Bloc inconnu : rechargez le plan du rapport.', { code: 'unknown_iid', iids: unknown });
@@ -448,5 +481,5 @@ async function exportXlsx(tenantId, input, opts) {
 
 module.exports = {
   renderReport, renderPlanFor, renderBlocks, MAX_IIDS, normalizeDoc, expandRepeats, computeInstance, renderCtx, planOf, officeIndex,
-  getDocument, documentData, finalize, listTemplates, catalog, exportXlsx, catalogIssues, unsupportedNote,
+  getDocument, documentData, finalize, listTemplates, catalog, exportXlsx, catalogIssues, unsupportedNote, officeVar,
 };

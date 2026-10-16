@@ -111,12 +111,84 @@ export const categoryColumn = (data) => ((data && data.columns) || []).find((c) 
  *  - un seul chiffre en graphique → tuile ;
  *  - plus de 7 catégories → « Autres » ou tableau.
  */
-export function viewAdvice(view, { rows = 0, series = 1 } = {}) {
+export function viewAdvice(view, { rows = 0, series = 1, timeSeries = false } = {}) {
   if (view === 'donut' && rows > 5) return 'donut_too_many';
   if ((view === 'bar' || view === 'column') && rows === 1 && series === 1) return 'single_value';
-  if ((view === 'bar' || view === 'column' || view === 'donut' || view === 'stacked') && rows > MAX_CATEGORIES) return 'too_many_categories';
+  // Une suite de mois n'est jamais regroupée en « Autres » : pas de conseil pour une évolution.
+  if (!timeSeries && (view === 'bar' || view === 'column' || view === 'donut' || view === 'stacked') && rows > MAX_CATEGORIES) return 'too_many_categories';
   if (view === 'line' && rows < 3) return 'line_too_short';
   return null;
+}
+
+/**
+ * Largeur estimée d'une étiquette d'axe (px), police Inter à chiffres tabulaires : chiffre 0,62 em,
+ * majuscule 0,68, minuscule 0,52, espace et ponctuation 0,30, autre 0,58 (estimation prudente).
+ */
+export function labelWidth(s, fontPx = 10) {
+  let em = 0;
+  for (const ch of String(s == null ? '' : s)) {
+    if (/[0-9]/.test(ch)) em += 0.62;
+    else if (/[\s.,:;'’()/-]/.test(ch)) em += 0.3;
+    else if (ch !== ch.toLowerCase()) em += 0.68;
+    else if (ch !== ch.toUpperCase()) em += 0.52;
+    else em += 0.58;
+  }
+  return em * fontPx;
+}
+
+const ROTATE = 40; // degrés
+/**
+ * Étiquettes de l'axe des catégories SANS CHEVAUCHEMENT (retour 87 : « Octobre 2025Novembre 2025… ») :
+ *  - toutes, droites, si chacune tient dans sa case ;
+ *  - sinon toutes, inclinées de −40°, s'il y en a `maxRotated` au plus et que deux étiquettes
+ *    voisines restent séparées d'une hauteur de ligne (case × sin 40°) ;
+ *  - sinon une sur k, droites, ANCRÉES SUR LA DERNIÈRE (le mois le plus récent est toujours lu).
+ * @param {string[]} labels étiquettes (courtes : « oct. 25 »)
+ * @param {{ plotW: number, slot?: number, fontPx?: number, gap?: number, maxRotated?: number }} opts
+ *   `slot` = distance entre deux catégories (par défaut plotW ÷ nombre d'étiquettes)
+ * @returns {{ show: number[], rotate: number, every: number, height: number }} `height` = hauteur à
+ *   réserver sous l'axe (px)
+ */
+export function axisLabelLayout(labels, { plotW, slot = null, fontPx = 10, gap = 6, maxRotated = 24 } = {}) {
+  const n = (labels || []).length;
+  const flat = fontPx + 6;
+  if (!n) return { show: [], rotate: 0, every: 1, height: flat };
+  const step = slot != null ? slot : (Number(plotW) || 0) / n;
+  const widest = Math.max(...labels.map((l) => labelWidth(l, fontPx)));
+  const all = labels.map((_, i) => i);
+  if (n === 1 || widest + gap <= step) return { show: all, rotate: 0, every: 1, height: flat };
+  const rad = (ROTATE * Math.PI) / 180;
+  const lineH = fontPx * 1.25;
+  if (n <= maxRotated && step * Math.sin(rad) >= lineH) {
+    return { show: all, rotate: -ROTATE, every: 1, height: Math.ceil(widest * Math.sin(rad) + lineH * Math.cos(rad)) + 6 };
+  }
+  const every = Math.max(2, Math.ceil((widest + gap) / Math.max(step, 1e-6)));
+  const show = [];
+  for (let i = n - 1; i >= 0; i -= every) show.unshift(i);
+  return { show, rotate: 0, every, height: flat };
+}
+
+/** Nombre de mois de « AAAA-MM » à « AAAA-MM », bornes comprises. */
+const monthSpan = (from, to) => {
+  const [a, b] = [from, to].map((m) => { const [y, mo] = String(m).split('-').map(Number); return y * 12 + mo - 1; });
+  return b - a + 1;
+};
+
+/**
+ * Période RÉELLEMENT couverte par les données d'une figure quand elle diffère de celle du bloc
+ * (retour 87 : une tendance montre 12 mois jusqu'au mois du rapport, un plan annuel l'exercice
+ * entier) — à dire dans sa légende, sinon le n (2 845) contredit celui du rapport (228).
+ * @param {{ period?: {from,to}, dataPeriod?: {from,to} }} meta
+ * @returns {null | { kind: 'months', n: number, to: string } | { kind: 'year', year: string } | { kind: 'range', from: string, to: string }}
+ */
+export function dataScope(meta) {
+  const d = meta && meta.dataPeriod;
+  const p = meta && meta.period;
+  if (!d || !/^\d{4}-\d{2}$/.test(d.from || '') || !/^\d{4}-\d{2}$/.test(d.to || '')) return null;
+  if (p && p.from === d.from && p.to === d.to) return null;
+  if (d.from.slice(0, 4) === d.to.slice(0, 4) && d.from.endsWith('-01') && d.to.endsWith('-12')) return { kind: 'year', year: d.from.slice(0, 4) };
+  if (!p || d.to === p.to) return { kind: 'months', n: monthSpan(d.from, d.to), to: d.to };
+  return { kind: 'range', from: d.from, to: d.to };
 }
 
 /**

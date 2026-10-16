@@ -74,3 +74,40 @@ test('conseils de forme et pied de figure (numéro, source, n, date)', async (t)
   assert.equal(v.figureFoot({ source: 'auto' }, { source: 'Saisie' }).source, 'Saisie');
   assert.equal(v.rampColor(0, 10), v.RAMP[0]); assert.equal(v.rampColor(10, 10), v.RAMP[v.RAMP.length - 1]); assert.equal(v.rampColor(null, 10), null);
 });
+
+test('retour 87 : étiquettes de mois — toutes droites si elles tiennent, sinon inclinées, sinon une sur k ancrée sur la dernière', async (t) => {
+  const v = await load(t); if (!v) return;
+  const short = ['oct. 25', 'nov. 25', 'déc. 25', 'janv. 26', 'févr. 26', 'mars 26', 'avr. 26', 'mai 26', 'juin 26', 'juil. 26', 'août 26', 'sept. 26'];
+  // 12 mois abrégés sur 584 px : chacun tient dans sa case de 48 px, rien n'est incliné ni retiré.
+  const a = v.axisLabelLayout(short, { plotW: 584 });
+  assert.deepEqual([a.show.length, a.rotate, a.every], [12, 0, 1]);
+  // Les libellés longs d'avant (« Octobre 2025 ») ne tiennent pas : jamais côte à côte.
+  const long = short.map((s) => `${s}xxxxxxx`);
+  const b = v.axisLabelLayout(long, { plotW: 584 });
+  assert.equal(b.rotate, -40);
+  assert.ok(b.height > 20, 'place réservée sous l\'axe pour les étiquettes inclinées');
+  // 36 mois serrés : une sur k, droites, la DERNIÈRE toujours montrée, aucun chevauchement.
+  const many = Array.from({ length: 36 }, (_, i) => `m${String(i).padStart(2, '0')} 26`);
+  const c = v.axisLabelLayout(many, { plotW: 584 });
+  assert.equal(c.rotate, 0);
+  assert.equal(c.show[c.show.length - 1], 35);
+  const slot = 584 / 36;
+  const w = v.labelWidth(many[0]);
+  for (let k = 1; k < c.show.length; k += 1) assert.ok((c.show[k] - c.show[k - 1]) * slot >= w, 'deux étiquettes montrées ne se touchent pas');
+  // Une seule catégorie : montrée telle quelle.
+  assert.deepEqual(v.axisLabelLayout(['sept. 26'], { plotW: 584 }).show, [0]);
+  assert.deepEqual(v.axisLabelLayout([], { plotW: 584 }).show, []);
+});
+
+test('retour 87 : période des données dite quand elle diffère de celle du rapport', async (t) => {
+  const v = await load(t); if (!v) return;
+  const sept = { from: '2026-09', to: '2026-09' };
+  assert.deepEqual(v.dataScope({ period: sept, dataPeriod: { from: '2025-10', to: '2026-09' } }), { kind: 'months', n: 12, to: '2026-09' });
+  assert.equal(v.dataScope({ period: sept, dataPeriod: sept }), null);
+  assert.equal(v.dataScope({ period: sept }), null);
+  assert.deepEqual(v.dataScope({ period: sept, dataPeriod: { from: '2026-01', to: '2026-12' } }), { kind: 'year', year: '2026' });
+  assert.deepEqual(v.dataScope({ period: sept, dataPeriod: { from: '2025-01', to: '2025-06' } }), { kind: 'range', from: '2025-01', to: '2025-06' });
+  // Une évolution mensuelle n'est jamais « trop de catégories ».
+  assert.equal(v.viewAdvice('column', { rows: 12, timeSeries: true }), null);
+  assert.equal(v.viewAdvice('column', { rows: 12 }), 'too_many_categories');
+});
