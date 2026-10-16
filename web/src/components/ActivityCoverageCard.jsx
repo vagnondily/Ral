@@ -20,7 +20,7 @@ export default function ActivityCoverageCard({ cov, error, periodText, className
   const { rows, total } = activityTableRows(cov);
   const exportCsv = () => downloadCsv(`couverture_par_activite_${periodText || ''}.csv`.replace(/\s+/g, '_'), [
     [tr('Activité'), tr('Sites actifs'), tr('Sites prévus'), tr('Sites suivis'), tr('dont par données reçues'), tr('dont par visites déclarées'),
-      tr('Couverture (sites) %'), tr('Exécution (sites) %')],
+      tr('Couverture (sites) %'), tr('Sites prévus → suivis %')],
     ...rows.map((r) => [r.label || tr('Sans activité'), r.sites, r.planned, r.covered, r.byData, r.byVisit, pctOf(r.coverage), pctOf(r.execution)]),
     [tr('Total (sites distincts)'), total.sites, total.planned, total.covered, total.byData, total.byVisit, pctOf(total.coverage), pctOf(total.execution)],
   ]);
@@ -37,7 +37,7 @@ export default function ActivityCoverageCard({ cov, error, periodText, className
     <div className={`card biz-card ${className}`}>
       <div className="card-header">
         <div><div className="card-title">{tr('Couverture par activité')}</div>
-          <div className="card-sub">{tr('Sites actifs de la période ; suivi = visite déclarée ou données reçues · couverture = suivis ÷ actifs · exécution = prévus suivis ÷ prévus (mois échus)')}</div></div>
+          <div className="card-sub">{tr('Sites actifs de la période ; suivi = visite déclarée ou données reçues · couverture = suivis ÷ actifs · sites prévus → suivis = sites avec une visite prévue (mois échus) suivis sur la période ÷ sites prévus — l\'exécution du plan, visite par visite, est la tuile « Exécution du plan (visites) »')}</div></div>
         {!error && rows.length > 0 && <Button size="sm" variant="ghost" icon={Download} onClick={exportCsv}>CSV</Button>}
       </div>
       {error ? <div className="card-body"><p className="muted" role="alert">{error}</p></div> : rows.length === 0 ? (
@@ -52,7 +52,7 @@ export default function ActivityCoverageCard({ cov, error, periodText, className
                 <th scope="col" className="num">{tr('Prévus')}</th>
                 <th scope="col" className="num">{tr('Suivis')}</th>
                 <th scope="col">{tr('Couverture (sites)')}</th>
-                <th scope="col">{tr('Exécution (sites)')}</th>
+                <th scope="col">{tr('Sites prévus → suivis')}</th>
               </tr></thead>
               <tbody>
                 {rows.map((r) => (
