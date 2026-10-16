@@ -33,7 +33,7 @@ const MOTIF = 'TPM choisi avec une raison pour ce test.';
 test('effacer les planifications : seules les prévues libres d\'un mois à venir sont supprimées', { skip: SKIP, timeout: 120000 }, async () => {
   const { Client } = require('pg');
   const { pool } = require('../src/config/db');
-  const { clearPlanned } = require('../src/modules/tpm/planAuto.repository');
+  const { clearPlanned } = require('../src/modules/tpm/planAuto.service');
   const su = new Client({ connectionString: SU_URL });
   await su.connect();
   const q = async (sql, params) => (await su.query(sql, params)).rows;

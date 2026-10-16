@@ -40,6 +40,32 @@ function collapseStatus(statuses) {
 }
 
 /**
+ * LA règle « site actif au mois M » (une seule, partout : tableaux de bord, Plan de suivi,
+ * « Générer depuis le RBM », planification automatique) à partir de la case du mois :
+ *  - l'année a une grille (le compte a au moins un statut cette année-là) → actif SEULEMENT
+ *    sur un « Oui » explicite ; une case vide compte comme inactive ;
+ *  - l'année n'a aucune grille → tout le registre est actif.
+ * La zone interdite (sécurité ≥ 99) se teste à part (jamais active).
+ * Jumeau web : web/src/lib/activation.isActiveMonth.
+ * @param {boolean|null|undefined} value case du mois : true (Oui), false (Non), vide
+ * @param {boolean} yearHasGrid le compte a au moins un statut cette année-là
+ */
+function isActiveMonth(value, yearHasGrid) {
+  return yearHasGrid ? value === true : value !== false;
+}
+
+/**
+ * Jumeau SQL de isActiveMonth pour UN site × mois (garde des écritures de visites, sous les
+ * verrous des mois) : actif si l'année n'a aucune grille, sinon seulement sur un « Oui »
+ * explicite. `tenant`, `site`, `year`, `month` : expressions SQL (paramètres ou colonnes).
+ */
+function activeMonthSql({ tenant = '$1', site, year, month }) {
+  return `(NOT EXISTS (SELECT 1 FROM site_month_status gy WHERE gy.tenant_id = ${tenant} AND gy.year = ${year})
+        OR EXISTS (SELECT 1 FROM site_month_status gm WHERE gm.tenant_id = ${tenant} AND gm.site_id = ${site}
+                     AND gm.year = ${year} AND gm.month = ${month} AND gm.active))`;
+}
+
+/**
  * Site actif au mois `month` (« AAAA-MM »).
  * @param {Map<string,boolean>|object} statuses cases EXPLICITES de la grille de CE site : mois → actif
  * @param {{ forbidden?: boolean, gridYears?: Set<number>|number[] }} opts années où le tenant a une grille
@@ -47,9 +73,8 @@ function collapseStatus(statuses) {
 function activeAt(statuses, month, { forbidden = false, gridYears = [] } = {}) {
   if (forbidden) return false;
   const years = gridYears instanceof Set ? gridYears : new Set(gridYears);
-  if (!years.has(Number(month.slice(0, 4)))) return true; // aucune grille cette année-là : tout le registre
   const v = statuses instanceof Map ? statuses.get(month) : (statuses || {})[month];
-  return v === true;
+  return isActiveMonth(v, years.has(Number(month.slice(0, 4))));
 }
 
 /**
@@ -132,4 +157,4 @@ function sumFacts(list) {
   return t;
 }
 
-module.exports = { activeAt, collapseStatus, siteRangeFacts, ratesOf, sumFacts };
+module.exports = { isActiveMonth, activeMonthSql, activeAt, collapseStatus, siteRangeFacts, ratesOf, sumFacts };

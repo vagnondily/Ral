@@ -28,18 +28,42 @@ const RISK_LABEL = { 1: 'Faible', 2: 'Moyen', 3: 'Élevé', faible: 'Faible', mo
 // Nombre à une décimale au plus, locale FR (ex. intervalle « 4,5 »).
 const num1 = (n) => (n == null ? '—' : Number(n).toLocaleString(formatLocale(), { maximumFractionDigits: 1 }));
 
+// Raisons d'un site non couvert / d'une visite non placée (moteur : planAuto REASONS).
+const REASON_LABEL = {
+  capacity: 'capacité du mois atteinte',
+  inactive: 'mois inactifs (grille Sites actifs / inactifs)',
+  cancelled: 'mois d\'une visite annulée',
+  gap: 'intervalle avec une visite existante',
+  period: 'période trop courte ou mois exclus',
+};
+// Raisons d'une affectation non écrite à l'application (relues en base).
+const SKIP_LABEL = { existing: 'déjà une visite ce mois', inactive: 'mois inactif', forbidden: 'zone interdite' };
+// Sections de l'empreinte des entrées (planFingerprint) : ce qui a changé depuis l'aperçu.
+const SECTION_LABEL = {
+  registre: 'registre des sites', visites: 'visites', activation: 'sites actifs / inactifs',
+  mmr: 'paramètres MMR', tpm: 'TPM des zones', parametres: 'période ou réglages',
+};
+
 /**
  * Assistant de génération automatique du plan de suivi sur une PÉRIODE (retour 82).
  * Simple par défaut : choisir la période → Aperçu → Appliquer. Les réglages fins
  * (capacité, débordement, fréquence de repli…) sont dans « Options avancées ».
  * Les visites EXIGÉES viennent du MMR (fréquence + intervalle) et la priorité du RBM.
+ * La période part de l'exercice affiché par le Plan de suivi (`year`), jamais d'un mois échu ;
+ * « Appliquer » renvoie l'empreinte de l'aperçu : si les données ont changé, le serveur refuse
+ * (409) et l'écran demande de relancer l'aperçu.
  */
-export default function PlanAutoDrawer({ onClose, onDone }) {
+export default function PlanAutoDrawer({ year, onClose, onDone }) {
   const { tr } = useI18n();
   const toast = useToast();
-  const start = monthFromNow(1);
+  const nowMonth = monthFromNow(0);
+  const boardYear = String(year || yearOf(nowMonth));
+  const pastYear = boardYear < yearOf(nowMonth);
+  // Exercice courant : du mois courant à décembre ; exercice à venir : toute l'année.
+  const start = boardYear === yearOf(nowMonth) ? nowMonth : `${boardYear}-01`;
   const [from, setFrom] = useState(start);
-  const [to, setTo] = useState(`${yearOf(start)}-12`); // par défaut : jusqu'à décembre (même exercice)
+  const [to, setTo] = useState(`${boardYear}-12`); // par défaut : jusqu'à décembre (même exercice)
+  const [stale, setStale] = useState(null); // sections changées depuis l'aperçu (409)
   const [freq, setFreq] = useState({ elevee: 1, moyenne: 2, faible: 3 }); // repli = fréquence RBM (retour 82)
   const [capacity, setCapacity] = useState('');
   const [useMmrCapacity, setUseMmrCapacity] = useState(true);
@@ -57,8 +81,9 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
   const [busy, setBusy] = useState(false);
 
   const sameYear = yearOf(from) === yearOf(to);
-  const invalid = !from || !to || from > to || !sameYear;
-  const reset = () => setPreview(null);
+  const allPast = Boolean(to) && to < nowMonth;
+  const invalid = !from || !to || from > to || !sameYear || allPast;
+  const reset = () => { setPreview(null); setStale(null); };
   const setPeriod = (f, t) => { setFrom(f); setTo(t); reset(); };
 
   // Préréglages de période (dans l'exercice du mois de départ).
@@ -90,17 +115,25 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
   async function runPreview() {
     if (invalid) return;
     setBusy(true);
-    try { setPreview(await api.planAutoPreview(payload)); }
+    try { setPreview(await api.planAutoPreview(payload)); setStale(null); }
     catch (e) { toast.error(e.message); } finally { setBusy(false); }
   }
   async function apply() {
-    if (invalid || !preview) return;
+    if (invalid || !preview || stale) return;
     setBusy(true);
     try {
-      const r = await api.planAutoApply(payload);
-      toast.success(tr('{n} visite(s) planifiée(s).', { n: r.created }));
+      const r = await api.planAutoApply({ ...payload, fingerprint: preview.fingerprint, sections: preview.sections });
+      // Toujours « N créées sur M prévues » ; l'écart a sa raison (relue en base).
+      const why = Object.entries(r.skipped || {}).filter(([, n]) => n > 0)
+        .map(([k, n]) => `${formatInt(n)} ${tr(SKIP_LABEL[k] || k)}`).join(' · ');
+      const msg = tr('{n} visite(s) créée(s) sur {m} prévue(s).', { n: formatInt(r.created), m: formatInt(r.planned) });
+      if (r.created < r.planned) toast.info(`${msg} ${tr('Non créées : {why}.', { why: why || tr('déjà planifiées entre-temps') })}`);
+      else toast.success(msg);
       onDone();
-    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+    } catch (e) {
+      if (e.status === 409 && e.details && e.details.code === 'plan_inputs_changed') setStale(e.details.sections || []);
+      else toast.error(e.message);
+    } finally { setBusy(false); }
   }
   // Export CSV « base de budget » : par TPM/bureau et par mois — visites (= jours de collecte)
   // et agents. On y ajoute ses coûts journaliers dans Excel pour obtenir le budget.
@@ -141,7 +174,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
   const sample = useMemo(() => {
     if (!preview) return [];
     const bySite = new Map();
-    for (const a of preview.assignments || []) {
+    for (const a of preview.sample || []) {
       if (!bySite.has(a.siteId)) bySite.set(a.siteId, { name: a.name || '—', commune: a.commune, district: a.district, activity: a.activity || null, tpm: a.tpm || null, months: [] });
       bySite.get(a.siteId).months.push(a.month);
     }
@@ -161,7 +194,8 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
             <Button variant="secondary" icon={Download} onClick={exportBudget} disabled={busy}
               title={tr('Exporter le plan (visites = jours de collecte, agents) par TPM/bureau et par mois — base du budget.')}>{tr('Budget (CSV)')}</Button>
             <Button variant="secondary" icon={Eye} loading={busy} disabled={invalid} onClick={runPreview}>{tr('Recalculer')}</Button>
-            <Button icon={Wand2} loading={busy} disabled={invalid} onClick={apply}>{tr('Appliquer')}</Button>
+            <Button icon={Wand2} loading={busy} disabled={invalid || Boolean(stale)} onClick={apply}
+              title={stale ? tr('Les données ont changé : relancez l\'aperçu.') : undefined}>{tr('Appliquer')}</Button>
           </>}
       </>}>
       <div style={{ display: 'grid', gap: 18 }}>
@@ -186,11 +220,15 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
             ))}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label={tr('Du mois')} htmlFor="pa-from"><input id="pa-from" type="month" className="input" value={from} onChange={(e) => { setFrom(e.target.value); reset(); }} /></Field>
-            <Field label={tr('Au mois')} htmlFor="pa-to" error={from > to ? tr('Période invalide.') : (!sameYear ? tr('La période doit tenir dans un seul exercice (même année).') : undefined)}>
-              <input id="pa-to" type="month" className="input" value={to} onChange={(e) => { setTo(e.target.value); reset(); }} />
+            <Field label={tr('Du mois')} htmlFor="pa-from"><input id="pa-from" type="month" className="input" min={nowMonth} value={from} onChange={(e) => { setFrom(e.target.value); reset(); }} /></Field>
+            <Field label={tr('Au mois')} htmlFor="pa-to" error={from > to ? tr('Période invalide.') : (!sameYear ? tr('La période doit tenir dans un seul exercice (même année).') : (allPast ? tr('Période entièrement échue : choisissez des mois à partir de {m}.', { m: nowMonth }) : undefined))}>
+              <input id="pa-to" type="month" className="input" min={nowMonth} value={to} onChange={(e) => { setTo(e.target.value); reset(); }} />
             </Field>
           </div>
+          {pastYear && <Alert tone="info">{tr('Exercice {y} échu : aucune visite ne se planifie dans un mois passé.', { y: boardYear })}</Alert>}
+          {!pastYear && from < nowMonth && to >= nowMonth && (
+            <span className="muted" style={{ fontSize: 12 }}>{tr('Les mois échus de la période ne sont jamais planifiés : le plan commence en {m}.', { m: nowMonth })}</span>
+          )}
         </section>
 
         {/* Options avancées (repliées par défaut) */}
@@ -249,6 +287,16 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
         {preview ? (
           <section style={{ display: 'grid', gap: 12, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
             <strong style={{ fontSize: 13 }}>{tr('Aperçu du plan')}</strong>
+            {stale && (
+              <Alert tone="warning">
+                {tr('Les données ont changé : relancez l\'aperçu.')}
+                {stale.length > 0 && <> {tr('Changé depuis l\'aperçu : {list}.', { list: stale.map((s) => tr(SECTION_LABEL[s] || s)).join(', ') })}</>}
+                {' '}<Button size="sm" variant="secondary" icon={Eye} loading={busy} onClick={runPreview}>{tr('Relancer l\'aperçu')}</Button>
+              </Alert>
+            )}
+            {preview.period && preview.period.pastMonths && preview.period.pastMonths.length > 0 && (
+              <Alert tone="info">{tr('{n} mois échu(s) non planifié(s) : le plan commence en {m}.', { n: formatInt(preview.period.pastMonths.length), m: preview.period.from })}</Alert>
+            )}
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
                 <span className="muted">{tr('Couverture des sites')}</span>
@@ -264,7 +312,9 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
               <span className="muted">{tr('Repli RBM (sans MMR)')} : {formatInt(preview.summary.rbmFallback)}</span>
               {preview.summary.latePlanned > 0 && <span className="muted">{tr('Prévues antérieures re-planifiées')} : {formatInt(preview.summary.latePlanned)}</span>}
               {preview.summary.forbidden > 0 && <span className="muted">{tr('Zones interdites exclues')} : {formatInt(preview.summary.forbidden)}</span>}
-              {preview.summary.unplaced > 0 && <span className="muted">{tr('Non placées (capacité)')} : {formatInt(preview.summary.unplaced)}</span>}
+              {preview.summary.unplaced > 0 && <span className="muted">{tr('Visites non placées')} : {formatInt(preview.summary.unplaced)}</span>}
+              {preview.summary.existingInPeriod > 0 && <span className="muted">{tr('Déjà prévues ou réalisées sur la période')} : {formatInt(preview.summary.existingInPeriod)}</span>}
+              {preview.summary.inactive > 0 && <span className="muted">{tr('Sites inactifs toute la période')} : {formatInt(preview.summary.inactive)}</span>}
               {preview.summary.agentsTotalPeak != null && <span>{tr('Effectif à mobiliser (pic)')} : <strong>{preview.summary.agentsTotalKnown ? '' : '≥ '}{formatInt(preview.summary.agentsTotalPeak)}</strong> {tr('agents')}</span>}
             </div>
             {preview.summary.noActivity > 0 && (
@@ -277,10 +327,34 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
                 {tr('{n} site(s) avec activité mais sans paramètre MMR : planifiés au repli RBM (fréquence du risque). Complétez leur MMR dans la Configuration pour un suivi exact.', { n: formatInt(preview.summary.rbmFallback) })}
               </Alert>
             )}
-            {(preview.summary.sitesActivePlannable - preview.summary.sitesCovered) > 0 && (
+            {preview.summary.sitesUncovered > 0 && (
               <Alert tone="warning">
-                {tr('{n} site(s) avec activité non couverts : la capacité mensuelle ne suffit pas. Augmentez la capacité (faisable) des activités concernées dans la Configuration MMR, ou décochez « Respecter la capacité mensuelle du MMR » dans les options.', { n: formatInt(preview.summary.sitesActivePlannable - preview.summary.sitesCovered) })}
+                {tr('{n} site(s) non couvert(s) sur la période, par raison :', { n: formatInt(preview.summary.sitesUncovered) })}
+                <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                  {Object.entries(preview.summary.uncoveredByReason || {}).filter(([, n]) => n > 0).map(([k, n]) => (
+                    <li key={k}>{formatInt(n)} — {tr(REASON_LABEL[k] || k)}</li>
+                  ))}
+                </ul>
+                {(preview.summary.uncoveredByReason || {}).capacity > 0 && (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{tr('Capacité : augmentez la capacité (faisable) des activités concernées dans la Configuration MMR, ou décochez « Respecter la capacité mensuelle du MMR » dans les options.')}</div>
+                )}
               </Alert>
+            )}
+            {Array.isArray(preview.uncovered) && preview.uncovered.length > 0 && (
+              <details>
+                <summary className="muted" style={{ fontSize: 12, cursor: 'pointer' }}>{tr('Sites non couverts et leur raison ({n} sur {total})', { n: formatInt(preview.uncovered.length), total: formatInt(preview.uncoveredTotal) })}</summary>
+                <table className="table" style={{ background: 'var(--surface)', marginTop: 6 }}>
+                  <thead><tr><th scope="col">{tr('Site')}</th><th scope="col">{tr('District')}</th><th scope="col">{tr('Commune')}</th><th scope="col">{tr('Raison')}</th><th scope="col" className="num">{tr('Visites dues')}</th></tr></thead>
+                  <tbody>
+                    {preview.uncovered.map((u) => (
+                      <tr key={u.siteId}>
+                        <td><strong>{u.name || '—'}</strong></td><td className="muted">{u.district || '—'}</td><td className="muted">{u.commune || '—'}</td>
+                        <td>{tr(REASON_LABEL[u.reason] || u.reason)}</td><td className="num">{formatInt(u.needed)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </details>
             )}
             {preview.summary.activitiesNeedingQuota > 0 && (
               <Alert tone="info">
@@ -390,7 +464,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
                     ))}
                   </tbody>
                 </table>
-                <span className="muted" style={{ fontSize: 11 }}>{tr('Échantillon · le plan complet couvre {n} site(s).', { n: formatInt(preview.summary.sitesCovered) })}</span>
+                <span className="muted" style={{ fontSize: 11 }}>{tr('Échantillon · le plan complet compte {v} visite(s) et couvre {n} site(s).', { v: formatInt(preview.sampleTotal ?? preview.summary.planned), n: formatInt(preview.summary.sitesCovered) })}</span>
               </div>
             )}
             <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{tr('Répartition par mois')}</div>
@@ -406,7 +480,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
                 ))}
               </tbody>
             </table>
-            <p className="muted" style={{ margin: 0, fontSize: 12 }}>{tr('« Appliquer » crée ces visites comme « planifiées ». Idempotent : un site déjà prévu ce mois n\'est pas dupliqué.')}</p>
+            <p className="muted" style={{ margin: 0, fontSize: 12 }}>{tr('« Appliquer » crée ces visites comme « planifiées », exactement celles de cet aperçu (si les données ont changé entre-temps, rien n\'est écrit). Idempotent : un site déjà prévu ce mois n\'est pas dupliqué, et l\'intervalle est respecté face aux visites existantes.')}</p>
           </section>
         ) : <Alert tone="info">{tr('Choisissez la période puis cliquez sur « Aperçu » pour voir la répartition avant d\'écrire.')}</Alert>}
       </div>
