@@ -121,6 +121,14 @@ only the background expense-recalc worker (`npm run worker`) needs it.
 
 Demo login: `admin@mems.mg` / `changeme123` (validator: `validateur@mems.mg`).
 
+**Production (Windows): run as services via NSSM** — rather than keeping `cmd`
+windows open, install the API, the web (built `web/dist` served by
+`vite preview`), and optionally the worker as Windows services with **NSSM** so
+they auto-start on boot and auto-restart on crash. Full copy-paste steps in
+`README.md` → « Lancer MEMS 2.0 comme service Windows avec NSSM ». Update flow:
+`git pull` → `npm run migrate` → web `npm run build` → `nssm restart MEMS-API`
++ `nssm restart MEMS-WEB`, then hard-refresh the browser.
+
 ## Hard constraints (do not break)
 - **Never touch the `mems_app` Postgres role.** It belongs to the user's OLD
   MEMS system running on the same server. This app uses a **dedicated
@@ -548,12 +556,19 @@ or navy rail.
     20 éléments au plus, positions bornées) ; annexes ; orientation et format par page ;
   - écrans qui n'affichent que des totaux RBM : `GET /api/tpm/field/rbm/counts` (mêmes lignes que
     `/rbm/sites`), jamais la liste complète.
+- **Couverture : une seule source** (retour 110) : `GET /api/dashboards/coverage` (`dashboards/coverage.*`, mise en forme pure `coverageDefinitions.js`), lu par la Synthèse ET « Couverture & performance » ; univers = sites actifs de la période ; « suivi » = visite déclarée OU données reçues rattachées au site ; chaque découpage (activité, bureau, district) se somme aux tuiles. Ne pas recalculer une couverture ailleurs ; « Sites prévus → suivis » (sites) ≠ « Exécution du plan » (visites).
+- **Effacer des visites prévues** : seulement les « libres » (`planAuto.repository.CLEARABLE_SQL` : TPM de zone, ni figées ni facturées, sans date ni agent, mois en cours ou à venir) — jamais une visite réalisée, annulée, motivée, d'un mois échu.
 - **TPM d'une visite = contrat de la zone** (retour 58, migration 070, `tpm/tpmAttribution.js` + jumelle SQL
   `mems_tpm_cells`) : TPM du contrat de suivi actif qui couvre la zone (commune sinon district) du site ce
   mois-là ; seules les MODIFICATIONS sont stockées (`tpm_zone_overrides`, raison 10–500) et journalisées
   (`tpm_attribution_log`, inscription seule). La base estampille au COMMIT toute visite « zone » sans TPM
   (déclencheur différé `mems_tpm_stamp`) : un écrivain n'a pas à choisir le TPM. Seules les visites
   PRÉVUES sont réattribuées — réalisées, annulées, figées (« antérieur »), facturées ou motivées jamais.
+  TPM d'un contrat = TPM rattaché par plan / facture, sinon titulaire (règle commune du lot 8
+  `activeProvider`) ; tout écrivain de visites appelle `restampVisitsTx` (test `visitWritersGuard`) ;
+  filtre des réattributions automatiques `AUTO_RESTAMPABLE_SQL` (même filtre dans `mems_tpm_stamp`).
+  Onglet « Affectation des TPM » (`TpmAttributionTab`, espace RBM) : zones région › district, changement
+  motivé avec aperçu, retour au contrat, journal ; autre TPM pour une visite = écart motivé (`provider_source = 'visite'`).
 
 ## Known / open items
 - **Rapportage fidèle à la facture** — DONE. Financial reports now hold a

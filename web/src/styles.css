@@ -2543,6 +2543,8 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .syn-table td, .syn-table th { padding-top: 8px; padding-bottom: 8px; }
 .syn-table td:first-child { min-width: 170px; }
 .syn-table tfoot td { font-weight: 650; color: var(--text-strong); }
+/* Retour 110 : le total reste visible quand le tableau défile (la somme des lignes se lit d'un coup d'œil). */
+.syn-scroll .syn-table tfoot td { position: sticky; bottom: 0; z-index: 2; box-shadow: 0 -1px 0 var(--border-strong); }
 /* Table compacte (lot 1b, 1 366 px) : en-têtes sur deux lignes, cellule d'exécution étroite (barre courte,
    « 22/34 » sous le pourcentage), colonnes de chiffres serrées. */
 .syn-table thead th { white-space: normal; line-height: 1.25; vertical-align: bottom; }

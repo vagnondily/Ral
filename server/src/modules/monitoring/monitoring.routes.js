@@ -6,17 +6,13 @@ const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound, conflict } = require('../../middleware/errors');
 const repo = require('./monitoring.repository');
 const mapping = require('./mapping.service');
-const { parseSubmissions } = require('./submissionsImport');
-const { parseXlsformRows } = require('./xlsformImport');
-const { readXls, XlsError } = require('./xlsReader');
-const { sniffFile } = require('../common/fileSniff');
+const { readSubmissionsBuffer, fileColumns } = require('./submissionsFile');
+const { runCpu } = require('../common/cpuPool');
 const { zipLimitsFromEnv } = require('../common/zipGuard');
 const { validateExpression, functionCatalog } = require('./calcFields');
 const dataLinks = require('./dataLinks.service');
 const periodsService = require('./periods.service');
 const settingsRepo = require('../settings/settings.repository');
-const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
-const { sheetTable } = require('../common/sheetRows');
 const { readPeriod } = require('../../middleware/period');
 const { stripGps, seesPreciseGps } = require('../map/submissionGps');
 const { PERIOD_CAPS } = require('../common/periodCaps');
@@ -193,21 +189,6 @@ router.delete('/indicators/:id', WRITE, asyncHandler(async (req, res) => {
 // PDF, Word, .zsav, .xls ou XLSForm sont refusés (400, format nommé) et un zip
 // trop gros une fois décompressé l'est AVANT décompression (413) — dans tous
 // ces cas, rien n'est écrit.
-/** Lit le fichier envoyé (même règle pour la vérification et l'import) ; 400 / 413 explicites. */
-async function readSubmissionsFile(req) {
-  if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
-  let parsed;
-  try {
-    parsed = await parseSubmissions(req.body, { zipLimits: zipLimitsFromEnv(process.env) });
-  } catch (err) {
-    if (err.statusCode && err.statusCode < 500) throw err; // AppError explicite : 400 (format, date) ou 413 (taille)
-    req.log?.warn({ err }, 'import de soumissions : fichier illisible');
-    throw badRequest('Fichier illisible : fournissez un CSV, XLSX, SPSS .sav ou un .zip Kobo.');
-  }
-  if (!parsed.submissions.length) throw badRequest('Aucune soumission trouvée dans le fichier.');
-  return parsed;
-}
-
 // ---- Correspondances des valeurs codées (bureau, partenaire, agent) — retour n° 3 -------
 const CORR_DIMENSIONS = ['field_office', 'partner', 'agent'];
 router.get('/forms/:id/correspondences', asyncHandler(async (req, res) => {
@@ -231,20 +212,24 @@ router.put('/forms/:id/correspondences', WRITE, body(correspondenceSchema), asyn
 
 // Vérification avant import (assistant « Importation ») : ce que contient le fichier, rien n'est écrit.
 // Même préparation que l'import (colonnes choisies dans « Mapping MEMS » comprises) : mêmes mois, mêmes comptes.
+// La lecture du fichier tourne sur un fil de calcul (submissionsFile → common/cpuPool) : la
+// vérification d'un gros classeur ne fait plus attendre les autres requêtes.
 router.post('/forms/:id/import/preview', WRITE, express.raw({ type: '*/*', limit: '80mb' }), asyncHandler(async (req, res) => {
-  const { submissions, headers, variables, source } = await readSubmissionsFile(req);
-  const analysis = await repo.importPreview(t(req), uuidParam(req.params.id), submissions, variables ? variables.map((v) => v.name) : headers);
+  const formId = uuidParam(req.params.id);
+  const parsed = await readSubmissionsBuffer(req.body, { log: req.log });
+  const columns = fileColumns(parsed);
+  const analysis = await repo.importPreview(t(req), formId, parsed.submissions, columns);
   if (!analysis) throw notFound('Formulaire introuvable');
-  res.json({ source, fields: variables ? variables.length : headers.length, ...analysis });
+  res.json({ source: parsed.source, fields: columns.length, ...analysis });
 }));
 
 router.post('/forms/:id/import', WRITE, express.raw({ type: '*/*', limit: '80mb' }), asyncHandler(async (req, res) => {
-  const { submissions, headers, variables } = await readSubmissionsFile(req);
+  const parsed = await readSubmissionsBuffer(req.body, { log: req.log });
+  const columns = fileColumns(parsed);
   // Les variables du .sav nomment les colonnes (sans XLSForm) ou complètent les listes codées (avec).
-  const result = await repo.importSubmissions(t(req), req.params.id, submissions,
-    { variables, headers: variables ? variables.map((v) => v.name) : headers });
+  const result = await repo.importSubmissions(t(req), req.params.id, parsed.submissions, { variables: parsed.variables, headers: columns });
   if (!result) throw notFound('Formulaire introuvable');
-  res.json({ ...result, fields: variables ? variables.length : headers.length });
+  res.json({ ...result, fields: columns.length });
 }));
 
 // ---- Import par LIEN (un seul point d'entrée, sécurisé) ----------------------
@@ -417,36 +402,9 @@ router.get('/forms/:id/submissions', asyncHandler(async (req, res) => {
 router.post('/import-definition', WRITE, express.raw({ type: '*/*', limit: '60mb' }), asyncHandler(async (req, res) => {
   if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
   // .xls (Excel 97-2003, encore produit par Kobo/ODK) : lecteur intégré ; .xlsx : ExcelJS,
-  // après la garde de décompression. Format reconnu par le contenu, pas par le nom.
-  const sniff = sniffFile(req.body);
-  if (sniff.kind !== 'ole' && sniff.kind !== 'xlsx') {
-    const data = ['text', 'sav', 'zsav', 'zip'].includes(sniff.kind)
-      ? ' Pour des données collectées, ouvrez la fiche puis « Importer un fichier ».' : '';
-    throw badRequest(`Ce fichier n'est pas un XLSForm (format reconnu : ${sniff.label}). `
-      + `Fournissez la définition du formulaire : un .xlsx ou .xls avec les feuilles « survey » et « choices ».${data}`);
-  }
-  let sheetRows;
-  if (sniff.kind === 'ole') {
-    let xls;
-    try { xls = readXls(req.body); } catch (err) { throw badRequest(err instanceof XlsError ? err.message : 'Fichier .xls illisible.'); }
-    const byName = new Map(Object.entries(xls.sheets).map(([k, v]) => [k.trim().toLowerCase(), v]));
-    sheetRows = (name) => byName.get(name) || [];
-  } else {
-    let wb;
-    try { wb = await loadWorkbook(req.body, { zipLimits: zipLimitsFromEnv(process.env) }); }
-    catch (err) { if (isRefusal(err)) throw err; throw badRequest('Fichier illisible : fournissez un XLSForm .xlsx ou .xls (feuilles survey/choices/settings).'); }
-    sheetRows = (name) => {
-      const ws = wb.worksheets.find((w) => w.name.trim().toLowerCase() === name);
-      return ws ? sheetTable(ws) : [];
-    };
-  }
-  const survey = sheetRows('survey');
-  if (survey.length < 2) {
-    throw badRequest('Feuille « survey » introuvable ou vide — ce n\'est pas un XLSForm. '
-      + 'Pour des données collectées, ouvrez la fiche puis « Importer un fichier ».');
-  }
-  const parsed = parseXlsformRows(survey, sheetRows('choices'), sheetRows('settings'));
-  if (parsed.fields.length === 0) throw badRequest('Aucun champ de données trouvé dans la feuille survey.');
+  // après la garde de décompression. Format reconnu par le contenu, pas par le nom. Lecture
+  // sur un fil de calcul (xlsformFile, pure) : les autres requêtes n'attendent pas.
+  const parsed = await runCpu('parseXlsform', [req.body, { zipLimits: zipLimitsFromEnv(process.env) }], { transfer: true });
   // Sans form_id (fréquent dans les .xls), code stable tiré du titre : un réimport met la fiche à jour au lieu d'en créer une autre.
   const slug = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
   const code = (parsed.formId || slug(parsed.title) || `form_${Date.now()}`).slice(0, 60);

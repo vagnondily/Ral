@@ -17,10 +17,10 @@ Documents de suivi, à lire dans cet ordre :
 
 | Contrôle | Résultat |
 |---|---|
-| Tests serveur (`cd server && npm test`) | **1 109** (1 108 réussis, 1 ignoré : il ne tourne qu'avec les exports réels) |
+| Tests serveur (`cd server && npm test`) | **1 228** (1 224 réussis, 4 ignorés : ils ne tournent qu'avec les exports réels ou une base jetable — passés à part sur base réelle le 16/10) |
 | Lint serveur (`npm run lint`) | propre |
 | Build web (`cd web && npm run build`) | OK |
-| Balayage navigateur (33 écrans, FR et EN — `node web/scripts/sweep-ecrans.cjs`) | 0 erreur console ou API, 0 phrase anglaise manquante |
+| Balayage navigateur (35 écrans, FR et EN — `node web/scripts/sweep-ecrans.cjs`) | 0 erreur console ou API, 0 phrase anglaise manquante (16/10, 06:25) |
 | Migrations | `001` → `073` + `101` (69 fichiers ; numéros réservés dans `REPRISE.md`) — essayées sur base neuve et sur copie |
 
 ---
@@ -96,6 +96,11 @@ Documents de suivi, à lire dans cet ordre :
   - codes saisis jamais repris ;
   - affichage des codes Adm en option.
 - **Fiches de suivi** : renommer une fiche et changer son activité depuis sa page (retour 59) ; voir la liste des choix d'une question (retour 66).
+
+### 16 octobre — publiés le matin
+- **Mêmes chiffres de couverture partout** (retour 110) : une seule source (`/api/dashboards/coverage`) pour la Synthèse et « Couverture & performance » ; un univers ; « suivi » = visite OU données ; total par activité toujours visible ; « Sites prévus → suivis » distinct de l'exécution du plan.
+- **Effacer les planifications** : ne supprime plus que les visites prévues libres (défaut grave de la planification automatique, corrigé avec un test sur vraie base).
+- **Planification automatique** (retour 82, publiée par l'autre session dans la nuit) : bouton « Générer le plan », règles MMR / RBM, regroupement, TPM équilibrés, agents, export « base de budget ». Fiabilité et retours 107–108 en cours.
 
 ### 15 octobre — publiés dans la matinée
 - **Sites (actifs / inactifs) à la forme du Plan de suivi** (retour 98) : mêmes bandeaux, filtres, tableau à colonnes figées et grille des mois ; règle unique « site actif » (celle des tableaux de bord) ; « Renseigner les cases vides » en une transaction.

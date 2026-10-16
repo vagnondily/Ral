@@ -14,6 +14,8 @@ const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
 const { readPeriod } = require('../../middleware/period');
 const { PERIOD_CAPS } = require('../common/periodCaps');
 const { checkReason } = require('../common/reasonText');
+const tpmAttribution = require('./tpmAttribution.service');
+const { currentMonth } = require('./rbmMath');
 
 // Durées maximales d'une période (lot 1b, mesurées au banc : 3 000 sites, sous RLS —
 // common/periodCaps, la même table que les écrans) : la liste des visites se lit sur 12 mois
@@ -82,7 +84,9 @@ router.patch('/sites/:id', WRITE, body(siteSchema.partial().extend({
 // est un ÉTAT : il se lit à un mois) ; l'état est borné à ce mois (asOf).
 router.get('/rbm/sites', asyncHandler(async (req, res) => {
   const p = readPeriod(req.query);
-  res.json(await repo.rbmSites(t(req), { month: p ? p.to : undefined, asOf: p ? p.to : null, risk: req.query.risk }));
+  const rows = await repo.rbmSites(t(req), { month: p ? p.to : undefined, asOf: p ? p.to : null, risk: req.query.risk });
+  // Retour 58 : le TPM de la zone de chaque site ce mois-là (contrats de suivi, ou modification motivée).
+  res.json(await tpmAttribution.withZoneTpm(t(req), rows, p ? p.to : currentMonth()));
 }));
 // Compteurs seuls (total, par risque, à suivre, à planifier) sur les MÊMES lignes que /rbm/sites :
 // pour les écrans qui n'affichent que des totaux (Synthèse, Couverture, Affectation & visites).

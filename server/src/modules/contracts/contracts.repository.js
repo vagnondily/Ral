@@ -117,14 +117,27 @@ async function getBudgetItems(client, tenantId, contractId) {
  * [{ adminAreaId, path, depth, pcode, siteCount, subActivityCount, offices }].
  * `pcode`, `siteCount`, `subActivityCount` et `offices` enrichissent le tableau
  * des zones. Les sites d'une zone = ceux rattachés à l'unité ou à l'une de ses
- * sous-unités (même règle `admin_area_id` + `lineage` que le répertoire des
- * localités, retour 90, pour un décompte cohérent) ; sous-activités = `tag_code`
- * distincts de ces sites (retours 66 / 92) ; bureaux = `field_offices` distincts
- * de ces sites (honnête : ce que portent vraiment les sites, pas un périmètre
- * déduit). Une zone « à resélectionner » (unité absente du découpage) a `pcode`
- * null, des comptes à 0 et aucun bureau.
+ * sous-unités (`admin_area_id` + `lineage`), SINON par P-code (district/commune),
+ * SINON par nom de l'unité au bon niveau avec son parent — EXACTEMENT la règle du
+ * répertoire des localités (retour 90, `SITE_COLUMNS` : adm1 / adm2|district /
+ * adm3|commune / adm4|fokontany), pour un décompte cohérent. La plupart des sites
+ * sont géocodés par nom/P-code, pas par `admin_area_id` : sans ce repli, les
+ * comptes seraient quasi nuls. Sous-activités = `tag_code` distincts de ces
+ * sites (retours 66 / 92) ; bureaux = `field_offices` distincts de ces sites
+ * (honnête : ce que portent vraiment les sites, pas un périmètre déduit). Une
+ * zone « à resélectionner » (unité absente du découpage) a `pcode` null, des
+ * comptes à 0 et aucun bureau.
  */
+// Colonne du registre qui porte le nom de l'unité d'une PROFONDEUR (miroir de
+// localities.domain.SITE_COLUMNS, par depth : adm1 / adm2|district / adm3|commune / adm4|fokontany).
+const SITE_NAME_BY_DEPTH = `CASE %d%
+    WHEN 1 THEN s.adm1
+    WHEN 2 THEN COALESCE(s.adm2, s.district)
+    WHEN 3 THEN COALESCE(s.adm3, s.commune)
+    WHEN 4 THEN COALESCE(s.adm4, s.fokontany)
+  END`;
 async function getContractAreas(client, tenantId, contractId) {
+  const siteName = (d) => SITE_NAME_BY_DEPTH.replace('%d%', d);
   const { rows } = await client.query(
     `SELECT ca.admin_area_id AS "adminAreaId", ca.path, ca.depth,
             aa.pcode,
@@ -133,6 +146,7 @@ async function getContractAreas(client, tenantId, contractId) {
             COALESCE(sc.offices, '{}') AS offices
        FROM contract_areas ca
        LEFT JOIN admin_areas aa ON aa.id = ca.admin_area_id AND aa.tenant_id = ca.tenant_id
+       LEFT JOIN admin_areas pp ON pp.id = aa.parent_id AND pp.tenant_id = aa.tenant_id
        LEFT JOIN LATERAL (
          SELECT count(DISTINCT s.id)::int AS n,
                 count(DISTINCT NULLIF(btrim(s.tag_code), ''))::int AS subacts,
@@ -141,7 +155,15 @@ async function getContractAreas(client, tenantId, contractId) {
            LEFT JOIN admin_areas sa ON sa.id = s.admin_area_id
            LEFT JOIN field_offices fo ON fo.id = s.field_office_id AND fo.tenant_id = s.tenant_id
           WHERE s.tenant_id = ca.tenant_id AND aa.id IS NOT NULL
-            AND (sa.id = aa.id OR sa.lineage @> ARRAY[aa.id])
+            AND (
+                 sa.id = aa.id
+              OR sa.lineage @> ARRAY[aa.id]
+              OR (aa.pcode IS NOT NULL AND aa.pcode IN (s.adm2_pcode, s.adm3_pcode))
+              OR (
+                   lower(btrim(${siteName('aa.depth')})) = lower(btrim(aa.name))
+                   AND (pp.id IS NULL OR lower(btrim(${siteName('pp.depth')})) = lower(btrim(pp.name)))
+                 )
+            )
        ) sc ON true
       WHERE ca.tenant_id = $1 AND ca.contract_id = $2
       ORDER BY ca.path`,

@@ -84,6 +84,9 @@ const rowsFor = (s, params) => {
   }
   if (/^SELECT \(SELECT count\(\*\) FROM sites/.test(s)) return [{ sitesWithoutDistrict: 2, plannedReprise: 2, pending: 0 }];
   if (/^SELECT DISTINCT site_id FROM site_visits/.test(s)) return [];
+  if (/^SELECT id, zone_district_id AS "districtId", zone_commune_id AS "communeId" FROM sites/.test(s)) {
+    return [{ id: 's1', districtId: D1, communeId: C1 }, { id: 's2', districtId: null, communeId: null }].filter((x) => params[1].includes(x.id));
+  }
   return null;
 };
 
@@ -351,6 +354,17 @@ test('appliquer les TPM des contrats : rien d\'éligible → aucune écriture, a
   const r = await repo.applyContractsTx(client, T, null, {});
   assert.deepEqual(r, { visits: 0, converted: 0, changed: 0, byState: {}, moves: [], kept: { reasoned: 1, done: 7, anterieur: 2, invoiced: 0 } });
   assert.equal(calls.filter((q) => /^(UPDATE|INSERT)|mems_tpm_stamp/.test(q)).length, 0);
+});
+
+test('withZoneTpm : TPM de la zone de chaque site au mois (Priorités du RBM), mêmes cellules que l estampille', async () => {
+  reset();
+  const rows = await service.withZoneTpm(T, [{ id: 's1', name: 'EPP Bekily' }, { id: 's2', name: 'Sans district' }, { id: 's3', name: 'Inconnu' }], '2026-08');
+  assert.deepEqual(rows.map((r) => [r.name, r.tpm && r.tpm.state, r.tpm && r.tpm.providerName]),
+    [['EPP Bekily', 'contrat', 'ASSOCIATION AINA'], ['Sans district', 'district_inconnu', null], ['Inconnu', null, null]]);
+  assert.equal(rows[0].tpm.contractLabel, 'FLA-2025-0007');
+  assert.equal(state.calls.filter((c) => /^(INSERT|UPDATE|DELETE)/.test(c.sql)).length, 0, 'lecture seule');
+  assert.deepEqual(await service.withZoneTpm(T, [], '2026-08'), []);
+  assert.deepEqual(await service.withZoneTpm(T, [{ id: 's1' }], 'n/a'), [{ id: 's1' }], 'mois illisible : lignes rendues telles quelles');
 });
 
 test('cellsForSitesTx : TPM de la zone de sites × mois (lot 5), même règle que l estampille', async () => {

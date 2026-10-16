@@ -31,6 +31,29 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
   const contracts = context?.contracts || [];
   const contract = contracts.find((c) => c.id === head.contractId);
 
+  // Retour 58 — règle unique : le TPM d'un contrat de suivi est le TPM rattaché (plans, factures),
+  // sinon son titulaire. Choisir le contrat propose ce TPM ; choisir le TPM propose son contrat.
+  const [contractTpms, setContractTpms] = useState({});
+  useEffect(() => {
+    if (editing || !month) return undefined;
+    let alive = true;
+    const m = String(month).slice(0, 7);
+    api.tpmAttributionProviders({ from: m, to: m }).then((r) => { if (alive) setContractTpms(r.contractTpms || {}); }).catch(() => {});
+    return () => { alive = false; };
+  }, [editing, month]);
+  const tpmsOf = (contractId) => contractTpms[contractId] || [];
+  const choosePartner = (partnerId) => setHead((h) => {
+    if (h.contractId || !partnerId) return { ...h, partnerId };
+    const own = contracts.filter((c) => tpmsOf(c.id).some((p) => p.id === partnerId));
+    return { ...h, partnerId, contractId: own.length === 1 ? own[0].id : '' };
+  });
+  const chooseContract = (contractId) => setHead((h) => {
+    const tpms = tpmsOf(contractId);
+    return { ...h, contractId, partnerId: h.partnerId || (tpms.length === 1 ? tpms[0].id : '') };
+  });
+  const headTpms = tpmsOf(head.contractId);
+  const otherTpm = Boolean(head.contractId && head.partnerId && headTpms.length && !headTpms.some((p) => p.id === head.partnerId));
+
   // Jours de collecte issus de la planification terrain (visites datées +
   // déplacement) — à reporter comme quantité des postes en jours.
   const [collDays, setCollDays] = useState([]);
@@ -92,13 +115,14 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
           <div className="form-grid">
             {!editing && (
               <>
-                <Field label={tr('Prestataire TPM')} required error={touched && !head.partnerId ? tr('Requis.') : undefined}>
-                  <select className={`select ${head.partnerId ? '' : 'is-empty'}`} value={head.partnerId} onChange={(e) => setHead({ ...head, partnerId: e.target.value })}>
+                <Field label={tr('Prestataire TPM')} required error={touched && !head.partnerId ? tr('Requis.') : undefined}
+                  hint={headTpms.length ? tr('TPM du contrat : {p}', { p: headTpms.map((p) => p.name).join(', ') }) : undefined}>
+                  <select className={`select ${head.partnerId ? '' : 'is-empty'}`} value={head.partnerId} onChange={(e) => choosePartner(e.target.value)}>
                     <option value="">{tr('Choisir…')}</option>{partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </Field>
                 <Field label={tr('Contrat suivi')} required error={touched && !head.contractId ? tr('Requis.') : undefined}>
-                  <select className={`select ${head.contractId ? '' : 'is-empty'}`} value={head.contractId} onChange={(e) => setHead({ ...head, contractId: e.target.value })}>
+                  <select className={`select ${head.contractId ? '' : 'is-empty'}`} value={head.contractId} onChange={(e) => chooseContract(e.target.value)}>
                     <option value="">{tr('Choisir…')}</option>{contracts.map((c) => <option key={c.id} value={c.id}>{c.partnerName} · {c.numero}</option>)}
                   </select>
                 </Field>
@@ -112,6 +136,9 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
             </Field>
           </div>
 
+          {otherTpm && (
+            <Alert tone="warn">{tr('Ce prestataire n\'est pas le TPM de ce contrat ({p}) : vérifiez le couple prestataire × contrat.', { p: headTpms.map((p) => p.name).join(', ') })}</Alert>
+          )}
           {contract && <div className="note"><Coins size={18} aria-hidden="true" /><span>{richText(tr('Budget Suivi/TPM du contrat : <strong>{budget}</strong> · barème mensuel <strong>{ceiling}</strong>', { budget: formatAr(contract.monitoringBudget), ceiling: formatAr(contract.monthlyCeiling) }))}</span></div>}
 
           {head.partnerId && <AssignedSites providerId={head.partnerId} month={month} days={days}

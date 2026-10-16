@@ -13,6 +13,7 @@ const tpmConsolidationRoutes = require('./modules/tpm/consolidation.routes');
 const tpmPlanningRoutes = require('./modules/tpm/planning.routes');
 const tpmPostesRoutes = require('./modules/tpm/postes.routes');
 const tpmFieldRoutes = require('./modules/tpm/field.routes');
+const tpmPlanAutoRoutes = require('./modules/tpm/planAuto.routes');
 const tpmAttributionRoutes = require('./modules/tpm/tpmAttribution.routes');
 const contractsRoutes = require('./modules/contracts/contracts.routes');
 const settingsRoutes = require('./modules/settings/settings.routes');
@@ -29,7 +30,10 @@ const subActivitiesRoutes = require('./modules/settings/subActivities.routes');
 const mapRoutes = require('./modules/map/map.routes');
 const coverageRoutes = require('./modules/dashboards/coverage.routes');
 const asyncHandler = require('./middleware/asyncHandler');
-const { requireAuth } = require('./middleware/auth');
+const { requireAuth, requireRole } = require('./middleware/auth');
+const { runtimeSnapshot } = require('./modules/common/runtimeStats');
+const { cpuPool } = require('./modules/common/cpuPool');
+const { pool } = require('./config/db');
 const { checkSchema } = require('./db/schemaStatus');
 
 function createApp() {
@@ -100,6 +104,7 @@ function createApp() {
   app.use('/api/tpm/planning', tpmPlanningRoutes);
   app.use('/api/tpm/postes', tpmPostesRoutes);
   app.use('/api/tpm/field', tpmFieldRoutes);
+  app.use('/api/tpm/plan-auto', tpmPlanAutoRoutes);
   app.use('/api/tpm/attribution', tpmAttributionRoutes); // retour 58 : affectation des TPM par zone
   app.use('/api/tpm', tpmRoutes);
   app.use('/api/contracts', contractsRoutes);
@@ -122,6 +127,12 @@ function createApp() {
     const pending = await checkSchema();
     res.json({ pendingCount: pending.length, ...(req.auth.role === 'admin' ? { pendingMigrations: pending } : {}) });
   }));
+
+  // Santé du processus (administrateur) : retard de la boucle d'événements, pool PostgreSQL, fils de
+  // calcul ; ?reset=1 remet la mesure à zéro (banc de réactivité).
+  app.get('/api/system/runtime', requireAuth, requireRole('admin'), (req, res) => {
+    res.json(runtimeSnapshot({ reset: req.query.reset === '1', pool, extra: { cpuPool: cpuPool().stats() } }));
+  });
 
   // Anything else is a routing mistake, not a server error.
   app.use((req, res, next) => next(notFound('Route introuvable')));
