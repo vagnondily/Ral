@@ -37,6 +37,9 @@ test('effacer les planifications : seules les prévues libres d\'un mois à veni
   const su = new Client({ connectionString: SU_URL });
   await su.connect();
   const q = async (sql, params) => (await su.query(sql, params)).rows;
+  // Les tests en base de la planification s'exécutent l'un après l'autre (node --test lance les
+  // fichiers en parallèle ; ils touchent les mêmes visites) : verrou de session, libéré à la fin.
+  await q("SELECT pg_advisory_lock(hashtext('mems-test-db:plan-auto'))");
   try {
     const [{ id: T }] = await q('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1');
     await q('DELETE FROM site_visits WHERE tenant_id = $1 AND activity LIKE $2', [T, `${TAG} %`]);

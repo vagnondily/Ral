@@ -43,6 +43,9 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
   const su = new Client({ connectionString: SU_URL });
   await su.connect();
   const q = async (sql, params) => (await su.query(sql, params)).rows;
+  // Les tests en base de la planification s'exécutent l'un après l'autre (node --test lance les
+  // fichiers en parallèle ; ils touchent les mêmes visites) : verrou de session, libéré à la fin.
+  await q("SELECT pg_advisory_lock(hashtext('mems-test-db:plan-auto'))");
   const [{ id: T }] = await q('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1');
   const before = new Set((await q('SELECT id FROM site_visits WHERE tenant_id = $1', [T])).map((r) => r.id));
   const now = currentMonth();
