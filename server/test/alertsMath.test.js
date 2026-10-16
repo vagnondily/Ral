@@ -58,9 +58,14 @@ test('jours entre deux dates en UTC (aucun décalage horaire)', () => {
   assert.equal(daysBetween('2026-03-28', '2026-03-30'), 2);
 });
 
+// Exécution du plan des mesures communes (retour 110) : visites prévues suivies ÷ prévues.
+const covOf = (planned, covered) => ({ overall: { execution: { planned, covered, rate: planned > 0 ? covered / planned : null } } });
+
 test('terrain : « aucun plan » n\'est jamais une couverture faible', () => {
-  assert.deepEqual(fieldAlerts({ overall: { active: 0, realise: 0, rate: 0 }, byProvider: [] }), []);
+  assert.deepEqual(fieldAlerts({ overall: { active: 0, realise: 0, rate: 0 }, byProvider: [] }, { coverage: covOf(0, 0) }), []);
   assert.deepEqual(fieldAlerts(null), []);
+  // Le résumé des VISITES seul ne déclenche plus l'alerte : une seule définition de l'exécution.
+  assert.deepEqual(fieldAlerts({ overall: { active: 10, realise: 1, rate: 0.1 }, byProvider: [] }), []);
 });
 
 test('terrain : couverture < 50 % (à surveiller), prestataire < 40 % sur ≥ 3 visites, visites non affectées', () => {
@@ -72,9 +77,10 @@ test('terrain : couverture < 50 % (à surveiller), prestataire < 40 % sur ≥ 3 
       { key: 'non_affecte', label: 'Non affecté', active: 3, realise: 3, rate: 1, total: 3 },
     ],
   };
-  const out = fieldAlerts(field);
+  const out = fieldAlerts(field, { coverage: covOf(10, 4) });
   assert.deepEqual(out.map((a) => [a.kind, a.sev]), [['field_low_coverage', 'warning'], ['provider_late', 'info'], ['visits_unassigned', 'info']]);
-  assert.deepEqual(out[0].params, { done: 4, active: 10, p: 40 });
+  assert.deepEqual(out[0].params, { done: 4, planned: 10, p: { rate: 0.4 } });
+  assert.equal(out[0].detail, '{done}/{planned} visites prévues suivies ({p})');
   assert.equal(out[0].go.module, 'processus');
 });
 
@@ -84,6 +90,7 @@ test('liste triée par gravité, ordre des catégories conservé ; décompte pou
     reports: [{ status: 'soumis', kind: 'financier', actions: { decide: true }, periodMonth: '2026-09-01' }],
     contracts: [{ id: 'k', numero: 'K', status: 'actif', dateFin: '2026-01-01' }],
     field: { overall: { active: 4, realise: 0, rate: 0 }, byProvider: [] },
+    coverage: covOf(4, 0),
     today: TODAY,
   });
   assert.deepEqual(alerts.map((a) => a.kind), ['budget_projected_overrun', 'contract_expired', 'field_low_coverage', 'report_to_validate']);
@@ -98,20 +105,21 @@ test('sources absentes : aucune alerte, aucune erreur', () => {
 // ---- Période (lot 1b) --------------------------------------------------------------
 test('terrain : libellé « Exécution du plan » (le taux lu est visites réalisées ÷ prévues), « sur la période » au-delà d\'un mois', () => {
   const field = { overall: { active: 10, realise: 4, rate: 0.4 }, byProvider: [{ key: 'non_affecte', label: 'Non affecté', active: 2, realise: 0, rate: 0, total: 2 }] };
-  const month = fieldAlerts(field);
+  const coverage = covOf(10, 4);
+  const month = fieldAlerts(field, { coverage });
   assert.equal(month[0].title, 'Exécution du plan faible ce mois');
   assert.equal(month[1].detail, 'Sites planifiés sans prestataire TPM ce mois');
-  const range = fieldAlerts(field, { range: true });
+  const range = fieldAlerts(field, { range: true, coverage });
   assert.equal(range[0].title, 'Exécution du plan faible sur la période');
   assert.equal(range[1].detail, 'Sites planifiés sans prestataire TPM sur la période');
   assert.deepEqual(range.map((a) => a.params), month.map((a) => a.params), 'mêmes chiffres');
   // Un mois PASSÉ choisi (septembre vu en octobre) n'est jamais « ce mois » : il est nommé.
-  const sept = fieldAlerts(field, { month: '2026-09' });
+  const sept = fieldAlerts(field, { month: '2026-09', coverage });
   assert.equal(sept[0].title, 'Exécution du plan faible ({m})');
   assert.equal(sept[1].detail, 'Sites planifiés sans prestataire TPM ({m})');
   assert.deepEqual(sept[0].params.m, { month: '2026-09' });
   assert.deepEqual(sept[1].params, { n: 2, m: { month: '2026-09' } });
-  assert.equal(fieldAlerts(field, { month: '2026-09', range: true })[0].title, 'Exécution du plan faible sur la période');
+  assert.equal(fieldAlerts(field, { month: '2026-09', range: true, coverage })[0].title, 'Exécution du plan faible sur la période');
 });
 
 test('portée de chaque alerte : budget et contrats à date ; terrain sur la période ; rapports selon le filtre', () => {
@@ -120,6 +128,7 @@ test('portée de chaque alerte : budget et contrats à date ; terrain sur la pé
     reports: [{ status: 'soumis', kind: 'financier', actions: { decide: true }, periodMonth: '2026-09-01' }],
     contracts: [{ id: 'k', numero: 'K', status: 'actif', dateFin: '2026-01-01' }],
     field: { overall: { active: 4, realise: 0, rate: 0 }, byProvider: [] },
+    coverage: covOf(4, 0),
     today: TODAY,
   };
   const scopeOf = (list) => Object.fromEntries(list.map((a) => [a.kind, a.scope]));

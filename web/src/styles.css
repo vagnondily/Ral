@@ -3173,6 +3173,19 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .card-foot-note { margin: 0; padding: 8px 16px 12px; font-size: 12px; line-height: 1.45; border-top: 1px solid var(--border); }
 .cov-ways { display: block; margin-top: 2px; font-size: 11.5px; color: var(--text-muted); }
 .cd-actcov { margin-top: 16px; }
+.coverage-universe-more { display: block; margin-top: 2px; color: var(--text-muted); }
+/* Couverture & performance : deux colonnes de cartes empilées à hauteur de contenu ; la colonne
+   `is-fill` aligne son bas sur l'autre par sa dernière carte (corps qui défile), jamais une carte
+   courte étirée à vide (audit du 16/10). */
+.cd-colgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.cd-colstack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.cd-colstack > .biz-card { display: flex; flex-direction: column; min-width: 0; }
+.cd-colstack.is-fill > .biz-card:last-child { flex: 1 1 auto; min-height: 0; }
+.cd-colstack.is-fill > .biz-card:last-child > .card-body { flex: 1 1 0; min-height: 140px; overflow-y: auto; }
+@media (max-width: 1100px) {
+  .cd-colgrid { grid-template-columns: minmax(0, 1fr); }
+  .cd-colstack.is-fill > .biz-card:last-child > .card-body { flex: none; max-height: 440px; }
+}
 /* Téléphone : une tuile à anneau par ligne (l'anneau et le libellé ne tiennent pas sur une demi-largeur). */
 @media (max-width: 520px) { .biz-kpis.cd-kpis-5 { grid-template-columns: minmax(0, 1fr); } }
 

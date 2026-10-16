@@ -93,26 +93,28 @@ function contractAlerts(contracts, today) {
 }
 
 /**
- * Terrain (mois courant, ou la période choisie au Centre d'alertes), sur le résumé des
- * visites (field.summary) — mêmes chiffres que « Affectation & visites ». Le taux lu est
- * l'EXÉCUTION DU PLAN (visites réalisées ÷ visites prévues), libellée comme telle — la
- * « couverture » désigne désormais les sites (lot 1b). Sans visite planifiée (active = 0),
- * aucune alerte : « aucun plan » n'est pas « 0 % ».
+ * Terrain (mois courant, ou la période choisie au Centre d'alertes). Le taux lu est l'EXÉCUTION
+ * DU PLAN des mesures communes (GET /api/dashboards/coverage, retour 110 : visites prévues des mois
+ * échus suivies dans leur mois — visite déclarée OU données reçues — ÷ visites prévues), la même
+ * que la Synthèse et « Couverture & performance ». Sans visite prévue, aucune alerte : « aucun
+ * plan » n'est pas « 0 % ». Prestataires en retard et visites non affectées restent lus sur les
+ * VISITES (résumé terrain, field.summary) : ils portent sur les visites déclarées elles-mêmes.
  * Libellé du moment : « ce mois » seulement sans période choisie (la cloche, le mois courant) ;
  * un mois choisi est nommé (« (Septembre 2026) ») ; une plage dit « sur la période ».
- * @param {object} field  résumé des visites
- * @param {{ range?: boolean, month?: string|null }} [opts] range = la période dépasse un mois ;
- *   month = le mois choisi (« AAAA-MM ») quand la période est un seul mois
+ * @param {object} field  résumé des visites (byProvider)
+ * @param {{ range?: boolean, month?: string|null, coverage?: object|null }} [opts] range = la période
+ *   dépasse un mois ; month = le mois choisi (« AAAA-MM ») quand la période est un seul mois ;
+ *   coverage = réponse des mesures de couverture de la période (overall.execution)
  */
-function fieldAlerts(field, { range = false, month = null } = {}) {
+function fieldAlerts(field, { range = false, month = null, coverage = null } = {}) {
   const out = [];
-  const ov = field && field.overall;
+  const ex = coverage && coverage.overall && coverage.overall.execution;
   const when = (current, named, period) => (range ? period : (month ? named : current));
   const whenParams = month && !range ? { m: { month } } : {};
-  if (ov && ov.active > 0 && ov.rate < 0.5) {
+  if (ex && ex.planned > 0 && ex.rate != null && ex.rate < 0.5) {
     out.push({ sev: 'warning', cat: 'Terrain', kind: 'field_low_coverage',
       title: when('Exécution du plan faible ce mois', 'Exécution du plan faible ({m})', 'Exécution du plan faible sur la période'),
-      detail: '{done}/{active} visites réalisées ({p} %)', params: { done: ov.realise, active: ov.active, p: Math.round(ov.rate * 100), ...whenParams }, go: FIELD_GO });
+      detail: '{done}/{planned} visites prévues suivies ({p})', params: { done: ex.covered, planned: ex.planned, p: { rate: ex.rate }, ...whenParams }, go: FIELD_GO });
   }
   const providers = (field && field.byProvider) || [];
   for (const p of providers) {
@@ -141,13 +143,13 @@ function fieldAlerts(field, { range = false, month = null } = {}) {
  *   range = la période dépasse un mois ; month = le mois choisi (période d'un mois) ;
  *   reportsInPeriod = rapports filtrés par la période
  */
-function buildAlerts({ consolidationRows, reports, contracts, field, today, range = false, month = null, reportsInPeriod = false } = {}) {
+function buildAlerts({ consolidationRows, reports, contracts, field, coverage = null, today, range = false, month = null, reportsInPeriod = false } = {}) {
   const scoped = (list, scope) => list.map((a) => ({ ...a, scope }));
   const all = [
     ...scoped(budgetAlerts(consolidationRows), 'a_date'),
     ...scoped(reportAlerts(reports), reportsInPeriod ? 'periode' : 'a_date'),
     ...scoped(contractAlerts(contracts, today), 'a_date'),
-    ...scoped(fieldAlerts(field, { range, month }), 'periode'),
+    ...scoped(fieldAlerts(field, { range, month, coverage }), 'periode'),
   ];
   return all.map((a, i) => ({ a, i })).sort((x, y) => (RANK[x.a.sev] - RANK[y.a.sev]) || (x.i - y.i)).map((x) => x.a);
 }

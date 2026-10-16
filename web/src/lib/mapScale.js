@@ -157,7 +157,8 @@ export function formatRate(v, lang = 'fr') {
     const tiny = nf(loc, 1).format(0.1);
     return lang === 'en' ? `< ${tiny}%` : `< ${tiny}\u00a0%`;
   }
-  const digits = pct === 0 || pct >= 10 ? 0 : 1;
+  // Décimales choisies APRÈS l'arrondi à une décimale : 9,96 % s'écrit « 10 % », jamais « 10,0 % ».
+  const digits = pct === 0 || Math.round(pct * 10) / 10 >= 10 ? 0 : 1;
   const n = nf(loc, digits).format(pct);
   return lang === 'en' ? `${n}%` : `${n} %`;
 }

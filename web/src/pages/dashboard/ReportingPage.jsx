@@ -3,26 +3,30 @@ import { Download, Printer, FileSpreadsheet, MapPin } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, Card, CardHeader, EmptyState, Skeleton, Stats } from '../../components/ui.jsx';
 import PeriodSelect from '../../components/PeriodSelect.jsx';
-import { ActivationNote, PeriodBanner, SessionPeriodNote, usePeriod } from '../../components/PeriodBanner.jsx';
+import { PeriodBanner, SessionPeriodNote, usePeriod } from '../../components/PeriodBanner.jsx';
+import CoverageUniverse from '../../components/CoverageUniverse.jsx';
 import { formatAr, formatInt } from '../../lib/format.js';
-import { periodLabel, single } from '../../lib/period.js';
+import { periodLabel } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 import { downloadCsv } from '../../lib/csv.js';
-import { coveragePct } from '../../lib/coverage.js';
+import { rateText, waysText } from '../../lib/coverageDefs.js';
 
-/** Plafond commun à la consolidation de la période et aux faits terrain (field/summary) : lib/periodCaps.facts. */
+/** Plafond commun à la consolidation de la période et aux mesures de couverture (faits site × mois) : lib/periodCaps.facts. */
 const REPORT_MAX_SPAN = Math.min(PERIOD_CAPS.document, PERIOD_CAPS.facts);
 
 /**
  * Reporting — rapport de synthèse S&E pour une PÉRIODE (lot 1b : plage de mois, défaut =
  * dernier mois avec des données) : situation budgétaire de la période (budget de la
- * période, planifié, réalisé ; restant et projection à date) et visites de terrain par
- * district (exécution du plan et couverture des sites). Lecture seule, recalculé en
- * direct ; exports CSV nommés par la période + impression (PDF via le navigateur).
- * Rien n'est stocké. Structure COMET : section-gap + page-header + Stats compact + Card/table.
+ * période, planifié, réalisé ; restant et projection à date) et suivi de terrain par
+ * district — les MÊMES mesures que la Synthèse et « Couverture & performance »
+ * (GET /api/dashboards/coverage, retour 110 : univers = sites actifs de la période, « suivi » =
+ * visite déclarée ou données reçues). Lecture seule, recalculé en direct ; exports CSV nommés
+ * par la période + impression (PDF via le navigateur). Rien n'est stocké. Structure COMET :
+ * section-gap + page-header + Stats compact + Card/table. Chaque source est lue à part : une
+ * couverture indisponible ne masque pas le budget.
  * Exports CSV : écrivain partagé (formules neutralisées), lib/csv.js.
- * Exécution sans visite planifiée : « — aucun plan », jamais 0 % (lib/coverage.js).
+ * Exécution sans visite prévue : « — aucun plan », jamais 0 %.
  */
 
 export default function ReportingPage({ onOpenContract }) {
@@ -30,37 +34,37 @@ export default function ReportingPage({ onOpenContract }) {
   const { period, ready, auto, counts, latest, today, source, capped, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data', maxSpan: REPORT_MAX_SPAN });
   const key = period ? `${period.from}|${period.to}` : '';
   const [cons, setCons] = useState(null);
-  const [field, setField] = useState(null);
+  const [cov, setCov] = useState(undefined); // mesures de couverture : undefined = en cours, null = indisponible
   const [error, setError] = useState(null);
+  const [covError, setCovError] = useState(null);
 
   useEffect(() => {
     if (!ready || !period) return undefined;
     let alive = true;
-    setCons(null); setError(null);
-    Promise.all([api.consolidation({ period }), api.fieldSummary(period)])
-      .then(([c, f]) => {
+    setCons(null); setCov(undefined); setError(null); setCovError(null);
+    api.consolidation({ period })
+      .then((c) => {
         if (!alive) return;
-        setCons(c); setField(f);
+        setCons(c);
         try { if (typeof performance !== 'undefined' && performance.mark) performance.mark('period:rendered'); } catch { /* sans incidence */ }
       })
       .catch((e) => alive && setError(e.message));
+    api.dashCoverage(period).then((v) => { if (alive) setCov(v); }, (e) => { if (alive) { setCov(null); setCovError(e.message); } });
     return () => { alive = false; };
   }, [ready, key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const t = cons?.totals;
   const tp = t?.period;
-  const ov = field?.overall;
-  const others = field?.others?.byDistrict || { groups: 0, sitesActive: 0 };
-  const ovPct = coveragePct(ov);
+  const ov = cov?.overall;
+  const districts = cov?.byDistrict || [];
   const pLabel = period ? periodLabel(period, lang) : '';
   const suffix = period ? `${period.from}_${period.to}` : '';
-  const ratePct = (rate) => (rate == null ? '—' : `${Math.round(rate * 100)} %`);
-  // Cellule « Exécution » : « — aucun plan » sans visite planifiée (jamais 0 %).
-  const pctCell = (cov) => {
-    const p = coveragePct(cov);
-    return p == null ? <span className="muted">{tr('— aucun plan')}</span> : `${p} %`;
-  };
-  const sitesCell = (d) => (d.coverage == null ? '—' : `${formatInt(d.sites.realised)} / ${formatInt(d.sites.active)} · ${Math.round(d.coverage * 100)} %`);
+  const ratePct = (rate) => (rate == null ? '—' : rateText(rate, lang));
+  // Cellule « Exécution » : « — aucun plan » sans visite prévue (jamais 0 %).
+  const execCell = (g) => (g.execution.rate == null ? <span className="muted">{tr('— aucun plan')}</span>
+    : `${formatInt(g.execution.covered)} / ${formatInt(g.execution.planned)} · ${rateText(g.execution.rate, lang)}`);
+  const sitesCell = (g) => (g.coverage.rate == null ? '—' : `${formatInt(g.coverage.covered)} / ${formatInt(g.sites)} · ${rateText(g.coverage.rate, lang)}`);
+  const pctOf = (rate) => (rate == null ? '' : `${Math.round(rate * 1000) / 10}%`);
 
   const exportBudget = () => {
     const rows = [[tr('Contrat'), tr('Prestataire'), tr('Budget de la période'), tr('Planifié'), tr('Réalisé'), tr('Taux'), tr('Restant (à date)'), tr('Projection fin (à date)')]];
@@ -71,17 +75,13 @@ export default function ReportingPage({ onOpenContract }) {
     downloadCsv(`synthese-budget_${suffix}.csv`, rows);
   };
   const exportCoverage = () => {
-    const rows = [[tr('District'), tr('Planifiées'), tr('Réalisées'), tr('Annulées'), tr('Exécution du plan (visites)'), tr('Sites actifs'), tr('Sites réalisés'), tr('Couverture (sites)')]];
-    for (const d of field.byDistrict) {
-      const p = coveragePct(d);
-      rows.push([d.label, d.planifie, d.realise, d.annule, p == null ? tr('aucun plan') : `${p}%`,
-        d.sites.active, d.sites.realised, d.coverage == null ? '' : `${Math.round(d.coverage * 100)}%`]);
-    }
-    // Districts sans visite (leurs sites actifs comptent dans la couverture) : la colonne se rapproche du total.
-    if (others.groups) rows.push([tr('Autres districts (sans visite) : {n}', { n: others.groups }), 0, 0, 0, tr('aucun plan'), others.sitesActive, 0, '0%']);
-    rows.push([tr('Total'), ov.planifie, ov.realise, ov.annule, coveragePct(ov) == null ? tr('aucun plan') : `${coveragePct(ov)}%`,
-      ov.sites.active, ov.sites.realised, ov.coverage == null ? '' : `${Math.round(ov.coverage * 100)}%`]);
-    downloadCsv(`visites-terrain_${suffix}.csv`, rows);
+    const rows = [[tr('District'), tr('Sites actifs'), tr('Sites suivis'), tr('dont par données reçues'), tr('dont par visites déclarées'), tr('Couverture (sites)'),
+      tr('Visites prévues (mois échus)'), tr('Suivies dans leur mois'), tr('Exécution du plan (visites)'), tr('Annulées')]];
+    const line = (label, g) => [label, g.sites, g.coverage.covered, g.coverage.byData, g.coverage.byVisit, pctOf(g.coverage.rate),
+      g.execution.planned, g.execution.covered, g.execution.rate == null ? tr('aucun plan') : pctOf(g.execution.rate), g.execution.cancelled];
+    for (const d of districts) rows.push(line(d.key === '—' ? tr('District inconnu') : d.label, d));
+    rows.push(line(tr('Total'), ov));
+    downloadCsv(`suivi-terrain_${suffix}.csv`, rows);
   };
 
   return (
@@ -109,12 +109,12 @@ export default function ReportingPage({ onOpenContract }) {
             : tp.pending > 0 ? tr('{p} du budget de la période · {amount} Ar en attente de validation', { p: ratePct(tp.actualRate), amount: formatInt(tp.pending) })
               : tr('{p} du budget de la période', { p: ratePct(tp.actualRate) }) },
         { label: tr('Budget restant'), value: cons ? formatAr(t.remaining) : '—', foot: tr('à date') },
-        { label: tr('Exécution du plan (visites)'), value: ovPct == null ? (ov ? tr('— aucun plan') : '—') : `${ovPct} %`,
-          foot: ov && ovPct != null ? tr('{done}/{active} visites', { done: ov.realise, active: ov.active }) : pLabel },
-        { label: tr('Couverture (sites)'), value: ov?.coverage == null ? '—' : `${Math.round(ov.coverage * 100)} %`,
-          foot: ov ? tr('{r} / {a} sites actifs · distincts sur la période', { r: formatInt(ov.sites.realised), a: formatInt(ov.sites.active) }) : pLabel },
+        { label: tr('Exécution du plan (visites)'), value: !ov ? '—' : ov.execution.rate == null ? tr('— aucun plan') : rateText(ov.execution.rate, lang),
+          foot: covError ? tr('Indisponible') : ov && ov.execution.rate != null ? tr('{c} / {p} visites prévues suivies dans leur mois', { c: formatInt(ov.execution.covered), p: formatInt(ov.execution.planned) }) : pLabel },
+        { label: tr('Couverture (sites)'), value: !ov ? '—' : rateText(ov.coverage.rate, lang),
+          foot: covError ? tr('Indisponible') : ov ? `${tr('{c} / {u} sites actifs suivis', { c: formatInt(ov.coverage.covered), u: formatInt(ov.sites) })}${ov.coverage.covered > 0 ? ` · ${waysText(tr, ov.coverage, formatInt)}` : ''}` : pLabel },
       ]} />
-      <ActivationNote field={field} />
+      {cov && <CoverageUniverse cov={cov} period={period} />}
 
       <Card aria-labelledby="rep-budget">
         <CardHeader id="rep-budget" title={tr('Situation budgétaire par contrat — {p}', { p: pLabel })}
@@ -160,49 +160,40 @@ export default function ReportingPage({ onOpenContract }) {
       </Card>
 
       <Card aria-labelledby="rep-cover">
-        <CardHeader id="rep-cover" title={tr('Visites de terrain par district — {p}', { p: pLabel })}
-          subtitle={tr('Visites prévues, réalisées et annulées de la période ; exécution du plan = réalisées ÷ (prévues + réalisées) ; couverture = sites actifs réalisés ÷ sites actifs.')}>
-          {field?.byDistrict?.length > 0 && <Button size="sm" variant="secondary" icon={Download} onClick={exportCoverage}>{tr('Exporter CSV')}</Button>}
+        <CardHeader id="rep-cover" title={tr('Suivi de terrain par district — {p}', { p: pLabel })}
+          subtitle={tr('Sites actifs de la période ; suivi = visite déclarée ou données reçues · couverture = sites suivis ÷ sites actifs · exécution du plan = visites prévues (mois échus) suivies dans leur mois ÷ prévues.')}>
+          {districts.length > 0 && <Button size="sm" variant="secondary" icon={Download} onClick={exportCoverage}>{tr('Exporter CSV')}</Button>}
         </CardHeader>
-        {cons === null ? (
+        {cov === undefined ? (
           <div className="card-body"><Skeleton height={140} /></div>
-        ) : field?.byDistrict?.length > 0 ? (
+        ) : covError ? (
+          <div className="card-body"><Alert tone="error">{covError}</Alert></div>
+        ) : districts.length > 0 ? (
           <div className="table-wrap"><table className="table">
             <thead><tr>
-              <th scope="col">{tr('District')}</th><th scope="col" className="num">{tr('Planifiées')}</th><th scope="col" className="num">{tr('Réalisées')}</th>
-              <th scope="col" className="num">{tr('Annulées')}</th><th scope="col" className="num">{tr('Exécution du plan')}</th>
-              <th scope="col" className="num">{tr('Couverture (sites)')}</th>
+              <th scope="col">{tr('District')}</th><th scope="col" className="num">{tr('Sites actifs')}</th>
+              <th scope="col" className="num">{tr('Couverture (sites)')}</th><th scope="col" className="num">{tr('Exécution du plan')}</th>
+              <th scope="col" className="num">{tr('Annulées')}</th>
             </tr></thead>
             <tbody>
-              {field.byDistrict.map((d) => (
-                <tr key={d.key}><td><strong>{d.label}</strong></td>
-                  <td className="num mono">{formatInt(d.planifie)}</td>
-                  <td className="num mono">{formatInt(d.realise)}</td>
-                  <td className="num mono">{formatInt(d.annule)}</td>
-                  <td className="num mono">{pctCell(d)}</td>
+              {districts.map((d) => (
+                <tr key={d.key}><td><strong>{d.key === '—' ? <span className="muted">{tr('District inconnu')}</span> : d.label}</strong></td>
+                  <td className="num mono">{formatInt(d.sites)}</td>
                   <td className="num mono">{sitesCell(d)}</td>
+                  <td className="num mono">{execCell(d)}</td>
+                  <td className="num mono">{formatInt(d.execution.cancelled)}</td>
                 </tr>
               ))}
-              {/* Districts sans visite : leurs sites actifs comptent dans la couverture (0 réalisé) —
-                  la colonne « Couverture (sites) » se rapproche ainsi du total. */}
-              {others.groups > 0 && (
-                <tr className="row-others"><td>{tr('Autres districts (sans visite) : {n}', { n: formatInt(others.groups) })}</td>
-                  <td className="num mono">0</td><td className="num mono">0</td><td className="num mono">0</td>
-                  <td className="num mono"><span className="muted">{tr('— aucun plan')}</span></td>
-                  <td className="num mono">{`0 / ${formatInt(others.sitesActive)} · 0 %`}</td>
-                </tr>
-              )}
             </tbody>
             <tfoot><tr><td><strong>{tr('Total')}</strong></td>
-              <td className="num mono"><strong>{formatInt(ov.planifie)}</strong></td>
-              <td className="num mono"><strong>{formatInt(ov.realise)}</strong></td>
-              <td className="num mono"><strong>{formatInt(ov.annule)}</strong></td>
-              <td className="num mono"><strong>{pctCell(ov)}</strong></td>
+              <td className="num mono"><strong>{formatInt(ov.sites)}</strong></td>
               <td className="num mono"><strong>{sitesCell(ov)}</strong></td>
+              <td className="num mono"><strong>{execCell(ov)}</strong></td>
+              <td className="num mono"><strong>{formatInt(ov.execution.cancelled)}</strong></td>
             </tr></tfoot>
           </table></div>
         ) : (
-          <EmptyState icon={MapPin} title={tr('Aucune visite sur la période')}>{tr('Aucune visite planifiée ou réalisée pour {month}.', { month: pLabel })}</EmptyState>
+          <EmptyState icon={MapPin} title={tr('Aucun site actif sur la période')}>{tr('Aucun site actif pour {month} : renseignez la grille des sites actifs (RBM › Sites).', { month: pLabel })}</EmptyState>
         )}
       </Card>
     </div>

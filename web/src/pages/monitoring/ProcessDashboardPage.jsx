@@ -8,11 +8,11 @@ import CodeLabel from '../../components/CodeLabel.jsx';
 import ActivityCoverageCard from '../../components/ActivityCoverageCard.jsx';
 import CoverageUniverse from '../../components/CoverageUniverse.jsx';
 import { PeriodBanner, SessionPeriodNote, usePeriod } from '../../components/PeriodBanner.jsx';
-import { formatInt, monthLabel } from '../../lib/format.js';
+import { formatDecimal, formatInt, monthLabel } from '../../lib/format.js';
 import { periodLabel, single, spanMonths } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { PERIOD_CAPS } from '../../lib/periodCaps.js';
-import { barPct, rateText, waysText, watchList } from '../../lib/coverageDefs.js';
+import { barPct, rateText, upcomingText, upToDateText, waysText, watchList } from '../../lib/coverageDefs.js';
 
 /** Durée maximale de l'écran : la plus courte de ses endpoints (overview = analyse ; couverture = faits) — lib/periodCaps. */
 const ANALYSIS_MAX_SPAN = Math.min(PERIOD_CAPS.analysis, PERIOD_CAPS.facts);
@@ -94,7 +94,7 @@ export default function ProcessDashboardPage({ onNavigate }) {
   const months = period ? spanMonths(period) : 0;
 
   return (
-    <div className="page">
+    <div className="section-gap">
       <PageHeader title={tr('Suivi de processus — Synthèse')}
         description={tr("Vue d'ensemble du suivi par bureau : visites réalisées, données reçues et conformité (fiches & indicateurs), sites à suivre (RBM). Recalculé en direct.")}>
         {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} maxSpan={ANALYSIS_MAX_SPAN} align="right" />}
@@ -127,20 +127,23 @@ export default function ProcessDashboardPage({ onNavigate }) {
               value={o?.execution.rate == null ? tr('— aucun plan') : rateText(o.execution.rate, lang)} textValue={o?.execution.rate == null}
               foot={o && <>
                 {tr('{c} / {p} visites prévues suivies dans leur mois', { c: formatInt(o.execution.covered), p: formatInt(o.execution.planned) })}
-                {o.execution.upcoming > 0 && <> · {tr('{n} à venir', { n: formatInt(o.execution.upcoming) })}</>}
+                {upcomingText(tr, o.execution, formatInt) && <> · {upcomingText(tr, o.execution, formatInt)}</>}
                 {o.execution.covered > 0 && <span className="cov-ways">{waysText(tr, o.execution, formatInt)}</span>}
               </>} />
             {/* Sites à jour = parmi les sites actifs au dernier mois de la période, ceux qui ne sont pas « à suivre » (RBM). */}
             <Kpi icon={ShieldCheck} tone={o?.rbm.due ? 'amber' : 'green'} label={tr('Sites à jour')} error={res.cov.error}
-              value={o ? formatInt(o.rbm.upToDate) : '—'}
-              foot={o && (o.rbm.sites > 0
-                ? tr('{due} à suivre / {n} sites actifs au {m}', { due: formatInt(o.rbm.due), n: formatInt(o.rbm.sites), m: toLabel })
-                : tr('aucun site actif au {m}', { m: toLabel }))} />
+              value={o ? upToDateText(o.rbm, lang, formatInt) : '—'}
+              foot={o && <>
+                {o.rbm.sites > 0
+                  ? tr('{due} à suivre / {n} sites actifs au {m}', { due: formatInt(o.rbm.due), n: formatInt(o.rbm.sites), m: toLabel })
+                  : tr('aucun site actif au {m}', { m: toLabel })}
+                <span className="cov-ways">{tr('règle RBM : visite réalisée, données de la commune ou date du registre')}</span>
+              </>} />
             <Kpi icon={Database} tone="blue" label={tr('Données reçues')} error={res.ov.error}
               value={formatInt(ov?.totals.submissions || 0)}
               foot={<>{tr('{n} sites (données)', { n: formatInt(ov?.totals.sites || 0) })} · {tr('{n} agent(s)', { n: formatInt(ov?.totals.agents || 0) })} · {tr('{n} mois', { n: months })}</>} />
             <Kpi icon={Activity} tone="blue" label={tr('Indice de conformité')} error={res.ov.error}
-              value={ov?.conformityIndex == null ? '—' : `${ov.conformityIndex}`}
+              value={formatDecimal(ov?.conformityIndex)}
               foot={ov?.conformityIndex != null ? tr('sur 100 (indicateurs %)') : ov?.totals.indicators ? tr('Aucune donnée notée sur la période') : tr('Aucun indicateur défini')} />
             <Kpi icon={MapPin} tone="blue" label={tr('Fiches · indicateurs')} error={res.ov.error}
               value={formatInt(ov?.totals.forms || 0)} foot={tr('{n} indicateur(s)', { n: formatInt(ov?.totals.indicators || 0) })} />
@@ -295,7 +298,7 @@ function FormsCard({ forms, error, onOpen }) {
                     <td className="syn-cov">
                       {f.index == null ? <span className="muted">—</span> : (
                         <span className="syn-bar-cell"><span className="biz-bar"><span style={{ width: `${Math.min(100, f.index)}%`, background: barColor(f.index) }} /></span>
-                          <span className="tabular">{f.index}/100</span></span>
+                          <span className="tabular">{formatDecimal(f.index)}/100</span></span>
                       )}
                     </td>
                     <td>

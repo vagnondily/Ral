@@ -48,7 +48,7 @@ test('GET / : 200, compte tiré du jeton, mesures mises en forme (univers, suivi
   assert.equal(b.refMonth, '2026-09');
   assert.deepEqual(b.universe, { sites: 6, registry: 10, forbidden: 1, inactive: 3, activation: 'grid' });
   assert.deepEqual(b.overall.coverage, { covered: 3, byData: 2, byVisit: 2, both: 1, rate: 0.5 });
-  assert.deepEqual(b.overall.execution, { planned: 5, covered: 2, byData: 1, byVisit: 2, both: 1, upcoming: 0, rate: 0.4 });
+  assert.deepEqual(b.overall.execution, { planned: 5, covered: 2, byData: 1, byVisit: 2, both: 1, upcoming: 0, upcomingUnset: 0, cancelled: 0, rate: 0.4 });
   assert.deepEqual([b.overall.rbm.sites, b.overall.rbm.due, b.overall.rbm.upToDate, b.overall.rbm.rate], [5, 2, 3, 0.6]);
   assert.deepEqual(b.communes, { total: 3, withData: 1, rate: 1 / 3 });
   // Activité sans site de l'univers : non listée (aucune mesure) ; le découpage se somme aux tuiles.

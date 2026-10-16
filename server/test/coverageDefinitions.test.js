@@ -61,6 +61,19 @@ test('définitions sur des cas écrits à la main : univers, suivi par visite OU
   assert.deepEqual(shape.byActivity.map((a) => [a.key, a.label, a.sites]),
     [['school meal activities', 'School meal activities', 4], ['—', '—', 1]]);
   assert.deepEqual(shape.byOffice.map((g) => [g.key, g.sites]), [['Toliara', 4], ['—', 1]]);
+  // Dit à part, jamais compté : activité pendant un mois non actif (C : données de juin ; D : visite de mai ;
+  // E : zone interdite), visite annulée d'un mois actif (G, mai).
+  assert.equal(o.outside, 3);
+  assert.equal(o.execution.cancelled, 1);
+  assert.equal(o.execution.upcomingUnset, 0);
+});
+
+test('visites prévues à venir sur des mois pas encore « Oui » (grille non renseignée en fin d\'année) : rendues à part, jamais perdues', () => {
+  const year = { from: '2026-01', to: '2026-12' };
+  const s = { statuses: grid('OOOOOOOOO'), gridYears: [2026], visits: [{ month: '2026-05', status: 'realise' }, { month: '2026-11', status: 'planifie' }, { month: '2026-12', status: 'planifie' }] };
+  const f = siteRangeFacts(s, year, { todayMonth: '2026-10' });
+  const m = measuresOf(groupRows([{ activity: 'X', office: 'O', district: 'D', counts: siteCounts({ ...f, activeRef: false }) }]).find((r) => r.dim === 'overall'));
+  assert.deepEqual([m.execution.planned, m.execution.upcoming, m.execution.upcomingUnset], [1, 0, 2]);
 });
 
 test('visites à venir : jamais « non exécutées », rendues à part', () => {

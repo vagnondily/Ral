@@ -1,7 +1,8 @@
 // Centre d'alertes — mise en forme PURE (sans DOM) des alertes calculées par le
 // serveur (GET /api/alerts, server/src/modules/dashboards/alertsMath.js), partagée
 // par la page « Centre d'alertes » et la cloche de l'en-tête.
-import { dayLabel, formatAr, monthLabel } from './format.js';
+import { dayLabel, formatAr, formatLocale, monthLabel } from './format.js';
+import { formatRate } from './mapScale.js';
 
 /** Gravités : ordre, libellé (traduit à l'affichage) et ton de badge. Couleur + icône + libellé, jamais la couleur seule. */
 export const SEVERITY = {
@@ -10,10 +11,14 @@ export const SEVERITY = {
   info: { rank: 2, label: 'À traiter', tone: 'blue' },
 };
 
-/** Valeur d'une variable : { money } → Ariary, { month } → « Septembre 2026 », { date } → « 30 septembre 2026 ». */
+/**
+ * Valeur d'une variable : { money } → Ariary, { month } → « Septembre 2026 », { date } → « 30 septembre 2026 »,
+ * { rate } → taux de la langue (« 0,5 % », une décimale sous 10 %, jamais « 0 % » pour un taux non nul).
+ */
 export function formatParam(v) {
   if (v && typeof v === 'object') {
     if ('money' in v) return formatAr(v.money);
+    if ('rate' in v) return formatRate(v.rate == null ? null : Number(v.rate), formatLocale() === 'en-GB' ? 'en' : 'fr');
     if ('month' in v) return /^\d{4}-\d{2}$/.test(v.month || '') ? monthLabel(v.month) : '—';
     if ('date' in v) return /^\d{4}-\d{2}-\d{2}$/.test(v.date || '') ? dayLabel(v.date) : '—';
     return '';

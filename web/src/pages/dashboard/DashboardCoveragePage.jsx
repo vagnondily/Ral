@@ -8,13 +8,13 @@ import CodeLabel from '../../components/CodeLabel.jsx';
 import { PeriodBanner, SessionPeriodNote, usePeriod } from '../../components/PeriodBanner.jsx';
 import ActivityCoverageCard from '../../components/ActivityCoverageCard.jsx';
 import CoverageUniverse from '../../components/CoverageUniverse.jsx';
-import { formatInt, monthLabel } from '../../lib/format.js';
+import { formatDecimal, formatInt, monthLabel } from '../../lib/format.js';
 import { periodLabel, single } from '../../lib/period.js';
 import MapExplorer, { peekMapOpen, forgetMapOpen } from '../../components/map/MapExplorer.jsx';
 import { groupNaReasons } from '../../lib/naReasons.js';
 import { shortFormLabel as shortLabel } from '../../lib/formLabel.js';
 import { useI18n } from '../../lib/i18n.jsx';
-import { barPct, planVsRealRows, rateText, waysText, watchList } from '../../lib/coverageDefs.js';
+import { barPct, planVsRealRows, rateText, upcomingText, upToDateText, waysText, watchList } from '../../lib/coverageDefs.js';
 
 /** Durée maximale des endpoints de la page (coverage-dashboard, dashboards/coverage) : 24 mois. */
 const ANALYSIS_MAX_SPAN = 24;
@@ -65,9 +65,11 @@ export default function DashboardCoveragePage({ onNavigate }) {
   const pick = (m) => setPeriod(single(m));
   const key = period ? `${period.from}|${period.to}` : '';
   const [cd, setCd] = useState(null);
-  // Mesures de couverture (retour 110) : la même réponse que la Synthèse du suivi de processus.
-  const [cov, setCov] = useState(null);
   const [error, setError] = useState(null);
+  // Mesures de couverture (retour 110) : la même réponse que la Synthèse du suivi de processus.
+  // Lues à part : une couverture indisponible ne masque ni les indicateurs ni la carte.
+  const [cov, setCov] = useState(undefined); // undefined = en cours, null = indisponible
+  const [covError, setCovError] = useState(null);
   // « Ouvrir la carte » (Vue d'ensemble) : même thème et mêmes filtres, lus une fois ; la
   // période arrive par l'URL (usePeriod).
   const [opened] = useState(() => peekMapOpen());
@@ -78,25 +80,26 @@ export default function DashboardCoveragePage({ onNavigate }) {
   useEffect(() => {
     if (!ready || !period) return undefined;
     let alive = true;
-    setCd(null); setCov(null); setError(null);
-    // Couverture : univers, suivis, exécution, sites prévus, état RBM au dernier mois de la période.
-    Promise.all([api.monCoverageDashboard(period), api.dashCoverage(period)])
-      .then(([c, v]) => {
+    setCd(null); setCov(undefined); setError(null); setCovError(null);
+    api.monCoverageDashboard(period)
+      .then((c) => {
         if (!alive) return;
-        setCd(c); setCov(v);
+        setCd(c);
         try { if (typeof performance !== 'undefined' && performance.mark) performance.mark('period:rendered'); } catch { /* sans incidence */ }
       })
       .catch((e) => { if (alive) setError(e.message); });
+    // Couverture : univers, suivis, exécution, sites prévus, état RBM au dernier mois de la période.
+    api.dashCoverage(period).then((v) => { if (alive) setCov(v); }, (e) => { if (alive) { setCov(null); setCovError(e.message); } });
     return () => { alive = false; };
   }, [ready, key]); // eslint-disable-line react-hooks/exhaustive-deps
   const mapInitial = useMemo(() => (opened ? { theme: opened.theme, officeId: opened.officeId, activity: opened.activity } : {}), [opened]);
 
-  const loading = !cd || !cov;
+  const loading = !cd;
   const forms = cd?.forms || [];
   const activeForm = tab === '_OV' ? null : forms.find((f) => f.id === tab);
 
   return (
-    <div className="page">
+    <div className="section-gap">
       <PageHeader title={tr('Couverture & performance du suivi')}
         description={tr('Vue analytique du suivi de processus : couverture terrain, données versées, conformité par bande, plan vs réalisé, et détail par activité (dimensions, indicateurs). Recalculé en direct.')}>
         {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} maxSpan={ANALYSIS_MAX_SPAN} align="right" />}
@@ -120,6 +123,7 @@ export default function DashboardCoveragePage({ onNavigate }) {
       </div>
 
       {error && <Alert tone="error">{error}</Alert>}
+      {covError && <Alert tone="error">{tr('Mesures de couverture indisponibles : {e}', { e: covError })}</Alert>}
       {!auto && cd && period && (cd.totals?.submissions || 0) === 0 && (
         <div className="period-banner"><Alert tone="info" icon={Info}>
           {tr('Aucune donnée reçue sur la période ({p}).', { p: periodLabel(period, lang) })}
@@ -129,7 +133,9 @@ export default function DashboardCoveragePage({ onNavigate }) {
           )}
         </Alert></div>
       )}
-      {loading && !error ? <Skeleton height={360} /> : !error && (
+      {/* La carte ne dépend ni des indicateurs ni des mesures de couverture : toujours affichée. */}
+      {view === 'carte' && <MapExplorer variant="full" period={period || undefined} onNavigate={onNavigate} initial={mapInitial} />}
+      {view !== 'carte' && (loading && !error ? <Skeleton height={360} /> : !error && (
         <>
           {view === 'synthese' && (
             <>
@@ -145,10 +151,9 @@ export default function DashboardCoveragePage({ onNavigate }) {
             </>
           )}
           {view === 'controle' && <ControlRoom cd={cd} />}
-          {view === 'carte' && <MapExplorer variant="full" period={period || undefined} onNavigate={onNavigate} initial={mapInitial} />}
           {view === 'bulletin' && <Bulletin cd={cd} cov={cov} period={period} />}
         </>
-      )}
+      ))}
     </div>
   );
 }
@@ -164,7 +169,9 @@ function TabBtn({ id, label, active, onClick }) {
 function Overview({ cd, cov, period, onNavigate }) {
   const { tr, lang } = useI18n();
   // Mesures de couverture (retour 110) : une définition par mesure, la même réponse que la Synthèse.
-  const o = cov.overall;
+  // cov : undefined = en cours, null = indisponible (les cartes de couverture le disent, le reste s'affiche).
+  const o = cov ? cov.overall : null;
+  const covNote = cov === undefined ? tr('chargement…') : tr('Indisponible');
   const toLabel = period ? monthLabel(period.to) : '';
   const cls = cd.classes || {};
   const urgentPct = cls.scored ? Math.round((cls.urg / cls.scored) * 100) : 0;
@@ -172,54 +179,65 @@ function Overview({ cd, cov, period, onNavigate }) {
 
   // Plan vs réalisé : visites prévues → suivies dans leur mois ; sites prévus → suivis ; communes de
   // l'univers → communes avec des données (la même unité des deux côtés).
-  const [pv, ps, pc] = planVsRealRows(cov);
-  const pvr = [
-    { label: tr('Visites de terrain'), sub: tr('prévues (mois échus) → suivies dans leur mois, par visite déclarée ou données reçues'),
-      ...pv, unit: tr('visite(s)'), ways: ways(pv.ways), extra: pv.upcoming > 0 ? tr('{n} à venir', { n: formatInt(pv.upcoming) }) : null },
-    { label: tr('Sites prévus'), sub: tr('sites de l\'univers avec une visite prévue (mois échus) → suivis'),
-      ...ps, unit: tr('site(s)'), ways: ways(ps.ways) },
-    { label: tr('Données versées'), sub: tr('communes des sites de l\'univers → communes avec des données reçues'),
-      ...pc, unit: tr('commune(s)'), ways: null },
-  ];
+  const pvr = cov ? (() => {
+    const [pv, ps, pc] = planVsRealRows(cov);
+    return [
+      { label: tr('Visites de terrain'), sub: tr('prévues (mois échus) → suivies dans leur mois, par visite déclarée ou données reçues'),
+        ...pv, unit: tr('visite(s)'), ways: ways(pv.ways), extra: upcomingText(tr, cov.overall.execution, formatInt) || null },
+      { label: tr('Sites prévus'), sub: tr('sites de l\'univers avec une visite prévue (mois échus) → suivis'),
+        ...ps, unit: tr('site(s)'), ways: ways(ps.ways) },
+      { label: tr('Données versées'), sub: tr('communes des sites de l\'univers → communes avec des données reçues'),
+        ...pc, unit: tr('commune(s)'), ways: null },
+    ];
+  })() : null;
 
   const byActivity = (cd.forms || []).map((f) => ({
     key: f.id, label: shortLabel(f.label),
     pct: f.index == null ? 0 : Math.round(f.index),
+    index: f.index,
     urgent: (f.classes && f.classes.urg) || 0,
     noIndicator: !f.indicatorCount,
     noData: f.index == null,
   }));
   const regions = (cd.regions || []).slice(0, 8);
-  const watch = watchList(cov.byDistrict);
+  const watch = cov ? watchList(cov.byDistrict) : null;
+  const upcoming = o ? upcomingText(tr, o.execution, formatInt) : '';
 
   return (
     <>
+      {/* Cinq tuiles de même forme (icône, valeur, pied) — les taux écrits par rateText. */}
       <div className="biz-kpis cd-kpis-5">
-        <DonutKpi icon={Gauge} label={tr('Couverture (sites)')} pct={barPct(o.coverage.rate)} display={rateText(o.coverage.rate, lang)}
-          foot={o.sites > 0
+        <Kpi icon={Gauge} label={tr('Couverture (sites)')} value={o ? rateText(o.coverage.rate, lang) : '—'} tone={o && o.coverage.rate != null ? 'blue' : ''}
+          foot={!o ? covNote : o.sites > 0
             ? <>{tr('{c} / {u} sites actifs suivis', { c: formatInt(o.coverage.covered), u: formatInt(o.sites) })}{ways(o.coverage)}</>
             : tr('aucun site actif sur la période')} />
-        <DonutKpi icon={ListChecks} label={tr('Exécution du plan (visites)')} pct={barPct(o.execution.rate)} display={rateText(o.execution.rate, lang)} noneLabel={tr('— aucun plan')}
-          foot={<>
+        <Kpi icon={ListChecks} label={tr('Exécution du plan (visites)')} tone={o && o.execution.rate != null ? 'blue' : ''}
+          value={!o ? '—' : o.execution.rate == null ? tr('— aucun plan') : rateText(o.execution.rate, lang)} textValue={!!o && o.execution.rate == null}
+          foot={!o ? covNote : <>
             {tr('{c} / {p} visites prévues suivies dans leur mois', { c: formatInt(o.execution.covered), p: formatInt(o.execution.planned) })}
-            {o.execution.upcoming > 0 && <> · {tr('{n} à venir', { n: formatInt(o.execution.upcoming) })}</>}
+            {upcoming && <> · {upcoming}</>}
             {ways(o.execution)}
           </>} />
-        <DonutKpi icon={ShieldCheck} label={tr('Sites à jour')} pct={barPct(o.rbm.rate)} display={rateText(o.rbm.rate, lang)} tone={o.rbm.due ? 'amber' : 'green'}
-          foot={o.rbm.sites > 0
-            ? tr('{due} à suivre / {n} sites actifs au {m}', { due: formatInt(o.rbm.due), n: formatInt(o.rbm.sites), m: toLabel })
-            : tr('aucun site actif au {m}', { m: toLabel })} />
+        <Kpi icon={ShieldCheck} label={tr('Sites à jour')} tone={o ? (o.rbm.due ? 'amber' : 'green') : ''} value={o ? upToDateText(o.rbm, lang, formatInt) : '—'}
+          foot={!o ? covNote : <>
+            {o.rbm.sites > 0
+              ? tr('{due} à suivre / {n} sites actifs au {m}', { due: formatInt(o.rbm.due), n: formatInt(o.rbm.sites), m: toLabel })
+              : tr('aucun site actif au {m}', { m: toLabel })}
+            <span className="cov-ways">{tr('règle RBM : visite réalisée, données de la commune ou date du registre')}</span>
+          </>} />
         <Kpi icon={Database} label={tr('Données versées')} value={formatInt(cd.totals?.submissions || 0)}
-          foot={tr('{agents} agent(s) · {c} / {t} communes de l\'univers avec données', { agents: formatInt(cd.totals?.agents || 0), c: formatInt(cov.communes.withData), t: formatInt(cov.communes.total) })} />
+          foot={cov
+            ? tr('{agents} agent(s) · {c} / {t} communes de l\'univers avec données', { agents: formatInt(cd.totals?.agents || 0), c: formatInt(cov.communes.withData), t: formatInt(cov.communes.total) })
+            : tr('{n} agent(s)', { n: formatInt(cd.totals?.agents || 0) })} />
         <Kpi icon={LayoutGrid} label={tr('Fiches · indicateurs')} value={formatInt(cd.totals?.forms || 0)}
           foot={tr('{n} indicateur(s)', { n: formatInt(cd.totals?.indicators || 0) })} />
       </div>
-      <CoverageUniverse cov={cov} period={period} onNavigate={onNavigate} />
+      {cov && <CoverageUniverse cov={cov} period={period} onNavigate={onNavigate} />}
 
       {/* Bande conformité : indice + répartition 5 bandes + action urgente */}
       <div className="card biz-card cd-conf">
         <div className="cd-conf-idx">
-          <div className="cd-conf-n tabular">{cd.conformityIndex == null ? '—' : cd.conformityIndex}<small>/100</small></div>
+          <div className="cd-conf-n tabular">{formatDecimal(cd.conformityIndex)}<small>/100</small></div>
           <div className="cd-conf-l">{tr('Indice de conformité')}</div>
           <div className="biz-kpi-foot">{tr('{n} indicateur(s) noté(s)', { n: formatInt(cls.scored || 0) })}</div>
         </div>
@@ -235,25 +253,38 @@ function Overview({ cd, cov, period, onNavigate }) {
         </div>
       </div>
 
-      <div className="biz-grid cd-grid-2">
-        <PlanVsReal rows={pvr} />
-        <BarsCard fill title={tr('Performance par activité')} sub={tr('Indice de conformité par fiche')}
-          rows={byActivity.map((a) => ({
-            key: a.key, label: a.label, pct: a.pct,
-            // Sans indicateur (ou sans donnée notée) : le dire, au lieu d'un « 0 · ok » trompeur.
-            right: a.noIndicator ? tr('Aucun indicateur défini') : a.noData ? tr('Aucune donnée notée')
-              : `${a.pct} · ${a.urgent ? tr('{n} urgent', { n: a.urgent }) : 'ok'}`,
-          }))}
-          empty={tr('Aucune fiche active.')} />
+      {/* Deux colonnes de cartes empilées, à hauteur de contenu ; seule la dernière carte d'une colonne
+          s'allonge (et défile) pour aligner le bas — jamais une carte courte étirée à vide. */}
+      <div className="cd-colgrid">
+        <div className="cd-colstack">
+          {pvr ? <PlanVsReal rows={pvr} /> : <CovCardNote title={tr('Plan vs Réalisé')} note={covNote} />}
+          <RegionsCard regions={regions} />
+        </div>
+        <div className="cd-colstack is-fill">
+          <BarsCard title={tr('Performance par activité')} sub={tr('Indice de conformité par fiche')}
+            rows={byActivity.map((a) => ({
+              key: a.key, label: a.label, pct: a.pct,
+              // Sans indicateur (ou sans donnée notée) : le dire, au lieu d'un « 0 · ok » trompeur.
+              right: a.noIndicator ? tr('Aucun indicateur défini') : a.noData ? tr('Aucune donnée notée')
+                : `${formatDecimal(a.index)} · ${a.urgent ? tr('{n} urgent', { n: a.urgent }) : 'ok'}`,
+            }))}
+            empty={tr('Aucune fiche active.')} />
+          {watch ? <WatchCard rows={watch} onNavigate={onNavigate} /> : <CovCardNote title={tr('Zones à surveiller — exécution du plan')} note={covNote} />}
+        </div>
       </div>
 
-      <div className="biz-grid cd-grid-2">
-        <RegionsCard regions={regions} />
-        <WatchCard rows={watch} onNavigate={onNavigate} />
-      </div>
-
-      <ActivityCoverageCard cov={cov} periodText={period ? periodLabel(period, lang) : ''} className="cd-actcov" />
+      {cov && <ActivityCoverageCard cov={cov} periodText={period ? periodLabel(period, lang) : ''} className="cd-actcov" />}
     </>
+  );
+}
+
+/** Carte de couverture quand la réponse n'est pas (encore) là : « chargement… » ou « Indisponible ». */
+function CovCardNote({ title, note }) {
+  return (
+    <div className="card biz-card">
+      <div className="card-header"><div className="card-title">{title}</div></div>
+      <div className="card-body"><p className="muted" role="status">{note}</p></div>
+    </div>
   );
 }
 
@@ -302,7 +333,7 @@ function ActivityView({ form, period, periods, onPick, onNavigate }) {
     <>
       <div className="biz-kpis cd-kpis-3">
         <Kpi icon={Database} label={tr('Données versées')} value={formatInt(form.submissions || 0)} foot={tr('soumissions de la fiche')} />
-        <Kpi icon={TrendingUp} label={tr('Indice de conformité')} value={form.index == null ? '—' : `${form.index}`} foot={tr('sur 100 (indicateurs %)')} />
+        <Kpi icon={TrendingUp} label={tr('Indice de conformité')} value={formatDecimal(form.index)} foot={tr('sur 100 (indicateurs %)')} />
         <Kpi icon={ShieldCheck} label={tr('Indicateurs notés')} value={formatInt(cls.scored || 0)}
           foot={cls.na
             ? tr('{n} en action urgente · {na} non évalué(s)', { n: formatInt(cls.urg || 0), na: formatInt(cls.na) })
@@ -423,41 +454,14 @@ function BureauCard({ rows, onNavigate }) {
 }
 
 // ------------------------------------------------------------------ primitives
-function Kpi({ icon: Icon, label, value, foot, tone }) {
+function Kpi({ icon: Icon, label, value, foot, tone, textValue = false }) {
   return (
     <div className="biz-kpi">
       <div className={`biz-kpi-ic ${tone || ''}`}><Icon size={18} aria-hidden="true" /></div>
       <div className="biz-kpi-body">
         <div className="biz-kpi-label">{label}</div>
-        <div className="biz-kpi-value tabular">{value}</div>
+        <div className={`biz-kpi-value tabular${textValue ? ' is-text' : ''}`}>{value}</div>
         {foot && <div className="biz-kpi-foot">{foot}</div>}
-      </div>
-    </div>
-  );
-}
-
-/**
- * KPI avec anneau de progression (donut SVG, dépendance zéro) ; sans base, « — » (ou `noneLabel`).
- * `display` remplace le texte du centre (ex. « 1,3 % » de formatRate) ; `loading` : anneau vide « … ».
- */
-function DonutKpi({ icon: Icon, label, pct, foot, tone, noneLabel, display, loading }) {
-  const none = pct == null; // pas de dénominateur (aucun plan) : anneau vide et « — », pas de couleur d'alerte
-  const v = none ? 0 : Math.max(0, Math.min(100, Math.round(pct)));
-  const R = 22; const C = 2 * Math.PI * R;
-  const color = tone === 'green' || v >= 80 ? 'var(--green)' : (tone === 'amber' || v >= 50 ? 'var(--orange)' : 'var(--red)');
-  const text = loading ? '…' : none ? '—' : (display || `${v}%`);
-  return (
-    <div className="biz-kpi cd-donutkpi" aria-busy={loading ? 'true' : undefined}>
-      <svg className="cd-ring" viewBox="0 0 56 56" role="img" aria-label={`${label} ${text}`}>
-        <circle cx="28" cy="28" r={R} fill="none" stroke="var(--canvas-sunken)" strokeWidth="6" />
-        {!none && !loading && <circle cx="28" cy="28" r={R} fill="none" stroke={color} strokeWidth="6" strokeLinecap="round"
-          strokeDasharray={`${(v / 100) * C} ${C}`} transform="rotate(-90 28 28)" />}
-        <text x="28" y="31" textAnchor="middle" className="cd-ring-t tabular">{text}</text>
-      </svg>
-      <div className="biz-kpi-body">
-        <div className="biz-kpi-label"><Icon size={13} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 5 }} />{label}</div>
-        {none && noneLabel && <div className="biz-kpi-value tabular cd-donut-none">{noneLabel}</div>}
-        {foot && <div className="biz-kpi-foot" style={{ marginTop: 4 }}>{foot}</div>}
       </div>
     </div>
   );
@@ -610,7 +614,7 @@ function RegionsCard({ regions }) {
 function WatchCard({ rows, onNavigate }) {
   const { tr, lang } = useI18n();
   return (
-    <div className="card biz-card cd-fill">
+    <div className="card biz-card">
       <div className="card-header"><div className="card-title">{tr('Zones à surveiller — exécution du plan')}</div>
         <div className="card-sub">{tr('Districts dont l\'exécution du plan (visites prévues suivies) est < 80 %')}</div></div>
       <div className="card-body biz-gauges">
@@ -647,8 +651,8 @@ function ControlRoom({ cd }) {
             <div className="card-header">
               <div className="card-title">{shortLabel(f.label)}</div>
               <div className="card-sub">{c.urg
-                ? tr('{n} soumission(s) · indice {idx}/100 · {urg} action(s) urgente(s)', { n: formatInt(f.submissions), idx: f.index == null ? '—' : String(f.index), urg: c.urg })
-                : tr('{n} soumission(s) · indice {idx}/100', { n: formatInt(f.submissions), idx: f.index == null ? '—' : String(f.index) })}</div>
+                ? tr('{n} soumission(s) · indice {idx}/100 · {urg} action(s) urgente(s)', { n: formatInt(f.submissions), idx: formatDecimal(f.index), urg: c.urg })
+                : tr('{n} soumission(s) · indice {idx}/100', { n: formatInt(f.submissions), idx: formatDecimal(f.index) })}</div>
             </div>
             <div className="card-body">
               <div className="cd-wall">
@@ -691,8 +695,8 @@ function Bulletin({ cd, cov, period }) {
   const { tr, lang } = useI18n();
   const cls = cd.classes || {};
   const idx = cd.conformityIndex;
-  const o = cov.overall;
-  const covPct = o.execution.rate == null ? null : o.execution.rate * 100;
+  const o = cov ? cov.overall : null;
+  const covPct = !o || o.execution.rate == null ? null : o.execution.rate * 100;
   const toLabel = period ? monthLabel(period.to) : '';
   const urgentPct = cls.scored ? Math.round((cls.urg / cls.scored) * 100) : 0;
   const topRegions = (cd.regions || []).filter((r) => r.region !== '(non renseigné)').slice(0, 3);
@@ -712,28 +716,34 @@ function Bulletin({ cd, cov, period }) {
         <div className="cd-bk">{tr('Bulletin de suivi · {period}', { period: period ? periodLabel(period, lang) : tr('toutes périodes') })}</div>
         <h3>{tr(verdict)}</h3>
         <p>
-          {richText(tr('Sur la période, {submissions} soumission(s) ont été versées par {agents} agent(s), réparties sur {forms} fiche(s) de suivi ({indicators} indicateurs) ; {c} commune(s) sur {t} de l\'univers ont reçu des données.'), {
-            submissions: bold(cd.totals?.submissions), agents: bold(cd.totals?.agents),
-            forms: bold(cd.totals?.forms), indicators: bold(cd.totals?.indicators),
-            c: bold(cov.communes.withData), t: formatInt(cov.communes.total),
-          })}{' '}
-          {covPct == null
+          {o
+            ? richText(tr('Sur la période, {submissions} soumission(s) ont été versées par {agents} agent(s), réparties sur {forms} fiche(s) de suivi ({indicators} indicateurs) ; {c} commune(s) sur {t} de l\'univers ont reçu des données.'), {
+              submissions: bold(cd.totals?.submissions), agents: bold(cd.totals?.agents),
+              forms: bold(cd.totals?.forms), indicators: bold(cd.totals?.indicators),
+              c: bold(cov.communes.withData), t: formatInt(cov.communes.total),
+            })
+            : richText(tr('Sur la période, {submissions} soumission(s) ont été versées par {agents} agent(s), réparties sur {forms} fiche(s) de suivi ({indicators} indicateurs).'), {
+              submissions: bold(cd.totals?.submissions), agents: bold(cd.totals?.agents),
+              forms: bold(cd.totals?.forms), indicators: bold(cd.totals?.indicators),
+            })}{' '}
+          {!o && <span className="muted">{cov === undefined ? tr('Couverture des sites : chargement…') : tr('Couverture des sites indisponible (erreur de chargement).')}</span>}
+          {o && (covPct == null
             ? richText(tr('Aucune visite de terrain n\'est prévue sur les mois échus de la période (exécution du plan non mesurable), et le RBM signale {due} site(s) à suivre au {m} sur {total} actif(s) ce mois-là.'), {
               due: bold(o.rbm.due), total: formatInt(o.rbm.sites), m: toLabel,
             })
             : richText(tr('L\'exécution du plan atteint {execution} ({c} visite(s) prévue(s) suivie(s) sur {p}), et le RBM signale {due} site(s) à suivre au {m} sur {total} actif(s) ce mois-là.'), {
               execution: <b>{rateText(o.execution.rate, lang)}</b>, c: formatInt(o.execution.covered), p: formatInt(o.execution.planned),
               due: bold(o.rbm.due), total: formatInt(o.rbm.sites), m: toLabel,
-            })}{' '}
-          {o.coverage.rate != null
+            }))}{' '}
+          {o && (o.coverage.rate != null
             ? richText(tr('La couverture des sites atteint {coverage} ({c} site(s) suivi(s) sur {u} actif(s), dont {d} par données reçues et {v} par visites déclarées).'), {
               coverage: <b>{rateText(o.coverage.rate, lang)}</b>, c: formatInt(o.coverage.covered), u: formatInt(o.sites),
               d: formatInt(o.coverage.byData), v: formatInt(o.coverage.byVisit),
             })
-            : tr('Aucun site actif sur la période (couverture des sites non mesurable).')}
+            : tr('Aucun site actif sur la période (couverture des sites non mesurable).'))}
         </p>
         <p>
-          {richText(tr('L\'indice de conformité global est de {index}.'), { index: <b>{idx == null ? '—' : `${idx}/100`}</b> })}{' '}
+          {richText(tr('L\'indice de conformité global est de {index}.'), { index: <b>{idx == null ? '—' : `${formatDecimal(idx)}/100`}</b> })}{' '}
           {richText(tr('Sur {scored} indicateur(s) noté(s), {exc} sont au vert (excellent), {sat} satisfaisant(s), {imp} à améliorer et {urg} en action urgente ({urgentPct}).'), {
             scored: formatInt(cls.scored || 0), exc: bold(cls.exc), sat: bold(cls.sat), imp: bold(cls.imp), urg: bold(cls.urg),
             urgentPct: <b>{tr('{p} %', { p: urgentPct })}</b>,

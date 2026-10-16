@@ -12,6 +12,7 @@ const consolidationRepo = require('../src/modules/tpm/consolidation.repository')
 const contractsService = require('../src/modules/contracts/contracts.service');
 const reportsRepo = require('../src/modules/tpm/reports.repository');
 const fieldRepo = require('../src/modules/tpm/field.repository');
+const coverageService = require('../src/modules/dashboards/coverage.service');
 const { REPORT_WRITE_ROLES } = require('../src/modules/tpm/reportWorkflow');
 const { alerts } = require('../src/modules/dashboards/alerts.service');
 
@@ -22,9 +23,12 @@ const SUBMITTED = {
 let fieldFails = false;
 consolidationRepo.consolidation = async () => ({ rows: [] });
 contractsService.listContracts = async () => [];
-const seen = { reports: [], field: [] };
+const seen = { reports: [], field: [], coverage: [] };
 reportsRepo.listReports = async (tenantId, opts) => { seen.reports.push(opts); return [SUBMITTED]; };
 fieldRepo.summary = async (tenantId, opts) => { seen.field.push(opts); if (fieldFails) throw new Error('base indisponible'); return { overall: { active: 0, rate: null }, byProvider: [] }; };
+// Exécution du plan : mesures communes (retour 110), compte tiré de la session.
+let execution = { planned: 0, covered: 0, rate: null };
+coverageService.coverage = async (auth, opts) => { seen.coverage.push({ tenantId: auth.tenantId, ...opts }); if (fieldFails) throw new Error('base indisponible'); return { overall: { execution } }; };
 
 const TODAY = { today: '2026-10-13' };
 const reportAlerts = (out) => out.items.filter((a) => a.cat === 'Rapports');
@@ -51,9 +55,10 @@ test('source illisible : signalée dans `unavailable`, les autres alertes resten
 });
 
 test('sans période (la cloche) : terrain du mois courant, tous les rapports ; avec une période : les deux filtrés', async () => {
-  seen.reports.length = 0; seen.field.length = 0;
+  seen.reports.length = 0; seen.field.length = 0; seen.coverage.length = 0;
   const bell = await alerts({ tenantId: 't', userId: 'u2', role: 'admin' }, TODAY);
   assert.deepEqual(seen.field[0], { period: { from: '2026-10', to: '2026-10' } });
+  assert.deepEqual(seen.coverage[0], { tenantId: 't', period: { from: '2026-10', to: '2026-10' } });
   assert.deepEqual(seen.reports[0], {});
   assert.deepEqual(bell.period, { from: '2026-10', to: '2026-10', months: 1 });
   assert.equal(bell.month, '2026-10');
@@ -65,8 +70,8 @@ test('sans période (la cloche) : terrain du mois courant, tous les rapports ; a
 });
 
 test('libellé du terrain : « ce mois » pour la cloche seulement ; un mois passé choisi est nommé ; une plage « sur la période »', async () => {
-  const saved = fieldRepo.summary;
-  fieldRepo.summary = async () => ({ overall: { active: 22, realise: 4, rate: 4 / 22 }, byProvider: [] });
+  const saved = execution;
+  execution = { planned: 22, covered: 4, rate: 4 / 22 };
   try {
     const low = (out) => out.items.find((a) => a.kind === 'field_low_coverage');
     const bell = low(await alerts({ tenantId: 't', userId: 'u2', role: 'admin' }, TODAY));
@@ -76,5 +81,5 @@ test('libellé du terrain : « ce mois » pour la cloche seulement ; un mois pas
     assert.deepEqual(sept.params.m, { month: '2026-09' });
     const h1 = low(await alerts({ tenantId: 't', userId: 'u2', role: 'admin' }, { ...TODAY, period: { from: '2026-01', to: '2026-06' } }));
     assert.equal(h1.title, 'Exécution du plan faible sur la période');
-  } finally { fieldRepo.summary = saved; }
+  } finally { execution = saved; }
 });
