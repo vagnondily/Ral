@@ -12,6 +12,10 @@
 
 ## État courant
 
+> **Ce matin (16/10)** — reprise à 06:05 UTC. Une autre session a publié sur `main` la **planification automatique** (retour 82 : bouton « Générer le plan », règles MMR / RBM, regroupement par commune ou GPS, équilibrage des TPM, agents à mobiliser, export « base de budget »). Elle devient la base : je n'y ajoute que ce qui manque (véhicules, règle unique « site actif », traçabilité), sans doublon.
+> - 🔄 Analyse de toutes les mises à jour et revue du design de chaque écran (captures), à commencer par les listes déroulantes brutes de « Planification & budget ».
+> - 🔄 Correctif de cohérence de « Couverture & performance » (retour 110) en contrôle sur la nouvelle `main`, publication dès qu'il est vert.
+
 > **Ce matin (15/10)** — vos messages de 05:25 à 05:50 sont tous pris en charge (retours 98 à 106) :
 > - **Planification automatique** dans le Plan de suivi (critères configurables, aperçu, « Appliquer ») : écran attendu vers 08:00 UTC, paramètres vers 09:00.
 > - **TPM tiré des contrats** : colonne du Plan de suivi faite (branche `wip/r58`), visites et autres pages ensuite.
@@ -682,3 +686,8 @@ _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot v�
 - **11:22 → 11:37** ✅ **Affectation des TPM par zone publiée** (`wip/r58` `311cf8c`) : onglet « Affectation des TPM » de l'espace RBM (aperçu sans écriture, raison obligatoire, retour au contrat, journal) ; « À affecter » mène à la zone et au mois concernés ; TPM de la zone dans les Priorités du mois ; dans Planification & budget, contrat et TPM se proposent l'un l'autre. Contrôles : 1 188 tests (2 ignorés), lint, build, migrations sur copie, balayage 35 écrans × FR / EN sans erreur ni phrase manquante ; parité JS ↔ SQL 15 360 cellules, 0 écart.
 - **≈ 11:35** 📥 Retour 114 : sans contrat — ou TPM indisponible — le suivi est fait en interne ; pas de planification → pas de rapport (« non applicable » d'office) ; suivi interne → un rapport interne. 🔄 Confié à l'agent r58.
 
+### Vendredi 16 octobre 2026
+
+- **06:05** 🔄 Reprise. `main` a reçu 18 commits d'une autre session (planification automatique du retour 82, démarrage Windows par NSSM). Ma branche est alignée sur `main` (`9fa5199`).
+- **06:07** 🔄 Analyse en parallèle : planification automatique de `main` face aux retours 82, 99, 104, 107 et 108 ; ce que `wip/lot5-gen` apporte encore ; état de chaque branche `wip/…` ; revue du design de tous les écrans.
+- **06:12** 🔄 Correctif de cohérence de la couverture (retour 110) réappliqué sur la nouvelle `main` (branche `integ/16a`, sans conflit) : tests, lint, build, migrations et balayage en cours.
