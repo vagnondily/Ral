@@ -206,7 +206,7 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
           {canSubmit && <Button onClick={() => save({ submit: true })} loading={saving} icon={Send}>{tr('Enregistrer et soumettre')}</Button>}</>}
     >
       {loading ? <Skeleton height={240} /> : (
-        <div style={{ display: 'grid', gap: 18 }}>
+        <div style={{ display: 'grid', gap: 18, gridTemplateColumns: 'minmax(0, 1fr)' }}>
           {/* Choix du type à la création : financier (facture) ou technique. */}
           {!editing && (
             <div className="field">

@@ -108,7 +108,7 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
         <Button onClick={save} loading={saving} icon={Wallet}>{tr('Enregistrer le plan')}</Button></>}
     >
       {loading ? <Skeleton height={240} /> : (
-        <div style={{ display: 'grid', gap: 18 }}>
+        <div style={{ display: 'grid', gap: 18, gridTemplateColumns: 'minmax(0, 1fr)' }}>
           <div className="form-grid">
             {!editing && (
               <>
