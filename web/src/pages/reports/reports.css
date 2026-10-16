@@ -252,11 +252,14 @@
 .rd-el { position: absolute; box-sizing: border-box; overflow: hidden; }
 .rd-el-text { white-space: nowrap; line-height: 1.25; display: flex; align-items: center; }
 .rd-el-text > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rd-el-text.is-wrap { align-items: flex-end; white-space: normal; line-height: 1.12; letter-spacing: -0.018em; }
+.rd-el-text.is-wrap > span { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow-wrap: break-word; text-overflow: clip; }
 .rd-el-img { display: block; }
-/* Emplacement de logo vide (modèle) : visible dans l'éditeur seulement, jamais imprimé ni exporté. */
+/* Emplacement de logo vide (modèle) : cadre NEUTRE (gris, pointillé fin) dans l'éditeur seulement,
+   jamais imprimé ni exporté — jamais une image prise au hasard. */
 .rd-el-ph {
-  display: flex; align-items: center; justify-content: center; gap: 1mm; font-size: 7pt; font-weight: 600; color: #6b7a90;
-  border: 1px dashed #9cc3e8; border-radius: 1mm; background: rgba(239, 246, 252, .7);
+  display: flex; align-items: center; justify-content: center; gap: 1mm; font-size: 6.5pt; font-weight: 500; color: #8b93a1;
+  border: 0.6pt dashed #c3c9d3; border-radius: 1mm; background: #f6f8fb;
 }
 /* Bandes de l'aperçu : double-clic pour les concevoir (repère discret au survol, jamais imprimé). */
 .rd-sheet-h.is-editable, .rd-sheet-f.is-editable { cursor: pointer; border-radius: 2px; outline: 1px dashed transparent; outline-offset: 1.5mm; transition: outline-color .15s; }
@@ -267,8 +270,10 @@
 }
 /* Onglet Page : aperçu de l'en-tête et du pied du document, bouton du concepteur. */
 .rd-bands-card { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); }
-.rd-bands-card .hd-tpl { align-self: center; }
 .rd-bands-card .hd-tpl-name { display: none; }
+.rd-bands-pair { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.rd-bands-legend { display: flex; justify-content: center; gap: 6px; width: 100%; font-size: 11.5px; color: var(--text-muted); }
+.rd-bands-legend span { width: 78px; text-align: center; }
 .rd-page-bands { grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .rd-pageno { font-variant-numeric: tabular-nums; }
 

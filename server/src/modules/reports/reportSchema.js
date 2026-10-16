@@ -56,6 +56,7 @@ const textStyle = z.object({
   padding: z.number().min(0).max(10).default(0),
   radius: z.number().min(0).max(6).default(0),
   caps: z.boolean().optional(), // petites capitales espacées (libellés « RAPPORT OFFICIEL »)
+  wrap: z.boolean().optional(), // sur plusieurs lignes dans son cadre (grand titre de la 1re page)
 }).default({});
 const el = { id, x: pct, y: mm, w: pct.min(1), h: mm.min(2) };
 // Éléments placés d'une bande (retours 51 et 88). Une image sans `assetId` est un EMPLACEMENT de
@@ -65,7 +66,7 @@ const el = { id, x: pct, y: mm, w: pct.min(1), h: mm.min(2) };
 const bandElement = z.discriminatedUnion('kind', [
   z.object({ ...el, kind: z.literal('text'), text: z.string().max(300), style: textStyle }),
   z.object({ ...el, kind: z.literal('image'), assetId: z.string().uuid().nullable().optional(), align: z.enum(['left', 'center', 'right']).optional() }),
-  z.object({ ...el, kind: z.literal('pageNumber'), format: z.enum(['n', 'n / N', 'Page n', 'Page n / N']).default('Page n / N'), style: textStyle }),
+  z.object({ ...el, kind: z.literal('pageNumber'), format: z.enum(['n', 'n / N', 'Page n', 'Page n / N', 'Page n sur N']).default('Page n / N'), style: textStyle }),
   z.object({ ...el, kind: z.literal('line'), thickness: z.number().min(0.25).max(3).default(0.5), color: color.default('#e7e9ef'), dir: z.enum(['h', 'v']).optional() }),
   z.object({ ...el, kind: z.literal('rect'), fill: color.default('#eff6fc'), border: color.optional(), radius: z.number().min(0).max(6).default(0), opacity: z.number().min(0.1).max(1).default(1), bleed: z.boolean().optional() }),
 ]);

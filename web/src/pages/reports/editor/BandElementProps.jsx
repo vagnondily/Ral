@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  AlignLeft, AlignCenter, AlignRight, Bold, Italic, CaseUpper, Copy, Trash2, ArrowUpToLine, ArrowDownToLine, Upload, Ban,
+  AlignLeft, AlignCenter, AlignRight, Bold, Italic, CaseUpper, Copy, Trash2, ArrowUpToLine, ArrowDownToLine, Upload, Ban, WrapText,
 } from 'lucide-react';
 import { useI18n } from '../../../lib/i18n.jsx';
 import { useToast } from '../../../components/Toast.jsx';
@@ -129,6 +129,7 @@ export default function BandElementProps({ el, bodyW, bandH, assets, onChange, o
           <button type="button" className={st.bold ? 'is-on' : ''} aria-pressed={!!st.bold} title={tr('Gras')} aria-label={tr('Gras')} onClick={() => setStyle({ bold: !st.bold })}><Bold size={14} aria-hidden="true" /></button>
           <button type="button" className={st.italic ? 'is-on' : ''} aria-pressed={!!st.italic} title={tr('Italique')} aria-label={tr('Italique')} onClick={() => setStyle({ italic: !st.italic })}><Italic size={14} aria-hidden="true" /></button>
           <button type="button" className={st.caps ? 'is-on' : ''} aria-pressed={!!st.caps} title={tr('Petites capitales')} aria-label={tr('Petites capitales')} onClick={() => setStyle({ caps: !st.caps })}><CaseUpper size={14} aria-hidden="true" /></button>
+          {el.kind === 'text' && <button type="button" className={st.wrap ? 'is-on' : ''} aria-pressed={!!st.wrap} title={tr('Sur plusieurs lignes (titre long)')} aria-label={tr('Sur plusieurs lignes (titre long)')} onClick={() => setStyle({ wrap: !st.wrap })}><WrapText size={14} aria-hidden="true" /></button>}
         </div>
         <Seg label={tr('Alignement')} value={st.align || 'left'} onChange={(v) => setStyle({ align: v })}
           options={[['left', tr('Aligner à gauche'), AlignLeft], ['center', tr('Centrer'), AlignCenter], ['right', tr('Aligner à droite'), AlignRight]]} />
@@ -160,7 +161,7 @@ export default function BandElementProps({ el, bodyW, bandH, assets, onChange, o
       {el.kind === 'pageNumber' && (
         <label className="hd-field"><span className="hd-label">{tr('Format')}</span>
           <select className="select" value={el.format || 'Page n / N'} onChange={(e) => onChange({ ...el, format: e.target.value })}>
-            {[['Page n / N', tr('Page {n} / {N}', { n: 2, N: 5 })], ['n / N', '2 / 5'], ['Page n', tr('Page {n}', { n: 2 })], ['n', '2']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            {[['Page n sur N', tr('Page {n} sur {N}', { n: 2, N: 5 })], ['Page n / N', tr('Page {n} / {N}', { n: 2, N: 5 })], ['n / N', '2 / 5'], ['Page n', tr('Page {n}', { n: 2 })], ['n', '2']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </label>
       )}

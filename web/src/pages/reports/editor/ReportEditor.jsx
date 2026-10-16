@@ -460,9 +460,12 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
       const p = (f && f.block.params) || {};
       updateBlock(be.sectionBlockId, { ...(p.header === 'own' ? { headerBand: v.header } : {}), ...(p.footer === 'own' ? { footerBand: v.footer } : {}) });
     } else {
+      // Paire 1re page / pages suivantes ; les bandes de la 1re page sont gardées même quand elle
+      // redevient « identique » ou « page de titre » (rien n'est perdu en changeant d'avis).
       change((d) => {
         const pg = { ...(d.page || defaultPage()), header: v.header, footer: v.footer, firstPage: v.firstPage || 'same' };
-        if (pg.firstPage === 'own') { pg.firstHeader = v.firstHeader; pg.firstFooter = v.firstFooter; } else { delete pg.firstHeader; delete pg.firstFooter; }
+        if (v.firstHeader) pg.firstHeader = v.firstHeader; else delete pg.firstHeader;
+        if (v.firstFooter) pg.firstFooter = v.firstFooter; else delete pg.firstFooter;
         return { ...d, page: pg };
       });
     }
