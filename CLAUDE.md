@@ -121,6 +121,14 @@ only the background expense-recalc worker (`npm run worker`) needs it.
 
 Demo login: `admin@mems.mg` / `changeme123` (validator: `validateur@mems.mg`).
 
+**Production (Windows): run as services via NSSM** — rather than keeping `cmd`
+windows open, install the API, the web (built `web/dist` served by
+`vite preview`), and optionally the worker as Windows services with **NSSM** so
+they auto-start on boot and auto-restart on crash. Full copy-paste steps in
+`README.md` → « Lancer MEMS 2.0 comme service Windows avec NSSM ». Update flow:
+`git pull` → `npm run migrate` → web `npm run build` → `nssm restart MEMS-API`
++ `nssm restart MEMS-WEB`, then hard-refresh the browser.
+
 ## Hard constraints (do not break)
 - **Never touch the `mems_app` Postgres role.** It belongs to the user's OLD
   MEMS system running on the same server. This app uses a **dedicated

@@ -522,6 +522,7 @@ export default {
   'Plafond de visites par TPM et par mois ; le surplus glisse au mois suivant.': 'Cap on visits per TPM per month; the surplus slides to the next month.',
   '{n} site(s) sans activité : non planifiés. Renseignez leur activité (et leur MMR) dans la Configuration pour les suivre.': '{n} site(s) without an activity: not planned. Set their activity (and MMR) in Configuration to monitor them.',
   '{n} site(s) avec activité mais sans paramètre MMR : planifiés au repli RBM (fréquence du risque). Complétez leur MMR dans la Configuration pour un suivi exact.': '{n} site(s) with an activity but no MMR parameter: planned with the RBM fallback (risk frequency). Complete their MMR in Configuration for exact monitoring.',
+  '{n} site(s) avec activité non couverts : la capacité mensuelle ne suffit pas. Augmentez la capacité (faisable) des activités concernées dans la Configuration MMR, ou décochez « Respecter la capacité mensuelle du MMR » dans les options.': '{n} site(s) with an activity are not covered: the monthly capacity is not enough. Increase the (feasible) capacity of the activities in the MMR Configuration, or uncheck “Respect the MMR monthly capacity” in the options.',
   'Par TPM — charge mensuelle (contrat de suivi de la zone)': 'By TPM — monthly load (zone monitoring contract)',
   'TPM': 'TPM',
   'Bureau': 'Office',

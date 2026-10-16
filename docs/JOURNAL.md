@@ -20,7 +20,16 @@
 > - **Bureaux** : types à niveaux facultatifs, périmètre choisi par région › district › commune ; **bureau, TPM et activités déduits de la configuration** partout ; **référentiel des activités** (aucune activité créée hors Paramétrage).
 > - **Sites (actifs / inactifs)** à la forme du Plan de suivi : publié.
 
-_Dernière mise à jour : 15/10/2026 19:45 UTC_ — la branche `main` reçoit chaque lot vérifié
+_Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot vérifié
+
+> **Couverture max + démarrage NSSM (retour 82).** ✅
+> - **Couverture 61 % → 96 %** : placement EN LARGEUR (une visite par site d'abord, puis les
+>   répétitions) → la capacité couvre un MAXIMUM de sites distincts ; MMR non configuré (durée 0,
+>   ex. Climate) basculé au repli RBM (plus jamais 0 visite) ; projection pour étaler les tournées.
+>   Les sites encore non couverts le sont par CAPACITÉ insuffisante — message dédié qui dit quoi faire.
+> - **Démarrage Windows mis à jour** : section README « Lancer MEMS 2.0 comme service Windows avec
+>   NSSM » (API + web `dist` + worker en services auto-démarrés/auto-redémarrés, pilotage, mise à
+>   jour, réseau/CORS) ; rappel dans CLAUDE.md. Tests 1209 ✅, lint ✅, build ✅.
 
 > **19:45 UTC — Plan auto : règles affinées par le responsable S&E (retour 82).** ✅
 > 1) **Site sans activité → non planifié** (ex. ECOLE…FENOARIVO SUD sort du plan ; avertissement

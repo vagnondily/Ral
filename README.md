@@ -226,6 +226,92 @@ npm run worker
 > automatiquement si vous démarrez l'API sur ce nouveau port et lancez le web
 > avec `set VITE_API_URL=http://localhost:VOTRE_PORT`).
 
+### 7. (Recommandé en production) Lancer MEMS 2.0 comme **service Windows** avec NSSM
+
+Garder deux fenêtres `cmd` ouvertes en permanence n'est pas fiable : si la
+session Windows se ferme, si le poste redémarre ou si un processus plante,
+l'application s'arrête. **NSSM** (« Non-Sucking Service Manager », gratuit et
+open-source) transforme l'API et l'interface en **vrais services Windows** :
+ils **démarrent au boot**, **redémarrent automatiquement** en cas de plantage,
+tournent **sans fenêtre** et écrivent leurs journaux dans des fichiers.
+
+**a. Installer NSSM.** Téléchargez-le sur <https://nssm.cc/download>, extrayez
+le `nssm.exe` 64 bits (dossier `win64`) dans un dossier au `PATH` (ex.
+`C:\Windows\System32`) ou notez son chemin complet. Les commandes ci-dessous
+s'exécutent dans un `cmd` **ouvert en administrateur**. Remplacez
+`C:\MEMS\Ral` par le chemin réel du projet et le chemin de `node.exe` si
+besoin (`where node` le donne).
+
+**b. Préparer l'interface une fois (version optimisée) :**
+
+```cmd
+cd C:\MEMS\Ral\web
+npm install
+npm run build
+mkdir C:\MEMS\Ral\logs
+```
+
+**c. Créer le service de l'API** (port 9000) :
+
+```cmd
+nssm install MEMS-API "C:\Program Files\nodejs\node.exe" "src\server.js"
+nssm set MEMS-API AppDirectory "C:\MEMS\Ral\server"
+nssm set MEMS-API Start SERVICE_AUTO_START
+nssm set MEMS-API AppStdout "C:\MEMS\Ral\logs\api.log"
+nssm set MEMS-API AppStderr "C:\MEMS\Ral\logs\api.err.log"
+nssm set MEMS-API AppExit Default Restart
+nssm set MEMS-API AppRestartDelay 3000
+nssm start MEMS-API
+```
+
+> L'API lit `server\.env` toute seule (dotenv) : aucune variable à redéclarer
+> dans NSSM. Vérifiez que `DATABASE_URL`/`APP_DATABASE_URL` y sont corrects.
+
+**d. Créer le service de l'interface** (sert `web\dist` compilé, port 5173) :
+
+```cmd
+nssm install MEMS-WEB "C:\Program Files\nodejs\node.exe" "node_modules\vite\bin\vite.js preview --host 0.0.0.0 --port 5173 --strictPort"
+nssm set MEMS-WEB AppDirectory "C:\MEMS\Ral\web"
+nssm set MEMS-WEB Start SERVICE_AUTO_START
+nssm set MEMS-WEB AppStdout "C:\MEMS\Ral\logs\web.log"
+nssm set MEMS-WEB AppStderr "C:\MEMS\Ral\logs\web.err.log"
+nssm set MEMS-WEB AppExit Default Restart
+nssm start MEMS-WEB
+```
+
+L'application est alors disponible sur `http://localhost:5173` dès le démarrage
+de Windows, sans fenêtre à garder ouverte.
+
+**e. (Optionnel) Service du worker** (recalcul des dépenses, **Redis requis**) :
+
+```cmd
+nssm install MEMS-WORKER "C:\Program Files\nodejs\node.exe" "src\jobs\worker-entry.js"
+nssm set MEMS-WORKER AppDirectory "C:\MEMS\Ral\server"
+nssm set MEMS-WORKER Start SERVICE_AUTO_START
+nssm set MEMS-WORKER AppExit Default Restart
+nssm start MEMS-WORKER
+```
+
+**f. Piloter les services** (ou via `services.msc`) :
+
+```cmd
+nssm restart MEMS-API         REM redémarrer après une mise à jour
+nssm stop MEMS-WEB            REM arrêter
+nssm status MEMS-API          REM état
+nssm remove MEMS-API confirm  REM désinstaller le service
+```
+
+> **Si vous accédez à l'application depuis d'autres postes du réseau** (pas
+> seulement en local) : indiquez l'URL de l'API au build du web, p. ex.
+> `set VITE_API_URL=http://NOM-DU-SERVEUR:9000` **avant** `npm run build`, et
+> autorisez cette origine côté API via `CORS_ORIGIN=http://NOM-DU-SERVEUR:5173`
+> dans `server\.env`. Ouvrez aussi les ports 9000 et 5173 dans le pare-feu.
+
+> **Mettre à jour quand MEMS tourne sous NSSM** : `git pull` → `cd server && npm
+> install && npm run migrate` → `cd ..\web && npm install && npm run build` →
+> `nssm restart MEMS-API` puis `nssm restart MEMS-WEB`. Rechargez ensuite la
+> page du navigateur avec `Ctrl+Maj+R` (cache) pour voir la nouvelle version.
+
 ### Mettre à jour une installation existante (base PostgreSQL déjà remplie)
 
 Vous avez **déjà la base `mems2_tpm` avec vos données** ? La mise à jour est

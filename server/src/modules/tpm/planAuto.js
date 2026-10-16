@@ -146,14 +146,23 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
   const covered = new Set();
   const byActivity = [];
   let unplaced = 0; let mmrDriven = 0; let rbmFallback = 0; let latePlannedTotal = 0;
+  const lastOpenG = periodOpen.length ? periodOpen[periodOpen.length - 1] : periodStart;
+  // Charge PROJETÉE (estimation du plan complet) pour ÉTALER les départs de tournées pendant la
+  // construction, avant le placement réel : sinon toutes les tournées viseraient le même mois.
+  const projKeyMonth = new Map();
+  const projTpmMonth = new Map();
 
-  for (const [, g] of groups) {
+  for (const [gKey, g] of groups) {
     const c = g.parametered ? (mmrByKey[g.mmrKey] || {}) : {};
     let interval;
     if (g.parametered) {
       interval = cfg.adjusted && c.adjustedInterval ? c.adjustedInterval : (c.interval || frequencyFor(g.riskLevel, cfg.frequency));
     } else interval = frequencyFor(g.riskLevel, cfg.frequency);
     const step = Math.max(1, Math.ceil(interval)); // arrondi au supérieur : l'intervalle minimal n'est jamais réduit (4,5 → 5)
+    // MMR « configuré » = la ligne produit des visites (fréquence > 0 → required > 0) ; sinon
+    // (durée 0, ligne non remplie) le site est tout de même suivi au repli RBM (pas oublié).
+    const mmrConfigured = g.parametered && g.sites.some((s) => Number(s.required) > 0);
+    const aKey = mmrConfigured ? gKey : `∅rbm:${g.riskLevel || 'moyenne'}`;
     let gPlanned = 0; const gCovered = new Set();  // compteurs de l'activité (ligne MMR)
 
     // Tournées : sites regroupés au plus proche (GPS/commune).
@@ -165,36 +174,31 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
     }
     const clusters = [...byCluster.keys()].sort((a, b) => String(a).localeCompare(String(b), 'fr'));
 
+    // 1) Construire l'état de chaque site (mois de départ de sa tournée, visites à placer).
+    const states = [];
     for (const clusterKey of clusters) {
       const clusterSites = byCluster.get(clusterKey);
-      // Mois de départ de la tournée : celui qui ÉQUILIBRE le mieux la charge du TPM de
-      // la zone (pour utiliser tous les TPM), puis la charge de l'activité, puis au plus tôt.
+      // Mois de départ de la tournée : celui qui ÉQUILIBRE le mieux la charge du TPM de la zone
+      // (pour utiliser tous les TPM) sur TOUS ses mois de visite, puis l'activité, puis au plus tôt.
       const rep = clusterSites[0];
       let startMonth = periodStart;
       if (periodOpen.length) {
-        // Fenêtre de phase = tous les mois où la tournée peut DÉMARRER en laissant tenir ses
-        // visites exigées (espacées de `step`) dans la période. On élargit ainsi au-delà des
-        // seuls premiers mois pour remplir aussi la fin d'année (objectif « aucun mois vide »
-        // par TPM), puis on choisit le mois qui équilibre le mieux la charge du TPM.
-        const reqs = clusterSites.map((s) => (g.parametered ? siteRemaining(s, periodStart).remaining : 1)).filter((r) => r > 0);
+        const reqs = clusterSites.map((s) => (mmrConfigured ? siteRemaining(s, periodStart).remaining : 1)).filter((r) => r > 0);
         const maxReq = reqs.length ? Math.max(...reqs) : 1;
-        const lastOpen = periodOpen[periodOpen.length - 1];
-        const latestStart = lastOpen - (maxReq - 1) * step;
+        const latestStart = lastOpenG - (maxReq - 1) * step;
         let window = periodOpen.filter((m) => m <= latestStart);
         if (!window.length) window = [periodOpen[0]];
-        const aKey = g.parametered ? g.mmrKey : null;
         let best = null;
         for (const m of window) {
-          // Coût de la tournée = charge CUMULÉE sur TOUS ses mois de visite (m, m+step, …),
-          // pas seulement le premier : un départ qui remplit des mois encore vides (fin
-          // d'année comprise) est préféré → charge TPM étalée, aucun mois laissé vide.
+          // Coût de la tournée = charge PROJETÉE cumulée sur TOUS ses mois de visite (m, m+step, …) :
+          // un départ qui remplit des mois encore peu chargés (fin d'année comprise) est préféré.
           let tLoad = 0; let aLoad = 0;
           for (let i = 0; i < maxReq; i += 1) {
             const vm = m + i * step;
-            if (vm > lastOpen) break;
+            if (vm > lastOpenG) break;
             const t = tpmAt(rep, vm);
-            if (cfg.balanceByTpm && t.assigned) tLoad += perTpmMonth.get(`${t.key}|${vm}`) || 0;
-            aLoad += perKeyMonth.get(kM(aKey, vm)) || 0;
+            if (cfg.balanceByTpm && t.assigned) tLoad += projTpmMonth.get(`${t.key}|${vm}`) || 0;
+            aLoad += projKeyMonth.get(kM(aKey, vm)) || 0;
           }
           const score = [tLoad, aLoad, m];
           if (best === null || score[0] < best.score[0]
@@ -211,38 +215,49 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
         const inactive = new Set(Object.entries(s.monthStatus || {}).filter(([, a]) => a === false).map(([m]) => Number(m)));
         const allowed = periodOpen.filter((m) => !busy.has(m) && !inactive.has(m));
         if (!allowed.length) continue;
-        let maxCount;
-        if (g.parametered) { maxCount = remaining; if (remaining > 0) mmrDriven += 1; }
-        else { maxCount = allowed.length; if (allowed.length > 0) rbmFallback += 1; }
-        if (!maxCount) continue;
-
         const lastRealise = realise.length ? Math.max(...realise) : null;
         const cursor = lastRealise != null ? Math.max(startMonth, lastRealise + step) : startMonth;
-
-        // Placement : chaque visite au moins `step` (= intervalle MMR) mois après la
-        // précédente. Si le mois voulu est plein (capacité activité OU TPM), on GLISSE VERS
-        // L'AVANT seulement (jamais sur un mois antérieur : l'intervalle ne doit jamais être
-        // violé). S'il ne reste plus de mois valide, on n'ajoute rien.
-        const placedForSite = [];
-        let minMonth = cursor;        // plus tôt autorisé pour la PROCHAINE visite
-        let placed = 0;
-        for (let guard = 0; guard <= 12 && placed < maxCount; guard += 1) {
-          const m = allowed.find((x) => x >= minMonth && !placedForSite.includes(x)
-            && hasRoom(s.mmrKey, x) && tpmRoom(tpmAt(s, x).key, x));
-          if (m == null) { unplaced += (maxCount - placed); break; }
-          placedForSite.push(m);
-          bump(s.mmrKey, m);
-          bumpTpm(s, m);
-          const tp = tpmAt(s, m);
-          assignments.push({ siteId: s.id, month: ym(year, m), monthNum: m, activity: s.activity || null, riskLevel: s.riskLevel || null, source: g.parametered ? 'mmr' : 'rbm', tpm: tp.name });
-          covered.add(s.id);
-          gCovered.add(s.id);
-          gPlanned += 1;
-          placed += 1;
-          minMonth = m + step;        // la prochaine visite ≥ intervalle après celle-ci
+        const openFromCursor = allowed.filter((m) => m >= cursor).length;
+        let maxCount;
+        if (mmrConfigured) { maxCount = remaining; if (remaining > 0) mmrDriven += 1; }
+        else { maxCount = Math.max(1, Math.ceil(openFromCursor / step)); rbmFallback += 1; } // repli RBM
+        if (!maxCount) continue;
+        states.push({ s, allowed, maxCount, nextMin: cursor, placed: 0, placedMonths: [] });
+        // Projection : réserver l'empreinte estimée de ce site pour étaler les tournées suivantes.
+        let vm = cursor;
+        for (let i = 0; i < maxCount && vm <= lastOpenG; i += 1) {
+          projKeyMonth.set(kM(aKey, vm), (projKeyMonth.get(kM(aKey, vm)) || 0) + 1);
+          const t = tpmAt(s, vm);
+          if (cfg.balanceByTpm && t.assigned) projTpmMonth.set(`${t.key}|${vm}`, (projTpmMonth.get(`${t.key}|${vm}`) || 0) + 1);
+          vm += step;
         }
       }
     }
+
+    // 2) Placement EN LARGEUR (couverture d'abord) : à chaque tour, une visite par site —
+    //    tous les 1ers passages avant les 2es, etc. → la capacité couvre un MAXIMUM de sites
+    //    distincts au lieu d'épuiser les créneaux sur les visites répétées des premiers sites.
+    //    Priorité au risque élevé. Chaque visite respecte l'intervalle (nextMin) et la capacité.
+    states.sort((a, b) => (RISK_RANK[b.s.riskLevel] || 0) - (RISK_RANK[a.s.riskLevel] || 0)
+      || String(a.s.id).localeCompare(String(b.s.id)));
+    for (let round = 0; round < 12; round += 1) {
+      let any = false;
+      for (const st of states) {
+        if (st.placed >= st.maxCount) continue;
+        const m = st.allowed.find((x) => x >= st.nextMin && !st.placedMonths.includes(x)
+          && hasRoom(st.s.mmrKey, x) && tpmRoom(tpmAt(st.s, x).key, x));
+        if (m == null) continue;
+        st.placedMonths.push(m); st.nextMin = m + step; st.placed += 1;
+        bump(st.s.mmrKey, m);
+        bumpTpm(st.s, m);
+        const tp = tpmAt(st.s, m);
+        assignments.push({ siteId: st.s.id, month: ym(year, m), monthNum: m, activity: st.s.activity || null, riskLevel: st.s.riskLevel || null, source: mmrConfigured ? 'mmr' : 'rbm', tpm: tp.name });
+        covered.add(st.s.id); gCovered.add(st.s.id); gPlanned += 1;
+        any = true;
+      }
+      if (!any) break;
+    }
+    for (const st of states) unplaced += Math.max(0, st.maxCount - st.placed);
 
     // Aperçu par activité (ligne MMR) : paramètres de base + résultat du groupe.
     const activities = [...new Set(g.sites.map((s) => s.activity).filter(Boolean))];

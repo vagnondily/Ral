@@ -252,6 +252,11 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
                 {tr('{n} site(s) avec activité mais sans paramètre MMR : planifiés au repli RBM (fréquence du risque). Complétez leur MMR dans la Configuration pour un suivi exact.', { n: formatInt(preview.summary.rbmFallback) })}
               </Alert>
             )}
+            {(preview.summary.sitesActivePlannable - preview.summary.sitesCovered) > 0 && (
+              <Alert tone="warning">
+                {tr('{n} site(s) avec activité non couverts : la capacité mensuelle ne suffit pas. Augmentez la capacité (faisable) des activités concernées dans la Configuration MMR, ou décochez « Respecter la capacité mensuelle du MMR » dans les options.', { n: formatInt(preview.summary.sitesActivePlannable - preview.summary.sitesCovered) })}
+              </Alert>
+            )}
             {Array.isArray(preview.byActivity) && preview.byActivity.length > 0 && (
               <div style={{ display: 'grid', gap: 6 }}>
                 <span className="muted" style={{ fontSize: 12 }}>{tr('Par activité — paramètres de base du MMR et résultat')}</span>
