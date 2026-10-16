@@ -244,6 +244,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
               {preview.summary.latePlanned > 0 && <span className="muted">{tr('Prévues antérieures re-planifiées')} : {formatInt(preview.summary.latePlanned)}</span>}
               {preview.summary.forbidden > 0 && <span className="muted">{tr('Zones interdites exclues')} : {formatInt(preview.summary.forbidden)}</span>}
               {preview.summary.unplaced > 0 && <span className="muted">{tr('Non placées (capacité)')} : {formatInt(preview.summary.unplaced)}</span>}
+              {preview.summary.agentsTotalPeak != null && <span>{tr('Effectif à mobiliser (pic)')} : <strong>{preview.summary.agentsTotalKnown ? '' : '≥ '}{formatInt(preview.summary.agentsTotalPeak)}</strong> {tr('agents')}</span>}
             </div>
             {preview.summary.noActivity > 0 && (
               <Alert tone="warning">
@@ -258,6 +259,11 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
             {(preview.summary.sitesActivePlannable - preview.summary.sitesCovered) > 0 && (
               <Alert tone="warning">
                 {tr('{n} site(s) avec activité non couverts : la capacité mensuelle ne suffit pas. Augmentez la capacité (faisable) des activités concernées dans la Configuration MMR, ou décochez « Respecter la capacité mensuelle du MMR » dans les options.', { n: formatInt(preview.summary.sitesActivePlannable - preview.summary.sitesCovered) })}
+              </Alert>
+            )}
+            {preview.summary.activitiesNeedingQuota > 0 && (
+              <Alert tone="info">
+                {tr('Effectif en agents non calculé pour {n} activité(s) : renseignez le quota journalier (visites/jour/agent) et les jours ouvrés par mois dans la Configuration MMR.', { n: formatInt(preview.summary.activitiesNeedingQuota) })}
               </Alert>
             )}
             {Array.isArray(preview.byActivity) && preview.byActivity.length > 0 && (
@@ -275,6 +281,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
                         <th scope="col" className="num" title={tr('Visites réalisables par mois')}>{tr('Capacité/mois')}</th>
                         <th scope="col" className="num">{tr('Sites')}</th>
                         <th scope="col" className="num">{tr('Planifiées')}</th>
+                        <th scope="col" className="num" title={tr('Agents à mobiliser au mois le plus chargé = ⌈visites ÷ (quota journalier × jours ouvrés)⌉')}>{tr('Agents (pic)')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -298,6 +305,9 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
                             <td className="num">{a.parametered && a.mmr ? num1(a.mmr.feasible) : '—'}{a.mmr && a.mmr.feasibleOverridden ? '*' : ''}</td>
                             <td className="num">{formatInt(a.sites)}</td>
                             <td className="num"><strong>{formatInt(a.planned)}</strong></td>
+                            <td className="num">{a.staffing && a.staffing.agentsPeak != null
+                              ? <strong>{formatInt(a.staffing.agentsPeak)}</strong>
+                              : <span className="muted" title={tr('Quota journalier / jours ouvrés non renseignés dans le MMR')}>—</span>}</td>
                           </tr>
                         );
                       })}
@@ -320,6 +330,7 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
                         <th scope="col">{tr('TPM')}</th>
                         <th scope="col" className="num">{tr('Sites')}</th>
                         <th scope="col" className="num">{tr('Planifiées')}</th>
+                        <th scope="col" className="num" title={tr('Agents à mobiliser au mois le plus chargé pour cette unité (toutes activités)')}>{tr('Agents (pic)')}</th>
                         {preview.byTpm[0].perMonth.map((m) => <th key={m.month} scope="col" className="num">{shortMonth(m.month)}</th>)}
                       </tr>
                     </thead>
@@ -329,6 +340,9 @@ export default function PlanAutoDrawer({ onClose, onDone }) {
                           <td>{t.assigned ? <strong>{t.tpm}</strong> : <span className="muted">{tr('Bureau (suivi interne — zone sans TPM)')}</span>}</td>
                           <td className="num">{formatInt(t.sites)}</td>
                           <td className="num"><strong>{formatInt(t.planned)}</strong></td>
+                          <td className="num">{t.agentsPeak != null
+                            ? <strong>{formatInt(t.agentsPeak)}{!t.agentsKnown ? '+' : ''}</strong>
+                            : <span className="muted">—</span>}</td>
                           {t.perMonth.map((m) => <td key={m.month} className="num">{m.count ? formatInt(m.count) : <span className="muted">·</span>}</td>)}
                         </tr>
                       ))}

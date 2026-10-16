@@ -62,6 +62,10 @@ async function sitesForPlanning(tenantId, { year, adjusted = false, risk, capaci
       // Capacité/mois : surcharge saisie dans l'assistant > faisable du MMR.
       feasible: Number(capacityOverride) > 0 ? Number(capacityOverride) : (cap.feasible != null ? cap.feasible : d.feasible),
       feasibleOverridden: Number(capacityOverride) > 0,
+      // Dimensionnement des agents : quota journalier × jours ouvrés = visites/agent/mois.
+      visitsPerDay: d.visitsPerDay,                   // quota journalier par agent (MMR)
+      workingDays: d.workingDays,                     // jours ouvrés par mois (MMR)
+      personsToDeploy: d.personsToDeploy,             // nb d'agents déclaré au MMR (référence)
     };
   }
   const sites = (board.sites || [])

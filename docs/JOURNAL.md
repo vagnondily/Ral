@@ -22,6 +22,13 @@
 
 _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot vérifié
 
+> **Dimensionnement des agents (retour 82).** ✅ L'automatisation calcule maintenant le **nombre
+> d'agents à mobiliser** par activité ET par TPM / par le bureau (suivi interne), à partir du
+> **quota journalier × jours ouvrés** du MMR : agents d'un mois = ⌈visites ÷ (quota × jours)⌉, le
+> pic = l'effectif. Colonnes « Agents (pic) » dans les tableaux Par activité et Par TPM, chip
+> « Effectif à mobiliser (pic) », et message quand le quota n'est pas renseigné (« — » / « + »).
+> `seed:test` renseigne désormais quota=2/j × 20 j pour la démo. Moteur pur + test (1211 tests).
+
 > **Option « couvrir tous les sites au moins une fois » (retour 82).** ✅ Nouvelle case de
 > l'assistant : le 1er passage de chaque site est FORCÉ même si la capacité mensuelle est dépassée
 > (les visites suivantes la respectent). Couverture démo 93,5 % → **98,9 %** (le reste = sites

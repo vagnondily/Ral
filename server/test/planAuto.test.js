@@ -237,6 +237,27 @@ test('risque élevé avec activité sans MMR : suit le RBM (tous les mois)', () 
   assert.equal(r.assignments.length, 12); // RBM élevé = chaque mois
 });
 
+test('agents : effectif calculé depuis le quota journalier × jours ouvrés du MMR', () => {
+  // 6 sites, intervalle 1 (visite chaque mois), quota 2 visites/jour × 5 jours = 10 visites/agent/mois.
+  // 6 visites/mois → ⌈6/10⌉ = 1 agent. Avec 24 sites on aurait ⌈24/10⌉ = 3 agents.
+  const seg = [{ from: `${YEAR}-01`, to: `${YEAR}-12`, providerId: 'T', providerName: 'T' }];
+  const sites = Array.from({ length: 6 }, (_, i) => site({ id: `s${i}`, parametered: true, required: 1, mmrKey: 'k', commune: `C${i}`, activity: 'A', tpmSegments: seg }));
+  const mmr = { k: { activity: 'A', interval: 1, feasible: 100, visitsPerDay: 2, workingDays: 5 } };
+  const r = generatePlan(sites, mmr, {}, [1], YEAR); // un seul mois → 6 visites ce mois
+  const line = r.byActivity.find((a) => a.activity === 'A');
+  assert.equal(line.staffing.perAgentPerMonth, 10);     // 2 × 5
+  assert.equal(line.staffing.agentsPeak, 1);            // ⌈6/10⌉
+  const tpm = r.byTpm.find((t) => t.tpm === 'T');
+  assert.equal(tpm.agentsPeak, 1);
+  assert.equal(tpm.agentsKnown, true);
+  assert.equal(r.summary.activitiesNeedingQuota, 0);
+  // Sans quota renseigné : agents non calculables, activité signalée.
+  const r2 = generatePlan(sites, { k: { activity: 'A', interval: 1, feasible: 100 } }, {}, [1], YEAR);
+  assert.equal(r2.byActivity.find((a) => a.activity === 'A').staffing.agentsPeak, null);
+  assert.equal(r2.summary.agentsTotalPeak, null);
+  assert.ok(r2.summary.activitiesNeedingQuota >= 1);
+});
+
 test('coverAllOnce : chaque site couvert au moins une fois malgré la capacité', () => {
   // 5 sites, capacité 1/mois (feasible 1) : sans coverAllOnce certains ne sont pas couverts ;
   // avec, tous le sont (1er passage forcé).

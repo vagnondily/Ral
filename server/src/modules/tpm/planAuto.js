@@ -154,6 +154,15 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
   // construction, avant le placement réel : sinon toutes les tournées viseraient le même mois.
   const projKeyMonth = new Map();
   const projTpmMonth = new Map();
+  // Dimensionnement des agents : visites réelles par (unité TPM/bureau × activité × mois) et
+  // capacité d'un agent/mois par activité (quota journalier × jours ouvrés du MMR).
+  const perUnit = new Map();          // tpmKey → Map(gKey → Map(m → nb de visites))
+  const agentCapByKey = new Map();    // gKey → visites/agent/mois (null si quota non renseigné)
+  const bumpUnit = (tpmKey, gk, m) => {
+    let a = perUnit.get(tpmKey); if (!a) { a = new Map(); perUnit.set(tpmKey, a); }
+    let b = a.get(gk); if (!b) { b = new Map(); a.set(gk, b); }
+    b.set(m, (b.get(m) || 0) + 1);
+  };
 
   for (const [gKey, g] of groups) {
     const c = g.parametered ? (mmrByKey[g.mmrKey] || {}) : {};
@@ -165,7 +174,13 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
     // MMR « configuré » = la ligne produit des visites (fréquence > 0 → required > 0) ; sinon
     // (durée 0, ligne non remplie) le site est tout de même suivi au repli RBM (pas oublié).
     const mmrConfigured = g.parametered && g.sites.some((s) => Number(s.required) > 0);
-    const aKey = mmrConfigured ? gKey : `∅rbm:${g.riskLevel || 'moyenne'}`;
+    // Clé d'activité pour la capacité, la répartition et les agents = la clé du groupe (tous les
+    // sites d'un groupe la partagent). Cohérente partout : capacité, projection, agents.
+    const aKey = gKey;
+    // Capacité d'un agent/mois pour cette activité = quota journalier × jours ouvrés (MMR).
+    const perAgentPerMonth = (Number(c.visitsPerDay) > 0 && Number(c.workingDays) > 0)
+      ? Number(c.visitsPerDay) * Number(c.workingDays) : null;
+    if (perAgentPerMonth) agentCapByKey.set(aKey, perAgentPerMonth);
     let gPlanned = 0; const gCovered = new Set();  // compteurs de l'activité (ligne MMR)
 
     // Tournées : sites regroupés au plus proche (GPS/commune).
@@ -251,12 +266,13 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
         // les visites suivantes la respectent toujours.
         const forceOnce = cfg.coverAllOnce && st.placed === 0;
         const m = st.allowed.find((x) => x >= st.nextMin && !st.placedMonths.includes(x)
-          && (forceOnce || (hasRoom(st.s.mmrKey, x) && tpmRoom(tpmAt(st.s, x).key, x))));
+          && (forceOnce || (hasRoom(aKey, x) && tpmRoom(tpmAt(st.s, x).key, x))));
         if (m == null) continue;
         st.placedMonths.push(m); st.nextMin = m + step; st.placed += 1;
-        bump(st.s.mmrKey, m);
+        bump(aKey, m);
         bumpTpm(st.s, m);
         const tp = tpmAt(st.s, m);
+        bumpUnit(tp.key, aKey, m);
         assignments.push({ siteId: st.s.id, month: ym(year, m), monthNum: m, activity: st.s.activity || null, riskLevel: st.s.riskLevel || null, source: mmrConfigured ? 'mmr' : 'rbm', tpm: tp.name });
         covered.add(st.s.id); gCovered.add(st.s.id); gPlanned += 1;
         any = true;
@@ -288,6 +304,28 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
       sites: g.sites.length,
       planned: gPlanned,
       covered: gCovered.size,
+      // Dimensionnement des agents pour CETTE activité (quota journalier × jours ouvrés) :
+      // agents d'un mois = ⌈visites du mois ÷ (quota × jours)⌉ ; le pic est l'effectif à prévoir.
+      staffing: (() => {
+        const visitsPerDay = Number(c.visitsPerDay) || null;
+        const workingDays = Number(c.workingDays) || null;
+        const perAgent = perAgentPerMonth; // null si quota/jours non renseignés
+        let agentsPeak = null; let agentMonths = null;
+        if (perAgent) {
+          agentsPeak = 0;
+          agentMonths = period.map((m) => {
+            const v = perKeyMonth.get(kM(aKey, m)) || 0;
+            const agents = Math.ceil(v / perAgent);
+            if (agents > agentsPeak) agentsPeak = agents;
+            return { month: ym(year, m), agents };
+          });
+        }
+        return {
+          visitsPerDay, workingDays, perAgentPerMonth: perAgent,
+          personsToDeployMmr: Number(c.personsToDeploy) || null,
+          agentsPeak, agentMonths,
+        };
+      })(),
     });
   }
 
@@ -296,13 +334,45 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
     || String(a.fieldOffice || '').localeCompare(String(b.fieldOffice || ''), 'fr')
     || (b.planned - a.planned));
 
-  // Répartition par TPM (contrat de suivi de la zone) : charge mensuelle et total.
-  const byTpm = [...byTpmMap.values()].map((b) => ({
-    tpm: b.name, assigned: b.assigned,
-    sites: b.sites.size, planned: b.planned,
-    perMonth: period.map((m) => ({ month: ym(year, m), count: b.perMonth.get(m) || 0 })),
-  })).sort((a, b) => Number(b.assigned) - Number(a.assigned) || (b.planned - a.planned)
+  // Répartition par TPM (contrat de suivi de la zone) : charge mensuelle, total et AGENTS.
+  // Agents d'une unité un mois = Σ sur ses activités ⌈visites ÷ (quota × jours)⌉ ; le pic est
+  // l'effectif à mobiliser. « connu » seulement si toutes ses activités ont un quota renseigné.
+  const unitStaffing = (tpmKey) => {
+    const acts = perUnit.get(tpmKey);
+    if (!acts) return { agentsPeak: null, agentMonths: null, known: true };
+    let agentsPeak = 0; let known = true; let hasCap = false;
+    const agentMonths = period.map((m) => {
+      let agents = 0;
+      for (const [gk, byMonth] of acts) {
+        const v = byMonth.get(m) || 0;
+        if (v <= 0) continue;
+        const cap = agentCapByKey.get(gk);
+        if (cap) { agents += Math.ceil(v / cap); hasCap = true; } else known = false;
+      }
+      if (agents > agentsPeak) agentsPeak = agents;
+      return { month: ym(year, m), agents };
+    });
+    // Aucun quota renseigné pour aucune activité de cette unité → effectif inconnu.
+    if (!hasCap) return { agentsPeak: null, agentMonths: null, known: false };
+    return { agentsPeak, agentMonths, known };
+  };
+  const byTpm = [...byTpmMap.entries()].map(([tpmKey, b]) => {
+    const st = unitStaffing(tpmKey);
+    return {
+      tpm: b.name, assigned: b.assigned,
+      sites: b.sites.size, planned: b.planned,
+      perMonth: period.map((m) => ({ month: ym(year, m), count: b.perMonth.get(m) || 0 })),
+      agentsPeak: st.agentsPeak, agentMonths: st.agentMonths, agentsKnown: st.known,
+    };
+  }).sort((a, b) => Number(b.assigned) - Number(a.assigned) || (b.planned - a.planned)
     || String(a.tpm || '').localeCompare(String(b.tpm || ''), 'fr'));
+  // Activités planifiées dont le quota journalier n'est pas renseigné (agents non calculables).
+  const activitiesNeedingQuota = byActivity.filter((a) => a.planned > 0 && !a.staffing.perAgentPerMonth).length;
+  // Effectif total à mobiliser (pic) = somme des pics par TPM/bureau (chacun se dote pour son pic).
+  // « connu » seulement si toutes les activités planifiées ont leur quota renseigné ; sinon c'est un plancher.
+  const agentsTotalPeak = byTpm.some((t) => t.agentsPeak != null)
+    ? byTpm.reduce((s, t) => s + (t.agentsPeak || 0), 0) : null;
+  const agentsTotalKnown = activitiesNeedingQuota === 0 && byTpm.every((t) => t.agentsKnown);
 
   assignments.sort((a, b) => a.monthNum - b.monthNum
     || (RISK_RANK[b.riskLevel] || 0) - (RISK_RANK[a.riskLevel] || 0)
@@ -329,6 +399,10 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
       unplaced,
       targetCoverage: cfg.targetCoverage,
       coverageRate: plannable.length ? Math.round((covered.size / plannable.length) * 1000) / 10 : null,
+      // Dimensionnement des agents (à partir du quota journalier × jours ouvrés du MMR).
+      agentsTotalPeak,                 // effectif total à mobiliser au pic (somme des pics par unité)
+      agentsTotalKnown,                // true si toutes les activités ont leur quota (sinon plancher)
+      activitiesNeedingQuota,          // activités planifiées sans quota journalier renseigné
     },
   };
 }
