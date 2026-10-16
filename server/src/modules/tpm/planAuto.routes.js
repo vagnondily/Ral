@@ -87,8 +87,8 @@ router.post('/apply', WRITE, asyncHandler(async (req, res) => {
 // Effacement des visites PLANIFIÉES de la période (pour repartir d'un plan propre).
 router.post('/clear', WRITE, asyncHandler(async (req, res) => {
   const { risk, months, year } = parseBody(req);
-  const { deleted } = await repo.clearPlanned(t(req), { year, from: months[0], to: months[months.length - 1], risk });
-  res.json({ deleted });
+  const { deleted, kept } = await repo.clearPlanned(t(req), { year, from: months[0], to: months[months.length - 1], risk });
+  res.json({ deleted, kept });
 }));
 
 module.exports = router;

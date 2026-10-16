@@ -16,7 +16,7 @@ const field = require('./field.repository');
 const { mmrKeyOf } = require('./planBoard');
 const { deriveMmr } = require('./mmrMath');
 // Retour 58 : toute écriture de visites finit par restampVisitsTx.
-const { restampVisitsTx } = require('./tpmAttribution.repository');
+const { restampVisitsTx, AUTO_RESTAMPABLE_SQL } = require('./tpmAttribution.repository');
 
 /** Lignes MMR du compte (pour l'intervalle et la capacité par activité). */
 async function mmrRows(tenantId) {
@@ -137,14 +137,24 @@ async function applyPlan(tenantId, userId, assignments = []) {
 }
 
 /**
- * Efface les visites PLANIFIÉES (status = 'planifie') de la période, pour
- * repartir d'un plan propre. Ne touche JAMAIS une visite réalisée, annulée,
- * figée (« antérieur »), facturée ou motivée (retour 58) : seules les prévues
- * « libres » sont supprimées. Sous verrou ; renvoie le nombre supprimé.
+ * Visite PRÉVUE « libre », la seule qu'« Effacer les planifications » supprime : TPM de sa zone
+ * (jamais un TPM choisi avec une raison ni repris d'une saisie d'avant la règle, retour 58), ni
+ * figée (« antérieur »), ni facturée (AUTO_RESTAMPABLE_SQL), sans date de visite ni agent (le travail
+ * d'affectation d'une personne), et d'un mois en cours ou à venir : un mois échu garde ses visites
+ * prévues, qui comptent dans l'exécution du plan. Alias de visite : v.
+ */
+const CLEARABLE_SQL = `v.provider_source = 'zone' AND ${AUTO_RESTAMPABLE_SQL}
+  AND v.visit_date IS NULL AND v.agent IS NULL AND v.period_month >= date_trunc('month', now())::date`;
+
+/**
+ * Efface les visites prévues LIBRES de la période (CLEARABLE_SQL), pour repartir d'un plan propre :
+ * jamais une visite réalisée, annulée, figée, facturée, motivée, datée, affectée à un agent, ni d'un
+ * mois échu. Sous verrou ; renvoie le nombre supprimé et le nombre de prévues conservées.
  * @param {number} year  exercice ; from/to = numéros de mois (1..12).
  */
 async function clearPlanned(tenantId, { year, from, to, risk } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
+    await client.query("SET LOCAL lock_timeout = '20s'");
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`plan-auto:${tenantId}`]);
     const fromD = `${year}-${String(from).padStart(2, '0')}-01`;
     const toD = `${year}-${String(to).padStart(2, '0')}-01`;
@@ -154,23 +164,12 @@ async function clearPlanned(tenantId, { year, from, to, risk } = {}) {
       params.push(risk);
       riskFilter = ` AND v.site_id IN (SELECT id FROM sites WHERE tenant_id = $1 AND risk_level = $${params.length})`;
     }
-    // Colonnes de « figement » tolérées (selon migrations présentes) : on ne supprime
-    // que les prévues réellement libres.
-    const { rows: cols } = await client.query(
-      `SELECT column_name FROM information_schema.columns
-        WHERE table_name = 'site_visits' AND column_name IN ('frozen','billed','locked','provider_source')`);
-    const names = new Set(cols.map((c) => c.column_name));
-    let guard = '';
-    if (names.has('frozen')) guard += ' AND COALESCE(v.frozen, false) = false';
-    if (names.has('billed')) guard += ' AND COALESCE(v.billed, false) = false';
-    if (names.has('locked')) guard += ' AND COALESCE(v.locked, false) = false';
-    const { rowCount } = await client.query(
-      `DELETE FROM site_visits v
-        WHERE v.tenant_id = $1 AND v.status = 'planifie'
-          AND v.period_month >= $2::date AND v.period_month <= $3::date${riskFilter}${guard}`,
-      params);
-    return { deleted: rowCount };
+    const scope = `v.tenant_id = $1 AND v.status = 'planifie'
+          AND v.period_month >= $2::date AND v.period_month <= $3::date${riskFilter}`;
+    const { rowCount } = await client.query(`DELETE FROM site_visits v WHERE ${scope} AND ${CLEARABLE_SQL}`, params);
+    const { rows: [{ n }] } = await client.query(`SELECT count(*)::int AS n FROM site_visits v WHERE ${scope}`, params);
+    return { deleted: rowCount, kept: n };
   });
 }
 
-module.exports = { sitesForPlanning, applyPlan, clearPlanned };
+module.exports = { sitesForPlanning, applyPlan, clearPlanned, CLEARABLE_SQL };
