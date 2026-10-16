@@ -28,6 +28,14 @@
 
 _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot vérifié
 
+> **Correctif couverture + bouton (retour 82).** ✅
+> - **Bug couverture** : regénérer sur un plan DÉJÀ appliqué affichait 3 % (et une fausse alerte
+>   « capacité insuffisante ») car seuls les sites NOUVELLEMENT planifiés comptaient. Désormais un
+>   site est COUVERT dès qu'il a une visite (nouvelle OU déjà prévue/réalisée) dans la période ;
+>   chip « Déjà planifiés (conservés) » + note « le générateur n'ajoute que les manquants ». Test ajouté.
+> - **Bouton** « Générer le plan automatiquement » → **« Générer le plan »**, bleu + icône baguette
+>   (plus court, plus percutant). Tests 1212 ✅, lint ✅, build ✅.
+
 > **Export budget du plan (retour 82).** ✅ Bouton « Budget (CSV) » dans l'aperçu : exporte le plan
 > par **TPM/bureau × mois** = visites (= **jours de collecte**, modèle existant 1 visite = 1 jour)
 > + **agents**, avec lignes Total/pic. Base directe du budget (on y ajoute les coûts journaliers
