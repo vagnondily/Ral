@@ -323,6 +323,10 @@ export const api = {
   activationImport: (file, { commit, year } = {}) => uploadFile(`/api/tpm/field/activation/import?commit=${commit ? 1 : 0}&year=${year}`, file),
   planBoardExport: (year) => downloadFile(`/api/tpm/field/plan-board/locations.xlsx?year=${year}`, `Plan_de_suivi_sites_${year}.xlsx`),
   planBoardBulk: (input) => request('/api/tpm/field/plan-board/bulk', { method: 'POST', body: input }),
+  // Planification automatique sur une période selon des critères configurables (retour 82).
+  planAutoPreview: (input) => request('/api/tpm/plan-auto/preview', { method: 'POST', body: input }),
+  planAutoApply: (input) => request('/api/tpm/plan-auto/apply', { method: 'POST', body: input }),
+  planAutoClear: (input) => request('/api/tpm/plan-auto/clear', { method: 'POST', body: input }),
   planBoardAddSite: (input) => request('/api/tpm/field/plan-board/sites', { method: 'POST', body: input }),
   planBoardTemplate: (year, activity) => downloadFile(`/api/tpm/field/plan-board/template.xlsx?year=${year}${activity ? `&activity=${encodeURIComponent(activity)}` : ''}`, `Gabarit_sites${activity ? `_${activity.replace(/[^\w]+/g, '_').slice(0, 40)}` : ''}_${year}.xlsx`),
   planBoardImport: (file, { commit, skipErrors } = {}) => uploadFile(`/api/tpm/field/plan-board/locations/import?commit=${commit ? 1 : 0}${skipErrors ? '&skipErrors=1' : ''}`, file),
@@ -345,6 +349,10 @@ export const api = {
   monDashboard: (id, period) => request(`/api/monitoring/forms/${id}/dashboard`, { query: qs(pq(period)) }),
   monOverview: (period) => request('/api/monitoring/overview', { query: qs(pq(period)) }),
   monCoverageDashboard: (period) => request('/api/monitoring/coverage-dashboard', { query: qs(pq(period)) }),
+  // Mesures de couverture d'une période (retour 110) : UNE réponse pour la Synthèse et pour
+  // « Couverture & performance » (univers, suivis, exécution, sites prévus, sites à jour, communes,
+  // par activité / bureau / district). Bureau facultatif (le bureau et ses antennes).
+  dashCoverage: (period, { officeId } = {}) => request('/api/dashboards/coverage', { query: qs({ ...pq(period), office: officeId }) }),
   // Volume de données par mois + période par défaut (dernier mois substantiel ≤ mois courant).
   monPeriods: (today) => request('/api/monitoring/periods', { query: today ? { today } : undefined }),
   monSubmissions: (period) => request('/api/monitoring/submissions', { query: qs(pq(period)) }),

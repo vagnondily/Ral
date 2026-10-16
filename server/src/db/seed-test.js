@@ -143,11 +143,13 @@ async function main() {
       const target = officeId ? '(tenant_id, field_office_id, activity_category) WHERE field_office_id IS NOT NULL'
         : '(tenant_id, activity_category) WHERE field_office_id IS NULL';
       await client.query(
-        `INSERT INTO mmr_parameters (tenant_id, field_office_id, activity_category, operation_duration, number_of_sites, risk_level, feasible, note, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'seed-plan',$8)
+        `INSERT INTO mmr_parameters (tenant_id, field_office_id, activity_category, operation_duration, number_of_sites, risk_level, feasible, visits_per_day, working_days, note, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,2,20,'seed-plan',$8)
          ON CONFLICT ${target} DO UPDATE SET
            operation_duration=EXCLUDED.operation_duration, number_of_sites=EXCLUDED.number_of_sites,
-           risk_level=EXCLUDED.risk_level, feasible=EXCLUDED.feasible, note='seed-plan', updated_at=now()`,
+           risk_level=EXCLUDED.risk_level, feasible=EXCLUDED.feasible,
+           visits_per_day=EXCLUDED.visits_per_day, working_days=EXCLUDED.working_days,
+           note='seed-plan', updated_at=now()`,
         [tenantId, officeId, cat, dur, nb, risk, feas, admin]);
     };
     const REF = 'FDA'; // bureau de référence (Fort Dauphin) pour le plan général

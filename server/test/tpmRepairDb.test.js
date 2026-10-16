@@ -50,21 +50,35 @@ test('reprise r58 en base : deux démarrages simultanés = une exécution, rejou
     const [{ id: T }] = await q('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1');
     await q("DELETE FROM site_visits WHERE tenant_id = $1 AND activity LIKE 'Test r58 %'", [T]);
 
-    // 1. Site et deux mois « selon contrat » (même TPM P, même contrat K), sans aucune facture de P ces mois-là.
+    // 1. Site et deux mois « selon contrat » (même TPM P, même contrat K), sans aucune facture de P ces
+    // mois-là. Recherche ÉTROITE (une base neuve n'a pas encore de statistiques : jamais la règle sur
+    // tous les sites × tous les mois) : quelques sites d'une zone liée d'un contrat de suivi actif, ses
+    // 12 premiers mois au plus, puis la règle (mems_tpm_cells) sur ces seuls couples.
+    await q('ANALYZE sites, site_visits, contracts, contract_areas, contract_budget_items, admin_areas, tpm_reports, tpm_collection_plans, partners');
+    const cand = await q(
+      `SELECT s.id AS site_id, to_char(gs.m, 'YYYY-MM-DD') AS m
+         FROM (SELECT c.id, c.date_debut, c.date_fin FROM contracts c
+                WHERE c.tenant_id = $1 AND c.status = 'actif'
+                  AND EXISTS (SELECT 1 FROM contract_budget_items b WHERE b.tenant_id = $1 AND b.contract_id = c.id
+                                AND b.line_code = 'IV.suivi' AND b.unit_count * b.unit_cost > 0)
+                ORDER BY c.date_debut, c.id) k
+         JOIN LATERAL (SELECT s.id FROM contract_areas z
+                         JOIN sites s ON s.tenant_id = $1 AND s.zone_district_id = z.admin_area_id
+                        WHERE z.tenant_id = $1 AND z.contract_id = k.id AND z.admin_area_id IS NOT NULL
+                        ORDER BY s.id LIMIT 3) s ON true
+         CROSS JOIN LATERAL generate_series(date_trunc('month', k.date_debut), LEAST(date_trunc('month', k.date_fin),
+                                            date_trunc('month', k.date_debut) + interval '11 months'), interval '1 month') AS gs(m)
+        LIMIT 240`, [T]);
     const [pick] = await q(
-      `WITH pairs AS (
-         SELECT s.id AS site_id, m::date AS m
-           FROM sites s CROSS JOIN generate_series('2024-01-01'::date, '2027-12-01'::date, interval '1 month') m
-          WHERE s.tenant_id = $1 AND s.zone_district_id IS NOT NULL),
-       cells AS (
-         SELECT * FROM mems_tpm_cells($1, ARRAY(SELECT site_id FROM pairs ORDER BY site_id, m), ARRAY(SELECT m FROM pairs ORDER BY site_id, m))
+      `WITH cells AS (
+         SELECT * FROM mems_tpm_cells($1, $2::uuid[], $3::date[])
           WHERE c_state = 'contrat'
             AND NOT EXISTS (SELECT 1 FROM tpm_reports r WHERE r.tenant_id = $1 AND r.partner_id = c_provider_id
                               AND r.period_month = c_month AND r.kind = 'financier'))
        SELECT c_site_id AS "siteId", c_provider_id AS "providerId", c_contract_id AS "contractId",
               (array_agg(to_char(c_month, 'YYYY-MM-DD') ORDER BY c_month))[1:2] AS months, (array_agg(c_area_id ORDER BY c_month))[1:2] AS areas
          FROM cells GROUP BY 1, 2, 3 HAVING count(*) >= 2
-        ORDER BY count(*) DESC, 1 LIMIT 1`, [T]);
+        ORDER BY count(*) DESC, 1 LIMIT 1`, [T, cand.map((x) => x.site_id), cand.map((x) => x.m)]);
     assert.ok(pick, 'la base de test doit avoir une zone couverte deux mois par un contrat de suivi (npm run seed)');
     const { siteId: S, providerId: P, contractId: K, months: [M1, M2], areas: [A1, A2] } = pick;
     const others = await q('SELECT id FROM partners WHERE tenant_id = $1 AND active AND id <> $2 ORDER BY name, id LIMIT 2', [T, P]);

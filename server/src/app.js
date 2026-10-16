@@ -13,6 +13,7 @@ const tpmConsolidationRoutes = require('./modules/tpm/consolidation.routes');
 const tpmPlanningRoutes = require('./modules/tpm/planning.routes');
 const tpmPostesRoutes = require('./modules/tpm/postes.routes');
 const tpmFieldRoutes = require('./modules/tpm/field.routes');
+const tpmPlanAutoRoutes = require('./modules/tpm/planAuto.routes');
 const tpmAttributionRoutes = require('./modules/tpm/tpmAttribution.routes');
 const contractsRoutes = require('./modules/contracts/contracts.routes');
 const settingsRoutes = require('./modules/settings/settings.routes');
@@ -28,6 +29,7 @@ const subActivitiesRoutes = require('./modules/settings/subActivities.routes');
 const mapRoutes = require('./modules/map/map.routes');
 const evaluationRoutes = require('./modules/evaluation/evaluation.routes');
 const trainingsRoutes = require('./modules/trainings/trainings.routes');
+const coverageRoutes = require('./modules/dashboards/coverage.routes');
 const asyncHandler = require('./middleware/asyncHandler');
 const { requireAuth, requireRole } = require('./middleware/auth');
 const { runtimeSnapshot } = require('./modules/common/runtimeStats');
@@ -103,6 +105,7 @@ function createApp() {
   app.use('/api/tpm/planning', tpmPlanningRoutes);
   app.use('/api/tpm/postes', tpmPostesRoutes);
   app.use('/api/tpm/field', tpmFieldRoutes);
+  app.use('/api/tpm/plan-auto', tpmPlanAutoRoutes);
   app.use('/api/tpm/attribution', tpmAttributionRoutes); // retour 58 : affectation des TPM par zone
   app.use('/api/tpm', tpmRoutes);
   app.use('/api/contracts', contractsRoutes);
@@ -119,6 +122,7 @@ function createApp() {
   app.use('/api/map', mapRoutes);
   app.use('/api/evaluation', evaluationRoutes);
   app.use('/api/trainings', trainingsRoutes);
+  app.use('/api/dashboards/coverage', coverageRoutes); // retour 110 : mêmes définitions de couverture partout
   // État de la base pour l'écran : migrations en attente (bandeau administrateur).
   // Nombre de mises à jour de schéma en attente pour tous ; leurs noms de fichiers pour l'admin seul.
   app.get('/api/system/status', requireAuth, asyncHandler(async (req, res) => {

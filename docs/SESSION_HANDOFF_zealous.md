@@ -95,3 +95,34 @@ _Registre de tout ce qui a été fait par cette session isolée, consigné sur d
   sous-activités (retour 92), mais **réservé lot 4** → ne pas reprendre sans le dire.
 - Durcissements §3 de `REVUE_PLAN_SUIVI.md` : à faire par la branche propriétaire des
   fichiers concernés.
+
+## 7. Planification automatique du plan de suivi (retour 82) — PUBLIÉE SUR `main`
+
+**⚠️ Pour l'agent `wip/lot5-gen` : le retour 82 est FAIT et sur `main`. Ne pas le refaire.**
+Si `wip/lot5-gen` apporte un plus (réglages persistés en base, migrations 077/078),
+l'intégrer EN COMPLÉMENT de l'existant, pas en doublon ; sinon abandonner la branche.
+
+- **Chemin** : `POST /api/tpm/plan-auto/preview` et `/apply` (fichiers NEUFS :
+  `planAuto.js` moteur pur, `planAuto.repository.js`, `planAuto.routes.js`).
+  **Sans migration** (critères dans la requête). UI : bouton « Planifier (période) »
+  sur le Plan de suivi + `PlanAutoDrawer.jsx`.
+- **Fidèle au MMR + RBM** (après retours de l'utilisateur) : visites par site =
+  EXIGÉES du MMR (fréquence = durée/risque, via `planBoard`/`siteCounters`/`deriveMmr`),
+  espacées de l'INTERVALLE MMR (ou « ajusté » CO adjusted), débit mensuel borné par
+  la CAPACITÉ MMR (faisable, calculée sur les VRAIS sites actifs via `board.capacity`)
+  + plafond global paramétrable ; priorité RBM pour l'ordre ; repli fréquence-RBM
+  pour les sites sans paramètre MMR ; **catch-up intra-année** (une prévue antérieure
+  non réalisée est re-planifiée dans la période). Idempotent, zones interdites exclues.
+- **Vérifié** : 14 tests moteur + 1200 tests serveur (0 échec), lint, build, e2e sur
+  la base de démo (677 sites → 2 visites = leur fréquence MMR ; fini le « 12 partout »).
+
+### Suites signalées par l'utilisateur (NON faites — à cadrer)
+1. **MMR « vrai nombre de sites par activité »** (2 193 sites au registre vs ~1 383
+   comptés dans l'écran MMR) : 786 sites ont une activité ABSENTE des catégories MMR
+   (« Sans paramètre MMR »). À corriger dans l'écran **Paramétrage › MMR** (meilleur
+   rapprochement activité du site ↔ catégorie MMR, ou bouton « Nb sites ← référentiel »
+   fiabilisé). N'affecte PAS la fréquence par site de la planification (= risque), mais
+   la cible/capacité mensuelle. Zone : `settings`/`MmrSection` + `field.repository`
+   (comptage par activité) — à coordonner (contention).
+2. Sites **sans MMR, risque élevé** : le repli RBM les planifie tous les mois (12/an).
+   Envisager un plafond, ou surtout leur donner un paramètre MMR (point 1).
