@@ -58,7 +58,9 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 | `wip/perf` | oui | Agent : lenteur mesurée puis corrigée, hors plan de suivi et hors Localités (retours 61, 84) | ✅ **premier lot fusionné dans `main`** (`a471f83`) ; en cours : fils séparés, tâches de fond (081), connexions réservées — ⏸️ arrêté par la limite |
 | `wip/lot8` | oui | Agent : Partenaires & TPM — fiche 360°, formations, notation des agents, règle « prestataire actif » (retours 28.1–28.3, 30) | 🔄 depuis 13:47 |
 | `wip/r58` | oui | Agent : TPM tiré des contrats, motif si modifié, onglet d'affectation (retour 58, migration 070) | ✅ **publiée jusqu'à `1da3dc4`** (colonne TPM, visites, reprise sûre) ; reste : onglet « Affectation des TPM », autres pages |
-| `wip/lot5-gen` | oui | Agent : planification automatique d'après le RBM + paramètres (retour 82, lot 5 § 6–7, migrations 077–078) | 🔄 depuis 13:53 |
+| `wip/lot5-gen` | oui | Agent : 2ᵉ planificateur automatique (retour 82, migrations 077–078) | ⛔ **abandonnée le 16/10** : la planification de `main` (autre session) est la base ; ne pas fusionner |
+| `wip/planauto-port` (16/10) | oui | Agent (ex-lot5-gen) : fiabilité de la planification de `main` (règle unique « site actif », intervalle MMR dans les deux sens et d'une année sur l'autre, idempotence, capacité des visites déjà prévues, transaction + verrous de mois + 409 « données changées », service) puis retours 107–108 (besoins, communes regroupées toutes activités, priorité RBM, agents ET véhicules, paramètres MMR / RBM en lecture seule) — **autre session : ne pas modifier `planAuto.*` sans récupérer `main` d'abord** | 🔄 depuis 16/10 06:23 |
+| `wip/ui-pickers` (16/10) | session principale | Listes de choix professionnelles (`EntityPicker` : recherche, groupes, précision) à la place des listes du navigateur sur les longues listes ; contrat d'abord, puis son TPM (Planification & budget, facture) | 🔄 depuis 06:24 |
 | `wip/admin` | oui | Agent : état de l'application, remise à zéro annulable 24 h, annulation d'une suppression (retours 95, 60 ; migration 096) | 🔄 depuis 14:04 |
 | `wip/indicators` | oui | Agent : modèles d'indicateurs corrigés, modèle Résilience, proposition et rattachement automatiques (retours 66, 85 ; migration 098 si besoin) | 🔄 depuis 14:09 |
 | `wip/repeats` | oui | Agent : sous-tables (groupes répétés) à l'import, réponses « Autre, précisez » comptées (retours 77, 81 ; migrations 097, 099) | 🔄 depuis 14:09 |
@@ -117,7 +119,7 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `072` | journal des sites actifs / inactifs | ✅ |
   | `073` | identifiant des sites `S-XXXX-XXXX` | ✅ |
   | `074`–`076` | lot 4 | ⏳ |
-  | `077`–`078` | lot 5 § 6–7 (agent `wip/lot5-gen`) | 🔄 |
+  | `077`–`078` | **abandonnés** (16/10) : `wip/lot5-gen` n'est pas fusionnée ; ces noms de fichiers sont déjà inscrits dans des bases de test locales — ne jamais les réutiliser | — |
   | `079`–`080` | lot 5, suite (calendrier, risque daté, règles) | ⏳ |
   | `081` | agent `wip/perf` (index, si besoin) | 🔄 |
   | `082`–`085` | multi-pays (conception) | ⏳ |
@@ -133,7 +135,8 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `102`–`103` | types de bureau, périmètre, bureau déduit (agent `wip/offices`) | 🔄 |
   | `104` | tableau de bord d'après la maquette (agent `wip/dash-template`, si besoin) | 🔄 |
   | `105` | référentiel des activités, suite (reprise des libellés, listes partout, refus des activités inconnues ; agent `wip/activities`, sur la base de `101`) | 🔄 |
-  | `106` à `109` | libres | — |
+  | `106` | traçabilité des plans automatiques (`plan_auto_runs`, après le portage ; agent `wip/planauto-port`) | ⏳ |
+  | `107` à `109` | libres | — |
   | `110`–`115` | programmes, projets, bailleurs, Output (conception, ex-`091`–`095`) | ⏳ |
   | `116` et suivants | libres | — |
 
@@ -169,6 +172,15 @@ node web/scripts/sweep-ecrans.cjs              # 33 écrans FR + EN (Playwright 
 - Q4 — Une seule base pour tous les pays, ou des données à garder dans le pays ? Défaut : une seule base ; un pays soumis à une obligation de résidence garde sa propre instance (hors champ).
 - Q5 — Le Siège impose-t-il des codes communs (activités, modèles d'indicateurs, lignes budgétaires) ? Défaut : comparaison sur les codes déjà communs ; le reste affiché « non comparable ».
 
+
+**Constats ouverts — relecture indépendante du retour 110 (16/10, rien de bloquant)** :
+- Activité pendant des mois « Non » : n'apparaît plus nulle part (l'ancienne Synthèse disait « {n} hors périmètre actif ») ; rendre `coveredInactive` et le dire sous les chiffres clés. Visites annulées : compte retiré aussi.
+- « À venir » ne compte que les mois futurs déjà marqués actifs : avec une grille, les mois futurs vides font disparaître les visites prévues de novembre–décembre ; les compter, ou dire qu'elles sont sur des mois non renseignés.
+- « Sites à jour » (RBM) crédite encore les données de la commune et `last_visit_date` : le dire sur la tuile, ou aligner la règle.
+- La cloche / Centre d'alertes (`alerts.service.js` → `fieldRepo.summary`), le Rapport de synthèse (`api.fieldSummary`) et le catalogue du concepteur (`reports/catalog/coverage.js`) gardent la définition « visites seules » : les passer à `/api/dashboards/coverage`.
+- Petits points : `cdat` non filtré par bureau (latent, aucune page ne passe `office`) ; communes sans P-code confondues entre districts ; `min(activity)` dépend du classement ; « Sites à jour » en nombre sur la Synthèse et en % sur Couverture ; `formatRate` arrondit après le choix des décimales (9,96 % → « 10,0 % ») ; un échec de l'API de couverture vide toute la page, carte comprise.
+
+**Planification automatique de `main` — défauts trouvés le 16/10** (portage en cours, `wip/planauto-port`) : voir le journal du 16/10 à 06:20 ; le défaut grave (« Effacer ») est corrigé et publié (`96122e2`).
 
 - **156 soumissions Nutrition** sont datées d'août 2024 à décembre 2025 d'après leur seule SvyDate : ces dates sont-elles fiables ?
 - **Connecteur DOTS / Palantir** (retour 65) : il faut l'adresse et les accès.
