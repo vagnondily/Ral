@@ -49,7 +49,7 @@ export default function EntityPicker({
   const close = (focusTrigger = true) => {
     setOpen(false);
     setQuery('');
-    if (focusTrigger && triggerRef.current) triggerRef.current.focus();
+    if (focusTrigger && triggerRef.current) triggerRef.current.focus({ preventScroll: true });
   };
   const openList = () => {
     if (disabled) return;
@@ -86,12 +86,18 @@ export default function EntityPicker({
     return () => ro.disconnect();
   }, [open, place]);
 
-  // Clic dehors : ferme ; défilement d'un conteneur du bouton : ferme ; redimensionnement : replace.
+  // Clic dehors : ferme. Défilement d'un conteneur du bouton (tiroir, page) : la liste suit son champ, et
+  // ne se ferme que si le champ sort de l'écran (au téléphone, toucher le champ fait défiler le tiroir :
+  // fermer à chaque défilement refermait la liste aussitôt ouverte). Redimensionnement : replace.
   useEffect(() => {
     if (!open) return undefined;
     const inside = (t) => (triggerRef.current && triggerRef.current.contains(t)) || (popRef.current && popRef.current.contains(t));
     const onDown = (e) => { if (!inside(e.target)) close(false); };
-    const onScroll = (e) => { if (scrollClosesPopover(e.target, triggerRef.current, popRef.current)) close(false); };
+    const onScroll = (e) => {
+      if (!scrollClosesPopover(e.target, triggerRef.current, popRef.current) || !triggerRef.current) return;
+      const r = triggerRef.current.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > window.innerHeight) close(false); else place();
+    };
     const onResize = () => place();
     document.addEventListener('mousedown', onDown);
     document.addEventListener('touchstart', onDown, { passive: true });
@@ -112,10 +118,16 @@ export default function EntityPicker({
     if (el && document.activeElement !== el) el.focus({ preventScroll: true });
   }, [open, pos, withSearch]);
   useEffect(() => { if (open) setActive((a) => (flat.length ? Math.min(Math.max(a, 0), flat.length - 1) : -1)); }, [flat.length, open]);
+  // Option active visible : on fait défiler la LISTE seule (scrollIntoView ferait aussi défiler le tiroir
+  // ou la page, et ce défilement fermerait la liste aussitôt ouverte — vu au téléphone).
   useEffect(() => {
-    if (!open || active < 0 || !flat[active]) return;
+    const list = listRef.current;
+    if (!open || !list || active < 0 || !flat[active]) return;
     const el = document.getElementById(optId(flat[active]));
-    if (el) el.scrollIntoView({ block: 'nearest' });
+    if (!el) return;
+    const top = el.offsetTop - list.offsetTop;
+    if (top < list.scrollTop) list.scrollTop = top;
+    else if (top + el.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = top + el.offsetHeight - list.clientHeight;
   }, [active, open, flat]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onTriggerKeyDown = (e) => {
@@ -156,7 +168,7 @@ export default function EntityPicker({
       </button>
       {clearable && selected && !disabled && (
         <button type="button" className="picker-clear" aria-label={tr('Effacer le choix')} title={tr('Effacer le choix')}
-          onClick={() => { onChange('', null); if (triggerRef.current) triggerRef.current.focus(); }}>
+          onClick={() => { onChange('', null); if (triggerRef.current) triggerRef.current.focus({ preventScroll: true }); }}>
           <X size={14} aria-hidden="true" />
         </button>
       )}
