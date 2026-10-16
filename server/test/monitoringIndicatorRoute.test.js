@@ -136,3 +136,47 @@ test('mois ayant des données : période par défaut des résultats', async () =
   assert.equal(res.body.latest, '2026-07');
   assert.equal((await request(app).get('/api/monitoring/forms/99999999-9999-9999-9999-999999999999/months').set(as(viewer))).status, 404);
 });
+
+// ---- Modèle d'indicateurs (retours 66, 85) : proposition et création d'un clic.
+repo.formTemplate = async (tenantId, formId, opts) => {
+  calls.push({ fn: 'template', tenantId, formId, opts });
+  return { form: { id: formId }, source: 'proposal', template: null };
+};
+repo.applyTemplate = async (tenantId, formId, opts) => {
+  calls.push({ fn: 'apply', tenantId, formId, opts });
+  return { applied: 3, kept: 0, conflicts: 0, template: 'SMP', attached: null, attachReason: null };
+};
+
+test('modèle : lecture pour tout utilisateur ; modèle choisi transmis ; clé invalide refusée', async () => {
+  const res = await request(app).get(`/api/monitoring/forms/${FORM}/template?template=RES`).set(as(viewer));
+  assert.equal(res.status, 200);
+  assert.deepEqual(last().opts, { template: 'RES' });
+  const plain = await request(app).get(`/api/monitoring/forms/${FORM}/template`).set(as(viewer));
+  assert.equal(plain.status, 200);
+  assert.deepEqual(last().opts, { template: null });
+  const n = calls.length;
+  assert.equal((await request(app).get(`/api/monitoring/forms/${FORM}/template?template=x;drop`).set(as(viewer))).status, 400);
+  assert.equal(calls.length, n);
+});
+
+test('créer depuis le modèle : soit les éléments choisis, soit « proposed » d\'un clic (avec rattachement) ; jamais les deux', async () => {
+  const one = await request(app).post(`/api/monitoring/forms/${FORM}/template/apply`).set(as(manager)).send({ proposed: true, attach: true });
+  assert.equal(one.status, 200);
+  assert.deepEqual(last().opts, { items: null, proposed: true, template: null, attach: true });
+  assert.equal(last().tenantId, TENANT);
+  const items = await request(app).post(`/api/monitoring/forms/${FORM}/template/apply`).set(as(manager))
+    .send({ items: [{ code: 'SMP_MENU_DISPLAYED', sourceField: 'DIRNBSchMealMenu', positiveValue: '1' }], template: 'SMP' });
+  assert.equal(items.status, 200);
+  assert.deepEqual(last().opts, { items: [{ code: 'SMP_MENU_DISPLAYED', sourceField: 'DIRNBSchMealMenu', positiveValue: '1' }], proposed: false, template: 'SMP', attach: false });
+  const n = calls.length;
+  const both = await request(app).post(`/api/monitoring/forms/${FORM}/template/apply`).set(as(manager))
+    .send({ proposed: true, items: [{ code: 'A', sourceField: 'b' }] });
+  assert.equal(both.status, 400);
+  assert.equal(both.body.details.code, 'items_or_proposed');
+  assert.equal((await request(app).post(`/api/monitoring/forms/${FORM}/template/apply`).set(as(manager)).send({})).status, 400);
+  // Le compte ne vient jamais du corps : clé inconnue refusée.
+  assert.equal((await request(app).post(`/api/monitoring/forms/${FORM}/template/apply`).set(as(manager)).send({ proposed: true, tenantId: 'x' })).status, 400);
+  // Lecteur : pas d'écriture.
+  assert.equal((await request(app).post(`/api/monitoring/forms/${FORM}/template/apply`).set(as(viewer)).send({ proposed: true })).status, 403);
+  assert.equal(calls.length, n);
+});

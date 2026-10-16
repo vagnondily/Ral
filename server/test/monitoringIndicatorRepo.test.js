@@ -71,15 +71,17 @@ db.withTenantTransaction = async (tenantId, fn) => fn({
       state.inserted.push(params);
       return { rows: [{ id: 'new-id' }], rowCount: 1 };
     }
-    if (/^SELECT id, activity_category AS "activityCategory" FROM monitoring_forms/.test(s)) return { rows: [state.form] };
+    if (/^SELECT id, code, label, activity_category AS "activityCategory", \(SELECT count\(\*\)::int FROM monitoring_submissions s .* FOR UPDATE$/.test(s)) {
+      return { rows: [{ ...state.form, code: 'GD_FORM', label: 'Fiche GD', submissions: 0 }] };
+    }
     if (/^SELECT name, label, type, group_path AS "group", list_name AS "listName", relevant FROM monitoring_form_fields/.test(s)) {
       return { rows: state.catalog.map((name) => ({ name, label: name, type: 'select_one', group: null, listName: null })) };
     }
-    if (/^SELECT template_code FROM monitoring_indicators/.test(s)) {
-      return { rows: state.existingTemplateCodes.filter((c) => params[2].includes(c)).map((c) => ({ template_code: c })) };
+    if (/^SELECT code, template_code AS "templateCode" FROM monitoring_indicators WHERE tenant_id = \$1 AND form_id = \$2 FOR UPDATE$/.test(s)) {
+      return { rows: state.existingTemplateCodes.map((c) => ({ code: c, templateCode: c })) };
     }
-    if (/^INSERT INTO monitoring_indicators \(tenant_id, form_id, code, label, module, source_field, agg, positive_value, direction/.test(s)) {
-      const per = 13;
+    if (/^INSERT INTO monitoring_indicators \(tenant_id, form_id, code, label, module, source_field, agg, positive_value, direction, na_values, target/.test(s)) {
+      const per = 14;
       const rows = params.length / per;
       state.inserted.push(...Array.from({ length: rows }, (_, i) => params.slice(i * per, (i + 1) * per)));
       return { rowCount: rows, rows: [] };
@@ -173,7 +175,7 @@ test('réappliquer le modèle : seuls les éléments manquants sont créés, auc
   const items = tpl.items.slice(0, 3).filter((it) => (it.variables || [])[0]);
   assert.ok(items.length >= 2);
   state.existingTemplateCodes = [items[0].code];
-  const out = await repo.applyTemplate(T, FORM, items.map((it) => ({ code: it.code, sourceField: it.variables[0] })));
+  const out = await repo.applyTemplate(T, FORM, { items: items.map((it) => ({ code: it.code, sourceField: it.variables[0] })) });
   assert.equal(out.kept, 1);
   assert.equal(out.applied, items.length - 1);
   assert.equal(out.conflicts, 0);
@@ -184,7 +186,7 @@ test('réappliquer le modèle : seuls les éléments manquants sont créés, auc
   // Tout déjà créé : aucune écriture.
   reset();
   state.existingTemplateCodes = items.map((it) => it.code);
-  const none = await repo.applyTemplate(T, FORM, items.map((it) => ({ code: it.code, sourceField: it.variables[0] })));
+  const none = await repo.applyTemplate(T, FORM, { items: items.map((it) => ({ code: it.code, sourceField: it.variables[0] })) });
   assert.deepEqual({ applied: none.applied, kept: none.kept }, { applied: 0, kept: items.length });
   assert.equal(state.calls.filter((c) => /^INSERT|^UPDATE/.test(c.sql)).length, 0);
 });

@@ -10,7 +10,10 @@ const { detectMapping, DIMENSION_COLUMN, DATE_KEYS, EDITABLE_KEYS } = require('.
 const { computeCalcFields, checkExpression, previewCalc } = require('./calcFields');
 const { buildLookup, collectionColumns, overrideColumns, prepareImport, previewImport, dateSummary, TRIM_CLASS } = require('./submissionsImport');
 const { collectionUpdates } = require('./collectionDate');
-const { templateForActivity, moduleLabel, suggestBindings, indicatorFromItem } = require('./indicatorTemplates');
+const { templateForActivity, templateByKey, tenantCategoryFor, moduleLabel, indicatorFromItem } = require('./indicatorTemplates');
+const {
+  proposeTemplate, decideAutoAttach, effectiveTemplate, bindTemplate, bindItem, proposedSelection, bindingSummary, fieldsFromXlsform,
+} = require('./indicatorProposals');
 const { OTHER_VALUES } = require('./memsMapping');
 const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx, loadPartiesTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
 const { resolvePartner, resolveAgent } = require('../common/partyMatch');
@@ -51,6 +54,7 @@ async function listForms(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
       `SELECT f.id, f.code, f.label, f.active, f.activity_category AS "activityCategory", f.updated_at AS "updatedAt",
+              (f.activity_auto_at IS NOT NULL) AS "activityAuto",
               f.source_url AS "sourceUrl", f.source_kind AS "sourceKind",
               f.source_cursor::float8 AS "sourceCursor", f.source_synced_at AS "sourceSyncedAt",
               COALESCE((SELECT count(*) FROM monitoring_indicators i WHERE i.form_id = f.id), 0)::int AS "indicatorCount",
@@ -97,12 +101,15 @@ async function createForm(tenantId, { code, label }) {
  * `activityCategory` : rattachement de la fiche à une activité du MMR (libellé
  * canonique, déjà contrôlé par l'appelant) — il relie la fiche aux sites, à la
  * couverture et au plan de suivi. `undefined` = inchangé, `null` = détacher.
+ * Un choix de l'utilisateur (même identique : « Confirmer ») efface la marque
+ * « proposée automatiquement » (activity_auto_at, migration 098).
  */
 async function updateForm(tenantId, id, { label, active, activityCategory }) {
   return (activityCategory !== undefined ? withSubmissionLinks : withTenantTransaction)(tenantId, async (client) => {
     const { rowCount } = await client.query(
       `UPDATE monitoring_forms SET label = COALESCE($3, label), active = COALESCE($4, active),
-              activity_category = CASE WHEN $5::boolean THEN $6 ELSE activity_category END, updated_at = now()
+              activity_category = CASE WHEN $5::boolean THEN $6 ELSE activity_category END,
+              activity_auto_at = CASE WHEN $5::boolean THEN NULL ELSE activity_auto_at END, updated_at = now()
         WHERE tenant_id = $1 AND id = $2`,
       [tenantId, id, label ?? null, active ?? null, activityCategory !== undefined, activityCategory ?? null]
     );
@@ -427,17 +434,63 @@ async function indicatorPreview(tenantId, formId, def, period = null, { precise 
   });
 }
 
-/** Modèle de l'activité de la fiche, avec la variable proposée pour chaque indicateur. */
-async function formTemplate(tenantId, formId) {
+/** Catégories d'activité du MMR du compte (libellés exacts). */
+async function tenantCategoriesTx(client, tenantId) {
+  const { rows } = await client.query(
+    `SELECT DISTINCT btrim(activity_category) AS c FROM mmr_parameters
+      WHERE tenant_id = $1 AND activity_category IS NOT NULL AND btrim(activity_category) <> '' ORDER BY 1`, [tenantId]);
+  return rows.map((r) => r.c);
+}
+
+/** Erreur lisible pour un modèle demandé refusé (indicatorProposals.effectiveTemplate). */
+function templateError(code, { requested, activity, template } = {}) {
+  if (code === 'unknown_template') return badRequest(`Modèle d'indicateurs inconnu : « ${requested} ».`, { code });
+  return badRequest(`Cette fiche est rattachée à « ${activity} » : son modèle est « ${template} ». Changez l'activité pour utiliser un autre modèle.`,
+    { code, activity, template });
+}
+
+/**
+ * Modèle d'indicateurs d'une fiche (retours n° 12, 66 et 85) : le modèle proposé
+ * d'après ses variables (couverture, départage par formHints), celui de son
+ * activité, et — pour le modèle montré — la variable proposée pour chaque
+ * élément, contrôlée (type, liste, sous-table) et précochée si elle est sûre.
+ * Jamais vide quand un modèle correspond : une activité sans modèle (ou aucune
+ * activité) montre le modèle proposé, avec la raison (`source`).
+ * @param {{ template?: string }} [opts]  clé d'un modèle choisi par l'utilisateur
+ * @returns {Promise<null|{ form, activityTemplate, proposal, source, template, summary, fields }>}
+ */
+async function formTemplate(tenantId, formId, { template: requested = null } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows: [form] } = await client.query(
-      'SELECT id, code, label, activity_category AS "activityCategory" FROM monitoring_forms WHERE tenant_id = $1 AND id = $2',
+      `SELECT f.id, f.code, f.label, f.activity_category AS "activityCategory", (f.activity_auto_at IS NOT NULL) AS "activityAuto",
+              f.mapping_status AS "mappingStatus",
+              (SELECT count(*)::int FROM monitoring_submissions s WHERE s.tenant_id = f.tenant_id AND s.form_id = f.id) AS submissions,
+              (SELECT count(*)::int FROM monitoring_indicators i WHERE i.tenant_id = f.tenant_id AND i.form_id = f.id) AS indicators
+         FROM monitoring_forms f WHERE f.tenant_id = $1 AND f.id = $2`,
       [tenantId, formId]);
     if (!form) return null;
-    const tpl = templateForActivity(form.activityCategory);
-    if (!tpl) return { form, template: null, fields: [] };
     const fields = await bindingFieldsTx(client, tenantId, formId);
-    const suggestions = suggestBindings(tpl, fields);
+    const categories = await tenantCategoriesTx(client, tenantId);
+    const proposal = proposeTemplate({ fields, form });
+    const activityTpl = templateForActivity(form.activityCategory);
+    const eff = effectiveTemplate({ activityCategory: form.activityCategory, requested, proposal });
+    if (eff.error) throw templateError(eff.error, { requested, activity: form.activityCategory, template: activityTpl && activityTpl.label });
+    const best = proposal.best && { ...proposal.best, tenantCategory: tenantCategoryFor(templateByKey(proposal.best.key), categories) };
+    const out = {
+      form,
+      activityTemplate: activityTpl ? { key: activityTpl.key, label: activityTpl.label } : null,
+      proposal: {
+        best, ambiguous: proposal.ambiguous, auto: proposal.auto,
+        ranking: proposal.ranking.map(({ key, label, found, total, coverage }) => ({ key, label, found, total, coverage })),
+      },
+      source: eff.source,
+      template: null,
+      summary: null,
+      fields: [],
+    };
+    const tpl = eff.template;
+    if (!tpl) return out;
+    const bindings = bindTemplate(tpl, fields);
     const { rows: existing } = await client.query(
       `SELECT id, code, label, template_code AS "templateCode", source_field AS "sourceField", positive_value AS "positiveValue"
          FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2`, [tenantId, formId]);
@@ -445,72 +498,146 @@ async function formTemplate(tenantId, formId) {
     const done = new Map(existing.filter((e) => e.templateCode).map((e) => [e.templateCode, e]));
     // Code de l'élément déjà pris par un indicateur créé à la main : l'élément ne peut pas être créé.
     const byCode = new Map(existing.map((e) => [e.code, e]));
-    return {
-      form,
-      template: {
-        key: tpl.key, label: tpl.label, domains: tpl.domains,
-        items: tpl.items.map((it, i) => {
-          const ex = done.get(it.code) || null;
-          const other = !ex && byCode.get(it.code);
-          return {
-            ...it, module: moduleLabel(tpl, it.domain), suggestion: suggestions[i],
-            existing: ex && { id: ex.id, code: ex.code, sourceField: ex.sourceField, positiveValue: ex.positiveValue },
-            taken: other ? { id: other.id, code: other.code, label: other.label } : null,
-          };
-        }),
-      },
-      fields: fields.map((f) => ({ name: f.name, label: f.label, choices: f.choices })),
+    const taken = new Set(tpl.items.filter((it) => !done.has(it.code) && byCode.has(it.code)).map((it) => it.code));
+    out.template = {
+      key: tpl.key, label: tpl.label, mmrCategory: tpl.mmrCategory, tenantCategory: tenantCategoryFor(tpl, categories),
+      domains: tpl.domains,
+      items: tpl.items.map((it, i) => {
+        const ex = done.get(it.code) || null;
+        const other = taken.has(it.code) ? byCode.get(it.code) : null;
+        return {
+          ...it, module: moduleLabel(tpl, it.domain), suggestion: bindings[i],
+          existing: ex && { id: ex.id, code: ex.code, sourceField: ex.sourceField, positiveValue: ex.positiveValue },
+          taken: other ? { id: other.id, code: other.code, label: other.label } : null,
+        };
+      }),
     };
+    out.summary = bindingSummary(bindings, { done: new Set(done.keys()), taken });
+    out.fields = fields.map((f) => ({ name: f.name, label: f.label, choices: f.choices }));
+    return out;
   });
 }
 
 /**
- * Crée les indicateurs du modèle choisis par l'utilisateur, en une transaction
- * et une écriture groupée. Chaque élément doit appartenir au modèle de
- * l'activité de la fiche et viser une variable qui existe dans la fiche
- * (XLSForm ou données) ; sinon rien n'est écrit (400).
- * Réappliquer le modèle ne modifie JAMAIS un indicateur déjà créé (même
- * template_code) : les modifications de l'utilisateur sont conservées. Un code
- * déjà pris par un indicateur créé à la main n'est pas écrasé non plus.
- * @returns {Promise<null|{ applied, kept, conflicts, template }>}
+ * Crée des indicateurs d'un modèle, en une transaction et une écriture groupée.
+ *  - `items` : les éléments cochés dans la carte (code, variable, valeur comptée) ;
+ *  - `proposed: true` : les éléments PRÉCOCHÉS par la même règle que la carte
+ *    (indicatorProposals.proposedSelection) — « Créer les N indicateurs proposés » d'un clic ;
+ *  - `template` : clé d'un modèle (quand l'activité n'en a pas) ; sinon celui de
+ *    l'activité, sinon le modèle proposé d'après les variables ;
+ *  - `attach: true` : rattache aussi la fiche à l'activité du modèle si elle n'en a
+ *    AUCUNE (jamais de remplacement ; geste explicite de l'utilisateur, permis quel
+ *    que soit l'état du Mapping MEMS, comme « Modifier la fiche »).
+ * Chaque élément doit appartenir au modèle et viser une variable de la fiche
+ * (XLSForm ou données) ; sinon rien n'est écrit (400). Réappliquer le modèle ne
+ * modifie JAMAIS un indicateur déjà créé (même template_code) ; un code déjà pris
+ * par un indicateur créé à la main n'est pas écrasé (ON CONFLICT DO NOTHING).
+ * @returns {Promise<null|{ applied, kept, conflicts, template, attached, attachReason }>}
  *   applied = créés ; kept = déjà créés, laissés tels quels ; conflicts = code déjà pris
  */
-async function applyTemplate(tenantId, formId, bindings) {
-  return withTenantTransaction(tenantId, async (client) => {
+async function applyTemplate(tenantId, formId, { items = null, proposed = false, template: requested = null, attach = false } = {}) {
+  // Rattacher l'activité relit les liens des soumissions (sites candidats) : verrou des liens d'abord.
+  return (attach ? withSubmissionLinks : withTenantTransaction)(tenantId, async (client) => {
     const { rows: [form] } = await client.query(
-      'SELECT id, activity_category AS "activityCategory" FROM monitoring_forms WHERE tenant_id = $1 AND id = $2 FOR UPDATE',
+      `SELECT id, code, label, activity_category AS "activityCategory",
+              (SELECT count(*)::int FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2) AS submissions
+         FROM monitoring_forms WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
       [tenantId, formId]);
     if (!form) return null;
-    const tpl = templateForActivity(form.activityCategory);
-    if (!tpl) throw badRequest('Cette fiche n\'est rattachée à aucune activité qui a un modèle d\'indicateurs.');
-    const items = new Map(tpl.items.map((it, i) => [it.code, { it, i }]));
-    const names = new Set((await bindingFieldsTx(client, tenantId, formId)).map((f) => f.name));
-    const codes = bindings.map((b) => b.code);
-    if (new Set(codes).size !== codes.length) throw badRequest('Un même indicateur est envoyé deux fois.');
-    const unknownCode = bindings.find((b) => !items.has(b.code));
-    if (unknownCode) throw badRequest(`Indicateur « ${unknownCode.code} » absent du modèle « ${tpl.label} ».`);
-    const unknownField = bindings.find((b) => !names.has(b.sourceField));
-    if (unknownField) throw badRequest(`Variable « ${unknownField.sourceField} » introuvable dans cette fiche.`);
-    // Déjà créés depuis le modèle (verrouillés le temps de l'écriture) : laissés tels quels.
+    const fields = await bindingFieldsTx(client, tenantId, formId);
+    const proposal = proposeTemplate({ fields, form });
+    const eff = effectiveTemplate({ activityCategory: form.activityCategory, requested, proposal });
+    if (eff.error) {
+      const own = templateForActivity(form.activityCategory);
+      throw templateError(eff.error, { requested, activity: form.activityCategory, template: own && own.label });
+    }
+    const tpl = eff.template;
+    if (!tpl) {
+      throw badRequest('Aucun modèle d\'indicateurs pour cette fiche : son activité n\'en a pas et ses variables ne correspondent à aucun modèle. Créez les indicateurs un par un (« Nouvel indicateur »).',
+        { code: 'no_template' });
+    }
+    const itemIndex = new Map(tpl.items.map((it, i) => [it.code, { it, i }]));
+    const fieldsByName = new Map(fields.map((f) => [f.name, f]));
+    // Indicateurs de la fiche, verrouillés le temps de l'écriture : déjà créés (template_code) et codes pris.
     const { rows: existing } = await client.query(
-      `SELECT template_code FROM monitoring_indicators
-        WHERE tenant_id = $1 AND form_id = $2 AND template_code = ANY($3::text[]) FOR UPDATE`, [tenantId, formId, codes]);
-    const kept = new Set(existing.map((r) => r.template_code));
-    const rows = bindings.filter((b) => !kept.has(b.code)).map((b) => {
-      const { it, i } = items.get(b.code);
-      return indicatorFromItem(tpl, it, { sourceField: b.sourceField, positiveValue: b.positiveValue }, i);
+      `SELECT code, template_code AS "templateCode" FROM monitoring_indicators
+        WHERE tenant_id = $1 AND form_id = $2 FOR UPDATE`, [tenantId, formId]);
+    const done = new Set(existing.map((r) => r.templateCode).filter(Boolean));
+    let selection = items;
+    if (proposed) {
+      const takenCodes = new Set(existing.map((r) => r.code).filter((c) => !done.has(c)));
+      selection = proposedSelection(bindTemplate(tpl, fields), { done, taken: takenCodes });
+    } else {
+      const codes = selection.map((b) => b.code);
+      if (new Set(codes).size !== codes.length) throw badRequest('Un même indicateur est envoyé deux fois.');
+      const unknownCode = selection.find((b) => !itemIndex.has(b.code));
+      if (unknownCode) throw badRequest(`Indicateur « ${unknownCode.code} » absent du modèle « ${tpl.label} ».`);
+      const unknownField = selection.find((b) => !fieldsByName.has(b.sourceField));
+      if (unknownField) throw badRequest(`Variable « ${unknownField.sourceField} » introuvable dans cette fiche.`);
+    }
+    const kept = selection.filter((b) => done.has(b.code)).length;
+    const rows = selection.filter((b) => !done.has(b.code)).map((b) => {
+      const { it, i } = itemIndex.get(b.code);
+      // Codes hors base retenus pour la liste de la variable choisie (« Autre » n'en est jamais un).
+      const checked = bindItem(it, { positiveValue: b.positiveValue, confidence: null }, fieldsByName.get(b.sourceField) || null);
+      return indicatorFromItem(tpl, it, { sourceField: b.sourceField, positiveValue: b.positiveValue, naValues: checked.naValues }, i);
     });
     const applied = rows.length ? await insertRows(client, {
       table: 'monitoring_indicators',
-      columns: ['tenant_id', 'form_id', 'code', 'label', 'module', 'source_field', 'agg', 'positive_value', 'direction', 'na_values', 'scored', 'template_code', 'sort_order'],
+      columns: ['tenant_id', 'form_id', 'code', 'label', 'module', 'source_field', 'agg', 'positive_value', 'direction', 'na_values', 'target', 'scored', 'template_code', 'sort_order'],
       rows,
-      values: (r) => [tenantId, formId, r.code, r.label, r.module, r.sourceField, r.agg, r.positiveValue, r.direction, r.naValues, r.scored, r.templateCode, r.sortOrder],
+      values: (r) => [tenantId, formId, r.code, r.label, r.module, r.sourceField, r.agg, r.positiveValue, r.direction, r.naValues, r.target, r.scored, r.templateCode, r.sortOrder],
       // Code déjà pris par un indicateur manuel : rien n'est écrasé (compté dans `conflicts`).
       suffix: 'ON CONFLICT (form_id, code) DO NOTHING',
     }) : 0;
-    if (applied) await client.query('UPDATE monitoring_forms SET updated_at = now() WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
-    return { applied, kept: kept.size, conflicts: rows.length - applied, template: tpl.key };
+    let attached = null;
+    let attachReason = null;
+    if (attach) {
+      if (form.activityCategory) attachReason = 'already_attached';
+      else {
+        attached = tenantCategoryFor(tpl, await tenantCategoriesTx(client, tenantId));
+        if (!attached) attachReason = 'not_in_mmr';
+        else {
+          await client.query(
+            `UPDATE monitoring_forms SET activity_category = $3, activity_auto_at = NULL, updated_at = now()
+              WHERE tenant_id = $1 AND id = $2`, [tenantId, formId, attached]);
+          // L'activité délimite les sites candidats : les formulaires reçus sont reliés à nouveau.
+          if (form.submissions > 0) await applySubmissionSitesTx(client, tenantId);
+          attachReason = 'attached';
+        }
+      }
+    }
+    if (applied && !attached) await client.query('UPDATE monitoring_forms SET updated_at = now() WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
+    return { applied, kept, conflicts: rows.length - applied, template: tpl.key, attached, attachReason };
   });
+}
+
+/**
+ * Rattachement automatique à l'import de la définition (retour 85) : la fiche
+ * SANS activité est rattachée à l'activité du modèle qui couvre ses variables
+ * (indicatorProposals.decideAutoAttach), marquée « proposée automatiquement ».
+ * @returns {Promise<{ attach, reason, template, label, coverage, category? }>}
+ */
+async function autoAttachTx(client, tenantId, formId, form, fields) {
+  const { rows: [f] } = await client.query(
+    `SELECT activity_category AS "activityCategory", mapping_status AS "mappingStatus",
+            (SELECT count(*)::int FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.form_id = $2) AS submissions
+       FROM monitoring_forms WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [tenantId, formId]);
+  const proposal = proposeTemplate({ fields, form });
+  const decision = decideAutoAttach({ form: f, proposal, tenantCategories: await tenantCategoriesTx(client, tenantId) });
+  if (decision.attach) {
+    await client.query(
+      `UPDATE monitoring_forms SET activity_category = $3, activity_auto_at = now(), updated_at = now()
+        WHERE tenant_id = $1 AND id = $2`, [tenantId, formId, decision.attach]);
+    if (f.submissions > 0) await applySubmissionSitesTx(client, tenantId);
+  }
+  const best = proposal.best;
+  return {
+    ...decision,
+    template: best ? best.key : null,
+    label: best ? best.label : null,
+    coverage: best ? Math.round(best.coverage * 1000) / 1000 : null,
+  };
 }
 
 async function deleteIndicator(tenantId, id) {
@@ -1073,10 +1200,14 @@ async function reliftSubmissionsTx(client, tenantId, formId) {
 
 /**
  * Importe la définition d'un XLSForm : crée (ou retrouve par code) la fiche,
- * puis remplace son catalogue de champs et ses listes de choix.
+ * puis remplace son catalogue de champs et ses listes de choix. Une fiche sans
+ * activité est rattachée à celle du modèle d'indicateurs qui couvre ses variables
+ * (autoAttachTx, retour 85) — dans la même transaction, sous le verrou des liens
+ * des soumissions (l'activité délimite les sites candidats).
+ * @returns {Promise<{ formId, fields, choices, activity }>} activity : décision du rattachement automatique
  */
 async function importDefinition(tenantId, { code, label }, fields, choicesMap) {
-  return withTenantTransaction(tenantId, async (client) => {
+  return withSubmissionLinks(tenantId, async (client) => {
     const { rows: ex } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND code = $2', [tenantId, code]);
     let formId = ex[0]?.id;
     if (formId) {
@@ -1114,7 +1245,8 @@ async function importDefinition(tenantId, { code, label }, fields, choicesMap) {
          FROM (SELECT DISTINCT list_name FROM monitoring_choices WHERE tenant_id = $1 AND form_id = $2 AND list_name LIKE 'sav:%') c
         WHERE f.tenant_id = $1 AND f.form_id = $2 AND f.list_name IS NULL AND lower('sav:' || f.name) = lower(c.list_name)`,
       [tenantId, formId]);
-    return { formId, fields: fields.length, choices: choiceCount };
+    const activity = await autoAttachTx(client, tenantId, formId, { code, label }, fieldsFromXlsform(fields, choicesMap));
+    return { formId, fields: fields.length, choices: choiceCount, activity };
   });
 }
 

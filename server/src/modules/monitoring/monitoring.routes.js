@@ -12,6 +12,7 @@ const { readXls, XlsError } = require('./xlsReader');
 const { sniffFile } = require('../common/fileSniff');
 const { zipLimitsFromEnv } = require('../common/zipGuard');
 const { validateExpression, functionCatalog } = require('./calcFields');
+const { mmrKey } = require('./indicatorTemplates');
 const dataLinks = require('./dataLinks.service');
 const periodsService = require('./periods.service');
 const settingsRepo = require('../settings/settings.repository');
@@ -74,7 +75,8 @@ router.patch('/forms/:id', WRITE, body(z.object({
   // à la couverture et au plan de suivi.
   if (patch.activityCategory) {
     const cats = [...new Set((await settingsRepo.listMmr(t(req))).map((m) => String(m.activityCategory || '').trim()).filter(Boolean))];
-    const hit = cats.find((c) => c.toLowerCase().replace(/\s+/g, ' ') === patch.activityCategory.toLowerCase().replace(/\s+/g, ' '));
+    // Même clé que le choix du modèle d'indicateurs (indicatorTemplates.mmrKey : casse, accents, espaces).
+    const hit = cats.find((c) => mmrKey(c) === mmrKey(patch.activityCategory));
     if (!hit) throw badRequest(`Activité inconnue du MMR : « ${patch.activityCategory} ».`);
     patch.activityCategory = hit;
   }
@@ -163,21 +165,37 @@ router.get('/forms/:id/months', asyncHandler(async (req, res) => {
   if (!out) throw notFound('Fiche introuvable');
   res.json(out);
 }));
-// Modèle d'indicateurs de l'activité de la fiche : variable proposée pour chaque indicateur,
-// puis création groupée des indicateurs choisis (retour n° 12).
+// Modèle d'indicateurs de la fiche (retours n° 12, 66, 85) : modèle proposé d'après ses variables,
+// celui de son activité, variable proposée et contrôlée pour chaque élément ; puis création groupée
+// des éléments cochés, ou des éléments PROPOSÉS d'un clic (même règle que la case cochée d'office).
+const templateKey = z.string().trim().regex(/^[A-Z][A-Z0-9_]{0,19}$/, 'Clé de modèle invalide');
 router.get('/forms/:id/template', asyncHandler(async (req, res) => {
-  const r = await repo.formTemplate(t(req), uuidParam(req.params.id));
+  const q = z.object({ template: templateKey.optional() }).safeParse(req.query);
+  if (!q.success) throw badRequest('Paramètre invalide', q.error.flatten());
+  const r = await repo.formTemplate(t(req), uuidParam(req.params.id), { template: q.data.template || null });
   if (!r) throw notFound('Formulaire introuvable');
   res.json(r);
 }));
-router.post('/forms/:id/template/apply', WRITE, body(z.object({
+const applySchema = z.object({
+  // Éléments cochés dans la carte (code, variable, valeur comptée)…
   items: z.array(z.object({
     code: z.string().trim().min(1).max(60),
     sourceField: z.string().trim().min(1).max(200),
     positiveValue: z.string().trim().max(80).nullable().optional(),
-  })).min(1).max(400),
-})), asyncHandler(async (req, res) => {
-  const r = await repo.applyTemplate(t(req), uuidParam(req.params.id), req.valid.items);
+  })).min(1).max(400).optional(),
+  // … ou les éléments proposés (précochés), d'un clic.
+  proposed: z.literal(true).optional(),
+  // Modèle choisi quand l'activité n'en a pas ; sinon celui de l'activité, sinon le proposé.
+  template: templateKey.optional(),
+  // Rattacher aussi la fiche à l'activité du modèle si elle n'en a aucune.
+  attach: z.boolean().optional(),
+}).strict().refine((v) => Boolean(v.items) !== Boolean(v.proposed), {
+  message: 'Envoyez soit les indicateurs choisis (items), soit proposed: true.', path: ['items'], params: { code: 'items_or_proposed' },
+});
+router.post('/forms/:id/template/apply', WRITE, body(applySchema), asyncHandler(async (req, res) => {
+  const { items, proposed, template, attach } = req.valid;
+  const r = await repo.applyTemplate(t(req), uuidParam(req.params.id),
+    { items: items || null, proposed: proposed === true, template: template || null, attach: attach === true });
   if (!r) throw notFound('Formulaire introuvable');
   res.json(r);
 }));
@@ -443,8 +461,11 @@ router.post('/import-definition', WRITE, express.raw({ type: '*/*', limit: '60mb
   if (parsed.fields.length === 0) throw badRequest('Aucun champ de données trouvé dans la feuille survey.');
   // Sans form_id (fréquent dans les .xls), code stable tiré du titre : un réimport met la fiche à jour au lieu d'en créer une autre.
   const slug = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  const code = (parsed.formId || slug(parsed.title) || `form_${Date.now()}`).slice(0, 60);
-  const label = parsed.title || code;
+  // Titre lu tel quel dans « settings » : retours à la ligne et tabulations en tête (« \t\nMDG SMP 2025 - 2026 ») retirés.
+  const title = String(parsed.title || '').replace(/\s+/g, ' ').trim();
+  const code = (String(parsed.formId || '').trim() || slug(title) || `form_${Date.now()}`).slice(0, 60);
+  const label = (title || code).slice(0, 160);
+  // Rattachement automatique de l'activité (fiche sans activité, modèle reconnu) : `activity` dans la réponse.
   const result = await repo.importDefinition(t(req), { code, label }, parsed.fields, parsed.choices);
   res.json({ ...result, code, label });
 }));
