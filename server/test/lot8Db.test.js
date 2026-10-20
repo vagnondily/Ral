@@ -166,9 +166,14 @@ test('formations : fiche, agents, frise, Évaluation des agents et rapport compt
     await trainings.updateParticipants(T, made[2].id, [{ agentId: agent.id, attendance: 'absent' }]);
     const after = await count();
     for (const k of Object.keys(before)) assert.equal(after[k] - before[k], 1, `${k} : +1 (seule la session suivie compte)`);
-    // Frise : une formation à venir est « prévue », jamais « suivie ».
+    // Une formation à venir (planifiée, présence non saisie) n'est « suivie » NULLE PART ; la frise la
+    // montre « prévue ».
+    const summaryBefore = await trainings.summary(T, {});
     const future = await mk('Test lot 8 — à venir', '2099-01-05', 'planifiee');
     made.push(future);
+    const withFuture = await count();
+    for (const k of Object.keys(after)) assert.equal(withFuture[k], after[k] + (k === 'timeline' ? 1 : 0), `${k} : une formation à venir ne compte pas`);
+    assert.equal((await trainings.summary(T, {})).providers, summaryBefore.providers, '« TPM formés » inchangé');
     const tl = await partnersRepo.timeline(T, tpm.id);
     const item = tl.items.find((i) => i.ref === future.id);
     assert.ok(item && /prévue/.test(item.message.text), 'formation à venir : « prévue »');
@@ -179,5 +184,50 @@ test('formations : fiche, agents, frise, Évaluation des agents et rapport compt
     assert.equal(s.limit, 500);
   } finally {
     await q('DELETE FROM training_sessions WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [T, made.map((m) => m.id)]);
+  }
+});
+
+test('type d\'un TPM changé par PATCH : le TPM des visites prévues de ses zones est recalculé (aller et retour)', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const [ypa] = await q("SELECT p.id, p.partner_type_id AS type FROM partners p WHERE p.tenant_id = $1 AND p.name = 'YPA'", [T]);
+  const [cabinet] = await q("SELECT id FROM partner_types WHERE tenant_id = $1 AND code = 'cabinet'", [T]);
+  const [site] = await q(`SELECT v.site_id AS id FROM site_visits v WHERE v.tenant_id = $1 AND v.provider_id = $2 AND v.provider_source = 'zone'
+                           AND v.provider_zone_state = 'contrat' ORDER BY v.site_id LIMIT 1`, [T, ypa.id]);
+  assert.ok(site, 'un site de la zone d\'un contrat suivi par YPA');
+  // Mois prévu à venir, dans la période du contrat (déc. 2026) ; estampillé au COMMIT par la base.
+  const [{ id: visit }] = await q(`INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status)
+                                   VALUES ($1, $2, '2026-12-01', 'Test lot 8 réestampille', 'planifie') RETURNING id`, [T, site.id]);
+  const tpmOf = async () => (await q('SELECT p.name FROM site_visits v LEFT JOIN partners p ON p.id = v.provider_id WHERE v.id = $1', [visit]))[0].name;
+  const settings = require('../src/modules/settings/settings.repository');
+  try {
+    assert.equal(await tpmOf(), 'YPA');
+    await settings.updatePartner(T, ypa.id, { partnerTypeId: cabinet.id });
+    assert.notEqual(await tpmOf(), 'YPA', 'YPA n\'est plus un TPM : la visite prévue ne lui est plus attribuée');
+    await settings.updatePartner(T, ypa.id, { partnerTypeId: ypa.type });
+    assert.equal(await tpmOf(), 'YPA', 'type rétabli : la visite revient à YPA');
+  } finally {
+    await q('UPDATE partners SET partner_type_id = $3 WHERE tenant_id = $1 AND id = $2', [T, ypa.id, ypa.type]);
+    await q('DELETE FROM site_visits WHERE tenant_id = $1 AND id = $2', [T, visit]);
+  }
+});
+
+test('agent : « hasHistory » = la règle de la suppression (une participation « absent » suffit) ; le bouton suit', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const [tpm] = await q("SELECT id FROM partners WHERE tenant_id = $1 AND name = 'SAHY Monitoring'", [T]);
+  const [agent] = await q("INSERT INTO tpm_agents (tenant_id, tpm_provider_id, name) VALUES ($1, $2, 'Test lot 8 — agent absent') RETURNING id", [T, tpm.id]);
+  const trainings = require('../src/modules/trainings/trainings.service');
+  const repo = require('../src/modules/partners/partners.repository');
+  let session = null;
+  try {
+    const row = async () => (await repo.listAgents(T, tpm.id)).find((a) => a.id === agent.id);
+    assert.equal((await row()).hasHistory, false, 'agent neuf : supprimable');
+    session = await trainings.create(T, { title: 'Test lot 8 — absent', startDate: '2026-02-02', endDate: '2026-02-02', status: 'realisee', agentIds: [agent.id] }, null);
+    await trainings.updateParticipants(T, session.id, [{ agentId: agent.id, attendance: 'absent' }]);
+    const r = await row();
+    assert.deepEqual([r.trainings, r.hasHistory], [0, true], 'aucune formation suivie, mais un historique');
+    await assert.rejects(repo.deleteAgent(T, tpm.id, agent.id), (e) => e.statusCode === 409);
+  } finally {
+    if (session) await q('DELETE FROM training_sessions WHERE tenant_id = $1 AND id = $2', [T, session.id]);
+    await q('DELETE FROM tpm_agents WHERE tenant_id = $1 AND id = $2', [T, agent.id]);
   }
 });

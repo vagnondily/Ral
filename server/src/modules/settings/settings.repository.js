@@ -1,6 +1,7 @@
 const { withTenantTransaction } = require('../../config/db');
 const places = require('./placeMatch.repository');
 const { badRequest } = require('../../middleware/errors');
+const { roleForUpdateTx, restampIfRoleChangedTx } = require('../partners/partnerRole');
 
 /** Configuration registries: partner types, activities, partners (+ TPM
  * agents). All tenant-scoped through withTenantTransaction. */
@@ -97,9 +98,15 @@ async function createPartner(tenantId, { name, partnerTypeId, dailyRate, contrac
   });
 }
 
-/** Mise à jour PARTIELLE (écart B4) : un champ absent reste inchangé ; null efface le taux ou la référence. */
+/**
+ * Mise à jour PARTIELLE (écart B4) : un champ absent reste inchangé ; null efface le taux ou la référence.
+ * Type ou fiche active changés = rôle changé : le TPM des visites prévues est recalculé dans la même
+ * transaction (partners/partnerRole.restampIfRoleChangedTx).
+ */
 async function updatePartner(tenantId, id, { name, partnerTypeId, dailyRate, contractRef, active }) {
   return (name ? places.withSubmissionLinks : withTenantTransaction)(tenantId, async (client) => {
+    const before = await roleForUpdateTx(client, tenantId, id);
+    if (!before) return false;
     const { rowCount } = await client.query(
       `UPDATE partners SET name = COALESCE($3, name),
               daily_rate = CASE WHEN $4::boolean THEN $5::numeric ELSE daily_rate END,
@@ -110,6 +117,10 @@ async function updatePartner(tenantId, id, { name, partnerTypeId, dailyRate, con
       [tenantId, id, name || null, dailyRate !== undefined, dailyRate ?? null, contractRef !== undefined, contractRef || null, active ?? null, partnerTypeId || null]
     );
     if (rowCount === 1 && name) await places.relinkPartiesTx(client, tenantId);
+    if (rowCount === 1) {
+      await restampIfRoleChangedTx(client, tenantId, before,
+        { partnerTypeId: partnerTypeId || before.partnerTypeId, active: active ?? before.active });
+    }
     return rowCount === 1;
   });
 }

@@ -6,7 +6,8 @@ const { shapeTimeline } = require('./partnerSheet');
 const places = require('../settings/placeMatch.repository');
 const { providerLinksTx, contractTpmViewsTx } = require('../tpm/activeProvider.repository');
 const { monthWithin } = require('../common/periodSql');
-const { followedSql } = require('../trainings/trainingSql');
+const { followedSql, timelineTrainingSql } = require('../trainings/trainingSql');
+const { roleForUpdateTx, restampIfRoleChangedTx } = require('./partnerRole');
 
 /**
  * Fiche partenaire 360° et équipe — seul fichier du module qui écrit du SQL.
@@ -135,7 +136,7 @@ async function providersList(tenantId) {
 
 // Sessions de formation suivies par les agents du prestataire (formations en sessions, retour 28.2) :
 // prestataire de l'agent AU MOMENT de la session (training_participants.provider_id) ; « suivie » =
-// définition commune trainingSql.followedSql (ni session annulée, ni participant absent).
+// définition commune trainingSql.followedSql (session tenue, ni annulée, ni participant absent).
 const TRAININGS_COUNT_SQL = `SELECT count(DISTINCT p.session_id) FROM training_participants p
    JOIN training_sessions ts ON ts.id = p.session_id AND ts.tenant_id = p.tenant_id
    WHERE p.tenant_id = $1 AND p.provider_id = $2 AND ${followedSql('ts', 'p')}`;
@@ -294,7 +295,7 @@ async function timeline(tenantId, id, { before = null, limit = 50 } = {}) {
            FROM training_participants p
            JOIN training_sessions s ON s.id = p.session_id AND s.tenant_id = p.tenant_id
            JOIN tpm_agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
-          WHERE p.tenant_id = $1 AND p.provider_id = $2 AND ${followedSql('s', 'p')}
+          WHERE p.tenant_id = $1 AND p.provider_id = $2 AND ${timelineTrainingSql('s', 'p')}
           GROUP BY s.id
          UNION ALL
          SELECT e.created_at, 'evaluation', 'evaluation', to_char(e.periode, 'MM/YYYY'), a.id::text, a.name
@@ -309,10 +310,23 @@ async function timeline(tenantId, id, { before = null, limit = 50 } = {}) {
 }
 
 // ---- Équipe (seul endroit où l'on crée ou désactive un agent) -----------------------
+/**
+ * L'agent porte-t-il un historique (formations — même annulées ou absent —, évaluations, missions,
+ * formulaires reçus, correspondances) ? UNE expression pour la suppression (refus) ET pour l'écran
+ * (`hasHistory` : bouton « Supprimer » montré seulement quand la suppression passera).
+ */
+const agentHistorySql = (a) => `(EXISTS (SELECT 1 FROM tpm_agent_formations f WHERE f.tenant_id = ${a}.tenant_id AND f.agent_id = ${a}.id)
+   OR EXISTS (SELECT 1 FROM training_participants tp WHERE tp.tenant_id = ${a}.tenant_id AND tp.agent_id = ${a}.id)
+   OR EXISTS (SELECT 1 FROM tpm_agent_evaluations e WHERE e.tenant_id = ${a}.tenant_id AND e.agent_id = ${a}.id)
+   OR EXISTS (SELECT 1 FROM tpm_assignments x WHERE x.tenant_id = ${a}.tenant_id AND x.tpm_agent_id = ${a}.id)
+   OR EXISTS (SELECT 1 FROM monitoring_submissions ms WHERE ms.tenant_id = ${a}.tenant_id AND ms.agent_id = ${a}.id)
+   OR EXISTS (SELECT 1 FROM monitoring_value_links vl WHERE vl.tenant_id = ${a}.tenant_id AND vl.agent_id = ${a}.id))`;
+
 const AGENT_COLS = `a.id, a.name, a.fonction, a.code, a.phone, a.email, a.sex, a.active, a.started_on AS "startedOn",
   a.ended_on AS "endedOn", a.created_at AS "createdAt",
   (SELECT count(*) FROM training_participants f JOIN training_sessions fs ON fs.id = f.session_id AND fs.tenant_id = f.tenant_id
     WHERE f.tenant_id = a.tenant_id AND f.agent_id = a.id AND ${followedSql('fs', 'f')})::int AS trainings,
+  ${agentHistorySql('a')} AS "hasHistory",
   (SELECT count(*) FROM monitoring_submissions s WHERE s.tenant_id = a.tenant_id AND s.agent_id = a.id AND NOT s.excluded)::int AS submissions`;
 
 /** Agents d'un prestataire ; téléphone, courriel et sexe seulement pour les rôles en écriture. */
@@ -380,13 +394,7 @@ async function updateAgent(tenantId, partnerId, agentId, patch) {
 async function deleteAgent(tenantId, partnerId, agentId) {
   return places.withSubmissionLinks(tenantId, async (client) => {
     const { rows } = await client.query(
-      `SELECT a.id,
-              EXISTS (SELECT 1 FROM tpm_agent_formations f WHERE f.tenant_id = $1 AND f.agent_id = a.id)
-           OR EXISTS (SELECT 1 FROM training_participants tp WHERE tp.tenant_id = $1 AND tp.agent_id = a.id)
-           OR EXISTS (SELECT 1 FROM tpm_agent_evaluations e WHERE e.tenant_id = $1 AND e.agent_id = a.id)
-           OR EXISTS (SELECT 1 FROM tpm_assignments x WHERE x.tenant_id = $1 AND x.tpm_agent_id = a.id)
-           OR EXISTS (SELECT 1 FROM monitoring_submissions ms WHERE ms.tenant_id = $1 AND ms.agent_id = a.id)
-           OR EXISTS (SELECT 1 FROM monitoring_value_links vl WHERE vl.tenant_id = $1 AND vl.agent_id = a.id) AS history
+      `SELECT a.id, ${agentHistorySql('a')} AS history
          FROM tpm_agents a WHERE a.tenant_id = $1 AND a.tpm_provider_id = $2 AND a.id = $3 FOR UPDATE`,
       [tenantId, partnerId, agentId]);
     if (!rows.length) return false;
@@ -413,9 +421,13 @@ async function updatePartner(tenantId, id, patch) {
   const identity = sets.length > 0 && (patch.name != null || patch.shortName !== undefined);
   return (identity ? places.withSubmissionLinks : withTenantTransaction)(tenantId, async (client) => {
     if (!sets.length) return Boolean(await getPartnerTx(client, tenantId, id));
+    const before = await roleForUpdateTx(client, tenantId, id);
+    if (!before) return false;
     const { rowCount } = await client.query(
       `UPDATE partners SET ${sets.join(', ')}, updated_at = now() WHERE tenant_id = $1 AND id = $2`, [tenantId, id, ...values]);
     if (rowCount > 0 && identity) await places.relinkPartiesTx(client, tenantId); // nom ou sigle : formulaires reliés à nouveau
+    // Fiche activée / désactivée = rôle de TPM changé : TPM des visites prévues recalculé (même transaction).
+    if (rowCount > 0) await restampIfRoleChangedTx(client, tenantId, before, { partnerTypeId: before.partnerTypeId, active: patch.active ?? before.active });
     return rowCount > 0;
   });
 }
