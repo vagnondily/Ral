@@ -114,6 +114,11 @@ test('rôle d\'un partenaire changé (type ou fiche active) : réestampille des 
   assert.equal(roleChanged({ partnerTypeId: 't1', active: true }, { partnerTypeId: 't2', active: true }), true);
   assert.equal(roleChanged({ partnerTypeId: 't1', active: true }, { partnerTypeId: 't1', active: false }), true);
   assert.equal(roleChanged(null, { partnerTypeId: 't1', active: true }), false);
+  // Même UUID en majuscules (zod `.uuid()` l'accepte) : pas un changement de rôle — ni verrou d'attribution ni réestampille.
+  const id = '0f6cbd00-aaaa-4bbb-8ccc-1234567890ab';
+  assert.equal(roleChanged({ partnerTypeId: id, active: true }, { partnerTypeId: id.toUpperCase(), active: true }), false);
+  const { changesRole } = require('../src/modules/partners/partnerRole');
+  assert.equal(changesRole({ name: 'YPA', partnerTypeId: id, active: true }, { name: 'YPA', partnerTypeId: id.toUpperCase(), active: true }), false);
 });
 
 test('changement de rôle : verrou d\'attribution seulement si le rôle change VRAIMENT, et toujours AVANT la ligne', async () => {

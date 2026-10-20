@@ -81,11 +81,27 @@ async function listContracts(client, tenantId, { status, q } = {}) {
   });
 }
 
-async function getContract(client, tenantId, id, { forUpdate = false } = {}) {
+/**
+ * Verrou de la fiche contrat pour une écriture : FOR NO KEY UPDATE. Il sérialise les écrivains du
+ * contrat sans bloquer le FOR KEY SHARE des clés étrangères vers lui (site_visits.contract_id posé par
+ * une réestampille, rapports, plans). Avec FOR UPDATE, l'approbation d'un avenant (contrat verrouillé
+ * PUIS restampFromNow → verrou d'attribution) interbloquait avec un changement de rôle du titulaire
+ * (verrou d'attribution PUIS site_visits.contract_id = ce contrat) : 40P01.
+ * Les UPDATE de contracts faits sous ce verrou ne listent jamais une colonne de clé
+ * (CONTRACT_KEY_COLUMNS ; contrôlé contre la base par test/lot8Db.test.js) : avec le déclencheur
+ * BEFORE UPDATE trg_same_tenant, une colonne de clé dans la liste SET, même inchangée, reprendrait la
+ * ligne FOR UPDATE.
+ * Seule la SUPPRESSION garde FOR UPDATE (`forDelete`) : elle vérifie qu'aucun document n'est relié
+ * puis supprime ; aucun document relié ne doit pouvoir s'insérer entre les deux.
+ */
+const CONTRACT_KEY_COLUMNS = ['id', 'tenant_id', 'numero'];
+const contractLock = ({ forUpdate, forDelete }) => (forDelete ? 'FOR UPDATE OF c' : forUpdate ? 'FOR NO KEY UPDATE OF c' : '');
+
+async function getContract(client, tenantId, id, { forUpdate = false, forDelete = false } = {}) {
   const { rows } = await client.query(
     `SELECT ${CONTRACT_COLUMNS} ${FROM_CONTRACT}
       WHERE c.tenant_id = $1 AND c.id = $2
-      ${forUpdate ? 'FOR UPDATE OF c' : ''}`,
+      ${contractLock({ forUpdate, forDelete })}`,
     [tenantId, id]
   );
   return rows[0] || null;
@@ -376,15 +392,18 @@ async function replaceBudget(client, tenantId, contractId, items) {
   }
 }
 
+/** Colonnes modifiables par updateContract — aucune colonne de clé (voir getContract). */
+const CONTRACT_UPDATE_COLUMNS = Object.freeze({
+  partnerId: 'partner_id', partnerName: 'partner_name', activities: 'activities', numeroFla: 'numero_fla',
+  numeroPo: 'numero_po', numeroVendor: 'numero_vendor', dateDebut: 'date_debut', dateFin: 'date_fin',
+  status: 'status', validatorId: 'validator_id', submittedBy: 'submitted_by', submittedAt: 'submitted_at',
+  decidedBy: 'decided_by', decidedAt: 'decided_at', terminationReason: 'termination_reason',
+  terminationDate: 'termination_date', amendmentCount: 'amendment_count',
+  managementFeePct: 'management_fee_pct', periodMonths: 'period_months',
+});
+
 async function updateContract(client, tenantId, id, version, fields) {
-  const cols = {
-    partnerId: 'partner_id', partnerName: 'partner_name', activities: 'activities', numeroFla: 'numero_fla',
-    numeroPo: 'numero_po', numeroVendor: 'numero_vendor', dateDebut: 'date_debut', dateFin: 'date_fin',
-    status: 'status', validatorId: 'validator_id', submittedBy: 'submitted_by', submittedAt: 'submitted_at',
-    decidedBy: 'decided_by', decidedAt: 'decided_at', terminationReason: 'termination_reason',
-    terminationDate: 'termination_date', amendmentCount: 'amendment_count',
-    managementFeePct: 'management_fee_pct', periodMonths: 'period_months',
-  };
+  const cols = CONTRACT_UPDATE_COLUMNS;
   const sets = [];
   const params = [tenantId, id, version];
   for (const [k, val] of Object.entries(fields)) {
@@ -482,7 +501,7 @@ module.exports = {
   listAmendmentsReport,
   listContracts,
   getContract,
-  deleteContract,
+  deleteContract, CONTRACT_KEY_COLUMNS, CONTRACT_UPDATE_COLUMNS,
   deleteAmendment,
   forecastData,
   getContractActivities,
