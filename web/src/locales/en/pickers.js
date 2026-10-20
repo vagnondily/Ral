@@ -11,6 +11,7 @@ export default {
   'Autres contrats actifs': 'Other active contracts',
   'TPM : {p}': 'TPM: {p}',
   'TPM de ce contrat': 'TPM of this contract',
+  'Actifs en {month} (contrat de suivi)': 'Active in {month} (monitoring contract)',
   'Autres prestataires TPM': 'Other TPM providers',
   'Aucun contrat de suivi rattaché': 'No linked monitoring contract',
   'District non renseigné': 'District not set',

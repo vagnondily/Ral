@@ -49,25 +49,31 @@ export function contractOptions(contracts, { month, tpmsOf = () => [], fmtPeriod
 }
 
 /**
+ * Groupes, dans l'ordre : « TPM de ce contrat » (un contrat choisi) → « Actifs ce mois-ci » (règle commune
+ * « prestataire actif au mois M », retour 30, `isActive`) → les autres. Un groupe sans libellé fourni
+ * n'est pas formé.
  * @param {{id,name}[]} partners  prestataires TPM actifs
- * @param {{ contracts?: object[], contractId?: string, tpmsOf?: Function,
- *           labels?: { ofContract?: string, others?: string, noContract?: string } }} o
+ * @param {{ contracts?: object[], contractId?: string, tpmsOf?: Function, isActive?: (id) => boolean,
+ *           labels?: { ofContract?: string, active?: string, others?: string, noContract?: string } }} o
  * @returns {{ options: object[], order: string[] }}
  */
-export function tpmOptions(partners, { contracts = [], contractId = '', tpmsOf = () => [], labels = {} } = {}) {
+export function tpmOptions(partners, { contracts = [], contractId = '', tpmsOf = () => [], isActive = null, labels = {} } = {}) {
   const own = new Set((contractId ? tpmsOf(contractId) || [] : []).map((p) => p.id));
-  const grouped = Boolean(contractId && own.size && labels.ofContract && labels.others);
+  const byContract = Boolean(contractId && own.size && labels.ofContract);
+  const byActivity = Boolean(isActive && labels.active && (partners || []).some((p) => isActive(p.id) && !own.has(p.id)));
+  const grouped = Boolean((byContract || byActivity) && labels.others);
+  const groupOf = (p) => {
+    if (!grouped) return undefined;
+    if (byContract && own.has(p.id)) return labels.ofContract;
+    if (byActivity && isActive(p.id)) return labels.active;
+    return labels.others;
+  };
   const options = (partners || []).map((p) => {
     const mine = (contracts || []).filter((c) => (tpmsOf(c.id) || []).some((x) => x.id === p.id)).map((c) => c.numero).filter(Boolean);
-    return {
-      value: p.id,
-      label: p.name,
-      sub: mine.length ? listed(mine) : labels.noContract,
-      group: grouped ? (own.has(p.id) ? labels.ofContract : labels.others) : undefined,
-      keywords: mine,
-    };
+    return { value: p.id, label: p.name, sub: mine.length ? listed(mine) : labels.noContract, group: groupOf(p), keywords: mine };
   });
-  return { options, order: grouped ? [labels.ofContract, labels.others] : [] };
+  const order = grouped ? [byContract && labels.ofContract, byActivity && labels.active, labels.others].filter(Boolean) : [];
+  return { options, order };
 }
 
 /**
