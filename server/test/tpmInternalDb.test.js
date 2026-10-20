@@ -124,10 +124,15 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
     await q('COMMIT');
     made.visits = ins.map((r) => r.id);
     const id = Object.fromEntries(ins.map((r) => [r.activity.slice(-1), r.id]));
-    // f : H a soumis sa facture du mois M2 (« déjà facturée »).
+    // f : H a soumis sa facture du mois M2 (« déjà facturée »). Une facture d'un partenaire qui n'est
+    // pas un TPM ne s'enregistre plus (garde du lot 8, trg_tpm_document_partner) : celle-ci est une
+    // facture ANTÉRIEURE, enregistrée quand H était encore de type TPM — la garde ne contrôle qu'à
+    // l'insertion, une facture existante reste. H redevient ensuite partenaire de mise en œuvre.
+    await q('UPDATE partners SET partner_type_id = $3 WHERE tenant_id = $1 AND id = $2', [T, H, types.tpm]);
     const rep = await q(
       `INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, kind, reported_amount, status, created_by, submitted_by, submitted_at, edited_by, edited_at)
        VALUES ($1, $2, $3, $4, 'financier', 0, 'soumis', $5, $5, now(), $5, now()) RETURNING id`, [T, H, K, `${M2}-01`, U]);
+    await q('UPDATE partners SET partner_type_id = $3 WHERE tenant_id = $1 AND id = $2', [T, H, types.prestataire]);
     made.reports = rep.map((r) => r.id);
     // Parité de la jumelle SQL (mems_tpm_cells) avec la règle pure : tous les sites × 4 mois ; `state` doit apparaître.
     const parity = async (state) => {
