@@ -109,9 +109,41 @@ test('« Couverture par activité » : constats enregistrés sur l\'ancien libel
   const raw = shapeCoverage(groupRows([{ activity: 'School meal activities', office: 'O', district: 'D', counts: siteCounts({ active: true }) }]));
   const rows = datasetDef('cov.by_activity').shape(raw, {}, { lang: 'fr', args: {} }).rows;
   assert.ok(rows.some((r) => Object.prototype.hasOwnProperty.call(a, r._key)), 'le constat retrouve sa ligne');
-  // Idempotent : un document déjà sur les nouvelles clés est rendu tel quel (même objet).
+  // UNE FOIS : le document mis à niveau est marqué (rowKeys: 2, gardé à l'enregistrement par le
+  // schéma) ; un document marqué est rendu tel quel (même objet), jamais re-clé.
+  assert.equal(doc.rowKeys, 2);
+  assert.equal(safeParseDocV2(doc).data.rowKeys, 2, 'le marqueur survit à la validation (enregistré)');
   const again = upgradeDoc(doc);
   assert.equal(again.doc, doc);
-  const untouched = { ...V2, blocks: [V2.blocks[1]] };
-  assert.equal(upgradeDoc(untouched).doc, untouched);
+  assert.equal(again.rekeyed, false);
+  // Une clé écrite sous le nouveau schéma n'est jamais déplacée, même si elle ressemble à un libellé brut.
+  const marked = { ...V2, rowKeys: 2, blocks: [data('a', { 'Nouvelle Clé': note('saisi après') })] };
+  assert.equal(upgradeDoc(marked).doc, marked);
+});
+
+test('document finalisé avant le nouveau schéma : constat ET lignes figées sur l\'ancien libellé — le constat reste affiché', () => {
+  const { rekeySnapshotBlocks } = require('../src/modules/reports/reportUpgrade');
+  const note = { nodes: [{ t: 'p', c: [{ x: 'Retard des cantines' }] }] };
+  const content = {
+    schemaVersion: 2, title: 'Final', period: { from: '2026-01', to: '2026-03' }, filters: {}, page: upgradeDoc(V1).doc.page,
+    blocks: [{ id: 'a', type: 'data', params: { dataset: 'cov.by_activity', view: 'table', filters: {}, args: {}, figure: {}, palette: 'sober', annotations: { 'School meal activities': note } } }],
+  };
+  const frozen = { a: { ok: true, data: { rows: [{ _key: 'School meal activities', activity: 'School meal activities' }, { _key: '—', activity: 'Non renseigné' }] } }, k: { ok: true, data: { rows: [{ _key: 'overall' }] } } };
+  const up = upgradeDoc(content);
+  assert.equal(up.rekeyed, true);
+  const blocks = rekeySnapshotBlocks(frozen, [{ iid: 'a', dataset: 'cov.by_activity' }, { iid: 'k', dataset: 'cov.kpis' }]);
+  // Les deux côtés sur la même clé : DataTable lit notes[r._key].
+  const notes = up.doc.blocks[0].params.annotations;
+  const shown = blocks.a.data.rows.map((r) => notes[r._key] || null);
+  assert.deepEqual(shown, [note, null]);
+  assert.equal(blocks.k, frozen.k, 'autres jeux : lignes figées intactes');
+  assert.equal(frozen.a.data.rows[0]._key, 'School meal activities', 'données figées enregistrées jamais modifiées');
+  // Lignes figées déjà sur les nouvelles clés (finalisé après la mise à niveau) : rendu tel quel.
+  assert.equal(rekeySnapshotBlocks(blocks, [{ iid: 'a', dataset: 'cov.by_activity' }]), blocks);
+});
+
+test('nouveau rapport créé dans le concepteur : marqué rowKeys: 2 (ses constats ne sont jamais re-clés)', (t) => {
+  const file = require('path').join(__dirname, '../../web/src/pages/reports/ReportDesignerPage.jsx');
+  if (!require('fs').existsSync(file)) { t.skip('web/ absent'); return; }
+  assert.match(require('fs').readFileSync(file, 'utf8'), /onCreate\(\{ schemaVersion: 2, [^}]*blocks, rowKeys: 2 \}/);
 });

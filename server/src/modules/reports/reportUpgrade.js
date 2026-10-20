@@ -11,11 +11,14 @@
  *  - filtre bureau par NOM → clé 'id:<uuid>' via la table des bureaux du client ; un nom
  *    introuvable retire le filtre et laisse un avertissement sur le bloc (jamais un
  *    filtre silencieusement faux).
- * Aussi sur un document v2 (rekeyBlocks) : les constats (annotations) d'un jeu dont la clé de
- * ligne a changé sont remis sur la nouvelle clé — « Couverture par activité » (retour 110) : du
- * libellé brut du registre (« School meal activities ») à la clé d'activité des tableaux de bord
+ * Aussi sur un document v2 (rekeyBlocks), UNE FOIS : les constats (annotations) d'un jeu dont la
+ * clé de ligne a changé sont remis sur la nouvelle clé — « Couverture par activité » (retour 110) :
+ * du libellé brut du registre (« School meal activities ») à la clé d'activité des tableaux de bord
  * (coverageDefinitions.activityKey) ; deux anciennes clés de même activité sont réunies, rien
- * n'est perdu.
+ * n'est perdu. Le document mis à niveau porte `rowKeys: 2` (enregistré avec lui) : une clé écrite
+ * sous le nouveau schéma n'est plus jamais déplacée. Un document FINALISÉ n'est jamais réenregistré :
+ * ses constats sont remis sur la nouvelle clé à chaque lecture, et ses lignes figées de la même
+ * façon (rekeySnapshotBlocks, appelé par documentData) — les deux côtés se retrouvent toujours.
  */
 const { activityKey } = require('../dashboards/coverageDefinitions');
 
@@ -176,19 +179,44 @@ function rekeyBlocks(blocks) {
   return changed ? out : blocks;
 }
 
+/** Schéma des clés de ligne des constats : 2 = clés d'activité des tableaux de bord (retour 110). */
+const ROW_KEYS = 2;
+
+/**
+ * Lignes FIGÉES d'un document finalisé (snapshot.blocks) remises sur les nouvelles clés, comme ses
+ * constats : pour chaque instance d'un jeu de ROW_KEY_UPGRADES, `_key` de chaque ligne → nouvelle clé
+ * (idempotent : une clé déjà nouvelle ne change pas). Même objet si rien ne change.
+ * @param {object} blocks { [iid]: { ok, data: { rows } } }  @param {{iid, dataset?}[]} instances plan du document
+ */
+function rekeySnapshotBlocks(blocks, instances) {
+  if (!blocks || typeof blocks !== 'object') return blocks;
+  let out = blocks;
+  for (const inst of instances || []) {
+    const keyOf = inst && ROW_KEY_UPGRADES[inst.dataset];
+    const b = keyOf && blocks[inst.iid];
+    const rows = b && b.ok && b.data && Array.isArray(b.data.rows) ? b.data.rows : null;
+    if (!rows || rows.every((r) => !r || r._key == null || keyOf(String(r._key)) === r._key)) continue;
+    if (out === blocks) out = { ...blocks };
+    out[inst.iid] = { ...b, data: { ...b.data, rows: rows.map((r) => (r && r._key != null ? { ...r, _key: keyOf(String(r._key)) } : r)) } };
+  }
+  return out;
+}
+
 /**
  * Document v1 (ou v2) → v2.
  * @param {object} input contenu enregistré ou reçu
  * @param {{ officeIdByName?: Map<string,string>, viewsOf?: (dataset) => ({views, defaultView}|null) }} [ctx]
  *   officeIdByName : bureaux du client (nom en minuscules → id) ; viewsOf : vues permises d'un jeu v2
- * @returns {{ doc: object, warnings: {blockId:string, message:string}[], upgraded: boolean }}
+ * @returns {{ doc: object, warnings: {blockId:string, message:string}[], upgraded: boolean, rekeyed: boolean }}
+ *   rekeyed : les constats viennent d'être remis sur les nouvelles clés (document sans `rowKeys: 2`) —
+ *   documentData remet alors les lignes figées sur les mêmes clés
  */
 function upgradeDoc(input, { officeIdByName, viewsOf } = {}) {
-  if (!input || typeof input !== 'object') return { doc: input, warnings: [], upgraded: false };
+  if (!input || typeof input !== 'object') return { doc: input, warnings: [], upgraded: false, rekeyed: false };
   if (input.schemaVersion === 2) {
-    // v2 : seules les clés de ligne des constats peuvent changer (même objet sinon).
-    const blocks = rekeyBlocks(input.blocks);
-    return { doc: blocks === input.blocks ? input : { ...input, blocks }, warnings: [], upgraded: false };
+    // v2 déjà sur les nouvelles clés : rendu tel quel (même objet), jamais re-clé.
+    if (input.rowKeys === ROW_KEYS) return { doc: input, warnings: [], upgraded: false, rekeyed: false };
+    return { doc: { ...input, blocks: rekeyBlocks(input.blocks), rowKeys: ROW_KEYS }, warnings: [], upgraded: false, rekeyed: true };
   }
   const warnings = [];
   const doc = {
@@ -198,8 +226,9 @@ function upgradeDoc(input, { officeIdByName, viewsOf } = {}) {
     filters: {},
     page: upgradePage(input.page),
     blocks: rekeyBlocks((input.blocks || []).map((b) => upgradeBlock(b, officeIdByName, warnings, viewsOf))),
+    rowKeys: ROW_KEYS,
   };
-  return { doc, warnings, upgraded: true };
+  return { doc, warnings, upgraded: true, rekeyed: true };
 }
 
 /** Vrai si le contenu est un document v1 (sans schemaVersion). */
@@ -228,4 +257,4 @@ function upgradeSnapshot(snapshot) {
   return { format: 2, frozen: true, periodLabel: snapshot.periodLabel || null, vars: renameValues(snapshot.variables), expansions, blocks };
 }
 
-module.exports = { upgradeDoc, upgradeSnapshot, isV1, renameKpi, rekeyBlocks, DATASET_RENAMES, KPI_RENAMES, ROW_KEY_UPGRADES };
+module.exports = { upgradeDoc, upgradeSnapshot, isV1, renameKpi, rekeyBlocks, rekeySnapshotBlocks, DATASET_RENAMES, KPI_RENAMES, ROW_KEY_UPGRADES, ROW_KEYS };

@@ -244,6 +244,9 @@ const reportDocV2 = z.object({
   annexes: z.object({ autoRows: z.number().int().min(5).max(500).nullable().optional() }).strict().optional(),
   blocks: z.array(block).max(MAX_BLOCKS),
   lang: z.enum(['fr', 'en']).optional(),
+  // Schéma des clés de ligne des constats (reportUpgrade.ROW_KEYS) : posé par la mise à niveau,
+  // gardé à l'enregistrement — un document marqué n'est plus jamais re-clé.
+  rowKeys: z.literal(2).optional(),
 }).superRefine((d, ctx) => {
   const seen = new Set();
   let count = 0;

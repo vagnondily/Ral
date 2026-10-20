@@ -155,7 +155,9 @@ function NewReportModal({ templates, preset, onClose, onCreate }) {
       footer={<><Button variant="secondary" onClick={onClose}>{tr('Annuler')}</Button><Button disabled={invalid} onClick={() => {
         const c = JSON.parse(JSON.stringify(tpl.content || {}));
         const { page, filters, blocks } = tpl.system ? localizeTemplate(c, tr) : { page: c.page || defaultPage(), filters: c.filters || {}, blocks: c.blocks || [] };
-        onCreate({ schemaVersion: 2, title: title.trim(), period: effective, filters, page: page || defaultPage(), blocks }, tpl.key);
+        // rowKeys: 2 — constats sur les clés de ligne actuelles (modèles d'équipe déjà mis à niveau par le
+        // serveur, modèles système sans constat) : jamais re-clés à l'enregistrement.
+        onCreate({ schemaVersion: 2, title: title.trim(), period: effective, filters, page: page || defaultPage(), blocks, rowKeys: 2 }, tpl.key);
       }}>{tr('Créer')}</Button></>}>
       <div className="section-gap">
         <Field label={tr('Modèle')}>
