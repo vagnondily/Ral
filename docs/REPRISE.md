@@ -1,6 +1,6 @@
 # Reprise du travail — passation entre sessions Claude
 
-_Mis à jour : 20/10/2026, 06:30 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
+_Mis à jour : 20/10/2026, 06:13 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
 Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOURNAL.md)._
 
 **À qui s'adresse ce fichier ?** À toute session Claude qui reprend le projet, en particulier pendant une limite d'usage de la session principale. Il dit :
@@ -9,7 +9,7 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 - ce qui reste, et dans quel ordre ;
 - comment travailler à deux sans se marcher dessus.
 
-> **20/10, 06:30 — reprise.** Les agents du 16/10 se sont arrêtés sur la limite d'usage ; leur travail non commité est
+> **20/10, 06:13 — reprise.** Les agents du 16/10 se sont arrêtés sur la limite d'usage ; leur travail non commité est
 > sur GitHub, branches `snap/<chantier>-1016` (à reprendre, **jamais à publier tel quel**). En cours aujourd'hui :
 > - `integ/20a` (local, session principale) = `main` + lot design `wip/ui-pickers` (avec les corrections de sa relecture,
 >   `e020d6f`) + suites du retour 110 (`db6da8e`) + en-têtes en paire et couverture du concepteur (`wip/7a-p2` `310a017`) +
