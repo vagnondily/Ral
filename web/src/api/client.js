@@ -329,6 +329,7 @@ export const api = {
   planBoardExport: (year) => downloadFile(`/api/tpm/field/plan-board/locations.xlsx?year=${year}`, `Plan_de_suivi_sites_${year}.xlsx`),
   planBoardBulk: (input) => request('/api/tpm/field/plan-board/bulk', { method: 'POST', body: input }),
   // Planification automatique sur une période selon des critères configurables (retour 82).
+  planAutoClock: () => request('/api/tpm/plan-auto/clock'),
   planAutoPreview: (input) => request('/api/tpm/plan-auto/preview', { method: 'POST', body: input }),
   planAutoApply: (input) => request('/api/tpm/plan-auto/apply', { method: 'POST', body: input }),
   planAutoClear: (input) => request('/api/tpm/plan-auto/clear', { method: 'POST', body: input }),

@@ -76,3 +76,27 @@ test('jours de collecte : la même règle écrite partout (une journée par agen
   assert.ok(multi.some(([f]) => f.endsWith('PlanAutoDrawer.jsx')) && multi.some(([f]) => f.endsWith('CalcDocsPage.jsx')));
   for (const [, s] of multi) assert.match(en[s], /several days/);
 });
+
+test('mois courant de l\'écran = celui du serveur (jour local), jamais le jour UTC', async (t) => {
+  const m = await load(t); if (!m) return;
+  // 31 octobre 22 h 30 UTC = 1ᵉʳ novembre 1 h 30 à Madagascar.
+  const late = new Date('2026-10-31T22:30:00Z');
+  assert.equal(m.zonedDay(late), '2026-11-01');
+  assert.equal(m.zonedDay(late, 'UTC'), '2026-10-31');
+  assert.equal(m.zonedDay(late, 'Pas/UnFuseau'), '2026-10-31');
+  // Horloge du serveur lue : elle seule compte.
+  assert.deepEqual(m.planClock({ now: '2026-11', today: '2026-11-01', timeZone: 'Indian/Antananarivo' }, late), { now: '2026-11', today: '2026-11-01', source: 'server' });
+  assert.deepEqual(m.planClock({ now: '2026-12' }, late), { now: '2026-12', today: '2026-12-01', source: 'server' });
+  // Pas encore lue (ou illisible) : jour du fuseau de l'application, pas l'UTC.
+  assert.deepEqual(m.planClock(null, late), { now: '2026-11', today: '2026-11-01', source: 'local' });
+  assert.deepEqual(m.planClock({ now: '2026-13' }, late), { now: '2026-11', today: '2026-11-01', source: 'local' });
+  // Période proposée : exercice courant depuis le mois courant ; exercice à venir : toute l'année.
+  assert.deepEqual(m.defaultPeriod(2026, '2026-11'), { from: '2026-11', to: '2026-12' });
+  assert.deepEqual(m.defaultPeriod('2027', '2026-11'), { from: '2027-01', to: '2027-12' });
+  // Le tiroir lit l'horloge du serveur et ne calcule plus son mois en UTC.
+  const src = fs.readFileSync(path.join(__dirname, '../../web/src/pages/monitoring/PlanAutoDrawer.jsx'), 'utf8');
+  assert.match(src, /api\.planAutoClock\(\)/);
+  assert.match(src, /planClock\(serverClock\)\.now/);
+  assert.doesNotMatch(src, /toISOString\(\)\.slice\(0, 7\)|setUTCMonth/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../../web/src/api/client.js'), 'utf8'), /planAutoClock: \(\) => request\('\/api\/tpm\/plan-auto\/clock'\)/);
+});

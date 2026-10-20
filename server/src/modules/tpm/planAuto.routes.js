@@ -4,7 +4,9 @@
  *   POST /preview : calcule le plan (aucune écriture) → totaux, répartitions, échantillon et
  *                   empreinte des entrées ;
  *   POST /apply   : écrit le plan prévisualisé (même empreinte, sinon 409 plan_inputs_changed) ;
- *   POST /clear   : efface les visites prévues libres de la période.
+ *   POST /clear   : efface les visites prévues libres de la période ;
+ *   GET  /clock   : mois et jour courants du serveur (jour LOCAL, APP_TIMEZONE) — l'écran en tire le
+ *                   premier mois proposable, la période par défaut et ses indications.
  * Validation ici (zod) ; règles et transactions dans planAuto.service ; SQL dans le dépôt.
  */
 const { Router } = require('express');
@@ -67,6 +69,9 @@ function parse(schema, body) {
   if (!parsed.success) throw badRequest('Données invalides', parsed.error.flatten());
   return parsed.data;
 }
+
+// Horloge du calcul (lecture seule) : le même mois courant que l'aperçu et l'application.
+router.get('/clock', (req, res) => res.json(service.serverClock()));
 
 // Aperçu (lecture seule) — visible à tout utilisateur du tenant.
 router.post('/preview', asyncHandler(async (req, res) => res.json(await service.preview(t(req), parse(previewSchema, req.body)))));

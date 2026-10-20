@@ -41,7 +41,7 @@ test('GET /rbm/sites/:id : explication d\'un site, compte du jeton, mois transmi
 
 test('GET /rbm/sites/:id : sans mois → mois courant ; site inconnu → 404 ; identifiant invalide → 400 sans appel au dépôt', async () => {
   await request(app).get(`/api/tpm/field/rbm/sites/${SITE}`).set(as(viewer));
-  assert.equal(calls.at(-1).opts.month, new Date().toISOString().slice(0, 7));
+  assert.equal(calls.at(-1).opts.month, require('../src/modules/common/localDay').localDay().slice(0, 7)); // mois courant LOCAL (APP_TIMEZONE)
   const missing = await request(app).get('/api/tpm/field/rbm/sites/55555555-5555-5555-5555-555555555555').set(as(viewer));
   assert.equal(missing.status, 404);
   const n = calls.length;
