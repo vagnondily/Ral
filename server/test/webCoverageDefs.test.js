@@ -153,7 +153,15 @@ test('« Exécution du plan » = UNE définition : le taux des visites déclaré
   assert.match(exec, /visite déclarée OU données reçues/);
   assert.ok(dp.some((p) => p.startsWith('Exécution des visites (déclarées)')));
   assert.match(dp.find((p) => p.startsWith('Couverture (sites)')), /OU données reçues/);
-  for (const p of [...fp, ...dp]) assert.ok(en.default[p] !== undefined, `« ${p} » sans traduction anglaise`);
+  // Suivi de processus › Couverture : taux des visites déclarées (matrice, MMR) — jamais les noms communs.
+  const recap = phrases(fs.readFileSync(webFile('pages', 'monitoring', 'CoverageRecapPage.jsx'), 'utf8'));
+  for (const p of recap) {
+    assert.ok(!/exécution du plan/i.test(p), `Couverture : « ${p} »`);
+    assert.ok(!/Couverture \(sites\)/.test(p), `Couverture : « ${p} »`);
+  }
+  assert.ok(recap.includes('Exécution des visites (déclarées)'));
+  assert.ok(recap.includes('Couverture par visites déclarées'));
+  for (const p of [...fp, ...dp, ...recap]) assert.ok(en.default[p] !== undefined, `« ${p} » sans traduction anglaise`);
 });
 
 test('Couverture & performance : une carte courte n\'est jamais étirée avec sa ligne au milieu (corps aligné en haut, fondu si la liste défile)', (t) => {

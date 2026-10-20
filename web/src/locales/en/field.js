@@ -335,8 +335,8 @@ export default {
   '2 fois': 'Twice',
   '3 fois': '3 times',
   '4 fois +': '4+ times',
-  "Visites requises = durée d'opération ÷ intervalle MMR (élevé : 1 mois · moyen : 2 · faible : 3). Un site est conforme s'il a atteint ce nombre de visites réalisées. Couverture (sites) = part des sites actifs visités au moins une fois.":
-    'Required visits = operation duration ÷ MMR interval (high: 1 month · medium: 2 · low: 3). A site is compliant once it has reached this number of completed visits. Coverage (sites) = share of active sites visited at least once.',
+  "Visites requises = durée d'opération ÷ intervalle MMR (élevé : 1 mois · moyen : 2 · faible : 3). Un site est conforme s'il a atteint ce nombre de visites réalisées. Couverture par visites déclarées = part des sites actifs ayant au moins une visite déclarée réalisée (les données reçues n'y comptent pas : la Synthèse donne la couverture des tableaux de bord).":
+    'Required visits = operation duration ÷ MMR interval (high: 1 month · medium: 2 · low: 3). A site is compliant once it has reached this number of completed visits. Coverage by declared visits = share of active sites with at least one completed declared visit (data received does not count here: the Summary gives the dashboards’ coverage).',
   'Année': 'Year',
   'Aucune visite en {year}. Planifiez des visites (Affectation & visites) pour alimenter la couverture.':
     'No visits in {year}. Plan visits (Assignment & visits) to feed coverage.',
@@ -347,16 +347,16 @@ export default {
   'Planifiées restantes': 'Remaining planned',
   'non encore réalisées': 'not yet completed',
   'réalisées ÷ (prévues + réalisées)': 'completed ÷ (planned + completed)',
-  'Tendance mensuelle de l\'exécution du plan (visites)': 'Monthly plan execution trend (visits)',
+  'Tendance mensuelle de l\'exécution des visites déclarées': 'Monthly declared-visit execution trend',
   'Part des visites réalisées (vs planifiées + réalisées), par programme, mois par mois.':
     'Share of completed visits (vs planned + completed), by programme, month by month.',
   'Part des visites réalisées (vs planifiées + réalisées), par prestataire, mois par mois.':
     'Share of completed visits (vs planned + completed), by provider, month by month.',
-  'Matrice mensuelle de l\'exécution du plan (visites)': 'Monthly plan execution matrix (visits)',
-  'Exécution du plan par programme et par mois : visites réalisées ÷ (prévues + réalisées). « — » = aucune visite.':
-    'Plan execution by programme and month: completed visits ÷ (planned + completed). “—” = no visits.',
-  'Exécution du plan par prestataire et par mois : visites réalisées ÷ (prévues + réalisées). « — » = aucune visite.':
-    'Plan execution by provider and month: completed visits ÷ (planned + completed). “—” = no visits.',
+  'Matrice mensuelle de l\'exécution des visites déclarées': 'Monthly declared-visit execution matrix',
+  'Exécution des visites déclarées par programme et par mois : visites réalisées ÷ (prévues + réalisées). « — » = aucune visite.':
+    'Declared-visit execution by programme and month: completed visits ÷ (planned + completed). “—” = no visits.',
+  'Exécution des visites déclarées par prestataire et par mois : visites réalisées ÷ (prévues + réalisées). « — » = aucune visite.':
+    'Declared-visit execution by provider and month: completed visits ÷ (planned + completed). “—” = no visits.',
   '{done} réalisée(s) / {active} active(s)': '{done} completed / {active} active',
   '{group} · {month} : {p} % ({done}/{active})': '{group} · {month}: {p}% ({done}/{active})',
   // Mois abrégés (MO)

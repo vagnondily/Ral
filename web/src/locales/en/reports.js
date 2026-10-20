@@ -431,6 +431,7 @@ export default {
   'Registre des sites par bureau, district et activité': 'Site registry by office, district and activity',
   'Regroupement': 'Grouping',
   'Couverture du mois': 'Coverage of the month',
+  'Couverture du besoin': 'Need coverage',
   'Regrouper par': 'Group by',
   'Paramètres MMR (visites requises, capacité)': 'MMR parameters (required visits, capacity)',
   "Catégorie d'activité": 'Activity category',

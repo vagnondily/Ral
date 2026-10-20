@@ -69,11 +69,21 @@ test('chaque jeu et chaque chiffre clé cite une source existante qui déclare s
   }
 });
 
-test('un nom = une définition : les séries des VISITES DÉCLARÉES (covFacts) ne s\'appellent jamais « Couverture » ni « Exécution du plan »', () => {
-  const SINGLE_SOURCE = ['Couverture', 'Exécution du plan', 'Couverture (sites)', 'Exécution du plan (visites)'];
-  for (const d of Object.values(DATASETS).filter((x) => x.source === 'covFacts')) {
-    for (const c of d.columns) assert.ok(!SINGLE_SOURCE.includes(c.label), `${d.key} : colonne « ${c.label} » (visites déclarées seulement)`);
+test('un nom = une définition : hors de la source unique (covDash), aucun jeu ni chiffre clé ne s\'appelle « Couverture… » ou « Exécution du plan… » sans dire laquelle', () => {
+  // Noms réservés à la couverture des tableaux de bord (visite OU données) ; ailleurs, le nom dit sa définition.
+  const reserved = (label) => /^(Couverture|Exécution du plan)/i.test(label) && !/visites déclarées|du besoin/.test(label);
+  const others = Object.values(DATASETS).filter((x) => x.source !== 'covDash' && x.available !== false);
+  assert.ok(others.length > 40, `${others.length} jeux hors covDash`);
+  for (const d of others) {
+    const cols = [...d.columns];
+    // Colonnes construites par la mise en forme (mois, groupes) : celles d'une source vide.
+    if (Object.prototype.hasOwnProperty.call(EMPTY, d.source)) {
+      cols.push(...d.shape(EMPTY[d.source], { period: { from: '2026-01', to: '2026-03' } }, { lang: 'fr', args: {}, officeParents: new Map() }).columns);
+    }
+    for (const c of cols) assert.ok(!reserved(c.label), `${d.key} (${d.source}) : colonne « ${c.label} »`);
   }
+  for (const k of Object.values(KPIS).filter((x) => x.source !== 'covDash')) assert.ok(!reserved(k.label), `chiffre clé ${k.key} (${k.source}) : « ${k.label} »`);
+  assert.equal(DATASETS['cov.recap_risk'].columns.find((c) => c.key === 'coverage').label, 'Couverture par visites déclarées');
   const monthly = Object.fromEntries(DATASETS['cov.monthly'].columns.map((c) => [c.key, c.label]));
   assert.equal(monthly.coverage, 'Couverture par visites déclarées');
   assert.equal(monthly.execution, 'Exécution des visites (déclarées)');

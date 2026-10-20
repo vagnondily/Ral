@@ -173,7 +173,8 @@ const matrix = ds('cov.matrix', {
 const RECAP_COLS = [
   col('risk', 'Niveau de risque'), col('required', 'Visites requises (MMR)', 'int'), col('active', 'Sites actifs', 'int'),
   col('once', '1 visite', 'int'), col('twice', '2 visites', 'int'), col('thrice', '3 visites', 'int'), col('fourPlus', '4 visites et plus', 'int'),
-  col('notVisited', 'Non visités', 'int'), col('coverage', 'Couverture', 'pct'), col('compliance', 'Conformité MMR', 'pct'),
+  // Récapitulatif MMR (covRecap) : sites visités au moins une fois par une visite DÉCLARÉE, sans les données reçues.
+  col('notVisited', 'Non visités', 'int'), col('coverage', 'Couverture par visites déclarées', 'pct'), col('compliance', 'Conformité MMR', 'pct'),
 ];
 const recapRisk = ds('cov.recap_risk', {
   label: 'Récapitulatif par niveau de risque (MMR)', origin: ORIGIN_FIELD, source: 'covRecap', filters: [], officeKinds: [],

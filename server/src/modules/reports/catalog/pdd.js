@@ -77,7 +77,8 @@ const byCommodity = ds('pdd.by_commodity', {
 
 const PIPE_COLS = [
   col('commodity', 'Denrée'), col('need', 'Besoin (t)', 'dec'), col('available', 'Stock disponible (t)', 'dec'), col('gap', 'Écart (t)', 'dec'),
-  col('coverage', 'Couverture', 'pct'), col('status', 'Statut', 'status'), col('stockMonth', 'Stock au', 'month'), col('donor', 'Bailleur'),
+  // Stock ÷ besoin (pipeline) : « Couverture du besoin », jamais la « Couverture » des sites.
+  col('coverage', 'Couverture du besoin', 'pct'), col('status', 'Statut', 'status'), col('stockMonth', 'Stock au', 'month'), col('donor', 'Bailleur'),
 ];
 const pipeline = ds('pdd.pipeline', {
   label: 'Pipeline : besoin et stock par denrée', source: 'pddPipeline', periodMode: 'asOf', views: ['table', 'bar'], defaultView: 'table', columns: PIPE_COLS, measures: ['need', 'available'],
