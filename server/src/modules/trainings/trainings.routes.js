@@ -6,6 +6,7 @@ const { badRequest } = require('../../middleware/errors');
 const { readPeriod } = require('../../middleware/period');
 const { PERIOD_CAPS } = require('../common/periodCaps');
 const service = require('./trainings.service');
+const { isoDateSchema } = require('../common/isoDate');
 
 /**
  * Formations en sessions (lot 8, retour 28.2) — /api/trainings. Lecture pour tout compte
@@ -33,9 +34,11 @@ function body(schema) {
   };
 }
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date AAAA-MM-JJ');
+const isoDate = isoDateSchema(z);
 const optText = (max) => z.string().trim().max(max).nullable().optional().transform((v) => (v === '' ? null : v));
-const themes = z.array(z.string().trim().min(2).max(160)).max(30);
+// 200 caractères : comme la base (training_themes, migration 087) et l'ancienne saisie par agent.
+const THEME_MAX = 200;
+const themes = z.array(z.string().trim().min(2).max(THEME_MAX)).max(30);
 const status = z.enum(['planifiee', 'realisee', 'annulee']);
 const sessionFields = {
   objective: optText(2000), place: optText(200), trainer: optText(200), organiserId: uuid.nullable().optional(),

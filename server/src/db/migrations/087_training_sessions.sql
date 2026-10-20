@@ -20,7 +20,9 @@
 CREATE TABLE IF NOT EXISTS training_themes (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id  uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  label      text NOT NULL CHECK (length(btrim(label)) BETWEEN 2 AND 160),
+  -- 200 caractères : la limite de l'ancienne saisie (thématique, zod max 200) — la reprise ne peut
+  -- jamais buter sur la contrainte.
+  label      text NOT NULL CHECK (length(btrim(label)) BETWEEN 2 AND 200),
   -- Clé de doublon : casse et espaces ignorés (« Collecte  ODK » = « collecte odk »).
   label_key  text GENERATED ALWAYS AS (lower(btrim(regexp_replace(label, '\s+', ' ', 'g')))) STORED,
   active     boolean NOT NULL DEFAULT true,
@@ -115,20 +117,25 @@ BEGIN
 END $$;
 
 -- ---- Reprise des formations saisies par agent (non destructive, rejouable) --------------
+-- Libellé repris = thématique aux espaces fusionnés, bornée à 200 caractères (limite de l'ancienne
+-- saisie ; la base n'en imposait aucune) : la même expression partout ci-dessous, pour que le
+-- thème, la session (legacy_key) et le participant se retrouvent. Repère « REPRISE 087 » : le test
+-- trainingsMigration.test.js rejoue ce bloc sur une base jetable.
+-- REPRISE 087 — début
 -- Thèmes : graphies distinctes (espaces fusionnés), la plus ancienne gardée.
 INSERT INTO training_themes (tenant_id, label)
-SELECT DISTINCT ON (f.tenant_id, lower(btrim(regexp_replace(f.thematique, '\s+', ' ', 'g'))))
-       f.tenant_id, btrim(regexp_replace(f.thematique, '\s+', ' ', 'g'))
+SELECT DISTINCT ON (f.tenant_id, lower(btrim(left(btrim(regexp_replace(f.thematique, '\s+', ' ', 'g')), 200))))
+       f.tenant_id, btrim(left(btrim(regexp_replace(f.thematique, '\s+', ' ', 'g')), 200))
   FROM tpm_agent_formations f
  WHERE length(btrim(f.thematique)) >= 2
- ORDER BY f.tenant_id, lower(btrim(regexp_replace(f.thematique, '\s+', ' ', 'g'))), f.created_at
+ ORDER BY f.tenant_id, lower(btrim(left(btrim(regexp_replace(f.thematique, '\s+', ' ', 'g')), 200))), f.created_at
 ON CONFLICT (tenant_id, label_key) DO NOTHING;
 
 -- Une session par (thème, date) ; date absente → date de saisie ; durée = jours max (≥ 1).
 INSERT INTO training_sessions (tenant_id, title, start_date, end_date, status, origin, legacy_key)
 SELECT g.tenant_id, g.label, g.d, g.d + (least(greatest(ceil(g.jours), 1), 366)::int - 1), 'realisee', 'reprise', g.k || '|' || g.d::text
-  FROM (SELECT f.tenant_id, lower(btrim(regexp_replace(f.thematique, '\s+', ' ', 'g'))) AS k,
-               min(btrim(regexp_replace(f.thematique, '\s+', ' ', 'g'))) AS label,
+  FROM (SELECT f.tenant_id, lower(btrim(left(btrim(regexp_replace(f.thematique, '\s+', ' ', 'g')), 200))) AS k,
+               min(btrim(left(btrim(regexp_replace(f.thematique, '\s+', ' ', 'g')), 200))) AS label,
                COALESCE(f.date_formation, f.created_at::date) AS d, max(f.jours) AS jours
           FROM tpm_agent_formations f
          WHERE length(btrim(f.thematique)) >= 2
@@ -147,9 +154,10 @@ SELECT f.tenant_id, s.id, s.score_max, f.agent_id, a.tpm_provider_id, 'present',
   FROM tpm_agent_formations f
   JOIN tpm_agents a ON a.id = f.agent_id AND a.tenant_id = f.tenant_id
   JOIN training_sessions s ON s.tenant_id = f.tenant_id
-   AND s.legacy_key = lower(btrim(regexp_replace(f.thematique, '\s+', ' ', 'g'))) || '|' || COALESCE(f.date_formation, f.created_at::date)::text
+   AND s.legacy_key = lower(btrim(left(btrim(regexp_replace(f.thematique, '\s+', ' ', 'g')), 200))) || '|' || COALESCE(f.date_formation, f.created_at::date)::text
  WHERE length(btrim(f.thematique)) >= 2
 ON CONFLICT (session_id, agent_id) DO NOTHING;
+-- REPRISE 087 — fin
 
 -- Références entre tables d'un compte : contrôle « même compte » (migration 049).
 SELECT mems_install_same_tenant('training_themes');

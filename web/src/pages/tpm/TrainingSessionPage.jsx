@@ -187,7 +187,7 @@ function InfoForm({ session, onCancel, onSaved, onDeleted }) {
         </Field>
         <div className="span-2"><Field label={tr('Thèmes couverts')} htmlFor="tr-theme" hint={tr('Choisissez un thème existant ou saisissez-en un nouveau, puis « Ajouter ».')}>
           <div className="tr-theme-row">
-            <input id="tr-theme" className="input" list="tr-themes" maxLength={160} value={theme} onChange={(e) => setTheme(e.target.value)}
+            <input id="tr-theme" className="input" list="tr-themes" maxLength={200} value={theme} onChange={(e) => setTheme(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTheme(); } }} />
             <Button variant="secondary" onClick={addTheme} disabled={theme.trim().length < 2}>{tr('Ajouter')}</Button>
           </div>

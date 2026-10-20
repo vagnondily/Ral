@@ -100,8 +100,10 @@ ALTER TABLE tpm_agent_evaluations
                                              AND (final_score IS NULL OR final_score BETWEEN 0 AND 20)
                                              AND (auto_weight IS NULL OR auto_weight BETWEEN 0 AND 100)),
   ADD CONSTRAINT agent_eval_band_chk CHECK (band IS NULL OR band IN ('excellent', 'bon', 'moyen', 'insuffisant')),
-  -- Séparation des tâches : la personne qui valide n'est pas l'évaluateur.
-  ADD CONSTRAINT agent_eval_duty_chk CHECK (validated_by IS NULL OR evaluated_by IS NULL OR validated_by <> evaluated_by),
+  -- Séparation des tâches : la personne qui valide n'est pas l'évaluateur ; une évaluation validée
+  -- (hors anciennes) a toujours son évaluateur (sinon la règle ne pourrait pas être vérifiée).
+  ADD CONSTRAINT agent_eval_duty_chk CHECK ((validated_by IS NULL OR evaluated_by IS NULL OR validated_by <> evaluated_by)
+                                            AND (legacy OR status <> 'validee' OR evaluated_by IS NOT NULL)),
   -- Une évaluation validée (hors anciennes) porte son valideur, sa date et sa note finale figée.
   ADD CONSTRAINT agent_eval_validated_chk CHECK (legacy OR (status = 'validee') = (validated_by IS NOT NULL AND validated_at IS NOT NULL
                                                   AND final_score IS NOT NULL AND band IS NOT NULL));

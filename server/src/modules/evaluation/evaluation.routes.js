@@ -4,6 +4,7 @@ const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound } = require('../../middleware/errors');
 const service = require('./evaluation.service');
+const { isoDateSchema } = require('../common/isoDate');
 
 /**
  * Évaluations (lot 8) — /api/evaluation. Lecture pour tout compte authentifié ; écriture
@@ -33,7 +34,7 @@ function body(schema) {
 }
 
 const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Mois AAAA-MM');
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date AAAA-MM-JJ');
+const isoDate = isoDateSchema(z);
 const optText = (max) => z.string().trim().max(max).nullable().optional().transform((v) => (v === '' ? null : v));
 const code = z.string().regex(/^[a-z0-9_]{2,40}$/, 'Code : minuscules, chiffres, « _ »');
 const ratings = z.array(z.object({
