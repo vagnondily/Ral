@@ -372,4 +372,6 @@ export default {
   '{n} formations affichées sur {total} : les plus récentes (les chiffres clés comptent toutes les formations).':
     '{n} trainings shown out of {total}: the most recent ones (the key figures count all trainings).',
   'Formation « {label} » prévue pour {extra}': 'Training “{label}” planned for {extra}',
+  'Valeur illisible : {list}. Saisissez un nombre (ex. 15 ou 15,5) ou laissez vide.':
+    'Unreadable value: {list}. Enter a number (e.g. 15 or 15.5) or leave it empty.',
 };
