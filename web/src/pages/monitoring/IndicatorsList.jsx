@@ -66,7 +66,7 @@ function ProgressCell({ p, fill }) {
  *   period : période des résultats ({ from, to }), null = toutes les périodes — pour expliquer le
  *   calcul sur la MÊME période que la valeur affichée.
  */
-export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra, canEdit = false, onCreate, onEdit, formId, period = null, periodLabel }) {
+export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra, canEdit = false, onCreate, onEdit, formId, period = null, periodLabel, emptyContent = null }) {
   const { tr } = useI18n();
   const saved = loadView();
   const [q, setQ] = useState('');
@@ -212,9 +212,12 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra, 
             </tr></thead>
             <tbody>
               {rows.length === 0 && (
-                <tr className="ind-empty"><td colSpan={span}><EmptyState icon={TrendingUp} title={tr('Aucun indicateur')}
+                <tr className="ind-empty"><td colSpan={span}>{emptyContent && !q ? (
+                  // Fiche sans indicateur (retour 85) : le modèle proposé et sa création d'un clic.
+                  <EmptyState icon={TrendingUp} title={tr('Aucun indicateur')}>{emptyContent}</EmptyState>
+                ) : <EmptyState icon={TrendingUp} title={tr('Aucun indicateur')}
                   action={canEdit && onCreate ? <Button icon={Plus} onClick={onCreate}>{tr('Nouvel indicateur')}</Button> : undefined}>
-                  {tr('Définissez des indicateurs et importez des données réelles.')}</EmptyState></td></tr>
+                  {tr('Définissez des indicateurs et importez des données réelles.')}</EmptyState>}</td></tr>
               )}
               {group
                 ? groups.map(([mod, list]) => (
