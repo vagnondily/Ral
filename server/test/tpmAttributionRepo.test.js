@@ -435,8 +435,12 @@ test('indisponibilité, aperçu : aucune écriture ni verrou ; la visite de RANO
   assert.deepEqual(p.visits.byState, { indisponible: 1 });
   assert.equal(p.zones.toInternal, 4, 'Bekily et Beloha × août et septembre');
   assert.deepEqual(p.warnings.map((w) => w.code), ['plan_valide']);
-  // Un partenaire qui n'est pas un TPM : refusé avant toute écriture.
+  // Un partenaire qui n'est pas un TPM : refusé avant toute écriture ; mettre fin reste possible (TPM devenu
+  // partenaire de mise en œuvre : ses mois indisponibles, sans effet, se retirent).
   await assert.rejects(unavailability.preview(T, { ...OFF, providerId: AINA, mode: 'poser', reason: null }), (e) => e.statusCode === 400 && e.details.code === 'not_tpm');
+  const endAny = await unavailability.preview(T, { ...OFF, providerId: AINA, mode: 'retirer' });
+  assert.equal(endAny.counts.nothing, 2);
+  await assert.rejects(unavailability.preview(T, { ...OFF, providerId: 'f0000000-0000-0000-0000-000000000009', mode: 'retirer' }), (e) => e.details.code === 'not_tpm', 'partenaire inconnu du compte');
 });
 
 test('indisponibilité, enregistrer : verrous des mois PUIS d attribution, un upsert, une estampille de la plage, un journal', async () => {

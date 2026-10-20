@@ -50,7 +50,9 @@ async function prepareTx(client, tenantId, { providerId, from, to, mode, reason 
   const months = monthsOf(period, { max: rule.MAX_SPAN_MONTHS });
   const inputs = await repo.loadInputsTx(client, tenantId, period);
   const provider = inputs.partners.find((p) => p.id === providerId);
-  if (!provider || provider.typeCode !== 'tpm') throw badRequest('Choisissez un TPM (partenaire de type TPM) de ce compte.', { code: 'not_tpm' });
+  // Déclarer : un TPM du compte. Mettre fin : tout partenaire du compte (un TPM devenu partenaire de mise
+  // en œuvre garde des mois indisponibles, sans effet, qu'on doit pouvoir retirer).
+  if (!provider || (mode === 'poser' && provider.typeCode !== 'tpm')) throw badRequest('Choisissez un TPM (partenaire de type TPM) de ce compte.', { code: 'not_tpm' });
   if (mode === 'poser' && provider.active === false) throw badRequest('Ce TPM est désactivé : il n\'est le TPM d\'aucune zone.', { code: 'tpm_inactive' });
   const existing = inputs.unavailability.filter((u) => u.providerId === providerId);
   const stamp = off.stampOf(providerId, months, existing);
