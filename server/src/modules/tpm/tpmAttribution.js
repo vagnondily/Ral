@@ -502,7 +502,7 @@ function districtAreaFor(dkey, regionKey, districtAreas) {
 /** Messages des erreurs de décision pour une visite (visitDecision → 400 avec details.code). */
 const VISIT_ERROR_MESSAGES = {
   reason_required: 'Indiquez la raison du changement (10 caractères au moins).',
-  provider_not_selectable: 'Ce prestataire n\'est pas sélectionnable au mois de la visite (ni titulaire d\'un contrat de suivi, ni TPM actif).',
+  provider_not_selectable: 'Ce partenaire n\'est pas sélectionnable au mois de la visite (ni titulaire d\'un contrat de suivi, ni TPM actif).',
   visit_unknown: 'Visite inconnue (ou hors de ce compte).',
   action_unknown: 'Action inconnue.',
 };

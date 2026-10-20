@@ -18,8 +18,8 @@ const { requireConnString, explainConnError } = require('../config/connString');
 const tpmZones = require('../modules/tpm/tpmAttribution.repository');
 
 const PARTNER_TYPES = [
-  ['tpm', 'TPM (Tierce partie de suivi)', 1],
-  ['prestataire', 'Prestataire', 2],
+  ['tpm', 'TPM — tierce partie de suivi', 1],
+  ['prestataire', 'Partenaire de mise en œuvre', 2],
   ['cabinet', 'Cabinet', 3],
 ];
 const ACTIVITIES = [

@@ -56,14 +56,14 @@ export default function FormationsPage({ canEdit, onNavigate }) {
   return (
     <div className="section-gap">
       <PageHeader title={tr('Formations')}
-        description={tr('Les sessions de formation des agents TPM : thèmes couverts, prestataires et agents participants, présence, résultats des tests et avis des participants.')}>
+        description={tr('Les sessions de formation des agents TPM : thèmes couverts, TPM et agents participants, présence, résultats des tests et avis des participants.')}>
         {canEdit && <Button icon={Plus} onClick={() => onNavigate('tpm', 'formations', 'nouvelle')}>{tr('Nouvelle formation')}</Button>}
       </PageHeader>
 
       <Stats items={[
         { label: tr('Formations'), value: stats ? stats.sessions : '—', foot: stats ? tr('{n} réalisée(s)', { n: stats.done }) : null },
         { label: tr('Participations'), value: stats ? formatInt(stats.participants) : '—', foot: tr('Agents inscrits, toutes formations') },
-        { label: tr('Prestataires formés'), value: stats ? stats.providers : '—', foot: tr('Au moins un agent participant') },
+        { label: tr('TPM formés'), value: stats ? stats.providers : '—', foot: tr('Au moins un agent participant') },
       ]} />
 
       <DataList
@@ -79,7 +79,7 @@ export default function FormationsPage({ canEdit, onNavigate }) {
             ) },
           place: { label: tr('Lieu'), sortVal: (s) => s.place || '', csv: (s) => s.place || '', render: (s) => s.place || <span className="cell-empty">—</span> },
           participants: { label: tr('Participants'), num: true, sortVal: (s) => s.participants, csv: (s) => s.participants, render: (s) => s.participants },
-          providers: { label: tr('Prestataires'), sortVal: (s) => s.providers.length, csv: (s) => s.providers.map((p) => p.name).join(', '),
+          providers: { label: tr('TPM'), sortVal: (s) => s.providers.length, csv: (s) => s.providers.map((p) => p.name).join(', '),
             render: (s) => (s.providers.length ? <span className="pv-providers">{s.providers.map((p) => p.name).join(', ')}</span> : <span className="cell-empty">—</span>) },
           attendance: { label: tr('Présence'), num: true, sortVal: (s) => (s.attendanceRate == null ? -1 : s.attendanceRate), csv: (s) => s.attendanceRate ?? '',
             render: (s) => formatPct(s.attendanceRate, tr) },
@@ -92,10 +92,10 @@ export default function FormationsPage({ canEdit, onNavigate }) {
         }}
         defaultColumns={['dates', 'title', 'participants', 'providers', 'attendance', 'tests', 'status']}
         filters={{
-          q: { label: tr('Recherche'), type: 'search', placeholder: tr('Formation, thème, prestataire…'),
+          q: { label: tr('Recherche'), type: 'search', placeholder: tr('Formation, thème, TPM…'),
             match: (s, v) => [s.title, s.place, ...s.themes.map((x) => x.label), ...s.providers.map((x) => x.name)].some((x) => x && String(x).toLowerCase().includes(v.toLowerCase())) },
           period: { label: tr('Période'), type: 'period', start: (s) => s.startDate, end: (s) => s.endDate },
-          provider: { label: tr('Prestataire'), type: 'select', options: [{ id: '', label: tr('Tous les prestataires') }, ...providerOptions], match: (s, v) => s.providers.some((p) => p.id === v) },
+          provider: { label: tr('TPM'), type: 'select', options: [{ id: '', label: tr('Tous les TPM') }, ...providerOptions], match: (s, v) => s.providers.some((p) => p.id === v) },
           theme: { label: tr('Thème'), type: 'select', options: [{ id: '', label: tr('Tous les thèmes') }, ...themeOptions], match: (s, v) => s.themes.some((x) => x.id === v) },
           status: { label: tr('Statut'), type: 'select', options: [{ id: '', label: tr('Tous les statuts') }, ...Object.entries(TRAINING_STATUS).map(([id, d]) => ({ id, label: tr(d.label) }))], match: (s, v) => s.status === v },
         }}

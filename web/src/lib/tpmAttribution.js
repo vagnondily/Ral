@@ -22,7 +22,7 @@ export const TPM_FLAGS = {
   a_confirmer: { label: 'À confirmer (contrat changé)', tone: 'orange', icon: 'clock' },
   partiel: { label: 'Partiel (par commune)', tone: 'blue', icon: 'dot' },
   hors_contrat: { label: 'TPM hors contrat', tone: 'orange', icon: 'warn' },
-  prestataire_inactif: { label: 'Prestataire désactivé', tone: 'red', icon: 'ban' },
+  prestataire_inactif: { label: 'TPM désactivé', tone: 'red', icon: 'ban' },
   zone_a_reselectionner: { label: 'Zone de contrat à resélectionner', tone: 'orange', icon: 'warn' },
 };
 /** Drapeaux montrés ligne par ligne (« titulaire non TPM » est dit une fois, en bannière). */
@@ -114,7 +114,7 @@ export function monthsBetween(from, to, max = 60) {
 /** Suggestions de raison (insèrent un texte modifiable). */
 export const REASON_SUGGESTIONS = [
   'Contrat en cours de renouvellement',
-  'Capacité insuffisante du prestataire',
+  'Capacité insuffisante du TPM',
   'Accès / sécurité',
   'Arbitrage entre deux contrats',
 ];

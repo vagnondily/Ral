@@ -14,6 +14,8 @@ import {
 } from '../../lib/contracts.js';
 import { SubmitDialog, DecisionDialog, RenewDialog, TerminateDialog } from './ContractDialogs.jsx';
 import DeleteDialog from '../../components/DeleteDialog.jsx';
+import { ROLE_LABELS, contractIdentity, contractNo, internalNo, typeLabelOf } from '../../lib/roles.js';
+import '../tpm/partners.css';
 
 const TABS = [
   { id: 'budget', label: 'Détail budgétaire' },
@@ -22,7 +24,7 @@ const TABS = [
   { id: 'history', label: 'Historique' },
 ];
 
-export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit, onAmend }) {
+export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit, onAmend, onOpenPartner }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [detail, setDetail] = useState(null);
@@ -83,9 +85,11 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
         <Button variant="ghost" size="sm" icon={ArrowLeft} onClick={onBack} className="back-link">{tr('Retour aux contrats')}</Button>
         <div className="detail-head">
           <div>
-            <h1 className="page-title">{c.partnerName}</h1>
+            {/* Identité d'un contrat (retour 113) : n° FLA · titulaire ; le n° interne en information secondaire. */}
+            <h1 className="page-title">{contractNo(c)}</h1>
             <div className="detail-meta">
-              <span className="mono">{c.reference || c.numero}</span>
+              <button type="button" className="inline-link ct-title-holder" onClick={() => onOpenPartner && c.partnerId && onOpenPartner(c.partnerId)}>{c.partnerName}</button>
+              {internalNo(c) && <span className="mono muted">{internalNo(c)}</span>}
               <Badge tone={st.tone} dot>{tr(st.label)}</Badge>
               {flags.map((f) => <Badge key={f.key} tone={f.tone}>{tr(f.label)}</Badge>)}
               <span className="muted">{detail.activities.map((x) => x.label).join(', ') || tr('Aucune activité')}</span>
@@ -118,6 +122,11 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
       <Card>
         <div className="kv-grid">
           <table className="kv"><tbody>
+            <tr><th>{tr(ROLE_LABELS.holder)}</th><td>
+              <button type="button" className="inline-link" onClick={() => onOpenPartner && c.partnerId && onOpenPartner(c.partnerId)}>{c.partnerName}</button>
+              {(c.partnerType || c.partnerTypeLabel) && <span className="muted"> · {tr(typeLabelOf(c.partnerType, c.partnerTypeLabel))}</span>}
+            </td></tr>
+            <tr><th>{tr(ROLE_LABELS.tpm)}</th><td><ContractTpm tpm={c.tpm} zones={(detail.areas || []).length} onOpenPartner={onOpenPartner} /></td></tr>
             <tr><th>{tr('N° interne')}</th><td className="mono">{c.numero}</td></tr>
             <tr><th>{tr('N° FLA')}</th><td className="mono">{c.numeroFla || '—'}</td></tr>
             <tr><th>{tr('N° PO')}</th><td className="mono">{c.numeroPo || '—'}</td></tr>
@@ -159,7 +168,7 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
         </div>
       </Card>
 
-      {/* Zones d'intervention affectées au prestataire (retour 79 : en tableau) */}
+      {/* Zones d'intervention du contrat (retour 79 : en tableau) */}
       {(detail.areas || []).length > 0 && <AreasCard areas={detail.areas} />}
 
       <Card>
@@ -195,7 +204,7 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
           blockers={a.deleteBlockers || []}
           blockedHint={c.status === 'actif' || c.status === 'resilie' ? tr('Résiliez-le plutôt que de le supprimer.') : null}
           title={tr('Supprimer ce contrat ?')}
-          description={`${c.numero} · ${c.partnerName}`}
+          description={contractIdentity(c)}
           onClose={() => setDialog(null)}
           onConfirm={(justification) => api.deleteContract(contractId, justification)}
           onDone={() => { toast.success(tr('Contrat supprimé.')); setDialog(null); onBack(); }}
@@ -206,7 +215,7 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
           open
           validated={dialog.amendment.status === 'approuve'}
           title={tr('Supprimer cet avenant ?')}
-          description={`${amendmentCode(dialog.amendment.number)} · ${c.numero}`}
+          description={`${amendmentCode(dialog.amendment.number)} · ${c.numeroFla || c.numero}`}
           onClose={() => setDialog(null)}
           onConfirm={(justification) => api.deleteAmendment(contractId, dialog.amendment.id, justification)}
           onDone={() => { toast.success(tr('Avenant supprimé.')); afterAction(); }}
@@ -252,7 +261,7 @@ function AreasCard({ areas }) {
         <span className="areas-count">
           {detached
             ? tr('{n} zone(s) · {d} à resélectionner', { n: rows.length, d: detached })
-            : tr('{n} zone(s) affectée(s) au prestataire', { n: rows.length })}
+            : tr('{n} zone(s) d\'intervention du contrat', { n: rows.length })}
         </span>
         {anyPcode && (
           <Button size="sm" variant="ghost" onClick={() => setShowPcode((v) => !v)}
@@ -614,5 +623,29 @@ function ForecastTab({ contractId, dateFin }) {
         </tbody>
       </table></div>
     </div>
+  );
+}
+
+/**
+ * TPM du contrat (retour 113) : règle commune du retour 58 — TPM rattaché par un plan de collecte ou
+ * une facture, sinon le titulaire s'il est lui-même un TPM ; il suit les zones du contrat.
+ */
+function ContractTpm({ tpm, zones, onOpenPartner }) {
+  const { tr } = useI18n();
+  const list = (tpm && tpm.tpms) || [];
+  if (!list.length) {
+    return <span className="muted">{tr(ROLE_LABELS.noTpm)} — {tr('un TPM est rattaché dès qu\'il a un plan de collecte ou une facture sur ce contrat.')}</span>;
+  }
+  const VIA = { plan: 'plan de collecte', rapport: 'factures et rapports', titulaire: 'son propre contrat' };
+  return (
+    <span>
+      {list.map((t, i) => (
+        <span key={t.id}>{i > 0 && ', '}
+          <button type="button" className="inline-link" onClick={() => onOpenPartner && onOpenPartner(t.id)}>{t.name}</button>
+          {t.via.length > 0 && <span className="muted"> ({t.via.map((v) => tr(VIA[v] || v)).join(', ')})</span>}
+        </span>
+      ))}
+      {zones > 0 && <span className="muted"> · {tr(zones > 1 ? 'suit les {n} zones du contrat' : 'suit la zone du contrat', { n: zones })}</span>}
+    </span>
   );
 }

@@ -46,7 +46,7 @@ test('actif au mois M : contrat de SUIVI couvrant M, fiche active ; rattachement
   ];
   const act = activeProviders({ links, partners, month: '2026-05' });
   assert.deepEqual(act.map((p) => p.id), ['p2', 'p1'], 'tri par nom ; sans contrat de suivi ni fiche inactive');
-  assert.deepEqual(act[1].contracts[0], { id: 'c1', numero: 'CTR-1', status: 'actif', via: ['rapport'], from: '2026-03', to: '2026-11' });
+  assert.deepEqual(act[1].contracts[0], { id: 'c1', numero: 'CTR-1', numeroFla: null, status: 'actif', via: ['rapport'], from: '2026-03', to: '2026-11' });
   assert.deepEqual(activeProviders({ links, partners, month: '2026-12' }), []);
 });
 

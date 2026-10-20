@@ -31,6 +31,7 @@ import partners from './en/partners.js';
 import activation from './en/activation.js';
 import reportLayout from './en/reportLayout.js';
 import tpmAttribution from './en/tpmAttribution.js';
+import roles from './en/roles.js';
 import coverageDefs from './en/coverageDefs.js';
 
 export default {
@@ -39,4 +40,6 @@ export default {
   ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard, ...calc, ...importWizard, ...correspondences,
   ...indicatorEditor, ...dashboards, ...sites, ...deletions, ...activityCoverage, ...period, ...map, ...activation, ...reportLayout,
   ...tpmAttribution, ...coverageDefs,
+  // Glossaire des rôles (retour 113) en dernier : ses libellés remplacent les anciens.
+  ...roles,
 };

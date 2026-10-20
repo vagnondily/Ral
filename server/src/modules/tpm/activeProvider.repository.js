@@ -2,6 +2,7 @@ const { withTenantTransaction } = require('../../config/db');
 const { MONITORING_LINE } = require('../contracts/budgetCatalog');
 const { providerContractsCte, monitoringContractSql } = require('./activeProviderSql');
 const { selectableProviders, activeProviders } = require('./activeProvider');
+const { contractTpmViews } = require('./contractTpm');
 
 /**
  * « Prestataire actif » (retour 30) — lecture des entrées de la règle pure
@@ -17,7 +18,7 @@ const { selectableProviders, activeProviders } = require('./activeProvider');
 async function providerLinksTx(client, tenantId, { partnerId = null } = {}) {
   const { rows } = await client.query(
     `WITH ${providerContractsCte()}
-     SELECT pc.partner_id AS "partnerId", c.id AS "contractId", c.numero, c.status,
+     SELECT pc.partner_id AS "partnerId", c.id AS "contractId", c.numero, c.numero_fla AS "numeroFla", c.status,
             c.date_debut AS "dateDebut", c.date_fin AS "dateFin", c.termination_date AS "terminationDate",
             c.partner_id AS "holderId", c.partner_name AS "holderName",
             ${monitoringContractSql('c', '$2')} AS monitoring,
@@ -40,6 +41,16 @@ async function partnersTx(client, tenantId) {
   return rows;
 }
 
+/**
+ * TPM de chaque contrat pour l'affichage (retour 113, règle pure tpm/contractTpm) : liens et
+ * partenaires du compte lus une fois. @param {Array<{ id, partnerId }>} contracts
+ */
+async function contractTpmViewsTx(client, tenantId, contracts) {
+  const links = await providerLinksTx(client, tenantId);
+  const partners = await partnersTx(client, tenantId);
+  return { views: contractTpmViews(contracts, links, partners), links, partners };
+}
+
 /** Listes de choix pour des mois : groupes « contrat » puis « tpm » (activeProvider.selectableProviders). */
 async function selectable(tenantId, months) {
   return withTenantTransaction(tenantId, async (client) => {
@@ -58,4 +69,4 @@ async function activeAt(tenantId, month) {
   });
 }
 
-module.exports = { providerLinksTx, partnersTx, selectable, activeAt };
+module.exports = { providerLinksTx, partnersTx, contractTpmViewsTx, selectable, activeAt };

@@ -7,6 +7,7 @@ import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatAr, todayISO } from '../../lib/format.js';
 import { amendmentCode, formatDate } from '../../lib/contracts.js';
+import { contractIdentity } from '../../lib/roles.js';
 
 function useValidators(open) {
   const [list, setList] = useState(null);
@@ -57,7 +58,7 @@ export function SubmitDialog({ open, onClose, detail, onDone }) {
     if (await run(() => api.submitContract(c.id, { validatorId, comment: comment.trim() || undefined, version: c.version }), tr('Contrat soumis pour validation.'))) onDone();
   }
   return (
-    <Modal open={open} onClose={() => !busy && onClose()} title={tr('Soumettre pour validation')} subtitle={`${c.partnerName} · ${c.numero}`}
+    <Modal open={open} onClose={() => !busy && onClose()} title={tr('Soumettre pour validation')} subtitle={contractIdentity(c)}
       footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button><Button loading={busy} onClick={submit}>{tr('Soumettre')}</Button></>}>
       <p>{tr("Le contrat ne sera plus modifiable pendant sa validation. Le valideur pourra l'approuver (il devient actif) ou le rejeter avec un motif.")}</p>
       <ValidatorSelect id="sub-validator" value={validatorId} onChange={setValidatorId} validators={validators} error={touched && !validatorId ? tr('Choisissez un valideur.') : undefined} />
@@ -89,7 +90,7 @@ export function DecisionDialog({ open, onClose, detail, amendment, approve, onDo
     if (await run(call, msg)) onDone();
   }
   return (
-    <Modal open={open} onClose={() => !busy && onClose()} title={title} subtitle={`${c.partnerName} · ${c.numero}`}
+    <Modal open={open} onClose={() => !busy && onClose()} title={title} subtitle={contractIdentity(c)}
       footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button><Button loading={busy} onClick={decide}>{approve ? tr('Approuver') : tr('Rejeter')}</Button></>}>
       {approve
         ? <p>{amendment ? tr("Les modifications de l'avenant seront appliquées immédiatement et publiées aux autres modules.") : tr('Le contrat devient actif ; son activation est publiée aux modules Planning et Reporting.')}</p>
@@ -143,7 +144,7 @@ export function AmendmentDrawer({ open, onClose, detail, onDone }) {
 
   return (
     <Modal open={open} onClose={() => !busy && onClose()} title={tr('Avenant {code}', { code: amendmentCode(c.amendmentCount + 1) })}
-      subtitle={`${c.partnerName} · ${c.reference || c.numero}`} initialFocus="#am-just"
+      subtitle={contractIdentity(c)} initialFocus="#am-just"
       footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button><Button loading={busy} onClick={submit}>{tr("Soumettre l'avenant")}</Button></>}>
       <Alert tone="info" icon={Info}>{tr("L'avenant suit le même circuit que le contrat : il ne s'applique qu'après approbation du valideur.")}</Alert>
       <Field label={tr('Justification')} htmlFor="am-just" required error={touched ? errs.justification : undefined}>
@@ -214,7 +215,7 @@ export function TerminateDialog({ open, onClose, detail, onDone }) {
     if (await run(() => api.terminateContract(c.id, { reason: reason.trim(), effectiveDate, version: c.version }), tr('Contrat résilié.'))) onDone();
   }
   return (
-    <Modal open={open} onClose={() => !busy && onClose()} title={tr('Résilier le contrat ?')} subtitle={`${c.partnerName} · ${c.reference || c.numero}`}
+    <Modal open={open} onClose={() => !busy && onClose()} title={tr('Résilier le contrat ?')} subtitle={contractIdentity(c)}
       footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button><Button loading={busy} onClick={confirm}>{tr('Résilier définitivement')}</Button></>}>
       <Alert tone="warn" icon={AlertCircle}>{tr('Action définitive : le contrat sera verrouillé et sa résiliation publiée aux modules Planning, Alertes et Reporting.')}</Alert>
       <Field label={tr('Motif')} htmlFor="tm-reason" required error={touched ? errs.reason : undefined}><textarea id="tm-reason" className="input" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>

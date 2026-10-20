@@ -35,7 +35,7 @@ const CONFIG_SECTIONS = [
 ];
 const TAB_HELP = {
   priorites: 'Sites à suivre ce mois selon leur niveau de risque ; « Générer » planifie leurs visites.',
-  plan: 'Visites exigées par le MMR, faites, prévues et restantes, avec le prestataire de suivi affecté.',
+  plan: 'Visites exigées par le MMR, faites, prévues et restantes, avec le TPM affecté.',
   sites: 'Pour chaque site du registre, actif (Oui) ou inactif (Non) chaque mois, avant de planifier. Exportez le classeur, complétez-le hors ligne, puis réimportez-le.',
   tpm: 'Qui suit quelle zone chaque mois : le TPM des contrats de suivi par région › district, modifiable avec une raison.',
   configuration: 'Ce qui règle le suivi par les risques : les critères de risque de chaque site et les exigences minimales de suivi (MMR) par bureau et activité.',

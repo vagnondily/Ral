@@ -98,15 +98,16 @@ async function createPartner(tenantId, { name, partnerTypeId, dailyRate, contrac
 }
 
 /** Mise à jour PARTIELLE (écart B4) : un champ absent reste inchangé ; null efface le taux ou la référence. */
-async function updatePartner(tenantId, id, { name, dailyRate, contractRef, active }) {
+async function updatePartner(tenantId, id, { name, partnerTypeId, dailyRate, contractRef, active }) {
   return (name ? places.withSubmissionLinks : withTenantTransaction)(tenantId, async (client) => {
     const { rowCount } = await client.query(
       `UPDATE partners SET name = COALESCE($3, name),
               daily_rate = CASE WHEN $4::boolean THEN $5::numeric ELSE daily_rate END,
               contract_ref = CASE WHEN $6::boolean THEN $7 ELSE contract_ref END,
-              active = COALESCE($8, active)
+              active = COALESCE($8, active),
+              partner_type_id = COALESCE($9::uuid, partner_type_id)
        WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id, name || null, dailyRate !== undefined, dailyRate ?? null, contractRef !== undefined, contractRef || null, active ?? null]
+      [tenantId, id, name || null, dailyRate !== undefined, dailyRate ?? null, contractRef !== undefined, contractRef || null, active ?? null, partnerTypeId || null]
     );
     if (rowCount === 1 && name) await places.relinkPartiesTx(client, tenantId);
     return rowCount === 1;

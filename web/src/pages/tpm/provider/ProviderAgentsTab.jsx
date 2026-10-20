@@ -76,7 +76,7 @@ export default function ProviderAgentsTab({ providerId, canEdit, onChanged }) {
         <span>{tr('Le code d\'enquêteur est celui saisi dans les formulaires Kobo : il relie automatiquement les formulaires reçus à l\'agent et alimente sa note automatique.')}</span>
       </div>
       {rows.length === 0 && !canEdit ? (
-        <EmptyState icon={Users} title={tr('Aucun agent')}>{tr('Aucun agent enregistré pour ce prestataire.')}</EmptyState>
+        <EmptyState icon={Users} title={tr('Aucun agent')}>{tr('Aucun agent enregistré pour ce TPM.')}</EmptyState>
       ) : (
         <div className="table-wrap">
           <table className="table grid pv-agents">

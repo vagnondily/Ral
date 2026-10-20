@@ -1,0 +1,23 @@
+/* Partenaires & TPM — rôles (retour 113). Jetons du bloc v6 uniquement (thème sombre suivi).
+   Fichier propre pour ne pas toucher la fin de styles.css (blocs partagés). Préfixe pr-. */
+.pr-tabs { align-self: flex-start; }
+.pr-tabs button { display: inline-flex; align-items: center; gap: 6px; }
+.pr-count {
+  display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 999px; font-size: 12px; line-height: 18px;
+  text-align: center; background: var(--canvas); color: var(--text-muted); font-variant-numeric: tabular-nums; font-weight: 600;
+}
+.pr-tabs button.is-active .pr-count { background: var(--blue-50); color: var(--blue-700); }
+.pr-contracts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; white-space: nowrap; }
+.pr-contracts .mono { font-size: 13px; color: var(--text-strong); }
+.pr-tpm-list { display: flex; flex-direction: column; gap: 10px; }
+.pr-tpm-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.pr-tpm-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.pr-tpm-row .pv-sub { margin-top: 2px; }
+.pr-role-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pv-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; flex-shrink: 0; }
+.ct-holder { margin-top: 2px; color: var(--text); font-size: 13.5px; }
+.ct-period { min-width: 96px; }
+.ct-period > span { display: inline-block; }
+.ct-title-holder { font-size: 15px; font-weight: 600; }
+.ct-status .tag-row { flex-direction: column; align-items: flex-start; flex-wrap: nowrap; }
+.ct-status .badge { white-space: normal; text-align: left; }

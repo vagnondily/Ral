@@ -277,7 +277,7 @@ async function setOverrides(tenantId, actor, { target, providerId = null, reason
     const prep = await prepareChangeTx(client, tenantId, { target, mode: 'modifier', providerId, reason: clean });
     if (prep.stamp !== stamp) throw conflict(STALE, { code: 'stale' });
     if (providerId && prep.notSelectable.length) {
-      throw badRequest(`Ce prestataire n'est pas sélectionnable sur toute la période : il ne tient aucun contrat de suivi et n'est pas un TPM actif (${prep.notSelectable.join(', ')}).`,
+      throw badRequest(`Ce partenaire n'est pas sélectionnable sur toute la période : il ne tient aucun contrat de suivi et n'est pas un TPM actif (${prep.notSelectable.join(', ')}).`,
         { code: 'provider_not_selectable', months: prep.notSelectable });
     }
     const { plan } = prep;

@@ -18,8 +18,8 @@ async function consolidationByContract(tenantId, month) {
 
 /** Liste des partenaires avec leur statut selon contrat (liste des prestataires TPM). */
 async function providers(tenantId) {
-  const { rows, links } = await repo.providersList(tenantId);
-  return providerListRows(rows, links);
+  const { rows, links, contracts, views } = await repo.providersList(tenantId);
+  return providerListRows(rows, links, { contracts, views });
 }
 
 async function sheet(tenantId, id) {
@@ -32,7 +32,9 @@ async function contracts(tenantId, id) {
   const raw = await repo.contractsOf(tenantId, id);
   if (!raw) return null;
   const month = raw.today.slice(0, 7);
-  return contractRows(raw.contracts, raw.links, { partnerId: id, month, consolidation: await consolidationByContract(tenantId, month) });
+  return contractRows(raw.contracts, raw.links, {
+    partnerId: id, month, consolidation: await consolidationByContract(tenantId, month), tpmViews: raw.tpmViews, partnerTypes: raw.partnerTypes,
+  });
 }
 
 /** Période par défaut des suivis : les 12 derniers mois jusqu'au mois courant. */
@@ -53,5 +55,5 @@ async function selectable(tenantId, period) {
 
 module.exports = {
   providers, sheet, contracts, followups, selectable, defaultFollowupPeriod,
-  reports: repo.reportsOf, timeline: repo.timeline,
+  reports: repo.reportsOf, plans: repo.plansOf, timeline: repo.timeline,
 };

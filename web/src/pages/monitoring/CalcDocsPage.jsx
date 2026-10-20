@@ -173,7 +173,7 @@ export default function CalcDocsPage() {
           <li>{tr('Couverture (sites) = sites actifs ayant au moins une visite réalisée pendant un mois actif ÷ sites actifs. Sur une période, chaque site compte une fois (actif au moins un mois de la période) ; sans grille d\'activation importée, tout le registre est actif. Une visite sur un site inactif est comptée à part.')}</li>
           <li>{tr('Planification = sites actifs ayant au moins une visite prévue ÷ sites actifs ; « — aucun plan » quand aucune visite n\'est prévue, jamais 0 %.')}</li>
           <li>{tr('Exécution du plan (visites) = visites réalisées ÷ (prévues + réalisées). Une visite = un site × un mois, comptée une fois ; les visites annulées et celles des mois à venir ne comptent pas.')}</li>
-          <li>{tr('Jours de collecte d\'un prestataire = visites datées non annulées + jours de déplacement saisis.')}</li>
+          <li>{tr('Jours de collecte d\'un TPM = visites datées non annulées + jours de déplacement saisis.')}</li>
           <li>{tr('Fréquence de suivi selon le risque du site : élevé = chaque mois, moyen = tous les 2 mois, faible = tous les 3 mois.')}</li>
           <li>{tr('Un site est « à suivre » s\'il n\'a jamais été visité, si cette fréquence est atteinte depuis sa dernière visite, ou si son score de priorité le signale en retard. Dernière visite = le dernier mois réalisé au mois de référence ou avant : visite réalisée, soumission reçue pour le site (ou sa commune) ou date du registre ; une visite seulement prévue ne compte jamais.')}</li>
         </ul>

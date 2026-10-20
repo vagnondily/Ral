@@ -8,11 +8,14 @@ import {
 } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import { formatDate, periodLabel, REPORT_STATUS } from '../../lib/contracts.js';
+import { CONTRACT_STATUS, formatDate, periodLabel, REPORT_STATUS } from '../../lib/contracts.js';
 import { formatAr, formatInt, monthLabel } from '../../lib/format.js';
 import { BANDS, formatScore } from '../../lib/evaluation.js';
 import { PROVIDER_STATUS } from '../../lib/partners.js';
+import { ROLE_LABELS, contractNo, joinParts } from '../../lib/roles.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import RoleBadge from '../../components/RoleBadge.jsx';
+import './partners.css';
 import ProviderContractsTab from './provider/ProviderContractsTab.jsx';
 import ProviderReportsTab from './provider/ProviderReportsTab.jsx';
 import ProviderFollowupsTab from './provider/ProviderFollowupsTab.jsx';
@@ -21,19 +24,28 @@ import ProviderTrainingsTab from './provider/ProviderTrainingsTab.jsx';
 import ProviderEvaluationTab from './provider/ProviderEvaluationTab.jsx';
 
 /**
- * Fiche prestataire 360° (lot 8, retour 28.1) — page complète #/tpm/prestataires/<id>/<onglet> :
- * en-tête (statut « actif selon contrat » et période), 4 chiffres clés, puis 7 onglets
- * (Vue d'ensemble, Contrats, Rapports & factures, Suivis effectués, Agents, Formations,
- * Évaluation du TPM). Tous les chiffres viennent du serveur (aucun recalcul ici).
+ * Fiche 360° d'un partenaire (lot 8, retours 28.1 et 113) — page complète
+ * #/tpm/prestataires/<id>/<onglet>, selon son RÔLE :
+ *  - TPM : contrats qu'il suit (n° · titulaire), plans, factures et rapports, suivis effectués,
+ *    agents (noms ici seulement), formations, évaluation ;
+ *  - partenaire de mise en œuvre : ses contrats et le TPM de chacun, zones, plans et factures de
+ *    ses TPM, suivis effectués sur ses contrats.
+ * Tous les chiffres viennent du serveur (aucun recalcul ici).
  */
-const TABS = [
+const TPM_TABS = [
   { id: 'apercu', label: "Vue d'ensemble" },
-  { id: 'contrats', label: 'Contrats', count: 'contracts' },
-  { id: 'rapports', label: 'Rapports & factures', count: 'reports' },
+  { id: 'contrats', label: 'Contrats suivis', count: 'contracts' },
+  { id: 'rapports', label: 'Plans, factures et rapports', count: 'reports' },
   { id: 'suivis', label: 'Suivis effectués' },
   { id: 'agents', label: 'Agents', count: 'agents' },
   { id: 'formations', label: 'Formations', count: 'trainings' },
-  { id: 'evaluation', label: 'Évaluation du TPM', count: 'evaluations' },
+  { id: 'evaluation', label: 'Évaluation', count: 'evaluations' },
+];
+const HOLDER_TABS = [
+  { id: 'apercu', label: "Vue d'ensemble" },
+  { id: 'contrats', label: 'Contrats et TPM', count: 'contracts' },
+  { id: 'rapports', label: 'Plans, factures et rapports', count: 'reports' },
+  { id: 'suivis', label: 'Suivis effectués' },
 ];
 
 export default function ProviderSheetPage({ providerId, tab: tabProp, canEdit, user, onNavigate, onOpenContract }) {
@@ -42,6 +54,8 @@ export default function ProviderSheetPage({ providerId, tab: tabProp, canEdit, u
   const [sheet, setSheet] = useState(null);
   const [error, setError] = useState(null);
   const [editing, setEditing] = useState(false);
+  const isTpm = Boolean(sheet && sheet.role === 'tpm');
+  const TABS = isTpm ? TPM_TABS : HOLDER_TABS;
   const tab = TABS.some((t) => t.id === tabProp) ? tabProp : 'apercu';
   const setTab = (id) => onNavigate('tpm', 'prestataires', providerId, id === 'apercu' ? undefined : id);
 
@@ -51,10 +65,11 @@ export default function ProviderSheetPage({ providerId, tab: tabProp, canEdit, u
   useEffect(() => { setSheet(null); reload(); }, [reload]);
 
   const back = () => onNavigate('tpm', 'prestataires');
+  const openPartner = (id) => onNavigate('tpm', 'prestataires', id);
   if (error) {
     return (
       <div className="section-gap">
-        <Button variant="ghost" size="sm" icon={ArrowLeft} onClick={back} className="back-link">{tr('Retour aux prestataires')}</Button>
+        <Button variant="ghost" size="sm" icon={ArrowLeft} onClick={back} className="back-link">{tr('Retour aux partenaires')}</Button>
         <Alert tone="error">{error}</Alert>
       </div>
     );
@@ -62,7 +77,7 @@ export default function ProviderSheetPage({ providerId, tab: tabProp, canEdit, u
   if (!sheet) {
     return (
       <div className="section-gap">
-        <Button variant="ghost" size="sm" icon={ArrowLeft} onClick={back} className="back-link">{tr('Retour aux prestataires')}</Button>
+        <Button variant="ghost" size="sm" icon={ArrowLeft} onClick={back} className="back-link">{tr('Retour aux partenaires')}</Button>
         <Skeleton height={40} width="40%" /><Skeleton height={90} /><Skeleton height={280} />
       </div>
     );
@@ -76,19 +91,19 @@ export default function ProviderSheetPage({ providerId, tab: tabProp, canEdit, u
   return (
     <div className="section-gap">
       <div>
-        <Button variant="ghost" size="sm" icon={ArrowLeft} onClick={back} className="back-link">{tr('Retour aux prestataires')}</Button>
+        <Button variant="ghost" size="sm" icon={ArrowLeft} onClick={back} className="back-link">{tr('Retour aux partenaires')}</Button>
         <div className="detail-head">
           <div className="pv-head">
             <Avatar name={p.name} size="lg" />
             <div>
               <h1 className="page-title">{p.name}{p.shortName && <span className="pv-short"> · {p.shortName}</span>}</h1>
               <div className="detail-meta">
-                <span className="muted">{tr(p.typeLabel)}</span>
+                <RoleBadge role={sheet.role} />
                 {p.legalId && <span className="mono">{p.legalId}</span>}
                 <StatusBadge map={PROVIDER_STATUS} value={st.state} />
                 {st.from && (
                   <span className="muted">
-                    {periodLabel(st.from, st.to, tr)} · {st.contracts.map((c) => c.numero).join(', ')}
+                    {joinParts(periodLabel(st.from, st.to, tr), st.contracts.map((c) => contractNo(sheet.contracts.find((x) => x.id === c.id) || c)).join(', '))}
                   </span>
                 )}
                 {st.state === 'actif' && st.endingSoon && (
@@ -99,28 +114,36 @@ export default function ProviderSheetPage({ providerId, tab: tabProp, canEdit, u
             </div>
           </div>
           <div className="toolbar">
-            {canEdit && <Button variant="secondary" icon={Pencil} onClick={() => setEditing(true)}>{tr('Modifier le prestataire')}</Button>}
-            {canEdit && <Button icon={ClipboardCheck} onClick={() => { setNewEval(true); setTab('evaluation'); }}>{tr('Évaluer le prestataire')}</Button>}
+            {canEdit && <Button variant="secondary" icon={Pencil} onClick={() => setEditing(true)}>{tr('Modifier le partenaire')}</Button>}
+            {canEdit && isTpm && <Button icon={ClipboardCheck} onClick={() => { setNewEval(true); setTab('evaluation'); }}>{tr('Évaluer le TPM')}</Button>}
           </div>
         </div>
       </div>
 
-      <Stats items={[
-        { label: tr('Budget suivi des contrats'), value: formatAr(b.monitoringBudget),
-          foot: b.contracts ? tr('Total des accords : {amount}', { amount: formatAr(b.total) }) : tr('Aucun contrat rattaché') },
-        { label: tr('Réalisé validé (ce prestataire)'), value: formatAr(b.providerActual),
+      <Stats items={isTpm ? [
+        { label: tr('Budget suivi des contrats suivis'), value: formatAr(b.monitoringBudget),
+          foot: b.contracts ? tr('{n} contrat(s) suivi(s)', { n: b.contracts }) : tr('Aucun contrat rattaché') },
+        { label: tr('Réalisé validé (ce TPM)'), value: formatAr(b.providerActual),
           foot: b.providerShare == null ? tr('En attente de validation : {amount}', { amount: formatAr(b.providerPending) })
             : tr('{p} % du budget suivi · en attente : {amount}', { p: b.providerShare, amount: formatAr(b.providerPending) }) },
         { label: tr('Visites réalisées (12 mois)'), value: formatInt(v.realised12),
           foot: v.assigned ? tr('Ce mois : {r} sur {a} ({p} %)', { r: v.realised, a: v.assigned, p: v.rate }) : tr('Ce mois : aucune visite affectée') },
-        { label: tr('Note du prestataire'), value: ev ? formatScore(ev.score) : '—',
+        { label: tr('Note du TPM'), value: ev ? formatScore(ev.score) : '—',
           children: ev ? <span style={{ marginTop: 4 }}><StatusBadge map={BANDS} value={ev.band} /></span> : null,
           foot: ev ? tr('Évaluation {period}', { period: periodLabel(`${ev.from}-01`, `${ev.to}-01`, tr) }) : tr('Pas encore évalué') },
+      ] : [
+        { label: tr('Total des accords'), value: formatAr(b.total),
+          foot: b.contracts ? tr('{n} contrat(s) comme titulaire', { n: b.contracts }) : tr('Aucun contrat rattaché') },
+        { label: tr('Budget suivi (ligne IV)'), value: formatAr(b.monitoringBudget), foot: tr('Payé au TPM sur facture validée') },
+        { label: tr('Réalisé validé (TPM)'), value: formatAr(b.contractActual),
+          foot: b.consumption == null ? tr('— pas de ligne de suivi') : tr('{p} % du budget suivi', { p: b.consumption }) },
+        { label: tr(ROLE_LABELS.tpm), value: sheet.tpms.length || '—',
+          foot: sheet.tpms.length ? sheet.tpms.map((t) => t.name).join(', ') : tr(ROLE_LABELS.noTpm) },
       ]} />
 
       <Card>
         <div className="tabs-bar">
-          <div className="tabs" role="tablist" aria-label={tr('Sections du prestataire')}>
+          <div className="tabs" role="tablist" aria-label={tr('Sections du partenaire')}>
             {TABS.map((t) => (
               <button key={t.id} role="tab" aria-selected={tab === t.id} className="tab" onClick={() => setTab(t.id)}>
                 {tr(t.label)}{t.count && counts[t.count] > 0 && <span className="count"> {counts[t.count]}</span>}
@@ -128,9 +151,10 @@ export default function ProviderSheetPage({ providerId, tab: tabProp, canEdit, u
             ))}
           </div>
         </div>
-        {tab === 'apercu' && <Overview sheet={sheet} onTab={setTab} canEdit={canEdit} onEdit={() => setEditing(true)} />}
-        {tab === 'contrats' && <ProviderContractsTab providerId={providerId} onOpenContract={onOpenContract} />}
-        {tab === 'rapports' && <ProviderReportsTab providerId={providerId} onNavigate={onNavigate} onChanged={reload} />}
+        {tab === 'apercu' && <Overview sheet={sheet} onTab={setTab} canEdit={canEdit} onEdit={() => setEditing(true)}
+          onOpenContract={onOpenContract} onOpenPartner={openPartner} />}
+        {tab === 'contrats' && <ProviderContractsTab providerId={providerId} role={sheet.role} onOpenContract={onOpenContract} onOpenPartner={openPartner} />}
+        {tab === 'rapports' && <ProviderReportsTab providerId={providerId} role={sheet.role} onNavigate={onNavigate} onChanged={reload} />}
         {tab === 'suivis' && <ProviderFollowupsTab providerId={providerId} onNavigate={onNavigate} />}
         {tab === 'agents' && <ProviderAgentsTab providerId={providerId} canEdit={canEdit} onChanged={reload} />}
         {tab === 'formations' && <ProviderTrainingsTab providerId={providerId} canEdit={canEdit} onNavigate={onNavigate} />}
@@ -143,37 +167,88 @@ export default function ProviderSheetPage({ providerId, tab: tabProp, canEdit, u
   );
 }
 
-/** Vue d'ensemble : budget, activité de terrain, rapports, équipe, identité et zones. */
-function Overview({ sheet, onTab, canEdit, onEdit }) {
+/**
+ * Contrats de la fiche avec l'autre rôle (retour 113) : pour un TPM, les contrats qu'il suit et leur
+ * titulaire ; pour un titulaire, ses contrats et le TPM de chacun. N° FLA · titulaire, toujours.
+ */
+function ContractsPanel({ sheet, onOpenContract, onOpenPartner, onTab }) {
+  const { tr } = useI18n();
+  const isTpm = sheet.role === 'tpm';
+  const list = isTpm ? sheet.contracts : sheet.contracts.filter((c) => c.isHolder);
+  const VIA = { plan: 'plan de collecte', rapport: 'factures et rapports', titulaire: 'son propre contrat' };
+  return (
+    <section className="pv-panel span-2" aria-labelledby="pv-contracts">
+      <h2 className="pv-panel-title" id="pv-contracts"><FileText size={16} aria-hidden="true" />{tr(isTpm ? 'Contrats suivis' : 'Contrats et TPM')}</h2>
+      {list.length === 0 ? <p className="muted">{tr(isTpm ? 'Ce TPM ne suit encore aucun contrat : il y est rattaché dès son premier plan de collecte ou sa première facture.' : 'Aucun contrat comme titulaire.')}</p> : (
+        <div className="pr-tpm-list">
+          {list.map((c) => {
+            const mine = c.tpm.tpms.find((t) => t.id === sheet.partner.id);
+            return (
+              <div key={c.id} className="pr-tpm-row">
+                <div>
+                  <div className="pr-role-line">
+                    <button type="button" className="inline-link mono" onClick={() => onOpenContract(c.id)}>{contractNo(c)}</button>
+                    {isTpm && (c.isHolder ? <span className="muted">{tr('son propre contrat')}</span>
+                      : <span>· <button type="button" className="inline-link" onClick={() => c.holderId && onOpenPartner(c.holderId)}>{c.holderName}</button></span>)}
+                    <StatusBadge map={CONTRACT_STATUS} value={c.status} />
+                  </div>
+                  <span className="pv-sub">{joinParts(periodLabel(c.dateDebut, c.status === 'resilie' && c.terminationDate ? c.terminationDate : c.dateFin, tr),
+                    isTpm && mine && mine.via.length ? tr('rattaché par : {v}', { v: mine.via.map((x) => tr(VIA[x] || x)).join(', ') }) : null)}</span>
+                </div>
+                {!isTpm && (
+                  <div className="pv-right">
+                    <span className="stat-label">{tr(ROLE_LABELS.tpm)}</span>
+                    {c.tpm.tpms.length
+                      ? <span>{c.tpm.tpms.map((t, i) => <span key={t.id}>{i > 0 && ', '}<button type="button" className="inline-link" onClick={() => onOpenPartner(t.id)}>{t.name}</button></span>)}</span>
+                      : <span className="muted">{tr(ROLE_LABELS.noTpm)}</span>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <button type="button" className="inline-link pv-more" onClick={() => onTab('contrats')}>{tr('Voir le détail des contrats')} <ChevronRight size={14} aria-hidden="true" /></button>
+    </section>
+  );
+}
+
+/** Vue d'ensemble : contrats (avec l'autre rôle), budget, activité de terrain, rapports, équipe, identité et zones. */
+function Overview({ sheet, onTab, canEdit, onEdit, onOpenContract, onOpenPartner }) {
   const { tr } = useI18n();
   const { partner: p, facts, zones } = sheet;
+  const isTpm = sheet.role === 'tpm';
   const b = facts.budget; const v = facts.visits; const s = facts.submissions; const r = facts.reports; const ev = facts.evaluation;
   const reportCell = (kind, status) => (r[kind][status] ? r[kind][status] : <span className="cell-empty">0</span>);
   const more = (id, label) => <button type="button" className="inline-link pv-more" onClick={() => onTab(id)}>{label} <ChevronRight size={14} aria-hidden="true" /></button>;
 
   return (
     <div className="card-body pv-grid">
+      <ContractsPanel sheet={sheet} onOpenContract={onOpenContract} onOpenPartner={onOpenPartner} onTab={onTab} />
       <section className="pv-panel" aria-labelledby="pv-budget">
         <h2 className="pv-panel-title" id="pv-budget"><Wallet size={16} aria-hidden="true" />{tr('Budget et consommation')}</h2>
-        {b.contracts === 0 ? <p className="muted">{tr('Aucun contrat rattaché à ce prestataire (titulaire, plan de collecte, rapport ou visite).')}</p> : (
+        {b.contracts === 0 ? <p className="muted">{tr('Aucun contrat rattaché à ce partenaire (titulaire, plan de collecte, rapport ou visite).')}</p> : (
           <>
             <table className="kv pv-kv"><tbody>
               <tr><th>{tr('Contrats rattachés')}</th><td>{b.contracts}{b.monitoringContracts !== b.contracts && <span className="muted"> · {tr('{n} de suivi', { n: b.monitoringContracts })}</span>}</td></tr>
               <tr><th>{tr('Total des accords')}</th><td className="tabular">{formatAr(b.total)}</td></tr>
               <tr><th>{tr('Budget suivi (ligne IV)')}</th><td className="tabular">{formatAr(b.monitoringBudget)}</td></tr>
-              <tr><th>{tr('Planifié (plans de collecte)')}</th><td className="tabular">{formatAr(b.providerPlanned)}</td></tr>
-              <tr><th>{tr('Réalisé validé (ce prestataire)')}</th><td className="tabular"><strong>{formatAr(b.providerActual)}</strong></td></tr>
-              <tr><th>{tr('En attente de validation')}</th><td className="tabular">{formatAr(b.providerPending)}</td></tr>
+              {isTpm ? <>
+                <tr><th>{tr('Planifié (plans de collecte)')}</th><td className="tabular">{formatAr(b.providerPlanned)}</td></tr>
+                <tr><th>{tr('Réalisé validé (ce TPM)')}</th><td className="tabular"><strong>{formatAr(b.providerActual)}</strong></td></tr>
+                <tr><th>{tr('En attente de validation')}</th><td className="tabular">{formatAr(b.providerPending)}</td></tr>
+              </> : (
+                <tr><th>{tr('Réalisé validé (TPM)')}</th><td className="tabular"><strong>{formatAr(b.contractActual)}</strong></td></tr>
+              )}
             </tbody></table>
             {b.consumption != null && (
               <div className="pv-usage">
-                <span className="stat-label">{tr('Consommation du budget suivi (tous prestataires)')}</span>
+                <span className="stat-label">{tr('Consommation du budget suivi (tous TPM)')}</span>
                 <Usage rate={b.consumption / 100} />
               </div>
             )}
           </>
         )}
-        {more('contrats', tr('Voir les contrats'))}
       </section>
 
       <section className="pv-panel" aria-labelledby="pv-field">
@@ -194,9 +269,9 @@ function Overview({ sheet, onTab, canEdit, onEdit }) {
         {more('suivis', tr('Voir les suivis'))}
       </section>
 
-      <section className="pv-panel" aria-labelledby="pv-reports">
+      <section className={isTpm ? "pv-panel" : "pv-panel span-2"} aria-labelledby="pv-reports">
         <h2 className="pv-panel-title" id="pv-reports"><FileText size={16} aria-hidden="true" />{tr('Rapports et factures')}</h2>
-        {r.total === 0 ? <p className="muted">{tr('Aucun rapport enregistré pour ce prestataire.')}</p> : (
+        {r.total === 0 ? <p className="muted">{tr(isTpm ? 'Aucun rapport enregistré pour ce TPM.' : 'Aucun rapport sur les contrats de ce partenaire.')}</p> : (
           <div className="table-wrap"><table className="table pv-mini">
             <thead><tr><th scope="col">{tr('Type')}</th>{['attendu', 'soumis', 'valide', 'rejete'].map((k) => <th key={k} scope="col" className="num">{tr(REPORT_STATUS[k].label)}</th>)}</tr></thead>
             <tbody>
@@ -210,7 +285,7 @@ function Overview({ sheet, onTab, canEdit, onEdit }) {
         {more('rapports', tr('Voir les rapports'))}
       </section>
 
-      <section className="pv-panel" aria-labelledby="pv-team">
+      {isTpm && <section className="pv-panel" aria-labelledby="pv-team">
         <h2 className="pv-panel-title" id="pv-team"><Users size={16} aria-hidden="true" />{tr('Équipe et évaluation')}</h2>
         <table className="kv pv-kv"><tbody>
           <tr><th>{tr('Agents actifs')}</th><td className="tabular">{facts.team.active} <span className="muted">/ {facts.team.total}</span></td></tr>
@@ -220,7 +295,7 @@ function Overview({ sheet, onTab, canEdit, onEdit }) {
             : <span className="muted">{tr('Pas encore évalué')}</span>}</td></tr>
         </tbody></table>
         <div className="pv-links">{more('agents', tr('Voir les agents'))}{more('evaluation', tr("Voir l'évaluation"))}</div>
-      </section>
+      </section>}
 
       <section className="pv-panel span-2" aria-labelledby="pv-id">
         <div className="pv-panel-head">
@@ -238,7 +313,7 @@ function Overview({ sheet, onTab, canEdit, onEdit }) {
             <tr><th>{tr('Contact principal')}</th><td>{p.contactName || '—'}</td></tr>
             <tr><th>{tr('Téléphone')}</th><td>{p.contactPhone ? <a href={`tel:${p.contactPhone}`}>{p.contactPhone}</a> : '—'}</td></tr>
             <tr><th>{tr('Courriel')}</th><td>{p.contactEmail ? <a href={`mailto:${p.contactEmail}`}>{p.contactEmail}</a> : '—'}</td></tr>
-            <tr><th>{tr('Taux journalier')}</th><td className="tabular">{p.dailyRate == null ? '—' : formatAr(p.dailyRate)}</td></tr>
+            {isTpm && <tr><th>{tr('Taux journalier')}</th><td className="tabular">{p.dailyRate == null ? '—' : formatAr(p.dailyRate)}</td></tr>}
           </tbody></table>
         </div>
         <div className="pv-zones">
@@ -273,12 +348,12 @@ function ProfileModal({ partner, onClose, onSaved }) {
       const rate = f.dailyRate.trim() === '' ? null : Number(f.dailyRate.replace(/\s/g, '').replace(',', '.'));
       if (rate != null && !(rate >= 0)) throw new Error(tr('Taux journalier invalide.'));
       await api.updatePartnerProfile(partner.id, { ...f, dailyRate: rate });
-      toast.success(tr('Prestataire mis à jour.'));
+      toast.success(tr('Partenaire mis à jour.'));
       onSaved();
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   }
   return (
-    <Modal open size="lg" onClose={() => !busy && onClose()} title={tr('Modifier le prestataire — {name}', { name: partner.name })}
+    <Modal open size="lg" onClose={() => !busy && onClose()} title={tr('Modifier le partenaire — {name}', { name: partner.name })}
       footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button><Button onClick={save} loading={busy}>{tr('Enregistrer')}</Button></>}>
       <div className="form-grid">
         <Field label={tr('Sigle')} htmlFor="pf-short"><input id="pf-short" className="input" maxLength={40} value={f.shortName} onChange={set('shortName')} /></Field>

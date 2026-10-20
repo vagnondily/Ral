@@ -828,7 +828,7 @@ async function setTravelDays(tenantId, { providerId, month, travelDays }) {
 // Une clé étrangère ne voit pas la RLS : un identifiant d'un AUTRE tenant passerait.
 // Chaque référence d'une visite est donc vérifiée dans le tenant courant.
 // Le contrat d'une visite est dérivé de sa zone (retour 58) : il n'est plus reçu du client.
-const VISIT_REFS = [['siteId', 'sites', 'Site inconnu.'], ['providerId', 'partners', 'Prestataire inconnu.']];
+const VISIT_REFS = [['siteId', 'sites', 'Site inconnu.'], ['providerId', 'partners', 'TPM inconnu.']];
 async function assertVisitRefs(client, tenantId, v) {
   for (const [key, table, message] of VISIT_REFS) {
     if (!v[key]) continue;

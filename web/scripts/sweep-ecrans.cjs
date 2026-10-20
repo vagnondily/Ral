@@ -17,6 +17,9 @@ const API = `:${process.env.API_PORT || 9000}`;
 const DYNAMIC = [
   { api: '/api/partners/providers', pick: (rows) => (rows.find((r) => r.typeCode === 'tpm') || rows[0] || {}).id,
     routes: (id) => [`tpm/prestataires/${id}`, ...['contrats', 'rapports', 'suivis', 'agents', 'formations', 'evaluation'].map((t) => `tpm/prestataires/${id}/${t}`)] },
+  // Fiche d'un partenaire de mise en œuvre (titulaire, retour 113) : ses onglets propres.
+  { api: '/api/partners/providers', pick: (rows) => (rows.find((r) => r.typeCode === 'prestataire') || {}).id,
+    routes: (id) => [`tpm/prestataires/${id}`, ...['contrats', 'rapports', 'suivis'].map((t) => `tpm/prestataires/${id}/${t}`)] },
 ];
 const TILE = /ERR_TUNNEL_CONNECTION_FAILED|tile\.openstreetmap/;
 (async () => {

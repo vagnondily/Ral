@@ -158,7 +158,8 @@ const partnerRef = (p) => ({ id: p.id, name: p.name, shortName: p.shortName || n
 function contractRef(l) {
   const cov = coverageOf(l);
   return {
-    id: l.contractId, numero: l.numero, status: l.status,
+    // n° FLA à côté du numéro interne (retour 113 : un contrat s'affiche « n° FLA · titulaire »).
+    id: l.contractId, numero: l.numero, numeroFla: l.numeroFla || null, status: l.status,
     via: (Array.isArray(l.via) ? l.via : [l.via]).filter((v) => LINK_KINDS.includes(v)).sort((a, b) => LINK_KINDS.indexOf(a) - LINK_KINDS.indexOf(b)),
     from: cov ? cov.from : null, to: cov ? cov.to : null,
   };
