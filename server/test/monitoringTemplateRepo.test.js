@@ -202,6 +202,11 @@ test('création (C13) : valeur comptée aussi hors base, ou absente de la liste 
     assert.deepEqual([err.statusCode, err.details.code, err.details.item, err.details.value, err.details.field], [400, 'positive_not_in_list', 'GD_DPMC_TRAINED', '7', 'MODPMCMemb']);
     return true;
   });
+  await assert.rejects(repo.applyTemplate(T, FORM, { items: [ok, { code: 'GD_DPMC_TRAINED', sourceField: 'MODPMCMemb', positiveValue: null }] }), (err) => {
+    // « % de oui » sur une liste sans valeur comptée : 0 % assuré → refusé, élément nommé.
+    assert.deepEqual([err.statusCode, err.details.code, err.details.item], [400, 'positive_missing', 'GD_DPMC_TRAINED']);
+    return true;
+  });
   assert.equal(state.inserted.length, 0); // le lot est refusé entier : GD_NOT_PAID non plus
   // La même ligne, corrigée, passe.
   const out = await repo.applyTemplate(T, FORM, { items: [ok, { code: 'GD_DPMC_TRAINED', sourceField: 'MODPMCMemb', positiveValue: '1' }] });

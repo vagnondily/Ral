@@ -89,7 +89,7 @@ export default {
   'Le plus souvent une modification faite dans la fiche : pour information.': 'Most often a change made in the form: for information.',
   'différence': 'difference',
   'Différences': 'Differences',
-  'Appliquer la définition du modèle': 'Apply the template definition',
+  'Appliquer le modèle': 'Apply the template',
   'Choisissez une valeur de la liste de cette variable': 'Choose a value from this variable\'s list',
   // Mise à jour bloquée : la raison (absente, pas encore dans les données, incompatible, seulement ressemblante)
   'La variable du modèle « {v} » est dans cette fiche mais ne convient pas ({why}) : l\'import des données n\'y changera rien. Modifiez l\'indicateur à la main (liste des indicateurs).': 'Template variable “{v}” is in this form but does not fit ({why}): importing data will not change that. Edit the indicator by hand (indicator list).',
@@ -102,6 +102,7 @@ export default {
   '{v} (absente de cette fiche)': '{v} (not in this form)',
   // Refus du serveur, dans la langue de l'écran
   'La valeur comptée « {value} » n\'est pas dans la liste de la variable « {field} » : choisissez une valeur de sa liste.': 'Counted value “{value}” is not in the list of variable “{field}”: choose a value from its list.',
+  'Choisissez la valeur comptée dans la liste de la variable « {field} ».': 'Choose the counted value from the list of variable “{field}”.',
   'Cette fiche est rattachée à « {activity} » : son modèle est « {template} ». Changez l\'activité pour utiliser un autre modèle.': 'This form is linked to “{activity}”: its template is “{template}”. Change the activity to use another template.',
   'Modèle d\'indicateurs inconnu : « {key} ».': 'Unknown indicator template: “{key}”.',
   'Aucun modèle d\'indicateurs pour cette fiche : son activité n\'en a pas et ses variables ne correspondent à aucun modèle. Créez les indicateurs un par un (« Nouvel indicateur »).': 'No indicator template for this form: its activity has none and its variables match no template. Create the indicators one by one (“New indicator”).',

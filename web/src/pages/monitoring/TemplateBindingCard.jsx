@@ -431,7 +431,7 @@ function TemplateRow({ it, formId, row: r, fieldsByName, canEdit, rowError, drif
               <Button size="sm" variant="secondary" icon={RefreshCw} loading={updating === it.code} disabled={Boolean(updating)} onClick={() => onUpdate()}>{tr('Mettre à jour')}</Button>
             )}
             {canEdit && ds.applicable && (
-              <Button size="sm" variant="ghost" icon={RefreshCw} loading={updating === it.code} disabled={Boolean(updating)} onClick={() => onUpdate({ full: true })}>{tr('Appliquer la définition du modèle')}</Button>
+              <Button size="sm" variant="ghost" icon={RefreshCw} loading={updating === it.code} disabled={Boolean(updating)} onClick={() => onUpdate({ full: true })}>{tr('Appliquer le modèle')}</Button>
             )}
             {driftError && <div className="tpl-row-error" role="alert"><XCircle size={14} aria-hidden="true" /> <span>{tr('Mise à jour refusée : {msg}', { msg: driftError })}</span></div>}
           </div>

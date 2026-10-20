@@ -103,7 +103,7 @@ const SURE_CONFIDENCE = new Set(['sure', 'probable']);
  *    compté, envoyé par « Mettre à jour » et « Tout mettre à jour » (`patch`) ;
  *  - differences : autre valeur que le modèle, le plus souvent une modification faite dans la
  *    fiche — pour information, jamais comptée ni envoyée en lot ; seulement l'action de SA ligne
- *    (« Appliquer la définition du modèle », `fullPatch`) ;
+ *    (« Appliquer le modèle », `fullPatch`) ;
  *  - blocked : rien d'un clic, la raison est dite (variable du modèle absente, incompatible, ou
  *    seulement ressemblante). Par prudence, une variable proposée qui n'a pas été trouvée par son
  *    nom (« à vérifier ») bloque aussi, même si le serveur l'envoyait.
@@ -336,8 +336,11 @@ export function rowSelectable(item, row, fieldsByName) {
   if (!field) return { ok: false, reason: 'unknown_field' };
   if (typeIssue(item.agg, field.type)) return { ok: false, reason: 'type' };
   const positive = String(row.positive ?? '').trim();
-  // « % = valeur » sans valeur comptée serait refusé (indicatorRules) : à choisir d'abord.
-  if (item.agg === 'percent_value' && !positive) return { ok: false, reason: 'positive_required' };
+  // « % = valeur » sans valeur comptée serait refusé (indicatorRules) ; un « % de oui » sur une variable à
+  // liste sans valeur comptée ne compterait rien (serveur : positive_missing) — à choisir d'abord.
+  if (!positive && (item.agg === 'percent_value' || (item.agg === 'percent_yes' && (field.choices || []).length))) {
+    return { ok: false, reason: 'positive_required' };
+  }
   if (fieldIssues(item, field, positive).includes('positive')) return { ok: false, reason: 'positive_not_in_list' };
   return { ok: true, reason: null };
 }
@@ -355,7 +358,7 @@ export function checkedPayload(items, rows, fieldsByName) {
 
 /**
  * Refus de « Créer » qui nomme un élément (400 de applyTemplate : type_mismatch,
- * positive_not_in_list, positive_required, positive_is_na, unknown_variable) :
+ * positive_not_in_list, positive_missing, positive_required, positive_is_na, unknown_variable) :
  * { code, item, field, type, agg, value } pour l'afficher sur SA ligne, sinon null.
  */
 export function itemError(err) {
@@ -380,6 +383,8 @@ export function templateErrorText(err, tr, ctx = {}) {
       });
     case 'positive_not_in_list':
       return tr('La valeur comptée « {value} » n\'est pas dans la liste de la variable « {field} » : choisissez une valeur de sa liste.', { value: d.value ?? '', field: d.field || ctx.sourceField || '—' });
+    case 'positive_missing':
+      return tr('Choisissez la valeur comptée dans la liste de la variable « {field} ».', { field: d.field || ctx.sourceField || '—' });
     case 'activity_template':
       return tr('Cette fiche est rattachée à « {activity} » : son modèle est « {template} ». Changez l\'activité pour utiliser un autre modèle.', { activity: d.activity || '—', template: d.template || '—' });
     case 'unknown_template':

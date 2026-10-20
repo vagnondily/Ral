@@ -127,6 +127,10 @@ test('« Créer » envoie exactement les lignes cochées à l\'écran, contrôl�
     [null, 'positive_required', null, 'unknown_field', 'locked', null, 'positive_not_in_list', 'type']);
   assert.deepEqual(items.map((it) => v.isChecked(it, rows[it.code], fields)), [true, false, true, false, false, false, false, false]);
   assert.equal(v.rowSelectable({ code: 'Z', agg: 'mean' }, { on: true, field: '' }, fields).reason, 'no_field');
+  // « % de oui » sur une variable à liste sans valeur comptée : rien ne serait compté → à choisir (serveur : positive_missing).
+  assert.equal(v.rowSelectable({ code: 'Y', agg: 'percent_yes' }, { on: true, field: 'q1', positive: '' }, fields).reason, 'positive_required');
+  // Sans liste connue (nombre entier) : rien à choisir, la ligne reste cochable.
+  assert.equal(v.rowSelectable({ code: 'Y', agg: 'percent_yes' }, { on: true, field: 'q3', positive: '' }, fields).reason, null);
   // Défauts affichés pour la variable ACTUELLE (jamais ceux de la variable proposée au chargement).
   assert.deepEqual(v.fieldIssues(items[6], fields.get('qb'), '1'), ['positive']);
   assert.deepEqual(v.fieldIssues(items[7], fields.get('qm'), '1'), ['type']);
@@ -304,6 +308,7 @@ test('refus du serveur dans la langue de l\'écran (C20) : modèle, création, m
     { status: 400, message: 'fr', details: { code: 'type_mismatch', item: 'X', field: 'q', type: 'select_multiple', agg: 'percent_yes' } },
     { status: 400, message: 'fr', details: { code: 'positive_not_in_list', item: 'X', field: 'q', value: '7' } },
     { status: 400, message: 'fr', details: { code: 'positive_required', item: 'X' } },
+    { status: 400, message: 'fr', details: { code: 'positive_missing', item: 'X', field: 'q' } },
     { status: 400, message: 'fr', details: { code: 'positive_is_na', item: 'X', value: '888' } },
     { status: 400, message: 'Variable « x » introuvable dans cette fiche', details: { code: 'unknown_variable', name: 'x', suggestion: 'y' } },
     { status: 400, message: 'fr', details: { code: 'activity_template', activity: 'School meal activities', template: 'SMP' } },
@@ -358,7 +363,10 @@ test('composants : ils passent par ces règles (source) — filtres, rechargemen
   assert.match(page, /onLoaded=\{\(info\) => setTemplateShown\(Boolean\(info\.template\)\)\}/);
   // C23 : styles.css met les méta des tables en nowrap ; la carte du modèle laisse ses drapeaux passer à la ligne.
   assert.match(webSource('styles.css'), /\.table td \.site-meta \{ white-space: nowrap;/);
-  assert.match(webSource('pages/monitoring/templates.css'), /table\.tpl-table td \.site-meta:not\(\.tpl-field-label\) \{ white-space: normal; \}/);
+  const css = webSource('pages/monitoring/templates.css');
+  assert.match(css, /table\.tpl-table td \.site-meta:not\(\.tpl-field-label\) \{ white-space: normal; \}/);
+  // … et le libellé tronqué de la variable ne dépasse pas la largeur du champ (sinon la colonne s'élargit à 300 px).
+  assert.match(css, /table\.tpl-table \.tpl-field-label \{ max-width: 230px; \}/);
 });
 
 test('couverture affichée en pourcentage entier', async (t) => {

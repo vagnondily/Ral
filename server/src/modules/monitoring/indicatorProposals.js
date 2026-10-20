@@ -383,8 +383,9 @@ function templateDrift(item, binding, ind, { fields = null } = {}) {
  * Refus d'un élément envoyé à la création (applyTemplate, éléments cochés ou proposés) — même
  * contrôle que la carte et que l'éditeur, un élément nommé, rien d'écrit :
  *  - type de la variable incompatible avec la méthode (type_mismatch) ;
- *  - valeur comptée absente de la liste de la variable (positive_not_in_list) : l'indicateur
- *    calculerait toujours 0 % ;
+ *  - valeur comptée absente de la liste de la variable (positive_not_in_list), ou « % de oui »
+ *    sans valeur comptée sur une variable à liste (positive_missing) : l'indicateur calculerait
+ *    toujours 0 % ;
  *  - définition incohérente (indicatorRules.definitionIssue : « % = valeur » sans valeur,
  *    valeur comptée aussi hors base).
  * @param {object} item  élément du modèle
@@ -415,6 +416,14 @@ function templateRowIssue(item, field, def) {
         details: { code: 'positive_not_in_list', item: item.code, field: name, value: missing },
       };
     }
+  }
+  // « % de oui » sur une variable à liste, sans valeur comptée : rien de la liste ne serait compté (0 %).
+  if (item.agg === 'percent_yes' && !positive && choices.length) {
+    return {
+      code: 'positive_missing',
+      message: `${head} : choisissez la valeur comptée dans la liste de la variable « ${name} ».`,
+      details: { code: 'positive_missing', item: item.code, field: name },
+    };
   }
   const issue = definitionIssue({ agg: item.agg, positiveValue: def.positiveValue, naValues: def.naValues, target: def.target });
   if (issue) {
