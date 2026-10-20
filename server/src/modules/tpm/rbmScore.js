@@ -42,7 +42,7 @@ function monthIndex(m) {
 /** Mois écoulés depuis la dernière visite jusqu'à targetMonth (null si jamais visité). */
 function monthsSinceVisit(lastVisitMonth, targetMonth) {
   const a = monthIndex(lastVisitMonth);
-  const b = monthIndex(targetMonth) ?? monthIndex(new Date().toISOString().slice(0, 7));
+  const b = monthIndex(targetMonth) ?? monthIndex(currentMonth());   // même mois courant que la conséquence (jour local)
   if (a == null || b == null) return null;
   return b - a;
 }

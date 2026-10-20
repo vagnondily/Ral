@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { scoreSite, monthsSinceVisit } = require('../src/modules/tpm/rbmScore');
+const { withFrozenClock } = require('./helpers/frozenClock');
 
 test('site sans problème ni retard ⇒ score faible, priorité basse', () => {
   const r = scoreSite({ lastVisitMonth: '2026-09' }, { targetMonth: '2026-10', mmrInterval: 3 });
@@ -259,4 +260,22 @@ test('zone interdite : aucune action ne parle de visite (problème signalé vér
   assert.match(issues.label, /à distance/);
   assert.equal(issues.month, null);
   assert.ok(r.actions.every((a) => !/visite|planifi/i.test(a.label)), JSON.stringify(r.actions.map((a) => a.label)));
+});
+
+test('mois courant par défaut : le même (jour local) pour le délai et la conséquence — jamais deux horloges', async () => {
+  // 31 octobre 22 h 30 UTC = 1ᵉʳ novembre 1 h 30 à Madagascar.
+  await withFrozenClock('2026-10-31T22:30:00Z', () => {
+    const r = scoreSite({ lastVisitMonth: '2026-08' }, { mmrInterval: 3 });
+    assert.equal(r.consequence.targetMonth, '2026-11');
+    assert.equal(r.consequence.nextDueMonth, '2026-11');
+    assert.equal(r.consequence.monthsSinceVisit, 3);
+    assert.equal(r.consequence.overdue, true);
+    assert.equal(r.due, true);
+    assert.equal(monthsSinceVisit('2026-08'), 3);
+  });
+  // Fuseau UTC : encore octobre, partout.
+  await withFrozenClock('2026-10-31T22:30:00Z', () => {
+    const r = scoreSite({ lastVisitMonth: '2026-08' }, { mmrInterval: 3 });
+    assert.deepEqual([r.consequence.targetMonth, r.consequence.monthsSinceVisit, r.consequence.overdue], ['2026-10', 2, false]);
+  }, { timeZone: 'UTC' });
 });

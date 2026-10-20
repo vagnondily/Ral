@@ -16,6 +16,7 @@ const jwt = require('jsonwebtoken');
 const repo = require('../src/modules/tpm/field.repository');
 const routes = require('../src/modules/tpm/field.routes');
 const { errorHandler } = require('../src/middleware/errors');
+const { withFrozenClock } = require('./helpers/frozenClock');
 
 const SITE = '44444444-4444-4444-4444-444444444444';
 const calls = [];
@@ -41,7 +42,16 @@ test('GET /rbm/sites/:id : explication d\'un site, compte du jeton, mois transmi
 
 test('GET /rbm/sites/:id : sans mois → mois courant ; site inconnu → 404 ; identifiant invalide → 400 sans appel au dépôt', async () => {
   await request(app).get(`/api/tpm/field/rbm/sites/${SITE}`).set(as(viewer));
-  assert.equal(calls.at(-1).opts.month, require('../src/modules/common/localDay').localDay().slice(0, 7)); // mois courant LOCAL (APP_TIMEZONE)
+  // Mois courant LOCAL (APP_TIMEZONE) : le 31 octobre à 22 h 30 UTC, il est déjà 1 h 30 le 1ᵉʳ novembre
+  // à Madagascar — la route prend novembre, comme le reste du serveur (rbmMath.currentMonth).
+  await withFrozenClock('2026-10-31T22:30:00Z', async () => {
+    await request(app).get(`/api/tpm/field/rbm/sites/${SITE}`).set(as(viewer));
+  });
+  assert.equal(calls.at(-1).opts.month, '2026-11');
+  await withFrozenClock('2026-10-31T22:30:00Z', async () => {
+    await request(app).get(`/api/tpm/field/rbm/sites/${SITE}`).set(as(viewer));
+  }, { timeZone: 'UTC' });
+  assert.equal(calls.at(-1).opts.month, '2026-10');
   const missing = await request(app).get('/api/tpm/field/rbm/sites/55555555-5555-5555-5555-555555555555').set(as(viewer));
   assert.equal(missing.status, 404);
   const n = calls.length;
