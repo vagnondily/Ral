@@ -60,7 +60,7 @@ router.get('/resolve', validate(z.object({ siteId: uuid, month }), (req) => ({ s
   asyncHandler(controller.resolve));
 
 const logQuery = z.object({
-  batchId: optUuid, areaId: optUuid, visitId: optUuid,
+  batchId: optUuid, areaId: optUuid, visitId: optUuid, providerId: optUuid,
   from: z.preprocess(blank, month.nullable().optional()), to: z.preprocess(blank, month.nullable().optional()),
   action: z.preprocess(blank, z.enum(LOG_ACTIONS).nullable().optional()),
   limit: z.coerce.number().int().min(1).max(500).default(50),
@@ -116,5 +116,37 @@ router.post('/visits', WRITE, validate(z.object({
   providerId: optUuid.transform((v) => v || null),
   reason,
 }), (req) => req.body || {}), asyncHandler(controller.visits));
+
+// ---- Indisponibilités des TPM (retour 114) ------------------------------------------
+// Lecture : période « du … au … » (défaut : mois courant + 11). Écriture admin / manager : un TPM, une
+// plage de 24 mois au plus, un motif (10..500, nettoyé par le service, CHECK en base) ; l'empreinte de
+// l'aperçu protège d'une décision prise entre-temps (409).
+router.get('/unavailability', (req, res, next) => {
+  try {
+    req.valid = { period: withPeriod(req.query, () => ({ from: currentMonth(), to: addMonths(currentMonth(), 11) })) };
+    return next();
+  } catch (e) { return next(e); }
+}, asyncHandler(controller.unavailabilityList));
+
+/** Corps d'une décision d'indisponibilité → { providerId, from, to, … } (période contrôlée par la règle commune). */
+function unavailabilityBody(schema) {
+  return (req, res, next) => {
+    const parsed = schema.safeParse(req.body || {});
+    if (!parsed.success) return next(badRequest('Données invalides', parsed.error.flatten()));
+    try {
+      const { from, to, ...rest } = parsed.data;
+      const period = readPeriod({ from, to }, { required: true, maxSpan: MAX_SPAN_MONTHS });
+      req.valid = { ...rest, from: period.from, to: period.to };
+      return next();
+    } catch (e) { return next(e); }
+  };
+}
+const unavailabilityShape = { providerId: uuid, from: month, to: month, reason };
+router.post('/unavailability/preview', unavailabilityBody(z.object({ ...unavailabilityShape, mode: z.enum(['poser', 'retirer']) })),
+  asyncHandler(controller.unavailabilityPreview));
+router.put('/unavailability', WRITE, unavailabilityBody(z.object({ ...unavailabilityShape, stamp: z.string().min(1).max(64) })),
+  asyncHandler(controller.unavailabilitySet));
+router.post('/unavailability/end', WRITE, unavailabilityBody(z.object({ ...unavailabilityShape, stamp: z.string().min(1).max(64) })),
+  asyncHandler(controller.unavailabilityEnd));
 
 module.exports = router;

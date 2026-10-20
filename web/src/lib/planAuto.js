@@ -68,8 +68,8 @@ export function budgetCsvRows(preview, tr, locale = 'fr-FR') {
   return rows;
 }
 
-/** Libellé d'une unité de suivi : le TPM de la zone, sinon « Bureau X (suivi interne) ». */
+/** Libellé d'une unité de suivi : le TPM de la zone, sinon « Interne — Bureau X » (suivi par l'équipe S&E, retour 114). */
 export function unitLabel(t, tr) {
   if (t && t.assigned) return t.tpm;
-  return t && t.officeName ? tr('{office} (suivi interne)', { office: t.officeName }) : tr('Bureau (suivi interne)');
+  return t && t.officeName ? tr('Interne — {office}', { office: t.officeName }) : tr('Interne (équipe S&E)');
 }

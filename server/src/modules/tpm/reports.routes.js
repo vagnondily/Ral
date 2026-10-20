@@ -8,6 +8,9 @@ const repo = require('./reports.repository');
 const { readPeriod } = require('../../middleware/period');
 const { buildInvoiceWorkbook } = require('./factureXlsx');
 const { reportActions, REPORT_WRITE_ROLES, canWriteReports } = require('./reportWorkflow');
+const { currentMonth } = require('./rbmMath');
+const { addMonths } = require('../common/period');
+const { PERIOD_CAPS } = require('../common/periodCaps');
 
 const router = Router();
 router.use(requireAuth);
@@ -34,6 +37,14 @@ function body(schema) {
 const t = (req) => req.auth.tenantId;
 
 router.get('/context', asyncHandler(async (req, res) => res.json(await repo.reportContext(t(req)))));
+
+// Rapports attendus (retour 114) : ?from&to (60 mois au plus, comme la liste ; défaut : les 3 derniers mois). TPM sans
+// visite planifiée un mois → « non applicable » d'office ; suivi interne → rapport interne attendu.
+router.get('/expected', asyncHandler(async (req, res) => {
+  const today = currentMonth();
+  const period = readPeriod(req.query, { maxSpan: PERIOD_CAPS.document }) || { from: addMonths(today, -2), to: today };
+  res.json(await repo.expectedReports(t(req), { period, today }));
+}));
 
 // Liste : ?from&to (ou l'ancien ?month) — rapports dont la période chevauche ; sans période, tous.
 const idQ = (v) => (typeof v === 'string' && v ? v : undefined);

@@ -36,6 +36,7 @@ import coverageDefs from './en/coverageDefs.js';
 import pickers from './en/pickers.js';
 import indicatorProposals from './en/indicatorProposals.js';
 import planAuto from './en/planAuto.js';
+import tpmInternal from './en/tpmInternal.js';
 
 export default {
   // partners en tête : ses phrases déjà traduites ailleurs gardent la traduction de leur module.
@@ -43,6 +44,8 @@ export default {
   ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard, ...calc, ...importWizard, ...correspondences,
   ...indicatorEditor, ...dashboards, ...sites, ...deletions, ...activityCoverage, ...period, ...map, ...activation, ...reportLayout,
   ...tpmAttribution, ...coverageDefs, ...pickers, ...indicatorProposals, ...planAuto,
+  // Retour 114 : suivi interne, indisponibilités des TPM, rapports attendus.
+  ...tpmInternal,
   // Glossaire des rôles (retour 113) en dernier : ses libellés remplacent les anciens.
   ...roles,
 };

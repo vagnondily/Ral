@@ -731,3 +731,16 @@ Object.assign(api, {
   // Journal : lots paginés ({ areaId, from, to, action, limit, offset }) ou détail d'un lot ({ batchId }).
   tpmAttributionLog: (filters = {}) => request('/api/tpm/attribution/log', { query: qs(filters) }),
 });
+
+// ---- Suivi interne et indisponibilités des TPM (retour 114) ---------------------------------
+Object.assign(api, {
+  // Périodes d'indisponibilité des TPM qui chevauchent la période, et les TPM qu'on peut déclarer.
+  tpmUnavailability: (period) => request('/api/tpm/attribution/unavailability', { query: qs(pq(period)) }),
+  // Aperçu sans écriture : { providerId, from, to, mode: 'poser' | 'retirer', reason }.
+  tpmUnavailabilityPreview: (input) => request('/api/tpm/attribution/unavailability/preview', { method: 'POST', body: input }),
+  // Déclarer (motif obligatoire, empreinte de l'aperçu) / mettre fin : 409 si les indisponibilités ont changé entre-temps.
+  tpmUnavailabilitySave: (input) => request('/api/tpm/attribution/unavailability', { method: 'PUT', body: input }),
+  tpmUnavailabilityEnd: (input) => request('/api/tpm/attribution/unavailability/end', { method: 'POST', body: input }),
+  // Rapports attendus d'une période : TPM sans visite → non applicable d'office ; suivi interne → rapport interne.
+  expectedReports: (period) => request('/api/tpm/reports/expected', { query: qs(pq(period)) }),
+});

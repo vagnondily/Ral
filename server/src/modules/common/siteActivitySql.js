@@ -125,7 +125,8 @@ const districtNameSql = (s = 's') => `COALESCE(NULLIF(btrim(${s}.adm2), ''), NUL
  *              au moins une soumission non écartée de CE site ce mois-là, d'une fiche
  *              compatible avec l'activité du site — formSiteCompatibleSql) ; jamais par la
  *              seule commune. Ajoute le CTE dat et, dans fact, wd (données ce mois) et ua
- *              (visite non annulée sans prestataire) ; per_site gagne realised_any (déclaré
+ *              (visite non annulée que personne ne suit : ni TPM, ni suivi interne — retour 114,
+ *              site_visits.monitored_by) ; per_site gagne realised_any (déclaré
  *              OU données, pendant un mois actif), realised_data, et les visites (site × mois)
  *              v_planned, v_planned_realised (mois ÉCHUS seulement, règle du lot 1b : une
  *              visite prévue d'un mois à venir n'est pas « non exécutée »), v_off_plan
@@ -228,7 +229,7 @@ function siteMonthFactsCtes({
           AND ${formSiteCompatibleSql('mf.activity_category', "lower(NULLIF(btrim(s.activity), ''))")}
         GROUP BY 1, 2),` : '';
   const visExt = ext ? `,
-              bool_or(v.status <> 'annule' AND v.provider_id IS NULL) AS ua` : '';
+              bool_or(v.status <> 'annule' AND v.monitored_by = 'non_affecte') AS ua` : '';
   const factExt = ext ? `, COALESCE(v.ua, false) AS ua, ${withData ? 'd.site_id IS NOT NULL' : 'false'} AS wd` : '';
   const datJoin = withData ? ' LEFT JOIN dat d ON d.site_id = a.site_id AND d.m = a.m' : '';
   // Site × mois « creux » (visite ou données) : seules lignes qui comptent pour per_site, hors « actif ».

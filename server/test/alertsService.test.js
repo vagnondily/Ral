@@ -31,8 +31,11 @@ const SUBMITTED = {
 let fieldFails = false;
 consolidationRepo.consolidation = async () => ({ rows: [] });
 contractsService.listContracts = async () => [];
-const seen = { reports: [], field: [], coverage: [] };
+const seen = { reports: [], field: [], coverage: [], expected: [] };
 reportsRepo.listReports = async (tenantId, opts) => { seen.reports.push(opts); return [SUBMITTED]; };
+// Rapports attendus (retour 114) : réponse de reports.repository.expectedReports.
+let expectedRows = [];
+reportsRepo.expectedReports = async (tenantId, opts) => { seen.expected.push({ tenantId, ...opts }); return { rows: expectedRows }; };
 fieldRepo.summary = async (tenantId, opts) => { seen.field.push(opts); if (fieldFails) throw new Error('base indisponible'); return { overall: { active: 0, rate: null }, byProvider: [] }; };
 // Exécution du plan : mesures communes (retour 110), compte tiré de la session.
 let execution = { planned: 0, covered: 0, rate: null };
@@ -111,4 +114,27 @@ test('cloche : la couverture est lue SANS l\'état RBM (aucun score de site calc
     assert.equal(bell.overall.rbm, null, 'sans état RBM : null, jamais « 0 à suivre »');
     assert.equal(rbmCalls, 1);
   } finally { coverageService.coverage = stub; }
+});
+
+test('rapports en retard (retour 114) : seulement les factures attendues d un TPM qui avait des visites ; jamais non applicable ni interne', async () => {
+  seen.expected.length = 0;
+  const row = (over) => ({ month: '2026-07', unit: { kind: 'tpm', providerId: 'p1', name: 'RANO Control', offices: [] }, visits: { planned: 2, realised: 3 },
+    status: 'en_retard', expected: true, auto: false, due: '2026-08', reports: [], ...over });
+  expectedRows = [
+    row(),
+    row({ unit: { kind: 'tpm', providerId: 'p2', name: 'YPA', offices: [] }, visits: { planned: 0, realised: 0 }, status: 'non_applicable', expected: false, auto: true }),
+    row({ unit: { kind: 'interne', providerId: null, name: null, offices: ['Toliara'] }, status: 'attendu' }),
+    row({ unit: { kind: 'tpm', providerId: 'p3', name: 'SAHY Monitoring', offices: [] }, status: 'attendu', month: '2026-10', due: '2026-11' }),
+  ];
+  try {
+    const bell = await alerts({ tenantId: 't', userId: 'u2', role: 'admin' }, TODAY);
+    assert.deepEqual(seen.expected[0], { tenantId: 't', period: { from: '2025-11', to: '2026-10' }, today: '2026-10' }, 'la cloche : les 12 derniers mois, mois courant compris');
+    assert.deepEqual(bell.lateReportsWindow, { from: '2025-11', to: '2026-10' }, 'fenêtre rendue : la page la dit');
+    const late = bell.items.filter((a) => a.kind === 'report_late');
+    assert.equal(late.length, 1);
+    assert.deepEqual([late[0].sev, late[0].params.provider, late[0].params.n, late[0].params.month, late[0].params.due, late[0].scope],
+      ['warning', 'RANO Control', 5, { month: '2026-07' }, { month: '2026-08' }, 'a_date']);
+    await alerts({ tenantId: 't', userId: 'u2', role: 'admin' }, { ...TODAY, period: { from: '2026-01', to: '2026-06' } });
+    assert.deepEqual(seen.expected[1].period, { from: '2026-01', to: '2026-06' }, 'période choisie au Centre d alertes');
+  } finally { expectedRows = []; }
 });

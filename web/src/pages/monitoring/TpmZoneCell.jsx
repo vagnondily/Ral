@@ -2,7 +2,8 @@ import React from 'react';
 import { STATUS_ICONS } from '../../components/ui.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { shortMonthLabel } from '../../lib/format.js';
-import { TPM_ZONE_STATE, detachedHint, rangeLabel } from '../../lib/tpmAttribution.js';
+import { INTERNAL_HINT, TPM_ZONE_STATE, detachedHint, internalWhy, rangeLabel } from '../../lib/tpmAttribution.js';
+import { ROLE_LABELS } from '../../lib/roles.js';
 import './tpmAttribution.css';
 
 /** Adresse de l'onglet « Affectation des TPM » de l'espace RBM. */
@@ -33,8 +34,9 @@ export function divergentVisits(months, segments, year) {
  * Colonne « Prestataire (TPM) » du Plan de suivi (retour 58) : le TPM de la ZONE du site
  * (contrats de suivi, ou modification motivée), au mois de référence, avec son origine — couleur +
  * icône + libellé, jamais la couleur seule. L'infobulle donne les segments de l'exercice et les
- * visites qui portent un autre TPM. Sans TPM : « À affecter » ouvre l'onglet Affectation des TPM sur
- * la zone du site et le mois de référence ; l'infobulle dit aussi comment en obtenir un.
+ * visites qui portent un autre TPM. Sans TPM : « Interne » (suivi par l'équipe S&E, retour 114 —
+ * jamais « à affecter »), avec la raison (aucun contrat, contrat sans TPM, TPM indisponible…) ; le
+ * lien ouvre l'onglet Affectation des TPM sur la zone et le mois de référence.
  * @param {{ tpm: { ref, refMonth, segments }|null, months: object[] }} props
  */
 export default function TpmZoneCell({ tpm, months }) {
@@ -48,11 +50,9 @@ export default function TpmZoneCell({ tpm, months }) {
   const origin = {
     contrat: tr('contrat {n}', { n: ref.contractLabel || ref.numero || '' }),
     modifie: tr('modifié : {r}', { r: ref.reason || '' }),
-    aucun_tpm: tr('aucun TPM, décidé : {r}', { r: ref.reason || '' }),
     a_arbitrer: tr('{n} contrats : choisir', { n: (ref.candidates || []).length || 2 }),
-    sans_contrat: detachedHint(tr, ref) || tr('aucun contrat actif sur cette zone ce mois ({m})', { m: when }),
-    district_inconnu: tr('district du site non reconnu'),
-  }[ref.state] || '';
+    sans_contrat: detachedHint(tr, ref) || tr('aucun contrat de suivi sur cette zone ({m})', { m: when }),
+  }[ref.state] || internalWhy(tr, ref);
   const assigned = Boolean(ref.providerId);
   // Autres périodes de l'exercice qui ont un TPM (ex. contrat échu : « ASSOCIATION AINA janv. – sept. »).
   const others = segments.filter((s) => s.providerName && !(s.from <= refMonth && refMonth <= s.to) && s.providerName !== ref.providerName);
@@ -60,15 +60,15 @@ export default function TpmZoneCell({ tpm, months }) {
   const segText = (s) => {
     const what = s.providerName
       ? `${s.providerName} (${s.state === 'contrat' ? tr('contrat {n}', { n: s.contractLabel || s.numero || '' }) : tr((TPM_ZONE_STATE[s.state] || def).label)})`
-      : tr((TPM_ZONE_STATE[s.state] || def).label);
+      : `${tr((TPM_ZONE_STATE[s.state] || def).label)}${internalWhy(tr, s) ? ` (${internalWhy(tr, s)})` : ''}`;
     return `${rangeLabel(s.from, s.to)} : ${what}`;
   };
   const tooltip = [
-    tr('Règle : le TPM d\'un site est celui du contrat de suivi actif qui couvre son district (ou sa commune) ce mois-là — le TPM qui facture sur ce contrat, sinon son titulaire ; une modification exige une raison.'),
+    tr('Règle : le TPM d\'un site est celui du contrat de suivi actif qui couvre son district (ou sa commune) ce mois-là — le TPM qui facture sur ce contrat, sinon son titulaire s\'il est lui-même un TPM ; sans TPM, le suivi est interne (équipe S&E) ; une modification exige une raison.'),
     tr('TPM de la zone du site, exercice {y} :', { y: year }),
     ...segments.map(segText),
     ...(diff ? [tr('{n} visite(s) de l\'exercice portent un autre TPM (écart motivé ou saisi avant la règle).', { n: diff })] : []),
-    ...(ref.providerId ? [] : [tr('Pour affecter un TPM : ajoutez cette zone aux zones d\'intervention d\'un contrat de suivi actif (Contrats), ou choisissez un TPM pour une visite, avec une raison (Affectation & visites, crayon).')]),
+    ...(ref.providerId ? [] : [tr(INTERNAL_HINT), tr('Pour la confier à un TPM : ajoutez cette zone aux zones d\'intervention d\'un contrat de suivi actif qui a un TPM (Contrats), ou choisissez un TPM avec une raison (onglet Affectation des TPM, ou crayon d\'une visite).')]),
   ].join('\n');
   return (
     <td className={`pb-tpm tpm-tone-${def.tone || 'none'}`} title={tooltip}>
@@ -76,7 +76,7 @@ export default function TpmZoneCell({ tpm, months }) {
         <Icon size={13} aria-hidden="true" className="pb-tpm-ic" />
         {assigned
           ? <span className="pb-tpm-name">{ref.providerName}</span>
-          : <a className="pb-tpm-name pb-tpm-link" href={tpmTabHref({ zone: ref.areaId, month: refMonth })}>{tr('À affecter')}</a>}
+          : <a className="pb-tpm-name pb-tpm-internal" href={tpmTabHref({ zone: ref.areaId, month: refMonth })}>{tr(ROLE_LABELS.noTpm)}</a>}
         {diff > 0 && <span className="pb-tpm-diff" aria-label={tr('{n} visite(s) avec un autre TPM', { n: diff })}>≠ {diff}</span>}
       </span>
       <span className="pb-tpm-origin">{origin}</span>

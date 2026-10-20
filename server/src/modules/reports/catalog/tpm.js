@@ -29,7 +29,8 @@ const reportsStatus = ds('tpm.reports_status', {
     const T = phrases(ctx.lang);
     const per = new Map();
     for (const r of raw || []) {
-      if (!inPeriod(eff, m7(r.periodMonth)) || r.status === 'non_applicable') continue;
+      // Non applicable, saisi ou d'office (gabarit sans visite planifiée, retour 114 : reportExpectationSql).
+      if (!inPeriod(eff, m7(r.periodMonth)) || r.status === 'non_applicable' || r.autoNotApplicable) continue;
       const k = `${r.partnerId}|${r.kind}`;
       if (!per.has(k)) per.set(k, { partner: r.partnerName, kind: r.kind, expected: 0, ...Object.fromEntries(STATUSES.map((s) => [s, 0])) });
       const e = per.get(k);

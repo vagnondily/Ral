@@ -3,7 +3,8 @@ import { FileText, ExternalLink } from 'lucide-react';
 import { api } from '../../../api/client.js';
 import { Alert, Badge, Button, EmptyState, Skeleton, StatusBadge } from '../../../components/ui.jsx';
 import { useToast } from '../../../components/Toast.jsx';
-import { REPORT_KIND, REPORT_STATUS } from '../../../lib/contracts.js';
+import { REPORT_KIND } from '../../../lib/contracts.js';
+import { reportStatusDef } from '../../../lib/reportExpectation.js';
 import { formatAr, monthLabel } from '../../../lib/format.js';
 import { ROLE_LABELS, contractNo } from '../../../lib/roles.js';
 import { useI18n } from '../../../lib/i18n.jsx';
@@ -111,7 +112,8 @@ export default function ProviderReportsTab({ providerId, role, onNavigate, onCha
                   {!isTpm && <td>{r.tpmName || <span className="cell-empty">—</span>}</td>}
                   <td className="mono">{r.invoiceNo || <span className="cell-empty">—</span>}</td>
                   <td className="num tabular">{r.kind === 'financier' ? formatAr(r.reportedAmount || 0) : <span className="cell-empty">—</span>}</td>
-                  <td><StatusBadge map={REPORT_STATUS} value={r.status} /></td>
+                  {/* Gabarit sans visite planifiée : « non applicable d'office » (retour 114, même règle que Rapports). */}
+                  <td><StatusBadge def={reportStatusDef(r)} /></td>
                   <td style={{ textAlign: 'right' }}><Button size="sm" variant="secondary" onClick={() => openReport(r)}>{tr('Ouvrir')}</Button></td>
                 </tr>
               ))}

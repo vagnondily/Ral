@@ -47,9 +47,9 @@ test('CSV « base de budget » : décimales au séparateur de la langue (Excel e
   ] };
   const rows = m.budgetCsvRows(preview, tr, 'fr-FR');
   assert.equal(rows[1][7], '0,7');
-  assert.equal(rows[3][0], 'Bureau Toliara (suivi interne)');
+  assert.equal(rows[3][0], 'Interne — Bureau Toliara');
   assert.equal(rows[3][7], 1);
-  assert.equal(m.unitLabel({ assigned: false }, tr), 'Bureau (suivi interne)');
+  assert.equal(m.unitLabel({ assigned: false }, tr), 'Interne (équipe S&E)');
 });
 
 test('jours de collecte : la même règle écrite partout (une journée par agent et par date), en français et en anglais', async (t) => {

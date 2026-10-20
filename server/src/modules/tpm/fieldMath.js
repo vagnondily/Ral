@@ -6,6 +6,14 @@
 const { ratesOf } = require('../common/siteActivity');
 
 const STATUSES = ['planifie', 'realise', 'annule'];
+/**
+ * Lignes « par TPM » qui ne sont pas un TPM (retour 114) : 'interne' = suivi par l'équipe S&E
+ * (site_visits.monitored_by, migration 107) — jamais « non affecté » ; 'non_affecte' = visite
+ * antérieure à la règle sans TPM connu. Libellés français, traduits par l'interface.
+ */
+const UNIT_LABELS = { interne: 'Interne', non_affecte: 'Non affecté' };
+/** Clé « qui suit » d'une visite : son TPM, 'interne' ou 'non_affecte' (jumelle de monitorKeySql). */
+const unitKeyOf = (v) => v.providerId || (v.monitoredBy === 'interne' ? 'interne' : 'non_affecte');
 
 function blank() { return { planifie: 0, realise: 0, annule: 0, total: 0, active: 0, rate: 0 }; }
 
@@ -33,7 +41,7 @@ function summarizeVisits(visits, providerLabel = {}) {
 
   for (const v of visits || []) {
     add(overall, v.status);
-    add(bump(byProvider, v.providerId || 'non_affecte'), v.status);
+    add(bump(byProvider, unitKeyOf(v)), v.status);
     add(bump(byDistrict, v.district || '—'), v.status);
     add(bump(byOffice, v.office || '—'), v.status);
     add(bump(byActivity, v.activity || '—'), v.status);
@@ -45,7 +53,7 @@ function summarizeVisits(visits, providerLabel = {}) {
 
   return {
     overall,
-    byProvider: shape(byProvider, (id) => (id === 'non_affecte' ? 'Non affecté' : (providerLabel[id] || id))),
+    byProvider: shape(byProvider, (id) => UNIT_LABELS[id] || providerLabel[id] || id),
     byDistrict: shape(byDistrict),
     byOffice: shape(byOffice, (name) => (name === '—' ? 'Sans bureau' : name)),
     byActivity: shape(byActivity),
@@ -115,7 +123,7 @@ function shapeRangeSummary(groupRows, providerRows = []) {
     };
   }).sort((a, b) => a.month.localeCompare(b.month));
   const byProvider = providerRows.map((r) => ({
-    key: r.key, label: r.key === 'non_affecte' ? 'Non affecté' : (r.label || r.key), ...legacy(r),
+    key: r.key, label: UNIT_LABELS[r.key] || r.label || r.key, ...legacy(r),
     sites: { planned: n(r.sitesPlanned), realised: n(r.sitesRealised) },
   })).sort(byLabel);
   return {
@@ -248,4 +256,4 @@ function buildCoverageMatrix(rows, yearOrMonths) {
   return { year: y, months, groups: shaped, monthlyTotals, total: coverageRate(gp, gr) };
 }
 
-module.exports = { STATUSES, summarizeVisits, shapeRangeSummary, shapeCoverageFacts, factsOf, collectionDays, coverageRate, buildCoverageMatrix };
+module.exports = { STATUSES, UNIT_LABELS, unitKeyOf, summarizeVisits, shapeRangeSummary, shapeCoverageFacts, factsOf, collectionDays, coverageRate, buildCoverageMatrix };

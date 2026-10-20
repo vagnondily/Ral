@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ChevronRight, Download, History, ListChecks, PencilLine, RefreshCw, RotateCcw, Search, Undo2, X,
+  CalendarOff, ChevronRight, Download, History, ListChecks, PencilLine, RefreshCw, RotateCcw, Search, Undo2, X,
 } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, EmptyState, Skeleton, StatusBadge, Stats } from '../../components/ui.jsx';
@@ -9,9 +9,11 @@ import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { currentMonth, formatInt, monthLabel, shiftMonth, shortMonthLabel } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
-import { ROW_FLAGS, TPM_FLAGS, TPM_ZONE_STATE, applyResultMessage, rangeLabel } from '../../lib/tpmAttribution.js';
+import { INTERNAL_STATES, ROW_FLAGS, TPM_FLAGS, TPM_ZONE_STATE, applyResultMessage, internalWhy, isInternalState, rangeLabel } from '../../lib/tpmAttribution.js';
+import { ROLE_LABELS } from '../../lib/roles.js';
 import TpmChangeDialog from './TpmChangeDialog.jsx';
 import TpmAttributionLog from './TpmAttributionLog.jsx';
+import TpmUnavailabilityView from './TpmUnavailabilityView.jsx';
 import './planBoard.css';
 import './tpmAttribution.css';
 
@@ -23,10 +25,13 @@ import './tpmAttribution.css';
  * zone. Calculs côté serveur (/api/tpm/attribution) ; l'écran n'affiche que.
  * Props : { canEdit } (admin / manager : modifier, revenir au contrat, appliquer aux visites).
  * Lien profond : `?zone=<aire>&m=<AAAA-MM>` ouvre l'onglet sur cette zone, la période partant de ce mois
- * (« À affecter » du Plan de suivi, des Priorités du mois et d'Affectation & visites).
+ * (« Interne » du Plan de suivi, des Priorités du mois et d'Affectation & visites).
+ * Suivi interne (retour 114) : sans TPM — aucun contrat, contrat sans TPM, TPM indisponible, décidé —
+ * la zone est suivie par l'équipe S&E (« Interne »), jamais « à affecter ». Vue « Indisponibilités » :
+ * un TPM déclaré indisponible sur des mois, avec un motif ; ses zones passent en suivi interne.
  */
 const PILLS = [
-  ['all', 'Toutes'], ['modifie', 'Modifiées'], ['a_confirmer', 'À confirmer'], ['sans_contrat', 'Sans contrat'],
+  ['all', 'Toutes'], ['modifie', 'Modifiées'], ['a_confirmer', 'À confirmer'], ['interne', 'Suivi interne'],
   ['a_arbitrer', 'Plusieurs contrats'], ['ecarts', 'Écarts avec les visites'],
 ];
 const contractHref = (id) => `#/contrats/liste/${id}`;
@@ -66,7 +71,7 @@ export default function TpmAttributionTab({ canEdit }) {
   const [all, setAll] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [view, setView] = useState('zones'); // 'zones' | 'journal'
+  const [view, setView] = useState('zones'); // 'zones' | 'indispo' | 'journal'
   const [filters, setFilters] = useState({ region: '', provider: '', q: '', pill: 'all' });
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [selected, setSelected] = useState(() => new Set());
@@ -93,7 +98,7 @@ export default function TpmAttributionTab({ canEdit }) {
     all: () => true,
     modifie: (r) => hasState(r, ['modifie', 'aucun_tpm']),
     a_confirmer: (r) => hasFlag(r, 'a_confirmer'),
-    sans_contrat: (r) => hasState(r, ['sans_contrat']),
+    interne: (r) => hasState(r, INTERNAL_STATES),
     a_arbitrer: (r) => hasState(r, ['a_arbitrer']),
     ecarts: (r) => sumVisits(r).divergent > 0,
   };
@@ -131,17 +136,17 @@ export default function TpmAttributionTab({ canEdit }) {
   // Sites de la zone ce mois : une commune qui a sa propre ligne prend ses sites au district.
   const stats = useMemo(() => {
     if (!data) return null;
-    let covered = 0; let none = 0; let modified = 0; let divergent = 0;
+    let covered = 0; let internal = 0; let modified = 0; let divergent = 0;
     const ownCommune = new Map();
     for (const r of data.rows) if (r.depth === 3 && r.own[refIndex]) ownCommune.set(r.districtId, (ownCommune.get(r.districtId) || 0) + r.sites);
     for (const r of data.rows) {
       const sites = r.depth === 3 ? (r.own[refIndex] ? r.sites : 0) : r.sites - (ownCommune.get(r.id) || 0);
       const c = r.cells[refIndex];
-      if (c && c.providerId) covered += sites; else none += sites;
+      if (c && c.providerId) covered += sites; else internal += sites;
       if (hasState(r, ['modifie', 'aucun_tpm'])) modified += 1;
       divergent += sumVisits(r).divergent;
     }
-    return { covered, none, modified, divergent };
+    return { covered, internal, modified, divergent };
   }, [data, refIndex]);
 
   const setFilter = (k, v) => setFilters((f) => ({ ...f, [k]: v }));
@@ -160,14 +165,15 @@ export default function TpmAttributionTab({ canEdit }) {
   }
 
   function exportCsv() {
-    const head = [tr('Région'), tr('Zone'), tr('Niveau'), tr('Sites'), tr('Du'), tr('Au'), tr('TPM selon contrat'), tr('Contrat'), tr('TPM retenu'), tr('État'), tr('Raison')];
+    const head = [tr('Région'), tr('Zone'), tr('Niveau'), tr('Sites'), tr('Du'), tr('Au'), tr('TPM selon contrat'), tr('Contrat'), tr('TPM retenu'), tr('État'), tr('Pourquoi interne'), tr('Raison')];
     const lines = [head];
     for (const r of rows) {
       for (const s of r.segments) {
         const c = r.contractSegments.find((x) => x.from <= s.from && s.from <= x.to) || {};
         lines.push([r.regionName, r.name, r.depth === 3 ? tr('Commune') : tr('District'), r.sites, s.from, s.to,
-          c.providerName || tr((TPM_ZONE_STATE[c.state] || {}).label || ''), c.contractLabel || '', s.providerName || '',
-          tr((TPM_ZONE_STATE[s.state] || {}).label || s.state), s.override ? s.override.reason : '']);
+          c.providerName || tr((TPM_ZONE_STATE[c.state] || {}).label || ''), c.contractLabel || '', s.providerName || tr(ROLE_LABELS.noTpm),
+          tr((TPM_ZONE_STATE[s.state] || {}).label || s.state), isInternalState(s.state) ? internalWhy(tr, { ...s, reason: s.override ? s.override.reason : null }) : '',
+          s.override ? s.override.reason : '']);
       }
     }
     downloadCsv(`affectation_tpm_${period.from}_${period.to}.csv`, lines);
@@ -190,6 +196,7 @@ export default function TpmAttributionTab({ canEdit }) {
         <span className="mmr-spacer" />
         <div className="seg" role="tablist" aria-label={tr('Vue')}>
           <button type="button" role="tab" aria-selected={view === 'zones'} className={view === 'zones' ? 'is-active' : ''} onClick={() => setView('zones')}><ListChecks size={14} aria-hidden="true" /> {tr('Zones')}</button>
+          <button type="button" role="tab" aria-selected={view === 'indispo'} className={view === 'indispo' ? 'is-active' : ''} onClick={() => setView('indispo')}><CalendarOff size={14} aria-hidden="true" /> {tr('Indisponibilités')}</button>
           <button type="button" role="tab" aria-selected={view === 'journal'} className={view === 'journal' ? 'is-active' : ''} onClick={() => { setLogArea(null); setView('journal'); }}><History size={14} aria-hidden="true" /> {tr('Journal')}</button>
         </div>
       </div>
@@ -198,10 +205,12 @@ export default function TpmAttributionTab({ canEdit }) {
 
       {view === 'journal' ? (
         <TpmAttributionLog area={logArea} onClearArea={() => setLogArea(null)} />
+      ) : view === 'indispo' ? (
+        <TpmUnavailabilityView canEdit={canEdit} period={period} onChanged={load} />
       ) : (
         <>
           <p className="tpm-rule-note">
-            {tr('Par défaut, le TPM d\'une zone est celui du contrat de suivi qui la couvre ce mois-là (le TPM qui facture sur ce contrat, sinon son titulaire). Tout changement exige une raison et reste au journal ; les visites prévues reprennent le TPM de leur zone.')}
+            {tr('Par défaut, le TPM d\'une zone est celui du contrat de suivi qui la couvre ce mois-là (le TPM qui facture sur ce contrat, sinon son titulaire s\'il est lui-même un TPM). Sans TPM — aucun contrat, contrat sans TPM, TPM indisponible — la zone est suivie en interne par l\'équipe S&E. Tout changement exige une raison et reste au journal ; les visites prévues reprennent le TPM de leur zone.')}
           </p>
 
           {q && <QualityBanners quality={q} />}
@@ -209,7 +218,7 @@ export default function TpmAttributionTab({ canEdit }) {
           {!data ? <Skeleton height={96} /> : (
             <Stats items={[
               { label: tr('Sites avec un TPM ({m})', { m: shortMonthLabel(refMonth) }), value: formatInt(stats.covered), foot: tr('selon contrat ou modifié') },
-              { label: tr('Sites à affecter ({m})', { m: shortMonthLabel(refMonth) }), value: formatInt(stats.none), foot: tr('aucun contrat actif sur leur zone') },
+              { label: tr('Sites en suivi interne ({m})', { m: shortMonthLabel(refMonth) }), value: formatInt(stats.internal), foot: tr('équipe S&E : aucun TPM sur leur zone') },
               { label: tr('Zones modifiées'), value: formatInt(stats.modified), foot: tr('sur la période, avec une raison') },
               { label: tr('Visites prévues qui s\'écartent'), value: formatInt(stats.divergent), foot: tr('TPM différent de celui de la zone') },
             ]} />
@@ -329,7 +338,7 @@ const monthsSpan = (a, b) => {
 function contractText(tr, c) {
   if (!c) return '';
   if (c.state === 'a_arbitrer') return tr('{n} contrats : choisir', { n: (c.candidates || []).length });
-  if (!c.providerName) return tr('aucun contrat');
+  if (!c.providerName) return c.state === 'sans_tpm' ? internalWhy(tr, c) : tr('aucun contrat');
   return c.contractLabel ? `${c.providerName} (${c.contractLabel})` : c.providerName;
 }
 
@@ -380,6 +389,8 @@ function ZoneRow({ row, canEdit, selected, focused, onSelect, onChange, onRevert
                 {multi && <span className="tpa-seg-range">{rangeLabel(s.from, s.to)}</span>}
                 {(s.flags || []).filter((f) => ROW_FLAGS.includes(f) && f !== 'partiel').map((f) => <StatusBadge key={f} def={TPM_FLAGS[f]} />)}
               </div>
+              {!s.override && isInternalState(s.state) && <div className="tpa-seg-why">{internalWhy(tr, s)}</div>}
+              {s.override && s.state === 'indisponible' && <div className="tpa-seg-why">{internalWhy(tr, s)}</div>}
               {s.override && (
                 <div className="tpa-seg-why" title={`${s.override.reason}${s.override.by ? ` — ${s.override.by}` : ''}${s.override.at ? `, ${String(s.override.at).slice(0, 10)}` : ''}`}>
                   {tr('selon contrat : {c}', { c: contractText(tr, c) })} · <span className="tpa-reason-text">{s.override.reason}</span>
@@ -436,15 +447,15 @@ function QualityBanners({ quality: q }) {
   if ((q.contractsWithoutTpm || []).length) {
     out.push(
       <Alert key="notpm" tone="info">
-        {tr('{n} contrat(s) de suivi sans TPM rattaché (aucun plan de collecte ni facture d\'un TPM) : leur titulaire est retenu comme TPM.', { n: formatInt(q.contractsWithoutTpm.length) })}{' '}
-        {q.contractsWithoutTpm.map((c) => `${c.numero}${c.holder ? ` (${c.holder})` : ''}`).join(' · ')}
+        {tr('{n} contrat(s) de suivi sans TPM (aucun plan de collecte ni facture d\'un TPM, titulaire qui n\'est pas un TPM) : leurs zones sont suivies en interne par l\'équipe S&E, sauf si un autre contrat y a un TPM.', { n: formatInt(q.contractsWithoutTpm.length) })}{' '}
+        {q.contractsWithoutTpm.map((c) => `${c.contractLabel || c.numero}${c.holder ? ` (${c.holder})` : ''}`).join(' · ')}
       </Alert>,
     );
   }
   if (q.sitesWithoutDistrict > 0) {
     out.push(
       <Alert key="nodistrict" tone="info">
-        {tr('{n} site(s) sans district reconnu n\'héritent d\'aucun TPM.', { n: formatInt(q.sitesWithoutDistrict) })}{' '}
+        {tr('{n} site(s) sans district reconnu n\'héritent d\'aucun TPM : suivis en interne tant qu\'ils ne sont pas rapprochés.', { n: formatInt(q.sitesWithoutDistrict) })}{' '}
         <a href="#/parametrage/localites">{tr('Rapprocher dans Paramétrage › Localités')}</a>
       </Alert>,
     );

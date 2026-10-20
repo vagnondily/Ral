@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, UserPlus, Trash2, Wand2, ChevronLeft, ChevronRight, ChevronRight as GoIcon, Filter, CircleDashed, Clock, MinusCircle, RefreshCw } from 'lucide-react';
+import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, Users, Trash2, Wand2, ChevronLeft, ChevronRight, ChevronRight as GoIcon, Filter, CircleDashed, Clock, MinusCircle, RefreshCw } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, PageHeader, Skeleton } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
@@ -10,7 +10,8 @@ import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatInt, monthLabel } from '../../lib/format.js';
 import { richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
-import { REASON_MIN, TPM_VISIT, applyResultMessage, visitTpmKey, visitToAssign } from '../../lib/tpmAttribution.js';
+import { REASON_MIN, TPM_VISIT, applyResultMessage, internalWhy, visitTpmKey, visitInternal } from '../../lib/tpmAttribution.js';
+import { ROLE_LABELS } from '../../lib/roles.js';
 import { applyVisitPatch } from '../../lib/fieldVisits.js';
 import { coverageRateText } from '../../lib/coverage.js';
 import { formatRate } from '../../lib/mapScale.js';
@@ -172,7 +173,8 @@ export default function FieldVisitsPage({ canEdit }) {
 
   const communeCount = useMemo(() => new Set((visits || []).map((v) => `${v.district} › ${v.commune}`)).size, [visits]);
   const ov = summary?.overall;
-  const unassigned = (visits || []).filter(visitToAssign).length;
+  // Suivi interne (retour 114) : visites que l'équipe S&E fait elle-même — une affectation, pas un manque.
+  const internalVisits = (visits || []).filter(visitInternal).length;
 
   // Colonnes & filtres de la grille de planification (liste façon COMET).
   const columns = useMemo(() => {
@@ -184,7 +186,8 @@ export default function FieldVisitsPage({ canEdit }) {
       activity: { label: tr('Activité'), sortVal: (v) => v.activity || '', csv: (v) => v.activity || '',
         render: (v) => v.activity || '—' },
       // Retour 58 : TPM tiré du contrat qui couvre la zone ; changer = raison obligatoire.
-      provider: { label: tr('TPM'), sortVal: (v) => v.providerName || '', csv: (v) => v.providerName || '',
+      provider: { label: tr('TPM'), sortVal: (v) => v.providerName || (visitInternal(v) ? tr(ROLE_LABELS.noTpm) : ''),
+        csv: (v) => v.providerName || (visitInternal(v) ? tr(ROLE_LABELS.noTpm) : ''),
         render: (v) => <VisitTpmCell visit={v} canEdit={canEdit} onEdit={(x) => setTpmVisits([x])} /> },
       tpmOrigin: { label: tr('Origine du TPM'), sortVal: (v) => visitTpmKey(v), csv: (v) => tr((TPM_VISIT[visitTpmKey(v)] || TPM_VISIT['zone:']).label),
         render: (v) => tr((TPM_VISIT[visitTpmKey(v)] || TPM_VISIT['zone:']).label) },
@@ -214,16 +217,16 @@ export default function FieldVisitsPage({ canEdit }) {
     q: { label: tr('Recherche'), type: 'search', placeholder: tr('Site, commune, district…'),
       match: (v, val) => [v.siteName, v.commune, v.district, v.activity].some((x) => x && String(x).toLowerCase().includes(val.toLowerCase())) },
     provider: { label: tr('TPM'), type: 'select',
-      options: [{ id: '', label: tr('Tous les TPM') }, { id: 'non_affecte', label: tr('— À affecter (aucun contrat) —') }, ...providers.map((p) => ({ id: p.id, label: p.name }))],
-      match: (v, val) => (val === 'non_affecte' ? visitToAssign(v) : v.providerId === val) },
+      options: [{ id: '', label: tr('Tous les TPM') }, { id: 'interne', label: tr('— Interne (équipe S&E) —') }, ...providers.map((p) => ({ id: p.id, label: p.name }))],
+      match: (v, val) => (val === 'interne' ? visitInternal(v) : v.providerId === val) },
     tpmOrigin: { label: tr('Origine du TPM'), type: 'select',
       options: [{ id: '', label: tr('Toutes les origines') }, { id: 'contrat', label: tr('Selon contrat') }, { id: 'modifie', label: tr('Modifiés (zone ou visite)') },
-        { id: 'a_affecter', label: tr('À affecter') }, { id: 'plusieurs', label: tr('Plusieurs contrats : choisir') }],
+        { id: 'interne', label: tr('Interne (équipe S&E)') }, { id: 'plusieurs', label: tr('Plusieurs contrats : choisir') }],
       match: (v, val) => {
         const src = v.providerSource || 'zone';
         if (val === 'contrat') return src === 'zone' && v.providerZoneState === 'contrat';
         if (val === 'modifie') return src !== 'zone' || v.providerZoneState === 'modifie' || v.providerZoneState === 'aucun_tpm';
-        if (val === 'a_affecter') return visitToAssign(v);
+        if (val === 'interne') return visitInternal(v);
         if (val === 'plusieurs') return src === 'zone' && v.providerZoneState === 'a_arbitrer';
         return true;
       } },
@@ -279,7 +282,7 @@ export default function FieldVisitsPage({ canEdit }) {
       </div>
 
       <p className="tpm-rule-note">
-        {tr('Le TPM de chaque visite vient du contrat de suivi qui couvre la zone du site ce mois-là : rien à saisir. Un autre TPM se motive (crayon) ; une zone sans contrat s\'ajoute aux zones d\'intervention d\'un contrat de suivi.')}{' '}
+        {tr('Le TPM de chaque visite vient du contrat de suivi qui couvre la zone du site ce mois-là : rien à saisir. Sans TPM (aucun contrat, contrat sans TPM, TPM indisponible), la visite est suivie en interne par l\'équipe S&E. Un autre TPM se motive (crayon).')}{' '}
         {tr('Pour toute une zone et plusieurs mois :')} <a href={tpmTabHref({ month })}>{tr('Affectation des TPM')}</a>.
       </p>
 
@@ -297,7 +300,7 @@ export default function FieldVisitsPage({ canEdit }) {
         {ov && (
           <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(5, minmax(0,1fr))' }}>
             <Kpi icon={MapPin} tone="blue" label={tr('Sites du mois')} value={formatInt(ov.total)} foot={tr('{n} commune(s)', { n: communeCount })} />
-            <Kpi icon={UserPlus} tone={unassigned ? 'amber' : 'green'} label={tr('À affecter')} value={formatInt(unassigned)} foot={tr('Aucun contrat actif sur la zone')} />
+            <Kpi icon={Users} tone="blue" label={tr('Suivi interne')} value={formatInt(internalVisits)} foot={tr('Équipe S&E : aucun TPM sur la zone')} />
             <Kpi icon={CalendarClock} tone="blue" label={tr('Planifiées')} value={formatInt(ov.planifie)} foot={tr('À réaliser')} />
             <Kpi icon={CheckCircle2} tone="green" label={tr('Réalisées')} value={formatInt(ov.realise)} foot={coverageRateText(ov, lang) ? tr('{p} d\'exécution des visites (déclarées)', { p: coverageRateText(ov, lang) }) : tr('— aucun plan')} />
             <Kpi icon={Ban} tone="red" label={tr('Annulées')} value={formatInt(ov.annule)} foot={tr('Exclues du taux')} />
@@ -486,7 +489,7 @@ function CoverageCard({ title, rows }) {
       <div className="card-body biz-gauges">
         {rows.map((r) => (
           <div className="biz-gauge" key={r.key}>
-            <div className="biz-gauge-head"><span>{r.label}</span><span className="tabular">{r.realise}/{r.active} · {coverageRateText(r, lang) || tr('— aucun plan')}</span></div>
+            <div className="biz-gauge-head"><span>{r.key === 'interne' || r.key === 'non_affecte' ? tr(r.label) : r.label}</span><span className="tabular">{r.realise}/{r.active} · {coverageRateText(r, lang) || tr('— aucun plan')}</span></div>
             <div className="biz-bar"><span style={{ width: `${Math.round(r.rate * 100)}%`, background: r.rate >= 0.8 ? 'var(--green)' : 'var(--blue-600)' }} /></div>
           </div>
         ))}
@@ -596,7 +599,7 @@ function AddVisitModal({ month, roles, onClose, onSaved }) {
           <>
             <div className="field">
               <label className="field-label" htmlFor="add-visit-provider">{tr('Autre TPM')}</label>
-              <ProviderSelect id="add-visit-provider" selectable={zoneTpm && zoneTpm.selectable} value={provider} onChange={setProvider} noneLabel={tr('Aucun TPM (désaffecter)')} />
+              <ProviderSelect id="add-visit-provider" selectable={zoneTpm && zoneTpm.selectable} value={provider} onChange={setProvider} noneLabel={tr('Interne (équipe S&E)')} />
             </div>
             <ReasonField id="add-visit-reason" value={reason} onChange={setReason} required />
           </>
@@ -624,6 +627,6 @@ function ZoneTpmLine({ resolved, mode }) {
     : tr('contrat {n}', { n: resolved.contractLabel || resolved.numero || '' });
   const text = resolved.providerId
     ? tr('{p}, selon la zone {z} ({o})', { p: resolved.providerName, z: zone, o: origin })
-    : tr('À affecter : aucun contrat actif sur la zone {z} ce mois. Pour toute la zone, utilisez l\'onglet Affectation des TPM.', { z: zone });
-  return <p className={`tpm-zone-line ${resolved.providerId ? '' : 'is-none'}`}>{text}</p>;
+    : tr('Interne : l\'équipe S&E suit la zone {z} ce mois ({w}). Pour la confier à un TPM, utilisez l\'onglet Affectation des TPM.', { z: zone, w: internalWhy(tr, { ...resolved, reason: resolved.override ? resolved.override.reason : null }) });
+  return <p className={`tpm-zone-line ${resolved.providerId ? '' : 'is-internal'}`}>{text}</p>;
 }

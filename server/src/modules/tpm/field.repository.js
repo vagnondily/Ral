@@ -18,7 +18,7 @@ const { monthWithin } = require('../common/periodSql');
 const { siteMonthFactsCtes, siteDistrictCtes, DISTRICT_LABEL_SQL, SITE_FACT_COLUMNS, MONTH_FACT_COLUMNS } = require('../common/siteActivitySql');
 // Retour 58 : TPM des visites = celui de leur zone (toute écriture de visites finit par restampVisitsTx ;
 // filet de sécurité en base : migration 070). Verrou d'attribution AVANT toute ligne de visite mise à jour.
-const { restampVisitsTx, lockAttributionTx, applyVisitRequestTx, boardTpmTx } = require('./tpmAttribution.repository');
+const { restampVisitsTx, lockAttributionTx, applyVisitRequestTx, boardTpmTx, monitorKeySql } = require('./tpmAttribution.repository');
 const { visitErrorMessage } = require('./tpmAttribution');
 
 /** Période d'un appel : `period` ({ from, to } | null) si fourni, sinon l'ancien { month }. */
@@ -515,6 +515,7 @@ const VISIT_COLS = `
   v.activity, to_char(v.period_month, 'YYYY-MM') AS "periodMonth",
   v.provider_id AS "providerId", p.name AS "providerName",
   v.provider_source AS "providerSource", v.provider_zone_state AS "providerZoneState", v.provider_reason AS "providerReason",
+  v.monitored_by AS "monitoredBy",
   COALESCE(c.numero_fla, c.numero) AS "contractLabel", s.zone_district_id AS "zoneDistrictId",
   v.agent, v.status, v.visit_date AS "visitDate"`;
 
@@ -703,7 +704,7 @@ async function summary(tenantId, opts = {}) {
     const pp = [tenantId];
     const within = monthWithin('v.period_month', period, pp);
     const { rows: providers } = await client.query(
-      `SELECT COALESCE(v.provider_id::text, 'non_affecte') AS key, min(p.name) AS label,
+      `SELECT ${monitorKeySql('v')} AS key, min(p.name) AS label,
               count(*) FILTER (WHERE v.status = 'planifie')::int AS planifie,
               count(*) FILTER (WHERE v.status = 'realise')::int AS realise,
               count(*) FILTER (WHERE v.status = 'annule')::int AS annule,
@@ -780,11 +781,11 @@ async function coverageMatrix(tenantId, { year, period } = {}) {
     const pw = monthWithin('v.period_month', p, pp);
     const { rows: prov } = await client.query(
       `SELECT to_char(v.period_month, 'YYYY-MM') AS month,
-              COALESCE(v.provider_id::text, 'non_affecte') AS key,
-              COALESCE(p.name, 'Non affecté') AS label,
+              ${monitorKeySql('v')} AS key,
+              COALESCE(p.name, CASE WHEN v.monitored_by = 'interne' THEN 'Interne' ELSE 'Non affecté' END) AS label,
               count(*) FILTER (WHERE v.status = 'planifie')::int AS planifie,
               count(*) FILTER (WHERE v.status = 'realise')::int AS realise
-         FROM site_visits v LEFT JOIN partners p ON p.id = v.provider_id
+         FROM site_visits v LEFT JOIN partners p ON p.id = v.provider_id AND p.tenant_id = v.tenant_id
         WHERE v.tenant_id = $1 AND ${pw}
         GROUP BY 1, 2, 3`,
       pp
@@ -1043,7 +1044,7 @@ async function coverageFacts(tenantId, { period: asked = null, officeId = null, 
     else if (officeId) { pp.push(officeId); scope += ` AND (s.field_office_id = $${pp.length}::uuid OR fo.parent_id = $${pp.length}::uuid)`; }
     if (activity) { pp.push(activity); scope += ` AND lower(btrim(s.activity)) = lower(btrim($${pp.length}::text))`; }
     const { rows: providers } = await client.query(
-      `SELECT COALESCE(v.provider_id::text, 'non_affecte') AS key, min(p.name) AS label,
+      `SELECT ${monitorKeySql('v')} AS key, min(p.name) AS label,
               count(*) FILTER (WHERE v.status = 'planifie')::int AS planifie,
               count(*) FILTER (WHERE v.status = 'realise')::int AS realise,
               count(*) FILTER (WHERE v.status = 'annule')::int AS annule,

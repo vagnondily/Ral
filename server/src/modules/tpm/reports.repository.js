@@ -10,6 +10,12 @@ const { assertItemActivities } = require('./activityRefs');
 const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
 const { isValidatedStatus, decideDocumentDeletion, linkedSummary } = require('../common/deletionPolicy');
 const { recordDeletion } = require('../deletions/deletions.repository');
+const { monthsOf } = require('../common/period');
+const { expectedReports: expectedRule } = require('./reportExpectation');
+const { contractTpmPairsByMonth } = require('./tpmAttribution');
+const { stubNotApplicableSql } = require('./reportExpectationSql');
+const { PERIOD_CAPS } = require('../common/periodCaps');
+const tpmAttributionRepo = require('./tpmAttribution.repository');
 
 /**
  * Rapports & dépenses (sub-module of Partenaires & TPM). Monthly financial /
@@ -33,7 +39,8 @@ const REPORT_COLUMNS = `
   r.status, r.comment, r.created_by AS "createdBy", u.email AS "createdByEmail", r.created_at AS "createdAt",
   r.submitted_at AS "submittedAt", r.submitted_by AS "submittedBy", sb.email AS "submittedByEmail",
   r.edited_by AS "editedBy", ed.email AS "editedByEmail", r.edited_at AS "editedAt",
-  r.decided_by AS "decidedBy", d.email AS "decidedByEmail", r.decided_at AS "decidedAt"`;
+  r.decided_by AS "decidedBy", d.email AS "decidedByEmail", r.decided_at AS "decidedAt",
+  ${stubNotApplicableSql('r')} AS "autoNotApplicable"`;
 
 const FROM = `
   FROM tpm_reports r
@@ -272,6 +279,7 @@ async function insertReport(tenantId, r) {
     await assertActiveTpmTx(client, tenantId, r.partnerId); // une facture / un rapport = un TPM actif (D1)
     const existing = await findExisting(client, tenantId, r);
     if (existing) { const e = new Error('duplicate'); e.code = 'DUP'; throw e; }
+    const had = await tpmAttributionRepo.tpmLinkExistsTx(client, tenantId, r.partnerId, r.contractId); // D1 : TPM du contrat avant
 
     // A financial report with an état des dépenses derives its reported
     // amount from the items (the funder (bailleur) share) — never the typed figure.
@@ -298,6 +306,8 @@ async function insertReport(tenantId, r) {
         WHERE tenant_id = $1 AND id = $2`,
       [tenantId, id, r.createdBy]
     );
+    // Première facture d'un TPM sur ce contrat : il en devient le TPM — visites prévues ré-estampillées (retour 114).
+    await tpmAttributionRepo.restampIfTpmLinkChangedTx(client, tenantId, { partnerId: r.partnerId, contractId: r.contractId, had });
     return id;
   });
 }
@@ -384,6 +394,8 @@ async function deleteReport(tenantId, id, { actorId, isAdmin = false, justificat
       deletedBy: actorId,
     });
     await client.query('DELETE FROM tpm_reports WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+    // Dernier document de ce TPM sur ce contrat : il n'en est plus le TPM (retour 114).
+    await tpmAttributionRepo.restampIfTpmLinkChangedTx(client, tenantId, { partnerId: report.partnerId, contractId: report.contractId, had: true });
     return 'ok';
   });
 }
@@ -404,6 +416,7 @@ async function generateMonthlyStubs(tenantId, { contractId, partnerId, createdBy
     const toIdx = (d) => { const [y, m] = String(d).slice(0, 7).split('-').map(Number); return y * 12 + (m - 1); };
     const start = toIdx(c[0].dateDebut);
     const end = toIdx(c[0].dateFin);
+    const had = await tpmAttributionRepo.tpmLinkExistsTx(client, tenantId, partnerId, contractId); // D1 : TPM du contrat avant
     let created = 0;
     for (let i = start; i <= end && i - start < 60; i += 1) {
       const month = `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}-01`;
@@ -415,6 +428,8 @@ async function generateMonthlyStubs(tenantId, { contractId, partnerId, createdBy
       );
       created += rowCount;
     }
+    // Gabarits du premier lien de ce TPM avec ce contrat : il en devient le TPM (retour 114).
+    await tpmAttributionRepo.restampIfTpmLinkChangedTx(client, tenantId, { partnerId, contractId, had });
     return { created };
   });
 }
@@ -487,7 +502,57 @@ async function markNotApplicable(tenantId, id, userId, comment) {
   });
 }
 
+/**
+ * Rapports attendus d'une période (retour 114) — entrées de la règle pure reportExpectation, lues en
+ * une transaction, agrégées en SQL : visites par unité de suivi (TPM, ou « interne » : colonne générée
+ * monitored_by) × mois, avec les bureaux des sites suivis en interne (antenne comptée avec son
+ * bureau) ; factures de la période ; TPM des contrats de suivi de chaque mois (décision D1, la règle
+ * de l'estampille : tpmAttribution.holdersByMonth) ; indisponibilités des TPM. Lecture seule.
+ * @param {{ period: {from,to}, today: string }} opts  today = « AAAA-MM »
+ */
+async function expectedReports(tenantId, { period, today }) {
+  // Même plafond que la liste des rapports (documents : 60 mois) — l'écran ne propose jamais plus.
+  const months = monthsOf(period, { max: PERIOD_CAPS.document });
+  return withTenantTransaction(tenantId, async (client) => {
+    const lo = `${period.from}-01`; const hi = `${period.to}-01`;
+    // Visites par unité de suivi × CONTRAT × mois (une facture par TPM, contrat et mois).
+    const { rows: activity } = await client.query(
+      `SELECT to_char(v.period_month, 'YYYY-MM') AS month, ${tpmAttributionRepo.monitorKeySql('v')} AS key,
+              CASE WHEN v.provider_id IS NOT NULL THEN v.contract_id END AS "contractId", min(p.name) AS name,
+              count(*) FILTER (WHERE v.status = 'planifie')::int AS planned,
+              count(*) FILTER (WHERE v.status = 'realise')::int AS realised,
+              count(*) FILTER (WHERE v.status = 'annule')::int AS cancelled,
+              array_remove(array_agg(DISTINCT COALESCE(po.name, fo.name)) FILTER (WHERE v.monitored_by = 'interne' AND v.status <> 'annule'), NULL) AS offices
+         FROM site_visits v
+         JOIN sites s ON s.tenant_id = v.tenant_id AND s.id = v.site_id
+         LEFT JOIN field_offices fo ON fo.tenant_id = v.tenant_id AND fo.id = s.field_office_id
+         LEFT JOIN field_offices po ON po.tenant_id = v.tenant_id AND po.id = fo.parent_id
+         LEFT JOIN partners p ON p.tenant_id = v.tenant_id AND p.id = v.provider_id
+        WHERE v.tenant_id = $1 AND v.period_month BETWEEN $2::date AND $3::date
+        GROUP BY 1, 2, 3`, [tenantId, lo, hi]);
+    // Factures qui CHEVAUCHENT la période (facture pluri-mensuelle comprise, comme la liste des rapports).
+    const rp = [tenantId];
+    const { rows: reports } = await client.query(
+      `SELECT r.id, r.partner_id AS "partnerId", pa.name AS "partnerName", r.contract_id AS "contractId",
+              COALESCE(c.numero_fla, c.numero) AS "contractLabel", to_char(r.period_month, 'YYYY-MM') AS month,
+              to_char(COALESCE(r.period_end, r.period_month), 'YYYY-MM') AS "endMonth", r.status
+         FROM tpm_reports r
+         JOIN partners pa ON pa.tenant_id = r.tenant_id AND pa.id = r.partner_id
+         JOIN contracts c ON c.tenant_id = r.tenant_id AND c.id = r.contract_id
+        WHERE r.tenant_id = $1 AND r.kind = 'financier' AND ${spanOverlaps('r.period_month', 'r.period_end', period, rp)}`, rp);
+    const inputs = await tpmAttributionRepo.loadInputsTx(client, tenantId, period);
+    const names = new Map(inputs.partners.map((x) => [x.id, x.name]));
+    const contractLabels = new Map(inputs.contracts.map((c) => [c.id, c.numeroFla || c.numero]));
+    const unavailable = new Set(inputs.unavailability.map((u) => `${u.providerId}|${u.month}`));
+    const out = expectedRule({
+      months, today, activity, contractPairs: contractTpmPairsByMonth(inputs.contracts, months), names, contractLabels, reports, unavailable,
+    });
+    return { period: { from: period.from, to: period.to }, today, ...out };
+  });
+}
+
 module.exports = {
+  expectedReports,
   listReports, getReport, invoiceData, reportContext, insertReport, submitReport, setStatus, markNotApplicable,
   replaceReportItems, deleteReport, generateMonthlyStubs,
 };

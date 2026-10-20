@@ -8,6 +8,7 @@ const { providerLinksTx, contractTpmViewsTx } = require('../tpm/activeProvider.r
 const { monthWithin } = require('../common/periodSql');
 const { followedSql, timelineTrainingSql, heldSql } = require('../trainings/trainingSql');
 const { roleForUpdateTx, restampIfRoleChangedTx, nameChanges } = require('./partnerRole');
+const { stubNotApplicableSql } = require('../tpm/reportExpectationSql');
 
 /**
  * Fiche partenaire 360° et équipe — seul fichier du module qui écrit du SQL.
@@ -68,9 +69,12 @@ async function sheet(tenantId, id) {
               (${TRAININGS_COUNT_SQL})::int AS trainings,
               (SELECT count(*) FROM tpm_provider_evaluations e WHERE e.tenant_id = $1 AND e.partner_id = $2)::int AS evaluations`,
       [tenantId, id]);
+    // Un gabarit « attendu » sans visite planifiée : « non applicable » d'office (retour 114, même règle que la
+    // carte « Rapports attendus » : tpm/reportExpectationSql) — jamais compté parmi les rapports attendus.
     const { rows: reports } = await client.query(
-      `SELECT r.kind, r.status, count(*)::int AS n FROM tpm_reports r
-        WHERE r.tenant_id = $1 AND ${docOf('r')} GROUP BY r.kind, r.status`, [tenantId, id]);
+      `SELECT r.kind, CASE WHEN ${stubNotApplicableSql('r')} THEN 'non_applicable' ELSE r.status END AS status, count(*)::int AS n
+         FROM tpm_reports r
+        WHERE r.tenant_id = $1 AND ${docOf('r')} GROUP BY 1, 2`, [tenantId, id]);
     const { rows: [lastEval] } = await client.query(
       `SELECT e.id, to_char(e.period_from, 'YYYY-MM') AS "from", to_char(e.period_to, 'YYYY-MM') AS "to",
               e.final_score AS score, e.band, e.status
@@ -193,7 +197,7 @@ async function reportsOf(tenantId, id) {
               r.reported_amount::float8 AS "reportedAmount", r.planned_amount::float8 AS "plannedAmount",
               r.contract_id AS "contractId", c.numero AS "contractNumero", c.numero_fla AS "contractFla",
               c.partner_name AS "holderName", r.partner_id AS "tpmId", pa.name AS "tpmName", r.submitted_at AS "submittedAt",
-              r.decided_at AS "decidedAt", r.updated_at AS "updatedAt"
+              r.decided_at AS "decidedAt", r.updated_at AS "updatedAt", ${stubNotApplicableSql('r')} AS "autoNotApplicable"
          FROM tpm_reports r JOIN contracts c ON c.id = r.contract_id AND c.tenant_id = r.tenant_id
          LEFT JOIN partners pa ON pa.id = r.partner_id AND pa.tenant_id = r.tenant_id
         WHERE r.tenant_id = $1 AND ${docOf('r')}

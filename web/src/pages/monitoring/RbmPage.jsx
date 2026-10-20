@@ -13,6 +13,7 @@ import { useI18n } from '../../lib/i18n.jsx';
 import { LABEL01, LABEL02, RBM_CRITERIA, caseloadOf, criteriaForm, criteriaPatch, hasBeneficiaryNumber, securityLabel } from '../../lib/rbmCriteria.js';
 import { RbmExplainDrawer, ScoreButton, UrgentButton } from './RbmExplain.jsx';
 import { ZoneTpmLabel } from './TpmFields.jsx';
+import { ROLE_LABELS } from '../../lib/roles.js';
 
 const RISK = {
   elevee: { label: 'Élevé', color: 'var(--red)', bg: 'var(--red-bg)', text: 'var(--red-text)', freq: 'tous les mois' },
@@ -134,7 +135,8 @@ export default function RbmPage({ canEdit, embedded = false }) {
       communes: { label: tr('Commune'), sortVal: (s) => s.adm3 || s.commune || '', csv: (s) => s.adm3 || s.commune || '', render: (s) => s.adm3 || s.commune || '—' },
       fokontany: { label: tr('Fokontany'), sortVal: (s) => s.fokontany || '', csv: (s) => s.fokontany || '', render: (s) => s.fokontany || '—' },
       // Retour 58 : TPM de la zone du site ce mois-là — celui du contrat de suivi, ou une modification motivée.
-      tpm: { label: tr('TPM de la zone'), sortVal: (s) => (s.tpm && s.tpm.providerName) || '', csv: (s) => (s.tpm && s.tpm.providerName) || '',
+      tpm: { label: tr('TPM de la zone'), sortVal: (s) => (s.tpm && (s.tpm.providerName || tr(ROLE_LABELS.noTpm))) || '',
+        csv: (s) => (s.tpm ? (s.tpm.providerName || tr(ROLE_LABELS.noTpm)) : ''),
         render: (s) => <ZoneTpmLabel tpm={s.tpm} month={month} /> },
       idSite: { label: tr('ID site'), sortVal: (s) => s.code || '', csv: (s) => s.code || '', render: (s) => <span className="mono">{s.code || '—'}</span> },
       gpsLat: { label: tr('GPS Lat.'), num: true, sortVal: (s) => s.gpsLat ?? -999, csv: (s) => s.gpsLat ?? '', render: (s) => (s.gpsLat ?? '—') },
