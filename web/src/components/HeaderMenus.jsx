@@ -9,8 +9,8 @@ import { useTheme } from '../lib/theme.js';
 import { useTips } from '../lib/tips.js';
 import { ROLE_LABELS } from '../lib/format.js';
 
-// Close a popover on outside click or Escape.
-function usePopover() {
+// Close a popover on outside click or Escape (shared with JobsMenu).
+export function usePopover() {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {

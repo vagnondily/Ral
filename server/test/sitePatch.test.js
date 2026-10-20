@@ -41,3 +41,17 @@ test('site : changer la commune efface le pcode de l\'ancienne commune, le garde
   assert.ok(d.sets.some((x) => x.startsWith('adm2_pcode = CASE WHEN lower(btrim(district))')));
   assert.ok(!sitePatchSql({ riskLevel: 'elevee' }, 3).sets.some((x) => x.includes('pcode')));
 });
+
+test('rattachements rejoués seulement si le nom, le lieu ou l\'activité change (jamais pour un critère RBM)', () => {
+  const { patchAffectsLinks, LINK_FIELDS, SITE_PATCH_COLUMNS } = require('../src/modules/tpm/sitePatch');
+  assert.equal(patchAffectsLinks({ riskLevel: 'elevee' }), false);
+  assert.equal(patchAffectsLinks({ security: 3, synergies: 1, beneficiaryNumber: 250, lastVisitDate: '2026-01-02' }), false);
+  for (const k of ['name', 'district', 'commune', 'fokontany', 'activity']) assert.equal(patchAffectsLinks({ [k]: 'x' }), true, k);
+  assert.equal(patchAffectsLinks({ commune: undefined }), false, 'champ absent = inchangé');
+  assert.equal(patchAffectsLinks({ activity: null }), true, 'effacer l\'activité change les formulaires reliés');
+  assert.equal(patchAffectsLinks({}), false);
+  // Toute colonne modifiable est classée : une nouvelle colonne oblige à décider si elle touche aux rattachements.
+  const criteria = ['riskLevel', 'security', 'synergies', 'beneficiaryOver200', 'newPartner', 'issuesProcess', 'issuesPartnerReport',
+    'issuesCFM', 'fraud', 'experiencedPartner', 'beneficiaryNumber', 'modalityType', 'poiSubtype', 'urbanArea', 'lastVisitDate'];
+  assert.deepEqual(Object.keys(SITE_PATCH_COLUMNS).filter((k) => !LINK_FIELDS.includes(k)).sort(), criteria.sort());
+});

@@ -1,9 +1,10 @@
 const { withTenantTransaction } = require('../../config/db');
 const { chunkRows } = require('../../db/batch');
 const { AppError, badRequest, conflict, notFound } = require('../../middleware/errors');
-const { buildPlaceIndex, resolvePath, groupUnmatched, normPlace, parentKeyOf, looksLikePcode, buildOfficeIndex, resolveOffice } = require('../common/placeMatch');
+const { buildPlaceIndexAsync, resolvePath, groupUnmatched, normPlace, parentKeyOf, looksLikePcode, buildOfficeIndex, resolveOffice } = require('../common/placeMatch');
 const { detectMapping } = require('../monitoring/memsMapping');
 const { buildSiteIndex, resolveSite, queueKeyOf, isAutomaticSite } = require('../common/siteMatch');
+const { createStampedCache } = require('../common/stampedCache');
 const { buildPartnerIndex, resolvePartner, buildAgentIndex, resolveAgent } = require('../common/partyMatch');
 
 /**
@@ -14,8 +15,30 @@ const { buildPartnerIndex, resolvePartner, buildAgentIndex, resolveAgent } = req
  * graphies DISTINCTES, pas par le nombre de lignes.
  */
 
-/** Découpage du tenant + alias de zones appris → index de résolution. */
+/**
+ * Découpage du tenant + alias de zones appris → index de résolution.
+ *
+ * Construire l'index coûte cher (19 000 unités : ≈ 0,3 à 1 s de calcul sur le fil principal),
+ * et il est demandé à chaque écriture qui rejoue les rattachements. Il est donc GARDÉ par compte
+ * avec l'EMPREINTE (md5, calculée par PostgreSQL dans la transaction de l'appelant) de toutes
+ * les colonnes qu'il lit : unités (id, niveau, nom, pcode, parent, chemin) et alias de zones.
+ * Même empreinte = même index ; la moindre modification (y compris non validée, dans cette
+ * transaction) le fait reconstruire. L'index n'est jamais modifié par ses lecteurs.
+ */
+const placeIndexCache = createStampedCache({ max: 8 });
+
 async function loadPlaceIndexTx(client, tenantId) {
+  const { rows: stampRows } = await client.query(
+    `SELECT (SELECT md5(COALESCE(string_agg(concat_ws('|', id, quote_nullable(depth), quote_nullable(name), quote_nullable(pcode),
+                          quote_nullable(parent_id::text), quote_nullable(path)), E'\n' ORDER BY id), ''))
+               FROM admin_areas WHERE tenant_id = $1) AS areas,
+            (SELECT md5(COALESCE(string_agg(concat_ws('|', id, quote_nullable(depth), quote_nullable(parent_key), quote_nullable(alias_key),
+                          quote_nullable(target_pcode), quote_nullable(target_id::text), quote_nullable(target_path)), E'\n' ORDER BY id), ''))
+               FROM location_aliases WHERE tenant_id = $1 AND kind = 'zone') AS aliases`, [tenantId]);
+  const st = stampRows[0];
+  const stamp = st && st.areas && st.aliases ? `${st.areas}:${st.aliases}` : null; // sans empreinte : jamais de cache
+  const cached = stamp && placeIndexCache.get(tenantId, stamp);
+  if (cached) return cached;
   const [{ rows: areas }, { rows: aliases }] = [
     await client.query(
       `SELECT id, depth, name, pcode, parent_id AS "parentId", path FROM admin_areas WHERE tenant_id = $1`, [tenantId]),
@@ -24,7 +47,9 @@ async function loadPlaceIndexTx(client, tenantId) {
               target_path AS "targetPath"
          FROM location_aliases WHERE tenant_id = $1 AND kind = 'zone'`, [tenantId]),
   ];
-  return buildPlaceIndex({ areas, aliases });
+  // Construit en rendant la main entre deux paquets (même index que buildPlaceIndex).
+  const index = await buildPlaceIndexAsync({ areas, aliases });
+  return stamp ? placeIndexCache.set(tenantId, stamp, index) : index;
 }
 
 /** UPDATE … FROM (VALUES …) par lots ; `cols` = [[nom, type SQL], …] avec `id` en premier. */

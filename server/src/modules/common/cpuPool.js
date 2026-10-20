@@ -18,7 +18,9 @@ const { TASKS } = require('./cpuTasks');
  *    accumulation de fichiers en mémoire ;
  *  - délai maximal par tâche (`timeoutMs`, CPU_TASK_TIMEOUT_MS) : le fil est arrêté et
  *    remplacé, la requête reçoit un 503 ;
- *  - un fichier part SANS copie (ArrayBuffer transféré, option `transfer`) ;
+ *  - un fichier part SANS copie (ArrayBuffer transféré, option `transfer`) ; un grand résultat
+ *    revient PAR PAQUETS (option `chunkField`) : le fil principal décode un paquet par tour de
+ *    boucle au lieu de tout d'un bloc ;
  *  - une erreur métier garde son statut (400, 413…) ; un fil qui tombe (mémoire dépassée)
  *    est remplacé et la requête reçoit un 413 explicite — jamais l'API entière à terre.
  */
@@ -84,7 +86,23 @@ function createCpuPool({
 
   function spawn() {
     const slot = { worker: new Worker(workerFile, resourceLimits ? { resourceLimits } : undefined), job: null };
-    slot.worker.on('message', (m) => { if (slot.job && m && m.id === slot.job.id) settle(slot, m.ok ? null : errorFrom(m.error), m.result); });
+    slot.worker.on('message', (m) => {
+      const job = slot.job;
+      if (!job || !m || m.id !== job.id) return;
+      if (m.part) {
+        // Paquet du résultat : gardé ; l'accusé de réception (qui libère le paquet suivant) part
+        // après un tour de boucle, pour que les autres requêtes passent entre deux paquets.
+        job.parts.push(m.part);
+        setImmediate(() => { if (slot.job === job) slot.worker.postMessage({ ack: job.id }); });
+        return;
+      }
+      if (m.ok && m.chunked) {
+        const all = [];
+        for (const part of job.parts) for (const item of part) all.push(item);
+        m.result[m.chunked] = all;
+      }
+      settle(slot, m.ok ? null : errorFrom(m.error), m.result);
+    });
     slot.worker.on('error', (err) => {
       counters.crashes += 1;
       if (slot.job) settle(slot, err && err.code === 'ERR_WORKER_OUT_OF_MEMORY' ? poolError(413, OOM) : poolError(null, `Le calcul s'est arrêté : ${err && err.message}`));
@@ -137,7 +155,7 @@ function createCpuPool({
       return ab;
     });
     try {
-      slot.worker.postMessage({ id: job.id, task: job.task, args }, list);
+      slot.worker.postMessage({ id: job.id, task: job.task, args, chunk: job.chunk }, list);
     } catch (err) {
       settle(slot, err);
     }
@@ -155,17 +173,20 @@ function createCpuPool({
    * Exécute la tâche `task` (common/cpuTasks) avec `args` sur un fil libre.
    * @param {string} task
    * @param {any[]} [args]
-   * @param {{ transfer?: boolean, timeoutMs?: number }} [opts] transfer : les Buffer / ArrayBuffer
-   *   des arguments sont TRANSFÉRÉS (sans copie quand c'est sûr ; l'appelant ne les relit plus).
+   * @param {{ transfer?: boolean, timeoutMs?: number, chunkField?: string, chunkSize?: number }} [opts]
+   *   transfer : les Buffer / ArrayBuffer des arguments sont TRANSFÉRÉS (sans copie quand c'est sûr ;
+   *   l'appelant ne les relit plus). chunkField : champ tableau du résultat renvoyé par paquets de
+   *   `chunkSize` éléments (250) — même résultat, sans long blocage du fil principal à la réception.
    * @returns {Promise<any>}
    */
-  function run(task, args = [], { transfer = false, timeoutMs: t = timeoutMs } = {}) {
+  function run(task, args = [], { transfer = false, timeoutMs: t = timeoutMs, chunkField = null, chunkSize = 250 } = {}) {
     if (closed) return Promise.reject(new Error('Pool de calcul fermé.'));
     if (!tasks[task]) return Promise.reject(new Error(`Tâche de calcul inconnue : ${task}`));
     if (size === 0) return Promise.resolve().then(() => tasks[task](...args)); // sans fil (tests, dépannage)
     if (!slots.length) for (let i = 0; i < size; i += 1) spawn();
     return new Promise((resolve, reject) => {
-      const job = { id: (seq += 1), task, args, transfer, timeoutMs: t, resolve, reject, timer: null };
+      const chunk = chunkField ? { field: String(chunkField), size: Math.max(1, Math.floor(chunkSize) || 250) } : null;
+      const job = { id: (seq += 1), task, args, transfer, chunk, parts: [], timeoutMs: t, resolve, reject, timer: null };
       const free = slots.find((s) => !s.job);
       if (free) { dispatch(free, job); return; }
       if (queue.length >= maxQueue) { counters.rejectedBusy += 1; reject(poolError(503, BUSY)); return; }

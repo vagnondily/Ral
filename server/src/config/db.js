@@ -1,6 +1,7 @@
 const { AsyncLocalStorage } = require('node:async_hooks');
 const { Pool, types } = require('pg');
 const logger = require('./logger');
+const { createSemaphore, backgroundSlots } = require('../modules/common/semaphore');
 
 // Postgres DATE (OID 1082) has no time zone. By default node-pg turns it
 // into a JS Date at local midnight, which JSON-serializes in UTC — in
@@ -63,13 +64,45 @@ function withQueryTimeout(timeout, fn) {
 }
 
 /**
+ * Tâches de fond (modules/jobs) : leurs transactions passent par un sémaphore de
+ * `backgroundSlots()` jetons (le tiers de PG_POOL_MAX) — une tâche lourde ne prend jamais
+ * plus du tiers des connexions ; les requêtes interactives en trouvent toujours une libre.
+ * Le contexte est porté par AsyncLocalStorage : aucun dépôt ne change de signature.
+ * Une transaction ouverte DANS une autre de la même tâche ne reprend pas de jeton (pas
+ * d'interblocage quand il ne reste qu'un jeton).
+ */
+const backgroundContext = new AsyncLocalStorage();
+const backgroundSemaphore = createSemaphore(backgroundSlots());
+
+/** Exécute `fn` comme travail de fond (connexions bornées par le sémaphore). */
+function runInBackground(fn) {
+  return backgroundContext.run({ held: 0 }, fn);
+}
+
+async function acquireBackgroundSlot() {
+  const bg = backgroundContext.getStore();
+  if (!bg) return null;
+  if (bg.held > 0) { bg.held += 1; return () => { bg.held -= 1; }; }
+  const release = await backgroundSemaphore.acquire();
+  bg.held += 1;
+  return () => { bg.held -= 1; release(); };
+}
+
+/**
  * Run `fn` inside a single client checked out from the pool, wrapped in a
  * transaction (BEGIN / COMMIT / ROLLBACK). Use this for any write that spans
  * more than one statement so partial failures cannot leave the row set
  * inconsistent (e.g. plan status change + assignment upsert).
  */
 async function withTransaction(fn) {
-  const client = await pool.connect();
+  const releaseSlot = await acquireBackgroundSlot();
+  let client;
+  try {
+    client = await pool.connect();
+  } catch (err) {
+    if (releaseSlot) releaseSlot();
+    throw err;
+  }
   try {
     await client.query('BEGIN');
     const ctx = queryContext.getStore();
@@ -83,6 +116,7 @@ async function withTransaction(fn) {
     throw err;
   } finally {
     client.release();
+    if (releaseSlot) releaseSlot();
   }
 }
 
@@ -99,4 +133,7 @@ async function withTenantTransaction(tenantId, fn) {
   });
 }
 
-module.exports = { pool, withTransaction, withTenantTransaction, withQueryTimeout, sessionOptions };
+module.exports = {
+  pool, withTransaction, withTenantTransaction, withQueryTimeout, sessionOptions,
+  runInBackground, backgroundStats: () => backgroundSemaphore.stats(),
+};

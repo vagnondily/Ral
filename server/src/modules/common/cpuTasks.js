@@ -17,6 +17,10 @@ const TASKS = {
   'test.fail': (statusCode) => { const e = new Error('échec de test'); e.statusCode = statusCode; e.details = { code: 'test' }; throw e; },
   'test.spin': (ms) => { const end = Date.now() + ms; while (Date.now() < end) { /* calcul */ } return ms; },
   'test.crash': () => { process.exit(3); },
+  'test.rows': (n, width) => ({
+    meta: { n, width },
+    rows: Array.from({ length: n }, (_, i) => Object.fromEntries(Array.from({ length: width }, (__, k) => [`c${k}`, `${i}:${k}`]))),
+  }),
 };
 
 /** ArrayBuffer / vue transférés → Buffer (sans copie). */

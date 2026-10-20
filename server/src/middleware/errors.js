@@ -49,64 +49,67 @@ const PG_SCHEMA_ERRORS = new Set(['42703', '42P01', '42883', '42704']);
 const SCHEMA_OUTDATED = 'La base de données n\'est pas à jour pour cette version de l\'application. '
   + 'Un administrateur doit lancer « npm run migrate » dans le dossier server, puis redémarrer l\'API.';
 
-// Centralized error handler — must be registered last, after all routes.
-// Anything not thrown as an AppError is treated as a bug: logged with full
-// detail, but the client only ever sees a generic message, never a stack
-// trace or a raw database error (which can leak schema/tenant details).
-function errorHandler(err, req, res, _next) {
-  if (err instanceof AppError) {
-    return res.status(err.statusCode).json({ error: err.message, details: err.details });
-  }
+/**
+ * Réponse HTTP d'une erreur (règle UNIQUE, pure) : statut, message public, détails, et
+ * s'il faut la journaliser (`log` : libellé du journal). Sert au gestionnaire central
+ * ci-dessous ET aux tâches de fond (modules/jobs), qui gardent l'erreur d'une tâche sous
+ * la même forme que la réponse qu'aurait donnée la requête.
+ * @returns {{ status: number, error: string, details?: any, log?: string, logExtra?: object }}
+ */
+function describeError(err) {
+  if (err instanceof AppError) return { status: err.statusCode, error: err.message, details: err.details };
 
   // Corps de requête refusé par body-parser (express.json / express.raw) :
   // trop gros → 413 avec la limite ; JSON mal formé → 400. Ces erreurs portent
   // `type` et `status` (http-errors) ; ce ne sont pas des bugs du serveur.
-  if (err.type === 'entity.too.large') {
+  if (err && err.type === 'entity.too.large') {
     const limit = limitText(err.limit);
-    return res.status(413).json({
+    return {
+      status: 413,
       error: `Envoi trop volumineux${limit ? ` : la taille maximale acceptée est de ${limit}` : ''}. `
         + 'Exportez une période plus courte ou découpez le fichier, puis réessayez.',
-    });
+    };
   }
-  if (err.type === 'entity.parse.failed') {
-    return res.status(400).json({ error: 'Requête mal formée : le contenu envoyé n\'est pas un JSON valide.' });
+  if (err && err.type === 'entity.parse.failed') {
+    return { status: 400, error: 'Requête mal formée : le contenu envoyé n\'est pas un JSON valide.' };
   }
 
   // Postgres unique_violation -> surfaced as a 409, since it is almost
   // always a legitimate "this already exists" client-facing condition
   // (e.g. two requests racing to create the same month's plan).
-  if (err.code === '23505') {
-    return res.status(409).json({ error: 'Cette ressource existe déjà.' });
-  }
+  if (err && err.code === '23505') return { status: 409, error: 'Cette ressource existe déjà.' };
   // CHECK / foreign-key / invalid-uuid / invalid-date violations are client
   // input errors that slipped past validation: 400, never a 500.
-  if (Object.prototype.hasOwnProperty.call(PG_CLIENT_ERRORS, err.code)) {
-    return res.status(400).json({ error: PG_CLIENT_ERRORS[err.code] });
-  }
+  if (err && Object.prototype.hasOwnProperty.call(PG_CLIENT_ERRORS, err.code)) return { status: 400, error: PG_CLIENT_ERRORS[err.code] };
 
   // Attente d'un verrou au-delà de lock_timeout (une autre mise à jour longue des mêmes données) :
   // 503 « réessayez », jamais une connexion du pool bloquée indéfiniment ni une « erreur interne ».
   // Interblocage (40P01) ou conflit de sérialisation (40001) : la transaction a été annulée en entier,
   // rien n'est écrit — même réponse, on peut réessayer.
-  if (err.code === '55P03' || err.code === '40P01' || err.code === '40001') {
-    return res.status(503).json({ error: 'Une autre mise à jour des mêmes données est en cours : réessayez dans un instant.' });
+  if (err && (err.code === '55P03' || err.code === '40P01' || err.code === '40001')) {
+    return { status: 503, error: 'Une autre mise à jour des mêmes données est en cours : réessayez dans un instant.' };
   }
   // Délai de requête dépassé (statement_timeout, calculs du concepteur de rapport) : 503 « réessayez »
   // avec une piste, jamais une « erreur interne » (dans le rendu par blocs, c'est l'erreur DU bloc).
-  if (err.code === '57014') {
-    return res.status(503).json({ error: 'Calcul trop long : réduisez la période ou ajoutez un filtre, puis réessayez.' });
+  if (err && err.code === '57014') return { status: 503, error: 'Calcul trop long : réduisez la période ou ajoutez un filtre, puis réessayez.' };
+  if (err && (DB_UNAVAILABLE.has(err.code) || /Connection terminated|timeout exceeded when trying to connect/i.test(err.message || ''))) {
+    return { status: 503, error: 'Base de données injoignable : vérifiez que PostgreSQL est démarré, puis réessayez.', log: 'base de données injoignable' };
   }
-  if (DB_UNAVAILABLE.has(err.code) || /Connection terminated|timeout exceeded when trying to connect/i.test(err.message || '')) {
-    req.log?.error({ err }, 'base de données injoignable');
-    return res.status(503).json({ error: 'Base de données injoignable : vérifiez que PostgreSQL est démarré, puis réessayez.' });
+  if (err && PG_SCHEMA_ERRORS.has(err.code) && (knownPending() || []).length > 0) {
+    // noms des fichiers : /api/system/status (admin)
+    return { status: 503, error: SCHEMA_OUTDATED, log: 'schéma en retard : migrations en attente', logExtra: { pending: knownPending() } };
   }
-  if (PG_SCHEMA_ERRORS.has(err.code) && (knownPending() || []).length > 0) {
-    req.log?.error({ err, pending: knownPending() }, 'schéma en retard : migrations en attente');
-    return res.status(503).json({ error: SCHEMA_OUTDATED }); // noms des fichiers : /api/system/status (admin)
-  }
-
-  req.log?.error({ err }, 'unhandled error');
-  return res.status(500).json({ error: 'Erreur interne du serveur.' });
+  return { status: 500, error: 'Erreur interne du serveur.', log: 'unhandled error' };
 }
 
-module.exports = { AppError, notFound, badRequest, forbidden, unauthorized, conflict, payloadTooLarge, errorHandler };
+// Centralized error handler — must be registered last, after all routes.
+// Anything not thrown as an AppError is treated as a bug: logged with full
+// detail, but the client only ever sees a generic message, never a stack
+// trace or a raw database error (which can leak schema/tenant details).
+function errorHandler(err, req, res, _next) {
+  const d = describeError(err);
+  if (d.log) req.log?.error({ err, ...(d.logExtra || {}) }, d.log);
+  return res.status(d.status).json(err instanceof AppError ? { error: d.error, details: d.details } : { error: d.error });
+}
+
+module.exports = { AppError, notFound, badRequest, forbidden, unauthorized, conflict, payloadTooLarge, errorHandler, describeError };

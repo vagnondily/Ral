@@ -42,4 +42,18 @@ function sitePatchSql(patch = {}, firstParam = 3) {
   return { sets, values };
 }
 
-module.exports = { sitePatchSql, SITE_PATCH_COLUMNS: COLUMNS };
+/**
+ * Champs qui servent aux RATTACHEMENTS : lieu du découpage (district, commune, fokontany),
+ * bureau (par la commune) et formulaires reçus reliés au site (nom, lieu, activité). Seul un
+ * changement de l'un d'eux réapplique les rattachements (afterSitesChangedTx, sous le verrou des
+ * rattachements du compte) ; un critère RBM, le niveau de risque, le nombre de bénéficiaires…
+ * n'y changent rien : leur écriture est une simple transaction (jamais bloquée par un import).
+ */
+const LINK_FIELDS = ['name', 'district', 'commune', 'fokontany', 'activity'];
+
+/** Le patch modifie-t-il un champ des rattachements ? */
+function patchAffectsLinks(patch = {}) {
+  return LINK_FIELDS.some((k) => k in patch && patch[k] !== undefined);
+}
+
+module.exports = { sitePatchSql, patchAffectsLinks, SITE_PATCH_COLUMNS: COLUMNS, LINK_FIELDS };

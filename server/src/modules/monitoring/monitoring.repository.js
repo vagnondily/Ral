@@ -8,7 +8,7 @@ const { classDistribution, naReasonCounts, dimGroups, topFlop, classify } = requ
 const { codeLabelText } = require('../common/codeLabel');
 const { detectMapping, DIMENSION_COLUMN, DATE_KEYS, EDITABLE_KEYS } = require('./memsMapping');
 const { computeCalcFields, checkExpression, previewCalc } = require('./calcFields');
-const { buildLookup, collectionColumns, overrideColumns, prepareImport, previewImport, dateSummary, TRIM_CLASS } = require('./submissionsImport');
+const { buildLookup, collectionColumns, overrideColumns, prepareImportAsync, previewImport, dateSummary, TRIM_CLASS } = require('./submissionsImport');
 const { collectionUpdates } = require('./collectionDate');
 const { templateForActivity, moduleLabel, suggestBindings, indicatorFromItem } = require('./indicatorTemplates');
 const { OTHER_VALUES } = require('./memsMapping');
@@ -63,6 +63,14 @@ async function listForms(tenantId) {
 }
 
 /** Mémorise le lien de données d'une fiche, sa nature et le curseur incrémental. */
+/** Libellé d'une fiche du compte ({ id, label }), ou null si elle n'existe pas. */
+async function formLabel(tenantId, formId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query('SELECT id, label FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
+    return rows[0] || null;
+  });
+}
+
 async function setFormSource(tenantId, formId, url, { kind = null, cursor = null } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     await client.query(
@@ -973,15 +981,24 @@ async function resetMemsMappingTx(client, tenantId, formId, dimension) {
  * recalculé depuis les réponses brutes (date d'enquête choisie ou automatique).
  * N'affecte pas les dimensions laissées en automatique (valeurs posées à l'import
  * conservées). Permis à tout statut du mapping : il n'est pas modifié.
+ * Options (tâche de fond, monitoring/reapplyJob) : `onProgress({ step })`, `beforeCommit(client,
+ * result)` appelé dans la transaction juste avant sa validation, `waitMs` attente du verrou.
  */
-async function applyMappingToSubmissions(tenantId, formId) {
+async function applyMappingToSubmissions(tenantId, formId, { onProgress, beforeCommit, waitMs } = {}) {
+  const progress = (p) => { if (onProgress) onProgress(p); };
   return withSubmissionLinks(tenantId, async (client) => {
+    progress({ step: 'relift' });
     const { overrides, updated } = await reliftSubmissionsTx(client, tenantId, formId);
+    progress({ step: 'dates' });
     const { updates, ...dates } = await rederiveCollectionDatesTx(client, tenantId, formId);
     // Les colonnes de lieu/bureau/site ont pu changer : rattachement rejoué (même transaction).
+    progress({ step: 'links' });
     const geo = await applySubmissionsGeoTx(client, tenantId);
-    return { applied: overrides, updated, dates: { ...dates, updated: updates }, geo };
-  });
+    const result = { applied: overrides, updated, dates: { ...dates, updated: updates }, geo };
+    // Tâche de fond : marquée terminée DANS cette transaction (tout ou rien).
+    if (beforeCommit) await beforeCommit(client, result);
+    return result;
+  }, waitMs ? { waitMs } : undefined);
 }
 
 /**
@@ -1149,11 +1166,15 @@ async function importDefinition(tenantId, { code, label }, fields, choicesMap) {
 }
 
 /**
- * @param {{ variables?: object[], headers?: string[] }} [opts]  `headers` : colonnes (ou variables
- *   SPSS) du fichier — une colonne choisie dans « Mapping MEMS » qui n'y est pas est signalée
- *   comme à la vérification ; sans en-têtes (API), les clés des réponses en tiennent lieu.
+ * @param {{ variables?: object[], headers?: string[], onProgress?: Function, beforeCommit?: Function, waitMs?: number }} [opts]
+ *   `headers` : colonnes (ou variables SPSS) du fichier — une colonne choisie dans « Mapping MEMS »
+ *   qui n'y est pas est signalée comme à la vérification ; sans en-têtes (API), les clés des
+ *   réponses en tiennent lieu. `onProgress({ step, done, total })` : avancement (tâche de fond) ;
+ *   `beforeCommit(client, result)` : appelé DANS la transaction, juste avant sa validation (la tâche
+ *   y est marquée terminée : tout ou rien) ; `waitMs` : attente maximale du verrou des rattachements.
  */
-async function importSubmissions(tenantId, formId, submissions, { variables, headers } = {}) {
+async function importSubmissions(tenantId, formId, submissions, { variables, headers, onProgress, beforeCommit, waitMs } = {}) {
+  const progress = (p) => { if (onProgress) onProgress(p); };
   return withSubmissionLinks(tenantId, async (client) => {
     // Confirm the form belongs to the tenant.
     const { rows: f } = await client.query('SELECT id FROM monitoring_forms WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
@@ -1164,36 +1185,21 @@ async function importSubmissions(tenantId, formId, submissions, { variables, hea
 
     // Doublons du fichier fondus (dernière version), clés ramenées aux noms du catalogue
     // (export Excel « avec les groupes ») et colonnes choisies dans « Mapping MEMS » appliquées :
-    // la MÊME préparation que la vérification avant import (importContextTx + prepareImport).
-    const { unique } = prepareImport(submissions, { ...(await importContextTx(client, tenantId, formId)), headers });
+    // la MÊME préparation que la vérification avant import (importContextTx + prepareImport), en
+    // rendant la main entre deux paquets (prepareImportAsync : même code, même résultat).
+    progress({ step: 'prepare' });
+    const { unique } = await prepareImportAsync(submissions, { ...(await importContextTx(client, tenantId, formId)), headers });
 
-    let inserted = 0; let created = 0;
     const months = new Map();
-    // Insert row by row so ON CONFLICT dedup (per _uuid) is simple and safe.
-    // Même soumission déjà reçue : le MÊME format la remplace (corrections faites dans Kobo) ;
-    // un AUTRE format (Excel après SPSS…) la complète sans effacer ce qu'il ne porte pas.
-    const merged = (col) => `${col} = CASE WHEN monitoring_submissions.source IS NOT DISTINCT FROM EXCLUDED.source
-      THEN EXCLUDED.${col} ELSE COALESCE(EXCLUDED.${col}, monitoring_submissions.${col}) END`;
-    const TYPED = ['period_month', 'submitted_at', 'upload_month', 'field_office', 'admin1', 'admin2', 'admin3', 'admin4', 'site', 'partner', 'agent'];
-    for (const s of unique) {
-      const res = await client.query(
-        `INSERT INTO monitoring_submissions
-           (tenant_id, form_id, external_id, period_month, submitted_at, upload_month, field_office,
-            admin1, admin2, admin3, admin4, site, partner, agent, source, data)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-         ON CONFLICT (form_id, external_id) DO UPDATE SET
-           ${TYPED.map(merged).join(',\n           ')},
-           data = CASE WHEN monitoring_submissions.source IS NOT DISTINCT FROM EXCLUDED.source
-             THEN EXCLUDED.data ELSE monitoring_submissions.data || EXCLUDED.data END,
-           source = EXCLUDED.source
-         RETURNING (xmax = 0) AS created`,
-        [tenantId, formId, s.externalId, s.periodMonth, s.submittedAt, s.uploadMonth || null, s.fieldOffice,
-          s.admin1, s.admin2, s.admin3, s.admin4, s.site, s.partner, s.agent, s.source, JSON.stringify(s.data)]
-      );
-      inserted += res.rowCount;
-      if (res.rows[0] && res.rows[0].created) created += 1;
-      if (s.periodMonth) months.set(s.periodMonth, (months.get(s.periodMonth) || 0) + 1);
-    }
+    for (const s of unique) if (s.periodMonth) months.set(s.periodMonth, (months.get(s.periodMonth) || 0) + 1);
+    // Écriture PAR LOTS (une instruction multi-lignes par lot, jamais une requête par soumission) :
+    // les identifiants sont uniques après prepareImport, donc ON CONFLICT ne touche jamais deux fois
+    // la même ligne dans un lot. Même soumission déjà reçue : le MÊME format la remplace (corrections
+    // faites dans Kobo) ; un AUTRE format (Excel après SPSS…) la complète sans effacer ce qu'il ne porte pas.
+    progress({ step: 'write', done: 0, total: unique.length });
+    const { inserted, created } = await upsertSubmissionsTx(client, tenantId, formId, unique,
+      (done) => progress({ step: 'write', done, total: unique.length }));
+    progress({ step: 'links' });
     // Commune (pcode) et bureau rattachés dans la même transaction que l'import.
     const geo = await applySubmissionsGeoTx(client, tenantId);
     // État de la fiche après import (geo, lui, couvre toutes les fiches du compte).
@@ -1203,12 +1209,58 @@ async function importSubmissions(tenantId, formId, submissions, { variables, hea
          FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2`, [tenantId, formId]);
     // Compte rendu : nouvelles / déjà présentes (mises à jour), mois couverts, mois de collecte
     // (tiré de l'enquête ou de la réception, et pourquoi : date d'enquête illisible…).
-    return {
+    const result = {
       received: submissions.length, duplicates: submissions.length - unique.length, inserted, created, updated: inserted - created, geo, form: state,
       months: [...months.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([month, n]) => ({ month, n })),
       dates: dateSummary(unique),
     };
-  });
+    if (beforeCommit) await beforeCommit(client, result);
+    return result;
+  }, waitMs ? { waitMs } : undefined);
+}
+
+// Soumissions par lot d'écriture : 250 lignes × 14 paramètres (bien sous la limite de 65 535),
+// ≈ 1,5 Mo de réponses JSON par instruction pour un formulaire de 480 colonnes — la mise en
+// forme d'un lot (JSON.stringify) reste sous ~50 ms de fil principal, la base fait le reste.
+const UPSERT_BATCH = 250;
+const SUBMISSION_TYPED = ['period_month', 'submitted_at', 'upload_month', 'field_office', 'admin1', 'admin2', 'admin3', 'admin4', 'site', 'partner', 'agent'];
+
+/**
+ * Insère ou met à jour des soumissions (déjà dédoublonnées par identifiant) par lots, dans la
+ * transaction de l'appelant. Règle de fusion inchangée : même format → remplacée ; autre format →
+ * complétée (champs typés gardés s'ils manquent, réponses fusionnées).
+ * @returns {Promise<{ inserted: number, created: number }>}
+ */
+async function upsertSubmissionsTx(client, tenantId, formId, unique, onBatch) {
+  const merged = (col) => `${col} = CASE WHEN monitoring_submissions.source IS NOT DISTINCT FROM EXCLUDED.source
+      THEN EXCLUDED.${col} ELSE COALESCE(EXCLUDED.${col}, monitoring_submissions.${col}) END`;
+  let inserted = 0; let created = 0;
+  for (let i = 0; i < unique.length; i += UPSERT_BATCH) {
+    const slice = unique.slice(i, i + UPSERT_BATCH);
+    const params = [tenantId, formId];
+    const tuples = slice.map((s) => {
+      const b = params.length;
+      params.push(s.externalId, s.periodMonth, s.submittedAt, s.uploadMonth || null, s.fieldOffice,
+        s.admin1, s.admin2, s.admin3, s.admin4, s.site, s.partner, s.agent, s.source, JSON.stringify(s.data));
+      return `($1, $2, ${Array.from({ length: 14 }, (_, k) => `$${b + k + 1}`).join(', ')})`;
+    });
+    const res = await client.query(
+      `INSERT INTO monitoring_submissions
+         (tenant_id, form_id, external_id, period_month, submitted_at, upload_month, field_office,
+          admin1, admin2, admin3, admin4, site, partner, agent, source, data)
+       VALUES ${tuples.join(',\n              ')}
+       ON CONFLICT (form_id, external_id) DO UPDATE SET
+         ${SUBMISSION_TYPED.map(merged).join(',\n         ')},
+         data = CASE WHEN monitoring_submissions.source IS NOT DISTINCT FROM EXCLUDED.source
+           THEN EXCLUDED.data ELSE monitoring_submissions.data || EXCLUDED.data END,
+         source = EXCLUDED.source
+       RETURNING (xmax = 0) AS created`,
+      params);
+    inserted += res.rowCount;
+    for (const r of res.rows) if (r.created) created += 1;
+    if (onBatch) onBatch(Math.min(i + UPSERT_BATCH, unique.length));
+  }
+  return { inserted, created };
 }
 
 // ---- Correspondances des valeurs codées (retour n° 3) -----------------------------------
@@ -2037,6 +2089,7 @@ async function setExclusion(tenantId, formId, { ids, excluded, reason } = {}) {
 }
 
 module.exports = {
+  formLabel,
   monthCounts, officeLabelSql, officeLabelsTx, regionRowsSql, submissionRegionsTx,
   reliftSubmissionsTx, formTemplate, applyTemplate,
   listCalcFields, calcPreview, formVariables, formMonths, indicatorPreview, importPreview, formCorrespondences, setCorrespondence, createCalcField, updateCalcField, deleteCalcField, setExclusion,

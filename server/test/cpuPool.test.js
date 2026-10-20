@@ -122,5 +122,30 @@ test('lecture d\'un fichier de soumissions sur un fil = lecture sur le fil princ
     const html = Buffer.from('<!doctype html><html><body>page</body></html>');
     const err = await parseSubmissions(html).catch((e) => e);
     await assert.rejects(pool.run('parseSubmissions', [html, {}]), (e) => e instanceof AppError && e.statusCode === err.statusCode && e.message === err.message);
+    // Par paquets (comme l'import) : même résultat.
+    assert.deepEqual(await pool.run('parseSubmissions', [Buffer.from(csv), {}], { transfer: true, chunkField: 'submissions', chunkSize: 1 }), direct);
+  } finally { await pool.close(); }
+});
+
+test('grand résultat renvoyé par paquets : même résultat, et le fil principal sert d\'autres travaux entre deux paquets', async () => {
+  const pool = createCpuPool({ size: 1 });
+  try {
+    const whole = await pool.run('test.rows', [1003, 40]);
+    // Pendant la réception par paquets, un autre travail (setImmediate en boucle) avance.
+    let turns = 0; let stop = false;
+    const spin = () => { if (stop) return; turns += 1; setImmediate(spin); };
+    setImmediate(spin);
+    const parts = await pool.run('test.rows', [1003, 40], { chunkField: 'rows', chunkSize: 100 });
+    stop = true;
+    assert.deepEqual(parts, whole);
+    assert.equal(parts.rows.length, 1003);
+    assert.deepEqual(parts.meta, { n: 1003, width: 40 });
+    assert.ok(turns >= 11, `au moins un tour de boucle par paquet (${turns})`);
+    // Petit tableau (≤ un paquet) ou champ absent : un seul message, même résultat.
+    assert.deepEqual(await pool.run('test.rows', [3, 2], { chunkField: 'rows', chunkSize: 100 }), await pool.run('test.rows', [3, 2]));
+    assert.deepEqual(await pool.run('test.echo', [{ a: 1 }], { chunkField: 'rows' }), { a: 1 });
+    // Le fil reste utilisable après un envoi par paquets.
+    assert.equal(await pool.run('test.echo', [7]), 7);
+    assert.equal(pool.stats().done, 6);
   } finally { await pool.close(); }
 });

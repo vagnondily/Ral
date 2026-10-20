@@ -6,6 +6,7 @@ const { validateEnv } = require('./config/validateEnv');
 const { checkSchema } = require('./db/schemaStatus');
 const { runDataRepairs } = require('./db/dataRepairs');
 const { startLoopMonitor } = require('./modules/common/runtimeStats');
+const jobs = require('./modules/jobs/jobs.service');
 
 // Échoue vite si la config est dangereuse (secret manquant, RLS contournée…).
 validateEnv();
@@ -25,6 +26,8 @@ const server = app.listen(port, () => {
       logger.error({ pending }, `Base de données pas à jour : ${pending.length} migration(s) en attente — lancez « npm run migrate » dans server, puis redémarrez l'API.`);
       return null;
     }
+    // Exécuteur des tâches de fond (imports…) : intégré à l'API, sans Redis.
+    jobs.startRunner().catch((err) => logger.error({ err }, 'tâches de fond : démarrage impossible'));
     return runDataRepairs();
   }).catch((err) => logger.warn({ err }, 'vérification du schéma impossible au démarrage'));
 });
@@ -35,6 +38,7 @@ const server = app.listen(port, () => {
 // deploy, autoscaling scale-in).
 async function shutdown(signal) {
   logger.info({ signal }, 'shutting down');
+  jobs.stopRunner(); // plus de nouvelle tâche ; une tâche interrompue sera marquée en échec au redémarrage
   server.close(async () => {
     try {
       await pool.end();

@@ -7,6 +7,8 @@ import { api, getSessionSecret, setSessionSecret } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, Field, Skeleton, Stats } from '../../components/ui.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { dayLabel, formatFileSize, formatInt, monthLabel } from '../../lib/format.js';
+import { activeJobFor, isActiveJob, jobElapsedSeconds, jobError, jobPercent, jobStepLabel } from '../../lib/jobs.js';
+import { subscribeJobs, trackJob, watchJob } from '../../lib/jobsStore.js';
 
 /**
  * Onglet « Importation » d'une fiche de suivi (retour n° 5) : un assistant en
@@ -20,6 +22,9 @@ import { dayLabel, formatFileSize, formatInt, monthLabel } from '../../lib/forma
  *   4. Compte rendu — ce qui a été écrit et rattaché (bureau, commune, site).
  * Le serveur reconnaît toujours le format par le contenu : la source choisie
  * guide l'utilisateur, elle ne contourne aucune vérification.
+ * L'import d'un fichier tourne EN TÂCHE DE FOND sur le serveur (réponse immédiate, puis
+ * avancement : lecture, écriture, rattachements) : l'écran reste utilisable, l'utilisateur
+ * peut le quitter ; revenu sur la fiche, il retrouve l'import en cours et son compte rendu.
  */
 const MAX_IMPORT_BYTES = 80 * 1024 * 1024;
 
@@ -155,6 +160,38 @@ function ImportReport({ result, onGoData, onGoResults, onRestart }) {
   );
 }
 
+/** Import en cours (tâche de fond) : étape, avancement, temps écoulé. */
+function ImportProgress({ job }) {
+  const { tr } = useI18n();
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const pct = jobPercent(job);
+  const p = job.progress || {};
+  const step = tr(jobStepLabel(job));
+  return (
+    <div className="wiz-body wiz-job" role="status" aria-live="polite">
+      <div className="wiz-job-head">
+        <span className="spinner" aria-hidden="true" />
+        <strong>{job.status === 'queued' ? tr('Import en attente : il démarre dès que la tâche précédente de ce compte est finie.') : tr('Import en cours…')}</strong>
+        <span className="muted wiz-job-time">{formatInt(jobElapsedSeconds(job))} s</span>
+      </div>
+      <span className="progress wiz-job-bar" role="progressbar" aria-label={step} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct ?? undefined}>
+        <span className={pct == null ? 'is-indeterminate' : undefined} style={pct == null ? undefined : { width: `${pct}%` }} />
+      </span>
+      <div className="wiz-job-step">
+        {step}{p.total ? ` · ${tr('{d} sur {t}', { d: formatInt(p.done || 0), t: formatInt(p.total) })}` : ''}
+        {job.payload?.fileName ? <span className="muted"> · {job.payload.fileName}</span> : null}
+      </div>
+      <Alert tone="info">
+        {tr('Vous pouvez quitter cet écran ou continuer à travailler : l\'import se poursuit en tâche de fond. Son avancement reste visible dans l\'en-tête (« Tâches en cours »).')}
+      </Alert>
+    </div>
+  );
+}
+
 // Jetons saisis pendant la session, par fiche et par lien : gardés en mémoire par api/client
 // (jamais dans le stockage du navigateur, oubliés à la déconnexion), pour survivre à un
 // changement d'onglet de la fiche.
@@ -171,6 +208,9 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
   const [error, setError] = useState(null);
   const [preview, setPreview] = useState(null);
   const [result, setResult] = useState(null);
+  // Import de fichier en tâche de fond suivi par cet écran (lancé ici, ou déjà en cours sur la fiche).
+  const [job, setJob] = useState(null);
+  const settledRef = useRef(null);
   const [link, setLink] = useState({ url: form.sourceUrl || '', token: '', full: false });
   const [kobo, setKobo] = useState({ baseUrl: 'https://kf.kobotoolbox.org', assetUid: '', token: '' });
   // Le jeton n'est jamais mémorisé : une source « API Kobo » le redemande pour être actualisée.
@@ -180,7 +220,25 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
   // Le lien proposé suit la source mémorisée de la fiche (elle change après chaque import par lien).
   useEffect(() => { setLink((l) => ({ ...l, url: form.sourceUrl || '' })); }, [form.sourceUrl]);
 
-  const restart = () => { setStep(0); setSource(null); setFile(null); setPreview(null); setResult(null); setError(null); };
+  // Tâches du compte : la tâche suivie est tenue à jour ; à l'ouverture, un import déjà en cours
+  // sur cette fiche (lancé avant de quitter l'écran, ou par un collègue) est repris ici.
+  useEffect(() => subscribeJobs((list) => {
+    setJob((cur) => (cur ? (list.find((j) => j.id === cur.id) || cur) : activeJobFor(list, 'monitoring.import', form.id)));
+  }), [form.id]);
+  // Tant que l'écran suit l'import, c'est lui qui en montre l'avancement et l'issue (pas de
+  // notification en double dans l'en-tête).
+  const following = job && isActiveJob(job) ? job.id : null;
+  useEffect(() => (following ? watchJob(following) : undefined), [following]);
+  useEffect(() => { if (following) setStep(3); }, [following]);
+  // Fin de l'import : compte rendu (le même que l'import direct d'avant) et fiche rechargée, ou erreur.
+  useEffect(() => {
+    if (!job || isActiveJob(job) || settledRef.current === job.id) return;
+    settledRef.current = job.id;
+    if (job.status === 'done') { setResult(job.result || {}); setError(null); onImported?.(); }
+    else setError(jobError(job));
+  }, [job, onImported]);
+
+  const restart = () => { setStep(0); setSource(null); setFile(null); setPreview(null); setResult(null); setError(null); setJob(null); };
   const choose = (id) => { setSource(id); setStep(1); setError(null); setFile(null); setPreview(null); };
 
   async function check(f) {
@@ -195,7 +253,20 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
     try { const r = await action(); setResult(r); setStep(3); await onImported?.(); }
     catch (e) { setError(e); } finally { setBusy(false); }
   }
-  const importFile = () => run(() => api.monImport(form.id, file));
+  // Import du fichier : le serveur répond tout de suite (tâche de fond) ; l'écran suit son avancement.
+  async function importFile() {
+    setBusy(true); setError(null); setResult(null);
+    try {
+      const { jobId } = await api.monImport(form.id, file);
+      const started = {
+        id: jobId, kind: 'monitoring.import', status: 'queued', progress: {}, fraction: null,
+        payload: { formId: form.id, formLabel: form.label, fileName: file.name }, createdAt: new Date().toISOString(),
+      };
+      setJob(started);
+      trackJob(started);
+      setStep(3);
+    } catch (e) { setError(e); } finally { setBusy(false); }
+  }
   const importLink = () => {
     if (link.token.trim()) setSessionSecret(tokenKey(form.id, link.url), link.token.trim());
     return run(() => api.linkPull(form.id, { url: link.url.trim(), token: link.token.trim() || undefined, full: link.full || undefined }));
@@ -374,8 +445,19 @@ export default function ImportWizard({ form, canEdit, onImported, onGoData, onGo
             </div>
           )}
 
-          {step === 3 && result && (
+          {step === 3 && job && isActiveJob(job) && <ImportProgress job={job} />}
+
+          {step === 3 && result && !(job && isActiveJob(job)) && (
             <ImportReport result={result} onGoData={onGoData} onGoResults={onGoResults} onRestart={restart} />
+          )}
+
+          {step === 3 && !result && job && job.status === 'failed' && (
+            <div className="wiz-actions">
+              {file && preview ? (
+                <Button variant="ghost" icon={ArrowLeft} onClick={() => { setStep(2); setError(null); setJob(null); }}>{tr('Revenir à la vérification')}</Button>
+              ) : <span />}
+              <Button variant="secondary" icon={RefreshCw} onClick={restart}>{tr('Nouvel import')}</Button>
+            </div>
           )}
         </div>
       </Card>

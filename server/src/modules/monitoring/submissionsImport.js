@@ -10,6 +10,7 @@ const { assertZipEntries, zipLimitsFromEnv } = require('../common/zipGuard');
 const { badRequest } = require('../../middleware/errors');
 const { existingRows, rowValues, filledWidth, MAX_SHEET_COLUMNS } = require('../common/sheetRows');
 const { loadWorkbook, isRefusal } = require('../common/xlsxGuard');
+const { runSync, runYielding, isPause } = require('../common/yielding');
 
 /**
  * Parse a monitoring export into normalized submission rows. The raw answers
@@ -598,14 +599,31 @@ function keysOfSubmissions(list) {
  * @param {{ catalogNames?: string[], overrides?: Array<{dimension:string,columnName:string|null}>, headers?: string[] }} ctx
  * @returns {{ unique: object[], duplicates: number, missing: Map<string, string> }}
  */
-function prepareImport(submissions, { catalogNames = [], overrides = [], headers } = {}) {
+function prepareImport(submissions, ctx = {}) {
+  return runSync(prepareSteps(submissions, ctx));
+}
+
+/**
+ * La MÊME préparation (même code : prepareSteps), qui rend la main à la boucle d'événements
+ * tous les `chunk` soumissions : l'import en tâche de fond de 5 000 soumissions × 480 colonnes
+ * (≈ 0,35 s de calcul) ne fait plus attendre les autres requêtes. Même résultat que prepareImport.
+ */
+async function prepareImportAsync(submissions, ctx = {}, { chunk = 250 } = {}) {
+  return runYielding(prepareSteps(submissions, ctx, chunk));
+}
+
+/** Préparation pas à pas (générateur : `yield` tous les `chunk` soumissions), partagée par les deux. */
+function* prepareSteps(submissions, { catalogNames = [], overrides = [], headers } = {}, chunk = Infinity) {
   const list = submissions || [];
   const unique = uniqueByExternalId(list);
   const canonical = groupPathRenamer(catalogNames);
   const missing = overrides.length ? missingOverrides(overrides, headers || keysOfSubmissions(unique), catalogNames) : new Map();
+  let n = 0;
   for (const s of unique) {
     s.data = canonical(s.data || {});
     if (overrides.length) applyFieldOverrides(s, overrides, { missing, catalogNames });
+    n += 1;
+    if (isPause(n, chunk)) yield n;
   }
   return { unique, duplicates: list.length - unique.length, missing };
 }
@@ -733,9 +751,14 @@ function zipUnreadable(sniff) {
   return badRequest('Archive .zip illisible ou corrompue. Téléchargez de nouveau l\'export, puis réessayez.');
 }
 
+/** .zsav (SPSS compressé, non lu) : refusé avec son nom. */
+function checkSav(buf) {
+  if (buf.length >= 4 && buf.toString('latin1', 0, 4) === '$FL3') throw badRequest(ZSAV);
+}
+
 /** .sav → soumissions + catalogue de variables (nom, libellé, étiquettes de valeurs). */
 function fromSav(buf) {
-  if (buf.length >= 4 && buf.toString('latin1', 0, 4) === '$FL3') throw badRequest(ZSAV);
+  checkSav(buf);
   let parsed;
   try { parsed = parseSav(buf); }
   catch { throw badRequest('Fichier SPSS (.sav) illisible ou corrompu. Réexportez-le depuis Kobo ou Ona, puis réessayez.'); }
@@ -744,8 +767,8 @@ function fromSav(buf) {
   return { submissions, headers: parsed.variables.map((v) => v.name), variables: parsed.variables, source: 'sav' };
 }
 
-/** Zip SPSS de Kobo : on lit data.sav (ou le premier .sav), APRÈS la garde de taille. */
-function fromSpssZip(buffer, sniff, limits) {
+/** Entrée data.sav (ou premier .sav) d'un zip SPSS de Kobo, contrôlée par la garde de taille AVANT décompression. */
+function spssZipEntry(buffer, sniff, limits) {
   if (!sniff.entries) throw zipUnreadable(sniff);
   const files = sniff.entries.filter((e) => !e.isDirectory);
   const entry = files.find((e) => /(^|\/)data\.sav$/i.test(e.name)) || files.find((e) => /\.sav$/i.test(e.name));
@@ -754,15 +777,26 @@ function fromSpssZip(buffer, sniff, limits) {
     throw badRequest('Archive .zip sans fichier SPSS (.sav) : l\'export « SPSS » de Kobo contient data.sav.');
   }
   assertZipEntries([entry], limits, { archiveBytes: buffer.length }); // 413 / 400 AVANT décompression
+  return entry;
+}
+
+/** Zip SPSS de Kobo : on lit data.sav (ou le premier .sav), APRÈS la garde de taille. */
+function fromSpssZip(buffer, sniff, limits) {
+  const entry = spssZipEntry(buffer, sniff, limits);
   let data;
   try { data = new AdmZip(buffer).getEntry(entry.name).getData(); }
   catch { throw zipUnreadable({}); }
   return fromSav(data);
 }
 
-async function fromXlsx(buffer, sniff, limits) {
-  assertZipEntries(sniff.entries, limits, { archiveBytes: buffer.length }); // ExcelJS décompresse tout
+/** Classeur : garde de décompression (ExcelJS décompresse tout), puis refus d'un XLSForm déposé comme données. */
+function checkXlsx(buffer, sniff, limits) {
+  assertZipEntries(sniff.entries, limits, { archiveBytes: buffer.length });
   if (looksLikeXlsform(xlsxSheetNames(buffer))) throw badRequest(XLSFORM);
+}
+
+async function fromXlsx(buffer, sniff, limits) {
+  checkXlsx(buffer, sniff, limits);
   let table;
   try { table = await parseXlsx(buffer, limits); }
   catch (err) { if (isRefusal(err)) throw err; throw badRequest('Classeur Excel (.xlsx) illisible ou corrompu. Ouvrez-le dans Excel, enregistrez-le de nouveau, puis réessayez.'); }
@@ -789,16 +823,40 @@ async function parseSubmissions(buffer, { zipLimits = zipLimitsFromEnv(process.e
     case 'xlsx': return fromXlsx(buffer, sniff, zipLimits);
     case 'sav': return fromSav(buffer);
     case 'zip': return fromSpssZip(buffer, sniff, zipLimits);
-    case 'ole': {
-      const ole = inspectOle(buffer);
-      if (ole.kind === 'xls' && looksLikeXlsform(ole.sheetNames)) throw badRequest(XLSFORM);
-      throw badRequest(OLE_REFUSALS[ole.kind] || OLE_REFUSALS.other);
-    }
-    default: throw badRequest(REFUSALS[sniff.kind] || `Format non pris en charge (${sniff.label}). ${EXPECTED}`);
+    default: throw refusal(buffer, sniff);
+  }
+}
+
+/** Refus d'un format qui n'est pas un export de données (Excel 97-2003, Word, HTML, PDF…), qui le nomme. */
+function refusal(buffer, sniff) {
+  if (sniff.kind === 'ole') {
+    const ole = inspectOle(buffer);
+    if (ole.kind === 'xls' && looksLikeXlsform(ole.sheetNames)) return badRequest(XLSFORM);
+    return badRequest(OLE_REFUSALS[ole.kind] || OLE_REFUSALS.other);
+  }
+  return badRequest(REFUSALS[sniff.kind] || `Format non pris en charge (${sniff.label}). ${EXPECTED}`);
+}
+
+/**
+ * Contrôle RAPIDE d'un fichier de soumissions, sans le lire en entier : les MÊMES refus que
+ * parseSubmissions qui ne dépendent que de la forme du fichier (format reconnu par le contenu,
+ * HTML / PDF / Word / .zsav / .xls / XLSForm, garde de décompression d'un zip) — quelques
+ * millisecondes, même pour 80 Mo. Sert à refuser tout de suite (400 / 413) un fichier envoyé
+ * pour un import en tâche de fond ; les erreurs du contenu (date illisible…) viennent de la tâche.
+ * @returns {{ kind: 'csv'|'xlsx'|'sav'|'zip' }}
+ */
+function precheckSubmissions(buffer, { zipLimits = zipLimitsFromEnv(process.env) } = {}) {
+  const sniff = sniffFile(buffer);
+  switch (sniff.kind) {
+    case 'text': return { kind: 'csv' };
+    case 'xlsx': checkXlsx(buffer, sniff, zipLimits); return { kind: 'xlsx' };
+    case 'sav': checkSav(buffer); return { kind: 'sav' };
+    case 'zip': spssZipEntry(buffer, sniff, zipLimits); return { kind: 'zip' };
+    default: throw refusal(buffer, sniff);
   }
 }
 
 module.exports = {
-  parseSubmissions, submissionsFromObjects, parseCsv, buildLookup, valueOf, groupPathRenamer, overrideColumns, analyzeSubmissions, previewImport,
-  collectionColumns, applySurveyDate, applyFieldOverrides, prepareImport, missingOverrides, uniqueByExternalId, dateSummary, TRIM_CLASS, MAP,
+  parseSubmissions, precheckSubmissions, submissionsFromObjects, parseCsv, buildLookup, valueOf, groupPathRenamer, overrideColumns, analyzeSubmissions, previewImport,
+  collectionColumns, applySurveyDate, applyFieldOverrides, prepareImport, prepareImportAsync, missingOverrides, uniqueByExternalId, dateSummary, TRIM_CLASS, MAP,
 };

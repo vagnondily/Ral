@@ -2634,6 +2634,28 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
     max-height: calc(100vh - var(--header-h) - 18px); overflow-y: auto; }
 }
 
+/* Tâches de fond : « tâches en cours » de l'en-tête (roue tant qu'une tâche travaille) et
+   avancement de l'import dans l'assistant. Barre indéterminée quand l'étape n'a pas de total. */
+.jobs-spinner { width: 16px; height: 16px; color: var(--blue-600); }
+.jobs-count { background: var(--blue-600); }
+.jobs-count.is-critical { background: var(--red); }
+.job-item { align-items: flex-start; }
+.job-item:disabled { cursor: default; }
+.job-meta { color: var(--text-faint); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+.job-step { color: var(--text-muted); font-size: 12px; line-height: 1.35; }
+.job-error { color: var(--red-text); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.job-progress { display: block; width: 100%; margin-top: 3px; }
+.progress > span.is-indeterminate { width: 35%; animation: job-indeterminate 1.4s ease-in-out infinite; }
+@keyframes job-indeterminate { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+.wiz-job-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--text-strong); }
+.wiz-job-head .spinner { color: var(--blue-600); }
+.wiz-job-time { margin-left: auto; font-variant-numeric: tabular-nums; }
+.wiz-job-bar { display: block; height: 8px; }
+.wiz-job-step { font-size: 13.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) {
+  .progress > span.is-indeterminate { animation: none; width: 100%; opacity: .45; }
+}
+
 /* RBM — score et drapeau « urgent » cliquables, panneau « Pourquoi ? / Conséquence / Que faire ? » (retour 48). */
 .rbm-score-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .rbm-why, .rbm-flag { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; font: inherit; cursor: pointer; border-radius: 999px; }

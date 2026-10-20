@@ -7,7 +7,9 @@ const { badRequest, notFound, conflict } = require('../../middleware/errors');
 const repo = require('./monitoring.repository');
 const mapping = require('./mapping.service');
 const { readSubmissionsBuffer, fileColumns } = require('./submissionsFile');
+const { precheckSubmissions } = require('./submissionsImport');
 const { runCpu } = require('../common/cpuPool');
+const jobs = require('../jobs/jobs.service');
 const { zipLimitsFromEnv } = require('../common/zipGuard');
 const { validateExpression, functionCatalog } = require('./calcFields');
 const dataLinks = require('./dataLinks.service');
@@ -31,8 +33,18 @@ const LIST_MAX_SPAN = PERIOD_CAPS.list;
 const router = Router();
 router.use(requireAuth);
 const WRITE = requireRole('admin', 'manager');
-const uuidParam = (v) => { if (!z.string().uuid().safeParse(v).success) throw badRequest('Identifiant invalide'); return v; };
+const isUuid = (v) => z.string().uuid().safeParse(v).success;
+const uuidParam = (v) => { if (!isUuid(v)) throw badRequest('Identifiant invalide'); return v; };
 const t = (req) => req.auth.tenantId;
+// Auteur d'une tâche de fond (« tâches en cours ») : l'utilisateur connecté, jamais la requête.
+const author = (req) => (isUuid(req.auth.userId) ? req.auth.userId : null);
+// Nom du fichier envoyé (en-tête X-Filename, encodé par l'interface), pour l'affichage seulement.
+function fileNameOf(req) {
+  const raw = String(req.get('X-Filename') || '').slice(0, 400);
+  let name = raw;
+  try { name = decodeURIComponent(raw); } catch { /* nom brut */ }
+  return name.slice(0, 200);
+}
 
 function body(schema) {
   return (req, res, next) => {
@@ -223,13 +235,23 @@ router.post('/forms/:id/import/preview', WRITE, express.raw({ type: '*/*', limit
   res.json({ source: parsed.source, fields: columns.length, ...analysis });
 }));
 
+// Import EN TÂCHE DE FOND (retour « très lent quand il y a beaucoup à faire en tâche de fond ») :
+// contrôle rapide de la forme du fichier (format reconnu par le contenu, HTML / PDF / Word / .zsav /
+// .xls / XLSForm refusés, garde de décompression) → 400 / 413 tout de suite, rien d'écrit ; puis le
+// fichier est mis en file avec sa tâche et la requête répond 202 { jobId }. La tâche
+// (monitoring/importJob) lit le fichier sur un fil de calcul, écrit et rattache en UNE transaction
+// et rend le résultat que rendait cette requête ; avancement et résultat : GET /api/jobs/:id.
 router.post('/forms/:id/import', WRITE, express.raw({ type: '*/*', limit: '80mb' }), asyncHandler(async (req, res) => {
-  const parsed = await readSubmissionsBuffer(req.body, { log: req.log });
-  const columns = fileColumns(parsed);
-  // Les variables du .sav nomment les colonnes (sans XLSForm) ou complètent les listes codées (avec).
-  const result = await repo.importSubmissions(t(req), req.params.id, parsed.submissions, { variables: parsed.variables, headers: columns });
-  if (!result) throw notFound('Formulaire introuvable');
-  res.json({ ...result, fields: columns.length });
+  const formId = uuidParam(req.params.id);
+  if (!req.body || !req.body.length) throw badRequest('Fichier vide.');
+  precheckSubmissions(req.body, { zipLimits: zipLimitsFromEnv(process.env) });
+  const form = await repo.formLabel(t(req), formId);
+  if (!form) throw notFound('Formulaire introuvable');
+  const job = await jobs.enqueue(t(req), {
+    kind: 'monitoring.import', createdBy: author(req), input: req.body,
+    payload: { formId, formLabel: String(form.label || '').slice(0, 200), fileName: fileNameOf(req) },
+  });
+  res.status(202).json({ jobId: job.id, status: job.status });
 }));
 
 // ---- Import par LIEN (un seul point d'entrée, sécurisé) ----------------------
@@ -302,9 +324,18 @@ for (const action of ['submit', 'validate', 'reset']) {
     res.json(await mapping.transition(t(req), uuidParam(req.params.id), action, req.auth))));
 }
 
-// Réapplique le mapping en vigueur aux soumissions déjà importées (à tout statut du mapping).
+// Réapplique le mapping en vigueur aux soumissions déjà importées (à tout statut du mapping), EN
+// TÂCHE DE FOND (monitoring/reapplyJob) : 202 { jobId }. Un second clic avant que la tâche ne
+// démarre rend la MÊME tâche (une seule réapplication en file par fiche).
 router.post('/forms/:id/mems-mapping/apply', WRITE, asyncHandler(async (req, res) => {
-  res.json(await repo.applyMappingToSubmissions(t(req), uuidParam(req.params.id)));
+  const formId = uuidParam(req.params.id);
+  const form = await repo.formLabel(t(req), formId);
+  if (!form) throw notFound('Fiche introuvable');
+  const job = await jobs.enqueue(t(req), {
+    kind: 'monitoring.reapply', dedupeKey: formId, createdBy: author(req),
+    payload: { formId, formLabel: String(form.label || '').slice(0, 200) },
+  });
+  res.status(202).json({ jobId: job.id, status: job.status, deduped: job.deduped });
 }));
 
 // ---- Nettoyage : champs calculés + exclusion -----------------------------

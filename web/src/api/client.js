@@ -352,6 +352,7 @@ export const api = {
   monMemsMapping: (id) => request(`/api/monitoring/forms/${id}/mems-mapping`),
   monSetMemsMapping: (id, dimension, column) => request(`/api/monitoring/forms/${id}/mems-mapping`, { method: 'PUT', body: { dimension, column } }),
   monResetMemsMapping: (id, dimension) => request(`/api/monitoring/forms/${id}/mems-mapping/${dimension}`, { method: 'DELETE' }),
+  // Réapplication du mapping EN TÂCHE DE FOND : rend { jobId } (suivi : lib/jobsStore).
   monApplyMemsMapping: (id) => request(`/api/monitoring/forms/${id}/mems-mapping/apply`, { method: 'POST' }),
   // Cycle de vie du mapping : action ∈ submit | validate | reset.
   monMappingAction: (id, action) => request(`/api/monitoring/forms/${id}/mapping/${action}`, { method: 'POST' }),
@@ -375,12 +376,17 @@ export const api = {
   },
   monKoboPull: (id, input) => request(`/api/monitoring/forms/${id}/kobo-pull`, { method: 'POST', body: input }),
   monUrlPull: (id, input) => request(`/api/monitoring/forms/${id}/url-pull`, { method: 'POST', body: input }),
+  // Import EN TÂCHE DE FOND : rend { jobId } (202) ; un fichier refusé par sa forme → erreur tout de suite.
   monImport: (id, file) => uploadSubmissions(`/api/monitoring/forms/${id}/import`, file),
   // Correspondances des valeurs codées (bureau, partenaire, agent) d'une fiche.
   monCorrespondences: (id, dimension) => request(`/api/monitoring/forms/${id}/correspondences`, { query: { dimension } }),
   monSetCorrespondence: (id, body) => request(`/api/monitoring/forms/${id}/correspondences`, { method: 'PUT', body }),
   // Vérification avant import : ce que contient le fichier (rien n'est écrit).
   monImportPreview: (id, file) => uploadSubmissions(`/api/monitoring/forms/${id}/import/preview`, file),
+
+  // Tâches de fond du compte (imports, réapplications) : en file, en cours, terminées depuis peu.
+  jobs: () => request('/api/jobs'),
+  job: (id) => request(`/api/jobs/${id}`),
 
   // Paramètres
   listPartnerTypes: () => request('/api/settings/partner-types'),

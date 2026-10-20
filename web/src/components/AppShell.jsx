@@ -6,6 +6,7 @@ import {
 import { IconButton } from './ui.jsx';
 import { LogoMark } from './Logo.jsx';
 import { NotificationsMenu, UserMenu } from './HeaderMenus.jsx';
+import { JobsMenu } from './JobsMenu.jsx';
 import { useI18n } from '../lib/i18n.jsx';
 
 const SIDEBAR_KEY = 'mems.sidebar';
@@ -222,6 +223,7 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
           </nav>
           <div className="header-right">
             <div className="header-tools">
+              <JobsMenu onNavigate={onNavigate} />
               <NotificationsMenu onNavigate={onNavigate} />
               <UserMenu user={user} onLogout={onLogout} onSettings={() => onNavigate('parametrage', 'partenaires')} />
             </div>

@@ -1,6 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
 const { afterSitesChangedTx, lockSubmissionLinksTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
-const { sitePatchSql } = require('./sitePatch');
+const { sitePatchSql, patchAffectsLinks } = require('./sitePatch');
 const { chunkRows } = require('../../db/batch');
 const { shapeRangeSummary, shapeCoverageFacts, collectionDays, buildCoverageMatrix } = require('./fieldMath');
 const { isDue, frequencyFor, visitState, currentMonth, toMonth, needsPlanning, planningCounts } = require('./rbmMath');
@@ -110,14 +110,18 @@ async function createSiteTx(client, tenantId, s) {
 /** Mise à jour partielle : seuls les champs envoyés changent (un changement de risque n'efface plus l'activité). */
 async function updateSite(tenantId, id, patch) {
   const { sets, values } = sitePatchSql(patch, 3);
-  return withSubmissionLinks(tenantId, async (client) => {
+  // Nom, lieu ou activité : rattachements rejoués sous leur verrou. Critères RBM, risque… : une
+  // simple transaction — ni verrou des rattachements ni réapplication (sitePatch.patchAffectsLinks).
+  const relinks = patchAffectsLinks(patch);
+  const run = relinks ? withSubmissionLinks : withTenantTransaction;
+  return run(tenantId, async (client) => {
     if (!sets.length) {
       const { rowCount } = await client.query('SELECT 1 FROM sites WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
       return rowCount > 0;
     }
     const { rowCount } = await client.query(
       `UPDATE sites SET ${sets.join(', ')} WHERE tenant_id = $1 AND id = $2`, [tenantId, id, ...values]);
-    await afterSitesChangedTx(client, tenantId); // registre modifié : lieux, bureau et formulaires reçus reliés à nouveau
+    if (relinks) await afterSitesChangedTx(client, tenantId); // registre modifié : lieux, bureau et formulaires reçus reliés à nouveau
     return rowCount > 0;
   });
 }

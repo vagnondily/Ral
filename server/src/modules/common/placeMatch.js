@@ -15,6 +15,8 @@
  * « À rapprocher ». La valeur brute est toujours conservée par l'appelant.
  */
 
+const { runSync, runYielding, isPause } = require('./yielding');
+
 // ---- Normalisation ------------------------------------------------------------------
 // Les articles qui suivent (« de », « d' ») sont retirés ensuite : « CR d'Ampanihy » → « ampanihy ».
 const PREFIXES = ['commune urbaine', 'commune rurale', 'commune', 'cu', 'cr', 'district', 'region',
@@ -52,9 +54,17 @@ function normPlace(label, { synonyms = MDG_SYNONYMS } = {}) {
 function guardOf(token) {
   if (/^\d+$/.test(token) || CARDINALS.has(token)) return token;
   if (token.length < 5) return null;
-  for (const c of LONG_CARDINALS) if (similarity(token, c) >= FUZZY_MIN) return c;
-  return null;
+  // Résultat mémorisé (fonction pure du jeton) : le découpage d'un pays répète les mêmes
+  // jetons des milliers de fois, et la comparaison floue aux points cardinaux coûte cher.
+  if (GUARD_MEMO.has(token)) return GUARD_MEMO.get(token);
+  let out = null;
+  for (const c of LONG_CARDINALS) if (similarity(token, c) >= FUZZY_MIN) { out = c; break; }
+  if (GUARD_MEMO.size >= GUARD_MEMO_MAX) GUARD_MEMO.clear();
+  GUARD_MEMO.set(token, out);
+  return out;
 }
+const GUARD_MEMO = new Map();
+const GUARD_MEMO_MAX = 50000;
 
 /** Une valeur a-t-elle la forme d'un pcode (MG51507090) ? */
 // Pcode : 2-3 lettres, des chiffres, parfois une lettre finale (découpages issus des XLSForm : MG51507110a).
@@ -123,7 +133,28 @@ function pathKeyOf(path) { return String(path || '').split('>').map((seg) => nor
  * @param {Array<{depth, parentKey, aliasKey, targetPcode?, targetId?}>} [p.aliases] alias appris
  *        (parentKey = pcode du parent, sinon sa clé normalisée ; '' = tout le niveau)
  */
-function buildPlaceIndex({ areas = [], aliases = [], synonyms = MDG_SYNONYMS } = {}) {
+function buildPlaceIndex(opts = {}) {
+  return runSync(placeIndexSteps(opts));
+}
+
+/**
+ * Le MÊME index (même code : placeIndexSteps), construit en rendant la main à la boucle
+ * d'événements tous les `chunk` unités : 19 000 unités ≈ 0,3 s de calcul ne bloquent plus les
+ * autres requêtes d'un seul tenant (rattachements rejoués par un import en tâche de fond).
+ */
+async function buildPlaceIndexAsync(opts = {}, { chunk = 2000 } = {}) {
+  return runYielding(placeIndexSteps(opts, chunk));
+}
+
+/** Construction pas à pas de l'index (générateur : `yield` tous les `chunk` unités). */
+function* placeIndexSteps({ areas = [], aliases = [], synonyms = MDG_SYNONYMS } = {}, chunk = Infinity) {
+  let n = 0;
+  // Clés mémorisées le temps de la construction : un nom de région ou de district revient dans
+  // des milliers de chemins (19 000 unités : 1 s → 0,1 s), même résultat (normPlace est pure).
+  const memoOf = (opts) => { const m = new Map(); return (label) => { const k = String(label == null ? '' : label); let v = m.get(k); if (!v) { v = normPlace(k, opts); m.set(k, v); } return { key: v.key, guards: v.guards }; }; };
+  const normName = memoOf({ synonyms });
+  const normSeg = memoOf(undefined);
+  const pathKey = (path) => String(path || '').split('>').map((seg) => normSeg(seg).key).join(' > ');
   const byId = new Map(); const byPcode = new Map();
   const inParent = new Map(); // `${depth}|${parentId||''}` → Map(key → area[])
   const inLevel = new Map();  // `${depth}` → Map(key → area[])
@@ -132,17 +163,23 @@ function buildPlaceIndex({ areas = [], aliases = [], synonyms = MDG_SYNONYMS } =
     const m = map.get(k); if (!m.has(key)) m.set(key, []); m.get(key).push(a);
   };
   for (const raw of areas) {
-    const a = { ...raw, norm: normPlace(raw.name, { synonyms }) };
+    const a = { ...raw, norm: normName(raw.name) };
     byId.set(a.id, a);
     if (a.pcode) byPcode.set(String(a.pcode).trim().toUpperCase(), a);
     push(inParent, `${a.depth}|${a.parentId || ''}`, a.norm.key, a);
     push(inLevel, `${a.depth}`, a.norm.key, a);
+    n += 1;
+    if (isPause(n, chunk)) yield n;
   }
   const aliasMap = new Map();
   for (const al of aliases) aliasMap.set(`${al.depth || 0}|${al.parentKey || ''}|${al.aliasKey}`, al);
   // Chemin normalisé → unité (repli d'un alias dont l'unité a été recréée au réimport).
   const byPath = new Map();
-  for (const a of byId.values()) if (a.path) byPath.set(pathKeyOf(a.path), a);
+  for (const a of byId.values()) {
+    if (a.path) byPath.set(pathKey(a.path), a); // = pathKeyOf, mémorisé
+    n += 1;
+    if (isPause(n, chunk)) yield n;
+  }
   return { byId, byPcode, byPath, inParent, inLevel, aliasMap, synonyms };
 }
 
@@ -372,6 +409,6 @@ function groupUnmatched(items, { synonyms = MDG_SYNONYMS } = {}) {
 }
 
 module.exports = {
-  normPlace, looksLikePcode, jaroWinkler, levenshtein, similarity, buildPlaceIndex, resolvePlace, resolvePath, isAutomatic, parentKeyOf,
+  normPlace, looksLikePcode, jaroWinkler, levenshtein, similarity, buildPlaceIndex, buildPlaceIndexAsync, resolvePlace, resolvePath, isAutomatic, parentKeyOf,
   pathKey, relinkByPath, officeResolver, buildOfficeIndex, resolveOffice, groupUnmatched, MDG_SYNONYMS, FUZZY_MIN,
 };

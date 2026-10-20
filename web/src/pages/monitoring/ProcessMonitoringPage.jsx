@@ -26,6 +26,8 @@ import { downloadCsv } from '../../lib/csv.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 import { suggestActivity } from '../../lib/activitySuggest.js';
+import { jobError } from '../../lib/jobs.js';
+import { trackJob, waitForJob } from '../../lib/jobsStore.js';
 
 /**
  * Suivi de processus › Données & indicateurs.
@@ -104,6 +106,13 @@ export default function ProcessMonitoringPage({ canEdit, isAdmin, formId = null,
     catch (e) { setError(e.message); setForms([]); }
   }
   useEffect(() => { loadForms(); /* eslint-disable-next-line */ }, []);
+  // Import ou réapplication terminé en tâche de fond (ici ou ailleurs) : nombres des fiches relus.
+  useEffect(() => {
+    const onFinished = (e) => { if (e.detail?.job?.payload?.formId) loadForms(); };
+    window.addEventListener('mems:job-finished', onFinished);
+    return () => window.removeEventListener('mems:job-finished', onFinished);
+    // eslint-disable-next-line
+  }, []);
   // Lien direct #/processus/donnees/<fiche>/<onglet> (ex. « Relier » un code de bureau → Mapping MEMS de CETTE fiche).
   useEffect(() => {
     if (formId) { setOpenTab(tab || null); setSelId(formId); } else { setSelId(null); setOpenTab(null); }
@@ -1105,10 +1114,19 @@ function MappingColumnsCard({ form, canEdit }) {
     } catch (e) { toast.error(e.message); } finally { setBusy(null); await reload(); }
   }
 
+  // Réapplication EN TÂCHE DE FOND (le serveur répond tout de suite ; avancement dans l'en-tête) :
+  // le bouton attend sa fin, puis le même message qu'avant et le mapping relu.
   async function applyToData() {
     setBusy('apply');
     try {
-      const res = await api.monApplyMemsMapping(form.id);
+      const { jobId } = await api.monApplyMemsMapping(form.id);
+      trackJob({
+        id: jobId, kind: 'monitoring.reapply', status: 'queued', progress: {}, fraction: null,
+        payload: { formId: form.id, formLabel: form.label }, createdAt: new Date().toISOString(),
+      });
+      const job = await waitForJob(jobId);
+      if (job.status !== 'done') throw jobError(job);
+      const res = job.result || {};
       const moved = res.dates?.monthChanged || 0;
       toast.success([tr('Mapping appliqué ({n} dimension(s)) aux soumissions.', { n: res.applied }),
         moved ? tr('{n} soumission(s) changent de mois de collecte.', { n: formatInt(moved) }) : ''].filter(Boolean).join(' '));

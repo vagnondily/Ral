@@ -29,7 +29,9 @@ const asyncHandler = require('./middleware/asyncHandler');
 const { requireAuth, requireRole } = require('./middleware/auth');
 const { runtimeSnapshot } = require('./modules/common/runtimeStats');
 const { cpuPool } = require('./modules/common/cpuPool');
-const { pool } = require('./config/db');
+const { pool, backgroundStats } = require('./config/db');
+const jobsRoutes = require('./modules/jobs/jobs.routes');
+const jobsService = require('./modules/jobs/jobs.service');
 const { checkSchema } = require('./db/schemaStatus');
 
 function createApp() {
@@ -113,6 +115,7 @@ function createApp() {
   app.use('/api/site-registry', siteRegistryRoutes);
   app.use('/api/sub-activities', subActivitiesRoutes);
   app.use('/api/map', mapRoutes);
+  app.use('/api/jobs', jobsRoutes); // tâches de fond : avancement des imports, « tâches en cours »
   // État de la base pour l'écran : migrations en attente (bandeau administrateur).
   // Nombre de mises à jour de schéma en attente pour tous ; leurs noms de fichiers pour l'admin seul.
   app.get('/api/system/status', requireAuth, asyncHandler(async (req, res) => {
@@ -121,9 +124,12 @@ function createApp() {
   }));
 
   // Santé du processus (administrateur) : retard de la boucle d'événements, pool PostgreSQL, fils de
-  // calcul ; ?reset=1 remet la mesure à zéro (banc de réactivité).
+  // calcul, connexions et exécuteur des tâches de fond ; ?reset=1 remet la mesure à zéro (banc de réactivité).
   app.get('/api/system/runtime', requireAuth, requireRole('admin'), (req, res) => {
-    res.json(runtimeSnapshot({ reset: req.query.reset === '1', pool, extra: { cpuPool: cpuPool().stats() } }));
+    res.json(runtimeSnapshot({
+      reset: req.query.reset === '1', pool,
+      extra: { cpuPool: cpuPool().stats(), backgroundDb: backgroundStats(), jobs: jobsService.runnerStats() },
+    }));
   });
 
   // Anything else is a routing mistake, not a server error.

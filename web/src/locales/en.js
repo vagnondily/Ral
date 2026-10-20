@@ -29,9 +29,11 @@ import period from './en/period.js';
 import map from './en/map.js';
 import activation from './en/activation.js';
 import reportLayout from './en/reportLayout.js';
+import jobs from './en/jobs.js';
 
 export default {
   ...common, ...shell, ...contracts, ...tpmReports, ...tpmPlanning, ...monitoring,
   ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard, ...calc, ...importWizard, ...correspondences,
   ...indicatorEditor, ...dashboards, ...sites, ...deletions, ...activityCoverage, ...period, ...map, ...activation, ...reportLayout,
+  ...jobs,
 };
