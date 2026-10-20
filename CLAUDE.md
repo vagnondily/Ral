@@ -569,6 +569,20 @@ or navy rail.
   - écrans qui n'affichent que des totaux RBM : `GET /api/tpm/field/rbm/counts` (mêmes lignes que
     `/rbm/sites`), jamais la liste complète.
 - **Couverture : une seule source** (retour 110) : `GET /api/dashboards/coverage` (`dashboards/coverage.*`, mise en forme pure `coverageDefinitions.js`), lu par la Synthèse ET « Couverture & performance » ; univers = sites actifs de la période ; « suivi » = visite déclarée OU données reçues rattachées au site ; chaque découpage (activité, bureau, district) se somme aux tuiles. Ne pas recalculer une couverture ailleurs ; « Sites prévus → suivis » (sites) ≠ « Exécution du plan » (visites).
+- **Publié le 20/10** :
+  - **Listes de choix** : `components/EntityPicker.jsx` (logique pure `lib/entityPicker.js`, testée) remplace la liste du
+    navigateur sur les longues listes (recherche sans accents au-delà de 7 choix, groupes, précision, 300 options au plus,
+    le reste compté) ; contrat d'abord puis son TPM (`lib/tpmPickers.js`, `useContractTpms`), TPM actifs du mois en tête,
+    un TPM choisi à la main n'est jamais écrasé.
+  - **Clé d'activité** : `siteActivitySql.activityKeySql` et `coverageDefinitions.activityKey` sont des jumelles STRICTES
+    (classe d'espaces explicite `ACTIVITY_SPACE_CLASS`, jamais `\s` ni `btrim` en SQL) ; une seule expression pour regrouper
+    et filtrer. Limite : `lower()` suit la locale de la base.
+  - **Constats des rapports** : clés de ligne re-clées UNE fois (`rowKeys: 2` dans le contenu) ; règle `rekeyOnRead` —
+    brouillon et rapport finalisé avec `snapshot.rowKeys = 2` (posé par finalize) : re-clés ; finalisé avant : jamais
+    (« Dupliquer » part de `copyContent`). Les lignes figées ne sont jamais réécrites.
+  - **Plafond d'une période** : chaque écran propose au plus le plafond du plus restrictif de ses endpoints ; un lien
+    (alerte, « Ouvrir la carte ») n'envoie jamais une période que l'écran d'arrivée écarterait.
+  - **Tests sur base jetable** : `npm run test:db` (fichiers en série : ils écrivent dans la même base).
 - **Effacer des visites prévues** : seulement les « libres » (`planAuto.repository.CLEARABLE_SQL` : TPM de zone, ni figées ni facturées, sans date ni agent, mois en cours ou à venir) — jamais une visite réalisée, annulée, motivée, d'un mois échu.
 - **TPM d'une visite = contrat de la zone** (retour 58, migration 070, `tpm/tpmAttribution.js` + jumelle SQL
   `mems_tpm_cells`) : TPM du contrat de suivi actif qui couvre la zone (commune sinon district) du site ce
