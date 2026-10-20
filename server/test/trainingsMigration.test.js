@@ -60,7 +60,7 @@ test('087 en base : une thématique de 200 caractères (et une plus longue) est 
          JOIN training_session_themes st ON st.theme_id = t.id
          JOIN training_sessions s ON s.id = st.session_id
          JOIN training_participants p ON p.session_id = s.id AND p.agent_id = $2
-        WHERE t.tenant_id = $1 AND s.origin = 'reprise' AND t.label LIKE 'Formation % longue%' ORDER BY s.start_date`,
+        WHERE t.tenant_id = $1 AND s.origin = 'reprise' AND t.label LIKE 'Formation%longue%' ORDER BY s.start_date`,
       [agent.tenant_id, agent.id]);
     assert.equal(rows.length, 2);
     assert.deepEqual([rows[0].label, rows[0].title, rows[0].d, rows[0].e, rows[0].days], [t200, t200, '2019-03-04', '2019-03-05', 2]);
