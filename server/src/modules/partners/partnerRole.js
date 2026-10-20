@@ -8,10 +8,13 @@
  */
 const TIMEZONE = process.env.APP_TIMEZONE || 'Indian/Antananarivo';
 
+/** Identifiant de type comparable : un UUID ne dépend pas de la casse (zod `.uuid()` accepte les majuscules). */
+const typeKey = (id) => String(id ?? '').toLowerCase();
+
 /** Le rôle a-t-il changé ? (avant / après : { partnerTypeId, active }) — pur, testé. */
 function roleChanged(before, after) {
   if (!before || !after) return false;
-  return String(before.partnerTypeId) !== String(after.partnerTypeId) || Boolean(before.active) !== Boolean(after.active);
+  return typeKey(before.partnerTypeId) !== typeKey(after.partnerTypeId) || Boolean(before.active) !== Boolean(after.active);
 }
 
 const currentMonth = () => new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE }).format(new Date()).slice(0, 7);
@@ -62,11 +65,22 @@ function nameChanges(before, name) {
  *   - renommage seul : la mise à jour attend la fin d'un écrivain « clé d'abord », sans interblocage
  *     (elle ne tient pas le verrou d'attribution) ; avec un écrivain « verrou d'abord », l'un attend la
  *     fin de l'autre, sans interblocage non plus ;
- *   - SEUL CAS RESTANT : renommer ET changer le rôle dans le même enregistrement pendant qu'un écrivain
- *     « clé d'abord » a posé sa clé étrangère. Nous tenons le verrou d'attribution et attendons sa clé ;
- *     il attend le verrou d'attribution : Postgres détecte l'interblocage (40P01) et annule l'une des deux
- *     transactions en entier — rien d'écrit à moitié — et le gestionnaire d'erreurs répond 503
- *     « Une autre mise à jour des mêmes données est en cours : réessayez dans un instant. ».
+ *   - rôle changé pendant l'approbation d'un avenant d'un contrat de ses zones (contrat verrouillé PUIS
+ *     restampFromNow) : sans interblocage — notre réestampille pose site_visits.contract_id (FOR KEY
+ *     SHARE sur le contrat), que le verrou d'écriture du contrat (FOR NO KEY UPDATE,
+ *     contracts.repository.getContract) laisse passer ;
+ *   - CE QUI RESTE :
+ *     · renommer ET changer le rôle dans le même enregistrement pendant qu'un écrivain « clé d'abord »
+ *       a posé sa clé étrangère vers la fiche : nous tenons le verrou d'attribution et attendons sa clé,
+ *       il attend le verrou d'attribution. Postgres détecte l'interblocage (40P01) et annule l'une des
+ *       deux transactions en entier — rien d'écrit à moitié — et le gestionnaire d'erreurs répond 503
+ *       « Une autre mise à jour des mêmes données est en cours : réessayez dans un instant. » ;
+ *     · rôle changé pendant la SUPPRESSION d'un contrat de ses zones (seule écriture de contrat encore
+ *       FOR UPDATE ; de même pour tout écrivain dont la réestampille pose contract_id = ce contrat, une
+ *       nouvelle visite par exemple) : la réestampille attend la fin de la suppression, sans interblocage
+ *       (un contrat qui porte des visites ne se supprime pas, la suppression ne prend donc jamais le
+ *       verrou d'attribution) ; si elle aboutit, la clé étrangère vers le contrat supprimé est refusée
+ *       (23503 → 400), l'enregistrement est annulé en entier et le nouvel essai passe.
  * Deux changements de rôle concurrents de la même fiche restent sérialisés (verrou d'attribution, puis
  * la ligne).
  */

@@ -38,8 +38,9 @@ function today() {
 function canWrite(actor) { return WRITE_ROLES.includes(actor.role); }
 function assertCanWrite(actor) { if (!canWrite(actor)) throw forbidden('Votre rôle ne permet pas de modifier les contrats.'); }
 
-async function loadForUpdate(client, tenantId, id) {
-  const contract = await repo.getContract(client, tenantId, id, { forUpdate: true });
+/** Contrat verrouillé pour une écriture (FOR NO KEY UPDATE ; FOR UPDATE pour la suppression — repository.getContract). */
+async function loadForUpdate(client, tenantId, id, { forDelete = false } = {}) {
+  const contract = await repo.getContract(client, tenantId, id, { forUpdate: true, forDelete });
   if (!contract) throw notFound('Contrat introuvable');
   return contract;
 }
@@ -496,7 +497,7 @@ async function contractLinks(client, tenantId, id) {
 async function deleteDraft(tenantId, actor, id, { justification } = {}) {
   assertCanWrite(actor);
   await withTenantTransaction(tenantId, async (client) => {
-    const contract = await loadForUpdate(client, tenantId, id);
+    const contract = await loadForUpdate(client, tenantId, id, { forDelete: true }); // vérification des liens puis suppression
     const validated = isValidatedStatus('contract', contract.status);
     const linked = await contractLinks(client, tenantId, id);
 

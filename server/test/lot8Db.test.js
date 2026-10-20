@@ -357,6 +357,90 @@ test('Paramétrage › Partenaires pendant une écriture de l\'attribution, dans
   }
 });
 
+test('approbation d\'un avenant (contrat verrouillé FOR NO KEY UPDATE, puis réestampille) face à un écrivain qui tient le verrou d\'attribution puis pose contract_id : ni interblocage ni échec', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const [{ id: U }] = await q('SELECT id FROM users WHERE tenant_id = $1 ORDER BY email LIMIT 1', [T]);
+  const types = Object.fromEntries((await q("SELECT code, id FROM partner_types WHERE tenant_id = $1 AND code IN ('tpm', 'prestataire')", [T])).map((r) => [r.code, r.id]));
+  const month = new Intl.DateTimeFormat('en-CA', { timeZone: process.env.APP_TIMEZONE || 'Indian/Antananarivo' }).format(new Date()).slice(0, 7);
+  // Un site d'un district sans contrat de suivi ce mois-ci : le contrat K du test sera le seul à le couvrir.
+  const sites = await q('SELECT id, zone_district_id AS d FROM sites WHERE tenant_id = $1 AND zone_district_id IS NOT NULL ORDER BY id LIMIT 400', [T]);
+  const cells = await q('SELECT c_site_id AS s, c_area_id AS a, c_state AS st FROM mems_tpm_cells($1, $2::uuid[], $3::date[])',
+    [T, sites.map((x) => x.id), sites.map(() => `${month}-01`)]);
+  const site = sites.find((x) => cells.some((c) => c.s === x.id && c.st === 'sans_contrat' && c.a === x.d));
+  assert.ok(site, 'un site d\'un district sans contrat de suivi');
+  const [area] = await q('SELECT path FROM admin_areas WHERE id = $1', [site.d]);
+  const contractsRepo = require('../src/modules/contracts/contracts.repository');
+  const { restampVisitsTx } = require('../src/modules/tpm/tpmAttribution.repository');
+  const field = require('../src/modules/tpm/field.repository');
+  const settings = require('../src/modules/settings/settings.repository');
+  const { Client } = require('pg');
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const why = (e) => e && `${e.code} ${e.message}`;
+  const settle = (p) => p.then((ok) => ({ ok }), (err) => ({ err }));
+  // Contrat de suivi actif K du district, titulaire H ; W = decideAmendment : contrat verrouillé
+  // (loadForUpdate) et mis à jour (saveContract), ENSUITE restampFromNow (verrou d'attribution).
+  const scenario = async (label, holder, writer) => {
+    const made = {};
+    const other = new Client({ connectionString: SU_URL });
+    await other.connect();
+    try {
+      const [H] = await q('INSERT INTO partners (tenant_id, partner_type_id, name, active) VALUES ($1, $2, $3, $4) RETURNING id, name',
+        [T, types[holder.type], `Test lot 8 — titulaire (${label})`, holder.active]);
+      made.partner = H.id;
+      const [K] = await q(`INSERT INTO contracts (tenant_id, numero, partner_id, partner_name, date_debut, date_fin, status, created_by)
+         VALUES ($1, $2, $3, $4, $5::date, ($5::date + interval '3 month')::date, 'actif', $6) RETURNING id`, [T, `TEST-LOT8-${label}`, H.id, H.name, `${month}-01`, U]);
+      made.contract = K.id;
+      await q(`INSERT INTO contract_budget_items (contract_id, tenant_id, line_code, description, unit_count, unit_cost, allocations, sort_order)
+               VALUES ($1, $2, 'IV.suivi', 'Test lot 8', 1, 1000, '{}'::jsonb, 0)`, [K.id, T]);
+      await q('INSERT INTO contract_areas (contract_id, tenant_id, admin_area_id, path, depth, sort_order) VALUES ($1, $2, $3, $4, 2, 0)', [K.id, T, site.d, area.path]);
+      const activity = `Test lot 8 avenant (${label})`;
+      if (writer.visitBefore) await q("INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status) VALUES ($1, $2, $3::date, $4, 'planifie')", [T, site.id, `${month}-01`, activity]);
+      await other.query('BEGIN');
+      await other.query("SET LOCAL lock_timeout = '15s'");
+      await other.query("SELECT set_config('app.tenant_id', $1, true)", [T]);
+      const locked = await contractsRepo.getContract(other, T, K.id, { forUpdate: true });
+      assert.equal(await contractsRepo.updateContract(other, T, K.id, locked.version, { amendmentCount: 1 }), true);
+      const pending = settle(writer.run({ H, activity }));
+      const alone = await Promise.race([pending.then(() => true), sleep(10000).then(() => false)]);
+      let writerErr = null;
+      try { await restampVisitsTx(other, T, { fromMonth: month }); await other.query('ROLLBACK'); } catch (e) { writerErr = e; await other.query('ROLLBACK'); }
+      const r = await pending;
+      assert.ok(alone, `${label} : l'écrivain n'attend pas le verrou du contrat`);
+      assert.equal(writerErr, null, `${label} — approbation de l'avenant : ${why(writerErr)}`);
+      assert.equal(r.err, undefined, `${label} — écrivain : ${why(r.err)}`);
+      const [v] = await q('SELECT provider_id AS p, contract_id AS c FROM site_visits WHERE tenant_id = $1 AND activity = $2', [T, activity]);
+      assert.deepEqual(v, { p: H.id, c: K.id }, `${label} : la visite prévue est à H, sur le contrat K`);
+    } finally {
+      await other.query('ROLLBACK').catch(() => {});
+      await other.end();
+      await q('DELETE FROM site_visits WHERE tenant_id = $1 AND activity = $2', [T, `Test lot 8 avenant (${label})`]);
+      if (made.contract) await q('DELETE FROM contracts WHERE tenant_id = $1 AND id = $2', [T, made.contract]);
+      if (made.partner) await q('DELETE FROM partners WHERE tenant_id = $1 AND id = $2', [T, made.partner]);
+    }
+  };
+  // 1. Écrivain réel « verrou d'abord » : nouvelle visite (verrou d'attribution, visite, réestampille →
+  //    contract_id = K). Avec l'ancien FOR UPDATE du contrat : 40P01.
+  await scenario('visite', { type: 'tpm', active: true }, { run: ({ activity }) => field.createVisit(T, U, { siteId: site.id, periodMonth: month, activity }) });
+  // 2. Changement de rôle du titulaire, nom inchangé (revue de db91f65) : type, puis réactivation. Sa
+  //    réestampille pose contract_id = K là où le titulaire n'était pas TPM (règle d'estampille du
+  //    retour 114) ; avec la règle du lot 8 (titulaire retenu quel que soit son rôle) la visite est déjà
+  //    à H : rien n'est réécrit, le cas doit passer de même.
+  for (const [label, holder] of [['type', { type: 'prestataire', active: true }], ['reactivation', { type: 'tpm', active: false }]]) {
+    await scenario(label, holder, { visitBefore: true, run: ({ H }) => settings.updatePartner(T, H.id, { name: H.name, partnerTypeId: types.tpm, active: true }) });
+  }
+});
+
+test('colonnes de clé (index uniques non partiels — ce qui fait prendre FOR UPDATE à un UPDATE) : contrats et partenaires', { skip: SKIP }, async () => {
+  const keyColumns = async (table) => (await q(`SELECT DISTINCT a.attname AS col FROM pg_index i
+      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+     WHERE i.indrelid = $1::regclass AND i.indisunique AND i.indimmediate AND i.indpred IS NULL ORDER BY 1`, [table])).map((r) => r.col);
+  const contractsRepo = require('../src/modules/contracts/contracts.repository');
+  assert.deepEqual(await keyColumns('contracts'), [...contractsRepo.CONTRACT_KEY_COLUMNS].sort(), 'CONTRACT_KEY_COLUMNS = les colonnes de clé de contracts');
+  assert.deepEqual(Object.values(contractsRepo.CONTRACT_UPDATE_COLUMNS).filter((c) => contractsRepo.CONTRACT_KEY_COLUMNS.includes(c)), []);
+  // partners : seule `name` est modifiable parmi ses clés — listée seulement si elle change (partnerRole.nameChanges).
+  assert.deepEqual(await keyColumns('partners'), ['id', 'name', 'tenant_id']);
+});
+
 test('roleForUpdateTx en base : renommage seul sans verrou d\'attribution ; rôle changé entre la lecture et le verrou → ligne rendue, verrou d\'attribution, ligne reprise', { skip: SKIP }, async () => {
   const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
   const types = Object.fromEntries((await q("SELECT code, id FROM partner_types WHERE tenant_id = $1 AND code IN ('tpm', 'prestataire')", [T])).map((r) => [r.code, r.id]));
