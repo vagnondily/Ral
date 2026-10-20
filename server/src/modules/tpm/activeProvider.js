@@ -24,9 +24,9 @@
  *    partenaires ACTIFS de type TPM rattachés par un plan de collecte ou une facture / un rapport
  *    (`tpmsByContract`) ; à défaut, son titulaire SEULEMENT s'il est lui-même un TPM actif ; sinon
  *    le contrat n'a pas de TPM (suivi interne par l'équipe S&E : « Interne »). Un partenaire de mise
- *    en œuvre n'est jamais le TPM d'un contrat — ni à l'affichage, ni dans les listes de choix.
- *    (L'estampille des visites, tpmAttribution.contractTpms et sa jumelle SQL mems_tpm_cells,
- *    garde pour l'instant le titulaire quel que soit son type : elle suivra avec le retour 114.)
+ *    en œuvre n'est jamais le TPM d'un contrat — ni à l'affichage, ni dans les listes de choix, ni
+ *    dans l'estampille des visites (tpmAttribution.contractTpms et sa jumelle SQL mems_tpm_cells,
+ *    retour 114).
  *  - SÉLECTIONNABLE pour des mois (listes de choix d'un TPM) : d'abord les TPM d'un contrat de
  *    suivi qui couvre un des mois (groupe « contrat »), puis les autres partenaires actifs de type
  *    TPM (groupe « tpm », à part, choix hors contrat).
@@ -120,8 +120,8 @@ function pickerContractTpms(contracts, partners) {
 
 /**
  * TPM de chaque contrat pour les LISTES DE CHOIX : la même règle que l'affichage (contractTpmOf —
- * décision D1 : un titulaire ne compte que s'il est lui-même un TPM actif). Diffère volontairement,
- * pour l'instant, de tpmAttribution.contractTpms (estampille des visites, retour 114 à venir).
+ * décision D1 : un titulaire ne compte que s'il est lui-même un TPM actif), la même que
+ * tpmAttribution.contractTpms (estampille des visites, retour 114).
  * @returns {Map<string, Set<string>>} contractId → identifiants ; titulaire lu sur les liens.
  */
 function tpmIdsByContract(links, partners) {
