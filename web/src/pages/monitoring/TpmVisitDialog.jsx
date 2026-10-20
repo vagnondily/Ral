@@ -91,7 +91,7 @@ export default function TpmVisitDialog({ visits, onClose, onSaved }) {
         {action === 'set' && (
           <div className="field">
             <label className="field-label" htmlFor="tpm-visit-provider">{tr('Nouveau TPM')}</label>
-            {selectable ? <ProviderSelect id="tpm-visit-provider" selectable={selectable} value={provider} onChange={setProvider} noneLabel={tr('Aucun TPM (désaffecter)')} />
+            {selectable ? <ProviderSelect id="tpm-visit-provider" selectable={selectable} value={provider} onChange={setProvider} noneLabel={tr('Interne (équipe S&E)')} />
               : <Skeleton height={38} />}
           </div>
         )}

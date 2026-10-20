@@ -3408,3 +3408,10 @@ textarea { font: inherit; color: inherit; }
    tient sur une ligne, un long n° FLA ne se coupe qu'aux tirets, en deux lignes au plus ; jamais un
    tableau poussé hors de l'écran pour un code. */
 .table td.mono:not(.num), .table td:not(.num):has(> .mono), .table td:not(.num):has(> code) { min-width: 16ch; }
+
+/* Rapports attendus (retour 114, pages/tpm/ExpectedReports.jsx) — jetons v6 ci-dessus. */
+.expected-reports .card-title { display: flex; align-items: center; gap: 6px; }
+.expected-reports .exp-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.expected-reports .exp-chips { display: flex; flex-wrap: wrap; gap: 8px 16px; padding-top: 0; }
+.expected-reports .exp-chip { display: inline-flex; align-items: center; gap: 6px; }
+.expected-reports .exp-doc { display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; }

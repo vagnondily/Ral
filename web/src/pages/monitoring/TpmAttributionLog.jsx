@@ -4,7 +4,8 @@ import { api } from '../../api/client.js';
 import { Alert, Button, EmptyState, Skeleton, StatusBadge } from '../../components/ui.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatDateTime, formatInt, shortMonthLabel } from '../../lib/format.js';
-import { TPM_LOG_ACTION, rangeLabel, tpmStateLabel } from '../../lib/tpmAttribution.js';
+import { TPM_AVAILABILITY, TPM_LOG_ACTION, rangeLabel, tpmStateLabel } from '../../lib/tpmAttribution.js';
+import { ROLE_LABELS } from '../../lib/roles.js';
 import './tpmAttribution.css';
 
 const PAGE = 50;
@@ -134,15 +135,26 @@ export default function TpmAttributionLog({ area, onClearArea }) {
   );
 }
 
-/** Détail d'un lot : zone × mois ou visite, avant → après. */
+/** Détail d'un lot : zone × mois, visite, ou TPM × mois (indisponibilité, retour 114), avant → après. */
 function LogDetails({ rows }) {
   const { tr } = useI18n();
   const shown = rows.slice(0, 200);
-  const who = (name, state) => (name || (state ? tr(tpmStateLabel(state)) : tr('aucun TPM')));
+  const who = (name, state) => (name || (state ? tr(tpmStateLabel(state)) : tr(ROLE_LABELS.noTpm)));
+  const avail = (state) => tr((TPM_AVAILABILITY[state] || {}).label || state || '');
   return (
     <>
       <ul className="tpa-log-lines">
-        {shown.map((r) => (
+        {shown.map((r) => (r.scope === 'tpm' ? (
+          <li key={r.id}>
+            <span className="tpa-log-where">{r.label}{r.month ? ` · ${shortMonthLabel(r.month)}` : ''}</span>
+            <span className="tpa-log-change">
+              <span className="muted">{avail(r.oldState)}{r.oldReason ? ` (${r.oldReason})` : ''}</span>
+              <ArrowRight size={13} aria-hidden="true" />
+              <strong>{avail(r.newState)}</strong>
+              {r.newState === 'indisponible' && r.reason && <span className="muted"> ({r.reason})</span>}
+            </span>
+          </li>
+        ) : (
           <li key={r.id}>
             <span className="tpa-log-where">{r.label}{r.month ? ` · ${shortMonthLabel(r.month)}` : ''}</span>
             <span className="tpa-log-change">
@@ -153,7 +165,7 @@ function LogDetails({ rows }) {
             </span>
             {r.contractLabel && <span className="muted tpa-log-contract">{tr('selon contrat : {c}', { c: r.contractLabel })}</span>}
           </li>
-        ))}
+        )))}
       </ul>
       {rows.length > shown.length && <span className="muted">{tr('… et {n} autre(s) ligne(s).', { n: formatInt(rows.length - shown.length) })}</span>}
     </>

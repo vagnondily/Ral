@@ -20,6 +20,7 @@ import { ROLE_LABELS, contractIdentity, contractNo } from '../../lib/roles.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { overlaps, periodFromSaved, periodLabel, single } from '../../lib/period.js';
 import PeriodSelect from '../../components/PeriodSelect.jsx';
+import ExpectedReports from './ExpectedReports.jsx';
 
 const STATUSES = [
   { id: '', label: 'Tous les statuts' },
@@ -340,6 +341,9 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
         { label: tr('En attente'), value: reports ? stats.pending : '—', foot: tr('Statut « soumis »') },
         { label: tr('Contrats suivis'), value: context ? context.contracts.length : '—', foot: tr('Avec budget Suivi/TPM') },
       ]} />
+
+      {/* Retour 114 : rapports attendus de la période (non applicable d'office sans visite ; rapport interne). */}
+      <ExpectedReports period={period || single(currentMonth())} />
 
       <Card>
         {/* Barre de filtres (façon COMET) */}

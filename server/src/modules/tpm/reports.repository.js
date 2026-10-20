@@ -11,7 +11,8 @@ const { isValidatedStatus, decideDocumentDeletion, linkedSummary } = require('..
 const { recordDeletion } = require('../deletions/deletions.repository');
 const { monthsOf } = require('../common/period');
 const { expectedReports: expectedRule } = require('./reportExpectation');
-const { holdersByMonth, MAX_SPAN_MONTHS } = require('./tpmAttribution');
+const { holdersByMonth } = require('./tpmAttribution');
+const { PERIOD_CAPS } = require('../common/periodCaps');
 const tpmAttributionRepo = require('./tpmAttribution.repository');
 
 /**
@@ -497,7 +498,8 @@ async function markNotApplicable(tenantId, id, userId, comment) {
  * @param {{ period: {from,to}, today: string }} opts  today = « AAAA-MM »
  */
 async function expectedReports(tenantId, { period, today }) {
-  const months = monthsOf(period, { max: MAX_SPAN_MONTHS });
+  // Même plafond que la liste des rapports (documents : 60 mois) — l'écran ne propose jamais plus.
+  const months = monthsOf(period, { max: PERIOD_CAPS.document });
   return withTenantTransaction(tenantId, async (client) => {
     const lo = `${period.from}-01`; const hi = `${period.to}-01`;
     const { rows: activity } = await client.query(

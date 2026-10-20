@@ -7,7 +7,8 @@ import MonthSelect from '../../components/MonthSelect.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, shiftMonth, shortMonthLabel } from '../../lib/format.js';
-import { REASON_MIN, TPM_ZONE_STATE, monthsBetween, rangeLabel } from '../../lib/tpmAttribution.js';
+import { REASON_MIN, TPM_ZONE_STATE, internalWhy, monthsBetween, rangeLabel } from '../../lib/tpmAttribution.js';
+import { ROLE_LABELS } from '../../lib/roles.js';
 import { NONE, ProviderSelect, ReasonField } from './TpmFields.jsx';
 
 /** Plage la plus longue d'un changement (comme le serveur : tpmAttribution.MAX_SPAN_MONTHS). */
@@ -116,7 +117,7 @@ export default function TpmChangeDialog({ mode, areas, title, period, onClose, o
             <label className="field-label" htmlFor="tpm-change-provider">{tr('Nouveau TPM')}</label>
             {selectable ? (
               <ProviderSelect id="tpm-change-provider" selectable={selectable} value={provider} onChange={setProvider}
-                noneLabel={tr('Aucun TPM (zone non suivie ces mois-là)')} />
+                noneLabel={tr('Interne (équipe S&E) ces mois-là')} />
             ) : <Skeleton height={38} />}
           </div>
         )}
@@ -144,7 +145,7 @@ export default function TpmChangeDialog({ mode, areas, title, period, onClose, o
                   </Alert>
                 ))}
                 {blocked && (
-                  <Alert tone="danger">{tr('Ce partenaire n\'est pas sélectionnable en {m} (ni sous contrat de suivi, ni TPM actif).', { m: preview.notSelectable.map(shortMonthLabel).join(', ') })}</Alert>
+                  <Alert tone="danger">{tr('Ce partenaire n\'est pas sélectionnable en {m} : ce n\'est pas un TPM actif, ou il est déclaré indisponible.', { m: preview.notSelectable.map(shortMonthLabel).join(', ') })}</Alert>
                 )}
               </>
             )}
@@ -182,7 +183,7 @@ function ContractNow({ contract }) {
                 {i > 0 && ' · '}
                 {s.providerName
                   ? `${s.providerName}${s.contractLabel ? ` (${tr('contrat {n}', { n: s.contractLabel })})` : ''}`
-                  : tr((TPM_ZONE_STATE[s.state] || {}).label || s.state)}
+                  : `${tr((TPM_ZONE_STATE[s.state] || {}).label || s.state)}${internalWhy(tr, s) ? ` (${internalWhy(tr, s)})` : ''}`}
                 {a.segments.length > 1 && <span className="muted"> {rangeLabel(s.from, s.to)}</span>}
               </span>
             ))}
@@ -195,7 +196,7 @@ function ContractNow({ contract }) {
 }
 
 /** Visites prévues qui changeront de TPM (les réalisées, annulées ou déjà facturées ne changent jamais). */
-function VisitMoves({ visits }) {
+export function VisitMoves({ visits }) {
   const { tr } = useI18n();
   if (!visits || !visits.changed) {
     return <p className="muted tpm-preview-line">{tr('Aucune visite prévue ne change de TPM (les visites réalisées, annulées ou déjà facturées gardent toujours le leur).')}</p>;
@@ -206,7 +207,7 @@ function VisitMoves({ visits }) {
       <ul>
         {(visits.moves || []).slice(0, 8).map((m) => (
           <li key={`${m.fromProviderId}>${m.toProviderId}`}>
-            <span>{m.fromName || tr('aucun TPM')}</span> <ArrowRight size={13} aria-hidden="true" /> <strong>{m.toName || tr('aucun TPM')}</strong>
+            <span>{m.fromName || tr(ROLE_LABELS.noTpm)}</span> <ArrowRight size={13} aria-hidden="true" /> <strong>{m.toName || tr(ROLE_LABELS.noTpm)}</strong>
             <span className="muted"> · {tr('{n} visite(s)', { n: formatInt(m.visits) })}{m.datedVisits ? ` ${tr('dont {d} datée(s)', { d: formatInt(m.datedVisits) })}` : ''}</span>
           </li>
         ))}

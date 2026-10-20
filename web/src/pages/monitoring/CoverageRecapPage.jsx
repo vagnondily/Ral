@@ -47,6 +47,9 @@ const TABS = [
  * les sites actifs sur la plage, une durée d'opération proposée égale à la plage, et une
  * matrice dont les colonnes sont les mois de la plage.
  */
+/** Libellé d'une ligne de la matrice : « Interne » (équipe S&E, retour 114) et « Non affecté » sont traduits. */
+const unitLabel = (tr, g) => (g.key === 'interne' || g.key === 'non_affecte' ? tr(g.label) : g.label);
+
 export default function CoverageRecapPage() {
   const { tr } = useI18n();
   const [tab, setTab] = useState('mmr');
@@ -229,7 +232,7 @@ function CoverageMatrixView({ by, groupHead, period }) {
               <CovTrend matrix={matrix} colorOf={colorOf} />
               <div className="cov-legend">
                 {matrix.groups.map((g, i) => (
-                  <span key={g.key} className="cov-leg"><span className="cov-dot" style={{ background: colorOf(i) }} />{g.label}</span>
+                  <span key={g.key} className="cov-leg"><span className="cov-dot" style={{ background: colorOf(i) }} />{unitLabel(tr, g)}</span>
                 ))}
               </div>
             </div>
@@ -250,7 +253,7 @@ function CoverageMatrixView({ by, groupHead, period }) {
                 <tbody>
                   {matrix.groups.map((g, i) => (
                     <tr key={g.key}>
-                      <td><span className="cov-dot" style={{ background: colorOf(i) }} /><strong>{g.label}</strong></td>
+                      <td><span className="cov-dot" style={{ background: colorOf(i) }} /><strong>{unitLabel(tr, g)}</strong></td>
                       {g.cells.map((c) => <td key={c.month} className="num"><CovCell cell={c} /></td>)}
                       <td className="num"><CovCell cell={g.total} strong /></td>
                     </tr>
@@ -319,7 +322,7 @@ function CovTrend({ matrix, colorOf }) {
             ))}
             {g.cells.map((c, i) => (c.rate == null ? null : (
               <circle key={i} cx={x(i)} cy={y(c.rate * 100)} r="2.6" fill={col}>
-                <title>{tr('{group} · {month} : {p} % ({done}/{active})', { group: g.label, month: tr(moShort(c.month)), p: Math.round(c.rate * 100), done: c.realise, active: c.active })}</title>
+                <title>{tr('{group} · {month} : {p} % ({done}/{active})', { group: unitLabel(tr, g), month: tr(moShort(c.month)), p: Math.round(c.rate * 100), done: c.realise, active: c.active })}</title>
               </circle>
             )))}
           </g>

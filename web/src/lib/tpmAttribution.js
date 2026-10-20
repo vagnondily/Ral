@@ -1,4 +1,5 @@
 import { formatInt, monthLabel, shortMonthLabel } from './format.js';
+import { ROLE_LABELS } from './roles.js';
 
 /**
  * Affectation des TPM par zone (retour 58) — statuts et libellés partagés par l'onglet
@@ -7,14 +8,54 @@ import { formatInt, monthLabel, shortMonthLabel } from './format.js';
  * Les calculs font foi côté serveur (modules/tpm/tpmAttribution.js) ; ici on n'affiche que.
  */
 
+/**
+ * SUIVI INTERNE (retour 114) : sans TPM, la zone est suivie par l'équipe S&E — une affectation,
+ * jamais « à affecter ». Partout le même badge : « Interne » (ROLE_LABELS.noTpm), ton bleu, icône
+ * équipe ; `why` dit pourquoi (aucun contrat, contrat sans TPM, TPM indisponible, décidé, district
+ * inconnu). États serveur : tpmAttribution.INTERNAL_VISIT_STATES.
+ */
+const INTERNAL = { label: ROLE_LABELS.noTpm, tone: 'blue', icon: 'team' };
+export const INTERNAL_STATES = ['sans_contrat', 'sans_tpm', 'indisponible', 'aucun_tpm', 'district_inconnu'];
+export const isInternalState = (s) => INTERNAL_STATES.includes(s);
+/** Infobulle du badge « Interne » d'une zone ou d'une visite. */
+export const INTERNAL_HINT = 'Suivi interne (équipe S&E) : aucun TPM retenu pour cette zone ce mois-là. Pour la confier à un TPM : onglet Affectation des TPM.';
+
 /** État d'une zone × mois (TPM retenu). */
 export const TPM_ZONE_STATE = {
   contrat: { label: 'Selon contrat', tone: 'green', icon: 'check' },
   modifie: { label: 'Modifié', tone: 'orange', icon: 'edit' },
-  aucun_tpm: { label: 'Aucun TPM (décidé)', tone: null, icon: 'ban' },
   a_arbitrer: { label: 'Plusieurs contrats : choisir', tone: 'orange', icon: 'warn' },
-  sans_contrat: { label: 'Aucun contrat (à affecter)', tone: 'red', icon: 'na' },
-  district_inconnu: { label: 'District inconnu (à affecter)', tone: 'red', icon: 'warn' },
+  sans_contrat: { ...INTERNAL, why: 'aucun contrat de suivi' },
+  sans_tpm: { ...INTERNAL, why: 'contrat sans TPM' },
+  indisponible: { ...INTERNAL, why: 'TPM indisponible' },
+  aucun_tpm: { ...INTERNAL, why: 'décidé, avec une raison' },
+  district_inconnu: { ...INTERNAL, why: 'district du site non reconnu' },
+};
+
+/**
+ * Pourquoi « Interne » (cellule de zone de la règle : { state, noTpm, unavailable, reason }) :
+ * « aucun contrat de suivi sur cette zone », « contrat FLA-… sans TPM », « TPM X indisponible : motif »…
+ */
+export function internalWhy(tr, c) {
+  if (!c) return '';
+  switch (c.state) {
+    case 'sans_tpm': return (c.noTpm || []).length
+      ? tr('contrat sans TPM : {c}', { c: c.noTpm.map((k) => `${k.contractLabel || k.numero}${k.holderName ? ` (${k.holderName})` : ''}`).join(', ') })
+      : tr('contrat de suivi sans TPM');
+    case 'indisponible': return (c.unavailable || []).length
+      ? tr('TPM indisponible : {list}', { list: c.unavailable.map((u) => `${u.providerName || '—'}${u.reason ? ` — ${u.reason}` : ''}`).join(' ; ') })
+      : tr('TPM du contrat indisponible ce mois');
+    case 'aucun_tpm': return c.reason ? tr('décidé : {r}', { r: c.reason }) : tr('décidé, avec une raison');
+    case 'district_inconnu': return tr('district du site non reconnu');
+    case 'sans_contrat': return tr('aucun contrat de suivi sur cette zone ce mois');
+    default: return '';
+  }
+}
+
+/** Indisponibilité d'un TPM (onglet Affectation des TPM, journal) : couleur + icône + libellé. */
+export const TPM_AVAILABILITY = {
+  disponible: { label: 'Disponible', tone: 'green', icon: 'check' },
+  indisponible: { label: 'Indisponible', tone: 'orange', icon: 'ban' },
 };
 
 /** Drapeaux d'une cellule (affichés à côté de l'état). */
@@ -24,9 +65,11 @@ export const TPM_FLAGS = {
   hors_contrat: { label: 'TPM hors contrat', tone: 'orange', icon: 'warn' },
   prestataire_inactif: { label: 'TPM désactivé', tone: 'red', icon: 'ban' },
   zone_a_reselectionner: { label: 'Zone de contrat à resélectionner', tone: 'orange', icon: 'warn' },
+  modification_suspendue: { label: 'Modification suspendue (TPM indisponible)', tone: 'orange', icon: 'clock' },
+  tpm_indisponible: { label: 'Un TPM du contrat est indisponible', tone: 'orange', icon: 'clock' },
 };
 /** Drapeaux montrés ligne par ligne (« titulaire non TPM » est dit une fois, en bannière). */
-export const ROW_FLAGS = ['a_confirmer', 'hors_contrat', 'prestataire_inactif', 'zone_a_reselectionner', 'partiel'];
+export const ROW_FLAGS = ['a_confirmer', 'hors_contrat', 'prestataire_inactif', 'zone_a_reselectionner', 'modification_suspendue', 'tpm_indisponible', 'partiel'];
 
 /**
  * Aucun contrat ne couvre la zone, mais un contrat de suivi y a une zone DÉTACHÉE de même nom
@@ -40,13 +83,16 @@ export const detachedHint = (tr, cell) => ((cell && (cell.flags || []).includes(
 export const TPM_VISIT = {
   'zone:contrat': { label: 'Selon contrat', tone: 'green', icon: 'check' },
   'zone:modifie': { label: 'Modifié (zone)', tone: 'orange', icon: 'edit' },
-  'zone:aucun_tpm': { label: 'Aucun TPM (zone)', tone: null, icon: 'ban' },
   'zone:a_arbitrer': { label: 'Plusieurs contrats : choisir', tone: 'orange', icon: 'warn' },
-  'zone:sans_contrat': { label: 'À affecter — aucun contrat', tone: 'red', icon: 'na' },
-  'zone:district_inconnu': { label: 'À affecter — district inconnu', tone: 'red', icon: 'warn' },
+  'zone:sans_contrat': { ...INTERNAL, label: 'Interne — aucun contrat de suivi' },
+  'zone:sans_tpm': { ...INTERNAL, label: 'Interne — contrat sans TPM' },
+  'zone:indisponible': { ...INTERNAL, label: 'Interne — TPM indisponible' },
+  'zone:aucun_tpm': { ...INTERNAL, label: 'Interne — décidé pour la zone' },
+  'zone:district_inconnu': { ...INTERNAL, label: 'Interne — district inconnu' },
   'zone:anterieur': { label: 'Antérieur à la règle', tone: null, icon: 'na' },
   'zone:': { label: 'En cours d\'affectation', tone: null, icon: 'clock' },
   visite: { label: 'Modifié pour cette visite', tone: 'orange', icon: 'edit' },
+  'visite:interne': { ...INTERNAL, label: 'Interne — choisi pour cette visite' },
   reprise: { label: 'TPM saisi avant la règle', tone: 'blue', icon: 'draft' },
 };
 
@@ -59,6 +105,9 @@ export const TPM_LOG_ACTION = {
   visite_modifier: { label: 'TPM d\'une visite modifié', tone: 'orange', icon: 'edit' },
   visite_garder: { label: 'TPM saisi avant la règle gardé', tone: 'orange', icon: 'edit' },
   visite_zone: { label: 'Visite rendue à sa zone', tone: 'green', icon: 'check' },
+  indispo_poser: { label: 'TPM déclaré indisponible', tone: 'orange', icon: 'ban' },
+  indispo_modifier: { label: 'Motif d\'indisponibilité modifié', tone: 'orange', icon: 'edit' },
+  indispo_retirer: { label: 'Fin d\'indisponibilité', tone: 'green', icon: 'check' },
 };
 
 /** Libellé d'un état inscrit au journal : état de zone, origine de visite (« visite », « reprise »). */
@@ -67,12 +116,16 @@ export const tpmStateLabel = (s) => (TPM_ZONE_STATE[s] || TPM_VISIT[s] || TPM_VI
 /** Clé TPM_VISIT d'une visite ({ providerSource, providerZoneState }). */
 export function visitTpmKey(v) {
   const src = v.providerSource || 'zone';
+  if (src === 'visite' && !v.providerId) return 'visite:interne';
   return src === 'zone' ? `zone:${v.providerZoneState || ''}` : src;
 }
 
-/** Une visite est-elle « à affecter » (aucun TPM, et ce n'est pas une décision) ? */
-export const visitToAssign = (v) => (v.providerSource || 'zone') === 'zone'
-  && ['sans_contrat', 'district_inconnu'].includes(v.providerZoneState);
+/**
+ * Une visite est-elle suivie EN INTERNE (équipe S&E) ? La colonne générée site_visits.monitored_by
+ * (retour 114, jumelle serveur tpmAttribution.monitoredByOf) ; repli sur l'état pour une ancienne réponse.
+ */
+export const visitInternal = (v) => (v.monitoredBy ? v.monitoredBy === 'interne'
+  : !v.providerId && ((v.providerSource || 'zone') === 'visite' || ((v.providerSource || 'zone') === 'zone' && isInternalState(v.providerZoneState))));
 
 /**
  * Compte rendu de « Appliquer les TPM des contrats » (Affectation & visites, onglet Affectation des
@@ -110,6 +163,14 @@ export function monthsBetween(from, to, max = 60) {
   }
   return out;
 }
+
+/** Suggestions de motif d'indisponibilité d'un TPM (insèrent un texte modifiable). */
+export const UNAVAILABILITY_SUGGESTIONS = [
+  'Équipe mobilisée sur une autre mission',
+  'Contrat du TPM suspendu',
+  'Accès / sécurité',
+  'Capacité insuffisante du TPM',
+];
 
 /** Suggestions de raison (insèrent un texte modifiable). */
 export const REASON_SUGGESTIONS = [
