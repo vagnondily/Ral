@@ -18,7 +18,8 @@ import { REPORT_KIND, REPORT_STATUS, richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { ROLE_LABELS, contractIdentity, contractNo } from '../../lib/roles.js';
 import { downloadCsv } from '../../lib/csv.js';
-import { overlaps, periodFromSaved, periodLabel, single } from '../../lib/period.js';
+import { overlaps, periodFromSaved, periodLabel, readHashPeriod, single, writeHashPeriod } from '../../lib/period.js';
+import { reportShownStatus, reportStatusDef } from '../../lib/reportExpectation.js';
 import PeriodSelect from '../../components/PeriodSelect.jsx';
 import ExpectedReports from './ExpectedReports.jsx';
 
@@ -117,6 +118,22 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
   // Plans du mois de référence — pour le fil guidé (compteur « plans validés »).
   useEffect(() => { api.listPlans({ month }).then(setPlans).catch(() => setPlans([])); }, [month]);
 
+  // Arrivée par un lien qui porte une période (« Rapport en retard » du Centre d'alertes : ?from=&to=) :
+  // la période s'applique aux filtres (affichée), puis quitte l'adresse — un choix ultérieur n'est jamais
+  // contredit par un rechargement.
+  useEffect(() => {
+    const apply = () => {
+      const p = readHashPeriod(window.location.hash);
+      if (!p) return;
+      setValues((s) => ({ ...s, period: p }));
+      setShownFilters((ks) => (ks.includes('period') ? ks : [...ks, 'period']));
+      try { window.history.replaceState(null, '', writeHashPeriod(window.location.hash, null)); } catch { /* ignore */ }
+    };
+    apply();
+    window.addEventListener('hashchange', apply);
+    return () => window.removeEventListener('hashchange', apply);
+  }, []);
+
   // Fil guidé : arrivée depuis « Créer la facture » d'un plan (Planification &
   // budget). On ouvre l'éditeur de facture pré-rempli, sur la bonne période.
   useEffect(() => {
@@ -153,14 +170,15 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
         case 'partnerId': return r.partnerId === v;
         case 'contractId': return r.contractId === v;
         case 'kind': return r.kind === v;
-        case 'status': return r.status === v;
+        // Un gabarit sans visite planifiée est « non applicable » d'office (retour 114), jamais « attendu ».
+        case 'status': return reportShownStatus(r) === v;
         default: return true;
       }
     }));
     const val = (r) => ({
       partner: r.partnerName || '', contract: contractNo(r) || '', kind: r.kind,
       period: r.periodMonth || '', planned: r.plannedAmount || 0, reported: r.reportedAmount || 0,
-      status: ['attendu', 'soumis', 'valide', 'rejete'].indexOf(r.status),
+      status: ['attendu', 'soumis', 'valide', 'rejete', 'non_applicable'].indexOf(reportShownStatus(r)),
     }[sort.key]);
     return [...list].sort((a, a2) => {
       const va = val(a); const vb = val(a2);
@@ -257,7 +275,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
         case 'document': return r.documentName || '';
         case 'reference': return r.reference || '';
         case 'invoiceNo': return r.invoiceNo || '';
-        case 'status': return REPORT_STATUS[r.status] ? tr(REPORT_STATUS[r.status].label) : r.status;
+        case 'status': return reportStatusDef(r) ? tr(reportStatusDef(r).label) : r.status;
         case 'createdBy': return r.createdByEmail || '';
         case 'decidedBy': return r.decidedByEmail || '';
         case 'decidedAt': return r.decidedAt ? String(r.decidedAt).slice(0, 10) : '';
@@ -287,7 +305,9 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       case 'document': return r.documentName || <span className="cell-empty">—</span>;
       case 'reference': return r.reference ? <span className="mono">{r.reference}</span> : <span className="cell-empty">—</span>;
       case 'invoiceNo': return r.invoiceNo ? <span className="mono">{r.invoiceNo}</span> : <span className="cell-empty">—</span>;
-      case 'status': return <StatusBadge def={REPORT_STATUS[r.status]} />;
+      case 'status': return r.autoNotApplicable
+        ? <span title={tr('Aucune visite planifiée de ce TPM sur ce contrat ce mois-là : pas de rapport à remettre.')}><StatusBadge def={reportStatusDef(r)} /></span>
+        : <StatusBadge def={REPORT_STATUS[r.status]} />;
       case 'createdBy': return <span className="site-meta">{r.createdByEmail || '—'}</span>;
       case 'decidedBy': return <span className="site-meta">{r.decidedByEmail || '—'}</span>;
       case 'decidedAt': return <span className="tabular">{r.decidedAt ? String(r.decidedAt).slice(0, 10) : '—'}</span>;
@@ -343,7 +363,8 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       ]} />
 
       {/* Retour 114 : rapports attendus de la période (non applicable d'office sans visite ; rapport interne). */}
-      <ExpectedReports period={period || single(currentMonth())} />
+      <ExpectedReports period={periodShown || single(currentMonth())}
+        partnerId={shown.includes('partnerId') ? values.partnerId : ''} contractId={shown.includes('contractId') ? values.contractId : ''} />
 
       <Card>
         {/* Barre de filtres (façon COMET) */}

@@ -16,9 +16,12 @@ const CHIPS = ['en_retard', 'attendu', 'interne', 'soumis', 'valide', 'rejete', 
  * d'office) ; si c'est nous, un rapport pour nous ») — pour chaque mois de la période : chaque TPM
  * (son rapport n'est attendu que s'il a des visites ce mois-là), et le rapport interne quand l'équipe
  * S&E suit elle-même des visites. Lecture seule, recalculé en direct (GET /api/tpm/reports/expected).
- * Props : { period: { from, to } } — la période des filtres de la page.
+ * Une ligne par TPM × contrat (une facture par TPM, contrat et mois) ; une facture pluri-mensuelle
+ * couvre chacun de ses mois.
+ * Props : { period: { from, to }, partnerId?, contractId? } — les filtres APPLIQUÉS de la page (période
+ * affichée, sinon le mois courant ; TPM et contrat choisis : le rapport interne n'a ni l'un ni l'autre).
  */
-export default function ExpectedReports({ period }) {
+export default function ExpectedReports({ period, partnerId = '', contractId = '' }) {
   const { tr, lang } = useI18n();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -31,26 +34,28 @@ export default function ExpectedReports({ period }) {
     api.expectedReports(period).then((r) => { if (live) setData(r); }).catch((e) => { if (live) setError(e.message); });
     return () => { live = false; };
   }, [period.from, period.to]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (les filtres TPM / contrat s'appliquent aux lignes lues, sans relire)
 
-  const rows = useMemo(() => {
-    const list = (data && data.rows) || [];
-    return [...list].filter((r) => showNa || expectedKey(r) !== 'non_applicable_auto')
-      .sort((a, b) => (a.month < b.month ? 1 : a.month > b.month ? -1 : 0));
-  }, [data, showNa]);
+  // Filtres de la page : TPM (le rapport interne n'en a pas) et contrat.
+  const scoped = useMemo(() => ((data && data.rows) || []).filter((r) => (!partnerId || r.unit.providerId === partnerId)
+    && (!contractId || (r.contract && r.contract.id === contractId))), [data, partnerId, contractId]);
+  const rows = useMemo(() => [...scoped].filter((r) => showNa || expectedKey(r) !== 'non_applicable_auto')
+    .sort((a, b) => (a.month < b.month ? 1 : a.month > b.month ? -1 : 0)), [scoped, showNa]);
   const counts = useMemo(() => {
     const c = {};
-    for (const r of (data && data.rows) || []) { const k = expectedKey(r); c[k] = (c[k] || 0) + 1; }
+    for (const r of scoped) { const k = expectedKey(r); c[k] = (c[k] || 0) + 1; }
     return c;
-  }, [data]);
+  }, [scoped]);
+  const contractOf = (r) => (r.unit.kind === 'interne' ? '' : (r.contract ? (r.contract.label || '—') : tr('contrat à préciser')));
   const why = (r) => {
     const t = EXPECTED_REASON[r.reason];
     return t ? tr(t, { due: monthLabel(r.due) }) : '';
   };
 
   function exportCsv() {
-    const lines = [[tr('Mois'), tr('Qui'), tr('Visites prévues'), tr('Visites réalisées'), tr('Statut'), tr('Pourquoi'), tr('Échéance'), tr('Factures')]];
-    for (const r of (data && data.rows) || []) {
-      lines.push([r.month, expectedWho(tr, r), r.visits.planned, r.visits.realised, tr(EXPECTED_STATUS[expectedKey(r)].label), why(r), r.due,
+    const lines = [[tr('Mois'), tr('Qui'), tr('Contrat'), tr('Visites prévues'), tr('Visites réalisées'), tr('Statut'), tr('Pourquoi'), tr('Échéance'), tr('Factures')]];
+    for (const r of scoped) {
+      lines.push([r.month, expectedWho(tr, r), contractOf(r), r.visits.planned, r.visits.realised, tr(EXPECTED_STATUS[expectedKey(r)].label), why(r), r.due,
         r.reports.map((x) => `${x.contractLabel || ''} ${tr((EXPECTED_STATUS[x.status] || {}).label || x.status)}`.trim()).join(' · ')]);
     }
     downloadCsv(`rapports_attendus_${period.from}_${period.to}.csv`, lines);
@@ -81,7 +86,7 @@ export default function ExpectedReports({ period }) {
           {CHIPS.filter((k) => counts[k]).map((k) => (
             <span key={k} role="listitem" className="exp-chip"><StatusBadge def={EXPECTED_STATUS[k]} /> <strong className="tabular">{formatInt(counts[k])}</strong></span>
           ))}
-          {!data.rows.length && <span className="muted"><Info size={14} aria-hidden="true" /> {tr('Aucun TPM sous contrat de suivi ni visite sur la période.')}</span>}
+          {!scoped.length && <span className="muted"><Info size={14} aria-hidden="true" /> {tr('Aucun TPM sous contrat de suivi ni visite sur la période.')}</span>}
         </div>
       )}
       {data && open && rows.length > 0 && (
@@ -91,6 +96,7 @@ export default function ExpectedReports({ period }) {
               <tr>
                 <th scope="col">{tr('Mois')}</th>
                 <th scope="col">{tr('Qui')}</th>
+                <th scope="col">{tr('Contrat')}</th>
                 <th scope="col" className="num">{tr('Visites')}</th>
                 <th scope="col">{tr('Statut')}</th>
                 <th scope="col">{tr('Factures du mois')}</th>
@@ -98,9 +104,10 @@ export default function ExpectedReports({ period }) {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={`${r.month}|${r.unit.kind}|${r.unit.providerId || ''}`}>
+                <tr key={`${r.month}|${r.unit.kind}|${r.unit.providerId || ''}|${(r.contract && r.contract.id) || ''}`}>
                   <td className="nowrap">{shortMonthLabel(r.month)}</td>
                   <td><strong>{expectedWho(tr, r)}</strong></td>
+                  <td>{r.unit.kind === 'interne' ? <span className="cell-empty">—</span> : r.contract ? <span className="mono">{r.contract.label || '—'}</span> : <span className="muted">{tr('contrat à préciser')}</span>}</td>
                   <td className="num tabular" title={tr('{p} prévue(s) · {r} réalisée(s)', { p: formatInt(r.visits.planned), r: formatInt(r.visits.realised) })}>
                     {formatInt(r.visits.planned + r.visits.realised)}
                   </td>

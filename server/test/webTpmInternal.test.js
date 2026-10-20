@@ -58,9 +58,10 @@ test('internalWhy : dit pourquoi « Interne » (contrats sans TPM, TPM indisponi
 test('rapports attendus : chaque statut et chaque raison du serveur a son libellé à l écran', async (t) => {
   const w = await load(t, 'lib/reportExpectation.js'); if (!w) return;
   for (const s of expectation.EXPECTATION_STATUSES) assert.ok(w.EXPECTED_STATUS[s], s);
+  assert.equal(w.LATE_REPORTS_LOOKBACK, require('../src/modules/dashboards/alertsMath').LATE_REPORTS_LOOKBACK, 'même fenêtre que le serveur');
   assert.ok(w.EXPECTED_STATUS.non_applicable_auto && w.EXPECTED_STATUS.interne);
   const out = expectation.expectedReports({
-    months: ['2026-07'], today: '2026-10', contractTpms: new Map([['2026-07', new Set(['a'])]]),
+    months: ['2026-07'], today: '2026-10', contractPairs: new Map([['2026-07', [{ providerId: 'a', contractId: 'k' }]]]),
     activity: [{ key: 'interne', month: '2026-07', planned: 1, realised: 0, offices: ['Toliara'] }],
   });
   assert.deepEqual(out.rows.map(w.expectedKey), ['non_applicable_auto', 'interne']);
@@ -70,6 +71,16 @@ test('rapports attendus : chaque statut et chaque raison du serveur a son libell
   }
   const tr = (s, v = {}) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '');
   assert.equal(w.expectedWho(tr, out.rows[1]), 'Interne — équipe S&E (Toliara)');
+  // Un gabarit stocké sans visite planifiée (autoNotApplicable du serveur) : « non applicable d'office » partout.
+  assert.equal(w.reportShownStatus({ status: 'attendu', autoNotApplicable: true }), 'non_applicable');
+  assert.equal(w.reportStatusDef({ status: 'attendu', autoNotApplicable: true }), w.EXPECTED_STATUS.non_applicable_auto);
+  assert.equal(w.reportShownStatus({ status: 'attendu', autoNotApplicable: false }), 'attendu');
+});
+
+test('anglais : les lignes « par TPM » qui ne sont pas un TPM (Interne, Non affecté) sont traduites (U14)', async (t) => {
+  const en = await load(t, 'locales/en.js'); if (!en) return;
+  const { UNIT_LABELS } = require('../src/modules/tpm/fieldMath');
+  for (const label of Object.values(UNIT_LABELS)) assert.ok(en.default[label], label);
 });
 
 test('aucun écran n écrit plus « À affecter » (retour 114 : sans TPM, le suivi est interne)', (t) => {

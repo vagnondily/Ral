@@ -32,51 +32,84 @@ test('un document réel l emporte (le plus avancé) ; une facture rejetée reste
   assert.equal(e.tpmStatus({ visits: 2, docs: [{ status: 'rejete' }], month: '2026-07', today: '2026-12' }).status, 'rejete');
 });
 
-test('expectedReports : TPM des contrats, TPM des visites, factures ; suivi interne → rapport interne, avec les bureaux', () => {
+const pairs = (list) => new Map(Object.entries(list));
+const pair = (providerId, contractId) => ({ providerId, contractId });
+
+test('expectedReports : TPM × contrat des contrats, des visites, des factures ; suivi interne → rapport interne, avec les bureaux', () => {
   const out = e.expectedReports({
-    months, today: '2026-10', names: names(),
-    contractTpms: new Map(months.map((m) => [m, new Set(['rano', 'sahy'])])),
+    months, today: '2026-10', names: names(), contractLabels: new Map([['kA', 'FLA-A'], ['kB', 'FLA-B']]),
+    contractPairs: pairs(Object.fromEntries(months.map((m) => [m, [pair('rano', 'kA'), pair('sahy', 'kB')]]))),
     activity: [
-      { key: 'rano', month: '2026-07', planned: 0, realised: 4 },
-      { key: 'rano', month: '2026-09', planned: 2, realised: 0 },
-      { key: 'ypa', name: 'YPA', month: '2026-08', planned: 1, realised: 0 }, // TPM « hors contrat » d'une visite
-      { key: 'interne', month: '2026-08', planned: 3, realised: 1, offices: ['Toliara', 'Ambovombe', 'Toliara'] },
+      { key: 'rano', contractId: 'kA', month: '2026-07', planned: 0, realised: 4 },
+      { key: 'rano', contractId: 'kA', month: '2026-09', planned: 2, realised: 0 },
+      { key: 'ypa', contractId: null, name: 'YPA', month: '2026-08', planned: 1, realised: 0 }, // TPM choisi pour la visite, hors contrat
+      { key: 'interne', month: '2026-08', planned: 3, realised: 1, offices: ['Toliara', 'Ambovombe'] },
+      { key: 'interne', contractId: null, month: '2026-08', planned: 0, realised: 0, offices: ['Toliara'] },
       { key: 'interne', month: '2026-09', planned: 0, realised: 0, cancelled: 2 }, // seulement annulées : rien d'attendu
       { key: 'non_affecte', month: '2026-08', planned: 5, realised: 0 }, // antérieures : aucun rapport
     ],
-    reports: [{ id: 'r1', partnerId: 'rano', month: '2026-07', status: 'valide', contractLabel: 'FLA-1' }, { id: 'r2', partnerId: 'sahy', month: '2026-08', status: 'attendu' }],
+    reports: [{ id: 'r1', partnerId: 'rano', contractId: 'kA', month: '2026-07', status: 'valide', contractLabel: 'FLA-A' },
+      { id: 'r2', partnerId: 'sahy', contractId: 'kB', month: '2026-08', status: 'attendu' }],
     unavailable: new Set(['sahy|2026-09']),
   });
-  const view = (r) => [r.month, r.unit.kind, r.unit.name, r.status, r.auto, r.reason];
+  const view = (r) => [r.month, r.unit.kind, r.unit.name, r.contract && r.contract.label, r.status, r.auto, r.reason];
   assert.deepEqual(out.rows.map(view), [
-    ['2026-07', 'tpm', 'RANO Control', 'valide', false, 'document'],
-    ['2026-07', 'tpm', 'SAHY Monitoring', 'non_applicable', true, 'aucune_visite'],
-    ['2026-08', 'tpm', 'RANO Control', 'non_applicable', true, 'aucune_visite'],
-    ['2026-08', 'tpm', 'SAHY Monitoring', 'non_applicable', true, 'aucune_visite'],
-    ['2026-08', 'tpm', 'YPA', 'en_retard', false, 'echeance_depassee'],
-    ['2026-08', 'interne', null, 'attendu', false, 'rapport_interne'],
-    ['2026-09', 'tpm', 'RANO Control', 'attendu', false, 'a_remettre'],
-    ['2026-09', 'tpm', 'SAHY Monitoring', 'non_applicable', true, 'tpm_indisponible'],
-    ['2026-10', 'tpm', 'RANO Control', 'non_applicable', true, 'aucune_visite'],
-    ['2026-10', 'tpm', 'SAHY Monitoring', 'non_applicable', true, 'aucune_visite'],
+    ['2026-07', 'tpm', 'RANO Control', 'FLA-A', 'valide', false, 'document'],
+    ['2026-07', 'tpm', 'SAHY Monitoring', 'FLA-B', 'non_applicable', true, 'aucune_visite'],
+    ['2026-08', 'tpm', 'RANO Control', 'FLA-A', 'non_applicable', true, 'aucune_visite'],
+    ['2026-08', 'tpm', 'SAHY Monitoring', 'FLA-B', 'non_applicable', true, 'aucune_visite'],
+    ['2026-08', 'tpm', 'YPA', null, 'en_retard', false, 'echeance_depassee'],
+    ['2026-08', 'interne', null, null, 'attendu', false, 'rapport_interne'],
+    ['2026-09', 'tpm', 'RANO Control', 'FLA-A', 'attendu', false, 'a_remettre'],
+    ['2026-09', 'tpm', 'SAHY Monitoring', 'FLA-B', 'non_applicable', true, 'tpm_indisponible'],
+    ['2026-10', 'tpm', 'RANO Control', 'FLA-A', 'non_applicable', true, 'aucune_visite'],
+    ['2026-10', 'tpm', 'SAHY Monitoring', 'FLA-B', 'non_applicable', true, 'aucune_visite'],
   ]);
   const internal = out.rows.find((r) => r.unit.kind === 'interne');
   assert.deepEqual(internal.unit.offices, ['Ambovombe', 'Toliara'], 'qui : l équipe S&E de ces bureaux');
   assert.deepEqual(internal.visits, { planned: 3, realised: 1 });
-  assert.deepEqual(out.rows[0].reports, [{ id: 'r1', status: 'valide', contractLabel: 'FLA-1' }]);
+  assert.deepEqual(out.rows[0].reports, [{ id: 'r1', status: 'valide', contractLabel: 'FLA-A' }]);
   assert.equal(out.counts.autoNonApplicable, 6);
   assert.equal(out.counts.en_retard, 1);
   assert.equal(out.counts.internal, 1);
   assert.equal(out.counts.total, out.rows.length);
 });
 
+test('facture pluri-mensuelle (U9) : elle couvre chacun de ses mois, y compris quand elle commence avant la période', () => {
+  const base = { today: '2026-12', names: names(), contractPairs: pairs({ '2026-09': [pair('sahy', 'kB')] }) };
+  const sept = [{ key: 'sahy', contractId: 'kB', month: '2026-09', planned: 0, realised: 1 }];
+  const augSep = { id: 'r9', partnerId: 'sahy', contractId: 'kB', month: '2026-08', endMonth: '2026-09', status: 'soumis', contractLabel: 'FLA-B' };
+  const out = e.expectedReports({ ...base, months: ['2026-09'], activity: sept, reports: [augSep] });
+  assert.deepEqual(out.rows.map((r) => [r.month, r.status, r.reason, r.reports.map((x) => x.id)]), [['2026-09', 'soumis', 'document', ['r9']]]);
+  assert.deepEqual(lateReportAlerts(out), [], 'aucune fausse alerte « en retard »');
+  // Sans la fin de période, l'août seul ne couvre pas septembre : en retard (échéance octobre dépassée).
+  const single = e.expectedReports({ ...base, months: ['2026-09'], activity: sept, reports: [{ ...augSep, endMonth: '2026-08' }] });
+  assert.equal(single.rows[0].status, 'en_retard');
+  // Sur deux mois, la même facture vaut pour août et septembre.
+  const both = e.expectedReports({ ...base, months: ['2026-08', '2026-09'], contractPairs: pairs({}),
+    activity: [...sept, { key: 'sahy', contractId: 'kB', month: '2026-08', planned: 2, realised: 0 }], reports: [augSep] });
+  assert.deepEqual(both.rows.map((r) => [r.month, r.status]), [['2026-08', 'soumis'], ['2026-09', 'soumis']]);
+});
+
+test('une facture par contrat (U10) : la facture du contrat A ne cache pas celle, manquante, du contrat B', () => {
+  const out = e.expectedReports({
+    months: ['2026-07'], today: '2026-10', names: names(), contractLabels: new Map([['kA', 'FLA-A'], ['kB', 'FLA-B']]),
+    contractPairs: pairs({ '2026-07': [pair('rano', 'kA'), pair('rano', 'kB')] }),
+    activity: [{ key: 'rano', contractId: 'kA', month: '2026-07', planned: 0, realised: 2 }, { key: 'rano', contractId: 'kB', month: '2026-07', planned: 1, realised: 1 }],
+    reports: [{ id: 'rA', partnerId: 'rano', contractId: 'kA', month: '2026-07', status: 'valide' }],
+  });
+  assert.deepEqual(out.rows.map((r) => [r.contract.label, r.status]), [['FLA-A', 'valide'], ['FLA-B', 'en_retard']]);
+  assert.deepEqual(lateReportAlerts(out).map((a) => [a.params.provider, a.params.contract]), [['RANO Control', 'FLA-B']]);
+});
+
 test('alertes : seul un TPM en retard alerte (jamais non applicable d office, jamais le rapport interne)', () => {
   const out = e.expectedReports({
-    months: ['2026-07'], today: '2026-10', names: names(), contractTpms: new Map([['2026-07', new Set(['rano', 'sahy'])]]),
-    activity: [{ key: 'rano', month: '2026-07', planned: 2, realised: 1 }, { key: 'interne', month: '2026-07', planned: 2, realised: 0 }],
+    months: ['2026-07'], today: '2026-10', names: names(), contractPairs: pairs({ '2026-07': [pair('rano', 'kA'), pair('sahy', 'kB')] }),
+    activity: [{ key: 'rano', contractId: 'kA', month: '2026-07', planned: 2, realised: 1 }, { key: 'interne', month: '2026-07', planned: 2, realised: 0 }],
   });
   const a = lateReportAlerts(out);
   assert.deepEqual(a.map((x) => [x.kind, x.params.provider, x.params.n]), [['report_late', 'RANO Control', 3]]);
+  assert.deepEqual(a[0].go, { module: 'tpm', sub: 'rapports', period: { from: '2026-07', to: '2026-07' } }, 'le lien ouvre le mois du rapport (U11)');
   assert.deepEqual(lateReportAlerts(null), []);
 });
 

@@ -9,6 +9,7 @@ import SeverityBadge, { SEV_ICON } from '../../components/SeverityBadge.jsx';
 import { SEVERITY, alertText, alertsState, goArgs, goHash, sourceList } from '../../lib/alerts.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { PERIOD_CAPS } from '../../lib/periodCaps.js';
+import { LATE_REPORTS_LOOKBACK } from '../../lib/reportExpectation.js';
 
 /**
  * Centre d'alertes — la vue « ce qui demande mon attention » du responsable
@@ -62,7 +63,8 @@ export default function AlertsPage({ onNavigate }) {
       <SessionPeriodNote source={source} capped={capped} onReset={resetToDefault} />
       <p className="period-session-note">
         <Clock size={14} aria-hidden="true" />
-        <span>{tr('Les alertes budgétaires et d\'échéance sont calculées à date.')}</span>
+        <span>{tr('Les alertes budgétaires et d\'échéance sont calculées à date.')}{' '}
+          {tr('Rapports en retard : sans période choisie, les {n} derniers mois (mois courant compris).', { n: LATE_REPORTS_LOOKBACK })}</span>
       </p>
     </>
   );

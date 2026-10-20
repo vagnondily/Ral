@@ -128,7 +128,8 @@ test('rapports en retard (retour 114) : seulement les factures attendues d un TP
   ];
   try {
     const bell = await alerts({ tenantId: 't', userId: 'u2', role: 'admin' }, TODAY);
-    assert.deepEqual(seen.expected[0], { tenantId: 't', period: { from: '2026-04', to: '2026-10' }, today: '2026-10' }, 'la cloche : six derniers mois');
+    assert.deepEqual(seen.expected[0], { tenantId: 't', period: { from: '2025-11', to: '2026-10' }, today: '2026-10' }, 'la cloche : les 12 derniers mois, mois courant compris');
+    assert.deepEqual(bell.lateReportsWindow, { from: '2025-11', to: '2026-10' }, 'fenêtre rendue : la page la dit');
     const late = bell.items.filter((a) => a.kind === 'report_late');
     assert.equal(late.length, 1);
     assert.deepEqual([late[0].sev, late[0].params.provider, late[0].params.n, late[0].params.month, late[0].params.due, late[0].scope],

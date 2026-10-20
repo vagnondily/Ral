@@ -111,7 +111,13 @@ export default {
   'Factures du mois': 'Invoices of the month',
   '{p} prévue(s) · {r} réalisée(s)': '{p} planned · {r} done',
 
+  'contrat à préciser': 'contract to be specified',
+  'Aucune visite planifiée de ce TPM sur ce contrat ce mois-là : pas de rapport à remettre.': 'No visit of this TPM planned on this contract that month: no report to submit.',
+  'Non affecté': 'Unassigned',
+
   // Centre d'alertes (server/src/modules/dashboards/alertsMath.js)
+  '{month} · contrat {contract} · {n} visite(s) ; à remettre au plus tard en {due}': '{month} · contract {contract} · {n} visit(s); due by {due} at the latest',
+  'Rapports en retard : sans période choisie, les {n} derniers mois (mois courant compris).': 'Late reports: with no period chosen, the last {n} months (current month included).',
   'Rapport en retard — {provider}': 'Late report — {provider}',
   '{month} · {n} visite(s) ; à remettre au plus tard en {due}': '{month} · {n} visit(s); due by {due} at the latest',
   'Retard de visites — suivi interne (équipe S&E)': 'Visits behind schedule — internal monitoring (M&E team)',

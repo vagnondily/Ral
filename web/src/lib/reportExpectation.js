@@ -18,6 +18,9 @@ export const EXPECTED_STATUS = {
   interne: { label: 'Rapport interne attendu', tone: 'blue', icon: 'team' },
 };
 
+/** Rapports en retard sans période choisie : les N derniers mois, mois courant compris (jumeau : alertsMath.LATE_REPORTS_LOOKBACK). */
+export const LATE_REPORTS_LOOKBACK = 12;
+
 /** Clé d'affichage d'une ligne : rapport interne, non applicable d'office, sinon le statut serveur. */
 export function expectedKey(r) {
   if (r.unit && r.unit.kind === 'interne') return 'interne';
@@ -44,3 +47,11 @@ export function expectedWho(tr, r) {
   }
   return (r.unit && r.unit.name) || '—';
 }
+
+/**
+ * Statut AFFICHÉ d'un rapport stocké (liste des rapports, fiche 360°) : un gabarit « attendu » sans visite
+ * planifiée de son TPM sur son contrat pendant ses mois (`autoNotApplicable`, calculé par le serveur :
+ * reportExpectationSql) est « non applicable d'office » — la même règle que la carte « Rapports attendus ».
+ */
+export const reportShownStatus = (r) => (r && r.autoNotApplicable ? 'non_applicable' : r && r.status);
+export const reportStatusDef = (r) => (r && r.autoNotApplicable ? EXPECTED_STATUS.non_applicable_auto : REPORT_STATUS[r && r.status]);

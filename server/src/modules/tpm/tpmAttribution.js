@@ -353,6 +353,15 @@ function detachedHintFor(area, month, zones) {
   return out;
 }
 
+/**
+ * TPM × contrat de chaque mois (rapports attendus, retour 114) : pour chaque contrat de suivi qui couvre
+ * le mois et a un TPM (D1), un couple par TPM. @returns {Map<string, {providerId, contractId, contractLabel}[]>}
+ */
+function contractTpmPairsByMonth(contracts, months) {
+  return new Map(months.map((m) => [m, coveringContracts(contracts, m)
+    .flatMap((c) => contractTpms(c).map((t) => ({ providerId: t.id, contractId: c.id, contractLabel: contractLabelOf(c) })))]));
+}
+
 /** Titulaires (ensemble d'identifiants) de chaque mois. */
 function holdersByMonth(contracts, months) {
   return new Map(months.map((m) => [m, new Set(coveringContracts(contracts, m).flatMap((c) => contractTpms(c).map((t) => t.id)))]));
@@ -640,7 +649,7 @@ module.exports = {
   ZONE_STATES, VISIT_ZONE_STATES, DEFAULT_STATES, WITH_PROVIDER, VISIT_SOURCES, COVERING_STATUSES, LOG_ACTIONS, LOG_SCOPES, LOG_OPTIONAL_REASON,
   INTERNAL_DEFAULT_STATES, INTERNAL_VISIT_STATES, MONITORED_BY, monitoredByOf,
   contractTpm, isMonitoringContract, contractEndMonth, contractCoversMonth, monitoringContractsAt, coveringContracts, coverOf,
-  defaultFor, defaultLabel, availableDefault, unavailabilityIndex, offKey, resolveCell, holdersByMonth, qualityOf, buildZoneTable,
+  defaultFor, defaultLabel, availableDefault, unavailabilityIndex, offKey, resolveCell, holdersByMonth, contractTpmPairsByMonth, qualityOf, buildZoneTable,
   cellForSite, segments, stampOf, planOverrides, planRevert, restampPlan, summarizeRestamp, selectableProviders, activeProviders,
   tpmSelectable, notSelectableMonths, visitDecision, districtAreaFor, detachedZones, detachedHintFor,
 };

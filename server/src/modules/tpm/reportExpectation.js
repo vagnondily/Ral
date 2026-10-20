@@ -5,13 +5,17 @@
  * toute la décision vit ici. Recalculé en direct, rien de stocké : aucune écriture automatique sur
  * tpm_reports (un « non applicable d'office » redevient attendu dès qu'une visite est prévue).
  *
- * Pour chaque mois M de la période :
- *  - un TPM est retenu s'il est le TPM d'un contrat de suivi qui couvre M (décision D1 :
- *    tpmAttribution.holdersByMonth), s'il porte au moins une visite de M, ou s'il a une facture de M ;
- *    son rapport du mois (facture, rapport financier) est ATTENDU seulement s'il porte au moins une
- *    visite NON ANNULÉE de M (prévue ou réalisée). Sans visite : « non applicable » d'office —
- *    jamais « en retard ». Un document réel l'emporte toujours : soumis, validé, rejeté, ou
- *    « non applicable » saisi à la main ;
+ * Pour chaque mois M de la période, une ligne par TPM × CONTRAT (une facture par TPM, contrat et mois :
+ * UNIQUE(partner_id, contract_id, period_month, kind)) :
+ *  - un couple TPM × contrat est retenu si le TPM est le TPM de ce contrat de suivi qui couvre M
+ *    (décision D1 : tpmAttribution.contractTpms), s'il porte au moins une visite de M sur ce contrat
+ *    (site_visits.contract_id), ou s'il a une facture de ce contrat qui COUVRE M ;
+ *  - la facture est ATTENDUE seulement si le TPM porte au moins une visite NON ANNULÉE de M sur ce
+ *    contrat (prévue ou réalisée). Sans visite : « non applicable » d'office — jamais « en retard ».
+ *    Un document réel l'emporte toujours : soumis, validé, rejeté, ou « non applicable » saisi ;
+ *  - une facture pluri-mensuelle ([period_month, period_end]) couvre CHACUN de ses mois ;
+ *  - visites d'un TPM sans contrat (TPM choisi pour la visite, hors contrat) : une ligne TPM × « contrat
+ *    à préciser », qu'un document réel du TPM couvrant le mois satisfait ;
  *  - le SUIVI INTERNE (visites suivies par l'équipe S&E, site_visits.monitored_by = 'interne') :
  *    au moins une visite interne non annulée en M → un « rapport interne » est attendu, par
  *    l'équipe S&E des bureaux des sites concernés (dit à l'écran). Il n'a pas encore de document
@@ -19,6 +23,9 @@
  *  - Échéance : le rapport du mois M se remet au plus tard au cours du mois M + DUE_MONTHS_AFTER ;
  *    au-delà, un rapport attendu et non remis est « en retard ».
  * Une visite que personne ne suit (antérieure à la règle, 'non_affecte') n'attend aucun rapport.
+ * Jumelle SQL d'une partie de la règle (liste des rapports, fiche 360°) : un gabarit « attendu » sans
+ * visite non annulée de son TPM sur son contrat pendant ses mois est « non applicable » d'office
+ * (reportExpectationSql.stubNotApplicableSql) — la même règle que tpmStatus ci-dessous.
  */
 
 const DUE_MONTHS_AFTER = 1;
@@ -57,66 +64,98 @@ function tpmStatus({ visits, docs, month, today, off = false }) {
   return { status: late ? 'en_retard' : 'attendu', expected, auto: false, reason: late ? 'echeance_depassee' : 'a_remettre' };
 }
 
+/** Mois « AAAA-MM » de from à to inclus (bornés à 120). */
+function monthsBetween(from, to) {
+  const out = [];
+  for (let m = from; m <= to && out.length < 120; m = addMonth(m, 1)) out.push(m);
+  return out;
+}
+
 /**
  * Rapports attendus d'une période.
  * @param {{
  *   months: string[], today: string,
- *   activity: { key: string, name?: string, month: string, planned: number, realised: number, cancelled?: number, offices?: string[] }[],
- *   contractTpms?: Map<string, Set<string>>,   mois → TPM des contrats de suivi qui le couvrent (D1)
- *   names?: Map<string, string>,              TPM → nom
- *   reports?: { id, partnerId, partnerName?, contractId?, contractLabel?, month, status }[],  factures de la période
- *   unavailable?: Set<string>                 `${TPM}|${mois}` déclarés indisponibles
+ *   activity: { key: string, contractId?: string|null, name?: string, month: string, planned: number, realised: number,
+ *               cancelled?: number, offices?: string[] }[],      visites par unité (TPM, 'interne') × contrat × mois
+ *   contractPairs?: Map<string, { providerId, contractId }[]>,    mois → TPM des contrats de suivi qui le couvrent (D1)
+ *   names?: Map<string, string>,                                  TPM → nom
+ *   contractLabels?: Map<string, string>,                         contrat → n° affiché
+ *   reports?: { id, partnerId, partnerName?, contractId, contractLabel?, month, endMonth?, status }[],  factures qui chevauchent
+ *   unavailable?: Set<string>                                     `${TPM}|${mois}` déclarés indisponibles
  * }} input
  * @returns {{ rows: object[], counts: object }}
- *   rows : { month, unit: { kind: 'tpm'|'interne', providerId, name, offices }, visits: { planned, realised },
- *            status, expected, auto, reason, due, reports: { id, status, contractLabel }[] }
+ *   rows : { month, unit: { kind: 'tpm'|'interne', providerId, name, offices }, contract: { id, label }|null,
+ *            visits: { planned, realised }, status, expected, auto, reason, due, reports: { id, status, contractLabel }[] }
  */
-function expectedReports({ months, today, activity = [], contractTpms = new Map(), names = new Map(), reports = [], unavailable = new Set() }) {
+function expectedReports({
+  months, today, activity = [], contractPairs = new Map(), names = new Map(), contractLabels = new Map(), reports = [], unavailable = new Set(),
+}) {
   const ms = [...new Set(months || [])].sort();
   const inRange = new Set(ms);
-  const act = new Map();
+  const pairKey = (p, k, m) => `${p}|${k || ''}|${m}`;
+  // Visites : TPM × contrat × mois ; suivi interne : mois (tous contrats confondus).
+  const act = new Map(); const own = new Map();
   for (const a of activity) {
     if (!a || !inRange.has(a.month) || a.key === 'non_affecte') continue;
-    act.set(`${a.key}|${a.month}`, a);
-    if (a.key !== INTERNAL && a.name && !names.has(a.key)) names.set(a.key, a.name);
+    if (a.key === INTERNAL) {
+      const o = own.get(a.month) || { planned: 0, realised: 0, offices: [] };
+      o.planned += Number(a.planned) || 0; o.realised += Number(a.realised) || 0; o.offices.push(...(a.offices || []));
+      own.set(a.month, o);
+      continue;
+    }
+    const k = pairKey(a.key, a.contractId, a.month);
+    const e = act.get(k) || { planned: 0, realised: 0 };
+    e.planned += Number(a.planned) || 0; e.realised += Number(a.realised) || 0;
+    act.set(k, e);
+    if (a.name && !names.has(a.key)) names.set(a.key, a.name);
   }
-  const docs = new Map();
+  // Documents : chaque facture couvre chacun de ses mois (facture pluri-mensuelle comprise).
+  const docs = new Map(); const docsOfTpm = new Map();
+  const push = (map, k, r) => { if (!map.has(k)) map.set(k, []); map.get(k).push(r); };
   for (const r of reports) {
-    if (!r || !inRange.has(r.month) || !r.partnerId) continue;
-    const k = `${r.partnerId}|${r.month}`;
-    if (!docs.has(k)) docs.set(k, []);
-    docs.get(k).push(r);
+    if (!r || !r.partnerId || !r.month) continue;
     if (r.partnerName && !names.has(r.partnerId)) names.set(r.partnerId, r.partnerName);
+    if (r.contractId && r.contractLabel && !contractLabels.has(r.contractId)) contractLabels.set(r.contractId, r.contractLabel);
+    const end = r.endMonth && r.endMonth > r.month ? r.endMonth : r.month;
+    for (const m of monthsBetween(r.month, end)) {
+      if (!inRange.has(m)) continue;
+      push(docs, pairKey(r.partnerId, r.contractId, m), r);
+      push(docsOfTpm, `${r.partnerId}|${m}`, r);
+    }
   }
   const rows = [];
   for (const m of ms) {
-    const tpms = new Set([...(contractTpms.get(m) || [])]);
-    for (const k of act.keys()) { const [key, mm] = k.split('|'); if (mm === m && key !== INTERNAL) tpms.add(key); }
-    for (const k of docs.keys()) { const [key, mm] = k.split('|'); if (mm === m) tpms.add(key); }
-    const tpmRows = [...tpms].map((id) => {
-      const a = act.get(`${id}|${m}`) || { planned: 0, realised: 0 };
-      const d = docs.get(`${id}|${m}`) || [];
-      const visits = (Number(a.planned) || 0) + (Number(a.realised) || 0);
+    const pairs = new Map();
+    const add = (providerId, contractId) => { const k = pairKey(providerId, contractId, m); if (!pairs.has(k)) pairs.set(k, { providerId, contractId: contractId || null }); };
+    for (const p of contractPairs.get(m) || []) add(p.providerId, p.contractId);
+    for (const k of act.keys()) { const [p, c, mm] = k.split('|'); if (mm === m) add(p, c || null); }
+    for (const k of docs.keys()) { const [p, c, mm] = k.split('|'); if (mm === m) add(p, c || null); }
+    const tpmRows = [...pairs.values()].map(({ providerId, contractId }) => {
+      const a = act.get(pairKey(providerId, contractId, m)) || { planned: 0, realised: 0 };
+      // Visites hors contrat : tout document réel du TPM qui couvre le mois les satisfait.
+      const d = contractId ? (docs.get(pairKey(providerId, contractId, m)) || []) : (docsOfTpm.get(`${providerId}|${m}`) || []);
+      const visits = a.planned + a.realised;
       return {
-        month: m, unit: { kind: 'tpm', providerId: id, name: names.get(id) || null, offices: [] },
-        visits: { planned: Number(a.planned) || 0, realised: Number(a.realised) || 0 },
-        ...tpmStatus({ visits, docs: d, month: m, today, off: unavailable.has(`${id}|${m}`) }), due: dueMonth(m),
+        month: m, unit: { kind: 'tpm', providerId, name: names.get(providerId) || null, offices: [] },
+        contract: contractId ? { id: contractId, label: contractLabels.get(contractId) || null } : null,
+        visits: { planned: a.planned, realised: a.realised },
+        ...tpmStatus({ visits, docs: d, month: m, today, off: unavailable.has(`${providerId}|${m}`) }), due: dueMonth(m),
         reports: d.map((r) => ({ id: r.id, status: r.status, contractLabel: r.contractLabel || null }))
           .sort((x, y) => cmp(String(x.contractLabel || ''), String(y.contractLabel || ''))),
       };
-    }).sort((x, y) => cmp(String(x.unit.name || '').toLowerCase(), String(y.unit.name || '').toLowerCase()) || cmp(x.unit.providerId, y.unit.providerId));
+    }).sort((x, y) => cmp(String(x.unit.name || '').toLowerCase(), String(y.unit.name || '').toLowerCase()) || cmp(x.unit.providerId, y.unit.providerId)
+      || cmp(String((x.contract && x.contract.label) || '~'), String((y.contract && y.contract.label) || '~')));
     rows.push(...tpmRows);
-    const own = act.get(`${INTERNAL}|${m}`);
-    const ownVisits = own ? (Number(own.planned) || 0) + (Number(own.realised) || 0) : 0;
-    if (ownVisits > 0) {
+    const o = own.get(m);
+    if (o && o.planned + o.realised > 0) {
       rows.push({
-        month: m, unit: { kind: 'interne', providerId: null, name: null, offices: [...new Set(own.offices || [])].sort((x, y) => x.localeCompare(y, 'fr')) },
-        visits: { planned: Number(own.planned) || 0, realised: Number(own.realised) || 0 },
+        month: m, unit: { kind: 'interne', providerId: null, name: null, offices: [...new Set(o.offices)].sort((x, y) => x.localeCompare(y, 'fr')) },
+        contract: null, visits: { planned: o.planned, realised: o.realised },
         status: 'attendu', expected: true, auto: false, reason: 'rapport_interne', due: dueMonth(m), reports: [],
       });
     }
   }
-  const counts = Object.fromEntries(EXPECTATION_STATUSES.map((s) => [s, 0]));
+  const counts = Object.fromEntries(EXPECTATION_STATUSES.map((st) => [st, 0]));
   let auto = 0; let internal = 0;
   for (const r of rows) {
     counts[r.status] += 1;
@@ -126,4 +165,4 @@ function expectedReports({ months, today, activity = [], contractTpms = new Map(
   return { rows, counts: { ...counts, autoNonApplicable: auto, internal, total: rows.length } };
 }
 
-module.exports = { DUE_MONTHS_AFTER, EXPECTATION_STATUSES, DOC_RANK, dueMonth, addMonth, tpmStatus, expectedReports };
+module.exports = { DUE_MONTHS_AFTER, EXPECTATION_STATUSES, DOC_RANK, dueMonth, addMonth, monthsBetween, tpmStatus, expectedReports };
