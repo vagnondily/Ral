@@ -14,7 +14,7 @@ import MapExplorer, { peekMapOpen, forgetMapOpen } from '../../components/map/Ma
 import { groupNaReasons } from '../../lib/naReasons.js';
 import { shortFormLabel as shortLabel } from '../../lib/formLabel.js';
 import { useI18n } from '../../lib/i18n.jsx';
-import { barPct, planVsRealRows, rateText, upcomingText, upToDateText, waysText, watchList } from '../../lib/coverageDefs.js';
+import { barPct, planVsRealRows, rateText, upcomingText, upToDateParts, waysText, watchList } from '../../lib/coverageDefs.js';
 
 /** Durée maximale des endpoints de la page (coverage-dashboard, dashboards/coverage) : 24 mois. */
 const ANALYSIS_MAX_SPAN = 24;
@@ -218,7 +218,7 @@ function Overview({ cd, cov, period, onNavigate }) {
             {upcoming && <> · {upcoming}</>}
             {ways(o.execution)}
           </>} />
-        <Kpi icon={ShieldCheck} label={tr('Sites à jour')} tone={o ? (o.rbm.due ? 'amber' : 'green') : ''} value={o ? upToDateText(o.rbm, lang, formatInt) : '—'}
+        <Kpi icon={ShieldCheck} label={tr('Sites à jour')} tone={o ? (o.rbm.due ? 'amber' : 'green') : ''} value={upToDateValue(o && upToDateParts(o.rbm, lang, formatInt))}
           foot={!o ? covNote : <>
             {o.rbm.sites > 0
               ? tr('{due} à suivre / {n} sites actifs au {m}', { due: formatInt(o.rbm.due), n: formatInt(o.rbm.sites), m: toLabel })
@@ -454,6 +454,9 @@ function BureauCard({ rows, onNavigate }) {
 }
 
 // ------------------------------------------------------------------ primitives
+/** « Sites à jour » : le nombre, le taux en petit (.biz-kpi-value small) — même rendu sur la Synthèse. */
+const upToDateValue = (p) => (p ? <>{p.n} <small>({p.pct})</small></> : '—');
+
 function Kpi({ icon: Icon, label, value, foot, tone, textValue = false }) {
   return (
     <div className="biz-kpi">

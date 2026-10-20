@@ -68,6 +68,9 @@ test('« dont … par données reçues · … par visites déclarées », recouv
   // « Sites à jour » : « n (x %) » sur les deux pages ; « — » sans site actif au mois de référence.
   assert.equal(m.upToDateText({ sites: 75, upToDate: 16, rate: 16 / 75 }, 'fr'), '16 (21\u00a0%)');
   assert.equal(m.upToDateText({ sites: 0, upToDate: 0, rate: null }, 'fr'), '—');
+  assert.deepEqual(m.upToDateParts({ sites: 1280, upToDate: 1057, rate: 1057 / 1280 }, 'fr', (n) => n.toLocaleString('fr-FR')),
+    { n: '1\u202f057', pct: '83\u00a0%' });
+  assert.equal(m.upToDateParts({ sites: 0, upToDate: 0, rate: null }, 'fr'), null);
 });
 
 test('univers énoncé, plan vs réalisé dans la même unité, tableau par activité = tuiles, bureaux à surveiller', async (t) => {
@@ -108,7 +111,9 @@ test('les deux pages lisent la même réponse (dashboards/coverage), énoncent l
     assert.match(src, /<CoverageUniverse cov=/, `${p.join('/')} : univers énoncé`);
     assert.match(src, /<ActivityCoverageCard cov=/, `${p.join('/')} : tableau par activité partagé`);
     assert.match(src, /rateText\(o\.execution\.rate, lang\)/, `${p.join('/')} : taux écrit par rateText (« 0,5 % », jamais « 0 % » pour 0,48 %)`);
-    assert.match(src, /upToDateText\(o\.rbm, lang, formatInt\)/, `${p.join('/')} : « Sites à jour » écrit « n (x %) »`);
+    assert.match(src, /upToDateValue\(o && upToDateParts\(o\.rbm, lang, formatInt\)\)/, `${p.join('/')} : « Sites à jour » écrit « n (x %) »`);
+    // Le taux en petit dans la valeur (.biz-kpi-value small) : « 1 057 (82,6 %) » ne déborde jamais de la tuile.
+    assert.match(src, /const upToDateValue = \(p\) => \(p \? <>\{p\.n\} <small>\(\{p\.pct\}\)<\/small><\/> : '—'\);/, `${p.join('/')} : taux en <small>`);
     assert.match(src, /règle RBM : visite réalisée, données de la commune ou date du registre/, `${p.join('/')} : règle RBM dite`);
     assert.match(src, /<div className="section-gap">/, `${p.join('/')} : pas de second .page dans main.page`);
   }

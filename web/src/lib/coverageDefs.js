@@ -43,10 +43,20 @@ export function upcomingText(tr, ex, fmt = String) {
     : tr('{n} à venir', { n: fmt(n) });
 }
 
-/** « Sites à jour » écrit de la même façon sur les deux pages : « 16 (21 %) » ; « — » sans site actif au mois de référence. */
+/**
+ * « Sites à jour » écrit de la même façon sur les deux pages : le nombre, puis le taux entre
+ * parenthèses — `{ n: '16', pct: '21 %' }`, rendu « 16 <small>(21 %)</small> » dans la tuile (le taux
+ * en petit : « 1 057 (82,6 %) » ne déborde jamais d'une tuile) ; null sans site actif au mois de référence.
+ */
+export function upToDateParts(rbm, lang = 'fr', fmt = String) {
+  if (!rbm || !(rbm.sites > 0)) return null;
+  return { n: fmt(rbm.upToDate), pct: rateText(rbm.rate, lang) };
+}
+
+/** Même valeur en texte : « 16 (21 %) » ; « — » sans site actif au mois de référence. */
 export function upToDateText(rbm, lang = 'fr', fmt = String) {
-  if (!rbm || !(rbm.sites > 0)) return '—';
-  return `${fmt(rbm.upToDate)} (${rateText(rbm.rate, lang)})`;
+  const p = upToDateParts(rbm, lang, fmt);
+  return p ? `${p.n} (${p.pct})` : '—';
 }
 
 /**

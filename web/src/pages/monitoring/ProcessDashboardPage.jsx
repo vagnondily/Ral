@@ -12,7 +12,7 @@ import { formatDecimal, formatInt, monthLabel } from '../../lib/format.js';
 import { periodLabel, single, spanMonths } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { PERIOD_CAPS } from '../../lib/periodCaps.js';
-import { barPct, rateText, upcomingText, upToDateText, waysText, watchList } from '../../lib/coverageDefs.js';
+import { barPct, rateText, upcomingText, upToDateParts, waysText, watchList } from '../../lib/coverageDefs.js';
 
 /** Durée maximale de l'écran : la plus courte de ses endpoints (overview = analyse ; couverture = faits) — lib/periodCaps. */
 const ANALYSIS_MAX_SPAN = Math.min(PERIOD_CAPS.analysis, PERIOD_CAPS.facts);
@@ -132,7 +132,7 @@ export default function ProcessDashboardPage({ onNavigate }) {
               </>} />
             {/* Sites à jour = parmi les sites actifs au dernier mois de la période, ceux qui ne sont pas « à suivre » (RBM). */}
             <Kpi icon={ShieldCheck} tone={o?.rbm.due ? 'amber' : 'green'} label={tr('Sites à jour')} error={res.cov.error}
-              value={o ? upToDateText(o.rbm, lang, formatInt) : '—'}
+              value={upToDateValue(o && upToDateParts(o.rbm, lang, formatInt))}
               foot={o && <>
                 {o.rbm.sites > 0
                   ? tr('{due} à suivre / {n} sites actifs au {m}', { due: formatInt(o.rbm.due), n: formatInt(o.rbm.sites), m: toLabel })
@@ -184,6 +184,9 @@ export default function ProcessDashboardPage({ onNavigate }) {
 function CardError({ error }) {
   return <p className="muted" role="alert"><AlertCircle size={14} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 6 }} />{error}</p>;
 }
+
+/** « Sites à jour » : le nombre, le taux en petit (.biz-kpi-value small) — même rendu sur Couverture & performance. */
+const upToDateValue = (p) => (p ? <>{p.n} <small>({p.pct})</small></> : '—');
 
 function Kpi({ icon: Icon, label, value, foot, tone, error, textValue = false }) {
   const { tr } = useI18n();
