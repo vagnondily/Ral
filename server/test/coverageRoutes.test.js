@@ -115,3 +115,46 @@ test('dépôt : état RBM lu d\'abord, puis UNE requête regroupée sur le servi
     repo.coverageFacts = realFacts;
   }
 });
+
+/**
+ * Dépôt rechargé sur un faux client (SQL capté) et un état RBM simulé — `rbm` compte les lectures RBM.
+ * @returns {Promise<{ sqls: {sql:string, params:any[]}[], rbmCalls: number }>}
+ */
+async function captureFacts(opts) {
+  const db = require('../src/config/db');
+  const field = require('../src/modules/tpm/field.repository');
+  const sqls = [];
+  const realTx = db.withTenantTransaction; const realRbm = field.rbmSitesTx;
+  let rbmCalls = 0;
+  db.withTenantTransaction = async (tenantId, fn) => fn({ query: async (sql, params) => { sqls.push({ sql: String(sql), params }); return { rows: [] }; } });
+  field.rbmSitesTx = async () => { rbmCalls += 1; return [{ id: 'a', due: true }]; };
+  try {
+    delete require.cache[require.resolve('../src/modules/dashboards/coverage.repository')];
+    await require('../src/modules/dashboards/coverage.repository').coverageFacts(TENANT, opts);
+    return { sqls, rbmCalls };
+  } finally {
+    db.withTenantTransaction = realTx; field.rbmSitesTx = realRbm;
+    delete require.cache[require.resolve('../src/modules/dashboards/coverage.repository')];
+  }
+}
+
+test('dépôt : « Sans bureau » (unlinked) — chaque référence à office_tree a sa définition ; soumissions de commune sans bureau', async () => {
+  for (const officeId of ['unlinked', OFFICE, null]) {
+    const { sqls } = await captureFacts({ period: { from: '2026-01', to: '2026-09' }, officeId });
+    for (const { sql } of sqls) {
+      const refs = (sql.match(/(?:FROM|JOIN) office_tree\b/g) || []).length;
+      if (refs) assert.match(sql, /\boffice_tree AS \(/, `${officeId} : office_tree cité ${refs} fois sans définition (42P01)`);
+    }
+    const main = sqls.find((s) => /GROUPING SETS/.test(s.sql)).sql;
+    const cdat = main.slice(main.indexOf('cdat AS MATERIALIZED'), main.indexOf('pcs AS MATERIALIZED'));
+    if (officeId === 'unlinked') {
+      assert.match(cdat, /ms\.field_office_id IS NULL/, 'données de commune sans bureau');
+      assert.doesNotMatch(main, /office_tree/, 'aucun sous-arbre de bureau');
+      assert.match(main, /s\.field_office_id IS NULL/, 'sites sans bureau');
+    } else if (officeId) {
+      assert.match(cdat, /ms\.field_office_id IN \(SELECT id FROM office_tree\)/);
+    } else {
+      assert.doesNotMatch(cdat, /field_office_id/, 'tous les bureaux');
+    }
+  }
+});

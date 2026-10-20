@@ -150,3 +150,45 @@ test('délai par requête : toute transaction ouverte dans withQueryTimeout reç
   assert.equal(seen.filter((q) => q.startsWith('SET LOCAL statement_timeout')).length, 1, 'hors du contexte : aucun délai posé');
   assert.throws(() => db.withQueryTimeout("15s'; DROP TABLE x; --", () => {}), /Délai invalide/);
 });
+
+test('« Sans bureau » (office = unlinked) : chaque bloc de couverture se calcule — SQL du VRAI dépôt des tableaux de bord', async () => {
+  // Faux client qui refuse, comme PostgreSQL (42P01), une relation office_tree citée sans être définie.
+  const sqls = [];
+  const realTx = db.withTenantTransaction; const realRbm = fieldRepo.rbmSitesTx; const stub = dashRepo.coverageFacts;
+  db.withTenantTransaction = async (t, fn) => fn({
+    query: async (sql, params) => {
+      const s = String(sql);
+      if (/(?:FROM|JOIN) office_tree\b/.test(s) && !/\boffice_tree AS \(/.test(s)) {
+        throw Object.assign(new Error('relation "office_tree" does not exist'), { code: '42P01' });
+      }
+      sqls.push({ sql: s, params });
+      return { rows: [] };
+    },
+  });
+  fieldRepo.rbmSitesTx = async () => [];
+  const path = require.resolve('../src/modules/dashboards/coverage.repository');
+  delete require.cache[path];
+  dashRepo.coverageFacts = require(path).coverageFacts; // dépôt réel, lu avec les doublures ci-dessus
+  try {
+    const doc = {
+      schemaVersion: 2, title: 'Sans bureau', period: { from: '2026-01', to: '2026-03' }, filters: { office: 'unlinked' },
+      blocks: [
+        { id: 'k', type: 'data', params: { dataset: 'cov.kpis' } },
+        { id: 'a', type: 'data', params: { dataset: 'cov.by_activity' } },
+        { id: 'o', type: 'data', params: { dataset: 'cov.by_office' } },
+        { id: 'm', type: 'kpis', params: { metrics: ['coverage', 'execution_rate'] } },
+        { id: 'b', type: 'bulletin', params: {} },
+      ],
+    };
+    const r = await post('/api/report-designer/render/blocks', { doc, iids: ['k', 'a', 'o', 'm', 'b'] });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    for (const iid of ['k', 'a', 'o', 'm', 'b']) assert.equal(r.body.blocks[iid].ok, true, `${iid} : ${JSON.stringify(r.body.blocks[iid].error)}`);
+    const main = sqls.find((s) => /GROUPING SETS/.test(s.sql));
+    assert.ok(main, 'requête des tableaux de bord exécutée');
+    assert.match(main.sql, /s\.field_office_id IS NULL/, 'sites sans bureau');
+    assert.match(main.sql, /ms\.field_office_id IS NULL/, 'données de commune sans bureau');
+  } finally {
+    db.withTenantTransaction = realTx; fieldRepo.rbmSitesTx = realRbm; dashRepo.coverageFacts = stub;
+    delete require.cache[path];
+  }
+});

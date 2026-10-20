@@ -24,6 +24,19 @@ const { rbmSitesTx } = require('../tpm/field.repository');
 const JIT_OFF = 'SET LOCAL jit = off';
 
 /**
+ * Bureau d'une soumission de commune (cdat) : les MÊMES trois cas que le périmètre des sites
+ * (siteMonthFactsCtes) — 'unlinked' = soumission sans bureau, un uuid = le bureau et ses antennes
+ * (office_tree, défini par siteMonthFactsCtes pour un uuid seulement), rien = tous les bureaux.
+ */
+function submissionOfficeFilter(officeId) {
+  if (officeId === 'unlinked') return `
+            AND ms.field_office_id IS NULL`;
+  if (officeId) return `
+            AND ms.field_office_id IN (SELECT id FROM office_tree)`;
+  return '';
+}
+
+/**
  * @param {string} tenantId
  * @param {{ period: {from:string,to:string}, officeId?: string|null }} opts
  * @returns {Promise<{ rows: object[], refMonth: string }>}
@@ -61,8 +74,7 @@ async function coverageFacts(tenantId, { period, officeId = null }) {
            FROM monitoring_submissions ms
            JOIN monitoring_forms mf ON mf.id = ms.form_id AND mf.tenant_id = ms.tenant_id
           WHERE ms.tenant_id = $1 AND NOT ms.excluded AND ms.site_id IS NULL AND NULLIF(btrim(ms.adm3_pcode), '') IS NOT NULL
-            AND ms.period_month >= ${pLo}::date AND ms.period_month < ${pHiExcl}::date${officeId ? `
-            AND ms.field_office_id IN (SELECT id FROM office_tree)` : ''}),
+            AND ms.period_month >= ${pLo}::date AND ms.period_month < ${pHiExcl}::date${submissionOfficeFilter(officeId)}),
        -- Sites dont la commune porte un P-code : sinon la commune n'est connue que par son nom, et deux
        -- communes de même nom dans deux districts restent deux communes (clé district | nom).
        pcs AS MATERIALIZED (
@@ -117,4 +129,4 @@ async function coverageFacts(tenantId, { period, officeId = null }) {
   });
 }
 
-module.exports = { coverageFacts };
+module.exports = { coverageFacts, submissionOfficeFilter };

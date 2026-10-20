@@ -98,7 +98,7 @@ test('couverture en base : service = jumeau pur, découpages sommés aux tuiles,
 
     // ---- Jumeau pur sur les lignes brutes -----------------------------------------------
     const reg = await q(`SELECT s.id, s.activity, s.risk_level AS risk, COALESCE(s.security_situation, 0) >= 99 AS forbidden,
-                                COALESCE(fo.name, '—') AS office,
+                                COALESCE(fo.name, '—') AS office, s.field_office_id AS office_id,
                                 lower(COALESCE(NULLIF(btrim(s.adm3_pcode), ''), NULLIF(btrim(s.adm3), ''), NULLIF(btrim(s.commune), ''), '—')) AS ckey,
                                 lower(NULLIF(btrim(s.activity), '')) AS act
                            FROM sites s LEFT JOIN field_offices fo ON fo.id = s.field_office_id AND fo.tenant_id = s.tenant_id
@@ -154,6 +154,15 @@ test('couverture en base : service = jumeau pur, découpages sommés aux tuiles,
       assert.equal(o.outside, 5);
       assert.equal(o.execution.cancelled, 2);
     }
+
+    // ---- « Sans bureau » (filtre du concepteur, section répétée par bureau) : sites sans bureau ----
+    // Avant la correction : 42P01 « relation office_tree does not exist » (cdat filtrait par sous-arbre).
+    const unl = await coverageService.coverage(auth, { period: PERIOD, officeId: 'unlinked' });
+    assert.deepEqual(checkConsistency(unl), [], 'sans bureau : découpages sommés aux tuiles');
+    const twinUnl = twin.filter((s) => s.office_id == null);
+    const expUnl = shapeCoverage(groupRows(twinUnl.map((s) => ({ counts: s.counts, activity: s.activity, office: s.office, district: '—' }))), { refMonth: PERIOD.to });
+    assert.deepEqual(unl.overall, expUnl.overall, 'sans bureau : tuiles = jumeau pur sur les sites sans bureau');
+    assert.equal(unl.universe.registry, twinUnl.length, 'sans bureau : registre = sites sans bureau');
 
     // ---- La carte : même couverture ---------------------------------------------------------
     const map = await mapService.districts(auth, { period: PERIOD });
