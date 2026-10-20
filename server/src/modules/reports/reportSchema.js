@@ -223,12 +223,34 @@ function bandImageRefs({ header, footer, firstHeader, firstFooter, firstPage } =
   return bands.flatMap(bandImages);
 }
 
-/** Images citées (blocs image, éléments d'en-tête / pied du document et des sections) ; les emplacements vides ne comptent pas. */
+/**
+ * Images citées par un document — DEUX listes (relecture du 20/10) :
+ *  - `imageRefs` : TOUTES (blocs image, toutes les bandes des sections et de la page, 1re page
+ *    comprise même masquée) — contrôle d'existence dans le compte (reports.service.normalizeDoc) :
+ *    une bande gardée mais masquée ne cite jamais une image inconnue ou d'un autre compte ;
+ *  - `countedImageRefs` : celles qui s'AFFICHENT (bandes de 1re page si elle est « propre », bandes
+ *    d'une section si elle a les siennes) — limite MAX_IMAGES (jumelle web : reportBands.docImageCount).
+ * Les emplacements vides ne comptent pas.
+ */
 function imageRefs(doc) {
   const out = [];
   walkBlocks(doc.blocks, (b) => {
     if (b.type === 'image') out.push(b.params.assetId);
     if (b.type === 'section') out.push(...bandImages(b.params.headerBand), ...bandImages(b.params.footerBand));
+  });
+  const page = doc.page || {};
+  for (const bd of [page.header, page.footer, page.firstHeader, page.firstFooter]) out.push(...bandImages(bd));
+  return out;
+}
+
+function countedImageRefs(doc) {
+  const out = [];
+  walkBlocks(doc.blocks, (b) => {
+    if (b.type === 'image') out.push(b.params.assetId);
+    if (b.type === 'section') {
+      if (b.params.header === 'own') out.push(...bandImages(b.params.headerBand));
+      if (b.params.footer === 'own') out.push(...bandImages(b.params.footerBand));
+    }
   });
   out.push(...bandImageRefs(doc.page || {}));
   return out;
@@ -256,7 +278,7 @@ const reportDocV2 = z.object({
     seen.add(b.id);
   });
   if (count > MAX_BLOCKS) ctx.addIssue({ code: 'custom', path: ['blocks'], message: `Trop de blocs : ${count} (${MAX_BLOCKS} au plus).` });
-  const images = imageRefs(d).length;
+  const images = countedImageRefs(d).length;
   if (images > MAX_IMAGES) ctx.addIssue({ code: 'custom', path: ['blocks'], message: `Trop d'images : ${images} (${MAX_IMAGES} au plus).` });
   const bytes = Buffer.byteLength(JSON.stringify(d), 'utf8');
   if (bytes > MAX_DOC_BYTES) ctx.addIssue({ code: 'custom', path: ['blocks'], message: `Rapport trop volumineux : ${Math.round(bytes / 1024)} Ko (900 Ko au plus).`, params: { code: 'doc_too_large' } });
@@ -267,7 +289,7 @@ const parseDocV2 = (input) => reportDocV2.parse(input);
 const safeParseDocV2 = (input) => reportDocV2.safeParse(input);
 
 module.exports = {
-  parseDocV2, safeParseDocV2, walkBlocks, imageRefs, bandImageRefs,
+  parseDocV2, safeParseDocV2, walkBlocks, imageRefs, countedImageRefs, bandImageRefs,
   FONTS, VIEWS, MAX_BLOCKS, MAX_IMAGES, MAX_DOC_BYTES,
   schemas: { richDoc, block, leafBlock, sectionBlock, columnsBlock, repeatBlock, band, pageSetup, reportFilters, blockFilters, figure, reportDocV2, officeKey },
 };

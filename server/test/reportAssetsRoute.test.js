@@ -113,6 +113,16 @@ test('un rapport ne cite que des images de SON compte (logo d\'un autre compte �
   const foreign = await request(app).post('/api/report-designer/render/plan').set({ Authorization: tok(B, 'viewer') }).send({ doc: doc(up.body.id) });
   assert.equal(foreign.status, 400);
   assert.equal(foreign.body.details.code, 'asset_missing');
+  // 1re page « identique » (bandes gardées mais masquées) : une image inconnue ou d'un autre compte y
+  // est refusée quand même — elle ne ressurgirait qu'au passage à « propre », sous un nom jamais choisi.
+  const hidden = (assetId) => ({ ...doc(up.body.id), page: { header: header(up.body.id), firstPage: 'same', firstHeader: header(assetId) } });
+  const unknown = await request(app).post('/api/report-designer/render/plan').set({ Authorization: tok(A, 'viewer') }).send({ doc: hidden('9a7b6c5d-4e3f-4a1b-8c2d-0e1f2a3b4c5d') });
+  assert.equal(unknown.status, 400);
+  assert.equal(unknown.body.details.code, 'asset_missing');
+  const other = await request(app).post('/api/report-designer/render/plan').set({ Authorization: tok(B, 'viewer') }).send({ doc: { ...hidden(up.body.id), page: { firstPage: 'none', firstHeader: header(up.body.id) } } });
+  assert.equal(other.status, 400);
+  assert.equal(other.body.details.code, 'asset_missing');
+  assert.equal((await request(app).post('/api/report-designer/render/plan').set({ Authorization: tok(A, 'viewer') }).send({ doc: hidden(up.body.id) })).status, 200);
 });
 
 test('« mes en-têtes » : enregistré par compte, validé par le schéma des bandes, logos du compte seulement, nom unique', async () => {
@@ -162,10 +172,18 @@ test('« mes en-têtes » : au plus MAX_IMAGES logos sur la paire (bandes de la 
   assert.match(over.body.error, /Trop d'images dans cet en-tête : 13 logos \(12 au plus/);
   // Bandes de la 1re page gardées mais masquées (« identique ») : ne comptent pas.
   assert.equal((await post({ name: 'Masquées', header: logos(6, 'h'), footer: logos(6, 'f'), firstPage: 'same', firstHeader: logos(10, 'a') })).status, 201);
-  // Dans un document : même règle (imageRefs ne compte la 1re page que si elle est propre).
+  // Dans un document : même règle (countedImageRefs ne compte la 1re page que si elle est propre) ;
+  // le contrôle d'existence (imageRefs) lit, lui, toutes les bandes.
+  const { countedImageRefs } = require('../src/modules/reports/reportSchema');
   const page = { size: 'A4', orientation: 'portrait', header: logos(6, 'h'), footer: logos(6, 'f'), firstPage: 'same', firstHeader: logos(10, 'a'), draftWatermark: true };
   const doc = { schemaVersion: 2, title: 'T', period: { from: '2026-01', to: '2026-01' }, filters: {}, page, blocks: [] };
-  assert.equal(imageRefs(doc).length, 12);
+  assert.equal(countedImageRefs(doc).length, 12);
+  assert.equal(imageRefs(doc).length, 22, 'existence : 1re page masquée comprise');
+  // Bandes d'une section : comptées si la section a les siennes ; toujours contrôlées.
+  const sec = (header) => ({ id: `s-${header}`, type: 'section', params: { header, footer: 'inherit', headerBand: logos(3, 'x') } });
+  const withSections = { ...doc, blocks: [sec('own'), sec('inherit')] };
+  assert.equal(countedImageRefs(withSections).length, 15);
+  assert.equal(imageRefs(withSections).length, 28);
   assert.equal(safeParseDocV2(doc).success, true);
   assert.equal(safeParseDocV2({ ...doc, page: { ...page, firstPage: 'own' } }).success, false, '1re page propre : 22 images');
 });
