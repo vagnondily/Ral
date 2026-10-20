@@ -1,7 +1,7 @@
 const { withTenantTransaction } = require('../../config/db');
 const places = require('./placeMatch.repository');
 const { badRequest } = require('../../middleware/errors');
-const { roleForUpdateTx, restampIfRoleChangedTx, nameChanges } = require('../partners/partnerRole');
+const { roleForUpdateTx, restampIfRoleChangedTx, nameChanges, roleAfter } = require('../partners/partnerRole');
 
 /** Configuration registries: partner types, activities, partners (+ TPM
  * agents). All tenant-scoped through withTenantTransaction. */
@@ -105,7 +105,7 @@ async function createPartner(tenantId, { name, partnerTypeId, dailyRate, contrac
  */
 async function updatePartner(tenantId, id, { name, partnerTypeId, dailyRate, contractRef, active }) {
   return (name ? places.withSubmissionLinks : withTenantTransaction)(tenantId, async (client) => {
-    // Type ou fiche active dans le patch : verrou d'attribution d'abord, puis la ligne (partnerRole).
+    // Type ou fiche active VRAIMENT changés : verrou d'attribution d'abord, puis la ligne (partnerRole).
     const before = await roleForUpdateTx(client, tenantId, id, { partnerTypeId, active });
     if (!before) return false;
     // Liste SET construite : `name` seulement s'il change vraiment (l'écran envoie toujours le nom ;
@@ -121,8 +121,7 @@ async function updatePartner(tenantId, id, { name, partnerTypeId, dailyRate, con
     const { rowCount } = await client.query(`UPDATE partners SET ${sets.join(', ')} WHERE tenant_id = $1 AND id = $2`, values);
     if (rowCount === 1 && name) await places.relinkPartiesTx(client, tenantId);
     if (rowCount === 1) {
-      await restampIfRoleChangedTx(client, tenantId, before,
-        { partnerTypeId: partnerTypeId || before.partnerTypeId, active: active ?? before.active });
+      await restampIfRoleChangedTx(client, tenantId, before, roleAfter(before, { partnerTypeId, active }));
     }
     return rowCount === 1;
   });

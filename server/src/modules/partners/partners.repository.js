@@ -7,7 +7,7 @@ const places = require('../settings/placeMatch.repository');
 const { providerLinksTx, contractTpmViewsTx } = require('../tpm/activeProvider.repository');
 const { monthWithin } = require('../common/periodSql');
 const { followedSql, timelineTrainingSql, heldSql } = require('../trainings/trainingSql');
-const { roleForUpdateTx, restampIfRoleChangedTx, nameChanges } = require('./partnerRole');
+const { roleForUpdateTx, restampIfRoleChangedTx, nameChanges, roleAfter } = require('./partnerRole');
 
 /**
  * Fiche partenaire 360° et équipe — seul fichier du module qui écrit du SQL.
@@ -418,7 +418,7 @@ async function updatePartner(tenantId, id, patch) {
   const identity = fields.length > 0 && (patch.name != null || patch.shortName !== undefined);
   return (identity ? places.withSubmissionLinks : withTenantTransaction)(tenantId, async (client) => {
     if (!fields.length) return Boolean(await getPartnerTx(client, tenantId, id));
-    // Fiche active dans le patch : verrou d'attribution d'abord, puis la ligne (partnerRole.roleForUpdateTx).
+    // Fiche active VRAIMENT changée : verrou d'attribution d'abord, puis la ligne (partnerRole.roleForUpdateTx).
     const before = await roleForUpdateTx(client, tenantId, id, { active: patch.active });
     if (!before) return false;
     // `name` listé seulement s'il change vraiment (sinon FOR UPDATE sur la ligne — partnerRole).
@@ -431,7 +431,7 @@ async function updatePartner(tenantId, id, patch) {
       `UPDATE partners SET ${[...sets, 'updated_at = now()'].join(', ')} WHERE tenant_id = $1 AND id = $2`, [tenantId, id, ...values]);
     if (rowCount > 0 && identity) await places.relinkPartiesTx(client, tenantId); // nom ou sigle : formulaires reliés à nouveau
     // Fiche activée / désactivée = rôle de TPM changé : TPM des visites prévues recalculé (même transaction).
-    if (rowCount > 0) await restampIfRoleChangedTx(client, tenantId, before, { partnerTypeId: before.partnerTypeId, active: patch.active ?? before.active });
+    if (rowCount > 0) await restampIfRoleChangedTx(client, tenantId, before, roleAfter(before, { active: patch.active }));
     return rowCount > 0;
   });
 }
