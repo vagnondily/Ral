@@ -11,7 +11,7 @@ export default {
   'TPM indisponible : {list}': 'TPM unavailable: {list}',
   'TPM du contrat indisponible ce mois': 'contract TPM unavailable this month',
   'décidé : {r}': 'decided: {r}',
-  'aucun contrat de suivi sur cette zone ce mois': 'no monitoring contract on this area this month',
+  'aucun contrat de suivi sur la zone': 'no monitoring contract on the area',
   'aucun contrat de suivi sur cette zone ({m})': 'no monitoring contract on this area ({m})',
   'Suivi interne (équipe S&E) : aucun TPM retenu pour cette zone ce mois-là. Pour la confier à un TPM : onglet Affectation des TPM.':
     'Internal monitoring (M&E team): no TPM retained for this area that month. To give it to a TPM: TPM assignment tab.',

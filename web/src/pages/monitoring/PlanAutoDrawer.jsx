@@ -196,7 +196,7 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
   // agents, véhicules et jours de terrain. On y ajoute ses coûts journaliers pour obtenir le budget.
   function exportBudget() {
     if (!preview) return;
-    const bureau = tr('Bureau (suivi interne)');
+    const bureau = tr('Interne (équipe S&E)');
     const rows = [[tr('Unité (TPM / bureau)'), tr('Mois'), tr('Visites à faire'), tr('dont nouvelles'), tr('Journées-agent'), tr('Agents'),
       tr('Véhicules (pic / jour)'), tr('Véhicules (moyenne / jour)'), tr('Jours de terrain'), tr('Source des jours de terrain')]];
     for (const t of preview.byTpm || []) {
@@ -628,7 +628,7 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
                     <tbody>
                       {preview.byTpm.map((t, i) => (
                         <tr key={`${t.unitKey || 'na'}-${i}`}>
-                          <td>{t.assigned ? <strong>{t.tpm}</strong> : <span className="muted">{tr('Bureau (suivi interne)')}</span>}</td>
+                          <td>{t.assigned ? <strong>{t.tpm}</strong> : <span className="muted">{tr('Interne (équipe S&E)')}</span>}</td>
                           <td className="num">{formatInt(t.sites)}</td>
                           <td className="num">{formatInt(t.visits)}{t.planned !== t.visits ? <span className="muted"> ({tr('{n} nouv.', { n: formatInt(t.planned) })})</span> : null}</td>
                           <td className="num">{formatInt(t.agentDays)}</td>
@@ -678,7 +678,7 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
                           <td><strong>{s.name}</strong></td>
                           <td className="muted">{s.commune || '—'}</td>
                           <td className="muted">{s.activity || '—'}</td>
-                          <td className="muted">{s.tpm || tr('Bureau (suivi interne)')}</td>
+                          <td className="muted">{s.tpm || tr('Interne (équipe S&E)')}</td>
                           <td>{s.visits.map((v) => (writeSchedule && v.date ? `${shortDate(v.date)} · ${v.agent}` : shortMonth(v.month))).join(' — ')}</td>
                         </tr>
                       ))}

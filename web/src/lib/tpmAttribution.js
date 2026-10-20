@@ -47,7 +47,7 @@ export function internalWhy(tr, c) {
       : tr('TPM du contrat indisponible ce mois');
     case 'aucun_tpm': return c.reason ? tr('décidé : {r}', { r: c.reason }) : tr('décidé, avec une raison');
     case 'district_inconnu': return tr('district du site non reconnu');
-    case 'sans_contrat': return tr('aucun contrat de suivi sur cette zone ce mois');
+    case 'sans_contrat': return tr('aucun contrat de suivi sur la zone');
     default: return '';
   }
 }
