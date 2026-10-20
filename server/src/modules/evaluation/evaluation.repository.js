@@ -13,8 +13,17 @@ const { DEFAULT_CRITERIA } = require('./gridScore');
 // ---- Critères des grilles -------------------------------------------------------------
 const CRITERION_COLS = `c.id, c.scope, c.code, c.label, c.help, c.weight::float8 AS weight, c.sort_order AS "sortOrder", c.active`;
 
-/** Critères d'une portée ; les critères par défaut sont créés à la première lecture (une fois). */
-async function criteriaTx(client, tenantId, scope, { activeOnly = false } = {}) {
+/** Critères par défaut d'une portée, tels qu'ils seront enregistrés (même ordre, poids 1). */
+const defaultCriteria = (scope) => DEFAULT_CRITERIA[scope].map(([code, label, help], i) => ({
+  id: null, scope, code, label, help, weight: 1, sortOrder: (i + 1) * 10, active: true, isDefault: true,
+}));
+
+/**
+ * Critères d'une portée. Les critères par défaut ne sont ENREGISTRÉS qu'à la première écriture
+ * (nouvelle évaluation, nouveau critère) : une simple lecture — même d'un compte en lecture seule —
+ * n'écrit rien et rend les critères par défaut non enregistrés (id null, `isDefault`).
+ */
+async function criteriaTx(client, tenantId, scope, { activeOnly = false, persistDefaults = true } = {}) {
   const read = () => client.query(
     `SELECT ${CRITERION_COLS} FROM evaluation_criteria c WHERE c.tenant_id = $1 AND c.scope = $2
       ${activeOnly ? 'AND c.active' : ''} ORDER BY c.sort_order, c.label`, [tenantId, scope]);
@@ -22,6 +31,7 @@ async function criteriaTx(client, tenantId, scope, { activeOnly = false } = {}) 
   if (rows.length) return rows;
   const { rows: [{ n }] } = await client.query('SELECT count(*)::int AS n FROM evaluation_criteria WHERE tenant_id = $1 AND scope = $2', [tenantId, scope]);
   if (n > 0) return rows; // des critères existent (tous désactivés) : ne rien recréer
+  if (!persistDefaults) return defaultCriteria(scope);
   await insertRows(client, {
     table: 'evaluation_criteria', columns: ['tenant_id', 'scope', 'code', 'label', 'help', 'weight', 'sort_order'],
     rows: DEFAULT_CRITERIA[scope].map(([code, label, help], i) => ({ code, label, help, i })),
@@ -32,7 +42,7 @@ async function criteriaTx(client, tenantId, scope, { activeOnly = false } = {}) 
 }
 
 async function listCriteria(tenantId, scope) {
-  return withTenantTransaction(tenantId, (client) => criteriaTx(client, tenantId, scope));
+  return withTenantTransaction(tenantId, (client) => criteriaTx(client, tenantId, scope, { persistDefaults: false }));
 }
 
 /** Ajout d'un critère (administrateur). Code unique dans la portée (409). */
@@ -131,6 +141,26 @@ async function getProviderEvaluation(tenantId, partnerId, id) {
 }
 
 /**
+ * Évaluations VALIDÉES des agents du prestataire qui chevauchent la période (mois « AAAA-MM »),
+ * une ligne par (agent, évaluation) ; un agent actif sans évaluation a une ligne (evaluationId
+ * null). La sélection (dernière, lot 8 avant ancienne) : providerEvaluation.agentScoresForPeriod.
+ */
+async function agentEvaluationsTx(client, tenantId, partnerId, { from, to }) {
+  const { rows } = await client.query(
+    `SELECT a.id AS "agentId", a.name, e.id AS "evaluationId", e.legacy, e.final_score::float8 AS "finalScore",
+            e.note::float8 AS note, to_char(e.period_to, 'YYYY-MM') AS "periodTo", e.validated_at AS "validatedAt", e.created_at AS "createdAt"
+       FROM tpm_agents a
+       LEFT JOIN tpm_agent_evaluations e ON e.tenant_id = a.tenant_id AND e.agent_id = a.id AND e.status = 'validee'
+            AND date_trunc('month', e.periode)::date <= $4::date AND e.period_to >= $3::date
+      WHERE a.tenant_id = $1 AND a.tpm_provider_id = $2 AND (a.active OR e.id IS NOT NULL)
+      ORDER BY a.name, a.id`, [tenantId, partnerId, `${from}-01`, `${to}-01`]);
+  return rows;
+}
+async function agentEvaluations(tenantId, partnerId, period) {
+  return withTenantTransaction(tenantId, (client) => agentEvaluationsTx(client, tenantId, partnerId, period));
+}
+
+/**
  * Crée une évaluation en brouillon et sa grille (une ligne par critère actif, avec le libellé et
  * le poids du moment) en une transaction. `build(criteria)` (service) rend la grille et les notes.
  */
@@ -190,9 +220,9 @@ async function updateProviderEvaluation(tenantId, partnerId, id, apply) {
 }
 
 /**
- * Valide sous verrou : `decide(current, ctx)` (service) contrôle l'état, la séparation des
- * tâches et la grille complète, recalcule et rend les notes figées. `ctx.agentScoresTx` lit les
- * notes des agents de la période DANS la même transaction.
+ * Valide sous verrou : `decide(current, ctx)` (service) contrôle l'état, la version vue, la
+ * séparation des tâches et la grille complète, lit les notes des agents de la période DANS la même
+ * transaction (`ctx.client`), recalcule et rend les notes figées.
  */
 async function validateProviderEvaluation(tenantId, partnerId, id, decide) {
   return withTenantTransaction(tenantId, async (client) => {
@@ -210,13 +240,19 @@ async function validateProviderEvaluation(tenantId, partnerId, id, decide) {
   });
 }
 
-/** Supprime un brouillon (la grille part en cascade). Rend 'not_found' | 'validated' | 'deleted'. */
-async function deleteProviderEvaluation(tenantId, partnerId, id) {
+/**
+ * Supprime un brouillon (la grille part en cascade), sous verrou ; `allow({ evaluatedBy })`
+ * (service) dit si l'auteur de la demande en a le droit. Rend 'not_found' | 'validated' |
+ * 'forbidden' | 'deleted'.
+ */
+async function deleteProviderEvaluation(tenantId, partnerId, id, allow = () => true) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      'SELECT status FROM tpm_provider_evaluations WHERE tenant_id = $1 AND partner_id = $2 AND id = $3 FOR UPDATE', [tenantId, partnerId, id]);
+      `SELECT status, evaluated_by AS "evaluatedBy" FROM tpm_provider_evaluations
+        WHERE tenant_id = $1 AND partner_id = $2 AND id = $3 FOR UPDATE`, [tenantId, partnerId, id]);
     if (!rows.length) return 'not_found';
     if (rows[0].status === 'validee') return 'validated';
+    if (!allow(rows[0])) return 'forbidden';
     await client.query('DELETE FROM tpm_provider_evaluations WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
     return 'deleted';
   });
@@ -225,5 +261,5 @@ async function deleteProviderEvaluation(tenantId, partnerId, id) {
 module.exports = {
   criteriaTx, listCriteria, createCriterion, updateCriterion, settingsTx, getSettings, saveSettings,
   listProviderEvaluations, getProviderEvaluation, createProviderEvaluation, updateProviderEvaluation,
-  validateProviderEvaluation, deleteProviderEvaluation,
+  validateProviderEvaluation, deleteProviderEvaluation, agentEvaluationsTx, agentEvaluations,
 };

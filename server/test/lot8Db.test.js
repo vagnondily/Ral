@@ -59,3 +59,61 @@ test('formation : PATCH partiel d\'un participant (pré-test seul) garde présen
     await q('DELETE FROM training_sessions WHERE tenant_id = $1 AND id = $2', [T, created.id]);
   }
 });
+
+test('note du TPM : la validation lit les notes validées des agents de la période (ancienne /20 comprise) ; version vue exigée', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const users = await q("SELECT id, email FROM users WHERE tenant_id = $1 AND email IN ('admin@mems.mg', 'validateur@mems.mg')", [T]);
+  const admin = users.find((u) => u.email === 'admin@mems.mg').id; const validator = users.find((u) => u.email === 'validateur@mems.mg').id;
+  const [tpm] = await q("SELECT p.id FROM partners p JOIN partner_types t ON t.id = p.partner_type_id WHERE p.tenant_id = $1 AND t.code = 'tpm' AND p.name = 'YPA'", [T]);
+  const agents = await q('SELECT id FROM tpm_agents WHERE tenant_id = $1 AND tpm_provider_id = $2 AND active ORDER BY name LIMIT 2', [T, tpm.id]);
+  const service = require('../src/modules/evaluation/evaluation.service');
+  const legacy = await q(`INSERT INTO tpm_agent_evaluations (tenant_id, agent_id, periode, period_to, status, legacy, note, evaluated_by)
+                          VALUES ($1, $2, '2019-02-01', '2019-02-01', 'validee', true, 14, $3), ($1, $4, '2018-06-01', '2018-06-01', 'validee', true, 6, $3)
+                          RETURNING id`, [T, agents[0].id, validator, agents[1].id]);
+  let evalId = null;
+  try {
+    // Le brouillon voit déjà la note de l'agent (aperçu), la validation la fige.
+    const criteria = (await service.listCriteria(T, 'prestataire')).filter((c) => c.active);
+    const draft = await service.createProviderEvaluation(T, tpm.id, { periodFrom: '2019-01', periodTo: '2019-06', evaluatedOn: '2019-07-01',
+      ratings: criteria.map((c) => ({ code: c.code, rating: 3 })) }, admin);
+    evalId = draft.id;
+    const shown = await service.getProviderEvaluation(T, tpm.id, evalId);
+    assert.equal(shown.preview.agentsCount, 1, 'une note d\'agent dans la période (l\'autre, de 2018, hors période)');
+    assert.equal(shown.preview.agentsScore, 14);
+    // Version vue périmée → 409, rien n'est figé.
+    await assert.rejects(service.validateProviderEvaluation(T, tpm.id, evalId, validator, '2000-01-01T00:00:00.000Z'), (e) => e.statusCode === 409);
+    // Un autre gestionnaire ne supprime pas le brouillon d'un autre (403) ; seul l'évaluateur ou un administrateur.
+    await assert.rejects(service.deleteProviderEvaluation(T, tpm.id, evalId, { userId: validator, role: 'manager' }), (e) => e.statusCode === 403);
+    const done = await service.validateProviderEvaluation(T, tpm.id, evalId, validator, new Date(shown.updatedAt).toISOString());
+    assert.deepEqual([done.status, done.agentsCount, done.agentsScore], ['validee', 1, 14]);
+    assert.equal(done.detail.basis, 'both');
+  } finally {
+    await q('BEGIN');
+    await q("SET LOCAL session_replication_role = 'replica'"); // évaluation validée = figée : nettoyage du test seulement
+    if (evalId) {
+      await q('DELETE FROM tpm_provider_evaluation_scores WHERE tenant_id = $1 AND evaluation_id = $2', [T, evalId]);
+      await q('DELETE FROM tpm_provider_evaluations WHERE tenant_id = $1 AND id = $2', [T, evalId]);
+    }
+    await q('DELETE FROM tpm_agent_evaluations WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [T, legacy.map((r) => r.id)]);
+    await q('COMMIT');
+  }
+});
+
+test('088 : une évaluation d\'agent validée (hors ancienne) sans évaluateur est refusée par la base', { skip: SKIP }, async () => {
+  const [agent] = await q('SELECT tenant_id, id FROM tpm_agents ORDER BY created_at LIMIT 1');
+  await q('BEGIN');
+  try {
+    await assert.rejects(q(`INSERT INTO tpm_agent_evaluations (tenant_id, agent_id, periode, period_to, status, legacy, final_score, band, validated_by, validated_at)
+                            SELECT $1, $2, '2019-01-01', '2019-01-01', 'validee', false, 12, 'bon', u.id, now() FROM users u WHERE u.tenant_id = $1 LIMIT 1`,
+    [agent.tenant_id, agent.id]), (e) => e.code === '23514' && /agent_eval_duty_chk/.test(e.constraint || e.message));
+  } finally { await q('ROLLBACK'); }
+});
+
+test('critères : une lecture n\'écrit rien (critères par défaut non enregistrés) ; la première évaluation les enregistre', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const before = await q("SELECT count(*)::int AS n FROM evaluation_criteria WHERE tenant_id = $1 AND scope = 'agent'", [T]);
+  const list = await require('../src/modules/evaluation/evaluation.service').listCriteria(T, 'agent');
+  const after = await q("SELECT count(*)::int AS n FROM evaluation_criteria WHERE tenant_id = $1 AND scope = 'agent'", [T]);
+  assert.equal(after[0].n, before[0].n, 'GET sans écriture');
+  if (before[0].n === 0) assert.ok(list.length > 0 && list.every((c) => c.id === null && c.isDefault));
+});

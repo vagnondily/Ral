@@ -470,7 +470,8 @@ export const api = {
   providerEvaluation: (partnerId, id) => request(`/api/evaluation/providers/${partnerId}/${id}`),
   createProviderEvaluation: (partnerId, input) => request(`/api/evaluation/providers/${partnerId}`, { method: 'POST', body: input }),
   updateProviderEvaluation: (partnerId, id, input) => request(`/api/evaluation/providers/${partnerId}/${id}`, { method: 'PATCH', body: input }),
-  validateProviderEvaluation: (partnerId, id) => request(`/api/evaluation/providers/${partnerId}/${id}/validate`, { method: 'POST', body: {} }),
+  // updatedAt : la version relue par le valideur (409 si elle a changé depuis).
+  validateProviderEvaluation: (partnerId, id, updatedAt) => request(`/api/evaluation/providers/${partnerId}/${id}/validate`, { method: 'POST', body: { updatedAt } }),
   deleteProviderEvaluation: (partnerId, id) => request(`/api/evaluation/providers/${partnerId}/${id}`, { method: 'DELETE' }),
 
   // Rapports & dépenses TPM

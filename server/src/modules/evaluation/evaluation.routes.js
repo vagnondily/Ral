@@ -92,11 +92,13 @@ router.post('/providers/:partnerId', WRITE, ids('partnerId'), body(providerCreat
 router.patch('/providers/:partnerId/:id', WRITE, ids('partnerId', 'id'), body(providerPatch), asyncHandler(async (req, res) => {
   res.json(await service.updateProviderEvaluation(t(req), req.params.partnerId, req.params.id, req.valid, req.auth.userId));
 }));
-router.post('/providers/:partnerId/:id/validate', WRITE, ids('partnerId', 'id'), asyncHandler(async (req, res) => {
-  res.json(await service.validateProviderEvaluation(t(req), req.params.partnerId, req.params.id, req.auth.userId));
-}));
+// Validation : `updatedAt` = la version que le valideur a relue (jamais une grille qu'il n'a pas vue).
+router.post('/providers/:partnerId/:id/validate', WRITE, ids('partnerId', 'id'),
+  body(z.object({ updatedAt: z.string().datetime({ offset: true }) }).strict()), asyncHandler(async (req, res) => {
+    res.json(await service.validateProviderEvaluation(t(req), req.params.partnerId, req.params.id, req.auth.userId, req.valid.updatedAt));
+  }));
 router.delete('/providers/:partnerId/:id', WRITE, ids('partnerId', 'id'), asyncHandler(async (req, res) => {
-  await service.deleteProviderEvaluation(t(req), req.params.partnerId, req.params.id);
+  await service.deleteProviderEvaluation(t(req), req.params.partnerId, req.params.id, { userId: req.auth.userId, role: req.auth.role });
   res.status(204).end();
 }));
 

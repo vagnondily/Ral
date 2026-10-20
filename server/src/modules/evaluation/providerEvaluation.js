@@ -93,6 +93,45 @@ function freeze(current, { agents, settings, userId }) {
   };
 }
 
+/**
+ * Note de chaque agent du prestataire pour une période (moyenne des agents de la note du TPM) :
+ * la dernière évaluation VALIDÉE de l'agent qui chevauche la période.
+ *  - une évaluation du lot 8 (grille + note automatique) : sa note finale ;
+ *  - à défaut, une « ancienne évaluation » (note /20 saisie à la main, validée d'office) : sa note.
+ *    Elle COMPTE : c'est la seule appréciation des agents que l'application enregistre encore
+ *    (Évaluation des agents), sur la même échelle /20. Une évaluation du lot 8 la remplace.
+ * Un agent sans note sur la période est rendu avec score = null (affiché « pas de note », hors moyenne).
+ * @param {Array<{ agentId, name, evaluationId?, legacy?, finalScore?, note?, periodTo?, validatedAt?, createdAt? }>} rows
+ *   une ligne par (agent, évaluation validée qui chevauche la période) ; evaluationId null = aucune
+ * @returns {Array<{ agentId, name, score: number|null, source: 'evaluation'|'ancienne'|null, evaluationId: string|null }>}
+ */
+function agentScoresForPeriod(rows) {
+  const byAgent = new Map();
+  const time = (d) => { const t = d ? new Date(d).getTime() : NaN; return Number.isFinite(t) ? t : 0; };
+  const rank = (r) => [r.legacy ? 0 : 1, String(r.periodTo || ''), time(r.validatedAt || r.createdAt)];
+  const better = (a, b) => { const x = rank(a); const y = rank(b); for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] > y[i]; return false; };
+  for (const r of rows || []) {
+    if (!byAgent.has(r.agentId)) byAgent.set(r.agentId, { agentId: r.agentId, name: r.name, best: null });
+    const e = byAgent.get(r.agentId);
+    const score = r.evaluationId ? (r.legacy ? r.note : r.finalScore) : null;
+    if (score == null || !Number.isFinite(Number(score))) continue;
+    const cand = { ...r, score: Math.round(Number(score) * 10) / 10 };
+    if (!e.best || better(cand, e.best)) e.best = cand;
+  }
+  return [...byAgent.values()].map(({ agentId, name, best }) => ({
+    agentId, name, score: best ? best.score : null,
+    source: best ? (best.legacy ? 'ancienne' : 'evaluation') : null, evaluationId: best ? best.evaluationId : null,
+  }));
+}
+
+/** La validation porte sur la version vue par le valideur (updatedAt renvoyé par l'écran) ; sinon 409. */
+function checkSeen(current, seenUpdatedAt) {
+  const seen = new Date(seenUpdatedAt).getTime();
+  if (!Number.isFinite(seen) || seen !== new Date(current.updatedAt).getTime()) {
+    throw new RuleError('stale', 'L\'évaluation a été modifiée depuis son affichage : rechargez-la et relisez la grille avant de valider.');
+  }
+}
+
 /** Aperçu non enregistré (brouillon affiché) : même calcul que freeze, sans valideur. */
 function preview(current, ctx) {
   const f = freeze(current, { ...ctx, userId: null });
@@ -100,4 +139,4 @@ function preview(current, ctx) {
     finalScore: f.finalScore, band: f.band, detail: f.detail };
 }
 
-module.exports = { RuleError, buildGrid, applyRatings, checkValidation, freeze, preview };
+module.exports = { RuleError, buildGrid, applyRatings, checkValidation, checkSeen, freeze, preview, agentScoresForPeriod };

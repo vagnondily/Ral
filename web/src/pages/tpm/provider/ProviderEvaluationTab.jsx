@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ClipboardCheck, Plus, Trash2, ShieldCheck, Save, Info, ChevronLeft } from 'lucide-react';
 import { api } from '../../../api/client.js';
-import { Alert, Badge, Button, EmptyState, Field, Skeleton, StatusBadge } from '../../../components/ui.jsx';
+import { Alert, Badge, Button, EmptyState, Field, Skeleton, StatusBadge, STATUS_ICONS } from '../../../components/ui.jsx';
 import { useToast } from '../../../components/Toast.jsx';
 import { formatDate, periodLabel } from '../../../lib/contracts.js';
 import { currentMonth, formatLocale, shiftMonth, todayISO } from '../../../lib/format.js';
@@ -134,10 +134,14 @@ function EvaluationPanel({ providerId, provider, evaluationId, criteria, canEdit
   async function validate() {
     setBusy(true);
     try {
-      await api.validateProviderEvaluation(providerId, ev.id);
+      await api.validateProviderEvaluation(providerId, ev.id, ev.updatedAt);
       toast.success(tr('Évaluation validée : la note est figée.'));
       onSaved(ev.id);
-    } catch (err) { toast.error(err.message); setBusy(false); }
+    } catch (err) {
+      toast.error(err.message); setBusy(false);
+      // Brouillon modifié depuis son affichage : on recharge la version à jour, à relire avant de valider.
+      if (err.status === 409 && err.details && err.details.code === 'stale') onSaved(ev.id);
+    }
   }
   async function remove() {
     setBusy(true);
@@ -227,6 +231,8 @@ function EvaluationPanel({ providerId, provider, evaluationId, criteria, canEdit
               <span className="muted">{preview.complete ? tr('Brouillon de {name} : relisez la grille, puis validez pour figer la note.', { name: ev.evaluatedByName })
                 : tr('Brouillon de {name} : tous les critères doivent être notés avant la validation.', { name: ev.evaluatedByName })}</span>
               <span className="pv-spacer" />
+              {/* Un administrateur peut aussi supprimer le brouillon d'un autre (le serveur le contrôle). */}
+              {user.role === 'admin' && <Button variant="ghost" icon={Trash2} onClick={remove} disabled={busy}>{tr('Supprimer le brouillon')}</Button>}
               <Button variant="secondary" onClick={onBack} disabled={busy}>{tr('Fermer')}</Button>
               <Button icon={ShieldCheck} onClick={validate} loading={busy} disabled={!preview.complete}>{tr('Valider')}</Button>
             </div>
@@ -268,7 +274,7 @@ function Why({ ev }) {
               return (
                 <tr key={s.code}>
                   <td>{tr(s.label)}</td>
-                  <td>{s.rating ? <Badge tone={(RATINGS.find((x) => x.value === s.rating) || {}).tone}>{s.rating} · {tr(ratingLabel(s.rating))}</Badge> : '—'}</td>
+                  <td>{s.rating ? <Badge tone={(RATINGS.find((x) => x.value === s.rating) || {}).tone} icon={STATUS_ICONS[(RATINGS.find((x) => x.value === s.rating) || {}).icon]}>{s.rating} · {tr(ratingLabel(s.rating))}</Badge> : '—'}</td>
                   <td className="num tabular">{g.on20 == null ? '—' : g.on20.toLocaleString(formatLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</td>
                   <td className="num tabular">{g.weightPct == null ? '—' : tr('{p} %', { p: g.weightPct })}</td>
                   <td className="muted">{s.comment || '—'}</td>

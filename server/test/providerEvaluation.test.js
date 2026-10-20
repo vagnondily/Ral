@@ -52,3 +52,36 @@ test('notes figées : grille recalculée, moyenne des agents, pondération du co
   const alone = freeze({ scores }, { agents: [], settings: null, userId: 'u2' });
   assert.deepEqual([alone.finalScore, alone.agentsWeight, alone.detail.basis], [20, 30, 'second']);
 });
+
+test('notes des agents pour la note du TPM : dernière évaluation validée, lot 8 avant ancienne ; ancienne /20 comptée', () => {
+  const { agentScoresForPeriod } = require('../src/modules/evaluation/providerEvaluation');
+  const rows = [
+    { agentId: 'a1', name: 'H. Solo', evaluationId: 'e1', legacy: true, note: 14, periodTo: '2026-02', createdAt: '2026-02-10T08:00:00Z' },
+    { agentId: 'a2', name: 'R. Randria', evaluationId: 'e2', legacy: true, note: 11, periodTo: '2026-01', createdAt: '2026-01-05T08:00:00Z' },
+    { agentId: 'a2', name: 'R. Randria', evaluationId: 'e3', legacy: true, note: 15, periodTo: '2026-03', createdAt: '2026-03-05T08:00:00Z' },
+    { agentId: 'a3', name: 'L. Miora', evaluationId: 'e4', legacy: true, note: 9, periodTo: '2026-04', createdAt: '2026-04-05T08:00:00Z' },
+    { agentId: 'a3', name: 'L. Miora', evaluationId: 'e5', legacy: false, finalScore: 13.25, periodTo: '2026-03', validatedAt: new Date('2026-03-31T08:00:00Z') },
+    { agentId: 'a4', name: 'Sans note', evaluationId: null },
+    { agentId: 'a5', name: 'Note vide', evaluationId: 'e6', legacy: true, note: null, periodTo: '2026-02' },
+  ];
+  assert.deepEqual(agentScoresForPeriod(rows), [
+    { agentId: 'a1', name: 'H. Solo', score: 14, source: 'ancienne', evaluationId: 'e1' },
+    { agentId: 'a2', name: 'R. Randria', score: 15, source: 'ancienne', evaluationId: 'e3' },
+    { agentId: 'a3', name: 'L. Miora', score: 13.3, source: 'evaluation', evaluationId: 'e5' },
+    { agentId: 'a4', name: 'Sans note', score: null, source: null, evaluationId: null },
+    { agentId: 'a5', name: 'Note vide', score: null, source: null, evaluationId: null },
+  ]);
+  // Repris par la note du TPM : moyenne des agents notés seulement.
+  const f = freeze({ scores: [{ code: 'x', label: 'X', weight: 1, rating: 4 }] }, { agents: agentScoresForPeriod(rows), settings: null, userId: 'u2' });
+  assert.equal(f.agentsCount, 3);
+});
+
+test('validation : seulement la version vue par le valideur (updatedAt), sinon 409', () => {
+  const { checkSeen } = require('../src/modules/evaluation/providerEvaluation');
+  const current = { updatedAt: new Date('2026-10-20T06:00:00.123Z') };
+  assert.doesNotThrow(() => checkSeen(current, '2026-10-20T06:00:00.123Z'));
+  assert.doesNotThrow(() => checkSeen(current, '2026-10-20T09:00:00.123+03:00'));
+  for (const seen of ['2026-10-20T06:00:00.124Z', undefined, 'n\'importe quoi']) {
+    assert.throws(() => checkSeen(current, seen), (e) => e instanceof RuleError && e.code === 'stale');
+  }
+});

@@ -5,11 +5,12 @@
 import { formatLocale } from './format.js';
 
 export const SCALE = 20;
+// Appréciation d'un critère : couleur + icône (clé de STATUS_ICONS) + libellé, jamais la couleur seule.
 export const RATINGS = [
-  { value: 1, label: 'Insuffisant', tone: 'red' },
-  { value: 2, label: 'À améliorer', tone: 'orange' },
-  { value: 3, label: 'Satisfaisant', tone: 'green' },
-  { value: 4, label: 'Très bien', tone: 'green' },
+  { value: 1, label: 'Insuffisant', tone: 'red', icon: 'x' },
+  { value: 2, label: 'À améliorer', tone: 'orange', icon: 'warn' },
+  { value: 3, label: 'Satisfaisant', tone: 'green', icon: 'check' },
+  { value: 4, label: 'Très bien', tone: 'green', icon: 'check' },
 ];
 
 // Bandes : couleur + icône + libellé (jamais la couleur seule).
