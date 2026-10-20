@@ -142,16 +142,19 @@ const bySites = (a, b) => (a.key === NONE) - (b.key === NONE) || b.sites - a.sit
  * activité, sans bureau, district inconnu) toujours en dernier.
  * @param {object[]} rows lignes { dim: 'overall'|'activity'|'office'|'district', key, label?,
  *   activityLabel?, districtLabel?, knownAll?, knownAny?, communes?, communesData?, …COUNT_KEYS }
- * @param {{ refMonth?: string }} opts mois de référence de l'état RBM (« AAAA-MM »)
+ * @param {{ refMonth?: string, rbm?: boolean }} opts mois de référence de l'état RBM (« AAAA-MM ») ;
+ *   rbm : false = l'état RBM n'a pas été lu (coverage.repository({ rbm: false })) — `rbm: null`
+ *   partout, jamais « 0 à suivre » pris pour vrai
  */
-function shapeCoverage(rows, { refMonth = null } = {}) {
+function shapeCoverage(rows, { refMonth = null, rbm = true } = {}) {
   const list = rows || [];
   const overallRow = list.find((r) => r.dim === 'overall') || {};
+  const measures = (r) => { const m = measuresOf(r); return rbm ? m : { ...m, rbm: null }; };
   const groupsOf = (dim, labelOf) => list.filter((r) => r.dim === dim)
-    .map((r) => ({ key: r.key == null ? NONE : r.key, label: labelOf(r), ...measuresOf(r) }))
+    .map((r) => ({ key: r.key == null ? NONE : r.key, label: labelOf(r), ...measures(r) }))
     .filter((g) => g.sites > 0)
     .sort(bySites);
-  const overall = measuresOf(overallRow);
+  const overall = measures(overallRow);
   const registry = num(overallRow.registry);
   const forbidden = num(overallRow.forbidden);
   const activation = overallRow.knownAll === true ? 'grid' : overallRow.knownAny === true ? 'partial' : 'none';
@@ -205,8 +208,10 @@ function checkConsistency(shape) {
   le(o.plannedSites.covered, o.plannedSites.planned, 'sites prévus suivis ≤ sites prévus');
   le(o.plannedSites.covered, o.coverage.covered, 'sites prévus suivis ≤ sites suivis');
   le(o.execution.covered, o.execution.planned, 'visites suivies ≤ visites prévues');
-  le(o.rbm.sites, o.sites, 'actifs au mois de référence ≤ univers');
-  le(o.rbm.due, o.rbm.sites, 'à suivre ≤ actifs au mois de référence');
+  if (o.rbm) {
+    le(o.rbm.sites, o.sites, 'actifs au mois de référence ≤ univers');
+    le(o.rbm.due, o.rbm.sites, 'à suivre ≤ actifs au mois de référence');
+  }
   le(shape.communes.withData, shape.communes.total, 'communes avec données ≤ communes de l\'univers');
   le(o.sites, shape.universe.registry - shape.universe.forbidden, 'univers ≤ registre hors zones interdites');
   return out;

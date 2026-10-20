@@ -50,7 +50,8 @@ async function alerts(auth, { today = isoDay(new Date()), period = null } = {}) 
     return (await reportsRepo.listReports(tenantId, period ? { period } : {})).map((r) => ({ ...r, actions: reportActions(r, { userId, canWrite }) }));
   }, []);
   // Terrain : exécution du plan = mesures communes (retour 110) ; prestataires et visites non affectées = visites.
-  const coverage = await read('terrain', () => coverageService.coverage({ tenantId }, { period: fieldPeriod }), null);
+  // Sans l'état RBM (rbm: false) : l'alerte ne lit que l'exécution, et la cloche sonde toutes les 5 minutes.
+  const coverage = await read('terrain', () => coverageService.coverage({ tenantId }, { period: fieldPeriod, rbm: false }), null);
   const field = await read('terrain', () => fieldRepo.summary(tenantId, { period: fieldPeriod }), null);
 
   const items = buildAlerts({

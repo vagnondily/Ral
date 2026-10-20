@@ -38,16 +38,21 @@ function submissionOfficeFilter(officeId) {
 
 /**
  * @param {string} tenantId
- * @param {{ period: {from:string,to:string}, officeId?: string|null }} opts
- * @returns {Promise<{ rows: object[], refMonth: string }>}
+ * @param {{ period: {from:string,to:string}, officeId?: string|null, rbm?: boolean }} opts
+ *   rbm : false = l'état RBM n'est pas lu (aucun site « à suivre » transmis) — pour un appelant
+ *   qui ne lit pas `rbm` (la cloche du Centre d'alertes ne lit que l'exécution du plan : le score
+ *   RBM de chaque site du registre, en JavaScript, serait calculé puis jeté à chaque sondage).
+ *   La mise en forme (coverageDefinitions.shapeCoverage({ rbm: false })) rend alors `rbm: null`.
+ * @returns {Promise<{ rows: object[], refMonth: string, rbm: boolean }>}
  */
-async function coverageFacts(tenantId, { period, officeId = null }) {
+async function coverageFacts(tenantId, { period, officeId = null, rbm = true }) {
   return withTenantTransaction(tenantId, async (client) => {
     await client.query(JIT_OFF);
     const refMonth = period.to;
     // « À suivre » au mois de référence : la règle RBM (scoreSite + échéance), jamais recalculée ici.
-    const rbm = await rbmSitesTx(client, tenantId, { month: refMonth, asOf: refMonth });
-    const dueIds = rbm.filter((r) => r.due).map((r) => r.id);
+    const dueIds = rbm
+      ? (await rbmSitesTx(client, tenantId, { month: refMonth, asOf: refMonth })).filter((r) => r.due).map((r) => r.id)
+      : [];
 
     const params = [tenantId];
     const ctes = siteMonthFactsCtes({ period, todayMonth: currentMonth(), withData: true, officeId }, params);
@@ -125,7 +130,7 @@ async function coverageFacts(tenantId, { period, officeId = null }) {
         GROUP BY GROUPING SETS ((), (akey), (office), (dkey))`,
       params
     );
-    return { rows, refMonth };
+    return { rows, refMonth, rbm: Boolean(rbm) };
   });
 }
 

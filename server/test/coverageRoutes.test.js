@@ -158,3 +158,12 @@ test('dépôt : « Sans bureau » (unlinked) — chaque référence à office_tr
     }
   }
 });
+
+test('dépôt : rbm: false — l\'état RBM n\'est pas lu, aucun site « à suivre » transmis ; par défaut il l\'est', async () => {
+  const off = await captureFacts({ period: { from: '2026-09', to: '2026-09' }, rbm: false });
+  assert.equal(off.rbmCalls, 0);
+  const main = off.sqls.find((s) => /GROUPING SETS/.test(s.sql));
+  assert.ok(main.params.some((p) => Array.isArray(p) && p.length === 0), 'liste « à suivre » vide');
+  const on = await captureFacts({ period: { from: '2026-09', to: '2026-09' } });
+  assert.equal(on.rbmCalls, 1);
+});

@@ -12,7 +12,15 @@ const consolidationRepo = require('../src/modules/tpm/consolidation.repository')
 const contractsService = require('../src/modules/contracts/contracts.service');
 const reportsRepo = require('../src/modules/tpm/reports.repository');
 const fieldRepo = require('../src/modules/tpm/field.repository');
+const db = require('../src/config/db');
+// État RBM (score de chaque site du registre, en JavaScript) : compté AVANT le chargement du dépôt
+// de couverture, qui lit rbmSitesTx et withTenantTransaction à l'import.
+let rbmCalls = 0;
+const coverageSql = [];
+fieldRepo.rbmSitesTx = async () => { rbmCalls += 1; return []; };
+db.withTenantTransaction = async (tenantId, fn) => fn({ query: async (sql, params) => { coverageSql.push({ sql: String(sql), params }); return { rows: [] }; } });
 const coverageService = require('../src/modules/dashboards/coverage.service');
+const realCoverage = coverageService.coverage;
 const { REPORT_WRITE_ROLES } = require('../src/modules/tpm/reportWorkflow');
 const { alerts } = require('../src/modules/dashboards/alerts.service');
 
@@ -58,7 +66,7 @@ test('sans période (la cloche) : terrain du mois courant, tous les rapports ; a
   seen.reports.length = 0; seen.field.length = 0; seen.coverage.length = 0;
   const bell = await alerts({ tenantId: 't', userId: 'u2', role: 'admin' }, TODAY);
   assert.deepEqual(seen.field[0], { period: { from: '2026-10', to: '2026-10' } });
-  assert.deepEqual(seen.coverage[0], { tenantId: 't', period: { from: '2026-10', to: '2026-10' } });
+  assert.deepEqual(seen.coverage[0], { tenantId: 't', period: { from: '2026-10', to: '2026-10' }, rbm: false });
   assert.deepEqual(seen.reports[0], {});
   assert.deepEqual(bell.period, { from: '2026-10', to: '2026-10', months: 1 });
   assert.equal(bell.month, '2026-10');
@@ -82,4 +90,25 @@ test('libellé du terrain : « ce mois » pour la cloche seulement ; un mois pas
     const h1 = low(await alerts({ tenantId: 't', userId: 'u2', role: 'admin' }, { ...TODAY, period: { from: '2026-01', to: '2026-06' } }));
     assert.equal(h1.title, 'Exécution du plan faible sur la période');
   } finally { execution = saved; }
+});
+
+test('cloche : la couverture est lue SANS l\'état RBM (aucun score de site calculé puis jeté à chaque sondage)', async () => {
+  const stub = coverageService.coverage;
+  coverageService.coverage = realCoverage; // service et dépôt réels, faux client
+  rbmCalls = 0; coverageSql.length = 0;
+  try {
+    const out = await alerts({ tenantId: 't', userId: 'u2', role: 'admin' }, TODAY);
+    assert.deepEqual(out.unavailable, []);
+    assert.equal(rbmCalls, 0, 'rbmSitesTx jamais appelé par les alertes');
+    const main = coverageSql.find((q) => /GROUPING SETS/.test(q.sql));
+    assert.ok(main, 'exécution du plan lue sur la requête des tableaux de bord');
+    assert.ok(main.params.some((p) => Array.isArray(p) && p.length === 0), 'aucun site « à suivre » transmis');
+    // Le tableau de bord, lui, lit toujours l'état RBM.
+    const cov = await realCoverage({ tenantId: 't' }, { period: { from: '2026-10', to: '2026-10' } });
+    assert.equal(rbmCalls, 1);
+    assert.ok(cov.overall.rbm, 'tableau de bord : état RBM présent');
+    const bell = await realCoverage({ tenantId: 't' }, { period: { from: '2026-10', to: '2026-10' }, rbm: false });
+    assert.equal(bell.overall.rbm, null, 'sans état RBM : null, jamais « 0 à suivre »');
+    assert.equal(rbmCalls, 1);
+  } finally { coverageService.coverage = stub; }
 });
