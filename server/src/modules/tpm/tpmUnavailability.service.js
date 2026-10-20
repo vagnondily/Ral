@@ -31,12 +31,16 @@ function reasonOf(raw, { required }) {
 const tpmsOf = (partners) => partners.filter((p) => p.typeCode === 'tpm' && p.active !== false)
   .map((p) => ({ id: p.id, name: p.name })).sort((a, b) => String(a.name).localeCompare(String(b.name), 'fr'));
 
-/** Périodes d'indisponibilité qui chevauchent la période (onglet), et les TPM qu'on peut déclarer. */
+/**
+ * Périodes d'indisponibilité qui chevauchent la période (onglet), ENTIÈRES (lues sur la fenêtre
+ * listWindow, U6 : une période coupée au bord ferait agir « Mettre fin » sur une partie seulement),
+ * et les TPM qu'on peut déclarer.
+ */
 async function list(tenantId, { period }) {
   return withTenantTransaction(tenantId, async (client) => {
-    const rows = await repo.unavailabilityTx(client, tenantId, period);
+    const rows = await repo.unavailabilityTx(client, tenantId, off.listWindow(period, rule.MAX_SPAN_MONTHS));
     const partners = await repo.partnersTx(client, tenantId);
-    return { period: { from: period.from, to: period.to }, periods: off.periodsOf(rows), tpms: tpmsOf(partners) };
+    return { period: { from: period.from, to: period.to }, periods: off.periodsOverlapping(rows, period), tpms: tpmsOf(partners) };
   });
 }
 

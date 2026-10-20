@@ -515,6 +515,20 @@ test('indisponibilités : périodes de l onglet (mois consécutifs) et TPM propo
   assert.deepEqual(l.tpms.map((x) => x.name), ['RANO Control', 'YPA']);
 });
 
+test('indisponibilités (U6) : une période qui déborde la plage est rendue ENTIÈRE ; une période hors plage, jamais', async () => {
+  reset();
+  const row = (m, i, batchId = 'b1') => ({ id: `u${batchId}${i}`, providerId: RANO, providerName: 'RANO Control', month: m, reason: 'Équipe RANO mobilisée ailleurs', batchId });
+  state.unavailability = [
+    ...['2026-12', '2027-01', '2027-02'].map((m, i) => row(m, i)),
+    ...['2025-01', '2025-02'].map((m, i) => row(m, i, 'b0')), // avant la plage, sans contact
+  ];
+  const l = await unavailability.list(T, { period: { from: '2026-10', to: '2027-01' } });
+  assert.deepEqual(l.periods.map((x) => [x.from, x.to, x.months]), [['2026-12', '2027-02', 3]], '3 mois, pas 2 : « Mettre fin » agit sur la période entière');
+  const read = state.calls.filter((c) => /FROM tpm_unavailability u/.test(c.sql)).pop();
+  assert.deepEqual([read.params[1], read.params[2]], ['2024-11-01', '2028-12-01'], 'fenêtre plage ± 23 mois (une décision : 24 mois au plus)');
+  assert.deepEqual(l.period, { from: '2026-10', to: '2027-01' });
+});
+
 test('lien TPM ↔ contrat (U2) : premier plan / facture ou dernier supprimé → visites prévues ré-estampillées ; sinon rien', async () => {
   const calls = [];
   let exists = true;

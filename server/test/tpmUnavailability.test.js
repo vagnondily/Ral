@@ -74,3 +74,14 @@ test('simulate + zoneMoves : la zone du TPM passe en suivi interne pendant l ind
     u.planUnavailability({ mode: 'retirer', months: ['2026-12'], existing: [{ id: 'u1', month: '2026-12', reason: 'r' }] }), { providerId: 'rano' });
   assert.deepEqual(sim, []);
 });
+
+test('listWindow + periodsOverlapping (U6) : périodes entières qui touchent la plage, jamais coupées au bord', () => {
+  assert.deepEqual(u.listWindow({ from: '2026-10', to: '2027-01' }, 24), { from: '2024-11', to: '2028-12' });
+  const row = (m, batchId, reason = 'Équipe mobilisée ailleurs') => ({ id: `${batchId}-${m}`, providerId: 'p1', providerName: 'P1', month: m, reason, batchId });
+  const rows = [row('2026-08', 'a'), row('2026-09', 'a'), row('2026-12', 'b'), row('2027-01', 'b'), row('2027-02', 'b'), row('2027-06', 'c')];
+  const p = u.periodsOverlapping(rows, { from: '2026-10', to: '2027-01' });
+  assert.deepEqual(p.map((x) => [x.from, x.to, x.months]), [['2026-12', '2027-02', 3]]);
+  // Bord exact : une période qui finit au premier mois de la plage la touche.
+  assert.deepEqual(u.periodsOverlapping(rows, { from: '2026-09', to: '2026-09' }).map((x) => [x.from, x.to]), [['2026-08', '2026-09']]);
+  assert.deepEqual(u.periodsOverlapping(rows, { from: '2026-10', to: '2026-11' }), []);
+});

@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const { addMonths } = require('../common/period');
 
 /**
  * Indisponibilités des TPM (retour 114 : « même avec un contrat, si cette entité n'est pas
@@ -54,6 +55,22 @@ function periodsOf(rows) {
       batchId: r.batchId || null, updatedAt: r.updatedAt || null, updatedByName: r.updatedByName || null, ids: [r.id] });
   }
   return out;
+}
+
+/**
+ * Fenêtre à lire pour rendre ENTIÈRES les périodes qui chevauchent `range` (U6) : une période est une
+ * décision (même lot), donc `maxSpan` mois au plus — elle tient dans [from − (maxSpan−1), to + (maxSpan−1)].
+ */
+function listWindow(range, maxSpan) {
+  return { from: addMonths(range.from, -(maxSpan - 1)), to: addMonths(range.to, maxSpan - 1) };
+}
+
+/**
+ * Périodes (periodsOf) qui chevauchent `range`, avec leurs vraies bornes — jamais coupées au bord de
+ * la plage : « Mettre fin » et « Changer le motif » agissent sur la période entière.
+ */
+function periodsOverlapping(rows, range) {
+  return periodsOf(rows).filter((p) => p.to >= range.from && p.from <= range.to);
 }
 
 /**
@@ -138,4 +155,4 @@ function zoneMoves(before, after, providerId, areasById = new Map()) {
   return out;
 }
 
-module.exports = { MODES, AVAILABILITY_STATES, periodsOf, stampOf, planUnavailability, simulate, zoneMoves, nextMonth };
+module.exports = { MODES, AVAILABILITY_STATES, periodsOf, listWindow, periodsOverlapping, stampOf, planUnavailability, simulate, zoneMoves, nextMonth };
