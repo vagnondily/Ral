@@ -155,3 +155,18 @@ test('saut au clavier (listes courtes) et index de recherche', async (t) => {
   assert.deepEqual(m.filterOptions(opts, 'berano', idx).map((o) => o.value), ['2']);
   assert.deepEqual(m.filterOptions(opts, 'amb', idx), m.filterOptions(opts, 'amb'), 'même résultat avec ou sans index');
 });
+
+test('TPM actifs ce mois-ci en tête (règle « prestataire actif », retour 30), après les TPM du contrat', async (t) => {
+  const m = await load(t, 'tpmPickers.js'); if (!m) return;
+  const partners = [{ id: 'p1', name: 'Ezaka Conseil' }, { id: 'p2', name: 'Miray Suivi' }, { id: 'p3', name: 'Nouveau TPM' }];
+  const labels = { ofContract: 'Du contrat', active: 'Actifs', others: 'Autres', noContract: '—' };
+  const isActive = (id) => id === 'p1' || id === 'p2';
+  const none = m.tpmOptions(partners, { contracts: CONTRACTS, tpmsOf, isActive, labels });
+  assert.deepEqual(none.order, ['Actifs', 'Autres'], 'sans contrat : actifs puis autres');
+  assert.deepEqual(none.options.map((o) => o.group), ['Actifs', 'Actifs', 'Autres']);
+  const k1 = m.tpmOptions(partners, { contracts: CONTRACTS, contractId: 'k1', tpmsOf, isActive, labels });
+  assert.deepEqual(k1.order, ['Du contrat', 'Actifs', 'Autres']);
+  assert.deepEqual(k1.options.map((o) => o.group), ['Du contrat', 'Actifs', 'Autres']);
+  const allOwn = m.tpmOptions(partners.slice(0, 1), { contracts: CONTRACTS, contractId: 'k1', tpmsOf, isActive, labels });
+  assert.deepEqual(allOwn.order, ['Du contrat', 'Autres'], 'groupe « actifs » vide : pas formé');
+});
