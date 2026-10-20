@@ -356,6 +356,80 @@ test('écart (R4) : cible vide = correction si l\'indicateur vient de l\'ancien 
   assert.deepEqual(sd.patch, { sourceField: 'r_sbcc_apply_pct', agg: 'mean', positiveValue: null, target: 80, label: sbcc.label });
 });
 
+const FORMS_T = {
+  MDG_Process_Monitoring_GD_PREVMA_v2: 'GD', MDG_SMP_2025_2026: 'SMP', MDG_Process_Monitoring_NutritionAIM: 'MAM',
+  MDG_Process_Monitoring_MIARO_PROD_Janv2026: 'STUNT', MDG_PROCESS_MONITORING_RESILIENCE_SAMS_V2_1: 'RES',
+};
+/** Indicateur tel que le chemin ACTUEL le crée (applyTemplate : variable proposée, valeurs de la liste, cible du modèle). */
+const created = (item, b) => ({ label: item.label, sourceField: b.field, agg: item.agg, positiveValue: b.positiveValue, naValues: b.naValues, target: item.target ?? null, direction: item.direction });
+
+test('écart (T1) : sur un indicateur créé aujourd\'hui, une seule valeur ramenée à une valeur d\'avant = choix de l\'utilisateur, jamais corrigée en lot', () => {
+  // GD_HOTLINE_DISPLAYED créé aujourd'hui sur HHAsstRecInfoLe (0/1/2) : l'utilisateur retire « 2 » des hors base.
+  const gdFields = withOptionColumns(fixtureFields('MDG_Process_Monitoring_GD_PREVMA_v2'));
+  const hot = templateByKey('GD').items.find((i) => i.code === 'GD_HOTLINE_DISPLAYED');
+  const hb = P.bindTemplate({ items: [hot] }, gdFields)[0];
+  assert.equal(P.templateDrift(hot, hb, created(hot, hb), { fields: gdFields }), null);
+  const d1 = P.templateDrift(hot, hb, { ...created(hot, hb), naValues: [] }, { fields: gdFields });
+  assert.deepEqual([d1.kind, d1.patch, d1.fullPatch], ['difference', {}, { naValues: hb.naValues }]);
+  // MIARO_ISSUES_OPEN créé aujourd'hui (« % = valeur » 4) : l'utilisateur choisit « Nombre ».
+  const miFields = withOptionColumns(fixtureFields('MDG_Process_Monitoring_MIARO_PROD_Janv2026'));
+  const open = templateByKey('STUNT').items.find((i) => i.code === 'MIARO_ISSUES_OPEN');
+  const ob = P.bindTemplate({ items: [open] }, miFields)[0];
+  const d2 = P.templateDrift(open, ob, { ...created(open, ob), agg: 'count' }, { fields: miFields });
+  assert.deepEqual([d2.kind, d2.patch], ['difference', {}]);
+  // La même valeur AVEC une autre preuve (ancien libellé) reste une correction.
+  const d3 = P.templateDrift(open, ob, { ...created(open, ob), agg: 'count', label: open.formerly[0].label }, { fields: miFields });
+  assert.equal(d3.changes.find((c) => c.key === 'agg').origin, 'correction');
+  assert.equal(d3.patch.agg, 'percent_value');
+});
+
+test('écart (T1) : 5 formulaires réels — aucune modification d\'UNE valeur sur un indicateur du chemin actuel n\'est une correction', () => {
+  let cases = 0;
+  for (const [formId, key] of Object.entries(FORMS_T)) {
+    const fields = withOptionColumns(fixtureFields(formId));
+    const tpl = templateByKey(key);
+    const bindings = P.bindTemplate(tpl, fields);
+    tpl.items.forEach((item, i) => {
+      const b = bindings[i];
+      if (!b.field || b.issues.length || !['sure', 'probable'].includes(b.confidence)) return;
+      const ind = created(item, b);
+      assert.equal(P.templateDrift(item, b, ind, { fields }), null, `${formId} ${item.code} : créé aujourd'hui, aucun écart`);
+      const edits = [];
+      for (const f of item.formerly || []) {
+        if (f.agg !== item.agg) edits.push({ agg: f.agg });
+        if (String(f.positiveValue ?? '') !== String(item.positiveValue ?? '')) edits.push({ positiveValue: f.positiveValue ?? null });
+        if ((f.naValues || []).join('|') !== (item.naValues || []).join('|')) edits.push({ naValues: f.naValues || [] });
+        if (f.direction && f.direction !== item.direction) edits.push({ direction: f.direction });
+      }
+      if (item.target != null) edits.push({ target: null });
+      for (const e of edits) {
+        const d = P.templateDrift(item, b, { ...ind, ...e }, { fields });
+        assert.ok(!d || d.changes.every((c) => c.origin === 'difference'), `${formId} ${item.code} ${JSON.stringify(e)} → ${JSON.stringify(d && d.patch)}`);
+        cases += 1;
+      }
+    });
+  }
+  assert.ok(cases >= 20, `${cases}`); // 25 modifications d'une valeur vers une valeur d'avant (ou cible effacée) sur les 5 formulaires
+});
+
+test('écart (T4) : indicateur de l\'ancien chemin sur la variable ACTUELLE du modèle → corrections (cible comprise), jamais « choix de l\'utilisateur »', () => {
+  // Formulaire MIARO réel : seule la variable actuelle r_sbcc_apply_pct existe (ni r_sbcc_apply ni HHSbcPracticeApplied).
+  const miFields = withOptionColumns(fixtureFields('MDG_Process_Monitoring_MIARO_PROD_Janv2026'));
+  const sbcc = templateByKey('STUNT').items.find((i) => i.code === 'MIARO_SBCC_APPLY');
+  const sb = P.bindTemplate({ items: [sbcc] }, miFields)[0];
+  assert.equal(sb.field, 'r_sbcc_apply_pct');
+  const old = { label: 'SBCC : pratiques appliquées', sourceField: 'r_sbcc_apply_pct', agg: 'percent_yes', positiveValue: '1', naValues: [], target: null, direction: 'higher_better' };
+  const d = P.templateDrift(sbcc, sb, old, { fields: miFields });
+  assert.equal(d.kind, 'definition');
+  assert.deepEqual(d.patch, { agg: 'mean', positiveValue: null, target: 80, label: sbcc.label });
+  // GD_WH_PALLETS sur l'option actuelle avec l'ancien libellé : la correction du libellé n'est pas perdue.
+  const gdFields = withOptionColumns(fixtureFields('MDG_Process_Monitoring_GD_PREVMA_v2'));
+  const pal = templateByKey('GD').items.find((i) => i.code === 'GD_WH_PALLETS');
+  const pb = P.bindTemplate({ items: [pal] }, gdFields)[0];
+  const pd = P.templateDrift(pal, pb, { label: 'Produits sur palettes', sourceField: 'MOWhStackPall/1', agg: 'percent_yes', positiveValue: pb.positiveValue, naValues: pb.naValues, target: null, direction: 'higher_better' }, { fields: gdFields });
+  assert.deepEqual([pd.kind, pd.patch], ['label', { label: pal.label }]);
+});
+
 test('catalogue : chaque élément corrigé garde sa définition d\'avant (formerly), les autres non', () => {
   const corrected = CATALOG.activities.flatMap((a) => a.items).filter((i) => i.formerly);
   assert.ok(corrected.length >= 25, `${corrected.length}`);

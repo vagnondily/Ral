@@ -336,24 +336,34 @@ function templateDrift(item, binding, ind, { fields = null } = {}) {
   const vb = target ? bindingForVariable(item, binding, target, fields) : null;
   const verified = Boolean(vb) && !issuesOf(vb).length;
   const percent = PERCENT_AGGS.has(item.agg);
-  // Une valeur n'est une « correction » que si l'indicateur porte encore la définition d'AVANT sur la
-  // MÊME variable (une des variables de cette définition) : sur une variable choisie par l'utilisateur,
-  // une ancienne méthode ou valeur est SON choix — une différence, jamais envoyée en lot (R3).
-  const sameVar = (f) => (f.variables || []).some((v) => nameKey(v) === nameKey(ind.sourceField));
+  // Une valeur n'est une « correction » que si :
+  //  - l'indicateur est sur une variable du MODÈLE — actuelle ou d'une définition d'avant — et non sur
+  //    une variable choisie par l'utilisateur (R3 : ses valeurs sont alors SON choix ; T4 : la variable
+  //    actuelle compte, l'ancien chemin a pu créer l'indicateur dessus) ;
+  //  - ET une AUTRE preuve que l'indicateur précède la correction existe (T1) : l'ancien libellé, une
+  //    variable propre à la définition d'avant, ou une autre valeur d'avant de la MÊME définition. Une
+  //    seule clé revenue à une valeur d'avant, sur un indicateur créé par le chemin actuel, est une
+  //    modification de l'utilisateur (ex. « 2 » retiré des hors base, « Nombre » choisi) : différence.
+  //  Le libellé fait preuve à lui seul : le chemin actuel écrit le libellé actuel, jamais l'ancien.
+  const sameVar = (f) => known.has(nameKey(ind.sourceField)) || (f.variables || []).some((v) => nameKey(v) === nameKey(ind.sourceField));
   const was = {
     agg: (f) => f.agg === ind.agg && f.agg !== item.agg,
     positiveValue: (f) => valueSet(f.positiveValue) === valueSet(ind.positiveValue) && valueSet(f.positiveValue) !== valueSet(item.positiveValue),
     naValues: (f) => listSet(f.naValues) === listSet(ind.naValues || []) && listSet(f.naValues) !== listSet(item.naValues),
     direction: (f) => Boolean(f.direction) && f.direction === ind.direction && f.direction !== item.direction,
     label: (f) => f.label === ind.label && f.label !== item.label,
-    sourceField: () => !known.has(nameKey(ind.sourceField)),
+    sourceField: (f) => !known.has(nameKey(ind.sourceField)) && (f.variables || []).some((v) => nameKey(v) === nameKey(ind.sourceField)),
   };
-  const origin = (key) => (formerly.some((f) => sameVar(f) && was[key](f)) ? 'correction' : 'difference');
-  // Créé par l'ANCIEN chemin du modèle (qui n'écrivait aucune cible) : l'indicateur garde, sur la même
-  // variable, une valeur propre à une définition d'avant (variable, méthode, valeur, hors base, sens ou
+  const SELF_EVIDENT = new Set(['label', 'sourceField']);
+  /** Preuves que l'indicateur vient de la définition d'avant `f`, en laissant de côté la clé `except`. */
+  const evidence = (f, except = null) => Object.keys(was).some((k) => k !== except && was[k](f));
+  const origin = (key) => (formerly.some((f) => sameVar(f) && was[key](f) && (SELF_EVIDENT.has(key) || evidence(f, key)))
+    ? 'correction' : 'difference');
+  // Créé par l'ANCIEN chemin du modèle (qui n'écrivait aucune cible) : l'indicateur garde, sur une variable
+  // du modèle, une valeur propre à une définition d'avant (variable, méthode, valeur, hors base, sens ou
   // libellé). Une cible vide est alors une correction ; sinon (créé par le chemin actuel, qui écrit la
   // cible) elle a été effacée par l'utilisateur — une différence, jamais réécrite en lot (R4).
-  const createdBefore = formerly.some((f) => f.target == null && sameVar(f) && Object.keys(was).some((k) => was[k](f)));
+  const createdBefore = formerly.some((f) => f.target == null && sameVar(f) && evidence(f));
 
   if (ind.agg !== item.agg) add('agg', ind.agg, item.agg, origin('agg'));
   const wantedPositive = percent ? ((verified ? vb.positiveValue : item.positiveValue) || null) : null;

@@ -65,7 +65,7 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
   // Lignes signalées par le dernier refus : gardées pour le filtre « À vérifier » jusqu'au prochain envoi, même
   // quand l'utilisateur corrige la ligne (sinon elle disparaîtrait du filtre pendant la saisie).
   const [flagged, setFlagged] = useState({});
-  const [driftErrors, setDriftErrors] = useState({}); // code → refus de la mise à jour (PATCH)
+  const [driftErrors, setDriftErrors] = useState({}); // code → refus de la mise à jour depuis le modèle
   const [applyError, setApplyError] = useState(null);
 
   // `reset` : cases et variables repartent de la précoche (ouverture, autre modèle, après « Créer ») ;
@@ -213,26 +213,37 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
     } finally { setSaving(false); }
   }
 
-  // Mise à jour d'un indicateur depuis le modèle (R6) : la modification MONTRÉE (`expected`) part au serveur,
-  // qui la recalcule sur l'indicateur verrouillé et ne l'écrit que si elle est encore exactement celle du
-  // modèle (sinon 409 : indicateur changé ailleurs, rien d'écrit, la carte se recharge). L'une après l'autre ;
-  // chaque refus est gardé sur sa ligne, dans la langue de l'écran.
+  // Mise à jour d'indicateurs depuis le modèle (R6, T3) : les modifications MONTRÉES (`expected`) partent en UNE
+  // requête ; le serveur les recalcule sur les indicateurs verrouillés et n'écrit que celles qui sont encore
+  // exactement celles du modèle. Résultat ligne par ligne : chaque refus est gardé sur SA ligne, dans la langue
+  // de l'écran — affiché même si la ligne n'a plus d'écart après le rechargement (supprimé, déjà mis à jour).
   // `full` (action d'UNE ligne seulement) : applique aussi les différences (la définition du modèle).
   async function update(list, { full = false } = {}) {
     setUpdating(list.length === 1 ? list[0].code : 'all');
+    const sent = list.map((it) => ({ it, patch: full ? driftState(it).fullPatch : driftState(it).patch }));
     const errors = {};
     let done = 0;
     let stale = false;
-    for (const it of list) {
-      const ds = driftState(it);
-      const patch = full ? ds.fullPatch : ds.patch;
-      try {
-        await api.monTemplateUpdate(it.existing.id, { mode: full ? 'full' : 'corrections', template: templateParam, expected: patch });
-        done += 1;
-      } catch (e) {
-        errors[it.code] = templateErrorText(e, tr, { sourceField: patch.sourceField || it.existing.sourceField });
-        if (needsReload(e)) stale = true;
+    try {
+      const r = await api.monTemplateUpdates(form.id, {
+        mode: full ? 'full' : 'corrections', template: templateParam, items: sent.map(({ it, patch }) => ({ id: it.existing.id, expected: patch })),
+      });
+      const byId = new Map((r.results || []).map((x) => [x.id, x]));
+      for (const { it, patch } of sent) {
+        const res = byId.get(it.existing.id);
+        if (res && res.ok) { done += 1; continue; }
+        const err = { status: res ? res.status : 0, message: res ? res.message : '', details: res ? res.details : null };
+        errors[it.code] = templateErrorText(err, tr, { sourceField: patch.sourceField || it.existing.sourceField });
+        if (needsReload(err)) stale = true;
       }
+    } catch (e) {
+      // La requête elle-même a échoué (réseau, fiche disparue) : rien n'est écrit, motif au niveau de la carte.
+      const msg = templateErrorText(e, tr, { template: templateParam });
+      setApplyError(needsReload(e) ? { msg, reload: true } : msg);
+      toast.error(msg);
+      setExpanded(true);
+      setUpdating(null);
+      return;
     }
     const failed = Object.keys(errors).length;
     setDriftErrors((prev) => {
@@ -427,6 +438,11 @@ function TemplateRow({ it, formId, row: r, fieldsByName, canEdit, rowError, drif
           {it.taken && <span className="tpl-flag tpl-flag-warn"><AlertTriangle size={12} aria-hidden="true" /> {tr('code déjà utilisé par « {label} »', { label: it.taken.label })}</span>}
         </div>
         {rowError && <div className="tpl-row-error" role="alert"><XCircle size={14} aria-hidden="true" /> <span>{rowError}</span></div>}
+        {/* Refus d'une mise à jour : sur la ligne même quand, après le rechargement, elle n'a plus d'écart
+            (indicateur supprimé ailleurs, mise à jour déjà faite dans un autre onglet) — T2 / T5. */}
+        {driftError && (
+          <div className="tpl-row-error tpl-update-error" role="alert"><XCircle size={14} aria-hidden="true" /> <span>{tr('Mise à jour refusée : {msg}', { msg: driftError })}</span></div>
+        )}
         {ds && (
           <div className="tpl-drift">
             {ds.corrections.length > 0 ? (
@@ -449,7 +465,6 @@ function TemplateRow({ it, formId, row: r, fieldsByName, canEdit, rowError, drif
             {canEdit && ds.applicable && (
               <Button size="sm" variant="ghost" icon={RefreshCw} loading={updating === it.code} disabled={Boolean(updating)} onClick={() => onUpdate({ full: true })}>{tr('Appliquer le modèle')}</Button>
             )}
-            {driftError && <div className="tpl-row-error" role="alert"><XCircle size={14} aria-hidden="true" /> <span>{tr('Mise à jour refusée : {msg}', { msg: driftError })}</span></div>}
           </div>
         )}
       </td>

@@ -374,8 +374,18 @@ test('composants : ils passent par ces règles (source) — filtres, rechargemen
   assert.match(card, /positiveForField\(it, fieldsByName\.get\(v\), r\.positive\)/); // C19
   assert.match(card, /fieldIssues\(it, field, r\.positive\)/);
   assert.doesNotMatch(card, /errors\[it\.code\] = e\.message/);              // C20
-  assert.match(card, /api\.monTemplateUpdate\(it\.existing\.id, \{ mode: full \? 'full' : 'corrections', template: templateParam, expected: patch \}\)/); // R6
-  assert.doesNotMatch(card, /monUpdateIndicator/);
+  // R6 / T3 : UNE requête pour le lot (jamais une par indicateur), les modifications montrées comme `expected`.
+  assert.match(card, /api\.monTemplateUpdates\(form\.id, \{/);
+  assert.match(card, /items: sent\.map\(\(\{ it, patch \}\) => \(\{ id: it\.existing\.id, expected: patch \}\)\)/);
+  assert.doesNotMatch(card, /monUpdateIndicator|monTemplateUpdate\(/);
+  const updateFn = card.slice(card.indexOf('async function update(list'), card.indexOf('// « Tout mettre à jour »'));
+  assert.doesNotMatch(updateFn, /for \([^)]*\) \{\s*[^}]*await api\./, 'aucun appel réseau dans une boucle');
+  // T2 / T5 : le motif d'un refus est rendu HORS du bloc d'écart (la ligne peut ne plus en avoir après le rechargement).
+  const rowFn = card.slice(card.indexOf('function TemplateRow('));
+  const errAt = rowFn.indexOf('tpl-update-error');
+  const driftAt = rowFn.indexOf('{ds && (');
+  assert.ok(errAt > 0 && driftAt > 0 && errAt < driftAt, 'refus de mise à jour affiché avant / hors du bloc {ds && …}');
+  assert.equal((rowFn.match(/driftError &&/g) || []).length, 1);
   assert.match(card, /keptNaValues\(it, field\)/);                        // R1 / R7 : hors base non choisissables
   assert.match(card, /effectiveFilter\(filter, filters\)/);                 // C24
   assert.match(card, /cardCounts\(items\)/);                                // C22

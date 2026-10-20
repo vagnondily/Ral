@@ -1,6 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
 const { insertRows, chunkRows } = require('../../db/batch');
-const { notFound, forbidden, badRequest, conflict } = require('../../middleware/errors');
+const { notFound, forbidden, badRequest } = require('../../middleware/errors');
 const { overallIndex, naReason } = require('./monitoringMath');
 const { describeVariables, resolveVariable, optionParentName } = require('./variableCatalog');
 const { definitionIssue, effectiveDefinition, normalizeNaValues, presentKeys } = require('./indicatorRules');
@@ -607,38 +607,67 @@ async function applyTemplate(tenantId, formId, { items = null, proposed = false,
 }
 
 /**
- * Mise à jour d'un indicateur DEPUIS LE MODÈLE (« Mettre à jour », « Tout mettre à jour », « Appliquer
- * le modèle ») — R6 : l'écart est RECALCULÉ ici, sur l'indicateur verrouillé (FOR UPDATE), avec la même
- * règle que la carte (templateDrift) ; n'est écrite que la modification que la carte a MONTRÉE
+ * Mise à jour d'indicateurs DEPUIS LE MODÈLE (« Mettre à jour », « Tout mettre à jour », « Appliquer
+ * le modèle ») — R6 : l'écart est RECALCULÉ ici, sur les indicateurs verrouillés (FOR UPDATE), avec la
+ * même règle que la carte (templateDrift) ; n'est écrite que la modification que la carte a MONTRÉE
  * (`expected`), et seulement si c'est encore exactement celle du modèle. Indicateur modifié entre-temps
- * (autre onglet, autre utilisateur), devenu une simple différence, ou modèle changé : 409 drift_changed,
- * rien d'écrit. Mêmes contrôles qu'une modification à la main (updateIndicatorTx).
- * @param {{ mode?: 'corrections'|'full', template?: string|null, expected: object }} input
+ * (autre onglet, autre utilisateur), devenu une simple différence, ou modèle changé : refus
+ * drift_changed POUR CETTE LIGNE, rien d'écrit pour elle ; indicateur supprimé : indicator_not_found.
+ * Mêmes contrôles qu'une modification à la main (updateIndicatorTx), chaque ligne isolée par un
+ * point de sauvegarde : un refus n'annule pas les autres.
+ * T3 : UNE requête et UNE lecture des variables de la fiche (bindingFieldsTx) pour tout le lot — jamais
+ * une relecture des soumissions par indicateur.
+ * @param {{ mode?: 'corrections'|'full', template?: string|null, items: Array<{ id, expected }> }} input
  *   mode : 'corrections' = les corrections du modèle (lot) ; 'full' = aussi les différences (action d'UNE ligne).
- * @returns {Promise<null|{ patch: object }>} null = indicateur introuvable
+ * @returns {Promise<null|{ results: Array<{ id, ok: true, patch } | { id, ok: false, status, code, message, details }> }>}
+ *   null = fiche introuvable
  */
-async function applyTemplateUpdate(tenantId, id, { mode = 'corrections', template: requested = null, expected = {} } = {}) {
+async function applyTemplateUpdates(tenantId, formId, { mode = 'corrections', template: requested = null, items = [] } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
-    const { rows: [ind] } = await client.query(
+    // Même ordre de verrous que applyTemplate (fiche, puis indicateurs dans l'ordre des id) : pas d'interblocage.
+    const { rows: [form] } = await client.query(
+      'SELECT id, code, label, activity_category AS "activityCategory" FROM monitoring_forms WHERE tenant_id = $1 AND id = $2 FOR UPDATE',
+      [tenantId, formId]);
+    if (!form) return null;
+    const ids = [...new Set(items.map((x) => x.id))].sort();
+    const { rows: locked } = await client.query(
       `SELECT id, form_id AS "formId", code, label, template_code AS "templateCode", source_field AS "sourceField", agg,
               positive_value AS "positiveValue", na_values AS "naValues", target::float8 AS target, direction
-         FROM monitoring_indicators WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [tenantId, id]);
-    if (!ind) return null;
-    if (!ind.templateCode) throw badRequest('Cet indicateur n\'a pas été créé depuis un modèle d\'indicateurs.', { code: 'not_from_template' });
-    const { rows: [form] } = await client.query(
-      'SELECT id, code, label, activity_category AS "activityCategory" FROM monitoring_forms WHERE tenant_id = $1 AND id = $2',
-      [tenantId, ind.formId]);
-    const fields = await bindingFieldsTx(client, tenantId, ind.formId);
-    const eff = effectiveTemplate({ activityCategory: form.activityCategory, requested, proposal: proposeTemplate({ fields, form }) });
-    const stale = () => conflict('Cet indicateur ou le modèle de la fiche a changé depuis l\'ouverture de la carte : rechargez-la et vérifiez la proposition.',
-      { code: 'drift_changed' });
-    const item = eff.template && eff.template.items.find((it) => it.code === ind.templateCode);
-    if (eff.error || !item) throw stale();
-    const drift = templateDrift(item, bindTemplate({ items: [item] }, fields)[0], ind, { fields });
-    const patch = drift ? (mode === 'full' ? drift.fullPatch : drift.patch) : {};
-    if (!Object.keys(patch).length || !samePatch(patch, expected)) throw stale();
-    await updateIndicatorTx(client, tenantId, id, patch);
-    return { patch };
+         FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2 AND id = ANY($3::uuid[]) ORDER BY id FOR UPDATE`,
+      [tenantId, formId, ids]);
+    const byId = new Map(locked.map((r) => [r.id, r]));
+    const fields = await bindingFieldsTx(client, tenantId, formId);
+    // Modèle de la fiche : celui de l'activité (ou demandé) sans proposer ; le modèle proposé seulement sinon.
+    const activityTpl = templateForActivity(form.activityCategory);
+    const proposal = activityTpl || requested ? null : proposeTemplate({ fields, form });
+    const eff = effectiveTemplate({ activityCategory: form.activityCategory, requested, proposal });
+    const refuse = (id, status, code, message) => ({ id, ok: false, status, code, message, details: { code } });
+    const STALE = 'Cet indicateur ou le modèle de la fiche a changé depuis l\'ouverture de la carte : rechargez-la et vérifiez la proposition.';
+    const results = [];
+    for (const { id, expected } of items) {
+      const ind = byId.get(id);
+      if (!ind) { results.push(refuse(id, 404, 'indicator_not_found', 'Indicateur introuvable.')); continue; }
+      if (!ind.templateCode) { results.push(refuse(id, 400, 'not_from_template', 'Cet indicateur n\'a pas été créé depuis un modèle d\'indicateurs.')); continue; }
+      const item = !eff.error && eff.template && eff.template.items.find((it) => it.code === ind.templateCode);
+      if (!item) { results.push(refuse(id, 409, 'drift_changed', STALE)); continue; }
+      const drift = templateDrift(item, bindTemplate({ items: [item] }, fields)[0], ind, { fields });
+      const patch = drift ? (mode === 'full' ? drift.fullPatch : drift.patch) : {};
+      if (!Object.keys(patch).length || !samePatch(patch, expected)) { results.push(refuse(id, 409, 'drift_changed', STALE)); continue; }
+      // Une ligne refusée par les contrôles habituels (variable, définition, contrainte) n'annule pas les autres.
+      await client.query('SAVEPOINT tpl_update');
+      try {
+        await updateIndicatorTx(client, tenantId, id, patch);
+        await client.query('RELEASE SAVEPOINT tpl_update');
+        results.push({ id, ok: true, patch });
+      } catch (err) {
+        await client.query('ROLLBACK TO SAVEPOINT tpl_update');
+        const known = err.statusCode || ['23505', '23514', '22P02'].includes(err.code);
+        if (!known) throw err;
+        const code = (err.details && err.details.code) || (err.code === '23505' ? 'duplicate_code' : 'invalid_definition');
+        results.push({ id, ok: false, status: err.statusCode || (err.code === '23505' ? 409 : 400), code, message: err.statusCode ? err.message : 'Modification refusée.', details: { ...(err.details || {}), code } });
+      }
+    }
+    return { results };
   });
 }
 
@@ -2171,7 +2200,7 @@ module.exports = {
   listCalcFields, calcPreview, formVariables, formMonths, indicatorPreview, importPreview, formCorrespondences, setCorrespondence, createCalcField, updateCalcField, deleteCalcField, setExclusion,
   setFormSource, formSourceContext, reportMonitoringData,
   listForms, createForm, updateForm, deleteForm,
-  listIndicators, createIndicator, updateIndicator, deleteIndicator, applyTemplateUpdate,
+  listIndicators, createIndicator, updateIndicator, deleteIndicator, applyTemplateUpdates,
   formFields, importSubmissions, computeValues, dashboard, processOverview, coverageDashboard,
   formCatalog, memsMappingTx, mappingStateTx, setMappingStatusTx, setMemsMappingTx, resetMemsMappingTx,
   applyMappingToSubmissions, rederiveCollectionDatesTx,
