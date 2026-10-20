@@ -96,6 +96,14 @@ const INVOICED_SQL = `EXISTS (SELECT 1 FROM tpm_reports r
 const AUTO_RESTAMPABLE_SQL = `v.status = 'planifie' AND v.provider_zone_state IS DISTINCT FROM 'anterieur' AND NOT ${INVOICED_SQL}`;
 
 /**
+ * Clé « qui suit » d'une visite pour les regroupements par TPM (exécution des visites, matrices,
+ * rapports attendus) : l'identifiant de son TPM, 'interne' (équipe S&E : colonne générée
+ * monitored_by, migration 107) ou 'non_affecte' (antérieure à la règle). Jamais une visite interne
+ * comptée « non affectée ». Alias de visite : `alias` (défaut v).
+ */
+const monitorKeySql = (alias = 'v') => `COALESCE(${alias}.provider_id::text, CASE WHEN ${alias}.monitored_by = 'interne' THEN 'interne' ELSE 'non_affecte' END)`;
+
+/**
  * Re-dérivation du TPM des visites « zone » (mems_tpm_stamp, migration 070 : jumelle SQL de la
  * règle, seule à écrire le TPM d'une visite « zone »). Inclut TOUJOURS les visites « à
  * estampiller » ; la portée ajoute des visites prévues, non figées et non facturées
@@ -738,7 +746,7 @@ async function applyContractsTx(client, tenantId, actorId, { period = null, reas
 module.exports = {
   cellsForSitesTx, applyContractsTx, slimCell, unavailabilityTx, deleteUnavailabilityTx, upsertUnavailabilityTx, plannedRangeVisitsTx,
   tableForSitesTx, boardTpmTx, applyVisitRequestTx,
-  ATTRIBUTION_KEY, ZONE_CTES, INVOICED_SQL, AUTO_RESTAMPABLE_SQL, lockAttributionTx, refreshSiteZonesTx, restampVisitsTx,
+  ATTRIBUTION_KEY, ZONE_CTES, INVOICED_SQL, AUTO_RESTAMPABLE_SQL, monitorKeySql, lockAttributionTx, refreshSiteZonesTx, restampVisitsTx,
   partnersTx, loadInputsTx, overridesTx, areasTx, communeRowIds, zoneRowsTx, visitGroupsTx, expandRegionsTx,
   plannedZoneVisitsTx, visitsForUpdateTx, siteZoneTx, monthPlanStatusesTx,
   deleteOverridesTx, upsertOverridesTx, applyVisitDecisionsTx, insertLogTx, listLogTx, attributionCountsTx, siteZonesTx,

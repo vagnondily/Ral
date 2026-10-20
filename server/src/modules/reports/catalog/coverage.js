@@ -134,6 +134,8 @@ const completeness = ds('cov.completeness_monthly', {
 });
 
 // ---- Visites, matrice, récapitulatif MMR, jours de collecte, mois ---------------------------
+/** Libellé d'une ligne « par TPM » : le TPM, « Interne » (équipe S&E, retour 114) ou « Non affecté ». */
+const unitLabel = (T, r) => (r.key === 'interne' ? T.internal : r.key === 'non_affecte' ? T.unassigned : r.label);
 const PROV_COLS = [
   col('provider', 'TPM'), col('planifie', 'Planifiées', 'int'), col('realise', 'Réalisées', 'int'), col('annule', 'Annulées', 'int'),
   col('rate', 'Taux de réalisation', 'pct'), col('sitesPlanned', 'Sites prévus', 'int'), col('sitesRealised', 'Sites visités', 'int'),
@@ -144,7 +146,7 @@ const visitsByProvider = ds('cov.visits_by_provider', {
   shape(raw, eff, ctx) {
     const T = phrases(ctx.lang);
     const rows = (raw.byProvider || []).filter((p) => !eff.partnerId || p.key === eff.partnerId).map((p) => ({
-      _key: p.key, provider: p.key === 'non_affecte' ? T.unassigned : p.label, planifie: p.planifie, realise: p.realise, annule: p.annule,
+      _key: p.key, provider: unitLabel(T, p), planifie: p.planifie, realise: p.realise, annule: p.annule,
       rate: pctOf(p.realise, p.planifie + p.realise), sitesPlanned: p.sites.planned, sitesRealised: p.sites.realised,
     }));
     return { columns: PROV_COLS, rows, meta: { n: rows.reduce((a, r) => a + r.planifie + r.realise + r.annule, 0), nLabel: 'visites' } };
@@ -162,7 +164,7 @@ const matrix = ds('cov.matrix', {
     const m = byProv ? raw.byProvider : raw.byActivity;
     const groups = (m.groups || []).filter((g) => !eff.partnerId || !byProv || g.key === eff.partnerId);
     const rows = groups.map((g) => ({
-      _key: g.key, label: g.key === 'non_affecte' ? T.unassigned : g.label, planifie: g.total.planifie, realise: g.total.realise, rate: ratePct(g.total.rate),
+      _key: g.key, label: unitLabel(T, g), planifie: g.total.planifie, realise: g.total.realise, rate: ratePct(g.total.rate),
       ...Object.fromEntries(g.cells.map((c) => [`m:${c.month}`, ratePct(c.rate)])),
     }));
     const cols = [col('label', 'Programme ou TPM'), ...m.months.map((mm) => col(`m:${mm}`, mm, 'pct')), col('planifie', 'Planifiées', 'int'), col('realise', 'Réalisées', 'int'), col('rate', 'Taux', 'pct')];

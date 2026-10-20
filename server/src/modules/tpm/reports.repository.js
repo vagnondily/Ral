@@ -9,6 +9,10 @@ const { assertItemActivities } = require('./activityRefs');
 const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
 const { isValidatedStatus, decideDocumentDeletion, linkedSummary } = require('../common/deletionPolicy');
 const { recordDeletion } = require('../deletions/deletions.repository');
+const { monthsOf } = require('../common/period');
+const { expectedReports: expectedRule } = require('./reportExpectation');
+const { holdersByMonth, MAX_SPAN_MONTHS } = require('./tpmAttribution');
+const tpmAttributionRepo = require('./tpmAttribution.repository');
 
 /**
  * Rapports & dépenses (sub-module of Partenaires & TPM). Monthly financial /
@@ -484,7 +488,48 @@ async function markNotApplicable(tenantId, id, userId, comment) {
   });
 }
 
+/**
+ * Rapports attendus d'une période (retour 114) — entrées de la règle pure reportExpectation, lues en
+ * une transaction, agrégées en SQL : visites par unité de suivi (TPM, ou « interne » : colonne générée
+ * monitored_by) × mois, avec les bureaux des sites suivis en interne (antenne comptée avec son
+ * bureau) ; factures de la période ; TPM des contrats de suivi de chaque mois (décision D1, la règle
+ * de l'estampille : tpmAttribution.holdersByMonth) ; indisponibilités des TPM. Lecture seule.
+ * @param {{ period: {from,to}, today: string }} opts  today = « AAAA-MM »
+ */
+async function expectedReports(tenantId, { period, today }) {
+  const months = monthsOf(period, { max: MAX_SPAN_MONTHS });
+  return withTenantTransaction(tenantId, async (client) => {
+    const lo = `${period.from}-01`; const hi = `${period.to}-01`;
+    const { rows: activity } = await client.query(
+      `SELECT to_char(v.period_month, 'YYYY-MM') AS month, ${tpmAttributionRepo.monitorKeySql('v')} AS key, min(p.name) AS name,
+              count(*) FILTER (WHERE v.status = 'planifie')::int AS planned,
+              count(*) FILTER (WHERE v.status = 'realise')::int AS realised,
+              count(*) FILTER (WHERE v.status = 'annule')::int AS cancelled,
+              array_remove(array_agg(DISTINCT COALESCE(po.name, fo.name)) FILTER (WHERE v.monitored_by = 'interne' AND v.status <> 'annule'), NULL) AS offices
+         FROM site_visits v
+         JOIN sites s ON s.tenant_id = v.tenant_id AND s.id = v.site_id
+         LEFT JOIN field_offices fo ON fo.tenant_id = v.tenant_id AND fo.id = s.field_office_id
+         LEFT JOIN field_offices po ON po.tenant_id = v.tenant_id AND po.id = fo.parent_id
+         LEFT JOIN partners p ON p.tenant_id = v.tenant_id AND p.id = v.provider_id
+        WHERE v.tenant_id = $1 AND v.period_month BETWEEN $2::date AND $3::date
+        GROUP BY 1, 2`, [tenantId, lo, hi]);
+    const { rows: reports } = await client.query(
+      `SELECT r.id, r.partner_id AS "partnerId", pa.name AS "partnerName", r.contract_id AS "contractId",
+              COALESCE(c.numero_fla, c.numero) AS "contractLabel", to_char(r.period_month, 'YYYY-MM') AS month, r.status
+         FROM tpm_reports r
+         JOIN partners pa ON pa.tenant_id = r.tenant_id AND pa.id = r.partner_id
+         JOIN contracts c ON c.tenant_id = r.tenant_id AND c.id = r.contract_id
+        WHERE r.tenant_id = $1 AND r.kind = 'financier' AND r.period_month BETWEEN $2::date AND $3::date`, [tenantId, lo, hi]);
+    const inputs = await tpmAttributionRepo.loadInputsTx(client, tenantId, period);
+    const names = new Map(inputs.partners.map((x) => [x.id, x.name]));
+    const unavailable = new Set(inputs.unavailability.map((u) => `${u.providerId}|${u.month}`));
+    const out = expectedRule({ months, today, activity, contractTpms: holdersByMonth(inputs.contracts, months), names, reports, unavailable });
+    return { period: { from: period.from, to: period.to }, today, ...out };
+  });
+}
+
 module.exports = {
+  expectedReports,
   listReports, getReport, invoiceData, reportContext, insertReport, submitReport, setStatus, markNotApplicable,
   replaceReportItems, deleteReport, generateMonthlyStubs,
 };

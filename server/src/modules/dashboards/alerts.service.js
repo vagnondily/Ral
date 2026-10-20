@@ -6,7 +6,7 @@ const fieldRepo = require('../tpm/field.repository');
 const coverageService = require('./coverage.service');
 const { reportActions, canWriteReports } = require('../tpm/reportWorkflow');
 const { buildAlerts, countAlerts } = require('./alertsMath');
-const { single, spanMonths, periodInfo } = require('../common/period');
+const { single, spanMonths, periodInfo, addMonths } = require('../common/period');
 
 /**
  * Centre d'alertes — UNE source pour la page et la cloche de l'en-tête.
@@ -49,13 +49,15 @@ async function alerts(auth, { today = isoDay(new Date()), period = null } = {}) 
     const canWrite = canWriteReports(role);
     return (await reportsRepo.listReports(tenantId, period ? { period } : {})).map((r) => ({ ...r, actions: reportActions(r, { userId, canWrite }) }));
   }, []);
+  // Rapports en retard (retour 114) : la période choisie, sinon les six derniers mois (la cloche).
+  const expected = await read('rapports', () => reportsRepo.expectedReports(tenantId, { period: period || { from: addMonths(month, -6), to: month }, today: month }), null);
   // Terrain : exécution du plan = mesures communes (retour 110) ; prestataires et visites non affectées = visites.
   // Sans l'état RBM (rbm: false) : l'alerte ne lit que l'exécution, et la cloche sonde toutes les 5 minutes.
   const coverage = await read('terrain', () => coverageService.coverage({ tenantId }, { period: fieldPeriod, rbm: false }), null);
   const field = await read('terrain', () => fieldRepo.summary(tenantId, { period: fieldPeriod }), null);
 
   const items = buildAlerts({
-    consolidationRows: cons ? cons.rows : [], contracts, reports, field, coverage, today,
+    consolidationRows: cons ? cons.rows : [], contracts, reports, expected, field, coverage, today,
     // « ce mois » seulement sans période (la cloche) ; un mois choisi est nommé ; une plage : « sur la période ».
     range: spanMonths(fieldPeriod) > 1, month: period && spanMonths(period) === 1 ? period.from : null, reportsInPeriod: !!period,
     period: fieldPeriod,

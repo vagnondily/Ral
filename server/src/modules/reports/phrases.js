@@ -40,6 +40,7 @@ const PHRASES = {
     weakness: 'Point faible',
     noDomain: '(sans dimension)',
     unassigned: 'Non affecté',
+    internal: 'Interne', // suivi par l'équipe S&E (retour 114) — même mot que ROLE_LABELS.noTpm
     noneLabel: 'Non renseigné',
     noOffice: 'Sans bureau',
     risk: { elevee: 'Élevé', moyenne: 'Moyen', faible: 'Faible' },
@@ -103,6 +104,7 @@ const PHRASES = {
     weakness: 'Weakness',
     noDomain: '(no domain)',
     unassigned: 'Unassigned',
+    internal: 'Internal',
     noneLabel: 'Not specified',
     noOffice: 'No office',
     risk: { elevee: 'High', moyenne: 'Medium', faible: 'Low' },

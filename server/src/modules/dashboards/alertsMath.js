@@ -88,6 +88,21 @@ function reportAlerts(reports) {
   }));
 }
 
+/**
+ * Rapports EN RETARD (retour 114, règle tpm/reportExpectation) : seulement les factures attendues
+ * d'un TPM qui portait des visites ce mois-là, échéance dépassée — jamais un TPM sans visite planifiée
+ * (« non applicable » d'office), jamais le rapport interne (pas encore de document dans l'application).
+ * @param {{ rows: object[] }|null} expected  réponse de reports.repository.expectedReports
+ */
+function lateReportAlerts(expected) {
+  return ((expected && expected.rows) || []).filter((r) => r.unit && r.unit.kind === 'tpm' && r.status === 'en_retard').map((r) => ({
+    sev: 'warning', cat: 'Rapports', kind: 'report_late', title: 'Rapport en retard — {provider}',
+    detail: '{month} · {n} visite(s) ; à remettre au plus tard en {due}',
+    params: { provider: r.unit.name || '—', month: { month: r.month }, n: r.visits.planned + r.visits.realised, due: { month: r.due } },
+    go: { module: 'tpm', sub: 'rapports' },
+  }));
+}
+
 /** Contrats : avenants et contrats en validation, contrats expirés ou à échéance ≤ 90 jours. */
 function contractAlerts(contracts, today) {
   const out = [];
@@ -141,11 +156,14 @@ function fieldAlerts(field, { range = false, month = null, coverage = null, peri
   const providers = (field && field.byProvider) || [];
   for (const p of providers) {
     if (p.key !== 'non_affecte' && p.active >= 3 && p.rate < 0.4) {
-      out.push({ sev: 'info', cat: 'Terrain', kind: 'provider_late', title: 'Retard de visites — {provider}',
+      // Suivi interne (retour 114) : l'équipe S&E elle-même, nommée par une phrase traduite.
+      const title = p.key === 'interne' ? 'Retard de visites — suivi interne (équipe S&E)' : 'Retard de visites — {provider}';
+      out.push({ sev: 'info', cat: 'Terrain', kind: 'provider_late', title,
         // Taux typé, mis en forme par l'interface comme sur les pages (« 0,4 % », jamais « 0 % »).
         detail: '{done}/{active} réalisées ({p})', params: { provider: p.label, done: p.realise, active: p.active, p: { rate: p.rate } }, go: FIELD_GO });
     }
   }
+  // « Non affectée » : seulement une visite que personne ne suit (ni TPM, ni suivi interne).
   const naf = providers.find((p) => p.key === 'non_affecte');
   if (naf && naf.total > 0) {
     out.push({ sev: 'info', cat: 'Terrain', kind: 'visits_unassigned', title: '{n} visite(s) non affectée(s)',
@@ -160,17 +178,18 @@ function fieldAlerts(field, { range = false, month = null, coverage = null, peri
  * l'ordre des catégories étant conservé à gravité égale. Chaque alerte porte `scope` :
  * 'a_date' (budget et contrats, toujours calculés à date ; rapports quand aucune période
  * n'est choisie) ou 'periode' (terrain ; rapports filtrés par la période choisie).
- * @param {{ consolidationRows?:object[], reports?:object[], contracts?:object[], field?:object,
+ * @param {{ consolidationRows?:object[], reports?:object[], expected?:object, contracts?:object[], field?:object,
  *           today:string, range?:boolean, month?:string|null, reportsInPeriod?:boolean, period?:{from,to}|null }} src
  *   today = « AAAA-MM-JJ » ; field = résumé des visites de la période (mois courant par défaut) ;
  *   range = la période dépasse un mois ; month = le mois choisi (période d'un mois) ;
  *   reportsInPeriod = rapports filtrés par la période ; period = période du terrain (lien de l'alerte)
  */
-function buildAlerts({ consolidationRows, reports, contracts, field, coverage = null, today, range = false, month = null, reportsInPeriod = false, period = null } = {}) {
+function buildAlerts({ consolidationRows, reports, expected = null, contracts, field, coverage = null, today, range = false, month = null, reportsInPeriod = false, period = null } = {}) {
   const scoped = (list, scope) => list.map((a) => ({ ...a, scope }));
   const all = [
     ...scoped(budgetAlerts(consolidationRows), 'a_date'),
     ...scoped(reportAlerts(reports), reportsInPeriod ? 'periode' : 'a_date'),
+    ...scoped(lateReportAlerts(expected), reportsInPeriod ? 'periode' : 'a_date'),
     ...scoped(contractAlerts(contracts, today), 'a_date'),
     ...scoped(fieldAlerts(field, { range, month, coverage, period }), 'periode'),
   ];
@@ -184,4 +203,4 @@ function countAlerts(alerts) {
   return { ...counts, attention: counts.critical + counts.warning, total: counts.critical + counts.warning + counts.info };
 }
 
-module.exports = { buildAlerts, countAlerts, budgetAlerts, reportAlerts, contractAlerts, fieldAlerts, daysBetween, executionGo, SEVERITIES, SYNTHESE_MAX_SPAN };
+module.exports = { buildAlerts, countAlerts, budgetAlerts, reportAlerts, lateReportAlerts, contractAlerts, fieldAlerts, daysBetween, executionGo, SEVERITIES, SYNTHESE_MAX_SPAN };
