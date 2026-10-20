@@ -189,7 +189,7 @@ export default {
     'Online background unavailable (offline): the map stays complete without it',
   // ---- Fusion 1b × 6a : période de la page, états de la couverture
   'Toutes les périodes : la carte montre {m}, dernier mois avec des données.': 'All periods: the map shows {m}, the latest month with data.',
-  'La carte montre les 24 derniers mois de la période ({p}).': 'The map shows the last 24 months of the period ({p}).',
+  'La carte montre les {n} derniers mois de la période ({p}).': 'The map shows the last {n} months of the period ({p}).',
   'indisponible': 'unavailable',
   'chargement…': 'loading…',
   'couverture indisponible (erreur de chargement)': 'coverage unavailable (loading error)',

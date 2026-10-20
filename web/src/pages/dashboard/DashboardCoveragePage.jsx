@@ -63,7 +63,7 @@ const VIEWS = [
 
 export default function DashboardCoveragePage({ onNavigate }) {
   const { tr, lang } = useI18n();
-  const { period, ready, auto, counts, periods, latest, today, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data', maxSpan: ANALYSIS_MAX_SPAN });
+  const { period, ready, auto, counts, periods, latest, today, source, capped, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data', maxSpan: ANALYSIS_MAX_SPAN });
   const pick = (m) => setPeriod(single(m));
   const key = period ? `${period.from}|${period.to}` : '';
   const [cd, setCd] = useState(null);
@@ -112,7 +112,7 @@ export default function DashboardCoveragePage({ onNavigate }) {
       <div className="cd-headbar">
         <div className="cd-headbar-period">
           <PeriodBanner auto={auto} period={period} />
-          <SessionPeriodNote source={source} onReset={resetToDefault} />
+          <SessionPeriodNote source={source} capped={capped} onReset={resetToDefault} />
         </div>
         <div className="cd-views" role="tablist" aria-label={tr('Vues')}>
           {VIEWS.map((v) => (
