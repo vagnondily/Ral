@@ -619,7 +619,7 @@ async function listVisits(tenantId, opts = {}) {
  * les 12 mois sont toujours renvoyés (0 si aucune visite).
  */
 async function monthsOverview(tenantId, { year } = {}) {
-  const y = Number(year) || new Date().getFullYear();
+  const y = Number(year) || Number(currentMonth().slice(0, 4));   // exercice par défaut : année du mois courant LOCAL
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
       `SELECT to_char(period_month, 'YYYY-MM') AS month,
@@ -761,7 +761,7 @@ async function coverageRecapSummary(tenantId, { district, operationMonths, perio
  * Agrégé en SQL, mis en forme par la logique pure testée `buildCoverageMatrix`.
  */
 async function coverageMatrix(tenantId, { year, period } = {}) {
-  const y = Number(year) || new Date().getFullYear();
+  const y = Number(year) || Number(currentMonth().slice(0, 4));   // exercice par défaut : année du mois courant LOCAL
   const p = period || { from: `${y}-01`, to: `${y}-12` };
   return withTenantTransaction(tenantId, async (client) => {
     const ap = [tenantId];
