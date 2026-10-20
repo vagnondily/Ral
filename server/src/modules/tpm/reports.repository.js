@@ -540,6 +540,14 @@ async function expectedReports(tenantId, { period, today }) {
     const inputs = await tpmAttributionRepo.loadInputsTx(client, tenantId, period);
     const names = new Map(inputs.partners.map((x) => [x.id, x.name]));
     const contractLabels = new Map(inputs.contracts.map((c) => [c.id, c.numeroFla || c.numero]));
+    // Contrat d'une visite qui n'est plus chargé (fin avancée par un avenant, résiliation rétroactive) : son
+    // numéro est relu — jamais l'identifiant technique à l'écran.
+    const missing = [...new Set(activity.map((a) => a.contractId).filter((id) => id && !contractLabels.has(id)))];
+    if (missing.length) {
+      const { rows: more } = await client.query(
+        'SELECT id, COALESCE(numero_fla, numero) AS label FROM contracts WHERE tenant_id = $1 AND id = ANY ($2::uuid[])', [tenantId, missing]);
+      for (const c of more) contractLabels.set(c.id, c.label);
+    }
     const unavailable = new Set(inputs.unavailability.map((u) => `${u.providerId}|${u.month}`));
     const out = expectedRule({
       months, today, activity, contractPairs: contractTpmPairsByMonth(inputs.contracts, months), names, contractLabels, reports, unavailable,

@@ -103,7 +103,8 @@ const LATE_REPORTS_LOOKBACK = 12;
  */
 function lateReportAlerts(expected) {
   return ((expected && expected.rows) || []).filter((r) => r.unit && r.unit.kind === 'tpm' && r.status === 'en_retard').map((r) => {
-    const contract = r.contract && (r.contract.label || r.contract.id);
+    // Numéro affiché du contrat seulement — jamais son identifiant technique : sans numéro, le libellé sans contrat.
+    const contract = (r.contract && r.contract.label) || null;
     return {
       sev: 'warning', cat: 'Rapports', kind: 'report_late', title: 'Rapport en retard — {provider}',
       detail: contract ? '{month} · contrat {contract} · {n} visite(s) ; à remettre au plus tard en {due}' : '{month} · {n} visite(s) ; à remettre au plus tard en {due}',
