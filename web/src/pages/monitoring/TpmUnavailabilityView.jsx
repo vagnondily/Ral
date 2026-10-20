@@ -101,9 +101,9 @@ export default function TpmUnavailabilityView({ canEdit, period, onChanged }) {
                           aria-label={tr('Changer le motif · {p}', { p: p.providerName })}
                           onClick={() => setDialog({ mode: 'poser', providerId: p.providerId, providerName: p.providerName, from: p.from, to: p.to, reason: p.reason })}><PencilLine size={14} aria-hidden="true" /></button>
                         <button type="button" className="tpm-edit" disabled={!ending}
-                          title={ending ? tr('Mettre fin…') : tr('Période passée : elle est déjà terminée.')}
+                          title={ending && ending.past ? tr('Retirer cette indisponibilité (mois passés)…') : tr('Mettre fin…')}
                           aria-label={tr('Mettre fin · {p}', { p: p.providerName })}
-                          onClick={() => ending && setDialog({ mode: 'retirer', providerId: p.providerId, providerName: p.providerName, ...ending })}><CalendarCheck size={14} aria-hidden="true" /></button>
+                          onClick={() => ending && setDialog({ mode: 'retirer', providerId: p.providerId, providerName: p.providerName, from: ending.from, to: ending.to })}><CalendarCheck size={14} aria-hidden="true" /></button>
                       </td>
                     )}
                   </tr>

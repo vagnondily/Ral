@@ -111,12 +111,21 @@ test('vue Indisponibilités (U4, U5, U7) : plage lue bornée à 24 mois ; « Met
   // Période future (2026-11 → 2028-04, aujourd'hui 2026-10) : 25 mois demandés avant U5.
   const b = w.unavailabilityListRange({ from: '2026-11', to: '2028-04' }, '2026-10');
   assert.deepEqual([b.from, b.to, span(b)], ['2026-10', '2028-09', 24]);
-  // Mettre fin : dès le mois courant ; période passée : rien à terminer (bouton désactivé).
-  assert.deepEqual(w.endRangeOf({ from: '2026-08', to: '2026-12' }, '2026-10'), { from: '2026-10', to: '2026-12' });
-  assert.deepEqual(w.endRangeOf({ from: '2026-11', to: '2027-01' }, '2026-10'), { from: '2026-11', to: '2027-01' });
-  assert.deepEqual(w.endRangeOf({ from: '2026-10', to: '2026-10' }, '2026-10'), { from: '2026-10', to: '2026-10' });
-  assert.equal(w.endRangeOf({ from: '2026-03', to: '2026-05' }, '2026-10'), null);
-  assert.equal(w.endRangeOf({ from: '2026-08', to: '2026-08' }, '2026-10'), null);
+  // Mettre fin : dès le mois courant pour une période en cours ou à venir.
+  assert.deepEqual(w.endRangeOf({ from: '2026-08', to: '2026-12' }, '2026-10'), { from: '2026-10', to: '2026-12', past: false });
+  assert.deepEqual(w.endRangeOf({ from: '2026-11', to: '2027-01' }, '2026-10'), { from: '2026-11', to: '2027-01', past: false });
+  assert.deepEqual(w.endRangeOf({ from: '2026-10', to: '2026-10' }, '2026-10'), { from: '2026-10', to: '2026-10', past: false });
+  // Période ENTIÈREMENT passée (re-relecture, point 4) : retirée sur ses propres bornes — jamais du > au, jamais bloquée.
+  assert.deepEqual(w.endRangeOf({ from: '2026-03', to: '2026-05' }, '2026-10'), { from: '2026-03', to: '2026-05', past: true });
+  assert.deepEqual(w.endRangeOf({ from: '2026-08', to: '2026-08' }, '2026-10'), { from: '2026-08', to: '2026-08', past: true });
+  for (const p of [{ from: '2025-01', to: '2025-02' }, { from: '2026-09', to: '2026-11' }, { from: '2027-01', to: '2027-03' }]) {
+    const r = w.endRangeOf(p, '2026-10');
+    assert.ok(r && r.from <= r.to && r.from >= p.from && r.to === p.to, JSON.stringify(p));
+  }
+  assert.equal(w.endRangeOf(null, '2026-10'), null);
+  // L'écran ne désactive plus « Mettre fin » sur une période passée et ne dit plus qu'elle est terminée.
+  const view = fs.readFileSync(path.join(WEB, 'pages/monitoring/TpmUnavailabilityView.jsx'), 'utf8');
+  assert.ok(!view.includes('elle est déjà terminée'));
 });
 
 test('Rapports : la période d un lien n est lue et retirée que sur #/tpm/rapports, jamais sur un autre écran (re-relecture, point 1)', async (t) => {
