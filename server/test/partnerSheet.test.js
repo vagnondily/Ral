@@ -116,12 +116,34 @@ test('rôle d\'un partenaire changé (type ou fiche active) : réestampille des 
   assert.equal(roleChanged(null, { partnerTypeId: 't1', active: true }), false);
 });
 
-test('changement de rôle : la fiche est lue FOR NO KEY UPDATE, jamais FOR UPDATE (interblocage avec les clés étrangères)', async () => {
+test('changement de rôle : verrou d\'attribution AVANT la ligne (ordre des écrivains de l\'attribution), ligne FOR NO KEY UPDATE', async () => {
   const { roleForUpdateTx, ROLE_LOCK } = require('../src/modules/partners/partnerRole');
-  const sql = [];
-  const client = { query: async (text) => { sql.push(text); return { rows: [{ partnerTypeId: 't', active: true }] }; } };
-  await roleForUpdateTx(client, 'tenant', 'p1');
+  const run = async (patch) => {
+    const sql = [];
+    const client = { query: async (text) => { sql.push(text); return { rows: [{ name: 'YPA', partnerTypeId: 't', active: true }] }; } };
+    await roleForUpdateTx(client, 'tenant', 'p1', patch);
+    return { sql, lock: sql.findIndex((t) => /pg_advisory_xact_lock/.test(t)), row: sql.findIndex((t) => /FROM partners/.test(t)) };
+  };
   assert.equal(ROLE_LOCK, 'FOR NO KEY UPDATE');
-  assert.match(sql[0], /FOR NO KEY UPDATE$/);
-  assert.doesNotMatch(sql[0], /FOR UPDATE/);
+  for (const patch of [{ partnerTypeId: 't2' }, { active: false }, { active: true, partnerTypeId: 't' }]) {
+    const r = await run(patch);
+    assert.ok(r.lock >= 0 && r.lock < r.row, `${JSON.stringify(patch)} : verrou d'attribution puis la ligne`);
+    assert.match(r.sql[r.row], /FOR NO KEY UPDATE$/);
+    assert.doesNotMatch(r.sql[r.row], /FOR UPDATE/);
+  }
+  // Ni type ni fiche active : pas de verrou d'attribution.
+  for (const patch of [{}, { name: 'X' }, { active: null, partnerTypeId: undefined }]) assert.equal((await run(patch)).lock, -1, JSON.stringify(patch));
+});
+
+test('changement de rôle : `name` dans l\'UPDATE seulement s\'il change vraiment ; patch qui touche le rôle', () => {
+  const { nameChanges, touchesRole } = require('../src/modules/partners/partnerRole');
+  const before = { name: 'YPA', partnerTypeId: 't', active: true };
+  assert.equal(nameChanges(before, 'YPA'), false, 'nom renvoyé tel quel (l\'écran l\'envoie toujours)');
+  for (const n of [undefined, null, '']) assert.equal(nameChanges(before, n), false);
+  assert.equal(nameChanges(before, 'YPA Madagascar'), true);
+  assert.equal(nameChanges(before, 'ypa'), true, 'la casse est un vrai changement');
+  assert.equal(touchesRole({ name: 'YPA' }), false);
+  assert.equal(touchesRole({ active: false }), true);
+  assert.equal(touchesRole({ partnerTypeId: 't2' }), true);
+  assert.equal(touchesRole({ active: null, partnerTypeId: '' }), false);
 });

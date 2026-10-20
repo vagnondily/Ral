@@ -1,7 +1,7 @@
 const { withTenantTransaction } = require('../../config/db');
 const places = require('./placeMatch.repository');
 const { badRequest } = require('../../middleware/errors');
-const { roleForUpdateTx, restampIfRoleChangedTx } = require('../partners/partnerRole');
+const { roleForUpdateTx, restampIfRoleChangedTx, nameChanges } = require('../partners/partnerRole');
 
 /** Configuration registries: partner types, activities, partners (+ TPM
  * agents). All tenant-scoped through withTenantTransaction. */
@@ -105,17 +105,20 @@ async function createPartner(tenantId, { name, partnerTypeId, dailyRate, contrac
  */
 async function updatePartner(tenantId, id, { name, partnerTypeId, dailyRate, contractRef, active }) {
   return (name ? places.withSubmissionLinks : withTenantTransaction)(tenantId, async (client) => {
-    const before = await roleForUpdateTx(client, tenantId, id);
+    // Type ou fiche active dans le patch : verrou d'attribution d'abord, puis la ligne (partnerRole).
+    const before = await roleForUpdateTx(client, tenantId, id, { partnerTypeId, active });
     if (!before) return false;
-    const { rowCount } = await client.query(
-      `UPDATE partners SET name = COALESCE($3, name),
-              daily_rate = CASE WHEN $4::boolean THEN $5::numeric ELSE daily_rate END,
-              contract_ref = CASE WHEN $6::boolean THEN $7 ELSE contract_ref END,
-              active = COALESCE($8, active),
-              partner_type_id = COALESCE($9::uuid, partner_type_id)
-       WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id, name || null, dailyRate !== undefined, dailyRate ?? null, contractRef !== undefined, contractRef || null, active ?? null, partnerTypeId || null]
-    );
+    // Liste SET construite : `name` seulement s'il change vraiment (l'écran envoie toujours le nom ;
+    // listé inchangé, il verrouillerait la ligne FOR UPDATE — voir partnerRole.roleForUpdateTx).
+    const sets = []; const values = [tenantId, id];
+    const set = (col, v, cast = '') => { values.push(v); sets.push(`${col} = $${values.length}${cast}`); };
+    if (nameChanges(before, name)) set('name', name);
+    if (dailyRate !== undefined) set('daily_rate', dailyRate ?? null, '::numeric');
+    if (contractRef !== undefined) set('contract_ref', contractRef || null);
+    if (active !== undefined && active !== null) set('active', active);
+    if (partnerTypeId) set('partner_type_id', partnerTypeId, '::uuid');
+    if (!sets.length) return true; // rien ne change
+    const { rowCount } = await client.query(`UPDATE partners SET ${sets.join(', ')} WHERE tenant_id = $1 AND id = $2`, values);
     if (rowCount === 1 && name) await places.relinkPartiesTx(client, tenantId);
     if (rowCount === 1) {
       await restampIfRoleChangedTx(client, tenantId, before,
