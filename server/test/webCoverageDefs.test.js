@@ -50,9 +50,9 @@ test('Centre d\'alertes : l\'exécution du plan (taux des mesures communes) s\'�
   // Le lien de l'alerte d'exécution porte la période : la Synthèse s'ouvre sur cette période.
   assert.equal(a.goHash({ module: 'processus', sub: 'synthese', period: { from: '2026-01', to: '2026-06' } }), '#/processus/synthese?from=2026-01&to=2026-06');
   assert.equal(a.goHash({ module: 'processus', sub: 'sites' }), null, 'sans période : navigation ordinaire (goArgs)');
-  // Plus de 12 mois : « Couverture & performance », période entière lue par l'écran d'arrivée.
-  const long = a.goHash({ module: 'dashboard', sub: 'couverture', period: { from: '2025-01', to: '2026-06' } });
-  assert.equal(long, '#/dashboard/couverture?from=2025-01&to=2026-06');
+  // Plus de 12 mois : Reporting › Rapport de synthèse, période entière lue par l'écran d'arrivée.
+  const long = a.goHash({ module: 'reporting', sub: 'synthese', period: { from: '2025-01', to: '2026-06' } });
+  assert.equal(long, '#/reporting/synthese?from=2025-01&to=2026-06');
   const per = await load(t, 'lib', 'period.js');
   assert.deepEqual(per.readHashPeriod(long), { from: '2025-01', to: '2026-06' });
   assert.equal(a.goHash({ module: 'processus', sub: 'synthese', period: { from: '2026-13', to: '2026-01' } }), null);

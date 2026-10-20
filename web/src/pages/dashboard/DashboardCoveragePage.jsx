@@ -14,10 +14,12 @@ import MapExplorer, { peekMapOpen, forgetMapOpen } from '../../components/map/Ma
 import { groupNaReasons } from '../../lib/naReasons.js';
 import { shortFormLabel as shortLabel } from '../../lib/formLabel.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 import { barPct, planVsRealRows, rateText, upcomingText, upToDateParts, waysText, watchList } from '../../lib/coverageDefs.js';
 
-/** Durée maximale des endpoints de la page (coverage-dashboard, dashboards/coverage) : 24 mois. */
-const ANALYSIS_MAX_SPAN = 24;
+// Plafond de ses endpoints : la synthèse des indicateurs (coverage-dashboard) accepte PERIOD_CAPS.analysis
+// mois ; une période plus longue serait refusée (400) et masquerait toute la page.
+const ANALYSIS_MAX_SPAN = Math.min(PERIOD_CAPS.analysis, PERIOD_CAPS.facts);
 
 /**
  * Dashboard décisionnel › « Couverture & performance du suivi ».

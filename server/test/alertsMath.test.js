@@ -158,28 +158,33 @@ test('exécution du plan faible : le lien garde TOUTE la période — Synthèse 
   const { PERIOD_CAPS } = require('../src/modules/common/periodCaps');
   assert.equal(SYNTHESE_MAX_SPAN, 12);
   assert.deepEqual(executionGo({ from: '2026-01', to: '2026-12' }), { module: 'processus', sub: 'synthese', period: { from: '2026-01', to: '2026-12' } });
-  assert.deepEqual(executionGo({ from: '2025-01', to: '2026-06' }), { module: 'dashboard', sub: 'couverture', period: { from: '2025-01', to: '2026-06' } });
-  assert.deepEqual(executionGo({ from: '2025-01', to: '2026-12' }).sub, 'couverture', `${PERIOD_CAPS.facts} mois : durée maximale du Centre d'alertes`);
+  assert.deepEqual(executionGo({ from: '2025-01', to: '2026-06' }), { module: 'reporting', sub: 'synthese', period: { from: '2025-01', to: '2026-06' } });
+  assert.deepEqual(executionGo({ from: '2025-01', to: '2026-12' }).module, 'reporting', `${PERIOD_CAPS.facts} mois : durée maximale du Centre d'alertes`);
   // Par l'alerte elle-même (18 mois, exécution < 50 %).
   const field = { byProvider: [] };
   const [a] = fieldAlerts(field, { range: true, coverage: { overall: { execution: { planned: 10, covered: 4, rate: 0.4 } } }, period: { from: '2025-01', to: '2026-06' } });
-  assert.deepEqual(a.go, { module: 'dashboard', sub: 'couverture', period: { from: '2025-01', to: '2026-06' } });
+  assert.deepEqual(a.go, { module: 'reporting', sub: 'synthese', period: { from: '2025-01', to: '2026-06' } });
 });
 
-test('écrans d\'arrivée : la Synthèse accepte 12 mois, « Couverture & performance » la durée du Centre d\'alertes, tous deux la même mesure', (t) => {
+test('écrans d\'arrivée : la Synthèse jusqu\'à 12 mois, le Rapport de synthèse jusqu\'à la durée du Centre d\'alertes ; chaque écran ≤ le plafond de ses endpoints ; même mesure', (t) => {
   const fs = require('fs'); const path = require('path');
   const web = (...p) => path.join(__dirname, '../../web/src', ...p);
   if (!fs.existsSync(web('pages'))) { t.skip('web/ absent'); return; }
   const { PERIOD_CAPS } = require('../src/modules/common/periodCaps');
   const syn = fs.readFileSync(web('pages', 'monitoring', 'ProcessDashboardPage.jsx'), 'utf8');
+  const rep = fs.readFileSync(web('pages', 'dashboard', 'ReportingPage.jsx'), 'utf8');
   const cov = fs.readFileSync(web('pages', 'dashboard', 'DashboardCoveragePage.jsx'), 'utf8');
   const alerts = fs.readFileSync(web('pages', 'dashboard', 'AlertsPage.jsx'), 'utf8');
   assert.match(syn, /const ANALYSIS_MAX_SPAN = Math\.min\(PERIOD_CAPS\.analysis, PERIOD_CAPS\.facts\);/, 'Synthèse : jumeau de SYNTHESE_MAX_SPAN');
-  const covSpan = Number((cov.match(/const ANALYSIS_MAX_SPAN = (\d+);/) || [])[1]);
-  assert.ok(covSpan >= PERIOD_CAPS.facts, `Couverture & performance : ${covSpan} mois ≥ ${PERIOD_CAPS.facts}`);
+  // Rapport de synthèse : consolidation (document) + couverture (facts) — accepte la durée du Centre d'alertes.
+  assert.match(rep, /const REPORT_MAX_SPAN = Math\.min\(PERIOD_CAPS\.document, PERIOD_CAPS\.facts\);/);
+  assert.ok(Math.min(PERIOD_CAPS.document, PERIOD_CAPS.facts) >= PERIOD_CAPS.facts);
   assert.match(alerts, /ALERTS_MAX_SPAN = PERIOD_CAPS\.facts/, 'Centre d\'alertes : facts');
-  for (const src of [syn, cov]) {
+  // « Couverture & performance » appelle coverage-dashboard (plafond analysis) : jamais plus long.
+  assert.match(cov, /api\.monCoverageDashboard\(period\)/);
+  assert.match(cov, /const ANALYSIS_MAX_SPAN = Math\.min\(PERIOD_CAPS\.analysis, PERIOD_CAPS\.facts\);/, 'Couverture & performance : plafond de coverage-dashboard');
+  for (const src of [syn, rep, cov]) {
     assert.match(src, /api\.dashCoverage\(period\)/);
-    assert.match(src, /label=\{tr\('Exécution du plan \(visites\)'\)\}/);
+    assert.match(src, /tr\('Exécution du plan \(visites\)'\)/);
   }
 });
