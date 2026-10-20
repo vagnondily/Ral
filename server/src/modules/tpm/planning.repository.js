@@ -1,5 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
 const { toPeriod } = require('../common/period');
+const { assertActiveTpmTx } = require('./activeProvider.repository');
 const { monthWithin } = require('../common/periodSql');
 const { normalizeItems, summarize } = require('./reportMath');
 const { assertItemActivities } = require('./activityRefs');
@@ -133,6 +134,7 @@ async function planItemsFor(tenantId, { partnerId, contractId, periodMonth }) {
 
 async function createPlan(tenantId, input) {
   return withTenantTransaction(tenantId, async (client) => {
+    await assertActiveTpmTx(client, tenantId, input.partnerId); // un plan de collecte = un TPM actif (D1)
     const { rows: exists } = await client.query(
       `SELECT id FROM tpm_collection_plans WHERE tenant_id = $1 AND partner_id = $2 AND contract_id = $3 AND period_month = $4`,
       [tenantId, input.partnerId, input.contractId, input.periodMonth]

@@ -231,3 +231,44 @@ test('agent : « hasHistory » = la règle de la suppression (une participation 
     await q('DELETE FROM tpm_agents WHERE tenant_id = $1 AND id = $2', [T, agent.id]);
   }
 });
+
+test('plan de collecte et facture : refusés pour un partenaire qui n\'est pas un TPM actif (400 + garde en base)', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const [aina] = await q("SELECT id FROM partners WHERE tenant_id = $1 AND name = 'ASSOCIATION AINA'", [T]);
+  const [contract] = await q("SELECT id FROM contracts WHERE tenant_id = $1 AND partner_id = $2 AND status = 'actif' LIMIT 1", [T, aina.id]);
+  const planning = require('../src/modules/tpm/planning.repository');
+  const reports = require('../src/modules/tpm/reports.repository');
+  await assert.rejects(planning.createPlan(T, { partnerId: aina.id, contractId: contract.id, periodMonth: '2019-01-01', createdBy: null }), (e) => e.code === 'NOT_TPM');
+  await assert.rejects(reports.insertReport(T, { partnerId: aina.id, contractId: contract.id, periodMonth: '2019-01-01', kind: 'technique', createdBy: null }), (e) => e.code === 'NOT_TPM');
+  await assert.rejects(reports.generateMonthlyStubs(T, { partnerId: aina.id, contractId: contract.id, createdBy: null }), (e) => e.code === 'NOT_TPM');
+  // La base refuse aussi (même écrite à la main) : déclencheur trg_tpm_document_partner (migration 089).
+  await q('BEGIN');
+  try {
+    await assert.rejects(q(`INSERT INTO tpm_collection_plans (tenant_id, partner_id, contract_id, period_month, status) VALUES ($1, $2, $3, '2019-01-01', 'brouillon')`,
+      [T, aina.id, contract.id]), (e) => e.code === '23514');
+  } finally { await q('ROLLBACK'); }
+  await q('BEGIN');
+  try {
+    await assert.rejects(q(`INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, kind, status) VALUES ($1, $2, $3, '2019-01-01', 'technique', 'attendu')`,
+      [T, aina.id, contract.id]), (e) => e.code === '23514');
+  } finally { await q('ROLLBACK'); }
+});
+
+test('formulaires plan / facture : contrat sans TPM rattaché → aucun TPM proposé, jamais son titulaire non TPM (D1)', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  // Le contrat de MIARO (partenaire de mise en œuvre) est suivi par YPA ; YPA désactivé, il n'a plus
+  // de TPM rattaché : l'ancienne règle (estampille) proposait alors MIARO lui-même.
+  const [c] = await q(`SELECT c.id, to_char(c.date_debut, 'YYYY-MM') AS m FROM contracts c JOIN partners p ON p.id = c.partner_id
+                        WHERE c.tenant_id = $1 AND p.name = 'MIARO' AND c.status = 'actif' LIMIT 1`, [T]);
+  const [ypa] = await q("SELECT id FROM partners WHERE tenant_id = $1 AND name = 'YPA'", [T]);
+  const service = require('../src/modules/tpm/tpmAttribution.service');
+  const before = await service.providers(T, { period: { from: c.m, to: c.m } });
+  assert.deepEqual(before.contractTpms[c.id].map((p) => p.id), [ypa.id], 'YPA, TPM rattaché');
+  await q('UPDATE partners SET active = false WHERE tenant_id = $1 AND id = $2', [T, ypa.id]);
+  try {
+    const after = await service.providers(T, { period: { from: c.m, to: c.m } });
+    assert.deepEqual(after.contractTpms[c.id], [], 'aucun TPM : suivi interne, jamais MIARO');
+  } finally {
+    await q('UPDATE partners SET active = true WHERE tenant_id = $1 AND id = $2', [T, ypa.id]);
+  }
+});

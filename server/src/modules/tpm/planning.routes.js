@@ -79,6 +79,7 @@ router.post('/', WRITE, body(createSchema), asyncHandler(async (req, res) => {
     res.status(201).json({ id });
   } catch (err) {
     if (err.code === 'DUP') throw conflict('Un plan existe déjà pour ce TPM, ce contrat et ce mois.');
+    if (err.code === 'NOT_TPM') throw badRequest(err.message, { code: 'not_tpm' });
     if (err instanceof Error && isPgText(err.message)) throw badRequest(err.message);
     throw err;
   }
