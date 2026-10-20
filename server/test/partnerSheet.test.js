@@ -107,3 +107,11 @@ test('rôles (retour 113) : le titulaire voit le TPM de ses contrats, le TPM les
   assert.deepEqual([s.role, s.tpms, s.contracts[0].numeroFla, s.contracts[0].holderRole, s.contracts[0].tpm.state],
     ['mise_en_oeuvre', [{ id: 'p1', name: 'YPA' }], 'FLA-1', 'mise_en_oeuvre', 'rattache']);
 });
+
+test('rôle d\'un partenaire changé (type ou fiche active) : réestampille des visites prévues', () => {
+  const { roleChanged } = require('../src/modules/partners/partnerRole');
+  assert.equal(roleChanged({ partnerTypeId: 't1', active: true }, { partnerTypeId: 't1', active: true }), false);
+  assert.equal(roleChanged({ partnerTypeId: 't1', active: true }, { partnerTypeId: 't2', active: true }), true);
+  assert.equal(roleChanged({ partnerTypeId: 't1', active: true }, { partnerTypeId: 't1', active: false }), true);
+  assert.equal(roleChanged(null, { partnerTypeId: 't1', active: true }), false);
+});

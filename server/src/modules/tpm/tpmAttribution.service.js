@@ -213,7 +213,13 @@ async function prepareChangeTx(client, tenantId, { target, mode, providerId = nu
   summary.moves = summary.moves.map((m) => ({ ...m, fromName: providerName(inputs, m.fromProviderId), toName: providerName(inputs, m.toProviderId) }));
 
   const selectable = rule.selectableProviders({ links: inputs.links, partners: inputs.partners, months });
-  const notSelectable = mode === 'revenir' ? [] : rule.notSelectableMonths(providerId, months, selectable);
+  // Choisir la valeur DU CONTRAT pour toutes les zones d'un mois revient au contrat : toujours permis,
+  // même quand ce partenaire n'est pas proposé dans les listes de choix d'un TPM (décision D1 du 20/10 :
+  // un titulaire partenaire de mise en œuvre n'y figure plus, alors que l'estampille — inchangée
+  // jusqu'au retour 114 — le garde comme valeur du contrat).
+  const contractValue = (m) => targets.filter((x) => x.month === m)
+    .every((x) => x.cell && x.cell.default && x.cell.default.state === 'contrat' && x.cell.default.providerId === providerId);
+  const notSelectable = mode === 'revenir' ? [] : rule.notSelectableMonths(providerId, months, selectable).filter((m) => !contractValue(m));
   const warnings = [];
   const plans = await repo.monthPlanStatusesTx(client, tenantId, months);
   const validated = plans.filter((p) => p.status === 'valide').map((p) => p.month);

@@ -52,3 +52,11 @@ test('n° affiché d\'un contrat : FLA, sinon numéro interne', () => {
   assert.equal(contractNo(contracts[1]), 'CTR-2');
   assert.equal(contractNo(null), null);
 });
+
+test('un TPM titulaire de son propre contrat le SUIT encore après sa première facture ou son premier plan', () => {
+  const own = [{ partnerId: 'sahy', contractId: 'c2', via: ['titulaire', 'rapport'] }];
+  const v = contractTpmViews([contracts[1]], own, partners);
+  assert.deepEqual(v.get('c2'), { state: 'rattache', tpms: [{ id: 'sahy', name: 'SAHY Monitoring', via: ['rapport'] }] });
+  const p = partnerContracts([contracts[1]], v);
+  assert.deepEqual([p.get('sahy').held.map((c) => c.id), p.get('sahy').monitored.map((c) => c.id), p.get('sahy').tpms], [['c2'], ['c2'], []]);
+});

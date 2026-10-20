@@ -73,7 +73,10 @@ function partnerContracts(contracts, views) {
       e.held.push(short(c));
       for (const t of v.tpms) if (t.id !== c.partnerId) e.tpms.set(t.id, { id: t.id, name: t.name });
     }
-    for (const t of v.tpms) if (t.id !== c.partnerId || v.state === 'titulaire') entry(t.id).monitored.push(short(c));
+    // Chaque TPM du contrat le SUIT — y compris un TPM titulaire de son propre contrat, qu'il y soit
+    // rattaché par son plan / sa facture (« rattaché ») ou seulement comme titulaire. contractTpmOf ne
+    // rend jamais un partenaire de mise en œuvre : la liste ne contient que des TPM actifs.
+    for (const t of v.tpms) entry(t.id).monitored.push(short(c));
   }
   const byName = (a, b) => String(a.name).localeCompare(String(b.name), 'fr');
   return new Map([...out].map(([k, e]) => [k, { held: e.held, monitored: e.monitored, tpms: [...e.tpms.values()].sort(byName) }]));

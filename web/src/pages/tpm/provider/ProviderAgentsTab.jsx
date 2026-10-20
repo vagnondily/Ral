@@ -104,7 +104,8 @@ export default function ProviderAgentsTab({ providerId, canEdit, onChanged }) {
                         {a.active
                           ? <Button size="sm" variant="ghost" onClick={() => setActive(a, false)}>{tr('Désactiver')}</Button>
                           : <Button size="sm" variant="ghost" onClick={() => setActive(a, true)}>{tr('Réactiver')}</Button>}
-                        {!a.submissions && !a.trainings && <IconButton icon={Trash2} label={tr('Supprimer {name}', { name: a.name })} size="sm" onClick={() => remove(a)} />}
+                        {/* Supprimer : seulement un agent SANS historique (même règle que le serveur, hasHistory) ; sinon le désactiver. */}
+                        {!a.hasHistory && <IconButton icon={Trash2} label={tr('Supprimer {name}', { name: a.name })} size="sm" onClick={() => remove(a)} />}
                       </div></td>
                     )}
                   </tr>

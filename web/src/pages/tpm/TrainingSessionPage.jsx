@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Pencil, Trash2, UserPlus, Users, Save, X, MessageSquare, Info } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Card, CardHeader, Field, IconButton, Skeleton, Stats, StatusBadge } from '../../components/ui.jsx';
@@ -6,7 +6,7 @@ import Modal from '../../components/Modal.jsx';
 import ProviderSelect from '../../components/ProviderSelect.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatDate } from '../../lib/contracts.js';
-import { ATTENDANCE, TRAINING_STATUS, formatPct } from '../../lib/trainings.js';
+import { ATTENDANCE, TRAINING_STATUS, editableParticipant, formatPct, mergeParticipantRows, participantPatches } from '../../lib/trainings.js';
 import { useI18n } from '../../lib/i18n.jsx';
 
 /**
@@ -24,7 +24,9 @@ export default function TrainingSessionPage({ sessionId, canEdit, onNavigate }) 
   const back = () => onNavigate('tpm', 'formations');
 
   const reload = () => api.getTraining(sessionId).then((x) => { setS(x); setError(null); }).catch((e) => setError(e.message));
-  useEffect(() => { if (!isNew) { setS(null); reload(); } }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Changement de formation (dont « Créer la formation » → sa fiche) : même composant, état remis à zéro
+  // — la nouvelle formation s'ouvre en LECTURE (informations), pas en modification.
+  useEffect(() => { setEditing(isNew); if (!isNew) { setS(null); reload(); } }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) return <div className="section-gap"><Button variant="ghost" size="sm" icon={ArrowLeft} onClick={back} className="back-link">{tr('Retour aux formations')}</Button><Alert tone="error">{error}</Alert></div>;
   if (isNew) {
@@ -225,13 +227,24 @@ function InfoForm({ session, onCancel, onSaved, onDeleted }) {
 function ParticipantsCard({ s, canEdit, onChanged }) {
   const { tr } = useI18n();
   const toast = useToast();
-  const [rows, setRows] = useState(() => s.participants.map(editable));
-  const [dirty, setDirty] = useState(false);
+  const [rows, setRows] = useState(() => s.participants.map(editableParticipant));
   const [busy, setBusy] = useState(false);
+  const [showErrors, setShowErrors] = useState(false);
+  // Formation rechargée (ajout, retrait, synthèse, informations) : la saisie en cours est GARDÉE et
+  // fusionnée ; après un enregistrement réussi, la grille reprend l'état du serveur.
+  const loadedRef = useRef(s.participants);
+  const savedRef = useRef(false);
+  useEffect(() => {
+    const prev = loadedRef.current; loadedRef.current = s.participants;
+    if (savedRef.current) { savedRef.current = false; setRows(s.participants.map(editableParticipant)); return; }
+    setRows((cur) => mergeParticipantRows(cur, prev, s.participants));
+  }, [s]);
+  // Seuls les champs modifiés partent ; une cellule illisible bloque l'envoi (jamais effacée en silence).
+  const { patches, errors, dirty } = useMemo(() => participantPatches(rows, s.participants), [rows, s]);
+  const invalid = new Set(errors.map((e) => `${e.agentId}|${e.field}`));
   const [providerId, setProviderId] = useState('');
   const [agents, setAgents] = useState([]);
   const [agentId, setAgentId] = useState('');
-  useEffect(() => { setRows(s.participants.map(editable)); setDirty(false); }, [s]);
   useEffect(() => {
     setAgentId('');
     if (!providerId) { setAgents([]); return; }
@@ -251,7 +264,7 @@ function ParticipantsCard({ s, canEdit, onChanged }) {
   const byId = new Map(s.participants.map((p) => [p.agentId, p]));
   const inSession = new Set(rows.map((r) => r.agentId));
 
-  const change = (agent, k, v) => { setRows((list) => list.map((r) => (r.agentId === agent ? { ...r, [k]: v } : r))); setDirty(true); };
+  const change = (agent, k, v) => setRows((list) => list.map((r) => (r.agentId === agent ? { ...r, [k]: v } : r)));
   async function add(input) {
     setBusy(true);
     try {
@@ -261,11 +274,21 @@ function ParticipantsCard({ s, canEdit, onChanged }) {
       onChanged();
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   }
+  const FIELD_LABELS = { daysPresent: 'Jours', preScore: 'Pré-test', postScore: 'Post-test' };
   async function save() {
+    if (errors.length) {
+      setShowErrors(true);
+      toast.error(tr('Valeur illisible : {list}. Saisissez un nombre (ex. 15 ou 15,5) ou laissez vide.',
+        { list: errors.map((e) => `${e.agentName} — ${tr(FIELD_LABELS[e.field] || e.field)}`).join(', ') }));
+      return;
+    }
+    if (!patches.length) return;
     setBusy(true);
     try {
-      await api.saveTrainingParticipants(s.id, rows.map(toPayload));
+      await api.saveTrainingParticipants(s.id, patches);
       toast.success(tr('Présences, notes et avis enregistrés.'));
+      savedRef.current = true;
+      setShowErrors(false);
       onChanged();
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   }
@@ -317,9 +340,9 @@ function ParticipantsCard({ s, canEdit, onChanged }) {
                         <select className="select tr-cell" value={r.attendance} onChange={(e) => change(r.agentId, 'attendance', e.target.value)} aria-label={tr('Présence de {name}', { name: r.agentName })}>
                           <option value="">—</option>{ATTENDANCE.map((a) => <option key={a.id} value={a.id}>{tr(a.label)}</option>)}
                         </select>) : (r.attendance ? tr((ATTENDANCE.find((a) => a.id === r.attendance) || {}).label) : '—')}</td>
-                      <td className="num">{canEdit ? <input className="input tr-cell tr-num" inputMode="decimal" value={num(r.daysPresent)} onChange={(e) => change(r.agentId, 'daysPresent', e.target.value)} aria-label={tr('Jours de présence de {name}', { name: r.agentName })} /> : (r.daysPresent || '—')}</td>
-                      <td className="num">{canEdit ? <input className="input tr-cell tr-num" inputMode="decimal" value={num(r.preScore)} onChange={(e) => change(r.agentId, 'preScore', e.target.value)} aria-label={tr('Pré-test de {name}', { name: r.agentName })} /> : (r.preScore === '' ? '—' : r.preScore)}</td>
-                      <td className="num">{canEdit ? <input className="input tr-cell tr-num" inputMode="decimal" value={num(r.postScore)} onChange={(e) => change(r.agentId, 'postScore', e.target.value)} aria-label={tr('Post-test de {name}', { name: r.agentName })} /> : (r.postScore === '' ? '—' : r.postScore)}</td>
+                      <td className="num">{canEdit ? <input className="input tr-cell tr-num" inputMode="decimal" value={num(r.daysPresent)} onChange={(e) => change(r.agentId, 'daysPresent', e.target.value)} aria-label={tr('Jours de présence de {name}', { name: r.agentName })} aria-invalid={invalid.has(`${r.agentId}|daysPresent`) || undefined} /> : (r.daysPresent || '—')}</td>
+                      <td className="num">{canEdit ? <input className="input tr-cell tr-num" inputMode="decimal" value={num(r.preScore)} onChange={(e) => change(r.agentId, 'preScore', e.target.value)} aria-label={tr('Pré-test de {name}', { name: r.agentName })} aria-invalid={invalid.has(`${r.agentId}|preScore`) || undefined} /> : (r.preScore === '' ? '—' : r.preScore)}</td>
+                      <td className="num">{canEdit ? <input className="input tr-cell tr-num" inputMode="decimal" value={num(r.postScore)} onChange={(e) => change(r.agentId, 'postScore', e.target.value)} aria-label={tr('Post-test de {name}', { name: r.agentName })} aria-invalid={invalid.has(`${r.agentId}|postScore`) || undefined} /> : (r.postScore === '' ? '—' : r.postScore)}</td>
                       <td className="num tabular">{saved.progress == null ? <span className="cell-empty">—</span>
                         : <span className={saved.pass === false ? 'text-warn' : ''}>{saved.progress > 0 ? '+' : ''}{tr('{p} pts', { p: saved.progress })}</span>}</td>
                       <td>{canEdit ? (
@@ -337,6 +360,10 @@ function ParticipantsCard({ s, canEdit, onChanged }) {
         </div>
       )}
       {dirty && <div className="card-body tr-dirty"><Info size={15} aria-hidden="true" />{tr('Modifications non enregistrées.')}</div>}
+      {showErrors && errors.length > 0 && (
+        <div className="card-body"><Alert tone="error">{tr('Valeur illisible : {list}. Saisissez un nombre (ex. 15 ou 15,5) ou laissez vide.',
+          { list: errors.map((e) => `${e.agentName} — ${tr(FIELD_LABELS[e.field] || e.field)}`).join(', ') })}</Alert></div>
+      )}
     </Card>
   );
 }
@@ -398,14 +425,4 @@ function FeedbackCard({ s, canEdit, onSaved }) {
   );
 }
 
-const str = (v) => (v == null ? '' : String(v));
-function editable(p) {
-  return { ...p, attendance: p.attendance || '', daysPresent: str(p.daysPresent), preScore: str(p.preScore), postScore: str(p.postScore), satisfaction: str(p.satisfaction), feedback: p.feedback || '' };
-}
-const numOrNull = (v) => { const t = String(v).trim().replace(',', '.'); return t === '' ? null : Number(t); };
-function toPayload(r) {
-  return {
-    agentId: r.agentId, attendance: r.attendance || null, daysPresent: numOrNull(r.daysPresent), preScore: numOrNull(r.preScore),
-    postScore: numOrNull(r.postScore), satisfaction: r.satisfaction === '' ? null : Number(r.satisfaction), feedback: r.feedback.trim() || null,
-  };
-}
+

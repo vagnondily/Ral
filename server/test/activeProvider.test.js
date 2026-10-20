@@ -101,7 +101,7 @@ test('jumelle SQL : mêmes statuts et mêmes bornes que la règle pure ; tenant 
   assert.match(providerActiveSql('p.id', '$3::date', '$2'), /line_code = \$2/);
 });
 
-test('listes de choix d\'un TPM (retour 58) : le titulaire n\'y figure plus quand son contrat a un TPM rattaché', () => {
+test('listes de choix d\'un TPM (décision D1, retour 115) : jamais un titulaire partenaire de mise en œuvre', () => {
   const links = [
     C({ partnerId: 'p2', via: ['titulaire'] }),                                       // AINA, titulaire de c1
     C({ partnerId: 'p1', via: ['rapport'] }),                                         // YPA facture sur c1 → TPM de c1
@@ -110,11 +110,15 @@ test('listes de choix d\'un TPM (retour 58) : le titulaire n\'y figure plus quan
   ];
   const s = selectableProviders({ links, partners, months: ['2026-05'] });
   const [contrat, tpm] = s.groups;
-  assert.deepEqual(contrat.providers.map((p) => [p.id, p.contracts.map((c) => c.numero)]), [['p2', ['CTR-5']], ['p1', ['CTR-1']]],
-    'AINA seulement pour CTR-5 (aucun TPM rattaché : le titulaire, règle du retour 58) ; YPA pour CTR-1');
+  assert.deepEqual(contrat.providers.map((p) => [p.id, p.contracts.map((c) => c.numero)]), [['p1', ['CTR-1']]],
+    'YPA pour CTR-1 ; AINA jamais, même pour CTR-5 qui n\'a aucun TPM rattaché (suivi interne)');
   assert.deepEqual(tpm.providers.map((p) => p.id), ['p3'], 'RANO (simple visite) : autres TPM, hors contrat');
   const { tpmIdsByContract, contractTpmOf } = require('../src/modules/tpm/activeProvider');
   assert.deepEqual([...tpmIdsByContract(links, partners).get('c1')], ['p1']);
+  assert.deepEqual([...tpmIdsByContract(links, partners).get('c5')], [], 'CTR-5 : aucun TPM (Interne)');
+  // Un TPM titulaire de son propre contrat reste son TPM.
+  const ownLinks = [C({ partnerId: 'p3', contractId: 'c7', numero: 'CTR-7', via: ['titulaire'] })];
+  assert.deepEqual([...tpmIdsByContract(ownLinks, partners).get('c7')], ['p3']);
   // Affichage (retour 113) : un partenaire de mise en œuvre n'est jamais montré comme TPM.
   assert.deepEqual(contractTpmOf([], partners[1]), { state: 'aucun', tpms: [] });
   assert.deepEqual(contractTpmOf([], partners[0]), { state: 'titulaire', tpms: [{ id: 'p1', name: 'YPA' }] });
