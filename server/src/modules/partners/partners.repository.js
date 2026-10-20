@@ -7,7 +7,7 @@ const places = require('../settings/placeMatch.repository');
 const { providerLinksTx, contractTpmViewsTx } = require('../tpm/activeProvider.repository');
 const { monthWithin } = require('../common/periodSql');
 const { followedSql, timelineTrainingSql, heldSql } = require('../trainings/trainingSql');
-const { roleForUpdateTx, restampIfRoleChangedTx } = require('./partnerRole');
+const { roleForUpdateTx, restampIfRoleChangedTx, nameChanges } = require('./partnerRole');
 
 /**
  * Fiche partenaire 360° et équipe — seul fichier du module qui écrit du SQL.
@@ -413,18 +413,22 @@ const PARTNER_FIELDS = { name: 'name', shortName: 'short_name', dailyRate: 'dail
   notes: 'notes', active: 'active' };
 
 async function updatePartner(tenantId, id, patch) {
-  const sets = []; const values = [];
-  for (const [k, col] of Object.entries(PARTNER_FIELDS)) {
-    if (patch[k] === undefined || ((k === 'name' || k === 'active') && patch[k] === null)) continue;
-    values.push(patch[k]); sets.push(`${col} = $${values.length + 2}`);
-  }
-  const identity = sets.length > 0 && (patch.name != null || patch.shortName !== undefined);
+  const fields = Object.entries(PARTNER_FIELDS)
+    .filter(([k]) => !(patch[k] === undefined || ((k === 'name' || k === 'active') && patch[k] === null)));
+  const identity = fields.length > 0 && (patch.name != null || patch.shortName !== undefined);
   return (identity ? places.withSubmissionLinks : withTenantTransaction)(tenantId, async (client) => {
-    if (!sets.length) return Boolean(await getPartnerTx(client, tenantId, id));
-    const before = await roleForUpdateTx(client, tenantId, id);
+    if (!fields.length) return Boolean(await getPartnerTx(client, tenantId, id));
+    // Fiche active dans le patch : verrou d'attribution d'abord, puis la ligne (partnerRole.roleForUpdateTx).
+    const before = await roleForUpdateTx(client, tenantId, id, { active: patch.active });
     if (!before) return false;
+    // `name` listé seulement s'il change vraiment (sinon FOR UPDATE sur la ligne — partnerRole).
+    const sets = []; const values = [];
+    for (const [k, col] of fields) {
+      if (k === 'name' && !nameChanges(before, patch.name)) continue;
+      values.push(patch[k]); sets.push(`${col} = $${values.length + 2}`);
+    }
     const { rowCount } = await client.query(
-      `UPDATE partners SET ${sets.join(', ')}, updated_at = now() WHERE tenant_id = $1 AND id = $2`, [tenantId, id, ...values]);
+      `UPDATE partners SET ${[...sets, 'updated_at = now()'].join(', ')} WHERE tenant_id = $1 AND id = $2`, [tenantId, id, ...values]);
     if (rowCount > 0 && identity) await places.relinkPartiesTx(client, tenantId); // nom ou sigle : formulaires reliés à nouveau
     // Fiche activée / désactivée = rôle de TPM changé : TPM des visites prévues recalculé (même transaction).
     if (rowCount > 0) await restampIfRoleChangedTx(client, tenantId, before, { partnerTypeId: before.partnerTypeId, active: patch.active ?? before.active });
