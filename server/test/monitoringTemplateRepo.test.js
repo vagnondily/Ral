@@ -41,6 +41,7 @@ function reset(over = {}) {
     form: { id: FORM, code: SMP_ID, label: 'Suivi SMP', activityCategory: null, submissions: 1159 },
     def: definition(SMP_ID),
     dataKeys: [],
+    calc: [], // champs calculés MEMS de la fiche : { name, label }
     indicators: [], // lignes de monitoring_indicators
     ...over,
   };
@@ -60,6 +61,7 @@ db.withTenantTransaction = async (tenantId, fn) => fn({
       return { rows: Object.entries(state.def.choices).filter(([l]) => params[2].includes(l)).flatMap(([listName, cs]) => cs.map((c) => ({ listName, ...c }))) };
     }
     if (/^SELECT DISTINCT jsonb_object_keys\(data\)/.test(s)) return { rows: state.dataKeys.map((name) => ({ name })) };
+    if (/^SELECT name, label FROM monitoring_calc_fields WHERE tenant_id = \$1 AND form_id = \$2 ORDER BY name$/.test(s)) return { rows: state.calc };
     if (/^SELECT id, code, label, template_code AS "templateCode", source_field AS "sourceField", agg,/.test(s)) {
       return { rows: state.indicators.map((i, k) => ({ id: `ind-${k}`, naValues: [], target: null, direction: 'higher_better', ...i })) };
     }
@@ -173,4 +175,62 @@ test('modèle refusé : autre que celui de l\'activité, inconnu, ou aucun modè
   await assert.rejects(repo.applyTemplate(T, FORM, { proposed: true }), (err) => err.statusCode === 400 && err.details.code === 'no_template');
   const out = await repo.formTemplate(T, FORM);
   assert.deepEqual([out.template, out.source, out.proposal.best], [null, null, null]);
+});
+
+const GD_ID = 'MDG_Process_Monitoring_GD_PREVMA_v2';
+const gdForm = () => ({ id: FORM, code: GD_ID, label: 'GD', activityCategory: 'Unconditional resource transfers to support access to food', submissions: 0 });
+
+test('création (C13) : « % = valeur » sans valeur comptée → 400 qui nomme l\'élément, rien d\'écrit', async () => {
+  reset({ def: definition(MIARO_ID), form: { id: FORM, code: MIARO_ID, label: 'MIARO', activityCategory: 'Malnutrition prevention activities', submissions: 0 } });
+  await assert.rejects(repo.applyTemplate(T, FORM, { items: [{ code: 'MIARO_ISSUES_OPEN', sourceField: 'reso_status', positiveValue: null }] }), (err) => {
+    assert.equal(err.statusCode, 400);
+    assert.deepEqual([err.details.code, err.details.item, err.details.field], ['positive_required', 'MIARO_ISSUES_OPEN', 'reso_status']);
+    assert.match(err.message, /MIARO_ISSUES_OPEN/);
+    return true;
+  });
+  assert.equal(state.inserted.length, 0);
+});
+
+test('création (C13) : valeur comptée aussi hors base, ou absente de la liste → 400 qui nomme l\'élément, rien d\'écrit (lot entier)', async () => {
+  reset({ def: definition(GD_ID), form: gdForm() });
+  const ok = { code: 'GD_NOT_PAID', sourceField: 'HHAsstPayEnt', positiveValue: '0' };
+  await assert.rejects(repo.applyTemplate(T, FORM, { items: [ok, { code: 'GD_DPMC_TRAINED', sourceField: 'MODPMCMemb', positiveValue: '1|888' }] }), (err) => {
+    assert.deepEqual([err.statusCode, err.details.code, err.details.item, err.details.value], [400, 'positive_is_na', 'GD_DPMC_TRAINED', '888']);
+    return true;
+  });
+  await assert.rejects(repo.applyTemplate(T, FORM, { items: [ok, { code: 'GD_DPMC_TRAINED', sourceField: 'MODPMCMemb', positiveValue: '7' }] }), (err) => {
+    assert.deepEqual([err.statusCode, err.details.code, err.details.item, err.details.value, err.details.field], [400, 'positive_not_in_list', 'GD_DPMC_TRAINED', '7', 'MODPMCMemb']);
+    return true;
+  });
+  assert.equal(state.inserted.length, 0); // le lot est refusé entier : GD_NOT_PAID non plus
+  // La même ligne, corrigée, passe.
+  const out = await repo.applyTemplate(T, FORM, { items: [ok, { code: 'GD_DPMC_TRAINED', sourceField: 'MODPMCMemb', positiveValue: '1' }] });
+  assert.equal(out.applied, 2);
+});
+
+test('carte et création (C15) : un champ calculé MEMS de la fiche est une variable comme une autre', async () => {
+  const def = definition(MIARO_ID);
+  def.fields = def.fields.filter((f) => f.name !== 'r_no_delay'); // la fiche n'a pas le calcul XLSForm…
+  reset({ def, calc: [{ name: 'r_no_delay', label: 'Pas de retard (calcul MEMS)' }], form: { id: FORM, code: MIARO_ID, label: 'MIARO', activityCategory: 'Malnutrition prevention activities', submissions: 0 } });
+  const out = await repo.formTemplate(T, FORM);
+  const delay = out.template.items.find((i) => i.code === 'MIARO_NO_DELAY');
+  assert.deepEqual([delay.suggestion.field, delay.suggestion.confidence], ['r_no_delay', 'sure']); // … mais son champ calculé MEMS
+  assert.ok(out.fields.some((f) => f.name === 'r_no_delay'));
+  const made = await repo.applyTemplate(T, FORM, { items: [{ code: 'MIARO_NO_DELAY', sourceField: 'r_no_delay', positiveValue: '1' }] });
+  assert.equal(made.applied, 1);
+  assert.equal(state.inserted[0][5], 'r_no_delay');
+});
+
+test('carte (C14) : une modification de l\'utilisateur est une différence, jamais comptée « à mettre à jour »', async () => {
+  reset({
+    def: definition(GD_ID), form: gdForm(),
+    indicators: [{ code: 'GD_DPMC_TRAINED', templateCode: 'GD_DPMC_TRAINED', label: 'Membres du comité présents lors de la visite', sourceField: 'MODPMCMemb', agg: 'percent_yes', positiveValue: '1', naValues: ['888'], direction: 'lower_better' }],
+  });
+  const out = await repo.formTemplate(T, FORM);
+  const dpmc = out.template.items.find((i) => i.code === 'GD_DPMC_TRAINED');
+  assert.equal(dpmc.existing.drift.kind, 'difference');
+  assert.deepEqual(dpmc.existing.drift.patch, {});
+  assert.deepEqual(dpmc.existing.drift.fullPatch, { direction: 'higher_better' });
+  assert.deepEqual([out.summary.toUpdate, out.summary.labelsToUpdate, out.summary.differences], [0, 0, 1]);
+  assert.equal(state.calls.filter((c) => /^(INSERT|UPDATE|DELETE)/.test(c.sql)).length, 0);
 });

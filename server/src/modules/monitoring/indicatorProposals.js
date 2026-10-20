@@ -27,11 +27,14 @@
  *     contre les 5 formulaires réels — ou par `field.repeat` quand le catalogue
  *     de la fiche le fournira (import des sous-tables).
  *  4. SIGNALE un indicateur déjà créé dont la définition diffère du modèle
- *     actuel (templateDrift) : « à mettre à jour », jamais réécrit seul.
+ *     actuel (templateDrift) : « à mettre à jour » quand il garde une valeur
+ *     d'avant une correction du modèle, « différent » sinon (modification de
+ *     l'utilisateur) ; jamais réécrit seul.
  */
 const {
-  CATALOG, nameKey, templateForActivity, templateByKey, suggestBindings,
+  CATALOG, nameKey, templateForActivity, templateByKey, suggestBindings, positiveFor,
 } = require('./indicatorTemplates');
+const { definitionIssue } = require('./indicatorRules');
 
 /** Couverture d'un modèle « reconnu » (60 % de ses éléments) : la carte le dit sans réserve. */
 const STRONG_MIN = 0.6;
@@ -245,54 +248,187 @@ function bindingSummary(bindings, { done = new Set(), taken = new Set() } = {}) 
 
 const valueSet = (v) => String(v == null ? '' : v).split('|').map((x) => x.trim()).filter(Boolean).sort().join('|');
 const listSet = (l) => [...new Set((l || []).map(String))].sort().join('|');
+/** Liaison sûre : variable trouvée par son NOM parmi celles du modèle (jamais un libellé ressemblant), sans défaut. */
+const SURE_CONFIDENCE = new Set(['sure', 'probable']);
+// Clés dont la valeur dépend de la liste de la variable : comparées seulement avec une liaison vérifiée.
+const VALUE_KEYS = new Set(['positiveValue', 'naValues']);
+
+/**
+ * Liaison de l'élément sur la variable `name` : celle de bindTemplate si elle porte sur cette variable,
+ * sinon recalculée (bindItem) sur la variable de la fiche du même nom ; null si la fiche ne l'a pas.
+ */
+function bindingForVariable(item, binding, name, fields) {
+  if (!name) return null;
+  if (binding && binding.field && nameKey(binding.field) === nameKey(name)) return binding;
+  const field = (fields || []).find((f) => f && f.name && nameKey(f.name) === nameKey(name));
+  if (!field) return null;
+  return bindItem(item, { positiveValue: positiveFor(item, field), confidence: 'sure' }, field, null);
+}
 
 /**
  * Écart entre un indicateur DÉJÀ créé depuis le modèle et la définition actuelle
  * de son élément (les modèles ont été corrigés le 14/10 : MIARO_NO_DELAY lisait
  * risk_delay, GD_WH_PALLETS l'empilage…). Rien n'est réécrit : l'écran le signale
  * et propose `patch`, envoyé par l'utilisateur via PATCH /indicators/:id (mêmes
- * contrôles qu'une modification à la main). Le libellé n'est signalé que s'il est
- * encore l'ANCIEN libellé du modèle (`formerly`) — un libellé renommé par
- * l'utilisateur ne l'est jamais. Une cible saisie par l'utilisateur non plus.
+ * contrôles qu'une modification à la main).
+ *
+ * Chaque écart porte son origine :
+ *  - « correction » : l'indicateur a encore la valeur d'AVANT la correction du
+ *    modèle (`formerly`) — « à mettre à jour », compté, envoyé par « Tout mettre à jour » ;
+ *  - « difference » : autre valeur que le modèle, qui n'est pas une ancienne valeur
+ *    du modèle — le plus souvent une modification de l'utilisateur (sens, réponses
+ *    hors base, cible effacée…) : affichée pour information, jamais comptée ni
+ *    envoyée en lot, seulement par l'action de SA ligne (`fullPatch`).
+ * Jamais signalés : une variable choisie par l'utilisateur (ni du modèle ni d'avant
+ * la correction), un libellé renommé (seul un ANCIEN libellé du modèle l'est), une
+ * cible saisie.
+ *
+ * Variable : seule une variable d'avant la correction est remplacée, et seulement
+ * par une variable du modèle trouvée par son NOM, sans défaut (jamais un libellé
+ * ressemblant « à vérifier », jamais un type ou une liste incompatible) ; sinon la
+ * mise à jour est BLOQUÉE (`blocked`) : rien d'un clic, la raison est dite.
+ * Valeur comptée et réponses hors base : comparées avec la liaison VÉRIFIÉE de la
+ * variable retenue (sa liste) ; sans elle, une correction de méthode ou de valeur
+ * est bloquée (« incompatible » / « missing ») et une simple différence n'est pas
+ * signalée (invérifiable).
  * @param {object} item  élément du modèle
  * @param {object|null} binding  bindItem : variable proposée pour CETTE fiche
  * @param {{ label, sourceField, agg, positiveValue, naValues, target, direction }} ind  indicateur enregistré
- * @returns {null | { kind: 'definition'|'label', former: boolean, changes: Array<{ key, from, to }>, patch: object }}
- *   former : l'indicateur porte encore la définition d'avant la correction ;
- *   un changement de variable sans variable du modèle dans la fiche a `to: null` (pas dans `patch`).
+ * @param {{ fields?: object[] }} [opts]  variables de la fiche (liaison de la variable de l'indicateur)
+ * @returns {null | {
+ *   kind: 'definition'|'label'|'difference', former: boolean,
+ *   changes: Array<{ key, from, to, origin: 'correction'|'difference' }>,
+ *   patch: object, fullPatch: object,
+ *   blocked: null | { reason: 'missing'|'incompatible'|'unverified', field: string|null, issues: string[], pendingData: boolean } }}
+ *   patch = les corrections (vide si bloqué) ; fullPatch = corrections + différences (vide si bloqué).
  */
-function templateDrift(item, binding, ind) {
+function templateDrift(item, binding, ind, { fields = null } = {}) {
   const changes = [];
-  const patch = {};
-  const change = (key, from, to, inPatch = true) => {
-    changes.push({ key, from: from == null ? null : from, to: to == null ? null : to });
-    if (inPatch) patch[key] = to == null ? null : to;
-  };
-  const known = new Set((item.variables || []).map(nameKey));
-  if (!known.has(nameKey(ind.sourceField))) {
-    const usable = binding && binding.field && !(binding.issues || []).length ? binding.field : null;
-    change('sourceField', ind.sourceField, usable, Boolean(usable));
-  }
-  if (ind.agg !== item.agg) change('agg', ind.agg, item.agg);
-  const percent = PERCENT_AGGS.has(item.agg);
-  const wantedPositive = percent ? ((binding && binding.field ? binding.positiveValue : item.positiveValue) || null) : null;
-  if (valueSet(ind.positiveValue) !== valueSet(wantedPositive)) change('positiveValue', ind.positiveValue || null, wantedPositive);
-  const wantedNa = binding && binding.field ? binding.naValues : (item.naValues || []);
-  if (listSet(ind.naValues) !== listSet(wantedNa)) change('naValues', ind.naValues || [], wantedNa);
-  if (item.target != null && ind.target == null) change('target', null, Number(item.target));
-  if (item.direction && ind.direction && ind.direction !== item.direction) change('direction', ind.direction, item.direction);
+  const add = (key, from, to, origin) => changes.push({ key, from: from == null ? null : from, to: to == null ? null : to, origin });
   const formerly = item.formerly || [];
-  if (ind.label !== item.label && formerly.some((f) => f.label === ind.label)) change('label', ind.label, item.label);
+  const known = new Set((item.variables || []).map(nameKey));
+  const formerVars = new Set(formerly.flatMap((f) => (f.variables || []).map(nameKey)));
+  const issuesOf = (b) => (b && b.issues) || [];
+  let blocked = null;
+
+  // 1. Variable retenue pour l'indicateur.
+  let target = ind.sourceField;
+  if (!known.has(nameKey(ind.sourceField)) && formerVars.has(nameKey(ind.sourceField))) {
+    const field = binding && binding.field;
+    const sure = field && known.has(nameKey(field)) && SURE_CONFIDENCE.has(binding.confidence) && !issuesOf(binding).length;
+    if (sure) {
+      add('sourceField', ind.sourceField, field, 'correction');
+      target = field;
+    } else {
+      add('sourceField', ind.sourceField, null, 'correction');
+      target = null;
+      if (field && known.has(nameKey(field))) blocked = { reason: 'incompatible', field, issues: issuesOf(binding), pendingData: false };
+      else if (field) blocked = { reason: 'unverified', field, issues: [], pendingData: false };
+      else blocked = { reason: 'missing', field: (item.variables || [])[0] || null, issues: [], pendingData: Boolean(binding && binding.pendingData) };
+    }
+  }
+  // Variable choisie par l'utilisateur (ni du modèle ni d'avant la correction) : son choix, jamais signalé.
+
+  // 2. Liaison vérifiée de la variable retenue (sa liste) : valeurs comparées seulement avec elle.
+  const vb = target ? bindingForVariable(item, binding, target, fields) : null;
+  const verified = Boolean(vb) && !issuesOf(vb).length;
+  const percent = PERCENT_AGGS.has(item.agg);
+  const origin = (key, value) => (formerly.some((f) => {
+    if (key === 'agg') return f.agg === value && f.agg !== item.agg;
+    if (key === 'positiveValue') return valueSet(f.positiveValue) === valueSet(value) && valueSet(f.positiveValue) !== valueSet(item.positiveValue);
+    if (key === 'naValues') return listSet(f.naValues) === listSet(value) && listSet(f.naValues) !== listSet(item.naValues);
+    if (key === 'direction') return Boolean(f.direction) && f.direction === value && f.direction !== item.direction;
+    return false;
+  }) ? 'correction' : 'difference');
+
+  if (ind.agg !== item.agg) add('agg', ind.agg, item.agg, origin('agg', ind.agg));
+  const wantedPositive = percent ? ((verified ? vb.positiveValue : item.positiveValue) || null) : null;
+  if (valueSet(ind.positiveValue) !== valueSet(wantedPositive)) add('positiveValue', ind.positiveValue || null, wantedPositive, origin('positiveValue', ind.positiveValue));
+  const wantedNa = verified ? vb.naValues : (item.naValues || []);
+  if (listSet(ind.naValues) !== listSet(wantedNa)) add('naValues', ind.naValues || [], wantedNa, origin('naValues', ind.naValues || []));
+  // Cible vide alors que le modèle en a une : ancienne création OU cible effacée — indiscernables, donc une différence.
+  if (item.target != null && ind.target == null) add('target', null, Number(item.target), 'difference');
+  if (item.direction && ind.direction && ind.direction !== item.direction) add('direction', ind.direction, item.direction, origin('direction', ind.direction));
+  if (ind.label !== item.label && formerly.some((f) => f.label === ind.label)) add('label', ind.label, item.label, 'correction');
+
+  if (!verified) {
+    // Sans liaison vérifiée : une différence de valeur est invérifiable (non signalée) ; une correction de
+    // méthode ou de valeur ne s'applique pas d'un clic (la liste de la variable ne la porte pas).
+    const needsList = changes.some((c) => c.origin === 'correction' && (VALUE_KEYS.has(c.key) || (c.key === 'agg' && percent)));
+    for (let i = changes.length - 1; i >= 0; i -= 1) if (VALUE_KEYS.has(changes[i].key) && changes[i].origin === 'difference') changes.splice(i, 1);
+    if (needsList && !blocked) {
+      blocked = vb ? { reason: 'incompatible', field: target, issues: issuesOf(vb), pendingData: false }
+        : { reason: 'missing', field: target, issues: [], pendingData: false };
+    }
+  }
   if (!changes.length) return null;
-  const former = formerly.some((f) => (f.variables || []).some((v) => nameKey(v) === nameKey(ind.sourceField))
-    && f.agg === ind.agg && valueSet(f.positiveValue) === valueSet(ind.positiveValue));
-  // « % = valeur » sans valeur comptée serait refusé : la valeur suit toujours la méthode.
-  if (patch.agg && PERCENT_AGGS.has(patch.agg) && !('positiveValue' in patch) && !ind.positiveValue) patch.positiveValue = item.positiveValue || null;
-  return { kind: changes.some((c) => c.key !== 'label') ? 'definition' : 'label', former, changes, patch };
+
+  const corrections = changes.filter((c) => c.origin === 'correction');
+  const toPatch = (list) => {
+    const out = {};
+    for (const c of list) if (!(c.key === 'sourceField' && c.to == null)) out[c.key] = c.to == null ? null : c.to;
+    // « % = valeur » sans valeur comptée serait refusé : la valeur suit toujours la méthode (liaison vérifiée).
+    if (out.agg && PERCENT_AGGS.has(out.agg) && !('positiveValue' in out) && !ind.positiveValue && verified) out.positiveValue = vb.positiveValue || null;
+    return out;
+  };
+  const kind = corrections.some((c) => c.key !== 'label') ? 'definition' : corrections.length ? 'label' : 'difference';
+  return {
+    kind, former: corrections.length > 0, changes, blocked,
+    patch: blocked ? {} : toPatch(corrections),
+    fullPatch: blocked ? {} : toPatch(changes),
+  };
+}
+
+/**
+ * Refus d'un élément envoyé à la création (applyTemplate, éléments cochés ou proposés) — même
+ * contrôle que la carte et que l'éditeur, un élément nommé, rien d'écrit :
+ *  - type de la variable incompatible avec la méthode (type_mismatch) ;
+ *  - valeur comptée absente de la liste de la variable (positive_not_in_list) : l'indicateur
+ *    calculerait toujours 0 % ;
+ *  - définition incohérente (indicatorRules.definitionIssue : « % = valeur » sans valeur,
+ *    valeur comptée aussi hors base).
+ * @param {object} item  élément du modèle
+ * @param {{name, type?, choices?}|null} field  variable choisie
+ * @param {{ positiveValue, naValues, target }} def  ce qui serait enregistré
+ * @returns {null|{ code: string, message: string, details: object }}
+ */
+function templateRowIssue(item, field, def) {
+  const name = field ? field.name : null;
+  const type = field ? field.type : null;
+  const head = `« ${item.label} » (${item.code})`;
+  if (field && typeIssue(item.agg, type)) {
+    return {
+      code: 'type_mismatch',
+      message: `${head} : la variable « ${name} » (${type}) ne convient pas à la méthode de cet indicateur. Choisissez une autre variable.`,
+      details: { code: 'type_mismatch', item: item.code, field: name, type, agg: item.agg },
+    };
+  }
+  const positive = def.positiveValue == null ? '' : String(def.positiveValue).trim();
+  const choices = (field && field.choices) || [];
+  if (PERCENT_AGGS.has(item.agg) && positive && choices.length) {
+    const values = new Set(choices.map((c) => String(c.value)));
+    const missing = positive.split('|').map((v) => v.trim()).find((v) => v && !values.has(v));
+    if (missing) {
+      return {
+        code: 'positive_not_in_list',
+        message: `${head} : la valeur comptée « ${missing} » n'est pas dans la liste de la variable « ${name} ». Choisissez une valeur de sa liste.`,
+        details: { code: 'positive_not_in_list', item: item.code, field: name, value: missing },
+      };
+    }
+  }
+  const issue = definitionIssue({ agg: item.agg, positiveValue: def.positiveValue, naValues: def.naValues, target: def.target });
+  if (issue) {
+    return {
+      code: issue.code,
+      message: `${head} : ${issue.message}`,
+      details: { code: issue.code, item: item.code, field: name, attribute: issue.field, ...(issue.value != null ? { value: issue.value } : {}) },
+    };
+  }
+  return null;
 }
 
 module.exports = {
   STRONG_MIN, SHOW_MIN, TIE_MARGIN,
   typeIssue, presenceIndex, templateCoverage, formTokens, hintScore,
-  proposeTemplate, effectiveTemplate, bindItem, bindTemplate, proposedSelection, bindingSummary, templateDrift,
+  proposeTemplate, effectiveTemplate, bindItem, bindTemplate, proposedSelection, bindingSummary, templateDrift, bindingForVariable, templateRowIssue,
 };

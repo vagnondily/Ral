@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Sparkles, CheckCircle2, SlidersHorizontal, Plus, Layers } from 'lucide-react';
+import { Sparkles, CheckCircle2, SlidersHorizontal, Plus, Layers, XCircle, RefreshCw } from 'lucide-react';
 import { api } from '../../api/client.js';
 import Modal from '../../components/Modal.jsx';
-import { Button, Skeleton } from '../../components/ui.jsx';
+import { Alert, Button, Skeleton } from '../../components/ui.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt } from '../../lib/format.js';
-import { AGG_LABEL, coveragePct } from '../../lib/templateProposal.js';
+import { AGG_LABEL, coveragePct, proposalCtaState, templateErrorText } from '../../lib/templateProposal.js';
 import { indexStatus } from '../../lib/indicatorView.js';
 import './templates.css';
 
@@ -23,16 +23,32 @@ import './templates.css';
  */
 export default function TemplateProposalCta({ form, canEdit, onCreated, onGoConfig, onCreateOne }) {
   const { tr } = useI18n();
-  const [data, setData] = useState(undefined); // undefined = en cours, null = indisponible
+  const [data, setData] = useState(undefined); // undefined = en cours ; { failed } = chargement échoué
   const [preview, setPreview] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let alive = true;
     setData(undefined);
-    api.monTemplate(form.id).then((r) => { if (alive) setData(r); }).catch(() => { if (alive) setData(null); });
+    // Un chargement échoué n'est JAMAIS « aucun modèle ne correspond » : l'erreur est gardée et dite.
+    api.monTemplate(form.id).then((r) => { if (alive) setData(r); })
+      .catch((e) => { if (alive) setData({ failed: templateErrorText(e, tr) }); });
     return () => { alive = false; };
-  }, [form.id, form.activityCategory]);
+    /* eslint-disable-next-line */
+  }, [form.id, form.activityCategory, attempt]);
 
-  if (data === undefined) return <Skeleton height={40} />;
+  const state = proposalCtaState(data);
+  if (state === 'loading') return <Skeleton height={40} />;
+  if (state === 'failed') {
+    return (
+      <div className="tplp-cta">
+        <Alert tone="error" icon={XCircle}>{tr('Le modèle d\'indicateurs n\'a pas pu être chargé : {msg}', { msg: (data && data.failed) || '—' })}</Alert>
+        <div className="tplp-actions">
+          <Button variant="secondary" icon={RefreshCw} onClick={() => setAttempt((n) => n + 1)}>{tr('Réessayer')}</Button>
+          {canEdit && onCreateOne && <Button variant="secondary" icon={Plus} onClick={onCreateOne}>{tr('Nouvel indicateur')}</Button>}
+        </div>
+      </div>
+    );
+  }
   const tpl = data && data.template;
   const summary = (data && data.summary) || {};
   const n = summary.proposed || 0;
@@ -42,7 +58,7 @@ export default function TemplateProposalCta({ form, canEdit, onCreated, onGoConf
       {onGoConfig && <Button variant="secondary" icon={SlidersHorizontal} onClick={onGoConfig}>{tr('Ouvrir la configuration')}</Button>}
     </div>
   );
-  if (!tpl || n === 0) {
+  if (state === 'none') {
     return (
       <div className="tplp-cta">
         <p>{tpl
@@ -55,7 +71,7 @@ export default function TemplateProposalCta({ form, canEdit, onCreated, onGoConf
   const best = data.proposal?.best;
   const cov = best && best.key === tpl.key ? best : null;
   // Modèle proposé mais incertain : le choisir dans Configuration (la carte montre la couverture de chaque modèle).
-  if (data.source === 'proposal' && data.proposal?.ambiguous) {
+  if (state === 'ambiguous') {
     return (
       <div className="tplp-cta">
         <p>{tr('Plusieurs modèles d\'indicateurs correspondent presque autant aux variables de cette fiche (le plus proche : « {label} », {p} % de ses éléments trouvés) : choisissez le bon dans Configuration.', { label: tpl.label, p: coveragePct(cov?.coverage) })}</p>
@@ -113,7 +129,7 @@ function ProposalDialog({ form, data, onClose, onCreated }) {
       toast.success(tr('{n} indicateur(s) créé(s) depuis le modèle « {label} ».', { n: formatInt(r.applied), label: tpl.label }));
       if (r.conflicts) toast.error(tr('{n} indicateur(s) non créé(s) : leur code est déjà utilisé par un indicateur de la fiche.', { n: formatInt(r.conflicts) }));
       onCreated(r);
-    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+    } catch (e) { toast.error(templateErrorText(e, tr, { template: tpl.key })); } finally { setBusy(false); }
   }
   return (
     <Modal open wide onClose={onClose} title={tr('Créer les {n} indicateurs proposés', { n: formatInt(n) })} subtitle={tr('Modèle « {label} » · {form}', { label: tpl.label, form: form.label })}

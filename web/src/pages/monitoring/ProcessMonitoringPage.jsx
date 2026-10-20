@@ -17,6 +17,7 @@ import IndicatorsList from './IndicatorsList.jsx';
 import IndicatorEditor from './IndicatorEditor.jsx';
 import TemplateBindingCard from './TemplateBindingCard.jsx';
 import TemplateProposalCta from './TemplateProposal.jsx';
+import { configEmptyKey } from '../../lib/templateProposal.js';
 import { CalcFieldsCard } from './CalcFields.jsx';
 import ImportWizard from './ImportWizard.jsx';
 import CorrespondencesCard from './Correspondences.jsx';
@@ -1240,12 +1241,15 @@ function ConfigTab({ form, canEdit, onChanged, onAttach, focusTemplate = false }
   // indicateur (retour 85) : le modèle proposé d'abord, visible sans défiler. Ordre fixé à l'ouverture de
   // l'onglet (par fiche) : créer les indicateurs ne fait pas sauter la carte du modèle sous la liste.
   const templateFirst = useMemo(() => focusTemplate || !(form.indicatorCount > 0), [form.id, focusTemplate]); // eslint-disable-line
+  // La carte du modèle MONTRE-t-elle un modèle ? L'état vide de la liste n'y renvoie que dans ce cas.
+  const [templateShown, setTemplateShown] = useState(false);
   const indicatorsCard = (
-    <IndicatorsConfigCard key="ind" form={form} canEdit={canEdit} refreshKey={indRefresh} templateAbove={templateFirst}
+    <IndicatorsConfigCard key="ind" form={form} canEdit={canEdit} refreshKey={indRefresh} templateAbove={templateFirst} templateShown={templateShown}
       onChanged={() => { setTplRefresh((v) => v + 1); onChanged?.(); }} />
   );
   const templateCard = (
     <TemplateBindingCard key="tpl" form={form} canEdit={canEdit} refreshKey={tplRefresh} onAttach={onAttach}
+      onLoaded={(info) => setTemplateShown(Boolean(info.template))}
       onApplied={() => { setIndRefresh((v) => v + 1); onChanged?.(); }} />
   );
   return (
@@ -1262,7 +1266,7 @@ function ConfigTab({ form, canEdit, onChanged, onAttach, focusTemplate = false }
  * Résultats) sur chaque ligne. Colonne d'actions toujours visible (figée à
  * droite), libellés de question longs tronqués.
  */
-function IndicatorsConfigCard({ form, canEdit, refreshKey = 0, templateAbove = false, onChanged }) {
+function IndicatorsConfigCard({ form, canEdit, refreshKey = 0, templateAbove = false, templateShown = false, onChanged }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [indicators, setIndicators] = useState(null);
@@ -1303,11 +1307,12 @@ function IndicatorsConfigCard({ form, canEdit, refreshKey = 0, templateAbove = f
         : indicators.length === 0 ? (
           <EmptyState icon={Link2} title={tr('Aucun indicateur')}
             action={canEdit && <Button icon={Plus} onClick={() => setEdit({})}>{tr('Nouvel indicateur')}</Button>}>
-            {/* Retour 85 : l'état vide dit quoi faire — partir du modèle proposé pour la fiche, ou créer soi-même. */}
-            {templateAbove
-              ? tr('Partez du modèle d\'indicateurs ci-dessus : il propose les indicateurs de cette fiche d\'après ses variables. Vérifiez les variables cochées, puis « Créer ».')
-              : tr('Partez du modèle d\'indicateurs ci-dessous : il propose les indicateurs de cette fiche d\'après ses variables. Vérifiez les variables cochées, puis « Créer ».')}
-            {' '}{fillNodes(tr('Ou reliez vous-même une variable du formulaire à un mode de calcul (ex. « % de bénéficiaires informés » ← champ {field}, mode « % de oui »).'), { field: <code>info_recue</code> })}
+            {/* Retour 85 : l'état vide dit quoi faire — partir du modèle proposé, SEULEMENT si la carte en montre un
+                (lib configEmptyKey) ; sinon créer les indicateurs un par un. */}
+            {configEmptyKey({ templateShown, above: templateAbove }) ? <>
+              {tr(configEmptyKey({ templateShown, above: templateAbove }))}
+              {' '}{fillNodes(tr('Ou reliez vous-même une variable du formulaire à un mode de calcul (ex. « % de bénéficiaires informés » ← champ {field}, mode « % de oui »).'), { field: <code>info_recue</code> })}
+            </> : fillNodes(tr('Reliez une variable du formulaire à un mode de calcul (ex. « % de bénéficiaires informés » ← champ {field}, mode « % de oui »).'), { field: <code>info_recue</code> })}
           </EmptyState>
         ) : (
           <div className="table-wrap">

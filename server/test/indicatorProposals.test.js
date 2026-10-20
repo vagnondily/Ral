@@ -209,18 +209,104 @@ test('écart : libellé renommé par l\'utilisateur, autre variable connue du mo
   assert.equal(P.templateDrift(list, null, { label: list.label, sourceField: 'modistrlist', agg: 'percent_yes', positiveValue: '1', naValues: [], target: null, direction: 'higher_better' }), null);
 });
 
-test('écart : variable du modèle pas encore dans les données → signalée sans variable à écrire ; cible du modèle ajoutée', () => {
+test('écart : variable du modèle pas encore dans les données → bloqué, rien d\'un clic ; cible vide = différence, jamais une correction', () => {
   const gd = templateByKey('GD');
   const pallets = gd.items.find((i) => i.code === 'GD_WH_PALLETS');
-  const d = P.templateDrift(pallets, { field: null, naValues: [] }, { label: 'Produits sur palettes', sourceField: 'MOWhStackProp', agg: 'percent_yes', positiveValue: '1', naValues: [], target: null, direction: 'higher_better' });
+  const d = P.templateDrift(pallets, { field: null, naValues: [], pendingData: true }, { label: 'Produits sur palettes', sourceField: 'MOWhStackProp', agg: 'percent_yes', positiveValue: '1', naValues: [], target: null, direction: 'higher_better' });
   assert.equal(d.kind, 'definition');
   assert.equal(d.former, true);
-  assert.deepEqual(d.changes.find((c) => c.key === 'sourceField'), { key: 'sourceField', from: 'MOWhStackProp', to: null });
-  assert.equal('sourceField' in d.patch, false);
+  assert.deepEqual(d.changes.find((c) => c.key === 'sourceField'), { key: 'sourceField', from: 'MOWhStackProp', to: null, origin: 'correction' });
+  assert.deepEqual(d.blocked, { reason: 'missing', field: 'MOWhStackPall/1', issues: [], pendingData: true });
+  assert.deepEqual([d.patch, d.fullPatch], [{}, {}]); // même le libellé : jamais le libellé du modèle sur l'ancienne variable
   const smp = templateByKey('SMP');
   const days = smp.items.find((i) => i.code === 'SMP_DAYS_SERVED');
+  // Cible vide : ancienne création ou cible effacée par l'utilisateur, indiscernables → information, action de la ligne seulement.
   const t = P.templateDrift(days, null, { label: days.label, sourceField: 'DIRNBSchMealsProvided', agg: 'mean', positiveValue: null, naValues: ['888'], target: null, direction: 'higher_better' });
-  assert.deepEqual(t.patch, { target: 20 });
+  assert.equal(t.kind, 'difference');
+  assert.equal(t.former, false);
+  assert.deepEqual(t.patch, {});
+  assert.deepEqual(t.fullPatch, { target: 20 });
+});
+
+const MIARO_OLD = { label: 'Absence de retard', sourceField: 'risk_delay', agg: 'percent_value', positiveValue: '0', naValues: [], target: null, direction: 'higher_better' };
+const YES_NO = [{ value: '0', label: 'Non' }, { value: '1', label: 'Oui' }];
+
+test('écart (C10) : variable du modèle absente, une question au libellé proche (« à vérifier ») → bloqué, jamais rattaché d\'un clic', () => {
+  const item = templateByKey('STUNT').items.find((i) => i.code === 'MIARO_NO_DELAY');
+  const fields = [
+    { name: 'risk_delay', type: 'select_one', choices: YES_NO },
+    { name: 'q_other', label: 'Pas de retard au démarrage de la distribution ?', type: 'select_one', choices: YES_NO },
+  ];
+  const binding = P.bindTemplate({ items: [item] }, fields)[0];
+  assert.deepEqual([binding.field, binding.confidence, binding.issues], ['q_other', 'a_verifier', []]);
+  const d = P.templateDrift(item, binding, MIARO_OLD, { fields });
+  assert.deepEqual(d.blocked, { reason: 'unverified', field: 'q_other', issues: [], pendingData: false });
+  assert.deepEqual([d.patch, d.fullPatch], [{}, {}]);
+  assert.equal(d.changes.find((c) => c.key === 'sourceField').to, null);
+});
+
+test('écart (C21) : variable du modèle présente mais de type incompatible → bloqué « incompatible », avec le défaut', () => {
+  const item = templateByKey('STUNT').items.find((i) => i.code === 'MIARO_NO_DELAY');
+  const fields = [{ name: 'risk_delay', type: 'select_one', choices: YES_NO }, { name: 'r_no_delay', type: 'select_multiple', choices: YES_NO }];
+  const binding = P.bindTemplate({ items: [item] }, fields)[0];
+  const d = P.templateDrift(item, binding, MIARO_OLD, { fields });
+  assert.deepEqual(d.blocked, { reason: 'incompatible', field: 'r_no_delay', issues: ['type'], pendingData: false });
+  assert.deepEqual(d.patch, {});
+});
+
+test('écart (C11) : variable choisie par l\'utilisateur (ni du modèle ni d\'avant la correction) → jamais signalée', () => {
+  const item = templateByKey('GD').items.find((i) => i.code === 'GD_DIST_LIST_NUT');
+  const fields = [{ name: 'q_custom', label: 'Liste bénéficiaires disponible', type: 'select_one', choices: YES_NO }];
+  const binding = P.bindTemplate({ items: [item] }, fields)[0];
+  assert.equal(binding.confidence, 'a_verifier');
+  const created = { label: item.label, sourceField: 'q_custom', agg: 'percent_yes', positiveValue: '1', naValues: [], target: null, direction: 'higher_better' };
+  assert.equal(P.templateDrift(item, binding, created, { fields }), null);
+});
+
+test('écart (C12) : « % = valeur » jamais remplacé par le « Oui » de la liste — ni proposé, ni signalé à l\'envers', () => {
+  const item = templateByKey('GD').items.find((i) => i.code === 'GD_NOT_PAID');
+  const fields = [{ name: 'HHAsstPayEnt', type: 'select_one', choices: [{ value: 'yes', label: 'Oui' }, { value: 'no', label: 'Non' }] }];
+  const binding = P.bindTemplate({ items: [item] }, fields)[0];
+  assert.deepEqual([binding.positiveValue, binding.issues, binding.preselect], ['0', ['positive'], false]);
+  const ind = { label: item.label, sourceField: 'HHAsstPayEnt', agg: 'percent_value', positiveValue: '0', naValues: [], target: null, direction: 'higher_better' };
+  assert.equal(P.templateDrift(item, binding, ind, { fields }), null);
+  // Valeur saisie par l'utilisateur sur cette liste : invérifiable face au modèle → non signalée (jamais « yes »).
+  assert.equal(P.templateDrift(item, binding, { ...ind, positiveValue: 'no' }, { fields }), null);
+});
+
+test('écart (C14) : modifications de l\'utilisateur = différences (information), jamais dans « Tout mettre à jour »', () => {
+  const item = templateByKey('GD').items.find((i) => i.code === 'GD_DPMC_TRAINED');
+  const fields = [{ name: 'MODPMCMemb', type: 'select_one', choices: [{ value: '0', label: 'Non' }, { value: '1', label: 'Oui' }, { value: '888', label: 'Ne sait pas' }, { value: '999', label: 'Refus' }] }];
+  const binding = P.bindTemplate({ items: [item] }, fields)[0];
+  const base = { label: item.label, sourceField: 'MODPMCMemb', agg: 'percent_yes', positiveValue: '1', naValues: ['888'], target: null, direction: 'higher_better' };
+  assert.equal(P.templateDrift(item, binding, base, { fields }), null);
+  for (const edit of [{ direction: 'lower_better' }, { naValues: ['888', '999'] }, { naValues: [] }, { agg: 'mean' }, { positiveValue: '0' }]) {
+    const d = P.templateDrift(item, binding, { ...base, ...edit }, { fields });
+    assert.equal(d.kind, 'difference', JSON.stringify(edit));
+    assert.equal(d.former, false, JSON.stringify(edit));
+    assert.deepEqual(d.patch, {}, JSON.stringify(edit));
+    assert.ok(Object.keys(d.fullPatch).length > 0, JSON.stringify(edit));
+    assert.ok(d.changes.every((c) => c.origin === 'difference'), JSON.stringify(edit));
+  }
+  // Ancien libellé du modèle + sens changé par l'utilisateur : seule la correction part en lot ; le sens reste à la ligne.
+  const mixed = P.templateDrift(item, binding, { ...base, label: 'DPMC membres formés', direction: 'lower_better' }, { fields });
+  assert.equal(mixed.kind, 'label');
+  assert.deepEqual(mixed.patch, { label: item.label });
+  assert.deepEqual(mixed.fullPatch, { label: item.label, direction: 'higher_better' });
+});
+
+test('écart : correction de méthode sans liste vérifiée (variable de l\'indicateur absente) → bloquée, jamais « % = valeur » sans liste', () => {
+  const item = templateByKey('STUNT').items.find((i) => i.code === 'MIARO_ISSUES_OPEN');
+  const old = { label: item.formerly[0].label, sourceField: 'reso_status', agg: 'count', positiveValue: '4', naValues: [], target: null, direction: 'lower_better' };
+  const d = P.templateDrift(item, { field: null, issues: [], naValues: [] }, old, { fields: [] });
+  assert.equal(d.kind, 'definition');
+  assert.equal(d.blocked.reason, 'missing');
+  assert.deepEqual(d.patch, {});
+  // La variable est là, avec « 4 » dans sa liste : la correction part d'un clic.
+  const fields = [{ name: 'reso_status', type: 'select_one', choices: [{ value: '1', label: 'Résolu' }, { value: '4', label: 'En attente' }] }];
+  const ok = P.templateDrift(item, P.bindTemplate({ items: [item] }, fields)[0], old, { fields });
+  assert.equal(ok.blocked, null);
+  assert.deepEqual(ok.patch, { agg: 'percent_value', label: item.label });
 });
 
 test('catalogue : chaque élément corrigé garde sa définition d\'avant (formerly), les autres non', () => {
