@@ -1,6 +1,6 @@
 # Reprise du travail — passation entre sessions Claude
 
-_Mis à jour : 20/10/2026, 06:13 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
+_Mis à jour : 20/10/2026, 11:24 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
 Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOURNAL.md)._
 
 **À qui s'adresse ce fichier ?** À toute session Claude qui reprend le projet, en particulier pendant une limite d'usage de la session principale. Il dit :
@@ -9,18 +9,22 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 - ce qui reste, et dans quel ordre ;
 - comment travailler à deux sans se marcher dessus.
 
-> **20/10, 06:13 — reprise.** Les agents du 16/10 se sont arrêtés sur la limite d'usage ; leur travail non commité est
-> sur GitHub, branches `snap/<chantier>-1016` (à reprendre, **jamais à publier tel quel**). En cours aujourd'hui :
-> - `integ/20a` (local, session principale) = `main` + lot design `wip/ui-pickers` (avec les corrections de sa relecture,
->   `e020d6f`) + suites du retour 110 (`db6da8e`) + en-têtes en paire et couverture du concepteur (`wip/7a-p2` `310a017`) +
->   lot 8 (`wip/lot8` `4f66a46`) ; un agent y corrige les constats des relectures (dont le bloquant « Sans bureau »), un
->   autre relit le lot 8 ; publication après contrôles et relecture.
-> - `wip/planauto-port` : agent sur les 4 corrections de la relecture de P1 (sous-périodes, intervalle d'une année sur
->   l'autre, prévues échues, interblocage avec la modification groupée), puis P2 (agents et véhicules, retours 107–108).
-> - `wip/lot8` : agent sur le vocabulaire unique « Titulaire » / « TPM » (retour 113), après `4f66a46`.
-> - En attente de reprise : `wip/7a-p2` filtres du rapportage (retour 102, `snap/7a-p2-1016`), `wip/dash-template`
->   maquette (retour 101, `snap/dash-template-1016`), `wip/indicators` `e3c1648` (corrections faites, à relire),
->   `wip/perf` 2ᵉ lot (`snap/perf-1016`), `wip/offices`, `wip/r58` suivi interne (retour 114).
+> **20/10, 11:24 — état.** Aucun agent en cours. Deux branches d'intégration locales, sauvegardées sur GitHub :
+> - `pub/20a` (sauvegarde `snap/pub20a-1020`) = `main` + lot design (listes de choix, contrat puis son TPM, TPM actifs en
+>   tête) + suites du retour 110 + en-têtes en paire (retour 112) + corrections des deux relectures du 16/10 et du 20/10.
+>   Contrôles au vert (tests, lint, build, migrations, seed, `npm run test:db`, balayage 35 × FR/EN). **Prochaine publication**
+>   dès que la contre-relecture de ses 8 dernières corrections est rendue.
+> - `integ/next` (sauvegarde `snap/integ-next-1020`) = `pub/20a` (avant ses 8 dernières corrections) + lot 8 (`wip/lot8`
+>   `a15f901`, vocabulaire Titulaire / TPM, « Interne » quand aucun TPM — retour 115) + modèles d'indicateurs
+>   (`wip/indicators` `6be3077`) + planification automatique P1 / P2 (`wip/planauto-port` `bf7cf8b`). Contrôles au vert
+>   (1375 tests, base 17/17, balayage 46 × FR/EN). Relecture indépendante en cours ; à corriger puis publier après `pub/20a`.
+> - Décision D1 : le titulaire ne compte comme TPM que s'il est lui-même un TPM ; sinon « Interne ». Reste à l'appliquer aux
+>   listes de choix et à l'estampillage des visites (avec le retour 114, jumelle SQL `mems_tpm_cells`, migration).
+> - Tests sur base jetable : `npm run test:db` (fichiers en série). Ports de test : vérifier qu'ils sont libres
+>   (`(exec 3<>/dev/tcp/127.0.0.1/PORT)`, `ss` absent) — deux agents ne doivent jamais partager un port.
+> - En attente de reprise : filtres du rapportage (retour 102, `snap/7a-p2-1016`), maquette des tableaux de bord
+>   (retour 101, `snap/dash-template-1016`), `wip/perf` 2ᵉ lot (`snap/perf-1016`), `wip/offices`, `wip/r58` suivi interne
+>   (retour 114), `wip/activities` (migration 105).
 
 ## 0. À lire, dans cet ordre
 
