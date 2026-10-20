@@ -30,8 +30,16 @@ const { districtKey } = require('../common/siteDistrict');
  *    instantané du contrat, journal), sinon le TPM selon contrat. Une modification n'est
  *    jamais écrasée par un changement de contrat : elle passe « à confirmer ».
  *  - TPM d'un site (et de ses visites) : la cellule de sa commune si la commune a sa propre
- *    ligne ce mois-là (modification posée sur la commune, ou zone de contrat exactement sur
- *    la commune), sinon celle de son district ; sans district reconnu : « district inconnu ».
+ *    ligne ce mois-là (modification ou indisponibilité posée sur la commune, ou zone de contrat
+ *    exactement sur la commune), sinon celle de son district ; sans district reconnu : « district
+ *    inconnu ».
+ *  - SUIVI INTERNE (retour 114) : sans TPM, la zone est suivie par l'équipe S&E du bureau — une
+ *    affectation, pas une erreur. Trois raisons, gardées dans l'état : « sans_contrat » (aucun
+ *    contrat de suivi ne couvre la zone ce mois), « indisponible » (le TPM du contrat — ou celui
+ *    d'une modification — est déclaré INDISPONIBLE ce mois : tpm_unavailability, motif obligatoire),
+ *    « aucun_tpm » (décidé avec une raison). Une indisponibilité retire le TPM des candidats de la
+ *    zone la plus précise ; s'il en reste, ils décident ; sinon suivi interne. Elle ne fait
+ *    jamais « descendre » vers un contrat moins précis.
  */
 
 const MAX_SPAN_MONTHS = PERIOD_CAPS.facts; // 24 mois, comme les faits site × mois (lot 1b)
@@ -40,19 +48,27 @@ const MAX_REGIONS = 30;
 const MAX_CELLS = 2400;
 const MAX_VISITS = 500;
 /** États d'une cellule (zone × mois) de l'onglet. */
-const ZONE_STATES = ['contrat', 'modifie', 'aucun_tpm', 'a_arbitrer', 'sans_contrat'];
+const ZONE_STATES = ['contrat', 'modifie', 'aucun_tpm', 'a_arbitrer', 'sans_contrat', 'indisponible'];
+/**
+ * États « suivi interne » (retour 114) : la zone n'a pas de TPM, l'équipe S&E du bureau la suit —
+ * aucun contrat, TPM indisponible, ou « aucun TPM » décidé. Jamais « à affecter ».
+ */
+const INTERNAL_STATES = ['sans_contrat', 'indisponible', 'aucun_tpm'];
+/** Clé du suivi interne dans les regroupements « par prestataire » (jours de collecte, couverture). */
+const INTERNAL_KEY = 'interne';
 /** États recopiés sur une visite (site_visits.provider_zone_state) — CHECK de la migration 070. */
 const VISIT_ZONE_STATES = [...ZONE_STATES, 'district_inconnu', 'anterieur'];
 /** Ce que disait le contrat au moment d'une modification (tpm_zone_overrides.expected_state). */
-const DEFAULT_STATES = ['contrat', 'sans_contrat', 'a_arbitrer'];
+const DEFAULT_STATES = ['contrat', 'sans_contrat', 'a_arbitrer', 'indisponible'];
 /** États qui portent un TPM (provider_id NOT NULL) — « à arbitrer » porte le TPM par défaut. */
 const WITH_PROVIDER = ['contrat', 'modifie', 'a_arbitrer'];
 /** Origine du TPM d'une visite : la zone, la visite elle-même (raison), ou la reprise de l'existant. */
 const VISIT_SOURCES = ['zone', 'visite', 'reprise'];
 /** Statuts d'un contrat qui peuvent couvrir un mois. */
 const COVERING_STATUSES = ['actif', 'resilie'];
-/** Actions du journal (tpm_attribution_log.action). */
-const LOG_ACTIONS = ['modifier', 'confirmer', 'revenir_contrat', 'reappliquer', 'visite_modifier', 'visite_garder', 'visite_zone'];
+/** Actions du journal (tpm_attribution_log.action) ; « indispo_* » : indisponibilités des TPM (retour 114). */
+const LOG_ACTIONS = ['modifier', 'confirmer', 'revenir_contrat', 'reappliquer', 'visite_modifier', 'visite_garder', 'visite_zone',
+  'indispo_poser', 'indispo_modifier', 'indispo_retirer'];
 /** Liens de la règle commune qui désignent le TPM d'un contrat (jamais « visite » : elle en découle). */
 const TPM_LINK_KINDS = ['plan', 'rapport'];
 
@@ -119,13 +135,33 @@ const byDefault = (a, b) => cmp(b.dateDebut, a.dateDebut) || cmp(a.numero, b.num
 const contractLabelOf = (c) => c.numeroFla || c.numero;
 
 /**
- * TPM selon contrat d'une aire pour un mois. Plusieurs TPM : « à arbitrer », avec le TPM par
- * défaut (byDefault) — jamais un blanc.
- * @returns {{ state:'contrat'|'sans_contrat'|'a_arbitrer', providerId, contractId, numero, contractLabel,
- *            candidates:[{providerId, providerName, contractId, numero, contractLabel, dateDebut, zonePath, via, endMonth}],
- *            partiel:boolean, exactHit:boolean }}
+ * Indisponibilités (retour 114) qui frappent un TPM pour une aire et un mois : toutes zones
+ * (`areaPath` nul), la zone elle-même ou une zone qui la contient. Une indisponibilité posée sur
+ * une zone DÉTACHÉE par un réimport (identifiant perdu, chemin gardé) ne s'applique nulle part.
+ * @param {{ providerId, from, to, adminAreaId, areaPath }[]} list
  */
-function defaultFor(area, month, contracts) {
+function unavailabilityFor(list, providerId, area, month) {
+  if (!providerId || !list || !list.length) return [];
+  return list.filter((u) => u.providerId === providerId && u.from <= month && month <= u.to
+    && (!u.areaPath || (u.adminAreaId && (u.adminAreaId === area.id || (area.lineage || []).includes(u.adminAreaId)))));
+}
+/** Une indisponibilité est-elle posée EXACTEMENT sur cette aire ce mois (commune qui a alors sa ligne) ? */
+const unavailabilityOnArea = (list, areaId, month) => (list || []).some((u) => u.adminAreaId === areaId && u.from <= month && month <= u.to);
+/** Résumé d'une indisponibilité pour l'écran (TPM, période, motif). */
+const unavailabilityView = (u, providerName) => ({ id: u.id, providerId: u.providerId, providerName: providerName || u.providerName || null,
+  from: u.from, to: u.to, reason: u.reason, areaPath: u.areaPath || null });
+
+/**
+ * TPM selon contrat d'une aire pour un mois. Plusieurs TPM : « à arbitrer », avec le TPM par
+ * défaut (byDefault) — jamais un blanc. Indisponibilités (retour 114) : un TPM indisponible est
+ * retiré des candidats de la zone la plus précise (`unavailable` les garde, avec leur motif) ; s'il
+ * n'en reste aucun : « indisponible » (suivi interne).
+ * @param {object[]} [unavailability]  indisponibilités des mois lus (unavailabilityFor)
+ * @returns {{ state:'contrat'|'sans_contrat'|'a_arbitrer'|'indisponible', providerId, contractId, numero, contractLabel,
+ *            candidates:[{providerId, providerName, contractId, numero, contractLabel, holderName, dateDebut, zonePath, via, endMonth}],
+ *            unavailable:[{ ...candidat, unavailability }], partiel:boolean, exactHit:boolean }}
+ */
+function defaultFor(area, month, contracts, unavailability = []) {
   const hits = [];
   let partiel = false;
   for (const c of coveringContracts(contracts, month)) {
@@ -136,7 +172,7 @@ function defaultFor(area, month, contracts) {
     }
   }
   const exactHit = hits.some((h) => h.cov === 'exact');
-  if (!hits.length) return { state: 'sans_contrat', providerId: null, contractId: null, numero: null, contractLabel: null, candidates: [], partiel, exactHit };
+  if (!hits.length) return { state: 'sans_contrat', providerId: null, contractId: null, numero: null, contractLabel: null, candidates: [], unavailable: [], partiel, exactHit };
   const best = Math.max(...hits.map((h) => Number(h.z.depth)));
   // Un candidat par TPM : son contrat retenu (ordre par défaut) parmi les zones les plus précises.
   const byProvider = new Map();
@@ -144,19 +180,29 @@ function defaultFor(area, month, contracts) {
     for (const t of contractTpms(h.c)) {
       const cand = {
         providerId: t.id, providerName: t.name || null, contractId: h.c.id, numero: h.c.numero,
-        contractLabel: contractLabelOf(h.c), dateDebut: h.c.dateDebut,
+        contractLabel: contractLabelOf(h.c), holderName: h.c.partnerName || null, dateDebut: h.c.dateDebut,
         zonePath: h.z.path || null, via: h.cov === 'exact' ? 'exact' : 'parent', endMonth: contractEndMonth(h.c),
       };
       const prev = byProvider.get(t.id);
       if (!prev || byDefault(cand, prev) < 0) byProvider.set(t.id, cand);
     }
   }
-  const candidates = [...byProvider.values()].sort((a, b) => cmp(a.providerName || '', b.providerName || '') || cmp(a.numero, b.numero));
+  const all = [...byProvider.values()].sort((a, b) => cmp(a.providerName || '', b.providerName || '') || cmp(a.numero, b.numero));
+  const unavailable = [];
+  const candidates = [];
+  for (const cand of all) {
+    const u = unavailabilityFor(unavailability, cand.providerId, area, month);
+    if (u.length) unavailable.push({ ...cand, unavailability: unavailabilityView(u[0], cand.providerName) });
+    else candidates.push(cand);
+  }
+  if (!candidates.length) {
+    return { state: 'indisponible', providerId: null, contractId: null, numero: null, contractLabel: null, candidates, unavailable, partiel, exactHit };
+  }
   const chosen = candidates.length === 1 ? candidates[0] : candidates.slice().sort(byDefault)[0];
   return {
     state: candidates.length === 1 ? 'contrat' : 'a_arbitrer',
     providerId: chosen.providerId, contractId: chosen.contractId, numero: chosen.numero, contractLabel: chosen.contractLabel,
-    candidates, partiel, exactHit,
+    candidates, unavailable, partiel, exactHit,
   };
 }
 
@@ -165,6 +211,7 @@ function defaultLabel(def, partnersById) {
   const name = (c) => (partnersById && partnersById.get(c.providerId) ? partnersById.get(c.providerId).name : c.providerName) || '—';
   if (def.state === 'contrat') return `${def.candidates[0].contractLabel || def.candidates[0].numero} · ${name(def.candidates[0])}`.slice(0, 300);
   if (def.state === 'a_arbitrer') return `${def.candidates.length} contrats : ${def.candidates.map((c) => `${name(c)} (${c.contractLabel || c.numero})`).join(', ')}`.slice(0, 300);
+  if (def.state === 'indisponible') return `TPM indisponible : ${(def.unavailable || []).map((c) => `${name(c)} (${c.contractLabel || c.numero})`).join(', ')}`.slice(0, 300);
   return 'Sans contrat';
 }
 
@@ -172,27 +219,45 @@ function defaultLabel(def, partnersById) {
  * Cellule retenue : la modification si elle existe (TPM ou « aucun TPM »), sinon le contrat.
  * Drapeaux : a_confirmer (le contrat a changé depuis la décision), redondante (la
  * modification rejoint le contrat), partiel, hors_contrat (TPM modifié qui ne tient aucun
- * contrat de suivi ce mois), titulaire_non_tpm, prestataire_inactif.
+ * contrat de suivi ce mois), titulaire_non_tpm, prestataire_inactif, modification_suspendue (le
+ * TPM choisi est indisponible ce mois : suivi interne tant que dure l'indisponibilité).
  * @param {object} def  defaultFor(...)
  * @param {object|null} override  modification de la zone pour ce mois
- * @param {{ partnersById?: Map, holders?: Set<string> }} ctx  holders = titulaires du mois
+ * @param {{ partnersById?: Map, holders?: Set<string>, unavailableOf?: (providerId) => object[] }} ctx
+ *   holders = titulaires du mois ; unavailableOf = indisponibilités du TPM pour cette aire et ce mois
  */
-function resolveCell(def, override, { partnersById = new Map(), holders = null } = {}) {
+function resolveCell(def, override, { partnersById = new Map(), holders = null, unavailableOf = () => [] } = {}) {
   const flags = [];
   let cell;
+  let unavailable = def.state === 'indisponible' ? (def.unavailable || []).map((c) => c.unavailability) : [];
   if (override) {
     const providerId = override.providerId || null;
     const cand = providerId ? def.candidates.find((x) => x.providerId === providerId) : null;
-    cell = {
-      state: providerId ? 'modifie' : 'aucun_tpm', providerId,
-      contractId: cand ? cand.contractId : null, numero: cand ? cand.numero : null, contractLabel: cand ? cand.contractLabel : null,
-    };
+    const off = providerId ? unavailableOf(providerId) : [];
+    cell = off.length
+      ? { state: 'indisponible', providerId: null, contractId: null, numero: null, contractLabel: null, holderName: null }
+      : {
+        state: providerId ? 'modifie' : 'aucun_tpm', providerId,
+        contractId: cand ? cand.contractId : null, numero: cand ? cand.numero : null, contractLabel: cand ? cand.contractLabel : null,
+        holderName: cand ? cand.holderName : null,
+      };
+    if (off.length) {
+      flags.push('modification_suspendue');
+      const p = partnersById.get(providerId);
+      unavailable = [unavailabilityView(off[0], p ? p.name : null)];
+    }
     if ((override.expectedState || null) !== def.state || (override.expectedProviderId || null) !== (def.providerId || null)) flags.push('a_confirmer');
-    if ((def.state === 'contrat' && def.providerId === providerId) || (def.state === 'sans_contrat' && providerId === null)) flags.push('redondante');
-    if (providerId && holders && !holders.has(providerId)) flags.push('hors_contrat');
+    if ((def.state === 'contrat' && def.providerId === providerId)
+      || (INTERNAL_STATES.includes(def.state) && def.state !== 'aucun_tpm' && providerId === null)) flags.push('redondante');
+    if (providerId && !off.length && holders && !holders.has(providerId)) flags.push('hors_contrat');
   } else {
-    cell = { state: def.state, providerId: def.providerId || null, contractId: def.contractId || null, numero: def.numero || null, contractLabel: def.contractLabel || null };
+    cell = {
+      state: def.state, providerId: def.providerId || null, contractId: def.contractId || null, numero: def.numero || null,
+      contractLabel: def.contractLabel || null,
+      holderName: def.providerId ? ((def.candidates.find((x) => x.providerId === def.providerId && x.contractId === def.contractId) || {}).holderName || null) : null,
+    };
   }
+  if (unavailable.length) cell.unavailable = unavailable;
   if (def.partiel) flags.push('partiel');
   const p = cell.providerId ? partnersById.get(cell.providerId) : null;
   if (p && p.typeCode !== 'tpm') flags.push('titulaire_non_tpm');
@@ -258,7 +323,7 @@ function holdersByMonth(contracts, months) {
  * Qualité des données qui alimentent la règle (bannières de l'onglet) — sur les contrats de
  * suivi « actif » ou « résilié » qui chevauchent les mois lus.
  */
-function qualityOf({ contracts = [], partners = [], overrides = [], months = [], today = null }) {
+function qualityOf({ contracts = [], partners = [], overrides = [], unavailability = [], months = [], today = null }) {
   const partnersById = new Map(partners.map((p) => [p.id, p]));
   const first = months[0]; const last = months[months.length - 1];
   const overlapping = contracts.filter((c) => isMonitoringContract(c) && COVERING_STATUSES.includes(c.status)
@@ -291,6 +356,9 @@ function qualityOf({ contracts = [], partners = [], overrides = [], months = [],
       : [],
     detachedOverrides: overrides.filter((o) => !o.adminAreaId && o.month >= first && o.month <= last)
       .map((o) => ({ id: o.id, path: o.areaPath, month: o.month })),
+    // Indisponibilité posée sur une zone détachée par un réimport : sans effet, signalée.
+    detachedUnavailability: (unavailability || []).filter((u) => u.areaPath && !u.adminAreaId && u.from <= last && u.to >= first)
+      .map((u) => ({ id: u.id, path: u.areaPath, from: u.from, to: u.to, providerName: u.providerName || null })),
   };
 }
 
@@ -300,7 +368,7 @@ function qualityOf({ contracts = [], partners = [], overrides = [], months = [],
  * `own`). Taille bornée par l'appelant (≤ MAX_CELLS côté écriture).
  * @returns {{ cells: Map<string, object>, quality: object, partnersById: Map }}
  */
-function buildZoneTable({ areas = [], months = [], contracts = [], overrides = [], partners = [], today = null }) {
+function buildZoneTable({ areas = [], months = [], contracts = [], overrides = [], partners = [], unavailability = [], today = null }) {
   const partnersById = new Map(partners.map((p) => [p.id, p]));
   const ovByKey = new Map(overrides.filter((o) => o.adminAreaId).map((o) => [`${o.adminAreaId}|${o.month}`, o]));
   const holders = holdersByMonth(contracts, months);
@@ -308,16 +376,17 @@ function buildZoneTable({ areas = [], months = [], contracts = [], overrides = [
   const cells = new Map();
   for (const a of areas) {
     for (const m of months) {
-      const def = defaultFor(a, m, contracts);
+      const def = defaultFor(a, m, contracts, unavailability);
       const ov = ovByKey.get(`${a.id}|${m}`) || null;
-      const cell = resolveCell(def, ov, { partnersById, holders: holders.get(m) });
+      const cell = resolveCell(def, ov, { partnersById, holders: holders.get(m), unavailableOf: (pid) => unavailabilityFor(unavailability, pid, a, m) });
       // Aucun contrat ne couvre, mais un contrat de suivi y a une zone détachée de même nom : indice.
       const hint = cell.state === 'sans_contrat' ? detachedHintFor(a, m, detached) : [];
       if (hint.length) { cell.flags.push('zone_a_reselectionner'); cell.detached = hint; }
-      cells.set(`${a.id}|${m}`, { areaId: a.id, month: m, own: Number(a.depth) === 3 ? Boolean(ov || def.exactHit) : true, ...cell });
+      const own = Number(a.depth) === 3 ? Boolean(ov || def.exactHit || unavailabilityOnArea(unavailability, a.id, m)) : true;
+      cells.set(`${a.id}|${m}`, { areaId: a.id, month: m, own, ...cell });
     }
   }
-  return { cells, quality: qualityOf({ contracts, partners, overrides, months, today }), partnersById };
+  return { cells, quality: qualityOf({ contracts, partners, overrides, unavailability, months, today }), partnersById };
 }
 
 /**
@@ -337,7 +406,7 @@ function cellForSite({ districtId, communeId }, month, table) {
  */
 const segmentKey = (c) => [c.state, c.providerId || '', c.contractId || '',
   c.override ? `${c.override.batchId || c.override.id}~${c.override.reason || ''}` : '', c.flags.includes('a_confirmer') ? 1 : 0,
-  c.flags.includes('zone_a_reselectionner') ? 1 : 0].join('|');
+  c.flags.includes('zone_a_reselectionner') ? 1 : 0, (c.unavailable || []).map((u) => u.id).join(',')].join('|');
 
 /** Mois consécutifs identiques (même état, TPM, contrat, décision de modification) → { from, to, cell }. */
 function segments(cellsOfArea) {
@@ -375,7 +444,8 @@ function planOverrides({ targets, providerId, reason, partnersById }) {
     const ex = cell.override;
     const label = defaultLabel(def, partnersById);
     const asContract = def.state === 'contrat' && p === def.providerId;
-    const nothing = def.state === 'sans_contrat' && p === null;
+    // « Aucun TPM » là où la zone est déjà en suivi interne (aucun contrat, TPM indisponible) : rien à décider.
+    const nothing = (def.state === 'sans_contrat' || def.state === 'indisponible') && p === null;
     if (asContract || nothing) {
       counts[asContract ? 'sameAsContract' : 'nothingToChange'] += 1;
       if (ex) {
@@ -451,13 +521,29 @@ function summarizeRestamp(changes) {
  */
 const { selectableProviders, activeProviders } = activeProvider;
 
-/** Mois de `months` où le prestataire n'est PAS sélectionnable (ni actif ce mois-là, ni TPM actif). */
-function notSelectableMonths(providerId, months, selectable) {
+/**
+ * Mois de `months` où le prestataire n'est PAS sélectionnable : ni actif ce mois-là, ni TPM actif —
+ * ou déclaré INDISPONIBLE ce mois-là (toutes zones, ou la zone `area` quand elle est donnée).
+ */
+function notSelectableMonths(providerId, months, selectable, { unavailability = [], area = null } = {}) {
   if (!providerId) return [];
   const group = (key) => ((selectable.groups || []).find((g) => g.key === key) || { providers: [] }).providers;
-  if (group('tpm').some((p) => p.id === providerId)) return [];
+  const off = (m) => (area ? unavailabilityFor(unavailability, providerId, area, m).length > 0
+    : (unavailability || []).some((u) => u.providerId === providerId && !u.areaPath && u.from <= m && m <= u.to));
+  if (group('tpm').some((p) => p.id === providerId)) return months.filter(off);
   const h = group('contrat').find((p) => p.id === providerId);
-  return months.filter((m) => !h || !h.months.includes(m));
+  return months.filter((m) => !h || !h.months.includes(m) || off(m));
+}
+
+/**
+ * Qui fait une visite : son TPM, l'équipe S&E (INTERNAL_KEY : zone en suivi interne, ou « aucun
+ * TPM » choisi pour cette visite avec une raison) ou personne encore (« non_affecte » : district
+ * inconnu, visite antérieure à la règle). Jumelle SQL : tpmAttribution.repository.assigneeKeySql.
+ */
+function visitAssigneeKey(v) {
+  if (v.providerId) return v.providerId;
+  if (v.providerSource === 'visite' || ((v.providerSource || 'zone') === 'zone' && INTERNAL_STATES.includes(v.providerZoneState))) return INTERNAL_KEY;
+  return 'non_affecte';
 }
 
 /**
@@ -513,6 +599,7 @@ module.exports = {
   VISIT_ERROR_MESSAGES, visitErrorMessage, TPM_LINK_KINDS, tpmsByContract, contractTpms,
   MAX_SPAN_MONTHS, MAX_AREAS, MAX_REGIONS, MAX_CELLS, MAX_VISITS,
   ZONE_STATES, VISIT_ZONE_STATES, DEFAULT_STATES, WITH_PROVIDER, VISIT_SOURCES, COVERING_STATUSES, LOG_ACTIONS,
+  INTERNAL_STATES, INTERNAL_KEY, unavailabilityFor, unavailabilityOnArea, visitAssigneeKey,
   contractTpm, isMonitoringContract, contractEndMonth, contractCoversMonth, coveringContracts, coverOf,
   defaultFor, defaultLabel, resolveCell, holdersByMonth, qualityOf, buildZoneTable, cellForSite, segments, stampOf,
   planOverrides, planRevert, restampPlan, summarizeRestamp, selectableProviders, activeProviders, notSelectableMonths,
