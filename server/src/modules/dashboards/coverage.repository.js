@@ -118,6 +118,7 @@ async function coverageFacts(tenantId, { period, officeId = null, rbm = true }) 
               COALESCE(sum(v_upcoming_unset), 0)::int AS "visitsUpcomingUnset",
               COALESCE(sum(v_cancelled) FILTER (WHERE active), 0)::int AS "visitsCancelled",
               count(*) FILTER (WHERE covered_inactive)::int AS "coveredInactive",
+              count(*) FILTER (WHERE covered_inactive AND forbidden)::int AS "coveredInactiveForbidden",
               count(*) FILTER (WHERE active_ref)::int AS "refSites",
               count(*) FILTER (WHERE active_ref AND rbm_due)::int AS "refDue",
               count(*) FILTER (WHERE active_ref AND risk = 'elevee')::int AS "refHigh",

@@ -23,7 +23,7 @@
  *  - Par activité, par bureau, par district : le même U et le même « suivi » ; chaque découpage
  *    est une partition de U, ses lignes se somment aux totaux (checkConsistency).
  *  - Dit à part, jamais compté : sites ayant une visite déclarée ou des données pendant un mois
- *    NON actif (`outside`), visites annulées d'un mois actif (`execution.cancelled`), visites
+ *    NON actif (`outside` = `outsideGrid` mois sans « Oui » + `outsideForbidden` zone interdite), visites annulées d'un mois actif (`execution.cancelled`), visites
  *    prévues de mois à venir sur une case VIDE de la grille (`execution.upcomingUnset`, grille à
  *    renseigner ; un « Non » ou une zone interdite ne compte jamais, ni ici ni « à venir »).
  * Un taux sans dénominateur vaut null (« — »), jamais 0 %.
@@ -38,7 +38,7 @@ const COUNT_KEYS = [
   'plannedSites', 'plannedCovered', 'plannedData', 'plannedVisit',
   'visitsPlanned', 'visitsCovered', 'visitsData', 'visitsVisit', 'visitsUpcoming',
   'refSites', 'refDue', 'refHigh', 'refMid', 'refLow',
-  'coveredInactive', 'visitsCancelled', 'visitsUpcomingUnset',
+  'coveredInactive', 'coveredInactiveForbidden', 'visitsCancelled', 'visitsUpcomingUnset',
 ];
 
 /**
@@ -76,6 +76,8 @@ function siteCounts(f) {
     refMid: ref && f.risk === 'moyenne' ? 1 : 0,
     refLow: ref && f.risk === 'faible' ? 1 : 0,
     coveredInactive: f.coveredInactive ? 1 : 0,
+    // Dont en zone interdite (jamais active, grille ou non) : dit à part de « mois sans Oui ».
+    coveredInactiveForbidden: f.coveredInactive && f.forbidden ? 1 : 0,
     visitsCancelled: u ? num(f.vCancelled) : 0,
     visitsUpcomingUnset: num(f.vUpcomingUnset),
   };
@@ -125,7 +127,11 @@ function measuresOf(r) {
       planned: vp, covered: vc, byData: vd, byVisit: vv, both: Math.max(0, vd + vv - vc), rate: ratio(vc, vp),
       upcoming: num(r.visitsUpcoming), upcomingUnset: num(r.visitsUpcomingUnset), cancelled: num(r.visitsCancelled),
     },
+    // Activité (visite déclarée ou données) pendant un mois NON actif : `outside` au total, dont
+    // `outsideForbidden` en zone interdite ; le reste (`outsideGrid`) = mois sans « Oui » de la grille.
     outside: num(r.coveredInactive),
+    outsideForbidden: num(r.coveredInactiveForbidden),
+    outsideGrid: Math.max(0, num(r.coveredInactive) - num(r.coveredInactiveForbidden)),
     rbm: {
       sites: refSites, due: refDue, upToDate: refSites - refDue, rate: ratio(refSites - refDue, refSites),
       byRisk: { elevee: num(r.refHigh), moyenne: num(r.refMid), faible: num(r.refLow) },

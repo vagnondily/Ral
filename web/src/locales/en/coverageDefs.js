@@ -65,6 +65,8 @@ export default {
   'Aucun site actif pour {month} : renseignez la grille des sites actifs (RBM › Sites).': 'No active site for {month}: fill in the active-sites grid (RBM › Sites).',
   '{n} site(s) ont une visite déclarée ou des données pendant un mois sans « Oui » : non comptées.':
     '{n} site(s) have a declared visit or data in a month without “Yes”: not counted.',
+  '{n} site(s) en zone interdite ont une visite déclarée ou des données : non comptées.':
+    '{n} site(s) in a forbidden zone have a declared visit or data: not counted.',
   '{n} visite(s) annulée(s), hors calcul.': '{n} cancelled visit(s), not counted.',
   '{n} à venir, dont {m} sur des mois pas encore renseignés dans la grille': '{n} upcoming, of which {m} in months not yet filled in the grid',
   '{done}/{planned} visites prévues suivies ({p})': '{done}/{planned} planned visits monitored ({p})',

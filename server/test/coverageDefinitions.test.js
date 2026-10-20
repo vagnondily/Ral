@@ -64,6 +64,8 @@ test('définitions sur des cas écrits à la main : univers, suivi par visite OU
   // Dit à part, jamais compté : activité pendant un mois non actif (C : données de juin ; D : visite de mai ;
   // E : zone interdite), visite annulée d'un mois actif (G, mai).
   assert.equal(o.outside, 3);
+  // … dont E en zone interdite, dit à part : « mois sans Oui » ne vaut que pour C et D.
+  assert.deepEqual([o.outsideGrid, o.outsideForbidden], [2, 1]);
   assert.equal(o.execution.cancelled, 1);
   assert.equal(o.execution.upcomingUnset, 0);
 });

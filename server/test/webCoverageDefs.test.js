@@ -73,7 +73,10 @@ test('« dont … par données reçues · … par visites déclarées », recouv
 test('univers énoncé, plan vs réalisé dans la même unité, tableau par activité = tuiles, bureaux à surveiller', async (t) => {
   const m = await load(t, 'lib', 'coverageDefs.js'); if (!m) return;
   const cov = sample();
-  assert.deepEqual(m.universeOf(cov), { kind: 'grid', sites: 3, inactive: 0, forbidden: 0, registry: 3, outside: 0, cancelled: 0 });
+  assert.deepEqual(m.universeOf(cov), { kind: 'grid', sites: 3, inactive: 0, forbidden: 0, registry: 3, outside: 0, cancelled: 0, outsideGrid: 0, outsideForbidden: 0 });
+  // Sans grille : un site en zone interdite avec une visite réalisée n'est jamais dit « mois sans Oui ».
+  const noGrid = m.universeOf({ universe: { activation: 'none', sites: 4, forbidden: 1 }, overall: { outside: 1, outsideForbidden: 1, outsideGrid: 0, execution: {} } });
+  assert.deepEqual([noGrid.kind, noGrid.outsideGrid, noGrid.outsideForbidden], ['none', 0, 1]);
   assert.equal(m.universeOf({ universe: { activation: 'none', sites: 5 } }).kind, 'none');
   assert.equal(m.universeOf(null), null);
   const [v, s, c] = m.planVsRealRows(cov);

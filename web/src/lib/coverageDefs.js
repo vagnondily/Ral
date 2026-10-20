@@ -61,8 +61,11 @@ export function universeOf(cov) {
   const o = cov.overall || {};
   return {
     kind, sites: u.sites || 0, inactive: u.inactive || 0, forbidden: u.forbidden || 0, registry: u.registry || 0,
-    // Dit sous l'univers, jamais compté : activité pendant un mois sans « Oui », visites annulées.
+    // Dit sous l'univers, jamais compté : activité pendant un mois sans « Oui » de la grille (outsideGrid),
+    // activité d'un site en zone interdite (outsideForbidden), visites annulées.
     outside: o.outside || 0, cancelled: (o.execution && o.execution.cancelled) || 0,
+    outsideForbidden: o.outsideForbidden || 0,
+    outsideGrid: o.outsideGrid != null ? o.outsideGrid : Math.max(0, (o.outside || 0) - (o.outsideForbidden || 0)),
   };
 }
 
