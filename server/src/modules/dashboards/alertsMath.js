@@ -15,6 +15,9 @@
  * Les montants sont comparés en CENTIMES entiers, jamais en flottants.
  */
 
+const { PERIOD_CAPS } = require('../common/periodCaps');
+const { spanMonths } = require('../common/period');
+
 const SEVERITIES = ['critical', 'warning', 'info'];
 const RANK = { critical: 0, warning: 1, info: 2 };
 
@@ -24,14 +27,20 @@ const contractGo = (id) => ({ module: 'contrats', sub: 'liste', extra: id });
 // Visites déclarées (prestataires en retard, visites non affectées) : l'écran des visites.
 const FIELD_GO = { module: 'processus', sub: 'sites' };
 /**
- * Exécution du plan des mesures communes : l'écran qui affiche la MÊME mesure (Synthèse du suivi de
- * processus, tuile « Exécution du plan (visites) »), ouvert sur la période de l'alerte — jamais
- * Affectation & visites, dont le taux ne compte que les visites déclarées.
+ * Exécution du plan des mesures communes : un écran qui affiche la MÊME mesure (tuile « Exécution du
+ * plan (visites) », lue sur GET /api/dashboards/coverage), ouvert sur la période ENTIÈRE de l'alerte —
+ * jamais Affectation & visites, dont le taux ne compte que les visites déclarées :
+ *  - la Synthèse du suivi de processus jusqu'à SYNTHESE_MAX_SPAN mois (son sélecteur : min(analysis,
+ *    facts), jumeau de ProcessDashboardPage) ;
+ *  - au-delà (le Centre d'alertes accepte PERIOD_CAPS.facts mois), « Couverture & performance »,
+ *    qui accepte la durée du Centre d'alertes : la période n'est jamais écartée en silence.
  */
-const executionGo = (period) => ({
-  module: 'processus', sub: 'synthese',
-  ...(period && period.from && period.to ? { period: { from: period.from, to: period.to } } : {}),
-});
+const SYNTHESE_MAX_SPAN = Math.min(PERIOD_CAPS.analysis, PERIOD_CAPS.facts);
+function executionGo(period) {
+  if (!period || !period.from || !period.to) return { module: 'processus', sub: 'synthese' };
+  const p = { from: period.from, to: period.to };
+  return spanMonths(p) > SYNTHESE_MAX_SPAN ? { module: 'dashboard', sub: 'couverture', period: p } : { module: 'processus', sub: 'synthese', period: p };
+}
 
 /** Jours entiers entre deux dates « AAAA-MM-JJ » (b − a), en UTC : aucun décalage horaire. */
 function daysBetween(a, b) {
@@ -173,4 +182,4 @@ function countAlerts(alerts) {
   return { ...counts, attention: counts.critical + counts.warning, total: counts.critical + counts.warning + counts.info };
 }
 
-module.exports = { buildAlerts, countAlerts, budgetAlerts, reportAlerts, contractAlerts, fieldAlerts, daysBetween, SEVERITIES };
+module.exports = { buildAlerts, countAlerts, budgetAlerts, reportAlerts, contractAlerts, fieldAlerts, daysBetween, executionGo, SEVERITIES, SYNTHESE_MAX_SPAN };
