@@ -159,6 +159,7 @@ test('formations : fiche, agents, frise, Évaluation des agents et rapport compt
   const before = await count();
   const mk = (title, startDate, status) => trainings.create(T, { title, startDate, endDate: startDate, status, agentIds: [agent.id] }, null);
   const made = [];
+  let freshTpm = null;
   try {
     made.push(await mk('Test lot 8 — suivie', '2026-01-12', 'realisee'));
     made.push(await mk('Test lot 8 — annulée', '2026-01-13', 'annulee'));
@@ -168,15 +169,31 @@ test('formations : fiche, agents, frise, Évaluation des agents et rapport compt
     for (const k of Object.keys(before)) assert.equal(after[k] - before[k], 1, `${k} : +1 (seule la session suivie compte)`);
     // Une formation à venir (planifiée, présence non saisie) n'est « suivie » NULLE PART ; la frise la
     // montre « prévue ».
-    const summaryBefore = await trainings.summary(T, {});
     const future = await mk('Test lot 8 — à venir', '2099-01-05', 'planifiee');
     made.push(future);
     const withFuture = await count();
     for (const k of Object.keys(after)) assert.equal(withFuture[k], after[k] + (k === 'timeline' ? 1 : 0), `${k} : une formation à venir ne compte pas`);
-    assert.equal((await trainings.summary(T, {})).providers, summaryBefore.providers, '« TPM formés » inchangé');
-    const tl = await partnersRepo.timeline(T, tpm.id);
-    const item = tl.items.find((i) => i.ref === future.id);
+    let tl = await partnersRepo.timeline(T, tpm.id);
+    let item = tl.items.find((i) => i.ref === future.id);
     assert.ok(item && /prévue/.test(item.message.text), 'formation à venir : « prévue »');
+    // « TPM formés » : un TPM NEUF dont la seule formation est à venir n'y entre pas (sous l'ancienne
+    // règle il y entrait : +1).
+    const [fresh] = await q(`INSERT INTO partners (tenant_id, partner_type_id, name)
+                             SELECT $1, t.id, 'Test lot 8 — TPM neuf' FROM partner_types t WHERE t.tenant_id = $1 AND t.code = 'tpm' RETURNING id`, [T]);
+    freshTpm = fresh.id;
+    const [freshAgent] = await q("INSERT INTO tpm_agents (tenant_id, tpm_provider_id, name) VALUES ($1, $2, 'Test lot 8 — agent neuf') RETURNING id", [T, freshTpm]);
+    const summaryBefore = await trainings.summary(T, {});
+    made.push(await trainings.create(T, { title: 'Test lot 8 — à venir (TPM neuf)', startDate: '2099-03-02', endDate: '2099-03-02', status: 'planifiee', agentIds: [freshAgent.id] }, null));
+    assert.equal((await trainings.summary(T, {})).providers, summaryBefore.providers, '« TPM formés » : le TPM neuf n\'y entre pas');
+    assert.equal((await partners.sheet(T, freshTpm)).facts.trainings, 0, 'fiche du TPM neuf : 0 formation suivie');
+    // Une session « réalisée » datée dans le futur : comptée partout ET « suivie » dans la frise (même règle heldSql).
+    const doneFuture = await mk('Test lot 8 — réalisée datée au futur', '2099-02-01', 'realisee');
+    made.push(doneFuture);
+    const withDone = await count();
+    for (const k of Object.keys(after)) assert.equal(withDone[k], withFuture[k] + 1, `${k} : une session réalisée compte, quelle que soit sa date`);
+    tl = await partnersRepo.timeline(T, tpm.id);
+    item = tl.items.find((i) => i.ref === doneFuture.id);
+    assert.ok(item && /suivie/.test(item.message.text), 'réalisée : « suivie », jamais « prévue »');
     // Chiffres clés de la page Formations : en SQL sur toutes les sessions.
     const s = await trainings.summary(T, {});
     const [{ n }] = await q('SELECT count(*)::int AS n FROM training_sessions WHERE tenant_id = $1', [T]);
@@ -184,6 +201,10 @@ test('formations : fiche, agents, frise, Évaluation des agents et rapport compt
     assert.equal(s.limit, 500);
   } finally {
     await q('DELETE FROM training_sessions WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [T, made.map((m) => m.id)]);
+    if (freshTpm) {
+      await q('DELETE FROM tpm_agents WHERE tenant_id = $1 AND tpm_provider_id = $2', [T, freshTpm]);
+      await q('DELETE FROM partners WHERE tenant_id = $1 AND id = $2', [T, freshTpm]);
+    }
   }
 });
 
@@ -194,9 +215,14 @@ test('type d\'un TPM changé par PATCH : le TPM des visites prévues de ses zone
   const [site] = await q(`SELECT v.site_id AS id FROM site_visits v WHERE v.tenant_id = $1 AND v.provider_id = $2 AND v.provider_source = 'zone'
                            AND v.provider_zone_state = 'contrat' ORDER BY v.site_id LIMIT 1`, [T, ypa.id]);
   assert.ok(site, 'un site de la zone d\'un contrat suivi par YPA');
-  // Mois prévu à venir, dans la période du contrat (déc. 2026) ; estampillé au COMMIT par la base.
+  // Mois COURANT (la réestampille part du mois courant) : le contrat suivi par YPA est prolongé au besoin
+  // pour le couvrir (le test ne dépend pas des dates figées du seed), puis rétabli.
+  const month = new Intl.DateTimeFormat('en-CA', { timeZone: process.env.APP_TIMEZONE || 'Indian/Antananarivo' }).format(new Date()).slice(0, 7);
+  const [contract] = await q(`SELECT DISTINCT c.id, c.date_fin::text AS fin FROM contracts c JOIN tpm_reports r ON r.contract_id = c.id AND r.tenant_id = c.tenant_id
+                               WHERE c.tenant_id = $1 AND r.partner_id = $2 AND c.status = 'actif' LIMIT 1`, [T, ypa.id]);
+  if (contract.fin < `${month}-01`) await q("UPDATE contracts SET date_fin = ($3::date + interval '2 months')::date WHERE tenant_id = $1 AND id = $2", [T, contract.id, `${month}-01`]);
   const [{ id: visit }] = await q(`INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status)
-                                   VALUES ($1, $2, '2026-12-01', 'Test lot 8 réestampille', 'planifie') RETURNING id`, [T, site.id]);
+                                   VALUES ($1, $2, $3::date, 'Test lot 8 réestampille', 'planifie') RETURNING id`, [T, site.id, `${month}-01`]);
   const tpmOf = async () => (await q('SELECT p.name FROM site_visits v LEFT JOIN partners p ON p.id = v.provider_id WHERE v.id = $1', [visit]))[0].name;
   const settings = require('../src/modules/settings/settings.repository');
   try {
@@ -208,6 +234,7 @@ test('type d\'un TPM changé par PATCH : le TPM des visites prévues de ses zone
   } finally {
     await q('UPDATE partners SET partner_type_id = $3 WHERE tenant_id = $1 AND id = $2', [T, ypa.id, ypa.type]);
     await q('DELETE FROM site_visits WHERE tenant_id = $1 AND id = $2', [T, visit]);
+    await q('UPDATE contracts SET date_fin = $3::date WHERE tenant_id = $1 AND id = $2', [T, contract.id, contract.fin]);
   }
 });
 

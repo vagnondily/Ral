@@ -55,7 +55,7 @@ async function listSessions(tenantId, filters = {}) {
               COALESCE(pa.with_post, 0) AS "withPost", COALESCE(pa.sum_post, 0)::float8 AS "sumPost",
               COALESCE(pa.passed, 0) AS passed, COALESCE(pa.with_sat, 0) AS "withSat", COALESCE(pa.sum_sat, 0) AS "sumSat"
          FROM ${SESSION_FROM}
-         LEFT JOIN LATERAL (
+         LEFT JOIN LATERAL ( /* inscriptions : toutes les participations de LA session (pas des formations suivies) */
            SELECT count(*)::int AS n,
                   count(*) FILTER (WHERE p.attendance IS NOT NULL)::int AS recorded,
                   count(*) FILTER (WHERE p.attendance IN ('present', 'partiel'))::int AS attended,
@@ -269,7 +269,7 @@ async function removeParticipant(tenantId, id, agentId) {
 async function deleteSession(tenantId, id) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      `SELECT s.id, s.origin,
+      `SELECT s.id, s.origin, /* inscriptions : participants de LA session ayant une saisie (refus de suppression) */
               (SELECT count(*) FROM training_participants p WHERE p.tenant_id = $1 AND p.session_id = s.id
                  AND (p.attendance IS NOT NULL OR p.pre_score IS NOT NULL OR p.post_score IS NOT NULL OR p.satisfaction IS NOT NULL))::int AS recorded
          FROM training_sessions s WHERE s.tenant_id = $1 AND s.id = $2 FOR UPDATE`, [tenantId, id]);
