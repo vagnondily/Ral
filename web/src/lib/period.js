@@ -159,6 +159,19 @@ export function readHashPeriod(hash) {
   return p;
 }
 
+/**
+ * Le hash vise-t-il la route `route` (« tpm/rapports ») ? Seuls les segments AVANT « ? » comptent, comme le
+ * routeur (App.jsx) : « #/tpm/rapports?from=… » et « #/tpm/rapports/x » oui ; « #/processus/synthese?… »,
+ * « #/tpm/rapportsX » non. Un écran qui lit ou retire la période de l'adresse ne touche jamais celle
+ * d'un AUTRE écran (lien d'alerte suivi pendant qu'il est monté).
+ */
+export function isHashRoute(hash, route) {
+  const [path] = splitHash(hash);
+  const seg = path.replace(/^#?\/?/, '').split('/').filter(Boolean);
+  const want = String(route || '').split('/').filter(Boolean);
+  return want.length > 0 && want.every((w, i) => seg[i] === w);
+}
+
 /** Hash avec la période (null = la retire), les autres paramètres gardés. */
 export function writeHashPeriod(hash, p) {
   const [route, query] = splitHash(hash);

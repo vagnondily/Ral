@@ -168,12 +168,16 @@ export function unavailabilityListRange(period, today, max = UNAVAILABILITY_MAX_
 }
 
 /**
- * « Mettre fin » à une période d'indisponibilité (U4, U7) : dès le mois courant, jamais un mois passé ;
- * null pour une période déjà finie (rien à terminer).
+ * « Mettre fin » à une période d'indisponibilité (U4, U7) : dès le mois courant pour une période en
+ * cours ou à venir (le passé reste tel qu'il a été vécu) ; une période ENTIÈREMENT passée (déclarée
+ * sur des mois échus, par erreur par exemple) se retire sur ses propres bornes — elle compte encore
+ * pour l'estampille des visites prévues et les rapports attendus, on doit pouvoir la défaire.
+ * Jamais « du » après « au ». `past` : période entièrement passée. null sans période.
  */
 export function endRangeOf(p, today) {
-  if (!p || p.to < today) return null;
-  return { from: p.from < today ? today : p.from, to: p.to };
+  if (!p || !p.from || !p.to) return null;
+  if (p.to < today) return { from: p.from, to: p.to, past: true };
+  return { from: p.from < today ? today : p.from, to: p.to, past: false };
 }
 
 /** Mois de from à to inclus (« AAAA-MM »), au plus `max`. */

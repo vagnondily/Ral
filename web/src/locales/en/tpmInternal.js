@@ -127,5 +127,5 @@ export default {
   'plus TPM actif': 'no longer an active TPM',
   '{n} (plus TPM actif)': '{n} (no longer an active TPM)',
   'Ce partenaire n\'est plus un TPM actif : on peut seulement mettre fin à son indisponibilité.': 'This partner is no longer an active TPM: its unavailability can only be ended.',
-  'Période passée : elle est déjà terminée.': 'Past period: it has already ended.',
+  'Retirer cette indisponibilité (mois passés)…': 'Withdraw this unavailability (past months)…',
 };

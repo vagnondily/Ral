@@ -102,6 +102,25 @@ test('une facture par contrat (U10) : la facture du contrat A ne cache pas celle
   assert.deepEqual(lateReportAlerts(out).map((a) => [a.params.provider, a.params.contract]), [['RANO Control', 'FLA-B']]);
 });
 
+test('alerte « Rapport en retard » (re-relecture, point 2) : contrat sans numéro connu → jamais son identifiant, libellé sans contrat', () => {
+  const uuid = '3f2a9c10-1111-4222-8333-444455556666';
+  const out = e.expectedReports({
+    months: ['2026-01'], today: '2026-10', names: names(),
+    activity: [{ key: 'rano', contractId: uuid, month: '2026-01', planned: 0, realised: 2 }],
+  });
+  assert.deepEqual([out.rows[0].status, out.rows[0].contract], ['en_retard', { id: uuid, label: null }]);
+  const [a] = lateReportAlerts(out);
+  assert.equal(a.detail, '{month} · {n} visite(s) ; à remettre au plus tard en {due}');
+  assert.equal(a.params.contract, undefined);
+  assert.ok(!JSON.stringify(a).includes(uuid), 'aucun identifiant technique dans l alerte');
+  // Numéro connu : le libellé avec le contrat.
+  const named = e.expectedReports({
+    months: ['2026-01'], today: '2026-10', names: names(), contractLabels: new Map([[uuid, 'FLA-2025-009']]),
+    activity: [{ key: 'rano', contractId: uuid, month: '2026-01', planned: 0, realised: 2 }],
+  });
+  assert.equal(lateReportAlerts(named)[0].params.contract, 'FLA-2025-009');
+});
+
 test('alertes : seul un TPM en retard alerte (jamais non applicable d office, jamais le rapport interne)', () => {
   const out = e.expectedReports({
     months: ['2026-07'], today: '2026-10', names: names(), contractPairs: pairs({ '2026-07': [pair('rano', 'kA'), pair('sahy', 'kB')] }),

@@ -18,7 +18,7 @@ import { REPORT_KIND, REPORT_STATUS, richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { ROLE_LABELS, contractIdentity, contractNo } from '../../lib/roles.js';
 import { downloadCsv } from '../../lib/csv.js';
-import { overlaps, periodFromSaved, periodLabel, readHashPeriod, single, writeHashPeriod } from '../../lib/period.js';
+import { isHashRoute, overlaps, periodFromSaved, periodLabel, readHashPeriod, single, writeHashPeriod } from '../../lib/period.js';
 import { reportShownStatus, reportStatusDef } from '../../lib/reportExpectation.js';
 import PeriodSelect from '../../components/PeriodSelect.jsx';
 import ExpectedReports from './ExpectedReports.jsx';
@@ -123,6 +123,8 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
   // contredit par un rechargement.
   useEffect(() => {
     const apply = () => {
+      // Seulement sur CET écran : un lien vers un autre écran (cloche, « Exécution du plan ») garde sa période.
+      if (!isHashRoute(window.location.hash, 'tpm/rapports')) return;
       const p = readHashPeriod(window.location.hash);
       if (!p) return;
       setValues((s) => ({ ...s, period: p }));

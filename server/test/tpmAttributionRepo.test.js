@@ -555,4 +555,27 @@ test('lien TPM ↔ contrat (U2) : premier plan / facture ou dernier supprimé �
   await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: true });
   assert.equal(calls.filter((c) => /mems_tpm_stamp/.test(c.sql)).length, 1);
   assert.deepEqual(calls[0].params, [T, YPA, K1], 'lien lu dans le compte du jeton');
+  // Document d'un mois PASSÉ (facture arrivée après son mois) : dès ce mois ; d'un mois à venir : dès le mois courant.
+  calls.length = 0;
+  await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: true, month: '2020-03-01' });
+  assert.equal(calls.find((c) => /mems_tpm_stamp/.test(c.sql)).params[1], '2020-03-01');
+  calls.length = 0;
+  await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: true, month: '2999-01-01' });
+  assert.notEqual(calls.find((c) => /mems_tpm_stamp/.test(c.sql)).params[1], '2999-01-01');
+});
+
+test('lien TPM ↔ contrat (re-relecture, point 5) : écrivain « verrou d abord » — verrou d attribution AVANT la lecture du lien', async () => {
+  const calls = [];
+  const client = { query: async (sql, params) => { calls.push({ sql: sql.replace(/\s+/g, ' ').trim(), params }); return { rows: [{ ok: false }] }; } };
+  const link = await repo.lockTpmLinkTx(client, T, { partnerId: YPA, contractId: K1 });
+  assert.deepEqual(link, { partnerId: YPA, contractId: K1, had: false });
+  const lockAt = calls.findIndex((c) => /pg_advisory_xact_lock/.test(c.sql));
+  const readAt = calls.findIndex((c) => /^SELECT EXISTS \(SELECT 1 FROM tpm_collection_plans/.test(c.sql));
+  assert.ok(lockAt >= 0 && lockAt < readAt, 'le lien est lu sous le verrou');
+  assert.equal(calls[lockAt].params[0], repo.ATTRIBUTION_KEY(T));
+  // Suppression : le verrou seul (partenaire et contrat lus ensuite sur le document, sous le verrou).
+  calls.length = 0;
+  assert.equal(await repo.lockTpmLinkTx(client, T), null);
+  assert.ok(calls.some((c) => /pg_advisory_xact_lock/.test(c.sql)));
+  assert.ok(!calls.some((c) => /FROM tpm_collection_plans/.test(c.sql)));
 });
