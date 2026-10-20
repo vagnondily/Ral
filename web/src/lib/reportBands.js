@@ -425,6 +425,22 @@ export function pairOf(content) {
   return out;
 }
 
+/**
+ * Modèle appliqué à la mise en page d'un DOCUMENT : la paire du modèle (pairOf) ; un modèle SANS
+ * bandes de 1re page (« Pied de page seul », ancien enregistrement { header, footer }, 1re page
+ * « identique » ou « aucune ») garde l'en-tête et le pied de 1re page déjà dessinés du brouillon —
+ * masqués tant que la 1re page n'est pas « propre », jamais perdus (comme setFirstPageMode).
+ */
+export function applyPair(draft, content) {
+  const pair = pairOf(content);
+  const c = content || {};
+  if (c.firstHeader || c.firstFooter || pair.firstPage === 'own') return pair;
+  const d = draft || {};
+  if (d.firstHeader) pair.firstHeader = copy(d.firstHeader);
+  if (d.firstFooter) pair.firstFooter = copy(d.firstFooter);
+  return pair;
+}
+
 /** Logos DÉJÀ choisis dans une mise en page (1re page puis suivantes), sans doublon, dans l'ordre. */
 export function logosOf(layout) {
   const l = layout || {};

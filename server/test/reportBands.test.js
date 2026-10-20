@@ -219,6 +219,18 @@ test('paire 1re page / pages suivantes : régimes, copie à la demande, rien de 
   assert.equal(old.firstHeader, undefined);
   assert.equal(b.pairOf({ header, footer, firstPage: 'bizarre' }).firstPage, 'same');
   assert.deepEqual(b.pairOf({ header, footer, firstPage: 'own' }).firstHeader, header);
+  // Modèle appliqué au document : sans bandes de 1re page (« Pied de page seul », ancien { header, footer }),
+  // la 1re page déjà dessinée est GARDÉE (masquée, régime du modèle) ; un modèle qui a les siennes les impose.
+  const kept = b.applyPair(drawn, { header: footer, footer });
+  assert.equal(kept.firstPage, 'same');
+  assert.deepEqual([kept.header, kept.footer], [footer, footer]);
+  assert.deepEqual([kept.firstHeader, kept.firstFooter], [firstHeader, footer]);
+  assert.notEqual(kept.firstHeader, firstHeader, 'copie, jamais l\'objet du brouillon');
+  assert.equal(b.setFirstPageMode(kept, 'own').firstHeader, kept.firstHeader, 'retour à « propre » : la 1re page dessinée revient');
+  const ownTpl = b.applyPair(drawn, { header, footer, firstPage: 'own', firstHeader: footer, firstFooter: footer });
+  assert.deepEqual(ownTpl.firstHeader, footer);
+  assert.deepEqual(b.applyPair(drawn, { header, footer, firstPage: 'own' }).firstHeader, header, 'propre sans bandes : copie des suivantes (pairOf)');
+  assert.deepEqual(b.applyPair({ header }, { header, footer }), b.pairOf({ header, footer }), 'brouillon sans 1re page : la paire du modèle');
   // Logos déjà choisis (1re page d'abord), sans doublon : repris par un modèle, jamais une image au hasard.
   assert.deepEqual(b.logosOf({ header: { elements: [{ kind: 'image', assetId: LOGO2 }, { kind: 'image', assetId: LOGO }] }, firstHeader }), [LOGO, LOGO2]);
   assert.deepEqual(b.logosOf({ header }), []);

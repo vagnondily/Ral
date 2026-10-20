@@ -242,3 +242,18 @@ test('bulletin auto : chiffres des chiffres clés, domaines faibles, couverture 
   assert.match(en, /Over the period January to March 2026/); assert.match(en, /30 of 100 active site\(s\)/);
   assert.doesNotMatch(en, /Sur la période|Domaines sous/);
 });
+
+test('chiffres clés : « Sites suivis hors mois actif » = outside de la source unique ; groupe sans bureau = « Sans bureau »', () => {
+  const OUT = shapeCoverage([
+    R({ dim: 'overall', key: null, registry: 10, sites: 6, covered: 2, coveredInactive: 3, coveredInactiveForbidden: 1, knownAll: true }),
+    R({ dim: 'office', key: 'Bureau Sud', registry: 6, sites: 4, covered: 2 }),
+    R({ dim: 'office', key: '—', registry: 4, sites: 2 }),
+    R({ dim: 'activity', key: '—', activityLabel: '—', registry: 4, sites: 2 }),
+  ], { refMonth: '2026-03' });
+  const k = shape('cov.kpis', OUT).rows[0];
+  assert.equal(k.realisedInactive, 3, 'jamais « — » : le total de la source unique');
+  assert.equal(datasetDef('cov.kpis').columns.find((c) => c.key === 'realisedInactive').label, 'Sites suivis hors mois actif (non comptés)');
+  assert.deepEqual(shape('cov.by_office', OUT).rows.map((r) => r.bureau), ['Bureau Sud', 'Sans bureau']);
+  assert.deepEqual(shape('cov.by_office', OUT, {}, ctx('en')).rows.map((r) => r.bureau), ['Bureau Sud', 'No office']);
+  assert.deepEqual(shape('cov.by_activity', OUT).rows.map((r) => r.activity), ['Non renseigné']);
+});

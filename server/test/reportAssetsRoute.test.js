@@ -148,3 +148,24 @@ test('« mes en-têtes » : enregistré par compte, validé par le schéma des b
   const other = await request(app).get('/api/report-designer/band-templates').set({ Authorization: tok(B, 'viewer') });
   assert.deepEqual(other.body, []);
 });
+
+test('« mes en-têtes » : au plus MAX_IMAGES logos sur la paire (bandes de la 1re page comptées si affichées), message clair', async () => {
+  const { MAX_IMAGES, imageRefs, safeParseDocV2 } = require('../src/modules/reports/reportSchema');
+  const logo = (await upload(png(80, 20, 10))).body.id;
+  const logos = (n, prefix) => ({ height: 30, elements: Array.from({ length: n }, (_, i) => ({ id: `${prefix}${i}`, kind: 'image', x: i * 5, y: 1, w: 5, h: 10, assetId: logo })) });
+  const post = (body) => request(app).post('/api/report-designer/band-templates').set({ Authorization: tok(A, 'admin') }).send(body);
+  // 6 + 6 = 12 : accepté ; 6 + 6 + 1 sur la 1re page affichée : refusé avec le compte.
+  assert.equal((await post({ name: 'Douze logos', header: logos(6, 'h'), footer: logos(6, 'f') })).status, 201);
+  const over = await post({ name: 'Treize logos', header: logos(6, 'h'), footer: logos(6, 'f'), firstPage: 'own', firstHeader: logos(1, 'a') });
+  assert.equal(over.status, 400);
+  assert.deepEqual(over.body.details, { code: 'too_many_images', count: 13, max: MAX_IMAGES });
+  assert.match(over.body.error, /Trop d'images dans cet en-tête : 13 logos \(12 au plus/);
+  // Bandes de la 1re page gardées mais masquées (« identique ») : ne comptent pas.
+  assert.equal((await post({ name: 'Masquées', header: logos(6, 'h'), footer: logos(6, 'f'), firstPage: 'same', firstHeader: logos(10, 'a') })).status, 201);
+  // Dans un document : même règle (imageRefs ne compte la 1re page que si elle est propre).
+  const page = { size: 'A4', orientation: 'portrait', header: logos(6, 'h'), footer: logos(6, 'f'), firstPage: 'same', firstHeader: logos(10, 'a'), draftWatermark: true };
+  const doc = { schemaVersion: 2, title: 'T', period: { from: '2026-01', to: '2026-01' }, filters: {}, page, blocks: [] };
+  assert.equal(imageRefs(doc).length, 12);
+  assert.equal(safeParseDocV2(doc).success, true);
+  assert.equal(safeParseDocV2({ ...doc, page: { ...page, firstPage: 'own' } }).success, false, '1re page propre : 22 images');
+});

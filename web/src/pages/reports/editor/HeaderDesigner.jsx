@@ -10,7 +10,7 @@ import { useI18n } from '../../../lib/i18n.jsx';
 import { api } from '../../../api/client.js';
 import { pageGeometry } from '../../../lib/reportPaginate.js';
 import {
-  BAND_TEMPLATES, FIRST_PAGE_MODES, applyTemplate, bandKey, clampElement, logosOf, newElement, nextElementId, pairBands, pairOf,
+  BAND_TEMPLATES, FIRST_PAGE_MODES, applyPair, applyTemplate, bandKey, clampElement, logosOf, newElement, nextElementId, pairBands, pairOf,
   reorder, setBandHeight, setFirstPageMode, zoneOf,
 } from '../../../lib/reportBands.js';
 import { Band } from '../ReportBlocks.jsx';
@@ -187,11 +187,11 @@ export default function HeaderDesigner({
   };
   const pick = (kind, zn) => { setPageKind(kind); if (zn) setZone(zn); setSel(null); };
   const setMode = (mode) => { hist.set((d) => setFirstPageMode(d, mode)); setSel(null); if (mode === 'own') setPageKind('first'); };
-  // Un modèle s'applique à la PAIRE (en-tête de section : à ses seules bandes) ; les logos déjà choisis sont gardés.
+  // Un modèle s'applique à la PAIRE (en-tête de section : à ses seules bandes) ; les logos déjà choisis sont gardés,
+  // et un modèle sans bandes de 1re page garde celles déjà dessinées (applyPair : rien n'est perdu).
   const applyContent = (content, k) => {
-    const pair = pairOf(content);
-    if (isDoc) hist.set(() => pair);
-    else hist.set((d) => ({ ...d, header: clone(pair.header), footer: clone(pair.footer) }));
+    if (isDoc) hist.set((d) => applyPair(d, content));
+    else { const pair = pairOf(content); hist.set((d) => ({ ...d, header: clone(pair.header), footer: clone(pair.footer) })); }
     setSel(null); setPicked(k);
   };
   const saveMine = async () => {

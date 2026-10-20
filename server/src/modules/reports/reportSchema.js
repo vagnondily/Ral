@@ -211,16 +211,26 @@ function walkBlocks(blocks, visit, path = ['blocks'], parent = null) {
   });
 }
 
+const bandImages = (bd) => ((bd && bd.elements) || []).filter((e) => e.kind === 'image' && e.assetId).map((e) => e.assetId);
+
+/**
+ * Images des bandes d'une mise en page (document, ou paire « Mes en-têtes ») : en-tête et pied, et
+ * ceux de la 1re page SEULEMENT s'ils sont affichés (firstPage 'own') — gardés mais masqués
+ * (« identique », « aucun »), ils ne comptent pas.
+ */
+function bandImageRefs({ header, footer, firstHeader, firstFooter, firstPage } = {}) {
+  const bands = firstPage === 'own' ? [header, footer, firstHeader, firstFooter] : [header, footer];
+  return bands.flatMap(bandImages);
+}
+
 /** Images citées (blocs image, éléments d'en-tête / pied du document et des sections) ; les emplacements vides ne comptent pas. */
 function imageRefs(doc) {
   const out = [];
-  const fromBand = (bd) => { for (const e of (bd && bd.elements) || []) if (e.kind === 'image' && e.assetId) out.push(e.assetId); };
   walkBlocks(doc.blocks, (b) => {
     if (b.type === 'image') out.push(b.params.assetId);
-    if (b.type === 'section') { fromBand(b.params.headerBand); fromBand(b.params.footerBand); }
+    if (b.type === 'section') out.push(...bandImages(b.params.headerBand), ...bandImages(b.params.footerBand));
   });
-  const page = doc.page || {};
-  for (const bd of [page.header, page.footer, page.firstHeader, page.firstFooter]) fromBand(bd);
+  out.push(...bandImageRefs(doc.page || {}));
   return out;
 }
 
@@ -254,7 +264,7 @@ const parseDocV2 = (input) => reportDocV2.parse(input);
 const safeParseDocV2 = (input) => reportDocV2.safeParse(input);
 
 module.exports = {
-  parseDocV2, safeParseDocV2, walkBlocks, imageRefs,
+  parseDocV2, safeParseDocV2, walkBlocks, imageRefs, bandImageRefs,
   FONTS, VIEWS, MAX_BLOCKS, MAX_IMAGES, MAX_DOC_BYTES,
   schemas: { richDoc, block, leafBlock, sectionBlock, columnsBlock, repeatBlock, band, pageSetup, reportFilters, blockFilters, figure, reportDocV2, officeKey },
 };

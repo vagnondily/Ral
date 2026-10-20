@@ -354,6 +354,7 @@ export default {
   'Visites réalisées': 'Completed visits',
   'Visites à venir': 'Upcoming visits',
   'Réalisées hors mois actif': 'Completed outside active months',
+  'Sites suivis hors mois actif (non comptés)': 'Sites monitored outside active months (not counted)',
   'Statut': 'Status',
   'Couverture par activité (avec statut)': 'Coverage by activity (with status)',
   'Couverture par bureau': 'Coverage by office',

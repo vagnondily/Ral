@@ -53,7 +53,8 @@ const dashRow = (g) => ({
   coverage: ratePct(g.coverage.rate), status: coverageStatus(g.coverage.rate),
   planned: g.execution.planned, done: g.execution.covered, execution: ratePct(g.execution.rate),
   planning: pctOf(g.plannedSites.planned, g.sites), upcoming: g.execution.upcoming,
-  byData: g.coverage.byData, byVisit: g.coverage.byVisit, realisedInactive: null,
+  // Sites ayant une visite déclarée ou des données pendant un mois NON actif (jamais comptés : dits à part).
+  byData: g.coverage.byData, byVisit: g.coverage.byVisit, realisedInactive: g.outside == null ? null : g.outside,
 });
 const dashMeta = (raw, ctx) => ({
   n: raw.overall ? raw.overall.sites : 0, nLabel: 'sites actifs', definition: phrases(ctx.lang).definitions.coverage,
@@ -69,7 +70,7 @@ const KPI_COLS = [
   col('coverage', 'Couverture', 'pct'), col('planning', 'Planification', 'pct'), col('execution', 'Exécution du plan', 'pct'),
   col('planned', 'Visites prévues', 'int'), col('done', 'Visites suivies', 'int'), col('upcoming', 'Visites à venir', 'int'),
   col('byData', 'Suivis par données reçues', 'int'), col('byVisit', 'Suivis par visites déclarées', 'int'),
-  col('realisedInactive', 'Réalisées hors mois actif', 'int'),
+  col('realisedInactive', 'Sites suivis hors mois actif (non comptés)', 'int'),
 ];
 const covKpis = ds('cov.kpis', {
   label: 'Couverture terrain (chiffres clés)', origin: ORIGIN_COV, source: 'covDash', views: ['kpi', 'table'], defaultView: 'kpi',
@@ -77,21 +78,22 @@ const covKpis = ds('cov.kpis', {
   shape(raw, eff, ctx) { const s = dashScope(raw, eff); return { columns: KPI_COLS, rows: [{ _key: 'overall', ...dashRow(s.overall) }], meta: dashMeta(s, ctx) }; },
 });
 
-const groupDs = (key, label, list, first, extra = {}) => ds(key, {
+// Libellé du groupe « — » : « Sans bureau » pour les bureaux, « Non renseigné » pour l'activité et le district.
+const groupDs = (key, label, list, first, extra = {}, noneOf = (T) => T.noneLabel) => ds(key, {
   label, origin: ORIGIN_COV, source: 'covDash', views: ['table', 'bar'], defaultView: 'table',
   columns: [first, ...DASH_COLS], measures: ['coverage'],
   shape(raw, eff, ctx) {
     const thr = ctx.args && ctx.args.threshold != null ? Number(ctx.args.threshold) : null;
     const s = dashScope(raw, eff);
     // Groupes de l'univers seulement (coverageDefinitions : un groupe sans site actif n'est pas listé).
-    const rows = (s[list] || []).map((g) => ({ _key: g.key, [first.key]: g.key === '—' ? phrases(ctx.lang).noneLabel : g.label, ...dashRow(g) }))
+    const rows = (s[list] || []).map((g) => ({ _key: g.key, [first.key]: g.key === '—' ? noneOf(phrases(ctx.lang)) : g.label, ...dashRow(g) }))
       .filter((r) => thr == null || (r.coverage != null && r.coverage < thr));
     return { columns: [first, ...DASH_COLS], rows, meta: dashMeta(s, ctx) };
   },
   ...extra,
 });
 const byActivity = groupDs('cov.by_activity', 'Couverture par activité (avec statut)', 'byActivity', col('activity', 'Activité'), { annotate: { label: 'Constat' } });
-const byOffice = groupDs('cov.by_office', 'Couverture par bureau', 'byOffice', col('bureau', 'Bureau'));
+const byOffice = groupDs('cov.by_office', 'Couverture par bureau', 'byOffice', col('bureau', 'Bureau'), {}, (T) => T.noOffice);
 const byDistrict = groupDs('cov.by_district', 'Couverture par district', 'byDistrict', col('district', 'District'), {
   args: { threshold: { type: 'number', label: 'Zones à surveiller : couverture < … %', default: null } },
 });

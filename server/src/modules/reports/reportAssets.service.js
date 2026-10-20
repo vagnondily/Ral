@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const { z } = require('zod');
 const { badRequest, payloadTooLarge } = require('../../middleware/errors');
 const { imageInfo } = require('../common/imageInfo');
-const { schemas } = require('./reportSchema');
+const { schemas, bandImageRefs, MAX_IMAGES } = require('./reportSchema');
 const repo = require('./reportAssets.repository');
 
 /**
@@ -58,6 +58,12 @@ async function saveBandTemplate(tenantId, body, userId) {
   if (firstPage) content.firstPage = firstPage;
   if (firstHeader) content.firstHeader = firstHeader;
   if (firstFooter) content.firstFooter = firstFooter;
+  // Même limite que le document (reportSchema : MAX_IMAGES images citées, bandes de la 1re page comptées
+  // si elles sont affichées) : une paire appliquée à un rapport ne fait jamais échouer son enregistrement.
+  const images = bandImageRefs(content).length;
+  if (images > MAX_IMAGES) {
+    throw badRequest(`Trop d'images dans cet en-tête : ${images} logos (${MAX_IMAGES} au plus pour un rapport).`, { code: 'too_many_images', count: images, max: MAX_IMAGES });
+  }
   await checkBandImages(tenantId, [header, footer, firstHeader, firstFooter].filter(Boolean));
   return repo.createBandTemplate(tenantId, { name, content }, userId);
 }
