@@ -40,12 +40,12 @@ export default function ProviderEvaluationTab({ providerId, provider, canEdit, u
     <>
       {error && <div className="card-body"><Alert tone="error">{error}</Alert></div>}
       <div className="data-toolbar">
-        <div className="data-toolbar-left"><span className="muted">{tr('Grille d\'appréciation du prestataire et moyenne des notes de ses agents sur la période.')}</span></div>
+        <div className="data-toolbar-left"><span className="muted">{tr('Grille d\'appréciation du TPM et moyenne des notes de ses agents sur la période.')}</span></div>
         <div className="data-toolbar-right">{canEdit && <Button size="sm" icon={Plus} onClick={() => setOpenId('new')}>{tr('Nouvelle évaluation')}</Button>}</div>
       </div>
       {list.length === 0 ? (
         <EmptyState icon={ClipboardCheck} title={tr('Pas encore évalué')}
-          action={canEdit && <Button icon={Plus} onClick={() => setOpenId('new')}>{tr('Évaluer le prestataire')}</Button>}>
+          action={canEdit && <Button icon={Plus} onClick={() => setOpenId('new')}>{tr('Évaluer le TPM')}</Button>}>
           {tr('Une évaluation porte sur une période (un trimestre, par exemple) : chaque critère est noté de 1 à 4, avec un commentaire, puis une autre personne la valide.')}
         </EmptyState>
       ) : (
@@ -54,7 +54,7 @@ export default function ProviderEvaluationTab({ providerId, provider, canEdit, u
             <thead><tr>
               <th scope="col">{tr('Période évaluée')}</th><th scope="col">{tr('Évaluée le')}</th><th scope="col">{tr('Évaluateur')}</th>
               <th scope="col" className="num">{tr('Grille')}</th><th scope="col" className="num">{tr('Moyenne des agents')}</th>
-              <th scope="col">{tr('Note du prestataire')}</th><th scope="col">{tr('Statut')}</th><th scope="col" />
+              <th scope="col">{tr('Note du TPM')}</th><th scope="col">{tr('Statut')}</th><th scope="col" />
             </tr></thead>
             <tbody>
               {list.map((e) => {
@@ -210,8 +210,8 @@ function EvaluationPanel({ providerId, provider, evaluationId, criteria, canEdit
 
           {!isNew && ev.preview && (
             <div className="note"><Info size={18} aria-hidden="true" /><span>{ev.preview.agentsCount
-              ? tr('À la validation, la note du prestataire combinera la grille ({g} %) et la moyenne de ses {n} agent(s) notés sur la période ({q} %) : aperçu {score}.', { g: 100 - ev.preview.agentsWeight, q: ev.preview.agentsWeight, n: ev.preview.agentsCount, score: formatScore(ev.preview.finalScore) })
-              : tr('Aucun agent de ce prestataire n\'a de note sur la période : la note du prestataire sera celle de la grille.')}</span></div>
+              ? tr('À la validation, la note du TPM combinera la grille ({g} %) et la moyenne de ses {n} agent(s) notés sur la période ({q} %) : aperçu {score}.', { g: 100 - ev.preview.agentsWeight, q: ev.preview.agentsWeight, n: ev.preview.agentsCount, score: formatScore(ev.preview.finalScore) })
+              : tr('Aucun agent de ce TPM n\'a de note sur la période : la note du TPM sera celle de la grille.')}</span></div>
           )}
           {editable && (
             <div className="form-actions pv-eval-actions">
@@ -247,7 +247,7 @@ function Why({ ev }) {
     <div className="pv-why">
       <div className="pv-why-hero">
         <div>
-          <span className="stat-label">{tr('Note du prestataire')}</span>
+          <span className="stat-label">{tr('Note du TPM')}</span>
           <span className="pv-why-score tabular">{formatScore(ev.finalScore)}</span>
           <StatusBadge map={BANDS} value={ev.band} />
         </div>
@@ -258,7 +258,7 @@ function Why({ ev }) {
           {' '}{tr('Bandes : 16 et plus Excellent, 12 et plus Bon, 10 et plus Moyen, sinon Insuffisant.')}
         </p>
       </div>
-      <h4 className="pv-panel-title">{tr('Grille du prestataire : {s}', { s: formatScore(ev.gridScore) })}</h4>
+      <h4 className="pv-panel-title">{tr('Grille du TPM : {s}', { s: formatScore(ev.gridScore) })}</h4>
       <div className="table-wrap">
         <table className="table">
           <thead><tr><th scope="col">{tr('Critère')}</th><th scope="col">{tr('Appréciation')}</th><th scope="col" className="num">{tr('Équivalent sur 20')}</th><th scope="col" className="num">{tr('Poids')}</th><th scope="col">{tr('Commentaire')}</th></tr></thead>

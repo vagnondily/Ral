@@ -86,8 +86,8 @@ export default function ProviderFollowupsTab({ providerId, onNavigate }) {
           <section aria-labelledby="pv-forms">
             <h3 className="pv-panel-title" id="pv-forms"><ClipboardList size={16} aria-hidden="true" />{tr('Formulaires reçus par fiche')}</h3>
             {(data.forms || []).length === 0 ? (
-              <EmptyState icon={ClipboardList} title={tr('Aucun formulaire relié à ce prestataire')}>
-                {tr('Un formulaire reçu est relié au prestataire par la colonne « partenaire » de la fiche (Données & indicateurs › Mapping MEMS › Correspondances).')}
+              <EmptyState icon={ClipboardList} title={tr('Aucun formulaire relié à ce partenaire')}>
+                {tr('Un formulaire reçu est relié au partenaire par la colonne « partenaire » de la fiche (Données & indicateurs › Mapping MEMS › Correspondances).')}
               </EmptyState>
             ) : (
               <div className="table-wrap"><table className="table grid">

@@ -62,7 +62,7 @@ export default function TrainingSessionPage({ sessionId, canEdit, onNavigate }) 
       </div>
 
       <Stats items={[
-        { label: tr('Participants'), value: sum.participants, foot: tr(sum.providers > 1 ? '{n} prestataires' : '{n} prestataire', { n: sum.providers }) },
+        { label: tr('Participants'), value: sum.participants, foot: tr('{n} TPM', { n: sum.providers }) },
         { label: tr('Présence'), value: formatPct(sum.attendance.rate, tr),
           foot: sum.attendance.notRecorded ? tr('{n} présence(s) non renseignée(s)', { n: sum.attendance.notRecorded }) : tr('Présents et partiels ÷ renseignés') },
         { label: tr('Pré-test → post-test'), value: sum.tests.avgPost == null ? '—' : `${formatPct(sum.tests.avgPre, tr)} → ${formatPct(sum.tests.avgPost, tr)}`,
@@ -243,7 +243,7 @@ function ParticipantsCard({ s, canEdit, onChanged }) {
     const m = new Map();
     for (const r of rows) {
       const k = r.providerId || '';
-      if (!m.has(k)) m.set(k, { id: k, name: r.providerName || tr('Sans prestataire'), rows: [] });
+      if (!m.has(k)) m.set(k, { id: k, name: r.providerName || tr('Sans TPM'), rows: [] });
       m.get(k).rows.push(r);
     }
     return [...m.values()];
@@ -278,13 +278,13 @@ function ParticipantsCard({ s, canEdit, onChanged }) {
   const cols = canEdit ? 9 : 8;
   return (
     <Card>
-      <CardHeader title={tr('Prestataires et agents participants')} subtitle={tr('Présence, tests (sur {max}) et avis de chaque participant.', { max: s.scoreMax })}>
+      <CardHeader title={tr('TPM et agents participants')} subtitle={tr('Présence, tests (sur {max}) et avis de chaque participant.', { max: s.scoreMax })}>
         {canEdit && rows.length > 0 && <Button icon={Save} onClick={save} loading={busy} disabled={!dirty}>{tr('Enregistrer les présences et notes')}</Button>}
       </CardHeader>
       {canEdit && (
         <div className="card-body tr-add">
           <Users size={16} aria-hidden="true" className="muted" />
-          <ProviderSelect period={period} value={providerId} onChange={setProviderId} placeholder={tr('Choisir un prestataire…')} ariaLabel={tr('Prestataire')} />
+          <ProviderSelect period={period} value={providerId} onChange={setProviderId} placeholder={tr('Choisir un TPM…')} ariaLabel={tr('TPM')} />
           <Button variant="secondary" icon={UserPlus} disabled={!providerId || busy} onClick={() => add({ providerId })}>{tr('Ajouter tous ses agents actifs')}</Button>
           <span className="muted">{tr('ou')}</span>
           <select className={`select ${agentId ? '' : 'is-empty'}`} value={agentId} onChange={(e) => setAgentId(e.target.value)} disabled={!providerId} aria-label={tr('Agent')}>
@@ -295,7 +295,7 @@ function ParticipantsCard({ s, canEdit, onChanged }) {
         </div>
       )}
       {rows.length === 0 ? (
-        <div className="card-body muted">{tr('Aucun participant pour l\'instant. Ajoutez les agents d\'un prestataire.')}</div>
+        <div className="card-body muted">{tr('Aucun participant pour l\'instant. Ajoutez les agents d\'un TPM.')}</div>
       ) : (
         <div className="table-wrap">
           <table className="table tr-grid">

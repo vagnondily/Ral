@@ -120,7 +120,10 @@ function Workspace() {
         if (route.extra === 'nouveau') return <ContractFormPage mode="create" onDone={openContract} onCancel={back} />;
         if (route.extra && route.extra2 === 'edit') return <ContractFormPage mode="edit" contractId={route.extra} onDone={openContract} onCancel={back} />;
         if (route.extra && route.extra2 === 'amend') return <ContractFormPage mode="amend" contractId={route.extra} onDone={openContract} onCancel={back} />;
-        if (route.extra) return <ContractDetailPage contractId={route.extra} onBack={back} onOpen={openContract} onEdit={editContract} onAmend={amendContract} />;
+        if (route.extra) {
+          return <ContractDetailPage contractId={route.extra} onBack={back} onOpen={openContract} onEdit={editContract} onAmend={amendContract}
+            onOpenPartner={(id) => navigate('tpm', 'prestataires', id)} />;
+        }
         return <ContractsListPage canEdit={canEdit} onOpen={openContract} onNew={newContract} onEdit={editContract} onAmend={amendContract} />;
       })()}
       {route.module === 'tpm' && route.sub === 'prestataires' && (route.extra

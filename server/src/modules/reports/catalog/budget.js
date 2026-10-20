@@ -77,9 +77,9 @@ const budMonthly = ds('bud.monthly', {
   },
 });
 
-const PARTNER_COLS = [col('partner', 'Partenaire'), col('actual', 'Réalisé', 'money'), col('budget', 'Budget de suivi', 'money'), col('share', 'Part du réalisé', 'pct')];
+const PARTNER_COLS = [col('partner', 'Titulaire'), col('actual', 'Réalisé', 'money'), col('budget', 'Budget de suivi', 'money'), col('share', 'Part du réalisé', 'pct')];
 const byPartner = ds('bud.by_partner', {
-  label: 'Réalisé par prestataire', origin: ORIGIN_CONS, source: 'consolidation', filters: [], views: ['donut', 'bar', 'table'], defaultView: 'donut',
+  label: 'Réalisé par titulaire', origin: ORIGIN_CONS, source: 'consolidation', filters: [], views: ['donut', 'bar', 'table'], defaultView: 'donut',
   columns: PARTNER_COLS, measures: ['actual'],
   shape(raw, eff) {
     const per = new Map();
@@ -92,7 +92,7 @@ const byPartner = ds('bud.by_partner', {
     const total = [...per.values()].reduce((s, e) => s + e.a, 0);
     const rows = [...per].map(([k, e]) => ({ _key: k, partner: e.partner, actual: e.a / 100, budget: e.b / 100, share: total ? Math.round((e.a / total) * 1000) / 10 : null }))
       .sort((x, y) => y.actual - x.actual || x.partner.localeCompare(y.partner, 'fr'));
-    return { columns: PARTNER_COLS, rows, meta: { n: rows.length, nLabel: 'prestataires', asOf: asOf(eff, raw) } };
+    return { columns: PARTNER_COLS, rows, meta: { n: rows.length, nLabel: 'titulaires', asOf: asOf(eff, raw) } };
   },
 });
 

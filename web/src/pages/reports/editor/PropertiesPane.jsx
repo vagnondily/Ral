@@ -242,7 +242,7 @@ function Annotations({ rows, label, value, labelOf, onChange }) {
 }
 
 /* ------------------------------------------------------------------ Arguments */
-const ARG_CHOICES = { activity: 'Programme (activité)', provider: 'Prestataire', office: 'Bureau', district: 'District' };
+const ARG_CHOICES = { activity: 'Programme (activité)', provider: 'TPM', office: 'Bureau', district: 'District' };
 // Listes de choix des arguments (contrat, partenaire, facture) : lues à la demande.
 const CHOICE_LOADERS = {
   contracts: () => api.listContracts().then((r) => (r || []).filter((c) => c.status !== 'brouillon').map((c) => ({ id: c.id, label: `${c.numero} — ${c.partnerName || ''}` }))),

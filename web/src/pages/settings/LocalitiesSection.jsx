@@ -143,7 +143,7 @@ function CountryTab({ country, isAdmin, onChanged }) {
           <div className="form-grid loc-grid-3">
             <Field label={tr('Nom du pays')} required><input className="input" value={form.name} disabled={!isAdmin} onChange={(e) => set('name', e.target.value)} maxLength={120} /></Field>
             <Field label={tr('Code ISO')} hint={tr('Trois lettres — MDG, COD, ETH')}><input className="input mono" value={form.iso3} disabled={!isAdmin} maxLength={3} onChange={(e) => set('iso3', e.target.value.toUpperCase())} placeholder="MDG" /></Field>
-            <Field label={tr('Devise locale')} hint={tr('Utilisée pour les contrats de prestataires')}><input className="input mono" value={form.currency} disabled={!isAdmin} maxLength={3} onChange={(e) => set('currency', e.target.value.toUpperCase())} placeholder="MGA" /></Field>
+            <Field label={tr('Devise locale')} hint={tr('Utilisée pour les montants des contrats')}><input className="input mono" value={form.currency} disabled={!isAdmin} maxLength={3} onChange={(e) => set('currency', e.target.value.toUpperCase())} placeholder="MGA" /></Field>
           </div>
           <div className="form-grid loc-grid-3">
             <Field label={tr('Latitude du centre')} hint={tr('Cadre la carte avant tout import de contours')}><input className="input tabular" type="number" step="any" min="-90" max="90" value={form.centerLat} disabled={!isAdmin} onChange={(e) => set('centerLat', e.target.value)} /></Field>

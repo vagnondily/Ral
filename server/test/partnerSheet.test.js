@@ -84,3 +84,26 @@ test('frise : à date égale, l\'étape la plus avancée d\'abord', () => {
   ]);
   assert.deepEqual(t.items.map((i) => i.message.text.split(' ').pop()), ['validé', 'validation', 'créé']);
 });
+
+test('rôles (retour 113) : le titulaire voit le TPM de ses contrats, le TPM les contrats qu\'il suit', () => {
+  const { providerListRows } = require('../src/modules/partners/partnerSheet');
+  const contracts = [{ id: 'c1', numero: 'CTR-1', numeroFla: 'FLA-1', partnerId: 'h1', partnerName: 'Aina', status: 'actif' }];
+  const views = new Map([['c1', { state: 'rattache', tpms: [{ id: 'p1', name: 'YPA', via: ['rapport'] }] }]]);
+  const rows = providerListRows([
+    { id: 'h1', name: 'Aina', typeCode: 'prestataire', today: '2026-10-14' },
+    { id: 'p1', name: 'YPA', typeCode: 'tpm', today: '2026-10-14' },
+    { id: 'x1', name: 'Cabinet X', typeCode: 'cabinet', today: '2026-10-14' },
+  ], [link(), link({ partnerId: 'h1', via: ['titulaire'] })], { contracts, views });
+  const [aina, ypa, cab] = rows;
+  assert.deepEqual([aina.role, aina.heldContracts.map((c) => c.numeroFla), aina.tpms.map((t) => t.name)], ['mise_en_oeuvre', ['FLA-1'], ['YPA']]);
+  assert.deepEqual([ypa.role, ypa.monitoredContracts.map((c) => [c.numeroFla, c.holderName]), ypa.heldContracts], ['tpm', [['FLA-1', 'Aina']], []]);
+  assert.deepEqual([cab.role, cab.heldContracts, cab.tpms], ['autre', [], []]);
+  // Fiche du titulaire : son TPM ; ligne de contrat : n° FLA, rôle du titulaire, TPM du contrat.
+  const s = buildSheet({
+    partner: { id: 'h1', name: 'Aina', typeCode: 'prestataire' }, links: [link({ partnerId: 'h1', via: ['titulaire'] })], contracts: [fig({ numeroFla: 'FLA-1' })],
+    counts: { month: '2026-10', today: '2026-10-14' }, reports: [], lastEval: null, zones: [], districts: [],
+    tpmViews: views, partnerTypes: new Map([['h1', 'prestataire'], ['p1', 'tpm']]),
+  });
+  assert.deepEqual([s.role, s.tpms, s.contracts[0].numeroFla, s.contracts[0].holderRole, s.contracts[0].tpm.state],
+    ['mise_en_oeuvre', [{ id: 'p1', name: 'YPA' }], 'FLA-1', 'mise_en_oeuvre', 'rattache']);
+});

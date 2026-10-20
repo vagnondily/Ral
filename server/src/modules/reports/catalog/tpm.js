@@ -10,7 +10,7 @@ const { col, pctOf } = require('./facts');
  */
 const ORIGIN_REP = { page: 'Partenaires & TPM › Rapports', route: '#/tpm/rapports' };
 const ORIGIN_PLAN = { page: 'Partenaires & TPM › Planification & budget', route: '#/tpm/planification' };
-const ORIGIN_PART = { page: 'Partenaires & TPM › Fiche du prestataire', route: '#/tpm/prestataires' };
+const ORIGIN_PART = { page: 'Partenaires & TPM › Fiche du partenaire', route: '#/tpm/prestataires' };
 const PARTNER_ARG = { partnerId: { type: 'uuid', label: 'Partenaire', choices: 'partners' } };
 
 const ds = (key, def) => ({ key, group: 'tpm', filters: ['partner'], officeKinds: [], periodMode: 'range', ...def });
@@ -56,21 +56,21 @@ const plans = ds('tpm.plans', {
   },
 });
 
-const PROV_COLS = [col('provider', 'Prestataire'), col('agentsActive', 'Agents actifs', 'int'), col('agents', 'Agents', 'int'), col('trainings', 'Formations', 'int'), col('dailyRate', 'Taux journalier', 'money')];
+const PROV_COLS = [col('provider', 'TPM'), col('agentsActive', 'Agents actifs', 'int'), col('agents', 'Agents', 'int'), col('trainings', 'Formations', 'int'), col('dailyRate', 'Taux journalier', 'money')];
 const providers = ds('tpm.providers', {
-  label: 'Prestataires TPM (agents, formations)', origin: ORIGIN_PART, source: 'tpmProviders', periodMode: 'now', views: ['table', 'bar'], defaultView: 'table',
+  label: 'TPM (agents, formations)', origin: ORIGIN_PART, source: 'tpmProviders', periodMode: 'now', views: ['table', 'bar'], defaultView: 'table',
   columns: PROV_COLS, measures: ['agentsActive'],
   shape(raw, eff) {
     const rows = (raw || []).filter((p) => !eff.partnerId || p.id === eff.partnerId).map((p) => ({
       _key: p.id, provider: p.name, agentsActive: p.agents.filter((a) => a.active).length, agents: p.agents.length,
       trainings: p.agents.reduce((s, a) => s + a.formations.length, 0), dailyRate: p.dailyRate || null,
     }));
-    return { columns: PROV_COLS, rows, meta: { n: rows.length, nLabel: 'prestataires' } };
+    return { columns: PROV_COLS, rows, meta: { n: rows.length, nLabel: 'TPM' } };
   },
 });
 
 const EVAL_COLS = [
-  col('agent', 'Agent'), col('provider', 'Prestataire'), col('missions', 'Missions (sites)', 'int'), col('missionDays', 'Jours de mission', 'int'),
+  col('agent', 'Agent'), col('provider', 'TPM'), col('missions', 'Missions (sites)', 'int'), col('missionDays', 'Jours de mission', 'int'),
   col('evaluations', 'Évaluations', 'int'), col('note', 'Dernière note', 'dec'), col('appreciation', 'Appréciation'),
 ];
 const evaluations = ds('tpm.agent_evaluations', {
@@ -86,7 +86,7 @@ const evaluations = ds('tpm.agent_evaluations', {
   },
 });
 
-const FORM_COLS = [col('date', 'Date', 'date'), col('agent', 'Agent'), col('provider', 'Prestataire'), col('thematique', 'Thématique'), col('jours', 'Jours', 'dec')];
+const FORM_COLS = [col('date', 'Date', 'date'), col('agent', 'Agent'), col('provider', 'TPM'), col('thematique', 'Thématique'), col('jours', 'Jours', 'dec')];
 const formations = ds('tpm.formations', {
   label: 'Formations des agents', origin: ORIGIN_PART, source: 'formations', views: ['table'], defaultView: 'table', columns: FORM_COLS,
   shape(raw) {

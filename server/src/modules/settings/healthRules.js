@@ -108,16 +108,16 @@ function evaluateHealth(c) {
 
   const t = c.tpm || {};
   out.push(rule('tpm_absent', t.active ? 'pret' : 'bloquant', { count: t.active || 0,
-    text: t.active ? '{n} prestataire(s) de suivi actif(s).' : 'Aucun prestataire de suivi (TPM) actif.',
+    text: t.active ? '{n} TPM actif(s).' : 'Aucun TPM (tierce partie de suivi) actif.',
     params: { n: t.active || 0 }, fix: 'partenaires', consumers: ['Visites', 'Plans de collecte', 'Factures', 'Agents'] }));
   out.push(rule('prestataires_sans_agent', t.withoutAgent ? 'a_completer' : 'pret', { count: t.withoutAgent || 0,
-    text: t.withoutAgent ? '{n} prestataire(s) de suivi sans agent.' : 'Chaque prestataire de suivi a des agents.',
+    text: t.withoutAgent ? '{n} TPM sans agent.' : 'Chaque TPM a des agents.',
     params: { n: t.withoutAgent || 0 }, fix: 'equipe', consumers: ['Formations', 'Agents & évaluation'] }));
   out.push(rule('prestataires_sans_contrat', t.withoutContract ? 'a_completer' : 'pret', { count: t.withoutContract || 0,
-    text: t.withoutContract ? '{n} prestataire(s) de suivi sans contrat actif.' : 'Chaque prestataire de suivi a un contrat actif.',
+    text: t.withoutContract ? '{n} TPM sans contrat actif.' : 'Chaque TPM a un contrat actif.',
     params: { n: t.withoutContract || 0 }, fix: 'contrats', consumers: ['Plans de collecte', 'Factures', 'Suivi budgétaire'] }));
   out.push(rule('contrats_sans_ligne_suivi', t.contractsWithoutLine ? 'a_completer' : 'pret', { count: t.contractsWithoutLine || 0,
-    text: t.contractsWithoutLine ? '{n} contrat(s) actif(s) de prestataire de suivi sans poste « IV. Suivi » : ils n\'apparaissent pas dans le suivi budgétaire.' : 'Chaque contrat de suivi a son poste « IV. Suivi ».',
+    text: t.contractsWithoutLine ? '{n} contrat(s) actif(s) de TPM sans poste « IV. Suivi » : ils n\'apparaissent pas dans le suivi budgétaire.' : 'Chaque contrat de suivi a son poste « IV. Suivi ».',
     params: { n: t.contractsWithoutLine || 0 }, fix: 'contrats', consumers: ['Plans de collecte', 'Factures', 'Suivi budgétaire'] }));
 
   const dp = c.draftPlansPast || 0;

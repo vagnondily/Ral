@@ -73,7 +73,7 @@ async function insertItems(client, tenantId, planId, items) {
 
 const HEAD = `
   p.id, p.partner_id AS "partnerId", pa.name AS "partnerName",
-  p.contract_id AS "contractId", c.numero AS "contractNumero", c.partner_name AS "contractPartner",
+  p.contract_id AS "contractId", c.numero AS "contractNumero", c.numero_fla AS "contractFla", c.partner_name AS "contractPartner",
   p.period_month AS "periodMonth", p.title, p.status,
   p.created_by AS "createdBy", p.created_at AS "createdAt", p.updated_at AS "updatedAt"`;
 const FROM = `

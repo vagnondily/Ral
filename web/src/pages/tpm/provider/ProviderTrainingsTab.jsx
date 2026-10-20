@@ -21,14 +21,14 @@ export default function ProviderTrainingsTab({ providerId, canEdit, onNavigate }
   if (error) return <div className="card-body"><Alert tone="error">{error}</Alert></div>;
   const toolbar = (
     <div className="data-toolbar">
-      <div className="data-toolbar-left"><span className="muted">{tr('Formations suivies par les agents de ce prestataire.')}</span></div>
+      <div className="data-toolbar-left"><span className="muted">{tr('Formations suivies par les agents de ce TPM.')}</span></div>
       <div className="data-toolbar-right">
         {canEdit && <Button size="sm" icon={Plus} onClick={() => onNavigate('tpm', 'formations', 'nouvelle')}>{tr('Nouvelle formation')}</Button>}
       </div>
     </div>
   );
   if (!rows.length) {
-    return <>{toolbar}<EmptyState icon={GraduationCap} title={tr('Aucune formation')}>{tr('Aucun agent de ce prestataire n\'a encore participé à une formation.')}</EmptyState></>;
+    return <>{toolbar}<EmptyState icon={GraduationCap} title={tr('Aucune formation')}>{tr('Aucun agent de ce TPM n\'a encore participé à une formation.')}</EmptyState></>;
   }
   const att = (a) => (a ? tr((ATTENDANCE.find((x) => x.id === a) || {}).label) : '—');
   return (

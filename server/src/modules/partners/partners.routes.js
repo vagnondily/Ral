@@ -68,6 +68,13 @@ router.get('/:id/reports', ids('id'), asyncHandler(async (req, res) => {
   res.json(rows);
 }));
 
+// Plans de collecte : ceux du TPM et ceux des contrats dont le partenaire est titulaire (retour 113).
+router.get('/:id/plans', ids('id'), asyncHandler(async (req, res) => {
+  const rows = await service.plans(t(req), req.params.id);
+  if (!rows) throw notFound('Partenaire introuvable');
+  res.json(rows);
+}));
+
 // Suivis effectués : visites et formulaires reçus du prestataire (12 derniers mois par défaut).
 router.get('/:id/followups', ids('id'), asyncHandler(async (req, res) => {
   const period = readPeriod(req.query, { maxSpan: PERIOD_CAPS.facts });

@@ -14,6 +14,7 @@ import { currentMonth, formatAr, formatInt, monthLabel } from '../../lib/format.
 import { formatUsdCents, formatUsdFor, sumUsdCents } from '../../lib/currency.js';
 import { richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { ROLE_LABELS, contractIdentity, contractNo } from '../../lib/roles.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { overlaps, periodFromSaved, periodLabel, single } from '../../lib/period.js';
 
@@ -25,9 +26,9 @@ const viewStore = makeViewStore('mems.planning.view');
 // La « Période » vit dans la barre de filtres : une plage « du … au … » (lot 1b, retour 47),
 // comme Rapports & dépenses ; un plan (un mois) est retenu si son mois tombe dans la plage.
 const FILTERS = {
-  q:        { label: 'Recherche', type: 'search', ph: 'Prestataire, contrat, intitulé…' },
+  q:        { label: 'Recherche', type: 'search', ph: 'TPM, contrat…' },
   period:   { label: 'Période', type: 'period' },
-  partnerId: { label: 'Prestataire', type: 'select' },
+  partnerId: { label: ROLE_LABELS.tpm, type: 'select' },
   contractId: { label: 'Contrat', type: 'select' },
   status:   { label: 'Statut', type: 'select' },
 };
@@ -35,7 +36,7 @@ const ALL_FILTERS = ['q', 'period', 'partnerId', 'contractId', 'status'];
 const DEFAULT_FILTERS = ['period', 'q', 'partnerId', 'status'];
 
 const COLUMNS = {
-  partner:  { label: 'Prestataire TPM', sort: 'partner' },
+  partner:  { label: ROLE_LABELS.tpm, sort: 'partner' },
   contract: { label: 'Contrat', sort: 'contract' },
   period:   { label: 'Période', sort: 'period' },
   title:    { label: 'Intitulé' },
@@ -115,7 +116,7 @@ export default function PlanningPage({ canEdit, isAdmin = false, onNavigate }) {
       const v = values[k];
       if (!v) return true;
       switch (k) {
-        case 'q': { const q = v.toLowerCase(); return [p.partnerName, p.contractPartner, p.contractNumero, p.title].some((x) => x && String(x).toLowerCase().includes(q)); }
+        case 'q': { const q = v.toLowerCase(); return [p.partnerName, p.contractPartner, p.contractNumero, p.contractFla, p.title].some((x) => x && String(x).toLowerCase().includes(q)); }
         case 'period': return overlaps(v, p.periodMonth);
         case 'partnerId': return p.partnerId === v;
         case 'contractId': return p.contractId === v;
@@ -124,7 +125,7 @@ export default function PlanningPage({ canEdit, isAdmin = false, onNavigate }) {
       }
     }));
     const val = (p) => ({
-      partner: p.partnerName || '', contract: p.contractPartner || '', period: p.periodMonth || '',
+      partner: p.partnerName || '', contract: contractNo(p) || '', period: p.periodMonth || '',
       funder: p.plannedFunder || 0, total: p.plannedTotal || 0,
       status: ['brouillon', 'valide'].indexOf(p.status),
     }[sort.key]);
@@ -162,8 +163,8 @@ export default function PlanningPage({ canEdit, isAdmin = false, onNavigate }) {
 
   function optionsFor(k) {
     switch (k) {
-      case 'partnerId': return [{ id: '', label: tr('Tous les prestataires') }, ...(context?.partners || []).map((p) => ({ id: p.id, label: p.name }))];
-      case 'contractId': return [{ id: '', label: tr('Tous les contrats') }, ...(context?.contracts || []).map((c) => ({ id: c.id, label: `${c.partnerName} · ${c.numero}` }))];
+      case 'partnerId': return [{ id: '', label: tr(ROLE_LABELS.allTpm) }, ...(context?.partners || []).map((p) => ({ id: p.id, label: p.name }))];
+      case 'contractId': return [{ id: '', label: tr('Tous les contrats') }, ...(context?.contracts || []).map((c) => ({ id: c.id, label: contractIdentity(c) }))];
       case 'status': return STATUSES.map((s) => ({ ...s, label: tr(s.label) }));
       default: return [];
     }
@@ -187,7 +188,7 @@ export default function PlanningPage({ canEdit, isAdmin = false, onNavigate }) {
   function exportCsv() {
     const head = cols.map((k) => tr(COLUMNS[k].label));
     const cell = (p, k) => ({
-      partner: p.partnerName, contract: `${p.contractPartner} (${p.contractNumero})`, title: p.title || '',
+      partner: p.partnerName, contract: contractIdentity(p), title: p.title || '',
       period: p.periodMonth ? String(p.periodMonth).slice(0, 7) : '',
       funder: currency === 'USD' ? money(p.plannedFunder, p.periodMonth) : Math.round(p.plannedFunder || 0),
       total: currency === 'USD' ? money(p.plannedTotal, p.periodMonth) : Math.round(p.plannedTotal || 0),
@@ -199,8 +200,9 @@ export default function PlanningPage({ canEdit, isAdmin = false, onNavigate }) {
 
   function renderCell(p, k) {
     switch (k) {
-      case 'partner': return <strong>{p.partnerName}</strong>;
-      case 'contract': return <>{p.contractPartner}<div className="site-meta mono">{p.contractNumero}</div></>;
+      case 'partner': return <strong className="nowrap">{p.partnerName}</strong>;
+      // Identité du contrat (retour 113) : n° FLA puis titulaire, comme partout.
+      case 'contract': return <><span className="mono nowrap">{contractNo(p)}</span><div className="site-meta">{p.contractPartner}</div></>;
       case 'period': return <span className="tabular">{p.periodMonth ? monthLabel(String(p.periodMonth).slice(0, 7)) : '—'}</span>;
       case 'title': return p.title || <span className="cell-empty">—</span>;
       case 'funder': return money(p.plannedFunder, p.periodMonth);
@@ -236,7 +238,7 @@ export default function PlanningPage({ canEdit, isAdmin = false, onNavigate }) {
       <div className="page-header">
         <div>
           <h1 className="page-title">{tr('Planification & budget')}</h1>
-          <p className="page-desc">{tr('Budget prévisionnel des vagues de collecte : postes prévus par prestataire et contrat. La part bailleur alimente le « Planifié » de la consolidation et sert de base à la facture.')}</p>
+          <p className="page-desc">{tr('Budget prévisionnel des vagues de collecte : postes prévus par TPM et contrat. La part bailleur alimente le « Planifié » de la consolidation et sert de base à la facture.')}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {canEdit && <Button icon={Plus} onClick={() => setDrawer({})}>{tr('Nouveau plan')}</Button>}
@@ -362,7 +364,7 @@ export default function PlanningPage({ canEdit, isAdmin = false, onNavigate }) {
           open
           validated={del.status === 'valide'}
           title={tr('Supprimer ce plan de collecte ?')}
-          description={`${del.partnerName} · ${del.contractNumero || ''} · ${monthLabel((del.periodMonth || '').slice(0, 7))}`}
+          description={`${del.partnerName} · ${contractNo(del) || ''} · ${monthLabel((del.periodMonth || '').slice(0, 7))}`}
           onClose={() => setDel(null)}
           onConfirm={(justification) => api.deletePlan(del.id, justification)}
           onDone={() => { toast.success(tr('Plan supprimé.')); setDel(null); setSelectedId(null); reload(); }}

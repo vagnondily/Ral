@@ -12,6 +12,8 @@ import { formatAr, formatInt } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { CONTRACT_STATUS, contractFlags, periodLabel, richText } from '../../lib/contracts.js';
 import { SubmitDialog, DecisionDialog, RenewDialog, TerminateDialog } from './ContractDialogs.jsx';
+import { ROLE_LABELS, contractNo, internalNo, joinParts, tpmNames, typeLabelOf } from '../../lib/roles.js';
+import '../tpm/partners.css';
 
 const STATUSES = [
   { id: '', label: 'Tous les statuts' },
@@ -28,28 +30,33 @@ const PAGE_SIZE = 12;
 // the checked ones appear in the bar and narrow the list. Values are kept in
 // state, so re-activating a filter restores its previous value.
 const FILTERS = {
-  q:         { label: 'Recherche', type: 'search', empty: '', ph: 'Partenaire, FLA, PO, Vendor…' },
+  q:         { label: 'Recherche', type: 'search', empty: '', ph: 'Titulaire, TPM, FLA, PO, Vendor…' },
   status:    { label: 'Statut', type: 'select', empty: '' },
   activity:  { label: 'Activité', type: 'select', empty: '' },
-  type:      { label: 'Type de partenaire', type: 'select', empty: '' },
+  type:      { label: ROLE_LABELS.holderType, type: 'select', empty: '' },
+  tpm:       { label: ROLE_LABELS.tpm, type: 'select', empty: '' },
   year:      { label: 'Année (début)', type: 'select', empty: '' },
   attention: { label: 'À traiter uniquement', type: 'check', empty: false },
   overspent: { label: 'Suivi/TPM dépassé', type: 'check', empty: false },
   hasAmend:  { label: 'Avec avenant(s)', type: 'check', empty: false },
 };
-const ALL_KEYS = ['q', 'status', 'activity', 'type', 'year', 'attention', 'overspent', 'hasAmend'];
+const ALL_KEYS = ['q', 'status', 'activity', 'type', 'tpm', 'year', 'attention', 'overspent', 'hasAmend'];
 const DEFAULT_KEYS = ['q', 'status', 'activity', 'type', 'year', 'attention'];
 const emptyValues = () => Object.fromEntries(ALL_KEYS.map((k) => [k, FILTERS[k].empty]));
+
+/** Type du titulaire : le glossaire des rôles (retour 113), sinon le libellé du compte. */
+const holderType = (c) => (c.partnerType || c.partnerTypeLabel ? typeLabelOf(c.partnerType, c.partnerTypeLabel) : '');
 
 function matchOne(key, c, v) {
   switch (key) {
     case 'q': {
       const q = String(v || '').trim().toLowerCase();
-      return !q || [c.partnerName, c.numero, c.numeroFla, c.numeroPo, c.numeroVendor].some((x) => x && x.toLowerCase().includes(q));
+      return !q || [c.partnerName, c.numero, c.numeroFla, c.numeroPo, c.numeroVendor, ...tpmNames(c.tpm)].some((x) => x && x.toLowerCase().includes(q));
     }
     case 'status': return !v || c.status === v;
     case 'activity': return !v || (c.activities || []).includes(v);
-    case 'type': return !v || c.partnerTypeLabel === v;
+    case 'type': return !v || holderType(c) === v;
+    case 'tpm': return !v || (v === 'aucun' ? !(c.tpm && c.tpm.tpms.length) : ((c.tpm && c.tpm.tpms) || []).some((t) => t.id === v));
     case 'year': return !v || (c.dateDebut || '').startsWith(v);
     case 'attention': return !v || c.amendmentRequired || c.status === 'en_validation';
     case 'overspent': return !v || (c.monitoringBudget > 0 && c.spentTotal > c.monitoringBudget);
@@ -151,13 +158,19 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
   }, [contracts]);
 
   const years = useMemo(() => [...new Set((contracts || []).map((c) => (c.dateDebut || '').slice(0, 4)).filter(Boolean))].sort().reverse(), [contracts]);
-  const types = useMemo(() => [...new Set((contracts || []).map((c) => c.partnerTypeLabel).filter(Boolean))].sort(), [contracts]);
+  const types = useMemo(() => [...new Set((contracts || []).map(holderType).filter(Boolean))].sort(), [contracts]);
+  const tpmChoices = useMemo(() => {
+    const m = new Map();
+    for (const c of contracts || []) for (const t of (c.tpm && c.tpm.tpms) || []) m.set(t.id, t.name);
+    return [...m].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  }, [contracts]);
 
   function optionsFor(key) {
     switch (key) {
       case 'status': return STATUSES.map((s) => ({ ...s, label: tr(s.label) }));
       case 'activity': return [{ id: '', label: tr('Toutes') }, ...Object.entries(activityMap).map(([id, label]) => ({ id, label }))];
-      case 'type': return [{ id: '', label: tr('Tous') }, ...types.map((t) => ({ id: t, label: t }))];
+      case 'type': return [{ id: '', label: tr('Tous') }, ...types.map((t) => ({ id: t, label: tr(t) }))];
+      case 'tpm': return [{ id: '', label: tr(ROLE_LABELS.allTpm) }, ...tpmChoices.map((t) => ({ id: t.id, label: t.name })), { id: 'aucun', label: tr(ROLE_LABELS.noTpm) }];
       case 'year': return [{ id: '', label: tr('Toutes') }, ...years.map((y) => ({ id: y, label: y }))];
       default: return [];
     }
@@ -171,7 +184,7 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
     list = list.filter((c) => orderedShown.every((k) => matchOne(k, c, values[k])));
     const STORDER = { en_validation: 0, brouillon: 1, rejete: 2, actif: 3, resilie: 4 };
     const val = (c) => ({
-      partner: c.partnerName || '', fla: c.reference || c.numeroFla || '', period: c.dateDebut || '',
+      partner: c.partnerName || '', fla: contractNo(c) || '', tpm: tpmNames(c.tpm).join(', '), period: c.dateDebut || '',
       total: c.budgetTotal || 0, suivi: c.monitoringBudget ? c.spentTotal / c.monitoringBudget : -1, status: STORDER[c.status] ?? 9,
     }[sort.key]);
     return [...list].sort((a, b) => {
@@ -222,9 +235,9 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
   function afterAction() { setDialog(null); reload(); if (selectedId) api.getContract(selectedId).then(setSelected).catch(() => {}); }
 
   function exportCsv() {
-    const head = ['N°', 'Partenaire', 'Type', 'N° FLA', 'Activités', 'Début', 'Fin', 'Total accord (Ar)', 'Budget Suivi (Ar)', 'Suivi justifié (Ar)', 'Statut'].map((h) => tr(h));
+    const head = ['N° FLA', 'N° interne', ROLE_LABELS.holder, ROLE_LABELS.holderType, ROLE_LABELS.tpm, 'Activités', 'Début', 'Fin', 'Total accord (Ar)', 'Budget Suivi (Ar)', 'Suivi justifié (Ar)', 'Statut'].map((h) => tr(h));
     const lines = filtered.map((c) => [
-      c.numero, c.partnerName, c.partnerTypeLabel || '', c.reference || c.numeroFla || '',
+      c.reference || c.numeroFla || '', c.numero, c.partnerName, holderType(c) ? tr(holderType(c)) : '', tpmNames(c.tpm).join(', '),
       (c.activities || []).map((x) => activityMap[x] || x).join(' / '), c.dateDebut, c.dateFin,
       Math.round(c.budgetTotal), Math.round(c.monitoringBudget || 0), Math.round(c.spentTotal || 0), CONTRACT_STATUS[c.status] ? tr(CONTRACT_STATUS[c.status].label) : c.status,
     ]);
@@ -370,8 +383,8 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
             <thead>
               <tr>
                 <th scope="col" style={{ width: 36 }}><span className="sr-only">{tr('Sélection')}</span></th>
-                <SortTh label={tr('Partenaire')} k="partner" sort={sort} onSort={onSort} />
-                <SortTh label={tr('N° FLA')} k="fla" sort={sort} onSort={onSort} />
+                <SortTh label={tr('Contrat · titulaire')} k="fla" sort={sort} onSort={onSort} />
+                <SortTh label={tr(ROLE_LABELS.tpm)} k="tpm" sort={sort} onSort={onSort} />
                 <th scope="col">{tr('Activités')}</th>
                 <SortTh label={tr('Période')} k="period" sort={sort} onSort={onSort} />
                 <SortTh label={tr('Total accord')} k="total" sort={sort} onSort={onSort} className="num" />
@@ -381,7 +394,7 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
             </thead>
             <tbody>
               {contracts === null
-                ? [0, 1, 2].map((i) => <tr key={i} aria-hidden="true">{[20, 200, 150, 120, 120, 120, 120, 90].map((w, j) => <td key={j}><Skeleton width={w} height={18} /></td>)}</tr>)
+                ? [0, 1, 2].map((i) => <tr key={i} aria-hidden="true">{[20, 200, 130, 120, 120, 120, 120, 90].map((w, j) => <td key={j}><Skeleton width={w} height={18} /></td>)}</tr>)
                 : pageRows.map((c) => {
                     const st = CONTRACT_STATUS[c.status];
                     const flags = contractFlags(c);
@@ -393,13 +406,21 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
                         onDoubleClick={() => onOpen(c.id)}
                         title={tr('Double-cliquez pour ouvrir la fiche')}>
                         <td onClick={(e) => e.stopPropagation()}>
-                          <input type="radio" name="contract-select" checked={isSel} onChange={() => setSelectedId(isSel ? null : c.id)} aria-label={tr('Sélectionner {name}', { name: c.partnerName })} />
+                          <input type="radio" name="contract-select" checked={isSel} onChange={() => setSelectedId(isSel ? null : c.id)} aria-label={tr('Sélectionner {name}', { name: joinParts(contractNo(c), c.partnerName) })} />
                         </td>
+                        {/* Identité d'un contrat (retour 113) : n° FLA · titulaire ; le n° interne (CTR-…) en info-bulle et dans la fiche. */}
                         <td>
-                          <button type="button" className="link-cell" onClick={(e) => { e.stopPropagation(); onOpen(c.id); }}>{c.partnerName}</button>
-                          <div className="site-meta"><span className="mono">{c.numero}</span> · {c.partnerTypeLabel || ''}</div>
+                          <button type="button" className="link-cell mono nowrap" title={internalNo(c) ? tr('N° interne : {n}', { n: internalNo(c) }) : undefined}
+                            onClick={(e) => { e.stopPropagation(); onOpen(c.id); }}>{contractNo(c) || '—'}</button>
+                          <div className="ct-holder">{c.partnerName}</div>
                         </td>
-                        <td><span className="mono">{c.reference || c.numeroFla || '—'}</span></td>
+                        <td className="nowrap">
+                          {c.tpm && c.tpm.tpms.length
+                            ? <>{tpmNames(c.tpm).join(', ')}
+                                <div className="site-meta">{joinParts(c.tpm.state === 'titulaire' ? tr('son propre contrat') : null,
+                                  c.zonesCount ? tr(c.zonesCount > 1 ? '{n} zones' : '{n} zone', { n: c.zonesCount }) : null)}</div></>
+                            : <span className="cell-empty" title={tr('Aucun TPM n\'est rattaché à ce contrat par un plan de collecte ou une facture.')}>{tr('Aucun TPM')}</span>}
+                        </td>
                         <td>
                           <div className="tag-row">
                             {(c.activities || []).slice(0, 3).map((code) => <span key={code} className="tag">{activityMap[code] || code}</span>)}
@@ -407,10 +428,11 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
                             {(c.activities || []).length === 0 && <span className="cell-empty">—</span>}
                           </div>
                         </td>
-                        <td className="nowrap">{periodLabel(c.dateDebut, c.dateFin, tr)}</td>
+                        <td className="ct-period">{String(periodLabel(c.dateDebut, c.dateFin, tr)).split(' – ').map((part, i, all) => (
+                          <span key={i} className="nowrap">{part}{i < all.length - 1 ? ' –' : ''}{i < all.length - 1 ? ' ' : ''}</span>))}</td>
                         <td className="num nowrap">{formatAr(c.budgetTotal)}</td>
                         <td className="num">{c.monitoringBudget ? <Usage rate={monRate} /> : <span className="cell-empty">—</span>}</td>
-                        <td>
+                        <td className="ct-status">
                           <div className="tag-row">
                             <StatusBadge def={st} />
                             {flags.map((f) => <Badge key={f.key} tone={f.tone}>{tr(f.label)}</Badge>)}

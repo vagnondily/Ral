@@ -436,6 +436,7 @@ export const api = {
   updatePartnerProfile: (id, patch) => request(`/api/partners/${id}`, { method: 'PATCH', body: patch }),
   partnerContracts: (id) => request(`/api/partners/${id}/contracts`),
   partnerReports: (id) => request(`/api/partners/${id}/reports`),
+  partnerPlans: (id) => request(`/api/partners/${id}/plans`),
   partnerFollowups: (id, period) => request(`/api/partners/${id}/followups`, { query: qs(pq(period)) }),
   partnerTimeline: (id, before) => request(`/api/partners/${id}/timeline`, { query: qs({ before }) }),
   partnerAgents: (id) => request(`/api/partners/${id}/agents`),

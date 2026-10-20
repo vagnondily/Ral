@@ -103,11 +103,11 @@ const completeness = ds('cov.completeness_monthly', {
 
 // ---- Visites, matrice, récapitulatif MMR, jours de collecte, mois ---------------------------
 const PROV_COLS = [
-  col('provider', 'Prestataire'), col('planifie', 'Planifiées', 'int'), col('realise', 'Réalisées', 'int'), col('annule', 'Annulées', 'int'),
+  col('provider', 'TPM'), col('planifie', 'Planifiées', 'int'), col('realise', 'Réalisées', 'int'), col('annule', 'Annulées', 'int'),
   col('rate', 'Taux de réalisation', 'pct'), col('sitesPlanned', 'Sites prévus', 'int'), col('sitesRealised', 'Sites réalisés', 'int'),
 ];
 const visitsByProvider = ds('cov.visits_by_provider', {
-  label: 'Visites par prestataire', origin: ORIGIN_FIELD, source: 'covFacts', filters: ['office', 'activity', 'partner'],
+  label: 'Visites par TPM', origin: ORIGIN_FIELD, source: 'covFacts', filters: ['office', 'activity', 'partner'],
   views: ['bar', 'table'], defaultView: 'table', columns: PROV_COLS, measures: ['planifie', 'realise'],
   shape(raw, eff, ctx) {
     const T = phrases(ctx.lang);
@@ -120,9 +120,9 @@ const visitsByProvider = ds('cov.visits_by_provider', {
 });
 
 const matrix = ds('cov.matrix', {
-  label: 'Matrice mensuelle par programme ou prestataire', origin: ORIGIN_FIELD, source: 'covMatrix', filters: ['partner'], officeKinds: [],
+  label: 'Matrice mensuelle par programme ou TPM', origin: ORIGIN_FIELD, source: 'covMatrix', filters: ['partner'], officeKinds: [],
   views: ['heat', 'table'], defaultView: 'heat', dynamicColumns: 'months',
-  columns: [col('label', 'Programme ou prestataire'), col('planifie', 'Planifiées', 'int'), col('realise', 'Réalisées', 'int'), col('rate', 'Taux', 'pct')],
+  columns: [col('label', 'Programme ou TPM'), col('planifie', 'Planifiées', 'int'), col('realise', 'Réalisées', 'int'), col('rate', 'Taux', 'pct')],
   args: { by: { type: 'enum', label: 'Lignes', choices: ['activity', 'provider'], default: 'activity' } },
   shape(raw, eff, ctx) {
     const T = phrases(ctx.lang);
@@ -133,7 +133,7 @@ const matrix = ds('cov.matrix', {
       _key: g.key, label: g.key === 'non_affecte' ? T.unassigned : g.label, planifie: g.total.planifie, realise: g.total.realise, rate: ratePct(g.total.rate),
       ...Object.fromEntries(g.cells.map((c) => [`m:${c.month}`, ratePct(c.rate)])),
     }));
-    const cols = [col('label', 'Programme ou prestataire'), ...m.months.map((mm) => col(`m:${mm}`, mm, 'pct')), col('planifie', 'Planifiées', 'int'), col('realise', 'Réalisées', 'int'), col('rate', 'Taux', 'pct')];
+    const cols = [col('label', 'Programme ou TPM'), ...m.months.map((mm) => col(`m:${mm}`, mm, 'pct')), col('planifie', 'Planifiées', 'int'), col('realise', 'Réalisées', 'int'), col('rate', 'Taux', 'pct')];
     return { columns: cols, rows, meta: { n: rows.reduce((a, r) => a + r.planifie + r.realise, 0), nLabel: 'visites' } };
   },
 });
@@ -155,9 +155,9 @@ const recapRisk = ds('cov.recap_risk', {
   },
 });
 
-const DAYS_COLS = [col('provider', 'Prestataire'), col('visitDays', 'Jours de visite', 'int'), col('travelDays', 'Jours de déplacement', 'int'), col('totalDays', 'Total à budgéter', 'int')];
+const DAYS_COLS = [col('provider', 'TPM'), col('visitDays', 'Jours de visite', 'int'), col('travelDays', 'Jours de déplacement', 'int'), col('totalDays', 'Total à budgéter', 'int')];
 const collectionDays = ds('cov.collection_days', {
-  label: 'Jours de collecte par prestataire', origin: ORIGIN_FIELD, source: 'collectionDays', filters: ['partner'], officeKinds: [], periodMode: 'asOf',
+  label: 'Jours de collecte par TPM', origin: ORIGIN_FIELD, source: 'collectionDays', filters: ['partner'], officeKinds: [], periodMode: 'asOf',
   views: ['table', 'bar'], defaultView: 'table', columns: DAYS_COLS, measures: ['totalDays'],
   shape(raw, eff) {
     const rows = (raw || []).filter((p) => !eff.partnerId || p.providerId === eff.partnerId)
@@ -168,7 +168,7 @@ const collectionDays = ds('cov.collection_days', {
 
 const MONTHS_COLS = [
   col('month', 'Mois', 'month'), col('status', 'Statut du plan', 'status'), col('total', 'Visites', 'int'), col('planifie', 'Planifiées', 'int'),
-  col('realise', 'Réalisées', 'int'), col('annule', 'Annulées', 'int'), col('sites', 'Sites', 'int'), col('providers', 'Prestataires', 'int'), col('coverage', 'Taux de réalisation', 'pct'),
+  col('realise', 'Réalisées', 'int'), col('annule', 'Annulées', 'int'), col('sites', 'Sites', 'int'), col('providers', 'TPM', 'int'), col('coverage', 'Taux de réalisation', 'pct'),
 ];
 const monthsTable = ds('cov.months', {
   label: 'Tableau des mois (plan de visites)', origin: ORIGIN_FIELD, source: 'monthsOverview', filters: [], officeKinds: [], periodMode: 'year',

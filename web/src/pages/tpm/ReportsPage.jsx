@@ -16,6 +16,7 @@ import { currentMonth, formatAr, formatInt, monthLabel } from '../../lib/format.
 import { formatUsdCents, formatUsdFor, sumUsdCents } from '../../lib/currency.js';
 import { REPORT_KIND, REPORT_STATUS, richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { ROLE_LABELS, contractIdentity, contractNo } from '../../lib/roles.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { overlaps, periodFromSaved, periodLabel, single } from '../../lib/period.js';
 import PeriodSelect from '../../components/PeriodSelect.jsx';
@@ -36,9 +37,9 @@ const viewStore = makeViewStore('mems.reports.view');
 // (facture pluri-mensuelle comprise) ; le « Réalisé validé » ne somme que les factures dont
 // le mois de début tombe dans la plage — la règle de la consolidation, jamais un double compte.
 const FILTERS = {
-  q:        { label: 'Recherche', type: 'search', ph: 'Prestataire, contrat, facture, réf…' },
+  q:        { label: 'Recherche', type: 'search', ph: 'TPM, contrat…' },
   period:   { label: 'Période', type: 'period' },
-  partnerId: { label: 'Prestataire', type: 'select' },
+  partnerId: { label: ROLE_LABELS.tpm, type: 'select' },
   contractId: { label: 'Contrat', type: 'select' },
   kind:     { label: 'Type', type: 'select' },
   status:   { label: 'Statut', type: 'select' },
@@ -48,7 +49,7 @@ const DEFAULT_FILTERS = ['period', 'q', 'partnerId', 'kind', 'status'];
 
 // Colonnes disponibles (choisies via le sélecteur de colonnes).
 const COLUMNS = {
-  partner:   { label: 'Prestataire TPM', sort: 'partner' },
+  partner:   { label: ROLE_LABELS.tpm, sort: 'partner' },
   contract:  { label: 'Contrat', sort: 'contract' },
   period:    { label: 'Période', sort: 'period' },
   kind:      { label: 'Type', sort: 'kind' },
@@ -146,7 +147,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       const v = values[k];
       if (!v) return true;
       switch (k) {
-        case 'q': { const q = v.toLowerCase(); return [r.partnerName, r.contractPartner, r.contractNumero, r.reference, r.invoiceNo].some((x) => x && String(x).toLowerCase().includes(q)); }
+        case 'q': { const q = v.toLowerCase(); return [r.partnerName, r.contractPartner, r.contractNumero, r.contractFla, r.reference, r.invoiceNo].some((x) => x && String(x).toLowerCase().includes(q)); }
         case 'period': return overlaps(v, r.periodMonth, r.periodEnd);
         case 'partnerId': return r.partnerId === v;
         case 'contractId': return r.contractId === v;
@@ -156,7 +157,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       }
     }));
     const val = (r) => ({
-      partner: r.partnerName || '', contract: r.contractPartner || '', kind: r.kind,
+      partner: r.partnerName || '', contract: contractNo(r) || '', kind: r.kind,
       period: r.periodMonth || '', planned: r.plannedAmount || 0, reported: r.reportedAmount || 0,
       status: ['attendu', 'soumis', 'valide', 'rejete'].indexOf(r.status),
     }[sort.key]);
@@ -210,8 +211,8 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
 
   function optionsFor(k) {
     switch (k) {
-      case 'partnerId': return [{ id: '', label: tr('Tous les prestataires') }, ...(context?.partners || []).map((p) => ({ id: p.id, label: p.name }))];
-      case 'contractId': return [{ id: '', label: tr('Tous les contrats') }, ...(context?.contracts || []).map((c) => ({ id: c.id, label: `${c.partnerName} · ${c.numero}` }))];
+      case 'partnerId': return [{ id: '', label: tr(ROLE_LABELS.allTpm) }, ...(context?.partners || []).map((p) => ({ id: p.id, label: p.name }))];
+      case 'contractId': return [{ id: '', label: tr('Tous les contrats') }, ...(context?.contracts || []).map((c) => ({ id: c.id, label: contractIdentity(c) }))];
       case 'kind': return KINDS.map((o) => ({ ...o, label: tr(o.label) }));
       case 'status': return STATUSES.map((o) => ({ ...o, label: tr(o.label) }));
       default: return [];
@@ -248,7 +249,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
     const cell = (r, k) => {
       switch (k) {
         case 'partner': return r.partnerName;
-        case 'contract': return `${r.contractPartner} (${r.contractNumero})`;
+        case 'contract': return contractIdentity(r);
         case 'kind': return tr(REPORT_KIND[r.kind].label);
         case 'planned': return currency === 'USD' ? money(r.plannedAmount, r.periodMonth) : Math.round(r.plannedAmount || 0);
         case 'reported': return r.kind === 'financier' ? (currency === 'USD' ? money(r.reportedAmount, r.periodMonth) : Math.round(r.reportedAmount || 0)) : '';
@@ -267,8 +268,9 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
 
   function renderCell(r, k) {
     switch (k) {
-      case 'partner': return <strong>{r.partnerName}</strong>;
-      case 'contract': return <><button type="button" className="link-cell" onClick={(e) => { e.stopPropagation(); onOpenContract(r.contractId); }}>{r.contractPartner}</button><div className="site-meta mono">{r.contractNumero}</div></>;
+      case 'partner': return <strong className="nowrap">{r.partnerName}</strong>;
+      // Identité du contrat (retour 113) : n° FLA puis titulaire, comme partout.
+      case 'contract': return <><button type="button" className="link-cell mono nowrap" onClick={(e) => { e.stopPropagation(); onOpenContract(r.contractId); }}>{contractNo(r)}</button><div className="site-meta">{r.contractPartner}</div></>;
       case 'period': return (
         <span className="tabular">{r.periodMonth ? monthLabel(String(r.periodMonth).slice(0, 7)) : '—'}
           {r.periodEnd ? <div className="site-meta">→ {monthLabel(String(r.periodEnd).slice(0, 7))}</div> : null}
@@ -318,7 +320,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       <div className="page-header">
         <div>
           <h1 className="page-title">{tr('Rapports & dépenses')}</h1>
-          <p className="page-desc">{tr('Rapports financiers (facture / état des dépenses) et techniques des prestataires TPM, rattachés au budget mensuel du suivi. Le « Réalisé » validé alimente la consommation du contrat.')}</p>
+          <p className="page-desc">{tr('Rapports financiers (facture / état des dépenses) et techniques des TPM, rattachés au budget mensuel du suivi. Le « Réalisé » validé alimente la consommation du contrat.')}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {canEdit && <Button variant="secondary" icon={CalendarClock} onClick={() => setGenOpen(true)}>{tr('Générer les rapports mensuels')}</Button>}
@@ -441,7 +443,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
               action={canEdit && (reports.length === 0
                 ? <Button icon={FileText} onClick={() => setFacture({ kind: 'financier' })}>{tr('Rapport financier')}</Button>
                 : <Button variant="secondary" icon={RotateCcw} onClick={resetView}>{tr('Réinitialiser les filtres')}</Button>)}>
-              {reports.length ? tr('Ajustez les filtres.') : tr('Enregistrez les rapports financiers (facture) et techniques des prestataires TPM pour ce mois.')}
+              {reports.length ? tr('Ajustez les filtres.') : tr('Enregistrez les rapports financiers (facture) et techniques des TPM pour ce mois.')}
             </EmptyState>
           )}
         </div>
@@ -469,7 +471,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
           open
           validated={del.status === 'valide'}
           title={tr('Supprimer ce rapport ?')}
-          description={`${tr(REPORT_KIND[del.kind].label)} · ${del.partnerName} · ${del.contractNumero || ''}`}
+          description={`${tr(REPORT_KIND[del.kind].label)} · ${del.partnerName} · ${contractNo(del) || ''}`}
           onClose={() => setDel(null)}
           onConfirm={(justification) => api.deleteReport(del.id, justification)}
           onDone={() => { toast.success(tr('Rapport supprimé.')); setDel(null); setSelectedId(null); reload(); }}
@@ -552,7 +554,7 @@ function GenerateModal({ context, onClose, onDone }) {
   const contract = contracts.find((c) => c.id === form.contractId);
 
   async function go() {
-    if (!form.contractId || !form.partnerId) { toast.error(tr('Choisissez le contrat et le prestataire TPM.')); return; }
+    if (!form.contractId || !form.partnerId) { toast.error(tr('Choisissez le contrat et le TPM.')); return; }
     setBusy(true);
     try {
       const r = await api.generateMonthlyReports({ contractId: form.contractId, partnerId: form.partnerId });
@@ -567,13 +569,13 @@ function GenerateModal({ context, onClose, onDone }) {
       <div style={{ display: 'grid', gap: 14 }}>
         <Field label={tr('Contrat suivi')}>
           <select className={`select ${form.contractId ? '' : 'is-empty'}`} value={form.contractId} onChange={(e) => setForm({ ...form, contractId: e.target.value })}>
-            <option value="">{tr('Choisir…')}</option>{contracts.map((c) => <option key={c.id} value={c.id}>{c.partnerName} · {c.numero}</option>)}
+            <option value="">{tr('Choisir…')}</option>{contracts.map((c) => <option key={c.id} value={c.id}>{contractIdentity(c)}</option>)}
           </select>
         </Field>
-        <Field label={tr('Prestataire TPM')}>
+        <Field label={tr(ROLE_LABELS.tpm)}>
           {/* Rapports attendus : prestataires actifs selon contrat sur la période du contrat choisi (retour 30). */}
           <ProviderSelect period={contract ? { from: String(contract.dateDebut).slice(0, 7), to: String(contract.dateFin).slice(0, 7) } : null}
-            value={form.partnerId} onChange={(id) => setForm({ ...form, partnerId: id })} ariaLabel={tr('Prestataire TPM')} />
+            value={form.partnerId} onChange={(id) => setForm({ ...form, partnerId: id })} ariaLabel={tr(ROLE_LABELS.tpm)} />
         </Field>
         {contract && <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>{tr('Un rapport financier « attendu » sera créé pour chaque mois de la période du contrat ({n} mois). Les mois déjà présents ne sont pas dupliqués.', { n: contract.periodMonths })}</span></div>}
       </div>
@@ -596,11 +598,11 @@ function DecideModal({ decide, onClose, onConfirm }) {
   }
   return (
     <Modal open onClose={() => !busy && onClose()} title={approve ? tr('Valider le rapport ?') : tr('Rejeter le rapport ?')}
-      subtitle={`${report.partnerName} · ${report.contractNumero} · ${tr(REPORT_KIND[report.kind].label)}`}
+      subtitle={`${report.partnerName} · ${contractNo(report)} · ${tr(REPORT_KIND[report.kind].label)}`}
       footer={<><Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button><Button loading={busy} onClick={go}>{approve ? tr('Valider') : tr('Rejeter')}</Button></>}>
       {approve
         ? <p>{report.kind === 'financier' ? tr('Le montant réalisé ({amount}) sera comptabilisé dans la consommation du budget Suivi/TPM du contrat.', { amount: formatAr(report.reportedAmount || 0) }) : tr('Le rapport technique sera marqué comme validé.')}</p>
-        : <p>{tr('Le rapport repassera à corriger côté prestataire.')}</p>}
+        : <p>{tr('Le rapport repassera à corriger côté TPM.')}</p>}
       <Field label={approve ? tr('Commentaire') : tr('Motif du rejet')} htmlFor="dc-comment" required={!approve} error={touched && !approve && !comment.trim() ? tr('Motif obligatoire.') : undefined}>
         <textarea id="dc-comment" className="input" value={comment} onChange={(e) => setComment(e.target.value)} />
       </Field>

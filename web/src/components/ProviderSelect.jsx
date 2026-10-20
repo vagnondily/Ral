@@ -35,7 +35,7 @@ export default function ProviderSelect({ period, value, onChange, id, placeholde
       {groups.map((g) => (g.providers.length ? (
         <optgroup key={g.key} label={g.key === 'contrat'
           ? (label ? tr('Actifs selon contrat ({period})', { period: label }) : tr('Actifs selon contrat'))
-          : tr('Autres prestataires TPM (hors contrat)')}>
+          : tr('Autres TPM (hors contrat)')}>
           {g.providers.map((p) => (
             <option key={p.id} value={p.id}>{p.name}{g.key === 'contrat' && p.contracts.length ? ` · ${p.contracts.map((c) => c.numero).join(', ')}` : ''}</option>
           ))}

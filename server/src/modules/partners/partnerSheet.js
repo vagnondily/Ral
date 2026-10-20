@@ -8,6 +8,7 @@
  */
 const { pathKey } = require('../common/placeMatch');
 const { providerStatus, coverageOf, contractCoversMonth } = require('../tpm/activeProvider');
+const { roleOf, partnerContracts } = require('../tpm/contractTpm');
 
 const ratio = (n, d) => (d ? Math.round((n / d) * 1000) / 10 : null);
 const cents = (v) => (v == null ? 0 : Math.round(Number(v)));
@@ -21,9 +22,11 @@ const ar = (c) => c / 100;
  * sommes SQL faites avec les mêmes définitions.
  * @param {object[]} figures  partners.repository.contractFiguresTx
  * @param {object[]} links    liens du prestataire (activeProvider.repository.providerLinksTx)
- * @param {{ partnerId: string, month: string, consolidation?: Map<string, object> }} ctx
+ * TPM du contrat (retour 113) : vue de la règle commune (tpm/contractTpm.contractTpmViews) ; rôle du
+ * titulaire d'après le type de sa fiche.
+ * @param {{ partnerId: string, month: string, consolidation?: Map<string, object>, tpmViews?: Map, partnerTypes?: Map }} ctx
  */
-function contractRows(figures, links, { partnerId, month, consolidation = new Map() }) {
+function contractRows(figures, links, { partnerId, month, consolidation = new Map(), tpmViews = new Map(), partnerTypes = new Map() }) {
   const linkOf = new Map((links || []).map((l) => [l.contractId, l]));
   return (figures || []).map((f) => {
     const direct = cents(f.directCents);
@@ -34,7 +37,9 @@ function contractRows(figures, links, { partnerId, month, consolidation = new Ma
     const link = linkOf.get(f.id) || {};
     const cov = coverageOf(f);
     return {
-      id: f.id, numero: f.numero, status: f.status, holderId: f.holderId || null, holderName: f.holderName,
+      id: f.id, numero: f.numero, numeroFla: f.numeroFla || null, status: f.status, holderId: f.holderId || null, holderName: f.holderName,
+      holderRole: f.holderId ? roleOf(partnerTypes.get(f.holderId)) : null,
+      tpm: tpmViews.get(f.id) || { state: 'aucun', tpms: [] },
       isHolder: f.holderId === partnerId, via: link.via || [], monitoring: link.monitoring === true,
       dateDebut: f.dateDebut, dateFin: f.dateFin, terminationDate: f.terminationDate || null,
       coverage: cov, coversMonth: contractCoversMonth(f, month),
@@ -72,19 +77,28 @@ function budgetRecap(rows) {
 /**
  * Lignes de la liste des prestataires : compteurs SQL + statut selon contrat (règle commune
  * activeProvider.providerStatus) ; la note est celle de la dernière évaluation VALIDÉE.
+ * Rôle (retour 113) : « tpm », « mise_en_oeuvre » ou « autre » (type de la fiche) ; contrats ACTIFS
+ * tenus comme titulaire, contrats ACTIFS suivis comme TPM, et TPM des contrats d'un titulaire.
  * @param {object[]} rows   partners.repository.providersList().rows
  * @param {object[]} links  liens prestataire ↔ contrat de tout le compte
+ * @param {{ contracts?: object[], views?: Map }} [ctx]  contrats actifs et leur TPM (contractTpm)
  */
-function providerListRows(rows, links) {
+function providerListRows(rows, links, { contracts = [], views = new Map() } = {}) {
   const byPartner = new Map();
   for (const l of links || []) {
     if (!byPartner.has(l.partnerId)) byPartner.set(l.partnerId, []);
     byPartner.get(l.partnerId).push(l);
   }
-  return (rows || []).map(({ today, ...r }) => ({
-    ...r, lastScore: r.lastScore == null ? null : Number(r.lastScore),
-    status: providerStatus(byPartner.get(r.id) || [], today),
-  }));
+  const roles = partnerContracts(contracts, views);
+  const none = { held: [], monitored: [], tpms: [] };
+  return (rows || []).map(({ today, ...r }) => {
+    const pc = roles.get(r.id) || none;
+    return {
+      ...r, role: roleOf(r.typeCode), lastScore: r.lastScore == null ? null : Number(r.lastScore),
+      status: providerStatus(byPartner.get(r.id) || [], today),
+      heldContracts: pc.held, monitoredContracts: pc.monitored, tpms: pc.tpms,
+    };
+  });
 }
 
 /** Rapports par statut et par nature : { financier: { soumis: n, … }, technique: {…}, total, pending }. */
@@ -108,7 +122,12 @@ function reportSummary(rows) {
  */
 function buildSheet(raw, { consolidation } = {}) {
   const c = raw.counts || {};
-  const contracts = contractRows(raw.contracts, raw.links, { partnerId: raw.partner.id, month: c.month, consolidation });
+  const contracts = contractRows(raw.contracts, raw.links, {
+    partnerId: raw.partner.id, month: c.month, consolidation, tpmViews: raw.tpmViews, partnerTypes: raw.partnerTypes,
+  });
+  // TPM qui suivent les contrats tenus par ce partenaire (retour 113 : chaque titulaire voit son TPM).
+  const tpms = new Map();
+  for (const x of contracts) if (x.isHolder) for (const t of x.tpm.tpms) if (t.id !== raw.partner.id) tpms.set(t.id, { id: t.id, name: t.name });
   const recap = budgetRecap(contracts);
   const reports = reportSummary(raw.reports);
   // Contrat « en cours » (bloc « Fiche 360° » du concepteur de rapport, lot 7a) : le premier contrat de
@@ -116,6 +135,8 @@ function buildSheet(raw, { consolidation } = {}) {
   const current = contracts.find((x) => x.monitoring && x.coversMonth) || null;
   return {
     partner: raw.partner,
+    role: roleOf(raw.partner.typeCode),
+    tpms: [...tpms.values()].sort((a, b) => String(a.name).localeCompare(String(b.name), 'fr')),
     status: providerStatus(raw.links, c.today),
     facts: {
       budget: recap,

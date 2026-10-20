@@ -4,7 +4,7 @@ const { MONITORING_LINE } = require('../contracts/budgetCatalog');
 const { REALISED_STATUS, PENDING_STATUS } = require('../tpm/realised');
 const { shapeTimeline } = require('./partnerSheet');
 const places = require('../settings/placeMatch.repository');
-const { providerLinksTx } = require('../tpm/activeProvider.repository');
+const { providerLinksTx, contractTpmViewsTx } = require('../tpm/activeProvider.repository');
 const { monthWithin } = require('../common/periodSql');
 
 /**
@@ -17,6 +17,14 @@ const PARTNER_COLS = `p.id, p.name, p.short_name AS "shortName", p.partner_type_
   t.label AS "typeLabel", p.active, p.daily_rate AS "dailyRate", p.legal_id AS "legalId", p.address,
   p.contact_name AS "contactName", p.contact_phone AS "contactPhone", p.contact_email AS "contactEmail",
   p.started_on AS "startedOn", p.notes, p.created_at AS "createdAt"`;
+
+// Ce qui touche un partenaire, quel que soit son rôle (retour 113) : ce qu'il fait comme TPM (il est
+// le prestataire de la visite, du plan, du rapport) OU ce qui porte sur un contrat dont il est le
+// TITULAIRE (partenaire de mise en œuvre : plans et factures de son TPM, visites de ses zones).
+// Le partenaire est toujours $2, le compte $1.
+const HELD_SQL = 'SELECT hc.id FROM contracts hc WHERE hc.tenant_id = $1 AND hc.partner_id = $2';
+const visitOf = (a) => `(${a}.provider_id = $2 OR ${a}.contract_id IN (${HELD_SQL}))`;
+const docOf = (a) => `(${a}.partner_id = $2 OR ${a}.contract_id IN (${HELD_SQL}))`;
 
 async function getPartnerTx(client, tenantId, id) {
   const { rows } = await client.query(
@@ -40,13 +48,13 @@ async function sheet(tenantId, id) {
     const contracts = await contractFiguresTx(client, tenantId, id, links.map((l) => l.contractId));
     const { rows: [counts] } = await client.query(
       `SELECT to_char(date_trunc('month', current_date), 'YYYY-MM') AS month, to_char(current_date, 'YYYY-MM-DD') AS today,
-              (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND v.provider_id = $2
+              (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')}
                  AND v.period_month = date_trunc('month', current_date) AND v.status <> 'annule')::int AS "visitsAssigned",
-              (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND v.provider_id = $2
+              (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')}
                  AND v.period_month = date_trunc('month', current_date) AND v.status = 'realise')::int AS "visitsRealised",
-              (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND v.provider_id = $2 AND v.status = 'realise'
+              (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')} AND v.status = 'realise'
                  AND v.period_month >= date_trunc('month', current_date) - interval '11 months')::int AS "visitsRealised12",
-              (SELECT count(DISTINCT v.site_id) FROM site_visits v WHERE v.tenant_id = $1 AND v.provider_id = $2
+              (SELECT count(DISTINCT v.site_id) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')}
                  AND v.status = 'realise' AND v.period_month >= date_trunc('month', current_date) - interval '11 months')::int AS "sitesFollowed",
               (SELECT count(*) FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.partner_id = $2 AND NOT s.excluded
                  AND s.period_month >= date_trunc('month', current_date) - interval '11 months')::int AS "submissions12",
@@ -54,13 +62,13 @@ async function sheet(tenantId, id) {
                  AND s.period_month >= date_trunc('month', current_date) - interval '11 months')::int AS "submissionsExcluded12",
               (SELECT count(*) FROM tpm_agents a WHERE a.tenant_id = $1 AND a.tpm_provider_id = $2 AND a.active)::int AS "agentsActive",
               (SELECT count(*) FROM tpm_agents a WHERE a.tenant_id = $1 AND a.tpm_provider_id = $2)::int AS "agentsTotal",
-              (SELECT count(*) FROM tpm_collection_plans pl WHERE pl.tenant_id = $1 AND pl.partner_id = $2)::int AS plans,
+              (SELECT count(*) FROM tpm_collection_plans pl WHERE pl.tenant_id = $1 AND ${docOf('pl')})::int AS plans,
               (${TRAININGS_COUNT_SQL})::int AS trainings,
               (SELECT count(*) FROM tpm_provider_evaluations e WHERE e.tenant_id = $1 AND e.partner_id = $2)::int AS evaluations`,
       [tenantId, id]);
     const { rows: reports } = await client.query(
       `SELECT r.kind, r.status, count(*)::int AS n FROM tpm_reports r
-        WHERE r.tenant_id = $1 AND r.partner_id = $2 GROUP BY r.kind, r.status`, [tenantId, id]);
+        WHERE r.tenant_id = $1 AND ${docOf('r')} GROUP BY r.kind, r.status`, [tenantId, id]);
     const { rows: [lastEval] } = await client.query(
       `SELECT e.id, to_char(e.period_from, 'YYYY-MM') AS "from", to_char(e.period_to, 'YYYY-MM') AS "to",
               e.final_score AS score, e.band, e.status
@@ -74,9 +82,14 @@ async function sheet(tenantId, id) {
     const { rows: districts } = await client.query(
       `SELECT DISTINCT NULLIF(s.adm1, '') AS region, COALESCE(NULLIF(s.adm2, ''), s.district) AS district
          FROM site_visits v JOIN sites s ON s.id = v.site_id AND s.tenant_id = v.tenant_id
-        WHERE v.tenant_id = $1 AND v.provider_id = $2 AND v.status <> 'annule'
+        WHERE v.tenant_id = $1 AND ${visitOf('v')} AND v.status <> 'annule'
           AND v.period_month >= date_trunc('month', current_date) - interval '11 months'`, [tenantId, id]);
-    return { partner, links, contracts, counts, reports, lastEval: lastEval || null, zones: zones.map((z) => z.path), districts };
+    // TPM de chaque contrat (retour 113, règle commune) : le titulaire voit son TPM, le TPM le titulaire.
+    const { views, partners } = await contractTpmViewsTx(client, tenantId, contracts.map((c) => ({ id: c.id, partnerId: c.holderId })));
+    return {
+      partner, links, contracts, counts, reports, lastEval: lastEval || null, zones: zones.map((z) => z.path), districts,
+      tpmViews: views, partnerTypes: new Map(partners.map((p) => [p.id, p.typeCode])),
+    };
   });
 }
 
@@ -96,7 +109,10 @@ async function providersList(tenantId) {
               (SELECT count(*) FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.partner_id = p.id AND NOT s.excluded
                  AND s.period_month >= date_trunc('month', current_date) - interval '11 months')::int AS "submissions12",
               (SELECT count(*) FROM tpm_reports r WHERE r.tenant_id = $1 AND r.partner_id = p.id AND r.status = $2)::int AS "reportsToValidate",
-              ev.final_score::float8 AS "lastScore", ev.band AS "lastBand", to_char(ev.period_to, 'YYYY-MM') AS "lastScoreTo"
+              ev.final_score::float8 AS "lastScore", ev.band AS "lastBand", to_char(ev.period_to, 'YYYY-MM') AS "lastScoreTo",
+              (SELECT count(DISTINCT COALESCE(z.admin_area_id::text, z.path)) FROM contract_areas z
+                 JOIN contracts zc ON zc.id = z.contract_id AND zc.tenant_id = z.tenant_id
+                WHERE z.tenant_id = $1 AND zc.partner_id = p.id AND zc.status = 'actif')::int AS "zonesActive"
          FROM partners p
          JOIN partner_types t ON t.id = p.partner_type_id AND t.tenant_id = p.tenant_id
          LEFT JOIN LATERAL (SELECT e.final_score, e.band, e.period_to FROM tpm_provider_evaluations e
@@ -105,7 +121,14 @@ async function providersList(tenantId) {
         WHERE p.tenant_id = $1
         ORDER BY p.name`, [tenantId, PENDING_STATUS]);
     const links = await providerLinksTx(client, tenantId);
-    return { rows, links };
+    // Contrats ACTIFS et leur TPM (retour 113) : contrats tenus, contrats suivis, TPM d'un titulaire.
+    const { rows: contracts } = await client.query(
+      `SELECT c.id, c.numero, c.numero_fla AS "numeroFla", c.partner_id AS "partnerId",
+              COALESCE(p.name, c.partner_name) AS "partnerName", c.status
+         FROM contracts c LEFT JOIN partners p ON p.id = c.partner_id AND p.tenant_id = c.tenant_id
+        WHERE c.tenant_id = $1 AND c.status = 'actif' ORDER BY c.numero_fla NULLS LAST, c.numero`, [tenantId]);
+    const { views } = await contractTpmViewsTx(client, tenantId, contracts);
+    return { rows, links, contracts, views };
   });
 }
 
@@ -123,7 +146,7 @@ const TRAININGS_COUNT_SQL = `SELECT count(DISTINCT p.session_id) FROM training_p
 async function contractFiguresTx(client, tenantId, partnerId, contractIds) {
   if (!contractIds.length) return [];
   const { rows } = await client.query(
-    `SELECT c.id, c.numero, c.status, c.partner_id AS "holderId", c.partner_name AS "holderName",
+    `SELECT c.id, c.numero, c.numero_fla AS "numeroFla", c.status, c.partner_id AS "holderId", c.partner_name AS "holderName",
             c.date_debut AS "dateDebut", c.date_fin AS "dateFin", c.termination_date AS "terminationDate",
             c.management_fee_pct AS "feePct", c.period_months AS "periodMonths",
             COALESCE((SELECT sum(round(b.unit_count * b.unit_cost * 100)) FROM contract_budget_items b
@@ -152,7 +175,8 @@ async function contractsOf(tenantId, id) {
     const links = await providerLinksTx(client, tenantId, { partnerId: id });
     const contracts = await contractFiguresTx(client, tenantId, id, links.map((l) => l.contractId));
     const { rows: [{ today }] } = await client.query("SELECT to_char(current_date, 'YYYY-MM-DD') AS today");
-    return { links, contracts, today };
+    const { views, partners } = await contractTpmViewsTx(client, tenantId, contracts.map((c) => ({ id: c.id, partnerId: c.holderId })));
+    return { links, contracts, today, tpmViews: views, partnerTypes: new Map(partners.map((p) => [p.id, p.typeCode])) };
   });
 }
 
@@ -163,11 +187,36 @@ async function reportsOf(tenantId, id) {
     const { rows } = await client.query(
       `SELECT r.id, r.kind, r.status, to_char(r.period_month, 'YYYY-MM') AS month, r.invoice_no AS "invoiceNo",
               r.reported_amount::float8 AS "reportedAmount", r.planned_amount::float8 AS "plannedAmount",
-              r.contract_id AS "contractId", c.numero AS "contractNumero", r.submitted_at AS "submittedAt",
+              r.contract_id AS "contractId", c.numero AS "contractNumero", c.numero_fla AS "contractFla",
+              c.partner_name AS "holderName", r.partner_id AS "tpmId", pa.name AS "tpmName", r.submitted_at AS "submittedAt",
               r.decided_at AS "decidedAt", r.updated_at AS "updatedAt"
          FROM tpm_reports r JOIN contracts c ON c.id = r.contract_id AND c.tenant_id = r.tenant_id
-        WHERE r.tenant_id = $1 AND r.partner_id = $2
+         LEFT JOIN partners pa ON pa.id = r.partner_id AND pa.tenant_id = r.tenant_id
+        WHERE r.tenant_id = $1 AND ${docOf('r')}
         ORDER BY r.period_month DESC, r.kind, c.numero LIMIT 500`, [tenantId, id]);
+    return rows;
+  });
+}
+
+/**
+ * Plans de collecte du partenaire (onglet Plans, factures et rapports, retour 113) : ses plans comme
+ * TPM et ceux des contrats dont il est titulaire. Planifié = part bailleur des postes (comme la
+ * Consolidation), sommé en SQL.
+ */
+async function plansOf(tenantId, id) {
+  return withTenantTransaction(tenantId, async (client) => {
+    if (!(await getPartnerTx(client, tenantId, id))) return null;
+    const { rows } = await client.query(
+      `SELECT pl.id, to_char(pl.period_month, 'YYYY-MM') AS month, pl.title, pl.status,
+              pl.contract_id AS "contractId", c.numero AS "contractNumero", c.numero_fla AS "contractFla", c.partner_name AS "holderName",
+              pl.partner_id AS "tpmId", pa.name AS "tpmName",
+              COALESCE((SELECT sum(i.unit_count * i.unit_cost * i.bailleur_pct) FROM tpm_collection_plan_items i
+                         WHERE i.tenant_id = pl.tenant_id AND i.plan_id = pl.id), 0)::float8 AS "plannedFunder"
+         FROM tpm_collection_plans pl
+         JOIN contracts c ON c.id = pl.contract_id AND c.tenant_id = pl.tenant_id
+         LEFT JOIN partners pa ON pa.id = pl.partner_id AND pa.tenant_id = pl.tenant_id
+        WHERE pl.tenant_id = $1 AND ${docOf('pl')}
+        ORDER BY pl.period_month DESC, c.numero LIMIT 500`, [tenantId, id]);
     return rows;
   });
 }
@@ -187,7 +236,7 @@ async function followups(tenantId, id, period) {
               count(*) FILTER (WHERE v.status = 'realise')::int AS realised,
               count(*) FILTER (WHERE v.status = 'annule')::int AS cancelled,
               count(DISTINCT v.site_id) FILTER (WHERE v.status = 'realise')::int AS sites
-         FROM site_visits v WHERE v.tenant_id = $1 AND v.provider_id = $2 AND ${monthWithin('v.period_month', period, vp)}
+         FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')} AND ${monthWithin('v.period_month', period, vp)}
         GROUP BY v.period_month ORDER BY v.period_month`, vp);
     const sp = [tenantId, id];
     const { rows: subsByMonth } = await client.query(
@@ -222,19 +271,19 @@ async function timeline(tenantId, id, { before = null, limit = 50 } = {}) {
           WHERE h.tenant_id = $1 AND c.partner_id = $2
          UNION ALL
          SELECT COALESCE(r.submitted_at, r.created_at), 'facture', 'soumis', NULL, r.id::text, to_char(r.period_month, 'MM/YYYY')
-           FROM tpm_reports r WHERE r.tenant_id = $1 AND r.partner_id = $2 AND r.kind = 'financier' AND r.status IN ('soumis', 'valide', 'rejete')
+           FROM tpm_reports r WHERE r.tenant_id = $1 AND ${docOf('r')} AND r.kind = 'financier' AND r.status IN ('soumis', 'valide', 'rejete')
          UNION ALL
          SELECT r.decided_at, 'facture', r.status, NULL, r.id::text, to_char(r.period_month, 'MM/YYYY')
-           FROM tpm_reports r WHERE r.tenant_id = $1 AND r.partner_id = $2 AND r.kind = 'financier' AND r.status IN ('valide', 'rejete') AND r.decided_at IS NOT NULL
+           FROM tpm_reports r WHERE r.tenant_id = $1 AND ${docOf('r')} AND r.kind = 'financier' AND r.status IN ('valide', 'rejete') AND r.decided_at IS NOT NULL
          UNION ALL
          SELECT min(v.period_month)::timestamptz, 'terrain', 'debut', COALESCE(NULLIF(s.adm2, ''), s.district), NULL, count(*)::text
            FROM site_visits v JOIN sites s ON s.id = v.site_id AND s.tenant_id = v.tenant_id
-          WHERE v.tenant_id = $1 AND v.provider_id = $2 AND v.status <> 'annule'
+          WHERE v.tenant_id = $1 AND ${visitOf('v')} AND v.status <> 'annule'
           GROUP BY COALESCE(NULLIF(s.adm2, ''), s.district)
          UNION ALL
          SELECT max(v.period_month)::timestamptz, 'terrain', 'dernier', COALESCE(NULLIF(s.adm2, ''), s.district), NULL, count(*)::text
            FROM site_visits v JOIN sites s ON s.id = v.site_id AND s.tenant_id = v.tenant_id
-          WHERE v.tenant_id = $1 AND v.provider_id = $2 AND v.status <> 'annule'
+          WHERE v.tenant_id = $1 AND ${visitOf('v')} AND v.status <> 'annule'
           GROUP BY COALESCE(NULLIF(s.adm2, ''), s.district) HAVING max(v.period_month) > min(v.period_month)
          UNION ALL
          SELECT s.start_date::timestamptz, 'formation', 'formation', s.title, s.id::text, string_agg(a.name, ', ' ORDER BY a.name)
@@ -272,7 +321,7 @@ async function listAgents(tenantId, partnerId, { personal = false } = {}) {
   });
 }
 
-const DUP_CODE = 'Ce code d\'enquêteur est déjà utilisé par un autre agent de ce prestataire.';
+const DUP_CODE = 'Ce code d\'enquêteur est déjà utilisé par un autre agent de ce TPM.';
 
 async function createAgent(tenantId, partnerId, a) {
   return places.withSubmissionLinks(tenantId, async (client) => {
@@ -366,4 +415,4 @@ async function updatePartner(tenantId, id, patch) {
   });
 }
 
-module.exports = { sheet, providersList, contractsOf, reportsOf, followups, timeline, listAgents, createAgent, updateAgent, deleteAgent, updatePartner, AGENT_FIELDS, PARTNER_FIELDS };
+module.exports = { sheet, providersList, contractsOf, reportsOf, plansOf, followups, timeline, listAgents, createAgent, updateAgent, deleteAgent, updatePartner, AGENT_FIELDS, PARTNER_FIELDS };

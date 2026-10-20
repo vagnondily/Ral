@@ -51,7 +51,7 @@ const patchSchema = z.object({
   feedbackSummary: optText(4000), ...sessionFields,
 }).strict();
 const addSchema = z.object({ agentIds: z.array(uuid).max(500).optional(), providerId: uuid.optional() }).strict()
-  .refine((v) => (v.agentIds && v.agentIds.length) || v.providerId, { message: 'Choisissez des agents ou un prestataire.' });
+  .refine((v) => (v.agentIds && v.agentIds.length) || v.providerId, { message: 'Choisissez des agents ou un TPM.' });
 const score = z.number().min(0).max(1000).nullable().optional();
 const participantsSchema = z.object({
   rows: z.array(z.object({

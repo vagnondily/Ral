@@ -9,6 +9,7 @@ import { periodLabel } from '../../lib/period.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { PERIOD_CAPS } from '../../lib/periodCaps.js';
+import { ROLE_LABELS, contractIdentity, contractNo, tpmNames } from '../../lib/roles.js';
 
 const MATRIX_VIEWS = [
   { id: 'actual', label: 'Réalisé' },
@@ -82,10 +83,10 @@ export default function ConsolidationPage({ onOpenContract }) {
 
   function exportCsv() {
     const periodHead = tp ? [tr('Budget de la période (Ar)'), tr('Planifié période (Ar)'), tr('Réalisé période (Ar)'), tr('Taux période')] : [];
-    const head = [tr('Prestataire TPM'), tr('Contrat'), ...periodHead, tr('Budget Suivi (Ar)'), tr('Planifié (Ar)'), tr('Réalisé (Ar)'),
+    const head = [tr('Contrat'), tr(ROLE_LABELS.holder), tr(ROLE_LABELS.tpm), ...periodHead, tr('Budget Suivi (Ar)'), tr('Planifié (Ar)'), tr('Réalisé (Ar)'),
       tr('Taux conso'), tr('Écart plan/réel'), tr('Mois restants'), tr('Restant (Ar)'), tr('Projection fin (Ar)')];
     const lines = rows.map((r) => [
-      r.partnerName, r.numero,
+      contractNo(r), r.partnerName, tpmNames(r.tpm).join(', '),
       ...(tp ? [r.period.budget == null ? '' : Math.round(r.period.budget), Math.round(r.period.planned), Math.round(r.period.actual), pctOrDash(r.period.actualRate)] : []),
       Math.round(r.budget), Math.round(r.planned), Math.round(r.actual),
       pct(r.actualRate), pct(r.planVsActual), r.monthsRemaining, Math.round(r.remaining), Math.round(r.projectedTotal),
@@ -97,7 +98,7 @@ export default function ConsolidationPage({ onOpenContract }) {
     <div className="section-gap">
       <PageHeader
         title={tr('Suivi budgétaire consolidé')}
-        description={tr('Vue d\'ensemble par prestataire TPM : le Budget de suivi (contrat), le Planifié et le Réalisé (rapports) réunis pour suivre la consommation, les écarts et la projection de fin de contrat.')}
+        description={tr('Vue d\'ensemble par contrat de suivi : le Budget de suivi (ligne IV du contrat), le Planifié et le Réalisé (plans de collecte et factures du TPM) réunis pour suivre la consommation, les écarts et la projection de fin de contrat.')}
       >
         {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} allowAll align="right" />}
         <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!rows.length}>{tr('Exporter (CSV)')}</Button>
@@ -129,13 +130,13 @@ export default function ConsolidationPage({ onOpenContract }) {
 
       {alerts.length > 0 && (
         <Alert tone="warning" icon={TriangleAlert}>
-          {tr('{n} prestataire(s) en dépassement ou en projection de dépassement du budget de suivi : {names}.', { n: alerts.length, names: alerts.map((r) => r.partnerName).join(', ') })}
+          {tr('{n} contrat(s) en dépassement ou en projection de dépassement du budget de suivi : {names}.', { n: alerts.length, names: alerts.map((r) => contractIdentity(r)).join(', ') })}
         </Alert>
       )}
 
       {/* Overview — une ligne par contrat de suivi */}
       <Card aria-labelledby="cons-title">
-        <CardHeader id="cons-title" title={tr('Vue d\'ensemble par prestataire')} subtitle={tr('Budget ↔ Planifié ↔ Réalisé, avec taux de consommation, écart et projection de fin de contrat.')} />
+        <CardHeader id="cons-title" title={tr('Vue d\'ensemble par contrat')} subtitle={tr('Budget ↔ Planifié ↔ Réalisé, avec taux de consommation, écart et projection de fin de contrat.')} />
         {data === null ? (
           <div className="card-body"><Skeleton height={160} /></div>
         ) : rows.length === 0 ? (
@@ -159,8 +160,8 @@ export default function ConsolidationPage({ onOpenContract }) {
                   </tr>
                 )}
                 <tr>
-                  <th scope="col">{tr('Prestataire TPM')}</th>
                   <th scope="col">{tr('Contrat')}</th>
+                  <th scope="col">{tr('Titulaire · TPM')}</th>
                   {tp && <>
                     <th scope="col" className="num">{tr('Budget de la période')}</th>
                     <th scope="col" className="num">{tr('Planifié')}</th>
@@ -182,29 +183,33 @@ export default function ConsolidationPage({ onOpenContract }) {
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.contractId}>
-                    <td><strong>{r.partnerName}</strong></td>
-                    <td>
-                      <button type="button" className="link-cell" onClick={() => onOpenContract?.(r.contractId)}>{r.numero}</button>
+                    {/* Identité du contrat (retour 113) : n° FLA, titulaire ; le TPM qui le suit à côté. */}
+                    <td className="nowrap">
+                      <button type="button" className="link-cell mono" onClick={() => onOpenContract?.(r.contractId)}>{contractNo(r)}</button>
                       <div className="site-meta mono">{r.dateDebut} → {r.dateFin}</div>
                     </td>
+                    <td>
+                      <strong>{r.partnerName}</strong>
+                      <div className="site-meta">{tpmNames(r.tpm).length ? tr('TPM : {names}', { names: tpmNames(r.tpm).join(', ') }) : tr(ROLE_LABELS.noTpm)}</div>
+                    </td>
                     {tp && <>
-                      <td className="num mono">{r.period.budget == null ? <span className="cell-empty" title={tr('période du contrat inconnue')}>—</span> : formatAr(r.period.budget)}</td>
-                      <td className="num mono">{formatAr(r.period.planned)}</td>
-                      <td className="num mono">{formatAr(r.period.actual)}</td>
-                      <td className="num mono">{r.period.actualRate == null ? <span className="cell-empty">—</span> : pct(r.period.actualRate)}</td>
+                      <td className="num tabular">{r.period.budget == null ? <span className="cell-empty" title={tr('période du contrat inconnue')}>—</span> : formatAr(r.period.budget)}</td>
+                      <td className="num tabular">{formatAr(r.period.planned)}</td>
+                      <td className="num tabular">{formatAr(r.period.actual)}</td>
+                      <td className="num tabular">{r.period.actualRate == null ? <span className="cell-empty">—</span> : pct(r.period.actualRate)}</td>
                     </>}
                     {cumul && <>
-                      <td className="num mono">{formatAr(r.budget)}</td>
-                      <td className="num mono">{formatAr(r.planned)}</td>
-                      <td className="num mono">{formatAr(r.actual)}</td>
+                      <td className="num tabular">{formatAr(r.budget)}</td>
+                      <td className="num tabular">{formatAr(r.planned)}</td>
+                      <td className="num tabular">{formatAr(r.actual)}</td>
                       <td style={{ minWidth: 120 }}><Usage rate={r.actualRate} /></td>
-                      <td className="num mono">{r.planned > 0 ? pct(r.planVsActual) : <span className="cell-empty">—</span>}</td>
-                      <td className="num mono">{r.monthsRemaining}</td>
+                      <td className="num tabular">{r.planned > 0 ? pct(r.planVsActual) : <span className="cell-empty">—</span>}</td>
+                      <td className="num tabular">{r.monthsRemaining}</td>
                     </>}
-                    <td className="num mono">
+                    <td className="num tabular">
                       {r.overspent ? <Badge tone="red">{formatAr(r.remaining)}</Badge> : formatAr(r.remaining)}
                     </td>
-                    <td className="num mono">
+                    <td className="num tabular">
                       {r.projectedOverrun > 0
                         ? <span title={tr('Dépassement projeté de {amount}', { amount: formatAr(r.projectedOverrun) })}><Badge tone="orange">{formatAr(r.projectedTotal)}</Badge></span>
                         : formatAr(r.projectedTotal)}
@@ -216,20 +221,20 @@ export default function ConsolidationPage({ onOpenContract }) {
                 <tr>
                   <td colSpan={2}><strong>{tr('Total portefeuille')}</strong></td>
                   {tp && <>
-                    <td className="num mono"><strong>{formatAr(tp.budget)}</strong></td>
-                    <td className="num mono"><strong>{formatAr(tp.planned)}</strong></td>
-                    <td className="num mono"><strong>{formatAr(tp.actual)}</strong></td>
-                    <td className="num mono"><strong>{pctOrDash(tp.actualRate)}</strong></td>
+                    <td className="num tabular"><strong>{formatAr(tp.budget)}</strong></td>
+                    <td className="num tabular"><strong>{formatAr(tp.planned)}</strong></td>
+                    <td className="num tabular"><strong>{formatAr(tp.actual)}</strong></td>
+                    <td className="num tabular"><strong>{pctOrDash(tp.actualRate)}</strong></td>
                   </>}
                   {cumul && <>
-                    <td className="num mono"><strong>{formatAr(t.budget)}</strong></td>
-                    <td className="num mono"><strong>{formatAr(t.planned)}</strong></td>
-                    <td className="num mono"><strong>{formatAr(t.actual)}</strong></td>
+                    <td className="num tabular"><strong>{formatAr(t.budget)}</strong></td>
+                    <td className="num tabular"><strong>{formatAr(t.planned)}</strong></td>
+                    <td className="num tabular"><strong>{formatAr(t.actual)}</strong></td>
                     <td><Usage rate={t.actualRate} /></td>
-                    <td className="num mono">{t.planned > 0 ? pct(t.planVsActual) : '—'}</td>
+                    <td className="num tabular">{t.planned > 0 ? pct(t.planVsActual) : '—'}</td>
                     <td className="num" />
                   </>}
-                  <td className="num mono"><strong>{formatAr(t.remaining)}</strong></td>
+                  <td className="num tabular"><strong>{formatAr(t.remaining)}</strong></td>
                   <td className="num" />
                 </tr>
               </tfoot>
@@ -242,7 +247,7 @@ export default function ConsolidationPage({ onOpenContract }) {
       {rows.length > 0 && months.length > 0 && (
         <Card aria-labelledby="matrix-title">
           <CardHeader id="matrix-title" title={tr('Suivi mensuel')}
-            subtitle={period ? tr('Montants par mois et par prestataire, sur la période choisie ({p}).', { p: pLabel }) : tr('Montants par mois et par prestataire, sur la période des contrats.')}>
+            subtitle={period ? tr('Montants par mois et par contrat, sur la période choisie ({p}).', { p: pLabel }) : tr('Montants par mois et par contrat, sur la période des contrats.')}>
             <div className="seg" role="tablist" aria-label={tr('Vue de la matrice')}>
               {MATRIX_VIEWS.map((v) => (
                 <button
@@ -262,7 +267,7 @@ export default function ConsolidationPage({ onOpenContract }) {
             <table className="table">
               <thead>
                 <tr>
-                  <th scope="col">{tr('Prestataire')}</th>
+                  <th scope="col">{tr('Contrat')}</th>
                   {months.map((m) => <th key={m} scope="col" className="num">{monthLabel(m).replace(/ \d{4}$/, '')}</th>)}
                   <th scope="col" className="num">{tr('Total')}</th>
                 </tr>
@@ -274,16 +279,16 @@ export default function ConsolidationPage({ onOpenContract }) {
                   const total = view === 'planned' ? src.planned : view === 'ecart' ? (src.actual - src.planned) : src.actual;
                   return (
                     <tr key={r.contractId}>
-                      <td><strong>{r.partnerName}</strong></td>
+                      <td className="nowrap"><span className="mono">{contractNo(r)}</span> <span className="muted">· {r.partnerName}</span></td>
                       {months.map((m) => {
                         const v = cellValue(r, m);
                         return (
-                          <td key={m} className="num mono">
+                          <td key={m} className="num tabular">
                             {v == null || v === 0 ? <span className="cell-empty">—</span> : formatInt(v)}
                           </td>
                         );
                       })}
-                      <td className="num mono"><strong>{formatInt(total)}</strong></td>
+                      <td className="num tabular"><strong>{formatInt(total)}</strong></td>
                     </tr>
                   );
                 })}
@@ -293,9 +298,9 @@ export default function ConsolidationPage({ onOpenContract }) {
                   <td><strong>{tr('Total')}</strong></td>
                   {(data.monthlyTotals || []).map((mt) => {
                     const v = view === 'planned' ? mt.planned : view === 'ecart' ? mt.ecart : mt.actual;
-                    return <td key={mt.month} className="num mono"><strong>{v ? formatInt(v) : '—'}</strong></td>;
+                    return <td key={mt.month} className="num tabular"><strong>{v ? formatInt(v) : '—'}</strong></td>;
                   })}
-                  <td className="num mono">
+                  <td className="num tabular">
                     <strong>{formatInt(view === 'planned' ? (tp || t).planned : view === 'ecart' ? ((tp || t).actual - (tp || t).planned) : (tp || t).actual)}</strong>
                   </td>
                 </tr>
@@ -309,7 +314,7 @@ export default function ConsolidationPage({ onOpenContract }) {
         <Wallet size={14} aria-hidden="true" />
         <span>
           <strong>{tr('Budget')}</strong> {tr('= ligne « Suivi » (section IV) du contrat')} · <Coins size={12} aria-hidden="true" />{' '}
-          <strong>{tr('Planifié')}</strong> &amp; <strong>{tr('Réalisé')}</strong> {tr('= rapports mensuels du prestataire. Tout est recalculé en direct depuis les contrats et les rapports.')}
+          <strong>{tr('Planifié')}</strong> &amp; <strong>{tr('Réalisé')}</strong> {tr('= plans de collecte et factures du TPM. Tout est recalculé en direct depuis les contrats, les plans et les factures.')}
         </span>
       </p>
     </div>

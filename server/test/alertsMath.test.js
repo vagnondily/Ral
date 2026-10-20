@@ -100,15 +100,15 @@ test('terrain : libellé « Exécution du plan » (le taux lu est visites réali
   const field = { overall: { active: 10, realise: 4, rate: 0.4 }, byProvider: [{ key: 'non_affecte', label: 'Non affecté', active: 2, realise: 0, rate: 0, total: 2 }] };
   const month = fieldAlerts(field);
   assert.equal(month[0].title, 'Exécution du plan faible ce mois');
-  assert.equal(month[1].detail, 'Sites planifiés sans prestataire TPM ce mois');
+  assert.equal(month[1].detail, 'Sites planifiés sans TPM ce mois');
   const range = fieldAlerts(field, { range: true });
   assert.equal(range[0].title, 'Exécution du plan faible sur la période');
-  assert.equal(range[1].detail, 'Sites planifiés sans prestataire TPM sur la période');
+  assert.equal(range[1].detail, 'Sites planifiés sans TPM sur la période');
   assert.deepEqual(range.map((a) => a.params), month.map((a) => a.params), 'mêmes chiffres');
   // Un mois PASSÉ choisi (septembre vu en octobre) n'est jamais « ce mois » : il est nommé.
   const sept = fieldAlerts(field, { month: '2026-09' });
   assert.equal(sept[0].title, 'Exécution du plan faible ({m})');
-  assert.equal(sept[1].detail, 'Sites planifiés sans prestataire TPM ({m})');
+  assert.equal(sept[1].detail, 'Sites planifiés sans TPM ({m})');
   assert.deepEqual(sept[0].params.m, { month: '2026-09' });
   assert.deepEqual(sept[1].params, { n: 2, m: { month: '2026-09' } });
   assert.equal(fieldAlerts(field, { month: '2026-09', range: true })[0].title, 'Exécution du plan faible sur la période');

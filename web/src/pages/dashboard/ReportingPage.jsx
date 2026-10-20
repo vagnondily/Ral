@@ -7,6 +7,7 @@ import { ActivationNote, PeriodBanner, SessionPeriodNote, usePeriod } from '../.
 import { formatAr, formatInt } from '../../lib/format.js';
 import { periodLabel, single } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { ROLE_LABELS, contractNo, tpmNames } from '../../lib/roles.js';
 import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { coveragePct } from '../../lib/coverage.js';
@@ -63,9 +64,9 @@ export default function ReportingPage({ onOpenContract }) {
   const sitesCell = (d) => (d.coverage == null ? '—' : `${formatInt(d.sites.realised)} / ${formatInt(d.sites.active)} · ${Math.round(d.coverage * 100)} %`);
 
   const exportBudget = () => {
-    const rows = [[tr('Contrat'), tr('Prestataire'), tr('Budget de la période'), tr('Planifié'), tr('Réalisé'), tr('Taux'), tr('Restant (à date)'), tr('Projection fin (à date)')]];
+    const rows = [[tr('Contrat'), tr(ROLE_LABELS.holder), tr(ROLE_LABELS.tpm), tr('Budget de la période'), tr('Planifié'), tr('Réalisé'), tr('Taux'), tr('Restant (à date)'), tr('Projection fin (à date)')]];
     for (const r of cons.rows) {
-      rows.push([r.numero, r.partnerName, r.period.budget == null ? '' : Math.round(r.period.budget), Math.round(r.period.planned), Math.round(r.period.actual),
+      rows.push([contractNo(r), r.partnerName, tpmNames(r.tpm).join(', '), r.period.budget == null ? '' : Math.round(r.period.budget), Math.round(r.period.planned), Math.round(r.period.actual),
         r.period.actualRate == null ? '' : `${Math.round(r.period.actualRate * 100)}%`, Math.round(r.remaining), Math.round(r.projectedTotal)]);
     }
     downloadCsv(`synthese-budget_${suffix}.csv`, rows);
@@ -128,7 +129,8 @@ export default function ReportingPage({ onOpenContract }) {
         ) : (
           <div className="table-wrap"><table className="table">
             <thead><tr>
-              <th scope="col">{tr('Contrat')}</th><th scope="col">{tr('Prestataire')}</th><th scope="col" className="num">{tr('Budget de la période')}</th>
+              <th scope="col">{tr('Contrat')}</th><th scope="col">{tr(ROLE_LABELS.holder)}</th><th scope="col">{tr(ROLE_LABELS.tpm)}</th>
+              <th scope="col" className="num">{tr('Budget de la période')}</th>
               <th scope="col" className="num">{tr('Planifié')}</th><th scope="col" className="num">{tr('Réalisé')}</th><th scope="col" className="num">{tr('Taux')}</th>
               <th scope="col" className="num">{tr('Restant (à date)')}</th><th scope="col" className="num">{tr('Projection fin (à date)')}</th>
             </tr></thead>
@@ -136,23 +138,24 @@ export default function ReportingPage({ onOpenContract }) {
               {cons.rows.map((r) => (
                 <tr key={r.contractId} className="clickable" onClick={() => onOpenContract && onOpenContract(r.contractId)}
                   onKeyDown={(e) => { if (e.key === 'Enter') onOpenContract && onOpenContract(r.contractId); }} tabIndex={0}>
-                  <td><strong>{r.numero}</strong></td><td>{r.partnerName}</td>
-                  <td className="num mono">{r.period.budget == null ? <span className="cell-empty" title={tr('période du contrat inconnue')}>—</span> : formatAr(r.period.budget)}</td>
-                  <td className="num mono">{formatAr(r.period.planned)}</td>
-                  <td className="num mono">{formatAr(r.period.actual)}</td>
-                  <td className="num mono" style={{ color: r.period.actualRate > 1 ? 'var(--red)' : undefined }}>{ratePct(r.period.actualRate)}</td>
-                  <td className="num mono">{formatAr(r.remaining)}</td>
-                  <td className="num mono">{formatAr(r.projectedTotal)}</td>
+                  <td className="nowrap"><strong className="mono">{contractNo(r)}</strong></td><td>{r.partnerName}</td>
+                  <td>{tpmNames(r.tpm).length ? tpmNames(r.tpm).join(', ') : <span className="cell-empty">{tr(ROLE_LABELS.noTpm)}</span>}</td>
+                  <td className="num tabular">{r.period.budget == null ? <span className="cell-empty" title={tr('période du contrat inconnue')}>—</span> : formatAr(r.period.budget)}</td>
+                  <td className="num tabular">{formatAr(r.period.planned)}</td>
+                  <td className="num tabular">{formatAr(r.period.actual)}</td>
+                  <td className="num tabular" style={{ color: r.period.actualRate > 1 ? 'var(--red)' : undefined }}>{ratePct(r.period.actualRate)}</td>
+                  <td className="num tabular">{formatAr(r.remaining)}</td>
+                  <td className="num tabular">{formatAr(r.projectedTotal)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot><tr>
-              <td colSpan={2}><strong>{tr('Total')}</strong></td>
-              <td className="num mono"><strong>{formatAr(tp.budget)}</strong></td>
-              <td className="num mono"><strong>{formatAr(tp.planned)}</strong></td>
-              <td className="num mono"><strong>{formatAr(tp.actual)}</strong></td>
-              <td className="num mono"><strong>{ratePct(tp.actualRate)}</strong></td>
-              <td className="num mono"><strong>{formatAr(t.remaining)}</strong></td>
+              <td colSpan={3}><strong>{tr('Total')}</strong></td>
+              <td className="num tabular"><strong>{formatAr(tp.budget)}</strong></td>
+              <td className="num tabular"><strong>{formatAr(tp.planned)}</strong></td>
+              <td className="num tabular"><strong>{formatAr(tp.actual)}</strong></td>
+              <td className="num tabular"><strong>{ratePct(tp.actualRate)}</strong></td>
+              <td className="num tabular"><strong>{formatAr(t.remaining)}</strong></td>
               <td />
             </tr></tfoot>
           </table></div>
@@ -176,29 +179,29 @@ export default function ReportingPage({ onOpenContract }) {
             <tbody>
               {field.byDistrict.map((d) => (
                 <tr key={d.key}><td><strong>{d.label}</strong></td>
-                  <td className="num mono">{formatInt(d.planifie)}</td>
-                  <td className="num mono">{formatInt(d.realise)}</td>
-                  <td className="num mono">{formatInt(d.annule)}</td>
-                  <td className="num mono">{pctCell(d)}</td>
-                  <td className="num mono">{sitesCell(d)}</td>
+                  <td className="num tabular">{formatInt(d.planifie)}</td>
+                  <td className="num tabular">{formatInt(d.realise)}</td>
+                  <td className="num tabular">{formatInt(d.annule)}</td>
+                  <td className="num tabular">{pctCell(d)}</td>
+                  <td className="num tabular">{sitesCell(d)}</td>
                 </tr>
               ))}
               {/* Districts sans visite : leurs sites actifs comptent dans la couverture (0 réalisé) —
                   la colonne « Couverture (sites) » se rapproche ainsi du total. */}
               {others.groups > 0 && (
                 <tr className="row-others"><td>{tr('Autres districts (sans visite) : {n}', { n: formatInt(others.groups) })}</td>
-                  <td className="num mono">0</td><td className="num mono">0</td><td className="num mono">0</td>
-                  <td className="num mono"><span className="muted">{tr('— aucun plan')}</span></td>
-                  <td className="num mono">{`0 / ${formatInt(others.sitesActive)} · 0 %`}</td>
+                  <td className="num tabular">0</td><td className="num tabular">0</td><td className="num tabular">0</td>
+                  <td className="num tabular"><span className="muted">{tr('— aucun plan')}</span></td>
+                  <td className="num tabular">{`0 / ${formatInt(others.sitesActive)} · 0 %`}</td>
                 </tr>
               )}
             </tbody>
             <tfoot><tr><td><strong>{tr('Total')}</strong></td>
-              <td className="num mono"><strong>{formatInt(ov.planifie)}</strong></td>
-              <td className="num mono"><strong>{formatInt(ov.realise)}</strong></td>
-              <td className="num mono"><strong>{formatInt(ov.annule)}</strong></td>
-              <td className="num mono"><strong>{pctCell(ov)}</strong></td>
-              <td className="num mono"><strong>{sitesCell(ov)}</strong></td>
+              <td className="num tabular"><strong>{formatInt(ov.planifie)}</strong></td>
+              <td className="num tabular"><strong>{formatInt(ov.realise)}</strong></td>
+              <td className="num tabular"><strong>{formatInt(ov.annule)}</strong></td>
+              <td className="num tabular"><strong>{pctCell(ov)}</strong></td>
+              <td className="num tabular"><strong>{sitesCell(ov)}</strong></td>
             </tr></tfoot>
           </table></div>
         ) : (

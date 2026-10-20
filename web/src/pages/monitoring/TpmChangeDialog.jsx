@@ -144,7 +144,7 @@ export default function TpmChangeDialog({ mode, areas, title, period, onClose, o
                   </Alert>
                 ))}
                 {blocked && (
-                  <Alert tone="danger">{tr('Ce prestataire n\'est pas sélectionnable en {m} (ni sous contrat de suivi, ni TPM actif).', { m: preview.notSelectable.map(shortMonthLabel).join(', ') })}</Alert>
+                  <Alert tone="danger">{tr('Ce partenaire n\'est pas sélectionnable en {m} (ni sous contrat de suivi, ni TPM actif).', { m: preview.notSelectable.map(shortMonthLabel).join(', ') })}</Alert>
                 )}
               </>
             )}

@@ -11,6 +11,7 @@ const { deletionRefusal } = require('../deletions/deletionRefusal');
 const { recordDeletion } = require('../deletions/deletions.repository');
 const { periodBounds } = require('../common/period');
 const { restampVisitsTx } = require('../tpm/tpmAttribution.repository');
+const { contractTpmViewsTx } = require('../tpm/activeProvider.repository');
 
 /**
  * Retour 58 : un contrat de suivi décide du TPM par défaut de ses zones. Quand il devient actif,
@@ -112,6 +113,8 @@ async function revalidateAreas(client, tenantId, areas) {
 async function listContracts(tenantId, filters) {
   return withTenantTransaction(tenantId, async (client) => {
     const rows = await repo.listContracts(client, tenantId, filters);
+    // TPM de chaque contrat (retour 113) : règle commune du retour 58, lue une fois pour la liste.
+    const { views } = await contractTpmViewsTx(client, tenantId, rows);
     return rows.map((c) => {
       const months = c.periodMonths || d.monthsBetween(c.dateDebut, c.dateFin);
       return {
@@ -123,6 +126,7 @@ async function listContracts(tenantId, filters) {
         periodMonths: months,
         amendmentRequired: c.spentTotal > c.monitoringBudget && c.monitoringBudget > 0,
         expired: c.status === 'actif' && c.dateFin < today(),
+        tpm: views.get(c.id) || { state: 'aucun', tpms: [] },
       };
     });
   });
@@ -167,6 +171,7 @@ async function getContractDetail(tenantId, id, actor) {
     const amendments = await repo.listAmendments(client, tenantId, id);
     const renewal = await repo.findRenewal(client, tenantId, id);
     const deleteBlockers = canWrite(actor) ? await contractLinks(client, tenantId, id) : [];
+    const { views } = await contractTpmViewsTx(client, tenantId, [contract]);
     let renewedFrom = null;
     if (contract.renewedFromId) {
       const prev = await repo.getContract(client, tenantId, contract.renewedFromId);
@@ -186,6 +191,7 @@ async function getContractDetail(tenantId, id, actor) {
         expired: contract.status === 'actif' && contract.dateFin < today_,
         daysToEnd: d.daysBetween(today_, contract.dateFin),
         renewalWindowDays: d.RENEWAL_WINDOW_DAYS,
+        tpm: views.get(contract.id) || { state: 'aucun', tpms: [] },
       },
       activities,
       areas,

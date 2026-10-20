@@ -39,7 +39,7 @@ const DIMENSIONS = [
   { key: 'site', label: 'Site / établissement', mems: 'Référentiel de sites', aliases: ['site', 'sitename', 'site_name', 'poiname', 'dpname', 'admin5name_dp', 'adm4code_smp', 'epp', 'etablissement', 'établissement', 'frsitename'] },
   // EnuPartner : organisation de l'enquêteur ; CPList : prestataire de suivi (exports GD, SMP, MIARO).
   { key: 'partner', label: 'Partenaire / ONG', mems: 'Partenaires', aliases: ['enupartner', 'cplist', 'partner', 'organisation', 'ong'] },
-  { key: 'agent', label: 'Agent / énumérateur', mems: 'Prestataires TPM (agents)', aliases: ['enuname', 'enumerator', 'agent', 'énumérateur', 'nom_enqueteur', 'enqueteur'] },
+  { key: 'agent', label: 'Agent / énumérateur', mems: 'Agents des TPM', aliases: ['enuname', 'enumerator', 'agent', 'énumérateur', 'nom_enqueteur', 'enqueteur'] },
 ];
 
 // Identifiant technique de déduplication (pas une dimension MEMS).
