@@ -7,6 +7,7 @@ const { safeParseDocV2, walkBlocks, imageRefs } = require('./reportSchema');
 const assetsRepo = require('./reportAssets.repository');
 const { DATASETS, KPIS, GROUPS, datasetDef, kpiDef, validateBlockParams, catalogForClient } = require('./catalog');
 const { loadFor } = require('./sources');
+const { dashScope } = require('./catalog/coverage');
 const { buildPlan, blockOfInstance, PlanError, richVariables } = require('./renderPlan');
 const { VARIABLES } = require('./reportModel');
 const { SYSTEM_TEMPLATES } = require('./reportTemplates');
@@ -241,7 +242,7 @@ async function computeData(tenantId, doc, inst, block, ctx) {
       const covDef = datasetDef('cov.by_activity');
       const mon = unsupportedNote(monDef, eff, ctx.lang) ? null : await loadFor(monDef, tenantId, eff, {}, ctx);
       const cov = unsupportedNote(covDef, eff, ctx.lang) ? null : await loadFor(covDef, tenantId, eff, {}, ctx);
-      return { doc: bulletinDoc(values, bulletinFindings(mon, cov), periodLabel(eff.period, ctx.lang), ctx.lang), generated: true };
+      return { doc: bulletinDoc(values, bulletinFindings(mon, cov && dashScope(cov, eff)), periodLabel(eff.period, ctx.lang), ctx.lang), generated: true };
     }
     case 'text': case 'callout': {
       const metrics = richVariables(block.params.doc).filter((v) => KPIS[v]);

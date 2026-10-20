@@ -26,7 +26,7 @@ export const elementLabel = (e, tr) => {
   return tr(KIND_LABEL[e.kind] || e.kind);
 };
 
-export default function BandCanvas({ band, place, geometry, vars, selected, onSelect, onChange, onRemove, snapOn = true }) {
+export default function BandCanvas({ band, place, geometry, vars, pageNo = 1, selected, onSelect, onChange, onRemove, snapOn = true }) {
   const { tr } = useI18n();
   const wrap = useRef(null);
   const [avail, setAvail] = useState(0);
@@ -93,7 +93,7 @@ export default function BandCanvas({ band, place, geometry, vars, selected, onSe
           </div>
           <div className="hd-band" style={{ left: `${m.left}mm`, top: `${bandTop}mm`, width: `${bodyW}mm`, height: `${Math.max(bandH, 0.5)}mm` }}>
             <div className={`hd-grid ${snapOn ? '' : 'is-off'}`} aria-hidden="true" />
-            <Band band={band} vars={vars} pageNo={1} pages={3} edges={m} place={place} editing />
+            <Band band={band} vars={vars} pageNo={pageNo} pages={3} edges={m} place={place} editing />
             {/* Calque des cadres manipulables (mêmes positions que la bande rendue). */}
             <div className="hd-boxes">
               {elements.map((el) => {

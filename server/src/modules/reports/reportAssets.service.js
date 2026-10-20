@@ -30,11 +30,15 @@ async function uploadAsset(tenantId, buf, { name, userId } = {}) {
 const listAssets = (tenantId) => repo.listAssets(tenantId);
 const getAsset = (tenantId, id) => repo.getAssetData(tenantId, id);
 
-// « Mes en-têtes » (retour 88) : un en-tête et un pied validés par le MÊME schéma que dans un rapport.
+// « Mes en-têtes » (retour 88) : la PAIRE 1re page / pages suivantes (retour du 15/10), validée par le
+// MÊME schéma que dans un rapport. Un enregistrement ancien { header, footer } reste lisible (1re page identique).
 const bandTemplateInput = z.object({
   name: z.string().trim().min(1).max(120),
   header: schemas.band,
   footer: schemas.band,
+  firstPage: z.enum(['same', 'own', 'none']).optional(),
+  firstHeader: schemas.band.optional(),
+  firstFooter: schemas.band.optional(),
 }).strict();
 
 /** Logos cités par des bandes : ceux du compte seulement (jamais pris pour vrais). */
@@ -49,9 +53,13 @@ async function checkBandImages(tenantId, bands) {
 async function saveBandTemplate(tenantId, body, userId) {
   const r = bandTemplateInput.safeParse(body);
   if (!r.success) throw badRequest('En-tête invalide', r.error.flatten());
-  const { name, header, footer } = r.data;
-  await checkBandImages(tenantId, [header, footer]);
-  return repo.createBandTemplate(tenantId, { name, content: { header, footer } }, userId);
+  const { name, header, footer, firstPage, firstHeader, firstFooter } = r.data;
+  const content = { header, footer };
+  if (firstPage) content.firstPage = firstPage;
+  if (firstHeader) content.firstHeader = firstHeader;
+  if (firstFooter) content.firstFooter = firstFooter;
+  await checkBandImages(tenantId, [header, footer, firstHeader, firstFooter].filter(Boolean));
+  return repo.createBandTemplate(tenantId, { name, content }, userId);
 }
 const listBandTemplates = (tenantId) => repo.listBandTemplates(tenantId);
 const deleteBandTemplate = (tenantId, id) => repo.deleteBandTemplate(tenantId, id);

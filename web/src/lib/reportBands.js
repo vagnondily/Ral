@@ -127,7 +127,8 @@ export function newElement(kind, { elements = [], bodyW, bandH, assetId = null, 
     case 'text': return make({ id, kind, x: 30, y: mid(6), w: 40, h: 6, text, style: st({ color: '#3a4150', size: 9 }) });
     case 'image': { const h = Math.min(14, Math.max(MIN_H_MM, bandH - 2)); return make({ id, kind, x: 0, y: mid(h), w: toPct(h * 2.6, bodyW), h, assetId: assetId || null, align: 'left' }); }
     case 'rect': return make({ id, kind, x: 35, y: mid(8), w: 30, h: 8, fill: '#eff6fc', radius: 1.5, opacity: 1 });
-    case 'band': return make({ id, kind: 'rect', x: 0, y: 0, w: 100, h: Math.min(12, bandH), fill: '#0b5394', radius: 0, opacity: 1, bleed: true });
+    // Bandeau : barre FINE sur la largeur du texte (jamais un aplat lourd par défaut) ; « bord à bord » et hauteur se règlent ensuite.
+    case 'band': return make({ id, kind: 'rect', x: 0, y: 0, w: 100, h: 2, fill: '#0b5394', radius: 0, opacity: 1 });
     case 'line': return make({ id, kind, x: 0, y: Math.max(0, bandH - 2), w: 100, h: 2, thickness: 0.5, color: '#ccd2dc' });
     case 'pageNumber': return make({ id, kind, x: 70, y: mid(6), w: 30, h: 6, format: 'Page n / N', style: st({ align: 'right' }) });
     default: return null;
@@ -159,138 +160,184 @@ const pageNo = (id, format, box, style) => ({ id, kind: 'pageNumber', ...box, fo
 const line = (id, box, thickness, color, dir) => ({ id, kind: 'line', ...box, thickness, color, ...(dir ? { dir } : {}) });
 const rect = (id, box, fill, extra = {}) => ({ id, kind: 'rect', ...box, fill, radius: 0, opacity: 1, ...extra });
 const image = (id, box, assetId, align = 'left') => ({ id, kind: 'image', ...box, assetId: assetId || null, align });
-const INK = '#14181f'; const MUTED = '#616a7a'; const RULE = '#e7e9ef'; const RULE2 = '#ccd2dc';
-const BLUE = '#0f6cbd'; const BLUE_DK = '#0b5394'; const BLUE_50 = '#eff6fc';
+const INK = '#14181f'; const TEXT = '#3a4150'; const MUTED = '#616a7a'; const FAINT = '#8b93a1';
+const RULE = '#e7e9ef'; const RULE2 = '#ccd2dc'; const BLUE = '#0f6cbd'; const BLUE_DK = '#0b5394';
+/** Millimètres de la largeur imprimable d'une page A4 portrait (182 mm) → % (les modèles se dessinent en mm). */
+const P = (mm) => Math.round((mm / 182) * 10000) / 100;
+const clone = (b) => JSON.parse(JSON.stringify(b));
+
+/** Pied commun : filet fin, mention à gauche (date d'édition ou diffusion), « Page x sur y » à droite. */
+const footerOf = (left, { center = null, italic = false } = {}) => ({ height: 9, elements: [
+  line('f-rule', B(0, 0, 100, 2), 0.5, RULE),
+  text('f-left', left, B(0, 3, center ? 30 : 68, 5), { size: 7.5, color: MUTED, italic: italic && !center }),
+  ...(center ? [text('f-center', center, B(30, 3, 42, 5), { size: 7.5, color: MUTED, italic: true, align: 'center' })] : []),
+  pageNo('f-page', 'Page n sur N', B(72, 3, 28, 5), { size: 7.5, color: MUTED, align: 'right' }),
+] });
 
 /**
- * Modèles d'en-tête et de pied prédéfinis — sobres, professionnels, aux jetons du système. Les
- * emplacements de logo prennent le(s) logo(s) du compte s'il y en a (sinon : cadre « Logo » à
- * remplir). Textes en français : traduits à l'application (localizeBand).
- * build({ logo1, logo2 }) → { header, footer }.
+ * Modèles prédéfinis = PAIRES 1re page / pages suivantes, d'après les rapports de référence de
+ * l'utilisateur (rapport de suivi de performances, fiche 2 pages) et les règles des rapports
+ * institutionnels (ONU, ONG) :
+ *  - 1re page : logo CONTENU (proportions gardées) ou cadre neutre à remplir, organisation et bureau,
+ *    grand titre (18 à 24 pt, sur deux lignes au besoin), période en sous-titre, filet d'accent fin ;
+ *    aucun aplat saturé (au plus une barre fine en tête) ;
+ *  - pages suivantes : en-tête courant discret (organisation ou petit logo, titre court, période) sur
+ *    un filet fin, 7,5 à 8 pt ;
+ *  - pied : filet fin, date d'édition ou mention de diffusion, « Page x sur y » ;
+ *  - tout est aligné sur les marges du texte (x = 0 et 100 % de la largeur imprimable), en Inter.
+ * Textes en français, traduits à l'application (localizeBand) ; les emplacements de logo prennent les
+ * logos déjà choisis (`logo1`, `logo2`), sinon restent vides. build({ logo1, logo2 }) → paire.
  */
 export const BAND_TEMPLATES = [
   {
-    key: 'minimal', name: 'Minimal — ligne fine', description: 'Titre et période sur une ligne, filet gris ; pied discret paginé.',
-    build: () => ({
-      header: { height: 12, elements: [
-        text('h-title', '{titre}', B(0, 2, 62, 6), { size: 8.5, bold: true, color: INK }),
-        text('h-period', '{periode}', B(62, 2, 38, 6), { size: 8, align: 'right' }),
-        line('h-rule', B(0, 10, 100, 2), 0.5, RULE2),
-      ] },
-      footer: { height: 10, elements: [
-        line('f-rule', B(0, 0, 100, 2), 0.5, RULE),
-        text('f-text', 'Suivi & évaluation · {bureau}', B(0, 3, 70, 6), { size: 7.5 }),
-        pageNo('f-page', 'Page n / N', B(70, 3, 30, 6), { size: 7.5, align: 'right' }),
-      ] },
-    }),
+    key: 'institutional', name: 'Institutionnel sobre',
+    description: 'Logo, organisation et bureau, grand titre et période, filet d\'accent ; pages suivantes : en-tête courant sur filet fin.',
+    build: ({ logo1 } = {}) => {
+      const footer = footerOf('Édité le {date}', { center: 'Document de travail — diffusion restreinte' });
+      return {
+        firstPage: 'own',
+        firstHeader: { height: 48, elements: [
+          image('h-logo', B(0, 0, P(46), 13), logo1, 'left'),
+          text('h-org', 'Suivi & évaluation', B(50, 1, 50, 4.5), { size: 7, bold: true, caps: true, color: MUTED, align: 'right' }),
+          text('h-office', '{bureau}', B(50, 6.5, 50, 4.5), { size: 8.5, color: TEXT, align: 'right' }),
+          line('h-rule', B(0, 16, 100, 2), 0.5, RULE2),
+          text('h-title', '{titre}', B(0, 19, 100, 19), { size: 21, bold: true, color: INK, wrap: true }),
+          text('h-sub', '{periode}', B(0, 39.5, 80, 5.5), { size: 10.5, color: MUTED }),
+          line('h-accent', B(0, 46, P(16), 2), 1.5, BLUE),
+        ] },
+        firstFooter: clone(footer),
+        header: { height: 11, elements: [
+          text('h-org', 'Suivi & évaluation', B(0, 1.5, 24, 5), { size: 7, bold: true, caps: true, color: MUTED }),
+          text('h-title', '{titre}', B(24, 1.5, 50, 5), { size: 8, bold: true, color: INK }),
+          text('h-period', '{periode}', B(74, 1.5, 26, 5), { size: 8, color: MUTED, align: 'right' }),
+          line('h-rule', B(0, 9, 100, 2), 0.5, RULE2),
+        ] },
+        footer,
+      };
+    },
   },
   {
-    key: 'institutional', name: 'Institutionnel — bandeau', description: 'Bandeau bleu foncé bord à bord avec le titre et la période ; bureau en petites capitales.',
-    build: () => ({
-      header: { height: 20, elements: [
-        rect('h-band', B(0, 0, 100, 13), BLUE_DK, { bleed: true }),
-        text('h-title', '{titre}', B(0, 3.5, 72, 7), { size: 11, bold: true, color: '#ffffff' }),
-        text('h-period', '{periode}', B(72, 3.5, 28, 7), { size: 8.5, color: '#dbe9f7', align: 'right' }),
-        text('h-office', '{bureau}', B(0, 15, 70, 4.5), { size: 6.5, bold: true, caps: true, color: BLUE }),
-      ] },
-      footer: { height: 12, elements: [
-        line('f-rule', B(0, 0, 100, 2), 1, BLUE_DK),
-        text('f-text', '{titre} — {periode}', B(0, 4, 75, 6), { size: 7.5 }),
-        pageNo('f-page', 'n / N', B(80, 4, 20, 6), { size: 7.5, bold: true, color: INK, align: 'right' }),
-      ] },
-    }),
+    key: 'donor', name: 'Rapport bailleur',
+    description: 'Barre fine en tête, logo de l\'organisation et du bailleur, mention « Rapport au bailleur », grand titre ; pages suivantes : petit logo, titre et période.',
+    build: ({ logo1, logo2 } = {}) => {
+      const footer = footerOf('Confidentiel — à l\'usage du bailleur et des partenaires', { italic: true });
+      return {
+        firstPage: 'own',
+        firstHeader: { height: 56, elements: [
+          rect('h-bar', B(0, 0, 100, 2), BLUE_DK),
+          image('h-logo', B(0, 5, P(46), 14), logo1, 'left'),
+          image('h-logo2', B(100 - P(46), 5, P(46), 14), logo2, 'right'),
+          text('h-kicker', 'Rapport au bailleur', B(0, 24, 60, 4.5), { size: 7.5, bold: true, caps: true, color: BLUE }),
+          text('h-title', '{titre}', B(0, 29, 100, 19), { size: 22, bold: true, color: INK, wrap: true }),
+          text('h-sub', '{periode} · {bureau}', B(0, 49, 100, 5.5), { size: 10.5, color: MUTED }),
+        ] },
+        firstFooter: clone(footer),
+        header: { height: 12, elements: [
+          image('h-logo', B(0, 0.5, P(24), 8), logo1, 'left'),
+          text('h-title', '{titre}', B(P(28), 2, 70 - P(28), 5), { size: 8, bold: true, color: INK }),
+          text('h-period', '{periode}', B(70, 2, 30, 5), { size: 8, color: MUTED, align: 'right' }),
+          line('h-rule', B(0, 10, 100, 2), 0.5, RULE2),
+        ] },
+        footer,
+      };
+    },
   },
   {
-    key: 'logo-left', name: 'Logo à gauche + titre', description: 'Logo, titre et sous-titre (période, bureau), filet bleu ; date d\'édition au pied.',
-    build: ({ logo1 } = {}) => ({
-      header: { height: 20, elements: [
-        image('h-logo', B(0, 1.5, 17, 14), logo1, 'left'),
-        text('h-title', '{titre}', B(19.5, 2.5, 80.5, 7), { size: 11, bold: true, color: INK }),
-        text('h-sub', '{periode} · {bureau}', B(19.5, 9.5, 80.5, 5), { size: 8 }),
-        line('h-rule', B(0, 18, 100, 2), 0.75, BLUE),
-      ] },
-      footer: { height: 10, elements: [
-        text('f-date', 'Édité le {date}', B(0, 3, 50, 6), { size: 7.5 }),
-        pageNo('f-page', 'Page n / N', B(50, 3, 50, 6), { size: 7.5, align: 'right' }),
-      ] },
-    }),
+    key: 'memo', name: 'Note interne',
+    description: 'Mention « Note interne », titre, cartouche bureau / période / date / diffusion entre deux filets ; pages suivantes discrètes.',
+    build: ({ logo1 } = {}) => {
+      const L = P(22); // colonne des libellés du cartouche
+      const label = (id, t, x, y) => text(id, t, B(x, y, L, 4.5), { size: 7, bold: true, caps: true, color: FAINT });
+      const value = (id, t, x, y) => text(id, t, B(x + L, y, 50 - L, 4.5), { size: 8.5, color: INK });
+      const footer = footerOf('Diffusion interne — ne pas transmettre à l\'extérieur', { italic: true });
+      return {
+        firstPage: 'own',
+        firstHeader: { height: 42, elements: [
+          text('h-kicker', 'Note interne', B(0, 0, 50, 4.5), { size: 7.5, bold: true, caps: true, color: BLUE }),
+          image('h-logo', B(100 - P(36), 0, P(36), 11), logo1, 'right'),
+          text('h-title', '{titre}', B(0, 6, 76, 16), { size: 18, bold: true, color: INK, wrap: true }),
+          line('h-rule1', B(0, 24.5, 100, 2), 0.5, RULE2),
+          label('h-l1', 'Bureau', 0, 27), value('h-v1', '{bureau}', 0, 27),
+          label('h-l2', 'Période', 50, 27), value('h-v2', '{periode}', 50, 27),
+          label('h-l3', 'Date', 0, 32.5), value('h-v3', '{date}', 0, 32.5),
+          label('h-l4', 'Diffusion', 50, 32.5), value('h-v4', 'Interne', 50, 32.5),
+          line('h-rule2', B(0, 39.5, 100, 2), 0.5, RULE2),
+        ] },
+        firstFooter: clone(footer),
+        header: { height: 10, elements: [
+          text('h-left', 'Note interne · {titre}', B(0, 1.5, 75, 5), { size: 7.5, color: MUTED }),
+          text('h-right', '{date}', B(75, 1.5, 25, 5), { size: 7.5, color: MUTED, align: 'right' }),
+          line('h-rule', B(0, 8, 100, 2), 0.5, RULE),
+        ] },
+        footer,
+      };
+    },
   },
   {
-    key: 'two-logos', name: 'Deux logos', description: 'Logo de l\'organisation à gauche, du partenaire à droite, titre centré.',
-    build: ({ logo1, logo2 } = {}) => ({
-      header: { height: 20, elements: [
-        image('h-logo', B(0, 1.5, 18, 14), logo1, 'left'),
-        image('h-logo2', B(82, 1.5, 18, 14), logo2, 'right'),
-        text('h-title', '{titre}', B(20, 3, 60, 7), { size: 10.5, bold: true, color: INK, align: 'center' }),
-        text('h-period', '{periode}', B(20, 10, 60, 5), { size: 8, align: 'center' }),
-        line('h-rule', B(0, 18, 100, 2), 0.5, RULE2),
-      ] },
-      footer: { height: 10, elements: [
-        line('f-rule', B(0, 0, 100, 2), 0.5, RULE),
-        text('f-text', '{bureau}', B(0, 3, 50, 6), { size: 7.5 }),
-        pageNo('f-page', 'Page n / N', B(50, 3, 50, 6), { size: 7.5, align: 'right' }),
-      ] },
-    }),
+    key: 'bulletin', name: 'Bulletin',
+    description: 'Bandeau de titre façon lettre d\'information : filet épais, édition et période, grand titre, filet fin ; pages suivantes : rappel du bulletin.',
+    build: ({ logo1 } = {}) => {
+      const footer = footerOf('{titre} — {bureau}');
+      return {
+        firstPage: 'own',
+        firstHeader: { height: 43, elements: [
+          line('h-top', B(0, 0, 100, 2), 2, INK),
+          text('h-kicker', 'Bulletin de suivi', B(0, 3.5, 50, 4.5), { size: 7.5, bold: true, caps: true, color: BLUE }),
+          text('h-edition', '{periode}', B(50, 3.5, 50, 4.5), { size: 7.5, bold: true, caps: true, color: INK, align: 'right' }),
+          text('h-title', '{titre}', B(0, 10, 78, 21), { size: 24, bold: true, color: INK, wrap: true }),
+          image('h-logo', B(100 - P(34), 11, P(34), 14), logo1, 'right'),
+          text('h-sub', '{bureau} · Édité le {date}', B(0, 33, 80, 5), { size: 9, color: MUTED }),
+          line('h-rule', B(0, 41, 100, 2), 0.5, INK),
+        ] },
+        firstFooter: clone(footer),
+        header: { height: 10, elements: [
+          text('h-left', 'Bulletin · {periode}', B(0, 1.5, 45, 5), { size: 7, bold: true, caps: true, color: MUTED }),
+          text('h-right', '{titre}', B(45, 1.5, 55, 5), { size: 8, bold: true, color: INK, align: 'right' }),
+          line('h-rule', B(0, 8, 100, 2), 0.5, RULE2),
+        ] },
+        footer,
+      };
+    },
   },
   {
-    key: 'band-period', name: 'Bandeau couleur + période', description: 'Bandeau bleu très clair avec un filet d\'accent, période en pastille ; pagination en pastille.',
-    build: () => ({
-      header: { height: 16, elements: [
-        rect('h-band', B(0, 0, 100, 12), BLUE_50),
-        rect('h-accent', B(0, 0, 1.2, 12), BLUE),
-        text('h-title', '{titre}', B(3, 3, 64, 6), { size: 10, bold: true, color: INK }),
-        text('h-period', '{periode}', B(71, 3, 27, 6), { size: 8, bold: true, color: '#ffffff', align: 'center', background: BLUE, radius: 3 }),
-      ] },
-      footer: { height: 10, elements: [
-        text('f-text', 'Suivi & évaluation', B(0, 3, 60, 6), { size: 7.5 }),
-        pageNo('f-page', 'n / N', B(86, 2.5, 14, 6), { size: 7.5, bold: true, color: BLUE_DK, align: 'center', background: BLUE_50, radius: 3 }),
-      ] },
-    }),
-  },
-  {
-    key: 'official', name: 'Rapport officiel avec cartouche', description: 'Cartouche encadré : logo, « RAPPORT OFFICIEL », titre et période, date d\'édition, bureau et page.',
-    build: ({ logo1 } = {}) => ({
-      header: { height: 26, elements: [
-        rect('h-frame', B(0, 0, 100, 22), '#ffffff', { border: RULE2 }),
-        image('h-logo', B(1.5, 2, 20, 18), logo1, 'center'),
-        line('h-sep1', B(23, 2, 1, 18), 0.5, RULE2, 'v'),
-        text('h-kicker', 'Rapport officiel', B(25, 3, 50, 4), { size: 6.5, bold: true, caps: true, color: BLUE }),
-        text('h-title', '{titre}', B(25, 8, 50, 7), { size: 10.5, bold: true, color: INK }),
-        text('h-period', '{periode}', B(25, 15, 50, 5), { size: 8 }),
-        line('h-sep2', B(76, 2, 1, 18), 0.5, RULE2, 'v'),
-        text('h-date', 'Édité le {date}', B(78, 3.5, 21, 5), { size: 7 }),
-        text('h-office', '{bureau}', B(78, 9, 21, 5), { size: 7 }),
-        pageNo('h-page', 'Page n / N', B(78, 14.5, 21, 5), { size: 7, bold: true, color: INK }),
-      ] },
-      footer: { height: 10, elements: [
+    key: 'two-pager', name: 'Fiche 2 pages',
+    description: 'Fiche de synthèse : titre et bureau à gauche, période et date de publication à droite, filet d\'accent ; page 2 en version compacte.',
+    build: ({ logo1 } = {}) => {
+      const footer = { height: 10, elements: [
         line('f-rule', B(0, 0, 100, 2), 0.5, RULE2),
-        text('f-text', 'Document à usage interne — ne pas diffuser sans validation', B(0, 3, 75, 6), { size: 7, italic: true }),
-        pageNo('f-page', 'Page n / N', B(75, 3, 25, 6), { size: 7, align: 'right' }),
-      ] },
-    }),
+        text('f-src', 'Sources : MEMS — suivi de processus et visites de terrain, {periode}.', B(0, 3, 75, 5), { size: 7, color: MUTED }),
+        text('f-date', 'Édité le {date}', B(75, 3, 25, 5), { size: 7, color: MUTED, align: 'right' }),
+      ] };
+      return {
+        firstPage: 'own',
+        firstHeader: { height: 32, elements: [
+          text('h-title', '{titre}', B(0, 0, 66, 16), { size: 19, bold: true, color: INK, wrap: true }),
+          text('h-sub', '{bureau}', B(0, 17, 66, 5), { size: 10, color: TEXT }),
+          text('h-note', 'Note de synthèse · suivi & évaluation', B(0, 22.5, 66, 4.5), { size: 7.5, color: MUTED }),
+          text('h-period', '{periode}', B(66, 1, 34, 5.5), { size: 9.5, bold: true, caps: true, color: INK, align: 'right' }),
+          text('h-pub', 'Publié le {date}', B(66, 7.5, 34, 4.5), { size: 8, color: MUTED, align: 'right' }),
+          image('h-logo', B(100 - P(30), 15, P(30), 10), logo1, 'right'),
+          line('h-accent', B(0, 29.5, 100, 2), 1.5, BLUE),
+        ] },
+        firstFooter: clone(footer),
+        header: { height: 17, elements: [
+          text('h-title', '{titre}', B(0, 0, 64, 7.5), { size: 13, bold: true, color: INK }),
+          text('h-sub', '{bureau}', B(0, 8, 64, 4.5), { size: 8, color: MUTED }),
+          text('h-period', '{periode}', B(64, 0.5, 36, 5), { size: 8.5, bold: true, caps: true, color: INK, align: 'right' }),
+          pageNo('h-page', 'Page n sur N', B(64, 6.5, 36, 4.5), { size: 7.5, color: MUTED, align: 'right' }),
+          line('h-accent', B(0, 14.5, 100, 2), 1, BLUE),
+        ] },
+        footer,
+      };
+    },
   },
   {
-    key: 'centered', name: 'Sobre centré', description: 'Titre et période centrés, court filet bleu ; numéro de page centré.',
+    key: 'footer-only', name: 'Pied de page seul',
+    description: 'Aucun en-tête (pages pleines : tableaux de bord, annexes) ; pied fin avec le titre, la période et la pagination.',
     build: () => ({
-      header: { height: 14, elements: [
-        text('h-title', '{titre}', B(10, 1, 80, 5.5), { size: 8.5, bold: true, color: INK, align: 'center' }),
-        text('h-period', '{periode}', B(10, 6.5, 80, 4.5), { size: 7.5, align: 'center' }),
-        line('h-rule', B(45, 12, 10, 2), 1, BLUE),
-      ] },
-      footer: { height: 10, elements: [
-        pageNo('f-page', 'n', B(40, 3, 20, 6), { size: 8, align: 'center' }),
-      ] },
-    }),
-  },
-  {
-    key: 'footer-only', name: 'Pied seul', description: 'Aucun en-tête (pages pleines) ; pied avec le titre et la pagination.',
-    build: () => ({
+      firstPage: 'same',
       header: { height: 0, elements: [] },
-      footer: { height: 10, elements: [
-        line('f-rule', B(0, 0, 100, 2), 0.5, RULE),
-        text('f-text', '{titre} — {periode}', B(0, 3, 70, 6), { size: 7.5 }),
-        pageNo('f-page', 'Page n / N', B(70, 3, 30, 6), { size: 7.5, align: 'right' }),
-      ] },
+      footer: footerOf('{titre} — {periode}'),
     }),
   },
 ];
@@ -303,11 +350,87 @@ export const localizeBand = (band, tr) => band && ({
   elements: (band.elements || []).map((e) => (e.kind === 'text' && e.text && hasWords(e.text) ? { ...e, text: tr(e.text) } : e)),
 });
 
-/** Modèle appliqué : en-tête et pied construits avec les logos du compte, textes traduits. */
+// ---- Première page / pages suivantes (retour du 15/10) -------------------------------------
+/*
+ * Une mise en page d'en-tête est une PAIRE : la PREMIÈRE PAGE et les PAGES SUIVANTES, chacune
+ * avec son en-tête et son pied. Modèle du document (inchangé, rapports enregistrés compatibles) :
+ *   { header, footer }              pages suivantes (et toutes les pages si la 1re est identique) ;
+ *   firstPage 'same' | 'own' | 'none'  1re page identique aux suivantes, propre, ou page de titre ;
+ *   { firstHeader, firstFooter }    en-tête et pied de la 1re page quand elle est « propre » — gardés
+ *                                   quand on repasse à « identique » (rien n'est perdu en changeant d'avis).
+ */
+export const FIRST_PAGE_MODES = ['same', 'own', 'none'];
+const emptyBand = (h = 0) => ({ height: h, elements: [] });
+const copy = (x) => (x ? JSON.parse(JSON.stringify(x)) : x);
+
+/** Clé de la bande éditée : (page 'first' | 'rest', zone 'header' | 'footer') → header, footer, firstHeader, firstFooter. */
+export const bandKey = (pageKind, zone) => (pageKind === 'first' ? (zone === 'footer' ? 'firstFooter' : 'firstHeader') : (zone === 'footer' ? 'footer' : 'header'));
+/** Inverse : clé de bande → { pageKind, zone } (ouverture du concepteur sur une zone donnée). */
+export const zoneOf = (key) => ({
+  pageKind: key === 'firstHeader' || key === 'firstFooter' ? 'first' : 'rest',
+  zone: key === 'footer' || key === 'firstFooter' ? 'footer' : 'header',
+});
+
+/**
+ * Change le régime de la 1re page. « Propres » part d'une COPIE des bandes des pages suivantes quand
+ * la 1re page n'en a pas encore ; ses bandes déjà dessinées sont gardées dans tous les cas.
+ */
+export function setFirstPageMode(layout, mode) {
+  const m = FIRST_PAGE_MODES.includes(mode) ? mode : 'same';
+  const out = { ...layout, firstPage: m };
+  if (m === 'own') {
+    if (!out.firstHeader) out.firstHeader = copy(layout.header) || emptyBand(14);
+    if (!out.firstFooter) out.firstFooter = copy(layout.footer) || emptyBand(10);
+  }
+  return out;
+}
+
+/** Bandes EFFECTIVES de la 1re page et des pages suivantes (aperçu côte à côte, vignettes). */
+export function pairBands(layout) {
+  const l = layout || {};
+  const rest = { header: l.header || null, footer: l.footer || null };
+  const fp = l.firstPage || 'same';
+  const first = fp === 'none' ? { header: null, footer: null }
+    : fp === 'own' ? { header: l.firstHeader || null, footer: l.firstFooter || null } : rest;
+  return { first, rest, firstPage: fp };
+}
+
+/**
+ * Contenu d'un modèle (prédéfini ou « mes en-têtes ») normalisé en PAIRE complète. Un ancien
+ * enregistrement { header, footer } donne une 1re page identique aux suivantes.
+ */
+export function pairOf(content) {
+  const c = content || {};
+  const fp = FIRST_PAGE_MODES.includes(c.firstPage) ? c.firstPage : 'same';
+  const out = { header: copy(c.header) || emptyBand(0), footer: copy(c.footer) || emptyBand(0), firstPage: fp };
+  if (c.firstHeader) out.firstHeader = copy(c.firstHeader);
+  if (c.firstFooter) out.firstFooter = copy(c.firstFooter);
+  if (fp === 'own') { out.firstHeader = out.firstHeader || copy(out.header); out.firstFooter = out.firstFooter || copy(out.footer); }
+  return out;
+}
+
+/** Logos DÉJÀ choisis dans une mise en page (1re page puis suivantes), sans doublon, dans l'ordre. */
+export function logosOf(layout) {
+  const l = layout || {};
+  const ids = [];
+  for (const b of [l.firstHeader, l.header, l.firstFooter, l.footer]) {
+    for (const e of (b && b.elements) || []) if (e.kind === 'image' && e.assetId && !ids.includes(e.assetId)) ids.push(e.assetId);
+  }
+  return ids;
+}
+
+/**
+ * Modèle appliqué à la PAIRE (1re page + pages suivantes) : textes traduits ; les emplacements de
+ * logo prennent les logos que l'utilisateur a DÉJÀ placés (`logo1`, `logo2`) — jamais une image
+ * prise au hasard dans le compte : sans logo choisi, l'emplacement reste un cadre neutre à remplir.
+ * @returns {{ header, footer, firstPage, firstHeader?, firstFooter? }|null}
+ */
 export function applyTemplate(key, { logo1 = null, logo2 = null, tr = (x) => x } = {}) {
   const t = BAND_TEMPLATES.find((x) => x.key === key);
   if (!t) return null;
-  // Un seul logo dans le compte : le 2ᵉ emplacement reste à remplir (jamais deux fois le même logo).
-  const { header, footer } = t.build({ logo1, logo2 });
-  return { header: localizeBand(header, tr), footer: localizeBand(footer, tr) };
+  const built = pairOf(t.build({ logo1, logo2: logo2 && logo2 !== logo1 ? logo2 : null }));
+  const out = { ...built, header: localizeBand(built.header, tr), footer: localizeBand(built.footer, tr) };
+  if (built.firstHeader) out.firstHeader = localizeBand(built.firstHeader, tr);
+  if (built.firstFooter) out.firstFooter = localizeBand(built.firstFooter, tr);
+  return out;
 }

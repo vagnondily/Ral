@@ -22,28 +22,57 @@ const LOGO2 = '22222222-2222-4222-8222-222222222222';
 const ctx = { bodyW: 182, bandH: 20 };
 const inBand = (e, bandH) => e.x >= 0 && e.x + e.w <= 100.001 && e.y >= 0 && e.y + e.h <= bandH + 0.001 && e.w >= 1 && e.h >= 2;
 
-test('modèles prédéfinis : 8 modèles sobres, tous valides pour le schéma du serveur, avec ou sans logo', async (t) => {
+test('modèles prédéfinis : paires sobres (1re page + pages suivantes), valides pour le schéma du serveur, avec ou sans logo', async (t) => {
   const b = await load(t); if (!b) return;
-  assert.ok(b.BAND_TEMPLATES.length >= 6);
+  assert.ok(b.BAND_TEMPLATES.length >= 5);
   const names = b.BAND_TEMPLATES.map((x) => x.name);
-  for (const n of ['Minimal — ligne fine', 'Institutionnel — bandeau', 'Logo à gauche + titre', 'Deux logos', 'Bandeau couleur + période', 'Rapport officiel avec cartouche']) assert.ok(names.includes(n), n);
+  for (const n of ['Institutionnel sobre', 'Rapport bailleur', 'Note interne', 'Bulletin', 'Fiche 2 pages']) assert.ok(names.includes(n), n);
   for (const tpl of b.BAND_TEMPLATES) {
     for (const logos of [{}, { logo1: LOGO }, { logo1: LOGO, logo2: LOGO2 }]) {
-      const { header, footer } = b.applyTemplate(tpl.key, logos);
+      const pair = b.applyTemplate(tpl.key, logos);
+      const { header, footer } = pair;
       schemas.band.parse(header); schemas.band.parse(footer);
-      const doc = parseDocV2({ schemaVersion: 2, title: 'T', period: { from: '2026-09', to: '2026-09' }, page: { header, footer }, blocks: [] });
+      // Un modèle est une PAIRE : la mise en page entière (1re page comprise) passe le schéma du rapport.
+      const doc = parseDocV2({ schemaVersion: 2, title: 'T', period: { from: '2026-09', to: '2026-09' }, page: pair, blocks: [] });
       assert.ok(doc.page.header.elements.length <= 20);
+      assert.ok(['same', 'own', 'none'].includes(doc.page.firstPage));
+      if (doc.page.firstPage === 'own') assert.ok(doc.page.firstHeader && doc.page.firstFooter, tpl.key);
       // Aucune couleur hors du format, aucun texte « WFP » / « PAM ».
-      assert.doesNotMatch(JSON.stringify([header, footer]), /WFP|\bPAM\b/);
+      assert.doesNotMatch(JSON.stringify(pair), /WFP|\bPAM\b/);
+      // Sans logo choisi, aucun logo n'est inventé : les emplacements restent vides.
+      if (!logos.logo1) assert.ok(!JSON.stringify(pair).includes('"assetId":"'), tpl.key);
     }
   }
-  // Logos : le 1er emplacement prend le logo du compte ; un seul logo → le 2ᵉ reste à remplir.
-  const two = b.applyTemplate('two-logos', { logo1: LOGO });
-  const imgs = two.header.elements.filter((e) => e.kind === 'image');
+  // Logos : le 1er emplacement prend le logo déjà choisi ; un seul logo → le 2ᵉ (bailleur) reste à remplir.
+  const two = b.applyTemplate('donor', { logo1: LOGO });
+  const imgs = two.firstHeader.elements.filter((e) => e.kind === 'image');
   assert.deepEqual(imgs.map((e) => e.assetId), [LOGO, null]);
+  // Règles de mise en forme : grand titre 18–24 pt sur la 1re page, en-tête courant ≤ 9 pt, pied ≤ 9 pt
+  // avec « Page x sur y », tout dans la largeur du texte (x ≥ 0, x + l ≤ 100 %), aucun aplat saturé haut.
+  for (const tpl of b.BAND_TEMPLATES.filter((x) => x.key !== 'footer-only')) {
+    const p = b.applyTemplate(tpl.key, {});
+    const title = p.firstHeader.elements.find((e) => e.text === '{titre}');
+    assert.ok(title && title.style.size >= 18 && title.style.size <= 24, `${tpl.key} : titre ${title && title.style.size} pt`);
+    for (const e of p.header.elements.filter((x) => x.style)) assert.ok(e.style.size <= 13, `${tpl.key} : en-tête courant ${e.style.size} pt`);
+    for (const e of [...p.footer.elements, ...p.firstFooter.elements].filter((x) => x.style)) assert.ok(e.style.size <= 9, `${tpl.key} : pied ${e.style.size} pt`);
+    for (const band of [p.header, p.footer, p.firstHeader, p.firstFooter]) {
+      for (const e of band.elements) {
+        assert.ok(inBand(e, band.height), `${tpl.key} ${e.id} dans sa bande`);
+        assert.ok(!e.bleed, `${tpl.key} ${e.id} : aligné sur les marges du texte`);
+        if (e.kind === 'rect') assert.ok(e.h <= 2, `${tpl.key} ${e.id} : pas d'aplat (barre fine seulement)`);
+      }
+    }
+  }
+  for (const tpl of b.BAND_TEMPLATES) {
+    const p = b.applyTemplate(tpl.key, {});
+    const pages = [...p.header.elements, ...p.footer.elements].filter((e) => e.kind === 'pageNumber');
+    assert.ok(pages.length >= 1 || tpl.key === 'two-pager', `${tpl.key} : pagination`);
+    for (const e of pages) assert.equal(e.format, 'Page n sur N');
+  }
   // Textes traduits à l'application, variables intactes.
-  const en = b.applyTemplate('minimal', { tr: (x) => (x === 'Suivi & évaluation · {bureau}' ? 'Monitoring & evaluation · {bureau}' : x) });
-  assert.ok(en.footer.elements.some((e) => e.text === 'Monitoring & evaluation · {bureau}'));
+  const en = b.applyTemplate('institutional', { tr: (x) => (x === 'Édité le {date}' ? 'Issued on {date}' : x) });
+  assert.ok(en.footer.elements.some((e) => e.text === 'Issued on {date}'));
+  assert.ok(en.firstFooter.elements.some((e) => e.text === 'Issued on {date}'));
   assert.equal(b.applyTemplate('inconnu'), null);
 });
 
@@ -103,7 +132,10 @@ test('clavier, ordre d\'empilement, nouveaux éléments, hauteur de bande', asyn
     assert.ok(inBand(n, 20), kind);
     schemas.band.parse({ height: 20, elements: [n] });
   }
-  assert.equal(b.newElement('band', { ...ctx }).bleed, true);
+  // Bandeau ajouté : barre fine sur la largeur du texte (bord à bord seulement si on le demande).
+  const bar = b.newElement('band', { ...ctx });
+  assert.equal(bar.bleed, undefined);
+  assert.equal(bar.h, 2);
   // Bande abaissée : les éléments remontent ou rapetissent, jamais dehors ; vide → 0 possible.
   const band = { height: 20, elements: [{ id: 't', kind: 'text', x: 0, y: 14, w: 50, h: 6, text: 'x' }] };
   const low = b.setBandHeight(band, 8, ctx);
@@ -122,8 +154,9 @@ test('anglais : noms, descriptions et textes des modèles, noms des couleurs ont
   const need = (s) => { if (s && !Object.prototype.hasOwnProperty.call(en, s)) missing.add(s); };
   for (const tpl of b.BAND_TEMPLATES) {
     need(tpl.name); need(tpl.description);
-    const { header, footer } = tpl.build({});
-    for (const e of [...header.elements, ...footer.elements]) {
+    const built = tpl.build({});
+    const bands = [built.header, built.footer, built.firstHeader, built.firstFooter].filter(Boolean);
+    for (const e of bands.flatMap((x) => x.elements)) {
       if (e.kind === 'text' && /[A-Za-zÀ-ÿ]/.test(e.text.replace(/\{[a-z_]{2,40}\}/g, ''))) need(e.text);
     }
   }
@@ -131,9 +164,10 @@ test('anglais : noms, descriptions et textes des modèles, noms des couleurs ont
   assert.deepEqual([...missing], [], `phrases sans anglais : ${[...missing].join(' | ')}`);
   // Traduction appliquée par applyTemplate ; un texte fait de variables seules n'est pas traduit.
   const tr = (s) => en[s] || s;
-  const off = b.applyTemplate('official', { tr });
-  assert.ok(off.header.elements.some((e) => e.text === 'Official report'));
-  assert.ok(off.header.elements.some((e) => e.text === '{titre}'));
+  const memo = b.applyTemplate('memo', { tr });
+  assert.ok(memo.firstHeader.elements.some((e) => e.text === 'Internal memo'));
+  assert.ok(memo.firstHeader.elements.some((e) => e.text === '{titre}'));
+  assert.ok(memo.header.elements.some((e) => e.text === 'Internal memo · {titre}'));
 });
 
 test('schéma : élément d\'image vide (emplacement), bandeau bord à bord, trait vertical, en-tête PROPRE à une section', () => {
@@ -151,4 +185,53 @@ test('schéma : élément d\'image vide (emplacement), bandeau bord à bord, tra
   assert.equal(doc.page.header.elements[0].assetId, null);
   assert.throws(() => schemas.band.parse({ height: 10, elements: [{ id: 'x', kind: 'line', x: 0, y: 0, w: 10, h: 2, dir: 'oblique' }] }));
   assert.throws(() => schemas.band.parse({ height: 10, elements: [{ id: 'x', kind: 'image', x: 0, y: 0, w: 10, h: 2, assetId: 'pas-un-uuid' }] }));
+});
+
+test('paire 1re page / pages suivantes : régimes, copie à la demande, rien de perdu, anciens enregistrements lisibles', async (t) => {
+  const b = await load(t); if (!b) return;
+  const header = { height: 10, elements: [{ id: 't', kind: 'text', x: 0, y: 2, w: 60, h: 6, text: '{titre}' }] };
+  const footer = { height: 8, elements: [{ id: 'p', kind: 'pageNumber', x: 70, y: 1, w: 30, h: 6 }] };
+  const firstHeader = { height: 40, elements: [{ id: 'logo', kind: 'image', x: 0, y: 0, w: 20, h: 14, assetId: LOGO }] };
+  // Clés de bande et zones.
+  assert.equal(b.bandKey('first', 'header'), 'firstHeader');
+  assert.equal(b.bandKey('first', 'footer'), 'firstFooter');
+  assert.equal(b.bandKey('rest', 'footer'), 'footer');
+  assert.deepEqual(b.zoneOf('firstFooter'), { pageKind: 'first', zone: 'footer' });
+  assert.deepEqual(b.zoneOf('header'), { pageKind: 'rest', zone: 'header' });
+  // « Propres » : COPIE des bandes des pages suivantes quand la 1re page n'en a pas (indépendante).
+  const own = b.setFirstPageMode({ header, footer, firstPage: 'same' }, 'own');
+  assert.equal(own.firstPage, 'own');
+  assert.deepEqual(own.firstHeader, header);
+  assert.notEqual(own.firstHeader, header);
+  // Repasser à « identique » ou « page de titre » GARDE la 1re page dessinée (rien de perdu).
+  const drawn = { header, footer, firstPage: 'own', firstHeader, firstFooter: footer };
+  const same = b.setFirstPageMode(drawn, 'same');
+  assert.equal(same.firstHeader, firstHeader);
+  assert.equal(b.setFirstPageMode(same, 'own').firstHeader, firstHeader);
+  // Bandes effectives : identique → celles des suivantes ; page de titre → aucune ; propre → les siennes.
+  assert.equal(b.pairBands(same).first.header, header);
+  assert.deepEqual(b.pairBands({ ...drawn, firstPage: 'none' }).first, { header: null, footer: null });
+  assert.equal(b.pairBands(drawn).first.header, firstHeader);
+  assert.equal(b.pairBands(drawn).rest.header, header);
+  // Enregistrement ancien { header, footer } : paire à 1re page identique ; régime inconnu → identique.
+  const old = b.pairOf({ header, footer });
+  assert.equal(old.firstPage, 'same');
+  assert.equal(old.firstHeader, undefined);
+  assert.equal(b.pairOf({ header, footer, firstPage: 'bizarre' }).firstPage, 'same');
+  assert.deepEqual(b.pairOf({ header, footer, firstPage: 'own' }).firstHeader, header);
+  // Logos déjà choisis (1re page d'abord), sans doublon : repris par un modèle, jamais une image au hasard.
+  assert.deepEqual(b.logosOf({ header: { elements: [{ kind: 'image', assetId: LOGO2 }, { kind: 'image', assetId: LOGO }] }, firstHeader }), [LOGO, LOGO2]);
+  assert.deepEqual(b.logosOf({ header }), []);
+  const withLogo = b.BAND_TEMPLATES.filter((x) => JSON.stringify(x.build({ logo1: LOGO })).includes(LOGO));
+  assert.ok(withLogo.length >= 2, 'des modèles ont un emplacement de logo');
+  for (const x of withLogo) {
+    assert.ok(JSON.stringify(b.applyTemplate(x.key, { logo1: LOGO })).includes(LOGO), x.key);
+    assert.ok(!JSON.stringify(b.applyTemplate(x.key, {})).includes('"assetId":"'), x.key);
+  }
+  // Un même logo n'occupe jamais deux emplacements d'une même bande.
+  for (const x of b.BAND_TEMPLATES) {
+    const p = b.applyTemplate(x.key, { logo1: LOGO, logo2: LOGO });
+    const perBand = (band) => (band ? band.elements.filter((e) => e.kind === 'image' && e.assetId === LOGO).length : 0);
+    for (const band of [p.header, p.footer, p.firstHeader, p.firstFooter]) assert.ok(perBand(band) <= 1, x.key);
+  }
 });

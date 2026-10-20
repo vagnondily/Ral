@@ -5,6 +5,7 @@ import { pageGeometry } from '../../../lib/reportPaginate.js';
 import { PenLine } from 'lucide-react';
 import { Button } from '../../../components/ui.jsx';
 import { defaultPage } from '../reportDoc.js';
+import { setFirstPageMode } from '../../../lib/reportBands.js';
 import { TemplateThumb } from './HeaderDesigner.jsx';
 
 /**
@@ -83,18 +84,20 @@ export default function PagePane({ doc, onChange, onAnnexes, extra }) {
       </fieldset>
       <div className="rd-bands-card">
         <span className="rd-field-l">{tr('En-tête et pied de page')}</span>
-        {extra && extra.vars && <TemplateThumb content={{ header: p.header, footer: p.footer }} vars={extra.vars} label={tr('En-tête et pied de page du document')} onPick={extra.onDesignBands} />}
+        {extra && extra.vars && (
+          <div className="rd-bands-pair">
+            <TemplateThumb content={p} vars={extra.vars} label={tr('En-tête et pied de page du document')} onPick={extra.onDesignBands} />
+            <span className="rd-bands-legend"><span>{tr('Première page')}</span><span>{tr('Pages suivantes')}</span></span>
+          </div>
+        )}
         {extra && extra.onDesignBands && <Button icon={PenLine} onClick={extra.onDesignBands}>{tr('Concevoir l\'en-tête et le pied de page')}</Button>}
-        <p className="hint">{tr('Modèles prêts à l\'emploi, logos, textes avec variables, bandeaux et formes, placés librement. Double-cliquez sur l\'en-tête d\'une page pour l\'ouvrir aussi.')}</p>
+        <p className="hint">{tr('Première page et pages suivantes, chacune avec son en-tête et son pied : modèles prêts à l\'emploi, logos, textes avec variables, placés librement. Double-cliquez sur l\'en-tête d\'une page pour l\'ouvrir aussi.')}</p>
       </div>
       <Field label={tr('Première page')}>
-        <select className="select" value={p.firstPage || 'same'} onChange={(e) => {
-          const v = e.target.value;
-          onChange(v === 'own' ? { firstPage: v, firstHeader: p.firstHeader || p.header, firstFooter: p.firstFooter || p.footer } : { firstPage: v });
-        }}>
-          <option value="same">{tr('Comme les autres pages')}</option>
-          <option value="none">{tr('Sans en-tête ni pied (page de titre)')}</option>
+        <select className="select" value={p.firstPage || 'same'} onChange={(e) => onChange(setFirstPageMode(p, e.target.value))}>
+          <option value="same">{tr('Identique aux pages suivantes')}</option>
           <option value="own">{tr('En-tête et pied propres')}</option>
+          <option value="none">{tr('Sans en-tête ni pied (page de titre)')}</option>
         </select>
       </Field>
       <label className="check"><input type="checkbox" checked={p.draftWatermark !== false} onChange={(e) => onChange({ draftWatermark: e.target.checked })} /> {tr('Filigrane « BROUILLON » tant que le rapport n\'est pas validé')}</label>

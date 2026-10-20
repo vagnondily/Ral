@@ -132,11 +132,14 @@ export function Band({ band, texts, vars, pageNo, pages, className, edges = null
         };
         if (e.kind === 'text') {
           const raw = texts && texts[e.id] != null ? texts[e.id] : e.text;
-          return <div key={e.id} className="rd-el rd-el-text" style={{ ...box, ...font }}><span>{substitute(raw, pv)}</span></div>;
+          // Sur plusieurs lignes (grand titre) : le texte s'enroule dans son cadre, calé en bas, jamais coupé au milieu d'un mot.
+          return <div key={e.id} className={`rd-el rd-el-text ${st.wrap ? 'is-wrap' : ''}`} style={{ ...box, ...font }}><span>{substitute(raw, pv)}</span></div>;
         }
         if (e.kind === 'pageNumber') {
           const n = pageNo || 'n'; const N = pages || 'N';
-          const label = { n: `${n}`, 'n / N': `${n} / ${N}`, 'Page n': tr('Page {n}', { n }), 'Page n / N': tr('Page {n} / {N}', { n, N }) }[e.format || 'Page n / N'];
+          const label = {
+            n: `${n}`, 'n / N': `${n} / ${N}`, 'Page n': tr('Page {n}', { n }), 'Page n / N': tr('Page {n} / {N}', { n, N }), 'Page n sur N': tr('Page {n} sur {N}', { n, N }),
+          }[e.format || 'Page n / N'];
           return <div key={e.id} className="rd-el rd-el-text rd-pageno" style={{ ...box, ...font }}><span>{label}</span></div>;
         }
         if (e.kind === 'line') {

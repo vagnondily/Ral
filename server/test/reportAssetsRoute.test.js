@@ -133,8 +133,18 @@ test('« mes en-têtes » : enregistré par compte, validé par le schéma des b
   assert.equal(foreign.status, 400);
   assert.equal(foreign.body.details.code, 'asset_missing');
   assert.equal((await post({ name: 'Lecteur', header, footer }, tok(A, 'viewer'))).status, 403);
+  // PAIRE 1re page / pages suivantes : enregistrée telle quelle ; un régime inconnu ou un logo étranger
+  // dans la bande de la 1re page est refusé.
+  const pair = await post({ name: 'Paire du bureau', header: footer, footer, firstPage: 'own', firstHeader: header, firstFooter: footer });
+  assert.equal(pair.status, 201);
+  assert.equal(pair.body.content.firstPage, 'own');
+  assert.equal(pair.body.content.firstHeader.elements[0].assetId, logo);
+  assert.equal((await post({ name: 'Y', header, footer, firstPage: 'parfois' })).status, 400);
+  const foreignFirst = await post({ name: 'Z', header: footer, footer, firstPage: 'own', firstHeader: header }, tok(B, 'admin'));
+  assert.equal(foreignFirst.status, 400);
+  assert.equal(foreignFirst.body.details.code, 'asset_missing');
   const list = await request(app).get('/api/report-designer/band-templates').set({ Authorization: tok(A, 'viewer') });
-  assert.deepEqual(list.body.map((x) => x.name), ['Bandeau du bureau']);
+  assert.deepEqual(list.body.map((x) => x.name), ['Bandeau du bureau', 'Paire du bureau']);
   const other = await request(app).get('/api/report-designer/band-templates').set({ Authorization: tok(B, 'viewer') });
   assert.deepEqual(other.body, []);
 });

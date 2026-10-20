@@ -13,6 +13,7 @@ const assert = require('node:assert/strict');
 const { pageFacts, mergeAll, mergeVisits } = require('../src/modules/monitoring/indicatorTallies');
 const { overallIndex, computeAll } = require('../src/modules/monitoring/monitoringMath');
 const { shapeCoverageFacts } = require('../src/modules/tpm/fieldMath');
+const { shapeCoverage } = require('../src/modules/dashboards/coverageDefinitions');
 const { datasetDef, kpiDef } = require('../src/modules/reports/catalog');
 const { bulletinDoc, bulletinFindings, monthsBetween } = require('../src/modules/reports/reportData');
 const { unsupportedNote } = require('../src/modules/reports/reports.service');
@@ -145,23 +146,64 @@ const COV = {
   byProvider: [],
 };
 
-test('couverture par activité : actifs réalisés ÷ actifs, statut, 0 % sans visite, « — aucun plan » = null', () => {
-  const d = shape('cov.by_activity', COV);
+// ---- Couverture : la source des TABLEAUX DE BORD (retour 110, une seule source) ----------------
+const R = (o) => ({ registry: 0, forbidden: 0, sites: 0, covered: 0, coveredData: 0, coveredVisit: 0, plannedSites: 0, plannedCovered: 0, plannedData: 0, plannedVisit: 0, visitsPlanned: 0, visitsCovered: 0, visitsData: 0, visitsVisit: 0, visitsUpcoming: 0, refSites: 0, refDue: 0, ...o });
+const DASH = shapeCoverage([
+  R({ dim: 'overall', key: null, registry: 130, sites: 100, covered: 30, coveredData: 10, coveredVisit: 25, plannedSites: 40, plannedCovered: 28, visitsPlanned: 40, visitsCovered: 30, visitsUpcoming: 5, knownAll: true }),
+  R({ dim: 'activity', key: 'cantine', activityLabel: 'Cantine', registry: 90, sites: 80, covered: 30, coveredData: 10, coveredVisit: 25, plannedSites: 40, plannedCovered: 28, visitsPlanned: 40, visitsCovered: 30, visitsUpcoming: 5 }),
+  R({ dim: 'activity', key: 'nutrition', activityLabel: 'Nutrition', registry: 20, sites: 20 }),
+  // Activité sans site actif sur la période (ses visites ne comptent pas : hors univers) : jamais listée.
+  R({ dim: 'activity', key: 'hors registre', activityLabel: 'Hors registre', registry: 20, sites: 0 }),
+  R({ dim: 'office', key: 'Bureau Sud', registry: 130, sites: 100, covered: 30, coveredData: 10, coveredVisit: 25, plannedSites: 40, plannedCovered: 28, visitsPlanned: 40, visitsCovered: 30, visitsUpcoming: 5 }),
+], { refMonth: '2026-03' });
+
+test('couverture par activité = celle des tableaux de bord : univers des sites actifs, suivi = visite OU données, jamais « 0 site actif » avec des visites prévues', () => {
+  assert.equal(datasetDef('cov.by_activity').source, 'covDash');
+  const d = shape('cov.by_activity', DASH);
   const by = Object.fromEntries(d.rows.map((r) => [r.activity, r]));
+  assert.deepEqual(Object.keys(by), ['Cantine', 'Nutrition']); // « Hors registre » (0 site actif) n'est pas listée
   assert.equal(by.Cantine.coverage, 37.5); assert.equal(by.Cantine.status, 'faible');
+  assert.equal(by.Cantine.sitesRealised, 30); assert.equal(by.Cantine.planned, 40); assert.equal(by.Cantine.done, 30); assert.equal(by.Cantine.execution, 75);
   assert.equal(by.Nutrition.coverage, 0); assert.equal(by.Nutrition.status, 'critique');
-  assert.equal(by.Nutrition.planning, null); // aucun site prévu : « — aucun plan », jamais 0 %
-  assert.equal(by['Hors registre'].coverage, null); assert.equal(by['Hors registre'].status, null);
+  assert.equal(by.Nutrition.execution, null); // aucune visite prévue : « — », jamais 0 %
+  // Aucune ligne ne porte des visites prévues sans site actif (la contradiction du retour 110).
+  assert.ok(d.rows.every((r) => r.sitesActive > 0 || !(r.planned > 0)));
+  // Les lignes se somment aux chiffres clés (une partition de l'univers).
+  const kpi = shape('cov.kpis', DASH).rows[0];
+  assert.equal(d.rows.reduce((n, r) => n + r.sitesActive, 0), kpi.sitesActive);
+  assert.equal(d.rows.reduce((n, r) => n + r.sitesRealised, 0), kpi.sitesRealised);
+  assert.equal(kpi.byData, 10); assert.equal(kpi.byVisit, 25); assert.equal(kpi.upcoming, 5);
   assert.equal(d.meta.n, 100);
-  assert.ok(d.meta.definition.startsWith('Couverture = sites actifs réalisés'));
+  assert.ok(d.meta.definition.startsWith('Couverture = sites suivis ÷ sites actifs'));
+  assert.ok(shape('cov.by_activity', DASH, {}, ctx('en')).meta.definition.startsWith('Coverage = monitored sites'));
   assert.ok(d.rows.every((r) => r.coverage == null || r.coverage <= 100));
 });
 
-test('chiffres clés de couverture et complétude mensuelle (un % par mois, null sans site actif)', () => {
+test('filtre d\'activité sur la couverture des tableaux de bord : le groupe de l\'activité (casse et espaces ignorés), jamais le total', () => {
+  const eff = { activity: '  CANTINE ' };
+  const k = shape('cov.kpis', DASH, eff).rows[0];
+  assert.equal(k.sitesActive, 80); assert.equal(k.sitesRealised, 30); assert.equal(k.coverage, 37.5);
+  assert.deepEqual(shape('cov.by_activity', DASH, eff).rows.map((r) => r.activity), ['Cantine']);
+  assert.equal(kpiDef('sites_active').pick(DASH, { period: PERIOD, ...eff }, ctx()).value, 80);
+  assert.equal(kpiDef('sites_active').pick(DASH, { period: PERIOD }, ctx()).value, 100);
+  // Activité sans site actif : 0 site, taux « — » (jamais le total national).
+  const none = shape('cov.kpis', DASH, { activity: 'Inconnue' }).rows[0];
+  assert.equal(none.sitesActive, 0); assert.equal(none.coverage, null);
+  // Par bureau ou district pour UNE activité : pas dans la réponse → filtre non pris en charge (note).
+  assert.equal(unsupportedNote(datasetDef('cov.by_office'), { activity: 'Cantine' }, 'fr'), 'Non disponible par activité.');
+  assert.equal(unsupportedNote(datasetDef('cov.by_district'), { activity: 'Cantine' }, 'fr'), 'Non disponible par activité.');
+  assert.equal(unsupportedNote(datasetDef('cov.by_office'), { office: 'id:o1' }, 'fr'), null);
+  assert.equal(shape('cov.by_office', DASH).rows[0].bureau, 'Bureau Sud');
+});
+
+test('chiffres clés de couverture (tableaux de bord) et complétude mensuelle (un % par mois, null sans site actif)', () => {
   const eff = { period: PERIOD };
-  assert.equal(kpiDef('coverage').pick(COV, eff, ctx()).value, 30);
-  assert.equal(kpiDef('execution_rate').pick(COV, eff, ctx()).value, 75);
-  assert.equal(kpiDef('sites_realised').pick(COV, eff, ctx()).value, 30);
+  assert.equal(kpiDef('coverage').source, 'covDash');
+  assert.equal(kpiDef('coverage').pick(DASH, eff, ctx()).value, 30);
+  assert.equal(kpiDef('execution_rate').pick(DASH, eff, ctx()).value, 75);
+  assert.equal(kpiDef('sites_realised').pick(DASH, eff, ctx()).value, 30);
+  assert.equal(kpiDef('visits_planned').pick(DASH, eff, ctx()).value, 40);
+  assert.equal(kpiDef('planning_rate').pick(DASH, eff, ctx()).value, 40);
   const c = shape('cov.completeness_monthly', COV);
   assert.deepEqual(c.columns.slice(2).map((x) => x.key), ['m:2026-01', 'm:2026-02', 'm:2026-03']);
   assert.equal(c.rows[0]['m:2026-01'], 25); assert.equal(c.rows[0]['m:2026-02'], null); assert.equal(c.rows[0]['m:2026-03'], null);
@@ -179,7 +221,7 @@ test('filtres non pris en charge → note, jamais un total national présenté c
 
 test('bulletin auto : chiffres des chiffres clés, domaines faibles, couverture insuffisante (fr / en)', () => {
   const kpis = { sites_active: 100, sites_realised: 30, coverage: 30, visits_realised: 30, visits_planned: 40, execution_rate: 75, conformity: 61.5 };
-  const f = bulletinFindings(MON, COV);
+  const f = bulletinFindings(MON, DASH);
   assert.deepEqual(f.lowCov, [{ label: 'Nutrition', pct: 0 }]);
   const fr = JSON.stringify(bulletinDoc(kpis, f, 'Janvier à mars 2026'));
   assert.match(fr, /Sur la période janvier à mars 2026/); assert.match(fr, /30 site\(s\) actif\(s\) sur 100/); assert.match(fr, /Nutrition \(0 %\)/);
