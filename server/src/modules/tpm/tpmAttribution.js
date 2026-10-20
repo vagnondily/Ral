@@ -53,9 +53,6 @@ const VISIT_SOURCES = ['zone', 'visite', 'reprise'];
 const COVERING_STATUSES = ['actif', 'resilie'];
 /** Actions du journal (tpm_attribution_log.action). */
 const LOG_ACTIONS = ['modifier', 'confirmer', 'revenir_contrat', 'reappliquer', 'visite_modifier', 'visite_garder', 'visite_zone'];
-/** Liens de la règle commune qui désignent le TPM d'un contrat (jamais « visite » : elle en découle). */
-const TPM_LINK_KINDS = ['plan', 'rapport'];
-
 const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0); // ordre binaire, comme COLLATE "C"
 const monthOfDate = (d) => (d ? String(d).slice(0, 7) : null);
 
@@ -63,22 +60,11 @@ const monthOfDate = (d) => (d ? String(d).slice(0, 7) : null);
 const { contractCoversMonth, isMonitoringContract } = activeProvider;
 
 /**
- * TPM rattachés à chaque contrat, d'après les liens de la règle commune (activeProvider.repository
- * .providerLinksTx) : partenaires ACTIFS de type TPM liés par un plan de collecte ou un rapport /
- * une facture. @returns {Map<string, {id, name}[]>} contractId → TPM (ordre du nom).
+ * TPM rattachés à chaque contrat (plan de collecte, facture / rapport ; partenaires actifs de type
+ * TPM) : la règle unique est dans activeProvider.tpmsByContract (partagée avec les listes de choix
+ * et les écrans, retour 113). Map contractId → TPM (ordre du nom).
  */
-function tpmsByContract(links, partners) {
-  const byId = new Map((partners || []).map((p) => [p.id, p]));
-  const out = new Map();
-  for (const l of links || []) {
-    const p = byId.get(l.partnerId);
-    const via = Array.isArray(l.via) ? l.via : [l.via];
-    if (!p || p.active === false || p.typeCode !== 'tpm' || !via.some((v) => TPM_LINK_KINDS.includes(v))) continue;
-    if (!out.has(l.contractId)) out.set(l.contractId, new Map());
-    out.get(l.contractId).set(p.id, { id: p.id, name: p.name });
-  }
-  return new Map([...out].map(([k, m]) => [k, [...m.values()].sort((a, b) => cmp(a.name, b.name) || cmp(a.id, b.id))]));
-}
+const { tpmsByContract, TPM_LINK_KINDS } = activeProvider;
 
 /** D1 : TPM d'un contrat = ses TPM rattachés (plans, factures), sinon son titulaire. */
 function contractTpms(c) {

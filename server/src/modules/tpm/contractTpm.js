@@ -7,13 +7,13 @@
  *    PARTENAIRE DE MISE EN ŒUVRE (type « prestataire » en base, libellé « Partenaire de mise en
  *    œuvre ») ; parfois le TPM lui-même quand il a son propre contrat.
  *  - TPM (tierce partie de suivi) : partenaire de type « tpm ».
- *  - TPM d'un contrat : la règle commune du retour 58 (tpmAttribution.tpmsByContract — TPM ACTIFS
+ *  - TPM d'un contrat : la règle commune (activeProvider.tpmsByContract / contractTpmOf — TPM ACTIFS
  *    rattachés par un plan de collecte ou une facture / un rapport), jamais réécrite ici. Quand
  *    aucun TPM n'est rattaché, la règle prend le titulaire : on le montre comme TPM s'il EST un
  *    TPM (« son propre contrat ») ; sinon le contrat n'a « aucun TPM rattaché » — on ne présente
  *    jamais un partenaire de mise en œuvre comme un TPM.
  */
-const { tpmsByContract } = require('./tpmAttribution');
+const { tpmsByContract, contractTpmOf } = require('./activeProvider');
 
 const ROLES = ['tpm', 'mise_en_oeuvre', 'autre'];
 /** Rôle d'un partenaire d'après le code de son type. */
@@ -44,17 +44,10 @@ function contractTpmViews(contracts, links, partners) {
   }
   const out = new Map();
   for (const c of contracts || []) {
-    const list = attached.get(c.id) || [];
-    if (list.length) {
-      out.set(c.id, { state: 'rattache', tpms: list.map((t) => ({ id: t.id, name: t.name, via: viaOf.get(`${c.id}|${t.id}`) || [] })) });
-      continue;
-    }
-    const holder = c.partnerId ? byId.get(c.partnerId) : null;
-    if (holder && holder.typeCode === 'tpm' && holder.active !== false) {
-      out.set(c.id, { state: 'titulaire', tpms: [{ id: holder.id, name: holder.name, via: ['titulaire'] }] });
-    } else {
-      out.set(c.id, { state: 'aucun', tpms: [] });
-    }
+    // Même règle que les listes de choix d'un TPM (activeProvider.contractTpmOf).
+    const v = contractTpmOf(attached.get(c.id), c.partnerId ? byId.get(c.partnerId) : null);
+    out.set(c.id, { state: v.state, tpms: v.tpms.map((t) => ({ id: t.id, name: t.name,
+      via: v.state === 'titulaire' ? ['titulaire'] : (viaOf.get(`${c.id}|${t.id}`) || []) })) });
   }
   return out;
 }

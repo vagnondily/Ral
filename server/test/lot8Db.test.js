@@ -117,3 +117,19 @@ test('critères : une lecture n\'écrit rien (critères par défaut non enregist
   assert.equal(after[0].n, before[0].n, 'GET sans écriture');
   if (before[0].n === 0) assert.ok(list.length > 0 && list.every((c) => c.id === null && c.isDefault));
 });
+
+test('listes de choix d\'un TPM sur les données de démonstration : aucun titulaire dont le contrat a un TPM rattaché', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const repo = require('../src/modules/tpm/activeProvider.repository');
+  const { monthsOf } = require('../src/modules/tpm/activeProvider');
+  const sel = await repo.selectable(T, monthsOf('2025-10', '2026-09'));
+  const contrat = sel.groups.find((g) => g.key === 'contrat').providers;
+  const holdersWithTpm = await q(`SELECT DISTINCT c.partner_id AS id FROM contracts c
+      WHERE c.tenant_id = $1 AND EXISTS (SELECT 1 FROM tpm_reports r JOIN partners p ON p.id = r.partner_id JOIN partner_types t ON t.id = p.partner_type_id
+                                          WHERE r.contract_id = c.id AND t.code = 'tpm' AND p.active AND r.partner_id <> c.partner_id)`, [T]);
+  for (const h of holdersWithTpm) {
+    const shown = contrat.find((p) => p.id === h.id);
+    assert.ok(!shown || shown.typeCode === 'tpm', `titulaire ${h.id} absent du groupe « contrat »`);
+  }
+  assert.ok(contrat.length > 0 && contrat.every((p) => p.typeCode === 'tpm'), contrat.map((p) => `${p.name}[${p.typeCode}]`).join(', '));
+});

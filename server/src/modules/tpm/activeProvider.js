@@ -20,12 +20,19 @@
  *    13/10 : la fiche 360° ne trouvait pas son contrat).
  *  - Prestataire ACTIF au mois M : fiche active, et au moins un de ses contrats de suivi
  *    couvre M.
- *  - SÉLECTIONNABLE pour des mois : d'abord les prestataires actifs (groupe « contrat »),
- *    puis les autres partenaires actifs de type TPM (groupe « tpm », à part).
+ *  - TPM d'un CONTRAT (retour 58, question D1) : les partenaires ACTIFS de type TPM rattachés par
+ *    un plan de collecte ou une facture / un rapport (`tpmsByContract`) ; à défaut, son titulaire
+ *    (`tpmIdsByContract`, même règle que tpmAttribution.contractTpms qui estampille les visites).
+ *    À l'AFFICHAGE (retour 113, `contractTpmOf`), le titulaire n'est montré comme TPM que s'il est
+ *    lui-même un TPM ; un partenaire de mise en œuvre sans TPM rattaché → « Aucun TPM rattaché ».
+ *  - SÉLECTIONNABLE pour des mois (listes de choix d'un TPM) : d'abord les TPM d'un contrat de
+ *    suivi qui couvre un des mois (groupe « contrat ») — un titulaire n'y figure plus quand son
+ *    contrat a un TPM rattaché —, puis les autres partenaires actifs de type TPM (groupe « tpm »,
+ *    à part, choix hors contrat).
  *
- * Utilisée par les listes de choix des formations, des évaluations et des rapports
- * attendus, par l'en-tête de la fiche prestataire, et exposée aux autres écrans
- * (GET /api/partners/selectable).
+ * Utilisée par les listes de choix d'un TPM (participants d'une formation, rapports attendus,
+ * dialogues d'affectation des TPM), par le statut contractuel de la liste et de la fiche d'un
+ * partenaire (providerStatus), et exposée aux autres écrans (GET /api/partners/selectable).
  */
 const { daysBetween, RENEWAL_WINDOW_DAYS } = require('../contracts/contracts.domain');
 
@@ -60,6 +67,60 @@ const isMonitoringContract = (c) => !!c && c.monitoring === true;
 
 /** Le TPM d'un lien prestataire ↔ contrat : seul endroit qui dépend de la question D1. */
 const linkProvider = (link) => link.partnerId || null;
+
+/** Liens de la règle commune qui désignent le TPM d'un contrat (jamais « visite » : elle en découle). */
+const TPM_LINK_KINDS = ['plan', 'rapport'];
+const viaOf = (l) => (Array.isArray(l.via) ? l.via : [l.via]);
+
+/**
+ * TPM rattachés à chaque contrat, d'après les liens de la règle commune (activeProvider.repository
+ * .providerLinksTx) : partenaires ACTIFS de type TPM liés par un plan de collecte ou un rapport /
+ * une facture. @returns {Map<string, {id, name}[]>} contractId → TPM (ordre du nom).
+ */
+function tpmsByContract(links, partners) {
+  const byId = new Map((partners || []).map((p) => [p.id, p]));
+  const out = new Map();
+  for (const l of links || []) {
+    const p = byId.get(l.partnerId);
+    if (!p || p.active === false || p.typeCode !== 'tpm' || !viaOf(l).some((v) => TPM_LINK_KINDS.includes(v))) continue;
+    if (!out.has(l.contractId)) out.set(l.contractId, new Map());
+    out.get(l.contractId).set(p.id, { id: p.id, name: p.name });
+  }
+  return new Map([...out].map(([k, m]) => [k, [...m.values()].sort((a, b) => cmp(a.name, b.name) || cmp(a.id, b.id))]));
+}
+
+/**
+ * TPM d'UN contrat À L'AFFICHAGE (retour 113 : Contrats, Partenaires & TPM, Consolidation…) : ses
+ * TPM rattachés ; sinon son titulaire s'il est un TPM actif ; sinon aucun (un partenaire de mise en
+ * œuvre n'est jamais montré comme un TPM).
+ * @param {{id,name}[]} attached  tpmsByContract(...).get(contractId)
+ * @param {{id,name,typeCode,active}|null} holder  fiche du titulaire
+ * @returns {{ state: 'rattache'|'titulaire'|'aucun', tpms: {id,name}[] }}
+ */
+function contractTpmOf(attached, holder) {
+  if (attached && attached.length) return { state: 'rattache', tpms: attached };
+  if (holder && holder.typeCode === 'tpm' && holder.active !== false) return { state: 'titulaire', tpms: [{ id: holder.id, name: holder.name }] };
+  return { state: 'aucun', tpms: [] };
+}
+
+/**
+ * TPM de chaque contrat pour les LISTES DE CHOIX (règle du retour 58, D1, jumelle de
+ * tpmAttribution.contractTpms) : ses TPM rattachés (plan, facture) ; à défaut son titulaire.
+ * @returns {Map<string, Set<string>>} contractId → identifiants ; titulaire lu sur les liens.
+ */
+function tpmIdsByContract(links, partners) {
+  const attached = tpmsByContract(links, partners);
+  const holderOf = new Map();
+  for (const l of links || []) {
+    const h = l.holderId || (viaOf(l).includes('titulaire') ? l.partnerId : null);
+    if (h && !holderOf.has(l.contractId)) holderOf.set(l.contractId, h);
+  }
+  const ids = new Set((links || []).map((l) => l.contractId));
+  return new Map([...ids].map((k) => {
+    const list = attached.get(k);
+    return [k, new Set(list && list.length ? list.map((t) => t.id) : [holderOf.get(k)].filter(Boolean))];
+  }));
+}
 
 /**
  * Liens d'un prestataire qui comptent pour la règle : contrats de suivi, prestataire connu.
@@ -97,7 +158,11 @@ function activeProviders({ links, partners, month }) {
 function selectableProviders({ links, partners, months }) {
   const ms = [...new Set((months || []).filter(isMonth))].sort();
   const covered = new Map(); // partnerId → { months:Set, contracts:Map }
+  // Groupe « contrat » : seulement les TPM du contrat (tpmIdsByContract, règle du retour 58) — le
+  // titulaire d'un contrat qui a un TPM rattaché (AINA quand RANO Control facture) n'y figure pas.
+  const tpmIds = tpmIdsByContract(links, partners);
   for (const l of countingLinks(links)) {
+    if (!(tpmIds.get(l.contractId) || new Set()).has(linkProvider(l))) continue;
     const cov = coverageOf(l);
     if (!cov) continue;
     const inside = ms.filter((m) => cov.from <= m && m <= cov.to);
@@ -183,6 +248,6 @@ function monthsOf(from, to, cap = 60) {
 }
 
 module.exports = {
-  LINK_KINDS, isMonth, coverageOf, contractCoversMonth, isMonitoringContract, linkProvider,
-  activeProviders, selectableProviders, providerStatus, monthsOf,
+  LINK_KINDS, TPM_LINK_KINDS, isMonth, coverageOf, contractCoversMonth, isMonitoringContract, linkProvider,
+  tpmsByContract, contractTpmOf, tpmIdsByContract, activeProviders, selectableProviders, providerStatus, monthsOf,
 };

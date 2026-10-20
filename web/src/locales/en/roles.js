@@ -187,6 +187,7 @@ export default {
 
   // Écrans du lot design (Planification & budget, facture, Affectation & visites) : phrases du
   // glossaire qu'ils prennent à la fusion du lot 8 (renommage fait par la session principale).
+  'Liste des TPM indisponible : {e}': 'TPM list unavailable: {e}',
   'Autres TPM': 'Other TPMs',
   'Rechercher un TPM…': 'Search a TPM…',
   'Choisissez un TPM.': 'Select a TPM.',
