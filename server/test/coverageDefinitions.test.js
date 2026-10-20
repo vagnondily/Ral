@@ -68,12 +68,28 @@ test('définitions sur des cas écrits à la main : univers, suivi par visite OU
   assert.equal(o.execution.upcomingUnset, 0);
 });
 
-test('visites prévues à venir sur des mois pas encore « Oui » (grille non renseignée en fin d\'année) : rendues à part, jamais perdues', () => {
+test('visites prévues à venir sur des cases VIDES (grille non renseignée en fin d\'année) : rendues à part ; un « Non » ou une zone interdite : jamais', () => {
   const year = { from: '2026-01', to: '2026-12' };
-  const s = { statuses: grid('OOOOOOOOO'), gridYears: [2026], visits: [{ month: '2026-05', status: 'realise' }, { month: '2026-11', status: 'planifie' }, { month: '2026-12', status: 'planifie' }] };
-  const f = siteRangeFacts(s, year, { todayMonth: '2026-10' });
-  const m = measuresOf(groupRows([{ activity: 'X', office: 'O', district: 'D', counts: siteCounts({ ...f, activeRef: false }) }]).find((r) => r.dim === 'overall'));
-  assert.deepEqual([m.execution.planned, m.execution.upcoming, m.execution.upcomingUnset], [1, 0, 2]);
+  const measures = (sites) => measuresOf(groupRows(sites.map((s) => ({ activity: 'X', office: 'O', district: 'D',
+    counts: siteCounts({ ...siteRangeFacts(s, year, { todayMonth: '2026-10' }), forbidden: !!s.forbidden, activeRef: false }) }))).find((r) => r.dim === 'overall'));
+  const visits = [{ month: '2026-05', status: 'realise' }, { month: '2026-11', status: 'planifie' }, { month: '2026-12', status: 'planifie' }];
+  // Novembre et décembre sans case : « à venir sur des mois sans « Oui » ».
+  const blank = { statuses: grid('OOOOOOOOO'), gridYears: [2026], visits };
+  assert.deepEqual([measures([blank]).execution.planned, measures([blank]).execution.upcoming, measures([blank]).execution.upcomingUnset], [1, 0, 2]);
+  // Novembre « Non » explicite : jamais compté (ni à venir, ni case vide) ; décembre vide : compté.
+  const no = { statuses: new Map([...grid('OOOOOOOOO'), ['2026-11', false]]), gridYears: [2026], visits };
+  assert.deepEqual([measures([no]).execution.upcoming, measures([no]).execution.upcomingUnset], [0, 1]);
+  // Novembre « Oui » : à venir ordinaire.
+  const yes = { statuses: new Map([...grid('OOOOOOOOO'), ['2026-11', true]]), gridYears: [2026], visits };
+  assert.deepEqual([measures([yes]).execution.upcoming, measures([yes]).execution.upcomingUnset], [1, 1]);
+  // Zone interdite : cases vides ou non, ses visites ne compteront jamais.
+  const forbidden = { ...blank, forbidden: true };
+  assert.equal(measures([forbidden]).execution.upcomingUnset, 0);
+  // Année sans grille : tout le registre est actif, les visites à venir sont « à venir » ordinaires.
+  const noGrid = { statuses: new Map(), gridYears: [], visits };
+  assert.deepEqual([measures([noGrid]).execution.upcoming, measures([noGrid]).execution.upcomingUnset], [2, 0]);
+  // Total : jamais la somme « Non + vide + zone interdite » (ancienne règle : 2 + 2 + 2 + 2 = 8).
+  assert.equal(measures([blank, no, yes, forbidden, noGrid]).execution.upcomingUnset, 4);
 });
 
 test('visites à venir : jamais « non exécutées », rendues à part', () => {

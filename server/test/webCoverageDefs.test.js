@@ -61,9 +61,9 @@ test('« dont … par données reçues · … par visites déclarées », recouv
   assert.equal(m.waysText(tr, { covered: 3, byData: 3, byVisit: 0, both: 0 }), 'dont 3 par données reçues · 0 par visites déclarées');
   assert.equal(m.waysText(tr, { covered: 0, byData: 0, byVisit: 0, both: 0 }), '');
   assert.equal(m.waysText(tr, null), '');
-  // À venir : celles des mois pas encore « Oui » sont dites.
+  // À venir : celles des cases vides de la grille (pas encore renseignées) sont dites.
   assert.equal(m.upcomingText(tr, { upcoming: 2, upcomingUnset: 0 }), '2 à venir');
-  assert.equal(m.upcomingText(tr, { upcoming: 1, upcomingUnset: 3 }), '4 à venir, dont 3 sur des mois sans « Oui »');
+  assert.equal(m.upcomingText(tr, { upcoming: 1, upcomingUnset: 3 }), '4 à venir, dont 3 sur des mois pas encore renseignés dans la grille');
   assert.equal(m.upcomingText(tr, { upcoming: 0, upcomingUnset: 0 }), '');
   // « Sites à jour » : « n (x %) » sur les deux pages ; « — » sans site actif au mois de référence.
   assert.equal(m.upToDateText({ sites: 75, upToDate: 16, rate: 16 / 75 }, 'fr'), '16 (21\u00a0%)');

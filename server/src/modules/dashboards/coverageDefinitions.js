@@ -24,7 +24,8 @@
  *    est une partition de U, ses lignes se somment aux totaux (checkConsistency).
  *  - Dit à part, jamais compté : sites ayant une visite déclarée ou des données pendant un mois
  *    NON actif (`outside`), visites annulées d'un mois actif (`execution.cancelled`), visites
- *    prévues de mois à venir pas encore actifs (`execution.upcomingUnset`, grille à renseigner).
+ *    prévues de mois à venir sur une case VIDE de la grille (`execution.upcomingUnset`, grille à
+ *    renseigner ; un « Non » ou une zone interdite ne compte jamais, ni ici ni « à venir »).
  * Un taux sans dénominateur vaut null (« — »), jamais 0 %.
  */
 

@@ -115,7 +115,10 @@ const districtNameSql = (s = 's') => `COALESCE(NULLIF(btrim(${s}.adm2), ''), NUL
  *              covered_inactive (visite déclarée ou données pendant un mois NON actif — « Non »,
  *              case vide d'une année avec grille ou zone interdite : jamais un suivi, dit à part),
  *              v_cancelled (visites annulées d'un mois actif), v_upcoming_unset (visites prévues
- *              de mois à venir pas encore actifs, ex. grille non renseignée pour la fin d'année).
+ *              de mois à venir sur une case VIDE de la grille — année avec grille, site hors zone
+ *              interdite, ni « Oui » ni « Non » : grille pas encore renseignée pour la fin d'année ;
+ *              une visite prévue sur un « Non » ou en zone interdite ne comptera jamais : ni « à
+ *              venir », ni ici).
  *   geo      : colonnes de rattachement dans reg et per_site : did / dpcode (district du
  *              découpage, par adm2_pcode), rid (région : parent du district, sinon la zone
  *              du site), cpcode (commune), office_id, has_gps, act (activité normalisée).
@@ -208,7 +211,20 @@ function siteMonthFactsCtes({
               COALESCE(v.ua, false) AS ua, d.site_id IS NOT NULL AS wd
          FROM vis v FULL JOIN dat d ON d.site_id = v.site_id AND d.m = v.m`
     : `SELECT v.site_id, v.m, v.st, v.rp, v.rr, v.ra${ext ? ', COALESCE(v.ua, false) AS ua, false AS wd' : ''} FROM vis v`;
-  const sfExt = ext ? ', e.ua, e.wd' : '';
+  // Case VIDE d'un mois à venir (v_upcoming_unset) : année avec grille, site hors zone interdite, ni
+  // « Oui » (st) ni « Non » explicite (stno, mois à venir seulement : quelques lignes) — ensembles hachés.
+  const sfExt = ext ? `, e.ua, e.wd,
+              e.m > ${pToday}::date AND e.m IN (SELECT m FROM months WHERE known)
+                AND e.site_id IN (SELECT site_id FROM reg WHERE NOT forbidden)
+                AND (e.site_id, e.m) NOT IN (SELECT site_id, m FROM st)
+                AND (e.site_id, e.m) NOT IN (SELECT site_id, m FROM stno) AS unset` : '';
+  const stnoCte = ext ? `
+     stno AS MATERIALIZED (
+       SELECT x.site_id, make_date(x.year, x.month, 1) AS m
+         FROM site_month_status x
+        WHERE x.tenant_id = $1 AND NOT x.active AND x.year BETWEEN ${pYlo} AND ${pYhi}
+          AND make_date(x.year, x.month, 1) BETWEEN ${pLo}::date AND ${pHi}::date
+          AND make_date(x.year, x.month, 1) > ${pToday}::date),` : '';
   const psExt = ext ? `,
               COALESCE(a.realised_any, false) AS realised_any, COALESCE(a.realised_data, false) AS realised_data,
               COALESCE(a.v_planned, 0) AS v_planned, COALESCE(a.v_planned_realised, 0) AS v_planned_realised,
@@ -231,7 +247,7 @@ function siteMonthFactsCtes({
                       count(*) FILTER (WHERE active AND NOT due AND st IN ('planifie', 'realise'))::int AS v_upcoming,
                       COALESCE(bool_or(NOT active AND (st = 'realise' OR wd)), false) AS covered_inactive,
                       count(*) FILTER (WHERE active AND st = 'annule')::int AS v_cancelled,
-                      count(*) FILTER (WHERE NOT active AND NOT due AND st IN ('planifie', 'realise'))::int AS v_upcoming_unset` : '';
+                      count(*) FILTER (WHERE unset AND st IN ('planifie', 'realise'))::int AS v_upcoming_unset` : '';
   // Années où le tenant a une grille : une sonde d'index par année (année en entier, comparée par
   // un opérateur « leakproof » : sous RLS, une expression comme extract() ne peut pas servir de
   // condition d'index et la sonde relisait toute la grille du tenant).
@@ -258,7 +274,7 @@ function siteMonthFactsCtes({
        SELECT x.site_id, make_date(x.year, x.month, 1) AS m
          FROM site_month_status x
         WHERE x.tenant_id = $1 AND x.active AND x.year BETWEEN ${pYlo} AND ${pYhi}
-          AND make_date(x.year, x.month, 1) BETWEEN ${pLo}::date AND ${pHi}::date),
+          AND make_date(x.year, x.month, 1) BETWEEN ${pLo}::date AND ${pHi}::date),${stnoCte}
      act AS (
        SELECT r.site_id, mm.m, mm.known, NOT r.forbidden AND (NOT mm.known OR st.site_id IS NOT NULL) AS active
          FROM reg r CROSS JOIN months mm

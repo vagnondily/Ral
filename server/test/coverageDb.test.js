@@ -27,6 +27,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const SKIP = enabled ? false : 'base jetable absente (MEMS_TEST_DATABASE_URL / MEMS_TEST_APP_DATABASE_URL, nom contenant « test »)';
+// Pool partagé de l'API : fermé une fois, après tous les tests du fichier.
+if (enabled) test.after(() => require('../src/config/db').pool.end());
 const PERIOD = { from: '2019-01', to: '2019-06' };
 const MONTHS = ['2019-01', '2019-02', '2019-03', '2019-04', '2019-05', '2019-06'];
 const TAG = 'Test r110';
@@ -38,7 +40,6 @@ test('couverture en base : service = jumeau pur, découpages sommés aux tuiles,
   const coverageService = require('../src/modules/dashboards/coverage.service');
   const mapService = require('../src/modules/map/map.service');
   const fieldRepo = require('../src/modules/tpm/field.repository');
-  const { pool } = require('../src/config/db');
   const su = new Client({ connectionString: SU_URL });
   await su.connect();
   const q = async (sql, params) => (await su.query(sql, params)).rows;
@@ -179,6 +180,61 @@ test('couverture en base : service = jumeau pur, découpages sommés aux tuiles,
       if (forbiddenSite) await q('UPDATE sites SET security_situation = $2 WHERE id = $1', [forbiddenSite, forbiddenBefore]);
     }
     await su.end();
-    await pool.end();
+  }
+});
+
+test('visites à venir en base : « case vide » = ni « Oui » ni « Non » (année avec grille, hors zone interdite) — SQL = jumeau pur', { skip: SKIP, timeout: 120000 }, async () => {
+  const { Client } = require('pg');
+  const { siteRangeFacts } = require('../src/modules/common/siteActivity');
+  const coverageService = require('../src/modules/dashboards/coverage.service');
+  const su = new Client({ connectionString: SU_URL });
+  await su.connect();
+  const q = async (sql, params) => (await su.query(sql, params)).rows;
+  const FUT = { from: '2099-01', to: '2099-03' };
+  const TAGF = 'Test r110 futur';
+  let T = null; let forbiddenSite = null; let forbiddenBefore = null;
+  try {
+    [{ id: T }] = await q('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1');
+    const already = await q(`SELECT (SELECT count(*)::int FROM site_month_status WHERE tenant_id = $1 AND year = 2099) AS g,
+                                    (SELECT count(*)::int FROM site_visits WHERE tenant_id = $1 AND period_month >= '2099-01-01') AS v`, [T]);
+    assert.deepEqual(already[0], { g: 0, v: 0 }, 'base jetable déjà utilisée pour 2099');
+    const sites = await q(`SELECT id FROM sites WHERE tenant_id = $1 AND COALESCE(security_situation, 0) < 99 ORDER BY id LIMIT 5`, [T]);
+    assert.equal(sites.length, 5);
+    // Grille 2099 : 0 « Oui » janvier-mars ; 1 « Non » janvier-mars ; 2 sans case ; 3 sans case, zone interdite ;
+    // 4 « Oui » en janvier, « Non » en février, rien en mars.
+    const cells = [[0, 1, true], [0, 2, true], [0, 3, true], [1, 1, false], [1, 2, false], [1, 3, false], [4, 1, true], [4, 2, false]];
+    for (const [i, month, active] of cells) {
+      await q('INSERT INTO site_month_status (tenant_id, site_id, year, month, active) VALUES ($1, $2, 2099, $3, $4)', [T, sites[i].id, month, active]);
+    }
+    forbiddenSite = sites[3].id;
+    [{ security_situation: forbiddenBefore }] = await q('SELECT security_situation FROM sites WHERE id = $1', [forbiddenSite]);
+    await q('UPDATE sites SET security_situation = 99 WHERE id = $1', [forbiddenSite]);
+    // Visites prévues : février pour chacun ; janvier et mars pour le site 4.
+    const visits = [[0, '2099-02-01'], [1, '2099-02-01'], [2, '2099-02-01'], [3, '2099-02-01'], [4, '2099-01-01'], [4, '2099-02-01'], [4, '2099-03-01']];
+    for (const [i, m] of visits) {
+      await q("INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status) VALUES ($1, $2, $3, $4, 'planifie')", [T, sites[i].id, m, TAGF]);
+    }
+    const cov = await coverageService.coverage({ tenantId: T, role: 'admin' }, { period: FUT });
+    // À venir (mois « Oui ») : site 0 février, site 4 janvier. Cases vides : site 2 février, site 4 mars.
+    // Jamais comptés : site 1 (« Non »), site 3 (zone interdite), site 4 février (« Non ») — l'ancienne règle en comptait 5.
+    assert.deepEqual([cov.overall.execution.upcoming, cov.overall.execution.upcomingUnset], [2, 2]);
+    // Jumeau pur sur les lignes brutes de ces sites (les autres sites n'ont aucune visite en 2099).
+    const grid = await q('SELECT site_id, month, active FROM site_month_status WHERE tenant_id = $1 AND year = 2099', [T]);
+    const vis = await q("SELECT site_id, to_char(period_month, 'YYYY-MM') AS month, status FROM site_visits WHERE tenant_id = $1 AND period_month >= '2099-01-01'", [T]);
+    let up = 0; let unset = 0;
+    for (const [i, s] of sites.entries()) {
+      const statuses = new Map(grid.filter((g) => g.site_id === s.id).map((g) => [`2099-${String(g.month).padStart(2, '0')}`, g.active]));
+      const f = siteRangeFacts({ statuses, gridYears: [2099], forbidden: i === 3, visits: vis.filter((v) => v.site_id === s.id) }, FUT, { todayMonth: new Date().toISOString().slice(0, 7) });
+      if (f.active) up += f.vUpcoming;
+      unset += f.vUpcomingUnset;
+    }
+    assert.deepEqual([up, unset], [cov.overall.execution.upcoming, cov.overall.execution.upcomingUnset], 'SQL = jumeau pur');
+  } finally {
+    if (T) {
+      await q('DELETE FROM site_visits WHERE tenant_id = $1 AND activity = $2', [T, TAGF]);
+      await q('DELETE FROM site_month_status WHERE tenant_id = $1 AND year = 2099', [T]);
+      if (forbiddenSite) await q('UPDATE sites SET security_situation = $2 WHERE id = $1', [forbiddenSite, forbiddenBefore]);
+    }
+    await su.end();
   }
 });

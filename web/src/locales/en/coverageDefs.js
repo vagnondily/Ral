@@ -66,7 +66,7 @@ export default {
   '{n} site(s) ont une visite déclarée ou des données pendant un mois sans « Oui » : non comptées.':
     '{n} site(s) have a declared visit or data in a month without “Yes”: not counted.',
   '{n} visite(s) annulée(s), hors calcul.': '{n} cancelled visit(s), not counted.',
-  '{n} à venir, dont {m} sur des mois sans « Oui »': '{n} upcoming, of which {m} in months without “Yes”',
+  '{n} à venir, dont {m} sur des mois pas encore renseignés dans la grille': '{n} upcoming, of which {m} in months not yet filled in the grid',
   '{done}/{planned} visites prévues suivies ({p})': '{done}/{planned} planned visits monitored ({p})',
   'Une ligne par libellé d\'activité du registre des sites : deux libellés différents restent deux lignes tant que le référentiel des activités ne les relie pas.':
     'One row per activity label of the site registry: two different labels stay two rows until the activities referential links them.',

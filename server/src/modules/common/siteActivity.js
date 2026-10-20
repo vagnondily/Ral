@@ -53,6 +53,18 @@ function activeAt(statuses, month, { forbidden = false, gridYears = [] } = {}) {
 }
 
 /**
+ * Case de la grille de CE site au mois `month` : 'oui', 'non' (« Non » explicite), 'vide' (année avec
+ * grille, aucune case pour ce mois) ou null (année sans grille, ou zone interdite : la grille n'y décide pas).
+ */
+function gridCell(statuses, month, { forbidden = false, gridYears = [] } = {}) {
+  if (forbidden) return null;
+  const years = gridYears instanceof Set ? gridYears : new Set(gridYears);
+  if (!years.has(Number(month.slice(0, 4)))) return null;
+  const v = statuses instanceof Map ? statuses.get(month) : (statuses || {})[month];
+  return v === true ? 'oui' : v === false ? 'non' : 'vide';
+}
+
+/**
  * Faits d'UN site sur une période.
  * @param {{ statuses?: Map|object, forbidden?: boolean, gridYears?: Set|number[],
  *           visits?: {month:string, status:string}[] }} site
@@ -74,7 +86,8 @@ function siteRangeFacts(site, period, { todayMonth = '9999-12' } = {}) {
     // Définitions des tableaux de bord (retour 110) : prévu un mois actif échu, visites prévues
     // échues suivies par visite déclarée / par données, visites prévues à venir.
     plannedDue: false, vPlannedVisit: 0, vPlannedData: 0, vUpcoming: 0,
-    // Activité hors des mois actifs, visites annulées d'un mois actif, prévues à venir sur un mois non actif.
+    // Activité hors des mois actifs, visites annulées d'un mois actif, prévues à venir sur une case VIDE
+    // de la grille (ni « Oui » ni « Non », site hors zone interdite) — un « Non » ou une zone interdite : jamais.
     coveredInactive: false, vCancelled: 0, vUpcomingUnset: 0,
   };
   const data = new Set((site.dataMonths || []).map((m) => String(m).slice(0, 7)));
@@ -100,7 +113,7 @@ function siteRangeFacts(site, period, { todayMonth = '9999-12' } = {}) {
       if (wd) out.vPlannedData += 1;
     }
     if (act && planned && m > todayMonth) out.vUpcoming += 1;
-    if (!act && planned && m > todayMonth) out.vUpcomingUnset += 1;
+    if (!act && planned && m > todayMonth && gridCell(site.statuses, m, site) === 'vide') out.vUpcomingUnset += 1;
     if (!act && (st === 'realise' || wd)) out.coveredInactive = true;
     if (act && st === 'annule') out.vCancelled += 1;
     if (act && !planned && wd) out.vOffPlan += 1;
@@ -137,4 +150,4 @@ function sumFacts(list) {
   return t;
 }
 
-module.exports = { activeAt, collapseStatus, siteRangeFacts, ratesOf, sumFacts };
+module.exports = { activeAt, gridCell, collapseStatus, siteRangeFacts, ratesOf, sumFacts };

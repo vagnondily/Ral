@@ -30,15 +30,16 @@ export function waysText(tr, m, fmt = String) {
 }
 
 /**
- * Visites prévues à venir (jamais « non exécutées ») : « {n} à venir », et celles posées sur des mois
- * pas encore « Oui » (grille non renseignée pour la fin d'année, par exemple) le disent ; vide sans visite.
+ * Visites prévues à venir (jamais « non exécutées ») : « {n} à venir », et celles posées sur une case
+ * VIDE de la grille des sites actifs (fin d'année pas encore renseignée, par exemple) le disent ; une
+ * visite sur un « Non » ou en zone interdite n'est jamais comptée (serveur) ; vide sans visite.
  */
 export function upcomingText(tr, ex, fmt = String) {
   if (!ex) return '';
   const n = (ex.upcoming || 0) + (ex.upcomingUnset || 0);
   if (!n) return '';
   return ex.upcomingUnset > 0
-    ? tr('{n} à venir, dont {m} sur des mois sans « Oui »', { n: fmt(n), m: fmt(ex.upcomingUnset) })
+    ? tr('{n} à venir, dont {m} sur des mois pas encore renseignés dans la grille', { n: fmt(n), m: fmt(ex.upcomingUnset) })
     : tr('{n} à venir', { n: fmt(n) });
 }
 
