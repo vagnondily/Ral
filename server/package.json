@@ -13,6 +13,7 @@
     "seed": "node src/db/seed.js",
     "seed:test": "node src/db/seed-test.js",
     "test": "node --test test/**/*.test.js",
+    "test:db": "node --test --test-concurrency=1 test/*Db.test.js",
     "lint": "eslint src",
     "perf:period": "node --expose-gc scripts/perfPeriod.js",
     "bench:report": "node --expose-gc scripts/bench-report.js",

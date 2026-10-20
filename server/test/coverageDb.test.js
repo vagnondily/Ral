@@ -4,6 +4,8 @@
  *                               migrée puis peuplée (npm run seed && npm run seed:test) ;
  *   MEMS_TEST_APP_DATABASE_URL  rôle applicatif mems2_app sur la MÊME base (RLS active, comme l'API).
  * Sans ces variables le test est ignoré : npm test reste sans base.
+ * Lancer avec `npm run test:db` : les tests sur base s'exécutent fichier après fichier (ils écrivent
+ * dans la même base ; en parallèle, les écritures d'un fichier faussaient les sommes d'un autre).
  *
  * Scénario (année 2019, sans autre donnée) : une grille des sites actifs pour 30 sites (actifs
  * toute la période, actifs puis « Non », sans case = inactifs), un site en zone interdite, des
