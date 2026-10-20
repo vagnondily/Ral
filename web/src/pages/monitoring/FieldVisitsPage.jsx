@@ -4,6 +4,7 @@ import { api } from '../../api/client.js';
 import { Alert, Button, PageHeader, Skeleton } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
 import EntityPicker from '../../components/EntityPicker.jsx';
+import { normText } from '../../lib/entityPicker.js';
 import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatInt, monthLabel } from '../../lib/format.js';
@@ -542,10 +543,19 @@ function AddVisitModal({ month, roles, onClose, onSaved }) {
   }
 
   const reasonMissing = Boolean(other && provider && [...reason.trim()].length < REASON_MIN);
-  const siteOptions = useMemo(() => sites.map((s) => ({
-    value: s.id, label: s.name, sub: [s.commune, s.activity].filter(Boolean).join(' · ') || undefined,
-    group: s.district || tr('District non renseigné'), keywords: [s.district, s.commune, s.fokontany, s.activity].filter(Boolean),
-  })), [sites, tr]);
+  // Groupes par district sans tenir compte de la casse ni des accents (« AMBOASARY SUD » = « Amboasary sud ») :
+  // le titre du groupe est la première graphie rencontrée.
+  const siteOptions = useMemo(() => {
+    const titleOf = new Map();
+    return sites.map((s) => {
+      const key = normText(s.district);
+      if (key && !titleOf.has(key)) titleOf.set(key, s.district);
+      return {
+        value: s.id, label: s.name, sub: [s.commune, s.activity].filter(Boolean).join(' · ') || undefined,
+        group: key ? titleOf.get(key) : tr('District non renseigné'), keywords: [s.district, s.commune, s.fokontany, s.activity].filter(Boolean),
+      };
+    });
+  }, [sites, tr]);
   return (
     <Modal open size="md" title={tr('Ajouter une visite')} subtitle={tr('Mois : {month}', { month: monthLabel(month) })} onClose={onClose}
       footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button onClick={save} loading={saving} disabled={reasonMissing}>{tr('Planifier')}</Button></>}>

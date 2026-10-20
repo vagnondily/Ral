@@ -9,6 +9,7 @@ export default {
   'Aucun contrat actif avec un budget Suivi/TPM ne correspond.': 'No active contract with a Monitoring/TPM budget matches.',
   'Couvrent {month}': 'Covering {month}',
   'Autres contrats actifs': 'Other active contracts',
+  'TPM : {p}': 'TPM: {p}',
   'TPM de ce contrat': 'TPM of this contract',
   'Autres prestataires TPM': 'Other TPM providers',
   'Aucun contrat de suivi rattaché': 'No linked monitoring contract',

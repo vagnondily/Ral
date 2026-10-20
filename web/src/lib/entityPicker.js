@@ -12,14 +12,38 @@ export function normText(s) {
   return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-/** Options qui contiennent TOUS les mots de la recherche (dans le libellé, la précision ou les mots-clés). */
-export function filterOptions(options, query) {
+/** Texte de recherche d'une option (libellé, précision, mots-clés), sans accents ni casse. */
+export const searchText = (o) => normText([o.label, o.sub, ...(Array.isArray(o.keywords) ? o.keywords : [o.keywords])].filter(Boolean).join(' '));
+
+/**
+ * Index de recherche calculé UNE fois par liste d'options (pas à chaque frappe ni à chaque survol) :
+ * [{ option, hay }] dans l'ordre des options.
+ */
+export const searchIndex = (options) => (options || []).map((o) => ({ option: o, hay: searchText(o) }));
+
+/**
+ * Options qui contiennent TOUS les mots de la recherche (dans le libellé, la précision ou les mots-clés).
+ * `index` (searchIndex) évite de renormaliser chaque option à chaque frappe.
+ */
+export function filterOptions(options, query, index = null) {
   const words = normText(query).split(' ').filter(Boolean);
   if (!words.length) return options || [];
-  return (options || []).filter((o) => {
-    const hay = normText([o.label, o.sub, ...(Array.isArray(o.keywords) ? o.keywords : [o.keywords])].filter(Boolean).join(' '));
-    return words.every((w) => hay.includes(w));
-  });
+  return (index || searchIndex(options)).filter((x) => words.every((w) => x.hay.includes(w))).map((x) => x.option);
+}
+
+/**
+ * Saut au clavier sur une liste courte (sans recherche), comme une liste native : la prochaine option
+ * dont le libellé commence par la lettre tapée, après l'option active, en boucle ; -1 si aucune.
+ */
+export function typeAheadIndex(flat, key, from = -1) {
+  const k = normText(key);
+  if (!k || k.length !== 1 || !(flat || []).length) return -1;
+  const n = flat.length;
+  for (let step = 1; step <= n; step += 1) {
+    const i = (Math.max(from, -1) + step) % n;
+    if (normText(flat[i].label).startsWith(k)) return i;
+  }
+  return -1;
 }
 
 /**

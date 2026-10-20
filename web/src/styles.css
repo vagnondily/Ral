@@ -1235,7 +1235,7 @@ body { background: var(--canvas); }
 .save-row .input { flex: 1; min-width: 0; }
 .pop-menu-sep { height: 1px; background: var(--border); margin: 8px 4px; }
 
-:root[data-theme="dark"] .cfilter.is-off .input, :root[data-theme="dark"] .cfilter.is-off .select { background: var(--canvas-sunken); }
+:root[data-theme="dark"] .cfilter.is-off .input, :root[data-theme="dark"] .cfilter.is-off .select { background-color: var(--canvas-sunken); }
 :root[data-theme="dark"] .switch { background: var(--border-strong); }
 
 @media (max-width: 720px) {
@@ -2238,6 +2238,7 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .tpl-table tr.tpl-domain th { background: var(--surface-2); color: var(--text-strong); font-weight: 700; text-transform: none; letter-spacing: 0; font-size: 13px; padding-top: 10px; padding-bottom: 10px; }
 .tpl-table tr.is-selected td { background: color-mix(in srgb, var(--blue-50) 55%, transparent); }
 .tpl-table .input-sm, .tpl-table .select-sm { height: 32px; font-size: 13px; padding: 4px 8px; min-width: 200px; max-width: 280px; }
+.tpl-table .select-sm { padding-right: 32px; } /* place du chevron (texte jamais dessous) */
 .tpl-table .input.is-invalid { border-color: var(--red); }
 .tpl-table .site-meta { display: flex; flex-wrap: wrap; gap: 8px; }
 .tpl-field-label { max-width: 300px; display: block !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3255,4 +3256,4 @@ textarea { font: inherit; color: inherit; }
 /* Codes et identifiants : une largeur minimale de colonne — un code court (S-XXXX-XXXX, CTR-2026-0001)
    tient sur une ligne, un long n° FLA ne se coupe qu'aux tirets, en deux lignes au plus ; jamais un
    tableau poussé hors de l'écran pour un code. */
-.table td.mono, .table td:has(> .mono), .table td:has(> code) { min-width: 16ch; }
+.table td.mono:not(.num), .table td:not(.num):has(> .mono), .table td:not(.num):has(> code) { min-width: 16ch; }
