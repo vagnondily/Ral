@@ -26,6 +26,8 @@ const lang = (req) => ({ lang: req.query.lang === 'en' ? 'en' : 'fr', log: req.l
 const uuid = (v) => { if (!z.string().uuid().safeParse(v).success) throw badRequest('Identifiant invalide'); return v; };
 
 router.get('/catalog', (req, res) => res.json(service.catalog()));
+// Choix des filtres activité et district (registre des sites + fiches ; noms des districts des tableaux de bord).
+router.get('/filter-options', asyncHandler(async (req, res) => res.json(await repo.filterOptions(t(req)))));
 
 // Rendu des données d'un rapport (non enregistré ou en cours d'édition) — complet (exports, compatibilité).
 router.post('/render', asyncHandler(async (req, res) => res.json(await service.renderReport(t(req), req.body, lang(req)))));

@@ -141,6 +141,11 @@ export default {
   'Titre et période centrés, court filet bleu ; numéro de page centré.': 'Centred title and period, short blue rule; centred page number.',
   'Pied seul': 'Footer only',
   'Aucun en-tête (pages pleines) ; pied avec le titre et la pagination.': 'No header (full pages); footer with the title and page numbers.',
+  // Filtres du concepteur (retour 102)
+  'Prestataire (TPM) ou titulaire': 'Provider (TPM) or holder',
+  'Bureaux MEMS (avec leurs antennes)': 'MEMS offices (with their sub-offices)',
+  'Non disponible par district.': 'Not available by district.',
+  'Période propre à ce bloc': 'Period specific to this block',
   // Couverture du concepteur = celle des tableaux de bord (retour 110)
   'Visites suivies': 'Monitored visits',
   'Suivis par données reçues': 'Monitored through data received',

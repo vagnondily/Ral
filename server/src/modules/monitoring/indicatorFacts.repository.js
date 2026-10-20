@@ -70,10 +70,10 @@ const agentKeySql = (alias) => `COALESCE('id:' || ${alias}.agent_id::text, 'raw:
  *    sous-arbre), 'lib:…' / 'code:…' (libellé ou code d'une fiche, jointure officeLabelSql
  *    requise), 'unlinked' (aucun bureau MEMS relié) ;
  *  - `partnerId`, `agentKey` ; `formId` et `activity` (catégorie d'activité des fiches)
- *    pour les comptages qui portent sur plusieurs fiches.
+ *    pour les comptages qui portent sur plusieurs fiches ; `district` (admin2 de la soumission).
  * Pousse ses paramètres ; renvoie « AND … ».
  */
-function factFilter(alias, { period, officeKey, partnerId, agentKey, formId, activity } = {}, params, office) {
+function factFilter(alias, { period, officeKey, partnerId, agentKey, formId, activity, district } = {}, params, office) {
   const a = `${alias}.`;
   const parts = [`NOT ${a}excluded`];
   const p = toPeriod(period);
@@ -81,8 +81,13 @@ function factFilter(alias, { period, officeKey, partnerId, agentKey, formId, act
   if (officeKey) {
     if (officeKey === 'unlinked') parts.push(`${a}field_office_id IS NULL`);
     else if (officeKey.startsWith('id:')) {
+      // Le bureau et TOUTES ses antennes (sous-arbre récursif, retour 78) — comme les faits de sites
+      // (siteActivitySql.officeTreeSql) : une sous-antenne compte avec le bureau de son antenne.
       params.push(officeKey.slice(3));
-      parts.push(`${a}field_office_id IN (SELECT o.id FROM field_offices o WHERE o.tenant_id = ${a}tenant_id AND (o.id = $${params.length}::uuid OR o.parent_id = $${params.length}::uuid))`);
+      const pOff = `$${params.length}::uuid`;
+      // Sous-requête NON corrélée ($1 = compte dans chaque requête qui appelle factFilter) : construite une fois.
+      parts.push(`${a}field_office_id IN (WITH RECURSIVE ot AS (SELECT o.id FROM field_offices o WHERE o.tenant_id = $1 AND o.id = ${pOff}
+        UNION SELECT f.id FROM field_offices f JOIN ot ON f.parent_id = ot.id WHERE f.tenant_id = $1) SELECT id FROM ot)`);
     } else {
       if (!office) throw new Error('Filtre bureau : jointure des bureaux requise.');
       params.push(String(officeKey)); parts.push(`${office.key} = $${params.length}`);
@@ -94,6 +99,19 @@ function factFilter(alias, { period, officeKey, partnerId, agentKey, formId, act
     parts.push(`${a}form_id IN (SELECT f.id FROM monitoring_forms f WHERE f.tenant_id = ${a}tenant_id AND lower(btrim(f.activity_category)) = lower(btrim($${params.length})))`);
   }
   if (partnerId) { params.push(partnerId); parts.push(`${a}partner_id = $${params.length}::uuid`); }
+  // District (retour 102), comparé par sa clé (common/siteDistrict.districtKey : minuscules, lettres et
+  // chiffres) : le district de la soumission (admin2) écrit en NOM, ou en P-CODE d'un district de ce nom
+  // (découpage du compte), ou la commune (adm3_pcode) d'un district de ce nom — les fiches Kobo portent
+  // le plus souvent des P-codes. Sous-requêtes non corrélées ($1 = compte).
+  if (district) {
+    params.push(String(district).toLowerCase().replace(/[^a-z0-9]+/g, ''));
+    const k = `$${params.length}`;
+    const nameKey = (expr) => `regexp_replace(lower(COALESCE(${expr}, '')), '[^a-z0-9]+', '', 'g')`;
+    parts.push(`(${nameKey(`${a}admin2`)} = ${k}
+      OR upper(btrim(${a}admin2)) IN (SELECT upper(d.pcode) FROM admin_areas d WHERE d.tenant_id = $1 AND d.depth = 2 AND d.pcode IS NOT NULL AND ${nameKey('d.name')} = ${k})
+      OR ${a}adm3_pcode IN (SELECT c.pcode FROM admin_areas c JOIN admin_areas d ON d.id = c.parent_id AND d.tenant_id = $1
+                             WHERE c.tenant_id = $1 AND c.depth = 3 AND c.pcode IS NOT NULL AND ${nameKey('d.name')} = ${k}))`);
+  }
   if (agentKey) { params.push(String(agentKey)); parts.push(`${agentKeySql(alias)} = $${params.length}`); }
   return ` AND ${parts.join(' AND ')}`;
 }

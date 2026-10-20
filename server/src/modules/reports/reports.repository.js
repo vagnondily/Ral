@@ -1,4 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
+const { siteDistrictCtes, DISTRICT_LABEL_SQL } = require('../common/siteActivitySql');
 const { conflict, notFound, badRequest, forbidden } = require('../../middleware/errors');
 
 /**
@@ -127,6 +128,30 @@ async function listOffices(tenantId) {
 }
 
 /**
+ * Choix des filtres « activité » et « district » du concepteur (retour 102) — lecture seule :
+ *  - activités : celles du REGISTRE DES SITES (couverture, plan, RBM) et les catégories des FICHES
+ *    (suivi de processus), réunies sans doublon (casse et espaces ignorés), avec leur origine ;
+ *  - districts : les noms affichés par les tableaux de bord (common/siteActivitySql.siteDistrictCtes :
+ *    graphie du site, nom officiel quand le P-code est d'accord), un par district.
+ */
+async function filterOptions(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: acts } = await client.query(
+      `SELECT min(label) AS label, bool_or(src = 'site') AS sites, bool_or(src = 'form') AS forms
+         FROM (SELECT btrim(regexp_replace(activity, '\\s+', ' ', 'g')) AS label, 'site' AS src FROM sites
+                WHERE tenant_id = $1 AND NULLIF(btrim(activity), '') IS NOT NULL
+               UNION ALL
+               SELECT btrim(regexp_replace(activity_category, '\\s+', ' ', 'g')), 'form' FROM monitoring_forms
+                WHERE tenant_id = $1 AND NULLIF(btrim(activity_category), '') IS NOT NULL) a
+        GROUP BY lower(label) ORDER BY lower(min(label))`, [tenantId]);
+    const { rows: dists } = await client.query(
+      `WITH ${siteDistrictCtes()}
+       SELECT ${DISTRICT_LABEL_SQL} AS label, count(*)::int AS sites FROM sdist WHERE dkey <> '—' GROUP BY dkey ORDER BY 1`, [tenantId]);
+    return { activities: acts, districts: dists };
+  });
+}
+
+/**
  * Éléments des sections répétées, par des comptages indexés (plan de rendu, sans calcul lourd) :
  *  - activity : fiches actives ayant des soumissions (non exclues) sur la période ;
  *  - bureau   : bureaux MEMS (de premier niveau) ayant des sites ou des soumissions sur la période,
@@ -176,6 +201,7 @@ async function repeatCandidates(tenantId, over, period) {
 }
 
 module.exports = {
+  filterOptions,
   listTemplates, createTemplate, updateTemplate, deleteTemplate,
   listDocuments, getDocument, createDocument, updateDocument, finalizeDocument, deleteDocument,
   listOffices, repeatCandidates,

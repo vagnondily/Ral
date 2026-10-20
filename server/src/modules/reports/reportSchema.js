@@ -23,7 +23,6 @@ const id = z.string().regex(/^[A-Za-z0-9_~-]{1,60}$/);
 const mm = z.number().finite().min(0).max(400);
 const pct = z.number().finite().min(0).max(100);
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Couleur attendue au format #RRGGBB');
-const monthStr = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 /** Polices proposées : livrées par l'application (Inter) ou présentes partout (Arial, Georgia). */
 const FONTS = ['Inter', 'Arial', 'Georgia'];
 const MAX_BLOCKS = 200;
@@ -104,16 +103,18 @@ const reportFilters = z.object({
   activity: z.string().trim().min(1).max(160).optional(), // catégorie d'activité (sites.activity / fiche.activity_category)
   formId: z.string().uuid().optional(),
   partnerId: z.string().uuid().optional(),
+  // District (retour 102) : nom affiché par les tableaux de bord ; comparé par sa clé (casse, accents,
+  // espaces et tirets ignorés — common/siteDistrict.districtKey).
+  district: z.string().trim().min(1).max(160).optional(),
 }).strict().default({});
 const blockFilters = z.object({
-  period: z.object({ from: monthStr, to: monthStr }).superRefine((p, ctx) => {
-    const r = periodSchema.safeParse(p);
-    if (!r.success) ctx.addIssue({ code: 'custom', message: r.error.issues[0].message });
-  }).optional(),
+  // Période propre au bloc : plage, ou mois cochés (retour 68) — même schéma que celle du rapport.
+  period: periodSchema.optional(),
   office: z.union([officeKey, ALL]).optional(),
   activity: z.union([z.string().trim().min(1).max(160), ALL]).optional(),
   formId: z.union([z.string().uuid(), ALL]).optional(),
   partnerId: z.union([z.string().uuid(), ALL]).optional(),
+  district: z.union([z.string().trim().min(1).max(160), ALL]).optional(),
   module: z.string().max(120).optional(),
 }).strict().default({});
 

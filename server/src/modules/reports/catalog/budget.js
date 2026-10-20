@@ -20,7 +20,18 @@ const CONTRACT_ARG = { contractId: { type: 'uuid', label: 'Contrat', required: t
 
 const ds = (key, def) => ({ key, group: 'budget', filters: ['partner'], officeKinds: [], periodMode: 'asOf', ...def });
 const cents = (v) => Math.round((Number(v) || 0) * 100);
-const consRows = (raw, eff) => ((raw && raw.rows) || []).filter((r) => !eff.partnerId || r.partnerId === eff.partnerId);
+/**
+ * Filtre « Prestataire (TPM) ou titulaire » d'une ligne de consolidation (retour 102) : le TITULAIRE du
+ * contrat, ou un TPM rattaché au contrat par un plan, une facture ou une visite (règle commune du lot 8,
+ * tpm/activeProvider : liens prestataire ↔ contrat) — un TPM retrouve ainsi le budget qu'il consomme.
+ * @param {{ contractId, partnerId }} row @param {Record<string,string[]>|undefined} tpmByContract
+ */
+function contractPartnerMatch(row, partnerId, tpmByContract) {
+  if (!partnerId) return true;
+  if (row.partnerId === partnerId) return true;
+  return ((tpmByContract && tpmByContract[row.contractId]) || []).includes(partnerId);
+}
+const consRows = (raw, eff) => ((raw && raw.rows) || []).filter((r) => contractPartnerMatch(r, eff.partnerId, raw && raw.tpmByContract));
 const asOf = (eff, raw) => (raw && raw.today) || (eff.period ? eff.period.to : null);
 
 const KPI_COLS = [
@@ -66,7 +77,7 @@ const budMonthly = ds('bud.monthly', {
     const sums = new Map();
     for (const r of consRows(raw, eff)) {
       for (const [m, c] of Object.entries(r.monthly || {})) {
-        if (eff.period && (m < eff.period.from || m > eff.period.to)) continue;
+        if (eff.period && !overlaps(eff.period, m)) continue; // plage ou mois cochés
         const s = sums.get(m) || { p: 0, a: 0 };
         s.p += cents(c.planned); s.a += cents(c.actual);
         sums.set(m, s);
@@ -184,3 +195,4 @@ const ctrAmendments = ds('ctr.amendments', {
 
 module.exports = [budKpis, byContract, budMonthly, byPartner, ctrList, ctrExpiring, ctrForecast, ctrItems, ctrAmendments];
 module.exports.consRows = consRows;
+module.exports.contractPartnerMatch = contractPartnerMatch;

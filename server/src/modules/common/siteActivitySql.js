@@ -1,4 +1,4 @@
-const { periodBounds } = require('./period');
+const { periodBounds, monthDates } = require('./period');
 
 /** Clé normalisée d'un nom (minuscules, lettres et chiffres ASCII) — jumelle de siteDistrict.districtKey. */
 const keySql = (expr) => `regexp_replace(lower(COALESCE(${expr}, '')), '[^a-z0-9]+', '', 'g')`;
@@ -131,6 +131,11 @@ function siteMonthFactsCtes({
   const push = (v) => { params.push(v); return `$${params.length}`; };
   const pLo = push(lo); const pHi = push(hi); const pHiExcl = push(hiExcl); const pToday = push(`${todayMonth}-01`);
   const pYlo = push(Number(period.from.slice(0, 4))); const pYhi = push(Number(period.to.slice(0, 4)));
+  // Mois COCHÉS (retour 68) : les mois de la période sont ceux de la liste (sites comptés une fois
+  // sur l'ensemble) ; la plage reste la borne des index.
+  const dates = monthDates(period);
+  const pList = dates ? push(dates) : null;
+  const inList = (expr) => (pList ? ` AND ${expr} = ANY(${pList}::date[])` : '');
   const officeExpr = office === 'bureau'
     ? `COALESCE(par.name, fo.name, ${push(unattached)}::text)`
     : "COALESCE(fo.name, '—')";
@@ -183,7 +188,7 @@ function siteMonthFactsCtes({
        SELECT ms.site_id, ms.form_id, date_trunc('month', ms.period_month)::date AS m
          FROM monitoring_submissions ms
         WHERE ms.tenant_id = $1 AND NOT ms.excluded AND ms.site_id IS NOT NULL
-          AND ms.period_month >= ${pLo}::date AND ms.period_month < ${pHiExcl}::date
+          AND ms.period_month >= ${pLo}::date AND ms.period_month < ${pHiExcl}::date${inList("date_trunc('month', ms.period_month)::date")}
         GROUP BY 1, 2, 3),
      dat AS (
        SELECT x.site_id, x.m
@@ -231,7 +236,7 @@ function siteMonthFactsCtes({
          FROM generate_series(${pYlo}::int, ${pYhi}::int) AS y),
      months AS (
        SELECT m::date AS m, gy.known
-         FROM generate_series(${pLo}::date, ${pHi}::date, interval '1 month') AS m
+         FROM ${pList ? `unnest(${pList}::date[])` : `generate_series(${pLo}::date, ${pHi}::date, interval '1 month')`} AS m
          JOIN grid_years gy ON gy.y = extract(year FROM m)::int),
      ${siteDistrictCtes()},${dnaCte}
      reg AS MATERIALIZED (
@@ -249,7 +254,7 @@ function siteMonthFactsCtes({
        SELECT x.site_id, make_date(x.year, x.month, 1) AS m
          FROM site_month_status x
         WHERE x.tenant_id = $1 AND x.active AND x.year BETWEEN ${pYlo} AND ${pYhi}
-          AND make_date(x.year, x.month, 1) BETWEEN ${pLo}::date AND ${pHi}::date),
+          AND make_date(x.year, x.month, 1) BETWEEN ${pLo}::date AND ${pHi}::date${inList('make_date(x.year, x.month, 1)')}),
      act AS (
        SELECT r.site_id, mm.m, mm.known, NOT r.forbidden AND (NOT mm.known OR st.site_id IS NOT NULL) AS active
          FROM reg r CROSS JOIN months mm
@@ -262,7 +267,7 @@ function siteMonthFactsCtes({
               count(*) FILTER (WHERE v.status = 'realise')::int AS rr,
               count(*) FILTER (WHERE v.status = 'annule')::int AS ra${visExt}
          FROM site_visits v
-        WHERE v.tenant_id = $1 AND v.period_month >= ${pLo}::date AND v.period_month < ${pHiExcl}::date
+        WHERE v.tenant_id = $1 AND v.period_month >= ${pLo}::date AND v.period_month < ${pHiExcl}::date${inList("date_trunc('month', v.period_month)::date")}
         GROUP BY 1, 2),${datCte}
      fact AS MATERIALIZED (
        SELECT a.*, v.st, COALESCE(v.rp, 0) AS rp, COALESCE(v.rr, 0) AS rr, COALESCE(v.ra, 0) AS ra,

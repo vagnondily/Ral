@@ -16,7 +16,7 @@ const { periodLabel } = require('../common/period');
 
 const MAX_INSTANCES = 300;
 const MAX_REPEAT_ITEMS = 30;
-const FILTER_FIELDS = ['office', 'activity', 'formId', 'partnerId'];
+const FILTER_FIELDS = ['office', 'activity', 'formId', 'partnerId', 'district'];
 /** Vues numérotées « Tableau n » ; les graphiques et cartes sont des « Figure n ». */
 const TABLE_VIEWS = new Set(['table', 'heat']);
 const FIGURE_VIEWS = new Set(['bar', 'column', 'line', 'donut', 'stacked', 'map', 'gauge']);

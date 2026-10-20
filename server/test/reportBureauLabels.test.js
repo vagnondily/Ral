@@ -83,10 +83,12 @@ test('scores par bureau (une seule fiche, catalogue v2) : le bureau sans le nom 
   assert.equal(out.blocks.b.data.meta.n, 3);
 });
 
-test('filtre bureau des faits : clé MEMS = le bureau et ses antennes ; clé de fiche = jointure des libellés', () => {
+test('filtre bureau des faits : clé MEMS = le bureau et TOUTES ses antennes (sous-arbre) ; clé de fiche = jointure des libellés', () => {
   const p = [T];
   const sql = factFilter('s', { officeKey: 'id:o1' }, p, null);
-  assert.match(sql, /field_office_id IN \(SELECT o\.id FROM field_offices o WHERE o\.tenant_id = s\.tenant_id AND \(o\.id = \$2::uuid OR o\.parent_id = \$2::uuid\)\)/);
+  // Sous-arbre récursif (retour 78 : une sous-antenne compte avec le bureau), sous-requête non corrélée ($1 = compte).
+  assert.match(sql, /field_office_id IN \(WITH RECURSIVE ot AS \(SELECT o\.id FROM field_offices o WHERE o\.tenant_id = \$1 AND o\.id = \$2::uuid/);
+  assert.match(sql, /UNION SELECT f\.id FROM field_offices f JOIN ot ON f\.parent_id = ot\.id WHERE f\.tenant_id = \$1\) SELECT id FROM ot\)/);
   assert.deepEqual(p, [T, 'o1']);
   assert.throws(() => factFilter('s', { officeKey: `code:${FORM}:7` }, [T], null), /jointure des bureaux requise/);
   const q = [T];

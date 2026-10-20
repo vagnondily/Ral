@@ -15,30 +15,31 @@ const { periodFor } = require('./scope');
 const scope = (def, eff) => ({
   period: periodFor(def.periodMode || 'range', eff),
   officeKey: eff.office || null, partnerId: eff.partnerId || null, formId: eff.formId || null, activity: eff.activity || null,
+  district: eff.district || null,
 });
 const DOMAINS = ['submissions', 'monitoring_def'];
 
 const monForms = {
-  key: 'monForms', domains: DOMAINS, varies: [],
+  key: 'monForms', monthList: true, domains: DOMAINS, varies: [],
   params: scope,
   load: (tenantId, p) => repo.reportFormsFacts(tenantId, { ...p, visits: { keep: 50 } }),
 };
 
 const monData = {
-  key: 'monData', domains: DOMAINS, varies: ['today'],
+  key: 'monData', monthList: true, domains: DOMAINS, varies: ['today'],
   params: scope,
   load: (tenantId, p) => repo.reportDataCounts(tenantId, p),
 };
 
 const monAgents = {
-  key: 'monAgents', domains: [...DOMAINS, 'partners'], varies: [],
+  key: 'monAgents', monthList: true, domains: [...DOMAINS, 'partners'], varies: [],
   params: scope,
   load: (tenantId, p) => repo.reportAgentFacts(tenantId, p),
 };
 
 const monSubmissions = {
-  key: 'monSubmissions', domains: ['submissions', 'sites'], varies: [],
-  params: (def, eff) => { const s = scope(def, eff); return { period: s.period, scope: { officeKey: s.officeKey, partnerId: s.partnerId, formId: s.formId, activity: s.activity } }; },
+  key: 'monSubmissions', monthList: true, domains: ['submissions', 'sites'], varies: [],
+  params: (def, eff) => { const s = scope(def, eff); return { period: s.period, scope: { officeKey: s.officeKey, partnerId: s.partnerId, formId: s.formId, activity: s.activity, district: s.district } }; },
   load: (tenantId, p) => repo.listSubmissions(tenantId, { period: p.period, scope: p.scope, limit: 200 }),
 };
 

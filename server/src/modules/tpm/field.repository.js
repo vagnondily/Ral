@@ -980,14 +980,15 @@ async function reportFieldData(tenantId, { from, to }, { lang = 'fr' } = {}) {
  * requête : global, par bureau, district et activité, par mois et par mois × activité
  * (GROUPING SETS), mis en forme par fieldMath.shapeCoverageFacts (mêmes taux que la
  * Couverture & performance : ratesOf) ; plus les visites par prestataire sur les MÊMES sites.
- * Filtres : `officeId` (bureau MEMS et ses antennes, ou 'unlinked'), `activity` (catégorie du site).
+ * Filtres : `officeId` (bureau MEMS et ses antennes, ou 'unlinked'), `activity` (catégorie du site),
+ * `district` (district du site : nom affiché ou graphie du registre — faits site × mois seulement).
  * Sans période : toutes les visites (60 mois au plus), comme summary.
  */
-async function coverageFacts(tenantId, { period: asked = null, officeId = null, activity = null, lang = 'fr' } = {}) {
+async function coverageFacts(tenantId, { period: asked = null, officeId = null, activity = null, district = null, lang = 'fr' } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const period = toPeriod(asked) || await visitSpanTx(client, tenantId);
     const params = [tenantId];
-    const ctes = siteMonthFactsCtes({ period, todayMonth: currentMonth(), office: 'bureau', unattached: unattachedText(lang), officeId, activity }, params);
+    const ctes = siteMonthFactsCtes({ period, todayMonth: currentMonth(), office: 'bureau', unattached: unattachedText(lang), officeId, activity, district: district || undefined }, params);
     const { rows } = await client.query(
       `${ctes}
        SELECT CASE WHEN GROUPING(office) = 0 THEN 'office' WHEN GROUPING(dkey) = 0 THEN 'district'
@@ -1008,7 +1009,12 @@ async function coverageFacts(tenantId, { period: asked = null, officeId = null, 
     const within = monthWithin('v.period_month', period, pp);
     let scope = '';
     if (officeId === 'unlinked') scope += ' AND s.field_office_id IS NULL';
-    else if (officeId) { pp.push(officeId); scope += ` AND (s.field_office_id = $${pp.length}::uuid OR fo.parent_id = $${pp.length}::uuid)`; }
+    // Le bureau et TOUTES ses antennes (sous-arbre récursif), comme les faits de sites ci-dessus.
+    else if (officeId) {
+      pp.push(officeId);
+      scope += ` AND s.field_office_id IN (WITH RECURSIVE ot AS (SELECT id FROM field_offices WHERE tenant_id = $1 AND id = $${pp.length}::uuid
+        UNION SELECT f.id FROM field_offices f JOIN ot ON f.parent_id = ot.id WHERE f.tenant_id = $1) SELECT id FROM ot)`;
+    }
     if (activity) { pp.push(activity); scope += ` AND lower(btrim(s.activity)) = lower(btrim($${pp.length}::text))`; }
     const { rows: providers } = await client.query(
       `SELECT COALESCE(v.provider_id::text, 'non_affecte') AS key, min(p.name) AS label,

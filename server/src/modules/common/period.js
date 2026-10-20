@@ -92,17 +92,42 @@ const spanMonths = ({ from, to }) => monthIndex(to) - monthIndex(from) + 1;
 /** Période d'un seul mois. */
 const single = (m) => ({ from: m, to: m });
 
+/*
+ * Plusieurs mois, même non consécutifs (retour 68) : { from, to, months: ['2026-01', '2026-03', '2026-06'] }
+ * — `months` triés, sans doublon, from = le premier, to = le dernier ; absent = toute la plage. Forme
+ * CANONIQUE : une liste qui couvre toute sa plage s'écrit sans `months` (une plage). Seuls les appelants
+ * qui l'acceptent la reçoivent (parsePeriod `allowList`, schéma du concepteur) ; les prédicats SQL
+ * (periodSql, siteActivitySql) la respectent, sinon c'est la plage (from → to) qui vaut.
+ */
+/** Vrai si la période est une LISTE de mois (non consécutifs). */
+const isMonthList = (p) => !!p && Array.isArray(p.months);
+
+/** Période canonique d'une liste de mois valides (triés, dédoublonnés) ; null si vide. */
+function periodOfMonths(list) {
+  const months = [...new Set((list || []).filter(isMonth))].sort();
+  if (!months.length) return null;
+  const out = { from: months[0], to: months[months.length - 1] };
+  return months.length === spanMonths(out) ? out : { ...out, months };
+}
+
+/** Nombre de mois RETENUS (liste : mois cochés ; plage : bornes incluses). */
+const monthCount = (p) => (isMonthList(p) ? p.months.length : spanMonths(p));
+
 /**
- * Mois d'une période, du plus ancien au plus récent (['2026-01', …, '2026-06']).
- * Refuse au-delà de `max` mois (jamais une troncature silencieuse).
+ * Mois d'une période, du plus ancien au plus récent (['2026-01', …, '2026-06']) ; ceux de la liste
+ * pour des mois cochés. Refuse au-delà de `max` mois de plage (jamais une troncature silencieuse).
  */
 function monthsOf(p, { max = MAX_SPAN } = {}) {
   if (!p) return [];
   const n = spanMonths(p);
   if (!(n >= 1)) return [];
   if (n > max) throw new RangeError(`Période trop longue : ${n} mois (${max} au plus).`);
+  if (isMonthList(p)) return [...p.months];
   return Array.from({ length: n }, (_, i) => addMonths(p.from, i));
 }
+
+/** Premiers jours ('AAAA-MM-01') des mois cochés d'une liste ; null pour une plage. */
+const monthDates = (p) => (isMonthList(p) ? p.months.map((m) => `${m}-01`) : null);
 
 /** Bornes SQL d'une période : lo inclus, hiExcl exclu (1er du mois après `to`), hi = 1er du mois `to`. */
 function periodBounds(p) {
@@ -115,6 +140,7 @@ function periodBounds(p) {
  * au mois courant (comportement du lot 1).
  */
 function trendWindow(p, todayMonth, min = 12) {
+  if (isMonthList(p)) return p; // mois cochés : la tendance montre ces mois-là, et eux seuls
   const to = p ? p.to : todayMonth;
   const back = addMonths(to, -(min - 1));
   return { from: p && p.from < back ? p.from : back, to };
@@ -129,6 +155,7 @@ function overlaps(p, start, end) {
   if (!start) return false;
   const s = String(start).slice(0, 7);
   const e = end ? String(end).slice(0, 7) : s;
+  if (isMonthList(p)) return p.months.some((m) => m >= s && m <= e);
   return s <= p.to && e >= p.from;
 }
 
@@ -141,6 +168,8 @@ const PERIOD_MESSAGES = {
   period_span: ({ maxSpan, span }) => `Période trop longue : ${maxSpan} mois au plus (demandé : ${span}).`,
   period_year: () => `Période hors limites : années ${YEAR_MIN} à ${YEAR_MAX}.`,
   period_required: () => 'Période requise.',
+  period_months: () => 'Liste de mois invalide : mois AAAA-MM séparés par des virgules (ex. 2026-01,2026-03).',
+  period_list_unsupported: () => 'Plusieurs mois non consécutifs : non pris en charge ici ; choisissez une plage « du … au … ».',
 };
 const fail = (code, details = {}) => ({ ok: false, code, message: PERIOD_MESSAGES[code](details), details });
 // null / undefined / '' (ou blancs) = absent (un champ JSON envoyé à null vaut absent).
@@ -158,8 +187,27 @@ const isAbsent = (v) => v == null || (typeof v === 'string' && v.trim() === '');
  *  8. au plus `maxSpan` mois (60 par défaut) → sinon period_span.
  * @returns {{ok:true, period:{from:string,to:string}|null} | {ok:false, code:string, message:string, details:object}}
  */
-function parsePeriod(src, { required = false, maxSpan = MAX_SPAN } = {}) {
+function parsePeriod(src, { required = false, maxSpan = MAX_SPAN, allowList = false } = {}) {
   const q = src || {};
+  // Mois cochés (retour 68) : ?months=2026-01,2026-03 (ou un tableau dans un corps JSON).
+  if (!isAbsent(q.months) && !(Array.isArray(q.months) && !q.months.length)) {
+    if (!allowList) return fail('period_list_unsupported');
+    if (['month', 'from', 'to'].some((k) => !isAbsent(q[k]))) return fail('period_ambiguous');
+    const parts = Array.isArray(q.months) ? q.months : (typeof q.months === 'string' ? q.months.split(',') : null);
+    if (!parts || parts.length > maxSpan) return fail('period_months', { field: 'months' });
+    const list = [];
+    for (const x of parts) {
+      const m = typeof x === 'string' ? MONTH_OR_DAY_RE.exec(x.trim()) : null;
+      if (!m) return fail('period_months', { field: 'months' });
+      const y = Number(m[1]);
+      if (y < YEAR_MIN || y > YEAR_MAX) return fail('period_year', { field: 'months' });
+      list.push(`${m[1]}-${m[2]}`);
+    }
+    const period = periodOfMonths(list);
+    const span = spanMonths(period);
+    if (span > maxSpan) return fail('period_span', { maxSpan, span });
+    return { ok: true, period };
+  }
   const raw = { month: q.month, from: q.from, to: q.to };
   const present = Object.keys(raw).filter((k) => !isAbsent(raw[k]));
   if (!present.length) return required ? fail('period_required') : { ok: true, period: null };
@@ -192,14 +240,15 @@ function parsePeriod(src, { required = false, maxSpan = MAX_SPAN } = {}) {
 function toPeriod(legacy) {
   if (!legacy) return null;
   const m7 = (v) => String(v).slice(0, 7);
+  if (Array.isArray(legacy.months) && legacy.months.length) return periodOfMonths(legacy.months.map(m7));
   if (legacy.month) return single(m7(legacy.month));
   if (legacy.from && legacy.to) return { from: m7(legacy.from), to: m7(legacy.to) };
   if (legacy.from || legacy.to) throw new Error('Période partielle : from et to sont requis ensemble.');
   return null;
 }
 
-/** Période d'une réponse d'API : { from, to, months } | null. */
-const periodInfo = (p) => (p ? { from: p.from, to: p.to, months: spanMonths(p) } : null);
+/** Période d'une réponse d'API : { from, to, months (nombre), selected? (mois cochés) } | null. */
+const periodInfo = (p) => (p ? { from: p.from, to: p.to, months: monthCount(p), ...(isMonthList(p) ? { selected: [...p.months] } : {}) } : null);
 
 const MONTHS_LONG = {
   fr: ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'],
@@ -218,7 +267,9 @@ const MONTHS_SHORT = {
  *  - forme courte (bouton) : « Juil. 2026 », « Janv. – juin 2026 », « Nov. 2025 – oct. 2026 ».
  * Jumeau exact de web/src/lib/period.js periodLabel (parité testée).
  */
-function periodLabel({ from, to }, lang = 'fr', { short = false } = {}) {
+function periodLabel(p, lang = 'fr', { short = false } = {}) {
+  if (isMonthList(p)) return listLabel(p, lang, { short });
+  const { from, to } = p;
   const en = lang === 'en';
   const names = (short ? MONTHS_SHORT : MONTHS_LONG)[en ? 'en' : 'fr'];
   const lab = (m) => { const [y, mm] = m.split('-').map(Number); return { y, name: names[mm - 1] }; };
@@ -230,15 +281,61 @@ function periodLabel({ from, to }, lang = 'fr', { short = false } = {}) {
   return a.y === b.y ? `${cap(a.name)} ${sep} ${b.name} ${a.y}` : `${cap(a.name)} ${a.y} ${sep} ${b.name} ${b.y}`;
 }
 
+/**
+ * Libellé de mois COCHÉS (jumeau de web/src/lib/period.js, parité testée) : par année, les suites
+ * de 3 mois et plus en « janvier à mars », les autres un par un — « Janvier à mars, mai, juin et
+ * août 2026 », « Novembre et décembre 2025, janvier 2026 ». Forme courte : jusqu'à 3 mois
+ * « Janv., mars, juin 2026 », au-delà « 5 mois · janv. – sept. 2026 ».
+ */
+function listLabel(p, lang = 'fr', { short = false } = {}) {
+  const en = lang === 'en';
+  const months = p.months;
+  const cap = (x) => x[0].toUpperCase() + x.slice(1);
+  if (short) {
+    if (months.length > 3) return `${months.length} ${en ? 'months' : 'mois'} · ${periodLabel({ from: p.from, to: p.to }, lang, { short: true }).replace(/^./, (c) => (en ? c : c.toLowerCase()))}`;
+    const names = MONTHS_SHORT[en ? 'en' : 'fr'];
+    const byYear = [];
+    for (const m of months) {
+      const y = m.slice(0, 4);
+      if (!byYear.length || byYear[byYear.length - 1].y !== y) byYear.push({ y, names: [] });
+      byYear[byYear.length - 1].names.push(names[Number(m.slice(5, 7)) - 1]);
+    }
+    return cap(byYear.map((g) => `${g.names.join(', ')} ${g.y}`).join(', '));
+  }
+  const names = MONTHS_LONG[en ? 'en' : 'fr'];
+  const and = en ? 'and' : 'et';
+  const to = en ? 'to' : 'à';
+  const groups = [];
+  for (const m of months) {
+    const y = m.slice(0, 4); const i = Number(m.slice(5, 7));
+    let g = groups[groups.length - 1];
+    if (!g || g.y !== y) { g = { y, runs: [] }; groups.push(g); }
+    const run = g.runs[g.runs.length - 1];
+    if (run && run[run.length - 1] === i - 1) run.push(i); else g.runs.push([i]);
+  }
+  const join = (items) => (items.length === 1 ? items[0] : `${items.slice(0, -1).join(', ')} ${and} ${items[items.length - 1]}`);
+  const parts = groups.map((g) => {
+    const items = [];
+    for (const r of g.runs) {
+      if (r.length >= 3) items.push(`${names[r[0] - 1]} ${to} ${names[r[r.length - 1] - 1]}`);
+      else r.forEach((i) => items.push(names[i - 1]));
+    }
+    return `${join(items)} ${g.y}`;
+  });
+  return cap(parts.join(', '));
+}
+
 const monthStr = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 /**
- * Schéma zod d'une période déjà normalisée { from, to } (concepteur de rapport…) :
- * ordre, années et durée contrôlés par la même règle que parsePeriod.
+ * Schéma zod d'une période déjà normalisée (concepteur de rapport…) : { from, to } ou des mois
+ * COCHÉS { from, to, months } (retour 68) ; ordre, années et durée contrôlés par la même règle que
+ * parsePeriod. Rendue CANONIQUE : from / to recalculés depuis la liste, une liste complète devient
+ * une plage.
  */
-const periodSchema = z.object({ from: monthStr, to: monthStr }).superRefine((p, ctx) => {
-  const r = parsePeriod(p);
+const periodSchema = z.object({ from: monthStr, to: monthStr, months: z.array(monthStr).min(1).max(MAX_SPAN).optional() }).superRefine((p, ctx) => {
+  const r = p.months ? parsePeriod({ months: p.months }, { allowList: true }) : parsePeriod({ from: p.from, to: p.to });
   if (!r.ok) ctx.addIssue({ code: 'custom', message: r.message, path: r.details.field ? [r.details.field] : [], params: { code: r.code } });
-});
+}).transform((p) => (p.months ? periodOfMonths(p.months) : { from: p.from, to: p.to }));
 /**
  * Schéma zod des paramètres de période d'une requête ({ month } ou { from, to }),
  * issues codées ({ params: { code } }) comme les autres règles métier.
@@ -252,5 +349,6 @@ const periodQuerySchema = z.object({ month: z.any().optional(), from: z.any().op
 module.exports = {
   defaultPeriod, isMonth, addMonths, median,
   MAX_SPAN, monthIndex, spanMonths, single, monthsOf, periodBounds, trendWindow, overlaps,
+  isMonthList, periodOfMonths, monthCount, monthDates, listLabel,
   parsePeriod, toPeriod, periodInfo, periodLabel, periodSchema, periodQuerySchema, PERIOD_MESSAGES,
 };

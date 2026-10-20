@@ -23,7 +23,7 @@ const SITES = ['sites', 'visits', 'offices'];
 // Le filtre d'activité se lit dans la réponse (découpage par activité = partition de l'univers) :
 // catalog/coverage.dashScope ; la requête des tableaux de bord est appelée telle quelle.
 const covDash = {
-  key: 'covDash', domains: [...SITES, 'activation', 'submissions'], varies: ['today'],
+  key: 'covDash', monthList: true, domains: [...SITES, 'activation', 'submissions'], varies: ['today'],
   params: (def, eff) => ({ period: periodFor('range', eff), officeId: siteOffice(eff) }),
   load: async (tenantId, p) => {
     const { rows, refMonth } = await dashCoverage.coverageFacts(tenantId, p);
@@ -32,19 +32,19 @@ const covDash = {
 };
 
 const covFacts = {
-  key: 'covFacts', domains: [...SITES, 'activation'], varies: ['lang'],
-  params: (def, eff) => ({ period: periodFor(def.periodMode || 'range', eff), officeId: siteOffice(eff), activity: eff.activity || null }),
+  key: 'covFacts', monthList: true, domains: [...SITES, 'activation'], varies: ['lang'],
+  params: (def, eff) => ({ period: periodFor(def.periodMode || 'range', eff), officeId: siteOffice(eff), activity: eff.activity || null, district: eff.district || null }),
   load: (tenantId, p, ctx) => field.coverageFacts(tenantId, { ...p, lang: ctx.lang || 'fr' }),
 };
 
 const covMatrix = {
-  key: 'covMatrix', domains: ['visits', 'partners'], varies: [],
+  key: 'covMatrix', monthList: true, domains: ['visits', 'partners'], varies: [],
   params: (def, eff) => ({ period: periodFor('range', eff) }),
   load: (tenantId, p) => field.coverageMatrix(tenantId, { period: p.period }),
 };
 
 const covRecap = {
-  key: 'covRecap', domains: [...SITES, 'activation'], varies: [],
+  key: 'covRecap', monthList: true, domains: [...SITES, 'activation'], varies: [],
   params: (def, eff, args) => ({ period: periodFor('range', eff), district: args.district || null }),
   load: (tenantId, p) => field.coverageRecapSummary(tenantId, { period: p.period, district: p.district || undefined }),
 };

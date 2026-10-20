@@ -285,6 +285,7 @@ export const api = {
   monForms: () => request('/api/monitoring/forms'),
   // Concepteur de rapport
   reportCatalog: () => request('/api/report-designer/catalog'),
+  reportFilterOptions: () => request('/api/report-designer/filter-options'),
   // lang = langue de l'interface : libellé de période et bulletin auto-rédigé.
   reportRender: (doc) => request('/api/report-designer/render', { method: 'POST', body: doc, query: { lang: uiLang() } }),
   // Rendu progressif (lot 7a) : le plan (sans calcul lourd), puis les blocs par lots de 8 au plus.

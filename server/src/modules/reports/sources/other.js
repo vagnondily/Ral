@@ -8,6 +8,8 @@ const pddRepo = require('../../pdd/pdd.repository');
 const healthRepo = require('../../settings/health.repository');
 const alertsService = require('../../dashboards/alerts.service');
 const { periodBounds } = require('../../common/period');
+const { withTenantTransaction } = require('../../../config/db');
+const activeProviderRepo = require('../../tpm/activeProvider.repository');
 const { periodFor } = require('./scope');
 
 /**
@@ -30,12 +32,20 @@ const lastMonth = (eff) => (eff.period ? eff.period.to : null);
 
 module.exports = [
   {
-    key: 'consolidation', domains: ['budget'], varies: [],
+    key: 'consolidation', monthList: true, domains: ['budget', 'partners'], varies: [],
     params: (def, eff) => ({ until: lastMonth(eff) }),
-    load: (tenantId, p) => consolidationRepo.consolidation(tenantId, { until: p.until }),
+    // + TPM rattachés à chaque contrat (plans, factures, visites : règle commune du lot 8) pour le
+    // filtre « Prestataire (TPM) ou titulaire ».
+    load: async (tenantId, p) => {
+      const cons = await consolidationRepo.consolidation(tenantId, { until: p.until });
+      const links = await withTenantTransaction(tenantId, (client) => activeProviderRepo.providerLinksTx(client, tenantId));
+      const tpmByContract = {};
+      for (const l of links) (tpmByContract[l.contractId] = tpmByContract[l.contractId] || []).push(l.partnerId);
+      return { ...cons, tpmByContract };
+    },
   },
   {
-    key: 'contracts', domains: ['budget'], varies: ['today'],
+    key: 'contracts', monthList: true, domains: ['budget'], varies: ['today'],
     params: () => ({}),
     load: (tenantId) => contractsService.listContracts(tenantId, {}),
   },
@@ -55,12 +65,12 @@ module.exports = [
     load: (tenantId, p) => contractsService.amendmentsReport(tenantId, p),
   },
   {
-    key: 'tpmReports', domains: ['budget', 'partners'], varies: [],
+    key: 'tpmReports', monthList: true, domains: ['budget', 'partners'], varies: [],
     params: (def, eff) => ({ partnerId: eff.partnerId || null }),
     load: (tenantId, p) => reportsRepo.listReports(tenantId, { partnerId: p.partnerId || undefined }),
   },
   {
-    key: 'tpmPlans', domains: ['budget', 'partners'], varies: [],
+    key: 'tpmPlans', monthList: true, domains: ['budget', 'partners'], varies: [],
     params: () => ({}),
     load: (tenantId) => planningRepo.listPlans(tenantId, {}),
   },
@@ -70,7 +80,7 @@ module.exports = [
     load: (tenantId) => tpmRepo.listProviders(tenantId),
   },
   {
-    key: 'tpmEvaluations', domains: ['partners'], varies: [],
+    key: 'tpmEvaluations', monthList: true, domains: ['partners'], varies: [],
     params: () => ({}),
     load: (tenantId) => tpmRepo.listAgentsEvaluation(tenantId),
   },
@@ -95,7 +105,7 @@ module.exports = [
     load: (tenantId, p) => (p.id ? reportsRepo.invoiceData(tenantId, p.id) : null),
   },
   {
-    key: 'pddTotals', domains: ['pdd'], varies: [],
+    key: 'pddTotals', monthList: true, domains: ['pdd'], varies: [],
     params: (def, eff) => ({ period: range(eff) }),
     load: (tenantId, p) => pddRepo.reportPddTotals(tenantId, p.period),
   },
@@ -105,7 +115,7 @@ module.exports = [
     load: (tenantId, p) => pddRepo.reportPddByMonth(tenantId, p.period),
   },
   {
-    key: 'pddSummary', domains: ['pdd'], varies: [],
+    key: 'pddSummary', monthList: true, domains: ['pdd'], varies: [],
     params: (def, eff, args) => ({ period: range(eff), region: args.region || null, district: args.district || null }),
     load: (tenantId, p) => pddRepo.summaryData(tenantId, { period: p.period, region: p.region || undefined, district: p.district || undefined }),
   },

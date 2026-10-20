@@ -1,5 +1,6 @@
 const { coverageStatus } = require('../../common/coverageStatus');
 const { activityKey, measuresOf } = require('../../dashboards/coverageDefinitions');
+const { districtKey } = require('../../common/siteDistrict');
 const { monthsOf } = require('../../common/period');
 const { boardKpis, rankSites } = require('../../tpm/planBoard');
 const { phrases } = require('../phrases');
@@ -24,7 +25,7 @@ const ORIGIN_PLAN = { page: 'Suivi de processus › Plan de suivi', route: '#/pr
 const SITE_OFFICE = ['id', 'unlinked'];
 
 function ds(key, def) {
-  return { key, group: 'coverage', filters: ['office', 'activity'], officeKinds: SITE_OFFICE, periodMode: 'range', ...def };
+  return { key, group: 'coverage', filters: ['office', 'activity', 'district'], officeKinds: SITE_OFFICE, periodMode: 'range', ...def };
 }
 
 /** Faits d'un groupe de sites (séries mensuelles covFacts : visites déclarées seulement). */
@@ -50,10 +51,18 @@ const meta = (raw, ctx, extra = {}) => ({
  */
 function dashScope(raw, eff) {
   const r = raw || {};
-  if (!eff || !eff.activity) return r;
-  const k = activityKey(eff.activity);
-  const g = (r.byActivity || []).find((x) => x.key === k) || null;
-  return { ...r, overall: g || measuresOf({}), byActivity: g ? [g] : [], byOffice: [], byDistrict: [] };
+  if (eff && eff.activity) {
+    const k = activityKey(eff.activity);
+    const g = (r.byActivity || []).find((x) => x.key === k) || null;
+    return { ...r, overall: g || measuresOf({}), byActivity: g ? [g] : [], byOffice: [], byDistrict: [] };
+  }
+  // District (retour 102) : même lecture — le découpage par district est aussi une partition de l'univers.
+  if (eff && eff.district) {
+    const k = districtKey(eff.district);
+    const g = (r.byDistrict || []).find((x) => x.key === k || districtKey(x.label) === k) || null;
+    return { ...r, overall: g || measuresOf({}), byDistrict: g ? [g] : [], byActivity: [], byOffice: [] };
+  }
+  return r;
 }
 
 /** Ligne d'un groupe de la couverture des tableaux de bord (mesures de coverageDefinitions). */
@@ -81,7 +90,7 @@ const KPI_COLS = [
   col('realisedInactive', 'Réalisées hors mois actif', 'int'),
 ];
 const covKpis = ds('cov.kpis', {
-  label: 'Couverture terrain (chiffres clés)', origin: ORIGIN_COV, source: 'covDash', views: ['kpi', 'table'], defaultView: 'kpi',
+  label: 'Couverture terrain (chiffres clés)', origin: ORIGIN_COV, source: 'covDash', views: ['kpi', 'table'], defaultView: 'kpi', exclusive: ['activity', 'district'],
   columns: KPI_COLS,
   shape(raw, eff, ctx) { const s = dashScope(raw, eff); return { columns: KPI_COLS, rows: [{ _key: 'overall', ...dashRow(s.overall) }], meta: dashMeta(s, ctx) }; },
 });
@@ -99,10 +108,10 @@ const groupDs = (key, label, list, first, extra = {}) => ds(key, {
   },
   ...extra,
 });
-const byActivity = groupDs('cov.by_activity', 'Couverture par activité (avec statut)', 'byActivity', col('activity', 'Activité'), { annotate: { label: 'Constat' } });
+const byActivity = groupDs('cov.by_activity', 'Couverture par activité (avec statut)', 'byActivity', col('activity', 'Activité'), { filters: ['office', 'activity'], annotate: { label: 'Constat' } });
 const byOffice = groupDs('cov.by_office', 'Couverture par bureau', 'byOffice', col('bureau', 'Bureau'), { filters: ['office'] });
 const byDistrict = groupDs('cov.by_district', 'Couverture par district', 'byDistrict', col('district', 'District'), {
-  filters: ['office'], args: { threshold: { type: 'number', label: 'Zones à surveiller : couverture < … %', default: null } },
+  filters: ['office', 'district'], args: { threshold: { type: 'number', label: 'Zones à surveiller : couverture < … %', default: null } },
 });
 
 const MONTHLY_COLS = [
@@ -236,6 +245,7 @@ const PLAN_KPI_COLS = [
   col('notYetPlanned', 'Restant à planifier', 'int'), col('neverVisited', 'Jamais visités', 'int'), col('mmrRate', 'Avancement MMR', 'pct'),
 ];
 const planKpis = ds('plan.kpis', {
+  filters: ['office', 'activity'],
   label: 'Plan de suivi (chiffres clés de l\'exercice)', origin: ORIGIN_PLAN, source: 'planBoard', periodMode: 'year',
   views: ['kpi', 'table'], defaultView: 'kpi', columns: PLAN_KPI_COLS,
   shape(raw, eff, ctx) {
@@ -249,6 +259,7 @@ const PRIO_COLS = [
   col('required', 'Exigées', 'int'), col('done', 'Faites', 'int'), col('planned', 'Prévues', 'int'), col('remaining', 'Reste', 'int'),
 ];
 const planPriorities = ds('plan.priorities', {
+  filters: ['office', 'activity'],
   label: 'Sites à planifier par priorité', origin: ORIGIN_PLAN, source: 'planBoard', periodMode: 'year',
   views: ['table'], defaultView: 'table', columns: PRIO_COLS,
   shape(raw, eff, ctx) {

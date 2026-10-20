@@ -57,6 +57,9 @@ export function outlineLabel(b, catalog, tr) {
 export const FILTERS = [
   { key: 'office', cat: 'office', label: 'Bureau', unsupported: 'Non disponible par bureau.' },
   { key: 'activity', cat: 'activity', label: 'Activité', unsupported: 'Non disponible par activité.' },
-  { key: 'partnerId', cat: 'partner', label: 'Partenaire', unsupported: 'Non disponible par partenaire.' },
+  // TPM ou titulaire (retour 102) : prestataire d'une visite ou d'une soumission ; pour le budget, titulaire du
+  // contrat OU TPM rattaché (plan, facture, visite).
+  { key: 'partnerId', cat: 'partner', label: 'Prestataire (TPM) ou titulaire', unsupported: 'Non disponible par partenaire.' },
+  { key: 'district', cat: 'district', label: 'District', unsupported: 'Non disponible par district.' },
   { key: 'formId', cat: 'form', label: 'Fiche de suivi', unsupported: 'Non disponible par fiche.' },
 ];

@@ -4,21 +4,55 @@ import { api } from '../../../api/client.js';
 import { useI18n } from '../../../lib/i18n.jsx';
 import { Field } from '../../../components/ui.jsx';
 import { FILTERS } from './blockTypes.js';
+import ReportPeriod from './ReportPeriod.jsx';
+import { periodLabel } from '../../../lib/period.js';
 
-/** Listes de choix des filtres : bureaux (antennes en retrait), activités (fiches), partenaires, fiches. */
+/**
+ * Bureaux en ARBRE : chaque bureau suivi de ses antennes, et de leurs propres antennes (profondeur
+ * quelconque) ; `depth` sert au retrait. Un bureau sans parent connu reste à la racine. Pur.
+ */
+export function officeTree(offices) {
+  const list = offices || [];
+  const ids = new Set(list.map((o) => o.id));
+  const kids = new Map();
+  for (const o of list) {
+    const p = o.parentId && ids.has(o.parentId) ? o.parentId : null;
+    if (!kids.has(p)) kids.set(p, []);
+    kids.get(p).push(o);
+  }
+  const out = []; const seen = new Set();
+  const walk = (parent, depth) => {
+    for (const o of (kids.get(parent) || []).sort((a, b) => a.name.localeCompare(b.name, 'fr'))) {
+      if (seen.has(o.id)) continue; // un cycle de parenté ne boucle jamais
+      seen.add(o.id); out.push({ ...o, depth }); walk(o.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  return out;
+}
+
+/**
+ * Listes de choix des filtres : bureaux (arbre, antennes en retrait), activités (registre des sites ET
+ * fiches, retour 102), districts (noms des tableaux de bord), prestataires, fiches.
+ */
 export function useFilterOptions(forms, offices) {
   const [partners, setPartners] = useState([]);
+  const [choices, setChoices] = useState({ activities: [], districts: [] });
   useEffect(() => {
     let alive = true;
     api.listPartners().then((r) => { if (alive) setPartners((r || []).filter((p) => p.active !== false)); }).catch(() => {});
+    api.reportFilterOptions().then((r) => { if (alive && r) setChoices({ activities: r.activities || [], districts: r.districts || [] }); }).catch(() => {});
     return () => { alive = false; };
   }, []);
-  const activities = [...new Set((forms || []).map((f) => f.activityCategory).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
-  // Bureaux de premier niveau, chacun suivi de ses antennes.
-  const tops = (offices || []).filter((o) => !o.parentId);
-  const ordered = tops.flatMap((o) => [o, ...(offices || []).filter((a) => a.parentId === o.id)]);
-  const orphans = (offices || []).filter((o) => o.parentId && !tops.some((t) => t.id === o.parentId));
-  return { partners, activities, offices: [...ordered, ...orphans] };
+  const fromForms = (forms || []).map((f) => f.activityCategory).filter(Boolean);
+  const byKey = new Map();
+  for (const a of [...choices.activities.map((x) => x.label), ...fromForms]) {
+    const k = String(a).trim().toLowerCase();
+    if (k && !byKey.has(k)) byKey.set(k, String(a).trim());
+  }
+  const activities = [...byKey.values()].sort((a, b) => a.localeCompare(b, 'fr'));
+  const districts = choices.districts.map((d) => d.label);
+  return { partners, activities, districts, offices: officeTree(offices) };
 }
 
 /** Libellé lisible de la valeur d'un filtre (bureau, activité, partenaire, fiche). */
@@ -40,12 +74,13 @@ function Options({ fkey, opts, officeKinds }) {
   if (fkey === 'office') {
     return (
       <>
-        {(!officeKinds || officeKinds.includes('id')) && <optgroup label={tr('Bureaux MEMS')}>{opts.offices.map((o) => <option key={o.id} value={`id:${o.id}`}>{o.parentId ? `· ${o.name}` : o.name}</option>)}</optgroup>}
+        {(!officeKinds || officeKinds.includes('id')) && <optgroup label={tr('Bureaux MEMS (avec leurs antennes)')}>{opts.offices.map((o) => <option key={o.id} value={`id:${o.id}`}>{`${'\u00a0\u00a0'.repeat(o.depth || 0)}${o.depth ? '· ' : ''}${o.name}`}</option>)}</optgroup>}
         {(!officeKinds || officeKinds.includes('unlinked')) && <option value="unlinked">{tr('Sans bureau MEMS')}</option>}
       </>
     );
   }
   if (fkey === 'activity') return opts.activities.map((a) => <option key={a} value={a}>{a}</option>);
+  if (fkey === 'district') return (opts.districts || []).map((d) => <option key={d} value={d}>{d}</option>);
   if (fkey === 'partnerId') return opts.partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>);
   if (fkey === 'formId') return opts.forms.map((f) => <option key={f.id} value={f.id}>{f.label}</option>);
   return null;
@@ -78,14 +113,23 @@ export function ReportFiltersEditor({ filters, onChange, forms, opts, disabled }
  * @param {string[]|null} supported filtres du catalogue pris en charge ('office', 'activity'…) ; null = tous
  */
 export default function FiltersPane({ block, doc, supported, officeKinds, forms, opts, onChange }) {
-  const { tr } = useI18n();
+  const { tr, lang } = useI18n();
   const filters = (block.params && block.params.filters) || {};
   const reportF = doc.filters || {};
   const all = { ...opts, forms };
   const set = (k, v) => onChange({ ...filters, [k]: v === '' ? undefined : v });
+  const ownPeriod = !!filters.period;
   return (
     <div className="section-gap">
       <p className="hint">{tr('Un filtre vide hérite du rapport ; « Tous » ignore le filtre du rapport pour ce bloc.')}</p>
+      {/* Période du bloc : celle du rapport, ou la sienne (plage ou mois cochés, retour 68). */}
+      <Field label={tr('Période')} hint={ownPeriod ? null : tr('Hérite du rapport : {v}', { v: periodLabel(doc.period, lang) })}>
+        <select className="select" value={ownPeriod ? 'own' : ''} onChange={(e) => set('period', e.target.value === 'own' ? { ...doc.period } : undefined)}>
+          <option value="">{tr('Hérite du rapport ({v})', { v: periodLabel(doc.period, lang) })}</option>
+          <option value="own">{tr('Période propre à ce bloc')}</option>
+        </select>
+        {ownPeriod && <div className="rd-filter-period"><ReportPeriod value={filters.period} onChange={(pp) => set('period', pp)} /></div>}
+      </Field>
       {FILTERS.map((f) => {
         const ok = !supported || supported.includes(f.cat);
         const own = filters[f.key];

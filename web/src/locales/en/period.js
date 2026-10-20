@@ -49,6 +49,17 @@ export default {
   'Période trop longue : {maxSpan} mois au plus (demandé : {span}).': 'Period too long: {maxSpan} months at most (requested: {span}).',
   'Période hors limites : années 2000 à 2100.': 'Period out of range: years 2000 to 2100.',
   'Période requise.': 'A period is required.',
+  // Mois cochés (retour 68)
+  'Type de période': 'Kind of period',
+  'Plage « du … au … »': '“From … to …” range',
+  'Mois cochés': 'Checked months',
+  'Année précédente': 'Previous year',
+  'Année suivante': 'Next year',
+  'Mois de {y}': 'Months of {y}',
+  'Cochez un mois au moins.': 'Check at least one month.',
+  'Tout décocher': 'Uncheck all',
+  'Liste de mois invalide : mois AAAA-MM séparés par des virgules (ex. 2026-01,2026-03).': 'Invalid list of months: YYYY-MM months separated by commas (e.g. 2026-01,2026-03).',
+  'Plusieurs mois non consécutifs : non pris en charge ici ; choisissez une plage « du … au … ».': 'Several non-consecutive months: not supported here; choose a “from … to …” range.',
 
   // ---- Écrans passés à la plage (Synthèse, Couverture & performance, décisionnel, alertes)
   'Aucune donnée reçue sur la période ({p}).': 'No data received over the period ({p}).',

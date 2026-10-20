@@ -6,7 +6,7 @@ const { upgradeDoc, upgradeSnapshot, isV1 } = require('./reportUpgrade');
 const { safeParseDocV2, walkBlocks, imageRefs } = require('./reportSchema');
 const assetsRepo = require('./reportAssets.repository');
 const { DATASETS, KPIS, GROUPS, datasetDef, kpiDef, validateBlockParams, catalogForClient } = require('./catalog');
-const { loadFor } = require('./sources');
+const { loadFor, SOURCES } = require('./sources');
 const { dashScope } = require('./catalog/coverage');
 const { buildPlan, blockOfInstance, PlanError, richVariables } = require('./renderPlan');
 const { VARIABLES } = require('./reportModel');
@@ -130,11 +130,20 @@ const planOf = (doc, expansions, lang, offices = null) => {
 };
 
 // Filtre effectif → filtre déclaré par un jeu, et note quand il n'est pas pris en charge.
-const FILTER_OF = { office: ['office', 'notByOffice'], activity: ['activity', 'notByActivity'], partnerId: ['partner', 'notByPartner'], formId: ['form', 'notByForm'], module: ['module', 'notByModule'] };
+const FILTER_OF = {
+  office: ['office', 'notByOffice'], activity: ['activity', 'notByActivity'], partnerId: ['partner', 'notByPartner'],
+  formId: ['form', 'notByForm'], module: ['module', 'notByModule'], district: ['district', 'notByDistrict'],
+};
 function unsupportedNote(def, eff, lang) {
+  // Mois cochés (retour 68) : seulement les sources qui les respectent (jamais la plage entière en silence).
+  if (eff.period && Array.isArray(eff.period.months) && (def.periodMode || 'range') === 'range' && !(SOURCES[def.source] || {}).monthList) {
+    return phrases(lang).notByMonthList;
+  }
   for (const [k, [name, phrase]] of Object.entries(FILTER_OF)) {
     if (eff[k] != null && !(def.filters || []).includes(name)) return phrases(lang)[phrase];
   }
+  // Filtres qui ne se combinent pas pour ce jeu (activité ET district d'une couverture).
+  if (def.exclusive && def.exclusive.every((k) => eff[k] != null)) return phrases(lang).notCombined;
   // Clé de bureau non filtrable par cette source (ex. libellé d'une fiche pour des faits de sites).
   if (eff.office && def.officeKinds) {
     const kind = eff.office === 'unlinked' ? 'unlinked' : eff.office.split(':')[0];

@@ -10,6 +10,9 @@ const { memo, stableKey } = require('./memo');
  *  - `domains` : domaines de données lus (versions du cache, migration 064) ;
  *  - `varies`  : contexte dont dépend le résultat ('lang', 'actor', 'today') — il entre dans
  *    la clé de cache, jamais partagé entre deux langues ou deux lecteurs.
+ *  - `monthList` : la source respecte une période de mois COCHÉS (retour 68 : prédicats periodSql /
+ *    siteMonthFactsCtes, ou mise en forme par common/period.overlaps). Sans ce drapeau, un bloc
+ *    « plage » sur des mois cochés rend une note (« choisissez une plage »), jamais la plage entière.
  * Pendant un rendu, un même calcul (source + paramètres) n'est fait qu'une fois (`ctx.memo`,
  * promesse partagée ; une erreur n'est pas gardée).
  */

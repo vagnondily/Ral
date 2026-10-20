@@ -15,7 +15,7 @@ const { OTHER_VALUES } = require('./memsMapping');
 const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx, choiceContextTx, loadPartiesTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
 const { resolvePartner, resolveAgent } = require('../common/partyMatch');
 const { toPeriod, trendWindow, periodInfo } = require('../common/period');
-const { monthWithin } = require('../common/periodSql');
+const { monthWithin, monthSeries } = require('../common/periodSql');
 const { submissionSiteKey } = require('../common/submissionSiteKey');
 const { calcReferences } = require('./indicatorKeys');
 const { stripRowsGps } = require('../map/submissionGps');
@@ -1794,7 +1794,7 @@ async function reportFormsFacts(tenantId, opts = {}) {
     for (const fm of forms) { // une fiche à la fois (client de la transaction)
       const facts = await formFactsTx(client, tenantId, fm.id, {
         period: opts.period, group: opts.group || 'bureau_month', officeSql,
-        officeKey: opts.officeKey, partnerId: opts.partnerId, visits: opts.visits,
+        officeKey: opts.officeKey, partnerId: opts.partnerId, district: opts.district, visits: opts.visits,
       });
       out.push({ ...fm, facts });
     }
@@ -1813,7 +1813,7 @@ async function reportAgentFacts(tenantId, opts = {}) {
     const officeSql = (params) => officeLabelSql(officeLabels, 's', params);
     const out = [];
     for (const fm of forms) {
-      const facts = await formFactsTx(client, tenantId, fm.id, { period: opts.period, group: 'agent', officeSql, officeKey: opts.officeKey, partnerId: opts.partnerId });
+      const facts = await formFactsTx(client, tenantId, fm.id, { period: opts.period, group: 'agent', officeSql, officeKey: opts.officeKey, partnerId: opts.partnerId, district: opts.district });
       out.push({ ...fm, facts });
     }
     const ids = [...new Set(out.flatMap((f) => [...f.facts.counts.keys()]).filter((k) => k.startsWith('id:')).map((k) => k.slice(3)))];
@@ -1866,12 +1866,13 @@ async function reportDataCounts(tenantId, opts = {}) {
     // Tendance : au moins 12 mois finissant au dernier mois de la période, mois vides compris.
     const w = trendWindow(period, currentMonthUTC());
     // La fenêtre des tendances (et non la période du bloc) borne les mois lus.
+    // Mois cochés (retour 68) : la fenêtre EST la liste (trendWindow), la série aussi (monthSeries).
     const mp = [tenantId];
-    const m = scope(mp, false, { from: w.from, to: w.to });
-    const wLo = mp.push(`${w.from}-01`); const wHi = mp.push(`${w.to}-01`);
+    const m = scope(mp, false, w);
+    const series = monthSeries(w, mp);
     const { rows: trend } = await client.query(
       `SELECT to_char(mm, 'YYYY-MM') AS month, COALESCE(c.n, 0)::int AS submissions
-         FROM generate_series($${wLo}::date, $${wHi}::date, interval '1 month') AS mm
+         FROM ${series} AS mm
          LEFT JOIN (SELECT date_trunc('month', s.period_month)::date AS pm, count(*) AS n
                       FROM monitoring_submissions s ${m.office ? m.office.join : ''}
                      WHERE ${m.where}

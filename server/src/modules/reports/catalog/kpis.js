@@ -7,6 +7,8 @@ const { sitesOf } = require('./rbm');
 const { SITE_OFFICE, dashScope } = require('./coverage');
 const { totalsOf } = require('../../tpm/consolidation');
 const { contractAlerts } = require('../../dashboards/alertsMath');
+const { overlaps } = require('../../common/period');
+const { contractPartnerMatch } = require('./budget');
 
 /**
  * Chiffres clés (bloc « kpis », variables des textes, bulletin) — lot 7a, C4. Chaque chiffre
@@ -17,10 +19,10 @@ const { contractAlerts } = require('../../dashboards/alertsMath');
  * est supprimé.
  */
 
-const MON = ['office', 'activity', 'partner', 'form'];
+const MON = ['office', 'activity', 'partner', 'form', 'district'];
 // Couverture : la source des TABLEAUX DE BORD (retour 110, une seule source : coverageDefinitions).
 // Filtre d'activité : le groupe de l'activité dans la réponse (dashScope), même univers, même « suivi ».
-const cov = (key, label, unit, pick) => ({ key, label, unit, group: 'coverage', source: 'covDash', filters: ['office', 'activity'], officeKinds: SITE_OFFICE, periodMode: 'range', pick: (raw, eff) => pick(dashScope(raw, eff), eff) });
+const cov = (key, label, unit, pick) => ({ key, label, unit, group: 'coverage', source: 'covDash', filters: ['office', 'activity', 'district'], exclusive: ['activity', 'district'], officeKinds: SITE_OFFICE, periodMode: 'range', pick: (raw, eff) => pick(dashScope(raw, eff), eff) });
 const data = (key, label, field) => ({ key, label, unit: 'int', group: 'monitoring', source: 'monData', filters: MON, periodMode: 'range', pick: (raw) => ({ value: (raw.totals || {})[field] ?? null }) });
 const conf = (key, label, unit, pick) => ({ key, label, unit, group: 'monitoring', source: 'monForms', filters: MON, periodMode: 'range', pick });
 const rbm = (key, label, pick) => ({ key, label, unit: 'int', group: 'rbm', source: 'rbmSites', filters: ['office', 'activity'], officeKinds: SITE_OFFICE, periodMode: 'asOf', pick });
@@ -38,8 +40,10 @@ const ctr = (key, label, pick) => ({ key, label, unit: 'int', group: 'budget', s
 const tpm = (key, label, source, pick, periodMode = 'range') => ({ key, label, unit: 'int', group: 'tpm', source, filters: ['partner'], officeKinds: [], periodMode, pick });
 const pdd = (key, label, unit, field) => ({ key, label, unit, group: 'pdd', source: 'pddTotals', ...ANY, periodMode: 'range', pick: (r) => ({ value: r ? r[field] : null }) });
 const alert = (key, label, field) => ({ key, label, unit: 'int', group: 'alerts', source: 'alerts', ...ANY, periodMode: 'now', pick: (r) => ({ value: r && r.counts ? r.counts[field] : null }) });
-const partnerRows = (raw, eff) => ((raw && raw.rows) || []).filter((r) => !eff.partnerId || r.partnerId === eff.partnerId);
-const inRange = (eff, month) => !eff.period || (String(month).slice(0, 7) >= eff.period.from && String(month).slice(0, 7) <= eff.period.to);
+// TPM ou titulaire (retour 102) : même règle que les jeux « budget » (catalog/budget.contractPartnerMatch).
+const partnerRows = (raw, eff) => ((raw && raw.rows) || []).filter((r) => contractPartnerMatch(r, eff.partnerId, raw && raw.tpmByContract));
+// Plage ou mois cochés (retour 68) : common/period.overlaps.
+const inRange = (eff, month) => !eff.period || overlaps(eff.period, month);
 
 module.exports = [
   // Couverture terrain : univers = sites actifs de la période ; suivi = visite déclarée OU données reçues.

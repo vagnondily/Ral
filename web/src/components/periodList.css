@@ -1,0 +1,29 @@
+/*
+ * Sélecteur de période — mode « Mois cochés » (retour 68 : plusieurs mois, même non consécutifs),
+ * proposé seulement avec la prop `allowList` (concepteur de rapport). Jetons du système de design.
+ */
+.period-modes { display: inline-flex; align-self: flex-start; gap: 2px; padding: 2px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.period-modes button { height: 28px; padding: 0 10px; font: inherit; font-size: 12.5px; color: var(--text); background: none; border: 0; border-radius: 4px; cursor: pointer; }
+.period-modes button:hover:not(.is-on) { color: var(--blue-700, #0b5394); }
+.period-modes button.is-on { font-weight: 600; color: var(--blue-700, #0b5394); background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); }
+.period-modes button:focus-visible { outline: 2px solid var(--blue-600, #0f6cbd); outline-offset: 1px; }
+.period-list { display: flex; flex-direction: column; gap: 8px; }
+.period-list-year { display: flex; align-items: center; justify-content: space-between; }
+.period-list-year strong { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text-strong); }
+.period-list-nav { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; }
+.period-list-nav:hover:not(:disabled) { color: var(--blue-700, #0b5394); border-color: var(--blue-600, #0f6cbd); }
+.period-list-nav:disabled { opacity: .4; cursor: default; }
+.period-list-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.period-list-m {
+  display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 4px; font: inherit; font-size: 12.5px; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; transition: border-color .15s, background .15s;
+}
+.period-list-m i { font-style: normal; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.period-list-m:hover:not(:disabled) { border-color: var(--blue-600, #0f6cbd); }
+.period-list-m.is-on { font-weight: 600; color: var(--blue-700, #0b5394); background: var(--blue-50, #eff6fc); border-color: var(--blue-600, #0f6cbd); }
+.period-list-m.is-on i { color: var(--blue-700, #0b5394); }
+.period-list-m.is-empty:not(.is-on) i { color: var(--text-faint); }
+.period-list-m:disabled { opacity: .4; cursor: default; }
+.period-list-m:focus-visible { outline: 2px solid var(--blue-600, #0f6cbd); outline-offset: 1px; }
+.period-list-sel { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0; font-size: 12.5px; font-weight: 500; color: var(--text-strong); }
+.period-list-clear { padding: 0; font: inherit; font-size: 12px; font-weight: 400; color: var(--blue-700, #0b5394); background: none; border: 0; text-decoration: underline; cursor: pointer; }

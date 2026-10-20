@@ -11,7 +11,8 @@ const { VIEWS } = require('../reportSchema');
  *  - `shape` : mise en forme pure du résultat de la source → { columns, rows, meta } ;
  *    meta = { n, nLabel, source, asOf, note, definition, warnings } ;
  *  - `filters` : filtres pris en charge EN PLUS de la période ('office', 'activity',
- *    'partner', 'form', 'module') ; un filtre non pris en charge rend un bloc vide avec
+ *    'partner', 'form', 'module', 'district') ; `exclusive` : filtres qui ne se combinent pas
+ *    (ex. activité ET district d'une couverture : la réponse n'a pas ce croisement) ; un filtre non pris en charge rend un bloc vide avec
  *    sa raison (« Non disponible par bureau. »), jamais un total national présenté
  *    comme celui d'un bureau ;
  *  - `periodMode` : 'range' (la plage), 'asOf' (situation au dernier mois), 'year'
@@ -31,7 +32,7 @@ const GROUPS = [
   { key: 'alerts', label: 'Alertes' },
   { key: 'quality', label: 'Qualité des données' },
 ];
-const FILTER_KEYS = ['office', 'activity', 'partner', 'form', 'module'];
+const FILTER_KEYS = ['office', 'activity', 'partner', 'form', 'module', 'district'];
 const PERIOD_MODES = ['range', 'asOf', 'year', 'now'];
 // 'message' : phrase française à paramètres ({ text, params }), traduite à l'affichage (comme le Centre d'alertes).
 const COLUMN_TYPES = ['text', 'int', 'dec', 'pct', 'money', 'month', 'band', 'status', 'date', 'rate', 'message'];
@@ -138,7 +139,7 @@ function validateBlockParams(def, params) {
 function catalogForClient() {
   const pub = (d) => ({
     label: d.label, group: d.group, origin: d.origin || null, views: d.views, defaultView: d.defaultView,
-    filters: d.filters, periodMode: d.periodMode, args: d.args, columns: d.columns,
+    filters: d.filters, exclusive: d.exclusive || null, periodMode: d.periodMode, args: d.args, columns: d.columns,
     // Mesures DÉCLARÉES (séries par défaut d'un graphique) ; `numeric` = toutes les mesures possibles.
     measures: d.measures || null, numeric: numericColumns(d),
     dynamicColumns: d.dynamicColumns || null, available: d.available !== false, reason: d.reason || null, keywords: d.keywords || [],

@@ -20,7 +20,7 @@ const {
 const ORIGIN_SYNTH = { page: 'Suivi de processus › Tableau de bord', route: '#/processus/tableau-de-bord' };
 const ORIGIN_COV = { page: 'Dashboard › Couverture & performance', route: '#/dashboard/couverture' };
 const ORIGIN_RES = { page: 'Suivi de processus › Données & indicateurs', route: '#/processus/donnees' };
-const MON_FILTERS = ['office', 'activity', 'partner', 'form'];
+const MON_FILTERS = ['office', 'activity', 'partner', 'form', 'district'];
 const BAND_KEYS = ['exc', 'sat', 'imp', 'urg', 'na'];
 const indexBand = (v) => (v == null ? 'na' : classify({ value: v, base: 1, agg: 'percent_yes', target: null, direction: 'higher_better' }));
 
