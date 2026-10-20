@@ -138,6 +138,8 @@ export default {
   'Indicateurs (valeur, base, cible)': 'Indicators (value, base, target)',
   'Plan et réalisé par mois': 'Planned and actual by month',
   'Complétude mensuelle par activité': 'Monthly completeness by activity',
+  'Complétude mensuelle par activité (visites déclarées)': 'Monthly completeness by activity (declared visits)',
+  'Couverture par visites déclarées': 'Coverage by declared visits',
   "Distributions d'urgence par mois": 'Emergency distributions by month',
   'Choisissez une activité (fiche).': 'Choose an activity (form).',
 

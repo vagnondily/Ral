@@ -69,6 +69,19 @@ test('chaque jeu et chaque chiffre clé cite une source existante qui déclare s
   }
 });
 
+test('un nom = une définition : les séries des VISITES DÉCLARÉES (covFacts) ne s\'appellent jamais « Couverture » ni « Exécution du plan »', () => {
+  const SINGLE_SOURCE = ['Couverture', 'Exécution du plan', 'Couverture (sites)', 'Exécution du plan (visites)'];
+  for (const d of Object.values(DATASETS).filter((x) => x.source === 'covFacts')) {
+    for (const c of d.columns) assert.ok(!SINGLE_SOURCE.includes(c.label), `${d.key} : colonne « ${c.label} » (visites déclarées seulement)`);
+  }
+  const monthly = Object.fromEntries(DATASETS['cov.monthly'].columns.map((c) => [c.key, c.label]));
+  assert.equal(monthly.coverage, 'Couverture par visites déclarées');
+  assert.equal(monthly.execution, 'Exécution des visites (déclarées)');
+  assert.match(DATASETS['cov.completeness_monthly'].label, /visites déclarées/);
+  // La source unique (covDash) garde les noms des tableaux de bord.
+  assert.equal(DATASETS['cov.kpis'].columns.find((c) => c.key === 'coverage').label, 'Couverture');
+});
+
 test('alertes : la source déclare au moins les domaines de la couverture qu\'elle lit (grille, données, bureaux)', () => {
   for (const d of SOURCES.covDash.domains) assert.ok(SOURCES.alerts.domains.includes(d), `alerts : domaine ${d}`);
   assert.ok(SOURCES.alerts.domains.includes('budget'));

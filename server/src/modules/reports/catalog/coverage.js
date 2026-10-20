@@ -96,10 +96,12 @@ const byDistrict = groupDs('cov.by_district', 'Couverture par district', 'byDist
   args: { threshold: { type: 'number', label: 'Zones à surveiller : couverture < … %', default: null } },
 });
 
+// Séries mensuelles (covFacts) : VISITES DÉCLARÉES seulement — leurs taux portent un autre nom que la
+// « Couverture » et l'« Exécution du plan » de la source unique (visite OU données), jamais le même.
 const MONTHLY_COLS = [
   col('month', 'Mois', 'month'), col('planned', 'Visites prévues', 'int'), col('done', 'Visites réalisées', 'int'),
-  col('sitesActive', 'Sites actifs', 'int'), col('sitesPlanned', 'Sites prévus', 'int'), col('sitesRealised', 'Sites réalisés', 'int'),
-  col('coverage', 'Couverture', 'pct'), col('execution', 'Exécution du plan', 'pct'),
+  col('sitesActive', 'Sites actifs', 'int'), col('sitesPlanned', 'Sites prévus', 'int'), col('sitesRealised', 'Sites visités', 'int'),
+  col('coverage', 'Couverture par visites déclarées', 'pct'), col('execution', 'Exécution des visites (déclarées)', 'pct'),
 ];
 const monthly = ds('cov.monthly', {
   label: 'Plan et réalisé par mois', origin: ORIGIN_COV, source: 'covFacts', views: ['column', 'line', 'table', 'bar'], defaultView: 'column',
@@ -111,7 +113,7 @@ const monthly = ds('cov.monthly', {
 });
 
 const completeness = ds('cov.completeness_monthly', {
-  label: 'Complétude mensuelle par activité', origin: ORIGIN_COV, source: 'covFacts', views: ['heat', 'line', 'table'], defaultView: 'heat',
+  label: 'Complétude mensuelle par activité (visites déclarées)', origin: ORIGIN_COV, source: 'covFacts', views: ['heat', 'line', 'table'], defaultView: 'heat',
   columns: [col('activity', 'Activité'), col('target', 'Sites actifs (période)', 'int')], dynamicColumns: 'months',
   shape(raw, eff, ctx) {
     const months = eff.period ? monthsOf(eff.period) : [...new Set((raw.monthly || []).map((m) => m.month))].sort();
@@ -132,7 +134,7 @@ const completeness = ds('cov.completeness_monthly', {
 // ---- Visites, matrice, récapitulatif MMR, jours de collecte, mois ---------------------------
 const PROV_COLS = [
   col('provider', 'Prestataire'), col('planifie', 'Planifiées', 'int'), col('realise', 'Réalisées', 'int'), col('annule', 'Annulées', 'int'),
-  col('rate', 'Taux de réalisation', 'pct'), col('sitesPlanned', 'Sites prévus', 'int'), col('sitesRealised', 'Sites réalisés', 'int'),
+  col('rate', 'Taux de réalisation', 'pct'), col('sitesPlanned', 'Sites prévus', 'int'), col('sitesRealised', 'Sites visités', 'int'),
 ];
 const visitsByProvider = ds('cov.visits_by_provider', {
   label: 'Visites par prestataire', origin: ORIGIN_FIELD, source: 'covFacts', filters: ['office', 'activity', 'partner'],
