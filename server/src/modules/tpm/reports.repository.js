@@ -1,6 +1,7 @@
 const { withTenantTransaction } = require('../../config/db');
 const { toPeriod } = require('../common/period');
 const { spanOverlaps } = require('../common/periodSql');
+const { assertActiveTpmTx } = require('./activeProvider.repository');
 const {
   decisionError, submitError, editError, notApplicableError, DECIDABLE, SUBMITTABLE,
 } = require('./reportWorkflow');
@@ -268,6 +269,7 @@ async function findExisting(client, tenantId, { partnerId, contractId, periodMon
 
 async function insertReport(tenantId, r) {
   return withTenantTransaction(tenantId, async (client) => {
+    await assertActiveTpmTx(client, tenantId, r.partnerId); // une facture / un rapport = un TPM actif (D1)
     const existing = await findExisting(client, tenantId, r);
     if (existing) { const e = new Error('duplicate'); e.code = 'DUP'; throw e; }
 
@@ -393,6 +395,7 @@ async function deleteReport(tenantId, id, { actorId, isAdmin = false, justificat
  */
 async function generateMonthlyStubs(tenantId, { contractId, partnerId, createdBy }) {
   return withTenantTransaction(tenantId, async (client) => {
+    await assertActiveTpmTx(client, tenantId, partnerId);
     const { rows: c } = await client.query(
       'SELECT date_debut AS "dateDebut", date_fin AS "dateFin" FROM contracts WHERE tenant_id = $1 AND id = $2',
       [tenantId, contractId]

@@ -123,3 +123,17 @@ test('listes de choix d\'un TPM (décision D1, retour 115) : jamais un titulaire
   assert.deepEqual(contractTpmOf([], partners[1]), { state: 'aucun', tpms: [] });
   assert.deepEqual(contractTpmOf([], partners[0]), { state: 'titulaire', tpms: [{ id: 'p1', name: 'YPA' }] });
 });
+
+test('TPM proposé par les formulaires plan / facture (contractTpms) : décision D1, jamais un titulaire non TPM', () => {
+  const { pickerContractTpms } = require('../src/modules/tpm/activeProvider');
+  const contracts = [
+    { id: 'c1', partnerId: 'p2', monitoring: true, tpms: [{ id: 'p1', name: 'YPA' }] }, // AINA, suivi par YPA
+    { id: 'c2', partnerId: 'p2', monitoring: true, tpms: [] },                          // AINA, sans TPM rattaché
+    { id: 'c3', partnerId: 'p3', monitoring: true, tpms: [] },                          // RANO titulaire de son contrat
+    { id: 'c4', partnerId: 'p4', monitoring: true, tpms: [] },                          // ancien TPM désactivé
+    { id: 'c5', partnerId: 'p2', monitoring: false, tpms: [] },                         // pas un contrat de suivi
+  ];
+  assert.deepEqual(pickerContractTpms(contracts, partners), {
+    c1: [{ id: 'p1', name: 'YPA' }], c2: [], c3: [{ id: 'p3', name: 'RANO' }], c4: [],
+  });
+});

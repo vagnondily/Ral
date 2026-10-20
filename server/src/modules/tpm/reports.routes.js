@@ -120,6 +120,7 @@ router.post('/', WRITE, body(createSchema), asyncHandler(async (req, res) => {
     res.status(201).json({ id });
   } catch (err) {
     if (err.code === 'DUP') throw conflict('Un rapport de ce type existe déjà pour ce partenaire, ce contrat et ce mois.');
+    if (err.code === 'NOT_TPM') throw badRequest(err.message, { code: 'not_tpm' });
     if (err instanceof Error && /Ligne budgétaire|désignation|invalide|Activité inconnue/.test(err.message)) throw badRequest(err.message);
     throw err;
   }
@@ -161,6 +162,7 @@ router.post('/generate-monthly', WRITE, body(stubSchema), asyncHandler(async (re
     res.json(r);
   } catch (err) {
     if (err.code === 'NOCONTRACT') throw notFound('Contrat introuvable');
+    if (err.code === 'NOT_TPM') throw badRequest(err.message, { code: 'not_tpm' });
     throw err;
   }
 }));

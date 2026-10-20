@@ -49,3 +49,28 @@ test('rechargement pendant une saisie : les champs saisis restent, ajouts et ret
   assert.deepEqual(w.participantPatches(merged, after).patches, [{ agentId: 'a2', preScore: 11 }], 'toujours à enregistrer');
   assert.deepEqual(w.mergeParticipantRows(merged, after, [after[2]]).map((r) => r.agentId), ['a3'], 'retirés : disparus');
 });
+
+test('après un enregistrement : ce qui a été saisi PENDANT l\'envoi et le rechargement est gardé', async (t) => {
+  const w = await load(t); if (!w) return;
+  const before = [P({ preScore: null }), P({ agentId: 'a2', agentName: 'R. Randria', postScore: null })];
+  let rows = before.map(w.editableParticipant);
+  rows[0] = { ...rows[0], preScore: '12' };
+  const sent = w.participantPatches(rows, before).patches;          // envoyé : a1 preScore 12
+  assert.deepEqual(sent, [{ agentId: 'a1', preScore: 12 }]);
+  rows = rows.map((r) => (r.agentId === 'a2' ? { ...r, postScore: '15' } : r)); // saisi pendant l'envoi
+  rows[0] = { ...rows[0], feedback: 'Très utile' };                  // et sur la ligne envoyée
+  const after = [P({ preScore: 12 }), P({ agentId: 'a2', agentName: 'R. Randria', postScore: null })];
+  const merged = w.rowsAfterSave(rows, before, sent, after);
+  assert.deepEqual(merged.map((r) => [r.agentId, r.preScore, r.postScore, r.feedback]), [['a1', '12', '15', 'Très utile'], ['a2', '8', '15', 'Utile']]);
+  assert.deepEqual(w.participantPatches(merged, after).patches, [{ agentId: 'a1', feedback: 'Très utile' }, { agentId: 'a2', postScore: 15 }],
+    'les saisies du pendant restent à enregistrer ; ce qui a été enregistré ne l\'est plus');
+});
+
+test('« 15,5 » saisi puis enregistré (15.5 en base) : plus rien à enregistrer', async (t) => {
+  const w = await load(t); if (!w) return;
+  const before = [P({ preScore: null })];
+  const rows = [{ ...w.editableParticipant(before[0]), preScore: '15,5' }];
+  const sent = w.participantPatches(rows, before).patches;
+  const after = [P({ preScore: 15.5 })];
+  assert.equal(w.participantPatches(w.rowsAfterSave(rows, before, sent, after), after).dirty, false);
+});

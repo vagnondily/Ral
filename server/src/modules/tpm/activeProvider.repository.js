@@ -51,6 +51,22 @@ async function contractTpmViewsTx(client, tenantId, contracts) {
   return { views: contractTpmViews(contracts, links, partners), links, partners };
 }
 
+const NOT_TPM_MESSAGE = 'Ce partenaire n\'est pas un TPM actif : un plan de collecte ou une facture se rattache à une tierce partie de suivi (type « TPM », fiche active).';
+
+/**
+ * Un plan de collecte ou une facture ne se crée QUE pour un TPM actif (décision D1 du 20/10) :
+ * sinon erreur `code: 'NOT_TPM'` (les routes répondent 400). La base le contrôle aussi (type
+ * « tpm », migration 089). À appeler dans la transaction qui écrit le document.
+ */
+async function assertActiveTpmTx(client, tenantId, partnerId) {
+  const { rows } = await client.query(
+    `SELECT p.active, t.code FROM partners p JOIN partner_types t ON t.id = p.partner_type_id AND t.tenant_id = p.tenant_id
+      WHERE p.tenant_id = $1 AND p.id = $2`, [tenantId, partnerId]);
+  if (!rows.length || rows[0].code !== 'tpm' || rows[0].active === false) {
+    const e = new Error(NOT_TPM_MESSAGE); e.code = 'NOT_TPM'; throw e;
+  }
+}
+
 /** Listes de choix pour des mois : groupes « contrat » puis « tpm » (activeProvider.selectableProviders). */
 async function selectable(tenantId, months) {
   return withTenantTransaction(tenantId, async (client) => {
@@ -69,4 +85,4 @@ async function activeAt(tenantId, month) {
   });
 }
 
-module.exports = { providerLinksTx, partnersTx, contractTpmViewsTx, selectable, activeAt };
+module.exports = { providerLinksTx, partnersTx, contractTpmViewsTx, assertActiveTpmTx, NOT_TPM_MESSAGE, selectable, activeAt };

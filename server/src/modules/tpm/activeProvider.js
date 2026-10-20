@@ -105,6 +105,20 @@ function contractTpmOf(attached, holder) {
 }
 
 /**
+ * TPM proposé par défaut pour chaque contrat de suivi (formulaires plan de collecte et facture :
+ * GET /api/tpm/attribution/providers → `contractTpms`) — décision D1 : contractTpmOf, jamais un
+ * titulaire partenaire de mise en œuvre (sinon le formulaire pré-remplirait AINA comme TPM).
+ * @param {Array<{ id, partnerId, monitoring, tpms: {id,name}[] }>} contracts  tpmAttribution.repository.loadInputsTx
+ * @param {object[]} partners
+ * @returns {Object<string, {id,name}[]>}
+ */
+function pickerContractTpms(contracts, partners) {
+  const byId = new Map((partners || []).map((p) => [p.id, p]));
+  return Object.fromEntries((contracts || []).filter(isMonitoringContract)
+    .map((c) => [c.id, contractTpmOf(c.tpms, byId.get(c.partnerId) || null).tpms.map((t) => ({ id: t.id, name: t.name }))]));
+}
+
+/**
  * TPM de chaque contrat pour les LISTES DE CHOIX : la même règle que l'affichage (contractTpmOf —
  * décision D1 : un titulaire ne compte que s'il est lui-même un TPM actif). Diffère volontairement,
  * pour l'instant, de tpmAttribution.contractTpms (estampille des visites, retour 114 à venir).
@@ -249,5 +263,5 @@ function monthsOf(from, to, cap = 60) {
 
 module.exports = {
   LINK_KINDS, TPM_LINK_KINDS, isMonth, coverageOf, contractCoversMonth, isMonitoringContract, linkProvider,
-  tpmsByContract, contractTpmOf, tpmIdsByContract, activeProviders, selectableProviders, providerStatus, monthsOf,
+  tpmsByContract, contractTpmOf, tpmIdsByContract, pickerContractTpms, activeProviders, selectableProviders, providerStatus, monthsOf,
 };

@@ -4,8 +4,11 @@
 //       version périmée (409) recharge la grille, puis la validation passe ;
 //   C9  « Créer la formation » ouvre la fiche en LECTURE (bouton « Modifier »), pas en modification ;
 //   C6  une saisie de notes en cours survit à un rechargement (enregistrement de la synthèse) ;
-//   C7  une note illisible (« abc ») est refusée, la valeur en base n'est pas effacée ;
-//   C8  seuls les champs modifiés partent (les autres participants et champs restent intacts).
+//   C7  une note illisible (« abc ») tapée sur une cellule qui A une valeur en base est refusée, et
+//       cette valeur reste ;
+//   C8  un autre écrivain enregistre APRÈS le dernier rechargement de la page (présence d'un autre
+//       participant, post-test de la même ligne) : la page n'envoie que ses champs modifiés, rien
+//       n'est écrasé (l'ancien code, qui envoyait toute la grille, effaçait les deux).
 // Usage : WEB_URL=http://localhost:5881 API_PORT=9881 node web/scripts/check-lot8-ui.cjs
 // Variables : PLAYWRIGHT (module), CHROMIUM (exécutable). Deux connexions (administrateur, valideur).
 const { chromium } = require(process.env.PLAYWRIGHT || '/opt/node-tools/node_modules/playwright');
@@ -72,29 +75,33 @@ async function login(browser, email) {
   const pre = admin.page.locator('table.tr-grid input[aria-label^="Pré-test"]');
   const n = await pre.count();
   check(n >= 2, `C6 participants ajoutés (${n})`);
-  // Un autre écrivain renseigne la présence du 2ᵉ participant pendant la saisie (C8).
   const before = (await admin.call('GET', `/api/trainings/${sessionId}`)).body.participants;
-  await admin.call('PATCH', `/api/trainings/${sessionId}/participants`, { rows: [{ agentId: before[1].agentId, attendance: 'present' }] });
+  const server = async () => new Map((await admin.call('GET', `/api/trainings/${sessionId}`)).body.participants.map((p) => [p.agentId, p]));
+  const save = async () => { await admin.page.getByRole('button', { name: 'Enregistrer les présences et notes' }).click(); await admin.page.waitForTimeout(1500); };
+  // C6 : une note saisie survit au rechargement que provoque l'enregistrement de la synthèse.
   await pre.nth(0).fill('12');
   await admin.page.fill('textarea[aria-label="Synthèse de la formation"]', 'Synthèse du contrôle C6');
   await admin.page.getByRole('button', { name: 'Enregistrer la synthèse' }).click();
   await admin.page.waitForTimeout(1500);
   check(await pre.nth(0).inputValue() === '12', 'C6 après un rechargement (synthèse), la note saisie est toujours là');
   check(await admin.page.getByText('Modifications non enregistrées.').count() === 1, 'C6 « Modifications non enregistrées » toujours affiché');
-  const post = admin.page.locator('table.tr-grid input[aria-label^="Post-test"]');
-  await post.nth(0).fill('abc');
-  await admin.page.getByRole('button', { name: 'Enregistrer les présences et notes' }).click();
-  await admin.page.waitForTimeout(800);
+  await save();
+  check((await server()).get(before[0].agentId).preScore === 12, 'C6 la note est enregistrée');
+  // C7 : une valeur illisible sur une cellule qui A une valeur en base est refusée, la valeur reste.
+  await pre.nth(0).fill('abc');
+  await save();
   check(await admin.page.getByText(/Valeur illisible/).count() > 0, 'C7 note illisible : refus affiché (agent et colonne)');
-  let saved = (await admin.call('GET', `/api/trainings/${sessionId}`)).body.participants;
-  check(saved[0].preScore == null, 'C7 rien n\'a été envoyé');
-  await post.nth(0).fill('');
-  await admin.page.getByRole('button', { name: 'Enregistrer les présences et notes' }).click();
-  await admin.page.waitForTimeout(1500);
-  saved = (await admin.call('GET', `/api/trainings/${sessionId}`)).body.participants;
-  const byAgent = new Map(saved.map((p) => [p.agentId, p]));
-  check(byAgent.get(before[0].agentId).preScore === 12, 'C8 la note saisie est enregistrée');
-  check(byAgent.get(before[1].agentId).attendance === 'present', 'C8 la présence saisie par l\'autre écrivain n\'est pas écrasée');
+  check((await server()).get(before[0].agentId).preScore === 12, 'C7 la valeur en base (12) n\'est pas effacée');
+  // C8 : un AUTRE écrivain enregistre après le dernier rechargement de la page, juste avant le clic :
+  // présence du 2ᵉ participant et post-test du 1ᵉʳ. La page n'envoie que ses propres champs modifiés.
+  await pre.nth(0).fill('13');
+  await admin.call('PATCH', `/api/trainings/${sessionId}/participants`, { rows: [
+    { agentId: before[1].agentId, attendance: 'present' }, { agentId: before[0].agentId, postScore: 17 }] });
+  await save();
+  const last = await server();
+  check(last.get(before[0].agentId).preScore === 13, 'C8 la note saisie dans la page est enregistrée');
+  check(last.get(before[1].agentId).attendance === 'present', 'C8 la présence saisie par l\'autre écrivain n\'est pas écrasée');
+  check(last.get(before[0].agentId).postScore === 17, 'C8 le post-test saisi par l\'autre écrivain sur la MÊME ligne n\'est pas écrasé');
 
   await admin.call('PATCH', `/api/trainings/${sessionId}`, { status: 'annulee' }); // ne compte nulle part
   await browser.close();

@@ -6,6 +6,7 @@ const { monthsOf, periodLabel } = require('../common/period');
 const { currentMonth } = require('./rbmMath');
 const rule = require('./tpmAttribution');
 const repo = require('./tpmAttribution.repository');
+const { pickerContractTpms } = require('./activeProvider');
 
 /**
  * Affectation des TPM par zone (retour 58) — règles et transactions. Les décisions sont prises
@@ -142,10 +143,10 @@ async function providers(tenantId, { period }) {
     for (const g of out.groups || []) {
       for (const p of g.providers || []) p.contracts = (p.contracts || []).map((c) => ({ ...c, contractLabel: label.get(c.id) || c.numero }));
     }
-    // TPM de chaque contrat de suivi de la plage (rule.contractTpms : TPM rattaché par plan ou
-    // facture, sinon titulaire) — la valeur par défaut des formulaires prestataire × contrat.
-    out.contractTpms = Object.fromEntries(inputs.contracts.filter((c) => rule.isMonitoringContract(c))
-      .map((c) => [c.id, rule.contractTpms(c).map((p) => ({ id: p.id, name: p.name }))]));
+    // TPM de chaque contrat de suivi de la plage — la valeur par défaut des formulaires plan de
+    // collecte et facture : décision D1 (activeProvider.pickerContractTpms → contractTpmOf), jamais un
+    // titulaire partenaire de mise en œuvre. rule.contractTpms reste la règle de l'ESTAMPILLE seule.
+    out.contractTpms = pickerContractTpms(inputs.contracts, inputs.partners);
     return out;
   });
 }

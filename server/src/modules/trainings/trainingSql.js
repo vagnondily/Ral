@@ -9,12 +9,15 @@
  * @param {string} p  alias de training_participants
  */
 const notCancelledNorAbsent = (s, p) => `${s}.status <> 'annulee' AND (${p}.attendance IS NULL OR ${p}.attendance <> 'absent')`;
-const followedSql = (s, p) => `(${notCancelledNorAbsent(s, p)} AND (${s}.status = 'realisee' OR ${s}.start_date <= current_date))`;
+/** La session a eu lieu : réalisée, ou commencée (début passé ou du jour). Une seule expression. */
+const heldSql = (s) => `(${s}.status = 'realisee' OR ${s}.start_date <= current_date)`;
+const followedSql = (s, p) => `(${notCancelledNorAbsent(s, p)} AND ${heldSql(s)})`;
 
 /**
- * Frise d'un partenaire : les formations suivies ET celles à venir (affichées « prévue pour … ») —
- * ni annulées, ni absent ; la frise distingue elle-même passé et à venir par la date.
+ * Frise d'un partenaire : les formations suivies ET celles à venir — ni annulées, ni absent ; le
+ * libellé (« suivie par » / « prévue pour ») suit heldSql, la MÊME règle que les compteurs : une
+ * session « réalisée » datée dans le futur est « suivie » partout.
  */
 const timelineTrainingSql = (s, p) => `(${notCancelledNorAbsent(s, p)})`;
 
-module.exports = { followedSql, timelineTrainingSql };
+module.exports = { followedSql, timelineTrainingSql, heldSql };

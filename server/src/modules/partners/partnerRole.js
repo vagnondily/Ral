@@ -24,11 +24,19 @@ async function restampIfRoleChangedTx(client, tenantId, before, after) {
   return true;
 }
 
-/** État { partnerTypeId, active } d'une fiche, sous verrou (avant la mise à jour). */
+/**
+ * État { partnerTypeId, active } d'une fiche, sous verrou (avant la mise à jour). FOR NO KEY UPDATE —
+ * le verrou que prend l'UPDATE lui-même — et JAMAIS FOR UPDATE : FOR UPDATE bloque le FOR KEY SHARE
+ * des clés étrangères vers partners(id) ; or les écrivains de l'attribution (estampille différée
+ * mems_tpm_stamp, setOverrides, visites) tiennent le verrou d'attribution PUIS écrivent provider_id
+ * = ce partenaire, alors qu'ici on prend la ligne PUIS le verrou d'attribution (restampVisitsTx) :
+ * avec FOR UPDATE, interblocage (40P01). Deux changements de rôle concurrents restent sérialisés.
+ */
+const ROLE_LOCK = 'FOR NO KEY UPDATE';
 async function roleForUpdateTx(client, tenantId, id) {
   const { rows } = await client.query(
-    'SELECT partner_type_id AS "partnerTypeId", active FROM partners WHERE tenant_id = $1 AND id = $2 FOR UPDATE', [tenantId, id]);
+    `SELECT partner_type_id AS "partnerTypeId", active FROM partners WHERE tenant_id = $1 AND id = $2 ${ROLE_LOCK}`, [tenantId, id]);
   return rows[0] || null;
 }
 
-module.exports = { roleChanged, restampIfRoleChangedTx, roleForUpdateTx };
+module.exports = { roleChanged, restampIfRoleChangedTx, roleForUpdateTx, ROLE_LOCK };

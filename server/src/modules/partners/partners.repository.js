@@ -6,7 +6,7 @@ const { shapeTimeline } = require('./partnerSheet');
 const places = require('../settings/placeMatch.repository');
 const { providerLinksTx, contractTpmViewsTx } = require('../tpm/activeProvider.repository');
 const { monthWithin } = require('../common/periodSql');
-const { followedSql, timelineTrainingSql } = require('../trainings/trainingSql');
+const { followedSql, timelineTrainingSql, heldSql } = require('../trainings/trainingSql');
 const { roleForUpdateTx, restampIfRoleChangedTx } = require('./partnerRole');
 
 /**
@@ -290,7 +290,7 @@ async function timeline(tenantId, id, { before = null, limit = 50 } = {}) {
           WHERE v.tenant_id = $1 AND ${visitOf('v')} AND v.status <> 'annule'
           GROUP BY COALESCE(NULLIF(s.adm2, ''), s.district) HAVING max(v.period_month) > min(v.period_month)
          UNION ALL
-         SELECT s.start_date::timestamptz, 'formation', CASE WHEN s.start_date > current_date THEN 'prevue' ELSE 'formation' END,
+         SELECT s.start_date::timestamptz, 'formation', CASE WHEN ${heldSql('s')} THEN 'formation' ELSE 'prevue' END,
                 s.title, s.id::text, string_agg(a.name, ', ' ORDER BY a.name)
            FROM training_participants p
            JOIN training_sessions s ON s.id = p.session_id AND s.tenant_id = p.tenant_id

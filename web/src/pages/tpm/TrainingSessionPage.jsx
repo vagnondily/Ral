@@ -6,7 +6,7 @@ import Modal from '../../components/Modal.jsx';
 import ProviderSelect from '../../components/ProviderSelect.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatDate } from '../../lib/contracts.js';
-import { ATTENDANCE, TRAINING_STATUS, editableParticipant, formatPct, mergeParticipantRows, participantPatches } from '../../lib/trainings.js';
+import { ATTENDANCE, TRAINING_STATUS, editableParticipant, formatPct, mergeParticipantRows, participantPatches, rowsAfterSave } from '../../lib/trainings.js';
 import { useI18n } from '../../lib/i18n.jsx';
 
 /**
@@ -231,13 +231,14 @@ function ParticipantsCard({ s, canEdit, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   // Formation rechargée (ajout, retrait, synthèse, informations) : la saisie en cours est GARDÉE et
-  // fusionnée ; après un enregistrement réussi, la grille reprend l'état du serveur.
+  // fusionnée. Après un enregistrement, la grille reprend l'état du serveur SAUF ce qui a été saisi
+  // pendant l'envoi et le rechargement (rowsAfterSave, comparé à ce qui a été envoyé).
   const loadedRef = useRef(s.participants);
-  const savedRef = useRef(false);
+  const sentRef = useRef(null);
   useEffect(() => {
     const prev = loadedRef.current; loadedRef.current = s.participants;
-    if (savedRef.current) { savedRef.current = false; setRows(s.participants.map(editableParticipant)); return; }
-    setRows((cur) => mergeParticipantRows(cur, prev, s.participants));
+    const sent = sentRef.current; sentRef.current = null;
+    setRows((cur) => (sent ? rowsAfterSave(cur, prev, sent, s.participants) : mergeParticipantRows(cur, prev, s.participants)));
   }, [s]);
   // Seuls les champs modifiés partent ; une cellule illisible bloque l'envoi (jamais effacée en silence).
   const { patches, errors, dirty } = useMemo(() => participantPatches(rows, s.participants), [rows, s]);
@@ -285,9 +286,10 @@ function ParticipantsCard({ s, canEdit, onChanged }) {
     if (!patches.length) return;
     setBusy(true);
     try {
-      await api.saveTrainingParticipants(s.id, patches);
+      const sent = patches;
+      await api.saveTrainingParticipants(s.id, sent);
       toast.success(tr('Présences, notes et avis enregistrés.'));
-      savedRef.current = true;
+      sentRef.current = sent;
       setShowErrors(false);
       onChanged();
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
