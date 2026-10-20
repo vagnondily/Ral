@@ -42,8 +42,9 @@ async function mmrRowsTx(client, tenantId) {
 
 /**
  * Entrées du moteur pour l'exercice `year` (via le Plan de suivi), sur le client de l'appelant.
- * `scope.risk` restreint les sites À PLANIFIER (inScope) ; tous les sites restent lus, car leurs
- * visites consomment les mêmes capacités.
+ * Le périmètre (`scope` : bureau — antennes comprises —, activité, district, risque) restreint les
+ * sites À PLANIFIER (inScope) ; tous les sites restent lus, car leurs visites consomment les mêmes
+ * capacités et les mêmes agents.
  * @returns {{ sites: object[], mmrByKey: object, yearHasGrid: boolean }}
  */
 async function loadInputsTx(client, tenantId, { year, adjusted = false, scope = {} } = {}) {
@@ -75,6 +76,13 @@ async function loadInputsTx(client, tenantId, { year, adjusted = false, scope = 
     };
   }
   const risk = scope.risk || null;
+  const office = scope.fieldOfficeId || null;
+  const activity = scope.activity ? String(scope.activity).trim().toLowerCase() : null;
+  const district = scope.district ? String(scope.district).trim().toLowerCase() : null;
+  const inScope = (s) => (!risk || s.riskLevel === risk)
+    && (!office || s.fieldOfficeId === office || s.parentOfficeId === office)
+    && (!activity || String(s.activity || '').trim().toLowerCase() === activity)
+    && (!district || String(s.district || '').trim().toLowerCase() === district);
   const sites = (board.sites || []).map((s) => ({
     id: s.id,
     name: s.name,
@@ -82,7 +90,11 @@ async function loadInputsTx(client, tenantId, { year, adjusted = false, scope = 
     commune: s.commune,
     activity: s.activity,
     riskLevel: s.riskLevel,
-    inScope: !risk || s.riskLevel === risk,
+    // Priorité du RBM (ordre des communes) : recommandation urgente et score final.
+    urgent: Boolean(s.urgent),
+    finalScore: Number(s.finalScore) || 0,
+    fieldOfficeId: s.fieldOfficeId || null,
+    inScope: inScope(s),
     forbidden: Boolean(s.forbidden),
     inactive: Boolean(s.inactive),
     mmrKey: s.mmrKey || null,
@@ -117,15 +129,18 @@ async function loadInputsTx(client, tenantId, { year, adjusted = false, scope = 
  * mois (annulée comprise) ; jamais un mois inactif (règle commune activeMonthSql) ; jamais une
  * zone interdite. Puis TPM de zone (restampVisitsTx, retour 58). Renvoie les visites créées et,
  * pour chaque affectation non écrite, la raison relue en base.
- * @param {{siteId, month, activity}[]} assignments  month = 'YYYY-MM'
+ * `date` / `agent` (option « Écrire les dates et les agents ») : la date n'est écrite que si elle
+ * tombe dans le mois de la visite ; l'agent est un rôle générique (« Agent N »).
+ * @param {{siteId, month, activity, date?, agent?}[]} assignments  month = 'YYYY-MM'
  */
 async function insertVisitsTx(client, tenantId, userId, assignments = []) {
   const clean = (assignments || []).filter((a) => a && a.siteId && /^\d{4}-(0[1-9]|1[0-2])$/.test(String(a.month)));
   if (!clean.length) return { created: 0, skipped: { existing: 0, inactive: 0, forbidden: 0 } };
   const { rows: inserted } = await client.query(
-    `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by)
-     SELECT $1, t.site_id, t.pm, t.activity, 'planifie', $2
-       FROM unnest($3::uuid[], $4::date[], $5::text[]) AS t(site_id, pm, activity)
+    `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by, visit_date, agent)
+     SELECT $1, t.site_id, t.pm, t.activity, 'planifie', $2,
+            CASE WHEN date_trunc('month', t.d)::date = t.pm THEN t.d END, NULLIF(btrim(t.agent), '')
+       FROM unnest($3::uuid[], $4::date[], $5::text[], $6::date[], $7::text[]) AS t(site_id, pm, activity, d, agent)
       WHERE NOT EXISTS (SELECT 1 FROM site_visits v
                          WHERE v.tenant_id = $1 AND v.site_id = t.site_id AND v.period_month = t.pm)
         AND EXISTS (SELECT 1 FROM sites s WHERE s.tenant_id = $1 AND s.id = t.site_id
@@ -133,7 +148,9 @@ async function insertVisitsTx(client, tenantId, userId, assignments = []) {
         AND ${activeMonthSql({ site: 't.site_id', year: 'extract(year FROM t.pm)::int', month: 'extract(month FROM t.pm)::int' })}
      ON CONFLICT (tenant_id, site_id, period_month, activity) DO NOTHING
      RETURNING site_id, to_char(period_month, 'YYYY-MM') AS month`,
-    [tenantId, userId || null, clean.map((a) => a.siteId), clean.map((a) => `${a.month}-01`), clean.map((a) => a.activity || null)]
+    [tenantId, userId || null, clean.map((a) => a.siteId), clean.map((a) => `${a.month}-01`), clean.map((a) => a.activity || null),
+      clean.map((a) => (a.date && /^\d{4}-\d{2}-\d{2}$/.test(String(a.date)) ? a.date : null)),
+      clean.map((a) => (a.agent ? String(a.agent).slice(0, 60) : null))]
   );
   const done = new Set(inserted.map((r) => `${r.site_id}|${r.month}`));
   const missed = clean.filter((a) => !done.has(`${a.siteId}|${a.month}`));

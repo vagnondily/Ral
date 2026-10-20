@@ -1,276 +1,196 @@
 /**
- * Planification automatique sur une période (retour 82) — moteur pur, MMR + RBM.
- * generatePlan(sites, mmrByKey, settings, months(1..12), year).
+ * Planification automatique sur une période (retours 82, 107, 108) — moteur pur.
+ * generatePlan(sites, mmrByKey, settings, months(1..12), year, opts).
+ * Stratégie « besoins » par défaut : toutes les visites exigées, communes entières toutes
+ * activités, ordre du RBM, plancher ciblé/mois ; « capacite » : dans le faisable du MMR.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { generatePlan, normalizeSettings, siteRemaining } = require('../src/modules/tpm/planAuto');
+const { generatePlan, normalizeSettings, siteRemaining, clusterKeyOf } = require('../src/modules/tpm/planAuto');
 
 const H1 = [1, 2, 3, 4, 5, 6];
+const FULL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const YEAR = 2026;
-const site = (o) => ({ forbidden: false, parametered: false, required: 0, visits: [], monthStatus: {}, riskLevel: 'moyenne', lastVisitMonth: null, mmrKey: null, ...o });
+const site = (o) => ({ forbidden: false, parametered: false, required: 0, visits: [], monthStatus: {}, riskLevel: 'moyenne', lastVisitMonth: null, mmrKey: null, activity: 'A', district: 'D', commune: `C-${o.id}`, ...o });
+const monthsOf = (r, id) => r.assignments.filter((a) => a.siteId === id).map((a) => Number(a.month.slice(5)));
 
-test('normalizeSettings : défauts et bornes', () => {
+test('normalizeSettings : défauts (besoins, 4 agents par véhicule, 20 jours) et bornes', () => {
   const s = normalizeSettings();
-  assert.deepEqual(s.frequency, { elevee: 1, moyenne: 2, faible: 3 }); // repli = fréquence RBM (retour 82)
-  assert.equal(s.useMmrCapacity, true);
-  assert.equal(s.adjusted, false);
-  assert.equal(s.useGps, true);
-  assert.equal(s.gpsGridDeg, 0.1);
-  assert.equal(s.balanceByTpm, true);
-  assert.equal(s.tpmCapacityPerMonth, null);
-  const c = normalizeSettings({ excludeMonths: ['2026-04', 5], useMmrCapacity: false, adjusted: true, useGps: false, balanceByTpm: false, tpmCapacityPerMonth: 5 });
-  assert.deepEqual(c.excludeMonths.sort(), [4, 5]);
-  assert.equal(c.useMmrCapacity, false);
-  assert.equal(c.adjusted, true);
-  assert.equal(c.useGps, false);
-  assert.equal(c.balanceByTpm, false);
-  assert.equal(c.tpmCapacityPerMonth, 5);
+  assert.deepEqual(s, { strategy: 'besoins', adjusted: false, reinforceUrgent: false, excludedCommunes: [], agentsPerVehicle: 4, fieldDaysPerMonth: 20 });
+  const c = normalizeSettings({ strategy: 'capacite', agentsPerVehicle: 11, fieldDaysPerMonth: 0, reinforceUrgent: true,
+    excludedCommunes: [{ district: 'Betioky', commune: 'Vohimary' }, { district: 'betioky ', commune: 'VOHIMARY' }, { commune: '' }] });
+  assert.equal(c.strategy, 'capacite');
+  assert.equal(c.adjusted, true);              // capacité déclarée → intervalle ajusté du MMR
+  assert.equal(c.agentsPerVehicle, 4);         // hors bornes → défaut
+  assert.equal(c.fieldDaysPerMonth, 20);
+  assert.equal(c.excludedCommunes.length, 1);  // dédoublonné, vide ignoré
+  assert.equal(normalizeSettings({ strategy: 'autre' }).strategy, 'besoins');
 });
 
 test('siteRemaining : exigées − réalisées − prévues dans la période', () => {
   const r = siteRemaining({ required: 2, visits: [{ month: 2, status: 'planifie' }, { month: 5, status: 'realise' }] }, 4);
-  assert.equal(r.remaining, 1);     // 2 − 1 réalisée − 0 prévue dans la période (mois 2 < 4)
-  assert.equal(r.latePlanned, 1);   // la prévue de février
+  assert.equal(r.remaining, 1);
+  assert.equal(r.latePlanned, 1);
 });
 
-test('intervalle minimal respecté même sous capacité (jamais 2 visites adjacentes — cas A.BEDARO)', () => {
-  const FULL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-  const sites = Array.from({ length: 4 }, (_, i) => site({ id: `s${i}`, parametered: true, required: 2, mmrKey: 'k', commune: `C${i}` }));
-  // intervalle 5, capacité serrée (1/mois) → glissements, MAIS jamais sous l'intervalle.
-  const r = generatePlan(sites, { k: { interval: 5, feasible: 1 } }, {}, FULL, YEAR);
-  const bySite = {};
-  for (const a of r.assignments) (bySite[a.siteId] = bySite[a.siteId] || []).push(Number(a.month.slice(5, 7)));
-  for (const k of Object.keys(bySite)) {
-    const ms = bySite[k].sort((a, b) => a - b);
-    for (let i = 1; i < ms.length; i += 1) assert.ok(ms[i] - ms[i - 1] >= 5, `${k}: ${ms} — écart < intervalle`);
-  }
-});
-
-test('regroupement par commune + étalement par phase (pas de pic)', () => {
-  // 2 communes, intervalle 2 → phases 0 et 1 → une commune démarre jan, l'autre fév.
-  const sites = [
-    { id: 'a1', parametered: true, required: 1, mmrKey: 'k', commune: 'Alpha' },
-    { id: 'b1', parametered: true, required: 1, mmrKey: 'k', commune: 'Beta' },
-  ];
-  const r = generatePlan(sites, { k: { interval: 2, feasible: 100 } }, {}, H1, YEAR);
-  const m = Object.fromEntries(r.assignments.map((x) => [x.siteId, x.month]));
-  assert.notEqual(m.a1, m.b1); // communes étalées sur des mois différents
-});
-
-test('site MMR : exactement les visites exigées, espacées de l\'intervalle (pas tous les mois)', () => {
-  const r = generatePlan([site({ id: 'a', parametered: true, required: 2, mmrKey: 'k' })],
-    { k: { interval: 3, feasible: 100 } }, {}, H1, YEAR);
-  assert.deepEqual(r.assignments.map((x) => x.month), ['2026-01', '2026-04']); // 2 visites, pas 6
+test('site MMR : exactement les visites exigées, espacées de l\'intervalle', () => {
+  const r = generatePlan([site({ id: 'a', parametered: true, required: 2, mmrKey: 'k' })], { k: { interval: 3 } }, {}, H1, YEAR);
+  assert.deepEqual(monthsOf(r, 'a'), [1, 4]);
   assert.equal(r.summary.mmrDriven, 1);
 });
 
-test('intervalle ajusté (CO adjusted) utilisé quand demandé', () => {
+test('« capacité déclarée » : intervalle ajusté (CO adjusted) et faisable du MMR respecté', () => {
   const r = generatePlan([site({ id: 'a', parametered: true, required: 3, mmrKey: 'k' })],
-    { k: { interval: 1, adjustedInterval: 3, feasible: 100 } }, { adjusted: true }, H1, YEAR);
-  assert.deepEqual(r.assignments.map((x) => x.month), ['2026-01', '2026-04']); // pas 1 (intervalle ajusté 3)
+    { k: { interval: 1, adjustedInterval: 3, feasible: 100 } }, { strategy: 'capacite' }, H1, YEAR);
+  assert.deepEqual(monthsOf(r, 'a'), [1, 4]);
+  const sites = [1, 2, 3].map((i) => site({ id: `s${i}`, parametered: true, required: 1, mmrKey: 'k', riskLevel: 'elevee' }));
+  const c = generatePlan(sites, { k: { interval: 1, feasible: 1 } }, { strategy: 'capacite' }, H1, YEAR);
+  const byMonth = {};
+  for (const x of c.assignments) byMonth[x.month] = (byMonth[x.month] || 0) + 1;
+  assert.ok(Object.values(byMonth).every((n) => n <= 1));
+  assert.equal(c.assignments.length, 3);
+});
+
+test('selon les besoins : toutes les visites exigées, la capacité est comparée et signalée', () => {
+  const sites = Array.from({ length: 6 }, (_, i) => site({ id: `s${i}`, commune: 'Même', parametered: true, required: 1, mmrKey: 'k' }));
+  const r = generatePlan(sites, { k: { interval: 12, feasible: 2 } }, {}, [1], YEAR);
+  assert.equal(r.summary.planned, 6);                      // aucune visite écartée
+  assert.equal(r.summary.monthsOverCapacity, 1);           // 6 > faisable 2 : signalé
+  assert.equal(r.byActivity[0].perMonth[0].overCapacity, true);
+  const c = generatePlan(sites, { k: { interval: 12, feasible: 2 } }, { strategy: 'capacite' }, [1], YEAR);
+  assert.equal(c.summary.planned, 2);
+  assert.equal(c.summary.unplacedByReason.capacity, 4);
+});
+
+test('communes : les sites d\'une même commune partent dans la même tournée, toutes activités', () => {
+  const mmr = { K1: { interval: 4 }, K2: { interval: 4 } };
+  const sites = [
+    site({ id: 'd1', commune: 'Même', activity: 'A1', parametered: true, mmrKey: 'K1', required: 3 }),
+    site({ id: 'd2', commune: 'Même', activity: 'A2', parametered: true, mmrKey: 'K2', required: 3 }),
+    site({ id: 'e1', commune: 'Autre', activity: 'A1', parametered: true, mmrKey: 'K1', required: 3 }),
+  ];
+  const r = generatePlan(sites, mmr, {}, FULL, YEAR);
+  assert.deepEqual(monthsOf(r, 'd1'), monthsOf(r, 'd2'));
+  assert.equal(monthsOf(r, 'd1').length, 3);
+  // Le site le plus exigeant mène la tournée ; l'autre activité s'y joint quand son écart le permet.
+  const mixed = generatePlan([
+    site({ id: 'a', commune: 'X', activity: 'A1', parametered: true, mmrKey: 'K4', required: 3 }),
+    site({ id: 'b', commune: 'X', activity: 'A2', parametered: true, mmrKey: 'K6', required: 2 }),
+  ], { K4: { interval: 4 }, K6: { interval: 6 } }, {}, FULL, YEAR);
+  assert.deepEqual(monthsOf(mixed, 'a'), [1, 5, 9]);
+  assert.deepEqual(monthsOf(mixed, 'b'), [1, 9]);         // jamais un trajet de plus en juillet
+});
+
+test('clé de regroupement : commune dans son district (homonymes séparés), GPS en second', () => {
+  assert.notEqual(clusterKeyOf({ id: 'x', district: 'D1', commune: 'Ankily' }), clusterKeyOf({ id: 'y', district: 'D2', commune: 'Ankily' }));
+  assert.equal(clusterKeyOf({ id: 'x', district: 'D1', commune: 'ankily ' }), clusterKeyOf({ id: 'y', district: 'd1', commune: 'Ankily' }));
+  assert.equal(clusterKeyOf({ id: 'x', district: 'D', commune: '', gpsLat: -18.90, gpsLng: 47.52 }), clusterKeyOf({ id: 'y', district: 'D', gpsLat: -18.91, gpsLng: 47.53 }));
+  assert.match(clusterKeyOf({ id: 'z', district: 'D' }), /\|s:z$/);
+});
+
+test('ordre du RBM : la commune d\'un site urgent passe d\'abord, puis le score, puis jamais visité', () => {
+  const mmr = { k: { interval: 12, targetedPerMonth: 1 } };
+  const mk = (id, o = {}) => site({ id, parametered: true, required: 1, mmrKey: 'k', ...o });
+  const sites = [mk('z-calme', { lastVisitMonth: '2025-01' }), mk('a-score', { finalScore: 2, lastVisitMonth: '2025-01' }),
+    mk('m-urgent', { urgent: true, lastVisitMonth: '2025-01' }), mk('b-jamais')];
+  const r = generatePlan(sites, mmr, {}, [1, 2, 3, 4], YEAR);
+  const order = r.assignments.map((a) => `${a.siteId}:${a.month.slice(5)}`);
+  assert.deepEqual(order, ['m-urgent:01', 'a-score:02', 'b-jamais:03', 'z-calme:04']);
+});
+
+test('répartition : chaque mois reçoit au moins le plancher ciblé/mois, la charge est étalée', () => {
+  const sites = Array.from({ length: 12 }, (_, i) => site({ id: `s${String(i).padStart(2, '0')}`, parametered: true, required: 1, mmrKey: 'k' }));
+  const r = generatePlan(sites, { k: { interval: 12, targetedPerMonth: 3 } }, {}, [1, 2, 3, 4], YEAR);
+  assert.deepEqual(r.perMonth.map((m) => m.count), [3, 3, 3, 3]);
+  assert.equal(r.summary.monthsBelowTarget, 0);
+  // Plancher impossible à tenir (trop peu de sites) : manque signalé.
+  const few = generatePlan(sites.slice(0, 2), { k: { interval: 12, targetedPerMonth: 3 } }, {}, [1, 2], YEAR);
+  assert.ok(few.summary.monthsBelowTarget >= 1);
+  // Mois déjà chargé par des visites prévues : moins de nouvelles visites ce mois-là.
+  const pre = generatePlan([...sites.slice(0, 6), ...[0, 1, 2, 3].map((i) => site({ id: `old${i}`, parametered: true, required: 1, mmrKey: 'k', visits: [{ month: 1, status: 'planifie' }] }))],
+    { k: { interval: 12 } }, {}, [1, 2, 3, 4, 5], YEAR);
+  assert.equal(pre.perMonth[0].count, 0);
+});
+
+test('réalisée compte comme faite, et l\'intervalle part d\'elle', () => {
+  const r = generatePlan([site({ id: 'a', parametered: true, required: 3, mmrKey: 'k', visits: [{ month: 1, status: 'realise' }] })],
+    { k: { interval: 2 } }, {}, H1, YEAR);
+  assert.deepEqual(monthsOf(r, 'a'), [3, 5]);
 });
 
 test('catch-up : une prévue AVANT la période non réalisée est re-planifiée dans la période', () => {
-  // required 2, une visite prévue en février (avant la période avr→juin), non réalisée.
   const r = generatePlan([site({ id: 'a', parametered: true, required: 2, mmrKey: 'k', visits: [{ month: 2, status: 'planifie' }] })],
-    { k: { interval: 1, feasible: 100 } }, {}, [4, 5, 6], YEAR);
-  assert.equal(r.assignments.length, 2);               // les 2 exigées re-planifiées sur avr→juin
-  assert.ok(r.assignments.every((a) => Number(a.month.slice(5)) >= 4));
-  assert.equal(r.summary.latePlanned, 1);              // la prévue de février signalée
+    { k: { interval: 1 } }, {}, [4, 5, 6], YEAR);
+  assert.equal(r.assignments.length, 2);
+  assert.equal(r.summary.latePlanned, 1);
 });
 
-test('prévue DANS la période compte : reste diminué', () => {
-  const r = generatePlan([site({ id: 'a', parametered: true, required: 2, mmrKey: 'k', visits: [{ month: 5, status: 'planifie' }] })],
-    { k: { interval: 1, feasible: 100 } }, {}, [4, 5, 6], YEAR);
-  assert.equal(r.assignments.length, 1);               // 2 exigées − 1 déjà prévue dans la période
-});
-
-test('réalisée compte comme faite, départ cadencé après', () => {
-  const r = generatePlan([site({ id: 'a', parametered: true, required: 3, mmrKey: 'k', visits: [{ month: 1, status: 'realise' }] })],
-    { k: { interval: 2, feasible: 100 } }, {}, H1, YEAR);
-  // 1 faite → reste 2 ; départ = 1 + 2 = mois 3 → visites 3 et 5.
-  assert.deepEqual(r.assignments.map((x) => x.month), ['2026-03', '2026-05']);
-});
-
-test('zone interdite : jamais planifiée', () => {
-  const r = generatePlan([site({ id: 'f', forbidden: true, parametered: true, required: 5 })], {}, {}, H1, YEAR);
-  assert.equal(r.assignments.length, 0);
-  assert.equal(r.summary.forbidden, 1);
-});
-
-test('mois exclu / déjà visité / inactif sont sautés', () => {
-  const r = generatePlan([site({ id: 'a', parametered: true, required: 3, mmrKey: 'k', visits: [{ month: 2, status: 'realise' }], monthStatus: { 3: false } })],
-    { k: { interval: 1, feasible: 100 } }, { excludeMonths: ['2026-05'] }, H1, YEAR);
-  const nums = r.assignments.map((x) => Number(x.month.slice(5, 7)));
-  assert.ok(!nums.includes(2) && !nums.includes(3) && !nums.includes(5));
-});
-
-test('capacité mensuelle MMR (feasible) bornée', () => {
-  const sites = [1, 2, 3].map((i) => site({ id: `s${i}`, parametered: true, required: 1, mmrKey: 'k', riskLevel: 'elevee' }));
-  const r = generatePlan(sites, { k: { interval: 1, feasible: 1 } }, {}, H1, YEAR);
-  const byMonth = {};
-  for (const a of r.assignments) byMonth[a.month] = (byMonth[a.month] || 0) + 1;
-  assert.ok(Object.values(byMonth).every((n) => n <= 1));
-  assert.equal(r.assignments.length, 3);
-});
-
-test('capacité globale par mois : surplus glissé', () => {
-  const sites = [1, 2, 3].map((i) => site({ id: `s${i}`, parametered: true, required: 1, mmrKey: `k${i}`, riskLevel: 'elevee' }));
-  const r = generatePlan(sites, {}, { capacityPerMonth: 1 }, H1, YEAR);
-  const byMonth = {};
-  for (const a of r.assignments) byMonth[a.month] = (byMonth[a.month] || 0) + 1;
-  assert.ok(Object.values(byMonth).every((n) => n <= 1));
-});
-
-test('repli RBM pour un site AVEC activité sans paramètre MMR', () => {
-  const r = generatePlan([site({ id: 'b', parametered: false, riskLevel: 'faible', activity: 'Suivi' })], {}, {}, H1, YEAR);
-  assert.equal(r.assignments.length, 2); // faible = tous les 3 mois (RBM) → 1 et 4
-  assert.equal(r.summary.rbmFallback, 1);
-});
-
-test('site SANS activité ni MMR : jamais planifié (retour 82)', () => {
+test('zone interdite, sans activité, commune inaccessible : jamais planifiés, comptés à part', () => {
   const r = generatePlan([
-    site({ id: 'na', parametered: false, riskLevel: 'elevee' }),              // pas d'activité → ignoré
-    site({ id: 'ok', parametered: false, riskLevel: 'faible', activity: 'X' }),
-  ], {}, {}, H1, YEAR);
-  assert.ok(r.assignments.every((a) => a.siteId !== 'na'));
-  assert.equal(r.summary.noActivity, 1);
-  assert.equal(r.summary.sitesActivePlannable, 1);   // seul 'ok' est planifiable
+    site({ id: 'f', forbidden: true, parametered: true, required: 5, mmrKey: 'k' }),
+    site({ id: 'na', activity: null, riskLevel: 'elevee' }),
+    site({ id: 'acc', district: 'Betioky', commune: 'Vohimary', riskLevel: 'elevee' }),
+    site({ id: 'ok', riskLevel: 'elevee' }),
+  ], { k: { interval: 1 } }, { excludedCommunes: [{ district: 'betioky', commune: 'vohimary ' }] }, H1, YEAR);
+  assert.deepEqual([...new Set(r.assignments.map((a) => a.siteId))], ['ok']);
+  assert.deepEqual([r.summary.forbidden, r.summary.noActivity, r.summary.access, r.summary.sitesActivePlannable], [1, 1, 1, 1]);
 });
 
-test('résumé : couverture, mmrDriven, rbmFallback', () => {
-  const sites = [
-    site({ id: 'a', parametered: true, required: 2, mmrKey: 'k' }),
-    site({ id: 'b', parametered: false, riskLevel: 'elevee', activity: 'Suivi' }),
-    site({ id: 'c', forbidden: true }),
-  ];
-  const r = generatePlan(sites, { k: { interval: 2, feasible: 100 } }, {}, H1, YEAR);
-  assert.equal(r.summary.sitesConsidered, 3);
-  assert.equal(r.summary.forbidden, 1);
-  assert.equal(r.summary.sitesActivePlannable, 2);
-  assert.equal(r.summary.mmrDriven, 1);
-  assert.equal(r.summary.rbmFallback, 1);
-  assert.equal(r.summary.sitesCovered, 2);
-  assert.equal(r.summary.coverageRate, 100);
+test('repli RBM au risque du site (sans MMR) : faible tous les 3 mois, élevé tous les mois', () => {
+  const r = generatePlan([site({ id: 'b', riskLevel: 'faible' }), site({ id: 'e', riskLevel: 'elevee' })], {}, {}, FULL, YEAR);
+  assert.deepEqual(monthsOf(r, 'b'), [1, 4, 7, 10]);
+  assert.equal(monthsOf(r, 'e').length, 12);
+  assert.equal(r.summary.rbmFallback, 2);
 });
 
-test('byActivity : paramètres de base du MMR + résultat par activité', () => {
-  const sites = [
-    site({ id: 'a1', parametered: true, required: 2, mmrKey: 'k', activity: 'School meal activities', commune: 'Alpha' }),
-    site({ id: 'a2', parametered: true, required: 2, mmrKey: 'k', activity: 'School meal activities', commune: 'Beta' }),
-    site({ id: 'b1', parametered: false, riskLevel: 'faible', activity: 'Nutrition' }),
-  ];
-  const mmr = { k: { activity: 'School meal activities', riskLevel: 2, operationDuration: 12, numberOfSites: 50, frequency: 2, interval: 6, adjustedInterval: 6, targetedPerMonth: 8.3, feasible: 10 } };
-  const r = generatePlan(sites, mmr, {}, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], YEAR);
-  assert.ok(Array.isArray(r.byActivity));
-  const mmrLine = r.byActivity.find((x) => x.parametered);
-  assert.equal(mmrLine.activity, 'School meal activities');
-  assert.equal(mmrLine.mmr.interval, 6);
-  assert.equal(mmrLine.mmr.frequency, 2);
-  assert.equal(mmrLine.mmr.targetedPerMonth, 8.3);
-  assert.equal(mmrLine.mmr.feasible, 10);
-  assert.equal(mmrLine.stepUsed, 6);          // intervalle arrondi au supérieur
-  assert.equal(mmrLine.sites, 2);
-  assert.equal(mmrLine.planned, 4);           // 2 sites × 2 visites
-  const rbmLine = r.byActivity.find((x) => !x.parametered);
-  assert.equal(rbmLine.mmr, null);            // pas de MMR → paramètres nuls
-  assert.equal(rbmLine.activity, 'Nutrition');
+test('renfort (option) : un site urgent est visité au premier mois, sans attendre l\'intervalle', () => {
+  const s = site({ id: 'u', urgent: true, parametered: true, required: 1, mmrKey: 'k', lastVisitMonth: '2026-08' });
+  const mmr = { k: { interval: 6 } };
+  const without = generatePlan([s], mmr, {}, [10, 11, 12], YEAR);
+  assert.deepEqual(monthsOf(without, 'u'), []);                       // août + 6 → février
+  const withR = generatePlan([s], mmr, { reinforceUrgent: true }, [10, 11, 12], YEAR);
+  assert.deepEqual(withR.assignments.map((a) => [a.month, a.source]), [['2026-10', 'renfort']]);
+  assert.equal(withR.summary.renfort, 1);
+  // Déjà dû : la visite exigée sert de renfort (pas de visite en plus).
+  const due = generatePlan([{ ...s, lastVisitMonth: '2026-01' }], mmr, { reinforceUrgent: true }, [10, 11, 12], YEAR);
+  assert.deepEqual(due.assignments.map((a) => [a.month, a.source]), [['2026-10', 'mmr']]);
 });
 
-test('regroupement GPS : deux sites proches = même tournée (même mois)', () => {
-  // Deux sites de communes différentes mais GPS quasi identiques → même cellule → même tournée.
-  const sites = [
-    site({ id: 'g1', parametered: true, required: 1, mmrKey: 'k', commune: 'C1', gpsLat: -18.90, gpsLng: 47.52 }),
-    site({ id: 'g2', parametered: true, required: 1, mmrKey: 'k', commune: 'C2', gpsLat: -18.91, gpsLng: 47.53 }),
-    site({ id: 'far', parametered: true, required: 1, mmrKey: 'k', commune: 'C3', gpsLat: -22.00, gpsLng: 43.00 }),
-  ];
-  const r = generatePlan(sites, { k: { interval: 2, feasible: 100 } }, {}, H1, YEAR);
-  const m = Object.fromEntries(r.assignments.map((x) => [x.siteId, x.month]));
-  assert.equal(m.g1, m.g2);        // proches → même mois (même cellule GPS)
-  assert.notEqual(m.g1, m.far);    // loin → autre mois
+test('ressources : agents = ⌈journées ÷ jours ouvrés⌉, véhicules = Σ district ⌈agents ÷ agents par véhicule⌉', () => {
+  const seg = [{ from: `${YEAR}-01`, to: `${YEAR}-12`, providerId: 'T', providerName: 'TPM T' }];
+  // 30 sites dans 3 communes d'un district, 2 suivis/jour, 5 jours ouvrés : 15 journées → 3 agents.
+  const sites = Array.from({ length: 30 }, (_, i) => site({ id: `s${String(i).padStart(2, '0')}`, commune: `C${i % 3}`, parametered: true, required: 1, mmrKey: 'k', tpmSegments: seg }));
+  const mmr = { k: { interval: 1, visitsPerDay: 2, workingDays: 5, personsToDeploy: 2 } };
+  const r = generatePlan(sites, mmr, {}, [3], YEAR);
+  const mo = r.resources.months[0];
+  assert.equal(mo.agentDays, 15);
+  assert.equal(mo.agentsNeeded, 3);
+  assert.equal(mo.declared, 2);
+  assert.equal(mo.gap, 1);                                 // 1 agent de plus que déclaré : signalé
+  assert.equal(r.summary.agentsTotalPeak, 3);
+  assert.equal(r.summary.vehiclesPeak, 1);                 // 3 agents, 4 par véhicule
+  assert.equal(r.byTpm[0].tpm, 'TPM T');
+  assert.equal(r.byTpm[0].planned, 30);
+  // Chaque visite nouvelle a son créneau dans le mois : agent générique, jour de terrain, date.
+  for (const a of r.assignments) {
+    const slot = r.slots[`${a.siteId}|${a.month}`];
+    assert.ok(slot && slot.agent >= 1 && slot.agent <= 3 && slot.date.startsWith('2026-03'));
+  }
+  // Sans jours ouvrés au MMR : paramètre « jours de terrain » (20), signalé.
+  const r2 = generatePlan(sites, { k: { interval: 1, visitsPerDay: 2 } }, { fieldDaysPerMonth: 5, agentsPerVehicle: 2 }, [3], YEAR);
+  assert.equal(r2.resources.months[0].agentsNeeded, 3);
+  assert.equal(r2.byTpm[0].perMonth[0].workingDaysSource, 'parametre');
+  assert.equal(r2.summary.vehiclesPeak, 2);               // 3 agents, 2 par véhicule
 });
 
-test('GPS ignoré si useGps=false → regroupement par commune', () => {
-  const sites = [
-    site({ id: 'g1', parametered: true, required: 1, mmrKey: 'k', commune: 'C1', gpsLat: -18.90, gpsLng: 47.52 }),
-    site({ id: 'g2', parametered: true, required: 1, mmrKey: 'k', commune: 'C2', gpsLat: -18.91, gpsLng: 47.53 }),
-  ];
-  const r = generatePlan(sites, { k: { interval: 2, feasible: 100 } }, { useGps: false }, H1, YEAR);
-  const m = Object.fromEntries(r.assignments.map((x) => [x.siteId, x.month]));
-  assert.notEqual(m.g1, m.g2);     // communes différentes → mois différents
-});
-
-test('TPM : charge équilibrée entre les TPM + byTpm', () => {
-  // 2 TPM, 2 sites chacun, intervalle 1 (toutes les visites possibles). Chaque TPM doit
-  // voir ses visites réparties, pas toutes le même mois.
-  const seg = (name) => [{ from: `${YEAR}-01`, to: `${YEAR}-12`, providerId: name, providerName: name }];
-  const sites = [
-    site({ id: 'a1', parametered: true, required: 2, mmrKey: 'k', commune: 'A', tpmSegments: seg('TPM-1') }),
-    site({ id: 'a2', parametered: true, required: 2, mmrKey: 'k', commune: 'B', tpmSegments: seg('TPM-1') }),
-    site({ id: 'b1', parametered: true, required: 2, mmrKey: 'k', commune: 'C', tpmSegments: seg('TPM-2') }),
-  ];
-  const r = generatePlan(sites, { k: { interval: 2, feasible: 100 } }, {}, H1, YEAR);
-  assert.ok(Array.isArray(r.byTpm));
-  const t1 = r.byTpm.find((t) => t.tpm === 'TPM-1');
-  const t2 = r.byTpm.find((t) => t.tpm === 'TPM-2');
-  assert.ok(t1 && t2);
-  assert.equal(t1.sites, 2);
-  assert.equal(t1.planned, 4);       // 2 sites × 2 visites
-  assert.equal(t2.planned, 2);
-  // Les assignments portent le TPM.
-  assert.ok(r.assignments.every((x) => x.tpm === 'TPM-1' || x.tpm === 'TPM-2'));
-});
-
-test('TPM : plafond mensuel par TPM respecté (glissement)', () => {
-  const seg = [{ from: `${YEAR}-01`, to: `${YEAR}-12`, providerId: 'T', providerName: 'T' }];
-  const sites = [1, 2, 3].map((i) => site({ id: `s${i}`, parametered: true, required: 1, mmrKey: `k${i}`, commune: `C${i}`, tpmSegments: seg }));
-  const r = generatePlan(sites, {}, { tpmCapacityPerMonth: 1 }, H1, YEAR);
-  const t = r.byTpm.find((x) => x.tpm === 'T');
-  assert.ok(t.perMonth.every((m) => m.count <= 1));   // jamais 2 visites du même TPM le même mois
-  assert.equal(t.planned, 3);
-});
-
-test('risque élevé avec activité sans MMR : suit le RBM (tous les mois)', () => {
-  // Retour 82 : pour un site à risque élevé, on priorise le RBM (élevé = tous les mois).
-  const r = generatePlan([site({ id: 'e', parametered: false, riskLevel: 'elevee', activity: 'Suivi' })], {}, {}, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], YEAR);
-  assert.equal(r.assignments.length, 12); // RBM élevé = chaque mois
-});
-
-test('agents : effectif calculé depuis le quota journalier × jours ouvrés du MMR', () => {
-  // 6 sites, intervalle 1 (visite chaque mois), quota 2 visites/jour × 5 jours = 10 visites/agent/mois.
-  // 6 visites/mois → ⌈6/10⌉ = 1 agent. Avec 24 sites on aurait ⌈24/10⌉ = 3 agents.
-  const seg = [{ from: `${YEAR}-01`, to: `${YEAR}-12`, providerId: 'T', providerName: 'T' }];
-  const sites = Array.from({ length: 6 }, (_, i) => site({ id: `s${i}`, parametered: true, required: 1, mmrKey: 'k', commune: `C${i}`, activity: 'A', tpmSegments: seg }));
-  const mmr = { k: { activity: 'A', interval: 1, feasible: 100, visitsPerDay: 2, workingDays: 5 } };
-  const r = generatePlan(sites, mmr, {}, [1], YEAR); // un seul mois → 6 visites ce mois
-  const line = r.byActivity.find((a) => a.activity === 'A');
-  assert.equal(line.staffing.perAgentPerMonth, 10);     // 2 × 5
-  assert.equal(line.staffing.agentsPeak, 1);            // ⌈6/10⌉
-  const tpm = r.byTpm.find((t) => t.tpm === 'T');
-  assert.equal(tpm.agentsPeak, 1);
-  assert.equal(tpm.agentsKnown, true);
-  assert.equal(r.summary.activitiesNeedingQuota, 0);
-  // Sans quota renseigné : agents non calculables, activité signalée.
-  const r2 = generatePlan(sites, { k: { activity: 'A', interval: 1, feasible: 100 } }, {}, [1], YEAR);
-  assert.equal(r2.byActivity.find((a) => a.activity === 'A').staffing.agentsPeak, null);
-  assert.equal(r2.summary.agentsTotalPeak, null);
-  assert.ok(r2.summary.activitiesNeedingQuota >= 1);
-});
-
-test('coverAllOnce : chaque site couvert au moins une fois malgré la capacité', () => {
-  // 5 sites, capacité 1/mois (feasible 1) : sans coverAllOnce certains ne sont pas couverts ;
-  // avec, tous le sont (1er passage forcé).
-  const sites = Array.from({ length: 5 }, (_, i) => site({ id: `s${i}`, parametered: true, required: 2, mmrKey: 'k', commune: `C${i}`, activity: 'X' }));
-  const tight = { k: { interval: 1, feasible: 1 } };
-  const sans = generatePlan(sites, tight, {}, [1, 2, 3], YEAR);
-  assert.ok(sans.summary.sitesCovered < 5);                   // capacité serrée → pas tous couverts
-  const avec = generatePlan(sites, tight, { coverAllOnce: true }, [1, 2, 3], YEAR);
-  assert.equal(avec.summary.sitesCovered, 5);                 // tous couverts au moins une fois
+test('sans TPM dans la zone : « Bureau (suivi interne) », hors périmètre non planifié', () => {
+  const r = generatePlan([site({ id: 'a', riskLevel: 'elevee' }), site({ id: 'b', riskLevel: 'elevee', inScope: false })], {}, {}, [1], YEAR);
+  assert.deepEqual(r.byTpm.map((t) => [t.unitKey, t.assigned, t.planned]), [['bureau', false, 1]]);
+  assert.equal(r.summary.sitesConsidered, 1);
 });
 
 test('perMonth couvre toute la période ; plan vide sans erreur', () => {
-  const r = generatePlan([site({ id: 'a', parametered: true, required: 2, mmrKey: 'k' })], { k: { interval: 2, feasible: 9 } }, {}, H1, YEAR);
+  const r = generatePlan([site({ id: 'a', parametered: true, required: 2, mmrKey: 'k' })], { k: { interval: 2 } }, {}, H1, YEAR);
   assert.deepEqual(r.perMonth.map((m) => m.month), ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06']);
   assert.deepEqual(generatePlan([], {}, {}, [], YEAR).assignments, []);
   assert.equal(generatePlan([], {}, {}, H1, YEAR).summary.coverageRate, null);

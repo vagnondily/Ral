@@ -16,7 +16,7 @@ const { withTenantTransaction } = require('../../config/db');
 const { badRequest, conflict } = require('../../middleware/errors');
 const { currentMonth } = require('./rbmMath');
 const { lockVisitMonthsTx } = require('./visitLocks');
-const { generatePlan, firstPlannableMonth } = require('./planAuto');
+const { generatePlan, firstPlannableMonth, normalizeSettings } = require('./planAuto');
 const { fingerprintInputs, changedSections } = require('./planFingerprint');
 const repo = require('./planAuto.repository');
 
@@ -43,17 +43,31 @@ function effectivePeriod(body, now) {
   return { year, months, open, past: months.filter((m) => m < first) };
 }
 
+/** Périmètre normalisé (bureau, activité, district, risque) : il fait partie de l'empreinte. */
+function scopeOf(body) {
+  const sc = body.scope || {};
+  return {
+    fieldOfficeId: sc.fieldOfficeId || null,
+    activity: sc.activity ? String(sc.activity).trim() : null,
+    district: sc.district ? String(sc.district).trim() : null,
+    risk: body.risk || sc.risk || null,
+  };
+}
+
 /** Entrées + plan + empreinte, sur le client de l'appelant. */
 async function computeTx(client, tenantId, body, now) {
   const { year, months } = effectivePeriod(body, now);
-  const adjusted = Boolean(body.adjusted);
-  const inputs = await repo.loadInputsTx(client, tenantId, { year, adjusted, scope: { risk: body.risk || null } });
-  const plan = generatePlan(inputs.sites, inputs.mmrByKey, { ...(body.settings || {}), adjusted }, months, year,
+  const settings = normalizeSettings(body.settings || {});
+  const scope = scopeOf(body);
+  // « Limiter à la capacité déclarée » : exigences et intervalle AJUSTÉS du MMR (CO adjusted).
+  const inputs = await repo.loadInputsTx(client, tenantId, { year, adjusted: settings.adjusted, scope });
+  const plan = generatePlan(inputs.sites, inputs.mmrByKey, settings, months, year,
     { yearHasGrid: inputs.yearHasGrid, fromMonth: now });
+  const writeSchedule = Boolean(body.settings && body.settings.writeSchedule);
   const fp = fingerprintInputs(inputs, {
-    year, requested: months, months: plan.months, fromMonth: now, settings: plan.settings, risk: body.risk || null,
+    year, requested: months, months: plan.months, fromMonth: now, settings: plan.settings, scope, writeSchedule,
   });
-  return { inputs, plan, fp, year };
+  return { inputs, plan, fp, year, writeSchedule };
 }
 
 function labelsOf(inputs) {
@@ -61,17 +75,22 @@ function labelsOf(inputs) {
 }
 
 /** Réponse de l'aperçu : totaux, répartitions et échantillons (jamais tout le plan). */
-function previewView({ inputs, plan, fp, year }) {
+function previewView({ inputs, plan, fp, year, writeSchedule }) {
   const label = labelsOf(inputs);
-  const { assignments, uncovered, ...rest } = plan;
+  const { assignments, uncovered, slots, ...rest } = plan;
   return {
     ...rest,
+    writeSchedule,
     period: {
       from: plan.months.length ? ym(year, plan.months[0]) : null,
       to: plan.months.length ? ym(year, plan.months[plan.months.length - 1]) : null,
       pastMonths: plan.pastMonths,               // mois demandés mais échus : jamais planifiés
     },
-    sample: assignments.slice(0, SAMPLE_SIZE).map((a) => ({ ...a, ...(label.get(a.siteId) || {}) })),
+    // Échantillon : chaque visite avec son créneau (agent générique, jour de terrain, date).
+    sample: assignments.slice(0, SAMPLE_SIZE).map((a) => {
+      const slot = slots[`${a.siteId}|${a.month}`] || null;
+      return { ...a, ...(label.get(a.siteId) || {}), agent: slot ? `Agent ${slot.agent}` : null, date: slot ? slot.date : null, tour: slot ? slot.tour : null };
+    }),
     sampleTotal: assignments.length,
     uncovered: uncovered.slice(0, UNCOVERED_SAMPLE).map((u) => ({ ...u, ...(label.get(u.siteId) || {}) })),
     uncoveredTotal: uncovered.length,
@@ -104,11 +123,20 @@ async function apply(tenantId, userId, body, { now = currentMonth() } = {}) {
       throw conflict('Les données ont changé depuis l\'aperçu : relancez l\'aperçu avant d\'appliquer.',
         { code: 'plan_inputs_changed', sections: sections.length ? sections : ['parametres'] });
     }
-    const res = await repo.insertVisitsTx(client, tenantId, userId, plan.assignments);
+    // Option « Écrire les dates et les agents » : chaque visite reçoit le jour de terrain de son
+    // créneau et un rôle générique (« Agent N ») ; sinon le mois seul (dates et agents à saisir).
+    const toWrite = computed.writeSchedule
+      ? plan.assignments.map((a) => {
+        const slot = plan.slots[`${a.siteId}|${a.month}`];
+        return slot ? { ...a, date: slot.date, agent: `Agent ${slot.agent}` } : a;
+      })
+      : plan.assignments;
+    const res = await repo.insertVisitsTx(client, tenantId, userId, toWrite);
     return {
       created: res.created,
       planned: plan.assignments.length,
       skipped: res.skipped,
+      writeSchedule: computed.writeSchedule,
       summary: plan.summary,
       perMonth: plan.perMonth,
       pastMonths: plan.pastMonths,

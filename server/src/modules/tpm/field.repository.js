@@ -1144,8 +1144,9 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
     const status = currentStatus(s.monthStatus);
     return {
       id: s.id, code: s.code, publicId: s.publicId, locationId: s.locationId, name: s.name, region: s.adm1, district: s.district, commune: s.commune,
-      activity: s.activity, bureau: s.subOfficeName || s.antenneName || null, fieldOfficeId: s.fieldOfficeId, mmrKey: mmrKeyOf(mmrRow),
-      riskLevel: s.riskLevel, priority: score.priorityLabel, finalScore: score.finalScore,
+      activity: s.activity, bureau: s.subOfficeName || s.antenneName || null, fieldOfficeId: s.fieldOfficeId, parentOfficeId: s.parentOfficeId || null,
+      mmrKey: mmrKeyOf(mmrRow),
+      riskLevel: s.riskLevel, priority: score.priorityLabel, finalScore: score.finalScore, urgent: Boolean(score.urgentFlags),
       forbidden: Number(s.security) >= 99,
       status, inactive: status === 'Inactive' || (yearHasGrid && !status), monthStatus: s.monthStatus || {},
       lastVisitMonth: s.lastVisitMonth, lastVisitSource: s.lastVisitSource, nextPlannedMonth: s.nextPlannedMonth,
