@@ -66,6 +66,17 @@ test('collectionDays = dated visits + manual travel days, per provider', () => {
   assert.equal(p2.totalDays, 1);
 });
 
+test('collectionDays : les visites d\'un même agent le même jour font UNE journée (comme les journées-agent du plan)', () => {
+  // Plan écrit avec « Écrire les dates et les agents » : 4 sites d'une commune le même jour par Agent 1.
+  const day = (agent, date, n) => Array.from({ length: n }, () => ({ providerId: 'p1', status: 'planifie', visitDate: date, agent }));
+  const visits = [...day('Agent 1', '2026-11-02', 4), ...day('Agent 2', '2026-11-02', 4), ...day('agent 1 ', '2026-11-03', 2),
+    { providerId: 'p1', status: 'realise', visitDate: '2026-11-04', agent: null },   // sans agent : une journée
+    { providerId: 'p1', status: 'realise', visitDate: '2026-11-04', agent: null },
+    { providerId: 'p1', status: 'annule', visitDate: '2026-11-05', agent: 'Agent 1' }];
+  const [p1] = collectionDays(visits, {}, { p1: 'YPA' });
+  assert.equal(p1.visitDays, 5);      // A1·02, A2·02, A1·03 + 2 visites sans agent
+});
+
 const { buildCoverageMatrix, coverageRate } = require('../src/modules/tpm/fieldMath');
 
 test('coverageRate excludes cancelled from the denominator and is null when empty', () => {

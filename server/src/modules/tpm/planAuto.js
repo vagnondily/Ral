@@ -215,13 +215,18 @@ function clusterKeyOf(s) {
   return `${d}|s:${s.id}`;
 }
 
-/** TPM de la zone d'un site au mois `m` (segments du Plan de suivi). */
+/**
+ * Unité de suivi d'un site au mois `m` : le TPM de sa zone (segments du Plan de suivi), sinon le
+ * BUREAU en suivi interne — son bureau racine (l'équipe d'un bureau suit les sites de toutes ses
+ * antennes), jamais un « bureau » unique pour tout le compte.
+ */
 function tpmAt(s, year, m) {
   const mm = ym(year, m);
   const seg = (s.tpmSegments || []).find((x) => x && x.from <= mm && mm <= x.to);
   const id = seg && seg.providerId ? String(seg.providerId) : null;
   const name = seg && seg.providerName ? String(seg.providerName) : null;
-  return { key: id ? `id:${id}` : (name ? `nm:${name}` : 'bureau'), name: name || null, assigned: Boolean(id || name) };
+  if (id || name) return { key: id ? `id:${id}` : `nm:${name}`, name: name || null, assigned: true, officeName: null };
+  return { key: `bureau:${s.unitOfficeId || 'none'}`, name: null, assigned: false, officeName: s.unitOfficeName || null };
 }
 
 /** Plan. @param {number} year année de l'exercice. */
@@ -349,7 +354,7 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
     const tp = tpmAt(st.s, year, m);
     assignments.push({
       siteId: st.s.id, month: ym(year, m), monthNum: m, activity: st.s.activity || null, riskLevel: st.s.riskLevel || null,
-      source: regular ? (st.driven ? 'mmr' : 'rbm') : 'renfort', tpm: tp.name, district: st.s.district || null, commune: st.s.commune || null,
+      source: regular ? (st.driven ? 'mmr' : 'rbm') : 'renfort', tpm: tp.name, office: tp.officeName, district: st.s.district || null, commune: st.s.commune || null,
     });
   };
   const hasRoom = (st, m) => {
@@ -519,20 +524,34 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
 
   // ---- Ressources nécessaires (planResources : une seule règle d'agents et de véhicules) ------
   const toDo = [];
-  const pushVisit = (s, m, isNew) => {
+  // Même clé de regroupement que les tournées du moteur (commune de son district, GPS en second) ;
+  // une visite existante déjà datée et affectée (« Agent N ») garde son créneau, réservé.
+  const placeKeys = new Map();   // site → { district, cluster } : calculés une fois par site
+  const pushVisit = (s, m, isNew, v = null) => {
     const key = groupKeyOf(s); const c = mmrByKey[key] || {}; const tp = tpmAt(s, year, m);
+    if (!placeKeys.has(s.id)) placeKeys.set(s.id, { districtKey: norm(s.district), clusterKey: clusterKeyOf(s) });
+    const pk = placeKeys.get(s.id);
     toDo.push({
-      siteId: s.id, month: ym(year, m), unitKey: tp.key, unitName: tp.name, assigned: tp.assigned,
-      district: s.district || null, commune: s.commune || null, activityKey: key,
-      visitsPerDay: c.visitsPerDay, workingDays: c.workingDays, isNew,
+      siteId: s.id, month: ym(year, m), unitKey: tp.key, unitName: tp.name, officeName: tp.officeName, assigned: tp.assigned,
+      district: s.district || null, commune: s.commune || null, districtKey: pk.districtKey, clusterKey: pk.clusterKey,
+      activityKey: key, visitsPerDay: c.visitsPerDay, workingDays: c.workingDays, isNew,
+      date: v && v.date ? String(v.date) : null, agent: v && v.agent ? String(v.agent) : null,
     });
   };
-  for (const s of all) for (const v of s.visits || []) if (v.status === 'planifie' && periodSet.has(Number(v.month))) pushVisit(s, Number(v.month), false);
+  for (const s of all) {
+    for (const v of s.visits || []) {
+      if (!periodSet.has(Number(v.month))) continue;
+      if (v.status === 'planifie') pushVisit(s, Number(v.month), false, v);
+      // Une visite réalisée datée et affectée garde son créneau (jamais réattribué), sans être à faire.
+      else if (v.status === 'realise' && v.date && v.agent) { pushVisit(s, Number(v.month), false, v); toDo[toDo.length - 1].reserveOnly = true; }
+    }
+  }
   const byId = new Map(all.map((s) => [s.id, s]));
   for (const a of assignments) pushVisit(byId.get(a.siteId), a.monthNum, true);
   const declared = {};
   for (const [k, c] of Object.entries(mmrByKey)) if (Number(c.personsToDeploy) > 0) declared[k] = Number(c.personsToDeploy);
-  const resources = planResources(toDo, { agentsPerVehicle: cfg.agentsPerVehicle, fieldDaysPerMonth: cfg.fieldDaysPerMonth, declared });
+  // Le mois en cours ne compte que ses jours de terrain restants (jamais une date passée).
+  const resources = planResources(toDo, { agentsPerVehicle: cfg.agentsPerVehicle, fieldDaysPerMonth: cfg.fieldDaysPerMonth, declared, today: opts.today || null });
 
   // ---- Par activité (ligne MMR, ou repli RBM par risque) -------------------------------------
   const groups = new Map();
@@ -615,15 +634,11 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
     || (b.planned - a.planned));
 
   // ---- Par unité (TPM de la zone, ou bureau) : charge et ressources --------------------------
-  const sitesByUnit = new Map();
-  for (const a of assignments) {
-    const k = tpmAt(byId.get(a.siteId), year, a.monthNum).key;
-    if (!sitesByUnit.has(k)) sitesByUnit.set(k, new Set());
-    sitesByUnit.get(k).add(a.siteId);
-  }
+  // Sites = sites de l'unité avec une visite à faire dans la période (prévue ou nouvelle), comme
+  // « Visites » ; sitesNew = ceux qui reçoivent une visite nouvelle.
   const byTpm = resources.units.map((u) => ({
-    unitKey: u.unitKey, tpm: u.name, assigned: u.assigned,
-    sites: (sitesByUnit.get(u.unitKey) || new Set()).size,
+    unitKey: u.unitKey, tpm: u.name, officeName: u.officeName || null, assigned: u.assigned,
+    sites: u.sites, sitesNew: u.newSites,
     planned: u.newVisits, visits: u.visits, agentDays: u.agentDays,
     perMonth: period.map((m) => {
       const r = u.months.find((x) => x.month === ym(year, m));
@@ -631,6 +646,7 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
         month: ym(year, m), count: r ? r.newVisits : 0, visits: r ? r.visits : 0, agentDays: r ? r.agentDays : 0,
         agents: r ? r.agentsNeeded : 0, vehiclesPeak: r ? r.vehiclesPeak : 0, vehiclesAvg: r ? r.vehiclesAvg : 0,
         workingDays: r ? r.workingDays : null, workingDaysSource: r ? r.workingDaysSource : null,
+        firstFieldDate: r ? r.firstFieldDate : null, reservedSlots: r ? r.reservedSlots : 0,
       };
     }),
     agentsPeak: u.agentsPeak, agentsAvg: u.agentsAvg, vehiclesPeak: u.vehiclesPeak,

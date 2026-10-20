@@ -18,6 +18,7 @@ const { activeMonthSql } = require('../common/siteActivity');
 // Retour 58 : toute écriture de visites finit par restampVisitsTx.
 const { restampVisitsTx, AUTO_RESTAMPABLE_SQL } = require('./tpmAttribution.repository');
 const { lockKeysTx } = require('./visitLocks');
+const { officeScopeIds, rootOfficeOf } = require('../common/officeScope');
 
 /** Clé des écrivains de la planification automatique (prise AVANT les verrous des mois). */
 const PLAN_AUTO_KEY = (tenantId) => `plan-auto:${tenantId}`;
@@ -73,6 +74,13 @@ async function lockPlanSitesTx(client, tenantId, siteIds = []) {
   return new Set(rows.map((r) => r.id));
 }
 
+/** Bureaux du compte (périmètre « bureau et toutes ses antennes », équipe du suivi interne). */
+async function officesTx(client, tenantId) {
+  const { rows } = await client.query(
+    'SELECT id, parent_id AS "parentId", name, national FROM field_offices WHERE tenant_id = $1 ORDER BY id', [tenantId]);
+  return rows;
+}
+
 /** Lignes MMR du compte (pour l'intervalle et la capacité par activité). */
 async function mmrRowsTx(client, tenantId) {
   const { rows } = await client.query(
@@ -98,6 +106,7 @@ async function mmrRowsTx(client, tenantId) {
 async function loadInputsTx(client, tenantId, { year, adjusted = false, scope = {} } = {}) {
   const board = await field.planBoardWithTpmTx(client, tenantId, { year, adjusted });
   const adjacent = await adjacentVisitsTx(client, tenantId, year);
+  const offices = await officesTx(client, tenantId);
   // Intervalle + capacité mensuelle par ligne MMR (même clé que les sites du board).
   const mmrByKey = {};
   for (const r of await mmrRowsTx(client, tenantId)) {
@@ -125,11 +134,12 @@ async function loadInputsTx(client, tenantId, { year, adjusted = false, scope = 
     };
   }
   const risk = scope.risk || null;
-  const office = scope.fieldOfficeId || null;
+  // Bureau : lui et TOUTES ses antennes, à tous les niveaux ; bureau national = tout le registre.
+  const officeIds = officeScopeIds(offices, scope.fieldOfficeId || null);
   const activity = scope.activity ? String(scope.activity).trim().toLowerCase() : null;
   const district = scope.district ? String(scope.district).trim().toLowerCase() : null;
   const inScope = (s) => (!risk || s.riskLevel === risk)
-    && (!office || s.fieldOfficeId === office || s.parentOfficeId === office)
+    && (!officeIds || officeIds.has(s.fieldOfficeId))
     && (!activity || String(s.activity || '').trim().toLowerCase() === activity)
     && (!district || String(s.district || '').trim().toLowerCase() === district);
   const sites = (board.sites || []).map((s) => ({
@@ -143,6 +153,8 @@ async function loadInputsTx(client, tenantId, { year, adjusted = false, scope = 
     urgent: Boolean(s.urgent),
     finalScore: Number(s.finalScore) || 0,
     fieldOfficeId: s.fieldOfficeId || null,
+    // Suivi interne (zone sans TPM) : l'équipe du bureau racine du site (antennes comprises).
+    ...(() => { const r = rootOfficeOf(offices, s.fieldOfficeId || null); return { unitOfficeId: r ? r.id : null, unitOfficeName: r ? r.name : null }; })(),
     inScope: inScope(s),
     forbidden: Boolean(s.forbidden),
     inactive: Boolean(s.inactive),
@@ -163,8 +175,9 @@ async function loadInputsTx(client, tenantId, { year, adjusted = false, scope = 
     // Visites de l'exercice (prévues / réalisées), avec leur mois et statut : le moteur
     // recalcule le reste à planifier (une prévue d'un mois échu, jamais faite, redevient à
     // planifier ; une prévue à venir, dans la période ou non, compte).
+    // Date et agent déjà écrits : leurs créneaux (agent × jour) sont réservés, jamais réattribués.
     visits: (s.months || [])
-      .map((m) => ({ month: Number(m.month), status: m.status }))
+      .map((m) => ({ month: Number(m.month), status: m.status, date: m.date || null, agent: m.agent || null }))
       .filter((m) => m.month >= 1 && m.month <= 12),
     // Mois d'une visite ANNULÉE : jamais repris par le plan (une annulation est une décision).
     cancelledMonths: (s.cancelledMonths || []).map(Number).filter((m) => m >= 1 && m <= 12),
@@ -245,6 +258,8 @@ const CLEARABLE_SQL = `v.provider_source = 'zone' AND ${AUTO_RESTAMPABLE_SQL}
  * @param {number} year  exercice ; from/to = numéros de mois (1..12).
  */
 async function clearPlannedTx(client, tenantId, { year, from, to, risk, scope = {} } = {}) {
+  // Même périmètre que la planification : le bureau et TOUTES ses antennes (bureau national = tout).
+  const officeIds = scope.fieldOfficeId ? officeScopeIds(await officesTx(client, tenantId), scope.fieldOfficeId) : null;
   const fromD = `${year}-${String(from).padStart(2, '0')}-01`;
   const toD = `${year}-${String(to).padStart(2, '0')}-01`;
   const params = [tenantId, fromD, toD];
@@ -252,10 +267,7 @@ async function clearPlannedTx(client, tenantId, { year, from, to, risk, scope = 
   const add = (v, sql) => { params.push(v); conds.push(sql(`$${params.length}`)); };
   const r = risk || scope.risk || null;
   if (r) add(r, (p) => `s.risk_level = ${p}`);
-  if (scope.fieldOfficeId) {
-    add(scope.fieldOfficeId, (p) => `(s.field_office_id = ${p}::uuid OR s.field_office_id IN
-      (SELECT o.id FROM field_offices o WHERE o.tenant_id = $1 AND o.parent_id = ${p}::uuid))`);
-  }
+  if (officeIds) add([...officeIds], (p) => `s.field_office_id = ANY(${p}::uuid[])`);
   if (scope.activity) add(String(scope.activity), (p) => `lower(btrim(s.activity)) = lower(btrim(${p}::text))`);
   if (scope.district) add(String(scope.district), (p) => `lower(btrim(s.district)) = lower(btrim(${p}::text))`);
   const siteFilter = conds.length
@@ -268,6 +280,6 @@ async function clearPlannedTx(client, tenantId, { year, from, to, risk, scope = 
 }
 
 module.exports = {
-  lockPlanAutoTx, lockPlanSitesTx, mmrRowsTx, loadInputsTx, adjacentVisitsTx, insertVisitsTx, clearPlannedTx, windowMonths,
+  lockPlanAutoTx, lockPlanSitesTx, officesTx, mmrRowsTx, loadInputsTx, adjacentVisitsTx, insertVisitsTx, clearPlannedTx, windowMonths,
   CLEARABLE_SQL, PLAN_AUTO_KEY, ADJACENT_YEARS,
 };

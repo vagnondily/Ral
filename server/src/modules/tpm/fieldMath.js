@@ -168,19 +168,25 @@ function shapeCoverageFacts(groupRows) {
 }
 
 /**
- * Jours de collecte par prestataire = nombre de visites datées (non annulées)
- * + jours de déplacement (majoration manuelle). `visits` carry providerId,
- * status and visitDate; `travelByProvider` maps providerId → travel days;
- * `providerLabel` maps providerId → name.
- *   jours de visite = compte des visites avec une date, status ≠ annule
- *   total          = jours de visite + jours de déplacement
+ * Jours de collecte par prestataire = journées de visite (non annulées) + jours de déplacement
+ * (majoration manuelle). `visits` carry providerId, status, visitDate and agent; `travelByProvider`
+ * maps providerId → travel days; `providerLabel` maps providerId → name.
+ *   journée de visite = une date d'un AGENT : les visites d'un même agent le même jour (une commune
+ *     de la tournée, plusieurs sites — plan généré avec « Écrire les dates et les agents ») font UNE
+ *     journée, la même mesure que les journées-agent du plan ; une visite datée sans agent compte
+ *     une journée à elle seule (comme avant) ;
+ *   total = journées de visite + jours de déplacement
  */
 function collectionDays(visits, travelByProvider = {}, providerLabel = {}) {
   const byProv = new Map();
-  const bump = (id) => { if (!byProv.has(id)) byProv.set(id, { visitDays: 0 }); return byProv.get(id); };
+  const bump = (id) => { if (!byProv.has(id)) byProv.set(id, { visitDays: 0, cells: new Set() }); return byProv.get(id); };
   for (const v of visits || []) {
     if (!v.providerId || v.status === 'annule' || !v.visitDate) continue;
-    bump(v.providerId).visitDays += 1;
+    const p = bump(v.providerId);
+    const agent = String(v.agent == null ? '' : v.agent).trim().toLowerCase();
+    if (!agent) { p.visitDays += 1; continue; }
+    const cell = `${agent}|${String(v.visitDate).slice(0, 10)}`;
+    if (!p.cells.has(cell)) { p.cells.add(cell); p.visitDays += 1; }
   }
   // Include providers that only have travel days entered.
   for (const id of Object.keys(travelByProvider)) if (!byProv.has(id)) bump(id);

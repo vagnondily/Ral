@@ -104,3 +104,70 @@ test('agents : le plus petit effectif qui tient dans le mois (dichotomie), visit
   assert.ok(Date.now() - t0 < 2000);
   assert.deepEqual(scheduleUnit([], 10), { agents: 0, agentDays: 0, assign: [] });
 });
+
+test('mois en cours : seulement les jours de terrain restants (jamais une date passée), effectif dimensionné dessus', () => {
+  const { usableDays } = require('../src/modules/tpm/planResources');
+  // 20 octobre 2026 (mardi) : restent 20, 21, 22, 23, 26, 27, 28, 29, 30 → 9 jours de terrain.
+  assert.deepEqual(usableDays(2026, 10, 20, '2026-10-20'), [20, 21, 22, 23, 26, 27, 28, 29, 30]);
+  assert.equal(usableDays(2026, 11, 20, '2026-10-20').length, 21);   // un autre mois : entier
+  assert.deepEqual(usableDays(2026, 10, 20, '2026-10-31'), [31]);     // samedi 31 : au moins aujourd'hui
+  const visits = Array.from({ length: 40 }, (_, i) => v({ id: `o${i}`, month: '2026-10', commune: `C${i}`, visitsPerDay: 1, workingDays: 20 }));
+  const r = planResources(visits, { today: '2026-10-20' });
+  assert.equal(r.months[0].agentsNeeded, 5);                          // ⌈40 ÷ 9⌉, pas ⌈40 ÷ 20⌉ = 2
+  assert.equal(r.units[0].months[0].workingDays, 9);
+  assert.ok(Object.values(r.slots).every((s) => s.date >= '2026-10-20' && s.date <= '2026-10-30'), 'aucune date passée');
+  // Sans jour courant (ou un mois à venir) : le mois entier.
+  assert.equal(planResources(visits).months[0].agentsNeeded, 2);
+});
+
+test('créneaux déjà écrits (« Agent N » daté) réservés : un nouvel agent n\'est jamais à deux endroits le même jour', () => {
+  // 1ᵉʳ passage écrit : Agent 1 et Agent 2 dans le district A, du 1ᵉʳ au 14 janvier 2027 (28 communes).
+  const days = [];
+  for (let d = 1; d <= 31; d += 1) { const wd = new Date(Date.UTC(2027, 0, d)).getUTCDay(); if (wd >= 1 && wd <= 5) days.push(d); }
+  const fixed = Array.from({ length: 20 }, (_, i) => v({ id: `A${i}`, month: '2027-01', district: 'A', commune: `A${i}`, visitsPerDay: 1, workingDays: 20,
+    isNew: false, agent: `Agent ${1 + (i % 2)}`, date: `2027-01-${String(days[Math.floor(i / 2)]).padStart(2, '0')}` }));
+  const fresh = Array.from({ length: 20 }, (_, i) => v({ id: `B${i}`, month: '2027-01', district: 'B', commune: `B${i}`, visitsPerDay: 1, workingDays: 20 }));
+  const r = planResources([...fixed, ...fresh]);
+  const cells = new Map();
+  for (const f of fixed) cells.set(`${f.agent.slice(6)}|${f.date}`, f.commune);
+  for (const x of fresh) {
+    const s = r.slots[`${x.siteId}|2027-01`];
+    const k = `${s.agent}|${s.date}`;
+    assert.ok(!cells.has(k), `créneau ${k} déjà pris par ${cells.get(k)}`);
+    cells.set(k, x.commune);
+  }
+  assert.equal(r.months[0].agentsNeeded, 2);   // les 6 jours libres des deux agents puis un 3ᵉ… : 20 + 20 journées ≤ 2 × 20
+  assert.equal(r.months[0].agentDays, 40);
+  assert.equal(r.units[0].months[0].reservedSlots, 20);
+});
+
+test('regroupement des ressources = celui du moteur : casse et espaces ignorés, cellules GPS séparées', () => {
+  const same = [v({ id: 'x1', district: 'Ambovombe', commune: 'Androy', visitsPerDay: 4, clusterKey: 'ambovombe|c:androy', districtKey: 'ambovombe' }),
+    v({ id: 'x2', district: 'AMBOVOMBE ', commune: 'ANDROY ', visitsPerDay: 4, clusterKey: 'ambovombe|c:androy', districtKey: 'ambovombe' })];
+  const r = planResources(same, { agentsPerVehicle: 1 });
+  assert.equal(r.months[0].agentDays, 1);          // une tournée, une journée
+  assert.equal(r.months[0].zones.length, 1);       // un district
+  assert.equal(r.months[0].vehiclesPeak, 1);
+  // Sans commune : deux cellules GPS distinctes = deux journées, jamais une journée « commune vide ».
+  const gps = [v({ id: 'g1', commune: null, visitsPerDay: 4, clusterKey: 'd1|g:-189:475' }), v({ id: 'g2', commune: null, visitsPerDay: 4, clusterKey: 'd1|g:-201:470' })];
+  assert.equal(planResources(gps).months[0].agentDays, 2);
+});
+
+test('borne basse des agents : une visite plus longue que le mois prend un agent, les autres journées se partagent le reste', () => {
+  const { scheduleUnit } = require('../src/modules/tpm/planResources');
+  const r = scheduleUnit([2, 1, 5, 2].map((span) => ({ span })), 3);
+  assert.equal(r.agents, 3);                       // 1 agent pour la visite de 5 jours + ⌈5 ÷ 3⌉ = 2
+  assert.ok(r.assign.every((x) => x.fieldDay + x.item.span - 1 <= Math.max(3, x.item.span)));
+  // Véhicules : un agent compté une fois par jour, même quand sa visite dépasse le mois.
+  const long = planResources([v({ id: 'L', visitsPerDay: 0.2, workingDays: 3 })], { agentsPerVehicle: 1 });
+  assert.equal(long.months[0].vehiclesPeak, 1);
+  assert.equal(long.months[0].agentsNeeded, 1);
+});
+
+test('agents : tas « agent libre le plus tôt » — 6 000 journées d\'une unité en un instant', () => {
+  const { scheduleUnit } = require('../src/modules/tpm/planResources');
+  const t0 = Date.now();
+  const r = scheduleUnit(Array.from({ length: 6000 }, () => ({ span: 1 })), 20);
+  assert.equal(r.agents, 300);
+  assert.ok(Date.now() - t0 < 1000, `${Date.now() - t0} ms`);
+});

@@ -25,13 +25,35 @@
  *     n'ajouterait rien ;
  *  6. comptes cohérents : résumé, répartition mensuelle, par activité et par unité = affectations ;
  *     couverts + non couverts = sites planifiables, chaque non couvert avec une raison connue ;
- *     chaque visite nouvelle a son créneau (agent, jour, date du mois).
+ *     chaque visite nouvelle a son créneau (agent, jour, date du mois, jamais avant aujourd'hui) ;
+ *  7. créneaux : dans une unité de suivi (TPM de la zone, sinon le bureau du site), un agent un jour
+ *     donné est dans UNE commune (tournée), et jamais sur un créneau déjà écrit (« Agent N » daté
+ *     d'une visite existante).
  */
 const RBM_STEP = { elevee: 1, moyenne: 2, faible: 3 };
 const REASON_CODES = new Set(['capacity', 'inactive', 'cancelled', 'gap', 'period']);
 const EPS = 1e-9;
 
 const mi = (y, m) => Number(y) * 12 + Number(m) - 1;
+const p2 = (n) => String(n).padStart(2, '0');
+/** Unité de suivi : TPM du segment de zone du mois, sinon le bureau (racine) du site. */
+function unitOfSite(s, year, m) {
+  const mm = `${year}-${p2(m)}`;
+  const seg = (s.tpmSegments || []).find((g) => g && g.from <= mm && mm <= g.to && (g.providerId || g.providerName));
+  if (seg) return seg.providerId ? `id:${seg.providerId}` : `nm:${seg.providerName}`;
+  return `bureau:${s.unitOfficeId || 'none'}`;
+}
+/** Tournée d'un site : commune de son district (casse et espaces ignorés), sinon cellule GPS de 0,1°, sinon le site. */
+function tourOf(s) {
+  const d = String(s.district == null ? '' : s.district).trim().toLowerCase();
+  const c = String(s.commune == null ? '' : s.commune).trim().toLowerCase();
+  if (c) return `${d}|${c}`;
+  if (s.gpsLat != null && s.gpsLng != null && Number.isFinite(Number(s.gpsLat)) && Number.isFinite(Number(s.gpsLng))) {
+    return `${d}|gps:${Math.round(Number(s.gpsLat) / 0.1)}:${Math.round(Number(s.gpsLng) / 0.1)}`;
+  }
+  return `${d}|site:${s.id}`;
+}
+const genericAgent = (a) => { const x = /^\s*agent\s+(\d+)\s*$/i.exec(String(a == null ? '' : a)); return x ? Number(x[1]) : null; };
 function parseYm(v) {
   const x = /^(\d{4})-(\d{2})/.exec(String(v == null ? '' : v));
   if (!x) return null;
@@ -156,6 +178,7 @@ function checkInvariants(input, result) {
     const slot = result.slots && result.slots[`${a.siteId}|${a.month}`];
     if (!slot) v.push({ code: 'sans_creneau', siteId: a.siteId, month: a.month });
     else if (!String(slot.date).startsWith(a.month) || !(Number(slot.agent) >= 1)) v.push({ code: 'creneau_invalide', siteId: a.siteId, month: a.month });
+    else if (opts.today && String(slot.date) < String(opts.today)) v.push({ code: 'date_passee', siteId: a.siteId, date: slot.date });
   }
 
   // ---- 4. renfort ----
@@ -217,6 +240,31 @@ function checkInvariants(input, result) {
       && (strategy === 'besoins' || capOf(keyOf(s)) == null || (load.get(`${keyOf(s)}|${m}`) || 0) < capOf(keyOf(s))));
     if (open !== undefined) v.push({ code: 'non_maximal', siteId: s.id, month: open, need, got: got.length });
   }
+
+  // ---- 7. créneaux : un agent, un jour, une tournée ; jamais un créneau déjà écrit ----
+  const cellTours = new Map(); const written = new Set(); const newCells = new Set();
+  for (const s of sites) {
+    for (const x of s.visits || []) {
+      const n = genericAgent(x.agent);
+      const m = Number(x.month);
+      if (n == null || !x.date || x.status === 'annule' || !inPeriod.has(m)) continue;
+      const k = `${unitOfSite(s, year, m)}|${n}|${x.date}`;
+      written.add(k);
+      if (!cellTours.has(k)) cellTours.set(k, new Set());
+      cellTours.get(k).add(tourOf(s));
+    }
+  }
+  for (const a of result.assignments || []) {
+    const s = byId.get(a.siteId); const slot = result.slots && result.slots[`${a.siteId}|${a.month}`];
+    if (!s || !slot) continue;
+    const k = `${unitOfSite(s, year, Number(String(a.month).slice(5, 7)))}|${slot.agent}|${slot.date}`;
+    if (written.has(k)) v.push({ code: 'creneau_deja_ecrit', siteId: a.siteId, cell: k });
+    newCells.add(k);
+    if (!cellTours.has(k)) cellTours.set(k, new Set());
+    cellTours.get(k).add(tourOf(s));
+  }
+  // Seules les cellules d'un nouveau créneau sont jugées (des saisies manuelles peuvent déjà se croiser).
+  for (const k of newCells) if (cellTours.get(k).size > 1) v.push({ code: 'agent_deux_tournees', cell: k, tours: [...cellTours.get(k)] });
 
   // ---- 6. comptes cohérents ----
   const n = (result.assignments || []).length;

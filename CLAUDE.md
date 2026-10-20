@@ -577,8 +577,11 @@ or navy rail.
   ordre du RBM, part équilibrée par mois (jamais de visites avancées pour un plancher), complément final : plan maximal ;
   écart = intervalle MMR arrondi au supérieur, ramené pour que les exigées tiennent dans la durée ; « échu » = avant le
   mois courant ; ancrages = réalisées + prévues À VENIR, exercices voisins compris. Ressources (une seule règle) :
-  journées-agent par commune, agents par unité (TPM de zone ou « Bureau (suivi interne) ») et par mois, véhicules par jour
-  et district. Valeurs MMR / RBM en lecture seule dans le tiroir. « Appliquer » : calcul hors verrous, puis relecture et
+  journées-agent par commune (même clé que les tournées), agents par unité (TPM de zone, sinon le bureau RACINE du site
+  en suivi interne) et par mois, véhicules par jour et district ; le mois en cours ne compte que ses jours de terrain
+  restants (jamais une date passée) ; un créneau déjà écrit (« Agent N » daté) est réservé. Périmètre « bureau » = le
+  bureau et TOUTES ses antennes (`common/officeScope`, comme `officeTreeSql`), bureau national = tout ; « Effacer » suit le
+  même périmètre. Jours de collecte : une journée par agent et par date. Valeurs MMR / RBM en lecture seule dans le tiroir. « Appliquer » : calcul hors verrous, puis relecture et
   empreinte sous les verrous des mois Y-1 → Y+1 (une échéance de 20 s) ; dates et « Agent N » écrits seulement si l'option
   est cochée. Tout écrivain de plan prend les verrous de mois (`visitLocks`) AVANT les lignes de sites.
 - **TPM d'une visite = contrat de la zone** (retour 58, migration 070, `tpm/tpmAttribution.js` + jumelle SQL

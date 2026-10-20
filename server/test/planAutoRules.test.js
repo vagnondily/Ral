@@ -15,8 +15,12 @@ const YEAR = 2026;
 const FULL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const site = (o) => ({ forbidden: false, parametered: false, required: 0, visits: [], monthStatus: {}, riskLevel: 'moyenne', lastVisitMonth: null, mmrKey: null, activity: 'A', ...o });
 const monthsOf = (r, id) => r.assignments.filter((a) => a.siteId === id).map((a) => Number(a.month.slice(5)));
-// Applique un plan : ses affectations deviennent des visites prévues.
-const applied = (sites, r) => sites.map((s) => ({ ...s, visits: [...(s.visits || []), ...monthsOf(r, s.id).map((m) => ({ month: m, status: 'planifie' }))] }));
+// Applique un plan : ses affectations deviennent des visites prévues (avec date et agent si l'option
+// « Écrire les dates et les agents » est simulée).
+const applied = (sites, r, withSlots = false) => sites.map((s) => ({ ...s, visits: [...(s.visits || []), ...r.assignments.filter((a) => a.siteId === s.id).map((a) => {
+  const slot = withSlots ? r.slots[`${a.siteId}|${a.month}`] : null;
+  return { month: Number(a.month.slice(5)), status: 'planifie', ...(slot ? { date: slot.date, agent: `Agent ${slot.agent}` } : {}) };
+})] }));
 
 test('règle unique : isActiveMonth et son jumeau SQL', () => {
   assert.equal(isActiveMonth(undefined, false), true);   // pas de grille : tout le registre
@@ -381,7 +385,9 @@ function scenario(seed) {
     const visits = [];
     for (let m = 1; m <= 12; m += 1) {
       const p = r();
-      if (p < 0.06) visits.push({ month: m, status: 'planifie' });
+      // Une prévue sur deux est déjà datée et affectée (« Agent N ») : son créneau est réservé.
+      if (p < 0.03) visits.push({ month: m, status: 'planifie', date: `${YEAR}-${String(m).padStart(2, '0')}-${String(1 + Math.floor(r() * 28)).padStart(2, '0')}`, agent: `Agent ${1 + Math.floor(r() * 3)}` });
+      else if (p < 0.06) visits.push({ month: m, status: 'planifie' });
       else if (p < 0.1) visits.push({ month: m, status: 'realise' });
       else if (p < 0.12) visits.push({ month: m, status: 'annule' });
     }
@@ -410,6 +416,8 @@ function scenario(seed) {
       visits: visits.filter((v) => v.status !== 'annule'), cancelledMonths: visits.filter((v) => v.status === 'annule').map((v) => v.month),
       outsideVisits,
       monthStatus, gpsLat: r() < 0.3 ? -18 - r() : null, gpsLng: r() < 0.3 ? 47 + r() : null,
+      // Suivi interne : bureau racine du site (deux bureaux, ou aucun).
+      unitOfficeId: pick(['o1', 'o2', null]), unitOfficeName: null,
       tpmSegments: tpm ? [{ from: `${YEAR}-01`, to: `${YEAR}-12`, providerId: tpm, providerName: tpm }] : [],
     };
   });
@@ -426,6 +434,8 @@ function scenario(seed) {
   const fromPick = r();
   const opts = { yearHasGrid: grid,
     fromMonth: fromPick < 0.45 ? `${YEAR}-${String(1 + Math.floor(r() * 12)).padStart(2, '0')}` : (fromPick < 0.6 ? pick(['2025-11', '2025-12']) : null) };
+  // Jour courant dans le mois courant : le mois en cours ne compte que ses jours restants.
+  if (opts.fromMonth && r() < 0.7) opts.today = `${opts.fromMonth}-${String(1 + Math.floor(r() * 28)).padStart(2, '0')}`;
   return { sites, mmrByKey, settings, months, year: YEAR, opts };
 }
 
@@ -441,6 +451,35 @@ test('oracle : 0 violation d\'invariant sur 300 jeux aléatoires, et un 2ᵉ pas
     assert.equal(again.summary.planned, 0, `graine ${seed} : le 2ᵉ passage ajoute ${again.summary.planned} visite(s)`);
   }
   assert.ok(planned > 1000, `jeux assez riches (${planned} visites générées)`);
+});
+
+test('« Écrire les dates et les agents » en deux passages (district A, puis B) : aucun agent dans deux communes le même jour', () => {
+  // 50 sites du bureau o1, districts A et B (25 communes chacun), 1 visite par jour, janvier 2027.
+  const sites = ['A', 'B'].flatMap((d) => Array.from({ length: 25 }, (_, i) => site({
+    id: `${d}${String(i).padStart(2, '0')}`, district: d, commune: `${d}-c${i}`, parametered: true, mmrKey: 'K', required: 1, unitOfficeId: 'o1',
+  })));
+  const mmr = { K: { interval: 12, visitsPerDay: 1, workingDays: 20 } };
+  const opts = { yearHasGrid: false, fromMonth: '2026-11', today: '2026-11-15' };
+  const scoped = (list, d) => list.map((x) => ({ ...x, inScope: x.district === d }));
+  const r1 = generatePlan(scoped(sites, 'A'), mmr, {}, [1], 2027, opts);
+  assert.equal(r1.summary.planned, 25);
+  const after1 = applied(sites, r1, true);
+  const input2 = { sites: scoped(after1, 'B'), mmrByKey: mmr, settings: {}, months: [1], year: 2027, opts };
+  const r2 = generatePlan(input2.sites, mmr, {}, [1], 2027, opts);
+  assert.equal(r2.summary.planned, 25);
+  assert.deepEqual(checkInvariants(input2, r2), []);
+  // Tous les créneaux écrits des deux passages : un (agent, date) = une commune.
+  const cells = new Map();
+  for (const s of applied(after1, r2, true)) {
+    for (const x of s.visits) {
+      if (!x.agent) continue;
+      const k = `${x.agent}|${x.date}`;
+      if (!cells.has(k)) cells.set(k, new Set());
+      cells.get(k).add(s.commune);
+    }
+  }
+  assert.ok([...cells.values()].every((c) => c.size === 1), 'un agent, un jour, une commune');
+  assert.equal(r2.resources.months[0].agentsNeeded, 3);   // 50 journées ÷ 20 jours de terrain
 });
 
 test('oracle : passages successifs sur des sous-périodes — 0 violation, jamais au-delà de l\'exigence', () => {

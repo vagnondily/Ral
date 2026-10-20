@@ -204,8 +204,37 @@ test('ressources : agents = ⌈journées ÷ jours ouvrés⌉, véhicules = Σ di
 
 test('sans TPM dans la zone : « Bureau (suivi interne) », hors périmètre non planifié', () => {
   const r = generatePlan([site({ id: 'a', riskLevel: 'elevee' }), site({ id: 'b', riskLevel: 'elevee', inScope: false })], {}, {}, [1], YEAR);
-  assert.deepEqual(r.byTpm.map((t) => [t.unitKey, t.assigned, t.planned]), [['bureau', false, 1]]);
+  assert.deepEqual(r.byTpm.map((t) => [t.unitKey, t.assigned, t.planned]), [['bureau:none', false, 1]]);
   assert.equal(r.summary.sitesConsidered, 1);
+});
+
+test('suivi interne : une unité PAR bureau (antennes comprises), jamais un « bureau » commun à tout le compte', () => {
+  // Bureau o1 (district Nord) et bureau o2 (district Sud), sans TPM : chacun suit avec ses agents.
+  const mk = (id, office, district) => site({ id, district, commune: `${district}-${id}`, parametered: true, required: 1, mmrKey: `A|${office}`,
+    unitOfficeId: office, unitOfficeName: office === 'o1' ? 'Bureau Nord' : 'Bureau Sud' });
+  const sites = [...Array.from({ length: 10 }, (_, i) => mk(`n${i}`, 'o1', 'Nord')), ...Array.from({ length: 10 }, (_, i) => mk(`s${i}`, 'o2', 'Sud'))];
+  const mmr = { 'A|o1': { interval: 12, visitsPerDay: 1, workingDays: 20, personsToDeploy: 1 }, 'A|o2': { interval: 12, visitsPerDay: 1, workingDays: 20, personsToDeploy: 1 } };
+  const r = generatePlan(sites, mmr, {}, [3], YEAR);
+  assert.deepEqual(r.byTpm.map((t) => [t.unitKey, t.officeName, t.visits, t.agentsPeak]).sort(), [['bureau:o1', 'Bureau Nord', 10, 1], ['bureau:o2', 'Bureau Sud', 10, 1]]);
+  assert.equal(r.summary.agentsTotalPeak, 2);       // un agent par bureau, pas un pour les deux
+  assert.equal(r.summary.agentsGap, 0);             // 2 déclarés au MMR, 2 nécessaires
+  // Les créneaux « Agent 1 » des deux bureaux sont deux personnes : jamais un même agent dans les deux districts.
+  const agentDistricts = new Map();
+  for (const a of r.assignments) {
+    const k = `${a.office}|${r.slots[`${a.siteId}|${a.month}`].agent}`;
+    if (!agentDistricts.has(k)) agentDistricts.set(k, new Set());
+    agentDistricts.get(k).add(a.district);
+  }
+  assert.ok([...agentDistricts.values()].every((d) => d.size === 1));
+});
+
+test('par unité : « Sites » compte les sites de toutes les visites à faire, comme « Visites »', () => {
+  const seg = [{ from: `${YEAR}-01`, to: `${YEAR}-12`, providerId: 'T', providerName: 'TPM T' }];
+  const sites = Array.from({ length: 40 }, (_, i) => site({ id: `p${i}`, parametered: true, required: 1, mmrKey: 'k', tpmSegments: seg,
+    visits: [{ month: 11, status: 'planifie' }] }));
+  const r = generatePlan(sites, { k: { interval: 6 } }, {}, [11, 12], YEAR);
+  assert.equal(r.summary.planned, 0);
+  assert.deepEqual(r.byTpm.map((t) => [t.tpm, t.sites, t.sitesNew, t.visits, t.planned]), [['TPM T', 40, 0, 40, 0]]);
 });
 
 test('couverture : un site DÉJÀ planifié dans la période compte comme couvert', () => {

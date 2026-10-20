@@ -22,7 +22,11 @@
  *      l'exercice suivant (empreinte « visites » changée, intervalle respecté), et « Appliquer » attend
  *      le verrou de ce mois voisin ;
  *   8. attente des verrous : UNE échéance pour tous les mois (jamais 20 s par verrou) → 55P03 ;
- *   9. site supprimé du registre entre la relecture et l'écriture → 409 « registre », rien d'écrit.
+ *   9. site supprimé du registre entre la relecture et l'écriture → 409 « registre », rien d'écrit ;
+ *  10. périmètre « bureau » = le bureau et TOUTES ses antennes (3 niveaux), pour planifier comme pour
+ *      effacer, comme officeTreeSql ; bureau national = tout le registre ;
+ *  11. « Écrire les dates et les agents » en deux passages (un district, puis un autre) : jamais une date
+ *      passée, jamais un agent dans deux communes le même jour.
  * Tout ce que le test crée est supprimé à la fin (visites, grille, site de test).
  */
 const SU_URL = process.env.MEMS_TEST_DATABASE_URL;
@@ -43,7 +47,9 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
   const service = require('../src/modules/tpm/planAuto.service');
   const repo = require('../src/modules/tpm/planAuto.repository');
   const field = require('../src/modules/tpm/field.repository');
-  const { generatePlan, mmrRule, rbmStep } = require('../src/modules/tpm/planAuto');
+  const { generatePlan, mmrRule, rbmStep, tpmAt } = require('../src/modules/tpm/planAuto');
+  const { officeScopeIds } = require('../src/modules/common/officeScope');
+  const { officeTreeSql } = require('../src/modules/common/siteActivitySql');
   const { lockVisitMonthsTx, monthLockKey } = require('../src/modules/tpm/visitLocks');
   const { checkInvariants } = require('../src/modules/tpm/planAutoInvariants');
   const { currentMonth } = require('../src/modules/tpm/rbmMath');
@@ -128,6 +134,8 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
     const dated = await newVisits();
     assert.equal(dated.length, a6.created);
     assert.ok(dated.every((v) => v.date && v.date.startsWith(v.month) && /^Agent \d+$/.test(v.agent)), 'date du mois et « Agent N »');
+    const todayUtc = new Date().toISOString().slice(0, 10);
+    assert.ok(dated.every((v) => v.date >= todayUtc), 'jamais une date de visite passée');
     const cleared = await service.clearPlanned(T, { year, from: Number(now.slice(5, 7)), to: 12 });
     assert.equal((await newVisits()).length, dated.length, '« Effacer » conserve les visites datées et affectées');
     assert.ok(cleared.kept >= dated.length);
@@ -289,6 +297,59 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
       repo.lockPlanSitesTx = original;
       await q('DELETE FROM sites WHERE id = $1', [tmpSite]).catch(() => {});
     }
+
+    // 10. Périmètre « bureau » à trois niveaux (Bureau › Antenne › Sous-antenne).
+    await dropNew();
+    const [tree3] = await q(
+      `SELECT p.id AS root, g.id AS grand FROM field_offices g
+         JOIN field_offices c ON c.id = g.parent_id AND c.tenant_id = g.tenant_id
+         JOIN field_offices p ON p.id = c.parent_id AND p.tenant_id = g.tenant_id
+        WHERE g.tenant_id = $1 AND EXISTS (SELECT 1 FROM sites s WHERE s.tenant_id = g.tenant_id AND s.field_office_id = g.id)
+        ORDER BY p.id, g.id LIMIT 1`, [T]);
+    assert.ok(tree3, 'données de démonstration : un bureau avec des sous-antennes qui portent des sites');
+    const officesRows = await withTenantTransaction(T, (c) => repo.officesTx(c, T));
+    const sqlTree = (await q(`WITH RECURSIVE ${officeTreeSql('$2').replace(/,\s*$/, '')} SELECT id FROM office_tree`, [T, tree3.root])).map((r) => r.id).sort();
+    assert.deepEqual([...officeScopeIds(officesRows, tree3.root)].sort(), sqlTree, 'même sous-arbre que les tableaux de bord');
+    const scopedIn = await withTenantTransaction(T, (c) => repo.loadInputsTx(c, T, { year, scope: { fieldOfficeId: tree3.root } }));
+    const grandSites = new Set((await q('SELECT id FROM sites WHERE tenant_id = $1 AND field_office_id = $2', [T, tree3.grand])).map((r) => r.id));
+    assert.ok(scopedIn.sites.filter((x) => grandSites.has(x.id)).every((x) => x.inScope), 'les sites de la sous-antenne sont dans le périmètre du bureau');
+    const sb = { ...body, scope: { fieldOfficeId: tree3.root } };
+    const p10 = await service.preview(T, sb);
+    await service.apply(T, U, { ...sb, fingerprint: p10.fingerprint, sections: p10.sections });
+    const made10 = await newVisits();
+    assert.ok(made10.some((x) => grandSites.has(x.site_id)), 'la sous-antenne est planifiée avec son bureau');
+    await service.clearPlanned(T, { year, from: Number(now.slice(5, 7)), to: 12, scope: { fieldOfficeId: tree3.root } });
+    assert.ok(!(await newVisits()).some((x) => grandSites.has(x.site_id)), '« Effacer » du bureau retire aussi la sous-antenne');
+    await dropNew();
+    const [nat] = await q('SELECT id FROM field_offices WHERE tenant_id = $1 AND national LIMIT 1', [T]);
+    if (nat) {
+      const natIn = await withTenantTransaction(T, (c) => repo.loadInputsTx(c, T, { year, scope: { fieldOfficeId: nat.id } }));
+      assert.equal(natIn.sites.filter((x) => x.inScope).length, natIn.sites.length, 'bureau national : tout le registre');
+    }
+
+    // 11. Dates et agents écrits en deux passages : un agent, un jour, une commune ; jamais une date passée.
+    const dists = [...new Set(inputs.sites.filter((x) => !x.forbidden && x.district).map((x) => x.district))].sort();
+    assert.ok(dists.length >= 2, 'au moins deux districts');
+    for (const d of dists.slice(0, 2)) {
+      const wb = { ...body, scope: { district: d }, settings: { writeSchedule: true } };
+      const pw = await service.preview(T, wb);
+      await service.apply(T, U, { ...wb, fingerprint: pw.fingerprint, sections: pw.sections });
+    }
+    const written = (await newVisits()).filter((x) => x.agent && x.date);
+    assert.ok(written.length > 0);
+    assert.ok(written.every((x) => x.date >= todayUtc), 'jamais une date passée');
+    const siteById = new Map(inputs.sites.map((x) => [x.id, x]));
+    const cells11 = new Map();
+    for (const x of written) {
+      const st = siteById.get(x.site_id);
+      const unit = tpmAt(st, year, Number(x.month.slice(5, 7))).key;
+      const k = `${unit}|${x.agent}|${x.date}`;
+      if (!cells11.has(k)) cells11.set(k, new Set());
+      cells11.get(k).add(`${String(st.district).trim().toLowerCase()}|${String(st.commune).trim().toLowerCase()}`);
+    }
+    const clash = [...cells11.entries()].filter(([, c]) => c.size > 1);
+    assert.deepEqual(clash.slice(0, 3).map(([k, c]) => [k, [...c]]), [], 'aucun agent dans deux communes le même jour');
+    await dropNew();
   } finally {
     await dropNew().catch(() => {});
     await q('DELETE FROM site_visits WHERE tenant_id = $1 AND activity LIKE $2', [T, `${TAG} %`]).catch(() => {});
