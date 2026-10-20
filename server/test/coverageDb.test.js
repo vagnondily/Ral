@@ -238,3 +238,47 @@ test('visites à venir en base : « case vide » = ni « Oui » ni « Non » (an
     await su.end();
   }
 });
+
+test('communes sans P-code : même nom dans deux districts = deux communes ; libellé d\'activité SQL = jumeau (mode, ordre binaire)', { skip: SKIP, timeout: 120000 }, async () => {
+  const { Client } = require('pg');
+  const coverageService = require('../src/modules/dashboards/coverage.service');
+  const { groupRows, siteCounts } = require('../src/modules/dashboards/coverageDefinitions');
+  const su = new Client({ connectionString: SU_URL });
+  await su.connect();
+  const q = async (sql, params) => (await su.query(sql, params)).rows;
+  const CODE = 'TEST-R110-CMK';
+  let T = null; let office = null;
+  try {
+    [{ id: T }] = await q('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1');
+    // Un bureau à part : la couverture du bureau ne lit que ces sites (année sans grille : tous actifs).
+    [{ id: office }] = await q('INSERT INTO field_offices (tenant_id, code, name) VALUES ($1, $2, $3) RETURNING id', [T, CODE, 'Bureau test r110']);
+    const mk = [
+      // [district, commune, activité] — aucune n'a de P-code de commune.
+      ['Betioky Atsimo', 'Ankilivalo', 'Cantine scolaire'],
+      ['Toliara II', 'Ankilivalo', 'cantine scolaire'],
+      ['Betioky Atsimo', 'ankilivalo ', 'Cantine scolaire'],
+      ['Toliara II', 'Ambohimahavelona', 'nutrition'],
+      ['Toliara II', 'Ambohimahavelona', 'Nutrition'],
+    ];
+    for (const [i, [district, commune, activity]] of mk.entries()) {
+      await q(`INSERT INTO sites (tenant_id, code, name, adm1, district, commune, activity, field_office_id)
+               VALUES ($1, $2, $3, 'Atsimo-Andrefana', $4, $5, $6, $7)`, [T, `${CODE}-${i}`, `Site test r110 ${i}`, district, commune, activity, office]);
+    }
+    const cov = await coverageService.coverage({ tenantId: T, role: 'admin' }, { period: { from: '2097-01', to: '2097-02' }, officeId: office });
+    assert.equal(cov.overall.sites, 5);
+    // Ankilivalo de Betioky (deux graphies) ≠ Ankilivalo de Toliara II ; Ambohimahavelona : une commune.
+    assert.equal(cov.communes.total, 3, 'clé district | nom sans P-code');
+    // Libellés : « Cantine scolaire » ×2 contre ×1 ; « Nutrition » / « nutrition » à égalité → ordre binaire.
+    const sql = cov.byActivity.map((a) => [a.key, a.label]).sort();
+    const twin = groupRows(mk.map(([, , activity]) => ({ activity, office: 'x', district: 'y', counts: siteCounts({ active: true }) })))
+      .filter((r) => r.dim === 'activity').map((r) => [r.key, r.label]).sort();
+    assert.deepEqual(sql, [['cantine scolaire', 'Cantine scolaire'], ['nutrition', 'Nutrition']]);
+    assert.deepEqual(twin, sql, 'jumeau = SQL');
+  } finally {
+    if (T) {
+      await q('DELETE FROM sites WHERE tenant_id = $1 AND code LIKE $2', [T, `${CODE}-%`]);
+      if (office) await q('DELETE FROM field_offices WHERE id = $1', [office]);
+    }
+    await su.end();
+  }
+});

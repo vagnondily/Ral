@@ -31,6 +31,15 @@ function checkWriter(w, label) {
   const file = w.toCsv([['Nom', 'Montant'], ['=cmd|calc', -1500], ['Site; B', '-12 %']]);
   assert.equal(file, `${BOM}Nom;Montant\r\n'=cmd|calc;-1500\r\n"Site; B";-12 %\r\n`);
   assert.equal(w.toCsv([['a']], { bom: false, eol: '\n' }), 'a\n');
+  // Taux pour Excel en français : virgule décimale, « % » collé ; vide sans taux.
+  assert.equal(w.csvPercent(0.123), '12,3%');
+  assert.equal(w.csvPercent(0.12), '12%');
+  assert.equal(w.csvPercent(1 / 3), '33,3%');
+  assert.equal(w.csvPercent(0.0048), '0,5%');
+  assert.equal(w.csvPercent(1 / 3, 0), '33%');
+  assert.equal(w.csvPercent(null), '');
+  assert.equal(w.csvPercent(Number.NaN), '');
+  assert.equal(w.toCsv([['Taux'], [w.csvPercent(0.123)]], { bom: false }), 'Taux\r\n12,3%\r\n');
 }
 
 test('CSV serveur : formules neutralisées, nombres négatifs intacts, échappement', () => {

@@ -54,4 +54,15 @@ function attachmentHeader(filename) {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 
-module.exports = { neutralizeFormula, csvCell, toCsv, attachmentHeader };
+/**
+ * Taux (0–1) écrit pour Excel en français : pourcentage arrondi à `digits` décimales, virgule
+ * décimale, signe « % » collé — « 12,3% » (lu comme le nombre 0,123 au format pourcentage ;
+ * « 12.3% » resterait du texte) ; vide sans taux.
+ */
+function csvPercent(rate, digits = 1) {
+  if (rate == null || rate === '' || !Number.isFinite(Number(rate))) return '';
+  const k = 10 ** digits;
+  return `${String(Math.round(Number(rate) * 100 * k) / k).replace('.', ',')}%`;
+}
+
+module.exports = { neutralizeFormula, csvCell, toCsv, csvPercent, attachmentHeader };

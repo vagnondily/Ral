@@ -33,6 +33,17 @@ export function toCsv(rows, { sep = ';', eol = '\r\n', bom = true } = {}) {
   return `${bom ? BOM : ''}${body}${eol}`;
 }
 
+/**
+ * Taux (0–1) écrit pour Excel en français : pourcentage arrondi à `digits` décimales, virgule
+ * décimale, signe « % » collé — « 12,3% » (lu comme le nombre 0,123 au format pourcentage ;
+ * « 12.3% » resterait du texte) ; vide sans taux.
+ */
+export function csvPercent(rate, digits = 1) {
+  if (rate == null || rate === '' || !Number.isFinite(Number(rate))) return '';
+  const k = 10 ** digits;
+  return `${String(Math.round(Number(rate) * 100 * k) / k).replace('.', ',')}%`;
+}
+
 /** Télécharge un CSV (première ligne = en-têtes) sous le nom donné. */
 export function downloadCsv(filename, rows) {
   const url = URL.createObjectURL(new Blob([toCsv(rows)], { type: 'text/csv;charset=utf-8' }));

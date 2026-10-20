@@ -44,7 +44,8 @@ export default function CoverageUniverse({ cov, period, onNavigate }) {
             {[
               u.outsideGrid > 0 && tr('{n} site(s) ont une visite déclarée ou des données pendant un mois sans « Oui » : non comptées.', { n: formatInt(u.outsideGrid) }),
               u.outsideForbidden > 0 && tr('{n} site(s) en zone interdite ont une visite déclarée ou des données : non comptées.', { n: formatInt(u.outsideForbidden) }),
-              u.cancelled > 0 && tr('{n} visite(s) annulée(s), hors calcul.', { n: formatInt(u.cancelled) }),
+              // Unité des visites des tableaux de bord : un site × un mois (toutes ses visites annulées).
+              u.cancelled > 0 && tr('{n} visite(s) annulée(s) (site × mois) : hors de l\'exécution du plan.', { n: formatInt(u.cancelled) }),
             ].filter(Boolean).join(' ')}
           </span>
         )}

@@ -163,3 +163,15 @@ test('Couverture & performance : une carte courte n\'est jamais étirée avec sa
   assert.match(css, /\.cd-colstack > \.biz-card > \.card-body \{ align-content: start; \}/);
   assert.match(css, /\.cd-colstack\.is-fill > \.biz-card:last-child > \.card-body \{ flex: 1 1 0;[^}]*overflow-y: auto;[^}]*mask-image: linear-gradient/);
 });
+
+test('Rapport de synthèse : taux du CSV lus comme des nombres par Excel FR ; registre vide dit comme tel', (t) => {
+  const file = webFile('pages', 'dashboard', 'ReportingPage.jsx');
+  if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }
+  const src = fs.readFileSync(file, 'utf8');
+  assert.match(src, /const pctOf = \(rate\) => csvPercent\(rate, 1\);/, 'CSV : « 12,3% », jamais « 12.3% »');
+  assert.doesNotMatch(src, /Math\.round\(rate \* 1000\) \/ 10\}%/);
+  assert.match(src, /cov\.universe\.registry === 0 \?/, 'registre vide : « Aucun site dans le registre », pas la grille');
+  assert.match(src, /tr\('Aucun site dans le registre'\)/);
+  const card = fs.readFileSync(webFile('components', 'ActivityCoverageCard.jsx'), 'utf8');
+  assert.match(card, /const pctOf = \(rate\) => csvPercent\(rate, 1\);/);
+});

@@ -115,7 +115,9 @@ module.exports = [
     load: (tenantId, p) => pddRepo.pipelineData(tenantId, { month: p.month }),
   },
   {
-    key: 'alerts', domains: ['budget', 'visits', 'sites'], varies: ['today'],
+    // Le terrain des alertes lit la couverture des tableaux de bord (grille des sites actifs, données
+    // reçues, bureaux) : mêmes domaines que covDash, en plus du budget.
+    key: 'alerts', domains: ['budget', 'visits', 'sites', 'offices', 'activation', 'submissions'], varies: ['today'],
     params: () => ({ viewer: 'neutral' }),
     // Lecteur neutre : droits d'écriture (rôle admin) sans utilisateur — toutes les décisions en attente.
     load: (tenantId) => alertsService.alerts({ tenantId, userId: null, role: 'admin' }),

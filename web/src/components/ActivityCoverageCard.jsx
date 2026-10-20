@@ -3,11 +3,12 @@ import { Download } from 'lucide-react';
 import { Button } from './ui.jsx';
 import { useI18n } from '../lib/i18n.jsx';
 import { formatInt } from '../lib/format.js';
-import { downloadCsv } from '../lib/csv.js';
+import { csvPercent, downloadCsv } from '../lib/csv.js';
 import { activityTableRows, barPct, rateText, waysText } from '../lib/coverageDefs.js';
 
 const barColor = (pct) => (pct >= 80 ? 'var(--green)' : (pct >= 50 ? 'var(--blue-600)' : 'var(--orange)'));
-const pctOf = (rate) => (rate == null ? '' : Math.round(rate * 1000) / 10);
+// Taux du CSV pour Excel en français : « 12,3% » (un nombre « 12.3 » y serait lu comme du texte ou une date).
+const pctOf = (rate) => csvPercent(rate, 1);
 
 /**
  * Couverture par activité (retours 54, 76, 110) : une ligne par libellé d'activité du registre, sur

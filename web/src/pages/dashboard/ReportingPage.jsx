@@ -9,7 +9,7 @@ import { formatAr, formatInt } from '../../lib/format.js';
 import { periodLabel } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { PERIOD_CAPS } from '../../lib/periodCaps.js';
-import { downloadCsv } from '../../lib/csv.js';
+import { csvPercent, downloadCsv } from '../../lib/csv.js';
 import { rateText, waysText } from '../../lib/coverageDefs.js';
 
 /** Plafond commun à la consolidation de la période et aux mesures de couverture (faits site × mois) : lib/periodCaps.facts. */
@@ -64,7 +64,8 @@ export default function ReportingPage({ onOpenContract }) {
   const execCell = (g) => (g.execution.rate == null ? <span className="muted">{tr('— aucun plan')}</span>
     : `${formatInt(g.execution.covered)} / ${formatInt(g.execution.planned)} · ${rateText(g.execution.rate, lang)}`);
   const sitesCell = (g) => (g.coverage.rate == null ? '—' : `${formatInt(g.coverage.covered)} / ${formatInt(g.sites)} · ${rateText(g.coverage.rate, lang)}`);
-  const pctOf = (rate) => (rate == null ? '' : `${Math.round(rate * 1000) / 10}%`);
+  // Taux du CSV (« ; », BOM, pour Excel en français) : « 12,3% », lu comme un nombre — jamais « 12.3% » (texte).
+  const pctOf = (rate) => csvPercent(rate, 1);
 
   const exportBudget = () => {
     const rows = [[tr('Contrat'), tr('Prestataire'), tr('Budget de la période'), tr('Planifié'), tr('Réalisé'), tr('Taux'), tr('Restant (à date)'), tr('Projection fin (à date)')]];
@@ -192,6 +193,9 @@ export default function ReportingPage({ onOpenContract }) {
               <td className="num mono"><strong>{formatInt(ov.execution.cancelled)}</strong></td>
             </tr></tfoot>
           </table></div>
+        ) : cov && cov.universe && cov.universe.registry === 0 ? (
+          // Registre vide : aucun site à activer — la grille des sites actifs n'y peut rien.
+          <EmptyState icon={MapPin} title={tr('Aucun site dans le registre')}>{tr('Ajoutez ou importez les sites dans Paramétrage › Localités › Sites, puis renseignez la grille des sites actifs.')}</EmptyState>
         ) : (
           <EmptyState icon={MapPin} title={tr('Aucun site actif sur la période')}>{tr('Aucun site actif pour {month} : renseignez la grille des sites actifs (RBM › Sites).', { month: pLabel })}</EmptyState>
         )}

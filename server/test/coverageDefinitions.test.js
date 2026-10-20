@@ -152,3 +152,15 @@ test('activityKey : casse et espaces ignorés, « — » sans activité', () => 
   assert.equal(activityKey(''), '—');
   assert.equal(activityKey(null), '—');
 });
+
+test('libellé d\'une activité = graphie la plus fréquente, à égalité l\'ordre binaire — jumeau de mode() … COLLATE "C"', () => {
+  const mk = (activity) => site({ activity, statuses: grid('OOOOOOOOO') });
+  const labelOf = (sites, key) => shapeCoverage(groupRows(sites)).byActivity.find((a) => a.key === key).label;
+  // « Cantine » ×3, « cantine » ×1 : la plus fréquente, quel que soit l'ordre des sites.
+  assert.equal(labelOf([mk('cantine'), mk('Cantine'), mk('Cantine'), mk('Cantine ')], 'cantine'), 'Cantine');
+  // Égalité : l'ordre binaire (« C » 0x43 avant « c » 0x63), jamais l'ordre de rencontre ni la collation française.
+  assert.equal(labelOf([mk('cantine'), mk('Cantine')], 'cantine'), 'Cantine');
+  assert.equal(labelOf([mk('Éducation'), mk('éducation')], 'éducation'), 'Éducation', 'É (U+00C9) avant é (U+00E9)');
+  // Espaces intérieurs : une seule clé ; la graphie garde ses espaces (comme per_site.activity).
+  assert.equal(labelOf([mk('Cantine  scolaire'), mk('cantine scolaire'), mk('Cantine  scolaire')], 'cantine scolaire'), 'Cantine  scolaire');
+});

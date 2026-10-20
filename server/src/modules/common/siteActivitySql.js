@@ -114,7 +114,8 @@ const districtNameSql = (s = 's') => `COALESCE(NULLIF(btrim(${s}.adm2), ''), NUL
  *              (visites prévues des mois à venir, jamais « non exécutées ») et forbidden ;
  *              covered_inactive (visite déclarée ou données pendant un mois NON actif — « Non »,
  *              case vide d'une année avec grille ou zone interdite : jamais un suivi, dit à part),
- *              v_cancelled (visites annulées d'un mois actif), v_upcoming_unset (visites prévues
+ *              v_cancelled (visites annulées d'un mois actif — unité des visites : un site × mois dont
+ *              le statut unique est « annule », toutes ses lignes annulées), v_upcoming_unset (visites prévues
  *              de mois à venir sur une case VIDE de la grille — année avec grille, site hors zone
  *              interdite, ni « Oui » ni « Non » : grille pas encore renseignée pour la fin d'année ;
  *              une visite prévue sur un « Non » ou en zone interdite ne comptera jamais : ni « à

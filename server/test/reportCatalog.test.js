@@ -69,6 +69,11 @@ test('chaque jeu et chaque chiffre clé cite une source existante qui déclare s
   }
 });
 
+test('alertes : la source déclare au moins les domaines de la couverture qu\'elle lit (grille, données, bureaux)', () => {
+  for (const d of SOURCES.covDash.domains) assert.ok(SOURCES.alerts.domains.includes(d), `alerts : domaine ${d}`);
+  assert.ok(SOURCES.alerts.domains.includes('budget'));
+});
+
 test('mises en forme : une source vide ne casse aucun jeu (fr et en), colonnes et n présents', () => {
   for (const d of Object.values(DATASETS)) {
     if (d.available === false) continue;

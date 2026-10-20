@@ -90,19 +90,49 @@ function siteCounts(f) {
  */
 function groupRows(sites) {
   const rows = new Map();
-  const add = (dim, key, c, label) => {
+  const spellings = new Map(); // clé d'activité → graphie → nombre de sites
+  const add = (dim, key, c) => {
     const k = `${dim}|${key}`;
-    if (!rows.has(k)) rows.set(k, { dim, key, label: label == null ? key : label, ...Object.fromEntries(COUNT_KEYS.map((x) => [x, 0])) });
+    if (!rows.has(k)) rows.set(k, { dim, key, label: key, ...Object.fromEntries(COUNT_KEYS.map((x) => [x, 0])) });
     const r = rows.get(k);
     for (const x of COUNT_KEYS) r[x] += num(c[x]);
   };
   for (const s of sites || []) {
+    const ak = activityKey(s.activity);
     add('overall', null, s.counts);
-    add('activity', activityKey(s.activity), s.counts, s.activity || '—');
+    add('activity', ak, s.counts);
     add('office', s.office || '—', s.counts);
     add('district', s.district || '—', s.counts);
+    const sp = activitySpelling(s.activity);
+    if (!spellings.has(ak)) spellings.set(ak, new Map());
+    spellings.get(ak).set(sp, (spellings.get(ak).get(sp) || 0) + 1);
   }
+  for (const [ak, m] of spellings) rows.get(`activity|${ak}`).label = activityLabel(m);
   return [...rows.values()];
+}
+
+/** Graphie d'une activité telle que la requête la lit (per_site.activity : espaces de bord retirés, « — » si vide). */
+const activitySpelling = (label) => String(label == null ? '' : label).replace(/^ +| +$/g, '') || '—';
+
+/** Ordre binaire (points de code = ordre des octets UTF-8, COLLATE "C" de la requête), jamais la collation. */
+function binaryCompare(a, b) {
+  const x = [...a]; const y = [...b];
+  for (let i = 0; i < Math.min(x.length, y.length); i += 1) {
+    const d = x[i].codePointAt(0) - y[i].codePointAt(0);
+    if (d) return d;
+  }
+  return x.length - y.length;
+}
+
+/**
+ * Libellé affiché d'un groupe d'activité — jumeau de `mode() WITHIN GROUP (ORDER BY activity COLLATE "C")`
+ * (coverage.repository) : la graphie la plus fréquente, à égalité la première dans l'ordre binaire.
+ * @param {Map<string, number>} counts graphie → nombre de sites
+ */
+function activityLabel(counts) {
+  let best = null; let n = -1;
+  for (const [sp, c] of counts) if (c > n || (c === n && binaryCompare(sp, best) < 0)) { best = sp; n = c; }
+  return best;
 }
 
 /** Clé d'activité d'un site : libellé du registre, casse et espaces ignorés ; « — » sans activité. */
@@ -224,4 +254,4 @@ function checkConsistency(shape) {
   return out;
 }
 
-module.exports = { COUNT_KEYS, siteCounts, groupRows, activityKey, measuresOf, shapeCoverage, checkConsistency, ratio };
+module.exports = { COUNT_KEYS, siteCounts, groupRows, activityKey, activityLabel, measuresOf, shapeCoverage, checkConsistency, ratio };
