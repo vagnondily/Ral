@@ -9,18 +9,22 @@ import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt } from '../../lib/format.js';
 import { choiceText, indexStatus, INDEX_STATUS_LABEL, classesStatus, CLASSES_STATUS_LABEL } from '../../lib/indicatorView.js';
 import {
-  AGG_LABEL, CONFIDENCE, NO_CONFIDENCE, WARNING_LABEL, warningLabel, issueLabel, typeText, driftKeyLabel, driftValue, driftState,
-  coveragePct, initialRows, rowSelectable, isChecked, checkedPayload, itemError,
+  CONFIDENCE, NO_CONFIDENCE, WARNING_LABEL, warningLabel, issueLabel, driftKeyLabel, driftValue, driftState, blockedText, blockedTargetText,
+  coveragePct, initialRows, mergeRows, rowSelectable, isChecked, checkedPayload, itemError, templateErrorText, fieldIssues, positiveForField,
+  cardCounts, availableFilters, effectiveFilter, filterMembers,
 } from '../../lib/templateProposal.js';
 import './templates.css';
 
 // Qualité de la variable proposée : couleur + icône + libellé (jamais la couleur seule).
 const CONF_ICON = { check: CheckCircle2, link: Link2, warn: AlertTriangle, none: MinusCircle };
+// Filtres : leurs lignes sont décidées sur l'état CHARGÉ (lib filterMembers) — jamais sur la saisie en cours.
 const FILTERS = [
   { id: 'all', label: 'Tous' },
   { id: 'check', label: 'À vérifier' },
   { id: 'missing', label: 'Sans variable' },
+  { id: 'pending', label: 'En attente des données' },
   { id: 'update', label: 'À mettre à jour' },
+  { id: 'diff', label: 'Différences' },
 ];
 const rowId = (formId, code) => `tpl-row-${formId}-${code}`;
 // Écart affiché en police à chasse fixe : codes seulement (variable, valeurs), jamais un libellé ni une méthode.
@@ -43,10 +47,11 @@ const CODE_KEYS = new Set(['sourceField', 'positiveValue', 'naValues']);
  *  - Un indicateur créé avant une correction du modèle est signalé « à mettre à
  *    jour » avec la modification proposée, envoyée d'un clic par la modification
  *    habituelle (PATCH, mêmes contrôles) ; un refus s'affiche sur sa ligne.
- * @param {{ form, canEdit, refreshKey?, onApplied?, onAttach?: () => void }} props
- *   onAttach : ouvre « Rattacher à une activité » de la fiche (absent = lecture seule).
+ * @param {{ form, canEdit, refreshKey?, onApplied?, onAttach?: () => void, onLoaded?: (info: { template: boolean, failed: boolean }) => void }} props
+ *   onAttach : ouvre « Rattacher à une activité » de la fiche (absent = lecture seule) ;
+ *   onLoaded : ce que la carte montre (un modèle ou non), pour l'état vide de la liste des indicateurs.
  */
-export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onApplied, onAttach }) {
+export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onApplied, onAttach, onLoaded }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [data, setData] = useState(null);
@@ -56,47 +61,47 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
   const [saving, setSaving] = useState(false);
   const [updating, setUpdating] = useState(null); // code en cours de mise à jour | 'all'
   const [expanded, setExpanded] = useState(null); // null = selon l'état (replié une fois le modèle appliqué)
-  const [rowErrors, setRowErrors] = useState({}); // code → refus de « Créer » qui nomme l'élément
+  const [rowErrors, setRowErrors] = useState({}); // code → refus de « Créer » qui nomme l'élément (effacé à la saisie)
+  // Lignes signalées par le dernier refus : gardées pour le filtre « À vérifier » jusqu'au prochain envoi, même
+  // quand l'utilisateur corrige la ligne (sinon elle disparaîtrait du filtre pendant la saisie).
+  const [flagged, setFlagged] = useState({});
   const [driftErrors, setDriftErrors] = useState({}); // code → refus de la mise à jour (PATCH)
   const [applyError, setApplyError] = useState(null);
 
-  async function load(key = chosen) {
+  // `reset` : cases et variables repartent de la précoche (ouverture, autre modèle, après « Créer ») ;
+  // sinon (indicateur modifié ailleurs, mise à jour) elles sont GARDÉES pour les éléments encore à créer.
+  async function load(key = chosen, { reset = false } = {}) {
     try {
       const r = await api.monTemplate(form.id, key);
       setData(r);
-      setRows(initialRows(r.template?.items));
+      setRows((prev) => (reset ? initialRows(r.template?.items) : mergeRows(prev, r.template?.items)));
     } catch (e) {
       // Modèle choisi refusé (l'activité a changé entre-temps) : retour au modèle de la fiche.
-      if (key && e.status === 400) { setChosen(null); await load(null); return; }
-      toast.error(e.message);
-      setData({ failed: e.message, template: null, fields: [], proposal: { ranking: [] } });
+      if (key && e.status === 400) { setChosen(null); await load(null, { reset: true }); return; }
+      toast.error(templateErrorText(e, tr, { template: key }));
+      setData({ failed: templateErrorText(e, tr, { template: key }), template: null, fields: [], proposal: { ranking: [] } });
     }
   }
   useEffect(() => {
-    setData(null); setChosen(null); setRowErrors({}); setDriftErrors({}); setApplyError(null);
-    load(null);
+    setData(null); setChosen(null); setRowErrors({}); setFlagged({}); setDriftErrors({}); setApplyError(null); setRows({});
+    load(null, { reset: true });
     /* eslint-disable-next-line */
   }, [form.id, form.activityCategory]);
   // Indicateur enregistré ou supprimé dans la liste (autre carte) : « déjà créé » / « code pris » rechargés, une fois.
   useEffect(() => { if (refreshKey) load(); /* eslint-disable-next-line */ }, [refreshKey]);
 
   const fieldsByName = useMemo(() => new Map((data?.fields || []).map((f) => [f.name, f])), [data]);
-  const fieldNames = useMemo(() => new Set(fieldsByName.keys()), [fieldsByName]);
   const items = useMemo(() => data?.template?.items || [], [data]);
-  const counts = useMemo(() => {
-    const c = { sure: 0, probable: 0, a_verifier: 0, none: 0, pending: 0, existing: 0, taken: 0, checked: 0, drift: 0 };
-    for (const it of items) {
-      // Badges qui se somment au total : une option attendue avec les données est comptée à part (« En attente »).
-      if (it.suggestion?.confidence) c[it.suggestion.confidence] += 1;
-      else if (it.suggestion?.pendingData) c.pending += 1;
-      else c.none += 1;
-      if (it.existing) c.existing += 1;
-      if (it.existing?.drift) c.drift += 1;
-      if (it.taken) c.taken += 1;
-      if (isChecked(it, rows[it.code], fieldNames)) c.checked += 1;
-    }
-    return c;
-  }, [items, rows, fieldNames]);
+  // Comptes de l'état chargé (une catégorie par élément : les badges se somment au total).
+  const loaded = useMemo(() => cardCounts(items), [items]);
+  const checkedCount = useMemo(() => items.filter((it) => isChecked(it, rows[it.code], fieldsByName)).length, [items, rows, fieldsByName]);
+  const filters = availableFilters(loaded);
+  const activeFilter = effectiveFilter(filter, filters);
+  // Filtre devenu sans objet (plus rien « à mettre à jour » après une mise à jour réussie…) : retour à « Tous ».
+  useEffect(() => { if (data && activeFilter !== filter) setFilter(activeFilter); }, [data, activeFilter, filter]);
+  // Ce que la carte montre (un modèle ou non) : l'état vide de la liste des indicateurs en dépend.
+  useEffect(() => { if (data) onLoaded?.({ template: Boolean(data.template), failed: Boolean(data.failed) }); /* eslint-disable-next-line */ }, [data]);
+  const members = useMemo(() => filterMembers(items, activeFilter, { rowErrors: flagged, driftErrors }), [items, activeFilter, flagged, driftErrors]);
 
   if (data === null) return <Card><div className="card-body"><Skeleton height={140} /></div></Card>;
 
@@ -107,7 +112,7 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
         <div className="card-body">
           <Alert tone="error" icon={XCircle}>
             {tr('Le modèle d\'indicateurs n\'a pas pu être chargé : {msg}', { msg: data.failed })}
-            {' '}<Button size="sm" variant="secondary" icon={RefreshCw} onClick={() => { setData(null); load(null); }}>{tr('Réessayer')}</Button>
+            {' '}<Button size="sm" variant="secondary" icon={RefreshCw} onClick={() => { setData(null); load(null, { reset: true }); }}>{tr('Réessayer')}</Button>
           </Alert>
         </div>
       </Card>
@@ -116,7 +121,7 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
 
   const ranking = data.proposal?.ranking || [];
   const best = data.proposal?.best || null;
-  const choose = (key) => { setChosen(key || null); setData(null); setRowErrors({}); setApplyError(null); load(key || null); };
+  const choose = (key) => { setChosen(key || null); setData(null); setRowErrors({}); setFlagged({}); setApplyError(null); load(key || null, { reset: true }); };
   const current = data.template ? ranking.find((r) => r.key === data.template.key) : null;
 
   // Choix du modèle : seulement quand l'activité rattachée n'en impose pas un (sinon : changer l'activité).
@@ -164,23 +169,13 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
     );
   }
 
-  const shown = items.filter((it) => {
-    const s = it.suggestion || {};
-    const r = rows[it.code] || {};
-    if (filter === 'check') {
-      return s.confidence === 'a_verifier' || (!it.existing && (s.issues || []).length > 0) || (r.field && !fieldNames.has(r.field))
-        || (it.warnings || []).some((w) => w === 'sens' || w === 'base') || Boolean(rowErrors[it.code]);
-    }
-    if (filter === 'missing') return !r.field;
-    if (filter === 'update') return Boolean(it.existing?.drift);
-    return true;
-  });
+  const shown = items.filter((it) => members.has(it.code));
   const byDomain = [];
   for (const it of shown) {
     const last = byDomain[byDomain.length - 1];
     if (last && last.module === it.module) last.items.push(it); else byDomain.push({ module: it.module, items: [it] });
   }
-  const hiddenChecked = counts.checked - shown.filter((it) => isChecked(it, rows[it.code], fieldNames)).length;
+  const hiddenChecked = checkedCount - shown.filter((it) => isChecked(it, rows[it.code], fieldsByName)).length;
   const set = (code, patch) => {
     setRows((r) => ({ ...r, [code]: { ...r[code], ...patch } }));
     if (rowErrors[code]) setRowErrors((e) => { const n = { ...e }; delete n[code]; return n; });
@@ -189,47 +184,48 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
   const templateParam = data.source === 'activity' ? null : data.template.key;
 
   async function apply() {
-    const payload = checkedPayload(items, rows, fieldNames);
+    const payload = checkedPayload(items, rows, fieldsByName);
     if (!payload.length) return;
-    setSaving(true); setRowErrors({}); setApplyError(null);
+    setSaving(true); setRowErrors({}); setFlagged({}); setApplyError(null);
     try {
       const r = await api.monApplyTemplate(form.id, payload, { template: templateParam });
       toast.success(tr('{n} indicateur(s) créé(s) depuis le modèle « {label} ».', { n: formatInt(r.applied), label: data.template.label }));
       if (r.conflicts) toast.error(tr('{n} indicateur(s) non créé(s) : leur code est déjà utilisé par un indicateur de la fiche.', { n: formatInt(r.conflicts) }));
-      await load();
+      await load(undefined, { reset: true });
       onApplied?.();
     } catch (e) {
       const ie = itemError(e);
       const target = ie && items.find((it) => it.code === ie.item);
       if (target) {
-        // Refus qui nomme l'élément (type de variable incompatible) : le motif sur SA ligne, rien n'a été créé.
-        const msg = ie.code === 'type_mismatch'
-          ? tr('La variable « {field} » ({type}) ne convient pas à la méthode de cet indicateur ({agg}) : choisissez une autre variable.', {
-            field: ie.field || rows[ie.item]?.field || '—', type: typeText(ie.type, tr), agg: AGG_LABEL[ie.agg] ? tr(AGG_LABEL[ie.agg]) : (ie.agg || '—'),
-          })
-          : e.message;
-        setRowErrors({ [ie.item]: msg });
+        // Refus qui nomme l'élément (type, valeur comptée hors liste, « % = valeur » sans valeur, valeur aussi
+        // hors base, variable disparue) : le motif sur SA ligne, dans la langue de l'écran ; rien n'a été créé.
+        setRowErrors({ [ie.item]: templateErrorText(e, tr, { sourceField: rows[ie.item]?.field }) });
+        setFlagged({ [ie.item]: true });
         setApplyError(tr('Rien n\'a été créé : « {label} » est à corriger (ligne signalée ci-dessous).', { label: target.label }));
         setFilter('all');
         setTimeout(() => document.getElementById(rowId(form.id, ie.item))?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50);
       } else {
-        setApplyError(e.message);
-        toast.error(e.message);
+        const msg = templateErrorText(e, tr, { template: templateParam });
+        setApplyError(msg);
+        toast.error(msg);
       }
     } finally { setSaving(false); }
   }
 
-  // Mise à jour d'un indicateur créé avant une correction du modèle : la modification habituelle
-  // (PATCH, mêmes contrôles), l'une après l'autre ; chaque refus est gardé sur sa ligne.
-  async function update(list) {
+  // Mise à jour d'un indicateur créé depuis le modèle : la modification habituelle (PATCH, mêmes
+  // contrôles), l'une après l'autre ; chaque refus est gardé sur sa ligne, dans la langue de l'écran.
+  // `full` (action d'UNE ligne seulement) : applique aussi les différences (la définition du modèle).
+  async function update(list, { full = false } = {}) {
     setUpdating(list.length === 1 ? list[0].code : 'all');
     const errors = {};
     let done = 0;
     for (const it of list) {
+      const ds = driftState(it);
+      const patch = full ? ds.fullPatch : ds.patch;
       try {
-        await api.monUpdateIndicator(it.existing.id, driftState(it).patch); // une après l'autre : chaque PATCH est contrôlé seul
+        await api.monUpdateIndicator(it.existing.id, patch); // une après l'autre : chaque PATCH est contrôlé seul
         done += 1;
-      } catch (e) { errors[it.code] = e.message; }
+      } catch (e) { errors[it.code] = templateErrorText(e, tr, { sourceField: patch.sourceField || it.existing.sourceField }); }
     }
     const failed = Object.keys(errors).length;
     setDriftErrors((prev) => {
@@ -240,15 +236,16 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
     if (done) toast.success(tr('{n} indicateur(s) mis à jour selon le modèle.', { n: formatInt(done) }));
     if (failed) {
       toast.error(tr('{n} mise(s) à jour refusée(s) : le motif est affiché sur la ligne.', { n: formatInt(failed) }));
-      setExpanded(true); setFilter('update');
+      setExpanded(true); setFilter('check');
     }
     setUpdating(null);
     if (done) { await load(); onApplied?.(); }
   }
 
+  // « Tout mettre à jour » : les CORRECTIONS du modèle seulement — jamais une différence (modification de l'utilisateur).
   const driftItems = items.filter((it) => driftState(it)?.updatable);
   const remaining = items.filter((it) => !it.existing && !it.taken).length;
-  const open = expanded ?? (counts.existing === 0 || counts.drift > 0);
+  const open = expanded ?? (loaded.existing === 0 || loaded.corrections > 0);
   const title = data.source === 'activity' ? tr('Modèle de l\'activité : {label}', { label: data.template.label })
     : data.source === 'proposal' ? tr('Modèle proposé : {label}', { label: data.template.label })
       : tr('Modèle choisi : {label}', { label: data.template.label });
@@ -275,14 +272,21 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
       {picker}
     </Alert>
   ) : null;
-  const driftNote = counts.drift > 0 && (
+  const driftNote = loaded.corrections > 0 && (
     <Alert tone="warning" icon={RefreshCw}>
-      {tr('{n} indicateur(s) créé(s) depuis le modèle ont une définition différente du modèle actuel (le plus souvent : créés avant une correction du modèle). Rien n\'a été modifié ; la modification proposée est affichée sur chaque ligne.', { n: formatInt(counts.drift) })}
+      {tr('{n} indicateur(s) créé(s) avant une correction du modèle : ils gardent une ancienne valeur du modèle. Rien n\'a été modifié ; la correction proposée est affichée sur chaque ligne.', { n: formatInt(loaded.corrections) })}
       <div className="tpl-alert-actions">
         {canEdit && driftItems.length > 0 && <Button size="sm" variant="secondary" icon={RefreshCw} loading={updating === 'all'} disabled={Boolean(updating)} onClick={() => update(driftItems)}>
           {tr('Tout mettre à jour ({n})', { n: formatInt(driftItems.length) })}</Button>}
         <button type="button" className="inline-link" onClick={() => { setExpanded(true); setFilter('update'); }}>{tr('Voir lesquels')}</button>
       </div>
+    </Alert>
+  );
+  // Différences (modifications faites dans la fiche, le plus souvent) : pour information, jamais en lot.
+  const diffNote = loaded.differences > 0 && (
+    <Alert tone="info" icon={Info}>
+      {tr('{n} indicateur(s) diffèrent du modèle sans en être une ancienne version (le plus souvent : modifiés dans la fiche). Affichés pour information ; rien ne change sans l\'action de leur ligne.', { n: formatInt(loaded.differences) })}
+      {' '}<button type="button" className="inline-link" onClick={() => { setExpanded(true); setFilter('diff'); }}>{tr('Voir lesquels')}</button>
     </Alert>
   );
 
@@ -291,7 +295,7 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
       <Card aria-labelledby="tpl-title">
         <CardHeader id="tpl-title" title={title}
           subtitle={tr('{n} indicateur(s) du modèle sur {t} déjà créé(s) ; {r} restant(s). Les indicateurs déjà créés ne sont pas modifiés par le modèle : modifiez-les dans la liste des indicateurs.', {
-            n: formatInt(counts.existing), t: formatInt(items.length), r: formatInt(remaining),
+            n: formatInt(loaded.existing), t: formatInt(items.length), r: formatInt(remaining),
           })}>
           <Button variant="secondary" icon={ChevronDown} onClick={() => setExpanded(true)}>{tr('Afficher le modèle')}</Button>
         </CardHeader>
@@ -299,34 +303,34 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
     );
   }
 
-  const summary = data.summary || {};
   return (
     <Card aria-labelledby="tpl-title">
       <CardHeader id="tpl-title" title={title}
         subtitle={tr('Les indicateurs de vos tableaux de bord de référence, domaine par domaine, avec la variable du formulaire proposée pour chacun. Seules les variables trouvées et vérifiées (type, liste de choix, hors sous-tableau) sont cochées d\'office : vérifiez, cochez, puis créez. Un indicateur déjà créé n\'est jamais modifié par le modèle.')}>
-        {counts.existing > 0 && <Button variant="ghost" icon={ChevronUp} onClick={() => setExpanded(false)}>{tr('Replier')}</Button>}
-        {canEdit && counts.checked > 0 && <Button icon={CheckCircle2} loading={saving} onClick={apply}>{tr('Créer {n} indicateur(s)', { n: formatInt(counts.checked) })}</Button>}
+        {loaded.existing > 0 && <Button variant="ghost" icon={ChevronUp} onClick={() => setExpanded(false)}>{tr('Replier')}</Button>}
+        {canEdit && checkedCount > 0 && <Button icon={CheckCircle2} loading={saving} onClick={apply}>{tr('Créer {n} indicateur(s)', { n: formatInt(checkedCount) })}</Button>}
       </CardHeader>
-      {(sourceNote || driftNote || applyError) && (
+      {(sourceNote || driftNote || diffNote || applyError) && (
         <div className="card-body section-gap tpl-notes">
           {applyError && <Alert tone="error" icon={XCircle}>{applyError}</Alert>}
-          {sourceNote}{driftNote}
+          {sourceNote}{driftNote}{diffNote}
         </div>
       )}
       <div className="card-body tpl-head">
         <div className="tpl-counts">
+          {/* Une catégorie par élément (lib rowCategory) : ces nombres se somment au total du modèle. */}
           {['sure', 'probable', 'a_verifier'].map((k) => {
             const Icon = CONF_ICON[CONFIDENCE[k].icon];
-            return <span key={k}><Badge tone={CONFIDENCE[k].tone} icon={Icon}>{tr(CONFIDENCE[k].label)}</Badge> {formatInt(counts[k])}</span>;
+            return <span key={k}><Badge tone={CONFIDENCE[k].tone} icon={Icon}>{tr(CONFIDENCE[k].label)}</Badge> {formatInt(loaded[k])}</span>;
           })}
-          <span><Badge tone={null} icon={MinusCircle}>{tr(NO_CONFIDENCE.label)}</Badge> {formatInt(counts.none)}</span>
-          {summary.subtable > 0 && <span title={tr(WARNING_LABEL.groupe)}><Badge tone={null} icon={Layers}>{tr('Sous-tableau')}</Badge> {formatInt(summary.subtable)}</span>}
-          {counts.pending > 0 && <span><Badge tone={null} icon={Clock}>{tr('En attente des données')}</Badge> {formatInt(counts.pending)}</span>}
-          {counts.existing > 0 && <span className="muted">{tr('{n} déjà créé(s)', { n: formatInt(counts.existing) })}</span>}
+          {loaded.subtable > 0 && <span title={tr(WARNING_LABEL.groupe)}><Badge tone={null} icon={Layers}>{tr('Sous-tableau')}</Badge> {formatInt(loaded.subtable)}</span>}
+          {loaded.pending > 0 && <span><Badge tone={null} icon={Clock}>{tr('En attente des données')}</Badge> {formatInt(loaded.pending)}</span>}
+          <span><Badge tone={null} icon={MinusCircle}>{tr(NO_CONFIDENCE.label)}</Badge> {formatInt(loaded.none)}</span>
+          {loaded.existing > 0 && <span className="muted">{tr('{n} déjà créé(s)', { n: formatInt(loaded.existing) })}</span>}
           {hiddenChecked > 0 && <span className="tpl-hidden-checked">{tr('{n} coché(s) masqué(s) par le filtre (créés aussi)', { n: formatInt(hiddenChecked) })}</span>}
         </div>
         <div className="segmented" role="group" aria-label={tr('Filtrer')}>
-          {FILTERS.filter((f) => f.id !== 'update' || counts.drift > 0).map((f) => <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>{tr(f.label)}</button>)}
+          {FILTERS.filter((f) => filters.includes(f.id)).map((f) => <button key={f.id} type="button" aria-pressed={activeFilter === f.id} onClick={() => setFilter(f.id)}>{tr(f.label)}</button>)}
         </div>
       </div>
       <datalist id={`tpl-fields-${form.id}`}>
@@ -347,9 +351,9 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
               <React.Fragment key={g.module}>
                 <tr className="tpl-domain"><th colSpan={canEdit ? 5 : 4} scope="colgroup">{g.module}</th></tr>
                 {g.items.map((it) => (
-                  <TemplateRow key={it.code} it={it} formId={form.id} row={rows[it.code] || {}} field={fieldsByName.get(rows[it.code]?.field)}
-                    fieldNames={fieldNames} canEdit={canEdit} rowError={rowErrors[it.code]} driftError={driftErrors[it.code]}
-                    updating={updating} onSet={set} onUpdate={() => update([it])} />
+                  <TemplateRow key={it.code} it={it} formId={form.id} row={rows[it.code] || {}} fieldsByName={fieldsByName}
+                    canEdit={canEdit} rowError={rowErrors[it.code]} driftError={driftErrors[it.code]}
+                    updating={updating} onSet={set} onUpdate={(opts) => update([it], opts)} />
                 ))}
               </React.Fragment>
             ))}
@@ -361,7 +365,7 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
 }
 
 /** Une ligne du modèle : élément, variable proposée (modifiable), valeur comptée, qualité de la proposition. */
-function TemplateRow({ it, formId, row: r, field, fieldNames, canEdit, rowError, driftError, updating, onSet, onUpdate }) {
+function TemplateRow({ it, formId, row: r, fieldsByName, canEdit, rowError, driftError, updating, onSet, onUpdate }) {
   const { tr } = useI18n();
   const s = it.suggestion || {};
   const conf = CONFIDENCE[s.confidence] || NO_CONFIDENCE;
@@ -369,9 +373,13 @@ function TemplateRow({ it, formId, row: r, field, fieldNames, canEdit, rowError,
   // Déjà créé (ou code pris) : le modèle ne le modifie pas — il se modifie dans la liste des indicateurs.
   const locked = Boolean(it.existing || it.taken);
   const edit = canEdit && !locked;
-  const sel = rowSelectable(it, r, fieldNames);
+  const field = fieldsByName.get(r.field);
+  const sel = rowSelectable(it, r, fieldsByName);
   const checked = Boolean(r.on) && sel.ok;
   const invalid = sel.reason === 'unknown_field';
+  // Défauts de la variable ACTUELLE de la ligne (type, valeur comptée dans sa liste) — recalculés à chaque changement.
+  const issues = !locked && field ? fieldIssues(it, field, r.positive) : [];
+  const onSuggested = Boolean(s.field) && r.field === s.field;
   const ds = driftState(it);
   const warnings = it.warnings || [];
   // Sous-tableau reconnu par le catalogue de la fiche (field.repeat) sans avertissement « groupe » du modèle : dit aussi.
@@ -396,32 +404,34 @@ function TemplateRow({ it, formId, row: r, field, fieldNames, canEdit, rowError,
               {tr(warningLabel(w))}
             </span>
           ))}
-          {!locked && (s.issues || []).map((x) => <span key={x} className="tpl-flag tpl-flag-warn"><AlertTriangle size={12} aria-hidden="true" /> {tr(issueLabel(x))}</span>)}
-          {!locked && s.pendingData && <span className="tpl-flag tpl-flag-info"><Clock size={12} aria-hidden="true" /> {tr('Option du formulaire : sa colonne arrivera avec l\'import des données')}</span>}
-          {!locked && (s.naDropped || []).length > 0 && <span className="tpl-flag tpl-flag-info"><Info size={12} aria-hidden="true" /> {tr('Réponses hors base retirées (absentes de la liste ou « Autre ») : {v}', { v: s.naDropped.join(', ') })}</span>}
+          {issues.map((x) => <span key={x} className="tpl-flag tpl-flag-warn"><AlertTriangle size={12} aria-hidden="true" /> {tr(issueLabel(x))}</span>)}
+          {!locked && s.pendingData && !r.field && <span className="tpl-flag tpl-flag-info"><Clock size={12} aria-hidden="true" /> {tr('Option du formulaire : sa colonne arrivera avec l\'import des données')}</span>}
+          {!locked && onSuggested && (s.naDropped || []).length > 0 && <span className="tpl-flag tpl-flag-info"><Info size={12} aria-hidden="true" /> {tr('Réponses hors base retirées (absentes de la liste ou « Autre ») : {v}', { v: s.naDropped.join(', ') })}</span>}
           {it.existing && <span className="tpl-done"><CheckCircle2 size={12} aria-hidden="true" /> {tr('créé')}{it.existing.code !== it.code ? ` (${it.existing.code})` : ''}</span>}
           {it.taken && <span className="tpl-flag tpl-flag-warn"><AlertTriangle size={12} aria-hidden="true" /> {tr('code déjà utilisé par « {label} »', { label: it.taken.label })}</span>}
         </div>
         {rowError && <div className="tpl-row-error" role="alert"><XCircle size={14} aria-hidden="true" /> <span>{rowError}</span></div>}
         {ds && (
           <div className="tpl-drift">
-            <Badge tone={ds.kind === 'definition' ? 'orange' : 'blue'} icon={RefreshCw}>
-              {tr(ds.kind === 'definition' ? 'À mettre à jour' : 'Libellé à mettre à jour')}
-            </Badge>
-            <span className="muted">{tr(ds.former ? 'Créé avant une correction du modèle.' : 'Différent du modèle actuel.')}</span>
+            {ds.corrections.length > 0 ? (
+              <Badge tone={ds.kind === 'definition' ? 'orange' : 'blue'} icon={RefreshCw}>
+                {tr(ds.kind === 'definition' ? 'À mettre à jour' : 'Libellé à mettre à jour')}
+              </Badge>
+            ) : <Badge tone={null} icon={Info}>{tr('Différent du modèle')}</Badge>}
+            <span className="muted">{tr(ds.corrections.length > 0 ? 'Créé avant une correction du modèle.' : 'Le plus souvent une modification faite dans la fiche : pour information.')}</span>
             <ul className="tpl-drift-list" aria-label={tr('Modification proposée')}>
               {ds.changes.map((c) => (
                 <li key={c.key}>{tr(driftKeyLabel(c.key))} : <span className={CODE_KEYS.has(c.key) ? 'mono' : undefined}>{driftValue(c.key, c.from, tr)}</span> → <span className={CODE_KEYS.has(c.key) ? 'mono' : undefined}>
-                  {c.key === 'sourceField' && c.to == null
-                    ? tr('{v} (pas encore dans cette fiche)', { v: (it.variables || [])[0] || '—' })
-                    : driftValue(c.key, c.to, tr)}</span></li>
+                  {c.key === 'sourceField' && (c.to == null || ds.blocked) ? blockedTargetText(ds.blocked, tr) : driftValue(c.key, c.to, tr)}</span>
+                  {c.origin === 'difference' && ds.corrections.length > 0 && <span className="tpl-diff-tag">{tr('différence')}</span>}</li>
               ))}
             </ul>
-            {ds.blocked && (
-              <span className="tpl-drift-blocked">{tr('La variable du modèle n\'est pas encore dans cette fiche : la mise à jour sera proposée après l\'import de ses données. D\'ici là, modifiez l\'indicateur à la main si besoin (liste des indicateurs).')}</span>
-            )}
+            {ds.blocked && <span className="tpl-drift-blocked">{blockedText(ds.blocked, tr)}</span>}
             {canEdit && ds.updatable && (
-              <Button size="sm" variant="secondary" icon={RefreshCw} loading={updating === it.code} disabled={Boolean(updating)} onClick={onUpdate}>{tr('Mettre à jour')}</Button>
+              <Button size="sm" variant="secondary" icon={RefreshCw} loading={updating === it.code} disabled={Boolean(updating)} onClick={() => onUpdate()}>{tr('Mettre à jour')}</Button>
+            )}
+            {canEdit && ds.applicable && (
+              <Button size="sm" variant="ghost" icon={RefreshCw} loading={updating === it.code} disabled={Boolean(updating)} onClick={() => onUpdate({ full: true })}>{tr('Appliquer le modèle')}</Button>
             )}
             {driftError && <div className="tpl-row-error" role="alert"><XCircle size={14} aria-hidden="true" /> <span>{tr('Mise à jour refusée : {msg}', { msg: driftError })}</span></div>}
           </div>
@@ -431,7 +441,11 @@ function TemplateRow({ it, formId, row: r, field, fieldNames, canEdit, rowError,
         {edit ? (
           <input className={`input input-sm mono${invalid || rowError ? ' is-invalid' : ''}`} list={`tpl-fields-${formId}`} value={r.field || ''}
             placeholder={tr('— aucune —')} aria-label={tr('Variable pour « {label} »', { label: it.label })}
-            onChange={(e) => { const v = e.target.value.trim(); onSet(it.code, { field: v, on: Boolean(v) && fieldNames.has(v) }); }} />
+            onChange={(e) => {
+              // Nouvelle variable : la valeur comptée suit SA liste (lib positiveForField), jamais celle de l'ancienne.
+              const v = e.target.value.trim();
+              onSet(it.code, { field: v, on: Boolean(v) && fieldsByName.has(v), positive: positiveForField(it, fieldsByName.get(v), r.positive) });
+            }} />
         ) : <span className="mono">{r.field || '—'}</span>}
         {field?.label && <div className="site-meta tpl-field-label" title={field.label}>{field.label}</div>}
         {invalid && <div className="site-meta text-warn">{tr('Variable inconnue dans cette fiche')}</div>}
@@ -450,6 +464,7 @@ function TemplateRow({ it, formId, row: r, field, fieldNames, canEdit, rowError,
             ? <input className="input input-sm mono" value={r.positive || ''} onChange={(e) => onSet(it.code, { positive: e.target.value })} aria-label={tr('Valeur comptée pour « {label} »', { label: it.label })} />
             : <span className="mono">{r.positive || '—'}</span>}
         {edit && sel.reason === 'positive_required' && <div className="site-meta text-warn">{tr('Choisissez la valeur comptée')}</div>}
+        {edit && sel.reason === 'positive_not_in_list' && <div className="site-meta text-warn">{tr('Choisissez une valeur de la liste de cette variable')}</div>}
       </td>
       <td><Badge tone={conf.tone} icon={ConfIcon}>{tr(conf.label)}</Badge></td>
     </tr>

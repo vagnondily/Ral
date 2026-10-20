@@ -61,6 +61,7 @@ db.withTenantTransaction = async (tenantId, fn) => fn({
       return { rows: [...state.catalog, ...state.calc].map((name) => ({ name })) };
     }
     if (/^SELECT DISTINCT jsonb_object_keys\(data\)/.test(s)) return { rows: state.dataKeys.map((name) => ({ name })) };
+    if (/^SELECT name, label FROM monitoring_calc_fields WHERE tenant_id = \$1 AND form_id = \$2 ORDER BY name$/.test(s)) return { rows: state.calc.map((name) => ({ name, label: name })) };
     if (/^UPDATE monitoring_indicators SET/.test(s)) {
       const cols = applyUpdate(s, params);
       assert.equal(cols, 12, 'toutes les colonnes modifiables passent par un drapeau');

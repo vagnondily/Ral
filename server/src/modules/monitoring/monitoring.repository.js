@@ -12,7 +12,7 @@ const { buildLookup, collectionColumns, overrideColumns, prepareImport, previewI
 const { collectionUpdates } = require('./collectionDate');
 const { templateForActivity, moduleLabel, indicatorFromItem } = require('./indicatorTemplates');
 const {
-  proposeTemplate, effectiveTemplate, bindTemplate, bindItem, proposedSelection, bindingSummary, templateDrift, typeIssue,
+  proposeTemplate, effectiveTemplate, bindTemplate, bindItem, proposedSelection, bindingSummary, templateDrift, templateRowIssue,
 } = require('./indicatorProposals');
 const { OTHER_VALUES } = require('./memsMapping');
 const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx, choiceContextTx, loadPartiesTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
@@ -273,9 +273,13 @@ async function bindingFieldsTx(client, tenantId, formId) {
   const { rows: keys } = await client.query(
     'SELECT DISTINCT jsonb_object_keys(data) AS name FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 ORDER BY 1',
     [tenantId, formId]);
+  // Champs calculés MEMS de la fiche : acceptés par resolveVariable (création, PATCH) et par le calcul, donc
+  // aussi par la carte du modèle, la création groupée et les mises à jour — un seul ensemble de variables.
+  const { rows: calcFields } = await client.query(
+    'SELECT name, label FROM monitoring_calc_fields WHERE tenant_id = $1 AND form_id = $2 ORDER BY name', [tenantId, formId]);
   // Listes longues (lieux, écoles) inutiles pour choisir une valeur positive : non envoyées (describeVariables).
   // Options éclatées des choix multiples (« X.1 ») libellées « question — choix ».
-  return describeVariables({ catalog, choicesByList, dataKeys: keys.map((k) => k.name) })
+  return describeVariables({ catalog, choicesByList, dataKeys: keys.map((k) => k.name), calcFields })
     .map((v) => ({ name: v.name, label: v.label, type: v.type, choices: v.choices }));
 }
 
@@ -487,15 +491,17 @@ async function formTemplate(tenantId, formId, { template: requested = null } = {
     // Code de l'élément déjà pris par un indicateur créé à la main : l'élément ne peut pas être créé.
     const byCode = new Map(existing.map((e) => [e.code, e]));
     const taken = new Set(tpl.items.filter((it) => !done.has(it.code) && byCode.has(it.code)).map((it) => it.code));
-    let toUpdate = 0; let labelsToUpdate = 0;
+    let toUpdate = 0; let labelsToUpdate = 0; let differences = 0;
     out.template = {
       key: tpl.key, label: tpl.label, mmrCategory: tpl.mmrCategory, domains: tpl.domains,
       items: tpl.items.map((it, i) => {
         const ex = done.get(it.code) || null;
         const other = taken.has(it.code) ? byCode.get(it.code) : null;
-        const drift = ex ? templateDrift(it, bindings[i], ex) : null;
+        const drift = ex ? templateDrift(it, bindings[i], ex, { fields }) : null;
+        // « À mettre à jour » = corrections du modèle seulement ; une modification de l'utilisateur est une différence.
         if (drift && drift.kind === 'definition') toUpdate += 1;
-        else if (drift) labelsToUpdate += 1;
+        else if (drift && drift.kind === 'label') labelsToUpdate += 1;
+        else if (drift) differences += 1;
         const { formerly, ...item } = it; // eslint-disable-line no-unused-vars
         return {
           ...item, module: moduleLabel(tpl, it.domain), suggestion: bindings[i],
@@ -504,7 +510,7 @@ async function formTemplate(tenantId, formId, { template: requested = null } = {
         };
       }),
     };
-    out.summary = { ...bindingSummary(bindings, { done: new Set(done.keys()), taken }), toUpdate, labelsToUpdate };
+    out.summary = { ...bindingSummary(bindings, { done: new Set(done.keys()), taken }), toUpdate, labelsToUpdate, differences };
     out.fields = fields.map((f) => ({ name: f.name, label: f.label, type: f.type, choices: f.choices }));
     return out;
   });
@@ -561,22 +567,23 @@ async function applyTemplate(tenantId, formId, { items = null, proposed = false,
       const unknownCode = selection.find((b) => !itemIndex.has(b.code));
       if (unknownCode) throw badRequest(`Indicateur « ${unknownCode.code} » absent du modèle « ${tpl.label} ».`);
       const unknownField = selection.find((b) => !fieldsByName.has(b.sourceField));
-      if (unknownField) throw badRequest(`Variable « ${unknownField.sourceField} » introuvable dans cette fiche.`);
-      // Type de la variable incompatible avec la méthode : refusé, l'élément est nommé.
-      const wrong = selection.find((b) => typeIssue(itemIndex.get(b.code).it.agg, fieldsByName.get(b.sourceField).type));
-      if (wrong) {
-        const { it } = itemIndex.get(wrong.code);
-        const type = fieldsByName.get(wrong.sourceField).type;
-        throw badRequest(`« ${it.label} » (${it.code}) : la variable « ${wrong.sourceField} » (${type}) ne convient pas à la méthode de cet indicateur. Choisissez une autre variable.`,
-          { code: 'type_mismatch', item: it.code, field: wrong.sourceField, type, agg: it.agg });
+      if (unknownField) {
+        throw badRequest(`Variable « ${unknownField.sourceField} » introuvable dans cette fiche.`,
+          { code: 'unknown_variable', item: unknownField.code, name: unknownField.sourceField });
       }
     }
     const kept = selection.filter((b) => done.has(b.code)).length;
     const rows = selection.filter((b) => !done.has(b.code)).map((b) => {
       const { it, i } = itemIndex.get(b.code);
+      const field = fieldsByName.get(b.sourceField) || null;
       // Codes hors base retenus pour la liste de la variable choisie (« Autre » n'en est jamais un).
-      const checked = bindItem(it, { positiveValue: b.positiveValue, confidence: null }, fieldsByName.get(b.sourceField) || null);
-      return indicatorFromItem(tpl, it, { sourceField: b.sourceField, positiveValue: b.positiveValue, naValues: checked.naValues }, i);
+      const checked = bindItem(it, { positiveValue: b.positiveValue, confidence: null }, field);
+      const row = indicatorFromItem(tpl, it, { sourceField: b.sourceField, positiveValue: b.positiveValue, naValues: checked.naValues }, i);
+      // Mêmes règles que l'éditeur (indicatorRules) + type et liste de la variable : un élément refusé est
+      // NOMMÉ (400), rien n'est écrit — ni lui, ni les autres.
+      const refused = templateRowIssue(it, field, row);
+      if (refused) throw badRequest(refused.message, refused.details);
+      return row;
     });
     const applied = rows.length ? await insertRows(client, {
       table: 'monitoring_indicators',

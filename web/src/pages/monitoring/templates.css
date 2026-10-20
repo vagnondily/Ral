@@ -22,15 +22,24 @@
 /* Colonnes saisissables plus étroites : la table tient dans la carte sur un écran de bureau.
    Sélecteurs « table.tpl-table » : cette feuille est chargée AVANT styles.css (importée par une page,
    main.jsx importe App avant styles.css), une règle de même poids y serait écrasée. */
-table.tpl-table .input-sm { width: 100%; min-width: 150px; max-width: 250px; }
-table.tpl-table .select-sm { width: 100%; min-width: 120px; max-width: 210px; }
+table.tpl-table .input-sm { width: 100%; min-width: 140px; max-width: 230px; }
+table.tpl-table .select-sm { width: 100%; min-width: 110px; max-width: 200px; }
+/* Libellé de la question sous la variable : tronqué (ellipse) à la largeur du champ, jamais plus large. */
+table.tpl-table .tpl-field-label { max-width: 230px; }
+/* Boutons d'une ligne « à mettre à jour » : le texte peut passer à la ligne plutôt qu'élargir la colonne. */
+.tpl-drift .btn { white-space: normal; height: auto; min-height: 30px; text-align: left; }
 table.tpl-table td:last-child, table.tpl-table th:last-child { white-space: nowrap; }
 
 /* Compte des cases cochées masquées par le filtre : ce qui part n'est jamais caché. */
 .tpl-hidden-checked { font-size: 12.5px; color: var(--text-muted); }
 
-/* Méta d'un élément : avertissements, défauts, sous-table, en attente des données. */
-.tpl-table .site-meta .tpl-flag { display: inline-flex; align-items: center; gap: 3px; }
+/* Méta d'un élément : avertissements, défauts, sous-table, en attente des données.
+   styles.css met « .table td .site-meta » en nowrap : les phrases des drapeaux doivent pouvoir passer à la
+   ligne (sinon la 1re colonne s'élargit et la table déborde de la carte sur un écran de 1280–1366 px).
+   Le libellé tronqué de la variable (.tpl-field-label) garde son nowrap + ellipse. */
+table.tpl-table td .site-meta:not(.tpl-field-label) { white-space: normal; }
+.tpl-table .site-meta .tpl-flag { display: inline-flex; align-items: flex-start; gap: 3px; }
+.tpl-table .site-meta .tpl-flag svg { margin-top: 2px; }
 .tpl-flag-warn { color: var(--orange-text); font-weight: 600; }
 .tpl-flag-info { color: var(--text-muted); }
 .tpl-flag svg { flex: none; }
@@ -47,6 +56,7 @@ table.tpl-table td:last-child, table.tpl-table th:last-child { white-space: nowr
 .tpl-drift-list li { margin: 1px 0; overflow-wrap: anywhere; }
 .tpl-drift-list .mono { font-size: 12px; }
 .tpl-drift-blocked { flex-basis: 100%; color: var(--text-muted); }
+.tpl-diff-tag { margin-left: 6px; padding: 0 6px; border-radius: var(--radius-sm); background: var(--canvas); color: var(--text-muted); font-size: 11.5px; }
 
 /* « Créer les N indicateurs proposés » (états vides des Résultats). */
 .tplp-cta { display: grid; gap: 10px; justify-items: center; text-align: center; max-width: 640px; margin: 0 auto; }

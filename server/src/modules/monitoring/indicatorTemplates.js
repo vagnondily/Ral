@@ -87,12 +87,16 @@ function moduleLabel(template, code) {
 
 /**
  * Valeur positive à retenir pour la variable choisie : celle du modèle si la
- * liste de choix la contient (ou sans liste connue), sinon le « Oui » de la liste.
+ * liste de choix la contient (ou sans liste connue), sinon — pour un « % de oui »
+ * seulement — le « Oui » de la liste. Un « % = valeur » garde TOUJOURS la valeur
+ * du modèle (« 0 » = « N'a pas payé » ne devient jamais le « Oui » de la liste,
+ * qui compterait l'inverse) : absente de la liste, elle est signalée (bindItem,
+ * défaut « positive ») et jamais précochée.
  */
 function positiveFor(item, field) {
   const choices = (field && field.choices) || [];
   const wanted = item.positiveValue == null ? null : String(item.positiveValue);
-  if (!choices.length || item.agg === 'mean' || item.agg === 'count' || item.agg === 'sum') return wanted;
+  if (!choices.length || item.agg !== 'percent_yes') return wanted;
   const values = new Set(choices.map((c) => String(c.value)));
   if (wanted && wanted.split('|').every((v) => values.has(v))) return wanted;
   const yes = choices.find((c) => /^(oui|yes)$/i.test(String(c.label || '').trim()));

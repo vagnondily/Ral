@@ -262,6 +262,11 @@ test('valeur positive : celle du modèle si la liste la contient, sinon le « Ou
   assert.equal(positiveFor(item, { choices: [{ value: 'yes', label: 'Oui' }, { value: 'no', label: 'Non' }] }), 'yes');
   assert.equal(positiveFor({ agg: 'percent_value', positiveValue: '1|2' }, { choices: [{ value: '1' }, { value: '2' }, { value: '3' }] }), '1|2');
   assert.equal(positiveFor(item, null), '1');
+  // « % = valeur » : la valeur du modèle, JAMAIS le « Oui » de la liste (« 0 » = « N'a pas payé » compterait l'inverse).
+  const notPaid = { agg: 'percent_value', positiveValue: '0' };
+  assert.equal(positiveFor(notPaid, { choices: [{ value: 'yes', label: 'Oui' }, { value: 'no', label: 'Non' }] }), '0');
+  assert.equal(positiveFor(notPaid, { choices: [{ value: '1', label: 'Oui' }, { value: '2', label: 'Non' }] }), '0');
+  assert.equal(positiveFor({ agg: 'mean', positiveValue: null }, { choices: YESNO }), null);
 });
 
 test('indicateur créé depuis le modèle : domaine lisible, sens, réponses hors base de la liste, cible, lien au modèle', () => {
