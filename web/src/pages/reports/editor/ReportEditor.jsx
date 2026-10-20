@@ -207,9 +207,12 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
     try { await api.reportCreateTemplate({ name: name.trim(), content: doc }); toast.success(tr('Modèle enregistré.')); onTemplatesChanged(); } catch (e) { toast.error(e.message); }
   }
 
+  // Copie = brouillon (lignes recalculées) : d'un rapport finalisé avant le schéma des clés, elle part du
+  // contenu dont les constats sont sur les clés actuelles (copyContent, serveur), jamais des clés figées.
   const duplicateDoc = () => {
+    const base = meta.copyContent || doc;
     setMeta({ id: null, version: null, status: 'draft', templateKey: meta.templateKey });
-    history.reset({ ...doc, title: `${doc.title} (${tr('copie')})`, blocks: doc.blocks.map(cloneWithIds) });
+    history.reset({ ...base, title: `${doc.title} (${tr('copie')})`, blocks: base.blocks.map(cloneWithIds) });
     setDirty(true);
   };
   const back = () => {

@@ -66,6 +66,9 @@ const ACTIVITY_SPACE_CLASS = '[\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2
  * dashboards/coverageDefinitions.activityKey (même classe d'espaces, même ordre : bords, puis
  * intérieur, puis minuscules). UNE expression pour regrouper (coverage.repository) et pour filtrer
  * (siteMonthFactsCtes({ activityGroup })) : le filtre d'une activité donne exactement sa ligne.
+ * Seule limite : `lower` suit la locale de la base (LC_CTYPE). Sur une base en locale « C », seules les
+ * lettres ASCII passent en minuscules (le JavaScript : toutes) ; une base créée avec la locale du
+ * système (installateur Windows, C.UTF-8, fr_FR.UTF-8…) n'est pas concernée.
  */
 const activityKeySql = (expr) => `COALESCE(NULLIF(lower(regexp_replace(regexp_replace(COALESCE(${expr}, ''), '^${ACTIVITY_SPACE_CLASS}+|${ACTIVITY_SPACE_CLASS}+$', '', 'g'), '${ACTIVITY_SPACE_CLASS}+', ' ', 'g')), ''), '—')`;
 

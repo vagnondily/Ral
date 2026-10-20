@@ -68,7 +68,7 @@ export default function ReportDesignerPage({ canEdit, isAdmin }) {
     mark('rd:open');
     try {
       const d = await api.reportDocument(id);
-      setOpen({ doc: d.content, meta: { id: d.id, version: d.version, status: d.status, templateKey: d.templateKey, finalizedAt: d.finalizedAt, upgradedFrom: d.upgradedFrom, warnings: d.warnings || [] } });
+      setOpen({ doc: d.content, meta: { id: d.id, version: d.version, status: d.status, templateKey: d.templateKey, finalizedAt: d.finalizedAt, upgradedFrom: d.upgradedFrom, warnings: d.warnings || [], copyContent: d.copyContent || null } });
     } catch (e) { toast.error(e.message); }
   }
 

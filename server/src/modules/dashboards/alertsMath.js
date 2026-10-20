@@ -32,14 +32,16 @@ const FIELD_GO = { module: 'processus', sub: 'sites' };
  * jamais Affectation & visites, dont le taux ne compte que les visites déclarées :
  *  - la Synthèse du suivi de processus jusqu'à SYNTHESE_MAX_SPAN mois (son sélecteur : min(analysis,
  *    facts), jumeau de ProcessDashboardPage) ;
- *  - au-delà (le Centre d'alertes accepte PERIOD_CAPS.facts mois), « Couverture & performance »,
- *    qui accepte la durée du Centre d'alertes : la période n'est jamais écartée en silence.
+ *  - au-delà (le Centre d'alertes accepte PERIOD_CAPS.facts mois), Reporting › Rapport de synthèse,
+ *    qui accepte la durée du Centre d'alertes (min(document, facts), jumeau de ReportingPage) et lit la
+ *    même mesure (tuile « Exécution du plan (visites) ») : la période n'est jamais écartée en silence.
+ *    Jamais « Couverture & performance » : sa synthèse des indicateurs s'arrête à 12 mois.
  */
 const SYNTHESE_MAX_SPAN = Math.min(PERIOD_CAPS.analysis, PERIOD_CAPS.facts);
 function executionGo(period) {
   if (!period || !period.from || !period.to) return { module: 'processus', sub: 'synthese' };
   const p = { from: period.from, to: period.to };
-  return spanMonths(p) > SYNTHESE_MAX_SPAN ? { module: 'dashboard', sub: 'couverture', period: p } : { module: 'processus', sub: 'synthese', period: p };
+  return spanMonths(p) > SYNTHESE_MAX_SPAN ? { module: 'reporting', sub: 'synthese', period: p } : { module: 'processus', sub: 'synthese', period: p };
 }
 
 /** Jours entiers entre deux dates « AAAA-MM-JJ » (b − a), en UTC : aucun décalage horaire. */

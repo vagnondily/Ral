@@ -1,6 +1,6 @@
 # MEMS 2.0 — État du projet (fait / en cours / reste à faire)
 
-_Mise à jour : 15 octobre 2026, 10:40 UTC. `main` contient les lots 0, 1, 1b, 6a, le retour 56, le registre des sites, les sites actifs / inactifs, l'identifiant des sites, les finitions d'écrans du 15/10, le premier lot de réactivité, le concepteur partie 2 (en-tête libre, annexes, orientation par page) et le référentiel des sous-activités (autre session). La passation entre sessions est dans [`REPRISE.md`](REPRISE.md)._
+_Mise à jour : 20 octobre 2026, 12:20 UTC. `main` (`f871748`) contient les lots 0, 1, 1b, 6a, le retour 56, le registre des sites, les sites actifs / inactifs, l'identifiant des sites, les finitions d'écrans, le premier lot de réactivité, le concepteur partie 2, les sous-activités, la planification automatique (autre session, corrigée le 16/10), la couverture sur une seule source (retour 110), « l'API sert l'interface » (un seul service Windows), et depuis le 20/10 : les listes de choix professionnelles, l'audit design du 16/10, les en-têtes et pieds en paire (retour 112). La passation entre sessions est dans [`REPRISE.md`](REPRISE.md)._
 
 Documents de suivi, à lire dans cet ordre :
 
@@ -8,7 +8,7 @@ Documents de suivi, à lire dans cet ordre :
 |---|---|
 | [`REPRISE.md`](REPRISE.md) | **Passation entre sessions** : ce qui est publié, ce que fait chaque agent (branche, avancement, consigne exacte), ce qui reste, règles pour travailler à deux. |
 | [`JOURNAL.md`](JOURNAL.md) | Chaque action, avec son heure (UTC), son statut, son commit et ses vérifications. Le tableau « État courant » est en tête. |
-| [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) | Chacun de vos retours (n° 1 à 106) : ce qu'il faut, la réponse prévue et son **état**. |
+| [`RETOURS_UTILISATEUR.md`](RETOURS_UTILISATEUR.md) | Chacun de vos retours (n° 1 à 115) : ce qu'il faut, la réponse prévue et son **état**. |
 | [`PLAN_RETOURS_15_37.md`](PLAN_RETOURS_15_37.md) | Les définitions communes (visite, réalisée, site actif, couverture, période…) et l'ordre des lots. |
 | [`SPEC_LOT_1B.md`](SPEC_LOT_1B.md), [`SPEC_LOT_6A.md`](SPEC_LOT_6A.md), [`SPEC_LOT_7A.md`](SPEC_LOT_7A.md) | Spécifications des lots en cours, avec les décisions prises et les corrections exigées par la critique. |
 | [`ANALYSE_REFERENCES.md`](ANALYSE_REFERENCES.md), [`ANALYSE_LIAISONS.md`](ANALYSE_LIAISONS.md), [`REFONTE_UX.md`](REFONTE_UX.md) | Analyses de fond (vos fichiers réels, liaisons entre pages, refonte UX). |
@@ -17,10 +17,10 @@ Documents de suivi, à lire dans cet ordre :
 
 | Contrôle | Résultat |
 |---|---|
-| Tests serveur (`cd server && npm test`) | **1 228** (1 224 réussis, 4 ignorés : ils ne tournent qu'avec les exports réels ou une base jetable — passés à part sur base réelle le 16/10) |
+| Tests serveur (`cd server && npm test`) | **1 278** (1 270 réussis, 8 ignorés : ils ne tournent qu'avec les exports réels ou une base jetable — `npm run test:db`, 7/7 sur base neuve le 20/10) |
 | Lint serveur (`npm run lint`) | propre |
 | Build web (`cd web && npm run build`) | OK |
-| Balayage navigateur (35 écrans, FR et EN — `node web/scripts/sweep-ecrans.cjs`) | 0 erreur console ou API, 0 phrase anglaise manquante (16/10, 06:25) |
+| Balayage navigateur (35 écrans, FR et EN — `node web/scripts/sweep-ecrans.cjs`) | 0 erreur console ou API, 0 phrase anglaise manquante (20/10, 12:00) |
 | Migrations | `001` → `073` + `101` (69 fichiers ; numéros réservés dans `REPRISE.md`) — essayées sur base neuve et sur copie |
 
 ---
@@ -112,6 +112,8 @@ Documents de suivi, à lire dans cet ordre :
 ---
 
 ## 🔄 En cours de réalisation (branches `wip/…`)
+
+> **Au 20/10, 12:20 UTC** — prêts, en correction après relecture (39 constats), puis publication ensemble (`integ/next`) : **lot 8** Partenaires & TPM (fiche 360°, formations en sessions, évaluation du TPM et des agents, vocabulaire « Titulaire » / « TPM », « Interne » quand aucun TPM — retours 28, 30, 113, 115), **modèles d'indicateurs** de vos 5 fiches, **planification automatique** fiable puis selon les besoins avec agents et véhicules (retours 82, 107, 108). Ensuite : filtres du rapportage (102), maquette des tableaux de bord (101), suivi interne (114), bureaux (105), activités (109), réactivité 2ᵉ lot.
 
 > **Au 15/10, 10:40 UTC** — le tableau ci-dessous date du 14/10 ; l'état à jour de chaque agent est dans [`REPRISE.md`](REPRISE.md) § 2 : planification automatique (`wip/lot5-gen`), TPM des contrats (`wip/r58`), tâches de fond (`wip/perf`), tableau de bord fidèle à la maquette (`wip/dash-template`), indicateurs de vos 5 fiches (`wip/indicators`), filtres du rapportage (`wip/7a-p2`), bureaux (`wip/offices`), activités partout (`wip/activities`), Partenaires & TPM (`wip/lot8`), état de l'application (`wip/admin`), sous-tables (`wip/repeats`), fonctions de calcul (`wip/calc`), PDD (`wip/pdd`).
 

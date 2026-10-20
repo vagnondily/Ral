@@ -14,10 +14,12 @@ import MapExplorer, { peekMapOpen, forgetMapOpen } from '../../components/map/Ma
 import { groupNaReasons } from '../../lib/naReasons.js';
 import { shortFormLabel as shortLabel } from '../../lib/formLabel.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 import { barPct, planVsRealRows, rateText, upcomingText, upToDateParts, waysText, watchList } from '../../lib/coverageDefs.js';
 
-/** Durée maximale des endpoints de la page (coverage-dashboard, dashboards/coverage) : 24 mois. */
-const ANALYSIS_MAX_SPAN = 24;
+// Plafond de ses endpoints : la synthèse des indicateurs (coverage-dashboard) accepte PERIOD_CAPS.analysis
+// mois ; une période plus longue serait refusée (400) et masquerait toute la page.
+const ANALYSIS_MAX_SPAN = Math.min(PERIOD_CAPS.analysis, PERIOD_CAPS.facts);
 
 /**
  * Dashboard décisionnel › « Couverture & performance du suivi ».
@@ -61,7 +63,7 @@ const VIEWS = [
 
 export default function DashboardCoveragePage({ onNavigate }) {
   const { tr, lang } = useI18n();
-  const { period, ready, auto, counts, periods, latest, today, source, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data', maxSpan: ANALYSIS_MAX_SPAN });
+  const { period, ready, auto, counts, periods, latest, today, source, capped, setPeriod, resetToDefault } = usePeriod({ scope: 'analysis', defaultRule: 'data', maxSpan: ANALYSIS_MAX_SPAN });
   const pick = (m) => setPeriod(single(m));
   const key = period ? `${period.from}|${period.to}` : '';
   const [cd, setCd] = useState(null);
@@ -110,7 +112,7 @@ export default function DashboardCoveragePage({ onNavigate }) {
       <div className="cd-headbar">
         <div className="cd-headbar-period">
           <PeriodBanner auto={auto} period={period} />
-          <SessionPeriodNote source={source} onReset={resetToDefault} />
+          <SessionPeriodNote source={source} capped={capped} onReset={resetToDefault} />
         </div>
         <div className="cd-views" role="tablist" aria-label={tr('Vues')}>
           {VIEWS.map((v) => (

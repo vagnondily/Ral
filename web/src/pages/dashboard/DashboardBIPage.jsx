@@ -9,12 +9,14 @@ import { formatAr, formatDecimal, formatInt } from '../../lib/format.js';
 import { periodLabel, single, spanMonths, writeHashPeriod } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { ROLE_LABELS, contractIdentity, contractNo, tpmNames } from '../../lib/roles.js';
+import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 
 /**
- * Plafond de la carte du suivi sur cette page : celui de Couverture & performance (analyse,
- * 24 mois), pour que « Ouvrir la carte » y montre exactement la même période.
+ * Plafond de la carte du suivi sur cette page : celui de Couverture & performance (min(analysis,
+ * facts), jumeau de DashboardCoveragePage), pour que « Ouvrir la carte » y montre exactement la même
+ * période — jamais une période que cette page écarterait.
  */
-const MAP_PAGE_SPAN = 24;
+const MAP_PAGE_SPAN = Math.min(PERIOD_CAPS.analysis, PERIOD_CAPS.facts);
 
 /**
  * Tableau de bord décisionnel « façon Power BI » : cartes KPI, barres groupées
@@ -238,7 +240,7 @@ export default function DashboardBIPage({ onOpenContract, onNavigate }) {
     return () => { alive = false; };
   }, [ready, key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Période de la carte : celle de la page (≤ 24 mois) ; sans période, le dernier mois avec des
+  // Période de la carte : celle de la page (≤ MAP_PAGE_SPAN mois) ; sans période, le dernier mois avec des
   // données (undefined tant qu'il n'est pas connu : la carte attend au lieu d'afficher un mois vide).
   const mapPeriod = useMemo(() => {
     if (!ready) return undefined;
@@ -282,7 +284,7 @@ export default function DashboardBIPage({ onOpenContract, onNavigate }) {
   const pLabel = period ? periodLabel(period, lang) : '';
   let mapNote = null;
   if (mapPeriod && !period) mapNote = tr('Toutes les périodes : la carte montre {m}, dernier mois avec des données.', { m: periodLabel(mapPeriod, lang) });
-  else if (mapPeriod && mapClamped) mapNote = tr('La carte montre les 24 derniers mois de la période ({p}).', { p: periodLabel(mapPeriod, lang) });
+  else if (mapPeriod && mapClamped) mapNote = tr('La carte montre les {n} derniers mois de la période ({p}).', { n: MAP_PAGE_SPAN, p: periodLabel(mapPeriod, lang) });
 
   return (
     <div className="section-gap" onMouseLeave={() => setTip(null)}>
