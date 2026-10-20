@@ -118,3 +118,22 @@ test('vue Indisponibilités (U4, U5, U7) : plage lue bornée à 24 mois ; « Met
   assert.equal(w.endRangeOf({ from: '2026-03', to: '2026-05' }, '2026-10'), null);
   assert.equal(w.endRangeOf({ from: '2026-08', to: '2026-08' }, '2026-10'), null);
 });
+
+test('Rapports : la période d un lien n est lue et retirée que sur #/tpm/rapports, jamais sur un autre écran (re-relecture, point 1)', async (t) => {
+  const p = await load(t, 'lib/period.js'); if (!p) return;
+  assert.equal(p.isHashRoute('#/tpm/rapports?from=2026-08&to=2026-08', 'tpm/rapports'), true);
+  assert.equal(p.isHashRoute('#/tpm/rapports', 'tpm/rapports'), true);
+  assert.equal(p.isHashRoute('#/tpm/rapports/', 'tpm/rapports'), true);
+  assert.equal(p.isHashRoute('#/tpm/rapports/abc?x=1', 'tpm/rapports'), true);
+  // Lien de la cloche « Exécution du plan » : un autre écran, sa période reste dans l'adresse.
+  assert.equal(p.isHashRoute('#/processus/synthese?from=2026-08&to=2026-08', 'tpm/rapports'), false);
+  assert.equal(p.isHashRoute('#/tpm/rapportsX?from=2026-08&to=2026-08', 'tpm/rapports'), false);
+  assert.equal(p.isHashRoute('#/tpm?from=2026-08&to=2026-08', 'tpm/rapports'), false);
+  assert.equal(p.isHashRoute('#/processus/synthese?r=tpm/rapports', 'tpm/rapports'), false, 'un paramètre ne compte jamais');
+  assert.equal(p.isHashRoute('', 'tpm/rapports'), false);
+  // Et la page l'utilise bien avant de toucher l'adresse.
+  const src = fs.readFileSync(path.join(WEB, 'pages/tpm/ReportsPage.jsx'), 'utf8');
+  const apply = src.slice(src.indexOf('const apply = () => {'), src.indexOf("window.addEventListener('hashchange', apply)"));
+  assert.ok(apply.indexOf("isHashRoute(window.location.hash, 'tpm/rapports')") >= 0
+    && apply.indexOf("isHashRoute(window.location.hash, 'tpm/rapports')") < apply.indexOf('replaceState'), 'garde de route avant replaceState');
+});
