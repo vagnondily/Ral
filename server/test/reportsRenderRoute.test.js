@@ -192,3 +192,22 @@ test('« Sans bureau » (office = unlinked) : chaque bloc de couverture se calcu
     delete require.cache[path];
   }
 });
+
+test('filtre d\'activité : « Couverture par bureau / par district » calculées pour l\'activité (passée à la requête), plus « Non disponible »', async () => {
+  const stub = dashRepo.coverageFacts;
+  const seen = [];
+  dashRepo.coverageFacts = async (tenantId, opts) => { seen.push(opts); return stub(tenantId, opts); };
+  try {
+    const doc = {
+      schemaVersion: 2, title: 'Par activité', period: { from: '2026-01', to: '2026-03' }, filters: { activity: 'School meal activities' },
+      blocks: [{ id: 'o', type: 'data', params: { dataset: 'cov.by_office' } }, { id: 'd', type: 'data', params: { dataset: 'cov.by_district' } }],
+    };
+    const r = await post('/api/report-designer/render/blocks', { doc, iids: ['o', 'd'] });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.blocks.o.ok, true);
+    assert.deepEqual(r.body.blocks.o.data.rows.map((x) => x.bureau), ['Bureau Sud']);
+    assert.equal(r.body.blocks.o.data.meta.note || null, null, 'jamais « Non disponible par activité »');
+    assert.equal(r.body.blocks.d.ok, true);
+    assert.ok(seen.length >= 1 && seen.every((o) => o.activity === 'School meal activities'), JSON.stringify(seen));
+  } finally { dashRepo.coverageFacts = stub; }
+});

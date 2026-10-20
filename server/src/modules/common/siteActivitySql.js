@@ -49,6 +49,15 @@ function siteDistrictCtes() {
                  LEFT JOIN sdone m1 ON d.rkey = '' AND d.okey <> '' AND m1.okey = d.okey) x)`;
 }
 
+/**
+ * Clé du groupe « activité » des tableaux de bord (retour 110) : casse et espaces ignorés (espaces de
+ * bord retirés, espaces intérieurs réduits à un), « — » sans activité — jumelle de
+ * dashboards/coverageDefinitions.activityKey. UNE expression pour regrouper (coverage.repository) et
+ * pour filtrer (siteMonthFactsCtes({ activityGroup })) : le filtre d'une activité donne exactement
+ * la ligne de cette activité.
+ */
+const activityKeySql = (expr) => `CASE WHEN NULLIF(btrim(${expr}), '') IS NULL THEN '—' ELSE lower(regexp_replace(btrim(${expr}), '\\s+', ' ', 'g')) END`;
+
 /** Nom affiché d'un groupe de district (lignes de sdist ou de reg) : officiel, sinon une graphie qui n'est pas toute en capitales. */
 const DISTRICT_LABEL_SQL = 'COALESCE(min(official), min(dname) FILTER (WHERE dname <> upper(dname)), min(dname))';
 
@@ -125,7 +134,9 @@ const districtNameSql = (s = 's') => `COALESCE(NULLIF(btrim(${s}.adm2), ''), NUL
  *              du site), cpcode (commune), office_id, has_gps, act (activité normalisée).
  *   officeId : sites du bureau ET de ses antennes (sous-arbre récursif de field_offices) ;
  *              'unlinked' = sites sans bureau (concepteur, lot 7a).
- *   activity : sites de cette activité (casse et espaces ignorés).
+ *   activity : sites de cette activité (casse et espaces de bord ignorés).
+ *   activityGroup : sites du GROUPE d'activité des tableaux de bord (activityKeySql : casse et tous
+ *              les espaces ignorés) — le filtre d'activité de la couverture des tableaux de bord.
  *   drawable : (tableau d'identifiants) ne garder que les sites DESSINABLES — position GPS du
  *              registre, ou l'un de ces sites (positions déduites de leurs collectes) : la
  *              couche de points de la carte ne calcule pas les faits des 10 000 sites.
@@ -133,7 +144,7 @@ const districtNameSql = (s = 's') => `COALESCE(NULLIF(btrim(${s}.adm2), ''), NUL
  */
 function siteMonthFactsCtes({
   period, todayMonth, office = 'site', unattached = '(non rattaché)', district,
-  withData = false, geo = false, officeId = null, activity = null, drawable = null,
+  withData = false, geo = false, officeId = null, activity = null, activityGroup = null, drawable = null,
 } = {}, params) {
   const { lo, hi, hiExcl } = periodBounds(period);
   const push = (v) => { params.push(v); return `$${params.length}`; };
@@ -154,7 +165,8 @@ function siteMonthFactsCtes({
   const officeTree = officeId && !unlinked ? officeTreeSql(push(officeId)) : '';
   const officeFilter = unlinked ? ' AND s.field_office_id IS NULL'
     : officeId ? ' AND s.field_office_id IN (SELECT id FROM office_tree)' : '';
-  const activityFilter = activity ? ` AND lower(btrim(s.activity)) = lower(btrim(${push(activity)}::text))` : '';
+  const activityFilter = (activity ? ` AND lower(btrim(s.activity)) = lower(btrim(${push(activity)}::text))` : '')
+    + (activityGroup ? ` AND ${activityKeySql('s.activity')} = ${activityKeySql(`${push(activityGroup)}::text`)}` : '');
   const drawableFilter = Array.isArray(drawable)
     ? ` AND ((s.gps_lat IS NOT NULL AND s.gps_lng IS NOT NULL) OR s.id = ANY(${push(drawable)}::uuid[]))` : '';
   const regExt = ext ? `,
@@ -383,6 +395,6 @@ const MONTH_FACT_COLUMNS = `count(*) FILTER (WHERE active)::int AS "sitesActive"
        COALESCE(sum(rp), 0)::int AS planifie, COALESCE(sum(rr), 0)::int AS realise, COALESCE(sum(ra), 0)::int AS annule`;
 
 module.exports = {
-  siteMonthFactsCtes, siteDistrictCtes, districtNameSql, keySql, DISTRICT_LABEL_SQL, officeTreeSql, formSiteCompatibleSql,
+  siteMonthFactsCtes, siteDistrictCtes, districtNameSql, keySql, activityKeySql, DISTRICT_LABEL_SQL, officeTreeSql, formSiteCompatibleSql,
   SITE_FACT_COLUMNS, MONTH_FACT_COLUMNS,
 };

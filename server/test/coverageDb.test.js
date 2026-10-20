@@ -282,3 +282,35 @@ test('communes sans P-code : même nom dans deux districts = deux communes ; lib
     await su.end();
   }
 });
+
+test('filtre d\'activité (concepteur) : réponse = la ligne de l\'activité ; Σ par bureau et par district = cette ligne', { skip: SKIP, timeout: 120000 }, async () => {
+  const coverageService = require('../src/modules/dashboards/coverage.service');
+  const { checkConsistency } = require('../src/modules/dashboards/coverageDefinitions');
+  const { Client } = require('pg');
+  const su = new Client({ connectionString: SU_URL });
+  await su.connect();
+  try {
+    const [{ id: T }] = (await su.query('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1')).rows;
+    const now = new Date().toISOString().slice(0, 7);
+    const period = { from: `${now.slice(0, 4)}-01`, to: now };
+    const auth = { tenantId: T, role: 'admin' };
+    const all = await coverageService.coverage(auth, { period });
+    const groups = all.byActivity.filter((g) => g.key !== '—');
+    assert.ok(groups.length > 0, 'au moins une activité dans l\'univers (seed:test)');
+    const repo = require('../src/modules/dashboards/coverage.repository');
+    const { shapeCoverage } = require('../src/modules/dashboards/coverageDefinitions');
+    for (const g of groups) {
+      // Graphie quelconque du groupe (casse, espaces) : même réponse.
+      for (const asked of [g.label, `  ${g.label.toUpperCase().replace(/ /g, '  ')} `]) {
+        const { rows, refMonth } = await repo.coverageFacts(T, { period, activity: asked });
+        const one = shapeCoverage(rows, { refMonth });
+        const measures = Object.fromEntries(Object.entries(g).filter(([k]) => k !== 'key' && k !== 'label'));
+        assert.deepEqual(one.overall, measures, `${asked} : réponse = ligne de l'activité`);
+        assert.deepEqual(checkConsistency(one), [], `${asked} : bureaux et districts sommés à la ligne de l'activité`);
+        assert.equal(one.byOffice.reduce((n, o) => n + o.sites, 0), g.sites);
+        assert.equal(one.byOffice.reduce((n, o) => n + o.coverage.covered, 0), g.coverage.covered);
+        assert.equal(one.byDistrict.reduce((n, o) => n + o.execution.planned, 0), g.execution.planned);
+      }
+    }
+  } finally { await su.end(); }
+});

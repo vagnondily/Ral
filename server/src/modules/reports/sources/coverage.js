@@ -20,11 +20,11 @@ const { periodFor, siteOffice } = require('./scope');
  */
 const SITES = ['sites', 'visits', 'offices'];
 
-// Le filtre d'activité se lit dans la réponse (découpage par activité = partition de l'univers) :
-// catalog/coverage.dashScope ; la requête des tableaux de bord est appelée telle quelle.
+// Filtre d'activité passé à la requête des tableaux de bord (groupe d'activité, même clé que le
+// découpage par activité) : la réponse est la ligne de cette activité, découpée par bureau et district.
 const covDash = {
   key: 'covDash', domains: [...SITES, 'activation', 'submissions'], varies: ['today'],
-  params: (def, eff) => ({ period: periodFor('range', eff), officeId: siteOffice(eff) }),
+  params: (def, eff) => ({ period: periodFor('range', eff), officeId: siteOffice(eff), activity: eff.activity || null }),
   load: async (tenantId, p) => {
     const { rows, refMonth } = await dashCoverage.coverageFacts(tenantId, p);
     return shapeCoverage(rows, { refMonth });

@@ -179,19 +179,32 @@ test('couverture par activité = celle des tableaux de bord : univers des sites 
   assert.ok(d.rows.every((r) => r.coverage == null || r.coverage <= 100));
 });
 
-test('filtre d\'activité sur la couverture des tableaux de bord : le groupe de l\'activité (casse et espaces ignorés), jamais le total', () => {
-  const eff = { activity: '  CANTINE ' };
-  const k = shape('cov.kpis', DASH, eff).rows[0];
+test('filtre d\'activité sur la couverture des tableaux de bord : passé à la requête (groupe d\'activité), par bureau et par district aussi', () => {
+  const { SOURCES } = require('../src/modules/reports/sources');
+  // La source des tableaux de bord reçoit l'activité : la réponse est la ligne de cette activité.
+  const eff = { period: PERIOD, office: 'id:o1', activity: 'Cantine' };
+  assert.deepEqual(SOURCES.covDash.params(datasetDef('cov.by_office'), eff, {}), { period: PERIOD, officeId: 'o1', activity: 'Cantine' });
+  assert.deepEqual(SOURCES.covDash.params(datasetDef('cov.kpis'), { period: PERIOD }, {}), { period: PERIOD, officeId: null, activity: null });
+  // Réponse déjà filtrée (ligne de l'activité) : les jeux la montrent telle quelle, découpages compris.
+  const CANTINE = shapeCoverage([
+    R({ dim: 'overall', key: null, registry: 90, sites: 80, covered: 30, coveredData: 10, coveredVisit: 25, plannedSites: 40, plannedCovered: 28, visitsPlanned: 40, visitsCovered: 30, knownAll: true }),
+    R({ dim: 'activity', key: 'cantine', activityLabel: 'Cantine', registry: 90, sites: 80, covered: 30, coveredData: 10, coveredVisit: 25, plannedSites: 40, plannedCovered: 28, visitsPlanned: 40, visitsCovered: 30 }),
+    R({ dim: 'office', key: 'Bureau Sud', registry: 60, sites: 50, covered: 20, coveredData: 5, coveredVisit: 18, plannedSites: 30, plannedCovered: 20, visitsPlanned: 30, visitsCovered: 22 }),
+    R({ dim: 'office', key: 'Bureau Nord', registry: 30, sites: 30, covered: 10, coveredData: 5, coveredVisit: 7, plannedSites: 10, plannedCovered: 8, visitsPlanned: 10, visitsCovered: 8 }),
+  ], { refMonth: '2026-03' });
+  const k = shape('cov.kpis', CANTINE, eff).rows[0];
   assert.equal(k.sitesActive, 80); assert.equal(k.sitesRealised, 30); assert.equal(k.coverage, 37.5);
-  assert.deepEqual(shape('cov.by_activity', DASH, eff).rows.map((r) => r.activity), ['Cantine']);
-  assert.equal(kpiDef('sites_active').pick(DASH, { period: PERIOD, ...eff }, ctx()).value, 80);
-  assert.equal(kpiDef('sites_active').pick(DASH, { period: PERIOD }, ctx()).value, 100);
-  // Activité sans site actif : 0 site, taux « — » (jamais le total national).
-  const none = shape('cov.kpis', DASH, { activity: 'Inconnue' }).rows[0];
-  assert.equal(none.sitesActive, 0); assert.equal(none.coverage, null);
-  // Par bureau ou district pour UNE activité : pas dans la réponse → filtre non pris en charge (note).
-  assert.equal(unsupportedNote(datasetDef('cov.by_office'), { activity: 'Cantine' }, 'fr'), 'Non disponible par activité.');
-  assert.equal(unsupportedNote(datasetDef('cov.by_district'), { activity: 'Cantine' }, 'fr'), 'Non disponible par activité.');
+  assert.equal(kpiDef('sites_active').pick(CANTINE, eff, ctx()).value, 80);
+  const offices = shape('cov.by_office', CANTINE, eff).rows;
+  assert.deepEqual(offices.map((r) => r.bureau), ['Bureau Sud', 'Bureau Nord']);
+  // Σ des bureaux d'une activité = la ligne de cette activité.
+  const act = shape('cov.by_activity', CANTINE, eff).rows[0];
+  for (const c of ['sitesActive', 'sitesRealised', 'sitesPlanned', 'planned', 'done']) {
+    assert.equal(offices.reduce((n, r) => n + r[c], 0), act[c], `Σ bureaux ${c} = ligne de l'activité`);
+  }
+  // Plus de « Non disponible par activité » : bureau et district prennent le filtre.
+  assert.equal(unsupportedNote(datasetDef('cov.by_office'), { activity: 'Cantine' }, 'fr'), null);
+  assert.equal(unsupportedNote(datasetDef('cov.by_district'), { activity: 'Cantine' }, 'fr'), null);
   assert.equal(unsupportedNote(datasetDef('cov.by_office'), { office: 'id:o1' }, 'fr'), null);
   assert.equal(shape('cov.by_office', DASH).rows[0].bureau, 'Bureau Sud');
 });

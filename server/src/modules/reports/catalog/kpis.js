@@ -19,7 +19,7 @@ const { contractAlerts } = require('../../dashboards/alertsMath');
 
 const MON = ['office', 'activity', 'partner', 'form'];
 // Couverture : la source des TABLEAUX DE BORD (retour 110, une seule source : coverageDefinitions).
-// Filtre d'activité : le groupe de l'activité dans la réponse (dashScope), même univers, même « suivi ».
+// Filtres bureau et activité appliqués par la requête (covDash) : même univers, même « suivi ».
 const cov = (key, label, unit, pick) => ({ key, label, unit, group: 'coverage', source: 'covDash', filters: ['office', 'activity'], officeKinds: SITE_OFFICE, periodMode: 'range', pick: (raw, eff) => pick(dashScope(raw, eff), eff) });
 const data = (key, label, field) => ({ key, label, unit: 'int', group: 'monitoring', source: 'monData', filters: MON, periodMode: 'range', pick: (raw) => ({ value: (raw.totals || {})[field] ?? null }) });
 const conf = (key, label, unit, pick) => ({ key, label, unit, group: 'monitoring', source: 'monForms', filters: MON, periodMode: 'range', pick });

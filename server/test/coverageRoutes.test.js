@@ -167,3 +167,15 @@ test('dépôt : rbm: false — l\'état RBM n\'est pas lu, aucun site « à suiv
   const on = await captureFacts({ period: { from: '2026-09', to: '2026-09' } });
   assert.equal(on.rbmCalls, 1);
 });
+
+test('dépôt : filtre d\'activité (concepteur) = le GROUPE d\'activité du découpage — même expression pour filtrer et regrouper', async () => {
+  const { activityKeySql } = require('../src/modules/common/siteActivitySql');
+  const { sqls } = await captureFacts({ period: { from: '2026-01', to: '2026-09' }, activity: '  School  meal ACTIVITIES ' });
+  const main = sqls.find((s) => /GROUPING SETS/.test(s.sql));
+  const i = main.params.indexOf('  School  meal ACTIVITIES ') + 1;
+  assert.ok(i > 0, 'activité transmise en paramètre, jamais dans le texte SQL');
+  assert.ok(main.sql.includes(`AND ${activityKeySql('s.activity')} = ${activityKeySql(`$${i}::text`)}`), 'registre filtré par la clé de groupe');
+  assert.ok(main.sql.includes(`${activityKeySql('p.activity')} AS akey`), 'découpage par la même clé');
+  const none = await captureFacts({ period: { from: '2026-01', to: '2026-09' } });
+  assert.doesNotMatch(none.sqls.find((s) => /GROUPING SETS/.test(s.sql)).sql, /AND CASE WHEN NULLIF\(btrim\(s\.activity\)/, 'tableau de bord : aucun filtre');
+});

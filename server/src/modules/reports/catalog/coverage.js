@@ -1,5 +1,4 @@
 const { coverageStatus } = require('../../common/coverageStatus');
-const { activityKey, measuresOf } = require('../../dashboards/coverageDefinitions');
 const { monthsOf } = require('../../common/period');
 const { boardKpis, rankSites } = require('../../tpm/planBoard');
 const { phrases } = require('../phrases');
@@ -40,21 +39,13 @@ const meta = (raw, ctx, extra = {}) => ({
 
 // ---- Couverture des tableaux de bord (une seule source, retour 110) -------------------------
 /**
- * Couverture des tableaux de bord dans le PÉRIMÈTRE d'un bloc. Le bureau est filtré par la requête
- * des tableaux de bord (bureau et antennes) ; l'ACTIVITÉ se lit dans la réponse : le découpage par
- * activité est une partition de l'univers (coverageDefinitions.checkConsistency), donc le groupe de
- * l'activité EST la couverture de cette activité (même univers, même « suivi »). Les découpages par
- * bureau et par district d'une seule activité ne sont pas dans la réponse : ces deux jeux ne
- * prennent pas le filtre d'activité (note « Non disponible par activité », jamais un total faux).
+ * Couverture des tableaux de bord dans le PÉRIMÈTRE d'un bloc : bureau (et antennes) ET activité sont
+ * filtrés par la requête des tableaux de bord (sources/coverage.covDash → coverage.repository) ; avec
+ * une activité, la réponse est la ligne de cette activité (même univers, même « suivi », même clé de
+ * groupe), découpée par bureau et par district — Σ des bureaux = la ligne de l'activité.
  * @returns {{ overall, byActivity, byOffice, byDistrict, universe }}
  */
-function dashScope(raw, eff) {
-  const r = raw || {};
-  if (!eff || !eff.activity) return r;
-  const k = activityKey(eff.activity);
-  const g = (r.byActivity || []).find((x) => x.key === k) || null;
-  return { ...r, overall: g || measuresOf({}), byActivity: g ? [g] : [], byOffice: [], byDistrict: [] };
-}
+const dashScope = (raw) => raw || {};
 
 /** Ligne d'un groupe de la couverture des tableaux de bord (mesures de coverageDefinitions). */
 const dashRow = (g) => ({
@@ -100,9 +91,9 @@ const groupDs = (key, label, list, first, extra = {}) => ds(key, {
   ...extra,
 });
 const byActivity = groupDs('cov.by_activity', 'Couverture par activité (avec statut)', 'byActivity', col('activity', 'Activité'), { annotate: { label: 'Constat' } });
-const byOffice = groupDs('cov.by_office', 'Couverture par bureau', 'byOffice', col('bureau', 'Bureau'), { filters: ['office'] });
+const byOffice = groupDs('cov.by_office', 'Couverture par bureau', 'byOffice', col('bureau', 'Bureau'));
 const byDistrict = groupDs('cov.by_district', 'Couverture par district', 'byDistrict', col('district', 'District'), {
-  filters: ['office'], args: { threshold: { type: 'number', label: 'Zones à surveiller : couverture < … %', default: null } },
+  args: { threshold: { type: 'number', label: 'Zones à surveiller : couverture < … %', default: null } },
 });
 
 const MONTHLY_COLS = [

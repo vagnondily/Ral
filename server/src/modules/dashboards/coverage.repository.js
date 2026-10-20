@@ -1,5 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
-const { siteMonthFactsCtes, DISTRICT_LABEL_SQL } = require('../common/siteActivitySql');
+const { siteMonthFactsCtes, activityKeySql, DISTRICT_LABEL_SQL } = require('../common/siteActivitySql');
 const { periodBounds } = require('../common/period');
 const { currentMonth } = require('../tpm/rbmMath');
 const { rbmSitesTx } = require('../tpm/field.repository');
@@ -38,14 +38,18 @@ function submissionOfficeFilter(officeId) {
 
 /**
  * @param {string} tenantId
- * @param {{ period: {from:string,to:string}, officeId?: string|null, rbm?: boolean }} opts
+ * @param {{ period: {from:string,to:string}, officeId?: string|null, activity?: string|null, rbm?: boolean }} opts
+ *   activity : ne garder que les sites de ce groupe d'activité (même clé que le découpage par
+ *   activité, activityKeySql) — le concepteur de rapport (covDash) ; la réponse est alors celle de
+ *   la ligne de cette activité, découpée par bureau et par district. La route des tableaux de bord
+ *   ne le passe pas.
  *   rbm : false = l'état RBM n'est pas lu (aucun site « à suivre » transmis) — pour un appelant
  *   qui ne lit pas `rbm` (la cloche du Centre d'alertes ne lit que l'exécution du plan : le score
  *   RBM de chaque site du registre, en JavaScript, serait calculé puis jeté à chaque sondage).
  *   La mise en forme (coverageDefinitions.shapeCoverage({ rbm: false })) rend alors `rbm: null`.
  * @returns {Promise<{ rows: object[], refMonth: string, rbm: boolean }>}
  */
-async function coverageFacts(tenantId, { period, officeId = null, rbm = true }) {
+async function coverageFacts(tenantId, { period, officeId = null, activity = null, rbm = true }) {
   return withTenantTransaction(tenantId, async (client) => {
     await client.query(JIT_OFF);
     const refMonth = period.to;
@@ -55,7 +59,7 @@ async function coverageFacts(tenantId, { period, officeId = null, rbm = true }) 
       : [];
 
     const params = [tenantId];
-    const ctes = siteMonthFactsCtes({ period, todayMonth: currentMonth(), withData: true, officeId }, params);
+    const ctes = siteMonthFactsCtes({ period, todayMonth: currentMonth(), withData: true, officeId, activityGroup: activity || null }, params);
     const push = (v) => { params.push(v); return `$${params.length}`; };
     const { lo, hiExcl } = periodBounds(period);
     const pLo = push(lo); const pHiExcl = push(hiExcl);
@@ -86,7 +90,7 @@ async function coverageFacts(tenantId, { period, officeId = null, rbm = true }) 
          SELECT s.id FROM sites s WHERE s.tenant_id = $1 AND NULLIF(btrim(s.adm3_pcode), '') IS NOT NULL),
        -- Appartenances en sous-requêtes IN hachées (une construction), jamais une jointure corrélée.
        ps AS (
-         SELECT p.*, CASE WHEN p.activity = '—' THEN '—' ELSE lower(regexp_replace(p.activity, '\\s+', ' ', 'g')) END AS akey,
+         SELECT p.*, ${activityKeySql('p.activity')} AS akey,
                 p.active AND p.site_id IN (SELECT site_id FROM ref) AS active_ref,
                 p.site_id IN (SELECT site_id FROM due) AS rbm_due,
                 COALESCE(p.ckey IN (SELECT cp FROM cdat WHERE cat IS NULL)
