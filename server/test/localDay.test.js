@@ -8,7 +8,8 @@ process.env.LOG_LEVEL = 'silent';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'secret-de-test-de-l-horloge-du-plan-0123456789abcdef';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { localDay, appTimeZone, DEFAULT_TZ } = require('../src/modules/common/localDay');
+const { localDay, appTimeZone, formatterFor, DEFAULT_TZ } = require('../src/modules/common/localDay');
+const { withFrozenClock } = require('./helpers/frozenClock');
 const { clockOf, todayFor, serverClock } = require('../src/modules/tpm/planAuto.service');
 const { currentMonth } = require('../src/modules/tpm/rbmMath');
 const { fingerprintInputs } = require('../src/modules/tpm/planFingerprint');
@@ -116,4 +117,50 @@ test('GET /api/tpm/plan-auto/clock : le mois que l\'aperçu accepte (jour local)
   } finally {
     if (saved === undefined) delete process.env.APP_TIMEZONE; else process.env.APP_TIMEZONE = saved;
   }
+});
+
+test('formateur réutilisé : un seul Intl.DateTimeFormat par fuseau, même pour un fuseau invalide', () => {
+  const Real = Intl.DateTimeFormat;
+  let made = 0;
+  function Counting(...a) { made += 1; return new Real(...a); }
+  Counting.prototype = Real.prototype;
+  Counting.supportedLocalesOf = Real.supportedLocalesOf;
+  Intl.DateTimeFormat = Counting;
+  try {
+    const d = new Date('2026-10-20T22:30:00Z');
+    for (let i = 0; i < 1000; i += 1) localDay(d, 'Pacific/Chatham');
+    appTimeZone('Pacific/Chatham');
+    assert.equal(made, 1, 'un formateur pour 1 000 appels');
+    for (let i = 0; i < 1000; i += 1) localDay(d, 'Pas/UnAutreFuseau');
+    assert.equal(appTimeZone('Pas/UnAutreFuseau'), 'UTC');
+    assert.equal(made, 2, 'fuseau invalide : essayé une fois, repli UTC ensuite');
+    assert.equal(localDay(d, 'Pas/UnAutreFuseau'), '2026-10-20');
+  } finally {
+    Intl.DateTimeFormat = Real;
+  }
+  assert.equal(formatterFor('Indian/Antananarivo'), formatterFor('Indian/Antananarivo'));
+});
+
+test('formateur réutilisé : mêmes résultats qu\'un formateur neuf, quels que soient le fuseau et l\'instant', () => {
+  const zones = ['Indian/Antananarivo', 'UTC', 'Europe/Paris', 'America/Los_Angeles', 'Pacific/Kiritimati', 'Asia/Kolkata', 'Pacific/Chatham'];
+  const instants = ['2026-10-20T20:59:59Z', '2026-10-20T21:00:00Z', '2026-10-31T22:30:00Z', '2026-12-31T21:30:00Z', '2027-02-28T23:59:59Z', '2027-03-28T01:30:00Z'];
+  for (const z of zones) {
+    const fresh = new Intl.DateTimeFormat('en-CA', { timeZone: z, year: 'numeric', month: '2-digit', day: '2-digit' });
+    for (const i of instants) {
+      const d = new Date(i);
+      assert.equal(localDay(d, z), fresh.format(d), `${z} ${i}`);
+      assert.equal(localDay(d, z), localDay(d, z));
+    }
+  }
+});
+
+test('mois courant à l\'instant figé (31/10 22 h 30 UTC) : novembre à Madagascar, octobre en UTC', async () => {
+  await withFrozenClock('2026-10-31T22:30:00Z', () => {
+    assert.equal(currentMonth(), '2026-11');
+    assert.deepEqual(serverClock(), { now: '2026-11', today: '2026-11-01', timeZone: 'Indian/Antananarivo' });
+  });
+  await withFrozenClock('2026-10-31T22:30:00Z', () => {
+    assert.equal(currentMonth(), '2026-10');
+    assert.deepEqual(serverClock(), { now: '2026-10', today: '2026-10-31', timeZone: 'UTC' });
+  }, { timeZone: 'UTC' });
 });

@@ -102,7 +102,7 @@ const uuid = z.string().uuid();
 router.get('/rbm/sites/:id', asyncHandler(async (req, res) => {
   if (!uuid.safeParse(req.params.id).success) throw badRequest('Identifiant de site invalide');
   const p = readPeriod(req.query);
-  const site = await repo.rbmSiteExplain(t(req), req.params.id, { month: p ? p.to : new Date().toISOString().slice(0, 7), asOf: p ? p.to : null });
+  const site = await repo.rbmSiteExplain(t(req), req.params.id, { month: p ? p.to : currentMonth(), asOf: p ? p.to : null });
   if (!site) throw notFound('Site introuvable');
   res.json(site);
 }));
