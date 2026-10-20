@@ -329,6 +329,18 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
     });
   }
 
+  // COUVERTURE = sites ayant AU MOINS une visite dans la période, qu'elle vienne d'être
+  // planifiée OU qu'elle existe déjà (prévue/réalisée). Sans ça, re-générer sur un plan DÉJÀ
+  // appliqué afficherait 0 % à tort (tous « remaining = 0 » donc non re-planifiés) et l'alerte
+  // « capacité insuffisante » serait fausse (retour 82).
+  let alreadyCovered = 0;
+  for (const s of plannable) {
+    if (covered.has(s.id)) continue;
+    const hasInPeriod = (s.visits || []).some((v) => period.includes(Number(v.month))
+      && (v.status === 'planifie' || v.status === 'realise'));
+    if (hasInPeriod) { covered.add(s.id); alreadyCovered += 1; }
+  }
+
   byActivity.sort((a, b) => Number(b.parametered) - Number(a.parametered)
     || String(a.activity || '').localeCompare(String(b.activity || ''), 'fr')
     || String(a.fieldOffice || '').localeCompare(String(b.fieldOffice || ''), 'fr')
@@ -395,6 +407,7 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
       sitesActivePlannable: plannable.length,
       mmrDriven,
       rbmFallback,
+      alreadyCovered,                  // sites déjà couverts par des visites existantes (non re-planifiés)
       latePlanned: latePlannedTotal,
       unplaced,
       targetCoverage: cfg.targetCoverage,

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ArrowDownCircle, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleDot, Columns3, Download, FileSpreadsheet,
-  Filter, Layers, ListChecks, Map as MapIcon, PauseCircle, Plus, RotateCcw, Save, Search, ShieldAlert, Upload, X, CalendarRange,
+  Filter, Layers, ListChecks, Map as MapIcon, PauseCircle, Plus, RotateCcw, Save, Search, ShieldAlert, Upload, X, Wand2,
 } from 'lucide-react';
 import L from 'leaflet';
 import { TILES_URL, probeTiles } from '../../components/map/TileUnderlay.jsx';
@@ -157,7 +157,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
           </label>
           <Button variant="secondary" icon={Download} onClick={() => api.planBoardExport(year).catch((e) => toast.error(e.message))}>{tr('Exporter')}</Button>
           {canEdit && <>
-            <Button variant="secondary" icon={CalendarRange} onClick={() => setModal('autoplan')}>{tr('Générer le plan automatiquement')}</Button>
+            <Button icon={Wand2} onClick={() => setModal('autoplan')} title={tr('Générer automatiquement le plan de suivi (MMR, RBM, TPM, agents)')}>{tr('Générer le plan')}</Button>
             <Button variant="secondary" icon={FileSpreadsheet} onClick={() => setModal('template')}>{tr('Gabarit d\'activité')}</Button>
             <Button variant="secondary" icon={Upload} onClick={() => fileRef.current?.click()}>{tr('Importer')}</Button>
             <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={(e) => onImportFile(e.target.files[0])} />

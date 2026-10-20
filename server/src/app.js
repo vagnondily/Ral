@@ -1,3 +1,5 @@
+const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
@@ -44,7 +46,9 @@ function createApp() {
   // Derrière un proxy (load-balancer, ingress) : req.ip = vrai client (pour le
   // rate-limit et les logs). Nombre de sauts de confiance configurable.
   app.set('trust proxy', Number(process.env.TRUST_PROXY || 1));
-  app.use(helmet());
+  // CSP désactivée : l'interface (styles en ligne, tuiles de carte externes) a toujours été servie
+  // sans CSP (vite). On garde toutes les autres protections helmet (nosniff, HSTS, frameguard…).
+  app.use(helmet({ contentSecurityPolicy: false }));
   // CORS : origine(s) explicite(s) via CORS_ORIGIN (séparées par des virgules) ;
   // « * » par défaut en dev uniquement. En prod, validateEnv avertit si non fixé.
   const corsOrigin = process.env.CORS_ORIGIN
@@ -135,6 +139,19 @@ function createApp() {
   app.get('/api/system/runtime', requireAuth, requireRole('admin'), (req, res) => {
     res.json(runtimeSnapshot({ reset: req.query.reset === '1', pool, extra: { cpuPool: cpuPool().stats() } }));
   });
+
+  // Production (un seul service) : si l'interface compilée existe (web/dist), l'API la sert elle-même
+  // sur le même port — pas de serveur web séparé, pas de CORS. En dev (vite sur :5173) dist n'existe
+  // pas, donc rien n'est servi ici. Routage par hash côté client : tout GET hors /api renvoie index.html.
+  const webDist = path.join(__dirname, '..', '..', 'web', 'dist');
+  const webIndex = path.join(webDist, 'index.html');
+  if (fs.existsSync(webIndex)) {
+    app.use(express.static(webDist, { index: false, maxAge: '1h' }));
+    app.get(/^\/(?!api\/|health$|api$).*/, (req, res, next) => {
+      if (req.method !== 'GET') return next();
+      res.sendFile(webIndex);
+    });
+  }
 
   // Anything else is a routing mistake, not a server error.
   app.use((req, res, next) => next(notFound('Route introuvable')));

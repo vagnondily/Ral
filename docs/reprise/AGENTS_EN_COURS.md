@@ -76,3 +76,39 @@ Bring in the code of commit 76544a1 (other session: common/pointInPolygon.js, sh
 Ensuite :
 - deux vérificateurs : robustesse sur fichiers piégés, et parité / non-régression de l'import du découpage ;
 - un tour de correction si besoin, puis une revérification.
+
+## 6. Vendredi 16/10 — reprise après l'analyse des mises à jour (session principale)
+
+Base commune : `main` à jour (fusionner `origin/main` avant chaque envoi). Contrôles avant chaque envoi : `npm test`, `npm run lint`, `npx vite build`, migrations sur base neuve et copie, balayage FR + EN sur ses propres ports ; jamais d'arrêt de :9000 / :5173 ni de processus non lancés par soi ; jamais `pkill`. Pied de commit habituel, aucun identifiant de modèle.
+
+### Agent ex-`lot5-gen` → branche `wip/planauto-port`
+
+```text
+New direction for lot 5 (16/10): do NOT merge or keep developing wip/lot5-gen as a second planner — port its strengths onto main's planner instead (planAuto.js, planAuto.repository.js, planAuto.routes.js, PlanAutoDrawer.jsx; the user has used it, it is the base). Branch wip/planauto-port from integ/16a (79a6d35, clear fix). 077/078 abandoned; no new migration in P1/P2 (106 reserved for traceability).
+P1 — reliability: (a) single « site actif au mois M » rule everywhere main still counts blank as active (monthBlocksTx, generateFromRbmTx guard, planBoardTx yearHasGrid, planMonthsTx, bulkUpdateSites, planAuto.js:233, applyPlan guard with activeMonthSql + security_situation < 99, PlanBoardPage cell + badge « Non renseigné (non planifiable) ») ; (b) engine: gap anchors = every existing visit both directions + prior-year lastVisitMonth; RBM-fallback idempotent; capacity counters seeded with existing visits; cancelled month unavailable; duration-0 line uses each site's risk; coverage counts already-met sites with a reason per uncovered site; never a past month; (c) apply in ONE transaction (lock_timeout 20 s → shared month locks ascending → board + MMR on the same client → generate → insert → restampVisitsTx), month locks always BEFORE lockAttributionTx, inputs fingerprint → 409 plan_inputs_changed (« Les données ont changé : relancez l'aperçu ») ; (d) planAuto.service.js ; (e) drawer period from the board year, strict month regex, /preview returns totals + sample, « N créées sur M prévues » ; (f) MmrSection « Compléter depuis le référentiel » never invents duration / risk (« à vérifier ») ; (g) real-DB test planAutoDb.test.js (MEMS_TEST_DATABASE_URL / MEMS_TEST_APP_DATABASE_URL) + invariants oracle.
+P2 — retours 107/108: needs-driven by default; clusters across ALL activities at district + commune level (GPS second), whole clusters, ordered by RBM priority; targetedPerMonth as a floor; pure planResources.js (agent-days per commune, agents peak + average, vehicles per day and district = ⌈agents ÷ agents per vehicle⌉, defaults 4 and 20 field days) per TPM unit (« Bureau (suivi interne) » without TPM), compared with MMR declared persons; visit_date + « Agent N » on apply; MMR / RBM values read-only with their source; choices = période, périmètre, stratégie + folded M&E options (communes inaccessibles, renfort); vehicles column in the CSV « base de budget ».
+```
+
+### Agent `lot8` → branche `wip/lot8`
+
+```text
+0. BLOCKER: merge e114610 left `=======` at styles.css:3144 and an unclosed comment at :3290 — fix, merge origin/main, push. (Done: 4f66a46.)
+1. Retour 113 — one glossary everywhere: « Titulaire » / partenaire de mise en œuvre (contract holder) vs « TPM » (tierce partie de suivi), constants in web/src/lib/roles.js (+ EN); contract identity « n° FLA · titulaire »; Consolidation / Reporting / BI → « Titulaire » (+ « TPM » where known); Planning / Rapports / Plan de suivi → « TPM »; filters « Tous les TPM »; one « Partenaires & TPM » area with the 360° sheet; a guard against bare tr('Prestataire'); no trailing « · » when the partner type is empty. New commits AFTER 4f66a46 (which ships alone). Merge origin/main before touching the files of the design lot; allowed to change tpmPickers.contractOptions (label = numeroFla || numero, sub = titulaire · période · TPM, numero in keywords) and the drawer labels, with tests and EN.
+```
+
+### Agent `7a-p2` → branche `wip/7a-p2`
+
+```text
+1. Finish the uncommitted header work (retour 112): header / footer PAIRS (première page ≠ pages suivantes, each optional), professional templates modelled on the user's reference reports, sober v6 tokens; merge origin/main first; the report block « Couverture par activité » / reports/catalog/coverage.js must read the SAME definitions as the dashboards (/api/dashboards/coverage). (Pairs done: 5bcdfb7.) 2. Then retour 102: reporting filters that actually work — a test per filter (période incl. non-consecutive months, bureau + antennes, activité, TPM / titulaire, district) on the report catalog queries. New commits after 5bcdfb7.
+```
+
+### Agent `dash-template` → branche `wip/dash-template`
+
+```text
+Retour 110 fix published (2bb2167 + 0edb8e3 sticky total + fbadbdf « Sites prévus → suivis »). Follow-ups on origin/main: (a) coveredInactive + cancelled count under the universe note; (b) « À venir » visits on unfilled future months counted or explained; (c) « Sites à jour » tile states its rule; (d) bell / Centre d'alertes and Rapport de synthèse read /api/dashboards/coverage (reports/catalog/coverage.js is 7a-p2's); (e) nits: cdat office filter, commune key with district, min(activity) collation, « n (x %) » on both pages, formatRate rounding, coverage API failure must not blank the map; (f) DashboardCoveragePage / ProcessDashboardPage nested « .page » → section-gap, gauge vs icon tiles, empty card bottoms, « 31,5/100 » with a FR decimal. Then the uncommitted mockup UI (retour 101) as a separate lot.
+```
+
+### Session principale → branche `wip/ui-pickers`
+
+Listes de choix professionnelles (`EntityPicker`, logique pure `lib/entityPicker.js`, `lib/tpmPickers.js`) ; Planification & budget et facture : contrat d'abord, puis son TPM ; « Ajouter une visite » cherchable ; corrections de l'audit design (chevron des listes, barres, sombre, marges, chiffres, téléphone). Suites prévues : `DataList` (filtres), `MonthSelect`, risque par ligne du RBM, puis tableaux / statuts / tuiles (passes 2 et 3 du plan du 16/10).
+
