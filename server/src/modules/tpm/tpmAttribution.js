@@ -658,8 +658,21 @@ const VISIT_ERROR_MESSAGES = {
 /** Message d'une erreur de décision, avec le site et le mois quand on les connaît. */
 const visitErrorMessage = (res) => `${VISIT_ERROR_MESSAGES[res.error] || 'Données invalides.'}${res.visit ? ` (${res.visit.siteName} · ${res.visit.month})` : ''}`;
 
+/**
+ * Premier mois à ré-estampiller quand un document (plan de collecte, facture, gabarits) crée ou
+ * supprime le lien TPM ↔ contrat (U2) : le mois du document s'il est passé — une facture arrive
+ * après son mois, ses visites prévues de ce mois doivent suivre — sinon le mois courant (jamais
+ * avant le document : l'historique antérieur ne se réécrit pas).
+ * @param {string|null} docMonth  « AAAA-MM… » (premier mois du document ; gabarits : le premier)
+ * @param {string} today          « AAAA-MM »
+ */
+function linkRestampFrom(docMonth, today) {
+  const m = docMonth ? String(docMonth).slice(0, 7) : null;
+  return m && /^\d{4}-\d{2}$/.test(m) && m < today ? m : today;
+}
+
 module.exports = {
-  VISIT_ERROR_MESSAGES, visitErrorMessage, TPM_LINK_KINDS, tpmsByContract, contractTpms,
+  VISIT_ERROR_MESSAGES, visitErrorMessage, TPM_LINK_KINDS, tpmsByContract, contractTpms, linkRestampFrom,
   MAX_SPAN_MONTHS, MAX_AREAS, MAX_REGIONS, MAX_CELLS, MAX_VISITS,
   ZONE_STATES, VISIT_ZONE_STATES, DEFAULT_STATES, WITH_PROVIDER, VISIT_SOURCES, COVERING_STATUSES, LOG_ACTIONS, LOG_SCOPES, LOG_OPTIONAL_REASON,
   INTERNAL_DEFAULT_STATES, INTERNAL_VISIT_STATES, MONITORED_BY, monitoredByOf,

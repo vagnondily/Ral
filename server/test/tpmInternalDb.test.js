@@ -27,6 +27,10 @@
  *  6. Commune listée seulement par un contrat sans TPM (U1) : elle suit son district (TPM de contrat
  *     et modification motivée du district) ; sans l'un ni l'autre, sa propre ligne « sans_tpm » ;
  *     parité (aire comprise) avec une modification de district.
+ *  7. Facture d'un mois passé (re-relecture, point 3) : la visite prévue de ce mois suit le TPM rattaché
+ *     (plus de « rapport interne attendu » pour elle) ; la facture supprimée, elle revient.
+ *  8. Concurrence (point 5) : deux suppressions simultanées des deux derniers documents d'un lien
+ *     attendent le verrou d'attribution AVANT de lire le lien ; la seconde ré-estampille.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -62,7 +66,7 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
   const su = new Client({ connectionString: SU_URL });
   await su.connect();
   const q = async (sql, params) => (await su.query(sql, params)).rows;
-  const made = { visits: [], reports: [], stubs: [], plans: [], contract: null, contract2: null, partners: [], unavailability: [], overrides: [], areas: [], siteCommune: null };
+  const made = { visits: [], reports: [], stubs: [], plans: [], contract: null, contract2: null, partners: [], unavailability: [], overrides: [], areas: [], siteCommune: null, other: null };
   try {
     const [{ id: T }] = await q('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1');
     const [{ id: U }] = await q('SELECT id FROM users WHERE tenant_id = $1 ORDER BY email LIMIT 1', [T]);
@@ -70,13 +74,14 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
     const types = Object.fromEntries((await q('SELECT code, id FROM partner_types WHERE tenant_id = $1', [T])).map((r) => [r.code, r.id]));
     assert.ok(types.tpm && types.prestataire, 'types « tpm » et « prestataire » (npm run seed)');
 
-    // District avec des sites, sans contrat de suivi ces deux mois (mems_tpm_cells : « sans_contrat »).
+    // District avec des sites, sans contrat de suivi le mois d'avant et ces deux mois (mems_tpm_cells : « sans_contrat »).
+    const M0 = addMonth(M1, -1);
     const sites = await q('SELECT id, zone_district_id AS d FROM sites WHERE tenant_id = $1 AND zone_district_id IS NOT NULL ORDER BY id LIMIT 400', [T]);
     const cells = await q(`SELECT c_site_id AS s, c_area_id AS a, c_state AS st FROM mems_tpm_cells($1, $2::uuid[], $3::date[])`,
-      [T, [...sites.map((s) => s.id), ...sites.map((s) => s.id)], [...sites.map(() => `${M1}-01`), ...sites.map(() => `${M2}-01`)]]);
+      [T, [M0, M1, M2].flatMap(() => sites.map((s) => s.id)), [M0, M1, M2].flatMap((m) => sites.map(() => `${m}-01`))]);
     const ok = new Map();
     for (const c of cells) { const k = c.s; if (!ok.has(k)) ok.set(k, []); ok.get(k).push(c); }
-    const pick = sites.find((s) => (ok.get(s.id) || []).length === 2 && ok.get(s.id).every((c) => c.st === 'sans_contrat' && c.a === s.d));
+    const pick = sites.find((s) => (ok.get(s.id) || []).length === 3 && ok.get(s.id).every((c) => c.st === 'sans_contrat' && c.a === s.d));
     assert.ok(pick, 'un site d un district sans contrat de suivi (base de test peuplée)');
     const S = pick.id; const D = pick.d;
     const [area] = await q('SELECT id, path, depth FROM admin_areas WHERE tenant_id = $1 AND id = $2', [T, D]);
@@ -332,6 +337,73 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
     w = await read();
     assert.deepEqual([w.a.st, w.a.p, w.a.by], ['sans_tpm', null, 'interne']);
     await parity('sans_tpm');
+
+    // 7. Facture d'un mois PASSÉ (re-relecture, point 3) : la première facture de Q sur K pour M−1 — elle
+    //    arrive après son mois — fait de Q le TPM de K dès M−1 : la visite prévue de M−1 le suit, et M−1
+    //    n'attend plus de rapport interne pour elle ; supprimer cette facture (dernier document) : retour.
+    await q('UPDATE contracts SET date_debut = $2 WHERE id = $1', [K, `${M0}-01`]);
+    await q('BEGIN');
+    await q("SELECT set_config('mems.tpm_stamping', 'on', true)");
+    const [{ id: G }] = await q(
+      `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, provider_source, provider_zone_state)
+       VALUES ($1, $2, $3, 'Test r114 g', 'planifie', 'zone', 'sans_tpm') RETURNING id`, [T, S, `${M0}-01`]);
+    await q('COMMIT');
+    made.visits.push(G);
+    const cellAt = async (m) => {
+      const [c] = await q('SELECT c_state AS st, c_provider_id AS p FROM mems_tpm_cells($1, $2::uuid[], $3::date[])', [T, [S], [`${m}-01`]]);
+      return [c.st, c.p];
+    };
+    assert.deepEqual(await cellAt(M0), ['sans_tpm', null]);
+    const internalAt = async (m) => {
+      const row = (await reports.expectedReports(T, { period: { from: m, to: m }, today: M1 })).rows.find((r) => r.unit.kind === 'interne');
+      return row ? row.visits.planned : 0;
+    };
+    const ownBefore = await internalAt(M0);
+    const pastInvoice = await reports.insertReport(T, { partnerId: Q, contractId: K, periodMonth: `${M0}-01`, kind: 'financier', reportedAmount: 0, createdBy: U });
+    made.stubs.push(pastInvoice);
+    w = await read();
+    assert.deepEqual([w.g.st, w.g.p, w.g.k, w.g.by], ['contrat', Q, K, 'tpm'], 'M−1 : la visite prévue suit le TPM de la facture');
+    assert.deepEqual(await cellAt(M0), ['contrat', Q], 'visite = règle (mems_tpm_cells)');
+    assert.deepEqual([w.a.st, w.a.p], ['contrat', Q], 'et dès le mois courant');
+    const exp0 = await reports.expectedReports(T, { period: { from: M0, to: M0 }, today: M1 });
+    const q0 = exp0.rows.find((r) => r.unit.providerId === Q && r.contract && r.contract.id === K);
+    assert.deepEqual([q0.status, q0.visits.planned], ['soumis', 1]);
+    assert.equal(await internalAt(M0), ownBefore - 1, 'plus de rapport interne attendu pour cette visite');
+    for (const k of ['b', 'c', 'd', 'e', 'f']) assert.deepEqual(w[k], before[k], `${k} : jamais touchée`);
+    assert.equal(await reports.deleteReport(T, pastInvoice, { actorId: U, isAdmin: true }), 'ok');
+    made.stubs = made.stubs.filter((x) => x !== pastInvoice);
+    w = await read();
+    assert.deepEqual([w.g.st, w.g.p, w.a.st, w.a.p], ['sans_tpm', null, 'sans_tpm', null], 'dernier document supprimé : M−1 et M de nouveau sans TPM');
+
+    // 8. Concurrence (re-relecture, point 5) : Q est rattaché à K par DEUX documents (plan P, rapport R) ;
+    //    deux utilisateurs les suppriment en même temps. Écrivains « verrou d'abord » : chacun attend le
+    //    verrou d'attribution AVANT de lire le lien ; le second voit donc le premier validé et ré-estampille.
+    const planP = await planning.createPlan(T, { partnerId: Q, contractId: K, periodMonth: `${M1}-01`, title: 'Test r114 plan P', items: [], createdBy: U });
+    made.plans = [planP];
+    const repR = await reports.insertReport(T, { partnerId: Q, contractId: K, periodMonth: `${M1}-01`, kind: 'technique', createdBy: U });
+    made.stubs.push(repR);
+    w = await read();
+    assert.deepEqual([w.a.st, w.a.p], ['contrat', Q]);
+    const other = new Client({ connectionString: SU_URL });
+    await other.connect();
+    made.other = other;
+    await other.query('BEGIN');
+    await other.query('SELECT pg_advisory_xact_lock(hashtext($1))', [tpm.ATTRIBUTION_KEY(T)]);
+    const dP = planning.deletePlan(T, planP, { actorId: U, isAdmin: true }).then((v) => ({ v }), (err) => ({ err }));
+    const dR = reports.deleteReport(T, repR, { actorId: U, isAdmin: true }).then((v) => ({ v }), (err) => ({ err }));
+    let waiting = 0;
+    for (let i = 0; i < 200 && waiting < 2; i += 1) {
+      waiting = (await q(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database()
+                           AND wait_event_type = 'Lock' AND wait_event = 'advisory' AND pid <> $1`, [other.processID]))[0].n;
+      if (waiting < 2) await new Promise((r) => { setTimeout(r, 50); });
+    }
+    await other.query('COMMIT');
+    const [rP, rR] = await Promise.all([dP, dR]);
+    assert.equal(waiting, 2, 'les deux suppressions attendent le verrou d attribution avant de lire le lien');
+    assert.deepEqual([rP.v, rR.v], ['ok', 'ok'], JSON.stringify([rP.err && rP.err.message, rR.err && rR.err.message]));
+    made.plans = []; made.stubs = made.stubs.filter((x) => x !== repR);
+    w = await read();
+    assert.deepEqual([w.a.st, w.a.p, w.a.by], ['sans_tpm', null, 'interne'], 'les deux derniers documents supprimés ensemble : plus de TPM (jamais un lien fantôme)');
   } finally {
     // Base jetable : on retire ce que le test a créé (le journal, inaltérable, garde ses lignes).
     if (made.visits.length) await q('DELETE FROM site_visits WHERE id = ANY ($1::uuid[])', [made.visits]);
@@ -348,6 +420,7 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
     if (made.siteCommune) await q('UPDATE sites SET zone_commune_id = NULL WHERE id = $1', [made.siteCommune]);
     if (made.areas.length) await q('DELETE FROM admin_areas WHERE id = ANY ($1::uuid[])', [made.areas]);
     if (made.partners.length) await q('DELETE FROM partners WHERE id = ANY ($1::uuid[])', [made.partners]).catch(() => {});
+    if (made.other) await made.other.end().catch(() => {});
     await su.end();
     await pool.end();
   }

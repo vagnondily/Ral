@@ -2,7 +2,7 @@ const crypto = require('node:crypto');
 const { siteDistrictCtes, keySql } = require('../common/siteActivitySql');
 const { MONITORING_LINE } = require('../contracts/budgetCatalog');
 const {
-  summarizeRestamp, buildZoneTable, cellForSite, segments, tpmSelectable, visitDecision, tpmsByContract,
+  summarizeRestamp, buildZoneTable, cellForSite, segments, tpmSelectable, visitDecision, tpmsByContract, linkRestampFrom,
 } = require('./tpmAttribution');
 // Règle commune « prestataire actif » (lot 8) : liens prestataire ↔ contrat et fiches partenaires.
 const activeProviderRepo = require('./activeProvider.repository');
@@ -165,15 +165,34 @@ async function tpmLinkExistsTx(client, tenantId, partnerId, contractId) {
 }
 
 /**
- * Un écrivain de plans de collecte ou de factures (création, gabarits mensuels, suppression) qui CRÉE le
- * premier document d'un couple TPM × contrat, ou SUPPRIME le dernier, change le TPM du contrat : les
- * visites prévues ré-estampillables sont recalculées dès le mois courant, dans SA transaction, verrou
- * d'attribution en dernier (comme contracts.service.restampFromNow). Sans changement du lien : rien.
- * @param {{ partnerId, contractId, had: boolean }} link  had = tpmLinkExistsTx AVANT l'écriture
+ * Écrivains du lien TPM ↔ contrat (plans de collecte, factures / rapports, gabarits mensuels :
+ * création et suppression) — « verrou d'abord » (règle du lot 8, partners/partnerRole) : le verrou
+ * d'attribution du compte est la PREMIÈRE instruction de leur transaction, avant toute lecture du
+ * lien, avant la ligne du document (FOR UPDATE) et avant sa clé étrangère vers partners — jamais
+ * après un verrou de ligne d'un partenaire. Deux écrivains du même compte se suivent donc : le second
+ * lit le lien laissé par le premier (deux suppressions des deux derniers documents, ou une création
+ * pendant une suppression, ne sautent jamais la ré-estampille). Réentrant : restampVisitsTx le reprend.
+ * @returns {Promise<{ partnerId, contractId, had: boolean }|null>}  lien AVANT l'écriture (création) ;
+ *   sans partnerId / contractId (suppression : lus ensuite sur le document), seulement le verrou.
  */
-async function restampIfTpmLinkChangedTx(client, tenantId, { partnerId, contractId, had }) {
+async function lockTpmLinkTx(client, tenantId, { partnerId = null, contractId = null } = {}) {
+  await lockAttributionTx(client, tenantId);
+  if (!partnerId || !contractId) return null;
+  return { partnerId, contractId, had: await tpmLinkExistsTx(client, tenantId, partnerId, contractId) };
+}
+
+/**
+ * Après l'écriture, sous le verrou pris par lockTpmLinkTx : le premier document d'un couple TPM ×
+ * contrat, ou la suppression du dernier, change le TPM du contrat — les visites prévues
+ * ré-estampillables (AUTO_RESTAMPABLE_SQL : jamais réalisées, annulées, figées, facturées ou motivées)
+ * sont recalculées dans la MÊME transaction dès le mois du document s'il est passé, sinon dès le mois
+ * courant (rule.linkRestampFrom). Sans changement du lien : rien.
+ * @param {{ partnerId, contractId, had: boolean, month?: string }} link
+ *   had = lien avant l'écriture ; month = premier mois du document (« AAAA-MM… »)
+ */
+async function restampIfTpmLinkChangedTx(client, tenantId, { partnerId, contractId, had, month = null }) {
   if (!partnerId || !contractId || had === await tpmLinkExistsTx(client, tenantId, partnerId, contractId)) return null;
-  return restampVisitsTx(client, tenantId, { fromMonth: currentMonth() });
+  return restampVisitsTx(client, tenantId, { fromMonth: linkRestampFrom(month, currentMonth()) });
 }
 
 // ---- Entrées de la règle ------------------------------------------------------------
@@ -771,7 +790,7 @@ async function applyContractsTx(client, tenantId, actorId, { period = null, reas
 module.exports = {
   cellsForSitesTx, applyContractsTx, slimCell, unavailabilityTx, deleteUnavailabilityTx, upsertUnavailabilityTx, plannedRangeVisitsTx,
   tableForSitesTx, boardTpmTx, applyVisitRequestTx,
-  ATTRIBUTION_KEY, ZONE_CTES, INVOICED_SQL, AUTO_RESTAMPABLE_SQL, monitorKeySql, lockAttributionTx, tpmLinkExistsTx, restampIfTpmLinkChangedTx, refreshSiteZonesTx, restampVisitsTx,
+  ATTRIBUTION_KEY, ZONE_CTES, INVOICED_SQL, AUTO_RESTAMPABLE_SQL, monitorKeySql, lockAttributionTx, tpmLinkExistsTx, lockTpmLinkTx, restampIfTpmLinkChangedTx, refreshSiteZonesTx, restampVisitsTx,
   partnersTx, loadInputsTx, overridesTx, areasTx, communeRowIds, zoneRowsTx, visitGroupsTx, expandRegionsTx,
   plannedZoneVisitsTx, visitsForUpdateTx, siteZoneTx, monthPlanStatusesTx,
   deleteOverridesTx, upsertOverridesTx, applyVisitDecisionsTx, insertLogTx, listLogTx, attributionCountsTx, siteZonesTx,

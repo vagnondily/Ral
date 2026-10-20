@@ -275,9 +275,10 @@ async function findExisting(client, tenantId, { partnerId, contractId, periodMon
 
 async function insertReport(tenantId, r) {
   return withTenantTransaction(tenantId, async (client) => {
+    // Lien TPM ↔ contrat (retour 114) : verrou d'attribution D'ABORD (avant la clé étrangère du rapport), puis le lien d'avant.
+    const link = await tpmAttributionRepo.lockTpmLinkTx(client, tenantId, { partnerId: r.partnerId, contractId: r.contractId });
     const existing = await findExisting(client, tenantId, r);
     if (existing) { const e = new Error('duplicate'); e.code = 'DUP'; throw e; }
-    const had = await tpmAttributionRepo.tpmLinkExistsTx(client, tenantId, r.partnerId, r.contractId); // D1 : TPM du contrat avant
 
     // A financial report with an état des dépenses derives its reported
     // amount from the items (the funder (bailleur) share) — never the typed figure.
@@ -304,8 +305,9 @@ async function insertReport(tenantId, r) {
         WHERE tenant_id = $1 AND id = $2`,
       [tenantId, id, r.createdBy]
     );
-    // Première facture d'un TPM sur ce contrat : il en devient le TPM — visites prévues ré-estampillées (retour 114).
-    await tpmAttributionRepo.restampIfTpmLinkChangedTx(client, tenantId, { partnerId: r.partnerId, contractId: r.contractId, had });
+    // Première facture d'un TPM sur ce contrat : il en devient le TPM — visites prévues ré-estampillées dès le
+    // mois de la facture, qui arrive d'ordinaire après son mois (retour 114).
+    await tpmAttributionRepo.restampIfTpmLinkChangedTx(client, tenantId, { ...link, month: r.periodMonth });
     return id;
   });
 }
@@ -360,6 +362,7 @@ async function replaceReportItems(tenantId, id, items, { invoiceNo, periodEnd, a
  */
 async function deleteReport(tenantId, id, { actorId, isAdmin = false, justification } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
+    await tpmAttributionRepo.lockTpmLinkTx(client, tenantId); // lien TPM ↔ contrat : verrou d'attribution AVANT la ligne (retour 114)
     const report = await getReportRow(client, tenantId, id);
     if (!report) return null;
 
@@ -393,7 +396,8 @@ async function deleteReport(tenantId, id, { actorId, isAdmin = false, justificat
     });
     await client.query('DELETE FROM tpm_reports WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
     // Dernier document de ce TPM sur ce contrat : il n'en est plus le TPM (retour 114).
-    await tpmAttributionRepo.restampIfTpmLinkChangedTx(client, tenantId, { partnerId: report.partnerId, contractId: report.contractId, had: true });
+    await tpmAttributionRepo.restampIfTpmLinkChangedTx(client, tenantId,
+      { partnerId: report.partnerId, contractId: report.contractId, had: true, month: report.periodMonth });
     return 'ok';
   });
 }
@@ -405,6 +409,8 @@ async function deleteReport(tenantId, id, { actorId, isAdmin = false, justificat
  */
 async function generateMonthlyStubs(tenantId, { contractId, partnerId, createdBy }) {
   return withTenantTransaction(tenantId, async (client) => {
+    // Lien TPM ↔ contrat (retour 114) : verrou d'attribution D'ABORD, puis le lien d'avant.
+    const link = await tpmAttributionRepo.lockTpmLinkTx(client, tenantId, { partnerId, contractId });
     const { rows: c } = await client.query(
       'SELECT date_debut AS "dateDebut", date_fin AS "dateFin" FROM contracts WHERE tenant_id = $1 AND id = $2',
       [tenantId, contractId]
@@ -413,10 +419,10 @@ async function generateMonthlyStubs(tenantId, { contractId, partnerId, createdBy
     const toIdx = (d) => { const [y, m] = String(d).slice(0, 7).split('-').map(Number); return y * 12 + (m - 1); };
     const start = toIdx(c[0].dateDebut);
     const end = toIdx(c[0].dateFin);
-    const had = await tpmAttributionRepo.tpmLinkExistsTx(client, tenantId, partnerId, contractId); // D1 : TPM du contrat avant
+    const monthOf = (i) => `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}-01`;
     let created = 0;
     for (let i = start; i <= end && i - start < 60; i += 1) {
-      const month = `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}-01`;
+      const month = monthOf(i);
       const { rowCount } = await client.query(
         `INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, kind, reported_amount, status, created_by)
          VALUES ($1,$2,$3,$4,'financier',0,'attendu',$5)
@@ -425,8 +431,8 @@ async function generateMonthlyStubs(tenantId, { contractId, partnerId, createdBy
       );
       created += rowCount;
     }
-    // Gabarits du premier lien de ce TPM avec ce contrat : il en devient le TPM (retour 114).
-    await tpmAttributionRepo.restampIfTpmLinkChangedTx(client, tenantId, { partnerId, contractId, had });
+    // Gabarits du premier lien de ce TPM avec ce contrat : il en devient le TPM, dès le premier gabarit (retour 114).
+    await tpmAttributionRepo.restampIfTpmLinkChangedTx(client, tenantId, { ...link, month: monthOf(start) });
     return { created };
   });
 }

@@ -534,3 +534,12 @@ test('libellés et états : « contrat sans TPM » ; listes des CHECK cohérente
   assert.deepEqual(a.INTERNAL_DEFAULT_STATES, ['sans_contrat', 'sans_tpm']);
   assert.ok(a.LOG_ACTIONS.includes('indispo_poser') && a.LOG_SCOPES.includes('tpm'));
 });
+
+test('linkRestampFrom (U2, re-relecture) : mois du document s il est passé, sinon le mois courant', () => {
+  assert.equal(a.linkRestampFrom('2026-09-01', '2026-10'), '2026-09');
+  assert.equal(a.linkRestampFrom('2026-09', '2026-10'), '2026-09');
+  assert.equal(a.linkRestampFrom('2026-10-01', '2026-10'), '2026-10');
+  assert.equal(a.linkRestampFrom('2026-12-01', '2026-10'), '2026-10', 'jamais après le mois courant');
+  assert.equal(a.linkRestampFrom(null, '2026-10'), '2026-10');
+  assert.equal(a.linkRestampFrom('n/a', '2026-10'), '2026-10');
+});
