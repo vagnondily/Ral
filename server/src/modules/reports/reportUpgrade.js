@@ -18,7 +18,7 @@
  * n'est perdu. Le document mis à niveau porte `rowKeys: 2` (enregistré avec lui) : une clé écrite
  * sous le nouveau schéma n'est plus jamais déplacée. Un document FINALISÉ n'est jamais réenregistré :
  * ses constats sont remis sur la nouvelle clé à chaque lecture, et ses lignes figées de la même
- * façon (rekeySnapshotBlocks, appelé par documentData) — les deux côtés se retrouvent toujours.
+ * façon (rekeyOnRead, ROW_KEYS, appelé par documentData) — les deux côtés se retrouvent toujours.
  */
 const { activityKey } = require('../dashboards/coverageDefinitions');
 
@@ -183,39 +183,32 @@ function rekeyBlocks(blocks) {
 const ROW_KEYS = 2;
 
 /**
- * Lignes FIGÉES d'un document finalisé (snapshot.blocks) remises sur les nouvelles clés, comme ses
- * constats : pour chaque instance d'un jeu de ROW_KEY_UPGRADES, `_key` de chaque ligne → nouvelle clé
- * (idempotent : une clé déjà nouvelle ne change pas). Même objet si rien ne change.
- * @param {object} blocks { [iid]: { ok, data: { rows } } }  @param {{iid, dataset?}[]} instances plan du document
+ * Faut-il remettre les constats sur les nouvelles clés à la lecture ? Les deux côtés d'un rapport
+ * doivent porter les MÊMES clés (DataTable lit notes[r._key]) :
+ *  - brouillon : ses lignes sont recalculées (nouvelles clés) → oui ;
+ *  - finalisé ici : ses lignes figées portent les nouvelles clés (snapshot.rowKeys = 2, posé par
+ *    finalize) → oui, même si son contenu n'a pas été réenregistré depuis ;
+ *  - finalisé avant ce schéma : lignes figées ET constats sur le libellé brut → JAMAIS (re-cléer
+ *    réunirait deux graphies restées deux lignes figées, et chaque ligne afficherait les deux constats).
+ * Les données enregistrées ne sont jamais réécrites.
  */
-function rekeySnapshotBlocks(blocks, instances) {
-  if (!blocks || typeof blocks !== 'object') return blocks;
-  let out = blocks;
-  for (const inst of instances || []) {
-    const keyOf = inst && ROW_KEY_UPGRADES[inst.dataset];
-    const b = keyOf && blocks[inst.iid];
-    const rows = b && b.ok && b.data && Array.isArray(b.data.rows) ? b.data.rows : null;
-    if (!rows || rows.every((r) => !r || r._key == null || keyOf(String(r._key)) === r._key)) continue;
-    if (out === blocks) out = { ...blocks };
-    out[inst.iid] = { ...b, data: { ...b.data, rows: rows.map((r) => (r && r._key != null ? { ...r, _key: keyOf(String(r._key)) } : r)) } };
-  }
-  return out;
-}
+const rekeyOnRead = (d) => !d || d.status !== 'final' || Boolean(d.snapshot && d.snapshot.rowKeys === ROW_KEYS);
 
 /**
  * Document v1 (ou v2) → v2.
  * @param {object} input contenu enregistré ou reçu
- * @param {{ officeIdByName?: Map<string,string>, viewsOf?: (dataset) => ({views, defaultView}|null) }} [ctx]
- *   officeIdByName : bureaux du client (nom en minuscules → id) ; viewsOf : vues permises d'un jeu v2
+ * @param {{ officeIdByName?: Map<string,string>, viewsOf?: (dataset) => ({views, defaultView}|null), rekey?: boolean }} [ctx]
+ *   officeIdByName : bureaux du client (nom en minuscules → id) ; viewsOf : vues permises d'un jeu v2 ;
+ *   rekey : remettre les constats sur les nouvelles clés (défaut) — false pour un rapport finalisé avant
+ *   ce schéma (rekeyOnRead) : constats laissés sur leurs clés, sans marqueur
  * @returns {{ doc: object, warnings: {blockId:string, message:string}[], upgraded: boolean, rekeyed: boolean }}
- *   rekeyed : les constats viennent d'être remis sur les nouvelles clés (document sans `rowKeys: 2`) —
- *   documentData remet alors les lignes figées sur les mêmes clés
+ *   rekeyed : les constats viennent d'être remis sur les nouvelles clés (document sans `rowKeys: 2`)
  */
-function upgradeDoc(input, { officeIdByName, viewsOf } = {}) {
+function upgradeDoc(input, { officeIdByName, viewsOf, rekey = true } = {}) {
   if (!input || typeof input !== 'object') return { doc: input, warnings: [], upgraded: false, rekeyed: false };
   if (input.schemaVersion === 2) {
     // v2 déjà sur les nouvelles clés : rendu tel quel (même objet), jamais re-clé.
-    if (input.rowKeys === ROW_KEYS) return { doc: input, warnings: [], upgraded: false, rekeyed: false };
+    if (input.rowKeys === ROW_KEYS || !rekey) return { doc: input, warnings: [], upgraded: false, rekeyed: false };
     return { doc: { ...input, blocks: rekeyBlocks(input.blocks), rowKeys: ROW_KEYS }, warnings: [], upgraded: false, rekeyed: true };
   }
   const warnings = [];
@@ -225,10 +218,10 @@ function upgradeDoc(input, { officeIdByName, viewsOf } = {}) {
     period: input.period,
     filters: {},
     page: upgradePage(input.page),
-    blocks: rekeyBlocks((input.blocks || []).map((b) => upgradeBlock(b, officeIdByName, warnings, viewsOf))),
-    rowKeys: ROW_KEYS,
+    blocks: (input.blocks || []).map((b) => upgradeBlock(b, officeIdByName, warnings, viewsOf)),
   };
-  return { doc, warnings, upgraded: true, rekeyed: true };
+  if (!rekey) return { doc, warnings, upgraded: true, rekeyed: false };
+  return { doc: { ...doc, blocks: rekeyBlocks(doc.blocks), rowKeys: ROW_KEYS }, warnings, upgraded: true, rekeyed: true };
 }
 
 /** Vrai si le contenu est un document v1 (sans schemaVersion). */
@@ -257,4 +250,4 @@ function upgradeSnapshot(snapshot) {
   return { format: 2, frozen: true, periodLabel: snapshot.periodLabel || null, vars: renameValues(snapshot.variables), expansions, blocks };
 }
 
-module.exports = { upgradeDoc, upgradeSnapshot, isV1, renameKpi, rekeyBlocks, rekeySnapshotBlocks, DATASET_RENAMES, KPI_RENAMES, ROW_KEY_UPGRADES, ROW_KEYS };
+module.exports = { upgradeDoc, upgradeSnapshot, isV1, renameKpi, rekeyBlocks, rekeyOnRead, DATASET_RENAMES, KPI_RENAMES, ROW_KEY_UPGRADES, ROW_KEYS };

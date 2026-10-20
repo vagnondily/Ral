@@ -121,25 +121,46 @@ test('« Couverture par activité » : constats enregistrés sur l\'ancien libel
   assert.equal(upgradeDoc(marked).doc, marked);
 });
 
-test('document finalisé avant le nouveau schéma : constat ET lignes figées sur l\'ancien libellé — le constat reste affiché', () => {
-  const { rekeySnapshotBlocks } = require('../src/modules/reports/reportUpgrade');
-  const note = { nodes: [{ t: 'p', c: [{ x: 'Retard des cantines' }] }] };
+test('rapport finalisé AVANT le nouveau schéma : jamais re-clé — chaque constat reste sur sa ligne figée, même deux graphies', () => {
+  const { rekeyOnRead } = require('../src/modules/reports/reportUpgrade');
+  const note = (x) => ({ nodes: [{ t: 'p', c: [{ x }] }] });
   const content = {
     schemaVersion: 2, title: 'Final', period: { from: '2026-01', to: '2026-03' }, filters: {}, page: upgradeDoc(V1).doc.page,
-    blocks: [{ id: 'a', type: 'data', params: { dataset: 'cov.by_activity', view: 'table', filters: {}, args: {}, figure: {}, palette: 'sober', annotations: { 'School meal activities': note } } }],
+    blocks: [{ id: 'a', type: 'data', params: { dataset: 'cov.by_activity', view: 'table', filters: {}, args: {}, figure: {}, palette: 'sober',
+      annotations: { 'Cantine scolaire': note('A : retard'), 'cantine scolaire': note('B : ok') } } }],
   };
-  const frozen = { a: { ok: true, data: { rows: [{ _key: 'School meal activities', activity: 'School meal activities' }, { _key: '—', activity: 'Non renseigné' }] } }, k: { ok: true, data: { rows: [{ _key: 'overall' }] } } };
-  const up = upgradeDoc(content);
-  assert.equal(up.rekeyed, true);
-  const blocks = rekeySnapshotBlocks(frozen, [{ iid: 'a', dataset: 'cov.by_activity' }, { iid: 'k', dataset: 'cov.kpis' }]);
-  // Les deux côtés sur la même clé : DataTable lit notes[r._key].
+  // Finalisé sur l'ancien code : deux graphies = deux lignes figées, chacune son constat (clés brutes).
+  const frozen = { a: { ok: true, data: { rows: [{ _key: 'Cantine scolaire' }, { _key: 'cantine scolaire' }] } } };
+  const d = { status: 'final', content, snapshot: { format: 2, frozen: true, blocks: frozen } };
+  assert.equal(rekeyOnRead(d), false);
+  const up = upgradeDoc(content, { rekey: rekeyOnRead(d) });
+  assert.equal(up.doc, content, 'rendu tel quel');
+  assert.equal(up.rekeyed, false);
+  assert.equal(up.doc.rowKeys, undefined, 'aucun marqueur posé');
   const notes = up.doc.blocks[0].params.annotations;
-  const shown = blocks.a.data.rows.map((r) => notes[r._key] || null);
-  assert.deepEqual(shown, [note, null]);
-  assert.equal(blocks.k, frozen.k, 'autres jeux : lignes figées intactes');
-  assert.equal(frozen.a.data.rows[0]._key, 'School meal activities', 'données figées enregistrées jamais modifiées');
-  // Lignes figées déjà sur les nouvelles clés (finalisé après la mise à niveau) : rendu tel quel.
-  assert.equal(rekeySnapshotBlocks(blocks, [{ iid: 'a', dataset: 'cov.by_activity' }]), blocks);
+  assert.deepEqual(frozen.a.data.rows.map((r) => notes[r._key]), [note('A : retard'), note('B : ok')], 'chaque ligne : son seul constat');
+  // v1 finalisé avant le schéma : mis à niveau, sans re-clé ni marqueur.
+  const v1 = upgradeDoc(V1, { rekey: false });
+  assert.equal(v1.rekeyed, false);
+  assert.equal(v1.doc.rowKeys, undefined);
+});
+
+test('rapport finalisé APRÈS le nouveau schéma (snapshot.rowKeys = 2) : constats d\'un contenu jamais réenregistré remis sur les clés des lignes figées', () => {
+  const { rekeyOnRead } = require('../src/modules/reports/reportUpgrade');
+  const note = (x) => ({ nodes: [{ t: 'p', c: [{ x }] }] });
+  // Brouillon enregistré sur l'ancien code (clé brute), finalisé ici sans réenregistrement.
+  const content = {
+    schemaVersion: 2, title: 'Final', period: { from: '2026-01', to: '2026-03' }, filters: {}, page: upgradeDoc(V1).doc.page,
+    blocks: [{ id: 'a', type: 'data', params: { dataset: 'cov.by_activity', view: 'table', filters: {}, args: {}, figure: {}, palette: 'sober',
+      annotations: { 'School meal activities': note('Retard') } } }],
+  };
+  const frozen = { a: { ok: true, data: { rows: [{ _key: 'school meal activities' }, { _key: '—' }] } } };
+  const d = { status: 'final', content, snapshot: { format: 2, rowKeys: 2, frozen: true, blocks: frozen } };
+  assert.equal(rekeyOnRead(d), true);
+  const notes = upgradeDoc(content, { rekey: rekeyOnRead(d) }).doc.blocks[0].params.annotations;
+  assert.deepEqual(frozen.a.data.rows.map((r) => notes[r._key] || null), [note('Retard'), null]);
+  // Brouillon : toujours remis sur les clés actuelles (ses lignes sont recalculées).
+  assert.equal(rekeyOnRead({ status: 'draft', content }), true);
 });
 
 test('nouveau rapport créé dans le concepteur : marqué rowKeys: 2 (ses constats ne sont jamais re-clés)', (t) => {

@@ -233,8 +233,24 @@ test('rapport FINALISÉ avant le nouveau schéma des clés : son « Constat » r
     const rows = data.body.blocks.a.data.rows;
     assert.deepEqual(rows.map((r) => notes[r._key]), [note], 'DataTable : notes[r._key] retrouvé');
     assert.equal(data.body.frozen, true);
-    // Les données enregistrées ne sont jamais réécrites : seule la lecture remet les clés d'accord.
+    // Finalisé avant le schéma (snapshot sans rowKeys) : rien n'est re-clé, ni à la lecture ni en base.
+    assert.deepEqual(Object.keys(notes), ['School meal activities']);
     assert.equal(snapshot.blocks.a.data.rows[0]._key, 'School meal activities');
     assert.deepEqual(content.blocks[0].params.annotations, { 'School meal activities': note });
   } finally { reportsRepo.getDocument = orig; }
+});
+
+test('finaliser pose snapshot.rowKeys = 2 : les lignes figées portent les clés actuelles', async () => {
+  const DOC_ID = '55555555-5555-4555-8555-555555555555';
+  const content = { schemaVersion: 2, title: 'À finaliser', period: { from: '2026-01', to: '2026-03' }, filters: {}, blocks: [{ id: 'a', type: 'data', params: { dataset: 'cov.by_activity', view: 'table' } }] };
+  const origGet = reportsRepo.getDocument; const origFin = reportsRepo.finalizeDocument;
+  let saved = null;
+  reportsRepo.getDocument = async () => ({ id: DOC_ID, status: 'draft', version: 1, title: 'À finaliser', content });
+  reportsRepo.finalizeDocument = async (tenantId, id, { snapshot }) => { saved = snapshot; return { id, status: 'final', version: 2 }; };
+  try {
+    const service = require('../src/modules/reports/reports.service');
+    await service.finalize('00000000-0000-4000-8000-000000000001', DOC_ID, 1, null, {});
+    assert.equal(saved && saved.rowKeys, 2);
+    assert.equal(saved.format, 2);
+  } finally { reportsRepo.getDocument = origGet; reportsRepo.finalizeDocument = origFin; }
 });

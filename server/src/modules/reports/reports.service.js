@@ -2,7 +2,7 @@ const ExcelJS = require('exceljs');
 const { badRequest, payloadTooLarge, AppError } = require('../../middleware/errors');
 const { withQueryTimeout } = require('../../config/db');
 const { createSemaphore } = require('./semaphore');
-const { upgradeDoc, upgradeSnapshot, rekeySnapshotBlocks, isV1 } = require('./reportUpgrade');
+const { upgradeDoc, upgradeSnapshot, rekeyOnRead, ROW_KEYS, isV1 } = require('./reportUpgrade');
 const { safeParseDocV2, walkBlocks, imageRefs } = require('./reportSchema');
 const assetsRepo = require('./reportAssets.repository');
 const { DATASETS, KPIS, GROUPS, datasetDef, kpiDef, validateBlockParams, catalogForClient } = require('./catalog');
@@ -361,7 +361,7 @@ async function getDocument(tenantId, id) {
   const d = await repo.getDocument(tenantId, id);
   const { snapshot: _snapshot, content, ...rest } = d;
   const offices = await officeIndex(tenantId);
-  const up = upgradeDoc(content, { officeIdByName: offices.idByName, viewsOf });
+  const up = upgradeDoc(content, { officeIdByName: offices.idByName, viewsOf, rekey: rekeyOnRead(d) });
   return { ...rest, content: up.doc, upgradedFrom: isV1(content) ? 1 : null, warnings: up.warnings };
 }
 
@@ -371,14 +371,13 @@ async function documentData(tenantId, id, opts) {
   if (d.status !== 'final') return renderReport(tenantId, d.content, opts);
   const frozen = upgradeSnapshot(d.snapshot) || {};
   const offices = await officeIndex(tenantId);
-  const up = upgradeDoc(d.content, { officeIdByName: offices.idByName, viewsOf });
+  // Constats et lignes figées sur les mêmes clés (rekeyOnRead) : les lignes figées ne sont jamais re-clées.
+  const up = upgradeDoc(d.content, { officeIdByName: offices.idByName, viewsOf, rekey: rekeyOnRead(d) });
   const parsed = safeParseDocV2(up.doc);
   if (!parsed.success) return { frozen: true, blocks: frozen.blocks || {}, instances: [], sections: [], expansions: {}, periodLabel: frozen.periodLabel };
   const lang = (d.snapshot && d.snapshot.lang) || langOf(opts);
   const plan = buildPlan(parsed.data, { expansions: frozen.expansions || {}, kpiKeys: kpiKeys(), lang, defaultView: (k) => (datasetDef(k) || {}).defaultView || 'table' });
-  // Constats remis sur les nouvelles clés à cette lecture (document finalisé avant `rowKeys: 2`) :
-  // ses lignes figées le sont de la même façon — sinon le « Constat » ne retrouve plus sa ligne.
-  const blocks = { ...((up.rekeyed ? rekeySnapshotBlocks(frozen.blocks, plan.instances) : frozen.blocks) || {}) };
+  const blocks = { ...(frozen.blocks || {}) };
   // Texte avec chiffres clés (v1) : les valeurs figées du rapport.
   for (const inst of plan.instances) {
     if (inst.needsData && !blocks[inst.iid] && (inst.type === 'text' || inst.type === 'callout')) blocks[inst.iid] = { ok: true, data: { vars: frozen.vars || {} } };
@@ -390,7 +389,8 @@ async function documentData(tenantId, id, opts) {
 async function finalize(tenantId, id, version, userId, opts) {
   const d = await repo.getDocument(tenantId, id);
   const r = await renderReport(tenantId, d.content, opts);
-  const snapshot = { format: 2, frozen: true, lang: langOf(opts), periodLabel: r.periodLabel, expansions: r.expansions, blocks: r.blocks };
+  // rowKeys : les lignes figées portent les clés actuelles — rekeyOnRead remet donc les constats d'accord.
+  const snapshot = { format: 2, rowKeys: ROW_KEYS, frozen: true, lang: langOf(opts), periodLabel: r.periodLabel, expansions: r.expansions, blocks: r.blocks };
   return repo.finalizeDocument(tenantId, id, { version, snapshot }, userId);
 }
 
