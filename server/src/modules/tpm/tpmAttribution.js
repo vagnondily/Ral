@@ -144,26 +144,28 @@ const contractLabelOf = (c) => c.numeroFla || c.numero;
 /**
  * TPM selon contrat d'une aire pour un mois. Plusieurs TPM : « à arbitrer », avec le TPM par
  * défaut (byDefault) — jamais un blanc. Aucun TPM : suivi interne — « sans_tpm » si un contrat de
- * suivi SANS TPM couvre l'aire (D1 ; `noTpm` dit lesquels), sinon « sans_contrat ». Les zones des
- * contrats sans TPM comptent pour la structure (`exactHit` : une commune a sa propre ligne,
- * `partiel`) ; seules celles des contrats avec un TPM donnent un TPM. Indisponibilités : voir
- * availableDefault (appliquées après, jamais ici : la valeur par défaut reste celle du contrat).
+ * suivi SANS TPM couvre l'aire (D1 ; `noTpm` dit lesquels), sinon « sans_contrat ». Seules les
+ * zones des contrats avec un TPM donnent un TPM ; `exactHit` (une zone d'un tel contrat exactement
+ * sur l'aire) et `exactBare` (une zone d'un contrat SANS TPM exactement sur l'aire) décident si une
+ * commune a sa propre ligne (buildZoneTable) ; `partiel` compte tous les contrats. Indisponibilités :
+ * voir availableDefault (appliquées après, jamais ici : la valeur par défaut reste celle du contrat).
  * @returns {{ state:'contrat'|'sans_contrat'|'sans_tpm'|'a_arbitrer', providerId, contractId, numero, contractLabel,
  *            candidates:[{providerId, providerName, contractId, numero, contractLabel, dateDebut, zonePath, via, endMonth}],
- *            noTpm:[{contractId, numero, contractLabel, holderName}], partiel:boolean, exactHit:boolean }}
+ *            noTpm:[{contractId, numero, contractLabel, holderName}], partiel:boolean, exactHit:boolean, exactBare:boolean }}
  */
 function defaultFor(area, month, contracts) {
   const hits = [];
   const bare = [];
   let partiel = false;
   let exactHit = false;
+  let exactBare = false;
   for (const c of monitoringContractsAt(contracts, month)) {
     const withTpm = contractTpms(c).length > 0;
     for (const z of c.zones || []) {
       const cov = coverOf(area, z);
       if (cov === 'exact' || cov === 'ancetre') {
         (withTpm ? hits : bare).push({ c, z, cov });
-        if (cov === 'exact') exactHit = true;
+        if (cov === 'exact') { if (withTpm) exactHit = true; else exactBare = true; }
       } else if (cov === 'descendant') partiel = true;
     }
   }
@@ -173,7 +175,7 @@ function defaultFor(area, month, contracts) {
       .map((h) => ({ contractId: h.c.id, numero: h.c.numero, contractLabel: contractLabelOf(h.c), holderName: h.c.partnerName || null }))
       .sort((a, b) => cmp(a.numero, b.numero));
     return { state: bare.length ? 'sans_tpm' : 'sans_contrat', providerId: null, contractId: null, numero: null, contractLabel: null,
-      candidates: [], noTpm, partiel, exactHit };
+      candidates: [], noTpm, partiel, exactHit, exactBare };
   }
   const best = Math.max(...hits.map((h) => Number(h.z.depth)));
   // Un candidat par TPM : son contrat retenu (ordre par défaut) parmi les zones les plus précises.
@@ -194,7 +196,7 @@ function defaultFor(area, month, contracts) {
   return {
     state: candidates.length === 1 ? 'contrat' : 'a_arbitrer',
     providerId: chosen.providerId, contractId: chosen.contractId, numero: chosen.numero, contractLabel: chosen.contractLabel,
-    candidates, noTpm: [], partiel, exactHit,
+    candidates, noTpm: [], partiel, exactHit, exactBare,
   };
 }
 
@@ -400,9 +402,19 @@ function qualityOf({ contracts = [], overrides = [], months = [], today = null }
 }
 
 /**
+ * Une commune a-t-elle sa propre ligne ce mois (`own`) ? Oui si une modification y est posée, ou si
+ * une zone d'un contrat AVEC TPM est exactement sur elle. Une commune listée seulement par des
+ * contrats SANS TPM suit son district (son TPM de contrat ET sa modification — retour 114, U1) ;
+ * elle n'a sa ligne « sans_tpm » que si aucun contrat avec TPM ni aucune modification ne couvre un de
+ * ses ancêtres (district). Jumelle du CTE `tg` de mems_tpm_cells (migration 107).
+ */
+function communeOwnsRow(def, ov, ancestorOverride) {
+  return Boolean(ov || def.exactHit || (def.exactBare && def.state === 'sans_tpm' && !ancestorOverride));
+}
+
+/**
  * Table zone × mois. `areas` = districts et communes de l'onglet (une commune n'a sa propre
- * ligne que si une modification y est posée ou si une zone de contrat est exactement sur elle :
- * `own`). Taille bornée par l'appelant (≤ MAX_CELLS côté écriture).
+ * ligne que selon communeOwnsRow : `own`). Taille bornée par l'appelant (≤ MAX_CELLS côté écriture).
  * @returns {{ cells: Map<string, object>, quality: object, partnersById: Map }}
  */
 function buildZoneTable({ areas = [], months = [], contracts = [], overrides = [], partners = [], unavailability = [], today = null }) {
@@ -420,7 +432,10 @@ function buildZoneTable({ areas = [], months = [], contracts = [], overrides = [
       // Aucun contrat ne couvre, mais un contrat de suivi y a une zone détachée de même nom : indice.
       const hint = cell.state === 'sans_contrat' ? detachedHintFor(a, m, detached) : [];
       if (hint.length) { cell.flags.push('zone_a_reselectionner'); cell.detached = hint; }
-      cells.set(`${a.id}|${m}`, { areaId: a.id, month: m, own: Number(a.depth) === 3 ? Boolean(ov || def.exactHit) : true, ...cell });
+      const own = Number(a.depth) === 3
+        ? communeOwnsRow(def, ov, (a.lineage || []).some((id) => ovByKey.has(`${id}|${m}`)))
+        : true;
+      cells.set(`${a.id}|${m}`, { areaId: a.id, month: m, own, ...cell });
     }
   }
   return { cells, quality: qualityOf({ contracts, overrides, months, today }), partnersById };

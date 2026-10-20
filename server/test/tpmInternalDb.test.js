@@ -22,6 +22,9 @@
  *     parité de la jumelle SQL mems_tpm_cells avec la règle pure sur tous les sites × 4 mois.
  *  5. Lien TPM ↔ contrat (U2) : le premier plan de collecte d'un TPM sur le contrat en fait le TPM de
  *     la zone (visite prévue ré-estampillée), la suppression du dernier l'en retire.
+ *  6. Commune listée seulement par un contrat sans TPM (U1) : elle suit son district (TPM de contrat
+ *     et modification motivée du district) ; sans l'un ni l'autre, sa propre ligne « sans_tpm » ;
+ *     parité (aire comprise) avec une modification de district.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -57,7 +60,7 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
   const su = new Client({ connectionString: SU_URL });
   await su.connect();
   const q = async (sql, params) => (await su.query(sql, params)).rows;
-  const made = { visits: [], reports: [], plans: [], contract: null, partners: [], unavailability: [] };
+  const made = { visits: [], reports: [], plans: [], contract: null, contract2: null, partners: [], unavailability: [], overrides: [], areas: [], siteCommune: null };
   try {
     const [{ id: T }] = await q('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1');
     const [{ id: U }] = await q('SELECT id FROM users WHERE tenant_id = $1 ORDER BY email LIMIT 1', [T]);
@@ -130,11 +133,13 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
       const months = [addMonth(M1, -1), M1, M2, addMonth(M2, 1)];
       const pairs = all.flatMap((s) => months.map((m) => ({ siteId: s, month: m })));
       const js = await withTenantTransaction(T, (client) => tpm.cellsForSitesTx(client, T, pairs));
-      const sql = await q(`SELECT c_site_id AS "siteId", to_char(c_month, 'YYYY-MM') AS month, c_state AS state, c_provider_id AS "providerId", c_contract_id AS "contractId"
+      const sql = await q(`SELECT c_site_id AS "siteId", to_char(c_month, 'YYYY-MM') AS month, c_area_id AS "areaId", c_state AS state,
+                                  c_provider_id AS "providerId", c_contract_id AS "contractId"
                              FROM mems_tpm_cells($1, $2::uuid[], $3::date[])`, [T, pairs.map((p) => p.siteId), pairs.map((p) => `${p.month}-01`)]);
       const diff = sql.filter((r) => {
         const j = js.get(`${r.siteId}|${r.month}`);
-        return !j || j.state !== r.state || (j.providerId || null) !== (r.providerId || null) || (j.contractId || null) !== (r.contractId || null);
+        return !j || (j.areaId || null) !== (r.areaId || null) || j.state !== r.state
+          || (j.providerId || null) !== (r.providerId || null) || (j.contractId || null) !== (r.contractId || null);
       });
       assert.deepEqual(diff.slice(0, 5), [], `${diff.length} écart(s) entre la règle pure et mems_tpm_cells`);
       assert.ok(sql.some((r) => r.state === state), `la parité couvre l état « ${state} »`);
@@ -242,17 +247,70 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
     made.plans = [];
     w = await read();
     assert.deepEqual([w.a.st, w.a.p, w.a.k, w.a.by], ['sans_tpm', null, null, 'interne'], 'dernier plan supprimé : de nouveau sans TPM');
+
+    // 6. Commune listée seulement par un contrat SANS TPM (U1) : elle suit son district — son TPM de
+    //    contrat ET sa modification motivée ; sans contrat avec TPM ni modification : sa ligne « sans_tpm ».
+    const [{ id: C }] = await q(`INSERT INTO admin_areas (tenant_id, depth, name, parent_id, path) VALUES ($1, 3, 'Test r114 commune', $2, $3) RETURNING id`,
+      [T, D, `${area.path} > Test r114 commune`]);
+    made.areas = [C];
+    await q('UPDATE sites SET zone_commune_id = $2 WHERE tenant_id = $1 AND id = $3', [T, C, S]);
+    made.siteCommune = S;
+    const [{ id: K2 }] = await q(
+      `INSERT INTO contracts (tenant_id, numero, partner_id, partner_name, date_debut, date_fin, status, created_by)
+       VALUES ($1, 'TEST-R114-0002', $2, 'Test r114 Mise en oeuvre', $3, ($4::date + interval '1 month' - interval '1 day')::date, 'actif', $5) RETURNING id`,
+      [T, H, `${M1}-01`, `${M2}-01`, U]);
+    made.contract2 = K2;
+    await q(`INSERT INTO contract_budget_items (contract_id, tenant_id, line_code, description, unit_count, unit_cost, allocations, sort_order)
+             VALUES ($1, $2, 'IV.suivi', 'Suivi communal (test r114)', 1, 1000, '{}'::jsonb, 0)`, [K2, T]);
+    await q('INSERT INTO contract_areas (contract_id, tenant_id, admin_area_id, path, depth, sort_order) VALUES ($1, $2, $3, $4, 3, 0)',
+      [K2, T, C, `${area.path} > Test r114 commune`]);
+    const cellS = async () => {
+      const [c] = await q('SELECT c_area_id AS a, c_state AS st, c_provider_id AS p FROM mems_tpm_cells($1, $2::uuid[], $3::date[])', [T, [S], [`${M1}-01`]]);
+      return [c.a, c.st, c.p];
+    };
+    const restamp = () => withTenantTransaction(T, (client) => tpm.restampVisitsTx(client, T, { fromMonth: M1 }));
+    // K redevient un contrat AVEC TPM (titulaire X) sur le district : la commune n'a pas sa ligne, elle suit le district.
+    await q("UPDATE contracts SET partner_id = $2, partner_name = 'Test r114 TPM titulaire' WHERE id = $1", [K, X]);
+    await restamp();
+    assert.deepEqual(await cellS(), [D, 'contrat', X], 'commune d un contrat sans TPM : suit le TPM du district');
+    w = await read();
+    assert.deepEqual([w.a.st, w.a.p], ['contrat', X]);
+    // Modification motivée du district (→ Q) : elle atteint le site de la commune (avant U1 : jamais).
+    const [{ id: O }] = await q(
+      `INSERT INTO tpm_zone_overrides (tenant_id, admin_area_id, area_path, area_depth, period_month, provider_id, expected_state, expected_provider_id, reason, batch_id)
+       VALUES ($1, $2, $3, 2, $4, $5, 'contrat', $6, $7, gen_random_uuid()) RETURNING id`, [T, D, area.path, `${M1}-01`, Q, X, MOTIF]);
+    made.overrides = [O];
+    await restamp();
+    assert.deepEqual(await cellS(), [D, 'modifie', Q], 'la modification du district atteint la commune');
+    w = await read();
+    assert.deepEqual([w.a.st, w.a.p, w.a.by], ['modifie', Q, 'tpm']);
+    await parity('modifie');
+    // K de nouveau sans TPM : la modification du district couvre encore la commune.
+    await q("UPDATE contracts SET partner_id = $2, partner_name = 'Test r114 Mise en oeuvre' WHERE id = $1", [K, H]);
+    await restamp();
+    assert.deepEqual(await cellS(), [D, 'modifie', Q]);
+    // Modification retirée : aucun contrat avec TPM ni modification — la commune a sa ligne « sans_tpm ».
+    await q('DELETE FROM tpm_zone_overrides WHERE id = $1', [O]);
+    made.overrides = [];
+    await restamp();
+    assert.deepEqual(await cellS(), [C, 'sans_tpm', null], 'commune : sa propre ligne « contrat sans TPM »');
+    w = await read();
+    assert.deepEqual([w.a.st, w.a.p, w.a.by], ['sans_tpm', null, 'interne']);
+    await parity('sans_tpm');
   } finally {
     // Base jetable : on retire ce que le test a créé (le journal, inaltérable, garde ses lignes).
     if (made.visits.length) await q('DELETE FROM site_visits WHERE id = ANY ($1::uuid[])', [made.visits]);
     if (made.reports.length) await q('DELETE FROM tpm_reports WHERE id = ANY ($1::uuid[])', [made.reports]);
     if (made.plans.length) await q('DELETE FROM tpm_collection_plans WHERE id = ANY ($1::uuid[])', [made.plans]);
     await q('DELETE FROM tpm_unavailability WHERE provider_id = ANY ($1::uuid[])', [made.partners]).catch(() => {});
-    if (made.contract) {
-      await q('DELETE FROM contract_areas WHERE contract_id = $1', [made.contract]);
-      await q('DELETE FROM contract_budget_items WHERE contract_id = $1', [made.contract]);
-      await q('DELETE FROM contracts WHERE id = $1', [made.contract]);
+    if (made.overrides.length) await q('DELETE FROM tpm_zone_overrides WHERE id = ANY ($1::uuid[])', [made.overrides]);
+    for (const k of [made.contract, made.contract2].filter(Boolean)) {
+      await q('DELETE FROM contract_areas WHERE contract_id = $1', [k]);
+      await q('DELETE FROM contract_budget_items WHERE contract_id = $1', [k]);
+      await q('DELETE FROM contracts WHERE id = $1', [k]);
     }
+    if (made.siteCommune) await q('UPDATE sites SET zone_commune_id = NULL WHERE id = $1', [made.siteCommune]);
+    if (made.areas.length) await q('DELETE FROM admin_areas WHERE id = ANY ($1::uuid[])', [made.areas]);
     if (made.partners.length) await q('DELETE FROM partners WHERE id = ANY ($1::uuid[])', [made.partners]).catch(() => {});
     await su.end();
     await pool.end();

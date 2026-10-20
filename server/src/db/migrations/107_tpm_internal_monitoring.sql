@@ -143,15 +143,25 @@ LANGUAGE sql STABLE AS $fn$
   cz AS (
     SELECT cc.id, cc.numero, cc.partner_id, cc.pname, cc.date_debut, cc.m, cz0.zid, cz0.zdepth
       FROM cc JOIN cz0 ON cz0.id = cc.id AND cz0.m = cc.m),
-  -- Aire du site ce mois : sa commune si elle a sa propre ligne (zone d'un contrat de suivi exactement
-  -- sur elle, avec ou sans TPM, ou modification posée sur elle), sinon son district ; NULL = inconnu.
+  -- Aire du site ce mois : sa commune si elle a sa propre ligne, sinon son district ; NULL = inconnu.
+  -- Propre ligne (jumelle de tpmAttribution.communeOwnsRow, U1) : modification posée sur elle, ou zone
+  -- d'un contrat AVEC TPM exactement sur elle, ou zone d'un contrat SANS TPM exactement sur elle quand
+  -- ni contrat avec TPM ni modification ne couvre un de ses ancêtres (sinon elle suit son district :
+  -- son TPM de contrat ET sa modification).
   tg AS (
     SELECT t.site_id, t.m,
            CASE WHEN t.did IS NULL THEN NULL
                 WHEN t.cid IS NOT NULL AND (
-                     EXISTS (SELECT 1 FROM cz0 WHERE cz0.m = t.m AND cz0.zid = t.cid)
-                  OR EXISTS (SELECT 1 FROM tpm_zone_overrides o
-                              WHERE o.tenant_id = p_tenant AND o.admin_area_id = t.cid AND o.period_month = t.m))
+                     EXISTS (SELECT 1 FROM tpm_zone_overrides o
+                              WHERE o.tenant_id = p_tenant AND o.admin_area_id = t.cid AND o.period_month = t.m)
+                  OR EXISTS (SELECT 1 FROM cz WHERE cz.m = t.m AND cz.zid = t.cid)
+                  OR (EXISTS (SELECT 1 FROM cz0 WHERE cz0.m = t.m AND cz0.zid = t.cid)
+                      AND NOT EXISTS (SELECT 1 FROM admin_areas ca JOIN cz ON cz.m = t.m AND cz.zid = ANY (ca.lineage)
+                                       WHERE ca.tenant_id = p_tenant AND ca.id = t.cid)
+                      AND NOT EXISTS (SELECT 1 FROM admin_areas ca
+                                        JOIN tpm_zone_overrides o ON o.tenant_id = p_tenant AND o.admin_area_id = ANY (ca.lineage)
+                                                                 AND o.period_month = t.m
+                                       WHERE ca.tenant_id = p_tenant AND ca.id = t.cid)))
                 THEN t.cid ELSE t.did END AS aid
       FROM t),
   -- Zones de contrat AVEC TPM qui contiennent l'aire (exacte ou ancêtre) ; la plus précise l'emporte.

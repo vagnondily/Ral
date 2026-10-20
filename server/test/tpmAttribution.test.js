@@ -92,16 +92,44 @@ test('D1 : un contrat sans TPM ne masque pas le TPM d un autre contrat ; sa comm
   const communal = contract({ id: 'kc', numero: 'CTR-C', partnerId: 'tohana', partnerName: 'TOHANA', zones: [zone(C1)] });
   // La commune est dans la zone de RANO : RANO la suit (le contrat communal n'a pas de TPM).
   const c = a.defaultFor(C1, '2026-01', [ranoDistrict, communal]);
-  assert.deepEqual([c.state, c.providerId, c.exactHit], ['contrat', 'rano', true]);
+  assert.deepEqual([c.state, c.providerId, c.exactHit, c.exactBare], ['contrat', 'rano', false, true]);
   // Sans RANO : la commune est en suivi interne « contrat sans TPM », le district « sans contrat » (partiel).
   const only = a.defaultFor(C1, '2026-01', [communal]);
-  assert.deepEqual([only.state, only.exactHit], ['sans_tpm', true]);
+  assert.deepEqual([only.state, only.exactHit, only.exactBare], ['sans_tpm', false, true]);
   const dd = a.defaultFor(D1, '2026-01', [communal]);
   assert.deepEqual([dd.state, dd.partiel], ['sans_contrat', true]);
   const t = a.buildZoneTable({ areas: [D1, C1], months: ['2026-01'], contracts: [communal], partners });
   assert.equal(t.cells.get('c1|2026-01').own, true, 'la commune du contrat sans TPM a sa propre ligne');
   assert.equal(a.cellForSite({ districtId: 'd1', communeId: 'c1' }, '2026-01', t).state, 'sans_tpm');
   assert.equal(a.cellForSite({ districtId: 'd1', communeId: 'c9' }, '2026-01', t).state, 'sans_contrat');
+});
+
+test('U1 : une commune listée seulement par un contrat sans TPM suit son district — son TPM ET sa modification', () => {
+  const ranoDistrict = contract({ id: 'kr', numero: 'CTR-R', partnerId: 'rano', partnerName: 'RANO Control', zones: [zone(D1)] });
+  const communal = contract({ id: 'kc', numero: 'CTR-C', partnerId: 'tohana', partnerName: 'TOHANA', zones: [zone(C1)] });
+  const site = { districtId: 'd1', communeId: 'c1' };
+  const ov = (areaId, providerId) => ({ id: `o-${areaId}`, adminAreaId: areaId, month: '2026-01', providerId, reason: 'Décision motivée de test U1', batchId: 'b1' });
+  // Contrat avec TPM sur le district : la commune n'a pas sa propre ligne, elle suit le district.
+  let t = a.buildZoneTable({ areas: [D1, C1], months: ['2026-01'], contracts: [ranoDistrict, communal], partners });
+  assert.equal(t.cells.get('c1|2026-01').own, false);
+  assert.deepEqual([a.cellForSite(site, '2026-01', t).areaId, a.cellForSite(site, '2026-01', t).providerId], ['d1', 'rano']);
+  // Modification motivée du district (→ SAHY) : elle atteint le site de la commune (avant U1 : jamais).
+  t = a.buildZoneTable({ areas: [D1, C1], months: ['2026-01'], contracts: [ranoDistrict, communal], overrides: [ov('d1', 'sahy')], partners });
+  const cell = a.cellForSite(site, '2026-01', t);
+  assert.deepEqual([cell.areaId, cell.state, cell.providerId], ['d1', 'modifie', 'sahy']);
+  // Sans contrat avec TPM : la commune a sa ligne « sans_tpm »… sauf si une modification couvre son district.
+  t = a.buildZoneTable({ areas: [D1, C1], months: ['2026-01'], contracts: [communal], partners });
+  assert.deepEqual([t.cells.get('c1|2026-01').own, a.cellForSite(site, '2026-01', t).state], [true, 'sans_tpm']);
+  t = a.buildZoneTable({ areas: [D1, C1], months: ['2026-01'], contracts: [communal], overrides: [ov('d1', 'sahy')], partners });
+  assert.deepEqual([t.cells.get('c1|2026-01').own, a.cellForSite(site, '2026-01', t).state, a.cellForSite(site, '2026-01', t).providerId],
+    [false, 'modifie', 'sahy']);
+  // Modification sur la commune elle-même : toujours sa propre ligne.
+  t = a.buildZoneTable({ areas: [D1, C1], months: ['2026-01'], contracts: [ranoDistrict, communal], overrides: [ov('c1', 'sahy')], partners });
+  assert.deepEqual([t.cells.get('c1|2026-01').own, a.cellForSite(site, '2026-01', t).areaId], [true, 'c1']);
+  // Zone d'un contrat AVEC TPM exactement sur la commune : sa propre ligne (règle de 070 inchangée).
+  const ranoCommune = contract({ id: 'kq', numero: 'CTR-Q', partnerId: 'rano', partnerName: 'RANO Control', zones: [zone(C1)] });
+  t = a.buildZoneTable({ areas: [D1, C1], months: ['2026-01'], contracts: [ranoCommune], overrides: [ov('d1', 'sahy')], partners });
+  assert.deepEqual([t.cells.get('c1|2026-01').own, a.cellForSite(site, '2026-01', t).providerId], [true, 'rano']);
 });
 
 test('zones : région qui couvre ses districts ; commune de contrat ; zone détachée ; fokontany', () => {

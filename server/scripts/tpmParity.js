@@ -2,7 +2,7 @@
  * Parité de la règle « TPM d'un site » (retour 58) : la règle PURE (tpmAttribution.js, lue par
  * tpmAttribution.repository.cellsForSitesTx — onglet, plan de suivi, aperçus, lot 5) et sa
  * jumelle SQL (mems_tpm_cells, migration 070 — estampille des visites en base) doivent rendre la
- * MÊME cellule (état, TPM, contrat) pour chaque site × mois. Lecture seule.
+ * MÊME cellule (aire qui décide, état, TPM, contrat) pour chaque site × mois. Lecture seule.
  *
  * Usage : node scripts/tpmParity.js [AAAA-MM] [AAAA-MM]   (défaut : l'année en cours)
  * Base : DATABASE_URL (superutilisateur) ; tous les comptes ; la transaction est annulée.
@@ -42,17 +42,22 @@ function monthsOf(a, b) {
       const js = await cellsForSitesTx(client, t.id, pairs);
       const t1 = Date.now();
       const { rows: sql } = await client.query(
-        `SELECT c_site_id AS "siteId", to_char(c_month, 'YYYY-MM') AS month, c_state AS state, c_provider_id AS "providerId", c_contract_id AS "contractId"
+        `SELECT c_site_id AS "siteId", to_char(c_month, 'YYYY-MM') AS month, c_area_id AS "areaId", c_state AS state,
+                c_provider_id AS "providerId", c_contract_id AS "contractId"
            FROM mems_tpm_cells($1, $2::uuid[], $3::date[])`,
         [t.id, pairs.map((p) => p.siteId), pairs.map((p) => `${p.month}-01`)]);
       const t2 = Date.now();
       for (const r of sql) {
         total += 1;
         const j = js.get(`${r.siteId}|${r.month}`);
-        const same = j && j.state === r.state && (j.providerId || null) === (r.providerId || null) && (j.contractId || null) === (r.contractId || null);
+        const same = j && (j.areaId || null) === (r.areaId || null) && j.state === r.state
+          && (j.providerId || null) === (r.providerId || null) && (j.contractId || null) === (r.contractId || null);
         if (!same) {
           bad += 1;
-          if (bad <= 10) console.log('ÉCART', r.siteId, r.month, 'SQL', r.state, r.providerId, r.contractId, '· JS', j && j.state, j && j.providerId, j && j.contractId);
+          if (bad <= 10) {
+            console.log('ÉCART', r.siteId, r.month, 'SQL', r.areaId, r.state, r.providerId, r.contractId,
+              '· JS', j && j.areaId, j && j.state, j && j.providerId, j && j.contractId);
+          }
         }
       }
       console.log(`compte ${t.id} : ${sites.length} sites × ${months.length} mois — JS ${t1 - t0} ms, SQL ${t2 - t1} ms`);
