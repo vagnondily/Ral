@@ -532,6 +532,88 @@ test('visites de plusieurs jours (0,5 suivi par jour) en deux passages : aucun j
   assert.ok([...cells.values()].every((c) => c.size === 1), 'un agent, un jour, une commune');
 });
 
+// Lundi–samedi d'un mois (calendrier quand les jours voulus dépassent les jours de semaine).
+const monSat = (y, m) => {
+  const out = [];
+  for (let d = 1; d <= new Date(Date.UTC(y, m, 0)).getUTCDate(); d += 1) {
+    const w = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    if (w >= 1 && w <= 6) out.push(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+  }
+  return out;
+};
+// Deux passages sur février 2027 (20 jours de semaine) dont le calendrier change entre les deux :
+// chaque visite écrite est dépliée sur le calendrier du passage qui l'a ÉCRITE ; un (agent, jour) =
+// une commune, et l'oracle ne voit aucune violation.
+function crossingPasses({ mmr, s1, s2, sitesA, sitesB, cal1, cal2 }) {
+  const opts = { yearHasGrid: false, fromMonth: '2026-11' };
+  const sites = [...sitesA, ...sitesB].map((x) => ({ ...x, unitOfficeId: 'o1' }));
+  const scoped = (list, d) => list.map((x) => ({ ...x, inScope: x.district === d }));
+  const input1 = { sites: scoped(sites, 'A'), mmrByKey: mmr, settings: s1, months: [2], year: 2027, opts };
+  const r1 = generatePlan(input1.sites, mmr, s1, [2], 2027, opts);
+  assert.deepEqual(checkInvariants(input1, r1), []);
+  const after1 = applied(sites, r1, true);
+  const input2 = { sites: scoped(after1, 'B'), mmrByKey: mmr, settings: s2, months: [2], year: 2027, opts };
+  const r2 = generatePlan(input2.sites, mmr, s2, [2], 2027, opts);
+  assert.deepEqual(checkInvariants(input2, r2), []);
+  const span = (st) => (mmr[st.mmrKey].visitsPerDay < 1 ? Math.ceil(1 / mmr[st.mmrKey].visitsPerDay) : 1);
+  const cells = new Map();
+  const put = (agent, d, commune) => { const k = `${agent}|${d}`; if (!cells.has(k)) cells.set(k, new Set()); cells.get(k).add(commune); };
+  for (const st of after1) {
+    for (const x of st.visits) {
+      if (!x.agent) continue;
+      for (const d of [x.date, ...cal1.filter((c) => c > x.date).slice(0, span(st) - 1)]) put(x.agent, d, st.commune);
+    }
+  }
+  for (const a of r2.assignments) {
+    const st = sites.find((x) => x.id === a.siteId); const slot = r2.slots[`${a.siteId}|${a.month}`];
+    for (const d of [slot.date, ...cal2.filter((c) => c > slot.date).slice(0, span(st) - 1)]) put(`Agent ${slot.agent}`, d, st.commune);
+  }
+  const clash = [...cells.entries()].filter(([, c]) => c.size > 1).map(([k, c]) => [k, [...c]]);
+  assert.deepEqual(clash, [], 'un agent, un jour, une commune');
+  return { r1, r2 };
+}
+
+test('calendrier changé entre deux passages (jours ouvrés MMR 22 puis 20) : la visite de deux jours écrite un samedi garde son lundi', () => {
+  const mmr = { X: { interval: 12, visitsPerDay: 0.5, workingDays: 22 }, Z: { interval: 12, visitsPerDay: 1, workingDays: 22 }, Y: { interval: 12, visitsPerDay: 1, workingDays: 20 } };
+  const sitesA = [site({ id: 'A0', district: 'A', commune: 'A-c0', parametered: true, mmrKey: 'Z', required: 1 })];
+  for (let i = 1; i < 4; i += 1) sitesA.push(site({ id: `A${i}`, district: 'A', commune: `A-c${i}`, parametered: true, mmrKey: 'X', required: 1 }));
+  const sitesB = Array.from({ length: 25 }, (_, i) => site({ id: `B${String(i).padStart(2, '0')}`, district: 'B', commune: `B-c${i}`, parametered: true, mmrKey: 'Y', required: 1 }));
+  const { r1, r2 } = crossingPasses({ mmr, s1: {}, s2: {}, sitesA, sitesB, cal1: monSat(2027, 2), cal2: weekdays(2027, 2) });
+  // Le cas visé existe bien : une visite de deux jours commencée un samedi au 1ᵉʳ passage.
+  assert.equal(r1.slots['A3|2027-02'].date, '2027-02-06');
+  assert.ok(!Object.values(r2.slots).some((x) => x.agent === r1.slots['A3|2027-02'].agent && x.date === '2027-02-08'), 'le lundi 8 reste à l\'agent du samedi');
+});
+
+test('calendrier changé entre deux passages (jours de terrain 24 puis 20, et 20 puis 24) : aucun jour d\'agent pris deux fois', () => {
+  const mmr = { X: { interval: 12, visitsPerDay: 0.5 }, Z: { interval: 12, visitsPerDay: 1 }, Y: { interval: 12, visitsPerDay: 1 } };
+  const sitesA = [site({ id: 'A0', district: 'A', commune: 'A-c0', parametered: true, mmrKey: 'Z', required: 1 })];
+  for (let i = 1; i < 4; i += 1) sitesA.push(site({ id: `A${i}`, district: 'A', commune: `A-c${i}`, parametered: true, mmrKey: 'X', required: 1 }));
+  const sitesB = Array.from({ length: 25 }, (_, i) => site({ id: `B${String(i).padStart(2, '0')}`, district: 'B', commune: `B-c${i}`, parametered: true, mmrKey: 'Y', required: 1 }));
+  crossingPasses({ mmr, s1: { fieldDaysPerMonth: 24 }, s2: { fieldDaysPerMonth: 20 }, sitesA, sitesB, cal1: monSat(2027, 2), cal2: weekdays(2027, 2) });
+  // Sens inverse : lundi–vendredi puis lundi–samedi. Trois visites de deux jours : la 3ᵉ commence le
+  // vendredi 5 et finit le lundi 8 ; le 2ᵉ passage (samedi compris) ne prend jamais ce lundi.
+  const rev = Array.from({ length: 3 }, (_, i) => site({ id: `A${i}`, district: 'A', commune: `A-c${i}`, parametered: true, mmrKey: 'X', required: 1 }));
+  const { r1, r2 } = crossingPasses({ mmr, s1: { fieldDaysPerMonth: 20 }, s2: { fieldDaysPerMonth: 24 }, sitesA: rev, sitesB, cal1: weekdays(2027, 2), cal2: monSat(2027, 2) });
+  assert.equal(r1.slots['A2|2027-02'].date, '2027-02-05');
+  assert.ok(!Object.values(r2.slots).some((x) => x.agent === r1.slots['A2|2027-02'].agent && x.date === '2027-02-08'), 'le lundi 8 reste à l\'agent du vendredi');
+});
+
+test('oracle : une visite écrite sur un autre calendrier est dépliée sur les deux (samedi → lundi ; vendredi → samedi et lundi)', () => {
+  const mmr = { K: { interval: 12, visitsPerDay: 0.5, workingDays: 20 } };
+  const written = (date) => site({ id: 'w', district: 'A', commune: 'c1', parametered: true, mmrKey: 'K', required: 1, unitOfficeId: 'o1', inScope: false,
+    visits: [{ month: 2, status: 'planifie', date, agent: 'Agent 1' }] });
+  const fresh = site({ id: 'n', district: 'A', commune: 'c2', parametered: true, mmrKey: 'K', required: 1, unitOfficeId: 'o1' });
+  const codes = (date, at) => new Set(checkInvariants({ sites: [written(date), fresh], mmrByKey: mmr, settings: {}, months: [2], year: 2027, opts: { yearHasGrid: false } },
+    { assignments: [{ siteId: 'n', month: '2027-02' }], slots: { 'n|2027-02': { agent: 1, date: at } }, summary: { planned: 1 }, perMonth: [{ count: 1 }], byActivity: [{ planned: 1 }] }).map((x) => x.code));
+  // Écrite un samedi (lundi–samedi), passage lundi–vendredi : le lundi suivant est pris.
+  assert.ok(codes('2027-02-06', '2027-02-08').has('creneau_deja_ecrit'));
+  // Écrite un vendredi (lundi–vendredi) : le lundi suivant est pris (le samedi aussi, par prudence).
+  assert.ok(codes('2027-02-05', '2027-02-08').has('creneau_deja_ecrit'));
+  // Une date d'un autre mois n'est jamais dépliée sur celui-ci.
+  assert.ok(!codes('2027-01-29', '2027-02-01').has('creneau_deja_ecrit'));
+  assert.ok(!codes('2027-02-06', '2027-02-09').has('creneau_deja_ecrit'));
+});
+
 test('oracle : une nouvelle visite sur le 2ᵉ jour d\'une visite écrite de deux jours est un créneau déjà écrit', () => {
   const mmr = { K: { interval: 12, visitsPerDay: 0.5, workingDays: 20 } };
   // Agent 1 a écrit une visite de 2 jours le lundi 4 janvier 2027 (elle occupe aussi le mardi 5).
@@ -563,6 +645,48 @@ test('oracle : un 2ᵉ passage sur le reste du périmètre, après écriture des
     checked += r2.summary.planned;
   }
   assert.ok(checked > 200, `jeux assez riches (${checked} visites au 2ᵉ passage)`);
+});
+
+test('visite réalisée datée d\'un agent NOMMÉ : ne réserve rien, n\'entre pas dans les ressources (comme sans agent)', () => {
+  const mmr = { K: { interval: 12, visitsPerDay: 1, workingDays: 20 } };
+  const run = (v) => generatePlan([site({ id: 'r', district: 'D', commune: 'C', parametered: true, mmrKey: 'K', required: 1,
+    visits: [{ month: 11, status: 'realise', ...v }] })], mmr, {}, [11, 12], YEAR, { yearHasGrid: false, fromMonth: '2026-10' });
+  const bare = run({});
+  assert.deepEqual(run({ date: '2026-11-03', agent: 'Rakoto' }).resources, bare.resources);
+  assert.deepEqual(run({ date: '2026-11-03' }).resources, bare.resources);
+  // Un agent générique, lui, réserve son créneau (le mois apparaît dans les ressources).
+  assert.notDeepEqual(run({ date: '2026-11-03', agent: 'Agent 1' }).resources.months, bare.resources.months);
+});
+
+test('empreinte : même empreinte → même plan, quand les dates et agents que le moteur ne lit pas changent (200 jeux)', () => {
+  const { fingerprintInputs, visitKey } = require('../src/modules/tpm/planFingerprint');
+  let changed = 0;
+  for (let seed = 1; seed <= 200; seed += 1) {
+    const input = scenario(seed + 12000);
+    const first = firstPlannableMonth(input.year, input.opts.fromMonth);
+    const open = input.months.filter((m) => m >= first);
+    if (!open.length) continue;
+    const openSet = new Set(open);
+    const r = rng(seed);
+    // Change au hasard la date / l'agent d'une visite seulement là où visitKey les ignore.
+    const mutated = input.sites.map((st) => ({ ...st, visits: (st.visits || []).map((v) => {
+      const pick = r();
+      let w = v;
+      if (!openSet.has(Number(v.month))) w = { ...v, date: `${input.year}-${String(v.month).padStart(2, '0')}-0${1 + Math.floor(r() * 9)}`, agent: `Agent ${1 + Math.floor(r() * 3)}` };
+      else if (pick < 0.3) w = { ...v, agent: pick < 0.15 ? 'Rakoto' : 'Rabe', date: v.date || `${input.year}-${String(v.month).padStart(2, '0')}-0${1 + Math.floor(r() * 9)}` }; // agent nommé, daté
+      else if (pick < 0.45 && !v.agent) w = { ...v, date: `${input.year}-${String(v.month).padStart(2, '0')}-1${Math.floor(r() * 9)}` }; // date sans agent
+      if (w !== v && visitKey(w, openSet) === visitKey(v, openSet)) { changed += 1; return w; }
+      return v;
+    }) }));
+    const params = { year: input.year, requested: input.months, months: open, fromMonth: input.opts.fromMonth || null, today: input.opts.today || null, settings: input.settings, scope: {}, writeSchedule: true };
+    const fa = fingerprintInputs({ sites: input.sites, mmrByKey: input.mmrByKey, yearHasGrid: input.opts.yearHasGrid }, params).fingerprint;
+    const fb = fingerprintInputs({ sites: mutated, mmrByKey: input.mmrByKey, yearHasGrid: input.opts.yearHasGrid }, params).fingerprint;
+    assert.equal(fb, fa, `graine ${seed + 12000} : empreinte`);
+    const a = generatePlan(input.sites, input.mmrByKey, input.settings, input.months, input.year, input.opts);
+    const b = generatePlan(mutated, input.mmrByKey, input.settings, input.months, input.year, input.opts);
+    assert.deepEqual([b.assignments, b.slots, b.resources], [a.assignments, a.slots, a.resources], `graine ${seed + 12000} : même empreinte, plan différent`);
+  }
+  assert.ok(changed > 200, `assez de visites modifiées (${changed})`);
 });
 
 test('oracle : passages successifs sur des sous-périodes — 0 violation, jamais au-delà de l\'exigence', () => {

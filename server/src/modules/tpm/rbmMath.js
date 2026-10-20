@@ -10,6 +10,8 @@
  * seulement planifiée (retour n° 48) : une visite prévue ne rend pas un site
  * « à jour » ; elle est montrée à part (« prévue AAAA-MM »).
  */
+const { localDay } = require('../common/localDay');
+
 const RISK_LEVELS = ['faible', 'moyenne', 'elevee'];
 
 // Fréquence par défaut (mois entre deux visites) selon le risque.
@@ -42,7 +44,9 @@ function addMonths(month, n) {
   return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`;
 }
 
-const currentMonth = () => new Date().toISOString().slice(0, 7);
+// Mois courant au jour LOCAL de l'application (APP_TIMEZONE, common/localDay) — le même partout
+// (Plan de suivi, RBM, planification automatique et son écran).
+const currentMonth = () => localDay().slice(0, 7);
 
 /**
  * Un site est-il à suivre pour `targetMonth` ('YYYY-MM') ?

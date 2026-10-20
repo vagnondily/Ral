@@ -73,3 +73,35 @@ export function unitLabel(t, tr) {
   if (t && t.assigned) return t.tpm;
   return t && t.officeName ? tr('{office} (suivi interne)', { office: t.officeName }) : tr('Bureau (suivi interne)');
 }
+
+/** Fuseau de l'application par défaut (APP_TIMEZONE du serveur), en attendant l'horloge du serveur. */
+export const DEFAULT_TIME_ZONE = 'Indian/Antananarivo';
+
+/** Jour 'AAAA-MM-JJ' de `date` dans le fuseau `timeZone` (fuseau invalide → UTC). */
+export function zonedDay(date = new Date(), timeZone = DEFAULT_TIME_ZONE) {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
+}
+
+/**
+ * Horloge de l'écran « Générer le plan » : celle du SERVEUR (GET /api/tpm/plan-auto/clock, le même
+ * mois courant que l'aperçu et l'application) ; tant qu'elle n'est pas lue, le jour du fuseau de
+ * l'application — jamais le jour UTC (encore la veille entre minuit et 3 h à Madagascar).
+ */
+export function planClock(server, date = new Date()) {
+  if (server && /^\d{4}-(0[1-9]|1[0-2])$/.test(String(server.now))) {
+    const today = /^\d{4}-\d{2}-\d{2}$/.test(String(server.today)) && String(server.today).startsWith(server.now) ? server.today : `${server.now}-01`;
+    return { now: server.now, today, source: 'server' };
+  }
+  const d = zonedDay(date, (server && server.timeZone) || DEFAULT_TIME_ZONE);
+  return { now: d.slice(0, 7), today: d, source: 'local' };
+}
+
+/** Période proposée : exercice du mois courant → du mois courant à décembre ; un autre → toute l'année. */
+export function defaultPeriod(boardYear, nowMonth) {
+  const y = String(boardYear || String(nowMonth).slice(0, 4));
+  return { from: y === String(nowMonth).slice(0, 4) ? nowMonth : `${y}-01`, to: `${y}-12` };
+}

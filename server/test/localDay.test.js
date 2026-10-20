@@ -4,10 +4,13 @@
  * veille — le plan se juge sur le jour local ; le jour courant n'entre dans l'empreinte que si le
  * mois courant fait partie de la période.
  */
+process.env.LOG_LEVEL = 'silent';
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'secret-de-test-de-l-horloge-du-plan-0123456789abcdef';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { localDay, DEFAULT_TZ } = require('../src/modules/common/localDay');
-const { clockOf, todayFor } = require('../src/modules/tpm/planAuto.service');
+const { localDay, appTimeZone, DEFAULT_TZ } = require('../src/modules/common/localDay');
+const { clockOf, todayFor, serverClock } = require('../src/modules/tpm/planAuto.service');
+const { currentMonth } = require('../src/modules/tpm/rbmMath');
 const { fingerprintInputs } = require('../src/modules/tpm/planFingerprint');
 
 test('jour local : 22 h 30 UTC = le lendemain à Madagascar ; fuseau invalide → UTC', () => {
@@ -70,4 +73,47 @@ test('empreinte : un aperçu de 2027 fait la veille reste valable le lendemain ;
   assert.equal(fp(eve, 2027, [1, 2, 3]), fp(next, 2027, [1, 2, 3]));
   assert.equal(fp(eve, 2026, [11, 12]), fp(next, 2026, [11, 12]));
   assert.notEqual(fp(eve, 2026, [10, 11, 12]), fp(next, 2026, [10, 11, 12]));
+});
+
+test('un seul mois courant : rbmMath.currentMonth = mois du jour local ; fuseau effectif exposé', () => {
+  const saved = process.env.APP_TIMEZONE;
+  try {
+    delete process.env.APP_TIMEZONE;
+    assert.equal(currentMonth(), localDay().slice(0, 7));
+    assert.equal(appTimeZone(), 'Indian/Antananarivo');
+    process.env.APP_TIMEZONE = 'Pas/UnFuseau';
+    assert.equal(appTimeZone(), 'UTC');                       // fuseau invalide : UTC, comme localDay
+    process.env.APP_TIMEZONE = 'Europe/Paris';
+    assert.equal(appTimeZone(), 'Europe/Paris');
+    assert.equal(currentMonth(), localDay(new Date(), 'Europe/Paris').slice(0, 7));
+  } finally {
+    if (saved === undefined) delete process.env.APP_TIMEZONE; else process.env.APP_TIMEZONE = saved;
+  }
+});
+
+test('GET /api/tpm/plan-auto/clock : le mois que l\'aperçu accepte (jour local), pour tout utilisateur connecté', async () => {
+  const express = require('express');
+  const request = require('supertest');
+  const jwt = require('jsonwebtoken');
+  const routes = require('../src/modules/tpm/planAuto.routes');
+  const { errorHandler } = require('../src/middleware/errors');
+  const app = express();
+  app.use(express.json());
+  app.use('/api/tpm/plan-auto', routes);
+  app.use(errorHandler);
+  const viewer = jwt.sign({ sub: 'u2', tenantId: '11111111-1111-1111-1111-111111111111', role: 'viewer' }, process.env.JWT_SECRET);
+  assert.equal((await request(app).get('/api/tpm/plan-auto/clock')).status, 401);
+  const res = await request(app).get('/api/tpm/plan-auto/clock').set({ Authorization: `Bearer ${viewer}` });
+  assert.equal(res.status, 200);
+  assert.deepEqual(Object.keys(res.body).sort(), ['now', 'timeZone', 'today']);
+  assert.equal(res.body.now, clockOf({}).now);
+  assert.equal(res.body.today.slice(0, 7), res.body.now);
+  // Dernier soir du mois en UTC = déjà le 1ᵉʳ à Madagascar : l'écran propose le mois que le serveur accepte.
+  const saved = process.env.APP_TIMEZONE;
+  try {
+    delete process.env.APP_TIMEZONE;
+    assert.deepEqual(serverClock(new Date('2026-10-31T22:30:00Z')), { now: '2026-11', today: '2026-11-01', timeZone: 'Indian/Antananarivo' });
+  } finally {
+    if (saved === undefined) delete process.env.APP_TIMEZONE; else process.env.APP_TIMEZONE = saved;
+  }
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Eye, Wand2, Trash2, SlidersHorizontal, ChevronDown, ChevronRight, CalendarRange, Download, Filter, Target, X,
   CheckCircle2, AlertTriangle, Info,
@@ -10,15 +10,8 @@ import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, formatLocale } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
-import { officeOptions as officeTree, budgetCsvRows, unitLabel } from '../../lib/planAuto.js';
+import { officeOptions as officeTree, budgetCsvRows, unitLabel, planClock, defaultPeriod } from '../../lib/planAuto.js';
 
-// Mois AAAA-MM décalé de n mois à partir d'aujourd'hui.
-function monthFromNow(n) {
-  const d = new Date();
-  d.setUTCDate(1);
-  d.setUTCMonth(d.getUTCMonth() + n);
-  return d.toISOString().slice(0, 7);
-}
 const yearOf = (ym) => ym.slice(0, 4);
 const mOf = (ym) => Number(ym.slice(5, 7));
 const ym = (y, m) => `${y}-${String(Math.min(12, Math.max(1, m))).padStart(2, '0')}`;
@@ -74,15 +67,24 @@ const STRATEGIES = [
 export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
   const { tr, lang } = useI18n();
   const toast = useToast();
-  const nowMonth = monthFromNow(0);
+  // Mois courant = celui du SERVEUR (jour local de l'application, GET /plan-auto/clock) : l'écran ne
+  // propose jamais un mois que l'aperçu refuserait ; en attendant, le jour du fuseau de l'application.
+  const [serverClock, setServerClock] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    api.planAutoClock().then((c) => { if (alive) setServerClock(c); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const nowMonth = planClock(serverClock).now;
   // « Libellé : n » — espace avant les deux-points en français seulement.
   const kv = (label, n) => `${label}${lang === 'fr' ? ' : ' : ': '}${formatInt(n)}`;
   const boardYear = String(year || yearOf(nowMonth));
   const pastYear = boardYear < yearOf(nowMonth);
   // Exercice courant : du mois courant à décembre ; exercice à venir : toute l'année.
-  const start = boardYear === yearOf(nowMonth) ? nowMonth : `${boardYear}-01`;
-  const [from, setFrom] = useState(start);
-  const [to, setTo] = useState(`${boardYear}-12`);
+  const def = defaultPeriod(boardYear, nowMonth);
+  const [from, setFrom] = useState(def.from);
+  const [to, setTo] = useState(def.to);
+  const touched = useRef(false);   // période choisie à la main : jamais remplacée par l'horloge
   const [stale, setStale] = useState(null); // sections changées depuis l'aperçu (409)
   const [scope, setScope] = useState({ fieldOfficeId: '', activity: '', district: '' });
   const [strategy, setStrategy] = useState('besoins');
@@ -102,7 +104,12 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
   const allPast = Boolean(to) && to < nowMonth;
   const invalid = !from || !to || from > to || !sameYear || allPast;
   const reset = () => { setPreview(null); setStale(null); };
-  const setPeriod = (f, t) => { setFrom(f); setTo(t); reset(); };
+  const setPeriod = (f, t) => { touched.current = true; setFrom(f); setTo(t); reset(); };
+  // L'horloge du serveur arrive (ou le mois change) : la période proposée suit, tant qu'on n'y a pas touché.
+  useEffect(() => {
+    if (touched.current || (from === def.from && to === def.to)) return;
+    setFrom(def.from); setTo(def.to); reset();
+  }, [def.from, def.to]); // eslint-disable-line react-hooks/exhaustive-deps
   const up = (setter) => (v) => { setter(v); reset(); };
 
   // Préréglages de période (dans l'exercice du mois de départ).
@@ -265,9 +272,9 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
             ))}
           </div>
           <div className="form-grid">
-            <Field label={tr('Du mois')} htmlFor="pa-from"><input id="pa-from" type="month" className="input" min={nowMonth} value={from} onChange={(e) => { setFrom(e.target.value); reset(); }} /></Field>
+            <Field label={tr('Du mois')} htmlFor="pa-from"><input id="pa-from" type="month" className="input" min={nowMonth} value={from} onChange={(e) => { touched.current = true; setFrom(e.target.value); reset(); }} /></Field>
             <Field label={tr('Au mois')} htmlFor="pa-to" error={from > to ? tr('Période invalide.') : (!sameYear ? tr('La période doit tenir dans un seul exercice (même année).') : (allPast ? tr('Période entièrement échue : choisissez des mois à partir de {m}.', { m: nowMonth }) : undefined))}>
-              <input id="pa-to" type="month" className="input" min={nowMonth} value={to} onChange={(e) => { setTo(e.target.value); reset(); }} />
+              <input id="pa-to" type="month" className="input" min={nowMonth} value={to} onChange={(e) => { touched.current = true; setTo(e.target.value); reset(); }} />
             </Field>
           </div>
           {pastYear && <Alert tone="info">{tr('Exercice {y} échu : aucune visite ne se planifie dans un mois passé.', { y: boardYear })}</Alert>}

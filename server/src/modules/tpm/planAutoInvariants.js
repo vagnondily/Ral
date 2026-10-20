@@ -29,7 +29,9 @@
  *  7. créneaux : dans une unité de suivi (TPM de la zone, sinon le bureau du site), un agent un jour
  *     donné est dans UNE commune (tournée), et jamais sur un créneau déjà écrit (« Agent N » daté
  *     d'une visite existante) — chaque visite occupe TOUS les jours de sa durée (moins d'un suivi par
- *     jour : ⌈1 ÷ suivis/jour⌉ jours de terrain consécutifs à partir de sa date).
+ *     jour : ⌈1 ÷ suivis/jour⌉ jours de terrain consécutifs à partir de sa date) ; une visite déjà
+ *     écrite l'a été sur un calendrier inconnu (lundi–vendredi ou lundi–samedi) : elle occupe sa date
+ *     et les jours suivants sur l'un OU l'autre.
  */
 const RBM_STEP = { elevee: 1, moyenne: 2, faible: 3 };
 const REASON_CODES = new Set(['capacity', 'inactive', 'cancelled', 'gap', 'period']);
@@ -67,6 +69,8 @@ function fieldCalendar(year, month, wanted) {
   }
   return (wanted > week.length ? six : week).map((d) => `${year}-${p2(month)}-${p2(d)}`);
 }
+/** Sa date et les `span − 1` jours de terrain suivants de `cal` (dates 'AAAA-MM-JJ' du même mois). */
+const spanOn = (cal, date, span) => [String(date), ...cal.filter((d) => d > String(date)).slice(0, span - 1)];
 const genericAgent = (a) => { const x = /^\s*agent\s+(\d+)\s*$/i.exec(String(a == null ? '' : a)); return x ? Number(x[1]) : null; };
 function parseYm(v) {
   const x = /^(\d{4})-(\d{2})/.exec(String(v == null ? '' : v));
@@ -271,12 +275,17 @@ function checkInvariants(input, result) {
   };
   for (const s of sites) for (const x of s.visits || []) if (x.status === 'planifie' && inPeriod.has(Number(x.month))) noteWanted(s, Number(x.month));
   for (const a of result.assignments || []) { const s = byId.get(a.siteId); if (s) noteWanted(s, Number(String(a.month).slice(5, 7))); }
+  // Nouvelle visite : sur le calendrier de CE passage (jours voulus de son unité × mois).
   const daysOf = (s, m, date) => {
     const k = `${unitOfSite(s, year, m)}|${m}`;
     const w = wantedBy.get(k);
-    const cal = fieldCalendar(year, m, w == null || w === 'p' ? fdm : w);
-    const i0 = cal.indexOf(String(date));
-    return i0 < 0 ? [String(date)] : cal.slice(i0, i0 + spanDays((rowOf(s) || {}).visitsPerDay));
+    return spanOn(fieldCalendar(year, m, w == null || w === 'p' ? fdm : w), date, spanDays((rowOf(s) || {}).visitsPerDay));
+  };
+  // Visite déjà écrite : sur les DEUX calendriers possibles (union), même hors des jours de terrain.
+  const heldOf = (s, m, date) => {
+    if (!String(date).startsWith(`${year}-${p2(m)}-`)) return [String(date)];   // date d'un autre mois : ignorée
+    const span = spanDays((rowOf(s) || {}).visitsPerDay);
+    return [...new Set([...spanOn(fieldCalendar(year, m, 0), date, span), ...spanOn(fieldCalendar(year, m, 31), date, span)])];
   };
   const cellTours = new Map(); const written = new Set(); const newCells = new Set();
   for (const s of sites) {
@@ -284,7 +293,7 @@ function checkInvariants(input, result) {
       const n = genericAgent(x.agent);
       const m = Number(x.month);
       if (n == null || !x.date || x.status === 'annule' || !inPeriod.has(m)) continue;
-      for (const d of daysOf(s, m, x.date)) {
+      for (const d of heldOf(s, m, x.date)) {
         const k = `${unitOfSite(s, year, m)}|${n}|${d}`;
         written.add(k);
         if (!cellTours.has(k)) cellTours.set(k, new Set());
