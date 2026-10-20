@@ -1078,15 +1078,18 @@ async function planBoardWithTpmTx(client, tenantId, opts) {
   const board = await planBoardTx(client, tenantId, opts);
   // Retour 58 : TPM de la zone de chaque site — mois courant s'il est dans l'exercice (sinon
   // décembre d'un exercice passé, janvier d'un exercice à venir) et segments de l'exercice.
-  const y = Number(board.year); const cur = currentMonth();
+  const y = Number(board.year); const cur = board.nowMonth;   // le mois du Plan de suivi lu ci-dessus (un seul mois par réponse)
   const refMonth = cur.startsWith(`${y}-`) ? cur : (String(y) < cur.slice(0, 4) ? `${y}-12` : `${y}-01`);
   const tpm = await boardTpmTx(client, tenantId, { year: y, refMonth, siteIds: board.sites.map((s) => s.id) });
   for (const s of board.sites) s.tpm = tpm.get(s.id) || null;
   return { ...board, tpmRefMonth: refMonth };
 }
 
-async function planBoardTx(client, tenantId, { year, adjusted = false }) {
+async function planBoardTx(client, tenantId, { year, adjusted = false, nowMonth = null }) {
   const y = Number(year);
+  // Mois courant : lu UNE fois pour toute la réponse (jamais par site) ; la planification
+  // automatique passe le mois de sa propre horloge (clockOf).
+  const nowM = (nowMonth && toMonth(nowMonth)) || currentMonth();
   const params = [tenantId, `${y}-01-01`, `${y}-12-01`];
   const { rows: sites } = await client.query(
     `WITH base AS (${RBM_SELECT}),
@@ -1144,11 +1147,10 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
   const { rows: [grid] } = await client.query(
     'SELECT EXISTS (SELECT 1 FROM site_month_status WHERE tenant_id = $1 AND year = $2) AS has_grid', [tenantId, y]);
   const yearHasGrid = Boolean(grid && grid.has_grid);
-  const nowMonth = currentMonth();   // une fois pour tout le registre (jamais par site)
   const out = sites.map((row) => {
     // Dernière visite = visite réalisée ou collecte réelle (jamais une visite seulement prévue) ;
     // la prochaine visite prévue est rendue à part, vue depuis le mois courant.
-    const s = { ...row, ...visitState(row, nowMonth) };
+    const s = { ...row, ...visitState(row, nowM) };
     const mmrRow = lookup(s.fieldOfficeId, s.parentOfficeId, s.activity);
     const score = scoreSite(s, { targetMonth: target });
     const counters = siteCounters({ months: s.months }, mmrRow, { adjusted });
@@ -1178,7 +1180,7 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
   const counted = new Map();
   for (const s of out) if (s.mmrKey && !s.inactive && !s.forbidden) counted.set(s.mmrKey, (counted.get(s.mmrKey) || 0) + 1);
   const capacity = mmrCapacity(mmr.map((r) => (r.numberOfSites == null ? { ...r, numberOfSites: counted.get(mmrKeyOf(r)) || 0 } : r)));
-  return { year: y, adjusted, yearHasGrid, sites: rankSites(out), kpis: boardKpis(out), capacity };
+  return { year: y, adjusted, yearHasGrid, sites: rankSites(out), kpis: boardKpis(out), capacity, nowMonth: nowM };
 }
 
 /**

@@ -8,7 +8,7 @@ process.env.LOG_LEVEL = 'silent';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'secret-de-test-de-l-horloge-du-plan-0123456789abcdef';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { localDay, appTimeZone, formatterFor, DEFAULT_TZ } = require('../src/modules/common/localDay');
+const { localDay, appTimeZone, formatterFor, clearFormatterCache, DEFAULT_TZ } = require('../src/modules/common/localDay');
 const { withFrozenClock } = require('./helpers/frozenClock');
 const { clockOf, todayFor, serverClock } = require('../src/modules/tpm/planAuto.service');
 const { currentMonth } = require('../src/modules/tpm/rbmMath');
@@ -67,8 +67,16 @@ test('empreinte : un aperçu de 2027 fait la veille reste valable le lendemain ;
   const fp = (clock, year, open) => fingerprintInputs(inputs, {
     year, requested: open, months: open, fromMonth: clock.now, today: todayFor(clock, year, open), settings: {}, scope: {}, writeSchedule: false,
   }).fingerprint;
-  const eve = clockOf({}, new Date('2026-10-20T20:59:00Z'));     // 23 h 59 à Madagascar
-  const next = clockOf({}, new Date('2026-10-20T21:01:00Z'));    // 0 h 01 le 21
+  // Fuseau de l'application par défaut (Madagascar), quel que soit APP_TIMEZONE de l'environnement.
+  const saved = process.env.APP_TIMEZONE;
+  delete process.env.APP_TIMEZONE;
+  let eve; let next;
+  try {
+    eve = clockOf({}, new Date('2026-10-20T20:59:00Z'));     // 23 h 59 à Madagascar
+    next = clockOf({}, new Date('2026-10-20T21:01:00Z'));    // 0 h 01 le 21
+  } finally {
+    if (saved === undefined) delete process.env.APP_TIMEZONE; else process.env.APP_TIMEZONE = saved;
+  }
   assert.equal(eve.today, '2026-10-20');
   assert.equal(next.today, '2026-10-21');
   assert.equal(fp(eve, 2027, [1, 2, 3]), fp(next, 2027, [1, 2, 3]));
@@ -126,6 +134,7 @@ test('formateur réutilisé : un seul Intl.DateTimeFormat par fuseau, même pour
   Counting.prototype = Real.prototype;
   Counting.supportedLocalesOf = Real.supportedLocalesOf;
   Intl.DateTimeFormat = Counting;
+  clearFormatterCache();   // indépendant de l'ordre des tests : aucun formateur déjà en cache
   try {
     const d = new Date('2026-10-20T22:30:00Z');
     for (let i = 0; i < 1000; i += 1) localDay(d, 'Pacific/Chatham');
@@ -135,6 +144,10 @@ test('formateur réutilisé : un seul Intl.DateTimeFormat par fuseau, même pour
     assert.equal(appTimeZone('Pas/UnAutreFuseau'), 'UTC');
     assert.equal(made, 2, 'fuseau invalide : essayé une fois, repli UTC ensuite');
     assert.equal(localDay(d, 'Pas/UnAutreFuseau'), '2026-10-20');
+    // Un fuseau qui n'est pas une chaîne : UTC, jamais une exception (rien à créer).
+    for (const z of [{ toString() { throw new Error('x'); } }, 42, Symbol('z')]) assert.equal(localDay(d, z), '2026-10-20');
+    assert.equal(appTimeZone(Object.create(null)), 'UTC');
+    assert.equal(made, 2);
   } finally {
     Intl.DateTimeFormat = Real;
   }
@@ -163,4 +176,28 @@ test('mois courant à l\'instant figé (31/10 22 h 30 UTC) : novembre à Madagas
     assert.equal(currentMonth(), '2026-10');
     assert.deepEqual(serverClock(), { now: '2026-10', today: '2026-10-31', timeZone: 'UTC' });
   }, { timeZone: 'UTC' });
+});
+
+test('horloge figée : jamais deux à la fois ; fuseau null = défaut de l\'application ; tout est rendu, même sur une erreur', async () => {
+  const saved = process.env.APP_TIMEZONE;
+  const RealDate = Date;
+  process.env.APP_TIMEZONE = 'Europe/Paris';
+  try {
+    await withFrozenClock('2026-10-31T22:30:00Z', async () => {
+      assert.equal(process.env.APP_TIMEZONE, undefined, 'null : variable retirée, jamais « null »');
+      assert.equal(currentMonth(), '2026-11');
+      await assert.rejects(withFrozenClock('2026-01-01T00:00:00Z', () => {}), /déjà figée/);
+    }, { timeZone: null });
+    assert.equal(Date, RealDate);
+    assert.equal(process.env.APP_TIMEZONE, 'Europe/Paris');
+    await assert.rejects(withFrozenClock('2026-10-31T22:30:00Z', () => { throw new Error('boum'); }, { timeZone: 'UTC' }), /boum/);
+    assert.equal(Date, RealDate);
+    assert.equal(process.env.APP_TIMEZONE, 'Europe/Paris');
+    await assert.rejects(withFrozenClock('pas une date', () => {}), /illisible/);
+    assert.equal(Date, RealDate);
+    // Après une erreur, l'horloge se fige de nouveau.
+    assert.equal(await withFrozenClock('2026-10-31T22:30:00Z', () => currentMonth(), { timeZone: 'UTC' }), '2026-10');
+  } finally {
+    if (saved === undefined) delete process.env.APP_TIMEZONE; else process.env.APP_TIMEZONE = saved;
+  }
 });
