@@ -33,6 +33,10 @@ test('chaque changement est nommé par sa section', () => {
     ['registre', (i) => { i.sites[0].urgent = true; }],              // priorité du RBM : ordre des communes
     ['registre', (i) => { i.sites[1].finalScore = 7; }],
     ['visites', (i) => { i.sites[1].outsideVisits = [{ month: '2025-12', status: 'planifie' }]; }], // exercice voisin
+    // Date et agent déjà écrits (ils réservent des créneaux) ; bureau racine du suivi interne.
+    ['visites', (i) => { i.sites[0].visits[0].date = '2026-06-02'; }],
+    ['visites', (i) => { i.sites[0].visits[0].agent = 'Agent 1'; }],
+    ['registre', (i) => { i.sites[1].unitOfficeId = 'o2'; }],
     ['visites', (i) => { i.sites[0].visits.push({ month: 11, status: 'planifie' }); }],
     ['visites', (i) => { i.sites[0].cancelledMonths = []; }],
     ['activation', (i) => { i.sites[1].monthStatus = { 11: true }; }],

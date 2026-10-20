@@ -26,7 +26,11 @@
  *  10. périmètre « bureau » = le bureau et TOUTES ses antennes (3 niveaux), pour planifier comme pour
  *      effacer, comme officeTreeSql ; bureau national = tout le registre ;
  *  11. « Écrire les dates et les agents » en deux passages (un district, puis un autre) : jamais une date
- *      passée, jamais un agent dans deux communes le même jour.
+ *      passée, jamais un agent dans deux communes le même jour ;
+ *  12. créer ou modifier une visite (date, agent = créneau réservé) attend le verrou de son mois tenu
+ *      ailleurs (« Appliquer » ne relit jamais une visite changée avant son écriture) ;
+ *  13. jour courant (jour LOCAL) : il n'entre dans l'empreinte que si le mois courant est dans la période
+ *      — un aperçu de l'exercice suivant fait un jour s'applique le lendemain.
  * Tout ce que le test crée est supprimé à la fin (visites, grille, site de test).
  */
 const SU_URL = process.env.MEMS_TEST_DATABASE_URL;
@@ -52,7 +56,8 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
   const { officeTreeSql } = require('../src/modules/common/siteActivitySql');
   const { lockVisitMonthsTx, monthLockKey } = require('../src/modules/tpm/visitLocks');
   const { checkInvariants } = require('../src/modules/tpm/planAutoInvariants');
-  const { currentMonth } = require('../src/modules/tpm/rbmMath');
+  const { localDay } = require('../src/modules/common/localDay');
+  const { changedSections } = require('../src/modules/tpm/planFingerprint');
   const su = new Client({ connectionString: SU_URL });
   await su.connect();
   const q = async (sql, params) => (await su.query(sql, params)).rows;
@@ -61,7 +66,8 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
   await q("SELECT pg_advisory_lock(hashtext('mems-test-db:plan-auto'))");
   const [{ id: T }] = await q('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1');
   const before = new Set((await q('SELECT id FROM site_visits WHERE tenant_id = $1', [T])).map((r) => r.id));
-  const now = currentMonth();
+  // Mois et jour LOCAUX de l'application (APP_TIMEZONE), comme l'horloge du plan (jamais le jour UTC).
+  const now = localDay().slice(0, 7);
   const year = Number(now.slice(0, 4));
   const gridBefore = Number((await q('SELECT count(*)::int AS n FROM site_month_status WHERE tenant_id = $1 AND year = $2', [T, year]))[0].n);
   let gridAdded = false;
@@ -134,8 +140,8 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
     const dated = await newVisits();
     assert.equal(dated.length, a6.created);
     assert.ok(dated.every((v) => v.date && v.date.startsWith(v.month) && /^Agent \d+$/.test(v.agent)), 'date du mois et « Agent N »');
-    const todayUtc = new Date().toISOString().slice(0, 10);
-    assert.ok(dated.every((v) => v.date >= todayUtc), 'jamais une date de visite passée');
+    const todayLocal = localDay();
+    assert.ok(dated.every((v) => v.date >= todayLocal), 'jamais une date de visite passée (jour local)');
     const cleared = await service.clearPlanned(T, { year, from: Number(now.slice(5, 7)), to: 12 });
     assert.equal((await newVisits()).length, dated.length, '« Effacer » conserve les visites datées et affectées');
     assert.ok(cleared.kept >= dated.length);
@@ -337,7 +343,7 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
     }
     const written = (await newVisits()).filter((x) => x.agent && x.date);
     assert.ok(written.length > 0);
-    assert.ok(written.every((x) => x.date >= todayUtc), 'jamais une date passée');
+    assert.ok(written.every((x) => x.date >= todayLocal), 'jamais une date passée');
     const siteById = new Map(inputs.sites.map((x) => [x.id, x]));
     const cells11 = new Map();
     for (const x of written) {
@@ -349,6 +355,58 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
     }
     const clash = [...cells11.entries()].filter(([, c]) => c.size > 1);
     assert.deepEqual(clash.slice(0, 3).map(([k, c]) => [k, [...c]]), [], 'aucun agent dans deux communes le même jour');
+    await dropNew();
+
+    // 12. Créer / modifier une visite (date, agent) attend le verrou de son mois tenu ailleurs.
+    const lockMonth = `${nextYear}-03`;
+    const vSite = inputs.sites.find((x) => !x.forbidden);
+    const tagged = async () => q('SELECT id, agent FROM site_visits WHERE tenant_id = $1 AND activity = $2', [T, `${TAG} verrou`]);
+    const h3 = new Client({ connectionString: SU_URL });
+    await h3.connect();
+    try {
+      await h3.query('BEGIN');
+      await h3.query('SELECT pg_advisory_xact_lock(hashtext($1))', [monthLockKey(T, lockMonth)]);
+      const t2 = Date.now();
+      const creating = field.createVisit(T, U, { siteId: vSite.id, periodMonth: lockMonth, activity: `${TAG} verrou`, agent: 'Agent 1', visitDate: `${lockMonth}-03` });
+      await new Promise((r) => { setTimeout(r, 700); });
+      assert.equal((await tagged()).length, 0, 'la création attend le verrou du mois');
+      await h3.query('COMMIT');
+      const vid = await creating;
+      assert.ok(Date.now() - t2 >= 600, `création : attente du verrou (${Date.now() - t2} ms)`);
+      await h3.query('BEGIN');
+      await h3.query('SELECT pg_advisory_xact_lock(hashtext($1))', [monthLockKey(T, lockMonth)]);
+      const t3 = Date.now();
+      const updating = field.updateVisit(T, vid, { agent: 'Agent 2' }, U);
+      await new Promise((r) => { setTimeout(r, 700); });
+      assert.equal((await tagged())[0].agent, 'Agent 1', 'la modification attend le verrou du mois');
+      await h3.query('COMMIT');
+      assert.equal(await updating, true);
+      assert.ok(Date.now() - t3 >= 600, `modification : attente du verrou (${Date.now() - t3} ms)`);
+      assert.equal((await tagged())[0].agent, 'Agent 2');
+      // Un autre mois n'est jamais attendu.
+      await h3.query('BEGIN');
+      await h3.query('SELECT pg_advisory_xact_lock(hashtext($1))', [monthLockKey(T, `${nextYear}-04`)]);
+      const t4 = Date.now();
+      assert.equal(await field.updateVisit(T, vid, { agent: 'Agent 3' }, U), true);
+      assert.ok(Date.now() - t4 < 600, 'le verrou d\'un autre mois ne bloque pas');
+      await h3.query('COMMIT');
+    } finally {
+      await h3.query('ROLLBACK').catch(() => {});
+      await h3.end();
+    }
+    await q('DELETE FROM site_visits WHERE tenant_id = $1 AND activity = $2', [T, `${TAG} verrou`]);
+
+    // 13. Jour courant : dans l'empreinte seulement quand le mois courant est dans la période.
+    const dA = `${now}-01`; const dB = `${now}-02`;
+    const nA = await service.preview(T, nb, { now, today: dA });
+    const nB = await service.preview(T, nb, { now, today: dB });
+    assert.equal(nA.fingerprint, nB.fingerprint, 'exercice suivant : le jour courant n\'entre pas dans l\'empreinte');
+    const cA = await service.preview(T, body, { now, today: dA });
+    const cB = await service.preview(T, body, { now, today: dB });
+    assert.deepEqual(changedSections(cA.sections, cB.sections), ['parametres'], 'mois courant dans la période : le jour compte');
+    // L'aperçu de l'exercice suivant fait « la veille » s'applique « le lendemain ».
+    const a13 = await service.apply(T, U, { ...nb, fingerprint: nA.fingerprint, sections: nA.sections }, { now, today: dB });
+    assert.equal(a13.created, a13.planned);
     await dropNew();
   } finally {
     await dropNew().catch(() => {});

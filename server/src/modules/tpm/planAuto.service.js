@@ -18,7 +18,7 @@
  */
 const { withTenantTransaction } = require('../../config/db');
 const { badRequest, conflict } = require('../../middleware/errors');
-const { currentMonth } = require('./rbmMath');
+const { localDay } = require('../common/localDay');
 const { lockVisitMonthsTx, LOCK_WAIT_MS } = require('./visitLocks');
 const { generatePlan, firstPlannableMonth, normalizeSettings } = require('./planAuto');
 const { fingerprintInputs, changedSections } = require('./planFingerprint');
@@ -30,14 +30,25 @@ const ym = (year, m) => `${year}-${String(m).padStart(2, '0')}`;
 
 /**
  * Horloge du calcul : mois courant (premier mois planifiable) et jour courant (le mois en cours ne
- * compte que ses jours de terrain restants ; jamais une date de visite passée). Un mois donné sans
- * jour (tests, reprises) part du 1ᵉʳ de ce mois. Les deux entrent dans l'empreinte.
+ * compte que ses jours de terrain restants ; jamais une date de visite passée), au jour LOCAL de
+ * l'application (APP_TIMEZONE, common/localDay — pas le jour UTC, encore la veille entre minuit et
+ * 3 h à Madagascar). Un mois donné sans jour (tests, reprises) part du 1ᵉʳ de ce mois.
  */
-function clockOf({ now, today } = {}) {
-  const d = new Date().toISOString().slice(0, 10);   // même horloge (UTC) que rbmMath.currentMonth
-  const month = now || currentMonth();
+function clockOf({ now, today } = {}, date = new Date()) {
+  const d = localDay(date);
+  const month = now || d.slice(0, 7);
   const day = today && String(today).slice(0, 7) === month ? String(today).slice(0, 10) : (month === d.slice(0, 7) ? d : `${month}-01`);
   return { now: month, today: day };
+}
+
+/**
+ * Jour courant qui compte pour le plan : seulement quand le mois courant est l'un des mois ouverts
+ * de la période (le seul où il change les jours de terrain) ; sinon null — un aperçu de 2027 fait
+ * à 23 h 59 reste valide à minuit.
+ */
+function todayFor(clock, year, open = []) {
+  const [y, m] = String(clock.now).split('-').map(Number);
+  return y === Number(year) && open.includes(m) ? clock.today : null;
 }
 
 /** Mois (1..12) d'une période { from, to } d'un même exercice. */
@@ -76,8 +87,9 @@ function scopeOf(body) {
  * deux empreintes égales donnent le même plan.
  */
 async function readTx(client, tenantId, body, clock) {
-  const { now, today } = clock;
+  const { now } = clock;
   const { year, months, open } = effectivePeriod(body, now);
+  const today = todayFor(clock, year, open);
   const settings = normalizeSettings(body.settings || {});
   const scope = scopeOf(body);
   // « Limiter à la capacité déclarée » : exigences et intervalle AJUSTÉS du MMR (CO adjusted).
@@ -86,7 +98,7 @@ async function readTx(client, tenantId, body, clock) {
   const fp = fingerprintInputs(inputs, {
     year, requested: months, months: open, fromMonth: now, today, settings, scope, writeSchedule,
   });
-  return { inputs, fp, year, months, settings, writeSchedule };
+  return { inputs, fp, year, months, settings, writeSchedule, today };
 }
 
 /** Entrées + plan + empreinte, sur le client de l'appelant. */
@@ -94,7 +106,7 @@ async function computeTx(client, tenantId, body, clock) {
   const read = await readTx(client, tenantId, body, clock);
   const { inputs, settings, months, year } = read;
   const plan = generatePlan(inputs.sites, inputs.mmrByKey, settings, months, year,
-    { yearHasGrid: inputs.yearHasGrid, fromMonth: clock.now, today: clock.today });
+    { yearHasGrid: inputs.yearHasGrid, fromMonth: clock.now, today: read.today });
   return { ...read, plan };
 }
 
@@ -204,4 +216,4 @@ async function clearPlanned(tenantId, { year, from, to, risk, scope = {} } = {})
   });
 }
 
-module.exports = { preview, apply, clearPlanned, effectivePeriod, periodMonths, scopeOf, clockOf, SAMPLE_SIZE, UNCOVERED_SAMPLE };
+module.exports = { preview, apply, clearPlanned, effectivePeriod, periodMonths, scopeOf, clockOf, todayFor, SAMPLE_SIZE, UNCOVERED_SAMPLE };

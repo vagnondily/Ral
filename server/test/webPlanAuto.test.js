@@ -51,3 +51,28 @@ test('CSV « base de budget » : décimales au séparateur de la langue (Excel e
   assert.equal(rows[3][7], 1);
   assert.equal(m.unitLabel({ assigned: false }, tr), 'Bureau (suivi interne)');
 });
+
+test('jours de collecte : la même règle écrite partout (une journée par agent et par date), en français et en anglais', async (t) => {
+  const root = path.join(__dirname, '../../web/src');
+  const enFile = path.join(root, 'locales/en.js');
+  if (!fs.existsSync(enFile)) { t.skip('web/ absent'); return; }
+  const en = (await import(pathToFileURL(enFile).href)).default;
+  // Littéraux tr('…') des écrans qui décrivent les jours de collecte (échappements \' rendus).
+  const literals = (rel) => [...fs.readFileSync(path.join(root, rel), 'utf8').matchAll(/tr\('((?:[^'\\]|\\.)*)'/g)]
+    .map((m) => m[1].replace(/\\'/g, '\''));
+  const screens = ['pages/monitoring/FieldVisitsPage.jsx', 'pages/monitoring/CalcDocsPage.jsx', 'pages/tpm/PlanBudgetDrawer.jsx', 'pages/monitoring/PlanAutoDrawer.jsx'];
+  const about = screens.flatMap((f) => literals(f).filter((s) => /jours? de (collecte|visite)|jour\(s\) de collecte|journée\(s\) de visite/i.test(s)).map((s) => [f, s]));
+  assert.ok(about.length >= 6, `phrases trouvées : ${about.length}`);
+  for (const [f, s] of about) {
+    assert.ok(!/visites datées|visite\(s\) datée\(s\)/.test(s), `${f} : ancienne règle « visites datées » — ${s}`);
+    assert.ok(Object.prototype.hasOwnProperty.call(en, s), `${f} : sans anglais — ${s}`);
+    assert.ok(!/dated visits|dated visit\(s\)/i.test(en[s]), `${f} : ancienne règle en anglais — ${en[s]}`);
+  }
+  // La règle elle-même : carte, page des calculs et « Sites affectés » du budget prévisionnel.
+  const rule = (f) => about.filter(([g]) => g === f).some(([, s]) => /une (journée )?par agent et par date/.test(s));
+  for (const f of screens.slice(0, 3)) assert.ok(rule(f), `${f} : « une journée par agent et par date »`);
+  // La différence avec les journées-agent du plan (visite de plusieurs jours) est dite, des deux côtés.
+  const multi = about.filter(([, s]) => /plusieurs jours/.test(s));
+  assert.ok(multi.some(([f]) => f.endsWith('PlanAutoDrawer.jsx')) && multi.some(([f]) => f.endsWith('CalcDocsPage.jsx')));
+  for (const [, s] of multi) assert.match(en[s], /several days/);
+});

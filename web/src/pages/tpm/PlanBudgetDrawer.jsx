@@ -54,8 +54,9 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
   const headTpms = tpmsOf(head.contractId);
   const otherTpm = Boolean(head.contractId && head.partnerId && headTpms.length && !headTpms.some((p) => p.id === head.partnerId));
 
-  // Jours de collecte issus de la planification terrain (visites datées +
-  // déplacement) — à reporter comme quantité des postes en jours.
+  // Jours de collecte issus de la planification terrain (une journée par agent
+  // et par date de visite + déplacement, fieldMath.collectionDays) — à reporter
+  // comme quantité des postes en jours.
   const [collDays, setCollDays] = useState([]);
   useEffect(() => { api.fieldCollectionDays(month).then(setCollDays).catch(() => setCollDays([])); }, [month]);
   const days = collDays.find((d) => d.providerId === head.partnerId);
@@ -163,7 +164,8 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
 /**
  * Sites affectés au prestataire pour le mois (retour n° 8) : les visites que
  * l'affectation terrain lui a confiées justifient le budget prévisionnel —
- * jours de collecte = visites datées + jours de déplacement.
+ * jours de collecte = journées de visite (une par agent et par date ; une
+ * visite datée sans agent = une journée) + jours de déplacement.
  */
 function AssignedSites({ providerId, month, days, onReportDays }) {
   const { tr } = useI18n();
@@ -182,7 +184,7 @@ function AssignedSites({ providerId, month, days, onReportDays }) {
       <div className="assigned-head">
         <h4 id="as-title"><MapPin size={16} aria-hidden="true" /> {tr('Sites affectés en {month}', { month: monthLabel(month) })}</h4>
         <span className="muted">{tr('{sites} site(s) · {visits} visite(s)', { sites: formatInt(sites), visits: formatInt(visits.length) })}
-          {days && days.totalDays > 0 ? ` · ${tr('{total} jour(s) de collecte ({visitDays} visite(s) datée(s) + {travel} de déplacement)', { total: days.totalDays, visitDays: days.visitDays, travel: days.travelDays })}` : ''}</span>
+          {days && days.totalDays > 0 ? ` · ${tr('{total} jour(s) de collecte ({visitDays} journée(s) de visite, une par agent et par date, + {travel} de déplacement)', { total: days.totalDays, visitDays: days.visitDays, travel: days.travelDays })}` : ''}</span>
         {days && days.totalDays > 0 && <Button size="sm" variant="secondary" icon={CalendarCheck} onClick={onReportDays}>{tr('Reporter les jours dans les postes')}</Button>}
       </div>
       {visits.length === 0 ? (

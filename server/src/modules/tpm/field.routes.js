@@ -392,7 +392,7 @@ router.get('/coverage-matrix', asyncHandler(async (req, res) => {
   res.json(await repo.coverageMatrix(t(req), { period: period || undefined, year: Number.isFinite(y) && y > 2000 && y < 2100 ? y : undefined }));
 }));
 
-// Jours de collecte par prestataire (visites datées + jours de déplacement).
+// Jours de collecte par prestataire (une journée par agent et par date de visite + jours de déplacement).
 router.get('/collection-days', asyncHandler(async (req, res) => res.json(await repo.collectionDaysSummary(t(req), { month: monthQ(req) }))));
 const travelSchema = z.object({
   providerId: z.string().uuid(),

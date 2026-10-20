@@ -171,3 +171,24 @@ test('agents : tas « agent libre le plus tôt » — 6 000 journées d\'une uni
   assert.equal(r.agents, 300);
   assert.ok(Date.now() - t0 < 1000, `${Date.now() - t0} ms`);
 });
+
+test('visite écrite de plusieurs jours (0,5 suivi par jour) : TOUS ses jours sont réservés, comptés et ont leur véhicule', () => {
+  // Passage 1 écrit : Agent 1, 2027-01-01, -05, -07, -11 — chaque visite prend 2 jours de terrain.
+  const fixed = ['2027-01-01', '2027-01-05', '2027-01-07', '2027-01-11'].map((date, i) => v({ id: `A${i}`, month: '2027-01', district: 'A',
+    commune: `A-c${i}`, visitsPerDay: 0.5, workingDays: 20, isNew: false, agent: 'Agent 1', date }));
+  const fresh = [0, 1, 2].map((i) => v({ id: `B${i}`, month: '2027-01', district: 'B', commune: `B-c${i}`, visitsPerDay: 0.5, workingDays: 20 }));
+  const r = planResources([...fixed, ...fresh], { agentsPerVehicle: 1 });
+  // Jours couverts par Agent 1 (passage 1) : 1, 4 (le 2 est un samedi), 5, 6, 7, 8, 11, 12 janvier.
+  const busy = new Set(['2027-01-01', '2027-01-04', '2027-01-05', '2027-01-06', '2027-01-07', '2027-01-08', '2027-01-11', '2027-01-12']);
+  for (const x of fresh) {
+    const s = r.slots[`${x.siteId}|2027-01`];
+    if (s.agent === 1) assert.ok(!busy.has(s.date) && s.date > '2027-01-12', `Agent 1 · ${s.date} déjà pris`);
+  }
+  assert.equal(r.months[0].agentDays, 8 + 6);          // 4 visites × 2 jours + 3 nouvelles × 2 jours
+  assert.equal(r.months[0].vehiclesPeak, 1);
+  // Mois en cours : une visite de 2 jours commencée hier réserve aujourd'hui.
+  const started = v({ id: 'Y', month: '2026-10', isNew: false, agent: 'Agent 1', date: '2026-10-19', visitsPerDay: 0.5, workingDays: 20 });
+  const now = planResources([started, v({ id: 'N', month: '2026-10', commune: 'Autre', visitsPerDay: 1, workingDays: 20 })], { today: '2026-10-20' });
+  const slot = now.slots['N|2026-10'];
+  assert.ok(!(slot.agent === 1 && slot.date === '2026-10-20'), 'Agent 1 est encore sur Y aujourd\'hui');
+});

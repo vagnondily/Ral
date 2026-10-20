@@ -28,7 +28,8 @@
  *     chaque visite nouvelle a son créneau (agent, jour, date du mois, jamais avant aujourd'hui) ;
  *  7. créneaux : dans une unité de suivi (TPM de la zone, sinon le bureau du site), un agent un jour
  *     donné est dans UNE commune (tournée), et jamais sur un créneau déjà écrit (« Agent N » daté
- *     d'une visite existante).
+ *     d'une visite existante) — chaque visite occupe TOUS les jours de sa durée (moins d'un suivi par
+ *     jour : ⌈1 ÷ suivis/jour⌉ jours de terrain consécutifs à partir de sa date).
  */
 const RBM_STEP = { elevee: 1, moyenne: 2, faible: 3 };
 const REASON_CODES = new Set(['capacity', 'inactive', 'cancelled', 'gap', 'period']);
@@ -52,6 +53,19 @@ function tourOf(s) {
     return `${d}|gps:${Math.round(Number(s.gpsLat) / 0.1)}:${Math.round(Number(s.gpsLng) / 0.1)}`;
   }
   return `${d}|site:${s.id}`;
+}
+/** Durée d'une visite en jours de terrain : ⌈1 ÷ suivis/jour⌉ sous un suivi par jour, sinon 1. */
+const spanDays = (vpd) => { const x = Number(vpd); return x > 0 && x < 1 ? Math.ceil(1 / x - EPS) : 1; };
+/** Jours de terrain d'un mois : lundi–vendredi, lundi–samedi quand les jours voulus dépassent les jours de semaine. */
+function fieldCalendar(year, month, wanted) {
+  const n = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const week = []; const six = [];
+  for (let d = 1; d <= n; d += 1) {
+    const w = new Date(Date.UTC(year, month - 1, d)).getUTCDay();
+    if (w >= 1 && w <= 5) week.push(d);
+    if (w >= 1 && w <= 6) six.push(d);
+  }
+  return (wanted > week.length ? six : week).map((d) => `${year}-${p2(month)}-${p2(d)}`);
 }
 const genericAgent = (a) => { const x = /^\s*agent\s+(\d+)\s*$/i.exec(String(a == null ? '' : a)); return x ? Number(x[1]) : null; };
 function parseYm(v) {
@@ -242,26 +256,53 @@ function checkInvariants(input, result) {
   }
 
   // ---- 7. créneaux : un agent, un jour, une tournée ; jamais un créneau déjà écrit ----
+  // Jours voulus d'une unité × mois : le plus petit des jours ouvrés MMR de ses visites à faire
+  // (prévues existantes et nouvelles), sinon le paramètre du plan (1–26, 20 par défaut).
+  const fdmRaw = Math.round(Number(raw.fieldDaysPerMonth));
+  const fdm = fdmRaw >= 1 && fdmRaw <= 26 ? fdmRaw : 20;
+  const rowOf = (s) => (s.parametered && s.mmrKey ? mmrByKey[s.mmrKey] || null : null);
+  const wantedBy = new Map();
+  const noteWanted = (s, m) => {
+    const k = `${unitOfSite(s, year, m)}|${m}`;
+    const wd = Number((rowOf(s) || {}).workingDays);
+    const cur = wantedBy.get(k);
+    if (wd > 0) wantedBy.set(k, cur == null || cur === 'p' ? wd : Math.min(cur, wd));
+    else if (cur == null) wantedBy.set(k, 'p');
+  };
+  for (const s of sites) for (const x of s.visits || []) if (x.status === 'planifie' && inPeriod.has(Number(x.month))) noteWanted(s, Number(x.month));
+  for (const a of result.assignments || []) { const s = byId.get(a.siteId); if (s) noteWanted(s, Number(String(a.month).slice(5, 7))); }
+  const daysOf = (s, m, date) => {
+    const k = `${unitOfSite(s, year, m)}|${m}`;
+    const w = wantedBy.get(k);
+    const cal = fieldCalendar(year, m, w == null || w === 'p' ? fdm : w);
+    const i0 = cal.indexOf(String(date));
+    return i0 < 0 ? [String(date)] : cal.slice(i0, i0 + spanDays((rowOf(s) || {}).visitsPerDay));
+  };
   const cellTours = new Map(); const written = new Set(); const newCells = new Set();
   for (const s of sites) {
     for (const x of s.visits || []) {
       const n = genericAgent(x.agent);
       const m = Number(x.month);
       if (n == null || !x.date || x.status === 'annule' || !inPeriod.has(m)) continue;
-      const k = `${unitOfSite(s, year, m)}|${n}|${x.date}`;
-      written.add(k);
-      if (!cellTours.has(k)) cellTours.set(k, new Set());
-      cellTours.get(k).add(tourOf(s));
+      for (const d of daysOf(s, m, x.date)) {
+        const k = `${unitOfSite(s, year, m)}|${n}|${d}`;
+        written.add(k);
+        if (!cellTours.has(k)) cellTours.set(k, new Set());
+        cellTours.get(k).add(tourOf(s));
+      }
     }
   }
   for (const a of result.assignments || []) {
     const s = byId.get(a.siteId); const slot = result.slots && result.slots[`${a.siteId}|${a.month}`];
     if (!s || !slot) continue;
-    const k = `${unitOfSite(s, year, Number(String(a.month).slice(5, 7)))}|${slot.agent}|${slot.date}`;
-    if (written.has(k)) v.push({ code: 'creneau_deja_ecrit', siteId: a.siteId, cell: k });
-    newCells.add(k);
-    if (!cellTours.has(k)) cellTours.set(k, new Set());
-    cellTours.get(k).add(tourOf(s));
+    const m = Number(String(a.month).slice(5, 7));
+    for (const d of daysOf(s, m, slot.date)) {
+      const k = `${unitOfSite(s, year, m)}|${slot.agent}|${d}`;
+      if (written.has(k)) v.push({ code: 'creneau_deja_ecrit', siteId: a.siteId, cell: k });
+      newCells.add(k);
+      if (!cellTours.has(k)) cellTours.set(k, new Set());
+      cellTours.get(k).add(tourOf(s));
+    }
   }
   // Seules les cellules d'un nouveau créneau sont jugées (des saisies manuelles peuvent déjà se croiser).
   for (const k of newCells) if (cellTours.get(k).size > 1) v.push({ code: 'agent_deux_tournees', cell: k, tours: [...cellTours.get(k)] });

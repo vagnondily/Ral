@@ -372,7 +372,7 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
                 <span style={{ display: 'grid', gap: 2 }}>
                   <span>{tr('Écrire les dates et les agents')}</span>
                   <span className="muted" style={{ fontSize: 12 }}>{writeSchedule
-                    ? tr('Chaque visite reçoit le jour de terrain de sa tournée et un rôle générique (« Agent 1 », « Agent 2 »…), jamais un créneau déjà écrit. Les jours de collecte (budget) comptent alors une journée par agent et par date — les journées-agent du plan — et « Effacer les planifications » conserve ces visites (datées et affectées).')
+                    ? tr('Chaque visite reçoit le jour de terrain de sa tournée et un rôle générique (« Agent 1 », « Agent 2 »…), jamais un créneau déjà écrit. Les jours de collecte (budget) comptent alors une journée par agent et par date ; une visite de plusieurs jours (moins d\'un suivi par jour) n\'y compte que sa date de début, seule enregistrée, alors que les journées-agent du plan comptent toute sa durée. « Effacer les planifications » conserve ces visites (datées et affectées).')
                     : tr('Non coché : les visites sont créées au mois seul ; dates et agents se saisissent ensuite.')}</span>
                 </span>
               </label>
@@ -696,7 +696,7 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
             <p className="muted" style={{ margin: 0, fontSize: 12 }}>
               {tr('« Appliquer » crée ces visites comme « planifiées », exactement celles de cet aperçu (si les données ont changé entre-temps, rien n\'est écrit). Idempotent : un site déjà prévu ce mois n\'est pas dupliqué, et l\'intervalle est respecté face aux visites existantes.')}
               {' '}{preview.writeSchedule
-                ? tr('Option cochée : chaque visite reçoit sa date et son agent (jamais avant aujourd\'hui, jamais un créneau déjà écrit) ; les jours de collecte (budget) comptent une journée par agent et par date, et « Effacer les planifications » conserve ces visites.')
+                ? tr('Option cochée : chaque visite reçoit sa date et son agent (jamais avant aujourd\'hui, jamais un créneau déjà écrit) ; les jours de collecte (budget) comptent une journée par agent et par date (une visite de plusieurs jours n\'y compte que sa date de début), et « Effacer les planifications » conserve ces visites.')
                 : tr('Les visites sont créées au mois seul (sans date ni agent).')}
             </p>
           </section>

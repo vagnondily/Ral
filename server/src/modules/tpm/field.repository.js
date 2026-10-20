@@ -803,8 +803,10 @@ async function coverageMatrix(tenantId, { year, period } = {}) {
 }
 
 /**
- * Jours de collecte par prestataire pour un mois = visites datées (non
- * annulées) + jours de déplacement manuels (tpm_collection_days).
+ * Jours de collecte par prestataire pour un mois = journées de visite (une par
+ * agent et par date de visite non annulée ; une visite datée sans agent = une
+ * journée — fieldMath.collectionDays) + jours de déplacement manuels
+ * (tpm_collection_days).
  */
 async function collectionDaysSummary(tenantId, { month } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
@@ -867,6 +869,9 @@ const visitRuleError = (res) => badRequest(visitErrorMessage(res), { code: res.e
  */
 async function createVisit(tenantId, userId, v) {
   return withTenantTransaction(tenantId, async (client) => {
+    // Une visite (sa date, son agent) est une entrée du plan automatique : verrou de son mois
+    // (visitLocks, attente bornée) AVANT le verrou d'attribution — même ordre que tous les écrivains.
+    await lockVisitMonthsTx(client, tenantId, [String(v.periodMonth).slice(0, 7)]);
     await lockAttributionTx(client, tenantId);
     await assertVisitRefs(client, tenantId, { siteId: v.siteId, providerId: v.providerId });
     let id;
@@ -899,6 +904,13 @@ async function createVisit(tenantId, userId, v) {
 async function updateVisit(tenantId, id, patch, userId = null) {
   const given = (k) => patch[k] !== undefined;
   return withTenantTransaction(tenantId, async (client) => {
+    // Date et agent d'une visite = créneaux réservés du plan automatique : verrou du mois de la visite
+    // (son mois ne change jamais ici) AVANT le verrou d'attribution, comme les autres écrivains de plan
+    // — « Appliquer » ne relit jamais une visite qu'une modification change avant son écriture.
+    const { rows: [cur] } = await client.query(
+      "SELECT to_char(period_month, 'YYYY-MM') AS month FROM site_visits WHERE tenant_id = $1 AND id = $2", [tenantId, id]);
+    if (!cur) return false;
+    await lockVisitMonthsTx(client, tenantId, [cur.month]);
     await lockAttributionTx(client, tenantId);
     await assertVisitRefs(client, tenantId, { providerId: patch.providerId });
     const { rowCount } = await client.query(
