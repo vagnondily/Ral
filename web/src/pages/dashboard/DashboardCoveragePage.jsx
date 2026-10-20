@@ -455,7 +455,7 @@ function BureauCard({ rows, onNavigate }) {
 
 // ------------------------------------------------------------------ primitives
 /** « Sites à jour » : le nombre, le taux en petit (.biz-kpi-value small) — même rendu sur la Synthèse. */
-const upToDateValue = (p) => (p ? <>{p.n} <small>({p.pct})</small></> : '—');
+const upToDateValue = (p) => (p ? <span className="kpi-split">{p.n} <small>({p.pct})</small></span> : '—');
 
 function Kpi({ icon: Icon, label, value, foot, tone, textValue = false }) {
   return (

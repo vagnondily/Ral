@@ -186,7 +186,7 @@ function CardError({ error }) {
 }
 
 /** « Sites à jour » : le nombre, le taux en petit (.biz-kpi-value small) — même rendu sur Couverture & performance. */
-const upToDateValue = (p) => (p ? <>{p.n} <small>({p.pct})</small></> : '—');
+const upToDateValue = (p) => (p ? <span className="kpi-split">{p.n} <small>({p.pct})</small></span> : '—');
 
 function Kpi({ icon: Icon, label, value, foot, tone, error, textValue = false }) {
   const { tr } = useI18n();

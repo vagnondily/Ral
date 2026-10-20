@@ -113,7 +113,7 @@ test('les deux pages lisent la même réponse (dashboards/coverage), énoncent l
     assert.match(src, /rateText\(o\.execution\.rate, lang\)/, `${p.join('/')} : taux écrit par rateText (« 0,5 % », jamais « 0 % » pour 0,48 %)`);
     assert.match(src, /upToDateValue\(o && upToDateParts\(o\.rbm, lang, formatInt\)\)/, `${p.join('/')} : « Sites à jour » écrit « n (x %) »`);
     // Le taux en petit dans la valeur (.biz-kpi-value small) : « 1 057 (82,6 %) » ne déborde jamais de la tuile.
-    assert.match(src, /const upToDateValue = \(p\) => \(p \? <>\{p\.n\} <small>\(\{p\.pct\}\)<\/small><\/> : '—'\);/, `${p.join('/')} : taux en <small>`);
+    assert.match(src, /const upToDateValue = \(p\) => \(p \? <span className="kpi-split">\{p\.n\} <small>\(\{p\.pct\}\)<\/small><\/span> : '—'\);/, `${p.join('/')} : taux en <small>`);
     assert.match(src, /règle RBM : visite réalisée, données de la commune ou date du registre/, `${p.join('/')} : règle RBM dite`);
     assert.match(src, /<div className="section-gap">/, `${p.join('/')} : pas de second .page dans main.page`);
   }
@@ -161,6 +161,8 @@ test('Couverture & performance : une carte courte n\'est jamais étirée avec sa
   if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }
   const css = fs.readFileSync(file, 'utf8');
   assert.match(css, /\.cd-colstack > \.biz-card > \.card-body \{ align-content: start; \}/);
+  // « Sites à jour » : le taux en petit peut passer à la ligne (tuile étroite), jamais déborder.
+  assert.match(css, /\.biz-kpi-value \.kpi-split \{ white-space: normal; \}/);
   assert.match(css, /\.cd-colstack\.is-fill > \.biz-card:last-child > \.card-body \{ flex: 1 1 0;[^}]*overflow-y: auto;[^}]*mask-image: linear-gradient/);
 });
 

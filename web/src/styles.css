@@ -1717,6 +1717,8 @@ h1, h2, h3, h4 { letter-spacing: -0.018em; }
 .biz-kpi-label { font-size: 12px; color: var(--text-muted); font-weight: 550; line-height: 1.3; min-height: 2.2em; display: flex; align-items: flex-start; }
 .biz-kpi-value { font-size: 22px; font-weight: 680; letter-spacing: -0.02em; color: var(--text-strong); line-height: 1.15; white-space: nowrap; }
 .biz-kpi-value small { font-size: 12.5px; font-weight: 500; color: var(--text-muted); white-space: nowrap; }
+/* Valeur « n (x %) » (Sites à jour) : le taux passe à la ligne quand la tuile est étroite, jamais dans la voisine. */
+.biz-kpi-value .kpi-split { white-space: normal; }
 .biz-kpi-foot { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
 
 .biz-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
