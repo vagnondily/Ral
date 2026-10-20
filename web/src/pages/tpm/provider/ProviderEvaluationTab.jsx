@@ -27,11 +27,15 @@ export default function ProviderEvaluationTab({ providerId, provider, canEdit, u
   useEffect(() => { load(); }, [providerId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { api.evaluationCriteria('prestataire').then(setCriteria).catch(() => setCriteria([])); }, []);
 
-  const refresh = (id) => { load(); onChanged(); setOpenId(id); };
+  // Après un enregistrement, une validation ou un refus « version périmée », l'évaluation ouverte est
+  // RECHARGÉE même si c'est la même : la clé du panneau porte un compteur (sinon React le garde tel
+  // quel — « Valider » tournait sans fin et la version à relire n'arrivait jamais).
+  const [rev, setRev] = useState(0);
+  const refresh = (id) => { load(); onChanged(); setOpenId(id); setRev((n) => n + 1); };
   if (list === null) return <div className="card-body"><Skeleton height={140} /></div>;
   if (openId) {
     return (
-      <EvaluationPanel key={openId} providerId={providerId} provider={provider} evaluationId={openId === 'new' ? null : openId}
+      <EvaluationPanel key={`${openId}:${rev}`} providerId={providerId} provider={provider} evaluationId={openId === 'new' ? null : openId}
         criteria={criteria || []} canEdit={canEdit} user={user}
         onBack={() => setOpenId(null)} onSaved={refresh} onDeleted={() => { toast.success(tr('Brouillon supprimé.')); refresh(null); }} />
     );
@@ -136,17 +140,17 @@ function EvaluationPanel({ providerId, provider, evaluationId, criteria, canEdit
     try {
       await api.validateProviderEvaluation(providerId, ev.id, ev.updatedAt);
       toast.success(tr('Évaluation validée : la note est figée.'));
-      onSaved(ev.id);
+      onSaved(ev.id); // rechargée : la note figée et « Pourquoi cette note ? » s'affichent
     } catch (err) {
-      toast.error(err.message); setBusy(false);
+      toast.error(err.message);
       // Brouillon modifié depuis son affichage : on recharge la version à jour, à relire avant de valider.
       if (err.status === 409 && err.details && err.details.code === 'stale') onSaved(ev.id);
-    }
+    } finally { setBusy(false); }
   }
   async function remove() {
     setBusy(true);
     try { await api.deleteProviderEvaluation(providerId, ev.id); onDeleted(); }
-    catch (err) { toast.error(err.message); setBusy(false); }
+    catch (err) { toast.error(err.message); } finally { setBusy(false); }
   }
 
   const title = isNew ? tr('Nouvelle évaluation — {name}', { name: provider.name })
