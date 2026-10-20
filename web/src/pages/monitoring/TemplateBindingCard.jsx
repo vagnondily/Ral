@@ -65,12 +65,17 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
   // Lignes signalées par le dernier refus : gardées pour le filtre « À vérifier » jusqu'au prochain envoi, même
   // quand l'utilisateur corrige la ligne (sinon elle disparaîtrait du filtre pendant la saisie).
   const [flagged, setFlagged] = useState({});
-  const [driftErrors, setDriftErrors] = useState({}); // code → refus de la mise à jour depuis le modèle
+  // code → refus de la DERNIÈRE mise à jour depuis le modèle (V3/V4) : seulement les lignes de cette action, gardé
+  // jusqu'à l'action suivante ou au prochain rechargement (sauf celui qui suit la mise à jour elle-même).
+  const [driftErrors, setDriftErrors] = useState({});
   const [applyError, setApplyError] = useState(null);
 
   // `reset` : cases et variables repartent de la précoche (ouverture, autre modèle, après « Créer ») ;
   // sinon (indicateur modifié ailleurs, mise à jour) elles sont GARDÉES pour les éléments encore à créer.
-  async function load(key = chosen, { reset = false } = {}) {
+  // Chaque rechargement efface les refus de mise à jour (la ligne a pu changer : supprimée, recréée, corrigée
+  // dans la liste) — sauf `keepDriftErrors`, le rechargement qui suit la mise à jour qui vient de les produire.
+  async function load(key = chosen, { reset = false, keepDriftErrors = false } = {}) {
+    if (!keepDriftErrors) setDriftErrors({});
     try {
       const r = await api.monTemplate(form.id, key);
       setData(r);
@@ -121,7 +126,7 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
 
   const ranking = data.proposal?.ranking || [];
   const best = data.proposal?.best || null;
-  const choose = (key) => { setChosen(key || null); setData(null); setRowErrors({}); setFlagged({}); setApplyError(null); load(key || null, { reset: true }); };
+  const choose = (key) => { setChosen(key || null); setData(null); setRowErrors({}); setFlagged({}); setDriftErrors({}); setApplyError(null); load(key || null, { reset: true }); };
   const current = data.template ? ranking.find((r) => r.key === data.template.key) : null;
 
   // Choix du modèle : seulement quand l'activité rattachée n'en impose pas un (sinon : changer l'activité).
@@ -186,7 +191,7 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
   async function apply() {
     const payload = checkedPayload(items, rows, fieldsByName);
     if (!payload.length) return;
-    setSaving(true); setRowErrors({}); setFlagged({}); setApplyError(null);
+    setSaving(true); setRowErrors({}); setFlagged({}); setDriftErrors({}); setApplyError(null);
     try {
       const r = await api.monApplyTemplate(form.id, payload, { template: templateParam });
       toast.success(tr('{n} indicateur(s) créé(s) depuis le modèle « {label} ».', { n: formatInt(r.applied), label: data.template.label }));
@@ -216,10 +221,12 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
   // Mise à jour d'indicateurs depuis le modèle (R6, T3) : les modifications MONTRÉES (`expected`) partent en UNE
   // requête ; le serveur les recalcule sur les indicateurs verrouillés et n'écrit que celles qui sont encore
   // exactement celles du modèle. Résultat ligne par ligne : chaque refus est gardé sur SA ligne, dans la langue
-  // de l'écran — affiché même si la ligne n'a plus d'écart après le rechargement (supprimé, déjà mis à jour).
+  // de l'écran — affiché même si la ligne n'a plus d'écart après le rechargement qui suit (supprimé, déjà mis à
+  // jour). Seuls les refus de CETTE action restent (V3/V4) : ceux d'avant sont effacés dès l'envoi.
   // `full` (action d'UNE ligne seulement) : applique aussi les différences (la définition du modèle).
   async function update(list, { full = false } = {}) {
     setUpdating(list.length === 1 ? list[0].code : 'all');
+    setDriftErrors({}); setApplyError(null);
     const sent = list.map((it) => ({ it, patch: full ? driftState(it).fullPatch : driftState(it).patch }));
     const errors = {};
     let done = 0;
@@ -246,18 +253,14 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
       return;
     }
     const failed = Object.keys(errors).length;
-    setDriftErrors((prev) => {
-      const next = { ...prev };
-      for (const it of list) delete next[it.code];
-      return { ...next, ...errors };
-    });
+    setDriftErrors(errors);
     if (done) toast.success(tr('{n} indicateur(s) mis à jour selon le modèle.', { n: formatInt(done) }));
     if (failed) {
       toast.error(tr('{n} mise(s) à jour refusée(s) : le motif est affiché sur la ligne.', { n: formatInt(failed) }));
       setExpanded(true); setFilter('check');
     }
     setUpdating(null);
-    if (done || stale) await load();
+    if (done || stale) await load(undefined, { keepDriftErrors: true });
     if (done) onApplied?.();
   }
 

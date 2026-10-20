@@ -5,7 +5,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const P = require('../src/modules/monitoring/indicatorProposals');
-const { CATALOG, templateByKey } = require('../src/modules/monitoring/indicatorTemplates');
+const { CATALOG, templateByKey, positiveFor, labelKey } = require('../src/modules/monitoring/indicatorTemplates');
 const FIXTURE = require('./helpers/xlsformTemplateVars.json');
 
 /** Variables d'un formulaire de la fixture au format du catalogue de liaison (libellés « Oui » / « Autre » reconstitués). */
@@ -377,7 +377,7 @@ test('écart (T1) : sur un indicateur créé aujourd\'hui, une seule valeur rame
   const ob = P.bindTemplate({ items: [open] }, miFields)[0];
   const d2 = P.templateDrift(open, ob, { ...created(open, ob), agg: 'count' }, { fields: miFields });
   assert.deepEqual([d2.kind, d2.patch], ['difference', {}]);
-  // La même valeur AVEC une autre preuve (ancien libellé) reste une correction.
+  // La même valeur AVEC l'ancien libellé (seule preuve admise de l'ancien chemin) reste une correction.
   const d3 = P.templateDrift(open, ob, { ...created(open, ob), agg: 'count', label: open.formerly[0].label }, { fields: miFields });
   assert.equal(d3.changes.find((c) => c.key === 'agg').origin, 'correction');
   assert.equal(d3.patch.agg, 'percent_value');
@@ -410,6 +410,173 @@ test('écart (T1) : 5 formulaires réels — aucune modification d\'UNE valeur s
     });
   }
   assert.ok(cases >= 20, `${cases}`); // 25 modifications d'une valeur vers une valeur d'avant (ou cible effacée) sur les 5 formulaires
+});
+
+/** Variable d'avant (absente des variables du modèle) présente dans la fiche, telle que l'utilisateur la choisit aujourd'hui sur la carte. */
+function formerOnlyChoices(item, fields) {
+  const out = [];
+  for (const f of item.formerly || []) {
+    for (const v of f.variables || []) {
+      if ((item.variables || []).some((x) => x.toLowerCase() === v.toLowerCase())) continue;
+      const field = fields.find((x) => x.name.toLowerCase() === v.toLowerCase());
+      if (!field || out.some((o) => o.field === field)) continue;
+      const checked = P.bindItem(item, { positiveValue: positiveFor(item, field), confidence: null }, field);
+      if (P.templateRowIssue(item, field, { sourceField: field.name, agg: item.agg, positiveValue: checked.positiveValue, naValues: checked.naValues })) continue; // refusé à la création
+      out.push({ field, ind: { label: item.label, sourceField: field.name, agg: item.agg, positiveValue: checked.positiveValue, naValues: checked.naValues, target: item.target ?? null, direction: item.direction } });
+    }
+  }
+  return out;
+}
+const USER_LABEL = 'Libellé choisi par l\'utilisateur';
+
+test('écart (V1) : variable d\'avant choisie par l\'utilisateur sur un indicateur du chemin actuel → différence, jamais « Tout mettre à jour »', () => {
+  const named = [
+    ['MDG_Process_Monitoring_GD_PREVMA_v2', 'GD', 'GD_LIST_COMPLETE', 'MODistrList'],
+    ['MDG_Process_Monitoring_GD_PREVMA_v2', 'GD', 'GD_WH_PALLETS', 'MOWhStackProp'],
+    ['MDG_Process_Monitoring_MIARO_PROD_Janv2026', 'STUNT', 'MIARO_NO_DELAY', 'HHDTPDelay'],
+  ];
+  for (const [formId, key, code, v] of named) {
+    const fields = withOptionColumns(fixtureFields(formId));
+    const item = templateByKey(key).items.find((i) => i.code === code);
+    const b = P.bindTemplate({ items: [item] }, fields)[0];
+    const choice = formerOnlyChoices(item, fields).find((c) => c.field.name === v);
+    assert.ok(choice, `${code} ${v}`);
+    const d = P.templateDrift(item, b, choice.ind, { fields });
+    assert.deepEqual([d.kind, d.former, d.blocked, d.patch], ['difference', false, null, {}], `${code} ${v}`);
+    assert.deepEqual(d.changes.find((c) => c.key === 'sourceField'), { key: 'sourceField', from: v, to: b.field, origin: 'difference' }, code);
+    assert.equal(d.fullPatch.sourceField, b.field, `${code} : « Appliquer le modèle » de la ligne ramène la variable du modèle`);
+    // Le serveur recalcule la même chose : « Tout mettre à jour » n'a rien à envoyer, « Appliquer le modèle » passe.
+    assert.ok(P.samePatch(P.templateDrift(item, b, choice.ind, { fields }).fullPatch, d.fullPatch), code);
+    // La même variable avec l'ANCIEN libellé = indicateur de l'ancien chemin : la variable est corrigée.
+    const old = P.templateDrift(item, b, { ...choice.ind, label: item.formerly[0].label }, { fields });
+    assert.equal(old.changes.find((c) => c.key === 'sourceField').origin, 'correction', code);
+    assert.equal(old.patch.sourceField, b.field, code);
+  }
+  // Variable du modèle pas encore dans les données (option « MOWhStackPall/1 » sans colonne) : la différence est
+  // montrée, bloquée (rien d'un clic, même à la ligne) ; avec l'ancien libellé, c'est une correction bloquée.
+  const raw = fixtureFields('MDG_Process_Monitoring_GD_PREVMA_v2');
+  const pal = templateByKey('GD').items.find((i) => i.code === 'GD_WH_PALLETS');
+  const pb = P.bindTemplate({ items: [pal] }, raw)[0];
+  assert.deepEqual([pb.field, pb.pendingData], [null, true]);
+  const pChoice = formerOnlyChoices(pal, raw).find((c) => c.field.name === 'MOWhStackProp');
+  const pd = P.templateDrift(pal, pb, pChoice.ind, { fields: raw });
+  assert.deepEqual([pd.kind, pd.former, pd.patch, pd.fullPatch], ['difference', false, {}, {}]);
+  assert.deepEqual(pd.changes, [{ key: 'sourceField', from: 'MOWhStackProp', to: null, origin: 'difference' }]);
+  assert.deepEqual(pd.blocked, { reason: 'missing', field: 'MOWhStackPall/1', issues: [], pendingData: true });
+  const po = P.templateDrift(pal, pb, { ...pChoice.ind, label: 'Produits sur palettes' }, { fields: raw });
+  assert.deepEqual([po.kind, po.former, po.patch, po.blocked.reason], ['definition', true, {}, 'missing']);
+  // Balayage : toute variable d'avant des 5 formulaires réels, choisie aujourd'hui (libellé actuel ou renommé), seule ou
+  // avec des valeurs d'avant → jamais une correction.
+  let cases = 0;
+  for (const [formId, key] of Object.entries(FORMS_T)) {
+    const fields = withOptionColumns(fixtureFields(formId));
+    const tpl = templateByKey(key);
+    const bindings = P.bindTemplate(tpl, fields);
+    tpl.items.forEach((item, i) => {
+      for (const { field, ind } of formerOnlyChoices(item, fields)) {
+        for (const f of item.formerly || []) {
+          for (const e of [{}, { label: USER_LABEL }, { agg: f.agg, positiveValue: f.positiveValue ?? null }, { naValues: f.naValues || [], direction: f.direction || item.direction, target: null }]) {
+            const d = P.templateDrift(item, bindings[i], { ...ind, ...e }, { fields });
+            assert.ok(!d || (d.changes.every((c) => c.origin === 'difference') && !Object.keys(d.patch).length),
+              `${formId} ${item.code} ${field.name} ${JSON.stringify(e)} → ${JSON.stringify(d && d.patch)}`);
+            cases += 1;
+          }
+        }
+      }
+    });
+  }
+  assert.ok(cases >= 12, `${cases}`); // 3 variables d'avant présentes dans les fiches réelles × définitions d'avant × 4 modifications
+});
+
+/** Toutes les combinaisons (2 clés ou plus) des modifications d'une valeur vers une valeur d'avant. */
+function combos(list) {
+  const out = [];
+  for (let m = 1; m < (1 << list.length); m += 1) {
+    const pick = list.filter((_, j) => m & (1 << j));
+    if (pick.length >= 2) out.push(Object.assign({}, ...pick));
+  }
+  return out;
+}
+
+test('écart (V2) : plusieurs valeurs d\'avant modifiées ensemble (avec ou sans le sens) → différences, jamais corrigées en lot', () => {
+  // MIARO_NO_DELAY créé aujourd'hui (r_no_delay, « % de oui » 1) puis suivi en « taux de retard » par l'utilisateur.
+  const miFields = withOptionColumns(fixtureFields('MDG_Process_Monitoring_MIARO_PROD_Janv2026'));
+  const nd = templateByKey('STUNT').items.find((i) => i.code === 'MIARO_NO_DELAY');
+  const nb = P.bindTemplate({ items: [nd] }, miFields)[0];
+  const ind = created(nd, nb);
+  assert.equal(P.templateDrift(nd, nb, ind, { fields: miFields }), null);
+  for (const e of [
+    { label: 'Retard au démarrage de la distribution', agg: 'percent_value', positiveValue: '0', direction: 'lower_better' },
+    { agg: 'percent_value', positiveValue: '0', direction: 'lower_better' },
+    { agg: 'percent_value', positiveValue: '0' },
+  ]) {
+    const d = P.templateDrift(nd, nb, { ...ind, ...e }, { fields: miFields });
+    assert.deepEqual([d.kind, d.former, d.patch], ['difference', false, {}], JSON.stringify(e));
+    assert.ok(d.changes.every((c) => c.origin === 'difference'), JSON.stringify(e));
+    assert.equal(d.fullPatch.agg, 'percent_yes'); // seulement par « Appliquer le modèle » de la ligne
+  }
+  // Balayage des 5 formulaires réels : toute combinaison (agg, valeur comptée, hors base, sens, cible effacée), au libellé actuel
+  // ou renommé, sur la variable proposée → jamais une correction (la seule preuve admise est l'ANCIEN libellé).
+  let cases = 0;
+  for (const [formId, key] of Object.entries(FORMS_T)) {
+    const fields = withOptionColumns(fixtureFields(formId));
+    const tpl = templateByKey(key);
+    const bindings = P.bindTemplate(tpl, fields);
+    tpl.items.forEach((item, i) => {
+      const b = bindings[i];
+      if (!b.field || b.issues.length || !['sure', 'probable'].includes(b.confidence)) return;
+      for (const f of item.formerly || []) {
+        const singles = [];
+        if (f.agg !== item.agg) singles.push({ agg: f.agg });
+        if (String(f.positiveValue ?? '') !== String(item.positiveValue ?? '')) singles.push({ positiveValue: f.positiveValue ?? null });
+        if ((f.naValues || []).join('|') !== (item.naValues || []).join('|')) singles.push({ naValues: f.naValues || [] });
+        singles.push({ direction: item.direction === 'lower_better' ? 'higher_better' : 'lower_better' });
+        if (item.target != null) singles.push({ target: null });
+        for (const e of combos(singles)) {
+          for (const label of [item.label, USER_LABEL]) {
+            const d = P.templateDrift(item, b, { ...created(item, b), ...e, label }, { fields });
+            assert.ok(!d || (d.changes.every((c) => c.origin === 'difference') && !Object.keys(d.patch).length),
+              `${formId} ${item.code} ${JSON.stringify(e)} ${label} → ${JSON.stringify(d && d.patch)}`);
+            cases += 1;
+          }
+        }
+      }
+    });
+  }
+  assert.ok(cases >= 40, `${cases}`); // 20 combinaisons × 2 libellés
+});
+
+test('écart : chaque indicateur réel de l\'ancien chemin (ancien libellé) reste corrigé ; renommé ensuite, il devient une différence', () => {
+  let cases = 0;
+  for (const [formId, key] of Object.entries(FORMS_T)) {
+    const fields = withOptionColumns(fixtureFields(formId));
+    const tpl = templateByKey(key);
+    const bindings = P.bindTemplate(tpl, fields);
+    tpl.items.forEach((item, i) => {
+      const b = bindings[i];
+      for (const f of item.formerly || []) {
+        assert.notEqual(labelKey(f.label), labelKey(item.label), `${item.code} : l'ancien libellé diffère de l'actuel`);
+        // L'ancien chemin a créé l'indicateur sur une variable de sa définition, ou sur la variable actuelle (T4).
+        const vars = [...(f.variables || []), b.field].filter(Boolean)
+          .map((v) => fields.find((x) => x.name.toLowerCase() === v.toLowerCase())).filter(Boolean);
+        for (const field of new Set(vars)) {
+          const old = { label: f.label, sourceField: field.name, agg: f.agg, positiveValue: f.positiveValue ?? null, naValues: f.naValues || [], target: null, direction: f.direction || item.direction };
+          const d = P.templateDrift(item, b, old, { fields });
+          assert.ok(d && d.former, `${formId} ${item.code} ${field.name}`);
+          assert.ok(d.changes.every((c) => c.origin === 'correction'), `${formId} ${item.code} ${field.name} ${JSON.stringify(d.changes)}`);
+          if (!d.blocked) assert.equal(d.patch.label, item.label, `${item.code} ${field.name}`);
+          // Avec la casse ou la ponctuation changées, l'ancien libellé est reconnu (même normalisation que la liaison).
+          const d2 = P.templateDrift(item, b, { ...old, label: `  ${f.label.toUpperCase()} ?` }, { fields });
+          assert.ok(d2 && d2.former, `${item.code} : ancien libellé normalisé`);
+          // Renommé par l'utilisateur : plus aucune preuve → différence (choix sûr), rien dans « Tout mettre à jour ».
+          const r = P.templateDrift(item, b, { ...old, label: USER_LABEL }, { fields });
+          assert.ok(!r || (r.changes.every((c) => c.origin === 'difference') && !Object.keys(r.patch).length), `${item.code} ${field.name} renommé`);
+          cases += 1;
+        }
+      }
+    });
+  }
+  assert.ok(cases >= 37, `${cases}`); // 31 définitions d'avant, sur chacune de leurs variables présentes et sur la variable actuelle
 });
 
 test('écart (T4) : indicateur de l\'ancien chemin sur la variable ACTUELLE du modèle → corrections (cible comprise), jamais « choix de l\'utilisateur »', () => {

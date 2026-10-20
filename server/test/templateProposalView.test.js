@@ -405,6 +405,36 @@ test('composants : ils passent par ces règles (source) — filtres, rechargemen
   assert.match(css, /table\.tpl-table \.tpl-field-label \{ max-width: 230px; \}/);
 });
 
+test('refus de mise à jour (V3, V4) : seulement ceux de la DERNIÈRE action, effacés au rechargement, à « Créer », au changement de modèle', (t) => {
+  if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }
+  const card = webSource('pages/monitoring/TemplateBindingCard.jsx');
+  const fn = (start, end) => {
+    const a = card.indexOf(start);
+    assert.ok(a >= 0, start);
+    const b = end ? card.indexOf(end, a + start.length) : -1;
+    return card.slice(a, b > a ? b : undefined);
+  };
+  // Tout rechargement efface les refus (ligne supprimée, recréée ou corrigée dans la liste entre-temps)…
+  const load = fn('async function load(', 'useEffect(');
+  assert.match(load, /\{ reset = false, keepDriftErrors = false \} = \{\}/);
+  const clearAt = load.indexOf('if (!keepDriftErrors) setDriftErrors({});');
+  assert.ok(clearAt > 0 && clearAt < load.indexOf('await api.monTemplate('), 'effacés avant le chargement');
+  // … y compris celui que déclenche la liste des indicateurs (refreshKey) : chargement par défaut, sans garder.
+  assert.match(card, /useEffect\(\(\) => \{ if \(refreshKey\) load\(\); /);
+  // « Créer » et le choix d'un autre modèle : nouvelle action, les refus d'avant disparaissent.
+  const apply = fn('async function apply()', 'async function update(');
+  assert.ok(apply.indexOf('setDriftErrors({})') > 0 && apply.indexOf('setDriftErrors({})') < apply.indexOf('await api.monApplyTemplate('));
+  assert.match(fn('const choose = (key) =>', '\n'), /setDriftErrors\(\{\}\)/);
+  // Mise à jour : effacés à l'envoi, REMPLACÉS par les refus de cette action (jamais fusionnés avec ceux d'avant),
+  // gardés seulement par le rechargement qui la suit.
+  const update = fn('async function update(list', '// « Tout mettre à jour »');
+  assert.ok(update.indexOf('setDriftErrors({})') > 0 && update.indexOf('setDriftErrors({})') < update.indexOf('await api.monTemplateUpdates('));
+  assert.match(update, /setDriftErrors\(errors\);/);
+  assert.doesNotMatch(card, /setDriftErrors\(\(prev\)/);
+  assert.match(update, /await load\(undefined, \{ keepDriftErrors: true \}\)/);
+  assert.equal((card.match(/keepDriftErrors: true/g) || []).length, 1, 'seul le rechargement qui suit la mise à jour garde les refus');
+});
+
 test('couverture affichée en pourcentage entier', async (t) => {
   const v = await load(t); if (!v) return;
   assert.equal(v.coveragePct(0.6667), '67');
