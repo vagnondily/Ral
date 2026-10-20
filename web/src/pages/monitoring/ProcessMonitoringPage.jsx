@@ -16,6 +16,7 @@ import { usePopover } from '../../components/listView.jsx';
 import IndicatorsList from './IndicatorsList.jsx';
 import IndicatorEditor from './IndicatorEditor.jsx';
 import TemplateBindingCard from './TemplateBindingCard.jsx';
+import TemplateProposalCta from './TemplateProposal.jsx';
 import { CalcFieldsCard } from './CalcFields.jsx';
 import ImportWizard from './ImportWizard.jsx';
 import CorrespondencesCard from './Correspondences.jsx';
@@ -416,7 +417,8 @@ function FormDetail({ form, canEdit, initialTab, onBack, onChanged }) {
       {tab === 'donnees' && <DataViewTab form={form} canEdit={canEdit} onGoImport={() => setTab('importation')} />}
       {tab === 'resultats' && <ResultsTab form={form} canEdit={canEdit} onChanged={onChanged} onGoConfig={() => setTab('config')} onGoMapping={() => setTab('mapping')} />}
       {tab === 'mapping' && <MappingTab form={form} canEdit={canEdit} />}
-      {tab === 'config' && <ConfigTab form={form} canEdit={canEdit} onChanged={onChanged} focusTemplate={initialTab === 'modele'} />}
+      {tab === 'config' && <ConfigTab form={form} canEdit={canEdit} onChanged={onChanged} focusTemplate={initialTab === 'modele'}
+        onAttach={canEdit ? () => setAttaching(true) : null} />}
     </div>
   );
 }
@@ -1001,14 +1003,20 @@ function ResultsTab({ form, canEdit, onGoConfig, onChanged, onGoMapping }) {
 
   if (data === null) return <Card><div className="card-body"><Skeleton height={160} /></div></Card>;
   if (data.indicators.length === 0 && (cov.submissions || 0) === 0) {
+    // Indicateurs proposés dès la définition (retour 85) : créés avant même l'arrivée des données.
+    const noIndicator = (form.indicatorCount ?? 0) === 0;
     return (
       <Card><EmptyState icon={BarChart3} title={tr('Rien à afficher')}
-        action={<>
+        action={noIndicator ? (
+          <TemplateProposalCta form={form} canEdit={canEdit} onGoConfig={onGoConfig} onCreateOne={() => setEdit({})}
+            onCreated={() => { reload(); onChanged?.(); }} />
+        ) : <>
           {canEdit && <Button icon={Plus} onClick={() => setEdit({})}>{tr('Nouvel indicateur')}</Button>}
           <Button variant="secondary" icon={SlidersHorizontal} onClick={onGoConfig}>{tr('Configurer la fiche')}</Button>
         </>}>
         {tr('Importez des données (onglet Importation) et définissez des indicateurs (onglet Configuration) pour alimenter les résultats.')}
-      </EmptyState>{editor}</Card>
+      </EmptyState>
+      {editor}</Card>
     );
   }
   return (
@@ -1022,7 +1030,11 @@ function ResultsTab({ form, canEdit, onGoConfig, onChanged, onGoMapping }) {
       ]} />
       <IndicatorsList indicators={data.indicators} moduleLabel={form.label} toolbarExtra={periodControl}
         canEdit={canEdit} onCreate={() => setEdit({})} onEdit={(i) => setEdit(i)}
-        formId={form.id} period={period} periodLabel={periodLabel} />
+        formId={form.id} period={period} periodLabel={periodLabel}
+        emptyContent={(form.indicatorCount ?? 0) === 0 && data.indicators.length === 0 ? (
+          <TemplateProposalCta form={form} canEdit={canEdit} onGoConfig={onGoConfig} onCreateOne={() => setEdit({})}
+            onCreated={() => { reload(); onChanged?.(); }} />
+        ) : null} />
       {editor}
       {data.byBureau?.length > 0 && (
         <Card aria-label={tr('Par bureau')}>
@@ -1218,24 +1230,27 @@ function MappingColumnsCard({ form, canEdit }) {
 }
 
 // ---- Configuration (indicateurs + modèle de l'activité + champs calculés) --
-function ConfigTab({ form, canEdit, onChanged, focusTemplate = false }) {
+function ConfigTab({ form, canEdit, onChanged, onAttach, focusTemplate = false }) {
   // Les deux cartes se rechargent l'une l'autre (création depuis le modèle ↔ indicateur enregistré ou
   // supprimé), UNE fois : la carte qui écrit recharge ses propres données, l'autre reçoit un nouveau
   // refreshKey. Plus de remontage des deux cartes (qui rechargeait deux fois indicateurs et variables).
   const [indRefresh, setIndRefresh] = useState(0);
   const [tplRefresh, setTplRefresh] = useState(0);
+  // Ouvert depuis « Appliquer le modèle d'activité » (Couverture & performance), ou fiche encore sans
+  // indicateur (retour 85) : le modèle proposé d'abord, visible sans défiler. Ordre fixé à l'ouverture de
+  // l'onglet (par fiche) : créer les indicateurs ne fait pas sauter la carte du modèle sous la liste.
+  const templateFirst = useMemo(() => focusTemplate || !(form.indicatorCount > 0), [form.id, focusTemplate]); // eslint-disable-line
   const indicatorsCard = (
-    <IndicatorsConfigCard key="ind" form={form} canEdit={canEdit} refreshKey={indRefresh}
+    <IndicatorsConfigCard key="ind" form={form} canEdit={canEdit} refreshKey={indRefresh} templateAbove={templateFirst}
       onChanged={() => { setTplRefresh((v) => v + 1); onChanged?.(); }} />
   );
   const templateCard = (
-    <TemplateBindingCard key="tpl" form={form} canEdit={canEdit} refreshKey={tplRefresh}
+    <TemplateBindingCard key="tpl" form={form} canEdit={canEdit} refreshKey={tplRefresh} onAttach={onAttach}
       onApplied={() => { setIndRefresh((v) => v + 1); onChanged?.(); }} />
   );
   return (
     <div className="section-gap">
-      {/* Ouvert depuis « Appliquer le modèle d'activité » (Couverture & performance) : le modèle d'abord. */}
-      {focusTemplate ? [templateCard, indicatorsCard] : [indicatorsCard, templateCard]}
+      {templateFirst ? [templateCard, indicatorsCard] : [indicatorsCard, templateCard]}
       <CalcFieldsCard form={form} canEdit={canEdit} onChanged={onChanged} />
     </div>
   );
@@ -1247,7 +1262,7 @@ function ConfigTab({ form, canEdit, onChanged, focusTemplate = false }) {
  * Résultats) sur chaque ligne. Colonne d'actions toujours visible (figée à
  * droite), libellés de question longs tronqués.
  */
-function IndicatorsConfigCard({ form, canEdit, refreshKey = 0, onChanged }) {
+function IndicatorsConfigCard({ form, canEdit, refreshKey = 0, templateAbove = false, onChanged }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [indicators, setIndicators] = useState(null);
@@ -1288,7 +1303,11 @@ function IndicatorsConfigCard({ form, canEdit, refreshKey = 0, onChanged }) {
         : indicators.length === 0 ? (
           <EmptyState icon={Link2} title={tr('Aucun indicateur')}
             action={canEdit && <Button icon={Plus} onClick={() => setEdit({})}>{tr('Nouvel indicateur')}</Button>}>
-            {fillNodes(tr('Reliez une variable du formulaire à un mode de calcul (ex. « % de bénéficiaires informés » ← champ {field}, mode « % de oui »).'), { field: <code>info_recue</code> })}
+            {/* Retour 85 : l'état vide dit quoi faire — partir du modèle proposé pour la fiche, ou créer soi-même. */}
+            {templateAbove
+              ? tr('Partez du modèle d\'indicateurs ci-dessus : il propose les indicateurs de cette fiche d\'après ses variables. Vérifiez les variables cochées, puis « Créer ».')
+              : tr('Partez du modèle d\'indicateurs ci-dessous : il propose les indicateurs de cette fiche d\'après ses variables. Vérifiez les variables cochées, puis « Créer ».')}
+            {' '}{fillNodes(tr('Ou reliez vous-même une variable du formulaire à un mode de calcul (ex. « % de bénéficiaires informés » ← champ {field}, mode « % de oui »).'), { field: <code>info_recue</code> })}
           </EmptyState>
         ) : (
           <div className="table-wrap">

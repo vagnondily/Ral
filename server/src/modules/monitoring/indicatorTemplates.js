@@ -1,11 +1,12 @@
 /**
- * Modèles d'indicateurs par activité (retour n° 12) — logique PURE, testée.
+ * Modèles d'indicateurs par activité (retours n° 12, 66 et 85) — logique PURE, testée.
  *
  * Le catalogue (indicatorTemplates.json) reprend les modèles de tableau de bord
- * et de rapport du suivi de processus : pour chaque activité du MMR, ses
- * domaines (D1… du rapport ; modules du seul tableau de bord en complément) et
- * ses indicateurs (méthode, sens, valeur positive, réponses hors base,
- * variables des formulaires réels qui les mesurent).
+ * et de rapport du suivi de processus, vérifiés contre les 5 XLSForm réels
+ * (docs/ANALYSE_XLSFORM.md, docs/SPEC_INDICATEURS_FICHES.md) : pour chaque
+ * activité du MMR, ses domaines (D… / R… notés ; M… et KPI complémentaires),
+ * ses indicateurs (méthode, sens, valeur comptée, réponses hors base, cible quand
+ * le formulaire en fixe une, variables des formulaires réels qui les mesurent).
  *
  * Une fiche rattachée à une activité reçoit le modèle ; il ne reste qu'à
  * vérifier, pour chaque indicateur, la variable du XLSForm proposée ici :
@@ -13,7 +14,14 @@
  *   2. autre variable connue pour cet indicateur              → « probable »
  *   3. question de libellé très proche                         → « a_verifier »
  *   4. rien                                                    → pas de proposition
- * Rien n'est créé sans l'accord de l'utilisateur.
+ * Les contrôles de type et de liste, la sous-table et le choix du modèle d'après
+ * les variables de la fiche sont dans indicatorProposals.js. Rien n'est créé
+ * sans l'accord de l'utilisateur.
+ *
+ * Règles du catalogue (tests) : un code d'élément ou le libellé d'un domaine
+ * existant ne change JAMAIS (les indicateurs déjà créés gardent leur code et
+ * leur domaine : un domaine renommé couperait le profil par module en deux) ;
+ * une réponse « Autre » (999…) n'est jamais hors base.
  */
 const CATALOG = require('./indicatorTemplates.json');
 const { normPlace, similarity } = require('../common/placeMatch');
@@ -24,11 +32,51 @@ const lower = (s) => String(s == null ? '' : s).trim().toLowerCase();
 const nameKey = (s) => lower(s).replace(/[./]/g, '/');
 const labelKey = (s) => normPlace(String(s || '').replace(/[?:«»"]/g, ' ')).key;
 
-/** Modèle de l'activité (catégorie du MMR), ou null. */
+/**
+ * Clé de comparaison d'une catégorie du MMR : sans accents, casse ni espaces
+ * en trop. La MÊME règle sert à la route (rattachement d'une fiche) et au choix
+ * du modèle : un libellé « School  meal Activities » trouve son modèle.
+ */
+function mmrKey(s) {
+  return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/** Catégories du MMR d'un modèle : la principale, puis celles qu'il couvre aussi. */
+function templateCategories(template) {
+  return [template.mmrCategory, ...(template.alsoFor || [])].filter(Boolean);
+}
+
+/** Toutes les clés reconnues pour un modèle (catégories + libellés équivalents, ex. en français). */
+function templateKeys(template) {
+  return new Set([...templateCategories(template), ...(template.mmrAliases || [])].map(mmrKey));
+}
+
+/** Modèle de l'activité (catégorie du MMR, ou un libellé équivalent), ou null. */
 function templateForActivity(activityCategory, catalog = CATALOG) {
-  const a = lower(activityCategory);
-  if (!a) return null;
-  return catalog.activities.find((t) => lower(t.mmrCategory) === a) || null;
+  const k = mmrKey(activityCategory);
+  if (!k) return null;
+  return catalog.activities.find((t) => mmrKey(t.mmrCategory) === k)
+    || catalog.activities.find((t) => templateKeys(t).has(k))
+    || null;
+}
+
+/** Modèle par sa clé (« GD », « RES »…), ou null. */
+function templateByKey(key, catalog = CATALOG) {
+  return catalog.activities.find((t) => t.key === key) || null;
+}
+
+/**
+ * Catégorie du MMR du compte à laquelle rattacher une fiche pour ce modèle :
+ * la principale si le MMR la contient, sinon une catégorie couverte, sinon un
+ * libellé équivalent. Renvoie le libellé EXACT du MMR, ou null s'il n'y est pas.
+ */
+function tenantCategoryFor(template, tenantCategories) {
+  const byKey = new Map();
+  for (const c of tenantCategories || []) if (c && !byKey.has(mmrKey(c))) byKey.set(mmrKey(c), String(c).trim());
+  for (const c of templateCategories(template)) if (byKey.has(mmrKey(c))) return byKey.get(mmrKey(c));
+  for (const a of template.mmrAliases || []) if (byKey.has(mmrKey(a))) return byKey.get(mmrKey(a));
+  return null;
 }
 
 /** Libellé de domaine stocké dans `module` : « D1 · Conformité gestion distribution ». */
@@ -81,8 +129,11 @@ function suggestBindings(template, fields) {
   });
 }
 
-/** Indicateur prêt à enregistrer pour un élément du modèle et la variable choisie. */
-function indicatorFromItem(template, item, { sourceField, positiveValue }, sortOrder = 0) {
+/**
+ * Indicateur prêt à enregistrer pour un élément du modèle et la variable choisie.
+ * `naValues` : codes hors base retenus pour CETTE liste (indicatorProposals.bindItem), sinon ceux du modèle.
+ */
+function indicatorFromItem(template, item, { sourceField, positiveValue, naValues }, sortOrder = 0) {
   return {
     code: item.code,
     label: item.label,
@@ -91,11 +142,15 @@ function indicatorFromItem(template, item, { sourceField, positiveValue }, sortO
     agg: item.agg,
     positiveValue: positiveValue == null || positiveValue === '' ? null : String(positiveValue),
     direction: item.direction,
-    naValues: item.naValues || [],
+    naValues: Array.isArray(naValues) ? naValues : (item.naValues || []),
+    target: item.target == null ? null : Number(item.target),
     scored: item.scored !== false,
     templateCode: item.code,
     sortOrder,
   };
 }
 
-module.exports = { CATALOG, templateForActivity, moduleLabel, suggestBindings, positiveFor, indicatorFromItem };
+module.exports = {
+  CATALOG, LABEL_MIN, nameKey, labelKey, mmrKey, templateCategories, templateForActivity, templateByKey, tenantCategoryFor,
+  moduleLabel, suggestBindings, positiveFor, indicatorFromItem,
+};

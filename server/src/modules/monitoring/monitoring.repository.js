@@ -10,7 +10,10 @@ const { detectMapping, DIMENSION_COLUMN, DATE_KEYS, EDITABLE_KEYS } = require('.
 const { computeCalcFields, checkExpression, previewCalc } = require('./calcFields');
 const { buildLookup, collectionColumns, overrideColumns, prepareImport, previewImport, dateSummary, TRIM_CLASS } = require('./submissionsImport');
 const { collectionUpdates } = require('./collectionDate');
-const { templateForActivity, moduleLabel, suggestBindings, indicatorFromItem } = require('./indicatorTemplates');
+const { templateForActivity, moduleLabel, indicatorFromItem } = require('./indicatorTemplates');
+const {
+  proposeTemplate, effectiveTemplate, bindTemplate, bindItem, proposedSelection, bindingSummary, templateDrift, typeIssue,
+} = require('./indicatorProposals');
 const { OTHER_VALUES } = require('./memsMapping');
 const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx, choiceContextTx, loadPartiesTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
 const { resolvePartner, resolveAgent } = require('../common/partyMatch');
@@ -427,89 +430,164 @@ async function indicatorPreview(tenantId, formId, def, period = null, { precise 
   });
 }
 
-/** Modèle de l'activité de la fiche, avec la variable proposée pour chaque indicateur. */
-async function formTemplate(tenantId, formId) {
+/** Erreur lisible pour un modèle demandé refusé (indicatorProposals.effectiveTemplate). */
+function templateError(code, { requested, activity, template } = {}) {
+  if (code === 'unknown_template') return badRequest(`Modèle d'indicateurs inconnu : « ${requested} ».`, { code });
+  return badRequest(`Cette fiche est rattachée à « ${activity} » : son modèle est « ${template} ». Changez l'activité pour utiliser un autre modèle.`,
+    { code, activity, template });
+}
+
+/**
+ * Modèle d'indicateurs d'une fiche (retours n° 12, 66 et 85) : le modèle proposé
+ * d'après ses variables (couverture, départage par formHints), celui de son
+ * activité, et — pour le modèle montré — la variable proposée pour chaque
+ * élément, CONTRÔLÉE par indicatorProposals.bindTemplate (type, liste,
+ * sous-table) : `suggestion.preselect` est la case cochée d'office, la même règle
+ * que « Créer les N indicateurs proposés ». Jamais vide quand un modèle
+ * correspond : une activité sans modèle (ou aucune activité) montre le modèle
+ * proposé (`source` = 'proposal'). Un indicateur déjà créé dont la définition
+ * diffère du modèle actuel porte `existing.drift` (« à mettre à jour »).
+ * @param {{ template?: string }} [opts]  clé d'un modèle choisi par l'utilisateur
+ * @returns {Promise<null|{ form, activityTemplate, proposal, source, template, summary, fields }>}
+ */
+async function formTemplate(tenantId, formId, { template: requested = null } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows: [form] } = await client.query(
-      'SELECT id, code, label, activity_category AS "activityCategory" FROM monitoring_forms WHERE tenant_id = $1 AND id = $2',
+      `SELECT f.id, f.code, f.label, f.activity_category AS "activityCategory",
+              (SELECT count(*)::int FROM monitoring_submissions s WHERE s.tenant_id = f.tenant_id AND s.form_id = f.id) AS submissions
+         FROM monitoring_forms f WHERE f.tenant_id = $1 AND f.id = $2`,
       [tenantId, formId]);
     if (!form) return null;
-    const tpl = templateForActivity(form.activityCategory);
-    if (!tpl) return { form, template: null, fields: [] };
     const fields = await bindingFieldsTx(client, tenantId, formId);
-    const suggestions = suggestBindings(tpl, fields);
+    const proposal = proposeTemplate({ fields, form });
+    const activityTpl = templateForActivity(form.activityCategory);
+    const eff = effectiveTemplate({ activityCategory: form.activityCategory, requested, proposal });
+    if (eff.error) throw templateError(eff.error, { requested, activity: form.activityCategory, template: activityTpl && activityTpl.label });
+    const out = {
+      form,
+      activityTemplate: activityTpl ? { key: activityTpl.key, label: activityTpl.label } : null,
+      proposal: {
+        best: proposal.best, ambiguous: proposal.ambiguous, strong: proposal.strong,
+        ranking: proposal.ranking.map(({ key, label, found, total, coverage }) => ({ key, label, found, total, coverage })),
+      },
+      source: eff.source,
+      template: null,
+      summary: null,
+      fields: [],
+    };
+    const tpl = eff.template;
+    if (!tpl) return out;
+    const bindings = bindTemplate(tpl, fields);
     const { rows: existing } = await client.query(
-      `SELECT id, code, label, template_code AS "templateCode", source_field AS "sourceField", positive_value AS "positiveValue"
+      `SELECT id, code, label, template_code AS "templateCode", source_field AS "sourceField", agg,
+              positive_value AS "positiveValue", na_values AS "naValues", target::float8 AS target, direction
          FROM monitoring_indicators WHERE tenant_id = $1 AND form_id = $2`, [tenantId, formId]);
     // Élément déjà créé = un indicateur qui porte son template_code (même si son code a été modifié depuis).
     const done = new Map(existing.filter((e) => e.templateCode).map((e) => [e.templateCode, e]));
     // Code de l'élément déjà pris par un indicateur créé à la main : l'élément ne peut pas être créé.
     const byCode = new Map(existing.map((e) => [e.code, e]));
-    return {
-      form,
-      template: {
-        key: tpl.key, label: tpl.label, domains: tpl.domains,
-        items: tpl.items.map((it, i) => {
-          const ex = done.get(it.code) || null;
-          const other = !ex && byCode.get(it.code);
-          return {
-            ...it, module: moduleLabel(tpl, it.domain), suggestion: suggestions[i],
-            existing: ex && { id: ex.id, code: ex.code, sourceField: ex.sourceField, positiveValue: ex.positiveValue },
-            taken: other ? { id: other.id, code: other.code, label: other.label } : null,
-          };
-        }),
-      },
-      fields: fields.map((f) => ({ name: f.name, label: f.label, choices: f.choices })),
+    const taken = new Set(tpl.items.filter((it) => !done.has(it.code) && byCode.has(it.code)).map((it) => it.code));
+    let toUpdate = 0; let labelsToUpdate = 0;
+    out.template = {
+      key: tpl.key, label: tpl.label, mmrCategory: tpl.mmrCategory, domains: tpl.domains,
+      items: tpl.items.map((it, i) => {
+        const ex = done.get(it.code) || null;
+        const other = taken.has(it.code) ? byCode.get(it.code) : null;
+        const drift = ex ? templateDrift(it, bindings[i], ex) : null;
+        if (drift && drift.kind === 'definition') toUpdate += 1;
+        else if (drift) labelsToUpdate += 1;
+        const { formerly, ...item } = it; // eslint-disable-line no-unused-vars
+        return {
+          ...item, module: moduleLabel(tpl, it.domain), suggestion: bindings[i],
+          existing: ex && { id: ex.id, code: ex.code, label: ex.label, sourceField: ex.sourceField, positiveValue: ex.positiveValue, drift },
+          taken: other ? { id: other.id, code: other.code, label: other.label } : null,
+        };
+      }),
     };
+    out.summary = { ...bindingSummary(bindings, { done: new Set(done.keys()), taken }), toUpdate, labelsToUpdate };
+    out.fields = fields.map((f) => ({ name: f.name, label: f.label, type: f.type, choices: f.choices }));
+    return out;
   });
 }
 
 /**
- * Crée les indicateurs du modèle choisis par l'utilisateur, en une transaction
- * et une écriture groupée. Chaque élément doit appartenir au modèle de
- * l'activité de la fiche et viser une variable qui existe dans la fiche
- * (XLSForm ou données) ; sinon rien n'est écrit (400).
- * Réappliquer le modèle ne modifie JAMAIS un indicateur déjà créé (même
- * template_code) : les modifications de l'utilisateur sont conservées. Un code
- * déjà pris par un indicateur créé à la main n'est pas écrasé non plus.
+ * Crée des indicateurs d'un modèle, en une transaction et une écriture groupée.
+ *  - `items` : les éléments cochés dans la carte (code, variable, valeur comptée) ;
+ *  - `proposed: true` : les éléments PRÉCOCHÉS par la même règle que la carte
+ *    (indicatorProposals.proposedSelection) — « Créer les N indicateurs proposés » d'un clic ;
+ *  - `template` : clé d'un modèle (quand l'activité n'en a pas) ; sinon celui de
+ *    l'activité, sinon le modèle proposé d'après les variables.
+ * Chaque élément doit appartenir au modèle et viser une variable de la fiche
+ * (XLSForm ou données) dont le TYPE convient à sa méthode (jamais le parent d'un
+ * choix multiple pour un « % de oui ») ; sinon rien n'est écrit (400 qui nomme
+ * l'élément). La cible du modèle est écrite. Réappliquer le modèle ne modifie
+ * JAMAIS un indicateur déjà créé (même template_code) ; un code déjà pris par un
+ * indicateur créé à la main n'est pas écrasé (ON CONFLICT DO NOTHING).
  * @returns {Promise<null|{ applied, kept, conflicts, template }>}
  *   applied = créés ; kept = déjà créés, laissés tels quels ; conflicts = code déjà pris
  */
-async function applyTemplate(tenantId, formId, bindings) {
+async function applyTemplate(tenantId, formId, { items = null, proposed = false, template: requested = null } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows: [form] } = await client.query(
-      'SELECT id, activity_category AS "activityCategory" FROM monitoring_forms WHERE tenant_id = $1 AND id = $2 FOR UPDATE',
+      'SELECT id, code, label, activity_category AS "activityCategory" FROM monitoring_forms WHERE tenant_id = $1 AND id = $2 FOR UPDATE',
       [tenantId, formId]);
     if (!form) return null;
-    const tpl = templateForActivity(form.activityCategory);
-    if (!tpl) throw badRequest('Cette fiche n\'est rattachée à aucune activité qui a un modèle d\'indicateurs.');
-    const items = new Map(tpl.items.map((it, i) => [it.code, { it, i }]));
-    const names = new Set((await bindingFieldsTx(client, tenantId, formId)).map((f) => f.name));
-    const codes = bindings.map((b) => b.code);
-    if (new Set(codes).size !== codes.length) throw badRequest('Un même indicateur est envoyé deux fois.');
-    const unknownCode = bindings.find((b) => !items.has(b.code));
-    if (unknownCode) throw badRequest(`Indicateur « ${unknownCode.code} » absent du modèle « ${tpl.label} ».`);
-    const unknownField = bindings.find((b) => !names.has(b.sourceField));
-    if (unknownField) throw badRequest(`Variable « ${unknownField.sourceField} » introuvable dans cette fiche.`);
-    // Déjà créés depuis le modèle (verrouillés le temps de l'écriture) : laissés tels quels.
+    const fields = await bindingFieldsTx(client, tenantId, formId);
+    const proposal = proposeTemplate({ fields, form });
+    const eff = effectiveTemplate({ activityCategory: form.activityCategory, requested, proposal });
+    if (eff.error) {
+      const own = templateForActivity(form.activityCategory);
+      throw templateError(eff.error, { requested, activity: form.activityCategory, template: own && own.label });
+    }
+    const tpl = eff.template;
+    if (!tpl) {
+      throw badRequest('Aucun modèle d\'indicateurs pour cette fiche : son activité n\'en a pas et ses variables ne correspondent à aucun modèle. Créez les indicateurs un par un (« Nouvel indicateur »).',
+        { code: 'no_template' });
+    }
+    const itemIndex = new Map(tpl.items.map((it, i) => [it.code, { it, i }]));
+    const fieldsByName = new Map(fields.map((f) => [f.name, f]));
+    // Indicateurs de la fiche, verrouillés le temps de l'écriture : déjà créés (template_code) et codes pris.
     const { rows: existing } = await client.query(
-      `SELECT template_code FROM monitoring_indicators
-        WHERE tenant_id = $1 AND form_id = $2 AND template_code = ANY($3::text[]) FOR UPDATE`, [tenantId, formId, codes]);
-    const kept = new Set(existing.map((r) => r.template_code));
-    const rows = bindings.filter((b) => !kept.has(b.code)).map((b) => {
-      const { it, i } = items.get(b.code);
-      return indicatorFromItem(tpl, it, { sourceField: b.sourceField, positiveValue: b.positiveValue }, i);
+      `SELECT code, template_code AS "templateCode" FROM monitoring_indicators
+        WHERE tenant_id = $1 AND form_id = $2 FOR UPDATE`, [tenantId, formId]);
+    const done = new Set(existing.map((r) => r.templateCode).filter(Boolean));
+    let selection = items;
+    if (proposed) {
+      const takenCodes = new Set(existing.map((r) => r.code).filter((c) => !done.has(c)));
+      selection = proposedSelection(bindTemplate(tpl, fields), { done, taken: takenCodes });
+    } else {
+      const codes = selection.map((b) => b.code);
+      if (new Set(codes).size !== codes.length) throw badRequest('Un même indicateur est envoyé deux fois.');
+      const unknownCode = selection.find((b) => !itemIndex.has(b.code));
+      if (unknownCode) throw badRequest(`Indicateur « ${unknownCode.code} » absent du modèle « ${tpl.label} ».`);
+      const unknownField = selection.find((b) => !fieldsByName.has(b.sourceField));
+      if (unknownField) throw badRequest(`Variable « ${unknownField.sourceField} » introuvable dans cette fiche.`);
+      // Type de la variable incompatible avec la méthode : refusé, l'élément est nommé.
+      const wrong = selection.find((b) => typeIssue(itemIndex.get(b.code).it.agg, fieldsByName.get(b.sourceField).type));
+      if (wrong) {
+        const { it } = itemIndex.get(wrong.code);
+        const type = fieldsByName.get(wrong.sourceField).type;
+        throw badRequest(`« ${it.label} » (${it.code}) : la variable « ${wrong.sourceField} » (${type}) ne convient pas à la méthode de cet indicateur. Choisissez une autre variable.`,
+          { code: 'type_mismatch', item: it.code, field: wrong.sourceField, type, agg: it.agg });
+      }
+    }
+    const kept = selection.filter((b) => done.has(b.code)).length;
+    const rows = selection.filter((b) => !done.has(b.code)).map((b) => {
+      const { it, i } = itemIndex.get(b.code);
+      // Codes hors base retenus pour la liste de la variable choisie (« Autre » n'en est jamais un).
+      const checked = bindItem(it, { positiveValue: b.positiveValue, confidence: null }, fieldsByName.get(b.sourceField) || null);
+      return indicatorFromItem(tpl, it, { sourceField: b.sourceField, positiveValue: b.positiveValue, naValues: checked.naValues }, i);
     });
     const applied = rows.length ? await insertRows(client, {
       table: 'monitoring_indicators',
-      columns: ['tenant_id', 'form_id', 'code', 'label', 'module', 'source_field', 'agg', 'positive_value', 'direction', 'na_values', 'scored', 'template_code', 'sort_order'],
+      columns: ['tenant_id', 'form_id', 'code', 'label', 'module', 'source_field', 'agg', 'positive_value', 'direction', 'na_values', 'target', 'scored', 'template_code', 'sort_order'],
       rows,
-      values: (r) => [tenantId, formId, r.code, r.label, r.module, r.sourceField, r.agg, r.positiveValue, r.direction, r.naValues, r.scored, r.templateCode, r.sortOrder],
+      values: (r) => [tenantId, formId, r.code, r.label, r.module, r.sourceField, r.agg, r.positiveValue, r.direction, r.naValues, r.target, r.scored, r.templateCode, r.sortOrder],
       // Code déjà pris par un indicateur manuel : rien n'est écrasé (compté dans `conflicts`).
       suffix: 'ON CONFLICT (form_id, code) DO NOTHING',
     }) : 0;
     if (applied) await client.query('UPDATE monitoring_forms SET updated_at = now() WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
-    return { applied, kept: kept.size, conflicts: rows.length - applied, template: tpl.key };
+    return { applied, kept, conflicts: rows.length - applied, template: tpl.key };
   });
 }
 
