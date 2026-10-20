@@ -8,6 +8,7 @@ import DataView, { CHART_VIEWS } from './views/DataView.jsx';
 import { DataTable } from './views/DataTable.jsx';
 import { KpiTiles } from './views/KpiStrip.jsx';
 import { useAssetUrl } from './useAssets.js';
+import { wrapLines } from '../../lib/reportBands.js';
 
 /**
  * Rendu des blocs d'un rapport v2 (aperçu de l'éditeur, impression/PDF, export HTML).
@@ -132,8 +133,10 @@ export function Band({ band, texts, vars, pageNo, pages, className, edges = null
         };
         if (e.kind === 'text') {
           const raw = texts && texts[e.id] != null ? texts[e.id] : e.text;
-          // Sur plusieurs lignes (grand titre) : le texte s'enroule dans son cadre, calé en bas, jamais coupé au milieu d'un mot.
-          return <div key={e.id} className={`rd-el rd-el-text ${st.wrap ? 'is-wrap' : ''}`} style={{ ...box, ...font }}><span>{substitute(raw, pv)}</span></div>;
+          // Sur plusieurs lignes (grand titre) : le texte s'enroule dans son cadre depuis le HAUT, jamais coupé au
+          // milieu d'un mot ; autant de lignes que le cadre en contient (wrapLines), la dernière finit par « … ».
+          const clampStyle = st.wrap ? { WebkitLineClamp: wrapLines(e.h, st.size || 8) } : undefined;
+          return <div key={e.id} className={`rd-el rd-el-text ${st.wrap ? 'is-wrap' : ''}`} style={{ ...box, ...font }}><span style={clampStyle}>{substitute(raw, pv)}</span></div>;
         }
         if (e.kind === 'pageNumber') {
           const n = pageNo || 'n'; const N = pages || 'N';

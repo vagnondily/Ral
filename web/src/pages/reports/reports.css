@@ -252,8 +252,11 @@
 .rd-el { position: absolute; box-sizing: border-box; overflow: hidden; }
 .rd-el-text { white-space: nowrap; line-height: 1.25; display: flex; align-items: center; }
 .rd-el-text > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.rd-el-text.is-wrap { align-items: flex-end; white-space: normal; line-height: 1.12; letter-spacing: -0.018em; }
-.rd-el-text.is-wrap > span { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow-wrap: break-word; text-overflow: clip; }
+/* Sur plusieurs lignes (grand titre) : calé en HAUT — un dépassement part vers le bas, la première ligne
+   reste entière ; le nombre de lignes (-webkit-line-clamp) est posé en ligne par ReportBlocks d'après la
+   hauteur du cadre (reportBands.wrapLines, même interligne 1,12) ; la dernière ligne finit par « … ». */
+.rd-el-text.is-wrap { align-items: flex-start; white-space: normal; line-height: 1.12; letter-spacing: -0.018em; }
+.rd-el-text.is-wrap > span { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow-wrap: break-word; text-overflow: ellipsis; }
 .rd-el-img { display: block; }
 /* Emplacement de logo vide (modèle) : cadre NEUTRE (gris, pointillé fin) dans l'éditeur seulement,
    jamais imprimé ni exporté — jamais une image prise au hasard. */

@@ -19,6 +19,22 @@ export const MIN_W_MM = 4;
 export const MIN_H_MM = 3;
 const MIN_LINE_H = 2;
 
+/** Interligne d'un texte « sur plusieurs lignes » (reports.css, .rd-el-text.is-wrap) ; 1 pt = 0,3528 mm. */
+export const WRAP_LINE_HEIGHT = 1.12;
+const PT_MM = 0.3528;
+
+/**
+ * Lignes d'un texte « sur plusieurs lignes » (grand titre) qui tiennent ENTIÈRES dans son cadre :
+ * floor(h_mm ÷ (taille_pt × 0,3528 × 1,12)), au moins 1. Posé en -webkit-line-clamp : au-delà, la
+ * dernière ligne visible finit par « … » — jamais la PREMIÈRE ligne coupée (le texte part du haut).
+ * @param {number} hMm hauteur du cadre (mm) @param {number} sizePt taille du texte (pt)
+ */
+export function wrapLines(hMm, sizePt, lineHeight = WRAP_LINE_HEIGHT) {
+  const line = Number(sizePt) * PT_MM * lineHeight;
+  if (!(line > 0) || !(Number(hMm) > 0)) return 1;
+  return Math.max(1, Math.floor(Number(hMm) / line + 1e-9));
+}
+
 export const toMm = (pct, bodyW) => (Number(pct) * bodyW) / 100;
 export const toPct = (mm, bodyW) => (Number(mm) / bodyW) * 100;
 export const snap = (v, step = 1) => (step > 0 ? Math.round(v / step) * step : v);
