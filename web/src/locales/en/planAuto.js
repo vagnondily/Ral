@@ -154,4 +154,11 @@ export default {
     'Option ticked: each visit gets its date and agent; the collection days (budget) count these visits and “Clear planned visits” keeps them.',
   'Les visites sont créées au mois seul (sans date ni agent).': 'Visits are created with the month only (no date, no agent).',
   'Choisissez la période et le périmètre puis cliquez sur « Aperçu » pour voir la répartition et les ressources avant d\'écrire.': 'Choose the period and the scope then click “Preview” to see the breakdown and the resources before writing.',
+  // Relecture du 20/10 (C27–C39) : périmètre en arbre, suivi interne par bureau, créneaux réservés
+  '{office} — tout le pays': '{office} — whole country',
+  '{office} (suivi interne)': '{office} (internal monitoring)',
+  'Chaque visite reçoit le jour de terrain de sa tournée et un rôle générique (« Agent 1 », « Agent 2 »…), jamais un créneau déjà écrit. Les jours de collecte (budget) comptent alors une journée par agent et par date — les journées-agent du plan — et « Effacer les planifications » conserve ces visites (datées et affectées).':
+    'Each visit gets the field day of its round and a generic role (“Agent 1”, “Agent 2”…), never a slot already written. The collection days (budget) then count one day per agent and date — the plan’s agent-days — and “Clear planned visits” keeps these visits (dated and assigned).',
+  'Option cochée : chaque visite reçoit sa date et son agent (jamais avant aujourd\'hui, jamais un créneau déjà écrit) ; les jours de collecte (budget) comptent une journée par agent et par date, et « Effacer les planifications » conserve ces visites.':
+    'Option ticked: each visit gets its date and agent (never before today, never a slot already written); the collection days (budget) count one day per agent and date, and “Clear planned visits” keeps these visits.',
 };

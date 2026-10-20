@@ -28,6 +28,18 @@ const SAMPLE_SIZE = 200;        // affectations renvoyées par l'aperçu (échan
 const UNCOVERED_SAMPLE = 50;    // sites non couverts renvoyés avec leur raison
 const ym = (year, m) => `${year}-${String(m).padStart(2, '0')}`;
 
+/**
+ * Horloge du calcul : mois courant (premier mois planifiable) et jour courant (le mois en cours ne
+ * compte que ses jours de terrain restants ; jamais une date de visite passée). Un mois donné sans
+ * jour (tests, reprises) part du 1ᵉʳ de ce mois. Les deux entrent dans l'empreinte.
+ */
+function clockOf({ now, today } = {}) {
+  const d = new Date().toISOString().slice(0, 10);   // même horloge (UTC) que rbmMath.currentMonth
+  const month = now || currentMonth();
+  const day = today && String(today).slice(0, 7) === month ? String(today).slice(0, 10) : (month === d.slice(0, 7) ? d : `${month}-01`);
+  return { now: month, today: day };
+}
+
 /** Mois (1..12) d'une période { from, to } d'un même exercice. */
 function periodMonths({ from, to }) {
   const year = Number(from.slice(0, 4));
@@ -63,7 +75,8 @@ function scopeOf(body) {
  * lit le moteur (entrées, période, mois courant, réglages normalisés, périmètre, option d'écriture) :
  * deux empreintes égales donnent le même plan.
  */
-async function readTx(client, tenantId, body, now) {
+async function readTx(client, tenantId, body, clock) {
+  const { now, today } = clock;
   const { year, months, open } = effectivePeriod(body, now);
   const settings = normalizeSettings(body.settings || {});
   const scope = scopeOf(body);
@@ -71,17 +84,17 @@ async function readTx(client, tenantId, body, now) {
   const inputs = await repo.loadInputsTx(client, tenantId, { year, adjusted: settings.adjusted, scope });
   const writeSchedule = Boolean(body.settings && body.settings.writeSchedule);
   const fp = fingerprintInputs(inputs, {
-    year, requested: months, months: open, fromMonth: now, settings, scope, writeSchedule,
+    year, requested: months, months: open, fromMonth: now, today, settings, scope, writeSchedule,
   });
   return { inputs, fp, year, months, settings, writeSchedule };
 }
 
 /** Entrées + plan + empreinte, sur le client de l'appelant. */
-async function computeTx(client, tenantId, body, now) {
-  const read = await readTx(client, tenantId, body, now);
+async function computeTx(client, tenantId, body, clock) {
+  const read = await readTx(client, tenantId, body, clock);
   const { inputs, settings, months, year } = read;
   const plan = generatePlan(inputs.sites, inputs.mmrByKey, settings, months, year,
-    { yearHasGrid: inputs.yearHasGrid, fromMonth: now });
+    { yearHasGrid: inputs.yearHasGrid, fromMonth: clock.now, today: clock.today });
   return { ...read, plan };
 }
 
@@ -121,8 +134,9 @@ function previewView({ inputs, plan, fp, year, writeSchedule }) {
   };
 }
 
-async function preview(tenantId, body, { now = currentMonth() } = {}) {
-  return withTenantTransaction(tenantId, async (client) => previewView(await computeTx(client, tenantId, body, now)));
+async function preview(tenantId, body, opts = {}) {
+  const clock = clockOf(opts);
+  return withTenantTransaction(tenantId, async (client) => previewView(await computeTx(client, tenantId, body, clock)));
 }
 
 /**
@@ -130,10 +144,11 @@ async function preview(tenantId, body, { now = currentMonth() } = {}) {
  * (sections nommées). Renvoie les visites créées, celles prévues par le calcul et, pour l'écart, la
  * raison relue en base.
  */
-async function apply(tenantId, userId, body, { now = currentMonth() } = {}) {
-  const { year } = effectivePeriod(body, now);
+async function apply(tenantId, userId, body, opts = {}) {
+  const clock = clockOf(opts);
+  const { year } = effectivePeriod(body, clock.now);
   // 1. Calcul HORS verrous (lecture seule) : les écrivains du Plan de suivi ne l'attendent pas.
-  const computed = await withTenantTransaction(tenantId, (client) => computeTx(client, tenantId, body, now));
+  const computed = await withTenantTransaction(tenantId, (client) => computeTx(client, tenantId, body, clock));
   const { plan } = computed;
   if (computed.fp.fingerprint !== body.fingerprint) throw inputsChanged(body, computed.fp);
   // 2. Écriture sous les verrous, entrées relues et empreinte recomparée sur le même client.
@@ -144,7 +159,7 @@ async function apply(tenantId, userId, body, { now = currentMonth() } = {}) {
     // aucune autre écriture de plan ne doit le changer entre la lecture et l'écriture.
     await lockVisitMonthsTx(client, tenantId, repo.windowMonths(year), { deadline });
     await client.query("SET LOCAL lock_timeout = '20s'");
-    const { fp } = await readTx(client, tenantId, body, now);
+    const { fp } = await readTx(client, tenantId, body, clock);
     if (fp.fingerprint !== body.fingerprint) throw inputsChanged(body, fp);
     // Un site supprimé du registre depuis la relecture : 409 « registre », jamais une erreur de clé.
     const present = await repo.lockPlanSitesTx(client, tenantId, plan.assignments.map((a) => a.siteId));
@@ -189,4 +204,4 @@ async function clearPlanned(tenantId, { year, from, to, risk, scope = {} } = {})
   });
 }
 
-module.exports = { preview, apply, clearPlanned, effectivePeriod, periodMonths, scopeOf, SAMPLE_SIZE, UNCOVERED_SAMPLE };
+module.exports = { preview, apply, clearPlanned, effectivePeriod, periodMonths, scopeOf, clockOf, SAMPLE_SIZE, UNCOVERED_SAMPLE };

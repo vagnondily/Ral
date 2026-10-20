@@ -10,6 +10,7 @@ import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, formatLocale } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
+import { officeOptions as officeTree, budgetCsvRows, unitLabel } from '../../lib/planAuto.js';
 
 // Mois AAAA-MM décalé de n mois à partir d'aujourd'hui.
 function monthFromNow(n) {
@@ -133,19 +134,11 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
       communes: [...communes.values()].sort((a, b) => `${a.district} ${a.commune}`.localeCompare(`${b.district} ${b.commune}`, 'fr')),
     };
   }, [sites, scope.district]);
-  // Bureaux : les bureaux puis leurs antennes (une antenne est comprise dans son bureau).
-  const officeOptions = useMemo(() => {
-    const top = offices.filter((o) => !o.parentId).sort((a, b) => String(a.name).localeCompare(String(b.name), 'fr'));
-    const out = [];
-    for (const o of top) {
-      out.push({ id: o.id, label: o.name });
-      for (const c of offices.filter((x) => x.parentId === o.id).sort((a, b) => String(a.name).localeCompare(String(b.name), 'fr'))) {
-        out.push({ id: c.id, label: `↳ ${c.name}` });
-      }
-    }
-    for (const o of offices) if (o.parentId && !offices.some((p) => p.id === o.parentId)) out.push({ id: o.id, label: o.name });
-    return out;
-  }, [offices]);
+  // Bureaux en arbre : chaque bureau puis TOUTES ses antennes, à tous les niveaux (un bureau couvre
+  // ses antennes et sous-antennes ; le bureau national couvre tout le registre).
+  const officeOptions = useMemo(() => officeTree(offices).map((o) => ({
+    id: o.id, label: o.national ? tr('{office} — tout le pays', { office: o.label }) : o.label,
+  })), [offices, tr]);
 
   const scopeBody = useMemo(() => {
     const out = {};
@@ -194,20 +187,10 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
   }
   // Export CSV « base de budget » : par unité (TPM / bureau) et par mois — visites, journées-agent,
   // agents, véhicules et jours de terrain. On y ajoute ses coûts journaliers pour obtenir le budget.
+  // Décimales au séparateur de la langue (« 1,5 » en français) : Excel les lit comme des nombres.
   function exportBudget() {
     if (!preview) return;
-    const bureau = tr('Bureau (suivi interne)');
-    const rows = [[tr('Unité (TPM / bureau)'), tr('Mois'), tr('Visites à faire'), tr('dont nouvelles'), tr('Journées-agent'), tr('Agents'),
-      tr('Véhicules (pic / jour)'), tr('Véhicules (moyenne / jour)'), tr('Jours de terrain'), tr('Source des jours de terrain')]];
-    for (const t of preview.byTpm || []) {
-      const label = t.assigned ? t.tpm : bureau;
-      for (const m of t.perMonth || []) {
-        rows.push([label, m.month, m.visits, m.count, m.agentDays, m.agents, m.vehiclesPeak, m.vehiclesAvg,
-          m.workingDays ?? '', m.workingDaysSource ? tr(m.workingDaysSource === 'mmr' ? 'MMR (jours ouvrés)' : 'paramètre du plan') : '']);
-      }
-      rows.push([label, tr('Total / pic'), t.visits, t.planned, t.agentDays, t.agentsPeak, t.vehiclesPeak, '', '', '']);
-    }
-    downloadCsv(`plan-suivi-budget-${from}_${to}.csv`, rows);
+    downloadCsv(`plan-suivi-budget-${from}_${to}.csv`, budgetCsvRows(preview, tr, formatLocale()));
     toast.success(tr('Export CSV téléchargé.'));
   }
   async function clearPlanned() {
@@ -235,7 +218,7 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
     if (!preview) return [];
     const bySite = new Map();
     for (const a of preview.sample || []) {
-      if (!bySite.has(a.siteId)) bySite.set(a.siteId, { name: a.name || '—', commune: a.commune, district: a.district, activity: a.activity || null, tpm: a.tpm || null, visits: [] });
+      if (!bySite.has(a.siteId)) bySite.set(a.siteId, { name: a.name || '—', commune: a.commune, district: a.district, activity: a.activity || null, tpm: a.tpm || null, office: a.office || null, visits: [] });
       bySite.get(a.siteId).visits.push(a);
     }
     return [...bySite.values()].slice(0, 8).map((s) => ({ ...s, visits: s.visits.sort((a, b) => String(a.month).localeCompare(String(b.month))) }));
@@ -249,10 +232,11 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
 
   return (
     <Modal open onClose={() => !busy && onClose()} title={tr('Générer le plan de suivi')} size="editor"
-      footer={<>
+      footer={<div className="pa-foot" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', gap: 8, width: '100%', minWidth: 0 }}>
+        {/* Retour à la ligne au téléphone : chaque bouton reste atteignable (jamais poussé hors de l'écran). */}
         <Button variant="ghost" icon={Trash2} onClick={clearPlanned} disabled={busy || invalid}
           title={tr('Supprimer les visites prévues libres de la période et du périmètre pour repartir d\'un plan propre.')}>{tr('Effacer les planifications')}</Button>
-        <span style={{ flex: 1 }} />
+        <span style={{ flex: '1 1 0', minWidth: 0 }} aria-hidden="true" />
         <Button variant="secondary" onClick={onClose} disabled={busy}>{tr('Annuler')}</Button>
         {!preview
           ? <Button icon={Eye} loading={busy} disabled={invalid} onClick={runPreview}>{tr('Aperçu')}</Button>
@@ -263,7 +247,7 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
             <Button icon={Wand2} loading={busy} disabled={invalid || Boolean(stale)} onClick={apply}
               title={stale ? tr('Les données ont changé : relancez l\'aperçu.') : undefined}>{tr('Appliquer')}</Button>
           </>}
-      </>}>
+      </div>}>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 18 }}>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
           {tr('Le plan part des besoins du MMR (visites par site, écart minimal, sites à suivre par mois) et de la priorité du RBM ; les sites d\'une même commune sont suivis ensemble, toutes activités confondues. Choisissez la période et le périmètre, prévisualisez, puis appliquez — rien n\'est écrit avant « Appliquer ».')}
@@ -388,7 +372,7 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
                 <span style={{ display: 'grid', gap: 2 }}>
                   <span>{tr('Écrire les dates et les agents')}</span>
                   <span className="muted" style={{ fontSize: 12 }}>{writeSchedule
-                    ? tr('Chaque visite reçoit le jour de terrain de sa tournée et un rôle générique (« Agent 1 », « Agent 2 »…). Les jours de collecte (budget) comptent alors ces visites, et « Effacer les planifications » les conserve (visites datées et affectées).')
+                    ? tr('Chaque visite reçoit le jour de terrain de sa tournée et un rôle générique (« Agent 1 », « Agent 2 »…), jamais un créneau déjà écrit. Les jours de collecte (budget) comptent alors une journée par agent et par date — les journées-agent du plan — et « Effacer les planifications » conserve ces visites (datées et affectées).')
                     : tr('Non coché : les visites sont créées au mois seul ; dates et agents se saisissent ensuite.')}</span>
                 </span>
               </label>
@@ -628,8 +612,8 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
                     <tbody>
                       {preview.byTpm.map((t, i) => (
                         <tr key={`${t.unitKey || 'na'}-${i}`}>
-                          <td>{t.assigned ? <strong>{t.tpm}</strong> : <span className="muted">{tr('Bureau (suivi interne)')}</span>}</td>
-                          <td className="num">{formatInt(t.sites)}</td>
+                          <td>{t.assigned ? <strong>{t.tpm}</strong> : <span className="muted">{unitLabel(t, tr)}</span>}</td>
+                          <td className="num">{formatInt(t.sites)}{t.sitesNew !== t.sites ? <span className="muted"> ({tr('{n} nouv.', { n: formatInt(t.sitesNew) })})</span> : null}</td>
                           <td className="num">{formatInt(t.visits)}{t.planned !== t.visits ? <span className="muted"> ({tr('{n} nouv.', { n: formatInt(t.planned) })})</span> : null}</td>
                           <td className="num">{formatInt(t.agentDays)}</td>
                           <td className="num"><strong>{formatInt(t.agentsPeak)}</strong></td>
@@ -678,7 +662,7 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
                           <td><strong>{s.name}</strong></td>
                           <td className="muted">{s.commune || '—'}</td>
                           <td className="muted">{s.activity || '—'}</td>
-                          <td className="muted">{s.tpm || tr('Bureau (suivi interne)')}</td>
+                          <td className="muted">{unitLabel({ assigned: Boolean(s.tpm), tpm: s.tpm, officeName: s.office }, tr)}</td>
                           <td>{s.visits.map((v) => (writeSchedule && v.date ? `${shortDate(v.date)} · ${v.agent}` : shortMonth(v.month))).join(' — ')}</td>
                         </tr>
                       ))}
@@ -712,7 +696,7 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
             <p className="muted" style={{ margin: 0, fontSize: 12 }}>
               {tr('« Appliquer » crée ces visites comme « planifiées », exactement celles de cet aperçu (si les données ont changé entre-temps, rien n\'est écrit). Idempotent : un site déjà prévu ce mois n\'est pas dupliqué, et l\'intervalle est respecté face aux visites existantes.')}
               {' '}{preview.writeSchedule
-                ? tr('Option cochée : chaque visite reçoit sa date et son agent ; les jours de collecte (budget) comptent ces visites et « Effacer les planifications » les conserve.')
+                ? tr('Option cochée : chaque visite reçoit sa date et son agent (jamais avant aujourd\'hui, jamais un créneau déjà écrit) ; les jours de collecte (budget) comptent une journée par agent et par date, et « Effacer les planifications » conserve ces visites.')
                 : tr('Les visites sont créées au mois seul (sans date ni agent).')}
             </p>
           </section>
