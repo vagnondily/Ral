@@ -20,15 +20,16 @@
  *    13/10 : la fiche 360° ne trouvait pas son contrat).
  *  - Prestataire ACTIF au mois M : fiche active, et au moins un de ses contrats de suivi
  *    couvre M.
- *  - TPM d'un CONTRAT (retour 58, question D1) : les partenaires ACTIFS de type TPM rattachés par
- *    un plan de collecte ou une facture / un rapport (`tpmsByContract`) ; à défaut, son titulaire
- *    (`tpmIdsByContract`, même règle que tpmAttribution.contractTpms qui estampille les visites).
- *    À l'AFFICHAGE (retour 113, `contractTpmOf`), le titulaire n'est montré comme TPM que s'il est
- *    lui-même un TPM ; un partenaire de mise en œuvre sans TPM rattaché → « Aucun TPM rattaché ».
+ *  - TPM d'un CONTRAT (retours 58, 113 et 115 — décision D1 du 20/10, `contractTpmOf`) : les
+ *    partenaires ACTIFS de type TPM rattachés par un plan de collecte ou une facture / un rapport
+ *    (`tpmsByContract`) ; à défaut, son titulaire SEULEMENT s'il est lui-même un TPM actif ; sinon
+ *    le contrat n'a pas de TPM (suivi interne par l'équipe S&E : « Interne »). Un partenaire de mise
+ *    en œuvre n'est jamais le TPM d'un contrat — ni à l'affichage, ni dans les listes de choix.
+ *    (L'estampille des visites, tpmAttribution.contractTpms et sa jumelle SQL mems_tpm_cells,
+ *    garde pour l'instant le titulaire quel que soit son type : elle suivra avec le retour 114.)
  *  - SÉLECTIONNABLE pour des mois (listes de choix d'un TPM) : d'abord les TPM d'un contrat de
- *    suivi qui couvre un des mois (groupe « contrat ») — un titulaire n'y figure plus quand son
- *    contrat a un TPM rattaché —, puis les autres partenaires actifs de type TPM (groupe « tpm »,
- *    à part, choix hors contrat).
+ *    suivi qui couvre un des mois (groupe « contrat »), puis les autres partenaires actifs de type
+ *    TPM (groupe « tpm », à part, choix hors contrat).
  *
  * Utilisée par les listes de choix d'un TPM (participants d'une formation, rapports attendus,
  * dialogues d'affectation des TPM), par le statut contractuel de la liste et de la fiche d'un
@@ -90,9 +91,9 @@ function tpmsByContract(links, partners) {
 }
 
 /**
- * TPM d'UN contrat À L'AFFICHAGE (retour 113 : Contrats, Partenaires & TPM, Consolidation…) : ses
- * TPM rattachés ; sinon son titulaire s'il est un TPM actif ; sinon aucun (un partenaire de mise en
- * œuvre n'est jamais montré comme un TPM).
+ * TPM d'UN contrat — LA règle des écrans ET des listes de choix (retours 113 et 115, décision D1) :
+ * ses TPM rattachés ; sinon son titulaire s'il est un TPM actif ; sinon aucun (suivi interne). Un
+ * partenaire de mise en œuvre n'est jamais le TPM d'un contrat.
  * @param {{id,name}[]} attached  tpmsByContract(...).get(contractId)
  * @param {{id,name,typeCode,active}|null} holder  fiche du titulaire
  * @returns {{ state: 'rattache'|'titulaire'|'aucun', tpms: {id,name}[] }}
@@ -104,22 +105,21 @@ function contractTpmOf(attached, holder) {
 }
 
 /**
- * TPM de chaque contrat pour les LISTES DE CHOIX (règle du retour 58, D1, jumelle de
- * tpmAttribution.contractTpms) : ses TPM rattachés (plan, facture) ; à défaut son titulaire.
+ * TPM de chaque contrat pour les LISTES DE CHOIX : la même règle que l'affichage (contractTpmOf —
+ * décision D1 : un titulaire ne compte que s'il est lui-même un TPM actif). Diffère volontairement,
+ * pour l'instant, de tpmAttribution.contractTpms (estampille des visites, retour 114 à venir).
  * @returns {Map<string, Set<string>>} contractId → identifiants ; titulaire lu sur les liens.
  */
 function tpmIdsByContract(links, partners) {
   const attached = tpmsByContract(links, partners);
+  const byId = new Map((partners || []).map((p) => [p.id, p]));
   const holderOf = new Map();
   for (const l of links || []) {
     const h = l.holderId || (viaOf(l).includes('titulaire') ? l.partnerId : null);
     if (h && !holderOf.has(l.contractId)) holderOf.set(l.contractId, h);
   }
   const ids = new Set((links || []).map((l) => l.contractId));
-  return new Map([...ids].map((k) => {
-    const list = attached.get(k);
-    return [k, new Set(list && list.length ? list.map((t) => t.id) : [holderOf.get(k)].filter(Boolean))];
-  }));
+  return new Map([...ids].map((k) => [k, new Set(contractTpmOf(attached.get(k), byId.get(holderOf.get(k)) || null).tpms.map((t) => t.id))]));
 }
 
 /**
@@ -158,8 +158,8 @@ function activeProviders({ links, partners, month }) {
 function selectableProviders({ links, partners, months }) {
   const ms = [...new Set((months || []).filter(isMonth))].sort();
   const covered = new Map(); // partnerId → { months:Set, contracts:Map }
-  // Groupe « contrat » : seulement les TPM du contrat (tpmIdsByContract, règle du retour 58) — le
-  // titulaire d'un contrat qui a un TPM rattaché (AINA quand RANO Control facture) n'y figure pas.
+  // Groupe « contrat » : seulement les TPM du contrat (tpmIdsByContract, décision D1) — jamais un
+  // partenaire de mise en œuvre titulaire (AINA, MIARO, TOHANA), avec ou sans TPM rattaché.
   const tpmIds = tpmIdsByContract(links, partners);
   for (const l of countingLinks(links)) {
     if (!(tpmIds.get(l.contractId) || new Set()).has(linkProvider(l))) continue;

@@ -66,7 +66,13 @@ const { contractCoversMonth, isMonitoringContract } = activeProvider;
  */
 const { tpmsByContract, TPM_LINK_KINDS } = activeProvider;
 
-/** D1 : TPM d'un contrat = ses TPM rattachés (plans, factures), sinon son titulaire. */
+/**
+ * D1 : TPM d'un contrat POUR L'ESTAMPILLE DES VISITES = ses TPM rattachés (plans, factures), sinon son
+ * titulaire. Volontairement INCHANGÉ (jumelle SQL mems_tpm_cells, migration 070) : la décision D1 du
+ * 20/10 (retour 115 — un titulaire ne compte que s'il est lui-même un TPM actif, sinon « Interne »)
+ * s'applique pour l'instant aux écrans et aux listes de choix (activeProvider.contractTpmOf /
+ * tpmIdsByContract) ; l'estampille la suivra avec le retour 114.
+ */
 function contractTpms(c) {
   if (!c) return [];
   if (Array.isArray(c.tpms) && c.tpms.length) return c.tpms;

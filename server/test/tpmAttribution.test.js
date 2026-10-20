@@ -307,10 +307,15 @@ test('visitDecision : valeur de la zone, autre valeur, null, keep, non sélectio
 test('prestataires : la règle commune (lot 8) — actifs (contrats couvrants) puis autres TPM actifs ; inactif exclu', () => {
   const sel = a.selectableProviders({ links: linksOf([AINA, TOHANA]), partners, months: ['2026-02', '2026-03'] });
   const [contrat, tpm] = sel.groups;
-  assert.deepEqual(contrat.providers.map((h) => [h.id, h.months]), [['aina', ['2026-02', '2026-03']], ['tohana', ['2026-03']]]);
-  assert.deepEqual(contrat.providers[0].contracts.map((c) => c.numero), ['CTR-2026-0001']);
+  // Décision D1 (retour 115, lot 8) : un titulaire partenaire de mise en œuvre n'est jamais proposé
+  // comme TPM dans une liste de choix (l'estampille des visites, elle, reste inchangée : retour 114).
+  assert.deepEqual(contrat.providers.map((h) => h.id), []);
   assert.deepEqual(tpm.providers.map((p) => p.id), ['rano', 'sahy', 'ypa']);
-  assert.deepEqual(a.notSelectableMonths('tohana', ['2026-02', '2026-03'], sel), ['2026-02']);
+  assert.deepEqual(a.notSelectableMonths('tohana', ['2026-02', '2026-03'], sel), ['2026-02', '2026-03']);
+  // Un TPM titulaire de son propre contrat : « Actif selon contrat » sur les mois du contrat.
+  const own = a.selectableProviders({ links: linksOf([{ ...TOHANA, partnerId: 'sahy', partnerName: 'SAHY Monitoring' }]), partners, months: ['2026-02', '2026-03'] });
+  assert.deepEqual(own.groups[0].providers.map((h) => [h.id, h.months, h.contracts.map((c) => c.numero)]), [['sahy', ['2026-03'], ['CTR-2026-0002']]]);
+  assert.deepEqual(a.notSelectableMonths('sahy', ['2026-02', '2026-03'], own), ['2026-02'], 'hors des mois de son contrat : règle inchangée');
   assert.deepEqual(a.notSelectableMonths('ypa', ['2026-02'], sel), []);
   assert.deepEqual(a.notSelectableMonths('old', ['2026-02'], sel), ['2026-02']);
   assert.deepEqual(a.activeProviders({ links: linksOf([AINA, TOHANA]), partners, month: '2026-10' }).map((p) => p.id), ['tohana']);
