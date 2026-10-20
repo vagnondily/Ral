@@ -258,6 +258,19 @@ test('agents : effectif calculé depuis le quota journalier × jours ouvrés du 
   assert.ok(r2.summary.activitiesNeedingQuota >= 1);
 });
 
+test('couverture : un site DÉJÀ planifié dans la période compte comme couvert', () => {
+  // Re-générer sur un plan déjà appliqué ne doit pas afficher 0 % (retour 82).
+  const sites = Array.from({ length: 10 }, (_, i) => site({ id: `s${i}`, parametered: true, required: 2, mmrKey: 'k', commune: `C${i}`, activity: 'A', visits: [{ month: 1, status: 'planifie' }, { month: 6, status: 'planifie' }] }));
+  const r = generatePlan(sites, { k: { interval: 3, feasible: 100 } }, {}, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], YEAR);
+  assert.equal(r.summary.sitesCovered, 10);          // tous couverts (déjà prévus)
+  assert.equal(r.summary.coverageRate, 100);
+  assert.equal(r.summary.alreadyCovered, 10);
+  // Une visite réalisée compte aussi comme couverture.
+  const r2 = generatePlan([site({ id: 'x', parametered: true, required: 1, mmrKey: 'k', activity: 'A', visits: [{ month: 2, status: 'realise' }] })],
+    { k: { interval: 6, feasible: 100 } }, {}, [1, 2, 3, 4, 5, 6], YEAR);
+  assert.equal(r2.summary.sitesCovered, 1);
+});
+
 test('coverAllOnce : chaque site couvert au moins une fois malgré la capacité', () => {
   // 5 sites, capacité 1/mois (feasible 1) : sans coverAllOnce certains ne sont pas couverts ;
   // avec, tous le sont (1er passage forcé).

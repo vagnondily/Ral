@@ -1,6 +1,11 @@
 import { periodParams } from '../lib/period.js';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:9000';
+// API de base : VITE_API_URL si fourni ; sinon en DEV l'API locale (vite sur :5173 → API :9000),
+// et en PRODUCTION la MÊME origine que la page (l'API sert l'interface compilée → un seul service,
+// pas de CORS, fonctionne en local comme depuis le réseau sans rien configurer).
+const API_URL = import.meta.env.VITE_API_URL
+  || (import.meta.env.DEV ? 'http://localhost:9000'
+    : (typeof window !== 'undefined' && window.location ? window.location.origin : 'http://localhost:9000'));
 const TOKEN_KEY = 'mems2_tpm_token';
 const USER_KEY = 'mems2_tpm_user';
 
