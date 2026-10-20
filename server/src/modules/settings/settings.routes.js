@@ -185,10 +185,13 @@ router.post('/partners', ADMIN, body(partnerBody), asyncHandler(async (req, res)
 
 router.patch('/partners/:id', ADMIN, body(z.object({
   name: z.string().trim().min(2).max(160).optional(),
+  partnerTypeId: z.string().uuid().optional(),
   dailyRate: z.number().nonnegative().nullable().optional(),
   contractRef: z.string().trim().max(120).optional().or(z.literal('').transform(() => undefined)),
   active: z.boolean().optional(),
 })), asyncHandler(async (req, res) => {
+  // Type d'un autre compte ou inconnu : 400 (le déclencheur « même compte » reste le filet).
+  if (req.valid.partnerTypeId && !(await repo.partnerTypeById(t(req), req.valid.partnerTypeId))) throw badRequest('Type de partenaire inconnu');
   const ok = await repo.updatePartner(t(req), req.params.id, req.valid);
   if (!ok) return res.status(404).json({ error: 'Partenaire introuvable' });
   return res.status(204).end();
@@ -205,22 +208,7 @@ router.delete('/partners/:id/agents/:agentId', ADMIN, asyncHandler(async (req, r
   return res.status(204).end();
 }));
 
-// Évaluation : formations suivies par un agent (thématique, date, jours)
-router.post('/partners/:id/agents/:agentId/formations', ADMIN, body(z.object({
-  thematique: z.string().trim().min(2).max(200),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('').transform(() => undefined)),
-  jours: z.number().positive().max(365).optional(),
-})), asyncHandler(async (req, res) => {
-  const f = await repo.createFormation(t(req), req.params.id, req.params.agentId, req.valid);
-  if (!f) return res.status(404).json({ error: 'Agent introuvable' });
-  return res.status(201).json(f);
-}));
-
-router.delete('/partners/:id/agents/:agentId/formations/:formationId', ADMIN, asyncHandler(async (req, res) => {
-  const ok = await repo.deleteFormation(t(req), req.params.id, req.params.agentId, req.params.formationId);
-  if (!ok) return res.status(404).json({ error: 'Formation introuvable' });
-  return res.status(204).end();
-}));
+// Formations : saisies en sessions (/api/trainings, lot 8) — les anciennes routes par agent sont retirées.
 
 // Évaluation d'un agent (basée sur son travail terrain) : période, note, appréciation
 router.post('/partners/:id/agents/:agentId/evaluations', ADMIN, body(z.object({

@@ -1,167 +1,179 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Handshake, UserPlus, ArrowRight, Settings, Info, Trash2, Users } from 'lucide-react';
+import { Building2, Eye, Handshake, ArrowRight, Settings, ChevronRight } from 'lucide-react';
 import { api } from '../api/client.js';
-import { Avatar, Badge, Button, Field, PageHeader, Stats } from '../components/ui.jsx';
+import { Avatar, Badge, Button, PageHeader, Stats, StatusBadge } from '../components/ui.jsx';
 import DataList from '../components/DataList.jsx';
-import Modal from '../components/Modal.jsx';
 import { useToast } from '../components/Toast.jsx';
-import { richText } from '../lib/contracts.js';
+import { periodLabel } from '../lib/contracts.js';
+import { formatInt } from '../lib/format.js';
+import { BANDS, formatScore } from '../lib/evaluation.js';
+import { PROVIDER_STATUS } from '../lib/partners.js';
+import { ROLE_LABELS, contractNo, joinParts } from '../lib/roles.js';
 import { useI18n } from '../lib/i18n.jsx';
-
-const FONCTIONS = ['Coordinateur de terrain', 'Superviseur', 'Agent de collecte', 'Enquêteur', 'Contrôleur qualité'];
+import './tpm/partners.css';
 
 /**
- * Prestataires TPM — tableau à plat des prestataires ; le nombre d'agents
- * (cliquable) ouvre la liste des agents (nom, fonction) avec ajout/suppression.
- * Les FORMATIONS et l'ÉVALUATION des agents sont des pages distinctes.
+ * Partenaires & TPM (lot 8, retours 28.1 et 113) : UNE liste, en onglets par rôle —
+ * « Partenaires de mise en œuvre » (titulaires des contrats FLA, avec le TPM qui suit chacun de
+ * leurs contrats) et « TPM » (tierces parties de suivi, avec les contrats qu'elles suivent).
+ * Chaque ligne ouvre la fiche 360° (#/tpm/prestataires/<id>). Les agents d'un TPM se gèrent dans
+ * sa fiche ; la liste n'en donne que le nombre.
  */
-function AgentsModal({ provider, canEdit, onClose, onChanged }) {
-  const { tr } = useI18n();
-  const toast = useToast();
-  const [name, setName] = useState('');
-  const [fonction, setFonction] = useState('');
-  const [saving, setSaving] = useState(false);
-  const agents = provider.agents || [];
-
-  async function add(e) {
-    e.preventDefault();
-    if (name.trim().length < 2) return;
-    setSaving(true);
-    try {
-      await api.createPartnerAgent(provider.id, { name: name.trim(), fonction: fonction.trim() || undefined });
-      setName(''); setFonction('');
-      toast.success(tr('Agent ajouté.'));
-      onChanged();
-    } catch (err) { toast.error(err.message); } finally { setSaving(false); }
-  }
-  // Agent qui porte des données (formations, évaluations, formulaires reçus) : la suppression est refusée
-  // (409) — on propose alors de le désactiver, ce qui garde tout son historique.
-  const [withHistory, setWithHistory] = useState(() => new Set());
-  async function remove(agentId) {
-    try { await api.deletePartnerAgent(provider.id, agentId); toast.success(tr('Agent supprimé.')); onChanged(); }
-    catch (err) {
-      if (err.status === 409) setWithHistory((prev) => new Set(prev).add(agentId));
-      toast.error(err.message);
-    }
-  }
-  async function setActive(agentId, active) {
-    try {
-      await api.setPartnerAgentActive(provider.id, agentId, active);
-      toast.success(tr(active ? 'Agent réactivé.' : 'Agent désactivé : son historique est conservé.'));
-      onChanged();
-    } catch (err) { toast.error(err.message); }
-  }
-
-  return (
-    <Modal open onClose={onClose} size="xl" title={tr('Agents de terrain — {name}', { name: provider.name })}
-      subtitle={tr(agents.length > 1 ? '{n} agents. Formation et évaluation dans leurs pages dédiées.' : '{n} agent. Formation et évaluation dans leurs pages dédiées.', { n: agents.length })}
-      footer={<Button variant="secondary" onClick={onClose}>{tr('Fermer')}</Button>}>
-      <div className="table-wrap" style={{ marginBottom: canEdit ? 16 : 0 }}>
-        <table className="table">
-          <thead><tr><th scope="col">{tr('Agent')}</th><th scope="col">{tr('Fonction')}</th>{canEdit && <th scope="col" />}</tr></thead>
-          <tbody>
-            {agents.length === 0 && <tr><td colSpan={canEdit ? 3 : 2} className="muted" style={{ textAlign: 'center', padding: 16 }}>{tr("Aucun agent pour l'instant.")}</td></tr>}
-            {agents.map((a) => (
-              <tr key={a.id}>
-                <td>
-                  <span className="agent"><Avatar name={a.name} />{a.name}</span>
-                  {a.active === false && <> <Badge>{tr('Inactif')}</Badge></>}
-                </td>
-                <td>{a.fonction ? <Badge>{a.fonction}</Badge> : <span className="cell-empty">—</span>}</td>
-                {canEdit && (
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {a.active === false
-                      ? <Button size="sm" variant="secondary" onClick={() => setActive(a.id, true)}>{tr('Réactiver')}</Button>
-                      : withHistory.has(a.id) && <Button size="sm" variant="secondary" onClick={() => setActive(a.id, false)}>{tr('Désactiver')}</Button>}
-                    {a.active !== false && <Button size="sm" variant="ghost" icon={Trash2} onClick={() => remove(a.id)} aria-label={tr('Supprimer {name}', { name: a.name })} />}
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {canEdit && (
-        <form onSubmit={add} className="form-grid" style={{ alignItems: 'end' }}>
-          <Field label={tr("Nom de l'agent")} htmlFor="ag-name" required>
-            <input id="ag-name" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={tr('Ex. J. Fanomezantsoa')} />
-          </Field>
-          <Field label={tr('Fonction')} htmlFor="ag-fonction" hint={tr('Rôle de terrain (liste ou saisie libre).')}>
-            <input id="ag-fonction" className="input" list="fonctions-list" value={fonction} onChange={(e) => setFonction(e.target.value)} placeholder={tr('Ex. Superviseur')} />
-            <datalist id="fonctions-list">{FONCTIONS.map((f) => <option key={f} value={f} />)}</datalist>
-          </Field>
-          <div className="span-2" style={{ justifySelf: 'end' }}>
-            <Button type="submit" size="sm" icon={UserPlus} loading={saving} disabled={name.trim().length < 2}>{tr("Ajouter l'agent")}</Button>
-          </div>
-        </form>
-      )}
-    </Modal>
-  );
-}
+const TAB_KEY = 'mems.partners.tab';
+const readTab = () => { try { return localStorage.getItem(TAB_KEY) || 'mise_en_oeuvre'; } catch { return 'mise_en_oeuvre'; } };
+const MAX_SHOWN = 2;
 
 export default function ProvidersPage({ canEdit, onNavigate }) {
   const { tr } = useI18n();
   const toast = useToast();
-  const [providers, setProviders] = useState(null);
-  const [modal, setModal] = useState(null);
+  const [rows, setRows] = useState(null);
+  const [tab, setTabState] = useState(readTab);
+  const setTab = (t) => { setTabState(t); try { localStorage.setItem(TAB_KEY, t); } catch { /* préférence locale seulement */ } };
 
-  async function reload() {
-    try {
-      const list = await api.listProviders();
-      setProviders(list);
-      setModal((m) => (m ? list.find((p) => p.id === m.id) || null : null));
-    } catch (err) { toast.error(err.message); setProviders((p) => p || []); }
-  }
-  useEffect(() => { reload(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => {
+    api.partnerProviders().then(setRows).catch((err) => { toast.error(err.message); setRows([]); });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const stats = useMemo(() => {
-    if (!providers) return null;
-    const agents = providers.reduce((n, p) => n + p.agents.length, 0);
-    const withAgents = providers.filter((p) => p.agents.length > 0).length;
-    return { count: providers.length, agents, withAgents };
-  }, [providers]);
+  const open = (p) => onNavigate('tpm', 'prestataires', p.id);
+  const byRole = useMemo(() => {
+    const out = { mise_en_oeuvre: [], tpm: [], autre: [] };
+    for (const p of rows || []) (out[p.role] || out.autre).push(p);
+    return out;
+  }, [rows]);
+  const tabs = [
+    { id: 'mise_en_oeuvre', label: ROLE_LABELS.implementers, icon: Building2 },
+    { id: 'tpm', label: ROLE_LABELS.tpm, icon: Eye },
+    ...(byRole.autre.length ? [{ id: 'autre', label: 'Autres partenaires', icon: Handshake }] : []),
+  ];
+  const current = tabs.some((t) => t.id === tab) ? tab : 'mise_en_oeuvre';
+  const stats = useMemo(() => (rows ? {
+    implementers: byRole.mise_en_oeuvre.length,
+    contracts: byRole.mise_en_oeuvre.reduce((n, p) => n + p.heldContracts.length, 0),
+    tpm: byRole.tpm.length,
+    tpmActive: byRole.tpm.filter((p) => p.status.state === 'actif').length,
+    agents: byRole.tpm.reduce((n, p) => n + p.agentsActive, 0),
+    toValidate: byRole.tpm.reduce((n, p) => n + p.reportsToValidate, 0),
+  } : null), [rows, byRole]);
+
+  const nameCell = (p) => (
+    <button type="button" className="pv-name-link" onClick={() => open(p)}>
+      <Avatar name={p.name} />
+      <span className="pv-name"><strong>{p.name}</strong>{p.shortName && <span className="muted"> · {p.shortName}</span>}
+        {(current === 'autre' || !p.active) && (
+          <span className="pv-sub">{joinParts(current === 'autre' ? tr(p.typeLabel) : null, !p.active ? tr('Fiche inactive') : null)}</span>
+        )}</span>
+    </button>
+  );
+  const statusCell = (p) => (
+    <div className="pv-status-cell">
+      <StatusBadge map={PROVIDER_STATUS} value={p.status.state} />
+      {p.status.from && <span className="muted pv-status-period">{periodLabel(p.status.from, p.status.to, tr)}</span>}
+    </div>
+  );
+  // Contrats d'une ligne : n° FLA (mono) · titulaire, deux au plus puis « +n ».
+  const contractsCell = (list, withHolder) => {
+    if (!list.length) return <span className="cell-empty">{tr('Aucun contrat actif')}</span>;
+    return (
+      <ul className="pr-contracts">
+        {list.slice(0, MAX_SHOWN).map((c) => (
+          <li key={c.id}><span className="mono">{contractNo(c)}</span>{withHolder && c.holderName && <span className="pv-sub">{c.holderName}</span>}</li>
+        ))}
+        {list.length > MAX_SHOWN && <li className="muted">{tr('+{n} autre(s)', { n: list.length - MAX_SHOWN })}</li>}
+      </ul>
+    );
+  };
+  // Les colonnes s'affichent dans l'ordre des clés : nom d'abord, statut puis « Ouvrir » en fin de ligne.
+  const nameCol = { label: tr(ROLE_LABELS.partner), sortVal: (p) => p.name.toLowerCase(), csv: (p) => p.name, render: nameCell };
+  const statusCol = { label: tr('Statut contractuel'), sortVal: (p) => ['actif', 'a_venir', 'echu', 'aucun'].indexOf(p.status.state), csv: (p) => tr(PROVIDER_STATUS[p.status.state].label),
+    render: statusCell };
+  const actionCol = { label: '', width: 96, csv: () => '',
+    render: (p) => <Button size="sm" variant="secondary" onClick={() => open(p)}>{tr('Ouvrir')} <ChevronRight size={14} aria-hidden="true" /></Button> };
+  const holderColumns = {
+    name: nameCol,
+    contracts: { label: tr('Contrats actifs'), sortVal: (p) => p.heldContracts.length, csv: (p) => p.heldContracts.map(contractNo).join(', '),
+      render: (p) => contractsCell(p.heldContracts, false) },
+    tpm: { label: tr(ROLE_LABELS.tpm), sortVal: (p) => p.tpms.map((t) => t.name).join(', '), csv: (p) => p.tpms.map((t) => t.name).join(', '),
+      render: (p) => (p.tpms.length ? p.tpms.map((t) => t.name).join(', ') : <span className="cell-empty">{tr(ROLE_LABELS.noTpm)}</span>) },
+    zones: { label: tr('Zones'), num: true, sortVal: (p) => p.zonesActive, csv: (p) => p.zonesActive,
+      render: (p) => (p.zonesActive ? formatInt(p.zonesActive) : <span className="cell-empty">0</span>) },
+    status: statusCol,
+    action: actionCol,
+  };
+  const tpmColumns = {
+    name: nameCol,
+    status: statusCol,
+    monitored: { label: tr('Contrats suivis'), sortVal: (p) => p.monitoredContracts.length, csv: (p) => p.monitoredContracts.map((c) => joinParts(contractNo(c), c.holderName)).join(', '),
+      render: (p) => contractsCell(p.monitoredContracts, true) },
+    agents: { label: tr('Agents'), num: true, sortVal: (p) => p.agentsActive, csv: (p) => p.agentsActive, render: (p) => p.agentsActive || <span className="cell-empty">0</span> },
+    visits: { label: tr('Visites (12 mois)'), num: true, sortVal: (p) => p.visitsRealised12, csv: (p) => p.visitsRealised12,
+      render: (p) => formatInt(p.visitsRealised12) },
+    submissions: { label: tr('Formulaires (12 mois)'), num: true, sortVal: (p) => p.submissions12, csv: (p) => p.submissions12,
+      render: (p) => formatInt(p.submissions12) },
+    reports: { label: tr('À valider'), num: true, sortVal: (p) => p.reportsToValidate, csv: (p) => p.reportsToValidate,
+      render: (p) => (p.reportsToValidate ? <Badge tone="blue">{p.reportsToValidate}</Badge> : <span className="cell-empty">0</span>) },
+    score: { label: tr('Note'), sortVal: (p) => (p.lastScore == null ? -1 : p.lastScore), csv: (p) => (p.lastScore == null ? '' : p.lastScore),
+      render: (p) => (p.lastScore == null ? <span className="cell-empty">{tr('Non évalué')}</span>
+        : <span className="pv-score-cell"><strong className="tabular">{formatScore(p.lastScore)}</strong> <StatusBadge map={BANDS} value={p.lastBand} /></span>) },
+    action: actionCol,
+  };
+  const filters = {
+    q: { label: tr('Recherche'), type: 'search', placeholder: tr('Nom, sigle, n° FLA…'),
+      match: (p, v) => [p.name, p.shortName, ...p.heldContracts.map(contractNo), ...p.monitoredContracts.map(contractNo), ...p.tpms.map((t) => t.name)]
+        .some((x) => x && String(x).toLowerCase().includes(v.toLowerCase())) },
+    status: { label: tr('Statut contractuel'), type: 'select',
+      options: [{ id: '', label: tr('Tous les statuts') }, ...Object.entries(PROVIDER_STATUS).map(([id, s]) => ({ id, label: tr(s.label) }))],
+      match: (p, v) => p.status.state === v },
+  };
+  const view = {
+    mise_en_oeuvre: { columns: holderColumns, defaults: ['name', 'contracts', 'tpm', 'zones', 'status', 'action'], key: 'mems.partners.holders.v1',
+      csv: 'partenaires_mise_en_oeuvre.csv', empty: 'Aucun partenaire de mise en œuvre',
+      emptyText: 'Créez dans Paramétrage › Partenaires les partenaires qui tiennent les contrats (type « Partenaire de mise en œuvre »).' },
+    tpm: { columns: tpmColumns, defaults: ['name', 'status', 'monitored', 'agents', 'reports', 'score', 'action'], key: 'mems.partners.tpm.v1',
+      csv: 'tpm.csv', empty: 'Aucun TPM',
+      emptyText: 'Créez dans Paramétrage › Partenaires les tierces parties de suivi (type « TPM »), puis leurs agents dans leur fiche.' },
+    autre: { columns: holderColumns, defaults: ['name', 'contracts', 'status', 'action'], key: 'mems.partners.others.v1',
+      csv: 'autres_partenaires.csv', empty: 'Aucun autre partenaire', emptyText: '' },
+  }[current];
 
   return (
     <div className="section-gap">
       <PageHeader
-        title={tr('Prestataires TPM')}
-        description={tr("Les tierces parties de suivi et leurs agents de terrain (nom, fonction). L'affectation des sites aux prestataires se fait dans « Affectation & visites » (à partir du RBM).")}
+        title={tr('Partenaires & TPM')}
+        description={tr('Les partenaires de mise en œuvre tiennent les contrats (FLA) et mettent le programme en œuvre sur les sites ; les TPM (tierces parties de suivi) suivent cette mise en œuvre. Ouvrez une ligne pour voir la fiche complète.')}
       >
         <Button variant="secondary" icon={ArrowRight} onClick={() => onNavigate('processus', 'sites')}>{tr('Affecter les sites')}</Button>
         {canEdit && <Button variant="secondary" icon={Settings} onClick={() => onNavigate('parametrage', 'partenaires')}>{tr('Créer un partenaire')}</Button>}
       </PageHeader>
-      <div className="note">
-        <Info size={18} aria-hidden="true" />
-        <span>{richText(tr("Les partenaires se créent dans <strong>Paramétrage › Partenaires</strong>. Les <strong>formations</strong> et l'<strong>évaluation</strong> des agents ont leurs propres onglets."))}</span>
-      </div>
 
       <Stats items={[
-        { label: tr('Prestataires TPM'), value: stats ? stats.count : '—', foot: tr('Tierces parties actives') },
-        { label: tr('Agents de terrain'), value: stats ? stats.agents : '—', foot: tr('Tous prestataires confondus') },
-        { label: tr('Prestataires avec agents'), value: stats ? stats.withAgents : '—', suffix: stats ? `/ ${stats.count}` : null, foot: tr('Prêts à être affectés') },
+        { label: tr(ROLE_LABELS.implementers), value: stats ? stats.implementers : '—', foot: stats ? tr('{n} contrat(s) actif(s)', { n: stats.contracts }) : null },
+        { label: tr(ROLE_LABELS.tpm), value: stats ? stats.tpm : '—', foot: stats ? tr('dont {n} actif(s) selon contrat', { n: stats.tpmActive }) : null },
+        { label: tr('Agents actifs'), value: stats ? formatInt(stats.agents) : '—', foot: tr('Agents des TPM') },
+        { label: tr('Rapports à valider'), value: stats ? stats.toValidate : '—', foot: tr('Soumis, en attente de décision') },
       ]} />
 
-      <DataList
-        rows={providers}
-        columns={{
-          name: { label: tr('Prestataire'), sortVal: (p) => p.name, csv: (p) => p.name,
-            render: (p) => <span className="agent"><Avatar name={p.name} /><strong>{p.name}</strong></span> },
-          reference: { label: tr('Référence'), sortVal: (p) => p.contractRef || '', csv: (p) => p.contractRef || '',
-            render: (p) => (p.contractRef ? <span className="mono">{p.contractRef}</span> : <span className="cell-empty">—</span>) },
-          agents: { label: tr('Agents'), num: true, sortVal: (p) => p.agents.length, csv: (p) => p.agents.length,
-            render: (p) => <button type="button" className="count-link" onClick={() => setModal(p)}>{tr(p.agents.length > 1 ? '{n} agents' : '{n} agent', { n: p.agents.length })}</button> },
-          action: { label: '', width: 150, csv: () => '',
-            render: (p) => <Button size="sm" variant="secondary" icon={Users} onClick={() => setModal(p)}>{tr('Gérer les agents')}</Button> },
-        }}
-        defaultColumns={['name', 'reference', 'agents', 'action']}
-        filters={{ q: { label: tr('Recherche'), type: 'search', placeholder: tr('Prestataire, référence…'), match: (p, v) => [p.name, p.contractRef].some((x) => x && String(x).toLowerCase().includes(v.toLowerCase())) } }}
-        storageKey="mems.providers.view" defaultSort={{ key: 'name', dir: 'asc' }}
-        csvName="prestataires_tpm.csv" emptyIcon={Handshake} emptyTitle={tr('Aucun prestataire TPM')}
-        emptyAction={canEdit && <Button icon={Settings} onClick={() => onNavigate('parametrage', 'partenaires')}>{tr('Créer dans Paramétrage')}</Button>}
-        emptyChildren={tr('Créez un partenaire de type TPM dans Paramétrage pour pouvoir saisir ses agents.')}
-      />
+      <div className="seg pr-tabs" role="tablist" aria-label={tr('Rôle des partenaires')}>
+        {tabs.map((t) => (
+          <button key={t.id} type="button" role="tab" aria-selected={current === t.id} className={current === t.id ? 'is-active' : ''}
+            onClick={() => setTab(t.id)}>
+            <t.icon size={15} aria-hidden="true" /> {tr(t.label)} <span className="pr-count">{(byRole[t.id] || []).length}</span>
+          </button>
+        ))}
+      </div>
 
-      {modal && <AgentsModal provider={modal} canEdit={canEdit} onClose={() => setModal(null)} onChanged={reload} />}
+      <DataList
+        key={current}
+        rows={rows && byRole[current]}
+        columns={view.columns}
+        defaultColumns={view.defaults}
+        filters={filters}
+        defaultFilters={['q', 'status']}
+        storageKey={view.key} defaultSort={{ key: 'name', dir: 'asc' }}
+        onRowDoubleClick={open}
+        csvName={view.csv} emptyIcon={Handshake} emptyTitle={tr(view.empty)}
+        emptyAction={canEdit && <Button icon={Settings} onClick={() => onNavigate('parametrage', 'partenaires')}>{tr('Créer dans Paramétrage')}</Button>}
+        emptyChildren={view.emptyText ? tr(view.emptyText) : null}
+      />
     </div>
   );
 }

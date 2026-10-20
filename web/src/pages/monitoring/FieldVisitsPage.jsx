@@ -182,7 +182,7 @@ export default function FieldVisitsPage({ canEdit }) {
       activity: { label: tr('Activité'), sortVal: (v) => v.activity || '', csv: (v) => v.activity || '',
         render: (v) => v.activity || '—' },
       // Retour 58 : TPM tiré du contrat qui couvre la zone ; changer = raison obligatoire.
-      provider: { label: tr('Prestataire TPM'), sortVal: (v) => v.providerName || '', csv: (v) => v.providerName || '',
+      provider: { label: tr('TPM'), sortVal: (v) => v.providerName || '', csv: (v) => v.providerName || '',
         render: (v) => <VisitTpmCell visit={v} canEdit={canEdit} onEdit={(x) => setTpmVisits([x])} /> },
       tpmOrigin: { label: tr('Origine du TPM'), sortVal: (v) => visitTpmKey(v), csv: (v) => tr((TPM_VISIT[visitTpmKey(v)] || TPM_VISIT['zone:']).label),
         render: (v) => tr((TPM_VISIT[visitTpmKey(v)] || TPM_VISIT['zone:']).label) },
@@ -211,8 +211,8 @@ export default function FieldVisitsPage({ canEdit }) {
   const filters = useMemo(() => ({
     q: { label: tr('Recherche'), type: 'search', placeholder: tr('Site, commune, district…'),
       match: (v, val) => [v.siteName, v.commune, v.district, v.activity].some((x) => x && String(x).toLowerCase().includes(val.toLowerCase())) },
-    provider: { label: tr('Prestataire'), type: 'select',
-      options: [{ id: '', label: tr('Tous les prestataires') }, { id: 'non_affecte', label: tr('— À affecter (aucun contrat) —') }, ...providers.map((p) => ({ id: p.id, label: p.name }))],
+    provider: { label: tr('TPM'), type: 'select',
+      options: [{ id: '', label: tr('Tous les TPM') }, { id: 'non_affecte', label: tr('— À affecter (aucun contrat) —') }, ...providers.map((p) => ({ id: p.id, label: p.name }))],
       match: (v, val) => (val === 'non_affecte' ? visitToAssign(v) : v.providerId === val) },
     tpmOrigin: { label: tr('Origine du TPM'), type: 'select',
       options: [{ id: '', label: tr('Toutes les origines') }, { id: 'contrat', label: tr('Selon contrat') }, { id: 'modifie', label: tr('Modifiés (zone ou visite)') },
@@ -241,8 +241,8 @@ export default function FieldVisitsPage({ canEdit }) {
     <div className="section-gap">
       <PageHeader title={tr('Affectation & visites de terrain')}
         description={picking
-          ? tr("L'écran unique du suivi terrain : planifiez les visites du mois (depuis le RBM), affectez les prestataires TPM, suivez les jours/budget, la couverture et les données réelles. Choisissez un mois pour ouvrir son plan.")
-          : tr("Les sites à visiter ce mois (district › commune › établissement › activité) : affectez le prestataire TPM et le rôle, datez les visites ; les onglets couvrent le budget-jours, la couverture et les données réelles.")}>
+          ? tr("L'écran unique du suivi terrain : planifiez les visites du mois (depuis le RBM), affectez les TPM, suivez les jours/budget, la couverture et les données réelles. Choisissez un mois pour ouvrir son plan.")
+          : tr("Les sites à visiter ce mois (district › commune › établissement › activité) : affectez le TPM et le rôle, datez les visites ; les onglets couvrent le budget-jours, la couverture et les données réelles.")}>
         {!picking && <Button variant="secondary" icon={ChevronLeft} onClick={() => setPicking(true)}>{tr('Tous les mois')}</Button>}
         {!picking && canEdit && <><input ref={fileRef} type="file" accept=".xlsx" hidden onChange={onImport} />
           <Button variant="secondary" icon={Wand2} loading={generating} onClick={generateFromRbm}
@@ -302,15 +302,15 @@ export default function FieldVisitsPage({ canEdit }) {
           </div>
         )}
         <div className="biz-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
-          {summary?.byProvider?.length > 0 && <CoverageCard title={tr('Exécution des visites déclarées par prestataire')} rows={summary.byProvider} />}
+          {summary?.byProvider?.length > 0 && <CoverageCard title={tr('Exécution des visites déclarées par TPM')} rows={summary.byProvider} />}
           {summary?.byDistrict?.length > 0 && <CoverageCard title={tr('Exécution des visites déclarées par district')} rows={summary.byDistrict} />}
         </div>
         {collDays.length > 0 && (
           <div className="card biz-card" style={{ marginTop: 16 }}>
             <div className="card-header"><div className="card-title">{tr('Jours de collecte (pour le budget)')}</div>
-              <div className="card-sub">{tr('Jours de visite = visites datées ; + jours de déplacement (saisie manuelle) = total des jours à budgéter par prestataire.')}</div></div>
+              <div className="card-sub">{tr('Jours de visite = visites datées ; + jours de déplacement (saisie manuelle) = total des jours à budgéter par TPM.')}</div></div>
             <div className="table-wrap"><table className="table">
-              <thead><tr><th>{tr('Prestataire TPM')}</th><th className="num">{tr('Jours de visite')}</th><th className="num">{tr('Jours de déplacement')}</th><th className="num">{tr('Total jours')}</th></tr></thead>
+              <thead><tr><th>{tr('TPM')}</th><th className="num">{tr('Jours de visite')}</th><th className="num">{tr('Jours de déplacement')}</th><th className="num">{tr('Total jours')}</th></tr></thead>
               <tbody>
                 {collDays.map((d) => (
                   <tr key={d.providerId}>
@@ -420,7 +420,7 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
         <div className="table-wrap"><table className="table grid months-grid">
           <thead><tr>
             <th>{tr('Mois')}</th><th>{tr('Situation')}</th><th className="num">{tr('Sites')}</th><th className="num">{tr('Planifiées')}</th>
-            <th className="num">{tr('Réalisées')}</th><th className="num">{tr('Annulées')}</th><th className="num">{tr('Prestataires')}</th>
+            <th className="num">{tr('Réalisées')}</th><th className="num">{tr('Annulées')}</th><th className="num">{tr('TPM')}</th>
             <th>{tr('Exécution des visites (déclarées)')}</th><th aria-label={tr('Action')} />
           </tr></thead>
           <tbody>
@@ -582,7 +582,7 @@ function AddVisitModal({ month, roles, onClose, onSaved }) {
         )}
         <label className="field"><span className="field-label">{tr('Activité')}</span><input className="input" value={form.activity} placeholder={tr('Ex. Suivi cantines scolaires')} onChange={(e) => setForm({ ...form, activity: e.target.value })} /></label>
         <div className="field">
-          <span className="field-label">{tr('Prestataire TPM')}</span>
+          <span className="field-label">{tr('TPM')}</span>
           <ZoneTpmLine resolved={zoneTpm} mode={mode} />
           {mode === 'existing' && zoneTpm && (
             <label className="tpm-other">

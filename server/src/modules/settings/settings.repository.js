@@ -98,15 +98,16 @@ async function createPartner(tenantId, { name, partnerTypeId, dailyRate, contrac
 }
 
 /** Mise à jour PARTIELLE (écart B4) : un champ absent reste inchangé ; null efface le taux ou la référence. */
-async function updatePartner(tenantId, id, { name, dailyRate, contractRef, active }) {
+async function updatePartner(tenantId, id, { name, partnerTypeId, dailyRate, contractRef, active }) {
   return (name ? places.withSubmissionLinks : withTenantTransaction)(tenantId, async (client) => {
     const { rowCount } = await client.query(
       `UPDATE partners SET name = COALESCE($3, name),
               daily_rate = CASE WHEN $4::boolean THEN $5::numeric ELSE daily_rate END,
               contract_ref = CASE WHEN $6::boolean THEN $7 ELSE contract_ref END,
-              active = COALESCE($8, active)
+              active = COALESCE($8, active),
+              partner_type_id = COALESCE($9::uuid, partner_type_id)
        WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id, name || null, dailyRate !== undefined, dailyRate ?? null, contractRef !== undefined, contractRef || null, active ?? null]
+      [tenantId, id, name || null, dailyRate !== undefined, dailyRate ?? null, contractRef !== undefined, contractRef || null, active ?? null, partnerTypeId || null]
     );
     if (rowCount === 1 && name) await places.relinkPartiesTx(client, tenantId);
     return rowCount === 1;
@@ -143,34 +144,17 @@ async function agentBelongs(client, tenantId, partnerId, agentId) {
   return rows.length === 1;
 }
 
-async function createFormation(tenantId, partnerId, agentId, { thematique, date, jours }) {
-  return withTenantTransaction(tenantId, async (client) => {
-    if (!(await agentBelongs(client, tenantId, partnerId, agentId))) return null;
-    const { rows } = await client.query(
-      `INSERT INTO tpm_agent_formations (tenant_id, agent_id, thematique, date_formation, jours)
-       VALUES ($1,$2,$3,$4,$5) RETURNING id, thematique, date_formation AS "date", jours`,
-      [tenantId, agentId, thematique, date || null, jours ?? 1]);
-    return { ...rows[0], jours: Number(rows[0].jours) };
-  });
-}
-
-async function deleteFormation(tenantId, partnerId, agentId, formationId) {
-  return withTenantTransaction(tenantId, async (client) => {
-    if (!(await agentBelongs(client, tenantId, partnerId, agentId))) return false;
-    const { rowCount } = await client.query(
-      'DELETE FROM tpm_agent_formations WHERE tenant_id = $1 AND agent_id = $2 AND id = $3',
-      [tenantId, agentId, formationId]);
-    return rowCount === 1;
-  });
-}
+// Les formations « par agent » (tpm_agent_formations) sont devenues des SESSIONS (lot 8, retour 28.2,
+// migration 087 qui les a reprises) : on les saisit dans /api/trainings ; la table d'origine est
+// conservée en lecture (historique), plus aucune écriture n'y est faite.
 
 // ---- Évaluation d'un agent (période, note /20, appréciation, commentaire)
 async function createEvaluation(tenantId, partnerId, agentId, { periode, note, appreciation, commentaire }, userId) {
   return withTenantTransaction(tenantId, async (client) => {
     if (!(await agentBelongs(client, tenantId, partnerId, agentId))) return null;
     const { rows } = await client.query(
-      `INSERT INTO tpm_agent_evaluations (tenant_id, agent_id, periode, note, appreciation, commentaire, evaluated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, periode, note, appreciation, commentaire`,
+      `INSERT INTO tpm_agent_evaluations (tenant_id, agent_id, periode, period_to, status, legacy, note, appreciation, commentaire, evaluated_by)
+       VALUES ($1,$2,$3,$3,'validee',true,$4,$5,$6,$7) RETURNING id, periode, note, appreciation, commentaire`,
       [tenantId, agentId, periode, note ?? null, appreciation || null, commentaire || null, userId || null]);
     return { ...rows[0], note: rows[0].note == null ? null : Number(rows[0].note) };
   });
@@ -531,7 +515,7 @@ module.exports = {
   listPartnerTypes, createPartnerType,
   listActivities, createActivity, setActivityActive,
   listPartners, createPartner, updatePartner, partnerTypeById, createAgent, deleteAgent,
-  createFormation, deleteFormation, createEvaluation, deleteEvaluation,
+  createEvaluation, deleteEvaluation,
   listExchangeRates, upsertExchangeRate, deleteExchangeRate,
   listCommunes, officesWithCounts, officePerimeter, createOffice, updateOffice, deleteOffice,
   listMmr, upsertMmr, deleteMmr, mmrRegistry, bulkSaveMmr, officeRefs,

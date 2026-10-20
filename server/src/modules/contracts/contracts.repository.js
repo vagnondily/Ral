@@ -52,6 +52,7 @@ async function listContracts(client, tenantId, { status, q } = {}) {
             COALESCE(b.total, 0) AS "directTotal",
             COALESCE(m.total, 0) AS "monitoringBudget",
             COALESCE(x.total, 0) AS "spentTotal",
+            (SELECT count(*) FROM contract_areas z WHERE z.tenant_id = c.tenant_id AND z.contract_id = c.id)::int AS "zonesCount",
             EXISTS (SELECT 1 FROM contract_amendments a
                      WHERE a.contract_id = c.id AND a.status = 'en_validation') AS "amendmentPending",
             EXISTS (SELECT 1 FROM contracts r WHERE r.renewed_from_id = c.id) AS "renewed"

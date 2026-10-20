@@ -2,6 +2,7 @@ const { withTenantTransaction } = require('../../config/db');
 const { REALISED_STATUS, PENDING_STATUS } = require('./realised');
 const { MONITORING_LINE } = require('../contracts/budgetCatalog');
 const { buildConsolidation } = require('./consolidation');
+const { contractTpmViewsTx } = require('./activeProvider.repository');
 
 /**
  * Data access for the Suivi budgétaire consolidé (Dashboard décisionnel).
@@ -45,6 +46,7 @@ async function consolidation(tenantId, { today, period = null, until } = {}) {
     const { rows: contracts } = await client.query(
       `SELECT c.id,
               c.numero,
+              c.numero_fla         AS "numeroFla",
               c.partner_id         AS "partnerId",
               c.partner_name       AS "partnerName",
               c.date_debut         AS "dateDebut",
@@ -124,7 +126,13 @@ async function consolidation(tenantId, { today, period = null, until } = {}) {
 
     const out = buildConsolidation(shaped, monthly, { today: u || today, period });
     // Factures soumises non encore validées : montrées à côté du Réalisé, jamais dedans.
-    out.rows = out.rows.map((r) => ({ ...r, pendingValidation: (pendingCents.get(r.contractId) || 0) / 100 }));
+    // Rôles (retour 113) : n° FLA du contrat, et son TPM (règle commune du retour 58) à côté du titulaire.
+    const { views } = await contractTpmViewsTx(client, tenantId, contracts);
+    const flaOf = new Map(contracts.map((c) => [c.id, c.numeroFla || null]));
+    out.rows = out.rows.map((r) => ({
+      ...r, pendingValidation: (pendingCents.get(r.contractId) || 0) / 100,
+      numeroFla: flaOf.get(r.contractId) || null, tpm: views.get(r.contractId) || { state: 'aucun', tpms: [] },
+    }));
     const totalPendingCents = out.rows.reduce((a, r) => a + (pendingCents.get(r.contractId) || 0), 0);
     out.totals = { ...out.totals, pendingValidation: totalPendingCents / 100 };
     return out;

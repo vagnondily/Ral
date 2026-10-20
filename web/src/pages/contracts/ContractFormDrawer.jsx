@@ -5,6 +5,7 @@ import { Button, Field } from '../../components/ui.jsx';
 import { BudgetItemsEditor, itemsToPayload, itemsFromBudget } from '../../components/BudgetItems.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
+import { ROLE_LABELS, joinParts, typeLabelOf } from '../../lib/roles.js';
 
 function emptyForm() {
   const y = new Date().getFullYear();
@@ -95,7 +96,7 @@ export default function ContractFormDrawer({ open, onClose, detail, onSaved }) {
     }
   }
 
-  const partnerLabel = (p) => `${p.name}${p.typeLabel ? ` · ${p.typeLabel}` : ''}`;
+  const partnerLabel = (p) => joinParts(p.name, p.typeCode || p.typeLabel ? tr(typeLabelOf(p.typeCode, p.typeLabel)) : null);
 
   return (
     <Modal
@@ -116,7 +117,7 @@ export default function ContractFormDrawer({ open, onClose, detail, onSaved }) {
       <form id="contract-form" onSubmit={handleSubmit} noValidate style={{ display: 'grid', gap: 16 }}>
         <div className="form-grid">
           <div className="span-2">
-            <Field label={tr('Partenaire')} htmlFor="ct-partner" required hint={tr('Configuré dans Paramétrage › Partenaires.')} error={err('partnerId')}>
+            <Field label={tr(ROLE_LABELS.holder)} htmlFor="ct-partner" required hint={tr('Le partenaire qui signe le contrat (partenaire de mise en œuvre, ou TPM pour son propre contrat). Configuré dans Paramétrage › Partenaires.')} error={err('partnerId')}>
               <select id="ct-partner" className={`select ${form.partnerId ? '' : 'is-empty'}`} value={form.partnerId}
                 onChange={(e) => set({ partnerId: e.target.value })} aria-invalid={Boolean(err('partnerId')) || undefined}>
                 <option value="">{partners === null ? tr('Chargement…') : tr('Choisir un partenaire…')}</option>

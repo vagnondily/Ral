@@ -18,8 +18,8 @@ const { requireConnString, explainConnError } = require('../config/connString');
 const tpmZones = require('../modules/tpm/tpmAttribution.repository');
 
 const PARTNER_TYPES = [
-  ['tpm', 'TPM (Tierce partie de suivi)', 1],
-  ['prestataire', 'Prestataire', 2],
+  ['tpm', 'TPM — tierce partie de suivi', 1],
+  ['prestataire', 'Partenaire de mise en œuvre', 2],
   ['cabinet', 'Cabinet', 3],
 ];
 const ACTIVITIES = [
@@ -154,6 +154,50 @@ async function upsertRefList(client, tenantId, table, rows) {
   return map;
 }
 
+/**
+ * Sessions de formation de démonstration (une transaction) : groupées par (thème, date), durée =
+ * jours de la formation, agents présents avec leurs jours. Idempotent : legacy_key « seed|… ».
+ * @param {Array<{ agentId, providerId, thematique, date, jours }>} rows
+ */
+async function seedTrainingSessions(client, tenantId, rows) {
+  if (!rows.length) return;
+  const groups = new Map();
+  for (const r of rows) {
+    const k = `${r.thematique.toLowerCase()}|${r.date}`;
+    if (!groups.has(k)) groups.set(k, { label: r.thematique, date: r.date, jours: 0, agents: [] });
+    const g = groups.get(k); g.jours = Math.max(g.jours, r.jours); g.agents.push(r);
+  }
+  await client.query('BEGIN');
+  try {
+    for (const [k, g] of groups) {
+      const { rows: [theme] } = await client.query(
+        `INSERT INTO training_themes (tenant_id, label) VALUES ($1, $2)
+         ON CONFLICT (tenant_id, label_key) DO UPDATE SET label = training_themes.label RETURNING id`, [tenantId, g.label]);
+      // Base où la migration 087 a déjà repris la même formation (clé « thème|date ») : on la réutilise.
+      const { rows: [existing] } = await client.query(
+        'SELECT id, score_max FROM training_sessions WHERE tenant_id = $1 AND legacy_key = ANY($2::text[]) ORDER BY origin LIMIT 1',
+        [tenantId, [k, `seed|${k}`]]);
+      const session = existing || (await client.query(
+        `INSERT INTO training_sessions (tenant_id, title, start_date, end_date, status, origin, legacy_key, score_max, pass_mark)
+         VALUES ($1, $2, $3::date, $3::date + ($4::int - 1), 'realisee', 'saisie', $5, 20, 70) RETURNING id, score_max`,
+        [tenantId, g.label, g.date, Math.max(1, Math.ceil(g.jours)), `seed|${k}`])).rows[0];
+      await client.query(
+        `INSERT INTO training_session_themes (tenant_id, session_id, theme_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        [tenantId, session.id, theme.id]);
+      const params = [tenantId, session.id, session.score_max];
+      const tuples = g.agents.map((a) => {
+        params.push(a.agentId, a.providerId, a.jours);
+        const b = params.length - 3;
+        return `($1, $2, $3, $${b + 1}::uuid, $${b + 2}::uuid, 'present', $${b + 3}::numeric)`;
+      });
+      await client.query(
+        `INSERT INTO training_participants (tenant_id, session_id, score_max, agent_id, provider_id, attendance, days_present)
+         VALUES ${tuples.join(', ')} ON CONFLICT (session_id, agent_id) DO NOTHING`, params);
+    }
+    await client.query('COMMIT');
+  } catch (err) { await client.query('ROLLBACK'); throw err; }
+}
+
 async function main() {
   const client = new Client({ connectionString: requireConnString('DATABASE_URL') });
   await client.connect();
@@ -182,6 +226,7 @@ async function main() {
 
     // Partners — name + type only (no daily rate).
     const partnerId = {};
+    const seededFormations = [];
     for (const [name, agents] of TPM_PARTNERS) {
       const { rows } = await client.query(
         `INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1,$2,$3)
@@ -197,13 +242,14 @@ async function main() {
         const agentId = ar[0]?.id
           || (await client.query('SELECT id FROM tpm_agents WHERE tpm_provider_id=$1 AND name=$2', [partnerId[name], agentName])).rows[0].id;
         for (const [thematique, dateF, jours] of (AGENT_FORMATIONS[agentName] || [])) {
-          await client.query(
-            `INSERT INTO tpm_agent_formations (tenant_id, agent_id, thematique, date_formation, jours)
-             SELECT $1,$2,$3,$4,$5 WHERE NOT EXISTS (SELECT 1 FROM tpm_agent_formations WHERE agent_id=$2 AND thematique=$3)`,
-            [tenantId, agentId, thematique, dateF, jours]);
+          seededFormations.push({ agentId, providerId: partnerId[name], thematique, date: dateF, jours });
         }
       }
     }
+    // Formations en SESSIONS (lot 8, retour 28.2 ; migration 087) — plus rien dans l'ancienne table
+    // tpm_agent_formations (elle n'est plus lue) : une session réalisée par (thème, date), son thème,
+    // ses agents présents (prestataire au moment de la session). Rejouable (clé legacy_key « seed| »).
+    await seedTrainingSessions(client, tenantId, seededFormations);
     for (const name of COOP_PARTNERS) {
       const { rows } = await client.query(
         `INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1,$2,$3)
@@ -279,8 +325,9 @@ async function main() {
         if (EVALS[nm]) {
           const [note, appr, com] = EVALS[nm];
           await client.query(
-            `INSERT INTO tpm_agent_evaluations (tenant_id, agent_id, periode, note, appreciation, commentaire, evaluated_by)
-             SELECT $1,$2,$3,$4,$5,$6,$7 WHERE NOT EXISTS (SELECT 1 FROM tpm_agent_evaluations WHERE agent_id=$2 AND periode=$3)`,
+            // Note saisie à la main = « ancienne évaluation » (lot 8, migration 088), lisible à part.
+            `INSERT INTO tpm_agent_evaluations (tenant_id, agent_id, periode, period_to, status, legacy, note, appreciation, commentaire, evaluated_by)
+             SELECT $1,$2,$3,$3,'validee',true,$4,$5,$6,$7 WHERE NOT EXISTS (SELECT 1 FROM tpm_agent_evaluations WHERE agent_id=$2 AND periode=$3)`,
             [tenantId, ag.id, periodISO, note, appr, com, validator]);
         }
       }

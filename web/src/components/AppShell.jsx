@@ -28,7 +28,7 @@ export const NAV = [
       {
         id: 'tpm', label: 'Partenaires & TPM', icon: Handshake,
         subs: [
-          { id: 'prestataires', label: 'Prestataires TPM' },
+          { id: 'prestataires', label: 'Liste des partenaires' },
           { id: 'formations', label: 'Formations' },
           { id: 'evaluation', label: 'Évaluation' },
           { id: 'budget', label: 'Planification & budget' },

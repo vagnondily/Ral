@@ -1,11 +1,11 @@
 /**
- * Options des listes « Contrat suivi » et « Prestataire TPM » (Planification & budget, facture) —
+ * Options des listes « Contrat suivi » et « TPM » (Planification & budget, facture) —
  * logique pure, testée (server/test/webEntityPicker.test.js). Règle unique du retour 58 : le TPM d'un
  * contrat de suivi est le TPM rattaché (plans, factures), sinon son titulaire (`tpmsOf`).
  *
- *  - Contrat : libellé = n° du contrat ; précision = partenaire · période · TPM ; d'abord les contrats
+ *  - Contrat : libellé = n° FLA (sinon n° interne) ; précision = titulaire · période · TPM ; d'abord les contrats
  *    qui couvrent le mois du plan, puis les autres contrats actifs.
- *  - Prestataire TPM : précision = ses contrats de suivi ; le contrat choisi, ses TPM viennent d'abord.
+ *  - TPM : précision = ses contrats de suivi ; le contrat choisi, ses TPM viennent d'abord.
  *
  * Les libellés de groupe arrivent traduits (`labels`) ; `fmtPeriod(from, to)` met en forme une période
  * de mois « AAAA-MM ».
@@ -24,7 +24,7 @@ export function contractCovers(c, month) {
 const listed = (names) => (names.length <= MAX_LISTED ? names.join(', ') : `${names.slice(0, MAX_LISTED).join(', ')} +${names.length - MAX_LISTED}`);
 
 /**
- * @param {object[]} contracts  contexte des rapports (id, numero, partnerName, dateDebut, dateFin)
+ * @param {object[]} contracts  contexte des rapports (id, numero, numeroFla, partnerName = titulaire, dateDebut, dateFin)
  * @param {{ month?: string, tpmsOf?: (id) => {id,name}[], fmtPeriod?: Function,
  *           labels?: { covering?: string, others?: string, tpmList?: (names: string) => string } }} o
  * @returns {{ options: object[], order: string[] }}
@@ -39,10 +39,10 @@ export function contractOptions(contracts, { month, tpmsOf = () => [], fmtPeriod
     const tpm = tpms.length ? (labels.tpmList ? labels.tpmList(listed(tpms.map((p) => p.name))) : `TPM : ${listed(tpms.map((p) => p.name))}`) : null;
     return {
       value: c.id,
-      label: c.numero || '—',
+      label: c.numeroFla || c.numero || '—',
       sub: [c.partnerName, period, tpm].filter(Boolean).join(' · ') || undefined,
       group: grouped ? (contractCovers(c, month) ? labels.covering : labels.others) : undefined,
-      keywords: [c.partnerName, ...tpms.map((p) => p.name)].filter(Boolean),
+      keywords: [c.numero, c.numeroFla, c.partnerName, ...tpms.map((p) => p.name)].filter(Boolean),
     };
   });
   return { options, order: grouped ? [labels.covering, labels.others] : [] };
@@ -52,7 +52,7 @@ export function contractOptions(contracts, { month, tpmsOf = () => [], fmtPeriod
  * Groupes, dans l'ordre : « TPM de ce contrat » (un contrat choisi) → « Actifs ce mois-ci » (règle commune
  * « prestataire actif au mois M », retour 30, `isActive`) → les autres. Un groupe sans libellé fourni
  * n'est pas formé.
- * @param {{id,name}[]} partners  prestataires TPM actifs
+ * @param {{id,name}[]} partners  TPM actifs
  * @param {{ contracts?: object[], contractId?: string, tpmsOf?: Function, isActive?: (id) => boolean,
  *           labels?: { ofContract?: string, active?: string, others?: string, noContract?: string } }} o
  * @returns {{ options: object[], order: string[] }}
@@ -69,7 +69,7 @@ export function tpmOptions(partners, { contracts = [], contractId = '', tpmsOf =
     return labels.others;
   };
   const options = (partners || []).map((p) => {
-    const mine = (contracts || []).filter((c) => (tpmsOf(c.id) || []).some((x) => x.id === p.id)).map((c) => c.numero).filter(Boolean);
+    const mine = (contracts || []).filter((c) => (tpmsOf(c.id) || []).some((x) => x.id === p.id)).map((c) => c.numeroFla || c.numero).filter(Boolean);
     return { value: p.id, label: p.name, sub: mine.length ? listed(mine) : labels.noContract, group: groupOf(p), keywords: mine };
   });
   const order = grouped ? [byContract && labels.ofContract, byActivity && labels.active, labels.others].filter(Boolean) : [];
@@ -77,7 +77,7 @@ export function tpmOptions(partners, { contracts = [], contractId = '', tpmsOf =
 }
 
 /**
- * Choisir le prestataire propose son contrat : sans contrat choisi, le seul contrat de suivi dont il est
+ * Choisir le TPM propose son contrat : sans contrat choisi, le seul contrat de suivi dont il est
  * le TPM est pré-sélectionné (aucun ou plusieurs : le choix reste à faire). Un contrat déjà choisi ne
  * change jamais.
  */
@@ -89,9 +89,9 @@ export function withPartner(head, partnerId, contracts, tpmsOf = () => []) {
 
 /**
  * Choisir le contrat donne son TPM — sans jamais écraser un choix délibéré : le TPM unique du contrat
- * n'est pris que si aucun prestataire n'est choisi, ou si le prestataire choisi était venu du contrat
- * PRÉCÉDENT (pré-rempli, pas choisi). Un prestataire choisi à la main est gardé ; l'écran signale l'écart
- * (« Ce prestataire n'est pas le TPM de ce contrat »).
+ * n'est pris que si aucun TPM n'est choisi, ou si le TPM choisi était venu du contrat PRÉCÉDENT
+ * (pré-rempli, pas choisi). Un TPM choisi à la main est gardé ; l'écran signale l'écart
+ * (« Ce TPM n'est pas celui de ce contrat »).
  */
 export function withContract(head, contractId, tpmsOf = () => []) {
   const tpms = (contractId && tpmsOf(contractId)) || [];

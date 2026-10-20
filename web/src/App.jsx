@@ -12,6 +12,7 @@ import ContractsListPage from './pages/contracts/ContractsListPage.jsx';
 import ContractDetailPage from './pages/contracts/ContractDetailPage.jsx';
 import ContractFormPage from './pages/contracts/ContractFormPage.jsx';
 import ReportsPage from './pages/tpm/ReportsPage.jsx';
+import ProviderSheetPage from './pages/tpm/ProviderSheetPage.jsx';
 import ConsolidationPage from './pages/dashboard/ConsolidationPage.jsx';
 import DashboardBIPage from './pages/dashboard/DashboardBIPage.jsx';
 import DashboardCoveragePage from './pages/dashboard/DashboardCoveragePage.jsx';
@@ -28,6 +29,7 @@ import CoverageRecapPage from './pages/monitoring/CoverageRecapPage.jsx';
 import SitesMapPage from './pages/monitoring/SitesMapPage.jsx';
 import PddPage from './pages/pdd/PddPage.jsx';
 import FormationsPage from './pages/tpm/FormationsPage.jsx';
+import TrainingSessionPage from './pages/tpm/TrainingSessionPage.jsx';
 import EvaluationPage from './pages/tpm/EvaluationPage.jsx';
 import SettingsPage from './pages/settings/SettingsPage.jsx';
 
@@ -118,11 +120,18 @@ function Workspace() {
         if (route.extra === 'nouveau') return <ContractFormPage mode="create" onDone={openContract} onCancel={back} />;
         if (route.extra && route.extra2 === 'edit') return <ContractFormPage mode="edit" contractId={route.extra} onDone={openContract} onCancel={back} />;
         if (route.extra && route.extra2 === 'amend') return <ContractFormPage mode="amend" contractId={route.extra} onDone={openContract} onCancel={back} />;
-        if (route.extra) return <ContractDetailPage contractId={route.extra} onBack={back} onOpen={openContract} onEdit={editContract} onAmend={amendContract} />;
+        if (route.extra) {
+          return <ContractDetailPage contractId={route.extra} onBack={back} onOpen={openContract} onEdit={editContract} onAmend={amendContract}
+            onOpenPartner={(id) => navigate('tpm', 'prestataires', id)} />;
+        }
         return <ContractsListPage canEdit={canEdit} onOpen={openContract} onNew={newContract} onEdit={editContract} onAmend={amendContract} />;
       })()}
-      {route.sub === 'prestataires' && <ProvidersPage canEdit={canEdit} onNavigate={navigate} />}
-      {route.module === 'tpm' && route.sub === 'formations' && <FormationsPage canEdit={canEdit} />}
+      {route.module === 'tpm' && route.sub === 'prestataires' && (route.extra
+        ? <ProviderSheetPage providerId={route.extra} tab={route.extra2} canEdit={canEdit} user={user} onNavigate={navigate} onOpenContract={openContract} />
+        : <ProvidersPage canEdit={canEdit} onNavigate={navigate} />)}
+      {route.module === 'tpm' && route.sub === 'formations' && (route.extra
+        ? <TrainingSessionPage sessionId={route.extra} canEdit={canEdit} onNavigate={navigate} />
+        : <FormationsPage canEdit={canEdit} onNavigate={navigate} />)}
       {route.module === 'tpm' && route.sub === 'evaluation' && <EvaluationPage canEdit={canEdit} />}
       {route.module === 'tpm' && route.sub === 'rapports' && <ReportsPage canEdit={canEdit} onOpenContract={openContract} onNavigate={navigate} />}
       {route.module === 'dashboard' && route.sub === 'apercu' && <DashboardBIPage onOpenContract={openContract} onNavigate={navigate} />}

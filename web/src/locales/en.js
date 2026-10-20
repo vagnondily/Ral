@@ -27,15 +27,20 @@ import deletions from './en/deletions.js';
 import activityCoverage from './en/activityCoverage.js';
 import period from './en/period.js';
 import map from './en/map.js';
+import partners from './en/partners.js';
 import activation from './en/activation.js';
 import reportLayout from './en/reportLayout.js';
 import tpmAttribution from './en/tpmAttribution.js';
+import roles from './en/roles.js';
 import coverageDefs from './en/coverageDefs.js';
 import pickers from './en/pickers.js';
 
 export default {
-  ...common, ...shell, ...contracts, ...tpmReports, ...tpmPlanning, ...monitoring,
+  // partners en tête : ses phrases déjà traduites ailleurs gardent la traduction de leur module.
+  ...partners, ...common, ...shell, ...contracts, ...tpmReports, ...tpmPlanning, ...monitoring,
   ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard, ...calc, ...importWizard, ...correspondences,
   ...indicatorEditor, ...dashboards, ...sites, ...deletions, ...activityCoverage, ...period, ...map, ...activation, ...reportLayout,
   ...tpmAttribution, ...coverageDefs, ...pickers,
+  // Glossaire des rôles (retour 113) en dernier : ses libellés remplacent les anciens.
+  ...roles,
 };

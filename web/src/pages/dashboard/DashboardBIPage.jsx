@@ -8,6 +8,7 @@ import MapExplorer, { MAP_OPEN_KEY } from '../../components/map/MapExplorer.jsx'
 import { formatAr, formatDecimal, formatInt } from '../../lib/format.js';
 import { periodLabel, single, spanMonths, writeHashPeriod } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { ROLE_LABELS, contractIdentity, contractNo, tpmNames } from '../../lib/roles.js';
 
 /**
  * Plafond de la carte du suivi sur cette page : celui de Couverture & performance (analyse,
@@ -18,7 +19,7 @@ const MAP_PAGE_SPAN = 24;
 /**
  * Tableau de bord décisionnel « façon Power BI » : cartes KPI, barres groupées
  * Budget / Planifié / Réalisé par contrat, tendance mensuelle, répartition du
- * réalisé par prestataire, jauges de consommation et alertes. Tout est
+ * réalisé par titulaire, jauges de consommation et alertes. Tout est
  * recalculé en direct depuis la consolidation (contrats + plans + factures).
  *
  * Période (lot 1b) : par défaut le cumul de toute la durée des contrats (comportement
@@ -87,6 +88,12 @@ function Kpi({ icon: Icon, label, value, suffix, foot, tone }) {
   );
 }
 
+/** Texte coupé (« … ») pour tenir dans `width` unités du graphique (≈ 6,5 par caractère, de 6 à 22 caractères). */
+const fit = (text, width) => {
+  const s = String(text || ''); const n = Math.max(6, Math.min(22, Math.floor(width / 6.5)));
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+};
+
 /** Grouped vertical bars: Budget / Planifié / Réalisé per contract. */
 function GroupedBars({ rows, onTip, onOpen }) {
   const { tr } = useI18n();
@@ -117,7 +124,7 @@ function GroupedBars({ rows, onTip, onOpen }) {
               return (
                 <rect
                   key={key} x={bx} y={by} width={barW} height={Math.max(0, bh)} rx="3" fill={color}
-                  onMouseMove={(e) => onTip({ x: e.clientX, y: e.clientY, title: `${r.partnerName} · ${r.numero}`, rows: [
+                  onMouseMove={(e) => onTip({ x: e.clientX, y: e.clientY, title: contractIdentity(r), rows: [
                     { label: tr('Budget'), value: formatAr(r.budget), color: C.budget },
                     { label: tr('Planifié'), value: formatAr(r.planned), color: C.planned },
                     { label: tr('Réalisé'), value: formatAr(r.actual), color: C.actual },
@@ -126,8 +133,10 @@ function GroupedBars({ rows, onTip, onOpen }) {
                 />
               );
             })}
-            <text x={gx + (barW * 3 + 6) / 2} y={H - padB + 18} textAnchor="middle" className="biz-axis biz-cat">{r.numero}</text>
-            <text x={gx + (barW * 3 + 6) / 2} y={H - padB + 34} textAnchor="middle" className="biz-axis biz-muted">{r.partnerName.slice(0, 16)}</text>
+            {/* Identité du contrat (retour 113) : n° FLA, puis le titulaire ; coupés à la largeur du groupe. */}
+            <text x={gx + (barW * 3 + 6) / 2} y={H - padB + 18} textAnchor="middle" className="biz-axis biz-cat">
+              <title>{contractIdentity(r)}</title>{fit(contractNo(r), groupW)}</text>
+            <text x={gx + (barW * 3 + 6) / 2} y={H - padB + 34} textAnchor="middle" className="biz-axis biz-muted">{fit(r.partnerName, groupW)}</text>
           </g>
         );
       })}
@@ -172,7 +181,7 @@ function TrendLines({ months, monthly, onTip }) {
   );
 }
 
-/** Donut: share of « Réalisé » by prestataire. */
+/** Donut: share of « Réalisé » by titulaire (contract holder). */
 function Donut({ items, onTip }) {
   const { tr } = useI18n();
   const total = items.reduce((n, it) => n + it.value, 0) || 1;
@@ -186,7 +195,7 @@ function Donut({ items, onTip }) {
     return `M${x0},${y0} A${R},${R} 0 ${large} 1 ${x1},${y1} L${x2},${y2} A${r},${r} 0 ${large} 0 ${x3},${y3} Z`;
   };
   return (
-    <svg viewBox="0 0 180 180" className="biz-donut" role="img" aria-label={tr('Répartition du réalisé par prestataire')}>
+    <svg viewBox="0 0 180 180" className="biz-donut" role="img" aria-label={tr('Répartition du réalisé par titulaire')}>
       {items.length === 1 && (
         <circle cx={cx} cy={cy} r={(R + r) / 2} fill="none" stroke={items[0].color} strokeWidth={R - r}
           onMouseMove={(e) => onTip({ x: e.clientX, y: e.clientY, title: items[0].label, rows: [
@@ -253,9 +262,10 @@ export default function DashboardBIPage({ onOpenContract, onNavigate }) {
     : r)) : []), [data, period]);
 
   const donutItems = useMemo(() => {
-    const byPartner = new Map();
-    for (const r of shown) byPartner.set(r.partnerName, (byPartner.get(r.partnerName) || 0) + r.actual);
-    return [...byPartner.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
+    // Par TITULAIRE du contrat (retour 113) : le réalisé payé au TPM sur les contrats de chacun.
+    const byHolder = new Map();
+    for (const r of shown) byHolder.set(r.partnerName, (byHolder.get(r.partnerName) || 0) + r.actual);
+    return [...byHolder.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
       .map(([label, value], i) => ({ label, value, color: CAT[i % CAT.length] }));
   }, [shown]);
 
@@ -324,7 +334,7 @@ export default function DashboardBIPage({ onOpenContract, onNavigate }) {
         </div>
 
         <div className="card biz-card">
-          <div className="card-header"><div className="card-title">{period ? tr('Réalisé par prestataire — {p}', { p: pLabel }) : tr('Réalisé par prestataire')}</div></div>
+          <div className="card-header"><div className="card-title">{period ? tr('Réalisé par titulaire — {p}', { p: pLabel }) : tr('Réalisé par titulaire')}</div></div>
           <div className="card-body biz-donut-wrap">
             {donutItems.length ? <Donut items={donutItems} onTip={setTip} /> : <p className="muted">{tr('Aucun réalisé.')}</p>}
             <div className="biz-legend-col">
@@ -355,7 +365,7 @@ export default function DashboardBIPage({ onOpenContract, onNavigate }) {
               const col = r.overspent ? 'var(--red)' : rate >= 0.85 ? 'var(--orange)' : C.actual;
               return (
                 <button type="button" key={r.contractId} className="biz-gauge" onClick={() => onOpenContract && onOpenContract(r.contractId)}>
-                  <div className="biz-gauge-head"><span>{r.numero}</span><span className="tabular" style={{ color: col }}>{Math.round((r.actualRate || 0) * 100)} %</span></div>
+                  <div className="biz-gauge-head"><span className="mono">{contractNo(r)}</span><span className="tabular" style={{ color: col }}>{Math.round((r.actualRate || 0) * 100)} %</span></div>
                   <div className="biz-bar"><span style={{ width: `${Math.min(100, (r.actualRate || 0) * 100)}%`, background: col }} /></div>
                   <div className="biz-gauge-foot">{tr('{partner} · reste {amount}', { partner: r.partnerName, amount: formatAr(r.remaining) })}</div>
                 </button>
@@ -371,10 +381,11 @@ export default function DashboardBIPage({ onOpenContract, onNavigate }) {
           <div className="card-header"><div className="card-title">{tr('Alertes budgétaires')}</div>
             <div className="card-sub">{tr('Contrats en dépassement ou en projection de dépassement du budget de suivi.')}</div></div>
           <div className="table-wrap"><table className="table">
-            <thead><tr><th>{tr('Contrat')}</th><th>{tr('Prestataire')}</th><th className="num">{tr('Réalisé')}</th><th className="num">{tr('Budget')}</th><th className="num">{tr('Projection fin')}</th><th>{tr('État')}</th></tr></thead>
+            <thead><tr><th>{tr('Contrat')}</th><th>{tr(ROLE_LABELS.holder)}</th><th>{tr(ROLE_LABELS.tpm)}</th><th className="num">{tr('Réalisé')}</th><th className="num">{tr('Budget')}</th><th className="num">{tr('Projection fin')}</th><th>{tr('État')}</th></tr></thead>
             <tbody>{alerts.map((r) => (
               <tr key={r.contractId} onClick={() => onOpenContract && onOpenContract(r.contractId)} style={{ cursor: 'pointer' }}>
-                <td><strong>{r.numero}</strong></td><td>{r.partnerName}</td>
+                <td className="nowrap"><strong className="mono">{contractNo(r)}</strong></td><td>{r.partnerName}</td>
+                <td>{tpmNames(r.tpm).length ? tpmNames(r.tpm).join(', ') : <span className="cell-empty">{tr(ROLE_LABELS.noTpm)}</span>}</td>
                 <td className="num tabular">{formatAr(r.actual)}</td>
                 <td className="num tabular">{formatAr(r.budget)}</td>
                 <td className="num tabular">{formatAr(r.projectedTotal)}</td>

@@ -175,7 +175,7 @@ export default function CalcDocsPage() {
           <li>{tr('Planification = sites actifs ayant au moins une visite prévue ÷ sites actifs ; « — aucun plan » quand aucune visite n\'est prévue, jamais 0 %.')}</li>
           <li>{tr('Exécution du plan (visites), tableaux de bord et alertes = visites prévues des mois échus (un site × un mois actif, comptée une fois, non annulée) suivies dans leur mois — visite déclarée OU données reçues — ÷ visites prévues. Les visites annulées ne comptent pas ; celles des mois à venir sont dites à part (« à venir »).')}</li>
           <li>{tr('Exécution des visites (déclarées), écran Affectation & visites = visites réalisées ÷ (prévues + réalisées), visites déclarées seulement : les données reçues n\'y comptent pas, d\'où un taux qui peut différer de l\'exécution du plan.')}</li>
-          <li>{tr('Jours de collecte d\'un prestataire = visites datées non annulées + jours de déplacement saisis.')}</li>
+          <li>{tr('Jours de collecte d\'un TPM = visites datées non annulées + jours de déplacement saisis.')}</li>
           <li>{tr('Fréquence de suivi selon le risque du site : élevé = chaque mois, moyen = tous les 2 mois, faible = tous les 3 mois.')}</li>
           <li>{tr('Un site est « à suivre » s\'il n\'a jamais été visité, si cette fréquence est atteinte depuis sa dernière visite, ou si son score de priorité le signale en retard. Dernière visite = le dernier mois réalisé au mois de référence ou avant : visite réalisée, soumission reçue pour le site (ou sa commune) ou date du registre ; une visite seulement prévue ne compte jamais.')}</li>
         </ul>

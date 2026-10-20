@@ -123,7 +123,7 @@ export default function EvaluationPage({ canEdit }) {
       <div className="note"><Info size={18} aria-hidden="true" /><span>{richText(tr("L'évaluation s'appuie sur le <strong>travail terrain</strong> (missions et jours de mission issus de l'affectation). La <strong>formation</strong> est gérée dans son propre onglet."))}</span></div>
 
       <Stats items={[
-        { label: tr('Agents'), value: stats ? stats.agents : '—', foot: tr('Tous prestataires') },
+        { label: tr('Agents'), value: stats ? stats.agents : '—', foot: tr('Tous les TPM') },
         { label: tr('Agents évalués'), value: stats ? stats.evaluated : '—', suffix: stats ? `/ ${stats.agents}` : null, foot: tr('Au moins une évaluation') },
         { label: tr('Jours de mission'), value: stats ? stats.missionDays : '—', foot: tr('Cumul terrain') },
       ]} />
@@ -133,7 +133,7 @@ export default function EvaluationPage({ canEdit }) {
         columns={{
           name: { label: tr('Agent'), sortVal: (a) => a.name, csv: (a) => a.name,
             render: (a) => <span className="agent"><Avatar name={a.name} /><strong>{a.name}</strong></span> },
-          provider: { label: tr('Prestataire'), sortVal: (a) => a.providerName, csv: (a) => a.providerName, render: (a) => a.providerName },
+          provider: { label: tr('TPM'), sortVal: (a) => a.providerName, csv: (a) => a.providerName, render: (a) => a.providerName },
           missions: { label: tr('Missions'), num: true, sortVal: (a) => a.missions, csv: (a) => a.missions, render: (a) => a.missions },
           missionDays: { label: tr('Jours terrain'), num: true, sortVal: (a) => a.missionDays, csv: (a) => a.missionDays, render: (a) => a.missionDays },
           note: { label: tr('Dernière note'), num: true, sortVal: (a) => (lastNote(a) == null ? -1 : lastNote(a)), csv: (a) => (lastNote(a) == null ? '' : lastNote(a)),
@@ -142,10 +142,10 @@ export default function EvaluationPage({ canEdit }) {
             render: (a) => <Button size="sm" variant="secondary" icon={ClipboardCheck} onClick={() => setModalId(a.id)}>{tr('Évaluer')}</Button> },
         }}
         defaultColumns={['name', 'provider', 'missions', 'missionDays', 'note', 'action']}
-        filters={{ q: { label: tr('Recherche'), type: 'search', placeholder: tr('Agent, prestataire…'), match: (a, v) => [a.name, a.providerName].some((x) => x && String(x).toLowerCase().includes(v.toLowerCase())) } }}
+        filters={{ q: { label: tr('Recherche'), type: 'search', placeholder: tr('Agent, TPM…'), match: (a, v) => [a.name, a.providerName].some((x) => x && String(x).toLowerCase().includes(v.toLowerCase())) } }}
         storageKey="mems.evaluation.view" defaultSort={{ key: 'name', dir: 'asc' }}
         csvName="evaluation_agents.csv" emptyIcon={ClipboardCheck} emptyTitle={tr('Aucun agent')}
-        emptyChildren={tr("Saisissez d'abord des agents dans Prestataires TPM.")}
+        emptyChildren={tr("Saisissez d'abord les agents dans la fiche de chaque TPM (Partenaires & TPM).")}
       />
 
       {modalAgent && <EvaluationModal agent={modalAgent} canEdit={canEdit} onClose={() => setModalId(null)} onChanged={reload} />}

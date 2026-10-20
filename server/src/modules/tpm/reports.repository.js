@@ -25,7 +25,7 @@ const num = (v) => (v == null ? v : Number(v));
 
 const REPORT_COLUMNS = `
   r.id, r.partner_id AS "partnerId", pa.name AS "partnerName",
-  r.contract_id AS "contractId", c.numero AS "contractNumero", c.partner_name AS "contractPartner",
+  r.contract_id AS "contractId", c.numero AS "contractNumero", c.numero_fla AS "contractFla", c.partner_name AS "contractPartner",
   r.period_month AS "periodMonth", r.period_end AS "periodEnd", r.invoice_no AS "invoiceNo",
   r.advance_deducted AS "advanceDeducted", r.kind, r.planned_amount AS "plannedAmount",
   r.reported_amount AS "reportedAmount", r.reference, r.document_name AS "documentName",
@@ -220,7 +220,7 @@ async function reportContext(tenantId) {
       [tenantId]
     );
     const { rows: contracts } = await client.query(
-      `SELECT c.id, c.numero, c.partner_name AS "partnerName", c.date_debut AS "dateDebut", c.date_fin AS "dateFin",
+      `SELECT c.id, c.numero, c.numero_fla AS "numeroFla", c.partner_name AS "partnerName", c.date_debut AS "dateDebut", c.date_fin AS "dateFin",
               c.management_fee_pct AS "managementFeePct", c.period_months AS "periodMonths",
               COALESCE(s.total, 0) AS "monitoringBudget",
               COALESCE(d.total, 0) AS "directTotal"
@@ -246,7 +246,7 @@ async function reportContext(tenantId) {
         const grand = Math.round((num(c.directTotal) || 0) * (1 + fee) * 100) / 100;
         const months = c.periodMonths || 1;
         return {
-          id: c.id, numero: c.numero, partnerName: c.partnerName, dateDebut: c.dateDebut, dateFin: c.dateFin,
+          id: c.id, numero: c.numero, numeroFla: c.numeroFla || null, partnerName: c.partnerName, dateDebut: c.dateDebut, dateFin: c.dateFin,
           monitoringBudget: num(c.monitoringBudget),
           grandTotal: grand,
           periodMonths: months,

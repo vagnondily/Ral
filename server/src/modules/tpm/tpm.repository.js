@@ -1,5 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
 const { computeExpenseAmount } = require('./expenseMath');
+const { followedSql } = require('../trainings/trainingSql');
 
 /**
  * All data access for the Partenaires & TPM module lives here, and only
@@ -25,9 +26,14 @@ async function listProviders(tenantId) {
        FROM tpm_agents WHERE tenant_id = $1 ORDER BY active DESC, name`,
       [tenantId]
     );
+    // Formations suivies (sessions, retour 28.2) : une par participation, sous la forme d'origine
+    // (thématique = titre de la session, jours = jours de présence, sinon durée de la session).
     const { rows: formations } = await client.query(
-      `SELECT id, agent_id AS "agentId", thematique, date_formation AS "date", jours
-       FROM tpm_agent_formations WHERE tenant_id = $1 ORDER BY date_formation DESC NULLS LAST, created_at`,
+      `SELECT s.id, p.agent_id AS "agentId", s.title AS thematique, s.start_date AS "date",
+              COALESCE(p.days_present, (s.end_date - s.start_date + 1)) AS jours
+         FROM training_participants p JOIN training_sessions s ON s.id = p.session_id AND s.tenant_id = p.tenant_id
+        WHERE p.tenant_id = $1 AND ${followedSql('s', 'p')}
+        ORDER BY s.start_date DESC, s.title`,
       [tenantId]
     );
     return providers.map((p) => ({
@@ -283,16 +289,19 @@ async function listFormationsReport(tenantId, { lo = null, hiExcl = null, partne
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId];
     let where = '';
-    if (lo && hiExcl) { params.push(lo, hiExcl); where += ` AND f.date_formation >= $2::date AND f.date_formation < $3::date`; }
-    if (partnerId) { params.push(partnerId); where += ` AND a.tpm_provider_id = $${params.length}::uuid`; }
+    if (lo && hiExcl) { params.push(lo, hiExcl); where += ` AND s.start_date >= $2::date AND s.start_date < $3::date`; }
+    if (partnerId) { params.push(partnerId); where += ` AND tp.provider_id = $${params.length}::uuid`; }
+    // Formations en sessions (retour 28.2) : une ligne par participant présent, prestataire au moment de la session.
     const { rows } = await client.query(
-      `SELECT f.id, to_char(f.date_formation, 'YYYY-MM-DD') AS date, f.thematique, f.jours::float8 AS jours,
+      `SELECT s.id || ':' || tp.agent_id AS id, to_char(s.start_date, 'YYYY-MM-DD') AS date, s.title AS thematique,
+              COALESCE(tp.days_present, (s.end_date - s.start_date + 1))::float8 AS jours,
               a.id AS "agentId", a.name AS "agentName", p.id AS "providerId", p.name AS "providerName"
-         FROM tpm_agent_formations f
-         JOIN tpm_agents a ON a.id = f.agent_id AND a.tenant_id = f.tenant_id
-         LEFT JOIN partners p ON p.id = a.tpm_provider_id AND p.tenant_id = a.tenant_id
-        WHERE f.tenant_id = $1${where}
-        ORDER BY f.date_formation DESC NULLS LAST, a.name LIMIT 500`, params);
+         FROM training_participants tp
+         JOIN training_sessions s ON s.id = tp.session_id AND s.tenant_id = tp.tenant_id
+         JOIN tpm_agents a ON a.id = tp.agent_id AND a.tenant_id = tp.tenant_id
+         LEFT JOIN partners p ON p.id = tp.provider_id AND p.tenant_id = tp.tenant_id
+        WHERE tp.tenant_id = $1 AND ${followedSql('s', 'tp')}${where}
+        ORDER BY s.start_date DESC, a.name LIMIT 500`, params);
     return rows;
   });
 }

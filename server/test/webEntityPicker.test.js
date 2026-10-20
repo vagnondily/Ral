@@ -54,20 +54,22 @@ test('clavier : ↓ ↑ bouclent, Début / Fin aux extrémités, liste vide = au
 });
 
 const CONTRACTS = [
-  { id: 'k1', numero: 'FLA-2025-001', partnerName: 'ONG Fanilo', dateDebut: '2025-03-01', dateFin: '2026-02-28' },
-  { id: 'k2', numero: 'FLA-2026-004', partnerName: 'Association Tsiry', dateDebut: '2026-01-01', dateFin: '2026-12-31' },
-  { id: 'k3', numero: 'FLA-2026-009', partnerName: 'ONG Fanilo', dateDebut: '2026-06-01', dateFin: null },
+  { id: 'k1', numero: 'CTR-2025-0001', numeroFla: 'FLA-2025-001', partnerName: 'ONG Fanilo', dateDebut: '2025-03-01', dateFin: '2026-02-28' },
+  { id: 'k2', numero: 'CTR-2026-0004', numeroFla: 'FLA-2026-004', partnerName: 'Association Tsiry', dateDebut: '2026-01-01', dateFin: '2026-12-31' },
+  { id: 'k3', numero: 'CTR-2026-0009', partnerName: 'ONG Fanilo', dateDebut: '2026-06-01', dateFin: null },
 ];
 const TPMS = { k1: [{ id: 'p1', name: 'Ezaka Conseil' }], k2: [{ id: 'p2', name: 'Miray Suivi' }], k3: [{ id: 'p1', name: 'Ezaka Conseil' }, { id: 'p2', name: 'Miray Suivi' }] };
 const tpmsOf = (id) => TPMS[id] || [];
 const LABELS = { covering: 'Couvrent oct. 2026', others: 'Autres contrats actifs', tpm: 'TPM' };
 
-test('contrats : n° en libellé, partenaire · période · TPM en précision, ceux qui couvrent le mois d\'abord', async (t) => {
+test('contrats : n° FLA en libellé (sinon n° interne), titulaire · période · TPM en précision, ceux qui couvrent le mois d\'abord', async (t) => {
   const m = await load(t, 'tpmPickers.js'); if (!m) return;
   const { options, order } = m.contractOptions(CONTRACTS, { month: '2026-10', tpmsOf, fmtPeriod: (a, b) => `${a}→${b}`, labels: LABELS });
   assert.deepEqual(order, ['Couvrent oct. 2026', 'Autres contrats actifs']);
   const byId = Object.fromEntries(options.map((o) => [o.value, o]));
   assert.equal(byId.k1.label, 'FLA-2025-001');
+  assert.equal(byId.k3.label, 'CTR-2026-0009', 'sans n° FLA : n° interne');
+  assert.ok(byId.k1.keywords.includes('CTR-2025-0001'), 'recherche aussi par n° interne');
   assert.equal(byId.k1.sub, 'ONG Fanilo · 2025-03→2026-02 · TPM : Ezaka Conseil');
   assert.equal(byId.k1.group, 'Autres contrats actifs', 'fini en février 2026');
   assert.equal(byId.k2.group, 'Couvrent oct. 2026');
@@ -84,14 +86,14 @@ test('contrats : n° en libellé, partenaire · période · TPM en précision, c
 test('TPM : ses contrats en précision ; le contrat choisi, ses TPM d\'abord', async (t) => {
   const m = await load(t, 'tpmPickers.js'); if (!m) return;
   const partners = [{ id: 'p1', name: 'Ezaka Conseil' }, { id: 'p2', name: 'Miray Suivi' }, { id: 'p3', name: 'Nouveau TPM' }];
-  const labels = { ofContract: 'TPM de ce contrat', others: 'Autres prestataires TPM', noContract: 'Aucun contrat de suivi rattaché' };
+  const labels = { ofContract: 'TPM de ce contrat', others: 'Autres TPM', noContract: 'Aucun contrat de suivi rattaché' };
   const none = m.tpmOptions(partners, { contracts: CONTRACTS, tpmsOf, labels });
   assert.deepEqual(none.order, [], 'sans contrat choisi : une seule liste');
-  assert.equal(none.options[0].sub, 'FLA-2025-001, FLA-2026-009');
+  assert.equal(none.options[0].sub, 'FLA-2025-001, CTR-2026-0009', 'n° FLA, sinon n° interne');
   assert.equal(none.options[2].sub, 'Aucun contrat de suivi rattaché');
   const k2 = m.tpmOptions(partners, { contracts: CONTRACTS, contractId: 'k2', tpmsOf, labels });
-  assert.deepEqual(k2.order, ['TPM de ce contrat', 'Autres prestataires TPM']);
-  assert.deepEqual(k2.options.map((o) => o.group), ['Autres prestataires TPM', 'TPM de ce contrat', 'Autres prestataires TPM']);
+  assert.deepEqual(k2.order, ['TPM de ce contrat', 'Autres TPM']);
+  assert.deepEqual(k2.options.map((o) => o.group), ['Autres TPM', 'TPM de ce contrat', 'Autres TPM']);
 });
 
 test('le contrat propose son TPM, le TPM son contrat (retour 58), sans écraser un choix cohérent', async (t) => {

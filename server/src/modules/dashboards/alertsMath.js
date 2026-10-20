@@ -138,7 +138,7 @@ function fieldAlerts(field, { range = false, month = null, coverage = null, peri
   const naf = providers.find((p) => p.key === 'non_affecte');
   if (naf && naf.total > 0) {
     out.push({ sev: 'info', cat: 'Terrain', kind: 'visits_unassigned', title: '{n} visite(s) non affectée(s)',
-      detail: when('Sites planifiés sans prestataire TPM ce mois', 'Sites planifiés sans prestataire TPM ({m})', 'Sites planifiés sans prestataire TPM sur la période'),
+      detail: when('Sites planifiés sans TPM ce mois', 'Sites planifiés sans TPM ({m})', 'Sites planifiés sans TPM sur la période'),
       params: { n: naf.total, ...whenParams }, go: FIELD_GO });
   }
   return out;

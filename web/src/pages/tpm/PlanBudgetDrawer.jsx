@@ -12,6 +12,7 @@ import PostesEditor, { newPoste, rowsFromItems, itemsFromRows } from './PostesEd
 import EntityPicker from '../../components/EntityPicker.jsx';
 import { contractOptions, tpmOptions, withContract, withPartner } from '../../lib/tpmPickers.js';
 import useContractTpms from '../../lib/useContractTpms.js';
+import { joinParts } from '../../lib/roles.js';
 import { invalidPctRows } from '../../lib/postesMath.js';
 
 /**
@@ -28,7 +29,7 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
   const [saving, setSaving] = useState(false);
   const [touched, setTouched] = useState(false);
 
-  const [head, setHead] = useState({ partnerId: '', contractId: '', title: '', status: 'brouillon', partnerName: '', contractNumero: '' });
+  const [head, setHead] = useState({ partnerId: '', contractId: '', title: '', status: 'brouillon', partnerName: '', contractNumero: '', contractFla: '' });
   const [rows, setRows] = useState(editing ? [] : [newPoste()]);
 
   const partners = context?.partners || [];
@@ -48,7 +49,7 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
   const pickTpms = tpmOptions(partners, {
     contracts, contractId: head.contractId, tpmsOf, isActive: tpmsOf.isActive,
     labels: {
-      ofContract: tr('TPM de ce contrat'), others: tr('Autres prestataires TPM'), noContract: tr('Aucun contrat de suivi rattaché'),
+      ofContract: tr('TPM de ce contrat'), others: tr('Autres TPM'), noContract: tr('Aucun contrat de suivi rattaché'),
       active: tr('Actifs en {month} (contrat de suivi)', { month: month ? monthLabel(String(month).slice(0, 7)) : '' }),
     },
   });
@@ -67,7 +68,7 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
       if (!alive) return;
       setHead({
         partnerId: p.partnerId, contractId: p.contractId, title: p.title || '', status: p.status,
-        partnerName: p.partnerName, contractNumero: p.contractNumero,
+        partnerName: p.partnerName, contractNumero: p.contractNumero, contractFla: p.contractFla || '',
       });
       setRows(rowsFromItems(p.items));
       setLoading(false);
@@ -76,7 +77,7 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
   }, [editing, planId, toast]);
 
   const errors = [];
-  if (!editing && !head.partnerId) errors.push(tr('Choisissez un prestataire.'));
+  if (!editing && !head.partnerId) errors.push(tr('Choisissez un TPM.'));
   if (!editing && !head.contractId) errors.push(tr('Choisissez un contrat.'));
   if (itemsFromRows(rows).length === 0) errors.push(tr('Ajoutez au moins un poste prévu.'));
   // Un % bailleur illisible ou hors 0–100 est refusé, jamais ramené en silence à 0 ou 100 %.
@@ -100,7 +101,7 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
 
   const title = editing ? tr('Plan de collecte — budget prévisionnel') : tr('Nouveau plan de collecte');
   const subtitle = editing
-    ? `${head.partnerName || ''} · ${head.contractNumero || ''}`
+    ? joinParts(head.partnerName, head.contractFla || head.contractNumero)
     : tr('Budget prévisionnel des postes de la vague de collecte (base du pré-remplissage de la facture).');
 
   return (
@@ -121,11 +122,11 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
                     options={pickContracts.options} groupOrder={pickContracts.order} placeholder={tr('Choisir un contrat…')}
                     searchPlaceholder={tr('Rechercher un n° de contrat, un partenaire, un TPM…')} emptyText={tr('Aucun contrat actif avec un budget Suivi/TPM ne correspond.')} />
                 </Field>
-                <Field label={tr('Prestataire TPM')} htmlFor="pbd-tpm" required error={touched && !head.partnerId ? tr('Requis.') : undefined}
+                <Field label={tr('TPM')} htmlFor="pbd-tpm" required error={touched && !head.partnerId ? tr('Requis.') : undefined}
                   hint={headTpms.length ? tr('TPM du contrat : {p}', { p: headTpms.map((p) => p.name).join(', ') }) : undefined}>
                   <EntityPicker id="pbd-tpm" value={head.partnerId} onChange={choosePartner} invalid={touched && !head.partnerId}
-                    options={pickTpms.options} groupOrder={pickTpms.order} placeholder={tr('Choisir un prestataire TPM…')}
-                    searchPlaceholder={tr('Rechercher un prestataire TPM…')} />
+                    options={pickTpms.options} groupOrder={pickTpms.order} placeholder={tr('Choisir un TPM…')}
+                    searchPlaceholder={tr('Rechercher un TPM…')} />
                 </Field>
               </>
             )}
@@ -152,7 +153,7 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
           </div>
 
           {otherTpm && (
-            <Alert tone="warn">{tr('Ce prestataire n\'est pas le TPM de ce contrat ({p}) : vérifiez le couple prestataire × contrat.', { p: headTpms.map((p) => p.name).join(', ') })}</Alert>
+            <Alert tone="warn">{tr('Ce TPM n\'est pas celui de ce contrat ({p}) : vérifiez le couple TPM × contrat.', { p: headTpms.map((p) => p.name).join(', ') })}</Alert>
           )}
           {contract && <div className="note"><Coins size={18} aria-hidden="true" /><span>{richText(tr('Budget Suivi/TPM du contrat : <strong>{budget}</strong> · barème mensuel <strong>{ceiling}</strong>', { budget: formatAr(contract.monitoringBudget), ceiling: formatAr(contract.monthlyCeiling) }))}</span></div>}
 
@@ -201,7 +202,7 @@ function AssignedSites({ providerId, month, days, onReportDays }) {
         {days && days.totalDays > 0 && <Button size="sm" variant="secondary" icon={CalendarCheck} onClick={onReportDays}>{tr('Reporter les jours dans les postes')}</Button>}
       </div>
       {visits.length === 0 ? (
-        <p className="muted">{tr('Aucun site affecté à ce prestataire pour ce mois : affectez les visites dans « Suivi de processus › Affectation & visites » ; elles justifieront ce budget.')}</p>
+        <p className="muted">{tr('Aucun site affecté à ce TPM pour ce mois : affectez les visites dans « Suivi de processus › Affectation & visites » ; elles justifieront ce budget.')}</p>
       ) : (
         <div className="table-wrap assigned-table"><table className="table table-compact">
           <thead><tr><th scope="col">{tr('Site')}</th><th scope="col">{tr('Commune')}</th><th scope="col">{tr('Activité')}</th>

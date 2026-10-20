@@ -4,6 +4,7 @@ const reportsRepo = require('../../tpm/reports.repository');
 const planningRepo = require('../../tpm/planning.repository');
 const tpmRepo = require('../../tpm/tpm.repository');
 const partnersRepo = require('../../partners/partners.repository');
+const partnersService = require('../../partners/partners.service');
 const pddRepo = require('../../pdd/pdd.repository');
 const healthRepo = require('../../settings/health.repository');
 const alertsService = require('../../dashboards/alerts.service');
@@ -82,7 +83,7 @@ module.exports = [
   {
     key: 'partnerSheet', domains: ['partners', 'budget', 'visits'], varies: ['today'],
     params: (def, eff, args) => ({ id: args.partnerId || eff.partnerId || null }),
-    load: (tenantId, p) => (p.id ? partnersRepo.sheet(tenantId, p.id) : null),
+    load: (tenantId, p) => (p.id ? partnersService.sheet(tenantId, p.id) : null),
   },
   {
     key: 'partnerTimeline', domains: ['partners', 'budget', 'visits'], varies: ['today'],

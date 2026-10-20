@@ -25,7 +25,7 @@ const DICT = {
     'nav.contrats': 'Contracts',
     'nav.contrats.liste': 'Contract list',
     'nav.tpm': 'Partners & TPM',
-    'nav.tpm.prestataires': 'TPM providers',
+    'nav.tpm.prestataires': 'Partner list',
     'nav.tpm.affectation': 'Assignment & calendar',
     'nav.tpm.formations': 'Trainings',
     'nav.tpm.evaluation': 'Evaluation',

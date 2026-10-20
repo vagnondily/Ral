@@ -29,6 +29,8 @@ const deletionsRoutes = require('./modules/deletions/deletions.routes');
 const siteRegistryRoutes = require('./modules/settings/sitesAdmin.routes');
 const subActivitiesRoutes = require('./modules/settings/subActivities.routes');
 const mapRoutes = require('./modules/map/map.routes');
+const evaluationRoutes = require('./modules/evaluation/evaluation.routes');
+const trainingsRoutes = require('./modules/trainings/trainings.routes');
 const coverageRoutes = require('./modules/dashboards/coverage.routes');
 const asyncHandler = require('./middleware/asyncHandler');
 const { requireAuth, requireRole } = require('./middleware/auth');
@@ -122,6 +124,8 @@ function createApp() {
   app.use('/api/site-registry', siteRegistryRoutes);
   app.use('/api/sub-activities', subActivitiesRoutes);
   app.use('/api/map', mapRoutes);
+  app.use('/api/evaluation', evaluationRoutes);
+  app.use('/api/trainings', trainingsRoutes);
   app.use('/api/dashboards/coverage', coverageRoutes); // retour 110 : mêmes définitions de couverture partout
   // État de la base pour l'écran : migrations en attente (bandeau administrateur).
   // Nombre de mises à jour de schéma en attente pour tous ; leurs noms de fichiers pour l'admin seul.

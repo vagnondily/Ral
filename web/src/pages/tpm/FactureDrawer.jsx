@@ -10,6 +10,7 @@ import { periodLabel } from '../../lib/period.js';
 import EntityPicker from '../../components/EntityPicker.jsx';
 import { contractOptions, tpmOptions, withContract, withPartner } from '../../lib/tpmPickers.js';
 import useContractTpms from '../../lib/useContractTpms.js';
+import { joinParts } from '../../lib/roles.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { richText } from '../../lib/contracts.js';
 import { openFacturePrint } from '../../lib/facturePrint.js';
@@ -46,7 +47,7 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
 
   const [head, setHead] = useState({
     partnerId: initial?.partnerId || '', contractId: initial?.contractId || '',
-    invoiceNo: '', periodEnd: '', advanceDeducted: '', partnerName: '', contractNumero: '',
+    invoiceNo: '', periodEnd: '', advanceDeducted: '', partnerName: '', contractNumero: '', contractFla: '',
     documentName: '', reference: '', plannedAmount: '',
   });
   const [rows, setRows] = useState(editing ? [] : [newPoste()]);
@@ -68,7 +69,7 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
   const pickTpms = tpmOptions(partners, {
     contracts, contractId: head.contractId, tpmsOf, isActive: tpmsOf.isActive,
     labels: {
-      ofContract: tr('TPM de ce contrat'), others: tr('Autres prestataires TPM'), noContract: tr('Aucun contrat de suivi rattaché'),
+      ofContract: tr('TPM de ce contrat'), others: tr('Autres TPM'), noContract: tr('Aucun contrat de suivi rattaché'),
       active: tr('Actifs en {month} (contrat de suivi)', { month: month ? monthLabel(String(month).slice(0, 7)) : '' }),
     },
   });
@@ -86,7 +87,7 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
       setKind(r.kind);
       setHead((h) => ({
         ...h,
-        partnerId: r.partnerId, contractId: r.contractId, partnerName: r.partnerName, contractNumero: r.contractNumero,
+        partnerId: r.partnerId, contractId: r.contractId, partnerName: r.partnerName, contractNumero: r.contractNumero, contractFla: r.contractFla || '',
         invoiceNo: r.invoiceNo || '', periodEnd: r.periodEnd ? r.periodEnd.slice(0, 7) : '',
         advanceDeducted: r.advanceDeducted || '', documentName: r.documentName || '', reference: r.reference || '',
         plannedAmount: r.plannedAmount || '',
@@ -110,18 +111,18 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
   }, [autoPrefill, head.contractId, isFin, editing]);
 
   async function prefillFromPlan() {
-    if (!head.partnerId || !head.contractId) { toast.info(tr("Choisissez d'abord le prestataire et le contrat.")); return; }
+    if (!head.partnerId || !head.contractId) { toast.info(tr("Choisissez d'abord le TPM et le contrat.")); return; }
     setPrefilling(true);
     try {
       const { items } = await api.planningPrefill(head.partnerId, head.contractId, month);
-      if (!items.length) { toast.info(tr('Aucun plan de collecte de ce prestataire pour ce contrat et ce mois.')); return; }
+      if (!items.length) { toast.info(tr('Aucun plan de collecte de ce TPM pour ce contrat et ce mois.')); return; }
       setRows(rowsFromItems(items));
       toast.success(tr('{n} poste(s) repris du plan de collecte.', { n: items.length }));
     } catch (e) { toast.error(e.message); } finally { setPrefilling(false); }
   }
 
   const errors = [];
-  if (!editing && !head.partnerId) errors.push(tr('Choisissez un prestataire.'));
+  if (!editing && !head.partnerId) errors.push(tr('Choisissez un TPM.'));
   if (!editing && !head.contractId) errors.push(tr('Choisissez un contrat.'));
   if (isFin && itemsFromRows(rows).length === 0) errors.push(tr('Ajoutez au moins un poste (désignation, quantité, coût).'));
   // Un % bailleur illisible ou hors 0–100 est refusé, jamais ramené en silence à 0 ou 100 %.
@@ -176,7 +177,8 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
 
   function printPdf() {
     const partnerName = head.partnerName || partners.find((p) => p.id === head.partnerId)?.name || '';
-    const contractNumero = head.contractNumero || contract?.numero || '';
+    // N° affiché du contrat : n° FLA, sinon numéro interne (glossaire, retour 113).
+    const contractNumero = head.contractNumero ? (head.contractFla || head.contractNumero) : (contract?.numeroFla || contract?.numero || '');
     openFacturePrint({
       head: { ...head, partnerName, contractNumero, periodMonth: month, advanceDeducted: Number(head.advanceDeducted) || 0 },
       rows, contract,
@@ -188,8 +190,8 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
     : (editing ? tr('Rapport technique') : tr('Nouveau rapport technique'));
   const subtitle = editing
     ? (readOnly
-      ? tr(status === 'valide' ? '{partner} · {contract} · validé (lecture seule)' : '{partner} · {contract} · lecture seule', { partner: head.partnerName || '', contract: head.contractNumero || '' })
-      : `${head.partnerName || ''} · ${head.contractNumero || ''}`)
+      ? tr(status === 'valide' ? '{partner} · {contract} · validé (lecture seule)' : '{partner} · {contract} · lecture seule', { partner: head.partnerName || '', contract: head.contractFla || head.contractNumero || '' })
+      : joinParts(head.partnerName, head.contractFla || head.contractNumero))
     : (isFin
       ? tr("Postes quantité × coût unitaire, à la charge du bailleur ou de l'ONG, groupés par section FLA.")
       : tr('Rapport technique du mois (document + référence), rattaché au contrat suivi.'));
@@ -230,11 +232,11 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
                     options={pickContracts.options} groupOrder={pickContracts.order} placeholder={tr('Choisir un contrat…')}
                     searchPlaceholder={tr('Rechercher un n° de contrat, un partenaire, un TPM…')} emptyText={tr('Aucun contrat actif avec un budget Suivi/TPM ne correspond.')} />
                 </Field>
-                <Field label={tr('Prestataire TPM')} htmlFor="fd-tpm" required error={touched && !head.partnerId ? tr('Requis.') : undefined}
+                <Field label={tr('TPM')} htmlFor="fd-tpm" required error={touched && !head.partnerId ? tr('Requis.') : undefined}
                   hint={headTpms.length ? tr('TPM du contrat : {p}', { p: headTpms.map((p) => p.name).join(', ') }) : undefined}>
                   <EntityPicker id="fd-tpm" value={head.partnerId} onChange={choosePartner} invalid={touched && !head.partnerId}
-                    options={pickTpms.options} groupOrder={pickTpms.order} placeholder={tr('Choisir un prestataire TPM…')}
-                    searchPlaceholder={tr('Rechercher un prestataire TPM…')} />
+                    options={pickTpms.options} groupOrder={pickTpms.order} placeholder={tr('Choisir un TPM…')}
+                    searchPlaceholder={tr('Rechercher un TPM…')} />
                 </Field>
               </>
             )}
@@ -246,7 +248,7 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
           </div>
 
           {otherTpm && (
-            <Alert tone="warn">{tr('Ce prestataire n\'est pas le TPM de ce contrat ({p}) : vérifiez le couple prestataire × contrat.', { p: headTpms.map((p) => p.name).join(', ') })}</Alert>
+            <Alert tone="warn">{tr('Ce TPM n\'est pas celui de ce contrat ({p}) : vérifiez le couple TPM × contrat.', { p: headTpms.map((p) => p.name).join(', ') })}</Alert>
           )}
           {contract && <div className="note"><Coins size={18} aria-hidden="true" /><span>{richText(tr('Budget Suivi/TPM du contrat : <strong>{budget}</strong> · barème mensuel <strong>{ceiling}</strong>', { budget: formatAr(contract.monitoringBudget), ceiling: formatAr(contract.monthlyCeiling) }))}</span></div>}
 

@@ -9,12 +9,14 @@ import MmrSection from './MmrSection.jsx';
 import LocalitiesSection from './LocalitiesSection.jsx';
 import { formatAr, formatInt, formatDateTime } from '../../lib/format.js';
 import { useI18n } from '../../lib/i18n.jsx';
+import { roleOf } from '../../lib/roles.js';
+import RoleBadge from '../../components/RoleBadge.jsx';
 
 // Catalogue des rubriques de paramétrage, groupées (façon « Tools » : cartes
 // explicites). `admin` = réservé aux administrateurs.
 const SECTIONS = {
   partenaires: { label: 'Partenaires', icon: Users, group: 'Référentiels', desc: 'Registre des partenaires (nom + type) servant aux sélections dans Contrats et Partenaires & TPM.' },
-  types: { label: 'Types de partenaire', icon: Tags, group: 'Référentiels', desc: 'Catégories de partenaire (TPM, prestataire, cabinet…).' },
+  types: { label: 'Types de partenaire', icon: Tags, group: 'Référentiels', desc: 'Catégories de partenaire (partenaire de mise en œuvre, TPM, cabinet…).' },
   activites: { label: 'Activités', icon: ListChecks, group: 'Référentiels', desc: 'Activités de suivi disponibles en multi-sélection sur les contrats.' },
   taux: { label: 'Taux de change', icon: Coins, group: 'Finances', desc: 'Taux de référence (ariary pour 1 USD), horodatés, pour afficher les valeurs en dollars selon la période.' },
   localites: { label: 'Localités', icon: MapPinned, group: 'Géographie', desc: 'Découpage administratif du pays (régions → districts → communes), registre des sites (identifiant, Code POI, bureau, activité, GPS, dernière collecte) et rapprochement des lieux des formulaires reçus.' },
@@ -48,7 +50,7 @@ export default function SettingsPage({ tab = 'apercu', sub = null, isAdmin, onNa
         <Card><EmptyState icon={Lock} title={tr('Accès réservé')}>{tr('Cette rubrique est réservée aux administrateurs.')}</EmptyState></Card>
       ) : (
         <>
-          {current === 'partenaires' && <PartnersSection isAdmin={isAdmin} />}
+          {current === 'partenaires' && <PartnersSection isAdmin={isAdmin} onNavigate={onNavigate} />}
           {current === 'activites' && <ActivitiesSection isAdmin={isAdmin} />}
           {current === 'types' && <TypesSection isAdmin={isAdmin} />}
           {current === 'taux' && <ExchangeRatesSection isAdmin={isAdmin} />}
@@ -485,12 +487,12 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
 
 /* ------------------------------------------------------------- Partners -- */
 
-function PartnersSection({ isAdmin }) {
+function PartnersSection({ isAdmin, onNavigate }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [partners, setPartners] = useState(null);
   const [types, setTypes] = useState([]);
-  const [modal, setModal] = useState(null); // {mode:'create'|'agent', partner?}
+  const [modal, setModal] = useState(null); // {mode:'create'|'edit', partner?}
 
   async function reload() {
     try { setPartners(await api.listPartners()); } catch (e) { toast.error(e.message); setPartners([]); }
@@ -505,7 +507,7 @@ function PartnersSection({ isAdmin }) {
 
   return (
     <Card aria-labelledby="partners-title">
-      <CardHeader id="partners-title" title={tr('Partenaires')} subtitle={tr('Liste des partenaires (mise en œuvre, prestataires, cabinets, TPM) servant aux sélections. Les agents de terrain des TPM se saisissent dans Partenaires & TPM › Prestataires TPM.')}>
+      <CardHeader id="partners-title" title={tr('Partenaires')} subtitle={tr('Le référentiel : nom et type de chaque partenaire — partenaires de mise en œuvre (titulaires des contrats), TPM (tierces parties de suivi) et autres. Fiche complète, agents des TPM et évaluations : Partenaires & TPM.')}>
         {isAdmin && <Button icon={Plus} onClick={() => setModal({ mode: 'create' })}>{tr('Nouveau partenaire')}</Button>}
       </CardHeader>
       {partners === null ? (
@@ -515,18 +517,23 @@ function PartnersSection({ isAdmin }) {
       ) : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th scope="col">{tr('Partenaire')}</th><th scope="col">{tr('Type')}</th><th scope="col">{tr('Agents (TPM)')}</th></tr></thead>
+            <thead><tr>
+              <th scope="col">{tr('Partenaire')}</th><th scope="col">{tr('Type')}</th><th scope="col" className="num">{tr('Agents (TPM)')}</th>
+              <th scope="col">{tr('État')}</th><th scope="col"><span className="sr-only">{tr('Actions')}</span></th>
+            </tr></thead>
             {Object.entries(grouped).map(([typeLabel, list]) => (
               <tbody key={typeLabel}>
-                <tr className="subrow-head"><td colSpan={3}>{typeLabel} · {list.length}</td></tr>
+                <tr className="subrow-head"><td colSpan={5}>{tr(typeLabel)} · {list.length}</td></tr>
                 {list.map((p) => (
                   <tr key={p.id}>
                     <td><span className="agent"><Avatar name={p.name} /><strong>{p.name}</strong></span></td>
-                    <td><Badge tone={p.typeCode === 'tpm' ? 'blue' : null}>{p.typeLabel}</Badge></td>
-                    <td>
-                      {p.typeCode === 'tpm'
-                        ? <span>{p.agents.length > 1 ? tr('{n} agents', { n: p.agents.length }) : tr('{n} agent', { n: p.agents.length })}{p.agents.length ? ` · ${p.agents.map((a) => a.name).join(', ')}` : ''}</span>
-                        : <span className="cell-empty">—</span>}
+                    <td>{roleOf(p.typeCode) === 'autre' ? <Badge>{tr(p.typeLabel)}</Badge> : <RoleBadge role={roleOf(p.typeCode)} />}</td>
+                    {/* Agents : le nombre seulement (leurs noms sont dans la fiche du TPM, retour 113). */}
+                    <td className="num tabular">{p.typeCode === 'tpm' ? p.agents.length : <span className="cell-empty">—</span>}</td>
+                    <td>{p.active ? <Badge tone="green">{tr('Actif')}</Badge> : <Badge>{tr('Inactif')}</Badge>}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {isAdmin && <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setModal({ mode: 'edit', partner: p })}>{tr('Modifier')}</Button>}
+                      {onNavigate && <Button size="sm" variant="secondary" onClick={() => onNavigate('tpm', 'prestataires', p.id)}>{tr('Ouvrir la fiche')} <ChevronRight size={14} aria-hidden="true" /></Button>}
                     </td>
                   </tr>
                 ))}
@@ -536,15 +543,19 @@ function PartnersSection({ isAdmin }) {
         </div>
       )}
 
-      {modal?.mode === 'create' && <PartnerModal types={types} onClose={() => setModal(null)} onSaved={() => { setModal(null); reload(); }} />}
+      {(modal?.mode === 'create' || modal?.mode === 'edit') && (
+        <PartnerModal types={types} partner={modal.partner} onClose={() => setModal(null)} onSaved={() => { setModal(null); reload(); }} />
+      )}
     </Card>
   );
 }
 
-function PartnerModal({ types, onClose, onSaved }) {
+/** Création ou modification d'un partenaire du référentiel : nom, type, actif (retour 113). */
+function PartnerModal({ types, partner, onClose, onSaved }) {
   const { tr } = useI18n();
   const toast = useToast();
-  const [form, setForm] = useState({ name: '', partnerTypeId: '' });
+  const editing = Boolean(partner);
+  const [form, setForm] = useState({ name: partner ? partner.name : '', partnerTypeId: partner ? partner.partnerTypeId : '', active: partner ? partner.active : true });
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const errs = { name: form.name.trim().length < 2 ? tr('Nom requis.') : null, partnerTypeId: !form.partnerTypeId ? tr('Choisissez un type.') : null };
@@ -555,15 +566,21 @@ function PartnerModal({ types, onClose, onSaved }) {
     if (errs.name || errs.partnerTypeId) return;
     setSaving(true);
     try {
-      await api.createPartner({ name: form.name.trim(), partnerTypeId: form.partnerTypeId });
-      toast.success(tr('Partenaire {name} créé.', { name: form.name.trim() }));
+      if (editing) {
+        await api.updatePartner(partner.id, { name: form.name.trim(), partnerTypeId: form.partnerTypeId, active: form.active });
+        toast.success(tr('Partenaire {name} mis à jour.', { name: form.name.trim() }));
+      } else {
+        await api.createPartner({ name: form.name.trim(), partnerTypeId: form.partnerTypeId });
+        toast.success(tr('Partenaire {name} créé.', { name: form.name.trim() }));
+      }
       onSaved();
     } catch (err) { toast.error(err.message); } finally { setSaving(false); }
   }
 
   return (
-    <Modal open onClose={() => !saving && onClose()} title={tr('Nouveau partenaire')} subtitle={tr('Ajouté au référentiel, utilisable dans les contrats et le suivi tiers.')} initialFocus="#pt-name"
-      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button type="submit" form="partner-form" loading={saving}>{tr('Créer')}</Button></>}>
+    <Modal open onClose={() => !saving && onClose()} title={editing ? tr('Modifier le partenaire — {name}', { name: partner.name }) : tr('Nouveau partenaire')}
+      subtitle={editing ? null : tr('Ajouté au référentiel, utilisable dans les contrats et le suivi tiers.')} initialFocus="#pt-name"
+      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button type="submit" form="partner-form" loading={saving}>{editing ? tr('Enregistrer') : tr('Créer')}</Button></>}>
       <form id="partner-form" onSubmit={save} noValidate style={{ display: 'grid', gap: 16 }}>
         <Field label={tr('Nom')} htmlFor="pt-name" required error={touched ? errs.name : undefined}>
           <input id="pt-name" className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={tr('Ex. ASSOCIATION AINA')} />
@@ -571,9 +588,15 @@ function PartnerModal({ types, onClose, onSaved }) {
         <Field label={tr('Type de partenaire')} htmlFor="pt-type" required hint={tr('Configuré dans « Types de partenaire ».')} error={touched ? errs.partnerTypeId : undefined}>
           <select id="pt-type" className={`select ${form.partnerTypeId ? '' : 'is-empty'}`} value={form.partnerTypeId} onChange={(e) => setForm({ ...form, partnerTypeId: e.target.value })}>
             <option value="">{tr('Choisir un type…')}</option>
-            {types.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            {types.map((t) => <option key={t.id} value={t.id}>{tr(t.label)}</option>)}
           </select>
         </Field>
+        {editing && partner.partnerTypeId !== form.partnerTypeId && (
+          <p className="field-hint">{tr('Changer le type change le rôle du partenaire partout : un TPM suit des contrats et a des agents ; un partenaire de mise en œuvre tient des contrats.')}</p>
+        )}
+        {editing && (
+          <label className="check-row"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /> {tr('Partenaire actif (proposé dans les listes de choix)')}</label>
+        )}
       </form>
     </Modal>
   );
@@ -801,7 +824,7 @@ function TypesSection({ isAdmin }) {
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
   return (
     <Card aria-labelledby="types-title">
-      <CardHeader id="types-title" title={tr('Types de partenaire')} subtitle={tr('Catégorisation des partenaires. Ex. TPM, prestataire, cabinet.')}>
+      <CardHeader id="types-title" title={tr('Types de partenaire')} subtitle={tr('Catégorisation des partenaires. Ex. partenaire de mise en œuvre, TPM, cabinet.')}>
         {isAdmin && <Button icon={Plus} onClick={() => setModal(true)}>{tr('Nouveau type')}</Button>}
       </CardHeader>
       {items === null ? <div className="card-body"><Skeleton height={100} /></div> : (

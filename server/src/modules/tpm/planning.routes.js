@@ -78,7 +78,7 @@ router.post('/', WRITE, body(createSchema), asyncHandler(async (req, res) => {
     const id = await repo.createPlan(t(req), input);
     res.status(201).json({ id });
   } catch (err) {
-    if (err.code === 'DUP') throw conflict('Un plan existe déjà pour ce prestataire, ce contrat et ce mois.');
+    if (err.code === 'DUP') throw conflict('Un plan existe déjà pour ce TPM, ce contrat et ce mois.');
     if (err instanceof Error && isPgText(err.message)) throw badRequest(err.message);
     throw err;
   }

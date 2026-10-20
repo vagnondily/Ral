@@ -306,7 +306,7 @@ function PlanTable({ rows, offset, allRows, capacity, pending, canEdit, selected
           {canEdit && <SelectAllHead allSelected={allSelected} onSelectAll={onSelectAll} label={tr('Tout sélectionner')} />}
           <th scope="col" className="num pb-stick pb-stick-rank">{tr('Rang')}</th><th scope="col" className="pb-stick pb-stick-name">{tr('Localité')}</th><th scope="col">{tr('Bureau')}</th>
           <th scope="col">{tr('District')}</th><th scope="col">{tr('Commune')}</th><th scope="col">{tr('Activité')}</th>
-          <th scope="col" title={tr('TPM de la zone du site : celui des contrats de suivi, ou une modification motivée (onglet Affectation des TPM)')}>{tr('Prestataire (TPM)')}</th><th scope="col">{tr('Priorité')}</th>
+          <th scope="col" title={tr('TPM de la zone du site : celui des contrats de suivi, ou une modification motivée (onglet Affectation des TPM)')}>{tr('TPM')}</th><th scope="col">{tr('Priorité')}</th>
           <th scope="col" className="num" title={tr('Visites exigées par le MMR sur l\'exercice')}>{tr('Exigées')}</th>
           <th scope="col" className="num">{tr('Faites')}</th><th scope="col" className="num">{tr('Prévues')}</th><th scope="col" className="num">{tr('Reste')}</th>
           <th scope="col">{tr('Dernière visite')}</th>
@@ -363,7 +363,7 @@ function PlanTable({ rows, offset, allRows, capacity, pending, canEdit, selected
 
 /* ------------------------------------------------------------- Vue standard (registre) */
 const STD_COLUMNS = [
-  ['status', 'Statut'], ['poiSubtype', 'Sous-type de lieu'], ['activity', 'Activité'], ['providers', 'Prestataire (TPM)'], ['bureau', 'Bureau'], ['region', 'Région'],
+  ['status', 'Statut'], ['poiSubtype', 'Sous-type de lieu'], ['activity', 'Activité'], ['providers', 'TPM'], ['bureau', 'Bureau'], ['region', 'Région'],
   ['district', 'District'], ['commune', 'Commune'], ['urbanArea', 'Zone urbaine'], ['gps', 'GPS'], ['security', 'Sécurité'],
   ['synergies', 'Synergies'], ['modalityType', 'Modalité'], ['beneficiaryNumber', 'Bénéficiaires'], ['newPartner', 'Nouveau partenaire'],
   ['experiencedPartner', 'Partenaire expérimenté'], ['lastVisitDate', 'Dernière visite (historique)'], ['issuesProcess', 'Problèmes (suivi interne)'],

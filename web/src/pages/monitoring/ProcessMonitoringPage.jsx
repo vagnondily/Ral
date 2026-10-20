@@ -1017,7 +1017,7 @@ function ResultsTab({ form, canEdit, onGoConfig, onChanged, onGoMapping }) {
       <Stats items={[
         { label: tr('Soumissions'), value: cov.submissions ?? 0, foot: tr('{period} · {n} bureau(x)', { period: periodLabel, n: cov.fieldOffices ?? 0 }) },
         { label: tr('Sites suivis'), value: cov.sites ?? 0, foot: tr('sites (données) distincts sur la période') },
-        { label: tr('Agents'), value: cov.agents ?? 0, foot: tr('{n} prestataire(s)', { n: cov.partners ?? 0 }) },
+        { label: tr('Agents'), value: cov.agents ?? 0, foot: tr('{n} partenaire(s)', { n: cov.partners ?? 0 }) },
         { label: tr('Indice moyen'), value: data.overallIndex == null ? '—' : data.overallIndex, suffix: data.overallIndex == null ? '' : '%', foot: tr('moyenne des indicateurs %') },
       ]} />
       <IndicatorsList indicators={data.indicators} moduleLabel={form.label} toolbarExtra={periodControl}

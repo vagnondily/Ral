@@ -6,6 +6,7 @@ import { BudgetItemsEditor, itemsToPayload, itemsFromBudget } from '../../compon
 import AreasSelector from '../../components/AreasSelector.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
+import { ROLE_LABELS, joinParts, typeLabelOf } from '../../lib/roles.js';
 import { richText } from '../../lib/contracts.js';
 
 function emptyForm() {
@@ -83,7 +84,7 @@ export default function ContractFormPage({ mode = 'create', contractId, onDone, 
     set({ activityIds: has ? form.activityIds.filter((x) => x !== id) : [...form.activityIds, id], items });
   }
 
-  const partnerLabel = (p) => `${p.name}${p.typeLabel ? ` · ${p.typeLabel}` : ''}`;
+  const partnerLabel = (p) => joinParts(p.name, p.typeCode || p.typeLabel ? tr(typeLabelOf(p.typeCode, p.typeLabel)) : null);
 
   // Import d'un Excel FLA → pré-remplit les postes (et la commission).
   async function onImportFile(e) {
@@ -161,7 +162,7 @@ export default function ContractFormPage({ mode = 'create', contractId, onDone, 
         <CardHeader title={tr('Identité du partenariat')} />
         <div className="card-body form-grid">
           <div className="span-2">
-            <Field label={tr('Partenaire')} htmlFor="ct-partner" required hint={tr('Configuré dans Paramétrage › Partenaires.')} error={err('partnerId')}>
+            <Field label={tr(ROLE_LABELS.holder)} htmlFor="ct-partner" required hint={tr('Le partenaire qui signe le contrat (partenaire de mise en œuvre, ou TPM pour son propre contrat). Configuré dans Paramétrage › Partenaires.')} error={err('partnerId')}>
               <select id="ct-partner" className={`select ${form.partnerId ? '' : 'is-empty'}`} value={form.partnerId}
                 onChange={(e) => set({ partnerId: e.target.value })}>
                 <option value="">{partners === null ? tr('Chargement…') : tr('Choisir un partenaire…')}</option>
@@ -190,7 +191,7 @@ export default function ContractFormPage({ mode = 'create', contractId, onDone, 
       </Card>
 
       <Card>
-        <CardHeader title={tr("Zones d'intervention affectées au prestataire")} subtitle={tr('Districts / communes du découpage administratif (Paramétrage › Localités).')} />
+        <CardHeader title={tr("Zones d'intervention du contrat")} subtitle={tr('Districts / communes du découpage administratif (Paramétrage › Localités).')} />
         <div className="card-body">
           <AreasSelector value={form.areas} onChange={(areas) => set({ areas })} />
           {errors.areas && <p className="field-error" role="alert" style={{ marginTop: 8 }}>{errors.areas}</p>}
