@@ -84,8 +84,8 @@ test('cases de départ : jamais un élément déjà créé ni un code pris ; la 
     { code: 'C', agg: 'percent_yes', suggestion: { ...sug, preselect: false } },
     { code: 'D', agg: 'mean', suggestion: { field: null, positiveValue: null, preselect: false } },
   ]);
-  assert.deepEqual(rows.A, { on: false, field: 'old_q', positive: '2' });
-  assert.equal(rows.B.on, false);
+  assert.deepEqual(rows.A, { on: false, field: 'old_q', positive: '2', locked: true });
+  assert.deepEqual([rows.B.on, rows.B.locked], [false, true]);
   assert.deepEqual(rows.C, { on: false, field: 'q1', positive: '1' });
   assert.deepEqual(rows.D, { on: false, field: '', positive: '' });
 });
@@ -127,8 +127,19 @@ test('« Créer » envoie exactement les lignes cochées à l\'écran, contrôl�
     [null, 'positive_required', null, 'unknown_field', 'locked', null, 'positive_not_in_list', 'type']);
   assert.deepEqual(items.map((it) => v.isChecked(it, rows[it.code], fields)), [true, false, true, false, false, false, false, false]);
   assert.equal(v.rowSelectable({ code: 'Z', agg: 'mean' }, { on: true, field: '' }, fields).reason, 'no_field');
-  // « % de oui » sur une variable à liste sans valeur comptée : rien ne serait compté → à choisir (serveur : positive_missing).
-  assert.equal(v.rowSelectable({ code: 'Y', agg: 'percent_yes' }, { on: true, field: 'q1', positive: '' }, fields).reason, 'positive_required');
+  // « % de oui » sans valeur comptée : accepté comme dans l'éditeur (R8) — les « oui » usuels sont comptés.
+  assert.equal(v.rowSelectable({ code: 'Y', agg: 'percent_yes' }, { on: true, field: 'q1', positive: '' }, fields).reason, null);
+  assert.equal(v.noDefaultYes(fields.get('q1')), false);
+  assert.equal(v.noDefaultYes({ choices: [{ value: '50' }, { value: '100' }] }), true); // avertissement seulement
+  // Valeur comptée aussi hors base (R1, R7) : jamais cochable (le serveur refuserait tout le lot).
+  const dk = { name: 'qd', type: 'select_one', choices: [...YN, { value: '888', label: 'Ne sait pas' }, { value: '999', label: 'Autre' }] };
+  const fm = new Map([...fields, ['qd', dk], ['qt', { name: 'qt', type: 'string', choices: [] }]]);
+  const nItem = { code: 'N', agg: 'percent_yes', naValues: ['888', '999'] };
+  assert.deepEqual(v.keptNaValues(nItem, dk), ['888']); // « Autre » est une réponse : jamais hors base
+  assert.equal(v.rowSelectable(nItem, { on: true, field: 'qd', positive: '888' }, fm).reason, 'positive_is_na');
+  assert.equal(v.rowSelectable(nItem, { on: true, field: 'qd', positive: '1|888' }, fm).reason, 'positive_is_na');
+  assert.equal(v.rowSelectable(nItem, { on: true, field: 'qd', positive: '999' }, fm).reason, null);
+  assert.equal(v.rowSelectable({ ...nItem, agg: 'percent_value' }, { on: true, field: 'qt', positive: '888' }, fm).reason, 'positive_is_na'); // sans liste : ceux du modèle
   // Sans liste connue (nombre entier) : rien à choisir, la ligne reste cochable.
   assert.equal(v.rowSelectable({ code: 'Y', agg: 'percent_yes' }, { on: true, field: 'q3', positive: '' }, fields).reason, null);
   // Défauts affichés pour la variable ACTUELLE (jamais ceux de la variable proposée au chargement).
@@ -181,9 +192,15 @@ test('rechargement hors « Créer » (C18) : cases et variables saisies gardées
   const rows = v.mergeRows(prev, after);
   assert.deepEqual(rows.A, prev.A);     // décoché par l'utilisateur : reste décoché
   assert.deepEqual(rows.B, prev.B);     // variable saisie : gardée
-  assert.deepEqual(rows.C, { on: false, field: 'q1', positive: '1' }); // devenu créé : verrouillé
+  assert.deepEqual(rows.C, { on: false, field: 'q1', positive: '1', locked: true }); // devenu créé : verrouillé
   assert.deepEqual(rows.D, { on: true, field: 'q1', positive: '1' });  // nouvel élément : précoche
   assert.deepEqual(v.mergeRows(null, items), v.initialRows(items));
+  // R5 : indicateur SUPPRIMÉ (ou code libéré) — sa ligne portait l'ancienne définition : retour à la précoche.
+  const delay = { code: 'X', suggestion: { field: 'r_no_delay', positiveValue: '1', preselect: true, issues: [] } };
+  const withOld = v.initialRows([{ ...delay, existing: { id: 'x', sourceField: 'risk_delay', positiveValue: '0' } }]);
+  assert.deepEqual(v.mergeRows(withOld, [delay]).X, { on: true, field: 'r_no_delay', positive: '1' });
+  const taken = v.initialRows([{ ...delay, taken: { id: 'm', code: 'X', label: 'Manuel' } }]);
+  assert.deepEqual(v.mergeRows(taken, [delay]).X, { on: true, field: 'r_no_delay', positive: '1' });
 });
 
 test('badges (C22) : une catégorie par élément, la somme fait le total ; « Sans variable » = le filtre du même nom', async (t) => {
@@ -308,7 +325,10 @@ test('refus du serveur dans la langue de l\'écran (C20) : modèle, création, m
     { status: 400, message: 'fr', details: { code: 'type_mismatch', item: 'X', field: 'q', type: 'select_multiple', agg: 'percent_yes' } },
     { status: 400, message: 'fr', details: { code: 'positive_not_in_list', item: 'X', field: 'q', value: '7' } },
     { status: 400, message: 'fr', details: { code: 'positive_required', item: 'X' } },
-    { status: 400, message: 'fr', details: { code: 'positive_missing', item: 'X', field: 'q' } },
+    { status: 400, message: 'Indicateur « X » absent du modèle', details: { code: 'unknown_item', value: 'X', template: 'GD' } },
+    { status: 400, message: 'Un même indicateur est envoyé deux fois.', details: { code: 'duplicate_item', value: 'X' } },
+    { status: 409, message: 'fr', details: { code: 'drift_changed' } },
+    { status: 404, message: 'Indicateur introuvable', details: { code: 'indicator_not_found' } },
     { status: 400, message: 'fr', details: { code: 'positive_is_na', item: 'X', value: '888' } },
     { status: 400, message: 'Variable « x » introuvable dans cette fiche', details: { code: 'unknown_variable', name: 'x', suggestion: 'y' } },
     { status: 400, message: 'fr', details: { code: 'activity_template', activity: 'School meal activities', template: 'SMP' } },
@@ -318,12 +338,15 @@ test('refus du serveur dans la langue de l\'écran (C20) : modèle, création, m
   ];
   for (const e of cases) {
     const text = v.templateErrorText(e, trEn, { template: 'ZZZ' });
-    assert.ok(text && !/<<|introuvable|existe déjà|^fr$/.test(text), `${e.details.code} → ${text}`);
+    assert.ok(text && !/<<|introuvable|existe déjà|absent du modèle|deux fois|^fr$/.test(text), `${e.details.code} → ${text}`);
   }
   assert.equal(v.templateErrorText({ message: 'Serveur injoignable.' }, trEn), 'Serveur injoignable.'); // sans code : le message reçu
   const ie = v.itemError(cases[1]);
   assert.deepEqual([ie.item, ie.code, ie.value], ['X', 'positive_not_in_list', '7']);
   assert.equal(v.itemError({ status: 400, details: { code: 'no_template' } }), null);
+  // Carte périmée : l'écran propose de recharger (modèle changé, indicateur changé ou supprimé ailleurs).
+  for (const code of ['unknown_item', 'duplicate_item', 'drift_changed', 'indicator_not_found']) assert.equal(v.needsReload({ details: { code } }), true, code);
+  assert.equal(v.needsReload({ details: { code: 'type_mismatch' } }), false);
   assert.equal(v.itemError(null), null);
 });
 
@@ -351,6 +374,9 @@ test('composants : ils passent par ces règles (source) — filtres, rechargemen
   assert.match(card, /positiveForField\(it, fieldsByName\.get\(v\), r\.positive\)/); // C19
   assert.match(card, /fieldIssues\(it, field, r\.positive\)/);
   assert.doesNotMatch(card, /errors\[it\.code\] = e\.message/);              // C20
+  assert.match(card, /api\.monTemplateUpdate\(it\.existing\.id, \{ mode: full \? 'full' : 'corrections', template: templateParam, expected: patch \}\)/); // R6
+  assert.doesNotMatch(card, /monUpdateIndicator/);
+  assert.match(card, /keptNaValues\(it, field\)/);                        // R1 / R7 : hors base non choisissables
   assert.match(card, /effectiveFilter\(filter, filters\)/);                 // C24
   assert.match(card, /cardCounts\(items\)/);                                // C22
   assert.match(card, /blockedText\(ds\.blocked, tr\)/);                     // C21
@@ -373,4 +399,37 @@ test('couverture affichée en pourcentage entier', async (t) => {
   const v = await load(t); if (!v) return;
   assert.equal(v.coveragePct(0.6667), '67');
   assert.equal(v.coveragePct(null), '0');
+});
+
+test('jumeaux (R1, R7, R8) : une ligne est cochable côté carte SI ET SEULEMENT SI le serveur l\'accepte, sur les 5 formulaires réels', async (t) => {
+  const v = await load(t); if (!v) return;
+  const { indicatorFromItem } = require('../src/modules/monitoring/indicatorTemplates');
+  let compared = 0;
+  for (const formId of Object.keys(FORMS)) {
+    const tpl = templateByKey(FORMS[formId]);
+    const { fields, items } = cardItems(formId);
+    const fm = byName(fields);
+    items.forEach((it, i) => {
+      const field = fm.get(it.suggestion.field);
+      if (!field || !['percent_yes', 'percent_value'].includes(it.agg)) return;
+      for (const positive of ['', ...(field.choices || []).map((c) => String(c.value))]) {
+        const client = v.rowSelectable(it, { on: true, field: field.name, positive }, fm).ok;
+        // Ce que applyTemplate fait de la ligne : bindItem (hors base de la liste), indicatorFromItem, templateRowIssue.
+        const kept = P.bindItem(it, { positiveValue: positive || null, confidence: null }, field).naValues;
+        const row = indicatorFromItem(tpl, it, { sourceField: field.name, positiveValue: positive || null, naValues: kept }, i);
+        const server = P.templateRowIssue(it, field, row) === null;
+        assert.equal(client, server, `${formId} ${it.code} « ${positive} »`);
+        compared += 1;
+      }
+    });
+  }
+  assert.ok(compared > 500, `${compared}`);
+});
+
+test('« oui » par défaut (R8) : même ensemble que le calcul (monitoringMath.isYes sans valeur comptée)', async (t) => {
+  const v = await load(t); if (!v) return;
+  const { isYes } = require('../src/modules/monitoring/monitoringMath');
+  for (const s of ['1', 'oui', 'Oui', 'yes', 'YES', 'true', 'vrai', 'y', 'o', '0', 'non', 'no', '2', '888', 'sélectionné', '']) {
+    assert.equal(v.DEFAULT_YES.has(s.trim().toLowerCase()), s !== '' && isYes(s, null, null) === 1, s);
+  }
 });

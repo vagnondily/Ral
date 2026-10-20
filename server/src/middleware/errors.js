@@ -11,7 +11,7 @@ class AppError extends Error {
   }
 }
 
-const notFound = (message = 'Ressource introuvable') => new AppError(404, message);
+const notFound = (message = 'Ressource introuvable', details) => new AppError(404, message, details);
 const badRequest = (message = 'Requête invalide', details) => new AppError(400, message, details);
 const forbidden = (message = 'Accès refusé') => new AppError(403, message);
 const unauthorized = (message = 'Authentification requise') => new AppError(401, message);

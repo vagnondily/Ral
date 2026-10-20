@@ -34,6 +34,11 @@ repo.indicatorPreview = async (tenantId, formId, def, period) => {
   calls.push({ fn: 'preview', formId, def, period });
   return { n: 3, explain: { value: 50 }, period };
 };
+repo.applyTemplateUpdate = async (tenantId, id, input) => {
+  calls.push({ fn: 'templateUpdate', tenantId, id, input });
+  if (id === '99999999-9999-9999-9999-999999999999') return null;
+  return { patch: input.expected };
+};
 repo.formMonths = async (tenantId, formId) => (formId === '99999999-9999-9999-9999-999999999999' ? null : { months: [{ month: '2026-07', submissions: 74 }], latest: '2026-07' });
 
 const app = express();
@@ -180,4 +185,19 @@ test('créer depuis le modèle : soit les éléments choisis, soit « proposed �
   // Lecteur : pas d'écriture.
   assert.equal((await request(app).post(`/api/monitoring/forms/${FORM}/template/apply`).set(as(viewer)).send({ proposed: true })).status, 403);
   assert.equal(calls.length, n);
+});
+
+test('mise à jour depuis le modèle (R6) : la modification montrée part au dépôt ; indicateur disparu → 404 indicator_not_found', async () => {
+  const res = await request(app).post(`/api/monitoring/indicators/${IND}/template-update`).set(as(manager))
+    .send({ mode: 'corrections', expected: { label: 'Nouveau', naValues: ['888'] } });
+  assert.equal(res.status, 200);
+  assert.deepEqual(last().input, { mode: 'corrections', template: null, expected: { label: 'Nouveau', naValues: ['888'] } });
+  assert.equal(last().tenantId, TENANT);
+  const gone = await request(app).post('/api/monitoring/indicators/99999999-9999-9999-9999-999999999999/template-update').set(as(manager))
+    .send({ expected: { label: 'x' } });
+  assert.deepEqual([gone.status, gone.body.details.code], [404, 'indicator_not_found']);
+  const bad = await request(app).post(`/api/monitoring/indicators/${IND}/template-update`).set(as(manager)).send({ expected: { inconnu: 1 } });
+  assert.equal(bad.status, 400);
+  const ro = await request(app).post(`/api/monitoring/indicators/${IND}/template-update`).set(as(viewer)).send({ expected: { label: 'x' } });
+  assert.equal(ro.status, 403);
 });

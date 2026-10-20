@@ -281,7 +281,10 @@ function bindingForVariable(item, binding, name, fields) {
  *    envoyée en lot, seulement par l'action de SA ligne (`fullPatch`).
  * Jamais signalés : une variable choisie par l'utilisateur (ni du modèle ni d'avant
  * la correction), un libellé renommé (seul un ANCIEN libellé du modèle l'est), une
- * cible saisie.
+ * cible saisie. Une correction exige que l'indicateur soit encore sur une variable de
+ * la définition d'avant (sinon ses valeurs sont celles de l'utilisateur : différences).
+ * Cible vide : correction seulement si l'indicateur a été créé par l'ancien chemin
+ * (il garde une valeur propre à la définition d'avant) — sinon effacée par l'utilisateur.
  *
  * Variable : seule une variable d'avant la correction est remplacée, et seulement
  * par une variable du modèle trouvée par son NOM, sans défaut (jamais un libellé
@@ -333,23 +336,34 @@ function templateDrift(item, binding, ind, { fields = null } = {}) {
   const vb = target ? bindingForVariable(item, binding, target, fields) : null;
   const verified = Boolean(vb) && !issuesOf(vb).length;
   const percent = PERCENT_AGGS.has(item.agg);
-  const origin = (key, value) => (formerly.some((f) => {
-    if (key === 'agg') return f.agg === value && f.agg !== item.agg;
-    if (key === 'positiveValue') return valueSet(f.positiveValue) === valueSet(value) && valueSet(f.positiveValue) !== valueSet(item.positiveValue);
-    if (key === 'naValues') return listSet(f.naValues) === listSet(value) && listSet(f.naValues) !== listSet(item.naValues);
-    if (key === 'direction') return Boolean(f.direction) && f.direction === value && f.direction !== item.direction;
-    return false;
-  }) ? 'correction' : 'difference');
+  // Une valeur n'est une « correction » que si l'indicateur porte encore la définition d'AVANT sur la
+  // MÊME variable (une des variables de cette définition) : sur une variable choisie par l'utilisateur,
+  // une ancienne méthode ou valeur est SON choix — une différence, jamais envoyée en lot (R3).
+  const sameVar = (f) => (f.variables || []).some((v) => nameKey(v) === nameKey(ind.sourceField));
+  const was = {
+    agg: (f) => f.agg === ind.agg && f.agg !== item.agg,
+    positiveValue: (f) => valueSet(f.positiveValue) === valueSet(ind.positiveValue) && valueSet(f.positiveValue) !== valueSet(item.positiveValue),
+    naValues: (f) => listSet(f.naValues) === listSet(ind.naValues || []) && listSet(f.naValues) !== listSet(item.naValues),
+    direction: (f) => Boolean(f.direction) && f.direction === ind.direction && f.direction !== item.direction,
+    label: (f) => f.label === ind.label && f.label !== item.label,
+    sourceField: () => !known.has(nameKey(ind.sourceField)),
+  };
+  const origin = (key) => (formerly.some((f) => sameVar(f) && was[key](f)) ? 'correction' : 'difference');
+  // Créé par l'ANCIEN chemin du modèle (qui n'écrivait aucune cible) : l'indicateur garde, sur la même
+  // variable, une valeur propre à une définition d'avant (variable, méthode, valeur, hors base, sens ou
+  // libellé). Une cible vide est alors une correction ; sinon (créé par le chemin actuel, qui écrit la
+  // cible) elle a été effacée par l'utilisateur — une différence, jamais réécrite en lot (R4).
+  const createdBefore = formerly.some((f) => f.target == null && sameVar(f) && Object.keys(was).some((k) => was[k](f)));
 
-  if (ind.agg !== item.agg) add('agg', ind.agg, item.agg, origin('agg', ind.agg));
+  if (ind.agg !== item.agg) add('agg', ind.agg, item.agg, origin('agg'));
   const wantedPositive = percent ? ((verified ? vb.positiveValue : item.positiveValue) || null) : null;
-  if (valueSet(ind.positiveValue) !== valueSet(wantedPositive)) add('positiveValue', ind.positiveValue || null, wantedPositive, origin('positiveValue', ind.positiveValue));
+  if (valueSet(ind.positiveValue) !== valueSet(wantedPositive)) add('positiveValue', ind.positiveValue || null, wantedPositive, origin('positiveValue'));
   const wantedNa = verified ? vb.naValues : (item.naValues || []);
-  if (listSet(ind.naValues) !== listSet(wantedNa)) add('naValues', ind.naValues || [], wantedNa, origin('naValues', ind.naValues || []));
-  // Cible vide alors que le modèle en a une : ancienne création OU cible effacée — indiscernables, donc une différence.
-  if (item.target != null && ind.target == null) add('target', null, Number(item.target), 'difference');
-  if (item.direction && ind.direction && ind.direction !== item.direction) add('direction', ind.direction, item.direction, origin('direction', ind.direction));
-  if (ind.label !== item.label && formerly.some((f) => f.label === ind.label)) add('label', ind.label, item.label, 'correction');
+  if (listSet(ind.naValues) !== listSet(wantedNa)) add('naValues', ind.naValues || [], wantedNa, origin('naValues'));
+  if (item.target != null && ind.target == null) add('target', null, Number(item.target), createdBefore ? 'correction' : 'difference');
+  if (item.direction && ind.direction && ind.direction !== item.direction) add('direction', ind.direction, item.direction, origin('direction'));
+  // Libellé : seul un ANCIEN libellé du modèle est signalé (un libellé renommé par l'utilisateur ne l'est jamais).
+  if (ind.label !== item.label && formerly.some((f) => f.label === ind.label)) add('label', ind.label, item.label, origin('label'));
 
   if (!verified) {
     // Sans liaison vérifiée : une différence de valeur est invérifiable (non signalée) ; une correction de
@@ -379,13 +393,32 @@ function templateDrift(item, binding, ind, { fields = null } = {}) {
   };
 }
 
+const normPatchValue = (key, v) => {
+  if (v == null || v === '') return null;
+  if (key === 'naValues') return listSet(v);
+  if (key === 'positiveValue') return valueSet(v);
+  if (key === 'target') return Number(v);
+  return String(v);
+};
+/**
+ * Deux modifications identiques (mêmes clés, mêmes valeurs ; listes et valeurs « 1|2 » sans ordre) :
+ * la mise à jour depuis le modèle n'écrit que ce que la carte a montré (R6).
+ */
+function samePatch(a, b) {
+  const ka = Object.keys(a || {}).sort();
+  const kb = Object.keys(b || {}).sort();
+  if (ka.join('|') !== kb.join('|')) return false;
+  return ka.every((k) => normPatchValue(k, a[k]) === normPatchValue(k, b[k]));
+}
+
 /**
  * Refus d'un élément envoyé à la création (applyTemplate, éléments cochés ou proposés) — même
  * contrôle que la carte et que l'éditeur, un élément nommé, rien d'écrit :
  *  - type de la variable incompatible avec la méthode (type_mismatch) ;
- *  - valeur comptée absente de la liste de la variable (positive_not_in_list), ou « % de oui »
- *    sans valeur comptée sur une variable à liste (positive_missing) : l'indicateur calculerait
- *    toujours 0 % ;
+ *  - valeur comptée absente de la liste de la variable (positive_not_in_list) : l'indicateur
+ *    calculerait toujours 0 % ;
+ *  Un « % de oui » sans valeur comptée reste accepté, comme dans l'éditeur (indicatorRules) : le
+ *  calcul compte alors les « oui » usuels (monitoringMath.isYes : 1, oui, yes…).
  *  - définition incohérente (indicatorRules.definitionIssue : « % = valeur » sans valeur,
  *    valeur comptée aussi hors base).
  * @param {object} item  élément du modèle
@@ -417,14 +450,6 @@ function templateRowIssue(item, field, def) {
       };
     }
   }
-  // « % de oui » sur une variable à liste, sans valeur comptée : rien de la liste ne serait compté (0 %).
-  if (item.agg === 'percent_yes' && !positive && choices.length) {
-    return {
-      code: 'positive_missing',
-      message: `${head} : choisissez la valeur comptée dans la liste de la variable « ${name} ».`,
-      details: { code: 'positive_missing', item: item.code, field: name },
-    };
-  }
   const issue = definitionIssue({ agg: item.agg, positiveValue: def.positiveValue, naValues: def.naValues, target: def.target });
   if (issue) {
     return {
@@ -439,5 +464,5 @@ function templateRowIssue(item, field, def) {
 module.exports = {
   STRONG_MIN, SHOW_MIN, TIE_MARGIN,
   typeIssue, presenceIndex, templateCoverage, formTokens, hintScore,
-  proposeTemplate, effectiveTemplate, bindItem, bindTemplate, proposedSelection, bindingSummary, templateDrift, bindingForVariable, templateRowIssue,
+  proposeTemplate, effectiveTemplate, bindItem, bindTemplate, proposedSelection, bindingSummary, templateDrift, bindingForVariable, templateRowIssue, samePatch,
 };
