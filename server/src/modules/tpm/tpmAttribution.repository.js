@@ -2,7 +2,7 @@ const crypto = require('node:crypto');
 const { siteDistrictCtes, keySql } = require('../common/siteActivitySql');
 const { MONITORING_LINE } = require('../contracts/budgetCatalog');
 const {
-  summarizeRestamp, buildZoneTable, cellForSite, segments, selectableProviders, visitDecision, tpmsByContract,
+  summarizeRestamp, buildZoneTable, cellForSite, segments, tpmSelectable, visitDecision, tpmsByContract,
 } = require('./tpmAttribution');
 // Règle commune « prestataire actif » (lot 8) : liens prestataire ↔ contrat et fiches partenaires.
 const activeProviderRepo = require('./activeProvider.repository');
@@ -151,17 +151,20 @@ const partnersTx = (client, tenantId) => activeProviderRepo.partnersTx(client, t
 
 /**
  * Entrées de la règle pour une plage de mois : contrats « actif » ou « résilié » qui la
- * chevauchent (avec « contrat de suivi » calculé en SQL, leurs zones — profondeur, chemin et
- * lignée lus dans le découpage — et leurs TPM rattachés), modifications de ces mois (liées et
- * détachées), partenaires et liens prestataire ↔ contrat de la règle commune (lot 8).
+ * chevauchent (avec « contrat de suivi » calculé en SQL, leur titulaire — type et fiche active, pour
+ * la décision D1 —, leurs zones — profondeur, chemin et lignée lus dans le découpage — et leurs TPM
+ * rattachés), modifications de ces mois (liées et détachées), indisponibilités des TPM (retour
+ * 114), partenaires et liens prestataire ↔ contrat de la règle commune (lot 8).
  */
 async function loadInputsTx(client, tenantId, { from, to }) {
   const { rows: contracts } = await client.query(
     `SELECT c.id, c.numero, c.numero_fla AS "numeroFla", c.status, c.partner_id AS "partnerId", COALESCE(p.name, c.partner_name) AS "partnerName",
+            pt.code AS "holderTypeCode", COALESCE(p.active, false) AS "holderActive",
             c.date_debut AS "dateDebut", c.date_fin AS "dateFin", c.termination_date AS "terminationDate",
             (SELECT COALESCE(sum(b.unit_count * b.unit_cost), 0) FROM contract_budget_items b
               WHERE b.tenant_id = $1 AND b.contract_id = c.id AND b.line_code = $4) > 0 AS monitoring
        FROM contracts c LEFT JOIN partners p ON p.tenant_id = c.tenant_id AND p.id = c.partner_id
+       LEFT JOIN partner_types pt ON pt.tenant_id = c.tenant_id AND pt.id = p.partner_type_id
       WHERE c.tenant_id = $1 AND c.status IN ('actif', 'resilie')
         AND date_trunc('month', c.date_debut)::date <= $3::date
         AND date_trunc('month', CASE WHEN c.status = 'resilie' THEN c.termination_date ELSE c.date_fin END)::date >= $2::date
@@ -176,11 +179,30 @@ async function loadInputsTx(client, tenantId, { from, to }) {
   const byContract = new Map(contracts.map((c) => [c.id, (c.zones = [])]));
   for (const z of zones) byContract.get(z.contractId).push({ adminAreaId: z.adminAreaId, depth: Number(z.depth), path: z.path, lineage: z.lineage || [] });
   const overrides = await overridesTx(client, tenantId, { from, to });
+  const unavailability = await unavailabilityTx(client, tenantId, { from, to });
   const partners = await partnersTx(client, tenantId);
   const links = await activeProviderRepo.providerLinksTx(client, tenantId);
   const tpms = tpmsByContract(links, partners);
   for (const c of contracts) c.tpms = tpms.get(c.id) || [];
-  return { contracts, overrides, partners, links };
+  return { contracts, overrides, unavailability, partners, links };
+}
+
+/**
+ * Indisponibilités des TPM sur les mois [from, to] (retour 114, tpm_unavailability : une ligne par
+ * TPM × mois), avec le nom du TPM et l'auteur de la dernière décision. `providerId` : un seul TPM.
+ */
+async function unavailabilityTx(client, tenantId, { from, to, providerId = null }) {
+  const { rows } = await client.query(
+    `SELECT u.id, u.provider_id AS "providerId", p.name AS "providerName", to_char(u.period_month, 'YYYY-MM') AS month,
+            u.reason, u.batch_id AS "batchId", u.updated_at AS "updatedAt", u.created_at AS "createdAt",
+            COALESCE(us.full_name, us.email::text) AS "updatedByName"
+       FROM tpm_unavailability u
+       JOIN partners p ON p.tenant_id = u.tenant_id AND p.id = u.provider_id
+       LEFT JOIN users us ON us.tenant_id = u.tenant_id AND us.id = COALESCE(u.updated_by, u.created_by)
+      WHERE u.tenant_id = $1 AND u.period_month BETWEEN $2::date AND $3::date AND ($4::uuid IS NULL OR u.provider_id = $4::uuid)
+      ORDER BY p.name, u.provider_id, u.period_month`,
+    [tenantId, toMonthDate(from), toMonthDate(to), providerId]);
+  return rows;
 }
 
 /** Modifications des mois [from, to] (liées et détachées), avec l'auteur de la dernière décision. */
@@ -371,8 +393,8 @@ async function applyVisitDecisionsTx(client, tenantId, actorId, decisions) {
 }
 
 const LOG_COLS = ['batch_id', 'scope', 'action', 'label', 'admin_area_id', 'period_month', 'visit_id', 'month_from', 'month_to',
-  'old_state', 'old_provider_id', 'new_state', 'new_provider_id', 'contract_label', 'zones_changed', 'visits_updated', 'reason'];
-const LOG_TYPES = ['uuid', 'text', 'text', 'text', 'uuid', 'date', 'uuid', 'date', 'date', 'text', 'uuid', 'text', 'uuid', 'text', 'int', 'int', 'text'];
+  'old_state', 'old_provider_id', 'new_state', 'new_provider_id', 'contract_label', 'zones_changed', 'visits_updated', 'reason', 'old_reason'];
+const LOG_TYPES = ['uuid', 'text', 'text', 'text', 'uuid', 'date', 'uuid', 'date', 'date', 'text', 'uuid', 'text', 'uuid', 'text', 'int', 'int', 'text', 'text'];
 
 /**
  * Journal (une instruction, inscription seule) : noms des prestataires et de l'auteur résolus en
@@ -397,13 +419,13 @@ async function insertLogTx(client, tenantId, actorId, rows) {
 }
 
 /** Journal : lots (en-têtes) paginés, filtrables ; ou le détail d'un lot (`batchId`). */
-async function listLogTx(client, tenantId, { batchId = null, areaId = null, visitId = null, from = null, to = null, action = null, limit = 50, offset = 0 } = {}) {
+async function listLogTx(client, tenantId, { batchId = null, areaId = null, visitId = null, providerId = null, from = null, to = null, action = null, limit = 50, offset = 0 } = {}) {
   const LOG_SELECT = `l.id, l.batch_id AS "batchId", l.scope, l.action, l.label, l.admin_area_id AS "areaId",
        to_char(l.period_month, 'YYYY-MM') AS month, l.visit_id AS "visitId",
        to_char(l.month_from, 'YYYY-MM') AS "monthFrom", to_char(l.month_to, 'YYYY-MM') AS "monthTo",
        l.old_state AS "oldState", l.old_provider_name AS "oldProviderName", l.new_state AS "newState", l.new_provider_name AS "newProviderName",
        l.contract_label AS "contractLabel", l.zones_changed AS "zonesChanged", l.visits_updated AS "visitsUpdated",
-       l.reason, l.changed_by_name AS "changedByName", l.changed_at AS "changedAt"`;
+       l.reason, l.old_reason AS "oldReason", l.changed_by_name AS "changedByName", l.changed_at AS "changedAt"`;
   if (batchId) {
     const { rows } = await client.query(
       `SELECT ${LOG_SELECT} FROM tpm_attribution_log l
@@ -423,6 +445,10 @@ async function listLogTx(client, tenantId, { batchId = null, areaId = null, visi
   if (visitId) {
     params.push(visitId);
     where.push(`l.batch_id IN (SELECT x.batch_id FROM tpm_attribution_log x WHERE x.tenant_id = $1 AND x.visit_id = $${params.length})`);
+  }
+  if (providerId) {
+    params.push(providerId);
+    where.push(`l.batch_id IN (SELECT x.batch_id FROM tpm_attribution_log x WHERE x.tenant_id = $1 AND x.scope = 'tpm' AND x.new_provider_id = $${params.length})`);
   }
   params.push(limit, offset);
   const { rows } = await client.query(
@@ -481,15 +507,62 @@ async function relinkOverridesTx(client, tenantId, pairs) {
   return rowCount;
 }
 
+// ---- Indisponibilités des TPM (retour 114) -------------------------------------------
+/** Suppression d'indisponibilités (une instruction) : « mettre fin ». */
+async function deleteUnavailabilityTx(client, tenantId, ids) {
+  if (!ids.length) return 0;
+  const { rowCount } = await client.query('DELETE FROM tpm_unavailability WHERE tenant_id = $1 AND id = ANY ($2::uuid[])', [tenantId, ids]);
+  return rowCount;
+}
+
+/**
+ * Indisponibilité d'un TPM sur des mois (une instruction multi-lignes) : création, ou nouveau motif
+ * (même TPM × mois). Le TPM est contrôlé par le service (partenaire actif de type TPM du compte) et
+ * par la base (clé étrangère, contrôle « même compte »).
+ */
+async function upsertUnavailabilityTx(client, tenantId, { actorId, providerId, batchId, reason, months }) {
+  if (!months.length) return 0;
+  const { rowCount } = await client.query(
+    `INSERT INTO tpm_unavailability (tenant_id, provider_id, period_month, reason, batch_id, created_by, updated_by)
+     SELECT $1, $2, u.m, $3, $4, $5, $5 FROM unnest($6::date[]) AS u(m)
+      WHERE EXISTS (SELECT 1 FROM partners p WHERE p.tenant_id = $1 AND p.id = $2)
+     ON CONFLICT (tenant_id, provider_id, period_month) DO UPDATE SET
+       reason = EXCLUDED.reason, batch_id = EXCLUDED.batch_id, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+    [tenantId, providerId, reason, batchId, actorId || null, months.map(toMonthDate)]);
+  return rowCount;
+}
+
+/**
+ * Visites prévues « zone » ré-estampillables (AUTO_RESTAMPABLE_SQL) d'une plage de mois, avec la zone
+ * de leur site : exactement celles que restampVisitsTx({ from, to }) recalcule (aperçu = enregistrement).
+ */
+async function plannedRangeVisitsTx(client, tenantId, { from, to }) {
+  const { rows } = await client.query(
+    `SELECT v.id, s.zone_district_id AS "districtId", s.zone_commune_id AS "communeId", to_char(v.period_month, 'YYYY-MM') AS month,
+            v.provider_id AS "providerId", v.provider_zone_state AS "zoneState", v.contract_id AS "contractId",
+            (v.visit_date IS NOT NULL) AS dated
+       FROM site_visits v JOIN sites s ON s.tenant_id = v.tenant_id AND s.id = v.site_id
+      WHERE v.tenant_id = $1 AND v.provider_source = 'zone' AND ${AUTO_RESTAMPABLE_SQL}
+        AND v.period_month BETWEEN $2::date AND $3::date`,
+    [tenantId, toMonthDate(from), toMonthDate(to)]);
+  return rows;
+}
+
 // ---- Table de zones pour un ensemble de sites / visites ------------------------------
 /** Cellule réduite pour l'écran et pour les autres modules (TPM, origine, contrat, raison, drapeaux). */
 const slimCell = (c) => (c ? {
   areaId: c.areaId || null, // zone qui décide (district, ou commune portée) : lien vers l'onglet
   state: c.state, providerId: c.providerId || null, providerName: c.providerName || null,
+  // Qui suit : un TPM, ou l'équipe S&E (« Interne », retour 114) — jamais « à affecter ».
+  monitoredBy: c.monitoredBy || (c.providerId ? 'tpm' : 'interne'),
   contractId: c.contractId || null, numero: c.numero || null, contractLabel: c.contractLabel || null,
   reason: c.override ? c.override.reason : null, flags: (c.flags || []).filter((f) => f !== 'titulaire_non_tpm'),
-  candidates: c.state === 'a_arbitrer' && c.default ? c.default.candidates.map((x) => ({ providerId: x.providerId, providerName: x.providerName, contractLabel: x.contractLabel })) : undefined,
+  candidates: c.state === 'a_arbitrer' && c.default
+    ? (c.candidates || c.default.candidates).map((x) => ({ providerId: x.providerId, providerName: x.providerName, contractLabel: x.contractLabel })) : undefined,
   detached: c.detached || undefined, // zone de contrat à resélectionner (indice, aucun TPM)
+  // Pourquoi « Interne » : contrats de suivi sans TPM (D1), TPM indisponible(s) ce mois (motif).
+  noTpm: c.state === 'sans_tpm' && c.default && c.default.noTpm && c.default.noTpm.length ? c.default.noTpm : undefined,
+  unavailable: c.unavailable && c.unavailable.length ? c.unavailable : undefined,
 } : null);
 
 /**
@@ -539,7 +612,7 @@ async function applyVisitRequestTx(client, tenantId, actorId, visitIds, request)
   const visits = await visitsForUpdateTx(client, tenantId, visitIds);
   if (visits.length !== new Set(visitIds).size) return { error: 'visit_unknown' };
   const { table, inputs, months } = await tableForSitesTx(client, tenantId, { zones: visits, months: visits.map((v) => v.month) });
-  const selectable = selectableProviders({ links: inputs.links, partners: inputs.partners, months });
+  const selectable = tpmSelectable({ links: inputs.links, partners: inputs.partners, months, unavailability: inputs.unavailability });
   const decisions = [];
   for (const v of visits) {
     const cell = cellForSite(v, v.month, table);
@@ -663,7 +736,7 @@ async function applyContractsTx(client, tenantId, actorId, { period = null, reas
 }
 
 module.exports = {
-  cellsForSitesTx, applyContractsTx, slimCell,
+  cellsForSitesTx, applyContractsTx, slimCell, unavailabilityTx, deleteUnavailabilityTx, upsertUnavailabilityTx, plannedRangeVisitsTx,
   tableForSitesTx, boardTpmTx, applyVisitRequestTx,
   ATTRIBUTION_KEY, ZONE_CTES, INVOICED_SQL, AUTO_RESTAMPABLE_SQL, lockAttributionTx, refreshSiteZonesTx, restampVisitsTx,
   partnersTx, loadInputsTx, overridesTx, areasTx, communeRowIds, zoneRowsTx, visitGroupsTx, expandRegionsTx,

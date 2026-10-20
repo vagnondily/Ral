@@ -19,11 +19,14 @@ const listIn = (re) => {
   return [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]);
 };
 
-test('070 : états des visites, origines et « ce que disait le contrat » = listes de la règle pure', () => {
-  assert.deepEqual(listIn(/site_visits_zone_state_ck CHECK \(provider_zone_state IS NULL OR provider_zone_state IN\s*\(([^)]*)\)/), rule.VISIT_ZONE_STATES);
+test('070 : états des visites, origines et « ce que disait le contrat » = listes de la règle pure (étendues par la migration 107)', () => {
+  // La migration 107 (retour 114) redéfinit les listes d'états et d'actions (test/tpmInternalMigration.test.js) :
+  // celles de 070 en restent des sous-ensembles — aucun état n'est jamais retiré.
+  const within = (list, full) => assert.deepEqual(list.filter((x) => !full.includes(x)), [], `${list} ⊄ ${full}`);
+  within(listIn(/site_visits_zone_state_ck CHECK \(provider_zone_state IS NULL OR provider_zone_state IN\s*\(([^)]*)\)/), rule.VISIT_ZONE_STATES);
   assert.deepEqual(listIn(/site_visits_provider_source_ck CHECK \(provider_source IN \(([^)]*)\)/), rule.VISIT_SOURCES);
-  assert.deepEqual(listIn(/expected_state\s+text NOT NULL CHECK \(expected_state IN \(([^)]*)\)/), rule.DEFAULT_STATES);
-  assert.deepEqual(listIn(/action\s+text NOT NULL CHECK \(action IN \(([^)]*)\)\)/), rule.LOG_ACTIONS);
+  within(listIn(/expected_state\s+text NOT NULL CHECK \(expected_state IN \(([^)]*)\)/), rule.DEFAULT_STATES);
+  within(listIn(/action\s+text NOT NULL CHECK \(action IN \(([^)]*)\)\)/), rule.LOG_ACTIONS);
   assert.deepEqual(listIn(/provider_zone_state IN \(([^)]*)\)\) = \(provider_id IS NOT NULL\)/), rule.WITH_PROVIDER);
 });
 

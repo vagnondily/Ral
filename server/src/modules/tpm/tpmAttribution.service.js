@@ -30,8 +30,12 @@ function cellView(c) {
   const o = c.override;
   return {
     state: c.state, providerId: c.providerId || null, providerName: c.providerName || null,
+    monitoredBy: c.monitoredBy || (c.providerId ? 'tpm' : 'interne'),
     contractId: c.contractId || null, numero: c.numero || null, contractLabel: c.contractLabel || null, flags: c.flags || [],
     detached: c.detached || undefined,
+    // Suivi interne expliqué (retour 114) : contrats sans TPM (D1), TPM indisponible(s) et leur motif.
+    noTpm: c.state === 'sans_tpm' && c.default && (c.default.noTpm || []).length ? c.default.noTpm : undefined,
+    unavailable: (c.unavailable || []).length ? c.unavailable : undefined,
     override: o ? {
       id: o.id, reason: o.reason, by: o.updatedByName || null, at: o.updatedAt, expectedLabel: o.expectedLabel || null,
       expectedState: o.expectedState, batchId: o.batchId || null,
@@ -45,6 +49,7 @@ function defaultView(def, inputs) {
     state: def.state, providerId: def.providerId || null, providerName: providerName(inputs, def.providerId),
     contractId: def.contractId || null, numero: def.numero || null, contractLabel: def.contractLabel || null, partiel: Boolean(def.partiel),
     candidates: def.candidates.map((x) => ({ ...x, providerName: providerName(inputs, x.providerId) || x.providerName })),
+    noTpm: def.noTpm || [],
   };
 }
 
@@ -53,7 +58,7 @@ function contractSegments(cells, inputs) {
   const out = [];
   for (const c of cells) {
     const d = c.default;
-    const key = `${d.state}|${d.providerId || ''}|${d.contractId || ''}|${d.candidates.map((x) => x.contractId).join(',')}`;
+    const key = `${d.state}|${d.providerId || ''}|${d.contractId || ''}|${d.candidates.map((x) => x.contractId).join(',')}|${(d.noTpm || []).map((x) => x.contractId).join(',')}`;
     const last = out[out.length - 1];
     if (last && last.key === key) { last.to = c.month; last.months += 1; continue; }
     out.push({ key, from: c.month, to: c.month, months: 1, ...defaultView(d, inputs) });
@@ -137,13 +142,14 @@ async function providers(tenantId, { period }) {
   return withTenantTransaction(tenantId, async (client) => {
     const months = monthsOf(period);
     const inputs = await repo.loadInputsTx(client, tenantId, period);
-    const out = rule.selectableProviders({ links: inputs.links, partners: inputs.partners, months });
+    const out = rule.tpmSelectable({ links: inputs.links, partners: inputs.partners, months, unavailability: inputs.unavailability });
     const label = new Map(inputs.contracts.map((c) => [c.id, c.numeroFla || c.numero]));
     for (const g of out.groups || []) {
       for (const p of g.providers || []) p.contracts = (p.contracts || []).map((c) => ({ ...c, contractLabel: label.get(c.id) || c.numero }));
     }
-    // TPM de chaque contrat de suivi de la plage (rule.contractTpms : TPM rattaché par plan ou
-    // facture, sinon titulaire) — la valeur par défaut des formulaires prestataire × contrat.
+    // TPM de chaque contrat de suivi de la plage (rule.contractTpms, D1 : TPM rattaché par plan ou
+    // facture, sinon titulaire s'il est un TPM actif ; sinon aucun — « Interne ») — la valeur par
+    // défaut des formulaires prestataire × contrat.
     out.contractTpms = Object.fromEntries(inputs.contracts.filter((c) => rule.isMonitoringContract(c))
       .map((c) => [c.id, rule.contractTpms(c).map((p) => ({ id: p.id, name: p.name }))]));
     return out;
@@ -161,7 +167,7 @@ async function resolve(tenantId, { siteId, month }) {
     return {
       siteId, month, area: area ? { id: area.id, name: area.name, path: area.path, depth: area.depth } : null,
       ...cellView(cell), contract: cell && cell.default ? defaultView(cell.default, inputs) : null,
-      selectable: rule.selectableProviders({ links: inputs.links, partners: inputs.partners, months: [month] }),
+      selectable: rule.tpmSelectable({ links: inputs.links, partners: inputs.partners, months: [month], unavailability: inputs.unavailability }),
     };
   });
 }
@@ -212,8 +218,14 @@ async function prepareChangeTx(client, tenantId, { target, mode, providerId = nu
   const summary = rule.summarizeRestamp(visitChanges);
   summary.moves = summary.moves.map((m) => ({ ...m, fromName: providerName(inputs, m.fromProviderId), toName: providerName(inputs, m.toProviderId) }));
 
-  const selectable = rule.selectableProviders({ links: inputs.links, partners: inputs.partners, months });
-  const notSelectable = mode === 'revenir' ? [] : rule.notSelectableMonths(providerId, months, selectable);
+  const selectable = rule.tpmSelectable({ links: inputs.links, partners: inputs.partners, months, unavailability: inputs.unavailability });
+  // Choisir la valeur DU CONTRAT pour toutes les zones d'un mois revient au contrat (la modification est
+  // supprimée) : toujours permis, même quand ce TPM n'est pas sélectionnable ce mois-là (indisponible —
+  // la zone reste alors en suivi interne, retour 114). Avec D1 dans l'estampille, la valeur du contrat
+  // est toujours un TPM actif, jamais un partenaire de mise en œuvre.
+  const contractValue = (m) => targets.filter((x) => x.month === m)
+    .every((x) => x.cell && x.cell.default && x.cell.default.state === 'contrat' && x.cell.default.providerId === providerId);
+  const notSelectable = mode === 'revenir' ? [] : rule.notSelectableMonths(providerId, months, selectable).filter((m) => !contractValue(m));
   const warnings = [];
   const plans = await repo.monthPlanStatusesTx(client, tenantId, months);
   const validated = plans.filter((p) => p.status === 'valide').map((p) => p.month);
@@ -277,7 +289,7 @@ async function setOverrides(tenantId, actor, { target, providerId = null, reason
     const prep = await prepareChangeTx(client, tenantId, { target, mode: 'modifier', providerId, reason: clean });
     if (prep.stamp !== stamp) throw conflict(STALE, { code: 'stale' });
     if (providerId && prep.notSelectable.length) {
-      throw badRequest(`Ce partenaire n'est pas sélectionnable sur toute la période : il ne tient aucun contrat de suivi et n'est pas un TPM actif (${prep.notSelectable.join(', ')}).`,
+      throw badRequest(`Ce partenaire n'est pas sélectionnable sur toute la période : ce n'est pas un TPM actif, ou il est déclaré indisponible (${prep.notSelectable.join(', ')}).`,
         { code: 'provider_not_selectable', months: prep.notSelectable });
     }
     const { plan } = prep;
