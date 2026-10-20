@@ -11,6 +11,10 @@ import { downloadCsv } from '../lib/csv.js';
 import { overlaps, periodFromSaved } from '../lib/period.js';
 import { sortRows } from '../lib/dataList.js';
 import PeriodSelect from './PeriodSelect.jsx';
+import EntityPicker from './EntityPicker.jsx';
+
+// Au-delà de 8 choix, un filtre devient une liste avec recherche (EntityPicker).
+const PICKER_FROM = 8;
 
 /**
  * Liste réutilisable « façon COMET » (comme la liste des contrats) : barre de
@@ -122,8 +126,13 @@ export default function DataList({
           <span className="input-wrap"><Search size={16} aria-hidden="true" />
             <input className="input" type="search" placeholder={f.placeholder || tr('Rechercher…')} value={values[k]} onChange={(e) => setVal(k, e.target.value)} />
           </span>
+        ) : optionsFor(k).length > PICKER_FROM ? (
+          // Longue liste (prestataires, contrats, sites…) : liste avec recherche, jamais la liste brute du navigateur.
+          // Valeurs en texte, comme celles d'une liste native (les filtres comparent des chaînes).
+          <EntityPicker value={String(values[k] ?? '')} onChange={(v) => setVal(k, v)} ariaLabel={f.label}
+            options={optionsFor(k).map((o) => ({ value: String(o.id), label: o.label, sub: o.sub }))} />
         ) : (
-          <select className="select" value={values[k]} onChange={(e) => setVal(k, e.target.value)}>
+          <select className="select" value={values[k]} onChange={(e) => setVal(k, e.target.value)} aria-label={f.label}>
             {optionsFor(k).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
         )}

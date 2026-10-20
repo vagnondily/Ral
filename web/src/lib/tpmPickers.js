@@ -26,7 +26,7 @@ const listed = (names) => (names.length <= MAX_LISTED ? names.join(', ') : `${na
 /**
  * @param {object[]} contracts  contexte des rapports (id, numero, partnerName, dateDebut, dateFin)
  * @param {{ month?: string, tpmsOf?: (id) => {id,name}[], fmtPeriod?: Function,
- *           labels?: { covering?: string, others?: string, tpm?: string } }} o
+ *           labels?: { covering?: string, others?: string, tpmList?: (names: string) => string } }} o
  * @returns {{ options: object[], order: string[] }}
  */
 export function contractOptions(contracts, { month, tpmsOf = () => [], fmtPeriod, labels = {} } = {}) {
@@ -35,7 +35,8 @@ export function contractOptions(contracts, { month, tpmsOf = () => [], fmtPeriod
     const tpms = tpmsOf(c.id) || [];
     const a = ym(c.dateDebut); const b = ym(c.dateFin);
     const period = a && b && fmtPeriod ? fmtPeriod(a, b) : null;
-    const tpm = tpms.length ? `${labels.tpm || 'TPM'} : ${listed(tpms.map((p) => p.name))}` : null;
+    // Une phrase entière à traduire (« TPM : X » / « TPM: X ») — jamais un collage de morceaux.
+    const tpm = tpms.length ? (labels.tpmList ? labels.tpmList(listed(tpms.map((p) => p.name))) : `TPM : ${listed(tpms.map((p) => p.name))}`) : null;
     return {
       value: c.id,
       label: c.numero || '—',
@@ -81,13 +82,14 @@ export function withPartner(head, partnerId, contracts, tpmsOf = () => []) {
 }
 
 /**
- * Choisir le contrat donne son TPM : s'il n'a qu'un TPM et que le prestataire choisi n'en est pas un
- * (ou qu'aucun n'est choisi), ce TPM est pris ; un prestataire qui est un TPM du contrat est gardé ;
- * sinon le choix reste tel quel (l'écran signale l'écart).
+ * Choisir le contrat donne son TPM — sans jamais écraser un choix délibéré : le TPM unique du contrat
+ * n'est pris que si aucun prestataire n'est choisi, ou si le prestataire choisi était venu du contrat
+ * PRÉCÉDENT (pré-rempli, pas choisi). Un prestataire choisi à la main est gardé ; l'écran signale l'écart
+ * (« Ce prestataire n'est pas le TPM de ce contrat »).
  */
 export function withContract(head, contractId, tpmsOf = () => []) {
   const tpms = (contractId && tpmsOf(contractId)) || [];
-  const keep = head.partnerId && tpms.some((p) => p.id === head.partnerId);
-  if (keep || tpms.length !== 1) return { ...head, contractId };
+  const prefilled = !head.partnerId || ((head.contractId && tpmsOf(head.contractId)) || []).some((p) => p.id === head.partnerId);
+  if (!prefilled || tpms.length !== 1) return { ...head, contractId };
   return { ...head, contractId, partnerId: tpms[0].id };
 }

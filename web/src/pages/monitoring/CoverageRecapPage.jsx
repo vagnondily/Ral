@@ -20,6 +20,8 @@ const RISK = {
 };
 const pct = (x, tr) => (x == null ? '—' : tr('{p} %', { p: Math.round(x * 100) }));
 const compTone = (x) => (x >= 0.8 ? 'green' : x >= 0.5 ? 'amber' : 'red');
+// Jetons de couleur : la tuile connaît « amber », la palette nomme ce ton « orange » (--amber-* n'existe pas).
+const toneVar = (t) => (t === 'amber' ? 'orange' : t);
 
 // Palette catégorielle validée (dataviz) — identité par couleur + libellé.
 const CAT = ['#0f6cbd', '#7c3aed', '#0f7b40', '#c77700', '#d13438', '#0891b2', '#be185d', '#4d7c0f', '#6d28d9', '#b45309'];
@@ -140,7 +142,7 @@ function SiteMmrTab({ period }) {
                     <td className="num tabular">{formatInt(g.thrice)}</td>
                     <td className="num tabular">{formatInt(g.fourPlus)}</td>
                     <td className="num tabular">{pct(g.coverageRate, tr)}</td>
-                    <td className="num"><span className="badge" style={{ background: `var(--${compTone(g.compliance)}-bg)`, color: `var(--${compTone(g.compliance)}-text)` }}>{pct(g.compliance, tr)}</span></td>
+                    <td className="num"><span className="badge" style={{ background: `var(--${toneVar(compTone(g.compliance))}-bg)`, color: `var(--${toneVar(compTone(g.compliance))}-text)` }}>{pct(g.compliance, tr)}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -273,7 +275,7 @@ function CovCell({ cell, strong }) {
   const tone = compTone(cell.rate);
   return (
     <span className="cov-cell tabular" title={tr('{done} réalisée(s) / {active} active(s)', { done: cell.realise, active: cell.active })}
-      style={{ background: `var(--${tone}-bg)`, color: `var(--${tone}-text)`, fontWeight: strong ? 700 : 600 }}>
+      style={{ background: `var(--${toneVar(tone)}-bg)`, color: `var(--${toneVar(tone)}-text)`, fontWeight: strong ? 700 : 600 }}>
       {Math.round(cell.rate * 100)}%
     </span>
   );

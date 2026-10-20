@@ -43,7 +43,7 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
   const headTpms = tpmsOf(head.contractId);
   const pickContracts = contractOptions(contracts, {
     month, tpmsOf, fmtPeriod: (from, to) => periodLabel({ from, to }, lang, { short: true }),
-    labels: { covering: tr('Couvrent {month}', { month: month ? monthLabel(String(month).slice(0, 7)) : '' }), others: tr('Autres contrats actifs'), tpm: tr('TPM') },
+    labels: { covering: tr('Couvrent {month}', { month: month ? monthLabel(String(month).slice(0, 7)) : '' }), others: tr('Autres contrats actifs'), tpmList: (p) => tr('TPM : {p}', { p }) },
   });
   const pickTpms = tpmOptions(partners, {
     contracts, contractId: head.contractId, tpmsOf,
@@ -130,10 +130,19 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
             <div className="field">
               <span className="field-label" id="pbd-status-label">{tr('Statut')}</span>
               {/* Deux valeurs exclusives : un choix segmenté, pas une liste. */}
-              <div className="seg" role="radiogroup" aria-labelledby="pbd-status-label">
+              <div className="seg" role="radiogroup" aria-labelledby="pbd-status-label"
+                onKeyDown={(e) => {
+                  // Flèches : choix suivant / précédent, comme un groupe de boutons radio natif.
+                  if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) return;
+                  e.preventDefault();
+                  const v = head.status === 'valide' ? 'brouillon' : 'valide';
+                  setHead({ ...head, status: v });
+                  const btn = e.currentTarget.querySelector(`[data-v="${v}"]`);
+                  if (btn) btn.focus();
+                }}>
                 {[['brouillon', tr('Brouillon')], ['valide', tr('Validé')]].map(([v, label]) => (
-                  <button key={v} type="button" role="radio" aria-checked={head.status === v} className={head.status === v ? 'is-active' : ''}
-                    onClick={() => setHead({ ...head, status: v })}>{label}</button>
+                  <button key={v} type="button" role="radio" data-v={v} aria-checked={head.status === v} tabIndex={head.status === v ? 0 : -1}
+                    className={head.status === v ? 'is-active' : ''} onClick={() => setHead({ ...head, status: v })}>{label}</button>
                 ))}
               </div>
             </div>

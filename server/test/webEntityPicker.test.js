@@ -129,3 +129,29 @@ test('nombre décimal dans la langue de l\'interface : virgule en français, poi
   assert.equal(m.formatDecimal(63.14), '63.1');
   m.setFormatLocale('fr');
 });
+
+test('un TPM choisi à la main n\'est jamais écrasé par le choix du contrat (relecture du 16/10)', async (t) => {
+  const m = await load(t, 'tpmPickers.js'); if (!m) return;
+  assert.deepEqual(m.withContract({ partnerId: 'p3', contractId: '' }, 'k1', tpmsOf), { partnerId: 'p3', contractId: 'k1' }, 'choisi avant le contrat : gardé');
+  assert.deepEqual(m.withContract({ partnerId: 'p3', contractId: 'k1' }, 'k2', tpmsOf), { partnerId: 'p3', contractId: 'k2' }, 'écart assumé : gardé au changement de contrat');
+  assert.deepEqual(m.withContract({ partnerId: 'p1', contractId: 'k2' }, 'k1', tpmsOf), { partnerId: 'p1', contractId: 'k1' }, 'déjà TPM du nouveau contrat : gardé');
+  assert.deepEqual(m.withContract({ partnerId: 'p2', contractId: 'k2' }, 'k1', tpmsOf), { partnerId: 'p1', contractId: 'k1' }, 'venu du contrat précédent : remplacé par le TPM du nouveau');
+  const labels = { covering: 'C', others: 'A', tpmList: (p) => `TPM: ${p}` };
+  const { options } = m.contractOptions(CONTRACTS, { month: '2026-10', tpmsOf, labels });
+  assert.ok(options[0].sub.endsWith('TPM: Ezaka Conseil'), 'phrase « TPM : X » traduite d\'un seul tenant');
+});
+
+test('saut au clavier (listes courtes) et index de recherche', async (t) => {
+  const m = await load(t, 'entityPicker.js'); if (!m) return;
+  const flat = [{ label: 'Brouillon' }, { label: 'Validé' }, { label: 'Vérifié' }, { label: 'Annulé' }];
+  assert.equal(m.typeAheadIndex(flat, 'v', -1), 1);
+  assert.equal(m.typeAheadIndex(flat, 'v', 1), 2, 'lettre répétée : option suivante');
+  assert.equal(m.typeAheadIndex(flat, 'V', 2), 1, 'en boucle, sans casse');
+  assert.equal(m.typeAheadIndex(flat, 'é', -1), -1, 'aucune option ne commence par « e »');
+  assert.equal(m.typeAheadIndex(flat, 'ab', -1), -1, 'une seule lettre');
+  const opts = [{ value: '1', label: 'Ankileisoke', sub: 'AMBOASARY' }, { value: '2', label: 'Berano', keywords: ['Ambovombe'] }];
+  const idx = m.searchIndex(opts);
+  assert.deepEqual(m.filterOptions(opts, 'amb', idx).map((o) => o.value), ['1', '2']);
+  assert.deepEqual(m.filterOptions(opts, 'berano', idx).map((o) => o.value), ['2']);
+  assert.deepEqual(m.filterOptions(opts, 'amb', idx), m.filterOptions(opts, 'amb'), 'même résultat avec ou sans index');
+});

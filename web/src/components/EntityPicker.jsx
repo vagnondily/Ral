@@ -1,9 +1,33 @@
-import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import { useI18n } from '../lib/i18n.jsx';
 import { placePopover, scrollClosesPopover } from '../lib/popoverPlacement.js';
-import { filterOptions, flatOptions, groupOptions, limitGroups, moveActive, showSearch } from '../lib/entityPicker.js';
+import {
+  filterOptions, flatOptions, groupOptions, limitGroups, moveActive, searchIndex, showSearch, typeAheadIndex,
+} from '../lib/entityPicker.js';
+
+/** Hauteur maximale de la liste (la même que la feuille de style : .picker-pop). */
+const MAX_HEIGHT = 420;
+/** Valeur par défaut STABLE : un nouveau tableau à chaque rendu recalculerait la liste à chaque survol. */
+const NO_ORDER = [];
+
+/** Une ligne de la liste — mémorisée : survoler une option ne redessine pas les 300 autres. */
+const OptionRow = memo(function OptionRow({ id, option, rank, active, selected, onPick, onHover }) {
+  return (
+    <div
+      id={id} role="option" aria-selected={selected} aria-disabled={option.disabled || undefined}
+      className={`picker-option${active ? ' is-active' : ''}${selected ? ' is-selected' : ''}${option.disabled ? ' is-disabled' : ''}`}
+      onMouseDown={(e) => e.preventDefault()} onMouseEnter={() => { if (rank >= 0) onHover(rank); }} onClick={() => onPick(option)}
+    >
+      <span className="picker-option-text">
+        <span className="picker-option-label">{option.label}</span>
+        {option.sub && <span className="picker-option-sub">{option.sub}</span>}
+      </span>
+      {selected && <Check size={15} aria-hidden="true" className="picker-check" />}
+    </div>
+  );
+});
 
 /**
  * Choix d'un objet métier (prestataire TPM, contrat, site, bureau…) — remplace la liste déroulante
@@ -19,16 +43,19 @@ import { filterOptions, flatOptions, groupOptions, limitGroups, moveActive, show
  *   limit       options affichées au plus (300) ; les autres sont comptées (« affinez la recherche »)
  *
  * Accessibilité : bouton role="combobox" aria-haspopup="listbox" / aria-expanded / aria-controls ;
- * liste role="listbox", groupes role="group" titrés, options role="option" aria-selected ; la recherche
- * pilote l'option active (aria-activedescendant). Clavier : ↓ / Entrée / Espace ouvrent ; ↑ ↓ Début Fin
- * déplacent ; Entrée choisit ; Échap ferme sans fermer le tiroir parent ; Tab ferme.
+ * liste role="listbox" nommée comme le champ (aria-labelledby), groupes role="group" titrés, options
+ * role="option" aria-selected ; la recherche (role="combobox") pilote l'option active
+ * (aria-activedescendant). Clavier : ↓ / Entrée / Espace ouvrent ; ↑ ↓ Début Fin déplacent ; une lettre
+ * saute à l'option suivante qui commence par elle (listes courtes, comme une liste native) ; Entrée
+ * choisit ; Échap ferme sans fermer le tiroir parent ; Tab / Maj+Tab ferment et passent au champ voisin.
  */
 export default function EntityPicker({
-  value, onChange, options, groupOrder = [], placeholder, clearable = false, invalid = false, disabled = false,
+  value, onChange, options, groupOrder = NO_ORDER, placeholder, clearable = false, invalid = false, disabled = false,
   id, emptyText, ariaLabel, searchPlaceholder, limit = 300,
 }) {
   const { tr } = useI18n();
   const uid = useId().replace(/:/g, '');
+  const triggerId = id || `picker-${uid}`;
   const listId = `picker-list-${uid}`;
   const triggerRef = useRef(null);
   const popRef = useRef(null);
@@ -39,12 +66,18 @@ export default function EntityPicker({
   const [active, setActive] = useState(-1);
   const [pos, setPos] = useState(null);
 
-  const all = options || [];
+  const all = options || NO_ORDER;
   const selected = all.find((o) => o.value === value) || null;
-  const { groups, hidden } = useMemo(() => limitGroups(groupOptions(filterOptions(all, query), groupOrder), limit), [all, query, groupOrder, limit]);
+  const index = useMemo(() => searchIndex(all), [all]);
+  // Identifiant d'option par RANG dans `options` (jamais deux options avec le même identifiant).
+  const rankOf = useMemo(() => new Map(all.map((o, i) => [o.value, i])), [all]);
+  const optId = useCallback((o) => `picker-${uid}-o${rankOf.get(o.value)}`, [uid, rankOf]);
+  const { groups, hidden } = useMemo(
+    () => limitGroups(groupOptions(filterOptions(all, query, index), groupOrder), limit),
+    [all, query, index, groupOrder, limit],
+  );
   const flat = useMemo(() => flatOptions(groups), [groups]);
   const withSearch = showSearch(all);
-  const optId = (o) => `picker-${uid}-${String(o.value).replace(/[^\w-]/g, '_')}`;
 
   const close = (focusTrigger = true) => {
     setOpen(false);
@@ -54,7 +87,11 @@ export default function EntityPicker({
   const openList = () => {
     if (disabled) return;
     setOpen(true);
-    setActive(Math.max(0, flatOptions(limitGroups(groupOptions(all, groupOrder), limit).groups).findIndex((o) => o.value === value)));
+    // Option choisie active à l'ouverture ; si elle n'est pas affichée (au-delà de `limit`), AUCUNE option
+    // active : Entrée ne remplace jamais le choix par une autre option par accident.
+    const shown = flatOptions(limitGroups(groupOptions(all, groupOrder), limit).groups);
+    const at = shown.findIndex((o) => o.value === value);
+    setActive(at >= 0 ? at : (selected ? -1 : 0));
   };
   const pick = (o) => {
     if (!o || o.disabled) return;
@@ -67,10 +104,12 @@ export default function EntityPicker({
     if (!trig || !pop) return;
     const r = trig.getBoundingClientRect();
     const list = listRef.current;
-    const height = list ? pop.offsetHeight - list.clientHeight + list.scrollHeight : pop.scrollHeight;
+    // Hauteur bornée AVANT le placement : sinon une liste haute placée au-dessus du champ, ramenée
+    // ensuite à 420 px par la feuille de style, flotterait détachée du champ.
+    const natural = list ? pop.offsetHeight - list.clientHeight + list.scrollHeight : pop.scrollHeight;
     const next = placePopover({
       anchor: { top: r.top, bottom: r.bottom, left: r.left, right: r.right },
-      size: { width: Math.max(r.width, pop.offsetWidth), height },
+      size: { width: Math.max(r.width, pop.offsetWidth), height: Math.min(natural, MAX_HEIGHT) },
       viewport: { width: document.documentElement.clientWidth || window.innerWidth, height: window.innerHeight },
     });
     next.minWidth = Math.round(r.width);
@@ -86,17 +125,25 @@ export default function EntityPicker({
     return () => ro.disconnect();
   }, [open, place]);
 
-  // Clic dehors : ferme. Défilement d'un conteneur du bouton (tiroir, page) : la liste suit son champ, et
-  // ne se ferme que si le champ sort de l'écran (au téléphone, toucher le champ fait défiler le tiroir :
-  // fermer à chaque défilement refermait la liste aussitôt ouverte). Redimensionnement : replace.
+  // Clic dehors : ferme (un clic sur l'étiquette du champ ne ferme pas : elle rouvrirait aussitôt).
+  // Défilement d'un conteneur du champ (tiroir, page) : la liste suit son champ, et ne se ferme que si le
+  // champ sort de la zone VISIBLE de ce conteneur (au téléphone, toucher le champ fait défiler le tiroir :
+  // fermer à chaque défilement refermait la liste aussitôt ouverte). En fermant, le focus revient au
+  // champ s'il était dans la liste. Redimensionnement : replace.
   useEffect(() => {
     if (!open) return undefined;
     const inside = (t) => (triggerRef.current && triggerRef.current.contains(t)) || (popRef.current && popRef.current.contains(t));
-    const onDown = (e) => { if (!inside(e.target)) close(false); };
+    const onLabel = (t) => Boolean(t && t.closest && t.closest(`label[for="${triggerId}"]`));
+    const onDown = (e) => { if (!inside(e.target) && !onLabel(e.target)) close(false); };
     const onScroll = (e) => {
       if (!scrollClosesPopover(e.target, triggerRef.current, popRef.current) || !triggerRef.current) return;
       const r = triggerRef.current.getBoundingClientRect();
-      if (r.bottom < 0 || r.top > window.innerHeight) close(false); else place();
+      const box = e.target && e.target.nodeType === 1 ? e.target.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+      const top = Math.max(0, box.top); const bottom = Math.min(window.innerHeight, box.bottom);
+      if (r.bottom <= top || r.top >= bottom) {
+        const focusInside = popRef.current && popRef.current.contains(document.activeElement);
+        close(focusInside);
+      } else place();
     };
     const onResize = () => place();
     document.addEventListener('mousedown', onDown);
@@ -109,15 +156,15 @@ export default function EntityPicker({
       document.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onResize);
     };
-  }, [open, place]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, place, triggerId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Une fois placée : focus sur la recherche (ou la liste), option active visible.
+  // Une fois placée : focus sur la recherche (ou la liste).
   useEffect(() => {
     if (!open || !pos) return;
     const el = withSearch ? searchRef.current : listRef.current;
     if (el && document.activeElement !== el) el.focus({ preventScroll: true });
   }, [open, pos, withSearch]);
-  useEffect(() => { if (open) setActive((a) => (flat.length ? Math.min(Math.max(a, 0), flat.length - 1) : -1)); }, [flat.length, open]);
+  useEffect(() => { if (open) setActive((a) => (flat.length ? Math.min(a, flat.length - 1) : -1)); }, [flat.length, open]);
   // Option active visible : on fait défiler la LISTE seule (scrollIntoView ferait aussi défiler le tiroir
   // ou la page, et ce défilement fermerait la liste aussitôt ouverte — vu au téléphone).
   useEffect(() => {
@@ -128,7 +175,7 @@ export default function EntityPicker({
     const top = el.offsetTop - list.offsetTop;
     if (top < list.scrollTop) list.scrollTop = top;
     else if (top + el.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = top + el.offsetHeight - list.clientHeight;
-  }, [active, open, flat]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active, open, flat, optId]);
 
   const onTriggerKeyDown = (e) => {
     if (!open && ['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) { e.preventDefault(); openList(); }
@@ -140,21 +187,31 @@ export default function EntityPicker({
       setActive((a) => moveActive(a, flat.length, e.key));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      pick(flat[active]);
+      if (active >= 0) pick(flat[active]);
     } else if (e.key === 'Escape') {
       e.preventDefault(); e.stopPropagation();
       close(true);
     } else if (e.key === 'Tab') {
-      close(false);
+      // Le focus revient au champ AVANT le déplacement par défaut : Tab / Maj+Tab mènent au champ voisin,
+      // jamais derrière la fenêtre (la liste, en portail, est en fin de page).
+      close(true);
+    } else if (!withSearch && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const i = typeAheadIndex(flat, e.key, active);
+      if (i >= 0) { e.preventDefault(); setActive(i); }
     }
   };
+  // Rappels STABLES pour les lignes mémorisées (la dernière version de `pick` est lue par référence).
+  const pickRef = useRef(pick);
+  pickRef.current = pick;
+  const onPickRow = useCallback((o) => pickRef.current(o), []);
+  const onHoverRow = useCallback((i) => setActive(i), []);
 
   const activeId = open && active >= 0 && flat[active] ? optId(flat[active]) : undefined;
-  let index = -1;
+  let rank = -1;
   return (
     <div className={`picker${open ? ' is-open' : ''}`}>
       <button
-        type="button" id={id} ref={triggerRef} disabled={disabled}
+        type="button" id={triggerId} ref={triggerRef} disabled={disabled}
         className={`picker-trigger${selected ? '' : ' is-empty'}`}
         role="combobox" aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
         aria-invalid={invalid || undefined} aria-label={ariaLabel}
@@ -182,6 +239,7 @@ export default function EntityPicker({
               <Search size={15} aria-hidden="true" />
               <input
                 ref={searchRef} className="picker-search-input" type="search" value={query} autoComplete="off" spellCheck={false}
+                role="combobox" aria-expanded="true" aria-autocomplete="list"
                 placeholder={searchPlaceholder || tr('Rechercher…')} aria-label={searchPlaceholder || tr('Rechercher…')}
                 aria-controls={listId} aria-activedescendant={activeId}
                 onChange={(e) => { setQuery(e.target.value); setActive(0); }} onKeyDown={onListKeyDown}
@@ -189,33 +247,25 @@ export default function EntityPicker({
             </div>
           )}
           <div ref={listRef} id={listId} className="picker-list" role="listbox" tabIndex={withSearch ? -1 : 0}
-            aria-label={ariaLabel} aria-activedescendant={withSearch ? undefined : activeId} onKeyDown={withSearch ? undefined : onListKeyDown}>
-            {flat.length === 0 && <div className="picker-empty">{emptyText || tr('Aucun résultat.')}</div>}
+            aria-label={ariaLabel} aria-labelledby={ariaLabel ? undefined : triggerId}
+            aria-activedescendant={withSearch ? undefined : activeId} onKeyDown={withSearch ? undefined : onListKeyDown}>
             {groups.map((g) => (
               <div key={g.group || '_'} role="group" aria-label={g.group || undefined} className="picker-group">
                 {g.group && <div className="picker-group-title" aria-hidden="true">{g.group}</div>}
                 {g.items.map((o) => {
-                  if (!o.disabled) index += 1;
-                  const i = o.disabled ? -1 : index;
-                  const isSel = o.value === value;
+                  if (!o.disabled) rank += 1;
+                  const i = o.disabled ? -1 : rank;
                   return (
-                    <div
-                      key={o.value} id={optId(o)} role="option" aria-selected={isSel} aria-disabled={o.disabled || undefined}
-                      className={`picker-option${i === active ? ' is-active' : ''}${isSel ? ' is-selected' : ''}${o.disabled ? ' is-disabled' : ''}`}
-                      onMouseDown={(e) => e.preventDefault()} onMouseEnter={() => { if (i >= 0) setActive(i); }} onClick={() => pick(o)}
-                    >
-                      <span className="picker-option-text">
-                        <span className="picker-option-label">{o.label}</span>
-                        {o.sub && <span className="picker-option-sub">{o.sub}</span>}
-                      </span>
-                      {isSel && <Check size={15} aria-hidden="true" className="picker-check" />}
-                    </div>
+                    <OptionRow key={o.value} id={optId(o)} option={o} rank={i} active={i >= 0 && i === active} selected={o.value === value}
+                      onPick={onPickRow} onHover={onHoverRow} />
                   );
                 })}
               </div>
             ))}
-            {hidden > 0 && <div className="picker-more">{tr('{n} autre(s) : affinez la recherche.', { n: hidden })}</div>}
           </div>
+          {/* Messages hors de la liste : ce ne sont pas des options. */}
+          {flat.length === 0 && <div className="picker-empty" role="status">{emptyText || tr('Aucun résultat.')}</div>}
+          {hidden > 0 && <div className="picker-more" role="status">{tr('{n} autre(s) : affinez la recherche.', { n: hidden })}</div>}
         </div>,
         document.body,
       )}
