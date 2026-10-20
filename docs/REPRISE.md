@@ -1,6 +1,6 @@
 # Reprise du travail — passation entre sessions Claude
 
-_Mis à jour : 20/10/2026, 11:24 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
+_Mis à jour : 20/10/2026, 12:12 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
 Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOURNAL.md)._
 
 **À qui s'adresse ce fichier ?** À toute session Claude qui reprend le projet, en particulier pendant une limite d'usage de la session principale. Il dit :
@@ -9,22 +9,19 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 - ce qui reste, et dans quel ordre ;
 - comment travailler à deux sans se marcher dessus.
 
-> **20/10, 11:24 — état.** Aucun agent en cours. Deux branches d'intégration locales, sauvegardées sur GitHub :
-> - `pub/20a` (sauvegarde `snap/pub20a-1020`) = `main` + lot design (listes de choix, contrat puis son TPM, TPM actifs en
->   tête) + suites du retour 110 + en-têtes en paire (retour 112) + corrections des deux relectures du 16/10 et du 20/10.
->   Contrôles au vert (tests, lint, build, migrations, seed, `npm run test:db`, balayage 35 × FR/EN). **Prochaine publication**
->   dès que la contre-relecture de ses 8 dernières corrections est rendue.
-> - `integ/next` (sauvegarde `snap/integ-next-1020`) = `pub/20a` (avant ses 8 dernières corrections) + lot 8 (`wip/lot8`
->   `a15f901`, vocabulaire Titulaire / TPM, « Interne » quand aucun TPM — retour 115) + modèles d'indicateurs
->   (`wip/indicators` `6be3077`) + planification automatique P1 / P2 (`wip/planauto-port` `bf7cf8b`). Contrôles au vert
->   (1375 tests, base 17/17, balayage 46 × FR/EN). Relecture indépendante en cours ; à corriger puis publier après `pub/20a`.
-> - Décision D1 : le titulaire ne compte comme TPM que s'il est lui-même un TPM ; sinon « Interne ». Reste à l'appliquer aux
->   listes de choix et à l'estampillage des visites (avec le retour 114, jumelle SQL `mems_tpm_cells`, migration).
-> - Tests sur base jetable : `npm run test:db` (fichiers en série). Ports de test : vérifier qu'ils sont libres
->   (`(exec 3<>/dev/tcp/127.0.0.1/PORT)`, `ss` absent) — deux agents ne doivent jamais partager un port.
-> - En attente de reprise : filtres du rapportage (retour 102, `snap/7a-p2-1016`), maquette des tableaux de bord
->   (retour 101, `snap/dash-template-1016`), `wip/perf` 2ᵉ lot (`snap/perf-1016`), `wip/offices`, `wip/r58` suivi interne
->   (retour 114), `wip/activities` (migration 105).
+> **20/10, 12:12 — état.** `main` = `f871748` (publié à 12:09 : listes de choix, audit design, suites du retour 110,
+> en-têtes en paire du retour 112). En cours, trois agents (chacun sur sa branche, sans fusionner `main`) corrigent les
+> 39 constats de la relecture du 20/10 (fichiers `findings_<lot>.txt` du bloc-notes de la session principale) :
+> - `wip/lot8` (après `a15f901`) : 9 constats + décision D1 dans les listes de choix (un partenaire de mise en œuvre n'est
+>   jamais proposé comme TPM d'un contrat ; l'estampillage des visites suivra avec le retour 114) ; port 9881 / 5881.
+> - `wip/indicators` (après `6be3077`) : 17 constats ; port 9882 / 5882.
+> - `wip/planauto-port` (après `bf7cf8b`) : 13 constats ; port 9883 / 5883.
+> Ensuite la session principale refait `integ/next` sur `main` (lot 8 + indicateurs + planification + « Interne » du
+> retour 115, commit `8cbc73d` sur l'ancienne `integ/next`, sauvegardée `snap/integ-next-1020`), contrôles, relecture courte,
+> publication. Règles : `npm run test:db` (en série) ; ports de test vérifiés libres (`(exec 3<>/dev/tcp/127.0.0.1/PORT)`).
+> En attente de reprise : filtres du rapportage (retour 102, `snap/7a-p2-1016`), maquette des tableaux de bord (retour 101,
+> `snap/dash-template-1016`), `wip/perf` 2ᵉ lot (`snap/perf-1016`), `wip/offices`, `wip/r58` suivi interne (retour 114),
+> `wip/activities` (migration 105).
 
 ## 0. À lire, dans cet ordre
 
