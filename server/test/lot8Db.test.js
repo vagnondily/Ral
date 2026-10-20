@@ -42,3 +42,20 @@ test('seed : les formations de démonstration sont des SESSIONS (page Formations
   const list = await trainings.list(T, {});
   assert.ok(list.rows ? list.rows.length >= 6 : list.length >= 6, 'la liste des formations n\'est pas vide');
 });
+
+test('formation : PATCH partiel d\'un participant (pré-test seul) garde présence, jours, post-test et avis', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const [agent] = await q('SELECT id, tpm_provider_id AS p FROM tpm_agents WHERE tenant_id = $1 AND active ORDER BY name LIMIT 1', [T]);
+  const service = require('../src/modules/trainings/trainings.service');
+  const created = await service.create(T, { title: 'Test lot 8 — saisie partielle', startDate: '2019-05-06', endDate: '2019-05-08', scoreMax: 20, agentIds: [agent.id] }, null);
+  try {
+    await service.updateParticipants(T, created.id, [{ agentId: agent.id, attendance: 'present', daysPresent: 3, preScore: 8, postScore: 15, satisfaction: 4, feedback: 'Utile' }]);
+    await service.updateParticipants(T, created.id, [{ agentId: agent.id, preScore: 9 }]);
+    const p = (await service.get(T, created.id)).participants[0];
+    assert.deepEqual([p.attendance, p.daysPresent, p.preScore, p.postScore, p.satisfaction, p.feedback], ['present', 3, 9, 15, 4, 'Utile']);
+    // L'état COMPLET est contrôlé : « absent » sur une ligne qui a un post-test → 400.
+    await assert.rejects(service.updateParticipants(T, created.id, [{ agentId: agent.id, attendance: 'absent' }]), (e) => e.statusCode === 400);
+  } finally {
+    await q('DELETE FROM training_sessions WHERE tenant_id = $1 AND id = $2', [T, created.id]);
+  }
+});

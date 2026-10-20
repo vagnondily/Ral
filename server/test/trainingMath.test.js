@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { sessionDays, pctTenths, participantResult, summarize, listSummary, checkParticipant } = require('../src/modules/trainings/trainingMath');
+const { sessionDays, pctTenths, participantResult, summarize, listSummary, checkParticipant, mergeParticipant } = require('../src/modules/trainings/trainingMath');
 
 const S = { scoreMax: 20, passMark: 70, startDate: '2026-03-02', endDate: '2026-03-04' };
 
@@ -70,4 +70,16 @@ test('liste des sessions : les agrégats SQL donnent les mêmes chiffres que le 
     [b.attendance.rate, b.tests.avgPre, b.tests.avgPost, b.tests.passRate, b.satisfaction.avg]);
   assert.deepEqual(listSummary({ recorded: 0, attended: 0, withPre: 0, sumPre: 0, withPost: 0, sumPost: 0, passed: 0, withSat: 0, sumSat: 0 }),
     { attendanceRate: null, avgPre: null, avgPost: null, passRate: null, satisfactionAvg: null });
+});
+
+test('saisie partielle d\'un participant : seuls les champs envoyés changent, null efface', () => {
+  const cur = { agentId: 'a1', attendance: 'present', daysPresent: 3, preScore: 8, postScore: 15, satisfaction: 4, feedback: 'Utile' };
+  assert.deepEqual(mergeParticipant(cur, { agentId: 'a1', preScore: 9 }),
+    { agentId: 'a1', attendance: 'present', daysPresent: 3, preScore: 9, postScore: 15, satisfaction: 4, feedback: 'Utile' });
+  assert.deepEqual(mergeParticipant(cur, { agentId: 'a1', feedback: null, postScore: undefined }),
+    { agentId: 'a1', attendance: 'present', daysPresent: 3, preScore: 8, postScore: 15, satisfaction: 4, feedback: null });
+  // L'état fusionné est celui qu'on contrôle : « absent » sur une ligne qui a un post-test est refusé.
+  assert.deepEqual(checkParticipant(mergeParticipant(cur, { agentId: 'a1', attendance: 'absent' }), { ...S, startDate: '2026-03-02', endDate: '2026-03-04' }), ['absentWithScore']);
+  assert.deepEqual(mergeParticipant(null, { agentId: 'a2', attendance: 'absent' }),
+    { agentId: 'a2', attendance: 'absent', daysPresent: null, preScore: null, postScore: null, satisfaction: null, feedback: null });
 });

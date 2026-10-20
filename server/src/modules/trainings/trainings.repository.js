@@ -1,6 +1,7 @@
 const { withTenantTransaction } = require('../../config/db');
 const { insertRows } = require('../../db/batch');
 const { periodBounds } = require('../common/period');
+const { mergeParticipant } = require('./trainingMath');
 
 /**
  * Formations en sessions (lot 8, retour 28.2) — SEUL fichier du module qui écrit du SQL.
@@ -185,13 +186,18 @@ async function addParticipants(tenantId, id, input) {
 
 /**
  * Présences, notes et avis de plusieurs participants en UNE instruction, sous verrou de la
- * session ; `validate(session, rows)` (service, trainingMath.checkParticipant) refuse avant toute
- * écriture. Rend le nombre de lignes mises à jour.
+ * session. Saisie PARTIELLE : chaque ligne envoyée est fusionnée avec l'état en base
+ * (trainingMath.mergeParticipant : un champ absent garde sa valeur, null l'efface) ;
+ * `validate(session, merged)` (service, trainingMath.checkParticipant) contrôle l'état COMPLET
+ * avant toute écriture. Un agent qui n'est pas participant est ignoré. Rend le nombre de lignes
+ * mises à jour.
  */
-async function updateParticipants(tenantId, id, rows, validate) {
+async function updateParticipants(tenantId, id, patches, validate) {
   return withTenantTransaction(tenantId, async (client) => {
     const session = await sessionTx(client, tenantId, id, { lock: true });
     if (!session) return null;
+    const current = new Map((await participantsTx(client, tenantId, id)).map((p) => [p.agentId, p]));
+    const rows = patches.filter((p) => current.has(p.agentId)).map((p) => mergeParticipant(current.get(p.agentId), p));
     validate(session, rows);
     if (!rows.length) return { updated: 0 };
     const params = [tenantId, id];

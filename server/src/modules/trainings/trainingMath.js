@@ -134,4 +134,20 @@ function checkParticipant(p, session) {
   return errors;
 }
 
-module.exports = { ATTENDANCE, sessionDays, pctTenths, participantResult, summarize, listSummary, checkParticipant };
+/** Champs d'un participant modifiables par PATCH. */
+const PARTICIPANT_FIELDS = ['attendance', 'daysPresent', 'preScore', 'postScore', 'satisfaction', 'feedback'];
+
+/**
+ * Saisie PARTIELLE d'un participant : seuls les champs ENVOYÉS changent (null efface, absent garde
+ * la valeur en base) — PATCH { agentId, preScore: 9 } ne touche ni la présence, ni le post-test, ni
+ * l'avis. Le résultat (état complet) est celui que l'on contrôle puis que l'on écrit.
+ */
+function mergeParticipant(current, patch) {
+  const out = { agentId: patch.agentId };
+  for (const k of PARTICIPANT_FIELDS) {
+    out[k] = Object.prototype.hasOwnProperty.call(patch, k) && patch[k] !== undefined ? patch[k] : (current ? current[k] ?? null : null);
+  }
+  return out;
+}
+
+module.exports = { ATTENDANCE, PARTICIPANT_FIELDS, sessionDays, pctTenths, participantResult, summarize, listSummary, checkParticipant, mergeParticipant };
