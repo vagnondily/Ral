@@ -97,3 +97,24 @@ test('aucun écran n écrit plus « À affecter » (retour 114 : sans TPM, le su
   walk(pages);
   assert.deepEqual(hits, []);
 });
+
+test('vue Indisponibilités (U4, U5, U7) : plage lue bornée à 24 mois ; « Mettre fin » jamais sur un mois passé', async (t) => {
+  const w = await load(t, 'lib/tpmAttribution.js'); if (!w) return;
+  assert.equal(w.UNAVAILABILITY_MAX_SPAN, rule.MAX_SPAN_MONTHS, 'même plafond que le serveur (GET /unavailability)');
+  const span = (r) => w.monthsBetween(r.from, r.to, 100).length;
+  // Défaut de l'onglet (mois courant → +5) : jusqu'à 6 mois après, 12 mois.
+  assert.deepEqual(w.unavailabilityListRange({ from: '2026-10', to: '2027-03' }, '2026-10'), { from: '2026-10', to: '2027-09', capped: false });
+  // Période de 24 mois dans le passé : 30 mois demandés avant U5 (400) — bornée à 24.
+  const a = w.unavailabilityListRange({ from: '2025-01', to: '2026-12' }, '2026-10');
+  assert.deepEqual(a, { from: '2025-01', to: '2026-12', capped: true });
+  assert.equal(span(a), 24);
+  // Période future (2026-11 → 2028-04, aujourd'hui 2026-10) : 25 mois demandés avant U5.
+  const b = w.unavailabilityListRange({ from: '2026-11', to: '2028-04' }, '2026-10');
+  assert.deepEqual([b.from, b.to, span(b)], ['2026-10', '2028-09', 24]);
+  // Mettre fin : dès le mois courant ; période passée : rien à terminer (bouton désactivé).
+  assert.deepEqual(w.endRangeOf({ from: '2026-08', to: '2026-12' }, '2026-10'), { from: '2026-10', to: '2026-12' });
+  assert.deepEqual(w.endRangeOf({ from: '2026-11', to: '2027-01' }, '2026-10'), { from: '2026-11', to: '2027-01' });
+  assert.deepEqual(w.endRangeOf({ from: '2026-10', to: '2026-10' }, '2026-10'), { from: '2026-10', to: '2026-10' });
+  assert.equal(w.endRangeOf({ from: '2026-03', to: '2026-05' }, '2026-10'), null);
+  assert.equal(w.endRangeOf({ from: '2026-08', to: '2026-08' }, '2026-10'), null);
+});

@@ -121,4 +121,11 @@ export default {
   'Rapport en retard — {provider}': 'Late report — {provider}',
   '{month} · {n} visite(s) ; à remettre au plus tard en {due}': '{month} · {n} visit(s); due by {due} at the latest',
   'Retard de visites — suivi interne (équipe S&E)': 'Visits behind schedule — internal monitoring (M&E team)',
+  // Vue Indisponibilités (U3 à U8)
+  'Indisponibilités qui touchent {p}.': 'Unavailability periods that overlap {p}.',
+  'Plage limitée à {n} mois : choisissez une période plus courte pour voir au-delà.': 'Range limited to {n} months: choose a shorter period to see further.',
+  'plus TPM actif': 'no longer an active TPM',
+  '{n} (plus TPM actif)': '{n} (no longer an active TPM)',
+  'Ce partenaire n\'est plus un TPM actif : on peut seulement mettre fin à son indisponibilité.': 'This partner is no longer an active TPM: its unavailability can only be ended.',
+  'Période passée : elle est déjà terminée.': 'Past period: it has already ended.',
 };

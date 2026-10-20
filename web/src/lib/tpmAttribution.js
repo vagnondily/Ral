@@ -1,4 +1,4 @@
-import { formatInt, monthLabel, shortMonthLabel } from './format.js';
+import { formatInt, monthLabel, shiftMonth, shortMonthLabel } from './format.js';
 import { ROLE_LABELS } from './roles.js';
 
 /**
@@ -150,6 +150,30 @@ export function applyResultMessage(tr, v, emptyPhrase) {
 export function rangeLabel(from, to) {
   if (!from) return '';
   return from === to ? monthLabel(from) : `${shortMonthLabel(from)} – ${shortMonthLabel(to)}`;
+}
+
+/** Plage la plus longue d'une décision et de la liste des indisponibilités (serveur : tpmAttribution.MAX_SPAN_MONTHS). */
+export const UNAVAILABILITY_MAX_SPAN = 24;
+
+/**
+ * Plage lue par la vue « Indisponibilités » (U5) : du plus tôt entre le début de la période de
+ * l'onglet et le mois courant, jusqu'à 6 mois après sa fin — jamais plus de 24 mois (plafond de
+ * GET /unavailability : au-delà, 400 et vue inutilisable). `capped` : la fin a été rapprochée.
+ */
+export function unavailabilityListRange(period, today, max = UNAVAILABILITY_MAX_SPAN) {
+  const from = period.from <= today ? period.from : today;
+  const wanted = shiftMonth(period.to, 6);
+  const cap = shiftMonth(from, max - 1);
+  return { from, to: wanted <= cap ? wanted : cap, capped: wanted > cap };
+}
+
+/**
+ * « Mettre fin » à une période d'indisponibilité (U4, U7) : dès le mois courant, jamais un mois passé ;
+ * null pour une période déjà finie (rien à terminer).
+ */
+export function endRangeOf(p, today) {
+  if (!p || p.to < today) return null;
+  return { from: p.from < today ? today : p.from, to: p.to };
 }
 
 /** Mois de from à to inclus (« AAAA-MM »), au plus `max`. */

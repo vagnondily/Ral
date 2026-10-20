@@ -8,14 +8,16 @@ import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { currentMonth, formatDateTime, formatInt, shiftMonth, shortMonthLabel } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
-import { REASON_MIN, TPM_AVAILABILITY, UNAVAILABILITY_SUGGESTIONS, monthsBetween, rangeLabel } from '../../lib/tpmAttribution.js';
+import {
+  REASON_MIN, TPM_AVAILABILITY, UNAVAILABILITY_MAX_SPAN, UNAVAILABILITY_SUGGESTIONS, endRangeOf, monthsBetween, rangeLabel, unavailabilityListRange,
+} from '../../lib/tpmAttribution.js';
 import { ROLE_LABELS } from '../../lib/roles.js';
 import { ReasonField } from './TpmFields.jsx';
 import { VisitMoves } from './TpmChangeDialog.jsx';
 import './tpmAttribution.css';
 
 /** Plage la plus longue d'une décision (comme le serveur : tpmAttribution.MAX_SPAN_MONTHS). */
-const MAX_SPAN = 24;
+const MAX_SPAN = UNAVAILABILITY_MAX_SPAN;
 const span = (from, to) => monthsBetween(from, to, MAX_SPAN + 1).length;
 
 /**
@@ -32,7 +34,10 @@ export default function TpmUnavailabilityView({ canEdit, period, onChanged }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [dialog, setDialog] = useState(null); // { mode, providerId?, from?, to?, reason? }
-  const range = { from: period.from <= currentMonth() ? period.from : currentMonth(), to: shiftMonth(period.to, 6) };
+  const today = currentMonth();
+  // Plage lue : bornée à 24 mois (plafond du serveur) ; une période qui la chevauche est rendue entière.
+  const range = unavailabilityListRange(period, today);
+  const activeTpm = new Set(((data && data.tpms) || []).map((t) => t.id));
 
   const load = useCallback(async () => {
     setError(null);
@@ -55,6 +60,10 @@ export default function TpmUnavailabilityView({ canEdit, period, onChanged }) {
         <span className="mmr-spacer" />
         <Button size="sm" variant="secondary" icon={Download} onClick={exportCsv} disabled={!data || !data.periods.length}>{tr('Exporter (CSV)')}</Button>
         {canEdit && <Button size="sm" icon={CalendarOff} onClick={() => setDialog({ mode: 'poser' })} disabled={!data}>{tr('Déclarer une indisponibilité…')}</Button>}
+        <p className="tpa-off-range">
+          {tr('Indisponibilités qui touchent {p}.', { p: rangeLabel(range.from, range.to) })}
+          {range.capped && <> {tr('Plage limitée à {n} mois : choisissez une période plus courte pour voir au-delà.', { n: formatInt(MAX_SPAN) })}</>}
+        </p>
       </div>
       {error && <div className="card-body"><Alert tone="danger">{error}</Alert></div>}
       {!data ? <div className="card-body"><Skeleton height={160} /></div> : data.periods.length === 0 ? (
@@ -75,23 +84,31 @@ export default function TpmUnavailabilityView({ canEdit, period, onChanged }) {
               </tr>
             </thead>
             <tbody>
-              {data.periods.map((p) => (
-                <tr key={`${p.providerId}|${p.from}`}>
-                  <td><strong>{p.providerName}</strong></td>
-                  <td className="tabular">{rangeLabel(p.from, p.to)}<div className="site-meta">{tr('{n} mois', { n: formatInt(p.months) })}</div></td>
-                  <td><StatusBadge def={TPM_AVAILABILITY.indisponible} /></td>
-                  <td className="tpa-reason"><span className="tpa-reason-text" title={p.reason}>{p.reason}</span></td>
-                  <td className="tpa-log-who">{p.updatedByName || '—'}{p.updatedAt && <div className="site-meta">{formatDateTime(p.updatedAt)}</div>}</td>
-                  {canEdit && (
-                    <td className="tpa-actions">
-                      <button type="button" className="tpm-edit" title={tr('Changer le motif…')} aria-label={tr('Changer le motif · {p}', { p: p.providerName })}
-                        onClick={() => setDialog({ mode: 'poser', providerId: p.providerId, from: p.from, to: p.to, reason: p.reason })}><PencilLine size={14} aria-hidden="true" /></button>
-                      <button type="button" className="tpm-edit" title={tr('Mettre fin…')} aria-label={tr('Mettre fin · {p}', { p: p.providerName })}
-                        onClick={() => setDialog({ mode: 'retirer', providerId: p.providerId, from: p.from < currentMonth() ? currentMonth() : p.from, to: p.to })}><CalendarCheck size={14} aria-hidden="true" /></button>
-                    </td>
-                  )}
-                </tr>
-              ))}
+              {data.periods.map((p) => {
+                const ending = endRangeOf(p, today);
+                const isTpm = activeTpm.has(p.providerId);
+                return (
+                  <tr key={`${p.providerId}|${p.from}`}>
+                    <td><strong>{p.providerName}</strong>{!isTpm && <span className="tpa-tag">{tr('plus TPM actif')}</span>}</td>
+                    <td className="tabular">{rangeLabel(p.from, p.to)}<div className="site-meta">{tr('{n} mois', { n: formatInt(p.months) })}</div></td>
+                    <td><StatusBadge def={TPM_AVAILABILITY.indisponible} /></td>
+                    <td className="tpa-reason"><span className="tpa-reason-text" title={p.reason}>{p.reason}</span></td>
+                    <td className="tpa-log-who">{p.updatedByName || '—'}{p.updatedAt && <div className="site-meta">{formatDateTime(p.updatedAt)}</div>}</td>
+                    {canEdit && (
+                      <td className="tpa-actions">
+                        <button type="button" className="tpm-edit" disabled={!isTpm}
+                          title={isTpm ? tr('Changer le motif…') : tr('Ce partenaire n\'est plus un TPM actif : on peut seulement mettre fin à son indisponibilité.')}
+                          aria-label={tr('Changer le motif · {p}', { p: p.providerName })}
+                          onClick={() => setDialog({ mode: 'poser', providerId: p.providerId, providerName: p.providerName, from: p.from, to: p.to, reason: p.reason })}><PencilLine size={14} aria-hidden="true" /></button>
+                        <button type="button" className="tpm-edit" disabled={!ending}
+                          title={ending ? tr('Mettre fin…') : tr('Période passée : elle est déjà terminée.')}
+                          aria-label={tr('Mettre fin · {p}', { p: p.providerName })}
+                          onClick={() => ending && setDialog({ mode: 'retirer', providerId: p.providerId, providerName: p.providerName, ...ending })}><CalendarCheck size={14} aria-hidden="true" /></button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -110,7 +127,7 @@ export default function TpmUnavailabilityView({ canEdit, period, onChanged }) {
  * suivi interne (ou à un autre TPM) et quelles visites PRÉVUES changent ; l'enregistrement exige un
  * motif (10 caractères au moins) et l'empreinte de l'aperçu (409 → aperçu relu, rien d'écrit).
  */
-function UnavailabilityDialog({ mode, providerId: initialProvider = '', from, to, reason: initialReason = '', tpms, onClose, onSaved }) {
+function UnavailabilityDialog({ mode, providerId: initialProvider = '', providerName = '', from, to, reason: initialReason = '', tpms, onClose, onSaved }) {
   const { tr } = useI18n();
   const toast = useToast();
   const end = mode === 'retirer';
@@ -145,7 +162,10 @@ function UnavailabilityDialog({ mode, providerId: initialProvider = '', from, to
   const canSave = Boolean(preview) && !loading && writes > 0 && reasonOk;
   const setFrom = (m) => setRange((r) => ({ from: m, to: r.to < m ? m : (span(m, r.to) > MAX_SPAN ? shiftMonth(m, MAX_SPAN - 1) : r.to) }));
   const setTo = (m) => setRange((r) => ({ from: r.from > m ? m : (span(r.from, m) > MAX_SPAN ? shiftMonth(m, -(MAX_SPAN - 1)) : r.from), to: m }));
-  const name = (tpms.find((t) => t.id === provider) || {}).name || '';
+  // Nom du TPM : celui de la liste des TPM actifs, sinon celui de la ligne (partenaire qui n'est plus un
+  // TPM actif, dont on met fin à l'indisponibilité — U3, U8) : jamais un dialogue sans nom.
+  const listed = tpms.find((t) => t.id === provider);
+  const name = (listed && listed.name) || (provider === initialProvider ? providerName : '') || '';
 
   async function save() {
     setSaving(true); setError(null); setStale(false);
@@ -179,6 +199,7 @@ function UnavailabilityDialog({ mode, providerId: initialProvider = '', from, to
           <select id="tpm-off-provider" className={`select ${provider ? '' : 'is-empty'}`} value={provider} disabled={Boolean(initialProvider)} onChange={(e) => setProvider(e.target.value)}>
             <option value="">{tr(ROLE_LABELS.chooseTpm)}</option>
             {tpms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            {provider && !listed && <option value={provider}>{tr('{n} (plus TPM actif)', { n: name || '—' })}</option>}
           </select>
         </div>
         <div className="tpm-change-period" role="group" aria-label={tr('Période')}>
