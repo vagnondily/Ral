@@ -1,6 +1,7 @@
 const field = require('../../tpm/field.repository');
 const settings = require('../../settings/settings.repository');
 const { periodFor, siteOffice } = require('./scope');
+const { currentMonth } = require('../../tpm/rbmMath');
 
 /**
  * Sources « Couverture, plan, RBM et sites » (lot 7a, C4) — seules à appeler les dépôts du
@@ -47,7 +48,8 @@ const monthsOverview = {
 const planBoard = {
   key: 'planBoard', domains: [...SITES, 'submissions', 'mmr', 'activation'], varies: ['today'],
   params: (def, eff) => periodFor('year', eff) || {},
-  load: (tenantId, p) => field.planBoard(tenantId, { year: p.year || new Date().getFullYear() }),
+  // Exercice par défaut : année du mois courant LOCAL (APP_TIMEZONE), comme le Plan de suivi.
+  load: (tenantId, p) => field.planBoard(tenantId, { year: p.year || Number(currentMonth().slice(0, 4)) }),
 };
 
 const rbmSites = {
