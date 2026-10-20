@@ -5,6 +5,7 @@ const { requireAuth, requireRole } = require('../../middleware/auth');
 const { badRequest, notFound } = require('../../middleware/errors');
 const repo = require('./partners.repository');
 const service = require('./partners.service');
+const { isoDateSchema } = require('../common/isoDate');
 const { readPeriod } = require('../../middleware/period');
 const { PERIOD_CAPS } = require('../common/periodCaps');
 
@@ -36,7 +37,8 @@ function body(schema) {
   };
 }
 const optText = (max) => z.string().trim().max(max).nullable().optional().transform((v) => (v === '' ? null : v));
-const optDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date AAAA-MM-JJ').nullable().optional().or(z.literal('').transform(() => null));
+// Date RÉELLE (2026-02-31 refusée au bord, common/isoDate) ; vide = effacée.
+const optDate = isoDateSchema(z).nullable().optional().or(z.literal('').transform(() => null));
 const email = z.string().trim().email('Courriel invalide').max(160).nullable().optional().or(z.literal('').transform(() => null));
 
 // Listes de choix des prestataires (retour 30) : « actif selon contrat » pour les mois demandés
