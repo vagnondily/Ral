@@ -1,6 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
 const { insertRows, chunkRows } = require('../../db/batch');
-const { notFound, forbidden, badRequest } = require('../../middleware/errors');
+const { notFound, forbidden, badRequest, conflict } = require('../../middleware/errors');
 const { overallIndex, naReason } = require('./monitoringMath');
 const { describeVariables, resolveVariable, optionParentName } = require('./variableCatalog');
 const { definitionIssue, effectiveDefinition, normalizeNaValues, presentKeys } = require('./indicatorRules');
@@ -12,7 +12,7 @@ const { buildLookup, collectionColumns, overrideColumns, prepareImport, previewI
 const { collectionUpdates } = require('./collectionDate');
 const { templateForActivity, moduleLabel, indicatorFromItem } = require('./indicatorTemplates');
 const {
-  proposeTemplate, effectiveTemplate, bindTemplate, bindItem, proposedSelection, bindingSummary, templateDrift, templateRowIssue,
+  proposeTemplate, effectiveTemplate, bindTemplate, bindItem, proposedSelection, bindingSummary, templateDrift, templateRowIssue, samePatch,
 } = require('./indicatorProposals');
 const { OTHER_VALUES } = require('./memsMapping');
 const { applySubmissionsGeoTx, applySubmissionSitesTx, officeChoiceLabelsTx, choiceLabelsTx, choiceContextTx, loadPartiesTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
@@ -231,35 +231,38 @@ const INDICATOR_COLUMNS = [
  * effective (enregistrée + modification) doit rester cohérente.
  * @returns {Promise<boolean>} false si l'indicateur n'existe pas
  */
-async function updateIndicator(tenantId, id, patch) {
-  return withTenantTransaction(tenantId, async (client) => {
-    const { rows: [cur] } = await client.query(
-      `SELECT id, form_id AS "formId", source_field AS "sourceField", agg, positive_value AS "positiveValue",
-              target, na_values AS "naValues"
-         FROM monitoring_indicators WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [tenantId, id]);
-    if (!cur) return false;
-    const p = { ...patch };
-    if (p.naValues !== undefined) p.naValues = normalizeNaValues(p.naValues);
-    if (p.module === '') p.module = null;
-    if (p.positiveValue === '') p.positiveValue = null;
-    if (p.sourceField !== undefined && p.sourceField !== cur.sourceField) {
-      p.sourceField = await resolveSourceFieldTx(client, tenantId, cur.formId, p.sourceField);
-    }
-    // Définition contrôlée seulement si la modification y touche (un ancien indicateur se renomme toujours).
-    if (['agg', 'positiveValue', 'naValues', 'target'].some((k) => p[k] !== undefined)) {
-      assertDefinition(effectiveDefinition(cur, p));
-    }
-    const present = new Set(presentKeys(p));
-    if (!present.size) return true;
-    const params = [tenantId, id];
-    const sets = INDICATOR_COLUMNS.map(([key, col, type]) => {
-      params.push(present.has(key), present.has(key) ? p[key] : null);
-      return `${col} = CASE WHEN $${params.length - 1}::boolean THEN $${params.length}::${type} ELSE ${col} END`;
-    });
-    const { rowCount } = await client.query(
-      `UPDATE monitoring_indicators SET ${sets.join(', ')} WHERE tenant_id = $1 AND id = $2`, params);
-    return rowCount === 1;
+/** Modification partielle d'un indicateur DANS une transaction (PATCH et mise à jour depuis le modèle). */
+async function updateIndicatorTx(client, tenantId, id, patch) {
+  const { rows: [cur] } = await client.query(
+    `SELECT id, form_id AS "formId", source_field AS "sourceField", agg, positive_value AS "positiveValue",
+            target, na_values AS "naValues"
+       FROM monitoring_indicators WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [tenantId, id]);
+  if (!cur) return false;
+  const p = { ...patch };
+  if (p.naValues !== undefined) p.naValues = normalizeNaValues(p.naValues);
+  if (p.module === '') p.module = null;
+  if (p.positiveValue === '') p.positiveValue = null;
+  if (p.sourceField !== undefined && p.sourceField !== cur.sourceField) {
+    p.sourceField = await resolveSourceFieldTx(client, tenantId, cur.formId, p.sourceField);
+  }
+  // Définition contrôlée seulement si la modification y touche (un ancien indicateur se renomme toujours).
+  if (['agg', 'positiveValue', 'naValues', 'target'].some((k) => p[k] !== undefined)) {
+    assertDefinition(effectiveDefinition(cur, p));
+  }
+  const present = new Set(presentKeys(p));
+  if (!present.size) return true;
+  const params = [tenantId, id];
+  const sets = INDICATOR_COLUMNS.map(([key, col, type]) => {
+    params.push(present.has(key), present.has(key) ? p[key] : null);
+    return `${col} = CASE WHEN $${params.length - 1}::boolean THEN $${params.length}::${type} ELSE ${col} END`;
   });
+  const { rowCount } = await client.query(
+    `UPDATE monitoring_indicators SET ${sets.join(', ')} WHERE tenant_id = $1 AND id = $2`, params);
+  return rowCount === 1;
+}
+
+async function updateIndicator(tenantId, id, patch) {
+  return withTenantTransaction(tenantId, (client) => updateIndicatorTx(client, tenantId, id, patch));
 }
 
 // ---- Modèle d'indicateurs de l'activité (retour n° 12) -------------------------------
@@ -563,9 +566,14 @@ async function applyTemplate(tenantId, formId, { items = null, proposed = false,
       selection = proposedSelection(bindTemplate(tpl, fields), { done, taken: takenCodes });
     } else {
       const codes = selection.map((b) => b.code);
-      if (new Set(codes).size !== codes.length) throw badRequest('Un même indicateur est envoyé deux fois.');
+      // Refus sans élément à corriger sur la carte (carte périmée) : codes pour que l'écran dise « rechargez ».
+      const dup = codes.find((c, k) => codes.indexOf(c) !== k);
+      if (dup) throw badRequest('Un même indicateur est envoyé deux fois : rechargez la carte.', { code: 'duplicate_item', value: dup });
       const unknownCode = selection.find((b) => !itemIndex.has(b.code));
-      if (unknownCode) throw badRequest(`Indicateur « ${unknownCode.code} » absent du modèle « ${tpl.label} ».`);
+      if (unknownCode) {
+        throw badRequest(`Indicateur « ${unknownCode.code} » absent du modèle « ${tpl.label} » : le modèle de la fiche a changé, rechargez la carte.`,
+          { code: 'unknown_item', value: unknownCode.code, template: tpl.key });
+      }
       const unknownField = selection.find((b) => !fieldsByName.has(b.sourceField));
       if (unknownField) {
         throw badRequest(`Variable « ${unknownField.sourceField} » introuvable dans cette fiche.`,
@@ -595,6 +603,42 @@ async function applyTemplate(tenantId, formId, { items = null, proposed = false,
     }) : 0;
     if (applied) await client.query('UPDATE monitoring_forms SET updated_at = now() WHERE tenant_id = $1 AND id = $2', [tenantId, formId]);
     return { applied, kept, conflicts: rows.length - applied, template: tpl.key };
+  });
+}
+
+/**
+ * Mise à jour d'un indicateur DEPUIS LE MODÈLE (« Mettre à jour », « Tout mettre à jour », « Appliquer
+ * le modèle ») — R6 : l'écart est RECALCULÉ ici, sur l'indicateur verrouillé (FOR UPDATE), avec la même
+ * règle que la carte (templateDrift) ; n'est écrite que la modification que la carte a MONTRÉE
+ * (`expected`), et seulement si c'est encore exactement celle du modèle. Indicateur modifié entre-temps
+ * (autre onglet, autre utilisateur), devenu une simple différence, ou modèle changé : 409 drift_changed,
+ * rien d'écrit. Mêmes contrôles qu'une modification à la main (updateIndicatorTx).
+ * @param {{ mode?: 'corrections'|'full', template?: string|null, expected: object }} input
+ *   mode : 'corrections' = les corrections du modèle (lot) ; 'full' = aussi les différences (action d'UNE ligne).
+ * @returns {Promise<null|{ patch: object }>} null = indicateur introuvable
+ */
+async function applyTemplateUpdate(tenantId, id, { mode = 'corrections', template: requested = null, expected = {} } = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows: [ind] } = await client.query(
+      `SELECT id, form_id AS "formId", code, label, template_code AS "templateCode", source_field AS "sourceField", agg,
+              positive_value AS "positiveValue", na_values AS "naValues", target::float8 AS target, direction
+         FROM monitoring_indicators WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [tenantId, id]);
+    if (!ind) return null;
+    if (!ind.templateCode) throw badRequest('Cet indicateur n\'a pas été créé depuis un modèle d\'indicateurs.', { code: 'not_from_template' });
+    const { rows: [form] } = await client.query(
+      'SELECT id, code, label, activity_category AS "activityCategory" FROM monitoring_forms WHERE tenant_id = $1 AND id = $2',
+      [tenantId, ind.formId]);
+    const fields = await bindingFieldsTx(client, tenantId, ind.formId);
+    const eff = effectiveTemplate({ activityCategory: form.activityCategory, requested, proposal: proposeTemplate({ fields, form }) });
+    const stale = () => conflict('Cet indicateur ou le modèle de la fiche a changé depuis l\'ouverture de la carte : rechargez-la et vérifiez la proposition.',
+      { code: 'drift_changed' });
+    const item = eff.template && eff.template.items.find((it) => it.code === ind.templateCode);
+    if (eff.error || !item) throw stale();
+    const drift = templateDrift(item, bindTemplate({ items: [item] }, fields)[0], ind, { fields });
+    const patch = drift ? (mode === 'full' ? drift.fullPatch : drift.patch) : {};
+    if (!Object.keys(patch).length || !samePatch(patch, expected)) throw stale();
+    await updateIndicatorTx(client, tenantId, id, patch);
+    return { patch };
   });
 }
 
@@ -2127,7 +2171,7 @@ module.exports = {
   listCalcFields, calcPreview, formVariables, formMonths, indicatorPreview, importPreview, formCorrespondences, setCorrespondence, createCalcField, updateCalcField, deleteCalcField, setExclusion,
   setFormSource, formSourceContext, reportMonitoringData,
   listForms, createForm, updateForm, deleteForm,
-  listIndicators, createIndicator, updateIndicator, deleteIndicator,
+  listIndicators, createIndicator, updateIndicator, deleteIndicator, applyTemplateUpdate,
   formFields, importSubmissions, computeValues, dashboard, processOverview, coverageDashboard,
   formCatalog, memsMappingTx, mappingStateTx, setMappingStatusTx, setMemsMappingTx, resetMemsMappingTx,
   applyMappingToSubmissions, rederiveCollectionDatesTx,

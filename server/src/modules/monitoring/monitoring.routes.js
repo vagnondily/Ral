@@ -134,6 +134,22 @@ router.patch('/indicators/:id', WRITE, body(indicatorPatchSchema), asyncHandler(
   res.status(204).end();
 }));
 
+// Mise à jour d'un indicateur depuis le modèle (R6) : la modification montrée par la carte (`expected`),
+// recalculée et vérifiée sous verrou par le serveur — 409 drift_changed si l'indicateur a changé depuis.
+const templateUpdateSchema = z.object({
+  mode: z.enum(['corrections', 'full']).optional(),
+  template: z.string().trim().regex(/^[A-Z][A-Z0-9_]{0,19}$/, 'Clé de modèle invalide').optional(),
+  expected: z.object(indicatorFields).partial().strict(),
+}).strict();
+router.post('/indicators/:id/template-update', WRITE, body(templateUpdateSchema), asyncHandler(async (req, res) => {
+  const { mode, template, expected } = req.valid;
+  let out;
+  try { out = await repo.applyTemplateUpdate(t(req), uuidParam(req.params.id), { mode: mode || 'corrections', template: template || null, expected }); }
+  catch (err) { if (err.code === '23505') throw dupCode(expected.code); throw err; }
+  if (!out) throw notFound('Indicateur introuvable', { code: 'indicator_not_found' });
+  res.json(out);
+}));
+
 // « Comment c'est calculé » : une définition (enregistrée ou en cours de saisie) appliquée aux
 // soumissions réelles de la période. Lecture seule (aucune écriture), pour tout utilisateur.
 // Période : { from, to } ou l'ancien { month } (null = absent), lue par readPeriod (codes period_*).

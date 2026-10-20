@@ -309,6 +309,53 @@ test('écart : correction de méthode sans liste vérifiée (variable de l\'indi
   assert.deepEqual(ok.patch, { agg: 'percent_value', label: item.label });
 });
 
+test('écart (R3) : ancienne méthode ou valeur sur une variable de l\'UTILISATEUR → différence, jamais corrigée en lot', () => {
+  const stunt = templateByKey('STUNT');
+  const gd = templateByKey('GD');
+  const cases = [
+    // MIARO_NO_DELAY déplacé sur DelayStart (1 = Oui = retard) en gardant « % = 0 » : la correction l'inverserait.
+    { item: stunt.items.find((i) => i.code === 'MIARO_NO_DELAY'), fields: [{ name: 'DelayStart', type: 'select_one', choices: YES_NO }],
+      ind: { ...MIARO_OLD, sourceField: 'DelayStart' } },
+    // Hotline sur une variable à soi (2 = Non) : « Non » sortirait de la base → 100 % assuré.
+    { item: gd.items.find((i) => i.code === 'GD_HOTLINE_DISPLAYED'), fields: [{ name: 'MyHotline', type: 'select_one', choices: [{ value: '1', label: 'Oui' }, { value: '2', label: 'Non' }] }],
+      ind: { label: 'CFM affiché sur site', sourceField: 'MyHotline', agg: 'percent_yes', positiveValue: '1', naValues: [], target: null, direction: 'higher_better' } },
+    // SBCC sur un champ calculé 0/1 de l'utilisateur : « Moyenne » donnerait 0,6 face à une cible de 80.
+    { item: stunt.items.find((i) => i.code === 'MIARO_SBCC_APPLY'), fields: [{ name: 'MyApply', type: 'calculate', choices: [] }],
+      ind: { label: 'SBCC : pratiques appliquées', sourceField: 'MyApply', agg: 'percent_yes', positiveValue: '1', naValues: [], target: null, direction: 'higher_better' } },
+  ];
+  for (const { item, fields, ind } of cases) {
+    const binding = P.bindTemplate({ items: [item] }, fields)[0];
+    const d = P.templateDrift(item, binding, ind, { fields });
+    assert.ok(d, item.code);
+    assert.equal(d.kind, 'difference', item.code);
+    assert.equal(d.former, false, item.code);
+    assert.deepEqual(d.patch, {}, item.code);
+    assert.ok(d.changes.every((c) => c.origin === 'difference'), item.code);
+    assert.equal(d.blocked, null, `${item.code} : jamais « la variable du modèle » pour la variable de l'utilisateur`);
+  }
+});
+
+test('écart (R4) : cible vide = correction si l\'indicateur vient de l\'ancien chemin (sans cible), différence si l\'utilisateur l\'a effacée', () => {
+  const stunt = templateByKey('STUNT');
+  const spi = stunt.items.find((i) => i.code === 'MIARO_SPI');
+  const fields = [{ name: 'SitePerformanceIndex', type: 'decimal', choices: [] }];
+  const binding = P.bindTemplate({ items: [spi] }, fields)[0];
+  // Créé avant le 16/10 (ancien libellé « Score SPI », aucune cible écrite) : la cible est une correction, envoyée en lot.
+  const old = { label: 'Score SPI', sourceField: 'SitePerformanceIndex', agg: 'mean', positiveValue: null, naValues: [], target: null, direction: 'higher_better' };
+  const d = P.templateDrift(spi, binding, old, { fields });
+  assert.deepEqual(d.patch, { target: 75, label: spi.label });
+  assert.equal(d.changes.find((c) => c.key === 'target').origin, 'correction');
+  // Créé par le chemin actuel (définition actuelle, cible écrite), cible effacée ensuite par l'utilisateur : jamais réécrite en lot.
+  const cleared = P.templateDrift(spi, binding, { ...old, label: spi.label }, { fields });
+  assert.deepEqual([cleared.kind, cleared.patch, cleared.fullPatch], ['difference', {}, { target: 75 }]);
+  // SBCC d'avant (variable, méthode et valeur d'avant) : variable, méthode, valeur ET cible corrigées ensemble.
+  const sbcc = stunt.items.find((i) => i.code === 'MIARO_SBCC_APPLY');
+  const sf = [{ name: 'HHSbcPracticeApplied', type: 'select_one', choices: YES_NO }, { name: 'r_sbcc_apply_pct', type: 'calculate', choices: [] }];
+  const sd = P.templateDrift(sbcc, P.bindTemplate({ items: [sbcc] }, sf)[0],
+    { label: 'SBCC : pratiques appliquées', sourceField: 'HHSbcPracticeApplied', agg: 'percent_yes', positiveValue: '1', naValues: [], target: null, direction: 'higher_better' }, { fields: sf });
+  assert.deepEqual(sd.patch, { sourceField: 'r_sbcc_apply_pct', agg: 'mean', positiveValue: null, target: 80, label: sbcc.label });
+});
+
 test('catalogue : chaque élément corrigé garde sa définition d\'avant (formerly), les autres non', () => {
   const corrected = CATALOG.activities.flatMap((a) => a.items).filter((i) => i.formerly);
   assert.ok(corrected.length >= 25, `${corrected.length}`);

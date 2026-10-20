@@ -11,7 +11,7 @@ import { choiceText, indexStatus, INDEX_STATUS_LABEL, classesStatus, CLASSES_STA
 import {
   CONFIDENCE, NO_CONFIDENCE, WARNING_LABEL, warningLabel, issueLabel, driftKeyLabel, driftValue, driftState, blockedText, blockedTargetText,
   coveragePct, initialRows, mergeRows, rowSelectable, isChecked, checkedPayload, itemError, templateErrorText, fieldIssues, positiveForField,
-  cardCounts, availableFilters, effectiveFilter, filterMembers,
+  cardCounts, availableFilters, effectiveFilter, filterMembers, keptNaValues, noDefaultYes, needsReload,
 } from '../../lib/templateProposal.js';
 import './templates.css';
 
@@ -205,27 +205,34 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
         setFilter('all');
         setTimeout(() => document.getElementById(rowId(form.id, ie.item))?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50);
       } else {
+        // Carte périmée (modèle changé ailleurs…) : le message dit de recharger, le bouton le fait.
         const msg = templateErrorText(e, tr, { template: templateParam });
-        setApplyError(msg);
+        setApplyError(needsReload(e) ? { msg, reload: true } : msg);
         toast.error(msg);
       }
     } finally { setSaving(false); }
   }
 
-  // Mise à jour d'un indicateur créé depuis le modèle : la modification habituelle (PATCH, mêmes
-  // contrôles), l'une après l'autre ; chaque refus est gardé sur sa ligne, dans la langue de l'écran.
+  // Mise à jour d'un indicateur depuis le modèle (R6) : la modification MONTRÉE (`expected`) part au serveur,
+  // qui la recalcule sur l'indicateur verrouillé et ne l'écrit que si elle est encore exactement celle du
+  // modèle (sinon 409 : indicateur changé ailleurs, rien d'écrit, la carte se recharge). L'une après l'autre ;
+  // chaque refus est gardé sur sa ligne, dans la langue de l'écran.
   // `full` (action d'UNE ligne seulement) : applique aussi les différences (la définition du modèle).
   async function update(list, { full = false } = {}) {
     setUpdating(list.length === 1 ? list[0].code : 'all');
     const errors = {};
     let done = 0;
+    let stale = false;
     for (const it of list) {
       const ds = driftState(it);
       const patch = full ? ds.fullPatch : ds.patch;
       try {
-        await api.monUpdateIndicator(it.existing.id, patch); // une après l'autre : chaque PATCH est contrôlé seul
+        await api.monTemplateUpdate(it.existing.id, { mode: full ? 'full' : 'corrections', template: templateParam, expected: patch });
         done += 1;
-      } catch (e) { errors[it.code] = templateErrorText(e, tr, { sourceField: patch.sourceField || it.existing.sourceField }); }
+      } catch (e) {
+        errors[it.code] = templateErrorText(e, tr, { sourceField: patch.sourceField || it.existing.sourceField });
+        if (needsReload(e)) stale = true;
+      }
     }
     const failed = Object.keys(errors).length;
     setDriftErrors((prev) => {
@@ -239,7 +246,8 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
       setExpanded(true); setFilter('check');
     }
     setUpdating(null);
-    if (done) { await load(); onApplied?.(); }
+    if (done || stale) await load();
+    if (done) onApplied?.();
   }
 
   // « Tout mettre à jour » : les CORRECTIONS du modèle seulement — jamais une différence (modification de l'utilisateur).
@@ -312,7 +320,13 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
       </CardHeader>
       {(sourceNote || driftNote || diffNote || applyError) && (
         <div className="card-body section-gap tpl-notes">
-          {applyError && <Alert tone="error" icon={XCircle}>{applyError}</Alert>}
+          {applyError && (
+            <Alert tone="error" icon={XCircle}>
+              {typeof applyError === 'string' ? applyError : applyError.msg}
+              {applyError.reload && <>{' '}<Button size="sm" variant="secondary" icon={RefreshCw}
+                onClick={() => { setApplyError(null); setData(null); load(chosen, { reset: true }); }}>{tr('Recharger le modèle')}</Button></>}
+            </Alert>
+          )}
           {sourceNote}{driftNote}{diffNote}
         </div>
       )}
@@ -380,6 +394,8 @@ function TemplateRow({ it, formId, row: r, fieldsByName, canEdit, rowError, drif
   // Défauts de la variable ACTUELLE de la ligne (type, valeur comptée dans sa liste) — recalculés à chaque changement.
   const issues = !locked && field ? fieldIssues(it, field, r.positive) : [];
   const onSuggested = Boolean(s.field) && r.field === s.field;
+  // Réponses hors base retenues pour la variable de la ligne (même règle que le serveur) : jamais comptées.
+  const naKept = new Set(keptNaValues(it, field).map((v) => v.toLowerCase()));
   const ds = driftState(it);
   const warnings = it.warnings || [];
   // Sous-tableau reconnu par le catalogue de la fiche (field.repeat) sans avertissement « groupe » du modèle : dit aussi.
@@ -455,16 +471,27 @@ function TemplateRow({ it, formId, row: r, fieldsByName, canEdit, rowError, drif
           : field?.choices?.length && edit ? (
             <select className="select select-sm" value={r.positive || ''} aria-label={tr('Valeur comptée pour « {label} »', { label: it.label })}
               onChange={(e) => onSet(it.code, { positive: e.target.value })}>
-              {/* Rien d'affiché qui ne serait pas envoyé : une valeur vide se voit « — à choisir — ». */}
-              {!r.positive && <option value="">{tr('— à choisir —')}</option>}
+              {/* Rien d'affiché qui ne serait pas envoyé : une valeur vide se voit « — à choisir — » (« % = valeur »)
+                  ou « par défaut » (« % de oui » : les oui usuels sont comptés, comme dans l'éditeur). */}
+              {agg === 'percent_yes' ? <option value="">{tr('— par défaut : 1, oui, yes… —')}</option>
+                : !r.positive && <option value="">{tr('— à choisir —')}</option>}
               {r.positive && !field.choices.some((c) => c.value === r.positive) && <option value={r.positive}>{r.positive}</option>}
-              {field.choices.map((c) => <option key={c.value} value={c.value}>{c.value} — {choiceText(c.label, tr)}</option>)}
+              {/* Réponses hors base de cette ligne : affichées, jamais choisissables (elles ne seraient jamais comptées). */}
+              {field.choices.map((c) => (
+                <option key={c.value} value={c.value} disabled={naKept.has(String(c.value).toLowerCase())}>
+                  {c.value} — {choiceText(c.label, tr)}{naKept.has(String(c.value).toLowerCase()) ? ` (${tr('hors base')})` : ''}
+                </option>
+              ))}
             </select>
           ) : edit
             ? <input className="input input-sm mono" value={r.positive || ''} onChange={(e) => onSet(it.code, { positive: e.target.value })} aria-label={tr('Valeur comptée pour « {label} »', { label: it.label })} />
             : <span className="mono">{r.positive || '—'}</span>}
         {edit && sel.reason === 'positive_required' && <div className="site-meta text-warn">{tr('Choisissez la valeur comptée')}</div>}
         {edit && sel.reason === 'positive_not_in_list' && <div className="site-meta text-warn">{tr('Choisissez une valeur de la liste de cette variable')}</div>}
+        {edit && sel.reason === 'positive_is_na' && <div className="site-meta text-warn">{tr('Valeur hors base pour cet indicateur : choisissez une autre valeur comptée')}</div>}
+        {edit && agg === 'percent_yes' && !String(r.positive || '').trim() && noDefaultYes(field) && (
+          <div className="site-meta text-warn">{tr('Aucune réponse de cette liste n\'est un « oui » usuel : choisissez la valeur comptée')}</div>
+        )}
       </td>
       <td><Badge tone={conf.tone} icon={ConfIcon}>{tr(conf.label)}</Badge></td>
     </tr>

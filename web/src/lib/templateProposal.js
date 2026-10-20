@@ -202,6 +202,32 @@ export function fieldIssues(item, field, positive) {
   return out;
 }
 
+// « Autre » est une RÉPONSE (retour 81) : jamais retenu hors base (jumeau de indicatorProposals.bindItem).
+const OTHER_LABEL = /^\s*(autres?|other)\b/i;
+/**
+ * Réponses hors base retenues pour la variable de la ligne — même règle que le serveur (bindItem) :
+ * les codes hors base du modèle présents dans la liste de la variable et non « Autre » ; sans liste
+ * connue, ceux du modèle.
+ */
+export function keptNaValues(item, field) {
+  const na = ((item && item.naValues) || []).map(String);
+  const choices = (field && field.choices) || [];
+  if (!choices.length || !PERCENT_AGGS.has(item.agg)) return na;
+  const labelOf = new Map(choices.map((c) => [String(c.value), String(c.label == null ? '' : c.label)]));
+  return na.filter((v) => labelOf.has(v) && !OTHER_LABEL.test(labelOf.get(v)));
+}
+
+/** Réponses comptées « oui » quand aucune valeur comptée n'est choisie (jumeau de monitoringMath.isYes). */
+export const DEFAULT_YES = new Set(['1', 'oui', 'yes', 'true', 'vrai', 'y', 'o']);
+/**
+ * Un « % de oui » sans valeur comptée sur cette liste ne compterait rien : aucune de ses réponses n'est
+ * un « oui » usuel. Avertissement seulement (même règle que l'éditeur : la définition est acceptée).
+ */
+export function noDefaultYes(field) {
+  const choices = (field && field.choices) || [];
+  return choices.length > 0 && !choices.some((c) => DEFAULT_YES.has(String(c.value).trim().toLowerCase()));
+}
+
 /**
  * Valeur comptée quand la variable de la ligne change : la valeur actuelle si la nouvelle liste la
  * contient, sinon celle du modèle si elle y est, sinon (« % de oui » seulement) le « Oui » de la
@@ -232,10 +258,13 @@ export function initialRows(items) {
   const rows = {};
   for (const it of items || []) {
     const s = it.suggestion || {};
+    const locked = Boolean(it.existing || it.taken);
     rows[it.code] = {
-      on: Boolean(s.preselect) && !it.existing && !it.taken,
+      on: Boolean(s.preselect) && !locked,
       field: (it.existing && it.existing.sourceField) || s.field || '',
       positive: (it.existing ? it.existing.positiveValue : s.positiveValue) ?? '',
+      // Ligne d'un indicateur déjà créé (ou code pris) : jamais reprise telle quelle s'il redevient à créer.
+      ...(locked ? { locked: true } : {}),
     };
   }
   return rows;
@@ -243,8 +272,9 @@ export function initialRows(items) {
 
 /**
  * Rechargement de la carte qui ne suit PAS « Créer » (indicateur modifié ailleurs, mise à jour
- * d'un indicateur, C18) : les cases et variables saisies sont gardées pour les éléments encore à
- * créer ; seuls les nouveaux éléments, et ceux devenus créés ou à code pris, repartent de la précoche.
+ * d'un indicateur, C18) : les cases et variables saisies sont gardées pour les éléments qui étaient
+ * DÉJÀ à créer ; les nouveaux éléments, ceux devenus créés ou à code pris, et ceux qui le REDEVIENNENT
+ * (indicateur supprimé, code libéré : leur ligne portait l'ancienne définition, R5) repartent de la précoche.
  */
 export function mergeRows(prev, items) {
   const init = initialRows(items);
@@ -252,7 +282,7 @@ export function mergeRows(prev, items) {
   const rows = {};
   for (const it of items || []) {
     const p = prev[it.code];
-    rows[it.code] = p && !it.existing && !it.taken ? p : init[it.code];
+    rows[it.code] = p && !p.locked && !it.existing && !it.taken ? p : init[it.code];
   }
   return rows;
 }
@@ -326,7 +356,7 @@ export function filterMembers(items, filter, { rowErrors = {}, driftErrors = {} 
  * Une ligne peut-elle être cochée ? La même réponse pour la case, le compte du bouton
  * « Créer N indicateur(s) » et l'envoi — contrôlée sur la variable ACTUELLE de la ligne.
  * @param {Map<string, {name,type?,choices?}>} fieldsByName  variables de la fiche
- * @returns {{ ok: boolean, reason: null|'locked'|'no_field'|'unknown_field'|'type'|'positive_required'|'positive_not_in_list' }}
+ * @returns {{ ok: boolean, reason: null|'locked'|'no_field'|'unknown_field'|'type'|'positive_required'|'positive_not_in_list'|'positive_is_na' }}
  */
 export function rowSelectable(item, row, fieldsByName) {
   if (!item || item.existing || item.taken) return { ok: false, reason: 'locked' };
@@ -336,12 +366,15 @@ export function rowSelectable(item, row, fieldsByName) {
   if (!field) return { ok: false, reason: 'unknown_field' };
   if (typeIssue(item.agg, field.type)) return { ok: false, reason: 'type' };
   const positive = String(row.positive ?? '').trim();
-  // « % = valeur » sans valeur comptée serait refusé (indicatorRules) ; un « % de oui » sur une variable à
-  // liste sans valeur comptée ne compterait rien (serveur : positive_missing) — à choisir d'abord.
-  if (!positive && (item.agg === 'percent_value' || (item.agg === 'percent_yes' && (field.choices || []).length))) {
-    return { ok: false, reason: 'positive_required' };
-  }
+  // « % = valeur » sans valeur comptée serait refusé (indicatorRules, comme dans l'éditeur). Un « % de oui »
+  // sans valeur comptée est accepté (les « oui » usuels sont comptés) — avertissement seulement (noDefaultYes).
+  if (!positive && item.agg === 'percent_value') return { ok: false, reason: 'positive_required' };
   if (fieldIssues(item, field, positive).includes('positive')) return { ok: false, reason: 'positive_not_in_list' };
+  // Valeur comptée aussi hors base : jamais comptée (indicatorRules positive_is_na) — refusée ici comme au serveur.
+  if (positive && PERCENT_AGGS.has(item.agg)) {
+    const na = new Set(keptNaValues(item, field).map((v) => v.toLowerCase()));
+    if (splitValues(positive).some((v) => na.has(v.toLowerCase()))) return { ok: false, reason: 'positive_is_na' };
+  }
   return { ok: true, reason: null };
 }
 
@@ -358,7 +391,7 @@ export function checkedPayload(items, rows, fieldsByName) {
 
 /**
  * Refus de « Créer » qui nomme un élément (400 de applyTemplate : type_mismatch,
- * positive_not_in_list, positive_missing, positive_required, positive_is_na, unknown_variable) :
+ * positive_not_in_list, positive_required, positive_is_na, unknown_variable) :
  * { code, item, field, type, agg, value } pour l'afficher sur SA ligne, sinon null.
  */
 export function itemError(err) {
@@ -366,6 +399,10 @@ export function itemError(err) {
   if (!d || typeof d !== 'object' || !d.item) return null;
   return { code: d.code || null, item: String(d.item), field: d.field || null, type: d.type || null, agg: d.agg || null, value: d.value ?? null };
 }
+
+/** Refus qui demandent de recharger la carte (carte périmée : modèle ou indicateur changé ailleurs). */
+export const RELOAD_CODES = new Set(['unknown_item', 'duplicate_item', 'drift_changed', 'indicator_not_found', 'activity_template', 'unknown_template']);
+export const needsReload = (err) => Boolean(err && err.details && RELOAD_CODES.has(err.details.code));
 
 /**
  * Refus du serveur en mots, dans la langue de l'écran (C20) : ceux du modèle d'indicateurs, puis
@@ -383,8 +420,16 @@ export function templateErrorText(err, tr, ctx = {}) {
       });
     case 'positive_not_in_list':
       return tr('La valeur comptée « {value} » n\'est pas dans la liste de la variable « {field} » : choisissez une valeur de sa liste.', { value: d.value ?? '', field: d.field || ctx.sourceField || '—' });
-    case 'positive_missing':
-      return tr('Choisissez la valeur comptée dans la liste de la variable « {field} ».', { field: d.field || ctx.sourceField || '—' });
+    case 'unknown_item':
+      return tr('Le modèle de la fiche a changé : rechargez la carte.');
+    case 'duplicate_item':
+      return tr('Un même indicateur est envoyé deux fois : rechargez la carte.');
+    case 'drift_changed':
+      return tr('Cet indicateur ou le modèle de la fiche a changé depuis l\'ouverture de la carte : rien n\'a été modifié. La carte est rechargée : vérifiez la nouvelle proposition.');
+    case 'indicator_not_found':
+      return tr('Cet indicateur n\'existe plus (supprimé entre-temps) : la carte est rechargée.');
+    case 'not_from_template':
+      return tr('Cet indicateur n\'a pas été créé depuis un modèle d\'indicateurs.');
     case 'activity_template':
       return tr('Cette fiche est rattachée à « {activity} » : son modèle est « {template} ». Changez l\'activité pour utiliser un autre modèle.', { activity: d.activity || '—', template: d.template || '—' });
     case 'unknown_template':

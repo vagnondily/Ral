@@ -37,7 +37,7 @@ function definition(formId) {
 let state;
 function reset(over = {}) {
   state = {
-    calls: [], inserted: [],
+    calls: [], inserted: [], updates: [], ind: null,
     form: { id: FORM, code: SMP_ID, label: 'Suivi SMP', activityCategory: null, submissions: 1159 },
     def: definition(SMP_ID),
     dataKeys: [],
@@ -75,6 +75,18 @@ db.withTenantTransaction = async (tenantId, fn) => fn({
       return { rowCount: n, rows: [] };
     }
     if (/^UPDATE monitoring_forms SET updated_at/.test(s)) return { rowCount: 1, rows: [] };
+    // Mise à jour depuis le modèle (applyTemplateUpdate + updateIndicatorTx).
+    if (/^SELECT id, form_id AS "formId", code, label, template_code AS "templateCode", source_field AS "sourceField", agg, .* FOR UPDATE$/.test(s)) {
+      return { rows: state.ind && params[1] === state.ind.id ? [{ formId: FORM, naValues: [], target: null, direction: 'higher_better', ...state.ind }] : [] };
+    }
+    if (/^SELECT id, code, label, activity_category AS "activityCategory" FROM monitoring_forms WHERE tenant_id = \$1 AND id = \$2$/.test(s)) return { rows: [state.form] };
+    if (/^SELECT id, form_id AS "formId", source_field AS "sourceField", agg, positive_value AS "positiveValue", target, na_values AS "naValues" FROM monitoring_indicators .* FOR UPDATE$/.test(s)) {
+      return { rows: [{ id: state.ind.id, formId: FORM, sourceField: state.ind.sourceField, agg: state.ind.agg, positiveValue: state.ind.positiveValue, target: null, naValues: state.ind.naValues || [] }] };
+    }
+    if (/^SELECT name FROM monitoring_form_fields .* UNION SELECT name FROM monitoring_calc_fields/.test(s)) {
+      return { rows: [...state.def.fields.map((f) => ({ name: f.name })), ...state.calc.map((c) => ({ name: c.name }))] };
+    }
+    if (/^UPDATE monitoring_indicators SET/.test(s)) { state.updates.push(params); return { rowCount: 1, rows: [] }; }
     throw new Error(`requête inattendue : ${s.slice(0, 140)}`);
   },
 });
@@ -202,15 +214,34 @@ test('création (C13) : valeur comptée aussi hors base, ou absente de la liste 
     assert.deepEqual([err.statusCode, err.details.code, err.details.item, err.details.value, err.details.field], [400, 'positive_not_in_list', 'GD_DPMC_TRAINED', '7', 'MODPMCMemb']);
     return true;
   });
-  await assert.rejects(repo.applyTemplate(T, FORM, { items: [ok, { code: 'GD_DPMC_TRAINED', sourceField: 'MODPMCMemb', positiveValue: null }] }), (err) => {
-    // « % de oui » sur une liste sans valeur comptée : 0 % assuré → refusé, élément nommé.
-    assert.deepEqual([err.statusCode, err.details.code, err.details.item], [400, 'positive_missing', 'GD_DPMC_TRAINED']);
-    return true;
-  });
   assert.equal(state.inserted.length, 0); // le lot est refusé entier : GD_NOT_PAID non plus
   // La même ligne, corrigée, passe.
   const out = await repo.applyTemplate(T, FORM, { items: [ok, { code: 'GD_DPMC_TRAINED', sourceField: 'MODPMCMemb', positiveValue: '1' }] });
   assert.equal(out.applied, 2);
+});
+
+test('création (R8) : « % de oui » sans valeur comptée accepté, comme dans l\'éditeur (les « oui » usuels sont comptés)', async () => {
+  reset({ def: definition(GD_ID), form: gdForm() });
+  const out = await repo.applyTemplate(T, FORM, { items: [{ code: 'GD_DPMC_TRAINED', sourceField: 'MODPMCMemb', positiveValue: null }] });
+  assert.equal(out.applied, 1);
+  assert.equal(state.inserted[0][7], null);
+  // Même définition acceptée par les règles de l'éditeur (indicatorRules).
+  const { definitionIssue } = require('../src/modules/monitoring/indicatorRules');
+  assert.equal(definitionIssue({ agg: 'percent_yes', positiveValue: null, naValues: ['888'] }), null);
+  // … et calculée correctement : 1, 0, 1, 888 → 2 / 3 (888 hors base).
+  const { computeIndicator } = require('../src/modules/monitoring/monitoringMath');
+  const r = computeIndicator({ sourceField: 'q', agg: 'percent_yes', positiveValue: null, naValues: ['888'] }, [{ data: { q: '1' } }, { data: { q: '0' } }, { data: { q: '1' } }, { data: { q: '888' } }]);
+  assert.equal(r.value, 66.7);
+});
+
+test('création (R2) : élément inconnu du modèle ou envoyé deux fois → codes (« rechargez la carte »), rien d\'écrit', async () => {
+  reset({ def: definition(GD_ID), form: gdForm() });
+  await assert.rejects(repo.applyTemplate(T, FORM, { items: [{ code: 'SMP_MENU_DISPLAYED', sourceField: 'HHAsstPayEnt' }] }),
+    (err) => err.statusCode === 400 && err.details.code === 'unknown_item' && err.details.value === 'SMP_MENU_DISPLAYED' && err.details.template === 'GD' && !err.details.item);
+  const row = { code: 'GD_NOT_PAID', sourceField: 'HHAsstPayEnt', positiveValue: '0' };
+  await assert.rejects(repo.applyTemplate(T, FORM, { items: [row, row] }),
+    (err) => err.statusCode === 400 && err.details.code === 'duplicate_item' && err.details.value === 'GD_NOT_PAID');
+  assert.equal(state.inserted.length, 0);
 });
 
 test('carte et création (C15) : un champ calculé MEMS de la fiche est une variable comme une autre', async () => {
@@ -238,4 +269,41 @@ test('carte (C14) : une modification de l\'utilisateur est une différence, jama
   assert.deepEqual(dpmc.existing.drift.fullPatch, { direction: 'higher_better' });
   assert.deepEqual([out.summary.toUpdate, out.summary.labelsToUpdate, out.summary.differences], [0, 0, 1]);
   assert.equal(state.calls.filter((c) => /^(INSERT|UPDATE|DELETE)/.test(c.sql)).length, 0);
+});
+
+const MIARO_FORM = () => ({ id: FORM, code: MIARO_ID, label: 'MIARO', activityCategory: 'Malnutrition prevention activities', submissions: 10 });
+const IND_ID = '44444444-4444-4444-4444-444444444444';
+const miaroOld = () => ({ id: IND_ID, code: 'MIARO_NO_DELAY', templateCode: 'MIARO_NO_DELAY', label: 'Absence de retard', sourceField: 'risk_delay', agg: 'percent_value', positiveValue: '0' });
+
+test('mise à jour depuis le modèle (R6) : la correction montrée est recalculée sous verrou, puis écrite', async () => {
+  reset({ def: definition(MIARO_ID), form: MIARO_FORM(), ind: miaroOld(), indicators: [miaroOld()] });
+  // Ce que la carte montre (même règle) est exactement ce que le serveur recalcule et écrit.
+  const card = await repo.formTemplate(T, FORM);
+  const expected = card.template.items.find((i) => i.code === 'MIARO_NO_DELAY').existing.drift.patch;
+  assert.equal(expected.sourceField, 'r_no_delay');
+  const out = await repo.applyTemplateUpdate(T, IND_ID, { mode: 'corrections', expected });
+  assert.deepEqual(out.patch, expected);
+  assert.equal(state.updates.length, 1);
+  const lock = state.calls.find((c) => /template_code AS "templateCode", source_field/.test(c.sql) && /FOR UPDATE$/.test(c.sql));
+  assert.ok(lock, 'indicateur verrouillé avant le recalcul');
+});
+
+test('mise à jour depuis le modèle (R6) : indicateur modifié entre-temps (variable de l\'utilisateur) → 409 drift_changed, rien d\'écrit', async () => {
+  const item = require('../src/modules/monitoring/indicatorTemplates').templateByKey('STUNT').items.find((i) => i.code === 'MIARO_NO_DELAY');
+  const expected = { sourceField: 'r_no_delay', agg: 'percent_yes', positiveValue: '1', label: item.label };
+  const def = definition(MIARO_ID);
+  def.fields.push({ name: 'DelayStart', type: 'select_one', label: 'DelayStart', listName: null });
+  // Dans un autre onglet : passé sur SA variable, « % = 0 » gardé — ce n'est plus une correction.
+  reset({ def, form: MIARO_FORM(), ind: { ...miaroOld(), sourceField: 'DelayStart' } });
+  await assert.rejects(repo.applyTemplateUpdate(T, IND_ID, { mode: 'corrections', expected }),
+    (err) => err.statusCode === 409 && err.details.code === 'drift_changed');
+  assert.equal(state.updates.length, 0);
+  // Proposition montrée périmée (autre valeur attendue) : refusée aussi.
+  reset({ def: definition(MIARO_ID), form: MIARO_FORM(), ind: miaroOld() });
+  await assert.rejects(repo.applyTemplateUpdate(T, IND_ID, { mode: 'corrections', expected: { ...expected, positiveValue: '0' } }),
+    (err) => err.statusCode === 409 && err.details.code === 'drift_changed');
+  assert.equal(state.updates.length, 0);
+  // Indicateur supprimé : null (404 indicator_not_found à la route).
+  reset({ def: definition(MIARO_ID), form: MIARO_FORM(), ind: null });
+  assert.equal(await repo.applyTemplateUpdate(T, IND_ID, { expected }), null);
 });
