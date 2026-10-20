@@ -99,7 +99,8 @@ function buildDistrictsResponse(raw, { period, officeId = null, activity = null,
         shapeKey: m.shapeKey, how: m.how, sharedWith: m.sharedWith, ...lite(z.counts) });
     } else if (z.rid && regionById.has(z.rid)) {
       const r = regionById.get(z.rid);
-      regionOnly.push({ pcode: r.pcode, name: r.name, ...lite(z.counts) });
+      // id : clé stable de la ligne (une région du découpage importé sans P-code en a quand même une).
+      regionOnly.push({ id: r.id, pcode: r.pcode, name: r.name, ...lite(z.counts) });
     } else {
       unplaced = addCounts(unplaced, z.counts);
     }

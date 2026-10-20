@@ -348,3 +348,11 @@ test('carte (retour 83) : bureau choisi → cadrage sur ses districts ; bureau c
   const map = fs.readFileSync(path.join(__dirname, '../../web/src/components/map/DistrictMap.jsx'), 'utf8');
   assert.match(map, /const fitKeys = useCallback\(/);
 });
+
+test('carte : lignes « région seulement » clées par l\'identifiant de la région (jamais « ro:null » en double sans P-code)', (t) => {
+  const file = require('path').join(__dirname, '../../web/src/components/map/MapPanel.jsx');
+  if (!require('fs').existsSync(file)) { t.skip('web/ absent'); return; }
+  const src = require('fs').readFileSync(file, 'utf8');
+  assert.match(src, /key: `ro:\$\{r\.id \|\| r\.pcode \|\| `\$\{r\.name\}#\$\{i\}`\}`/);
+  assert.doesNotMatch(src, /key: `ro:\$\{r\.pcode\}`/);
+});

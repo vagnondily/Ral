@@ -140,6 +140,7 @@ test('réponse districts : contours, région seulement, sans localité, totaux, 
   assert.equal(r.shapes[1].rates.coverage.reason, 'aucun_site_actif');
   assert.deepEqual(r.shared.map((s) => s.districts.map((d) => d.name)), [['Ambovombe-Androy', 'Antanimora Sud']]);
   assert.deepEqual(r.regionOnly.map((x) => [x.name, x.counts.sites]), [['Androy', 33]]);
+  assert.equal(r.regionOnly[0].id, 'r1', 'clé stable de la ligne, même sans P-code de région');
   assert.equal(r.unplaced.sites, 2);
   assert.equal(r.submissionsUnlocated, 13);
   assert.equal(r.totals.counts.submissions, 18);
