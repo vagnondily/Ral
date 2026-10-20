@@ -60,3 +60,24 @@ test('un TPM titulaire de son propre contrat le SUIT encore après sa première 
   const p = partnerContracts([contracts[1]], v);
   assert.deepEqual([p.get('sahy').held.map((c) => c.id), p.get('sahy').monitored.map((c) => c.id), p.get('sahy').tpms], [['c2'], ['c2'], []]);
 });
+
+test('verrou d\'écriture d\'un contrat : FOR NO KEY UPDATE (les clés étrangères vers lui passent), FOR UPDATE pour la suppression seule', async () => {
+  const repo = require('../src/modules/contracts/contracts.repository');
+  const sqlOf = async (opts) => {
+    let sql = '';
+    await repo.getContract({ query: async (text) => { sql = text; return { rows: [] }; } }, 't', 'c1', opts);
+    return sql.trim();
+  };
+  assert.match(await sqlOf({ forUpdate: true }), /FOR NO KEY UPDATE OF c$/);
+  assert.match(await sqlOf({ forUpdate: true, forDelete: true }), /\bFOR UPDATE OF c$/);
+  assert.doesNotMatch(await sqlOf({ forUpdate: true, forDelete: true }), /NO KEY/);
+  assert.doesNotMatch(await sqlOf({}), /FOR (NO KEY )?UPDATE/);
+  // Aucune colonne de clé dans un UPDATE de contrat : listée (même inchangée), elle reprendrait la ligne FOR UPDATE.
+  const keys = new Set(repo.CONTRACT_KEY_COLUMNS);
+  assert.deepEqual(Object.values(repo.CONTRACT_UPDATE_COLUMNS).filter((c) => keys.has(c)), []);
+  let sql = '';
+  const all = Object.fromEntries(Object.keys(repo.CONTRACT_UPDATE_COLUMNS).map((k) => [k, null]));
+  await repo.updateContract({ query: async (text) => { sql = text; return { rowCount: 1 }; } }, 't', 'c1', 1, all);
+  const set = sql.slice(sql.indexOf('SET') + 3, sql.indexOf('WHERE'));
+  for (const k of repo.CONTRACT_KEY_COLUMNS) assert.doesNotMatch(set, new RegExp(`\\b${k}\\s*=`), k);
+});
