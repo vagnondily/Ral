@@ -44,13 +44,11 @@ test('GET /rbm/sites/:id : sans mois → mois courant ; site inconnu → 404 ; i
   await request(app).get(`/api/tpm/field/rbm/sites/${SITE}`).set(as(viewer));
   // Mois courant LOCAL (APP_TIMEZONE) : le 31 octobre à 22 h 30 UTC, il est déjà 1 h 30 le 1ᵉʳ novembre
   // à Madagascar — la route prend novembre, comme le reste du serveur (rbmMath.currentMonth).
-  await withFrozenClock('2026-10-31T22:30:00Z', async () => {
-    await request(app).get(`/api/tpm/field/rbm/sites/${SITE}`).set(as(viewer));
-  });
+  const local = await withFrozenClock('2026-10-31T22:30:00Z', () => request(app).get(`/api/tpm/field/rbm/sites/${SITE}`).set(as(viewer)));
+  assert.equal(local.status, 200);
   assert.equal(calls.at(-1).opts.month, '2026-11');
-  await withFrozenClock('2026-10-31T22:30:00Z', async () => {
-    await request(app).get(`/api/tpm/field/rbm/sites/${SITE}`).set(as(viewer));
-  }, { timeZone: 'UTC' });
+  const utc = await withFrozenClock('2026-10-31T22:30:00Z', () => request(app).get(`/api/tpm/field/rbm/sites/${SITE}`).set(as(viewer)), { timeZone: 'UTC' });
+  assert.equal(utc.status, 200);
   assert.equal(calls.at(-1).opts.month, '2026-10');
   const missing = await request(app).get('/api/tpm/field/rbm/sites/55555555-5555-5555-5555-555555555555').set(as(viewer));
   assert.equal(missing.status, 404);
@@ -63,4 +61,23 @@ test('GET /rbm/sites/:id : sans mois → mois courant ; site inconnu → 404 ; i
 test('GET /rbm/sites/:id : authentification requise', async () => {
   const res = await request(app).get(`/api/tpm/field/rbm/sites/${SITE}`);
   assert.equal(res.status, 401);
+});
+
+test('GET /plan-board : exercice par défaut = année du mois courant LOCAL (31/12 22 h 30 UTC = déjà 2027 à Madagascar)', async () => {
+  const settingsRepo = require('../src/modules/settings/settings.repository');
+  const seen = [];
+  const savedBoard = repo.planBoard; const savedMmr = settingsRepo.listMmr;
+  repo.planBoard = async (tenantId, opts) => { seen.push(opts.year); return { year: opts.year, sites: [] }; };
+  settingsRepo.listMmr = async () => [];
+  try {
+    const local = await withFrozenClock('2026-12-31T22:30:00Z', () => request(app).get('/api/tpm/field/plan-board').set(as(viewer)));
+    assert.equal(local.status, 200);
+    const utc = await withFrozenClock('2026-12-31T22:30:00Z', () => request(app).get('/api/tpm/field/plan-board').set(as(viewer)), { timeZone: 'UTC' });
+    assert.equal(utc.status, 200);
+    const asked = await request(app).get('/api/tpm/field/plan-board?year=2025').set(as(viewer));
+    assert.equal(asked.status, 200);
+    assert.deepEqual(seen, [2027, 2026, 2025]);
+  } finally {
+    repo.planBoard = savedBoard; settingsRepo.listMmr = savedMmr;
+  }
 });

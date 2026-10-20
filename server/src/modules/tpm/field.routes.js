@@ -107,7 +107,8 @@ router.get('/rbm/sites/:id', asyncHandler(async (req, res) => {
   res.json(site);
 }));
 // ---- Plan de suivi « type Excel » (exercice) ---------------------------------
-const yearQ = (req) => { const y = Number(req.query.year); return Number.isInteger(y) && y >= 2000 && y <= 2100 ? y : new Date().getFullYear(); };
+// Exercice par défaut = année du mois courant LOCAL (APP_TIMEZONE), pas celle du fuseau du processus.
+const yearQ = (req) => { const y = Number(req.query.year); return Number.isInteger(y) && y >= 2000 && y <= 2100 ? y : Number(currentMonth().slice(0, 4)); };
 // Listes de référence de l'écran (Activity Tag = catégories du MMR, sous-types de POI, modalités).
 router.get('/plan-board', asyncHandler(async (req, res) => {
   const [board, mmr] = await Promise.all([repo.planBoard(t(req), { year: yearQ(req), adjusted: req.query.adjusted === '1' }), settingsRepo.listMmr(t(req))]);

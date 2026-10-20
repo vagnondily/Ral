@@ -103,8 +103,9 @@ async function mmrRowsTx(client, tenantId) {
  * capacités et les mêmes agents.
  * @returns {{ sites: object[], mmrByKey: object, yearHasGrid: boolean }}
  */
-async function loadInputsTx(client, tenantId, { year, adjusted = false, scope = {} } = {}) {
-  const board = await field.planBoardWithTpmTx(client, tenantId, { year, adjusted });
+async function loadInputsTx(client, tenantId, { year, adjusted = false, scope = {}, nowMonth = null } = {}) {
+  // `nowMonth` : mois de l'horloge du calcul (clockOf) — le Plan de suivi est lu à ce mois-là.
+  const board = await field.planBoardWithTpmTx(client, tenantId, { year, adjusted, nowMonth });
   const adjacent = await adjacentVisitsTx(client, tenantId, year);
   const offices = await officesTx(client, tenantId);
   // Intervalle + capacité mensuelle par ligne MMR (même clé que les sites du board).
@@ -245,9 +246,13 @@ async function insertVisitsTx(client, tenantId, userId, assignments = []) {
  * figée (« antérieur »), ni facturée (AUTO_RESTAMPABLE_SQL), sans date de visite ni agent (le travail
  * d'affectation d'une personne), et d'un mois en cours ou à venir : un mois échu garde ses visites
  * prévues, qui comptent dans l'exécution du plan. Alias de visite : v.
+ * `monthRef` = paramètre lié du 1ᵉʳ jour du MOIS COURANT de l'application (jour local, APP_TIMEZONE,
+ * planAuto.service.clockOf — le même que l'écran, l'aperçu et « Appliquer ») ; jamais now() de la
+ * base, qui suit le fuseau de la session (UTC) et garde un mois de retard entre minuit et 3 h.
+ * @param {string} monthRef référence du paramètre, ex. '$4'
  */
-const CLEARABLE_SQL = `v.provider_source = 'zone' AND ${AUTO_RESTAMPABLE_SQL}
-  AND v.visit_date IS NULL AND v.agent IS NULL AND v.period_month >= date_trunc('month', now())::date`;
+const CLEARABLE_SQL = (monthRef) => `v.provider_source = 'zone' AND ${AUTO_RESTAMPABLE_SQL}
+  AND v.visit_date IS NULL AND v.agent IS NULL AND v.period_month >= ${monthRef}::date`;
 
 /**
  * Efface les visites prévues LIBRES de la période (CLEARABLE_SQL), sur le client de l'appelant
@@ -255,9 +260,11 @@ const CLEARABLE_SQL = `v.provider_source = 'zone' AND ${AUTO_RESTAMPABLE_SQL}
  * motivée, datée, affectée à un agent, ni d'un mois échu. Le périmètre est celui de la
  * planification (bureau — antennes comprises —, activité, district, risque). Renvoie le nombre
  * supprimé et le nombre de prévues conservées.
- * @param {number} year  exercice ; from/to = numéros de mois (1..12).
+ * @param {number} year  exercice ; from/to = numéros de mois (1..12) ; nowMonth = mois courant
+ *   'AAAA-MM' de l'application (horloge du calcul, obligatoire : jamais l'horloge de la base).
  */
-async function clearPlannedTx(client, tenantId, { year, from, to, risk, scope = {} } = {}) {
+async function clearPlannedTx(client, tenantId, { year, from, to, risk, scope = {}, nowMonth } = {}) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(nowMonth))) throw new Error('clearPlannedTx : mois courant requis (AAAA-MM)');
   // Même périmètre que la planification : le bureau et TOUTES ses antennes (bureau national = tout).
   const officeIds = scope.fieldOfficeId ? officeScopeIds(await officesTx(client, tenantId), scope.fieldOfficeId) : null;
   const fromD = `${year}-${String(from).padStart(2, '0')}-01`;
@@ -274,7 +281,10 @@ async function clearPlannedTx(client, tenantId, { year, from, to, risk, scope = 
     ? ` AND v.site_id IN (SELECT s.id FROM sites s WHERE s.tenant_id = $1 AND ${conds.join(' AND ')})` : '';
   const where = `v.tenant_id = $1 AND v.status = 'planifie'
         AND v.period_month >= $2::date AND v.period_month <= $3::date${siteFilter}`;
-  const { rowCount } = await client.query(`DELETE FROM site_visits v WHERE ${where} AND ${CLEARABLE_SQL}`, params);
+  // Mois courant de l'application : dernier paramètre, lu par CLEARABLE_SQL seulement (le décompte
+  // des conservées n'en a pas besoin).
+  const delParams = [...params, `${nowMonth}-01`];
+  const { rowCount } = await client.query(`DELETE FROM site_visits v WHERE ${where} AND ${CLEARABLE_SQL(`$${delParams.length}`)}`, delParams);
   const { rows: [{ n }] } = await client.query(`SELECT count(*)::int AS n FROM site_visits v WHERE ${where}`, params);
   return { deleted: rowCount, kept: n };
 }

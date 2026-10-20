@@ -278,3 +278,25 @@ test('« Générer » : un site « Inactive » ce mois — ou sans statut quand 
   const r2 = await generateFromRbmTx(stateClient(sites, v2), TENANT, 'user-1', '2026-10');
   assert.deepEqual([r2.created, r2.inactive], [3, 0]);
 });
+
+test('Plan de suivi : UN mois courant par réponse (lu une fois, injectable) — prochaine visite et TPM de zone au même mois', async () => {
+  const { withFrozenClock } = require('./helpers/frozenClock');
+  const { planBoardTx, planBoardWithTpmTx } = require('../src/modules/tpm/field.repository');
+  const sites = [row({ id: 'oct', name: 'O', plannedMonths: ['2026-10'], months: [], monthStatus: null })];
+  const boardClient = { async query(sql) { return { rows: /FROM mmr_parameters/.test(sql) ? [] : sites }; } };
+  // Mois injecté (horloge de la planification automatique) : novembre → la visite d'octobre n'est plus « à venir ».
+  const nov = await planBoardTx(boardClient, TENANT, { year: 2026, nowMonth: '2026-11' });
+  assert.equal(nov.nowMonth, '2026-11');
+  assert.equal(nov.sites[0].nextPlannedMonth, null);
+  const oct = await planBoardTx(boardClient, TENANT, { year: 2026, nowMonth: '2026-10' });
+  assert.equal(oct.sites[0].nextPlannedMonth, '2026-10');
+  // Avec le TPM de zone (registre vide : seules les requêtes comptent) : le mois de référence du TPM
+  // est celui du Plan de suivi de la MÊME réponse, à l'instant figé d'une fin de mois.
+  const empty = { async query() { return { rows: [] }; } };
+  const local = await withFrozenClock('2026-10-31T22:30:00Z', () => planBoardWithTpmTx(empty, TENANT, { year: 2026 }));
+  assert.deepEqual([local.nowMonth, local.tpmRefMonth], ['2026-11', '2026-11']);
+  const utc = await withFrozenClock('2026-10-31T22:30:00Z', () => planBoardWithTpmTx(empty, TENANT, { year: 2026 }), { timeZone: 'UTC' });
+  assert.deepEqual([utc.nowMonth, utc.tpmRefMonth], ['2026-10', '2026-10']);
+  const injected = await planBoardWithTpmTx(empty, TENANT, { year: 2026, nowMonth: '2026-12' });
+  assert.deepEqual([injected.nowMonth, injected.tpmRefMonth], ['2026-12', '2026-12']);
+});

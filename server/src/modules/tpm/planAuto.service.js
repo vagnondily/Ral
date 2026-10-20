@@ -101,7 +101,7 @@ async function readTx(client, tenantId, body, clock) {
   const settings = normalizeSettings(body.settings || {});
   const scope = scopeOf(body);
   // « Limiter à la capacité déclarée » : exigences et intervalle AJUSTÉS du MMR (CO adjusted).
-  const inputs = await repo.loadInputsTx(client, tenantId, { year, adjusted: settings.adjusted, scope });
+  const inputs = await repo.loadInputsTx(client, tenantId, { year, adjusted: settings.adjusted, scope, nowMonth: now });
   const writeSchedule = Boolean(body.settings && body.settings.writeSchedule);
   const fp = fingerprintInputs(inputs, {
     year, requested: months, months: open, fromMonth: now, today, settings, scope, writeSchedule,
@@ -211,8 +211,13 @@ async function apply(tenantId, userId, body, opts = {}) {
   });
 }
 
-/** Efface les visites prévues libres de la période (même ordre de verrous qu'« Appliquer »). */
-async function clearPlanned(tenantId, { year, from, to, risk, scope = {} } = {}) {
+/**
+ * Efface les visites prévues libres de la période (même ordre de verrous qu'« Appliquer »). Un mois
+ * échu se juge sur la MÊME horloge que l'écran et l'aperçu (jour local, clockOf) : `opts.now` la
+ * remplace (tests, reprises).
+ */
+async function clearPlanned(tenantId, { year, from, to, risk, scope = {} } = {}, opts = {}) {
+  const { now } = clockOf(opts);
   return withTenantTransaction(tenantId, async (client) => {
     const deadline = Date.now() + LOCK_WAIT_MS;
     await repo.lockPlanAutoTx(client, tenantId, { deadline });
@@ -220,7 +225,7 @@ async function clearPlanned(tenantId, { year, from, to, risk, scope = {} } = {})
     for (let m = Number(from); m <= Number(to); m += 1) months.push(ym(year, m));
     await lockVisitMonthsTx(client, tenantId, months, { deadline });
     await client.query("SET LOCAL lock_timeout = '20s'");
-    return repo.clearPlannedTx(client, tenantId, { year, from, to, risk, scope });
+    return repo.clearPlannedTx(client, tenantId, { year, from, to, risk, scope, nowMonth: now });
   });
 }
 
