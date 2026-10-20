@@ -361,8 +361,12 @@ async function getDocument(tenantId, id) {
   const d = await repo.getDocument(tenantId, id);
   const { snapshot: _snapshot, content, ...rest } = d;
   const offices = await officeIndex(tenantId);
-  const up = upgradeDoc(content, { officeIdByName: offices.idByName, viewsOf, rekey: rekeyOnRead(d) });
-  return { ...rest, content: up.doc, upgradedFrom: isV1(content) ? 1 : null, warnings: up.warnings };
+  const rekey = rekeyOnRead(d);
+  const up = upgradeDoc(content, { officeIdByName: offices.idByName, viewsOf, rekey });
+  // Rapport finalisé avant le schéma des clés : contenu laissé sur ses clés (ses lignes figées), mais une
+  // COPIE (« Dupliquer » → brouillon, lignes recalculées) part des constats remis sur les clés actuelles.
+  const copyContent = rekey ? undefined : upgradeDoc(content, { officeIdByName: offices.idByName, viewsOf }).doc;
+  return { ...rest, content: up.doc, copyContent, upgradedFrom: isV1(content) ? 1 : null, warnings: up.warnings };
 }
 
 /** Données d'un document : figées s'il est finalisé (jamais recalculées), sinon calculées. */

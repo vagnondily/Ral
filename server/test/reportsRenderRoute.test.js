@@ -235,6 +235,9 @@ test('rapport FINALISÉ avant le nouveau schéma des clés : son « Constat » r
     assert.equal(data.body.frozen, true);
     // Finalisé avant le schéma (snapshot sans rowKeys) : rien n'est re-clé, ni à la lecture ni en base.
     assert.deepEqual(Object.keys(notes), ['School meal activities']);
+    // « Dupliquer » part de copyContent : constats sur les clés actuelles, marqué (brouillon recalculé).
+    assert.deepEqual(Object.keys(doc.body.copyContent.blocks[0].params.annotations), ['school meal activities']);
+    assert.equal(doc.body.copyContent.rowKeys, 2);
     assert.equal(snapshot.blocks.a.data.rows[0]._key, 'School meal activities');
     assert.deepEqual(content.blocks[0].params.annotations, { 'School meal activities': note });
   } finally { reportsRepo.getDocument = orig; }

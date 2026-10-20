@@ -163,6 +163,15 @@ test('rapport finalisé APRÈS le nouveau schéma (snapshot.rowKeys = 2) : const
   assert.equal(rekeyOnRead({ status: 'draft', content }), true);
 });
 
+test('« Dupliquer » un rapport finalisé avant le schéma : la copie part de copyContent (constats sur les clés actuelles)', (t) => {
+  const fs = require('fs'); const path = require('path');
+  const ed = path.join(__dirname, '../../web/src/pages/reports/editor/ReportEditor.jsx');
+  const pg = path.join(__dirname, '../../web/src/pages/reports/ReportDesignerPage.jsx');
+  if (!fs.existsSync(ed)) { t.skip('web/ absent'); return; }
+  assert.match(fs.readFileSync(ed, 'utf8'), /const base = meta\.copyContent \|\| doc;/);
+  assert.match(fs.readFileSync(pg, 'utf8'), /copyContent: d\.copyContent \|\| null/);
+});
+
 test('nouveau rapport créé dans le concepteur : marqué rowKeys: 2 (ses constats ne sont jamais re-clés)', (t) => {
   const file = require('path').join(__dirname, '../../web/src/pages/reports/ReportDesignerPage.jsx');
   if (!require('fs').existsSync(file)) { t.skip('web/ absent'); return; }
