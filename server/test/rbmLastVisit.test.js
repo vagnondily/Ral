@@ -112,7 +112,7 @@ test('génération du plan du mois : un site seulement planifié reste « à sui
   const stampAt = client.calls.findIndex((c) => /mems_tpm_stamp/.test(c.sql));
   assert.ok(stampAt > client.calls.findIndex((c) => /INSERT INTO site_visits/.test(c.sql)));
   // Deux « Générer » simultanés du même mois sont mis en file (verrou pris AVANT la lecture).
-  assert.match(client.calls[0].sql, /pg_advisory_xact_lock/);
+  assert.match(client.calls[0].sql, /pg_(try_)?advisory_xact_lock/);   // essai non bloquant, puis attente bornée
   assert.deepEqual(client.calls[0].params, [`rbm-generate:${TENANT}:2026-10`]);
   const inserts = client.calls.filter((c) => /INSERT INTO site_visits/.test(c.sql));
   assert.equal(inserts.length, 1, 'une seule instruction pour tous les sites');

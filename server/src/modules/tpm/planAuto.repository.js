@@ -17,12 +17,60 @@ const { deriveMmr } = require('./mmrMath');
 const { activeMonthSql } = require('../common/siteActivity');
 // Retour 58 : toute écriture de visites finit par restampVisitsTx.
 const { restampVisitsTx, AUTO_RESTAMPABLE_SQL } = require('./tpmAttribution.repository');
+const { lockKeysTx } = require('./visitLocks');
 
 /** Clé des écrivains de la planification automatique (prise AVANT les verrous des mois). */
 const PLAN_AUTO_KEY = (tenantId) => `plan-auto:${tenantId}`;
 
-async function lockPlanAutoTx(client, tenantId) {
-  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [PLAN_AUTO_KEY(tenantId)]);
+/** @param {{ deadline?: number }} opts échéance commune de la phase des verrous (visitLocks). */
+async function lockPlanAutoTx(client, tenantId, opts = {}) {
+  await lockKeysTx(client, [PLAN_AUTO_KEY(tenantId)], opts);
+}
+
+/**
+ * Exercices voisins lus avec l'exercice planifié : l'intervalle se respecte d'une année sur
+ * l'autre face aux visites PRÉVUES ou réalisées (une visite prévue en décembre Y-1 compte quand
+ * on planifie Y). Mois « AAAA-MM » de cette fenêtre, croissants (verrous d'« Appliquer »).
+ */
+const ADJACENT_YEARS = 1;
+function windowMonths(year) {
+  const out = [];
+  for (let y = Number(year) - ADJACENT_YEARS; y <= Number(year) + ADJACENT_YEARS; y += 1) {
+    for (let m = 1; m <= 12; m += 1) out.push(`${y}-${String(m).padStart(2, '0')}`);
+  }
+  return out;
+}
+
+/** Visites prévues / réalisées des exercices voisins (hors exercice `year`), par site. */
+async function adjacentVisitsTx(client, tenantId, year) {
+  const y = Number(year);
+  const { rows } = await client.query(
+    `SELECT v.site_id AS "siteId", to_char(v.period_month, 'YYYY-MM') AS month, v.status
+       FROM site_visits v
+      WHERE v.tenant_id = $1 AND v.status IN ('planifie', 'realise')
+        AND v.period_month >= $2::date AND v.period_month <= $3::date
+        AND (v.period_month < $4::date OR v.period_month > $5::date)
+      ORDER BY v.site_id, v.period_month, v.status`,
+    [tenantId, `${y - ADJACENT_YEARS}-01-01`, `${y + ADJACENT_YEARS}-12-01`, `${y}-01-01`, `${y}-12-01`]);
+  const bySite = new Map();
+  for (const r of rows) {
+    if (!bySite.has(r.siteId)) bySite.set(r.siteId, []);
+    bySite.get(r.siteId).push({ month: r.month, status: r.status });
+  }
+  return bySite;
+}
+
+/**
+ * Sites du plan verrouillés en partage de clé (FOR KEY SHARE) avant l'écriture : un site
+ * supprimé entre l'aperçu et « Appliquer » (registre) est vu ici, jamais en erreur de clé
+ * étrangère au milieu de l'insertion. Renvoie les identifiants encore présents.
+ */
+async function lockPlanSitesTx(client, tenantId, siteIds = []) {
+  const ids = [...new Set(siteIds)].sort();
+  if (!ids.length) return new Set();
+  const { rows } = await client.query(
+    'SELECT id FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[]) ORDER BY id FOR KEY SHARE', [tenantId, ids]);
+  return new Set(rows.map((r) => r.id));
 }
 
 /** Lignes MMR du compte (pour l'intervalle et la capacité par activité). */
@@ -49,6 +97,7 @@ async function mmrRowsTx(client, tenantId) {
  */
 async function loadInputsTx(client, tenantId, { year, adjusted = false, scope = {} } = {}) {
   const board = await field.planBoardWithTpmTx(client, tenantId, { year, adjusted });
+  const adjacent = await adjacentVisitsTx(client, tenantId, year);
   // Intervalle + capacité mensuelle par ligne MMR (même clé que les sites du board).
   const mmrByKey = {};
   for (const r of await mmrRowsTx(client, tenantId)) {
@@ -112,13 +161,15 @@ async function loadInputsTx(client, tenantId, { year, adjusted = false, scope = 
       ? s.tpm.segments.map((seg) => ({ from: seg.from, to: seg.to, providerId: seg.providerId || null, providerName: seg.providerName || null }))
       : [],
     // Visites de l'exercice (prévues / réalisées), avec leur mois et statut : le moteur
-    // recalcule le reste à planifier SUR LA PÉRIODE (les prévues avant la période non
-    // réalisées redeviennent à planifier, pour ne pas sortir du MMR).
+    // recalcule le reste à planifier (une prévue d'un mois échu, jamais faite, redevient à
+    // planifier ; une prévue à venir, dans la période ou non, compte).
     visits: (s.months || [])
       .map((m) => ({ month: Number(m.month), status: m.status }))
       .filter((m) => m.month >= 1 && m.month <= 12),
     // Mois d'une visite ANNULÉE : jamais repris par le plan (une annulation est une décision).
     cancelledMonths: (s.cancelledMonths || []).map(Number).filter((m) => m >= 1 && m <= 12),
+    // Visites prévues / réalisées des exercices voisins (« AAAA-MM ») : ancrages de l'intervalle.
+    outsideVisits: adjacent.get(s.id) || [],
   }));
   return { sites, mmrByKey, yearHasGrid: Boolean(board.yearHasGrid) };
 }
@@ -208,4 +259,7 @@ async function clearPlannedTx(client, tenantId, { year, from, to, risk } = {}) {
   return { deleted: rowCount, kept: n };
 }
 
-module.exports = { lockPlanAutoTx, mmrRowsTx, loadInputsTx, insertVisitsTx, clearPlannedTx, CLEARABLE_SQL, PLAN_AUTO_KEY };
+module.exports = {
+  lockPlanAutoTx, lockPlanSitesTx, mmrRowsTx, loadInputsTx, adjacentVisitsTx, insertVisitsTx, clearPlannedTx, windowMonths,
+  CLEARABLE_SQL, PLAN_AUTO_KEY, ADJACENT_YEARS,
+};

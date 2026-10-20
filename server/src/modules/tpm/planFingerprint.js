@@ -34,10 +34,14 @@ const byMonth = (a, b) => (Number(a.month) - Number(b.month)) || String(a.status
 function fingerprintInputs(input = {}, params = {}) {
   const sites = [...(input.sites || [])].sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0));
   const parts = {
+    // Registre et priorité du RBM (urgence, score final : l'ordre des communes en dépend).
     registre: sites.map((s) => [s.id, s.district, s.commune, s.activity, s.riskLevel, Boolean(s.forbidden), s.mmrKey,
-      Boolean(s.parametered), Number(s.required) || 0, s.gpsLat ?? null, s.gpsLng ?? null, s.inScope !== false]),
+      Boolean(s.parametered), Number(s.required) || 0, s.gpsLat ?? null, s.gpsLng ?? null, s.inScope !== false,
+      Boolean(s.urgent), Number(s.finalScore) || 0, s.fieldOfficeId || null]),
+    // Visites de l'exercice, mois annulés et visites des exercices voisins (ancrages de l'intervalle).
     visites: sites.map((s) => [s.id, s.lastVisitMonth || null, [...(s.visits || [])].sort(byMonth).map((v) => `${v.month}:${v.status}`),
-      [...(s.cancelledMonths || [])].map(Number).sort((a, b) => a - b)]),
+      [...(s.cancelledMonths || [])].map(Number).sort((a, b) => a - b),
+      [...(s.outsideVisits || [])].map((v) => `${v.month}:${v.status}`).sort()]),
     activation: { yearHasGrid: Boolean(input.yearHasGrid), sites: sites.map((s) => [s.id, s.monthStatus || {}]) },
     mmr: input.mmrByKey || {},
     tpm: sites.map((s) => [s.id, (s.tpmSegments || []).map((g) => [g.from, g.to, g.providerId || null, g.providerName || null])]),

@@ -1,29 +1,75 @@
 /**
- * Invariants de la planification automatique (planAuto.generatePlan), vérifiés
- * INDÉPENDAMMENT du moteur à partir de ses entrées et de son résultat — PUR. Utilisé par les
- * tests (jeux aléatoires à graine fixe) et le test en base réelle : « 0 violation » est la
- * condition.
+ * Invariants de la planification automatique (planAuto.generatePlan), vérifiés INDÉPENDAMMENT du
+ * moteur — PUR, sans aucune fonction importée du moteur : index des mois, premier mois
+ * planifiable, communes inaccessibles, règle « actif au mois M », écart et exigence tirés de la
+ * ligne MMR brute, ancrages et reste à planifier sont recodés ici d'après la règle écrite (préambule
+ * de planAuto.js), pour qu'une erreur dans un utilitaire du moteur ne se cache pas derrière lui.
+ * Utilisé par les tests (jeux aléatoires à graine fixe) et le test en base réelle : « 0 violation »
+ * est la condition.
  *
  *  1. au plus une visite par site × mois (générée ou existante, annulée comprise) ;
  *  2. jamais sur un site hors périmètre, en zone interdite, sans activité ni MMR, d'une commune
- *     inaccessible, ni un mois inactif (règle commune siteActivity.isActiveMonth), hors période
- *     ou échu ;
- *  3. intervalle respecté face à CHAQUE visite existante prévue ou réalisée (avant ou après), à
- *     la dernière visite effective (exercice précédent compris) et entre visites générées — la
- *     visite de RENFORT d'un site urgent (option) en est seule exemptée ;
- *  4. site piloté par le MMR : au plus les visites restantes (exigées − réalisées − prévues dans
- *     la période) ; renfort : au plus une, seulement un site urgent, seulement si l'option est prise ;
- *  5. stratégie « besoins » : TOUTES les visites plaçables sont placées (pour chaque site, le
- *     maximum que permettent ses mois libres et actifs et l'intervalle, borné par son besoin) ;
- *     stratégie « capacite » : visites existantes + générées d'une activité ≤ faisable du MMR ;
+ *     inaccessible, ni un mois inactif (grille → « Oui » explicite seulement), hors période, échu
+ *     ou hors exercice ;
+ *  3. intervalle respecté face à chaque visite réalisée, chaque visite PRÉVUE À VENIR (de
+ *     l'exercice ou des exercices voisins), la dernière visite effective, et entre visites
+ *     générées — la visite de RENFORT d'un site urgent (option) en est seule exemptée ;
+ *  4. site piloté par le MMR : au plus le reste (exigées − réalisées − prévues à venir) ; renfort :
+ *     au plus une, seulement un site urgent, seulement si l'option est prise, au premier mois
+ *     possible de la période et sans visite existante avant ou à ce mois ;
+ *  5. stratégie « besoins » : toutes les visites plaçables sont placées (pour chaque site, le
+ *     maximum que permettent ses mois permis et l'intervalle, borné par son besoin) ; stratégie
+ *     « capacite » : visites existantes + générées d'une activité ≤ faisable du MMR (entier
+ *     inférieur ; 0 = aucune) ; les deux : MAXIMALITÉ — un site encore en manque n'a aucun mois
+ *     permis qui respecte l'intervalle (et la capacité restante) à la fin du calcul : un 2ᵉ passage
+ *     n'ajouterait rien ;
  *  6. comptes cohérents : résumé, répartition mensuelle, par activité et par unité = affectations ;
+ *     couverts + non couverts = sites planifiables, chaque non couvert avec une raison connue ;
  *     chaque visite nouvelle a son créneau (agent, jour, date du mois).
  */
-const { frequencyFor, DEFAULT_FREQUENCY } = require('./rbmMath');
-const { isActiveMonth } = require('../common/siteActivity');
-const { normalizeSettings, firstPlannableMonth, monthIdx, fitCount, anchorsOf, siteRemaining, communeKey } = require('./planAuto');
+const RBM_STEP = { elevee: 1, moyenne: 2, faible: 3 };
+const REASON_CODES = new Set(['capacity', 'inactive', 'cancelled', 'gap', 'period']);
+const EPS = 1e-9;
 
-const LIVE = new Set(['planifie', 'realise']);
+const mi = (y, m) => Number(y) * 12 + Number(m) - 1;
+function parseYm(v) {
+  const x = /^(\d{4})-(\d{2})/.exec(String(v == null ? '' : v));
+  if (!x) return null;
+  const m = Number(x[2]);
+  return m >= 1 && m <= 12 ? mi(Number(x[1]), m) : null;
+}
+function firstOpen(year, fromMonth) {
+  const f = parseYm(fromMonth);
+  const jan = mi(year, 1);
+  if (f == null || f <= jan) return 1;
+  return Math.min(13, f - jan + 1);
+}
+const low = (v) => String(v == null ? '' : v).trim().toLowerCase();
+const placeKey = (district, commune) => `${low(district)}|${low(commune)}`;
+
+/** Exigées et écart d'un site piloté par le MMR, depuis la ligne MMR brute. */
+function mmrStep(s, c, adjusted) {
+  let req = Math.max(0, Math.round(Number(s.required) || 0));
+  if (adjusted && Number(c.frequency) > 0) req = Math.min(req, Math.max(1, Math.round(Number(c.frequency))));
+  const iv = Number(c.interval) > 0 ? Number(c.interval) : (RBM_STEP[s.riskLevel] || 3);
+  let step = Math.max(1, Math.ceil(iv - EPS));
+  if (adjusted && Number(c.adjustedInterval) > 0) step = Math.max(step, Math.ceil(Number(c.adjustedInterval) - EPS));
+  const dur = Math.round(Number(c.operationDuration) || 0);
+  if (dur > 1 && req > 1) step = Math.max(1, Math.min(step, Math.floor((dur - 1) / (req - 1))));
+  return { req, step };
+}
+
+/** Nombre maximal de visites dans `months` (croissants), écart `step` face à `fixed` et entre elles. */
+function maxFit(year, months, fixed, step, cap = Infinity) {
+  const taken = [...fixed];
+  let n = 0;
+  for (const m of months) {
+    if (n >= cap) break;
+    const x = mi(year, m);
+    if (taken.every((a) => Math.abs(x - a) >= step)) { taken.push(x); n += 1; }
+  }
+  return n;
+}
 
 /**
  * @param {{ sites, mmrByKey, settings, months, year, opts }} input  entrées du moteur
@@ -33,27 +79,59 @@ const LIVE = new Set(['planifie', 'realise']);
 function checkInvariants(input, result) {
   const v = [];
   const { sites = [], mmrByKey = {}, months = [], year, opts = {} } = input;
-  const cfg = normalizeSettings(input.settings || {});
-  const yearHasGrid = opts.yearHasGrid != null ? Boolean(opts.yearHasGrid)
-    : sites.some((s) => s.monthStatus && Object.keys(s.monthStatus).length > 0);
-  const first = firstPlannableMonth(year, opts.fromMonth);
-  const inPeriod = months.map(Number).filter((m) => m >= 1 && m <= 12 && m >= first);
-  const period = new Set(inPeriod);
-  const periodStart = inPeriod.length ? Math.min(...inPeriod) : 13;
-  const excluded = new Set(cfg.excludedCommunes.map((c) => communeKey(c.district, c.commune)));
+  const raw = input.settings || {};
+  const strategy = raw.strategy === 'capacite' ? 'capacite' : 'besoins';
+  const adjusted = strategy === 'capacite';
+  const reinforce = Boolean(raw.reinforceUrgent);
+  const excluded = new Set((raw.excludedCommunes || []).filter((c) => c && low(c.commune)).map((c) => placeKey(c.district, c.commune)));
+  const grid = opts.yearHasGrid != null ? Boolean(opts.yearHasGrid)
+    : sites.some((s) => s && s.monthStatus && Object.keys(s.monthStatus).length > 0);
+  const first = firstOpen(year, opts.fromMonth);
+  const nowIdx = parseYm(opts.fromMonth);
+  const period = [...new Set(months.map(Number))].filter((m) => m >= 1 && m <= 12 && m >= first).sort((a, b) => a - b);
+  const inPeriod = new Set(period);
   const byId = new Map(sites.map((s) => [s.id, s]));
-  const active = (s, m) => isActiveMonth((s.monthStatus || {})[m], yearHasGrid);
+  const statusAt = (s, m) => { const ms = s.monthStatus || {}; return ms[m] !== undefined ? ms[m] : ms[String(m)]; };
+  const active = (s, m) => (grid ? statusAt(s, m) === true : statusAt(s, m) !== false);
   const driven = (s) => Boolean(s.parametered && s.mmrKey && Number(s.required) > 0);
-  const stepOf = (s) => {
-    if (driven(s)) {
-      const c = mmrByKey[s.mmrKey] || {};
-      const iv = (cfg.adjusted && c.adjustedInterval ? c.adjustedInterval : c.interval) || frequencyFor(s.riskLevel, DEFAULT_FREQUENCY);
-      return Math.max(1, Math.ceil(iv));
-    }
-    return Math.max(1, Math.ceil(frequencyFor(s.riskLevel, DEFAULT_FREQUENCY)));
-  };
   const keyOf = (s) => (s.parametered && s.mmrKey ? s.mmrKey : `∅rbm:${s.riskLevel || 'moyenne'}`);
+  const ruleOf = (s) => (driven(s) ? mmrStep(s, mmrByKey[s.mmrKey] || {}, adjusted) : { req: 0, step: RBM_STEP[s.riskLevel] || 3 });
+  const upcomingPlanned = (m) => m >= first;
+  const anchorsOf = (s) => {
+    const out = new Set();
+    for (const x of s.visits || []) {
+      const m = Number(x.month);
+      if (m < 1 || m > 12) continue;
+      if (x.status === 'realise' || (x.status === 'planifie' && (nowIdx == null || mi(year, m) >= nowIdx))) out.add(mi(year, m));
+    }
+    for (const x of s.outsideVisits || []) {
+      const i = parseYm(x && x.month);
+      if (i != null && (x.status === 'realise' || (x.status === 'planifie' && (nowIdx == null || i >= nowIdx)))) out.add(i);
+    }
+    const last = parseYm(s.lastVisitMonth);
+    if (last != null && last <= mi(year, 12)) out.add(last);
+    return [...out];
+  };
+  const remainingOf = (s) => {
+    const vs = s.visits || [];
+    const done = vs.filter((x) => x.status === 'realise').length;
+    const planned = vs.filter((x) => x.status === 'planifie' && upcomingPlanned(Number(x.month))).length;
+    return Math.max(0, ruleOf(s).req - done - planned);
+  };
+  const cancelledOf = (s) => new Set([...(s.cancelledMonths || []).map(Number),
+    ...(s.visits || []).filter((x) => x.status === 'annule').map((x) => Number(x.month))]);
+  const liveMonths = (s) => new Set((s.visits || []).filter((x) => x.status === 'planifie' || x.status === 'realise').map((x) => Number(x.month)));
+  const allowedOf = (s) => { const live = liveMonths(s); const c = cancelledOf(s); return period.filter((m) => !live.has(m) && !c.has(m) && active(s, m)); };
+  const candidate = (s) => s.inScope !== false && !s.forbidden && Boolean(s.activity || s.parametered)
+    && !excluded.has(placeKey(s.district, s.commune));
+  const plannable = sites.filter((s) => s && s.id && candidate(s) && period.some((m) => active(s, m)));
+  const needOf = (s) => {
+    if (driven(s)) return remainingOf(s);
+    const live = liveMonths(s);
+    return maxFit(year, period.filter((m) => !live.has(m) && active(s, m)), anchorsOf(s), ruleOf(s).step);
+  };
 
+  // ---- 1. et 2. : chaque affectation ----
   const seen = new Set();
   const regular = new Map(); const renfort = new Map();
   for (const a of result.assignments || []) {
@@ -64,78 +142,97 @@ function checkInvariants(input, result) {
     const s = byId.get(a.siteId);
     if (!s) { v.push({ code: 'site_inconnu', siteId: a.siteId }); continue; }
     if (String(a.month).slice(0, 4) !== String(year)) v.push({ code: 'hors_exercice', siteId: a.siteId, month: a.month });
-    if ((s.visits || []).some((x) => Number(x.month) === m) || (s.cancelledMonths || []).map(Number).includes(m)) {
-      v.push({ code: 'deja_une_visite', siteId: a.siteId, month: a.month });
-    }
+    if ((s.visits || []).some((x) => Number(x.month) === m) || cancelledOf(s).has(m)) v.push({ code: 'deja_une_visite', siteId: a.siteId, month: a.month });
     if (s.inScope === false) v.push({ code: 'hors_perimetre', siteId: a.siteId });
     if (s.forbidden) v.push({ code: 'zone_interdite', siteId: a.siteId });
     if (!s.activity && !s.parametered) v.push({ code: 'sans_activite', siteId: a.siteId });
-    if (excluded.has(communeKey(s.district, s.commune))) v.push({ code: 'commune_inaccessible', siteId: a.siteId });
+    if (excluded.has(placeKey(s.district, s.commune))) v.push({ code: 'commune_inaccessible', siteId: a.siteId });
     if (!active(s, m)) v.push({ code: 'inactif', siteId: a.siteId, month: a.month });
     if (m < first) v.push({ code: 'mois_echu', siteId: a.siteId, month: a.month });
-    else if (!period.has(m)) v.push({ code: 'hors_periode', siteId: a.siteId, month: a.month });
+    else if (!inPeriod.has(m)) v.push({ code: 'hors_periode', siteId: a.siteId, month: a.month });
     const map = a.source === 'renfort' ? renfort : regular;
     if (!map.has(a.siteId)) map.set(a.siteId, []);
     map.get(a.siteId).push(m);
-    if (!result.slots || !result.slots[`${a.siteId}|${a.month}`]) v.push({ code: 'sans_creneau', siteId: a.siteId, month: a.month });
-    else if (!String(result.slots[`${a.siteId}|${a.month}`].date).startsWith(a.month)) v.push({ code: 'date_hors_mois', siteId: a.siteId, month: a.month });
+    const slot = result.slots && result.slots[`${a.siteId}|${a.month}`];
+    if (!slot) v.push({ code: 'sans_creneau', siteId: a.siteId, month: a.month });
+    else if (!String(slot.date).startsWith(a.month) || !(Number(slot.agent) >= 1)) v.push({ code: 'creneau_invalide', siteId: a.siteId, month: a.month });
   }
 
-  // 4. renfort
+  // ---- 4. renfort ----
   for (const [siteId, list] of renfort) {
     const s = byId.get(siteId);
-    if (!cfg.reinforceUrgent || !s.urgent || list.length > 1) v.push({ code: 'renfort', siteId, n: list.length });
+    // Au premier mois possible de la période (actif, non annulé), sans visite existante avant ou à ce mois.
+    const c = cancelledOf(s);
+    const firstPossible = period.find((m) => active(s, m) && !c.has(m));
+    const early = [...liveMonths(s)].some((m) => inPeriod.has(m) && m <= firstPossible);
+    if (!reinforce || !s.urgent || list.length > 1 || list[0] !== firstPossible || early) v.push({ code: 'renfort', siteId, n: list.length, month: list[0] });
   }
-  // 3. intervalle et 4. exigence MMR (visites régulières)
+  // ---- 3. intervalle et 4. exigence MMR (visites régulières) ----
   for (const [siteId, list] of regular) {
     const s = byId.get(siteId);
-    const step = stepOf(s);
-    const anchors = anchorsOf(s, year);
-    const gen = list.map((m) => monthIdx(year, m));
+    const { step } = ruleOf(s);
+    const fixed = anchorsOf(s);
+    const gen = list.map((m) => mi(year, m));
     gen.forEach((g, i) => {
-      const bad = anchors.find((x) => Math.abs(g - x) < step) ?? gen.find((x, j) => j !== i && Math.abs(g - x) < step);
-      if (bad !== undefined) v.push({ code: 'intervalle', siteId, month: g - monthIdx(year, 1) + 1, step });
+      const bad = fixed.some((x) => Math.abs(g - x) < step) || gen.some((x, j) => j !== i && Math.abs(g - x) < step);
+      if (bad) v.push({ code: 'intervalle', siteId, month: list[i], step });
     });
-    if (driven(s) && list.length > siteRemaining(s, periodStart).remaining) v.push({ code: 'au_dela_exigence', siteId, n: list.length });
+    if (driven(s) && list.length > remainingOf(s)) v.push({ code: 'au_dela_exigence', siteId, n: list.length, remaining: remainingOf(s) });
   }
 
-  // 5. besoins : tout ce qui est plaçable est placé ; capacité : faisable respecté.
-  if (cfg.strategy === 'besoins') {
-    for (const s of sites) {
-      if (s.inScope === false || s.forbidden || (!s.activity && !s.parametered) || excluded.has(communeKey(s.district, s.commune))) continue;
-      const busy = new Set((s.visits || []).map((x) => Number(x.month)));
-      const cancelled = new Set((s.cancelledMonths || []).map(Number));
-      const allowed = [...period].sort((a, b) => a - b).filter((m) => !busy.has(m) && !cancelled.has(m) && active(s, m));
-      const anchors = anchorsOf(s, year);
-      const step = stepOf(s);
-      const need = driven(s) ? siteRemaining(s, periodStart).remaining : fitCount(year, allowed, anchors, step);
-      const expected = Math.min(need, fitCount(year, allowed, anchors, step, need));
-      const got = (regular.get(s.id) || []).length;
-      if (got !== expected) v.push({ code: 'besoin_non_place', siteId: s.id, expected, got });
+  // ---- 5. complétude (besoins), capacité (capacite), maximalité (les deux) ----
+  const load = new Map(); const base = new Map();
+  const add = (map, k) => map.set(k, (map.get(k) || 0) + 1);
+  for (const s of sites) {
+    for (const x of s.visits || []) {
+      if ((x.status === 'planifie' || x.status === 'realise') && inPeriod.has(Number(x.month))) { add(load, `${keyOf(s)}|${Number(x.month)}`); add(base, `${keyOf(s)}|${Number(x.month)}`); }
     }
-  } else {
-    const load = new Map(); const base = new Map();
-    const add = (map, k) => map.set(k, (map.get(k) || 0) + 1);
-    for (const s of sites) for (const x of s.visits || []) if (LIVE.has(x.status) && period.has(Number(x.month))) add(load, `${keyOf(s)}|${Number(x.month)}`);
-    for (const [k, n] of load) base.set(k, n);
-    for (const a of result.assignments || []) { const s = byId.get(a.siteId); if (s) add(load, `${keyOf(s)}|${Number(String(a.month).slice(5, 7))}`); }
+  }
+  for (const a of result.assignments || []) { const s = byId.get(a.siteId); if (s) add(load, `${keyOf(s)}|${Number(String(a.month).slice(5, 7))}`); }
+  const capOf = (key) => {
+    const c = mmrByKey[key];
+    if (!c || c.feasible == null || c.feasible === '' || !Number.isFinite(Number(c.feasible))) return null;
+    return Math.max(0, Math.floor(Number(c.feasible) + EPS));
+  };
+  if (strategy === 'capacite') {
     for (const [k, n] of load) {
-      const key = k.slice(0, k.lastIndexOf('|'));
-      const c = mmrByKey[key];
-      const cap = c && c.feasible != null ? Math.floor(Number(c.feasible)) : null;
+      const cap = capOf(k.slice(0, k.lastIndexOf('|')));
       if (cap != null && n > Math.max(cap, base.get(k) || 0)) v.push({ code: 'capacite_mmr', key: k, n, cap });
     }
   }
+  for (const s of plannable) {
+    const need = needOf(s);
+    const got = regular.get(s.id) || [];
+    const allowed = allowedOf(s);
+    const { step } = ruleOf(s);
+    const fixed = anchorsOf(s);
+    if (strategy === 'besoins') {
+      const expected = Math.min(need, maxFit(year, allowed, fixed, step, need));
+      if (got.length !== expected) v.push({ code: 'besoin_non_place', siteId: s.id, expected, got: got.length });
+    }
+    if (got.length >= need) continue;
+    const taken = [...fixed, ...got.map((m) => mi(year, m))];
+    const open = allowed.find((m) => !got.includes(m) && !(renfort.get(s.id) || []).includes(m)
+      && taken.every((x) => Math.abs(mi(year, m) - x) >= step)
+      && (strategy === 'besoins' || capOf(keyOf(s)) == null || (load.get(`${keyOf(s)}|${m}`) || 0) < capOf(keyOf(s))));
+    if (open !== undefined) v.push({ code: 'non_maximal', siteId: s.id, month: open, need, got: got.length });
+  }
 
-  // 6. comptes cohérents
+  // ---- 6. comptes cohérents ----
   const n = (result.assignments || []).length;
+  const sum = (list, k) => (list || []).reduce((a, b) => a + (Number(b[k]) || 0), 0);
   if (result.summary.planned !== n) v.push({ code: 'compte_resume', planned: result.summary.planned, n });
-  const perMonth = (result.perMonth || []).reduce((a, b) => a + b.count, 0);
-  if (perMonth !== n) v.push({ code: 'compte_mois', perMonth, n });
-  const perAct = (result.byActivity || []).reduce((a, b) => a + b.planned, 0);
-  if (perAct !== n) v.push({ code: 'compte_activite', perAct, n });
-  const perUnit = (result.byTpm || []).reduce((a, b) => a + b.planned, 0);
-  if (perUnit !== n) v.push({ code: 'compte_unite', perUnit, n });
+  if (sum(result.perMonth, 'count') !== n) v.push({ code: 'compte_mois', perMonth: sum(result.perMonth, 'count'), n });
+  if (sum(result.byActivity, 'planned') !== n) v.push({ code: 'compte_activite', perAct: sum(result.byActivity, 'planned'), n });
+  if (sum(result.byTpm, 'planned') !== n) v.push({ code: 'compte_unite', perUnit: sum(result.byTpm, 'planned'), n });
+  const sm = result.summary;
+  if (sm.sitesActivePlannable !== plannable.length) v.push({ code: 'compte_planifiables', engine: sm.sitesActivePlannable, oracle: plannable.length });
+  if (sm.sitesCovered + (result.uncovered || []).length !== sm.sitesActivePlannable) v.push({ code: 'compte_couverture', covered: sm.sitesCovered, uncovered: (result.uncovered || []).length });
+  for (const u of result.uncovered || []) if (!REASON_CODES.has(u.reason)) v.push({ code: 'raison_inconnue', siteId: u.siteId, reason: u.reason });
+  // Couvert = une visite existante dans la période, une nouvelle, ou rien de dû.
+  const genSites = new Set((result.assignments || []).map((a) => a.siteId));
+  const coveredOracle = plannable.filter((s) => genSites.has(s.id) || [...liveMonths(s)].some((m) => inPeriod.has(m)) || needOf(s) === 0).length;
+  if (coveredOracle !== sm.sitesCovered) v.push({ code: 'compte_couverts', engine: sm.sitesCovered, oracle: coveredOracle });
   return v;
 }
 

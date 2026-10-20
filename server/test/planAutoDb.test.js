@@ -15,9 +15,15 @@
  *   4. une demande qui commence en janvier : les mois échus sont signalés, jamais planifiés ;
  *   5. règle unique « actif au mois M » + mois annulé : une grille où seul un site a des « Oui » →
  *      seul ce site est planifié, jamais le mois de sa visite annulée ;
- *   6. ordre des verrous : « Appliquer », « Générer depuis le RBM » et une coche du Plan de suivi en
- *      même temps → aucun interblocage (40P01) ni attente expirée (55P03).
- * Tout ce que le test crée est supprimé à la fin (visites, grille).
+ *   6. ordre des verrous : « Appliquer », « Générer depuis le RBM », une coche du Plan de suivi et la
+ *      modification groupée (coche et planification automatique) en même temps → aucun interblocage
+ *      (40P01) ni attente expirée (55P03) ;
+ *   7. exercices voisins : une visite PRÉVUE en décembre est lue comme ancrage quand on planifie
+ *      l'exercice suivant (empreinte « visites » changée, intervalle respecté), et « Appliquer » attend
+ *      le verrou de ce mois voisin ;
+ *   8. attente des verrous : UNE échéance pour tous les mois (jamais 20 s par verrou) → 55P03 ;
+ *   9. site supprimé du registre entre la relecture et l'écriture → 409 « registre », rien d'écrit.
+ * Tout ce que le test crée est supprimé à la fin (visites, grille, site de test).
  */
 const SU_URL = process.env.MEMS_TEST_DATABASE_URL;
 const APP_URL = process.env.MEMS_TEST_APP_DATABASE_URL;
@@ -37,7 +43,8 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
   const service = require('../src/modules/tpm/planAuto.service');
   const repo = require('../src/modules/tpm/planAuto.repository');
   const field = require('../src/modules/tpm/field.repository');
-  const { generatePlan } = require('../src/modules/tpm/planAuto');
+  const { generatePlan, mmrRule, rbmStep } = require('../src/modules/tpm/planAuto');
+  const { lockVisitMonthsTx, monthLockKey } = require('../src/modules/tpm/visitLocks');
   const { checkInvariants } = require('../src/modules/tpm/planAutoInvariants');
   const { currentMonth } = require('../src/modules/tpm/rbmMath');
   const su = new Client({ connectionString: SU_URL });
@@ -174,10 +181,14 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
     const p5 = await service.preview(T, body);
     const next = months.length > 1 ? `${year}-${String(months[1]).padStart(2, '0')}` : now;
     const tick = inputs.sites.find((s) => !s.forbidden && !(s.visits || []).some((v) => v.month === Number(next.slice(5, 7))));
+    const bulkIds = [...new Set(p5.sample.slice(0, 20).map((a) => a.siteId))];
     const results = await Promise.allSettled([
       service.apply(T, U, { ...body, fingerprint: p5.fingerprint, sections: p5.sections }),
       field.generateFromRbm(T, U, next),
       field.setPlannedMonths(T, U, { year, changes: [{ siteId: tick.id, month: Number(next.slice(5, 7)), planned: true }] }),
+      // Modification groupée : sites verrouillés APRÈS les mois (jamais l'inverse, revue du 16/10).
+      field.bulkUpdateSites(T, U, { year, siteIds: bulkIds, plan: { month: 12, planned: true } }),
+      field.bulkUpdateSites(T, U, { year, siteIds: bulkIds, plan: { auto: true, fromMonth: Number(now.slice(5, 7)) } }),
       service.apply(T, U, { ...body, fingerprint: p5.fingerprint, sections: p5.sections }),
     ]);
     for (const r of results) {
@@ -185,6 +196,91 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
       assert.ok(r.reason && r.reason.statusCode === 409, `seul un 409 (aperçu périmé) est permis : ${r.reason && (r.reason.code || r.reason.message)}`);
     }
     assert.ok(results.some((r) => r.status === 'fulfilled'));
+    for (const i of [1, 2, 3, 4]) assert.equal(results[i].status, 'fulfilled', `écrivain du Plan de suivi n° ${i} : ${results[i].reason && results[i].reason.message}`);
+    await dropNew();
+
+    // 7. Exercices voisins : une visite PRÉVUE en décembre ancre l'intervalle de l'exercice suivant.
+    const nextYear = year + 1;
+    const nb = { from: `${nextYear}-01`, to: `${nextYear}-12` };
+    const before7 = await service.preview(T, nb);
+    const inNext = await withTenantTransaction(T, (c) => repo.loadInputsTx(c, T, { year: nextYear }));
+    const all12 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    const optsNext = { yearHasGrid: inNext.yearHasGrid, fromMonth: now };
+    const planNext = generatePlan(inNext.sites, inNext.mmrByKey, {}, all12, nextYear, optsNext);
+    const janSite = inNext.sites.find((x) => planNext.assignments.some((a) => a.siteId === x.id && a.month === `${nextYear}-01`)
+      && !(x.outsideVisits || []).some((v) => v.month === `${year}-12`));
+    assert.ok(janSite, 'un site planifié en janvier de l\'exercice suivant');
+    await q(`INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status) VALUES ($1, $2, $3::date, $4, 'planifie')`,
+      [T, janSite.id, `${year}-12-01`, `${TAG} voisin`]);
+    const in2 = await withTenantTransaction(T, (c) => repo.loadInputsTx(c, T, { year: nextYear }));
+    const s2 = in2.sites.find((x) => x.id === janSite.id);
+    assert.ok(s2.outsideVisits.some((v) => v.month === `${year}-12` && v.status === 'planifie'), 'visite de décembre lue comme ancrage');
+    const plan2 = generatePlan(in2.sites, in2.mmrByKey, {}, all12, nextYear, optsNext);
+    assert.deepEqual(checkInvariants({ sites: in2.sites, mmrByKey: in2.mmrByKey, settings: {}, months: all12, year: nextYear, opts: optsNext }, plan2), []);
+    const step = s2.parametered && s2.mmrKey && s2.required > 0
+      ? mmrRule(in2.mmrByKey[s2.mmrKey] || {}, s2.required, false, s2.riskLevel).step : rbmStep(s2.riskLevel);
+    const firstNext = plan2.assignments.filter((a) => a.siteId === janSite.id).map((a) => Number(a.month.slice(5, 7)))[0];
+    assert.ok(firstNext == null || firstNext >= step, `1ʳᵉ visite ${firstNext} à moins de ${step} mois de décembre`);
+    const after7 = await service.preview(T, nb);
+    assert.notEqual(after7.sections.visites, before7.sections.visites, 'l\'empreinte « visites » couvre l\'exercice voisin');
+    // « Appliquer » sur l'exercice suivant attend le verrou du mois voisin (décembre) tenu ailleurs.
+    const holder = new Client({ connectionString: SU_URL });
+    await holder.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT pg_advisory_xact_lock(hashtext($1))', [monthLockKey(T, `${year}-12`)]);
+      const t0 = Date.now();
+      const pending = service.apply(T, U, { ...nb, fingerprint: after7.fingerprint, sections: after7.sections });
+      await new Promise((r) => { setTimeout(r, 700); });
+      await holder.query('COMMIT');
+      const a7 = await pending;
+      assert.ok(Date.now() - t0 >= 600, '« Appliquer » a attendu le verrou de décembre de l\'exercice voisin');
+      assert.equal(a7.created, a7.planned);
+    } finally {
+      await holder.query('ROLLBACK').catch(() => {});
+      await holder.end();
+    }
+    await dropNew();
+    await q('DELETE FROM site_visits WHERE tenant_id = $1 AND activity = $2', [T, `${TAG} voisin`]);
+
+    // 8. Une échéance pour TOUTE la phase des verrous : deux mois tenus ailleurs, 300 ms en tout.
+    const h2 = new Client({ connectionString: SU_URL });
+    await h2.connect();
+    try {
+      await h2.query('BEGIN');
+      for (const m of [`${nextYear}-02`, `${nextYear}-05`]) await h2.query('SELECT pg_advisory_xact_lock(hashtext($1))', [monthLockKey(T, m)]);
+      const t1 = Date.now();
+      await assert.rejects(withTenantTransaction(T, (c) => lockVisitMonthsTx(c, T, [`${nextYear}-01`, `${nextYear}-02`, `${nextYear}-05`], { deadline: Date.now() + 300 })),
+        (e) => e.code === '55P03');
+      assert.ok(Date.now() - t1 < 1500, `échéance commune : ${Date.now() - t1} ms`);
+    } finally {
+      await h2.query('ROLLBACK').catch(() => {});
+      await h2.end();
+    }
+
+    // 9. Site supprimé du registre entre la relecture et l'écriture → 409 « registre », rien d'écrit.
+    const [{ id: tmpSite }] = await q(
+      `INSERT INTO sites (tenant_id, code, name, district, adm2, commune, adm3, activity)
+       SELECT $1, $2, $3, s.district, s.adm2, s.commune, s.adm3, s.activity FROM sites s
+        WHERE s.tenant_id = $1 AND s.activity IS NOT NULL AND COALESCE(s.security_situation, 0) < 99 ORDER BY s.id LIMIT 1
+       RETURNING id`, [T, `TEST-PLANAUTO-${Date.now()}`, `${TAG} site`]);
+    const p9 = await service.preview(T, body);
+    const original = repo.lockPlanSitesTx;
+    repo.lockPlanSitesTx = async (...args) => {
+      await q('DELETE FROM sites WHERE id = $1', [tmpSite]);
+      return original(...args);
+    };
+    try {
+      const in9 = await withTenantTransaction(T, (c) => repo.loadInputsTx(c, T, { year }));
+      const plan9 = generatePlan(in9.sites, in9.mmrByKey, {}, months, year, opts);
+      assert.ok(plan9.assignments.some((a) => a.siteId === tmpSite), 'le site de test est dans le plan');
+      await assert.rejects(service.apply(T, U, { ...body, fingerprint: p9.fingerprint, sections: p9.sections }),
+        (e) => e.statusCode === 409 && e.details.code === 'plan_inputs_changed' && e.details.sections.includes('registre'));
+      assert.equal((await newVisits()).length, 0, 'rien n\'est écrit');
+    } finally {
+      repo.lockPlanSitesTx = original;
+      await q('DELETE FROM sites WHERE id = $1', [tmpSite]).catch(() => {});
+    }
   } finally {
     await dropNew().catch(() => {});
     await q('DELETE FROM site_visits WHERE tenant_id = $1 AND activity LIKE $2', [T, `${TAG} %`]).catch(() => {});

@@ -2,7 +2,7 @@ const { withTenantTransaction } = require('../../config/db');
 const { afterSitesChangedTx, lockSubmissionLinksTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
 const { sitePatchSql } = require('./sitePatch');
 const { chunkRows } = require('../../db/batch');
-const { lockVisitMonthsTx } = require('./visitLocks');
+const { lockVisitMonthsTx, yearMonths } = require('./visitLocks');
 const { isActiveMonth, activeMonthSql } = require('../common/siteActivity');
 const { shapeRangeSummary, shapeCoverageFacts, collectionDays, buildCoverageMatrix } = require('./fieldMath');
 const { isDue, frequencyFor, visitState, currentMonth, toMonth, needsPlanning, planningCounts } = require('./rbmMath');
@@ -444,8 +444,8 @@ async function generateFromRbm(tenantId, userId, month, opts = {}) {
 async function generateFromRbmTx(client, tenantId, userId, month, { risk } = {}) {
   const target = toMonth(month);
   if (!target) throw badRequest('Mois invalide (attendu : AAAA-MM).');
-  // Verrou du mois (visitLocks : même clé pour tous les écrivains de plan), AVANT le verrou
-  // d'attribution que prend restampVisitsTx — même ordre partout, aucun interblocage.
+  // Verrou du mois (visitLocks : même clé pour tous les écrivains de plan, attente bornée à 20 s
+  // puis 503), AVANT le verrou d'attribution que prend restampVisitsTx — même ordre partout.
   await lockVisitMonthsTx(client, tenantId, [target]);
   // MÊME règle que GET /rbm/sites?month= (compteur « à planifier ») : état au mois cible (asOf) —
   // dernière visite = dernier mois réalisé ≤ M (définition commune) ; pour un mois passé, une
@@ -1183,8 +1183,8 @@ async function planMonthsTx(client, tenantId, userId, year, changes) {
   if (!ids.length) return { added: 0, removed: 0 };
   const pm = (m) => `${year}-${String(m).padStart(2, '0')}-01`;
   // Ordre des verrous (le même pour tous les écrivains de plan) : mois des visites touchées
-  // (visitLocks, croissants) PUIS verrou d'attribution (retour 58) — jamais l'inverse, aucun
-  // interblocage avec « Générer depuis le RBM » ni la planification automatique.
+  // (visitLocks, croissants, attente bornée) PUIS verrou d'attribution (retour 58) — jamais
+  // l'inverse, aucun interblocage avec « Générer depuis le RBM » ni la planification automatique.
   await client.query("SET LOCAL lock_timeout = '20s'");
   await lockVisitMonthsTx(client, tenantId, [...add, ...remove].map(([, m]) => pm(m)));
   await lockAttributionTx(client, tenantId); // une visite annulée re-cochée est mise à jour (retour 58)
@@ -1398,6 +1398,12 @@ async function canonicalActivity(client, tenantId, activity) {
 async function bulkUpdateSites(tenantId, userId, { year, siteIds, set = {}, status = null, plan = null }) {
   return withSubmissionLinks(tenantId, async (client) => {
     const ids = [...new Set(siteIds)];
+    // Ordre des verrous des écrivains de plan : rattachements (withSubmissionLinks) → mois de
+    // l'exercice (visitLocks, croissants, attente bornée) → lignes des sites → attribution
+    // (retour 58). Les mois AVANT « sites FOR UPDATE » : « Appliquer » le plan automatique et
+    // « Générer depuis le RBM » tiennent ces mois puis insèrent (clé étrangère sur ces mêmes
+    // sites) — dans l'autre ordre, interblocage (40P01). planMonthsTx les reprend sans effet.
+    if (plan) await lockVisitMonthsTx(client, tenantId, yearMonths(year));
     const { rows: known } = await client.query('SELECT id FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[]) FOR UPDATE', [tenantId, ids]);
     if (known.length !== ids.length) throw badRequest('Site inconnu (ou hors de ce compte).');
     const result = { sites: ids.length, updated: 0, status: null, plan: null };

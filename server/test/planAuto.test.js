@@ -27,10 +27,14 @@ test('normalizeSettings : défauts (besoins, 4 agents par véhicule, 20 jours) e
   assert.equal(normalizeSettings({ strategy: 'autre' }).strategy, 'besoins');
 });
 
-test('siteRemaining : exigées − réalisées − prévues dans la période', () => {
+test('siteRemaining : exigées − réalisées − prévues à venir (échu = avant le mois courant)', () => {
   const r = siteRemaining({ required: 2, visits: [{ month: 2, status: 'planifie' }, { month: 5, status: 'realise' }] }, 4);
   assert.equal(r.remaining, 1);
   assert.equal(r.latePlanned, 1);
+  // Une prévue à venir APRÈS la période compte aussi (planifier le 1ᵉʳ semestre après le 2ᵉ).
+  const r2 = siteRemaining({ required: 2, visits: [{ month: 10, status: 'planifie' }] }, 1);
+  assert.deepEqual([r2.remaining, r2.upcoming, r2.latePlanned], [1, 1, 0]);
+  assert.equal(siteRemaining({ required: 3, visits: [] }, 1, 2).remaining, 2); // exigées données
 });
 
 test('site MMR : exactement les visites exigées, espacées de l\'intervalle', () => {
@@ -118,11 +122,15 @@ test('réalisée compte comme faite, et l\'intervalle part d\'elle', () => {
   assert.deepEqual(monthsOf(r, 'a'), [3, 5]);
 });
 
-test('catch-up : une prévue AVANT la période non réalisée est re-planifiée dans la période', () => {
-  const r = generatePlan([site({ id: 'a', parametered: true, required: 2, mmrKey: 'k', visits: [{ month: 2, status: 'planifie' }] })],
-    { k: { interval: 1 } }, {}, [4, 5, 6], YEAR);
+test('catch-up : une prévue d\'un mois ÉCHU jamais faite est re-planifiée ; une prévue à venir hors période compte', () => {
+  const s = site({ id: 'a', parametered: true, required: 2, mmrKey: 'k', visits: [{ month: 2, status: 'planifie' }] });
+  const r = generatePlan([s], { k: { interval: 1 } }, {}, [4, 5, 6], YEAR, { fromMonth: '2026-04' });
   assert.equal(r.assignments.length, 2);
   assert.equal(r.summary.latePlanned, 1);
+  // Février est encore à venir (mois courant janvier) : il compte, une seule visite reste à placer.
+  const r2 = generatePlan([s], { k: { interval: 1 } }, {}, [4, 5, 6], YEAR, { fromMonth: '2026-01' });
+  assert.equal(r2.assignments.length, 1);
+  assert.equal(r2.summary.latePlanned, 0);
 });
 
 test('zone interdite, sans activité, commune inaccessible : jamais planifiés, comptés à part', () => {

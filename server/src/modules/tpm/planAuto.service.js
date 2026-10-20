@@ -5,17 +5,21 @@
  *
  * Aperçu : une transaction de lecture — entrées du Plan de suivi, calcul, empreinte. Ne renvoie
  * que les totaux et un ÉCHANTILLON d'affectations (jamais tout le plan).
- * Appliquer : UNE transaction — lock_timeout 20 s → verrou de la planification automatique →
- * verrous des 12 mois de l'exercice (visitLocks, croissants : mêmes clés que « Générer depuis le
- * RBM » et les coches du Plan de suivi) → relecture des entrées sur le MÊME client → calcul →
- * contrôle de l'empreinte (409 plan_inputs_changed, sections nommées) → écriture → TPM de zone
- * (restampVisitsTx, verrou d'attribution pris EN DERNIER). Effacer suit le même ordre de verrous.
+ * Appliquer : le calcul (lourd) se fait HORS verrous — relecture, calcul, empreinte comparée à celle
+ * de l'aperçu (409 plan_inputs_changed, sections nommées) ; puis UNE transaction d'écriture :
+ * verrou de la planification automatique → verrous des mois de l'exercice ET des exercices voisins
+ * (visitLocks, croissants : mêmes clés que « Générer depuis le RBM », les coches et la modification
+ * groupée du Plan de suivi), sous UNE échéance de 20 s pour toute la phase (puis 503) → relecture
+ * des entrées sur le MÊME client et empreinte recalculée : identique, le plan calculé (fonction pure
+ * des entrées) est exactement celui qu'on écrirait — sinon 409 → sites verrouillés en partage de clé
+ * (un site supprimé entre-temps : 409 « registre ») → écriture → TPM de zone (restampVisitsTx,
+ * verrou d'attribution pris EN DERNIER). Effacer suit le même ordre de verrous.
  * Le tenant vient toujours de req.auth (routes), jamais du corps.
  */
 const { withTenantTransaction } = require('../../config/db');
 const { badRequest, conflict } = require('../../middleware/errors');
 const { currentMonth } = require('./rbmMath');
-const { lockVisitMonthsTx } = require('./visitLocks');
+const { lockVisitMonthsTx, LOCK_WAIT_MS } = require('./visitLocks');
 const { generatePlan, firstPlannableMonth, normalizeSettings } = require('./planAuto');
 const { fingerprintInputs, changedSections } = require('./planFingerprint');
 const repo = require('./planAuto.repository');
@@ -54,20 +58,38 @@ function scopeOf(body) {
   };
 }
 
-/** Entrées + plan + empreinte, sur le client de l'appelant. */
-async function computeTx(client, tenantId, body, now) {
-  const { year, months } = effectivePeriod(body, now);
+/**
+ * Entrées + empreinte (sans calcul), sur le client de l'appelant. L'empreinte couvre TOUT ce que
+ * lit le moteur (entrées, période, mois courant, réglages normalisés, périmètre, option d'écriture) :
+ * deux empreintes égales donnent le même plan.
+ */
+async function readTx(client, tenantId, body, now) {
+  const { year, months, open } = effectivePeriod(body, now);
   const settings = normalizeSettings(body.settings || {});
   const scope = scopeOf(body);
   // « Limiter à la capacité déclarée » : exigences et intervalle AJUSTÉS du MMR (CO adjusted).
   const inputs = await repo.loadInputsTx(client, tenantId, { year, adjusted: settings.adjusted, scope });
-  const plan = generatePlan(inputs.sites, inputs.mmrByKey, settings, months, year,
-    { yearHasGrid: inputs.yearHasGrid, fromMonth: now });
   const writeSchedule = Boolean(body.settings && body.settings.writeSchedule);
   const fp = fingerprintInputs(inputs, {
-    year, requested: months, months: plan.months, fromMonth: now, settings: plan.settings, scope, writeSchedule,
+    year, requested: months, months: open, fromMonth: now, settings, scope, writeSchedule,
   });
-  return { inputs, plan, fp, year, writeSchedule };
+  return { inputs, fp, year, months, settings, writeSchedule };
+}
+
+/** Entrées + plan + empreinte, sur le client de l'appelant. */
+async function computeTx(client, tenantId, body, now) {
+  const read = await readTx(client, tenantId, body, now);
+  const { inputs, settings, months, year } = read;
+  const plan = generatePlan(inputs.sites, inputs.mmrByKey, settings, months, year,
+    { yearHasGrid: inputs.yearHasGrid, fromMonth: now });
+  return { ...read, plan };
+}
+
+/** 409 « relancez l'aperçu », avec les sections d'entrées qui ont changé. */
+function inputsChanged(body, fp, sections = null) {
+  const changed = sections || changedSections(body.sections || {}, fp.sections);
+  return conflict('Les données ont changé depuis l\'aperçu : relancez l\'aperçu avant d\'appliquer.',
+    { code: 'plan_inputs_changed', sections: changed.length ? changed : ['parametres'] });
 }
 
 function labelsOf(inputs) {
@@ -104,25 +126,29 @@ async function preview(tenantId, body, { now = currentMonth() } = {}) {
 }
 
 /**
- * Écrit le plan prévisualisé, en UNE transaction sous les verrous ; 409 plan_inputs_changed si
- * les entrées ont changé depuis l'aperçu (sections nommées). Renvoie les visites créées, celles
- * prévues par le calcul et, pour l'écart, la raison relue en base.
+ * Écrit le plan prévisualisé ; 409 plan_inputs_changed si les entrées ont changé depuis l'aperçu
+ * (sections nommées). Renvoie les visites créées, celles prévues par le calcul et, pour l'écart, la
+ * raison relue en base.
  */
 async function apply(tenantId, userId, body, { now = currentMonth() } = {}) {
   const { year } = effectivePeriod(body, now);
+  // 1. Calcul HORS verrous (lecture seule) : les écrivains du Plan de suivi ne l'attendent pas.
+  const computed = await withTenantTransaction(tenantId, (client) => computeTx(client, tenantId, body, now));
+  const { plan } = computed;
+  if (computed.fp.fingerprint !== body.fingerprint) throw inputsChanged(body, computed.fp);
+  // 2. Écriture sous les verrous, entrées relues et empreinte recomparée sur le même client.
   return withTenantTransaction(tenantId, async (client) => {
+    const deadline = Date.now() + LOCK_WAIT_MS;   // une échéance pour TOUTE la phase des verrous
+    await repo.lockPlanAutoTx(client, tenantId, { deadline });
+    // Mois de l'exercice et des exercices voisins : l'intervalle se lit d'une année sur l'autre,
+    // aucune autre écriture de plan ne doit le changer entre la lecture et l'écriture.
+    await lockVisitMonthsTx(client, tenantId, repo.windowMonths(year), { deadline });
     await client.query("SET LOCAL lock_timeout = '20s'");
-    await repo.lockPlanAutoTx(client, tenantId);
-    // Les 12 mois de l'exercice : l'intervalle se lit sur toute l'année, aucune autre écriture de
-    // plan ne doit la changer entre la lecture et l'écriture.
-    await lockVisitMonthsTx(client, tenantId, Array.from({ length: 12 }, (_, i) => ym(year, i + 1)));
-    const computed = await computeTx(client, tenantId, body, now);
-    const { plan, fp } = computed;
-    if (fp.fingerprint !== body.fingerprint) {
-      const sections = changedSections(body.sections || {}, fp.sections);
-      throw conflict('Les données ont changé depuis l\'aperçu : relancez l\'aperçu avant d\'appliquer.',
-        { code: 'plan_inputs_changed', sections: sections.length ? sections : ['parametres'] });
-    }
+    const { fp } = await readTx(client, tenantId, body, now);
+    if (fp.fingerprint !== body.fingerprint) throw inputsChanged(body, fp);
+    // Un site supprimé du registre depuis la relecture : 409 « registre », jamais une erreur de clé.
+    const present = await repo.lockPlanSitesTx(client, tenantId, plan.assignments.map((a) => a.siteId));
+    if (plan.assignments.some((a) => !present.has(a.siteId))) throw inputsChanged(body, fp, ['registre']);
     // Option « Écrire les dates et les agents » : chaque visite reçoit le jour de terrain de son
     // créneau et un rôle générique (« Agent N ») ; sinon le mois seul (dates et agents à saisir).
     const toWrite = computed.writeSchedule
@@ -131,7 +157,13 @@ async function apply(tenantId, userId, body, { now = currentMonth() } = {}) {
         return slot ? { ...a, date: slot.date, agent: `Agent ${slot.agent}` } : a;
       })
       : plan.assignments;
-    const res = await repo.insertVisitsTx(client, tenantId, userId, toWrite);
+    let res;
+    try {
+      res = await repo.insertVisitsTx(client, tenantId, userId, toWrite);
+    } catch (err) {
+      if (err && err.code === '23503') throw inputsChanged(body, fp, ['registre']); // filet : clé étrangère
+      throw err;
+    }
     return {
       created: res.created,
       planned: plan.assignments.length,
@@ -147,11 +179,12 @@ async function apply(tenantId, userId, body, { now = currentMonth() } = {}) {
 /** Efface les visites prévues libres de la période (même ordre de verrous qu'« Appliquer »). */
 async function clearPlanned(tenantId, { year, from, to, risk } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
-    await client.query("SET LOCAL lock_timeout = '20s'");
-    await repo.lockPlanAutoTx(client, tenantId);
+    const deadline = Date.now() + LOCK_WAIT_MS;
+    await repo.lockPlanAutoTx(client, tenantId, { deadline });
     const months = [];
     for (let m = Number(from); m <= Number(to); m += 1) months.push(ym(year, m));
-    await lockVisitMonthsTx(client, tenantId, months);
+    await lockVisitMonthsTx(client, tenantId, months, { deadline });
+    await client.query("SET LOCAL lock_timeout = '20s'");
     return repo.clearPlannedTx(client, tenantId, { year, from, to, risk });
   });
 }
