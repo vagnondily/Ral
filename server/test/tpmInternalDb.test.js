@@ -20,6 +20,8 @@
  *     rapport interne attendu ; fin de l'indisponibilité : la visite revient à X.
  *  4. Base : motif trop court refusé (CHECK), journal en inscription seule pour le rôle applicatif,
  *     parité de la jumelle SQL mems_tpm_cells avec la règle pure sur tous les sites × 4 mois.
+ *  5. Lien TPM ↔ contrat (U2) : le premier plan de collecte d'un TPM sur le contrat en fait le TPM de
+ *     la zone (visite prévue ré-estampillée), la suppression du dernier l'en retire.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -50,11 +52,12 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
   const tpm = require('../src/modules/tpm/tpmAttribution.repository');
   const unavailability = require('../src/modules/tpm/tpmUnavailability.service');
   const reports = require('../src/modules/tpm/reports.repository');
+  const planning = require('../src/modules/tpm/planning.repository');
   const { currentMonth } = require('../src/modules/tpm/rbmMath');
   const su = new Client({ connectionString: SU_URL });
   await su.connect();
   const q = async (sql, params) => (await su.query(sql, params)).rows;
-  const made = { visits: [], reports: [], contract: null, partners: [], unavailability: [] };
+  const made = { visits: [], reports: [], plans: [], contract: null, partners: [], unavailability: [] };
   try {
     const [{ id: T }] = await q('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1');
     const [{ id: U }] = await q('SELECT id FROM users WHERE tenant_id = $1 ORDER BY email LIMIT 1', [T]);
@@ -223,10 +226,27 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
     w = await read();
     assert.deepEqual([w.a.st, w.a.p, w.a.k], ['contrat', X, K]);
     made.unavailability = [];
+
+    // 5. Lien TPM ↔ contrat (U2) : titulaire H (mise en œuvre) → « sans_tpm » ; le premier plan de
+    //    collecte de Q sur K fait de Q le TPM du contrat (la visite prévue le suit) ; le supprimer : retour.
+    await q("UPDATE contracts SET partner_id = $2, partner_name = 'Test r114 Mise en oeuvre' WHERE id = $1", [K, H]);
+    await withTenantTransaction(T, (client) => tpm.restampVisitsTx(client, T, { fromMonth: M1 }));
+    w = await read();
+    assert.deepEqual([w.a.st, w.a.p], ['sans_tpm', null], 'titulaire de mise en œuvre, aucun TPM rattaché');
+    const planId = await planning.createPlan(T, { partnerId: Q, contractId: K, periodMonth: `${M1}-01`, title: 'Test r114 plan', items: [], createdBy: U });
+    made.plans = [planId];
+    w = await read();
+    assert.deepEqual([w.a.st, w.a.p, w.a.k, w.a.by], ['contrat', Q, K, 'tpm'], 'premier plan de Q sur K : Q est le TPM de la zone');
+    for (const k of ['b', 'c', 'd', 'e']) assert.deepEqual(w[k], before[k], `${k} : jamais touchée`);
+    assert.equal(await planning.deletePlan(T, planId, { actorId: U, isAdmin: true }), 'ok');
+    made.plans = [];
+    w = await read();
+    assert.deepEqual([w.a.st, w.a.p, w.a.k, w.a.by], ['sans_tpm', null, null, 'interne'], 'dernier plan supprimé : de nouveau sans TPM');
   } finally {
     // Base jetable : on retire ce que le test a créé (le journal, inaltérable, garde ses lignes).
     if (made.visits.length) await q('DELETE FROM site_visits WHERE id = ANY ($1::uuid[])', [made.visits]);
     if (made.reports.length) await q('DELETE FROM tpm_reports WHERE id = ANY ($1::uuid[])', [made.reports]);
+    if (made.plans.length) await q('DELETE FROM tpm_collection_plans WHERE id = ANY ($1::uuid[])', [made.plans]);
     await q('DELETE FROM tpm_unavailability WHERE provider_id = ANY ($1::uuid[])', [made.partners]).catch(() => {});
     if (made.contract) {
       await q('DELETE FROM contract_areas WHERE contract_id = $1', [made.contract]);
