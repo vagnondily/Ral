@@ -169,7 +169,7 @@ test('« mes en-têtes » : au plus MAX_IMAGES logos sur la paire (bandes de la 
   const over = await post({ name: 'Treize logos', header: logos(6, 'h'), footer: logos(6, 'f'), firstPage: 'own', firstHeader: logos(1, 'a') });
   assert.equal(over.status, 400);
   assert.deepEqual(over.body.details, { code: 'too_many_images', count: 13, max: MAX_IMAGES });
-  assert.match(over.body.error, /Trop d'images dans cet en-tête : 13 logos \(12 au plus/);
+  assert.match(over.body.error, /Trop d'images dans cet en-tête : 13 logos, alors qu'un rapport en compte 12 au plus \(en-têtes, pieds et blocs image compris\)/);
   // Bandes de la 1re page gardées mais masquées (« identique ») : ne comptent pas.
   assert.equal((await post({ name: 'Masquées', header: logos(6, 'h'), footer: logos(6, 'f'), firstPage: 'same', firstHeader: logos(10, 'a') })).status, 201);
   // Dans un document : même règle (countedImageRefs ne compte la 1re page que si elle est propre) ;

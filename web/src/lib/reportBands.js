@@ -431,6 +431,21 @@ export function pairOf(content) {
  * « identique » ou « aucune ») garde l'en-tête et le pied de 1re page déjà dessinés du brouillon —
  * masqués tant que la 1re page n'est pas « propre », jamais perdus (comme setFirstPageMode).
  */
+// ---- Images d'un rapport (limite du serveur) -------------------------------------------------
+/** Images d'un rapport au plus — jumelle de server reportSchema.MAX_IMAGES (parité testée : reportBands.test.js). */
+export const MAX_REPORT_IMAGES = 12;
+/** Logos placés dans une bande (emplacement vide : non compté). */
+export const bandImageCount = (band) => ((band && band.elements) || []).filter((e) => e.kind === 'image' && e.assetId).length;
+/**
+ * Logos AFFICHÉS d'une mise en page : en-tête et pied, et ceux de la 1re page seulement si elle est
+ * « propre » — jumelle de server reportSchema.bandImageRefs.
+ */
+export function layoutImageCount(layout) {
+  const l = layout || {};
+  const n = bandImageCount(l.header) + bandImageCount(l.footer);
+  return l.firstPage === 'own' ? n + bandImageCount(l.firstHeader) + bandImageCount(l.firstFooter) : n;
+}
+
 export function applyPair(draft, content) {
   const pair = pairOf(content);
   const c = content || {};

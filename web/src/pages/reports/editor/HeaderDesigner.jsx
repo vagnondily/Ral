@@ -10,7 +10,7 @@ import { useI18n } from '../../../lib/i18n.jsx';
 import { api } from '../../../api/client.js';
 import { pageGeometry } from '../../../lib/reportPaginate.js';
 import {
-  BAND_TEMPLATES, FIRST_PAGE_MODES, applyPair, applyTemplate, bandKey, clampElement, logosOf, newElement, nextElementId, pairBands, pairOf,
+  BAND_TEMPLATES, FIRST_PAGE_MODES, MAX_REPORT_IMAGES, applyPair, applyTemplate, bandImageCount, bandKey, clampElement, layoutImageCount, logosOf, newElement, nextElementId, pairBands, pairOf,
   reorder, setBandHeight, setFirstPageMode, zoneOf,
 } from '../../../lib/reportBands.js';
 import { Band } from '../ReportBlocks.jsx';
@@ -131,6 +131,7 @@ function PairPreview({ draft, vars, geometry, pageKind, zone, onPick }) {
 
 export default function HeaderDesigner({
   initial, scope = 'doc', zones: onlyZones = null, page, orientation = 'portrait', size = 'A4', vars, startZone = 'header', canSave = true, onApply, onClose,
+  otherImages = 0,
 }) {
   const { tr } = useI18n();
   const toast = useToast();
@@ -187,11 +188,26 @@ export default function HeaderDesigner({
   };
   const pick = (kind, zn) => { setPageKind(kind); if (zn) setZone(zn); setSel(null); };
   const setMode = (mode) => { hist.set((d) => setFirstPageMode(d, mode)); setSel(null); if (mode === 'own') setPageKind('first'); };
+  // Limite d'images du RAPPORT (serveur : MAX_IMAGES, en-têtes, pieds et blocs image compris) : dite avant
+  // d'appliquer un modèle ou la mise en page — sinon l'enregistrement du rapport serait refusé (400).
+  const shownImages = (l) => (isDoc ? layoutImageCount(l) : zoneList.reduce((n, zn) => n + bandImageCount(l[zn]), 0));
+  const imagesOk = (l) => {
+    const n = otherImages + shownImages(l);
+    return n <= MAX_REPORT_IMAGES || window.confirm(tr('Le rapport compterait {n} images ({max} au plus, en-têtes, pieds et blocs image compris) : son enregistrement sera refusé tant que des images ne sont pas retirées. Continuer ?', { n, max: MAX_REPORT_IMAGES }));
+  };
   // Un modèle s'applique à la PAIRE (en-tête de section : à ses seules bandes) ; les logos déjà choisis sont gardés,
   // et un modèle sans bandes de 1re page garde celles déjà dessinées (applyPair : rien n'est perdu).
   const applyContent = (content, k) => {
-    if (isDoc) hist.set((d) => applyPair(d, content));
-    else { const pair = pairOf(content); hist.set((d) => ({ ...d, header: clone(pair.header), footer: clone(pair.footer) })); }
+    if (isDoc) {
+      const next = applyPair(draft, content);
+      if (!imagesOk(next)) return;
+      hist.set(() => next);
+    } else {
+      const pair = pairOf(content);
+      const next = { ...draft, header: clone(pair.header), footer: clone(pair.footer) };
+      if (!imagesOk(next)) return;
+      hist.set(() => next);
+    }
     setSel(null); setPicked(k);
   };
   const saveMine = async () => {
@@ -240,7 +256,7 @@ export default function HeaderDesigner({
         <>
           <span className="hd-foot-hint"><MousePointerClick size={13} aria-hidden="true" /> {tr('Glisser : déplacer · poignées : taille · flèches : 1 mm (Maj : 5 mm) · Alt + flèches : taille · Alt en glissant : sans aimant')}</span>
           <Button variant="secondary" onClick={onClose}>{tr('Annuler')}</Button>
-          <Button icon={Check} onClick={() => onApply(draft)}>{tr('Appliquer')}</Button>
+          <Button icon={Check} onClick={() => { if (imagesOk(draft)) onApply(draft); }}>{tr('Appliquer')}</Button>
         </>
       )}>
       <div className="hd-root" onKeyDown={onKeys}>

@@ -12,8 +12,9 @@ import { useBlockData } from '../useBlockData.js';
 import { RichTextEditor } from '../RichText.jsx';
 import {
   defaultBlock, defaultPage, cloneWithIds, findBlock, updateParams, removeBlock, duplicateBlock, moveBlock, moveBlockTo, insertBlock, iidOf, landscapeAround,
-  setPageLayout,
+  setPageLayout, docImageCount,
 } from '../reportDoc.js';
+import { bandImageCount, layoutImageCount } from '../../../lib/reportBands.js';
 import { localPlan, sectionsOfPlan, paginate, pageGeometry, pageName, tocEntries, annexDecision } from '../../../lib/reportPaginate.js';
 import { tableFit, MIN_SCALE } from '../../../lib/reportFit.js';
 import reportCss from '../reports.css?raw';
@@ -443,16 +444,19 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
       const zones = ['header', 'footer'].filter((k) => p[k] === 'own');
       return {
         zones: zones.length ? zones : ['header'],
+        // Images du rapport HORS des bandes éditées (limite du serveur : avertie avant d'appliquer).
+        otherImages: docImageCount(doc) - zones.reduce((n, k) => n + bandImageCount(p[`${k}Band`]), 0),
         initial: { header: p.headerBand || emptyBand(14), footer: p.footerBand || emptyBand(10) },
         orientation: p.orientation || page.orientation || 'portrait', size: p.size || page.size || 'A4',
       };
     }
     return {
       zones: null,
+      otherImages: docImageCount(doc) - layoutImageCount(page),
       initial: { header: page.header || emptyBand(14), footer: page.footer || emptyBand(10), firstPage: page.firstPage || 'same', firstHeader: page.firstHeader, firstFooter: page.firstFooter },
       orientation: page.orientation || 'portrait', size: page.size || 'A4',
     };
-  }, [bandEditor, doc.blocks, page]);
+  }, [bandEditor, doc, page]);
   const applyBands = (v) => {
     const be = bandEditor;
     if (be.scope === 'section') {
@@ -830,7 +834,7 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
       </div>
       {editable && narrow && (leftOpen || rightOpen) && <div className="rd-drawer-backdrop" onClick={() => { setLeftOpen(false); setRightOpen(false); }} aria-hidden="true" />}
       {editable && bandEditor && bandSetup && (
-        <HeaderDesigner initial={bandSetup.initial} scope={bandEditor.scope} zones={bandSetup.zones} page={page} orientation={bandSetup.orientation} size={bandSetup.size}
+        <HeaderDesigner initial={bandSetup.initial} scope={bandEditor.scope} zones={bandSetup.zones} page={page} orientation={bandSetup.orientation} size={bandSetup.size} otherImages={bandSetup.otherImages}
           vars={vars} startZone={bandEditor.startZone} canSave={canEdit} onApply={applyBands} onClose={() => setBandEditor(null)} />
       )}
     </div>

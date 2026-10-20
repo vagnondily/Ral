@@ -1,3 +1,5 @@
+import { bandImageCount, layoutImageCount } from '../../lib/reportBands.js';
+
 /**
  * Document de rapport v2 (lot 7a) — opérations PURES de l'éditeur (aucun DOM, aucune
  * requête) : création des blocs, parcours, recherche, modification, déplacement,
@@ -224,3 +226,18 @@ export const iidOf = (blockId, repeat = null) => (repeat ? `${repeat.id}~${repea
 
 /** Textes d'en-tête / pied : remplace les {variables} connues ; une inconnue reste telle quelle. */
 export const substitute = (text, vars) => String(text == null ? '' : text).replace(/\{([a-z_]{2,40})\}/g, (m, k) => (vars && vars[k] != null ? String(vars[k]) : m));
+
+/**
+ * Images COMPTÉES d'un document (limite MAX_REPORT_IMAGES du serveur) — jumelle de server
+ * reportSchema.countedImageRefs : blocs image, bandes d'une section qui a les siennes, bandes
+ * affichées de la page (1re page si « propre »). Parité testée (reportBands.test.js).
+ */
+export function docImageCount(doc) {
+  let n = 0;
+  walk((doc && doc.blocks) || [], (b) => {
+    const p = b.params || {};
+    if (b.type === 'image' && p.assetId) n += 1;
+    if (b.type === 'section') n += (p.header === 'own' ? bandImageCount(p.headerBand) : 0) + (p.footer === 'own' ? bandImageCount(p.footerBand) : 0);
+  });
+  return n + layoutImageCount((doc && doc.page) || {});
+}
