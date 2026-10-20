@@ -232,6 +232,26 @@ test('agent : « hasHistory » = la règle de la suppression (une participation 
   }
 });
 
+test('changement de rôle : la fiche est lue FOR NO KEY UPDATE — une clé étrangère vers elle n\'attend pas (pas d\'interblocage)', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const [ypa] = await q("SELECT id FROM partners WHERE tenant_id = $1 AND name = 'YPA'", [T]);
+  const { roleForUpdateTx } = require('../src/modules/partners/partnerRole');
+  const { Client } = require('pg');
+  const other = new Client({ connectionString: SU_URL });
+  await other.connect();
+  await q('BEGIN');
+  try {
+    assert.ok(await roleForUpdateTx(su, T, ypa.id), 'fiche lue sous verrou');
+    // Ce que prend la vérification d'une clé étrangère (site_visits.provider_id, tpm_zone_overrides…) : passe.
+    await other.query('SELECT 1 FROM partners WHERE id = $1 FOR KEY SHARE NOWAIT', [ypa.id]);
+    // Deux changements de rôle concurrents restent sérialisés.
+    await assert.rejects(other.query('SELECT 1 FROM partners WHERE id = $1 FOR NO KEY UPDATE NOWAIT', [ypa.id]), (e) => e.code === '55P03');
+  } finally {
+    await q('ROLLBACK');
+    await other.end();
+  }
+});
+
 test('plan de collecte et facture : refusés pour un partenaire qui n\'est pas un TPM actif (400 + garde en base)', { skip: SKIP }, async () => {
   const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
   const [aina] = await q("SELECT id FROM partners WHERE tenant_id = $1 AND name = 'ASSOCIATION AINA'", [T]);

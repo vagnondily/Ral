@@ -115,3 +115,13 @@ test('rôle d\'un partenaire changé (type ou fiche active) : réestampille des 
   assert.equal(roleChanged({ partnerTypeId: 't1', active: true }, { partnerTypeId: 't1', active: false }), true);
   assert.equal(roleChanged(null, { partnerTypeId: 't1', active: true }), false);
 });
+
+test('changement de rôle : la fiche est lue FOR NO KEY UPDATE, jamais FOR UPDATE (interblocage avec les clés étrangères)', async () => {
+  const { roleForUpdateTx, ROLE_LOCK } = require('../src/modules/partners/partnerRole');
+  const sql = [];
+  const client = { query: async (text) => { sql.push(text); return { rows: [{ partnerTypeId: 't', active: true }] }; } };
+  await roleForUpdateTx(client, 'tenant', 'p1');
+  assert.equal(ROLE_LOCK, 'FOR NO KEY UPDATE');
+  assert.match(sql[0], /FOR NO KEY UPDATE$/);
+  assert.doesNotMatch(sql[0], /FOR UPDATE/);
+});
