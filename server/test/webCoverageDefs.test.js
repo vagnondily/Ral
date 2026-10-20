@@ -45,6 +45,13 @@ test('Centre d\'alertes : l\'exécution du plan (taux des mesures communes) s\'�
   assert.equal(a.formatParam({ rate: 16 / 3346 }), '0,5\u00a0%');
   assert.equal(a.formatParam({ rate: null }), '—');
   assert.deepEqual(a.formatParams({ done: 4, planned: 10, p: { rate: 0.4 } }), { done: 4, planned: 10, p: '40\u00a0%' });
+  // Prestataire en retard : même mise en forme (« 0,4 % », jamais « 0 % »).
+  assert.equal(a.formatParam({ rate: 1 / 250 }), '0,4\u00a0%');
+  // Le lien de l'alerte d'exécution porte la période : la Synthèse s'ouvre sur cette période.
+  assert.equal(a.goHash({ module: 'processus', sub: 'synthese', period: { from: '2026-01', to: '2026-06' } }), '#/processus/synthese?from=2026-01&to=2026-06');
+  assert.equal(a.goHash({ module: 'processus', sub: 'sites' }), null, 'sans période : navigation ordinaire (goArgs)');
+  assert.equal(a.goHash({ module: 'processus', sub: 'synthese', period: { from: '2026-13', to: '2026-01' } }), null);
+  assert.equal(a.goHash(null), null);
 });
 
 test('« dont … par données reçues · … par visites déclarées », recouvrement dit, rien sans suivi', async (t) => {
@@ -121,4 +128,22 @@ test('mesures de couverture : chaque phrase affichée a sa traduction anglaise',
     }
   }
   assert.ok(checked >= 60, `phrases vérifiées : ${checked}`);
+});
+
+test('« Exécution du plan » = UNE définition : le taux des visites déclarées seules porte un autre nom (FR + EN)', async (t) => {
+  const en = await load(t, 'locales', 'en.js'); if (!en) return;
+  const field = fs.readFileSync(webFile('pages', 'monitoring', 'FieldVisitsPage.jsx'), 'utf8');
+  const docs = fs.readFileSync(webFile('pages', 'monitoring', 'CalcDocsPage.jsx'), 'utf8');
+  const phrases = (src) => [...src.matchAll(/\btr\(\s*'((?:[^'\\]|\\.)*)'/g)].map((m) => m[1].replace(/\\'/g, '\''));
+  // Affectation & visites : réalisées ÷ (planifiées + réalisées), visites déclarées seulement.
+  const fp = phrases(field);
+  assert.ok(!fp.some((p) => /exécution du plan/i.test(p) && !/tableaux de bord/.test(p)), 'Affectation & visites : jamais « Exécution du plan » pour le taux des visites déclarées');
+  assert.ok(fp.includes('Exécution des visites (déclarées)'));
+  // Comment les calculs sont faits : l'exécution du plan des tableaux de bord compte visite OU données ; l'autre taux est nommé.
+  const dp = phrases(docs);
+  const exec = dp.find((p) => p.startsWith('Exécution du plan (visites)'));
+  assert.match(exec, /visite déclarée OU données reçues/);
+  assert.ok(dp.some((p) => p.startsWith('Exécution des visites (déclarées)')));
+  assert.match(dp.find((p) => p.startsWith('Couverture (sites)')), /OU données reçues/);
+  for (const p of [...fp, ...dp]) assert.ok(en.default[p] !== undefined, `« ${p} » sans traduction anglaise`);
 });

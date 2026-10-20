@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell, Settings, LogOut, Sun, Moon, Lightbulb, LightbulbOff, ChevronRight } from 'lucide-react';
 import { api } from '../api/client.js';
-import { alertText, alertsState, goArgs, sourceList } from '../lib/alerts.js';
+import { alertText, alertsState, goArgs, goHash, sourceList } from '../lib/alerts.js';
 import SeverityBadge from './SeverityBadge.jsx';
 import { Avatar } from './ui.jsx';
 import { useI18n, LANGS } from '../lib/i18n.jsx';
@@ -57,6 +57,8 @@ export function NotificationsMenu({ onNavigate }) {
   const items = data?.items || [];
   const { status, unavailable } = alertsState(data);
   const go = (args) => { setOpen(false); if (args && onNavigate) onNavigate(...args); };
+  // Alerte dont la période voyage avec le lien (exécution du plan → Synthèse sur cette période).
+  const openAlert = (a) => { const hash = goHash(a.go); if (hash) { setOpen(false); window.location.hash = hash; } else go(goArgs(a.go)); };
   const label = attention
     ? tr('Alertes : {n} à traiter en priorité', { n: attention })
     : t('header.notifications', 'Notifications');
@@ -87,7 +89,7 @@ export function NotificationsMenu({ onNavigate }) {
                 : items.slice(0, BELL_ITEMS).map((a, i) => {
                   const { title, detail } = alertText(tr, a);
                   return (
-                    <button type="button" role="menuitem" className="menu-item notif-item" key={`${a.kind}-${i}`} onClick={() => go(goArgs(a.go))}>
+                    <button type="button" role="menuitem" className="menu-item notif-item" key={`${a.kind}-${i}`} onClick={() => openAlert(a)}>
                       <SeverityBadge sev={a.sev} />
                       <span className="notif-text"><span className="notif-title">{title}</span>{detail && <span className="notif-detail">{detail}</span>}</span>
                     </button>

@@ -6,7 +6,7 @@ import PeriodSelect from '../../components/PeriodSelect.jsx';
 import { SessionPeriodNote, usePeriod } from '../../components/PeriodBanner.jsx';
 import { samePeriod, single } from '../../lib/period.js';
 import SeverityBadge, { SEV_ICON } from '../../components/SeverityBadge.jsx';
-import { SEVERITY, alertText, alertsState, goArgs, sourceList } from '../../lib/alerts.js';
+import { SEVERITY, alertText, alertsState, goArgs, goHash, sourceList } from '../../lib/alerts.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { PERIOD_CAPS } from '../../lib/periodCaps.js';
 
@@ -72,7 +72,11 @@ export default function AlertsPage({ onNavigate }) {
   const items = state.data?.items || [];
   const counts = state.data?.counts || { critical: 0, warning: 0, info: 0 };
   const { status, unavailable } = alertsState(state.data);
-  const open = (a) => { const args = goArgs(a.go); if (args && onNavigate) onNavigate(...args); };
+  const open = (a) => {
+    const hash = goHash(a.go);
+    if (hash) { window.location.hash = hash; return; }
+    const args = goArgs(a.go); if (args && onNavigate) onNavigate(...args);
+  };
 
   return (
     <div className="section-gap">

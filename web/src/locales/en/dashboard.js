@@ -147,7 +147,7 @@ export default {
   'Couverture terrain faible ce mois': 'Low field coverage this month',
   '{done}/{active} visites réalisées ({p} %)': '{done}/{active} visits completed ({p}%)',
   'Retard de visites — {provider}': 'Visits behind schedule — {provider}',
-  '{done}/{active} réalisées ({p} %)': '{done}/{active} completed ({p}%)',
+  '{done}/{active} réalisées ({p})': '{done}/{active} completed ({p})',
   '{n} visite(s) non affectée(s)': '{n} unassigned visit(s)',
   'Sites planifiés sans prestataire TPM ce mois': 'Sites planned without a TPM provider this month',
 

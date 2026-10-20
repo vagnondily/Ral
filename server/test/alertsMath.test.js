@@ -77,11 +77,25 @@ test('terrain : couverture < 50 % (à surveiller), prestataire < 40 % sur ≥ 3 
       { key: 'non_affecte', label: 'Non affecté', active: 3, realise: 3, rate: 1, total: 3 },
     ],
   };
-  const out = fieldAlerts(field, { coverage: covOf(10, 4) });
+  const out = fieldAlerts(field, { coverage: covOf(10, 4), period: { from: '2026-09', to: '2026-09' } });
   assert.deepEqual(out.map((a) => [a.kind, a.sev]), [['field_low_coverage', 'warning'], ['provider_late', 'info'], ['visits_unassigned', 'info']]);
   assert.deepEqual(out[0].params, { done: 4, planned: 10, p: { rate: 0.4 } });
   assert.equal(out[0].detail, '{done}/{planned} visites prévues suivies ({p})');
-  assert.equal(out[0].go.module, 'processus');
+  // Exécution du plan : l'écran qui affiche la MÊME mesure (Synthèse), sur la période de l'alerte.
+  assert.deepEqual(out[0].go, { module: 'processus', sub: 'synthese', period: { from: '2026-09', to: '2026-09' } });
+  // Prestataires en retard et visites non affectées : l'écran des visites déclarées ; taux typé comme les pages.
+  assert.deepEqual(out[1].go, { module: 'processus', sub: 'sites' });
+  assert.deepEqual(out[1].params, { provider: 'ONG A', done: 1, active: 5, p: { rate: 0.2 } });
+  assert.equal(out[1].detail, '{done}/{active} réalisées ({p})');
+  assert.deepEqual(out[2].go, { module: 'processus', sub: 'sites' });
+  // Sans période connue : la Synthèse, sur sa période par défaut.
+  assert.deepEqual(fieldAlerts(field, { coverage: covOf(10, 4) })[0].go, { module: 'processus', sub: 'synthese' });
+});
+
+test('terrain : prestataire à 0,4 % — taux typé (« 0,4 % » à l\'écran), jamais arrondi à « 0 % » ici', () => {
+  const field = { byProvider: [{ key: 'p', label: 'ONG', active: 250, realise: 1, rate: 1 / 250 }] };
+  const [late] = fieldAlerts(field, {});
+  assert.deepEqual(late.params.p, { rate: 1 / 250 });
 });
 
 test('liste triée par gravité, ordre des catégories conservé ; décompte pour la cloche', () => {

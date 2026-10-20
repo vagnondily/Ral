@@ -58,6 +58,7 @@ async function alerts(auth, { today = isoDay(new Date()), period = null } = {}) 
     consolidationRows: cons ? cons.rows : [], contracts, reports, field, coverage, today,
     // « ce mois » seulement sans période (la cloche) ; un mois choisi est nommé ; une plage : « sur la période ».
     range: spanMonths(fieldPeriod) > 1, month: period && spanMonths(period) === 1 ? period.from : null, reportsInPeriod: !!period,
+    period: fieldPeriod,
   });
   return { today, month, period: periodInfo(fieldPeriod), counts: countAlerts(items), items, unavailable: [...new Set(unavailable)] };
 }

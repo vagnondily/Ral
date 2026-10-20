@@ -3,6 +3,7 @@
 // par la page « Centre d'alertes » et la cloche de l'en-tête.
 import { dayLabel, formatAr, formatLocale, monthLabel } from './format.js';
 import { formatRate } from './mapScale.js';
+import { isPeriod, writeHashPeriod } from './period.js';
 
 /** Gravités : ordre, libellé (traduit à l'affichage) et ton de badge. Couleur + icône + libellé, jamais la couleur seule. */
 export const SEVERITY = {
@@ -61,3 +62,12 @@ export const sourceList = (tr, sources) => (sources || []).map((s) => tr(ALERT_S
 
 /** Arguments de navigation (module, sous-page, élément) de l'écran concerné. */
 export const goArgs = (go) => (go ? [go.module, go.sub, go.extra || undefined] : null);
+
+/**
+ * Adresse de l'écran quand la PÉRIODE voyage avec le lien (exécution du plan : la Synthèse s'ouvre
+ * sur la période de l'alerte, « ?from=&to= » lu par usePeriod) ; null sinon (goArgs).
+ */
+export function goHash(go) {
+  if (!go || !go.module || !go.sub || !isPeriod(go.period)) return null;
+  return writeHashPeriod(`#/${go.module}/${go.sub}${go.extra ? `/${go.extra}` : ''}`, go.period);
+}

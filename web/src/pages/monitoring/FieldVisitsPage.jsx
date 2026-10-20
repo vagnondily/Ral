@@ -281,7 +281,10 @@ export default function FieldVisitsPage({ canEdit }) {
         {tr('Pour toute une zone et plusieurs mois :')} <a href={tpmTabHref({ month })}>{tr('Affectation des TPM')}</a>.
       </p>
 
-      {/* Deux vues : la grille de planification (simple, par défaut) et la couverture (analytique). */}
+      {/* Deux vues : la grille de planification (simple, par défaut) et la couverture (analytique).
+          Taux de cet écran = VISITES DÉCLARÉES seulement (réalisées ÷ (planifiées + réalisées)) : nommé
+          « Exécution des visites (déclarées) », jamais « Exécution du plan » — ce nom est celui de la mesure
+          commune des tableaux de bord (visites prévues suivies par visite déclarée OU données reçues). */}
       <div className="seg" role="group" aria-label={tr('Vue')} style={{ marginBottom: 4 }}>
         <button type="button" className={view === 'plan' ? 'is-active' : ''} onClick={() => setView('plan')}>{tr('Planification')}</button>
         <button type="button" className={view === 'couverture' ? 'is-active' : ''} onClick={() => setView('couverture')}>{tr('Couverture & budget')}</button>
@@ -294,13 +297,13 @@ export default function FieldVisitsPage({ canEdit }) {
             <Kpi icon={MapPin} tone="blue" label={tr('Sites du mois')} value={formatInt(ov.total)} foot={tr('{n} commune(s)', { n: communeCount })} />
             <Kpi icon={UserPlus} tone={unassigned ? 'amber' : 'green'} label={tr('À affecter')} value={formatInt(unassigned)} foot={tr('Aucun contrat actif sur la zone')} />
             <Kpi icon={CalendarClock} tone="blue" label={tr('Planifiées')} value={formatInt(ov.planifie)} foot={tr('À réaliser')} />
-            <Kpi icon={CheckCircle2} tone="green" label={tr('Réalisées')} value={formatInt(ov.realise)} foot={tr('{p} % d\'exécution du plan', { p: Math.round(ov.rate * 100) })} />
+            <Kpi icon={CheckCircle2} tone="green" label={tr('Réalisées')} value={formatInt(ov.realise)} foot={tr('{p} % d\'exécution des visites (déclarées)', { p: Math.round(ov.rate * 100) })} />
             <Kpi icon={Ban} tone="red" label={tr('Annulées')} value={formatInt(ov.annule)} foot={tr('Exclues du taux')} />
           </div>
         )}
         <div className="biz-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
-          {summary?.byProvider?.length > 0 && <CoverageCard title={tr('Exécution du plan par prestataire')} rows={summary.byProvider} />}
-          {summary?.byDistrict?.length > 0 && <CoverageCard title={tr('Exécution du plan par district')} rows={summary.byDistrict} />}
+          {summary?.byProvider?.length > 0 && <CoverageCard title={tr('Exécution des visites déclarées par prestataire')} rows={summary.byProvider} />}
+          {summary?.byDistrict?.length > 0 && <CoverageCard title={tr('Exécution des visites déclarées par district')} rows={summary.byDistrict} />}
         </div>
         {collDays.length > 0 && (
           <div className="card biz-card" style={{ marginTop: 16 }}>
@@ -418,7 +421,7 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
           <thead><tr>
             <th>{tr('Mois')}</th><th>{tr('Situation')}</th><th className="num">{tr('Sites')}</th><th className="num">{tr('Planifiées')}</th>
             <th className="num">{tr('Réalisées')}</th><th className="num">{tr('Annulées')}</th><th className="num">{tr('Prestataires')}</th>
-            <th>{tr('Exécution du plan')}</th><th aria-label={tr('Action')} />
+            <th>{tr('Exécution des visites (déclarées)')}</th><th aria-label={tr('Action')} />
           </tr></thead>
           <tbody>
             {months.map((m) => {
@@ -455,7 +458,7 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
           </tbody>
         </table></div>
       )}
-      <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>{tr('Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. Exécution du plan = réalisées ÷ (planifiées + réalisées), annulées exclues.')}</span></div>
+      <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>{tr('Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. Exécution des visites (déclarées) = réalisées ÷ (planifiées + réalisées), annulées exclues ; les données reçues n\'y comptent pas (« Exécution du plan » des tableaux de bord).')}</span></div>
     </div>
   );
 }

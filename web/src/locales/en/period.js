@@ -181,10 +181,11 @@ export default {
   'Aucune visite sur la période ({p}). Planifiez des visites (Affectation & visites) pour alimenter la couverture.': 'No visit over the period ({p}). Plan visits (Assignment & visits) to feed the coverage.',
 
   // ---- Affectation & visites : le taux des visites s'appelle exécution du plan
-  '{p} % d\'exécution du plan': '{p}% plan execution',
-  'Exécution du plan par prestataire': 'Plan execution by provider',
-  'Exécution du plan par district': 'Plan execution by district',
-  'Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. Exécution du plan = réalisées ÷ (planifiées + réalisées), annulées exclues.': 'Click a month (or “Open / Plan”) to access its visit plan. Plan execution = completed ÷ (planned + completed), cancelled excluded.',
+  '{p} % d\'exécution des visites (déclarées)': '{p}% declared-visit execution',
+  'Exécution des visites déclarées par prestataire': 'Declared-visit execution by provider',
+  'Exécution des visites déclarées par district': 'Declared-visit execution by district',
+  'Exécution des visites (déclarées)': 'Declared-visit execution',
+  'Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. Exécution des visites (déclarées) = réalisées ÷ (planifiées + réalisées), annulées exclues ; les données reçues n\'y comptent pas (« Exécution du plan » des tableaux de bord).': 'Click a month (or “Open / Plan”) to access its visit plan. Declared-visit execution = completed ÷ (planned + completed), cancelled excluded; data received does not count here (that is the dashboards’ “Plan execution”).',
   "Période": "Period",
   "du {a} au {b}": "from {a} to {b}",
   "{n} mois": "{n} month(s)",
