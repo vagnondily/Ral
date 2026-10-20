@@ -6,6 +6,7 @@ const { assertItemActivities } = require('./activityRefs');
 const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
 const { isValidatedStatus, decideDocumentDeletion, linkedSummary } = require('../common/deletionPolicy');
 const { recordDeletion } = require('../deletions/deletions.repository');
+const { tpmLinkExistsTx, restampIfTpmLinkChangedTx } = require('./tpmAttribution.repository');
 
 /**
  * Planification & budget — budget prévisionnel d'une vague de collecte.
@@ -138,6 +139,7 @@ async function createPlan(tenantId, input) {
       [tenantId, input.partnerId, input.contractId, input.periodMonth]
     );
     if (exists[0]) { const e = new Error('duplicate'); e.code = 'DUP'; throw e; }
+    const had = await tpmLinkExistsTx(client, tenantId, input.partnerId, input.contractId); // D1 : TPM du contrat avant
     const { rows } = await client.query(
       `INSERT INTO tpm_collection_plans (tenant_id, partner_id, contract_id, period_month, title, status, created_by)
        VALUES ($1,$2,$3,$4,$5,'brouillon',$6) RETURNING id`,
@@ -145,6 +147,8 @@ async function createPlan(tenantId, input) {
     );
     const id = rows[0].id;
     if (Array.isArray(input.items) && input.items.length) await insertItems(client, tenantId, id, input.items);
+    // Premier plan d'un TPM sur ce contrat : il en devient le TPM — visites prévues ré-estampillées (retour 114).
+    await restampIfTpmLinkChangedTx(client, tenantId, { partnerId: input.partnerId, contractId: input.contractId, had });
     return id;
   });
 }
@@ -225,6 +229,8 @@ async function deletePlan(tenantId, id, { actorId, isAdmin = false, justificatio
       deletedBy: actorId,
     });
     await client.query('DELETE FROM tpm_collection_plans WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+    // Dernier document de ce TPM sur ce contrat : il n'en est plus le TPM (retour 114).
+    await restampIfTpmLinkChangedTx(client, tenantId, { partnerId: plan.partnerId, contractId: plan.contractId, had: true });
     return 'ok';
   });
 }

@@ -6,6 +6,7 @@ const {
 } = require('./tpmAttribution');
 // Règle commune « prestataire actif » (lot 8) : liens prestataire ↔ contrat et fiches partenaires.
 const activeProviderRepo = require('./activeProvider.repository');
+const { currentMonth } = require('./rbmMath');
 
 /**
  * Affectation des TPM par zone (retour 58) — SEUL fichier de ce chantier qui écrit du SQL.
@@ -149,6 +150,30 @@ async function restampVisitsTx(client, tenantId, scope = {}) {
     `SELECT o_id AS id, o_old_provider AS "fromProviderId", o_new_provider AS "providerId", o_state AS "zoneState", o_dated AS dated
        FROM mems_tpm_stamp($1, ${ids})`, params);
   return summarizeRestamp(rows);
+}
+
+/**
+ * Lien TPM ↔ contrat (D1) : le TPM d'un contrat vient de ses plans de collecte et de ses factures /
+ * rapports. Existe-t-il au moins un document de ce couple ? (lu avant et après une écriture).
+ */
+async function tpmLinkExistsTx(client, tenantId, partnerId, contractId) {
+  const { rows: [r] } = await client.query(
+    `SELECT EXISTS (SELECT 1 FROM tpm_collection_plans WHERE tenant_id = $1 AND partner_id = $2 AND contract_id = $3)
+         OR EXISTS (SELECT 1 FROM tpm_reports WHERE tenant_id = $1 AND partner_id = $2 AND contract_id = $3) AS ok`,
+    [tenantId, partnerId, contractId]);
+  return Boolean(r && r.ok);
+}
+
+/**
+ * Un écrivain de plans de collecte ou de factures (création, gabarits mensuels, suppression) qui CRÉE le
+ * premier document d'un couple TPM × contrat, ou SUPPRIME le dernier, change le TPM du contrat : les
+ * visites prévues ré-estampillables sont recalculées dès le mois courant, dans SA transaction, verrou
+ * d'attribution en dernier (comme contracts.service.restampFromNow). Sans changement du lien : rien.
+ * @param {{ partnerId, contractId, had: boolean }} link  had = tpmLinkExistsTx AVANT l'écriture
+ */
+async function restampIfTpmLinkChangedTx(client, tenantId, { partnerId, contractId, had }) {
+  if (!partnerId || !contractId || had === await tpmLinkExistsTx(client, tenantId, partnerId, contractId)) return null;
+  return restampVisitsTx(client, tenantId, { fromMonth: currentMonth() });
 }
 
 // ---- Entrées de la règle ------------------------------------------------------------
@@ -746,7 +771,7 @@ async function applyContractsTx(client, tenantId, actorId, { period = null, reas
 module.exports = {
   cellsForSitesTx, applyContractsTx, slimCell, unavailabilityTx, deleteUnavailabilityTx, upsertUnavailabilityTx, plannedRangeVisitsTx,
   tableForSitesTx, boardTpmTx, applyVisitRequestTx,
-  ATTRIBUTION_KEY, ZONE_CTES, INVOICED_SQL, AUTO_RESTAMPABLE_SQL, monitorKeySql, lockAttributionTx, refreshSiteZonesTx, restampVisitsTx,
+  ATTRIBUTION_KEY, ZONE_CTES, INVOICED_SQL, AUTO_RESTAMPABLE_SQL, monitorKeySql, lockAttributionTx, tpmLinkExistsTx, restampIfTpmLinkChangedTx, refreshSiteZonesTx, restampVisitsTx,
   partnersTx, loadInputsTx, overridesTx, areasTx, communeRowIds, zoneRowsTx, visitGroupsTx, expandRegionsTx,
   plannedZoneVisitsTx, visitsForUpdateTx, siteZoneTx, monthPlanStatusesTx,
   deleteOverridesTx, upsertOverridesTx, applyVisitDecisionsTx, insertLogTx, listLogTx, attributionCountsTx, siteZonesTx,

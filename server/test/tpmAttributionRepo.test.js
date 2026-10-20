@@ -514,3 +514,31 @@ test('indisponibilités : périodes de l onglet (mois consécutifs) et TPM propo
   assert.deepEqual(l.periods.map((x) => [x.providerName, x.from, x.to, x.months]), [['RANO Control', '2026-08', '2026-09', 2]]);
   assert.deepEqual(l.tpms.map((x) => x.name), ['RANO Control', 'YPA']);
 });
+
+test('lien TPM ↔ contrat (U2) : premier plan / facture ou dernier supprimé → visites prévues ré-estampillées ; sinon rien', async () => {
+  const calls = [];
+  let exists = true;
+  const client = {
+    query: async (sql, params) => {
+      const q = sql.replace(/\s+/g, ' ').trim();
+      calls.push({ sql: q, params });
+      if (/^SELECT EXISTS \(SELECT 1 FROM tpm_collection_plans/.test(q)) return { rows: [{ ok: exists }] };
+      return { rows: [] };
+    },
+  };
+  // Le lien existait déjà et existe toujours : aucune estampille.
+  assert.equal(await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: true }), null);
+  assert.equal(calls.filter((c) => /mems_tpm_stamp/.test(c.sql)).length, 0);
+  // Premier document (had = false, il existe maintenant) : estampille des prévues dès le mois courant, verrou d'abord.
+  const r = await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: false });
+  assert.ok(r && r.changed === 0);
+  const stamp = calls.find((c) => /mems_tpm_stamp/.test(c.sql));
+  assert.match(stamp.sql, /v\.period_month >= \$2::date/);
+  assert.match(stamp.params[1], /^\d{4}-\d{2}-01$/);
+  assert.ok(calls.findIndex((c) => /pg_advisory_xact_lock/.test(c.sql)) < calls.indexOf(stamp), 'verrou d attribution avant l estampille');
+  // Dernier document supprimé (had = true, n'existe plus) : estampille.
+  exists = false; calls.length = 0;
+  await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: true });
+  assert.equal(calls.filter((c) => /mems_tpm_stamp/.test(c.sql)).length, 1);
+  assert.deepEqual(calls[0].params, [T, YPA, K1], 'lien lu dans le compte du jeton');
+});

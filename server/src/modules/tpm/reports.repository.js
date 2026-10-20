@@ -277,6 +277,7 @@ async function insertReport(tenantId, r) {
   return withTenantTransaction(tenantId, async (client) => {
     const existing = await findExisting(client, tenantId, r);
     if (existing) { const e = new Error('duplicate'); e.code = 'DUP'; throw e; }
+    const had = await tpmAttributionRepo.tpmLinkExistsTx(client, tenantId, r.partnerId, r.contractId); // D1 : TPM du contrat avant
 
     // A financial report with an état des dépenses derives its reported
     // amount from the items (the funder (bailleur) share) — never the typed figure.
@@ -303,6 +304,8 @@ async function insertReport(tenantId, r) {
         WHERE tenant_id = $1 AND id = $2`,
       [tenantId, id, r.createdBy]
     );
+    // Première facture d'un TPM sur ce contrat : il en devient le TPM — visites prévues ré-estampillées (retour 114).
+    await tpmAttributionRepo.restampIfTpmLinkChangedTx(client, tenantId, { partnerId: r.partnerId, contractId: r.contractId, had });
     return id;
   });
 }
@@ -389,6 +392,8 @@ async function deleteReport(tenantId, id, { actorId, isAdmin = false, justificat
       deletedBy: actorId,
     });
     await client.query('DELETE FROM tpm_reports WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+    // Dernier document de ce TPM sur ce contrat : il n'en est plus le TPM (retour 114).
+    await tpmAttributionRepo.restampIfTpmLinkChangedTx(client, tenantId, { partnerId: report.partnerId, contractId: report.contractId, had: true });
     return 'ok';
   });
 }
@@ -408,6 +413,7 @@ async function generateMonthlyStubs(tenantId, { contractId, partnerId, createdBy
     const toIdx = (d) => { const [y, m] = String(d).slice(0, 7).split('-').map(Number); return y * 12 + (m - 1); };
     const start = toIdx(c[0].dateDebut);
     const end = toIdx(c[0].dateFin);
+    const had = await tpmAttributionRepo.tpmLinkExistsTx(client, tenantId, partnerId, contractId); // D1 : TPM du contrat avant
     let created = 0;
     for (let i = start; i <= end && i - start < 60; i += 1) {
       const month = `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}-01`;
@@ -419,6 +425,8 @@ async function generateMonthlyStubs(tenantId, { contractId, partnerId, createdBy
       );
       created += rowCount;
     }
+    // Gabarits du premier lien de ce TPM avec ce contrat : il en devient le TPM (retour 114).
+    await tpmAttributionRepo.restampIfTpmLinkChangedTx(client, tenantId, { partnerId, contractId, had });
     return { created };
   });
 }
