@@ -16,6 +16,8 @@
  *   realisee    réalisée                                             → conservée
  *   echue       prévue « zone » libre d'un mois échu                 → conservée
  * La réponse compte les conservées ; un 2ᵉ effacement ne supprime plus rien de ces lignes.
+ * Mois courant = celui de l'APPLICATION (jour local, APP_TIMEZONE), jamais now() de la base : une
+ * prévue libre du mois qui vient de s'achever (horloge injectée un mois plus tard) est conservée.
  */
 const SU_URL = process.env.MEMS_TEST_DATABASE_URL;
 const APP_URL = process.env.MEMS_TEST_APP_DATABASE_URL;
@@ -34,6 +36,8 @@ test('effacer les planifications : seules les prévues libres d\'un mois à veni
   const { Client } = require('pg');
   const { pool } = require('../src/config/db');
   const { clearPlanned } = require('../src/modules/tpm/planAuto.service');
+  const { localDay } = require('../src/modules/common/localDay');
+  const shift = (m, d) => { const i = Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7)) - 1 + d; return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`; };
   const su = new Client({ connectionString: SU_URL });
   await su.connect();
   const q = async (sql, params) => (await su.query(sql, params)).rows;
@@ -50,12 +54,11 @@ test('effacer les planifications : seules les prévues libres d\'un mois à veni
         WHERE p.tenant_id = $1 AND pt.code = 'tpm' ORDER BY p.name LIMIT 1`, [T]);
     assert.ok(tpm, 'un prestataire TPM de démonstration est nécessaire');
 
-    const [{ next, prev, sameYear, year }] = await q(
-      `SELECT to_char(date_trunc('month', now()) + interval '1 month', 'YYYY-MM-DD') AS next,
-              to_char(date_trunc('month', now()) - interval '1 month', 'YYYY-MM-DD') AS prev,
-              extract(year FROM date_trunc('month', now()) - interval '1 month')
-                = extract(year FROM date_trunc('month', now()) + interval '1 month') AS "sameYear",
-              extract(year FROM date_trunc('month', now()) + interval '1 month')::int AS year`);
+    // Mois voisins du mois courant LOCAL (celui de l'écran et de l'aperçu).
+    const nowM = localDay().slice(0, 7);
+    const next = `${shift(nowM, 1)}-01`; const prev = `${shift(nowM, -1)}-01`;
+    const sameYear = prev.slice(0, 4) === next.slice(0, 4);
+    const year = Number(next.slice(0, 4));
     const add = (name, extra = {}) => ({ name, month: next, status: 'planifie', source: 'zone', ...extra });
     const cases = [
       add('libre'),
@@ -97,6 +100,21 @@ test('effacer les planifications : seules les prévues libres d\'un mois à veni
 
     const again = await clearPlanned(T, { year, from: fromMonth, to: Number(next.slice(5, 7)) });
     assert.equal(again.deleted, 0, 'rejoué, l\'effacement ne supprime plus rien');
+
+    // Mois qui vient de s'achever à l'heure LOCALE (horloge injectée : le mois courant est déjà le
+    // suivant, alors que la base, en UTC, est encore dans ce mois) : sa prévue libre est conservée.
+    const nextM = next.slice(0, 7);
+    await q(`INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, provider_source)
+             VALUES ($1, $2, $3::date, $4, 'planifie', 'zone')`, [T, site.id, next, `${TAG} libre-echue-locale`]);
+    const has = async () => (await q('SELECT 1 FROM site_visits WHERE tenant_id = $1 AND activity = $2', [T, `${TAG} libre-echue-locale`])).length === 1;
+    const past = await clearPlanned(T, { year, from: Number(nextM.slice(5, 7)), to: Number(nextM.slice(5, 7)) }, { now: shift(nextM, 1) });
+    assert.ok(await has(), 'mois échu à l\'heure locale : la prévue libre est conservée');
+    assert.equal(past.deleted, 0);
+    assert.ok(past.kept >= 1);
+    // Le même mois, quand il est le mois courant : effacée.
+    const cur = await clearPlanned(T, { year, from: Number(nextM.slice(5, 7)), to: Number(nextM.slice(5, 7)) }, { now: nextM });
+    assert.equal(await has(), false, 'mois courant : la prévue libre est effacée');
+    assert.ok(cur.deleted >= 1);
   } finally {
     await q('ROLLBACK').catch(() => {});
     await q('DELETE FROM site_visits WHERE tenant_id = (SELECT id FROM tenants ORDER BY created_at, id LIMIT 1) AND activity LIKE $1', [`${TAG} %`]).catch(() => {});

@@ -9,21 +9,27 @@ const DEFAULT_TZ = 'Indian/Antananarivo';
 
 // Un formateur par fuseau, créé une seule fois : rbmMath.currentMonth est appelé par site dans les
 // boucles du Plan de suivi et du RBM (créer un Intl.DateTimeFormat coûte ≈ 80 µs, le réutiliser
-// ≈ 1 µs). Fuseau invalide → null (mis en cache aussi) : repli UTC, comme avant.
+// ≈ 1 µs). Fuseau invalide → null (mis en cache aussi) : repli UTC, comme avant ; un fuseau qui
+// n'est pas une chaîne (objet, nombre…) → UTC, jamais une exception.
 const FORMATTERS = new Map();
 const MAX_FORMATTERS = 64;
 function formatterFor(timeZone) {
-  const key = String(timeZone);
-  if (FORMATTERS.has(key)) return FORMATTERS.get(key);
+  if (typeof timeZone !== 'string') return null;
+  if (FORMATTERS.has(timeZone)) return FORMATTERS.get(timeZone);
   let f = null;
   try {
-    f = new Intl.DateTimeFormat('en-CA', { timeZone: key, year: 'numeric', month: '2-digit', day: '2-digit' });
+    f = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
   } catch {
     f = null;
   }
   if (FORMATTERS.size >= MAX_FORMATTERS) FORMATTERS.clear();
-  FORMATTERS.set(key, f);
+  FORMATTERS.set(timeZone, f);
   return f;
+}
+
+/** Vide le cache des formateurs (tests seulement : compter les créations quel que soit l'ordre). */
+function clearFormatterCache() {
+  FORMATTERS.clear();
 }
 
 /** 'AAAA-MM-JJ' du jour local de `date` dans `timeZone` (fuseau invalide → UTC). */
@@ -43,4 +49,4 @@ function appTimeZone(timeZone = process.env.APP_TIMEZONE || DEFAULT_TZ) {
   return f ? f.resolvedOptions().timeZone : 'UTC';
 }
 
-module.exports = { localDay, appTimeZone, formatterFor, DEFAULT_TZ };
+module.exports = { localDay, appTimeZone, formatterFor, clearFormatterCache, DEFAULT_TZ };
