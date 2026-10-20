@@ -452,6 +452,8 @@ export const api = {
   // Formations en sessions (lot 8, retour 28.2).
   listTrainings: (filters = {}) => request('/api/trainings', { query: qs({ ...pq(filters.period), providerId: filters.providerId, themeId: filters.themeId, status: filters.status }) }),
   trainingThemes: () => request('/api/trainings/themes'),
+  // Chiffres clés de toutes les sessions (agrégés en SQL ; la liste est bornée à `limit`).
+  trainingsSummary: (filters = {}) => request('/api/trainings/summary', { query: qs({ ...pq(filters.period), providerId: filters.providerId, themeId: filters.themeId, status: filters.status }) }),
   trainingsByProvider: (providerId) => request(`/api/trainings/by-provider/${providerId}`),
   getTraining: (id) => request(`/api/trainings/${id}`),
   createTraining: (input) => request('/api/trainings', { method: 'POST', body: input }),

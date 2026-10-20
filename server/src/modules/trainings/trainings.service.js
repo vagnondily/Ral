@@ -127,6 +127,7 @@ async function byProvider(tenantId, providerId) {
 }
 
 module.exports = {
+  summary: repo.sessionsSummary,
   list, get, create, update, addParticipants, updateParticipants, removeParticipant, remove, byProvider,
   themes: repo.listThemes,
 };

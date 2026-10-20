@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { GraduationCap, Plus, ChevronRight } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Button, PageHeader, Stats, StatusBadge } from '../../components/ui.jsx';
+import { Alert, Button, PageHeader, Stats, StatusBadge } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { formatDate } from '../../lib/contracts.js';
@@ -19,21 +19,16 @@ export default function FormationsPage({ canEdit, onNavigate }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [rows, setRows] = useState(null);
+  // Chiffres clés agrégés EN SQL sur toutes les sessions (la liste est bornée aux plus récentes).
+  const [stats, setStats] = useState(null);
 
   useEffect(() => {
     api.listTrainings().then(setRows).catch((e) => { toast.error(e.message); setRows([]); });
+    api.trainingsSummary().then(setStats).catch(() => setStats(null));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const open = (s) => onNavigate('tpm', 'formations', s.id);
-  const stats = useMemo(() => {
-    if (!rows) return null;
-    const done = rows.filter((s) => s.status === 'realisee');
-    return {
-      sessions: rows.length, done: done.length,
-      participants: rows.reduce((n, s) => n + s.participants, 0),
-      providers: new Set(rows.flatMap((s) => s.providers.map((p) => p.id))).size,
-    };
-  }, [rows]);
+  const truncated = Boolean(rows && stats && stats.sessions > rows.length);
   const providerOptions = useMemo(() => {
     const m = new Map();
     for (const s of rows || []) for (const p of s.providers) m.set(p.id, p.name);
@@ -65,6 +60,9 @@ export default function FormationsPage({ canEdit, onNavigate }) {
         { label: tr('Participations'), value: stats ? formatInt(stats.participants) : '—', foot: tr('Agents inscrits, toutes formations') },
         { label: tr('TPM formés'), value: stats ? stats.providers : '—', foot: tr('Au moins un agent participant') },
       ]} />
+      {truncated && (
+        <Alert tone="info">{tr('{n} formations affichées sur {total} : les plus récentes (les chiffres clés comptent toutes les formations).', { n: formatInt(rows.length), total: formatInt(stats.sessions) })}</Alert>
+      )}
 
       <DataList
         rows={rows}

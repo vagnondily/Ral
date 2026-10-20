@@ -368,4 +368,8 @@ export default {
   'À revoir': 'To follow up',
   'Actifs selon contrat ({period})': 'Active under contract ({period})',
   'Autres prestataires TPM (hors contrat)': 'Other TPM providers (outside contract)',
+  // Revue du lot 8 : formations (liste bornée, frise), évaluation (version vue)
+  '{n} formations affichées sur {total} : les plus récentes (les chiffres clés comptent toutes les formations).':
+    '{n} trainings shown out of {total}: the most recent ones (the key figures count all trainings).',
+  'Formation « {label} » prévue pour {extra}': 'Training “{label}” planned for {extra}',
 };

@@ -6,6 +6,7 @@ const { shapeTimeline } = require('./partnerSheet');
 const places = require('../settings/placeMatch.repository');
 const { providerLinksTx, contractTpmViewsTx } = require('../tpm/activeProvider.repository');
 const { monthWithin } = require('../common/periodSql');
+const { followedSql } = require('../trainings/trainingSql');
 
 /**
  * Fiche partenaire 360° et équipe — seul fichier du module qui écrit du SQL.
@@ -133,9 +134,11 @@ async function providersList(tenantId) {
 }
 
 // Sessions de formation suivies par les agents du prestataire (formations en sessions, retour 28.2) :
-// prestataire de l'agent AU MOMENT de la session (training_participants.provider_id).
+// prestataire de l'agent AU MOMENT de la session (training_participants.provider_id) ; « suivie » =
+// définition commune trainingSql.followedSql (ni session annulée, ni participant absent).
 const TRAININGS_COUNT_SQL = `SELECT count(DISTINCT p.session_id) FROM training_participants p
-   WHERE p.tenant_id = $1 AND p.provider_id = $2`;
+   JOIN training_sessions ts ON ts.id = p.session_id AND ts.tenant_id = p.tenant_id
+   WHERE p.tenant_id = $1 AND p.provider_id = $2 AND ${followedSql('ts', 'p')}`;
 
 /**
  * Chiffres de chaque contrat du prestataire, en CENTIMES entiers (sommes SQL, jamais en JS) :
@@ -286,11 +289,12 @@ async function timeline(tenantId, id, { before = null, limit = 50 } = {}) {
           WHERE v.tenant_id = $1 AND ${visitOf('v')} AND v.status <> 'annule'
           GROUP BY COALESCE(NULLIF(s.adm2, ''), s.district) HAVING max(v.period_month) > min(v.period_month)
          UNION ALL
-         SELECT s.start_date::timestamptz, 'formation', 'formation', s.title, s.id::text, string_agg(a.name, ', ' ORDER BY a.name)
+         SELECT s.start_date::timestamptz, 'formation', CASE WHEN s.start_date > current_date THEN 'prevue' ELSE 'formation' END,
+                s.title, s.id::text, string_agg(a.name, ', ' ORDER BY a.name)
            FROM training_participants p
            JOIN training_sessions s ON s.id = p.session_id AND s.tenant_id = p.tenant_id
            JOIN tpm_agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
-          WHERE p.tenant_id = $1 AND p.provider_id = $2 AND s.status <> 'annulee'
+          WHERE p.tenant_id = $1 AND p.provider_id = $2 AND ${followedSql('s', 'p')}
           GROUP BY s.id
          UNION ALL
          SELECT e.created_at, 'evaluation', 'evaluation', to_char(e.periode, 'MM/YYYY'), a.id::text, a.name
@@ -307,7 +311,8 @@ async function timeline(tenantId, id, { before = null, limit = 50 } = {}) {
 // ---- Équipe (seul endroit où l'on crée ou désactive un agent) -----------------------
 const AGENT_COLS = `a.id, a.name, a.fonction, a.code, a.phone, a.email, a.sex, a.active, a.started_on AS "startedOn",
   a.ended_on AS "endedOn", a.created_at AS "createdAt",
-  (SELECT count(*) FROM training_participants f WHERE f.tenant_id = a.tenant_id AND f.agent_id = a.id)::int AS trainings,
+  (SELECT count(*) FROM training_participants f JOIN training_sessions fs ON fs.id = f.session_id AND fs.tenant_id = f.tenant_id
+    WHERE f.tenant_id = a.tenant_id AND f.agent_id = a.id AND ${followedSql('fs', 'f')})::int AS trainings,
   (SELECT count(*) FROM monitoring_submissions s WHERE s.tenant_id = a.tenant_id AND s.agent_id = a.id AND NOT s.excluded)::int AS submissions`;
 
 /** Agents d'un prestataire ; téléphone, courriel et sexe seulement pour les rôles en écriture. */

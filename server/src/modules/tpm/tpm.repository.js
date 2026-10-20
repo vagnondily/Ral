@@ -1,5 +1,6 @@
 const { withTenantTransaction } = require('../../config/db');
 const { computeExpenseAmount } = require('./expenseMath');
+const { followedSql } = require('../trainings/trainingSql');
 
 /**
  * All data access for the Partenaires & TPM module lives here, and only
@@ -31,7 +32,7 @@ async function listProviders(tenantId) {
       `SELECT s.id, p.agent_id AS "agentId", s.title AS thematique, s.start_date AS "date",
               COALESCE(p.days_present, (s.end_date - s.start_date + 1)) AS jours
          FROM training_participants p JOIN training_sessions s ON s.id = p.session_id AND s.tenant_id = p.tenant_id
-        WHERE p.tenant_id = $1 AND s.status <> 'annulee' AND (p.attendance IS NULL OR p.attendance <> 'absent')
+        WHERE p.tenant_id = $1 AND ${followedSql('s', 'p')}
         ORDER BY s.start_date DESC, s.title`,
       [tenantId]
     );
@@ -299,7 +300,7 @@ async function listFormationsReport(tenantId, { lo = null, hiExcl = null, partne
          JOIN training_sessions s ON s.id = tp.session_id AND s.tenant_id = tp.tenant_id
          JOIN tpm_agents a ON a.id = tp.agent_id AND a.tenant_id = tp.tenant_id
          LEFT JOIN partners p ON p.id = tp.provider_id AND p.tenant_id = tp.tenant_id
-        WHERE tp.tenant_id = $1 AND s.status <> 'annulee' AND (tp.attendance IS NULL OR tp.attendance <> 'absent')${where}
+        WHERE tp.tenant_id = $1 AND ${followedSql('s', 'tp')}${where}
         ORDER BY s.start_date DESC, a.name LIMIT 500`, params);
     return rows;
   });

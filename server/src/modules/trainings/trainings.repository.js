@@ -2,6 +2,10 @@ const { withTenantTransaction } = require('../../config/db');
 const { insertRows } = require('../../db/batch');
 const { periodBounds } = require('../common/period');
 const { mergeParticipant } = require('./trainingMath');
+const { followedSql } = require('./trainingSql');
+
+/** Au plus tant de sessions par liste (les plus récentes) ; le total vient de sessionsSummary. */
+const LIST_LIMIT = 500;
 
 /**
  * Formations en sessions (lot 8, retour 28.2) — SEUL fichier du module qui écrit du SQL.
@@ -25,18 +29,24 @@ const THEMES_SQL = `COALESCE((SELECT json_agg(json_build_object('id', t.id, 'lab
  * trainingMath.participantResult), réussites (comparaison exacte), satisfaction.
  * Filtres : période (chevauchement des dates), prestataire (un de ses agents y participe), thème, statut.
  */
-async function listSessions(tenantId, { period = null, providerId = null, themeId = null, status = null } = {}) {
+/** Filtres d'une liste de sessions (alias s) : période (chevauchement), prestataire, thème, statut. */
+function sessionWhere({ period = null, providerId = null, themeId = null, status = null } = {}, params) {
+  const where = [];
+  if (period) {
+    const { lo, hiExcl } = periodBounds(period);
+    params.push(hiExcl, lo);
+    where.push(`s.start_date < $${params.length - 1}::date AND s.end_date >= $${params.length}::date`);
+  }
+  if (providerId) { params.push(providerId); where.push(`EXISTS (SELECT 1 FROM training_participants x WHERE x.tenant_id = s.tenant_id AND x.session_id = s.id AND x.provider_id = $${params.length}::uuid)`); }
+  if (themeId) { params.push(themeId); where.push(`EXISTS (SELECT 1 FROM training_session_themes x WHERE x.tenant_id = s.tenant_id AND x.session_id = s.id AND x.theme_id = $${params.length}::uuid)`); }
+  if (status) { params.push(status); where.push(`s.status = $${params.length}`); }
+  return where.length ? ` AND ${where.join(' AND ')}` : '';
+}
+
+async function listSessions(tenantId, filters = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const params = [tenantId];
-    const where = [];
-    if (period) {
-      const { lo, hiExcl } = periodBounds(period);
-      params.push(hiExcl, lo);
-      where.push(`s.start_date < $${params.length - 1}::date AND s.end_date >= $${params.length}::date`);
-    }
-    if (providerId) { params.push(providerId); where.push(`EXISTS (SELECT 1 FROM training_participants x WHERE x.tenant_id = s.tenant_id AND x.session_id = s.id AND x.provider_id = $${params.length}::uuid)`); }
-    if (themeId) { params.push(themeId); where.push(`EXISTS (SELECT 1 FROM training_session_themes x WHERE x.tenant_id = s.tenant_id AND x.session_id = s.id AND x.theme_id = $${params.length}::uuid)`); }
-    if (status) { params.push(status); where.push(`s.status = $${params.length}`); }
+    const where = sessionWhere(filters, params);
     const { rows } = await client.query(
       `SELECT ${SESSION_COLS}, ${THEMES_SQL} AS themes,
               COALESCE(pa.providers, '[]'::json) AS providers,
@@ -58,9 +68,31 @@ async function listSessions(tenantId, { period = null, providerId = null, themeI
                       AND q.id IN (SELECT DISTINCT y.provider_id FROM training_participants y
                                     WHERE y.tenant_id = s.tenant_id AND y.session_id = s.id)) AS providers
              FROM training_participants p WHERE p.tenant_id = s.tenant_id AND p.session_id = s.id) pa ON true
-        WHERE s.tenant_id = $1${where.length ? ` AND ${where.join(' AND ')}` : ''}
-        ORDER BY s.start_date DESC, s.title LIMIT 500`, params);
+        WHERE s.tenant_id = $1${where}
+        ORDER BY s.start_date DESC, s.title LIMIT ${LIST_LIMIT}`, params);
     return rows;
+  });
+}
+
+/**
+ * Chiffres clés de la page Formations, agrégés EN SQL sur toutes les sessions filtrées (jamais sur
+ * la liste bornée à LIST_LIMIT) : sessions, réalisées, inscriptions, TPM dont un agent a suivi une
+ * formation (définition commune trainingSql.followedSql).
+ */
+async function sessionsSummary(tenantId, filters = {}) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const params = [tenantId];
+    const where = sessionWhere(filters, params);
+    const { rows: [r] } = await client.query(
+      `WITH f AS (SELECT s.id, s.status FROM training_sessions s WHERE s.tenant_id = $1${where})
+       SELECT (SELECT count(*) FROM f)::int AS sessions,
+              (SELECT count(*) FROM f WHERE f.status = 'realisee')::int AS done,
+              (SELECT count(*) FROM training_participants p JOIN f ON f.id = p.session_id WHERE p.tenant_id = $1)::int AS participants,
+              (SELECT count(DISTINCT p.provider_id) FROM training_participants p
+                 JOIN training_sessions s ON s.id = p.session_id AND s.tenant_id = p.tenant_id
+                WHERE p.tenant_id = $1 AND s.id IN (SELECT id FROM f) AND p.provider_id IS NOT NULL AND ${followedSql('s', 'p')})::int AS providers`,
+      params);
+    return { ...r, limit: LIST_LIMIT };
   });
 }
 
@@ -280,6 +312,6 @@ async function providerParticipations(tenantId, providerId) {
 }
 
 module.exports = {
-  listSessions, getSession, createSession, updateSession, addParticipants, updateParticipants, removeParticipant,
+  LIST_LIMIT, listSessions, sessionsSummary, getSession, createSession, updateSession, addParticipants, updateParticipants, removeParticipant,
   deleteSession, listThemes, providerParticipations, SESSION_FIELDS,
 };

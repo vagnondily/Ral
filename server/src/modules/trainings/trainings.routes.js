@@ -72,6 +72,14 @@ router.get('/', asyncHandler(async (req, res) => {
   res.json(await service.list(t(req), { ...f.data, period: readPeriod(req.query, { maxSpan: PERIOD_CAPS.document }) }));
 }));
 router.get('/themes', asyncHandler(async (req, res) => res.json(await service.themes(t(req)))));
+// Chiffres clés agrégés en SQL sur TOUTES les sessions filtrées (la liste est bornée : `limit`).
+router.get('/summary', asyncHandler(async (req, res) => {
+  const f = z.object({ providerId: uuid.optional(), themeId: uuid.optional(), status: status.optional() }).safeParse({
+    providerId: req.query.providerId || undefined, themeId: req.query.themeId || undefined, status: req.query.status || undefined,
+  });
+  if (!f.success) throw badRequest('Filtre invalide.');
+  res.json(await service.summary(t(req), { ...f.data, period: readPeriod(req.query, { maxSpan: PERIOD_CAPS.document }) }));
+}));
 router.get('/by-provider/:providerId', ids('providerId'), asyncHandler(async (req, res) => {
   res.json(await service.byProvider(t(req), req.params.providerId));
 }));

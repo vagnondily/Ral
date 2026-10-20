@@ -133,3 +133,51 @@ test('listes de choix d\'un TPM sur les données de démonstration : aucun titul
   }
   assert.ok(contrat.length > 0 && contrat.every((p) => p.typeCode === 'tpm'), contrat.map((p) => `${p.name}[${p.typeCode}]`).join(', '));
 });
+
+test('formations : fiche, agents, frise, Évaluation des agents et rapport comptent la même chose (ni annulée, ni absent) ; chiffres clés en SQL', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const [tpm] = await q("SELECT p.id FROM partners p WHERE p.tenant_id = $1 AND p.name = 'SAHY Monitoring'", [T]);
+  const [agent] = await q('SELECT id FROM tpm_agents WHERE tenant_id = $1 AND tpm_provider_id = $2 ORDER BY name LIMIT 1', [T, tpm.id]);
+  const trainings = require('../src/modules/trainings/trainings.service');
+  const partners = require('../src/modules/partners/partners.service');
+  const partnersRepo = require('../src/modules/partners/partners.repository');
+  const tpmRepo = require('../src/modules/tpm/tpm.repository');
+  const count = async () => {
+    const sheet = await partners.sheet(T, tpm.id);
+    const agents = await partnersRepo.listAgents(T, tpm.id);
+    const prov = (await tpmRepo.listProviders(T)).find((p) => p.id === tpm.id);
+    const report = await tpmRepo.listFormationsReport(T, { partnerId: tpm.id });
+    const tl = await partnersRepo.timeline(T, tpm.id);
+    return {
+      sheet: sheet.facts ? (sheet.facts.trainings ?? sheet.counts?.trainings) : null,
+      agent: agents.find((a) => a.id === agent.id).trainings,
+      evalAgent: prov.agents.find((a) => a.id === agent.id).formations.length,
+      report: report.filter((r) => r.agentId === agent.id).length,
+      timeline: tl.items.filter((i) => i.kind === 'formation').length,
+    };
+  };
+  const before = await count();
+  const mk = (title, startDate, status) => trainings.create(T, { title, startDate, endDate: startDate, status, agentIds: [agent.id] }, null);
+  const made = [];
+  try {
+    made.push(await mk('Test lot 8 — suivie', '2026-01-12', 'realisee'));
+    made.push(await mk('Test lot 8 — annulée', '2026-01-13', 'annulee'));
+    made.push(await mk('Test lot 8 — absent', '2026-01-14', 'realisee'));
+    await trainings.updateParticipants(T, made[2].id, [{ agentId: agent.id, attendance: 'absent' }]);
+    const after = await count();
+    for (const k of Object.keys(before)) assert.equal(after[k] - before[k], 1, `${k} : +1 (seule la session suivie compte)`);
+    // Frise : une formation à venir est « prévue », jamais « suivie ».
+    const future = await mk('Test lot 8 — à venir', '2099-01-05', 'planifiee');
+    made.push(future);
+    const tl = await partnersRepo.timeline(T, tpm.id);
+    const item = tl.items.find((i) => i.ref === future.id);
+    assert.ok(item && /prévue/.test(item.message.text), 'formation à venir : « prévue »');
+    // Chiffres clés de la page Formations : en SQL sur toutes les sessions.
+    const s = await trainings.summary(T, {});
+    const [{ n }] = await q('SELECT count(*)::int AS n FROM training_sessions WHERE tenant_id = $1', [T]);
+    assert.equal(s.sessions, n);
+    assert.equal(s.limit, 500);
+  } finally {
+    await q('DELETE FROM training_sessions WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [T, made.map((m) => m.id)]);
+  }
+});

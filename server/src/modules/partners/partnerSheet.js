@@ -202,6 +202,7 @@ const EVENT_TEXT = {
   'terrain:debut': 'Premières visites dans le district {label}',
   'terrain:dernier': 'Dernières visites dans le district {label}',
   'formation:formation': 'Formation « {label} » suivie par {extra}',
+  'formation:prevue': 'Formation « {label} » prévue pour {extra}',
   'evaluation:evaluation': 'Évaluation de {extra} ({label})',
 };
 const KIND_ORDER = { contrat: 0, facture: 1, terrain: 2, formation: 3, evaluation: 4 };
