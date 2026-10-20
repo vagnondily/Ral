@@ -35,13 +35,14 @@ import roles from './en/roles.js';
 import coverageDefs from './en/coverageDefs.js';
 import pickers from './en/pickers.js';
 import indicatorProposals from './en/indicatorProposals.js';
+import planAuto from './en/planAuto.js';
 
 export default {
   // partners en tête : ses phrases déjà traduites ailleurs gardent la traduction de leur module.
   ...partners, ...common, ...shell, ...contracts, ...tpmReports, ...tpmPlanning, ...monitoring,
   ...field, ...dashboard, ...settings, ...pdd, ...localities, ...reports, ...planBoard, ...calc, ...importWizard, ...correspondences,
   ...indicatorEditor, ...dashboards, ...sites, ...deletions, ...activityCoverage, ...period, ...map, ...activation, ...reportLayout,
-  ...tpmAttribution, ...coverageDefs, ...pickers, ...indicatorProposals,
+  ...tpmAttribution, ...coverageDefs, ...pickers, ...indicatorProposals, ...planAuto,
   // Glossaire des rôles (retour 113) en dernier : ses libellés remplacent les anciens.
   ...roles,
 };

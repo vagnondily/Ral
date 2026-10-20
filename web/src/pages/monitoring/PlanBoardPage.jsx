@@ -14,6 +14,7 @@ import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, formatLocale, monthLabel } from '../../lib/format.js';
 import { applyPending, boardKpis, monthTotals, pendingKey, rateTone, visitRate } from '../../lib/planBoard.js';
+import { isActiveMonth } from '../../lib/activation.js';
 import PlanAutoDrawer from './PlanAutoDrawer.jsx';
 import './planBoard.css';
 import TpmZoneCell from './TpmZoneCell.jsx';
@@ -228,7 +229,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
             <p className="pb-empty">{view === 'visited' ? tr('Aucun site visité sur l\'exercice dans ce périmètre.') : tr('Aucun site dans ce périmètre.')}</p>
           ) : (
             <div className="table-wrap pb-table-wrap">
-              {view === 'plan' && <PlanTable rows={pageRows} offset={(page - 1) * PAGE} allRows={rows} capacity={data.capacity} pending={pending}
+              {view === 'plan' && <PlanTable rows={pageRows} offset={(page - 1) * PAGE} allRows={rows} capacity={data.capacity} yearHasGrid={Boolean(data.yearHasGrid)} pending={pending}
                 canEdit={canEdit} selected={selected} onSelect={toggleSel} allSelected={allSelected} onSelectAll={toggleAll} onToggle={toggleMonth} />}
               {view === 'standard' && <StandardTable rows={pageRows} selected={selected} onSelect={toggleSel} allSelected={allSelected} onSelectAll={toggleAll} canEdit={canEdit} />}
               {view === 'visited' && <VisitedTable rows={pageRows} year={year} selected={selected} onSelect={toggleSel} allSelected={allSelected} onSelectAll={toggleAll} canEdit={canEdit} />}
@@ -255,7 +256,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
       {modal === 'bulk' && <BulkModal year={year} siteIds={[...selected]} refs={refs} onClose={() => setModal(null)}
         onDone={async () => { setModal(null); setSelected(new Set()); setPending({}); await load(); }} />}
       {modal === 'add' && <AddSiteModal refs={refs} onClose={() => setModal(null)} onDone={async () => { setModal(null); await load(); }} />}
-      {modal === 'autoplan' && <PlanAutoDrawer year={year} onClose={() => setModal(null)} onDone={async () => { setModal(null); setPending({}); await load(); }} />}
+      {modal === 'autoplan' && <PlanAutoDrawer year={year} sites={data?.sites || []} onClose={() => setModal(null)} onDone={async () => { setModal(null); setPending({}); await load(); }} />}
       {modal === 'template' && <TemplateModal year={year} refs={refs} onClose={() => setModal(null)} />}
       {modal?.import && <ImportModal state={modal.import} onClose={() => setModal(null)} onDone={async () => { setModal(null); setPending({}); await load(); }} />}
     </div>
@@ -282,6 +283,8 @@ function StatusCell({ site }) {
   if (site.forbidden) return <Badge tone="red" icon={ShieldAlert}>{tr('Zone interdite')}</Badge>;
   if (site.status === 'Active') return <Badge tone="green" icon={CheckCircle2}>{tr('Active')}</Badge>;
   if (site.status === 'Inactive') return <Badge icon={PauseCircle}>{tr('Inactive')}</Badge>;
+  // L'exercice a une grille et ce site n'a aucun statut : non planifiable (règle commune).
+  if (site.inactive) return <Badge tone="orange" icon={AlertTriangle}>{tr('Non renseigné (non planifiable)')}</Badge>;
   // Aucun mois renseigné : le site compte comme actif (planifiable) — on le dit au lieu d'un « — ».
   return <span className="muted" title={tr('Aucun statut saisi pour l\'exercice : le site est considéré comme actif.')}>{tr('Active (par défaut)')}</span>;
 }
@@ -296,7 +299,7 @@ function SelectAllHead({ allSelected, onSelectAll, label }) {
 }
 
 /* ------------------------------------------------------------- Sites proposés + grille des mois */
-function PlanTable({ rows, offset, allRows, capacity, pending, canEdit, selected, onSelect, allSelected, onSelectAll, onToggle }) {
+function PlanTable({ rows, offset, allRows, capacity, yearHasGrid, pending, canEdit, selected, onSelect, allSelected, onSelectAll, onToggle }) {
   const { tr } = useI18n();
   const totals = useMemo(() => monthTotals(allRows, capacity), [allRows, capacity]);
   return (
@@ -332,12 +335,15 @@ function PlanTable({ rows, offset, allRows, capacity, pending, canEdit, selected
             </td>
             {MONTHS.map((m) => {
               const cell = (s.months || []).find((x) => x.month === m);
-              const inactive = s.monthStatus && s.monthStatus[m] === false;
+              // Règle commune « actif au mois M » : l'exercice a une grille → seul un « Oui » se planifie.
+              const value = s.monthStatus ? s.monthStatus[m] : undefined;
+              const inactive = !isActiveMonth(value, yearHasGrid);
+              const blank = inactive && value !== false;
               const label = `${s.name} — ${monthLabel(`2026-${String(m).padStart(2, '0')}`).replace(/ \d+$/, '')}`;
               if (cell && cell.status === 'realise') return <td key={m} className="pb-m is-done" title={`${tr('Réalisée{d}', { d: cell.date ? ` (${cell.date})` : '' })}${cell.provider ? ` · ${cell.provider}` : ''}`}><Check size={14} aria-label={tr('Réalisée')} /></td>;
               const isPending = pending[pendingKey(s.id, m)] !== undefined;
               return (
-                <td key={m} className={`pb-m ${inactive ? 'is-inactive' : ''} ${isPending ? 'is-pending' : ''}`} title={inactive ? tr('Mois inactif : non planifiable') : (cell?.provider ? `${tr('Prévue')} · ${cell.provider}` : undefined)}>
+                <td key={m} className={`pb-m ${inactive ? 'is-inactive' : ''} ${isPending ? 'is-pending' : ''}`} title={inactive ? (blank ? tr('Mois non renseigné : non planifiable') : tr('Mois inactif : non planifiable')) : (cell?.provider ? `${tr('Prévue')} · ${cell.provider}` : undefined)}>
                   <input type="checkbox" checked={Boolean(cell)} disabled={!canEdit || inactive} aria-label={label}
                     onChange={(e) => onToggle(s, m, e.target.checked)} />
                 </td>

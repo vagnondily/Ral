@@ -101,6 +101,27 @@ export function rowErrors(row) {
   return errs;
 }
 
+/**
+ * Ligne MMR NOUVELLE (plan général) pour une catégorie du référentiel : seuls la catégorie et le
+ * nombre de sites viennent du registre. Durée d'opération et risque restent VIDES, la ligne est
+ * « à vérifier » : rowErrors les exige avant l'enregistrement — jamais 12 mois / risque 2 inventés.
+ */
+export function newMmrRow(key, activityCategory, numberOfSites = 0) {
+  return {
+    key, id: null, fieldOfficeId: null, activityCategory,
+    operationDuration: '', numberOfSites, riskLevel: '', personsToDeploy: '', visitsPerDay: '', workingDays: '', feasible: '', note: '',
+    toVerify: true,
+  };
+}
+
+/** Catégories du référentiel (sites > 0) sans ligne au plan général : [normCat, libellé, nb de sites]. */
+export function missingRegistryCategories(registry, existingKeys) {
+  const counts = registryCounts(registry, null);
+  const have = existingKeys instanceof Set ? existingKeys : new Set(existingKeys || []);
+  return [...counts.entries()].filter(([k, n]) => !have.has(k) && n > 0)
+    .map(([k, n]) => [k, (registry || []).find((r) => normCat(r.activity) === k)?.activity || k, n]);
+}
+
 /** Corps de l'API /mmr/bulk à partir d'une ligne de travail. */
 export function toPayload(r) {
   const n = (v) => (v === '' || v == null ? null : Number(v));

@@ -8,6 +8,7 @@ import { useI18n } from '../../lib/i18n.jsx';
 import { richText } from '../../lib/contracts.js';
 import {
   INPUT_FIELDS, resolvePlan, summarizePlan, registryCounts, rowErrors, toPayload, isChanged, normCat,
+  newMmrRow, missingRegistryCategories,
 } from '../../lib/mmr.js';
 
 /**
@@ -141,7 +142,8 @@ export default function MmrSection({ isAdmin }) {
     if (!label) return;
     if (plan.some((p) => p.key === normCat(label))) { toast.error(tr('Cette catégorie existe déjà.')); return; }
     const sites = registryCounts(registry, null).get(normCat(label)) || 0;
-    setWork((w) => [...w, { key: tmpKey(), id: null, fieldOfficeId: null, activityCategory: label, operationDuration: 12, numberOfSites: sites, riskLevel: 2, personsToDeploy: '', visitsPerDay: '', workingDays: '', feasible: '', note: '' }]);
+    // Durée et risque restent VIDES (« à vérifier ») : jamais une valeur inventée (12 mois / risque 2).
+    setWork((w) => [...w, newMmrRow(tmpKey(), label, sites)]);
     setNewCat('');
   }
 
@@ -156,22 +158,21 @@ export default function MmrSection({ isAdmin }) {
 
   // Compléter depuis le référentiel (plan général) : aligne les lignes existantes
   // sur le vrai nombre de sites par activité ET crée les activités manquantes
-  // (celles qui ont des sites au registre mais pas de ligne MMR).
+  // (celles qui ont des sites au registre mais pas de ligne MMR). Une ligne ajoutée ne
+  // reçoit que ce que le référentiel sait (catégorie, nombre de sites) : durée d'opération et
+  // risque restent VIDES, marqués « à vérifier » — l'enregistrement les exige (jamais 12 / 2).
   function completeFromRegistry() {
     const allReg = registryCounts(registry, null); // normCat → nb de sites
-    const existing = new Set(plan.map((p) => p.key));
-    const toAdd = [...allReg.entries()].filter(([k, n]) => !existing.has(k) && n > 0).map(([k, n]) => ({
-      key: tmpKey(), id: null, fieldOfficeId: null,
-      activityCategory: registry.find((r) => normCat(r.activity) === k)?.activity || k,
-      operationDuration: 12, numberOfSites: n, riskLevel: 2, personsToDeploy: '', visitsPerDay: '', workingDays: '', feasible: '', note: '',
-    }));
+    const toAdd = missingRegistryCategories(registry, plan.map((p) => p.key)).map(([, label, n]) => newMmrRow(tmpKey(), label, n));
     const toSync = live.filter((r) => !r.deleted && !r.fieldOfficeId
       && allReg.get(normCat(r.activityCategory)) != null
       && Number(r.numberOfSites) !== allReg.get(normCat(r.activityCategory)));
     const syncKeys = new Set(toSync.map((r) => r.key));
     if (!toAdd.length && !toSync.length) { toast.success(tr('Déjà complet et aligné sur le référentiel.')); return; }
     setWork((w) => w.map((r) => (syncKeys.has(r.key) ? { ...r, numberOfSites: allReg.get(normCat(r.activityCategory)) } : r)).concat(toAdd));
-    toast.success(tr('{a} activité(s) ajoutée(s), {s} ligne(s) alignée(s). Pensez à enregistrer.', { a: toAdd.length, s: toSync.length }));
+    toast.success(toAdd.length
+      ? tr('{a} activité(s) ajoutée(s) « à vérifier » (durée et risque à renseigner), {s} ligne(s) alignée(s). Pensez à enregistrer.', { a: toAdd.length, s: toSync.length })
+      : tr('{a} activité(s) ajoutée(s), {s} ligne(s) alignée(s). Pensez à enregistrer.', { a: toAdd.length, s: toSync.length }));
   }
 
   function applyBulk(field, value) {
@@ -334,6 +335,7 @@ export default function MmrSection({ isAdmin }) {
                             {scope && (p.inherited ? <Badge tone="blue">{tr('hérité du plan général')}</Badge> : <Badge tone="orange">{tr('dérogation')}</Badge>)}
                             {!scope && overridesByCat.get(p.key) > 0 && <Badge>{tr('{n} dérogation(s)', { n: overridesByCat.get(p.key) })}</Badge>}
                             {scope && !p.general && <Badge tone="red">{tr('absente du plan général')}</Badge>}
+                            {!row.id && row.toVerify && <Badge tone="orange" icon={Info}>{tr('à vérifier')}</Badge>}
                           </span>
                         </td>
                         <td className="num">{cell('operationDuration', { min: 0, max: 12, w: 54 })}</td>
@@ -348,7 +350,8 @@ export default function MmrSection({ isAdmin }) {
                         <td>
                           {isAdmin ? (
                             <select className={`cell-input cell-select risk-${row.riskLevel} ${errs.riskLevel ? 'is-invalid' : ''} ${p.inherited ? 'is-inherited' : ''}`} value={row.riskLevel} aria-label={tr('Niveau de risque')}
-                              onChange={(e) => edit(p, 'riskLevel', Number(e.target.value))}>
+                              onChange={(e) => edit(p, 'riskLevel', e.target.value === '' ? '' : Number(e.target.value))}>
+                              {(row.riskLevel === '' || row.riskLevel == null) && <option value="">{tr('— à renseigner —')}</option>}
                               {[1, 2, 3].map((n) => <option key={n} value={n}>{n} — {tr(RISK[n])}</option>)}
                             </select>
                           ) : <Badge tone={RISK_TONE[row.riskLevel]}>{RISK[row.riskLevel] ? tr(RISK[row.riskLevel]) : row.riskLevel}</Badge>}
