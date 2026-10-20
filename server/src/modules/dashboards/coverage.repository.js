@@ -25,10 +25,11 @@ const JIT_OFF = 'SET LOCAL jit = off';
 
 /**
  * @param {string} tenantId
- * @param {{ period: {from:string,to:string}, officeId?: string|null }} opts
+ * @param {{ period: {from:string,to:string}, officeId?: string|null, activity?: string|null }} opts
+ *   activity : sites de cette activité du registre (casse et espaces de bord ignorés, règle du service).
  * @returns {Promise<{ rows: object[], refMonth: string }>}
  */
-async function coverageFacts(tenantId, { period, officeId = null }) {
+async function coverageFacts(tenantId, { period, officeId = null, activity = null }) {
   return withTenantTransaction(tenantId, async (client) => {
     await client.query(JIT_OFF);
     const refMonth = period.to;
@@ -37,7 +38,7 @@ async function coverageFacts(tenantId, { period, officeId = null }) {
     const dueIds = rbm.filter((r) => r.due).map((r) => r.id);
 
     const params = [tenantId];
-    const ctes = siteMonthFactsCtes({ period, todayMonth: currentMonth(), withData: true, officeId }, params);
+    const ctes = siteMonthFactsCtes({ period, todayMonth: currentMonth(), withData: true, officeId, activity }, params);
     const push = (v) => { params.push(v); return `$${params.length}`; };
     const { lo, hiExcl } = periodBounds(period);
     const pLo = push(lo); const pHiExcl = push(hiExcl);

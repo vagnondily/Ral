@@ -413,22 +413,43 @@ function trendDelta(rows) {
 }
 
 /**
+ * Identité d'un agent d'un groupe de faits (« jamais un code sans son nom », retour 19) :
+ *   id:<uuid>          agent MEMS relié → son nom (relie) ;
+ *   raw:<valeur>       valeur saisie : libellé de la liste de la fiche (« 76 » → « Haja ») →
+ *                      clé lib:<libellé> (libelle) ; sinon un code numérique reste propre à SA
+ *                      fiche, code:<fiche>:<code> (non_relie) ; sinon un nom saisi, réuni sans la
+ *                      casse d'une fiche à l'autre, raw:<nom> (saisi) ;
+ *   vide               non renseigné.
+ */
+function agentIdentity(k, formId, labels) {
+  if (k === 'vide') return { key: 'vide', status: 'vide' };
+  if (k.startsWith('id:')) return { key: k, status: 'relie' };
+  const v = k.slice(4).trim();
+  const label = labels && labels.get(formId) ? labels.get(formId).get(v) : null;
+  const lab = label == null ? '' : String(label).trim();
+  if (lab && lab !== v) return { key: `lib:${lab.toLowerCase().replace(/\s+/g, ' ')}`, status: 'libelle', name: lab };
+  if (/^\d+$/.test(v)) return { key: `code:${formId}:${v}`, status: 'non_relie', code: v, formId };
+  return { key: `raw:${v.toLowerCase()}`, status: 'saisi', name: v };
+}
+
+/**
  * Qualité de saisie par agent (page Agent) — même décompte que le concepteur
  * (mon.agent_quality, parité testée) : réponses exploitables (taux de remplissage) =
  * réponses comptées ÷ réponses attendues sur les indicateurs notés ; vides ou hors base ;
- * plus la part de visites sans score et l'indice de conformité de l'agent. Un agent MEMS relié
- * (« id: ») garde son nom ; un nom saisi (« raw: ») est réuni sans tenir compte de la casse.
+ * plus la part de visites sans score et l'indice de conformité de l'agent. Identité : agentIdentity.
  * @param {object[]} forms faits groupés par agent (indicatorFacts, group 'agent', visites)
  * @param {Map<string,string>} [agentNames] « id:<uuid> » → nom de l'agent MEMS
+ * @param {Map<string, Map<string,string>>} [labels] fiche → (valeur saisie → libellé de sa liste)
  */
-function agentRows(forms, agentNames = new Map()) {
+function agentRows(forms, agentNames = new Map(), labels = new Map()) {
   const per = new Map();
   for (const f of forms || []) {
     const scoredIdx = f.facts.inds.map((ind, i) => [ind, i]).filter(([ind]) => ind.scored !== false);
     const vg = f.facts.visitGroups || new Map();
     for (const [k, tallies] of f.facts.groups) {
-      const key = k.startsWith('raw:') ? `raw:${k.slice(4).trim().toLowerCase()}` : k;
-      if (!per.has(key)) per.set(key, { raw: k, n: 0, total: 0, answered: 0, blank: 0, results: [], vlist: [] });
+      const who = agentIdentity(k, f.id, labels);
+      const key = who.key;
+      if (!per.has(key)) per.set(key, { who, n: 0, total: 0, answered: 0, blank: 0, results: [], vlist: [] });
       const e = per.get(key);
       e.n += (f.facts.counts.get(k) || {}).total || 0;
       for (const [, i] of scoredIdx) {
@@ -445,13 +466,15 @@ function agentRows(forms, agentNames = new Map()) {
   }
   const rows = [...per].map(([key, e]) => {
     const v = mergeVisits(e.vlist, 1);
-    const status = key === 'vide' ? 'vide' : key.startsWith('id:') ? 'relie' : 'saisi';
-    const name = status === 'vide' ? null : status === 'relie' ? (agentNames.get(key) || null) : e.raw.slice(4).trim();
+    const { status } = e.who;
+    const name = status === 'relie' ? (agentNames.get(key) || null) : (e.who.name || null);
     const index = overallIndex(e.results);
     return {
       key,
       status,
       name,
+      code: e.who.code || null,
+      formId: e.who.formId || null,
       visits: e.n,
       fill: pctOf(e.answered, e.total),
       blankPct: pctOf(e.blank, e.total),

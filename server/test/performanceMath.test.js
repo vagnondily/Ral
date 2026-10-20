@@ -240,3 +240,18 @@ test('qualité de saisie par agent : même décompte que le concepteur (mon.agen
   assert.equal(out.totals.lowFill, fills.filter((f) => f < M.LOW_FILL).length);
   assert.equal(out.totals.completeness, Math.round((7 / 9) * 1000) / 10); // 2 visites sans réponse notée
 });
+
+test('agents : un code saisi prend le libellé de la liste de SA fiche ; sans libellé, il reste propre à la fiche', () => {
+  const f1 = form('f-1', 'Fiche 1', 'School meal activities', { 'raw:76': { rows: [...good(2)] }, 'raw:77': { rows: [...bad(1)] } });
+  const f2 = form('f-2', 'Fiche 2', 'School meal activities', { 'raw:76': { rows: [...mixed(1)] }, 'raw: Haja Danielson': { rows: [...good(1)] } });
+  const labels = new Map([['f-1', new Map([['76', 'Haja Danielson']])]]);
+  const out = M.agentRows([f1, f2], new Map(), labels);
+  const byKey = new Map(out.agents.map((r) => [r.key, r]));
+  // « 76 » de la fiche 1 = Haja Danielson (liste de la fiche) : réuni avec le même nom libellé ailleurs ? non —
+  // un libellé (lib:) et un nom saisi (raw:) restent deux lignes, mais le code de la fiche 2 n'est jamais mêlé.
+  assert.deepEqual([byKey.get('lib:haja danielson').status, byKey.get('lib:haja danielson').name, byKey.get('lib:haja danielson').visits], ['libelle', 'Haja Danielson', 2]);
+  assert.deepEqual([byKey.get('code:f-1:77').status, byKey.get('code:f-1:77').code, byKey.get('code:f-1:77').formId], ['non_relie', '77', 'f-1']);
+  assert.deepEqual([byKey.get('code:f-2:76').status, byKey.get('code:f-2:76').visits], ['non_relie', 1]); // le 76 de la fiche 2 n'est pas celui de la fiche 1
+  assert.deepEqual([byKey.get('raw:haja danielson').status, byKey.get('raw:haja danielson').name], ['saisi', 'Haja Danielson']);
+  assert.equal(out.totals.agents, 4);
+});

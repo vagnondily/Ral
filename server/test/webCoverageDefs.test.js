@@ -89,26 +89,37 @@ test('univers énoncé, plan vs réalisé dans la même unité, tableau par acti
 });
 
 test('les deux pages lisent la même réponse (dashboards/coverage), énoncent l\'univers et partagent le tableau par activité', (t) => {
-  const pages = [['pages', 'monitoring', 'ProcessDashboardPage.jsx'], ['pages', 'dashboard', 'DashboardCoveragePage.jsx']];
-  if (!fs.existsSync(webFile(...pages[0]))) { t.skip('web/ absent'); return; }
-  for (const p of pages) {
-    const src = fs.readFileSync(webFile(...p), 'utf8');
-    assert.match(src, /api\.dashCoverage\(period\)/, `${p.join('/')} : mesures de couverture`);
-    assert.doesNotMatch(src, /api\.fieldSummary\(|api\.rbmCounts\(|fetchMapDistricts\(/, `${p.join('/')} : plus de seconde source de couverture`);
-    assert.match(src, /<CoverageUniverse cov=/, `${p.join('/')} : univers énoncé`);
-    assert.match(src, /<ActivityCoverageCard cov=/, `${p.join('/')} : tableau par activité partagé`);
-    assert.match(src, /rateText\(o\.execution\.rate, lang\)/, `${p.join('/')} : taux écrit par rateText (« 0,5 % », jamais « 0 % » pour 0,48 %)`);
-    assert.match(src, /upToDateText\(o\.rbm, lang, formatInt\)/, `${p.join('/')} : « Sites à jour » écrit « n (x %) »`);
-    assert.match(src, /règle RBM : visite réalisée, données de la commune ou date du registre/, `${p.join('/')} : règle RBM dite`);
-    assert.match(src, /<div className="section-gap">/, `${p.join('/')} : pas de second .page dans main.page`);
+  if (!fs.existsSync(webFile('pages', 'monitoring', 'ProcessDashboardPage.jsx'))) { t.skip('web/ absent'); return; }
+  const read = (...p) => fs.readFileSync(webFile(...p), 'utf8');
+  // Synthèse : une page.
+  const syn = read('pages', 'monitoring', 'ProcessDashboardPage.jsx');
+  // Couverture & performance (maquette, retour 101) : la page et ses composants.
+  const covDir = webFile('pages', 'dashboard', 'coverage');
+  const cov = [read('pages', 'dashboard', 'DashboardCoveragePage.jsx'),
+    ...fs.readdirSync(covDir).filter((f) => f.endsWith('.jsx')).map((f) => fs.readFileSync(path.join(covDir, f), 'utf8'))].join('\n');
+  for (const [name, src] of [['Synthèse', syn], ['Couverture & performance', cov]]) {
+    assert.match(src, /api\.dashCoverage\(period/, `${name} : mesures de couverture`);
+    assert.doesNotMatch(src, /api\.fieldSummary\(|api\.rbmCounts\(/, `${name} : plus de seconde source de couverture`);
+    assert.match(src, /<CoverageUniverse cov=/, `${name} : univers énoncé`);
+    assert.match(src, /<ActivityCoverageCard cov=/, `${name} : tableau par activité partagé`);
+    assert.match(src, /<div className="section-gap">/, `${name} : pas de second .page dans main.page`);
   }
+  // La carte de « Couverture & performance » ne sert qu'à la carte, aux bureaux et aux signaux de sites :
+  // la couverture affichée vient des mesures communes (activityCoverage / groupCoverage / officeCoverageByName).
+  assert.doesNotMatch(cov, /coverageOf\(|officeCoverage\(/, 'couverture lue dans la carte');
+  assert.match(cov, /activityCoverage\(cov/);
+  // Synthèse : taux écrits par rateText, « Sites à jour » « n (x %) » avec la règle RBM dite.
+  assert.doesNotMatch(syn, /fetchMapDistricts\(/);
+  assert.match(syn, /rateText\(o\.execution\.rate, lang\)/, 'taux écrit par rateText (« 0,5 % », jamais « 0 % » pour 0,48 %)');
+  assert.match(syn, /upToDateText\(o\.rbm, lang, formatInt\)/, '« Sites à jour » écrit « n (x %) »');
+  assert.match(syn, /règle RBM : visite réalisée, données de la commune ou date du registre/, 'règle RBM dite');
 });
 
 test('mesures de couverture : chaque phrase affichée a sa traduction anglaise', async (t) => {
   const en = await load(t, 'locales', 'en.js'); if (!en) return;
   const files = [
     ['pages', 'monitoring', 'ProcessDashboardPage.jsx'], ['pages', 'dashboard', 'DashboardCoveragePage.jsx'],
-    ['components', 'ActivityCoverageCard.jsx'], ['components', 'CoverageUniverse.jsx'], ['lib', 'coverageDefs.js'],
+    ['pages', 'dashboard', 'coverage', 'OverviewView.jsx'], ['components', 'ActivityCoverageCard.jsx'], ['components', 'CoverageUniverse.jsx'], ['lib', 'coverageDefs.js'],
     ['pages', 'dashboard', 'ReportingPage.jsx'],
   ];
   let checked = 0;

@@ -34,7 +34,7 @@ const TAG = 'Test r110';
 test('couverture en base : service = jumeau pur, découpages sommés aux tuiles, même couverture que la carte', { skip: SKIP, timeout: 180000 }, async () => {
   const { Client } = require('pg');
   const { siteRangeFacts, activeAt } = require('../src/modules/common/siteActivity');
-  const { siteCounts, groupRows, shapeCoverage, checkConsistency } = require('../src/modules/dashboards/coverageDefinitions');
+  const { siteCounts, groupRows, shapeCoverage, checkConsistency, activityKey } = require('../src/modules/dashboards/coverageDefinitions');
   const coverageService = require('../src/modules/dashboards/coverage.service');
   const mapService = require('../src/modules/map/map.service');
   const fieldRepo = require('../src/modules/tpm/field.repository');
@@ -154,6 +154,15 @@ test('couverture en base : service = jumeau pur, découpages sommés aux tuiles,
       assert.equal(o.outside, 5);
       assert.equal(o.execution.cancelled, 2);
     }
+
+    // ---- Filtre d'activité (onglet d'une activité, concepteur de rapport) : chaque découpage se somme
+    // encore aux tuiles, et les tuiles filtrées = la ligne de l'activité dans la réponse complète.
+    const [{ activity: act }] = await q("SELECT activity FROM sites WHERE id = ANY($1::uuid[]) AND NULLIF(btrim(activity), '') IS NOT NULL ORDER BY activity LIMIT 1", [sites.map((x) => x.id)]);
+    const one = await coverageService.coverage(auth, { period: PERIOD, activity: act });
+    assert.deepEqual(checkConsistency(one), [], 'filtre d\'activité : découpages sommés aux tuiles');
+    const { key: _k, label: _l, ...row } = cov.byActivity.find((g) => g.key === activityKey(act));
+    assert.deepEqual(one.overall, row, 'tuiles filtrées = ligne de l\'activité');
+    assert.equal(one.byActivity.length, 1);
 
     // ---- La carte : même couverture ---------------------------------------------------------
     const map = await mapService.districts(auth, { period: PERIOD });

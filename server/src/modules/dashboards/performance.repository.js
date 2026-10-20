@@ -2,6 +2,7 @@ const { withTenantTransaction } = require('../../config/db');
 const { formFactsTx } = require('../monitoring/indicatorFacts.repository');
 const { officeLabelsTx, officeLabelSql } = require('../monitoring/monitoring.repository');
 const { officeTreeSql } = require('../common/siteActivitySql');
+const { choiceLabelsTx, choiceContextTx } = require('../settings/placeMatch.repository');
 
 /**
  * Tableau de bord « Couverture & performance du suivi » — lectures (lecture seule).
@@ -70,6 +71,24 @@ async function agentNamesTx(client, tenantId, forms) {
 }
 
 /**
+ * Libellés des codes d'agent saisis (« 76 » → « Haja Danielson ») : liste de choix de la colonne
+ * agent de CHAQUE fiche (XLSForm ou étiquettes « sav: »), pour les seules valeurs présentes.
+ * @returns {Promise<Map<string, Map<string, string>>>} fiche → (valeur → libellé)
+ */
+async function agentLabelsTx(client, tenantId, forms) {
+  const out = new Map();
+  const wanted = forms.map((f) => [f.id, [...f.facts.counts.keys()].filter((k) => k.startsWith('raw:')).map((k) => k.slice(4).trim())])
+    .filter(([, values]) => values.length);
+  if (!wanted.length) return out;
+  const ctx = await choiceContextTx(client, tenantId);
+  for (const [formId, values] of wanted) { // une fiche à la fois (client de la transaction)
+    const labels = await choiceLabelsTx(client, tenantId, 'agent', ctx, { formId, values });
+    if (labels.has(formId)) out.set(formId, labels.get(formId));
+  }
+  return out;
+}
+
+/**
  * Faits d'indicateurs des fiches (toutes, ou celles d'une activité), un passage par fiche.
  * @param {string} tenantId
  * @param {{ period: {from,to}, officeId?: string|null, activity?: string,
@@ -93,8 +112,9 @@ async function performanceFacts(tenantId, { period, officeId = null, activity, g
     }
     const reg = registry ? await registryActivitiesTx(client, tenantId, officeId) : null;
     const agentNames = group === 'agent' ? await agentNamesTx(client, tenantId, out) : null;
-    return { forms: out, registry: reg, agentNames };
+    const agentLabels = group === 'agent' ? await agentLabelsTx(client, tenantId, out) : null;
+    return { forms: out, registry: reg, agentNames, agentLabels };
   });
 }
 
-module.exports = { performanceFacts, formsTx, registryActivitiesTx, agentNamesTx };
+module.exports = { performanceFacts, formsTx, registryActivitiesTx, agentNamesTx, agentLabelsTx };

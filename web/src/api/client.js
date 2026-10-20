@@ -351,8 +351,8 @@ export const api = {
   monCoverageDashboard: (period) => request('/api/monitoring/coverage-dashboard', { query: qs(pq(period)) }),
   // Mesures de couverture d'une période (retour 110) : UNE réponse pour la Synthèse et pour
   // « Couverture & performance » (univers, suivis, exécution, sites prévus, sites à jour, communes,
-  // par activité / bureau / district). Bureau facultatif (le bureau et ses antennes).
-  dashCoverage: (period, { officeId } = {}) => request('/api/dashboards/coverage', { query: qs({ ...pq(period), office: officeId }) }),
+  // par activité / bureau / district). Bureau facultatif (le bureau et ses antennes) ; activité facultative (un onglet d'activité).
+  dashCoverage: (period, { officeId, activity } = {}) => request('/api/dashboards/coverage', { query: qs({ ...pq(period), office: officeId, activity }) }),
   // Volume de données par mois + période par défaut (dernier mois substantiel ≤ mois courant).
   monPeriods: (today) => request('/api/monitoring/periods', { query: today ? { today } : undefined }),
   monSubmissions: (period) => request('/api/monitoring/submissions', { query: qs(pq(period)) }),
@@ -554,6 +554,15 @@ export const api = {
     query: qs({ ...pq(period), office: officeId, activity, layers: layers && layers.length ? layers.join(',') : undefined, limit }),
   }),
   mapSearch: (q) => request('/api/map/search', { query: { q } }),
+  // Couverture & performance du suivi (maquette) : activités et vue d'ensemble de la période ;
+  // tendance mensuelle et qualité de saisie d'UNE activité (`activity` = catégorie, ou none = fiches sans activité).
+  dashPerformance: (period, { officeId } = {}) => request('/api/dashboards/performance', { query: qs({ ...pq(period), office: officeId }) }),
+  dashPerformanceTrend: (period, { officeId, activity, none } = {}) => request('/api/dashboards/performance/trend', {
+    query: qs({ ...pq(period), office: officeId, activity: none ? undefined : activity, none: none ? '1' : undefined }),
+  }),
+  dashPerformanceAgents: (period, { officeId, activity, none } = {}) => request('/api/dashboards/performance/agents', {
+    query: qs({ ...pq(period), office: officeId, activity: none ? undefined : activity, none: none ? '1' : undefined }),
+  }),
   // Paramétrage › Localités › Contours de la carte (administrateur).
   mapShapeLinks: () => request('/api/map/shape-links'),
   mapShapeLinkSet: (pcode, shapeKey) => request(`/api/map/shape-links/${encodeURIComponent(pcode)}`, { method: 'PUT', body: { shapeKey } }),

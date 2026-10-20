@@ -57,14 +57,18 @@ const useIsPhone = () => {
  * Les filtres bureau (avec ses antennes) et activité sont DANS le composant (les deux
  * variantes), en puces retirables ; la période vient de la page.
  *
- *   variant   'full' | 'compact'
+ *   variant   'full' | 'compact' | 'mini' (carte et légende seules, dans la carte d'un tableau de
+ *             bord : ni barre de filtres, ni classement ; « Couverture & performance du suivi »)
  *   period    { from, to } (undefined tant que la page attend sa période par défaut)
  *   initial   { theme, officeId, activity, layers } — réglages de départ
+ *   filters   { officeId, activity } — filtres TENUS PAR LA PAGE : la carte les suit et ne les
+ *             propose plus (affichés en lecture seule) ; absent, la carte a ses propres filtres
+ *   mapHeight hauteur de la carte (variante mini)
  *   onOpenFull(state) — variante compacte : « Ouvrir la carte »
  */
 export default function MapExplorer({
   variant = 'full', period, initial = {}, onNavigate, onOpenFull, storageKey = 'mems.map.prefs', title,
-  isAdmin = false, toolbarExtra = null, periodControl = null, onDataChange,
+  isAdmin = false, toolbarExtra = null, periodControl = null, onDataChange, filters, mapHeight,
 }) {
   const { tr, lang } = useI18n();
   const toast = useToast();
@@ -72,10 +76,18 @@ export default function MapExplorer({
   const dark = useDarkTheme();
   const phone = useIsPhone();
   const compact = variant === 'compact';
-  const prefs = useMemo(() => (compact ? {} : readJson('local', storageKey) || {}), [compact, storageKey]);
+  const mini = variant === 'mini';
+  // Filtres tenus par la page (Couverture & performance) : la carte les suit, sans les proposer.
+  const controlled = filters !== undefined && filters !== null;
+  const prefs = useMemo(() => (compact || mini ? {} : readJson('local', storageKey) || {}), [compact, mini, storageKey]);
   const [themeId, setThemeId] = useState(initial.theme || prefs.theme || 'coverage');
-  const [officeId, setOfficeId] = useState(initial.officeId || null);
-  const [activity, setActivity] = useState(initial.activity || null);
+  const [officeId, setOfficeId] = useState((controlled ? filters.officeId : initial.officeId) || null);
+  const [activity, setActivity] = useState((controlled ? filters.activity : initial.activity) || null);
+  useEffect(() => {
+    if (!controlled) return;
+    setOfficeId(filters.officeId || null);
+    setActivity(filters.activity || null);
+  }, [controlled, filters && filters.officeId, filters && filters.activity]); // eslint-disable-line react-hooks/exhaustive-deps
   const [layers, setLayers] = useState({ ...DEFAULT_LAYERS, ...(prefs.layers || {}), ...(initial.layers || {}) });
   const [showLabels, setShowLabels] = useState(prefs.labels !== false);
   const [showRegions, setShowRegions] = useState(prefs.regions !== false);
@@ -87,7 +99,7 @@ export default function MapExplorer({
   const [hover, setHover] = useState(null); // { key, pos }
   const [pinned, setPinned] = useState(null); // { key, pos }
   const [pointTip, setPointTip] = useState(null); // { id, pos, pinned }
-  const [legendCollapsed, setLegendCollapsed] = useState(compact || phone);
+  const [legendCollapsed, setLegendCollapsed] = useState(compact || mini || phone);
   const [tableOpen, setTableOpen] = useState(false);
   const [layersOpen, setLayersOpen] = useState(!phone);
   // Fond en ligne : éteint par défaut, activé seulement après une sonde réussie ; coupé hors connexion.
@@ -110,8 +122,8 @@ export default function MapExplorer({
   const mapRef = useRef(null);
   const colRef = useRef(null);
 
-  useEffect(() => { if (!compact) writeJson('local', storageKey, { theme: themeId, layers, labels: showLabels, regions: showRegions, colorBy }); },
-    [compact, storageKey, themeId, layers, showLabels, showRegions, colorBy]);
+  useEffect(() => { if (!compact && !mini) writeJson('local', storageKey, { theme: themeId, layers, labels: showLabels, regions: showRegions, colorBy }); },
+    [compact, mini, storageKey, themeId, layers, showLabels, showRegions, colorBy]);
 
   const levels = level === 'commune' ? ['commune'] : [];
   const { geo, geoError, data, points, loading, error } = useMapData(period, { officeId, activity, withPoints: true, levels });
@@ -180,7 +192,7 @@ export default function MapExplorer({
     // Bureau (retour 83) : appliqué comme filtre — la carte se cadre sur ses districts (effet
     // ci-dessus) ; déjà choisi : recadrer. « Sans bureau » n'est pas un filtre.
     if (lvl === 'office') {
-      if (!z.id) return;
+      if (!z.id || controlled) return; // filtre tenu par la page : la carte ne le change pas
       if (z.id !== officeId) { setOfficeId(z.id); return; }
       m.fitKeys(data.shapes.filter((x) => x.counts.sites > 0 || x.counts.submissions > 0).map((x) => x.key));
       return;
@@ -234,6 +246,13 @@ export default function MapExplorer({
           // Période de la PAGE (lue, non modifiable ici) : dite dans la barre de la carte.
           <div className="mapx-filter mapx-period"><span>{tr('Période')}</span><b className="tabular">{periodLabel(period, lang)}</b></div>
         )}
+      {controlled ? (
+        <>
+          <div className="mapx-filter mapx-period"><span>{tr('Bureau')}</span>
+            <b>{officeId ? ((data.filtersAvailable.offices.find((o) => o.id === officeId) || {}).name || tr('Bureau')) : tr('Tous')}</b></div>
+          <div className="mapx-filter mapx-period"><span>{tr('Activité')}</span><b>{activity || tr('Toutes')}</b></div>
+        </>
+      ) : (<>
       <label className="mapx-filter">
         <span>{tr('Bureau')}</span>
         <select className="select" value={officeId || ''} onChange={(e) => setOfficeId(e.target.value || null)}>
@@ -252,7 +271,8 @@ export default function MapExplorer({
           {data.filtersAvailable.activities.map((a) => <option key={a.value} value={a.value}>{`${a.value} (${formatInt(a.sites)})`}</option>)}
         </select>
       </label>
-      {(officeId || activity) && (
+      </>)}
+      {!controlled && (officeId || activity) && (
         <div className="mapx-chips">
           {officeId && (
             <button type="button" className="chip is-static" onClick={() => setOfficeId(null)} aria-label={tr('Retirer le filtre bureau')}>
@@ -272,12 +292,12 @@ export default function MapExplorer({
     </div>
   );
 
-  if (!period || (loading && !data)) return <Skeleton height={compact ? 460 : 640} />;
+  if (!period || (loading && !data)) return <Skeleton height={mini ? (mapHeight || 360) : compact ? 460 : 640} />;
   if (error && !data) return <Alert tone="error">{error}</Alert>;
-  if (!data || !theme) return <Skeleton height={compact ? 460 : 640} />;
+  if (!data || !theme) return <Skeleton height={mini ? (mapHeight || 360) : compact ? 460 : 640} />;
 
   // Hauteur de la carte seule : la légende est posée SOUS la carte (retour 94), jamais par-dessus.
-  const height = phone ? 380 : compact ? 400 : 580;
+  const height = mini ? (mapHeight || (phone ? 300 : 360)) : phone ? 380 : compact ? 400 : 580;
   const hoverZone = hover && shapeByKey.get(hover.key);
   const pinZone = pinned && shapeByKey.get(pinned.key);
   const cardZone = hoverZone || pinZone;
@@ -317,7 +337,7 @@ export default function MapExplorer({
         {empty && (
           <div className="mapx-empty">
             <p>{officeId || activity ? tr('Aucun site pour ce bureau / cette activité.') : tr('Aucun site dans le registre.')}</p>
-            {(officeId || activity) && <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setOfficeId(null); setActivity(null); }}>{tr('Réinitialiser les filtres')}</button>}
+            {!controlled && (officeId || activity) && <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setOfficeId(null); setActivity(null); }}>{tr('Réinitialiser les filtres')}</button>}
           </div>
         )}
       </div>
@@ -397,6 +417,9 @@ export default function MapExplorer({
       })}
     </div>
   );
+
+  // Variante mini : la carte et sa légende, dans une carte de tableau de bord (titre tenu par la page).
+  if (mini) return <div className="mapx mapx-embed">{mapBlock}</div>;
 
   if (compact) {
     return (

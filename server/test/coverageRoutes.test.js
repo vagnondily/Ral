@@ -42,7 +42,7 @@ const last = () => calls[calls.length - 1];
 test('GET / : 200, compte tiré du jeton, mesures mises en forme (univers, suivis, prévus, RBM, communes)', async () => {
   const res = await request(app).get(`/api/dashboards/coverage?from=2026-01&to=2026-09&office=${OFFICE}&tenant_id=autre`).set(as(viewer));
   assert.equal(res.status, 200);
-  assert.deepEqual(last(), { tenantId: TENANT, opts: { period: { from: '2026-01', to: '2026-09' }, officeId: OFFICE } });
+  assert.deepEqual(last(), { tenantId: TENANT, opts: { period: { from: '2026-01', to: '2026-09' }, officeId: OFFICE, activity: null } });
   const b = res.body;
   assert.deepEqual(b.period, { from: '2026-01', to: '2026-09', months: 9 });
   assert.equal(b.refMonth, '2026-09');
@@ -56,7 +56,12 @@ test('GET / : 200, compte tiré du jeton, mesures mises en forme (univers, suivi
   // « Tous » (bureau vide) = sans filtre ; ?month= raccourci d'un mois ; 24 mois acceptés (faits).
   const r2 = await request(app).get('/api/dashboards/coverage?from=2025-01&to=2026-12&office=').set(as(viewer));
   assert.equal(r2.status, 200);
-  assert.deepEqual(last().opts, { period: { from: '2025-01', to: '2026-12' }, officeId: null });
+  assert.deepEqual(last().opts, { period: { from: '2025-01', to: '2026-12' }, officeId: null, activity: null });
+  // Activité du registre (onglet d'une activité) : transmise sans ses espaces de bord.
+  const r3 = await request(app).get('/api/dashboards/coverage?month=2026-09&activity=%20School%20meal%20activities%20').set(as(viewer));
+  assert.equal(r3.status, 200);
+  assert.deepEqual(last().opts, { period: { from: '2026-09', to: '2026-09' }, officeId: null, activity: 'School meal activities' });
+  assert.equal(r3.body.activity, 'School meal activities');
 });
 
 test('GET / : 401 sans jeton ; 400 sans période, plage > 24 mois, mois invalide, bureau non uuid — rien n\'est lu', async () => {
@@ -72,6 +77,7 @@ test('GET / : 401 sans jeton ; 400 sans période, plage > 24 mois, mois invalide
     assert.equal(res.body.details.code, code, url);
   }
   assert.equal((await request(app).get('/api/dashboards/coverage?month=2026-09&office=x').set(as(viewer))).status, 400);
+  assert.equal((await request(app).get(`/api/dashboards/coverage?month=2026-09&activity=${'x'.repeat(201)}`).set(as(viewer))).status, 400);
   assert.equal(calls.length, n);
 });
 

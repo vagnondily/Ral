@@ -41,7 +41,7 @@ async function trend(auth, { period, officeId = null, activity, none = false }) 
 async function agents(auth, { period, officeId = null, activity, none = false }) {
   const act = activityArg({ activity, none });
   const raw = await repo.performanceFacts(auth.tenantId, { period, officeId, activity: act, group: 'agent', visitsKeep: 1 });
-  return { activity: activityKeyOf(act), forms: raw.forms.length, period: periodInfo(period), ...agentRows(raw.forms, raw.agentNames || new Map()) };
+  return { activity: activityKeyOf(act), forms: raw.forms.length, period: periodInfo(period), ...agentRows(raw.forms, raw.agentNames || new Map(), raw.agentLabels || new Map()) };
 }
 
 module.exports = { performance, trend, agents };

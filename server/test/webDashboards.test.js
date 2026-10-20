@@ -115,24 +115,32 @@ test('Centre d\'alertes sur téléphone (320–390 px) : la catégorie passe à 
   assert.match(rule('.alerts-table tbody tr'), /padding:\s*12px 52px 12px 14px/);
 });
 
-test('Couverture & performance (retour 85) : période et vues séparées, fiche sans indicateur expliquée, cartes d\'une rangée à la même hauteur', async (t) => {
+test('Couverture & performance (retours 85, 101) : période et bureau séparés, activité sans indicateur expliquée, cartes d\'une rangée à la même hauteur', async (t) => {
   const en = await load(t, 'locales', 'en.js'); if (!en) return;
-  const src = fs.readFileSync(webFile('pages', 'dashboard', 'DashboardCoveragePage.jsx'), 'utf8');
-  // La mention de session est sous la ligne de période, le choix de la vue à part.
-  assert.match(src, /<div className="cd-headbar-period">\s*<PeriodBanner[^>]*\/>\s*<SessionPeriodNote/);
-  // Fiche sans indicateur : une explication et la marche à suivre (configuration, modèle d'activité ou rattachement).
-  assert.match(src, /if \(!form\.indicatorCount\) \{/);
-  assert.match(src, /Aucun indicateur n\\'est encore configuré pour cette fiche/);
-  assert.match(src, /go\('config'\)/);
-  assert.match(src, /go\('modele'\)/);
-  for (const [, raw] of src.matchAll(/\btr\(\s*'((?:[^'\\]|\\.)*)'/g)) {
-    const phrase = raw.replace(/\\'/g, '\'');
-    assert.ok(en.default[phrase] !== undefined, `« ${phrase} » sans traduction anglaise`);
+  const dir = webFile('pages', 'dashboard', 'coverage');
+  const tpl = fs.readFileSync(path.join(dir, 'CoverageTemplate.jsx'), 'utf8');
+  // La mention de session est sous la ligne de période ; le bureau à part.
+  assert.match(tpl, /<div className="cd-headbar-period">\s*<PeriodBanner[^>]*\/>\s*<SessionPeriodNote/);
+  // Activité sans indicateur : une explication et la marche à suivre (configuration ou modèle d'activité, par fiche).
+  const act = fs.readFileSync(path.join(dir, 'ActivityView.jsx'), 'utf8');
+  assert.match(act, /if \(!a\.indicatorCount\) \{/);
+  assert.match(act, /Aucun indicateur n\\'est encore configuré pour cette activité/);
+  assert.match(act, /go\(f\.id, 'config'\)/);
+  assert.match(act, /go\(f\.id, 'modele'\)/);
+  for (const src of [tpl, act]) {
+    for (const [, raw] of src.matchAll(/\btr\(\s*'((?:[^'\\]|\\.)*)'/g)) {
+      const phrase = raw.replace(/\\'/g, '\'');
+      assert.ok(en.default[phrase] !== undefined, `« ${phrase} » sans traduction anglaise`);
+    }
   }
-  const css = fs.readFileSync(webFile('styles.css'), 'utf8');
-  assert.match(css, /\.biz-grid\.cd-grid-2 \{ align-items: stretch; \}/);
-  assert.match(css, /\.cd-grid-2 > \.biz-card\.cd-fill > \.card-body \{ flex: 1 1 0;[^}]*overflow-y: auto/);
-  assert.match(css, /\.period-session-note \{ display: flex;/);
+  // Rangées : cartes à la même hauteur, la carte secondaire défile (jamais une carte étirée à vide seule).
+  const css = fs.readFileSync(path.join(dir, 'coverage.css'), 'utf8');
+  assert.match(css, /\.cvt-row \{ display: grid; gap: 16px; align-items: stretch; \}/);
+  assert.match(css, /\.cvt-row > \.cvt-card\.is-fill > \.cvt-card-b \{ flex: 1 1 0; min-height: 0; overflow-y: auto; \}/);
+  const styles = fs.readFileSync(webFile('styles.css'), 'utf8');
+  assert.match(styles, /\.period-session-note \{ display: flex;/);
+  // La page n'ajoute pas un second .page dans main.page (audit du 16/10).
+  assert.match(fs.readFileSync(webFile('pages', 'dashboard', 'DashboardCoveragePage.jsx'), 'utf8'), /<div className="section-gap">/);
   // Fiche ouverte sur son modèle d'activité (« Appliquer le modèle d'activité »).
   const pm = fs.readFileSync(webFile('pages', 'monitoring', 'ProcessMonitoringPage.jsx'), 'utf8');
   assert.match(pm, /initialTab === 'modele' \? 'config'/);
