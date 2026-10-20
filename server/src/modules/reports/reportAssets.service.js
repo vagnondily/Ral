@@ -58,11 +58,12 @@ async function saveBandTemplate(tenantId, body, userId) {
   if (firstPage) content.firstPage = firstPage;
   if (firstHeader) content.firstHeader = firstHeader;
   if (firstFooter) content.firstFooter = firstFooter;
-  // Même limite que le document (reportSchema : MAX_IMAGES images citées, bandes de la 1re page comptées
-  // si elles sont affichées) : une paire appliquée à un rapport ne fait jamais échouer son enregistrement.
+  // Même limite que le document (reportSchema : MAX_IMAGES images comptées, bandes de la 1re page si
+  // elles sont affichées) : la paire SEULE y tient. Appliquée à un rapport qui a déjà des images (blocs,
+  // sections), le concepteur d'en-tête avertit avant d'appliquer (HeaderDesigner : total du rapport).
   const images = bandImageRefs(content).length;
   if (images > MAX_IMAGES) {
-    throw badRequest(`Trop d'images dans cet en-tête : ${images} logos (${MAX_IMAGES} au plus pour un rapport).`, { code: 'too_many_images', count: images, max: MAX_IMAGES });
+    throw badRequest(`Trop d'images dans cet en-tête : ${images} logos, alors qu'un rapport en compte ${MAX_IMAGES} au plus (en-têtes, pieds et blocs image compris).`, { code: 'too_many_images', count: images, max: MAX_IMAGES });
   }
   await checkBandImages(tenantId, [header, footer, firstHeader, firstFooter].filter(Boolean));
   return repo.createBandTemplate(tenantId, { name, content }, userId);

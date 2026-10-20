@@ -431,6 +431,9 @@ export default {
   'Registre des sites par bureau, district et activité': 'Site registry by office, district and activity',
   'Regroupement': 'Grouping',
   'Couverture du mois': 'Coverage of the month',
+  'Couverture du besoin': 'Need coverage',
+  'Le rapport compterait {n} images ({max} au plus, en-têtes, pieds et blocs image compris) : son enregistrement sera refusé tant que des images ne sont pas retirées. Continuer ?':
+    'The report would contain {n} images (at most {max}, headers, footers and image blocks included): it cannot be saved until some images are removed. Continue?',
   'Regrouper par': 'Group by',
   'Paramètres MMR (visites requises, capacité)': 'MMR parameters (required visits, capacity)',
   "Catégorie d'activité": 'Activity category',

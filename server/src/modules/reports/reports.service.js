@@ -2,7 +2,7 @@ const ExcelJS = require('exceljs');
 const { badRequest, payloadTooLarge, AppError } = require('../../middleware/errors');
 const { withQueryTimeout } = require('../../config/db');
 const { createSemaphore } = require('./semaphore');
-const { upgradeDoc, upgradeSnapshot, isV1 } = require('./reportUpgrade');
+const { upgradeDoc, upgradeSnapshot, rekeySnapshotBlocks, isV1 } = require('./reportUpgrade');
 const { safeParseDocV2, walkBlocks, imageRefs } = require('./reportSchema');
 const assetsRepo = require('./reportAssets.repository');
 const { DATASETS, KPIS, GROUPS, datasetDef, kpiDef, validateBlockParams, catalogForClient } = require('./catalog');
@@ -376,7 +376,9 @@ async function documentData(tenantId, id, opts) {
   if (!parsed.success) return { frozen: true, blocks: frozen.blocks || {}, instances: [], sections: [], expansions: {}, periodLabel: frozen.periodLabel };
   const lang = (d.snapshot && d.snapshot.lang) || langOf(opts);
   const plan = buildPlan(parsed.data, { expansions: frozen.expansions || {}, kpiKeys: kpiKeys(), lang, defaultView: (k) => (datasetDef(k) || {}).defaultView || 'table' });
-  const blocks = { ...(frozen.blocks || {}) };
+  // Constats remis sur les nouvelles clés à cette lecture (document finalisé avant `rowKeys: 2`) :
+  // ses lignes figées le sont de la même façon — sinon le « Constat » ne retrouve plus sa ligne.
+  const blocks = { ...((up.rekeyed ? rekeySnapshotBlocks(frozen.blocks, plan.instances) : frozen.blocks) || {}) };
   // Texte avec chiffres clés (v1) : les valeurs figées du rapport.
   for (const inst of plan.instances) {
     if (inst.needsData && !blocks[inst.iid] && (inst.type === 'text' || inst.type === 'callout')) blocks[inst.iid] = { ok: true, data: { vars: frozen.vars || {} } };

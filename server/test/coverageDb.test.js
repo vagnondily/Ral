@@ -316,3 +316,45 @@ test('filtre d\'activité (concepteur) : réponse = la ligne de l\'activité ; �
     }
   } finally { await su.end(); }
 });
+
+test('clé d\'activité en base = jumeau pur, espaces insécables et tabulations compris ; un seul groupe par activité', { skip: SKIP, timeout: 120000 }, async () => {
+  const { Client } = require('pg');
+  const { activityKeySql } = require('../src/modules/common/siteActivitySql');
+  const { activityKey } = require('../src/modules/dashboards/coverageDefinitions');
+  const coverageService = require('../src/modules/dashboards/coverage.service');
+  const su = new Client({ connectionString: SU_URL });
+  await su.connect();
+  const q = async (sql, params) => (await su.query(sql, params)).rows;
+  // Même table que coverageDefinitions.test.js.
+  const LABELS = ['Cantine scolaire', 'Cantine scolaire\t', '\tCantine\t\tscolaire ', '  Cantine  scolaire ', 'Cantine 　scolaire﻿',
+    'Cantine\r\nscolaire', ' ', '\t', '', '—', 'ÉCOLE Mixte', 'School meal activities'];
+  const CODE = 'TEST-R110-NBSP';
+  let T = null; let office = null;
+  try {
+    for (const label of [...LABELS, null]) {
+      const [{ k }] = await q(`SELECT ${activityKeySql('$1::text')} AS k`, [label]);
+      assert.equal(k, activityKey(label), `SQL = JS pour ${JSON.stringify(label)}`);
+    }
+    // Sites dont le libellé porte ces espaces : une seule ligne « cantine scolaire » (bureau à part, année sans grille).
+    [{ id: T }] = await q('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1');
+    [{ id: office }] = await q('INSERT INTO field_offices (tenant_id, code, name) VALUES ($1, $2, $3) RETURNING id', [T, CODE, 'Bureau test espaces']);
+    const cantine = LABELS.slice(0, 6);
+    for (const [i, activity] of cantine.entries()) {
+      await q('INSERT INTO sites (tenant_id, code, name, activity, field_office_id) VALUES ($1, $2, $3, $4, $5)', [T, `${CODE}-${i}`, `Site espaces ${i}`, activity, office]);
+    }
+    const cov = await coverageService.coverage({ tenantId: T, role: 'admin' }, { period: { from: '2096-01', to: '2096-01' }, officeId: office });
+    assert.deepEqual(cov.byActivity.map((a) => [a.key, a.sites]), [['cantine scolaire', cantine.length]]);
+    // Filtre d'activité (concepteur) avec n'importe quelle graphie : la même ligne.
+    const repo = require('../src/modules/dashboards/coverage.repository');
+    for (const asked of ['Cantine scolaire', 'cantine scolaire']) {
+      const { rows } = await repo.coverageFacts(T, { period: { from: '2096-01', to: '2096-01' }, officeId: office, activity: asked });
+      assert.equal(rows.find((r) => r.dim === 'overall').sites, cantine.length, JSON.stringify(asked));
+    }
+  } finally {
+    if (T) {
+      await q('DELETE FROM sites WHERE tenant_id = $1 AND code LIKE $2', [T, `${CODE}-%`]);
+      if (office) await q('DELETE FROM field_offices WHERE id = $1', [office]);
+    }
+    await su.end();
+  }
+});

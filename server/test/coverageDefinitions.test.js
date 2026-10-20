@@ -164,3 +164,29 @@ test('libellé d\'une activité = graphie la plus fréquente, à égalité l\'or
   // Espaces intérieurs : une seule clé ; la graphie garde ses espaces (comme per_site.activity).
   assert.equal(labelOf([mk('Cantine  scolaire'), mk('cantine scolaire'), mk('Cantine  scolaire')], 'cantine scolaire'), 'Cantine  scolaire');
 });
+
+// Libellés d'activité aux espaces « difficiles » (collés depuis Excel ou Word) ; la même table est
+// rejouée en base par coverageDb.test.js (la requête rend la même clé que le jumeau pur).
+const SPACE_LABELS = [
+  ['Cantine scolaire', 'cantine scolaire'], ['Cantine scolaire\t', 'cantine scolaire'], ['\tCantine\t\tscolaire ', 'cantine scolaire'],
+  ['  Cantine  scolaire ', 'cantine scolaire'], ['Cantine 　scolaire﻿', 'cantine scolaire'], ['Cantine\r\nscolaire', 'cantine scolaire'],
+  [' ', '—'], ['\t', '—'], ['', '—'], ['—', '—'], ['ÉCOLE Mixte', 'école mixte'], ['School meal activities', 'school meal activities'],
+];
+
+test('clé d\'activité : jumelle STRICTE de la requête — une classe d\'espaces explicite (insécable, tabulation…), jamais \\s ni btrim de la base', () => {
+  const { activityKeySql, ACTIVITY_SPACE_CLASS } = require('../src/modules/common/siteActivitySql');
+  for (const [label, key] of SPACE_LABELS) assert.equal(activityKey(label), key, JSON.stringify(label));
+  assert.equal(activityKey(null), '—');
+  // Mêmes espaces que \s de JavaScript, écrits un à un (sens indépendant de la locale de la base).
+  const cls = new RegExp(`^${ACTIVITY_SPACE_CLASS}$`);
+  for (let c = 0; c <= 0xffff; c += 1) {
+    const ch = String.fromCharCode(c);
+    assert.equal(cls.test(ch), /^\s$/.test(ch), `U+${c.toString(16).padStart(4, '0')}`);
+  }
+  const sql = activityKeySql('s.activity');
+  assert.ok(sql.includes(`'^${ACTIVITY_SPACE_CLASS}+|${ACTIVITY_SPACE_CLASS}+$'`), 'bords : la même classe');
+  assert.ok(sql.includes(`'${ACTIVITY_SPACE_CLASS}+', ' '`), 'intérieur : la même classe');
+  assert.doesNotMatch(sql, /btrim|\\s/, 'jamais btrim ni \\s (locale de la base)');
+  // Idempotente : une clé déjà calculée (par la requête) reste la même (constats jamais déplacés).
+  for (const [, key] of SPACE_LABELS) assert.equal(activityKey(key), key);
+});

@@ -50,6 +50,11 @@ test('Centre d\'alertes : l\'exécution du plan (taux des mesures communes) s\'�
   // Le lien de l'alerte d'exécution porte la période : la Synthèse s'ouvre sur cette période.
   assert.equal(a.goHash({ module: 'processus', sub: 'synthese', period: { from: '2026-01', to: '2026-06' } }), '#/processus/synthese?from=2026-01&to=2026-06');
   assert.equal(a.goHash({ module: 'processus', sub: 'sites' }), null, 'sans période : navigation ordinaire (goArgs)');
+  // Plus de 12 mois : « Couverture & performance », période entière lue par l'écran d'arrivée.
+  const long = a.goHash({ module: 'dashboard', sub: 'couverture', period: { from: '2025-01', to: '2026-06' } });
+  assert.equal(long, '#/dashboard/couverture?from=2025-01&to=2026-06');
+  const per = await load(t, 'lib', 'period.js');
+  assert.deepEqual(per.readHashPeriod(long), { from: '2025-01', to: '2026-06' });
   assert.equal(a.goHash({ module: 'processus', sub: 'synthese', period: { from: '2026-13', to: '2026-01' } }), null);
   assert.equal(a.goHash(null), null);
 });
@@ -153,7 +158,15 @@ test('« Exécution du plan » = UNE définition : le taux des visites déclaré
   assert.match(exec, /visite déclarée OU données reçues/);
   assert.ok(dp.some((p) => p.startsWith('Exécution des visites (déclarées)')));
   assert.match(dp.find((p) => p.startsWith('Couverture (sites)')), /OU données reçues/);
-  for (const p of [...fp, ...dp]) assert.ok(en.default[p] !== undefined, `« ${p} » sans traduction anglaise`);
+  // Suivi de processus › Couverture : taux des visites déclarées (matrice, MMR) — jamais les noms communs.
+  const recap = phrases(fs.readFileSync(webFile('pages', 'monitoring', 'CoverageRecapPage.jsx'), 'utf8'));
+  for (const p of recap) {
+    assert.ok(!/exécution du plan/i.test(p), `Couverture : « ${p} »`);
+    assert.ok(!/Couverture \(sites\)/.test(p), `Couverture : « ${p} »`);
+  }
+  assert.ok(recap.includes('Exécution des visites (déclarées)'));
+  assert.ok(recap.includes('Couverture par visites déclarées'));
+  for (const p of [...fp, ...dp, ...recap]) assert.ok(en.default[p] !== undefined, `« ${p} » sans traduction anglaise`);
 });
 
 test('Couverture & performance : une carte courte n\'est jamais étirée avec sa ligne au milieu (corps aligné en haut, fondu si la liste défile)', (t) => {

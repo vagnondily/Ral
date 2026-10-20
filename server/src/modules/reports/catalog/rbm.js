@@ -102,7 +102,7 @@ const flags = ds('rbm.flags', {
   },
 });
 
-const REG_COLS = [col('label', 'Regroupement'), col('sitesTotal', 'Sites du registre', 'int'), col('sitesActive', 'Sites actifs', 'int'), col('coverage', 'Couverture du mois', 'pct'), col('status', 'Statut', 'status')];
+const REG_COLS = [col('label', 'Regroupement'), col('sitesTotal', 'Sites du registre', 'int'), col('sitesActive', 'Sites actifs', 'int'), col('coverage', 'Couverture par visites déclarées', 'pct'), col('status', 'Statut', 'status')];
 const registry = ds('sites.registry', {
   label: 'Registre des sites par bureau, district et activité', origin: ORIGIN_RBM, source: 'covFacts', views: ['table', 'bar'], defaultView: 'table',
   columns: REG_COLS, measures: ['sitesTotal', 'sitesActive'],

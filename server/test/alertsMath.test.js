@@ -152,3 +152,34 @@ test('portée de chaque alerte : budget et contrats à date ; terrain sur la pé
   assert.equal(scopeOf(buildAlerts({ ...src, reportsInPeriod: true })).report_to_validate, 'periode');
   assert.equal(buildAlerts({ ...src, range: true }).find((a) => a.kind === 'field_low_coverage').title, 'Exécution du plan faible sur la période');
 });
+
+test('exécution du plan faible : le lien garde TOUTE la période — Synthèse jusqu\'à 12 mois, « Couverture & performance » au-delà (jamais écartée)', () => {
+  const { executionGo, SYNTHESE_MAX_SPAN } = require('../src/modules/dashboards/alertsMath');
+  const { PERIOD_CAPS } = require('../src/modules/common/periodCaps');
+  assert.equal(SYNTHESE_MAX_SPAN, 12);
+  assert.deepEqual(executionGo({ from: '2026-01', to: '2026-12' }), { module: 'processus', sub: 'synthese', period: { from: '2026-01', to: '2026-12' } });
+  assert.deepEqual(executionGo({ from: '2025-01', to: '2026-06' }), { module: 'dashboard', sub: 'couverture', period: { from: '2025-01', to: '2026-06' } });
+  assert.deepEqual(executionGo({ from: '2025-01', to: '2026-12' }).sub, 'couverture', `${PERIOD_CAPS.facts} mois : durée maximale du Centre d'alertes`);
+  // Par l'alerte elle-même (18 mois, exécution < 50 %).
+  const field = { byProvider: [] };
+  const [a] = fieldAlerts(field, { range: true, coverage: { overall: { execution: { planned: 10, covered: 4, rate: 0.4 } } }, period: { from: '2025-01', to: '2026-06' } });
+  assert.deepEqual(a.go, { module: 'dashboard', sub: 'couverture', period: { from: '2025-01', to: '2026-06' } });
+});
+
+test('écrans d\'arrivée : la Synthèse accepte 12 mois, « Couverture & performance » la durée du Centre d\'alertes, tous deux la même mesure', (t) => {
+  const fs = require('fs'); const path = require('path');
+  const web = (...p) => path.join(__dirname, '../../web/src', ...p);
+  if (!fs.existsSync(web('pages'))) { t.skip('web/ absent'); return; }
+  const { PERIOD_CAPS } = require('../src/modules/common/periodCaps');
+  const syn = fs.readFileSync(web('pages', 'monitoring', 'ProcessDashboardPage.jsx'), 'utf8');
+  const cov = fs.readFileSync(web('pages', 'dashboard', 'DashboardCoveragePage.jsx'), 'utf8');
+  const alerts = fs.readFileSync(web('pages', 'dashboard', 'AlertsPage.jsx'), 'utf8');
+  assert.match(syn, /const ANALYSIS_MAX_SPAN = Math\.min\(PERIOD_CAPS\.analysis, PERIOD_CAPS\.facts\);/, 'Synthèse : jumeau de SYNTHESE_MAX_SPAN');
+  const covSpan = Number((cov.match(/const ANALYSIS_MAX_SPAN = (\d+);/) || [])[1]);
+  assert.ok(covSpan >= PERIOD_CAPS.facts, `Couverture & performance : ${covSpan} mois ≥ ${PERIOD_CAPS.facts}`);
+  assert.match(alerts, /ALERTS_MAX_SPAN = PERIOD_CAPS\.facts/, 'Centre d\'alertes : facts');
+  for (const src of [syn, cov]) {
+    assert.match(src, /api\.dashCoverage\(period\)/);
+    assert.match(src, /label=\{tr\('Exécution du plan \(visites\)'\)\}/);
+  }
+});

@@ -29,6 +29,8 @@
  * Un taux sans dénominateur vaut null (« — »), jamais 0 %.
  */
 
+const { ACTIVITY_SPACE_CLASS } = require('../common/siteActivitySql');
+
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const ratio = (n, d) => (d > 0 ? n / d : null);
 
@@ -135,9 +137,16 @@ function activityLabel(counts) {
   return best;
 }
 
-/** Clé d'activité d'un site : libellé du registre, casse et espaces ignorés ; « — » sans activité. */
+const ACTIVITY_EDGE_SPACES = new RegExp(`^${ACTIVITY_SPACE_CLASS}+|${ACTIVITY_SPACE_CLASS}+$`, 'g');
+const ACTIVITY_SPACE_RUN = new RegExp(`${ACTIVITY_SPACE_CLASS}+`, 'g');
+
+/**
+ * Clé d'activité d'un site : libellé du registre, casse et espaces ignorés ; « — » sans activité —
+ * jumelle STRICTE de common/siteActivitySql.activityKeySql (même classe d'espaces explicite, même
+ * ordre : bords, intérieur, minuscules ; parité vérifiée en base par test/coverageDb.test.js).
+ */
 function activityKey(label) {
-  const k = String(label == null ? '' : label).trim().replace(/\s+/g, ' ').toLowerCase();
+  const k = String(label == null ? '' : label).replace(ACTIVITY_EDGE_SPACES, '').replace(ACTIVITY_SPACE_RUN, ' ').toLowerCase();
   return k || '—';
 }
 

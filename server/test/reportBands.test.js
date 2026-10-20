@@ -247,3 +247,32 @@ test('paire 1re page / pages suivantes : régimes, copie à la demande, rien de 
     for (const band of [p.header, p.footer, p.firstHeader, p.firstFooter]) assert.ok(perBand(band) <= 1, x.key);
   }
 });
+
+test('images d\'un rapport : le concepteur compte comme le serveur (même limite, mêmes bandes comptées) et avertit avant d\'appliquer', async (t) => {
+  const b = await load(t); if (!b) return;
+  const docMod = await import(pathToFileURL(path.join(__dirname, '../../web/src/pages/reports/reportDoc.js')).href);
+  const { MAX_IMAGES, countedImageRefs } = require('../src/modules/reports/reportSchema');
+  assert.equal(b.MAX_REPORT_IMAGES, MAX_IMAGES);
+  const A = '6a0f2a47-5e5b-4c3b-9d7e-2f2d1f0a8b11';
+  const logos = (n, p) => ({ height: 30, elements: [...Array.from({ length: n }, (_, i) => ({ id: `${p}${i}`, kind: 'image', x: i * 5, y: 1, w: 5, h: 10, assetId: A })), { id: `${p}v`, kind: 'image', x: 90, y: 1, w: 5, h: 10 }] });
+  const img = (id) => ({ id, type: 'image', params: { assetId: A } });
+  const sec = (id, header) => ({ id, type: 'section', params: { header, footer: 'own', headerBand: logos(2, `${id}h`), footerBand: logos(1, `${id}f`) } });
+  const docs = [
+    { page: { header: logos(6, 'h'), footer: logos(6, 'f') }, blocks: [img('i1')] },
+    { page: { header: logos(1, 'h'), footer: logos(0, 'f'), firstPage: 'same', firstHeader: logos(9, 'a') }, blocks: [] },
+    { page: { header: logos(1, 'h'), footer: logos(1, 'f'), firstPage: 'own', firstHeader: logos(3, 'a'), firstFooter: logos(2, 'b') }, blocks: [sec('s1', 'own'), sec('s2', 'inherit')] },
+    { page: { header: logos(0, 'h') }, blocks: [{ id: 'r', type: 'repeat', params: { over: 'activity', blocks: [img('i2'), { id: 'c', type: 'columns', params: { ratio: '1:1', cols: [[img('i3')], [img('i4')]] } }] } }] },
+  ];
+  for (const d of docs) assert.equal(docMod.docImageCount(d), countedImageRefs(d).length, JSON.stringify(d.page.firstPage || 'same'));
+  // Une paire de 12 logos sur un rapport qui a déjà un bloc image : 13 — le concepteur avertit.
+  assert.equal(docMod.docImageCount(docs[0]), 13);
+  assert.equal(b.layoutImageCount(docs[1].page), 1, '1re page masquée : non comptée');
+  const hd = fs.readFileSync(path.join(__dirname, '../../web/src/pages/reports/editor/HeaderDesigner.jsx'), 'utf8');
+  assert.match(hd, /if \(!imagesOk\(next\)\) return;/, 'avant d\'appliquer un modèle');
+  assert.match(hd, /if \(imagesOk\(draft\)\) onApply\(draft\);/, 'avant « Appliquer »');
+  const ed = fs.readFileSync(path.join(__dirname, '../../web/src/pages/reports/editor/ReportEditor.jsx'), 'utf8');
+  assert.match(ed, /otherImages: docImageCount\(doc\) - layoutImageCount\(page\)/);
+  const en = (await import(pathToFileURL(path.join(__dirname, '../../web/src/locales/en.js')).href)).default;
+  const msg = hd.match(/tr\('(Le rapport compterait[^']+)'/)[1];
+  assert.ok(en[msg], 'avertissement traduit');
+});

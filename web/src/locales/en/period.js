@@ -181,7 +181,7 @@ export default {
   'Aucune visite sur la période ({p}). Planifiez des visites (Affectation & visites) pour alimenter la couverture.': 'No visit over the period ({p}). Plan visits (Assignment & visits) to feed the coverage.',
 
   // ---- Affectation & visites : le taux des visites s'appelle exécution du plan
-  '{p} % d\'exécution des visites (déclarées)': '{p}% declared-visit execution',
+  '{p} d\'exécution des visites (déclarées)': '{p} declared-visit execution',
   'Exécution des visites déclarées par prestataire': 'Declared-visit execution by provider',
   'Exécution des visites déclarées par district': 'Declared-visit execution by district',
   'Exécution des visites (déclarées)': 'Declared-visit execution',

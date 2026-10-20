@@ -64,6 +64,7 @@ export default {
   // Suivi de processus
   'Jours de collecte d\'un TPM = visites datées non annulées + jours de déplacement saisis.': 'Collection days of a TPM = dated, non-cancelled visits + entered travel days.',
   'Exécution des visites déclarées par TPM': 'Declared-visit execution by TPM',
+  'Exécution des visites déclarées par TPM et par mois : visites réalisées ÷ (prévues + réalisées). « — » = aucune visite.': 'Declared-visit execution by TPM and month: completed visits ÷ (planned + completed). « — » = no visit.',
   'Combien de sites sont couverts, par niveau de risque (MMR), par programme et par TPM. Recalculé en direct depuis les sites et les visites.':
     'How many sites are covered, by risk level (MMR), by programme and by TPM. Recomputed live from sites and visits.',
   'Part des visites réalisées (vs planifiées + réalisées), par TPM, mois par mois.': 'Share of visits done (vs planned + done), by TPM, month by month.',

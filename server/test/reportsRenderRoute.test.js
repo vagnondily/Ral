@@ -211,3 +211,30 @@ test('filtre d\'activité : « Couverture par bureau / par district » calculée
     assert.ok(seen.length >= 1 && seen.every((o) => o.activity === 'School meal activities'), JSON.stringify(seen));
   } finally { dashRepo.coverageFacts = stub; }
 });
+
+test('rapport FINALISÉ avant le nouveau schéma des clés : son « Constat » reste sur sa ligne (lecture et données figées)', async () => {
+  const DOC_ID = '44444444-4444-4444-8444-444444444444';
+  const note = { nodes: [{ t: 'p', c: [{ x: 'Retard des cantines' }] }] };
+  const content = {
+    schemaVersion: 2, title: 'Bilan', period: { from: '2026-01', to: '2026-03' }, filters: {},
+    blocks: [{ id: 'a', type: 'data', params: { dataset: 'cov.by_activity', view: 'table', annotations: { 'School meal activities': note } } }],
+  };
+  // Finalisé sur l'ancien code : lignes figées et constat sur le libellé brut du registre.
+  const snapshot = { format: 2, frozen: true, lang: 'fr', periodLabel: 'Janvier à mars 2026', expansions: {},
+    blocks: { a: { ok: true, data: { columns: [], rows: [{ _key: 'School meal activities', activity: 'School meal activities' }], meta: {} } } } };
+  const orig = reportsRepo.getDocument;
+  reportsRepo.getDocument = async () => ({ id: DOC_ID, status: 'final', version: 3, title: 'Bilan', content, snapshot });
+  try {
+    const auth = { Authorization: `Bearer ${viewer}` };
+    const doc = await request(app).get(`/api/report-designer/documents/${DOC_ID}`).set(auth);
+    const data = await request(app).get(`/api/report-designer/documents/${DOC_ID}/data`).set(auth);
+    assert.equal(doc.status, 200, JSON.stringify(doc.body)); assert.equal(data.status, 200, JSON.stringify(data.body));
+    const notes = doc.body.content.blocks[0].params.annotations;
+    const rows = data.body.blocks.a.data.rows;
+    assert.deepEqual(rows.map((r) => notes[r._key]), [note], 'DataTable : notes[r._key] retrouvé');
+    assert.equal(data.body.frozen, true);
+    // Les données enregistrées ne sont jamais réécrites : seule la lecture remet les clés d'accord.
+    assert.equal(snapshot.blocks.a.data.rows[0]._key, 'School meal activities');
+    assert.deepEqual(content.blocks[0].params.annotations, { 'School meal activities': note });
+  } finally { reportsRepo.getDocument = orig; }
+});
