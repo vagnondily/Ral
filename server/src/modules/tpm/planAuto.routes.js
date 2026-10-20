@@ -23,30 +23,31 @@ const uid = (req) => req.auth.userId || req.auth.sub;
 // Mois AAAA-MM d'un vrai mois (01 à 12).
 const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Mois AAAA-MM requis (01 à 12)');
 const hex64 = z.string().regex(/^[0-9a-f]{64}$/, 'Empreinte invalide');
+// Les valeurs du MMR et du RBM ne se redemandent pas (lecture seule) : seuls la stratégie, les
+// options S&E (renfort, communes inaccessibles) et les deux paramètres de ressources se choisissent.
 const settingsSchema = z.object({
-  frequency: z.object({
-    elevee: z.number().int().min(1).max(12).optional(),
-    moyenne: z.number().int().min(1).max(12).optional(),
-    faible: z.number().int().min(1).max(12).optional(),
-  }).strict().partial().optional(),
-  capacityPerMonth: z.number().int().min(1).max(100000).nullable().optional(),
-  overflowPct: z.number().min(0).max(100).optional(),
-  excludeMonths: z.array(month).max(12).optional(),
-  useMmrCapacity: z.boolean().optional(),
-  groupByCommune: z.boolean().optional(),
-  useGps: z.boolean().optional(),
-  gpsGridDeg: z.number().min(0.01).max(5).optional(),
-  balanceByTpm: z.boolean().optional(),
-  coverAllOnce: z.boolean().optional(),
-  tpmCapacityPerMonth: z.number().int().min(1).max(100000).nullable().optional(),
-  targetCoverage: z.number().min(0).max(1).optional(),
-}).strict().partial().optional();
+  strategy: z.enum(['besoins', 'capacite']).optional(),
+  reinforceUrgent: z.boolean().optional(),
+  excludedCommunes: z.array(z.object({
+    district: z.string().trim().max(160).optional(),
+    commune: z.string().trim().min(1).max(160),
+  }).strict()).max(500).optional(),
+  agentsPerVehicle: z.number().int().min(1).max(10).optional(),
+  fieldDaysPerMonth: z.number().int().min(1).max(26).optional(),
+  writeSchedule: z.boolean().optional(),
+}).strict().optional();
+const uuid = z.string().uuid();
+const scopeSchema = z.object({
+  fieldOfficeId: uuid.nullable().optional(),
+  activity: z.string().trim().max(160).nullable().optional(),
+  district: z.string().trim().max(160).nullable().optional(),
+}).strict().optional();
 
 const baseFields = {
   from: month,
   to: month,
-  adjusted: z.boolean().optional(),
   risk: z.enum(['faible', 'moyenne', 'elevee']).optional(),
+  scope: scopeSchema,
   settings: settingsSchema,
 };
 const period = (schema) => schema

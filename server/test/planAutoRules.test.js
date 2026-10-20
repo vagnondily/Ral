@@ -74,25 +74,25 @@ test('repli RBM idempotent : un 2ᵉ passage sur la même période n\'ajoute rie
   assert.equal(r2.summary.coverageRate, 100);
 });
 
-test('capacités : les visites déjà prévues du mois comptent (MMR, globale, TPM)', () => {
+test('capacités : les visites déjà prévues du mois comptent (faisable du MMR, et la répartition)', () => {
   const mmr = { K: { interval: 12, feasible: 5 } };
   const mk = (id, visits) => site({ id, commune: `c${id}`, parametered: true, mmrKey: 'K', required: 1, visits });
   const sites = [];
   for (let i = 0; i < 5; i += 1) sites.push(mk(`old${i}`, [{ month: 11, status: 'planifie' }]));
   for (let i = 0; i < 5; i += 1) sites.push(mk(`new${i}`, []));
-  const r = generatePlan(sites, mmr, { overflowPct: 0 }, [11], YEAR);
-  assert.equal(r.summary.planned, 0);                  // novembre déjà plein (5/5)
+  // « Limiter à la capacité déclarée » : novembre déjà plein (5/5) → rien de plus, raison « capacité ».
+  const r = generatePlan(sites, mmr, { strategy: 'capacite' }, [11], YEAR);
+  assert.equal(r.summary.planned, 0);
   assert.equal(r.summary.uncoveredByReason.capacity, 5);
   assert.equal(r.perMonth[0].existing, 5);
-  // Plafond global : 2 réalisées en janvier, plafond 2 → rien de plus en janvier.
-  const g = generatePlan([site({ id: 'r1', visits: [{ month: 1, status: 'realise' }], riskLevel: 'faible' }), site({ id: 'r2', visits: [{ month: 1, status: 'realise' }], riskLevel: 'faible' }), site({ id: 'n', riskLevel: 'elevee' })],
-    {}, { capacityPerMonth: 2 }, [1, 2], YEAR);
-  assert.deepEqual(monthsOf(g, 'n'), [2]);
-  // Plafond par TPM : une visite existante du TPM T en mars, plafond 1 → le nouveau site va ailleurs.
-  const seg = [{ from: `${YEAR}-01`, to: `${YEAR}-12`, providerId: 'T', providerName: 'T' }];
-  const t = generatePlan([site({ id: 'o', tpmSegments: seg, riskLevel: 'faible', visits: [{ month: 3, status: 'planifie' }] }), site({ id: 'p', tpmSegments: seg, riskLevel: 'elevee' })],
-    {}, { tpmCapacityPerMonth: 1 }, [3, 4], YEAR);
-  assert.deepEqual(monthsOf(t, 'p'), [4]);
+  // « Selon les besoins » : les 5 visites exigées sont placées, le dépassement est SIGNALÉ.
+  const b = generatePlan(sites, mmr, {}, [11], YEAR);
+  assert.equal(b.summary.planned, 5);
+  assert.equal(b.byActivity[0].perMonth[0].total, 10);
+  assert.equal(b.byActivity[0].perMonth[0].overCapacity, true);
+  // La répartition tient compte des visites existantes : janvier déjà chargé reçoit moins.
+  const j = generatePlan([...sites.slice(5), ...[0, 1, 2, 3, 4].map((i) => mk(`jan${i}`, [{ month: 1, status: 'planifie' }]))], mmr, {}, FULL, YEAR);
+  assert.equal(j.perMonth[0].count, 0);
 });
 
 test('un mois d\'une visite annulée n\'est jamais repris (raison « annulée »)', () => {
@@ -126,13 +126,14 @@ test('couverture : exigence déjà satisfaite = couvert ; chaque site non couver
     site({ id: 't1', commune: 'x', parametered: true, mmrKey: 'T', required: 2, riskLevel: 'elevee' }),
     site({ id: 't2', commune: 'y', parametered: true, mmrKey: 'T', required: 1 }),
   ];
-  const r = generatePlan(sites, mmr, {}, [11, 12], YEAR, { yearHasGrid: false });
+  // « Limiter à la capacité déclarée » (capacité T = 1 par mois).
+  const r = generatePlan(sites, mmr, { strategy: 'capacite' }, [11, 12], YEAR, { yearHasGrid: false });
   const why = Object.fromEntries(r.uncovered.map((u) => [u.siteId, u.reason]));
   // « met » : exigence remplie (réalisée en février) → couvert sans visite.
   assert.ok(!('met' in why));
   assert.equal(why.gap, 'gap');              // réalisée en octobre, intervalle 6 → rien avant avril
-  // Capacité 1/mois : t1 (risque élevé, d'abord) et t2 ont chacun un mois ; la 2ᵉ visite de t1
-  // n'a plus de place — visite non placée pour cause de capacité, site couvert.
+  // Capacité 1/mois : t1 (échéance, d'abord) et t2 ont chacun un mois (1er passage avant une
+  // visite répétée) ; la 2ᵉ visite de t1 n'a plus de place — non placée pour capacité, site couvert.
   assert.deepEqual([monthsOf(r, 't1').length, monthsOf(r, 't2').length], [1, 1]);
   assert.equal(r.summary.unplacedByReason.capacity, 1);
   assert.equal(r.summary.unplacedByReason.gap, 1);   // 2 exigées − 1 réalisée
@@ -194,9 +195,9 @@ function scenario(seed) {
   const pick = (arr) => arr[Math.floor(r() * arr.length)];
   const keys = ['K1', 'K2', 'K3', 'K0'];
   const mmrByKey = {
-    K1: { interval: 1 + Math.floor(r() * 6), feasible: r() < 0.5 ? 1 + Math.floor(r() * 8) : null, targetedPerMonth: 3 },
-    K2: { interval: 2.5, adjustedInterval: 4, feasible: 2 + Math.floor(r() * 5) },
-    K3: { interval: 6, feasible: null, targetedPerMonth: null },
+    K1: { interval: 1 + Math.floor(r() * 6), feasible: r() < 0.5 ? 1 + Math.floor(r() * 8) : null, targetedPerMonth: 3, visitsPerDay: pick([0.5, 1, 2, 3, null]), workingDays: pick([5, 20, 22, null]), personsToDeploy: pick([1, 3, null]) },
+    K2: { interval: 2.5, adjustedInterval: 4, feasible: 2 + Math.floor(r() * 5), visitsPerDay: 1.5, workingDays: 26 },
+    K3: { interval: 6, feasible: null, targetedPerMonth: null, visitsPerDay: 4 },
     K0: { interval: 0 },
   };
   const grid = r() < 0.4;
@@ -218,6 +219,7 @@ function scenario(seed) {
       id: `s${String(i).padStart(3, '0')}`, name: `Site ${i}`, district: `D${i % 3}`, commune: `C${i % 7}`,
       activity: r() < 0.9 || parametered ? `Act${mmrKey || 'x'}` : null,
       riskLevel: pick(['faible', 'moyenne', 'elevee']), forbidden: r() < 0.05, inScope: r() < 0.9,
+      urgent: r() < 0.1, finalScore: Math.floor(r() * 3),
       parametered, mmrKey, required: mmrKey && mmrKey !== 'K0' ? 1 + Math.floor(r() * 4) : 0,
       lastVisitMonth: r() < 0.3 ? `2025-${String(1 + Math.floor(r() * 12)).padStart(2, '0')}` : null,
       visits: visits.filter((v) => v.status !== 'annule'), cancelledMonths: visits.filter((v) => v.status === 'annule').map((v) => v.month),
@@ -229,14 +231,11 @@ function scenario(seed) {
   const to = from + Math.floor(r() * (13 - from));
   const months = []; for (let m = from; m <= to; m += 1) months.push(m);
   const settings = {
-    overflowPct: pick([0, 10, 50]),
-    capacityPerMonth: r() < 0.3 ? 5 + Math.floor(r() * 20) : null,
-    tpmCapacityPerMonth: r() < 0.3 ? 3 + Math.floor(r() * 10) : null,
-    excludeMonths: r() < 0.3 ? [`${YEAR}-${String(pick(months)).padStart(2, '0')}`] : [],
-    coverAllOnce: r() < 0.15,
-    adjusted: r() < 0.3,
-    groupByCommune: r() < 0.8,
-    useMmrCapacity: r() < 0.85,
+    strategy: r() < 0.6 ? 'besoins' : 'capacite',
+    reinforceUrgent: r() < 0.3,
+    excludedCommunes: r() < 0.3 ? [{ district: `D${Math.floor(r() * 3)}`, commune: `C${Math.floor(r() * 7)}` }] : [],
+    agentsPerVehicle: 1 + Math.floor(r() * 10),
+    fieldDaysPerMonth: 1 + Math.floor(r() * 26),
   };
   const opts = { yearHasGrid: grid, fromMonth: r() < 0.5 ? `${YEAR}-${String(1 + Math.floor(r() * 12)).padStart(2, '0')}` : null };
   return { sites, mmrByKey, settings, months, year: YEAR, opts };
