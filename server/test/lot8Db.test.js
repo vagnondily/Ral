@@ -259,80 +259,137 @@ test('agent : « hasHistory » = la règle de la suppression (une participation 
   }
 });
 
-test('rôle changé depuis Paramétrage pendant une écriture de l\'attribution : ni interblocage ni échec, dans les deux ordres', { skip: SKIP }, async () => {
+test('Paramétrage › Partenaires pendant une écriture de l\'attribution, dans les deux ordres : ni interblocage ni échec (rôle changé, renommage)', { skip: SKIP }, async () => {
   const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
   const types = Object.fromEntries((await q("SELECT code, id FROM partner_types WHERE tenant_id = $1 AND code IN ('tpm', 'prestataire')", [T])).map((r) => [r.code, r.id]));
-  const name = 'Test lot 8 — TPM verrou'; const renamed = 'Test lot 8 — TPM verrou (renommé)';
+  const name = 'Test lot 8 — TPM verrou';
   const [partner] = await q('INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1, $2, $3) RETURNING id', [T, types.tpm, name]);
   const [site] = await q('SELECT id FROM sites WHERE tenant_id = $1 ORDER BY id LIMIT 1', [T]);
+  const [contract] = await q('SELECT id FROM contracts WHERE tenant_id = $1 AND partner_id <> $2 ORDER BY id LIMIT 1', [T, partner.id]);
   const month = new Intl.DateTimeFormat('en-CA', { timeZone: process.env.APP_TIMEZONE || 'Indian/Antananarivo' }).format(new Date()).slice(0, 7);
   const settings = require('../src/modules/settings/settings.repository');
   const { ATTRIBUTION_KEY } = require('../src/modules/tpm/tpmAttribution.repository');
   const { Client } = require('pg');
-  const other = new Client({ connectionString: SU_URL }); // l'écrivain de l'attribution (setOverrides, visites, estampille)
+  const other = new Client({ connectionString: SU_URL }); // l'autre écrivain (attribution, visites, contrats)
   await other.connect();
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const why = (e) => e && `${e.code} ${e.message}`;
   // Ce que l'écran Paramétrage › Partenaires envoie toujours : { name, partnerTypeId, active }.
   const update = (patch) => settings.updatePartner(T, partner.id, { active: true, ...patch }).then((ok) => ({ ok }), (err) => ({ err }));
   const lockAttribution = () => other.query('SELECT pg_advisory_xact_lock(hashtext($1))', [ATTRIBUTION_KEY(T)]);
-  const visits = [];
+  const visits = []; let committed = 0; // visites validées (une transaction annulée n'en laisse aucune)
   const writeVisit = async (activity) => {
     const { rows } = await other.query(`INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, provider_source, provider_id, provider_reason)
       VALUES ($1, $2, $3::date, $4, 'planifie', 'visite', $5, 'Écart motivé — test du lot 8') RETURNING id`, [T, site.id, `${month}-01`, activity, partner.id]);
     visits.push(rows[0].id);
   };
-  let committed = 0; // visites validées (une transaction annulée n'en laisse aucune)
   const begin = async () => { await other.query('BEGIN'); await other.query("SET LOCAL lock_timeout = '15s'"); };
-  const finish = async (fn) => {
-    try { await fn(); await other.query('COMMIT'); committed = visits.length; return null; } catch (e) { await other.query('ROLLBACK'); visits.length = committed; return e; }
+  const finish = async (fn, end = 'COMMIT') => {
+    try { await fn(); await other.query(end); if (end === 'COMMIT') committed = visits.length; else visits.length = committed; return null; } catch (e) { await other.query('ROLLBACK'); visits.length = committed; return e; }
   };
-  const typeAndName = async () => (await q('SELECT partner_type_id AS type, name FROM partners WHERE id = $1', [partner.id]))[0];
-  // L'écrivain tient le verrou d'attribution PUIS écrit provider_id = la fiche (setOverrides,
-  // applyVisitRequestTx) ; la mise à jour, lancée entre les deux, doit attendre le verrou AVANT la ligne.
-  const lockThenWrite = async (activity, patch) => {
+  // La mise à jour attend-elle un verrou ? 'advisory' = le verrou d'attribution ; 'ligne' = la clé de l'autre.
+  const waitsOn = async (kind) => {
+    for (let i = 0; i < 200; i += 1) {
+      const rows = await q(`SELECT wait_event FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
+                              AND pid NOT IN ($1, pg_backend_pid())`, [other.processID]);
+      if (rows.some((r) => (kind === 'advisory') === (r.wait_event === 'advisory'))) return true;
+      await sleep(50);
+    }
+    return false;
+  };
+  const state = async () => (await q('SELECT partner_type_id AS type, name FROM partners WHERE id = $1', [partner.id]))[0];
+  const settled = (label, writerErr, r) => {
+    assert.equal(writerErr, null, `${label} — l'autre écrivain : ${why(writerErr)}`);
+    assert.equal(r.err, undefined, `${label} — mise à jour : ${why(r.err)}`);
+    assert.equal(r.ok, true, label);
+  };
+  // « Verrou d'abord » : l'écrivain tient le verrou d'attribution PUIS écrit provider_id = la fiche
+  // (setOverrides, applyVisitRequestTx) ; la mise à jour, lancée entre les deux, attend le verrou AVANT la ligne.
+  const lockThenWrite = async (label, patch) => {
     await begin();
     await lockAttribution();
     const pending = update(patch);
-    let waiting = false;
-    for (let i = 0; i < 200 && !waiting; i += 1) {
-      const [{ n }] = await q(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database()
-                                 AND wait_event_type = 'Lock' AND wait_event = 'advisory' AND pid <> $1`, [other.processID]);
-      waiting = n > 0;
-      if (!waiting) await sleep(50);
-    }
-    const writeErr = await finish(() => writeVisit(activity));
+    const waited = await waitsOn('advisory');
+    const writerErr = await finish(() => writeVisit(label));
     const r = await pending;
-    assert.ok(waiting, `${activity} : la mise à jour attend le verrou d'attribution`);
-    assert.equal(writeErr, null, `${activity} — écrivain de l'attribution : ${why(writeErr)}`);
-    assert.equal(r.err, undefined, `${activity} — mise à jour : ${why(r.err)}`);
-    assert.equal(r.ok, true);
+    assert.ok(waited, `${label} : la mise à jour attend le verrou d'attribution`);
+    settled(label, writerErr, r);
+  };
+  // « Clé d'abord » : l'écrivain pose la clé étrangère PUIS prend le verrou d'attribution
+  // (restampVisitsTx en fin d'écriture ; approbation d'un avenant : contrat puis restampFromNow).
+  const writeThenLock = async (label, write, patch, { waitsForKey, end = 'COMMIT' }) => {
+    await begin();
+    await write();
+    const pending = update(patch);
+    let alone = null;
+    if (waitsForKey) assert.ok(await waitsOn('ligne'), `${label} : renommage — la mise à jour attend la clé de l'autre (FOR UPDATE)`);
+    else alone = await Promise.race([pending.then(() => true), sleep(10000).then(() => false)]);
+    const writerErr = await finish(lockAttribution, end);
+    const r = await pending;
+    if (!waitsForKey) assert.ok(alone, `${label} : nom inchangé — la mise à jour n'attend pas la clé de l'autre`);
+    settled(label, writerErr, r);
   };
   try {
-    // 1. Nom renvoyé inchangé, type changé (l'interblocage reproduit en revue : 40P01).
+    // 1. Verrou d'abord ; type changé, nom renvoyé inchangé (l'interblocage de la revue W1 : 40P01).
     await lockThenWrite('Test lot 8 verrou 1', { name, partnerTypeId: types.prestataire });
-    assert.deepEqual(await typeAndName(), { type: types.prestataire, name });
-    // 2. Renommé ET type changé : l'UPDATE prend alors la ligne FOR UPDATE (clé modifiée) — le verrou
-    //    d'attribution pris d'abord évite l'interblocage.
-    await lockThenWrite('Test lot 8 verrou 2', { name: renamed, partnerTypeId: types.tpm });
-    assert.deepEqual(await typeAndName(), { type: types.tpm, name: renamed });
-    // 3. L'écrivain pose D'ABORD la clé étrangère (visite, contrat, plan…) PUIS prend le verrou
-    //    d'attribution (restampVisitsTx en fin d'écriture, estampille différée au COMMIT). Nom renvoyé
-    //    inchangé : l'UPDATE ne le liste pas, la ligne n'est pas prise FOR UPDATE, rien n'attend.
-    await begin();
-    await writeVisit('Test lot 8 verrou 3');
-    const pending = update({ name: renamed, partnerTypeId: types.prestataire });
-    const alone = await Promise.race([pending.then(() => true), sleep(10000).then(() => false)]);
-    const lockErr = await finish(lockAttribution);
-    const r = await pending;
-    assert.ok(alone, 'la mise à jour n\'attend pas la clé étrangère posée par l\'autre écrivain');
-    assert.equal(lockErr, null, `écrivain de l'attribution : ${why(lockErr)}`);
-    assert.equal(r.err, undefined, `mise à jour : ${why(r.err)}`);
-    assert.deepEqual(await typeAndName(), { type: types.prestataire, name: renamed });
+    assert.deepEqual(await state(), { type: types.prestataire, name });
+    // 2. Verrou d'abord ; renommé ET type changé (le verrou d'attribution pris d'abord évite l'interblocage).
+    await lockThenWrite('Test lot 8 verrou 2', { name: `${name} 2`, partnerTypeId: types.tpm });
+    assert.deepEqual(await state(), { type: types.tpm, name: `${name} 2` });
+    // 3. Clé d'abord ; type changé, nom inchangé : rien n'attend (l'UPDATE ne liste pas `name`).
+    await writeThenLock('Test lot 8 verrou 3', () => writeVisit('Test lot 8 verrou 3'), { name: `${name} 2`, partnerTypeId: types.prestataire }, { waitsForKey: false });
+    assert.deepEqual(await state(), { type: types.prestataire, name: `${name} 2` });
+    // 4. Clé d'abord (visite) ; RENOMMAGE SEUL — rôle renvoyé inchangé : pas de verrou d'attribution, la
+    //    mise à jour attend la fin de l'écrivain et passe (revue de 4b3d963 : 40P01).
+    await writeThenLock('Test lot 8 verrou 4', () => writeVisit('Test lot 8 verrou 4'), { name: `${name} 4`, partnerTypeId: types.prestataire }, { waitsForKey: true });
+    assert.deepEqual(await state(), { type: types.prestataire, name: `${name} 4` });
+    // 5. Clé d'abord (contrat, comme l'approbation d'un avenant) ; renommage seul. Transaction de
+    //    l'écrivain annulée à la fin (le contrat de démonstration reste tel quel ; un COMMIT ne prend
+    //    aucun autre verrou ici).
+    await writeThenLock('Test lot 8 verrou 5', () => other.query('UPDATE contracts SET partner_id = $3 WHERE tenant_id = $1 AND id = $2', [T, contract.id, partner.id]),
+      { name: `${name} 5`, partnerTypeId: types.prestataire }, { waitsForKey: true, end: 'ROLLBACK' });
+    assert.deepEqual(await state(), { type: types.prestataire, name: `${name} 5` });
   } finally {
     await other.query('ROLLBACK').catch(() => {});
     await other.end();
     await q('DELETE FROM site_visits WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [T, visits]);
+    await q('DELETE FROM partners WHERE tenant_id = $1 AND id = $2', [T, partner.id]);
+  }
+});
+
+test('roleForUpdateTx en base : renommage seul sans verrou d\'attribution ; rôle changé entre la lecture et le verrou → ligne rendue, verrou d\'attribution, ligne reprise', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const types = Object.fromEntries((await q("SELECT code, id FROM partner_types WHERE tenant_id = $1 AND code IN ('tpm', 'prestataire')", [T])).map((r) => [r.code, r.id]));
+  const name = 'Test lot 8 — TPM course';
+  const [partner] = await q('INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1, $2, $3) RETURNING id', [T, types.tpm, name]);
+  const { roleForUpdateTx } = require('../src/modules/partners/partnerRole');
+  const { Client } = require('pg');
+  const mine = new Client({ connectionString: SU_URL }); // la transaction observée
+  const other = new Client({ connectionString: SU_URL });
+  await mine.connect(); await other.connect();
+  const held = async () => (await q('SELECT locktype FROM pg_locks WHERE pid = $1 AND granted', [mine.processID])).map((l) => l.locktype);
+  const screen = { name: `${name} 2`, partnerTypeId: types.tpm, active: true }; // renommage, rôle renvoyé inchangé
+  try {
+    await mine.query('BEGIN');
+    assert.equal((await roleForUpdateTx(mine, T, partner.id, screen)).partnerTypeId, types.tpm);
+    assert.ok(!(await held()).includes('advisory'), 'renommage seul : pas de verrou d\'attribution');
+    await mine.query('ROLLBACK');
+    // Un autre enregistrement change le type APRÈS notre lecture sans verrou, AVANT notre verrou de ligne.
+    let first = true;
+    const racing = { query: async (text, params) => {
+      const r = await mine.query(text, params);
+      if (first) { first = false; await other.query('UPDATE partners SET partner_type_id = $2 WHERE id = $1', [partner.id, types.prestataire]); }
+      return r;
+    } };
+    await mine.query('BEGIN');
+    const row = await roleForUpdateTx(racing, T, partner.id, screen);
+    assert.equal(row.partnerTypeId, types.prestataire, 'l\'état comparé est celui lu sous verrou');
+    assert.ok((await held()).includes('advisory'), 'le rôle change désormais : verrou d\'attribution pris');
+    await assert.rejects(other.query('SELECT 1 FROM partners WHERE id = $1 FOR NO KEY UPDATE NOWAIT', [partner.id]), (e) => e.code === '55P03', 'ligne reprise sous verrou');
+    await other.query('SELECT 1 FROM partners WHERE id = $1 FOR KEY SHARE NOWAIT', [partner.id]); // une clé étrangère passe
+  } finally {
+    await mine.query('ROLLBACK').catch(() => {});
+    await mine.end(); await other.end();
     await q('DELETE FROM partners WHERE tenant_id = $1 AND id = $2', [T, partner.id]);
   }
 });
