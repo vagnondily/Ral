@@ -46,7 +46,13 @@ function fieldValue(k, v) {
   if (k === 'attendance') return { ok: true, value: v || null };
   return { ok: true, value: cell(v).trim() || null };
 }
-const changedFields = (row, loaded) => PARTICIPANT_FIELDS.filter((k) => cell(row[k]) !== cell(loaded[k]));
+/** Même valeur ? Nombres comparés lus (« 15,5 » = 15.5), avis sans les espaces de bord. */
+function sameValue(k, a, b) {
+  if (NUMERIC_FIELDS.has(k)) { const x = readNumber(a); const y = readNumber(b); if (x.ok && y.ok) return x.value === y.value; }
+  if (k === 'feedback') return cell(a).trim() === cell(b).trim();
+  return cell(a) === cell(b);
+}
+const changedFields = (row, loaded) => PARTICIPANT_FIELDS.filter((k) => !sameValue(k, row[k], loaded[k]));
 
 /**
  * Ce qu'il faut envoyer : pour chaque participant MODIFIÉ, ses seuls champs modifiés. Une cellule
@@ -87,4 +93,18 @@ export function mergeParticipantRows(rows, prevParticipants, nextParticipants) {
     if (!r || !before) return fresh;
     return { ...fresh, ...Object.fromEntries(changedFields(r, before).map((k) => [k, r[k]])) };
   });
+}
+
+/** Participants chargés + les modifications ENVOYÉES : l'état que le serveur doit maintenant avoir. */
+export function applyPatches(participants, patches) {
+  const sent = new Map((patches || []).map((x) => [x.agentId, x]));
+  return (participants || []).map((p) => (sent.has(p.agentId) ? { ...p, ...sent.get(p.agentId) } : p));
+}
+
+/**
+ * Après un enregistrement : la grille reprend l'état du serveur, SAUF ce qui a été saisi pendant
+ * l'envoi et le rechargement (champ différent de ce qui a été envoyé) — gardé, toujours à enregistrer.
+ */
+export function rowsAfterSave(rows, loadedBefore, sentPatches, nextParticipants) {
+  return mergeParticipantRows(rows, applyPatches(loadedBefore, sentPatches), nextParticipants);
 }
