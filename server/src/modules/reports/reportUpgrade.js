@@ -11,7 +11,13 @@
  *  - filtre bureau par NOM → clé 'id:<uuid>' via la table des bureaux du client ; un nom
  *    introuvable retire le filtre et laisse un avertissement sur le bloc (jamais un
  *    filtre silencieusement faux).
+ * Aussi sur un document v2 (rekeyBlocks) : les constats (annotations) d'un jeu dont la clé de
+ * ligne a changé sont remis sur la nouvelle clé — « Couverture par activité » (retour 110) : du
+ * libellé brut du registre (« School meal activities ») à la clé d'activité des tableaux de bord
+ * (coverageDefinitions.activityKey) ; deux anciennes clés de même activité sont réunies, rien
+ * n'est perdu.
  */
+const { activityKey } = require('../dashboards/coverageDefinitions');
 
 const DATASET_RENAMES = {
   activity_coverage: 'cov.by_activity',
@@ -126,6 +132,50 @@ function upgradePage(page = {}) {
   };
 }
 
+// ---- Clés de ligne des constats (v2) --------------------------------------------------------
+/** Jeux dont la clé de ligne a changé : jeu → nouvelle clé d'une ancienne clé. */
+const ROW_KEY_UPGRADES = { 'cov.by_activity': activityKey };
+const MAX_NOTE_NODES = 400; // reportSchema.richDoc
+
+/** Constats d'un bloc sur leurs nouvelles clés ; deux constats sur la même clé sont mis bout à bout. Même objet si rien ne change. */
+function rekeyNotes(annotations, keyOf) {
+  if (!annotations || typeof annotations !== 'object' || Array.isArray(annotations)) return annotations;
+  const entries = Object.entries(annotations);
+  if (entries.every(([k]) => keyOf(k) === k)) return annotations;
+  const out = {};
+  for (const [k, note] of entries) {
+    const nk = keyOf(k);
+    if (!out[nk]) { out[nk] = note; continue; }
+    const nodes = (n) => (n && Array.isArray(n.nodes) ? n.nodes : []);
+    out[nk] = { nodes: [...nodes(out[nk]), ...nodes(note)].slice(0, MAX_NOTE_NODES) };
+  }
+  return out;
+}
+
+/** Blocs (récursif : répétitions, colonnes) avec les constats remis sur leurs clés ; même tableau si rien ne change. */
+function rekeyBlocks(blocks) {
+  if (!Array.isArray(blocks)) return blocks;
+  let changed = false;
+  const out = blocks.map((b) => {
+    const p = b && b.params;
+    if (!p || typeof p !== 'object') return b;
+    let next = b;
+    if (b.type === 'data' && ROW_KEY_UPGRADES[p.dataset] && p.annotations) {
+      const a = rekeyNotes(p.annotations, ROW_KEY_UPGRADES[p.dataset]);
+      if (a !== p.annotations) next = { ...b, params: { ...p, annotations: a } };
+    } else if (b.type === 'repeat' && Array.isArray(p.blocks)) {
+      const inner = rekeyBlocks(p.blocks);
+      if (inner !== p.blocks) next = { ...b, params: { ...p, blocks: inner } };
+    } else if (b.type === 'columns' && Array.isArray(p.cols)) {
+      const cols = p.cols.map((c) => rekeyBlocks(c));
+      if (cols.some((c, i) => c !== p.cols[i])) next = { ...b, params: { ...p, cols } };
+    }
+    if (next !== b) changed = true;
+    return next;
+  });
+  return changed ? out : blocks;
+}
+
 /**
  * Document v1 (ou v2) → v2.
  * @param {object} input contenu enregistré ou reçu
@@ -135,7 +185,11 @@ function upgradePage(page = {}) {
  */
 function upgradeDoc(input, { officeIdByName, viewsOf } = {}) {
   if (!input || typeof input !== 'object') return { doc: input, warnings: [], upgraded: false };
-  if (input.schemaVersion === 2) return { doc: input, warnings: [], upgraded: false };
+  if (input.schemaVersion === 2) {
+    // v2 : seules les clés de ligne des constats peuvent changer (même objet sinon).
+    const blocks = rekeyBlocks(input.blocks);
+    return { doc: blocks === input.blocks ? input : { ...input, blocks }, warnings: [], upgraded: false };
+  }
   const warnings = [];
   const doc = {
     schemaVersion: 2,
@@ -143,7 +197,7 @@ function upgradeDoc(input, { officeIdByName, viewsOf } = {}) {
     period: input.period,
     filters: {},
     page: upgradePage(input.page),
-    blocks: (input.blocks || []).map((b) => upgradeBlock(b, officeIdByName, warnings, viewsOf)),
+    blocks: rekeyBlocks((input.blocks || []).map((b) => upgradeBlock(b, officeIdByName, warnings, viewsOf))),
   };
   return { doc, warnings, upgraded: true };
 }
@@ -174,4 +228,4 @@ function upgradeSnapshot(snapshot) {
   return { format: 2, frozen: true, periodLabel: snapshot.periodLabel || null, vars: renameValues(snapshot.variables), expansions, blocks };
 }
 
-module.exports = { upgradeDoc, upgradeSnapshot, isV1, renameKpi, DATASET_RENAMES, KPI_RENAMES };
+module.exports = { upgradeDoc, upgradeSnapshot, isV1, renameKpi, rekeyBlocks, DATASET_RENAMES, KPI_RENAMES, ROW_KEY_UPGRADES };

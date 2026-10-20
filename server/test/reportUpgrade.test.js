@@ -79,3 +79,39 @@ test('données figées v1 → forme v2 (identifiants d\'instance, chiffres renom
   assert.deepEqual(up.vars, { sites_realised: 12, coverage: 40 });
   assert.strictEqual(upgradeSnapshot(up), up);
 });
+
+test('« Couverture par activité » : constats enregistrés sur l\'ancien libellé brut remis sur la clé d\'activité, réunis, jamais perdus', () => {
+  const note = (x) => ({ nodes: [{ t: 'p', c: [{ x }] }] });
+  const data = (id, annotations, dataset = 'cov.by_activity') => ({ id, type: 'data', params: { dataset, view: 'table', filters: {}, args: {}, figure: {}, palette: 'sober', annotations } });
+  const V2 = {
+    schemaVersion: 2, title: 'Rapport', period: { from: '2026-01', to: '2026-03' }, filters: {},
+    page: upgradeDoc(V1).doc.page,
+    blocks: [
+      data('a', { 'School meal activities': note('Cantines : retard'), 'school  meal activities ': note('Deuxième graphie'), '—': note('Sans activité'), 'Nutrition treatment activities': note('Nutrition') }),
+      data('o', { 'Bureau Sud': note('Inchangé') }, 'cov.by_office'),
+      { id: 'r', type: 'repeat', params: { over: 'bureau', blocks: [data('ra', { 'School meal activities': note('Dans la répétition') })] } },
+      { id: 'c', type: 'columns', params: { ratio: '1:1', cols: [[data('ca', { 'School Meal Activities': note('Colonne') })], [{ id: 'h', type: 'heading', params: { text: 'T', level: 2 } }]] } },
+    ],
+  };
+  const { doc, upgraded } = upgradeDoc(V2);
+  assert.equal(upgraded, false, 'document v2 : pas une mise à niveau v1');
+  const a = doc.blocks[0].params.annotations;
+  assert.deepEqual(Object.keys(a), ['school meal activities', '—', 'nutrition treatment activities']);
+  // Deux anciennes clés de la même activité : les deux constats, bout à bout, dans l'ordre enregistré.
+  assert.deepEqual(a['school meal activities'].nodes.map((n) => n.c[0].x), ['Cantines : retard', 'Deuxième graphie']);
+  assert.deepEqual(a['—'], note('Sans activité'));
+  assert.deepEqual(doc.blocks[1].params.annotations, { 'Bureau Sud': note('Inchangé') }, 'autres jeux : clés inchangées');
+  assert.deepEqual(Object.keys(doc.blocks[2].params.blocks[0].params.annotations), ['school meal activities']);
+  assert.deepEqual(Object.keys(doc.blocks[3].params.cols[0][0].params.annotations), ['school meal activities']);
+  assert.equal(safeParseDocV2(doc).success, true);
+  // Les clés sont celles des lignes du jeu (catalogue : _key = clé d'activité des tableaux de bord).
+  const { shapeCoverage, groupRows, siteCounts } = require('../src/modules/dashboards/coverageDefinitions');
+  const raw = shapeCoverage(groupRows([{ activity: 'School meal activities', office: 'O', district: 'D', counts: siteCounts({ active: true }) }]));
+  const rows = datasetDef('cov.by_activity').shape(raw, {}, { lang: 'fr', args: {} }).rows;
+  assert.ok(rows.some((r) => Object.prototype.hasOwnProperty.call(a, r._key)), 'le constat retrouve sa ligne');
+  // Idempotent : un document déjà sur les nouvelles clés est rendu tel quel (même objet).
+  const again = upgradeDoc(doc);
+  assert.equal(again.doc, doc);
+  const untouched = { ...V2, blocks: [V2.blocks[1]] };
+  assert.equal(upgradeDoc(untouched).doc, untouched);
+});
