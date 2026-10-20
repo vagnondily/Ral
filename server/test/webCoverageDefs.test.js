@@ -150,3 +150,11 @@ test('« Exécution du plan » = UNE définition : le taux des visites déclaré
   assert.match(dp.find((p) => p.startsWith('Couverture (sites)')), /OU données reçues/);
   for (const p of [...fp, ...dp]) assert.ok(en.default[p] !== undefined, `« ${p} » sans traduction anglaise`);
 });
+
+test('Couverture & performance : une carte courte n\'est jamais étirée avec sa ligne au milieu (corps aligné en haut, fondu si la liste défile)', (t) => {
+  const file = webFile('styles.css');
+  if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }
+  const css = fs.readFileSync(file, 'utf8');
+  assert.match(css, /\.cd-colstack > \.biz-card > \.card-body \{ align-content: start; \}/);
+  assert.match(css, /\.cd-colstack\.is-fill > \.biz-card:last-child > \.card-body \{ flex: 1 1 0;[^}]*overflow-y: auto;[^}]*mask-image: linear-gradient/);
+});

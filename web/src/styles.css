@@ -3181,7 +3181,11 @@ span.mmr-reg { color: var(--text-muted); cursor: default; }
 .cd-colstack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .cd-colstack > .biz-card { display: flex; flex-direction: column; min-width: 0; }
 .cd-colstack.is-fill > .biz-card:last-child { flex: 1 1 auto; min-height: 0; }
-.cd-colstack.is-fill > .biz-card:last-child > .card-body { flex: 1 1 0; min-height: 140px; overflow-y: auto; }
+/* Lignes en haut du corps (une grille .biz-gauges étire sinon sa seule ligne au milieu de la carte) ;
+   fondu du bas : invisible quand tout tient, signale la suite quand la liste défile. */
+.cd-colstack > .biz-card > .card-body { align-content: start; }
+.cd-colstack.is-fill > .biz-card:last-child > .card-body { flex: 1 1 0; min-height: 140px; overflow-y: auto; overscroll-behavior: contain;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent); }
 @media (max-width: 1100px) {
   .cd-colgrid { grid-template-columns: minmax(0, 1fr); }
   .cd-colstack.is-fill > .biz-card:last-child > .card-body { flex: none; max-height: 440px; }
