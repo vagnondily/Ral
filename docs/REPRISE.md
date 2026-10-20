@@ -16,6 +16,7 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 >   jamais proposé comme TPM d'un contrat ; l'estampillage des visites suivra avec le retour 114) ; port 9881 / 5881.
 > - `wip/indicators` (après `6be3077`) : 17 constats ; port 9882 / 5882.
 > - `wip/planauto-port` (après `bf7cf8b`) : 13 constats ; port 9883 / 5883.
+> - `wip/r114` (à partir de `integ/next` `b19ffcf`) : retour 114 — suivi interne, indisponibilités, rapports attendus, estampillage selon D1 (migration 107) ; port 9884 / 5884.
 > Ensuite la session principale refait `integ/next` sur `main` (lot 8 + indicateurs + planification + « Interne » du
 > retour 115, commit `8cbc73d` sur l'ancienne `integ/next`, sauvegardée `snap/integ-next-1020`), contrôles, relecture courte,
 > publication. Règles : `npm run test:db` (en série) ; ports de test vérifiés libres (`(exec 3<>/dev/tcp/127.0.0.1/PORT)`).
@@ -150,7 +151,8 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `104` | tableau de bord d'après la maquette (agent `wip/dash-template`, si besoin) | 🔄 |
   | `105` | référentiel des activités, suite (reprise des libellés, listes partout, refus des activités inconnues ; agent `wip/activities`, sur la base de `101`) | 🔄 |
   | `106` | traçabilité des plans automatiques (`plan_auto_runs`, après le portage ; agent `wip/planauto-port`) | ⏳ |
-  | `107` à `109` | libres | — |
+  | `107` | retour 114 : estampillage selon D1, suivi interne, indisponibilités des TPM (agent `wip/r114`) | 🔄 |
+  | `108` à `109` | libres | — |
   | `110`–`115` | programmes, projets, bailleurs, Output (conception, ex-`091`–`095`) | ⏳ |
   | `116` et suivants | libres | — |
 
