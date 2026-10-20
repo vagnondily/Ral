@@ -116,34 +116,49 @@ test('rôle d\'un partenaire changé (type ou fiche active) : réestampille des 
   assert.equal(roleChanged(null, { partnerTypeId: 't1', active: true }), false);
 });
 
-test('changement de rôle : verrou d\'attribution AVANT la ligne (ordre des écrivains de l\'attribution), ligne FOR NO KEY UPDATE', async () => {
+test('changement de rôle : verrou d\'attribution seulement si le rôle change VRAIMENT, et toujours AVANT la ligne', async () => {
   const { roleForUpdateTx, ROLE_LOCK } = require('../src/modules/partners/partnerRole');
-  const run = async (patch) => {
-    const sql = [];
-    const client = { query: async (text) => { sql.push(text); return { rows: [{ name: 'YPA', partnerTypeId: 't', active: true }] }; } };
-    await roleForUpdateTx(client, 'tenant', 'p1', patch);
-    return { sql, lock: sql.findIndex((t) => /pg_advisory_xact_lock/.test(t)), row: sql.findIndex((t) => /FROM partners/.test(t)) };
+  // Faux client : chaque SELECT de la fiche rend la ligne suivante de `rows` ; les étapes sont notées.
+  const run = async (rows, patch) => {
+    const steps = []; const queue = [...rows];
+    const client = { query: async (text) => {
+      if (/pg_advisory_xact_lock/.test(text)) steps.push('attribution');
+      else if (/FROM partners/.test(text)) { steps.push(/FOR NO KEY UPDATE$/.test(text) ? 'ligne' : 'lecture'); assert.doesNotMatch(text, /FOR UPDATE/); return { rows: [queue.shift()].filter(Boolean) }; }
+      else if (/^(SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT)/.test(text)) steps.push(text.split(' partner_role_lock')[0]);
+      return { rows: [] };
+    } };
+    return { row: await roleForUpdateTx(client, 'tenant', 'p1', patch), steps };
   };
   assert.equal(ROLE_LOCK, 'FOR NO KEY UPDATE');
-  for (const patch of [{ partnerTypeId: 't2' }, { active: false }, { active: true, partnerTypeId: 't' }]) {
-    const r = await run(patch);
-    assert.ok(r.lock >= 0 && r.lock < r.row, `${JSON.stringify(patch)} : verrou d'attribution puis la ligne`);
-    assert.match(r.sql[r.row], /FOR NO KEY UPDATE$/);
-    assert.doesNotMatch(r.sql[r.row], /FOR UPDATE/);
+  const ypa = { name: 'YPA', partnerTypeId: 't', active: true };
+  // Ce que l'écran envoie toujours ({ name, partnerTypeId, active }) — renommage seul : jamais le verrou d'attribution.
+  assert.deepEqual((await run([ypa, ypa], { name: 'YPA 2', partnerTypeId: 't', active: true })).steps,
+    ['lecture', 'SAVEPOINT', 'ligne', 'RELEASE SAVEPOINT']);
+  // Type ou fiche active changés : verrou d'attribution, PUIS la ligne.
+  for (const patch of [{ partnerTypeId: 't2', active: true }, { partnerTypeId: 't', active: false }, { active: false }]) {
+    assert.deepEqual((await run([ypa, ypa], patch)).steps, ['lecture', 'attribution', 'ligne'], JSON.stringify(patch));
   }
-  // Ni type ni fiche active : pas de verrou d'attribution.
-  for (const patch of [{}, { name: 'X' }, { active: null, partnerTypeId: undefined }]) assert.equal((await run(patch)).lock, -1, JSON.stringify(patch));
+  // Rôle changé entre la lecture et le verrou (autre enregistrement validé) : la ligne est rendue
+  // (ROLLBACK TO SAVEPOINT) AVANT le verrou d'attribution, puis reprise.
+  const moved = { ...ypa, partnerTypeId: 't3' };
+  const r = await run([ypa, moved, moved], { name: 'YPA', partnerTypeId: 't', active: true });
+  assert.deepEqual(r.steps, ['lecture', 'SAVEPOINT', 'ligne', 'ROLLBACK TO SAVEPOINT', 'RELEASE SAVEPOINT', 'attribution', 'ligne']);
+  assert.deepEqual(r.row, moved, 'l\'état comparé est celui lu SOUS verrou');
+  // Fiche absente : rien de verrouillé.
+  assert.deepEqual(await run([], { active: false }), { row: null, steps: ['lecture'] });
 });
 
-test('changement de rôle : `name` dans l\'UPDATE seulement s\'il change vraiment ; patch qui touche le rôle', () => {
-  const { nameChanges, touchesRole } = require('../src/modules/partners/partnerRole');
+test('changement de rôle : rôle après le patch, vrai changement, `name` dans l\'UPDATE seulement s\'il change', () => {
+  const { roleAfter, changesRole, nameChanges } = require('../src/modules/partners/partnerRole');
   const before = { name: 'YPA', partnerTypeId: 't', active: true };
+  assert.deepEqual(roleAfter(before, {}), { partnerTypeId: 't', active: true });
+  assert.deepEqual(roleAfter(before, { partnerTypeId: '', active: null }), { partnerTypeId: 't', active: true }, 'vide ou null = inchangé');
+  assert.deepEqual(roleAfter(before, { partnerTypeId: 't2', active: false }), { partnerTypeId: 't2', active: false });
+  assert.equal(changesRole(before, { name: 'X', partnerTypeId: 't', active: true }), false, 'valeurs renvoyées telles quelles');
+  assert.equal(changesRole(before, { active: false }), true);
+  assert.equal(changesRole(before, { partnerTypeId: 't2' }), true);
   assert.equal(nameChanges(before, 'YPA'), false, 'nom renvoyé tel quel (l\'écran l\'envoie toujours)');
   for (const n of [undefined, null, '']) assert.equal(nameChanges(before, n), false);
   assert.equal(nameChanges(before, 'YPA Madagascar'), true);
   assert.equal(nameChanges(before, 'ypa'), true, 'la casse est un vrai changement');
-  assert.equal(touchesRole({ name: 'YPA' }), false);
-  assert.equal(touchesRole({ active: false }), true);
-  assert.equal(touchesRole({ partnerTypeId: 't2' }), true);
-  assert.equal(touchesRole({ active: null, partnerTypeId: '' }), false);
 });
