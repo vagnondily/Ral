@@ -200,7 +200,7 @@ function ContractsPanel({ sheet, onOpenContract, onOpenPartner, onTab }) {
                     <span className="stat-label">{tr(ROLE_LABELS.tpm)}</span>
                     {c.tpm.tpms.length
                       ? <span>{c.tpm.tpms.map((t, i) => <span key={t.id}>{i > 0 && ', '}<button type="button" className="inline-link" onClick={() => onOpenPartner(t.id)}>{t.name}</button></span>)}</span>
-                      : <span className="muted">{tr(ROLE_LABELS.noTpm)}</span>}
+                      : <span className="muted" title={tr(ROLE_LABELS.noTpmHint)}>{tr(ROLE_LABELS.noTpm)}</span>}
                   </div>
                 )}
               </div>

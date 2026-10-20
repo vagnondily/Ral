@@ -22,7 +22,9 @@ export const ROLE_LABELS = {
   allTpm: 'Tous les TPM',
   allHolders: 'Tous les titulaires',
   chooseTpm: 'Choisir un TPM…',
-  noTpm: 'Aucun TPM rattaché',
+  // Sans TPM rattaché (et titulaire qui n'est pas un TPM) : le suivi est INTERNE (équipe S&E, retour 114).
+  noTpm: 'Interne',
+  noTpmHint: 'Suivi interne (équipe S&E) : aucun TPM rattaché à ce contrat.',
 };
 
 /** Rôle d'un partenaire d'après le code de son type (jumeau de contractTpm.roleOf). */

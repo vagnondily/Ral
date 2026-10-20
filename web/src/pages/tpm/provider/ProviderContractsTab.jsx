@@ -59,7 +59,7 @@ export default function ProviderContractsTab({ providerId, role, onOpenContract,
                     ? (c.isHolder ? <span className="muted">{tr('son propre contrat')}</span> : partnerLink(c.holderId, c.holderName))
                     : (c.tpm.tpms.length
                       ? c.tpm.tpms.map((t, i) => <span key={t.id}>{i > 0 && ', '}{partnerLink(t.id, t.name)}</span>)
-                      : <span className="cell-empty">{tr(ROLE_LABELS.noTpm)}</span>)}
+                      : <span className="cell-empty" title={tr(ROLE_LABELS.noTpmHint)}>{tr(ROLE_LABELS.noTpm)}</span>)}
                 </td>
                 {isTpm && <td>{c.via.filter((x) => x !== 'titulaire' || c.isHolder).map((x) => <Badge key={x}>{tr(VIA_LABELS[x] || x)}</Badge>)}</td>}
                 <td className="tabular pv-nowrap">{periodLabel(c.dateDebut, c.status === 'resilie' && c.terminationDate ? c.terminationDate : c.dateFin, tr)}</td>

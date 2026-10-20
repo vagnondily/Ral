@@ -385,7 +385,7 @@ export default function DashboardBIPage({ onOpenContract, onNavigate }) {
             <tbody>{alerts.map((r) => (
               <tr key={r.contractId} onClick={() => onOpenContract && onOpenContract(r.contractId)} style={{ cursor: 'pointer' }}>
                 <td className="nowrap"><strong className="mono">{contractNo(r)}</strong></td><td>{r.partnerName}</td>
-                <td>{tpmNames(r.tpm).length ? tpmNames(r.tpm).join(', ') : <span className="cell-empty">{tr(ROLE_LABELS.noTpm)}</span>}</td>
+                <td>{tpmNames(r.tpm).length ? tpmNames(r.tpm).join(', ') : <span className="cell-empty" title={tr(ROLE_LABELS.noTpmHint)}>{tr(ROLE_LABELS.noTpm)}</span>}</td>
                 <td className="num tabular">{formatAr(r.actual)}</td>
                 <td className="num tabular">{formatAr(r.budget)}</td>
                 <td className="num tabular">{formatAr(r.projectedTotal)}</td>

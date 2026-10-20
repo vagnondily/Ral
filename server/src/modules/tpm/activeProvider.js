@@ -24,7 +24,8 @@
  *    un plan de collecte ou une facture / un rapport (`tpmsByContract`) ; à défaut, son titulaire
  *    (`tpmIdsByContract`, même règle que tpmAttribution.contractTpms qui estampille les visites).
  *    À l'AFFICHAGE (retour 113, `contractTpmOf`), le titulaire n'est montré comme TPM que s'il est
- *    lui-même un TPM ; un partenaire de mise en œuvre sans TPM rattaché → « Aucun TPM rattaché ».
+ *    lui-même un TPM ; un partenaire de mise en œuvre sans TPM rattaché → « Interne » (suivi par
+ *    l'équipe S&E, retour 114).
  *  - SÉLECTIONNABLE pour des mois (listes de choix d'un TPM) : d'abord les TPM d'un contrat de
  *    suivi qui couvre un des mois (groupe « contrat ») — un titulaire n'y figure plus quand son
  *    contrat a un TPM rattaché —, puis les autres partenaires actifs de type TPM (groupe « tpm »,

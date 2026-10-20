@@ -71,7 +71,7 @@ export default function ReportingPage({ onOpenContract }) {
   const exportBudget = () => {
     const rows = [[tr('Contrat'), tr(ROLE_LABELS.holder), tr(ROLE_LABELS.tpm), tr('Budget de la période'), tr('Planifié'), tr('Réalisé'), tr('Taux'), tr('Restant (à date)'), tr('Projection fin (à date)')]];
     for (const r of cons.rows) {
-      rows.push([contractNo(r), r.partnerName, tpmNames(r.tpm).join(', '), r.period.budget == null ? '' : Math.round(r.period.budget), Math.round(r.period.planned), Math.round(r.period.actual),
+      rows.push([contractNo(r), r.partnerName, tpmNames(r.tpm).join(', ') || tr(ROLE_LABELS.noTpm), r.period.budget == null ? '' : Math.round(r.period.budget), Math.round(r.period.planned), Math.round(r.period.actual),
         r.period.actualRate == null ? '' : `${Math.round(r.period.actualRate * 100)}%`, Math.round(r.remaining), Math.round(r.projectedTotal)]);
     }
     downloadCsv(`synthese-budget_${suffix}.csv`, rows);
@@ -140,7 +140,7 @@ export default function ReportingPage({ onOpenContract }) {
                 <tr key={r.contractId} className="clickable" onClick={() => onOpenContract && onOpenContract(r.contractId)}
                   onKeyDown={(e) => { if (e.key === 'Enter') onOpenContract && onOpenContract(r.contractId); }} tabIndex={0}>
                   <td className="nowrap"><strong className="mono">{contractNo(r)}</strong></td><td>{r.partnerName}</td>
-                  <td>{tpmNames(r.tpm).length ? tpmNames(r.tpm).join(', ') : <span className="cell-empty">{tr(ROLE_LABELS.noTpm)}</span>}</td>
+                  <td>{tpmNames(r.tpm).length ? tpmNames(r.tpm).join(', ') : <span className="cell-empty" title={tr(ROLE_LABELS.noTpmHint)}>{tr(ROLE_LABELS.noTpm)}</span>}</td>
                   <td className="num tabular">{r.period.budget == null ? <span className="cell-empty" title={tr('période du contrat inconnue')}>—</span> : formatAr(r.period.budget)}</td>
                   <td className="num tabular">{formatAr(r.period.planned)}</td>
                   <td className="num tabular">{formatAr(r.period.actual)}</td>

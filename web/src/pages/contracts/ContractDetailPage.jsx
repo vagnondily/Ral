@@ -634,7 +634,7 @@ function ContractTpm({ tpm, zones, onOpenPartner }) {
   const { tr } = useI18n();
   const list = (tpm && tpm.tpms) || [];
   if (!list.length) {
-    return <span className="muted">{tr(ROLE_LABELS.noTpm)} — {tr('un TPM est rattaché dès qu\'il a un plan de collecte ou une facture sur ce contrat.')}</span>;
+    return <span className="muted">{tr('Interne — suivi par l\'équipe S&E tant qu\'aucun TPM n\'est rattaché (un TPM l\'est dès qu\'il a un plan de collecte ou une facture sur ce contrat).')}</span>;
   }
   const VIA = { plan: 'plan de collecte', rapport: 'factures et rapports', titulaire: 'son propre contrat' };
   return (

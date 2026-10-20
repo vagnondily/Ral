@@ -11,6 +11,8 @@ export default {
   'TPM — tierce partie de suivi': 'TPM — third-party monitor',
   'Tous les titulaires': 'All holders',
   'Aucun TPM rattaché': 'No TPM attached',
+  'Suivi interne (équipe S&E) : aucun TPM rattaché à ce contrat.': 'Internal monitoring (M&E team): no TPM attached to this contract.',
+  'Interne — suivi par l\'équipe S&E tant qu\'aucun TPM n\'est rattaché (un TPM l\'est dès qu\'il a un plan de collecte ou une facture sur ce contrat).': 'Internal — monitored by the M&E team until a TPM is attached (a TPM is attached as soon as it has a collection plan or an invoice on this contract).',
   'Autres partenaires': 'Other partners',
   'Liste des partenaires': 'Partner list',
   'Rôle des partenaires': 'Partner roles',

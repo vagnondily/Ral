@@ -86,7 +86,7 @@ export default function ConsolidationPage({ onOpenContract }) {
     const head = [tr('Contrat'), tr(ROLE_LABELS.holder), tr(ROLE_LABELS.tpm), ...periodHead, tr('Budget Suivi (Ar)'), tr('Planifié (Ar)'), tr('Réalisé (Ar)'),
       tr('Taux conso'), tr('Écart plan/réel'), tr('Mois restants'), tr('Restant (Ar)'), tr('Projection fin (Ar)')];
     const lines = rows.map((r) => [
-      contractNo(r), r.partnerName, tpmNames(r.tpm).join(', '),
+      contractNo(r), r.partnerName, tpmNames(r.tpm).join(', ') || tr(ROLE_LABELS.noTpm),
       ...(tp ? [r.period.budget == null ? '' : Math.round(r.period.budget), Math.round(r.period.planned), Math.round(r.period.actual), pctOrDash(r.period.actualRate)] : []),
       Math.round(r.budget), Math.round(r.planned), Math.round(r.actual),
       pct(r.actualRate), pct(r.planVsActual), r.monthsRemaining, Math.round(r.remaining), Math.round(r.projectedTotal),
@@ -190,7 +190,7 @@ export default function ConsolidationPage({ onOpenContract }) {
                     </td>
                     <td>
                       <strong>{r.partnerName}</strong>
-                      <div className="site-meta">{tpmNames(r.tpm).length ? tr('TPM : {names}', { names: tpmNames(r.tpm).join(', ') }) : tr(ROLE_LABELS.noTpm)}</div>
+                      <div className="site-meta">{tpmNames(r.tpm).length ? tr('TPM : {names}', { names: tpmNames(r.tpm).join(', ') }) : tr('TPM : {names}', { names: tr(ROLE_LABELS.noTpm) })}</div>
                     </td>
                     {tp && <>
                       <td className="num tabular">{r.period.budget == null ? <span className="cell-empty" title={tr('période du contrat inconnue')}>—</span> : formatAr(r.period.budget)}</td>
