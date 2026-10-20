@@ -1144,10 +1144,11 @@ async function planBoardTx(client, tenantId, { year, adjusted = false }) {
   const { rows: [grid] } = await client.query(
     'SELECT EXISTS (SELECT 1 FROM site_month_status WHERE tenant_id = $1 AND year = $2) AS has_grid', [tenantId, y]);
   const yearHasGrid = Boolean(grid && grid.has_grid);
+  const nowMonth = currentMonth();   // une fois pour tout le registre (jamais par site)
   const out = sites.map((row) => {
     // Dernière visite = visite réalisée ou collecte réelle (jamais une visite seulement prévue) ;
     // la prochaine visite prévue est rendue à part, vue depuis le mois courant.
-    const s = { ...row, ...visitState(row, currentMonth()) };
+    const s = { ...row, ...visitState(row, nowMonth) };
     const mmrRow = lookup(s.fieldOfficeId, s.parentOfficeId, s.activity);
     const score = scoreSite(s, { targetMonth: target });
     const counters = siteCounters({ months: s.months }, mmrRow, { adjusted });
@@ -1272,7 +1273,8 @@ async function locationsExportData(tenantId, { year }) {
       'SELECT DISTINCT depth, name FROM admin_areas WHERE tenant_id = $1 AND depth BETWEEN 1 AND 3 ORDER BY depth, name', [tenantId]);
     const places = { regions: [], districts: [], communes: [] };
     for (const a of areas) (a.depth === 1 ? places.regions : a.depth === 2 ? places.districts : places.communes).push(a.name);
-    return { sites: sites.map((x) => ({ ...x, finalScore: scoreSite(x, {}).finalScore })), offices, places };
+    const nowMonth = currentMonth();   // une fois pour tout le registre (jamais par site)
+    return { sites: sites.map((x) => ({ ...x, finalScore: scoreSite(x, { targetMonth: nowMonth }).finalScore })), offices, places };
   });
 }
 
