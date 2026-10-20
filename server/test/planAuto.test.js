@@ -189,6 +189,19 @@ test('sans TPM dans la zone : « Bureau (suivi interne) », hors périmètre non
   assert.equal(r.summary.sitesConsidered, 1);
 });
 
+test('couverture : un site DÉJÀ planifié dans la période compte comme couvert', () => {
+  // Re-générer sur un plan déjà appliqué ne doit pas afficher 0 % (retour 82).
+  const sites = Array.from({ length: 10 }, (_, i) => site({ id: `s${i}`, parametered: true, required: 2, mmrKey: 'k', commune: `C${i}`, activity: 'A', visits: [{ month: 1, status: 'planifie' }, { month: 6, status: 'planifie' }] }));
+  const r = generatePlan(sites, { k: { interval: 3, feasible: 100 } }, {}, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], YEAR);
+  assert.equal(r.summary.sitesCovered, 10);          // tous couverts (déjà prévus)
+  assert.equal(r.summary.coverageRate, 100);
+  assert.equal(r.summary.alreadyCovered, 10);
+  // Une visite réalisée compte aussi comme couverture.
+  const r2 = generatePlan([site({ id: 'x', parametered: true, required: 1, mmrKey: 'k', activity: 'A', visits: [{ month: 2, status: 'realise' }] })],
+    { k: { interval: 6, feasible: 100 } }, {}, [1, 2, 3, 4, 5, 6], YEAR);
+  assert.equal(r2.summary.sitesCovered, 1);
+});
+
 test('perMonth couvre toute la période ; plan vide sans erreur', () => {
   const r = generatePlan([site({ id: 'a', parametered: true, required: 2, mmrKey: 'k' })], { k: { interval: 2 } }, {}, H1, YEAR);
   assert.deepEqual(r.perMonth.map((m) => m.month), ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06']);

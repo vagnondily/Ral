@@ -310,6 +310,7 @@ export default function PlanAutoDrawer({ year, onClose, onDone }) {
               <span>{tr('Visites planifiées')} : <strong>{formatInt(preview.summary.planned)}</strong></span>
               <span className="muted">{tr('Pilotées par le MMR')} : {formatInt(preview.summary.mmrDriven)}</span>
               <span className="muted">{tr('Repli RBM (sans MMR)')} : {formatInt(preview.summary.rbmFallback)}</span>
+              {preview.summary.alreadyCovered > 0 && <span className="muted">{tr('Déjà planifiés (conservés)')} : {formatInt(preview.summary.alreadyCovered)}</span>}
               {preview.summary.latePlanned > 0 && <span className="muted">{tr('Prévues antérieures re-planifiées')} : {formatInt(preview.summary.latePlanned)}</span>}
               {preview.summary.forbidden > 0 && <span className="muted">{tr('Zones interdites exclues')} : {formatInt(preview.summary.forbidden)}</span>}
               {preview.summary.unplaced > 0 && <span className="muted">{tr('Visites non placées')} : {formatInt(preview.summary.unplaced)}</span>}
@@ -320,6 +321,11 @@ export default function PlanAutoDrawer({ year, onClose, onDone }) {
             {preview.summary.noActivity > 0 && (
               <Alert tone="warning">
                 {tr('{n} site(s) sans activité : non planifiés. Renseignez leur activité (et leur MMR) dans la Configuration pour les suivre.', { n: formatInt(preview.summary.noActivity) })}
+              </Alert>
+            )}
+            {preview.summary.alreadyCovered > 0 && (
+              <Alert tone="info">
+                {tr('{n} site(s) ont déjà des visites dans la période : le générateur n\'ajoute que les manquants. Pour repartir d\'un plan neuf, cliquez « Effacer les planifications ».', { n: formatInt(preview.summary.alreadyCovered) })}
               </Alert>
             )}
             {preview.summary.rbmFallback > 0 && (

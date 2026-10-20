@@ -28,6 +28,23 @@
 
 _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot vérifié
 
+> **Déploiement simplifié : l'API sert l'interface (un seul service).** ✅ `app.js` sert `web/dist`
+> (statique + repli index.html pour le routage par hash) sur le port 9000 quand le build existe —
+> plus de serveur web séparé ni de CORS. Le client web choisit son API automatiquement : DEV =
+> localhost:9000, PROD = même origine que la page (accès réseau `http://SERVEUR:9000` sans
+> `VITE_API_URL` ni `CORS_ORIGIN`). CSP helmet désactivée (parité avec vite). README : NSSM à UN
+> seul service `MEMS-API` (réponse à « NSSM/`npm run serve` ne démarrent pas » : `npm run serve`
+> n'existe que dans `web/` ; plus de service web). Note « tester sans données de test » (seed sans
+> seed:test, sinon recréer la base). Tests 1225 ✅, lint ✅, build ✅, smoke (/ sert l'app, /api 401) ✅.
+
+> **Correctif couverture + bouton (retour 82).** ✅
+> - **Bug couverture** : regénérer sur un plan DÉJÀ appliqué affichait 3 % (et une fausse alerte
+>   « capacité insuffisante ») car seuls les sites NOUVELLEMENT planifiés comptaient. Désormais un
+>   site est COUVERT dès qu'il a une visite (nouvelle OU déjà prévue/réalisée) dans la période ;
+>   chip « Déjà planifiés (conservés) » + note « le générateur n'ajoute que les manquants ». Test ajouté.
+> - **Bouton** « Générer le plan automatiquement » → **« Générer le plan »**, bleu + icône baguette
+>   (plus court, plus percutant). Tests 1212 ✅, lint ✅, build ✅.
+
 > **Export budget du plan (retour 82).** ✅ Bouton « Budget (CSV) » dans l'aperçu : exporte le plan
 > par **TPM/bureau × mois** = visites (= **jours de collecte**, modèle existant 1 visite = 1 jour)
 > + **agents**, avec lignes Total/pic. Base directe du budget (on y ajoute les coûts journaliers
@@ -705,3 +722,9 @@ _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot v�
 - **06:45** 🔄 Lot design en contrôle (`integ/16b`) : listes de choix avec recherche et groupes (contrat d'abord puis son TPM, dans Planification & budget et la facture ; 1 280 sites cherchables dans « Ajouter une visite ») ; chevron rendu aux 122 listes ; barres justes ; sombre lisible ; marges ; chiffres « 63,1 M » ; + modèles d'indicateurs vérifiés sur les 5 XLSForm (`wip/indicators`).
 - **06:55** ⏸️ Modèles d'indicateurs (`wip/indicators`) **retenus** : la relecture a vérifié les 439 éléments sur vos 5 XLSForm (0 erreur), mais la création perdait la cible de 5 indicateurs notés (ils seraient restés « Non évalué ») et la carte pré-cochait 22 liaisons risquées (questions de sous-tableaux, choix multiples). Renvoyé à son agent ; publication après correction.
 - **06:56** 🔄 Intégration `integ/16c` = `main` + lot design + suites de la relecture du retour 110 (`db6da8e` : rien de perdu sous les chiffres clés, « à venir » complet, cloche et rapport de synthèse sur la même couverture) + en-têtes en paire et couverture du concepteur (`5bcdfb7`, `310a017`, retour 112) + lot 8 (fiche prestataire 360°, formations en sessions, évaluation du TPM et des agents, migrations 086–088). Conflits résolus : `formatDecimal` (une seule version), facture (le choix « contrat → son TPM » est gardé), feuille de style (les deux blocs). Contrôles : 1 278 tests (0 échec), lint, build, migrations sur copie et base neuve + `seed` + `seed:test`, tests sur vraie base 3/3. Balayage et relectures indépendantes (une par lot + une de l'ensemble) en cours.
+
+### Mardi 20 octobre 2026
+
+- **06:04** 🔄 Reprise. Le conteneur a redémarré : PostgreSQL relancé, base de démonstration à jour (aucune migration en attente), serveurs de démonstration relancés (API :9000, écran :5173). `main` = `acd97dc` : l'autre session a publié le 16/10 « l'API sert l'interface » (un seul service Windows) et un correctif de la planification automatique (`cb3430b`).
+- **06:05** ✅ Les agents du 16/10 s'étaient arrêtés sur la limite d'usage avec du travail non commité. Tout est mis à l'abri sur GitHub, sans rien modifier : `snap/planauto-port-1016`, `snap/lot8-1016` (vocabulaire, 70 fichiers), `snap/7a-p2-1016` (filtres du rapportage), `snap/dash-template-1016` (maquette), `snap/perf-1016`, `snap/indicators-1016`, `snap/offices-1016`, `snap/r58-1016`.
+- **06:07** 🔄 Plan du jour : (1) corrections des relectures du lot design et de l'intégration (dont un défaut bloquant : rapport filtré « Sans bureau » en erreur), puis publication ; (2) planification automatique : 4 corrections de fiabilité trouvées par la relecture, puis agents ET véhicules (retours 107–108) ; (3) vocabulaire unique « Titulaire » / « TPM » (retour 113).

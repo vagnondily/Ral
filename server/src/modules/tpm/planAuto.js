@@ -401,6 +401,9 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
   const unplacedByReason = Object.fromEntries(REASONS.map((r) => [r, 0]));
   const uncovered = [];
   let covered = 0; let unplaced = 0; let renfortTotal = 0;
+  // Sites couverts par leurs seules visites existantes (prévues ou réalisées) : conservés, rien
+  // n'est ajouté (retour 82 : re-générer sur un plan appliqué n'affiche jamais 0 %).
+  let alreadyCovered = 0;
   for (const s of plannable) {
     const st = states.get(s.id);
     renfortTotal += st.renfort;
@@ -412,6 +415,7 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
       if (!isCovered) { uncoveredByReason[reason] += 1; uncovered.push({ siteId: s.id, reason, needed: st.needed, placed: st.placed }); }
     }
     if (isCovered) covered += 1;
+    if (st.hasVisitInPeriod && st.placedMonths.length === 0) alreadyCovered += 1;
   }
 
   // ---- Ressources nécessaires (planResources : une seule règle d'agents et de véhicules) ------
@@ -565,6 +569,7 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
       sitesActivePlannable: plannable.length,
       mmrDriven,
       rbmFallback,
+      alreadyCovered,                  // sites déjà couverts par des visites existantes (non re-planifiés)
       latePlanned: latePlannedTotal,
       unplaced,
       unplacedByReason,

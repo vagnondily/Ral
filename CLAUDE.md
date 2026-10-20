@@ -121,13 +121,25 @@ only the background expense-recalc worker (`npm run worker`) needs it.
 
 Demo login: `admin@mems.mg` / `changeme123` (validator: `validateur@mems.mg`).
 
-**Production (Windows): run as services via NSSM** — rather than keeping `cmd`
-windows open, install the API, the web (built `web/dist` served by
-`vite preview`), and optionally the worker as Windows services with **NSSM** so
-they auto-start on boot and auto-restart on crash. Full copy-paste steps in
-`README.md` → « Lancer MEMS 2.0 comme service Windows avec NSSM ». Update flow:
-`git pull` → `npm run migrate` → web `npm run build` → `nssm restart MEMS-API`
-+ `nssm restart MEMS-WEB`, then hard-refresh the browser.
+**Serving model: the API serves the built web.** When `web/dist` exists,
+`app.js` serves it (static + hash-routing fallback to `index.html`) on the SAME
+port as the API (9000) — so **one process serves API + UI**, no separate web
+server, no CORS. In dev, `dist` doesn't exist so nothing is served there and
+vite runs on :5173. The web client picks its API base automatically: DEV →
+`http://localhost:9000`; PROD → `window.location.origin` (same origin as the
+page), so remote access via `http://SERVER:9000` works with no `VITE_API_URL`
+and no `CORS_ORIGIN`. Helmet CSP is disabled (the UI was always served without
+CSP by vite). `npm run serve`/`build` exist **only in `web/`** (not root/server).
+
+**Production (Windows): ONE service via NSSM** — build the web once
+(`cd web && npm run build`), then run a single `MEMS-API` service
+(`node src/server.js` in `server/`) that serves everything on :9000 (+ optional
+`MEMS-WORKER`). No `MEMS-WEB` service anymore. Full steps in `README.md` →
+« Lancer MEMS 2.0 comme service Windows avec NSSM ». Update: `git pull` →
+`npm run migrate` → web `npm run build` → `nssm restart MEMS-API`, then
+hard-refresh. **Test without demo data:** run `npm run seed` only (NOT
+`npm run seed:test`); to clear test data already loaded, recreate the DB
+(`dropdb mems2_tpm && createdb mems2_tpm && npm run migrate && npm run seed`).
 
 ## Hard constraints (do not break)
 - **Never touch the `mems_app` Postgres role.** It belongs to the user's OLD

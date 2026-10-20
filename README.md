@@ -165,7 +165,7 @@ APP_DATABASE_URL=postgres://mems2_app:mems2_app_change_me@localhost:5432/mems2_t
   est dédié à MEMS 2.0** : il ne touche jamais au rôle `mems_app` d'un autre
   système éventuellement présent sur le même serveur PostgreSQL.
 
-**3. Installer, migrer, insérer les données de démonstration :**
+**3. Installer, migrer, insérer les données de base :**
 
 ```cmd
 npm install
@@ -173,13 +173,23 @@ npm run migrate
 npm run seed
 ```
 
+> `npm run seed` crée le **compte admin, le bureau et les référentiels** — pas
+> de contrats/sites/visites de démonstration. **Pour tester SANS données de
+> test**, n'exécutez **pas** `npm run seed:test`. Si vous aviez déjà chargé les
+> données de test et voulez une base propre :
+> `dropdb -U postgres mems2_tpm` puis `createdb -U postgres mems2_tpm`, et
+> refaites `npm run migrate` + `npm run seed`.
+
 **4. Démarrer l'API** (laissez cette fenêtre ouverte) :
 
 ```cmd
 npm start
 ```
 
-L'API écoute sur `http://localhost:9000`.
+L'API écoute sur `http://localhost:9000`. **Astuce** : si vous avez d'abord
+construit l'interface (`cd ..\web && npm run build`), **l'API sert aussi
+l'interface** sur `http://localhost:9000` — inutile de lancer le serveur web
+séparé (étape 5) pour un test rapide.
 
 **5. Démarrer l'interface** (nouvelle fenêtre `cmd`, depuis la racine du
 projet) :
@@ -228,12 +238,19 @@ npm run worker
 
 ### 7. (Recommandé en production) Lancer MEMS 2.0 comme **service Windows** avec NSSM
 
-Garder deux fenêtres `cmd` ouvertes en permanence n'est pas fiable : si la
+Garder une fenêtre `cmd` ouverte en permanence n'est pas fiable : si la
 session Windows se ferme, si le poste redémarre ou si un processus plante,
 l'application s'arrête. **NSSM** (« Non-Sucking Service Manager », gratuit et
-open-source) transforme l'API et l'interface en **vrais services Windows** :
-ils **démarrent au boot**, **redémarrent automatiquement** en cas de plantage,
-tournent **sans fenêtre** et écrivent leurs journaux dans des fichiers.
+open-source) transforme MEMS en **vrai service Windows** : il **démarre au
+boot**, **redémarre automatiquement** en cas de plantage, tourne **sans
+fenêtre** et écrit ses journaux dans des fichiers.
+
+> **UN SEUL service suffit.** Depuis la version actuelle, **l'API sert aussi
+> l'interface** (le dossier compilé `web\dist`) sur le même port **9000** : plus
+> besoin d'un serveur web séparé (`vite preview`) ni de configurer CORS. On
+> construit l'interface une fois, puis on lance **un seul service `MEMS-API`**.
+> Toute l'application est alors sur **`http://localhost:9000`** (et
+> `http://NOM-DU-SERVEUR:9000` depuis le réseau).
 
 **a. Installer NSSM.** Téléchargez-le sur <https://nssm.cc/download>, extrayez
 le `nssm.exe` 64 bits (dossier `win64`) dans un dossier au `PATH` (ex.
@@ -242,7 +259,7 @@ s'exécutent dans un `cmd` **ouvert en administrateur**. Remplacez
 `C:\MEMS\Ral` par le chemin réel du projet et le chemin de `node.exe` si
 besoin (`where node` le donne).
 
-**b. Préparer l'interface une fois (version optimisée) :**
+**b. Construire l'interface une fois** (produit `web\dist`, que l'API va servir) :
 
 ```cmd
 cd C:\MEMS\Ral\web
@@ -251,7 +268,11 @@ npm run build
 mkdir C:\MEMS\Ral\logs
 ```
 
-**c. Créer le service de l'API** (port 9000) :
+> Si `npm run build` échoue avec « Missing script », c'est que vous n'êtes pas
+> dans le dossier **`web`**. De même `npm run serve` n'existe **que** dans `web`
+> (jamais à la racine ni dans `server`).
+
+**c. Créer LE service `MEMS-API`** (sert l'API **et** l'interface sur le port 9000) :
 
 ```cmd
 nssm install MEMS-API "C:\Program Files\nodejs\node.exe" "src\server.js"
@@ -264,25 +285,16 @@ nssm set MEMS-API AppRestartDelay 3000
 nssm start MEMS-API
 ```
 
+Ouvrez ensuite **`http://localhost:9000`** : toute l'application s'y trouve
+(API + interface), dès le démarrage de Windows, sans fenêtre à garder ouverte.
+
 > L'API lit `server\.env` toute seule (dotenv) : aucune variable à redéclarer
 > dans NSSM. Vérifiez que `DATABASE_URL`/`APP_DATABASE_URL` y sont corrects.
+> **Prérequis :** `web\dist` doit exister (étape b) ; sinon l'API démarre mais
+> ne sert que l'API (page blanche sur `/`). Reconstruisez puis
+> `nssm restart MEMS-API`.
 
-**d. Créer le service de l'interface** (sert `web\dist` compilé, port 5173) :
-
-```cmd
-nssm install MEMS-WEB "C:\Program Files\nodejs\node.exe" "node_modules\vite\bin\vite.js preview --host 0.0.0.0 --port 5173 --strictPort"
-nssm set MEMS-WEB AppDirectory "C:\MEMS\Ral\web"
-nssm set MEMS-WEB Start SERVICE_AUTO_START
-nssm set MEMS-WEB AppStdout "C:\MEMS\Ral\logs\web.log"
-nssm set MEMS-WEB AppStderr "C:\MEMS\Ral\logs\web.err.log"
-nssm set MEMS-WEB AppExit Default Restart
-nssm start MEMS-WEB
-```
-
-L'application est alors disponible sur `http://localhost:5173` dès le démarrage
-de Windows, sans fenêtre à garder ouverte.
-
-**e. (Optionnel) Service du worker** (recalcul des dépenses, **Redis requis**) :
+**d. (Optionnel) Service du worker** (recalcul des dépenses, **Redis requis**) :
 
 ```cmd
 nssm install MEMS-WORKER "C:\Program Files\nodejs\node.exe" "src\jobs\worker-entry.js"
@@ -292,25 +304,30 @@ nssm set MEMS-WORKER AppExit Default Restart
 nssm start MEMS-WORKER
 ```
 
-**f. Piloter les services** (ou via `services.msc`) :
+**e. Piloter le service** (ou via `services.msc`) :
 
 ```cmd
 nssm restart MEMS-API         REM redémarrer après une mise à jour
-nssm stop MEMS-WEB            REM arrêter
 nssm status MEMS-API          REM état
+nssm stop MEMS-API            REM arrêter
 nssm remove MEMS-API confirm  REM désinstaller le service
 ```
 
-> **Si vous accédez à l'application depuis d'autres postes du réseau** (pas
-> seulement en local) : indiquez l'URL de l'API au build du web, p. ex.
-> `set VITE_API_URL=http://NOM-DU-SERVEUR:9000` **avant** `npm run build`, et
-> autorisez cette origine côté API via `CORS_ORIGIN=http://NOM-DU-SERVEUR:5173`
-> dans `server\.env`. Ouvrez aussi les ports 9000 et 5173 dans le pare-feu.
+> **Pourquoi NSSM « ne démarrait pas » avant ?** Le plus souvent : `web\dist`
+> pas construit, ou un service web `vite preview` lancé depuis le mauvais
+> dossier / avec le port occupé. Avec l'API qui sert l'interface, ce service web
+> disparaît — supprimez l'ancien s'il existe : `nssm remove MEMS-WEB confirm`.
 
-> **Mettre à jour quand MEMS tourne sous NSSM** : `git pull` → `cd server && npm
-> install && npm run migrate` → `cd ..\web && npm install && npm run build` →
-> `nssm restart MEMS-API` puis `nssm restart MEMS-WEB`. Rechargez ensuite la
-> page du navigateur avec `Ctrl+Maj+R` (cache) pour voir la nouvelle version.
+> **Accès depuis d'autres postes du réseau** : rien à configurer côté build —
+> l'interface appelle automatiquement l'API sur **la même origine** que la page
+> (ex. `http://NOM-DU-SERVEUR:9000`). Il suffit d'**ouvrir le port 9000** dans
+> le pare-feu Windows. (Plus besoin de `VITE_API_URL` ni de `CORS_ORIGIN` pour
+> ce cas.)
+
+> **Mettre à jour quand MEMS tourne sous NSSM** : `git pull` →
+> `cd server && npm install && npm run migrate` →
+> `cd ..\web && npm install && npm run build` → `nssm restart MEMS-API`.
+> Rechargez ensuite la page avec `Ctrl+Maj+R` (cache) pour voir la nouvelle version.
 
 ### Mettre à jour une installation existante (base PostgreSQL déjà remplie)
 
