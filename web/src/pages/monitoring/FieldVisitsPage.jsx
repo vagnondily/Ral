@@ -12,6 +12,8 @@ import { richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { REASON_MIN, TPM_VISIT, applyResultMessage, visitTpmKey, visitToAssign } from '../../lib/tpmAttribution.js';
 import { applyVisitPatch } from '../../lib/fieldVisits.js';
+import { coverageRateText } from '../../lib/coverage.js';
+import { formatRate } from '../../lib/mapScale.js';
 import { NONE, ProviderSelect, ReasonField, VisitTpmCell } from './TpmFields.jsx';
 import TpmVisitDialog from './TpmVisitDialog.jsx';
 import { tpmTabHref } from './TpmZoneCell.jsx';
@@ -52,7 +54,7 @@ const ROLES = ['Agent 1', 'Agent 2', 'Agent 3', 'Agent 4', 'Superviseur 1', 'Sup
  * désigne les sites (sites actifs réalisés ÷ sites actifs, tableaux de bord — lot 1b).
  */
 export default function FieldVisitsPage({ canEdit }) {
-  const { tr } = useI18n();
+  const { tr, lang } = useI18n();
   const toast = useToast();
   const [month, setMonth] = useState(currentMonth);
   const [visits, setVisits] = useState(null);
@@ -297,7 +299,7 @@ export default function FieldVisitsPage({ canEdit }) {
             <Kpi icon={MapPin} tone="blue" label={tr('Sites du mois')} value={formatInt(ov.total)} foot={tr('{n} commune(s)', { n: communeCount })} />
             <Kpi icon={UserPlus} tone={unassigned ? 'amber' : 'green'} label={tr('À affecter')} value={formatInt(unassigned)} foot={tr('Aucun contrat actif sur la zone')} />
             <Kpi icon={CalendarClock} tone="blue" label={tr('Planifiées')} value={formatInt(ov.planifie)} foot={tr('À réaliser')} />
-            <Kpi icon={CheckCircle2} tone="green" label={tr('Réalisées')} value={formatInt(ov.realise)} foot={tr('{p} % d\'exécution des visites (déclarées)', { p: Math.round(ov.rate * 100) })} />
+            <Kpi icon={CheckCircle2} tone="green" label={tr('Réalisées')} value={formatInt(ov.realise)} foot={coverageRateText(ov, lang) ? tr('{p} d\'exécution des visites (déclarées)', { p: coverageRateText(ov, lang) }) : tr('— aucun plan')} />
             <Kpi icon={Ban} tone="red" label={tr('Annulées')} value={formatInt(ov.annule)} foot={tr('Exclues du taux')} />
           </div>
         )}
@@ -391,7 +393,7 @@ export default function FieldVisitsPage({ canEdit }) {
 // Tableau des mois : une ligne par mois avec ses stats + barre de couverture ;
 // clic (ou bouton « Ouvrir / Planifier ») → plan du mois.
 function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setStatusFilter }) {
-  const { tr } = useI18n();
+  const { tr, lang } = useI18n();
   const all = data?.months || [];
   const months = statusFilter ? all.filter((m) => m.status === statusFilter) : all;
   const pctClass = (c) => (c >= 0.8 ? 'green' : c >= 0.5 ? 'orange' : 'red');
@@ -407,7 +409,7 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
         <div className="months-head-sum">
           <span><strong className="tabular">{formatInt(activeMonths)}</strong> {tr('mois actifs')}</span>
           <span><strong className="tabular">{formatInt(tot.realise)}</strong>/{formatInt(tot.planifie + tot.realise)} {tr('visites')}</span>
-          <span className="months-head-cov"><span className="mini-bar"><span style={{ width: `${Math.round(totCov * 100)}%`, background: `var(--${pctClass(totCov)})` }} /></span><strong className="tabular">{tr('{p} %', { p: Math.round(totCov * 100) })}</strong></span>
+          <span className="months-head-cov"><span className="mini-bar"><span style={{ width: `${Math.round(totCov * 100)}%`, background: `var(--${pctClass(totCov)})` }} /></span><strong className="tabular">{tot.planifie + tot.realise > 0 ? formatRate(totCov, lang) : '—'}</strong></span>
           <label className="months-filter"><Filter size={15} aria-hidden="true" />
             <select className="select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label={tr('Filtrer par situation')}>
               <option value="">{tr('Toutes situations')}</option>
@@ -442,7 +444,7 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
                     {m.planifie + m.realise === 0 ? <span className="cell-empty">—</span> : (
                       <span className="month-cov">
                         <span className="mini-bar"><span style={{ width: `${cov}%`, background: `var(--${pctClass(m.coverage)})` }} /></span>
-                        <span className="tabular" style={{ color: `var(--${pctClass(m.coverage)}-text)`, fontWeight: 650 }}>{tr('{p} %', { p: cov })}</span>
+                        <span className="tabular" style={{ color: `var(--${pctClass(m.coverage)}-text)`, fontWeight: 650 }}>{formatRate(m.coverage, lang)}</span>
                       </span>
                     )}
                   </td>
@@ -477,14 +479,14 @@ function Kpi({ icon: Icon, label, value, foot, tone }) {
 }
 
 function CoverageCard({ title, rows }) {
-  const { tr } = useI18n();
+  const { tr, lang } = useI18n();
   return (
     <div className="card biz-card">
       <div className="card-header"><div className="card-title">{title}</div></div>
       <div className="card-body biz-gauges">
         {rows.map((r) => (
           <div className="biz-gauge" key={r.key}>
-            <div className="biz-gauge-head"><span>{r.label}</span><span className="tabular">{r.realise}/{r.active} · {tr('{p} %', { p: Math.round(r.rate * 100) })}</span></div>
+            <div className="biz-gauge-head"><span>{r.label}</span><span className="tabular">{r.realise}/{r.active} · {coverageRateText(r, lang) || tr('— aucun plan')}</span></div>
             <div className="biz-bar"><span style={{ width: `${Math.round(r.rate * 100)}%`, background: r.rate >= 0.8 ? 'var(--green)' : 'var(--blue-600)' }} /></div>
           </div>
         ))}

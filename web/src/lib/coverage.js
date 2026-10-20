@@ -1,3 +1,5 @@
+import { formatRate } from './mapScale.js';
+
 // Couverture terrain affichée — règle PURE (sans DOM), testée depuis le serveur
 // (server/test/webDashboards.test.js). Même règle que Synthèse, Couverture &
 // performance et le Bulletin : sans visite active (planifiée ou réalisée), le
@@ -14,4 +16,19 @@ export function coveragePct(cov) {
   if (active <= 0) return null;
   const rate = cov.rate == null ? (Number(cov.realise) || 0) / active : Number(cov.rate);
   return Number.isFinite(rate) ? Math.round(rate * 100) : null;
+}
+
+/**
+ * Même taux ÉCRIT comme les alertes et les tableaux de bord (mapScale.formatRate) : une décimale sous
+ * 10 % (« 0,4 % », jamais « 0 % » pour un taux non nul) ; null quand rien n'est planifié (l'appelant
+ * écrit « — aucun plan »).
+ * @param {{ active?:number, realise?:number, rate?:number|null } | null | undefined} cov
+ * @param {'fr'|'en'} [lang]
+ * @returns {string|null}
+ */
+export function coverageRateText(cov, lang = 'fr') {
+  const active = Number(cov && cov.active) || 0;
+  if (active <= 0) return null;
+  const rate = cov.rate == null ? (Number(cov.realise) || 0) / active : Number(cov.rate);
+  return Number.isFinite(rate) ? formatRate(rate, lang) : null;
 }

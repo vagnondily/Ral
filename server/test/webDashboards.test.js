@@ -151,3 +151,22 @@ test('commentaires du front : chaque test cité existe (server/test/…)', (t) =
   }
   assert.ok(cited >= 2, `tests cités : ${cited}`);
 });
+
+test('Affectation & visites : taux écrits comme l\'alerte qui y mène (« 0,4 % », jamais « 0 % ») ; « — aucun plan » sans visite', async (t) => {
+  const m = await load(t, 'lib', 'coverage.js'); if (!m) return;
+  assert.equal(m.coverageRateText({ active: 250, realise: 1, rate: 1 / 250 }, 'fr'), '0,4 %');
+  assert.equal(m.coverageRateText({ active: 250, realise: 1, rate: 1 / 250 }, 'en'), '0.4%');
+  assert.equal(m.coverageRateText({ active: 4, realise: 3, rate: null }, 'fr'), '75 %');
+  assert.equal(m.coverageRateText({ active: 0, realise: 0, rate: 0 }), null, 'rien de planifié : jamais 0 %');
+  assert.equal(m.coverageRateText(null), null);
+  const a = await load(t, 'lib', 'alerts.js');
+  assert.equal(a.formatParam({ rate: 1 / 250 }), m.coverageRateText({ active: 250, realise: 1, rate: 1 / 250 }), 'même écriture que l\'alerte');
+  const src = fs.readFileSync(webFile('pages', 'monitoring', 'FieldVisitsPage.jsx'), 'utf8');
+  assert.doesNotMatch(src, /tr\('\{p\} %'/, 'plus de pourcentage arrondi à l\'entier');
+  assert.match(src, /coverageRateText\(r, lang\)/, 'jauges par prestataire / district');
+  assert.match(src, /coverageRateText\(ov, lang\)/, 'pied de la tuile « Réalisées »');
+  // Alertes figées dans un rapport finalisé avant le changement : l'ancien modèle reste traduit.
+  const en = await load(t, 'locales', 'en.js');
+  assert.equal(en.default['{done}/{active} réalisées ({p} %)'], '{done}/{active} completed ({p}%)');
+  assert.equal(en.default['{done}/{active} réalisées ({p})'], '{done}/{active} completed ({p})');
+});
