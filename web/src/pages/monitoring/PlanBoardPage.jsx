@@ -256,7 +256,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
       {modal === 'bulk' && <BulkModal year={year} siteIds={[...selected]} refs={refs} onClose={() => setModal(null)}
         onDone={async () => { setModal(null); setSelected(new Set()); setPending({}); await load(); }} />}
       {modal === 'add' && <AddSiteModal refs={refs} onClose={() => setModal(null)} onDone={async () => { setModal(null); await load(); }} />}
-      {modal === 'autoplan' && <PlanAutoDrawer year={year} onClose={() => setModal(null)} onDone={async () => { setModal(null); setPending({}); await load(); }} />}
+      {modal === 'autoplan' && <PlanAutoDrawer year={year} sites={data?.sites || []} onClose={() => setModal(null)} onDone={async () => { setModal(null); setPending({}); await load(); }} />}
       {modal === 'template' && <TemplateModal year={year} refs={refs} onClose={() => setModal(null)} />}
       {modal?.import && <ImportModal state={modal.import} onClose={() => setModal(null)} onDone={async () => { setModal(null); setPending({}); await load(); }} />}
     </div>

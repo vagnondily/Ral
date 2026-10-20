@@ -177,7 +177,7 @@ async function apply(tenantId, userId, body, { now = currentMonth() } = {}) {
 }
 
 /** Efface les visites prévues libres de la période (même ordre de verrous qu'« Appliquer »). */
-async function clearPlanned(tenantId, { year, from, to, risk } = {}) {
+async function clearPlanned(tenantId, { year, from, to, risk, scope = {} } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const deadline = Date.now() + LOCK_WAIT_MS;
     await repo.lockPlanAutoTx(client, tenantId, { deadline });
@@ -185,8 +185,8 @@ async function clearPlanned(tenantId, { year, from, to, risk } = {}) {
     for (let m = Number(from); m <= Number(to); m += 1) months.push(ym(year, m));
     await lockVisitMonthsTx(client, tenantId, months, { deadline });
     await client.query("SET LOCAL lock_timeout = '20s'");
-    return repo.clearPlannedTx(client, tenantId, { year, from, to, risk });
+    return repo.clearPlannedTx(client, tenantId, { year, from, to, risk, scope });
   });
 }
 
-module.exports = { preview, apply, clearPlanned, effectivePeriod, periodMonths, SAMPLE_SIZE, UNCOVERED_SAMPLE };
+module.exports = { preview, apply, clearPlanned, effectivePeriod, periodMonths, scopeOf, SAMPLE_SIZE, UNCOVERED_SAMPLE };

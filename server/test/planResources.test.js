@@ -82,3 +82,25 @@ test('unités : un TPM par zone, « bureau » sans TPM ; pic et moyenne sur les 
   assert.equal(r.peak.agentsMonth, '2026-03');
   assert.deepEqual(planResources([]).months, []);
 });
+
+test('agents : le plus petit effectif qui tient dans le mois (dichotomie), visite plus longue que le mois comprise', () => {
+  const { scheduleUnit } = require('../src/modules/tpm/planResources');
+  // 30 journées d'un jour, 10 jours de terrain → 3 agents, chacun 10 journées.
+  const days = Array.from({ length: 30 }, () => ({ span: 1 }));
+  const r = scheduleUnit(days, 10);
+  assert.equal(r.agents, 3);
+  assert.ok(r.assign.every((x) => x.fieldDay <= 10));
+  // Une journée de 2 jours au milieu : 32 jours-agent → 4 agents, rien au-delà du 10ᵉ jour.
+  const mixed = [...days.slice(0, 15), { span: 2 }, ...days.slice(15)];
+  const m = scheduleUnit(mixed, 10);
+  assert.equal(m.agents, 4);
+  assert.ok(m.assign.every((x) => x.fieldDay + x.item.span - 1 <= 10));
+  // Visites de 20 jours (0,05 suivi par jour) dans un mois de 10 jours : une par agent, au 1ᵉʳ jour,
+  // et le calcul reste rapide (dichotomie, jamais une boucle agent par agent).
+  const t0 = Date.now();
+  const long = scheduleUnit(Array.from({ length: 400 }, () => ({ span: 20 })), 10);
+  assert.equal(long.agents, 400);
+  assert.ok(long.assign.every((x) => x.fieldDay === 1));
+  assert.ok(Date.now() - t0 < 2000);
+  assert.deepEqual(scheduleUnit([], 10), { agents: 0, agentDays: 0, assign: [] });
+});

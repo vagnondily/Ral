@@ -102,7 +102,7 @@ test('ordre du RBM : la commune d\'un site urgent passe d\'abord, puis le score,
   assert.deepEqual(order, ['m-urgent:01', 'a-score:02', 'b-jamais:03', 'z-calme:04']);
 });
 
-test('répartition : chaque mois reçoit au moins le plancher ciblé/mois, la charge est étalée', () => {
+test('répartition : charge étalée ; plancher ciblé/mois atteint quand les visites dues le permettent, sinon manque signalé', () => {
   const sites = Array.from({ length: 12 }, (_, i) => site({ id: `s${String(i).padStart(2, '0')}`, parametered: true, required: 1, mmrKey: 'k' }));
   const r = generatePlan(sites, { k: { interval: 12, targetedPerMonth: 3 } }, {}, [1, 2, 3, 4], YEAR);
   assert.deepEqual(r.perMonth.map((m) => m.count), [3, 3, 3, 3]);
@@ -110,6 +110,17 @@ test('répartition : chaque mois reçoit au moins le plancher ciblé/mois, la ch
   // Plancher impossible à tenir (trop peu de sites) : manque signalé.
   const few = generatePlan(sites.slice(0, 2), { k: { interval: 12, targetedPerMonth: 3 } }, {}, [1, 2], YEAR);
   assert.ok(few.summary.monthsBelowTarget >= 1);
+  // … et jamais atteint un mois en vidant les suivants : 6 sites, plancher 3, 4 mois → 2 / 2 / 1 / 1
+  // (et non 3 / 3 / 0 / 0, qui doublerait les agents des premiers mois).
+  const six = generatePlan(sites.slice(0, 6), { k: { interval: 12, targetedPerMonth: 3 } }, {}, [1, 2, 3, 4], YEAR);
+  assert.deepEqual(six.perMonth.map((m) => m.count), [2, 2, 1, 1]);
+  assert.equal(six.summary.monthsBelowTarget, 4);
+  // Une échéance seulement quand attendre ferait PERDRE une visite : 2 exigées, écart 5, 3 mois —
+  // une seule tient de toute façon, les sites s'étalent sur les 3 mois au lieu de partir tous le 1ᵉʳ.
+  const late = Array.from({ length: 9 }, (_, i) => site({ id: `l${i}`, parametered: true, required: 2, mmrKey: 'k5' }));
+  const lr = generatePlan(late, { k5: { interval: 5 } }, {}, [10, 11, 12], YEAR, { fromMonth: '2026-10' });
+  assert.deepEqual(lr.perMonth.map((m) => m.count), [3, 3, 3]);
+  assert.equal(lr.summary.unplacedByReason.period, 9);
   // Mois déjà chargé par des visites prévues : moins de nouvelles visites ce mois-là.
   const pre = generatePlan([...sites.slice(0, 6), ...[0, 1, 2, 3].map((i) => site({ id: `old${i}`, parametered: true, required: 1, mmrKey: 'k', visits: [{ month: 1, status: 'planifie' }] }))],
     { k: { interval: 12 } }, {}, [1, 2, 3, 4, 5], YEAR);

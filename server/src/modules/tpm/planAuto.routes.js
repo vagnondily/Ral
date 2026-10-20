@@ -60,7 +60,7 @@ const applySchema = period(z.object({
   fingerprint: hex64,
   sections: z.record(z.string().max(40), hex64).optional(),
 }).strict());
-const clearSchema = period(z.object({ from: month, to: month, risk: baseFields.risk }).strict());
+const clearSchema = period(z.object({ from: month, to: month, risk: baseFields.risk, scope: scopeSchema }).strict());
 
 function parse(schema, body) {
   const parsed = schema.safeParse(body);
@@ -78,7 +78,8 @@ router.post('/apply', WRITE, asyncHandler(async (req, res) => res.json(await ser
 router.post('/clear', WRITE, asyncHandler(async (req, res) => {
   const body = parse(clearSchema, req.body);
   const { year, months } = service.periodMonths(body);
-  res.json(await service.clearPlanned(t(req), { year, from: months[0], to: months[months.length - 1], risk: body.risk }));
+  const scope = service.scopeOf(body);
+  res.json(await service.clearPlanned(t(req), { year, from: months[0], to: months[months.length - 1], risk: scope.risk, scope }));
 }));
 
 module.exports = router;

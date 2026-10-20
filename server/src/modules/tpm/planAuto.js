@@ -23,8 +23,11 @@
  * (intervalle de CHAQUE activité respecté) partent dans la même tournée. Une tournée est déclenchée
  * par le site le plus exigeant de la commune (plus petit écart), ou par un site dont c'est le
  * dernier mois possible (« échéance ») ; les autres s'y joignent. Les communes sont prises dans
- * l'ordre du RBM ; chaque mois vise au moins la part équilibrée des visites restantes et le
- * plancher ciblé/mois du MMR (manque signalé).
+ * l'ordre du RBM ; chaque mois vise la part ÉQUILIBRÉE des visites restantes (au total, les mêmes
+ * agents faisant toutes les activités, et par activité) ; une commune part plus tôt seulement si
+ * attendre ferait perdre une visite (« échéance »). Le plancher ciblé/mois du MMR est atteint dès
+ * que les visites dues le permettent, sinon le manque est signalé — jamais des visites avancées
+ * pour l'atteindre un mois en vidant les suivants. Un complément final rend le plan MAXIMAL.
  *
  * Garde-fous : intervalle face à CHAQUE visite réalisée et à chaque visite PRÉVUE À VENIR (avant ou
  * après, exercices voisins compris) et à la dernière visite effective ; une visite prévue d'un mois
@@ -357,35 +360,47 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
 
   for (const m of period) {
     const monthsLeft = period.filter((x) => x >= m).length;
-    // Part équilibrée par activité : ⌈visites restantes plaçables ÷ mois restants⌉, au moins le
-    // plancher ciblé/mois du MMR (moins les visites existantes du mois).
+    // Répartition ÉQUILIBRÉE (les mêmes agents font toutes les activités) : chaque mois vise
+    // ⌈visites encore plaçables ÷ mois restants⌉, au total ET par activité, visites existantes des
+    // mois restants comprises. Le plancher « sites à suivre par mois » du MMR est atteint chaque mois
+    // dès que les visites dues de la période le permettent (la part équilibrée le dépasse alors) ;
+    // sinon le manque est SIGNALÉ (monthsBelowTarget) — jamais des visites avancées pour l'atteindre
+    // un mois au prix des suivants (pic d'agents puis mois vides).
     const placeable = new Map();
+    const fitNow = new Map();       // visites encore plaçables à partir de m (une fois par site et par mois)
     for (const st of states.values()) {
       if (st.needLeft <= 0) continue;
       const f = fitFrom(st, m, false);
+      fitNow.set(st, f);
       if (f > 0) placeable.set(st.gKey, (placeable.get(st.gKey) || 0) + Math.min(st.needLeft, f));
     }
     // La charge TOTALE (visites existantes des mois restants comprises) est étalée : un mois déjà
     // chargé par des visites prévues reçoit d'autant moins de nouvelles visites.
+    const left = period.filter((x) => x >= m);
     const target = new Map();
+    let placeableAll = 0;
     for (const [key, n] of placeable) {
-      const existingLeft = period.filter((x) => x >= m).reduce((a, x) => a + (keyExisting.get(kM(key, x)) || 0), 0);
+      placeableAll += n;
+      const existingLeft = left.reduce((a, x) => a + (keyExisting.get(kM(key, x)) || 0), 0);
       const here = keyExisting.get(kM(key, m)) || 0;
-      const share = Math.max(0, Math.ceil((n + existingLeft) / monthsLeft) - here);
-      const fl = floorOf(key);
-      target.set(key, Math.max(share, fl != null ? fl - here : 0));
+      target.set(key, Math.max(0, Math.ceil((n + existingLeft) / monthsLeft) - here));
     }
+    const existingLeftAll = left.reduce((a, x) => a + (existingMonth.get(x) || 0), 0);
+    const monthTarget = Math.max(0, Math.ceil((placeableAll + existingLeftAll) / monthsLeft) - (existingMonth.get(m) || 0));
     const generated = new Map();
+    let generatedAll = 0;
 
     // Communes candidates : un site « déclencheur » (échéance, plus petit écart de la commune, renfort).
     const cands = [];
     for (const ck of clusterKeys) {
       const list = clusters.get(ck);
-      const needing = list.filter((st) => st.needLeft > 0 && fitFrom(st, m, false) > 0);
+      const needing = list.filter((st) => (fitNow.get(st) || 0) > 0);
       const leadStep = needing.length ? Math.min(...needing.map((st) => st.step)) : null;
       const info = list.map((st) => {
         const el = eligible(st, m);
-        const must = el && fitFrom(st, m, true) < st.needLeft;
+        // Échéance : attendre ferait perdre une visite (après m, on en placerait moins qu'à partir
+        // de m) — jamais parce que le besoin ne tiendra de toute façon pas dans la période.
+        const must = el && Math.min(st.needLeft, fitFrom(st, m, true)) < Math.min(st.needLeft, fitNow.get(st) || 0);
         const ren = st.renfortPending && m === st.renfortMonth && st.allowedSet.has(m) && !st.placedMonths.includes(m);
         return { st, el, must, ren, trigger: (el && (must || st.step === leadStep)) || ren };
       }).filter((x) => x.el || x.ren);
@@ -410,7 +425,11 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
     });
     const sitePriority = (x) => [needsMode ? 0 : Number(firstPassage(x)), Number(x.must), Number(x.ren), Number(x.st.urgent), x.st.finalScore, Number(neverVisited(x.st)), absence(x.st, m), RISK_RANK[x.st.s.riskLevel] || 0];
     for (const c of cands) {
-      const wanted = c.info.some((x) => x.trigger && (x.must || x.ren || (generated.get(x.st.gKey) || 0) < (target.get(x.st.gKey) || 0)));
+      // Une commune part si un de ses sites ne peut plus attendre (échéance, renfort), ou si le mois
+      // n'a pas encore sa part équilibrée et qu'une de ses activités non plus.
+      const forced = c.info.some((x) => (x.trigger && x.must) || x.ren);
+      const wanted = forced || (generatedAll < monthTarget
+        && c.info.some((x) => x.el && (generated.get(x.st.gKey) || 0) < (target.get(x.st.gKey) || 0)));
       if (!wanted) continue;
       let take = c.info;
       if (!needsMode) {
@@ -438,7 +457,7 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
         const regular = eligible(x.st, m);
         if (!regular && !x.ren) continue;
         placeVisit(x.st, m, regular);
-        bump(generated, x.st.gKey);
+        bump(generated, x.st.gKey); generatedAll += 1;
       }
     }
   }
@@ -552,6 +571,10 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
       fieldOffice: parametered ? (c.fieldOffice || null) : null,  // null = plan général (tous bureaux)
       mixedActivities: activities.length > 1,
       parametered,
+      // Source des valeurs (lecture seule) : ligne MMR complète, ou repli RBM (risque de chaque site
+      // — aussi pour une ligne MMR sans durée ni risque, « à compléter »).
+      source: mmrConfigured ? 'mmr' : 'rbm',
+      mmrIncomplete: parametered && !mmrConfigured,
       riskLevel: g.riskLevel || null,
       mmr: parametered ? {
         operationDuration: c.operationDuration ?? null,
@@ -624,6 +647,9 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
 
   return {
     settings: cfg,
+    // Règles appliquées (lecture seule, affichées avec leur source) : repli RBM = mois entre deux
+    // visites selon le risque du site ; le reste vient du MMR ligne par ligne (byActivity.mmr).
+    rules: { rbmMonths: { ...DEFAULT_FREQUENCY }, agentsPerVehicle: cfg.agentsPerVehicle, fieldDaysPerMonth: cfg.fieldDaysPerMonth },
     year,
     months: period,
     yearHasGrid,

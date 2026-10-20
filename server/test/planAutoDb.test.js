@@ -136,6 +136,14 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
     const p7 = await service.preview(T, body);
     await service.apply(T, U, { ...body, fingerprint: p7.fingerprint, sections: p7.sections });
     assert.ok((await newVisits()).length > 0);
+    // « Effacer » suit le périmètre : un district seulement, les autres restent.
+    const districtOf = new Map(inputs.sites.map((x) => [x.id, x.district]));
+    const made7 = await newVisits();
+    const dist = districtOf.get(made7[0].site_id);
+    await service.clearPlanned(T, { year, from: Number(now.slice(5, 7)), to: 12, scope: { district: dist } });
+    const after = await newVisits();
+    assert.ok(after.length < made7.length, 'les visites du district sont effacées');
+    assert.ok(after.some((v) => districtOf.get(v.site_id) !== dist), 'les autres districts restent');
     await service.clearPlanned(T, { year, from: Number(now.slice(5, 7)), to: 12 });
     // Seules restent les visites d'un mois déjà facturé par leur TPM (jamais effacées, retour 82).
     const left = (await newVisits()).map((x) => x.id);

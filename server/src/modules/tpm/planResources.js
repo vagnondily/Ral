@@ -36,16 +36,29 @@ function visitCost(visitsPerDay) {
 
 /**
  * Jours de terrain d'un mois (numéros de jour), dans l'ordre du calendrier : du lundi au vendredi ;
- * du lundi au samedi quand les jours de terrain dépassent les jours de semaine.
+ * du lundi au samedi quand les jours de terrain dépassent les jours de semaine. Calendrier mis en
+ * mémoire par mois (appelé pour chaque créneau).
  */
-function fieldDays(year, month, workingDays = 0) {
-  const week = []; const six = [];
-  const n = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  for (let d = 1; d <= n; d += 1) {
-    const wd = new Date(Date.UTC(year, month - 1, d)).getUTCDay();
-    if (wd >= 1 && wd <= 5) week.push(d);
-    if (wd >= 1 && wd <= 6) six.push(d);
+const CALENDAR = new Map();
+function monthCalendar(year, month) {
+  const k = `${year}-${month}`;
+  let c = CALENDAR.get(k);
+  if (!c) {
+    const week = []; const six = [];
+    const n = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    for (let d = 1; d <= n; d += 1) {
+      const wd = new Date(Date.UTC(year, month - 1, d)).getUTCDay();
+      if (wd >= 1 && wd <= 5) week.push(d);
+      if (wd >= 1 && wd <= 6) six.push(d);
+    }
+    c = { week, six };
+    if (CALENDAR.size > 600) CALENDAR.clear();
+    CALENDAR.set(k, c);
   }
+  return c;
+}
+function fieldDays(year, month, workingDays = 0) {
+  const { week, six } = monthCalendar(year, month);
   return workingDays > week.length ? six : week;
 }
 
@@ -70,25 +83,35 @@ function communeDays(visits) {
 const round1 = (n) => Math.round(n * 10) / 10;
 
 /**
- * Ressources d'un mois pour une unité. `items` = journées dans l'ordre des tournées.
- * @returns {{ agents, agentDays, workingDays, assign: {item, agent, fieldDay}[] }}
+ * Ressources d'un mois pour une unité. `items` = journées dans l'ordre des tournées, données une à
+ * une à l'agent libre le plus tôt. Agents = le plus petit nombre (au moins ⌈journées ÷ jours de
+ * terrain⌉) pour lequel toutes les journées tiennent dans les jours de terrain du mois — une visite
+ * plus longue que le mois, seule sur son agent, commence le 1ᵉʳ jour. Recherche dichotomique (la
+ * place d'une journée ne recule jamais avec un agent de plus) : jamais une boucle agent par agent.
+ * @returns {{ agents, agentDays, assign: {item, agent, fieldDay}[] }}
  */
+function assignDays(items, agents) {
+  const free = Array(agents).fill(1);
+  return items.map((d) => {
+    let a = 0; for (let i = 1; i < agents; i += 1) if (free[i] < free[a]) a = i;
+    const f = free[a]; free[a] += d.span;
+    return { item: d, agent: a + 1, fieldDay: f };
+  });
+}
 function scheduleUnit(items, workingDays) {
   const agentDays = items.reduce((a, d) => a + d.span, 0);
   if (!agentDays) return { agents: 0, agentDays: 0, assign: [] };
-  let agents = Math.max(1, Math.ceil(agentDays / workingDays));
-  let assign;
-  for (;;) {
-    const free = Array(agents).fill(1);
-    assign = items.map((d) => {
-      let a = 0; for (let i = 1; i < agents; i += 1) if (free[i] < free[a]) a = i;
-      const f = free[a]; free[a] += d.span;
-      return { item: d, agent: a + 1, fieldDay: f };
-    });
-    if (assign.every((x) => x.fieldDay + x.item.span - 1 <= workingDays) || agents >= items.length) break;
-    agents += 1;
+  const fits = (assign) => assign.every((x) => x.fieldDay + x.item.span - 1 <= Math.max(workingDays, x.item.span));
+  // Une journée par agent tient toujours : au plus autant d'agents que de journées.
+  let hi = items.length;
+  let lo = Math.min(hi, Math.max(1, Math.ceil(agentDays / workingDays)));
+  let best = assignDays(items, hi);
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const a = assignDays(items, mid);
+    if (fits(a)) { hi = mid; best = a; } else lo = mid + 1;
   }
-  return { agents, agentDays, assign };
+  return { agents: hi, agentDays, assign: best };
 }
 
 /**
@@ -234,4 +257,4 @@ function planResources(visits = [], { agentsPerVehicle = 4, fieldDaysPerMonth = 
   };
 }
 
-module.exports = { U, visitCost, fieldDays, fieldDate, communeDays, scheduleUnit, planResources };
+module.exports = { U, visitCost, fieldDays, fieldDate, communeDays, assignDays, scheduleUnit, planResources };

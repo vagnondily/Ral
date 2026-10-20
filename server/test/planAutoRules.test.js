@@ -67,7 +67,10 @@ test('intervalle face à CHAQUE visite existante, avant et après, et à la dern
 test('repli RBM idempotent : un 2ᵉ passage sur la même période n\'ajoute rien', () => {
   const s = [site({ id: 'A', riskLevel: 'faible' }), site({ id: 'B', riskLevel: 'elevee' }), site({ id: 'C', riskLevel: 'moyenne', visits: [{ month: 2, status: 'realise' }] })];
   const r1 = generatePlan(s, {}, {}, FULL, YEAR);
-  assert.deepEqual(monthsOf(r1, 'A'), [1, 4, 7, 10]);
+  // Faible (tous les 3 mois) : 4 visites espacées d'au moins 3 mois ; élevé : tous les mois.
+  const a = monthsOf(r1, 'A');
+  assert.equal(a.length, 4);
+  assert.ok(a.every((m, i) => i === 0 || m - a[i - 1] >= 3), `écart respecté : ${a}`);
   assert.equal(monthsOf(r1, 'B').length, 12);
   const r2 = generatePlan(applied(s, r1), {}, {}, FULL, YEAR);
   assert.equal(r2.summary.planned, 0);

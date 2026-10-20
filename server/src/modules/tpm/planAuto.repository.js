@@ -239,23 +239,31 @@ const CLEARABLE_SQL = `v.provider_source = 'zone' AND ${AUTO_RESTAMPABLE_SQL}
 /**
  * Efface les visites prévues LIBRES de la période (CLEARABLE_SQL), sur le client de l'appelant
  * (qui a pris les verrous des mois) : jamais une visite réalisée, annulée, figée, facturée,
- * motivée, datée, affectée à un agent, ni d'un mois échu. Renvoie le nombre supprimé et le nombre
- * de prévues conservées.
+ * motivée, datée, affectée à un agent, ni d'un mois échu. Le périmètre est celui de la
+ * planification (bureau — antennes comprises —, activité, district, risque). Renvoie le nombre
+ * supprimé et le nombre de prévues conservées.
  * @param {number} year  exercice ; from/to = numéros de mois (1..12).
  */
-async function clearPlannedTx(client, tenantId, { year, from, to, risk } = {}) {
+async function clearPlannedTx(client, tenantId, { year, from, to, risk, scope = {} } = {}) {
   const fromD = `${year}-${String(from).padStart(2, '0')}-01`;
   const toD = `${year}-${String(to).padStart(2, '0')}-01`;
   const params = [tenantId, fromD, toD];
-  let riskFilter = '';
-  if (risk) {
-    params.push(risk);
-    riskFilter = ` AND v.site_id IN (SELECT id FROM sites WHERE tenant_id = $1 AND risk_level = $${params.length})`;
+  const conds = [];
+  const add = (v, sql) => { params.push(v); conds.push(sql(`$${params.length}`)); };
+  const r = risk || scope.risk || null;
+  if (r) add(r, (p) => `s.risk_level = ${p}`);
+  if (scope.fieldOfficeId) {
+    add(scope.fieldOfficeId, (p) => `(s.field_office_id = ${p}::uuid OR s.field_office_id IN
+      (SELECT o.id FROM field_offices o WHERE o.tenant_id = $1 AND o.parent_id = ${p}::uuid))`);
   }
-  const scope = `v.tenant_id = $1 AND v.status = 'planifie'
-        AND v.period_month >= $2::date AND v.period_month <= $3::date${riskFilter}`;
-  const { rowCount } = await client.query(`DELETE FROM site_visits v WHERE ${scope} AND ${CLEARABLE_SQL}`, params);
-  const { rows: [{ n }] } = await client.query(`SELECT count(*)::int AS n FROM site_visits v WHERE ${scope}`, params);
+  if (scope.activity) add(String(scope.activity), (p) => `lower(btrim(s.activity)) = lower(btrim(${p}::text))`);
+  if (scope.district) add(String(scope.district), (p) => `lower(btrim(s.district)) = lower(btrim(${p}::text))`);
+  const siteFilter = conds.length
+    ? ` AND v.site_id IN (SELECT s.id FROM sites s WHERE s.tenant_id = $1 AND ${conds.join(' AND ')})` : '';
+  const where = `v.tenant_id = $1 AND v.status = 'planifie'
+        AND v.period_month >= $2::date AND v.period_month <= $3::date${siteFilter}`;
+  const { rowCount } = await client.query(`DELETE FROM site_visits v WHERE ${where} AND ${CLEARABLE_SQL}`, params);
+  const { rows: [{ n }] } = await client.query(`SELECT count(*)::int AS n FROM site_visits v WHERE ${where}`, params);
   return { deleted: rowCount, kept: n };
 }
 

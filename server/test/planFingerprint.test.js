@@ -16,7 +16,7 @@ const base = () => ({
     { id: 'a', district: 'D', commune: 'E', activity: 'A', riskLevel: 'faible', visits: [], monthStatus: {} },
   ],
 });
-const params = { year: 2026, months: [10, 11, 12], fromMonth: '2026-10', settings: { overflowPct: 0 } };
+const params = { year: 2026, months: [10, 11, 12], fromMonth: '2026-10', settings: { strategy: 'besoins' }, writeSchedule: false };
 
 test('canonique : clés et sites dans un autre ordre → même empreinte', () => {
   assert.equal(canonical({ b: 1, a: [2, { d: 1, c: 2 }] }), canonical({ a: [2, { c: 2, d: 1 }], b: 1 }));
@@ -30,6 +30,9 @@ test('chaque changement est nommé par sa section', () => {
   const ref = fingerprintInputs(base(), params);
   const cases = [
     ['registre', (i) => { i.sites[0].riskLevel = 'elevee'; }],
+    ['registre', (i) => { i.sites[0].urgent = true; }],              // priorité du RBM : ordre des communes
+    ['registre', (i) => { i.sites[1].finalScore = 7; }],
+    ['visites', (i) => { i.sites[1].outsideVisits = [{ month: '2025-12', status: 'planifie' }]; }], // exercice voisin
     ['visites', (i) => { i.sites[0].visits.push({ month: 11, status: 'planifie' }); }],
     ['visites', (i) => { i.sites[0].cancelledMonths = []; }],
     ['activation', (i) => { i.sites[1].monthStatus = { 11: true }; }],

@@ -570,6 +570,17 @@ or navy rail.
     `/rbm/sites`), jamais la liste complète.
 - **Couverture : une seule source** (retour 110) : `GET /api/dashboards/coverage` (`dashboards/coverage.*`, mise en forme pure `coverageDefinitions.js`), lu par la Synthèse ET « Couverture & performance » ; univers = sites actifs de la période ; « suivi » = visite déclarée OU données reçues rattachées au site ; chaque découpage (activité, bureau, district) se somme aux tuiles. Ne pas recalculer une couverture ailleurs ; « Sites prévus → suivis » (sites) ≠ « Exécution du plan » (visites).
 - **Effacer des visites prévues** : seulement les « libres » (`planAuto.repository.CLEARABLE_SQL` : TPM de zone, ni figées ni facturées, sans date ni agent, mois en cours ou à venir) — jamais une visite réalisée, annulée, motivée, d'un mois échu.
+- **Planification automatique** (retours 82, 107, 108 ; moteur pur `tpm/planAuto.js` + `planResources.js`, oracle
+  INDÉPENDANT `planAutoInvariants.js`, `planAuto.service/repository/routes`, `PlanAutoDrawer.jsx`) : stratégie « besoins »
+  par défaut (toutes les visites exigées du MMR, repli RBM selon le risque du site ; la capacité déclarée est comparée,
+  jamais un plafond) ou « capacité déclarée » ; communes entières toutes activités (district + commune, GPS en second),
+  ordre du RBM, part équilibrée par mois (jamais de visites avancées pour un plancher), complément final : plan maximal ;
+  écart = intervalle MMR arrondi au supérieur, ramené pour que les exigées tiennent dans la durée ; « échu » = avant le
+  mois courant ; ancrages = réalisées + prévues À VENIR, exercices voisins compris. Ressources (une seule règle) :
+  journées-agent par commune, agents par unité (TPM de zone ou « Bureau (suivi interne) ») et par mois, véhicules par jour
+  et district. Valeurs MMR / RBM en lecture seule dans le tiroir. « Appliquer » : calcul hors verrous, puis relecture et
+  empreinte sous les verrous des mois Y-1 → Y+1 (une échéance de 20 s) ; dates et « Agent N » écrits seulement si l'option
+  est cochée. Tout écrivain de plan prend les verrous de mois (`visitLocks`) AVANT les lignes de sites.
 - **TPM d'une visite = contrat de la zone** (retour 58, migration 070, `tpm/tpmAttribution.js` + jumelle SQL
   `mems_tpm_cells`) : TPM du contrat de suivi actif qui couvre la zone (commune sinon district) du site ce
   mois-là ; seules les MODIFICATIONS sont stockées (`tpm_zone_overrides`, raison 10–500) et journalisées
