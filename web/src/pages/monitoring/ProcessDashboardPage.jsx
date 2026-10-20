@@ -164,7 +164,8 @@ export default function ProcessDashboardPage({ onNavigate }) {
               <WatchCard rows={watch} error={res.cov.error} onNavigate={onNavigate} />
             </div>
             <ActivityCoverageCard cov={covData} error={res.cov.error} periodText={pLabel} />
-            <FormsCard forms={ov?.perForm} error={res.ov.error} onOpen={() => go('processus', 'donnees')} />
+            <FormsCard forms={ov?.perForm} error={res.ov.error} onOpen={() => go('processus', 'donnees')}
+              onOpenForm={(id, tab) => onNavigate && onNavigate('processus', 'donnees', id, tab)} />
           </div>
 
           <div className="note" style={{ marginTop: 16 }}>
@@ -266,7 +267,7 @@ function OfficesCard({ rows, overall, error, onOpen, onNavigate }) {
 }
 
 /** Conformité par fiche ; une fiche sans indicateur ou non rattachée dit quoi faire. */
-function FormsCard({ forms, error, onOpen }) {
+function FormsCard({ forms, error, onOpen, onOpenForm }) {
   const { tr } = useI18n();
   return (
     <div className="card biz-card syn-full">
@@ -301,7 +302,9 @@ function FormsCard({ forms, error, onOpen }) {
                     <td>
                       {todo && <span className="text-warn">{todo}</span>}
                       {!f.activityCategory && <>{todo ? ' · ' : ''}<span className="text-warn">{tr('non rattachée à une activité')}</span></>}
-                      {(!f.indicators || !f.activityCategory) && <> · <button type="button" className="inline-link" onClick={onOpen}>{tr('Compléter la fiche')} <ArrowRight size={12} aria-hidden="true" /></button></>}
+                      {/* Retour 85 : le lien mène à l'action — le modèle proposé (Configuration) ou le rattachement (fiche). */}
+                      {!f.indicators && <> · <button type="button" className="inline-link" onClick={() => (onOpenForm ? onOpenForm(f.id, 'config') : onOpen())}>{tr('Créer les indicateurs proposés')} <ArrowRight size={12} aria-hidden="true" /></button></>}
+                      {f.indicators > 0 && !f.activityCategory && <> · <button type="button" className="inline-link" onClick={() => (onOpenForm ? onOpenForm(f.id) : onOpen())}>{tr('Rattacher à une activité')} <ArrowRight size={12} aria-hidden="true" /></button></>}
                       {!todo && f.activityCategory && f.indicators > 0 && <span className="muted">—</span>}
                     </td>
                   </tr>

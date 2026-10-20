@@ -336,8 +336,11 @@ export const api = {
   monDeleteForm: (id, confirm) => request(`/api/monitoring/forms/${id}`, { method: 'DELETE', query: confirm ? { confirm } : undefined }),
   monFields: (id) => request(`/api/monitoring/forms/${id}/fields`),
   monIndicators: (id) => request(`/api/monitoring/forms/${id}/indicators`),
-  monTemplate: (id) => request(`/api/monitoring/forms/${id}/template`),
-  monApplyTemplate: (id, items) => request(`/api/monitoring/forms/${id}/template/apply`, { method: 'POST', body: { items } }),
+  // Modèle d'indicateurs : celui de l'activité, sinon le proposé d'après les variables, ou `template` (clé choisie).
+  monTemplate: (id, template = null) => request(`/api/monitoring/forms/${id}/template`, { query: template ? { template } : undefined }),
+  monApplyTemplate: (id, items, { template = null } = {}) => request(`/api/monitoring/forms/${id}/template/apply`, { method: 'POST', body: { items, ...(template ? { template } : {}) } }),
+  // « Créer les N indicateurs proposés » : les éléments cochés d'office par le serveur (même règle que la carte).
+  monApplyProposed: (id, { template = null } = {}) => request(`/api/monitoring/forms/${id}/template/apply`, { method: 'POST', body: { proposed: true, ...(template ? { template } : {}) } }),
   monCreateIndicator: (id, input) => request(`/api/monitoring/forms/${id}/indicators`, { method: 'POST', body: input }),
   monUpdateIndicator: (indId, input) => request(`/api/monitoring/indicators/${indId}`, { method: 'PATCH', body: input }),
   monDeleteIndicator: (indId) => request(`/api/monitoring/indicators/${indId}`, { method: 'DELETE' }),
