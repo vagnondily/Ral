@@ -18,7 +18,8 @@
  *     enregistrement ; la visite prévue passe « indisponible » (interne), la réalisée ne change pas ;
  *     journal avant → après ; rapports attendus : X « non applicable d'office (TPM indisponible) »,
  *     rapport interne attendu ; fin de l'indisponibilité : la visite revient à X. Gabarits mensuels de
- *     X : « non applicable d'office » dans la liste des rapports (SQL) ⇔ sur la carte (règle pure).
+ *     X : « non applicable d'office » dans la liste des rapports (SQL) ⇔ sur la carte (règle pure) ;
+ *     une facture pluri-mensuelle commencée avant la période couvre le mois.
  *  4. Base : motif trop court refusé (CHECK), journal en inscription seule pour le rôle applicatif,
  *     parité de la jumelle SQL mems_tpm_cells avec la règle pure sur tous les sites × 4 mois.
  *  5. Lien TPM ↔ contrat (U2) : le premier plan de collecte d'un TPM sur le contrat en fait le TPM de
@@ -254,6 +255,14 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
     assert.deepEqual([w.a.st, w.a.p, w.a.k], ['contrat', X, K]);
     made.unavailability = [];
     assert.deepEqual(await stubParity(), { [M1]: false, [M2]: true }, 'fin de l indisponibilité : de nouveau attendu');
+    // Facture pluri-mensuelle (U9) commencée AVANT la période et qui couvre M1 : le document l'emporte en M1.
+    const [{ id: multi }] = await q(
+      `INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, period_end, kind, reported_amount, status, created_by, submitted_by, submitted_at, edited_by, edited_at)
+       VALUES ($1, $2, $3, $4, $5, 'financier', 0, 'soumis', $6, $6, now(), $6, now()) RETURNING id`, [T, X, K, `${addMonth(M1, -1)}-01`, `${M1}-01`, U]);
+    made.stubs.push(multi);
+    const withMulti = (await reports.expectedReports(T, { period: { from: M1, to: M1 }, today: M1 })).rows
+      .find((r) => r.unit.providerId === X && r.contract && r.contract.id === K);
+    assert.deepEqual([withMulti.status, withMulti.reason], ['soumis', 'document'], 'facture de M−1 à M1 : M1 couvert');
     // Les gabarits rattachent X à K : retirés avant l'étape suivante (titulaire seul).
     await q('DELETE FROM tpm_reports WHERE id = ANY ($1::uuid[])', [made.stubs]);
     made.stubs = [];
