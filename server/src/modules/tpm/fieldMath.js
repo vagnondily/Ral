@@ -173,8 +173,12 @@ function shapeCoverageFacts(groupRows) {
  * maps providerId → travel days; `providerLabel` maps providerId → name.
  *   journée de visite = une date d'un AGENT : les visites d'un même agent le même jour (une commune
  *     de la tournée, plusieurs sites — plan généré avec « Écrire les dates et les agents ») font UNE
- *     journée, la même mesure que les journées-agent du plan ; une visite datée sans agent compte
- *     une journée à elle seule (comme avant) ;
+ *     journée ; une visite datée sans agent compte une journée à elle seule (comme avant) ;
+ *   DIFFÉRENCE ASSUMÉE avec les journées-agent du plan (planResources) : une visite de plusieurs
+ *     jours (moins d'un suivi par jour au MMR) ne porte que sa date de DÉBUT, seule enregistrée ;
+ *     elle compte donc UNE journée ici, alors que le plan compte (et réserve) toute sa durée.
+ *     Pour un plan où chaque visite tient en un jour (≥ 1 suivi par jour), les deux mesures
+ *     coïncident ;
  *   total = journées de visite + jours de déplacement
  */
 function collectionDays(visits, travelByProvider = {}, providerLabel = {}) {

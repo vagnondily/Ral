@@ -64,6 +64,10 @@ export default {
   // Suivi de processus
   'Jours de collecte d\'un TPM = visites datées non annulées + jours de déplacement saisis.': 'Collection days of a TPM = dated, non-cancelled visits + entered travel days.',
   'Exécution des visites déclarées par TPM': 'Declared-visit execution by TPM',
+  'Jours de visite = une journée par agent et par date (une visite datée sans agent = une journée) ; + jours de déplacement (saisie manuelle) = total des jours à budgéter par TPM.':
+    'Visit days = one day per agent and date (a dated visit without an agent = one day); + travel days (manual entry) = total days to budget per TPM.',
+  'Jours de collecte d\'un TPM = une journée par agent et par date de visite non annulée (plusieurs sites d\'un même agent le même jour = une journée ; une visite datée sans agent = une journée) + jours de déplacement saisis. Une visite de plusieurs jours n\'y compte que sa date de début, seule enregistrée.':
+    'A TPM’s collection days = one day per agent and date of a non-cancelled visit (several sites by the same agent on the same day = one day; a dated visit without an agent = one day) + travel days entered. A visit lasting several days counts only its start date there, the only date stored.',
   'Exécution des visites déclarées par TPM et par mois : visites réalisées ÷ (prévues + réalisées). « — » = aucune visite.': 'Declared-visit execution by TPM and month: completed visits ÷ (planned + completed). « — » = no visit.',
   'Combien de sites sont couverts, par niveau de risque (MMR), par programme et par TPM. Recalculé en direct depuis les sites et les visites.':
     'How many sites are covered, by risk level (MMR), by programme and by TPM. Recomputed live from sites and visits.',

@@ -310,7 +310,7 @@ export default function FieldVisitsPage({ canEdit }) {
         {collDays.length > 0 && (
           <div className="card biz-card" style={{ marginTop: 16 }}>
             <div className="card-header"><div className="card-title">{tr('Jours de collecte (pour le budget)')}</div>
-              <div className="card-sub">{tr('Jours de visite = visites datées ; + jours de déplacement (saisie manuelle) = total des jours à budgéter par TPM.')}</div></div>
+              <div className="card-sub">{tr('Jours de visite = une journée par agent et par date (une visite datée sans agent = une journée) ; + jours de déplacement (saisie manuelle) = total des jours à budgéter par TPM.')}</div></div>
             <div className="table-wrap"><table className="table">
               <thead><tr><th>{tr('TPM')}</th><th className="num">{tr('Jours de visite')}</th><th className="num">{tr('Jours de déplacement')}</th><th className="num">{tr('Total jours')}</th></tr></thead>
               <tbody>

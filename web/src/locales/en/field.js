@@ -77,8 +77,8 @@ export default {
   'Couverture par prestataire': 'Coverage by provider',
   'Couverture par district': 'Coverage by district',
   'Jours de collecte (pour le budget)': 'Collection days (for the budget)',
-  'Jours de visite = visites datées ; + jours de déplacement (saisie manuelle) = total des jours à budgéter par prestataire.':
-    'Visit days = dated visits; + travel days (manual entry) = total days to budget per provider.',
+  'Jours de visite = une journée par agent et par date (une visite datée sans agent = une journée) ; + jours de déplacement (saisie manuelle) = total des jours à budgéter par prestataire.':
+    'Visit days = one day per agent and date (a dated visit without an agent = one day); + travel days (manual entry) = total days to budget per provider.',
   'Jours de visite': 'Visit days',
   'Jours de déplacement': 'Travel days',
   'Total jours': 'Total days',

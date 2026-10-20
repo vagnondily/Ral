@@ -1,7 +1,8 @@
 /**
  * Verrous des mois de visites — UNE clé par mois pour les écrivains de plan qui la prennent
  * (« Générer depuis le RBM », coches du Plan de suivi, modification groupée du Plan de suivi,
- * plan généré automatiquement et son effacement) : deux écritures du même site × mois ne se
+ * plan généré automatiquement et son effacement, création et modification d'une visite — sa date
+ * et son agent réservent des créneaux du plan) : deux écritures du même site × mois ne se
  * croisent jamais. Verrous consultatifs de transaction, pris dans l'ordre CROISSANT des mois
  * (aucun interblocage entre ces écrivains), réentrants dans la même transaction, libérés au
  * COMMIT / ROLLBACK. Toujours AVANT les verrous de lignes (sites FOR UPDATE) et avant le verrou
