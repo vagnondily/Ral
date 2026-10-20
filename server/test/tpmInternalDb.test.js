@@ -17,7 +17,8 @@
  *  3. Indisponibilité de X (service, rôle applicatif, verrous des mois puis d'attribution) : aperçu =
  *     enregistrement ; la visite prévue passe « indisponible » (interne), la réalisée ne change pas ;
  *     journal avant → après ; rapports attendus : X « non applicable d'office (TPM indisponible) »,
- *     rapport interne attendu ; fin de l'indisponibilité : la visite revient à X.
+ *     rapport interne attendu ; fin de l'indisponibilité : la visite revient à X. Gabarits mensuels de
+ *     X : « non applicable d'office » dans la liste des rapports (SQL) ⇔ sur la carte (règle pure).
  *  4. Base : motif trop court refusé (CHECK), journal en inscription seule pour le rôle applicatif,
  *     parité de la jumelle SQL mems_tpm_cells avec la règle pure sur tous les sites × 4 mois.
  *  5. Lien TPM ↔ contrat (U2) : le premier plan de collecte d'un TPM sur le contrat en fait le TPM de
@@ -60,7 +61,7 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
   const su = new Client({ connectionString: SU_URL });
   await su.connect();
   const q = async (sql, params) => (await su.query(sql, params)).rows;
-  const made = { visits: [], reports: [], plans: [], contract: null, contract2: null, partners: [], unavailability: [], overrides: [], areas: [], siteCommune: null };
+  const made = { visits: [], reports: [], stubs: [], plans: [], contract: null, contract2: null, partners: [], unavailability: [], overrides: [], areas: [], siteCommune: null };
   try {
     const [{ id: T }] = await q('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1');
     const [{ id: U }] = await q('SELECT id FROM users WHERE tenant_id = $1 ORDER BY email LIMIT 1', [T]);
@@ -188,6 +189,26 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
     });
     assert.equal((await read()).a.p, X);
 
+    // Gabarits mensuels de X sur K (POST /reports/generate-monthly) : la liste des rapports (jumelle SQL
+    // stubNotApplicableSql) et la carte « Rapports attendus » (règle pure) disent la même chose (U12).
+    assert.equal((await reports.generateMonthlyStubs(T, { contractId: K, partnerId: X, createdBy: U })).created, 2);
+    made.stubs = (await q('SELECT id FROM tpm_reports WHERE tenant_id = $1 AND partner_id = $2 AND contract_id = $3', [T, X, K])).map((r) => r.id);
+    const stubParity = async () => {
+      const list = await reports.listReports(T, { period: { from: M1, to: M2 }, partnerId: X, contractId: K });
+      const exp = await reports.expectedReports(T, { period: { from: M1, to: M2 }, today: M1 });
+      const seen = {};
+      for (const r of list) {
+        const m = String(r.periodMonth).slice(0, 7);
+        const row = exp.rows.find((e) => e.month === m && e.unit.providerId === X && e.contract && e.contract.id === K);
+        assert.ok(row, `ligne attendue de X × K en ${m}`);
+        assert.equal(r.autoNotApplicable, row.status === 'non_applicable' && row.auto, `${m} : liste et carte d accord`);
+        seen[m] = r.autoNotApplicable;
+      }
+      return seen;
+    };
+    // M1 : X a une visite prévue → attendu ; M2 : aucune visite de X → non applicable d'office.
+    assert.deepEqual(await stubParity(), { [M1]: false, [M2]: true });
+
     // 3. Indisponibilité de X en M1 (service, rôle applicatif) : aperçu = enregistrement.
     const REASON = 'Équipe de test mobilisée sur une urgence';
     const prev = await unavailability.preview(T, { providerId: X, from: M1, to: M1, mode: 'poser', reason: REASON });
@@ -215,6 +236,7 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
     const own = exp.rows.find((r) => r.unit.kind === 'interne');
     assert.ok(own && own.visits.planned >= 1, 'rapport interne attendu');
     assert.ok(!exp.rows.some((r) => r.status === 'en_retard' && r.unit.providerId === X));
+    assert.deepEqual(await stubParity(), { [M1]: true, [M2]: true }, 'X indisponible : son gabarit de M1 aussi');
 
     // 4. Base : motif trop court refusé ; journal en inscription seule pour le rôle applicatif.
     await assert.rejects(q("INSERT INTO tpm_unavailability (tenant_id, provider_id, period_month, reason, batch_id) VALUES ($1, $2, $3, 'court', gen_random_uuid())",
@@ -231,6 +253,10 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
     w = await read();
     assert.deepEqual([w.a.st, w.a.p, w.a.k], ['contrat', X, K]);
     made.unavailability = [];
+    assert.deepEqual(await stubParity(), { [M1]: false, [M2]: true }, 'fin de l indisponibilité : de nouveau attendu');
+    // Les gabarits rattachent X à K : retirés avant l'étape suivante (titulaire seul).
+    await q('DELETE FROM tpm_reports WHERE id = ANY ($1::uuid[])', [made.stubs]);
+    made.stubs = [];
 
     // 5. Lien TPM ↔ contrat (U2) : titulaire H (mise en œuvre) → « sans_tpm » ; le premier plan de
     //    collecte de Q sur K fait de Q le TPM du contrat (la visite prévue le suit) ; le supprimer : retour.
@@ -301,6 +327,7 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
     // Base jetable : on retire ce que le test a créé (le journal, inaltérable, garde ses lignes).
     if (made.visits.length) await q('DELETE FROM site_visits WHERE id = ANY ($1::uuid[])', [made.visits]);
     if (made.reports.length) await q('DELETE FROM tpm_reports WHERE id = ANY ($1::uuid[])', [made.reports]);
+    if (made.stubs.length) await q('DELETE FROM tpm_reports WHERE id = ANY ($1::uuid[])', [made.stubs]);
     if (made.plans.length) await q('DELETE FROM tpm_collection_plans WHERE id = ANY ($1::uuid[])', [made.plans]);
     await q('DELETE FROM tpm_unavailability WHERE provider_id = ANY ($1::uuid[])', [made.partners]).catch(() => {});
     if (made.overrides.length) await q('DELETE FROM tpm_zone_overrides WHERE id = ANY ($1::uuid[])', [made.overrides]);
