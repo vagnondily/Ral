@@ -23,6 +23,8 @@ const FILTERS = [
   { id: 'update', label: 'À mettre à jour' },
 ];
 const rowId = (formId, code) => `tpl-row-${formId}-${code}`;
+// Écart affiché en police à chasse fixe : codes seulement (variable, valeurs), jamais un libellé ni une méthode.
+const CODE_KEYS = new Set(['sourceField', 'positiveValue', 'naValues']);
 
 /**
  * Modèle d'indicateurs de la fiche (retours n° 12, 66 et 85) : les indicateurs
@@ -82,9 +84,12 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
   const fieldNames = useMemo(() => new Set(fieldsByName.keys()), [fieldsByName]);
   const items = useMemo(() => data?.template?.items || [], [data]);
   const counts = useMemo(() => {
-    const c = { sure: 0, probable: 0, a_verifier: 0, none: 0, existing: 0, taken: 0, checked: 0, drift: 0 };
+    const c = { sure: 0, probable: 0, a_verifier: 0, none: 0, pending: 0, existing: 0, taken: 0, checked: 0, drift: 0 };
     for (const it of items) {
-      c[it.suggestion?.confidence || 'none'] += 1;
+      // Badges qui se somment au total : une option attendue avec les données est comptée à part (« En attente »).
+      if (it.suggestion?.confidence) c[it.suggestion.confidence] += 1;
+      else if (it.suggestion?.pendingData) c.pending += 1;
+      else c.none += 1;
       if (it.existing) c.existing += 1;
       if (it.existing?.drift) c.drift += 1;
       if (it.taken) c.taken += 1;
@@ -199,7 +204,7 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
       if (target) {
         // Refus qui nomme l'élément (type de variable incompatible) : le motif sur SA ligne, rien n'a été créé.
         const msg = ie.code === 'type_mismatch'
-          ? tr('La variable « {field} » ({type}) ne convient pas à la méthode « {agg} » de cet indicateur : choisissez une autre variable.', {
+          ? tr('La variable « {field} » ({type}) ne convient pas à la méthode de cet indicateur ({agg}) : choisissez une autre variable.', {
             field: ie.field || rows[ie.item]?.field || '—', type: typeText(ie.type, tr), agg: AGG_LABEL[ie.agg] ? tr(AGG_LABEL[ie.agg]) : (ie.agg || '—'),
           })
           : e.message;
@@ -272,10 +277,12 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
   ) : null;
   const driftNote = counts.drift > 0 && (
     <Alert tone="warning" icon={RefreshCw}>
-      {tr('{n} indicateur(s) créé(s) avant une correction du modèle : leur définition diffère de celle du modèle. Rien n\'a été modifié ; la modification proposée est affichée sur chaque ligne.', { n: formatInt(counts.drift) })}
-      {canEdit && driftItems.length > 0 && <>{' '}<Button size="sm" variant="secondary" icon={RefreshCw} loading={updating === 'all'} disabled={Boolean(updating)} onClick={() => update(driftItems)}>
-        {tr('Tout mettre à jour ({n})', { n: formatInt(driftItems.length) })}</Button></>}
-      {' '}<button type="button" className="inline-link" onClick={() => { setExpanded(true); setFilter('update'); }}>{tr('Voir lesquels')}</button>
+      {tr('{n} indicateur(s) créé(s) depuis le modèle ont une définition différente du modèle actuel (le plus souvent : créés avant une correction du modèle). Rien n\'a été modifié ; la modification proposée est affichée sur chaque ligne.', { n: formatInt(counts.drift) })}
+      <div className="tpl-alert-actions">
+        {canEdit && driftItems.length > 0 && <Button size="sm" variant="secondary" icon={RefreshCw} loading={updating === 'all'} disabled={Boolean(updating)} onClick={() => update(driftItems)}>
+          {tr('Tout mettre à jour ({n})', { n: formatInt(driftItems.length) })}</Button>}
+        <button type="button" className="inline-link" onClick={() => { setExpanded(true); setFilter('update'); }}>{tr('Voir lesquels')}</button>
+      </div>
     </Alert>
   );
 
@@ -314,7 +321,7 @@ export default function TemplateBindingCard({ form, canEdit, refreshKey = 0, onA
           })}
           <span><Badge tone={null} icon={MinusCircle}>{tr(NO_CONFIDENCE.label)}</Badge> {formatInt(counts.none)}</span>
           {summary.subtable > 0 && <span title={tr(WARNING_LABEL.groupe)}><Badge tone={null} icon={Layers}>{tr('Sous-tableau')}</Badge> {formatInt(summary.subtable)}</span>}
-          {summary.pendingData > 0 && <span><Badge tone={null} icon={Clock}>{tr('En attente des données')}</Badge> {formatInt(summary.pendingData)}</span>}
+          {counts.pending > 0 && <span><Badge tone={null} icon={Clock}>{tr('En attente des données')}</Badge> {formatInt(counts.pending)}</span>}
           {counts.existing > 0 && <span className="muted">{tr('{n} déjà créé(s)', { n: formatInt(counts.existing) })}</span>}
           {hiddenChecked > 0 && <span className="tpl-hidden-checked">{tr('{n} coché(s) masqué(s) par le filtre (créés aussi)', { n: formatInt(hiddenChecked) })}</span>}
         </div>
@@ -404,7 +411,7 @@ function TemplateRow({ it, formId, row: r, field, fieldNames, canEdit, rowError,
             <span className="muted">{tr(ds.former ? 'Créé avant une correction du modèle.' : 'Différent du modèle actuel.')}</span>
             <ul className="tpl-drift-list" aria-label={tr('Modification proposée')}>
               {ds.changes.map((c) => (
-                <li key={c.key}>{tr(driftKeyLabel(c.key))} : <span className="mono">{driftValue(c.key, c.from, tr)}</span> → <span className="mono">
+                <li key={c.key}>{tr(driftKeyLabel(c.key))} : <span className={CODE_KEYS.has(c.key) ? 'mono' : undefined}>{driftValue(c.key, c.from, tr)}</span> → <span className={CODE_KEYS.has(c.key) ? 'mono' : undefined}>
                   {c.key === 'sourceField' && c.to == null
                     ? tr('{v} (pas encore dans cette fiche)', { v: (it.variables || [])[0] || '—' })
                     : driftValue(c.key, c.to, tr)}</span></li>

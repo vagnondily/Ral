@@ -3,16 +3,28 @@
  * (TemplateBindingCard), « Créer les N indicateurs proposés » (TemplateProposal).
  * Feuille propre au lot, importée par ces composants — rien n'est ajouté à
  * styles.css (les règles .tpl-head / .tpl-table / .tpl-done d'avant y restent).
+ * Elle est chargée AVANT styles.css : une règle qui en remplace une de styles.css
+ * doit peser plus (ex. « table.tpl-table … »).
  * Jetons de la couche v6 seulement (--text*, --border, --surface-2, --blue-*,
  * --orange-*, --red-*, --radius*) : le thème sombre suit sans règle à part.
  */
 
 /* Choix du modèle : proposé d'après les variables, choisi, ou aucun. */
-.tpl-notes { padding-bottom: 0; }
+.card-body.tpl-notes { padding-bottom: 0; }
 .tpl-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 8px; }
 .tpl-choice-label { font-size: 13px; color: var(--text-muted); }
-.tpl-choice .select-sm { height: 32px; font-size: 13px; padding: 4px 8px; min-width: 0; max-width: 100%; width: min(420px, 100%); }
+.tpl-choice .select-sm { height: 32px; font-size: 13px; padding: 4px 8px; min-width: 0; width: auto; max-width: 100%; }
 .tpl-cov { font-variant-numeric: tabular-nums; color: var(--text-strong); font-weight: 600; }
+
+/* Actions d'une alerte (« Tout mettre à jour », « Voir lesquels ») : sur leur propre ligne. */
+.tpl-alert-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 8px; }
+
+/* Colonnes saisissables plus étroites : la table tient dans la carte sur un écran de bureau.
+   Sélecteurs « table.tpl-table » : cette feuille est chargée AVANT styles.css (importée par une page,
+   main.jsx importe App avant styles.css), une règle de même poids y serait écrasée. */
+table.tpl-table .input-sm { width: 100%; min-width: 150px; max-width: 250px; }
+table.tpl-table .select-sm { width: 100%; min-width: 120px; max-width: 210px; }
+table.tpl-table td:last-child, table.tpl-table th:last-child { white-space: nowrap; }
 
 /* Compte des cases cochées masquées par le filtre : ce qui part n'est jamais caché. */
 .tpl-hidden-checked { font-size: 12.5px; color: var(--text-muted); }
@@ -26,8 +38,8 @@
 /* Refus qui nomme l'élément (400 de « Créer ») ou d'une mise à jour (PATCH) : sur SA ligne. */
 .tpl-row-error { margin-top: 6px; display: flex; gap: 6px; align-items: flex-start; font-size: 12.5px; color: var(--red-text); font-weight: 600; overflow-wrap: anywhere; }
 .tpl-row-error svg { flex: none; margin-top: 2px; }
-.tpl-table tr.has-error td { background: var(--red-bg); }
-.tpl-table tr.has-error td:first-child { box-shadow: inset 2px 0 0 var(--red); }
+.tpl-table tbody tr.has-error > td { background: var(--red-bg); }
+.tpl-table tbody tr.has-error > td:first-child { box-shadow: inset 2px 0 0 var(--red); }
 
 /* Indicateur créé avant une correction du modèle : « à mettre à jour ». */
 .tpl-drift { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; }

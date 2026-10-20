@@ -62,10 +62,10 @@ export default {
   'Choisissez un modèle ci-dessous si l\'un d\'eux est le bon, ou créez les indicateurs un par un (« Nouvel indicateur »).': 'Choose a template below if one of them is right, or create the indicators one by one (“New indicator”).',
   'Les indicateurs de vos tableaux de bord de référence, domaine par domaine, avec la variable du formulaire proposée pour chacun. Seules les variables trouvées et vérifiées (type, liste de choix, hors sous-tableau) sont cochées d\'office : vérifiez, cochez, puis créez. Un indicateur déjà créé n\'est jamais modifié par le modèle.': 'The indicators of your reference dashboards, domain by domain, with the form variable suggested for each. Only variables that were found and checked (type, choice list, not in a sub-table) are ticked by default: check, tick, then create. An indicator already created is never changed by the template.',
   // Refus de « Créer » sur sa ligne
-  'La variable « {field} » ({type}) ne convient pas à la méthode « {agg} » de cet indicateur : choisissez une autre variable.': 'Variable “{field}” ({type}) does not fit this indicator\'s “{agg}” method: choose another variable.',
+  'La variable « {field} » ({type}) ne convient pas à la méthode de cet indicateur ({agg}) : choisissez une autre variable.': 'Variable “{field}” ({type}) does not fit this indicator\'s method ({agg}): choose another variable.',
   'Rien n\'a été créé : « {label} » est à corriger (ligne signalée ci-dessous).': 'Nothing was created: “{label}” needs fixing (row flagged below).',
   // Indicateurs à mettre à jour
-  '{n} indicateur(s) créé(s) avant une correction du modèle : leur définition diffère de celle du modèle. Rien n\'a été modifié ; la modification proposée est affichée sur chaque ligne.': '{n} indicator(s) created before a template correction: their definition differs from the template. Nothing was changed; the suggested change is shown on each row.',
+  '{n} indicateur(s) créé(s) depuis le modèle ont une définition différente du modèle actuel (le plus souvent : créés avant une correction du modèle). Rien n\'a été modifié ; la modification proposée est affichée sur chaque ligne.': '{n} indicator(s) created from the template have a definition that differs from the current template (most often: created before a template correction). Nothing was changed; the suggested change is shown on each row.',
   'Tout mettre à jour ({n})': 'Update all ({n})',
   'Voir lesquels': 'See which',
   'Libellé à mettre à jour': 'Label to update',
