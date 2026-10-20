@@ -33,9 +33,9 @@ test('chaque changement est nommé par sa section', () => {
     ['registre', (i) => { i.sites[0].urgent = true; }],              // priorité du RBM : ordre des communes
     ['registre', (i) => { i.sites[1].finalScore = 7; }],
     ['visites', (i) => { i.sites[1].outsideVisits = [{ month: '2025-12', status: 'planifie' }]; }], // exercice voisin
-    // Date et agent déjà écrits (ils réservent des créneaux) ; bureau racine du suivi interne.
-    ['visites', (i) => { i.sites[0].visits[0].date = '2026-06-02'; }],
-    ['visites', (i) => { i.sites[0].visits[0].agent = 'Agent 1'; }],
+    // Date et agent déjà écrits d'une visite d'un mois ouvert (ils réservent un créneau) ; bureau
+    // racine du suivi interne d'un site sans TPM de zone.
+    ['visites', (i) => { i.sites[1].visits = [{ month: 11, status: 'planifie', date: '2026-11-02', agent: 'Agent 1' }]; }],
     ['registre', (i) => { i.sites[1].unitOfficeId = 'o2'; }],
     ['visites', (i) => { i.sites[0].visits.push({ month: 11, status: 'planifie' }); }],
     ['visites', (i) => { i.sites[0].cancelledMonths = []; }],
@@ -54,4 +54,41 @@ test('chaque changement est nommé par sa section', () => {
   const later = fingerprintInputs(base(), { ...params, fromMonth: '2026-11' });
   assert.deepEqual(changedSections(ref.sections, later.sections), ['parametres']);
   assert.deepEqual(SECTIONS, ['registre', 'visites', 'activation', 'mmr', 'tpm', 'parametres']);
+});
+
+test('date et agent : seulement là où le moteur les lit (mois ouvert, « Agent N », visite prévue ou réalisée)', () => {
+  const withVisit = (v) => { const i = base(); i.sites[1].visits = [{ month: 11, status: 'planifie', ...v }]; return i; };
+  const fp = (i) => fingerprintInputs(i, params);
+  const ref = fp(withVisit({ date: '2026-11-02', agent: 'Agent 1' }));
+  // Lus : autre date, autre agent générique → « visites ».
+  assert.deepEqual(changedSections(ref.sections, fp(withVisit({ date: '2026-11-03', agent: 'Agent 1' })).sections), ['visites']);
+  assert.deepEqual(changedSections(ref.sections, fp(withVisit({ date: '2026-11-02', agent: 'Agent 2' })).sections), ['visites']);
+  // Même agent écrit autrement (le moteur lit son numéro) : rien ne change.
+  assert.equal(fp(withVisit({ date: '2026-11-02', agent: ' agent 1 ' })).fingerprint, ref.fingerprint);
+  // Non lus : agent nommé, date sans agent, agent sans date → comme une visite sans créneau.
+  const bare = fp(withVisit({}));
+  for (const v of [{ date: '2026-11-02', agent: 'Rakoto' }, { date: '2026-11-02', agent: 'Rabe' }, { date: '2026-11-02' }, { agent: 'Agent 1' }]) {
+    assert.equal(fp(withVisit(v)).fingerprint, bare.fingerprint, JSON.stringify(v));
+  }
+  // Mois hors période (octobre, quand la période est novembre–décembre) : date et agent non lus.
+  const p2 = { ...params, months: [11, 12] };
+  const oct = (v) => { const i = base(); i.sites[1].visits = [{ month: 10, status: 'planifie', ...v }]; return fingerprintInputs(i, p2); };
+  assert.equal(oct({ date: '2026-10-21', agent: 'Agent 1' }).fingerprint, oct({}).fingerprint);
+  // Une visite annulée ne réserve rien.
+  const cancelled = (v) => { const i = base(); i.sites[1].visits = [{ month: 11, status: 'annule', ...v }]; return fingerprintInputs(i, params); };
+  assert.equal(cancelled({ date: '2026-11-02', agent: 'Agent 1' }).fingerprint, cancelled({}).fingerprint);
+});
+
+test('bureau racine : compté seulement pour un site sans TPM de zone un mois ouvert', () => {
+  const ref = fingerprintInputs(base(), params);
+  // Le site « b » a un TPM toute l'année : son bureau ne change pas son unité.
+  const moved = base(); moved.sites[0].unitOfficeId = 'o9';
+  assert.equal(fingerprintInputs(moved, params).fingerprint, ref.fingerprint);
+  // Son TPM s'arrête en octobre : en novembre il est suivi par son bureau → compté.
+  const gap = base(); gap.sites[0].tpmSegments = [{ from: '2026-01', to: '2026-10', providerId: 'p', providerName: 'P' }];
+  const gapMoved = base(); gapMoved.sites[0].tpmSegments = gap.sites[0].tpmSegments; gapMoved.sites[0].unitOfficeId = 'o9';
+  assert.deepEqual(changedSections(fingerprintInputs(gap, params).sections, fingerprintInputs(gapMoved, params).sections), ['registre']);
+  // Le site « a » sans TPM : compté.
+  const a = base(); a.sites[1].unitOfficeId = 'o9';
+  assert.deepEqual(changedSections(ref.sections, fingerprintInputs(a, params).sections), ['registre']);
 });

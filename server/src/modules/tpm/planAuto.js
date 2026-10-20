@@ -56,7 +56,7 @@
  */
 const { frequencyFor, DEFAULT_FREQUENCY } = require('./rbmMath');
 const { isActiveMonth } = require('../common/siteActivity');
-const { planResources } = require('./planResources');
+const { planResources, agentNumber } = require('./planResources');
 
 const RISK_RANK = { elevee: 3, moyenne: 2, faible: 1 };
 const REASONS = ['capacity', 'inactive', 'cancelled', 'gap', 'period'];
@@ -542,8 +542,9 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
     for (const v of s.visits || []) {
       if (!periodSet.has(Number(v.month))) continue;
       if (v.status === 'planifie') pushVisit(s, Number(v.month), false, v);
-      // Une visite réalisée datée et affectée garde son créneau (jamais réattribué), sans être à faire.
-      else if (v.status === 'realise' && v.date && v.agent) { pushVisit(s, Number(v.month), false, v); toDo[toDo.length - 1].reserveOnly = true; }
+      // Une visite réalisée datée et affectée à un agent générique (« Agent N ») garde son créneau
+      // (jamais réattribué), sans être à faire ; un agent nommé ne réserve rien (planFingerprint).
+      else if (v.status === 'realise' && v.date && agentNumber(v.agent) != null) { pushVisit(s, Number(v.month), false, v); toDo[toDo.length - 1].reserveOnly = true; }
     }
   }
   const byId = new Map(all.map((s) => [s.id, s]));

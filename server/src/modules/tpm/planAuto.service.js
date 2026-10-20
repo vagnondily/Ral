@@ -18,7 +18,7 @@
  */
 const { withTenantTransaction } = require('../../config/db');
 const { badRequest, conflict } = require('../../middleware/errors');
-const { localDay } = require('../common/localDay');
+const { localDay, appTimeZone } = require('../common/localDay');
 const { lockVisitMonthsTx, LOCK_WAIT_MS } = require('./visitLocks');
 const { generatePlan, firstPlannableMonth, normalizeSettings } = require('./planAuto');
 const { fingerprintInputs, changedSections } = require('./planFingerprint');
@@ -39,6 +39,14 @@ function clockOf({ now, today } = {}, date = new Date()) {
   const month = now || d.slice(0, 7);
   const day = today && String(today).slice(0, 7) === month ? String(today).slice(0, 10) : (month === d.slice(0, 7) ? d : `${month}-01`);
   return { now: month, today: day };
+}
+
+/**
+ * Horloge du serveur pour l'écran (« Générer le plan ») : le même mois courant que le calcul —
+ * jamais un mois que l'écran proposerait et que le serveur refuserait (400 period_past).
+ */
+function serverClock(date = new Date()) {
+  return { ...clockOf({}, date), timeZone: appTimeZone() };
 }
 
 /**
@@ -216,4 +224,4 @@ async function clearPlanned(tenantId, { year, from, to, risk, scope = {} } = {})
   });
 }
 
-module.exports = { preview, apply, clearPlanned, effectivePeriod, periodMonths, scopeOf, clockOf, todayFor, SAMPLE_SIZE, UNCOVERED_SAMPLE };
+module.exports = { preview, apply, clearPlanned, effectivePeriod, periodMonths, scopeOf, clockOf, todayFor, serverClock, SAMPLE_SIZE, UNCOVERED_SAMPLE };

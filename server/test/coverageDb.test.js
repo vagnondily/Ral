@@ -119,7 +119,7 @@ test('couverture en base : service = jumeau pur, découpages sommés aux tuiles,
       const statuses = new Map((gridBy.get(s.id) || []).map((g) => [`2019-${String(g.month).padStart(2, '0')}`, g.active]));
       const dataMonths = data.filter((d) => d.site_id === s.id && compatible(d.cat, s.act)).map((d) => d.month);
       const site = { statuses, gridYears: [2019], forbidden: s.forbidden, visits: visitBy.get(s.id) || [], dataMonths };
-      const f = siteRangeFacts(site, PERIOD, { todayMonth: new Date().toISOString().slice(0, 7) });
+      const f = siteRangeFacts(site, PERIOD, { todayMonth: require('../src/modules/common/localDay').localDay().slice(0, 7) });
       const activeRef = activeAt(statuses, PERIOD.to, site);
       return { ...s, f, counts: siteCounts({ ...f, forbidden: s.forbidden, activeRef, due: due.has(s.id), risk: s.risk }) };
     });

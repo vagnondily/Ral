@@ -22,7 +22,7 @@ db.withTenantTransaction = async (_tenantId, fn) => fn({
 });
 const field = require('../src/modules/tpm/field.repository');
 const { siteMonthFactsCtes } = require('../src/modules/common/siteActivitySql');
-const today = new Date().toISOString().slice(0, 7);
+const today = require('../src/modules/common/localDay').localDay().slice(0, 7); // mois courant du serveur (jour local)
 const H1 = { from: '2026-01', to: '2026-06' };
 const factsCall = () => calls.find((c) => /GROUPING SETS/.test(c.sql));
 const providerCall = () => calls.find((c) => /AS "sitesPlanned"/.test(c.sql) && /FROM site_visits v LEFT JOIN partners/.test(c.sql));

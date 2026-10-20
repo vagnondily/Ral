@@ -20,8 +20,10 @@
  *    terrain⌉, plus un agent par visite plus longue que le mois), les journées étant données dans
  *    l'ordre des tournées (district, puis commune) à l'agent libre le plus tôt ;
  *  - un créneau DÉJÀ écrit (visite prévue ou réalisée datée, « Agent N ») est réservé sur TOUTE sa
- *    durée (une visite à moins d'un suivi par jour couvre plusieurs jours à partir de sa date) : les
- *    nouvelles journées de cet agent viennent après, jamais le même jour (aucun agent à deux endroits) ;
+ *    durée (une visite à moins d'un suivi par jour couvre plusieurs jours à partir de sa date), quel
+ *    que soit le calendrier du passage qui l'a écrite (lundi–vendredi ou lundi–samedi : on ne stocke
+ *    que la date de début) : les nouvelles journées de cet agent viennent après, jamais le même jour
+ *    (aucun agent à deux endroits) ;
  *  - véhicules d'un jour = Σ par district ⌈agents du district ce jour ÷ agents par véhicule⌉ (un
  *    agent compté une fois par jour) ; pic et moyenne sur les jours de terrain utilisés ;
  *  - comparaison aux personnes déclarées au MMR : une INFORMATION (écart signalé), jamais une limite.
@@ -99,6 +101,16 @@ function agentNumber(agent) {
 function parseDay(v) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v || ''));
   return m ? { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) } : null;
+}
+
+/** Les `n` premiers jours de `list` (numéros croissants) strictement après le jour `d0`. */
+function nextDays(list, d0, n) {
+  const out = [];
+  for (const d of list) {
+    if (out.length >= n) break;
+    if (d > d0) out.push(d);
+  }
+  return out;
 }
 
 /**
@@ -239,25 +251,32 @@ function planResources(visits = [], { agentsPerVehicle = 4, fieldDaysPerMonth = 
       const dateOf = (f) => dates[Math.max(1, Math.min(f, dates.length)) - 1];
       const dayIndex = new Map(dates.map((d, i) => [d, i + 1]));
       // Créneaux déjà écrits (« Agent N » daté) : réservés sur TOUTE leur durée — une visite à moins
-      // d'un suivi par jour prend ⌈coût ÷ U⌉ jours de terrain consécutifs à partir de sa date (on ne
-      // stocke que la date de début) ; comptés sur le calendrier complet du mois, puis ceux encore
-      // utilisables : une visite de deux jours commencée hier réserve aujourd'hui.
-      const fullDates = fieldDays(year, M, wanted).map((d) => `${year}-${pad(M)}-${pad(d)}`);
-      const fullIndex = new Map(fullDates.map((d, i) => [d, i]));
+      // d'un suivi par jour prend span = ⌈coût ÷ U⌉ jours de terrain consécutifs à partir de sa date.
+      // On ne stocke que la date de début, et le calendrier du passage qui l'a écrite (lundi–vendredi
+      // ou lundi–samedi, selon les jours voulus) peut différer de celui-ci : jours RÉSERVÉS = la date
+      // et les span − 1 jours de terrain qui la suivent sur l'un OU l'autre calendrier (union, même
+      // quand la date n'est pas un jour de terrain de ce passage) ; jours COMPTÉS (journées-agent,
+      // véhicules) = la date et les span − 1 jours suivants du calendrier de ce passage. Seuls les jours
+      // à partir d'aujourd'hui comptent : une visite de deux jours commencée hier réserve aujourd'hui.
+      const cal = monthCalendar(year, M);
+      const ownDays = fieldDays(year, M, wanted);
+      const t = parseDay(today);
+      const fromDay = t && t.year === year && t.month === M ? t.day : 1;
+      const iso = (d) => `${year}-${pad(M)}-${pad(d)}`;
       const coveredOf = (v) => {
         const n = agentNumber(v.agent);
-        const i0 = n != null && v.date ? fullIndex.get(String(v.date)) : undefined;
-        if (i0 === undefined) return null;
+        const p = n != null ? parseDay(v.date) : null;
+        if (!p || p.year !== year || p.month !== M) return null;
         const span = Math.max(1, Math.ceil(visitCost(v.visitsPerDay).cost / U));
-        const fds = [];
-        for (let k = 0; k < span && i0 + k < fullDates.length; k += 1) {
-          const fd = dayIndex.get(fullDates[i0 + k]);
-          if (fd != null) fds.push(fd);
-        }
-        return fds.length ? { agentNo: n, fieldDays: fds } : null;
+        const held = [...new Set([p.day, ...nextDays(cal.week, p.day, span - 1), ...nextDays(cal.six, p.day, span - 1)])]
+          .filter((d) => d >= fromDay);
+        if (!held.length) return null;
+        const counted = [p.day, ...nextDays(ownDays, p.day, span - 1)].filter((d) => d >= fromDay);
+        const fds = held.map((d) => dayIndex.get(iso(d))).filter((x) => x != null);
+        return { agentNo: n, fieldDays: fds, dates: counted.map(iso) };
       };
       const reserved = new Map(); const fixedCells = new Set(); const fixed = [];
-      const reserve = (c) => reserved.set(c.agentNo, Math.max(reserved.get(c.agentNo) || 0, ...c.fieldDays));
+      const reserve = (c) => { if (c.fieldDays.length) reserved.set(c.agentNo, Math.max(reserved.get(c.agentNo) || 0, ...c.fieldDays)); };
       // Créneau d'une visite RÉALISÉE (datée, « Agent N ») : seulement réservé — ni visite à faire,
       // ni agent à compter.
       const todo = [];
@@ -281,9 +300,9 @@ function planResources(visits = [], { agentsPerVehicle = 4, fieldDaysPerMonth = 
         const ck = v.clusterKey || `${dk}|c:${norm(v.commune)}`;
         const c = !v.isNew ? coveredOf(v) : null;
         if (c) {
-          fixed.push({ ...v, agentNo: c.agentNo, fieldDays: c.fieldDays, districtKey: dk, clusterKey: ck });
+          fixed.push({ ...v, agentNo: c.agentNo, dates: c.dates, districtKey: dk, clusterKey: ck });
           reserve(c);
-          for (const fd of c.fieldDays) fixedCells.add(`${c.agentNo}|${fd}`);
+          for (const d of c.dates) fixedCells.add(`${c.agentNo}|${d}`);
           continue;
         }
         if (!communes.has(ck)) communes.set(ck, { districtKey: dk, district: v.district || null, commune: v.commune || null, clusterKey: ck, visits: [] });
@@ -331,13 +350,13 @@ function planResources(visits = [], { agentsPerVehicle = 4, fieldDaysPerMonth = 
         }
         zone(x.item.districtKey, x.item.clusterKey, x.item.commune, x.item.span, x.item.visits.length);
       }
-      // Visites écrites : chaque jour couvert compte (agent-jours, véhicules), une seule fois par agent.
+      // Visites écrites : chaque jour compté (agent-jours, véhicules), une seule fois par agent.
       const fixedDays = new Set();
       for (const f of fixed) {
         let fresh = 0;
-        for (const fd of f.fieldDays) {
-          mark(dateOf(fd), f.districtKey, f.agentNo);
-          const cell = `${f.agentNo}|${fd}`;
+        for (const d of f.dates) {
+          mark(d, f.districtKey, f.agentNo);
+          const cell = `${f.agentNo}|${d}`;
           if (!fixedDays.has(cell)) { fixedDays.add(cell); fresh += 1; }
         }
         zone(f.districtKey, f.clusterKey, f.commune, fresh, 1);

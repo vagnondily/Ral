@@ -80,7 +80,7 @@ test('page RBM : visite réalisée + données + visite prévue → dernière vis
 });
 
 test('Plan de suivi : « Dernière visite » = réalisée ou collecte réelle ; la visite prévue est rendue à part', async () => {
-  const thisMonth = new Date().toISOString().slice(0, 7);
+  const thisMonth = require('../src/modules/common/localDay').localDay().slice(0, 7); // mois courant du serveur (jour local)
   const sites = [
     row({ id: 'planned-only', name: 'B', plannedMonths: [thisMonth], months: [], monthStatus: null }),
     row({ id: 'visited', name: 'A', fieldVisitMonth: '2026-03', months: [], monthStatus: null }),
