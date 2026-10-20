@@ -37,7 +37,7 @@ function definition(formId) {
 let state;
 function reset(over = {}) {
   state = {
-    calls: [], inserted: [], updates: [], ind: null,
+    calls: [], inserted: [], updates: [], inds: [], failUpdate: null,
     form: { id: FORM, code: SMP_ID, label: 'Suivi SMP', activityCategory: null, submissions: 1159 },
     def: definition(SMP_ID),
     dataKeys: [],
@@ -75,18 +75,23 @@ db.withTenantTransaction = async (tenantId, fn) => fn({
       return { rowCount: n, rows: [] };
     }
     if (/^UPDATE monitoring_forms SET updated_at/.test(s)) return { rowCount: 1, rows: [] };
-    // Mise à jour depuis le modèle (applyTemplateUpdate + updateIndicatorTx).
-    if (/^SELECT id, form_id AS "formId", code, label, template_code AS "templateCode", source_field AS "sourceField", agg, .* FOR UPDATE$/.test(s)) {
-      return { rows: state.ind && params[1] === state.ind.id ? [{ formId: FORM, naValues: [], target: null, direction: 'higher_better', ...state.ind }] : [] };
+    // Mise à jour depuis le modèle (applyTemplateUpdates + updateIndicatorTx).
+    if (/^SELECT id, form_id AS "formId", code, label, template_code AS "templateCode", source_field AS "sourceField", agg, .* AND id = ANY\(\$3::uuid\[\]\) ORDER BY id FOR UPDATE$/.test(s)) {
+      return { rows: state.inds.filter((i) => params[2].includes(i.id)).sort((a, b) => a.id.localeCompare(b.id))
+        .map((i) => ({ formId: FORM, naValues: [], target: null, direction: 'higher_better', ...i })) };
     }
-    if (/^SELECT id, code, label, activity_category AS "activityCategory" FROM monitoring_forms WHERE tenant_id = \$1 AND id = \$2$/.test(s)) return { rows: [state.form] };
     if (/^SELECT id, form_id AS "formId", source_field AS "sourceField", agg, positive_value AS "positiveValue", target, na_values AS "naValues" FROM monitoring_indicators .* FOR UPDATE$/.test(s)) {
-      return { rows: [{ id: state.ind.id, formId: FORM, sourceField: state.ind.sourceField, agg: state.ind.agg, positiveValue: state.ind.positiveValue, target: null, naValues: state.ind.naValues || [] }] };
+      const i = state.inds.find((x) => x.id === params[1]);
+      return { rows: i ? [{ id: i.id, formId: FORM, sourceField: i.sourceField, agg: i.agg, positiveValue: i.positiveValue, target: null, naValues: i.naValues || [] }] : [] };
     }
+    if (/^(SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT) tpl_update$/.test(s)) return { rows: [] };
     if (/^SELECT name FROM monitoring_form_fields .* UNION SELECT name FROM monitoring_calc_fields/.test(s)) {
       return { rows: [...state.def.fields.map((f) => ({ name: f.name })), ...state.calc.map((c) => ({ name: c.name }))] };
     }
-    if (/^UPDATE monitoring_indicators SET/.test(s)) { state.updates.push(params); return { rowCount: 1, rows: [] }; }
+    if (/^UPDATE monitoring_indicators SET/.test(s)) {
+      if (state.failUpdate === params[1]) throw Object.assign(new Error('violates check constraint'), { code: '23514' });
+      state.updates.push(params); return { rowCount: 1, rows: [] };
+    }
     throw new Error(`requête inattendue : ${s.slice(0, 140)}`);
   },
 });
@@ -275,35 +280,52 @@ const MIARO_FORM = () => ({ id: FORM, code: MIARO_ID, label: 'MIARO', activityCa
 const IND_ID = '44444444-4444-4444-4444-444444444444';
 const miaroOld = () => ({ id: IND_ID, code: 'MIARO_NO_DELAY', templateCode: 'MIARO_NO_DELAY', label: 'Absence de retard', sourceField: 'risk_delay', agg: 'percent_value', positiveValue: '0' });
 
-test('mise à jour depuis le modèle (R6) : la correction montrée est recalculée sous verrou, puis écrite', async () => {
-  reset({ def: definition(MIARO_ID), form: MIARO_FORM(), ind: miaroOld(), indicators: [miaroOld()] });
+const SPI_ID = '55555555-5555-5555-5555-555555555555';
+const spiOld = () => ({ id: SPI_ID, code: 'MIARO_SPI', templateCode: 'MIARO_SPI', label: 'Score SPI', sourceField: 'SitePerformanceIndex', agg: 'mean', positiveValue: null });
+const STUNT_ITEM = (code) => require('../src/modules/monitoring/indicatorTemplates').templateByKey('STUNT').items.find((i) => i.code === code);
+const scans = () => state.calls.filter((c) => /jsonb_object_keys/.test(c.sql)).length;
+
+test('mise à jour depuis le modèle (R6, T3) : corrections montrées recalculées sous verrou et écrites — UNE lecture des variables pour le lot', async () => {
+  reset({ def: definition(MIARO_ID), form: MIARO_FORM(), inds: [miaroOld(), spiOld()], indicators: [miaroOld(), spiOld()] });
   // Ce que la carte montre (même règle) est exactement ce que le serveur recalcule et écrit.
   const card = await repo.formTemplate(T, FORM);
-  const expected = card.template.items.find((i) => i.code === 'MIARO_NO_DELAY').existing.drift.patch;
-  assert.equal(expected.sourceField, 'r_no_delay');
-  const out = await repo.applyTemplateUpdate(T, IND_ID, { mode: 'corrections', expected });
-  assert.deepEqual(out.patch, expected);
-  assert.equal(state.updates.length, 1);
-  const lock = state.calls.find((c) => /template_code AS "templateCode", source_field/.test(c.sql) && /FOR UPDATE$/.test(c.sql));
-  assert.ok(lock, 'indicateur verrouillé avant le recalcul');
+  const shown = (code) => card.template.items.find((i) => i.code === code).existing.drift.patch;
+  assert.equal(shown('MIARO_NO_DELAY').sourceField, 'r_no_delay');
+  assert.deepEqual(shown('MIARO_SPI'), { target: 75, label: STUNT_ITEM('MIARO_SPI').label }); // R4 : cible de l'ancien chemin
+  state.calls = [];
+  const out = await repo.applyTemplateUpdates(T, FORM, { mode: 'corrections', items: [
+    { id: IND_ID, expected: shown('MIARO_NO_DELAY') }, { id: SPI_ID, expected: shown('MIARO_SPI') },
+  ] });
+  assert.deepEqual(out.results.map((r) => [r.id, r.ok]), [[IND_ID, true], [SPI_ID, true]]);
+  assert.equal(state.updates.length, 2);
+  assert.equal(scans(), 1, 'une seule lecture des clés des soumissions pour tout le lot');
+  const lock = state.calls.find((c) => /AND id = ANY\(\$3::uuid\[\]\) ORDER BY id FOR UPDATE$/.test(c.sql));
+  assert.deepEqual(lock.params[2], [IND_ID, SPI_ID].sort(), 'indicateurs verrouillés dans l\'ordre des id');
+  assert.ok(state.calls.findIndex((c) => /FROM monitoring_forms .* FOR UPDATE$/.test(c.sql)) < state.calls.indexOf(lock), 'fiche verrouillée d\'abord (même ordre que « Créer »)');
 });
 
-test('mise à jour depuis le modèle (R6) : indicateur modifié entre-temps (variable de l\'utilisateur) → 409 drift_changed, rien d\'écrit', async () => {
-  const item = require('../src/modules/monitoring/indicatorTemplates').templateByKey('STUNT').items.find((i) => i.code === 'MIARO_NO_DELAY');
-  const expected = { sourceField: 'r_no_delay', agg: 'percent_yes', positiveValue: '1', label: item.label };
+test('mise à jour depuis le modèle (R6) : ligne changée entre-temps, périmée ou supprimée → refus DE LA LIGNE, les autres écrites', async () => {
+  const delay = { sourceField: 'r_no_delay', agg: 'percent_yes', positiveValue: '1', label: STUNT_ITEM('MIARO_NO_DELAY').label };
+  const spi = { target: 75, label: STUNT_ITEM('MIARO_SPI').label };
   const def = definition(MIARO_ID);
   def.fields.push({ name: 'DelayStart', type: 'select_one', label: 'DelayStart', listName: null });
-  // Dans un autre onglet : passé sur SA variable, « % = 0 » gardé — ce n'est plus une correction.
-  reset({ def, form: MIARO_FORM(), ind: { ...miaroOld(), sourceField: 'DelayStart' } });
-  await assert.rejects(repo.applyTemplateUpdate(T, IND_ID, { mode: 'corrections', expected }),
-    (err) => err.statusCode === 409 && err.details.code === 'drift_changed');
+  // Dans un autre onglet : MIARO_NO_DELAY passé sur SA variable (« % = 0 » gardé) — ce n'est plus une correction.
+  reset({ def, form: MIARO_FORM(), inds: [{ ...miaroOld(), sourceField: 'DelayStart' }, spiOld()] });
+  const out = await repo.applyTemplateUpdates(T, FORM, { items: [{ id: IND_ID, expected: delay }, { id: SPI_ID, expected: spi }] });
+  assert.deepEqual(out.results.map((r) => [r.ok, r.code || null, r.status || null]), [[false, 'drift_changed', 409], [true, null, null]]);
+  assert.equal(state.updates.length, 1);
+  // Proposition montrée périmée (autre valeur attendue) ; indicateur supprimé : chacun son refus.
+  reset({ def: definition(MIARO_ID), form: MIARO_FORM(), inds: [miaroOld()] });
+  const out2 = await repo.applyTemplateUpdates(T, FORM, { items: [{ id: IND_ID, expected: { ...delay, positiveValue: '0' } }, { id: SPI_ID, expected: spi }] });
+  assert.deepEqual(out2.results.map((r) => r.code), ['drift_changed', 'indicator_not_found']);
   assert.equal(state.updates.length, 0);
-  // Proposition montrée périmée (autre valeur attendue) : refusée aussi.
-  reset({ def: definition(MIARO_ID), form: MIARO_FORM(), ind: miaroOld() });
-  await assert.rejects(repo.applyTemplateUpdate(T, IND_ID, { mode: 'corrections', expected: { ...expected, positiveValue: '0' } }),
-    (err) => err.statusCode === 409 && err.details.code === 'drift_changed');
-  assert.equal(state.updates.length, 0);
-  // Indicateur supprimé : null (404 indicator_not_found à la route).
-  reset({ def: definition(MIARO_ID), form: MIARO_FORM(), ind: null });
-  assert.equal(await repo.applyTemplateUpdate(T, IND_ID, { expected }), null);
+  // Une ligne refusée par la base (contrainte) : point de sauvegarde annulé pour ELLE, l'autre écrite.
+  reset({ def: definition(MIARO_ID), form: MIARO_FORM(), inds: [miaroOld(), spiOld()], failUpdate: IND_ID });
+  const out3 = await repo.applyTemplateUpdates(T, FORM, { items: [{ id: IND_ID, expected: delay }, { id: SPI_ID, expected: spi }] });
+  assert.deepEqual(out3.results.map((r) => [r.ok, r.code || null]), [[false, 'invalid_definition'], [true, null]]);
+  assert.ok(state.calls.some((c) => c.sql === 'ROLLBACK TO SAVEPOINT tpl_update'));
+  assert.equal(state.updates.length, 1);
+  // Fiche introuvable : null (404 à la route).
+  reset({ def: definition(MIARO_ID), form: null });
+  assert.equal(await repo.applyTemplateUpdates(T, FORM, { items: [{ id: IND_ID, expected: delay }] }), null);
 });

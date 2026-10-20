@@ -134,19 +134,19 @@ router.patch('/indicators/:id', WRITE, body(indicatorPatchSchema), asyncHandler(
   res.status(204).end();
 }));
 
-// Mise à jour d'un indicateur depuis le modèle (R6) : la modification montrée par la carte (`expected`),
-// recalculée et vérifiée sous verrou par le serveur — 409 drift_changed si l'indicateur a changé depuis.
+// Mise à jour d'indicateurs depuis le modèle (R6, T3) : pour chaque indicateur, la modification montrée
+// par la carte (`expected`), recalculée et vérifiée sous verrou par le serveur, en UNE requête pour tout le
+// lot. Résultat ligne par ligne (refus drift_changed / indicator_not_found… sans annuler les autres).
 const templateUpdateSchema = z.object({
   mode: z.enum(['corrections', 'full']).optional(),
+  // (templateKey est déclaré plus bas : même règle, écrite ici.)
   template: z.string().trim().regex(/^[A-Z][A-Z0-9_]{0,19}$/, 'Clé de modèle invalide').optional(),
-  expected: z.object(indicatorFields).partial().strict(),
+  items: z.array(z.object({ id: z.string().uuid(), expected: z.object(indicatorFields).partial().strict() }).strict()).min(1).max(400),
 }).strict();
-router.post('/indicators/:id/template-update', WRITE, body(templateUpdateSchema), asyncHandler(async (req, res) => {
-  const { mode, template, expected } = req.valid;
-  let out;
-  try { out = await repo.applyTemplateUpdate(t(req), uuidParam(req.params.id), { mode: mode || 'corrections', template: template || null, expected }); }
-  catch (err) { if (err.code === '23505') throw dupCode(expected.code); throw err; }
-  if (!out) throw notFound('Indicateur introuvable', { code: 'indicator_not_found' });
+router.post('/forms/:id/template-update', WRITE, body(templateUpdateSchema), asyncHandler(async (req, res) => {
+  const { mode, template, items } = req.valid;
+  const out = await repo.applyTemplateUpdates(t(req), uuidParam(req.params.id), { mode: mode || 'corrections', template: template || null, items });
+  if (!out) throw notFound('Formulaire introuvable');
   res.json(out);
 }));
 

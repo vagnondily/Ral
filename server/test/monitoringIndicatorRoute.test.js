@@ -34,10 +34,10 @@ repo.indicatorPreview = async (tenantId, formId, def, period) => {
   calls.push({ fn: 'preview', formId, def, period });
   return { n: 3, explain: { value: 50 }, period };
 };
-repo.applyTemplateUpdate = async (tenantId, id, input) => {
-  calls.push({ fn: 'templateUpdate', tenantId, id, input });
-  if (id === '99999999-9999-9999-9999-999999999999') return null;
-  return { patch: input.expected };
+repo.applyTemplateUpdates = async (tenantId, formId, input) => {
+  calls.push({ fn: 'templateUpdates', tenantId, formId, input });
+  if (formId === '99999999-9999-9999-9999-999999999999') return null;
+  return { results: input.items.map((it) => ({ id: it.id, ok: true, patch: it.expected })) };
 };
 repo.formMonths = async (tenantId, formId) => (formId === '99999999-9999-9999-9999-999999999999' ? null : { months: [{ month: '2026-07', submissions: 74 }], latest: '2026-07' });
 
@@ -187,17 +187,20 @@ test('créer depuis le modèle : soit les éléments choisis, soit « proposed �
   assert.equal(calls.length, n);
 });
 
-test('mise à jour depuis le modèle (R6) : la modification montrée part au dépôt ; indicateur disparu → 404 indicator_not_found', async () => {
-  const res = await request(app).post(`/api/monitoring/indicators/${IND}/template-update`).set(as(manager))
-    .send({ mode: 'corrections', expected: { label: 'Nouveau', naValues: ['888'] } });
+test('mise à jour depuis le modèle (R6, T3) : UNE requête pour le lot, les modifications montrées partent au dépôt', async () => {
+  const items = [{ id: IND, expected: { label: 'Nouveau', naValues: ['888'] } }, { id: '44444444-4444-4444-4444-444444444444', expected: { target: 80 } }];
+  const res = await request(app).post(`/api/monitoring/forms/${FORM}/template-update`).set(as(manager)).send({ mode: 'corrections', items });
   assert.equal(res.status, 200);
-  assert.deepEqual(last().input, { mode: 'corrections', template: null, expected: { label: 'Nouveau', naValues: ['888'] } });
-  assert.equal(last().tenantId, TENANT);
-  const gone = await request(app).post('/api/monitoring/indicators/99999999-9999-9999-9999-999999999999/template-update').set(as(manager))
-    .send({ expected: { label: 'x' } });
-  assert.deepEqual([gone.status, gone.body.details.code], [404, 'indicator_not_found']);
-  const bad = await request(app).post(`/api/monitoring/indicators/${IND}/template-update`).set(as(manager)).send({ expected: { inconnu: 1 } });
+  assert.deepEqual(last().input, { mode: 'corrections', template: null, items });
+  assert.equal(last().tenantId, TENANT); // le compte vient du jeton, jamais du corps
+  assert.equal(res.body.results.length, 2);
+  const gone = await request(app).post('/api/monitoring/forms/99999999-9999-9999-9999-999999999999/template-update').set(as(manager))
+    .send({ items: [{ id: IND, expected: { label: 'x' } }] });
+  assert.equal(gone.status, 404);
+  const bad = await request(app).post(`/api/monitoring/forms/${FORM}/template-update`).set(as(manager)).send({ items: [{ id: IND, expected: { inconnu: 1 } }] });
   assert.equal(bad.status, 400);
-  const ro = await request(app).post(`/api/monitoring/indicators/${IND}/template-update`).set(as(viewer)).send({ expected: { label: 'x' } });
+  const empty = await request(app).post(`/api/monitoring/forms/${FORM}/template-update`).set(as(manager)).send({ items: [] });
+  assert.equal(empty.status, 400);
+  const ro = await request(app).post(`/api/monitoring/forms/${FORM}/template-update`).set(as(viewer)).send({ items: [{ id: IND, expected: { label: 'x' } }] });
   assert.equal(ro.status, 403);
 });

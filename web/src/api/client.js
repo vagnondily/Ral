@@ -348,9 +348,10 @@ export const api = {
   monApplyProposed: (id, { template = null } = {}) => request(`/api/monitoring/forms/${id}/template/apply`, { method: 'POST', body: { proposed: true, ...(template ? { template } : {}) } }),
   monCreateIndicator: (id, input) => request(`/api/monitoring/forms/${id}/indicators`, { method: 'POST', body: input }),
   monUpdateIndicator: (indId, input) => request(`/api/monitoring/indicators/${indId}`, { method: 'PATCH', body: input }),
-  // Mise à jour depuis le modèle : la modification MONTRÉE par la carte, recalculée et vérifiée sous verrou (409 si changée).
-  monTemplateUpdate: (indId, { mode = 'corrections', template = null, expected }) => request(`/api/monitoring/indicators/${indId}/template-update`,
-    { method: 'POST', body: { mode, expected, ...(template ? { template } : {}) } }),
+  // Mise à jour depuis le modèle, en UNE requête pour le lot : pour chaque indicateur, la modification MONTRÉE par la
+  // carte, recalculée et vérifiée sous verrou ; résultat ligne par ligne ({ id, ok, code… }).
+  monTemplateUpdates: (formId, { mode = 'corrections', template = null, items }) => request(`/api/monitoring/forms/${formId}/template-update`,
+    { method: 'POST', body: { mode, items, ...(template ? { template } : {}) } }),
   monDeleteIndicator: (indId) => request(`/api/monitoring/indicators/${indId}`, { method: 'DELETE' }),
   // « Comment c'est calculé » : une définition appliquée aux soumissions de la période (lecture seule).
   monIndicatorPreview: (id, body) => request(`/api/monitoring/forms/${id}/indicators/preview`, { method: 'POST', body }),
