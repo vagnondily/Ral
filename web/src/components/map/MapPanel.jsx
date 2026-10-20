@@ -93,7 +93,8 @@ export default function MapPanel({
   const zones = useMemo(() => zonesOf(level, data, tr), [level, data, tr]);
   const ranked = useMemo(() => rankZones(zones, theme.id, order), [zones, theme.id, order]);
   const shown = compact ? ranked.slice(0, 8) : ranked;
-  const outside = [...(data.regionOnly || []).map((r) => ({ ...r, key: `ro:${r.pcode}`, sub: tr('région seulement · {n} sites', { n: formatInt(r.counts.sites) }) }))];
+  // Clé : P-code de la région, sinon son nom (régions sans P-code : clés uniques, jamais « ro:null »).
+  const outside = [...(data.regionOnly || []).map((r, i) => ({ ...r, key: `ro:${r.pcode || r.name || i}`, sub: tr('région seulement · {n} sites', { n: formatInt(r.counts.sites) }) }))];
 
   const onKey = (e) => {
     const items = [...listRef.current.querySelectorAll('[data-rank]')];

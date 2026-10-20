@@ -322,7 +322,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
           <h1 className="page-title">{tr('Rapports & dépenses')}</h1>
           <p className="page-desc">{tr('Rapports financiers (facture / état des dépenses) et techniques des TPM, rattachés au budget mensuel du suivi. Le « Réalisé » validé alimente la consommation du contrat.')}</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {canEdit && <Button variant="secondary" icon={CalendarClock} onClick={() => setGenOpen(true)}>{tr('Générer les rapports mensuels')}</Button>}
           {canEdit && <Button variant="secondary" icon={Plus} onClick={() => setFacture({ kind: 'technique' })}>{tr('Rapport technique')}</Button>}
           {canEdit && <Button icon={FileText} onClick={() => setFacture({ kind: 'financier' })}>{tr('Rapport financier (facture)')}</Button>}
