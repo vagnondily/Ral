@@ -50,13 +50,24 @@ function siteDistrictCtes() {
 }
 
 /**
- * Clé du groupe « activité » des tableaux de bord (retour 110) : casse et espaces ignorés (espaces de
- * bord retirés, espaces intérieurs réduits à un), « — » sans activité — jumelle de
- * dashboards/coverageDefinitions.activityKey. UNE expression pour regrouper (coverage.repository) et
- * pour filtrer (siteMonthFactsCtes({ activityGroup })) : le filtre d'une activité donne exactement
- * la ligne de cette activité.
+ * Espaces d'un libellé d'activité : UNE classe de caractères explicite, la même dans la requête et
+ * dans le jumeau JavaScript (coverageDefinitions.activityKey) — jamais `\s` ni `btrim` en SQL, dont
+ * le sens dépend de la locale de la base (une espace insécable collée depuis Excel n'y est pas
+ * toujours une espace). Ce sont exactement les espaces de `\s` en JavaScript : tabulation, saut de
+ * ligne, tabulation verticale, saut de page, retour chariot, espace, espace insécable (U+00A0),
+ * U+1680, U+2000 à U+200A, U+2028, U+2029, espace fine insécable (U+202F), U+205F, U+3000, U+FEFF.
+ * Écrite avec des échappements \t \uXXXX compris à l'identique par les deux moteurs d'expressions.
  */
-const activityKeySql = (expr) => `CASE WHEN NULLIF(btrim(${expr}), '') IS NULL THEN '—' ELSE lower(regexp_replace(btrim(${expr}), '\\s+', ' ', 'g')) END`;
+const ACTIVITY_SPACE_CLASS = '[\\t\\n\\v\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff]';
+
+/**
+ * Clé du groupe « activité » des tableaux de bord (retour 110) : espaces de bord retirés, espaces
+ * intérieurs réduits à une, minuscules ; « — » sans activité — jumelle STRICTE de
+ * dashboards/coverageDefinitions.activityKey (même classe d'espaces, même ordre : bords, puis
+ * intérieur, puis minuscules). UNE expression pour regrouper (coverage.repository) et pour filtrer
+ * (siteMonthFactsCtes({ activityGroup })) : le filtre d'une activité donne exactement sa ligne.
+ */
+const activityKeySql = (expr) => `COALESCE(NULLIF(lower(regexp_replace(regexp_replace(COALESCE(${expr}, ''), '^${ACTIVITY_SPACE_CLASS}+|${ACTIVITY_SPACE_CLASS}+$', '', 'g'), '${ACTIVITY_SPACE_CLASS}+', ' ', 'g')), ''), '—')`;
 
 /** Nom affiché d'un groupe de district (lignes de sdist ou de reg) : officiel, sinon une graphie qui n'est pas toute en capitales. */
 const DISTRICT_LABEL_SQL = 'COALESCE(min(official), min(dname) FILTER (WHERE dname <> upper(dname)), min(dname))';
@@ -395,6 +406,6 @@ const MONTH_FACT_COLUMNS = `count(*) FILTER (WHERE active)::int AS "sitesActive"
        COALESCE(sum(rp), 0)::int AS planifie, COALESCE(sum(rr), 0)::int AS realise, COALESCE(sum(ra), 0)::int AS annule`;
 
 module.exports = {
-  siteMonthFactsCtes, siteDistrictCtes, districtNameSql, keySql, activityKeySql, DISTRICT_LABEL_SQL, officeTreeSql, formSiteCompatibleSql,
+  siteMonthFactsCtes, siteDistrictCtes, districtNameSql, keySql, activityKeySql, ACTIVITY_SPACE_CLASS, DISTRICT_LABEL_SQL, officeTreeSql, formSiteCompatibleSql,
   SITE_FACT_COLUMNS, MONTH_FACT_COLUMNS,
 };
