@@ -48,8 +48,9 @@ export function csvDecimal(n, locale = 'fr-FR') {
 }
 
 /**
- * Lignes de l'export « base de budget » d'un aperçu : par unité (TPM de la zone, ou bureau en suivi
- * interne) et par mois — visites, journées-agent, agents, véhicules et jours de terrain.
+ * Lignes de l'export « base de budget » d'un aperçu : par unité (le TPM que porte une visite déjà prévue ;
+ * pour une nouvelle visite, le TPM du contrat de sa zone ; sinon le bureau en suivi interne) et par mois —
+ * visites, journées-agent, agents, véhicules et jours de terrain.
  * @param {object} preview  réponse de /plan-auto/preview
  * @param {(s:string, p?:object) => string} tr  traduction
  * @param {string} locale  locale des nombres (formatLocale())
@@ -68,7 +69,7 @@ export function budgetCsvRows(preview, tr, locale = 'fr-FR') {
   return rows;
 }
 
-/** Libellé d'une unité de suivi : le TPM de la zone, sinon « Interne — Bureau X » (suivi par l'équipe S&E, retour 114). */
+/** Libellé d'une unité de suivi : le TPM (porté par la visite déjà prévue, sinon celui de sa zone), sinon « Interne — Bureau X » (équipe S&E, retour 114). */
 export function unitLabel(t, tr) {
   if (t && t.assigned) return t.tpm;
   return t && t.officeName ? tr('Interne — {office}', { office: t.officeName }) : tr('Interne (équipe S&E)');

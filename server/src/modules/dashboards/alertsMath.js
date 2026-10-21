@@ -23,11 +23,21 @@ const RANK = { critical: 0, warning: 1, info: 2 };
 
 const cents = (v) => Math.round((Number(v) || 0) * 100);
 /**
- * N° AFFICHÉ d'un contrat (glossaire du lot 8, jumeau de web/src/lib/roles.contractNo) : sa référence
- * (n° FLA, avenant compris), sinon le n° FLA, sinon le n° interne CTR-… — le numéro que montrent la
- * liste des contrats, la consolidation et l'alerte « Rapport en retard ». Jamais le CTR-… quand un n° FLA existe.
+ * N° AFFICHÉ d'un contrat (glossaire du lot 8) = celui de la liste des contrats (web/src/lib/roles.contractNo
+ * d'une ligne de contrat) : sa référence (n° FLA, code d'avenant compris, « …-AM02 »), sinon le n° FLA, sinon
+ * le n° interne CTR-… — jamais le CTR-… quand un n° FLA existe.
  */
 const shownNo = (c) => c.reference || c.numeroFla || c.numero;
+/**
+ * UN numéro par contrat pour TOUTES les alertes (cloche et Centre d'alertes) : budget, échéance, rapport à
+ * valider et rapport en retard nomment un contrat comme la liste des contrats, même avenant compris — les
+ * sources (consolidation, rapports, rapports attendus) ne portent que le n° FLA sans code d'avenant.
+ * @param {object[]} contracts  lignes de listContracts ({ id, reference, numeroFla, numero })
+ * @returns {Map<string, string>} contrat → n° affiché ; un contrat absent garde le n° de sa source (repli)
+ */
+function contractNumbers(contracts) {
+  return new Map((contracts || []).filter((c) => c && c.id).map((c) => [c.id, shownNo(c)]));
+}
 const money = (v) => ({ money: Number(v) || 0 });
 const contractGo = (id) => ({ module: 'contrats', sub: 'liste', extra: id });
 // Visites déclarées (prestataires en retard, visites non affectées) : l'écran des visites.
@@ -57,23 +67,24 @@ function daysBetween(a, b) {
 }
 
 /** Budget de suivi : dépassé (critique), dépassé si les factures en attente sont validées, ou projeté en dépassement. */
-function budgetAlerts(rows) {
+function budgetAlerts(rows, nos = new Map()) {
   const out = [];
   for (const r of rows || []) {
     const base = { cat: 'Budget', go: contractGo(r.contractId) };
+    const numero = nos.get(r.contractId) || shownNo(r);
     if (r.overspent) {
       out.push({ ...base, sev: 'critical', kind: 'budget_overspent',
         title: 'Budget de suivi dépassé — {numero}', detail: '{partner} · réalisé {actual} / budget {budget}',
-        params: { numero: shownNo(r), partner: r.partnerName, actual: money(r.actual), budget: money(r.budget) } });
+        params: { numero, partner: r.partnerName, actual: money(r.actual), budget: money(r.budget) } });
     } else if (cents(r.pendingValidation) > 0 && r.budget != null && cents(r.actual) + cents(r.pendingValidation) > cents(r.budget)) {
       // Factures soumises non encore validées qui, une fois validées, feraient dépasser le budget.
       out.push({ ...base, sev: 'warning', kind: 'budget_pending_overrun',
         title: 'Dépassement si validation — {numero}', detail: '{partner} · réalisé {actual} + en attente {pending} > budget {budget}',
-        params: { numero: shownNo(r), partner: r.partnerName, actual: money(r.actual), pending: money(r.pendingValidation), budget: money(r.budget) } });
+        params: { numero, partner: r.partnerName, actual: money(r.actual), pending: money(r.pendingValidation), budget: money(r.budget) } });
     } else if (cents(r.projectedOverrun) > 0) {
       out.push({ ...base, sev: 'warning', kind: 'budget_projected_overrun',
         title: 'Projection de dépassement — {numero}', detail: '{partner} · projection fin {projected} > budget {budget}',
-        params: { numero: shownNo(r), partner: r.partnerName, projected: money(r.projectedTotal), budget: money(r.budget) } });
+        params: { numero, partner: r.partnerName, projected: money(r.projectedTotal), budget: money(r.budget) } });
     }
   }
   return out;
@@ -84,12 +95,12 @@ function budgetAlerts(rows) {
  * (actions calculées par reportWorkflow) — jamais ses propres rapports, qu'il a
  * remplis ou soumis (séparation des tâches).
  */
-function reportAlerts(reports) {
+function reportAlerts(reports, nos = new Map()) {
   return (reports || []).filter((r) => r.status === 'soumis' && r.actions && r.actions.decide).map((r) => ({
     sev: 'info', cat: 'Rapports', kind: 'report_to_validate',
     title: r.kind === 'technique' ? 'Rapport technique à valider' : 'Rapport financier à valider',
     detail: '{partner} · {numero} · {month}',
-    params: { partner: r.partnerName || r.contractPartner || '—', numero: r.contractFla || r.contractNumero || '—', month: { month: String(r.periodMonth || '').slice(0, 7) } },
+    params: { partner: r.partnerName || r.contractPartner || '—', numero: nos.get(r.contractId) || r.contractFla || r.contractNumero || '—', month: { month: String(r.periodMonth || '').slice(0, 7) } },
     go: { module: 'tpm', sub: 'rapports' },
   }));
 }
@@ -106,11 +117,12 @@ const LATE_REPORTS_LOOKBACK = 12;
  * d'un TPM qui portait des visites ce mois-là, échéance dépassée — jamais un TPM sans visite planifiée
  * (« non applicable » d'office), jamais le rapport interne (pas encore de document dans l'application).
  * @param {{ rows: object[] }|null} expected  réponse de reports.repository.expectedReports
+ * @param {Map<string, string>} [nos]  n° affichés des contrats (contractNumbers)
  */
-function lateReportAlerts(expected) {
+function lateReportAlerts(expected, nos = new Map()) {
   return ((expected && expected.rows) || []).filter((r) => r.unit && r.unit.kind === 'tpm' && r.status === 'en_retard').map((r) => {
     // Numéro affiché du contrat seulement — jamais son identifiant technique : sans numéro, le libellé sans contrat.
-    const contract = (r.contract && r.contract.label) || null;
+    const contract = (r.contract && (nos.get(r.contract.id) || r.contract.label)) || null;
     return {
       sev: 'warning', cat: 'Rapports', kind: 'report_late', title: 'Rapport en retard — {provider}',
       detail: contract ? '{month} · contrat {contract} · {n} visite(s) ; à remettre au plus tard en {due}' : '{month} · {n} visite(s) ; à remettre au plus tard en {due}',
@@ -181,14 +193,15 @@ function fieldAlerts(field, { range = false, month = null, coverage = null, peri
         detail: '{done}/{active} réalisées ({p})', params: { provider: p.label, done: p.realise, active: p.active, p: { rate: p.rate } }, go: FIELD_GO });
     }
   }
-  // « Non affectée » : seulement une visite que personne ne suit (ni TPM, ni suivi interne).
+  // « Non affectée » : seulement une visite que personne ne suit (ni TPM, ni suivi interne), annulées
+  // exclues (prévues + réalisées : `active`) — le même décompte que la carte et la carte « par TPM ».
   const naf = providers.find((p) => p.key === 'non_affecte');
-  if (naf && naf.total > 0) {
+  if (naf && naf.active > 0) {
     out.push({ sev: 'info', cat: 'Terrain', kind: 'visits_unassigned', title: '{n} visite(s) non affectée(s)',
       // Même nom que la matrice, la carte et les visites : « Non affectée (ni TPM ni suivi interne) » — jamais
       // « sans TPM », qui décrit aussi les visites internes (suivies, elles), ni « planifiés » (une réalisée compte).
       detail: when('Ni TPM ni suivi interne ce mois', 'Ni TPM ni suivi interne ({m})', 'Ni TPM ni suivi interne sur la période'),
-      params: { n: naf.total, ...whenParams }, go: FIELD_GO });
+      params: { n: naf.active, ...whenParams }, go: FIELD_GO });
   }
   return out;
 }
@@ -206,10 +219,11 @@ function fieldAlerts(field, { range = false, month = null, coverage = null, peri
  */
 function buildAlerts({ consolidationRows, reports, expected = null, contracts, field, coverage = null, today, range = false, month = null, reportsInPeriod = false, period = null } = {}) {
   const scoped = (list, scope) => list.map((a) => ({ ...a, scope }));
+  const nos = contractNumbers(contracts);
   const all = [
-    ...scoped(budgetAlerts(consolidationRows), 'a_date'),
-    ...scoped(reportAlerts(reports), reportsInPeriod ? 'periode' : 'a_date'),
-    ...scoped(lateReportAlerts(expected), reportsInPeriod ? 'periode' : 'a_date'),
+    ...scoped(budgetAlerts(consolidationRows, nos), 'a_date'),
+    ...scoped(reportAlerts(reports, nos), reportsInPeriod ? 'periode' : 'a_date'),
+    ...scoped(lateReportAlerts(expected, nos), reportsInPeriod ? 'periode' : 'a_date'),
     ...scoped(contractAlerts(contracts, today), 'a_date'),
     ...scoped(fieldAlerts(field, { range, month, coverage, period }), 'periode'),
   ];
@@ -223,4 +237,4 @@ function countAlerts(alerts) {
   return { ...counts, attention: counts.critical + counts.warning, total: counts.critical + counts.warning + counts.info };
 }
 
-module.exports = { LATE_REPORTS_LOOKBACK, buildAlerts, countAlerts, budgetAlerts, reportAlerts, lateReportAlerts, contractAlerts, fieldAlerts, daysBetween, executionGo, SEVERITIES, SYNTHESE_MAX_SPAN };
+module.exports = { LATE_REPORTS_LOOKBACK, buildAlerts, countAlerts, budgetAlerts, reportAlerts, lateReportAlerts, contractAlerts, contractNumbers, fieldAlerts, daysBetween, executionGo, SEVERITIES, SYNTHESE_MAX_SPAN };
