@@ -9,6 +9,10 @@ const { monthWithin } = require('../common/periodSql');
 const { followedSql, timelineTrainingSql, heldSql } = require('../trainings/trainingSql');
 const { roleForUpdateTx, restampIfRoleChangedTx, nameChanges, roleAfter } = require('./partnerRole');
 const { stubNotApplicableSql } = require('../tpm/reportExpectationSql');
+const { contractCoversMonthSql } = require('../tpm/activeProviderSql');
+
+/** Mois de la liste des partenaires : celui de sa colonne « today » (current_date), comme son statut selon contrat. */
+const THIS_MONTH_SQL = "date_trunc('month', current_date)";
 
 /**
  * Fiche partenaire 360° et équipe — seul fichier du module qui écrit du SQL.
@@ -118,7 +122,7 @@ async function providersList(tenantId) {
               ev.final_score::float8 AS "lastScore", ev.band AS "lastBand", to_char(ev.period_to, 'YYYY-MM') AS "lastScoreTo",
               (SELECT count(DISTINCT COALESCE(z.admin_area_id::text, z.path)) FROM contract_areas z
                  JOIN contracts zc ON zc.id = z.contract_id AND zc.tenant_id = z.tenant_id
-                WHERE z.tenant_id = $1 AND zc.partner_id = p.id AND zc.status = 'actif')::int AS "zonesActive"
+                WHERE z.tenant_id = $1 AND zc.partner_id = p.id AND ${contractCoversMonthSql('zc', THIS_MONTH_SQL)})::int AS "zonesActive"
          FROM partners p
          JOIN partner_types t ON t.id = p.partner_type_id AND t.tenant_id = p.tenant_id
          LEFT JOIN LATERAL (SELECT e.final_score, e.band, e.period_to FROM tpm_provider_evaluations e
@@ -127,12 +131,14 @@ async function providersList(tenantId) {
         WHERE p.tenant_id = $1
         ORDER BY p.name`, [tenantId, PENDING_STATUS]);
     const links = await providerLinksTx(client, tenantId);
-    // Contrats ACTIFS et leur TPM (retour 113) : contrats tenus, contrats suivis, TPM d'un titulaire.
+    // Contrats ACTIFS et leur TPM (retour 113) : contrats tenus, contrats suivis, TPM d'un titulaire. « Actif » =
+    // la règle commune des dates (activeProvider.contractCoversMonth, jumelle SQL) — comme le statut de la ligne :
+    // un contrat échu mais encore « actif » n'y figure plus.
     const { rows: contracts } = await client.query(
       `SELECT c.id, c.numero, c.numero_fla AS "numeroFla", c.partner_id AS "partnerId",
               COALESCE(p.name, c.partner_name) AS "partnerName", c.status
          FROM contracts c LEFT JOIN partners p ON p.id = c.partner_id AND p.tenant_id = c.tenant_id
-        WHERE c.tenant_id = $1 AND c.status = 'actif' ORDER BY c.numero_fla NULLS LAST, c.numero`, [tenantId]);
+        WHERE c.tenant_id = $1 AND ${contractCoversMonthSql('c', THIS_MONTH_SQL)} ORDER BY c.numero_fla NULLS LAST, c.numero`, [tenantId]);
     const { views } = await contractTpmViewsTx(client, tenantId, contracts);
     return { rows, links, contracts, views };
   });

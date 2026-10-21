@@ -707,3 +707,38 @@ test('partenaire qui perd le rôle de TPM (type changé, fiche désactivée) : s
     await q('DELETE FROM partners WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [T, made.partners]);
   }
 });
+
+test('liste des partenaires : « Contrats actifs » et zones = contrats qui couvrent le mois (règle des dates), jamais un contrat échu encore « actif »', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const [{ id: admin }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND email = 'admin@mems.mg'", [T]);
+  const [type] = await q("SELECT id FROM partner_types WHERE tenant_id = $1 AND code = 'prestataire'", [T]);
+  const areas = await q('SELECT id, path FROM admin_areas WHERE tenant_id = $1 AND depth = 2 ORDER BY id LIMIT 2', [T]);
+  const [{ m }] = await q("SELECT to_char(current_date, 'YYYY-MM') AS m");
+  const { contractCoversMonth } = require('../src/modules/tpm/activeProvider');
+  const service = require('../src/modules/partners/partners.service');
+  const made = { contracts: [] };
+  try {
+    const [P] = await q('INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1, $2, $3) RETURNING id, name', [T, type.id, 'Test xb #12 — titulaire']);
+    made.partner = P.id;
+    // Échu le mois dernier mais encore « actif », puis un contrat qui couvre le mois ; une zone chacun.
+    for (const [label, start, end, area] of [['ECHU', "date_trunc('month', current_date) - interval '13 months'", "date_trunc('month', current_date) - interval '1 day'", areas[0]],
+      ['COURANT', "date_trunc('month', current_date)", "date_trunc('month', current_date) + interval '6 months'", areas[1]]]) {
+      const [C] = await q(`INSERT INTO contracts (tenant_id, numero, partner_id, partner_name, date_debut, date_fin, status, created_by)
+        VALUES ($1, $2, $3, $4, (${start})::date, (${end})::date, 'actif', $5) RETURNING id`, [T, `TEST-XB12-${label}`, P.id, P.name, admin]);
+      made.contracts.push(C.id);
+      await q('INSERT INTO contract_areas (contract_id, tenant_id, admin_area_id, path, depth, sort_order) VALUES ($1, $2, $3, $4, 2, 0)', [C.id, T, area.id, area.path]);
+    }
+    const rows = await service.providers(T);
+    const row = rows.find((r) => r.id === P.id);
+    assert.deepEqual(row.heldContracts.map((c) => c.numero), ['TEST-XB12-COURANT'], 'seul le contrat qui couvre le mois');
+    assert.equal(row.zonesActive, 1, 'seule sa zone');
+    // Partout dans la liste : un contrat « actif » (tenu ou suivi) couvre le mois, selon la règle commune.
+    const ids = [...new Set(rows.flatMap((r) => [...r.heldContracts, ...r.monitoredContracts].map((c) => c.id)))];
+    const dates = await q(`SELECT id, status, date_debut::text AS "dateDebut", date_fin::text AS "dateFin", termination_date::text AS "terminationDate"
+                             FROM contracts WHERE id = ANY($1::uuid[])`, [ids]);
+    for (const c of dates) assert.ok(contractCoversMonth(c, m), `contrat ${c.id} listé sans couvrir ${m}`);
+  } finally {
+    await q('DELETE FROM contracts WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [T, made.contracts]);
+    if (made.partner) await q('DELETE FROM partners WHERE tenant_id = $1 AND id = $2', [T, made.partner]);
+  }
+});
