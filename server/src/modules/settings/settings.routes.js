@@ -73,6 +73,8 @@ const communeItem = z.object({ district: z.string().trim().max(120).optional().o
 const officeBody = z.object({
   code: z.string().trim().min(1).max(40),
   name: z.string().trim().min(2).max(160),
+  // Niveau hiérarchique (désagrégation) ; `nature` en est dérivée côté dépôt (compat).
+  level: z.enum(['hq', 'regional', 'country', 'area', 'sub', 'antenna']).optional(),
   nature: z.enum(['pays', 'terrain']).optional(),
   parentId: z.string().uuid().optional().or(z.literal('').transform(() => undefined)),
   responsible: z.string().trim().max(160).optional().or(z.literal('').transform(() => undefined)),

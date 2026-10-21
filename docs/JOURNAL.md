@@ -12,6 +12,16 @@
 
 ## État courant
 
+> **21/10 — Hiérarchie des bureaux à 6 niveaux (désagrégation).** ✅ Le formulaire Bureau n'avait que
+> « Bureau terrain / Bureau pays ». Nouveau champ **« Niveau »** : Siège › Bureau régional › Bureau pays ›
+> Area Office › Sous-bureau › Antenne. Migration **117** ajoute `field_offices.office_level` (reprise des
+> bureaux existants : national→country, terrain avec parent→antenna, sinon area). Additif : l'arbre
+> `parent_id`, le périmètre de communes et le drapeau `national` sont inchangés ; `nature` ('pays'/'terrain')
+> reste et est DÉRIVÉE du niveau (hq/regional/country→pays, sinon terrain) pour compat des écrans. Source
+> unique `common/officeLevels.js` (+ jumelle web). Smoke : création hq/area → nature dérivée OK ; lint ✅,
+> 1564 tests ✅, build ✅, EN ajoutées. Premier pas du multi-pays. (Réglage admin « modifier à volonté » →
+> repoussé en migration 118, plus tard.)
+
 > **21/10 — Bug « TPM = Interne / Autres partenaires » : codes de référence en minuscules.** ✅
 > Cause racine : sur base vierge, le formulaire « Nouveau type de partenaire » laissait saisir le CODE
 > tel quel, sans minuscules — un type créé avec le code « TPM » (majuscules) n'était JAMAIS reconnu

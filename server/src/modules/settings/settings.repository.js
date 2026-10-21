@@ -2,6 +2,7 @@ const { withTenantTransaction } = require('../../config/db');
 const places = require('./placeMatch.repository');
 const { badRequest } = require('../../middleware/errors');
 const { roleForUpdateTx, restampIfRoleChangedTx, nameChanges, roleAfter } = require('../partners/partnerRole');
+const { natureOfLevel } = require('../common/officeLevels');
 
 /** Configuration registries: partner types, activities, partners (+ TPM
  * agents). All tenant-scoped through withTenantTransaction. */
@@ -262,7 +263,7 @@ async function listCommunes(tenantId) {
 async function officesWithCounts(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      `SELECT o.id, o.code, o.name, o.nature, o.parent_id AS "parentId",
+      `SELECT o.id, o.code, o.name, o.nature, o.office_level AS "level", o.parent_id AS "parentId",
               po.name AS "parentName", o.responsible, o.national, o.active,
               (SELECT count(*)::int FROM field_office_communes c WHERE c.office_id = o.id) AS "communeCount",
               -- Sites RATTACHÉS au bureau (même définition que les autres écrans), et ceux de
@@ -306,12 +307,14 @@ async function officePerimeter(tenantId, officeId) {
   });
 }
 
-async function createOffice(tenantId, { code, name, nature, parentId, responsible, national, communes }) {
+async function createOffice(tenantId, { code, name, level, nature, parentId, responsible, national, communes }) {
+  // La `nature` ('pays'/'terrain') est dérivée du niveau quand il est fourni (compat des écrans).
+  const nat = level ? natureOfLevel(level) : (nature || 'terrain');
   return places.withSubmissionLinks(tenantId, async (client) => { // rattache des sites : verrou de réapplication d'abord
     const { rows } = await client.query(
-      `INSERT INTO field_offices (tenant_id, code, name, nature, parent_id, responsible, national)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-      [tenantId, code, name, nature || 'terrain', parentId || null, responsible || null, Boolean(national)]
+      `INSERT INTO field_offices (tenant_id, code, name, office_level, nature, parent_id, responsible, national)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [tenantId, code, name, level || null, nat, parentId || null, responsible || null, Boolean(national)]
     );
     const id = rows[0].id;
     await writePerimeter(client, tenantId, id, national ? [] : (communes || []));
@@ -319,15 +322,17 @@ async function createOffice(tenantId, { code, name, nature, parentId, responsibl
   });
 }
 
-async function updateOffice(tenantId, id, { code, name, nature, parentId, responsible, national, active, communes }) {
+async function updateOffice(tenantId, id, { code, name, level, nature, parentId, responsible, national, active, communes }) {
+  // Niveau fourni : la nature suit ; sinon on garde la nature existante (COALESCE).
+  const nat = level ? natureOfLevel(level) : (nature ?? null);
   return places.withSubmissionLinks(tenantId, async (client) => { // rattache des sites : verrou de réapplication d'abord
     const { rowCount } = await client.query(
       `UPDATE field_offices SET code = COALESCE($3, code), name = COALESCE($4, name),
-              nature = COALESCE($5, nature), parent_id = $6, responsible = $7,
+              office_level = COALESCE($10, office_level), nature = COALESCE($5, nature), parent_id = $6, responsible = $7,
               national = COALESCE($8, national), active = COALESCE($9, active), updated_at = now()
         WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id, code, name, nature, parentId || null, responsible || null,
-        national === undefined ? null : national, active === undefined ? null : active]
+      [tenantId, id, code, name, nat, parentId || null, responsible || null,
+        national === undefined ? null : national, active === undefined ? null : active, level || null]
     );
     if (rowCount !== 1) return false;
     if (communes !== undefined || national) await writePerimeter(client, tenantId, id, national ? [] : (communes || []));
