@@ -12,6 +12,16 @@
 
 ## État courant
 
+> **21/10 — Bug « TPM = Interne / Autres partenaires » : codes de référence en minuscules.** ✅
+> Cause racine : sur base vierge, le formulaire « Nouveau type de partenaire » laissait saisir le CODE
+> tel quel, sans minuscules — un type créé avec le code « TPM » (majuscules) n'était JAMAIS reconnu
+> (toute l'app compare au code littéral `tpm`). D'où : partenaires classés « Autres partenaires » et
+> contrats affichés « TPM : Interne » alors que le titulaire est un TPM actif. Correctif : migration
+> **116** met les codes existants (partner_types, activities) en minuscules sans collision ; le code est
+> désormais mis en minuscules à la création (`slug` zod `.toLowerCase()`). Smoke : `TPM` → `tpm` (libellé
+> conservé) ; le titulaire TPM d'un contrat est alors bien résolu (smoke `contractTpmViewsTx` → `titulaire`).
+> Lint ✅, 1564 tests ✅. **Action utilisateur : `git pull` puis `npm run migrate`** pour corriger l'existant.
+
 > **21/10 — Carte : toujours afficher les sites visités (centre du district) + nb de visites.** ✅
 > Nouvelle couche **« Centre du district (visités sans GPS) »** (par défaut active) : un site VISITÉ
 > (visite réalisée ou données) sans aucune position est compté au **centroïde de son district** (point
