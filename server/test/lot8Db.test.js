@@ -430,17 +430,18 @@ test('approbation d\'un avenant (contrat verrouillé FOR NO KEY UPDATE, puis ré
   }
 });
 
-test('colonnes de clé (index uniques sans prédicat ni expression, DEFERRABLE compris — la règle de Postgres pour FOR UPDATE) : contrats et partenaires', { skip: SKIP }, async () => {
+test('colonnes de clé (index uniques sans prédicat ni expression, DEFERRABLE compris, colonnes INCLUDE exclues — la règle de Postgres pour FOR UPDATE) : contrats et partenaires', { skip: SKIP }, async () => {
   const keyColumns = async (table) => (await q(`SELECT DISTINCT a.attname AS col FROM pg_index i
-      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY ((i.indkey::int2[])[0:i.indnkeyatts - 1])
      WHERE i.indrelid = $1::regclass AND i.indisunique AND i.indpred IS NULL AND i.indexprs IS NULL ORDER BY 1`, [table])).map((r) => r.col);
-  // Auto-contrôle de la requête sur une table temporaire : un UNIQUE DEFERRABLE compte, un index
-  // unique partiel ou sur expression non (même règle que Postgres).
-  await q('CREATE TEMP TABLE zz_lot8_keys (id int PRIMARY KEY, code text, code2 text, code3 text, CONSTRAINT zz_lot8_code UNIQUE (code) DEFERRABLE INITIALLY IMMEDIATE)');
+  // Auto-contrôle de la requête sur une table temporaire : un UNIQUE DEFERRABLE compte ; une colonne
+  // INCLUDE, un index unique partiel ou sur expression non (même règle que Postgres : les seules
+  // indnkeyatts premières colonnes de clé).
+  await q('CREATE TEMP TABLE zz_lot8_keys (id int PRIMARY KEY, code text, code2 text, code3 text, extra text, CONSTRAINT zz_lot8_code UNIQUE (code) INCLUDE (extra) DEFERRABLE INITIALLY IMMEDIATE)');
   try {
     await q('CREATE UNIQUE INDEX ON zz_lot8_keys (lower(code2))');
     await q('CREATE UNIQUE INDEX ON zz_lot8_keys (code3) WHERE code3 IS NOT NULL');
-    assert.deepEqual(await keyColumns('zz_lot8_keys'), ['code', 'id']);
+    assert.deepEqual(await keyColumns('zz_lot8_keys'), ['code', 'id'], 'ni extra (INCLUDE), ni code2 (expression), ni code3 (partiel)');
   } finally { await q('DROP TABLE zz_lot8_keys'); }
   const contractsRepo = require('../src/modules/contracts/contracts.repository');
   assert.deepEqual(await keyColumns('contracts'), [...contractsRepo.CONTRACT_KEY_COLUMNS].sort(), 'CONTRACT_KEY_COLUMNS = les colonnes de clé de contracts');
