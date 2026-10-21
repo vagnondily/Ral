@@ -13,6 +13,7 @@ import { formatAr, formatInt, monthLabel } from '../../lib/format.js';
 import { BANDS, formatScore } from '../../lib/evaluation.js';
 import { PROVIDER_STATUS } from '../../lib/partners.js';
 import { ROLE_LABELS, contractNo, joinParts } from '../../lib/roles.js';
+import { EXPECTED_STATUS } from '../../lib/reportExpectation.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import RoleBadge from '../../components/RoleBadge.jsx';
 import TpmUnavailabilityBadge from '../../components/TpmUnavailabilityBadge.jsx';
@@ -225,6 +226,8 @@ function Overview({ sheet, onTab, canEdit, onEdit, onOpenContract, onOpenPartner
   const isTpm = sheet.role === 'tpm';
   const b = facts.budget; const v = facts.visits; const s = facts.submissions; const r = facts.reports; const ev = facts.evaluation;
   const reportCell = (kind, status) => (r[kind][status] ? r[kind][status] : <span className="cell-empty">0</span>);
+  // Attendu / En retard : les rapports attendus (même source que la carte et les alertes) ; le reste : documents enregistrés.
+  const reportCols = ['attendu', 'en_retard', 'soumis', 'valide', 'rejete'];
   const more = (id, label) => <button type="button" className="inline-link pv-more" onClick={() => onTab(id)}>{label} <ChevronRight size={14} aria-hidden="true" /></button>;
 
   return (
@@ -281,12 +284,12 @@ function Overview({ sheet, onTab, canEdit, onEdit, onOpenContract, onOpenPartner
 
       <section className={isTpm ? "pv-panel" : "pv-panel span-2"} aria-labelledby="pv-reports">
         <h2 className="pv-panel-title" id="pv-reports"><FileText size={16} aria-hidden="true" />{tr('Rapports et factures')}</h2>
-        {r.total === 0 ? <p className="muted">{tr(isTpm ? 'Aucun rapport enregistré pour ce TPM.' : 'Aucun rapport sur les contrats de ce partenaire.')}</p> : (
+        {r.total === 0 && !r.expected && !r.late ? <p className="muted">{tr(isTpm ? 'Aucun rapport enregistré pour ce TPM.' : 'Aucun rapport sur les contrats de ce partenaire.')}</p> : (
           <div className="table-wrap"><table className="table pv-mini">
-            <thead><tr><th scope="col">{tr('Type')}</th>{['attendu', 'soumis', 'valide', 'rejete'].map((k) => <th key={k} scope="col" className="num">{tr(REPORT_STATUS[k].label)}</th>)}</tr></thead>
+            <thead><tr><th scope="col">{tr('Type')}</th>{reportCols.map((k) => <th key={k} scope="col" className="num">{tr((EXPECTED_STATUS[k] || REPORT_STATUS[k]).label)}</th>)}</tr></thead>
             <tbody>
               {[['financier', 'Factures'], ['technique', 'Rapports techniques']].map(([k, label]) => (
-                <tr key={k}><td>{tr(label)}</td>{['attendu', 'soumis', 'valide', 'rejete'].map((st) => <td key={st} className="num tabular">{reportCell(k, st)}</td>)}</tr>
+                <tr key={k}><td>{tr(label)}</td>{reportCols.map((st) => <td key={st} className="num tabular">{reportCell(k, st)}</td>)}</tr>
               ))}
             </tbody>
           </table></div>

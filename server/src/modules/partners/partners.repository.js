@@ -8,8 +8,9 @@ const { providerLinksTx, contractTpmViewsTx } = require('../tpm/activeProvider.r
 const { monthWithin } = require('../common/periodSql');
 const { followedSql, timelineTrainingSql, heldSql } = require('../trainings/trainingSql');
 const { roleForUpdateTx, restampIfRoleChangedTx, nameChanges, roleAfter } = require('./partnerRole');
-const { stubNotApplicableSql } = require('../tpm/reportExpectationSql');
+const { stubNotApplicableSql, stubLateSql } = require('../tpm/reportExpectationSql');
 const { contractCoversMonthSql } = require('../tpm/activeProviderSql');
+const { localDay } = require('../common/localDay');
 
 /** Mois de la liste des partenaires : celui de sa colonne « today » (current_date), comme son statut selon contrat. */
 const THIS_MONTH_SQL = "date_trunc('month', current_date)";
@@ -53,31 +54,36 @@ async function sheet(tenantId, id) {
     if (!partner) return null;
     const links = await providerLinksTx(client, tenantId, { partnerId: id });
     const contracts = await contractFiguresTx(client, tenantId, id, links.map((l) => l.contractId));
+    // Mois et jour LOCAUX de l'application (common/localDay), jamais la date de la session (UTC) : le même
+    // mois courant que les rapports attendus et les alertes (relecture croisée, point 14).
+    const today = localDay();
+    const month0 = `${today.slice(0, 7)}-01`;
     const { rows: [counts] } = await client.query(
-      `SELECT to_char(date_trunc('month', current_date), 'YYYY-MM') AS month, to_char(current_date, 'YYYY-MM-DD') AS today,
+      `SELECT to_char($3::date, 'YYYY-MM') AS month, to_char($4::date, 'YYYY-MM-DD') AS today,
               (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')}
-                 AND v.period_month = date_trunc('month', current_date) AND v.status <> 'annule')::int AS "visitsAssigned",
+                 AND v.period_month = $3::date AND v.status <> 'annule')::int AS "visitsAssigned",
               (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')}
-                 AND v.period_month = date_trunc('month', current_date) AND v.status = 'realise')::int AS "visitsRealised",
+                 AND v.period_month = $3::date AND v.status = 'realise')::int AS "visitsRealised",
               (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')} AND v.status = 'realise'
-                 AND v.period_month >= date_trunc('month', current_date) - interval '11 months')::int AS "visitsRealised12",
+                 AND v.period_month >= $3::date - interval '11 months')::int AS "visitsRealised12",
               (SELECT count(DISTINCT v.site_id) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')}
-                 AND v.status = 'realise' AND v.period_month >= date_trunc('month', current_date) - interval '11 months')::int AS "sitesFollowed",
+                 AND v.status = 'realise' AND v.period_month >= $3::date - interval '11 months')::int AS "sitesFollowed",
               (SELECT count(*) FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.partner_id = $2 AND NOT s.excluded
-                 AND s.period_month >= date_trunc('month', current_date) - interval '11 months')::int AS "submissions12",
+                 AND s.period_month >= $3::date - interval '11 months')::int AS "submissions12",
               (SELECT count(*) FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.partner_id = $2 AND s.excluded
-                 AND s.period_month >= date_trunc('month', current_date) - interval '11 months')::int AS "submissionsExcluded12",
+                 AND s.period_month >= $3::date - interval '11 months')::int AS "submissionsExcluded12",
               (SELECT count(*) FROM tpm_agents a WHERE a.tenant_id = $1 AND a.tpm_provider_id = $2 AND a.active)::int AS "agentsActive",
               (SELECT count(*) FROM tpm_agents a WHERE a.tenant_id = $1 AND a.tpm_provider_id = $2)::int AS "agentsTotal",
               (SELECT count(*) FROM tpm_collection_plans pl WHERE pl.tenant_id = $1 AND ${docOf('pl')})::int AS plans,
               (${TRAININGS_COUNT_SQL})::int AS trainings,
               (SELECT count(*) FROM tpm_provider_evaluations e WHERE e.tenant_id = $1 AND e.partner_id = $2)::int AS evaluations`,
-      [tenantId, id]);
+      [tenantId, id, month0, today]);
     Object.assign(counts, await holderInternalVisitsTx(client, tenantId, id, counts.month)); // retour 114 : suivi interne
-    // Un gabarit « attendu » sans visite planifiée : « non applicable » d'office (retour 114, même règle que la
-    // carte « Rapports attendus » : tpm/reportExpectationSql) — jamais compté parmi les rapports attendus.
+    // Un gabarit « attendu » sans visite planifiée : « non applicable » d'office ; échéance passée : « en retard »
+    // (retour 114, même règle que la carte « Rapports attendus » : tpm/reportExpectationSql).
     const { rows: reports } = await client.query(
-      `SELECT r.kind, CASE WHEN ${stubNotApplicableSql('r')} THEN 'non_applicable' ELSE r.status END AS status, count(*)::int AS n
+      `SELECT r.kind, CASE WHEN ${stubNotApplicableSql('r')} THEN 'non_applicable'
+                           WHEN ${stubLateSql('r', today.slice(0, 7))} THEN 'en_retard' ELSE r.status END AS status, count(*)::int AS n
          FROM tpm_reports r
         WHERE r.tenant_id = $1 AND ${docOf('r')} GROUP BY 1, 2`, [tenantId, id]);
     const { rows: [lastEval] } = await client.query(
@@ -94,7 +100,7 @@ async function sheet(tenantId, id) {
       `SELECT DISTINCT NULLIF(s.adm1, '') AS region, COALESCE(NULLIF(s.adm2, ''), s.district) AS district
          FROM site_visits v JOIN sites s ON s.id = v.site_id AND s.tenant_id = v.tenant_id
         WHERE v.tenant_id = $1 AND ${visitOf('v')} AND v.status <> 'annule'
-          AND v.period_month >= date_trunc('month', current_date) - interval '11 months'`, [tenantId, id]);
+          AND v.period_month >= $3::date - interval '11 months'`, [tenantId, id, month0]);
     // TPM de chaque contrat (retour 113, règle commune) : le titulaire voit son TPM, le TPM le titulaire.
     const { views, partners } = await contractTpmViewsTx(client, tenantId, contracts.map((c) => ({ id: c.id, partnerId: c.holderId })));
     return {
@@ -237,7 +243,8 @@ async function reportsOf(tenantId, id) {
               r.reported_amount::float8 AS "reportedAmount", r.planned_amount::float8 AS "plannedAmount",
               r.contract_id AS "contractId", c.numero AS "contractNumero", c.numero_fla AS "contractFla",
               c.partner_name AS "holderName", r.partner_id AS "tpmId", pa.name AS "tpmName", r.submitted_at AS "submittedAt",
-              r.decided_at AS "decidedAt", r.updated_at AS "updatedAt", ${stubNotApplicableSql('r')} AS "autoNotApplicable"
+              r.decided_at AS "decidedAt", r.updated_at AS "updatedAt", ${stubNotApplicableSql('r')} AS "autoNotApplicable",
+              ${stubLateSql('r', localDay().slice(0, 7))} AS late
          FROM tpm_reports r JOIN contracts c ON c.id = r.contract_id AND c.tenant_id = r.tenant_id
          LEFT JOIN partners pa ON pa.id = r.partner_id AND pa.tenant_id = r.tenant_id
         WHERE r.tenant_id = $1 AND ${docOf('r')}

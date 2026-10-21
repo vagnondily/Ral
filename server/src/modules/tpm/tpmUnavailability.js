@@ -155,4 +155,17 @@ function zoneMoves(before, after, providerId, areasById = new Map()) {
   return out;
 }
 
-module.exports = { MODES, AVAILABILITY_STATES, periodsOf, listWindow, periodsOverlapping, stampOf, planUnavailability, simulate, zoneMoves, nextMonth };
+/**
+ * Plan de collecte (décision D-c) : refusé quand le TPM est déclaré indisponible TOUS les mois que le
+ * document couvre — le travail n'y est pas prévu. Une facture, elle, reste acceptée (le travail a pu
+ * être fait) : l'écran avertit seulement.
+ * @param {string[]} months  mois couverts (« AAAA-MM »)
+ * @param {{ month }[]} rows  indisponibilités de CE TPM
+ */
+function unavailableThroughout(months, rows) {
+  const off = new Set((rows || []).map((r) => String(r.month).slice(0, 7)));
+  const ms = (months || []).map((m) => String(m).slice(0, 7));
+  return ms.length > 0 && ms.every((m) => off.has(m));
+}
+
+module.exports = { unavailableThroughout, MODES, AVAILABILITY_STATES, periodsOf, listWindow, periodsOverlapping, stampOf, planUnavailability, simulate, zoneMoves, nextMonth };

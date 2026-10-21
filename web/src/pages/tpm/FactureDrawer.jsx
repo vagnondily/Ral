@@ -62,6 +62,21 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
   const chooseContract = (contractId) => setHead((h) => withContract(h, contractId, tpmsOf));
   const headTpms = tpmsOf(head.contractId);
   const otherTpm = Boolean(head.contractId && head.partnerId && headTpms.length && !headTpms.some((p) => p.id === head.partnerId));
+  // Décision D-c : TPM déclaré indisponible un mois de la facture — elle reste acceptée (le travail a pu être
+  // fait), mais l'écran le signale avant de soumettre. Source : GET /api/partners/selectable (unavailableMonths).
+  const [offMonths, setOffMonths] = useState([]);
+  useEffect(() => {
+    if (!isFin || !head.partnerId || !month) { setOffMonths([]); return undefined; }
+    let alive = true;
+    const from = String(month).slice(0, 7);
+    const to = head.periodEnd && head.periodEnd > from ? head.periodEnd : from;
+    api.selectableProviders({ from, to }).then((r) => {
+      if (!alive) return;
+      const p = (r.groups || []).flatMap((g) => g.providers || []).find((x) => x.id === head.partnerId);
+      setOffMonths((p && p.unavailableMonths) || []);
+    }).catch(() => { if (alive) setOffMonths([]); });
+    return () => { alive = false; };
+  }, [isFin, head.partnerId, head.periodEnd, month]);
   const pickContracts = contractOptions(contracts, {
     month, tpmsOf, fmtPeriod: (from, to) => periodLabel({ from, to }, lang, { short: true }),
     labels: { covering: tr('Couvrent {month}', { month: month ? monthLabel(String(month).slice(0, 7)) : '' }), others: tr('Autres contrats actifs'), tpmList: (p) => tr('TPM : {p}', { p }) },
@@ -249,6 +264,10 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
 
           {otherTpm && (
             <Alert tone="warn">{tr('Ce TPM n\'est pas celui de ce contrat ({p}) : vérifiez le couple TPM × contrat.', { p: headTpms.map((p) => p.name).join(', ') })}</Alert>
+          )}
+          {isFin && offMonths.length > 0 && (
+            <Alert tone="warn">{tr('Ce TPM est déclaré indisponible en {m} : la facture reste possible si le travail a bien été fait — vérifiez avant de la soumettre.',
+              { m: offMonths.map((m) => monthLabel(m)).join(', ') })}</Alert>
           )}
           {contract && <div className="note"><Coins size={18} aria-hidden="true" /><span>{richText(tr('Budget Suivi/TPM du contrat : <strong>{budget}</strong> · barème mensuel <strong>{ceiling}</strong>', { budget: formatAr(contract.monitoringBudget), ceiling: formatAr(contract.monthlyCeiling) }))}</span></div>}
 

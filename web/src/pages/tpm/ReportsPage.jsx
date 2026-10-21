@@ -19,13 +19,13 @@ import { useI18n } from '../../lib/i18n.jsx';
 import { ROLE_LABELS, contractIdentity, contractNo } from '../../lib/roles.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { isHashRoute, overlaps, periodFromSaved, periodLabel, readHashPeriod, single, writeHashPeriod } from '../../lib/period.js';
-import { reportShownStatus, reportStatusDef } from '../../lib/reportExpectation.js';
+import { factureFlow, reportShownStatus, reportStatusDef } from '../../lib/reportExpectation.js';
 import PeriodSelect from '../../components/PeriodSelect.jsx';
 import ExpectedReports from './ExpectedReports.jsx';
 
 const STATUSES = [
   { id: '', label: 'Tous les statuts' },
-  { id: 'attendu', label: 'Attendu' }, { id: 'soumis', label: 'Soumis' },
+  { id: 'attendu', label: 'Attendu' }, { id: 'en_retard', label: 'En retard' }, { id: 'soumis', label: 'Soumis' },
   { id: 'valide', label: 'Validé' }, { id: 'rejete', label: 'Rejeté' },
   { id: 'non_applicable', label: 'Non applicable' },
 ];
@@ -116,7 +116,11 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
   useEffect(() => { api.listExchangeRates().then(setRates).catch(() => setRates([])); }, []);
   // Plans du mois de référence — pour le fil guidé (compteur « plans validés »).
-  useEffect(() => { api.listPlans({ month }).then(setPlans).catch(() => setPlans([])); }, [month]);
+  useEffect(() => {
+    let live = true; // une réponse d'un mois précédent n'écrase jamais celle du mois choisi
+    api.listPlans({ month }).then((p) => { if (live) setPlans(p); }).catch(() => { if (live) setPlans([]); });
+    return () => { live = false; };
+  }, [month]);
 
   // Arrivée par un lien qui porte une période (« Rapport en retard » du Centre d'alertes : ?from=&to=) :
   // la période s'applique aux filtres (affichée), puis quitte l'adresse — un choix ultérieur n'est jamais
@@ -146,17 +150,13 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
     setFacture({ kind: 'financier', initial: { partnerId: intent.partnerId, contractId: intent.contractId }, autoPrefill: true });
   }, []);
 
-  // Fil guidé plan → facture → validation → consolidation (état du mois de réf.).
-  const flow = useMemo(() => {
-    const fin = (reports || []).filter((r) => r.kind === 'financier' && (r.periodMonth || '').slice(0, 7) === month);
-    return {
-      plansValides: plans.filter((p) => p.status === 'valide').length,
-      plansTotal: plans.length,
-      facturesCreees: fin.length,
-      facturesSoumises: fin.filter((r) => r.status === 'soumis').length,
-      facturesValidees: fin.filter((r) => r.status === 'valide').length,
-    };
-  }, [reports, plans]);
+  // Fil guidé plan → facture → validation → consolidation (état du mois de réf.). Factures : la règle de la
+  // carte « Rapports attendus » (documents réels qui couvrent le mois : factureFlow), jamais un gabarit.
+  const flow = useMemo(() => ({
+    plansValides: plans.filter((p) => p.status === 'valide').length,
+    plansTotal: plans.length,
+    ...factureFlow(reports, month),
+  }), [reports, plans, month]);
 
   const shown = ALL_FILTERS.filter((k) => shownFilters.includes(k));
   const cols = ALL_COLUMNS.filter((k) => columns.includes(k));
@@ -180,7 +180,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
     const val = (r) => ({
       partner: r.partnerName || '', contract: contractNo(r) || '', kind: r.kind,
       period: r.periodMonth || '', planned: r.plannedAmount || 0, reported: r.reportedAmount || 0,
-      status: ['attendu', 'soumis', 'valide', 'rejete', 'non_applicable'].indexOf(reportShownStatus(r)),
+      status: ['en_retard', 'attendu', 'soumis', 'valide', 'rejete', 'non_applicable'].indexOf(reportShownStatus(r)),
     }[sort.key]);
     return [...list].sort((a, a2) => {
       const va = val(a); const vb = val(a2);
@@ -315,7 +315,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       case 'invoiceNo': return r.invoiceNo ? <span className="mono">{r.invoiceNo}</span> : <span className="cell-empty">—</span>;
       case 'status': return r.autoNotApplicable
         ? <span title={tr('Aucune visite planifiée de ce TPM sur ce contrat ce mois-là : pas de rapport à remettre.')}><StatusBadge def={reportStatusDef(r)} /></span>
-        : <StatusBadge def={REPORT_STATUS[r.status]} />;
+        : <StatusBadge def={reportStatusDef(r)} />;
       case 'createdBy': return <span className="site-meta">{r.createdByEmail || '—'}</span>;
       case 'decidedBy': return <span className="site-meta">{r.decidedByEmail || '—'}</span>;
       case 'decidedAt': return <span className="tabular">{r.decidedAt ? String(r.decidedAt).slice(0, 10) : '—'}</span>;

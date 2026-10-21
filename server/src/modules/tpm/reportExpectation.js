@@ -47,17 +47,21 @@ const dueMonth = (m) => addMonth(m, DUE_MONTHS_AFTER);
 
 /**
  * Statut d'un rapport de TPM pour un mois.
- * @param {{ visits: number, docs: { status }[], month: string, today: string, off?: boolean }} p
+ * @param {{ visits: number, docs: { status }[], month: string, today: string, off?: boolean, notTpm?: boolean }} p
  *   visits = visites non annulées du TPM ce mois ; docs = ses factures du mois ; today = « AAAA-MM » ;
- *   off = TPM déclaré indisponible ce mois (retour 114)
+ *   off = TPM déclaré indisponible ce mois (retour 114) ; notTpm = le partenaire n'est PLUS de type TPM
+ *   (décision D-b, relecture croisée point 21 : on n'attend plus de facture de lui — jamais « en retard »)
  * @returns {{ status: string, expected: boolean, auto: boolean, reason: string }}
- *   auto = « non applicable » d'office (aucune visite, aucun document qui le dise) ;
- *   reason ∈ document, aucune_visite, tpm_indisponible, saisi_non_applicable, a_remettre, echeance_depassee
+ *   auto = « non applicable » d'office (aucune visite, aucun document qui le dise, partenaire qui n'est plus TPM) ;
+ *   reason ∈ document, aucune_visite, tpm_indisponible, partner_not_tpm, saisi_non_applicable, a_remettre, echeance_depassee
  */
-function tpmStatus({ visits, docs, month, today, off = false }) {
+function tpmStatus({ visits, docs, month, today, off = false, notTpm = false }) {
   const best = [...(docs || [])].sort((a, b) => (DOC_RANK[b.status] ?? -1) - (DOC_RANK[a.status] ?? -1))[0] || null;
   const expected = visits > 0;
   if (best && ['valide', 'soumis', 'rejete'].includes(best.status)) return { status: best.status, expected, auto: false, reason: 'document' };
+  // Un TPM devenu partenaire de mise en œuvre : plus de facture attendue. Un TPM INACTIF (contrat fini,
+  // fiche désactivée ensuite) reste attendu pour les mois qu'il a servis (il peut encore facturer ces mois).
+  if (notTpm) return { status: 'non_applicable', expected: false, auto: true, reason: 'partner_not_tpm' };
   if (!expected) return { status: 'non_applicable', expected, auto: !(best && best.status === 'non_applicable'), reason: off ? 'tpm_indisponible' : 'aucune_visite' };
   if (best && best.status === 'non_applicable') return { status: 'non_applicable', expected, auto: false, reason: 'saisi_non_applicable' };
   const late = today > dueMonth(month);
@@ -82,6 +86,7 @@ function monthsBetween(from, to) {
  *   contractLabels?: Map<string, string>,                         contrat → n° affiché
  *   reports?: { id, partnerId, partnerName?, contractId, contractLabel?, month, endMonth?, status }[],  factures qui chevauchent
  *   unavailable?: Set<string>                                     `${TPM}|${mois}` déclarés indisponibles
+ *   notTpm?: Set<string>                                          partenaires qui ne sont plus de type TPM (D-b)
  * }} input
  * @returns {{ rows: object[], counts: object }}
  *   rows : { month, unit: { kind: 'tpm'|'interne', providerId, name, offices }, contract: { id, label }|null,
@@ -89,6 +94,7 @@ function monthsBetween(from, to) {
  */
 function expectedReports({
   months, today, activity = [], contractPairs = new Map(), names = new Map(), contractLabels = new Map(), reports = [], unavailable = new Set(),
+  notTpm = new Set(),
 }) {
   const ms = [...new Set(months || [])].sort();
   const inRange = new Set(ms);
@@ -139,7 +145,7 @@ function expectedReports({
         month: m, unit: { kind: 'tpm', providerId, name: names.get(providerId) || null, offices: [] },
         contract: contractId ? { id: contractId, label: contractLabels.get(contractId) || null } : null,
         visits: { planned: a.planned, realised: a.realised },
-        ...tpmStatus({ visits, docs: d, month: m, today, off: unavailable.has(`${providerId}|${m}`) }), due: dueMonth(m),
+        ...tpmStatus({ visits, docs: d, month: m, today, off: unavailable.has(`${providerId}|${m}`), notTpm: notTpm.has(providerId) }), due: dueMonth(m),
         reports: d.map((r) => ({ id: r.id, status: r.status, contractLabel: r.contractLabel || null }))
           .sort((x, y) => cmp(String(x.contractLabel || ''), String(y.contractLabel || ''))),
       };
@@ -165,4 +171,20 @@ function expectedReports({
   return { rows, counts: { ...counts, autoNonApplicable: auto, internal, total: rows.length } };
 }
 
-module.exports = { DUE_MONTHS_AFTER, EXPECTATION_STATUSES, DOC_RANK, dueMonth, addMonth, monthsBetween, tpmStatus, expectedReports };
+/**
+ * Garde « TPM actif » d'une écriture de document (décision D-b) : une FACTURE dont toute la période
+ * [periodMonth, periodEnd] précède le mois courant local peut venir d'un TPM désormais inactif (contrat
+ * fini, fiche désactivée ensuite) — il facture des mois qu'il a servis ; seul le type « tpm » est alors
+ * exigé, comme le déclencheur de la migration 089. Un plan (travail à venir), un gabarit mensuel, un
+ * rapport technique ou une facture qui touche le mois courant exige toujours un TPM ACTIF.
+ * @param {{ kind: string, periodMonth: string, periodEnd?: string|null }} doc
+ * @param {string} today « AAAA-MM »
+ */
+function inactiveTpmMayInvoice(doc, today) {
+  if (!doc || doc.kind !== 'financier') return false;
+  const from = String(doc.periodMonth || '').slice(0, 7);
+  const to = doc.periodEnd ? String(doc.periodEnd).slice(0, 7) : from;
+  return /^\d{4}-\d{2}$/.test(from) && (to > from ? to : from) < today;
+}
+
+module.exports = { inactiveTpmMayInvoice, DUE_MONTHS_AFTER, EXPECTATION_STATUSES, DOC_RANK, dueMonth, addMonth, monthsBetween, tpmStatus, expectedReports };

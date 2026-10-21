@@ -586,12 +586,21 @@ function tpmSelectable({ links, partners, months, unavailability = [] }) {
   const base = selectableProviders({ links, partners, months });
   const byId = new Map((partners || []).map((p) => [p.id, p]));
   const isTpm = (id) => { const p = byId.get(id); return Boolean(p) && p.typeCode === 'tpm' && p.active !== false; };
+  return withUnavailableMonths({ ...base, groups: base.groups.map((g) => ({ ...g, providers: g.providers.filter((p) => isTpm(p.id)) })) }, unavailability);
+}
+
+/**
+ * Listes de choix (selectableProviders) → chaque prestataire porte `unavailableMonths` : les mois de la
+ * liste où il est déclaré indisponible (tpm_unavailability, retour 114). LA source des deux listes : GET
+ * /api/tpm/attribution/providers (tpmSelectable) et GET /api/partners/selectable (lot 8) — relecture
+ * croisée, point 25, décision D-c.
+ * @param {{ months: string[], groups: { key, providers: object[] }[] }} selectable
+ * @param {{ providerId, month }[]} unavailability
+ */
+function withUnavailableMonths(selectable, unavailability = []) {
   const off = unavailabilityIndex(unavailability);
-  const offMonths = (id) => base.months.filter((m) => off.has(offKey(id, m)));
-  return {
-    ...base,
-    groups: base.groups.map((g) => ({ ...g, providers: g.providers.filter((p) => isTpm(p.id)).map((p) => ({ ...p, unavailableMonths: offMonths(p.id) })) })),
-  };
+  const offMonths = (id) => (selectable.months || []).filter((m) => off.has(offKey(id, m)));
+  return { ...selectable, groups: (selectable.groups || []).map((g) => ({ ...g, providers: g.providers.map((p) => ({ ...p, unavailableMonths: offMonths(p.id) })) })) };
 }
 
 /**
@@ -703,5 +712,5 @@ module.exports = {
   contractTpm, isMonitoringContract, contractEndMonth, contractCoversMonth, monitoringContractsAt, coveringContracts, coverOf,
   defaultFor, defaultLabel, availableDefault, unavailabilityIndex, offKey, resolveCell, holdersByMonth, contractTpmPairsByMonth, qualityOf, buildZoneTable,
   cellForSite, segments, stampOf, planOverrides, planRevert, restampPlan, summarizeRestamp, selectableProviders, activeProviders,
-  tpmSelectable, notSelectableMonths, visitDecision, districtAreaFor, detachedZones, detachedHintFor,
+  tpmSelectable, withUnavailableMonths, notSelectableMonths, visitDecision, districtAreaFor, detachedZones, detachedHintFor,
 };

@@ -80,6 +80,7 @@ router.post('/', WRITE, body(createSchema), asyncHandler(async (req, res) => {
   } catch (err) {
     if (err.code === 'DUP') throw conflict('Un plan existe déjà pour ce TPM, ce contrat et ce mois.');
     if (err.code === 'NOT_TPM') throw badRequest(err.message, { code: 'not_tpm' });
+    if (err.code === 'TPM_UNAVAILABLE') throw badRequest(err.message, { code: 'tpm_unavailable' });
     if (err instanceof Error && isPgText(err.message)) throw badRequest(err.message);
     throw err;
   }

@@ -11,10 +11,12 @@ const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
 const { isValidatedStatus, decideDocumentDeletion, linkedSummary } = require('../common/deletionPolicy');
 const { recordDeletion } = require('../deletions/deletions.repository');
 const { monthsOf } = require('../common/period');
-const { expectedReports: expectedRule } = require('./reportExpectation');
+const { expectedReports: expectedRule, inactiveTpmMayInvoice } = require('./reportExpectation');
 const { contractTpmPairsByMonth } = require('./tpmAttribution');
-const { stubNotApplicableSql } = require('./reportExpectationSql');
+const { stubNotApplicableSql, stubLateSql } = require('./reportExpectationSql');
+const { currentMonth } = require('./rbmMath');
 const { PERIOD_CAPS } = require('../common/periodCaps');
+const { rootOfficeOf } = require('../common/officeScope');
 const tpmAttributionRepo = require('./tpmAttribution.repository');
 
 /**
@@ -30,7 +32,8 @@ const tpmAttributionRepo = require('./tpmAttribution.repository');
 
 const num = (v) => (v == null ? v : Number(v));
 
-const REPORT_COLUMNS = `
+/** Colonnes d'un rapport ; `late` : gabarit « attendu » dont l'échéance est passée (stubLateSql, mois local). */
+const reportColumns = () => `
   r.id, r.partner_id AS "partnerId", pa.name AS "partnerName",
   r.contract_id AS "contractId", c.numero AS "contractNumero", c.numero_fla AS "contractFla", c.partner_name AS "contractPartner",
   r.period_month AS "periodMonth", r.period_end AS "periodEnd", r.invoice_no AS "invoiceNo",
@@ -40,7 +43,7 @@ const REPORT_COLUMNS = `
   r.submitted_at AS "submittedAt", r.submitted_by AS "submittedBy", sb.email AS "submittedByEmail",
   r.edited_by AS "editedBy", ed.email AS "editedByEmail", r.edited_at AS "editedAt",
   r.decided_by AS "decidedBy", d.email AS "decidedByEmail", r.decided_at AS "decidedAt",
-  ${stubNotApplicableSql('r')} AS "autoNotApplicable"`;
+  ${stubNotApplicableSql('r')} AS "autoNotApplicable", ${stubLateSql('r', currentMonth())} AS late`;
 
 const FROM = `
   FROM tpm_reports r
@@ -134,7 +137,7 @@ async function listReports(tenantId, { period, month, partnerId, contractId } = 
     if (partnerId) { params.push(partnerId); where.push(`r.partner_id = $${params.length}`); }
     if (contractId) { params.push(contractId); where.push(`r.contract_id = $${params.length}`); }
     const { rows } = await client.query(
-      `SELECT ${REPORT_COLUMNS} ${FROM} WHERE ${where.join(' AND ')}
+      `SELECT ${reportColumns()} ${FROM} WHERE ${where.join(' AND ')}
        ORDER BY r.period_month DESC, pa.name, r.kind`,
       params
     );
@@ -144,7 +147,7 @@ async function listReports(tenantId, { period, month, partnerId, contractId } = 
 
 async function getReportRow(client, tenantId, id) {
   const { rows } = await client.query(
-    `SELECT ${REPORT_COLUMNS} ${FROM} WHERE r.tenant_id = $1 AND r.id = $2 FOR UPDATE OF r`,
+    `SELECT ${reportColumns()} ${FROM} WHERE r.tenant_id = $1 AND r.id = $2 FOR UPDATE OF r`,
     [tenantId, id]
   );
   return rows[0] ? cast(rows[0]) : null;
@@ -154,7 +157,7 @@ async function getReportRow(client, tenantId, id) {
 async function getReport(tenantId, id) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      `SELECT ${REPORT_COLUMNS} ${FROM} WHERE r.tenant_id = $1 AND r.id = $2`,
+      `SELECT ${reportColumns()} ${FROM} WHERE r.tenant_id = $1 AND r.id = $2`,
       [tenantId, id]
     );
     if (!rows[0]) return null;
@@ -174,7 +177,7 @@ async function getReport(tenantId, id) {
 async function invoiceData(tenantId, id) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      `SELECT ${REPORT_COLUMNS}, c.numero_fla AS "numeroFla", c.numero_po AS "numeroPo",
+      `SELECT ${reportColumns()}, c.numero_fla AS "numeroFla", c.numero_po AS "numeroPo",
               c.numero_vendor AS "numeroVendor", c.date_debut AS "dateDebut", c.date_fin AS "dateFin",
               c.management_fee_pct AS "managementFeePct"
          ${FROM} WHERE r.tenant_id = $1 AND r.id = $2`,
@@ -278,7 +281,8 @@ async function insertReport(tenantId, r) {
   return withTenantTransaction(tenantId, async (client) => {
     // Lien TPM ↔ contrat (retour 114) : verrou d'attribution D'ABORD (avant la clé étrangère du rapport), puis le lien d'avant.
     const link = await tpmAttributionRepo.lockTpmLinkTx(client, tenantId, { partnerId: r.partnerId, contractId: r.contractId });
-    await assertActiveTpmTx(client, tenantId, r.partnerId); // une facture / un rapport = un TPM actif (D1)
+    // Une facture / un rapport = un TPM actif (D1) ; une facture de mois passés : un TPM, même inactif (D-b).
+    await assertActiveTpmTx(client, tenantId, r.partnerId, { allowInactive: inactiveTpmMayInvoice(r, currentMonth()) });
     const existing = await findExisting(client, tenantId, r);
     if (existing) { const e = new Error('duplicate'); e.code = 'DUP'; throw e; }
 
@@ -534,11 +538,9 @@ async function expectedReports(tenantId, { period, today }) {
               count(*) FILTER (WHERE v.status = 'planifie')::int AS planned,
               count(*) FILTER (WHERE v.status = 'realise')::int AS realised,
               count(*) FILTER (WHERE v.status = 'annule')::int AS cancelled,
-              array_remove(array_agg(DISTINCT COALESCE(po.name, fo.name)) FILTER (WHERE v.monitored_by = 'interne' AND v.status <> 'annule'), NULL) AS offices
+              array_remove(array_agg(DISTINCT s.field_office_id) FILTER (WHERE v.monitored_by = 'interne' AND v.status <> 'annule'), NULL) AS "officeIds"
          FROM site_visits v
          JOIN sites s ON s.tenant_id = v.tenant_id AND s.id = v.site_id
-         LEFT JOIN field_offices fo ON fo.tenant_id = v.tenant_id AND fo.id = s.field_office_id
-         LEFT JOIN field_offices po ON po.tenant_id = v.tenant_id AND po.id = fo.parent_id
          LEFT JOIN partners p ON p.tenant_id = v.tenant_id AND p.id = v.provider_id
         WHERE v.tenant_id = $1 AND v.period_month BETWEEN $2::date AND $3::date
         GROUP BY 1, 2, 3`, [tenantId, lo, hi]);
@@ -552,6 +554,13 @@ async function expectedReports(tenantId, { period, today }) {
          JOIN partners pa ON pa.tenant_id = r.tenant_id AND pa.id = r.partner_id
          JOIN contracts c ON c.tenant_id = r.tenant_id AND c.id = r.contract_id
         WHERE r.tenant_id = $1 AND r.kind = 'financier' AND ${spanOverlaps('r.period_month', 'r.period_end', period, rp)}`, rp);
+    // Équipe du suivi interne d'un site : son bureau RACINE (officeScope.rootOfficeOf — la règle du plan
+    // automatique, jamais le bureau national), toutes antennes comprises (relecture croisée, points 6, 18, 23).
+    if (activity.some((a) => a.officeIds && a.officeIds.length)) {
+      const { rows: offices } = await client.query(
+        'SELECT id, parent_id AS "parentId", name, national FROM field_offices WHERE tenant_id = $1', [tenantId]);
+      for (const a of activity) a.offices = [...new Set((a.officeIds || []).map((id) => (rootOfficeOf(offices, id) || {}).name).filter(Boolean))];
+    }
     const inputs = await tpmAttributionRepo.loadInputsTx(client, tenantId, period);
     const names = new Map(inputs.partners.map((x) => [x.id, x.name]));
     const contractLabels = new Map(inputs.contracts.map((c) => [c.id, c.numeroFla || c.numero]));
@@ -564,8 +573,10 @@ async function expectedReports(tenantId, { period, today }) {
       for (const c of more) contractLabels.set(c.id, c.label);
     }
     const unavailable = new Set(inputs.unavailability.map((u) => `${u.providerId}|${u.month}`));
+    // Décision D-b : un partenaire qui n'est plus de type TPM n'a plus de facture attendue (actif ou non).
+    const notTpm = new Set(inputs.partners.filter((x) => x.typeCode !== 'tpm').map((x) => x.id));
     const out = expectedRule({
-      months, today, activity, contractPairs: contractTpmPairsByMonth(inputs.contracts, months), names, contractLabels, reports, unavailable,
+      months, today, activity, contractPairs: contractTpmPairsByMonth(inputs.contracts, months), names, contractLabels, reports, unavailable, notTpm,
     });
     return { period: { from: period.from, to: period.to }, today, ...out };
   });

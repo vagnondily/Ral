@@ -32,6 +32,7 @@ export function expectedKey(r) {
 export const EXPECTED_REASON = {
   aucune_visite: 'aucune visite planifiée ce mois',
   tpm_indisponible: 'TPM déclaré indisponible ce mois',
+  partner_not_tpm: 'ce partenaire n\'est plus un TPM',
   saisi_non_applicable: 'déclaré non applicable',
   a_remettre: 'à remettre au plus tard en {due}',
   echeance_depassee: 'échéance dépassée ({due})',
@@ -51,7 +52,40 @@ export function expectedWho(tr, r) {
 /**
  * Statut AFFICHÉ d'un rapport stocké (liste des rapports, fiche 360°) : un gabarit « attendu » sans visite
  * planifiée de son TPM sur son contrat pendant ses mois (`autoNotApplicable`, calculé par le serveur :
- * reportExpectationSql) est « non applicable d'office » — la même règle que la carte « Rapports attendus ».
+ * reportExpectationSql) est « non applicable d'office » ; un gabarit « attendu » dont l'échéance est passée
+ * (`late`, stubLateSql) est « en retard » — la même règle que la carte « Rapports attendus » et la cloche.
  */
-export const reportShownStatus = (r) => (r && r.autoNotApplicable ? 'non_applicable' : r && r.status);
-export const reportStatusDef = (r) => (r && r.autoNotApplicable ? EXPECTED_STATUS.non_applicable_auto : REPORT_STATUS[r && r.status]);
+export const reportShownStatus = (r) => {
+  if (r && r.autoNotApplicable) return 'non_applicable';
+  if (r && r.late) return 'en_retard';
+  return r && r.status;
+};
+export const reportStatusDef = (r) => {
+  if (r && r.autoNotApplicable) return EXPECTED_STATUS.non_applicable_auto;
+  if (r && r.late) return EXPECTED_STATUS.en_retard;
+  return REPORT_STATUS[r && r.status];
+};
+
+/** Documents RÉELS (jamais un gabarit) : ce que la carte « Rapports attendus » compte comme facture remise. */
+const REAL_DOCUMENT = ['soumis', 'valide', 'rejete'];
+
+/**
+ * Étapes « Facture » et « Validation » du fil guidé de Rapports & dépenses pour un mois, avec la règle de la
+ * carte (relecture croisée, point 16) : seules les factures RÉELLES (soumises, validées, rejetées — jamais un
+ * gabarit « attendu », « en retard » ou « non applicable d'office ») dont la période [periodMonth, periodEnd]
+ * COUVRE le mois (une facture pluri-mensuelle compte pour chacun de ses mois).
+ * @returns {{ facturesCreees: number, facturesSoumises: number, facturesValidees: number }}
+ */
+export function factureFlow(reports, month) {
+  const covers = (r) => {
+    const from = String(r.periodMonth || '').slice(0, 7);
+    const to = r.periodEnd ? String(r.periodEnd).slice(0, 7) : from;
+    return Boolean(from) && from <= month && month <= (to < from ? from : to);
+  };
+  const real = (reports || []).filter((r) => r.kind === 'financier' && REAL_DOCUMENT.includes(reportShownStatus(r)) && covers(r));
+  return {
+    facturesCreees: real.length,
+    facturesSoumises: real.filter((r) => r.status === 'soumis').length,
+    facturesValidees: real.filter((r) => r.status === 'valide').length,
+  };
+}

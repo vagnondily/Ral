@@ -2,6 +2,7 @@ const { withTenantTransaction } = require('../../config/db');
 const { MONITORING_LINE } = require('../contracts/budgetCatalog');
 const { providerContractsCte, monitoringContractSql } = require('./activeProviderSql');
 const { selectableProviders, activeProviders } = require('./activeProvider');
+const { withUnavailableMonths } = require('./tpmAttribution');
 const { contractTpmViews } = require('./contractTpm');
 
 /**
@@ -58,11 +59,12 @@ const NOT_TPM_MESSAGE = 'Ce partenaire n\'est pas un TPM actif : un plan de coll
  * sinon erreur `code: 'NOT_TPM'` (les routes répondent 400). La base le contrôle aussi (type
  * « tpm », migration 089). À appeler dans la transaction qui écrit le document.
  */
-async function assertActiveTpmTx(client, tenantId, partnerId) {
+async function assertActiveTpmTx(client, tenantId, partnerId, { allowInactive = false } = {}) {
   const { rows } = await client.query(
     `SELECT p.active, t.code FROM partners p JOIN partner_types t ON t.id = p.partner_type_id AND t.tenant_id = p.tenant_id
       WHERE p.tenant_id = $1 AND p.id = $2`, [tenantId, partnerId]);
-  if (!rows.length || rows[0].code !== 'tpm' || rows[0].active === false) {
+  // allowInactive (décision D-b) : facture de mois PASSÉS d'un TPM désormais inactif — le type seul est exigé.
+  if (!rows.length || rows[0].code !== 'tpm' || (rows[0].active === false && !allowInactive)) {
     const e = new Error(NOT_TPM_MESSAGE); e.code = 'NOT_TPM'; throw e;
   }
 }
@@ -72,7 +74,12 @@ async function selectable(tenantId, months) {
   return withTenantTransaction(tenantId, async (client) => {
     const links = await providerLinksTx(client, tenantId);
     const partners = await partnersTx(client, tenantId);
-    return selectableProviders({ links, partners, months });
+    // Mois où chaque prestataire est déclaré indisponible (décision D-c) : la même source que
+    // GET /api/tpm/attribution/providers (tpmAttribution.withUnavailableMonths).
+    const { rows: off } = await client.query(
+      `SELECT provider_id AS "providerId", to_char(period_month, 'YYYY-MM') AS month FROM tpm_unavailability
+        WHERE tenant_id = $1 AND period_month = ANY ($2::date[])`, [tenantId, (months || []).map((m) => `${String(m).slice(0, 7)}-01`)]);
+    return withUnavailableMonths(selectableProviders({ links, partners, months }), off);
   });
 }
 

@@ -248,7 +248,8 @@ BEGIN
          WHERE v.tenant_id = t.id AND v.provider_source = 'zone' AND v.status = 'planifie'
            AND v.provider_zone_state IS DISTINCT FROM 'anterieur'
            AND NOT EXISTS (SELECT 1 FROM tpm_reports r
-                            WHERE r.tenant_id = v.tenant_id AND r.partner_id = v.provider_id AND r.period_month = v.period_month
+                            WHERE r.tenant_id = v.tenant_id AND r.partner_id = v.provider_id
+                              AND v.period_month BETWEEN r.period_month AND COALESCE(r.period_end, r.period_month)
                               AND r.kind = 'financier' AND r.status IN ('soumis', 'valide'))));
     n := COALESCE(array_length(ids, 1), 0);
     CONTINUE WHEN n = 0;
