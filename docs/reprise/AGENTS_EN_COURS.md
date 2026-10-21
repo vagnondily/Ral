@@ -112,3 +112,62 @@ Retour 110 fix published (2bb2167 + 0edb8e3 sticky total + fbadbdf « Sites pré
 
 Listes de choix professionnelles (`EntityPicker`, logique pure `lib/entityPicker.js`, `lib/tpmPickers.js`) ; Planification & budget et facture : contrat d'abord, puis son TPM ; « Ajouter une visite » cherchable ; corrections de l'audit design (chevron des listes, barres, sombre, marges, chiffres, téléphone). Suites prévues : `DataList` (filtres), `MonthSelect`, risque par ligne du RBM, puis tableaux / statuts / tuiles (passes 2 et 3 du plan du 16/10).
 
+
+## 7. Mercredi 21/10 — relecture croisée des quatre branches (session principale)
+
+Base commune : `integ/full` `a1e998a` (sauvegardée `origin/snap/integ-full-1020`) = `main` + lot 8 + indicateurs +
+planification + retour 114. La relecture croisée (labels, chiffres, parcours) a confirmé 26 points ; le texte complet de
+chaque point (scénario, correction, verdict du vérificateur) est dans le bloc-notes de la session principale :
+`review_xbranch_findings.txt`. Quatre agents, une branche chacun, sans fusion entre eux ; la session principale fusionne,
+contrôle, fait vérifier, puis publie. Décisions prises par la session principale (application de « fais selon tes
+recommandations ») :
+- **D-a** — l'équipe interne d'un site est celle du bureau RACINE (`officeScope.rootOfficeOf`, règle de la planification).
+- **D-b** — un partenaire qui n'est plus de type TPM n'est plus attendu (rapports « non applicable », motif
+  `partner_not_tpm`, pas d'alerte de retard) ; un TPM INACTIF reste attendu pour les mois servis et peut encore remettre
+  une facture de mois passés (le type suffit, comme le déclencheur 089) ; un plan exige toujours un TPM actif ; ses
+  visites prévues « visite » reviennent à la zone quand il perd le rôle.
+- **D-c** — un plan de collecte pour un TPM indisponible tous les mois du plan est refusé (400) ; une facture reste
+  acceptée avec un avertissement dans le formulaire ; les deux listes de choix lisent la même source (mois
+  d'indisponibilité).
+
+### Agent retour 114 → branche `wip/xb-tpm` (ports 9884 / 5884, migration 108)
+
+Points 4, 6/18/23, 14, 15, 16, 20, 21 (rapports attendus, alerte, facture d'un TPM inactif), 25. Texte envoyé (extrait
+fidèle des consignes) : « #20 INVOICED_SQL : couverture de la période (`v.period_month BETWEEN r.period_month AND
+COALESCE(r.period_end, r.period_month)`) partout où « facturé » est testé, migration 108 qui recrée `mems_tpm_stamp` ;
+#6/18/23 D-a dans expectedReports (même aide que la planification) ; `siteActivitySql office:'bureau'` inchangé, signalé à
+part ; #14 alertes et `partners.repository.sheet` à l'heure locale, test horloge figée 22:30Z ; #15 jumelle SQL de
+l'échéance (`stubLateSql`) pour la liste, la fiche 360° et ses compteurs ; #4 compteurs « Attendu / En retard » de la fiche
+360° depuis expectedReports ; #16 étapes « Facture » et « Validation » du fil guidé depuis la même règle que la carte ;
+#21 partie a (D-b) ; #25 (D-c). Ne pas toucher `partnerRole.js`. Contrôles : npm test, lint, build, migrations neuve et
+copie, base de test neuve + `npm run test:db`, balayage. »
+
+### Agent lot 8 → branche `wip/xb-partners` (ports 9881 / 5881)
+
+Points 1/24, 5, 8, 12, 21 (partie b), 26. Texte envoyé (extrait fidèle) : « #1/#24 liste des contrats : « Interne » au
+lieu de « Aucun TPM », CSV renseigné, « — » pour un brouillon ou un contrat rejeté, hors filtre « Interne » ; #5
+indisponibilité d'un TPM affichée (badge couleur + icône + libellé) sur la fiche 360°, la liste des partenaires et la ligne
+TPM du détail de contrat, une seule source ; #8 fiche d'un titulaire : visites en suivi interne de ses zones comptées à
+part (`mems_tpm_cells` / tpmAttribution, aucune nouvelle règle) ; #12 « Contrats actifs » selon les dates
+(`activeProvider.coverageOf`), indicateur d'accord ; #21 partie b : quand un partenaire perd le rôle TPM, ses visites
+PRÉVUES d'origine « visite » (non facturées, non figées) reviennent à leur zone, lot journalisé ; #26 une seule horloge
+(`rbmMath.currentMonth` / `localDay`) dans `partnerRole.js` et `partners.routes.js`. Ne pas toucher reportSummary, les
+compteurs de rapports de la fiche, le mois de `partners.repository.sheet`, `assertActiveTpmTx` / `selectableProviders`. »
+
+### Agent planification → branche `wip/xb-plan` (ports 9883 / 5883)
+
+Points 17/22. Texte envoyé (extrait fidèle) : « la planification compte une visite EXISTANTE sous le TPM qu'elle porte
+(`site_visits.provider_id` / `monitored_by`, cf. `monitorKeySql`) : `loadInputsTx` charge providerId, providerName,
+monitoredBy ; `pushVisit` (isNew=false) : prestataire → `id:<prestataire>`, interne → `bureau:<bureau racine>` ; `tpmAt`
+seulement pour les nouvelles visites et « non_affecte » ; champs dans `planFingerprint` ; vérifier l'oracle et les
+ressources ; test avec une visite « visite » et une visite au TPM retiré ; ne pas toucher la note de `PlanAutoDrawer.jsx`. »
+
+### Nouvel agent libellés → branche `wip/xb-ui` (ports 9886 / 5886)
+
+Points 2, 3, 7, 9, 10, 11, 13, 19. Texte envoyé (extrait fidèle) : « #2 onglet Affectation des TPM : contrats sans TPM
+dans la colonne des contrats (marqués « sans TPM ») et dans le CSV ; #3 alertes budget et échéance : numéro affiché du
+contrat (FLA, sinon MEMS) ; #7 note de la planification automatique selon la règle du retour 114 ; #9 un seul nom pour
+l'état « non affectée (ni TPM ni suivi interne) » (alerte, carte, matrice, cellule de visite, CSV) ; #10 en-tête anglais
+« Due by » ; #11 journal des indisponibilités : libellé = nom du TPM, période rendue par l'écran ; #13 colonne « Période »
+du CSV des rapports ; #19 indicateur « Suivi interne » sans les visites annulées. Ne pas toucher alerts.service.js,
+reportExpectation*, reports.repository.js, partners.*, activeProvider*, planAuto*.js (serveur), ContractsListPage.jsx. »
