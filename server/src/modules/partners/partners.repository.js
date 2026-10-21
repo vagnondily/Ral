@@ -12,8 +12,15 @@ const { stubNotApplicableSql, stubLateSql } = require('../tpm/reportExpectationS
 const { contractCoversMonthSql } = require('../tpm/activeProviderSql');
 const { localDay } = require('../common/localDay');
 
-/** Mois de la liste des partenaires : celui de sa colonne « today » (current_date), comme son statut selon contrat. */
-const THIS_MONTH_SQL = "date_trunc('month', current_date)";
+/**
+ * Jour et 1ᵉʳ du mois LOCAUX de l'application (common/localDay, APP_TIMEZONE) — jamais la date de la base, qui
+ * suit le fuseau de la session (UTC) : liste, fiche et onglet Contrats lisent la même horloge (relecture
+ * croisée, point 14). Passés en paramètres liés.
+ */
+function localClock() {
+  const today = localDay();
+  return { today, month0: `${today.slice(0, 7)}-01` };
+}
 
 /**
  * Fiche partenaire 360° et équipe — seul fichier du module qui écrit du SQL.
@@ -56,8 +63,7 @@ async function sheet(tenantId, id) {
     const contracts = await contractFiguresTx(client, tenantId, id, links.map((l) => l.contractId));
     // Mois et jour LOCAUX de l'application (common/localDay), jamais la date de la session (UTC) : le même
     // mois courant que les rapports attendus et les alertes (relecture croisée, point 14).
-    const today = localDay();
-    const month0 = `${today.slice(0, 7)}-01`;
+    const { today, month0 } = localClock();
     const { rows: [counts] } = await client.query(
       `SELECT to_char($3::date, 'YYYY-MM') AS month, to_char($4::date, 'YYYY-MM-DD') AS today,
               (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')}
@@ -150,26 +156,27 @@ async function holderInternalVisitsTx(client, tenantId, partnerId, month) {
  */
 async function providersList(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
+    const { today, month0 } = localClock();
     const { rows } = await client.query(
       `SELECT p.id, p.name, p.short_name AS "shortName", t.code AS "typeCode", t.label AS "typeLabel", p.active,
-              p.contract_ref AS "contractRef", to_char(current_date, 'YYYY-MM-DD') AS today,
+              p.contract_ref AS "contractRef", $4::text AS today,
               (SELECT count(*) FROM tpm_agents a WHERE a.tenant_id = $1 AND a.tpm_provider_id = p.id AND a.active)::int AS "agentsActive",
               (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND v.provider_id = p.id AND v.status = 'realise'
-                 AND v.period_month >= date_trunc('month', current_date) - interval '11 months')::int AS "visitsRealised12",
+                 AND v.period_month >= $3::date - interval '11 months')::int AS "visitsRealised12",
               (SELECT count(*) FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.partner_id = p.id AND NOT s.excluded
-                 AND s.period_month >= date_trunc('month', current_date) - interval '11 months')::int AS "submissions12",
+                 AND s.period_month >= $3::date - interval '11 months')::int AS "submissions12",
               (SELECT count(*) FROM tpm_reports r WHERE r.tenant_id = $1 AND r.partner_id = p.id AND r.status = $2)::int AS "reportsToValidate",
               ev.final_score::float8 AS "lastScore", ev.band AS "lastBand", to_char(ev.period_to, 'YYYY-MM') AS "lastScoreTo",
               (SELECT count(DISTINCT COALESCE(z.admin_area_id::text, z.path)) FROM contract_areas z
                  JOIN contracts zc ON zc.id = z.contract_id AND zc.tenant_id = z.tenant_id
-                WHERE z.tenant_id = $1 AND zc.partner_id = p.id AND ${contractCoversMonthSql('zc', THIS_MONTH_SQL)})::int AS "zonesActive"
+                WHERE z.tenant_id = $1 AND zc.partner_id = p.id AND ${contractCoversMonthSql('zc', '$3::date')})::int AS "zonesActive"
          FROM partners p
          JOIN partner_types t ON t.id = p.partner_type_id AND t.tenant_id = p.tenant_id
          LEFT JOIN LATERAL (SELECT e.final_score, e.band, e.period_to FROM tpm_provider_evaluations e
                              WHERE e.tenant_id = $1 AND e.partner_id = p.id AND e.status = 'validee'
                              ORDER BY e.period_to DESC, e.validated_at DESC LIMIT 1) ev ON true
         WHERE p.tenant_id = $1
-        ORDER BY p.name`, [tenantId, PENDING_STATUS]);
+        ORDER BY p.name`, [tenantId, PENDING_STATUS, month0, today]);
     const links = await providerLinksTx(client, tenantId);
     // Contrats ACTIFS et leur TPM (retour 113) : contrats tenus, contrats suivis, TPM d'un titulaire. « Actif » =
     // la règle commune des dates (activeProvider.contractCoversMonth, jumelle SQL) — comme le statut de la ligne :
@@ -178,7 +185,7 @@ async function providersList(tenantId) {
       `SELECT c.id, c.numero, c.numero_fla AS "numeroFla", c.partner_id AS "partnerId",
               COALESCE(p.name, c.partner_name) AS "partnerName", c.status
          FROM contracts c LEFT JOIN partners p ON p.id = c.partner_id AND p.tenant_id = c.tenant_id
-        WHERE c.tenant_id = $1 AND ${contractCoversMonthSql('c', THIS_MONTH_SQL)} ORDER BY c.numero_fla NULLS LAST, c.numero`, [tenantId]);
+        WHERE c.tenant_id = $1 AND ${contractCoversMonthSql('c', '$2::date')} ORDER BY c.numero_fla NULLS LAST, c.numero`, [tenantId, month0]);
     const { views } = await contractTpmViewsTx(client, tenantId, contracts);
     return { rows, links, contracts, views };
   });
@@ -228,7 +235,7 @@ async function contractsOf(tenantId, id) {
     if (!(await getPartnerTx(client, tenantId, id))) return null;
     const links = await providerLinksTx(client, tenantId, { partnerId: id });
     const contracts = await contractFiguresTx(client, tenantId, id, links.map((l) => l.contractId));
-    const { rows: [{ today }] } = await client.query("SELECT to_char(current_date, 'YYYY-MM-DD') AS today");
+    const { today } = localClock(); // même horloge que la fiche et la liste (jamais la date de la session)
     const { views, partners } = await contractTpmViewsTx(client, tenantId, contracts.map((c) => ({ id: c.id, partnerId: c.holderId })));
     return { links, contracts, today, tpmViews: views, partnerTypes: new Map(partners.map((p) => [p.id, p.typeCode])) };
   });
