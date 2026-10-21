@@ -60,6 +60,17 @@ export const reportShownStatus = (r) => {
   if (r && r.late) return 'en_retard';
   return r && r.status;
 };
+/**
+ * Pourquoi un gabarit est « non applicable d'office » (phrase française, bulle d'aide de la liste et de
+ * l'onglet Rapports) : partenaire qui n'est plus un TPM (D-b, `partnerNotTpm`, reportExpectationSql), sinon
+ * aucune visite planifiée de ce TPM sur ce contrat. null : le statut n'est pas « d'office ».
+ */
+export function autoNotApplicableWhy(r) {
+  if (!r || !r.autoNotApplicable) return null;
+  return r.partnerNotTpm
+    ? 'Ce partenaire n\'est plus un TPM : aucune facture n\'est plus attendue de lui.'
+    : 'Aucune visite planifiée de ce TPM sur ce contrat ce mois-là : pas de rapport à remettre.';
+}
 export const reportStatusDef = (r) => {
   if (r && r.autoNotApplicable) return EXPECTED_STATUS.non_applicable_auto;
   if (r && r.late) return EXPECTED_STATUS.en_retard;
@@ -88,4 +99,17 @@ export function factureFlow(reports, month) {
     facturesSoumises: real.filter((r) => r.status === 'soumis').length,
     facturesValidees: real.filter((r) => r.status === 'valide').length,
   };
+}
+
+/**
+ * Décision D-b — jumelle EXACTE de server/src/modules/tpm/reportExpectation.inactiveTpmMayInvoice (parité
+ * testée) : une FACTURE dont toute la période [periodMonth, periodEnd] précède le mois courant `today`
+ * (« AAAA-MM », mois local de l'application) peut venir d'un TPM dont la fiche est inactive. Un plan, un
+ * rapport technique ou une facture qui touche le mois courant exige un TPM actif.
+ */
+export function inactiveTpmMayInvoice(doc, today) {
+  if (!doc || doc.kind !== 'financier') return false;
+  const from = String(doc.periodMonth || '').slice(0, 7);
+  const to = doc.periodEnd ? String(doc.periodEnd).slice(0, 7) : from;
+  return /^\d{4}-\d{2}$/.test(from) && (to > from ? to : from) < today;
 }

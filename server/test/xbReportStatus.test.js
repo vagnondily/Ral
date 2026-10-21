@@ -12,13 +12,28 @@ const { stubLateSql, stubNotApplicableSql } = require('../src/modules/tpm/report
 const { DUE_MONTHS_AFTER } = require('../src/modules/tpm/reportExpectation');
 const { reportSummary, expectedCountsOf } = require('../src/modules/partners/partnerSheet');
 
-test('stubLateSql : gabarit « attendu », pas non applicable d office, échéance (dernier mois + DUE_MONTHS_AFTER) dépassée', () => {
+test('stubLateSql : gabarit « attendu », pas non applicable d office, en retard dès qu UN de ses mois l est (relecture des corrections croisées, point 5)', () => {
   const sql = stubLateSql('r', '2026-10').replace(/\s+/g, ' ');
   assert.ok(sql.includes("r.status = 'attendu'"));
   assert.ok(sql.includes(`NOT ${stubNotApplicableSql('r').replace(/\s+/g, ' ')}`));
-  assert.ok(sql.includes(`COALESCE(r.period_end, r.period_month) + interval '${DUE_MONTHS_AFTER} month' < '2026-10-01'::date`));
+  // Chaque mois du gabarit sur sa PROPRE échéance (comme tpmStatus), jamais le seul dernier mois.
+  assert.ok(!sql.includes('COALESCE(r.period_end, r.period_month) + interval'), 'plus d échéance du dernier mois');
+  assert.ok(sql.includes('lv.period_month BETWEEN r.period_month AND COALESCE(r.period_end, r.period_month)'));
+  assert.ok(sql.includes(`lv.period_month + interval '${DUE_MONTHS_AFTER} month' < '2026-10-01'::date`));
+  assert.ok(sql.includes("lv.provider_id = r.partner_id AND lv.contract_id = r.contract_id AND lv.status <> 'annule'"), 'visites non annulées de son TPM sur son contrat');
+  // Un mois qu'un autre document RÉEL du couple couvre n'est pas en retard (la carte retient ce document).
+  assert.ok(sql.includes("od.kind = r.kind AND od.id <> r.id AND od.status IN ('soumis', 'valide', 'rejete', 'non_applicable')"));
   // Le mois courant est un littéral contrôlé : jamais autre chose qu'AAAA-MM.
   for (const bad of [undefined, '2026-13', "2026-10'; DROP TABLE x; --", '2026-1']) assert.throws(() => stubLateSql('r', bad));
+});
+
+test('stubNotApplicableSql (D-b, relecture des corrections croisées, point 2) : sans visite OU partenaire qui n est plus de type TPM ; fiche inactive : encore attendue', () => {
+  const { stubNotTpmSql } = require('../src/modules/tpm/reportExpectationSql');
+  const na = stubNotApplicableSql('r').replace(/\s+/g, ' ');
+  const notTpm = stubNotTpmSql('r').replace(/\s+/g, ' ');
+  assert.ok(na.startsWith(`(${notTpm} OR (r.status = 'attendu' AND NOT EXISTS ( SELECT 1 FROM site_visits sv`));
+  assert.match(notTpm, /^\(r\.status = 'attendu' AND NOT EXISTS \( SELECT 1 FROM partners sp JOIN partner_types st ON st\.tenant_id = sp\.tenant_id AND st\.id = sp\.partner_type_id WHERE sp\.tenant_id = r\.tenant_id AND sp\.id = r\.partner_id AND st\.code = 'tpm'\)\)$/);
+  assert.ok(!/active/.test(notTpm), 'la fiche inactive n entre pas en compte (D-b)');
 });
 
 test('fiche 360° : factures « Attendu » / « En retard » = rapports attendus du TPM ; Soumis / Validé / Rejeté = documents', () => {
@@ -46,6 +61,27 @@ test('fiche 360° : factures « Attendu » / « En retard » = rapports attendus
   assert.deepEqual([raw.financier.attendu, raw.financier.en_retard, raw.expected, raw.late], [4, 1, 5, 2]);
 });
 
+test('fiche 360° d un TITULAIRE (relecture des corrections croisées, point 1) : les factures attendues / en retard de son TPM sur ses contrats comptent', () => {
+  // MIARO tient k1 ; YPA en est le TPM. MIARO n'est le TPM d'aucune ligne : avant, sa fiche comptait 0 / 0.
+  const expected = { rows: [
+    { unit: { kind: 'tpm', providerId: 'ypa' }, contract: { id: 'k1' }, status: 'en_retard' },
+    { unit: { kind: 'tpm', providerId: 'ypa' }, contract: { id: 'k1' }, status: 'attendu' },
+    { unit: { kind: 'tpm', providerId: 'ypa' }, contract: { id: 'k2' }, status: 'en_retard' }, // contrat d'un autre titulaire
+    { unit: { kind: 'tpm', providerId: 'miaro' }, contract: { id: 'k1' }, status: 'attendu' }, // TPM ET titulaire : une fois
+    { unit: { kind: 'tpm', providerId: 'sahy' }, contract: null, status: 'en_retard' },
+    { unit: { kind: 'interne', providerId: null }, contract: null, status: 'attendu' },
+  ] };
+  assert.deepEqual(expectedCountsOf(expected, 'miaro', ['k1']), { attendu: 2, en_retard: 1 });
+  assert.deepEqual(expectedCountsOf(expected, 'miaro'), { attendu: 1, en_retard: 0 }, 'sans ses contrats : ses lignes de TPM seules');
+  assert.deepEqual(expectedCountsOf(expected, 'ypa', []), { attendu: 1, en_retard: 2 });
+  const s = reportSummary([{ kind: 'financier', status: 'en_retard', n: 1 }, { kind: 'financier', status: 'valide', n: 2 }], expectedCountsOf(expected, 'miaro', ['k1']));
+  assert.deepEqual([s.financier.attendu, s.financier.en_retard, s.expected, s.late], [2, 1, 2, 1]);
+  // Le service passe les contrats tenus (même périmètre que les documents de la fiche, docOf).
+  const src = fs.readFileSync(path.join(__dirname, '../src/modules/partners/partners.service.js'), 'utf8');
+  assert.match(src, /const held = \(raw\.contracts \|\| \[\]\)\.filter\(\(c\) => c\.holderId === id\)\.map\(\(c\) => c\.id\);/);
+  assert.match(src, /expected: expectedCountsOf\(expected, id, held\)/);
+});
+
 test('web : statut affiché d un gabarit en retard = « En retard » (liste, onglet), comme la carte', async (t) => {
   const file = path.join(__dirname, '../../web/src/lib/reportExpectation.js');
   if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }
@@ -55,6 +91,13 @@ test('web : statut affiché d un gabarit en retard = « En retard » (liste, ong
   assert.equal(w.reportShownStatus({ status: 'attendu', autoNotApplicable: true, late: false }), 'non_applicable');
   assert.equal(w.reportShownStatus({ status: 'soumis', late: false }), 'soumis');
   assert.ok('partner_not_tpm' in w.EXPECTED_REASON, 'raison D-b libellée à l écran');
+  // Bulle d'aide d'un gabarit non applicable d'office : la raison D-b quand le partenaire n'est plus TPM (point 2).
+  assert.match(w.autoNotApplicableWhy({ autoNotApplicable: true, partnerNotTpm: true }), /n'est plus un TPM/);
+  assert.match(w.autoNotApplicableWhy({ autoNotApplicable: true, partnerNotTpm: false }), /^Aucune visite planifiée/);
+  assert.equal(w.autoNotApplicableWhy({ autoNotApplicable: false }), null);
+  for (const f of ['pages/tpm/ReportsPage.jsx', 'pages/tpm/provider/ProviderReportsTab.jsx']) {
+    assert.match(fs.readFileSync(path.join(__dirname, '../../web/src', f), 'utf8'), /title=\{tr\(autoNotApplicableWhy\(r\)\)\}/, f);
+  }
 });
 
 test('fil guidé (point 16) : étapes « Facture » / « Validation » = factures RÉELLES qui couvrent le mois (règle de la carte)', async (t) => {
@@ -116,4 +159,37 @@ test('D-c (point 25) : une seule source « indisponible » pour les listes de ch
   assert.equal(unavailableThroughout(['2026-12'], [{ month: '2026-12' }]), true);
   assert.equal(unavailableThroughout(['2026-11', '2026-12'], [{ month: '2026-12' }]), false);
   assert.equal(unavailableThroughout([], [{ month: '2026-12' }]), false);
+});
+
+test('D-b à l écran (relecture des corrections croisées, point 3) : même règle « mois passés » des deux côtés ; la facture propose les TPM inactifs', async (t) => {
+  const file = path.join(__dirname, '../../web/src/lib/reportExpectation.js');
+  if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }
+  const w = await import(pathToFileURL(file).href);
+  const { inactiveTpmMayInvoice } = require('../src/modules/tpm/reportExpectation');
+  const cases = [];
+  for (const kind of ['financier', 'technique']) {
+    for (const periodMonth of ['2026-08-01', '2026-09', '2026-10-01', '2026-11', '', null]) {
+      for (const periodEnd of [null, '', '2026-07-01', '2026-09', '2026-10-01', '2026-12']) cases.push({ kind, periodMonth, periodEnd });
+    }
+  }
+  for (const c of cases) assert.equal(w.inactiveTpmMayInvoice(c, '2026-10'), inactiveTpmMayInvoice(c, '2026-10'), JSON.stringify(c));
+  assert.equal(w.inactiveTpmMayInvoice(null, '2026-10'), false);
+  const drawer = fs.readFileSync(path.join(__dirname, '../../web/src/pages/tpm/FactureDrawer.jsx'), 'utf8');
+  assert.match(drawer, /const pastOnly = isFin && inactiveTpmMayInvoice\(\{ kind: 'financier', periodMonth: factureMonth, periodEnd: head\.periodEnd \|\| null \}, today\);/);
+  assert.match(drawer, /inactive: pastOnly \? inactiveTpms : \[\]/);
+  assert.match(drawer, /const today = context\?\.today \|\| currentMonth\(\);/, 'mois LOCAL de l application, renvoyé par le serveur');
+  const repo = fs.readFileSync(path.join(__dirname, '../src/modules/tpm/reports.repository.js'), 'utf8');
+  assert.match(repo, /inactiveTpms,\s+today: currentMonth\(\),/);
+});
+
+test('D-c à l écran (relecture des corrections croisées, point 4) : l avertissement suit les mois de LA facture, jamais le filtre de la page', (t) => {
+  const file = path.join(__dirname, '../../web/src/pages/tpm/FactureDrawer.jsx');
+  if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }
+  const drawer = fs.readFileSync(file, 'utf8');
+  assert.match(drawer, /const factureMonth = editing \? head\.periodMonth : \(month \? String\(month\)\.slice\(0, 7\) : ''\);/);
+  assert.match(drawer, /periodMonth: r\.periodMonth \? String\(r\.periodMonth\)\.slice\(0, 7\) : ''/, 'mois du rapport ouvert gardé');
+  const effect = drawer.slice(drawer.indexOf('useEffect(() => {\n    if (!isFin || !head.partnerId || !factureMonth)'), drawer.indexOf('}, [isFin, head.partnerId, head.periodEnd, factureMonth]);'));
+  assert.match(effect, /const from = factureMonth;/);
+  assert.ok(!/\bmonth\b(?!s)/.test(effect.replace(/factureMonth/g, '')), 'jamais le mois de la page dans l effet');
+  assert.match(drawer, /\{isFin && !readOnly && offMonths\.length > 0 && \(/, 'facture figée : pas d avertissement « avant de la soumettre »');
 });

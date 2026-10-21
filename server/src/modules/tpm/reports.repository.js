@@ -13,7 +13,7 @@ const { recordDeletion } = require('../deletions/deletions.repository');
 const { monthsOf } = require('../common/period');
 const { expectedReports: expectedRule, inactiveTpmMayInvoice } = require('./reportExpectation');
 const { contractTpmPairsByMonth } = require('./tpmAttribution');
-const { stubNotApplicableSql, stubLateSql } = require('./reportExpectationSql');
+const { stubNotApplicableSql, stubNotTpmSql, stubLateSql } = require('./reportExpectationSql');
 const { currentMonth } = require('./rbmMath');
 const { PERIOD_CAPS } = require('../common/periodCaps');
 const { rootOfficeOf } = require('../common/officeScope');
@@ -32,7 +32,10 @@ const tpmAttributionRepo = require('./tpmAttribution.repository');
 
 const num = (v) => (v == null ? v : Number(v));
 
-/** Colonnes d'un rapport ; `late` : gabarit « attendu » dont l'échéance est passée (stubLateSql, mois local). */
+/**
+ * Colonnes d'un rapport ; `late` : gabarit « attendu » dont l'échéance est passée (stubLateSql, mois local) ;
+ * `partnerNotTpm` : gabarit non applicable d'office parce que son partenaire n'est plus un TPM (D-b).
+ */
 const reportColumns = () => `
   r.id, r.partner_id AS "partnerId", pa.name AS "partnerName",
   r.contract_id AS "contractId", c.numero AS "contractNumero", c.numero_fla AS "contractFla", c.partner_name AS "contractPartner",
@@ -43,7 +46,8 @@ const reportColumns = () => `
   r.submitted_at AS "submittedAt", r.submitted_by AS "submittedBy", sb.email AS "submittedByEmail",
   r.edited_by AS "editedBy", ed.email AS "editedByEmail", r.edited_at AS "editedAt",
   r.decided_by AS "decidedBy", d.email AS "decidedByEmail", r.decided_at AS "decidedAt",
-  ${stubNotApplicableSql('r')} AS "autoNotApplicable", ${stubLateSql('r', currentMonth())} AS late`;
+  ${stubNotApplicableSql('r')} AS "autoNotApplicable", ${stubNotTpmSql('r')} AS "partnerNotTpm",
+  ${stubLateSql('r', currentMonth())} AS late`;
 
 const FROM = `
   FROM tpm_reports r
@@ -222,14 +226,21 @@ async function invoiceData(tenantId, id) {
   });
 }
 
-/** TPM partners + monitoring contracts (active, with a Suivi budget) for the pickers. */
+/**
+ * TPM partners + monitoring contracts (active, with a Suivi budget) for the pickers. `partners` : TPM actifs
+ * (plans, gabarits, factures) ; `inactiveTpms` : TPM dont la fiche est inactive, proposés pour une facture
+ * dont toute la période précède le mois courant (`today`, mois LOCAL de l'application — décision D-b,
+ * reportExpectation.inactiveTpmMayInvoice ; relecture des corrections croisées, point 3).
+ */
 async function reportContext(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
-    const { rows: partners } = await client.query(
-      `SELECT p.id, p.name FROM partners p JOIN partner_types pt ON pt.id = p.partner_type_id
-        WHERE p.tenant_id = $1 AND pt.code = 'tpm' AND p.active = true ORDER BY p.name`,
+    const { rows: tpms } = await client.query(
+      `SELECT p.id, p.name, p.active FROM partners p JOIN partner_types pt ON pt.id = p.partner_type_id AND pt.tenant_id = p.tenant_id
+        WHERE p.tenant_id = $1 AND pt.code = 'tpm' ORDER BY p.name, p.id`,
       [tenantId]
     );
+    const partners = tpms.filter((p) => p.active !== false).map((p) => ({ id: p.id, name: p.name }));
+    const inactiveTpms = tpms.filter((p) => p.active === false).map((p) => ({ id: p.id, name: p.name, active: false }));
     const { rows: contracts } = await client.query(
       `SELECT c.id, c.numero, c.numero_fla AS "numeroFla", c.partner_name AS "partnerName", c.date_debut AS "dateDebut", c.date_fin AS "dateFin",
               c.management_fee_pct AS "managementFeePct", c.period_months AS "periodMonths",
@@ -251,6 +262,8 @@ async function reportContext(tenantId) {
     );
     return {
       partners,
+      inactiveTpms,
+      today: currentMonth(),
       activities,
       contracts: contracts.map((c) => {
         const fee = Number(c.managementFeePct) || 0;
@@ -275,6 +288,23 @@ async function findExisting(client, tenantId, { partnerId, contractId, periodMon
     [tenantId, partnerId, contractId, periodMonth, kind]
   );
   return rows[0] || null;
+}
+
+/** Contrat d'un rapport, lu SANS verrou (lockLinkDocumentTx) ; undefined : rapport absent. */
+const peekReportContract = (tenantId, id) => async (c) => {
+  const { rows: [r] } = await c.query('SELECT contract_id AS "contractId" FROM tpm_reports WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+  return r ? r.contractId : undefined;
+};
+
+/**
+ * Garde « TPM actif » d'un rapport REPRIS (gabarit rempli, facture rejetée corrigée, période prolongée) —
+ * la même qu'à la création (insertReport, décision D-b) : TPM actif, sauf une facture dont TOUTE la période
+ * précède le mois courant local. Sous le verrou d'attribution (lockLinkDocumentTx : une fiche désactivée ou
+ * retypée pendant l'écriture est vue), dans la transaction qui écrit ; NOT_TPM → 400 (routes).
+ */
+async function assertReportTpmTx(client, tenantId, report, periodEnd = report.periodEnd) {
+  const doc = { kind: report.kind, periodMonth: report.periodMonth, periodEnd };
+  await assertActiveTpmTx(client, tenantId, report.partnerId, { allowInactive: inactiveTpmMayInvoice(doc, currentMonth()) });
 }
 
 async function insertReport(tenantId, r) {
@@ -326,15 +356,21 @@ async function insertReport(tenantId, r) {
  * (edited_by). A submitted report is frozen while it awaits the decision.
  * Saving NEVER changes the status: « Soumettre » does (submitReport).
  * Returns the report id, or null if not found; throws code KIND / LOCKED /
- * AUTHOR (with the rule's message) otherwise.
+ * AUTHOR (with the rule's message) otherwise. Une période prolongée repasse la
+ * garde « TPM actif » de la création (assertReportTpmTx, D-b) : NOT_TPM.
+ * Verrous dans l'ordre des écrivains du lien : contrat → attribution → ligne.
  */
 async function replaceReportItems(tenantId, id, items, { invoiceNo, periodEnd, advanceDeducted, userId } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
-    const report = await getReportRow(client, tenantId, id);
+    const report = await tpmAttributionRepo.lockLinkDocumentTx(client, tenantId, {
+      peekContract: peekReportContract(tenantId, id), lockRow: (c) => getReportRow(c, tenantId, id),
+    });
     if (!report) return null;
     if (report.kind !== 'financier') { const e = new Error('kind'); e.code = 'KIND'; throw e; }
     const denied = editError(report, userId);
     if (denied) { const e = new Error(denied.message); e.code = denied.code === 'author' ? 'AUTHOR' : 'LOCKED'; throw e; }
+    const ym = (d) => (d ? String(d).slice(0, 7) : null);
+    if (periodEnd && ym(periodEnd) !== ym(report.periodEnd)) await assertReportTpmTx(client, tenantId, report, periodEnd);
 
     await client.query('DELETE FROM contract_report_items WHERE tenant_id = $1 AND report_id = $2', [tenantId, id]);
     const clean = await insertItems(client, tenantId, id, items);
@@ -370,11 +406,7 @@ async function deleteReport(tenantId, id, { actorId, isAdmin = false, justificat
   return withTenantTransaction(tenantId, async (client) => {
     // Lien TPM ↔ contrat (retour 114) : contrat du rapport → verrou d'attribution → ligne du rapport, comme les créateurs.
     const report = await tpmAttributionRepo.lockLinkDocumentTx(client, tenantId, {
-      peekContract: async (c) => {
-        const { rows: [r] } = await c.query('SELECT contract_id AS "contractId" FROM tpm_reports WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
-        return r ? r.contractId : undefined;
-      },
-      lockRow: (c) => getReportRow(c, tenantId, id),
+      peekContract: peekReportContract(tenantId, id), lockRow: (c) => getReportRow(c, tenantId, id),
     });
     if (!report) return null;
 
@@ -480,19 +512,30 @@ async function setStatus(tenantId, id, status, userId, comment) {
  * (par son auteur seulement ; une facture doit porter un état des dépenses ou
  * un montant), puis mise à jour qui exige encore un statut soumettable (aucune
  * double soumission). Le soumetteur est enregistré : il ne pourra ni valider
- * ni rejeter.
+ * ni rejeter. Garde « TPM actif » de la création (assertReportTpmTx, D-b) : un
+ * gabarit ou une facture rejetée d'un TPM désormais inactif ne part en
+ * validation que pour des mois passés (sinon NOT_TPM → 400). Verrous dans
+ * l'ordre des écrivains du lien : contrat → attribution → ligne.
  * @returns {Promise<{ ok: true } | { error: 'not_found' } | { error: 'status' | 'author' | 'empty', message: string }>}
  */
 async function submitReport(tenantId, id, userId) {
   return withTenantTransaction(tenantId, async (client) => {
-    const { rows } = await client.query(
-      `SELECT status, kind, reported_amount AS "reportedAmount", edited_by AS "editedBy"
-         FROM tpm_reports WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [tenantId, id]);
-    if (!rows.length) return { error: 'not_found' };
+    const locked = await tpmAttributionRepo.lockLinkDocumentTx(client, tenantId, {
+      peekContract: peekReportContract(tenantId, id),
+      lockRow: async (c) => {
+        const { rows: [r] } = await c.query(
+          `SELECT status, kind, reported_amount AS "reportedAmount", edited_by AS "editedBy", partner_id AS "partnerId",
+                  contract_id AS "contractId", period_month AS "periodMonth", period_end AS "periodEnd"
+             FROM tpm_reports WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [tenantId, id]);
+        return r || null;
+      },
+    });
+    if (!locked) return { error: 'not_found' };
     const { rows: cnt } = await client.query(
       'SELECT count(*)::int AS n FROM contract_report_items WHERE tenant_id = $1 AND report_id = $2', [tenantId, id]);
-    const err = submitError({ ...rows[0], reportedAmount: num(rows[0].reportedAmount), itemCount: cnt[0].n }, userId);
+    const err = submitError({ ...locked, reportedAmount: num(locked.reportedAmount), itemCount: cnt[0].n }, userId);
     if (err) return { error: err.code, message: err.message };
+    await assertReportTpmTx(client, tenantId, locked);
     // Auteur inconnu (contenu antérieur à la migration 058) : la personne qui
     // soumet s'en porte garante et en devient l'auteur.
     await client.query(

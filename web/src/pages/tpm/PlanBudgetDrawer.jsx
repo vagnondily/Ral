@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Coins, AlertCircle, Wallet, MapPin, CalendarCheck } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Badge, Button, Field, Skeleton } from '../../components/ui.jsx';
@@ -10,7 +10,7 @@ import { periodLabel } from '../../lib/period.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import PostesEditor, { newPoste, rowsFromItems, itemsFromRows } from './PostesEditor.jsx';
 import EntityPicker from '../../components/EntityPicker.jsx';
-import { contractOptions, tpmOptions, withContract, withPartner } from '../../lib/tpmPickers.js';
+import { availableTpmsOf, contractOptions, tpmOptions, withContract, withPartner } from '../../lib/tpmPickers.js';
 import useContractTpms from '../../lib/useContractTpms.js';
 import { joinParts } from '../../lib/roles.js';
 import { invalidPctRows } from '../../lib/postesMath.js';
@@ -39,18 +39,23 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
   // Retour 58 — règle unique : le TPM d'un contrat de suivi est le TPM rattaché (plans, factures),
   // sinon son titulaire. Choisir le contrat propose ce TPM ; choisir le TPM propose son contrat.
   const tpmsOf = useContractTpms(month, !editing);
+  // Décision D-c : un TPM déclaré indisponible ce mois-là ne reçoit aucun plan — jamais pré-rempli,
+  // marqué « indisponible » dans la liste, et signalé avant l'enregistrement (le serveur le refuserait).
+  const fillTpmsOf = useMemo(() => availableTpmsOf(tpmsOf), [tpmsOf]);
   const choosePartner = (partnerId) => setHead((h) => withPartner(h, partnerId, contracts, tpmsOf));
-  const chooseContract = (contractId) => setHead((h) => withContract(h, contractId, tpmsOf));
+  const chooseContract = (contractId) => setHead((h) => withContract(h, contractId, fillTpmsOf));
+  const offMonths = !editing && head.partnerId ? tpmsOf.offMonths(head.partnerId) : [];
   const headTpms = tpmsOf(head.contractId);
   const pickContracts = contractOptions(contracts, {
     month, tpmsOf, fmtPeriod: (from, to) => periodLabel({ from, to }, lang, { short: true }),
     labels: { covering: tr('Couvrent {month}', { month: month ? monthLabel(String(month).slice(0, 7)) : '' }), others: tr('Autres contrats actifs'), tpmList: (p) => tr('TPM : {p}', { p }) },
   });
   const pickTpms = tpmOptions(partners, {
-    contracts, contractId: head.contractId, tpmsOf, isActive: tpmsOf.isActive,
+    contracts, contractId: head.contractId, tpmsOf, isActive: tpmsOf.isActive, offMonths: tpmsOf.offMonths,
     labels: {
       ofContract: tr('TPM de ce contrat'), others: tr('Autres TPM'), noContract: tr('Aucun contrat de suivi rattaché'),
       active: tr('Actifs en {month} (contrat de suivi)', { month: month ? monthLabel(String(month).slice(0, 7)) : '' }),
+      unavailable: (ms) => tr('indisponible : {m}', { m: ms.map((m) => monthLabel(m)).join(', ') }),
     },
   });
   const otherTpm = Boolean(head.contractId && head.partnerId && headTpms.length && !headTpms.some((p) => p.id === head.partnerId));
@@ -80,6 +85,7 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
   const errors = [];
   if (!editing && !head.partnerId) errors.push(tr('Choisissez un TPM.'));
   if (!editing && !head.contractId) errors.push(tr('Choisissez un contrat.'));
+  if (offMonths.length) errors.push(tr('Ce TPM est déclaré indisponible en {m} : aucun plan de collecte ne peut lui être confié ce mois-là. Choisissez un autre TPM.', { m: offMonths.map((m) => monthLabel(m)).join(', ') }));
   if (itemsFromRows(rows).length === 0) errors.push(tr('Ajoutez au moins un poste prévu.'));
   // Un % bailleur illisible ou hors 0–100 est refusé, jamais ramené en silence à 0 ou 100 %.
   if (invalidPctRows(rows).length > 0) errors.push(tr('% bailleur invalide : saisissez un nombre entre 0 et 100 (vide = 100 %).'));
@@ -155,6 +161,9 @@ export default function PlanBudgetDrawer({ planId, context, month, onClose, onSa
 
           {otherTpm && (
             <Alert tone="warn">{tr('Ce TPM n\'est pas celui de ce contrat ({p}) : vérifiez le couple TPM × contrat.', { p: headTpms.map((p) => p.name).join(', ') })}</Alert>
+          )}
+          {offMonths.length > 0 && (
+            <Alert tone="warn">{tr('Ce TPM est déclaré indisponible en {m} : aucun plan de collecte ne peut lui être confié ce mois-là. Choisissez un autre TPM.', { m: offMonths.map((m) => monthLabel(m)).join(', ') })}</Alert>
           )}
           {contract && <div className="note"><Coins size={18} aria-hidden="true" /><span>{richText(tr('Budget Suivi/TPM du contrat : <strong>{budget}</strong> · barème mensuel <strong>{ceiling}</strong>', { budget: formatAr(contract.monitoringBudget), ceiling: formatAr(contract.monthlyCeiling) }))}</span></div>}
 

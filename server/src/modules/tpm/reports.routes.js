@@ -159,6 +159,7 @@ router.put('/:id/items', WRITE, body(itemsSchema), asyncHandler(async (req, res)
     if (err.code === 'KIND') throw badRequest('Seul un rapport financier porte un état des dépenses.');
     if (err.code === 'LOCKED') throw conflict(err.message);
     if (err.code === 'AUTHOR') throw forbidden(err.message);
+    if (err.code === 'NOT_TPM') throw badRequest(err.message, { code: 'not_tpm' });
     if (err instanceof Error && /Ligne budgétaire|désignation|invalide|Activité inconnue/.test(err.message)) throw badRequest(err.message);
     throw err;
   }
@@ -183,7 +184,14 @@ router.post('/generate-monthly', WRITE, body(stubSchema), asyncHandler(async (re
 // transition est interdite ou si la facture ne porte encore aucun poste. Le
 // soumetteur ne pourra ni valider ni rejeter.
 router.post('/:id/submit', WRITE, asyncHandler(async (req, res) => {
-  const r = await repo.submitReport(t(req), req.params.id, req.auth.userId);
+  let r;
+  try {
+    r = await repo.submitReport(t(req), req.params.id, req.auth.userId);
+  } catch (err) {
+    // Garde « TPM actif » de la création (décision D-b) : TPM inactif, facture qui touche le mois courant.
+    if (err.code === 'NOT_TPM') throw badRequest(err.message, { code: 'not_tpm' });
+    throw err;
+  }
   if (r.error === 'not_found') throw notFound('Rapport introuvable');
   if (r.error === 'author') throw forbidden(r.message);
   if (r.error) throw conflict(r.message);

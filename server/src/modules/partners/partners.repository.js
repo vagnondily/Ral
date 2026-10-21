@@ -8,7 +8,7 @@ const { providerLinksTx, contractTpmViewsTx } = require('../tpm/activeProvider.r
 const { monthWithin } = require('../common/periodSql');
 const { followedSql, timelineTrainingSql, heldSql } = require('../trainings/trainingSql');
 const { roleForUpdateTx, restampIfRoleChangedTx, nameChanges, roleAfter } = require('./partnerRole');
-const { stubNotApplicableSql, stubLateSql } = require('../tpm/reportExpectationSql');
+const { stubNotApplicableSql, stubNotTpmSql, stubLateSql } = require('../tpm/reportExpectationSql');
 const { contractCoversMonthSql } = require('../tpm/activeProviderSql');
 const { localDay } = require('../common/localDay');
 
@@ -244,7 +244,7 @@ async function reportsOf(tenantId, id) {
               r.contract_id AS "contractId", c.numero AS "contractNumero", c.numero_fla AS "contractFla",
               c.partner_name AS "holderName", r.partner_id AS "tpmId", pa.name AS "tpmName", r.submitted_at AS "submittedAt",
               r.decided_at AS "decidedAt", r.updated_at AS "updatedAt", ${stubNotApplicableSql('r')} AS "autoNotApplicable",
-              ${stubLateSql('r', localDay().slice(0, 7))} AS late
+              ${stubNotTpmSql('r')} AS "partnerNotTpm", ${stubLateSql('r', localDay().slice(0, 7))} AS late
          FROM tpm_reports r JOIN contracts c ON c.id = r.contract_id AND c.tenant_id = r.tenant_id
          LEFT JOIN partners pa ON pa.id = r.partner_id AND pa.tenant_id = r.tenant_id
         WHERE r.tenant_id = $1 AND ${docOf('r')}
