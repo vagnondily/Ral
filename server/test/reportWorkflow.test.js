@@ -129,6 +129,12 @@ test('actions permises : l\'écran n\'offre que ce que le serveur acceptera', ()
   // Validé : rien, sauf la consultation.
   const done = reportActions({ ...own, status: 'valide', decidedBy: 'v' }, W('v'));
   assert.deepEqual([done.edit, done.submit, done.decide, done.notApplicable, done.remove], [false, false, false, false, false]);
+  // « Modifier à volonté » (admin + option) : une facture validée redevient modifiable.
+  const freeDone = reportActions({ ...own, status: 'valide', decidedBy: 'v' }, { userId: 'x', canWrite: true, canValidate: true, isAdmin: true, adminFreeEdit: true });
+  assert.equal(freeDone.edit, true, 'admin free-edit : facture validée modifiable');
+  // mais pas un rapport technique (pas d'état des dépenses).
+  const freeTech = reportActions({ status: 'valide', kind: 'technique', createdBy: 'a' }, { userId: 'x', canWrite: true, adminFreeEdit: true });
+  assert.equal(freeTech.edit, false);
   // Suppression d'un validé (retour 56) : l'administrateur seulement, et sans montant compté.
   const adminW = { userId: 'x', canWrite: true, isAdmin: true };
   assert.equal(reportActions({ ...own, status: 'valide', reportedAmount: 125000 }, adminW).remove, false);

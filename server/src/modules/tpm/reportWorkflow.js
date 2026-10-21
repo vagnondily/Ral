@@ -151,12 +151,15 @@ function notApplicableError(report) {
  * @param {{ status: string, kind: string, createdBy?: string, submittedBy?: string|null, editedBy?: string|null }} report
  * @param {{ userId: string, canWrite: boolean }} actor  canWrite = rôle admin ou gestionnaire
  */
-function reportActions(report, { userId, canWrite, canValidate = false, isAdmin = false }) {
+function reportActions(report, { userId, canWrite, canValidate = false, isAdmin = false, adminFreeEdit = false }) {
   // Seule une facture porte un état des dépenses éditable.
   const editErr = report.kind === 'financier' ? editError(report, userId) : { code: 'kind', message: null };
   const decideErr = decisionError(report, userId);
+  // « Modifier à volonté » (admin + option de compte) : un administrateur peut corriger une facture
+  // même validée/soumise, sans tenir compte du verrou de statut (la correction reste tracée : edited_by).
+  const freeEditFacture = Boolean(adminFreeEdit) && report.kind === 'financier';
   return {
-    edit: Boolean(canWrite) && !editErr,
+    edit: freeEditFacture || (Boolean(canWrite) && !editErr),
     submit: Boolean(canWrite) && !submitTransitionError(report, userId),
     // Décider (valider / rejeter) = capacité de validation (validateur+), jamais un simple éditeur.
     decide: Boolean(canValidate) && !decideErr,

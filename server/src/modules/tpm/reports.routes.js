@@ -9,12 +9,18 @@ const { readPeriod } = require('../../middleware/period');
 const { buildInvoiceWorkbook } = require('./factureXlsx');
 const { reportActions, REPORT_WRITE_ROLES, REPORT_DECIDE_ROLES, canWriteReports, canDecideReports } = require('./reportWorkflow');
 const { isAdmin } = require('../common/accessRoles');
+const { getAccountSettings } = require('../settings/settings.repository');
 const { currentMonth } = require('./rbmMath');
 const { addMonths } = require('../common/period');
 const { PERIOD_CAPS } = require('../common/periodCaps');
 
 const router = Router();
 router.use(requireAuth);
+// « Modifier à volonté » (option de compte) : calculé UNE fois par requête pour un administrateur.
+router.use(asyncHandler(async (req, res, next) => {
+  req.freeEdit = isAdmin(req.auth.role) ? (await getAccountSettings(req.auth.tenantId)).adminFreeEdit === true : false;
+  next();
+}));
 // Rôles d'écriture (remplir / soumettre) et de décision (valider / rejeter) :
 // listes partagées avec le Centre d'alertes (reportWorkflow / accessRoles).
 const WRITE = requireRole(...REPORT_WRITE_ROLES);
@@ -29,6 +35,7 @@ const withActions = (req) => (report) => ({
     canWrite: canWriteReports(req.auth.role),
     canValidate: canDecideReports(req.auth.role),
     isAdmin: isAdmin(req.auth.role),
+    adminFreeEdit: req.freeEdit,
   }),
 });
 
@@ -156,6 +163,7 @@ router.put('/:id/items', WRITE, body(itemsSchema), asyncHandler(async (req, res)
     periodEnd: req.valid.periodEnd ? `${req.valid.periodEnd.slice(0, 7)}-01` : undefined,
     advanceDeducted: req.valid.advanceDeducted,
     userId: req.auth.userId, // seul l'auteur modifie un brouillon ; le premier qui remplit un gabarit en devient l'auteur
+    freeEdit: req.freeEdit, // admin « modifier à volonté » : corrige une facture même validée
   };
   try {
     const id = await repo.replaceReportItems(t(req), req.params.id, req.valid.items, opts);

@@ -328,12 +328,13 @@ async function insertReport(tenantId, r) {
  * Returns the report id, or null if not found; throws code KIND / LOCKED /
  * AUTHOR (with the rule's message) otherwise.
  */
-async function replaceReportItems(tenantId, id, items, { invoiceNo, periodEnd, advanceDeducted, userId } = {}) {
+async function replaceReportItems(tenantId, id, items, { invoiceNo, periodEnd, advanceDeducted, userId, freeEdit = false } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
     const report = await getReportRow(client, tenantId, id);
     if (!report) return null;
     if (report.kind !== 'financier') { const e = new Error('kind'); e.code = 'KIND'; throw e; }
-    const denied = editError(report, userId);
+    // « Modifier à volonté » (admin) : saute le verrou de statut (facture soumise/validée corrigeable).
+    const denied = freeEdit ? null : editError(report, userId);
     if (denied) { const e = new Error(denied.message); e.code = denied.code === 'author' ? 'AUTHOR' : 'LOCKED'; throw e; }
 
     await client.query('DELETE FROM contract_report_items WHERE tenant_id = $1 AND report_id = $2', [tenantId, id]);

@@ -12,6 +12,14 @@
 
 ## État courant
 
+> **21/10 — « Modifier à volonté » étendu aux factures validées.** ✅ L'option de compte ne s'arrête plus
+> au budget d'un contrat actif : un administrateur (option activée) peut corriger une **facture (rapport
+> financier) même soumise ou validée** — `reportActions` expose `edit`, la garde `replaceReportItems`
+> saute le verrou de statut quand `freeEdit`, calculé une fois par requête dans les routes des rapports.
+> La correction reste tracée (`edited_by`/`edited_at`). Rapport technique inchangé (pas d'état des dépenses).
+> Test unitaire ajouté. Les plans de collecte n'ont pas de verrou de statut côté serveur (édition pilotée
+> par l'écran) : l'édition des mois échus relève du frontend, à préciser avec le propriétaire au besoin.
+
 > **21/10 — Auto-inscription + comptes à valider + accès par écran (frontend).** ✅ Page publique
 > **« Créer un compte »** (depuis la connexion) : organisation + nom + e-mail + mot de passe → compte EN
 > ATTENTE (ne voit rien). Dans **Paramétrage › Utilisateurs & accès**, les comptes « À valider » ont un
