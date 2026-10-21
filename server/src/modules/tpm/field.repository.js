@@ -1436,7 +1436,8 @@ async function bulkUpdateSites(tenantId, userId, { year, siteIds, set = {}, stat
     // « Générer depuis le RBM » tiennent ces mois puis insèrent (clé étrangère sur ces mêmes
     // sites) — dans l'autre ordre, interblocage (40P01). planMonthsTx les reprend sans effet.
     if (plan) await lockVisitMonthsTx(client, tenantId, yearMonths(year));
-    const { rows: known } = await client.query('SELECT id FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[]) FOR UPDATE', [tenantId, ids]);
+    // Par identifiant croissant, comme l'activation et le plan automatique (jamais l'ordre du tas).
+    const { rows: known } = await client.query('SELECT id FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[]) ORDER BY id FOR UPDATE', [tenantId, ids]);
     if (known.length !== ids.length) throw badRequest('Site inconnu (ou hors de ce compte).');
     const result = { sites: ids.length, updated: 0, status: null, plan: null };
     const fields = { ...set };

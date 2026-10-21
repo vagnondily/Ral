@@ -249,3 +249,36 @@ test('#11 import de planning et import du registre × coche / nouvelle visite du
       for (const s of free) await q('UPDATE sites SET code = $2 WHERE id = $1', [s.id, s.code]);
     }
   });
+
+test('#12 modification groupée du Plan de suivi × enregistrement des sites actifs : sites pris par identifiant, jamais d interblocage',
+  { skip: SKIP, timeout: 120000 }, async () => {
+    const { T, U, Y } = await fixture();
+    const field = require('../src/modules/tpm/field.repository');
+    const act = require('../src/modules/tpm/activation.repository');
+    // Des sites placés tôt dans le tas mais d'identifiant élevé, puis des sites placés après d'identifiant bas :
+    // l'ordre du tas et celui des identifiants divergent. La 3ᵉ connexion tient le 2ᵉ du tas.
+    const rows = await q('SELECT id::text AS id, ctid::text AS ctid FROM sites WHERE tenant_id = $1 ORDER BY ctid', [T]);
+    const sorted = [...rows].sort((a, b) => (a.id < b.id ? -1 : 1));
+    const highIds = new Set(sorted.slice(-Math.floor(sorted.length / 3)).map((r) => r.id));
+    const heads = rows.filter((r) => highIds.has(r.id)).slice(0, 2);
+    const lowIds = new Set(sorted.slice(0, Math.floor(sorted.length / 3)).map((r) => r.id));
+    const tail = rows.slice(rows.indexOf(heads[1]) + 1).filter((r) => lowIds.has(r.id)).slice(0, 30);
+    const ids = [...heads.map((r) => r.id), ...tail.map((r) => r.id)];
+    assert.ok(tail.length >= 5, 'des sites d identifiant bas après les premiers du tas');
+    const syn = await q('SELECT id::text AS id, programme_synergies AS s FROM sites WHERE id = ANY($1::uuid[])', [ids]);
+    const year = Y + 3;
+    try {
+      const r = await duel(T, {
+        holdSql: 'SELECT 1 FROM sites WHERE id = $1 FOR KEY SHARE', holdParams: [heads[1].id],
+        first: () => field.bulkUpdateSites(T, U, { year: Y, siteIds: ids, set: { synergies: 1 } }),
+        firstBlockedOn: 'FROM sites WHERE tenant_id = \\$1 AND id = ANY',
+        second: () => act.saveActivation(T, U, { year, changes: ids.map((id) => ({ siteId: id, month: 1, active: true })), reason: 'Essai de verrous concurrents' }),
+      });
+      assert.equal(why(r.a), 'ok', 'modification groupée');
+      assert.equal(why(r.b), 'ok', 'sites actifs');
+    } finally {
+      await q('DELETE FROM site_activation_changes WHERE tenant_id = $1 AND year = $2', [T, year]).catch(() => {});
+      await q('DELETE FROM site_month_status WHERE tenant_id = $1 AND year = $2', [T, year]);
+      for (const s of syn) await q('UPDATE sites SET programme_synergies = $2 WHERE id = $1', [s.id, s.s]);
+    }
+  });
