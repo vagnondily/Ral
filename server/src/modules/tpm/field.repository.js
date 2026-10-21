@@ -341,6 +341,8 @@ async function importMasterData(tenantId, rows) {
  */
 async function importPlanSites(tenantId, userId, sites) {
   return withSubmissionLinks(tenantId, async (client) => {
+    // Mois des visites réalisées écrites (« dernière visite »), verrouillés AVANT toute écriture (visitLocks).
+    await lockVisitMonthsTx(client, tenantId, [...new Set(sites.filter((s) => s.lastVisit).map((s) => String(s.lastVisit).slice(0, 7)))]);
     // commune (minuscule) → bureau le plus spécifique.
     const { rows: perim } = await client.query(
       `SELECT lower(btrim(c.commune)) AS commune, c.office_id
@@ -953,6 +955,9 @@ async function deleteVisit(tenantId, id) {
  */
 async function importPlanning(tenantId, userId, month, rows) {
   return withSubmissionLinks(tenantId, async (client) => {
+    // Mois écrit verrouillé AVANT toute écriture (visitLocks : rattachements → mois → sites → attribution) :
+    // une coche du Plan de suivi ou une nouvelle visite du même site × mois attend, puis trouve la visite.
+    await lockVisitMonthsTx(client, tenantId, [String(month).slice(0, 7)]);
     const clean = rows.filter((r) => r.district && r.commune && r.name);
     const { map, inserted } = await upsertSites(client, tenantId, clean);
     let visits = 0;
@@ -1308,6 +1313,8 @@ async function importLocations(tenantId, userId, { year, rows }, { commit = fals
     const toUpdate = plan.filter((p) => p.id); const toCreate = plan.filter((p) => !p.id);
     const summary = { read: rows.length, updated: toUpdate.length, created: toCreate.length };
     if (!commit) return { ...summary, committed: false };
+    // Mois des visites prévues écrites, verrouillés AVANT la première écriture (visitLocks).
+    if (year) await lockVisitMonthsTx(client, tenantId, [...new Set(plan.flatMap((p) => p.planned || []))].map((m) => `${year}-${String(m).padStart(2, '0')}`));
 
     for (const p of toCreate) if (!p.locationId) { nextNum += 1; p.locationId = `L${String(nextNum).padStart(3, '0')}`; }
     const CH = 400;

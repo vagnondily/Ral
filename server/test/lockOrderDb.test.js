@@ -199,3 +199,53 @@ test('#9 « Effacer les planifications » × ré-estampille (changement de rôle
         [T, sites.map((s) => s.id), `${Y}-01-01`, `${Y}-02-01`]);
     }
   });
+
+test('#11 import de planning et import du registre × coche / nouvelle visite du même site × mois : verrou du mois d abord, 409 propre',
+  { skip: SKIP, timeout: 120000 }, async () => {
+    const { T, U, Y } = await fixture();
+    const field = require('../src/modules/tpm/field.repository');
+    const slug = (x) => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const codeOf = (s) => `${slug(s.district)}--${slug(s.commune)}--${slug(s.name)}`.slice(0, 120);
+    // Sites dont le code est déjà la clé d'import (district, commune, nom) : l'import les retrouve.
+    const cand = await q(`SELECT id, code, district, commune, fokontany, name, activity, location_id AS "locationId" FROM sites
+                           WHERE tenant_id = $1 AND activity IS NOT NULL AND district IS NOT NULL AND commune IS NOT NULL ORDER BY id`, [T]);
+    const free = [];
+    for (const s of cand) {
+      if (free.length === 2) break;
+      const code = codeOf(s);
+      if (s.code === code || !(await q('SELECT 1 FROM sites WHERE tenant_id = $1 AND code = $2', [T, code])).length) free.push({ ...s, newCode: code });
+    }
+    assert.equal(free.length, 2);
+    const touched = free.map((s) => s.id);
+    try {
+      for (const s of free) await q('UPDATE sites SET code = $2 WHERE id = $1', [s.id, s.newCode]);
+      // 1. Import de planning (mois M) pendant la création d'une visite du même site × M.
+      const [S1, S2] = free;
+      const m1 = `${Y}-04`;
+      const r1 = await duel(T, {
+        holdSql: 'LOCK TABLE location_match_queue IN SHARE MODE', // retient l'import APRÈS sa visite écrite
+        first: () => field.importPlanning(T, U, m1, [{ district: S1.district, commune: S1.commune, fokontany: S1.fokontany, name: S1.name, activity: S1.activity }]),
+        firstBlockedOn: 'location_match_queue',
+        second: () => field.createVisit(T, U, { siteId: S1.id, periodMonth: m1, activity: S1.activity, status: 'planifie' }),
+      });
+      assert.equal(r1.attributionFreeWhileWaiting, true, 'la création attend le mois sans tenir le verrou d\'attribution');
+      assert.equal(why(r1.a), 'ok', 'import de planning');
+      assert.equal(r1.a.v.visitsCreated, 1);
+      assert.equal(r1.b.status, 409, `création : ${why(r1.b)}`);
+      // 2. Import du registre (mois prévu) pendant une coche du même site × mois.
+      const r2 = await duel(T, {
+        holdSql: 'LOCK TABLE location_match_queue IN SHARE MODE',
+        first: () => field.importLocations(T, U, { year: Y, rows: [{ locationId: S2.locationId || undefined, name: S2.name, admin2: S2.district, admin3: S2.commune, activity: S2.activity,
+          planned: [5], security: 0, synergies: 0, newPartner: 0, experiencedPartner: 0, issuesProcess: 0, issuesPartnerReport: 0, issuesCFM: 0, fraud: 0 }] }, { commit: true }),
+        firstBlockedOn: 'location_match_queue',
+        second: () => field.setPlannedMonths(T, U, { year: Y, changes: [{ siteId: S2.id, month: 5, planned: true }] }),
+      });
+      assert.equal(r2.attributionFreeWhileWaiting, true, 'la coche attend le mois sans tenir le verrou d\'attribution');
+      assert.equal(why(r2.a), 'ok', 'import du registre');
+      assert.equal(why(r2.b), 'ok', 'coche');
+      assert.equal(r2.b.v.added, 0, 'la visite existe déjà : rien d\'ajouté');
+    } finally {
+      await q('DELETE FROM site_visits WHERE site_id = ANY($1::uuid[]) AND period_month >= $2::date', [touched, `${Y}-01-01`]);
+      for (const s of free) await q('UPDATE sites SET code = $2 WHERE id = $1', [s.id, s.code]);
+    }
+  });
