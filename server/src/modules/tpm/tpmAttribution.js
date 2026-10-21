@@ -707,34 +707,78 @@ function linkPastMonths(contract, docMonth, today) {
 }
 
 /**
- * Visites PASSÉES que le lien TPM ↔ contrat décide (relecture r114c, point 3) : la règle elle-même
- * (buildZoneTable, cellForSite — jumelle de mems_tpm_cells), appliquée AVANT et APRÈS l'écriture du
- * document — le contrat avec et sans ce TPM rattaché ; seules les visites dont la cellule change sont
- * ré-estampillées. Une visite qu'une zone plus précise d'un AUTRE contrat décide (même cellule avant et
- * après) n'est jamais réécrite : le passé ne se réécrit pas en silence.
- * @param {{ visits: { id, districtId, communeId, month }[], areas: object[], months: string[],
- *   inputs: { contracts, overrides, partners, unavailability, links }, partnerId: string, contractId: string,
- *   had: boolean }} p  inputs = APRÈS l'écriture (loadInputsTx) ; had = lien avant l'écriture
- * @returns {string[]} identifiants des visites à ré-estampiller
+ * Contrats tels qu'AVANT l'écriture d'un document du lien TPM ↔ contrat : le couple (partnerId,
+ * contractId) portait (had) ou non un plan / un rapport ; ses autres liens et ceux des autres couples sont
+ * inchangés. Même règle que tpmsByContract (TPM actif, ordre du nom). `inputs` = APRÈS l'écriture.
  */
-function linkDecidedVisits({ visits, areas, months, inputs, partnerId, contractId, had }) {
-  if (!visits || !visits.length) return [];
-  // Liens AVANT l'écriture : le couple portait (had) ou non un plan / un rapport ; ses autres liens et
-  // ceux des autres couples sont inchangés. Même règle (tpmsByContract : TPM actif, ordre du nom).
+function contractsBeforeLink(inputs, partnerId, contractId, had) {
   const pair = (l) => l.partnerId === partnerId && l.contractId === contractId;
   const linksBefore = (inputs.links || [])
     .map((l) => (pair(l) ? { ...l, via: (Array.isArray(l.via) ? l.via : [l.via]).filter((v) => !TPM_LINK_KINDS.includes(v)) } : l));
   if (had) linksBefore.push({ partnerId, contractId, via: [TPM_LINK_KINDS[0]] });
   const tpmsBefore = tpmsByContract(linksBefore, inputs.partners).get(contractId) || [];
-  const before = (inputs.contracts || []).map((c) => (c.id === contractId ? { ...c, tpms: tpmsBefore } : c));
-  const tAfter = buildZoneTable({ areas, months, ...inputs });
-  const tBefore = buildZoneTable({ areas, months, ...inputs, contracts: before });
+  return (inputs.contracts || []).map((c) => (c.id === contractId ? { ...c, tpms: tpmsBefore } : c));
+}
+
+/**
+ * TPM du contrat que le lien CHANGE (relecture r2stamp, point 3) : différence entre les TPM du contrat
+ * (contractTpms, règle D1 : rattachés, sinon titulaire TPM actif) avant et après l'écriture — le TPM dont
+ * le lien est retiré, le titulaire TPM qu'un premier TPM rattaché remplace, ou le TPM ajouté.
+ * @returns {string[]} identifiants triés
+ */
+function linkChangedTpms({ inputs, partnerId, contractId, had }) {
+  const after = (inputs.contracts || []).find((c) => c.id === contractId);
+  const before = contractsBeforeLink(inputs, partnerId, contractId, had).find((c) => c.id === contractId);
+  if (!after || !before) return [];
+  const a = new Set(contractTpms(after).map((t) => t.id));
+  const b = new Set(contractTpms(before).map((t) => t.id));
+  return [...new Set([...a, ...b])].filter((id) => a.has(id) !== b.has(id)).sort();
+}
+
+/**
+ * Visites PASSÉES que le lien TPM ↔ contrat décide (relecture r114c, point 3) : la règle elle-même
+ * (buildZoneTable, cellForSite — jumelle de mems_tpm_cells), appliquée AVANT et APRÈS l'écriture du
+ * document — le contrat avec et sans ce TPM rattaché ; seules les visites dont la cellule change sont
+ * ré-estampillées. Une visite qu'une zone plus précise d'un AUTRE contrat décide (même cellule avant et
+ * après) n'est jamais réécrite : le passé ne se réécrit pas en silence — SAUF si son estampille enregistrée
+ * nomme ce contrat et un TPM dont le lien change le rôle sur lui (linkChangedTpms ; relecture r2stamp,
+ * point 3) : elle est re-dérivée, sinon ce TPM garderait des visites et une facture attendue sans lien.
+ * Coût borné (relecture r2stamp, point 2) : une table par MOIS, sur les seules aires des visites de ce mois
+ * (Σ ≤ 2 × visites cellules, jamais aires × mois) ; rendu dans l'ordre (mois, identifiant).
+ * @param {{ visits: { id, districtId, communeId, month, providerId?, contractId? }[], areas: object[],
+ *   inputs: { contracts, overrides, partners, unavailability, links }, partnerId: string, contractId: string,
+ *   had: boolean }} p  inputs = APRÈS l'écriture (loadInputsTx) ; had = lien avant l'écriture
+ * @returns {string[]} identifiants des visites à ré-estampiller, triés par mois puis identifiant
+ */
+function linkDecidedVisits({ visits, areas, inputs, partnerId, contractId, had }) {
+  if (!visits || !visits.length) return [];
+  const before = contractsBeforeLink(inputs, partnerId, contractId, had);
+  const changed = new Set(linkChangedTpms({ inputs, partnerId, contractId, had }));
+  const areaById = new Map((areas || []).map((a) => [a.id, a]));
+  const byMonth = new Map();
+  for (const v of visits) {
+    if (!byMonth.has(v.month)) byMonth.set(v.month, []);
+    byMonth.get(v.month).push(v);
+  }
   const key = (c) => (c ? [c.state, c.providerId || '', c.contractId || ''].join('|') : '');
-  return visits.filter((v) => key(cellForSite(v, v.month, tAfter)) !== key(cellForSite(v, v.month, tBefore))).map((v) => v.id);
+  const out = [];
+  for (const m of [...byMonth.keys()].sort()) {
+    const vs = byMonth.get(m).sort((x, y) => cmp(x.id, y.id));
+    const ids = new Set();
+    for (const v of vs) { if (v.districtId) ids.add(v.districtId); if (v.communeId) ids.add(v.communeId); }
+    const ar = [...ids].map((id) => areaById.get(id)).filter(Boolean);
+    const tAfter = buildZoneTable({ ...inputs, areas: ar, months: [m] });
+    const tBefore = buildZoneTable({ ...inputs, areas: ar, months: [m], contracts: before });
+    for (const v of vs) {
+      const stale = v.contractId === contractId && changed.has(v.providerId);
+      if (stale || key(cellForSite(v, m, tAfter)) !== key(cellForSite(v, m, tBefore))) out.push(v.id);
+    }
+  }
+  return out;
 }
 
 module.exports = {
-  VISIT_ERROR_MESSAGES, visitErrorMessage, TPM_LINK_KINDS, tpmsByContract, contractTpms, linkRestampFrom, linkPastMonths, linkDecidedVisits,
+  VISIT_ERROR_MESSAGES, visitErrorMessage, TPM_LINK_KINDS, tpmsByContract, contractTpms, linkRestampFrom, linkPastMonths, linkDecidedVisits, linkChangedTpms, contractsBeforeLink,
   MAX_SPAN_MONTHS, MAX_AREAS, MAX_REGIONS, MAX_CELLS, MAX_VISITS,
   ZONE_STATES, VISIT_ZONE_STATES, DEFAULT_STATES, WITH_PROVIDER, VISIT_SOURCES, COVERING_STATUSES, LOG_ACTIONS, LOG_SCOPES, LOG_OPTIONAL_REASON,
   INTERNAL_DEFAULT_STATES, INTERNAL_VISIT_STATES, MONITORED_BY, monitoredByOf,

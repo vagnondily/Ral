@@ -3,6 +3,7 @@ const { siteDistrictCtes, keySql } = require('../common/siteActivitySql');
 const { MONITORING_LINE } = require('../contracts/budgetCatalog');
 const {
   summarizeRestamp, buildZoneTable, cellForSite, segments, tpmSelectable, visitDecision, tpmsByContract, linkPastMonths, linkDecidedVisits,
+  linkChangedTpms,
 } = require('./tpmAttribution');
 // Règle commune « prestataire actif » (lot 8) : liens prestataire ↔ contrat et fiches partenaires.
 const activeProviderRepo = require('./activeProvider.repository');
@@ -251,15 +252,18 @@ async function lockLinkDocumentTx(client, tenantId, { peekContract, lockRow }) {
  * rien). C'est l'ensemble où lire les visites candidates ; parmi elles, seules celles que le lien
  * décide sont ré-estampillées (rule.linkDecidedVisits, relecture r114c point 3) — jamais une visite
  * qu'une zone plus précise d'un autre contrat décide : le passé ne se réécrit pas en silence.
+ * `fromContractStart` (suppression du DERNIER document du couple, relecture r2stamp point 4) : dès le
+ * début du contrat — les mois que le lien a pu écrire viennent aussi de documents supprimés avant lui
+ * (gabarits depuis le début du contrat, plan puis facture) ; jamais seulement le mois du dernier.
  * @returns {Promise<{ areaIds: string[], months: string[] }|null>}  null : rien de passé à recalculer
  */
-async function linkPastScopeTx(client, tenantId, contractId, docMonth, today) {
+async function linkPastScopeTx(client, tenantId, contractId, docMonth, today, { fromContractStart = false } = {}) {
   const { rows: [c] } = await client.query(
     `SELECT c.status, c.date_debut AS "dateDebut", c.date_fin AS "dateFin", c.termination_date AS "terminationDate",
             (SELECT COALESCE(sum(b.unit_count * b.unit_cost), 0) FROM contract_budget_items b
               WHERE b.tenant_id = $1 AND b.contract_id = c.id AND b.line_code = $3) > 0 AS monitoring
        FROM contracts c WHERE c.tenant_id = $1 AND c.id = $2`, [tenantId, contractId, MONITORING_LINE]);
-  const months = linkPastMonths(c, docMonth, today);
+  const months = linkPastMonths(c, fromContractStart && c ? c.dateDebut : docMonth, today);
   if (!months.length) return null;
   const { rows: zones } = await client.query(
     `SELECT DISTINCT a.id, a.depth FROM contract_areas z
@@ -273,12 +277,27 @@ async function linkPastScopeTx(client, tenantId, contractId, docMonth, today) {
 /**
  * Ré-estampille des visites désignées, par paquets de RESTAMP_CHUNK (coût borné de chaque appel, un
  * appel après l'autre sur le client) ; comptes additionnés, mouvements fusionnés (même résumé qu'un appel).
+ * `monthOf` (id → « AAAA-MM ») : un paquet ne mêle jamais deux mois — le coût de mems_tpm_cells croît avec
+ * le nombre de mois distincts d'un appel (relecture r2stamp, point 2 : 500 identifiants pris au hasard
+ * couvraient tous les mois passés, 5 à 7 fois plus lent). Dans chaque appel, mems_tpm_stamp verrouille ses
+ * visites dans l'ordre des identifiants ; tous les appels tiennent le verrou d'attribution du compte.
  */
 const RESTAMP_CHUNK = 500;
-async function restampIdsTx(client, tenantId, ids) {
+function restampChunks(ids, monthOf = null) {
+  const chunks = [];
+  let cur = []; let curMonth;
+  for (const id of ids) {
+    const m = monthOf ? monthOf.get(id) : undefined;
+    if (cur.length >= RESTAMP_CHUNK || (cur.length && m !== curMonth)) { chunks.push(cur); cur = []; }
+    cur.push(id); curMonth = m;
+  }
+  if (cur.length) chunks.push(cur);
+  return chunks;
+}
+async function restampIdsTx(client, tenantId, ids, monthOf = null) {
   const out = { changed: 0, byState: {}, moves: [] };
-  for (let i = 0; i < ids.length; i += RESTAMP_CHUNK) {
-    const r = await restampVisitsTx(client, tenantId, { restampIds: ids.slice(i, i + RESTAMP_CHUNK) });
+  for (const chunk of restampChunks(ids, monthOf)) {
+    const r = await restampVisitsTx(client, tenantId, { restampIds: chunk });
     out.changed += r.changed;
     for (const [k, n] of Object.entries(r.byState)) out.byState[k] = (out.byState[k] || 0) + n;
     for (const m of r.moves) {
@@ -295,10 +314,11 @@ async function restampIdsTx(client, tenantId, ids) {
  * contrat, ou la suppression du dernier, change le TPM du contrat — les visites prévues
  * ré-estampillables (AUTO_RESTAMPABLE_SQL : jamais réalisées, annulées, figées, facturées ou motivées)
  * sont recalculées dans la MÊME transaction : dans les mois PASSÉS (du mois du document au mois
- * précédent, zones du contrat : linkPastScopeTx), seulement celles dont la cellule change avec ce lien —
- * la règle appliquée avant et après (rule.linkDecidedVisits ; relecture r114c, point 3) — par paquets de
- * 500 ; puis du mois courant, pour tout le compte (comme contracts.service.restampFromNow). Sans
- * changement du lien : rien.
+ * précédent — du début du contrat quand le DERNIER document part, relecture r2stamp point 4 — zones du
+ * contrat : linkPastScopeTx), seulement celles dont la cellule change avec ce lien, ou dont l'estampille
+ * nomme ce contrat et un TPM dont le lien change le rôle (rule.linkDecidedVisits, linkChangedTpms ;
+ * relectures r114c point 3, r2stamp point 3) — par mois, par paquets de 500 au plus ; puis du mois
+ * courant, pour tout le compte (comme contracts.service.restampFromNow). Sans changement du lien : rien.
  * @param {{ partnerId, contractId, had: boolean, month?: string }} link
  *   had = lien avant l'écriture ; month = premier mois du document (« AAAA-MM… »)
  * @returns {Promise<{ changed, past, current }|null>}  visites changées (passé décidé par le lien, puis courant)
@@ -306,13 +326,19 @@ async function restampIdsTx(client, tenantId, ids) {
 async function restampIfTpmLinkChangedTx(client, tenantId, { partnerId, contractId, had, month = null }) {
   if (!partnerId || !contractId || had === await tpmLinkExistsTx(client, tenantId, partnerId, contractId)) return null;
   const today = currentMonth();
-  const scope = await linkPastScopeTx(client, tenantId, contractId, month, today);
+  // had && lien absent maintenant = suppression du DERNIER document : dès le début du contrat (point 4).
+  const scope = await linkPastScopeTx(client, tenantId, contractId, month, today, { fromContractStart: had });
   let past = null;
   if (scope) {
-    const visits = await plannedZoneVisitsTx(client, tenantId, scope);
+    const inputs = await loadInputsTx(client, tenantId, { from: scope.months[0], to: scope.months[scope.months.length - 1] });
+    const providerIds = linkChangedTpms({ inputs, partnerId, contractId, had });
+    const visits = await linkCandidateVisitsTx(client, tenantId, { ...scope, contractId, providerIds });
     if (visits.length) {
-      const { inputs, areas, months } = await tableForSitesTx(client, tenantId, { zones: visits, months: visits.map((v) => v.month) });
-      past = await restampIdsTx(client, tenantId, linkDecidedVisits({ visits, areas, months, inputs, partnerId, contractId, had }));
+      const zoneIds = new Set();
+      for (const v of visits) { if (v.districtId) zoneIds.add(v.districtId); if (v.communeId) zoneIds.add(v.communeId); }
+      const areas = await areasTx(client, tenantId, [...zoneIds]);
+      const ids = linkDecidedVisits({ visits, areas, inputs, partnerId, contractId, had });
+      past = await restampIdsTx(client, tenantId, ids, new Map(visits.map((v) => [v.id, v.month])));
     }
   }
   const current = await restampVisitsTx(client, tenantId, { fromMonth: today });
@@ -481,6 +507,27 @@ async function plannedZoneVisitsTx(client, tenantId, { areaIds, months }) {
         AND v.period_month = ANY ($3::date[])
         AND (s.zone_district_id = ANY ($2::uuid[]) OR s.zone_commune_id = ANY ($2::uuid[]))`,
     [tenantId, areaIds, months.map(toMonthDate)]);
+  return rows;
+}
+
+/**
+ * Visites candidates d'un changement de lien TPM ↔ contrat, mois PASSÉS de la portée : prévues « zone »
+ * ré-estampillables (AUTO_RESTAMPABLE_SQL) des zones du contrat, plus celles dont l'estampille nomme ce
+ * contrat et un TPM dont le lien change le rôle (`providerIds`, rule.linkChangedTpms ; relecture r2stamp,
+ * point 3), où qu'elles soient — triées par mois puis identifiant (paquets d'un seul mois, point 2).
+ */
+async function linkCandidateVisitsTx(client, tenantId, { areaIds, months, contractId, providerIds = [] }) {
+  const { rows } = await client.query(
+    `SELECT v.id, s.zone_district_id AS "districtId", s.zone_commune_id AS "communeId", to_char(v.period_month, 'YYYY-MM') AS month,
+            v.provider_id AS "providerId", v.provider_zone_state AS "zoneState", v.contract_id AS "contractId",
+            (v.visit_date IS NOT NULL) AS dated
+       FROM site_visits v JOIN sites s ON s.tenant_id = v.tenant_id AND s.id = v.site_id
+      WHERE v.tenant_id = $1 AND v.provider_source = 'zone' AND ${AUTO_RESTAMPABLE_SQL}
+        AND v.period_month = ANY ($3::date[])
+        AND (s.zone_district_id = ANY ($2::uuid[]) OR s.zone_commune_id = ANY ($2::uuid[])
+             OR (v.contract_id = $4::uuid AND v.provider_id = ANY ($5::uuid[])))
+      ORDER BY v.period_month, v.id`,
+    [tenantId, areaIds, months.map(toMonthDate), contractId, providerIds]);
   return rows;
 }
 
@@ -914,7 +961,7 @@ async function applyContractsTx(client, tenantId, actorId, { period = null, reas
 module.exports = {
   cellsForSitesTx, applyContractsTx, slimCell, unavailabilityTx, deleteUnavailabilityTx, upsertUnavailabilityTx, plannedRangeVisitsTx,
   tableForSitesTx, boardTpmTx, applyVisitRequestTx,
-  ATTRIBUTION_KEY, ZONE_CTES, INVOICED_SQL, AUTO_RESTAMPABLE_SQL, monitorKeySql, lockAttributionTx, tpmLinkExistsTx, lockTpmLinkTx, lockLinkDocumentTx, linkPastScopeTx, RESTAMP_CHUNK, restampIdsTx, restampIfTpmLinkChangedTx, refreshSiteZonesTx, restampVisitsTx,
+  ATTRIBUTION_KEY, ZONE_CTES, INVOICED_SQL, AUTO_RESTAMPABLE_SQL, monitorKeySql, lockAttributionTx, tpmLinkExistsTx, lockTpmLinkTx, lockLinkDocumentTx, linkPastScopeTx, RESTAMP_CHUNK, restampChunks, restampIdsTx, restampIfTpmLinkChangedTx, linkCandidateVisitsTx, refreshSiteZonesTx, restampVisitsTx,
   partnersTx, loadInputsTx, overridesTx, areasTx, communeRowIds, zoneRowsTx, visitGroupsTx, expandRegionsTx,
   plannedZoneVisitsTx, visitsForUpdateTx, siteZoneTx, monthPlanStatusesTx,
   deleteOverridesTx, upsertOverridesTx, applyVisitDecisionsTx, insertLogTx, listLogTx, attributionCountsTx, siteZonesTx,

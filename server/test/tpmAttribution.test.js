@@ -592,3 +592,42 @@ test('linkDecidedVisits (relecture r114c, point 3) : seules les visites passées
   assert.deepEqual(a.linkDecidedVisits({ ...base, inputs: both, had: false }), ['v-district']);
   assert.deepEqual(a.linkDecidedVisits({ ...base, visits: [], had: false }), []);
 });
+
+test('linkChangedTpms / linkDecidedVisits (relecture r2stamp, point 3) : une estampille PÉRIMÉE qui nomme le TPM dont le lien change est re-dérivée', () => {
+  // KB (district d1, titulaire AINA) ; K4 (commune c1, titulaire SAHY, un TPM) décide la commune.
+  const kb = contract({ id: 'kb', numero: 'CTR-B', zones: [zone(D1)], tpms: [] });
+  const k4 = contract({ id: 'k4', numero: 'CTR-4', partnerId: 'sahy', partnerName: 'SAHY Monitoring', zones: [zone(C1)], tpms: [] });
+  const visits = [
+    { id: 'v-stale', districtId: 'd1', communeId: 'c1', month: '2026-08', providerId: 'ypa', contractId: 'kb' }, // estampillée YPA/KB avant K4
+    { id: 'v-k4', districtId: 'd1', communeId: 'c1', month: '2026-08', providerId: 'sahy', contractId: 'k4' }, // à jour : jamais touchée
+    { id: 'v-autre', districtId: 'd1', communeId: 'c1', month: '2026-08', providerId: 'rano', contractId: 'kb' }, // RANO garde son rôle (aucun)
+    { id: 'v-district', districtId: 'd1', communeId: null, month: '2026-07', providerId: 'ypa', contractId: 'kb' },
+  ];
+  // A. Dernier document de YPA sur KB supprimé (had = true, liens d'après sans YPA).
+  const after = { contracts: [kb, k4], overrides: [], partners, unavailability: [], links: [] };
+  assert.deepEqual(a.linkChangedTpms({ inputs: after, partnerId: 'ypa', contractId: 'kb', had: true }), ['ypa']);
+  assert.deepEqual(a.linkDecidedVisits({ visits, areas: [D1, C1], inputs: after, partnerId: 'ypa', contractId: 'kb', had: true }),
+    ['v-district', 'v-stale'], 'mois puis identifiant ; la visite périmée de YPA est re-dérivée, celle de K4 jamais');
+  // B. Titulaire TPM (RANO) remplacé par le premier TPM rattaché (YPA) : RANO perd son rôle sur KB.
+  const kbHeld = contract({ id: 'kb', numero: 'CTR-B', partnerId: 'rano', partnerName: 'RANO Control', zones: [zone(D1)], tpms: [{ id: 'ypa', name: 'YPA' }] });
+  const added = { contracts: [kbHeld, k4], overrides: [], partners, unavailability: [], links: [{ partnerId: 'ypa', contractId: 'kb', via: ['plan'] }] };
+  assert.deepEqual(a.linkChangedTpms({ inputs: added, partnerId: 'ypa', contractId: 'kb', had: false }), ['rano', 'ypa']);
+  const decided = a.linkDecidedVisits({ visits, areas: [D1, C1], inputs: added, partnerId: 'ypa', contractId: 'kb', had: false });
+  assert.ok(decided.includes('v-autre') && decided.includes('v-stale') && !decided.includes('v-k4'), JSON.stringify(decided));
+  // Lien sans effet sur le TPM du contrat (partenaire de mise en œuvre, TPM inactif) : rien.
+  assert.deepEqual(a.linkChangedTpms({ inputs: after, partnerId: 'aina', contractId: 'kb', had: false }), []);
+  assert.deepEqual(a.linkChangedTpms({ inputs: after, partnerId: 'old', contractId: 'kb', had: true }), []);
+  assert.deepEqual(a.linkDecidedVisits({ visits, areas: [D1, C1], inputs: after, partnerId: 'old', contractId: 'kb', had: true }), []);
+});
+
+test('linkDecidedVisits (relecture r2stamp, point 2) : une table par mois sur les seules aires de ses visites — mêmes décisions que la table complète', () => {
+  const kb = contract({ id: 'kb', numero: 'CTR-B', zones: [zone(D1), zone(D2)], tpms: [{ id: 'ypa', name: 'YPA' }] });
+  const inputs = { contracts: [kb], overrides: [], partners, unavailability: [], links: [{ partnerId: 'ypa', contractId: 'kb', via: ['plan'] }] };
+  const visits = [];
+  for (const m of ['2026-03', '2026-05', '2026-07']) for (const d of ['d1', 'd2']) visits.push({ id: `${d}-${m}`, districtId: d, communeId: null, month: m });
+  const out = a.linkDecidedVisits({ visits: [...visits].reverse(), areas: [D1, D2, C1], inputs, partnerId: 'ypa', contractId: 'kb', had: false });
+  assert.deepEqual(out, ['d1-2026-03', 'd2-2026-03', 'd1-2026-05', 'd2-2026-05', 'd1-2026-07', 'd2-2026-07'], 'toutes décidées, dans l ordre (mois, identifiant)');
+  // Même verdict que la table complète aires × mois (l'ancienne façon).
+  const full = a.buildZoneTable({ ...inputs, areas: [D1, D2, C1], months: ['2026-03', '2026-05', '2026-07'] });
+  for (const v of visits) assert.equal(a.cellForSite(v, v.month, full).providerId, 'ypa');
+});
