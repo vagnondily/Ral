@@ -1,6 +1,7 @@
 const { withTenantTransaction } = require('../../config/db');
 const { toPeriod } = require('../common/period');
 const { assertActiveTpmTx } = require('./activeProvider.repository');
+const { unavailableThroughout } = require('./tpmUnavailability');
 const { monthWithin } = require('../common/periodSql');
 const { normalizeItems, summarize } = require('./reportMath');
 const { assertItemActivities } = require('./activityRefs');
@@ -138,6 +139,14 @@ async function createPlan(tenantId, input) {
     // Lien TPM ↔ contrat (retour 114) : verrou d'attribution D'ABORD (avant la clé étrangère du plan), puis le lien d'avant.
     const link = await lockTpmLinkTx(client, tenantId, { partnerId: input.partnerId, contractId: input.contractId });
     await assertActiveTpmTx(client, tenantId, input.partnerId); // un plan de collecte = un TPM actif (D1)
+    // TPM déclaré indisponible tous les mois du plan (décision D-c) : pas de travail prévu → 400 net.
+    const { rows: off } = await client.query(
+      `SELECT to_char(period_month, 'YYYY-MM') AS month FROM tpm_unavailability WHERE tenant_id = $1 AND provider_id = $2 AND period_month = $3::date`,
+      [tenantId, input.partnerId, `${String(input.periodMonth).slice(0, 7)}-01`]);
+    if (unavailableThroughout([input.periodMonth], off)) {
+      const e = new Error('Ce TPM est déclaré indisponible ce mois-là : aucun plan de collecte ne peut lui être confié (Affectation des TPM › Indisponibilités).');
+      e.code = 'TPM_UNAVAILABLE'; throw e;
+    }
     const { rows: exists } = await client.query(
       `SELECT id FROM tpm_collection_plans WHERE tenant_id = $1 AND partner_id = $2 AND contract_id = $3 AND period_month = $4`,
       [tenantId, input.partnerId, input.contractId, input.periodMonth]

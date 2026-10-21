@@ -133,4 +133,7 @@ export default {
   'Déclarée par erreur ? Ex. mois saisis par erreur, TPM finalement disponible…': 'Declared by mistake? E.g. months entered by mistake, TPM available after all…',
   // Relecture croisée (D-b) : partenaire qui n'est plus un TPM
   'ce partenaire n\'est plus un TPM': 'this partner is no longer a TPM',
+  // Relecture croisée (D-c) : facture d'un TPM déclaré indisponible
+  'Ce TPM est déclaré indisponible en {m} : la facture reste possible si le travail a bien été fait — vérifiez avant de la soumettre.':
+    'This TPM is declared unavailable in {m}: the invoice is still possible if the work was actually done — check before submitting it.',
 };

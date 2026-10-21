@@ -106,3 +106,14 @@ test('D-b (point 21) : facture de mois PASSÉS d un TPM inactif acceptée (type 
   assert.equal(inactiveTpmMayInvoice({ kind: 'technique', periodMonth: '2026-08-01' }, '2026-10'), false);
   assert.equal(inactiveTpmMayInvoice(null, '2026-10'), false);
 });
+
+test('D-c (point 25) : une seule source « indisponible » pour les listes de choix ; plan refusé si TOUS ses mois sont indisponibles', () => {
+  const rule = require('../src/modules/tpm/tpmAttribution');
+  const { unavailableThroughout } = require('../src/modules/tpm/tpmUnavailability');
+  const sel = { months: ['2026-11', '2026-12'], groups: [{ key: 'contrat', providers: [{ id: 'y', months: ['2026-11'] }] }, { key: 'tpm', providers: [{ id: 'z', months: [] }] }] };
+  const out = rule.withUnavailableMonths(sel, [{ providerId: 'y', month: '2026-12' }, { providerId: 'z', month: '2027-01' }]);
+  assert.deepEqual(out.groups.map((g) => g.providers.map((p) => [p.id, p.unavailableMonths])), [[['y', ['2026-12']]], [['z', []]]], 'seuls les mois de la liste');
+  assert.equal(unavailableThroughout(['2026-12'], [{ month: '2026-12' }]), true);
+  assert.equal(unavailableThroughout(['2026-11', '2026-12'], [{ month: '2026-12' }]), false);
+  assert.equal(unavailableThroughout([], [{ month: '2026-12' }]), false);
+});

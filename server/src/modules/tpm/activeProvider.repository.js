@@ -2,6 +2,7 @@ const { withTenantTransaction } = require('../../config/db');
 const { MONITORING_LINE } = require('../contracts/budgetCatalog');
 const { providerContractsCte, monitoringContractSql } = require('./activeProviderSql');
 const { selectableProviders, activeProviders } = require('./activeProvider');
+const { withUnavailableMonths } = require('./tpmAttribution');
 const { contractTpmViews } = require('./contractTpm');
 
 /**
@@ -73,7 +74,12 @@ async function selectable(tenantId, months) {
   return withTenantTransaction(tenantId, async (client) => {
     const links = await providerLinksTx(client, tenantId);
     const partners = await partnersTx(client, tenantId);
-    return selectableProviders({ links, partners, months });
+    // Mois où chaque prestataire est déclaré indisponible (décision D-c) : la même source que
+    // GET /api/tpm/attribution/providers (tpmAttribution.withUnavailableMonths).
+    const { rows: off } = await client.query(
+      `SELECT provider_id AS "providerId", to_char(period_month, 'YYYY-MM') AS month FROM tpm_unavailability
+        WHERE tenant_id = $1 AND period_month = ANY ($2::date[])`, [tenantId, (months || []).map((m) => `${String(m).slice(0, 7)}-01`)]);
+    return withUnavailableMonths(selectableProviders({ links, partners, months }), off);
   });
 }
 

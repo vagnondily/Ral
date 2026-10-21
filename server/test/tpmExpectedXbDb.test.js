@@ -169,3 +169,38 @@ test('D-b (point 21) : TPM inactif encore attendu et facturable pour les mois pa
     await q('DELETE FROM partners WHERE id = $1', [Z]).catch(() => {});
   }
 });
+
+test('D-c (point 25) : TPM indisponible — plan refusé (400), facture acceptée ; les deux listes de choix disent « indisponible »', { skip: SKIP }, async () => {
+  const T = await tenant();
+  const reports = require('../src/modules/tpm/reports.repository');
+  const planning = require('../src/modules/tpm/planning.repository');
+  const activeRepo = require('../src/modules/tpm/activeProvider.repository');
+  const attribution = require('../src/modules/tpm/tpmAttribution.service');
+  const { currentMonth } = require('../src/modules/tpm/rbmMath');
+  const { addMonths } = require('../src/modules/common/period');
+  const M = addMonths(currentMonth(), 1);
+  const [{ id: U }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND role = 'admin' ORDER BY email LIMIT 1", [T]);
+  const [{ id: tpmType }] = await q("SELECT id FROM partner_types WHERE tenant_id = $1 AND code = 'tpm'", [T]);
+  const [{ id: Z }] = await q("INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1, $2, 'Test XB D-c TPM') RETURNING id", [T, tpmType]);
+  const [{ id: K }] = await q(`INSERT INTO contracts (tenant_id, numero, partner_id, partner_name, date_debut, date_fin, status, created_by)
+                                VALUES ($1, 'TEST-XB-25', $2, 'Test XB D-c TPM', $3, $4, 'actif', $5) RETURNING id`, [T, Z, `${M}-01`, `${M}-28`, U]);
+  await q(`INSERT INTO tpm_unavailability (tenant_id, provider_id, period_month, reason, batch_id)
+           VALUES ($1, $2, $3, 'Indisponibilité de test (point 25)', gen_random_uuid())`, [T, Z, `${M}-01`]);
+  try {
+    await assert.rejects(planning.createPlan(T, { partnerId: Z, contractId: K, periodMonth: `${M}-01`, title: 'Test XB', items: [], createdBy: U }),
+      (e) => e.code === 'TPM_UNAVAILABLE', 'plan : refusé quand le TPM est indisponible tout le mois');
+    const F = await reports.insertReport(T, { partnerId: Z, contractId: K, periodMonth: `${M}-01`, kind: 'financier', reportedAmount: 10, createdBy: U });
+    assert.ok(F, 'facture : acceptée (le travail a pu être fait) — l écran avertit');
+    // Les deux listes de choix : la même indisponibilité.
+    const fromPartners = (await activeRepo.selectable(T, [M])).groups.flatMap((g) => g.providers).find((p) => p.id === Z);
+    const fromAttribution = (await attribution.providers(T, { period: { from: M, to: M } })).groups.flatMap((g) => g.providers).find((p) => p.id === Z);
+    assert.deepEqual(fromPartners.unavailableMonths, [M], '/api/partners/selectable');
+    assert.deepEqual(fromAttribution.unavailableMonths, fromPartners.unavailableMonths, '/api/tpm/attribution/providers : même source');
+    assert.equal(await reports.deleteReport(T, F, { actorId: U, isAdmin: true }), 'ok');
+  } finally {
+    await q('DELETE FROM tpm_unavailability WHERE provider_id = $1', [Z]);
+    await q('DELETE FROM tpm_reports WHERE contract_id = $1', [K]);
+    await q('DELETE FROM contracts WHERE id = $1', [K]);
+    await q('DELETE FROM partners WHERE id = $1', [Z]).catch(() => {});
+  }
+});
