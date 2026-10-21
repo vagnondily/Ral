@@ -92,12 +92,13 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
     labels: { covering: tr('Couvrent {month}', { month: month ? monthLabel(String(month).slice(0, 7)) : '' }), others: tr('Autres contrats actifs'), tpmList: (p) => tr('TPM : {p}', { p }) },
   });
   const pickTpms = tpmOptions(partners, {
-    contracts, contractId: head.contractId, tpmsOf, isActive: tpmsOf.isActive,
+    contracts, contractId: head.contractId, tpmsOf, isActive: tpmsOf.isActive, offMonths: tpmsOf.offMonths,
     inactive: pastOnly ? inactiveTpms : [],
     labels: {
       ofContract: tr('TPM de ce contrat'), others: tr('Autres TPM'), noContract: tr('Aucun contrat de suivi rattaché'),
       active: tr('Actifs en {month} (contrat de suivi)', { month: month ? monthLabel(String(month).slice(0, 7)) : '' }),
       inactive: tr('TPM inactifs (mois passés)'),
+      unavailable: (ms) => tr('indisponible : {m}', { m: ms.map((m) => monthLabel(m)).join(', ') }),
     },
   });
 

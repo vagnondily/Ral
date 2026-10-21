@@ -102,6 +102,19 @@ export function withPartner(head, partnerId, contracts, tpmsOf = () => []) {
 }
 
 /**
+ * `tpmsOf` sans les TPM déclarés indisponibles ce mois-là (`tpmsOf.offMonths`, décision D-c) : la
+ * planification ne pré-remplit jamais un TPM à qui aucun plan ne peut être confié ce mois (le serveur le
+ * refuserait : 400 tpm_unavailable). Garde `isActive` et `offMonths`.
+ */
+export function availableTpmsOf(tpmsOf) {
+  const isOff = (id) => ((tpmsOf.offMonths && tpmsOf.offMonths(id)) || []).length > 0;
+  const out = (contractId) => (tpmsOf(contractId) || []).filter((p) => !isOff(p.id));
+  out.isActive = tpmsOf.isActive;
+  out.offMonths = tpmsOf.offMonths;
+  return out;
+}
+
+/**
  * Choisir le contrat donne son TPM — sans jamais écraser un choix délibéré : le TPM unique du contrat
  * n'est pris que si aucun TPM n'est choisi, ou si le TPM choisi était venu du contrat PRÉCÉDENT
  * (pré-rempli, pas choisi). Un TPM choisi à la main est gardé ; l'écran signale l'écart

@@ -144,4 +144,5 @@ export default {
   'TPM inactifs (mois passés)': 'Inactive TPMs (past months)',
   'Ce TPM est inactif : sa facture ne peut porter que sur des mois passés.': 'This TPM is inactive: its invoice can only cover past months.',
   'Ce TPM est inactif : la facture ne peut être soumise que si toute sa période précède le mois courant.': 'This TPM is inactive: the invoice can only be submitted if its whole period is before the current month.',
+  'Ce TPM est déclaré indisponible en {m} : aucun plan de collecte ne peut lui être confié ce mois-là. Choisissez un autre TPM.': 'This TPM is declared unavailable in {m}: no collection plan can be assigned to it that month. Choose another TPM.',
 };

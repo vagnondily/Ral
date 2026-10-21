@@ -185,3 +185,23 @@ test('TPM inactifs (mois passés, D-b) dans leur propre groupe, à la fin ; TPM 
   // Sans le libellé du groupe (plan de collecte, facture du mois courant) : aucun TPM inactif proposé.
   assert.deepEqual(m.tpmOptions(partners, { contracts: CONTRACTS, tpmsOf, inactive: [{ id: 'old', name: 'Sahy' }], labels: { others: 'Autres' } }).options.map((o) => o.value), ['p1', 'p2']);
 });
+
+test('plan de collecte (D-c) : un TPM déclaré indisponible ce mois-là n est jamais pré-rempli par le contrat', async (t) => {
+  const m = await load(t, 'tpmPickers.js'); if (!m) return;
+  const of = (id) => tpmsOf(id);
+  of.offMonths = (id) => (id === 'p1' ? ['2026-12'] : []);
+  of.isActive = () => true;
+  const fill = m.availableTpmsOf(of);
+  assert.deepEqual(fill('k1'), [], 'k1 : son seul TPM est indisponible');
+  assert.equal(fill.offMonths, of.offMonths);
+  assert.deepEqual(m.withContract({ partnerId: '', contractId: '' }, 'k1', fill), { partnerId: '', contractId: 'k1' }, 'choix laissé à l utilisateur');
+  assert.deepEqual(m.withContract({ partnerId: '', contractId: '' }, 'k2', fill), { partnerId: 'p2', contractId: 'k2' }, 'TPM disponible : pris');
+  // Le plan l'utilise ; la facture garde la règle du contrat (une facture reste possible, D-c).
+  const plan = fs.readFileSync(webFile('pages/tpm/PlanBudgetDrawer.jsx'), 'utf8');
+  assert.match(plan, /const fillTpmsOf = useMemo\(\(\) => availableTpmsOf\(tpmsOf\), \[tpmsOf\]\);/);
+  assert.match(plan, /withContract\(h, contractId, fillTpmsOf\)/);
+  assert.match(plan, /offMonths: tpmsOf\.offMonths/);
+  const hook = fs.readFileSync(webFile('lib/useContractTpms.js'), 'utf8');
+  assert.match(hook, /tpmsOf\.offMonths = \(partnerId\) => data\.off\.get\(partnerId\) \|\| \[\];/);
+  assert.match(hook, /p\.unavailableMonths/);
+});
