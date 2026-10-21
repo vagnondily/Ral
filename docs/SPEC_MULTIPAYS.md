@@ -8,6 +8,16 @@
 - **Migrations réservées** : `082` à `085`. La session principale les inscrit dans `docs/REPRISE.md` § 4.
 - **Décision demandée** : valider l'option A (§ 2.3) et répondre aux 5 questions du § 10.
 
+> **Décisions validées par le propriétaire (21/10/2026)** :
+> - ✅ **Option A** retenue (un pays = un tenant isolé ; arbre Siège → Régional → Pays au-dessus ;
+>   une personne membre de plusieurs espaces ; consolidation USD).
+> - ✅ **Portée du Siège / bureau régional** : **totaux consolidés ET consultation des écrans d'un
+>   pays en LECTURE SEULE** (jamais d'écriture sans être membre du pays) — réponse à Q1.
+> - 🗓️ **Démarrage** : APRÈS les petits restes en cours (dont la case admin « modifier à volonté »).
+>   Chantier à mener en session dédiée, en 9 étapes, sans rupture pour le mono-pays actuel.
+> - Q2–Q5 : défauts de la spec retenus sauf avis contraire (taux par pays + USD ; une identité
+>   multi-espaces ; une seule base ; comparaison sur les codes déjà communs).
+
 ---
 
 ## 0. La décision en dix lignes

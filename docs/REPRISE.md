@@ -158,7 +158,10 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `109` | `mems_tpm_stamp` sans sous-requêtes en arguments (recalcul rapide sous le verrou d'attribution) | ✅ publié 21/10 |
   | `110`–`115` | programmes, projets, bailleurs, Output (conception, ex-`091`–`095`) | ⏳ |
   | `116` | codes de référence en minuscules (types de partenaire / activités) — un code « TPM » saisi n'était jamais reconnu | ✅ |
-  | `117` et suivants | libres | — |
+  | `117` | hiérarchie des bureaux à 6 niveaux (`field_offices.office_level`) | ✅ |
+  | `118`–`119` | réservés à l'autre session (118 pressenti pour le réglage « modification libre admin » `tenant_settings`) | — |
+  | `120` | session principale, `wip/pp-tpm` : plan de `mems_tpm_stamp` / `mems_tpm_cells` sur base analysée (si la mesure le justifie) | 🔄 |
+  | `121` et suivants | libres — réserver ici AVANT d'écrire le fichier | — |
 
 - **Publier sur `main`** seulement après :
   - `cd server && npm test && npm run lint` ;
