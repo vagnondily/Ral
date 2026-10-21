@@ -167,27 +167,32 @@ async function resolvePerimeterTx(client, tenantId, officeId = null) {
 }
 
 /**
- * Sites SANS bureau situés dans un périmètre : rattachés au bureau ACTIF le plus
- * spécifique (antenne avant bureau parent, terrain avant pays). Correspondance par
- * unité reconnue d'abord, sinon par commune ET district (les homonymes de
- * districts différents ne se confondent plus). Un site qui a déjà un bureau n'est
- * jamais réaffecté. Une requête ; renvoie le nombre de sites rattachés.
+ * Rattache chaque site au bureau ACTIF le plus spécifique dont le PÉRIMÈTRE (Bureaux)
+ * couvre sa commune (antenne avant bureau parent, terrain avant pays). Correspondance
+ * par unité reconnue d'abord, sinon par commune ET district (les homonymes de districts
+ * différents ne se confondent plus). Une requête ; renvoie le nombre de sites changés.
+ * - `override: false` (défaut) : ne touche que les sites SANS bureau (ne défait jamais
+ *   un bureau déjà posé) — utilisé par les flux génériques.
+ * - `override: true` : le périmètre fait AUTORITÉ — un site dont la commune est couverte
+ *   est (ré)attribué même s'il avait déjà un bureau (ex. repris d'un fichier importé) ;
+ *   un site hors de tout périmètre garde son bureau. Utilisé à l'import du registre et
+ *   quand on configure le périmètre d'un bureau.
  */
-async function attachUnassignedSitesTx(client, tenantId) {
+async function attachUnassignedSitesTx(client, tenantId, { override = false } = {}) {
   const { rowCount } = await client.query(
     `UPDATE sites s SET field_office_id = x.office_id
        FROM (SELECT DISTINCT ON (s2.id) s2.id AS site_id, c.office_id
                FROM sites s2
                JOIN field_office_communes c ON c.tenant_id = s2.tenant_id
                JOIN field_offices o ON o.id = c.office_id AND o.tenant_id = c.tenant_id AND o.active
-              WHERE s2.tenant_id = $1 AND s2.field_office_id IS NULL
+              WHERE s2.tenant_id = $1 ${override ? '' : 'AND s2.field_office_id IS NULL'}
                 AND ((c.admin_area_id IS NOT NULL AND s2.admin_area_id = c.admin_area_id)
                   OR (lower(btrim(COALESCE(NULLIF(s2.adm3, ''), s2.commune))) = lower(btrim(c.commune))
                       AND (c.district IS NULL OR btrim(c.district) = ''
                            OR lower(btrim(COALESCE(NULLIF(s2.adm2, ''), s2.district))) = lower(btrim(c.district)))))
               ORDER BY s2.id, (c.admin_area_id IS NOT NULL AND s2.admin_area_id = c.admin_area_id) DESC,
                        (o.parent_id IS NOT NULL) DESC, o.national ASC, o.code) x
-      WHERE s.tenant_id = $1 AND s.id = x.site_id`,
+      WHERE s.tenant_id = $1 AND s.id = x.site_id AND s.field_office_id IS DISTINCT FROM x.office_id`,
     [tenantId]);
   return rowCount;
 }

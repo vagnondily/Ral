@@ -12,6 +12,16 @@
 
 ## État courant
 
+> **21/10 — Bureau d'un site = périmètre Bureaux (autorité), pas le fichier.** ✅ Demande : à l'import
+> du registre des sites, le bureau doit venir de ce qui est configuré dans Bureaux (périmètre communes),
+> même si le fichier contient un « Field_office_code ». `attachUnassignedSitesTx` prend un mode
+> `{ override }` : à l'import du registre et quand on **configure/enregistre le périmètre d'un bureau**
+> (`writePerimeter`), le périmètre fait AUTORITÉ et (ré)attribue les sites couverts — un site hors de
+> tout périmètre garde le bureau du fichier (repli). Les flux génériques gardent le mode « remplir les
+> vides » (ne défont jamais un bureau). Smoke en base : site couvert → bureau du périmètre, site non
+> couvert → bureau du fichier conservé ; lint ✅, unitaires ✅. **Pour corriger les sites déjà importés :**
+> réimporter le fichier des sites, OU ré-enregistrer le périmètre du bureau dans Paramétrage › Bureaux.
+
 > **21/10 — Niveaux administratifs configurables depuis MEMS (base vierge).** ✅ Avant, les niveaux
 > (Région/District/Commune/Fokontany) n'existaient qu'après l'import d'un découpage ; sur base vierge
 > la section « Libellés des niveaux administratifs » était vide. Désormais : le formulaire Pays

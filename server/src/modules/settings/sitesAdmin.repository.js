@@ -15,7 +15,7 @@
  * pcodes et l'admin_area_id — pas de conflit avec le pipeline par nom.
  */
 const { withTenantTransaction } = require('../../config/db');
-const { withSubmissionLinks, afterSitesChangedTx } = require('./placeMatch.repository');
+const { withSubmissionLinks, afterSitesChangedTx, attachUnassignedSitesTx } = require('./placeMatch.repository');
 const { attributeByGps } = require('../common/geoAttribution');
 const { summarizeSiteDeletion } = require('./siteDeletion');
 const { normalizePublicId } = require('../common/publicId');
@@ -223,7 +223,8 @@ async function autoAttribute(tenantId, { ids = null, onlyEmpty = false } = {}) {
  */
 async function importSites(tenantId, rows) {
   return withSubmissionLinks(tenantId, async (client) => {
-    // Résolution des bureaux par code (Field_office_code).
+    // Résolution des bureaux par code (Field_office_code) — seulement un REPLI : le bureau
+    // réel est celui dont le périmètre (Bureaux) couvre la commune, réattribué en fin de lot.
     const { rows: offs } = await client.query('SELECT id, code FROM field_offices WHERE tenant_id = $1', [tenantId]);
     const officeByCode = new Map(offs.map((o) => [String(o.code || '').trim().toLowerCase(), o.id]));
 
@@ -278,6 +279,10 @@ async function importSites(tenantId, rows) {
       }
     }
     await afterSitesChangedTx(client, tenantId);
+    // Le bureau d'un site est AUTORITAIREMENT celui dont le périmètre (Bureaux) couvre sa
+    // commune : on (ré)attribue après l'upsert, ce qui remplace le « Field_office_code » du
+    // fichier partout où un périmètre existe (le code du fichier ne sert que de repli).
+    await attachUnassignedSitesTx(client, tenantId, { override: true });
     return { created, updated, ignoredCodes, skipped, total: (rows || []).length };
   });
 }
