@@ -99,9 +99,11 @@ const SITE_PLACE = `COALESCE(NULLIF(btrim(s.adm1), ''), NULL) AS adm1,
  * seuls sites dont le résultat change (unité la plus fine, pcodes, statut), et
  * file « À rapprocher » de la source « sites ». Les noms saisis ne sont jamais
  * modifiés ; un pcode déjà connu n'est jamais remplacé par une absence de code.
+ * `restamp: false` : zones des sites recalculées, mais PAS la ré-estampille (qui prend le verrou
+ * d'attribution) — afterSitesChangedTx la fait en DERNIER, après les formulaires reçus.
  * @returns {{ sites, combinations, resolved, pending }}
  */
-async function applySitesGeoTx(client, tenantId) {
+async function applySitesGeoTx(client, tenantId, { restamp = true } = {}) {
   const index = await loadPlaceIndexTx(client, tenantId);
   const { rows: combos } = await client.query(
     `SELECT adm1, adm2, adm3, adm4, p2, p3, count(*)::int AS n, array_agg(id) AS ids
@@ -135,8 +137,8 @@ async function applySitesGeoTx(client, tenantId) {
   // Retour 58 : zone de chaque site (district / commune, règle du lot 1b) puis TPM des visites
   // prévues à partir du mois courant — sans condition : le district dépend aussi des graphies.
   const zones = await tpmAttribution.refreshSiteZonesTx(client, tenantId);
-  const tpm = await tpmAttribution.restampVisitsTx(client, tenantId, { fromMonth: currentMonthUtc() });
-  return { sites: updates.length, combinations: combos.length, resolved, pending, zonesChanged: zones.changed, tpmVisitsChanged: tpm.changed };
+  const tpm = restamp ? await tpmAttribution.restampVisitsTx(client, tenantId, { fromMonth: currentMonthUtc() }) : null;
+  return { sites: updates.length, combinations: combos.length, resolved, pending, zonesChanged: zones.changed, tpmVisitsChanged: tpm ? tpm.changed : 0 };
 }
 const currentMonthUtc = () => new Date().toISOString().slice(0, 7);
 
@@ -245,15 +247,20 @@ async function withSubmissionLinks(tenantId, fn, { waitMs = 20000 } = {}) {
 /**
  * À appeler en fin de TOUTE écriture de sites (import, ajout, modification,
  * suppression de bureau) : rattachement au découpage puis au bureau, dans la
- * transaction de l'appelant.
+ * transaction de l'appelant. La ré-estampille des visites prévues vient en DERNIER : le verrou
+ * d'attribution du compte n'est tenu que pour elle, jamais pendant le rattachement des formulaires
+ * reçus (un GROUP BY sur toutes les soumissions du compte) — l'attribution ne dépend ni du bureau ni
+ * des formulaires (mems_tpm_cells lit les zones des sites, déjà recalculées par applySitesGeoTx).
+ * Ordre des verrous (tpm/visitLocks) : rattachements → lignes des sites → attribution → visites.
  */
 async function afterSitesChangedTx(client, tenantId) {
   await lockSubmissionLinksTx(client, tenantId);
-  const geo = await applySitesGeoTx(client, tenantId);
+  const geo = await applySitesGeoTx(client, tenantId, { restamp: false });
   const attached = await attachUnassignedSitesTx(client, tenantId);
   // Un site ajouté, renommé ou relocalisé peut être celui d'un formulaire déjà reçu.
   const submissionSites = await applySubmissionSitesTx(client, tenantId);
-  return { ...geo, attached, submissionSites };
+  const tpm = await tpmAttribution.restampVisitsTx(client, tenantId, { fromMonth: currentMonthUtc() });
+  return { ...geo, tpmVisitsChanged: tpm.changed, attached, submissionSites };
 }
 
 // ---- Formulaires reçus (soumissions) -----------------------------------------------

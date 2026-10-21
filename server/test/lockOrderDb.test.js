@@ -282,3 +282,31 @@ test('#12 modification groupée du Plan de suivi × enregistrement des sites act
       for (const s of syn) await q('UPDATE sites SET programme_synergies = $2 WHERE id = $1', [s.id, s.s]);
     }
   });
+
+test('#14 écriture de sites : le verrou d attribution n est pas tenu pendant le rattachement des formulaires reçus (ré-estampille en dernier)',
+  { skip: SKIP, timeout: 120000 }, async () => {
+    const { T, U, Y } = await fixture();
+    const field = require('../src/modules/tpm/field.repository');
+    assert.ok((await q('SELECT count(*)::int AS n FROM monitoring_submissions WHERE tenant_id = $1', [T]))[0].n > 0, 'des formulaires reçus');
+    const [S, S2] = await q(`SELECT s.id, s.programme_synergies AS syn FROM sites s WHERE s.tenant_id = $1
+                               AND NOT EXISTS (SELECT 1 FROM site_visits v WHERE v.site_id = s.id AND v.period_month >= $2::date) ORDER BY s.id DESC LIMIT 2`, [T, `${Y}-01-01`]);
+    const hold = await connect();
+    try {
+      await hold.query('BEGIN');
+      await hold.query('LOCK TABLE monitoring_submissions IN SHARE MODE'); // retient l'écrivain DANS le rattachement des formulaires
+      const pa = settle(field.bulkUpdateSites(T, U, { year: Y, siteIds: [S.id], set: { synergies: 1 } }));
+      assert.ok(await waitFor(async () => (await q(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database()
+        AND wait_event_type = 'Lock' AND query ~ 'UPDATE monitoring_submissions'`))[0].n > 0), 'écrivain retenu dans les formulaires reçus');
+      assert.equal(await attributionFree(T), true, 'verrou d\'attribution libre pendant les formulaires reçus');
+      // Une coche du plan sur un AUTRE site n'attend pas les formulaires reçus.
+      const tick = await Promise.race([field.setPlannedMonths(T, U, { year: Y, changes: [{ siteId: S2.id, month: 6, planned: true }] }).then(() => 'fini'), sleep(5000).then(() => 'attend')]);
+      assert.equal(tick, 'fini', 'coche d\'un autre site pendant l\'écriture de sites');
+      await hold.query('COMMIT');
+      assert.equal(why(await pa), 'ok');
+    } finally {
+      await hold.query('ROLLBACK').catch(() => {});
+      await hold.end();
+      await q('DELETE FROM site_visits WHERE site_id = ANY($1::uuid[]) AND period_month >= $2::date', [[S.id, S2.id], `${Y}-01-01`]);
+      await q('UPDATE sites SET programme_synergies = $2 WHERE id = $1', [S.id, S.syn]);
+    }
+  });
