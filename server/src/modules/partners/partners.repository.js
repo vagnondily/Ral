@@ -416,7 +416,7 @@ const PARTNER_FIELDS = { name: 'name', shortName: 'short_name', dailyRate: 'dail
   contactName: 'contact_name', contactPhone: 'contact_phone', contactEmail: 'contact_email', startedOn: 'started_on',
   notes: 'notes', active: 'active' };
 
-async function updatePartner(tenantId, id, patch) {
+async function updatePartner(tenantId, id, patch, { actorId = null } = {}) {
   const fields = Object.entries(PARTNER_FIELDS)
     .filter(([k]) => !(patch[k] === undefined || ((k === 'name' || k === 'active') && patch[k] === null)));
   const identity = fields.length > 0 && (patch.name != null || patch.shortName !== undefined);
@@ -435,7 +435,7 @@ async function updatePartner(tenantId, id, patch) {
       `UPDATE partners SET ${[...sets, 'updated_at = now()'].join(', ')} WHERE tenant_id = $1 AND id = $2`, [tenantId, id, ...values]);
     if (rowCount > 0 && identity) await places.relinkPartiesTx(client, tenantId); // nom ou sigle : formulaires reliés à nouveau
     // Fiche activée / désactivée = rôle de TPM changé : TPM des visites prévues recalculé (même transaction).
-    if (rowCount > 0) await restampIfRoleChangedTx(client, tenantId, before, roleAfter(before, { active: patch.active }));
+    if (rowCount > 0) await restampIfRoleChangedTx(client, tenantId, before, roleAfter(before, { active: patch.active }), { partnerId: id, actorId });
     return rowCount > 0;
   });
 }

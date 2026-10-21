@@ -652,3 +652,58 @@ test('formulaires plan / facture : contrat sans TPM rattaché → aucun TPM prop
     await q('UPDATE partners SET active = true WHERE tenant_id = $1 AND id = $2', [T, ypa.id]);
   }
 });
+
+test('partenaire qui perd le rôle de TPM (type changé, fiche désactivée) : ses visites prévues « visite » reviennent à leur zone, journalisées ; réalisées, passées et facturées jamais', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const [{ id: admin }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND email = 'admin@mems.mg'", [T]);
+  const types = Object.fromEntries((await q("SELECT code, id FROM partner_types WHERE tenant_id = $1 AND code IN ('tpm', 'prestataire')", [T])).map((r) => [r.code, r.id]));
+  const [site] = await q('SELECT id FROM sites WHERE tenant_id = $1 ORDER BY id LIMIT 1', [T]);
+  const [contract] = await q("SELECT id FROM contracts WHERE tenant_id = $1 AND status = 'actif' ORDER BY id LIMIT 1", [T]);
+  const { currentMonth } = require('../src/modules/tpm/rbmMath');
+  const { addMonths } = require('../src/modules/common/period');
+  const { ROLE_LOST_REASON } = require('../src/modules/partners/partnerRole');
+  const m0 = currentMonth(); const prev = addMonths(m0, -1); const next = addMonths(m0, 1);
+  const made = { partners: [], visits: [], reports: [] };
+  const visit = async (partner, label, month, status = 'planifie') => {
+    const [v] = await q(`INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, provider_source, provider_id, provider_reason)
+      VALUES ($1, $2, $3::date, $4, $5, 'visite', $6, 'Choix de visite — test xb #21') RETURNING id`, [T, site.id, `${month}-01`, `Test xb #21 ${label}`, status, partner]);
+    made.visits.push(v.id);
+    return v.id;
+  };
+  const stateOf = async (id) => (await q('SELECT provider_source AS src, provider_id AS p, provider_reason AS reason FROM site_visits WHERE id = $1', [id]))[0];
+  try {
+    const scenario = async (label, change) => {
+      const [X] = await q('INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1, $2, $3) RETURNING id, name', [T, types.tpm, `Test xb #21 — ${label}`]);
+      made.partners.push(X.id);
+      const back = await visit(X.id, `${label} prévue`, m0);
+      const kept = [await visit(X.id, `${label} réalisée`, m0, 'realise'), await visit(X.id, `${label} passée`, prev), await visit(X.id, `${label} facturée`, next)];
+      const [r] = await q(`INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, kind, status, reported_amount, created_by,
+                                                     submitted_by, submitted_at, edited_by, edited_at)
+        VALUES ($1, $2, $3, $4::date, 'financier', 'soumis', 0, $5, $5, now(), $5, now()) RETURNING id`, [T, X.id, contract.id, `${next}-01`, admin]);
+      made.reports.push(r.id);
+      await change(X);
+      const b = await stateOf(back);
+      assert.equal(b.src, 'zone', `${label} : la visite prévue suit sa zone`);
+      assert.notEqual(b.p, X.id, `${label} : plus ce partenaire`);
+      assert.equal(b.reason, null);
+      for (const id of kept) assert.deepEqual(await stateOf(id), { src: 'visite', p: X.id, reason: 'Choix de visite — test xb #21' }, `${label} : réalisée, passée ou facturée inchangée`);
+      const log = await q(`SELECT scope, action, reason, changed_by AS "by", visits_updated AS n, visit_id AS v, old_provider_id AS old
+                             FROM tpm_attribution_log WHERE tenant_id = $1 AND batch_id IN
+                               (SELECT batch_id FROM tpm_attribution_log WHERE tenant_id = $1 AND visit_id = $2) ORDER BY scope`, [T, back]);
+      assert.deepEqual(log.map((l) => [l.scope, l.action]), [['lot', 'visite_zone'], ['visite', 'visite_zone']], `${label} : un lot et une ligne`);
+      assert.equal(log[0].reason, ROLE_LOST_REASON);
+      assert.equal(log[0].by, admin, `${label} : l'auteur du changement`);
+      assert.equal(log[0].n, 1);
+      assert.deepEqual([log[1].v, log[1].old], [back, X.id]);
+    };
+    const settings = require('../src/modules/settings/settings.repository');
+    const partnersRepo = require('../src/modules/partners/partners.repository');
+    await scenario('type', (X) => settings.updatePartner(T, X.id, { name: X.name, partnerTypeId: types.prestataire, active: true }, { actorId: admin }));
+    await scenario('désactivé', (X) => partnersRepo.updatePartner(T, X.id, { active: false }, { actorId: admin }));
+  } finally {
+    await q('DELETE FROM tpm_attribution_log WHERE tenant_id = $1 AND (visit_id = ANY($2::uuid[]) OR reason = $3)', [T, made.visits, ROLE_LOST_REASON]);
+    await q('DELETE FROM site_visits WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [T, made.visits]);
+    await q('DELETE FROM tpm_reports WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [T, made.reports]);
+    await q('DELETE FROM partners WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [T, made.partners]);
+  }
+});

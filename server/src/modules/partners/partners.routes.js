@@ -100,7 +100,7 @@ const partnerPatch = z.object({
   startedOn: optDate, notes: optText(2000), active: z.boolean().optional(),
 }).strict();
 router.patch('/:id', WRITE, ids('id'), body(partnerPatch), asyncHandler(async (req, res) => {
-  if (!(await repo.updatePartner(t(req), req.params.id, req.valid))) throw notFound('Partenaire introuvable');
+  if (!(await repo.updatePartner(t(req), req.params.id, req.valid, { actorId: req.auth.userId }))) throw notFound('Partenaire introuvable');
   res.status(204).end();
 }));
 

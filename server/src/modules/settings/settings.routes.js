@@ -192,7 +192,7 @@ router.patch('/partners/:id', ADMIN, body(z.object({
 })), asyncHandler(async (req, res) => {
   // Type d'un autre compte ou inconnu : 400 (le déclencheur « même compte » reste le filet).
   if (req.valid.partnerTypeId && !(await repo.partnerTypeById(t(req), req.valid.partnerTypeId))) throw badRequest('Type de partenaire inconnu');
-  const ok = await repo.updatePartner(t(req), req.params.id, req.valid);
+  const ok = await repo.updatePartner(t(req), req.params.id, req.valid, { actorId: req.auth.userId });
   if (!ok) return res.status(404).json({ error: 'Partenaire introuvable' });
   return res.status(204).end();
 }));

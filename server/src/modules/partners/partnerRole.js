@@ -19,9 +19,50 @@ function roleChanged(before, after) {
   return typeKey(before.partnerTypeId) !== typeKey(after.partnerTypeId) || Boolean(before.active) !== Boolean(after.active);
 }
 
-/** Réestampille les visites prévues dès le mois courant quand le rôle a changé (même transaction). */
-async function restampIfRoleChangedTx(client, tenantId, before, after) {
+/** Motif du lot « rendre à la zone » au journal (tpm_attribution_log, visite_zone). */
+const ROLE_LOST_REASON = 'Le partenaire n\'est plus un TPM actif (type changé ou fiche désactivée) : visites prévues rendues à leur zone.';
+const RETURN_BATCH = 500; // applyVisitRequestTx : 500 visites au plus par appel
+
+/**
+ * Le partenaire n'est plus un TPM ACTIF (type changé ou fiche désactivée) : ses visites PRÉVUES qui le
+ * portent par un choix de visite (provider_source « visite », retour 58) reviennent à leur zone — D1
+ * interdit qu'une visite ait pour TPM un partenaire qui n'en est pas un, et l'estampille automatique ne
+ * touche jamais une visite « visite ». Même chemin que « Rendre à la zone » de l'écran
+ * (tpmAttribution.repository.applyVisitRequestTx, action « zone » : estampille, journal visite_zone —
+ * un lot et une ligne par visite). Seules les visites ré-estampillables (AUTO_RESTAMPABLE_SQL : prévues,
+ * non figées, non facturées), dès le mois courant : jamais une visite réalisée, annulée ou facturée.
+ * Sous le verrou d'attribution, déjà tenu (roleForUpdateTx ; réentrant).
+ * @returns {Promise<number>} visites rendues à leur zone
+ */
+async function returnVisitsToZoneTx(client, tenantId, partnerId, actorId) {
+  const attribution = require('../tpm/tpmAttribution.repository');
+  const { rows: [p] } = await client.query(
+    `SELECT t.code, p.active FROM partners p JOIN partner_types t ON t.id = p.partner_type_id AND t.tenant_id = p.tenant_id
+      WHERE p.tenant_id = $1 AND p.id = $2`, [tenantId, partnerId]);
+  if (!p || (p.code === 'tpm' && p.active)) return 0;
+  const { rows } = await client.query(
+    `SELECT v.id FROM site_visits v
+      WHERE v.tenant_id = $1 AND v.provider_id = $2 AND v.provider_source = 'visite' AND v.period_month >= $3::date
+        AND ${attribution.AUTO_RESTAMPABLE_SQL} ORDER BY v.id`, [tenantId, partnerId, `${currentMonth()}-01`]);
+  let returned = 0;
+  for (let i = 0; i < rows.length; i += RETURN_BATCH) {
+    const res = await attribution.applyVisitRequestTx(client, tenantId, actorId || null,
+      rows.slice(i, i + RETURN_BATCH).map((r) => r.id), { action: 'zone', reason: ROLE_LOST_REASON });
+    if (res.error) throw new Error(`visites rendues à leur zone : ${res.error}`);
+    returned += res.updated;
+  }
+  return returned;
+}
+
+/**
+ * Le rôle a changé (même transaction) : un partenaire qui n'est plus un TPM actif rend d'abord ses visites
+ * prévues « visite » à leur zone (returnVisitsToZoneTx, si `partnerId` est donné), puis les visites
+ * prévues sont réestampillées dès le mois courant.
+ * @param {{ partnerId?: string, actorId?: string }} [opts]
+ */
+async function restampIfRoleChangedTx(client, tenantId, before, after, { partnerId = null, actorId = null } = {}) {
   if (!roleChanged(before, after)) return false;
+  if (partnerId) await returnVisitsToZoneTx(client, tenantId, partnerId, actorId);
   const { restampVisitsTx } = require('../tpm/tpmAttribution.repository');
   await restampVisitsTx(client, tenantId, { fromMonth: currentMonth() });
   return true;
@@ -107,4 +148,4 @@ async function roleForUpdateTx(client, tenantId, id, patch = {}) {
   return lockRow();
 }
 
-module.exports = { roleChanged, roleAfter, changesRole, nameChanges, restampIfRoleChangedTx, roleForUpdateTx, ROLE_LOCK };
+module.exports = { roleChanged, roleAfter, changesRole, nameChanges, restampIfRoleChangedTx, roleForUpdateTx, ROLE_LOCK, returnVisitsToZoneTx, ROLE_LOST_REASON };
