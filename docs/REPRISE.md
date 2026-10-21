@@ -162,7 +162,8 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `118` | réglage « modification libre admin » (`tenant_settings.admin_free_edit`) — session production `zealous` | ✅ |
   | `119` | session production `zealous` : RBAC par écran + 5 rôles, auto-inscription (en cours) | 🔄 |
   | `120` | session principale, `wip/pp-tpm` : plan de `mems_tpm_stamp` / `mems_tpm_cells` sur base analysée (si la mesure le justifie) | 🔄 |
-  | `121` et suivants | libres — réserver ici AVANT d'écrire le fichier | — |
+  | `121` | session production `zealous` : auto-inscription (users.status) + accès par écran (users.page_access) + auth_lookup_user(status) | ✅ |
+  | `122` et suivants | libres — réserver ici AVANT d'écrire le fichier | — |
 
 - **Publier sur `main`** seulement après :
   - `cd server && npm test && npm run lint` ;

@@ -27,6 +27,8 @@ function body(schema) {
 }
 
 const ROLE = z.enum(ROLES); // viewer, editor, validator, admin, superuser
+// Restrictions par écran : null = aucune ; tableau de clés d'écran = ces écrans seulement.
+const pageAccessSchema = z.array(z.string().max(40)).max(50).nullable();
 
 // Seul un super-utilisateur peut accorder le rôle administrateur ou super-utilisateur,
 // ou modifier un compte qui porte déjà l'un de ces rôles (décision Q2 : le super-utilisateur
@@ -50,6 +52,7 @@ const createSchema = z.object({
   fullName: z.string().trim().max(160).optional().or(z.literal('').transform(() => undefined)),
   role: ROLE,
   password: z.string().min(10, 'Au moins 10 caractères').max(200),
+  pageAccess: pageAccessSchema.optional(),
 });
 router.post('/', ADMIN, body(createSchema), asyncHandler(async (req, res) => {
   assertMayManageRole(req.auth.role, req.valid.role);
@@ -62,6 +65,7 @@ const updateSchema = z.object({
   role: ROLE.optional(),
   active: z.boolean().optional(),
   password: z.string().min(10, 'Au moins 10 caractères').max(200).optional().or(z.literal('').transform(() => undefined)),
+  pageAccess: pageAccessSchema.optional(),
 });
 router.patch('/:id', ADMIN, body(updateSchema), asyncHandler(async (req, res) => {
   // Garde-fou : on ne se désactive ni ne se rétrograde soi-même (admin+ → verrouillage).
@@ -72,6 +76,21 @@ router.patch('/:id', ADMIN, body(updateSchema), asyncHandler(async (req, res) =>
   await assertMayTouchUser(req.auth.role, t(req), req.params.id); // protège un admin/super d'un rôle inférieur
   assertMayManageRole(req.auth.role, req.valid.role);
   if (!(await repo.updateUser(t(req), req.params.id, req.valid))) throw notFound('Utilisateur introuvable');
+  res.status(204).end();
+}));
+
+// Valider un compte auto-inscrit (« Comptes à valider ») : attribue rôle + accès par écran,
+// active le compte. L'octroi du rôle admin/super reste réservé au super-utilisateur.
+const approveSchema = z.object({ role: ROLE, pageAccess: pageAccessSchema.optional() });
+router.post('/:id/approve', ADMIN, body(approveSchema), asyncHandler(async (req, res) => {
+  assertMayManageRole(req.auth.role, req.valid.role);
+  const status = await repo.getUserStatus(t(req), req.params.id);
+  if (status === null) throw notFound('Utilisateur introuvable');
+  if (status !== 'pending') throw conflict('Ce compte est déjà validé.');
+  const ok = await repo.approveUser(t(req), req.params.id, {
+    role: req.valid.role, pageAccess: req.valid.pageAccess ?? null, approverId: req.auth.userId,
+  });
+  if (!ok) throw conflict('Ce compte est déjà validé.');
   res.status(204).end();
 }));
 
