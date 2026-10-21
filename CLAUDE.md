@@ -381,12 +381,15 @@ or navy rail.
   « Planning » sheet (District | PDF | Commune | Établissement | Activité |
   agents) creates sites + plans visits idempotently. Nav: « Suivi de processus ›
   Sites & visites ».
-  **Jours de collecte → budget** (migration 021, `tpm_collection_days`) : chaque
-  visite porte une **date de visite** ; par prestataire, `jours de visite =
-  nombre de visites datées (non annulées)` + `jours de déplacement` (majoration
-  manuelle) = **total des jours à budgéter**. Calcul pur `fieldMath.collectionDays`
-  (testé) ; endpoints `GET/PUT /api/tpm/field/collection-days` ; carte « Jours de
-  collecte (pour le budget) » sur la page terrain.
+  **Jours de collecte → budget** (migration 021, `tpm_collection_days`, `fieldMath.collectionDays` testé,
+  `GET/PUT /api/tpm/field/collection-days`) : par prestataire et par mois, **une journée par agent et par date
+  de visite non annulée** (plusieurs sites d'un même agent le même jour = une journée ; une visite datée sans
+  agent = une journée à elle seule) + jours de déplacement saisis. Une visite de plusieurs jours (moins d'un
+  suivi par jour au MMR) n'y compte que sa date de début, seule enregistrée. Journées-agent du plan automatique
+  (`planResources`) = un agent dans une commune pour la journée ; une visite coûte ⌈U ÷ suivis/jour⌉ unités ;
+  une visite de plus d'une journée prend ⌈coût ÷ U⌉ jours de terrain consécutifs du même agent ; un créneau déjà
+  écrit (« Agent N » daté, prévu ou réalisé) est réservé sur toute sa durée. Les deux mesures coïncident quand
+  chaque visite tient en un jour.
   **Plan de suivi groupé par mois + données réelles** : la page s'ouvre sur un
   **tableau des mois** (clic → plan du mois, édition en ligne type Excel). La
   grille de planification affiche une colonne **« Dernière collecte (données) »**
@@ -589,7 +592,7 @@ or navy rail.
   - **Plafond d'une période** : chaque écran propose au plus le plafond du plus restrictif de ses endpoints ; un lien
     (alerte, « Ouvrir la carte ») n'envoie jamais une période que l'écran d'arrivée écarterait.
   - **Tests sur base jetable** : `npm run test:db` (fichiers en série : ils écrivent dans la même base).
-- **Effacer des visites prévues** : seulement les « libres » (`planAuto.repository.CLEARABLE_SQL` : TPM de zone, ni figées ni facturées, sans date ni agent, mois en cours ou à venir) — jamais une visite réalisée, annulée, motivée, d'un mois échu.
+- **Effacer des visites prévues** : seulement les « libres » (`planAuto.repository.CLEARABLE_SQL(monthRef)` : TPM de zone, ni figées ni facturées — facture = toute facture dont la période COUVRE le mois —, sans date ni agent, mois en cours ou à venir À L'HEURE LOCALE, mois lié en paramètre, jamais `now()`) — jamais une visite réalisée, annulée, motivée, d'un mois échu. Suppression dans l'ordre des id (`… WHERE id IN (SELECT … ORDER BY id FOR UPDATE)`), comme l'estampille.
 - **Planification automatique** (retours 82, 107, 108 ; moteur pur `tpm/planAuto.js` + `planResources.js`, oracle
   INDÉPENDANT `planAutoInvariants.js`, `planAuto.service/repository/routes`, `PlanAutoDrawer.jsx`) : stratégie « besoins »
   par défaut (toutes les visites exigées du MMR, repli RBM selon le risque du site ; la capacité déclarée est comparée,
@@ -601,7 +604,9 @@ or navy rail.
   en suivi interne) et par mois, véhicules par jour et district ; le mois en cours ne compte que ses jours de terrain
   restants (jamais une date passée) ; un créneau déjà écrit (« Agent N » daté) est réservé. Périmètre « bureau » = le
   bureau et TOUTES ses antennes (`common/officeScope`, comme `officeTreeSql`), bureau national = tout ; « Effacer » suit le
-  même périmètre. Jours de collecte : une journée par agent et par date. Valeurs MMR / RBM en lecture seule dans le tiroir. « Appliquer » : calcul hors verrous, puis relecture et
+  même périmètre. Jours de collecte : une journée par agent et par date. Une visite EXISTANTE compte sous le TPM qu'elle
+  porte (`provider_id` / `monitored_by`, jamais le TPM de sa zone) ; seules les nouvelles visites prennent le TPM de la
+  zone. Valeurs MMR / RBM en lecture seule dans le tiroir. « Appliquer » : calcul hors verrous, puis relecture et
   empreinte sous les verrous des mois Y-1 → Y+1 (une échéance de 20 s) ; dates et « Agent N » écrits seulement si l'option
   est cochée. Tout écrivain de plan prend les verrous de mois (`visitLocks`) AVANT les lignes de sites.
 - **TPM d'une visite = contrat de la zone** (retour 58, migration 070, `tpm/tpmAttribution.js` + jumelle SQL
@@ -610,11 +615,57 @@ or navy rail.
   (`tpm_attribution_log`, inscription seule). La base estampille au COMMIT toute visite « zone » sans TPM
   (déclencheur différé `mems_tpm_stamp`) : un écrivain n'a pas à choisir le TPM. Seules les visites
   PRÉVUES sont réattribuées — réalisées, annulées, figées (« antérieur »), facturées ou motivées jamais.
-  TPM d'un contrat = TPM rattaché par plan / facture, sinon titulaire (règle commune du lot 8
-  `activeProvider`) ; tout écrivain de visites appelle `restampVisitsTx` (test `visitWritersGuard`) ;
+  TPM d'un contrat = TPM rattaché par plan / facture, sinon titulaire S'IL EST LUI-MÊME un TPM actif, sinon
+  aucun (suivi interne) — règle commune du lot 8 `activeProvider` et jumelle SQL `mems_tpm_cells` (D1) ; tout écrivain de visites appelle `restampVisitsTx` (test `visitWritersGuard`) ;
   filtre des réattributions automatiques `AUTO_RESTAMPABLE_SQL` (même filtre dans `mems_tpm_stamp`).
   Onglet « Affectation des TPM » (`TpmAttributionTab`, espace RBM) : zones région › district, changement
   motivé avec aperçu, retour au contrat, journal ; autre TPM pour une visite = écart motivé (`provider_source = 'visite'`).
+
+- **Publié le 21/10** (lot 8, modèles d'indicateurs, planification automatique, retour 114, relecture croisée, lot « verrous ») :
+  - **Rôles (lot 8, retours 113 et 115, décision D1)** : « Partenaire de mise en œuvre » (titulaire du contrat FLA, type
+    `prestataire`) ≠ « TPM — tierce partie de suivi » (type `tpm`, libellés migration 089). Un titulaire n'est le TPM de
+    son contrat que s'il est LUI-MÊME un TPM actif ; sinon l'écran dit **« Interne »** (`ROLE_LABELS.noTpm`, seulement
+    pour un contrat actif ou résilié : `lib/roles.contractTpmKind`). Plan de collecte et facture = un partenaire de type
+    tpm (déclencheur `trg_tpm_document_partner`, à l'écriture du partenaire seulement) ; l'application exige un TPM ACTIF
+    (`assertActiveTpmTx`), sauf une facture dont toute la période précède le mois local courant (TPM inactif qui facture
+    ses mois servis : `inactiveTpmMayInvoice`). Un partenaire qui perd le rôle TPM : ses visites prévues d'origine
+    « visite » reviennent à leur zone (journalisé) et il n'est plus attendu (rapports « non applicable »,
+    `partner_not_tpm`, pas d'alerte). Fiche 360°, évaluation des TPM (086), formations en sessions (087), évaluation des
+    agents (088).
+  - **Suivi interne (retour 114, migrations 107–109)** : `site_visits.monitored_by` GÉNÉRÉE (`tpm` | `interne` |
+    `non_affecte`) ; une zone sans contrat, un contrat sans TPM, un TPM **indisponible** (`tpm_unavailability`, par mois,
+    motif 10–500, journal) ou un TPM retiré avec motif → suivi INTERNE par l'équipe S&E du **bureau RACINE** du site
+    (`officeScope.rootOfficeOf`, partout : rapports attendus, planification). Rapports attendus par TPM × contrat × mois
+    (`reportExpectation`, `GET /api/tpm/reports/expected`) : une facture couvre chacun de ses mois ; gabarit sans visite =
+    « non applicable » d'office, échéance passée = « en retard » — jumelles SQL `stubNotApplicableSql` / `stubLateSql`,
+    mêmes statuts sur la carte, la liste, la fiche 360° et les alertes. « Facturée » = période de la facture qui COUVRE
+    le mois (`INVOICED_SQL`, migration 108). `mems_tpm_stamp` reçoit des tableaux en variables (migration 109 : jamais
+    `ARRAY(SELECT …)` en argument de `mems_tpm_cells`, plan personnalisé) : 4 000 visites en ~0,2 s. Premier ou dernier
+    document d'un couple TPM × contrat : ré-estampille du mois courant (tout le compte) et des mois PASSÉS seulement pour
+    les visites dont ce lien change la cellule (`linkDecidedVisits`, 240 mois au plus, les plus récents). TPM indisponible :
+    un plan est refusé (400), une facture acceptée avec un avertissement ; les listes de choix portent `unavailableMonths`
+    (une seule source).
+  - **Ordre des verrous, PARTOUT** (`tpm/visitLocks.js`, en-tête de `tpmAttribution.repository.js`) : rattachements des
+    formulaires → plan automatique → mois des visites (croissants) → lignes de sites et de localités par id croissant
+    (FOR UPDATE pour qui les modifie, FOR KEY SHARE pour qui y attache une visite ou une modification de zone) → ligne de
+    contrat (écrivains de contrats FOR NO KEY UPDATE ; seule la suppression FOR UPDATE, puis ses rapports FOR UPDATE) →
+    verrou d'attribution T → documents, visites (toujours par id), journal. Jamais une ligne de site, de localité ou de
+    contrat APRÈS T (clé étrangère d'un INSERT comprise) ; jamais une ligne de partenaire avant T (`partnerRole`).
+    `lockAttributionTx` et `mems_tpm_stamp` rétablissent le `lock_timeout` de l'appelant (jamais DEFAULT).
+    `afterSitesChangedTx` ré-estampille EN DERNIER. Un UPDATE ne liste une colonne de clé (UNIQUE) que si elle change.
+    Exception documentée : `localities.replaceBreakdown`. Tests en base : `lockOrderDb`, `tpmLinkLocksDb`, `lot8Db`.
+  - **Une seule horloge** : « maintenant » = `common/localDay` (`APP_TIMEZONE`, défaut Indian/Antananarivo, un formateur
+    par fuseau), `rbmMath.currentMonth` ; jamais `toISOString().slice(0, 7)`, `getFullYear()` ni `current_date` /
+    `now()` pour le mois courant (alertes, fiche 360°, planification, RBM, année par défaut). Restent en UTC, connus :
+    liste des partenaires (`current_date`), fenêtre de tendance du suivi, `consolidation` (now), ré-estampille de la
+    géographie des sites, ligne « actif ce mois » d'un nouveau site.
+  - **Modèles d'indicateurs** : une clé est une « correction » seulement si le libellé de l'indicateur égale l'ancien
+    libellé (`formerly`) sur une variable du modèle ; sinon « différence », proposée seulement par « Appliquer le modèle »
+    de la ligne ; mise à jour groupée `POST /api/monitoring/forms/:id/template-update` (points de reprise).
+  - **Suppression d'un contrat** : ses rapports sont verrouillés avant le décompte des données reliées (une facture en
+    cours de saisie bloque, jamais effacée en cascade) ; tout rapport non vierge compte (`blankReportSql`) ; TPM des
+    visites ré-estampillé dans une 2ᵉ transaction après la validation.
+  - **Base vierge** : `npm run seed:blank` (autre session) ; le balayage passe aussi sur une base vide.
 
 ## Known / open items
 - **Rapportage fidèle à la facture** — DONE. Financial reports now hold a

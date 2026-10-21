@@ -1,6 +1,6 @@
 # MEMS 2.0 — État du projet (fait / en cours / reste à faire)
 
-_Mise à jour : 20 octobre 2026, 12:20 UTC. `main` (`f871748`) contient les lots 0, 1, 1b, 6a, le retour 56, le registre des sites, les sites actifs / inactifs, l'identifiant des sites, les finitions d'écrans, le premier lot de réactivité, le concepteur partie 2, les sous-activités, la planification automatique (autre session, corrigée le 16/10), la couverture sur une seule source (retour 110), « l'API sert l'interface » (un seul service Windows), et depuis le 20/10 : les listes de choix professionnelles, l'audit design du 16/10, les en-têtes et pieds en paire (retour 112). La passation entre sessions est dans [`REPRISE.md`](REPRISE.md)._
+_Mise à jour : 21 octobre 2026, 08:50 UTC. `main` (`ab3993d`) contient les lots 0, 1, 1b, 6a, le retour 56, le registre des sites, les sites actifs / inactifs, l'identifiant des sites, les finitions d'écrans, le premier lot de réactivité, le concepteur partie 2, les sous-activités, la couverture sur une seule source (retour 110), « l'API sert l'interface », les listes de choix et les en-têtes en paire (20/10), et depuis le 21/10 : **Partenaires & TPM (lot 8)**, les **modèles d'indicateurs** de vos fiches, la **planification automatique** selon les besoins (agents, véhicules, heure locale), le **suivi interne** (retour 114 : sans TPM ou TPM indisponible → équipe S&E, rapports attendus), un **ordre unique des verrous** (plus d'interblocage connu) et la **base vierge** (`npm run seed:blank`, autre session). La passation entre sessions est dans [`REPRISE.md`](REPRISE.md)._
 
 Documents de suivi, à lire dans cet ordre :
 
@@ -17,11 +17,11 @@ Documents de suivi, à lire dans cet ordre :
 
 | Contrôle | Résultat |
 |---|---|
-| Tests serveur (`cd server && npm test`) | **1 278** (1 270 réussis, 8 ignorés : ils ne tournent qu'avec les exports réels ou une base jetable — `npm run test:db`, 7/7 sur base neuve le 20/10) |
+| Tests serveur (`cd server && npm test`) | **1 613** (1 564 réussis, 0 échec, 49 ignorés : ils tournent avec les exports réels ou une base jetable — `npm run test:db`, **50/50** sur base neuve le 21/10) |
 | Lint serveur (`npm run lint`) | propre |
 | Build web (`cd web && npm run build`) | OK |
-| Balayage navigateur (35 écrans, FR et EN — `node web/scripts/sweep-ecrans.cjs`) | 0 erreur console ou API, 0 phrase anglaise manquante (20/10, 12:00) |
-| Migrations | `001` → `073` + `101` (69 fichiers ; numéros réservés dans `REPRISE.md`) — essayées sur base neuve et sur copie |
+| Balayage navigateur (`node web/scripts/sweep-ecrans.cjs`) | 46 écrans × FR / EN sur données de démonstration, et 35 écrans × FR / EN sur une base VIDE (`seed:blank`) : 0 erreur console ou API, 0 phrase anglaise manquante (21/10) |
+| Migrations | `001` → `073`, `086` → `089`, `101`, `107` → `109` (77 fichiers ; numéros réservés dans `REPRISE.md`) — essayées sur base neuve et sur copie de la base existante |
 
 ---
 
@@ -97,6 +97,13 @@ Documents de suivi, à lire dans cet ordre :
   - affichage des codes Adm en option.
 - **Fiches de suivi** : renommer une fiche et changer son activité depuis sa page (retour 59) ; voir la liste des choix d'une question (retour 66).
 
+### 21 octobre — publiés à 08:48 (`ab3993d`)
+- **Partenaires & TPM** (lot 8, retours 28, 30, 113, 115) : deux rôles nommés partout — « Partenaire de mise en œuvre » (titulaire du contrat) et « TPM — tierce partie de suivi » ; un titulaire n'est le TPM de son contrat que s'il est lui-même un TPM, sinon l'écran dit **« Interne »** ; fiche 360° par partenaire (contrats, zones, suivis, rapports, équipe, formations, évaluations) ; formations en sessions avec tests ; évaluation du TPM et des agents (note tirée des données + appréciation) ; un plan ou une facture ne se rattache qu'à un TPM.
+- **Suivi interne** (retour 114) : sans contrat, contrat sans TPM, TPM déclaré **indisponible** (par mois, avec motif) ou TPM retiré avec motif → le site est suivi par l'équipe S&E de son bureau, jamais « à affecter » ; **rapports attendus** par TPM × contrat × mois (une facture de plusieurs mois couvre chacun de ses mois ; sans visite = « non applicable » d'office ; échéance passée = « en retard », le même statut partout) ; un rapport interne attendu pour l'équipe S&E.
+- **Modèles d'indicateurs** de vos fiches : mise à jour depuis le modèle, corrections distinguées des différences.
+- **Planification automatique** (retours 82, 107, 108) : selon les besoins du MMR et l'ordre du RBM, communes entières toutes activités, agents ET véhicules par équipe (TPM ou bureau en interne), créneaux déjà écrits réservés, heure locale de Madagascar partout ; « Effacer » ne touche que les visites libres des mois non échus.
+- **Fiabilité** : relecture croisée des quatre chantiers réunis (26 points corrigés : mêmes mots et mêmes chiffres sur tous les écrans), suppression d'un contrat qui ne peut plus effacer une facture en cours de saisie, recalcul du TPM des visites 50 fois plus rapide, et un **ordre unique des verrous** dans toute l'application (8 risques d'interblocage supprimés, prouvés par des courses réelles).
+
 ### 16 octobre — publiés le matin
 - **Mêmes chiffres de couverture partout** (retour 110) : une seule source (`/api/dashboards/coverage`) pour la Synthèse et « Couverture & performance » ; un univers ; « suivi » = visite OU données ; total par activité toujours visible ; « Sites prévus → suivis » distinct de l'exécution du plan.
 - **Effacer les planifications** : ne supprime plus que les visites prévues libres (défaut grave de la planification automatique, corrigé avec un test sur vraie base).
@@ -113,7 +120,7 @@ Documents de suivi, à lire dans cet ordre :
 
 ## 🔄 En cours de réalisation (branches `wip/…`)
 
-> **Au 20/10, 12:20 UTC** — prêts, en correction après relecture (39 constats), puis publication ensemble (`integ/next`) : **lot 8** Partenaires & TPM (fiche 360°, formations en sessions, évaluation du TPM et des agents, vocabulaire « Titulaire » / « TPM », « Interne » quand aucun TPM — retours 28, 30, 113, 115), **modèles d'indicateurs** de vos 5 fiches, **planification automatique** fiable puis selon les besoins avec agents et véhicules (retours 82, 107, 108). Ensuite : filtres du rapportage (102), maquette des tableaux de bord (101), suivi interne (114), bureaux (105), activités (109), réactivité 2ᵉ lot.
+> **Au 21/10** — publié ce matin : lot 8, modèles d'indicateurs, planification automatique, suivi interne (retour 114), ordre des verrous. Vérifications indépendantes des dernières corrections en cours (toute remarque sera corrigée dans un envoi suivant). Ensuite, dans l'ordre : filtres du rapportage (102), maquette des tableaux de bord (101), bureaux (105), activités (109), réactivité 2ᵉ lot.
 
 > **Au 15/10, 10:40 UTC** — le tableau ci-dessous date du 14/10 ; l'état à jour de chaque agent est dans [`REPRISE.md`](REPRISE.md) § 2 : planification automatique (`wip/lot5-gen`), TPM des contrats (`wip/r58`), tâches de fond (`wip/perf`), tableau de bord fidèle à la maquette (`wip/dash-template`), indicateurs de vos 5 fiches (`wip/indicators`), filtres du rapportage (`wip/7a-p2`), bureaux (`wip/offices`), activités partout (`wip/activities`), Partenaires & TPM (`wip/lot8`), état de l'application (`wip/admin`), sous-tables (`wip/repeats`), fonctions de calcul (`wip/calc`), PDD (`wip/pdd`).
 
@@ -149,7 +156,7 @@ Documents de suivi, à lire dans cet ordre :
    C'est ce lot qui reproduira votre chiffre de référence de janvier à juin (170 sites distincts sur 208 actifs = 82 %).
 3. **Lot 5 élargi** (voir ci-dessus).
 4. **Lot 7b** : modèles fidèles à vos rapports de référence, et blocs issus des lots 4 et 5.
-5. **Lot 8**, Partenaires & TPM (retours 28 à 30) :
+5. ~~**Lot 8**, Partenaires & TPM (retours 28 à 30)~~ — **publié le 21/10** ; restent :
    - fiche prestataire 360° et évaluation du TPM ;
    - formations en sessions ;
    - évaluation des agents (note tirée des données, plus une appréciation) ;
