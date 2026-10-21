@@ -12,6 +12,14 @@
 
 ## État courant
 
+> **21/10 — Correctif 400 sur « Enregistrer l'identité » (Paramétrage › Localités).** ✅ Sur une
+> base vierge, enregistrer le profil pays avec Latitude/Longitude du centre **vides** renvoyait
+> 400 « Données invalides » : le schéma zod `centerLat`/`centerLng` attendait un nombre ou `null`,
+> mais une chaîne vide `""` (interface pas reconstruite après `git pull`) échouait. `latS`/`lngS`
+> (`settings.routes.js`) acceptent désormais `""` → `null`, comme le code ISO et la devise. Testé
+> (zod : `""`/`null`/nombre/absent → OK), lint ✅, 1270 tests ✅. La répartition géographique n'est
+> PAS requise pour enregistrer l'identité (une base `levels: []` passe la validation).
+
 > **21/10 — Seed « base vierge » pour une mise en production propre.** ✅ Constat de
 > l'utilisateur : `npm run seed` n'est PAS une base vierge mais une base de **démonstration**
 > complète (tenant, référentiels, prestataires, sites, contrats, avenants, rapports, visites).

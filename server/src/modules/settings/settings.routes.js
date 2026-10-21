@@ -242,8 +242,11 @@ router.delete('/partners/:id/agents/:agentId/evaluations/:evaluationId', ADMIN, 
 }));
 
 // ---- Localités : profil pays, vocabulaire, découpage, répertoire, CRUD -------
-const latS = z.number().min(-90).max(90).nullable().optional();
-const lngS = z.number().min(-180).max(180).nullable().optional();
+// Coordonnées : un nombre, rien, ou une chaîne vide (« champ laissé vide » dans
+// l'interface) traitée comme non renseignée — pour qu'un centre de carte vide ne
+// fasse jamais échouer l'enregistrement (comme le code ISO / la devise).
+const latS = z.number().min(-90).max(90).nullable().optional().or(z.literal('').transform(() => null));
+const lngS = z.number().min(-180).max(180).nullable().optional().or(z.literal('').transform(() => null));
 const pcodeS = z.string().trim().max(40).regex(/^[A-Za-z0-9._-]*$/, 'P-code : lettres, chiffres, . _ -').nullable().optional()
   .transform((v) => (v === undefined ? undefined : (v || null))); // absent ≠ vidé (un PATCH sans pcode le conserve)
 const areaName = z.string().trim().min(1).max(120);
