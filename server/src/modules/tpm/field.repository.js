@@ -2,7 +2,7 @@ const { withTenantTransaction } = require('../../config/db');
 const { afterSitesChangedTx, lockSubmissionLinksTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
 const { sitePatchSql } = require('./sitePatch');
 const { chunkRows } = require('../../db/batch');
-const { lockVisitMonthsTx, yearMonths } = require('./visitLocks');
+const { lockVisitMonthsTx, lockSitesKeyShareTx, yearMonths } = require('./visitLocks');
 const { isActiveMonth, activeMonthSql } = require('../common/siteActivity');
 const { UNIT_LABELS, shapeRangeSummary, shapeCoverageFacts, collectionDays, buildCoverageMatrix } = require('./fieldMath');
 const { isDue, frequencyFor, visitState, currentMonth, toMonth, needsPlanning, planningCounts } = require('./rbmMath');
@@ -458,6 +458,8 @@ async function generateFromRbmTx(client, tenantId, userId, month, { risk } = {})
   // statut : une visite annulée est une décision, elle n'est pas ressuscitée) ni inactif ce mois
   // (règle commune : année avec grille → « Oui » explicite seulement).
   const [y, m] = target.split('-').map(Number);
+  // Sites par identifiant croissant (FOR KEY SHARE), jamais dans l'ordre d'insertion (visitLocks).
+  await lockSitesKeyShareTx(client, tenantId, todo.map((s) => s.id));
   const { rowCount } = await client.query(
     `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by)
      SELECT $1, t.site_id, $2::date, t.activity, 'planifie', $3
@@ -874,6 +876,9 @@ async function createVisit(tenantId, userId, v) {
     // Une visite (sa date, son agent) est une entrée du plan automatique : verrou de son mois
     // (visitLocks, attente bornée) AVANT le verrou d'attribution — même ordre que tous les écrivains.
     await lockVisitMonthsTx(client, tenantId, [String(v.periodMonth).slice(0, 7)]);
+    // Ligne du site AVANT le verrou d'attribution (visitLocks : rattachements → mois → sites → attribution) :
+    // la clé étrangère de l'INSERT la prendrait sinon après lui, face à un écrivain de sites (40P01).
+    await lockSitesKeyShareTx(client, tenantId, [v.siteId]);
     await lockAttributionTx(client, tenantId);
     await assertVisitRefs(client, tenantId, { siteId: v.siteId, providerId: v.providerId });
     let id;
@@ -1205,9 +1210,10 @@ async function planMonthsTx(client, tenantId, userId, year, changes) {
   // l'inverse, aucun interblocage avec « Générer depuis le RBM » ni la planification automatique.
   await client.query("SET LOCAL lock_timeout = '20s'");
   await lockVisitMonthsTx(client, tenantId, [...add, ...remove].map(([, m]) => pm(m)));
-  await lockAttributionTx(client, tenantId); // une visite annulée re-cochée est mise à jour (retour 58)
-  const { rows: known } = await client.query('SELECT id, activity FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, ids]);
+  // Sites par identifiant croissant, en partage de clé, AVANT le verrou d'attribution (visitLocks).
+  const known = await lockSitesKeyShareTx(client, tenantId, ids);
   if (known.length !== ids.length) throw badRequest('Site inconnu (ou hors de ce compte).');
+  await lockAttributionTx(client, tenantId); // une visite annulée re-cochée est mise à jour (retour 58)
   const activity = new Map(known.map((k) => [k.id, k.activity || null]));
   let added = 0; let removed = 0;
   // Un site inactif un mois (règle commune isActiveMonth : année avec grille → « Oui » explicite
