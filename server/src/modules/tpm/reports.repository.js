@@ -281,6 +281,23 @@ async function findExisting(client, tenantId, { partnerId, contractId, periodMon
   return rows[0] || null;
 }
 
+/** Contrat d'un rapport, lu SANS verrou (lockLinkDocumentTx) ; undefined : rapport absent. */
+const peekReportContract = (tenantId, id) => async (c) => {
+  const { rows: [r] } = await c.query('SELECT contract_id AS "contractId" FROM tpm_reports WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+  return r ? r.contractId : undefined;
+};
+
+/**
+ * Garde « TPM actif » d'un rapport REPRIS (gabarit rempli, facture rejetée corrigée, période prolongée) —
+ * la même qu'à la création (insertReport, décision D-b) : TPM actif, sauf une facture dont TOUTE la période
+ * précède le mois courant local. Sous le verrou d'attribution (lockLinkDocumentTx : une fiche désactivée ou
+ * retypée pendant l'écriture est vue), dans la transaction qui écrit ; NOT_TPM → 400 (routes).
+ */
+async function assertReportTpmTx(client, tenantId, report, periodEnd = report.periodEnd) {
+  const doc = { kind: report.kind, periodMonth: report.periodMonth, periodEnd };
+  await assertActiveTpmTx(client, tenantId, report.partnerId, { allowInactive: inactiveTpmMayInvoice(doc, currentMonth()) });
+}
+
 async function insertReport(tenantId, r) {
   return withTenantTransaction(tenantId, async (client) => {
     // Lien TPM ↔ contrat (retour 114) : verrou d'attribution D'ABORD (avant la clé étrangère du rapport), puis le lien d'avant.
@@ -330,15 +347,21 @@ async function insertReport(tenantId, r) {
  * (edited_by). A submitted report is frozen while it awaits the decision.
  * Saving NEVER changes the status: « Soumettre » does (submitReport).
  * Returns the report id, or null if not found; throws code KIND / LOCKED /
- * AUTHOR (with the rule's message) otherwise.
+ * AUTHOR (with the rule's message) otherwise. Une période prolongée repasse la
+ * garde « TPM actif » de la création (assertReportTpmTx, D-b) : NOT_TPM.
+ * Verrous dans l'ordre des écrivains du lien : contrat → attribution → ligne.
  */
 async function replaceReportItems(tenantId, id, items, { invoiceNo, periodEnd, advanceDeducted, userId } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
-    const report = await getReportRow(client, tenantId, id);
+    const report = await tpmAttributionRepo.lockLinkDocumentTx(client, tenantId, {
+      peekContract: peekReportContract(tenantId, id), lockRow: (c) => getReportRow(c, tenantId, id),
+    });
     if (!report) return null;
     if (report.kind !== 'financier') { const e = new Error('kind'); e.code = 'KIND'; throw e; }
     const denied = editError(report, userId);
     if (denied) { const e = new Error(denied.message); e.code = denied.code === 'author' ? 'AUTHOR' : 'LOCKED'; throw e; }
+    const ym = (d) => (d ? String(d).slice(0, 7) : null);
+    if (periodEnd && ym(periodEnd) !== ym(report.periodEnd)) await assertReportTpmTx(client, tenantId, report, periodEnd);
 
     await client.query('DELETE FROM contract_report_items WHERE tenant_id = $1 AND report_id = $2', [tenantId, id]);
     const clean = await insertItems(client, tenantId, id, items);
@@ -374,11 +397,7 @@ async function deleteReport(tenantId, id, { actorId, isAdmin = false, justificat
   return withTenantTransaction(tenantId, async (client) => {
     // Lien TPM ↔ contrat (retour 114) : contrat du rapport → verrou d'attribution → ligne du rapport, comme les créateurs.
     const report = await tpmAttributionRepo.lockLinkDocumentTx(client, tenantId, {
-      peekContract: async (c) => {
-        const { rows: [r] } = await c.query('SELECT contract_id AS "contractId" FROM tpm_reports WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
-        return r ? r.contractId : undefined;
-      },
-      lockRow: (c) => getReportRow(c, tenantId, id),
+      peekContract: peekReportContract(tenantId, id), lockRow: (c) => getReportRow(c, tenantId, id),
     });
     if (!report) return null;
 
@@ -484,19 +503,30 @@ async function setStatus(tenantId, id, status, userId, comment) {
  * (par son auteur seulement ; une facture doit porter un état des dépenses ou
  * un montant), puis mise à jour qui exige encore un statut soumettable (aucune
  * double soumission). Le soumetteur est enregistré : il ne pourra ni valider
- * ni rejeter.
+ * ni rejeter. Garde « TPM actif » de la création (assertReportTpmTx, D-b) : un
+ * gabarit ou une facture rejetée d'un TPM désormais inactif ne part en
+ * validation que pour des mois passés (sinon NOT_TPM → 400). Verrous dans
+ * l'ordre des écrivains du lien : contrat → attribution → ligne.
  * @returns {Promise<{ ok: true } | { error: 'not_found' } | { error: 'status' | 'author' | 'empty', message: string }>}
  */
 async function submitReport(tenantId, id, userId) {
   return withTenantTransaction(tenantId, async (client) => {
-    const { rows } = await client.query(
-      `SELECT status, kind, reported_amount AS "reportedAmount", edited_by AS "editedBy"
-         FROM tpm_reports WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [tenantId, id]);
-    if (!rows.length) return { error: 'not_found' };
+    const locked = await tpmAttributionRepo.lockLinkDocumentTx(client, tenantId, {
+      peekContract: peekReportContract(tenantId, id),
+      lockRow: async (c) => {
+        const { rows: [r] } = await c.query(
+          `SELECT status, kind, reported_amount AS "reportedAmount", edited_by AS "editedBy", partner_id AS "partnerId",
+                  contract_id AS "contractId", period_month AS "periodMonth", period_end AS "periodEnd"
+             FROM tpm_reports WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [tenantId, id]);
+        return r || null;
+      },
+    });
+    if (!locked) return { error: 'not_found' };
     const { rows: cnt } = await client.query(
       'SELECT count(*)::int AS n FROM contract_report_items WHERE tenant_id = $1 AND report_id = $2', [tenantId, id]);
-    const err = submitError({ ...rows[0], reportedAmount: num(rows[0].reportedAmount), itemCount: cnt[0].n }, userId);
+    const err = submitError({ ...locked, reportedAmount: num(locked.reportedAmount), itemCount: cnt[0].n }, userId);
     if (err) return { error: err.code, message: err.message };
+    await assertReportTpmTx(client, tenantId, locked);
     // Auteur inconnu (contenu antérieur à la migration 058) : la personne qui
     // soumet s'en porte garante et en devient l'auteur.
     await client.query(
