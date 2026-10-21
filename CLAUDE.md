@@ -137,9 +137,15 @@ CSP by vite). `npm run serve`/`build` exist **only in `web/`** (not root/server)
 `MEMS-WORKER`). No `MEMS-WEB` service anymore. Full steps in `README.md` →
 « Lancer MEMS 2.0 comme service Windows avec NSSM ». Update: `git pull` →
 `npm run migrate` → web `npm run build` → `nssm restart MEMS-API`, then
-hard-refresh. **Test without demo data:** run `npm run seed` only (NOT
-`npm run seed:test`); to clear test data already loaded, recreate the DB
-(`dropdb mems2_tpm && createdb mems2_tpm && npm run migrate && npm run seed`).
+hard-refresh. **Three seed levels** — `seed` is a FULL DEMO (tenant, partners,
+sites, contracts, amendments, reports, visits…), `seed:test` adds even more
+varied data on top, and **`seed:blank`** provisions ONLY the tenant + the
+admin/validator login — no registries, no operational data — so the app opens
+empty and everything (partner types, activities, Région→District breakdown,
+offices, MMR, partners…) is created from inside MEMS (Paramétrage, as admin).
+**For a clean production start:** `createdb mems2_tpm && npm run migrate &&
+npm run seed:blank`. To wipe a DB and restart blank, recreate it
+(`dropdb mems2_tpm && createdb mems2_tpm && npm run migrate && npm run seed:blank`).
 
 ## Hard constraints (do not break)
 - **Never touch the `mems_app` Postgres role.** It belongs to the user's OLD

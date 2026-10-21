@@ -12,6 +12,16 @@
 
 ## État courant
 
+> **21/10 — Seed « base vierge » pour une mise en production propre.** ✅ Constat de
+> l'utilisateur : `npm run seed` n'est PAS une base vierge mais une base de **démonstration**
+> complète (tenant, référentiels, prestataires, sites, contrats, avenants, rapports, visites).
+> Nouveau script **`npm run seed:blank`** (`server/src/db/seed-blank.js`) qui ne pose QUE le
+> tenant + les comptes `admin@mems.mg` / `validateur@mems.mg` — zéro référentiel, zéro donnée
+> opérationnelle ; tout le reste se crée depuis MEMS (Paramétrage, en admin). Vérifié sur base
+> `mems2_tpm` neuve : migrations 001→101 OK, seed:blank → tenant=1, users=2, tout le reste=0,
+> idempotent (3 exécutions). Lint ✅. README (trois niveaux de seed) + CLAUDE.md mis à jour.
+> Contexte : aide au déploiement Windows (NSSM à un seul service, PATH PostgreSQL, `.env`).
+
 > **Ce matin (16/10)** — reprise à 06:05 UTC. Une autre session a publié sur `main` la **planification automatique** (retour 82 : bouton « Générer le plan », règles MMR / RBM, regroupement par commune ou GPS, équilibrage des TPM, agents à mobiliser, export « base de budget »). Elle devient la base : je n'y ajoute que ce qui manque (véhicules, règle unique « site actif », traçabilité), sans doublon.
 > - 🔄 Analyse de toutes les mises à jour et revue du design de chaque écran (captures), à commencer par les listes déroulantes brutes de « Planification & budget ».
 > - ✅ **Publié (06:28)** : « Couverture & performance » et la Synthèse ont maintenant les mêmes chiffres (retour 110), et « Effacer les planifications » ne supprime plus que les visites prévues libres (un défaut grave trouvé par l'analyse : il effaçait aussi les visites facturées, figées ou au TPM choisi avec une raison).
