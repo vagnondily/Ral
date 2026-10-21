@@ -26,6 +26,15 @@
   la liste des sites visités avec leur nombre de visites.
 - ⏳ **Rattachement soumissions → site** par **code de site** ou **GPS** (aujourd'hui : par commune / P-code seulement).
 
+## Pouvoirs de l'admin (⏳ à cadrer)
+- ⏳ **Modifier des paramètres déjà VALIDÉS** (ex. le budget d'un contrat actif, aujourd'hui modifiable
+  seulement via avenant « par conception, pour l'audit »).
+- ⏳ **Modifier/planifier sur des dates ANTÉRIEURES** (aujourd'hui : plans et visites des mois échus
+  verrouillés — règles lot 1b).
+- ⚠️ Conflit avec la priorité n° 1 (fiabilité / audit / immuabilité). Approche recommandée : **surpouvoir
+  admin JOURNALISÉ** (modification autorisée MAIS inscrite dans un journal inaltérable : qui, quand,
+  avant → après, motif) — le pouvoir sans perdre la traçabilité. À confirmer avant mise en œuvre.
+
 ## Organisation (⏳ à faire)
 - ⏳ **Hiérarchie des bureaux à 6 niveaux** : Headquarter › Bureau Régional › Bureau Pays › Area Office › Sub Office › Antenne
   (aujourd'hui : natures « pays » / « terrain » + parent).
