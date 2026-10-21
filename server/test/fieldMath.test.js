@@ -21,7 +21,7 @@ test('coverage excludes cancelled visits and splits by provider/district', () =>
   assert.equal(p1.label, 'YPA');
   assert.equal(p1.realise, 1);
   const na = s.byProvider.find((r) => r.key === 'non_affecte');
-  assert.equal(na.label, 'Non affecté');
+  assert.equal(na.label, 'Non affectée (ni TPM ni suivi interne)');
   assert.equal(s.byDistrict.find((r) => r.key === 'A').total, 3);
 });
 
@@ -155,7 +155,7 @@ test('plage d\'un mois : champs hérités du total et des prestataires identique
   assert.deepEqual(s.overall.visits, { planned: 18, realised: 10, cancelled: 1, upcoming: 0 });
   assert.deepEqual([s.overall.planifie, s.overall.realise], [9, 10], 'lignes de visites : sens hérité inchangé (a0 compte 2 lignes)');
   assert.deepEqual(s.byProvider.find((p) => p.key === 'p1').sites, { planned: 9, realised: 8 });
-  assert.equal(s.byProvider.find((p) => p.key === 'non_affecte').label, 'Non affecté');
+  assert.equal(s.byProvider.find((p) => p.key === 'non_affecte').label, 'Non affectée (ni TPM ni suivi interne)');
   assert.equal(s.activationKnown, false);
 });
 

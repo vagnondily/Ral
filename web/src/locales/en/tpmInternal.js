@@ -28,7 +28,7 @@ export default {
   'Interne (équipe S&E) ces mois-là': 'Internal (M&E team) for those months',
   'Suivi interne': 'Internal monitoring',
   'indisponible : {m}': 'unavailable: {m}',
-  'Équipe S&E : aucun TPM sur la zone': 'M&E team: no TPM on the area',
+  'Équipe S&E (sans TPM, ou TPM retiré avec motif)': 'M&E team (no TPM, or TPM removed with a reason)',
   'Interne : l\'équipe S&E suit la zone {z} ce mois ({w}). Pour la confier à un TPM, utilisez l\'onglet Affectation des TPM.':
     'Internal: the M&E team monitors area {z} this month ({w}). To give it to a TPM, use the TPM assignment tab.',
   'Ce partenaire n\'est pas sélectionnable en {m} : ce n\'est pas un TPM actif, ou il est déclaré indisponible.':
@@ -103,6 +103,7 @@ export default {
   'échéance dépassée ({due})': 'deadline passed ({due})',
   'à produire par l\'équipe S&E': 'to be produced by the M&E team',
   'Rapports attendus': 'Expected reports',
+  'À remettre au plus tard': 'Due by', // mois de remise d'un rapport (CSV) — jamais « Échéance » (fin d'un contrat)
   'Un TPM sans visite planifiée un mois n\'a pas de rapport à remettre (non applicable d\'office) ; quand l\'équipe S&E suit elle-même des visites, un rapport interne est attendu. À remettre au plus tard le mois suivant.':
     'A TPM with no planned visit in a month has no report to submit (automatically not applicable); when the M&E team monitors visits itself, an internal report is expected. Due by the following month at the latest.',
   'Afficher les non applicables d\'office': 'Show automatic not-applicable rows',

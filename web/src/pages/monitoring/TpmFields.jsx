@@ -3,7 +3,7 @@ import { PencilLine } from 'lucide-react';
 import { STATUS_ICONS } from '../../components/ui.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, shortMonthLabel } from '../../lib/format.js';
-import { INTERNAL_HINT, REASON_MAX, REASON_MIN, REASON_SUGGESTIONS, TPM_VISIT, TPM_ZONE_STATE, detachedHint, internalWhy, visitTpmKey, visitInternal } from '../../lib/tpmAttribution.js';
+import { INTERNAL_HINT, REASON_MAX, REASON_MIN, REASON_SUGGESTIONS, TPM_VISIT, TPM_ZONE_STATE, UNASSIGNED_LABEL, detachedHint, internalWhy, visitTpmKey, visitInternal } from '../../lib/tpmAttribution.js';
 import { ROLE_LABELS } from '../../lib/roles.js';
 import { tpmTabHref } from './TpmZoneCell.jsx';
 import './tpmAttribution.css';
@@ -81,7 +81,8 @@ export function ReasonField({ id, value, onChange, required, hint, placeholder, 
  * TPM d'une visite (Affectation & visites) : le TPM de sa zone, tiré des contrats — couleur + icône
  * + libellé ; une origine (« contrat FLA-… », « modifié pour cette visite »). Sans TPM : « Interne »
  * (suivi par l'équipe S&E, retour 114), jamais « à affecter » ; le lien mène à l'onglet Affectation
- * des TPM de la zone. Le bouton ouvre le changement motivé.
+ * des TPM de la zone. Personne (ni TPM ni interne, antérieure à la règle) : « Non affectée (ni TPM ni
+ * suivi interne) », l'origine en dessous — jamais le même libellé deux fois. Le bouton ouvre le changement motivé.
  */
 export function VisitTpmCell({ visit, canEdit, onEdit }) {
   const { tr } = useI18n();
@@ -89,28 +90,32 @@ export function VisitTpmCell({ visit, canEdit, onEdit }) {
   const Icon = STATUS_ICONS[def.icon];
   const src = visit.providerSource || 'zone';
   const internal = !visit.providerId && visitInternal(visit);
+  // Visite que personne ne suit : son nom (un seul partout) ; l'état de la zone (« Antérieur à la règle ») en devient l'origine.
+  const label = !visit.providerId && !internal ? tr(UNASSIGNED_LABEL) : tr(def.label);
   const origin = src === 'visite'
     ? tr('modifié : {r}', { r: visit.providerReason || '' })
     : src === 'reprise' ? ({ realise: tr('visite réalisée : TPM gardé'), annule: tr('visite annulée : TPM gardé') }[visit.status] || tr('TPM gardé tel qu\'il a été saisi'))
       : internal ? internalWhy(tr, { state: visit.providerZoneState })
         : visit.providerZoneState === 'a_arbitrer' ? tr('plusieurs contrats : choisir')
           : visit.contractLabel ? tr('contrat {n}', { n: visit.contractLabel }) : tr(def.label);
+  // Nom visible : le TPM, « Interne » ou le libellé ; l'origine n'est écrite que si elle dit autre chose.
+  const shown = visit.providerId ? visit.providerName : (internal ? tr(ROLE_LABELS.noTpm) : label);
   return (
-    <div className={`tpm-visit tpm-tone-${def.tone || 'none'}`} title={`${tr(def.label)} — ${origin}`}>
+    <div className={`tpm-visit tpm-tone-${def.tone || 'none'}`} title={origin && origin !== label ? `${label} — ${origin}` : label}>
       <span className="pb-tpm-main">
         <Icon size={13} aria-hidden="true" className="pb-tpm-ic" />
         {visit.providerId
           ? <span className="pb-tpm-name">{visit.providerName}</span>
           : internal
             ? <a className="pb-tpm-name pb-tpm-internal" href={tpmTabHref({ zone: visit.zoneDistrictId, month: visit.periodMonth })} title={tr(INTERNAL_HINT)}>{tr(ROLE_LABELS.noTpm)}</a>
-            : <span className="pb-tpm-name tpm-none">{tr(def.label)}</span>}
+            : <span className="pb-tpm-name tpm-none">{label}</span>}
         {canEdit && (
           <button type="button" className="tpm-edit" onClick={() => onEdit(visit)} aria-label={tr('Changer le TPM de {s}', { s: visit.siteName })} title={tr('Changer le TPM (raison obligatoire)')}>
             <PencilLine size={13} aria-hidden="true" />
           </button>
         )}
       </span>
-      <span className="pb-tpm-origin">{origin}</span>
+      {origin && origin !== shown && <span className="pb-tpm-origin">{origin}</span>}
     </div>
   );
 }

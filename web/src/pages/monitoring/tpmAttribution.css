@@ -10,7 +10,7 @@
 .tpm-tone-red .pb-tpm-ic { color: var(--red); }
 .tpm-tone-blue .pb-tpm-ic { color: var(--blue-600); }
 .pb-tpm-name { font-weight: 600; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.pb-tpm-name.tpm-none { color: var(--red-text); }
+.pb-tpm-name.tpm-none { color: var(--red-text); white-space: normal; } /* « Non affectée (ni TPM ni suivi interne) » lu en entier */
 .pb-tpm-link { color: var(--red-text); text-decoration: underline; text-underline-offset: 2px; }
 .pb-tpm-link:hover { color: var(--red); }
 /* Suivi interne (retour 114) : une affectation à l'équipe S&E, jamais une alerte — ton bleu, icône équipe. */

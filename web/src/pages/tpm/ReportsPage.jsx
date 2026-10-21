@@ -271,6 +271,12 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       switch (k) {
         case 'partner': return r.partnerName;
         case 'contract': return contractIdentity(r);
+        // AAAA-MM, et « → AAAA-MM » pour une facture pluri-mensuelle (comme le tableau).
+        case 'period': {
+          const from = r.periodMonth ? String(r.periodMonth).slice(0, 7) : '';
+          const to = r.periodEnd ? String(r.periodEnd).slice(0, 7) : '';
+          return from && to && to !== from ? `${from} → ${to}` : from;
+        }
         case 'kind': return tr(REPORT_KIND[r.kind].label);
         case 'planned': return currency === 'USD' ? money(r.plannedAmount, r.periodMonth) : Math.round(r.plannedAmount || 0);
         case 'reported': return r.kind === 'financier' ? (currency === 'USD' ? money(r.reportedAmount, r.periodMonth) : Math.round(r.reportedAmount || 0)) : '';

@@ -2,7 +2,7 @@ const crypto = require('node:crypto');
 const { withTenantTransaction } = require('../../config/db');
 const { badRequest, conflict } = require('../../middleware/errors');
 const { checkReason, REASON_MESSAGES } = require('../common/reasonText');
-const { monthsOf, periodLabel } = require('../common/period');
+const { monthsOf } = require('../common/period');
 const { currentMonth } = require('./rbmMath');
 const { lockVisitMonthsTx } = require('./visitLocks');
 const rule = require('./tpmAttribution');
@@ -93,11 +93,15 @@ async function preview(tenantId, { providerId, from, to, mode, reason = null }) 
   return withTenantTransaction(tenantId, async (client) => previewView(await prepareTx(client, tenantId, { providerId, from, to, mode, reason: clean })));
 }
 
-/** Lignes du journal : un lot (TPM · période) + une ligne par TPM × mois qui change. */
+/**
+ * Lignes du journal : un lot + une ligne par TPM × mois qui change. Le libellé du lot = le NOM du TPM
+ * seul : la période est dans month_from / month_to, que l'écran écrit dans la langue de l'utilisateur
+ * (rangeLabel) — jamais une période figée en français dans le libellé.
+ */
 function logRows({ batchId, prep, action, reason, visitsUpdated }) {
   const name = prep.provider.name || '—';
   return [
-    { batch_id: batchId, scope: 'lot', action, label: `${name} · ${periodLabel(prep.period)}`.slice(0, 300),
+    { batch_id: batchId, scope: 'lot', action, label: name.slice(0, 300),
       month_from: prep.period.from, month_to: prep.period.to, visits_updated: visitsUpdated, reason },
     ...prep.plan.log.map((l) => ({
       batch_id: batchId, scope: 'tpm', action: l.action, label: name.slice(0, 300), period_month: l.month,
@@ -138,4 +142,4 @@ async function endUnavailable(tenantId, actor, { providerId, from, to, reason, s
   return write(tenantId, actor, { providerId, from, to, mode: 'retirer', reason: clean, stamp });
 }
 
-module.exports = { list, preview, setUnavailable, endUnavailable, prepareTx };
+module.exports = { list, preview, setUnavailable, endUnavailable, prepareTx, logRows };

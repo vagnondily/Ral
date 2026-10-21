@@ -52,6 +52,31 @@ test('contrats : avenant / contrat en validation, expiré, échéance ≤ 90 j (
   assert.deepEqual(out[2].params.date, { date: '2026-09-30' });
 });
 
+test('n° de contrat des alertes = n° affiché (FLA, référence d\'avenant comprise), comme la liste, la consolidation et « Rapport en retard » — jamais le CTR-… quand un n° FLA existe', () => {
+  // Budget (lignes de consolidation : numero + numeroFla).
+  const budget = budgetAlerts([
+    { contractId: 'c1', numero: 'CTR-2026-0003', numeroFla: 'FLA-2025-MIA-RES-007', partnerName: 'MIARO', overspent: true, actual: 11, budget: 10 },
+    { contractId: 'c2', numero: 'CTR-2026-0009', numeroFla: 'FLA-9', overspent: false, actual: 6, budget: 10, pendingValidation: 5 },
+    { contractId: 'c3', numero: 'CTR-2026-0010', numeroFla: null, overspent: false, actual: 6, budget: 10, pendingValidation: 0, projectedOverrun: 1, projectedTotal: 11 },
+  ]);
+  assert.deepEqual(budget.map((a) => a.params.numero), ['FLA-2025-MIA-RES-007', 'FLA-9', 'CTR-2026-0010']);
+  // Contrats (lignes de listContracts : reference = n° FLA + code d'avenant).
+  const contracts = contractAlerts([
+    { id: 'a', numero: 'CTR-2026-0003', numeroFla: 'FLA-2025-MIA-RES-007', reference: 'FLA-2025-MIA-RES-007', status: 'actif', dateFin: '2026-11-30' },
+    { id: 'b', numero: 'CTR-2026-0002', numeroFla: 'FLA-2025-TOH-SAMS-004', reference: 'FLA-2025-TOH-SAMS-004-A1', status: 'actif', amendmentPending: true, dateFin: '2027-06-30' },
+    { id: 'c', numero: 'CTR-2026-0011', numeroFla: null, reference: null, status: 'en_validation' },
+    { id: 'd', numero: 'CTR-2026-0012', numeroFla: 'FLA-12', status: 'actif', dateFin: '2026-09-30' },
+  ], TODAY);
+  assert.deepEqual(contracts.map((a) => [a.kind, a.params.numero]), [
+    ['contract_ending', 'FLA-2025-MIA-RES-007'], ['amendment_pending', 'FLA-2025-TOH-SAMS-004-A1'],
+    ['contract_pending', 'CTR-2026-0011'], ['contract_expired', 'FLA-12'],
+  ]);
+  // Rapports à valider (lignes de rapport : contractFla / contractNumero).
+  const [rep] = reportAlerts([{ status: 'soumis', kind: 'financier', actions: { decide: true }, partnerName: 'YPA', contractNumero: 'CTR-2026-0003', contractFla: 'FLA-2025-MIA-RES-007', periodMonth: '2026-09-01' }]);
+  assert.equal(rep.params.numero, 'FLA-2025-MIA-RES-007');
+  assert.equal(reportAlerts([{ status: 'soumis', kind: 'technique', actions: { decide: true }, contractNumero: 'CTR-2026-0003', contractFla: null }])[0].params.numero, 'CTR-2026-0003');
+});
+
 test('jours entre deux dates en UTC (aucun décalage horaire)', () => {
   assert.equal(daysBetween('2026-10-13', '2026-10-13'), 0);
   assert.equal(daysBetween('2026-10-13', '2026-10-12'), -1);
@@ -122,15 +147,15 @@ test('terrain : libellé « Exécution du plan » (le taux lu est visites réali
   const coverage = covOf(10, 4);
   const month = fieldAlerts(field, { coverage });
   assert.equal(month[0].title, 'Exécution du plan faible ce mois');
-  assert.equal(month[1].detail, 'Sites planifiés sans TPM ce mois');
+  assert.equal(month[1].detail, 'Ni TPM ni suivi interne ce mois');
   const range = fieldAlerts(field, { range: true, coverage });
   assert.equal(range[0].title, 'Exécution du plan faible sur la période');
-  assert.equal(range[1].detail, 'Sites planifiés sans TPM sur la période');
+  assert.equal(range[1].detail, 'Ni TPM ni suivi interne sur la période');
   assert.deepEqual(range.map((a) => a.params), month.map((a) => a.params), 'mêmes chiffres');
   // Un mois PASSÉ choisi (septembre vu en octobre) n'est jamais « ce mois » : il est nommé.
   const sept = fieldAlerts(field, { month: '2026-09', coverage });
   assert.equal(sept[0].title, 'Exécution du plan faible ({m})');
-  assert.equal(sept[1].detail, 'Sites planifiés sans TPM ({m})');
+  assert.equal(sept[1].detail, 'Ni TPM ni suivi interne ({m})');
   assert.deepEqual(sept[0].params.m, { month: '2026-09' });
   assert.deepEqual(sept[1].params, { n: 2, m: { month: '2026-09' } });
   assert.equal(fieldAlerts(field, { month: '2026-09', range: true, coverage })[0].title, 'Exécution du plan faible sur la période');

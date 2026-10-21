@@ -52,6 +52,24 @@ export function internalWhy(tr, c) {
   }
 }
 
+/**
+ * Contrats de suivi d'une zone sur la période (colonne « Contrat(s) de suivi » de l'onglet), un par
+ * contrat : ceux qui donnent un TPM (candidates), puis ceux SANS TPM (noTpm, `noTpm: true`) — une
+ * zone couverte par un contrat sans TPM n'est jamais « aucun contrat de suivi ».
+ */
+export function zoneContracts(row) {
+  const out = [];
+  const seen = new Set();
+  const add = (c, noTpm) => { if (!c || !c.contractId || seen.has(c.contractId)) return; seen.add(c.contractId); out.push({ ...c, noTpm }); };
+  for (const s of (row && row.contractSegments) || []) for (const c of s.candidates || []) add(c, false);
+  for (const s of (row && row.contractSegments) || []) for (const c of s.noTpm || []) add(c, true);
+  return out;
+}
+
+/** N° du (des) contrat(s) d'un segment « selon contrat » (CSV) : le contrat retenu, sinon ceux sans TPM. */
+export const segmentContractLabel = (c) => (c && (c.contractLabel
+  || ((c.noTpm || []).map((k) => k.contractLabel || k.numero).filter(Boolean).join(', ')))) || '';
+
 /** Indisponibilité d'un TPM (onglet Affectation des TPM, journal) : couleur + icône + libellé. */
 export const TPM_AVAILABILITY = {
   disponible: { label: 'Disponible', tone: 'green', icon: 'check' },
@@ -126,6 +144,16 @@ export function visitTpmKey(v) {
  */
 export const visitInternal = (v) => (v.monitoredBy ? v.monitoredBy === 'interne'
   : !v.providerId && ((v.providerSource || 'zone') === 'visite' || ((v.providerSource || 'zone') === 'zone' && isInternalState(v.providerZoneState))));
+
+/**
+ * Visite que PERSONNE ne suit (monitored_by = 'non_affecte' : antérieure à la règle sans TPM connu) —
+ * un seul nom partout (cellule, CSV, matrice, alerte, carte), jumeau de fieldMath.UNIT_LABELS.non_affecte.
+ * Jamais une visite interne : celle-là est suivie par l'équipe S&E.
+ */
+export const UNASSIGNED_LABEL = 'Non affectée (ni TPM ni suivi interne)';
+export const visitUnassigned = (v) => !v.providerId && !visitInternal(v);
+/** Qui suit une visite, en clair (CSV, tri) : son TPM, « Interne » ou « Non affectée (…) ». */
+export const visitWho = (tr, v) => v.providerName || (v.providerId ? '' : tr(visitInternal(v) ? ROLE_LABELS.noTpm : UNASSIGNED_LABEL));
 
 /**
  * Compte rendu de « Appliquer les TPM des contrats » (Affectation & visites, onglet Affectation des

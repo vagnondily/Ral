@@ -103,7 +103,7 @@ function signalsOf(c) {
     out.push({ sev: 'info', kind: 'no_plan', title: 'Aucun site prévu sur la période', params: {}, go: FIELD_GO });
   }
   if (k.visitsUnassigned >= 1) {
-    out.push({ sev: 'info', kind: 'visits_unassigned', title: '{n} visite(s) sans TPM', params: { n: k.visitsUnassigned }, go: FIELD_GO });
+    out.push({ sev: 'info', kind: 'visits_unassigned', title: '{n} visite(s) non affectée(s) (ni TPM ni suivi interne)', params: { n: k.visitsUnassigned }, go: FIELD_GO });
   }
   if (k.submissions - k.submissionsSite >= 1) {
     out.push({ sev: 'info', kind: 'data_unlinked', title: '{n} soumission(s) non rattachée(s) à un site',
