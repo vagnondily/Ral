@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
-const { requireAuth, requireRole } = require('../../middleware/auth');
+const { requireAuth, requireRole, WRITE_ROLES } = require('../../middleware/auth');
 const { badRequest, notFound, conflict } = require('../../middleware/errors');
 const { deletionRefusal } = require('../deletions/deletionRefusal');
 const repo = require('./planning.repository');
@@ -9,7 +9,7 @@ const { readPeriod } = require('../../middleware/period');
 
 const router = Router();
 router.use(requireAuth);
-const WRITE = requireRole('admin', 'manager');
+const WRITE = requireRole(...WRITE_ROLES);
 const t = (req) => req.auth.tenantId;
 
 function body(schema) {

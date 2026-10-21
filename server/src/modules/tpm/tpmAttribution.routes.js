@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
-const { requireAuth, requireRole } = require('../../middleware/auth');
+const { requireAuth, requireRole, WRITE_ROLES } = require('../../middleware/auth');
 const { badRequest } = require('../../middleware/errors');
 const { readPeriod } = require('../../middleware/period');
 const { addMonths } = require('../common/period');
@@ -18,7 +18,7 @@ const controller = require('./tpmAttribution.controller');
  */
 const router = Router();
 router.use(requireAuth);
-const WRITE = requireRole('admin', 'manager');
+const WRITE = requireRole(...WRITE_ROLES);
 
 const blank = (v) => (v === '' ? null : v);
 const uuid = z.string().uuid();

@@ -19,6 +19,14 @@ async function listUsers(tenantId) {
   });
 }
 
+/** Rôle courant d'un compte (null si introuvable) — pour les gardes d'escalade de rôle. */
+async function getUserRole(tenantId, id) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query('SELECT role FROM users WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+    return rows[0] ? rows[0].role : null;
+  });
+}
+
 async function createUser(tenantId, { email, fullName, role, password }) {
   const hash = await bcrypt.hash(password, 10);
   return withTenantTransaction(tenantId, async (client) => {
@@ -55,4 +63,4 @@ async function deleteUser(tenantId, id) {
   });
 }
 
-module.exports = { listUsers, createUser, updateUser, deleteUser };
+module.exports = { listUsers, getUserRole, createUser, updateUser, deleteUser };

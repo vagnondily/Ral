@@ -4,7 +4,7 @@ const contractsService = require('../contracts/contracts.service');
 const reportsRepo = require('../tpm/reports.repository');
 const fieldRepo = require('../tpm/field.repository');
 const coverageService = require('./coverage.service');
-const { reportActions, canWriteReports } = require('../tpm/reportWorkflow');
+const { reportActions, canWriteReports, canDecideReports } = require('../tpm/reportWorkflow');
 const { buildAlerts, countAlerts, LATE_REPORTS_LOOKBACK } = require('./alertsMath');
 const { single, spanMonths, periodInfo, addMonths } = require('../common/period');
 const { localDay } = require('../common/localDay');
@@ -48,7 +48,8 @@ async function alerts(auth, { today = localDay(), period = null } = {}) {
   const contracts = await read('contrats', () => contractsService.listContracts(tenantId, {}), []);
   const reports = await read('rapports', async () => {
     const canWrite = canWriteReports(role);
-    return (await reportsRepo.listReports(tenantId, period ? { period } : {})).map((r) => ({ ...r, actions: reportActions(r, { userId, canWrite }) }));
+    const canValidate = canDecideReports(role);
+    return (await reportsRepo.listReports(tenantId, period ? { period } : {})).map((r) => ({ ...r, actions: reportActions(r, { userId, canWrite, canValidate }) }));
   }, []);
   // Rapports en retard (retour 114) : la période choisie, sinon les LATE_REPORTS_LOOKBACK derniers mois,
   // mois courant compris (la cloche) — la page le dit.

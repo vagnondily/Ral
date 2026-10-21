@@ -21,7 +21,7 @@ fieldRepo.rbmSitesTx = async () => { rbmCalls += 1; return []; };
 db.withTenantTransaction = async (tenantId, fn) => fn({ query: async (sql, params) => { coverageSql.push({ sql: String(sql), params }); return { rows: [] }; } });
 const coverageService = require('../src/modules/dashboards/coverage.service');
 const realCoverage = coverageService.coverage;
-const { REPORT_WRITE_ROLES } = require('../src/modules/tpm/reportWorkflow');
+const { REPORT_DECIDE_ROLES } = require('../src/modules/tpm/reportWorkflow');
 const { alerts } = require('../src/modules/dashboards/alerts.service');
 
 const SUBMITTED = {
@@ -44,11 +44,14 @@ coverageService.coverage = async (auth, opts) => { seen.coverage.push({ tenantId
 const TODAY = { today: '2026-10-13' };
 const reportAlerts = (out) => out.items.filter((a) => a.cat === 'Rapports');
 
-test('« à valider » : seulement pour un rôle qui écrit les rapports (liste partagée avec les routes)', async () => {
-  for (const role of REPORT_WRITE_ROLES) {
+test('« à valider » : seulement pour un rôle qui DÉCIDE des rapports (liste partagée avec les routes)', async () => {
+  for (const role of REPORT_DECIDE_ROLES) {
     const out = await alerts({ tenantId: 't', userId: 'u2', role }, TODAY);
     assert.equal(reportAlerts(out).length, 1, role);
   }
+  // Un éditeur écrit mais ne décide pas : pas d'alerte « à valider ».
+  const editor = await alerts({ tenantId: 't', userId: 'u2', role: 'editor' }, TODAY);
+  assert.equal(reportAlerts(editor).length, 0);
   const viewer = await alerts({ tenantId: 't', userId: 'u2', role: 'viewer' }, TODAY);
   assert.equal(reportAlerts(viewer).length, 0);
   // Séparation des tâches : jamais son propre rapport.

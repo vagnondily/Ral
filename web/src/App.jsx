@@ -6,6 +6,7 @@ import AppShell, { findRoute } from './components/AppShell.jsx';
 import { ToastProvider, useToast } from './components/Toast.jsx';
 import { I18nProvider, useI18n } from './lib/i18n.jsx';
 import { writeSessionPeriod } from './lib/period.js';
+import { canWrite as roleCanWrite, isAdminRole } from './lib/accessRoles.js';
 import { routeOfHash } from './lib/route.js';
 import LoginPage from './pages/LoginPage.jsx';
 import ProvidersPage from './pages/ProvidersPage.jsx';
@@ -91,11 +92,12 @@ function Workspace() {
 
   if (!user) return <LoginPage onLoggedIn={handleLoggedIn} />;
 
-  const canEdit = user.role === 'admin' || user.role === 'manager';
+  const canEdit = roleCanWrite(user.role);
+  const isAdmin = isAdminRole(user.role);
 
   return (
     <AppShell user={user} route={route} onNavigate={navigate} onLogout={handleLogout}>
-      <SchemaBanner isAdmin={user.role === 'admin'} />
+      <SchemaBanner isAdmin={isAdmin} />
       {route.module === 'contrats' && (() => {
         const back = () => navigate('contrats', 'liste');
         if (route.extra === 'nouveau') return <ContractFormPage mode="create" onDone={openContract} onCancel={back} />;
@@ -119,22 +121,22 @@ function Workspace() {
       {route.module === 'dashboard' && route.sub === 'consolidation' && <ConsolidationPage onOpenContract={openContract} />}
       {route.module === 'dashboard' && route.sub === 'couverture' && <DashboardCoveragePage onNavigate={navigate} />}
       {route.module === 'alertes' && <AlertsPage onNavigate={navigate} onOpenContract={openContract} />}
-      {route.module === 'reporting' && route.sub === 'concepteur' && <ReportDesignerPage canEdit={canEdit} isAdmin={user.role === 'admin'} />}
+      {route.module === 'reporting' && route.sub === 'concepteur' && <ReportDesignerPage canEdit={canEdit} isAdmin={isAdmin} />}
       {route.module === 'reporting' && route.sub !== 'concepteur' && <ReportingPage onOpenContract={openContract} />}
-      {route.module === 'tpm' && route.sub === 'budget' && <PlanningPage canEdit={canEdit} isAdmin={user.role === 'admin'} onNavigate={navigate} />}
+      {route.module === 'tpm' && route.sub === 'budget' && <PlanningPage canEdit={canEdit} isAdmin={isAdmin} onNavigate={navigate} />}
       {route.module === 'processus' && route.sub === 'synthese' && <ProcessDashboardPage onNavigate={navigate} />}
       {route.module === 'processus' && route.sub === 'donnees' && (
-        <ProcessMonitoringPage canEdit={canEdit} isAdmin={user.role === 'admin'} formId={route.extra} tab={route.extra2} onNavigate={navigate} />
+        <ProcessMonitoringPage canEdit={canEdit} isAdmin={isAdmin} formId={route.extra} tab={route.extra2} onNavigate={navigate} />
       )}
       {route.module === 'processus' && route.sub === 'sites' && <FieldVisitsPage canEdit={canEdit} />}
       {route.module === 'processus' && route.sub === 'rbm' && (
-        <RbmSpacePage canEdit={canEdit} isAdmin={user.role === 'admin'} tab={route.extra} onTab={(tab) => navigate('processus', 'rbm', tab)} />
+        <RbmSpacePage canEdit={canEdit} isAdmin={isAdmin} tab={route.extra} onTab={(tab) => navigate('processus', 'rbm', tab)} />
       )}
       {route.module === 'processus' && route.sub === 'couverture' && <CoverageRecapPage />}
-      {route.module === 'processus' && route.sub === 'carte' && <SitesMapPage onNavigate={navigate} isAdmin={user.role === 'admin'} />}
+      {route.module === 'processus' && route.sub === 'carte' && <SitesMapPage onNavigate={navigate} isAdmin={isAdmin} />}
       {route.module === 'processus' && route.sub === 'calculs' && <CalcDocsPage />}
       {route.module === 'pdd' && <PddPage canEdit={canEdit} view={route.sub} onNavigate={navigate} />}
-      {route.module === 'parametrage' && <SettingsPage tab={route.sub} sub={route.extra} isAdmin={user.role === 'admin'} onNavigate={navigate} />}
+      {route.module === 'parametrage' && <SettingsPage tab={route.sub} sub={route.extra} isAdmin={isAdmin} onNavigate={navigate} />}
     </AppShell>
   );
 }

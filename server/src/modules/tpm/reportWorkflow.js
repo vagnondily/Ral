@@ -151,14 +151,15 @@ function notApplicableError(report) {
  * @param {{ status: string, kind: string, createdBy?: string, submittedBy?: string|null, editedBy?: string|null }} report
  * @param {{ userId: string, canWrite: boolean }} actor  canWrite = rôle admin ou gestionnaire
  */
-function reportActions(report, { userId, canWrite, isAdmin = false }) {
+function reportActions(report, { userId, canWrite, canValidate = false, isAdmin = false }) {
   // Seule une facture porte un état des dépenses éditable.
   const editErr = report.kind === 'financier' ? editError(report, userId) : { code: 'kind', message: null };
   const decideErr = decisionError(report, userId);
   return {
     edit: Boolean(canWrite) && !editErr,
     submit: Boolean(canWrite) && !submitTransitionError(report, userId),
-    decide: Boolean(canWrite) && !decideErr,
+    // Décider (valider / rejeter) = capacité de validation (validateur+), jamais un simple éditeur.
+    decide: Boolean(canValidate) && !decideErr,
     notApplicable: Boolean(canWrite) && !notApplicableError(report),
     // Suppression (retour 56) : un rapport validé, par un administrateur
     // seulement, et s'il n'a aucun montant compté (le serveur revérifie).
@@ -166,21 +167,27 @@ function reportActions(report, { userId, canWrite, isAdmin = false }) {
       || (Boolean(isAdmin) && Number(report.reportedAmount || 0) === 0)),
     // Pourquoi une action attendue est indisponible (aide affichée à l'écran).
     editReason: canWrite && editErr && editErr.code !== 'kind' ? editErr.message : null,
-    decideReason: canWrite && decideErr && decideErr.code === 'self' ? decideErr.message : null,
+    decideReason: canValidate && decideErr && decideErr.code === 'self' ? decideErr.message : null,
   };
 }
 
 /**
- * Rôles qui écrivent les rapports (remplir, soumettre, décider) : UNE liste,
- * partagée par les routes (requireRole) et le Centre d'alertes (« à valider »
- * ne compte que ce que l'utilisateur peut décider).
+ * Rôles qui écrivent les rapports (remplir, soumettre, marquer non applicable) et rôles
+ * qui DÉCIDENT (valider / rejeter) : règle commune du projet (`common/accessRoles`),
+ * partagée par les routes (requireRole) et le Centre d'alertes (« à valider » ne compte
+ * que ce que l'utilisateur peut réellement décider).
  */
-const REPORT_WRITE_ROLES = Object.freeze(['admin', 'manager']);
+const { WRITE_ROLES, VALIDATE_ROLES, canWrite: canWriteRole, canValidate: canValidateRole } = require('../common/accessRoles');
+const REPORT_WRITE_ROLES = Object.freeze([...WRITE_ROLES]);
+const REPORT_DECIDE_ROLES = Object.freeze([...VALIDATE_ROLES]);
 
-/** Le rôle de session écrit-il les rapports ? */
-const canWriteReports = (role) => REPORT_WRITE_ROLES.includes(role);
+/** Le rôle de session écrit-il les rapports ? (remplir / soumettre) */
+const canWriteReports = (role) => canWriteRole(role);
+/** Le rôle de session décide-t-il des rapports ? (valider / rejeter) */
+const canDecideReports = (role) => canValidateRole(role);
 
 module.exports = {
-  TRANSITIONS, STATUSES, DECIDABLE, SUBMITTABLE, EDITABLE, REPORT_WRITE_ROLES,
-  canTransition, authorOf, editError, submitError, decisionError, notApplicableError, reportActions, canWriteReports,
+  TRANSITIONS, STATUSES, DECIDABLE, SUBMITTABLE, EDITABLE, REPORT_WRITE_ROLES, REPORT_DECIDE_ROLES,
+  canTransition, authorOf, editError, submitError, decisionError, notApplicableError, reportActions,
+  canWriteReports, canDecideReports,
 };

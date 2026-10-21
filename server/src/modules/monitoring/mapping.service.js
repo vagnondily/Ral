@@ -14,8 +14,8 @@ const wf = require('./mappingWorkflow');
  * tâches → 403 ; dimension inconnue → 400.
  */
 
-const WRITE_ROLES = ['admin', 'manager'];
-const actorOf = (auth) => ({ userId: auth.userId, canWrite: WRITE_ROLES.includes(auth.role) });
+const { canWrite: roleCanWrite, canValidate: roleCanValidate } = require('../common/accessRoles');
+const actorOf = (auth) => ({ userId: auth.userId, canWrite: roleCanWrite(auth.role), canValidate: roleCanValidate(auth.role) });
 
 /** Mapping + état du cycle + actions permises à l'utilisateur (mêmes règles qu'à l'écriture). */
 async function getMapping(tenantId, formId, auth) {
@@ -65,6 +65,10 @@ async function resetDimension(tenantId, formId, dimension) {
  * @returns {Promise<{ status: string }>}
  */
 async function transition(tenantId, formId, action, auth) {
+  // Valider / réinitialiser = capacité de validation (validateur+) ; soumettre = éditeur+.
+  if ((action === 'validate' || action === 'reset') && !roleCanValidate(auth.role)) {
+    throw forbidden('Votre rôle ne permet pas de valider le mapping.');
+  }
   return db.withTenantTransaction(tenantId, async (client) => {
     const state = await lockedState(client, tenantId, formId);
     const err = wf.transitionError(action, state, auth.userId);

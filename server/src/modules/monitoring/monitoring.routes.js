@@ -2,7 +2,7 @@ const express = require('express');
 const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
-const { requireAuth, requireRole } = require('../../middleware/auth');
+const { requireAuth, requireRole, WRITE_ROLES } = require('../../middleware/auth');
 const { badRequest, notFound, conflict } = require('../../middleware/errors');
 const repo = require('./monitoring.repository');
 const mapping = require('./mapping.service');
@@ -31,7 +31,7 @@ const LIST_MAX_SPAN = PERIOD_CAPS.list;
  */
 const router = Router();
 router.use(requireAuth);
-const WRITE = requireRole('admin', 'manager');
+const WRITE = requireRole(...WRITE_ROLES);
 const uuidParam = (v) => { if (!z.string().uuid().safeParse(v).success) throw badRequest('Identifiant invalide'); return v; };
 const t = (req) => req.auth.tenantId;
 

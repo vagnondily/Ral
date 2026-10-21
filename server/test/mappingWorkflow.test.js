@@ -43,7 +43,8 @@ test('soumettre / valider / réinitialiser : statut requis et séparation des t�
 });
 
 test('actions offertes = règles de l\'écriture ; lecture seule sans rôle d\'écriture', () => {
-  const W = (userId) => ({ userId, canWrite: true });
+  // Un validateur+ écrit ET valide (ancien « admin/manager »).
+  const W = (userId) => ({ userId, canWrite: true, canValidate: true });
   const pick = (a) => [a.edit, a.submit, a.validate, a.reset, a.apply];
   assert.deepEqual(pick(mappingActions({ status: 'brouillon' }, W('a'))), [true, true, false, false, true]);
   const mine = mappingActions({ status: 'soumis', submittedBy: 'a' }, W('a'));

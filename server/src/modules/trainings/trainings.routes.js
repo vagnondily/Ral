@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
-const { requireAuth, requireRole } = require('../../middleware/auth');
+const { requireAuth, requireRole, WRITE_ROLES } = require('../../middleware/auth');
 const { badRequest } = require('../../middleware/errors');
 const { readPeriod } = require('../../middleware/period');
 const { PERIOD_CAPS } = require('../common/periodCaps');
@@ -15,7 +15,7 @@ const { isoDateSchema } = require('../common/isoDate');
  */
 const router = Router();
 router.use(requireAuth);
-const WRITE = requireRole('admin', 'manager');
+const WRITE = requireRole(...WRITE_ROLES);
 const t = (req) => req.auth.tenantId;
 
 const uuid = z.string().uuid();

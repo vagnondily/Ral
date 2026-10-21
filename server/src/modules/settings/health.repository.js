@@ -61,7 +61,7 @@ async function healthCounts(client, tenantId) {
                  WHERE r.tenant_id = $1 AND r.effective_month <= months.m AND r.usd_rate > 0))::int AS months_no_rate,
               (SELECT currency FROM country_profiles WHERE tenant_id = $1) AS currency,
               (SELECT center_lat IS NOT NULL AND center_lng IS NOT NULL FROM country_profiles WHERE tenant_id = $1) AS center,
-              (SELECT count(*) FROM users WHERE tenant_id = $1 AND active AND role IN ('admin', 'manager'))::int AS validators`,
+              (SELECT count(*) FROM users WHERE tenant_id = $1 AND active AND role IN ('validator', 'admin', 'superuser', 'manager'))::int AS validators`,
       [tenantId]),
   ];
   return {

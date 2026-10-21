@@ -310,7 +310,8 @@ async function listHistory(client, tenantId, contractId) {
 
 async function listValidators(client, tenantId) {
   const { rows } = await client.query(
-    `SELECT id, email, role FROM users WHERE tenant_id = $1 AND role IN ('admin', 'manager') ORDER BY email`,
+    // Validateurs possibles d'un contrat = rôles qui valident (validateur+), + legacy 'manager'.
+    `SELECT id, email, role FROM users WHERE tenant_id = $1 AND role IN ('validator', 'admin', 'superuser', 'manager') ORDER BY email`,
     [tenantId]
   );
   return rows;

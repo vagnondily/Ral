@@ -1,8 +1,9 @@
 const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
-const { requireAuth, requireRole } = require('../../middleware/auth');
-const { badRequest, notFound, conflict } = require('../../middleware/errors');
+const { requireAuth, requireRole, ADMIN_ROLES } = require('../../middleware/auth');
+const { badRequest, notFound, conflict, forbidden } = require('../../middleware/errors');
+const { ROLES, isAdmin: roleIsAdmin, isSuper, normalizeRole } = require('../common/accessRoles');
 const repo = require('./users.repository');
 
 /**
@@ -13,7 +14,7 @@ const repo = require('./users.repository');
  */
 const router = Router();
 router.use(requireAuth);
-const ADMIN = requireRole('admin');
+const ADMIN = requireRole(...ADMIN_ROLES);
 const t = (req) => req.auth.tenantId;
 
 function body(schema) {
@@ -25,7 +26,22 @@ function body(schema) {
   };
 }
 
-const ROLE = z.enum(['admin', 'manager', 'viewer']);
+const ROLE = z.enum(ROLES); // viewer, editor, validator, admin, superuser
+
+// Seul un super-utilisateur peut accorder le rôle administrateur ou super-utilisateur,
+// ou modifier un compte qui porte déjà l'un de ces rôles (décision Q2 : le super-utilisateur
+// gère les administrateurs). Un administrateur gère viewer / editor / validator.
+function assertMayManageRole(actorRole, targetNewRole) {
+  if (targetNewRole && roleIsAdmin(targetNewRole) && !isSuper(actorRole)) {
+    throw forbidden('Seul un super-utilisateur peut accorder le rôle administrateur ou super-utilisateur.');
+  }
+}
+async function assertMayTouchUser(actorRole, tenantId, userId) {
+  const existing = await repo.getUserRole(tenantId, userId);
+  if (existing && roleIsAdmin(normalizeRole(existing)) && !isSuper(actorRole)) {
+    throw forbidden('Seul un super-utilisateur peut modifier un compte administrateur ou super-utilisateur.');
+  }
+}
 
 router.get('/', ADMIN, asyncHandler(async (req, res) => res.json(await repo.listUsers(t(req)))));
 
@@ -36,6 +52,7 @@ const createSchema = z.object({
   password: z.string().min(10, 'Au moins 10 caractères').max(200),
 });
 router.post('/', ADMIN, body(createSchema), asyncHandler(async (req, res) => {
+  assertMayManageRole(req.auth.role, req.valid.role);
   try { res.status(201).json({ id: await repo.createUser(t(req), req.valid) }); }
   catch (err) { if (err.code === '23505') throw conflict('Un compte avec cet e-mail existe déjà.'); throw err; }
 }));
@@ -47,17 +64,20 @@ const updateSchema = z.object({
   password: z.string().min(10, 'Au moins 10 caractères').max(200).optional().or(z.literal('').transform(() => undefined)),
 });
 router.patch('/:id', ADMIN, body(updateSchema), asyncHandler(async (req, res) => {
-  // Garde-fou : un admin ne se désactive ni ne se rétrograde lui-même.
+  // Garde-fou : on ne se désactive ni ne se rétrograde soi-même (admin+ → verrouillage).
   if (req.params.id === req.auth.userId) {
     if (req.valid.active === false) throw badRequest('Vous ne pouvez pas désactiver votre propre compte.');
-    if (req.valid.role && req.valid.role !== 'admin') throw badRequest('Vous ne pouvez pas retirer votre propre rôle administrateur.');
+    if (req.valid.role && !roleIsAdmin(req.valid.role)) throw badRequest('Vous ne pouvez pas retirer votre propre rôle administrateur.');
   }
+  await assertMayTouchUser(req.auth.role, t(req), req.params.id); // protège un admin/super d'un rôle inférieur
+  assertMayManageRole(req.auth.role, req.valid.role);
   if (!(await repo.updateUser(t(req), req.params.id, req.valid))) throw notFound('Utilisateur introuvable');
   res.status(204).end();
 }));
 
 router.delete('/:id', ADMIN, asyncHandler(async (req, res) => {
   if (req.params.id === req.auth.userId) throw badRequest('Vous ne pouvez pas supprimer votre propre compte.');
+  await assertMayTouchUser(req.auth.role, t(req), req.params.id);
   if (!(await repo.deleteUser(t(req), req.params.id))) throw notFound('Utilisateur introuvable');
   res.status(204).end();
 }));

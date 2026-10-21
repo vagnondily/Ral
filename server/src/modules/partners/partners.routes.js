@@ -1,7 +1,8 @@
 const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
-const { requireAuth, requireRole } = require('../../middleware/auth');
+const { requireAuth, requireRole, WRITE_ROLES } = require('../../middleware/auth');
+const { canWrite: roleCanWrite } = require('../common/accessRoles');
 const { badRequest, notFound } = require('../../middleware/errors');
 const repo = require('./partners.repository');
 const service = require('./partners.service');
@@ -16,8 +17,8 @@ const { PERIOD_CAPS } = require('../common/periodCaps');
 const router = Router();
 router.use(requireAuth);
 // Le responsable S&E (gestionnaire) gère les agents (décision 8.6 adoptée par défaut).
-const WRITE = requireRole('admin', 'manager');
-const canWrite = (req) => ['admin', 'manager'].includes(req.auth.role);
+const WRITE = requireRole(...WRITE_ROLES);
+const canWrite = (req) => roleCanWrite(req.auth.role);
 const t = (req) => req.auth.tenantId;
 // Mois courant par défaut : l'horloge unique du serveur (jour local, comme le plan, le RBM et les rapports attendus).
 const { currentMonth } = require('../tpm/rbmMath');

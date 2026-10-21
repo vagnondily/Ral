@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Users, ListChecks, Tags, MapPinned, Coins, Building2, Trash2, Clock, Pencil, ShieldCheck, ChevronRight, Lock, Gauge, X } from 'lucide-react';
-import { api } from '../../api/client.js';
+import { api, getStoredUser } from '../../api/client.js';
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import MoneyInput from '../../components/MoneyInput.jsx';
@@ -11,6 +11,7 @@ import { formatAr, formatInt, formatDateTime } from '../../lib/format.js';
 import { OFFICE_LEVELS, levelLabel, levelShort, levelIsNational } from '../../lib/officeLevels.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { roleOf } from '../../lib/roles.js';
+import { ROLE_LABELS as ACCESS_ROLE_LABELS, roleLabel as accessRoleLabel, isSuperRole, isAdminRole } from '../../lib/accessRoles.js';
 import RoleBadge from '../../components/RoleBadge.jsx';
 
 // Catalogue des rubriques de paramétrage, groupées (façon « Tools » : cartes
@@ -104,8 +105,9 @@ function SettingsOverview({ isAdmin, onNavigate }) {
 
 /* ------------------------------------------------------- Users & accès --- */
 
-const ROLE_LABEL = { admin: 'Administrateur', manager: 'Validateur', viewer: 'Lecteur' };
-const ROLE_TONE = { admin: 'blue', manager: 'green', viewer: null };
+// Libellés des rôles : source unique accessRoles (le legacy « manager » s'affiche « Validateur »).
+const ROLE_LABEL = { ...ACCESS_ROLE_LABELS, manager: 'Validateur' };
+const ROLE_TONE = { superuser: 'blue', admin: 'blue', validator: 'green', manager: 'green', editor: null, viewer: null };
 
 function UsersSection() {
   const { tr } = useI18n();
@@ -128,7 +130,7 @@ function UsersSection() {
   return (
     <Card aria-labelledby="users-title">
       <CardHeader id="users-title" title={tr('Utilisateurs & accès')}
-        subtitle={tr('Comptes et rôles. Administrateur : tout gère. Validateur : valide contrats/rapports. Lecteur : consultation seule. Un compte désactivé ne peut plus se connecter.')}>
+        subtitle={tr('Comptes et rôles. Lecteur : consultation. Éditeur : crée/modifie. Validateur : valide contrats/rapports. Administrateur : tout gère. Super-utilisateur : gère aussi les administrateurs et la sécurité. Un compte désactivé ne peut plus se connecter.')}>
         <Button icon={Plus} onClick={() => setModal({})}>{tr('Nouvel utilisateur')}</Button>
       </CardHeader>
       {users === null ? <div className="card-body"><Skeleton height={120} /></div> : users.length === 0 ? (
@@ -165,6 +167,7 @@ function UserModal({ user, onClose, onSaved }) {
   const { tr } = useI18n();
   const toast = useToast();
   const editing = Boolean(user);
+  const currentIsSuper = isSuperRole(getStoredUser()?.role);
   const [form, setForm] = useState({ email: user?.email || '', fullName: user?.fullName || '', role: user?.role || 'viewer', password: '', active: user?.active ?? true });
   const [saving, setSaving] = useState(false);
 
@@ -190,10 +193,16 @@ function UserModal({ user, onClose, onSaved }) {
       <form id="user-form" onSubmit={save} style={{ display: 'grid', gap: 14 }}>
         {!editing && <Field label={tr('E-mail')}><input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder={tr('prenom.nom@mems.mg')} autoFocus /></Field>}
         <Field label={tr('Nom complet (optionnel)')}><input className="input" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} /></Field>
-        <Field label={tr('Rôle')} hint={tr('Administrateur : gère tout (y compris les comptes). Validateur : valide. Lecteur : consultation.')}>
+        <Field label={tr('Rôle')} hint={tr('Lecteur : consultation. Éditeur : crée et modifie. Validateur : valide. Administrateur : gère tout. Super-utilisateur : gère aussi les administrateurs et la sécurité.')}>
           <select className="select" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-            <option value="admin">{tr('Administrateur')}</option><option value="manager">{tr('Validateur')}</option><option value="viewer">{tr('Lecteur')}</option>
+            <option value="viewer">{tr('Lecteur')}</option>
+            <option value="editor">{tr('Éditeur')}</option>
+            <option value="validator">{tr('Validateur')}</option>
+            {/* Accorder administrateur / super-utilisateur est réservé au super-utilisateur (le serveur revérifie). */}
+            {currentIsSuper && <option value="admin">{tr('Administrateur')}</option>}
+            {currentIsSuper && <option value="superuser">{tr('Super-utilisateur')}</option>}
           </select>
+          {!currentIsSuper && isAdminRole(form.role) && <div className="site-meta" style={{ marginTop: 4 }}>{tr('Seul un super-utilisateur peut accorder ce rôle.')}</div>}
         </Field>
         <Field label={editing ? tr('Nouveau mot de passe (laisser vide pour ne pas changer)') : tr('Mot de passe')} hint={tr('Au moins 10 caractères.')}>
           <input className="input" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="new-password" />

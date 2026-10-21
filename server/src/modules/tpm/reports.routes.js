@@ -7,22 +7,28 @@ const { deletionRefusal } = require('../deletions/deletionRefusal');
 const repo = require('./reports.repository');
 const { readPeriod } = require('../../middleware/period');
 const { buildInvoiceWorkbook } = require('./factureXlsx');
-const { reportActions, REPORT_WRITE_ROLES, canWriteReports } = require('./reportWorkflow');
+const { reportActions, REPORT_WRITE_ROLES, REPORT_DECIDE_ROLES, canWriteReports, canDecideReports } = require('./reportWorkflow');
+const { isAdmin } = require('../common/accessRoles');
 const { currentMonth } = require('./rbmMath');
 const { addMonths } = require('../common/period');
 const { PERIOD_CAPS } = require('../common/periodCaps');
 
 const router = Router();
 router.use(requireAuth);
-// Rôles d'écriture : la liste partagée avec le Centre d'alertes (reportWorkflow).
+// Rôles d'écriture (remplir / soumettre) et de décision (valider / rejeter) :
+// listes partagées avec le Centre d'alertes (reportWorkflow / accessRoles).
 const WRITE = requireRole(...REPORT_WRITE_ROLES);
+const VALIDATE = requireRole(...REPORT_DECIDE_ROLES);
 
 // Chaque rapport renvoyé porte les actions permises à l'utilisateur courant,
 // calculées par les règles qui s'appliquent à l'écriture (reportWorkflow).
 const withActions = (req) => (report) => ({
   ...report,
   actions: reportActions(report, {
-    userId: req.auth.userId, canWrite: canWriteReports(req.auth.role), isAdmin: req.auth.role === 'admin',
+    userId: req.auth.userId,
+    canWrite: canWriteReports(req.auth.role),
+    canValidate: canDecideReports(req.auth.role),
+    isAdmin: isAdmin(req.auth.role),
   }),
 });
 
@@ -207,7 +213,7 @@ router.post('/:id/not-applicable', WRITE, asyncHandler(async (req, res) => {
 router.delete('/:id', WRITE, asyncHandler(async (req, res) => {
   const justification = typeof req.body?.justification === 'string' ? req.body.justification : undefined;
   const outcome = await repo.deleteReport(t(req), req.params.id, {
-    actorId: req.auth.userId, isAdmin: req.auth.role === 'admin', justification,
+    actorId: req.auth.userId, isAdmin: isAdmin(req.auth.role), justification,
   });
   if (outcome === null) throw notFound('Rapport introuvable');
   if (outcome !== 'ok') {
@@ -227,12 +233,12 @@ async function decide(req, status) {
   if (r.error === 'self') throw forbidden(r.message);
 }
 
-router.post('/:id/approve', WRITE, body(decisionSchema), asyncHandler(async (req, res) => {
+router.post('/:id/approve', VALIDATE, body(decisionSchema), asyncHandler(async (req, res) => {
   await decide(req, 'valide');
   res.status(204).end();
 }));
 
-router.post('/:id/reject', WRITE, body(decisionSchema), asyncHandler(async (req, res) => {
+router.post('/:id/reject', VALIDATE, body(decisionSchema), asyncHandler(async (req, res) => {
   if (!req.valid.comment) throw badRequest('Un motif est obligatoire pour rejeter.');
   await decide(req, 'rejete');
   res.status(204).end();

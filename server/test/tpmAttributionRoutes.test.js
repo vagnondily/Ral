@@ -61,7 +61,7 @@ test('PUT /overrides : au moins une zone ; chaîne vide = aucun TPM ; écriture 
   assert.equal(res.status, 200);
   const [tenantId, actor, valid] = last().args;
   assert.equal(tenantId, TENANT);
-  assert.deepEqual(actor, { userId: 'u1', role: 'manager' });
+  assert.deepEqual(actor, { userId: 'u1', role: 'validator' }); // le jeton « manager » est normalisé en « validator »
   assert.deepEqual(valid, { target: { areaIds: [AREA], regionIds: [], from: '2026-10', to: '2026-12' }, providerId: null, reason: 'Contrat AINA échu', stamp: 'abc' });
   assert.equal((await request(app).put('/api/tpm/attribution/overrides').set(as(viewer)).send(body)).status, 403);
   const none = await request(app).put('/api/tpm/attribution/overrides').set(as(manager)).send({ ...body, areaIds: [] });

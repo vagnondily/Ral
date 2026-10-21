@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
-const { requireAuth, requireRole } = require('../../middleware/auth');
+const { requireAuth, requireRole, ADMIN_ROLES } = require('../../middleware/auth');
 const { badRequest } = require('../../middleware/errors');
 const { readPeriod } = require('../../middleware/period');
 const controller = require('./map.controller');
@@ -66,7 +66,7 @@ router.get('/search', (req, res, next) => {
 }, asyncHandler(controller.search));
 
 // Corrections district → contour (Paramétrage › Localités › Contours de la carte) : administrateur.
-const ADMIN = requireRole('admin');
+const ADMIN = requireRole(...ADMIN_ROLES);
 const pcodeOk = (req, res, next) => (/^[A-Za-z0-9._-]{2,40}$/.test(req.params.pcode) ? next() : next(badRequest('P-code invalide')));
 const linkSchema = z.object({ shapeKey: z.string().trim().min(1).max(120).nullable() }).strict();
 router.get('/shape-links', ADMIN, asyncHandler(controller.shapeLinks));

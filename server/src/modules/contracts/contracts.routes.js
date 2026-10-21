@@ -1,7 +1,7 @@
 const express = require('express');
 const { Router } = require('express');
 const asyncHandler = require('../../middleware/asyncHandler');
-const { requireAuth, requireRole } = require('../../middleware/auth');
+const { requireAuth, requireRole, WRITE_ROLES } = require('../../middleware/auth');
 const { badRequest } = require('../../middleware/errors');
 const service = require('./contracts.service');
 const v = require('./contracts.validation');
@@ -11,7 +11,7 @@ const { isRefusal } = require('../common/xlsxGuard');
 const router = Router();
 router.use(requireAuth);
 
-const WRITE = requireRole('admin', 'manager');
+const WRITE = requireRole(...WRITE_ROLES);
 
 /** Validates req[source] with a zod schema; 400 with field details on failure. */
 function body(schema, source = 'body') {

@@ -38,7 +38,7 @@ async function main() {
       : (await client.query('INSERT INTO tenants (name) VALUES ($1) RETURNING id', ['Bureau de Toliara'])).rows[0].id;
 
     const passwordHash = await bcrypt.hash('changeme123', 10);
-    for (const [email, role] of [['admin@mems.mg', 'admin'], ['validateur@mems.mg', 'manager']]) {
+    for (const [email, role] of [['admin@mems.mg', 'admin'], ['validateur@mems.mg', 'validator']]) {
       await client.query(
         `INSERT INTO users (tenant_id, email, password_hash, role) VALUES ($1,$2,$3,$4)
          ON CONFLICT (tenant_id, email) DO NOTHING`, [tenantId, email, passwordHash, role]);

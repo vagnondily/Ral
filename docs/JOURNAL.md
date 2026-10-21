@@ -12,6 +12,18 @@
 
 ## État courant
 
+> **21/10 — Accès : 5 rôles + modèle de capacités (migration 119).** ✅ Les rôles passent de 3
+> (admin / manager / viewer) à **5** : **lecteur · éditeur · validateur · administrateur · super-utilisateur**.
+> Source unique `common/accessRoles.js` (+ jumelle web) : capacités `canWrite` (éditeur+), `canValidate`
+> (validateur+), `isAdmin` (admin+), `isSuper`. **Nouveauté clé** : l'**éditeur** écrit mais ne VALIDE
+> pas — gardes de validation ajoutées (rapports approve/reject, plan → validé, mapping valider/réinitialiser,
+> GPS précis des ménages = validateur+). L'ancien `manager` = **validateur** (migration 119 : données
+> reprises, CHECK à 5 rôles ; jetons déjà émis normalisés à la volée). **Super-utilisateur** : seul à
+> accorder administrateur/super-utilisateur et à toucher un compte admin+ (users.routes). Refactor
+> mécanique des gardes `requireRole` → ensembles de capacités (19 fichiers de routes). Vérifs : lint ✅,
+> 1568 tests ✅ (dont `accessRoles`, éditeur ne décide pas), build ✅, migration 119 essayée (manager→validator).
+> Prochaine étape : auto-inscription + comptes à valider, restrictions par page, étendre « modifier à volonté ».
+
 > **21/10 — Admin « modifier à volonté » (option de compte).** ✅ Nouvelle rubrique **Paramétrage ›
 > Options du compte** (admin) avec une case **« Autoriser la modification libre par l'administrateur »**.
 > Désactivée par défaut (fiabilité/audit restent la règle). Activée, un administrateur peut modifier un

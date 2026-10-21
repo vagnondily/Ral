@@ -14,13 +14,13 @@
 const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
-const { requireAuth, requireRole } = require('../../middleware/auth');
+const { requireAuth, requireRole, ADMIN_ROLES } = require('../../middleware/auth');
 const { badRequest, conflict } = require('../../middleware/errors');
 const repo = require('./subActivities.repository');
 
 const router = Router();
 router.use(requireAuth);
-const ADMIN = requireRole('admin');
+const ADMIN = requireRole(...ADMIN_ROLES);
 
 function body(schema) {
   return (req, res, next) => {

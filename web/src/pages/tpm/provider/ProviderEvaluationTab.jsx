@@ -7,6 +7,7 @@ import { formatDate, periodLabel } from '../../../lib/contracts.js';
 import { currentMonth, formatLocale, shiftMonth, todayISO } from '../../../lib/format.js';
 import { BANDS, EVAL_STATUS, RATINGS, bandOf, formatScore, gridScore } from '../../../lib/evaluation.js';
 import { useI18n } from '../../../lib/i18n.jsx';
+import { isAdminRole } from '../../../lib/accessRoles.js';
 
 /**
  * Évaluation du prestataire TPM (retour 28.1) : grille structurée (critères notés de 1 à 4,
@@ -236,7 +237,7 @@ function EvaluationPanel({ providerId, provider, evaluationId, criteria, canEdit
                 : tr('Brouillon de {name} : tous les critères doivent être notés avant la validation.', { name: ev.evaluatedByName })}</span>
               <span className="pv-spacer" />
               {/* Un administrateur peut aussi supprimer le brouillon d'un autre (le serveur le contrôle). */}
-              {user.role === 'admin' && <Button variant="ghost" icon={Trash2} onClick={remove} disabled={busy}>{tr('Supprimer le brouillon')}</Button>}
+              {isAdminRole(user.role) && <Button variant="ghost" icon={Trash2} onClick={remove} disabled={busy}>{tr('Supprimer le brouillon')}</Button>}
               <Button variant="secondary" onClick={onBack} disabled={busy}>{tr('Fermer')}</Button>
               <Button icon={ShieldCheck} onClick={validate} loading={busy} disabled={!preview.complete}>{tr('Valider')}</Button>
             </div>

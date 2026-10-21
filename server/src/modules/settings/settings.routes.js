@@ -2,7 +2,7 @@ const express = require('express');
 const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
-const { requireAuth, requireRole } = require('../../middleware/auth');
+const { requireAuth, requireRole, WRITE_ROLES, ADMIN_ROLES } = require('../../middleware/auth');
 const { badRequest, conflict } = require('../../middleware/errors');
 const repo = require('./settings.repository');
 const { runCpu } = require('../common/cpuPool');
@@ -16,8 +16,8 @@ const { isRefusal } = require('../common/xlsxGuard');
 
 const router = Router();
 router.use(requireAuth);
-const ADMIN = requireRole('admin');
-const WRITE = requireRole('admin', 'manager');
+const ADMIN = requireRole(...ADMIN_ROLES);
+const WRITE = requireRole(...WRITE_ROLES);
 
 function body(schema) {
   return (req, res, next) => {

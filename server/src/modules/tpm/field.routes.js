@@ -2,7 +2,7 @@ const express = require('express');
 const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
-const { requireAuth, requireRole } = require('../../middleware/auth');
+const { requireAuth, requireRole, WRITE_ROLES } = require('../../middleware/auth');
 const { badRequest, notFound } = require('../../middleware/errors');
 const repo = require('./field.repository');
 const settingsRepo = require('../settings/settings.repository');
@@ -30,7 +30,7 @@ const FACTS_MAX_SPAN = PERIOD_CAPS.facts;
  */
 const router = Router();
 router.use(requireAuth);
-const WRITE = requireRole('admin', 'manager');
+const WRITE = requireRole(...WRITE_ROLES);
 const t = (req) => req.auth.tenantId;
 const uid = (req) => req.auth.userId || req.auth.sub;
 

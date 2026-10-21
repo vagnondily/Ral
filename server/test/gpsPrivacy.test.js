@@ -65,11 +65,14 @@ const repo = require('../src/modules/monitoring/monitoring.repository');
 /** Un nombre à plus de 2 décimales (une coordonnée de ménage) quelque part dans la réponse ? */
 const PRECISE_NUM = /-?\d{1,3}\.\d{3,}/;
 
-test('règle des rôles : admin et gestionnaire seulement', () => {
-  assert.deepEqual([...PRECISE_ROLES].sort(), ['admin', 'manager']);
+test('règle des rôles : validation seulement (validateur / admin / super ; legacy manager)', () => {
+  assert.deepEqual([...PRECISE_ROLES].sort(), ['admin', 'superuser', 'validator']);
   assert.equal(seesPreciseGps('viewer'), false);
+  assert.equal(seesPreciseGps('editor'), false);
   assert.equal(seesPreciseGps(undefined), false);
   assert.equal(seesPreciseGps('admin'), true);
+  assert.equal(seesPreciseGps('validator'), true);
+  assert.equal(seesPreciseGps('manager'), true, 'legacy manager = validateur');
   const rows = [{ data: { ...HOUSES[1] } }];
   assert.deepEqual(stripRowsGps(rows, false)[0].data, { q1: '0' });
   assert.equal(stripRowsGps(rows, true), rows, 'rôle précis : lignes intactes');

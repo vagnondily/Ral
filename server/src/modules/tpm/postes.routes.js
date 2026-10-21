@@ -1,7 +1,7 @@
 const express = require('express');
 const { Router } = require('express');
 const asyncHandler = require('../../middleware/asyncHandler');
-const { requireAuth, requireRole } = require('../../middleware/auth');
+const { requireAuth, requireRole, WRITE_ROLES } = require('../../middleware/auth');
 const { badRequest } = require('../../middleware/errors');
 const { buildTemplateWorkbook, parsePostesWorkbook } = require('./postesXlsx');
 const { normalizeItems, summarize } = require('./reportMath');
@@ -15,7 +15,7 @@ const { isRefusal } = require('../common/xlsxGuard');
  */
 const router = Router();
 router.use(requireAuth);
-const WRITE = requireRole('admin', 'manager');
+const WRITE = requireRole(...WRITE_ROLES);
 
 router.get('/template.xlsx', asyncHandler(async (req, res) => {
   const wb = buildTemplateWorkbook({

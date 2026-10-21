@@ -83,8 +83,12 @@ function stripGps(data) {
  * brutes, aperçus de calcul) ; tous les autres reçoivent des réponses sans coordonnées
  * et une carte en carroyage de 2 km. UNE règle pour la carte et le suivi de processus.
  */
-const PRECISE_ROLES = new Set(['admin', 'manager']);
-const seesPreciseGps = (role) => PRECISE_ROLES.has(role);
+// Positions GPS précises des ménages : réservées aux rôles de validation (validateur+,
+// soit validateur / administrateur / super-utilisateur ; l'ancien « manager » = validateur).
+// Un éditeur ou un lecteur ne les voit jamais.
+const { canValidate, VALIDATE_ROLES } = require('../common/accessRoles');
+const PRECISE_ROLES = new Set(VALIDATE_ROLES);
+const seesPreciseGps = (role) => canValidate(role);
 
 /** Réponses d'une liste de lignes { data } sans coordonnées, sauf pour un rôle précis (copies). */
 function stripRowsGps(rows, precise) {

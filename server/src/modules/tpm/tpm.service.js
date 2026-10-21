@@ -1,6 +1,7 @@
 const repo = require('./tpm.repository');
 const { enqueueRecalculation } = require('../../jobs/queue');
-const { badRequest, notFound } = require('../../middleware/errors');
+const { badRequest, notFound, forbidden } = require('../../middleware/errors');
+const { canValidate } = require('../common/accessRoles');
 
 /**
  * Business rules for the Partenaires & TPM module. Controllers call only
@@ -70,12 +71,17 @@ async function toggleMissionDay(tenantId, assignmentId, date) {
   return result;
 }
 
-async function advancePlanStatus(tenantId, planId) {
+async function advancePlanStatus(tenantId, planId, role) {
   const plan = await repo.getPlan(tenantId, planId);
   if (!plan) throw notFound('Plan introuvable');
   const next = PLAN_TRANSITIONS[plan.status];
   if (!next) {
     throw badRequest(`Le plan est déjà au statut final "${plan.status}".`);
+  }
+  // Valider un plan (soumis → validé) = capacité de validation (validateur+) ;
+  // soumettre (brouillon → soumis) reste permis à un éditeur.
+  if (next === 'validated' && !canValidate(role)) {
+    throw forbidden('Votre rôle ne permet pas de valider un plan.');
   }
   const timestampColumn = next === 'submitted' ? 'submitted_at' : 'validated_at';
   return repo.updatePlanStatus(tenantId, planId, next, timestampColumn);

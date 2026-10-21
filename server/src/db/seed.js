@@ -212,14 +212,14 @@ async function main() {
 
     const passwordHash = await bcrypt.hash('changeme123', 10);
     const users = {};
-    for (const [email, role] of [['admin@mems.mg', 'admin'], ['validateur@mems.mg', 'manager']]) {
+    for (const [email, role] of [['admin@mems.mg', 'admin'], ['validateur@mems.mg', 'validator']]) {
       await client.query(
         `INSERT INTO users (tenant_id, email, password_hash, role) VALUES ($1,$2,$3,$4)
          ON CONFLICT (tenant_id, email) DO NOTHING`, [tenantId, email, passwordHash, role]);
       users[role] = (await client.query('SELECT id FROM users WHERE tenant_id=$1 AND email=$2', [tenantId, email])).rows[0].id;
     }
     const admin = users.admin;
-    const validator = users.manager;
+    const validator = users.validator;
 
     const types = await upsertRefList(client, tenantId, 'partner_types', PARTNER_TYPES);
     const activityId = await upsertRefList(client, tenantId, 'activities', ACTIVITIES);

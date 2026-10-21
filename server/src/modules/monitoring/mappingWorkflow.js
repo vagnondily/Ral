@@ -75,18 +75,20 @@ function transitionError(action, state, actorId) {
  * Actions offertes à un utilisateur, calculées par les MÊMES règles que l'écriture :
  * l'écran n'affiche que ce que le serveur acceptera.
  * @param {{ status: string, submittedBy?: string|null }} state
- * @param {{ userId: string, canWrite: boolean }} actor  canWrite = rôle admin ou gestionnaire
+ * @param {{ userId: string, canWrite: boolean, canValidate?: boolean }} actor
+ *   canWrite = éditer / soumettre (éditeur+) ; canValidate = valider / réinitialiser (validateur+).
  */
-function mappingActions(state, { userId, canWrite }) {
+function mappingActions(state, { userId, canWrite, canValidate = false }) {
   const w = Boolean(canWrite);
+  const cv = Boolean(canValidate);
   const validateErr = transitionError('validate', state, userId);
   return {
     edit: w && !editError(state),
     submit: w && !transitionError('submit', state, userId),
-    validate: w && !validateErr,
-    reset: w && !transitionError('reset', state, userId),
+    validate: cv && !validateErr,
+    reset: cv && !transitionError('reset', state, userId),
     apply: w,
-    validateReason: w && validateErr && validateErr.code === 'self' ? validateErr.message : null,
+    validateReason: cv && validateErr && validateErr.code === 'self' ? validateErr.message : null,
   };
 }
 

@@ -54,7 +54,7 @@ async function listExpenses(req, res) {
 }
 
 async function advancePlanStatus(req, res) {
-  res.json(await service.advancePlanStatus(req.auth.tenantId, req.params.planId));
+  res.json(await service.advancePlanStatus(req.auth.tenantId, req.params.planId, req.auth.role));
 }
 
 module.exports = {

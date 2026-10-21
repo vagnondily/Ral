@@ -32,13 +32,13 @@ const restampFromNow = (client, tenantId) => restampVisitsTx(client, tenantId, {
  * Every operation is one transaction: state change + history + event.
  */
 
-const WRITE_ROLES = ['admin', 'manager'];
+const { canWrite: roleCanWrite } = require('../common/accessRoles');
 
 /** Jour local « AAAA-MM-JJ » : l'horloge unique du serveur (common/localDay, repli UTC si le fuseau est invalide). */
 function today() {
   return localDay();
 }
-function canWrite(actor) { return WRITE_ROLES.includes(actor.role); }
+function canWrite(actor) { return roleCanWrite(actor.role); }
 function assertCanWrite(actor) { if (!canWrite(actor)) throw forbidden('Votre rôle ne permet pas de modifier les contrats.'); }
 
 /** Contrat verrouillé pour une écriture (FOR NO KEY UPDATE ; FOR UPDATE pour la suppression — repository.getContract). */

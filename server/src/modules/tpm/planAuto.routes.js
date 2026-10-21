@@ -12,13 +12,13 @@
 const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
-const { requireAuth, requireRole } = require('../../middleware/auth');
+const { requireAuth, requireRole, WRITE_ROLES } = require('../../middleware/auth');
 const { badRequest } = require('../../middleware/errors');
 const service = require('./planAuto.service');
 
 const router = Router();
 router.use(requireAuth);
-const WRITE = requireRole('admin', 'manager');
+const WRITE = requireRole(...WRITE_ROLES);
 const t = (req) => req.auth.tenantId;
 const uid = (req) => req.auth.userId || req.auth.sub;
 

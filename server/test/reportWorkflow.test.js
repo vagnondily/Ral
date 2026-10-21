@@ -97,7 +97,8 @@ test('H12 : un validateur ne valide jamais des chiffres qu\'il a saisis ou modif
 });
 
 test('actions permises : l\'écran n\'offre que ce que le serveur acceptera', () => {
-  const W = (userId) => ({ userId, canWrite: true });
+  // Un validateur+ écrit ET décide (ancien « admin/manager »).
+  const W = (userId) => ({ userId, canWrite: true, canValidate: true });
   const own = { status: 'soumis', kind: 'financier', createdBy: 'a', editedBy: 'a', submittedBy: 'a' };
   // Son propre rapport soumis : ni modifier, ni décider (avec la raison à afficher).
   const mine = reportActions(own, W('a'));
@@ -110,6 +111,9 @@ test('actions permises : l\'écran n\'offre que ce que le serveur acceptera', ()
   assert.equal(other.decide, true);
   assert.equal(other.decideReason, null);
   assert.equal(other.edit, false);
+  // Un éditeur (écrit mais ne valide pas) : jamais le droit de décider, même le rapport d'un autre.
+  const editor = reportActions({ status: 'soumis', kind: 'financier', createdBy: 'a', editedBy: 'a', submittedBy: 'a' }, { userId: 'ed', canWrite: true, canValidate: false });
+  assert.equal(editor.decide, false);
   // Lecteur (sans droit d'écriture) : aucune action, aucune raison affichée.
   const ro = reportActions(own, { userId: 'v', canWrite: false });
   assert.deepEqual(Object.values(ro).filter(Boolean), []);
@@ -201,13 +205,20 @@ test('non applicable : tout statut sauf validé (comportement inchangé)', () =>
 });
 
 test('rôles d\'écriture des rapports : UNE liste, partagée par les routes et le Centre d\'alertes', () => {
-  const { REPORT_WRITE_ROLES, canWriteReports } = require('../src/modules/tpm/reportWorkflow');
-  assert.deepEqual([...REPORT_WRITE_ROLES], ['admin', 'manager']);
+  const { REPORT_WRITE_ROLES, REPORT_DECIDE_ROLES, canWriteReports, canDecideReports } = require('../src/modules/tpm/reportWorkflow');
+  assert.deepEqual([...REPORT_WRITE_ROLES], ['editor', 'validator', 'admin', 'superuser']);
+  assert.deepEqual([...REPORT_DECIDE_ROLES], ['validator', 'admin', 'superuser']);
   assert.ok(Object.isFrozen(REPORT_WRITE_ROLES));
   assert.equal(canWriteReports('admin'), true);
-  assert.equal(canWriteReports('manager'), true);
+  assert.equal(canWriteReports('editor'), true);
+  assert.equal(canWriteReports('manager'), true, 'legacy manager = validateur');
   assert.equal(canWriteReports('viewer'), false);
   assert.equal(canWriteReports(undefined), false);
+  // Décider (valider / rejeter) : validateur+ seulement, jamais un simple éditeur.
+  assert.equal(canDecideReports('editor'), false);
+  assert.equal(canDecideReports('validator'), true);
+  assert.equal(canDecideReports('manager'), true);
+  assert.equal(canDecideReports('admin'), true);
   // Aucune copie locale de la liste : les deux modules lisent la constante partagée.
   for (const file of ['tpm/reports.routes.js', 'dashboards/alerts.service.js']) {
     const src = fs.readFileSync(path.join(__dirname, '../src/modules', file), 'utf8');
