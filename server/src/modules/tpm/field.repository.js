@@ -1126,7 +1126,8 @@ async function planBoardTx(client, tenantId, { year, adjusted = false, nowMonth 
          -- d'une visite ANNULÉE sont rendus à part (cancelledMonths) : une annulation est une
          -- décision, la planification automatique n'y replace jamais de visite.
          SELECT json_agg(json_build_object('month', extract(month FROM v.period_month)::int, 'status', v.status,
-                                           'date', to_char(v.visit_date, 'YYYY-MM-DD'), 'agent', v.agent, 'provider', p.name, 'src', v.provider_source) ORDER BY v.period_month)
+                                           'date', to_char(v.visit_date, 'YYYY-MM-DD'), 'agent', v.agent, 'provider', p.name, 'src', v.provider_source,
+                                           'providerId', v.provider_id, 'monitoredBy', v.monitored_by) ORDER BY v.period_month)
                   FILTER (WHERE v.status <> 'annule') AS months,
                 string_agg(DISTINCT p.name, ', ') FILTER (WHERE v.status <> 'annule') AS providers,
                 array_agg(DISTINCT extract(month FROM v.period_month)::int) FILTER (WHERE v.status = 'annule') AS cancelled

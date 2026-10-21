@@ -177,8 +177,13 @@ async function loadInputsTx(client, tenantId, { year, adjusted = false, scope = 
     // recalcule le reste à planifier (une prévue d'un mois échu, jamais faite, redevient à
     // planifier ; une prévue à venir, dans la période ou non, compte).
     // Date et agent déjà écrits : leurs créneaux (agent × jour) sont réservés, jamais réattribués.
+    // TPM que la visite PORTE (provider_id, monitored_by — retour 114) : une visite existante compte
+    // pour son unité à elle, jamais pour le TPM de la zone (planAuto.visitUnitAt).
     visits: (s.months || [])
-      .map((m) => ({ month: Number(m.month), status: m.status, date: m.date || null, agent: m.agent || null }))
+      .map((m) => ({
+        month: Number(m.month), status: m.status, date: m.date || null, agent: m.agent || null,
+        providerId: m.providerId || null, providerName: m.provider || null, monitoredBy: m.monitoredBy || null,
+      }))
       .filter((m) => m.month >= 1 && m.month <= 12),
     // Mois d'une visite ANNULÉE : jamais repris par le plan (une annulation est une décision).
     cancelledMonths: (s.cancelledMonths || []).map(Number).filter((m) => m >= 1 && m <= 12),

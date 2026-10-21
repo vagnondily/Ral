@@ -30,16 +30,30 @@ const pad = (m) => String(m).padStart(2, '0');
 /**
  * Une visite telle que le moteur la LIT : le mois et le statut ; la date et l'agent seulement là où
  * ils réservent un créneau (planAuto.pushVisit + planResources.coveredOf) — visite prévue ou
- * réalisée d'un mois OUVERT de la période, datée, agent générique « Agent N » (son numéro). Ailleurs
- * (mois hors période, agent nommé, date sans agent) ils ne changent pas le plan : jamais un 409 pour
- * rien.
+ * réalisée d'un mois OUVERT de la période, datée, agent générique « Agent N » (son numéro) ; et
+ * l'UNITÉ que la visite porte (son TPM, ou « interne » — planAuto.visitUnitAt) là où le moteur la
+ * compte : visite prévue d'un mois ouvert, ou réalisée qui réserve un créneau. Ailleurs (mois hors
+ * période, agent nommé, date sans agent, réalisée sans créneau) rien de cela ne change le plan :
+ * jamais un 409 pour rien.
  */
+/** Le moteur lit-il cette visite (planAuto.pushVisit) : prévue d'un mois ouvert, ou réalisée qui réserve un créneau ? */
+function readByEngine(v, open) {
+  if (!open.has(Number(v.month))) return false;
+  if (v.status === 'planifie') return true;
+  return v.status === 'realise' && Boolean(v.date) && agentNumber(v.agent) != null;
+}
+
 function visitKey(v, open) {
   const base = `${Number(v.month)}:${v.status}`;
+  if (!readByEngine(v, open)) return base;
   const n = agentNumber(v.agent);
-  if (n == null || !v.date || !open.has(Number(v.month)) || (v.status !== 'planifie' && v.status !== 'realise')) return base;
-  return `${base}:${String(v.date)}:${n}`;
+  const slot = n != null && v.date ? `:${String(v.date)}:${n}` : '';
+  const unit = v.providerId ? `:u=id:${v.providerId}` : (v.monitoredBy === 'interne' ? ':u=interne' : '');
+  return `${base}${slot}${unit}`;
 }
+
+/** Visite lue par le moteur et comptée pour l'équipe interne de son bureau (planAuto.visitUnitAt). */
+const internalVisitIn = (s, open) => (s.visits || []).some((v) => readByEngine(v, open) && !v.providerId && v.monitoredBy === 'interne');
 
 /** Le site a-t-il un TPM de zone à ce mois (même règle que planAuto.tpmAt) ? */
 const hasTpmAt = (s, mm) => (s.tpmSegments || []).some((x) => x && x.from <= mm && mm <= x.to && (x.providerId || x.providerName));
@@ -52,9 +66,10 @@ const hasTpmAt = (s, mm) => (s.tpmSegments || []).some((x) => x && x.from <= mm 
 function fingerprintInputs(input = {}, params = {}) {
   const sites = [...(input.sites || [])].sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0));
   const open = new Set((params.months || []).map(Number));
-  // Bureau racine du suivi interne : l'unité des agents d'un site sans TPM de zone un mois ouvert
-  // (sans période connue : toujours compté).
-  const officeCounts = (s) => !params.year || !open.size || [...open].some((m) => !hasTpmAt(s, `${params.year}-${pad(m)}`));
+  // Bureau racine du suivi interne : l'unité des agents d'un site sans TPM de zone un mois ouvert, ou
+  // d'une visite suivie en interne (sans période connue : toujours compté).
+  const officeCounts = (s) => !params.year || !open.size || internalVisitIn(s, open)
+    || [...open].some((m) => !hasTpmAt(s, `${params.year}-${pad(m)}`));
   const parts = {
     // Registre, priorité du RBM (urgence, score final : l'ordre des communes en dépend) et bureau
     // racine du suivi interne (unité des agents : un bureau ou une antenne déplacé change le plan).

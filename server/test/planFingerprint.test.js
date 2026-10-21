@@ -92,3 +92,27 @@ test('bureau racine : compté seulement pour un site sans TPM de zone un mois ou
   const a = base(); a.sites[1].unitOfficeId = 'o9';
   assert.deepEqual(changedSections(ref.sections, fingerprintInputs(a, params).sections), ['registre']);
 });
+
+test('TPM porté par une visite (retour 114) : un changement invalide l\'aperçu, là où le moteur le compte', () => {
+  const withVisit = (idx, v) => { const i = base(); i.sites[idx].visits = [{ month: 11, status: 'planifie', ...v }]; return i; };
+  const fp = (i, p = params) => fingerprintInputs(i, p);
+  // Site « a » (sans TPM de zone : son bureau compte déjà).
+  const ref = fp(withVisit(1, {}));
+  assert.deepEqual(changedSections(ref.sections, fp(withVisit(1, { providerId: 'SAHY', monitoredBy: 'tpm' })).sections), ['visites']);
+  assert.deepEqual(changedSections(ref.sections, fp(withVisit(1, { monitoredBy: 'interne' })).sections), ['visites']);
+  // Un autre TPM porté par la visite : « visites » ; son nom seul (affichage) : rien.
+  const sahy = fp(withVisit(1, { providerId: 'SAHY', providerName: 'SAHY', monitoredBy: 'tpm' }));
+  assert.deepEqual(changedSections(sahy.sections, fp(withVisit(1, { providerId: 'YPA', providerName: 'YPA', monitoredBy: 'tpm' })).sections), ['visites']);
+  assert.equal(fp(withVisit(1, { providerId: 'SAHY', providerName: 'SAHY Monitoring', monitoredBy: 'tpm' })).fingerprint, sahy.fingerprint);
+  // Site « b » (TPM de zone toute l'année, bureau o1) : une visite suivie en interne fait compter son bureau.
+  const inB = (v) => { const i = withVisit(0, v); i.sites[0].unitOfficeId = 'o1'; return i; };
+  const refB = fp(inB({}));
+  assert.deepEqual(changedSections(refB.sections, fp(inB({ monitoredBy: 'interne' })).sections), ['registre', 'visites']);
+  // Hors des mois ouverts, ou réalisée sans créneau : non lu.
+  const p2 = { ...params, months: [12] };
+  assert.equal(fp(withVisit(1, { providerId: 'SAHY', monitoredBy: 'tpm' }), p2).fingerprint, fp(withVisit(1, {}), p2).fingerprint);
+  const done = (v) => { const i = base(); i.sites[1].visits = [{ month: 11, status: 'realise', ...v }]; return fp(i); };
+  assert.equal(done({ providerId: 'SAHY', monitoredBy: 'tpm' }).fingerprint, done({}).fingerprint);
+  assert.notEqual(done({ providerId: 'SAHY', monitoredBy: 'tpm', date: '2026-11-02', agent: 'Agent 1' }).fingerprint,
+    done({ date: '2026-11-02', agent: 'Agent 1' }).fingerprint, 'réalisée qui réserve un créneau : son unité compte');
+});

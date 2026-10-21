@@ -30,7 +30,11 @@
  *  12. créer ou modifier une visite (date, agent = créneau réservé) attend le verrou de son mois tenu
  *      ailleurs (« Appliquer » ne relit jamais une visite changée avant son écriture) ;
  *  13. jour courant (jour LOCAL) : il n'entre dans l'empreinte que si le mois courant est dans la période
- *      — un aperçu de l'exercice suivant fait un jour s'applique le lendemain.
+ *      — un aperçu de l'exercice suivant fait un jour s'applique le lendemain ;
+ *  14. visites existantes comptées pour le TPM qu'elles PORTENT (retour 114) : une visite confiée à un
+ *      autre TPM avec une raison, une visite dont le TPM est retiré (suivi interne) — « Par unité de
+ *      suivi » = la clé « qui suit » de chaque visite (provider_id, sinon équipe interne du bureau
+ *      racine), jamais le TPM de la zone ; un changement de TPM d'une visite invalide l'aperçu.
  * Tout ce que le test crée est supprimé à la fin (visites, grille, site de test).
  */
 const SU_URL = process.env.MEMS_TEST_DATABASE_URL;
@@ -52,7 +56,7 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
   const repo = require('../src/modules/tpm/planAuto.repository');
   const field = require('../src/modules/tpm/field.repository');
   const { generatePlan, mmrRule, rbmStep, tpmAt } = require('../src/modules/tpm/planAuto');
-  const { officeScopeIds } = require('../src/modules/common/officeScope');
+  const { officeScopeIds, rootOfficeOf } = require('../src/modules/common/officeScope');
   const { officeTreeSql } = require('../src/modules/common/siteActivitySql');
   const { lockVisitMonthsTx, monthLockKey } = require('../src/modules/tpm/visitLocks');
   const { checkInvariants } = require('../src/modules/tpm/planAutoInvariants');
@@ -408,6 +412,52 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
     const a13 = await service.apply(T, U, { ...nb, fingerprint: nA.fingerprint, sections: nA.sections }, { now, today: dB });
     assert.equal(a13.created, a13.planned);
     await dropNew();
+
+    // 14. Visites existantes : l'unité que la visite porte (retour 114), jamais le TPM de la zone.
+    const m14 = Number(now.slice(5, 7));
+    const ym14 = `${year}-${String(m14).padStart(2, '0')}`;
+    const tpms = await q(
+      `SELECT p.id, p.name FROM partners p JOIN partner_types pt ON pt.id = p.partner_type_id
+        WHERE p.tenant_id = $1 AND pt.code = 'tpm' AND p.active ORDER BY p.name`, [T]);
+    assert.ok(tpms.length >= 2, 'au moins deux TPM de démonstration');
+    const in14 = await withTenantTransaction(T, (c) => repo.loadInputsTx(c, T, { year }));
+    const free14 = in14.sites.filter((x) => !x.forbidden && !x.inactive && tpmAt(x, year, m14).assigned
+      && !(x.visits || []).some((v) => v.month === m14) && !(x.cancelledMonths || []).includes(m14));
+    assert.ok(free14.length >= 2, 'deux sites d\'une zone avec TPM, libres ce mois-ci');
+    const [sA, sB] = free14;
+    const other = tpms.find((p) => `id:${p.id}` !== tpmAt(sA, year, m14).key);
+    const REASON = 'Écart motivé pour le test de la planification automatique (retour 114).';
+    const vA = await field.createVisit(T, U, { siteId: sA.id, periodMonth: ym14, activity: `${TAG} unite`, providerId: other.id, providerReason: REASON });
+    const vB = await field.createVisit(T, U, { siteId: sB.id, periodMonth: ym14, activity: `${TAG} unite` });
+    const before14 = await service.preview(T, body);
+    assert.equal(await field.updateVisit(T, vB, { providerId: null, providerReason: REASON }, U), true);
+    const rows14 = await q('SELECT id, provider_id::text AS p, provider_source AS src, monitored_by AS mb FROM site_visits WHERE id = ANY($1::uuid[])', [[vA, vB]]);
+    const byVisit = new Map(rows14.map((r) => [r.id, r]));
+    assert.deepEqual([byVisit.get(vA).p, byVisit.get(vA).src, byVisit.get(vA).mb], [other.id, 'visite', 'tpm']);
+    assert.deepEqual([byVisit.get(vB).p, byVisit.get(vB).src, byVisit.get(vB).mb], [null, 'visite', 'interne']);
+    const p14 = await service.preview(T, body);
+    assert.ok(changedSections(before14.sections, p14.sections).includes('visites'), 'TPM retiré d\'une visite : l\'aperçu est périmé');
+    // Attendu, recompté en base : visites PRÉVUES de la période, par la clé « qui suit » de chaque visite.
+    const offices14 = await withTenantTransaction(T, (c) => repo.officesTx(c, T));
+    const siteOf = new Map(in14.sites.map((x) => [x.id, x]));
+    const officeOf = new Map((await q('SELECT id, field_office_id FROM sites WHERE tenant_id = $1', [T])).map((r) => [r.id, r.field_office_id]));
+    const planned14 = await q(
+      `SELECT site_id, extract(month FROM period_month)::int AS m, provider_id::text AS p, monitored_by AS mb
+         FROM site_visits WHERE tenant_id = $1 AND status = 'planifie' AND period_month BETWEEN $2::date AND $3::date`,
+      [T, `${now}-01`, `${year}-12-01`]);
+    const expected14 = new Map();
+    for (const r of planned14) {
+      const st = siteOf.get(r.site_id);
+      const root = rootOfficeOf(offices14, officeOf.get(r.site_id) || null);
+      const unit = r.p ? `id:${r.p}` : (r.mb === 'interne' ? `bureau:${root ? root.id : 'none'}` : tpmAt(st, year, r.m).key);
+      expected14.set(unit, (expected14.get(unit) || 0) + 1);
+    }
+    const existing = new Map(p14.byTpm.map((u) => [u.unitKey, u.visits - u.planned]).filter(([, n]) => n > 0));
+    assert.deepEqual([...existing.entries()].sort(), [...expected14.entries()].sort(), 'visites existantes par unité = clé « qui suit » de chaque visite');
+    const rootB = rootOfficeOf(offices14, officeOf.get(sB.id) || null);
+    assert.ok((existing.get(`id:${other.id}`) || 0) >= 1, 'la visite confiée à un autre TPM compte pour lui');
+    assert.ok((existing.get(`bureau:${rootB ? rootB.id : 'none'}`) || 0) >= 1, 'la visite au TPM retiré compte pour l\'équipe interne');
+    await q('DELETE FROM site_visits WHERE tenant_id = $1 AND activity = $2', [T, `${TAG} unite`]);
   } finally {
     await dropNew().catch(() => {});
     await q('DELETE FROM site_visits WHERE tenant_id = $1 AND activity LIKE $2', [T, `${TAG} %`]).catch(() => {});

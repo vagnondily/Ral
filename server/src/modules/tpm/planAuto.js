@@ -48,7 +48,8 @@
  *
  * Entrée `sites` (planAuto.repository.loadInputsTx) :
  *   { id, district, commune, activity, riskLevel, urgent, finalScore, forbidden, mmrKey,
- *     parametered, required, inScope, lastVisitMonth, visits:[{month,status}], cancelledMonths,
+ *     parametered, required, inScope, lastVisitMonth, visits:[{month,status,date,agent,providerId,
+ *     providerName,monitoredBy}], cancelledMonths, unitOfficeId, unitOfficeName,
  *     outsideVisits:[{month:'AAAA-MM',status}], monthStatus:{m:bool}, gpsLat, gpsLng, tpmSegments }
  * `mmrByKey` : { mmrKey: { interval, adjustedInterval, targetedPerMonth, feasible, visitsPerDay,
  *   workingDays, personsToDeploy, … } } ; `months` : numéros 1..12 de `year`, croissants ;
@@ -227,6 +228,24 @@ function tpmAt(s, year, m) {
   const name = seg && seg.providerName ? String(seg.providerName) : null;
   if (id || name) return { key: id ? `id:${id}` : `nm:${name}`, name: name || null, assigned: true, officeName: null };
   return { key: `bureau:${s.unitOfficeId || 'none'}`, name: null, assigned: false, officeName: s.unitOfficeName || null };
+}
+
+/**
+ * Unité d'une visite EXISTANTE : le TPM que la visite porte (site_visits.provider_id — écart motivé
+ * « visite », visite facturée ou figée comprise), sinon l'équipe interne de son bureau racine quand
+ * la visite est suivie en interne (monitored_by 'interne' : TPM retiré avec une raison, zone sans
+ * TPM ou TPM indisponible) — la même clé « qui suit » que les résumés, matrices et rapports attendus
+ * (tpmAttribution.monitorKeySql). Une visite « non affectée » (antérieure à la règle) suit sa zone.
+ * Les visites NOUVELLES suivent toujours la zone (tpmAt) : la base les estampille ainsi.
+ */
+function visitUnitAt(s, v, year, m) {
+  if (v && v.providerId) {
+    return { key: `id:${String(v.providerId)}`, name: v.providerName ? String(v.providerName) : null, assigned: true, officeName: null };
+  }
+  if (v && v.monitoredBy === 'interne') {
+    return { key: `bureau:${s.unitOfficeId || 'none'}`, name: null, assigned: false, officeName: s.unitOfficeName || null };
+  }
+  return tpmAt(s, year, m);
 }
 
 /** Plan. @param {number} year année de l'exercice. */
@@ -527,8 +546,9 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
   // Même clé de regroupement que les tournées du moteur (commune de son district, GPS en second) ;
   // une visite existante déjà datée et affectée (« Agent N ») garde son créneau, réservé.
   const placeKeys = new Map();   // site → { district, cluster } : calculés une fois par site
+  // Unité : la zone pour une visite nouvelle, celle que porte la visite pour une visite existante.
   const pushVisit = (s, m, isNew, v = null) => {
-    const key = groupKeyOf(s); const c = mmrByKey[key] || {}; const tp = tpmAt(s, year, m);
+    const key = groupKeyOf(s); const c = mmrByKey[key] || {}; const tp = isNew ? tpmAt(s, year, m) : visitUnitAt(s, v, year, m);
     if (!placeKeys.has(s.id)) placeKeys.set(s.id, { districtKey: norm(s.district), clusterKey: clusterKeyOf(s) });
     const pk = placeKeys.get(s.id);
     toDo.push({
@@ -724,5 +744,5 @@ function generatePlan(sites = [], mmrByKey = {}, settings = {}, months = [], yea
 
 module.exports = {
   generatePlan, normalizeSettings, siteRemaining, anchorsOf, fitCount, firstPlannableMonth, monthIdx, clusterKeyOf,
-  communeKey, tpmAt, mmrRule, rbmStep, capacityOf, REASONS, STRATEGIES, DEFAULT_SETTINGS: normalizeSettings(),
+  communeKey, tpmAt, visitUnitAt, mmrRule, rbmStep, capacityOf, REASONS, STRATEGIES, DEFAULT_SETTINGS: normalizeSettings(),
 };

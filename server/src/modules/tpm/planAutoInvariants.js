@@ -31,7 +31,10 @@
  *     d'une visite existante) — chaque visite occupe TOUS les jours de sa durée (moins d'un suivi par
  *     jour : ⌈1 ÷ suivis/jour⌉ jours de terrain consécutifs à partir de sa date) ; une visite déjà
  *     écrite l'a été sur un calendrier inconnu (lundi–vendredi ou lundi–samedi) : elle occupe sa date
- *     et les jours suivants sur l'un OU l'autre.
+ *     et les jours suivants sur l'un OU l'autre ;
+ *  8. unités : une visite NOUVELLE compte pour l'unité de sa zone ; une visite EXISTANTE pour l'unité
+ *     qu'elle porte (son TPM, sinon l'équipe interne de son bureau si elle est suivie en interne,
+ *     sinon sa zone) — visites à faire par unité = celles du moteur (byTpm).
  */
 const RBM_STEP = { elevee: 1, moyenne: 2, faible: 3 };
 const REASON_CODES = new Set(['capacity', 'inactive', 'cancelled', 'gap', 'period']);
@@ -45,6 +48,12 @@ function unitOfSite(s, year, m) {
   const seg = (s.tpmSegments || []).find((g) => g && g.from <= mm && mm <= g.to && (g.providerId || g.providerName));
   if (seg) return seg.providerId ? `id:${seg.providerId}` : `nm:${seg.providerName}`;
   return `bureau:${s.unitOfficeId || 'none'}`;
+}
+/** Unité d'une visite EXISTANTE : le TPM qu'elle porte, l'équipe interne de son bureau, sinon sa zone. */
+function unitOfVisit(s, x, year, m) {
+  if (x && x.providerId) return `id:${x.providerId}`;
+  if (x && x.monitoredBy === 'interne') return `bureau:${s.unitOfficeId || 'none'}`;
+  return unitOfSite(s, year, m);
 }
 /** Tournée d'un site : commune de son district (casse et espaces ignorés), sinon cellule GPS de 0,1°, sinon le site. */
 function tourOf(s) {
@@ -266,15 +275,15 @@ function checkInvariants(input, result) {
   const fdm = fdmRaw >= 1 && fdmRaw <= 26 ? fdmRaw : 20;
   const rowOf = (s) => (s.parametered && s.mmrKey ? mmrByKey[s.mmrKey] || null : null);
   const wantedBy = new Map();
-  const noteWanted = (s, m) => {
-    const k = `${unitOfSite(s, year, m)}|${m}`;
+  const noteWanted = (unit, s, m) => {
+    const k = `${unit}|${m}`;
     const wd = Number((rowOf(s) || {}).workingDays);
     const cur = wantedBy.get(k);
     if (wd > 0) wantedBy.set(k, cur == null || cur === 'p' ? wd : Math.min(cur, wd));
     else if (cur == null) wantedBy.set(k, 'p');
   };
-  for (const s of sites) for (const x of s.visits || []) if (x.status === 'planifie' && inPeriod.has(Number(x.month))) noteWanted(s, Number(x.month));
-  for (const a of result.assignments || []) { const s = byId.get(a.siteId); if (s) noteWanted(s, Number(String(a.month).slice(5, 7))); }
+  for (const s of sites) for (const x of s.visits || []) if (x.status === 'planifie' && inPeriod.has(Number(x.month))) noteWanted(unitOfVisit(s, x, year, Number(x.month)), s, Number(x.month));
+  for (const a of result.assignments || []) { const s = byId.get(a.siteId); const m = Number(String(a.month).slice(5, 7)); if (s) noteWanted(unitOfSite(s, year, m), s, m); }
   // Nouvelle visite : sur le calendrier de CE passage (jours voulus de son unité × mois).
   const daysOf = (s, m, date) => {
     const k = `${unitOfSite(s, year, m)}|${m}`;
@@ -294,7 +303,7 @@ function checkInvariants(input, result) {
       const m = Number(x.month);
       if (n == null || !x.date || x.status === 'annule' || !inPeriod.has(m)) continue;
       for (const d of heldOf(s, m, x.date)) {
-        const k = `${unitOfSite(s, year, m)}|${n}|${d}`;
+        const k = `${unitOfVisit(s, x, year, m)}|${n}|${d}`;
         written.add(k);
         if (!cellTours.has(k)) cellTours.set(k, new Set());
         cellTours.get(k).add(tourOf(s));
@@ -315,6 +324,18 @@ function checkInvariants(input, result) {
   }
   // Seules les cellules d'un nouveau créneau sont jugées (des saisies manuelles peuvent déjà se croiser).
   for (const k of newCells) if (cellTours.get(k).size > 1) v.push({ code: 'agent_deux_tournees', cell: k, tours: [...cellTours.get(k)] });
+
+  // ---- 8. unités : visites à faire par unité (existantes à leur unité, nouvelles à leur zone) ----
+  if (Array.isArray(result.byTpm) && result.byTpm.length && result.byTpm.every((u) => u && u.unitKey)) {
+    const want = new Map();
+    const bumpU = (k) => want.set(k, (want.get(k) || 0) + 1);
+    for (const s of sites) for (const x of s.visits || []) if (x.status === 'planifie' && inPeriod.has(Number(x.month))) bumpU(unitOfVisit(s, x, year, Number(x.month)));
+    for (const a of result.assignments || []) { const s = byId.get(a.siteId); if (s) bumpU(unitOfSite(s, year, Number(String(a.month).slice(5, 7)))); }
+    const got = new Map(result.byTpm.map((u) => [u.unitKey, Number(u.visits) || 0]));
+    for (const k of new Set([...want.keys(), ...got.keys()])) {
+      if ((want.get(k) || 0) !== (got.get(k) || 0)) v.push({ code: 'unite_visites', unit: k, oracle: want.get(k) || 0, engine: got.get(k) || 0 });
+    }
+  }
 
   // ---- 6. comptes cohérents ----
   const n = (result.assignments || []).length;

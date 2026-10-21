@@ -391,6 +391,15 @@ function scenario(seed) {
       else if (p < 0.1) visits.push({ month: m, status: 'realise' });
       else if (p < 0.12) visits.push({ month: m, status: 'annule' });
     }
+    // TPM que la visite PORTE (retour 114), tiré d'un flux à part (les jeux restent les mêmes) : un
+    // écart motivé vers un autre TPM (parfois hors de toute zone : T3), ou un suivi interne.
+    const ru = rng(seed * 7919 + i + 1);
+    for (const x of visits) {
+      if (x.status === 'annule') continue;
+      const q = ru();
+      if (q < 0.2) { const t = ['T1', 'T2', 'T3'][Math.floor(ru() * 3)]; Object.assign(x, { providerId: t, providerName: t, monitoredBy: 'tpm' }); }
+      else if (q < 0.35) x.monitoredBy = 'interne';
+    }
     const monthStatus = {};
     if (grid) for (let m = 1; m <= 12; m += 1) { const p = r(); if (p < 0.6) monthStatus[m] = true; else if (p < 0.8) monthStatus[m] = false; }
     const tpm = pick(tpms);
@@ -672,9 +681,10 @@ test('empreinte : même empreinte → même plan, quand les dates et agents que 
     const mutated = input.sites.map((st) => ({ ...st, visits: (st.visits || []).map((v) => {
       const pick = r();
       let w = v;
-      if (!openSet.has(Number(v.month))) w = { ...v, date: `${input.year}-${String(v.month).padStart(2, '0')}-0${1 + Math.floor(r() * 9)}`, agent: `Agent ${1 + Math.floor(r() * 3)}` };
+      if (!openSet.has(Number(v.month))) w = { ...v, date: `${input.year}-${String(v.month).padStart(2, '0')}-0${1 + Math.floor(r() * 9)}`, agent: `Agent ${1 + Math.floor(r() * 3)}`, providerId: 'TZ', monitoredBy: pick < 0.5 ? 'tpm' : 'interne' };
       else if (pick < 0.3) w = { ...v, agent: pick < 0.15 ? 'Rakoto' : 'Rabe', date: v.date || `${input.year}-${String(v.month).padStart(2, '0')}-0${1 + Math.floor(r() * 9)}` }; // agent nommé, daté
       else if (pick < 0.45 && !v.agent) w = { ...v, date: `${input.year}-${String(v.month).padStart(2, '0')}-1${Math.floor(r() * 9)}` }; // date sans agent
+      else if (pick < 0.7) w = { ...v, providerId: pick < 0.6 ? 'TZ' : null, monitoredBy: pick < 0.6 ? 'tpm' : 'interne' };              // unité non lue (réalisée sans créneau)
       if (w !== v && visitKey(w, openSet) === visitKey(v, openSet)) { changed += 1; return w; }
       return v;
     }) }));
@@ -713,6 +723,53 @@ test('oracle : passages successifs sur des sous-périodes — 0 violation, jamai
       assert.ok(existing + (generated.get(s.id) || 0) <= Math.max(s.required, existing), `graine ${seed + 5000} : ${s.id} au-delà de l'exigence`);
     }
   }
+});
+
+test('visites existantes : comptées pour le TPM qu\'elles PORTENT (écart motivé, TPM retiré), les nouvelles pour leur zone', () => {
+  const mmr = { K: { interval: 12, visitsPerDay: 1, workingDays: 20 } };
+  const seg = (id) => [{ from: '2026-01', to: '2026-12', providerId: id, providerName: id }];
+  const sites = [
+    // Zone YPA, visite prévue confiée à SAHY avec une raison (provider_source 'visite').
+    site({ id: 'ank', district: 'D', commune: 'C1', parametered: true, mmrKey: 'K', required: 1, unitOfficeId: 'fd', tpmSegments: seg('YPA'),
+      visits: [{ month: 11, status: 'planifie', providerId: 'SAHY', providerName: 'SAHY', monitoredBy: 'tpm' }] }),
+    // Zone SAHY, TPM retiré avec une raison : suivie par l'équipe interne de son bureau racine.
+    site({ id: 'sams', district: 'D', commune: 'C2', parametered: true, mmrKey: 'K', required: 1, unitOfficeId: 'fd', tpmSegments: seg('SAHY'),
+      visits: [{ month: 11, status: 'planifie', providerId: null, monitoredBy: 'interne' }] }),
+    // Zone YPA, visite qui suit sa zone (TPM estampillé).
+    site({ id: 'bet', district: 'D', commune: 'C3', parametered: true, mmrKey: 'K', required: 1, unitOfficeId: 'fd', tpmSegments: seg('YPA'),
+      visits: [{ month: 11, status: 'planifie', providerId: 'YPA', providerName: 'YPA', monitoredBy: 'tpm' }] }),
+    // Visite antérieure à la règle (non affectée) : elle suit sa zone.
+    site({ id: 'old', district: 'D', commune: 'C4', parametered: true, mmrKey: 'K', required: 1, unitOfficeId: 'fd', tpmSegments: seg('YPA'),
+      visits: [{ month: 11, status: 'planifie', providerId: null, monitoredBy: 'non_affecte' }] }),
+    // Un site sans visite de la zone SAHY : sa visite NOUVELLE va à SAHY.
+    site({ id: 'new', district: 'D', commune: 'C5', parametered: true, mmrKey: 'K', required: 1, unitOfficeId: 'fd', tpmSegments: seg('SAHY') }),
+  ];
+  const input = { sites, mmrByKey: mmr, settings: {}, months: [11], year: YEAR, opts: { yearHasGrid: false, fromMonth: '2026-10' } };
+  const r = generatePlan(sites, mmr, {}, [11], YEAR, input.opts);
+  assert.deepEqual(checkInvariants(input, r), []);
+  const by = Object.fromEntries(r.byTpm.map((u) => [u.unitKey, [u.visits, u.planned]]));
+  assert.deepEqual(by, { 'id:YPA': [2, 0], 'id:SAHY': [2, 1], 'bureau:fd': [1, 0] });
+  // Un créneau écrit (« Agent 1 ») d'une visite de SAHY réserve l'agent 1 de SAHY, jamais celui de YPA.
+  const busy = sites.map((x) => (x.id === 'ank' ? { ...x, visits: [{ ...x.visits[0], date: '2026-11-02', agent: 'Agent 1' }] } : x));
+  const r2 = generatePlan(busy, mmr, {}, [11], YEAR, { ...input.opts, today: '2026-11-02' });
+  assert.deepEqual(checkInvariants({ ...input, sites: busy, opts: { ...input.opts, today: '2026-11-02' } }, r2), []);
+  const slot = r2.slots['new|2026-11'];
+  assert.ok(!(slot.agent === 1 && slot.date === '2026-11-02'), `SAHY : l'agent 1 du 2 novembre est pris (${JSON.stringify(slot)})`);
+  const unit = (k) => r2.byTpm.find((u) => u.unitKey === k);
+  assert.equal(unit('id:SAHY').perMonth[0].reservedSlots, 1, 'le créneau écrit est réservé chez SAHY');
+  assert.equal(unit('id:YPA').perMonth[0].reservedSlots, 0, 'jamais chez le TPM de la zone');
+});
+
+test('oracle : une visite existante comptée pour le TPM de sa zone au lieu du sien est détectée', () => {
+  const mmr = { K: { interval: 12, visitsPerDay: 1, workingDays: 20 } };
+  const s = site({ id: 'ank', district: 'D', commune: 'C1', parametered: true, mmrKey: 'K', required: 1, unitOfficeId: 'fd',
+    tpmSegments: [{ from: '2026-01', to: '2026-12', providerId: 'YPA', providerName: 'YPA' }],
+    visits: [{ month: 11, status: 'planifie', providerId: 'SAHY', monitoredBy: 'tpm' }] });
+  const input = { sites: [s], mmrByKey: mmr, settings: {}, months: [11], year: YEAR, opts: { fromMonth: '2026-10' } };
+  const fake = { assignments: [], slots: {}, summary: { planned: 0, sitesActivePlannable: 1, sitesCovered: 1 }, uncovered: [], perMonth: [], byActivity: [],
+    byTpm: [{ unitKey: 'id:YPA', planned: 0, visits: 1 }] };
+  const codes = checkInvariants(input, fake).filter((x) => x.code === 'unite_visites');
+  assert.deepEqual(codes.map((x) => [x.unit, x.oracle, x.engine]).sort(), [['id:SAHY', 1, 0], ['id:YPA', 0, 1]]);
 });
 
 test('oracle : il détecte une violation fabriquée (intervalle, mois inactif, doublon)', () => {
