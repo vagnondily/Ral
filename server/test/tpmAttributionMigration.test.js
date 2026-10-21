@@ -109,3 +109,16 @@ test('109 (relecture r114c, points 2 et 13) : même règle que 108, mems_tpm_cel
   assert.doesNotMatch(f109, /lock_timeout = DEFAULT|SET LOCAL/);
   assert.match(flat(f109), /PERFORM set_config\('mems\.tpm_stamping', 'off', true\); END \$fn\$;$/);
 });
+
+test('120 (relecture r2stamp, points 1 et 5) : statistiques de l expression tenant_id::text des tables lues par l estampille ; rejouable, rien d autre', () => {
+  const sql = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/db/migrations/120_tenant_text_statistics.sql'), 'utf8');
+  const tables = ['sites', 'site_visits', 'contracts', 'contract_budget_items', 'contract_areas', 'admin_areas', 'partners', 'partner_types',
+    'tpm_collection_plans', 'tpm_reports', 'tpm_zone_overrides', 'tpm_unavailability'];
+  for (const t of tables) assert.match(sql, new RegExp(`CREATE STATISTICS IF NOT EXISTS ${t}_tenant_text_stx ON \\(tenant_id::text\\) FROM ${t};`), t);
+  // Même liste pour l'ANALYZE, des seules tables non vides (une table vide analysée serait estimée vide une fois remplie).
+  const loop = sql.slice(sql.indexOf('DO $$'));
+  for (const t of tables) assert.ok(loop.includes(`'${t}'`), `ANALYZE : ${t}`);
+  assert.match(loop, /EXECUTE format\('SELECT EXISTS \(SELECT 1 FROM %I\)', t\) INTO has_rows;\s+IF has_rows THEN EXECUTE format\('ANALYZE %I', t\); END IF;/);
+  const body = sql.split('\n').filter((l) => !l.startsWith('--')).join('\n');
+  assert.doesNotMatch(body, /\b(DROP|ALTER|POLICY|FUNCTION|UPDATE|DELETE|INSERT)\b/i, 'ni politique, ni fonction, ni donnée');
+});

@@ -7,13 +7,15 @@
  *
  *  - Point 13 : le `lock_timeout` de l'appelant survit au verrou d'attribution — lockAttributionTx, la
  *    fonction mems_tpm_stamp (migration 109) et restampVisitsTx le rétablissent, jamais DEFAULT.
- *  - Point 2 : 4 000 visites couvertes par un contrat, passées à mems_tpm_stamp 7 fois de suite dans
- *    UNE session mems2_app (le plan générique de PL/pgSQL arrivait au 6ᵉ appel : plusieurs minutes) :
- *    le 1ᵉʳ appel les ré-estampille toutes (4 000 lignes écrites : leurs déclencheurs — même compte,
- *    clés étrangères — coûtent à eux seuls ~0,7 s), sous 2,5 s ; chacun des 6 suivants relit et
- *    recalcule les 4 000 cellules, sous 1 s (avant la migration 109 : ~1 s puis le plan générique).
- *    Puis le premier document d'un TPM sur ce contrat, pour le plus ancien mois (reports.insertReport) :
- *    les 4 000 visites passées le suivent (paquets de 500).
+ *  - Point 2 (relecture r2stamp, points 1 et 5 : garde STRUCTURELLE, jamais un seuil qui mesure l'état des
+ *    statistiques) : mems_tpm_stamp porte `plan_cache_mode=force_custom_plan` (pg_proc.proconfig : sans lui,
+ *    PL/pgSQL passait au plan générique au 6ᵉ appel d'une session) ; 4 000 visites couvertes par un
+ *    contrat, tables touchées ANALYSÉES d'abord (état des statistiques fixé, celui de la production), puis
+ *    7 appels dans UNE session mems2_app : les appels 6 et 7 au plus 3 fois la médiane des appels 2 à 5,
+ *    et un plafond grossier de 15 s par appel. Mesuré (base analysée, migration 120) : 1ᵉʳ appel ~0,7 à 1 s
+ *    (4 000 lignes écrites et leurs déclencheurs), les suivants 60 à 150 ms. Puis le premier document d'un
+ *    TPM sur ce contrat, pour le plus ancien mois (reports.insertReport) : les 4 000 visites passées le
+ *    suivent (un paquet par mois), sous 30 s.
  *  - Point 3 : contrat KB (district D) suivi par Y ; contrat K4 (commune C de D, titulaire W, TPM),
  *    commencé à M−3 — les visites passées de C, estampillées Y/KB avant K4, sont « en retard » (la
  *    règle dit W/K4) et le passé ne se réécrit pas en silence. Le premier plan de Z sur KB pour M−2 :
@@ -155,6 +157,15 @@ test('point 2 : 4 000 visites couvertes — mems_tpm_stamp 7 fois de suite (mems
            FROM unnest($2::uuid[]) s, generate_series(1, 40) g RETURNING id`, [T, made.sites, `${M}-01`])).map((r) => r.id);
       await q('COMMIT');
       assert.equal(made.visits.length, 4000);
+      // Garde structurelle : la fonction est planifiée à chaque appel avec ses valeurs (migration 109).
+      const [{ conf }] = await q("SELECT proconfig AS conf FROM pg_proc WHERE proname = 'mems_tpm_stamp'");
+      assert.ok((conf || []).includes('plan_cache_mode=force_custom_plan'), `proconfig : ${JSON.stringify(conf)}`);
+      // Migration 120 : l'estimation juste de la politique de sécurité (tenant_id::text) sur ces tables.
+      const [{ n: stx }] = await q("SELECT count(*)::int AS n FROM pg_statistic_ext WHERE stxname LIKE '%\\_tenant\\_text\\_stx'");
+      assert.equal(stx, 12, 'statistiques d expression de la migration 120');
+      // État des statistiques FIXÉ (celui de la production, autovacuum) : tables lues par mems_tpm_cells analysées.
+      await q(`ANALYZE sites, site_visits, contracts, contract_budget_items, contract_areas, admin_areas, partners, partner_types,
+                       tpm_collection_plans, tpm_reports, tpm_zone_overrides, tpm_unavailability`);
 
       // Sept appels de suite dans UNE session du rôle applicatif (RLS) ; tout est annulé ensuite.
       const app = new Client({ connectionString: APP_URL });
@@ -175,17 +186,22 @@ test('point 2 : 4 000 visites couvertes — mems_tpm_stamp 7 fois de suite (mems
         await app.end();
       }
       const all = ms.map(Math.round).join(', ');
-      assert.ok(ms[0] < 2500, `1ᵉʳ appel (4 000 lignes écrites) : ${Math.round(ms[0])} ms (${all} ms)`);
-      for (const [i, t] of ms.entries()) if (i > 0) assert.ok(t < 1000, `appel ${i + 1} : ${Math.round(t)} ms — jamais le plan générique (${all} ms)`);
+      // Relatif, jamais absolu : les appels 6 et 7 (là où le plan générique arrivait) au plus 3 fois la médiane
+      // des appels 2 à 5 (+ 100 ms de marge pour une machine chargée) ; plafond grossier de 15 s par appel.
+      const median = [...ms.slice(1, 5)].sort((x, y) => x - y).slice(1, 3).reduce((x, y) => x + y, 0) / 2;
+      for (const [i, t] of ms.entries()) assert.ok(t < 15000, `appel ${i + 1} : ${Math.round(t)} ms, plafond 15 s (${all} ms)`);
+      for (const i of [5, 6]) {
+        assert.ok(ms[i] <= 3 * median + 100, `appel ${i + 1} : ${Math.round(ms[i])} ms > 3 × médiane des appels 2 à 5 (${Math.round(median)} ms) — plan générique ? (${all} ms)`);
+      }
 
-      // Premier document de P sur K pour le plus ancien mois : les 4 000 visites passées suivent P (paquets de 500).
+      // Premier document de P sur K pour le plus ancien mois : les 4 000 visites passées suivent P (un paquet par mois).
       const t0 = Date.now();
       made.reports.push(await reports.insertReport(T, { partnerId: P, contractId: K, periodMonth: `${addMonth(M, -40)}-01`, kind: 'technique', createdBy: U }));
       const elapsed = Date.now() - t0;
       const [after] = await q(`SELECT count(*) FILTER (WHERE provider_id = $2 AND provider_zone_state = 'contrat' AND contract_id = $3)::int AS n
                                  FROM site_visits WHERE id = ANY ($1::uuid[])`, [made.visits, P, K]);
       assert.equal(after.n, 4000, 'toutes les visites passées suivent le TPM rattaché');
-      assert.ok(elapsed < 10000, `premier document : ${elapsed} ms (mesuré ~2 s)`);
+      assert.ok(elapsed < 30000, `premier document : ${elapsed} ms (mesuré ~1,5 à 3 s ; plafond grossier)`);
     } finally {
       await cleanup(made);
     }
