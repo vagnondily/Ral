@@ -129,7 +129,14 @@ test('vue Indisponibilités (U4, U5, U7) : plage lue bornée à 24 mois ; « Met
   assert.ok(!view.includes('elle est déjà terminée'));
   assert.match(view, /aria-label=\{ending && ending\.past \? tr\('Retirer · \{p\}'/);
   assert.match(view, /past: ending\.past/);
-  for (const k of ["tr('Retirer l\\'indisponibilité')", "tr('Retirer')", "tr('Déclarée par erreur ?"]) assert.ok(view.includes(k), k);
+  for (const k of ["tr('Retirer l\\'indisponibilité')", "tr('Confirmer le retrait')", "tr('Déclarée par erreur ?"]) assert.ok(view.includes(k), k);
+  // Relecture r114c, point 6 : aide du retrait (jamais « la fin ») ; bouton à sa propre phrase (EN : « Withdraw… », jamais « Remove »).
+  assert.match(view, /hint=\{withdraw \? tr\('Facultative : le retrait est journalisé avec le motif d\\'origine\.'\)/);
+  assert.ok(!view.includes("withdraw ? tr('Retirer') :"), 'jamais la phrase partagée « Retirer » (EN « Remove »)');
+  const en = await load(t, 'locales/en.js');
+  assert.equal(en.default['Facultative : le retrait est journalisé avec le motif d\'origine.'], 'Optional: the withdrawal is logged with the original reason.');
+  assert.equal(en.default['Confirmer le retrait'], 'Confirm withdrawal');
+  assert.equal(en.default['Retirer l\'indisponibilité'], 'Withdraw the unavailability');
 });
 
 test('Rapports : la période d un lien n est lue et retirée que sur #/tpm/rapports, jamais sur un autre écran (re-relecture, point 1)', async (t) => {
