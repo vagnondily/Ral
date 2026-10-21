@@ -174,6 +174,7 @@ export default {
   'TPM retenu, mois par mois': 'TPM applied, month by month',
   'aucun contrat': 'no contract',
   'aucun contrat de suivi': 'no monitoring contract',
+  'sans TPM': 'no TPM',
   'selon contrat : {c}': 'per contract: {c}',
   'TPM par défaut du contrat le plus récent ; confirmez ou choisissez.': 'Default TPM from the most recent contract; confirm or choose.',
   '{n} prévue(s)': '{n} planned',

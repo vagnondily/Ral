@@ -9,7 +9,7 @@ import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { currentMonth, formatInt, monthLabel, shiftMonth, shortMonthLabel } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
-import { INTERNAL_STATES, ROW_FLAGS, TPM_FLAGS, TPM_ZONE_STATE, applyResultMessage, internalWhy, isInternalState, rangeLabel } from '../../lib/tpmAttribution.js';
+import { INTERNAL_STATES, ROW_FLAGS, TPM_FLAGS, TPM_ZONE_STATE, applyResultMessage, internalWhy, isInternalState, rangeLabel, segmentContractLabel, zoneContracts } from '../../lib/tpmAttribution.js';
 import { ROLE_LABELS } from '../../lib/roles.js';
 import TpmChangeDialog from './TpmChangeDialog.jsx';
 import TpmAttributionLog from './TpmAttributionLog.jsx';
@@ -171,7 +171,7 @@ export default function TpmAttributionTab({ canEdit }) {
       for (const s of r.segments) {
         const c = r.contractSegments.find((x) => x.from <= s.from && s.from <= x.to) || {};
         lines.push([r.regionName, r.name, r.depth === 3 ? tr('Commune') : tr('District'), r.sites, s.from, s.to,
-          c.providerName || tr((TPM_ZONE_STATE[c.state] || {}).label || ''), c.contractLabel || '', s.providerName || tr(ROLE_LABELS.noTpm),
+          c.providerName || tr((TPM_ZONE_STATE[c.state] || {}).label || ''), segmentContractLabel(c), s.providerName || tr(ROLE_LABELS.noTpm),
           tr((TPM_ZONE_STATE[s.state] || {}).label || s.state), isInternalState(s.state) ? internalWhy(tr, { ...s, reason: s.override ? s.override.reason : null }) : '',
           s.override ? s.override.reason : '']);
       }
@@ -350,15 +350,8 @@ function contractText(tr, c) {
 function ZoneRow({ row, canEdit, selected, focused, onSelect, onChange, onRevert, onHistory }) {
   const { tr } = useI18n();
   const v = sumVisits(row);
-  const contracts = [];
-  const seen = new Set();
-  for (const s of row.contractSegments) {
-    for (const c of s.candidates || []) {
-      if (seen.has(c.contractId)) continue;
-      seen.add(c.contractId);
-      contracts.push(c);
-    }
-  }
+  // Contrats avec un TPM, puis contrats de suivi SANS TPM (« sans TPM ») : jamais « aucun contrat » quand un contrat couvre la zone.
+  const contracts = zoneContracts(row);
   const multi = row.segments.length > 1;
   const modified = row.segments.some((s) => s.override);
   const contractAt = (m) => row.contractSegments.find((c) => c.from <= m && m <= c.to);
@@ -374,7 +367,9 @@ function ZoneRow({ row, canEdit, selected, focused, onSelect, onChange, onRevert
         {contracts.length === 0 ? <span className="muted">{tr('aucun contrat de suivi')}</span> : contracts.map((c) => (
           <a key={c.contractId} className="tpa-contract" href={contractHref(c.contractId)} title={tr('Ouvrir le contrat')}>
             <span className="mono">{c.contractLabel || c.numero}</span>
-            <span className="muted">{c.providerName}{c.endMonth ? ` · ${tr('jusqu\'à {m}', { m: shortMonthLabel(c.endMonth) })}` : ''}</span>
+            {c.noTpm
+              ? <span className="muted">{c.holderName}<span className="tpa-tag">{tr('sans TPM')}</span></span>
+              : <span className="muted">{c.providerName}{c.endMonth ? ` · ${tr('jusqu\'à {m}', { m: shortMonthLabel(c.endMonth) })}` : ''}</span>}
           </a>
         ))}
       </td>
