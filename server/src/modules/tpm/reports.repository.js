@@ -364,8 +364,14 @@ async function replaceReportItems(tenantId, id, items, { invoiceNo, periodEnd, a
  */
 async function deleteReport(tenantId, id, { actorId, isAdmin = false, justification } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
-    await tpmAttributionRepo.lockTpmLinkTx(client, tenantId); // lien TPM ↔ contrat : verrou d'attribution AVANT la ligne (retour 114)
-    const report = await getReportRow(client, tenantId, id);
+    // Lien TPM ↔ contrat (retour 114) : contrat du rapport → verrou d'attribution → ligne du rapport, comme les créateurs.
+    const report = await tpmAttributionRepo.lockLinkDocumentTx(client, tenantId, {
+      peekContract: async (c) => {
+        const { rows: [r] } = await c.query('SELECT contract_id AS "contractId" FROM tpm_reports WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+        return r ? r.contractId : undefined;
+      },
+      lockRow: (c) => getReportRow(c, tenantId, id),
+    });
     if (!report) return null;
 
     const validated = isValidatedStatus('tpm_report', report.status);

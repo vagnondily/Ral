@@ -18,10 +18,10 @@ const { currentMonth } = require('./rbmMath');
  *
  * Ordre des verrous, partout (aucun interblocage) : rattachements (withSubmissionLinks) →
  * génération RBM → ligne de contrat (FOR UPDATE pour les écrivains de contrats ; FOR KEY SHARE pour
- * les écrivains du lien TPM ↔ contrat, lockTpmLinkTx) → verrou d'attribution du compte (ici,
- * toujours après la ligne de contrat) → lignes tpm_zone_overrides et site_visits, clés étrangères
- * vers partners (jamais une ligne de partenaire avant le verrou d'attribution : règle du lot 8,
- * partners/partnerRole).
+ * les écrivains du lien TPM ↔ contrat, création ET suppression : lockTpmLinkTx, lockLinkDocumentTx) →
+ * verrou d'attribution du compte (ici, toujours après la ligne de contrat) → lignes des documents
+ * (factures, plans), tpm_zone_overrides et site_visits, clés étrangères vers partners (jamais une ligne
+ * de partenaire avant le verrou d'attribution : règle du lot 8, partners/partnerRole).
  */
 
 const ATTRIBUTION_KEY = (tenantId) => `tpm-attribution:${tenantId}`;
@@ -189,6 +189,37 @@ async function lockTpmLinkTx(client, tenantId, { partnerId = null, contractId = 
   await lockAttributionTx(client, tenantId);
   if (!partnerId || !contractId) return null;
   return { partnerId, contractId, had: await tpmLinkExistsTx(client, tenantId, partnerId, contractId) };
+}
+
+/**
+ * Suppression d'un document du lien (facture / rapport, plan de collecte) : sa ligne sous verrou, dans
+ * l'ordre des créateurs — contrat du document (FOR KEY SHARE) → verrou d'attribution → ligne du document
+ * (FOR UPDATE). Jamais la ligne du document puis le contrat : la ré-estampille du dernier document peut
+ * écrire site_visits.contract_id = ce contrat (clé étrangère → FOR KEY SHARE), ce qui formait un cycle
+ * avec la suppression du contrat (contrat FOR UPDATE, puis ses rapports : 40P01). Le contrat est lu SANS
+ * verrou, puis verrouillé ; si la ligne a changé de contrat entre-temps, ROLLBACK TO SAVEPOINT rend tous
+ * les verrous pris (ligne du mauvais contrat et verrou d'attribution compris) et on recommence UNE fois ;
+ * document absent : null (404). Jamais un verrou sur un autre contrat que celui du document.
+ * @param {(client) => Promise<string|null|undefined>} peekContract  contrat du document, SANS verrou
+ *   (undefined : document absent)
+ * @param {(client) => Promise<object|null>} lockRow  ligne du document FOR UPDATE, avec `contractId`
+ * @returns {Promise<object|null>}
+ */
+async function lockLinkDocumentTx(client, tenantId, { peekContract, lockRow }) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const contractId = await peekContract(client);
+    if (contractId === undefined) return null;
+    await client.query('SAVEPOINT link_document_lock');
+    await lockTpmLinkTx(client, tenantId, { contractId });
+    const row = await lockRow(client);
+    if (!row || (row.contractId || null) === (contractId || null)) {
+      await client.query('RELEASE SAVEPOINT link_document_lock');
+      return row || null;
+    }
+    await client.query('ROLLBACK TO SAVEPOINT link_document_lock');
+    await client.query('RELEASE SAVEPOINT link_document_lock');
+  }
+  return null;
 }
 
 /**
@@ -830,7 +861,7 @@ async function applyContractsTx(client, tenantId, actorId, { period = null, reas
 module.exports = {
   cellsForSitesTx, applyContractsTx, slimCell, unavailabilityTx, deleteUnavailabilityTx, upsertUnavailabilityTx, plannedRangeVisitsTx,
   tableForSitesTx, boardTpmTx, applyVisitRequestTx,
-  ATTRIBUTION_KEY, ZONE_CTES, INVOICED_SQL, AUTO_RESTAMPABLE_SQL, monitorKeySql, lockAttributionTx, tpmLinkExistsTx, lockTpmLinkTx, linkPastScopeTx, restampIfTpmLinkChangedTx, refreshSiteZonesTx, restampVisitsTx,
+  ATTRIBUTION_KEY, ZONE_CTES, INVOICED_SQL, AUTO_RESTAMPABLE_SQL, monitorKeySql, lockAttributionTx, tpmLinkExistsTx, lockTpmLinkTx, lockLinkDocumentTx, linkPastScopeTx, restampIfTpmLinkChangedTx, refreshSiteZonesTx, restampVisitsTx,
   partnersTx, loadInputsTx, overridesTx, areasTx, communeRowIds, zoneRowsTx, visitGroupsTx, expandRegionsTx,
   plannedZoneVisitsTx, visitsForUpdateTx, siteZoneTx, monthPlanStatusesTx,
   deleteOverridesTx, upsertOverridesTx, applyVisitDecisionsTx, insertLogTx, listLogTx, attributionCountsTx, siteZonesTx,

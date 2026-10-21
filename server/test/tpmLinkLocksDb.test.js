@@ -16,6 +16,8 @@
  *     (lot 8, contracts.repository.getContract) : l'écrivain du lien ne l'attend pas du tout ; s'il
  *     l'attendait (FOR UPDATE), ce serait sans tenir le verrou d'attribution. Une 3ᵉ connexion retarde
  *     l'écrivain de contrat APRÈS sa ligne de contrat (ligne de l'avenant, ou table de l'historique).
+ * Et la suppression du dernier document du lien (deleteReport) pendant celle du contrat : même ordre —
+ * contrat (FOR KEY SHARE), verrou d'attribution, puis la ligne du rapport (lockLinkDocumentTx).
  */
 const SU_URL = process.env.MEMS_TEST_DATABASE_URL;
 const APP_URL = process.env.MEMS_TEST_APP_DATABASE_URL;
@@ -28,11 +30,11 @@ const assert = require('node:assert/strict');
 
 const SKIP = enabled ? false : 'base jetable absente (MEMS_TEST_DATABASE_URL / MEMS_TEST_APP_DATABASE_URL, nom contenant « test »)';
 const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
+test.after(async () => { if (enabled) await require('../src/config/db').pool.end(); });
 
 test('lien TPM ↔ contrat × écrivain de contrat sur le même contrat : jamais d interblocage (avenant, résiliation × facture, plan, gabarits)',
   { skip: SKIP, timeout: 180000 }, async () => {
     const { Client } = require('pg');
-    const { pool } = require('../src/config/db');
     // Sans Redis : le réveil de la boîte d'envoi (après COMMIT) ne compte pas ici et garderait le processus ouvert.
     require('../src/jobs/outbox').nudgeOutbox = async () => {};
     const contracts = require('../src/modules/contracts/contracts.service');
@@ -149,6 +151,112 @@ test('lien TPM ↔ contrat × écrivain de contrat sur le même contrat : jamais
         await q('DELETE FROM contracts WHERE id = $1', [K]).catch(() => {});
       }
       await c3.end(); await c4.end(); await su.end();
-      await pool.end();
+    }
+  });
+
+test('dernier gabarit supprimé pendant la suppression du contrat : jamais d interblocage (contrat → attribution → rapport)',
+  { skip: SKIP, timeout: 120000 }, async () => {
+    // Le cycle d'avant : deleteReport tenait le verrou d'attribution et la ligne du rapport, puis sa
+    // ré-estampille écrivait site_visits.contract_id = K (clé étrangère → K FOR KEY SHARE) ; la suppression
+    // du contrat tenait K FOR UPDATE puis attendait ses rapports. Simulée ici telle quelle (contrat FOR
+    // UPDATE, puis ses rapports FOR UPDATE) ; une 3ᵉ connexion tient la visite pour croiser les deux.
+    const { Client } = require('pg');
+    const reports = require('../src/modules/tpm/reports.repository');
+    const { currentMonth } = require('../src/modules/tpm/rbmMath');
+    const su = new Client({ connectionString: SU_URL });
+    const c2 = new Client({ connectionString: SU_URL }); // la suppression du contrat (simulée)
+    const c3 = new Client({ connectionString: SU_URL }); // tient la visite
+    await su.connect(); await c2.connect(); await c3.connect();
+    const q = async (sql, params) => (await su.query(sql, params)).rows;
+    const made = { contract: null, visit: null, partners: [] };
+    try {
+      const [{ id: T }] = await q('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1');
+      const [{ id: U }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND role = 'admin' ORDER BY email LIMIT 1", [T]);
+      const [{ id: tpmType }] = await q("SELECT id FROM partner_types WHERE tenant_id = $1 AND code = 'tpm'", [T]);
+      const M = currentMonth();
+      // District sans contrat de suivi ce mois.
+      const sites = await q('SELECT id, zone_district_id AS d FROM sites WHERE tenant_id = $1 AND zone_district_id IS NOT NULL ORDER BY id LIMIT 400', [T]);
+      const cells = await q('SELECT c_site_id AS s, c_area_id AS a, c_state AS st FROM mems_tpm_cells($1, $2::uuid[], $3::date[])',
+        [T, sites.map((x) => x.id), sites.map(() => `${M}-01`)]);
+      const free = new Set(cells.filter((c) => c.st === 'sans_contrat').map((c) => c.s));
+      const site = sites.find((x) => free.has(x.id));
+      assert.ok(site, 'un site d un district sans contrat de suivi');
+      const [area] = await q('SELECT id, path FROM admin_areas WHERE tenant_id = $1 AND id = $2', [T, site.d]);
+      const mk = async (name) => (await q('INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1, $2, $3) RETURNING id', [T, tpmType, name]))[0].id;
+      const H = await mk('Test r114 verrous titulaire'); const P = await mk('Test r114 verrous TPM');
+      made.partners = [H, P];
+      // Contrat de suivi K du mois, titulaire H (TPM actif), sur ce district.
+      const [{ id: K }] = await q(
+        `INSERT INTO contracts (tenant_id, numero, partner_id, partner_name, date_debut, date_fin, status, created_by)
+         VALUES ($1, 'TEST-R114L-DEL', $2, 'Test r114 verrous titulaire', $3, ($3::date + interval '1 month' - interval '1 day')::date, 'actif', $4) RETURNING id`,
+        [T, H, `${M}-01`, U]);
+      made.contract = K;
+      await q(`INSERT INTO contract_budget_items (contract_id, tenant_id, line_code, description, unit_count, unit_cost, allocations, sort_order)
+               VALUES ($1, $2, 'IV.suivi', 'Suivi (test r114 verrous)', 1, 1000, '{}'::jsonb, 0)`, [K, T]);
+      await q('INSERT INTO contract_areas (contract_id, tenant_id, admin_area_id, path, depth, sort_order) VALUES ($1, $2, $3, $4, 2, 0)', [K, T, area.id, area.path]);
+      // Gabarit unique de P (dernier document du lien) ; P indisponible ce mois : la visite est « indisponible », sans contrat.
+      assert.equal((await reports.generateMonthlyStubs(T, { contractId: K, partnerId: P, createdBy: U })).created, 1);
+      const [{ id: R }] = await q('SELECT id FROM tpm_reports WHERE tenant_id = $1 AND contract_id = $2', [T, K]);
+      await q(`INSERT INTO tpm_unavailability (tenant_id, provider_id, period_month, reason, batch_id)
+               VALUES ($1, $2, $3, 'Indisponibilité de test (retour 114)', gen_random_uuid())`, [T, P, `${M}-01`]);
+      await q('BEGIN');
+      await q("SELECT set_config('mems.tpm_stamping', 'on', true)");
+      const [{ id: V }] = await q(
+        `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, provider_source, provider_zone_state)
+         VALUES ($1, $2, $3, 'Test r114 verrous', 'planifie', 'zone', 'indisponible') RETURNING id`, [T, site.id, `${M}-01`]);
+      await q('COMMIT');
+      made.visit = V;
+      const [cell] = await q('SELECT c_state AS st, c_contract_id AS k FROM mems_tpm_cells($1, $2::uuid[], $3::date[])', [T, [site.id], [`${M}-01`]]);
+      assert.deepEqual([cell.st, cell.k], ['indisponible', null]);
+
+      // La 3ᵉ connexion tient la visite : deleteReport s'y arrêtera, dans sa ré-estampille.
+      await c3.query('BEGIN');
+      await c3.query('SELECT 1 FROM site_visits WHERE id = $1 FOR UPDATE', [V]);
+      const del = reports.deleteReport(T, R, { actorId: U, isAdmin: true }).then((v) => ({ v }), (err) => ({ err }));
+      let reportPid = null;
+      for (let i = 0; i < 250 && !reportPid; i += 1) {
+        const rows = await q("SELECT pid FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND $1 = ANY (pg_blocking_pids(pid))", [c3.processID]);
+        if (rows.length) reportPid = rows[0].pid; else await sleep(20);
+      }
+      assert.ok(reportPid, 'deleteReport attend la visite');
+      // Suppression du contrat (simulée) : K FOR UPDATE, puis ses rapports FOR UPDATE.
+      await c2.query('BEGIN');
+      await c2.query("SET LOCAL lock_timeout = '15s'");
+      const draft = (async () => {
+        try {
+          await c2.query('SELECT id FROM contracts WHERE tenant_id = $1 AND id = $2 FOR UPDATE', [T, K]);
+          const { rows } = await c2.query('SELECT id FROM tpm_reports WHERE tenant_id = $1 AND contract_id = $2 FOR UPDATE', [T, K]);
+          await c2.query('ROLLBACK');
+          return { reports: rows.length };
+        } catch (err) { await c2.query('ROLLBACK').catch(() => {}); return { err }; }
+      })();
+      // Elle attend le contrat, que deleteReport tient (FOR KEY SHARE) AVANT le verrou d'attribution et le rapport.
+      let waits = false;
+      for (let i = 0; i < 250 && !waits; i += 1) {
+        const rows = await q('SELECT pg_blocking_pids($1) AS b', [c2.processID]);
+        waits = (rows[0].b || []).includes(reportPid); if (!waits) await sleep(20);
+      }
+      assert.ok(waits, 'la suppression du contrat attend le contrat tenu par deleteReport');
+      await c3.query('ROLLBACK');
+      const [rd, rc] = await Promise.all([del, draft]);
+      assert.equal(rd.err, undefined, `deleteReport : ${rd.err && `${rd.err.code} ${rd.err.message}`}`);
+      assert.equal(rd.v, 'ok');
+      assert.equal(rc.err, undefined, `suppression du contrat : ${rc.err && `${rc.err.code} ${rc.err.message}`}`);
+      assert.equal(rc.reports, 0, 'le rapport supprimé ne bloque plus la suppression du contrat');
+      const [v] = await q('SELECT provider_zone_state AS st, provider_id AS p, contract_id AS k FROM site_visits WHERE id = $1', [V]);
+      assert.deepEqual([v.st, v.p, v.k], ['contrat', H, K], 'dernier document supprimé : la visite suit le titulaire TPM de K');
+    } finally {
+      await c3.query('ROLLBACK').catch(() => {});
+      await c2.query('ROLLBACK').catch(() => {});
+      if (made.visit) await q('DELETE FROM site_visits WHERE id = $1', [made.visit]).catch(() => {});
+      await q('DELETE FROM tpm_unavailability WHERE provider_id = ANY ($1::uuid[])', [made.partners]).catch(() => {});
+      if (made.contract) {
+        await q('DELETE FROM tpm_reports WHERE contract_id = $1', [made.contract]).catch(() => {});
+        await q('DELETE FROM contract_areas WHERE contract_id = $1', [made.contract]).catch(() => {});
+        await q('DELETE FROM contract_budget_items WHERE contract_id = $1', [made.contract]).catch(() => {});
+        await q('DELETE FROM contracts WHERE id = $1', [made.contract]).catch(() => {});
+      }
+      if (made.partners.length) await q('DELETE FROM partners WHERE id = ANY ($1::uuid[])', [made.partners]).catch(() => {});
+      await c3.end(); await c2.end(); await su.end();
     }
   });

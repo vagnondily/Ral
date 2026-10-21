@@ -7,7 +7,7 @@ const { assertItemActivities } = require('./activityRefs');
 const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
 const { isValidatedStatus, decideDocumentDeletion, linkedSummary } = require('../common/deletionPolicy');
 const { recordDeletion } = require('../deletions/deletions.repository');
-const { lockTpmLinkTx, restampIfTpmLinkChangedTx } = require('./tpmAttribution.repository');
+const { lockTpmLinkTx, lockLinkDocumentTx, restampIfTpmLinkChangedTx } = require('./tpmAttribution.repository');
 
 /**
  * Planification & budget — budget prévisionnel d'une vague de collecte.
@@ -191,18 +191,23 @@ async function updatePlan(tenantId, id, { items, title, status }) {
  */
 async function deletePlan(tenantId, id, { actorId, isAdmin = false, justification } = {}) {
   return withTenantTransaction(tenantId, async (client) => {
-    await lockTpmLinkTx(client, tenantId); // lien TPM ↔ contrat : verrou d'attribution AVANT la ligne du plan (retour 114)
-    const { rows } = await client.query(
-      `SELECT p.status, p.period_month AS "periodMonth", p.title,
-              p.partner_id AS "partnerId", p.contract_id AS "contractId",
-              pa.name AS "partnerName", c.numero AS "contractNumero"
-         FROM tpm_collection_plans p
-         JOIN partners pa ON pa.id = p.partner_id
-         JOIN contracts c ON c.id = p.contract_id
-        WHERE p.tenant_id = $1 AND p.id = $2 FOR UPDATE OF p`,
-      [tenantId, id]
-    );
-    const plan = rows[0];
+    // Lien TPM ↔ contrat (retour 114) : contrat du plan → verrou d'attribution → ligne du plan, comme les créateurs.
+    const plan = await lockLinkDocumentTx(client, tenantId, {
+      peekContract: async (c) => {
+        const { rows: [r] } = await c.query('SELECT contract_id AS "contractId" FROM tpm_collection_plans WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
+        return r ? r.contractId : undefined;
+      },
+      lockRow: async (c) => (await c.query(
+        `SELECT p.status, p.period_month AS "periodMonth", p.title,
+                p.partner_id AS "partnerId", p.contract_id AS "contractId",
+                pa.name AS "partnerName", c.numero AS "contractNumero"
+           FROM tpm_collection_plans p
+           JOIN partners pa ON pa.id = p.partner_id
+           JOIN contracts c ON c.id = p.contract_id
+          WHERE p.tenant_id = $1 AND p.id = $2 FOR UPDATE OF p`,
+        [tenantId, id]
+      )).rows[0] || null,
+    });
     if (!plan) return null;
 
     const validated = isValidatedStatus('collection_plan', plan.status);
