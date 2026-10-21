@@ -104,7 +104,8 @@ export const NAV = [
 export function findRoute(moduleId, subId) {
   for (const g of NAV) {
     const mod = g.items.find((i) => i.id === moduleId);
-    const sub = mod?.subs?.find((s) => s.id === subId);
+    // Les intertitres (« Référentiels »…) n'ont pas d'id : jamais une route (#/parametrage → route par défaut).
+    const sub = mod?.subs?.find((s) => s.id && s.id === subId);
     // « soon » sub-modules are placeholders with no page — a deep link to one
     // falls back to the default route rather than showing a blank page.
     if (mod && sub && !sub.soon) return { mod, sub };
