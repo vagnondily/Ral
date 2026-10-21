@@ -160,7 +160,7 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `106` | traçabilité des plans automatiques (`plan_auto_runs`, après le portage ; agent `wip/planauto-port`) | ⏳ |
   | `107` | retour 114 : estampillage selon D1, suivi interne, indisponibilités des TPM (agent `wip/r114`) | 🔄 |
   | `108` | factures sur plusieurs mois : visites couvertes protégées (`mems_tpm_stamp`, agent `wip/xb-tpm`) | 🔄 |
-  | `109` | libre | — |
+  | `109` | `mems_tpm_stamp` sans sous-requêtes en arguments (recalcul rapide sous le verrou d'attribution, agent `wip/xb-tpm`) | 🔄 |
   | `110`–`115` | programmes, projets, bailleurs, Output (conception, ex-`091`–`095`) | ⏳ |
   | `116` et suivants | libres | — |
 
