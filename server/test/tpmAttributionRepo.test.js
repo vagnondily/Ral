@@ -275,7 +275,7 @@ test('trop de cellules, zone hors district / commune → 400 avant toute lecture
 // Visites qu'une re-dérivation automatique peut toucher : prévues, non figées (« antérieur »), pas
 // encore facturées (facture soumise ou validée de leur TPM, ce mois-là) — jamais une visite
 // réalisée ou annulée.
-const NOT_INVOICED = /v\.status = 'planifie' AND v\.provider_zone_state IS DISTINCT FROM 'anterieur' AND NOT EXISTS \(SELECT 1 FROM tpm_reports r WHERE r\.tenant_id = v\.tenant_id AND r\.partner_id = v\.provider_id AND r\.period_month = v\.period_month AND r\.kind = 'financier' AND r\.status IN \('soumis', 'valide'\)\)/;
+const NOT_INVOICED = /v\.status = 'planifie' AND v\.provider_zone_state IS DISTINCT FROM 'anterieur' AND NOT EXISTS \(SELECT 1 FROM tpm_reports r WHERE r\.tenant_id = v\.tenant_id AND r\.partner_id = v\.provider_id AND v\.period_month BETWEEN r\.period_month AND COALESCE\(r\.period_end, r\.period_month\) AND r\.kind = 'financier' AND r\.status IN \('soumis', 'valide'\)\)/;
 
 test('restampVisitsTx : portées (visites prévues « zone », non figées, non facturées seulement ; antérieures jamais)', async () => {
   const calls = [];

@@ -69,9 +69,18 @@ test('070 : défense en profondeur — une visite demandée (p_ids) n\'est ré-e
   const flat = fn.slice(fn.indexOf('WITH tv AS MATERIALIZED'), fn.indexOf('cells AS')).replace(/\s+/g, ' ');
   // « À estampiller » (nouvelle, ou rendue à sa zone) : une fois, quel que soit son statut ; sinon prévue seulement…
   assert.match(flat, /AND \(v\.provider_zone_state IS NULL OR \(v\.id = ANY \(COALESCE\(p_ids, '\{\}'::uuid\[\]\)\) AND v\.status = 'planifie' AND v\.provider_zone_state <> 'anterieur' AND NOT EXISTS \(SELECT 1 FROM tpm_reports r/);
-  // … et pas encore facturée : même prédicat que le dépôt (INVOICED_SQL, AUTO_RESTAMPABLE_SQL).
-  const invoiced = /r\.partner_id = v\.provider_id AND r\.period_month = v\.period_month AND r\.kind = 'financier' AND r\.status IN \('soumis', 'valide'\)/;
-  assert.match(flat, invoiced);
+  // … et pas encore facturée (070 : premier mois de la facture seulement).
+  assert.match(flat, /r\.partner_id = v\.provider_id AND r\.period_month = v\.period_month AND r\.kind = 'financier' AND r\.status IN \('soumis', 'valide'\)/);
+  // Depuis la migration 108 : chacun des mois de la facture — même prédicat que le dépôt (INVOICED_SQL, AUTO_RESTAMPABLE_SQL).
+  const fs108 = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/db/migrations/108_tpm_invoiced_span.sql'), 'utf8');
+  const fn108 = fs108.slice(fs108.indexOf('CREATE OR REPLACE FUNCTION mems_tpm_stamp'));
+  const flat108 = fn108.slice(fn108.indexOf('WITH tv AS MATERIALIZED'), fn108.indexOf('cells AS')).replace(/\s+/g, ' ');
+  const invoiced = /r\.partner_id = v\.provider_id AND v\.period_month BETWEEN r\.period_month AND COALESCE\(r\.period_end, r\.period_month\) AND r\.kind = 'financier' AND r\.status IN \('soumis', 'valide'\)/;
+  assert.match(flat108, invoiced);
+  const body = (f) => f.slice(0, f.indexOf('END $fn$;') + 'END $fn$;'.length).replace(/\s+/g, ' ');
+  assert.equal(body(fn108).replace(invoiced, 'X'),
+    body(fn).replace(/r\.partner_id = v\.provider_id AND r\.period_month = v\.period_month AND r\.kind = 'financier' AND r\.status IN \('soumis', 'valide'\)/, 'X'),
+    '108 ne change que le prédicat « déjà facturée »');
   const { INVOICED_SQL, AUTO_RESTAMPABLE_SQL } = require('../src/modules/tpm/tpmAttribution.repository');
   assert.match(INVOICED_SQL.replace(/\s+/g, ' '), invoiced);
   assert.match(AUTO_RESTAMPABLE_SQL, /^v\.status = 'planifie' AND v\.provider_zone_state IS DISTINCT FROM 'anterieur' AND NOT EXISTS/);

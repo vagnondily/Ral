@@ -82,13 +82,17 @@ async function refreshSiteZonesTx(client, tenantId) {
 
 /**
  * Visite « déjà facturée » : le TPM qu'elle porte a une facture (rapport financier) SOUMISE ou
- * VALIDÉE pour son mois — ses jours de collecte ont servi à facturer. Aucune re-dérivation
- * automatique (réparation de démarrage, « Appliquer les TPM des contrats », changement de contrat,
- * de zone ou de géographie) ne la touche ; seul un choix explicite, motivé, le peut.
- * Lu par l'index idx_tpm_reports_partner (tenant_id, partner_id, period_month). Alias de visite : v.
+ * VALIDÉE qui COUVRE son mois — chacun des mois [period_month, period_end] d'une facture
+ * pluri-mensuelle, comme les rapports attendus (relecture croisée, point 20) ; ses jours de collecte
+ * ont servi à facturer. Aucune re-dérivation automatique (réparation de démarrage, « Appliquer les TPM
+ * des contrats », changement de contrat, de zone, de rôle ou de géographie, indisponibilité, effacement
+ * du plan généré) ne la touche ; seul un choix explicite, motivé, le peut. Jumelle en base : le filtre
+ * des p_ids de mems_tpm_stamp (migration 108). Lu par l'index idx_tpm_reports_partner (tenant_id,
+ * partner_id, period_month). Alias de visite : v.
  */
 const INVOICED_SQL = `EXISTS (SELECT 1 FROM tpm_reports r
-   WHERE r.tenant_id = v.tenant_id AND r.partner_id = v.provider_id AND r.period_month = v.period_month
+   WHERE r.tenant_id = v.tenant_id AND r.partner_id = v.provider_id
+     AND v.period_month BETWEEN r.period_month AND COALESCE(r.period_end, r.period_month)
      AND r.kind = 'financier' AND r.status IN ('soumis', 'valide'))`;
 /**
  * Visites qu'une re-dérivation automatique peut toucher : PRÉVUES, non figées (« antérieur à la
