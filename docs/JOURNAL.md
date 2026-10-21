@@ -12,6 +12,17 @@
 
 ## État courant
 
+> **21/10 — Niveaux administratifs configurables depuis MEMS (base vierge).** ✅ Avant, les niveaux
+> (Région/District/Commune/Fokontany) n'existaient qu'après l'import d'un découpage ; sur base vierge
+> la section « Libellés des niveaux administratifs » était vide. Désormais : le formulaire Pays
+> pré-remplit les niveaux standard (éditables, + Ajouter / Retirer un niveau, max 6), et `saveCountry`
+> **crée** les niveaux (plus seulement renommer) avec le code `adm{depth}` attendu par l'import — donc
+> les libellés saisis sont conservés à l'import. Retrait d'un niveau refusé s'il porte déjà des unités.
+> Testé en base (création 3 niveaux, renommage, réduction sûre), lint ✅, 1270 tests ✅, build web ✅,
+> traductions EN ajoutées. **Import `.dbf`/shapefile** : reproduction d'un `.dbf` OCHA (ADM1_EN…ADM4_PCODE)
+> → lu correctement (4 niveaux) ; un 400 à l'import vient donc du fichier (`.dbf` seul sans `.dbt`/
+> encodage) → importer le `.zip` complet.
+
 > **21/10 — Correctif 400 sur « Enregistrer l'identité » (Paramétrage › Localités).** ✅ Sur une
 > base vierge, enregistrer le profil pays avec Latitude/Longitude du centre **vides** renvoyait
 > 400 « Données invalides » : le schéma zod `centerLat`/`centerLng` attendait un nombre ou `null`,
