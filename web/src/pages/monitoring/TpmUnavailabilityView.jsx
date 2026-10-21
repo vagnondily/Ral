@@ -193,7 +193,7 @@ function UnavailabilityDialog({ mode, providerId: initialProvider = '', provider
       footer={(
         <>
           <Button variant="ghost" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button>
-          <Button loading={saving} disabled={!canSave} onClick={save}>{withdraw ? tr('Retirer') : end ? tr('Mettre fin') : tr('Enregistrer')}</Button>
+          <Button loading={saving} disabled={!canSave} onClick={save}>{withdraw ? tr('Confirmer le retrait') : end ? tr('Mettre fin') : tr('Enregistrer')}</Button>
         </>
       )}>
       <div className="tpm-dialog">
@@ -245,7 +245,8 @@ function UnavailabilityDialog({ mode, providerId: initialProvider = '', provider
           <ReasonField id="tpm-off-reason" value={reason} onChange={setReason} suggestions={false}
             placeholder={withdraw ? tr('Déclarée par erreur ? Ex. mois saisis par erreur, TPM finalement disponible…')
               : tr('Pourquoi y mettre fin ? Ex. équipe de retour, contrat repris…')}
-            hint={tr('Facultative : la fin est journalisée avec le motif d\'origine.')} />
+            hint={withdraw ? tr('Facultative : le retrait est journalisé avec le motif d\'origine.')
+              : tr('Facultative : la fin est journalisée avec le motif d\'origine.')} />
         ) : (
           <>
             <ReasonField id="tpm-off-reason" value={reason} onChange={setReason} required suggestions={false}

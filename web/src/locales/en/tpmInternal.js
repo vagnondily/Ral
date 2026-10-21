@@ -131,6 +131,8 @@ export default {
   'Retirer cette indisponibilité (mois passés)…': 'Withdraw this unavailability (past months)…',
   'Retirer · {p}': 'Withdraw · {p}',
   'Retirer l\'indisponibilité': 'Withdraw the unavailability',
+  'Confirmer le retrait': 'Confirm withdrawal',
+  'Facultative : le retrait est journalisé avec le motif d\'origine.': 'Optional: the withdrawal is logged with the original reason.',
   'Déclarée par erreur ? Ex. mois saisis par erreur, TPM finalement disponible…': 'Declared by mistake? E.g. months entered by mistake, TPM available after all…',
   // Relecture croisée (D-b) : partenaire qui n'est plus un TPM
   'ce partenaire n\'est plus un TPM': 'this partner is no longer a TPM',

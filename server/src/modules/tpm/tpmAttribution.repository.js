@@ -2,7 +2,7 @@ const crypto = require('node:crypto');
 const { siteDistrictCtes, keySql } = require('../common/siteActivitySql');
 const { MONITORING_LINE } = require('../contracts/budgetCatalog');
 const {
-  summarizeRestamp, buildZoneTable, cellForSite, segments, tpmSelectable, visitDecision, tpmsByContract, linkPastMonths,
+  summarizeRestamp, buildZoneTable, cellForSite, segments, tpmSelectable, visitDecision, tpmsByContract, linkPastMonths, linkDecidedVisits,
 } = require('./tpmAttribution');
 // Règle commune « prestataire actif » (lot 8) : liens prestataire ↔ contrat et fiches partenaires.
 const activeProviderRepo = require('./activeProvider.repository');
@@ -17,23 +17,30 @@ const { currentMonth } = require('./rbmMath');
  * placeMatch.repository (aucun cycle : ce sont eux qui l'appellent).
  *
  * Ordre des verrous, partout (aucun interblocage) : rattachements (withSubmissionLinks) →
- * génération RBM → ligne de contrat (FOR UPDATE pour les écrivains de contrats ; FOR KEY SHARE pour
- * les écrivains du lien TPM ↔ contrat, création ET suppression : lockTpmLinkTx, lockLinkDocumentTx) →
- * verrou d'attribution du compte (ici, toujours après la ligne de contrat) → lignes des documents
- * (factures, plans), tpm_zone_overrides et site_visits, clés étrangères vers partners (jamais une ligne
- * de partenaire avant le verrou d'attribution : règle du lot 8, partners/partnerRole).
+ * génération RBM → ligne de contrat (FOR NO KEY UPDATE pour les écrivains de contrats — avenant,
+ * décision, résiliation, renouvellement — qui ne bloque jamais un FOR KEY SHARE ; FOR UPDATE pour la
+ * seule suppression d'un brouillon ; FOR KEY SHARE pour les écrivains du lien TPM ↔ contrat, création
+ * ET suppression : lockTpmLinkTx, lockLinkDocumentTx) → verrou d'attribution du compte (ici, toujours
+ * après la ligne de contrat) → lignes des documents (factures, plans), tpm_zone_overrides et
+ * site_visits, clés étrangères vers partners (jamais une ligne de partenaire avant le verrou
+ * d'attribution : règle du lot 8, partners/partnerRole).
  */
 
 const ATTRIBUTION_KEY = (tenantId) => `tpm-attribution:${tenantId}`;
 
 /**
  * Verrou d'attribution du compte (réentrant dans la transaction) : attente bornée à 20 s, puis
- * 55P03 → 503 « réessayez » (middleware/errors). Le même que prend mems_tpm_stamp en base.
+ * 55P03 → 503 « réessayez » (middleware/errors). Le même que prend mems_tpm_stamp en base. Le
+ * `lock_timeout` de l'APPELANT est rétabli ensuite (comme visitLocks.lockKeysTx), jamais remis à la
+ * valeur par défaut (0 : sans limite) — sinon un écrivain qui tient ce verrou attendrait une ligne
+ * sans limite et figerait tous les écrivains d'attribution du compte (relecture, point 13).
  */
 async function lockAttributionTx(client, tenantId) {
-  await client.query("SET LOCAL lock_timeout = '20s'");
+  const { rows } = await client.query("SELECT current_setting('lock_timeout') AS prior");
+  const prior = (rows && rows[0] && rows[0].prior) || '0';
+  await client.query("SELECT set_config('lock_timeout', '20s', true)");
   await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [ATTRIBUTION_KEY(tenantId)]);
-  await client.query('SET LOCAL lock_timeout = DEFAULT');
+  await client.query("SELECT set_config('lock_timeout', $1, true)", [prior]);
 }
 
 /**
@@ -121,6 +128,7 @@ const monitorKeySql = (alias = 'v') => `COALESCE(${alias}.provider_id::text, CAS
  *   { areaIds, months }   prévues dont le district OU la commune est visé, ces mois-là, passés
  *                         compris (modification d'une zone) ;
  *   { from, to }          prévues de la plage (« Réappliquer ») ;
+ *   { restampIds }        prévues désignées (≤ 500 par appel) — celles que décide un lien TPM ↔ contrat ;
  *   { visitIds }          visites que l'appelant VIENT de créer (seeds, avant que les zones des sites
  *                         soient connues) : rendues « à estampiller » puis estampillées comme à leur
  *                         création, quel que soit leur statut — jamais une visite d'un autre auteur.
@@ -148,6 +156,9 @@ async function restampVisitsTx(client, tenantId, scope = {}) {
     where = `${planned} AND v.period_month = ANY ($3::date[])
              AND EXISTS (SELECT 1 FROM sites s WHERE s.tenant_id = $1 AND s.id = v.site_id
                           AND (s.zone_district_id = ANY ($2::uuid[]) OR s.zone_commune_id = ANY ($2::uuid[])))`;
+  } else if (Array.isArray(scope.restampIds)) {
+    params.push(scope.restampIds);
+    where = `${planned} AND v.id = ANY ($2::uuid[])`;
   } else if (scope.from && scope.to) {
     params.push(`${String(scope.from).slice(0, 7)}-01`, `${String(scope.to).slice(0, 7)}-01`);
     where = `${planned} AND v.period_month BETWEEN $2::date AND $3::date`;
@@ -175,11 +186,12 @@ async function tpmLinkExistsTx(client, tenantId, partnerId, contractId) {
  * Écrivains du lien TPM ↔ contrat (plans de collecte, factures / rapports, gabarits mensuels :
  * création et suppression), en tête de leur transaction, dans l'ordre de l'en-tête :
  *   1. création (contractId donné) : la ligne du contrat FOR KEY SHARE — le verrou que la clé
- *      étrangère du document prendrait de toute façon, pris AVANT le verrou d'attribution, comme les
- *      écrivains de contrats (ligne FOR UPDATE, puis restampFromNow). Prise après, elle formait un
- *      cycle avec une approbation d'avenant, une validation ou une résiliation du même contrat
- *      (re-relecture, point 1 : 40P01) ; FOR KEY SHARE ne gêne ni un FOR NO KEY UPDATE du contrat ni
- *      la fiche du partenaire ;
+ *      étrangère du document prendrait de toute façon —, pris AVANT le verrou d'attribution, dans
+ *      l'ordre des écrivains de contrats (ligne du contrat, puis restampFromNow). Leur FOR NO KEY
+ *      UPDATE (avenant, décision, résiliation, renouvellement) ne bloque jamais ce FOR KEY SHARE ; seule
+ *      la suppression d'un brouillon (deleteDraft) prend la ligne FOR UPDATE, et l'écrivain du lien
+ *      l'attend alors SANS tenir le verrou d'attribution — aucun cycle. Pris après ce verrou, il en
+ *      formait un (re-relecture, point 1 : 40P01) ; il ne gêne pas non plus la fiche du partenaire ;
  *   2. le verrou d'attribution du compte, AVANT toute lecture du lien, la ligne du document et sa clé
  *      étrangère vers partners (« verrou d'abord », règle du lot 8) : deux écrivains du même compte se
  *      suivent, le second lit le lien laissé par le premier (deux suppressions des deux derniers
@@ -228,9 +240,11 @@ async function lockLinkDocumentTx(client, tenantId, { peekContract, lockRow }) {
 
 /**
  * Portée PASSÉE d'un changement de lien (re-relecture, point 2) : les mois passés que le contrat
- * couvre (rule.linkPastMonths) × SES zones — districts et communes de contract_areas, régions
- * étendues à leurs districts (une zone détachée ou un fokontany ne décide de rien). Jamais les
- * visites d'un autre contrat ou d'une autre zone : le passé ne se réécrit pas en silence ailleurs.
+ * couvre (rule.linkPastMonths, les 240 plus récents) × SES zones — districts et communes de
+ * contract_areas, régions étendues à leurs districts (une zone détachée ou un fokontany ne décide de
+ * rien). C'est l'ensemble où lire les visites candidates ; parmi elles, seules celles que le lien
+ * décide sont ré-estampillées (rule.linkDecidedVisits, relecture r114c point 3) — jamais une visite
+ * qu'une zone plus précise d'un autre contrat décide : le passé ne se réécrit pas en silence.
  * @returns {Promise<{ areaIds: string[], months: string[] }|null>}  null : rien de passé à recalculer
  */
 async function linkPastScopeTx(client, tenantId, contractId, docMonth, today) {
@@ -251,21 +265,50 @@ async function linkPastScopeTx(client, tenantId, contractId, docMonth, today) {
 }
 
 /**
+ * Ré-estampille des visites désignées, par paquets de RESTAMP_CHUNK (coût borné de chaque appel, un
+ * appel après l'autre sur le client) ; comptes additionnés, mouvements fusionnés (même résumé qu'un appel).
+ */
+const RESTAMP_CHUNK = 500;
+async function restampIdsTx(client, tenantId, ids) {
+  const out = { changed: 0, byState: {}, moves: [] };
+  for (let i = 0; i < ids.length; i += RESTAMP_CHUNK) {
+    const r = await restampVisitsTx(client, tenantId, { restampIds: ids.slice(i, i + RESTAMP_CHUNK) });
+    out.changed += r.changed;
+    for (const [k, n] of Object.entries(r.byState)) out.byState[k] = (out.byState[k] || 0) + n;
+    for (const m of r.moves) {
+      const same = out.moves.find((x) => x.fromProviderId === m.fromProviderId && x.toProviderId === m.toProviderId);
+      if (same) { same.visits += m.visits; same.datedVisits += m.datedVisits; } else out.moves.push({ ...m });
+    }
+  }
+  out.moves.sort((a, b) => b.visits - a.visits);
+  return out;
+}
+
+/**
  * Après l'écriture, sous le verrou pris par lockTpmLinkTx : le premier document d'un couple TPM ×
  * contrat, ou la suppression du dernier, change le TPM du contrat — les visites prévues
  * ré-estampillables (AUTO_RESTAMPABLE_SQL : jamais réalisées, annulées, figées, facturées ou motivées)
- * sont recalculées dans la MÊME transaction : du mois du document s'il est passé au mois précédent,
- * dans les SEULES zones du contrat (linkPastScopeTx) ; puis du mois courant, pour tout le compte
- * (comme contracts.service.restampFromNow). Sans changement du lien : rien.
+ * sont recalculées dans la MÊME transaction : dans les mois PASSÉS (du mois du document au mois
+ * précédent, zones du contrat : linkPastScopeTx), seulement celles dont la cellule change avec ce lien —
+ * la règle appliquée avant et après (rule.linkDecidedVisits ; relecture r114c, point 3) — par paquets de
+ * 500 ; puis du mois courant, pour tout le compte (comme contracts.service.restampFromNow). Sans
+ * changement du lien : rien.
  * @param {{ partnerId, contractId, had: boolean, month?: string }} link
  *   had = lien avant l'écriture ; month = premier mois du document (« AAAA-MM… »)
- * @returns {Promise<{ changed, past, current }|null>}  visites changées (passé dans les zones, puis courant)
+ * @returns {Promise<{ changed, past, current }|null>}  visites changées (passé décidé par le lien, puis courant)
  */
 async function restampIfTpmLinkChangedTx(client, tenantId, { partnerId, contractId, had, month = null }) {
   if (!partnerId || !contractId || had === await tpmLinkExistsTx(client, tenantId, partnerId, contractId)) return null;
   const today = currentMonth();
   const scope = await linkPastScopeTx(client, tenantId, contractId, month, today);
-  const past = scope ? await restampVisitsTx(client, tenantId, scope) : null;
+  let past = null;
+  if (scope) {
+    const visits = await plannedZoneVisitsTx(client, tenantId, scope);
+    if (visits.length) {
+      const { inputs, areas, months } = await tableForSitesTx(client, tenantId, { zones: visits, months: visits.map((v) => v.month) });
+      past = await restampIdsTx(client, tenantId, linkDecidedVisits({ visits, areas, months, inputs, partnerId, contractId, had }));
+    }
+  }
   const current = await restampVisitsTx(client, tenantId, { fromMonth: today });
   return { changed: (past ? past.changed : 0) + current.changed, past, current };
 }
@@ -865,7 +908,7 @@ async function applyContractsTx(client, tenantId, actorId, { period = null, reas
 module.exports = {
   cellsForSitesTx, applyContractsTx, slimCell, unavailabilityTx, deleteUnavailabilityTx, upsertUnavailabilityTx, plannedRangeVisitsTx,
   tableForSitesTx, boardTpmTx, applyVisitRequestTx,
-  ATTRIBUTION_KEY, ZONE_CTES, INVOICED_SQL, AUTO_RESTAMPABLE_SQL, monitorKeySql, lockAttributionTx, tpmLinkExistsTx, lockTpmLinkTx, lockLinkDocumentTx, linkPastScopeTx, restampIfTpmLinkChangedTx, refreshSiteZonesTx, restampVisitsTx,
+  ATTRIBUTION_KEY, ZONE_CTES, INVOICED_SQL, AUTO_RESTAMPABLE_SQL, monitorKeySql, lockAttributionTx, tpmLinkExistsTx, lockTpmLinkTx, lockLinkDocumentTx, linkPastScopeTx, RESTAMP_CHUNK, restampIdsTx, restampIfTpmLinkChangedTx, refreshSiteZonesTx, restampVisitsTx,
   partnersTx, loadInputsTx, overridesTx, areasTx, communeRowIds, zoneRowsTx, visitGroupsTx, expandRegionsTx,
   plannedZoneVisitsTx, visitsForUpdateTx, siteZoneTx, monthPlanStatusesTx,
   deleteOverridesTx, upsertOverridesTx, applyVisitDecisionsTx, insertLogTx, listLogTx, attributionCountsTx, siteZonesTx,

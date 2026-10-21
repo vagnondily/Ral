@@ -129,7 +129,14 @@ test('vue Indisponibilités (U4, U5, U7) : plage lue bornée à 24 mois ; « Met
   assert.ok(!view.includes('elle est déjà terminée'));
   assert.match(view, /aria-label=\{ending && ending\.past \? tr\('Retirer · \{p\}'/);
   assert.match(view, /past: ending\.past/);
-  for (const k of ["tr('Retirer l\\'indisponibilité')", "tr('Retirer')", "tr('Déclarée par erreur ?"]) assert.ok(view.includes(k), k);
+  for (const k of ["tr('Retirer l\\'indisponibilité')", "tr('Confirmer le retrait')", "tr('Déclarée par erreur ?"]) assert.ok(view.includes(k), k);
+  // Relecture r114c, point 6 : aide du retrait (jamais « la fin ») ; bouton à sa propre phrase (EN : « Withdraw… », jamais « Remove »).
+  assert.match(view, /hint=\{withdraw \? tr\('Facultative : le retrait est journalisé avec le motif d\\'origine\.'\)/);
+  assert.ok(!view.includes("withdraw ? tr('Retirer') :"), 'jamais la phrase partagée « Retirer » (EN « Remove »)');
+  const en = await load(t, 'locales/en.js');
+  assert.equal(en.default['Facultative : le retrait est journalisé avec le motif d\'origine.'], 'Optional: the withdrawal is logged with the original reason.');
+  assert.equal(en.default['Confirmer le retrait'], 'Confirm withdrawal');
+  assert.equal(en.default['Retirer l\'indisponibilité'], 'Withdraw the unavailability');
 });
 
 test('Rapports : la période d un lien n est lue et retirée que sur #/tpm/rapports, jamais sur un autre écran (re-relecture, point 1)', async (t) => {
@@ -156,13 +163,17 @@ test('routeur (2ᵉ re-relecture, points 3 et 4) : UN parseur d adresse, partag�
   const p = await load(t, 'lib/period.js');
   const known = (mod, sub) => ['tpm/rapports', 'processus/synthese', 'alertes/centre', 'processus/rbm', 'contrats/liste'].includes(`${mod}/${sub}`);
   const at = (h) => { const x = r.routeOfHash(h, known); return `${x.module}/${x.sub}`; };
-  // Comme App.parseHash : segments bruts (aucun nettoyage), redirections, route par défaut.
+  // Le parseur du routeur (App.parseHash l'appelle avec findRoute) : segments bruts (aucun nettoyage), redirections, route par défaut.
   assert.equal(at('#/tpm/rapports?from=2026-08&to=2026-08'), 'tpm/rapports');
   assert.equal(at('#x/tpm/rapports?from=2026-08'), 'tpm/rapports', 'ce qui précède le premier « / » est ignoré, comme le routeur');
   for (const h of ['#tpm/rapports?from=2026-08&to=2026-08', '#//tpm/rapports?from=2026-08', '#/tpm//rapports?from=2026-08', '#/TPM/rapports', '#/tpm/rapport%73', '', '#/']) {
     assert.equal(at(h), 'contrats/liste', `${h} : route par défaut (Contrats)`);
   }
   assert.equal(at('#/dashboard/trimestriel'), 'processus/synthese', 'redirection');
+  // Adresse sans sous-module : route par défaut, comme le routeur (relecture r114c, point 5).
+  for (const h of ['#/parametrage', '#/parametrage?from=2026-07&to=2026-07', '#/alertes']) assert.equal(at(h), 'contrats/liste', h);
+  const shell = fs.readFileSync(path.join(WEB, 'components/AppShell.jsx'), 'utf8');
+  assert.match(shell, /mod\?\.subs\?\.find\(\(s\) => s\.id && s\.id === subId\)/, 'findRoute : un intertitre (sans id) n est jamais une route');
   assert.deepEqual(r.routeOfHash('#/processus/rbm/plan/x?from=2026-01', known), { module: 'processus', sub: 'rbm', extra: 'plan', extra2: 'x' });
   // isHashRoute suit le même parseur (les adresses mal formées que le routeur envoie à Contrats ne visent pas Rapports).
   for (const h of ['#tpm/rapports?from=2026-08&to=2026-08', '#//tpm/rapports?from=2026-08&to=2026-08', '#/tpm//rapports?from=2026-08&to=2026-08']) {

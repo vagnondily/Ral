@@ -9,13 +9,15 @@
  * et un écrivain du lien TPM ↔ contrat sur le MÊME contrat (facture, plan de collecte, gabarits mensuels)
  * ne s'interbloquent jamais : l'écrivain du lien prend la ligne du contrat (FOR KEY SHARE) AVANT le
  * verrou d'attribution (lockTpmLinkTx).
- *   - « verrou » : un écrivain qui tient la ligne FOR UPDATE (la suppression d'un brouillon, ou tout
- *     écrivain futur) puis prend le verrou d'attribution — l'écrivain du lien ATTEND la ligne sans tenir
- *     le verrou d'attribution du compte. Avant la correction : 40P01 « deadlock detected » (503).
- *   - « avenant », « résiliation » : les vrais services. Leur ligne de contrat est FOR NO KEY UPDATE
- *     (lot 8, contracts.repository.getContract) : l'écrivain du lien ne l'attend pas du tout ; s'il
- *     l'attendait (FOR UPDATE), ce serait sans tenir le verrou d'attribution. Une 3ᵉ connexion retarde
- *     l'écrivain de contrat APRÈS sa ligne de contrat (ligne de l'avenant, ou table de l'historique).
+ *   - « avenant », « résiliation » : les vrais services. Les écrivains de contrats (avenant, décision,
+ *     résiliation, renouvellement) verrouillent leur ligne FOR NO KEY UPDATE (lot 8,
+ *     contracts.repository.getContract), qui ne bloque jamais le FOR KEY SHARE de l'écrivain du lien :
+ *     il ne l'attend pas du tout. Une 3ᵉ connexion retarde l'écrivain de contrat APRÈS sa ligne de
+ *     contrat (ligne de l'avenant, ou table de l'historique).
+ *   - « verrou » : seule la suppression d'un brouillon (deleteDraft) prend la ligne FOR UPDATE ; simulée
+ *     ici par un écrivain qui la tient puis prend le verrou d'attribution. Le FOR KEY SHARE étant pris AVANT,
+ *     l'écrivain du lien ATTEND la ligne SANS tenir le verrou d'attribution du compte. Avant la
+ *     correction : 40P01 « deadlock detected » (503).
  * Et la suppression du dernier document du lien (deleteReport) pendant celle du contrat : même ordre —
  * contrat (FOR KEY SHARE), verrou d'attribution, puis la ligne du rapport (lockLinkDocumentTx).
  */

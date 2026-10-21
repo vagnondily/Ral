@@ -25,10 +25,11 @@ export const REDIRECTS = {
 };
 
 /**
- * Route d'un hash, EXACTEMENT comme le routeur : `hash.split('?')[0].split('/')` → [, module,
- * sous-module, extra, extra2] (rien n'est nettoyé : « #//tpm/rapports » ou « #tpm/rapports » ne sont
- * pas Rapports), redirections, puis `isKnown(module, sous-module)` (le routeur passe
- * AppShell.findRoute ; sans lui toute paire est tenue pour connue) — sinon DEFAULT_ROUTE.
+ * Route d'un hash — celle que prend le routeur, qui l'appelle : `hash.split('?')[0].split('/')` →
+ * [, module, sous-module, extra, extra2] (rien n'est nettoyé : « #//tpm/rapports » ou « #tpm/rapports »
+ * ne sont pas Rapports), redirections, puis `isKnown(module, sous-module)` (le routeur passe
+ * AppShell.findRoute, qui ignore les intertitres ; sans lui toute paire est tenue pour connue) — sinon
+ * DEFAULT_ROUTE. Une adresse sans sous-module (« #/parametrage », « #/alertes ») va à DEFAULT_ROUTE.
  * @returns {{ module: string, sub: string, extra?: string|null, extra2?: string|null }}
  */
 export function routeOfHash(hash, isKnown = () => true) {

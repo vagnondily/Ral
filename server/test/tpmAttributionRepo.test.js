@@ -42,12 +42,14 @@ function reset() {
     visits: [{ id: V1, siteId: 's1', siteName: 'EPP Bekily', locationId: 'L001', districtId: D1, communeId: C1, month: '2026-08', status: 'planifie', providerId: RANO, source: 'zone', zoneState: 'contrat', contractId: K1, dated: false }],
     stampRows: [],
     unavailability: [],
+    links: null, linkExists: false,
   };
 }
 reset();
 
 const rowsFor = (s, params) => {
-  if (/^SET LOCAL lock_timeout/.test(s) || /^SELECT pg_advisory_xact_lock/.test(s)) return [];
+  if (/^SET LOCAL lock_timeout/.test(s) || /^SELECT pg_advisory_xact_lock/.test(s) || /^SELECT set_config\('lock_timeout'/.test(s)) return [];
+  if (/^SELECT current_setting\('lock_timeout'\) AS prior$/.test(s)) return [{ prior: '20s' }];
   if (/^SELECT c\.id, c\.numero, c\.numero_fla AS "numeroFla", c\.status/.test(s)) {
     // Titulaire AINA, partenaire de mise en œuvre (D1 : jamais le TPM) ; RANO Control y facture le suivi.
     return [{ id: K1, numero: 'CTR-2026-0001', numeroFla: 'FLA-2025-0007', status: 'actif', partnerId: AINA, partnerName: 'ASSOCIATION AINA', holderTypeCode: 'prestataire', holderActive: true, dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, monitoring: true }];
@@ -65,6 +67,7 @@ const rowsFor = (s, params) => {
   if (/^SELECT u\.id, u\.provider_id AS "providerId"/.test(s)) {
     return state.unavailability.filter((u) => `${u.month}-01` >= params[1] && `${u.month}-01` <= params[2] && (!params[3] || u.providerId === params[3]));
   }
+  if (/^WITH provider_contracts AS/.test(s) && state.links) return state.links;
   if (/^WITH provider_contracts AS/.test(s)) {
     const k = { contractId: K1, numero: 'CTR-2026-0001', status: 'actif', dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, monitoring: true, holderId: AINA };
     return [{ ...k, partnerId: AINA, via: ['titulaire'] }, { ...k, partnerId: RANO, via: ['rapport'] }];
@@ -86,6 +89,11 @@ const rowsFor = (s, params) => {
     return state.visits.filter((v) => v.status === 'planifie' && v.source === 'zone' && params[2].includes(`${v.month}-01`)
       && (params[1].includes(v.districtId) || params[1].includes(v.communeId)));
   }
+  if (/^SELECT EXISTS \(SELECT 1 FROM tpm_collection_plans/.test(s)) return [{ ok: state.linkExists }];
+  if (/^SELECT c\.status, c\.date_debut AS "dateDebut"/.test(s)) {
+    return [{ status: 'actif', dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, monitoring: true }];
+  }
+  if (/^SELECT DISTINCT a\.id, a\.depth FROM contract_areas z/.test(s)) return [{ id: D1, depth: 2 }, { id: D2, depth: 2 }];
   if (/^SELECT to_char\(period_month, 'YYYY-MM'\) AS month, status FROM field_month_plans/.test(s)) return [{ month: '2026-09', status: 'valide' }];
   if (/^SELECT v\.id, v\.site_id AS "siteId"/.test(s)) return state.visits.filter((v) => params[1].includes(v.id));
   if (/FROM mems_tpm_stamp\(\$1/.test(s)) return state.stampRows;
@@ -115,7 +123,7 @@ db.withTenantTransaction = async (tenantId, fn) => {
       else if (/^SELECT pg_try_advisory_xact_lock/.test(s)) {
         assert.match(params[0], new RegExp(`^rbm-generate:${T}:\\d{4}-\\d{2}$`), 'verrou de mois du compte (visitLocks)');
         return { rows: [{ ok: true }], rowCount: 1 };
-      } else if (!/^SET LOCAL/.test(s)) {
+      } else if (!/^SET LOCAL/.test(s) && !/lock_timeout/.test(s)) { // délai d'attente : réglage de session, pas une donnée
         assert.ok(/tenant_id = \$1/.test(s) || /mems_tpm_stamp\(\$1/.test(s), `requête sans filtre de compte : ${s.slice(0, 100)}`);
         assert.equal(params[0], T);
       }
@@ -166,9 +174,12 @@ test('enregistrer : verrou d\'abord, un upsert multi-lignes, une estampille, un 
   const r = await service.setOverrides(T, ACTOR, { target: target(), providerId: YPA, reason: '  Collecte confiée à YPA par le bureau  ', stamp });
   assert.equal(r.counts.created, 3);
   assert.equal(r.visits.changed, 1);
-  assert.match(state.calls[0].sql, /^SET LOCAL lock_timeout = '20s'/);
-  assert.match(state.calls[1].sql, /pg_advisory_xact_lock/);
-  assert.deepEqual(state.calls[1].params, [`tpm-attribution:${T}`]);
+  // Verrou d'attribution D'ABORD : délai de l'appelant lu, 20 s le temps du verrou, puis rétabli (point 13).
+  assert.deepEqual(state.calls.slice(0, 4).map((c) => c.sql), [
+    "SELECT current_setting('lock_timeout') AS prior", "SELECT set_config('lock_timeout', '20s', true)",
+    'SELECT pg_advisory_xact_lock(hashtext($1))', "SELECT set_config('lock_timeout', $1, true)"]);
+  assert.deepEqual(state.calls[2].params, [`tpm-attribution:${T}`]);
+  assert.deepEqual(state.calls[3].params, ['20s'], 'le délai de l appelant, jamais DEFAULT');
   const upserts = state.calls.filter((c) => /^INSERT INTO tpm_zone_overrides/.test(c.sql));
   assert.equal(upserts.length, 1);
   assert.match(upserts[0].sql, /FROM unnest\(\$5::uuid\[\], \$6::date\[\]/);
@@ -353,7 +364,7 @@ test('appliquer les TPM des contrats : prévues seulement — jamais une visite 
   const r = await repo.applyContractsTx(client, T, USER, { period: { from: '2026-09', to: '2026-10' } });
   assert.deepEqual([r.visits, r.converted, r.changed], [3, 1, 1]);
   assert.deepEqual(r.kept, { reasoned: 2, done: 4, anterieur: 5, invoiced: 1 }, 'gardées telles quelles, et comptées');
-  assert.match(calls[1].sql, /pg_advisory_xact_lock/);
+  assert.match(calls[2].sql, /pg_advisory_xact_lock/, 'verrou d attribution d abord (délai de l appelant lu, puis 20 s)');
   const scope = calls.find((c) => /^SELECT count/.test(c.sql));
   assert.match(scope.sql, /count\(\*\) FILTER \(WHERE v\.provider_source IN \('zone', 'reprise'\) AND v\.status = 'planifie' AND v\.provider_zone_state IS DISTINCT FROM 'anterieur' AND NOT EXISTS/);
   assert.match(scope.sql, /WHERE v\.tenant_id = \$1 AND v\.period_month BETWEEN \$2::date AND \$3::date$/);
@@ -557,7 +568,7 @@ test('lien TPM ↔ contrat (U2) : premier plan / facture ou dernier supprimé �
   assert.deepEqual(calls[0].params, [T, YPA, K1], 'lien lu dans le compte du jeton');
 });
 
-test('lien TPM ↔ contrat (re-relecture, point 2) : le PASSÉ se recalcule dans les seules zones du contrat, le courant pour tout le compte', async () => {
+test('lien TPM ↔ contrat (re-relecture, point 2 ; r114c, point 3) : le PASSÉ — zones du contrat × mois couverts — ne recalcule que les visites que le lien décide, le courant tout le compte', async () => {
   const calls = [];
   const client = {
     query: async (sql, params) => {
@@ -575,23 +586,87 @@ test('lien TPM ↔ contrat (re-relecture, point 2) : le PASSÉ se recalcule dans
   const { currentMonth } = require('../src/modules/tpm/rbmMath');
   const today = currentMonth();
   const prev = (() => { const [y, m] = today.split('-').map(Number); const i = y * 12 + m - 2; return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`; })();
-  // Dernier document (mois passé 2020-03) supprimé : passé = zones du contrat (régions étendues) × mois couverts ; puis courant.
+  // Dernier document (mois passé 2020-03) supprimé : visites prévues lues dans les zones du contrat (régions
+  // étendues) × mois couverts ; aucune n'y est : seul le courant est estampillé, pour tout le compte.
   const r = await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: true, month: '2020-03-01' });
+  const read = calls.find((c) => /^SELECT v\.id, s\.zone_district_id AS "districtId"/.test(c.sql));
+  assert.match(read.sql, /v\.period_month = ANY \(\$3::date\[\]\)/);
+  assert.match(read.sql, /s\.zone_district_id = ANY \(\$2::uuid\[\]\) OR s\.zone_commune_id = ANY \(\$2::uuid\[\]\)/);
+  assert.deepEqual([...read.params[1]].sort(), ['c1', 'd1', 'd9']);
+  assert.equal(read.params[2][0], '2020-03-01');
+  assert.equal(read.params[2][read.params[2].length - 1], `${prev}-01`, 'jusqu au mois précédent');
   const stamps = calls.filter((c) => /mems_tpm_stamp/.test(c.sql));
-  assert.equal(stamps.length, 2);
-  assert.match(stamps[0].sql, /v\.period_month = ANY \(\$3::date\[\]\)/);
-  assert.match(stamps[0].sql, /s\.zone_district_id = ANY \(\$2::uuid\[\]\) OR s\.zone_commune_id = ANY \(\$2::uuid\[\]\)/);
-  assert.deepEqual([...stamps[0].params[1]].sort(), ['c1', 'd1', 'd9']);
-  assert.equal(stamps[0].params[2][0], '2020-03-01');
-  assert.equal(stamps[0].params[2][stamps[0].params[2].length - 1], `${prev}-01`, 'jusqu au mois précédent');
-  assert.match(stamps[1].sql, /v\.period_month >= \$2::date/);
-  assert.equal(stamps[1].params[1], `${today}-01`, 'le courant : tout le compte, dès le mois courant');
+  assert.equal(stamps.length, 1);
+  assert.match(stamps[0].sql, /v\.period_month >= \$2::date/);
+  assert.equal(stamps[0].params[1], `${today}-01`, 'le courant : tout le compte, dès le mois courant');
   assert.equal(r.changed, 0);
+  assert.equal(r.past, null);
   // Document du mois courant ou à venir : aucune portée passée.
   calls.length = 0;
   await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: true, month: '2999-01-01' });
-  const only = calls.filter((c) => /mems_tpm_stamp/.test(c.sql));
-  assert.deepEqual(only.map((c) => c.params[1]), [`${today}-01`]);
+  assert.ok(!calls.some((c) => /^SELECT v\.id, s\.zone_district_id/.test(c.sql)));
+  assert.deepEqual(calls.filter((c) => /mems_tpm_stamp/.test(c.sql)).map((c) => c.params[1]), [`${today}-01`]);
+});
+
+test('lien TPM ↔ contrat (r114c, point 3) : visite passée décidée par le lien — ré-estampillée par son identifiant ; lien sans effet — aucune', async () => {
+  reset();
+  const { currentMonth } = require('../src/modules/tpm/rbmMath');
+  const today = currentMonth();
+  // YPA, premier plan sur K1 (had = false, le lien existe après) : K1 passe de RANO seul à RANO + YPA.
+  state.linkExists = true;
+  state.links = [
+    { contractId: K1, numero: 'CTR-2026-0001', status: 'actif', dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, monitoring: true, holderId: AINA, partnerId: AINA, via: ['titulaire'] },
+    { contractId: K1, numero: 'CTR-2026-0001', status: 'actif', dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, monitoring: true, holderId: AINA, partnerId: RANO, via: ['rapport'] },
+    { contractId: K1, numero: 'CTR-2026-0001', status: 'actif', dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, monitoring: true, holderId: AINA, partnerId: YPA, via: ['plan'] },
+  ];
+  const r = await db.withTenantTransaction(T, (client) => repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: false, month: '2026-08-01' }));
+  const stamps = state.calls.filter((c) => /mems_tpm_stamp/.test(c.sql));
+  assert.equal(stamps.length, 2, 'les visites décidées, puis le courant');
+  assert.match(stamps[0].sql, /v\.id = ANY \(\$2::uuid\[\]\)/);
+  assert.doesNotMatch(stamps[0].sql, /\$3|period_month = ANY|period_month >=/, 'aucune plage : les seules visites décidées');
+  assert.deepEqual(stamps[0].params, [T, [V1]]);
+  assert.equal(stamps[1].params[1], `${today}-01`);
+  assert.equal(r.changed, 0);
+  assert.equal(state.overlap, false);
+  // AINA (partenaire de mise en œuvre) : son plan ne change pas le TPM de K1 — aucune visite passée décidée.
+  reset();
+  state.linkExists = true;
+  state.links = [
+    { contractId: K1, numero: 'CTR-2026-0001', status: 'actif', dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, monitoring: true, holderId: AINA, partnerId: AINA, via: ['titulaire', 'plan'] },
+    { contractId: K1, numero: 'CTR-2026-0001', status: 'actif', dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, monitoring: true, holderId: AINA, partnerId: RANO, via: ['rapport'] },
+  ];
+  await db.withTenantTransaction(T, (client) => repo.restampIfTpmLinkChangedTx(client, T, { partnerId: AINA, contractId: K1, had: false, month: '2026-08-01' }));
+  assert.deepEqual(state.calls.filter((c) => /mems_tpm_stamp/.test(c.sql)).map((c) => c.params[1]), [`${today}-01`]);
+  reset();
+});
+
+test('restampIdsTx (r114c, point 2) : visites désignées par paquets de 500, un appel après l autre, résumé fusionné', async () => {
+  const calls = [];
+  let inFlight = 0;
+  let overlap = false;
+  const client = {
+    query: async (sql, params = []) => {
+      const q = sql.replace(/\s+/g, ' ').trim();
+      if (inFlight) overlap = true;
+      inFlight += 1; await new Promise((r) => setImmediate(r)); inFlight -= 1;
+      calls.push({ sql: q, params });
+      if (/AS prior$/.test(q)) return { rows: [{ prior: '0' }] };
+      if (/FROM mems_tpm_stamp\(\$1/.test(q)) {
+        return { rows: [{ id: params[1][0], fromProviderId: RANO, providerId: YPA, zoneState: 'contrat', dated: params[1].length === 500 }] };
+      }
+      return { rows: [] };
+    },
+  };
+  const ids = Array.from({ length: 1200 }, (_, i) => `00000000-0000-0000-0000-${String(i).padStart(12, '0')}`);
+  const r = await repo.restampIdsTx(client, T, ids);
+  const stamps = calls.filter((c) => /mems_tpm_stamp/.test(c.sql));
+  assert.equal(repo.RESTAMP_CHUNK, 500);
+  assert.deepEqual(stamps.map((c) => c.params[1].length), [500, 500, 200]);
+  assert.deepEqual(stamps.flatMap((c) => c.params[1]), ids, 'chaque visite une fois, dans l ordre');
+  for (const c of stamps) { assert.equal(c.params[0], T); assert.match(c.sql, /AND v\.id = ANY \(\$2::uuid\[\]\)\)\)$/); }
+  assert.deepEqual(r, { changed: 3, byState: { contrat: 3 }, moves: [{ fromProviderId: RANO, toProviderId: YPA, visits: 3, datedVisits: 2 }] });
+  assert.equal(overlap, false);
+  assert.deepEqual(await repo.restampIdsTx(client, T, []), { changed: 0, byState: {}, moves: [] });
 });
 
 test('lien TPM ↔ contrat (re-relecture, point 5) : écrivain « verrou d abord » — verrou d attribution AVANT la lecture du lien', async () => {

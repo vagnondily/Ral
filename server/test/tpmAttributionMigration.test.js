@@ -85,3 +85,27 @@ test('070 : défense en profondeur — une visite demandée (p_ids) n\'est ré-e
   assert.match(INVOICED_SQL.replace(/\s+/g, ' '), invoiced);
   assert.match(AUTO_RESTAMPABLE_SQL, /^v\.status = 'planifie' AND v\.provider_zone_state IS DISTINCT FROM 'anterieur' AND NOT EXISTS/);
 });
+
+test('109 (relecture r114c, points 2 et 13) : même règle que 108, mems_tpm_cells sur des variables, plan sur mesure, délai de l appelant rétabli', () => {
+  const read = (f) => require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/db/migrations', f), 'utf8');
+  const fnOf = (src) => { const f = src.slice(src.indexOf('CREATE OR REPLACE FUNCTION mems_tpm_stamp')); return f.slice(0, f.indexOf('END $fn$;') + 9); };
+  const flat = (x) => x.replace(/\s+/g, ' ');
+  const f108 = fnOf(read('108_tpm_invoiced_span.sql'));
+  const f109 = fnOf(read('109_tpm_stamp_plan.sql'));
+  // Même sélection (prédicat « à estampiller » / demandées, facture sur chacun de ses mois), même verrouillage, même mise à jour.
+  const where = (f) => flat(f.slice(f.indexOf('FROM site_visits v'), f.indexOf('FOR UPDATE OF v') + 'FOR UPDATE OF v'.length));
+  assert.equal(where(f109), where(f108));
+  const upd = (f) => flat(f.slice(f.indexOf('upd AS ('), f.indexOf('SELECT * FROM upd;')));
+  assert.equal(upd(f109), upd(f108));
+  // Coût (point 2) : plus aucune sous-requête en argument ; tableaux rangés dans des variables ; jamais le plan générique.
+  assert.doesNotMatch(f109, /ARRAY\(SELECT/);
+  assert.match(flat(f109), /SELECT \* FROM mems_tpm_cells\(p_tenant, v_sites, v_months\)/);
+  assert.match(flat(f109), /LANGUAGE plpgsql SET plan_cache_mode = force_custom_plan AS \$fn\$/);
+  assert.match(flat(f109), /ORDER BY v\.id FOR UPDATE OF v\) t; IF v_ids IS NOT NULL THEN RETURN QUERY/);
+  // Délai d'attente (point 13) : valeur de l'appelant lue, 20 s pour le seul verrou d'attribution, puis rétablie — jamais DEFAULT.
+  const seq = flat(f109).match(/v_prior text := current_setting\('lock_timeout'\);.*?PERFORM set_config\('mems\.tpm_stamping', 'on', true\);/);
+  assert.ok(seq, 'séquence du verrou');
+  assert.match(seq[0], /BEGIN PERFORM set_config\('lock_timeout', '20s', true\); PERFORM pg_advisory_xact_lock\(hashtext\('tpm-attribution:' \|\| p_tenant::text\)\); PERFORM set_config\('lock_timeout', v_prior, true\); PERFORM set_config\('mems\.tpm_stamping', 'on', true\);$/);
+  assert.doesNotMatch(f109, /lock_timeout = DEFAULT|SET LOCAL/);
+  assert.match(flat(f109), /PERFORM set_config\('mems\.tpm_stamping', 'off', true\); END \$fn\$;$/);
+});
