@@ -128,4 +128,7 @@ export default {
   '{n} (plus TPM actif)': '{n} (no longer an active TPM)',
   'Ce partenaire n\'est plus un TPM actif : on peut seulement mettre fin à son indisponibilité.': 'This partner is no longer an active TPM: its unavailability can only be ended.',
   'Retirer cette indisponibilité (mois passés)…': 'Withdraw this unavailability (past months)…',
+  'Retirer · {p}': 'Withdraw · {p}',
+  'Retirer l\'indisponibilité': 'Withdraw the unavailability',
+  'Déclarée par erreur ? Ex. mois saisis par erreur, TPM finalement disponible…': 'Declared by mistake? E.g. months entered by mistake, TPM available after all…',
 };

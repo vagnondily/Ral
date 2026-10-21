@@ -123,9 +123,13 @@ test('vue Indisponibilités (U4, U5, U7) : plage lue bornée à 24 mois ; « Met
     assert.ok(r && r.from <= r.to && r.from >= p.from && r.to === p.to, JSON.stringify(p));
   }
   assert.equal(w.endRangeOf(null, '2026-10'), null);
-  // L'écran ne désactive plus « Mettre fin » sur une période passée et ne dit plus qu'elle est terminée.
+  // L'écran ne désactive plus « Mettre fin » sur une période passée et ne dit plus qu'elle est terminée ;
+  // période passée : « Retirer » — nom accessible, titre, bouton et aide du dialogue (2ᵉ re-relecture, point 5).
   const view = fs.readFileSync(path.join(WEB, 'pages/monitoring/TpmUnavailabilityView.jsx'), 'utf8');
   assert.ok(!view.includes('elle est déjà terminée'));
+  assert.match(view, /aria-label=\{ending && ending\.past \? tr\('Retirer · \{p\}'/);
+  assert.match(view, /past: ending\.past/);
+  for (const k of ["tr('Retirer l\\'indisponibilité')", "tr('Retirer')", "tr('Déclarée par erreur ?"]) assert.ok(view.includes(k), k);
 });
 
 test('Rapports : la période d un lien n est lue et retirée que sur #/tpm/rapports, jamais sur un autre écran (re-relecture, point 1)', async (t) => {

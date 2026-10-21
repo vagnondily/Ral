@@ -102,8 +102,8 @@ export default function TpmUnavailabilityView({ canEdit, period, onChanged }) {
                           onClick={() => setDialog({ mode: 'poser', providerId: p.providerId, providerName: p.providerName, from: p.from, to: p.to, reason: p.reason })}><PencilLine size={14} aria-hidden="true" /></button>
                         <button type="button" className="tpm-edit" disabled={!ending}
                           title={ending && ending.past ? tr('Retirer cette indisponibilité (mois passés)…') : tr('Mettre fin…')}
-                          aria-label={tr('Mettre fin · {p}', { p: p.providerName })}
-                          onClick={() => ending && setDialog({ mode: 'retirer', providerId: p.providerId, providerName: p.providerName, from: ending.from, to: ending.to })}><CalendarCheck size={14} aria-hidden="true" /></button>
+                          aria-label={ending && ending.past ? tr('Retirer · {p}', { p: p.providerName }) : tr('Mettre fin · {p}', { p: p.providerName })}
+                          onClick={() => ending && setDialog({ mode: 'retirer', providerId: p.providerId, providerName: p.providerName, from: ending.from, to: ending.to, past: ending.past })}><CalendarCheck size={14} aria-hidden="true" /></button>
                       </td>
                     )}
                   </tr>
@@ -127,10 +127,12 @@ export default function TpmUnavailabilityView({ canEdit, period, onChanged }) {
  * suivi interne (ou à un autre TPM) et quelles visites PRÉVUES changent ; l'enregistrement exige un
  * motif (10 caractères au moins) et l'empreinte de l'aperçu (409 → aperçu relu, rien d'écrit).
  */
-function UnavailabilityDialog({ mode, providerId: initialProvider = '', providerName = '', from, to, reason: initialReason = '', tpms, onClose, onSaved }) {
+function UnavailabilityDialog({ mode, providerId: initialProvider = '', providerName = '', from, to, past = false, reason: initialReason = '', tpms, onClose, onSaved }) {
   const { tr } = useI18n();
   const toast = useToast();
   const end = mode === 'retirer';
+  // Période entièrement passée (déclarée par erreur, par exemple) : on la RETIRE, on n'y « met » pas « fin ».
+  const withdraw = end && past;
   const cur = currentMonth();
   const [provider, setProvider] = useState(initialProvider || '');
   const [range, setRange] = useState({ from: from || cur, to: to || cur });
@@ -185,12 +187,13 @@ function UnavailabilityDialog({ mode, providerId: initialProvider = '', provider
   const zones = (preview && preview.zones) || { toInternal: 0, toOther: 0, back: 0, list: [] };
   return (
     <Modal open wide onClose={() => !saving && onClose()}
-      title={end ? tr('Mettre fin à l\'indisponibilité') : (initialProvider ? tr('Changer le motif d\'indisponibilité') : tr('Déclarer un TPM indisponible'))}
+      title={withdraw ? tr('Retirer l\'indisponibilité') : end ? tr('Mettre fin à l\'indisponibilité')
+        : (initialProvider ? tr('Changer le motif d\'indisponibilité') : tr('Déclarer un TPM indisponible'))}
       subtitle={name || undefined}
       footer={(
         <>
           <Button variant="ghost" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button>
-          <Button loading={saving} disabled={!canSave} onClick={save}>{end ? tr('Mettre fin') : tr('Enregistrer')}</Button>
+          <Button loading={saving} disabled={!canSave} onClick={save}>{withdraw ? tr('Retirer') : end ? tr('Mettre fin') : tr('Enregistrer')}</Button>
         </>
       )}>
       <div className="tpm-dialog">
@@ -240,7 +243,8 @@ function UnavailabilityDialog({ mode, providerId: initialProvider = '', provider
 
         {end ? (
           <ReasonField id="tpm-off-reason" value={reason} onChange={setReason} suggestions={false}
-            placeholder={tr('Pourquoi y mettre fin ? Ex. équipe de retour, contrat repris…')}
+            placeholder={withdraw ? tr('Déclarée par erreur ? Ex. mois saisis par erreur, TPM finalement disponible…')
+              : tr('Pourquoi y mettre fin ? Ex. équipe de retour, contrat repris…')}
             hint={tr('Facultative : la fin est journalisée avec le motif d\'origine.')} />
         ) : (
           <>
