@@ -374,4 +374,8 @@ export default {
   'Formation « {label} » prévue pour {extra}': 'Training “{label}” planned for {extra}',
   'Valeur illisible : {list}. Saisissez un nombre (ex. 15 ou 15,5) ou laissez vide.':
     'Unreadable value: {list}. Enter a number (e.g. 15 or 15.5) or leave it empty.',
+  // Indisponibilité d'un TPM (retour 114) : liste, fiche 360°, détail d'un contrat.
+  'Indisponible {period}': 'Unavailable {period}',
+  'Indisponibilité déclarée (Affectation des TPM) : {reason}': 'Declared unavailability (TPM assignment): {reason}',
+  'indisponible ce mois : zones en suivi interne': 'unavailable this month: areas monitored internally',
 };

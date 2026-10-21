@@ -15,6 +15,9 @@ import { PROVIDER_STATUS } from '../../lib/partners.js';
 import { ROLE_LABELS, contractNo, joinParts } from '../../lib/roles.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import RoleBadge from '../../components/RoleBadge.jsx';
+import TpmUnavailabilityBadge from '../../components/TpmUnavailabilityBadge.jsx';
+import { unavailabilityOf } from '../../lib/tpmAttribution.js';
+import useTpmUnavailability from '../../lib/useTpmUnavailability.js';
 import './partners.css';
 import ProviderContractsTab from './provider/ProviderContractsTab.jsx';
 import ProviderReportsTab from './provider/ProviderReportsTab.jsx';
@@ -55,6 +58,7 @@ export default function ProviderSheetPage({ providerId, tab: tabProp, canEdit, u
   const [error, setError] = useState(null);
   const [editing, setEditing] = useState(false);
   const isTpm = Boolean(sheet && sheet.role === 'tpm');
+  const unavailability = useTpmUnavailability(isTpm); // retour 114 : indisponibilité actuelle ou prochaine du TPM
   const TABS = isTpm ? TPM_TABS : HOLDER_TABS;
   const tab = TABS.some((t) => t.id === tabProp) ? tabProp : 'apercu';
   const setTab = (id) => onNavigate('tpm', 'prestataires', providerId, id === 'apercu' ? undefined : id);
@@ -109,6 +113,7 @@ export default function ProviderSheetPage({ providerId, tab: tabProp, canEdit, u
                 {st.state === 'actif' && st.endingSoon && (
                   <Badge tone="orange" icon={AlertTriangle}>{tr(st.daysLeft > 1 ? 'Fin du contrat dans {n} jours' : 'Fin du contrat dans {n} jour', { n: st.daysLeft })}</Badge>
                 )}
+                {isTpm && <TpmUnavailabilityBadge u={unavailabilityOf(unavailability, p.id)} />}
                 {!p.active && <Badge>{tr('Fiche inactive')}</Badge>}
               </div>
             </div>

@@ -211,3 +211,18 @@ export const REASON_SUGGESTIONS = [
 /** Bornes de la raison (comme le serveur : common/reasonText, CHECK de la migration 070). */
 export const REASON_MIN = 10;
 export const REASON_MAX = 500;
+
+/**
+ * Indisponibilité ACTUELLE ou PROCHAINE d'un TPM (badges des écrans partenaires et contrats) : lue
+ * dans la réponse de GET /api/tpm/attribution/unavailability — les périodes du serveur, une seule
+ * source, rien n'est recalculé — au mois courant du serveur (`period.from` de cette réponse).
+ * @param {{ period?: { from }, periods?: { providerId, from, to, reason }[] } | null} data
+ * @returns {{ from, to, reason, current: boolean } | null}  current = le mois courant en fait partie
+ */
+export function unavailabilityOf(data, providerId) {
+  const month = data && data.period && data.period.from;
+  if (!month || !providerId) return null;
+  const next = (data.periods || []).filter((p) => p.providerId === providerId && p.to >= month)
+    .sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0))[0];
+  return next ? { from: next.from, to: next.to, reason: next.reason || null, current: next.from <= month } : null;
+}
