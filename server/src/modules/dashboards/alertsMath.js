@@ -22,6 +22,12 @@ const SEVERITIES = ['critical', 'warning', 'info'];
 const RANK = { critical: 0, warning: 1, info: 2 };
 
 const cents = (v) => Math.round((Number(v) || 0) * 100);
+/**
+ * N° AFFICHÉ d'un contrat (glossaire du lot 8, jumeau de web/src/lib/roles.contractNo) : sa référence
+ * (n° FLA, avenant compris), sinon le n° FLA, sinon le n° interne CTR-… — le numéro que montrent la
+ * liste des contrats, la consolidation et l'alerte « Rapport en retard ». Jamais le CTR-… quand un n° FLA existe.
+ */
+const shownNo = (c) => c.reference || c.numeroFla || c.numero;
 const money = (v) => ({ money: Number(v) || 0 });
 const contractGo = (id) => ({ module: 'contrats', sub: 'liste', extra: id });
 // Visites déclarées (prestataires en retard, visites non affectées) : l'écran des visites.
@@ -58,16 +64,16 @@ function budgetAlerts(rows) {
     if (r.overspent) {
       out.push({ ...base, sev: 'critical', kind: 'budget_overspent',
         title: 'Budget de suivi dépassé — {numero}', detail: '{partner} · réalisé {actual} / budget {budget}',
-        params: { numero: r.numero, partner: r.partnerName, actual: money(r.actual), budget: money(r.budget) } });
+        params: { numero: shownNo(r), partner: r.partnerName, actual: money(r.actual), budget: money(r.budget) } });
     } else if (cents(r.pendingValidation) > 0 && r.budget != null && cents(r.actual) + cents(r.pendingValidation) > cents(r.budget)) {
       // Factures soumises non encore validées qui, une fois validées, feraient dépasser le budget.
       out.push({ ...base, sev: 'warning', kind: 'budget_pending_overrun',
         title: 'Dépassement si validation — {numero}', detail: '{partner} · réalisé {actual} + en attente {pending} > budget {budget}',
-        params: { numero: r.numero, partner: r.partnerName, actual: money(r.actual), pending: money(r.pendingValidation), budget: money(r.budget) } });
+        params: { numero: shownNo(r), partner: r.partnerName, actual: money(r.actual), pending: money(r.pendingValidation), budget: money(r.budget) } });
     } else if (cents(r.projectedOverrun) > 0) {
       out.push({ ...base, sev: 'warning', kind: 'budget_projected_overrun',
         title: 'Projection de dépassement — {numero}', detail: '{partner} · projection fin {projected} > budget {budget}',
-        params: { numero: r.numero, partner: r.partnerName, projected: money(r.projectedTotal), budget: money(r.budget) } });
+        params: { numero: shownNo(r), partner: r.partnerName, projected: money(r.projectedTotal), budget: money(r.budget) } });
     }
   }
   return out;
@@ -83,7 +89,7 @@ function reportAlerts(reports) {
     sev: 'info', cat: 'Rapports', kind: 'report_to_validate',
     title: r.kind === 'technique' ? 'Rapport technique à valider' : 'Rapport financier à valider',
     detail: '{partner} · {numero} · {month}',
-    params: { partner: r.partnerName || r.contractPartner || '—', numero: r.contractNumero || '—', month: { month: String(r.periodMonth || '').slice(0, 7) } },
+    params: { partner: r.partnerName || r.contractPartner || '—', numero: r.contractFla || r.contractNumero || '—', month: { month: String(r.periodMonth || '').slice(0, 7) } },
     go: { module: 'tpm', sub: 'rapports' },
   }));
 }
@@ -121,19 +127,19 @@ function contractAlerts(contracts, today) {
   for (const c of contracts || []) {
     const base = { cat: 'Contrats', go: contractGo(c.id) };
     if (c.amendmentPending) {
-      out.push({ ...base, sev: 'info', kind: 'amendment_pending', title: 'Avenant en validation — {numero}', detail: '{partner}', params: { numero: c.numero, partner: c.partnerName } });
+      out.push({ ...base, sev: 'info', kind: 'amendment_pending', title: 'Avenant en validation — {numero}', detail: '{partner}', params: { numero: shownNo(c), partner: c.partnerName } });
     }
     if (c.status === 'en_validation') {
-      out.push({ ...base, sev: 'info', kind: 'contract_pending', title: 'Contrat en validation — {numero}', detail: '{partner}', params: { numero: c.numero, partner: c.partnerName } });
+      out.push({ ...base, sev: 'info', kind: 'contract_pending', title: 'Contrat en validation — {numero}', detail: '{partner}', params: { numero: shownNo(c), partner: c.partnerName } });
     }
     if (c.status === 'actif' && c.dateFin && today) {
       const d = daysBetween(today, c.dateFin);
       if (d < 0) {
         out.push({ ...base, sev: 'warning', kind: 'contract_expired', title: 'Contrat expiré — {numero}', detail: '{partner} · fin le {date}',
-          params: { numero: c.numero, partner: c.partnerName, date: { date: String(c.dateFin).slice(0, 10) } } });
+          params: { numero: shownNo(c), partner: c.partnerName, date: { date: String(c.dateFin).slice(0, 10) } } });
       } else if (d <= 90) {
         out.push({ ...base, sev: 'warning', kind: 'contract_ending', title: 'Échéance proche — {numero}', detail: '{partner} · fin dans {d} j (renouvellement possible)',
-          params: { numero: c.numero, partner: c.partnerName, d } });
+          params: { numero: shownNo(c), partner: c.partnerName, d } });
       }
     }
   }
