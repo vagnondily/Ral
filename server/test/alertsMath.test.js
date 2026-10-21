@@ -77,6 +77,34 @@ test('n° de contrat des alertes = n° affiché (FLA, référence d\'avenant com
   assert.equal(reportAlerts([{ status: 'soumis', kind: 'technique', actions: { decide: true }, contractNumero: 'CTR-2026-0003', contractFla: null }])[0].params.numero, 'CTR-2026-0003');
 });
 
+test('contrat AVENANT : UN seul n° dans toute la liste (cloche, Centre d\'alertes) — celui de la liste des contrats (« …-AM02 »), pour le budget, l\'échéance, le rapport à valider et le rapport en retard', () => {
+  const { contractNumbers } = require('../src/modules/dashboards/alertsMath');
+  const K = 'k-aina';
+  // Ligne de listContracts : référence = n° FLA + code d'avenant.
+  const contracts = [
+    { id: K, numero: 'CTR-2026-0001', numeroFla: 'FLA-2025-AIN-MULTI-003', reference: 'FLA-2025-AIN-MULTI-003-AM02', partnerName: 'ASSOCIATION AINA', status: 'actif', dateFin: '2026-11-30' },
+    { id: 'k-sans-fla', numero: 'CTR-2026-0011', numeroFla: null, reference: null, status: 'en_validation' },
+  ];
+  assert.deepEqual([...contractNumbers(contracts)], [[K, 'FLA-2025-AIN-MULTI-003-AM02'], ['k-sans-fla', 'CTR-2026-0011']]);
+  const alerts = buildAlerts({
+    today: TODAY, contracts,
+    // Les sources ne portent que le n° FLA sans code d'avenant.
+    consolidationRows: [{ contractId: K, numero: 'CTR-2026-0001', numeroFla: 'FLA-2025-AIN-MULTI-003', partnerName: 'ASSOCIATION AINA', overspent: true, actual: 11, budget: 10 }],
+    reports: [{ status: 'soumis', kind: 'technique', actions: { decide: true }, partnerName: 'RANO Control', contractId: K, contractNumero: 'CTR-2026-0001', contractFla: 'FLA-2025-AIN-MULTI-003', periodMonth: '2026-10-01' }],
+    expected: { rows: [{ month: '2026-08', due: '2026-09', status: 'en_retard', unit: { kind: 'tpm', providerId: 'rano', name: 'RANO Control' },
+      contract: { id: K, label: 'FLA-2025-AIN-MULTI-003' }, visits: { planned: 0, realised: 1 } }] },
+  });
+  const numberOf = (a) => a.params.numero || a.params.contract;
+  const aina = alerts.filter((a) => ['budget_overspent', 'contract_ending', 'report_to_validate', 'report_late'].includes(a.kind));
+  assert.deepEqual(aina.map((a) => a.kind).sort(), ['budget_overspent', 'contract_ending', 'report_late', 'report_to_validate']);
+  assert.deepEqual([...new Set(aina.map(numberOf))], ['FLA-2025-AIN-MULTI-003-AM02'], 'un contrat, un nom');
+  assert.equal(alerts.find((a) => a.kind === 'contract_pending').params.numero, 'CTR-2026-0011', 'sans n° FLA : n° MEMS');
+  // Un contrat absent de la liste (source seule) : le n° de sa source, jamais un blanc.
+  const alone = buildAlerts({ today: TODAY, consolidationRows: [{ contractId: 'k-x', numero: 'CTR-9', numeroFla: 'FLA-9', overspent: true, actual: 2, budget: 1 }],
+    expected: { rows: [{ month: '2026-08', due: '2026-09', status: 'en_retard', unit: { kind: 'tpm', name: 'YPA' }, contract: { id: 'k-y', label: 'FLA-Y' }, visits: { planned: 1, realised: 0 } }] } });
+  assert.deepEqual(alone.map(numberOf).sort(), ['FLA-9', 'FLA-Y']);
+});
+
 test('jours entre deux dates en UTC (aucun décalage horaire)', () => {
   assert.equal(daysBetween('2026-10-13', '2026-10-13'), 0);
   assert.equal(daysBetween('2026-10-13', '2026-10-12'), -1);
