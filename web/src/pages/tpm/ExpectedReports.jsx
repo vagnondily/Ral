@@ -6,7 +6,7 @@ import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, monthLabel, shortMonthLabel } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { periodLabel } from '../../lib/period.js';
-import { EXPECTED_REASON, EXPECTED_STATUS, expectedKey, expectedWho } from '../../lib/reportExpectation.js';
+import { EXPECTED_REASON, EXPECTED_STATUS, autoNotApplicableWhy, expectedKey, expectedWho, reportStatusDef } from '../../lib/reportExpectation.js';
 
 /** Statuts comptés en tête de la carte, dans l'ordre. */
 const CHIPS = ['en_retard', 'attendu', 'interne', 'soumis', 'valide', 'rejete', 'non_applicable_auto', 'non_applicable'];
@@ -56,7 +56,7 @@ export default function ExpectedReports({ period, partnerId = '', contractId = '
     const lines = [[tr('Mois'), tr('Qui'), tr('Contrat'), tr('Visites prévues'), tr('Visites réalisées'), tr('Statut'), tr('Pourquoi'), tr('À remettre au plus tard'), tr('Factures')]];
     for (const r of scoped) {
       lines.push([r.month, expectedWho(tr, r), contractOf(r), r.visits.planned, r.visits.realised, tr(EXPECTED_STATUS[expectedKey(r)].label), why(r), r.due,
-        r.reports.map((x) => `${x.contractLabel || ''} ${tr((EXPECTED_STATUS[x.status] || {}).label || x.status)}`.trim()).join(' · ')]);
+        r.reports.map((x) => `${x.contractLabel || ''} ${tr((reportStatusDef(x) || {}).label || x.status)}`.trim()).join(' · ')]);
     }
     downloadCsv(`rapports_attendus_${period.from}_${period.to}.csv`, lines);
   }
@@ -113,7 +113,10 @@ export default function ExpectedReports({ period, partnerId = '', contractId = '
                   </td>
                   <td><StatusBadge def={EXPECTED_STATUS[expectedKey(r)]} />{why(r) && <div className="site-meta">{why(r)}</div>}</td>
                   <td>{r.reports.length ? r.reports.map((x) => (
-                    <span key={x.id} className="exp-doc">{x.contractLabel ? <span className="mono">{x.contractLabel}</span> : null} <StatusBadge def={EXPECTED_STATUS[x.status]} /></span>
+                    // Statut AFFICHÉ du document, la règle de la liste (en retard, non applicable d'office), jamais le statut brut.
+                    <span key={x.id} className="exp-doc" title={x.autoNotApplicable ? tr(autoNotApplicableWhy(x)) : undefined}>
+                      {x.contractLabel ? <span className="mono">{x.contractLabel}</span> : null} <StatusBadge def={reportStatusDef(x)} />
+                    </span>
                   )) : <span className="cell-empty">—</span>}</td>
                 </tr>
               ))}

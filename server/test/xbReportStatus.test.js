@@ -193,3 +193,25 @@ test('D-c à l écran (relecture des corrections croisées, point 4) : l avertis
   assert.ok(!/\bmonth\b(?!s)/.test(effect.replace(/factureMonth/g, '')), 'jamais le mois de la page dans l effet');
   assert.match(drawer, /\{isFin && !readOnly && offMonths\.length > 0 && \(/, 'facture figée : pas d avertissement « avant de la soumettre »');
 });
+
+test('Rapports attendus (relecture, point K) : la case « Factures du mois » et son CSV disent le statut AFFICHÉ du document, comme la liste', async (t) => {
+  const e = require('../src/modules/tpm/reportExpectation');
+  const out = e.expectedReports({
+    months: ['2026-07'], today: '2026-10', names: new Map([['y', 'YPA']]),
+    activity: [{ key: 'y', contractId: 'k', month: '2026-07', planned: 0, realised: 1 }],
+    reports: [{ id: 'r1', partnerId: 'y', contractId: 'k', month: '2026-07', status: 'attendu', late: true, autoNotApplicable: false, partnerNotTpm: false }],
+  });
+  assert.equal(out.rows[0].status, 'en_retard');
+  assert.deepEqual(out.rows[0].reports, [{ id: 'r1', status: 'attendu', contractLabel: null, late: true, autoNotApplicable: false, partnerNotTpm: false }]);
+  const repo = fs.readFileSync(path.join(__dirname, '../src/modules/tpm/reports.repository.js'), 'utf8');
+  assert.match(repo, /\$\{stubNotApplicableSql\('r'\)\} AS "autoNotApplicable", \$\{stubNotTpmSql\('r'\)\} AS "partnerNotTpm", \$\{stubLateSql\('r', today\)\} AS late\n\s+FROM tpm_reports r\n\s+JOIN partners pa/,
+    'les factures des rapports attendus portent les drapeaux de la liste, au mois courant de la carte');
+  const file = path.join(__dirname, '../../web/src/pages/tpm/ExpectedReports.jsx');
+  if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }
+  const card = fs.readFileSync(file, 'utf8');
+  assert.match(card, /<StatusBadge def=\{reportStatusDef\(x\)\} \/>/, 'case : la règle de la liste');
+  assert.match(card, /tr\(\(reportStatusDef\(x\) \|\| \{\}\)\.label \|\| x\.status\)/, 'CSV : la même');
+  assert.ok(!/EXPECTED_STATUS\[x\.status\]/.test(card), 'jamais le statut brut du document');
+  const w = await import(pathToFileURL(path.join(__dirname, '../../web/src/lib/reportExpectation.js')).href);
+  assert.equal(w.reportStatusDef(out.rows[0].reports[0]), w.EXPECTED_STATUS.en_retard);
+});
