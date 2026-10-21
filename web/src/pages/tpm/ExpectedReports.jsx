@@ -53,7 +53,7 @@ export default function ExpectedReports({ period, partnerId = '', contractId = '
   };
 
   function exportCsv() {
-    const lines = [[tr('Mois'), tr('Qui'), tr('Contrat'), tr('Visites prévues'), tr('Visites réalisées'), tr('Statut'), tr('Pourquoi'), tr('Échéance'), tr('Factures')]];
+    const lines = [[tr('Mois'), tr('Qui'), tr('Contrat'), tr('Visites prévues'), tr('Visites réalisées'), tr('Statut'), tr('Pourquoi'), tr('À remettre au plus tard'), tr('Factures')]];
     for (const r of scoped) {
       lines.push([r.month, expectedWho(tr, r), contractOf(r), r.visits.planned, r.visits.realised, tr(EXPECTED_STATUS[expectedKey(r)].label), why(r), r.due,
         r.reports.map((x) => `${x.contractLabel || ''} ${tr((EXPECTED_STATUS[x.status] || {}).label || x.status)}`.trim()).join(' · ')]);

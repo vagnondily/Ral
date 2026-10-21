@@ -101,3 +101,13 @@ test('visite que personne ne suit : UN nom — « Non affectée (ni TPM ni suivi
   assert.match(cell, /tr\(UNASSIGNED_LABEL\)/);
   assert.match(src('pages/monitoring/FieldVisitsPage.jsx'), /csv: \(v\) => visitWho\(tr, v\)/);
 });
+
+test('Rapports attendus (CSV) : la colonne du mois de remise s\'appelle « À remettre au plus tard » / « Due by », jamais « Échéance » (« Expiry » = fin d\'un contrat)', async (t) => {
+  const en = await load(t, 'locales/en.js'); if (!en) return;
+  const csv = src('pages/tpm/ExpectedReports.jsx');
+  const head = csv.slice(csv.indexOf('function exportCsv()'), csv.indexOf('downloadCsv(', csv.indexOf('function exportCsv()')));
+  assert.match(head, /tr\('Pourquoi'\), tr\('À remettre au plus tard'\), tr\('Factures'\)/);
+  assert.ok(!head.includes("tr('Échéance')"));
+  assert.equal(en.default['À remettre au plus tard'], 'Due by');
+  assert.equal(en.default['Échéance'], 'Expiry', 'le libellé des contrats reste inchangé');
+});

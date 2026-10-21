@@ -103,6 +103,7 @@ export default {
   'échéance dépassée ({due})': 'deadline passed ({due})',
   'à produire par l\'équipe S&E': 'to be produced by the M&E team',
   'Rapports attendus': 'Expected reports',
+  'À remettre au plus tard': 'Due by', // mois de remise d'un rapport (CSV) — jamais « Échéance » (fin d'un contrat)
   'Un TPM sans visite planifiée un mois n\'a pas de rapport à remettre (non applicable d\'office) ; quand l\'équipe S&E suit elle-même des visites, un rapport interne est attendu. À remettre au plus tard le mois suivant.':
     'A TPM with no planned visit in a month has no report to submit (automatically not applicable); when the M&E team monitors visits itself, an internal report is expected. Due by the following month at the latest.',
   'Afficher les non applicables d\'office': 'Show automatic not-applicable rows',
