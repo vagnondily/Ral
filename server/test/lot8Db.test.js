@@ -747,8 +747,16 @@ test('fiche 360° d\'un titulaire : les visites suivies en interne de ses zones 
   const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
   const [{ id: admin }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND email = 'admin@mems.mg'", [T]);
   const types = Object.fromEntries((await q("SELECT code, id FROM partner_types WHERE tenant_id = $1 AND code IN ('tpm', 'prestataire')", [T])).map((r) => [r.code, r.id]));
-  const [{ m }] = await q("SELECT to_char(current_date, 'YYYY-MM') AS m"); // le mois de la fiche
-  const sites = await q('SELECT id, zone_district_id AS d FROM sites WHERE tenant_id = $1 AND zone_district_id IS NOT NULL ORDER BY id LIMIT 400', [T]);
+  // Le mois de la fiche : le jour LOCAL de l'application (common/localDay), comme les tests voisins — jamais
+  // la date UTC de la base, qui garde un mois de retard de 21 h à minuit UTC le dernier jour du mois.
+  const m = new Intl.DateTimeFormat('en-CA', { timeZone: process.env.APP_TIMEZONE || 'Indian/Antananarivo' }).format(new Date()).slice(0, 7);
+  // Un district SANS AUCUNE visite ce mois-ci : les chiffres de la fiche ne comptent alors que les visites du
+  // test, quel que soit l'ordre des identifiants tirés au hasard par le seed (seed.js a une visite interne
+  // réalisée à Tsihombe ce mois-ci : vérification croisée, point L).
+  const sites = await q(`SELECT id, zone_district_id AS d FROM sites x WHERE tenant_id = $1 AND zone_district_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM site_visits v JOIN sites s2 ON s2.tenant_id = v.tenant_id AND s2.id = v.site_id
+                       WHERE v.tenant_id = $1 AND s2.zone_district_id = x.zone_district_id AND v.period_month = $2::date)
+    ORDER BY id LIMIT 400`, [T, `${m}-01`]);
   const cells = await q('SELECT c_site_id AS s, c_area_id AS a, c_state AS st FROM mems_tpm_cells($1, $2::uuid[], $3::date[])',
     [T, sites.map((x) => x.id), sites.map(() => `${m}-01`)]);
   const site = sites.find((x) => cells.some((c) => c.s === x.id && c.st === 'sans_contrat' && c.a === x.d));
