@@ -613,3 +613,41 @@ test('lien TPM ↔ contrat (re-relecture, point 5) : écrivain « verrou d abord
   assert.ok(calls.some((c) => /pg_advisory_xact_lock/.test(c.sql)));
   assert.ok(!calls.some((c) => /FROM tpm_collection_plans|FROM contracts/.test(c.sql)));
 });
+
+test('suppression d un document du lien (3ᵉ relecture) : contrat → verrou d attribution → ligne ; contrat changé : tout rendu, un nouvel essai', async () => {
+  const calls = [];
+  const client = { query: async (sql, params) => { calls.push({ sql: sql.replace(/\s+/g, ' ').trim(), params }); return { rows: [] }; } };
+  const kinds = () => calls.map((c) => (/^SAVEPOINT/.test(c.sql) ? 'savepoint' : /^RELEASE/.test(c.sql) ? 'release' : /^ROLLBACK TO/.test(c.sql) ? 'rollback'
+    : /FOR KEY SHARE/.test(c.sql) ? `contrat:${c.params[1]}` : /pg_advisory_xact_lock/.test(c.sql) ? 'attribution' : 'autre')).filter((k) => k !== 'autre');
+  const run = (peeks, rows) => {
+    const order = [];
+    return repo.lockLinkDocumentTx(client, T, {
+      peekContract: async () => { order.push('lecture'); return peeks.shift(); },
+      lockRow: async () => { order.push('ligne'); calls.push({ sql: 'LIGNE', params: [] }); return rows.shift(); },
+    }).then((r) => ({ r, order }));
+  };
+  // Cas ordinaire : contrat du document, PUIS verrou d'attribution, PUIS la ligne.
+  let out = await run([K1], [{ id: 'r1', contractId: K1 }]);
+  assert.deepEqual(out.r, { id: 'r1', contractId: K1 });
+  assert.deepEqual(kinds(), ['savepoint', `contrat:${K1}`, 'attribution', 'release']);
+  assert.ok(calls.findIndex((c) => c.sql === 'LIGNE') > calls.findIndex((c) => /pg_advisory_xact_lock/.test(c.sql)), 'la ligne après le verrou d attribution');
+  // Document absent : null, aucun verrou.
+  calls.length = 0;
+  out = await run([undefined], []);
+  assert.equal(out.r, null);
+  assert.deepEqual(kinds(), []);
+  // Le document a changé de contrat entre la lecture et le verrou : tout est rendu (ROLLBACK TO SAVEPOINT), nouvel essai sur le bon.
+  calls.length = 0;
+  out = await run(['k-ancien', K1], [{ id: 'r1', contractId: K1 }, { id: 'r1', contractId: K1 }]);
+  assert.deepEqual(out.r, { id: 'r1', contractId: K1 });
+  assert.deepEqual(kinds(), ['savepoint', 'contrat:k-ancien', 'attribution', 'rollback', 'release', 'savepoint', `contrat:${K1}`, 'attribution', 'release']);
+  // Deux fois de suite : 404 (null), sans verrou gardé sur un autre contrat.
+  calls.length = 0;
+  out = await run(['k-a', 'k-b'], [{ id: 'r1', contractId: K1 }, { id: 'r1', contractId: K1 }]);
+  assert.equal(out.r, null);
+  assert.deepEqual(kinds().slice(-2), ['rollback', 'release']);
+  // Supprimé entre la lecture et le verrou : null.
+  calls.length = 0;
+  out = await run([K1], [null]);
+  assert.equal(out.r, null);
+});
