@@ -17,11 +17,13 @@ const { currentMonth } = require('./rbmMath');
  * placeMatch.repository (aucun cycle : ce sont eux qui l'appellent).
  *
  * Ordre des verrous, partout (aucun interblocage) : rattachements (withSubmissionLinks) →
- * génération RBM → ligne de contrat (FOR UPDATE pour les écrivains de contrats ; FOR KEY SHARE pour
- * les écrivains du lien TPM ↔ contrat, création ET suppression : lockTpmLinkTx, lockLinkDocumentTx) →
- * verrou d'attribution du compte (ici, toujours après la ligne de contrat) → lignes des documents
- * (factures, plans), tpm_zone_overrides et site_visits, clés étrangères vers partners (jamais une ligne
- * de partenaire avant le verrou d'attribution : règle du lot 8, partners/partnerRole).
+ * génération RBM → ligne de contrat (FOR NO KEY UPDATE pour les écrivains de contrats — avenant,
+ * décision, résiliation, renouvellement — qui ne bloque jamais un FOR KEY SHARE ; FOR UPDATE pour la
+ * seule suppression d'un brouillon ; FOR KEY SHARE pour les écrivains du lien TPM ↔ contrat, création
+ * ET suppression : lockTpmLinkTx, lockLinkDocumentTx) → verrou d'attribution du compte (ici, toujours
+ * après la ligne de contrat) → lignes des documents (factures, plans), tpm_zone_overrides et
+ * site_visits, clés étrangères vers partners (jamais une ligne de partenaire avant le verrou
+ * d'attribution : règle du lot 8, partners/partnerRole).
  */
 
 const ATTRIBUTION_KEY = (tenantId) => `tpm-attribution:${tenantId}`;
@@ -175,11 +177,12 @@ async function tpmLinkExistsTx(client, tenantId, partnerId, contractId) {
  * Écrivains du lien TPM ↔ contrat (plans de collecte, factures / rapports, gabarits mensuels :
  * création et suppression), en tête de leur transaction, dans l'ordre de l'en-tête :
  *   1. création (contractId donné) : la ligne du contrat FOR KEY SHARE — le verrou que la clé
- *      étrangère du document prendrait de toute façon, pris AVANT le verrou d'attribution, comme les
- *      écrivains de contrats (ligne FOR UPDATE, puis restampFromNow). Prise après, elle formait un
- *      cycle avec une approbation d'avenant, une validation ou une résiliation du même contrat
- *      (re-relecture, point 1 : 40P01) ; FOR KEY SHARE ne gêne ni un FOR NO KEY UPDATE du contrat ni
- *      la fiche du partenaire ;
+ *      étrangère du document prendrait de toute façon —, pris AVANT le verrou d'attribution, dans
+ *      l'ordre des écrivains de contrats (ligne du contrat, puis restampFromNow). Leur FOR NO KEY
+ *      UPDATE (avenant, décision, résiliation, renouvellement) ne bloque jamais ce FOR KEY SHARE ; seule
+ *      la suppression d'un brouillon (deleteDraft) prend la ligne FOR UPDATE, et l'écrivain du lien
+ *      l'attend alors SANS tenir le verrou d'attribution — aucun cycle. Pris après ce verrou, il en
+ *      formait un (re-relecture, point 1 : 40P01) ; il ne gêne pas non plus la fiche du partenaire ;
  *   2. le verrou d'attribution du compte, AVANT toute lecture du lien, la ligne du document et sa clé
  *      étrangère vers partners (« verrou d'abord », règle du lot 8) : deux écrivains du même compte se
  *      suivent, le second lit le lien laissé par le premier (deux suppressions des deux derniers
