@@ -23,7 +23,8 @@ const { currentMonth } = require('./rbmMath');
  * jamais APRÈS le verrou d'attribution, clé étrangère d'un INSERT comprise) → ligne de contrat
  * (FOR NO KEY UPDATE pour les écrivains de contrats — avenant,
  * décision, résiliation, renouvellement — qui ne bloque jamais un FOR KEY SHARE ; FOR UPDATE pour la
- * seule suppression d'un brouillon ; FOR KEY SHARE pour les écrivains du lien TPM ↔ contrat, création
+ * seule suppression d'un contrat (deleteDraft, tout statut : brouillon, ou contrat validé supprimé par
+ * un administrateur avec justificatif) ; FOR KEY SHARE pour les écrivains du lien TPM ↔ contrat, création
  * ET suppression : lockTpmLinkTx, lockLinkDocumentTx) → verrou d'attribution du compte (ici, toujours
  * après la ligne de contrat) → lignes des documents (factures, plans), tpm_zone_overrides et
  * site_visits, clés étrangères vers partners (jamais une ligne de partenaire avant le verrou
@@ -193,8 +194,9 @@ async function tpmLinkExistsTx(client, tenantId, partnerId, contractId) {
  *      étrangère du document prendrait de toute façon —, pris AVANT le verrou d'attribution, dans
  *      l'ordre des écrivains de contrats (ligne du contrat, puis restampFromNow). Leur FOR NO KEY
  *      UPDATE (avenant, décision, résiliation, renouvellement) ne bloque jamais ce FOR KEY SHARE ; seule
- *      la suppression d'un brouillon (deleteDraft) prend la ligne FOR UPDATE, et l'écrivain du lien
- *      l'attend alors SANS tenir le verrou d'attribution — aucun cycle. Pris après ce verrou, il en
+ *      la suppression d'un contrat (deleteDraft, tout statut : brouillon, ou contrat validé supprimé par
+ *      un administrateur avec justificatif) prend la ligne FOR UPDATE, et l'écrivain du lien l'attend
+ *      alors SANS tenir le verrou d'attribution — aucun cycle. Pris après ce verrou, il en
  *      formait un (re-relecture, point 1 : 40P01) ; il ne gêne pas non plus la fiche du partenaire ;
  *   2. le verrou d'attribution du compte, AVANT toute lecture du lien, la ligne du document et sa clé
  *      étrangère vers partners (« verrou d'abord », règle du lot 8) : deux écrivains du même compte se

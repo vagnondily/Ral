@@ -14,8 +14,9 @@
  *     contracts.repository.getContract), qui ne bloque jamais le FOR KEY SHARE de l'écrivain du lien :
  *     il ne l'attend pas du tout. Une 3ᵉ connexion retarde l'écrivain de contrat APRÈS sa ligne de
  *     contrat (ligne de l'avenant, ou table de l'historique).
- *   - « verrou » : seule la suppression d'un brouillon (deleteDraft) prend la ligne FOR UPDATE ; simulée
- *     ici par un écrivain qui la tient puis prend le verrou d'attribution. Le FOR KEY SHARE étant pris AVANT,
+ *   - « verrou » : seule la suppression d'un contrat (deleteDraft, tout statut : brouillon, ou contrat
+ *     validé supprimé par un administrateur avec justificatif) prend la ligne FOR UPDATE ; simulée ici par
+ *     un écrivain qui la tient puis prend le verrou d'attribution. Le FOR KEY SHARE étant pris AVANT,
  *     l'écrivain du lien ATTEND la ligne SANS tenir le verrou d'attribution du compte. Avant la
  *     correction : 40P01 « deadlock detected » (503).
  * Et la suppression du dernier document du lien (deleteReport) pendant celle du contrat : même ordre —
