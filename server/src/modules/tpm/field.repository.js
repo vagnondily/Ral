@@ -4,7 +4,7 @@ const { sitePatchSql } = require('./sitePatch');
 const { chunkRows } = require('../../db/batch');
 const { lockVisitMonthsTx, yearMonths } = require('./visitLocks');
 const { isActiveMonth, activeMonthSql } = require('../common/siteActivity');
-const { shapeRangeSummary, shapeCoverageFacts, collectionDays, buildCoverageMatrix } = require('./fieldMath');
+const { UNIT_LABELS, shapeRangeSummary, shapeCoverageFacts, collectionDays, buildCoverageMatrix } = require('./fieldMath');
 const { isDue, frequencyFor, visitState, currentMonth, toMonth, needsPlanning, planningCounts } = require('./rbmMath');
 const { scoreSite, normalizeSecurity } = require('./rbmScore');
 const { coverageRecap } = require('./coverageRecap');
@@ -782,7 +782,7 @@ async function coverageMatrix(tenantId, { year, period } = {}) {
     const { rows: prov } = await client.query(
       `SELECT to_char(v.period_month, 'YYYY-MM') AS month,
               ${monitorKeySql('v')} AS key,
-              COALESCE(p.name, CASE WHEN v.monitored_by = 'interne' THEN 'Interne' ELSE 'Non affecté' END) AS label,
+              p.name AS label,
               count(*) FILTER (WHERE v.status = 'planifie')::int AS planifie,
               count(*) FILTER (WHERE v.status = 'realise')::int AS realise
          FROM site_visits v LEFT JOIN partners p ON p.id = v.provider_id AND p.tenant_id = v.tenant_id
@@ -798,7 +798,8 @@ async function coverageMatrix(tenantId, { year, period } = {}) {
     const cols = period ? monthsOf(period) : y;
     return {
       year: period ? null : y, period: periodInfo(period || null), years: yrs.map((r) => r.y),
-      byActivity: buildCoverageMatrix(act, cols), byProvider: buildCoverageMatrix(prov, cols),
+      // Lignes « Interne » et « Non affectée (…) » : libellés de fieldMath.UNIT_LABELS, les mêmes que le résumé.
+      byActivity: buildCoverageMatrix(act, cols), byProvider: buildCoverageMatrix(prov.map((r) => ({ ...r, label: UNIT_LABELS[r.key] || r.label || r.key })), cols),
     };
   });
 }

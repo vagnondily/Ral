@@ -39,7 +39,7 @@ const PHRASES = {
     strength: 'Point fort',
     weakness: 'Point faible',
     noDomain: '(sans dimension)',
-    unassigned: 'Non affecté',
+    unassigned: 'Non affectée (ni TPM ni suivi interne)', // = fieldMath.UNIT_LABELS.non_affecte
     internal: 'Interne', // suivi par l'équipe S&E (retour 114) — même mot que ROLE_LABELS.noTpm
     noneLabel: 'Non renseigné',
     noOffice: 'Sans bureau',
@@ -103,7 +103,7 @@ const PHRASES = {
     strength: 'Strength',
     weakness: 'Weakness',
     noDomain: '(no domain)',
-    unassigned: 'Unassigned',
+    unassigned: 'Unassigned (neither TPM nor internal monitoring)',
     internal: 'Internal',
     noneLabel: 'Not specified',
     noOffice: 'No office',

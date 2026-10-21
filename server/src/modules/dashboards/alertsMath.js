@@ -185,7 +185,9 @@ function fieldAlerts(field, { range = false, month = null, coverage = null, peri
   const naf = providers.find((p) => p.key === 'non_affecte');
   if (naf && naf.total > 0) {
     out.push({ sev: 'info', cat: 'Terrain', kind: 'visits_unassigned', title: '{n} visite(s) non affectée(s)',
-      detail: when('Sites planifiés sans TPM ce mois', 'Sites planifiés sans TPM ({m})', 'Sites planifiés sans TPM sur la période'),
+      // Même nom que la matrice, la carte et les visites : « Non affectée (ni TPM ni suivi interne) » — jamais
+      // « sans TPM », qui décrit aussi les visites internes (suivies, elles), ni « planifiés » (une réalisée compte).
+      detail: when('Ni TPM ni suivi interne ce mois', 'Ni TPM ni suivi interne ({m})', 'Ni TPM ni suivi interne sur la période'),
       params: { n: naf.total, ...whenParams }, go: FIELD_GO });
   }
   return out;

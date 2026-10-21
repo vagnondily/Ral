@@ -146,6 +146,16 @@ export const visitInternal = (v) => (v.monitoredBy ? v.monitoredBy === 'interne'
   : !v.providerId && ((v.providerSource || 'zone') === 'visite' || ((v.providerSource || 'zone') === 'zone' && isInternalState(v.providerZoneState))));
 
 /**
+ * Visite que PERSONNE ne suit (monitored_by = 'non_affecte' : antérieure à la règle sans TPM connu) —
+ * un seul nom partout (cellule, CSV, matrice, alerte, carte), jumeau de fieldMath.UNIT_LABELS.non_affecte.
+ * Jamais une visite interne : celle-là est suivie par l'équipe S&E.
+ */
+export const UNASSIGNED_LABEL = 'Non affectée (ni TPM ni suivi interne)';
+export const visitUnassigned = (v) => !v.providerId && !visitInternal(v);
+/** Qui suit une visite, en clair (CSV, tri) : son TPM, « Interne » ou « Non affectée (…) ». */
+export const visitWho = (tr, v) => v.providerName || (v.providerId ? '' : tr(visitInternal(v) ? ROLE_LABELS.noTpm : UNASSIGNED_LABEL));
+
+/**
  * Compte rendu de « Appliquer les TPM des contrats » (Affectation & visites, onglet Affectation des
  * TPM) : visites PRÉVUES mises à jour, et celles gardées telles quelles (réalisées ou annulées, déjà
  * facturées, au TPM motivé, antérieures à la règle) — `v` = réponse `visits` de POST /apply.

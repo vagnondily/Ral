@@ -9,9 +9,11 @@ const STATUSES = ['planifie', 'realise', 'annule'];
 /**
  * Lignes « par TPM » qui ne sont pas un TPM (retour 114) : 'interne' = suivi par l'équipe S&E
  * (site_visits.monitored_by, migration 107) — jamais « non affecté » ; 'non_affecte' = visite
- * antérieure à la règle sans TPM connu. Libellés français, traduits par l'interface.
+ * antérieure à la règle sans TPM connu, que personne ne suit : UN nom partout (matrice, alerte, carte,
+ * cellule et CSV des visites — jumeau web lib/tpmAttribution.UNASSIGNED_LABEL). Libellés français,
+ * traduits par l'interface.
  */
-const UNIT_LABELS = { interne: 'Interne', non_affecte: 'Non affecté' };
+const UNIT_LABELS = { interne: 'Interne', non_affecte: 'Non affectée (ni TPM ni suivi interne)' };
 /** Clé « qui suit » d'une visite : son TPM, 'interne' ou 'non_affecte' (jumelle de monitorKeySql). */
 const unitKeyOf = (v) => v.providerId || (v.monitoredBy === 'interne' ? 'interne' : 'non_affecte');
 

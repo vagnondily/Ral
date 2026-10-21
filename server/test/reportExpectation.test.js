@@ -137,7 +137,7 @@ test('par TPM : les visites suivies en interne forment la ligne « Interne », j
   assert.equal(unitKeyOf({ providerId: null, monitoredBy: 'interne' }), 'interne');
   assert.equal(unitKeyOf({ providerId: null, monitoredBy: 'non_affecte' }), 'non_affecte');
   const s = summarizeVisits([{ providerId: null, monitoredBy: 'interne', status: 'planifie' }, { providerId: null, status: 'realise' }]);
-  assert.deepEqual(s.byProvider.map((r) => [r.key, r.label]).sort(), [['interne', 'Interne'], ['non_affecte', 'Non affecté']]);
+  assert.deepEqual(s.byProvider.map((r) => [r.key, r.label]).sort(), [['interne', 'Interne'], ['non_affecte', 'Non affectée (ni TPM ni suivi interne)']]);
   const r = shapeRangeSummary([], [{ key: 'interne', label: null, planifie: 2, realise: 1, annule: 0 }]);
   assert.equal(r.byProvider[0].label, 'Interne');
 });

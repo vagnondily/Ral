@@ -10,8 +10,7 @@ import { useToast } from '../../components/Toast.jsx';
 import { currentMonth, formatInt, monthLabel } from '../../lib/format.js';
 import { richText } from '../../lib/contracts.js';
 import { useI18n } from '../../lib/i18n.jsx';
-import { REASON_MIN, TPM_VISIT, applyResultMessage, internalWhy, visitTpmKey, visitInternal } from '../../lib/tpmAttribution.js';
-import { ROLE_LABELS } from '../../lib/roles.js';
+import { REASON_MIN, TPM_VISIT, applyResultMessage, internalWhy, visitTpmKey, visitInternal, visitWho } from '../../lib/tpmAttribution.js';
 import { applyVisitPatch } from '../../lib/fieldVisits.js';
 import { coverageRateText } from '../../lib/coverage.js';
 import { formatRate } from '../../lib/mapScale.js';
@@ -186,8 +185,9 @@ export default function FieldVisitsPage({ canEdit }) {
       activity: { label: tr('Activité'), sortVal: (v) => v.activity || '', csv: (v) => v.activity || '',
         render: (v) => v.activity || '—' },
       // Retour 58 : TPM tiré du contrat qui couvre la zone ; changer = raison obligatoire.
-      provider: { label: tr('TPM'), sortVal: (v) => v.providerName || (visitInternal(v) ? tr(ROLE_LABELS.noTpm) : ''),
-        csv: (v) => v.providerName || (visitInternal(v) ? tr(ROLE_LABELS.noTpm) : ''),
+      // Qui suit : le TPM, « Interne » (équipe S&E) ou « Non affectée (ni TPM ni suivi interne) » — jamais un blanc.
+      provider: { label: tr('TPM'), sortVal: (v) => visitWho(tr, v),
+        csv: (v) => visitWho(tr, v),
         render: (v) => <VisitTpmCell visit={v} canEdit={canEdit} onEdit={(x) => setTpmVisits([x])} /> },
       tpmOrigin: { label: tr('Origine du TPM'), sortVal: (v) => visitTpmKey(v), csv: (v) => tr((TPM_VISIT[visitTpmKey(v)] || TPM_VISIT['zone:']).label),
         render: (v) => tr((TPM_VISIT[visitTpmKey(v)] || TPM_VISIT['zone:']).label) },

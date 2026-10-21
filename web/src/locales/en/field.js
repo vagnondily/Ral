@@ -41,6 +41,12 @@ export default {
   'District / Commune': 'District / Commune',
   '— Non affecté —': '— Unassigned —',
   '— Non affectés —': '— Unassigned —',
+  // Visite que personne ne suit (monitored_by 'non_affecte') : un seul nom — cellule, CSV, matrice, alerte, carte.
+  'Non affectée (ni TPM ni suivi interne)': 'Unassigned (neither TPM nor internal monitoring)',
+  'Ni TPM ni suivi interne ce mois': 'Neither TPM nor internal monitoring this month',
+  'Ni TPM ni suivi interne ({m})': 'Neither TPM nor internal monitoring ({m})',
+  'Ni TPM ni suivi interne sur la période': 'Neither TPM nor internal monitoring over the period',
+  '{n} visite(s) non affectée(s) (ni TPM ni suivi interne)': '{n} unassigned visit(s) (neither TPM nor internal monitoring)',
   '— Rôle —': '— Role —',
   'Date de visite': 'Visit date',
   'Dernière collecte (données)': 'Last data collection',

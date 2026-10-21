@@ -61,3 +61,43 @@ test('plan auto : la note et l\'en-tête disent la règle du retour 114 (sans TP
   assert.match(en.default[note], /no contract, contract without a TPM, TPM unavailable/);
   assert.ok(!Object.values(en.default).some((v) => /without a contract, the office monitors it/.test(v)), 'aucune ancienne traduction');
 });
+
+test('visite que personne ne suit : UN nom — « Non affectée (ni TPM ni suivi interne) » — dans la matrice, l\'alerte, la carte, la cellule et le CSV ; une visite interne n\'en est jamais une', async (t) => {
+  const w = await load(t, 'lib/tpmAttribution.js'); if (!w) return;
+  const en = (await load(t, 'locales/en.js')).default;
+  const { UNIT_LABELS } = require('../src/modules/tpm/fieldMath');
+  const { PHRASES } = require('../src/modules/reports/phrases');
+  const NA = 'Non affectée (ni TPM ni suivi interne)';
+  assert.equal(w.UNASSIGNED_LABEL, NA);
+  assert.equal(UNIT_LABELS.non_affecte, NA, 'matrice et résumé « par TPM »');
+  assert.equal(PHRASES.fr.unassigned, NA, 'rapports');
+  assert.equal(en[NA], 'Unassigned (neither TPM nor internal monitoring)');
+  // Qui suit une visite (CSV et tri de la grille) : jamais un blanc, jamais « sans TPM » pour une interne.
+  assert.equal(w.visitWho(tr, { providerId: 'p1', providerName: 'YPA', monitoredBy: 'tpm' }), 'YPA');
+  assert.equal(w.visitWho(tr, { providerId: null, monitoredBy: 'interne' }), 'Interne');
+  assert.equal(w.visitWho(tr, { providerId: null, monitoredBy: 'non_affecte', providerZoneState: 'anterieur' }), NA);
+  assert.equal(w.visitWho(tr, { providerId: null, providerSource: 'zone', providerZoneState: 'sans_tpm' }), 'Interne', 'repli sans la colonne');
+  assert.equal(w.visitWho(tr, { providerId: null, providerSource: 'zone', providerZoneState: 'anterieur' }), NA);
+  assert.equal(w.visitUnassigned({ providerId: null, monitoredBy: 'interne' }), false);
+  assert.equal(w.visitUnassigned({ providerId: null, monitoredBy: 'non_affecte' }), true);
+  assert.equal(w.visitUnassigned({ providerId: 'p1', monitoredBy: 'tpm' }), false);
+  // Alerte et signal de la carte : le même nom, jamais « sans TPM » (qui décrit aussi les visites internes).
+  const { fieldAlerts } = require('../src/modules/dashboards/alertsMath');
+  const { signalsOf } = require('../src/modules/map/mapThemes');
+  const field = { byProvider: [{ key: 'interne', label: 'Interne', active: 19, realise: 12, rate: 12 / 19, total: 19 }, { key: 'non_affecte', label: NA, active: 1, realise: 0, rate: 0, total: 1 }] };
+  for (const opts of [{}, { month: '2026-09' }, { range: true }]) {
+    const [a] = fieldAlerts(field, opts).filter((x) => x.kind === 'visits_unassigned');
+    assert.equal(a.params.n, 1, 'les visites internes ne comptent pas');
+    assert.match(a.detail, /^Ni TPM ni suivi interne/);
+    assert.ok(en[a.title] && en[a.detail], `anglais : ${a.detail}`);
+  }
+  const sig = signalsOf({ active: 3, visitsUnassigned: 2 }).find((x) => x.kind === 'visits_unassigned');
+  assert.equal(sig.title, '{n} visite(s) non affectée(s) (ni TPM ni suivi interne)');
+  assert.ok(en[sig.title]);
+  // Cellule : jamais le même libellé deux fois (nom + origine, infobulle) ; CSV : visitWho.
+  const cell = src('pages/monitoring/TpmFields.jsx');
+  assert.match(cell, /title=\{origin && origin !== label \? `\$\{label\} — \$\{origin\}` : label\}/);
+  assert.match(cell, /origin && origin !== shown && <span className="pb-tpm-origin">/);
+  assert.match(cell, /tr\(UNASSIGNED_LABEL\)/);
+  assert.match(src('pages/monitoring/FieldVisitsPage.jsx'), /csv: \(v\) => visitWho\(tr, v\)/);
+});
