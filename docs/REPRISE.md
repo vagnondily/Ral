@@ -1,6 +1,6 @@
 # Reprise du travail — passation entre sessions Claude
 
-_Mis à jour : 21/10/2026, 03:34 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
+_Mis à jour : 21/10/2026, 12:05 UTC, par la session principale (branche `claude/practical-meitner-2c1560`, identique à `main`).
 Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOURNAL.md)._
 
 **À qui s'adresse ce fichier ?** À toute session Claude qui reprend le projet, en particulier pendant une limite d'usage de la session principale. Il dit :
@@ -9,27 +9,22 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 - ce qui reste, et dans quel ordre ;
 - comment travailler à deux sans se marcher dessus.
 
-> **21/10, 03:34 — état.** `main` = `f871748` pour le code (publié le 20/10 à 12:09), plus le journal. **Prête à publier
-> après un dernier tour :** l'intégration `integ/full` (sauvegardée sur `origin/snap/integ-full-1020`, `a1e998a`) =
-> `main` + lot 8 (Partenaires & TPM, rôles, « Interne », évaluations, formations ; migrations 086–089) + modèles
-> d'indicateurs + planification automatique (heure locale, ressources) + retour 114 (suivi interne, indisponibilités,
-> rapports attendus ; migration 107). Contrôles verts sur `a1e998a` : 1533 tests, lint, build, migrations neuve et copie,
-> `npm run test:db` 32/32, balayage 46 écrans × FR/EN sans erreur. Chaque branche a été relue et vérifiée plusieurs fois
-> (constats dans le bloc-notes de la session principale : `review_*_findings.txt`).
-> **En cours** : la relecture croisée des quatre branches a confirmé 26 points (libellés, chiffres, parcours) ; ils sont
-> corrigés sur quatre branches coupées de `integ/full` `a1e998a`, chacune par un agent :
-> - `wip/xb-tpm` (rapports attendus, équipe interne = bureau RACINE, horloge des alertes, factures sur plusieurs mois →
->   **migration 108**, TPM indisponible, partenaire qui perd le rôle TPM) ; ports 9884 / 5884 ;
-> - `wip/xb-partners` (liste des contrats « Interne », fiche 360°, indisponibilité affichée, contrats actifs, visites
->   « visite » rendues à la zone, une seule horloge) ; ports 9881 / 5881 ;
-> - `wip/xb-plan` (la planification compte une visite existante sous son propre TPM) ; ports 9883 / 5883 ;
-> - `wip/xb-ui` (libellés : contrats sans TPM, numéro affiché des contrats dans les alertes, « non affectée », CSV) ;
->   ports 9886 / 5886.
-> Une relecture finale (corrections du retour 114 + ordre de TOUS les verrous) tourne aussi. Ensuite : fusion des quatre
-> branches dans `integ/full`, contrôles, vérification indépendante, publication sur `main`, documents (CLAUDE.md, ETAT,
-> RETOURS 113–115). Consignes exactes : [`reprise/AGENTS_EN_COURS.md`](reprise/AGENTS_EN_COURS.md) § 7.
-> En attente de reprise : filtres du rapportage (retour 102, `snap/7a-p2-1016`), maquette des tableaux de bord (retour 101,
-> `snap/dash-template-1016`), `wip/perf` 2ᵉ lot (`snap/perf-1016`), `wip/offices`, `wip/activities` (migration 105).
+> **21/10, 12:05 — état.** **Publié sur `main` à 08:48** (`ab3993d`, à la demande du propriétaire « pull dans main ce
+> qui est fait ») : lot 8 Partenaires & TPM, modèles d'indicateurs, planification automatique, retour 114 (suivi
+> interne, indisponibilités, rapports attendus), 26 points de la relecture croisée, lot « verrous » (ordre unique),
+> estampille rapide ; migrations `086`–`089` et `107`–`109`. Contrôles verts : 1 564 tests / 0 échec, lint, build,
+> migrations neuve et copie, `test:db` 50/50, balayage 46 écrans × FR / EN (et 35 sur base vide). Base de démonstration
+> migrée, API :9000 redémarrée.
+> **Deux sessions travaillent sur `main`** : la session principale (ici) et une session de mise en production pour le
+> propriétaire (`session_013nF2yMgQS47isZ4pcU4vZ8`, branche `claude/zealous-bardeen-p9ozcr`, file des besoins dans
+> [`BESOINS_UTILISATEUR.md`](BESOINS_UTILISATEUR.md) : base vierge, localités, bureau d'un site, GPS, carte, codes en
+> minuscules — migration `116`). Chacune fusionne `origin/main` avant d'envoyer, jamais d'écrasement.
+> **Pour éviter un doublon** : la hiérarchie des bureaux (types à niveaux facultatifs, Siège › … › Antenne, périmètre
+> Région › District › Commune — retour 105) est DÉJÀ construite sur `wip/offices` (migrations `102`–`103`, à reprendre
+> sur `main`), et le multi-pays a sa conception (`SPEC_MULTIPAYS.md`, migrations `082`–`085` réservées).
+> **En cours (session principale)** : fin des vérifications indépendantes des dernières corrections (interrompues par la
+> limite d'usage) — toute remarque sera corrigée dans un envoi suivant ; ensuite filtres du rapportage (retour 102,
+> `snap/7a-p2-1016`), maquette des tableaux de bord (retour 101), bureaux (retour 105, `wip/offices`), activités (109).
 
 ## 0. À lire, dans cet ordre
 
@@ -145,7 +140,7 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `079`–`080` | lot 5, suite (calendrier, risque daté, règles) | ⏳ |
   | `081` | agent `wip/perf` (index, si besoin) | 🔄 |
   | `082`–`085` | multi-pays (conception) | ⏳ |
-  | `086`–`089` | lot 8 (agent `wip/lot8`) | 🔄 |
+  | `086`–`089` | lot 8 | ✅ publié 21/10 |
   | `090` | **abandonné** : le référentiel des activités est arrivé par l'autre session (`101`) | — |
   | `091`–`095` | **à renuméroter après `101`** (bailleurs, programmes, projets, cadre logique, Output, connecteur) : ces fichiers référencent `sub_activities` (`101`) ; sur une base neuve, un numéro plus petit tournerait avant elle → numéros `110`–`115` | ⏳ |
   | `096` | état de l'application, remise à zéro, archives 24 h (agent `wip/admin`) | 🔄 |
@@ -158,9 +153,9 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `104` | tableau de bord d'après la maquette (agent `wip/dash-template`, si besoin) | 🔄 |
   | `105` | référentiel des activités, suite (reprise des libellés, listes partout, refus des activités inconnues ; agent `wip/activities`, sur la base de `101`) | 🔄 |
   | `106` | traçabilité des plans automatiques (`plan_auto_runs`, après le portage ; agent `wip/planauto-port`) | ⏳ |
-  | `107` | retour 114 : estampillage selon D1, suivi interne, indisponibilités des TPM (agent `wip/r114`) | 🔄 |
-  | `108` | factures sur plusieurs mois : visites couvertes protégées (`mems_tpm_stamp`, agent `wip/xb-tpm`) | 🔄 |
-  | `109` | `mems_tpm_stamp` sans sous-requêtes en arguments (recalcul rapide sous le verrou d'attribution, agent `wip/xb-tpm`) | 🔄 |
+  | `107` | retour 114 : estampillage selon D1, suivi interne, indisponibilités des TPM | ✅ publié 21/10 |
+  | `108` | factures sur plusieurs mois : visites couvertes protégées (`mems_tpm_stamp`) | ✅ publié 21/10 |
+  | `109` | `mems_tpm_stamp` sans sous-requêtes en arguments (recalcul rapide sous le verrou d'attribution) | ✅ publié 21/10 |
   | `110`–`115` | programmes, projets, bailleurs, Output (conception, ex-`091`–`095`) | ⏳ |
   | `116` | codes de référence en minuscules (types de partenaire / activités) — un code « TPM » saisi n'était jamais reconnu | ✅ |
   | `117` et suivants | libres | — |
