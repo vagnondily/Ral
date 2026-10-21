@@ -7,6 +7,7 @@ const coverageService = require('./coverage.service');
 const { reportActions, canWriteReports } = require('../tpm/reportWorkflow');
 const { buildAlerts, countAlerts, LATE_REPORTS_LOOKBACK } = require('./alertsMath');
 const { single, spanMonths, periodInfo, addMonths } = require('../common/period');
+const { localDay } = require('../common/localDay');
 
 /**
  * Centre d'alertes — UNE source pour la page et la cloche de l'en-tête.
@@ -21,8 +22,6 @@ const { single, spanMonths, periodInfo, addMonths } = require('../common/period'
  * « À valider » : seulement ce que l'utilisateur peut décider — même liste de
  * rôles d'écriture que les routes des rapports (reportWorkflow.REPORT_WRITE_ROLES).
  */
-const isoDay = (d) => d.toISOString().slice(0, 10);
-
 /**
  * @param {object} auth  req.auth (tenant, utilisateur, rôle)
  * @param {{ today?: string, period?: {from,to}|null }} [opts]
@@ -31,8 +30,10 @@ const isoDay = (d) => d.toISOString().slice(0, 10);
  *   (la cloche) : terrain du mois courant, tous les rapports — sortie inchangée. Le
  *   budget et les échéances de contrat sont toujours calculés à date (scope 'a_date').
  */
-async function alerts(auth, { today = isoDay(new Date()), period = null } = {}) {
+async function alerts(auth, { today = localDay(), period = null } = {}) {
   const { tenantId, userId, role } = auth;
+  // UN mois courant : le jour LOCAL de l'application (common/localDay, = rbmMath.currentMonth), le même que
+  // la carte « Rapports attendus » (GET /reports/expected) — jamais le jour UTC (relecture croisée, point 14).
   const month = today.slice(0, 7);
   const fieldPeriod = period || single(month);
   const unavailable = [];

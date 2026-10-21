@@ -9,6 +9,7 @@ const { monthWithin } = require('../common/periodSql');
 const { followedSql, timelineTrainingSql, heldSql } = require('../trainings/trainingSql');
 const { roleForUpdateTx, restampIfRoleChangedTx, nameChanges, roleAfter } = require('./partnerRole');
 const { stubNotApplicableSql } = require('../tpm/reportExpectationSql');
+const { localDay } = require('../common/localDay');
 
 /**
  * Fiche partenaire 360° et équipe — seul fichier du module qui écrit du SQL.
@@ -49,26 +50,30 @@ async function sheet(tenantId, id) {
     if (!partner) return null;
     const links = await providerLinksTx(client, tenantId, { partnerId: id });
     const contracts = await contractFiguresTx(client, tenantId, id, links.map((l) => l.contractId));
+    // Mois et jour LOCAUX de l'application (common/localDay), jamais la date de la session (UTC) : le même
+    // mois courant que les rapports attendus et les alertes (relecture croisée, point 14).
+    const today = localDay();
+    const month0 = `${today.slice(0, 7)}-01`;
     const { rows: [counts] } = await client.query(
-      `SELECT to_char(date_trunc('month', current_date), 'YYYY-MM') AS month, to_char(current_date, 'YYYY-MM-DD') AS today,
+      `SELECT to_char($3::date, 'YYYY-MM') AS month, to_char($4::date, 'YYYY-MM-DD') AS today,
               (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')}
-                 AND v.period_month = date_trunc('month', current_date) AND v.status <> 'annule')::int AS "visitsAssigned",
+                 AND v.period_month = $3::date AND v.status <> 'annule')::int AS "visitsAssigned",
               (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')}
-                 AND v.period_month = date_trunc('month', current_date) AND v.status = 'realise')::int AS "visitsRealised",
+                 AND v.period_month = $3::date AND v.status = 'realise')::int AS "visitsRealised",
               (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')} AND v.status = 'realise'
-                 AND v.period_month >= date_trunc('month', current_date) - interval '11 months')::int AS "visitsRealised12",
+                 AND v.period_month >= $3::date - interval '11 months')::int AS "visitsRealised12",
               (SELECT count(DISTINCT v.site_id) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')}
-                 AND v.status = 'realise' AND v.period_month >= date_trunc('month', current_date) - interval '11 months')::int AS "sitesFollowed",
+                 AND v.status = 'realise' AND v.period_month >= $3::date - interval '11 months')::int AS "sitesFollowed",
               (SELECT count(*) FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.partner_id = $2 AND NOT s.excluded
-                 AND s.period_month >= date_trunc('month', current_date) - interval '11 months')::int AS "submissions12",
+                 AND s.period_month >= $3::date - interval '11 months')::int AS "submissions12",
               (SELECT count(*) FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.partner_id = $2 AND s.excluded
-                 AND s.period_month >= date_trunc('month', current_date) - interval '11 months')::int AS "submissionsExcluded12",
+                 AND s.period_month >= $3::date - interval '11 months')::int AS "submissionsExcluded12",
               (SELECT count(*) FROM tpm_agents a WHERE a.tenant_id = $1 AND a.tpm_provider_id = $2 AND a.active)::int AS "agentsActive",
               (SELECT count(*) FROM tpm_agents a WHERE a.tenant_id = $1 AND a.tpm_provider_id = $2)::int AS "agentsTotal",
               (SELECT count(*) FROM tpm_collection_plans pl WHERE pl.tenant_id = $1 AND ${docOf('pl')})::int AS plans,
               (${TRAININGS_COUNT_SQL})::int AS trainings,
               (SELECT count(*) FROM tpm_provider_evaluations e WHERE e.tenant_id = $1 AND e.partner_id = $2)::int AS evaluations`,
-      [tenantId, id]);
+      [tenantId, id, month0, today]);
     // Un gabarit « attendu » sans visite planifiée : « non applicable » d'office (retour 114, même règle que la
     // carte « Rapports attendus » : tpm/reportExpectationSql) — jamais compté parmi les rapports attendus.
     const { rows: reports } = await client.query(
@@ -89,7 +94,7 @@ async function sheet(tenantId, id) {
       `SELECT DISTINCT NULLIF(s.adm1, '') AS region, COALESCE(NULLIF(s.adm2, ''), s.district) AS district
          FROM site_visits v JOIN sites s ON s.id = v.site_id AND s.tenant_id = v.tenant_id
         WHERE v.tenant_id = $1 AND ${visitOf('v')} AND v.status <> 'annule'
-          AND v.period_month >= date_trunc('month', current_date) - interval '11 months'`, [tenantId, id]);
+          AND v.period_month >= $3::date - interval '11 months'`, [tenantId, id, month0]);
     // TPM de chaque contrat (retour 113, règle commune) : le titulaire voit son TPM, le TPM le titulaire.
     const { views, partners } = await contractTpmViewsTx(client, tenantId, contracts.map((c) => ({ id: c.id, partnerId: c.holderId })));
     return {

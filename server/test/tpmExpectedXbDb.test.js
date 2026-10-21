@@ -57,3 +57,16 @@ test('suivi interne (points 6, 18, 23) : l équipe d un site est son bureau RACI
     await q('DELETE FROM site_visits WHERE id = $1', [V]);
   }
 });
+
+test('fiche 360° (point 14) : mois courant LOCAL de l application, jamais la date UTC de la session', { skip: SKIP }, (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-31T22:30:00Z') }); // 1 h 30 le 1ᵉʳ novembre à Antananarivo
+  return (async () => {
+    const T = await tenant();
+    const partners = require('../src/modules/partners/partners.repository');
+    const { currentMonth } = require('../src/modules/tpm/rbmMath');
+    const [p] = await q("SELECT p.id FROM partners p JOIN partner_types t ON t.id = p.partner_type_id WHERE p.tenant_id = $1 AND t.code = 'tpm' ORDER BY p.name LIMIT 1", [T]);
+    const raw = await partners.sheet(T, p.id);
+    assert.equal(currentMonth(), '2026-11');
+    assert.deepEqual([raw.counts.month, raw.counts.today], ['2026-11', '2026-11-01'], 'même mois que les rapports attendus et les alertes');
+  })();
+});
