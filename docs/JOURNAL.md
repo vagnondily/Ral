@@ -12,6 +12,61 @@
 
 ## État courant
 
+> **21/10 — Bug « TPM = Interne / Autres partenaires » : codes de référence en minuscules.** ✅
+> Cause racine : sur base vierge, le formulaire « Nouveau type de partenaire » laissait saisir le CODE
+> tel quel, sans minuscules — un type créé avec le code « TPM » (majuscules) n'était JAMAIS reconnu
+> (toute l'app compare au code littéral `tpm`). D'où : partenaires classés « Autres partenaires » et
+> contrats affichés « TPM : Interne » alors que le titulaire est un TPM actif. Correctif : migration
+> **116** met les codes existants (partner_types, activities) en minuscules sans collision ; le code est
+> désormais mis en minuscules à la création (`slug` zod `.toLowerCase()`). Smoke : `TPM` → `tpm` (libellé
+> conservé) ; le titulaire TPM d'un contrat est alors bien résolu (smoke `contractTpmViewsTx` → `titulaire`).
+> Lint ✅, 1564 tests ✅. **Action utilisateur : `git pull` puis `npm run migrate`** pour corriger l'existant.
+
+> **21/10 — Carte : toujours afficher les sites visités (centre du district) + nb de visites.** ✅
+> Nouvelle couche **« Centre du district (visités sans GPS) »** (par défaut active) : un site VISITÉ
+> (visite réalisée ou données) sans aucune position est compté au **centroïde de son district** (point
+> d'étiquette du contour fourni `mdg-adm2.v1.json`, toujours disponible, même sans plan et sans import
+> de géométrie). Backend : `map.repository.districtUnplacedTx` (sites visités sans GPS groupés par
+> district) + `map.service.districtFallback` (match district→contour via `matchDistricts`, centroïde =
+> label). Popup : **nombre de visites réalisées** sur un site (GPS/collectes), et liste des sites
+> (avec leur nb de visites) sur le marqueur district. Frontend : couche + rendu (DistrictMap) + carte de
+> survol + CSS + EN. Smoke bout-en-bout : site visité sans GPS à Bekily → marqueur au centre du district.
+> Lint ✅, 1564 tests ✅ (test des couches par défaut mis à jour), build ✅. Reste du chantier carte :
+> rattachement soumissions→site par code/GPS.
+
+> **21/10 — GPS d'un site depuis ses vraies collectes + rappel : GPS éditable au registre.** ✅
+> La config GPS depuis le référentiel existe déjà (formulaire du site : champs Latitude/Longitude).
+> Nouveau : bouton **« GPS depuis les collectes »** (registre des sites) → `POST /api/site-registry/fill-gps`,
+> `sitesAdmin.fillGpsFromCollectes` remplit le GPS MANQUANT d'un site par la **médiane** de ses
+> soumissions (`gpsMediansTx(by='site')`), seulement si « plaçable » (≥ 3 relevés, dispersion ≤ 5 km,
+> règle `geoStats`) ; ne touche jamais un GPS déjà posé (idempotent). Smoke en base : site 4 relevés →
+> médiane, site 1 relevé → ignoré, 2ᵉ passage 0. Lint ✅, 1564 tests ✅, build ✅, EN ajoutées.
+> **Suite demandée (backlog carte/géo, à prioriser) :** repli « site visité → centre du district »
+> (contours fournis), sites visités dédupliqués + nombre de visites en popup, rattachement
+> soumissions→site par code/GPS ; et hors carte : hiérarchie Bureaux à 6 niveaux, création d'un pays
+> avant configuration (multi-pays).
+
+> **21/10 — Bureau d'un site = périmètre Bureaux (autorité), pas le fichier.** ✅ Demande : à l'import
+> du registre des sites, le bureau doit venir de ce qui est configuré dans Bureaux (périmètre communes),
+> même si le fichier contient un « Field_office_code ». `attachUnassignedSitesTx` prend un mode
+> `{ override }` : à l'import du registre et quand on **configure/enregistre le périmètre d'un bureau**
+> (`writePerimeter`), le périmètre fait AUTORITÉ et (ré)attribue les sites couverts — un site hors de
+> tout périmètre garde le bureau du fichier (repli). Les flux génériques gardent le mode « remplir les
+> vides » (ne défont jamais un bureau). Smoke en base : site couvert → bureau du périmètre, site non
+> couvert → bureau du fichier conservé ; lint ✅, unitaires ✅. **Pour corriger les sites déjà importés :**
+> réimporter le fichier des sites, OU ré-enregistrer le périmètre du bureau dans Paramétrage › Bureaux.
+
+> **21/10 — Niveaux administratifs configurables depuis MEMS (base vierge).** ✅ Avant, les niveaux
+> (Région/District/Commune/Fokontany) n'existaient qu'après l'import d'un découpage ; sur base vierge
+> la section « Libellés des niveaux administratifs » était vide. Désormais : le formulaire Pays
+> pré-remplit les niveaux standard (éditables, + Ajouter / Retirer un niveau, max 6), et `saveCountry`
+> **crée** les niveaux (plus seulement renommer) avec le code `adm{depth}` attendu par l'import — donc
+> les libellés saisis sont conservés à l'import. Retrait d'un niveau refusé s'il porte déjà des unités.
+> Testé en base (création 3 niveaux, renommage, réduction sûre), lint ✅, 1270 tests ✅, build web ✅,
+> traductions EN ajoutées. **Import `.dbf`/shapefile** : reproduction d'un `.dbf` OCHA (ADM1_EN…ADM4_PCODE)
+> → lu correctement (4 niveaux) ; un 400 à l'import vient donc du fichier (`.dbf` seul sans `.dbt`/
+> encodage) → importer le `.zip` complet.
+
 > **21/10 — Correctif 400 sur « Enregistrer l'identité » (Paramétrage › Localités).** ✅ Sur une
 > base vierge, enregistrer le profil pays avec Latitude/Longitude du centre **vides** renvoyait
 > 400 « Données invalides » : le schéma zod `centerLat`/`centerLng` attendait un nombre ou `null`,

@@ -65,6 +65,16 @@ export default function LocalitiesSection({ isAdmin, canEdit = isAdmin, initialT
 
 /* ------------------------------------------------------------ Pays & découpage */
 
+// Niveaux standard proposés sur une base vierge (configurables avant tout import).
+// L'import conserve ces libellés quand le code du niveau (adm1…) ne change pas.
+const DEFAULT_LEVELS = [
+  { depth: 1, code: 'adm1', label: 'Région', labelPlural: 'Régions' },
+  { depth: 2, code: 'adm2', label: 'District', labelPlural: 'Districts' },
+  { depth: 3, code: 'adm3', label: 'Commune', labelPlural: 'Communes' },
+  { depth: 4, code: 'adm4', label: 'Fokontany', labelPlural: 'Fokontany' },
+];
+const MAX_LEVELS = 6;
+
 function CountryTab({ country, isAdmin, onChanged }) {
   const { tr } = useI18n();
   const toast = useToast();
@@ -80,7 +90,11 @@ function CountryTab({ country, isAdmin, onChanged }) {
       name: p.name || country.tenantName || '', iso3: p.iso3 || '', currency: p.currency || '',
       centerLat: p.centerLat ?? '', centerLng: p.centerLng ?? '', note: p.note || '',
       showAdmCodes: Boolean(p.showAdmCodes),
-      levels: country.levels.map((l) => ({ depth: l.depth, code: l.code, label: l.label, labelPlural: l.labelPlural })),
+      // Base vierge (aucun niveau importé) : proposer les niveaux standard, éditables,
+      // pour configurer le découpage DEPUIS MEMS avant même tout import.
+      levels: country.levels.length
+        ? country.levels.map((l) => ({ depth: l.depth, code: l.code, label: l.label, labelPlural: l.labelPlural }))
+        : DEFAULT_LEVELS.map((l) => ({ ...l })),
     });
   }, [country]);
 
@@ -88,6 +102,17 @@ function CountryTab({ country, isAdmin, onChanged }) {
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const setLevel = (depth, k, v) => setForm((f) => ({ ...f, levels: f.levels.map((l) => (l.depth === depth ? { ...l, [k]: v } : l)) }));
   const levelsValid = form.levels.every((l) => l.label.trim() && l.labelPlural.trim());
+  // Unités déjà importées par niveau : on ne retire pas un niveau qui porte des données.
+  const unitsByDepth = new Map(country.levels.map((l) => [l.depth, l.units]));
+  const addLevel = () => setForm((f) => {
+    if (f.levels.length >= MAX_LEVELS) return f;
+    const depth = f.levels.length + 1;
+    const d = DEFAULT_LEVELS[depth - 1] || { label: '', labelPlural: '' };
+    return { ...f, levels: [...f.levels, { depth, code: `adm${depth}`, label: d.label || '', labelPlural: d.labelPlural || '' }] };
+  });
+  const lastDepth = form.levels.length;
+  const canRemoveLast = form.levels.length > 1 && !unitsByDepth.get(lastDepth);
+  const removeLevel = () => { if (canRemoveLast) setForm((f) => ({ ...f, levels: f.levels.slice(0, -1) })); };
 
   async function save(e) {
     e.preventDefault();
@@ -158,19 +183,24 @@ function CountryTab({ country, isAdmin, onChanged }) {
           </div>
           <div className="field">
             <span className="field-label">{tr('Libellés des niveaux administratifs')}</span>
-            {form.levels.length === 0 ? <p className="hint">{tr('Les niveaux apparaissent après l\'import du découpage (étape 2).')}</p> : (
-              <div className="table-wrap"><table className="table loc-levels">
-                <thead><tr><th scope="col">{tr('Code du schéma')}</th><th scope="col">{tr('Singulier')}</th><th scope="col">{tr('Pluriel')}</th></tr></thead>
-                <tbody>{form.levels.map((l) => (
-                  <tr key={l.depth}>
-                    <td><span className="mono loc-code">{l.code || `adm${l.depth}`}</span></td>
-                    <td><input className={`input ${!l.label.trim() ? 'is-invalid' : ''}`} value={l.label} disabled={!isAdmin} maxLength={60} onChange={(e) => setLevel(l.depth, 'label', e.target.value)} aria-label={tr('Singulier')} /></td>
-                    <td><input className={`input ${!l.labelPlural.trim() ? 'is-invalid' : ''}`} value={l.labelPlural} disabled={!isAdmin} maxLength={60} onChange={(e) => setLevel(l.depth, 'labelPlural', e.target.value)} aria-label={tr('Pluriel')} /></td>
-                  </tr>
-                ))}</tbody>
-              </table></div>
+            <div className="table-wrap"><table className="table loc-levels">
+              <thead><tr><th scope="col">{tr('Code du schéma')}</th><th scope="col">{tr('Singulier')}</th><th scope="col">{tr('Pluriel')}</th></tr></thead>
+              <tbody>{form.levels.map((l) => (
+                <tr key={l.depth}>
+                  <td><span className="mono loc-code">{l.code || `adm${l.depth}`}</span></td>
+                  <td><input className={`input ${!l.label.trim() ? 'is-invalid' : ''}`} value={l.label} disabled={!isAdmin} maxLength={60} onChange={(e) => setLevel(l.depth, 'label', e.target.value)} aria-label={tr('Singulier')} /></td>
+                  <td><input className={`input ${!l.labelPlural.trim() ? 'is-invalid' : ''}`} value={l.labelPlural} disabled={!isAdmin} maxLength={60} onChange={(e) => setLevel(l.depth, 'labelPlural', e.target.value)} aria-label={tr('Pluriel')} /></td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+            {isAdmin && (
+              <div className="loc-level-actions">
+                <Button type="button" variant="ghost" icon={Plus} onClick={addLevel} disabled={form.levels.length >= MAX_LEVELS}>{tr('Ajouter un niveau')}</Button>
+                <Button type="button" variant="ghost" icon={Trash2} onClick={removeLevel} disabled={!canRemoveLast}
+                  title={unitsByDepth.get(lastDepth) ? tr('Ce niveau porte des unités déjà importées : il ne peut pas être retiré.') : undefined}>{tr('Retirer le dernier niveau')}</Button>
+              </div>
             )}
-            <span className="field-hint">{tr('Singulier et pluriel sont exigés : un niveau non nommé s\'afficherait « adm4 » dans l\'application.')}</span>
+            <span className="field-hint">{tr('Configurez les niveaux ici (ex. Région › District › Commune › Fokontany), puis importez les unités à l\'étape 2. Singulier et pluriel sont exigés : un niveau non nommé s\'afficherait « adm4 » dans l\'application.')}</span>
           </div>
           {isAdmin && <div className="loc-actions"><Button type="submit" icon={Save} loading={saving} disabled={!levelsValid}>{tr('Enregistrer l\'identité')}</Button></div>}
         </form>

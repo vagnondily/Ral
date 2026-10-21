@@ -48,6 +48,7 @@ export default function MapLayers({
       {check('gps', tr('Sites GPS'), counts ? counts.gps : null)}
       {check('derived', tr('Placés par leurs collectes'), counts ? counts.derived : null)}
       {check('communes', tr('Centres des collectes (commune)'), counts ? counts.communeCentres : null)}
+      {check('districts', tr('Centre du district (visités sans GPS)'), counts ? counts.sitesInDistrictCentres : null)}
       {check('collect', tr('Points de collecte'), collect ? collect.total : null, !!collect && collect.total === 0,
         collect && collect.total === 0 && collect.lastMonth ? tr('derniers : {m}', { m: monthLabel(collect.lastMonth) }) : null)}
       {collect && collect.mode === 'bins' && layers.collect && <p className="mapx-note">{tr('Points de collecte regroupés par maille de 2 km (positions de ménages).')}</p>}

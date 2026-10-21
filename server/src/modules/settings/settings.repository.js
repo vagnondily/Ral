@@ -354,7 +354,9 @@ async function writePerimeter(client, tenantId, officeId, communes) {
     );
   }
   await places.resolvePerimeterTx(client, tenantId, officeId);
-  await places.attachUnassignedSitesTx(client, tenantId);
+  // Le périmètre fait autorité : (ré)attribue les sites de ce périmètre à leur bureau,
+  // même ceux qui portaient déjà un bureau repris d'un fichier importé.
+  await places.attachUnassignedSitesTx(client, tenantId, { override: true });
 }
 
 /**

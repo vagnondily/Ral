@@ -70,16 +70,25 @@ async function saveCountry(tenantId, { name, iso3, currency, centerLat, centerLn
       [tenantId, name, iso3 || null, currency || null, centerLat ?? null, centerLng ?? null, note || null,
         typeof showAdmCodes === 'boolean' ? showAdmCodes : null]);
     if (levels.length) {
+      // CRÉE les niveaux manquants et renomme les existants (configuration du
+      // découpage depuis MEMS, avant même tout import). Code du schéma = adm{depth}
+      // (ce que l'import attend) : à l'import, un niveau de même code garde ces libellés.
       const params = [tenantId]; const tuples = levels.map((l) => {
-        params.push(l.depth, l.label, l.labelPlural);
-        const b = params.length - 2;
-        return `($${b}::int, $${b + 1}::text, $${b + 2}::text)`;
+        params.push(l.depth, `adm${l.depth}`, l.label, l.labelPlural);
+        const b = params.length - 3;
+        return `($1, $${b}::int, $${b + 1}::text, $${b + 2}::text, $${b + 3}::text)`;
       });
-      const { rowCount } = await client.query(
-        `UPDATE admin_levels l SET label = v.label, label_plural = v.plural
-           FROM (VALUES ${tuples.join(',')}) AS v(depth, label, plural)
-          WHERE l.tenant_id = $1 AND l.depth = v.depth`, params);
-      if (rowCount !== levels.length) throw badRequest('Niveau administratif inconnu.');
+      await client.query(
+        `INSERT INTO admin_levels (tenant_id, depth, code, label, label_plural) VALUES ${tuples.join(',')}
+         ON CONFLICT (tenant_id, depth) DO UPDATE SET label = EXCLUDED.label, label_plural = EXCLUDED.label_plural`,
+        params);
+      // Réduire le nombre de niveaux : ne retirer un niveau plus profond que s'il
+      // ne porte AUCUNE unité (ne jamais orpheliner un découpage déjà importé).
+      const maxDepth = Math.max(...levels.map((l) => l.depth));
+      await client.query(
+        `DELETE FROM admin_levels l WHERE l.tenant_id = $1 AND l.depth > $2
+           AND NOT EXISTS (SELECT 1 FROM admin_areas a WHERE a.tenant_id = $1 AND a.depth = l.depth)`,
+        [tenantId, maxDepth]);
     }
     return { ok: true };
   });

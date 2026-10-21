@@ -162,7 +162,8 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `108` | factures sur plusieurs mois : visites couvertes protégées (`mems_tpm_stamp`, agent `wip/xb-tpm`) | 🔄 |
   | `109` | `mems_tpm_stamp` sans sous-requêtes en arguments (recalcul rapide sous le verrou d'attribution, agent `wip/xb-tpm`) | 🔄 |
   | `110`–`115` | programmes, projets, bailleurs, Output (conception, ex-`091`–`095`) | ⏳ |
-  | `116` et suivants | libres | — |
+  | `116` | codes de référence en minuscules (types de partenaire / activités) — un code « TPM » saisi n'était jamais reconnu | ✅ |
+  | `117` et suivants | libres | — |
 
 - **Publier sur `main`** seulement après :
   - `cd server && npm test && npm run lint` ;

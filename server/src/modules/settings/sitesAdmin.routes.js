@@ -174,4 +174,9 @@ router.post('/auto-attribute', WRITE, body(attrSchema), asyncHandler(async (req,
   res.json(await repo.autoAttribute(t(req), { ids: req.valid.ids || null, onlyEmpty: !!req.valid.onlyEmpty }));
 }));
 
+// Remplit le GPS manquant des sites depuis la médiane de leurs vraies collectes.
+router.post('/fill-gps', WRITE, asyncHandler(async (req, res) => {
+  res.json(await repo.fillGpsFromCollectes(t(req)));
+}));
+
 module.exports = router;

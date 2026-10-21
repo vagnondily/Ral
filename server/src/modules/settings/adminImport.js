@@ -264,6 +264,9 @@ async function parseUpload(buffer, filename, extra = {}) {
       if (!csvEntry) throw new Error('Le .zip ne contient ni shapefile (.dbf) ni .csv.');
       out = parseCsv(csvEntry.getData().toString('utf8'));
     }
+  } else if (['shp', 'shx', 'prj', 'cpg', 'sbn', 'sbx', 'qpj', 'qix'].includes(ext)) {
+    // Un shapefile est un ENSEMBLE de fichiers : le .shp seul n'a pas les noms (ils sont dans le .dbf).
+    throw new Error('Un shapefile est un ENSEMBLE de fichiers (.shp + .dbf + .shx + .prj…), pas un seul. Sélectionnez-les TOUS, compressez-les dans un .zip, puis importez le .zip. (À défaut, le .dbf seul suffit : il porte les noms des zones.)');
   } else throw new Error('Format non supporté : fournissez un .csv, un .dbf, un .zip (shapefile) ou le XLSForm du référentiel (.xlsx, .xls).');
   return { ...out, source: filename };
 }

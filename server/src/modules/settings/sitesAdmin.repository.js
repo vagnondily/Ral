@@ -15,10 +15,13 @@
  * pcodes et l'admin_area_id — pas de conflit avec le pipeline par nom.
  */
 const { withTenantTransaction } = require('../../config/db');
-const { withSubmissionLinks, afterSitesChangedTx } = require('./placeMatch.repository');
+const { withSubmissionLinks, afterSitesChangedTx, attachUnassignedSitesTx } = require('./placeMatch.repository');
 const { attributeByGps } = require('../common/geoAttribution');
 const { summarizeSiteDeletion } = require('./siteDeletion');
 const { normalizePublicId } = require('../common/publicId');
+const mapRepo = require('../map/map.repository');
+const { positionQuality, placeable } = require('../map/geoStats');
+const { MAX_ACCURACY_M } = require('../map/submissionGps');
 
 const LIST_COLS = `
   s.id,
@@ -223,7 +226,8 @@ async function autoAttribute(tenantId, { ids = null, onlyEmpty = false } = {}) {
  */
 async function importSites(tenantId, rows) {
   return withSubmissionLinks(tenantId, async (client) => {
-    // Résolution des bureaux par code (Field_office_code).
+    // Résolution des bureaux par code (Field_office_code) — seulement un REPLI : le bureau
+    // réel est celui dont le périmètre (Bureaux) couvre la commune, réattribué en fin de lot.
     const { rows: offs } = await client.query('SELECT id, code FROM field_offices WHERE tenant_id = $1', [tenantId]);
     const officeByCode = new Map(offs.map((o) => [String(o.code || '').trim().toLowerCase(), o.id]));
 
@@ -278,6 +282,10 @@ async function importSites(tenantId, rows) {
       }
     }
     await afterSitesChangedTx(client, tenantId);
+    // Le bureau d'un site est AUTORITAIREMENT celui dont le périmètre (Bureaux) couvre sa
+    // commune : on (ré)attribue après l'upsert, ce qui remplace le « Field_office_code » du
+    // fichier partout où un périmètre existe (le code du fichier ne sert que de repli).
+    await attachUnassignedSitesTx(client, tenantId, { override: true });
     return { created, updated, ignoredCodes, skipped, total: (rows || []).length };
   });
 }
@@ -379,4 +387,31 @@ async function previewBulkDelete(tenantId, ids) {
   });
 }
 
-module.exports = { listSites, createSite, updateSite, autoAttribute, deleteSite, bulkSites, previewBulkDelete, linkedDataTx, importSites };
+/**
+ * Remplit le GPS MANQUANT des sites depuis leurs vraies collectes : médiane des
+ * positions des soumissions rattachées au site (`monitoring_submissions.site_id`),
+ * retenue seulement si « plaçable » (≥ 3 relevés rapprochés, règle geoStats). Ne
+ * touche JAMAIS un site qui a déjà un GPS (saisi à la main ou importé). Une requête
+ * d'écriture. @returns { updated, candidates }
+ */
+async function fillGpsFromCollectes(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const medians = await mapRepo.gpsMediansTx(client, tenantId, 'site', { maxAccuracyM: MAX_ACCURACY_M });
+    const good = medians.filter((m) => placeable(positionQuality({ n: m.n, spreadKm: m.spreadKm })));
+    if (!good.length) return { updated: 0, candidates: 0 };
+    const params = [tenantId];
+    const tuples = good.map((m) => {
+      params.push(m.key, m.lat, m.lng);
+      const b = params.length - 2;
+      return `($${b}::uuid, $${b + 1}::numeric, $${b + 2}::numeric)`;
+    });
+    const { rowCount } = await client.query(
+      `UPDATE sites s SET gps_lat = v.lat, gps_lng = v.lng
+         FROM (VALUES ${tuples.join(',')}) AS v(id, lat, lng)
+        WHERE s.tenant_id = $1 AND s.id = v.id AND s.gps_lat IS NULL AND s.gps_lng IS NULL`,
+      params);
+    return { updated: rowCount, candidates: good.length };
+  });
+}
+
+module.exports = { listSites, createSite, updateSite, autoAttribute, deleteSite, bulkSites, previewBulkDelete, linkedDataTx, importSites, fillGpsFromCollectes };

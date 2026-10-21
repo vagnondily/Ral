@@ -22,7 +22,7 @@ import TileUnderlay, { TILES_URL, probeTiles } from './TileUnderlay.jsx';
 /** Passage « Ouvrir la carte » (Vue d'ensemble → Couverture & performance › Carte). */
 export const MAP_OPEN_KEY = 'mems.map.open';
 const COMPACT_THEMES = ['coverage', 'active', 'submissions', 'alerts'];
-const DEFAULT_LAYERS = { gps: true, derived: true, communes: true, collect: false };
+const DEFAULT_LAYERS = { gps: true, derived: true, communes: true, districts: true, collect: false };
 
 const activityKeyOf = (v) => String(v == null ? '' : v).trim().toLowerCase();
 
@@ -222,6 +222,7 @@ export default function MapExplorer({
     const i = Number(idx);
     if (kind === 's') return { type: 'site', data: points.sites[i] };
     if (kind === 'm') return { type: 'commune', data: points.communes[i] };
+    if (kind === 'd') return { type: 'district', data: (points.districts || [])[i] };
     if (kind === 'b') return { type: 'bin', data: points.collect.bins[i] };
     return { type: 'collect', data: points.collect.points[i] };
   };

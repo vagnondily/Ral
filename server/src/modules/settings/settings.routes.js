@@ -28,7 +28,9 @@ function body(schema) {
   };
 }
 
-const slug = z.string().trim().min(2).max(40).regex(/^[a-z0-9_-]+$/i, 'Code : lettres, chiffres, tiret/underscore');
+// Code de référence : TOUJOURS en minuscules (les rôles de l'app comparent au code littéral
+// minuscule, p. ex. 'tpm') — « TPM » saisi devient « tpm », sinon il n'est jamais reconnu.
+const slug = z.string().trim().toLowerCase().min(2).max(40).regex(/^[a-z0-9_-]+$/, 'Code : lettres, chiffres, tiret/underscore');
 const label = z.string().trim().min(2).max(120);
 const t = (req) => req.auth.tenantId;
 
