@@ -85,3 +85,16 @@ test('listWindow + periodsOverlapping (U6) : périodes entières qui touchent la
   assert.deepEqual(u.periodsOverlapping(rows, { from: '2026-09', to: '2026-09' }).map((x) => [x.from, x.to]), [['2026-08', '2026-09']]);
   assert.deepEqual(u.periodsOverlapping(rows, { from: '2026-10', to: '2026-11' }), []);
 });
+
+test('journal d\'une indisponibilité : le lot porte le NOM du TPM seul, la période dans month_from / month_to (écrite par l\'écran dans la langue de l\'utilisateur)', () => {
+  const { logRows } = require('../src/modules/tpm/tpmUnavailability.service');
+  const prep = {
+    provider: { id: 'ypa', name: 'YPA' }, period: { from: '2026-10', to: '2026-11' },
+    plan: { log: [{ action: 'indispo_poser', month: '2026-10', oldState: 'disponible', newState: 'indisponible', oldReason: null, newReason: 'Équipe mobilisée sur une urgence' }] },
+  };
+  const [lot, line] = logRows({ batchId: 'b1', prep, action: 'indispo_poser', reason: 'Équipe mobilisée sur une urgence', visitsUpdated: 3 });
+  assert.equal(lot.label, 'YPA', 'jamais « YPA · Octobre à novembre 2026 » (français figé)');
+  assert.deepEqual([lot.scope, lot.month_from, lot.month_to, lot.visits_updated], ['lot', '2026-10', '2026-11', 3]);
+  assert.equal(line.label, 'YPA');
+  assert.equal(logRows({ batchId: 'b2', prep: { ...prep, provider: { id: 'x', name: null } }, action: 'indispo_retirer', reason: null, visitsUpdated: 0 })[0].label, '—');
+});
