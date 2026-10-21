@@ -342,3 +342,22 @@ export function internalReasonsHint(tr, reasons) {
     .map((k) => tr('{why} ({n})', { why: tr(INTERNAL_REASON_LABELS[k]), n: reasons[k] }));
   return parts.length ? tr('Suivi interne (équipe S&E) : {list}', { list: parts.join(' · ') }) : tr(INTERNAL_HINT);
 }
+
+/**
+ * Raisons écrites par le SYSTÈME au journal (serveur tpmAttribution.SYSTEM_LOG_REASONS) : le serveur
+ * envoie un code (`reasonKey`), l'écran le traduit — les lignes anciennes, en phrase française, sont
+ * reconnues par le serveur et arrivent avec le même code.
+ */
+export const SYSTEM_LOG_REASONS = {
+  partner_not_tpm: 'Le partenaire n\'est plus un TPM actif (type changé ou fiche désactivée) : visites prévues rendues à leur zone.',
+};
+/** Raison d'une ligne du journal à afficher : traduite pour le système, telle quelle pour une personne. */
+export function logReasonText(tr, l) {
+  if (l && l.reasonKey) return SYSTEM_LOG_REASONS[l.reasonKey] ? tr(SYSTEM_LOG_REASONS[l.reasonKey]) : null;
+  return (l && l.reason) || null;
+}
+/** Portée d'un lot « N visite(s) » (libellé écrit en français par le serveur) : traduite à l'affichage. */
+export function logLabelText(tr, l) {
+  const m = /^(\d+) visite\(s\)$/.exec(String((l && l.label) || ''));
+  return m ? tr('{n} visite(s)', { n: formatInt(Number(m[1])) }) : (l && l.label) || '';
+}

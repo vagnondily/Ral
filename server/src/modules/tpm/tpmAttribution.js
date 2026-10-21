@@ -82,6 +82,25 @@ const LOG_ACTIONS = ['modifier', 'confirmer', 'revenir_contrat', 'reappliquer', 
 const LOG_SCOPES = ['lot', 'zone', 'visite', 'tpm'];
 /** Actions dont la raison est facultative (retour au contrat, réapplication, fin d'une indisponibilité). */
 const LOG_OPTIONAL_REASON = ['revenir_contrat', 'reappliquer', 'visite_zone', 'indispo_retirer'];
+/**
+ * Raisons écrites par le SYSTÈME au journal (pas par une personne) : un CODE stable, jamais une phrase
+ * figée dans une langue — l'écran la traduit (web/src/lib/tpmAttribution.SYSTEM_LOG_REASONS, tr()).
+ * `legacy` : les phrases françaises écrites avant le code (journal en inscription seule), reconnues
+ * à la lecture pour être traduites elles aussi. Un code respecte le CHECK de la base (10 à 500 caractères).
+ */
+const SYSTEM_LOG_REASONS = {
+  partner_not_tpm: {
+    code: '@systeme:partenaire_non_tpm',
+    legacy: ['Le partenaire n\'est plus un TPM actif (type changé ou fiche désactivée) : visites prévues rendues à leur zone.'],
+  },
+};
+/** Clé d'une raison du système (code, ou ancienne phrase) ; null pour une raison saisie par une personne. */
+function systemReasonKey(reason) {
+  if (!reason) return null;
+  const r = String(reason).trim();
+  const hit = Object.entries(SYSTEM_LOG_REASONS).find(([, d]) => d.code === r || d.legacy.includes(r));
+  return hit ? hit[0] : null;
+}
 const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0); // ordre binaire, comme COLLATE "C"
 const monthOfDate = (d) => (d ? String(d).slice(0, 7) : null);
 
@@ -737,6 +756,7 @@ module.exports = {
   VISIT_ERROR_MESSAGES, visitErrorMessage, TPM_LINK_KINDS, tpmsByContract, contractTpms, linkRestampFrom, linkPastMonths, linkDecidedVisits,
   MAX_SPAN_MONTHS, MAX_AREAS, MAX_REGIONS, MAX_CELLS, MAX_VISITS,
   ZONE_STATES, VISIT_ZONE_STATES, DEFAULT_STATES, WITH_PROVIDER, VISIT_SOURCES, COVERING_STATUSES, LOG_ACTIONS, LOG_SCOPES, LOG_OPTIONAL_REASON,
+  SYSTEM_LOG_REASONS, systemReasonKey,
   INTERNAL_DEFAULT_STATES, INTERNAL_VISIT_STATES, MONITORED_BY, monitoredByOf,
   contractTpm, isMonitoringContract, contractEndMonth, contractCoversMonth, monitoringContractsAt, coveringContracts, coverOf,
   defaultFor, defaultLabel, availableDefault, unavailabilityIndex, offKey, resolveCell, holdersByMonth, contractTpmPairsByMonth, qualityOf, buildZoneTable,

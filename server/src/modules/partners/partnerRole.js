@@ -9,6 +9,8 @@
 // Mois courant : l'horloge unique du serveur (rbmMath.currentMonth = common/localDay, fuseau de
 // l'application, repli UTC si APP_TIMEZONE est invalide — jamais une exception).
 const { currentMonth } = require('../tpm/rbmMath');
+const { conflict } = require('../../middleware/errors');
+const { SYSTEM_LOG_REASONS } = require('../tpm/tpmAttribution');
 
 /** Identifiant de type comparable : un UUID ne dépend pas de la casse (zod `.uuid()` accepte les majuscules). */
 const typeKey = (id) => String(id ?? '').toLowerCase();
@@ -19,8 +21,13 @@ function roleChanged(before, after) {
   return typeKey(before.partnerTypeId) !== typeKey(after.partnerTypeId) || Boolean(before.active) !== Boolean(after.active);
 }
 
-/** Motif du lot « rendre à la zone » au journal (tpm_attribution_log, visite_zone). */
-const ROLE_LOST_REASON = 'Le partenaire n\'est plus un TPM actif (type changé ou fiche désactivée) : visites prévues rendues à leur zone.';
+/**
+ * Motif du lot « rendre à la zone » au journal (tpm_attribution_log, visite_zone) : un CODE du système,
+ * traduit par l'écran (tpmAttribution.SYSTEM_LOG_REASONS) — jamais une phrase française figée.
+ */
+const ROLE_LOST_REASON = SYSTEM_LOG_REASONS.partner_not_tpm.code;
+/** Réponse quand une visite a changé entre-temps (jamais 500 : rien n'est écrit, l'enregistrement se rejoue). */
+const RETRY = 'Les visites de ce partenaire viennent de changer (autre utilisateur) : réessayez.';
 const RETURN_BATCH = 500; // applyVisitRequestTx : 500 visites au plus par appel
 
 /**
@@ -40,15 +47,19 @@ async function returnVisitsToZoneTx(client, tenantId, partnerId, actorId) {
     `SELECT t.code, p.active FROM partners p JOIN partner_types t ON t.id = p.partner_type_id AND t.tenant_id = p.tenant_id
       WHERE p.tenant_id = $1 AND p.id = $2`, [tenantId, partnerId]);
   if (!p || (p.code === 'tpm' && p.active)) return 0;
+  // Visites verrouillées là où on les lit, par identifiant (ordre des verrous : sous le verrou d'attribution,
+  // les visites toujours par id) : une visite supprimée ou modifiée en même temps est attendue puis relue —
+  // elle disparaît de la liste au lieu de faire échouer l'enregistrement (relecture croisée, point C).
   const { rows } = await client.query(
     `SELECT v.id FROM site_visits v
       WHERE v.tenant_id = $1 AND v.provider_id = $2 AND v.provider_source = 'visite' AND v.period_month >= $3::date
-        AND ${attribution.AUTO_RESTAMPABLE_SQL} ORDER BY v.id`, [tenantId, partnerId, `${currentMonth()}-01`]);
+        AND ${attribution.AUTO_RESTAMPABLE_SQL} ORDER BY v.id FOR UPDATE OF v`, [tenantId, partnerId, `${currentMonth()}-01`]);
   let returned = 0;
   for (let i = 0; i < rows.length; i += RETURN_BATCH) {
     const res = await attribution.applyVisitRequestTx(client, tenantId, actorId || null,
       rows.slice(i, i + RETURN_BATCH).map((r) => r.id), { action: 'zone', reason: ROLE_LOST_REASON });
-    if (res.error) throw new Error(`visites rendues à leur zone : ${res.error}`);
+    // Lignes déjà verrouillées ici : plus d'erreur attendue ; si la règle en rend une, 409 « réessayez », jamais 500.
+    if (res.error) throw conflict(RETRY, { code: 'visits_changed', reason: res.error });
     returned += res.updated;
   }
   return returned;
