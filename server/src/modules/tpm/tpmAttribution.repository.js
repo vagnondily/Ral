@@ -30,12 +30,17 @@ const ATTRIBUTION_KEY = (tenantId) => `tpm-attribution:${tenantId}`;
 
 /**
  * Verrou d'attribution du compte (réentrant dans la transaction) : attente bornée à 20 s, puis
- * 55P03 → 503 « réessayez » (middleware/errors). Le même que prend mems_tpm_stamp en base.
+ * 55P03 → 503 « réessayez » (middleware/errors). Le même que prend mems_tpm_stamp en base. Le
+ * `lock_timeout` de l'APPELANT est rétabli ensuite (comme visitLocks.lockKeysTx), jamais remis à la
+ * valeur par défaut (0 : sans limite) — sinon un écrivain qui tient ce verrou attendrait une ligne
+ * sans limite et figerait tous les écrivains d'attribution du compte (relecture, point 13).
  */
 async function lockAttributionTx(client, tenantId) {
-  await client.query("SET LOCAL lock_timeout = '20s'");
+  const { rows } = await client.query("SELECT current_setting('lock_timeout') AS prior");
+  const prior = (rows && rows[0] && rows[0].prior) || '0';
+  await client.query("SELECT set_config('lock_timeout', '20s', true)");
   await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [ATTRIBUTION_KEY(tenantId)]);
-  await client.query('SET LOCAL lock_timeout = DEFAULT');
+  await client.query("SELECT set_config('lock_timeout', $1, true)", [prior]);
 }
 
 /**

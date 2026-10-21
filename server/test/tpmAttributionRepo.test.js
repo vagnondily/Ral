@@ -47,7 +47,8 @@ function reset() {
 reset();
 
 const rowsFor = (s, params) => {
-  if (/^SET LOCAL lock_timeout/.test(s) || /^SELECT pg_advisory_xact_lock/.test(s)) return [];
+  if (/^SET LOCAL lock_timeout/.test(s) || /^SELECT pg_advisory_xact_lock/.test(s) || /^SELECT set_config\('lock_timeout'/.test(s)) return [];
+  if (/^SELECT current_setting\('lock_timeout'\) AS prior$/.test(s)) return [{ prior: '20s' }];
   if (/^SELECT c\.id, c\.numero, c\.numero_fla AS "numeroFla", c\.status/.test(s)) {
     // Titulaire AINA, partenaire de mise en œuvre (D1 : jamais le TPM) ; RANO Control y facture le suivi.
     return [{ id: K1, numero: 'CTR-2026-0001', numeroFla: 'FLA-2025-0007', status: 'actif', partnerId: AINA, partnerName: 'ASSOCIATION AINA', holderTypeCode: 'prestataire', holderActive: true, dateDebut: '2025-10-01', dateFin: '2026-09-30', terminationDate: null, monitoring: true }];
@@ -115,7 +116,7 @@ db.withTenantTransaction = async (tenantId, fn) => {
       else if (/^SELECT pg_try_advisory_xact_lock/.test(s)) {
         assert.match(params[0], new RegExp(`^rbm-generate:${T}:\\d{4}-\\d{2}$`), 'verrou de mois du compte (visitLocks)');
         return { rows: [{ ok: true }], rowCount: 1 };
-      } else if (!/^SET LOCAL/.test(s)) {
+      } else if (!/^SET LOCAL/.test(s) && !/lock_timeout/.test(s)) { // délai d'attente : réglage de session, pas une donnée
         assert.ok(/tenant_id = \$1/.test(s) || /mems_tpm_stamp\(\$1/.test(s), `requête sans filtre de compte : ${s.slice(0, 100)}`);
         assert.equal(params[0], T);
       }
@@ -166,9 +167,12 @@ test('enregistrer : verrou d\'abord, un upsert multi-lignes, une estampille, un 
   const r = await service.setOverrides(T, ACTOR, { target: target(), providerId: YPA, reason: '  Collecte confiée à YPA par le bureau  ', stamp });
   assert.equal(r.counts.created, 3);
   assert.equal(r.visits.changed, 1);
-  assert.match(state.calls[0].sql, /^SET LOCAL lock_timeout = '20s'/);
-  assert.match(state.calls[1].sql, /pg_advisory_xact_lock/);
-  assert.deepEqual(state.calls[1].params, [`tpm-attribution:${T}`]);
+  // Verrou d'attribution D'ABORD : délai de l'appelant lu, 20 s le temps du verrou, puis rétabli (point 13).
+  assert.deepEqual(state.calls.slice(0, 4).map((c) => c.sql), [
+    "SELECT current_setting('lock_timeout') AS prior", "SELECT set_config('lock_timeout', '20s', true)",
+    'SELECT pg_advisory_xact_lock(hashtext($1))', "SELECT set_config('lock_timeout', $1, true)"]);
+  assert.deepEqual(state.calls[2].params, [`tpm-attribution:${T}`]);
+  assert.deepEqual(state.calls[3].params, ['20s'], 'le délai de l appelant, jamais DEFAULT');
   const upserts = state.calls.filter((c) => /^INSERT INTO tpm_zone_overrides/.test(c.sql));
   assert.equal(upserts.length, 1);
   assert.match(upserts[0].sql, /FROM unnest\(\$5::uuid\[\], \$6::date\[\]/);
@@ -353,7 +357,7 @@ test('appliquer les TPM des contrats : prévues seulement — jamais une visite 
   const r = await repo.applyContractsTx(client, T, USER, { period: { from: '2026-09', to: '2026-10' } });
   assert.deepEqual([r.visits, r.converted, r.changed], [3, 1, 1]);
   assert.deepEqual(r.kept, { reasoned: 2, done: 4, anterieur: 5, invoiced: 1 }, 'gardées telles quelles, et comptées');
-  assert.match(calls[1].sql, /pg_advisory_xact_lock/);
+  assert.match(calls[2].sql, /pg_advisory_xact_lock/, 'verrou d attribution d abord (délai de l appelant lu, puis 20 s)');
   const scope = calls.find((c) => /^SELECT count/.test(c.sql));
   assert.match(scope.sql, /count\(\*\) FILTER \(WHERE v\.provider_source IN \('zone', 'reprise'\) AND v\.status = 'planifie' AND v\.provider_zone_state IS DISTINCT FROM 'anterieur' AND NOT EXISTS/);
   assert.match(scope.sql, /WHERE v\.tenant_id = \$1 AND v\.period_month BETWEEN \$2::date AND \$3::date$/);
