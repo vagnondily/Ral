@@ -5,8 +5,9 @@ import { Alert } from './ui.jsx';
 import { currentMonth, formatInt, monthLabel } from '../lib/format.js';
 import { useI18n } from '../lib/i18n.jsx';
 import {
-  MAX_SPAN, addMonths, isPeriod, periodLabel, readHashPeriod, readSessionPeriod, samePeriod, single, spanMonths, writeHashPeriod, writeSessionPeriod,
+  MAX_SPAN, addMonths, isPeriod, linkPeriodFor, periodLabel, readHashPeriod, readSessionPeriod, samePeriod, single, spanMonths, writeHashPeriod, writeSessionPeriod,
 } from '../lib/period.js';
+import { routeOfHash } from '../lib/route.js';
 
 /**
  * Période ramenée au plafond de l'écran : au-delà de `maxSpan` mois, les `maxSpan` derniers
@@ -64,6 +65,9 @@ function countsOf(periods) {
  */
 export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = true, maxSpan = MAX_SPAN, customDefault } = {}) {
   const today = useMemo(() => currentMonth(), []);
+  // L'écran de ce hook : sa route au montage (LE parseur du routeur, lib/route) — un lien vers un AUTRE
+  // écran, suivi pendant qu'il est encore monté, ne change jamais sa période ni celle de la session.
+  const [screen] = useState(() => routeOfHash(window.location.hash));
   const useSession = scope === 'analysis';
   const initial = useMemo(() => {
     // Règle par défaut de l'écran (undefined pour 'data' / 'custom' : en attente de la règle).
@@ -130,7 +134,7 @@ export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = 
   useEffect(() => {
     if (!urlSync) return undefined;
     const onHash = () => {
-      const p = readHashPeriod(window.location.hash);
+      const p = linkPeriodFor(window.location.hash, screen); // null : lien vers un autre écran, ou sans période
       if (!p) return;
       if (tooLongFor(p, maxSpan)) {
         const def = defaultRef.current;
@@ -141,7 +145,7 @@ export function usePeriod({ scope = 'analysis', defaultRule = 'data', urlSync = 
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
-  }, [urlSync, maxSpan]);
+  }, [urlSync, maxSpan, screen]);
 
   // Une période venue de l'URL devient la période de travail de la session.
   useEffect(() => {

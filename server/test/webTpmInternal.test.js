@@ -146,3 +146,44 @@ test('Rapports : la période d un lien n est lue et retirée que sur #/tpm/rappo
   assert.ok(apply.indexOf("isHashRoute(window.location.hash, 'tpm/rapports')") >= 0
     && apply.indexOf("isHashRoute(window.location.hash, 'tpm/rapports')") < apply.indexOf('replaceState'), 'garde de route avant replaceState');
 });
+
+test('routeur (2ᵉ re-relecture, points 3 et 4) : UN parseur d adresse, partagé par App, isHashRoute et usePeriod', async (t) => {
+  const r = await load(t, 'lib/route.js'); if (!r) return;
+  const p = await load(t, 'lib/period.js');
+  const known = (mod, sub) => ['tpm/rapports', 'processus/synthese', 'alertes/centre', 'processus/rbm', 'contrats/liste'].includes(`${mod}/${sub}`);
+  const at = (h) => { const x = r.routeOfHash(h, known); return `${x.module}/${x.sub}`; };
+  // Comme App.parseHash : segments bruts (aucun nettoyage), redirections, route par défaut.
+  assert.equal(at('#/tpm/rapports?from=2026-08&to=2026-08'), 'tpm/rapports');
+  assert.equal(at('#x/tpm/rapports?from=2026-08'), 'tpm/rapports', 'ce qui précède le premier « / » est ignoré, comme le routeur');
+  for (const h of ['#tpm/rapports?from=2026-08&to=2026-08', '#//tpm/rapports?from=2026-08', '#/tpm//rapports?from=2026-08', '#/TPM/rapports', '#/tpm/rapport%73', '', '#/']) {
+    assert.equal(at(h), 'contrats/liste', `${h} : route par défaut (Contrats)`);
+  }
+  assert.equal(at('#/dashboard/trimestriel'), 'processus/synthese', 'redirection');
+  assert.deepEqual(r.routeOfHash('#/processus/rbm/plan/x?from=2026-01', known), { module: 'processus', sub: 'rbm', extra: 'plan', extra2: 'x' });
+  // isHashRoute suit le même parseur (les adresses mal formées que le routeur envoie à Contrats ne visent pas Rapports).
+  for (const h of ['#tpm/rapports?from=2026-08&to=2026-08', '#//tpm/rapports?from=2026-08&to=2026-08', '#/tpm//rapports?from=2026-08&to=2026-08']) {
+    assert.equal(p.isHashRoute(h, 'tpm/rapports'), false, h);
+  }
+  assert.equal(p.isHashRoute('#x/tpm/rapports?from=2026-08&to=2026-08', 'tpm/rapports'), true);
+  // Le routeur l'utilise : plus de parseur ni de redirections à lui.
+  const app = fs.readFileSync(path.join(WEB, 'App.jsx'), 'utf8');
+  assert.match(app, /routeOfHash\(window\.location\.hash, findRoute\)/);
+  assert.ok(!/const REDIRECTS|split\('\?'\)\[0\]\.split\('\/'\)/.test(app), 'aucun second parseur dans App.jsx');
+});
+
+test('usePeriod (2ᵉ re-relecture, point 3) : un lien vers un AUTRE écran ne change ni la période de l écran quitté ni la session', async (t) => {
+  const p = await load(t, 'lib/period.js'); if (!p) return;
+  const synthese = { module: 'processus', sub: 'synthese' };
+  assert.equal(p.linkPeriodFor('#/alertes/centre?from=2026-08&to=2026-08', synthese), null, 'Centre d alertes (portée locale)');
+  assert.equal(p.linkPeriodFor('#/tpm/rapports?from=2026-08&to=2026-08', synthese), null, '« Rapport en retard »');
+  assert.deepEqual(p.linkPeriodFor('#/processus/synthese?from=2026-08&to=2026-08', synthese), { from: '2026-08', to: '2026-08' });
+  assert.deepEqual(p.linkPeriodFor('#/processus/synthese/detail?from=2026-08&to=2026-09', synthese), { from: '2026-08', to: '2026-09' }, 'même écran, autres segments : appliqué');
+  assert.deepEqual(p.linkPeriodFor('#/dashboard/trimestriel?from=2026-08&to=2026-08', synthese), { from: '2026-08', to: '2026-08' }, 'ancienne adresse redirigée vers cet écran');
+  assert.equal(p.linkPeriodFor('#/processus/synthese', synthese), null, 'sans période');
+  // Le hook retient son écran au montage et ne lit la période d'un lien que par linkPeriodFor.
+  const src = fs.readFileSync(path.join(WEB, 'components/PeriodBanner.jsx'), 'utf8');
+  assert.match(src, /const \[screen\] = useState\(\(\) => routeOfHash\(window\.location\.hash\)\)/);
+  const onHash = src.slice(src.indexOf('const onHash = () => {'), src.indexOf("window.addEventListener('hashchange', onHash)"));
+  assert.match(onHash, /linkPeriodFor\(window\.location\.hash, screen\)/);
+  assert.ok(!/readHashPeriod/.test(onHash), 'jamais la période brute d un autre écran');
+});

@@ -6,6 +6,7 @@ import AppShell, { findRoute } from './components/AppShell.jsx';
 import { ToastProvider, useToast } from './components/Toast.jsx';
 import { I18nProvider, useI18n } from './lib/i18n.jsx';
 import { writeSessionPeriod } from './lib/period.js';
+import { routeOfHash } from './lib/route.js';
 import LoginPage from './pages/LoginPage.jsx';
 import ProvidersPage from './pages/ProvidersPage.jsx';
 import ContractsListPage from './pages/contracts/ContractsListPage.jsx';
@@ -33,31 +34,11 @@ import TrainingSessionPage from './pages/tpm/TrainingSessionPage.jsx';
 import EvaluationPage from './pages/tpm/EvaluationPage.jsx';
 import SettingsPage from './pages/settings/SettingsPage.jsx';
 
-const DEFAULT_ROUTE = { module: 'contrats', sub: 'liste' };
-
-// Deep-linkable routes: #/tpm/prestataires, #/contrats/liste,
-// #/contrats/liste/nouveau, #/contrats/liste/<id>, #/contrats/liste/<id>/edit,
-// #/contrats/liste/<id>/amend
-// Routes retirées → redirigées (ex. l'ancien « Affectation & calendrier »,
-// fusionné dans « Affectation & visites »).
-// Anciennes adresses → nouvel emplacement (les favoris restent valides).
-const REDIRECTS = {
-  'tpm/affectation': { module: 'processus', sub: 'sites' },
-  // Le plan de suivi est un onglet de l'espace RBM (retour n° 7).
-  'processus/plan': { module: 'processus', sub: 'rbm', extra: 'plan' },
-  // Le registre des sites est un onglet de Localités (retour 63).
-  'parametrage/sites': { module: 'parametrage', sub: 'localites', extra: 'sites' },
-  // Le rapport trimestriel est devenu la carte « Couverture par activité » de la Synthèse (retour 76).
-  'dashboard/trimestriel': { module: 'processus', sub: 'synthese' },
-};
-
-// La requête du hash (#/dashboard/couverture?from=2026-01&to=2026-06 : période, lot 1b)
-// n'appartient pas à la route : elle est lue par usePeriod (lib/period.readHashPeriod).
+// Adresse → route : LE parseur partagé (lib/route.routeOfHash — redirections, route par défaut), avec
+// les routes de la navigation (findRoute). La requête du hash (#/dashboard/couverture?from=2026-01&to=2026-06 :
+// période, lot 1b) n'appartient pas à la route : elle est lue par usePeriod (lib/period.readHashPeriod).
 function parseHash() {
-  const [, mod, sub, extra, extra2] = window.location.hash.split('?')[0].split('/');
-  const redirect = REDIRECTS[`${mod}/${sub}`];
-  if (redirect) return redirect;
-  return findRoute(mod, sub) ? { module: mod, sub, extra: extra || null, extra2: extra2 || null } : DEFAULT_ROUTE;
+  return routeOfHash(window.location.hash, findRoute);
 }
 
 // La période de travail de la session (usePeriod) n'est jamais transmise à l'utilisateur suivant.

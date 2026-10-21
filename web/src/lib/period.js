@@ -9,6 +9,7 @@
  */
 import { MONTH_NAMES, MONTH_SHORT } from './format.js';
 import { PERIOD_CAPS } from './periodCaps.js';
+import { hashTargets } from './route.js';
 
 /** Durée maximale d'une période (60 mois : budget, documents) — common/periodCaps côté serveur. */
 export const MAX_SPAN = PERIOD_CAPS.document;
@@ -160,16 +161,24 @@ export function readHashPeriod(hash) {
 }
 
 /**
- * Le hash vise-t-il la route `route` (« tpm/rapports ») ? Seuls les segments AVANT « ? » comptent, comme le
- * routeur (App.jsx) : « #/tpm/rapports?from=… » et « #/tpm/rapports/x » oui ; « #/processus/synthese?… »,
- * « #/tpm/rapportsX » non. Un écran qui lit ou retire la période de l'adresse ne touche jamais celle
- * d'un AUTRE écran (lien d'alerte suivi pendant qu'il est monté).
+ * Le hash vise-t-il l'écran `route` (« tpm/rapports ») ? Lu par LE parseur du routeur
+ * (lib/route.routeOfHash : mêmes segments, mêmes redirections ; « #//tpm/rapports » ou « #tpm/rapports »
+ * ne visent pas Rapports, « #/tpm/rapports/x » oui) et comparé au niveau module / sous-module, comme le
+ * rendu du routeur. Un écran qui lit ou retire la période de l'adresse ne touche jamais celle d'un
+ * AUTRE écran (lien d'alerte suivi pendant qu'il est encore monté).
  */
 export function isHashRoute(hash, route) {
-  const [path] = splitHash(hash);
-  const seg = path.replace(/^#?\/?/, '').split('/').filter(Boolean);
-  const want = String(route || '').split('/').filter(Boolean);
-  return want.length > 0 && want.every((w, i) => seg[i] === w);
+  const [module, sub] = String(route || '').split('/');
+  return Boolean(module && sub) && hashTargets(hash, { module, sub });
+}
+
+/**
+ * Période d'un lien suivi pendant qu'un écran est monté (écouteur hashchange) : celle du nouveau hash
+ * s'il vise CET écran (`screen` = sa route au montage, lib/route.routeOfHash), sinon null — l'écran
+ * qu'on quitte ne prend jamais la période de l'écran d'arrivée (ni pour lui, ni pour la session).
+ */
+export function linkPeriodFor(hash, screen) {
+  return hashTargets(hash, screen) ? readHashPeriod(hash) : null;
 }
 
 /** Hash avec la période (null = la retire), les autres paramètres gardés. */
