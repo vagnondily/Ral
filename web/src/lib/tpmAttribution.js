@@ -112,6 +112,8 @@ export const TPM_VISIT = {
   visite: { label: 'Modifié pour cette visite', tone: 'orange', icon: 'edit' },
   'visite:interne': { ...INTERNAL, label: 'Interne — choisi pour cette visite' },
   reprise: { label: 'TPM saisi avant la règle', tone: 'blue', icon: 'draft' },
+  // Saisie avant la règle SANS TPM (migration 070 : un contrat mais aucun TPM) : personne ne la suit — jamais « TPM gardé ».
+  'reprise:sans_tpm': { label: 'Saisie avant la règle, sans TPM', tone: null, icon: 'na' },
 };
 
 /** Actions du journal d'affectation (tpm_attribution_log.action) : couleur + icône + libellé. */
@@ -135,6 +137,7 @@ export const tpmStateLabel = (s) => (TPM_ZONE_STATE[s] || TPM_VISIT[s] || TPM_VI
 export function visitTpmKey(v) {
   const src = v.providerSource || 'zone';
   if (src === 'visite' && !v.providerId) return 'visite:interne';
+  if (src === 'reprise' && !v.providerId) return 'reprise:sans_tpm';
   return src === 'zone' ? `zone:${v.providerZoneState || ''}` : src;
 }
 

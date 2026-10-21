@@ -141,3 +141,22 @@ test('Affectation & visites : la tuile « Suivi interne » lit la ligne « Inter
   assert.ok(literals('pages/monitoring/FieldVisitsPage.jsx').includes('Équipe S&E (sans TPM, ou TPM retiré avec motif)'));
   assert.equal(en.default['Équipe S&E (sans TPM, ou TPM retiré avec motif)'], 'M&E team (no TPM, or TPM removed with a reason)');
 });
+
+test('visite « reprise » SANS TPM (contrat sans TPM avant la règle) : jamais « TPM gardé » sous « Non affectée » ; origine vraie, en anglais aussi', async (t) => {
+  const w = await load(t, 'lib/tpmAttribution.js'); if (!w) return;
+  const en = (await load(t, 'locales/en.js')).default;
+  // Clé d'origine : avec un TPM « reprise » (TPM saisi avant la règle), sans TPM sa propre clé.
+  assert.equal(w.visitTpmKey({ providerSource: 'reprise', providerId: 'p1' }), 'reprise');
+  assert.equal(w.visitTpmKey({ providerSource: 'reprise', providerId: null }), 'reprise:sans_tpm');
+  const def = w.TPM_VISIT['reprise:sans_tpm'];
+  assert.equal(def.label, 'Saisie avant la règle, sans TPM');
+  assert.ok(def.icon, 'statut = couleur + icône + libellé');
+  assert.equal(w.visitUnassigned({ providerSource: 'reprise', providerId: null, monitoredBy: 'non_affecte' }), true);
+  // La cellule : « TPM gardé » seulement quand un TPM est enregistré.
+  const cell = src('pages/monitoring/TpmFields.jsx');
+  assert.match(cell, /const repriseOrigin = visit\.providerId\n\s+\? \(\{ realise: tr\('visite réalisée : TPM gardé'\)/);
+  assert.match(cell, /: \[\{ realise: tr\('visite réalisée sans TPM enregistré'\), annule: tr\('visite annulée sans TPM enregistré'\) \}/);
+  for (const s of ['visite réalisée sans TPM enregistré', 'visite annulée sans TPM enregistré', 'Saisie avant la règle, sans TPM']) {
+    assert.ok(en[s] && !/kept/.test(en[s]), `anglais — ${s}`);
+  }
+});
