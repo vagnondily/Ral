@@ -171,3 +171,20 @@ l'état « non affectée (ni TPM ni suivi interne) » (alerte, carte, matrice, c
 « Due by » ; #11 journal des indisponibilités : libellé = nom du TPM, période rendue par l'écran ; #13 colonne « Période »
 du CSV des rapports ; #19 indicateur « Suivi interne » sans les visites annulées. Ne pas toucher alerts.service.js,
 reportExpectation*, reports.repository.js, partners.*, activeProvider*, planAuto*.js (serveur), ContractsListPage.jsx. »
+
+## 8. Mercredi 21/10, matin — relecture finale (verrous) : deux suites
+
+- **Agent retour 114 → `wip/xb-tpm` (suite, migration 109)** : points #1–#6 et #13 de `review_r114c_findings.txt`
+  (bloc-notes de la session principale) — `mems_tpm_stamp` sans `ARRAY(SELECT …)` en arguments (variables plpgsql ;
+  4 000 visites de ~11 s à ~15 ms ; garde de durée en base) ; portée passée limitée aux visites dont la cellule dépend
+  vraiment du contrat ; plafond de 240 mois = les plus récents ; commentaires d'ordre des verrous (écrivains de contrat
+  FOR NO KEY UPDATE, seule la suppression FOR UPDATE) ; `#/parametrage` explicite (findRoute ignore les intertitres) ;
+  dialogue « Retirer » (aide et verbe anglais) ; `lock_timeout` RESTAURÉ (valeur d'avant, comme `visitLocks`) dans
+  `lockAttributionTx` et `mems_tpm_stamp`.
+- **Agent lot 8 → `wip/locks`** (coupée de `integ/full` `1dee9bb`) : points #7, #8, #9, #11, #12, #14 — ordre unique
+  « liens des soumissions → verrous de mois → lignes (sites, zones) par id → verrou d'attribution T → le reste » :
+  createVisit / planMonthsTx / generateFromRbm prennent les sites FOR KEY SHARE (triés) avant T ; setOverrides / revert
+  prennent les zones FOR KEY SHARE avant T ; « Effacer » supprime dans l'ordre des id ; imports du plan sous verrous de
+  mois ; bulkUpdateSites trié ; afterSitesChangedTx ré-estampille EN DERNIER (T tenu seulement pour l'estampille). Ne pas
+  toucher `tpmAttribution.repository.js`. Preuve avant / après (course orchestrée + course naturelle ≥ 24 tours), tests
+  en base dans un fichier dédié.
