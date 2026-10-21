@@ -555,13 +555,43 @@ test('lien TPM ↔ contrat (U2) : premier plan / facture ou dernier supprimé �
   await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: true });
   assert.equal(calls.filter((c) => /mems_tpm_stamp/.test(c.sql)).length, 1);
   assert.deepEqual(calls[0].params, [T, YPA, K1], 'lien lu dans le compte du jeton');
-  // Document d'un mois PASSÉ (facture arrivée après son mois) : dès ce mois ; d'un mois à venir : dès le mois courant.
-  calls.length = 0;
-  await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: true, month: '2020-03-01' });
-  assert.equal(calls.find((c) => /mems_tpm_stamp/.test(c.sql)).params[1], '2020-03-01');
+});
+
+test('lien TPM ↔ contrat (re-relecture, point 2) : le PASSÉ se recalcule dans les seules zones du contrat, le courant pour tout le compte', async () => {
+  const calls = [];
+  const client = {
+    query: async (sql, params) => {
+      const q = sql.replace(/\s+/g, ' ').trim();
+      calls.push({ sql: q, params });
+      if (/^SELECT EXISTS \(SELECT 1 FROM tpm_collection_plans/.test(q)) return { rows: [{ ok: false }] };
+      if (/FROM contracts c WHERE c\.tenant_id = \$1 AND c\.id = \$2/.test(q)) {
+        return { rows: [{ status: 'actif', dateDebut: '2020-02-01', dateFin: '2099-12-31', terminationDate: null, monitoring: true }] };
+      }
+      if (/FROM contract_areas z/.test(q)) return { rows: [{ id: 'd1', depth: 2 }, { id: 'c1', depth: 3 }, { id: 'r1', depth: 1 }] };
+      if (/SELECT DISTINCT d\.id FROM admin_areas d/.test(q)) return { rows: [{ id: 'd9' }] };
+      return { rows: [] };
+    },
+  };
+  const { currentMonth } = require('../src/modules/tpm/rbmMath');
+  const today = currentMonth();
+  const prev = (() => { const [y, m] = today.split('-').map(Number); const i = y * 12 + m - 2; return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`; })();
+  // Dernier document (mois passé 2020-03) supprimé : passé = zones du contrat (régions étendues) × mois couverts ; puis courant.
+  const r = await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: true, month: '2020-03-01' });
+  const stamps = calls.filter((c) => /mems_tpm_stamp/.test(c.sql));
+  assert.equal(stamps.length, 2);
+  assert.match(stamps[0].sql, /v\.period_month = ANY \(\$3::date\[\]\)/);
+  assert.match(stamps[0].sql, /s\.zone_district_id = ANY \(\$2::uuid\[\]\) OR s\.zone_commune_id = ANY \(\$2::uuid\[\]\)/);
+  assert.deepEqual([...stamps[0].params[1]].sort(), ['c1', 'd1', 'd9']);
+  assert.equal(stamps[0].params[2][0], '2020-03-01');
+  assert.equal(stamps[0].params[2][stamps[0].params[2].length - 1], `${prev}-01`, 'jusqu au mois précédent');
+  assert.match(stamps[1].sql, /v\.period_month >= \$2::date/);
+  assert.equal(stamps[1].params[1], `${today}-01`, 'le courant : tout le compte, dès le mois courant');
+  assert.equal(r.changed, 0);
+  // Document du mois courant ou à venir : aucune portée passée.
   calls.length = 0;
   await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: true, month: '2999-01-01' });
-  assert.notEqual(calls.find((c) => /mems_tpm_stamp/.test(c.sql)).params[1], '2999-01-01');
+  const only = calls.filter((c) => /mems_tpm_stamp/.test(c.sql));
+  assert.deepEqual(only.map((c) => c.params[1]), [`${today}-01`]);
 });
 
 test('lien TPM ↔ contrat (re-relecture, point 5) : écrivain « verrou d abord » — verrou d attribution AVANT la lecture du lien', async () => {
@@ -569,13 +599,17 @@ test('lien TPM ↔ contrat (re-relecture, point 5) : écrivain « verrou d abord
   const client = { query: async (sql, params) => { calls.push({ sql: sql.replace(/\s+/g, ' ').trim(), params }); return { rows: [{ ok: false }] }; } };
   const link = await repo.lockTpmLinkTx(client, T, { partnerId: YPA, contractId: K1 });
   assert.deepEqual(link, { partnerId: YPA, contractId: K1, had: false });
+  const contractAt = calls.findIndex((c) => /^SELECT 1 FROM contracts WHERE tenant_id = \$1 AND id = \$2 FOR KEY SHARE$/.test(c.sql));
   const lockAt = calls.findIndex((c) => /pg_advisory_xact_lock/.test(c.sql));
   const readAt = calls.findIndex((c) => /^SELECT EXISTS \(SELECT 1 FROM tpm_collection_plans/.test(c.sql));
+  // Re-relecture, point 1 : ligne du contrat (FOR KEY SHARE) AVANT le verrou d'attribution, comme les écrivains de contrats.
+  assert.ok(contractAt === 0 && contractAt < lockAt, 'ligne du contrat avant le verrou d attribution');
+  assert.deepEqual(calls[contractAt].params, [T, K1]);
   assert.ok(lockAt >= 0 && lockAt < readAt, 'le lien est lu sous le verrou');
   assert.equal(calls[lockAt].params[0], repo.ATTRIBUTION_KEY(T));
   // Suppression : le verrou seul (partenaire et contrat lus ensuite sur le document, sous le verrou).
   calls.length = 0;
   assert.equal(await repo.lockTpmLinkTx(client, T), null);
   assert.ok(calls.some((c) => /pg_advisory_xact_lock/.test(c.sql)));
-  assert.ok(!calls.some((c) => /FROM tpm_collection_plans/.test(c.sql)));
+  assert.ok(!calls.some((c) => /FROM tpm_collection_plans|FROM contracts/.test(c.sql)));
 });

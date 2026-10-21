@@ -671,8 +671,32 @@ function linkRestampFrom(docMonth, today) {
   return m && /^\d{4}-\d{2}$/.test(m) && m < today ? m : today;
 }
 
+/** Mois « AAAA-MM » + n. */
+function shiftMonthKey(m, n) {
+  const [y, mm] = String(m).split('-').map(Number);
+  const i = y * 12 + (mm - 1) + n;
+  return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Mois PASSÉS que le lien TPM ↔ contrat d'un document peut changer (re-relecture, point 2) : du mois
+ * du document (linkRestampFrom) au mois précédant le mois courant, seulement ceux que le contrat de
+ * suivi couvre — ailleurs son TPM ne décide de rien. [] pour un document du mois courant ou à venir,
+ * ou un contrat qui n'est pas de suivi. Borné (240 mois). La ré-estampille de ces mois se limite aux
+ * zones du contrat (repository) ; le mois courant et la suite restent recalculés pour tout le compte.
+ * @param {{ status, dateDebut, dateFin, terminationDate?, monitoring: boolean }} contract
+ */
+function linkPastMonths(contract, docMonth, today) {
+  if (!isMonitoringContract(contract)) return [];
+  const out = [];
+  for (let m = linkRestampFrom(docMonth, today); m < today && out.length < 240; m = shiftMonthKey(m, 1)) {
+    if (contractCoversMonth(contract, m)) out.push(m);
+  }
+  return out;
+}
+
 module.exports = {
-  VISIT_ERROR_MESSAGES, visitErrorMessage, TPM_LINK_KINDS, tpmsByContract, contractTpms, linkRestampFrom,
+  VISIT_ERROR_MESSAGES, visitErrorMessage, TPM_LINK_KINDS, tpmsByContract, contractTpms, linkRestampFrom, linkPastMonths,
   MAX_SPAN_MONTHS, MAX_AREAS, MAX_REGIONS, MAX_CELLS, MAX_VISITS,
   ZONE_STATES, VISIT_ZONE_STATES, DEFAULT_STATES, WITH_PROVIDER, VISIT_SOURCES, COVERING_STATUSES, LOG_ACTIONS, LOG_SCOPES, LOG_OPTIONAL_REASON,
   INTERNAL_DEFAULT_STATES, INTERNAL_VISIT_STATES, MONITORED_BY, monitoredByOf,

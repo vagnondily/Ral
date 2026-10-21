@@ -28,9 +28,11 @@
  *     et modification motivée du district) ; sans l'un ni l'autre, sa propre ligne « sans_tpm » ;
  *     parité (aire comprise) avec une modification de district.
  *  7. Facture d'un mois passé (re-relecture, point 3) : la visite prévue de ce mois suit le TPM rattaché
- *     (plus de « rapport interne attendu » pour elle) ; la facture supprimée, elle revient.
+ *     (plus de « rapport interne attendu » pour elle) ; la facture supprimée, elle revient. Une visite
+ *     passée d'un autre contrat, hors des zones de K, ne change jamais (2ᵉ re-relecture, point 2).
  *  8. Concurrence (point 5) : deux suppressions simultanées des deux derniers documents d'un lien
  *     attendent le verrou d'attribution AVANT de lire le lien ; la seconde ré-estampille.
+ *  9. Rapports attendus : le numéro d'un contrat qui n'est plus chargé est relu (jamais son identifiant).
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -66,7 +68,7 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
   const su = new Client({ connectionString: SU_URL });
   await su.connect();
   const q = async (sql, params) => (await su.query(sql, params)).rows;
-  const made = { visits: [], reports: [], stubs: [], plans: [], contract: null, contract2: null, partners: [], unavailability: [], overrides: [], areas: [], siteCommune: null, other: null };
+  const made = { visits: [], reports: [], stubs: [], plans: [], contract: null, contract2: null, partners: [], unavailability: [], overrides: [], areas: [], siteCommune: null, other: null, contract3: null };
   try {
     const [{ id: T }] = await q('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1');
     const [{ id: U }] = await q('SELECT id FROM users WHERE tenant_id = $1 ORDER BY email LIMIT 1', [T]);
@@ -354,6 +356,16 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
        VALUES ($1, $2, $3, 'Test r114 g', 'planifie', 'zone', 'sans_tpm') RETURNING id`, [T, S, `${M0}-01`]);
     await q('COMMIT');
     made.visits.push(G);
+    // Visite prévue d'un AUTRE contrat, hors des zones de K, au même mois passé (re-relecture, point 2) :
+    // estampille d'une décision antérieure (contrat X) que le passé garde — jamais réécrite par K.
+    const [elsewhere] = await q('SELECT id FROM sites WHERE tenant_id = $1 AND zone_district_id IS NOT NULL AND zone_district_id <> $2 ORDER BY id LIMIT 1', [T, D]);
+    await q('BEGIN');
+    await q("SELECT set_config('mems.tpm_stamping', 'on', true)");
+    const [{ id: OTHER }] = await q(
+      `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, provider_source, provider_id, provider_zone_state, contract_id)
+       VALUES ($1, $2, $3, 'Test r114 h', 'planifie', 'zone', $4, 'contrat', $5) RETURNING id`, [T, elsewhere.id, `${M0}-01`, X, K2]);
+    await q('COMMIT');
+    made.visits.push(OTHER);
     const cellAt = async (m) => {
       const [c] = await q('SELECT c_state AS st, c_provider_id AS p FROM mems_tpm_cells($1, $2::uuid[], $3::date[])', [T, [S], [`${m}-01`]]);
       return [c.st, c.p];
@@ -375,10 +387,12 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
     assert.deepEqual([q0.status, q0.visits.planned], ['soumis', 1]);
     assert.equal(await internalAt(M0), ownBefore - 1, 'plus de rapport interne attendu pour cette visite');
     for (const k of ['b', 'c', 'd', 'e', 'f']) assert.deepEqual(w[k], before[k], `${k} : jamais touchée`);
+    assert.deepEqual([w.h.st, w.h.p, w.h.k], ['contrat', X, K2], 'visite passée d un autre contrat, hors des zones de K : jamais réécrite');
     assert.equal(await reports.deleteReport(T, pastInvoice, { actorId: U, isAdmin: true }), 'ok');
     made.stubs = made.stubs.filter((x) => x !== pastInvoice);
     w = await read();
     assert.deepEqual([w.g.st, w.g.p, w.a.st, w.a.p], ['sans_tpm', null, 'sans_tpm', null], 'dernier document supprimé : M−1 et M de nouveau sans TPM');
+    assert.deepEqual([w.h.st, w.h.p, w.h.k], ['contrat', X, K2], 'ni à la suppression');
 
     // 8. Concurrence (re-relecture, point 5) : Q est rattaché à K par DEUX documents (plan P, rapport R) ;
     //    deux utilisateurs les suppriment en même temps. Écrivains « verrou d'abord » : chacun attend le
@@ -409,6 +423,24 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
     made.plans = []; made.stubs = made.stubs.filter((x) => x !== repR);
     w = await read();
     assert.deepEqual([w.a.st, w.a.p, w.a.by], ['sans_tpm', null, 'interne'], 'les deux derniers documents supprimés ensemble : plus de TPM (jamais un lien fantôme)');
+
+    // 9. Rapports attendus (2ᵉ re-relecture, point 6) : une visite garde le contrat K3 qui n'est plus chargé
+    //    (ses dates sont loin de la période) — la ligne montre son NUMÉRO, relu, jamais un blanc ni l'identifiant.
+    const [{ id: K3 }] = await q(
+      `INSERT INTO contracts (tenant_id, numero, partner_id, partner_name, date_debut, date_fin, status, created_by)
+       VALUES ($1, 'TEST-R114-0003', $2, 'Test r114 Mise en oeuvre', '2019-01-01', '2019-12-31', 'actif', $3) RETURNING id`, [T, H, U]);
+    made.contract3 = K3;
+    await q('BEGIN');
+    await q("SELECT set_config('mems.tpm_stamping', 'on', true)");
+    const [{ id: I }] = await q(
+      `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, provider_source, provider_id, provider_zone_state, contract_id)
+       VALUES ($1, $2, $3, 'Test r114 i', 'realise', 'zone', $4, 'contrat', $5) RETURNING id`, [T, S, `${M1}-01`, Q, K3]);
+    await q('COMMIT');
+    made.visits.push(I);
+    const k3Row = (await reports.expectedReports(T, { period: { from: M1, to: M1 }, today: M1 })).rows
+      .find((r) => r.unit.providerId === Q && r.contract && r.contract.id === K3);
+    assert.ok(k3Row, 'ligne Q × K3');
+    assert.equal(k3Row.contract.label, 'TEST-R114-0003', 'numéro du contrat non chargé relu');
   } finally {
     // Base jetable : on retire ce que le test a créé (le journal, inaltérable, garde ses lignes).
     if (made.visits.length) await q('DELETE FROM site_visits WHERE id = ANY ($1::uuid[])', [made.visits]);
@@ -417,7 +449,7 @@ test('retour 114 en base : D1 dans l estampille, rôle changé, indisponibilité
     if (made.plans.length) await q('DELETE FROM tpm_collection_plans WHERE id = ANY ($1::uuid[])', [made.plans]);
     await q('DELETE FROM tpm_unavailability WHERE provider_id = ANY ($1::uuid[])', [made.partners]).catch(() => {});
     if (made.overrides.length) await q('DELETE FROM tpm_zone_overrides WHERE id = ANY ($1::uuid[])', [made.overrides]);
-    for (const k of [made.contract, made.contract2].filter(Boolean)) {
+    for (const k of [made.contract, made.contract2, made.contract3].filter(Boolean)) {
       await q('DELETE FROM contract_areas WHERE contract_id = $1', [k]);
       await q('DELETE FROM contract_budget_items WHERE contract_id = $1', [k]);
       await q('DELETE FROM contracts WHERE id = $1', [k]);

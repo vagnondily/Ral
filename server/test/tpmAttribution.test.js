@@ -548,3 +548,16 @@ test('linkRestampFrom (U2, re-relecture) : mois du document s il est passé, sin
   assert.equal(a.linkRestampFrom(null, '2026-10'), '2026-10');
   assert.equal(a.linkRestampFrom('n/a', '2026-10'), '2026-10');
 });
+
+test('linkPastMonths (re-relecture, point 2) : mois passés du document au mois précédent, couverts par le contrat de suivi', () => {
+  const k = { status: 'actif', dateDebut: '2026-05-10', dateFin: '2027-04-30', monitoring: true };
+  assert.deepEqual(a.linkPastMonths(k, '2026-07-01', '2026-10'), ['2026-07', '2026-08', '2026-09']);
+  assert.deepEqual(a.linkPastMonths(k, '2026-01-01', '2026-10'), ['2026-05', '2026-06', '2026-07', '2026-08', '2026-09'], 'jamais avant le début du contrat');
+  assert.deepEqual(a.linkPastMonths(k, '2026-10-01', '2026-10'), [], 'document du mois courant : rien de passé');
+  assert.deepEqual(a.linkPastMonths(k, '2027-01-01', '2026-10'), []);
+  const ended = { status: 'resilie', dateDebut: '2026-01-01', dateFin: '2026-12-31', terminationDate: '2026-06-15', monitoring: true };
+  assert.deepEqual(a.linkPastMonths(ended, '2026-05-01', '2026-10'), ['2026-05', '2026-06'], 'jamais après la résiliation');
+  assert.deepEqual(a.linkPastMonths({ ...k, monitoring: false }, '2026-07-01', '2026-10'), [], 'contrat qui n est pas de suivi');
+  assert.deepEqual(a.linkPastMonths(null, '2026-07-01', '2026-10'), []);
+  assert.equal(a.linkPastMonths({ ...k, dateDebut: '2000-01-01', dateFin: '2099-12-31' }, '2000-01-01', '2026-10').length, 240, 'borné');
+});
