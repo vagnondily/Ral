@@ -35,9 +35,10 @@
   admin JOURNALISÉ** (modification autorisée MAIS inscrite dans un journal inaltérable : qui, quand,
   avant → après, motif) — le pouvoir sans perdre la traçabilité. À confirmer avant mise en œuvre.
 
-## Organisation (⏳ à faire)
-- ⏳ **Hiérarchie des bureaux à 6 niveaux** : Headquarter › Bureau Régional › Bureau Pays › Area Office › Sub Office › Antenne
-  (aujourd'hui : natures « pays » / « terrain » + parent).
+## Organisation
+- ✅ **Hiérarchie des bureaux à 6 niveaux** : Siège › Bureau régional › Bureau pays › Area Office › Sous-bureau › Antenne.
+  Champ **« Niveau »** dans le formulaire Bureau (remplace « Nature »), colonne `office_level` (migration 117),
+  `nature` dérivée pour compat, périmètre/arbre/RBM inchangés. (Premier pas du multi-pays.)
 - ⏳ **Multi-pays** : créer d'abord un **pays**, puis le configurer (socle multitenant siège › pays ;
   voir `docs/SPEC_MULTIPAYS.md`). Chantier le plus lourd (architecture).
 

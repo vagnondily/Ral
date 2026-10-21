@@ -8,6 +8,7 @@ import { useToast } from '../../components/Toast.jsx';
 import MmrSection from './MmrSection.jsx';
 import LocalitiesSection from './LocalitiesSection.jsx';
 import { formatAr, formatInt, formatDateTime } from '../../lib/format.js';
+import { OFFICE_LEVELS, levelLabel, levelIsNational } from '../../lib/officeLevels.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { roleOf } from '../../lib/roles.js';
 import RoleBadge from '../../components/RoleBadge.jsx';
@@ -314,7 +315,7 @@ function BureauxSection({ isAdmin }) {
                 <tr key={o.id}>
                   <td><strong>{o.name}</strong>{o.parentName && <div className="site-meta">{tr('antenne de {name}', { name: o.parentName })}</div>}{o.responsible && <div className="site-meta">{o.responsible}</div>}</td>
                   <td><span className="mono">{o.code}</span></td>
-                  <td><Badge tone={o.nature === 'pays' ? 'blue' : null}>{o.nature === 'pays' ? tr('bureau pays') : tr('terrain')}</Badge></td>
+                  <td><Badge tone={levelIsNational(o.level) || o.nature === 'pays' ? 'blue' : null}>{levelLabel(o.level) ? tr(levelLabel(o.level)) : (o.nature === 'pays' ? tr('bureau pays') : tr('terrain'))}</Badge></td>
                   <td>{o.national ? <Badge tone="green">{tr('national — tous les sites')}</Badge> : <span className="tag">{tr('{n} commune(s)', { n: o.communeCount })}</span>}</td>
                   <td className="num tabular">{formatInt(o.siteCount)}{o.unattachedInPerimeter > 0 && (
                     <div className="muted" style={{ fontSize: 12 }} title={tr('Sites dont la commune est dans le périmètre mais qui restent sans bureau.')}>{tr('+ {n} à rattacher', { n: formatInt(o.unattachedInPerimeter) })}</div>
@@ -340,7 +341,8 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
   const toast = useToast();
   const editing = Boolean(office);
   const [form, setForm] = useState({
-    code: office?.code || '', name: office?.name || '', nature: office?.nature || 'terrain',
+    code: office?.code || '', name: office?.name || '',
+    level: office?.level || (office?.national ? 'country' : 'area'),
     parentId: office?.parentId || '', responsible: office?.responsible || '',
     national: office?.national || false, active: office?.active ?? true,
   });
@@ -390,7 +392,7 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
     // Une commune déjà enregistrée mais absente du catalogue est conservée (jamais perdue en silence).
     const chosen = pickedList.map((c) => ({ district: c.district || undefined, commune: c.commune }));
     const payload = {
-      code: form.code.trim(), name: form.name.trim(), nature: form.nature,
+      code: form.code.trim(), name: form.name.trim(), level: form.level,
       parentId: form.parentId || undefined, responsible: form.responsible.trim() || undefined,
       national: form.national, active: form.active, communes: form.national ? [] : chosen,
     };
@@ -407,9 +409,10 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
         <div className="form-grid">
           <Field label={tr('Code')}><input className="input mono" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="1" /></Field>
           <Field label={tr('Nom du bureau')}><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Toliara" /></Field>
-          <Field label={tr('Nature')}>
-            <select className="select" value={form.nature} onChange={(e) => setForm({ ...form, nature: e.target.value })}>
-              <option value="terrain">{tr('Bureau terrain')}</option><option value="pays">{tr('Bureau pays')}</option>
+          <Field label={tr('Niveau')} hint={tr('Siège › Régional › Pays › Area › Sous-bureau › Antenne')}>
+            <select className="select" value={form.level}
+              onChange={(e) => { const level = e.target.value; setForm({ ...form, level, national: levelIsNational(level) }); }}>
+              {OFFICE_LEVELS.map((l) => <option key={l.code} value={l.code}>{tr(l.label)}</option>)}
             </select>
           </Field>
           <Field label={tr('Antenne de (optionnel)')}>
