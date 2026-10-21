@@ -1,0 +1,36 @@
+# Besoins utilisateur — file de travail (session 21/10/2026)
+
+> Besoins exprimés par le propriétaire pendant la mise en production / configuration
+> (base vierge `seed:blank`). Tenu à jour à chaque livraison. Ordre de traitement =
+> recommandation de l'agent, validé par l'utilisateur (« selon tes recommandations »).
+> Statuts : ⏳ à faire · 🔄 en cours · ✅ fait
+
+## Déploiement & base (✅ livré)
+- ✅ **Base vierge** `npm run seed:blank` (tenant + comptes seulement) — pour une mise en production propre.
+- ✅ **Enregistrer l'identité du pays** avec centre (lat/lng) vide (400 corrigé).
+- ✅ **Niveaux administratifs configurables depuis MEMS** (pré-remplis Région/District/Commune/Fokontany, + ajouter/retirer).
+- ✅ Aide Windows : service NSSM unique, PATH PostgreSQL, `.env`, import du découpage (CSV/zip/dbf).
+
+## Sites, bureaux & GPS (✅ en partie)
+- ✅ **Bureau d'un site = périmètre Bureaux** (autorité sur le fichier importé ; ré-attribution à l'import et à l'enregistrement d'un périmètre).
+- ✅ **GPS d'un site éditable** au registre (champs Latitude/Longitude).
+- ✅ **GPS depuis les collectes** : remplir le GPS manquant d'un site par la médiane de ses soumissions (≥ 3 relevés).
+
+## Carte & géolocalisation (🔄 en cours — chantier prioritaire)
+- 🔄 **Toujours afficher les sites visités**, même sans plan et même sans GPS précis :
+  repli **« site visité → centre de son district »** (centroïdes des contours fournis `mdg-adm2.v1.json`).
+- ⏳ **Un seul point par site** (dédup) pour les visites réalisées.
+- ⏳ **Popup** d'un site : afficher le **nombre de visites** (et détails utiles).
+- ⏳ **Rattachement soumissions → site** par **code de site** ou **GPS** (aujourd'hui : par commune / P-code seulement).
+
+## Organisation (⏳ à faire)
+- ⏳ **Hiérarchie des bureaux à 6 niveaux** : Headquarter › Bureau Régional › Bureau Pays › Area Office › Sub Office › Antenne
+  (aujourd'hui : natures « pays » / « terrain » + parent).
+- ⏳ **Multi-pays** : créer d'abord un **pays**, puis le configurer (socle multitenant siège › pays ;
+  voir `docs/SPEC_MULTIPAYS.md`). Chantier le plus lourd (architecture).
+
+## Ordre de traitement retenu
+1. **Carte : tout voir** (repli district + dédup + nombre de visites en popup). ← en cours
+2. Rattachement soumissions → site (code / GPS).
+3. Hiérarchie des bureaux à 6 niveaux.
+4. Multi-pays (création d'un pays avant configuration).
