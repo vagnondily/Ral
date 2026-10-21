@@ -1,17 +1,29 @@
 const { DUE_MONTHS_AFTER } = require('./reportExpectation');
 
 /**
- * Rapports attendus (retour 114) — fragment SQL, jumeau de reportExpectation.tpmStatus pour un document
- * stocké : un gabarit « attendu » (POST /reports/generate-monthly, ou rapport jamais rempli) dont le TPM ne
- * porte AUCUNE visite non annulée sur son contrat pendant ses mois ([period_month, period_end]) est
- * « non applicable » d'office — la même règle pour la carte « Rapports attendus », la liste des rapports
- * et les compteurs de la fiche 360°. Rien n'est écrit : dès qu'une visite est prévue, il redevient attendu.
+ * Jumeau SQL de la branche D-b de reportExpectation.tpmStatus (relecture des corrections croisées,
+ * point 2) : le partenaire d'un gabarit « attendu » n'est plus de type TPM (fiche retypée en partenaire
+ * de mise en œuvre) — on n'attend plus de facture de lui. La fiche INACTIVE d'un TPM n'y entre pas :
+ * il reste attendu pour les mois qu'il a servis (décision D-b).
  * @param {string} r  alias de tpm_reports
  */
-const stubNotApplicableSql = (r = 'r') => `(${r}.status = 'attendu' AND NOT EXISTS (
+const stubNotTpmSql = (r = 'r') => `(${r}.status = 'attendu' AND NOT EXISTS (
+    SELECT 1 FROM partners sp JOIN partner_types st ON st.tenant_id = sp.tenant_id AND st.id = sp.partner_type_id
+     WHERE sp.tenant_id = ${r}.tenant_id AND sp.id = ${r}.partner_id AND st.code = 'tpm'))`;
+
+/**
+ * Rapports attendus (retour 114) — fragment SQL, jumeau de reportExpectation.tpmStatus pour un document
+ * stocké : un gabarit « attendu » (POST /reports/generate-monthly, ou rapport jamais rempli) dont le TPM ne
+ * porte AUCUNE visite non annulée sur son contrat pendant ses mois ([period_month, period_end]), ou dont le
+ * partenaire n'est plus de type TPM (D-b, stubNotTpmSql), est « non applicable » d'office — la même règle
+ * pour la carte « Rapports attendus », la liste des rapports et les compteurs de la fiche 360°. Rien n'est
+ * écrit : dès qu'une visite est prévue (ou le partenaire redevenu TPM), il redevient attendu.
+ * @param {string} r  alias de tpm_reports
+ */
+const stubNotApplicableSql = (r = 'r') => `(${stubNotTpmSql(r)} OR (${r}.status = 'attendu' AND NOT EXISTS (
     SELECT 1 FROM site_visits sv
      WHERE sv.tenant_id = ${r}.tenant_id AND sv.provider_id = ${r}.partner_id AND sv.contract_id = ${r}.contract_id
-       AND sv.status <> 'annule' AND sv.period_month BETWEEN ${r}.period_month AND COALESCE(${r}.period_end, ${r}.period_month)))`;
+       AND sv.status <> 'annule' AND sv.period_month BETWEEN ${r}.period_month AND COALESCE(${r}.period_end, ${r}.period_month))))`;
 
 /**
  * Jumeau SQL de l'ÉCHÉANCE de reportExpectation.tpmStatus (relecture croisée, point 15) : un gabarit
@@ -29,4 +41,4 @@ function stubLateSql(r = 'r', today) {
     AND COALESCE(${r}.period_end, ${r}.period_month) + interval '${DUE_MONTHS_AFTER} month' < '${today}-01'::date)`;
 }
 
-module.exports = { stubNotApplicableSql, stubLateSql };
+module.exports = { stubNotApplicableSql, stubNotTpmSql, stubLateSql };

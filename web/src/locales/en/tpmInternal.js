@@ -139,4 +139,6 @@ export default {
   // Relecture croisée (D-c) : facture d'un TPM déclaré indisponible
   'Ce TPM est déclaré indisponible en {m} : la facture reste possible si le travail a bien été fait — vérifiez avant de la soumettre.':
     'This TPM is declared unavailable in {m}: the invoice is still possible if the work was actually done — check before submitting it.',
+  // Relecture des corrections croisées (fiche retypée, TPM inactif, TPM indisponible)
+  'Ce partenaire n\'est plus un TPM : aucune facture n\'est plus attendue de lui.': 'This partner is no longer a TPM: no invoice is expected from it any more.',
 };

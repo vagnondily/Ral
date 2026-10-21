@@ -13,7 +13,7 @@ const { recordDeletion } = require('../deletions/deletions.repository');
 const { monthsOf } = require('../common/period');
 const { expectedReports: expectedRule, inactiveTpmMayInvoice } = require('./reportExpectation');
 const { contractTpmPairsByMonth } = require('./tpmAttribution');
-const { stubNotApplicableSql, stubLateSql } = require('./reportExpectationSql');
+const { stubNotApplicableSql, stubNotTpmSql, stubLateSql } = require('./reportExpectationSql');
 const { currentMonth } = require('./rbmMath');
 const { PERIOD_CAPS } = require('../common/periodCaps');
 const { rootOfficeOf } = require('../common/officeScope');
@@ -32,7 +32,10 @@ const tpmAttributionRepo = require('./tpmAttribution.repository');
 
 const num = (v) => (v == null ? v : Number(v));
 
-/** Colonnes d'un rapport ; `late` : gabarit « attendu » dont l'échéance est passée (stubLateSql, mois local). */
+/**
+ * Colonnes d'un rapport ; `late` : gabarit « attendu » dont l'échéance est passée (stubLateSql, mois local) ;
+ * `partnerNotTpm` : gabarit non applicable d'office parce que son partenaire n'est plus un TPM (D-b).
+ */
 const reportColumns = () => `
   r.id, r.partner_id AS "partnerId", pa.name AS "partnerName",
   r.contract_id AS "contractId", c.numero AS "contractNumero", c.numero_fla AS "contractFla", c.partner_name AS "contractPartner",
@@ -43,7 +46,8 @@ const reportColumns = () => `
   r.submitted_at AS "submittedAt", r.submitted_by AS "submittedBy", sb.email AS "submittedByEmail",
   r.edited_by AS "editedBy", ed.email AS "editedByEmail", r.edited_at AS "editedAt",
   r.decided_by AS "decidedBy", d.email AS "decidedByEmail", r.decided_at AS "decidedAt",
-  ${stubNotApplicableSql('r')} AS "autoNotApplicable", ${stubLateSql('r', currentMonth())} AS late`;
+  ${stubNotApplicableSql('r')} AS "autoNotApplicable", ${stubNotTpmSql('r')} AS "partnerNotTpm",
+  ${stubLateSql('r', currentMonth())} AS late`;
 
 const FROM = `
   FROM tpm_reports r

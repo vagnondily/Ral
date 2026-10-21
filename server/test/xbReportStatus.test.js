@@ -21,6 +21,15 @@ test('stubLateSql : gabarit « attendu », pas non applicable d office, échéan
   for (const bad of [undefined, '2026-13', "2026-10'; DROP TABLE x; --", '2026-1']) assert.throws(() => stubLateSql('r', bad));
 });
 
+test('stubNotApplicableSql (D-b, relecture des corrections croisées, point 2) : sans visite OU partenaire qui n est plus de type TPM ; fiche inactive : encore attendue', () => {
+  const { stubNotTpmSql } = require('../src/modules/tpm/reportExpectationSql');
+  const na = stubNotApplicableSql('r').replace(/\s+/g, ' ');
+  const notTpm = stubNotTpmSql('r').replace(/\s+/g, ' ');
+  assert.ok(na.startsWith(`(${notTpm} OR (r.status = 'attendu' AND NOT EXISTS ( SELECT 1 FROM site_visits sv`));
+  assert.match(notTpm, /^\(r\.status = 'attendu' AND NOT EXISTS \( SELECT 1 FROM partners sp JOIN partner_types st ON st\.tenant_id = sp\.tenant_id AND st\.id = sp\.partner_type_id WHERE sp\.tenant_id = r\.tenant_id AND sp\.id = r\.partner_id AND st\.code = 'tpm'\)\)$/);
+  assert.ok(!/active/.test(notTpm), 'la fiche inactive n entre pas en compte (D-b)');
+});
+
 test('fiche 360° : factures « Attendu » / « En retard » = rapports attendus du TPM ; Soumis / Validé / Rejeté = documents', () => {
   const expected = { rows: [
     { unit: { kind: 'tpm', providerId: 'y' }, status: 'en_retard' },
@@ -76,6 +85,13 @@ test('web : statut affiché d un gabarit en retard = « En retard » (liste, ong
   assert.equal(w.reportShownStatus({ status: 'attendu', autoNotApplicable: true, late: false }), 'non_applicable');
   assert.equal(w.reportShownStatus({ status: 'soumis', late: false }), 'soumis');
   assert.ok('partner_not_tpm' in w.EXPECTED_REASON, 'raison D-b libellée à l écran');
+  // Bulle d'aide d'un gabarit non applicable d'office : la raison D-b quand le partenaire n'est plus TPM (point 2).
+  assert.match(w.autoNotApplicableWhy({ autoNotApplicable: true, partnerNotTpm: true }), /n'est plus un TPM/);
+  assert.match(w.autoNotApplicableWhy({ autoNotApplicable: true, partnerNotTpm: false }), /^Aucune visite planifiée/);
+  assert.equal(w.autoNotApplicableWhy({ autoNotApplicable: false }), null);
+  for (const f of ['pages/tpm/ReportsPage.jsx', 'pages/tpm/provider/ProviderReportsTab.jsx']) {
+    assert.match(fs.readFileSync(path.join(__dirname, '../../web/src', f), 'utf8'), /title=\{tr\(autoNotApplicableWhy\(r\)\)\}/, f);
+  }
 });
 
 test('fil guidé (point 16) : étapes « Facture » / « Validation » = factures RÉELLES qui couvrent le mois (règle de la carte)', async (t) => {

@@ -60,6 +60,17 @@ export const reportShownStatus = (r) => {
   if (r && r.late) return 'en_retard';
   return r && r.status;
 };
+/**
+ * Pourquoi un gabarit est « non applicable d'office » (phrase française, bulle d'aide de la liste et de
+ * l'onglet Rapports) : partenaire qui n'est plus un TPM (D-b, `partnerNotTpm`, reportExpectationSql), sinon
+ * aucune visite planifiée de ce TPM sur ce contrat. null : le statut n'est pas « d'office ».
+ */
+export function autoNotApplicableWhy(r) {
+  if (!r || !r.autoNotApplicable) return null;
+  return r.partnerNotTpm
+    ? 'Ce partenaire n\'est plus un TPM : aucune facture n\'est plus attendue de lui.'
+    : 'Aucune visite planifiée de ce TPM sur ce contrat ce mois-là : pas de rapport à remettre.';
+}
 export const reportStatusDef = (r) => {
   if (r && r.autoNotApplicable) return EXPECTED_STATUS.non_applicable_auto;
   if (r && r.late) return EXPECTED_STATUS.en_retard;

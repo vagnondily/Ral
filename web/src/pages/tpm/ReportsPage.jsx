@@ -19,7 +19,7 @@ import { useI18n } from '../../lib/i18n.jsx';
 import { ROLE_LABELS, contractIdentity, contractNo } from '../../lib/roles.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { isHashRoute, overlaps, periodFromSaved, periodLabel, readHashPeriod, single, writeHashPeriod } from '../../lib/period.js';
-import { factureFlow, reportShownStatus, reportStatusDef } from '../../lib/reportExpectation.js';
+import { autoNotApplicableWhy, factureFlow, reportShownStatus, reportStatusDef } from '../../lib/reportExpectation.js';
 import PeriodSelect from '../../components/PeriodSelect.jsx';
 import ExpectedReports from './ExpectedReports.jsx';
 
@@ -313,8 +313,9 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       case 'document': return r.documentName || <span className="cell-empty">—</span>;
       case 'reference': return r.reference ? <span className="mono">{r.reference}</span> : <span className="cell-empty">—</span>;
       case 'invoiceNo': return r.invoiceNo ? <span className="mono">{r.invoiceNo}</span> : <span className="cell-empty">—</span>;
+      // Non applicable d'office : la raison en bulle d'aide (aucune visite, ou partenaire qui n'est plus TPM — D-b).
       case 'status': return r.autoNotApplicable
-        ? <span title={tr('Aucune visite planifiée de ce TPM sur ce contrat ce mois-là : pas de rapport à remettre.')}><StatusBadge def={reportStatusDef(r)} /></span>
+        ? <span title={tr(autoNotApplicableWhy(r))}><StatusBadge def={reportStatusDef(r)} /></span>
         : <StatusBadge def={reportStatusDef(r)} />;
       case 'createdBy': return <span className="site-meta">{r.createdByEmail || '—'}</span>;
       case 'decidedBy': return <span className="site-meta">{r.decidedByEmail || '—'}</span>;
