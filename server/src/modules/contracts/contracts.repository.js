@@ -114,8 +114,11 @@ async function getContract(client, tenantId, id, { forUpdate = false, forDelete 
  * sans ce verrou, un gabarit rempli pendant la suppression passait le décompte, puis la cascade le
  * supprimait avec ses postes. Ici, on attend l'écrivain en cours ; en READ COMMITTED le décompte qui
  * suit voit ce qu'il a validé, et un écrivain arrivé après trouve le rapport supprimé (introuvable).
- * Ordre contrat → rapports sans cycle : aucun écrivain de rapport ne prend la ligne du contrat après
- * celle d'un rapport (les créations prennent le contrat FOR KEY SHARE AVANT tout, jamais après).
+ * Ordre des verrous : la ligne du contrat, PUIS ses rapports. Règle que doit suivre tout écrivain de
+ * rapport : ne jamais verrouiller la ligne du contrat (FOR KEY SHARE compris, y compris par une clé
+ * étrangère posée vers lui — une réestampille qui écrit site_visits.contract_id) APRÈS la ligne d'un
+ * rapport ; un écrivain qui peut toucher au contrat prend sa ligne D'ABORD, comme les créations le font
+ * avec lockTpmLinkTx. Un écrivain qui l'enfreint interbloque avec cette suppression (40P01 → 503).
  */
 async function lockReportsForDeleteTx(client, tenantId, contractId) {
   await client.query('SELECT id FROM tpm_reports WHERE tenant_id = $1 AND contract_id = $2 ORDER BY id FOR UPDATE', [tenantId, contractId]);
