@@ -742,3 +742,57 @@ test('liste des partenaires : « Contrats actifs » et zones = contrats qui couv
     if (made.partner) await q('DELETE FROM partners WHERE tenant_id = $1 AND id = $2', [T, made.partner]);
   }
 });
+
+test('fiche 360° d\'un titulaire : les visites suivies en interne de ses zones sont comptées à part (contrat sans TPM, puis TPM indisponible)', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const [{ id: admin }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND email = 'admin@mems.mg'", [T]);
+  const types = Object.fromEntries((await q("SELECT code, id FROM partner_types WHERE tenant_id = $1 AND code IN ('tpm', 'prestataire')", [T])).map((r) => [r.code, r.id]));
+  const [{ m }] = await q("SELECT to_char(current_date, 'YYYY-MM') AS m"); // le mois de la fiche
+  const sites = await q('SELECT id, zone_district_id AS d FROM sites WHERE tenant_id = $1 AND zone_district_id IS NOT NULL ORDER BY id LIMIT 400', [T]);
+  const cells = await q('SELECT c_site_id AS s, c_area_id AS a, c_state AS st FROM mems_tpm_cells($1, $2::uuid[], $3::date[])',
+    [T, sites.map((x) => x.id), sites.map(() => `${m}-01`)]);
+  const site = sites.find((x) => cells.some((c) => c.s === x.id && c.st === 'sans_contrat' && c.a === x.d));
+  assert.ok(site, 'un site d\'un district sans contrat de suivi');
+  const [area] = await q('SELECT path FROM admin_areas WHERE id = $1', [site.d]);
+  const { withTenantTransaction } = require('../src/config/db');
+  const { restampVisitsTx } = require('../src/modules/tpm/tpmAttribution.repository');
+  const service = require('../src/modules/partners/partners.service');
+  const restamp = () => withTenantTransaction(T, (c) => restampVisitsTx(c, T, { fromMonth: m }));
+  const made = { partners: [] };
+  try {
+    const [H] = await q('INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1, $2, $3) RETURNING id, name', [T, types.prestataire, 'Test xb #8 — titulaire']);
+    const [X] = await q('INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1, $2, $3) RETURNING id, name', [T, types.tpm, 'Test xb #8 — TPM']);
+    made.partners.push(H.id, X.id);
+    const [K] = await q(`INSERT INTO contracts (tenant_id, numero, partner_id, partner_name, date_debut, date_fin, status, created_by)
+       VALUES ($1, 'TEST-XB8', $2, $3, $4::date, ($4::date + interval '3 month')::date, 'actif', $5) RETURNING id`, [T, H.id, H.name, `${m}-01`, admin]);
+    made.contract = K.id;
+    await q(`INSERT INTO contract_budget_items (contract_id, tenant_id, line_code, description, unit_count, unit_cost, allocations, sort_order)
+             VALUES ($1, $2, 'IV.suivi', 'Test xb #8', 1, 1000, '{}'::jsonb, 0)`, [K.id, T]);
+    await q('INSERT INTO contract_areas (contract_id, tenant_id, admin_area_id, path, depth, sort_order) VALUES ($1, $2, $3, $4, 2, 0)', [K.id, T, site.d, area.path]);
+    for (const [i, status] of [[1, 'planifie'], [2, 'planifie'], [3, 'realise']]) {
+      await q("INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status) VALUES ($1, $2, $3::date, $4, $5)", [T, site.id, `${m}-01`, `Test xb #8 ${i}`, status]);
+    }
+    const visits = async () => (await service.sheet(T, H.id)).facts.visits;
+    // 1. Contrat sans TPM : visites internes (sans_tpm), comptées à part.
+    let v = await visits();
+    assert.deepEqual([v.assigned, v.internal, v.internalRealised], [0, 3, 1], 'sans TPM : 3 en suivi interne, dont 1 réalisée');
+    // 2. Un TPM rattaché (facture) : visites du TPM, sur le contrat — affectées, plus internes.
+    const [r] = await q(`INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, kind, status, reported_amount, created_by)
+       VALUES ($1, $2, $3, $4::date, 'financier', 'attendu', 0, $5) RETURNING id`, [T, X.id, K.id, `${m}-01`, admin]);
+    made.report = r.id;
+    await restamp();
+    v = await visits();
+    assert.deepEqual([v.internal, v.assigned], [0, 2], 'TPM rattaché : visites de zone affectées (la réalisée garde son estampille)');
+    // 3. Ce TPM déclaré indisponible ce mois : ses zones repassent en interne.
+    await q("INSERT INTO tpm_unavailability (tenant_id, provider_id, period_month, reason, batch_id) VALUES ($1, $2, $3::date, 'Indisponible — test xb #8', gen_random_uuid())", [T, X.id, `${m}-01`]);
+    await restamp();
+    v = await visits();
+    assert.deepEqual([v.assigned, v.internal, v.internalRealised], [0, 3, 1], 'TPM indisponible : les zones repassent en interne, comptées à part');
+  } finally {
+    await q("DELETE FROM site_visits WHERE tenant_id = $1 AND activity LIKE 'Test xb #8 %'", [T]);
+    await q('DELETE FROM tpm_unavailability WHERE tenant_id = $1 AND provider_id = ANY($2::uuid[])', [T, made.partners]);
+    if (made.report) await q('DELETE FROM tpm_reports WHERE id = $1', [made.report]);
+    if (made.contract) await q('DELETE FROM contracts WHERE id = $1', [made.contract]);
+    await q('DELETE FROM partners WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [T, made.partners]);
+  }
+});

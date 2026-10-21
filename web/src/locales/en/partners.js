@@ -378,4 +378,8 @@ export default {
   'Indisponible {period}': 'Unavailable {period}',
   'Indisponibilité déclarée (Affectation des TPM) : {reason}': 'Declared unavailability (TPM assignment): {reason}',
   'indisponible ce mois : zones en suivi interne': 'unavailable this month: areas monitored internally',
+  // Fiche 360° d'un titulaire : visites suivies en interne dans les zones de ses contrats (retour 114).
+  '— aucune visite affectée à un TPM ce mois': '— no visit assigned to a TPM this month',
+  '{n} visite(s) en suivi interne (équipe S&E) dans les zones de ses contrats · {r} réalisée(s)':
+    '{n} visit(s) monitored internally (M&E team) in its contract areas · {r} done',
 };

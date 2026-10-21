@@ -263,7 +263,12 @@ function Overview({ sheet, onTab, canEdit, onEdit, onOpenContract, onOpenPartner
           {v.assigned ? (
             <><Progress value={v.rate || 0} label={tr('Visites réalisées sur affectées')} />
               <span className="tabular">{tr('{r} réalisées sur {a} affectées ({p} %)', { r: v.realised, a: v.assigned, p: v.rate })}</span></>
-          ) : <span className="muted">{tr('— aucune visite affectée ce mois')}</span>}
+          ) : <span className="muted">{tr(v.internal ? '— aucune visite affectée à un TPM ce mois' : '— aucune visite affectée ce mois')}</span>}
+          {v.internal > 0 && (
+            <span className="muted" title={tr(ROLE_LABELS.noTpmHint)}>
+              {tr('{n} visite(s) en suivi interne (équipe S&E) dans les zones de ses contrats · {r} réalisée(s)', { n: v.internal, r: v.internalRealised })}
+            </span>
+          )}
         </div>
         <table className="kv pv-kv"><tbody>
           <tr><th>{tr('Visites réalisées (12 mois)')}</th><td className="tabular">{formatInt(v.realised12)}</td></tr>

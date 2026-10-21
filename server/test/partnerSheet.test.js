@@ -167,3 +167,22 @@ test('changement de rôle : rôle après le patch, vrai changement, `name` dans 
   assert.equal(nameChanges(before, 'YPA Madagascar'), true);
   assert.equal(nameChanges(before, 'ypa'), true, 'la casse est un vrai changement');
 });
+
+test('titulaire : visites suivies en interne de ses zones — la cellule nomme son contrat (sans TPM, ou TPM indisponible)', () => {
+  const { internalCellContracts, holderInternalVisits } = require('../src/modules/partners/partnerSheet');
+  const sansTpm = { state: 'sans_tpm', default: { noTpm: [{ contractId: 'K' }, { contractId: 'L' }], candidates: [] } };
+  const indispo = { state: 'indisponible', default: { candidates: [{ providerId: 'ypa', contractId: 'K' }, { providerId: 'sahy', contractId: 'M' }] }, override: null };
+  const suspendue = { state: 'indisponible', default: { candidates: [{ providerId: 'ypa', contractId: 'K' }, { providerId: 'sahy', contractId: 'M' }] }, override: { providerId: 'sahy' } };
+  assert.deepEqual(internalCellContracts(sansTpm), ['K', 'L']);
+  assert.deepEqual(internalCellContracts(indispo), ['K', 'M']);
+  assert.deepEqual(internalCellContracts(suspendue), ['M'], 'modification suspendue : le contrat du TPM choisi');
+  for (const c of [null, {}, { state: 'contrat', default: { candidates: [{ contractId: 'K' }] } }, { state: 'sans_contrat', default: { noTpm: [] } }]) {
+    assert.deepEqual(internalCellContracts(c), [], JSON.stringify(c));
+  }
+  const visits = [
+    { status: 'planifie', cell: sansTpm }, { status: 'realise', cell: indispo }, { status: 'annule', cell: sansTpm },
+    { status: 'planifie', cell: suspendue }, { status: 'planifie', cell: { state: 'sans_contrat', default: { noTpm: [] } } },
+  ];
+  assert.deepEqual(holderInternalVisits(visits, ['K']), { visitsInternal: 2, visitsInternalRealised: 1 }, 'annulée et autres contrats exclus');
+  assert.deepEqual(holderInternalVisits(visits, []), { visitsInternal: 0, visitsInternalRealised: 0 });
+});
