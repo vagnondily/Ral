@@ -692,8 +692,8 @@ function shiftMonthKey(m, n) {
  * du document (linkRestampFrom) au mois précédant le mois courant, seulement ceux que le contrat de
  * suivi couvre — ailleurs son TPM ne décide de rien. [] pour un document du mois courant ou à venir,
  * ou un contrat qui n'est pas de suivi. Borné aux 240 mois les PLUS RÉCENTS (ceux qu'on va facturer ;
- * relecture r114c, point 4), dans l'ordre. La ré-estampille de ces mois se limite aux zones du contrat
- * (repository) ; le mois courant et la suite restent recalculés pour tout le compte.
+ * relecture r114c, point 4), dans l'ordre. Le mois courant et la suite restent recalculés pour tout le
+ * compte ; dans ces mois passés, seules les visites que le lien décide le sont (linkDecidedVisits).
  * @param {{ status, dateDebut, dateFin, terminationDate?, monitoring: boolean }} contract
  */
 function linkPastMonths(contract, docMonth, today) {
@@ -706,8 +706,35 @@ function linkPastMonths(contract, docMonth, today) {
   return out.reverse();
 }
 
+/**
+ * Visites PASSÉES que le lien TPM ↔ contrat décide (relecture r114c, point 3) : la règle elle-même
+ * (buildZoneTable, cellForSite — jumelle de mems_tpm_cells), appliquée AVANT et APRÈS l'écriture du
+ * document — le contrat avec et sans ce TPM rattaché ; seules les visites dont la cellule change sont
+ * ré-estampillées. Une visite qu'une zone plus précise d'un AUTRE contrat décide (même cellule avant et
+ * après) n'est jamais réécrite : le passé ne se réécrit pas en silence.
+ * @param {{ visits: { id, districtId, communeId, month }[], areas: object[], months: string[],
+ *   inputs: { contracts, overrides, partners, unavailability, links }, partnerId: string, contractId: string,
+ *   had: boolean }} p  inputs = APRÈS l'écriture (loadInputsTx) ; had = lien avant l'écriture
+ * @returns {string[]} identifiants des visites à ré-estampiller
+ */
+function linkDecidedVisits({ visits, areas, months, inputs, partnerId, contractId, had }) {
+  if (!visits || !visits.length) return [];
+  // Liens AVANT l'écriture : le couple portait (had) ou non un plan / un rapport ; ses autres liens et
+  // ceux des autres couples sont inchangés. Même règle (tpmsByContract : TPM actif, ordre du nom).
+  const pair = (l) => l.partnerId === partnerId && l.contractId === contractId;
+  const linksBefore = (inputs.links || [])
+    .map((l) => (pair(l) ? { ...l, via: (Array.isArray(l.via) ? l.via : [l.via]).filter((v) => !TPM_LINK_KINDS.includes(v)) } : l));
+  if (had) linksBefore.push({ partnerId, contractId, via: [TPM_LINK_KINDS[0]] });
+  const tpmsBefore = tpmsByContract(linksBefore, inputs.partners).get(contractId) || [];
+  const before = (inputs.contracts || []).map((c) => (c.id === contractId ? { ...c, tpms: tpmsBefore } : c));
+  const tAfter = buildZoneTable({ areas, months, ...inputs });
+  const tBefore = buildZoneTable({ areas, months, ...inputs, contracts: before });
+  const key = (c) => (c ? [c.state, c.providerId || '', c.contractId || ''].join('|') : '');
+  return visits.filter((v) => key(cellForSite(v, v.month, tAfter)) !== key(cellForSite(v, v.month, tBefore))).map((v) => v.id);
+}
+
 module.exports = {
-  VISIT_ERROR_MESSAGES, visitErrorMessage, TPM_LINK_KINDS, tpmsByContract, contractTpms, linkRestampFrom, linkPastMonths,
+  VISIT_ERROR_MESSAGES, visitErrorMessage, TPM_LINK_KINDS, tpmsByContract, contractTpms, linkRestampFrom, linkPastMonths, linkDecidedVisits,
   MAX_SPAN_MONTHS, MAX_AREAS, MAX_REGIONS, MAX_CELLS, MAX_VISITS,
   ZONE_STATES, VISIT_ZONE_STATES, DEFAULT_STATES, WITH_PROVIDER, VISIT_SOURCES, COVERING_STATUSES, LOG_ACTIONS, LOG_SCOPES, LOG_OPTIONAL_REASON,
   INTERNAL_DEFAULT_STATES, INTERNAL_VISIT_STATES, MONITORED_BY, monitoredByOf,

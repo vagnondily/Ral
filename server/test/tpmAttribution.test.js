@@ -566,3 +566,29 @@ test('linkPastMonths (re-relecture, point 2) : mois passés du document au mois 
   assert.equal(capped[0], '2006-10', 'le premier : 240 mois avant, jamais le mois du document');
   assert.deepEqual(capped, [...capped].sort());
 });
+
+test('linkDecidedVisits (relecture r114c, point 3) : seules les visites passées dont la cellule change avec le lien', () => {
+  // KB (district d1, titulaire AINA) : YPA y rattache son premier plan. K4 (commune c1, autre contrat) : SAHY.
+  const links = [{ partnerId: 'ypa', contractId: 'kb', via: ['plan'] }, { partnerId: 'sahy', contractId: 'k4', via: ['rapport'] }];
+  const kb = contract({ id: 'kb', numero: 'CTR-B', zones: [zone(D1)], tpms: [{ id: 'ypa', name: 'YPA' }] });
+  const k4 = contract({ id: 'k4', numero: 'CTR-4', zones: [zone(C1)], tpms: [{ id: 'sahy', name: 'SAHY Monitoring' }] });
+  const inputs = { contracts: [kb, k4], overrides: [], partners, unavailability: [], links };
+  const visits = [
+    { id: 'v-commune', districtId: 'd1', communeId: 'c1', month: '2026-08' }, // décidée par K4 (zone plus précise)
+    { id: 'v-district', districtId: 'd1', communeId: null, month: '2026-08' }, // décidée par KB
+    { id: 'v-hors', districtId: 'd1', communeId: null, month: '2025-08' }, // KB ne couvre pas ce mois
+  ];
+  const base = { visits, areas: [D1, C1], months: ['2025-08', '2026-08'], inputs, partnerId: 'ypa', contractId: 'kb' };
+  assert.deepEqual(a.linkDecidedVisits({ ...base, had: false }), ['v-district'], 'premier document : KB passe de sans TPM à YPA');
+  // Dernier document supprimé : KB sans YPA après, avec YPA avant.
+  const after = { ...inputs, contracts: [{ ...kb, tpms: [] }, k4], links: links.filter((l) => l.contractId !== 'kb') };
+  assert.deepEqual(a.linkDecidedVisits({ ...base, inputs: after, had: true }), ['v-district']);
+  // Lien qui ne change pas le TPM : partenaire de mise en œuvre, TPM inactif — aucune visite.
+  assert.deepEqual(a.linkDecidedVisits({ ...base, inputs: after, partnerId: 'aina', had: false }), []);
+  assert.deepEqual(a.linkDecidedVisits({ ...base, inputs: after, partnerId: 'old', had: true }), []);
+  // Un AUTRE TPM déjà rattaché à KB : YPA en plus change la cellule (deux TPM : à arbitrer).
+  const both = { ...inputs, contracts: [{ ...kb, tpms: [{ id: 'rano', name: 'RANO Control' }, { id: 'ypa', name: 'YPA' }] }, k4],
+    links: [...links, { partnerId: 'rano', contractId: 'kb', via: ['rapport'] }] };
+  assert.deepEqual(a.linkDecidedVisits({ ...base, inputs: both, had: false }), ['v-district']);
+  assert.deepEqual(a.linkDecidedVisits({ ...base, visits: [], had: false }), []);
+});
