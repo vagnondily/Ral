@@ -173,7 +173,8 @@ export default function FieldVisitsPage({ canEdit }) {
   const communeCount = useMemo(() => new Set((visits || []).map((v) => `${v.district} › ${v.commune}`)).size, [visits]);
   const ov = summary?.overall;
   // Suivi interne (retour 114) : visites que l'équipe S&E fait elle-même — une affectation, pas un manque.
-  const internalVisits = (visits || []).filter(visitInternal).length;
+  // Ligne « Interne » du résumé serveur, annulées exclues : la même que la carte « par TPM » et Rapports attendus.
+  const internalVisits = ((summary?.byProvider || []).find((r) => r.key === 'interne') || {}).active || 0;
 
   // Colonnes & filtres de la grille de planification (liste façon COMET).
   const columns = useMemo(() => {
@@ -300,7 +301,7 @@ export default function FieldVisitsPage({ canEdit }) {
         {ov && (
           <div className="biz-kpis" style={{ gridTemplateColumns: 'repeat(5, minmax(0,1fr))' }}>
             <Kpi icon={MapPin} tone="blue" label={tr('Sites du mois')} value={formatInt(ov.total)} foot={tr('{n} commune(s)', { n: communeCount })} />
-            <Kpi icon={Users} tone="blue" label={tr('Suivi interne')} value={formatInt(internalVisits)} foot={tr('Équipe S&E : aucun TPM sur la zone')} />
+            <Kpi icon={Users} tone="blue" label={tr('Suivi interne')} value={formatInt(internalVisits)} foot={tr('Équipe S&E (sans TPM, ou TPM retiré avec motif)')} />
             <Kpi icon={CalendarClock} tone="blue" label={tr('Planifiées')} value={formatInt(ov.planifie)} foot={tr('À réaliser')} />
             <Kpi icon={CheckCircle2} tone="green" label={tr('Réalisées')} value={formatInt(ov.realise)} foot={coverageRateText(ov, lang) ? tr('{p} d\'exécution des visites (déclarées)', { p: coverageRateText(ov, lang) }) : tr('— aucun plan')} />
             <Kpi icon={Ban} tone="red" label={tr('Annulées')} value={formatInt(ov.annule)} foot={tr('Exclues du taux')} />

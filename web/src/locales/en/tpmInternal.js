@@ -28,7 +28,7 @@ export default {
   'Interne (équipe S&E) ces mois-là': 'Internal (M&E team) for those months',
   'Suivi interne': 'Internal monitoring',
   'indisponible : {m}': 'unavailable: {m}',
-  'Équipe S&E : aucun TPM sur la zone': 'M&E team: no TPM on the area',
+  'Équipe S&E (sans TPM, ou TPM retiré avec motif)': 'M&E team (no TPM, or TPM removed with a reason)',
   'Interne : l\'équipe S&E suit la zone {z} ce mois ({w}). Pour la confier à un TPM, utilisez l\'onglet Affectation des TPM.':
     'Internal: the M&E team monitors area {z} this month ({w}). To give it to a TPM, use the TPM assignment tab.',
   'Ce partenaire n\'est pas sélectionnable en {m} : ce n\'est pas un TPM actif, ou il est déclaré indisponible.':

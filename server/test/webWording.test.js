@@ -126,3 +126,18 @@ test('Rapports & dépenses (CSV) : la colonne « Période » est remplie (AAAA-M
   assert.equal(cell({ periodMonth: '2026-10-01', periodEnd: '2026-10-01' }), '2026-10', 'un seul mois : pas de flèche');
   assert.equal(cell({ periodMonth: null, periodEnd: null }), '');
 });
+
+test('Affectation & visites : la tuile « Suivi interne » lit la ligne « Interne » du résumé serveur (annulées exclues), comme la carte et Rapports attendus ; note reformulée, en anglais', async (t) => {
+  const en = await load(t, 'locales/en.js'); if (!en) return;
+  const page = src('pages/monitoring/FieldVisitsPage.jsx');
+  assert.match(page, /const internalVisits = \(\(summary\?\.byProvider \|\| \[\]\)\.find\(\(r\) => r\.key === 'interne'\) \|\| \{\}\)\.active \|\| 0;/);
+  assert.ok(!/visits \|\| \[\]\)\.filter\(visitInternal\)\.length/.test(page), 'plus de décompte local qui garde les annulées');
+  // La ligne « Interne » du résumé : 12 réalisées + 6 prévues = 18 actives ; les 2 annulées n'y sont pas.
+  const { summarizeVisits } = require('../src/modules/tpm/fieldMath');
+  const v = (status) => ({ providerId: null, monitoredBy: 'interne', status });
+  const s = summarizeVisits([...Array(12)].map(() => v('realise')).concat([...Array(6)].map(() => v('planifie')), [v('annule'), v('annule')]));
+  const row = s.byProvider.find((r) => r.key === 'interne');
+  assert.deepEqual([row.active, row.total], [18, 20]);
+  assert.ok(literals('pages/monitoring/FieldVisitsPage.jsx').includes('Équipe S&E (sans TPM, ou TPM retiré avec motif)'));
+  assert.equal(en.default['Équipe S&E (sans TPM, ou TPM retiré avec motif)'], 'M&E team (no TPM, or TPM removed with a reason)');
+});
