@@ -18,12 +18,38 @@ async function districts(auth, { period, officeId = null, activity = null, level
   return buildDistrictsResponse(raw, { period, officeId, activity, index: SHAPE_INDEX, withCommunes: levels.includes('commune') });
 }
 
-/** GET /api/map/points : sites GPS, positions déduites, centres de commune, points de collecte. */
+/** GET /api/map/points : sites GPS, positions déduites, centres de commune, centres de district, points de collecte. */
 async function points(auth, { period, officeId = null, activity = null, layers, limit = 2000 }) {
   // Points précis (positions de ménages) : admin / gestionnaire ; les autres : grille de 2 km.
   const precise = seesPreciseGps(auth.role);
   const raw = await repo.pointsData(auth.tenantId, { period, officeId, activity, layers, limit, precise, maxAccuracyM: MAX_ACCURACY_M });
-  return buildPointsResponse(raw, { layers, precise, maxAccuracyM: MAX_ACCURACY_M, limit });
+  const res = buildPointsResponse(raw, { layers, precise, maxAccuracyM: MAX_ACCURACY_M, limit });
+  // Repli « centre du district » : toujours montrer les sites VISITÉS sans aucune position, au
+  // centre de leur district (centroïde = point d'étiquette du contour fourni). Toujours disponible.
+  if (layers.includes('districts')) {
+    res.districts = await districtFallback(auth.tenantId, { period, officeId, activity });
+    res.counts.districtCentres = res.districts.length;
+    res.counts.sitesInDistrictCentres = res.districts.reduce((a, d) => a + d.n, 0);
+  }
+  return res;
+}
+
+/** Sites visités sans position → marqueur au centre de leur district (contour fourni). */
+async function districtFallback(tenantId, { period, officeId, activity }) {
+  const groups = await repo.districtUnplacedTx(tenantId, { period, officeId, activity });
+  if (!groups.length) return [];
+  const { districts, links } = await repo.shapeLinkData(tenantId);
+  const manual = new Map(links.map((l) => [l.pcode, l.shapeKey]));
+  const match = matchDistricts({ districts, shapes: SHAPE_INDEX.shapes, links: manual });
+  const label = new Map(SHAPE_INDEX.shapes.map((s) => [s.key, s.label]));
+  const out = [];
+  for (const g of groups) {
+    const m = match.byPcode[g.dpcode];
+    const lab = m && m.shapeKey ? label.get(m.shapeKey) : null;
+    if (!lab) continue; // district sans contour reconnu : pas de centre, on n'invente pas
+    out.push({ dpcode: g.dpcode, name: g.name || g.dpcode, lat: lab[1], lng: lab[0], n: g.n, sites: g.sites || [] });
+  }
+  return out.sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
 }
 
 /** GET /api/map/search : districts, communes, sites. */

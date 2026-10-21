@@ -93,6 +93,7 @@ repo.pointsData = async (tenantId, opts) => {
     collect,
   };
 };
+repo.districtUnplacedTx = async () => []; // repli district : pas de données ici (ne pousse pas dans calls : last() vise pointsData)
 repo.search = async (tenantId, q) => { calls.push({ fn: 'search', tenantId, q }); return [{ kind: 'district', pcode: 'MG1', name: q }]; };
 const decimals = (v) => (String(v).split('.')[1] || '').length;
 
@@ -109,7 +110,7 @@ test('GET /points : lecteur → carroyage de 2 km (même avec limit), jamais plu
     assert.equal(r.status, 200);
     assert.equal(last().opts.precise, true);
     assert.equal(r.body.collect.mode, 'points');
-    assert.deepEqual(last().opts.layers, ['gps', 'derived', 'communes', 'collect']);
+    assert.deepEqual(last().opts.layers, ['gps', 'derived', 'communes', 'districts', 'collect']);
     assert.equal(last().opts.limit, 2000);
   }
 });

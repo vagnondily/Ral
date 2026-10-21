@@ -395,6 +395,19 @@ function PointsLayer({ points, layers, toScreen, colorBy = 'status', slots = nul
       );
     });
   }
+  if (layers.districts && points.districts) {
+    const cls = dim({ kind: 'district' });
+    points.districts.forEach((d, i) => {
+      const [x, y] = toScreen(d.lng, d.lat);
+      const r = Math.min(16, 6 + Math.sqrt(d.n) * 1.4);
+      out.push(
+        <g key={`d${d.dpcode}`} data-pt={`d:${i}`} className={cls}>
+          <circle cx={x.toFixed(1)} cy={y.toFixed(1)} r={r.toFixed(1)} className="mapx-district" />
+          {d.n > 1 && r >= 9 && <text x={x.toFixed(1)} y={(y + 3.6).toFixed(1)} textAnchor="middle" className="mapx-commune-n">{d.n}</text>}
+        </g>
+      );
+    });
+  }
   points.sites.forEach((s, i) => {
     if (s.kind === 'gps' && !layers.gps) return;
     if (s.kind === 'collectes' && !layers.derived) return;

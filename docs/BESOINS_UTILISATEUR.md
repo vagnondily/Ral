@@ -17,10 +17,13 @@
 - ✅ **GPS depuis les collectes** : remplir le GPS manquant d'un site par la médiane de ses soumissions (≥ 3 relevés).
 
 ## Carte & géolocalisation (🔄 en cours — chantier prioritaire)
-- 🔄 **Toujours afficher les sites visités**, même sans plan et même sans GPS précis :
-  repli **« site visité → centre de son district »** (centroïdes des contours fournis `mdg-adm2.v1.json`).
-- ⏳ **Un seul point par site** (dédup) pour les visites réalisées.
-- ⏳ **Popup** d'un site : afficher le **nombre de visites** (et détails utiles).
+- ✅ **Toujours afficher les sites visités**, même sans plan et même sans GPS précis :
+  couche **« Centre du district (visités sans GPS) »** (activée par défaut) — chaque site visité sans
+  position est compté au **centre de son district** (centroïde des contours fournis `mdg-adm2.v1.json`).
+- ✅ **Un seul point par site** (GPS / collectes = un marqueur par site) ; le repli district agrège par
+  district (un marqueur, nombre de sites) faute de coordonnées fines.
+- ✅ **Popup** : **nombre de visites réalisées** sur un site (GPS/collectes) ; sur le marqueur district,
+  la liste des sites visités avec leur nombre de visites.
 - ⏳ **Rattachement soumissions → site** par **code de site** ou **GPS** (aujourd'hui : par commune / P-code seulement).
 
 ## Organisation (⏳ à faire)

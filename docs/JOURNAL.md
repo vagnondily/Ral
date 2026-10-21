@@ -12,6 +12,18 @@
 
 ## État courant
 
+> **21/10 — Carte : toujours afficher les sites visités (centre du district) + nb de visites.** ✅
+> Nouvelle couche **« Centre du district (visités sans GPS) »** (par défaut active) : un site VISITÉ
+> (visite réalisée ou données) sans aucune position est compté au **centroïde de son district** (point
+> d'étiquette du contour fourni `mdg-adm2.v1.json`, toujours disponible, même sans plan et sans import
+> de géométrie). Backend : `map.repository.districtUnplacedTx` (sites visités sans GPS groupés par
+> district) + `map.service.districtFallback` (match district→contour via `matchDistricts`, centroïde =
+> label). Popup : **nombre de visites réalisées** sur un site (GPS/collectes), et liste des sites
+> (avec leur nb de visites) sur le marqueur district. Frontend : couche + rendu (DistrictMap) + carte de
+> survol + CSS + EN. Smoke bout-en-bout : site visité sans GPS à Bekily → marqueur au centre du district.
+> Lint ✅, 1564 tests ✅ (test des couches par défaut mis à jour), build ✅. Reste du chantier carte :
+> rattachement soumissions→site par code/GPS.
+
 > **21/10 — GPS d'un site depuis ses vraies collectes + rappel : GPS éditable au registre.** ✅
 > La config GPS depuis le référentiel existe déjà (formulaire du site : champs Latitude/Longitude).
 > Nouveau : bouton **« GPS depuis les collectes »** (registre des sites) → `POST /api/site-registry/fill-gps`,

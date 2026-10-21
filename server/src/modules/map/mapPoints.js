@@ -12,7 +12,7 @@
  */
 const { positionQuality, placeable, publishedPosition, QUALITY } = require('./geoStats');
 
-const LAYERS = Object.freeze(['gps', 'derived', 'communes', 'collect']);
+const LAYERS = Object.freeze(['gps', 'derived', 'communes', 'districts', 'collect']);
 const round6 = (v) => Math.round(v * 1e6) / 1e6;
 const round1 = (v) => (v == null ? null : Math.round(Number(v) * 10) / 10);
 const execOf = (s) => (s.visitsPlanned > 0 ? s.visitsPlannedRealised / s.visitsPlanned : null);
@@ -39,7 +39,7 @@ function buildPointsResponse(raw, { layers, precise, maxAccuracyM, limit }) {
     for (const s of drawn) {
       if (!s.hasGps) continue;
       out.push({ id: s.id, name: s.name, code: s.code, lat: s.lat, lng: s.lng, kind: 'gps', status: s.status,
-        execution: execOf(s), byData: !!s.byData, risk: s.risk, districtPcode: s.districtPcode, activity: s.activity || null });
+        execution: execOf(s), byData: !!s.byData, visits: s.visitsPlannedRealised || 0, risk: s.risk, districtPcode: s.districtPcode, activity: s.activity || null });
     }
   }
   const placed = new Set();
@@ -52,7 +52,7 @@ function buildPointsResponse(raw, { layers, precise, maxAccuracyM, limit }) {
       const pos = publishedPosition({ lat: m.lat, lng: m.lng, n: m.n }, { precise });
       placed.add(s.id);
       out.push({ id: s.id, name: s.name, code: s.code, lat: round6(pos.lat), lng: round6(pos.lng), coarse: pos.coarse, kind: 'collectes',
-        n: m.n, spreadKm: round1(m.spreadKm), quality, status: s.status, execution: execOf(s), byData: !!s.byData, risk: s.risk, districtPcode: s.districtPcode,
+        n: m.n, spreadKm: round1(m.spreadKm), quality, status: s.status, execution: execOf(s), byData: !!s.byData, visits: s.visitsPlannedRealised || 0, risk: s.risk, districtPcode: s.districtPcode,
         activity: s.activity || null });
     }
   }

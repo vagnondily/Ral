@@ -414,6 +414,34 @@ async function pointsData(tenantId, { period, officeId = null, activity = null, 
   });
 }
 
+/**
+ * Repli « centre du district » : sites VISITÉS (visite déclarée OU données reçues) qui n'ont
+ * AUCUNE position (pas de GPS du registre), regroupés par district — pour les afficher au centre
+ * de leur district quand aucune coordonnée fine n'existe (le centroïde du contour est ajouté par
+ * le service). @returns [{ dpcode, name, n, sites:[{id,name,visits}] }]
+ */
+async function districtUnplacedTx(tenantId, { period, officeId = null, activity = null }) {
+  return withTenantTransaction(tenantId, async (client) => {
+    await client.query(JIT_OFF);
+    const params = [tenantId];
+    const ctes = siteMonthFactsCtes({ period, todayMonth: currentMonth(), withData: true, geo: true, officeId, activity }, params);
+    const { rows } = await client.query(
+      `${ctes}
+       SELECT NULLIF(btrim(p.dpcode), '') AS dpcode, max(d.name) AS name, count(*)::int AS n,
+              to_json((array_agg(json_build_object('id', p.site_id, 'name', s.name, 'visits', p.v_planned_realised)
+                       ORDER BY s.name, p.site_id))[1:10]) AS sites
+         FROM per_site p
+         JOIN sites s ON s.id = p.site_id AND s.tenant_id = $1
+         LEFT JOIN admin_areas d ON d.tenant_id = $1 AND d.pcode = p.dpcode AND d.depth = 2
+        WHERE (p.realised_any OR p.realised_data) AND NOT p.has_gps
+          AND NULLIF(btrim(p.dpcode), '') IS NOT NULL
+        GROUP BY 1`,
+      params
+    );
+    return rows;
+  });
+}
+
 /** Échappe les métacaractères de LIKE (\, %, _) — ESCAPE '\'. */
 const likeEscape = (s) => String(s).replace(/[\\%_]/g, (c) => `\\${c}`);
 
@@ -537,5 +565,5 @@ module.exports = {
   SHAPE_SET, MAP_COUNT_COLUMNS, SITES_CAP,
   shapeLinkData, upsertShapeLink, deleteShapeLink, fillDistrictCentres,
   districtData, factsByZoneTx, submissionsByZoneTx, areaIndexTx, communeNamesTx, shapeLinksTx, filtersAvailableTx,
-  pointsData, siteStatusesTx, perimeterCountsTx, gpsMediansTx, collectPointsTx, search, likeEscape,
+  pointsData, siteStatusesTx, perimeterCountsTx, gpsMediansTx, collectPointsTx, districtUnplacedTx, search, likeEscape,
 };

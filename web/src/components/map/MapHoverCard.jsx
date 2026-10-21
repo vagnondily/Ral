@@ -95,7 +95,7 @@ export default function MapHoverCard({ zone, theme, periodText, pos, box, pinned
 /** Fiche d'un point (site, centre de commune, point de collecte) — aucune donnée individuelle de ménage. */
 export function PointCard({ point, pos, box, periodText, onClose }) {
   const { tr, lang } = useI18n();
-  if (!point || !pos) return null;
+  if (!point || !point.data || !pos) return null;
   const W = 260;
   const left = Math.max(8, Math.min(box.width - W - 8, pos.x + 14));
   const top = Math.max(8, Math.min(box.height - 190, pos.y - 60));
@@ -112,6 +112,7 @@ export function PointCard({ point, pos, box, periodText, onClose }) {
           {s.activity && <tr><td>{tr('Activité')}</td><td>{s.activity}</td></tr>}
           <tr><td>{tr('Statut de la période')}</td><td>{tr(STATUS[s.status] || s.status)}</td></tr>
           {s.execution != null && <tr><td>{tr('Exécution du plan (visites)')}</td><td className="tabular">{formatRate(s.execution, lang)}</td></tr>}
+          {s.visits > 0 && <tr><td>{tr('Visites réalisées')}</td><td className="tabular">{formatInt(s.visits)}</td></tr>}
           <tr><td>{tr('Position')}</td><td>{s.kind === 'gps' ? tr('GPS du registre') : tr('placé par ses collectes ({n} relevés, {q})', { n: formatInt(s.n), q: tr(QUAL[s.quality] || s.quality) })}</td></tr>
           {s.byData && <tr><td colSpan={2} className="muted">{tr('Réalisé par des données rattachées au site')}</td></tr>}
         </tbody></table>
@@ -129,6 +130,18 @@ export function PointCard({ point, pos, box, periodText, onClose }) {
           <tr><td>{tr('Dispersion médiane')}</td><td className="tabular">{`${c.spreadKm} km`}</td></tr>
         </tbody></table>
         <div className="mapx-card-src">{c.sites.map((x) => x.name).join(', ')}{c.sitesWithoutPosition > c.sites.length ? ' …' : ''}</div>
+      </>
+    );
+  } else if (point.type === 'district') {
+    const d = point.data;
+    body = (
+      <>
+        <h4>{d.name}</h4>
+        <div className="mapx-card-sub">{tr('Centre du district — sites visités sans GPS')}</div>
+        <table className="mapx-card-rows"><tbody>
+          <tr><td>{tr('Sites visités sans position')}</td><td className="tabular">{formatInt(d.n)}</td></tr>
+        </tbody></table>
+        <div className="mapx-card-src">{(d.sites || []).map((x) => `${x.name}${x.visits ? ` (${x.visits})` : ''}`).join(', ')}{d.n > (d.sites || []).length ? ' …' : ''}</div>
       </>
     );
   } else {
