@@ -15,6 +15,7 @@ const { expectedReports: expectedRule } = require('./reportExpectation');
 const { contractTpmPairsByMonth } = require('./tpmAttribution');
 const { stubNotApplicableSql } = require('./reportExpectationSql');
 const { PERIOD_CAPS } = require('../common/periodCaps');
+const { rootOfficeOf } = require('../common/officeScope');
 const tpmAttributionRepo = require('./tpmAttribution.repository');
 
 /**
@@ -534,11 +535,9 @@ async function expectedReports(tenantId, { period, today }) {
               count(*) FILTER (WHERE v.status = 'planifie')::int AS planned,
               count(*) FILTER (WHERE v.status = 'realise')::int AS realised,
               count(*) FILTER (WHERE v.status = 'annule')::int AS cancelled,
-              array_remove(array_agg(DISTINCT COALESCE(po.name, fo.name)) FILTER (WHERE v.monitored_by = 'interne' AND v.status <> 'annule'), NULL) AS offices
+              array_remove(array_agg(DISTINCT s.field_office_id) FILTER (WHERE v.monitored_by = 'interne' AND v.status <> 'annule'), NULL) AS "officeIds"
          FROM site_visits v
          JOIN sites s ON s.tenant_id = v.tenant_id AND s.id = v.site_id
-         LEFT JOIN field_offices fo ON fo.tenant_id = v.tenant_id AND fo.id = s.field_office_id
-         LEFT JOIN field_offices po ON po.tenant_id = v.tenant_id AND po.id = fo.parent_id
          LEFT JOIN partners p ON p.tenant_id = v.tenant_id AND p.id = v.provider_id
         WHERE v.tenant_id = $1 AND v.period_month BETWEEN $2::date AND $3::date
         GROUP BY 1, 2, 3`, [tenantId, lo, hi]);
@@ -552,6 +551,13 @@ async function expectedReports(tenantId, { period, today }) {
          JOIN partners pa ON pa.tenant_id = r.tenant_id AND pa.id = r.partner_id
          JOIN contracts c ON c.tenant_id = r.tenant_id AND c.id = r.contract_id
         WHERE r.tenant_id = $1 AND r.kind = 'financier' AND ${spanOverlaps('r.period_month', 'r.period_end', period, rp)}`, rp);
+    // Équipe du suivi interne d'un site : son bureau RACINE (officeScope.rootOfficeOf — la règle du plan
+    // automatique, jamais le bureau national), toutes antennes comprises (relecture croisée, points 6, 18, 23).
+    if (activity.some((a) => a.officeIds && a.officeIds.length)) {
+      const { rows: offices } = await client.query(
+        'SELECT id, parent_id AS "parentId", name, national FROM field_offices WHERE tenant_id = $1', [tenantId]);
+      for (const a of activity) a.offices = [...new Set((a.officeIds || []).map((id) => (rootOfficeOf(offices, id) || {}).name).filter(Boolean))];
+    }
     const inputs = await tpmAttributionRepo.loadInputsTx(client, tenantId, period);
     const names = new Map(inputs.partners.map((x) => [x.id, x.name]));
     const contractLabels = new Map(inputs.contracts.map((c) => [c.id, c.numeroFla || c.numero]));
