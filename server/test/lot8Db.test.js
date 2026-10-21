@@ -781,21 +781,31 @@ test('fiche 360° d\'un titulaire : les visites suivies en interne de ses zones 
       await q("INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status) VALUES ($1, $2, $3::date, $4, $5)", [T, site.id, `${m}-01`, `Test xb #8 ${i}`, status]);
     }
     const visits = async () => (await service.sheet(T, H.id)).facts.visits;
-    // 1. Contrat sans TPM : visites internes (sans_tpm), comptées à part.
+    const followed = async () => service.followups(T, H.id, { from: m, to: m }, m);
+    // 1. Contrat sans TPM : visites internes (sans_tpm), comptées à part — fiche, 12 mois et onglet Suivis.
     let v = await visits();
     assert.deepEqual([v.assigned, v.internal, v.internalRealised], [0, 3, 1], 'sans TPM : 3 en suivi interne, dont 1 réalisée');
+    assert.deepEqual(v.internalReasons, { sans_tpm: 3 }, 'raison : contrat sans TPM');
+    assert.deepEqual([v.realised12, v.internalRealised12, v.sitesFollowed], [1, 1, 1], '12 mois : la réalisée interne comptée, dont 1 en interne');
+    let f = await followed();
+    assert.deepEqual([f.visits, f.internal], [[], [{ month: m, planned: 2, realised: 1, sites: 1 }]], 'onglet Suivis : la série interne à part');
     // 2. Un TPM rattaché (facture) : visites du TPM, sur le contrat — affectées, plus internes.
     const [r] = await q(`INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, kind, status, reported_amount, created_by)
        VALUES ($1, $2, $3, $4::date, 'financier', 'attendu', 0, $5) RETURNING id`, [T, X.id, K.id, `${m}-01`, admin]);
     made.report = r.id;
     await restamp();
     v = await visits();
-    assert.deepEqual([v.internal, v.assigned], [0, 2], 'TPM rattaché : visites de zone affectées (la réalisée garde son estampille)');
+    // La réalisée garde son estampille (interne, sans TPM) : elle reste comptée en interne (point A).
+    assert.deepEqual([v.assigned, v.internal, v.internalRealised], [2, 1, 1], 'TPM rattaché : prévues affectées, la réalisée reste interne');
+    assert.deepEqual(v.internalReasons, { sans_tpm: 1 }, 'raison figée de la réalisée');
+    f = await followed();
+    assert.deepEqual(f.internal, [{ month: m, planned: 0, realised: 1, sites: 1 }], 'onglet Suivis : la réalisée interne reste');
     // 3. Ce TPM déclaré indisponible ce mois : ses zones repassent en interne.
     await q("INSERT INTO tpm_unavailability (tenant_id, provider_id, period_month, reason, batch_id) VALUES ($1, $2, $3::date, 'Indisponible — test xb #8', gen_random_uuid())", [T, X.id, `${m}-01`]);
     await restamp();
     v = await visits();
     assert.deepEqual([v.assigned, v.internal, v.internalRealised], [0, 3, 1], 'TPM indisponible : les zones repassent en interne, comptées à part');
+    assert.deepEqual(v.internalReasons, { indisponible: 2, sans_tpm: 1 }, 'raisons : TPM indisponible (prévues), contrat sans TPM (réalisée)');
   } finally {
     await q("DELETE FROM site_visits WHERE tenant_id = $1 AND activity LIKE 'Test xb #8 %'", [T]);
     await q('DELETE FROM tpm_unavailability WHERE tenant_id = $1 AND provider_id = ANY($2::uuid[])', [T, made.partners]);

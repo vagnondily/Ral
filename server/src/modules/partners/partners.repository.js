@@ -2,7 +2,7 @@ const { withTenantTransaction } = require('../../config/db');
 const { badRequest, conflict, notFound } = require('../../middleware/errors');
 const { MONITORING_LINE } = require('../contracts/budgetCatalog');
 const { REALISED_STATUS, PENDING_STATUS } = require('../tpm/realised');
-const { shapeTimeline, holderInternalVisits } = require('./partnerSheet');
+const { shapeTimeline, holderInternalGroups, internalCounts, internalByMonth } = require('./partnerSheet');
 const places = require('../settings/placeMatch.repository');
 const { providerLinksTx, contractTpmViewsTx } = require('../tpm/activeProvider.repository');
 const { monthWithin } = require('../common/periodSql');
@@ -11,6 +11,7 @@ const { roleForUpdateTx, restampIfRoleChangedTx, nameChanges, roleAfter } = requ
 const { stubNotApplicableSql, stubLateSql } = require('../tpm/reportExpectationSql');
 const { contractCoversMonthSql } = require('../tpm/activeProviderSql');
 const { localDay } = require('../common/localDay');
+const { addMonths } = require('../common/period');
 
 /**
  * Jour et 1ᵉʳ du mois LOCAUX de l'application (common/localDay, APP_TIMEZONE) — jamais la date de la base, qui
@@ -64,6 +65,10 @@ async function sheet(tenantId, id) {
     // Mois et jour LOCAUX de l'application (common/localDay), jamais la date de la session (UTC) : le même
     // mois courant que les rapports attendus et les alertes (relecture croisée, point 14).
     const { today, month0 } = localClock();
+    const month = today.slice(0, 7);
+    // Suivi interne des zones de ses contrats (retour 114) sur les 12 derniers mois : mois courant à part,
+    // réalisées et sites réalisés ajoutés aux chiffres sur 12 mois (relecture croisée, point 8).
+    const internal = internalCounts(await holderInternalGroupsTx(client, tenantId, id, { from: addMonths(month, -11), to: month }), month);
     const { rows: [counts] } = await client.query(
       `SELECT to_char($3::date, 'YYYY-MM') AS month, to_char($4::date, 'YYYY-MM-DD') AS today,
               (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')}
@@ -72,8 +77,9 @@ async function sheet(tenantId, id) {
                  AND v.period_month = $3::date AND v.status = 'realise')::int AS "visitsRealised",
               (SELECT count(*) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')} AND v.status = 'realise'
                  AND v.period_month >= $3::date - interval '11 months')::int AS "visitsRealised12",
-              (SELECT count(DISTINCT v.site_id) FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')}
-                 AND v.status = 'realise' AND v.period_month >= $3::date - interval '11 months')::int AS "sitesFollowed",
+              (SELECT count(*) FROM (SELECT v.site_id FROM site_visits v WHERE v.tenant_id = $1 AND ${visitOf('v')}
+                   AND v.status = 'realise' AND v.period_month >= $3::date - interval '11 months'
+                 UNION SELECT unnest($5::uuid[])) fs)::int AS "sitesFollowed",
               (SELECT count(*) FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.partner_id = $2 AND NOT s.excluded
                  AND s.period_month >= $3::date - interval '11 months')::int AS "submissions12",
               (SELECT count(*) FROM monitoring_submissions s WHERE s.tenant_id = $1 AND s.partner_id = $2 AND s.excluded
@@ -83,8 +89,9 @@ async function sheet(tenantId, id) {
               (SELECT count(*) FROM tpm_collection_plans pl WHERE pl.tenant_id = $1 AND ${docOf('pl')})::int AS plans,
               (${TRAININGS_COUNT_SQL})::int AS trainings,
               (SELECT count(*) FROM tpm_provider_evaluations e WHERE e.tenant_id = $1 AND e.partner_id = $2)::int AS evaluations`,
-      [tenantId, id, month0, today]);
-    Object.assign(counts, await holderInternalVisitsTx(client, tenantId, id, counts.month)); // retour 114 : suivi interne
+      [tenantId, id, month0, today, internal.internalSites12]);
+    const { internalSites12: _sites, ...internalFacts } = internal;
+    Object.assign(counts, internalFacts);
     // Un gabarit « attendu » sans visite planifiée : « non applicable » d'office ; échéance passée : « en retard »
     // (retour 114, même règle que la carte « Rapports attendus » : tpm/reportExpectationSql).
     const { rows: reports } = await client.query(
@@ -117,36 +124,39 @@ async function sheet(tenantId, id) {
 }
 
 /**
- * Visites SUIVIES EN INTERNE du mois `month` (« AAAA-MM ») dans les zones des contrats que le partenaire
- * TIENT (retour 114 : contrat sans TPM, ou TPM indisponible). visitOf ne les voit jamais : une visite
- * interne ne porte ni TPM ni contract_id (CHECK site_visits_contract_derived_ck). Les zones des contrats
- * pré-filtrent (visites de zone, internes, non annulées) ; la règle d'attribution (tableForSitesTx +
- * cellForSite, comme l'estampille) décide si la cellule nomme un de ces contrats.
- * @returns {Promise<{ visitsInternal: number, visitsInternalRealised: number }>}
+ * Visites SUIVIES EN INTERNE des zones des contrats que le partenaire TIENT, de `from` à `to` (« AAAA-MM »),
+ * en groupes mois × statut × origine × zone (comptes en SQL) : contrats tenus (actifs ou résiliés) pour
+ * pré-filtrer par zone, puis la règle d'attribution (tableForSitesTx + cellForSite, comme l'estampille)
+ * au mois de chaque groupe ; partnerSheet.holderInternalGroups décide (prévues : cellule d'aujourd'hui ;
+ * réalisées : estampille figée). Lecture seule.
+ * @returns {Promise<{ month, status, n, sites: string[], reason }[]>}
  */
-async function holderInternalVisitsTx(client, tenantId, partnerId, month) {
-  const none = { visitsInternal: 0, visitsInternalRealised: 0 };
-  if (!/^\d{4}-\d{2}$/.test(String(month || ''))) return none;
+async function holderInternalGroupsTx(client, tenantId, partnerId, { from, to }) {
+  const ym = /^\d{4}-\d{2}$/;
+  if (!ym.test(String(from || '')) || !ym.test(String(to || ''))) return [];
   const { rows: held } = await client.query(
     "SELECT id FROM contracts WHERE tenant_id = $1 AND partner_id = $2 AND status IN ('actif', 'resilie')", [tenantId, partnerId]);
-  if (!held.length) return none;
-  const { rows: visits } = await client.query(
-    `SELECT v.status, s.id, s.zone_district_id AS "districtId", s.zone_commune_id AS "communeId"
+  if (!held.length) return [];
+  const { rows: groups } = await client.query(
+    `SELECT to_char(v.period_month, 'YYYY-MM') AS month, v.status, v.provider_source AS source, v.provider_zone_state AS "zoneState",
+            s.zone_district_id AS "districtId", s.zone_commune_id AS "communeId", count(*)::int AS n,
+            COALESCE(array_agg(DISTINCT v.site_id) FILTER (WHERE v.status = 'realise'), '{}'::uuid[]) AS sites
        FROM site_visits v JOIN sites s ON s.tenant_id = v.tenant_id AND s.id = v.site_id
        LEFT JOIN admin_areas da ON da.tenant_id = s.tenant_id AND da.id = s.zone_district_id
        LEFT JOIN admin_areas ca ON ca.tenant_id = s.tenant_id AND ca.id = s.zone_commune_id
-      WHERE v.tenant_id = $1 AND v.period_month = $3::date AND v.monitored_by = 'interne' AND v.provider_source = 'zone'
-        AND v.status <> 'annule'
+      WHERE v.tenant_id = $1 AND v.period_month BETWEEN $3::date AND $4::date AND v.monitored_by = 'interne'
+        AND v.provider_source IN ('zone', 'visite') AND v.status <> 'annule'
         AND EXISTS (SELECT 1 FROM contract_areas z
                      WHERE z.tenant_id = $1 AND z.contract_id = ANY ($2::uuid[])
                        AND (z.admin_area_id IN (s.zone_district_id, s.zone_commune_id)
-                            OR z.admin_area_id = ANY (COALESCE(da.lineage, '{}')) OR z.admin_area_id = ANY (COALESCE(ca.lineage, '{}'))))`,
-    [tenantId, held.map((h) => h.id), `${month}-01`]);
-  if (!visits.length) return none;
+                            OR z.admin_area_id = ANY (COALESCE(da.lineage, '{}')) OR z.admin_area_id = ANY (COALESCE(ca.lineage, '{}'))))
+      GROUP BY 1, 2, 3, 4, 5, 6`,
+    [tenantId, held.map((h) => h.id), `${from}-01`, `${to}-01`]);
+  if (!groups.length) return [];
   const attribution = require('../tpm/tpmAttribution.repository');
   const { cellForSite } = require('../tpm/tpmAttribution');
-  const { table } = await attribution.tableForSitesTx(client, tenantId, { zones: visits, months: [month] });
-  return holderInternalVisits(visits.map((v) => ({ status: v.status, cell: cellForSite(v, month, table) })), held.map((h) => h.id));
+  const { table } = await attribution.tableForSitesTx(client, tenantId, { zones: groups, months: groups.map((g) => g.month) });
+  return holderInternalGroups(groups.map((g) => ({ ...g, cell: cellForSite(g, g.month, table) })), held.map((h) => h.id));
 }
 
 /**
@@ -315,7 +325,10 @@ async function followups(tenantId, id, period) {
          FROM monitoring_submissions s JOIN monitoring_forms f ON f.id = s.form_id AND f.tenant_id = s.tenant_id
         WHERE s.tenant_id = $1 AND s.partner_id = $2 AND ${monthWithin('s.period_month', period, fp)}
         GROUP BY f.id ORDER BY f.label`, fp);
-    return { visits, submissions: subsByMonth, forms };
+    // Visites suivies en interne des zones de ses contrats (retour 114), par mois, à part (point 8) :
+    // la même règle que la fiche (holderInternalGroupsTx).
+    const internal = internalByMonth(await holderInternalGroupsTx(client, tenantId, id, period));
+    return { visits, internal, submissions: subsByMonth, forms };
   });
 }
 

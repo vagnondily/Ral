@@ -139,4 +139,15 @@ export default {
   // Relecture croisée (D-c) : facture d'un TPM déclaré indisponible
   'Ce TPM est déclaré indisponible en {m} : la facture reste possible si le travail a bien été fait — vérifiez avant de la soumettre.':
     'This TPM is declared unavailable in {m}: the invoice is still possible if the work was actually done — check before submitting it.',
+  // Vérification croisée, points A et B : suivi interne d'un titulaire et ses raisons
+  'TPM retiré avec motif': 'TPM removed with a reason',
+  'aucun contrat de suivi lors de la visite': 'no monitoring contract at the time of the visit',
+  'district du site non reconnu lors de la visite': 'site district not recognised at the time of the visit',
+  '{why} ({n})': '{why} ({n})',
+  'Suivi interne (équipe S&E) : {list}': 'Internal monitoring (M&E team): {list}',
+  'dont {n} en suivi interne': 'of which {n} monitored internally',
+  '{n} · {r} réalisée(s)': '{n} · {r} done',
+  'En suivi interne (équipe S&E)': 'Monitored internally (M&E team)',
+  '« En suivi interne » : visites des zones de ses contrats suivies par l\'équipe S&E (contrat sans TPM, TPM indisponible ou retiré avec motif), comptées à part des visites des TPM.':
+    '“Monitored internally”: visits in the areas of its contracts monitored by the M&E team (contract without a TPM, TPM unavailable or removed with a reason), counted separately from the TPMs’ visits.',
 };

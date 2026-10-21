@@ -322,3 +322,23 @@ export function contractZoneFollowText(tr, follow, contractId) {
   if (others.length > ZONE_FOLLOW_LISTED) items.push(tr('+{n} autre(s)', { n: others.length - ZONE_FOLLOW_LISTED }));
   return [head, ...items].join(' · ');
 }
+
+/**
+ * Pourquoi les visites des zones d'un titulaire sont suivies en interne (fiche 360°, `internalReasons` :
+ * serveur partnerSheet.INTERNAL_REASONS) — jamais une phrase fixe : un contrat sans TPM, un TPM
+ * indisponible ou retiré avec un motif ; pour une visite réalisée, l'estampille figée au moment de la visite.
+ */
+export const INTERNAL_REASON_LABELS = {
+  sans_tpm: 'contrat sans TPM',
+  indisponible: 'TPM indisponible',
+  retire: 'TPM retiré avec motif',
+  sans_contrat: 'aucun contrat de suivi lors de la visite',
+  district_inconnu: 'district du site non reconnu lors de la visite',
+};
+
+/** Infobulle : « Suivi interne (équipe S&E) : contrat sans TPM (2) · TPM indisponible (1) » ; repli générique. */
+export function internalReasonsHint(tr, reasons) {
+  const parts = Object.keys(INTERNAL_REASON_LABELS).filter((k) => reasons && reasons[k] > 0)
+    .map((k) => tr('{why} ({n})', { why: tr(INTERNAL_REASON_LABELS[k]), n: reasons[k] }));
+  return parts.length ? tr('Suivi interne (équipe S&E) : {list}', { list: parts.join(' · ') }) : tr(INTERNAL_HINT);
+}
