@@ -111,3 +111,18 @@ test('Rapports attendus (CSV) : la colonne du mois de remise s\'appelle « À re
   assert.equal(en.default['À remettre au plus tard'], 'Due by');
   assert.equal(en.default['Échéance'], 'Expiry', 'le libellé des contrats reste inchangé');
 });
+
+test('Rapports & dépenses (CSV) : la colonne « Période » est remplie (AAAA-MM, « → AAAA-MM » pour une facture pluri-mensuelle)', (t) => {
+  const file = path.join(WEB, 'pages/tpm/ReportsPage.jsx');
+  if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }
+  const page = fs.readFileSync(file, 'utf8');
+  const body = page.slice(page.indexOf('function exportCsv()'), page.indexOf('function renderCell('));
+  const m = body.match(/case 'period': \{([\s\S]*?)\n {8}\}/);
+  assert.ok(m, 'cell() a un cas « period »');
+  // Le cas lui-même, exécuté sur des lignes de rapport (mêmes champs que l'API).
+  const cell = new Function('r', m[1]);
+  assert.equal(cell({ periodMonth: '2026-10-01', periodEnd: null }), '2026-10');
+  assert.equal(cell({ periodMonth: '2026-06-01', periodEnd: '2026-07-01' }), '2026-06 → 2026-07');
+  assert.equal(cell({ periodMonth: '2026-10-01', periodEnd: '2026-10-01' }), '2026-10', 'un seul mois : pas de flèche');
+  assert.equal(cell({ periodMonth: null, periodEnd: null }), '');
+});
