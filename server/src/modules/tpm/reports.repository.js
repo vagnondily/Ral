@@ -11,7 +11,7 @@ const { LINE_LABELS, SECTION_OF } = require('../contracts/budgetCatalog');
 const { isValidatedStatus, decideDocumentDeletion, linkedSummary } = require('../common/deletionPolicy');
 const { recordDeletion } = require('../deletions/deletions.repository');
 const { monthsOf } = require('../common/period');
-const { expectedReports: expectedRule } = require('./reportExpectation');
+const { expectedReports: expectedRule, inactiveTpmMayInvoice } = require('./reportExpectation');
 const { contractTpmPairsByMonth } = require('./tpmAttribution');
 const { stubNotApplicableSql, stubLateSql } = require('./reportExpectationSql');
 const { currentMonth } = require('./rbmMath');
@@ -281,7 +281,8 @@ async function insertReport(tenantId, r) {
   return withTenantTransaction(tenantId, async (client) => {
     // Lien TPM ↔ contrat (retour 114) : verrou d'attribution D'ABORD (avant la clé étrangère du rapport), puis le lien d'avant.
     const link = await tpmAttributionRepo.lockTpmLinkTx(client, tenantId, { partnerId: r.partnerId, contractId: r.contractId });
-    await assertActiveTpmTx(client, tenantId, r.partnerId); // une facture / un rapport = un TPM actif (D1)
+    // Une facture / un rapport = un TPM actif (D1) ; une facture de mois passés : un TPM, même inactif (D-b).
+    await assertActiveTpmTx(client, tenantId, r.partnerId, { allowInactive: inactiveTpmMayInvoice(r, currentMonth()) });
     const existing = await findExisting(client, tenantId, r);
     if (existing) { const e = new Error('duplicate'); e.code = 'DUP'; throw e; }
 
@@ -572,8 +573,10 @@ async function expectedReports(tenantId, { period, today }) {
       for (const c of more) contractLabels.set(c.id, c.label);
     }
     const unavailable = new Set(inputs.unavailability.map((u) => `${u.providerId}|${u.month}`));
+    // Décision D-b : un partenaire qui n'est plus de type TPM n'a plus de facture attendue (actif ou non).
+    const notTpm = new Set(inputs.partners.filter((x) => x.typeCode !== 'tpm').map((x) => x.id));
     const out = expectedRule({
-      months, today, activity, contractPairs: contractTpmPairsByMonth(inputs.contracts, months), names, contractLabels, reports, unavailable,
+      months, today, activity, contractPairs: contractTpmPairsByMonth(inputs.contracts, months), names, contractLabels, reports, unavailable, notTpm,
     });
     return { period: { from: period.from, to: period.to }, today, ...out };
   });

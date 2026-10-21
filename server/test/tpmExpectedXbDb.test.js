@@ -122,3 +122,50 @@ test('gabarit en retard (points 15 et 4) : même verdict dans la liste, l onglet
     await q('DELETE FROM site_visits WHERE id = $1', [V]);
   }
 });
+
+test('D-b (point 21) : TPM inactif encore attendu et facturable pour les mois passés ; devenu non-TPM : « non applicable », sans alerte', { skip: SKIP }, async () => {
+  const T = await tenant();
+  const reports = require('../src/modules/tpm/reports.repository');
+  const planning = require('../src/modules/tpm/planning.repository');
+  const { lateReportAlerts } = require('../src/modules/dashboards/alertsMath');
+  const { currentMonth } = require('../src/modules/tpm/rbmMath');
+  const { addMonths } = require('../src/modules/common/period');
+  const M = currentMonth(); const Mp = addMonths(M, -3);
+  const [{ id: U }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND role = 'admin' ORDER BY email LIMIT 1", [T]);
+  const types = Object.fromEntries((await q('SELECT code, id FROM partner_types WHERE tenant_id = $1', [T])).map((r) => [r.code, r.id]));
+  const [{ id: Z }] = await q("INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1, $2, 'Test XB D-b TPM') RETURNING id", [T, types.tpm]);
+  // Contrat de test sans zone ni ligne de suivi : le lien n'estampille rien ailleurs.
+  const [{ id: K }] = await q(`INSERT INTO contracts (tenant_id, numero, partner_id, partner_name, date_debut, date_fin, status, created_by)
+                                VALUES ($1, 'TEST-XB-21', $2, 'Test XB D-b TPM', $3, $4, 'actif', $5) RETURNING id`, [T, Z, `${Mp}-01`, `${M}-28`, U]);
+  const [site] = await q('SELECT id FROM sites WHERE tenant_id = $1 ORDER BY id LIMIT 1', [T]);
+  await q('BEGIN');
+  await q("SELECT set_config('mems.tpm_stamping', 'on', true)");
+  const [{ id: V }] = await q(`INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, provider_source, provider_id, provider_zone_state, contract_id)
+                                VALUES ($1, $2, $3, 'Test point 21', 'realise', 'zone', $4, 'contrat', $5) RETURNING id`, [T, site.id, `${Mp}-01`, Z, K]);
+  await q('COMMIT');
+  const rowOf = async () => (await reports.expectedReports(T, { period: { from: Mp, to: Mp }, today: M })).rows.find((r) => r.unit.providerId === Z);
+  try {
+    assert.equal((await rowOf()).status, 'en_retard');
+    // Fiche désactivée (contrat fini) : encore attendu pour le mois servi, et il peut le facturer.
+    await q('UPDATE partners SET active = false WHERE id = $1', [Z]);
+    assert.equal((await rowOf()).status, 'en_retard', 'TPM inactif : encore attendu');
+    const F = await reports.insertReport(T, { partnerId: Z, contractId: K, periodMonth: `${Mp}-01`, kind: 'financier', reportedAmount: 10, createdBy: U });
+    assert.equal((await rowOf()).status, 'soumis', 'facture d un mois servi acceptée (type seul exigé)');
+    assert.equal(await reports.deleteReport(T, F, { actorId: U, isAdmin: true }), 'ok');
+    await assert.rejects(reports.insertReport(T, { partnerId: Z, contractId: K, periodMonth: `${M}-01`, kind: 'financier', reportedAmount: 10, createdBy: U }),
+      (e) => e.code === 'NOT_TPM', 'mois courant : TPM actif exigé');
+    await assert.rejects(planning.createPlan(T, { partnerId: Z, contractId: K, periodMonth: `${Mp}-01`, title: 'Test XB', items: [], createdBy: U }),
+      (e) => e.code === 'NOT_TPM', 'plan : TPM actif exigé');
+    // Devenu partenaire de mise en œuvre : plus de facture attendue, aucune alerte.
+    await q('UPDATE partners SET partner_type_id = $2, active = true WHERE id = $1', [Z, types.prestataire]);
+    const row = await rowOf();
+    assert.deepEqual([row.status, row.reason, row.auto], ['non_applicable', 'partner_not_tpm', true]);
+    const late = lateReportAlerts(await reports.expectedReports(T, { period: { from: Mp, to: Mp }, today: M }));
+    assert.ok(!late.some((a) => a.params.provider === 'Test XB D-b TPM'), 'aucune alerte « Rapport en retard »');
+  } finally {
+    await q('DELETE FROM site_visits WHERE id = $1', [V]);
+    await q('DELETE FROM tpm_reports WHERE contract_id = $1', [K]);
+    await q('DELETE FROM contracts WHERE id = $1', [K]);
+    await q('DELETE FROM partners WHERE id = $1', [Z]).catch(() => {});
+  }
+});

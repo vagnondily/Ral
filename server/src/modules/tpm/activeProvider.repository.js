@@ -58,11 +58,12 @@ const NOT_TPM_MESSAGE = 'Ce partenaire n\'est pas un TPM actif : un plan de coll
  * sinon erreur `code: 'NOT_TPM'` (les routes répondent 400). La base le contrôle aussi (type
  * « tpm », migration 089). À appeler dans la transaction qui écrit le document.
  */
-async function assertActiveTpmTx(client, tenantId, partnerId) {
+async function assertActiveTpmTx(client, tenantId, partnerId, { allowInactive = false } = {}) {
   const { rows } = await client.query(
     `SELECT p.active, t.code FROM partners p JOIN partner_types t ON t.id = p.partner_type_id AND t.tenant_id = p.tenant_id
       WHERE p.tenant_id = $1 AND p.id = $2`, [tenantId, partnerId]);
-  if (!rows.length || rows[0].code !== 'tpm' || rows[0].active === false) {
+  // allowInactive (décision D-b) : facture de mois PASSÉS d'un TPM désormais inactif — le type seul est exigé.
+  if (!rows.length || rows[0].code !== 'tpm' || (rows[0].active === false && !allowInactive)) {
     const e = new Error(NOT_TPM_MESSAGE); e.code = 'NOT_TPM'; throw e;
   }
 }

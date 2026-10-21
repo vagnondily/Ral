@@ -54,6 +54,7 @@ test('web : statut affiché d un gabarit en retard = « En retard » (liste, ong
   assert.equal(w.reportStatusDef({ status: 'attendu', late: true }), w.EXPECTED_STATUS.en_retard);
   assert.equal(w.reportShownStatus({ status: 'attendu', autoNotApplicable: true, late: false }), 'non_applicable');
   assert.equal(w.reportShownStatus({ status: 'soumis', late: false }), 'soumis');
+  assert.ok('partner_not_tpm' in w.EXPECTED_REASON, 'raison D-b libellée à l écran');
 });
 
 test('fil guidé (point 16) : étapes « Facture » / « Validation » = factures RÉELLES qui couvrent le mois (règle de la carte)', async (t) => {
@@ -76,4 +77,32 @@ test('fil guidé (point 16) : étapes « Facture » / « Validation » = facture
   const page = fs.readFileSync(path.join(__dirname, '../../web/src/pages/tpm/ReportsPage.jsx'), 'utf8');
   assert.match(page, /\.\.\.factureFlow\(reports, month\),\s*\}\), \[reports, plans, month\]\);/);
   assert.match(page, /if \(live\) setPlans\(p\)/);
+});
+
+test('D-b (point 21) : partenaire qui n est plus de type TPM → « non applicable », jamais en retard ni alerté ; TPM inactif → encore attendu', () => {
+  const e = require('../src/modules/tpm/reportExpectation');
+  const { lateReportAlerts } = require('../src/modules/dashboards/alertsMath');
+  const base = { visits: 2, docs: [], month: '2026-08', today: '2026-10' };
+  assert.equal(e.tpmStatus(base).status, 'en_retard');
+  assert.deepEqual(e.tpmStatus({ ...base, notTpm: true }), { status: 'non_applicable', expected: false, auto: true, reason: 'partner_not_tpm' });
+  // Un document réel l'emporte toujours.
+  assert.equal(e.tpmStatus({ ...base, notTpm: true, docs: [{ status: 'valide' }] }).status, 'valide');
+  const input = {
+    months: ['2026-08'], today: '2026-10', names: new Map([['sahy', 'SAHY'], ['ypa', 'YPA']]),
+    activity: [{ key: 'sahy', contractId: 'k1', month: '2026-08', planned: 0, realised: 1 }, { key: 'ypa', contractId: 'k2', month: '2026-08', planned: 0, realised: 1 }],
+  };
+  const out = e.expectedReports({ ...input, notTpm: new Set(['sahy']) });
+  const by = Object.fromEntries(out.rows.map((r) => [r.unit.providerId, [r.status, r.reason]]));
+  assert.deepEqual(by, { sahy: ['non_applicable', 'partner_not_tpm'], ypa: ['en_retard', 'echeance_depassee'] }, 'YPA (même inactif) reste attendu');
+  assert.deepEqual(lateReportAlerts(out).map((a) => a.params.provider), ['YPA'], 'aucune alerte pour un partenaire qui n est plus TPM');
+});
+
+test('D-b (point 21) : facture de mois PASSÉS d un TPM inactif acceptée (type seul) ; plan, gabarit, technique ou mois courant : TPM actif', () => {
+  const { inactiveTpmMayInvoice } = require('../src/modules/tpm/reportExpectation');
+  assert.equal(inactiveTpmMayInvoice({ kind: 'financier', periodMonth: '2026-08-01' }, '2026-10'), true);
+  assert.equal(inactiveTpmMayInvoice({ kind: 'financier', periodMonth: '2026-08-01', periodEnd: '2026-09-01' }, '2026-10'), true);
+  assert.equal(inactiveTpmMayInvoice({ kind: 'financier', periodMonth: '2026-09-01', periodEnd: '2026-10-01' }, '2026-10'), false, 'touche le mois courant');
+  assert.equal(inactiveTpmMayInvoice({ kind: 'financier', periodMonth: '2026-10-01' }, '2026-10'), false);
+  assert.equal(inactiveTpmMayInvoice({ kind: 'technique', periodMonth: '2026-08-01' }, '2026-10'), false);
+  assert.equal(inactiveTpmMayInvoice(null, '2026-10'), false);
 });

@@ -32,6 +32,7 @@ export function expectedKey(r) {
 export const EXPECTED_REASON = {
   aucune_visite: 'aucune visite planifiée ce mois',
   tpm_indisponible: 'TPM déclaré indisponible ce mois',
+  partner_not_tpm: 'ce partenaire n\'est plus un TPM',
   saisi_non_applicable: 'déclaré non applicable',
   a_remettre: 'à remettre au plus tard en {due}',
   echeance_depassee: 'échéance dépassée ({due})',
