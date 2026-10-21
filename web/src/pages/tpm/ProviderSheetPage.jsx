@@ -17,7 +17,7 @@ import { EXPECTED_STATUS } from '../../lib/reportExpectation.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import RoleBadge from '../../components/RoleBadge.jsx';
 import TpmUnavailabilityBadge from '../../components/TpmUnavailabilityBadge.jsx';
-import { unavailabilityOf } from '../../lib/tpmAttribution.js';
+import { internalReasonsHint, unavailabilityOf } from '../../lib/tpmAttribution.js';
 import useTpmUnavailability from '../../lib/useTpmUnavailability.js';
 import './partners.css';
 import ProviderContractsTab from './provider/ProviderContractsTab.jsx';
@@ -268,13 +268,14 @@ function Overview({ sheet, onTab, canEdit, onEdit, onOpenContract, onOpenPartner
               <span className="tabular">{tr('{r} réalisées sur {a} affectées ({p} %)', { r: v.realised, a: v.assigned, p: v.rate })}</span></>
           ) : <span className="muted">{tr(v.internal ? '— aucune visite affectée à un TPM ce mois' : '— aucune visite affectée ce mois')}</span>}
           {v.internal > 0 && (
-            <span className="muted" title={tr(ROLE_LABELS.noTpmHint)}>
+            <span className="muted" title={internalReasonsHint(tr, v.internalReasons)}>
               {tr('{n} visite(s) en suivi interne (équipe S&E) dans les zones de ses contrats · {r} réalisée(s)', { n: v.internal, r: v.internalRealised })}
             </span>
           )}
         </div>
         <table className="kv pv-kv"><tbody>
-          <tr><th>{tr('Visites réalisées (12 mois)')}</th><td className="tabular">{formatInt(v.realised12)}</td></tr>
+          <tr><th>{tr('Visites réalisées (12 mois)')}</th><td className="tabular">{formatInt(v.realised12)}
+            {v.internalRealised12 > 0 && <span className="muted"> · {tr('dont {n} en suivi interne', { n: formatInt(v.internalRealised12) })}</span>}</td></tr>
           <tr><th>{tr('Sites suivis (12 mois)')}</th><td className="tabular">{formatInt(v.sitesFollowed)}</td></tr>
           <tr><th>{tr('Formulaires reçus (12 mois)')}</th><td className="tabular">{formatInt(s.valid12)}</td></tr>
           <tr><th>{tr('Part écartée au nettoyage')}</th><td className="tabular">{s.excludedRate == null ? '—' : tr('{p} %', { p: s.excludedRate })}</td></tr>

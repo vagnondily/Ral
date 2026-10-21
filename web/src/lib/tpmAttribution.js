@@ -322,3 +322,42 @@ export function contractZoneFollowText(tr, follow, contractId) {
   if (others.length > ZONE_FOLLOW_LISTED) items.push(tr('+{n} autre(s)', { n: others.length - ZONE_FOLLOW_LISTED }));
   return [head, ...items].join(' · ');
 }
+
+/**
+ * Pourquoi les visites des zones d'un titulaire sont suivies en interne (fiche 360°, `internalReasons` :
+ * serveur partnerSheet.INTERNAL_REASONS) — jamais une phrase fixe : un contrat sans TPM, un TPM
+ * indisponible ou retiré avec un motif ; pour une visite réalisée, l'estampille figée au moment de la visite.
+ */
+export const INTERNAL_REASON_LABELS = {
+  sans_tpm: 'contrat sans TPM',
+  indisponible: 'TPM indisponible',
+  retire: 'TPM retiré avec motif',
+  sans_contrat: 'aucun contrat de suivi lors de la visite',
+  district_inconnu: 'district du site non reconnu lors de la visite',
+};
+
+/** Infobulle : « Suivi interne (équipe S&E) : contrat sans TPM (2) · TPM indisponible (1) » ; repli générique. */
+export function internalReasonsHint(tr, reasons) {
+  const parts = Object.keys(INTERNAL_REASON_LABELS).filter((k) => reasons && reasons[k] > 0)
+    .map((k) => tr('{why} ({n})', { why: tr(INTERNAL_REASON_LABELS[k]), n: reasons[k] }));
+  return parts.length ? tr('Suivi interne (équipe S&E) : {list}', { list: parts.join(' · ') }) : tr(INTERNAL_HINT);
+}
+
+/**
+ * Raisons écrites par le SYSTÈME au journal (serveur tpmAttribution.SYSTEM_LOG_REASONS) : le serveur
+ * envoie un code (`reasonKey`), l'écran le traduit — les lignes anciennes, en phrase française, sont
+ * reconnues par le serveur et arrivent avec le même code.
+ */
+export const SYSTEM_LOG_REASONS = {
+  partner_not_tpm: 'Le partenaire n\'est plus un TPM actif (type changé ou fiche désactivée) : visites prévues rendues à leur zone.',
+};
+/** Raison d'une ligne du journal à afficher : traduite pour le système, telle quelle pour une personne. */
+export function logReasonText(tr, l) {
+  if (l && l.reasonKey) return SYSTEM_LOG_REASONS[l.reasonKey] ? tr(SYSTEM_LOG_REASONS[l.reasonKey]) : null;
+  return (l && l.reason) || null;
+}
+/** Portée d'un lot « N visite(s) » (libellé écrit en français par le serveur) : traduite à l'affichage. */
+export function logLabelText(tr, l) {
+  const m = /^(\d+) visite\(s\)$/.exec(String((l && l.label) || ''));
+  return m ? tr('{n} visite(s)', { n: formatInt(Number(m[1])) }) : (l && l.label) || '';
+}

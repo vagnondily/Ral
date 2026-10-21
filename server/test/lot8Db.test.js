@@ -662,6 +662,7 @@ test('partenaire qui perd le rôle de TPM (type changé, fiche désactivée) : s
   const { currentMonth } = require('../src/modules/tpm/rbmMath');
   const { addMonths } = require('../src/modules/common/period');
   const { ROLE_LOST_REASON } = require('../src/modules/partners/partnerRole');
+  const attributionService = require('../src/modules/tpm/tpmAttribution.service');
   const m0 = currentMonth(); const prev = addMonths(m0, -1); const next = addMonths(m0, 1);
   const made = { partners: [], visits: [], reports: [] };
   const visit = async (partner, label, month, status = 'planifie') => {
@@ -691,7 +692,9 @@ test('partenaire qui perd le rôle de TPM (type changé, fiche désactivée) : s
                              FROM tpm_attribution_log WHERE tenant_id = $1 AND batch_id IN
                                (SELECT batch_id FROM tpm_attribution_log WHERE tenant_id = $1 AND visit_id = $2) ORDER BY scope`, [T, back]);
       assert.deepEqual(log.map((l) => [l.scope, l.action]), [['lot', 'visite_zone'], ['visite', 'visite_zone']], `${label} : un lot et une ligne`);
-      assert.equal(log[0].reason, ROLE_LOST_REASON);
+      assert.equal(log[0].reason, ROLE_LOST_REASON, 'un code stable, jamais une phrase figée');
+      const listed = await attributionService.listLog(T, { visitId: back });
+      assert.deepEqual(listed.items.map((l) => [l.reasonKey, l.reason]), [['partner_not_tpm', null]], `${label} : l'écran traduit la raison du système`);
       assert.equal(log[0].by, admin, `${label} : l'auteur du changement`);
       assert.equal(log[0].n, 1);
       assert.deepEqual([log[1].v, log[1].old], [back, X.id]);
@@ -705,6 +708,56 @@ test('partenaire qui perd le rôle de TPM (type changé, fiche désactivée) : s
     await q('DELETE FROM site_visits WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [T, made.visits]);
     await q('DELETE FROM tpm_reports WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [T, made.reports]);
     await q('DELETE FROM partners WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [T, made.partners]);
+  }
+});
+
+test('changement de rôle pendant la suppression d\'une de ses visites « visite » : la visite supprimée est sautée, les autres rendues à leur zone — jamais 500 (point C)', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const [{ id: admin }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND email = 'admin@mems.mg'", [T]);
+  const [tpm] = await q("SELECT id FROM partner_types WHERE tenant_id = $1 AND code = 'tpm'", [T]);
+  const [site] = await q('SELECT id FROM sites WHERE tenant_id = $1 ORDER BY id LIMIT 1', [T]);
+  const { currentMonth } = require('../src/modules/tpm/rbmMath');
+  const { addMonths } = require('../src/modules/common/period');
+  const partnersRepo = require('../src/modules/partners/partners.repository');
+  const { Client } = require('pg');
+  const month = addMonths(currentMonth(), 2); // aucune facture ce mois-là : les visites sont ré-estampillables
+  const made = { partner: null, visits: [] };
+  const other = new Client({ connectionString: SU_URL }); // l'écrivain qui supprime une visite en même temps
+  await other.connect();
+  try {
+    const [X] = await q('INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1, $2, $3) RETURNING id', [T, tpm.id, 'Test xb C — TPM']);
+    made.partner = X.id;
+    for (const i of [1, 2, 3]) {
+      const [v] = await q(`INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, provider_source, provider_id, provider_reason)
+        VALUES ($1, $2, $3::date, $4, 'planifie', 'visite', $5, 'Choix de visite — test xb C') RETURNING id`, [T, site.id, `${month}-01`, `Test xb C ${i}`, X.id]);
+      made.visits.push(v.id);
+    }
+    const ids = [...made.visits].sort();
+    // L'autre transaction supprime une des visites et la tient ; le changement de rôle l'attend, puis la saute.
+    await other.query('BEGIN');
+    await other.query('DELETE FROM site_visits WHERE id = $1', [ids[1]]);
+    const pending = partnersRepo.updatePartner(T, X.id, { active: false }, { actorId: admin }).then(() => ({ ok: true }), (err) => ({ err }));
+    let waited = false;
+    for (let k = 0; k < 200 && !waited; k += 1) {
+      const rows = await q(`SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
+                              AND query LIKE '%FOR UPDATE%' AND query LIKE '%site_visits%'`);
+      waited = rows.length > 0;
+      if (!waited) await new Promise((r) => setTimeout(r, 25));
+    }
+    assert.ok(waited, 'le changement de rôle attend la visite tenue par l\'autre écrivain');
+    await other.query('COMMIT');
+    const res = await pending;
+    assert.ok(res.ok, `aucune erreur (jamais 500) : ${res.err && `${res.err.statusCode || res.err.code} ${res.err.message}`}`);
+    const after = await q('SELECT id, provider_source AS src FROM site_visits WHERE id = ANY($1::uuid[]) ORDER BY id', [ids]);
+    assert.deepEqual(after.map((r) => [r.id, r.src]), [[ids[0], 'zone'], [ids[2], 'zone']], 'la supprimée a disparu, les deux autres suivent leur zone');
+    const [{ active }] = await q('SELECT active FROM partners WHERE id = $1', [X.id]);
+    assert.equal(active, false, 'la fiche est bien désactivée');
+  } finally {
+    await other.query('ROLLBACK').catch(() => {});
+    await other.end();
+    await q('DELETE FROM tpm_attribution_log WHERE tenant_id = $1 AND (visit_id = ANY($2::uuid[]) OR batch_id IN (SELECT batch_id FROM tpm_attribution_log WHERE tenant_id = $1 AND visit_id = ANY($2::uuid[])))', [T, made.visits]);
+    await q('DELETE FROM site_visits WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [T, made.visits]);
+    if (made.partner) await q('DELETE FROM partners WHERE tenant_id = $1 AND id = $2', [T, made.partner]);
   }
 });
 
@@ -747,8 +800,16 @@ test('fiche 360° d\'un titulaire : les visites suivies en interne de ses zones 
   const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
   const [{ id: admin }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND email = 'admin@mems.mg'", [T]);
   const types = Object.fromEntries((await q("SELECT code, id FROM partner_types WHERE tenant_id = $1 AND code IN ('tpm', 'prestataire')", [T])).map((r) => [r.code, r.id]));
-  const [{ m }] = await q("SELECT to_char(current_date, 'YYYY-MM') AS m"); // le mois de la fiche
-  const sites = await q('SELECT id, zone_district_id AS d FROM sites WHERE tenant_id = $1 AND zone_district_id IS NOT NULL ORDER BY id LIMIT 400', [T]);
+  // Le mois de la fiche : le jour LOCAL de l'application (common/localDay), comme les tests voisins — jamais
+  // la date UTC de la base, qui garde un mois de retard de 21 h à minuit UTC le dernier jour du mois.
+  const m = new Intl.DateTimeFormat('en-CA', { timeZone: process.env.APP_TIMEZONE || 'Indian/Antananarivo' }).format(new Date()).slice(0, 7);
+  // Un district SANS AUCUNE visite ce mois-ci : les chiffres de la fiche ne comptent alors que les visites du
+  // test, quel que soit l'ordre des identifiants tirés au hasard par le seed (seed.js a une visite interne
+  // réalisée à Tsihombe ce mois-ci : vérification croisée, point L).
+  const sites = await q(`SELECT id, zone_district_id AS d FROM sites x WHERE tenant_id = $1 AND zone_district_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM site_visits v JOIN sites s2 ON s2.tenant_id = v.tenant_id AND s2.id = v.site_id
+                       WHERE v.tenant_id = $1 AND s2.zone_district_id = x.zone_district_id AND v.period_month = $2::date)
+    ORDER BY id LIMIT 400`, [T, `${m}-01`]);
   const cells = await q('SELECT c_site_id AS s, c_area_id AS a, c_state AS st FROM mems_tpm_cells($1, $2::uuid[], $3::date[])',
     [T, sites.map((x) => x.id), sites.map(() => `${m}-01`)]);
   const site = sites.find((x) => cells.some((c) => c.s === x.id && c.st === 'sans_contrat' && c.a === x.d));
@@ -773,21 +834,31 @@ test('fiche 360° d\'un titulaire : les visites suivies en interne de ses zones 
       await q("INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status) VALUES ($1, $2, $3::date, $4, $5)", [T, site.id, `${m}-01`, `Test xb #8 ${i}`, status]);
     }
     const visits = async () => (await service.sheet(T, H.id)).facts.visits;
-    // 1. Contrat sans TPM : visites internes (sans_tpm), comptées à part.
+    const followed = async () => service.followups(T, H.id, { from: m, to: m }, m);
+    // 1. Contrat sans TPM : visites internes (sans_tpm), comptées à part — fiche, 12 mois et onglet Suivis.
     let v = await visits();
     assert.deepEqual([v.assigned, v.internal, v.internalRealised], [0, 3, 1], 'sans TPM : 3 en suivi interne, dont 1 réalisée');
+    assert.deepEqual(v.internalReasons, { sans_tpm: 3 }, 'raison : contrat sans TPM');
+    assert.deepEqual([v.realised12, v.internalRealised12, v.sitesFollowed], [1, 1, 1], '12 mois : la réalisée interne comptée, dont 1 en interne');
+    let f = await followed();
+    assert.deepEqual([f.visits, f.internal], [[], [{ month: m, planned: 2, realised: 1, sites: 1 }]], 'onglet Suivis : la série interne à part');
     // 2. Un TPM rattaché (facture) : visites du TPM, sur le contrat — affectées, plus internes.
     const [r] = await q(`INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, kind, status, reported_amount, created_by)
        VALUES ($1, $2, $3, $4::date, 'financier', 'attendu', 0, $5) RETURNING id`, [T, X.id, K.id, `${m}-01`, admin]);
     made.report = r.id;
     await restamp();
     v = await visits();
-    assert.deepEqual([v.internal, v.assigned], [0, 2], 'TPM rattaché : visites de zone affectées (la réalisée garde son estampille)');
+    // La réalisée garde son estampille (interne, sans TPM) : elle reste comptée en interne (point A).
+    assert.deepEqual([v.assigned, v.internal, v.internalRealised], [2, 1, 1], 'TPM rattaché : prévues affectées, la réalisée reste interne');
+    assert.deepEqual(v.internalReasons, { sans_tpm: 1 }, 'raison figée de la réalisée');
+    f = await followed();
+    assert.deepEqual(f.internal, [{ month: m, planned: 0, realised: 1, sites: 1 }], 'onglet Suivis : la réalisée interne reste');
     // 3. Ce TPM déclaré indisponible ce mois : ses zones repassent en interne.
     await q("INSERT INTO tpm_unavailability (tenant_id, provider_id, period_month, reason, batch_id) VALUES ($1, $2, $3::date, 'Indisponible — test xb #8', gen_random_uuid())", [T, X.id, `${m}-01`]);
     await restamp();
     v = await visits();
     assert.deepEqual([v.assigned, v.internal, v.internalRealised], [0, 3, 1], 'TPM indisponible : les zones repassent en interne, comptées à part');
+    assert.deepEqual(v.internalReasons, { indisponible: 2, sans_tpm: 1 }, 'raisons : TPM indisponible (prévues), contrat sans TPM (réalisée)');
   } finally {
     await q("DELETE FROM site_visits WHERE tenant_id = $1 AND activity LIKE 'Test xb #8 %'", [T]);
     await q('DELETE FROM tpm_unavailability WHERE tenant_id = $1 AND provider_id = ANY($2::uuid[])', [T, made.partners]);

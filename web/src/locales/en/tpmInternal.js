@@ -145,4 +145,17 @@ export default {
   'Ce TPM est inactif : sa facture ne peut porter que sur des mois passés.': 'This TPM is inactive: its invoice can only cover past months.',
   'Ce TPM est inactif : la facture ne peut être soumise que si toute sa période précède le mois courant.': 'This TPM is inactive: the invoice can only be submitted if its whole period is before the current month.',
   'Ce TPM est déclaré indisponible en {m} : aucun plan de collecte ne peut lui être confié ce mois-là. Choisissez un autre TPM.': 'This TPM is declared unavailable in {m}: no collection plan can be assigned to it that month. Choose another TPM.',
+  // Vérification croisée, points A, B et E : suivi interne d'un titulaire, raisons, raisons du système au journal
+  'TPM retiré avec motif': 'TPM removed with a reason',
+  'aucun contrat de suivi lors de la visite': 'no monitoring contract at the time of the visit',
+  'district du site non reconnu lors de la visite': 'site district not recognised at the time of the visit',
+  '{why} ({n})': '{why} ({n})',
+  'Suivi interne (équipe S&E) : {list}': 'Internal monitoring (M&E team): {list}',
+  'dont {n} en suivi interne': 'of which {n} monitored internally',
+  '{n} · {r} réalisée(s)': '{n} · {r} done',
+  'En suivi interne (équipe S&E)': 'Monitored internally (M&E team)',
+  '« En suivi interne » : visites des zones de ses contrats suivies par l\'équipe S&E (contrat sans TPM, TPM indisponible ou retiré avec motif), comptées à part des visites des TPM.':
+    '“Monitored internally”: visits in the areas of its contracts monitored by the M&E team (contract without a TPM, TPM unavailable or removed with a reason), counted separately from the TPMs’ visits.',
+  'Le partenaire n\'est plus un TPM actif (type changé ou fiche désactivée) : visites prévues rendues à leur zone.':
+    'The partner is no longer an active TPM (type changed or profile deactivated): planned visits returned to their area.',
 };
