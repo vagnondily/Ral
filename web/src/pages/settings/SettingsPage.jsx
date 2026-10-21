@@ -8,7 +8,7 @@ import { useToast } from '../../components/Toast.jsx';
 import MmrSection from './MmrSection.jsx';
 import LocalitiesSection from './LocalitiesSection.jsx';
 import { formatAr, formatInt, formatDateTime } from '../../lib/format.js';
-import { OFFICE_LEVELS, levelLabel, levelIsNational } from '../../lib/officeLevels.js';
+import { OFFICE_LEVELS, levelLabel, levelShort, levelIsNational } from '../../lib/officeLevels.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { roleOf } from '../../lib/roles.js';
 import RoleBadge from '../../components/RoleBadge.jsx';
@@ -315,7 +315,7 @@ function BureauxSection({ isAdmin }) {
             <tbody>
               {offices.map((o) => (
                 <tr key={o.id}>
-                  <td><strong>{o.name}</strong>{o.parentName && <div className="site-meta">{tr('antenne de {name}', { name: o.parentName })}</div>}{o.responsible && <div className="site-meta">{o.responsible}</div>}</td>
+                  <td><strong>{o.name}</strong>{o.parentName && <div className="site-meta">{tr('{level} de {name}', { level: tr(levelShort(o.level) || 'Antenne'), name: o.parentName })}</div>}{o.responsible && <div className="site-meta">{o.responsible}</div>}</td>
                   <td><span className="mono">{o.code}</span></td>
                   <td><Badge tone={levelIsNational(o.level) || o.nature === 'pays' ? 'blue' : null}>{levelLabel(o.level) ? tr(levelLabel(o.level)) : (o.nature === 'pays' ? tr('bureau pays') : tr('terrain'))}</Badge></td>
                   <td>{o.national ? <Badge tone="green">{tr('national — tous les sites')}</Badge> : <span className="tag">{tr('{n} commune(s)', { n: o.communeCount })}</span>}</td>
@@ -417,9 +417,9 @@ function OfficeModal({ office, offices, communes, onClose, onSaved }) {
               {OFFICE_LEVELS.map((l) => <option key={l.code} value={l.code}>{tr(l.label)}</option>)}
             </select>
           </Field>
-          <Field label={tr('Antenne de (optionnel)')}>
+          <Field label={tr('Rattaché à (bureau supérieur, optionnel)')} hint={tr('Le bureau dont celui-ci dépend (ex. une Antenne rattachée à un Sous-bureau).')}>
             <select className="select" value={form.parentId} onChange={(e) => setForm({ ...form, parentId: e.target.value })}>
-              <option value="">{tr('— Bureau principal —')}</option>
+              <option value="">{tr('— Aucun (bureau de plus haut niveau) —')}</option>
               {offices.filter((o) => !office || o.id !== office.id).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select>
           </Field>

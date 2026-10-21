@@ -12,6 +12,34 @@ arrière-plan — construite pour être le socle sur lequel les 11 autres
 modules viendront s'ajouter, module par module, sans jamais remettre en
 cause l'architecture ni la fiabilité de celui-ci.
 
+## Stack technique (langages, frameworks, versions)
+
+En un coup d'œil, de quoi l'application est faite.
+
+| Couche | Technologie | Version | Rôle |
+|---|---|---|---|
+| Langage | **JavaScript (Node.js)** | Node ≥ 20 | Backend et frontend, un seul langage |
+| Backend — serveur HTTP | **Express** | 4.19 | API REST (`routes → controller → service → repository`) |
+| Backend — base de données | **PostgreSQL** + **pg** | pg 8.12 | Base relationnelle, multitenant avec Row-Level Security |
+| Backend — file de tâches | **BullMQ** + **ioredis** (Redis) | BullMQ 5.12 | Worker en arrière-plan (recalcul des dépenses), outbox |
+| Backend — validation | **zod** | 3.23 | Validation des entrées à la frontière (routes) |
+| Backend — authentification | **jsonwebtoken** + **bcryptjs** | jwt 9.0 | JWT (jeton 8 h) ; mots de passe hachés bcrypt |
+| Backend — sécurité HTTP | **helmet**, **cors** | 7.1 / 2.8 | En-têtes de sécurité, CORS |
+| Backend — Excel / imports | **exceljs**, **adm-zip**, **dbffile** | exceljs 4.4 | Lecture/écriture `.xlsx`, `.zip`, shapefiles `.dbf` |
+| Backend — logs | **pino** / **pino-http** | 9.3 | Journaux structurés |
+| Frontend — framework | **React** | 18.3 | SPA, routage par hash |
+| Frontend — build | **Vite** | 5.4 | Bundler et serveur de dev (:5173) |
+| Frontend — icônes | **lucide-react** | 1.47 | Jeu d'icônes |
+| Frontend — cartographie | **leaflet** | 1.9 | Carte (points, contours de districts) |
+| Frontend — polices | **@fontsource** (Inter, IBM Plex) | 5.3 | Polices empaquetées, sans CDN |
+| Tests | **node:test** (natif) + **supertest** | — | 1 560+ tests unitaires sur la logique métier pure ; tests de routes |
+| Lint | **ESLint** (flat config) | 9.39 | `server/` uniquement (voir `server/eslint.config.js`) |
+
+**Ce qui n'est PAS utilisé (volontairement)** : pas de TypeScript (JSDoc + zod à la
+place), pas d'ORM (SQL écrit à la main dans la couche repository), pas de framework
+CSS (design system maison dans `web/src/styles.css`), pas de CDN (tout empaqueté).
+**Détails** : architecture ci-dessous, et `CLAUDE.md` pour les règles du projet.
+
 ## Pourquoi cette architecture (fiabilité et maintenabilité d'abord)
 
 C'est la priorité explicitement demandée pour cette application « niveau
