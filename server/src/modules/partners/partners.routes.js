@@ -19,7 +19,8 @@ router.use(requireAuth);
 const WRITE = requireRole('admin', 'manager');
 const canWrite = (req) => ['admin', 'manager'].includes(req.auth.role);
 const t = (req) => req.auth.tenantId;
-const currentMonth = () => new Date().toISOString().slice(0, 7);
+// Mois courant par défaut : l'horloge unique du serveur (jour local, comme le plan, le RBM et les rapports attendus).
+const { currentMonth } = require('../tpm/rbmMath');
 
 const uuid = z.string().uuid();
 function ids(...names) {

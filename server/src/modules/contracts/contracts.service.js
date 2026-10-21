@@ -1,4 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
+const { localDay } = require('../common/localDay');
 const logger = require('../../config/logger');
 const { badRequest, conflict, forbidden, notFound } = require('../../middleware/errors');
 const { nudgeOutbox } = require('../../jobs/outbox');
@@ -30,11 +31,11 @@ const restampFromNow = (client, tenantId) => restampVisitsTx(client, tenantId, {
  * Every operation is one transaction: state change + history + event.
  */
 
-const TIMEZONE = process.env.APP_TIMEZONE || 'Indian/Antananarivo';
 const WRITE_ROLES = ['admin', 'manager'];
 
+/** Jour local « AAAA-MM-JJ » : l'horloge unique du serveur (common/localDay, repli UTC si le fuseau est invalide). */
 function today() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE }).format(new Date());
+  return localDay();
 }
 function canWrite(actor) { return WRITE_ROLES.includes(actor.role); }
 function assertCanWrite(actor) { if (!canWrite(actor)) throw forbidden('Votre rôle ne permet pas de modifier les contrats.'); }

@@ -6,7 +6,9 @@
  * contracts.service.restampFromNow) — jamais les visites réalisées, annulées, figées ou facturées
  * (filtre AUTO_RESTAMPABLE_SQL de restampVisitsTx).
  */
-const TIMEZONE = process.env.APP_TIMEZONE || 'Indian/Antananarivo';
+// Mois courant : l'horloge unique du serveur (rbmMath.currentMonth = common/localDay, fuseau de
+// l'application, repli UTC si APP_TIMEZONE est invalide — jamais une exception).
+const { currentMonth } = require('../tpm/rbmMath');
 
 /** Identifiant de type comparable : un UUID ne dépend pas de la casse (zod `.uuid()` accepte les majuscules). */
 const typeKey = (id) => String(id ?? '').toLowerCase();
@@ -16,8 +18,6 @@ function roleChanged(before, after) {
   if (!before || !after) return false;
   return typeKey(before.partnerTypeId) !== typeKey(after.partnerTypeId) || Boolean(before.active) !== Boolean(after.active);
 }
-
-const currentMonth = () => new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE }).format(new Date()).slice(0, 7);
 
 /** Réestampille les visites prévues dès le mois courant quand le rôle a changé (même transaction). */
 async function restampIfRoleChangedTx(client, tenantId, before, after) {
