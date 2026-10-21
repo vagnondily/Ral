@@ -430,15 +430,148 @@ test('approbation d\'un avenant (contrat verrouillé FOR NO KEY UPDATE, puis ré
   }
 });
 
-test('colonnes de clé (index uniques non partiels — ce qui fait prendre FOR UPDATE à un UPDATE) : contrats et partenaires', { skip: SKIP }, async () => {
+test('colonnes de clé (index uniques sans prédicat ni expression, DEFERRABLE compris — la règle de Postgres pour FOR UPDATE) : contrats et partenaires', { skip: SKIP }, async () => {
   const keyColumns = async (table) => (await q(`SELECT DISTINCT a.attname AS col FROM pg_index i
       JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-     WHERE i.indrelid = $1::regclass AND i.indisunique AND i.indimmediate AND i.indpred IS NULL ORDER BY 1`, [table])).map((r) => r.col);
+     WHERE i.indrelid = $1::regclass AND i.indisunique AND i.indpred IS NULL AND i.indexprs IS NULL ORDER BY 1`, [table])).map((r) => r.col);
+  // Auto-contrôle de la requête sur une table temporaire : un UNIQUE DEFERRABLE compte, un index
+  // unique partiel ou sur expression non (même règle que Postgres).
+  await q('CREATE TEMP TABLE zz_lot8_keys (id int PRIMARY KEY, code text, code2 text, code3 text, CONSTRAINT zz_lot8_code UNIQUE (code) DEFERRABLE INITIALLY IMMEDIATE)');
+  try {
+    await q('CREATE UNIQUE INDEX ON zz_lot8_keys (lower(code2))');
+    await q('CREATE UNIQUE INDEX ON zz_lot8_keys (code3) WHERE code3 IS NOT NULL');
+    assert.deepEqual(await keyColumns('zz_lot8_keys'), ['code', 'id']);
+  } finally { await q('DROP TABLE zz_lot8_keys'); }
   const contractsRepo = require('../src/modules/contracts/contracts.repository');
   assert.deepEqual(await keyColumns('contracts'), [...contractsRepo.CONTRACT_KEY_COLUMNS].sort(), 'CONTRACT_KEY_COLUMNS = les colonnes de clé de contracts');
   assert.deepEqual(Object.values(contractsRepo.CONTRACT_UPDATE_COLUMNS).filter((c) => contractsRepo.CONTRACT_KEY_COLUMNS.includes(c)), []);
   // partners : seule `name` est modifiable parmi ses clés — listée seulement si elle change (partnerRole.nameChanges).
   assert.deepEqual(await keyColumns('partners'), ['id', 'name', 'tenant_id']);
+});
+
+// ---- Suppression d'un contrat : données reliées vues, rien de supprimé en silence, estampille à jour ----
+async function deletionFixture(label, { status = 'actif', months = 1 } = {}) {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const [{ id: admin }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND email = 'admin@mems.mg'", [T]);
+  const [{ id: other }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND email <> 'admin@mems.mg' ORDER BY email LIMIT 1", [T]);
+  const [tpm] = await q("SELECT id FROM partner_types WHERE tenant_id = $1 AND code = 'tpm'", [T]);
+  const [P] = await q('INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1, $2, $3) RETURNING id, name', [T, tpm.id, `Test lot 8 — TPM (${label})`]);
+  const [K] = await q(`INSERT INTO contracts (tenant_id, numero, partner_id, partner_name, date_debut, date_fin, status, created_by)
+     VALUES ($1, $2, $3, $4, '2031-01-01'::date, ('2031-01-01'::date + make_interval(months => $5::int))::date - 1, $6, $7) RETURNING id`,
+  [T, `TEST-LOT8-SUPPR-${label}`, P.id, P.name, months, status, admin]);
+  const reports = require('../src/modules/tpm/reports.repository');
+  await reports.generateMonthlyStubs(T, { contractId: K.id, partnerId: P.id, createdBy: admin });
+  const stubs = (await q('SELECT id FROM tpm_reports WHERE tenant_id = $1 AND contract_id = $2 ORDER BY period_month', [T, K.id])).map((r) => r.id);
+  const cleanup = async () => {
+    await q('DELETE FROM contracts WHERE tenant_id = $1 AND id = $2', [T, K.id]); // rapports et postes par cascade
+    await q('DELETE FROM document_deletions WHERE tenant_id = $1 AND doc_id = $2', [T, K.id]);
+    await q('DELETE FROM partners WHERE tenant_id = $1 AND id = $2', [T, P.id]);
+  };
+  return { T, admin, other, P, K, stubs, reports, cleanup };
+}
+const JUSTIFICATION = 'Contrat saisi par erreur — test du lot 8.';
+const settled = (p) => p.then((ok) => ({ ok }), (err) => ({ err }));
+
+test('suppression d\'un contrat pendant qu\'on remplit un de ses gabarits : refus 409, la facture et ses postes restent (rapports verrouillés avant le décompte)', { skip: SKIP }, async () => {
+  const f = await deletionFixture('course');
+  const contracts = require('../src/modules/contracts/contracts.service');
+  const { Client } = require('pg');
+  const timing = new Client({ connectionString: SU_URL }); // ne fait que fixer l'ordre : tient la ligne du gabarit
+  await timing.connect();
+  const waiters = async () => (await q(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database()
+                                          AND wait_event_type = 'Lock' AND pid NOT IN ($1, pg_backend_pid())`, [timing.processID]))[0].n;
+  const until = async (n) => { for (let i = 0; i < 200; i += 1) { if (await waiters() >= n) return true; await new Promise((r) => setTimeout(r, 50)); } return false; };
+  try {
+    assert.equal(f.stubs.length, 1);
+    await timing.query('BEGIN');
+    await timing.query('SELECT id FROM tpm_reports WHERE id = $1 FOR UPDATE', [f.stubs[0]]);
+    const fill = settled(f.reports.replaceReportItems(f.T, f.stubs[0],
+      [{ lineCode: 'IV.suivi', designation: 'Collecte terrain', unitCount: 1, unitCost: 250000 }], { userId: f.other }));
+    assert.ok(await until(1), 'le remplissage attend la ligne du gabarit');
+    const del = settled(contracts.deleteDraft(f.T, { userId: f.admin, role: 'admin' }, f.K.id, { justification: JUSTIFICATION }));
+    assert.ok(await until(2), 'la suppression attend aussi');
+    await timing.query('ROLLBACK');
+    const [filled, deleted] = [await fill, await del];
+    assert.equal(filled.ok, f.stubs[0], 'gabarit rempli');
+    assert.equal(deleted.err && deleted.err.statusCode, 409, `suppression refusée : ${deleted.err ? deleted.err.message : 'acceptée'}`);
+    const [r] = await q(`SELECT r.reported_amount::float8 AS amount, (SELECT count(*)::int FROM contract_report_items i WHERE i.report_id = r.id) AS items
+                           FROM tpm_reports r WHERE r.id = $1`, [f.stubs[0]]);
+    assert.deepEqual(r, { amount: 250000, items: 1 }, 'la facture et son poste restent');
+    assert.equal((await q('SELECT count(*)::int AS n FROM document_deletions WHERE doc_id = $1', [f.K.id]))[0].n, 0, 'rien de journalisé');
+  } finally {
+    await timing.query('ROLLBACK').catch(() => {});
+    await timing.end();
+    await f.cleanup();
+  }
+});
+
+test('suppression d\'un contrat : une facture brouillon à la charge de l\'ONG (montant bailleur 0) est une donnée reliée ; un gabarit vierge ou « non applicable » non', { skip: SKIP }, async () => {
+  const f = await deletionFixture('ong', { status: 'brouillon', months: 3 });
+  const contracts = require('../src/modules/contracts/contracts.service');
+  const actor = { userId: f.admin, role: 'admin' };
+  try {
+    assert.equal(f.stubs.length, 3);
+    await f.reports.replaceReportItems(f.T, f.stubs[0],
+      [{ lineCode: 'I.salaires_mt', designation: 'Salaire enquêteur (ONG)', unitCount: 3, unitCost: 150000, payBy: 'ong', bailleurPct: 0 }], { userId: f.other });
+    const [ong] = await q('SELECT reported_amount::float8 AS a, status FROM tpm_reports WHERE id = $1', [f.stubs[0]]);
+    assert.deepEqual(ong, { a: 0, status: 'attendu' }, 'facture ONG : montant bailleur 0, toujours « attendu »');
+    await assert.rejects(contracts.deleteDraft(f.T, actor, f.K.id, {}), (e) => e.statusCode === 409 && /1 rapport/.test(e.message));
+    await q('DELETE FROM tpm_reports WHERE id = $1', [f.stubs[0]]);
+    // Restent un « non applicable » (avec son motif) et un gabarit vierge : ils ne retiennent pas la
+    // suppression (règle documentée de contractLinks) et partent avec le contrat.
+    assert.equal((await f.reports.markNotApplicable(f.T, f.stubs[1], f.other, 'Aucun suivi ce mois')).ok, true);
+    await contracts.deleteDraft(f.T, actor, f.K.id, {});
+    assert.equal((await q('SELECT count(*)::int AS n FROM tpm_reports WHERE id = ANY($1::uuid[])', [f.stubs.slice(1)]))[0].n, 0);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('suppression d\'un contrat ACTIF : les visites prévues de ses zones sont réestampillées après le COMMIT (plus de « à arbitrer » périmé) ; un échec de cette étape ne fait pas échouer la suppression', { skip: SKIP }, async () => {
+  const [{ id: T }] = await q("SELECT id FROM tenants WHERE name = 'Bureau de Toliara' ORDER BY created_at LIMIT 1");
+  const [{ id: admin }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND email = 'admin@mems.mg'", [T]);
+  const [tpm] = await q("SELECT id FROM partner_types WHERE tenant_id = $1 AND code = 'tpm'", [T]);
+  const month = new Intl.DateTimeFormat('en-CA', { timeZone: process.env.APP_TIMEZONE || 'Indian/Antananarivo' }).format(new Date()).slice(0, 7);
+  const sites = await q('SELECT id, zone_district_id AS d FROM sites WHERE tenant_id = $1 AND zone_district_id IS NOT NULL ORDER BY id LIMIT 400', [T]);
+  const cellsOf = async (ids) => q('SELECT c_site_id AS s, c_area_id AS a, c_state AS st, c_provider_id AS p, c_contract_id AS c FROM mems_tpm_cells($1, $2::uuid[], $3::date[])',
+    [T, ids, ids.map(() => `${month}-01`)]);
+  const cells = await cellsOf(sites.map((x) => x.id));
+  const site = sites.find((x) => cells.some((c) => c.s === x.id && c.st === 'sans_contrat' && c.a === x.d));
+  assert.ok(site, 'un site d\'un district sans contrat de suivi');
+  const [area] = await q('SELECT path FROM admin_areas WHERE id = $1', [site.d]);
+  const contracts = require('../src/modules/contracts/contracts.service');
+  const made = { partners: [], contracts: [] };
+  try {
+    // K (début plus ancien, TPM H1) et L (plus récent, TPM H2) couvrent le district : la visite est « à arbitrer », sur L.
+    for (const [label, start] of [['K', `${month}-01`], ['L', `${month}-02`]]) {
+      const [H] = await q('INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1, $2, $3) RETURNING id, name', [T, tpm.id, `Test lot 8 — TPM ${label} (suppression)`]);
+      made.partners.push(H.id);
+      const [C] = await q(`INSERT INTO contracts (tenant_id, numero, partner_id, partner_name, date_debut, date_fin, status, created_by)
+         VALUES ($1, $2, $3, $4, $5::date, ($5::date + interval '3 month')::date, 'actif', $6) RETURNING id`, [T, `TEST-LOT8-ARB-${label}`, H.id, H.name, start, admin]);
+      made.contracts.push(C.id);
+      await q(`INSERT INTO contract_budget_items (contract_id, tenant_id, line_code, description, unit_count, unit_cost, allocations, sort_order)
+               VALUES ($1, $2, 'IV.suivi', 'Test lot 8', 1, 1000, '{}'::jsonb, 0)`, [C.id, T]);
+      await q('INSERT INTO contract_areas (contract_id, tenant_id, admin_area_id, path, depth, sort_order) VALUES ($1, $2, $3, $4, 2, 0)', [C.id, T, site.d, area.path]);
+    }
+    const [K, L] = made.contracts;
+    const [v] = await q(`INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status)
+                         VALUES ($1, $2, $3::date, 'Test lot 8 suppression', 'planifie') RETURNING id`, [T, site.id, `${month}-01`]);
+    made.visit = v.id;
+    const visit = async () => (await q('SELECT provider_zone_state AS st, provider_id AS p, contract_id AS c FROM site_visits WHERE id = $1', [v.id]))[0];
+    assert.deepEqual(await visit(), { st: 'a_arbitrer', p: made.partners[1], c: L }, 'avant : deux contrats, L retenu');
+    await contracts.deleteDraft(T, { userId: admin, role: 'admin' }, K, { justification: JUSTIFICATION });
+    made.contracts.shift();
+    const [cell] = await cellsOf([site.id]);
+    assert.deepEqual(await visit(), { st: 'contrat', p: made.partners[1], c: L }, 'après : un seul contrat, L');
+    assert.deepEqual({ st: cell.st, p: cell.p, c: cell.c }, { st: 'contrat', p: made.partners[1], c: L }, 'même chose que mems_tpm_cells');
+    // Étape d'après COMMIT en échec (compte illisible) : journalisée, jamais renvoyée.
+    assert.equal(await contracts.restampAfterContractDelete('pas-un-uuid', K), false);
+  } finally {
+    if (made.visit) await q('DELETE FROM site_visits WHERE id = $1', [made.visit]);
+    for (const c of made.contracts) await q('DELETE FROM contracts WHERE tenant_id = $1 AND id = $2', [T, c]);
+    await q("DELETE FROM document_deletions WHERE tenant_id = $1 AND doc_ref LIKE 'Contrat TEST-LOT8-ARB-%'", [T]);
+    for (const p of made.partners) await q('DELETE FROM partners WHERE tenant_id = $1 AND id = $2', [T, p]);
+  }
 });
 
 test('roleForUpdateTx en base : renommage seul sans verrou d\'attribution ; rôle changé entre la lecture et le verrou → ligne rendue, verrou d\'attribution, ligne reprise', { skip: SKIP }, async () => {
