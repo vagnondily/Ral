@@ -2,13 +2,17 @@ const { withTenantTransaction } = require('../../config/db');
 const { badRequest, conflict, notFound } = require('../../middleware/errors');
 const { MONITORING_LINE } = require('../contracts/budgetCatalog');
 const { REALISED_STATUS, PENDING_STATUS } = require('../tpm/realised');
-const { shapeTimeline } = require('./partnerSheet');
+const { shapeTimeline, holderInternalVisits } = require('./partnerSheet');
 const places = require('../settings/placeMatch.repository');
 const { providerLinksTx, contractTpmViewsTx } = require('../tpm/activeProvider.repository');
 const { monthWithin } = require('../common/periodSql');
 const { followedSql, timelineTrainingSql, heldSql } = require('../trainings/trainingSql');
 const { roleForUpdateTx, restampIfRoleChangedTx, nameChanges, roleAfter } = require('./partnerRole');
 const { stubNotApplicableSql } = require('../tpm/reportExpectationSql');
+const { contractCoversMonthSql } = require('../tpm/activeProviderSql');
+
+/** Mois de la liste des partenaires : celui de sa colonne « today » (current_date), comme son statut selon contrat. */
+const THIS_MONTH_SQL = "date_trunc('month', current_date)";
 
 /**
  * Fiche partenaire 360° et équipe — seul fichier du module qui écrit du SQL.
@@ -69,6 +73,7 @@ async function sheet(tenantId, id) {
               (${TRAININGS_COUNT_SQL})::int AS trainings,
               (SELECT count(*) FROM tpm_provider_evaluations e WHERE e.tenant_id = $1 AND e.partner_id = $2)::int AS evaluations`,
       [tenantId, id]);
+    Object.assign(counts, await holderInternalVisitsTx(client, tenantId, id, counts.month)); // retour 114 : suivi interne
     // Un gabarit « attendu » sans visite planifiée : « non applicable » d'office (retour 114, même règle que la
     // carte « Rapports attendus » : tpm/reportExpectationSql) — jamais compté parmi les rapports attendus.
     const { rows: reports } = await client.query(
@@ -100,6 +105,39 @@ async function sheet(tenantId, id) {
 }
 
 /**
+ * Visites SUIVIES EN INTERNE du mois `month` (« AAAA-MM ») dans les zones des contrats que le partenaire
+ * TIENT (retour 114 : contrat sans TPM, ou TPM indisponible). visitOf ne les voit jamais : une visite
+ * interne ne porte ni TPM ni contract_id (CHECK site_visits_contract_derived_ck). Les zones des contrats
+ * pré-filtrent (visites de zone, internes, non annulées) ; la règle d'attribution (tableForSitesTx +
+ * cellForSite, comme l'estampille) décide si la cellule nomme un de ces contrats.
+ * @returns {Promise<{ visitsInternal: number, visitsInternalRealised: number }>}
+ */
+async function holderInternalVisitsTx(client, tenantId, partnerId, month) {
+  const none = { visitsInternal: 0, visitsInternalRealised: 0 };
+  if (!/^\d{4}-\d{2}$/.test(String(month || ''))) return none;
+  const { rows: held } = await client.query(
+    "SELECT id FROM contracts WHERE tenant_id = $1 AND partner_id = $2 AND status IN ('actif', 'resilie')", [tenantId, partnerId]);
+  if (!held.length) return none;
+  const { rows: visits } = await client.query(
+    `SELECT v.status, s.id, s.zone_district_id AS "districtId", s.zone_commune_id AS "communeId"
+       FROM site_visits v JOIN sites s ON s.tenant_id = v.tenant_id AND s.id = v.site_id
+       LEFT JOIN admin_areas da ON da.tenant_id = s.tenant_id AND da.id = s.zone_district_id
+       LEFT JOIN admin_areas ca ON ca.tenant_id = s.tenant_id AND ca.id = s.zone_commune_id
+      WHERE v.tenant_id = $1 AND v.period_month = $3::date AND v.monitored_by = 'interne' AND v.provider_source = 'zone'
+        AND v.status <> 'annule'
+        AND EXISTS (SELECT 1 FROM contract_areas z
+                     WHERE z.tenant_id = $1 AND z.contract_id = ANY ($2::uuid[])
+                       AND (z.admin_area_id IN (s.zone_district_id, s.zone_commune_id)
+                            OR z.admin_area_id = ANY (COALESCE(da.lineage, '{}')) OR z.admin_area_id = ANY (COALESCE(ca.lineage, '{}'))))`,
+    [tenantId, held.map((h) => h.id), `${month}-01`]);
+  if (!visits.length) return none;
+  const attribution = require('../tpm/tpmAttribution.repository');
+  const { cellForSite } = require('../tpm/tpmAttribution');
+  const { table } = await attribution.tableForSitesTx(client, tenantId, { zones: visits, months: [month] });
+  return holderInternalVisits(visits.map((v) => ({ status: v.status, cell: cellForSite(v, month, table) })), held.map((h) => h.id));
+}
+
+/**
  * Liste des partenaires (Prestataires TPM, lot 8) : compteurs agrégés en SQL par partenaire
  * (agents actifs, visites réalisées et formulaires reçus sur 12 mois, rapports à valider,
  * dernière note validée) et liens de contrats pour le statut « actif selon contrat ».
@@ -118,7 +156,7 @@ async function providersList(tenantId) {
               ev.final_score::float8 AS "lastScore", ev.band AS "lastBand", to_char(ev.period_to, 'YYYY-MM') AS "lastScoreTo",
               (SELECT count(DISTINCT COALESCE(z.admin_area_id::text, z.path)) FROM contract_areas z
                  JOIN contracts zc ON zc.id = z.contract_id AND zc.tenant_id = z.tenant_id
-                WHERE z.tenant_id = $1 AND zc.partner_id = p.id AND zc.status = 'actif')::int AS "zonesActive"
+                WHERE z.tenant_id = $1 AND zc.partner_id = p.id AND ${contractCoversMonthSql('zc', THIS_MONTH_SQL)})::int AS "zonesActive"
          FROM partners p
          JOIN partner_types t ON t.id = p.partner_type_id AND t.tenant_id = p.tenant_id
          LEFT JOIN LATERAL (SELECT e.final_score, e.band, e.period_to FROM tpm_provider_evaluations e
@@ -127,12 +165,14 @@ async function providersList(tenantId) {
         WHERE p.tenant_id = $1
         ORDER BY p.name`, [tenantId, PENDING_STATUS]);
     const links = await providerLinksTx(client, tenantId);
-    // Contrats ACTIFS et leur TPM (retour 113) : contrats tenus, contrats suivis, TPM d'un titulaire.
+    // Contrats ACTIFS et leur TPM (retour 113) : contrats tenus, contrats suivis, TPM d'un titulaire. « Actif » =
+    // la règle commune des dates (activeProvider.contractCoversMonth, jumelle SQL) — comme le statut de la ligne :
+    // un contrat échu mais encore « actif » n'y figure plus.
     const { rows: contracts } = await client.query(
       `SELECT c.id, c.numero, c.numero_fla AS "numeroFla", c.partner_id AS "partnerId",
               COALESCE(p.name, c.partner_name) AS "partnerName", c.status
          FROM contracts c LEFT JOIN partners p ON p.id = c.partner_id AND p.tenant_id = c.tenant_id
-        WHERE c.tenant_id = $1 AND c.status = 'actif' ORDER BY c.numero_fla NULLS LAST, c.numero`, [tenantId]);
+        WHERE c.tenant_id = $1 AND ${contractCoversMonthSql('c', THIS_MONTH_SQL)} ORDER BY c.numero_fla NULLS LAST, c.numero`, [tenantId]);
     const { views } = await contractTpmViewsTx(client, tenantId, contracts);
     return { rows, links, contracts, views };
   });
@@ -416,7 +456,7 @@ const PARTNER_FIELDS = { name: 'name', shortName: 'short_name', dailyRate: 'dail
   contactName: 'contact_name', contactPhone: 'contact_phone', contactEmail: 'contact_email', startedOn: 'started_on',
   notes: 'notes', active: 'active' };
 
-async function updatePartner(tenantId, id, patch) {
+async function updatePartner(tenantId, id, patch, { actorId = null } = {}) {
   const fields = Object.entries(PARTNER_FIELDS)
     .filter(([k]) => !(patch[k] === undefined || ((k === 'name' || k === 'active') && patch[k] === null)));
   const identity = fields.length > 0 && (patch.name != null || patch.shortName !== undefined);
@@ -435,7 +475,7 @@ async function updatePartner(tenantId, id, patch) {
       `UPDATE partners SET ${[...sets, 'updated_at = now()'].join(', ')} WHERE tenant_id = $1 AND id = $2`, [tenantId, id, ...values]);
     if (rowCount > 0 && identity) await places.relinkPartiesTx(client, tenantId); // nom ou sigle : formulaires reliés à nouveau
     // Fiche activée / désactivée = rôle de TPM changé : TPM des visites prévues recalculé (même transaction).
-    if (rowCount > 0) await restampIfRoleChangedTx(client, tenantId, before, roleAfter(before, { active: patch.active }));
+    if (rowCount > 0) await restampIfRoleChangedTx(client, tenantId, before, roleAfter(before, { active: patch.active }), { partnerId: id, actorId });
     return rowCount > 0;
   });
 }

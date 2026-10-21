@@ -71,3 +71,17 @@ test('aucun écran n\'écrit « Prestataire » seul : Titulaire, Partenaire de m
   }
   assert.deepEqual(hits, []);
 });
+
+test('liste des contrats : « Interne » pour un contrat qui couvre des mois sans TPM, « — » pour un brouillon (jamais « Aucun TPM »)', async (t) => {
+  const r = await load(t); if (!r) return;
+  const { COVERING_STATUSES } = require('../src/modules/tpm/tpmAttribution');
+  assert.deepEqual(r.COVERING_CONTRACT_STATUSES, COVERING_STATUSES, 'mêmes statuts que l\'estampille');
+  const none = { state: 'aucun', tpms: [] };
+  assert.equal(r.contractTpmKind({ status: 'actif', tpm: { state: 'rattache', tpms: [{ id: 'y', name: 'YPA' }] } }), 'tpm');
+  for (const status of ['actif', 'resilie']) assert.equal(r.contractTpmKind({ status, tpm: none }), 'interne', status);
+  for (const status of ['brouillon', 'en_validation', 'rejete']) assert.equal(r.contractTpmKind({ status, tpm: none }), 'aucun', status);
+  assert.equal(r.contractTpmKind(null), 'aucun');
+  const page = fs.readFileSync(path.join(WEB, 'pages/contracts/ContractsListPage.jsx'), 'utf8');
+  assert.doesNotMatch(page, /tr\('Aucun TPM'\)/, 'la cellule dit ROLE_LABELS.noTpm');
+  assert.match(page, /contractTpmKind\(c\) === 'interne'/, 'filtre « Interne » : seuls les contrats qui couvrent des mois');
+});

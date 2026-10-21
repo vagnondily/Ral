@@ -10,6 +10,9 @@ import { BANDS, formatScore } from '../lib/evaluation.js';
 import { PROVIDER_STATUS } from '../lib/partners.js';
 import { ROLE_LABELS, contractNo, joinParts } from '../lib/roles.js';
 import { useI18n } from '../lib/i18n.jsx';
+import TpmUnavailabilityBadge from '../components/TpmUnavailabilityBadge.jsx';
+import { rangeLabel, unavailabilityOf } from '../lib/tpmAttribution.js';
+import useTpmUnavailability from '../lib/useTpmUnavailability.js';
 import './tpm/partners.css';
 
 /**
@@ -27,6 +30,7 @@ export default function ProvidersPage({ canEdit, onNavigate }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [rows, setRows] = useState(null);
+  const unavailability = useTpmUnavailability(); // retour 114 : indisponibilité actuelle ou prochaine de chaque TPM
   const [tab, setTabState] = useState(readTab);
   const setTab = (t) => { setTabState(t); try { localStorage.setItem(TAB_KEY, t); } catch { /* préférence locale seulement */ } };
 
@@ -64,10 +68,11 @@ export default function ProvidersPage({ canEdit, onNavigate }) {
         )}</span>
     </button>
   );
-  const statusCell = (p) => (
+  const statusCell = (p, extra = null) => (
     <div className="pv-status-cell">
       <StatusBadge map={PROVIDER_STATUS} value={p.status.state} />
       {p.status.from && <span className="muted pv-status-period">{periodLabel(p.status.from, p.status.to, tr)}</span>}
+      {extra}
     </div>
   );
   // Contrats d'une ligne : n° FLA (mono) · titulaire, deux au plus puis « +n ».
@@ -101,7 +106,10 @@ export default function ProvidersPage({ canEdit, onNavigate }) {
   };
   const tpmColumns = {
     name: nameCol,
-    status: statusCol,
+    // Statut selon contrat, et l'indisponibilité déclarée du TPM (actuelle ou prochaine) : il ne suit pas ses zones ces mois-là.
+    status: { ...statusCol,
+      csv: (p) => { const u = unavailabilityOf(unavailability, p.id); return joinParts(statusCol.csv(p), u ? tr('Indisponible {period}', { period: rangeLabel(u.from, u.to) }) : null); },
+      render: (p) => statusCell(p, <TpmUnavailabilityBadge u={unavailabilityOf(unavailability, p.id)} />) },
     monitored: { label: tr('Contrats suivis'), sortVal: (p) => p.monitoredContracts.length, csv: (p) => p.monitoredContracts.map((c) => joinParts(contractNo(c), c.holderName)).join(', '),
       render: (p) => contractsCell(p.monitoredContracts, true) },
     agents: { label: tr('Agents'), num: true, sortVal: (p) => p.agentsActive, csv: (p) => p.agentsActive, render: (p) => p.agentsActive || <span className="cell-empty">0</span> },

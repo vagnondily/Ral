@@ -103,7 +103,7 @@ async function createPartner(tenantId, { name, partnerTypeId, dailyRate, contrac
  * Type ou fiche active changés = rôle changé : le TPM des visites prévues est recalculé dans la même
  * transaction (partners/partnerRole.restampIfRoleChangedTx).
  */
-async function updatePartner(tenantId, id, { name, partnerTypeId, dailyRate, contractRef, active }) {
+async function updatePartner(tenantId, id, { name, partnerTypeId, dailyRate, contractRef, active }, { actorId = null } = {}) {
   return (name ? places.withSubmissionLinks : withTenantTransaction)(tenantId, async (client) => {
     // Type ou fiche active VRAIMENT changés : verrou d'attribution d'abord, puis la ligne (partnerRole).
     const before = await roleForUpdateTx(client, tenantId, id, { partnerTypeId, active });
@@ -121,7 +121,7 @@ async function updatePartner(tenantId, id, { name, partnerTypeId, dailyRate, con
     const { rowCount } = await client.query(`UPDATE partners SET ${sets.join(', ')} WHERE tenant_id = $1 AND id = $2`, values);
     if (rowCount === 1 && name) await places.relinkPartiesTx(client, tenantId);
     if (rowCount === 1) {
-      await restampIfRoleChangedTx(client, tenantId, before, roleAfter(before, { partnerTypeId, active }));
+      await restampIfRoleChangedTx(client, tenantId, before, roleAfter(before, { partnerTypeId, active }), { partnerId: id, actorId });
     }
     return rowCount === 1;
   });

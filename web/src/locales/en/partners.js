@@ -374,4 +374,12 @@ export default {
   'Formation « {label} » prévue pour {extra}': 'Training “{label}” planned for {extra}',
   'Valeur illisible : {list}. Saisissez un nombre (ex. 15 ou 15,5) ou laissez vide.':
     'Unreadable value: {list}. Enter a number (e.g. 15 or 15.5) or leave it empty.',
+  // Indisponibilité d'un TPM (retour 114) : liste, fiche 360°, détail d'un contrat.
+  'Indisponible {period}': 'Unavailable {period}',
+  'Indisponibilité déclarée (Affectation des TPM) : {reason}': 'Declared unavailability (TPM assignment): {reason}',
+  'indisponible ce mois : zones en suivi interne': 'unavailable this month: areas monitored internally',
+  // Fiche 360° d'un titulaire : visites suivies en interne dans les zones de ses contrats (retour 114).
+  '— aucune visite affectée à un TPM ce mois': '— no visit assigned to a TPM this month',
+  '{n} visite(s) en suivi interne (équipe S&E) dans les zones de ses contrats · {r} réalisée(s)':
+    '{n} visit(s) monitored internally (M&E team) in its contract areas · {r} done',
 };

@@ -19,7 +19,8 @@ router.use(requireAuth);
 const WRITE = requireRole('admin', 'manager');
 const canWrite = (req) => ['admin', 'manager'].includes(req.auth.role);
 const t = (req) => req.auth.tenantId;
-const currentMonth = () => new Date().toISOString().slice(0, 7);
+// Mois courant par défaut : l'horloge unique du serveur (jour local, comme le plan, le RBM et les rapports attendus).
+const { currentMonth } = require('../tpm/rbmMath');
 
 const uuid = z.string().uuid();
 function ids(...names) {
@@ -99,7 +100,7 @@ const partnerPatch = z.object({
   startedOn: optDate, notes: optText(2000), active: z.boolean().optional(),
 }).strict();
 router.patch('/:id', WRITE, ids('id'), body(partnerPatch), asyncHandler(async (req, res) => {
-  if (!(await repo.updatePartner(t(req), req.params.id, req.valid))) throw notFound('Partenaire introuvable');
+  if (!(await repo.updatePartner(t(req), req.params.id, req.valid, { actorId: req.auth.userId }))) throw notFound('Partenaire introuvable');
   res.status(204).end();
 }));
 

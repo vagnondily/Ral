@@ -143,6 +143,8 @@ function buildSheet(raw, { consolidation } = {}) {
       visits: {
         month: c.month, assigned: c.visitsAssigned || 0, realised: c.visitsRealised || 0,
         rate: ratio(c.visitsRealised || 0, c.visitsAssigned || 0), realised12: c.visitsRealised12 || 0, sitesFollowed: c.sitesFollowed || 0,
+        // Visites suivies en interne dans les zones de ses contrats (retour 114) : à part, jamais « affectées ».
+        internal: c.visitsInternal || 0, internalRealised: c.visitsInternalRealised || 0,
       },
       submissions: { valid12: c.submissions12 || 0, excluded12: c.submissionsExcluded12 || 0,
         excludedRate: ratio(c.submissionsExcluded12 || 0, (c.submissions12 || 0) + (c.submissionsExcluded12 || 0)) },
@@ -164,6 +166,35 @@ function buildSheet(raw, { consolidation } = {}) {
       trainings: c.trainings || 0, evaluations: c.evaluations || 0,
     },
   };
+}
+
+/**
+ * Contrats derrière une cellule SUIVIE EN INTERNE (retour 114), tels que la règle d'attribution les
+ * nomme (tpmAttribution.resolveCell) — lecture seule, jamais une autre règle : « sans_tpm » → les
+ * contrats de suivi sans TPM qui couvrent la zone (`default.noTpm`) ; « indisponible » → les contrats
+ * des TPM indisponibles ce mois (candidats du contrat, ou celui de la modification suspendue).
+ * @param {object|null} cell  tpmAttribution.cellForSite(...)
+ * @returns {string[]} identifiants de contrats
+ */
+function internalCellContracts(cell) {
+  if (!cell || !cell.default) return [];
+  if (cell.state === 'sans_tpm') return (cell.default.noTpm || []).map((k) => k.contractId);
+  if (cell.state !== 'indisponible') return [];
+  const cands = cell.default.candidates || [];
+  const suspended = cell.override && cell.override.providerId;
+  return (suspended ? cands.filter((c) => c.providerId === cell.override.providerId) : cands).map((c) => c.contractId);
+}
+
+/**
+ * Visites suivies en interne dans les zones des contrats TENUS : celles dont la cellule nomme un de ces
+ * contrats (internalCellContracts) — non annulées, et parmi elles les réalisées.
+ * @param {{ status, cell }[]} visits   visites internes du mois et leur cellule
+ * @param {Iterable<string>} heldIds    contrats tenus par le partenaire
+ */
+function holderInternalVisits(visits, heldIds) {
+  const held = new Set(heldIds);
+  const mine = (visits || []).filter((v) => v.status !== 'annule' && internalCellContracts(v.cell).some((k) => held.has(k)));
+  return { visitsInternal: mine.length, visitsInternalRealised: mine.filter((v) => v.status === 'realise').length };
 }
 
 /**
@@ -229,4 +260,7 @@ function shapeTimeline(rows, { limit = 50 } = {}) {
   return { items, next: items.length === limit ? items[items.length - 1].at : null };
 }
 
-module.exports = { buildSheet, providerListRows, contractRows, budgetRecap, reportSummary, mergeZones, shapeTimeline, EVENT_TEXT };
+module.exports = {
+  buildSheet, providerListRows, contractRows, budgetRecap, reportSummary, mergeZones, shapeTimeline, EVENT_TEXT,
+  internalCellContracts, holderInternalVisits,
+};

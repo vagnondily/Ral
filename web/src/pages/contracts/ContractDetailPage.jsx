@@ -16,6 +16,9 @@ import { SubmitDialog, DecisionDialog, RenewDialog, TerminateDialog } from './Co
 import DeleteDialog from '../../components/DeleteDialog.jsx';
 import { ROLE_LABELS, contractIdentity, contractNo, internalNo, typeLabelOf } from '../../lib/roles.js';
 import '../tpm/partners.css';
+import TpmUnavailabilityBadge from '../../components/TpmUnavailabilityBadge.jsx';
+import { unavailabilityOf } from '../../lib/tpmAttribution.js';
+import useTpmUnavailability from '../../lib/useTpmUnavailability.js';
 
 const TABS = [
   { id: 'budget', label: 'Détail budgétaire' },
@@ -28,6 +31,7 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
   const { tr } = useI18n();
   const toast = useToast();
   const [detail, setDetail] = useState(null);
+  const unavailability = useTpmUnavailability(); // retour 114 : TPM indisponibles (ligne « TPM »)
   const [history, setHistory] = useState(null);
   const [error, setError] = useState(null);
   const [tab, setTab] = useState('budget');
@@ -126,7 +130,7 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
               <button type="button" className="inline-link" onClick={() => onOpenPartner && c.partnerId && onOpenPartner(c.partnerId)}>{c.partnerName}</button>
               {(c.partnerType || c.partnerTypeLabel) && <span className="muted"> · {tr(typeLabelOf(c.partnerType, c.partnerTypeLabel))}</span>}
             </td></tr>
-            <tr><th>{tr(ROLE_LABELS.tpm)}</th><td><ContractTpm tpm={c.tpm} zones={(detail.areas || []).length} onOpenPartner={onOpenPartner} /></td></tr>
+            <tr><th>{tr(ROLE_LABELS.tpm)}</th><td><ContractTpm tpm={c.tpm} zones={(detail.areas || []).length} unavailability={unavailability} onOpenPartner={onOpenPartner} /></td></tr>
             <tr><th>{tr('N° interne')}</th><td className="mono">{c.numero}</td></tr>
             <tr><th>{tr('N° FLA')}</th><td className="mono">{c.numeroFla || '—'}</td></tr>
             <tr><th>{tr('N° PO')}</th><td className="mono">{c.numeroPo || '—'}</td></tr>
@@ -628,24 +632,31 @@ function ForecastTab({ contractId, dateFin }) {
 
 /**
  * TPM du contrat (retour 113) : règle commune du retour 58 — TPM rattaché par un plan de collecte ou
- * une facture, sinon le titulaire s'il est lui-même un TPM ; il suit les zones du contrat.
+ * une facture, sinon le titulaire s'il est lui-même un TPM ; il suit les zones du contrat, SAUF les mois
+ * où il est déclaré indisponible (retour 114, badge « Indisponible … ») : si aucun TPM du contrat n'est
+ * disponible ce mois, ses zones sont suivies en interne.
  */
-function ContractTpm({ tpm, zones, onOpenPartner }) {
+function ContractTpm({ tpm, zones, unavailability, onOpenPartner }) {
   const { tr } = useI18n();
   const list = (tpm && tpm.tpms) || [];
   if (!list.length) {
     return <span className="muted">{tr('Interne — suivi par l\'équipe S&E tant qu\'aucun TPM n\'est rattaché (un TPM l\'est dès qu\'il a un plan de collecte ou une facture sur ce contrat).')}</span>;
   }
   const VIA = { plan: 'plan de collecte', rapport: 'factures et rapports', titulaire: 'son propre contrat' };
+  const offs = list.map((t) => unavailabilityOf(unavailability, t.id));
+  const allOff = offs.every((u) => u && u.current); // aucun TPM disponible ce mois : suivi interne
   return (
     <span>
       {list.map((t, i) => (
         <span key={t.id}>{i > 0 && ', '}
           <button type="button" className="inline-link" onClick={() => onOpenPartner && onOpenPartner(t.id)}>{t.name}</button>
           {t.via.length > 0 && <span className="muted"> ({t.via.map((v) => tr(VIA[v] || v)).join(', ')})</span>}
+          {offs[i] && <> <TpmUnavailabilityBadge u={offs[i]} /></>}
         </span>
       ))}
-      {zones > 0 && <span className="muted"> · {tr(zones > 1 ? 'suit les {n} zones du contrat' : 'suit la zone du contrat', { n: zones })}</span>}
+      {zones > 0 && (allOff
+        ? <span className="muted"> · {tr('indisponible ce mois : zones en suivi interne')}</span>
+        : <span className="muted"> · {tr(zones > 1 ? 'suit les {n} zones du contrat' : 'suit la zone du contrat', { n: zones })}</span>)}
     </span>
   );
 }
