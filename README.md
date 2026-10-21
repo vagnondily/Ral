@@ -170,15 +170,24 @@ APP_DATABASE_URL=postgres://mems2_app:mems2_app_change_me@localhost:5432/mems2_t
 ```cmd
 npm install
 npm run migrate
-npm run seed
+npm run seed:blank
 ```
 
-> `npm run seed` crée le **compte admin, le bureau et les référentiels** — pas
-> de contrats/sites/visites de démonstration. **Pour tester SANS données de
-> test**, n'exécutez **pas** `npm run seed:test`. Si vous aviez déjà chargé les
-> données de test et voulez une base propre :
-> `dropdb -U postgres mems2_tpm` puis `createdb -U postgres mems2_tpm`, et
-> refaites `npm run migrate` + `npm run seed`.
+> **Trois niveaux de seed** — choisissez selon le besoin :
+> - **`npm run seed:blank`** → **base vierge** : seulement le tenant + les
+>   comptes `admin@mems.mg` / `validateur@mems.mg`. Aucun référentiel, aucune
+>   donnée. Vous créez tout vous-même depuis MEMS (Paramétrage : types de
+>   partenaires, activités, découpage Région→District, bureaux, MMR,
+>   partenaires…). **C'est le bon choix pour une mise en production.**
+> - `npm run seed` → **base de DÉMONSTRATION complète** : tenant, référentiels,
+>   prestataires, sites, contrats, avenants, rapports, visites… (pour découvrir
+>   l'app avec des données réalistes).
+> - `npm run seed:test` → ajoute encore plus de données variées **par-dessus**
+>   `npm run seed` (après l'avoir lancé).
+>
+> Pour repartir d'une base propre : `dropdb -U postgres mems2_tpm` puis
+> `createdb -U postgres mems2_tpm`, et refaites `npm run migrate` +
+> `npm run seed:blank`.
 
 **4. Démarrer l'API** (laissez cette fenêtre ouverte) :
 
