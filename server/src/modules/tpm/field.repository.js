@@ -2,7 +2,7 @@ const { withTenantTransaction } = require('../../config/db');
 const { afterSitesChangedTx, lockSubmissionLinksTx, withSubmissionLinks } = require('../settings/placeMatch.repository');
 const { sitePatchSql } = require('./sitePatch');
 const { chunkRows } = require('../../db/batch');
-const { lockVisitMonthsTx, yearMonths } = require('./visitLocks');
+const { lockVisitMonthsTx, lockSitesKeyShareTx, yearMonths } = require('./visitLocks');
 const { isActiveMonth, activeMonthSql } = require('../common/siteActivity');
 const { UNIT_LABELS, shapeRangeSummary, shapeCoverageFacts, collectionDays, buildCoverageMatrix } = require('./fieldMath');
 const { isDue, frequencyFor, visitState, currentMonth, toMonth, needsPlanning, planningCounts } = require('./rbmMath');
@@ -341,6 +341,8 @@ async function importMasterData(tenantId, rows) {
  */
 async function importPlanSites(tenantId, userId, sites) {
   return withSubmissionLinks(tenantId, async (client) => {
+    // Mois des visites réalisées écrites (« dernière visite »), verrouillés AVANT toute écriture (visitLocks).
+    await lockVisitMonthsTx(client, tenantId, [...new Set(sites.filter((s) => s.lastVisit).map((s) => String(s.lastVisit).slice(0, 7)))]);
     // commune (minuscule) → bureau le plus spécifique.
     const { rows: perim } = await client.query(
       `SELECT lower(btrim(c.commune)) AS commune, c.office_id
@@ -458,6 +460,8 @@ async function generateFromRbmTx(client, tenantId, userId, month, { risk } = {})
   // statut : une visite annulée est une décision, elle n'est pas ressuscitée) ni inactif ce mois
   // (règle commune : année avec grille → « Oui » explicite seulement).
   const [y, m] = target.split('-').map(Number);
+  // Sites par identifiant croissant (FOR KEY SHARE), jamais dans l'ordre d'insertion (visitLocks).
+  await lockSitesKeyShareTx(client, tenantId, todo.map((s) => s.id));
   const { rowCount } = await client.query(
     `INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, created_by)
      SELECT $1, t.site_id, $2::date, t.activity, 'planifie', $3
@@ -874,6 +878,9 @@ async function createVisit(tenantId, userId, v) {
     // Une visite (sa date, son agent) est une entrée du plan automatique : verrou de son mois
     // (visitLocks, attente bornée) AVANT le verrou d'attribution — même ordre que tous les écrivains.
     await lockVisitMonthsTx(client, tenantId, [String(v.periodMonth).slice(0, 7)]);
+    // Ligne du site AVANT le verrou d'attribution (visitLocks : rattachements → mois → sites → attribution) :
+    // la clé étrangère de l'INSERT la prendrait sinon après lui, face à un écrivain de sites (40P01).
+    await lockSitesKeyShareTx(client, tenantId, [v.siteId]);
     await lockAttributionTx(client, tenantId);
     await assertVisitRefs(client, tenantId, { siteId: v.siteId, providerId: v.providerId });
     let id;
@@ -948,6 +955,9 @@ async function deleteVisit(tenantId, id) {
  */
 async function importPlanning(tenantId, userId, month, rows) {
   return withSubmissionLinks(tenantId, async (client) => {
+    // Mois écrit verrouillé AVANT toute écriture (visitLocks : rattachements → mois → sites → attribution) :
+    // une coche du Plan de suivi ou une nouvelle visite du même site × mois attend, puis trouve la visite.
+    await lockVisitMonthsTx(client, tenantId, [String(month).slice(0, 7)]);
     const clean = rows.filter((r) => r.district && r.commune && r.name);
     const { map, inserted } = await upsertSites(client, tenantId, clean);
     let visits = 0;
@@ -1205,9 +1215,10 @@ async function planMonthsTx(client, tenantId, userId, year, changes) {
   // l'inverse, aucun interblocage avec « Générer depuis le RBM » ni la planification automatique.
   await client.query("SET LOCAL lock_timeout = '20s'");
   await lockVisitMonthsTx(client, tenantId, [...add, ...remove].map(([, m]) => pm(m)));
-  await lockAttributionTx(client, tenantId); // une visite annulée re-cochée est mise à jour (retour 58)
-  const { rows: known } = await client.query('SELECT id, activity FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[])', [tenantId, ids]);
+  // Sites par identifiant croissant, en partage de clé, AVANT le verrou d'attribution (visitLocks).
+  const known = await lockSitesKeyShareTx(client, tenantId, ids);
   if (known.length !== ids.length) throw badRequest('Site inconnu (ou hors de ce compte).');
+  await lockAttributionTx(client, tenantId); // une visite annulée re-cochée est mise à jour (retour 58)
   const activity = new Map(known.map((k) => [k.id, k.activity || null]));
   let added = 0; let removed = 0;
   // Un site inactif un mois (règle commune isActiveMonth : année avec grille → « Oui » explicite
@@ -1302,6 +1313,8 @@ async function importLocations(tenantId, userId, { year, rows }, { commit = fals
     const toUpdate = plan.filter((p) => p.id); const toCreate = plan.filter((p) => !p.id);
     const summary = { read: rows.length, updated: toUpdate.length, created: toCreate.length };
     if (!commit) return { ...summary, committed: false };
+    // Mois des visites prévues écrites, verrouillés AVANT la première écriture (visitLocks).
+    if (year) await lockVisitMonthsTx(client, tenantId, [...new Set(plan.flatMap((p) => p.planned || []))].map((m) => `${year}-${String(m).padStart(2, '0')}`));
 
     for (const p of toCreate) if (!p.locationId) { nextNum += 1; p.locationId = `L${String(nextNum).padStart(3, '0')}`; }
     const CH = 400;
@@ -1423,7 +1436,8 @@ async function bulkUpdateSites(tenantId, userId, { year, siteIds, set = {}, stat
     // « Générer depuis le RBM » tiennent ces mois puis insèrent (clé étrangère sur ces mêmes
     // sites) — dans l'autre ordre, interblocage (40P01). planMonthsTx les reprend sans effet.
     if (plan) await lockVisitMonthsTx(client, tenantId, yearMonths(year));
-    const { rows: known } = await client.query('SELECT id FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[]) FOR UPDATE', [tenantId, ids]);
+    // Par identifiant croissant, comme l'activation et le plan automatique (jamais l'ordre du tas).
+    const { rows: known } = await client.query('SELECT id FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[]) ORDER BY id FOR UPDATE', [tenantId, ids]);
     if (known.length !== ids.length) throw badRequest('Site inconnu (ou hors de ce compte).');
     const result = { sites: ids.length, updated: 0, status: null, plan: null };
     const fields = { ...set };

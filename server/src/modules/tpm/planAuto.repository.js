@@ -289,7 +289,13 @@ async function clearPlannedTx(client, tenantId, { year, from, to, risk, scope = 
   // Mois courant de l'application : dernier paramètre, lu par CLEARABLE_SQL seulement (le décompte
   // des conservées n'en a pas besoin).
   const delParams = [...params, `${nowMonth}-01`];
-  const { rowCount } = await client.query(`DELETE FROM site_visits v WHERE ${where} AND ${CLEARABLE_SQL(`$${delParams.length}`)}`, delParams);
+  // Lignes verrouillées dans l'ordre des identifiants (FOR UPDATE … ORDER BY v.id), celui de toute
+  // ré-estampille (mems_tpm_stamp, sous le verrou d'attribution) : un DELETE dans l'ordre du parcours
+  // interbloquait avec elle (40P01). L'effacement ne prend PAS le verrou d'attribution (il ne change
+  // aucun TPM) : il n'attend ni ne bloque les autres écrivains d'attribution du compte.
+  const { rowCount } = await client.query(
+    `DELETE FROM site_visits WHERE tenant_id = $1 AND id IN (
+       SELECT v.id FROM site_visits v WHERE ${where} AND ${CLEARABLE_SQL(`$${delParams.length}`)} ORDER BY v.id FOR UPDATE OF v)`, delParams);
   const { rows: [{ n }] } = await client.query(`SELECT count(*)::int AS n FROM site_visits v WHERE ${where}`, params);
   return { deleted: rowCount, kept: n };
 }

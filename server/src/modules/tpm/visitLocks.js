@@ -61,4 +61,35 @@ async function lockVisitMonthsTx(client, tenantId, months, opts = {}) {
 /** Les 12 mois « AAAA-MM » d'un exercice, croissants. */
 const yearMonths = (year) => Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
 
-module.exports = { monthLockKey, lockKeysTx, lockVisitMonthsTx, yearMonths, LOCK_WAIT_MS };
+/**
+ * Ordre des verrous de TOUS les écrivains de plan, de sites et de visites (lot « verrous ») :
+ *   1. rattachements des formulaires (withSubmissionLinks / lockSubmissionLinksTx) ;
+ *   2. mois des visites (lockVisitMonthsTx, croissants) ;
+ *   3. lignes de sites et de localités, par identifiant croissant (FOR UPDATE pour qui les modifie,
+ *      FOR KEY SHARE — lockSitesKeyShareTx — pour qui y attache une visite) ;
+ *   4. verrou d'attribution du compte (tpmAttribution.repository.lockAttributionTx) ;
+ *   5. le reste (visites, modifications de zones, journal).
+ * Jamais une ligne de site ou de localité APRÈS le verrou d'attribution — y compris le FOR KEY SHARE
+ * qu'une clé étrangère prend à l'INSERT d'une visite : un écrivain de sites (sites FOR UPDATE, puis
+ * l'attribution dans afterSitesChangedTx) interbloquerait avec lui (40P01).
+ * Les lignes de visites se prennent toujours par identifiant croissant : sous le verrou d'attribution
+ * (estampille mems_tpm_stamp) comme sans lui (« Effacer les planifications », clearPlannedTx).
+ * Le verrou du plan automatique (plan-auto) se prend avant les mois. Seule exception documentée :
+ * le remplacement du découpage (localities.replaceBreakdown), sous le verrou de rattachements, met à
+ * jour des sites après l'attribution, dans des modes compatibles (voir son commentaire).
+ */
+
+/**
+ * Sites auxquels on va attacher des visites, verrouillés en partage de clé (FOR KEY SHARE : ce que
+ * prendra la clé étrangère de l'INSERT), par identifiant croissant, AVANT le verrou d'attribution.
+ * @returns {Promise<{ id, activity }[]>} sites du compte trouvés (un site absent n'est pas une erreur ici)
+ */
+async function lockSitesKeyShareTx(client, tenantId, siteIds) {
+  const ids = [...new Set((siteIds || []).filter(Boolean))];
+  if (!ids.length) return [];
+  const { rows } = await client.query(
+    'SELECT id, activity FROM sites WHERE tenant_id = $1 AND id = ANY($2::uuid[]) ORDER BY id FOR KEY SHARE', [tenantId, ids]);
+  return rows;
+}
+
+module.exports = { monthLockKey, lockKeysTx, lockVisitMonthsTx, lockSitesKeyShareTx, yearMonths, LOCK_WAIT_MS };

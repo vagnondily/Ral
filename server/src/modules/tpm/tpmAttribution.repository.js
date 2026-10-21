@@ -16,8 +16,12 @@ const { currentMonth } = require('./rbmMath');
  * s'enchaînent avec await, jamais Promise.all. Ne requiert ni field.repository ni
  * placeMatch.repository (aucun cycle : ce sont eux qui l'appellent).
  *
- * Ordre des verrous, partout (aucun interblocage) : rattachements (withSubmissionLinks) →
- * génération RBM → ligne de contrat (FOR NO KEY UPDATE pour les écrivains de contrats — avenant,
+ * Ordre des verrous, partout (aucun interblocage ; règle complète des sites, localités et visites :
+ * tpm/visitLocks) : rattachements (withSubmissionLinks) → plan automatique, puis mois des visites
+ * (verrous de mois, croissants) → lignes de sites et de localités par identifiant croissant (FOR UPDATE
+ * pour qui les modifie, FOR KEY SHARE pour qui y attache une visite ou une modification de zone —
+ * jamais APRÈS le verrou d'attribution, clé étrangère d'un INSERT comprise) → ligne de contrat
+ * (FOR NO KEY UPDATE pour les écrivains de contrats — avenant,
  * décision, résiliation, renouvellement — qui ne bloque jamais un FOR KEY SHARE ; FOR UPDATE pour la
  * seule suppression d'un brouillon ; FOR KEY SHARE pour les écrivains du lien TPM ↔ contrat, création
  * ET suppression : lockTpmLinkTx, lockLinkDocumentTx) → verrou d'attribution du compte (ici, toujours

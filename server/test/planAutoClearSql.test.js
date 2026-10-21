@@ -27,7 +27,9 @@ test('mois courant lié en paramètre (jamais now()) ; chaque requête lie ce qu
     const res = await clearPlannedTx(client, TENANT, { year: 2026, from: 1, to: 12, risk: 'elevee', scope, nowMonth: '2026-11' });
     assert.deepEqual(res, { deleted: 2, kept: 5 });
     const [del, count] = client.calls;
-    assert.match(del.sql, /^DELETE FROM site_visits v/);
+    // Lignes verrouillées par identifiant croissant (ordre de mems_tpm_stamp), jamais dans l'ordre du parcours.
+    assert.match(del.sql, /^DELETE FROM site_visits WHERE tenant_id = \$1 AND id IN \(\s*SELECT v\.id FROM site_visits v WHERE /);
+    assert.match(del.sql, /ORDER BY v\.id FOR UPDATE OF v\)$/);
     assert.doesNotMatch(del.sql, /now\(\)|current_date/i, 'jamais l\'horloge de la base');
     assert.equal(del.params.at(-1), '2026-11-01');
     assert.match(del.sql, new RegExp(`v\\.period_month >= \\$${del.params.length}::date`));

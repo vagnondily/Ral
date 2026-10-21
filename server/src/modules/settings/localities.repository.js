@@ -221,6 +221,12 @@ async function replaceBreakdown(tenantId, parsed, { confirm = false } = {}) {
     // Retour 58 : modifications du TPM par zone — verrou d'attribution AVANT d'y toucher (même ordre
     // que les écritures de l'onglet : jamais d'interblocage), chemins à jour, puis rattachement des
     // modifications détachées par chemin (une collision zone × mois garde la modification vivante).
+    // Seule exception à l'ordre de visitLocks (lignes de sites / localités AVANT l'attribution) : après
+    // ce verrou, applySitesGeoTx met à jour des sites (sans toucher une clé : FOR NO KEY UPDATE) et le
+    // rattachement des modifications pose un FOR KEY SHARE sur des localités. Sans risque : ces deux
+    // modes sont compatibles avec le FOR KEY SHARE des écrivains de visites et de modifications, et
+    // tout FOR UPDATE / DELETE de site ou de localité qui attend ensuite l'attribution se fait sous le
+    // verrou de rattachements, déjà tenu ici (sitesAdmin, bulkUpdateSites, localités).
     await tpmAttribution.lockAttributionTx(client, tenantId);
     const detachedOverrides = await tpmAttribution.refreshOverridePathsTx(client, tenantId);
     const overrideTargets = relinkByPath(detachedOverrides, plan.byDepth.flat().filter((n) => n.depth === 2 || n.depth === 3)
