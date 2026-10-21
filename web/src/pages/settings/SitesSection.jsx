@@ -25,6 +25,7 @@ export default function SitesSection({ isAdmin, onOpenTab, showAdmCodes = true }
   const [q, setQ] = useState('');
   const [edit, setEdit] = useState(null); // null | {} (nouveau) | ligne
   const [busyGps, setBusyGps] = useState(false);
+  const [busyFill, setBusyFill] = useState(false);
   const [busyIo, setBusyIo] = useState(false);
   const [sel, setSel] = useState(() => new Set()); // sites cochés (retour 62)
   const [bulk, setBulk] = useState(null);         // 'activity' | 'office' | 'delete'
@@ -60,6 +61,17 @@ export default function SitesSection({ isAdmin, onOpenTab, showAdmCodes = true }
   async function exportSelection() {
     setBusyIo(true);
     try { await api.siteRegistryExportSelection(ids); } catch (e) { toast.error(e.message); } finally { setBusyIo(false); }
+  }
+  // Remplit le GPS manquant des sites depuis la médiane de leurs vraies collectes.
+  async function fillGpsFromCollectes() {
+    setBusyFill(true);
+    try {
+      const r = await api.fillSiteRegistryGps();
+      toast.success(r.updated
+        ? tr('{n} site(s) ont reçu un GPS depuis leurs collectes.', { n: r.updated })
+        : tr('Aucun site à compléter : pas assez de collectes géolocalisées (3 relevés minimum).'));
+      load();
+    } catch (e) { toast.error(e.message); } finally { setBusyFill(false); }
   }
 
   async function removeSite(s) {
@@ -115,6 +127,8 @@ export default function SitesSection({ isAdmin, onOpenTab, showAdmCodes = true }
             <input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Rechercher (nom, commune, code POI…)')} aria-label={tr('Rechercher un site')} />
           </span>
           <Button size="sm" variant="secondary" icon={LocateFixed} loading={busyGps} onClick={runGps}>{tr('Attribuer depuis le GPS')}</Button>
+          <Button size="sm" variant="secondary" icon={MapPin} loading={busyFill} onClick={fillGpsFromCollectes}
+            title={tr('Place les sites visités sans GPS à la médiane de leurs collectes réelles (≥ 3 relevés)')}>{tr('GPS depuis les collectes')}</Button>
           <Button size="sm" variant="ghost" icon={FileSpreadsheet} loading={busyIo} onClick={doTemplate}>{tr('Modèle')}</Button>
           <Button size="sm" variant="ghost" icon={Download} loading={busyIo} onClick={doExport}>{tr('Exporter')}</Button>
           <Button size="sm" variant="ghost" icon={Upload} loading={busyIo} onClick={() => fileRef.current && fileRef.current.click()}>{tr('Importer')}</Button>

@@ -15,6 +15,10 @@ export default {
   'Rechercher (nom, commune, code POI…)': 'Search (name, commune, POI code…)',
   'Rechercher un site': 'Search a site',
   'Attribuer depuis le GPS': 'Assign from GPS',
+  'GPS depuis les collectes': 'GPS from collections',
+  'Place les sites visités sans GPS à la médiane de leurs collectes réelles (≥ 3 relevés)': 'Places visited sites without GPS at the median of their real collections (≥ 3 readings)',
+  '{n} site(s) ont reçu un GPS depuis leurs collectes.': '{n} site(s) received GPS from their collections.',
+  'Aucun site à compléter : pas assez de collectes géolocalisées (3 relevés minimum).': 'No site to complete: not enough geolocated collections (3 readings minimum).',
   'Aucun site': 'No site',
   'Ajoutez un site, ou importez-les. Avec des coordonnées GPS, « Attribuer depuis le GPS » rattache automatiquement la zone.':
     'Add a site, or import them. With GPS coordinates, “Assign from GPS” links the area automatically.',

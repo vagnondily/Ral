@@ -627,6 +627,7 @@ export const api = {
   updateSiteRegistry: (id, body) => request(`/api/site-registry/${id}`, { method: 'PATCH', body }),
   deleteSiteRegistry: (id) => request(`/api/site-registry/${id}`, { method: 'DELETE' }),
   autoAttributeSites: (body) => request('/api/site-registry/auto-attribute', { method: 'POST', body }),
+  fillSiteRegistryGps: () => request('/api/site-registry/fill-gps', { method: 'POST' }),
   siteRegistryTemplate: () => downloadFile('/api/site-registry/template.xlsx', 'Modele_sites_MEMS2.xlsx'),
   siteRegistryExport: (q) => downloadFile(`/api/site-registry/export.xlsx${q ? `?q=${encodeURIComponent(q)}` : ''}`, 'Sites_MEMS2.xlsx'),
   importSiteRegistry: (file) => uploadFile('/api/site-registry/import', file),

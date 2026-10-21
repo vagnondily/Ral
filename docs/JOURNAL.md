@@ -12,6 +12,18 @@
 
 ## État courant
 
+> **21/10 — GPS d'un site depuis ses vraies collectes + rappel : GPS éditable au registre.** ✅
+> La config GPS depuis le référentiel existe déjà (formulaire du site : champs Latitude/Longitude).
+> Nouveau : bouton **« GPS depuis les collectes »** (registre des sites) → `POST /api/site-registry/fill-gps`,
+> `sitesAdmin.fillGpsFromCollectes` remplit le GPS MANQUANT d'un site par la **médiane** de ses
+> soumissions (`gpsMediansTx(by='site')`), seulement si « plaçable » (≥ 3 relevés, dispersion ≤ 5 km,
+> règle `geoStats`) ; ne touche jamais un GPS déjà posé (idempotent). Smoke en base : site 4 relevés →
+> médiane, site 1 relevé → ignoré, 2ᵉ passage 0. Lint ✅, 1564 tests ✅, build ✅, EN ajoutées.
+> **Suite demandée (backlog carte/géo, à prioriser) :** repli « site visité → centre du district »
+> (contours fournis), sites visités dédupliqués + nombre de visites en popup, rattachement
+> soumissions→site par code/GPS ; et hors carte : hiérarchie Bureaux à 6 niveaux, création d'un pays
+> avant configuration (multi-pays).
+
 > **21/10 — Bureau d'un site = périmètre Bureaux (autorité), pas le fichier.** ✅ Demande : à l'import
 > du registre des sites, le bureau doit venir de ce qui est configuré dans Bureaux (périmètre communes),
 > même si le fichier contient un « Field_office_code ». `attachUnassignedSitesTx` prend un mode
