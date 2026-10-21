@@ -107,6 +107,20 @@ async function getContract(client, tenantId, id, { forUpdate = false, forDelete 
   return rows[0] || null;
 }
 
+/**
+ * Suppression d'un contrat : ses rapports verrouillés (FOR UPDATE, ordre stable), juste après le
+ * verrou du contrat et AVANT de compter les données reliées. Remplir ou soumettre un gabarit ne
+ * verrouille que la ligne du rapport (contract_id inchangé : aucun FOR KEY SHARE sur le contrat) :
+ * sans ce verrou, un gabarit rempli pendant la suppression passait le décompte, puis la cascade le
+ * supprimait avec ses postes. Ici, on attend l'écrivain en cours ; en READ COMMITTED le décompte qui
+ * suit voit ce qu'il a validé, et un écrivain arrivé après trouve le rapport supprimé (introuvable).
+ * Ordre contrat → rapports sans cycle : aucun écrivain de rapport ne prend la ligne du contrat après
+ * celle d'un rapport (les créations prennent le contrat FOR KEY SHARE AVANT tout, jamais après).
+ */
+async function lockReportsForDeleteTx(client, tenantId, contractId) {
+  await client.query('SELECT id FROM tpm_reports WHERE tenant_id = $1 AND contract_id = $2 ORDER BY id FOR UPDATE', [tenantId, contractId]);
+}
+
 async function getContractActivities(client, tenantId, contractId) {
   const { rows } = await client.query(
     `SELECT a.id, a.code, a.label FROM contract_activities ca
@@ -501,7 +515,7 @@ module.exports = {
   listAmendmentsReport,
   listContracts,
   getContract,
-  deleteContract, CONTRACT_KEY_COLUMNS, CONTRACT_UPDATE_COLUMNS,
+  deleteContract, lockReportsForDeleteTx, CONTRACT_KEY_COLUMNS, CONTRACT_UPDATE_COLUMNS,
   deleteAmendment,
   forecastData,
   getContractActivities,

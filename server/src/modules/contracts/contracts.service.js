@@ -1,4 +1,5 @@
 const { withTenantTransaction } = require('../../config/db');
+const logger = require('../../config/logger');
 const { badRequest, conflict, forbidden, notFound } = require('../../middleware/errors');
 const { nudgeOutbox } = require('../../jobs/outbox');
 const repo = require('./contracts.repository');
@@ -463,19 +464,32 @@ async function terminate(tenantId, actor, id, { reason, effectiveDate, version }
 }
 
 /**
- * Données reliées d'un contrat, comptées : rapports remplis (les gabarits
- * « attendu » vides et les « non applicable » ne comptent pas), plans de
- * collecte, avenants, renouvellements (clé étrangère sans cascade) et visites
- * de terrain. Leur suppression en cascade détruirait d'autres documents : un
- * contrat qui en porte n'est jamais supprimable, quel que soit son statut —
- * on le résilie.
+ * Rapport SANS donnée : gabarit mensuel « attendu » jamais touché, ou marqué « non applicable » (aucun
+ * suivi ce mois ; son motif ne compte pas) — montant 0, aucun poste, ni auteur ni soumission, ni numéro
+ * de facture, document ou référence (ni commentaire pour un « attendu »). Tout autre rapport porte des
+ * données, y compris une facture brouillon dont tous les postes sont à la charge de l'ONG (montant
+ * bailleur 0) ou à montant nul.
+ * @param {string} r  alias de tpm_reports
+ */
+const blankReportSql = (r) => `(${r}.status IN ('attendu', 'non_applicable') AND COALESCE(${r}.reported_amount, 0) = 0
+  AND ${r}.edited_by IS NULL AND ${r}.submitted_by IS NULL
+  AND COALESCE(btrim(${r}.invoice_no), '') = '' AND COALESCE(btrim(${r}.document_name), '') = ''
+  AND COALESCE(btrim(${r}.reference), '') = ''
+  AND (${r}.status = 'non_applicable' OR COALESCE(btrim(${r}.comment), '') = '')
+  AND NOT EXISTS (SELECT 1 FROM contract_report_items i WHERE i.tenant_id = ${r}.tenant_id AND i.report_id = ${r}.id))`;
+
+/**
+ * Données reliées d'un contrat, comptées : rapports qui portent des données (blankReportSql : les
+ * gabarits « attendu » vierges et les « non applicable » ne comptent pas ; une facture qui a un poste
+ * compte, même à montant bailleur 0), plans de collecte, avenants, renouvellements (clé étrangère
+ * sans cascade) et visites de terrain. Leur suppression en cascade détruirait d'autres documents : un
+ * contrat qui en porte n'est jamais supprimable, quel que soit son statut — on le résilie.
  */
 async function contractLinks(client, tenantId, id) {
   const { rows } = await client.query(
     `SELECT
-       (SELECT count(*) FROM tpm_reports
-         WHERE tenant_id = $1 AND contract_id = $2
-           AND (status IN ('soumis', 'valide', 'rejete') OR reported_amount <> 0))::int AS reports,
+       (SELECT count(*) FROM tpm_reports r
+         WHERE r.tenant_id = $1 AND r.contract_id = $2 AND NOT ${blankReportSql('r')})::int AS reports,
        (SELECT count(*) FROM tpm_collection_plans WHERE tenant_id = $1 AND contract_id = $2)::int AS plans,
        (SELECT count(*) FROM contract_amendments WHERE tenant_id = $1 AND contract_id = $2)::int AS amendments,
        (SELECT count(*) FROM contracts WHERE tenant_id = $1 AND renewed_from_id = $2)::int AS renewals,
@@ -483,6 +497,26 @@ async function contractLinks(client, tenantId, id) {
     [tenantId, id]
   );
   return linkedSummary(rows[0]);
+}
+
+/**
+ * Après la suppression d'un contrat VALIDÉ (actif ou résilié : ceux que l'estampille lit), le TPM des
+ * visites prévues de ses zones est recalculé dès le mois courant (fuseau de l'application), dans une
+ * SECONDE transaction, après le COMMIT — jamais sous le verrou du contrat : contrat puis verrou
+ * d'attribution rouvrirait l'interblocage avec les changements de rôle (partners/partnerRole).
+ * L'estampille est dérivée et idempotente : un échec ici n'annule ni ne fait échouer la suppression,
+ * déjà validée ; il est journalisé et la prochaine réestampille (approbation, avenant, résiliation,
+ * changement de rôle, « Réappliquer ») répare.
+ * @returns {Promise<boolean>} réestampille faite
+ */
+async function restampAfterContractDelete(tenantId, contractId) {
+  try {
+    await withTenantTransaction(tenantId, (client) => restampFromNow(client, tenantId));
+    return true;
+  } catch (err) {
+    logger.warn({ err, tenantId, contractId }, 'contrat supprimé : réestampille des visites prévues en échec (la prochaine réestampille réparera)');
+    return false;
+  }
 }
 
 /**
@@ -496,18 +530,19 @@ async function contractLinks(client, tenantId, id) {
  */
 async function deleteDraft(tenantId, actor, id, { justification } = {}) {
   assertCanWrite(actor);
-  await withTenantTransaction(tenantId, async (client) => {
+  const validated = await withTenantTransaction(tenantId, async (client) => {
     const contract = await loadForUpdate(client, tenantId, id, { forDelete: true }); // vérification des liens puis suppression
-    const validated = isValidatedStatus('contract', contract.status);
+    await repo.lockReportsForDeleteTx(client, tenantId, id); // un gabarit rempli pendant la suppression est vu
+    const isValidated = isValidatedStatus('contract', contract.status);
     const linked = await contractLinks(client, tenantId, id);
 
     const decision = decideDocumentDeletion({
-      validated, dependents: linked.length > 0, isAdmin: actor.role === 'admin', justification,
+      validated: isValidated, dependents: linked.length > 0, isAdmin: actor.role === 'admin', justification,
     });
     if (!decision.allowed) {
       throw deletionRefusal(decision.reason, {
         subject: 'ce contrat', linked,
-        hint: validated ? 'Résiliez-le plutôt que de le supprimer.' : '',
+        hint: isValidated ? 'Résiliez-le plutôt que de le supprimer.' : '',
       });
     }
 
@@ -517,12 +552,15 @@ async function deleteDraft(tenantId, actor, id, { justification } = {}) {
       docRef: `Contrat ${contract.numero || ''} · ${contract.partnerName || ''}`.trim(),
       summary: JSON.stringify({ numero: contract.numero, partner: contract.partnerName, status: contract.status }).slice(0, 4096),
       statusAtDeletion: contract.status,
-      validated,
+      validated: isValidated,
       justification: decision.justification,
       deletedBy: actor.userId,
     });
     await repo.deleteContract(client, tenantId, id);
+    return isValidated;
   });
+  // Contrat validé supprimé : visites prévues de ses zones réestampillées, APRÈS le COMMIT.
+  if (validated) await restampAfterContractDelete(tenantId, id);
 }
 
 /**
@@ -607,5 +645,5 @@ module.exports = {
   amendmentsReport,
   listContracts, listValidators, getContractDetail, getHistory, budgetWorkbook,
   createContract, updateDraft, submit, decide, requestAmendment, decideAmendment, renew, terminate,
-  deleteDraft, deleteAmendment, forecast, allowedActions,
+  deleteDraft, deleteAmendment, forecast, allowedActions, restampAfterContractDelete,
 };
