@@ -183,6 +183,11 @@ export const api = {
   systemStatus: () => request('/api/system/status'),
   login: (email, password) =>
     request('/api/auth/login', { method: 'POST', body: { email, password }, auth: false }),
+  // Auto-inscription + profil de session + validation des comptes.
+  listAuthTenants: () => request('/api/auth/tenants', { auth: false }),
+  register: (input) => request('/api/auth/register', { method: 'POST', body: input, auth: false }),
+  getMe: () => request('/api/auth/me'),
+  approveUser: (id, input) => request(`/api/users/${id}/approve`, { method: 'POST', body: input }),
   listProviders: () => request('/api/tpm/providers'),
   createProvider: (input) => request('/api/tpm/providers', { method: 'POST', body: input }),
   createAgent: (providerId, input) =>

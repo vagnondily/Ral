@@ -5,7 +5,7 @@ const { z } = require('zod');
 const { pool } = require('../../config/db');
 const asyncHandler = require('../../middleware/asyncHandler');
 const { requireAuth } = require('../../middleware/auth');
-const { unauthorized, badRequest } = require('../../middleware/errors');
+const { unauthorized, badRequest, forbidden } = require('../../middleware/errors');
 const { normalizeRole } = require('../common/accessRoles');
 
 const router = Router();
@@ -40,8 +40,9 @@ router.post(
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return next(unauthorized('Identifiants incorrects'));
     // Un compte auto-inscrit attend la validation d'un administrateur : il ne voit rien d'ici là.
+    // 403 (et non 401) pour afficher ce message précis plutôt que « identifiants incorrects ».
     if (user.status === 'pending') {
-      return next(unauthorized('Compte en attente de validation par un administrateur.'));
+      return next(forbidden('Compte en attente de validation par un administrateur.'));
     }
     if (user.active === false) return next(unauthorized('Compte désactivé — contactez un administrateur.'));
 

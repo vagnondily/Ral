@@ -37,6 +37,7 @@ import pickers from './en/pickers.js';
 import indicatorProposals from './en/indicatorProposals.js';
 import planAuto from './en/planAuto.js';
 import tpmInternal from './en/tpmInternal.js';
+import auth from './en/auth.js';
 
 export default {
   // partners en tête : ses phrases déjà traduites ailleurs gardent la traduction de leur module.
@@ -48,4 +49,6 @@ export default {
   ...tpmInternal,
   // Glossaire des rôles (retour 113) en dernier : ses libellés remplacent les anciens.
   ...roles,
+  // Connexion / inscription / accès par écran.
+  ...auth,
 };

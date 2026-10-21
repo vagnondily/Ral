@@ -2,13 +2,15 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { api, getStoredUser, getToken, onUnauthorized, setSession } from './api/client.js';
 import { AlertCircle } from 'lucide-react';
 import { Alert } from './components/ui.jsx';
-import AppShell, { findRoute } from './components/AppShell.jsx';
+import AppShell, { findRoute, NAV } from './components/AppShell.jsx';
+import { canSeePage } from './lib/pages.js';
 import { ToastProvider, useToast } from './components/Toast.jsx';
 import { I18nProvider, useI18n } from './lib/i18n.jsx';
 import { writeSessionPeriod } from './lib/period.js';
 import { canWrite as roleCanWrite, isAdminRole } from './lib/accessRoles.js';
 import { routeOfHash } from './lib/route.js';
 import LoginPage from './pages/LoginPage.jsx';
+import SignupPage from './pages/SignupPage.jsx';
 import ProvidersPage from './pages/ProvidersPage.jsx';
 import ContractsListPage from './pages/contracts/ContractsListPage.jsx';
 import ContractDetailPage from './pages/contracts/ContractDetailPage.jsx';
@@ -52,6 +54,7 @@ function Workspace() {
   const toast = useToast();
   const [user, setUser] = useState(() => (getToken() ? getStoredUser() : null));
   const [route, setRoute] = useState(parseHash);
+  const [showSignup, setShowSignup] = useState(false);
 
   useEffect(() => {
     const onHash = () => setRoute(parseHash());
@@ -74,6 +77,20 @@ function Workspace() {
     window.location.hash = hash;
   }, []);
 
+  // Accès par écran : si la page courante n'est pas autorisée pour cet utilisateur,
+  // on le renvoie vers le premier écran auquel il a droit (le menu masque déjà le reste).
+  useEffect(() => {
+    if (!user) return;
+    const access = isAdminRole(user.role) ? null : (user.pageAccess || null);
+    if (!access) return;
+    if (canSeePage(access, route.module)) return;
+    for (const g of NAV) {
+      for (const item of g.items) {
+        if (canSeePage(access, item.id)) { navigate(item.id, item.subs?.[0]?.id); return; }
+      }
+    }
+  }, [user, route, navigate]);
+
   const openContract = useCallback((id) => navigate('contrats', 'liste', id), [navigate]);
   const newContract = useCallback(() => navigate('contrats', 'liste', 'nouveau'), [navigate]);
   const editContract = useCallback((id) => navigate('contrats', 'liste', id, 'edit'), [navigate]);
@@ -82,6 +99,7 @@ function Workspace() {
   function handleLoggedIn(token, u) {
     setSession(token, u);
     setUser(u);
+    setShowSignup(false);
   }
 
   function handleLogout() {
@@ -90,13 +108,19 @@ function Workspace() {
     setUser(null);
   }
 
-  if (!user) return <LoginPage onLoggedIn={handleLoggedIn} />;
+  if (!user) {
+    return showSignup
+      ? <SignupPage onBack={() => setShowSignup(false)} />
+      : <LoginPage onLoggedIn={handleLoggedIn} onSignup={() => setShowSignup(true)} />;
+  }
 
   const canEdit = roleCanWrite(user.role);
   const isAdmin = isAdminRole(user.role);
+  // Restrictions d'accès par écran (null = aucune). Les administrateurs voient tout.
+  const pageAccess = isAdmin ? null : (user.pageAccess || null);
 
   return (
-    <AppShell user={user} route={route} onNavigate={navigate} onLogout={handleLogout}>
+    <AppShell user={user} route={route} onNavigate={navigate} onLogout={handleLogout} pageAccess={pageAccess}>
       <SchemaBanner isAdmin={isAdmin} />
       {route.module === 'contrats' && (() => {
         const back = () => navigate('contrats', 'liste');

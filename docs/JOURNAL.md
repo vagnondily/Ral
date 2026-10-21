@@ -12,6 +12,19 @@
 
 ## État courant
 
+> **21/10 — Auto-inscription + comptes à valider + accès par écran (frontend).** ✅ Page publique
+> **« Créer un compte »** (depuis la connexion) : organisation + nom + e-mail + mot de passe → compte EN
+> ATTENTE (ne voit rien). Dans **Paramétrage › Utilisateurs & accès**, les comptes « À valider » ont un
+> bouton **Valider** (modale : rôle + écrans visibles) ; un compte en attente ne peut pas se connecter
+> (403 « en attente de validation »). **Restrictions par écran par personne** : éditeur de cases
+> (« Tous les écrans » ou une sélection parmi les 8 écrans) dans la fiche utilisateur ET la validation ;
+> le menu (AppShell) masque les écrans non autorisés et une route interdite redirige vers le premier écran
+> permis (les administrateurs voient tout). Octroi admin/super réservé au super-utilisateur (UI + serveur).
+> Vérifs : lint ✅, 1571 tests ✅, build ✅, i18n FR/EN (locale `auth.js`). **Limite connue** : les
+> restrictions par écran sont une couche de VISIBILITÉ (menu + navigation) ; l'autorisation des données
+> reste portée par le RÔLE côté API (le viewer ne peut rien écrire ; le non-admin n'atteint pas les routes
+> admin). L'application des accès par écran au niveau API (défense en profondeur) est une suite possible.
+
 > **21/10 — Accès : 5 rôles + modèle de capacités (migration 119).** ✅ Les rôles passent de 3
 > (admin / manager / viewer) à **5** : **lecteur · éditeur · validateur · administrateur · super-utilisateur**.
 > Source unique `common/accessRoles.js` (+ jumelle web) : capacités `canWrite` (éditeur+), `canValidate`

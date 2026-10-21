@@ -7,7 +7,7 @@ import { useI18n } from '../lib/i18n.jsx';
 
 const DEMO_EMAIL = 'admin@mems.mg';
 
-export default function LoginPage({ onLoggedIn }) {
+export default function LoginPage({ onLoggedIn, onSignup }) {
   const { tr } = useI18n();
   // Demo credentials are only suggested in development builds.
   const [email, setEmail] = useState(import.meta.env.DEV ? DEMO_EMAIL : '');
@@ -92,6 +92,13 @@ export default function LoginPage({ onLoggedIn }) {
           <Button type="submit" block loading={loading} disabled={!email || !password}>
             {loading ? tr('Connexion…') : tr('Se connecter')}
           </Button>
+
+          {onSignup && (
+            <p className="demo-hint">
+              {tr('Pas encore de compte ?')}{' '}
+              <button type="button" className="inline-link" onClick={onSignup}>{tr('Créer un compte')}</button>
+            </p>
+          )}
 
           {import.meta.env.DEV && (
             <p className="demo-hint">

@@ -12,6 +12,10 @@ import { OFFICE_LEVELS, levelLabel, levelShort, levelIsNational } from '../../li
 import { useI18n } from '../../lib/i18n.jsx';
 import { roleOf } from '../../lib/roles.js';
 import { ROLE_LABELS as ACCESS_ROLE_LABELS, roleLabel as accessRoleLabel, isSuperRole, isAdminRole } from '../../lib/accessRoles.js';
+import { NAV } from '../../components/AppShell.jsx';
+
+// Écrans (items de menu) proposés pour les restrictions d'accès par personne.
+const PAGE_ITEMS = NAV.flatMap((g) => g.items.map((i) => ({ id: i.id, label: i.label, group: g.group })));
 import RoleBadge from '../../components/RoleBadge.jsx';
 
 // Catalogue des rubriques de paramétrage, groupées (façon « Tools » : cartes
@@ -114,6 +118,7 @@ function UsersSection() {
   const toast = useToast();
   const [users, setUsers] = useState(null);
   const [modal, setModal] = useState(null); // {user?} | null
+  const [approve, setApprove] = useState(null); // user en attente à valider | null
 
   async function reload() { try { setUsers(await api.listUsers()); } catch (e) { toast.error(e.message); setUsers([]); } }
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
@@ -139,27 +144,110 @@ function UsersSection() {
         <div className="table-wrap"><table className="table">
           <thead><tr><th scope="col">{tr('Utilisateur')}</th><th scope="col">{tr('Rôle')}</th><th scope="col">{tr('Statut')}</th><th scope="col">{tr('Dernière modif.')}</th><th scope="col" /></tr></thead>
           <tbody>
-            {users.map((u) => (
+            {users.map((u) => {
+              const pending = u.status === 'pending';
+              return (
               <tr key={u.id}>
-                <td><strong>{u.fullName || u.email}</strong><div className="site-meta">{u.email}</div></td>
-                <td><Badge tone={ROLE_TONE[u.role]}>{ROLE_LABEL[u.role] ? tr(ROLE_LABEL[u.role]) : u.role}</Badge></td>
+                <td><strong>{u.fullName || u.email}</strong><div className="site-meta">{u.email}</div>
+                  {!pending && Array.isArray(u.pageAccess) && <div className="site-meta">{tr('Accès limité : {n} écran(s)', { n: u.pageAccess.length })}</div>}
+                </td>
+                <td>{pending ? <span className="site-meta">—</span> : <Badge tone={ROLE_TONE[u.role]}>{ROLE_LABEL[u.role] ? tr(ROLE_LABEL[u.role]) : u.role}</Badge>}</td>
                 <td>
-                  <button type="button" className="switch-row" onClick={() => toggleActive(u)} title={u.active ? tr('Désactiver') : tr('Activer')}>
-                    <Badge tone={u.active ? 'green' : null} dot>{u.active ? tr('Actif') : tr('Désactivé')}</Badge>
-                  </button>
+                  {pending ? (
+                    <Badge tone="orange" dot>{tr('À valider')}</Badge>
+                  ) : (
+                    <button type="button" className="switch-row" onClick={() => toggleActive(u)} title={u.active ? tr('Désactiver') : tr('Activer')}>
+                      <Badge tone={u.active ? 'green' : null} dot>{u.active ? tr('Actif') : tr('Désactivé')}</Badge>
+                    </button>
+                  )}
                 </td>
                 <td className="tabular"><span className="site-meta">{u.updatedAt ? formatDateTime(u.updatedAt) : '—'}</span></td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <Button size="sm" variant="ghost" icon={Pencil} aria-label={tr('Éditer')} onClick={() => setModal({ user: u })} />
-                  <Button size="sm" variant="ghost" icon={Trash2} aria-label={tr('Supprimer')} onClick={() => remove(u)} />
+                  {pending ? (
+                    <>
+                      <Button size="sm" icon={ShieldCheck} onClick={() => setApprove(u)}>{tr('Valider')}</Button>
+                      <Button size="sm" variant="ghost" icon={Trash2} aria-label={tr('Refuser')} onClick={() => remove(u)} />
+                    </>
+                  ) : (
+                    <>
+                      <Button size="sm" variant="ghost" icon={Pencil} aria-label={tr('Éditer')} onClick={() => setModal({ user: u })} />
+                      <Button size="sm" variant="ghost" icon={Trash2} aria-label={tr('Supprimer')} onClick={() => remove(u)} />
+                    </>
+                  )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table></div>
       )}
       {modal && <UserModal user={modal.user} onClose={() => setModal(null)} onSaved={() => { setModal(null); reload(); }} />}
+      {approve && <ApproveModal user={approve} onClose={() => setApprove(null)} onSaved={() => { setApprove(null); reload(); }} />}
     </Card>
+  );
+}
+
+// Éditeur d'accès par écran : « Tous les écrans » (page_access = null) ou une sélection.
+function PageAccessEditor({ value, onChange }) {
+  const { tr } = useI18n();
+  const all = value == null; // null = aucune restriction
+  const set = new Set(all ? [] : value);
+  function toggleAll(e) { onChange(e.target.checked ? null : []); }
+  function toggle(id) {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    onChange([...next]);
+  }
+  return (
+    <Field label={tr('Écrans visibles')} hint={tr('Par défaut, tous les écrans permis par le rôle. Décochez « Tous les écrans » pour restreindre.')}>
+      <label className="check-row" style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+        <input type="checkbox" checked={all} onChange={toggleAll} /> <strong>{tr('Tous les écrans')}</strong>
+      </label>
+      {!all && (
+        <div style={{ display: 'grid', gap: 4, paddingLeft: 6 }}>
+          {PAGE_ITEMS.map((p) => (
+            <label key={p.id} className="check-row" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input type="checkbox" checked={set.has(p.id)} onChange={() => toggle(p.id)} />
+              <span>{tr(p.label)} <span className="site-meta">· {tr(p.group)}</span></span>
+            </label>
+          ))}
+        </div>
+      )}
+    </Field>
+  );
+}
+
+// Validation d'un compte auto-inscrit : attribution du rôle + des écrans visibles.
+function ApproveModal({ user, onClose, onSaved }) {
+  const { tr } = useI18n();
+  const toast = useToast();
+  const currentIsSuper = isSuperRole(getStoredUser()?.role);
+  const [role, setRole] = useState('viewer');
+  const [pageAccess, setPageAccess] = useState(null);
+  const [saving, setSaving] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try { await api.approveUser(user.id, { role, pageAccess }); toast.success(tr('Compte validé.')); onSaved(); }
+    catch (err) { toast.error(err.message); } finally { setSaving(false); }
+  }
+  return (
+    <Modal open title={tr('Valider le compte')} subtitle={user.email}
+      onClose={() => !saving && onClose()}
+      footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button type="submit" form="approve-form" loading={saving}>{tr('Valider et activer')}</Button></>}>
+      <form id="approve-form" onSubmit={save} style={{ display: 'grid', gap: 14 }}>
+        <Field label={tr('Rôle')} hint={tr('Lecteur : consultation. Éditeur : crée et modifie. Validateur : valide. Administrateur : gère tout. Super-utilisateur : gère aussi les administrateurs et la sécurité.')}>
+          <select className="select" value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="viewer">{tr('Lecteur')}</option>
+            <option value="editor">{tr('Éditeur')}</option>
+            <option value="validator">{tr('Validateur')}</option>
+            {currentIsSuper && <option value="admin">{tr('Administrateur')}</option>}
+            {currentIsSuper && <option value="superuser">{tr('Super-utilisateur')}</option>}
+          </select>
+        </Field>
+        <PageAccessEditor value={pageAccess} onChange={setPageAccess} />
+      </form>
+    </Modal>
   );
 }
 
@@ -169,6 +257,8 @@ function UserModal({ user, onClose, onSaved }) {
   const editing = Boolean(user);
   const currentIsSuper = isSuperRole(getStoredUser()?.role);
   const [form, setForm] = useState({ email: user?.email || '', fullName: user?.fullName || '', role: user?.role || 'viewer', password: '', active: user?.active ?? true });
+  // null = aucune restriction (tous les écrans) ; tableau = écrans visibles.
+  const [pageAccess, setPageAccess] = useState(user && Array.isArray(user.pageAccess) ? user.pageAccess : null);
   const [saving, setSaving] = useState(false);
 
   async function save(e) {
@@ -179,9 +269,9 @@ function UserModal({ user, onClose, onSaved }) {
     setSaving(true);
     try {
       if (editing) {
-        await api.updateUser(user.id, { fullName: form.fullName.trim() || undefined, role: form.role, active: form.active, password: form.password || undefined });
+        await api.updateUser(user.id, { fullName: form.fullName.trim() || undefined, role: form.role, active: form.active, password: form.password || undefined, pageAccess });
       } else {
-        await api.createUser({ email: form.email.trim(), fullName: form.fullName.trim() || undefined, role: form.role, password: form.password });
+        await api.createUser({ email: form.email.trim(), fullName: form.fullName.trim() || undefined, role: form.role, password: form.password, pageAccess });
       }
       toast.success(tr('Compte enregistré.')); onSaved();
     } catch (err) { toast.error(err.message); } finally { setSaving(false); }
@@ -208,6 +298,7 @@ function UserModal({ user, onClose, onSaved }) {
           <input className="input" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="new-password" />
         </Field>
         {editing && <label className="filter-check"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /><span>{tr('Compte actif (peut se connecter)')}</span></label>}
+        <PageAccessEditor value={pageAccess} onChange={setPageAccess} />
       </form>
     </Modal>
   );

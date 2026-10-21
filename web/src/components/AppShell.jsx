@@ -7,6 +7,7 @@ import { IconButton } from './ui.jsx';
 import { LogoMark } from './Logo.jsx';
 import { NotificationsMenu, UserMenu } from './HeaderMenus.jsx';
 import { useI18n } from '../lib/i18n.jsx';
+import { canSeePage } from '../lib/pages.js';
 
 const SIDEBAR_KEY = 'mems.sidebar';
 
@@ -113,7 +114,7 @@ export function findRoute(moduleId, subId) {
   return null;
 }
 
-export default function AppShell({ user, route, onNavigate, onLogout, children }) {
+export default function AppShell({ user, route, onNavigate, onLogout, children, pageAccess = null }) {
   const [navOpen, setNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem(SIDEBAR_KEY) === 'collapsed'; } catch { return false; }
@@ -154,10 +155,14 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
         </div>
 
         <nav className="nav">
-          {NAV.map((g) => (
+          {NAV.map((g) => {
+            // Accès par écran : on ne montre que les écrans autorisés ; un groupe vide disparaît.
+            const items = g.items.filter((item) => canSeePage(pageAccess, item.id));
+            if (!items.length) return null;
+            return (
             <div className="nav-group" key={g.group}>
               <div className="nav-group-label">{t(`nav.group.${g.group}`, tr(g.group))}</div>
-              {g.items.map((item) => {
+              {items.map((item) => {
                 const Icon = item.icon;
                 const available = Boolean(item.subs);
                 const open = route.module === item.id;
@@ -203,7 +208,8 @@ export default function AppShell({ user, route, onNavigate, onLogout, children }
                 );
               })}
             </div>
-          ))}
+            );
+          })}
         </nav>
 
         <div className="sidebar-foot">
