@@ -83,3 +83,16 @@ export function contractIdentity(c, holderName) {
 export function tpmNames(view) {
   return ((view && view.tpms) || []).map((t) => t.name);
 }
+
+/** Statuts d'un contrat qui couvrent des mois (jumeau de tpmAttribution.COVERING_STATUSES, mems_tpm_cells). */
+export const COVERING_CONTRACT_STATUSES = ['actif', 'resilie'];
+
+/**
+ * TPM d'un contrat dans une liste : 'tpm' (au moins un TPM), 'interne' (contrat qui couvre des mois,
+ * sans TPM : suivi par l'équipe S&E, ROLE_LABELS.noTpm), sinon 'aucun' (brouillon, en validation,
+ * rejeté : il ne couvre aucun mois, ni TPM ni « Interne » — « — »).
+ */
+export function contractTpmKind(c) {
+  if (c && c.tpm && (c.tpm.tpms || []).length) return 'tpm';
+  return c && COVERING_CONTRACT_STATUSES.includes(c.status) ? 'interne' : 'aucun';
+}

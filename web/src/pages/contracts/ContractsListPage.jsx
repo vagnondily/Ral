@@ -12,7 +12,7 @@ import { formatAr, formatInt } from '../../lib/format.js';
 import { downloadCsv } from '../../lib/csv.js';
 import { CONTRACT_STATUS, contractFlags, periodLabel, richText } from '../../lib/contracts.js';
 import { SubmitDialog, DecisionDialog, RenewDialog, TerminateDialog } from './ContractDialogs.jsx';
-import { ROLE_LABELS, contractNo, internalNo, joinParts, tpmNames, typeLabelOf } from '../../lib/roles.js';
+import { ROLE_LABELS, contractNo, contractTpmKind, internalNo, joinParts, tpmNames, typeLabelOf } from '../../lib/roles.js';
 import '../tpm/partners.css';
 
 const STATUSES = [
@@ -56,7 +56,7 @@ function matchOne(key, c, v) {
     case 'status': return !v || c.status === v;
     case 'activity': return !v || (c.activities || []).includes(v);
     case 'type': return !v || holderType(c) === v;
-    case 'tpm': return !v || (v === 'aucun' ? !(c.tpm && c.tpm.tpms.length) : ((c.tpm && c.tpm.tpms) || []).some((t) => t.id === v));
+    case 'tpm': return !v || (v === 'aucun' ? contractTpmKind(c) === 'interne' : ((c.tpm && c.tpm.tpms) || []).some((t) => t.id === v));
     case 'year': return !v || (c.dateDebut || '').startsWith(v);
     case 'attention': return !v || c.amendmentRequired || c.status === 'en_validation';
     case 'overspent': return !v || (c.monitoringBudget > 0 && c.spentTotal > c.monitoringBudget);
@@ -237,7 +237,8 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
   function exportCsv() {
     const head = ['N° FLA', 'N° interne', ROLE_LABELS.holder, ROLE_LABELS.holderType, ROLE_LABELS.tpm, 'Activités', 'Début', 'Fin', 'Total accord (Ar)', 'Budget Suivi (Ar)', 'Suivi justifié (Ar)', 'Statut'].map((h) => tr(h));
     const lines = filtered.map((c) => [
-      c.reference || c.numeroFla || '', c.numero, c.partnerName, holderType(c) ? tr(holderType(c)) : '', tpmNames(c.tpm).join(', '),
+      c.reference || c.numeroFla || '', c.numero, c.partnerName, holderType(c) ? tr(holderType(c)) : '',
+      tpmNames(c.tpm).join(', ') || (contractTpmKind(c) === 'interne' ? tr(ROLE_LABELS.noTpm) : ''),
       (c.activities || []).map((x) => activityMap[x] || x).join(' / '), c.dateDebut, c.dateFin,
       Math.round(c.budgetTotal), Math.round(c.monitoringBudget || 0), Math.round(c.spentTotal || 0), CONTRACT_STATUS[c.status] ? tr(CONTRACT_STATUS[c.status].label) : c.status,
     ]);
@@ -419,7 +420,9 @@ export default function ContractsListPage({ canEdit, onOpen, onNew, onEdit, onAm
                             ? <>{tpmNames(c.tpm).join(', ')}
                                 <div className="site-meta">{joinParts(c.tpm.state === 'titulaire' ? tr('son propre contrat') : null,
                                   c.zonesCount ? tr(c.zonesCount > 1 ? '{n} zones' : '{n} zone', { n: c.zonesCount }) : null)}</div></>
-                            : <span className="cell-empty" title={tr('Aucun TPM n\'est rattaché à ce contrat par un plan de collecte ou une facture.')}>{tr('Aucun TPM')}</span>}
+                            : contractTpmKind(c) === 'interne'
+                              ? <span className="cell-empty" title={tr(ROLE_LABELS.noTpmHint)}>{tr(ROLE_LABELS.noTpm)}</span>
+                              : <span className="cell-empty">—</span>}
                         </td>
                         <td>
                           <div className="tag-row">
