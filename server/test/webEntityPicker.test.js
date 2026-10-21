@@ -172,3 +172,16 @@ test('TPM actifs ce mois-ci en tête (règle « prestataire actif », retour 30)
   const allOwn = m.tpmOptions(partners.slice(0, 1), { contracts: CONTRACTS, contractId: 'k1', tpmsOf, isActive, labels });
   assert.deepEqual(allOwn.order, ['Du contrat', 'Autres'], 'groupe « actifs » vide : pas formé');
 });
+
+test('TPM inactifs (mois passés, D-b) dans leur propre groupe, à la fin ; TPM indisponible marqué dans sa précision (D-c)', async (t) => {
+  const m = await load(t, 'tpmPickers.js'); if (!m) return;
+  const partners = [{ id: 'p1', name: 'Ezaka Conseil' }, { id: 'p2', name: 'Miray Suivi' }];
+  const labels = { ofContract: 'Du contrat', others: 'Autres', noContract: '—', inactive: 'TPM inactifs (mois passés)', unavailable: (ms) => `indisponible : ${ms.join(', ')}` };
+  const offMonths = (id) => (id === 'p2' ? ['2026-12'] : []);
+  const out = m.tpmOptions(partners, { contracts: CONTRACTS, tpmsOf, offMonths, inactive: [{ id: 'old', name: 'Sahy', active: false }, { id: 'p1', name: 'doublon' }], labels });
+  assert.deepEqual(out.order, ['Autres', 'TPM inactifs (mois passés)']);
+  assert.deepEqual(out.options.map((o) => [o.value, o.group, o.active]), [['p1', 'Autres', undefined], ['p2', 'Autres', undefined], ['old', 'TPM inactifs (mois passés)', false]], 'un TPM actif n est jamais repris parmi les inactifs');
+  assert.match(out.options[1].sub, /indisponible : 2026-12$/);
+  // Sans le libellé du groupe (plan de collecte, facture du mois courant) : aucun TPM inactif proposé.
+  assert.deepEqual(m.tpmOptions(partners, { contracts: CONTRACTS, tpmsOf, inactive: [{ id: 'old', name: 'Sahy' }], labels: { others: 'Autres' } }).options.map((o) => o.value), ['p1', 'p2']);
+});

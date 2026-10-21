@@ -161,6 +161,27 @@ test('D-c (point 25) : une seule source « indisponible » pour les listes de ch
   assert.equal(unavailableThroughout([], [{ month: '2026-12' }]), false);
 });
 
+test('D-b à l écran (relecture des corrections croisées, point 3) : même règle « mois passés » des deux côtés ; la facture propose les TPM inactifs', async (t) => {
+  const file = path.join(__dirname, '../../web/src/lib/reportExpectation.js');
+  if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }
+  const w = await import(pathToFileURL(file).href);
+  const { inactiveTpmMayInvoice } = require('../src/modules/tpm/reportExpectation');
+  const cases = [];
+  for (const kind of ['financier', 'technique']) {
+    for (const periodMonth of ['2026-08-01', '2026-09', '2026-10-01', '2026-11', '', null]) {
+      for (const periodEnd of [null, '', '2026-07-01', '2026-09', '2026-10-01', '2026-12']) cases.push({ kind, periodMonth, periodEnd });
+    }
+  }
+  for (const c of cases) assert.equal(w.inactiveTpmMayInvoice(c, '2026-10'), inactiveTpmMayInvoice(c, '2026-10'), JSON.stringify(c));
+  assert.equal(w.inactiveTpmMayInvoice(null, '2026-10'), false);
+  const drawer = fs.readFileSync(path.join(__dirname, '../../web/src/pages/tpm/FactureDrawer.jsx'), 'utf8');
+  assert.match(drawer, /const pastOnly = isFin && inactiveTpmMayInvoice\(\{ kind: 'financier', periodMonth: factureMonth, periodEnd: head\.periodEnd \|\| null \}, today\);/);
+  assert.match(drawer, /inactive: pastOnly \? inactiveTpms : \[\]/);
+  assert.match(drawer, /const today = context\?\.today \|\| currentMonth\(\);/, 'mois LOCAL de l application, renvoyé par le serveur');
+  const repo = fs.readFileSync(path.join(__dirname, '../src/modules/tpm/reports.repository.js'), 'utf8');
+  assert.match(repo, /inactiveTpms,\s+today: currentMonth\(\),/);
+});
+
 test('D-c à l écran (relecture des corrections croisées, point 4) : l avertissement suit les mois de LA facture, jamais le filtre de la page', (t) => {
   const file = path.join(__dirname, '../../web/src/pages/tpm/FactureDrawer.jsx');
   if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }

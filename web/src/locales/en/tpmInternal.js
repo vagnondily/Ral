@@ -141,4 +141,7 @@ export default {
     'This TPM is declared unavailable in {m}: the invoice is still possible if the work was actually done — check before submitting it.',
   // Relecture des corrections croisées (fiche retypée, TPM inactif, TPM indisponible)
   'Ce partenaire n\'est plus un TPM : aucune facture n\'est plus attendue de lui.': 'This partner is no longer a TPM: no invoice is expected from it any more.',
+  'TPM inactifs (mois passés)': 'Inactive TPMs (past months)',
+  'Ce TPM est inactif : sa facture ne peut porter que sur des mois passés.': 'This TPM is inactive: its invoice can only cover past months.',
+  'Ce TPM est inactif : la facture ne peut être soumise que si toute sa période précède le mois courant.': 'This TPM is inactive: the invoice can only be submitted if its whole period is before the current month.',
 };

@@ -5,12 +5,13 @@ import { Alert, Button, Field, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
 import MoneyInput from '../../components/MoneyInput.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import { formatAr, monthLabel } from '../../lib/format.js';
+import { currentMonth, formatAr, monthLabel } from '../../lib/format.js';
 import { periodLabel } from '../../lib/period.js';
 import EntityPicker from '../../components/EntityPicker.jsx';
 import { contractOptions, tpmOptions, withContract, withPartner } from '../../lib/tpmPickers.js';
 import useContractTpms from '../../lib/useContractTpms.js';
 import { joinParts } from '../../lib/roles.js';
+import { inactiveTpmMayInvoice } from '../../lib/reportExpectation.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { richText } from '../../lib/contracts.js';
 import { openFacturePrint } from '../../lib/facturePrint.js';
@@ -57,6 +58,12 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
   const contracts = context?.contracts || [];
   // Mois de la facture : celui du rapport ouvert (édition), sinon le mois de la page (création).
   const factureMonth = editing ? head.periodMonth : (month ? String(month).slice(0, 7) : '');
+  // Décision D-b : une facture dont toute la période précède le mois courant (mois LOCAL de l'application,
+  // renvoyé par le serveur) peut venir d'un TPM dont la fiche est inactive — proposé dans son propre groupe.
+  const today = context?.today || currentMonth();
+  const pastOnly = isFin && inactiveTpmMayInvoice({ kind: 'financier', periodMonth: factureMonth, periodEnd: head.periodEnd || null }, today);
+  const inactiveTpms = context?.inactiveTpms || [];
+  const inactivePartner = isFin && inactiveTpms.some((p) => p.id === head.partnerId);
   const contract = contracts.find((c) => c.id === head.contractId);
   // Retour 58 — même règle que la planification : le contrat propose son TPM, le TPM son contrat.
   const tpmsOf = useContractTpms(month, !editing);
@@ -86,9 +93,11 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
   });
   const pickTpms = tpmOptions(partners, {
     contracts, contractId: head.contractId, tpmsOf, isActive: tpmsOf.isActive,
+    inactive: pastOnly ? inactiveTpms : [],
     labels: {
       ofContract: tr('TPM de ce contrat'), others: tr('Autres TPM'), noContract: tr('Aucun contrat de suivi rattaché'),
       active: tr('Actifs en {month} (contrat de suivi)', { month: month ? monthLabel(String(month).slice(0, 7)) : '' }),
+      inactive: tr('TPM inactifs (mois passés)'),
     },
   });
 
@@ -142,6 +151,8 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
   const errors = [];
   if (!editing && !head.partnerId) errors.push(tr('Choisissez un TPM.'));
   if (!editing && !head.contractId) errors.push(tr('Choisissez un contrat.'));
+  // TPM inactif (D-b) : seulement une facture de mois passés — sinon le serveur la refuserait (400 not_tpm).
+  if (!editing && inactivePartner && !pastOnly) errors.push(tr('Ce TPM est inactif : sa facture ne peut porter que sur des mois passés.'));
   if (isFin && itemsFromRows(rows).length === 0) errors.push(tr('Ajoutez au moins un poste (désignation, quantité, coût).'));
   // Un % bailleur illisible ou hors 0–100 est refusé, jamais ramené en silence à 0 ou 100 %.
   if (isFin && !readOnly && invalidPctRows(rows).length > 0) errors.push(tr('% bailleur invalide : saisissez un nombre entre 0 et 100 (vide = 100 %).'));
@@ -194,7 +205,7 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
   }
 
   function printPdf() {
-    const partnerName = head.partnerName || partners.find((p) => p.id === head.partnerId)?.name || '';
+    const partnerName = head.partnerName || [...partners, ...inactiveTpms].find((p) => p.id === head.partnerId)?.name || '';
     // N° affiché du contrat : n° FLA, sinon numéro interne (glossaire, retour 113).
     const contractNumero = head.contractNumero ? (head.contractFla || head.contractNumero) : (contract?.numeroFla || contract?.numero || '');
     openFacturePrint({
@@ -267,6 +278,10 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
 
           {otherTpm && (
             <Alert tone="warn">{tr('Ce TPM n\'est pas celui de ce contrat ({p}) : vérifiez le couple TPM × contrat.', { p: headTpms.map((p) => p.name).join(', ') })}</Alert>
+          )}
+          {/* Gabarit ou facture rejetée d'un TPM devenu inactif (D-b) : soumise seulement pour des mois passés. */}
+          {editing && !readOnly && inactivePartner && !pastOnly && (
+            <Alert tone="warn">{tr('Ce TPM est inactif : la facture ne peut être soumise que si toute sa période précède le mois courant.')}</Alert>
           )}
           {/* Facture figée (soumise, validée, lecture seule) : l'avertissement « avant de la soumettre » ne dit plus rien. */}
           {isFin && !readOnly && offMonths.length > 0 && (

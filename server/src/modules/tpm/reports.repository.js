@@ -226,14 +226,21 @@ async function invoiceData(tenantId, id) {
   });
 }
 
-/** TPM partners + monitoring contracts (active, with a Suivi budget) for the pickers. */
+/**
+ * TPM partners + monitoring contracts (active, with a Suivi budget) for the pickers. `partners` : TPM actifs
+ * (plans, gabarits, factures) ; `inactiveTpms` : TPM dont la fiche est inactive, proposés pour une facture
+ * dont toute la période précède le mois courant (`today`, mois LOCAL de l'application — décision D-b,
+ * reportExpectation.inactiveTpmMayInvoice ; relecture des corrections croisées, point 3).
+ */
 async function reportContext(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
-    const { rows: partners } = await client.query(
-      `SELECT p.id, p.name FROM partners p JOIN partner_types pt ON pt.id = p.partner_type_id
-        WHERE p.tenant_id = $1 AND pt.code = 'tpm' AND p.active = true ORDER BY p.name`,
+    const { rows: tpms } = await client.query(
+      `SELECT p.id, p.name, p.active FROM partners p JOIN partner_types pt ON pt.id = p.partner_type_id AND pt.tenant_id = p.tenant_id
+        WHERE p.tenant_id = $1 AND pt.code = 'tpm' ORDER BY p.name, p.id`,
       [tenantId]
     );
+    const partners = tpms.filter((p) => p.active !== false).map((p) => ({ id: p.id, name: p.name }));
+    const inactiveTpms = tpms.filter((p) => p.active === false).map((p) => ({ id: p.id, name: p.name, active: false }));
     const { rows: contracts } = await client.query(
       `SELECT c.id, c.numero, c.numero_fla AS "numeroFla", c.partner_name AS "partnerName", c.date_debut AS "dateDebut", c.date_fin AS "dateFin",
               c.management_fee_pct AS "managementFeePct", c.period_months AS "periodMonths",
@@ -255,6 +262,8 @@ async function reportContext(tenantId) {
     );
     return {
       partners,
+      inactiveTpms,
+      today: currentMonth(),
       activities,
       contracts: contracts.map((c) => {
         const fee = Number(c.managementFeePct) || 0;

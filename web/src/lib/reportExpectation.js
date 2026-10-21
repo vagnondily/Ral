@@ -100,3 +100,16 @@ export function factureFlow(reports, month) {
     facturesValidees: real.filter((r) => r.status === 'valide').length,
   };
 }
+
+/**
+ * Décision D-b — jumelle EXACTE de server/src/modules/tpm/reportExpectation.inactiveTpmMayInvoice (parité
+ * testée) : une FACTURE dont toute la période [periodMonth, periodEnd] précède le mois courant `today`
+ * (« AAAA-MM », mois local de l'application) peut venir d'un TPM dont la fiche est inactive. Un plan, un
+ * rapport technique ou une facture qui touche le mois courant exige un TPM actif.
+ */
+export function inactiveTpmMayInvoice(doc, today) {
+  if (!doc || doc.kind !== 'financier') return false;
+  const from = String(doc.periodMonth || '').slice(0, 7);
+  const to = doc.periodEnd ? String(doc.periodEnd).slice(0, 7) : from;
+  return /^\d{4}-\d{2}$/.test(from) && (to > from ? to : from) < today;
+}
