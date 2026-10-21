@@ -559,5 +559,10 @@ test('linkPastMonths (re-relecture, point 2) : mois passés du document au mois 
   assert.deepEqual(a.linkPastMonths(ended, '2026-05-01', '2026-10'), ['2026-05', '2026-06'], 'jamais après la résiliation');
   assert.deepEqual(a.linkPastMonths({ ...k, monitoring: false }, '2026-07-01', '2026-10'), [], 'contrat qui n est pas de suivi');
   assert.deepEqual(a.linkPastMonths(null, '2026-07-01', '2026-10'), []);
-  assert.equal(a.linkPastMonths({ ...k, dateDebut: '2000-01-01', dateFin: '2099-12-31' }, '2000-01-01', '2026-10').length, 240, 'borné');
+  // Borné aux 240 mois les PLUS RÉCENTS (relecture r114c, point 4) : du mois précédent en remontant, dans l'ordre.
+  const capped = a.linkPastMonths({ ...k, dateDebut: '2000-01-01', dateFin: '2099-12-31' }, '2000-01-01', '2026-10');
+  assert.equal(capped.length, 240, 'borné');
+  assert.equal(capped[capped.length - 1], '2026-09', 'le dernier : le mois précédant le mois courant');
+  assert.equal(capped[0], '2006-10', 'le premier : 240 mois avant, jamais le mois du document');
+  assert.deepEqual(capped, [...capped].sort());
 });

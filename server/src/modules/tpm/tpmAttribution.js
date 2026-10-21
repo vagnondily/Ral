@@ -691,17 +691,19 @@ function shiftMonthKey(m, n) {
  * Mois PASSÉS que le lien TPM ↔ contrat d'un document peut changer (re-relecture, point 2) : du mois
  * du document (linkRestampFrom) au mois précédant le mois courant, seulement ceux que le contrat de
  * suivi couvre — ailleurs son TPM ne décide de rien. [] pour un document du mois courant ou à venir,
- * ou un contrat qui n'est pas de suivi. Borné (240 mois). La ré-estampille de ces mois se limite aux
- * zones du contrat (repository) ; le mois courant et la suite restent recalculés pour tout le compte.
+ * ou un contrat qui n'est pas de suivi. Borné aux 240 mois les PLUS RÉCENTS (ceux qu'on va facturer ;
+ * relecture r114c, point 4), dans l'ordre. La ré-estampille de ces mois se limite aux zones du contrat
+ * (repository) ; le mois courant et la suite restent recalculés pour tout le compte.
  * @param {{ status, dateDebut, dateFin, terminationDate?, monitoring: boolean }} contract
  */
 function linkPastMonths(contract, docMonth, today) {
   if (!isMonitoringContract(contract)) return [];
+  const from = linkRestampFrom(docMonth, today);
   const out = [];
-  for (let m = linkRestampFrom(docMonth, today); m < today && out.length < 240; m = shiftMonthKey(m, 1)) {
+  for (let m = shiftMonthKey(today, -1); m >= from && out.length < 240; m = shiftMonthKey(m, -1)) {
     if (contractCoversMonth(contract, m)) out.push(m);
   }
-  return out;
+  return out.reverse();
 }
 
 module.exports = {
