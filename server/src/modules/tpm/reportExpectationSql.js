@@ -27,10 +27,12 @@ const stubNotApplicableSql = (r = 'r') => `(${stubNotTpmSql(r)} OR (${r}.status 
 
 /**
  * Jumeau SQL de l'ÉCHÉANCE de reportExpectation.tpmStatus (relecture croisée, point 15) : un gabarit
- * « attendu » qui n'est pas « non applicable » d'office et dont la date limite est dépassée — le rapport du
- * mois M se remet au plus tard au cours de M + DUE_MONTHS_AFTER ; au-delà, « en retard » — comme la carte
- * « Rapports attendus » et la cloche, dans la liste des rapports et sur la fiche 360°. Le dernier mois du
- * gabarit ([period_month, period_end]) fixe l'échéance.
+ * « attendu » qui n'est pas « non applicable » d'office est « en retard » dès qu'UN de ses mois ([period_month,
+ * period_end]) est en retard pour la carte — le TPM y porte une visite non annulée sur ce contrat, la date
+ * limite de CE mois est dépassée (le rapport du mois M se remet au plus tard au cours de M +
+ * DUE_MONTHS_AFTER), et aucun autre document réel du couple (soumis, validé, rejeté, non applicable saisi)
+ * ne couvre ce mois (relecture des corrections croisées, point 5 : jamais le seul dernier mois) — comme la
+ * carte « Rapports attendus » et la cloche, dans la liste des rapports et sur la fiche 360°.
  * @param {string} r      alias de tpm_reports
  * @param {string} today  mois courant LOCAL de l'application, « AAAA-MM » (rbmMath.currentMonth) — écrit
  *                        en littéral (contrôlé ici), jamais la date de la session (UTC)
@@ -38,7 +40,14 @@ const stubNotApplicableSql = (r = 'r') => `(${stubNotTpmSql(r)} OR (${r}.status 
 function stubLateSql(r = 'r', today) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(today))) throw new Error('stubLateSql : mois courant attendu (AAAA-MM)');
   return `(${r}.status = 'attendu' AND NOT ${stubNotApplicableSql(r)}
-    AND COALESCE(${r}.period_end, ${r}.period_month) + interval '${DUE_MONTHS_AFTER} month' < '${today}-01'::date)`;
+    AND EXISTS (SELECT 1 FROM site_visits lv
+     WHERE lv.tenant_id = ${r}.tenant_id AND lv.provider_id = ${r}.partner_id AND lv.contract_id = ${r}.contract_id
+       AND lv.status <> 'annule' AND lv.period_month BETWEEN ${r}.period_month AND COALESCE(${r}.period_end, ${r}.period_month)
+       AND lv.period_month + interval '${DUE_MONTHS_AFTER} month' < '${today}-01'::date
+       AND NOT EXISTS (SELECT 1 FROM tpm_reports od
+            WHERE od.tenant_id = ${r}.tenant_id AND od.partner_id = ${r}.partner_id AND od.contract_id = ${r}.contract_id
+              AND od.kind = ${r}.kind AND od.id <> ${r}.id AND od.status IN ('soumis', 'valide', 'rejete', 'non_applicable')
+              AND lv.period_month BETWEEN od.period_month AND COALESCE(od.period_end, od.period_month))))`;
 }
 
 module.exports = { stubNotApplicableSql, stubNotTpmSql, stubLateSql };

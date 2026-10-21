@@ -12,11 +12,17 @@ const { stubLateSql, stubNotApplicableSql } = require('../src/modules/tpm/report
 const { DUE_MONTHS_AFTER } = require('../src/modules/tpm/reportExpectation');
 const { reportSummary, expectedCountsOf } = require('../src/modules/partners/partnerSheet');
 
-test('stubLateSql : gabarit « attendu », pas non applicable d office, échéance (dernier mois + DUE_MONTHS_AFTER) dépassée', () => {
+test('stubLateSql : gabarit « attendu », pas non applicable d office, en retard dès qu UN de ses mois l est (relecture des corrections croisées, point 5)', () => {
   const sql = stubLateSql('r', '2026-10').replace(/\s+/g, ' ');
   assert.ok(sql.includes("r.status = 'attendu'"));
   assert.ok(sql.includes(`NOT ${stubNotApplicableSql('r').replace(/\s+/g, ' ')}`));
-  assert.ok(sql.includes(`COALESCE(r.period_end, r.period_month) + interval '${DUE_MONTHS_AFTER} month' < '2026-10-01'::date`));
+  // Chaque mois du gabarit sur sa PROPRE échéance (comme tpmStatus), jamais le seul dernier mois.
+  assert.ok(!sql.includes('COALESCE(r.period_end, r.period_month) + interval'), 'plus d échéance du dernier mois');
+  assert.ok(sql.includes('lv.period_month BETWEEN r.period_month AND COALESCE(r.period_end, r.period_month)'));
+  assert.ok(sql.includes(`lv.period_month + interval '${DUE_MONTHS_AFTER} month' < '2026-10-01'::date`));
+  assert.ok(sql.includes("lv.provider_id = r.partner_id AND lv.contract_id = r.contract_id AND lv.status <> 'annule'"), 'visites non annulées de son TPM sur son contrat');
+  // Un mois qu'un autre document RÉEL du couple couvre n'est pas en retard (la carte retient ce document).
+  assert.ok(sql.includes("od.kind = r.kind AND od.id <> r.id AND od.status IN ('soumis', 'valide', 'rejete', 'non_applicable')"));
   // Le mois courant est un littéral contrôlé : jamais autre chose qu'AAAA-MM.
   for (const bad of [undefined, '2026-13', "2026-10'; DROP TABLE x; --", '2026-1']) assert.throws(() => stubLateSql('r', bad));
 });
