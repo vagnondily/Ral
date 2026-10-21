@@ -46,6 +46,27 @@ test('fiche 360° : factures « Attendu » / « En retard » = rapports attendus
   assert.deepEqual([raw.financier.attendu, raw.financier.en_retard, raw.expected, raw.late], [4, 1, 5, 2]);
 });
 
+test('fiche 360° d un TITULAIRE (relecture des corrections croisées, point 1) : les factures attendues / en retard de son TPM sur ses contrats comptent', () => {
+  // MIARO tient k1 ; YPA en est le TPM. MIARO n'est le TPM d'aucune ligne : avant, sa fiche comptait 0 / 0.
+  const expected = { rows: [
+    { unit: { kind: 'tpm', providerId: 'ypa' }, contract: { id: 'k1' }, status: 'en_retard' },
+    { unit: { kind: 'tpm', providerId: 'ypa' }, contract: { id: 'k1' }, status: 'attendu' },
+    { unit: { kind: 'tpm', providerId: 'ypa' }, contract: { id: 'k2' }, status: 'en_retard' }, // contrat d'un autre titulaire
+    { unit: { kind: 'tpm', providerId: 'miaro' }, contract: { id: 'k1' }, status: 'attendu' }, // TPM ET titulaire : une fois
+    { unit: { kind: 'tpm', providerId: 'sahy' }, contract: null, status: 'en_retard' },
+    { unit: { kind: 'interne', providerId: null }, contract: null, status: 'attendu' },
+  ] };
+  assert.deepEqual(expectedCountsOf(expected, 'miaro', ['k1']), { attendu: 2, en_retard: 1 });
+  assert.deepEqual(expectedCountsOf(expected, 'miaro'), { attendu: 1, en_retard: 0 }, 'sans ses contrats : ses lignes de TPM seules');
+  assert.deepEqual(expectedCountsOf(expected, 'ypa', []), { attendu: 1, en_retard: 2 });
+  const s = reportSummary([{ kind: 'financier', status: 'en_retard', n: 1 }, { kind: 'financier', status: 'valide', n: 2 }], expectedCountsOf(expected, 'miaro', ['k1']));
+  assert.deepEqual([s.financier.attendu, s.financier.en_retard, s.expected, s.late], [2, 1, 2, 1]);
+  // Le service passe les contrats tenus (même périmètre que les documents de la fiche, docOf).
+  const src = fs.readFileSync(path.join(__dirname, '../src/modules/partners/partners.service.js'), 'utf8');
+  assert.match(src, /const held = \(raw\.contracts \|\| \[\]\)\.filter\(\(c\) => c\.holderId === id\)\.map\(\(c\) => c\.id\);/);
+  assert.match(src, /expected: expectedCountsOf\(expected, id, held\)/);
+});
+
 test('web : statut affiché d un gabarit en retard = « En retard » (liste, onglet), comme la carte', async (t) => {
   const file = path.join(__dirname, '../../web/src/lib/reportExpectation.js');
   if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }

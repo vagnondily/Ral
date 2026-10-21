@@ -104,7 +104,8 @@ function providerListRows(rows, links, { contracts = [], views = new Map() } = {
 /**
  * Rapports par statut et par nature : { financier: { soumis: n, … }, technique: {…}, total, toValidate,
  * expected, late, rejected }. Soumis / Validé / Rejeté : documents enregistrés. Factures « Attendu » et
- * « En retard » : les RAPPORTS ATTENDUS de ce TPM (`live`, expectedCountsOf — la même source que la carte
+ * « En retard » : les RAPPORTS ATTENDUS de ce partenaire — comme TPM, et ceux des contrats qu'il tient
+ * (`live`, expectedCountsOf, même périmètre que les documents de la fiche ; la même source que la carte
  * et les alertes ; relecture croisée, point 4) quand ils sont connus, sinon les gabarits enregistrés.
  * `total` compte toujours les documents enregistrés (onglet Rapports).
  */
@@ -131,13 +132,18 @@ function reportSummary(rows, live = null) {
 
 /**
  * Factures attendues et en retard d'UN partenaire, d'après les rapports attendus (reports.repository
- * .expectedReports : une ligne par TPM × contrat × mois) — pur, testé.
+ * .expectedReports : une ligne par TPM × contrat × mois) — pur, testé. Même périmètre que les documents
+ * de la fiche (partners.repository, docOf) : les factures dont il est le TPM ET celles du TPM des contrats
+ * qu'il TIENT (titulaire, partenaire de mise en œuvre ; relecture des corrections croisées, point 1).
+ * @param {string[]} [heldContractIds]  contrats dont le partenaire est le titulaire
  * @returns {{ attendu: number, en_retard: number }}
  */
-function expectedCountsOf(expected, partnerId) {
+function expectedCountsOf(expected, partnerId, heldContractIds = []) {
+  const held = new Set(heldContractIds || []);
   const out = { attendu: 0, en_retard: 0 };
   for (const r of (expected && expected.rows) || []) {
-    if (r.unit && r.unit.kind === 'tpm' && r.unit.providerId === partnerId && out[r.status] !== undefined) out[r.status] += 1;
+    if (!r.unit || r.unit.kind !== 'tpm' || out[r.status] === undefined) continue;
+    if (r.unit.providerId === partnerId || (r.contract && held.has(r.contract.id))) out[r.status] += 1;
   }
   return out;
 }
