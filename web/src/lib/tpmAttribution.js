@@ -254,3 +254,71 @@ export function unavailabilityOf(data, providerId) {
     .sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0))[0];
   return next ? { from: next.from, to: next.to, reason: next.reason || null, current: next.from <= month } : null;
 }
+
+/**
+ * Qui suit les zones d'un contrat CE MOIS (ligne « TPM » du détail d'un contrat, relecture croisée
+ * #5 / #8) : lu dans les cellules de l'onglet Affectation des TPM — GET /api/tpm/attribution sur UN
+ * mois, la règle même des visites (modules/tpm/tpmAttribution.js), rien de recalculé —, jamais
+ * déduit du nombre de zones : une modification, une indisponibilité ou un autre contrat qui décide
+ * d'une zone y apparaissent.
+ * @param {{ adminAreaId?: string }[]} zones  zones du contrat (détail)
+ * @param {{ id: string }[]} tpms  TPM du contrat
+ * @param {{ rows?: { id, name, cells }[] } | null} table  réponse de l'onglet pour un mois
+ * @returns {null | { total: number, followed: number, others: { areaId, name, cell }[] }}
+ *   null : réponse absente, ou une zone sans ligne dans l'onglet (zone à resélectionner, région
+ *   entière, commune qui ne décide pas) — l'écran dit alors la phrase toujours vraie.
+ */
+export function contractZoneFollow(zones, tpms, table) {
+  const list = zones || [];
+  if (!table || !Array.isArray(table.rows) || !list.length) return null;
+  const ids = new Set((tpms || []).map((t) => t.id));
+  const byId = new Map(table.rows.map((r) => [r.id, r]));
+  let followed = 0;
+  const others = [];
+  for (const z of list) {
+    const row = z && z.adminAreaId ? byId.get(z.adminAreaId) : null;
+    const cell = row && row.cells && row.cells[0];
+    if (!cell) return null;
+    if (cell.monitoredBy === 'tpm' && ids.has(cell.providerId)) followed += 1;
+    else others.push({ areaId: row.id, name: row.name, cell });
+  }
+  return { total: list.length, followed, others };
+}
+
+/** Pourquoi une zone du contrat n'est pas suivie par son TPM ce mois (cellule de l'onglet). */
+function zoneOtherWhy(tr, cell, contractId) {
+  if (cell.state === 'modifie' || cell.state === 'aucun_tpm') return tr('modification'); // aucun_tpm : modification « aucun TPM »
+  if (cell.state === 'indisponible') return tr('TPM indisponible');
+  if (isInternalState(cell.state)) return internalWhy(tr, cell);
+  if (cell.contractId && cell.contractId !== contractId) return tr('autre contrat : {c}', { c: cell.contractLabel || cell.numero || '—' });
+  return '';
+}
+
+const ZONE_FOLLOW_LISTED = 3;
+/** Phrase toujours vraie quand les cellules manquent : la règle, et où la lire. */
+export const ZONE_FOLLOW_DEFAULT = 'zones du contrat, sauf modification ou indisponibilité — voir Affectation des TPM';
+
+/**
+ * Phrase de la ligne « TPM » : « suit les 2 zones du contrat ce mois », ou « suit 1 des 2 zones ce
+ * mois · Betroka : RANO Control (modification) » ; la phrase toujours vraie (ZONE_FOLLOW_DEFAULT)
+ * quand contractZoneFollow rend null. Trois zones nommées au plus, puis « +n autre(s) ».
+ * @param {Function} tr  traduction
+ * @param {ReturnType<typeof contractZoneFollow>} follow
+ * @param {string} contractId
+ * @returns {string}
+ */
+export function contractZoneFollowText(tr, follow, contractId) {
+  if (!follow) return tr(ZONE_FOLLOW_DEFAULT);
+  const { total, followed, others } = follow;
+  let head;
+  if (!others.length) head = total > 1 ? tr('suit les {n} zones du contrat ce mois', { n: total }) : tr('suit la zone du contrat ce mois');
+  else if (!followed) head = tr('ne suit aucune zone du contrat ce mois');
+  else head = tr('suit {k} des {n} zones ce mois', { k: followed, n: total });
+  const items = others.slice(0, ZONE_FOLLOW_LISTED).map((o) => {
+    const who = o.cell.monitoredBy === 'tpm' ? (o.cell.providerName || '—') : tr(ROLE_LABELS.noTpm);
+    const why = zoneOtherWhy(tr, o.cell, contractId);
+    return why ? tr('{zone} : {who} ({why})', { zone: o.name, who, why }) : tr('{zone} : {who}', { zone: o.name, who });
+  });
+  if (others.length > ZONE_FOLLOW_LISTED) items.push(tr('+{n} autre(s)', { n: others.length - ZONE_FOLLOW_LISTED }));
+  return [head, ...items].join(' · ');
+}
