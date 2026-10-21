@@ -127,3 +127,43 @@ test('#7 écrivain de sites (sites FOR UPDATE puis attribution) × coche du plan
       for (const s of sites) await q('UPDATE sites SET programme_synergies = $2 WHERE id = $1', [s.id, s.syn]);
     }
   });
+
+test('#8 Localités (aire FOR UPDATE puis attribution) × modification de TPM sur la même zone : jamais d interblocage',
+  { skip: SKIP, timeout: 120000 }, async () => {
+    const { T, U, Y } = await fixture();
+    const loc = require('../src/modules/settings/localities.repository');
+    const attr = require('../src/modules/tpm/tpmAttribution.service');
+    const month = `${Y}-03`;
+    const districts = await q('SELECT id, name FROM admin_areas WHERE tenant_id = $1 AND depth = 2 ORDER BY id', [T]);
+    let pick = null;
+    for (const d of districts) {
+      const target = { areaIds: [d.id], regionIds: [], from: month, to: month };
+      for (const p of await q("SELECT p.id FROM partners p JOIN partner_types t ON t.id = p.partner_type_id WHERE p.tenant_id = $1 AND t.code = 'tpm' AND p.active ORDER BY p.name", [T])) {
+        const v = await attr.preview(T, { target, mode: 'modifier', providerId: p.id, reason: 'Essai de verrous concurrents' });
+        if (!v.notSelectable.length && (v.counts.created || v.counts.updated)) { pick = { d, target, providerId: p.id, stamp: v.stamp }; break; }
+      }
+      if (pick) break;
+    }
+    assert.ok(pick, 'une zone et un TPM sélectionnable pour une modification');
+    const { d, target, providerId, stamp } = pick;
+    let batch = null;
+    try {
+      const r = await duel(T, {
+        holdSql: 'LOCK TABLE location_match_queue IN SHARE MODE', // retient updateArea APRÈS « aire FOR UPDATE »
+        first: () => loc.updateArea(T, d.id, { name: `${d.name} (essai)` }),
+        firstBlockedOn: 'location_match_queue',
+        second: () => attr.setOverrides(T, { userId: U }, { target, providerId, reason: 'Essai de verrous concurrents', stamp }),
+      });
+      if (r.b.ok) batch = r.b.v.batchId;
+      assert.equal(r.attributionFreeWhileWaiting, true, 'la modification attend la ligne de la zone sans tenir le verrou d\'attribution');
+      assert.equal(why(r.a), 'ok', 'Localités');
+      assert.equal(why(r.b), 'ok', 'modification de TPM');
+    } finally {
+      await loc.updateArea(T, d.id, { name: d.name });
+      await q('DELETE FROM tpm_zone_overrides WHERE tenant_id = $1 AND admin_area_id = $2 AND period_month = $3::date', [T, d.id, `${month}-01`]);
+      if (batch) await q('DELETE FROM tpm_attribution_log WHERE tenant_id = $1 AND batch_id = $2', [T, batch]);
+      const { withTenantTransaction } = require('../src/config/db');
+      const { restampVisitsTx } = require('../src/modules/tpm/tpmAttribution.repository');
+      await withTenantTransaction(T, (c) => restampVisitsTx(c, T, { months: [month], areaIds: [d.id] }));
+    }
+  });

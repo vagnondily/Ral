@@ -279,6 +279,19 @@ function zoneLogRows({ batchId, prep, action, reason, visitsUpdated }) {
 const STALE = 'L\'affectation a changé entre-temps (autre utilisateur, contrat ou découpage) : rechargez l\'aperçu.';
 
 /**
+ * Localités visées, verrouillées en partage de clé (FOR KEY SHARE : ce que prend la clé étrangère
+ * tpm_zone_overrides.admin_area_id), par identifiant croissant, AVANT le verrou d'attribution — l'ordre
+ * de tous les écrivains (tpm/visitLocks : rattachements → mois → lignes → attribution). Un écrivain de
+ * Localités (aire FOR UPDATE, puis l'attribution dans applySitesGeoTx) interbloquerait sinon avec nous
+ * (40P01). Ce n'est pas une lecture de l'état d'attribution : prepareChangeTx le lit après le verrou.
+ */
+async function lockTargetAreasTx(client, tenantId, target) {
+  const ids = [...new Set([...((target && target.areaIds) || []), ...(await repo.expandRegionsTx(client, tenantId, (target && target.regionIds) || []))])];
+  if (!ids.length || ids.length > rule.MAX_AREAS) return; // trop de zones : refusé ensuite (400), rien à verrouiller
+  await client.query('SELECT id FROM admin_areas WHERE tenant_id = $1 AND id = ANY($2::uuid[]) ORDER BY id FOR KEY SHARE', [tenantId, ids]);
+}
+
+/**
  * Enregistrer un changement de TPM sur des zones × mois (une transaction) : verrou, contrôles,
  * empreinte de l'aperçu (409 si périmée), sélectionnable chaque mois, plan, écritures (une
  * suppression, un upsert multi-lignes), estampille des visites prévues visées, journal.
@@ -286,6 +299,7 @@ const STALE = 'L\'affectation a changé entre-temps (autre utilisateur, contrat 
 async function setOverrides(tenantId, actor, { target, providerId = null, reason, stamp }) {
   const clean = reasonOf(reason, { required: false });
   return withTenantTransaction(tenantId, async (client) => {
+    await lockTargetAreasTx(client, tenantId, target);
     await repo.lockAttributionTx(client, tenantId);
     const prep = await prepareChangeTx(client, tenantId, { target, mode: 'modifier', providerId, reason: clean });
     if (prep.stamp !== stamp) throw conflict(STALE, { code: 'stale' });
@@ -310,6 +324,7 @@ async function setOverrides(tenantId, actor, { target, providerId = null, reason
 async function revert(tenantId, actor, { target, reason, stamp }) {
   const clean = reasonOf(reason, { required: false });
   return withTenantTransaction(tenantId, async (client) => {
+    await lockTargetAreasTx(client, tenantId, target);
     await repo.lockAttributionTx(client, tenantId);
     const prep = await prepareChangeTx(client, tenantId, { target, mode: 'revenir' });
     if (prep.stamp !== stamp) throw conflict(STALE, { code: 'stale' });

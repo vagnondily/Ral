@@ -79,6 +79,8 @@ const rowsFor = (s, params) => {
   }
   if (/^SELECT a\.id, a\.depth, a\.name, a\.path, a\.lineage/.test(s)) return params[1].map((id) => AREAS[id]).filter(Boolean);
   if (/^SELECT DISTINCT d\.id FROM admin_areas d/.test(s)) return params[1].includes(R1) ? [{ id: D1 }, { id: D2 }] : [];
+  // Localités visées verrouillées (FOR KEY SHARE) avant le verrou d'attribution (lot « verrous »).
+  if (/^SELECT id FROM admin_areas WHERE tenant_id = \$1 AND id = ANY\(\$2::uuid\[\]\) ORDER BY id FOR KEY SHARE$/.test(s)) return params[1].filter((id) => AREAS[id]).map((id) => ({ id }));
   if (/^SELECT v\.id, s\.zone_district_id AS "districtId".* BETWEEN \$2::date AND \$3::date$/.test(s)) {
     return state.visits.filter((v) => v.status === 'planifie' && v.source === 'zone' && `${v.month}-01` >= params[1] && `${v.month}-01` <= params[2]);
   }
@@ -166,9 +168,13 @@ test('enregistrer : verrou d\'abord, un upsert multi-lignes, une estampille, un 
   const r = await service.setOverrides(T, ACTOR, { target: target(), providerId: YPA, reason: '  Collecte confiée à YPA par le bureau  ', stamp });
   assert.equal(r.counts.created, 3);
   assert.equal(r.visits.changed, 1);
-  assert.match(state.calls[0].sql, /^SET LOCAL lock_timeout = '20s'/);
-  assert.match(state.calls[1].sql, /pg_advisory_xact_lock/);
-  assert.deepEqual(state.calls[1].params, [`tpm-attribution:${T}`]);
+  // Ordre des verrous (tpm/visitLocks) : localités visées (FOR KEY SHARE, par identifiant), PUIS le verrou
+  // d'attribution, PUIS toute lecture de l'état — jamais une ligne de localité après le verrou.
+  assert.match(state.calls[0].sql, /^SELECT id FROM admin_areas WHERE tenant_id = \$1 AND id = ANY\(\$2::uuid\[\]\) ORDER BY id FOR KEY SHARE$/);
+  assert.deepEqual(state.calls[0].params[1], target().areaIds);
+  assert.match(state.calls[1].sql, /^SET LOCAL lock_timeout = '20s'/);
+  assert.match(state.calls[2].sql, /pg_advisory_xact_lock/);
+  assert.deepEqual(state.calls[2].params, [`tpm-attribution:${T}`]);
   const upserts = state.calls.filter((c) => /^INSERT INTO tpm_zone_overrides/.test(c.sql));
   assert.equal(upserts.length, 1);
   assert.match(upserts[0].sql, /FROM unnest\(\$5::uuid\[\], \$6::date\[\]/);
@@ -260,6 +266,10 @@ test('« revenir au contrat » : même empreinte, suppression seule ; toute la r
   const r = await service.revert(T, ACTOR, { target: t, reason: null, stamp: p.stamp });
   assert.equal(r.counts.deleted, 1);
   assert.equal(state.calls.filter((c) => /^DELETE FROM tpm_zone_overrides/.test(c.sql)).length, 1);
+  // Région : ses districts verrouillés (FOR KEY SHARE, par identifiant) AVANT le verrou d'attribution.
+  const areaLock = state.calls.findIndex((c) => /FROM admin_areas WHERE tenant_id = \$1 AND id = ANY\(\$2::uuid\[\]\) ORDER BY id FOR KEY SHARE$/.test(c.sql));
+  assert.ok(areaLock >= 0 && areaLock < state.calls.findIndex((c) => /pg_advisory_xact_lock/.test(c.sql)), 'localités avant le verrou');
+  assert.deepEqual([...state.calls[areaLock].params[1]].sort(), [D1, D2].sort());
 });
 
 test('trop de cellules, zone hors district / commune → 400 avant toute lecture des contrats', async () => {
