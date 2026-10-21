@@ -1,7 +1,8 @@
 const repo = require('./partners.repository');
 const consolidationRepo = require('../tpm/consolidation.repository');
 const activeRepo = require('../tpm/activeProvider.repository');
-const { buildSheet, contractRows, providerListRows } = require('./partnerSheet');
+const { buildSheet, contractRows, providerListRows, expectedCountsOf } = require('./partnerSheet');
+const reportsRepo = require('../tpm/reports.repository');
 const { addMonths } = require('../common/period');
 const { monthsOf } = require('../tpm/activeProvider');
 
@@ -25,7 +26,11 @@ async function providers(tenantId) {
 async function sheet(tenantId, id) {
   const raw = await repo.sheet(tenantId, id);
   if (!raw) return null;
-  return buildSheet(raw, { consolidation: await consolidationByContract(tenantId, raw.counts.month) });
+  // Factures attendues / en retard : les rapports attendus des 12 derniers mois (même source que la carte
+  // « Rapports attendus » et les alertes ; relecture croisée, point 4).
+  const month = raw.counts.month;
+  const expected = await reportsRepo.expectedReports(tenantId, { period: { from: addMonths(month, -11), to: month }, today: month });
+  return buildSheet(raw, { consolidation: await consolidationByContract(tenantId, month), expected: expectedCountsOf(expected, id) });
 }
 
 async function contracts(tenantId, id) {

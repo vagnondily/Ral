@@ -70,3 +70,55 @@ test('fiche 360° (point 14) : mois courant LOCAL de l application, jamais la da
     assert.deepEqual([raw.counts.month, raw.counts.today], ['2026-11', '2026-11-01'], 'même mois que les rapports attendus et les alertes');
   })();
 });
+
+test('gabarit en retard (points 15 et 4) : même verdict dans la liste, l onglet et les compteurs de la fiche 360°, la carte', { skip: SKIP }, async () => {
+  const T = await tenant();
+  const reports = require('../src/modules/tpm/reports.repository');
+  const partners = require('../src/modules/partners/partners.repository');
+  const partnersService = require('../src/modules/partners/partners.service');
+  const { currentMonth } = require('../src/modules/tpm/rbmMath');
+  const { addMonths } = require('../src/modules/common/period');
+  const M = currentMonth(); const Mp = addMonths(M, -3); // échéance Mp + 1 : dépassée
+  // Un site suivi par un TPM de contrat en Mp, sans document de ce TPM sur ce contrat ce mois-là.
+  const sites = await q('SELECT id FROM sites WHERE tenant_id = $1 AND zone_district_id IS NOT NULL ORDER BY id LIMIT 600', [T]);
+  const cells = await q(`SELECT c_site_id AS s, c_provider_id AS p, c_contract_id AS k FROM mems_tpm_cells($1, $2::uuid[], $3::date[])
+                          WHERE c_state = 'contrat'`, [T, sites.map((x) => x.id), sites.map(() => `${Mp}-01`)]);
+  let pick = null;
+  for (const c of cells) {
+    const [{ n }] = await q('SELECT count(*)::int AS n FROM tpm_reports WHERE tenant_id = $1 AND partner_id = $2 AND contract_id = $3 AND period_month = $4', [T, c.p, c.k, `${Mp}-01`]);
+    if (n === 0) { pick = c; break; }
+  }
+  assert.ok(pick, 'un TPM de contrat sans document ce mois-là');
+  const Y = pick.p; const K = pick.k;
+  await q('BEGIN');
+  await q("SELECT set_config('mems.tpm_stamping', 'on', true)");
+  const [{ id: V }] = await q(`INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, provider_source, provider_id, provider_zone_state, contract_id)
+                                VALUES ($1, $2, $3, 'Test point 15', 'realise', 'zone', $4, 'contrat', $5) RETURNING id`, [T, pick.s, `${Mp}-01`, Y, K]);
+  await q('COMMIT');
+  const [{ id: R }] = await q(`INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, kind, reported_amount, status, created_by)
+                                SELECT $1, $2, $3, $4, 'financier', 0, 'attendu', u.id FROM users u WHERE u.tenant_id = $1 ORDER BY u.email LIMIT 1 RETURNING id`,
+  [T, Y, K, `${Mp}-01`]);
+  try {
+    // Carte « Rapports attendus » : en retard.
+    const card = (await reports.expectedReports(T, { period: { from: Mp, to: Mp }, today: M })).rows
+      .find((r) => r.unit.providerId === Y && r.contract && r.contract.id === K);
+    assert.deepEqual([card.status, card.reason], ['en_retard', 'echeance_depassee']);
+    // Liste des rapports et onglet de la fiche : le gabarit est « en retard » (late), jamais « attendu ».
+    const listed = (await reports.listReports(T, { period: { from: Mp, to: Mp }, partnerId: Y, contractId: K })).find((r) => r.id === R);
+    assert.deepEqual([listed.status, listed.autoNotApplicable, listed.late], ['attendu', false, true]);
+    const tab = (await partners.reportsOf(T, Y)).find((r) => r.id === R);
+    assert.deepEqual([tab.autoNotApplicable, tab.late], [false, true]);
+    // Compteurs de la fiche 360° : factures attendues / en retard = rapports attendus de ce TPM sur 12 mois.
+    const sheet = await partnersService.sheet(T, Y);
+    const exp = (await reports.expectedReports(T, { period: { from: addMonths(M, -11), to: M }, today: M })).rows
+      .filter((r) => r.unit.kind === 'tpm' && r.unit.providerId === Y);
+    const count = (st) => exp.filter((r) => r.status === st).length;
+    const f = sheet.facts.reports.financier;
+    assert.deepEqual([f.attendu || 0, f.en_retard || 0], [count('attendu'), count('en_retard')], 'même source que la carte');
+    assert.ok((f.en_retard || 0) >= 1);
+    assert.equal(sheet.facts.reports.late, count('en_retard'));
+  } finally {
+    await q('DELETE FROM tpm_reports WHERE id = $1', [R]);
+    await q('DELETE FROM site_visits WHERE id = $1', [V]);
+  }
+});

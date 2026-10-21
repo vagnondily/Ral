@@ -13,7 +13,8 @@ const { recordDeletion } = require('../deletions/deletions.repository');
 const { monthsOf } = require('../common/period');
 const { expectedReports: expectedRule } = require('./reportExpectation');
 const { contractTpmPairsByMonth } = require('./tpmAttribution');
-const { stubNotApplicableSql } = require('./reportExpectationSql');
+const { stubNotApplicableSql, stubLateSql } = require('./reportExpectationSql');
+const { currentMonth } = require('./rbmMath');
 const { PERIOD_CAPS } = require('../common/periodCaps');
 const { rootOfficeOf } = require('../common/officeScope');
 const tpmAttributionRepo = require('./tpmAttribution.repository');
@@ -31,7 +32,8 @@ const tpmAttributionRepo = require('./tpmAttribution.repository');
 
 const num = (v) => (v == null ? v : Number(v));
 
-const REPORT_COLUMNS = `
+/** Colonnes d'un rapport ; `late` : gabarit « attendu » dont l'échéance est passée (stubLateSql, mois local). */
+const reportColumns = () => `
   r.id, r.partner_id AS "partnerId", pa.name AS "partnerName",
   r.contract_id AS "contractId", c.numero AS "contractNumero", c.numero_fla AS "contractFla", c.partner_name AS "contractPartner",
   r.period_month AS "periodMonth", r.period_end AS "periodEnd", r.invoice_no AS "invoiceNo",
@@ -41,7 +43,7 @@ const REPORT_COLUMNS = `
   r.submitted_at AS "submittedAt", r.submitted_by AS "submittedBy", sb.email AS "submittedByEmail",
   r.edited_by AS "editedBy", ed.email AS "editedByEmail", r.edited_at AS "editedAt",
   r.decided_by AS "decidedBy", d.email AS "decidedByEmail", r.decided_at AS "decidedAt",
-  ${stubNotApplicableSql('r')} AS "autoNotApplicable"`;
+  ${stubNotApplicableSql('r')} AS "autoNotApplicable", ${stubLateSql('r', currentMonth())} AS late`;
 
 const FROM = `
   FROM tpm_reports r
@@ -135,7 +137,7 @@ async function listReports(tenantId, { period, month, partnerId, contractId } = 
     if (partnerId) { params.push(partnerId); where.push(`r.partner_id = $${params.length}`); }
     if (contractId) { params.push(contractId); where.push(`r.contract_id = $${params.length}`); }
     const { rows } = await client.query(
-      `SELECT ${REPORT_COLUMNS} ${FROM} WHERE ${where.join(' AND ')}
+      `SELECT ${reportColumns()} ${FROM} WHERE ${where.join(' AND ')}
        ORDER BY r.period_month DESC, pa.name, r.kind`,
       params
     );
@@ -145,7 +147,7 @@ async function listReports(tenantId, { period, month, partnerId, contractId } = 
 
 async function getReportRow(client, tenantId, id) {
   const { rows } = await client.query(
-    `SELECT ${REPORT_COLUMNS} ${FROM} WHERE r.tenant_id = $1 AND r.id = $2 FOR UPDATE OF r`,
+    `SELECT ${reportColumns()} ${FROM} WHERE r.tenant_id = $1 AND r.id = $2 FOR UPDATE OF r`,
     [tenantId, id]
   );
   return rows[0] ? cast(rows[0]) : null;
@@ -155,7 +157,7 @@ async function getReportRow(client, tenantId, id) {
 async function getReport(tenantId, id) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      `SELECT ${REPORT_COLUMNS} ${FROM} WHERE r.tenant_id = $1 AND r.id = $2`,
+      `SELECT ${reportColumns()} ${FROM} WHERE r.tenant_id = $1 AND r.id = $2`,
       [tenantId, id]
     );
     if (!rows[0]) return null;
@@ -175,7 +177,7 @@ async function getReport(tenantId, id) {
 async function invoiceData(tenantId, id) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      `SELECT ${REPORT_COLUMNS}, c.numero_fla AS "numeroFla", c.numero_po AS "numeroPo",
+      `SELECT ${reportColumns()}, c.numero_fla AS "numeroFla", c.numero_po AS "numeroPo",
               c.numero_vendor AS "numeroVendor", c.date_debut AS "dateDebut", c.date_fin AS "dateFin",
               c.management_fee_pct AS "managementFeePct"
          ${FROM} WHERE r.tenant_id = $1 AND r.id = $2`,

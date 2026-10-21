@@ -25,7 +25,7 @@ import ExpectedReports from './ExpectedReports.jsx';
 
 const STATUSES = [
   { id: '', label: 'Tous les statuts' },
-  { id: 'attendu', label: 'Attendu' }, { id: 'soumis', label: 'Soumis' },
+  { id: 'attendu', label: 'Attendu' }, { id: 'en_retard', label: 'En retard' }, { id: 'soumis', label: 'Soumis' },
   { id: 'valide', label: 'Validé' }, { id: 'rejete', label: 'Rejeté' },
   { id: 'non_applicable', label: 'Non applicable' },
 ];
@@ -180,7 +180,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
     const val = (r) => ({
       partner: r.partnerName || '', contract: contractNo(r) || '', kind: r.kind,
       period: r.periodMonth || '', planned: r.plannedAmount || 0, reported: r.reportedAmount || 0,
-      status: ['attendu', 'soumis', 'valide', 'rejete', 'non_applicable'].indexOf(reportShownStatus(r)),
+      status: ['en_retard', 'attendu', 'soumis', 'valide', 'rejete', 'non_applicable'].indexOf(reportShownStatus(r)),
     }[sort.key]);
     return [...list].sort((a, a2) => {
       const va = val(a); const vb = val(a2);
@@ -309,7 +309,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       case 'invoiceNo': return r.invoiceNo ? <span className="mono">{r.invoiceNo}</span> : <span className="cell-empty">—</span>;
       case 'status': return r.autoNotApplicable
         ? <span title={tr('Aucune visite planifiée de ce TPM sur ce contrat ce mois-là : pas de rapport à remettre.')}><StatusBadge def={reportStatusDef(r)} /></span>
-        : <StatusBadge def={REPORT_STATUS[r.status]} />;
+        : <StatusBadge def={reportStatusDef(r)} />;
       case 'createdBy': return <span className="site-meta">{r.createdByEmail || '—'}</span>;
       case 'decidedBy': return <span className="site-meta">{r.decidedByEmail || '—'}</span>;
       case 'decidedAt': return <span className="tabular">{r.decidedAt ? String(r.decidedAt).slice(0, 10) : '—'}</span>;

@@ -101,16 +101,43 @@ function providerListRows(rows, links, { contracts = [], views = new Map() } = {
   });
 }
 
-/** Rapports par statut et par nature : { financier: { soumis: n, … }, technique: {…}, total, pending }. */
-function reportSummary(rows) {
-  const out = { financier: {}, technique: {}, total: 0, toValidate: 0, expected: 0, rejected: 0 };
+/**
+ * Rapports par statut et par nature : { financier: { soumis: n, … }, technique: {…}, total, toValidate,
+ * expected, late, rejected }. Soumis / Validé / Rejeté : documents enregistrés. Factures « Attendu » et
+ * « En retard » : les RAPPORTS ATTENDUS de ce TPM (`live`, expectedCountsOf — la même source que la carte
+ * et les alertes ; relecture croisée, point 4) quand ils sont connus, sinon les gabarits enregistrés.
+ * `total` compte toujours les documents enregistrés (onglet Rapports).
+ */
+function reportSummary(rows, live = null) {
+  const out = { financier: {}, technique: {}, total: 0, toValidate: 0, expected: 0, late: 0, rejected: 0 };
+  const fromLive = (r) => live && r.kind === 'financier' && (r.status === 'attendu' || r.status === 'en_retard');
   for (const r of rows || []) {
     if (!out[r.kind]) continue;
-    out[r.kind][r.status] = (out[r.kind][r.status] || 0) + r.n;
     out.total += r.n;
+    if (fromLive(r)) continue;
+    out[r.kind][r.status] = (out[r.kind][r.status] || 0) + r.n;
     if (r.status === 'soumis') out.toValidate += r.n;
     if (r.status === 'attendu') out.expected += r.n;
+    if (r.status === 'en_retard') out.late += r.n;
     if (r.status === 'rejete') out.rejected += r.n;
+  }
+  if (live) {
+    for (const st of ['attendu', 'en_retard']) if (live[st]) out.financier[st] = live[st];
+    out.expected += live.attendu || 0;
+    out.late += live.en_retard || 0;
+  }
+  return out;
+}
+
+/**
+ * Factures attendues et en retard d'UN partenaire, d'après les rapports attendus (reports.repository
+ * .expectedReports : une ligne par TPM × contrat × mois) — pur, testé.
+ * @returns {{ attendu: number, en_retard: number }}
+ */
+function expectedCountsOf(expected, partnerId) {
+  const out = { attendu: 0, en_retard: 0 };
+  for (const r of (expected && expected.rows) || []) {
+    if (r.unit && r.unit.kind === 'tpm' && r.unit.providerId === partnerId && out[r.status] !== undefined) out[r.status] += 1;
   }
   return out;
 }
@@ -120,7 +147,7 @@ function reportSummary(rows) {
  * @param {object} raw  partners.repository.sheet
  * @param {{ consolidation?: Map<string, object> }} [opts]
  */
-function buildSheet(raw, { consolidation } = {}) {
+function buildSheet(raw, { consolidation, expected = null } = {}) {
   const c = raw.counts || {};
   const contracts = contractRows(raw.contracts, raw.links, {
     partnerId: raw.partner.id, month: c.month, consolidation, tpmViews: raw.tpmViews, partnerTypes: raw.partnerTypes,
@@ -129,7 +156,7 @@ function buildSheet(raw, { consolidation } = {}) {
   const tpms = new Map();
   for (const x of contracts) if (x.isHolder) for (const t of x.tpm.tpms) if (t.id !== raw.partner.id) tpms.set(t.id, { id: t.id, name: t.name });
   const recap = budgetRecap(contracts);
-  const reports = reportSummary(raw.reports);
+  const reports = reportSummary(raw.reports, expected);
   // Contrat « en cours » (bloc « Fiche 360° » du concepteur de rapport, lot 7a) : le premier contrat de
   // suivi qui couvre le mois, chiffres du contrat (Consolidation) et factures en attente du prestataire.
   const current = contracts.find((x) => x.monitoring && x.coversMonth) || null;
@@ -229,4 +256,4 @@ function shapeTimeline(rows, { limit = 50 } = {}) {
   return { items, next: items.length === limit ? items[items.length - 1].at : null };
 }
 
-module.exports = { buildSheet, providerListRows, contractRows, budgetRecap, reportSummary, mergeZones, shapeTimeline, EVENT_TEXT };
+module.exports = { buildSheet, providerListRows, contractRows, budgetRecap, reportSummary, expectedCountsOf, mergeZones, shapeTimeline, EVENT_TEXT };

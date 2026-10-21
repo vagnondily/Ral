@@ -51,7 +51,16 @@ export function expectedWho(tr, r) {
 /**
  * Statut AFFICHÉ d'un rapport stocké (liste des rapports, fiche 360°) : un gabarit « attendu » sans visite
  * planifiée de son TPM sur son contrat pendant ses mois (`autoNotApplicable`, calculé par le serveur :
- * reportExpectationSql) est « non applicable d'office » — la même règle que la carte « Rapports attendus ».
+ * reportExpectationSql) est « non applicable d'office » ; un gabarit « attendu » dont l'échéance est passée
+ * (`late`, stubLateSql) est « en retard » — la même règle que la carte « Rapports attendus » et la cloche.
  */
-export const reportShownStatus = (r) => (r && r.autoNotApplicable ? 'non_applicable' : r && r.status);
-export const reportStatusDef = (r) => (r && r.autoNotApplicable ? EXPECTED_STATUS.non_applicable_auto : REPORT_STATUS[r && r.status]);
+export const reportShownStatus = (r) => {
+  if (r && r.autoNotApplicable) return 'non_applicable';
+  if (r && r.late) return 'en_retard';
+  return r && r.status;
+};
+export const reportStatusDef = (r) => {
+  if (r && r.autoNotApplicable) return EXPECTED_STATUS.non_applicable_auto;
+  if (r && r.late) return EXPECTED_STATUS.en_retard;
+  return REPORT_STATUS[r && r.status];
+};
