@@ -84,13 +84,15 @@ function monthsBetween(from, to) {
  *   contractPairs?: Map<string, { providerId, contractId }[]>,    mois → TPM des contrats de suivi qui le couvrent (D1)
  *   names?: Map<string, string>,                                  TPM → nom
  *   contractLabels?: Map<string, string>,                         contrat → n° affiché
- *   reports?: { id, partnerId, partnerName?, contractId, contractLabel?, month, endMonth?, status }[],  factures qui chevauchent
+ *   reports?: { id, partnerId, partnerName?, contractId, contractLabel?, month, endMonth?, status,
+ *               late?, autoNotApplicable?, partnerNotTpm? }[],  factures qui chevauchent (drapeaux du document : la liste)
  *   unavailable?: Set<string>                                     `${TPM}|${mois}` déclarés indisponibles
  *   notTpm?: Set<string>                                          partenaires qui ne sont plus de type TPM (D-b)
  * }} input
  * @returns {{ rows: object[], counts: object }}
  *   rows : { month, unit: { kind: 'tpm'|'interne', providerId, name, offices }, contract: { id, label }|null,
- *            visits: { planned, realised }, status, expected, auto, reason, due, reports: { id, status, contractLabel }[] }
+ *            visits: { planned, realised }, status, expected, auto, reason, due,
+ *            reports: { id, status, contractLabel, late, autoNotApplicable, partnerNotTpm }[] }
  */
 function expectedReports({
   months, today, activity = [], contractPairs = new Map(), names = new Map(), contractLabels = new Map(), reports = [], unavailable = new Set(),
@@ -146,7 +148,10 @@ function expectedReports({
         contract: contractId ? { id: contractId, label: contractLabels.get(contractId) || null } : null,
         visits: { planned: a.planned, realised: a.realised },
         ...tpmStatus({ visits, docs: d, month: m, today, off: unavailable.has(`${providerId}|${m}`), notTpm: notTpm.has(providerId) }), due: dueMonth(m),
-        reports: d.map((r) => ({ id: r.id, status: r.status, contractLabel: r.contractLabel || null }))
+        reports: d.map((r) => ({
+          id: r.id, status: r.status, contractLabel: r.contractLabel || null,
+          late: r.late === true, autoNotApplicable: r.autoNotApplicable === true, partnerNotTpm: r.partnerNotTpm === true,
+        }))
           .sort((x, y) => cmp(String(x.contractLabel || ''), String(y.contractLabel || ''))),
       };
     }).sort((x, y) => cmp(String(x.unit.name || '').toLowerCase(), String(y.unit.name || '').toLowerCase()) || cmp(x.unit.providerId, y.unit.providerId)

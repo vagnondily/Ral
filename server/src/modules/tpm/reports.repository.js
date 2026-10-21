@@ -587,12 +587,15 @@ async function expectedReports(tenantId, { period, today }) {
          LEFT JOIN partners p ON p.tenant_id = v.tenant_id AND p.id = v.provider_id
         WHERE v.tenant_id = $1 AND v.period_month BETWEEN $2::date AND $3::date
         GROUP BY 1, 2, 3`, [tenantId, lo, hi]);
-    // Factures qui CHEVAUCHENT la période (facture pluri-mensuelle comprise, comme la liste des rapports).
+    // Factures qui CHEVAUCHENT la période (facture pluri-mensuelle comprise, comme la liste des rapports), avec le
+    // statut AFFICHÉ de chaque document — les drapeaux de la liste (late, autoNotApplicable, partnerNotTpm : même
+    // jumeau SQL, même mois courant) : la case « Factures du mois » dit ce que dit la liste (relecture, point K).
     const rp = [tenantId];
     const { rows: reports } = await client.query(
       `SELECT r.id, r.partner_id AS "partnerId", pa.name AS "partnerName", r.contract_id AS "contractId",
               COALESCE(c.numero_fla, c.numero) AS "contractLabel", to_char(r.period_month, 'YYYY-MM') AS month,
-              to_char(COALESCE(r.period_end, r.period_month), 'YYYY-MM') AS "endMonth", r.status
+              to_char(COALESCE(r.period_end, r.period_month), 'YYYY-MM') AS "endMonth", r.status,
+              ${stubNotApplicableSql('r')} AS "autoNotApplicable", ${stubNotTpmSql('r')} AS "partnerNotTpm", ${stubLateSql('r', today)} AS late
          FROM tpm_reports r
          JOIN partners pa ON pa.tenant_id = r.tenant_id AND pa.id = r.partner_id
          JOIN contracts c ON c.tenant_id = r.tenant_id AND c.id = r.contract_id

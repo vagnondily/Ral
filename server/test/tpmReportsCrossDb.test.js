@@ -83,6 +83,9 @@ test('rapports d un TPM : liste, onglet, fiche 360° (TPM et titulaire) et carte
       // Point 5 : la carte dit M−3 « en retard » ; la liste, l'onglet et la fiche aussi (jamais « Attendu »).
       const rows = await card();
       assert.deepEqual(rows.find((r) => r.month === M3).status, 'en_retard');
+      // Point K : la case « Factures du mois » porte les drapeaux du document (ceux de la liste), jamais le seul statut brut.
+      const doc = rows.find((r) => r.month === M3).reports.find((x) => x.id === R);
+      assert.deepEqual([doc.status, doc.late, doc.autoNotApplicable, doc.partnerNotTpm], ['attendu', true, false, false]);
       assert.deepEqual(rows.filter((r) => r.month !== M3).map((r) => r.status), ['non_applicable', 'non_applicable'], 'mois sans visite');
       let l = await listed();
       assert.deepEqual([l.status, l.autoNotApplicable, l.partnerNotTpm, l.late], ['attendu', false, false, true], 'liste : en retard');
@@ -99,6 +102,8 @@ test('rapports d un TPM : liste, onglet, fiche 360° (TPM et titulaire) et carte
       // Point 2 : Z retypé en partenaire de mise en œuvre — « non applicable » d'office partout, raison dite.
       await q('UPDATE partners SET partner_type_id = $2 WHERE id = $1', [Z, types.prestataire]);
       assert.deepEqual((await card()).map((r) => [r.status, r.reason]), [['non_applicable', 'partner_not_tpm'], ['non_applicable', 'partner_not_tpm'], ['non_applicable', 'partner_not_tpm']]);
+      const docNa = (await card())[0].reports.find((x) => x.id === R);
+      assert.deepEqual([docNa.late, docNa.autoNotApplicable, docNa.partnerNotTpm], [false, true, true], 'case « Factures du mois » : non applicable d office');
       l = await listed();
       assert.deepEqual([l.autoNotApplicable, l.partnerNotTpm, l.late], [true, true, false], 'liste : non applicable d office (n est plus un TPM)');
       for (const id of [Z, H]) {
