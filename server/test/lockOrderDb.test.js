@@ -167,3 +167,35 @@ test('#8 Localités (aire FOR UPDATE puis attribution) × modification de TPM su
       await withTenantTransaction(T, (c) => restampVisitsTx(c, T, { months: [month], areaIds: [d.id] }));
     }
   });
+
+test('#9 « Effacer les planifications » × ré-estampille (changement de rôle) : lignes prises dans le même ordre, jamais d interblocage',
+  { skip: SKIP, timeout: 180000 }, async () => {
+    const { T, U, Y } = await fixture();
+    const field = require('../src/modules/tpm/field.repository');
+    const planAuto = require('../src/modules/tpm/planAuto.service');
+    const settings = require('../src/modules/settings/settings.repository');
+    const [aina] = await q("SELECT id, name, active, partner_type_id AS type FROM partners WHERE tenant_id = $1 AND name = 'ASSOCIATION AINA'", [T]);
+    const sites = await q('SELECT id FROM sites WHERE tenant_id = $1 ORDER BY id LIMIT 200', [T]);
+    try {
+      await field.setPlannedMonths(T, U, { year: Y, changes: sites.flatMap((s) => [{ siteId: s.id, month: 1, planned: true }, { siteId: s.id, month: 2, planned: true }]) });
+      // La 3ᵉ connexion tient la 2ᵉ ligne dans l'ordre d'un parcours de l'index (mois, puis emplacement) :
+      // un effacement dans cet ordre en tiendrait une, la ré-estampille (ordre des identifiants) en prendrait
+      // d'autres avant de l'attendre — cycle. Dans l'ordre des identifiants, l'un attend l'autre, sans cycle.
+      const [, second] = await q(`SELECT v.id FROM site_visits v WHERE v.tenant_id = $1 AND v.status = 'planifie' AND v.provider_source = 'zone'
+                                AND v.visit_date IS NULL AND v.agent IS NULL AND v.period_month BETWEEN $2::date AND $3::date ORDER BY v.period_month, v.ctid LIMIT 2`,
+      [T, `${Y}-01-01`, `${Y}-02-01`]);
+      const r = await duel(T, {
+        holdSql: 'SELECT 1 FROM site_visits WHERE id = $1 FOR KEY SHARE', holdParams: [second.id],
+        first: () => planAuto.clearPlanned(T, { year: Y, from: 1, to: 2 }),
+        firstBlockedOn: 'DELETE FROM site_visits',
+        second: () => settings.updatePartner(T, aina.id, { name: aina.name, partnerTypeId: aina.type, active: !aina.active }, { actorId: U }),
+      });
+      assert.equal(why(r.a), 'ok', 'effacement');
+      assert.equal(why(r.b), 'ok', 'changement de rôle (ré-estampille)');
+      assert.ok(r.a.v.deleted >= 2 * sites.length - 5, `visites effacées : ${r.a.v.deleted}`);
+    } finally {
+      await settings.updatePartner(T, aina.id, { name: aina.name, partnerTypeId: aina.type, active: aina.active });
+      await q('DELETE FROM site_visits WHERE tenant_id = $1 AND site_id = ANY($2::uuid[]) AND period_month BETWEEN $3::date AND $4::date',
+        [T, sites.map((s) => s.id), `${Y}-01-01`, `${Y}-02-01`]);
+    }
+  });

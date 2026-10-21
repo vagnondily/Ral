@@ -72,6 +72,8 @@ const yearMonths = (year) => Array.from({ length: 12 }, (_, i) => `${year}-${Str
  * Jamais une ligne de site ou de localité APRÈS le verrou d'attribution — y compris le FOR KEY SHARE
  * qu'une clé étrangère prend à l'INSERT d'une visite : un écrivain de sites (sites FOR UPDATE, puis
  * l'attribution dans afterSitesChangedTx) interbloquerait avec lui (40P01).
+ * Les lignes de visites se prennent toujours par identifiant croissant : sous le verrou d'attribution
+ * (estampille mems_tpm_stamp) comme sans lui (« Effacer les planifications », clearPlannedTx).
  * Le verrou du plan automatique (plan-auto) se prend avant les mois. Seule exception documentée :
  * le remplacement du découpage (localities.replaceBreakdown), sous le verrou de rattachements, met à
  * jour des sites après l'attribution, dans des modes compatibles (voir son commentaire).
