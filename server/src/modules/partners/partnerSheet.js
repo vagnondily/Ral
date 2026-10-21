@@ -37,7 +37,8 @@ function contractRows(figures, links, { partnerId, month, consolidation = new Ma
     const link = linkOf.get(f.id) || {};
     const cov = coverageOf(f);
     return {
-      id: f.id, numero: f.numero, numeroFla: f.numeroFla || null, status: f.status, holderId: f.holderId || null, holderName: f.holderName,
+      id: f.id, numero: f.numero, numeroFla: f.numeroFla || null, reference: f.reference || null, // n° de la liste des contrats (« …-AM03 »)
+      status: f.status, holderId: f.holderId || null, holderName: f.holderName,
       holderRole: f.holderId ? roleOf(partnerTypes.get(f.holderId)) : null,
       tpm: tpmViews.get(f.id) || { state: 'aucun', tpms: [] },
       isHolder: f.holderId === partnerId, via: link.via || [], monitoring: link.monitoring === true,

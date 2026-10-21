@@ -1,6 +1,7 @@
 const { withTenantTransaction } = require('../../config/db');
 const { badRequest, conflict, notFound } = require('../../middleware/errors');
 const { MONITORING_LINE } = require('../contracts/budgetCatalog');
+const { contractReferenceSql } = require('../contracts/contractNoSql');
 const { REALISED_STATUS, PENDING_STATUS } = require('../tpm/realised');
 const { shapeTimeline, holderInternalVisits } = require('./partnerSheet');
 const places = require('../settings/placeMatch.repository');
@@ -200,7 +201,8 @@ const TRAININGS_COUNT_SQL = `SELECT count(DISTINCT p.session_id) FROM training_p
 async function contractFiguresTx(client, tenantId, partnerId, contractIds) {
   if (!contractIds.length) return [];
   const { rows } = await client.query(
-    `SELECT c.id, c.numero, c.numero_fla AS "numeroFla", c.status, c.partner_id AS "holderId", c.partner_name AS "holderName",
+    `SELECT c.id, c.numero, c.numero_fla AS "numeroFla", ${contractReferenceSql('c')} AS reference,
+            c.status, c.partner_id AS "holderId", c.partner_name AS "holderName",
             c.date_debut AS "dateDebut", c.date_fin AS "dateFin", c.termination_date AS "terminationDate",
             c.management_fee_pct AS "feePct", c.period_months AS "periodMonths",
             COALESCE((SELECT sum(round(b.unit_count * b.unit_cost * 100)) FROM contract_budget_items b

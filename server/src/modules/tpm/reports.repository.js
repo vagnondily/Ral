@@ -14,6 +14,7 @@ const { monthsOf } = require('../common/period');
 const { expectedReports: expectedRule, inactiveTpmMayInvoice } = require('./reportExpectation');
 const { contractTpmPairsByMonth } = require('./tpmAttribution');
 const { stubNotApplicableSql, stubNotTpmSql, stubLateSql } = require('./reportExpectationSql');
+const { contractShownNoSql } = require('../contracts/contractNoSql');
 const { currentMonth } = require('./rbmMath');
 const { PERIOD_CAPS } = require('../common/periodCaps');
 const { rootOfficeOf } = require('../common/officeScope');
@@ -593,7 +594,7 @@ async function expectedReports(tenantId, { period, today }) {
     const rp = [tenantId];
     const { rows: reports } = await client.query(
       `SELECT r.id, r.partner_id AS "partnerId", pa.name AS "partnerName", r.contract_id AS "contractId",
-              COALESCE(c.numero_fla, c.numero) AS "contractLabel", to_char(r.period_month, 'YYYY-MM') AS month,
+              ${contractShownNoSql('c')} AS "contractLabel", to_char(r.period_month, 'YYYY-MM') AS month,
               to_char(COALESCE(r.period_end, r.period_month), 'YYYY-MM') AS "endMonth", r.status,
               ${stubNotApplicableSql('r')} AS "autoNotApplicable", ${stubNotTpmSql('r')} AS "partnerNotTpm", ${stubLateSql('r', today)} AS late
          FROM tpm_reports r
@@ -609,14 +610,15 @@ async function expectedReports(tenantId, { period, today }) {
     }
     const inputs = await tpmAttributionRepo.loadInputsTx(client, tenantId, period);
     const names = new Map(inputs.partners.map((x) => [x.id, x.name]));
-    const contractLabels = new Map(inputs.contracts.map((c) => [c.id, c.numeroFla || c.numero]));
-    // Contrat d'une visite qui n'est plus chargé (fin avancée par un avenant, résiliation rétroactive) : son
-    // numéro est relu — jamais l'identifiant technique à l'écran.
-    const missing = [...new Set(activity.map((a) => a.contractId).filter((id) => id && !contractLabels.has(id)))];
-    if (missing.length) {
-      const { rows: more } = await client.query(
-        'SELECT id, COALESCE(numero_fla, numero) AS label FROM contracts WHERE tenant_id = $1 AND id = ANY ($2::uuid[])', [tenantId, missing]);
-      for (const c of more) contractLabels.set(c.id, c.label);
+    // N° AFFICHÉ de chaque contrat de la carte, celui de la liste des contrats et des alertes (référence d'avenant
+    // comprise, « …-AM03 » : contracts/contractNoSql) — contrats chargés et contrats des visites qui ne le sont
+    // plus (fin avancée par un avenant, résiliation rétroactive) : jamais l'identifiant technique à l'écran.
+    const labelIds = [...new Set([...inputs.contracts.map((c) => c.id), ...activity.map((a) => a.contractId)].filter(Boolean))];
+    const contractLabels = new Map();
+    if (labelIds.length) {
+      const { rows: labels } = await client.query(
+        `SELECT c.id, ${contractShownNoSql('c')} AS label FROM contracts c WHERE c.tenant_id = $1 AND c.id = ANY ($2::uuid[])`, [tenantId, labelIds]);
+      for (const c of labels) contractLabels.set(c.id, c.label);
     }
     const unavailable = new Set(inputs.unavailability.map((u) => `${u.providerId}|${u.month}`));
     // Décision D-b : un partenaire qui n'est plus de type TPM n'a plus de facture attendue (actif ou non).

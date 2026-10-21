@@ -142,3 +142,71 @@ test('rapports d un TPM : liste, onglet, fiche 360° (TPM et titulaire) et carte
       if (made.partners.length) await q('DELETE FROM partners WHERE id = ANY ($1::uuid[])', [made.partners]).catch(() => {});
     }
   });
+
+test('n° affiché d un contrat AVENANT (référence « …-AM03 ») : carte des rapports attendus, consolidation et fiche 360° comme la liste des contrats et les alertes',
+  { skip: SKIP, timeout: 120000 }, async () => {
+    const { contractReferenceSql, contractShownNoSql } = require('../src/modules/contracts/contractNoSql');
+    const { displayReference } = require('../src/modules/contracts/contracts.domain');
+    const reports = require('../src/modules/tpm/reports.repository');
+    const consolidationRepo = require('../src/modules/tpm/consolidation.repository');
+    const partnersService = require('../src/modules/partners/partners.service');
+    const { currentMonth } = require('../src/modules/tpm/rbmMath');
+    const { addMonths } = require('../src/modules/common/period');
+    // Jumeau SQL = règle de la liste (reference = displayReference ; affiché = reference || numeroFla || numero).
+    const cases = [['FLA-1', 0, 'CTR-1'], ['FLA-1', 3, 'CTR-1'], ['FLA-1', 12, 'CTR-1'], ['FLA-1', 104, 'CTR-1'], [null, 2, 'CTR-2'], ['', 2, 'CTR-3'], ['FLA-4', null, 'CTR-4']];
+    const sql = await q(`SELECT ${contractReferenceSql('c')} AS reference, ${contractShownNoSql('c')} AS shown
+                           FROM unnest($1::text[], $2::int[], $3::text[]) WITH ORDINALITY AS c(numero_fla, amendment_count, numero, i) ORDER BY i`,
+    [cases.map((x) => x[0]), cases.map((x) => x[1]), cases.map((x) => x[2])]);
+    cases.forEach(([fla, n, numero], i) => {
+      const reference = displayReference(fla, n);
+      assert.deepEqual([sql[i].reference, sql[i].shown], [reference, reference || fla || numero], JSON.stringify(cases[i]));
+    });
+
+    const M = currentMonth(); const M1 = addMonths(M, -1);
+    const [{ id: T }] = await q('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1');
+    const [{ id: U }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND role = 'admin' ORDER BY email LIMIT 1", [T]);
+    const types = Object.fromEntries((await q('SELECT code, id FROM partner_types WHERE tenant_id = $1', [T])).map((r) => [r.code, r.id]));
+    const made = { partners: [], contract: null, visit: null };
+    try {
+      const mk = async (name, type) => (await q('INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1, $2, $3) RETURNING id', [T, types[type], name]))[0].id;
+      const H = await mk('Test PP titulaire avenant', 'prestataire');
+      const Z = await mk('Test PP TPM avenant', 'tpm');
+      made.partners = [H, Z];
+      // Contrat de suivi (ligne IV.suivi), troisième avenant, sans zone : rien d'estampillé ailleurs.
+      const [{ id: K }] = await q(`INSERT INTO contracts (tenant_id, numero, numero_fla, amendment_count, partner_id, partner_name, date_debut, date_fin, status, created_by)
+                                    VALUES ($1, 'TEST-PP-0002', 'FLA-TEST-PP-0002', 3, $2, 'Test PP titulaire avenant', $3, $4, 'actif', $5) RETURNING id`,
+      [T, H, `${addMonths(M, -4)}-01`, `${addMonths(M, 3)}-28`, U]);
+      made.contract = K;
+      await q(`INSERT INTO contract_budget_items (contract_id, tenant_id, line_code, description, unit_count, unit_cost, allocations, sort_order)
+               VALUES ($1, $2, 'IV.suivi', 'Suivi (test avenant)', 1, 1000, '{}'::jsonb, 0)`, [K, T]);
+      const [site] = await q('SELECT id FROM sites WHERE tenant_id = $1 ORDER BY id LIMIT 1', [T]);
+      await q('BEGIN');
+      await q("SELECT set_config('mems.tpm_stamping', 'on', true)");
+      [{ id: made.visit }] = await q(`INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, provider_source, provider_id, provider_zone_state, contract_id)
+                                       VALUES ($1, $2, $3, 'Test PP avenant', 'realise', 'zone', $4, 'contrat', $5) RETURNING id`, [T, site.id, `${M1}-01`, Z, K]);
+      await q('COMMIT');
+      const [{ id: R }] = await q(`INSERT INTO tpm_reports (tenant_id, partner_id, contract_id, period_month, kind, reported_amount, status, created_by)
+                                    VALUES ($1, $2, $3, $4, 'financier', 0, 'attendu', $5) RETURNING id`, [T, Z, K, `${M1}-01`, U]);
+      const NO = 'FLA-TEST-PP-0002-AM03';
+      // Carte « Rapports attendus » (et son CSV, qui reprend ces libellés) : ligne et case « Factures du mois ».
+      const row = (await reports.expectedReports(T, { period: { from: M1, to: M1 }, today: M })).rows.find((r) => r.unit.providerId === Z);
+      assert.equal(row.contract.label, NO, 'ligne de la carte');
+      assert.equal(row.reports.find((x) => x.id === R).contractLabel, NO, 'case « Factures du mois »');
+      // Consolidation : `reference`, que web roles.contractNo préfère au n° FLA.
+      const cons = (await consolidationRepo.consolidation(T, { today: M })).rows.find((r) => r.contractId === K);
+      assert.deepEqual([cons.reference, cons.numeroFla], [NO, 'FLA-TEST-PP-0002']);
+      // Fiche 360° du titulaire et du TPM : la ligne du contrat porte la même référence.
+      for (const id of [H, Z]) {
+        const sheet = await partnersService.sheet(T, id);
+        assert.equal(sheet.contracts.find((c) => c.id === K).reference, NO, id === H ? 'titulaire' : 'TPM');
+      }
+    } finally {
+      if (made.contract) {
+        await q('DELETE FROM tpm_reports WHERE contract_id = $1', [made.contract]);
+        if (made.visit) await q('DELETE FROM site_visits WHERE id = $1', [made.visit]);
+        await q('DELETE FROM contract_budget_items WHERE contract_id = $1', [made.contract]);
+        await q('DELETE FROM contracts WHERE id = $1', [made.contract]);
+      }
+      if (made.partners.length) await q('DELETE FROM partners WHERE id = ANY ($1::uuid[])', [made.partners]).catch(() => {});
+    }
+  });
