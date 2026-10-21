@@ -531,7 +531,32 @@ async function bulkSaveMmr(tenantId, { upserts = [], deletes = [] }, userId) {
   });
 }
 
+// ---- Options du compte (tenant_settings) ---------------------------------------------
+async function getAccountSettings(tenantId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rows } = await client.query('SELECT admin_free_edit AS "adminFreeEdit" FROM tenant_settings WHERE tenant_id = $1', [tenantId]);
+    return rows[0] || { adminFreeEdit: false };
+  });
+}
+
+async function saveAccountSettings(tenantId, { adminFreeEdit }, userId) {
+  return withTenantTransaction(tenantId, async (client) => {
+    await client.query(
+      `INSERT INTO tenant_settings (tenant_id, admin_free_edit, updated_by) VALUES ($1,$2,$3)
+       ON CONFLICT (tenant_id) DO UPDATE SET admin_free_edit = EXCLUDED.admin_free_edit, updated_at = now(), updated_by = EXCLUDED.updated_by`,
+      [tenantId, Boolean(adminFreeEdit), userId || null]);
+    return { adminFreeEdit: Boolean(adminFreeEdit) };
+  });
+}
+
+/** Lecture du drapeau « modification libre admin » DANS une transaction en cours (gardes d'édition). */
+async function adminFreeEditTx(client, tenantId) {
+  const { rows } = await client.query('SELECT admin_free_edit FROM tenant_settings WHERE tenant_id = $1', [tenantId]);
+  return rows.length ? rows[0].admin_free_edit === true : false;
+}
+
 module.exports = {
+  getAccountSettings, saveAccountSettings, adminFreeEditTx,
   listPartnerTypes, createPartnerType,
   listActivities, createActivity, setActivityActive,
   listPartners, createPartner, updatePartner, partnerTypeById, createAgent, deleteAgent,

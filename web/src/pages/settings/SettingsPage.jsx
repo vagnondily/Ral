@@ -25,6 +25,7 @@ const SECTIONS = {
   mmr: { label: 'Paramètres MMR', icon: Gauge, group: 'Suivi', admin: true, desc: 'Exigences minimales de suivi (MMR) par bureau × activité : durée, nombre de sites, niveau de risque → intervalle, fréquence et nombre de sites ciblés par mois (base du RBM).' },
   utilisateurs: { label: 'Utilisateurs & accès', icon: ShieldCheck, group: 'Sécurité', admin: true, desc: 'Comptes, rôles (administrateur / validateur / lecteur) et activation. Qui peut faire quoi dans l\'application.' },
   suppressions: { label: 'Journal des suppressions', icon: Trash2, group: 'Sécurité', admin: true, desc: 'Traçabilité des documents supprimés (rapports, factures, plans, contrats) : qui, quand, pourquoi, et un résumé du document.' },
+  compte: { label: 'Options du compte', icon: Lock, group: 'Sécurité', admin: true, desc: 'Réglages du compte, dont la modification libre par l\'administrateur des éléments déjà validés.' },
 };
 const GROUPS = ['Référentiels', 'Finances', 'Géographie', 'Suivi', 'Sécurité'];
 
@@ -60,6 +61,7 @@ export default function SettingsPage({ tab = 'apercu', sub = null, isAdmin, onNa
           {current === 'mmr' && <MmrSection isAdmin={isAdmin} />}
           {current === 'utilisateurs' && <UsersSection isAdmin={isAdmin} />}
           {current === 'suppressions' && <DeletionsSection isAdmin={isAdmin} />}
+          {current === 'compte' && <AccountOptionsSection isAdmin={isAdmin} />}
         </>
       )}
     </div>
@@ -847,6 +849,35 @@ function TypesSection({ isAdmin }) {
         </div>
       )}
       {modal && <CodeLabelModal title={tr('Nouveau type de partenaire')} onClose={() => setModal(false)} onSubmit={(v) => api.createPartnerType(v)} onSaved={() => { setModal(false); reload(); }} />}
+    </Card>
+  );
+}
+
+function AccountOptionsSection({ isAdmin }) {
+  const { tr } = useI18n();
+  const toast = useToast();
+  const [settings, setSettings] = useState(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { api.getAccountSettings().then(setSettings).catch((e) => { toast.error(e.message); setSettings({ adminFreeEdit: false }); }); }, [toast]);
+  if (!settings) return <Card><div className="card-body"><Skeleton height={90} /></div></Card>;
+  async function toggle(v) {
+    setSaving(true);
+    try { const r = await api.saveAccountSettings({ adminFreeEdit: v }); setSettings(r); toast.success(tr('Enregistré.')); }
+    catch (e) { toast.error(e.message); } finally { setSaving(false); }
+  }
+  return (
+    <Card aria-labelledby="acct-title">
+      <CardHeader id="acct-title" title={tr('Options du compte')} subtitle={tr('Réglages avancés — administrateur.')} />
+      <div className="card-body">
+        <label className="check-row" style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <input type="checkbox" checked={Boolean(settings.adminFreeEdit)} disabled={!isAdmin || saving} onChange={(e) => toggle(e.target.checked)} style={{ marginTop: 3 }} />
+          <span>
+            <strong>{tr('Autoriser la modification libre par l\'administrateur')}</strong>
+            <br />
+            <span className="muted" style={{ fontSize: 13 }}>{tr('Un administrateur peut modifier des éléments déjà validés (ex. le budget d\'un contrat actif) sans passer par un avenant. Chaque modification reste tracée dans l\'historique. À n\'activer qu\'en connaissance de cause.')}</span>
+          </span>
+        </label>
+      </div>
     </Card>
   );
 }

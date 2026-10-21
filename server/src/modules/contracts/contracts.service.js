@@ -14,6 +14,7 @@ const { recordDeletion } = require('../deletions/deletions.repository');
 const { periodBounds } = require('../common/period');
 const { restampVisitsTx } = require('../tpm/tpmAttribution.repository');
 const { contractTpmViewsTx } = require('../tpm/activeProvider.repository');
+const { adminFreeEditTx } = require('../settings/settings.repository');
 
 /**
  * Retour 58 : un contrat de suivi décide du TPM par défaut de ses zones. Quand il devient actif,
@@ -146,7 +147,8 @@ function allowedActions(contract, ctx, actor) {
   const pending = ctx.amendments.find((a) => a.status === 'en_validation');
   const isActive = contract.status === 'actif';
   return {
-    edit: write && d.isEditable(contract.status),
+    // Édition : au statut éditable (brouillon…), OU surpouvoir admin « modification libre » activé.
+    edit: write && (d.isEditable(contract.status) || (actor.role === 'admin' && ctx.adminFreeEdit)),
     submit: write && Boolean(d.transitionTarget('submit', contract.status)),
     decide: contract.status === 'en_validation' && contract.validatorId === actor.userId,
     amend: write && isActive && !pending,
@@ -174,6 +176,7 @@ async function getContractDetail(tenantId, id, actor) {
     const amendments = await repo.listAmendments(client, tenantId, id);
     const renewal = await repo.findRenewal(client, tenantId, id);
     const deleteBlockers = canWrite(actor) ? await contractLinks(client, tenantId, id) : [];
+    const adminFreeEdit = await adminFreeEditTx(client, tenantId);
     const { views } = await contractTpmViewsTx(client, tenantId, [contract]);
     let renewedFrom = null;
     if (contract.renewedFromId) {
@@ -202,7 +205,7 @@ async function getContractDetail(tenantId, id, actor) {
       amendments,
       renewal,
       renewedFrom,
-      actions: allowedActions(contract, { amendments, renewal, deleteBlockers }, actor),
+      actions: allowedActions(contract, { amendments, renewal, deleteBlockers, adminFreeEdit }, actor),
     };
   });
 }
@@ -259,8 +262,14 @@ async function updateDraft(tenantId, actor, id, input) {
   await withTenantTransaction(tenantId, async (client) => {
     const contract = await loadForUpdate(client, tenantId, id);
     assertVersion(contract, input.version);
+    // Statut non éditable : refusé, SAUF surpouvoir admin « modification libre » (option de compte).
+    // La modification reste tracée dans l'historique (details.adminFreeEdit).
+    let freeEditOverride = false;
     if (!d.isEditable(contract.status)) {
-      throw conflict(`Contrat non modifiable au statut « ${d.STATUS_LABELS[contract.status]} ». Passez par un avenant.`);
+      freeEditOverride = actor.role === 'admin' && await adminFreeEditTx(client, tenantId);
+      if (!freeEditOverride) {
+        throw conflict(`Contrat non modifiable au statut « ${d.STATUS_LABELS[contract.status]} ». Passez par un avenant.`);
+      }
     }
     const { partner, activityIds, items, feePct, areas } = await resolveInputs(client, tenantId, input);
     await saveContract(client, tenantId, contract, {
@@ -272,7 +281,7 @@ async function updateDraft(tenantId, actor, id, input) {
     await repo.setContractActivities(client, tenantId, id, activityIds);
     await repo.replaceBudget(client, tenantId, id, items);
     await repo.replaceAreas(client, tenantId, id, areas);
-    await repo.addHistory(client, tenantId, id, { action: 'modification', actorId: actor.userId });
+    await repo.addHistory(client, tenantId, id, { action: 'modification', actorId: actor.userId, ...(freeEditOverride ? { details: { adminFreeEdit: true } } : {}) });
   });
 }
 

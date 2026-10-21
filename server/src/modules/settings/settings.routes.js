@@ -314,6 +314,11 @@ router.delete('/localities/:id', ADMIN, asyncHandler(async (req, res) => {
   res.json(await loc.deleteArea(t(req), req.params.id, { cascade: req.query.cascade === '1' }));
 }));
 
+// ---- Options du compte : « modification libre par l'administrateur » (lecture : tous ; écriture : admin).
+router.get('/account', asyncHandler(async (req, res) => res.json(await repo.getAccountSettings(t(req)))));
+router.put('/account', ADMIN, body(z.object({ adminFreeEdit: z.boolean() })), asyncHandler(async (req, res) =>
+  res.json(await repo.saveAccountSettings(t(req), req.valid, req.auth.userId))));
+
 // ---- État de la configuration : « prêt / à compléter / bloquant » par réglage ---------
 router.get('/health', asyncHandler(async (req, res) => res.json(await configHealth(t(req)))));
 

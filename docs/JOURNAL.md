@@ -12,6 +12,18 @@
 
 ## État courant
 
+> **21/10 — Admin « modifier à volonté » (option de compte).** ✅ Nouvelle rubrique **Paramétrage ›
+> Options du compte** (admin) avec une case **« Autoriser la modification libre par l'administrateur »**.
+> Désactivée par défaut (fiabilité/audit restent la règle). Activée, un administrateur peut modifier un
+> élément déjà validé/verrouillé sans passer par un avenant — d'abord le **budget d'un contrat actif**.
+> Migration **118** `tenant_settings(admin_free_edit)` + RLS + GRANT `mems2_app`. Backend :
+> `getAccountSettings`/`saveAccountSettings`/`adminFreeEditTx`, routes `GET/PUT /api/settings/account`
+> (lecture tous, écriture admin). `contracts.service` : capacité `actions.edit` et garde de `updateDraft`
+> honorent le drapeau pour l'admin ; chaque modif reste tracée (`contract_history.details.adminFreeEdit`).
+> Smoke base réelle : défaut OFF → 409 ; ON → édition + sauvegarde + trace ; non-admin toujours bloqué.
+> lint ✅, 1564 tests ✅, build ✅, EN ajoutées. **Suite demandée** : étendre ce pouvoir aux autres
+> fenêtres (plans de mois échus, rapports/factures validés) ; RBAC par écran + 5 rôles ; auto-inscription.
+
 > **21/10 — Hiérarchie des bureaux à 6 niveaux (désagrégation).** ✅ Le formulaire Bureau n'avait que
 > « Bureau terrain / Bureau pays ». Nouveau champ **« Niveau »** : Siège › Bureau régional › Bureau pays ›
 > Area Office › Sous-bureau › Antenne. Migration **117** ajoute `field_offices.office_level` (reprise des

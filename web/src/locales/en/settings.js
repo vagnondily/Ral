@@ -31,6 +31,13 @@ export default {
   'Utilisateurs & accès': 'Users & access',
   "Comptes, rôles (administrateur / validateur / lecteur) et activation. Qui peut faire quoi dans l'application.": 'Accounts, roles (administrator / validator / viewer) and activation. Who can do what in the application.',
 
+  // Options du compte
+  'Options du compte': 'Account options',
+  "Réglages du compte, dont la modification libre par l'administrateur des éléments déjà validés.": 'Account settings, including free editing by the administrator of already-validated items.',
+  'Réglages avancés — administrateur.': 'Advanced settings — administrator.',
+  "Autoriser la modification libre par l'administrateur": 'Allow free editing by the administrator',
+  "Un administrateur peut modifier des éléments déjà validés (ex. le budget d'un contrat actif) sans passer par un avenant. Chaque modification reste tracée dans l'historique. À n'activer qu'en connaissance de cause.": 'An administrator can edit already-validated items (e.g. the budget of an active contract) without going through an amendment. Every change is still recorded in the history. Enable only if you know what you are doing.',
+
   // Utilisateurs & accès
   'Supprimer le compte « {email} » ? Cette action est définitive.': 'Delete the account “{email}”? This action cannot be undone.',
   'Compte supprimé.': 'Account deleted.',
