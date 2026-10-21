@@ -48,3 +48,16 @@ test('Affectation des TPM : une zone couverte par un contrat SANS TPM le montre 
   const en = (await load(t, 'locales/en.js')).default;
   assert.equal(en['sans TPM'], 'no TPM');
 });
+
+test('plan auto : la note et l\'en-tête disent la règle du retour 114 (sans TPM — aucun contrat, contrat sans TPM, TPM indisponible — suivi interne), en anglais aussi', async (t) => {
+  const en = await load(t, 'locales/en.js'); if (!en) return;
+  const lit = literals('pages/monitoring/PlanAutoDrawer.jsx');
+  assert.ok(!lit.some((s) => /sans contrat, le suivi|sinon bureau\)/.test(s)), 'ancienne règle « sans contrat » seulement');
+  const note = lit.find((s) => s.startsWith('Le TPM d\'un site = '));
+  assert.match(note, /sans TPM \(aucun contrat, contrat sans TPM, TPM indisponible\), le suivi est interne : équipe S&E du bureau\./);
+  const head = lit.find((s) => s.startsWith('Par unité de suivi'));
+  assert.match(head, /sans TPM, suivi interne du bureau/);
+  for (const s of [note, head]) assert.ok(Object.prototype.hasOwnProperty.call(en.default, s), `sans anglais — ${s}`);
+  assert.match(en.default[note], /no contract, contract without a TPM, TPM unavailable/);
+  assert.ok(!Object.values(en.default).some((v) => /without a contract, the office monitors it/.test(v)), 'aucune ancienne traduction');
+});

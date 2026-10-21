@@ -548,5 +548,4 @@ export default {
   'TPM': 'TPM',
   'Bureau': 'Office',
   'Bureau (suivi interne — zone sans TPM)': 'Office (internal monitoring — zone without a TPM)',
-  'Le TPM d\'un site = contrat de suivi actif de sa zone ; sans contrat, le suivi est fait par le bureau (en interne). La charge est répartie sur la période pour éviter les mois vides.': 'A site\'s TPM = the active monitoring contract of its zone; without a contract, the office monitors it internally. The load is spread over the period to avoid empty months.',
 };
