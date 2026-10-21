@@ -260,6 +260,40 @@ function resolvePath(index, q = {}) {
   return { levels, finest, pcodes, status: pending ? pending.status : (given.length ? 'resolu' : 'vide') };
 }
 
+/**
+ * Chemin d'un SITE (applySitesGeoTx) et son P-code de DISTRICT, qui suit la GRAPHIE du site.
+ * Le P-code de district stocké (adm2_pcode — déduit d'une résolution passée, ou importé avec le site) :
+ *  - n'est pas lu pour résoudre le site s'il contredit un niveau que le texte désigne SANS AMBIGUÏTÉ
+ *    (région ou district résolus par leur nom, automatiquement : son unité et la leur doivent être sur
+ *    une même lignée) — `dropped` ;
+ *  - est réécrit d'après le texte (`districtPcode`) : quand le texte désigne un district, le code de ce
+ *    district, ou AUCUN s'il n'en a pas (l'ancien code est effacé) — sauf un code absent du découpage,
+ *    gardé (il ne contredit rien, ne fait voter personne et peut être la clé d'une autre source) ; un
+ *    code écarté sans district nommé prend celui de la nouvelle lignée, sinon aucun.
+ * Un site déplacé puis corrigé ne garde donc jamais le code de son ancien district, qui ferait voter
+ * toute sa graphie pour ce district (siteActivitySql.sdvote). Un texte vide, inconnu, ambigu ou à valider
+ * ne contredit rien : le code importé avec le site garde sa place (règle « District d'un site » : cru
+ * quand il concorde avec la région). Le P-code de COMMUNE (adm3_pcode : clé des données reçues, importé
+ * du Master Data, parfois d'un autre jeu de codes que le découpage) n'est ni écarté ni réécrit ici.
+ * @param {object} index  buildPlaceIndex
+ * @param {{ adm1?, adm2?, adm3?, adm4?, pcodes?: {adm2?, adm3?} }} q
+ * @returns {ReturnType<typeof resolvePath> & { dropped: string[], districtPcode: string|null|undefined }}
+ *          districtPcode undefined = rien à réécrire (règle d'avant : code de la lignée, sinon code stocké)
+ */
+function resolveSitePath(index, q = {}) {
+  const stored = q.pcodes && q.pcodes.adm2 != null && String(q.pcodes.adm2).trim() !== '' ? q.pcodes.adm2 : null;
+  const byName = resolvePath(index, { ...q, pcodes: {} });
+  const named = byName.levels.filter((l) => l.area && isAutomatic(l.status));
+  const area = stored ? index.byPcode.get(String(stored).trim().toUpperCase()) : null;
+  const contradicts = Boolean(area) && named.some((l) => !isUnder(index, area, l.area) && !isUnder(index, l.area, area));
+  const path = resolvePath(index, contradicts ? { ...q, pcodes: { ...q.pcodes, adm2: null } } : q);
+  const district = named.find((l) => l.depth === 2);
+  let districtPcode;
+  if (district) districtPcode = district.area.pcode || (stored && !area ? stored : null);
+  else if (contradicts) districtPcode = path.pcodes.adm2 || null;
+  return { ...path, dropped: contradicts ? ['adm2'] : [], districtPcode };
+}
+
 // ---- Chemins (« Région > District > … ») ------------------------------------------
 /** Chemin comparé segment par segment après normalisation. */
 const pathKey = pathKeyOf;
@@ -372,6 +406,6 @@ function groupUnmatched(items, { synonyms = MDG_SYNONYMS } = {}) {
 }
 
 module.exports = {
-  normPlace, looksLikePcode, jaroWinkler, levenshtein, similarity, buildPlaceIndex, resolvePlace, resolvePath, isAutomatic, parentKeyOf,
+  normPlace, looksLikePcode, jaroWinkler, levenshtein, similarity, buildPlaceIndex, resolvePlace, resolvePath, resolveSitePath, isAutomatic, parentKeyOf,
   pathKey, relinkByPath, officeResolver, buildOfficeIndex, resolveOffice, groupUnmatched, MDG_SYNONYMS, FUZZY_MIN,
 };
