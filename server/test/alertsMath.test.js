@@ -145,6 +145,14 @@ test('terrain : couverture < 50 % (à surveiller), prestataire < 40 % sur ≥ 3 
   assert.deepEqual(fieldAlerts(field, { coverage: covOf(10, 4) })[0].go, { module: 'processus', sub: 'synthese' });
 });
 
+test('terrain : une visite non affectée ANNULÉE ne compte pas (prévues + réalisées seulement), comme la carte et la carte « par TPM »', () => {
+  const row = (planifie, realise, annule) => ({ key: 'non_affecte', label: 'Non affectée (ni TPM ni suivi interne)', planifie, realise, annule,
+    total: planifie + realise + annule, active: planifie + realise, rate: planifie + realise > 0 ? realise / (planifie + realise) : 0 });
+  assert.deepEqual(fieldAlerts({ byProvider: [row(0, 0, 1)] }).filter((a) => a.kind === 'visits_unassigned'), [], 'seule une annulée : aucune alerte');
+  const [a] = fieldAlerts({ byProvider: [row(1, 1, 2)] }).filter((x) => x.kind === 'visits_unassigned');
+  assert.equal(a.params.n, 2, '2 actives, les 2 annulées exclues');
+});
+
 test('terrain : prestataire à 0,4 % — taux typé (« 0,4 % » à l\'écran), jamais arrondi à « 0 % » ici', () => {
   const field = { byProvider: [{ key: 'p', label: 'ONG', active: 250, realise: 1, rate: 1 / 250 }] };
   const [late] = fieldAlerts(field, {});
