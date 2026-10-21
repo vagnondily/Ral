@@ -8,7 +8,7 @@ import { periodLabel } from '../lib/contracts.js';
 import { formatInt } from '../lib/format.js';
 import { BANDS, formatScore } from '../lib/evaluation.js';
 import { PROVIDER_STATUS } from '../lib/partners.js';
-import { ROLE_LABELS, contractNo, joinParts } from '../lib/roles.js';
+import { ROLE_LABELS, contractNo, holderTpmCell, joinParts } from '../lib/roles.js';
 import { useI18n } from '../lib/i18n.jsx';
 import TpmUnavailabilityBadge from '../components/TpmUnavailabilityBadge.jsx';
 import { rangeLabel, unavailabilityOf } from '../lib/tpmAttribution.js';
@@ -59,6 +59,11 @@ export default function ProvidersPage({ canEdit, onNavigate }) {
     toValidate: byRole.tpm.reduce((n, p) => n + p.reportsToValidate, 0),
   } : null), [rows, byRole]);
 
+  // Texte de la colonne TPM d'un titulaire (tri et CSV) : vide sans contrat qui couvre le mois.
+  const holderTpmText = (p) => {
+    const t = holderTpmCell(p);
+    return t.none ? '' : [...t.names, t.internal ? tr(ROLE_LABELS.noTpm) : null].filter(Boolean).join(', ');
+  };
   const nameCell = (p) => (
     <button type="button" className="pv-name-link" onClick={() => open(p)}>
       <Avatar name={p.name} />
@@ -97,8 +102,18 @@ export default function ProvidersPage({ canEdit, onNavigate }) {
     name: nameCol,
     contracts: { label: tr('Contrats actifs'), sortVal: (p) => p.heldContracts.length, csv: (p) => p.heldContracts.map(contractNo).join(', '),
       render: (p) => contractsCell(p.heldContracts, false) },
-    tpm: { label: tr(ROLE_LABELS.tpm), sortVal: (p) => p.tpms.map((t) => t.name).join(', '), csv: (p) => p.tpms.map((t) => t.name).join(', ') || tr(ROLE_LABELS.noTpm),
-      render: (p) => (p.tpms.length ? p.tpms.map((t) => t.name).join(', ') : <span className="cell-empty" title={tr(ROLE_LABELS.noTpmHint)}>{tr(ROLE_LABELS.noTpm)}</span>) },
+    // TPM de ses contrats qui couvrent le mois ; « Interne » pour un tel contrat sans TPM ; aucun contrat : « — ».
+    tpm: { label: tr(ROLE_LABELS.tpm), sortVal: (p) => holderTpmText(p), csv: (p) => holderTpmText(p),
+      render: (p) => {
+        const t = holderTpmCell(p);
+        if (t.none || (!t.names.length && !t.internal)) return <span className="cell-empty">—</span>;
+        return (
+          <>
+            {t.names.join(', ')}
+            {t.internal && <>{t.names.length > 0 && ', '}<span className="cell-empty" title={tr(ROLE_LABELS.noTpmHint)}>{tr(ROLE_LABELS.noTpm)}</span></>}
+          </>
+        );
+      } },
     zones: { label: tr('Zones'), num: true, sortVal: (p) => p.zonesActive, csv: (p) => p.zonesActive,
       render: (p) => (p.zonesActive ? formatInt(p.zonesActive) : <span className="cell-empty">0</span>) },
     status: statusCol,
