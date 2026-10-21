@@ -47,7 +47,7 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
 
   const [head, setHead] = useState({
     partnerId: initial?.partnerId || '', contractId: initial?.contractId || '',
-    invoiceNo: '', periodEnd: '', advanceDeducted: '', partnerName: '', contractNumero: '', contractFla: '',
+    invoiceNo: '', periodMonth: '', periodEnd: '', advanceDeducted: '', partnerName: '', contractNumero: '', contractFla: '',
     documentName: '', reference: '', plannedAmount: '',
   });
   const [rows, setRows] = useState(editing ? [] : [newPoste()]);
@@ -55,6 +55,8 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
 
   const partners = context?.partners || [];
   const contracts = context?.contracts || [];
+  // Mois de la facture : celui du rapport ouvert (édition), sinon le mois de la page (création).
+  const factureMonth = editing ? head.periodMonth : (month ? String(month).slice(0, 7) : '');
   const contract = contracts.find((c) => c.id === head.contractId);
   // Retour 58 — même règle que la planification : le contrat propose son TPM, le TPM son contrat.
   const tpmsOf = useContractTpms(month, !editing);
@@ -65,10 +67,11 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
   // Décision D-c : TPM déclaré indisponible un mois de la facture — elle reste acceptée (le travail a pu être
   // fait), mais l'écran le signale avant de soumettre. Source : GET /api/partners/selectable (unavailableMonths).
   const [offMonths, setOffMonths] = useState([]);
+  // Les mois de LA facture (relecture des corrections croisées, point 4) : jamais le mois du filtre de la page.
   useEffect(() => {
-    if (!isFin || !head.partnerId || !month) { setOffMonths([]); return undefined; }
+    if (!isFin || !head.partnerId || !factureMonth) { setOffMonths([]); return undefined; }
     let alive = true;
-    const from = String(month).slice(0, 7);
+    const from = factureMonth;
     const to = head.periodEnd && head.periodEnd > from ? head.periodEnd : from;
     api.selectableProviders({ from, to }).then((r) => {
       if (!alive) return;
@@ -76,7 +79,7 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
       setOffMonths((p && p.unavailableMonths) || []);
     }).catch(() => { if (alive) setOffMonths([]); });
     return () => { alive = false; };
-  }, [isFin, head.partnerId, head.periodEnd, month]);
+  }, [isFin, head.partnerId, head.periodEnd, factureMonth]);
   const pickContracts = contractOptions(contracts, {
     month, tpmsOf, fmtPeriod: (from, to) => periodLabel({ from, to }, lang, { short: true }),
     labels: { covering: tr('Couvrent {month}', { month: month ? monthLabel(String(month).slice(0, 7)) : '' }), others: tr('Autres contrats actifs'), tpmList: (p) => tr('TPM : {p}', { p }) },
@@ -103,7 +106,7 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
       setHead((h) => ({
         ...h,
         partnerId: r.partnerId, contractId: r.contractId, partnerName: r.partnerName, contractNumero: r.contractNumero, contractFla: r.contractFla || '',
-        invoiceNo: r.invoiceNo || '', periodEnd: r.periodEnd ? r.periodEnd.slice(0, 7) : '',
+        invoiceNo: r.invoiceNo || '', periodMonth: r.periodMonth ? String(r.periodMonth).slice(0, 7) : '', periodEnd: r.periodEnd ? r.periodEnd.slice(0, 7) : '',
         advanceDeducted: r.advanceDeducted || '', documentName: r.documentName || '', reference: r.reference || '',
         plannedAmount: r.plannedAmount || '',
       }));
@@ -195,7 +198,7 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
     // N° affiché du contrat : n° FLA, sinon numéro interne (glossaire, retour 113).
     const contractNumero = head.contractNumero ? (head.contractFla || head.contractNumero) : (contract?.numeroFla || contract?.numero || '');
     openFacturePrint({
-      head: { ...head, partnerName, contractNumero, periodMonth: month, advanceDeducted: Number(head.advanceDeducted) || 0 },
+      head: { ...head, partnerName, contractNumero, periodMonth: head.periodMonth || month, advanceDeducted: Number(head.advanceDeducted) || 0 },
       rows, contract,
     });
   }
@@ -265,7 +268,8 @@ export default function FactureDrawer({ reportId, kind: kindProp = 'financier', 
           {otherTpm && (
             <Alert tone="warn">{tr('Ce TPM n\'est pas celui de ce contrat ({p}) : vérifiez le couple TPM × contrat.', { p: headTpms.map((p) => p.name).join(', ') })}</Alert>
           )}
-          {isFin && offMonths.length > 0 && (
+          {/* Facture figée (soumise, validée, lecture seule) : l'avertissement « avant de la soumettre » ne dit plus rien. */}
+          {isFin && !readOnly && offMonths.length > 0 && (
             <Alert tone="warn">{tr('Ce TPM est déclaré indisponible en {m} : la facture reste possible si le travail a bien été fait — vérifiez avant de la soumettre.',
               { m: offMonths.map((m) => monthLabel(m)).join(', ') })}</Alert>
           )}

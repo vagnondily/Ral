@@ -160,3 +160,15 @@ test('D-c (point 25) : une seule source « indisponible » pour les listes de ch
   assert.equal(unavailableThroughout(['2026-11', '2026-12'], [{ month: '2026-12' }]), false);
   assert.equal(unavailableThroughout([], [{ month: '2026-12' }]), false);
 });
+
+test('D-c à l écran (relecture des corrections croisées, point 4) : l avertissement suit les mois de LA facture, jamais le filtre de la page', (t) => {
+  const file = path.join(__dirname, '../../web/src/pages/tpm/FactureDrawer.jsx');
+  if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }
+  const drawer = fs.readFileSync(file, 'utf8');
+  assert.match(drawer, /const factureMonth = editing \? head\.periodMonth : \(month \? String\(month\)\.slice\(0, 7\) : ''\);/);
+  assert.match(drawer, /periodMonth: r\.periodMonth \? String\(r\.periodMonth\)\.slice\(0, 7\) : ''/, 'mois du rapport ouvert gardé');
+  const effect = drawer.slice(drawer.indexOf('useEffect(() => {\n    if (!isFin || !head.partnerId || !factureMonth)'), drawer.indexOf('}, [isFin, head.partnerId, head.periodEnd, factureMonth]);'));
+  assert.match(effect, /const from = factureMonth;/);
+  assert.ok(!/\bmonth\b(?!s)/.test(effect.replace(/factureMonth/g, '')), 'jamais le mois de la page dans l effet');
+  assert.match(drawer, /\{isFin && !readOnly && offMonths\.length > 0 && \(/, 'facture figée : pas d avertissement « avant de la soumettre »');
+});
