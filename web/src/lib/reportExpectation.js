@@ -64,3 +64,27 @@ export const reportStatusDef = (r) => {
   if (r && r.late) return EXPECTED_STATUS.en_retard;
   return REPORT_STATUS[r && r.status];
 };
+
+/** Documents RÉELS (jamais un gabarit) : ce que la carte « Rapports attendus » compte comme facture remise. */
+const REAL_DOCUMENT = ['soumis', 'valide', 'rejete'];
+
+/**
+ * Étapes « Facture » et « Validation » du fil guidé de Rapports & dépenses pour un mois, avec la règle de la
+ * carte (relecture croisée, point 16) : seules les factures RÉELLES (soumises, validées, rejetées — jamais un
+ * gabarit « attendu », « en retard » ou « non applicable d'office ») dont la période [periodMonth, periodEnd]
+ * COUVRE le mois (une facture pluri-mensuelle compte pour chacun de ses mois).
+ * @returns {{ facturesCreees: number, facturesSoumises: number, facturesValidees: number }}
+ */
+export function factureFlow(reports, month) {
+  const covers = (r) => {
+    const from = String(r.periodMonth || '').slice(0, 7);
+    const to = r.periodEnd ? String(r.periodEnd).slice(0, 7) : from;
+    return Boolean(from) && from <= month && month <= (to < from ? from : to);
+  };
+  const real = (reports || []).filter((r) => r.kind === 'financier' && REAL_DOCUMENT.includes(reportShownStatus(r)) && covers(r));
+  return {
+    facturesCreees: real.length,
+    facturesSoumises: real.filter((r) => r.status === 'soumis').length,
+    facturesValidees: real.filter((r) => r.status === 'valide').length,
+  };
+}

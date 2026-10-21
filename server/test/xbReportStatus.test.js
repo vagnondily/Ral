@@ -55,3 +55,25 @@ test('web : statut affiché d un gabarit en retard = « En retard » (liste, ong
   assert.equal(w.reportShownStatus({ status: 'attendu', autoNotApplicable: true, late: false }), 'non_applicable');
   assert.equal(w.reportShownStatus({ status: 'soumis', late: false }), 'soumis');
 });
+
+test('fil guidé (point 16) : étapes « Facture » / « Validation » = factures RÉELLES qui couvrent le mois (règle de la carte)', async (t) => {
+  const file = path.join(__dirname, '../../web/src/lib/reportExpectation.js');
+  if (!fs.existsSync(file)) { t.skip('web/ absent'); return; }
+  const w = await import(pathToFileURL(file).href);
+  const docs = [
+    { kind: 'financier', status: 'attendu', periodMonth: '2026-07-01', late: true }, // gabarit en retard : jamais une facture
+    { kind: 'financier', status: 'attendu', periodMonth: '2026-07-01', autoNotApplicable: true },
+    { kind: 'financier', status: 'non_applicable', periodMonth: '2026-07-01' },
+    { kind: 'financier', status: 'soumis', periodMonth: '2026-06-01', periodEnd: '2026-07-01' }, // pluri-mensuelle : couvre juillet
+    { kind: 'financier', status: 'valide', periodMonth: '2026-07-01' },
+    { kind: 'technique', status: 'valide', periodMonth: '2026-07-01' },
+    { kind: 'financier', status: 'valide', periodMonth: '2026-08-01' },
+  ];
+  assert.deepEqual(w.factureFlow(docs, '2026-07'), { facturesCreees: 2, facturesSoumises: 1, facturesValidees: 1 });
+  assert.deepEqual(w.factureFlow(docs, '2026-06'), { facturesCreees: 1, facturesSoumises: 1, facturesValidees: 0 });
+  assert.deepEqual(w.factureFlow(docs, '2026-05'), { facturesCreees: 0, facturesSoumises: 0, facturesValidees: 0 });
+  // La page recalcule à chaque mois choisi (dépendance `month`) et n'écrit jamais les plans d'un autre mois.
+  const page = fs.readFileSync(path.join(__dirname, '../../web/src/pages/tpm/ReportsPage.jsx'), 'utf8');
+  assert.match(page, /\.\.\.factureFlow\(reports, month\),\s*\}\), \[reports, plans, month\]\);/);
+  assert.match(page, /if \(live\) setPlans\(p\)/);
+});
