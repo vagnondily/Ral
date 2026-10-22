@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, Users, Trash2, Wand2, ChevronLeft, ChevronRight, ChevronRight as GoIcon, Filter, CircleDashed, Clock, MinusCircle, RefreshCw } from 'lucide-react';
+import { Upload, Plus, MapPin, CheckCircle2, CalendarClock, Ban, Users, Trash2, ChevronLeft, ChevronRight, ChevronRight as GoIcon, Filter, CircleDashed, Clock, MinusCircle, RefreshCw } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { Alert, Button, PageHeader, Skeleton } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
@@ -60,13 +60,9 @@ export default function FieldVisitsPage({ canEdit }) {
   const [visits, setVisits] = useState(null);
   const [summary, setSummary] = useState(null);
   const [collDays, setCollDays] = useState([]);
-  // Nb de sites « à planifier » ce mois selon le RBM : à suivre, hors zone interdite, sans visite déjà
-  // prévue ce mois (drapeau toPlan du serveur, même règle que « Générer ») — tombe à 0 après génération.
-  const [rbmToPlan, setRbmToPlan] = useState(null);
   const [providers, setProviders] = useState([]);
   const [error, setError] = useState(null);
   const [importing, setImporting] = useState(false);
-  const [generating, setGenerating] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [tpmVisits, setTpmVisits] = useState(null); // visites dont on change le TPM (raison obligatoire)
   const [applying, setApplying] = useState(false);
@@ -94,9 +90,6 @@ export default function FieldVisitsPage({ canEdit }) {
     Promise.all([api.fieldVisits({ month }), api.fieldSummary(month), api.fieldCollectionDays(month)])
       .then(([v, s, c]) => { if (live()) { setVisits(v); setSummary(s); setCollDays(c); } })
       .catch((e) => { if (live()) setError(e.message); });
-    // Combien de sites restent « à planifier » ce mois d'après le RBM (indicatif, non bloquant) :
-    // le compteur seul (GET /rbm/counts, même règle « toPlan » que « Générer »), pas la liste des sites.
-    api.rbmCounts(month).then((r) => { if (live()) setRbmToPlan(r.toPlan); }).catch(() => { if (live()) setRbmToPlan(null); });
     // Rafraîchit les stats par mois (le tableau des mois).
     api.fieldMonths(month.slice(0, 4)).then(setMonthsData).catch(() => {});
   }, [month]);
@@ -135,22 +128,6 @@ export default function FieldVisitsPage({ canEdit }) {
     if (!window.confirm(tr('Supprimer la visite de « {site} » ?', { site: v.siteName }))) return;
     try { await api.fieldDeleteVisit(v.id); setVisits((list) => (list ? list.filter((x) => x.id !== v.id) : list)); reload(); }
     catch (err) { toast.error(err.message); }
-  };
-  // Génère la planification du mois à partir du RBM : chaque site « à planifier »
-  // (à suivre — jamais visité ou échéance atteinte —, hors zone interdite, sans
-  // visite déjà prévue ce mois) devient une visite planifiée ; un 2ᵉ clic ne crée
-  // rien. Même action que sur la page RBM — proposée ici pour partir du RBM sans
-  // quitter la planification. L'affectation (prestataire + rôle) se fait ensuite.
-  const generateFromRbm = async () => {
-    setGenerating(true);
-    try {
-      const r = await api.rbmGenerate(month);
-      if (r.created > 0) toast.success(tr('{created} visite(s) planifiée(s) sur {due} site(s) à suivre (RBM).', { created: r.created, due: r.due }));
-      else if (r.due > 0) toast.info(tr('Aucune nouvelle visite : les {due} site(s) à suivre sont déjà planifiés.', { due: r.due }));
-      else toast.info(tr('Aucun site à suivre ce mois (hors zones interdites).'));
-      setRbmToPlan(Math.max(0, (r.toPlan || 0) - (r.created || 0))); // affiché tout de suite, confirmé par reload()
-      reload();
-    } catch (err) { toast.error(err.message); } finally { setGenerating(false); }
   };
   // « Appliquer les TPM des contrats » au mois : toute visite PRÉVUE sans TPM choisi avec une raison
   // reprend celui de sa zone (journalisé) ; une visite motivée, réalisée, annulée ou déjà facturée
@@ -251,9 +228,6 @@ export default function FieldVisitsPage({ canEdit }) {
           : tr("Les sites à visiter ce mois (district › commune › établissement › activité) : affectez le TPM et le rôle, datez les visites ; les onglets couvrent le budget-jours, la couverture et les données réelles.")}>
         {!picking && <Button variant="secondary" icon={ChevronLeft} onClick={() => setPicking(true)}>{tr('Tous les mois')}</Button>}
         {!picking && canEdit && <><input ref={fileRef} type="file" accept=".xlsx" hidden onChange={onImport} />
-          <Button variant="secondary" icon={Wand2} loading={generating} onClick={generateFromRbm}
-            title={tr("Planifie automatiquement les sites « à suivre » ce mois d'après leur niveau de risque (RBM). Le nombre indique ceux qui n'ont pas encore de visite ce mois (hors zones interdites).")}>
-            {rbmToPlan ? tr('Générer depuis le RBM ({n})', { n: rbmToPlan }) : tr('Générer depuis le RBM')}</Button>
           <Button variant="secondary" icon={Upload} loading={importing} onClick={() => fileRef.current?.click()}>{tr('Importer planning')}</Button>
           <Button variant="secondary" icon={RefreshCw} loading={applying} onClick={applyContracts}
             title={tr('Chaque visite prévue du mois sans TPM choisi avec une raison reprend le TPM du contrat qui couvre sa zone (journalisé) ; une visite réalisée, annulée ou déjà facturée garde son TPM.')}>
@@ -344,10 +318,7 @@ export default function FieldVisitsPage({ canEdit }) {
           filters={filters} defaultFilters={['q', 'provider', 'tpmOrigin', 'status']}
           storageKey="mems.fieldvisits.view.v3" pageSize={15} defaultSort={{ key: 'zone', dir: 'asc' }}
           csvName={`visites_${month}.csv`} emptyIcon={MapPin} emptyTitle={tr('Aucune visite ce mois-ci')}
-          emptyAction={canEdit && rbmToPlan > 0 && <Button icon={Wand2} loading={generating} onClick={generateFromRbm}>{tr('Générer {n} visite(s) depuis le RBM', { n: rbmToPlan })}</Button>}
-          emptyChildren={rbmToPlan
-            ? tr('Générez la planification depuis le RBM ({n} site(s) à planifier), importez le planning (.xlsx) ou ajoutez une visite.', { n: rbmToPlan })
-            : tr('Générez la planification depuis le RBM, importez le planning (.xlsx) ou ajoutez une visite.')}
+          emptyChildren={tr('Importez le planning (.xlsx) ou ajoutez une visite. La planification automatique (RBM, capacités) se fait dans l\'espace RBM.')}
         />
       )}
 

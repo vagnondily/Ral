@@ -8,7 +8,11 @@
 // long, 14 caractères au moins pour rester lisible) ; un nombre jamais. L'en-tête va à la ligne
 // (deux lignes) : seul son mot le plus long compte.
 
+// En dessous de MIN_SCALE le tableau est « trop large » (on propose la page paysage), MAIS on
+// continue à réduire la police jusqu'à RENDER_FLOOR pour qu'il TIENNE dans la page (un tableau serré
+// est préférable à un tableau qui déborde). Entre les deux : il tient ET l'éditeur suggère le paysage.
 export const MIN_SCALE = 0.8;
+export const RENDER_FLOOR = 0.6;
 const CHAR_MM = 1.75;
 const DIGIT_MM = 1.8;
 const PAD_MM = 3.6;
@@ -22,7 +26,7 @@ const longestWord = (s) => String(s == null ? '' : s).split(/[\s/–-]+/).reduce
  * @param {number} widthMm largeur imprimable
  * @returns {{ scale: number, widths: number[], needed: number, tooWide: boolean }}
  */
-export function fitTable(columns, widthMm, { minScale = MIN_SCALE } = {}) {
+export function fitTable(columns, widthMm, { minScale = MIN_SCALE, renderFloor = RENDER_FLOOR } = {}) {
   const widths = (columns || []).map((c) => {
     const head = longestWord(c.label) * CHAR_MM * 0.9; // en-tête en petites capitales, plus serré
     if (NUMERIC.has(c.type)) return Math.max(head, (c.maxChars || 1) * DIGIT_MM) + PAD_MM;
@@ -32,7 +36,9 @@ export function fitTable(columns, widthMm, { minScale = MIN_SCALE } = {}) {
   const needed = widths.reduce((a, b) => a + b, 0);
   if (!(widthMm > 0) || needed <= widthMm) return { scale: 1, widths, needed, tooWide: false };
   const raw = widthMm / needed;
-  const scale = Math.max(minScale, Math.floor(raw * 100) / 100);
+  // Échelle de rendu : réduite jusqu'à RENDER_FLOOR pour TENIR dans la page. « Trop large » (donc
+  // suggestion paysage) dès que la réduction dépasse MIN_SCALE, même si le tableau tient encore.
+  const scale = Math.max(renderFloor, Math.floor(raw * 100) / 100);
   return { scale, widths: widths.map((w) => w * scale), needed, tooWide: raw < minScale };
 }
 

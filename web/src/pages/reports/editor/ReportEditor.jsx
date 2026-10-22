@@ -16,7 +16,7 @@ import {
 } from '../reportDoc.js';
 import { bandImageCount, layoutImageCount } from '../../../lib/reportBands.js';
 import { localPlan, sectionsOfPlan, paginate, pageGeometry, pageName, tocEntries, annexDecision } from '../../../lib/reportPaginate.js';
-import { tableFit, MIN_SCALE } from '../../../lib/reportFit.js';
+import { tableFit, MIN_SCALE, RENDER_FLOOR } from '../../../lib/reportFit.js';
 import reportCss from '../reports.css?raw';
 import Topbar from './Topbar.jsx';
 import CatalogPane from './CatalogPane.jsx';
@@ -608,7 +608,9 @@ export default function ReportEditor({ catalog, initial, canEdit, onClose, onTem
       const est = tableFit(ready, p.columns, widthMm, def && def.annotate ? { extra: [{ key: '_annot', type: 'text', label: def.annotate.label, maxChars: 30, maxWord: 12 }] } : undefined);
       const key = `${iid}|${(p.columns || []).join(',')}|${ready.rows.length}|${Math.round(widthMm)}`;
       const raw = est.scale * (fitFix[key] || 1);
-      const scale = Math.max(MIN_SCALE, Math.floor(raw * 100) / 100);
+      // Réduit jusqu'à RENDER_FLOOR pour que le tableau TIENNE (plutôt que de déborder) ; le drapeau
+      // « trop large » (suggestion paysage) reste déclenché dès MIN_SCALE.
+      const scale = Math.max(RENDER_FLOOR, Math.floor(raw * 100) / 100);
       if (o.measure) fitRefs.current[iid] = { key, scale };
       fit = { scale, tooWide: est.tooWide || raw < MIN_SCALE || (scale <= MIN_SCALE && !!(measures[iid] && measures[iid].wide)) };
     }

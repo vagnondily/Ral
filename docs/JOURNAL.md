@@ -12,6 +12,16 @@
 
 ## État courant
 
+> **22/10 — Concepteur : tableau large qui débordait de la page (corrigé) + retrait de « Générer depuis le RBM ».** ✅
+> (1) **Débordement** : un tableau large (heatmap indicateurs) débordait de la page A4. Cause : `reportFit`
+> réduisait la police jusqu'à 0,8, mais `ReportEditor` **re-plafonnait** l'échelle de rendu à `MIN_SCALE`
+> (0,8) → au-delà, le tableau débordait. Correctif : séparer l'échelle de RENDU (réduite jusqu'à
+> `RENDER_FLOOR` = 0,6 pour que le tableau TIENNE) du seuil « trop large » (toujours 0,8 → suggestion
+> « Mettre en paysage »). Test `reportFit` mis à jour. (2) **Retrait** du bouton « Générer depuis le RBM »
+> de l'écran Affectation & visites (il changeait les valeurs sans la vraie planification auto) + nettoyage
+> du code mort (état, fetch /rbm/counts, import Wand2) ; traduction EN de l'état vide ajustée. Build vert,
+> 1574 tests.
+
 > **22/10 — CORRECTIF : « Options du compte » renvoyait vers Contrats.** ✅ Clic sur la rubrique
 > « Options du compte » (Paramétrage › Sécurité) → redirection vers Contrats. Cause : la sous-route
 > `parametrage/compte` n'était PAS déclarée dans `AppShell.NAV`, donc `findRoute` la rejetait et

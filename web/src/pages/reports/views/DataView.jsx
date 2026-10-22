@@ -14,7 +14,8 @@ import ListView from './ListView.jsx';
 export const CHART_VIEWS = new Set(['bar', 'column', 'line', 'donut', 'stacked']);
 
 /** Corps d'un bloc « données » selon sa vue (repli sur le tableau pour une vue inconnue). */
-/** `scale` : police réduite d'un tableau pour tenir dans la largeur de la page (reportFit, ≥ 0,8). */
+/** `scale` : police réduite d'un tableau pour tenir dans la largeur de la page (reportFit ; réduite
+ *  jusqu'à RENDER_FLOOR pour tenir, « trop large » dès MIN_SCALE → suggestion paysage). */
 export default function DataView({ view, def, data, params, title, scale = 1 }) {
   const p = params || {};
   switch (view) {

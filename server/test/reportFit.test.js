@@ -27,13 +27,15 @@ test('tableau étroit : échelle 1 ; un peu large : police réduite, jamais sous
   assert.ok(s.widths.reduce((a, b) => a + b, 0) <= 182 + 1e-6);
 });
 
-test('« trop large » (ex. 20 domaines en colonnes) → échelle 0,8 et suggestion paysage ; le paysage suffit', async (t) => {
+test('« trop large » (ex. 16 domaines en colonnes) → réduit pour TENIR mais marqué trop large (suggestion paysage) ; le paysage suffit', async (t) => {
   const f = await load(t, 'lib/reportFit.js'); if (!f) return;
   const cols = [{ key: 'act', type: 'text', label: 'Activité', maxChars: 40, maxWord: 12 },
     ...Array.from({ length: 16 }, (_, i) => ({ key: `d:${i}`, type: 'pct', label: `Domaine ${i}`, maxChars: 7 }))];
   const portrait = f.fitTable(cols, 182);
-  assert.equal(portrait.tooWide, true);
-  assert.equal(portrait.scale, 0.8);
+  assert.equal(portrait.tooWide, true); // en dessous de MIN_SCALE → on propose la page paysage
+  // … mais la police est réduite jusqu'à RENDER_FLOOR pour que le tableau TIENNE (plutôt que déborder).
+  assert.ok(portrait.scale < f.MIN_SCALE && portrait.scale >= f.RENDER_FLOOR, `échelle ${portrait.scale}`);
+  assert.ok(portrait.widths.reduce((a, b) => a + b, 0) <= 182 + 1e-6, 'tient dans la largeur portrait');
   const landscape = f.fitTable(cols, 269);
   assert.equal(landscape.tooWide, false);
 });

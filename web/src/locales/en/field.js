@@ -55,11 +55,8 @@ export default {
   'Tous les prestataires': 'All providers',
   'Tous les statuts': 'All statuses',
   'Aucune visite ce mois-ci': 'No visits this month',
-  'Générer {n} visite(s) depuis le RBM': 'Generate {n} visit(s) from RBM',
-  'Générez la planification depuis le RBM ({n} site(s) à planifier), importez le planning (.xlsx) ou ajoutez une visite.':
-    'Generate the plan from the RBM ({n} site(s) to plan), import the schedule (.xlsx) or add a visit.',
-  'Générez la planification depuis le RBM, importez le planning (.xlsx) ou ajoutez une visite.':
-    'Generate the plan from the RBM, import the schedule (.xlsx) or add a visit.',
+  'Importez le planning (.xlsx) ou ajoutez une visite. La planification automatique (RBM, capacités) se fait dans l\'espace RBM.':
+    'Import the schedule (.xlsx) or add a visit. Automatic planning (RBM, capacity) is done in the RBM area.',
   // Barre du mois actif
   '— plan de visites du mois': '— monthly visit plan',
   'Repasser en brouillon': 'Back to draft',
