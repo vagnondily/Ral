@@ -12,6 +12,18 @@
 
 ## État courant
 
+> **22/10 — Lien d'activation à l'inscription (migration 122).** ✅ L'auto-inscription ne demande PLUS de
+> mot de passe : email + nom + organisation → compte en attente (mot de passe marqueur `!` inutilisable).
+> L'administrateur valide (rôle + écrans) puis **communique un lien d'activation** (bouton « Lien
+> d'activation », copié au presse-papiers — aucun e-mail n'étant configuré) ; la personne ouvre
+> `#/activer?token=…` (écran public `ActivationPage`) et définit son mot de passe. Migration 122 :
+> `users.activation_token`/`activation_expires` (14 j), `auth_activation_lookup(token)` (SECURITY DEFINER),
+> `auth_lookup_user` renvoie `activation_pending`. Connexion : messages distincts « en attente de
+> validation » / « pas encore activé » (403) avant la vérification du mot de passe. Écran Utilisateurs :
+> badges « À valider » / « À activer ». Vérifs : lint, **1571 tests**, build, balayage **46×FR/EN (0 erreur,
+> 0 manquante)**, migration 122 (neuve + copie), smoke base réelle (inscription → validation → activation →
+> connexion, jeton à usage unique).
+
 > **22/10 — PUBLIÉ SUR `main`** (`de0fac9`, fast-forward depuis `923a212`, sans réécriture) à la demande
 > du propriétaire (« vas y ») : lot ACCÈS complet — option admin « modifier à volonté » (contrats + factures
 > validées, migration 118), 5 rôles + capacités (migration 119, éditeur ≠ validateur), auto-inscription +

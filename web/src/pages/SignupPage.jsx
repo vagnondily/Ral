@@ -1,20 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { Mail, Lock, User, Building2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Mail, User, Building2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { api } from '../api/client.js';
 import { Alert, Button, Field } from '../components/ui.jsx';
 import { LogoMark } from '../components/Logo.jsx';
 import { useI18n } from '../lib/i18n.jsx';
 
 /**
- * Auto-inscription. Crée un compte EN ATTENTE : l'utilisateur ne voit rien tant
- * qu'un administrateur ne l'a pas validé et ne lui a pas attribué un rôle.
- * Aucun e-mail n'est envoyé (pas de service configuré) : la validation par
- * l'administrateur est le garde-fou contre les robots.
+ * Auto-inscription. Crée un compte EN ATTENTE, SANS mot de passe : l'utilisateur ne voit rien
+ * tant qu'un administrateur ne l'a pas validé et ne lui a pas attribué un rôle. Il définira son
+ * mot de passe via un lien d'activation que l'administrateur lui communiquera (aucun e-mail
+ * n'étant configuré) ; la validation par l'administrateur est le garde-fou contre les robots.
  */
 export default function SignupPage({ onBack }) {
   const { tr } = useI18n();
   const [tenants, setTenants] = useState(null);
-  const [form, setForm] = useState({ tenantId: '', email: '', fullName: '', password: '', confirm: '' });
+  const [form, setForm] = useState({ tenantId: '', email: '', fullName: '' });
   const [error, setError] = useState(null);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -28,11 +28,9 @@ export default function SignupPage({ onBack }) {
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
-    if (form.password !== form.confirm) { setError(tr('Les deux mots de passe ne correspondent pas.')); return; }
-    if (form.password.length < 10) { setError(tr('Mot de passe : au moins 10 caractères.')); return; }
     setLoading(true);
     try {
-      await api.register({ tenantId: form.tenantId, email: form.email.trim(), fullName: form.fullName.trim(), password: form.password });
+      await api.register({ tenantId: form.tenantId, email: form.email.trim(), fullName: form.fullName.trim() });
       setDone(true);
     } catch (err) {
       setError(err.message);
@@ -46,7 +44,7 @@ export default function SignupPage({ onBack }) {
           <div className="login-head"><LogoMark size={52} /><div className="login-brand-name">MEMS 2.0</div></div>
           <div className="login-form">
             <Alert tone="success" icon={CheckCircle2}>
-              {tr('Demande enregistrée. Un administrateur doit valider votre compte et vous attribuer un rôle avant votre première connexion.')}
+              {tr('Demande enregistrée. Un administrateur doit valider votre compte puis vous communiquer un lien d\'activation pour définir votre mot de passe.')}
             </Alert>
             <Button block variant="secondary" onClick={onBack}>{tr('Retour à la connexion')}</Button>
           </div>
@@ -96,21 +94,9 @@ export default function SignupPage({ onBack }) {
             </div>
           </Field>
 
-          <Field label={tr('Mot de passe')} htmlFor="su-pass" hint={tr('Au moins 10 caractères.')}>
-            <div className="input-wrap">
-              <Lock size={18} aria-hidden="true" />
-              <input id="su-pass" className="input" type="password" autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
-            </div>
-          </Field>
+          <Alert tone="info">{tr('Vous définirez votre mot de passe via le lien d\'activation, après validation de votre compte.')}</Alert>
 
-          <Field label={tr('Confirmer le mot de passe')} htmlFor="su-confirm">
-            <div className="input-wrap">
-              <Lock size={18} aria-hidden="true" />
-              <input id="su-confirm" className="input" type="password" autoComplete="new-password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} required />
-            </div>
-          </Field>
-
-          <Button type="submit" block loading={loading} disabled={!form.tenantId || !form.email || !form.fullName || !form.password}>
+          <Button type="submit" block loading={loading} disabled={!form.tenantId || !form.email || !form.fullName}>
             {loading ? tr('Envoi…') : tr('Créer mon compte')}
           </Button>
 

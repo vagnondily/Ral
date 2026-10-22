@@ -11,6 +11,7 @@ import { canWrite as roleCanWrite, isAdminRole } from './lib/accessRoles.js';
 import { routeOfHash } from './lib/route.js';
 import LoginPage from './pages/LoginPage.jsx';
 import SignupPage from './pages/SignupPage.jsx';
+import ActivationPage from './pages/ActivationPage.jsx';
 import ProvidersPage from './pages/ProvidersPage.jsx';
 import ContractsListPage from './pages/contracts/ContractsListPage.jsx';
 import ContractDetailPage from './pages/contracts/ContractDetailPage.jsx';
@@ -109,6 +110,12 @@ function Workspace() {
   }
 
   if (!user) {
+    // Lien d'activation : #/activer?token=XXXX (écran public, avant connexion).
+    const activMatch = (window.location.hash || '').match(/^#\/activer\?token=([^&]+)/);
+    if (activMatch) {
+      const backToLogin = () => { window.location.hash = '#/contrats/liste'; setShowSignup(false); };
+      return <ActivationPage token={decodeURIComponent(activMatch[1])} onBack={backToLogin} />;
+    }
     return showSignup
       ? <SignupPage onBack={() => setShowSignup(false)} />
       : <LoginPage onLoggedIn={handleLoggedIn} onSignup={() => setShowSignup(true)} />;

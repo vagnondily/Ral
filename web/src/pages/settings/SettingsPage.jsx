@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Users, ListChecks, Tags, MapPinned, Coins, Building2, Trash2, Clock, Pencil, ShieldCheck, ChevronRight, Lock, Gauge, X } from 'lucide-react';
+import { Plus, Users, ListChecks, Tags, MapPinned, Coins, Building2, Trash2, Clock, Pencil, ShieldCheck, ChevronRight, Lock, Gauge, X, Link2 } from 'lucide-react';
 import { api, getStoredUser } from '../../api/client.js';
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
@@ -131,6 +131,16 @@ function UsersSection() {
     if (!window.confirm(tr('Supprimer le compte « {email} » ? Cette action est définitive.', { email: u.email }))) return;
     try { await api.deleteUser(u.id); toast.success(tr('Compte supprimé.')); reload(); } catch (e) { toast.error(e.message); }
   }
+  // Lien d'activation à communiquer à la personne (aucun e-mail n'est envoyé) : copié au presse-papiers,
+  // et affiché pour copie manuelle si le presse-papiers est bloqué.
+  function copyActivationLink(u) {
+    const link = `${window.location.origin}/#/activer?token=${u.activationToken}`;
+    try {
+      navigator.clipboard.writeText(link)
+        .then(() => toast.success(tr('Lien d\'activation copié. Communiquez-le à {email}.', { email: u.email })))
+        .catch(() => window.prompt(tr('Copiez le lien d\'activation à communiquer :'), link));
+    } catch { window.prompt(tr('Copiez le lien d\'activation à communiquer :'), link); }
+  }
 
   return (
     <Card aria-labelledby="users-title">
@@ -146,6 +156,7 @@ function UsersSection() {
           <tbody>
             {users.map((u) => {
               const pending = u.status === 'pending';
+              const toActivate = !pending && Boolean(u.activationToken); // validé mais mot de passe pas encore défini
               return (
               <tr key={u.id}>
                 <td><strong>{u.fullName || u.email}</strong><div className="site-meta">{u.email}</div>
@@ -155,6 +166,8 @@ function UsersSection() {
                 <td>
                   {pending ? (
                     <Badge tone="orange" dot>{tr('À valider')}</Badge>
+                  ) : toActivate ? (
+                    <Badge tone="orange" dot>{tr('À activer')}</Badge>
                   ) : (
                     <button type="button" className="switch-row" onClick={() => toggleActive(u)} title={u.active ? tr('Désactiver') : tr('Activer')}>
                       <Badge tone={u.active ? 'green' : null} dot>{u.active ? tr('Actif') : tr('Désactivé')}</Badge>
@@ -170,6 +183,7 @@ function UsersSection() {
                     </>
                   ) : (
                     <>
+                      {toActivate && <Button size="sm" variant="secondary" icon={Link2} onClick={() => copyActivationLink(u)}>{tr('Lien d\'activation')}</Button>}
                       <Button size="sm" variant="ghost" icon={Pencil} aria-label={tr('Éditer')} onClick={() => setModal({ user: u })} />
                       <Button size="sm" variant="ghost" icon={Trash2} aria-label={tr('Supprimer')} onClick={() => remove(u)} />
                     </>
@@ -228,7 +242,7 @@ function ApproveModal({ user, onClose, onSaved }) {
   async function save(e) {
     e.preventDefault();
     setSaving(true);
-    try { await api.approveUser(user.id, { role, pageAccess }); toast.success(tr('Compte validé.')); onSaved(); }
+    try { await api.approveUser(user.id, { role, pageAccess }); toast.success(tr('Compte validé. Communiquez-lui le lien d\'activation (bouton « Lien d\'activation »).')); onSaved(); }
     catch (err) { toast.error(err.message); } finally { setSaving(false); }
   }
   return (

@@ -186,6 +186,7 @@ export const api = {
   // Auto-inscription + profil de session + validation des comptes.
   listAuthTenants: () => request('/api/auth/tenants', { auth: false }),
   register: (input) => request('/api/auth/register', { method: 'POST', body: input, auth: false }),
+  activate: (input) => request('/api/auth/activate', { method: 'POST', body: input, auth: false }),
   getMe: () => request('/api/auth/me'),
   approveUser: (id, input) => request(`/api/users/${id}/approve`, { method: 'POST', body: input }),
   listProviders: () => request('/api/tpm/providers'),

@@ -172,7 +172,8 @@ Fichiers fournis par l'utilisateur (non commités ; à demander s'ils manquent) 
   | `119` | session production `zealous` : RBAC par écran + 5 rôles, auto-inscription (en cours) | 🔄 |
   | `120` | session principale, `wip/pp-tpm` : plan de `mems_tpm_stamp` / `mems_tpm_cells` sur base analysée (si la mesure le justifie) | 🔄 |
   | `121` | session production `zealous` : auto-inscription (users.status) + accès par écran (users.page_access) + auth_lookup_user(status) | ✅ |
-  | `122` et suivants | libres — réserver ici AVANT d'écrire le fichier | — |
+  | `122` | session production `zealous` : lien d'activation (users.activation_token/expires, auth_activation_lookup, auth_lookup_user(activation_pending)) | ✅ |
+  | `123` et suivants | libres — réserver ici AVANT d'écrire le fichier | — |
 
 - **Publier sur `main`** seulement après :
   - `cd server && npm test && npm run lint` ;
