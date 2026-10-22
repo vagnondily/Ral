@@ -12,6 +12,13 @@
 
 ## État courant
 
+> **22/10 — Plan de suivi : état JAUNE « réalisé non planifié » ajouté (différence manquante).** ✅ Le
+> propriétaire trouve le design quasi parfait, il manquait le jaune. Backend : la grille porte désormais
+> `dataMonths` par site (mois où le site a reçu des données — même rattachement que dataVisitMonth, requête
+> LATERAL vérifiée par EXPLAIN). Front : une cellule est VERTE si planifiée+réalisée, **JAUNE si réalisée
+> (données) mais NON planifiée** (case non cochée, fond jaune — on peut la cocher pour planifier), GRISE si
+> planifiée à faire, incolore si libre. Légende complétée. Build vert, 1574 tests.
+
 > **22/10 — Refonte du plan de suivi en cases à cocher colorées (les deux grilles).** ✅ Demande design.
 > Code couleur commun : **vert** = planifiée ET réalisée · **gris** = planifiée à faire · **incolore** = non
 > planifiée · (jaune réservé « réalisée non planifiée », classe `pb-datadone`). (1) **Plan de suivi (RBM)** :

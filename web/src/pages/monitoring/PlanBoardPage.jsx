@@ -316,6 +316,7 @@ function PlanTable({ rows, offset, allRows, capacity, yearHasGrid, pending, canE
     <>
     <div className="pb-grid-legend">
       <span><i className="pb-sw pb-sw-done" /> {tr('Planifiée et réalisée')}</span>
+      <span><i className="pb-sw pb-sw-datadone" /> {tr('Réalisée non planifiée (données)')}</span>
       <span><i className="pb-sw pb-sw-planned" /> {tr('Planifiée, à faire')}</span>
       <span><i className="pb-sw pb-sw-free" /> {tr('Non planifiée')}</span>
       <span><i className="pb-sw pb-sw-inactive" /> {tr('Mois inactif')}</span>
@@ -358,16 +359,21 @@ function PlanTable({ rows, offset, allRows, capacity, yearHasGrid, pending, canE
               const blank = inactive && value !== false;
               const label = `${s.name} — ${monthLabel(`2026-${String(m).padStart(2, '0')}`).replace(/ \d+$/, '')}`;
               const isPending = pending[pendingKey(s.id, m)] !== undefined;
-              // Case à cocher colorée : vert = planifiée ET réalisée · gris = planifiée non réalisée ·
-              // incolore (vide) = non planifiée. Une case réalisée ne se déplanifie pas (cochée, verrouillée).
-              const done = cell && cell.status === 'realise';
-              const tone = done ? 'is-done' : (cell ? 'pb-planned' : '');
+              // Case à cocher colorée. Réalisée = visite déclarée réalisée OU données reçues ce mois.
+              //  vert  = planifiée ET réalisée · jaune = réalisée mais NON planifiée (données) ·
+              //  gris  = planifiée, à faire   · incolore = non planifiée.
+              const declaredDone = cell && cell.status === 'realise';
+              const hasData = (s.dataMonths || []).includes(m);
+              const planned = Boolean(cell);
+              const realised = declaredDone || hasData;
+              const tone = realised ? (planned ? 'is-done' : 'pb-datadone') : (planned ? 'pb-planned' : '');
+              const title = inactive ? (blank ? tr('Mois non renseigné : non planifiable') : tr('Mois inactif : non planifiable'))
+                : declaredDone ? `${tr('Réalisée{d}', { d: cell.date ? ` (${cell.date})` : '' })}${cell.provider ? ` · ${cell.provider}` : ''}`
+                  : hasData ? (planned ? `${tr('Réalisée (données)')}${cell.provider ? ` · ${cell.provider}` : ''}` : tr('Réalisée (données) — non planifiée'))
+                    : (cell?.provider ? `${tr('Prévue')} · ${cell.provider}` : undefined);
               return (
-                <td key={m} className={`pb-m ${tone} ${inactive ? 'is-inactive' : ''} ${isPending ? 'is-pending' : ''}`}
-                  title={inactive ? (blank ? tr('Mois non renseigné : non planifiable') : tr('Mois inactif : non planifiable'))
-                    : done ? `${tr('Réalisée{d}', { d: cell.date ? ` (${cell.date})` : '' })}${cell.provider ? ` · ${cell.provider}` : ''}`
-                      : (cell?.provider ? `${tr('Prévue')} · ${cell.provider}` : undefined)}>
-                  <input type="checkbox" checked={Boolean(cell)} disabled={!canEdit || inactive || done} aria-label={label}
+                <td key={m} className={`pb-m ${tone} ${inactive ? 'is-inactive' : ''} ${isPending ? 'is-pending' : ''}`} title={title}>
+                  <input type="checkbox" checked={planned} disabled={!canEdit || inactive || declaredDone} aria-label={label}
                     onChange={(e) => onToggle(s, m, e.target.checked)} />
                 </td>
               );

@@ -1181,6 +1181,7 @@ async function planBoardTx(client, tenantId, { year, adjusted = false, nowMonth 
             COALESCE(b."gpsLat"::float8, cp.lat, cn.lat, sg.lat, dn.lat) AS "mapLat",
             COALESCE(b."gpsLng"::float8, cp.lng, cn.lng, sg.lng, dn.lng) AS "mapLng",
             COALESCE(vv.months, '[]'::json) AS months, vv.providers AS "providers", COALESCE(vv.cancelled, '{}') AS "cancelledMonths",
+            COALESCE(dm.data_months, '{}') AS "dataMonths",
             (SELECT json_object_agg(ms.month, ms.active) FROM site_month_status ms
               WHERE ms.tenant_id = $1 AND ms.site_id = b.id AND ms.year = extract(year FROM $2::date)) AS "monthStatus"
        FROM base b
@@ -1203,6 +1204,19 @@ async function planBoardTx(client, tenantId, { year, adjusted = false, nowMonth 
            LEFT JOIN partners p ON p.id = v.provider_id AND p.tenant_id = v.tenant_id
           WHERE v.tenant_id = $1 AND v.site_id = b.id AND v.period_month BETWEEN $2 AND $3
        ) vv ON true
+       -- Mois où le site a reçu des DONNÉES (soumissions) — même rattachement que dataVisitMonth
+       -- (site direct, sinon commune par pcode ; fiche d'activité compatible). Sert au jaune
+       -- « réalisé non planifié » de la grille.
+       LEFT JOIN LATERAL (
+         SELECT array_agg(DISTINCT mth ORDER BY mth) AS data_months FROM (
+           SELECT extract(month FROM ms.period_month)::int AS mth
+             FROM monitoring_submissions ms
+             JOIN monitoring_forms mf ON mf.id = ms.form_id AND mf.tenant_id = ms.tenant_id
+            WHERE ms.tenant_id = $1 AND NOT ms.excluded AND ms.period_month BETWEEN $2 AND $3
+              AND (ms.site_id = b.id OR (ms.site_id IS NULL AND ms.adm3_pcode = b."adm3Pcode" AND ms.adm3_pcode IS NOT NULL))
+              AND ${formSiteCompatibleSql('mf.activity_category', 'lower(btrim(b.activity))')}
+         ) q
+       ) dm ON true
       ORDER BY b.district, b.commune, b.name`, params);
   const { rows: mmr } = await client.query(
     `SELECT field_office_id AS "fieldOfficeId", activity_category AS "activityCategory", operation_duration AS "operationDuration",
@@ -1235,7 +1249,7 @@ async function planBoardTx(client, tenantId, { year, adjusted = false, nowMonth 
       forbidden: Number(s.security) >= 99,
       status, inactive: status === 'Inactive' || (yearHasGrid && !status), monthStatus: s.monthStatus || {},
       lastVisitMonth: s.lastVisitMonth, lastVisitSource: s.lastVisitSource, nextPlannedMonth: s.nextPlannedMonth,
-      dataCount: s.dataVisitCount, months: s.months, cancelledMonths: s.cancelledMonths || [],
+      dataCount: s.dataVisitCount, months: s.months, cancelledMonths: s.cancelledMonths || [], dataMonths: s.dataMonths || [],
       // Registre « Locations Management » (vue standard, carte)
       poiSubtype: s.poiSubtype, urbanArea: s.urbanArea, gpsLat: s.gpsLat, gpsLng: s.gpsLng, security: s.security,
       mapLat: s.mapLat, mapLng: s.mapLng, geo: s.geo,
