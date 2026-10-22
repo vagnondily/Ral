@@ -14,7 +14,7 @@ async function listUsers(tenantId) {
     const { rows } = await client.query(
       `SELECT id, email::text AS email, full_name AS "fullName", role, active, status,
               page_access AS "pageAccess", approved_at AS "approvedAt",
-              activation_token AS "activationToken",
+              activation_token AS "activationToken", phone, job_title AS "jobTitle", signup_note AS "signupNote",
               created_at AS "createdAt", updated_at AS "updatedAt"
          FROM users WHERE tenant_id = $1
          ORDER BY (status = 'pending') DESC, active DESC, role, email`,

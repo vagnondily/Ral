@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Users, ListChecks, Tags, MapPinned, Coins, Building2, Trash2, Clock, Pencil, ShieldCheck, ChevronRight, Lock, Gauge, X, Link2 } from 'lucide-react';
+import { Plus, Users, ListChecks, Tags, MapPinned, Coins, Building2, Trash2, Clock, Pencil, ShieldCheck, ChevronRight, Lock, Gauge, X, Link2, UserPlus, Phone, Briefcase, MessageSquare, Mail } from 'lucide-react';
 import { api, getStoredUser } from '../../api/client.js';
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, PageHeader, Skeleton } from '../../components/ui.jsx';
 import Modal from '../../components/Modal.jsx';
@@ -28,6 +28,7 @@ const SECTIONS = {
   localites: { label: 'Localités', icon: MapPinned, group: 'Géographie', desc: 'Découpage administratif du pays (régions → districts → communes), registre des sites (identifiant, Code POI, bureau, activité, GPS, dernière collecte) et rapprochement des lieux des formulaires reçus.' },
   bureaux: { label: 'Bureaux & antennes', icon: Building2, group: 'Géographie', desc: 'Bureaux terrain et antennes, et leur périmètre (communes) pour le rattachement automatique des sites.' },
   mmr: { label: 'Paramètres MMR', icon: Gauge, group: 'Suivi', admin: true, desc: 'Exigences minimales de suivi (MMR) par bureau × activité : durée, nombre de sites, niveau de risque → intervalle, fréquence et nombre de sites ciblés par mois (base du RBM).' },
+  acces: { label: 'Demandes d\'accès', icon: UserPlus, group: 'Sécurité', admin: true, desc: 'Comptes auto-inscrits en attente : leurs informations (nom, email, téléphone, fonction, motif) et validation (attribution du rôle et des écrans).' },
   utilisateurs: { label: 'Utilisateurs & accès', icon: ShieldCheck, group: 'Sécurité', admin: true, desc: 'Comptes, rôles (administrateur / validateur / lecteur) et activation. Qui peut faire quoi dans l\'application.' },
   suppressions: { label: 'Journal des suppressions', icon: Trash2, group: 'Sécurité', admin: true, desc: 'Traçabilité des documents supprimés (rapports, factures, plans, contrats) : qui, quand, pourquoi, et un résumé du document.' },
   compte: { label: 'Options du compte', icon: Lock, group: 'Sécurité', admin: true, desc: 'Réglages du compte, dont la modification libre par l\'administrateur des éléments déjà validés.' },
@@ -64,6 +65,7 @@ export default function SettingsPage({ tab = 'apercu', sub = null, isAdmin, onNa
           {current === 'localites' && <LocalitiesSection isAdmin={isAdmin} initialTab={sub} />}
           {current === 'bureaux' && <BureauxSection isAdmin={isAdmin} />}
           {current === 'mmr' && <MmrSection isAdmin={isAdmin} />}
+          {current === 'acces' && <AccessRequestsSection isAdmin={isAdmin} />}
           {current === 'utilisateurs' && <UsersSection isAdmin={isAdmin} />}
           {current === 'suppressions' && <DeletionsSection isAdmin={isAdmin} />}
           {current === 'compte' && <AccountOptionsSection isAdmin={isAdmin} />}
@@ -232,6 +234,45 @@ function PageAccessEditor({ value, onChange }) {
 }
 
 // Validation d'un compte auto-inscrit : attribution du rôle + des écrans visibles.
+// Onglet dédié « Demandes d'accès » : les comptes auto-inscrits en attente, avec les informations
+// saisies à l'inscription, et la validation (rôle + écrans). Toujours visible (vide = aucune demande).
+function AccessRequestsSection({ isAdmin }) {
+  const { tr } = useI18n();
+  const toast = useToast();
+  const [users, setUsers] = useState(null);
+  const [approve, setApprove] = useState(null);
+  async function reload() { try { setUsers(await api.listUsers()); } catch (e) { toast.error(e.message); setUsers([]); } }
+  useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
+  const pending = (users || []).filter((u) => u.status === 'pending');
+  return (
+    <Card>
+      <CardHeader title={tr('Demandes d\'accès')} subtitle={tr('Comptes auto-inscrits en attente de validation. Validez pour attribuer un rôle et les écrans visibles, puis communiquez le lien d\'activation (onglet « Utilisateurs & accès »).')} />
+      {users === null ? <div className="card-body"><Skeleton height={120} /></div>
+        : pending.length === 0 ? <EmptyState icon={UserPlus} title={tr('Aucune demande en attente')}>{tr('Les comptes créés via « Créer un compte » (page de connexion) apparaîtront ici pour validation.')}</EmptyState>
+          : (
+            <div className="table-wrap"><table className="table">
+              <thead><tr><th scope="col">{tr('Demandeur')}</th><th scope="col">{tr('Coordonnées')}</th><th scope="col">{tr('Motif')}</th><th aria-label={tr('Action')} /></tr></thead>
+              <tbody>
+                {pending.map((u) => (
+                  <tr key={u.id}>
+                    <td><strong>{u.fullName || '—'}</strong><div className="site-meta" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Mail size={12} aria-hidden="true" /> {u.email}</div></td>
+                    <td>
+                      {u.phone && <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Phone size={12} aria-hidden="true" /> {u.phone}</div>}
+                      {u.jobTitle && <div className="site-meta" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Briefcase size={12} aria-hidden="true" /> {u.jobTitle}</div>}
+                      {!u.phone && !u.jobTitle && <span className="muted">—</span>}
+                    </td>
+                    <td style={{ maxWidth: 300 }}>{u.signupNote || <span className="muted">—</span>}</td>
+                    <td className="num">{isAdmin && <Button size="sm" icon={ShieldCheck} onClick={() => setApprove(u)}>{tr('Valider')}</Button>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+          )}
+      {approve && <ApproveModal user={approve} onClose={() => setApprove(null)} onSaved={() => { setApprove(null); reload(); }} />}
+    </Card>
+  );
+}
+
 function ApproveModal({ user, onClose, onSaved }) {
   const { tr } = useI18n();
   const toast = useToast();
@@ -250,6 +291,13 @@ function ApproveModal({ user, onClose, onSaved }) {
       onClose={() => !saving && onClose()}
       footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>{tr('Annuler')}</Button><Button type="submit" form="approve-form" loading={saving}>{tr('Valider et activer')}</Button></>}>
       <form id="approve-form" onSubmit={save} style={{ display: 'grid', gap: 14 }}>
+        <div className="info-panel" style={{ background: 'var(--surface-2)', borderRadius: 'var(--radius)', padding: '10px 12px', display: 'grid', gap: 4, fontSize: 13 }}>
+          {user.fullName && <div><strong>{user.fullName}</strong></div>}
+          <div className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Mail size={13} aria-hidden="true" /> {user.email}</div>
+          {user.phone && <div className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Phone size={13} aria-hidden="true" /> {user.phone}</div>}
+          {user.jobTitle && <div className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Briefcase size={13} aria-hidden="true" /> {user.jobTitle}</div>}
+          {user.signupNote && <div className="muted" style={{ display: 'inline-flex', alignItems: 'flex-start', gap: 6 }}><MessageSquare size={13} aria-hidden="true" style={{ marginTop: 2 }} /> <span>{user.signupNote}</span></div>}
+        </div>
         <Field label={tr('Rôle')} hint={tr('Lecteur : consultation. Éditeur : crée et modifie. Validateur : valide. Administrateur : gère tout. Super-utilisateur : gère aussi les administrateurs et la sécurité.')}>
           <select className="select" value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="viewer">{tr('Lecteur')}</option>

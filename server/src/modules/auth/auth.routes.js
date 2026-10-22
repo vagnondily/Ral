@@ -111,12 +111,15 @@ const registerSchema = z.object({
   tenantId: z.string().uuid('Choisissez une organisation'),
   email: z.string().email().max(160),
   fullName: z.string().trim().min(2, 'Nom requis').max(160),
+  phone: z.string().trim().max(40).optional().or(z.literal('')).transform((v) => (v ? v : null)),
+  jobTitle: z.string().trim().max(120).optional().or(z.literal('')).transform((v) => (v ? v : null)),
+  note: z.string().trim().max(500).optional().or(z.literal('')).transform((v) => (v ? v : null)),
 });
 const NEUTRAL = { ok: true, message: 'Demande enregistrée. Un administrateur doit valider votre compte puis vous communiquer un lien d\'activation.' };
 router.post('/register', asyncHandler(async (req, res, next) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return next(badRequest('Données invalides', parsed.error.flatten()));
-  const { tenantId, email, fullName } = parsed.data;
+  const { tenantId, email, fullName, phone, jobTitle, note } = parsed.data;
   const { rows: tr } = await pool.query('SELECT 1 FROM tenants WHERE id = $1', [tenantId]);
   if (!tr.length) return next(badRequest('Organisation inconnue.'));
   const activationToken = crypto.randomBytes(24).toString('hex');
@@ -126,9 +129,9 @@ router.post('/register', asyncHandler(async (req, res, next) => {
     await client.query('BEGIN');
     await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
     await client.query(
-      `INSERT INTO users (tenant_id, email, full_name, role, password_hash, active, status, activation_token, activation_expires)
-       VALUES ($1, $2, $3, 'viewer', $4, false, 'pending', $5, $6)`,
-      [tenantId, email, fullName, NO_PASSWORD, activationToken, expires]
+      `INSERT INTO users (tenant_id, email, full_name, role, password_hash, active, status, activation_token, activation_expires, phone, job_title, signup_note)
+       VALUES ($1, $2, $3, 'viewer', $4, false, 'pending', $5, $6, $7, $8, $9)`,
+      [tenantId, email, fullName, NO_PASSWORD, activationToken, expires, phone, jobTitle, note]
     );
     await client.query('COMMIT');
   } catch (err) {

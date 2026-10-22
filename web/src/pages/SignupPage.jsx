@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Mail, User, Building2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Mail, User, Building2, AlertCircle, CheckCircle2, Phone, Briefcase, MessageSquare } from 'lucide-react';
 import { api } from '../api/client.js';
 import { Alert, Button, Field } from '../components/ui.jsx';
 import { LogoMark } from '../components/Logo.jsx';
@@ -14,7 +14,7 @@ import { useI18n } from '../lib/i18n.jsx';
 export default function SignupPage({ onBack }) {
   const { tr } = useI18n();
   const [tenants, setTenants] = useState(null);
-  const [form, setForm] = useState({ tenantId: '', email: '', fullName: '' });
+  const [form, setForm] = useState({ tenantId: '', email: '', fullName: '', phone: '', jobTitle: '', note: '' });
   const [error, setError] = useState(null);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -30,7 +30,7 @@ export default function SignupPage({ onBack }) {
     setError(null);
     setLoading(true);
     try {
-      await api.register({ tenantId: form.tenantId, email: form.email.trim(), fullName: form.fullName.trim() });
+      await api.register({ tenantId: form.tenantId, email: form.email.trim(), fullName: form.fullName.trim(), phone: form.phone.trim(), jobTitle: form.jobTitle.trim(), note: form.note.trim() });
       setDone(true);
     } catch (err) {
       setError(err.message);
@@ -91,6 +91,27 @@ export default function SignupPage({ onBack }) {
             <div className="input-wrap">
               <Mail size={18} aria-hidden="true" />
               <input id="su-email" className="input" type="email" autoComplete="username" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required placeholder={tr('prenom.nom@exemple.mg')} />
+            </div>
+          </Field>
+
+          <Field label={tr('Téléphone')} htmlFor="su-phone">
+            <div className="input-wrap">
+              <Phone size={18} aria-hidden="true" />
+              <input id="su-phone" className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder={tr('+261 …')} />
+            </div>
+          </Field>
+
+          <Field label={tr('Fonction / poste')} htmlFor="su-job">
+            <div className="input-wrap">
+              <Briefcase size={18} aria-hidden="true" />
+              <input id="su-job" className="input" value={form.jobTitle} onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} placeholder={tr('Ex. Agent de suivi, Superviseur…')} />
+            </div>
+          </Field>
+
+          <Field label={tr('Motif de la demande')} htmlFor="su-note">
+            <div className="input-wrap input-wrap-area">
+              <MessageSquare size={18} aria-hidden="true" />
+              <textarea id="su-note" className="input" rows={2} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder={tr('Quel accès vous faut-il et pourquoi ?')} />
             </div>
           </Field>
 

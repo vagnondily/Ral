@@ -94,6 +94,7 @@ export const NAV = [
           { heading: 'Suivi' },
           { id: 'mmr', label: 'Paramètres MMR' },
           { heading: 'Sécurité' },
+          { id: 'acces', label: 'Demandes d\'accès' },
           { id: 'utilisateurs', label: 'Utilisateurs & accès' },
           { id: 'compte', label: 'Options du compte' },
           { id: 'suppressions', label: 'Journal des suppressions' },

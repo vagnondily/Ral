@@ -12,6 +12,16 @@
 
 ## État courant
 
+> **22/10 — Demandes d'accès : infos d'inscription + onglet de validation dédié.** ✅ Le propriétaire ne
+> trouvait pas où valider les auto-inscriptions ni les infos de base. (1) **Inscription enrichie** :
+> téléphone, fonction/poste, motif (migration 124 `users.phone`/`job_title`/`signup_note`, bornés). (2)
+> **Onglet dédié « Demandes d'accès »** (Paramétrage › Sécurité, toujours visible) listant les comptes en
+> attente avec leurs coordonnées et motif ; déclaré dans AppShell (sinon renvoi à Contrats). (3) La fenêtre
+> de validation affiche désormais ces infos avant d'attribuer le rôle. Build vert, 1574 tests, chaîne
+> register/listUsers vérifiée sur base migrée. **Reste (demande A, non commencée)** : raisons de
+> non-réalisation d'une visite planifiée (par site / multi-sites / district), visibles dans l'info-bulle du
+> site, et marquage « planifié non réalisé → à replanifier ».
+
 > **22/10 — Plan de suivi : état JAUNE « réalisé non planifié » ajouté (différence manquante).** ✅ Le
 > propriétaire trouve le design quasi parfait, il manquait le jaune. Backend : la grille porte désormais
 > `dataMonths` par site (mois où le site a reçu des données — même rattachement que dataVisitMonth, requête

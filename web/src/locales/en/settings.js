@@ -317,4 +317,16 @@ export default {
     'This office has {sites} attached site(s), {mmr} MMR override(s) and {antennes} sub-office(s). Deleting it detaches these sites (then attached to another office covering their commune) and erases its overrides. To lose nothing, use “Edit” and set it to Inactive instead. Delete anyway?',
   'Sites dont la commune est dans le périmètre mais qui restent sans bureau.': 'Sites whose commune is in the coverage area but which still have no office.',
   '+ {n} à rattacher': '+ {n} to attach',
+  // Demandes d'accès (comptes auto-inscrits)
+  'Demandes d\'accès': 'Access requests',
+  'Comptes auto-inscrits en attente : leurs informations (nom, email, téléphone, fonction, motif) et validation (attribution du rôle et des écrans).':
+    'Self-registered accounts awaiting approval: their details (name, email, phone, role, reason) and approval (assigning the role and screens).',
+  'Comptes auto-inscrits en attente de validation. Validez pour attribuer un rôle et les écrans visibles, puis communiquez le lien d\'activation (onglet « Utilisateurs & accès »).':
+    'Self-registered accounts awaiting approval. Approve to assign a role and visible screens, then share the activation link (“Users & access” tab).',
+  'Aucune demande en attente': 'No pending requests',
+  'Les comptes créés via « Créer un compte » (page de connexion) apparaîtront ici pour validation.':
+    'Accounts created via “Create an account” (login page) will appear here for approval.',
+  'Demandeur': 'Applicant',
+  'Coordonnées': 'Contact details',
+  'Motif': 'Reason',
 };
