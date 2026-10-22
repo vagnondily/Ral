@@ -78,7 +78,10 @@ function boardKpis(sites) {
     active: sites.filter((s) => !s.forbidden && !s.inactive).length,
     planned: sites.filter((s) => s.planned > 0).length,
     toVisit: sites.filter((s) => s.remaining > 0 && !s.forbidden && !s.inactive).length,
-    followed: sites.filter((s) => s.done > 0).length,
+    // « Sites suivis » = suivi EFFECTIF : une visite déclarée réalisée OU des données reçues rattachées
+    // au site (retour 48 : la dernière visite effective est la plus récente des deux). Cohérent avec
+    // « Jamais visités » (qui exclut déjà les sites alimentés) et avec la couverture des tableaux de bord.
+    followed: sites.filter((s) => s.done > 0 || (s.dataCount || 0) > 0).length,
     fed: sites.filter((s) => (s.dataCount || 0) > 0).length,
     remainingVisits: sum('remaining'),
     notYetPlanned: sum('toPlan'),

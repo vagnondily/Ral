@@ -20,6 +20,7 @@ export default {
   'Sites à visiter': 'Sites to visit',
   'Sites alimentés': 'Sites with data',
   'données reçues': 'data received',
+  'visite déclarée ou données reçues': 'declared visit or data received',
   'Visites restant à faire': 'Visits remaining',
   'dont non encore planifiées': 'of which not yet planned',
   'Sites sans aucun plan': 'Sites with no plan',

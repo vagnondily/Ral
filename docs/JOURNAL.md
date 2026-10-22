@@ -12,6 +12,18 @@
 
 ## État courant
 
+> **22/10 — Plan de suivi : les données reçues comptent comme « suivi effectif ».** ✅ Incohérence
+> signalée par le propriétaire : il a importé 1 311 soumissions (713 sites alimentés) mais « Sites suivis »
+> affichait 0 et « Déjà visités » était vide. Cause : `boardKpis.followed` et le filtre de l'onglet
+> « Déjà visités » ne comptaient QUE les visites déclarées réalisées (`done>0`), alors que « Jamais
+> visités » excluait déjà les sites alimentés — un site avec données tombait dans un trou. Correctif
+> (conforme au retour 48 : dernière visite effective = visite réalisée OU collecte réelle) : « Sites
+> suivis » = `done>0 OU dataCount>0` (bandeau « visite déclarée ou données reçues ») ; « Déjà visités »
+> montre aussi les sites alimentés (la colonne « Données reçues » y existait déjà). **Inchangé (par
+> conception)** : « Exécution des visites DÉCLARÉES » (matrice, %) reste visites déclarées seulement ;
+> la couverture des tableaux de bord (Synthèse) comptait déjà les données. Test `boardKpis` mis à jour,
+> 1574 tests, lint, build verts.
+
 > **22/10 — MULTI-PAYS, étape 1 (devise du pays) — 1a + 1c.** 🔄 Démarrage du chantier multi-pays
 > (Option A validée, `SPEC_MULTIPAYS.md`). Étape 1 sans migration : les montants prennent la **devise du
 > profil du pays** au lieu d'« Ar » codé en dur. `lib/format.setFormatCurrency(code)` (symbole local pour

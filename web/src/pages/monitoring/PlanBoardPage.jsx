@@ -97,7 +97,8 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
   const kpis = useMemo(() => boardKpis(filtered), [filtered]);
   const rows = useMemo(() => {
     if (view === 'plan') return filtered.filter((s) => !s.inactive && !s.forbidden);
-    if (view === 'visited') return filtered.filter((s) => s.done > 0);
+    // « Déjà visités » = suivi effectif : visite déclarée réalisée OU données reçues (retour 48).
+    if (view === 'visited') return filtered.filter((s) => s.done > 0 || (s.dataCount || 0) > 0);
     return filtered;
   }, [filtered, view]);
   useEffect(() => { setPage(1); }, [filters, view]);
@@ -174,7 +175,7 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
           { label: tr('Sites actifs'), value: formatInt(kpis.active) },
           { label: tr('Sites planifiés'), value: formatInt(kpis.planned) },
           { label: tr('Sites à visiter'), value: formatInt(kpis.toVisit) },
-          { label: tr('Sites suivis'), value: formatInt(kpis.followed) },
+          { label: tr('Sites suivis'), value: formatInt(kpis.followed), foot: tr('visite déclarée ou données reçues') },
           { label: tr('Sites alimentés'), value: formatInt(kpis.fed), foot: tr('données reçues') },
         ]} />
         <Stats compact items={[

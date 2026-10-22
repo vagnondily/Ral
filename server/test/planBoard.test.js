@@ -52,7 +52,8 @@ test('KPI des deux bandeaux ; zone interdite exclue des sites à visiter et « s
   ];
   const k = boardKpis(sites);
   assert.equal(k.total, 4); assert.equal(k.active, 3); assert.equal(k.planned, 1); assert.equal(k.toVisit, 2);
-  assert.equal(k.followed, 1); assert.equal(k.fed, 2); assert.equal(k.remainingVisits, 6); assert.equal(k.notYetPlanned, 5);
+  // « Sites suivis » = suivi effectif (visite réalisée OU données reçues) : site 1 (visite) + site 4 (données).
+  assert.equal(k.followed, 2); assert.equal(k.fed, 2); assert.equal(k.remainingVisits, 6); assert.equal(k.notYetPlanned, 5);
   assert.equal(k.withoutPlan, 2); assert.equal(k.neverVisited, 2); assert.equal(k.unparametered, 1);
   assert.equal(k.mmrRate, 14.3); // 1 faite / 7 exigées
 });
