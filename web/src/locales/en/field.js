@@ -223,6 +223,9 @@ export default {
   'Bureau': 'Office',
   'Tous les bureaux': 'All offices',
   '— Sans bureau —': '— No office —',
+  'Données (sites)': 'Data (sites)',
+  'Sites ayant reçu des données (soumissions) ce mois — indépendant des visites déclarées':
+    'Sites that received data (submissions) this month — independent of declared visits',
   '{name} (pays — tous les sites)': '{name} (country — all sites)',
   'Toutes les régions': 'All regions',
   'Tous les districts': 'All districts',

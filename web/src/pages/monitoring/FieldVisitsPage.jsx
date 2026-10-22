@@ -412,6 +412,7 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
           <thead><tr>
             <th>{tr('Mois')}</th><th>{tr('Situation')}</th><th className="num">{tr('Sites')}</th><th className="num">{tr('Planifiées')}</th>
             <th className="num">{tr('Réalisées')}</th><th className="num">{tr('Annulées')}</th><th className="num">{tr('TPM')}</th>
+            <th className="num" title={tr('Sites ayant reçu des données (soumissions) ce mois — indépendant des visites déclarées')}>{tr('Données (sites)')}</th>
             <th>{tr('Exécution des visites (déclarées)')}</th><th aria-label={tr('Action')} />
           </tr></thead>
           <tbody>
@@ -429,6 +430,7 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
                   <td className="num tabular">{empty ? <span className="cell-empty">—</span> : <strong>{formatInt(m.realise)}</strong>}</td>
                   <td className="num tabular">{empty ? <span className="cell-empty">—</span> : (m.annule ? <span style={{ color: 'var(--text-muted)' }}>{formatInt(m.annule)}</span> : '0')}</td>
                   <td className="num tabular">{empty ? <span className="cell-empty">—</span> : formatInt(m.providers)}</td>
+                  <td className="num tabular">{m.dataSites ? <span style={{ color: 'var(--green-text)', fontWeight: 600 }}>{formatInt(m.dataSites)}</span> : <span className="cell-empty">—</span>}</td>
                   <td>
                     {m.planifie + m.realise === 0 ? <span className="cell-empty">—</span> : (
                       <span className="month-cov">
@@ -445,7 +447,7 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
                 </tr>
               );
             })}
-            {months.length === 0 && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center', padding: 20 }}>{tr('Aucun mois pour cette situation.')}</td></tr>}
+            {months.length === 0 && <tr><td colSpan={10} className="muted" style={{ textAlign: 'center', padding: 20 }}>{tr('Aucun mois pour cette situation.')}</td></tr>}
           </tbody>
         </table></div>
       )}

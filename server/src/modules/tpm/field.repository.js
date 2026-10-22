@@ -16,7 +16,7 @@ const { unattachedText } = require('../common/codeLabel');
 const { toPeriod, periodInfo, monthsOf, addMonths } = require('../common/period');
 const { PERIOD_CAPS } = require('../common/periodCaps');
 const { monthWithin } = require('../common/periodSql');
-const { siteMonthFactsCtes, siteDistrictCtes, DISTRICT_LABEL_SQL, SITE_FACT_COLUMNS, MONTH_FACT_COLUMNS } = require('../common/siteActivitySql');
+const { siteMonthFactsCtes, siteDistrictCtes, DISTRICT_LABEL_SQL, SITE_FACT_COLUMNS, MONTH_FACT_COLUMNS, formSiteCompatibleSql } = require('../common/siteActivitySql');
 // Retour 58 : TPM des visites = celui de leur zone (toute écriture de visites finit par restampVisitsTx ;
 // filet de sécurité en base : migration 070). Verrou d'attribution AVANT toute ligne de visite mise à jour.
 const { restampVisitsTx, lockAttributionTx, applyVisitRequestTx, boardTpmTx, monitorKeySql } = require('./tpmAttribution.repository');
@@ -654,6 +654,27 @@ async function monthsOverview(tenantId, { year } = {}) {
       [tenantId, y]
     );
     const statusByMonth = new Map(statuses.map((r) => [r.month, r.status]));
+    // Sites AVEC DONNÉES par mois (soumissions importées) — même règle de rattachement que `dataVisitMonth`
+    // (site direct, sinon commune par pcode ; fiche d'activité compatible) ; distinct des visites DÉCLARÉES.
+    const compat = formSiteCompatibleSql('mf.activity_category', 'lower(btrim(s.activity))');
+    const { rows: dataRows } = await client.query(
+      `SELECT m AS month, count(DISTINCT sid)::int AS "dataSites" FROM (
+         SELECT to_char(ms.period_month, 'YYYY-MM') AS m, s.id AS sid
+           FROM monitoring_submissions ms
+           JOIN monitoring_forms mf ON mf.id = ms.form_id AND mf.tenant_id = ms.tenant_id
+           JOIN sites s ON s.id = ms.site_id AND s.tenant_id = ms.tenant_id
+          WHERE ms.tenant_id = $1 AND NOT ms.excluded AND date_part('year', ms.period_month) = $2 AND ${compat}
+         UNION
+         SELECT to_char(ms.period_month, 'YYYY-MM') AS m, s.id AS sid
+           FROM monitoring_submissions ms
+           JOIN monitoring_forms mf ON mf.id = ms.form_id AND mf.tenant_id = ms.tenant_id
+           JOIN sites s ON s.tenant_id = ms.tenant_id AND s.adm3_pcode = ms.adm3_pcode
+          WHERE ms.tenant_id = $1 AND NOT ms.excluded AND ms.site_id IS NULL AND ms.adm3_pcode IS NOT NULL
+            AND date_part('year', ms.period_month) = $2 AND ${compat}
+       ) q GROUP BY 1`,
+      [tenantId, y]
+    );
+    const dataByMonth = new Map(dataRows.map((r) => [r.month, r.dataSites]));
     const byMonth = new Map(rows.map((r) => [r.month, r]));
     const out = [];
     for (let m = 1; m <= 12; m += 1) {
@@ -662,6 +683,7 @@ async function monthsOverview(tenantId, { year } = {}) {
       const done = r.realise;
       const base = r.planifie + r.realise; // annulées exclues du taux
       r.coverage = base > 0 ? done / base : 0;
+      r.dataSites = dataByMonth.get(key) || 0; // sites alimentés par données ce mois (distinct des visites déclarées)
       // Statut explicite si saisi ; sinon « draft » dès qu'il y a des visites, « vide » sinon.
       r.status = statusByMonth.get(key) || (r.total > 0 ? 'draft' : 'vide');
       out.push(r);
