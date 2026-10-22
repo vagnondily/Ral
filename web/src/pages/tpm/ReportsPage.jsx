@@ -361,6 +361,15 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
       <GuidedFlow flow={flow} month={month} ready={reports !== null} onNavigate={onNavigate}
         onNewFacture={canEdit ? () => setFacture({ kind: 'financier' }) : undefined} />
 
+      {onNavigate && month && (
+        <div style={{ marginTop: 2 }}>
+          <Button size="sm" variant="ghost" icon={Ban}
+            onClick={() => { try { sessionStorage.setItem('mems.tpm.nonreal', JSON.stringify({ month })); } catch { /* stockage indisponible */ } onNavigate('processus', 'sites'); }}>
+            {tr('Sites planifiés non réalisés du mois (raisons)')}
+          </Button>
+        </div>
+      )}
+
       <Stats items={[
         { label: periodShown ? tr('Rapports de la période') : tr('Rapports'), value: reports ? stats.total : '—',
           foot: periodShown ? `${periodLabel(periodShown, lang)} · ${tr('{n} technique(s)', { n: stats.tech })}` : tr('{n} technique(s)', { n: stats.tech }) },

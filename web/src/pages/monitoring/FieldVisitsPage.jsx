@@ -75,6 +75,13 @@ export default function FieldVisitsPage({ canEdit }) {
   const [year, setYear] = useState(() => Number(currentMonth().slice(0, 4)));
   const [monthsData, setMonthsData] = useState(null);
   const [picking, setPicking] = useState(true);      // true = tableau des mois ; false = plan d'un mois
+  // Ouverture directe sur un mois + l'onglet « Non-réalisations » depuis les rapports TPM (relais sessionStorage).
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('mems.tpm.nonreal');
+      if (raw) { sessionStorage.removeItem('mems.tpm.nonreal'); const o = JSON.parse(raw); if (o && o.month) { setMonth(o.month); setView('nonreal'); setPicking(false); } }
+    } catch { /* stockage indisponible */ }
+  }, []);
   const [statusFilter, setStatusFilter] = useState(''); // filtre « situation » du tableau des mois
   const fileRef = useRef(null);
 
@@ -171,7 +178,8 @@ export default function FieldVisitsPage({ canEdit }) {
     const dataDone = (v) => v.dataVisitMonth === month && v.status !== 'annule';
     const c = {
       site: { label: tr('Site (établissement)'), sortVal: (v) => v.siteName, csv: (v) => v.siteName,
-        render: (v) => <><strong>{v.siteName}</strong>{v.fokontany && <div className="site-meta">{v.fokontany}</div>}</> },
+        render: (v) => <><strong>{v.siteName}</strong>{v.fokontany && <div className="site-meta">{v.fokontany}</div>}
+          {v.nonrealizedReason && <div className="site-meta" style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'flex-start', gap: 4 }} title={tr('Raison de non-réalisation')}><MinusCircle size={12} aria-hidden="true" style={{ marginTop: 2, flexShrink: 0 }} /> <span>{v.nonrealizedReason}</span></div>}</> },
       zone: { label: tr('District / Commune'), sortVal: (v) => `${v.district || ''} ${v.commune || ''}`, csv: (v) => `${v.district || ''} / ${v.commune || ''}`,
         render: (v) => <>{v.district || '—'} › {v.commune || '—'}</> },
       activity: { label: tr('Activité'), sortVal: (v) => v.activity || '', csv: (v) => v.activity || '',

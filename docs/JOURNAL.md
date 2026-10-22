@@ -12,7 +12,12 @@
 
 ## État courant
 
-> **22/10 — Raisons de non-réalisation (écran dédié) — incrément 1.** 🔄 Demande A. Migration 125
+> **22/10 — Raisons de non-réalisation — incrément 2 (info-bulle site + lien Rapports).** ✅ La raison
+> s'affiche sous le nom du site dans la grille du plan (icône + texte). Les rapports TPM offrent un bouton
+> « Sites planifiés non réalisés du mois (raisons) » qui ouvre directement l'onglet Non-réalisations du mois
+> (relais sessionStorage `mems.tpm.nonreal`). Build vert, 1574 tests. Demande A terminée.
+
+> **22/10 — Raisons de non-réalisation (écran dédié) — incrément 1.** ✅ Demande A. Migration 125
 > (`site_visits.nonrealized_reason`, bornée 500) ; `setNonrealizedReason` (saisie groupée par ids, jamais
 > sur une visite réalisée) + route `PUT /api/tpm/field/visits/nonrealized-reason` ; `nonrealizedReason`
 > dans listVisits. Nouvel onglet **« Non-réalisations »** dans Affectation & visites : liste les visites
