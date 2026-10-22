@@ -12,6 +12,14 @@
 
 ## État courant
 
+> **22/10 — CORRECTIF : « Options du compte » renvoyait vers Contrats.** ✅ Clic sur la rubrique
+> « Options du compte » (Paramétrage › Sécurité) → redirection vers Contrats. Cause : la sous-route
+> `parametrage/compte` n'était PAS déclarée dans `AppShell.NAV`, donc `findRoute` la rejetait et
+> `routeOfHash` repliait sur la route par défaut (Contrats) — exactement le piège documenté dans CLAUDE.md
+> (« Toute nouvelle page doit être déclarée dans AppShell »). Ajout de `{ id: 'compte', label: 'Options du
+> compte' }` dans les sous-rubriques de Paramétrage. (La section et l'API existaient déjà et étaient
+> correctes ; seul le routage manquait.) Build vert.
+
 > **22/10 — CORRECTIF (suite) : « Sites suivis » restait à 0 — le mauvais fichier avait été corrigé.** ✅
 > Le propriétaire a re-signalé « Sites suivis = 0 » (713 sites alimentés) : le correctif du 22/10 avait été
 > appliqué à `server/src/modules/tpm/planBoard.js`, mais le Plan de suivi (web) utilise un JUMEAU,
