@@ -13,8 +13,10 @@ const { loadWorkbook } = require('../common/xlsxGuard');
  * import can never bypass the business rules.
  */
 
+const { moneyNumFmt } = require('../common/currencyFmt');
 const BLUE = 'FF1F6EBC';
-const money = '#,##0 "Ar"';
+// Devise du pays (multi-pays, étape 1b) : fixée au début de la construction synchrone. Défaut « Ar ».
+let money = '#,##0 "Ar"';
 
 // Dropdown value for a line: "CODE — Label" (readable + precise to parse back).
 const lineOption = (code) => `${code} — ${LINE_LABELS[code]}`;
@@ -64,7 +66,8 @@ const HEADERS = ['Ligne budgétaire', 'Désignation (poste)', 'Unité', 'Quantit
  * A fillable template workbook. `context` (optional): { title, subtitle }.
  * `sampleItems` (optional): rows to pre-fill (e.g. exporting a plan to edit).
  */
-function buildTemplateWorkbook({ title = 'Modèle — État des dépenses', subtitle = '', sampleItems = [] } = {}) {
+function buildTemplateWorkbook({ title = 'Modèle — État des dépenses', subtitle = '', sampleItems = [], currency } = {}) {
+  money = currency === undefined ? '#,##0 "Ar"' : moneyNumFmt(currency);
   const wb = new ExcelJS.Workbook();
   wb.creator = 'MEMS 2.0';
   wb.created = new Date();

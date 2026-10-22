@@ -10,6 +10,7 @@ const { buildInvoiceWorkbook } = require('./factureXlsx');
 const { reportActions, REPORT_WRITE_ROLES, REPORT_DECIDE_ROLES, canWriteReports, canDecideReports } = require('./reportWorkflow');
 const { isAdmin } = require('../common/accessRoles');
 const { getAccountSettings } = require('../settings/settings.repository');
+const { tenantCurrency } = require('../common/currencyFmt');
 const { currentMonth } = require('./rbmMath');
 const { addMonths } = require('../common/period');
 const { PERIOD_CAPS } = require('../common/periodCaps');
@@ -89,7 +90,7 @@ router.get('/:id/facture.xlsx', asyncHandler(async (req, res) => {
   const invoice = await repo.invoiceData(t(req), req.params.id);
   if (!invoice) throw notFound('Rapport introuvable');
   const { report } = invoice;
-  const wb = buildInvoiceWorkbook(invoice);
+  const wb = buildInvoiceWorkbook(invoice, { currency: await tenantCurrency(t(req)) });
   const safe = (report.invoiceNo || `${report.partnerName}_${String(report.periodMonth).slice(0, 7)}`).replace(/[^\w.-]+/g, '_');
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="Facture_${safe}.xlsx"`);

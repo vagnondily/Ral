@@ -18,8 +18,12 @@
 > MGA→Ar, USD→$… sinon le code ISO ; devise non renseignée → aucun suffixe) posé une fois au chargement
 > par `App.jsx` depuis `GET /api/settings/country`. `seed.js` pose **Madagascar / MDG / MGA** sur la démo
 > (donc affichage « Ar » inchangé). Le contrôle « devise non renseignée » existait déjà (santé du
-> paramétrage, règle `profil_pays`). **Reste de l'étape 1** : 1b, formats Excel selon la devise
-> (factureXlsx/budgetXlsx/postesXlsx). **Numérotation** : les migrations multi-pays prendront **123+**
+> paramétrage, règle `profil_pays`).
+> **1b (fait) — formats Excel selon la devise.** `common/currencyFmt.js` (`moneyNumFmt`, `tenantCurrency`) ;
+> `factureXlsx`/`budgetXlsx`/`postesXlsx` fixent le format des montants depuis la devise du pays (par défaut
+> « Ar », donc inchangé) ; les routes facture.xlsx / budget.xlsx / modèle de postes la passent. Test
+> `currencyFmt` (3) + 1574 tests au total. **Étape 1 terminée.** Prochaine : étape 2 (arbre `org_units`,
+> migration 123). **Numérotation** : les migrations multi-pays prennent **123+**
 > (les réservations 082–085 de la spec sont dépassées : 083/084 supprimaient `users.password_hash` /
 > `auth_lookup_user` dont dépendent mes migrations 121/122). lint, 1571 tests, build, balayage 46×FR/EN verts.
 

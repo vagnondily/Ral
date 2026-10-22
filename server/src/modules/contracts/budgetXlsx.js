@@ -8,11 +8,14 @@ const { SECTIONS, MONITORING_LINE } = require('./budgetCatalog');
 // or a unit cost and the whole sheet recomputes, exactly like the template.
 
 const BLUE = 'FF1F6EBC';
+const { moneyNumFmt } = require('../common/currencyFmt');
 const HEAD = 'FF2A93FC';
 const GREY = 'FFECEFF3';
-const money = '#,##0 "Ar"';
+// Devise du pays (multi-pays, étape 1b) : fixée au début de la construction synchrone. Défaut « Ar ».
+let money = '#,##0 "Ar"';
 
-function buildBudgetWorkbook({ contract, activities, items, feePct, months }) {
+function buildBudgetWorkbook({ contract, activities, items, feePct, months, currency }) {
+  money = currency === undefined ? '#,##0 "Ar"' : moneyNumFmt(currency);
   const wb = new ExcelJS.Workbook();
   wb.creator = 'MEMS 2.0';
   wb.created = new Date();

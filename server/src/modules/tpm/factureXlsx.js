@@ -12,9 +12,12 @@ const { itemCents, funderCentsOf, bailleurPctOf } = require('./reportMath');
  * recalculation are exactly the app's. Neutral terminology (bailleur / ONG).
  */
 
+const { moneyNumFmt } = require('../common/currencyFmt');
 const BLUE = 'FF1F6EBC';
 const GREY = 'FFECEFF3';
-const money = '#,##0 "Ar"';
+// Devise du pays (multi-pays, étape 1b) : chaque export fixe `money` depuis la devise reçue, au DÉBUT
+// de la construction synchrone du classeur (aucune attente entre-temps). Défaut : ariary (« Ar »).
+let money = '#,##0 "Ar"';
 // Format du % bailleur : « 90 % », « 33,333 % ». Jamais '0.###%' qui affiche
 // « 90.% » dans Excel (séparateur décimal orphelin sur une valeur entière).
 const pctFmtOf = (pct) => (Number.isInteger(Math.round(pct * 1e5) / 1e3) ? '0%' : '0.0##%');
@@ -171,7 +174,8 @@ function newWorkbook() {
 }
 
 /** Backward-compatible: a workbook with just the detailed état des dépenses. */
-function buildFactureWorkbook(report) {
+function buildFactureWorkbook(report, { currency } = {}) {
+  money = currency === undefined ? '#,##0 "Ar"' : moneyNumFmt(currency);
   const wb = newWorkbook();
   addEtatSheet(wb, report);
   return wb;
@@ -328,7 +332,8 @@ function addInvoiceSheet(wb, invoice) {
 
 /** Full invoice workbook: the formal « Facture » sheet + the detailed « État
  * des dépenses » sheet, like the real template. */
-function buildInvoiceWorkbook(invoice) {
+function buildInvoiceWorkbook(invoice, { currency } = {}) {
+  money = currency === undefined ? '#,##0 "Ar"' : moneyNumFmt(currency);
   const wb = newWorkbook();
   addInvoiceSheet(wb, invoice);
   addEtatSheet(wb, invoice.report);

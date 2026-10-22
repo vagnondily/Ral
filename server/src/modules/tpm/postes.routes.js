@@ -6,6 +6,8 @@ const { badRequest } = require('../../middleware/errors');
 const { buildTemplateWorkbook, parsePostesWorkbook } = require('./postesXlsx');
 const { normalizeItems, summarize } = require('./reportMath');
 const { isRefusal } = require('../common/xlsxGuard');
+const { tenantCurrency } = require('../common/currencyFmt');
+const t = (req) => req.auth.tenantId;
 
 /**
  * Shared Excel helpers for the postes / état des dépenses (facture + plan).
@@ -21,6 +23,7 @@ router.get('/template.xlsx', asyncHandler(async (req, res) => {
   const wb = buildTemplateWorkbook({
     title: 'Modèle — État des dépenses (postes)',
     subtitle: 'MEMS 2.0 · à importer dans une facture ou un plan de collecte',
+    currency: await tenantCurrency(t(req)),
   });
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename="Modele_postes_MEMS2.xlsx"');

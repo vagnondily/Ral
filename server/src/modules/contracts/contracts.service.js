@@ -15,6 +15,7 @@ const { periodBounds } = require('../common/period');
 const { restampVisitsTx } = require('../tpm/tpmAttribution.repository');
 const { contractTpmViewsTx } = require('../tpm/activeProvider.repository');
 const { adminFreeEditTx } = require('../settings/settings.repository');
+const { tenantCurrencyTx } = require('../common/currencyFmt');
 
 /**
  * Retour 58 : un contrat de suivi décide du TPM par défaut de ses zones. Quand il devient actif,
@@ -218,9 +219,10 @@ async function budgetWorkbook(tenantId, id) {
     const items = await repo.getBudgetItems(client, tenantId, id);
     const months = contract.periodMonths || d.monthsBetween(contract.dateDebut, contract.dateFin);
     const reference = d.displayReference(contract.numeroFla, contract.amendmentCount);
+    const currency = await tenantCurrencyTx(client, tenantId); // devise du pays pour les montants Excel
     const wb = buildBudgetWorkbook({
       contract: { ...contract, reference }, activities, items,
-      feePct: Number(contract.managementFeePct), months,
+      feePct: Number(contract.managementFeePct), months, currency,
     });
     const buffer = await wb.xlsx.writeBuffer();
     return { buffer, filename: `Budget_${reference || contract.numero}.xlsx` };
