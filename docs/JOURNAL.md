@@ -12,6 +12,15 @@
 
 ## État courant
 
+> **22/10 — Raisons de non-réalisation (écran dédié) — incrément 1.** 🔄 Demande A. Migration 125
+> (`site_visits.nonrealized_reason`, bornée 500) ; `setNonrealizedReason` (saisie groupée par ids, jamais
+> sur une visite réalisée) + route `PUT /api/tpm/field/visits/nonrealized-reason` ; `nonrealizedReason`
+> dans listVisits. Nouvel onglet **« Non-réalisations »** dans Affectation & visites : liste les visites
+> planifiées non réalisées du mois (ni visite déclarée, ni données), filtre par district, sélection +
+> raison groupée, et raison par ligne. Replanification = RBM (inchangé). Build vert, 1574 tests, migration
+> vérifiée. **Reste (incrément 2)** : afficher la raison dans l'info-bulle/popup du site, et un accès
+> depuis les rapports TPM.
+
 > **22/10 — Demandes d'accès : infos d'inscription + onglet de validation dédié.** ✅ Le propriétaire ne
 > trouvait pas où valider les auto-inscriptions ni les infos de base. (1) **Inscription enrichie** :
 > téléphone, fonction/poste, motif (migration 124 `users.phone`/`job_title`/`signup_note`, bornés). (2)

@@ -520,7 +520,7 @@ const VISIT_COLS = `
   v.activity, to_char(v.period_month, 'YYYY-MM') AS "periodMonth",
   v.provider_id AS "providerId", p.name AS "providerName",
   v.provider_source AS "providerSource", v.provider_zone_state AS "providerZoneState", v.provider_reason AS "providerReason",
-  v.monitored_by AS "monitoredBy", s.field_office_id AS "fieldOfficeId",
+  v.monitored_by AS "monitoredBy", s.field_office_id AS "fieldOfficeId", v.nonrealized_reason AS "nonrealizedReason",
   COALESCE(c.numero_fla, c.numero) AS "contractLabel", s.zone_district_id AS "zoneDistrictId",
   v.agent, v.status, v.visit_date AS "visitDate"`;
 
@@ -994,6 +994,24 @@ async function updateVisit(tenantId, id, patch, userId = null) {
     if (res && res.error) throw visitRuleError(res);
     await restampVisitsTx(client, tenantId);
     return true;
+  });
+}
+
+/**
+ * Saisie (groupée) de la RAISON de non-réalisation sur des visites planifiées non réalisées.
+ * `ids` : visites ciblées (une, plusieurs, ou toutes celles d'un district — la sélection se fait
+ * côté application) ; `reason` null efface. Jamais sur une visite déjà RÉALISÉE. Métadonnée pure :
+ * n'altère ni le statut, ni le TPM, ni la planification (le RBM repropose le site non visité).
+ */
+async function setNonrealizedReason(tenantId, { ids, reason }) {
+  if (!Array.isArray(ids) || !ids.length) return 0;
+  const clean = reason && String(reason).trim() ? String(reason).trim().slice(0, 500) : null;
+  return withTenantTransaction(tenantId, async (client) => {
+    const { rowCount } = await client.query(
+      `UPDATE site_visits SET nonrealized_reason = $3, updated_at = now()
+         WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND status <> 'realise'`,
+      [tenantId, ids, clean]);
+    return rowCount;
   });
 }
 
@@ -1585,7 +1603,7 @@ async function addSite(tenantId, s, { today = new Date() } = {}) {
 module.exports = {
   reportFieldData, coverageFacts, planBoard, setPlannedMonths, setMonthStatuses, bulkUpdateSites, addSite, locationsExportData, importLocations,
   listSites, createSite, createSiteTx, upsertSites, updateSite,
-  listVisits, summary, createVisit, updateVisit, deleteVisit, importPlanning,
+  listVisits, summary, createVisit, updateVisit, setNonrealizedReason, deleteVisit, importPlanning,
   collectionDaysSummary, setTravelDays, coverageRecapSummary, coverageMatrix, monthsOverview, setMonthStatus,
   siteDataFactsSql, rbmSites, rbmCounts, rbmSitesTx, rbmSiteExplain, importMasterData, importPlanSites, generateFromRbm, generateFromRbmTx, planBoardTx,
   planBoardWithTpmTx, monthStatusesTx, yearActivityTx,

@@ -522,6 +522,7 @@ export const api = {
   fieldCreateVisit: (input) => request('/api/tpm/field/visits', { method: 'POST', body: input }),
   fieldUpdateVisit: (id, input) => request(`/api/tpm/field/visits/${id}`, { method: 'PATCH', body: input }),
   fieldDeleteVisit: (id) => request(`/api/tpm/field/visits/${id}`, { method: 'DELETE' }),
+  fieldSetNonrealizedReason: (ids, reason) => request('/api/tpm/field/visits/nonrealized-reason', { method: 'PUT', body: { ids, reason: reason || null } }),
   fieldCollectionDays: (month) => request('/api/tpm/field/collection-days', { query: month ? { month } : undefined }),
   fieldCoverageRecap: ({ district, operationMonths, period } = {}) => request('/api/tpm/field/coverage-recap', { query: qs({ district, operationMonths, ...pq(period) }) }),
   // Matrice : une année (nombre, 12 mois) ou une période { from, to } (colonnes = mois de la période).

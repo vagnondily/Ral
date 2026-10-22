@@ -302,6 +302,7 @@ export default function FieldVisitsPage({ canEdit }) {
         <button type="button" className={view === 'plan' ? 'is-active' : ''} onClick={() => setView('plan')}>{tr('Planification')}</button>
         <button type="button" className={view === 'couverture' ? 'is-active' : ''} onClick={() => setView('couverture')}>{tr('Couverture & budget')}</button>
         <button type="button" className={view === 'donnees' ? 'is-active' : ''} onClick={() => setView('donnees')}>{tr('Données réelles')}</button>
+        <button type="button" className={view === 'nonreal' ? 'is-active' : ''} onClick={() => setView('nonreal')}>{tr('Non-réalisations')}</button>
       </div>
 
       {view === 'couverture' && <>
@@ -390,10 +391,92 @@ export default function FieldVisitsPage({ canEdit }) {
           <div className="note"><MapPin size={18} aria-hidden="true" /><span>{richText(tr("Liaison par <strong>pcode de commune</strong> : une soumission « non rattachée » signifie qu'aucun site du référentiel ne porte ce code — importez le Master Data (RBM) pour compléter les pcodes."))}</span></div>
         </div>
       )}
+
+      {view === 'nonreal' && <NonRealizedView visits={visits} month={month} canEdit={canEdit} onReload={reload} />}
       </>}
 
       {addOpen && <AddVisitModal month={month} roles={ROLES} onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); reload(); }} />}
       {tpmVisits && <TpmVisitDialog visits={tpmVisits} onClose={() => setTpmVisits(null)} onSaved={() => { setTpmVisits(null); reload(); }} />}
+    </div>
+  );
+}
+
+// Onglet « Non-réalisations » : les visites PLANIFIÉES non réalisées du mois (ni visite déclarée, ni
+// données reçues). Saisie de la raison par site, ou groupée (sélection, ou filtre par district).
+// La replanification reste pilotée par le RBM (le site non visité resurface le mois suivant).
+function NonRealizedView({ visits, month, canEdit, onReload }) {
+  const { tr } = useI18n();
+  const toast = useToast();
+  const rows = useMemo(() => (visits || []).filter((v) => v.status === 'planifie' && v.dataVisitMonth !== month), [visits, month]);
+  const districts = useMemo(() => [...new Set(rows.map((v) => v.district).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr')), [rows]);
+  const [district, setDistrict] = useState('');
+  const [sel, setSel] = useState(() => new Set());
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const shown = district ? rows.filter((v) => v.district === district) : rows;
+  const allShownSel = shown.length > 0 && shown.every((v) => sel.has(v.id));
+  const toggle = (id) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleAllShown = () => setSel((s) => { const n = new Set(s); if (allShownSel) shown.forEach((v) => n.delete(v.id)); else shown.forEach((v) => n.add(v.id)); return n; });
+
+  async function applyBulk() {
+    const ids = shown.filter((v) => sel.has(v.id)).map((v) => v.id);
+    if (!ids.length) { toast.info(tr('Sélectionnez au moins un site (ou filtrez par district).')); return; }
+    setSaving(true);
+    try { const r = await api.fieldSetNonrealizedReason(ids, reason); toast.success(tr('{n} raison(s) enregistrée(s).', { n: formatInt(r.updated) })); setSel(new Set()); setReason(''); onReload(); }
+    catch (e) { toast.error(e.message); } finally { setSaving(false); }
+  }
+  async function setOne(v, value) {
+    try { await api.fieldSetNonrealizedReason([v.id], value); onReload(); } catch (e) { toast.error(e.message); }
+  }
+
+  return (
+    <div className="card biz-card">
+      <div className="card-header">
+        <div className="card-title">{tr('Non-réalisations — {month}', { month: monthLabel(month) })}</div>
+        <div className="card-sub">{tr('Sites planifiés mais NON réalisés ce mois (ni visite déclarée, ni données reçues). Indiquez la raison, par site ou en groupe. Ces raisons apparaissent dans l\'info-bulle du site. Le RBM reproposera ces sites le mois suivant.')}</div>
+      </div>
+      {rows.length === 0 ? (
+        <div className="card-body"><p className="muted" style={{ textAlign: 'center', padding: 20 }}>{tr('Aucune visite planifiée non réalisée ce mois.')}</p></div>
+      ) : (
+        <>
+          {canEdit && (
+            <div className="card-body" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
+              <label className="field" style={{ minWidth: 180 }}><span className="field-label">{tr('District')}</span>
+                <select className="select" value={district} onChange={(e) => setDistrict(e.target.value)}>
+                  <option value="">{tr('Tous les districts')}</option>
+                  {districts.map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </label>
+              <label className="field" style={{ flex: 1, minWidth: 240 }}><span className="field-label">{tr('Raison à appliquer')}</span>
+                <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder={tr('Ex. Insécurité, route coupée, agent indisponible…')} maxLength={500} />
+              </label>
+              <Button icon={CheckCircle2} loading={saving} onClick={applyBulk}>{tr('Appliquer aux sélectionnés ({n})', { n: formatInt(shown.filter((v) => sel.has(v.id)).length) })}</Button>
+            </div>
+          )}
+          <div className="table-wrap"><table className="table">
+            <thead><tr>
+              {canEdit && <th className="num"><input type="checkbox" checked={allShownSel} onChange={toggleAllShown} aria-label={tr('Tout sélectionner')} /></th>}
+              <th>{tr('Site (établissement)')}</th><th>{tr('District / Commune')}</th><th>{tr('TPM')}</th><th>{tr('Raison de non-réalisation')}</th>
+            </tr></thead>
+            <tbody>
+              {shown.map((v) => (
+                <tr key={v.id}>
+                  {canEdit && <td className="num"><input type="checkbox" checked={sel.has(v.id)} onChange={() => toggle(v.id)} aria-label={v.siteName} /></td>}
+                  <td><strong>{v.siteName}</strong></td>
+                  <td>{v.district || '—'} › {v.commune || '—'}</td>
+                  <td>{v.providerName || <span className="muted">{tr('Interne')}</span>}</td>
+                  <td style={{ minWidth: 240 }}>
+                    {canEdit
+                      ? <input className="input" defaultValue={v.nonrealizedReason || ''} placeholder={tr('Raison…')} maxLength={500}
+                          onBlur={(e) => { const val = e.target.value.trim(); if (val !== (v.nonrealizedReason || '')) setOne(v, val); }} />
+                      : (v.nonrealizedReason || <span className="muted">—</span>)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+        </>
+      )}
     </div>
   );
 }

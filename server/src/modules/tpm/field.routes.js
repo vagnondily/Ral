@@ -446,6 +446,15 @@ router.patch('/visits/:id', WRITE, body(patchSchema), cleanProviderReason, async
   if (!(await repo.updateVisit(t(req), req.params.id, req.valid, uid(req)))) throw notFound('Visite introuvable');
   res.status(204).end();
 }));
+// Raison de non-réalisation (saisie groupée : une, plusieurs ou toutes les visites d'un district —
+// la sélection se fait côté application). reason vide/null efface. Jamais sur une visite réalisée.
+const nonrealizedSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(5000),
+  reason: z.string().trim().max(500).nullable().optional(),
+});
+router.put('/visits/nonrealized-reason', WRITE, body(nonrealizedSchema), asyncHandler(async (req, res) => {
+  res.json({ updated: await repo.setNonrealizedReason(t(req), req.valid) });
+}));
 router.delete('/visits/:id', WRITE, asyncHandler(async (req, res) => {
   if (!(await repo.deleteVisit(t(req), req.params.id))) throw notFound('Visite introuvable');
   res.status(204).end();
