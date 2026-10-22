@@ -1,6 +1,9 @@
 // Suivi de processus › Plan de suivi (sites proposés, grille des mois, registre,
 // déjà visités, carte, modification groupée, ajout de site, gabarit, import).
 export default {
+  'Les mois où un site n\'est pas marqué actif (« Oui ») sont grisés : non planifiables. Pour saisir des mois antérieurs (premier lancement, données collectées hors ligne), marquez-les d\'abord actifs dans « Sites (actifs/inactifs) » — export puis réimport du classeur Excel, ou bouton « Renseigner les cases vides ».':
+    'Months where a site is not marked active (“Yes”) are greyed out: not plannable. To enter earlier months (first launch, data collected offline), first mark them active under “Sites (active/inactive)” — export then re-import the Excel workbook, or the “Fill blank cells” button.',
+  'Ouvrir « Sites (actifs / inactifs) »': 'Open “Sites (active / inactive)”',
   'Visites exigées par le MMR de chaque site (bureau × activité), faites, prévues et restantes sur l\'exercice ; planifiez en cochant les mois.': 'Visits required by each site’s MMR (office × activity), done, planned and remaining over the fiscal year; plan by ticking the months.',
   'Exercice': 'Fiscal year',
   'Abandonner les modifications non enregistrées ?': 'Discard unsaved changes?',

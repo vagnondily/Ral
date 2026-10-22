@@ -12,6 +12,17 @@
 
 ## État courant
 
+> **22/10 — Plan de suivi : mois antérieurs « grisés » expliqués (premier lancement).** ✅ Sur le Plan
+> de suivi (espace RBM › Plan de suivi, `PlanBoardPage`), une case de mois est grisée quand le site n'est
+> pas marqué actif ce mois-là — règle commune « site actif au mois M » (une fois qu'une grille d'activation
+> existe, un mois vide = inactif = non planifiable ; sans aucune grille, tout est planifiable). Ce n'était
+> pas expliqué → un **bandeau d'aide** apparaît maintenant quand la grille existe : il dit pourquoi c'est
+> grisé et comment saisir des mois antérieurs (premier lancement, données hors ligne) — les marquer actifs
+> dans « Sites (actifs/inactifs) » (export/réimport Excel hors ligne, ou « Renseigner les cases vides »),
+> avec un lien direct vers l'onglet. **Aucun contournement de l'invariant** (les tableaux de bord s'appuient
+> dessus) : on oriente vers le chemin prévu, déjà outillé. Reproduit et vérifié (grille → 11/12 mois grisés
+> + bandeau + lien OK). lint, 1571 tests, build, balayage 46×FR/EN tous verts.
+
 > **22/10 — Lien d'activation à l'inscription (migration 122).** ✅ L'auto-inscription ne demande PLUS de
 > mot de passe : email + nom + organisation → compte en attente (mot de passe marqueur `!` inutilisable).
 > L'administrateur valide (rôle + écrans) puis **communique un lien d'activation** (bouton « Lien

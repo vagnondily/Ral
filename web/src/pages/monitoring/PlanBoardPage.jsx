@@ -225,6 +225,15 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
             </div>
           )}
 
+          {/* Premier lancement / saisie de mois antérieurs : un mois où le site n'est pas marqué actif
+              est grisé (non planifiable). On explique et on oriente vers l'onglet d'activation. */}
+          {view === 'plan' && canEdit && data.yearHasGrid && (
+            <Alert tone="info">
+              {tr('Les mois où un site n\'est pas marqué actif (« Oui ») sont grisés : non planifiables. Pour saisir des mois antérieurs (premier lancement, données collectées hors ligne), marquez-les d\'abord actifs dans « Sites (actifs/inactifs) » — export puis réimport du classeur Excel, ou bouton « Renseigner les cases vides ».')}{' '}
+              <button type="button" className="inline-link" onClick={() => { window.location.hash = '#/processus/rbm/sites'; }}>{tr('Ouvrir « Sites (actifs / inactifs) »')}</button>
+            </Alert>
+          )}
+
           {view === 'map' ? <PlanMap sites={filtered} /> : rows.length === 0 ? (
             <p className="pb-empty">{view === 'visited' ? tr('Aucun site visité sur l\'exercice dans ce périmètre.') : tr('Aucun site dans ce périmètre.')}</p>
           ) : (
