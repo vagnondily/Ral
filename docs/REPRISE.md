@@ -9,6 +9,15 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 - ce qui reste, et dans quel ordre ;
 - comment travailler à deux sans se marcher dessus.
 
+> **22/10 — session production `zealous` : lot ACCÈS publié sur `main`** (`de0fac9`, fast-forward).
+> Option admin « modifier à volonté » (contrats + factures validées, migration 118) ; **5 rôles** lecteur ·
+> éditeur · validateur · administrateur · super-utilisateur + modèle de capacités `common/accessRoles.js`
+> (migration 119, l'ancien `manager` → `validator`, éditeur écrit sans valider) ; **auto-inscription** (comptes
+> « à valider ») + **restrictions d'accès par écran** par personne (migration 121, `users.status`/`page_access`,
+> `common/pageCatalog.js`) ; étiquette du bureau parent selon son niveau ; section « Stack technique » du README.
+> Limite connue : les restrictions par écran sont une couche de VISIBILITÉ (menu + navigation) ; l'autorisation
+> des données reste portée par le rôle côté API. Contrôles verts (lint, 1571 tests, build, balayage 46×FR/EN).
+>
 > **21/10, 12:05 — état.** **Publié sur `main` à 08:48** (`ab3993d`, à la demande du propriétaire « pull dans main ce
 > qui est fait ») : lot 8 Partenaires & TPM, modèles d'indicateurs, planification automatique, retour 114 (suivi
 > interne, indisponibilités, rapports attendus), 26 points de la relecture croisée, lot « verrous » (ordre unique),

@@ -12,6 +12,15 @@
 
 ## État courant
 
+> **22/10 — PUBLIÉ SUR `main`** (`de0fac9`, fast-forward depuis `923a212`, sans réécriture) à la demande
+> du propriétaire (« vas y ») : lot ACCÈS complet — option admin « modifier à volonté » (contrats + factures
+> validées, migration 118), 5 rôles + capacités (migration 119, éditeur ≠ validateur), auto-inscription +
+> comptes à valider + restrictions par écran (migration 121), étiquette du bureau parent selon le niveau,
+> section « Stack technique » du README. Contrôles verts : lint, **1571 tests**, build, balayage **46 écrans
+> × FR/EN (0 erreur, 0 traduction manquante)**, migrations 118/119/121 sur base neuve + copie, smokes base
+> réelle. Suites possibles (à cadrer) : lien d'activation à l'inscription, enforcement des accès par écran
+> au niveau API, édition des plans de mois échus, multi-pays.
+
 > **21/10 — « Modifier à volonté » étendu aux factures validées.** ✅ L'option de compte ne s'arrête plus
 > au budget d'un contrat actif : un administrateur (option activée) peut corriger une **facture (rapport
 > financier) même soumise ou validée** — `reportActions` expose `edit`, la garde `replaceReportItems`
