@@ -226,6 +226,15 @@ export default {
   'Données (sites)': 'Data (sites)',
   'Sites ayant reçu des données (soumissions) ce mois — indépendant des visites déclarées':
     'Sites that received data (submissions) this month — independent of declared visits',
+  'sites suivis': 'sites monitored',
+  'Suivi (visites + données)': 'Monitoring (visits + data)',
+  'Sites suivis = visite déclarée réalisée OU données reçues ce mois (donnée reçue = réalisée)':
+    'Sites monitored = declared visit done OR data received this month (data received = done)',
+  'Sites suivis ÷ sites concernés, données reçues comptées comme réalisées':
+    'Sites monitored ÷ sites concerned, data received counted as done',
+  'Visites déclarées seules': 'Declared visits only',
+  'Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. « Réalisées » et « Suivi (visites + données) » comptent une donnée reçue comme une visite réalisée (sites suivis ÷ sites concernés). Le taux des visites déclarées seules est indiqué à côté.':
+    'Click a month (or “Open / Plan”) to open its visit plan. “Done” and “Monitoring (visits + data)” count a received submission as a completed visit (sites monitored ÷ sites concerned). The declared-visits-only rate is shown alongside.',
   '{name} (pays — tous les sites)': '{name} (country — all sites)',
   'Toutes les régions': 'All regions',
   'Tous les districts': 'All districts',

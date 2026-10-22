@@ -656,25 +656,47 @@ async function monthsOverview(tenantId, { year } = {}) {
     const statusByMonth = new Map(statuses.map((r) => [r.month, r.status]));
     // Sites AVEC DONNÉES par mois (soumissions importées) — même règle de rattachement que `dataVisitMonth`
     // (site direct, sinon commune par pcode ; fiche d'activité compatible) ; distinct des visites DÉCLARÉES.
+    // Faits par (mois, site) combinant visites DÉCLARÉES et DONNÉES reçues (retour : « donnée = réalisée ») :
+    //  - realiseEff = sites SUIVIS = visite réalisée OU données reçues ce mois ;
+    //  - baseEff    = sites concernés = planifiés/réalisés OU avec données ;
+    //  - dataSites  = sites avec données (sous-ensemble, pour la transparence).
+    // Données rattachées comme `dataVisitMonth` (site direct, sinon commune par pcode ; fiche compatible).
     const compat = formSiteCompatibleSql('mf.activity_category', 'lower(btrim(s.activity))');
-    const { rows: dataRows } = await client.query(
-      `SELECT m AS month, count(DISTINCT sid)::int AS "dataSites" FROM (
-         SELECT to_char(ms.period_month, 'YYYY-MM') AS m, s.id AS sid
-           FROM monitoring_submissions ms
-           JOIN monitoring_forms mf ON mf.id = ms.form_id AND mf.tenant_id = ms.tenant_id
-           JOIN sites s ON s.id = ms.site_id AND s.tenant_id = ms.tenant_id
-          WHERE ms.tenant_id = $1 AND NOT ms.excluded AND date_part('year', ms.period_month) = $2 AND ${compat}
-         UNION
-         SELECT to_char(ms.period_month, 'YYYY-MM') AS m, s.id AS sid
-           FROM monitoring_submissions ms
-           JOIN monitoring_forms mf ON mf.id = ms.form_id AND mf.tenant_id = ms.tenant_id
-           JOIN sites s ON s.tenant_id = ms.tenant_id AND s.adm3_pcode = ms.adm3_pcode
-          WHERE ms.tenant_id = $1 AND NOT ms.excluded AND ms.site_id IS NULL AND ms.adm3_pcode IS NOT NULL
-            AND date_part('year', ms.period_month) = $2 AND ${compat}
-       ) q GROUP BY 1`,
+    const { rows: effRows } = await client.query(
+      `WITH v AS (
+         SELECT to_char(period_month, 'YYYY-MM') AS m, site_id AS sid,
+                bool_or(status = 'realise') AS realised,
+                bool_or(status IN ('planifie', 'realise')) AS por
+           FROM site_visits WHERE tenant_id = $1 AND date_part('year', period_month) = $2 GROUP BY 1, 2),
+       d AS (
+         SELECT m, sid FROM (
+           SELECT to_char(ms.period_month, 'YYYY-MM') AS m, s.id AS sid
+             FROM monitoring_submissions ms
+             JOIN monitoring_forms mf ON mf.id = ms.form_id AND mf.tenant_id = ms.tenant_id
+             JOIN sites s ON s.id = ms.site_id AND s.tenant_id = ms.tenant_id
+            WHERE ms.tenant_id = $1 AND NOT ms.excluded AND date_part('year', ms.period_month) = $2 AND ${compat}
+           UNION
+           SELECT to_char(ms.period_month, 'YYYY-MM') AS m, s.id AS sid
+             FROM monitoring_submissions ms
+             JOIN monitoring_forms mf ON mf.id = ms.form_id AND mf.tenant_id = ms.tenant_id
+             JOIN sites s ON s.tenant_id = ms.tenant_id AND s.adm3_pcode = ms.adm3_pcode
+            WHERE ms.tenant_id = $1 AND NOT ms.excluded AND ms.site_id IS NULL AND ms.adm3_pcode IS NOT NULL
+              AND date_part('year', ms.period_month) = $2 AND ${compat}
+         ) q GROUP BY m, sid),
+       allm AS (
+         SELECT m, sid, realised, por, false AS hasdata FROM v
+         UNION ALL SELECT m, sid, false, false, true FROM d),
+       agg AS (
+         SELECT m, sid, bool_or(realised) AS realised, bool_or(por) AS por, bool_or(hasdata) AS hasdata
+           FROM allm GROUP BY m, sid)
+       SELECT m AS month,
+              count(*) FILTER (WHERE realised OR hasdata)::int AS "realiseEff",
+              count(*) FILTER (WHERE por OR hasdata)::int AS "baseEff",
+              count(*) FILTER (WHERE hasdata)::int AS "dataSites"
+         FROM agg GROUP BY 1`,
       [tenantId, y]
     );
-    const dataByMonth = new Map(dataRows.map((r) => [r.month, r.dataSites]));
+    const effByMonth = new Map(effRows.map((r) => [r.month, r]));
     const byMonth = new Map(rows.map((r) => [r.month, r]));
     const out = [];
     for (let m = 1; m <= 12; m += 1) {
@@ -682,8 +704,12 @@ async function monthsOverview(tenantId, { year } = {}) {
       const r = byMonth.get(key) || { month: key, total: 0, planifie: 0, realise: 0, annule: 0, sites: 0, providers: 0 };
       const done = r.realise;
       const base = r.planifie + r.realise; // annulées exclues du taux
-      r.coverage = base > 0 ? done / base : 0;
-      r.dataSites = dataByMonth.get(key) || 0; // sites alimentés par données ce mois (distinct des visites déclarées)
+      r.coverage = base > 0 ? done / base : 0; // « Exécution des visites (déclarées) » : visites déclarées seules
+      const eff = effByMonth.get(key) || { realiseEff: 0, baseEff: 0, dataSites: 0 };
+      r.realiseEff = eff.realiseEff; // sites suivis = visite réalisée OU données reçues
+      r.baseEff = eff.baseEff;       // sites concernés = planifiés/réalisés OU avec données
+      r.dataSites = eff.dataSites;   // sous-ensemble : sites avec données
+      r.effCoverage = eff.baseEff > 0 ? eff.realiseEff / eff.baseEff : 0; // « Suivi (visites + données) »
       // Statut explicite si saisi ; sinon « draft » dès qu'il y a des visites, « vide » sinon.
       r.status = statusByMonth.get(key) || (r.total > 0 ? 'draft' : 'vide');
       out.push(r);

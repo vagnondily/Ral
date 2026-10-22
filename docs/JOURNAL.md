@@ -12,6 +12,15 @@
 
 ## État courant
 
+> **22/10 — « Donnée reçue = visite réalisée » sur l'écran Affectation & visites (demande explicite).** ✅
+> Le propriétaire veut que les données importées comptent comme visites réalisées. Le tableau des mois
+> compte désormais, par mois : `realiseEff` = sites SUIVIS (visite déclarée réalisée OU données reçues),
+> `baseEff` = sites concernés (planifiés/réalisés OU avec données). Colonne « Réalisées » = sites suivis
+> (donnée = réalisée) ; nouvelle colonne/taux « Suivi (visites + données) » = realiseEff ÷ baseEff ; le
+> taux des visites déclarées seules reste affiché à côté sous son nom protégé « Exécution des visites
+> (déclarées) » (règle « une seule définition de la couverture », test webCoverageDefs respecté). Requête
+> CTE vérifiée (EXPLAIN sur base migrée), build vert, 1574 tests, traductions EN.
+
 > **22/10 — Lot « fait tout » : filtre Bureau, colonne Données (sites), option Interne du mapping.** ✅
 > Trois demandes du propriétaire traitées : (1) **Filtre Bureau** sur Affectation & visites — chaque visite
 > porte le bureau RACINE de son site (`rootOfficeOf`), filtre affiché par défaut. (2) **Colonne « Données

@@ -386,8 +386,9 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
   const all = data?.months || [];
   const months = statusFilter ? all.filter((m) => m.status === statusFilter) : all;
   const pctClass = (c) => (c >= 0.8 ? 'green' : c >= 0.5 ? 'orange' : 'red');
-  const tot = all.reduce((a, m) => ({ planifie: a.planifie + m.planifie, realise: a.realise + m.realise, annule: a.annule + m.annule, sites: a.sites + m.sites }), { planifie: 0, realise: 0, annule: 0, sites: 0 });
-  const totCov = tot.planifie + tot.realise > 0 ? tot.realise / (tot.planifie + tot.realise) : 0;
+  const tot = all.reduce((a, m) => ({ planifie: a.planifie + m.planifie, realise: a.realise + m.realise, annule: a.annule + m.annule, sites: a.sites + m.sites, realiseEff: a.realiseEff + (m.realiseEff || 0), baseEff: a.baseEff + (m.baseEff || 0) }), { planifie: 0, realise: 0, annule: 0, sites: 0, realiseEff: 0, baseEff: 0 });
+  // Taux affiché en tête = suivi effectif (visites déclarées + données reçues), comme les lignes.
+  const totCov = tot.baseEff > 0 ? tot.realiseEff / tot.baseEff : 0;
   const activeMonths = all.filter((m) => m.total > 0).length;
   return (
     <div className="card biz-card months-card">
@@ -397,8 +398,8 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
         <button type="button" className="btn btn-ghost btn-icon" onClick={() => setYear(year + 1)} aria-label={tr('Année suivante')}><ChevronRight size={18} /></button>
         <div className="months-head-sum">
           <span><strong className="tabular">{formatInt(activeMonths)}</strong> {tr('mois actifs')}</span>
-          <span><strong className="tabular">{formatInt(tot.realise)}</strong>/{formatInt(tot.planifie + tot.realise)} {tr('visites')}</span>
-          <span className="months-head-cov"><span className="mini-bar"><span style={{ width: `${Math.round(totCov * 100)}%`, background: `var(--${pctClass(totCov)})` }} /></span><strong className="tabular">{tot.planifie + tot.realise > 0 ? formatRate(totCov, lang) : '—'}</strong></span>
+          <span><strong className="tabular">{formatInt(tot.realiseEff)}</strong>/{formatInt(tot.baseEff)} {tr('sites suivis')}</span>
+          <span className="months-head-cov"><span className="mini-bar"><span style={{ width: `${Math.round(totCov * 100)}%`, background: `var(--${pctClass(totCov)})` }} /></span><strong className="tabular">{tot.baseEff > 0 ? formatRate(totCov, lang) : '—'}</strong></span>
           <label className="months-filter"><Filter size={15} aria-hidden="true" />
             <select className="select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label={tr('Filtrer par situation')}>
               <option value="">{tr('Toutes situations')}</option>
@@ -411,15 +412,15 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
         <div className="table-wrap"><table className="table grid months-grid">
           <thead><tr>
             <th>{tr('Mois')}</th><th>{tr('Situation')}</th><th className="num">{tr('Sites')}</th><th className="num">{tr('Planifiées')}</th>
-            <th className="num">{tr('Réalisées')}</th><th className="num">{tr('Annulées')}</th><th className="num">{tr('TPM')}</th>
+            <th className="num" title={tr('Sites suivis = visite déclarée réalisée OU données reçues ce mois (donnée reçue = réalisée)')}>{tr('Réalisées')}</th>
+            <th className="num">{tr('Annulées')}</th><th className="num">{tr('TPM')}</th>
             <th className="num" title={tr('Sites ayant reçu des données (soumissions) ce mois — indépendant des visites déclarées')}>{tr('Données (sites)')}</th>
-            <th>{tr('Exécution des visites (déclarées)')}</th><th aria-label={tr('Action')} />
+            <th title={tr('Sites suivis ÷ sites concernés, données reçues comptées comme réalisées')}>{tr('Suivi (visites + données)')}</th><th aria-label={tr('Action')} />
           </tr></thead>
           <tbody>
             {months.map((m) => {
               const isCur = m.month === current;
               const empty = m.total === 0;
-              const cov = Math.round(m.coverage * 100);
               return (
                 <tr key={m.month} className={`clickable month-row ${isCur ? 'is-selected' : ''} ${empty ? 'is-empty' : ''}`} onClick={() => onOpen(m.month)}
                   onKeyDown={(e) => { if (e.key === 'Enter') onOpen(m.month); }} tabIndex={0} aria-label={tr('Ouvrir {month}', { month: monthLabel(m.month) })}>
@@ -427,15 +428,16 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
                   <td><PlanBadge status={m.status} /></td>
                   <td className="num tabular">{empty ? <span className="cell-empty">—</span> : formatInt(m.sites)}</td>
                   <td className="num tabular">{empty ? <span className="cell-empty">—</span> : formatInt(m.planifie)}</td>
-                  <td className="num tabular">{empty ? <span className="cell-empty">—</span> : <strong>{formatInt(m.realise)}</strong>}</td>
+                  <td className="num tabular">{m.realiseEff ? <strong style={{ color: 'var(--green-text)' }}>{formatInt(m.realiseEff)}</strong> : (empty ? <span className="cell-empty">—</span> : '0')}</td>
                   <td className="num tabular">{empty ? <span className="cell-empty">—</span> : (m.annule ? <span style={{ color: 'var(--text-muted)' }}>{formatInt(m.annule)}</span> : '0')}</td>
                   <td className="num tabular">{empty ? <span className="cell-empty">—</span> : formatInt(m.providers)}</td>
                   <td className="num tabular">{m.dataSites ? <span style={{ color: 'var(--green-text)', fontWeight: 600 }}>{formatInt(m.dataSites)}</span> : <span className="cell-empty">—</span>}</td>
                   <td>
-                    {m.planifie + m.realise === 0 ? <span className="cell-empty">—</span> : (
+                    {(m.baseEff || 0) === 0 ? <span className="cell-empty">—</span> : (
                       <span className="month-cov">
-                        <span className="mini-bar"><span style={{ width: `${cov}%`, background: `var(--${pctClass(m.coverage)})` }} /></span>
-                        <span className="tabular" style={{ color: `var(--${pctClass(m.coverage)}-text)`, fontWeight: 650 }}>{formatRate(m.coverage, lang)}</span>
+                        <span className="mini-bar"><span style={{ width: `${Math.round(m.effCoverage * 100)}%`, background: `var(--${pctClass(m.effCoverage)})` }} /></span>
+                        <span className="tabular" style={{ color: `var(--${pctClass(m.effCoverage)}-text)`, fontWeight: 650 }}>{formatRate(m.effCoverage, lang)}</span>
+                        {m.planifie + m.realise > 0 && <span className="muted" style={{ marginLeft: 8, fontSize: 12 }} title={tr('Visites déclarées seules')}>{tr('Exécution des visites (déclarées)')} {formatRate(m.coverage, lang)}</span>}
                       </span>
                     )}
                   </td>
@@ -451,7 +453,7 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
           </tbody>
         </table></div>
       )}
-      <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>{tr('Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. Exécution des visites (déclarées) = réalisées ÷ (planifiées + réalisées), annulées exclues ; les données reçues n\'y comptent pas (« Exécution du plan » des tableaux de bord).')}</span></div>
+      <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>{tr('Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. « Réalisées » et « Suivi (visites + données) » comptent une donnée reçue comme une visite réalisée (sites suivis ÷ sites concernés). Le taux des visites déclarées seules est indiqué à côté.')}</span></div>
     </div>
   );
 }
