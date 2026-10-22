@@ -148,6 +148,16 @@ export default function FieldVisitsPage({ canEdit }) {
   const monthEnd = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).toISOString().slice(0, 10);
 
   const communeCount = useMemo(() => new Set((visits || []).map((v) => `${v.district} › ${v.commune}`)).size, [visits]);
+  // Bureaux présents dans les visites du mois (bureau RACINE du site, antennes regroupées), pour le filtre.
+  const officeOptions = useMemo(() => {
+    const byId = new Map(); let hasNone = false;
+    for (const v of visits || []) {
+      if (v.officeId) byId.set(v.officeId, v.officeName || v.officeId);
+      else hasNone = true;
+    }
+    const opts = [...byId.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => String(a.label).localeCompare(String(b.label), 'fr'));
+    return { opts, hasNone };
+  }, [visits]);
   const ov = summary?.overall;
   // Suivi interne (retour 114) : visites que l'équipe S&E fait elle-même — une affectation, pas un manque.
   // Ligne « Interne » du résumé serveur, annulées exclues : la même que la carte « par TPM » et Rapports attendus.
@@ -208,10 +218,14 @@ export default function FieldVisitsPage({ canEdit }) {
         if (val === 'plusieurs') return src === 'zone' && v.providerZoneState === 'a_arbitrer';
         return true;
       } },
+    office: { label: tr('Bureau'), type: 'select',
+      options: [{ id: '', label: tr('Tous les bureaux') }, ...officeOptions.opts,
+        ...(officeOptions.hasNone ? [{ id: '__none__', label: tr('— Sans bureau —') }] : [])],
+      match: (v, val) => (val === '__none__' ? !v.officeId : v.officeId === val) },
     status: { label: tr('Statut'), type: 'select',
       options: [{ id: '', label: tr('Tous les statuts') }, ...Object.entries(STATUS).map(([k, s]) => ({ id: k, label: tr(s.label) }))],
       match: (v, val) => v.status === val },
-  }), [providers, tr]);
+  }), [providers, officeOptions, tr]);
 
   const openMonth = (mm) => { setMonth(mm); setPicking(false); setView('plan'); };
   const setMonthStatus = async (status) => {
@@ -315,7 +329,7 @@ export default function FieldVisitsPage({ canEdit }) {
       {view === 'plan' && (
         <DataList
           rows={visits} columns={columns} defaultColumns={['site', 'zone', 'activity', 'provider', 'role', 'visitDate', 'dataVisit', 'status', ...(canEdit ? ['action'] : [])]}
-          filters={filters} defaultFilters={['q', 'provider', 'tpmOrigin', 'status']}
+          filters={filters} defaultFilters={['q', 'office', 'provider', 'tpmOrigin', 'status']}
           storageKey="mems.fieldvisits.view.v3" pageSize={15} defaultSort={{ key: 'zone', dir: 'asc' }}
           csvName={`visites_${month}.csv`} emptyIcon={MapPin} emptyTitle={tr('Aucune visite ce mois-ci')}
           emptyChildren={tr('Importez le planning (.xlsx) ou ajoutez une visite. La planification automatique (RBM, capacités) se fait dans l\'espace RBM.')}

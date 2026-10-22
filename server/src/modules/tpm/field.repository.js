@@ -4,6 +4,7 @@ const { sitePatchSql } = require('./sitePatch');
 const { chunkRows } = require('../../db/batch');
 const { lockVisitMonthsTx, lockSitesKeyShareTx, yearMonths } = require('./visitLocks');
 const { isActiveMonth, activeMonthSql } = require('../common/siteActivity');
+const { rootOfficeOf } = require('../common/officeScope');
 const { UNIT_LABELS, shapeRangeSummary, shapeCoverageFacts, collectionDays, buildCoverageMatrix } = require('./fieldMath');
 const { isDue, frequencyFor, visitState, currentMonth, toMonth, needsPlanning, planningCounts } = require('./rbmMath');
 const { scoreSite, normalizeSecurity } = require('./rbmScore');
@@ -519,7 +520,7 @@ const VISIT_COLS = `
   v.activity, to_char(v.period_month, 'YYYY-MM') AS "periodMonth",
   v.provider_id AS "providerId", p.name AS "providerName",
   v.provider_source AS "providerSource", v.provider_zone_state AS "providerZoneState", v.provider_reason AS "providerReason",
-  v.monitored_by AS "monitoredBy",
+  v.monitored_by AS "monitoredBy", s.field_office_id AS "fieldOfficeId",
   COALESCE(c.numero_fla, c.numero) AS "contractLabel", s.zone_district_id AS "zoneDistrictId",
   v.agent, v.status, v.visit_date AS "visitDate"`;
 
@@ -613,6 +614,14 @@ async function listVisits(tenantId, opts = {}) {
       for (const d of data) if (d.last) last.set(d.id, String(d.last).slice(0, 7));
     }
     for (const r of rows) r.dataVisitMonth = last.get(r.siteId) || null;
+    // Bureau de chaque visite = bureau RACINE du site (bureau + antennes regroupés), pour le filtre Bureau.
+    const { rows: offices } = await client.query(
+      'SELECT id, name, parent_id AS "parentId", national FROM field_offices WHERE tenant_id = $1', [tenantId]);
+    for (const r of rows) {
+      const root = r.fieldOfficeId ? rootOfficeOf(offices, r.fieldOfficeId) : null;
+      r.officeId = root ? root.id : null;
+      r.officeName = root ? root.name : null;
+    }
     return { items: rows, total, limit, offset };
   });
 }

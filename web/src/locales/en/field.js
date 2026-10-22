@@ -222,6 +222,7 @@ export default {
   // Filtres
   'Bureau': 'Office',
   'Tous les bureaux': 'All offices',
+  '— Sans bureau —': '— No office —',
   '{name} (pays — tous les sites)': '{name} (country — all sites)',
   'Toutes les régions': 'All regions',
   'Tous les districts': 'All districts',
