@@ -12,6 +12,13 @@
 
 ## État courant
 
+> **22/10 — Tableau des mois : « Planifiées 0 » et « Réalisées » toujours chiffrés même sans plan.** ✅
+> Demande : un mois SANS plan mais AVEC données doit afficher Planifiées 0 et Réalisées au bon nombre
+> (plus de « — »). Un mois n'affiche « — » que s'il est VRAIMENT vide (ni plan ni données). Sinon tous les
+> chiffres sont affichés (Sites = sites concernés = baseEff, Planifiées = plan ou 0, Réalisées = suivis
+> incl. données, TPM, Données). « mois actifs » et le bouton « Ouvrir » comptent aussi les mois à données
+> seules. Build vert, tests de traduction OK.
+
 > **22/10 — « Donnée = réalisée » AUSSI dans la grille par site (colonne Statut).** ✅ Suite de la demande :
 > dans le plan du mois, un site dont la dernière collecte de données tombe sur le mois ouvert s'affiche
 > « Réalisée (données) » (badge vert ; éditeur : petit marqueur « données » à côté du sélecteur de statut),

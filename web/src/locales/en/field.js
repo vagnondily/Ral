@@ -233,6 +233,7 @@ export default {
   'Sites suivis ÷ sites concernés, données reçues comptées comme réalisées':
     'Sites monitored ÷ sites concerned, data received counted as done',
   'Visites déclarées seules': 'Declared visits only',
+  'Sites concernés ce mois : plan de visites OU données reçues': 'Sites concerned this month: visit plan OR data received',
   'Réalisée (données)': 'Done (data)',
   'données': 'data',
   'Données reçues ce mois — comptée comme réalisée': 'Data received this month — counted as done',

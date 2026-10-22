@@ -406,7 +406,7 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
   const tot = all.reduce((a, m) => ({ planifie: a.planifie + m.planifie, realise: a.realise + m.realise, annule: a.annule + m.annule, sites: a.sites + m.sites, realiseEff: a.realiseEff + (m.realiseEff || 0), baseEff: a.baseEff + (m.baseEff || 0) }), { planifie: 0, realise: 0, annule: 0, sites: 0, realiseEff: 0, baseEff: 0 });
   // Taux affiché en tête = suivi effectif (visites déclarées + données reçues), comme les lignes.
   const totCov = tot.baseEff > 0 ? tot.realiseEff / tot.baseEff : 0;
-  const activeMonths = all.filter((m) => m.total > 0).length;
+  const activeMonths = all.filter((m) => m.total > 0 || (m.baseEff || 0) > 0).length; // plan OU données
   return (
     <div className="card biz-card months-card">
       <div className="months-head">
@@ -428,7 +428,8 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
       {data === null ? <div className="card-body"><Skeleton height={340} /></div> : (
         <div className="table-wrap"><table className="table grid months-grid">
           <thead><tr>
-            <th>{tr('Mois')}</th><th>{tr('Situation')}</th><th className="num">{tr('Sites')}</th><th className="num">{tr('Planifiées')}</th>
+            <th>{tr('Mois')}</th><th>{tr('Situation')}</th>
+            <th className="num" title={tr('Sites concernés ce mois : plan de visites OU données reçues')}>{tr('Sites')}</th><th className="num">{tr('Planifiées')}</th>
             <th className="num" title={tr('Sites suivis = visite déclarée réalisée OU données reçues ce mois (donnée reçue = réalisée)')}>{tr('Réalisées')}</th>
             <th className="num">{tr('Annulées')}</th><th className="num">{tr('TPM')}</th>
             <th className="num" title={tr('Sites ayant reçu des données (soumissions) ce mois — indépendant des visites déclarées')}>{tr('Données (sites)')}</th>
@@ -437,18 +438,19 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
           <tbody>
             {months.map((m) => {
               const isCur = m.month === current;
-              const empty = m.total === 0;
+              // « blanc » = ni plan ni données ce mois ; sinon on affiche toujours des nombres (plan 0, réalisées = données).
+              const blank = m.total === 0 && (m.baseEff || 0) === 0;
               return (
-                <tr key={m.month} className={`clickable month-row ${isCur ? 'is-selected' : ''} ${empty ? 'is-empty' : ''}`} onClick={() => onOpen(m.month)}
+                <tr key={m.month} className={`clickable month-row ${isCur ? 'is-selected' : ''} ${blank ? 'is-empty' : ''}`} onClick={() => onOpen(m.month)}
                   onKeyDown={(e) => { if (e.key === 'Enter') onOpen(m.month); }} tabIndex={0} aria-label={tr('Ouvrir {month}', { month: monthLabel(m.month) })}>
                   <td><span className="month-name">{monthLabel(m.month)}</span>{isCur && <span className="tag-inline">{tr('en cours')}</span>}</td>
                   <td><PlanBadge status={m.status} /></td>
-                  <td className="num tabular">{empty ? <span className="cell-empty">—</span> : formatInt(m.sites)}</td>
-                  <td className="num tabular">{empty ? <span className="cell-empty">—</span> : formatInt(m.planifie)}</td>
-                  <td className="num tabular">{m.realiseEff ? <strong style={{ color: 'var(--green-text)' }}>{formatInt(m.realiseEff)}</strong> : (empty ? <span className="cell-empty">—</span> : '0')}</td>
-                  <td className="num tabular">{empty ? <span className="cell-empty">—</span> : (m.annule ? <span style={{ color: 'var(--text-muted)' }}>{formatInt(m.annule)}</span> : '0')}</td>
-                  <td className="num tabular">{empty ? <span className="cell-empty">—</span> : formatInt(m.providers)}</td>
-                  <td className="num tabular">{m.dataSites ? <span style={{ color: 'var(--green-text)', fontWeight: 600 }}>{formatInt(m.dataSites)}</span> : <span className="cell-empty">—</span>}</td>
+                  <td className="num tabular">{blank ? <span className="cell-empty">—</span> : formatInt(m.baseEff)}</td>
+                  <td className="num tabular">{blank ? <span className="cell-empty">—</span> : formatInt(m.planifie)}</td>
+                  <td className="num tabular">{blank ? <span className="cell-empty">—</span> : (m.realiseEff ? <strong style={{ color: 'var(--green-text)' }}>{formatInt(m.realiseEff)}</strong> : '0')}</td>
+                  <td className="num tabular">{blank ? <span className="cell-empty">—</span> : (m.annule ? <span style={{ color: 'var(--text-muted)' }}>{formatInt(m.annule)}</span> : '0')}</td>
+                  <td className="num tabular">{blank ? <span className="cell-empty">—</span> : formatInt(m.providers)}</td>
+                  <td className="num tabular">{m.dataSites ? <span style={{ color: 'var(--green-text)', fontWeight: 600 }}>{formatInt(m.dataSites)}</span> : (blank ? <span className="cell-empty">—</span> : '0')}</td>
                   <td>
                     {(m.baseEff || 0) === 0 ? <span className="cell-empty">—</span> : (
                       <span className="month-cov">
@@ -459,8 +461,8 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
                     )}
                   </td>
                   <td className="num">
-                    <button type="button" className={`btn btn-sm ${empty ? 'btn-ghost' : 'btn-secondary'} month-open`} onClick={(e) => { e.stopPropagation(); onOpen(m.month); }}>
-                      {empty ? tr('Planifier') : tr('Ouvrir')}<GoIcon size={15} aria-hidden="true" />
+                    <button type="button" className={`btn btn-sm ${blank ? 'btn-ghost' : 'btn-secondary'} month-open`} onClick={(e) => { e.stopPropagation(); onOpen(m.month); }}>
+                      {blank ? tr('Planifier') : tr('Ouvrir')}<GoIcon size={15} aria-hidden="true" />
                     </button>
                   </td>
                 </tr>
