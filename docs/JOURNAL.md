@@ -12,6 +12,14 @@
 
 ## État courant
 
+> **22/10 — CORRECTIF (suite) : « Sites suivis » restait à 0 — le mauvais fichier avait été corrigé.** ✅
+> Le propriétaire a re-signalé « Sites suivis = 0 » (713 sites alimentés) : le correctif du 22/10 avait été
+> appliqué à `server/src/modules/tpm/planBoard.js`, mais le Plan de suivi (web) utilise un JUMEAU,
+> `web/src/lib/planBoard.js`, dont `boardKpis.followed` comptait encore `done>0` seulement (commentaire
+> « identique au serveur » pourtant). Corrigé : `followed = done>0 OU dataCount>0` dans le jumeau web.
+> Désormais « Sites suivis » ≈ « Sites alimentés » + visites déclarées. Build vert. (La Synthèse comptait
+> déjà bien — d'où l'incohérence visible entre les deux écrans.)
+
 > **22/10 — CORRECTIF : les montants avaient perdu le suffixe « Ar ».** ✅ Régression introduite par
 > l'étape 1 multi-pays : `App.jsx` appelait `setFormatCurrency(currency == null ? 'MGA' : currency)` ;
 > or `getCountry` renvoie `currency: ''` (devise non renseignée, cas normal des installations

@@ -46,7 +46,9 @@ export function boardKpis(sites) {
     active: sites.filter(live).length,
     planned: sites.filter((s) => s.planned > 0).length,
     toVisit: sites.filter((s) => s.remaining > 0 && live(s)).length,
-    followed: sites.filter((s) => s.done > 0).length,
+    // « Sites suivis » = suivi EFFECTIF : visite déclarée réalisée OU données reçues rattachées au site
+    // (retour 48). Doit rester identique au serveur (tpm/planBoard.boardKpis).
+    followed: sites.filter((s) => s.done > 0 || (s.dataCount || 0) > 0).length,
     fed: sites.filter((s) => (s.dataCount || 0) > 0).length,
     remainingVisits: sum('remaining'),
     notYetPlanned: sum('toPlan'),
