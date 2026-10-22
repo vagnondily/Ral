@@ -12,6 +12,12 @@
 
 ## État courant
 
+> **22/10 — « Donnée = réalisée » AUSSI dans la grille par site (colonne Statut).** ✅ Suite de la demande :
+> dans le plan du mois, un site dont la dernière collecte de données tombe sur le mois ouvert s'affiche
+> « Réalisée (données) » (badge vert ; éditeur : petit marqueur « données » à côté du sélecteur de statut),
+> même sans visite déclarée. Le statut en base n'est pas modifié (audit préservé) ; une visite annulée
+> n'est jamais recouverte. Build vert, tests de traduction OK.
+
 > **22/10 — « Donnée reçue = visite réalisée » sur l'écran Affectation & visites (demande explicite).** ✅
 > Le propriétaire veut que les données importées comptent comme visites réalisées. Le tableau des mois
 > compte désormais, par mois : `realiseEff` = sites SUIVIS (visite déclarée réalisée OU données reçues),

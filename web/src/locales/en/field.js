@@ -233,6 +233,9 @@ export default {
   'Sites suivis ÷ sites concernés, données reçues comptées comme réalisées':
     'Sites monitored ÷ sites concerned, data received counted as done',
   'Visites déclarées seules': 'Declared visits only',
+  'Réalisée (données)': 'Done (data)',
+  'données': 'data',
+  'Données reçues ce mois — comptée comme réalisée': 'Data received this month — counted as done',
   'Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. « Réalisées » et « Suivi (visites + données) » comptent une donnée reçue comme une visite réalisée (sites suivis ÷ sites concernés). Le taux des visites déclarées seules est indiqué à côté.':
     'Click a month (or “Open / Plan”) to open its visit plan. “Done” and “Monitoring (visits + data)” count a received submission as a completed visit (sites monitored ÷ sites concerned). The declared-visits-only rate is shown alongside.',
   '{name} (pays — tous les sites)': '{name} (country — all sites)',

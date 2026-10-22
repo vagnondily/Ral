@@ -165,6 +165,8 @@ export default function FieldVisitsPage({ canEdit }) {
 
   // Colonnes & filtres de la grille de planification (liste façon COMET).
   const columns = useMemo(() => {
+    // Site suivi par les données CE mois (dernière collecte = mois ouvert), hors visite annulée.
+    const dataDone = (v) => v.dataVisitMonth === month && v.status !== 'annule';
     const c = {
       site: { label: tr('Site (établissement)'), sortVal: (v) => v.siteName, csv: (v) => v.siteName,
         render: (v) => <><strong>{v.siteName}</strong>{v.fokontany && <div className="site-meta">{v.fokontany}</div>}</> },
@@ -192,14 +194,29 @@ export default function FieldVisitsPage({ canEdit }) {
         render: (v) => (v.dataVisitMonth
           ? <span className="tabular">{v.dataVisitMonth}</span>
           : <span className="muted" title={tr('Aucune donnée réelle rattachée à la commune de ce site (pcode).')}>—</span>) },
-      status: { label: tr('Statut'), sortVal: (v) => v.status, csv: (v) => (STATUS[v.status] ? tr(STATUS[v.status].label) : v.status),
-        render: (v) => (canEdit
-          ? <div className="seg" role="group" aria-label={tr('Statut')}>{Object.entries(STATUS).map(([k, s]) => <button type="button" key={k} className={v.status === k ? 'is-active' : ''} onClick={() => patch(v, { status: k })} title={tr(s.label)}>{tr(s.label)}</button>)}</div>
-          : (() => { const S = STATUS[v.status]; const I = S?.Icon; return <span className="badge">{I && <I size={13} aria-hidden="true" className="badge-ic" style={{ color: S.color }} />}{S && tr(S.label)}</span>; })()) },
+      // « Donnée reçue = réalisée » (demande du propriétaire) : un site qui a reçu des données CE mois
+      // est compté réalisé même sans visite déclarée. Le statut déclaré en base n'est pas modifié (audit) ;
+      // on l'affiche seulement comme « Réalisée (données) ». Une visite annulée n'est jamais recouverte.
+      status: { label: tr('Statut'),
+        sortVal: (v) => (v.status === 'realise' || dataDone(v) ? 'realise' : v.status),
+        csv: (v) => (dataDone(v) && v.status !== 'realise' ? tr('Réalisée (données)') : (STATUS[v.status] ? tr(STATUS[v.status].label) : v.status)),
+        render: (v) => {
+          const byData = dataDone(v) && v.status !== 'realise';
+          if (canEdit) {
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div className="seg" role="group" aria-label={tr('Statut')}>{Object.entries(STATUS).map(([k, s]) => <button type="button" key={k} className={v.status === k ? 'is-active' : ''} onClick={() => patch(v, { status: k })} title={tr(s.label)}>{tr(s.label)}</button>)}</div>
+                {byData && <span className="badge" style={{ color: 'var(--green-text)' }} title={tr('Données reçues ce mois — comptée comme réalisée')}><CheckCircle2 size={13} aria-hidden="true" className="badge-ic" /> {tr('données')}</span>}
+              </div>
+            );
+          }
+          if (byData) return <span className="badge" style={{ color: 'var(--green-text)' }} title={tr('Données reçues ce mois — comptée comme réalisée')}><CheckCircle2 size={13} aria-hidden="true" className="badge-ic" /> {tr('Réalisée (données)')}</span>;
+          const S = STATUS[v.status]; const I = S?.Icon; return <span className="badge">{I && <I size={13} aria-hidden="true" className="badge-ic" style={{ color: S.color }} />}{S && tr(S.label)}</span>;
+        } },
     };
     if (canEdit) c.action = { label: '', width: 48, csv: () => '', render: (v) => <Button size="sm" variant="ghost" icon={Trash2} aria-label={tr('Supprimer')} onClick={() => remove(v)} /> };
     return c;
-  }, [canEdit, providers, monthStart, monthEnd, tr]); // eslint-disable-line
+  }, [canEdit, providers, monthStart, monthEnd, month, tr]); // eslint-disable-line
 
   const filters = useMemo(() => ({
     q: { label: tr('Recherche'), type: 'search', placeholder: tr('Site, commune, district…'),
