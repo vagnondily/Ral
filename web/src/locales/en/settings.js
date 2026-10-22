@@ -326,6 +326,8 @@ export default {
   'Aucune demande en attente': 'No pending requests',
   'Les comptes créés via « Créer un compte » (page de connexion) apparaîtront ici pour validation.':
     'Accounts created via “Create an account” (login page) will appear here for approval.',
+  'Bureau de rattachement (facultatif)': 'Assigned office (optional)',
+  'Le bureau/antenne dont relève ce compte, dans le pays.': 'The office/sub-office this account belongs to, within the country.',
   'Demandeur': 'Applicant',
   'Coordonnées': 'Contact details',
   'Motif': 'Reason',

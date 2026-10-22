@@ -12,6 +12,13 @@
 
 ## État courant
 
+> **22/10 — Multitenant : un utilisateur rattaché à un bureau.** ✅ Migration 126
+> (`users.field_office_id` → field_offices, déclencheur « même tenant » 049 posé et vérifié : rattachement
+> intra-pays OK, cross-tenant refusé). Backend create/update/approve + listUsers (nom du bureau).
+> Sélecteur « Bureau de rattachement » dans la fenêtre d'utilisateur ET de validation ; bureau affiché dans
+> la liste des comptes. Build vert, 1574 tests, migration vérifiée. **Suite : module Projets (demande,
+> SPEC_PROGRAMMES.md) — première version propre : infos de base + onglets Cadre logique & Besoins.**
+
 > **22/10 — Raisons de non-réalisation — incrément 2 (info-bulle site + lien Rapports).** ✅ La raison
 > s'affiche sous le nom du site dans la grille du plan (icône + texte). Les rapports TPM offrent un bouton
 > « Sites planifiés non réalisés du mois (raisons) » qui ouvre directement l'onglet Non-réalisations du mois

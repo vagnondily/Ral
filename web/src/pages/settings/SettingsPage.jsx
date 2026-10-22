@@ -162,6 +162,7 @@ function UsersSection() {
               return (
               <tr key={u.id}>
                 <td><strong>{u.fullName || u.email}</strong><div className="site-meta">{u.email}</div>
+                  {u.fieldOfficeName && <div className="site-meta" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Building2 size={12} aria-hidden="true" /> {u.fieldOfficeName}</div>}
                   {!pending && Array.isArray(u.pageAccess) && <div className="site-meta">{tr('Accès limité : {n} écran(s)', { n: u.pageAccess.length })}</div>}
                 </td>
                 <td>{pending ? <span className="site-meta">—</span> : <Badge tone={ROLE_TONE[u.role]}>{ROLE_LABEL[u.role] ? tr(ROLE_LABEL[u.role]) : u.role}</Badge>}</td>
@@ -279,11 +280,12 @@ function ApproveModal({ user, onClose, onSaved }) {
   const currentIsSuper = isSuperRole(getStoredUser()?.role);
   const [role, setRole] = useState('viewer');
   const [pageAccess, setPageAccess] = useState(null);
+  const [fieldOfficeId, setFieldOfficeId] = useState(user.fieldOfficeId || null);
   const [saving, setSaving] = useState(false);
   async function save(e) {
     e.preventDefault();
     setSaving(true);
-    try { await api.approveUser(user.id, { role, pageAccess }); toast.success(tr('Compte validé. Communiquez-lui le lien d\'activation (bouton « Lien d\'activation »).')); onSaved(); }
+    try { await api.approveUser(user.id, { role, pageAccess, fieldOfficeId: fieldOfficeId || null }); toast.success(tr('Compte validé. Communiquez-lui le lien d\'activation (bouton « Lien d\'activation »).')); onSaved(); }
     catch (err) { toast.error(err.message); } finally { setSaving(false); }
   }
   return (
@@ -307,9 +309,26 @@ function ApproveModal({ user, onClose, onSaved }) {
             {currentIsSuper && <option value="superuser">{tr('Super-utilisateur')}</option>}
           </select>
         </Field>
+        <OfficeSelect value={fieldOfficeId} onChange={setFieldOfficeId} />
         <PageAccessEditor value={pageAccess} onChange={setPageAccess} />
       </form>
     </Modal>
+  );
+}
+
+// Sélecteur du bureau de rattachement d'un compte (facultatif) — multitenant : le compte reste dans
+// son pays (tenant), le bureau précise de quelle antenne relève l'agent.
+function OfficeSelect({ value, onChange }) {
+  const { tr } = useI18n();
+  const [offices, setOffices] = useState(null);
+  useEffect(() => { api.listOffices().then(setOffices).catch(() => setOffices([])); }, []);
+  return (
+    <Field label={tr('Bureau de rattachement (facultatif)')} hint={tr('Le bureau/antenne dont relève ce compte, dans le pays.')}>
+      <select className="select" value={value || ''} onChange={(e) => onChange(e.target.value || null)}>
+        <option value="">{offices === null ? tr('Chargement…') : tr('— Aucun —')}</option>
+        {(offices || []).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+      </select>
+    </Field>
   );
 }
 
@@ -318,7 +337,7 @@ function UserModal({ user, onClose, onSaved }) {
   const toast = useToast();
   const editing = Boolean(user);
   const currentIsSuper = isSuperRole(getStoredUser()?.role);
-  const [form, setForm] = useState({ email: user?.email || '', fullName: user?.fullName || '', role: user?.role || 'viewer', password: '', active: user?.active ?? true });
+  const [form, setForm] = useState({ email: user?.email || '', fullName: user?.fullName || '', role: user?.role || 'viewer', password: '', active: user?.active ?? true, fieldOfficeId: user?.fieldOfficeId || null });
   // null = aucune restriction (tous les écrans) ; tableau = écrans visibles.
   const [pageAccess, setPageAccess] = useState(user && Array.isArray(user.pageAccess) ? user.pageAccess : null);
   const [saving, setSaving] = useState(false);
@@ -331,9 +350,9 @@ function UserModal({ user, onClose, onSaved }) {
     setSaving(true);
     try {
       if (editing) {
-        await api.updateUser(user.id, { fullName: form.fullName.trim() || undefined, role: form.role, active: form.active, password: form.password || undefined, pageAccess });
+        await api.updateUser(user.id, { fullName: form.fullName.trim() || undefined, role: form.role, active: form.active, password: form.password || undefined, pageAccess, fieldOfficeId: form.fieldOfficeId || null });
       } else {
-        await api.createUser({ email: form.email.trim(), fullName: form.fullName.trim() || undefined, role: form.role, password: form.password, pageAccess });
+        await api.createUser({ email: form.email.trim(), fullName: form.fullName.trim() || undefined, role: form.role, password: form.password, pageAccess, fieldOfficeId: form.fieldOfficeId || null });
       }
       toast.success(tr('Compte enregistré.')); onSaved();
     } catch (err) { toast.error(err.message); } finally { setSaving(false); }
@@ -345,6 +364,7 @@ function UserModal({ user, onClose, onSaved }) {
       <form id="user-form" onSubmit={save} style={{ display: 'grid', gap: 14 }}>
         {!editing && <Field label={tr('E-mail')}><input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder={tr('prenom.nom@mems.mg')} autoFocus /></Field>}
         <Field label={tr('Nom complet (optionnel)')}><input className="input" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} /></Field>
+        <OfficeSelect value={form.fieldOfficeId} onChange={(v) => setForm({ ...form, fieldOfficeId: v })} />
         <Field label={tr('Rôle')} hint={tr('Lecteur : consultation. Éditeur : crée et modifie. Validateur : valide. Administrateur : gère tout. Super-utilisateur : gère aussi les administrateurs et la sécurité.')}>
           <select className="select" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
             <option value="viewer">{tr('Lecteur')}</option>

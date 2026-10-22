@@ -53,6 +53,7 @@ const createSchema = z.object({
   role: ROLE,
   password: z.string().min(10, 'Au moins 10 caractères').max(200),
   pageAccess: pageAccessSchema.optional(),
+  fieldOfficeId: z.string().uuid().nullable().optional().or(z.literal('').transform(() => null)),
 });
 router.post('/', ADMIN, body(createSchema), asyncHandler(async (req, res) => {
   assertMayManageRole(req.auth.role, req.valid.role);
@@ -66,6 +67,7 @@ const updateSchema = z.object({
   active: z.boolean().optional(),
   password: z.string().min(10, 'Au moins 10 caractères').max(200).optional().or(z.literal('').transform(() => undefined)),
   pageAccess: pageAccessSchema.optional(),
+  fieldOfficeId: z.string().uuid().nullable().optional().or(z.literal('').transform(() => null)),
 });
 router.patch('/:id', ADMIN, body(updateSchema), asyncHandler(async (req, res) => {
   // Garde-fou : on ne se désactive ni ne se rétrograde soi-même (admin+ → verrouillage).
@@ -81,14 +83,14 @@ router.patch('/:id', ADMIN, body(updateSchema), asyncHandler(async (req, res) =>
 
 // Valider un compte auto-inscrit (« Comptes à valider ») : attribue rôle + accès par écran,
 // active le compte. L'octroi du rôle admin/super reste réservé au super-utilisateur.
-const approveSchema = z.object({ role: ROLE, pageAccess: pageAccessSchema.optional() });
+const approveSchema = z.object({ role: ROLE, pageAccess: pageAccessSchema.optional(), fieldOfficeId: z.string().uuid().nullable().optional().or(z.literal('').transform(() => null)) });
 router.post('/:id/approve', ADMIN, body(approveSchema), asyncHandler(async (req, res) => {
   assertMayManageRole(req.auth.role, req.valid.role);
   const status = await repo.getUserStatus(t(req), req.params.id);
   if (status === null) throw notFound('Utilisateur introuvable');
   if (status !== 'pending') throw conflict('Ce compte est déjà validé.');
   const ok = await repo.approveUser(t(req), req.params.id, {
-    role: req.valid.role, pageAccess: req.valid.pageAccess ?? null, approverId: req.auth.userId,
+    role: req.valid.role, pageAccess: req.valid.pageAccess ?? null, approverId: req.auth.userId, fieldOfficeId: req.valid.fieldOfficeId ?? null,
   });
   if (!ok) throw conflict('Ce compte est déjà validé.');
   res.status(204).end();
