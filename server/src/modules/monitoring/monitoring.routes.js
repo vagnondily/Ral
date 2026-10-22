@@ -234,9 +234,10 @@ router.get('/forms/:id/correspondences', asyncHandler(async (req, res) => {
 const correspondenceSchema = z.object({
   dimension: z.enum(['field_office', 'partner', 'agent']),
   raw: z.string().min(1).max(200),
-  mode: z.enum(['link', 'ignore', 'auto']),
+  mode: z.enum(['link', 'ignore', 'auto', 'internal']),
   targetId: z.string().uuid().optional(),
-}).refine((v) => (v.mode === 'link') === Boolean(v.targetId), { message: 'Choisissez l\'élément MEMS à relier.' });
+}).refine((v) => (v.mode === 'link') === Boolean(v.targetId), { message: 'Choisissez l\'élément MEMS à relier.' })
+  .refine((v) => v.mode !== 'internal' || v.dimension === 'partner', { message: '« Interne » ne concerne que le partenaire.' });
 router.put('/forms/:id/correspondences', WRITE, body(correspondenceSchema), asyncHandler(async (req, res) => {
   const out = await repo.setCorrespondence(t(req), req.auth.userId, uuidParam(req.params.id), req.valid);
   if (!out) throw notFound('Fiche introuvable');

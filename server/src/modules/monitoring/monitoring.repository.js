@@ -1393,7 +1393,7 @@ async function formCorrespondences(tenantId, formId, dimension) {
          FROM monitoring_submissions WHERE tenant_id = $1 AND form_id = $2 AND NULLIF(btrim(${d.raw}), '') IS NOT NULL
         GROUP BY 1, 2, 3`, [tenantId, formId]);
     const { rows: links } = await client.query(
-      `SELECT raw_value AS raw, ${d.link} AS "targetId" FROM monitoring_value_links
+      `SELECT raw_value AS raw, ${d.link} AS "targetId", internal FROM monitoring_value_links
         WHERE tenant_id = $1 AND form_id = $2 AND dimension = $3`, [tenantId, formId, dimension]);
     const labels = (await choiceLabelsTx(client, tenantId, dimension)).get(formId) || new Map();
     let options;
@@ -1416,7 +1416,7 @@ async function formCorrespondences(tenantId, formId, dimension) {
       r.current.set(c.tid, (r.current.get(c.tid) || 0) + c.n);
       r.partners.add(c.partnerId);
     }
-    const manual = new Map(links.map((l) => [l.raw, l.targetId]));
+    const manual = new Map(links.map((l) => [l.raw, { targetId: l.targetId, internal: l.internal === true }]));
     const rows = [...byRaw.values()].map((r) => {
       const label = labels.get(r.raw) || null;
       let proposal = null;
@@ -1438,7 +1438,7 @@ async function formCorrespondences(tenantId, formId, dimension) {
       return {
         raw: r.raw, label, n: r.n,
         current: [...r.current].map(([id, n]) => ({ id, n })).sort((a, b) => b.n - a.n),
-        manual: manual.has(r.raw) ? { targetId: manual.get(r.raw) } : null,
+        manual: manual.has(r.raw) ? { targetId: manual.get(r.raw).targetId, internal: manual.get(r.raw).internal } : null,
         proposal,
         // Une correspondance s'enregistre pour une valeur de 200 caractères au plus (contrainte de la table).
         editable: String(r.raw).length <= 200,
@@ -1469,13 +1469,15 @@ async function setCorrespondence(tenantId, userId, formId, { dimension, raw, mod
         const { rows } = await client.query(`SELECT 1 FROM ${table} WHERE tenant_id = $1 AND id = $2`, [tenantId, targetId]);
         if (!rows[0]) throw badRequest('Élément MEMS introuvable.');
       }
+      // « Interne » (partenaire) = lien résolu SANS partenaire mais marqué interne ; sinon internal=false.
+      const internal = mode === 'internal';
       await client.query(
-        `INSERT INTO monitoring_value_links (tenant_id, form_id, dimension, raw_value, ${d.link}, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO monitoring_value_links (tenant_id, form_id, dimension, raw_value, ${d.link}, internal, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (tenant_id, form_id, dimension, raw_value)
          DO UPDATE SET office_id = EXCLUDED.office_id, partner_id = EXCLUDED.partner_id, agent_id = EXCLUDED.agent_id,
-                       created_by = EXCLUDED.created_by, updated_at = now()`,
-        [tenantId, formId, dimension, raw, mode === 'link' ? targetId : null, userId || null]);
+                       internal = EXCLUDED.internal, created_by = EXCLUDED.created_by, updated_at = now()`,
+        [tenantId, formId, dimension, raw, mode === 'link' ? targetId : null, internal, userId || null]);
     }
     const geo = await applySubmissionsGeoTx(client, tenantId);
     const { rows: [n] } = await client.query(

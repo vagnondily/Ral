@@ -21,6 +21,7 @@ const DIMENSIONS = [
 ];
 const AUTO = '__auto__';
 const NONE = '__none__';
+const INTERNAL = '__internal__'; // « Interne » : suivi par l'équipe S&E (pas un partenaire externe) — dimension partenaire
 
 export default function CorrespondencesCard({ form, canEdit }) {
   const { tr } = useI18n();
@@ -46,7 +47,9 @@ export default function CorrespondencesCard({ form, canEdit }) {
   const linked = rows.reduce((a, r) => a + r.current.filter((c) => c.id).reduce((x, c) => x + c.n, 0), 0);
 
   async function save(r, value) {
-    const body = value === AUTO ? { mode: 'auto' } : value === NONE ? { mode: 'ignore' } : { mode: 'link', targetId: value };
+    const body = value === AUTO ? { mode: 'auto' }
+      : value === INTERNAL ? { mode: 'internal' }
+        : value === NONE ? { mode: 'ignore' } : { mode: 'link', targetId: value };
     setSaving(r.raw);
     try {
       const out = await api.monSetCorrespondence(form.id, { dimension, raw: r.raw, ...body });
@@ -55,7 +58,7 @@ export default function CorrespondencesCard({ form, canEdit }) {
     } catch (e) { toast.error(e.message); } finally { setSaving(null); }
   }
 
-  const selValue = (r) => (r.manual ? (r.manual.targetId || NONE) : AUTO);
+  const selValue = (r) => (r.manual ? (r.manual.internal ? INTERNAL : (r.manual.targetId || NONE)) : AUTO);
   const autoLabel = (r) => {
     const p = r.proposal;
     if (p && p.status === 'exact' && p.ids[0]) return tr('Automatique — {name}', { name: names.get(p.ids[0]) || '…' });
@@ -64,7 +67,7 @@ export default function CorrespondencesCard({ form, canEdit }) {
   };
 
   function Proposal({ r }) {
-    if (r.manual) return <Badge tone="blue" icon={Pencil}>{r.manual.targetId ? tr('manuel') : tr('manuel · non relié')}</Badge>;
+    if (r.manual) return <Badge tone="blue" icon={Pencil}>{r.manual.internal ? tr('interne') : (r.manual.targetId ? tr('manuel') : tr('manuel · non relié'))}</Badge>;
     const p = r.proposal;
     if (!p) {
       return r.current.some((c) => c.id)
@@ -132,12 +135,13 @@ export default function CorrespondencesCard({ form, canEdit }) {
                         <select className="select select-sm corr-select" value={selValue(r)} disabled={saving === r.raw}
                           aria-label={tr('Correspondance de « {v} »', { v: r.label || r.raw })} onChange={(e) => save(r, e.target.value)}>
                           <option value={AUTO}>{autoLabel(r)}</option>
+                          {dimension === 'partner' && <option value={INTERNAL}>{tr('Interne (suivi par l\'équipe S&E)')}</option>}
                           <option value={NONE}>{tr('— Ne pas relier —')}</option>
                           {groups.map(([g, list]) => (g
                             ? <optgroup key={g} label={g}>{list.map((o) => <option key={o.id} value={o.id}>{o.name}{o.active === false ? ` (${tr('inactif')})` : ''}</option>)}</optgroup>
                             : list.map((o) => <option key={o.id} value={o.id}>{o.name}{o.active === false ? ` (${tr('inactif')})` : ''}</option>)))}
                         </select>
-                      ) : <span>{r.manual ? (names.get(r.manual.targetId) || tr('non reliée')) : tr('Automatique')}</span>}
+                      ) : <span>{r.manual ? (r.manual.internal ? tr('Interne') : (names.get(r.manual.targetId) || tr('non reliée'))) : tr('Automatique')}</span>}
                     </td>
                     <td><Proposal r={r} /></td>
                   </tr>

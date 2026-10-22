@@ -12,6 +12,16 @@
 
 ## État courant
 
+> **22/10 — Lot « fait tout » : filtre Bureau, colonne Données (sites), option Interne du mapping.** ✅
+> Trois demandes du propriétaire traitées : (1) **Filtre Bureau** sur Affectation & visites — chaque visite
+> porte le bureau RACINE de son site (`rootOfficeOf`), filtre affiché par défaut. (2) **Colonne « Données
+> (sites) »** par mois (tableau des mois) : sites alimentés par des soumissions ce mois (même règle de
+> rattachement que « Dernière collecte »), distincte des visites déclarées et de la couverture canonique —
+> répond à « aucun réalisé importé » sans fusionner déclaré et données. (3) **Option « Interne »** dans les
+> Correspondances (dimension partenaire, migration 123 `monitoring_value_links.internal`) : un code reçu =
+> suivi par l'équipe S&E (lien résolu, sans partenaire externe, `partner_id` NULL comme « ne pas relier »
+> mais marqué interne et affiché « Interne »). Build vert, 1574 tests, traductions EN ajoutées.
+
 > **22/10 — Concepteur : tableau large qui débordait de la page (corrigé) + retrait de « Générer depuis le RBM ».** ✅
 > (1) **Débordement** : un tableau large (heatmap indicateurs) débordait de la page A4. Cause : `reportFit`
 > réduisait la police jusqu'à 0,8, mais `ReportEditor` **re-plafonnait** l'échelle de rendu à `MIN_SCALE`
