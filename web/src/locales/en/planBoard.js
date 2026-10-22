@@ -58,6 +58,10 @@ export default {
   'Jamais': 'Never',
   'Réalisée{d}': 'Done{d}',
   'Mois inactif : non planifiable': 'Inactive month: cannot be planned',
+  'Planifiée et réalisée': 'Planned and done',
+  'Planifiée, à faire': 'Planned, to do',
+  'Non planifiée': 'Not planned',
+  'Mois inactif': 'Inactive month',
   'Visites du mois (prévues + réalisées) / ciblé MMR': 'Visits in the month (planned + done) / MMR target',
   'Prévues {n} · ciblé {j} · faisable {k}': 'Planned {n} · target {j} · feasible {k}',
 

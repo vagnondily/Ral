@@ -18,10 +18,12 @@ import { NONE, ProviderSelect, ReasonField, VisitTpmCell } from './TpmFields.jsx
 import TpmVisitDialog from './TpmVisitDialog.jsx';
 import { tpmTabHref } from './TpmZoneCell.jsx';
 
+// Code couleur partagé avec le Plan de suivi : gris = planifiée (à faire) · vert = réalisée ·
+// rouge = annulée. `bg` sert à teinter le bouton actif du sélecteur de statut.
 const STATUS = {
-  planifie: { label: 'Planifiée', color: 'var(--blue-600)', Icon: CalendarClock },
-  realise: { label: 'Réalisée', color: 'var(--green)', Icon: CheckCircle2 },
-  annule: { label: 'Annulée', color: 'var(--text-faint)', Icon: Ban },
+  planifie: { label: 'Planifiée', color: 'var(--text-muted)', bg: 'var(--surface-2)', Icon: CalendarClock },
+  realise: { label: 'Réalisée', color: 'var(--green)', bg: 'var(--green-bg)', Icon: CheckCircle2 },
+  annule: { label: 'Annulée', color: 'var(--red-text)', bg: 'var(--red-bg)', Icon: Ban },
 };
 // Situation (workflow) du plan mensuel.
 const PLAN_STATUS = {
@@ -205,7 +207,7 @@ export default function FieldVisitsPage({ canEdit }) {
           if (canEdit) {
             return (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div className="seg" role="group" aria-label={tr('Statut')}>{Object.entries(STATUS).map(([k, s]) => <button type="button" key={k} className={v.status === k ? 'is-active' : ''} onClick={() => patch(v, { status: k })} title={tr(s.label)}>{tr(s.label)}</button>)}</div>
+                <div className="seg" role="group" aria-label={tr('Statut')}>{Object.entries(STATUS).map(([k, s]) => { const on = v.status === k; return <button type="button" key={k} className={on ? 'is-active' : ''} style={on ? { color: s.color, background: s.bg } : undefined} onClick={() => patch(v, { status: k })} title={tr(s.label)}>{tr(s.label)}</button>; })}</div>
                 {byData && <span className="badge" style={{ color: 'var(--green-text)' }} title={tr('Données reçues ce mois — comptée comme réalisée')}><CheckCircle2 size={13} aria-hidden="true" className="badge-ic" /> {tr('données')}</span>}
               </div>
             );

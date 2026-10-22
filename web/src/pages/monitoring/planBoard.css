@@ -76,9 +76,24 @@
 .pb-m { width: 38px; min-width: 38px; padding: 4px 2px !important; text-align: center; border-left: 1px solid var(--border); }
 .pb-m input { width: 16px; height: 16px; margin: 0; cursor: pointer; accent-color: var(--blue-600); }
 .pb-m input:disabled { cursor: not-allowed; }
+/* Case à cocher colorée du plan : vert = planifiée ET réalisée · gris = planifiée non réalisée ·
+   incolore = non planifiée · (jaune = réalisée non planifiée, via pb-datadone). */
 .pb-m.is-done { color: var(--green); background: var(--green-bg); }
+.pb-m.is-done input { accent-color: var(--green); opacity: 1; }
+.pb-m.pb-planned { background: var(--surface-2); }
+.pb-m.pb-planned input { accent-color: var(--text-muted); }
+.pb-m.pb-datadone { background: var(--yellow-bg); }
+.pb-m.pb-datadone input { accent-color: var(--yellow, #b7791f); }
 .pb-m.is-pending { background: var(--yellow-bg); }
 .pb-m.is-inactive { background: repeating-linear-gradient(135deg, var(--surface-2) 0 4px, var(--canvas) 4px 8px); }
+/* Légende du code couleur de la grille. */
+.pb-grid-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 0 0 8px; font-size: 12.5px; color: var(--text-muted); }
+.pb-grid-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.pb-grid-legend .pb-sw { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--border-strong); }
+.pb-grid-legend .pb-sw-done { background: var(--green-bg); border-color: var(--green); }
+.pb-grid-legend .pb-sw-planned { background: var(--surface-2); }
+.pb-grid-legend .pb-sw-free { background: var(--surface); }
+.pb-grid-legend .pb-sw-inactive { background: repeating-linear-gradient(135deg, var(--surface-2) 0 3px, var(--canvas) 3px 6px); }
 .pb-table tfoot th, .pb-table tfoot td { position: sticky; bottom: 0; z-index: 1; background: var(--surface); border-top: 2px solid var(--border-strong); }
 .pb-foot-l { text-align: right !important; font-size: 12px; font-weight: 600; color: var(--text-muted); }
 .pb-total { font-variant-numeric: tabular-nums; line-height: 1.1; }

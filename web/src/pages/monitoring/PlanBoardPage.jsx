@@ -313,6 +313,13 @@ function PlanTable({ rows, offset, allRows, capacity, yearHasGrid, pending, canE
   const { tr } = useI18n();
   const totals = useMemo(() => monthTotals(allRows, capacity), [allRows, capacity]);
   return (
+    <>
+    <div className="pb-grid-legend">
+      <span><i className="pb-sw pb-sw-done" /> {tr('Planifiée et réalisée')}</span>
+      <span><i className="pb-sw pb-sw-planned" /> {tr('Planifiée, à faire')}</span>
+      <span><i className="pb-sw pb-sw-free" /> {tr('Non planifiée')}</span>
+      <span><i className="pb-sw pb-sw-inactive" /> {tr('Mois inactif')}</span>
+    </div>
     <table className="table pb-table pb-plan">
       <thead>
         <tr>
@@ -350,11 +357,17 @@ function PlanTable({ rows, offset, allRows, capacity, yearHasGrid, pending, canE
               const inactive = !isActiveMonth(value, yearHasGrid);
               const blank = inactive && value !== false;
               const label = `${s.name} — ${monthLabel(`2026-${String(m).padStart(2, '0')}`).replace(/ \d+$/, '')}`;
-              if (cell && cell.status === 'realise') return <td key={m} className="pb-m is-done" title={`${tr('Réalisée{d}', { d: cell.date ? ` (${cell.date})` : '' })}${cell.provider ? ` · ${cell.provider}` : ''}`}><Check size={14} aria-label={tr('Réalisée')} /></td>;
               const isPending = pending[pendingKey(s.id, m)] !== undefined;
+              // Case à cocher colorée : vert = planifiée ET réalisée · gris = planifiée non réalisée ·
+              // incolore (vide) = non planifiée. Une case réalisée ne se déplanifie pas (cochée, verrouillée).
+              const done = cell && cell.status === 'realise';
+              const tone = done ? 'is-done' : (cell ? 'pb-planned' : '');
               return (
-                <td key={m} className={`pb-m ${inactive ? 'is-inactive' : ''} ${isPending ? 'is-pending' : ''}`} title={inactive ? (blank ? tr('Mois non renseigné : non planifiable') : tr('Mois inactif : non planifiable')) : (cell?.provider ? `${tr('Prévue')} · ${cell.provider}` : undefined)}>
-                  <input type="checkbox" checked={Boolean(cell)} disabled={!canEdit || inactive} aria-label={label}
+                <td key={m} className={`pb-m ${tone} ${inactive ? 'is-inactive' : ''} ${isPending ? 'is-pending' : ''}`}
+                  title={inactive ? (blank ? tr('Mois non renseigné : non planifiable') : tr('Mois inactif : non planifiable'))
+                    : done ? `${tr('Réalisée{d}', { d: cell.date ? ` (${cell.date})` : '' })}${cell.provider ? ` · ${cell.provider}` : ''}`
+                      : (cell?.provider ? `${tr('Prévue')} · ${cell.provider}` : undefined)}>
+                  <input type="checkbox" checked={Boolean(cell)} disabled={!canEdit || inactive || done} aria-label={label}
                     onChange={(e) => onToggle(s, m, e.target.checked)} />
                 </td>
               );
@@ -374,6 +387,7 @@ function PlanTable({ rows, offset, allRows, capacity, yearHasGrid, pending, canE
         </tr>
       </tfoot>
     </table>
+    </>
   );
 }
 

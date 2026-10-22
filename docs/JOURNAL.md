@@ -12,6 +12,14 @@
 
 ## État courant
 
+> **22/10 — Refonte du plan de suivi en cases à cocher colorées (les deux grilles).** ✅ Demande design.
+> Code couleur commun : **vert** = planifiée ET réalisée · **gris** = planifiée à faire · **incolore** = non
+> planifiée · (jaune réservé « réalisée non planifiée », classe `pb-datadone`). (1) **Plan de suivi (RBM)** :
+> chaque cellule mois est une case à cocher colorée (fini l'icône Check à part) ; une case réalisée est
+> cochée+verrouillée (on ne déplanifie pas une visite faite) ; légende de couleurs ajoutée au-dessus de la
+> grille. (2) **Affectation & visites** : le sélecteur Planifiée/Réalisée/Annulée garde ses 3 états (pour
+> « Annulée ») mais prend le même code couleur (gris/vert/rouge sur le bouton actif). Build vert, 1574 tests.
+
 > **22/10 — Tableau des mois : « Planifiées 0 » et « Réalisées » toujours chiffrés même sans plan.** ✅
 > Demande : un mois SANS plan mais AVEC données doit afficher Planifiées 0 et Réalisées au bon nombre
 > (plus de « — »). Un mois n'affiche « — » que s'il est VRAIMENT vide (ni plan ni données). Sinon tous les
