@@ -13,11 +13,25 @@ export function setFormatLocale(lang) {
 }
 export const formatLocale = () => LOCALES[LANG];
 
+// Devise du pays (multi-pays, étape 1) : le suffixe des montants vient du profil du pays, posé une
+// fois au chargement par setFormatCurrency (comme la langue). Codes connus -> symbole local ; sinon
+// le code ISO ; devise non renseignée -> aucun suffixe (la santé du paramétrage le signale).
+const CURRENCY_SYMBOLS = { MGA: 'Ar', USD: '$', EUR: '\u20ac', KES: 'KSh', XOF: 'FCFA', XAF: 'FCFA' };
+let CURRENCY_SUFFIX = 'Ar'; // défaut : Ariary, pour ne rien changer tant que le profil n'est pas lu.
+/** Fixe la devise des montants depuis le profil du pays ('' = non renseignée -> pas de suffixe). */
+export function setFormatCurrency(code) {
+  const c = (code || '').toUpperCase().trim();
+  CURRENCY_SUFFIX = c ? (CURRENCY_SYMBOLS[c] || c) : '';
+}
+/** Suffixe de devise courant (pour les rares cas hors formatAr). */
+export const currencySuffix = () => CURRENCY_SUFFIX;
+
 /** 450000 -> "450 000 Ar". Normalizes the narrow no-break space Intl emits
  * (U+202F) to a regular no-break space, which every font renders. */
 export function formatAr(value) {
   const n = Number(value) || 0;
-  return `${nf.format(n).replace(/ /g, ' ')} Ar`;
+  const num = nf.format(n).replace(/\u202f/g, '\u00a0');
+  return CURRENCY_SUFFIX ? `${num} ${CURRENCY_SUFFIX}` : num;
 }
 
 export function formatInt(value) {

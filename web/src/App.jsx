@@ -8,6 +8,7 @@ import { ToastProvider, useToast } from './components/Toast.jsx';
 import { I18nProvider, useI18n } from './lib/i18n.jsx';
 import { writeSessionPeriod } from './lib/period.js';
 import { canWrite as roleCanWrite, isAdminRole } from './lib/accessRoles.js';
+import { setFormatCurrency } from './lib/format.js';
 import { routeOfHash } from './lib/route.js';
 import LoginPage from './pages/LoginPage.jsx';
 import SignupPage from './pages/SignupPage.jsx';
@@ -56,6 +57,8 @@ function Workspace() {
   const [user, setUser] = useState(() => (getToken() ? getStoredUser() : null));
   const [route, setRoute] = useState(parseHash);
   const [showSignup, setShowSignup] = useState(false);
+  // Devise du pays (multi-pays, étape 1) : lue au profil après connexion ; posée pour tous les montants.
+  const [currency, setCurrency] = useState(null);
 
   useEffect(() => {
     const onHash = () => setRoute(parseHash());
@@ -70,6 +73,14 @@ function Workspace() {
       toast.info(tr('Votre session a expiré. Veuillez vous reconnecter.'));
     });
   }, [toast, tr]);
+
+  // Devise du pays : lue une fois connecté (profil). '' = non renseignée → montants sans suffixe.
+  useEffect(() => {
+    if (!user) { setCurrency(null); return; }
+    let alive = true;
+    api.getCountry().then((c) => { if (alive) setCurrency((c && c.currency) || ''); }).catch(() => { if (alive) setCurrency(''); });
+    return () => { alive = false; };
+  }, [user]);
 
   const navigate = useCallback((mod, sub, extra, extra2) => {
     let hash = `/${mod}/${sub}`;
@@ -121,6 +132,9 @@ function Workspace() {
       : <LoginPage onLoggedIn={handleLoggedIn} onSignup={() => setShowSignup(true)} />;
   }
 
+  // Applique la devise du pays à tous les montants (avant de rendre les écrans). Tant que le profil
+  // n'est pas lu (null), on garde « Ar » pour ne pas clignoter ; '' = devise non renseignée.
+  setFormatCurrency(currency == null ? 'MGA' : currency);
   const canEdit = roleCanWrite(user.role);
   const isAdmin = isAdminRole(user.role);
   // Restrictions d'accès par écran (null = aucune). Les administrateurs voient tout.

@@ -221,6 +221,15 @@ async function main() {
     const admin = users.admin;
     const validator = users.validator;
 
+    // Profil pays de la démo : Madagascar (MDG) en ariary (MGA) — pour que les montants
+    // s'affichent « Ar » (multi-pays, étape 1 : la devise vient du profil). Idempotent, ne
+    // réécrit pas une valeur déjà saisie.
+    await client.query(
+      `INSERT INTO country_profiles (tenant_id, name, iso3, currency) VALUES ($1, 'Madagascar', 'MDG', 'MGA')
+       ON CONFLICT (tenant_id) DO UPDATE SET iso3 = COALESCE(country_profiles.iso3, 'MDG'),
+         currency = COALESCE(country_profiles.currency, 'MGA'), updated_at = now()`,
+      [tenantId]);
+
     const types = await upsertRefList(client, tenantId, 'partner_types', PARTNER_TYPES);
     const activityId = await upsertRefList(client, tenantId, 'activities', ACTIVITIES);
 
