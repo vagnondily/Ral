@@ -132,9 +132,10 @@ function Workspace() {
       : <LoginPage onLoggedIn={handleLoggedIn} onSignup={() => setShowSignup(true)} />;
   }
 
-  // Applique la devise du pays à tous les montants (avant de rendre les écrans). Tant que le profil
-  // n'est pas lu (null), on garde « Ar » pour ne pas clignoter ; '' = devise non renseignée.
-  setFormatCurrency(currency == null ? 'MGA' : currency);
+  // Applique la devise du pays à tous les montants (avant de rendre les écrans). Devise NON renseignée
+  // (null ou '') → on garde « Ar » (MGA) pour ne RIEN changer aux installations existantes ; seule une
+  // devise explicite (ex. USD) modifie le suffixe. La santé du paramétrage signale la devise manquante.
+  setFormatCurrency(currency || 'MGA');
   const canEdit = roleCanWrite(user.role);
   const isAdmin = isAdminRole(user.role);
   // Restrictions d'accès par écran (null = aucune). Les administrateurs voient tout.

@@ -12,6 +12,14 @@
 
 ## État courant
 
+> **22/10 — CORRECTIF : les montants avaient perdu le suffixe « Ar ».** ✅ Régression introduite par
+> l'étape 1 multi-pays : `App.jsx` appelait `setFormatCurrency(currency == null ? 'MGA' : currency)` ;
+> or `getCountry` renvoie `currency: ''` (devise non renseignée, cas normal des installations
+> existantes), et `''` n'est pas `null` → le suffixe était effacé et **tous les montants s'affichaient
+> sans « Ar »**. Correctif : `setFormatCurrency(currency || 'MGA')` — une devise non renseignée garde
+> « Ar » (MGA) ; seule une devise explicite (USD…) change le suffixe. Build vert, 1574 tests, aucune
+> autre régression trouvée (flux devise, activation, garde d'accès par écran, rôles vérifiés).
+
 > **22/10 — Plan de suivi : les données reçues comptent comme « suivi effectif ».** ✅ Incohérence
 > signalée par le propriétaire : il a importé 1 311 soumissions (713 sites alimentés) mais « Sites suivis »
 > affichait 0 et « Déjà visités » était vide. Cause : `boardKpis.followed` et le filtre de l'onglet
