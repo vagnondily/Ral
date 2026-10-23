@@ -12,6 +12,18 @@
 
 ## État courant
 
+> **23/10 — Module Projets (1re version, demande ; conception SPEC_PROGRAMMES.md).** ✅ L'autre session
+> avait conçu « Programmes & projets » (8 étapes) mais s'est arrêtée ; j'ai livré une première version
+> propre et cohérente. Migration 127 : `projects` (nom, code/WBS, n° grant, n° award, bailleur, zones,
+> début/fin, statut, montant en centimes + devise, description), `project_logframe` (chaîne impact → effet
+> → produit → activité : énoncé, indicateur, référence, cible, moyen de vérification, hypothèses) et
+> `project_needs` (titre, zone, population cible, priorité) — RLS + policy + GRANT mems2_app + déclencheur
+> même-tenant. Backend layered `modules/projects` (repository + routes CRUD, lecture tous, écriture
+> éditeur+). Frontend `ProjectsPage` : liste + détail à onglets **Informations / Cadre logique / Besoins**,
+> nav « Suivi & évaluation › Projets ». Build vert, lint propre, 1574 tests, migration + RLS + CRUD
+> vérifiés sur base migrée (insertion sous mems2_app OK). **Suite possible** (non faite) : relier un projet
+> aux contrats/sites/indicateurs, cycle de projet complet, bailleurs/financements, Output — voir la spec.
+
 > **22/10 — Multitenant : un utilisateur rattaché à un bureau.** ✅ Migration 126
 > (`users.field_office_id` → field_offices, déclencheur « même tenant » 049 posé et vérifié : rattachement
 > intra-pays OK, cross-tenant refusé). Backend create/update/approve + listUsers (nom du bureau).

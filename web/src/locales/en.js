@@ -38,6 +38,7 @@ import indicatorProposals from './en/indicatorProposals.js';
 import planAuto from './en/planAuto.js';
 import tpmInternal from './en/tpmInternal.js';
 import auth from './en/auth.js';
+import projects from './en/projects.js';
 
 export default {
   // partners en tête : ses phrases déjà traduites ailleurs gardent la traduction de leur module.

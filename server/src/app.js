@@ -32,6 +32,7 @@ const mapRoutes = require('./modules/map/map.routes');
 const evaluationRoutes = require('./modules/evaluation/evaluation.routes');
 const trainingsRoutes = require('./modules/trainings/trainings.routes');
 const coverageRoutes = require('./modules/dashboards/coverage.routes');
+const projectsRoutes = require('./modules/projects/projects.routes');
 const asyncHandler = require('./middleware/asyncHandler');
 const { requireAuth, requireRole } = require('./middleware/auth');
 const { runtimeSnapshot } = require('./modules/common/runtimeStats');
@@ -123,6 +124,7 @@ function createApp() {
   app.use('/api/deletions', deletionsRoutes);
   app.use('/api/site-registry', siteRegistryRoutes);
   app.use('/api/sub-activities', subActivitiesRoutes);
+  app.use('/api/projects', projectsRoutes);
   app.use('/api/map', mapRoutes);
   app.use('/api/evaluation', evaluationRoutes);
   app.use('/api/trainings', trainingsRoutes);

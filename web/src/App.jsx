@@ -38,6 +38,7 @@ import FormationsPage from './pages/tpm/FormationsPage.jsx';
 import TrainingSessionPage from './pages/tpm/TrainingSessionPage.jsx';
 import EvaluationPage from './pages/tpm/EvaluationPage.jsx';
 import SettingsPage from './pages/settings/SettingsPage.jsx';
+import ProjectsPage from './pages/projects/ProjectsPage.jsx';
 
 // Adresse → route : LE parseur partagé (lib/route.routeOfHash — redirections, route par défaut), avec
 // les routes de la navigation (findRoute). La requête du hash (#/dashboard/couverture?from=2026-01&to=2026-06 :
@@ -182,6 +183,7 @@ function Workspace() {
       {route.module === 'processus' && route.sub === 'carte' && <SitesMapPage onNavigate={navigate} isAdmin={isAdmin} />}
       {route.module === 'processus' && route.sub === 'calculs' && <CalcDocsPage />}
       {route.module === 'pdd' && <PddPage canEdit={canEdit} view={route.sub} onNavigate={navigate} />}
+      {route.module === 'projets' && <ProjectsPage canEdit={canEdit} />}
       {route.module === 'parametrage' && <SettingsPage tab={route.sub} sub={route.extra} isAdmin={isAdmin} onNavigate={navigate} />}
     </AppShell>
   );

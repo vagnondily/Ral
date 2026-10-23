@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  FileSignature, Handshake, ClipboardCheck, PackageOpen,
+  FileSignature, Handshake, ClipboardCheck, PackageOpen, FolderKanban,
   LayoutDashboard, ChartColumn, Bell, Settings, Menu, ChevronRight, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { IconButton } from './ui.jsx';
@@ -26,6 +26,7 @@ export const NAV = [
   {
     group: 'Suivi & évaluation',
     items: [
+      { id: 'projets', label: 'Projets', icon: FolderKanban, subs: [{ id: 'liste', label: 'Liste des projets' }] },
       {
         id: 'tpm', label: 'Partenaires & TPM', icon: Handshake,
         subs: [
