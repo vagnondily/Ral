@@ -148,10 +148,12 @@ test('« Exécution du plan » = UNE définition : le taux des visites déclaré
   const field = fs.readFileSync(webFile('pages', 'monitoring', 'FieldVisitsPage.jsx'), 'utf8');
   const docs = fs.readFileSync(webFile('pages', 'monitoring', 'CalcDocsPage.jsx'), 'utf8');
   const phrases = (src) => [...src.matchAll(/\btr\(\s*'((?:[^'\\]|\\.)*)'/g)].map((m) => m[1].replace(/\\'/g, '\''));
-  // Affectation & visites : réalisées ÷ (planifiées + réalisées), visites déclarées seulement.
+  // Affectation & visites : la barre mensuelle = réalisées ÷ planifiées (exécution du plan), mais ce nom
+  // réservé aux tableaux de bord n'apparaît jamais ici ; le taux des visites déclarées seules garde son
+  // propre nom « (déclarées) » (dans les KPI / cartes).
   const fp = phrases(field);
-  assert.ok(!fp.some((p) => /exécution du plan/i.test(p) && !/tableaux de bord/.test(p)), 'Affectation & visites : jamais « Exécution du plan » pour le taux des visites déclarées');
-  assert.ok(fp.includes('Exécution des visites (déclarées)'));
+  assert.ok(!fp.some((p) => /exécution du plan/i.test(p) && !/tableaux de bord/.test(p)), 'Affectation & visites : jamais « Exécution du plan » comme libellé');
+  assert.ok(fp.some((p) => /exécution des visites \(déclarées\)/i.test(p)), 'le taux des visites déclarées garde son nom distinct « (déclarées) »');
   // Comment les calculs sont faits : l'exécution du plan des tableaux de bord compte visite OU données ; l'autre taux est nommé.
   const dp = phrases(docs);
   const exec = dp.find((p) => p.startsWith('Exécution du plan (visites)'));

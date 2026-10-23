@@ -526,13 +526,16 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
             <th className="num" title={tr('Sites suivis = visite déclarée réalisée OU données reçues ce mois (donnée reçue = réalisée)')}>{tr('Réalisées')}</th>
             <th className="num">{tr('Annulées')}</th><th className="num">{tr('TPM')}</th>
             <th className="num" title={tr('Sites ayant reçu des données (soumissions) ce mois — indépendant des visites déclarées')}>{tr('Données (sites)')}</th>
-            <th title={tr('Sites suivis ÷ sites concernés, données reçues comptées comme réalisées')}>{tr('Suivi (visites + données)')}</th><th aria-label={tr('Action')} />
+            <th title={tr('Visites réalisées ÷ visites planifiées (données reçues comptées comme réalisées) ; « — aucun plan » si rien n\'est planifié')}>{tr('Réalisé / planifié')}</th><th aria-label={tr('Action')} />
           </tr></thead>
           <tbody>
             {months.map((m) => {
               const isCur = m.month === current;
               // « blanc » = ni plan ni données ce mois ; sinon on affiche toujours des nombres (plan 0, réalisées = données).
               const blank = m.total === 0 && (m.baseEff || 0) === 0;
+              // Barre = exécution du plan : réalisées ÷ planifiées (données reçues comptées comme réalisées),
+              // plafonnée à 100 % ; « — aucun plan » quand aucune visite n'est planifiée.
+              const planExec = m.planifie > 0 ? Math.min(1, (m.realiseEff || 0) / m.planifie) : null;
               return (
                 <tr key={m.month} className={`clickable month-row ${isCur ? 'is-selected' : ''} ${blank ? 'is-empty' : ''}`} onClick={() => onOpen(m.month)}
                   onKeyDown={(e) => { if (e.key === 'Enter') onOpen(m.month); }} tabIndex={0} aria-label={tr('Ouvrir {month}', { month: monthLabel(m.month) })}>
@@ -545,11 +548,11 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
                   <td className="num tabular">{blank ? <span className="cell-empty">—</span> : formatInt(m.providers)}</td>
                   <td className="num tabular">{m.dataSites ? <span style={{ color: 'var(--green-text)', fontWeight: 600 }}>{formatInt(m.dataSites)}</span> : (blank ? <span className="cell-empty">—</span> : '0')}</td>
                   <td>
-                    {(m.baseEff || 0) === 0 ? <span className="cell-empty">—</span> : (
+                    {planExec === null ? <span className="cell-empty" title={tr('Aucune visite planifiée ce mois')}>{tr('— aucun plan')}</span> : (
                       <span className="month-cov">
-                        <span className="mini-bar"><span style={{ width: `${Math.round(m.effCoverage * 100)}%`, background: `var(--${pctClass(m.effCoverage)})` }} /></span>
-                        <span className="tabular" style={{ color: `var(--${pctClass(m.effCoverage)}-text)`, fontWeight: 650 }}>{formatRate(m.effCoverage, lang)}</span>
-                        {m.planifie + m.realise > 0 && <span className="muted" style={{ marginLeft: 8, fontSize: 12 }} title={tr('Visites déclarées seules')}>{tr('Exécution des visites (déclarées)')} {formatRate(m.coverage, lang)}</span>}
+                        <span className="mini-bar"><span style={{ width: `${Math.round(planExec * 100)}%`, background: `var(--${pctClass(planExec)})` }} /></span>
+                        <span className="tabular" style={{ color: `var(--${pctClass(planExec)}-text)`, fontWeight: 650 }}>{formatRate(planExec, lang)}</span>
+                        {(m.baseEff || 0) > 0 && <span className="muted" style={{ marginLeft: 8, fontSize: 12 }} title={tr('Sites suivis ÷ sites concernés (données comprises)')}>{tr('Couverture des sites')} {formatRate(m.effCoverage, lang)}</span>}
                       </span>
                     )}
                   </td>
@@ -565,7 +568,7 @@ function MonthsTable({ data, year, setYear, current, onOpen, statusFilter, setSt
           </tbody>
         </table></div>
       )}
-      <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>{tr('Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. « Réalisées » et « Suivi (visites + données) » comptent une donnée reçue comme une visite réalisée (sites suivis ÷ sites concernés). Le taux des visites déclarées seules est indiqué à côté.')}</span></div>
+      <div className="note"><CalendarClock size={18} aria-hidden="true" /><span>{tr('Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. La barre « Réalisé / planifié » = visites réalisées ÷ planifiées (une donnée reçue compte comme une visite réalisée) ; « — aucun plan » si rien n\'est planifié. La couverture des sites est indiquée à côté.')}</span></div>
     </div>
   );
 }

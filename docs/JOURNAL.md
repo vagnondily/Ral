@@ -12,6 +12,16 @@
 
 ## État courant
 
+> **23/10 — Affectation & visites : la barre mensuelle = exécution du plan (réalisées ÷ planifiées).** ✅
+> Demande : « le pourcentage ici c'est plan vs achieved ». La barre verte du tableau des mois montrait la
+> couverture des sites (suivis ÷ sites actifs) ; elle montre désormais l'**exécution du plan** = visites
+> réalisées ÷ planifiées (une donnée reçue compte comme réalisée, conforme à « uploader = réaliser »),
+> plafonnée à 100 %, et **« — aucun plan »** quand aucune visite n'est planifiée (ex. Avril, Juin, Août).
+> La **couverture des sites** passe en information à côté (préservée). En-tête de colonne renommé
+> « Réalisé / planifié ». Le libellé « Exécution du plan » reste réservé aux tableaux de bord (contrainte
+> `webCoverageDefs`) ; le taux des visites déclarées seules garde son nom « (déclarées) » dans les KPI.
+> Test `webCoverageDefs` ajusté (même esprit), traductions EN ajoutées. Build vert, 1574 tests, lint propre.
+
 > **23/10 — Vérification transversale : orphelins + cohérence d'affichage.** ✅ Suite à la demande
 > (« vérifie tous les liaisons, les choses orphelines, le code qui bug ou s'affiche mal, et corrige »).
 > Liaisons nav + API vérifiées propres (9 modules, tous sous-écrans rendus ; chaque `api.X()` a sa méthode

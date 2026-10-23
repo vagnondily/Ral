@@ -228,6 +228,11 @@ export default {
     'Sites that received data (submissions) this month — independent of declared visits',
   'sites suivis': 'sites monitored',
   'Suivi (visites + données)': 'Monitoring (visits + data)',
+  'Réalisé / planifié': 'Achieved / planned',
+  'Visites réalisées ÷ visites planifiées (données reçues comptées comme réalisées) ; « — aucun plan » si rien n\'est planifié':
+    'Visits done ÷ visits planned (data received counted as done); “— no plan” when nothing is planned',
+  'Aucune visite planifiée ce mois': 'No visit planned this month',
+  'Sites suivis ÷ sites concernés (données comprises)': 'Sites monitored ÷ sites concerned (data included)',
   'Sites suivis = visite déclarée réalisée OU données reçues ce mois (donnée reçue = réalisée)':
     'Sites monitored = declared visit done OR data received this month (data received = done)',
   'Sites suivis ÷ sites concernés, données reçues comptées comme réalisées':
@@ -253,6 +258,8 @@ export default {
   'Données reçues ce mois — comptée comme réalisée': 'Data received this month — counted as done',
   'Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. « Réalisées » et « Suivi (visites + données) » comptent une donnée reçue comme une visite réalisée (sites suivis ÷ sites concernés). Le taux des visites déclarées seules est indiqué à côté.':
     'Click a month (or “Open / Plan”) to open its visit plan. “Done” and “Monitoring (visits + data)” count a received submission as a completed visit (sites monitored ÷ sites concerned). The declared-visits-only rate is shown alongside.',
+  'Cliquez un mois (ou « Ouvrir / Planifier ») pour accéder à son plan de visites. La barre « Réalisé / planifié » = visites réalisées ÷ planifiées (une donnée reçue compte comme une visite réalisée) ; « — aucun plan » si rien n\'est planifié. La couverture des sites est indiquée à côté.':
+    'Click a month (or “Open / Plan”) to open its visit plan. The “Achieved / planned” bar = visits done ÷ planned (a received submission counts as a completed visit); “— no plan” when nothing is planned. Site coverage is shown alongside.',
   '{name} (pays — tous les sites)': '{name} (country — all sites)',
   'Toutes les régions': 'All regions',
   'Tous les districts': 'All districts',
