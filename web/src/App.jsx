@@ -152,7 +152,7 @@ function Workspace() {
         if (route.extra && route.extra2 === 'amend') return <ContractFormPage mode="amend" contractId={route.extra} onDone={openContract} onCancel={back} />;
         if (route.extra) {
           return <ContractDetailPage contractId={route.extra} onBack={back} onOpen={openContract} onEdit={editContract} onAmend={amendContract}
-            onOpenPartner={(id) => navigate('tpm', 'prestataires', id)} />;
+            onOpenPartner={(id) => navigate('tpm', 'prestataires', id)} onNavigate={navigate} />;
         }
         return <ContractsListPage canEdit={canEdit} onOpen={openContract} onNew={newContract} onEdit={editContract} onAmend={amendContract} />;
       })()}
@@ -183,7 +183,7 @@ function Workspace() {
       {route.module === 'processus' && route.sub === 'carte' && <SitesMapPage onNavigate={navigate} isAdmin={isAdmin} />}
       {route.module === 'processus' && route.sub === 'calculs' && <CalcDocsPage />}
       {route.module === 'pdd' && <PddPage canEdit={canEdit} view={route.sub} onNavigate={navigate} />}
-      {route.module === 'projets' && <ProjectsPage canEdit={canEdit} />}
+      {route.module === 'projets' && <ProjectsPage canEdit={canEdit} onNavigate={navigate} />}
       {route.module === 'parametrage' && <SettingsPage tab={route.sub} sub={route.extra} isAdmin={isAdmin} onNavigate={navigate} />}
     </AppShell>
   );

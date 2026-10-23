@@ -29,6 +29,8 @@ const contractShape = {
   numeroFla: optionalText,
   numeroPo: optionalText,
   numeroVendor: optionalText,
+  projectId: z.string().uuid().nullish(), // projet (grant) de rattachement — facultatif
+
   dateDebut: isoDate,
   dateFin: isoDate,
   managementFeePct: feePct.optional(),

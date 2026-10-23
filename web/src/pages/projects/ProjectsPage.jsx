@@ -24,9 +24,9 @@ const PRIORITIES = { haute: 'Haute', moyenne: 'Moyenne', basse: 'Basse' };
 const money = (cents, cur) => (cents == null ? '—' : `${(cents / 100).toLocaleString('fr-FR', { maximumFractionDigits: 2 })}${cur ? ` ${cur}` : ''}`);
 const period = (a, b) => (a || b ? `${a || '…'} → ${b || '…'}` : '—');
 
-export default function ProjectsPage({ canEdit }) {
+export default function ProjectsPage({ canEdit, onNavigate }) {
   const [selected, setSelected] = useState(null);
-  if (selected) return <ProjectDetail id={selected} canEdit={canEdit} onBack={() => setSelected(null)} />;
+  if (selected) return <ProjectDetail id={selected} canEdit={canEdit} onBack={() => setSelected(null)} onNavigate={onNavigate} />;
   return <ProjectsList canEdit={canEdit} onOpen={setSelected} />;
 }
 
@@ -71,7 +71,7 @@ function ProjectsList({ canEdit, onOpen }) {
   );
 }
 
-function ProjectDetail({ id, canEdit, onBack }) {
+function ProjectDetail({ id, canEdit, onBack, onNavigate }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [p, setP] = useState(null);
@@ -96,7 +96,7 @@ function ProjectDetail({ id, canEdit, onBack }) {
         <button type="button" className={tab === 'logframe' ? 'is-active' : ''} onClick={() => setTab('logframe')}><Target size={15} aria-hidden="true" /> {tr('Cadre logique')}</button>
         <button type="button" className={tab === 'needs' ? 'is-active' : ''} onClick={() => setTab('needs')}><ListChecks size={15} aria-hidden="true" /> {tr('Besoins')}</button>
       </div>
-      {tab === 'infos' && <InfosTab p={p} />}
+      {tab === 'infos' && <InfosTab p={p} onNavigate={onNavigate} />}
       {tab === 'logframe' && <LogframeTab p={p} canEdit={canEdit} onReload={reload} />}
       {tab === 'needs' && <NeedsTab p={p} canEdit={canEdit} onReload={reload} />}
       {edit && <ProjectForm project={p} onClose={() => setEdit(false)} onSaved={() => { setEdit(false); reload(); }} />}
@@ -109,19 +109,44 @@ function Row({ label, children }) {
     <span className="muted">{label}</span><span>{children || <span className="muted">—</span>}</span>
   </div>;
 }
-function InfosTab({ p }) {
+function InfosTab({ p, onNavigate }) {
   const { tr } = useI18n();
+  const contracts = p.contracts || [];
   return (
-    <Card><div className="card-body">
-      <Row label={tr('Statut')}>{STATUS[p.status] ? <Badge tone={STATUS[p.status].tone}>{tr(STATUS[p.status].label)}</Badge> : p.status}</Row>
-      <Row label={tr('Période')}>{period(p.startDate, p.endDate)}</Row>
-      <Row label={tr('Bailleur')}>{p.donorName}{p.donorCode ? ` (${p.donorCode})` : ''}</Row>
-      <Row label={tr('N° de grant')}>{p.grantNumber}</Row>
-      <Row label={tr('N° d\'award')}>{p.awardNumber}</Row>
-      <Row label={tr('Financement')}>{money(p.budgetAmount, p.currency)}</Row>
-      <Row label={tr('Zones (géographie)')}>{p.regions}</Row>
-      <Row label={tr('Description')}>{p.description && <span style={{ whiteSpace: 'pre-wrap' }}>{p.description}</span>}</Row>
-    </div></Card>
+    <div className="section-gap">
+      <Card><div className="card-body">
+        <Row label={tr('Statut')}>{STATUS[p.status] ? <Badge tone={STATUS[p.status].tone}>{tr(STATUS[p.status].label)}</Badge> : p.status}</Row>
+        <Row label={tr('Période')}>{period(p.startDate, p.endDate)}</Row>
+        <Row label={tr('Bailleur')}>{p.donorName}{p.donorCode ? ` (${p.donorCode})` : ''}</Row>
+        <Row label={tr('N° de grant')}>{p.grantNumber}</Row>
+        <Row label={tr('N° d\'award')}>{p.awardNumber}</Row>
+        <Row label={tr('Financement')}>{money(p.budgetAmount, p.currency)}</Row>
+        <Row label={tr('Zones (géographie)')}>{p.regions}</Row>
+        <Row label={tr('Description')}>{p.description && <span style={{ whiteSpace: 'pre-wrap' }}>{p.description}</span>}</Row>
+      </div></Card>
+      <Card>
+        <CardHeader title={tr('Contrats rattachés ({n})', { n: contracts.length })} />
+        <div className="card-body">
+          {contracts.length === 0
+            ? <p className="muted">{tr('Aucun contrat rattaché. Depuis un contrat, choisissez ce projet dans « Projet ».')}</p>
+            : (
+              <table className="table">
+                <thead><tr><th>{tr('N° contrat')}</th><th>{tr('Partenaire')}</th><th>{tr('Statut')}</th><th>{tr('Période')}</th></tr></thead>
+                <tbody>
+                  {contracts.map((c) => (
+                    <tr key={c.id} className={onNavigate ? 'clickable' : ''} onClick={onNavigate ? () => onNavigate('contrats', 'liste', c.id) : undefined}>
+                      <td className="mono">{c.numero}{c.numeroFla ? <div className="site-meta">{c.numeroFla}</div> : null}</td>
+                      <td>{c.partnerName}</td>
+                      <td>{c.status}</td>
+                      <td className="tabular">{period(c.dateDebut, c.dateFin)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+        </div>
+      </Card>
+    </div>
   );
 }
 

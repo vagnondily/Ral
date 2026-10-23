@@ -22,6 +22,7 @@ const CONTRACT_COLUMNS = `
   c.termination_reason AS "terminationReason", c.termination_date AS "terminationDate",
   c.renewed_from_id AS "renewedFromId", c.amendment_count AS "amendmentCount",
   c.management_fee_pct AS "managementFeePct", c.period_months AS "periodMonths",
+  c.project_id AS "projectId", prj.name AS "projectName", prj.code AS "projectCode",
   c.created_by AS "createdBy", c.created_at AS "createdAt", c.updated_at AS "updatedAt", c.version`;
 
 const num = (v) => (v == null ? v : Number(v));
@@ -31,7 +32,8 @@ const FROM_CONTRACT = `
   FROM contracts c
   LEFT JOIN users v ON v.id = c.validator_id
   LEFT JOIN partners pr ON pr.id = c.partner_id
-  LEFT JOIN partner_types pt ON pt.id = pr.partner_type_id`;
+  LEFT JOIN partner_types pt ON pt.id = pr.partner_type_id
+  LEFT JOIN projects prj ON prj.id = c.project_id AND prj.tenant_id = c.tenant_id`;
 
 // ------------------------------------------------------------------ reads
 
@@ -368,11 +370,11 @@ async function nextSequence(client, tenantId, year) {
 async function insertContract(client, tenantId, c) {
   const { rows } = await client.query(
     `INSERT INTO contracts (tenant_id, numero, partner_id, partner_name, activities, numero_fla, numero_po, numero_vendor,
-                            date_debut, date_fin, created_by, renewed_from_id, management_fee_pct, period_months)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+                            date_debut, date_fin, created_by, renewed_from_id, management_fee_pct, period_months, project_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
     [tenantId, c.numero, c.partnerId, c.partnerName, c.activityCodes || [], c.numeroFla || null, c.numeroPo || null,
       c.numeroVendor || null, c.dateDebut, c.dateFin, c.createdBy, c.renewedFromId || null,
-      c.managementFeePct ?? 0.07, c.periodMonths ?? null]
+      c.managementFeePct ?? 0.07, c.periodMonths ?? null, c.projectId || null]
   );
   return rows[0].id;
 }
@@ -417,7 +419,7 @@ const CONTRACT_UPDATE_COLUMNS = Object.freeze({
   status: 'status', validatorId: 'validator_id', submittedBy: 'submitted_by', submittedAt: 'submitted_at',
   decidedBy: 'decided_by', decidedAt: 'decided_at', terminationReason: 'termination_reason',
   terminationDate: 'termination_date', amendmentCount: 'amendment_count',
-  managementFeePct: 'management_fee_pct', periodMonths: 'period_months',
+  managementFeePct: 'management_fee_pct', periodMonths: 'period_months', projectId: 'project_id',
 });
 
 async function updateContract(client, tenantId, id, version, fields) {

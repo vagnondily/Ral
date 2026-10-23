@@ -27,7 +27,7 @@ const TABS = [
   { id: 'history', label: 'Historique' },
 ];
 
-export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit, onAmend, onOpenPartner }) {
+export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit, onAmend, onOpenPartner, onNavigate }) {
   const { tr } = useI18n();
   const toast = useToast();
   const [detail, setDetail] = useState(null);
@@ -131,6 +131,9 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
               {(c.partnerType || c.partnerTypeLabel) && <span className="muted"> · {tr(typeLabelOf(c.partnerType, c.partnerTypeLabel))}</span>}
             </td></tr>
             <tr><th>{tr(ROLE_LABELS.tpm)}</th><td><ContractTpm tpm={c.tpm} zones={(detail.areas || []).length} unavailability={unavailability} onOpenPartner={onOpenPartner} /></td></tr>
+            <tr><th>{tr('Projet')}</th><td>{c.projectName
+              ? <button type="button" className="inline-link" onClick={() => onNavigate && onNavigate('projets', 'liste')}>{c.projectCode ? `${c.projectCode} — ${c.projectName}` : c.projectName}</button>
+              : <span className="muted">—</span>}</td></tr>
             <tr><th>{tr('N° interne')}</th><td className="mono">{c.numero}</td></tr>
             <tr><th>{tr('N° FLA')}</th><td className="mono">{c.numeroFla || '—'}</td></tr>
             <tr><th>{tr('N° PO')}</th><td className="mono">{c.numeroPo || '—'}</td></tr>

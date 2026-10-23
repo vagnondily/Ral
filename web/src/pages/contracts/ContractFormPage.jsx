@@ -12,7 +12,7 @@ import { richText } from '../../lib/contracts.js';
 function emptyForm() {
   const y = new Date().getFullYear();
   return {
-    partnerId: '', activityIds: [], numeroFla: '', numeroPo: '', numeroVendor: '',
+    partnerId: '', activityIds: [], projectId: '', numeroFla: '', numeroPo: '', numeroVendor: '',
     dateDebut: `${y}-01-01`, dateFin: `${y}-12-31`, items: [], areas: [], feePct: 0.07,
     justification: '', validatorId: '',
   };
@@ -21,7 +21,7 @@ function emptyForm() {
 function fromDetail(detail) {
   const c = detail.contract;
   return {
-    partnerId: c.partnerId || '', activityIds: detail.activities.map((a) => a.id),
+    partnerId: c.partnerId || '', activityIds: detail.activities.map((a) => a.id), projectId: c.projectId || '',
     numeroFla: c.numeroFla || '', numeroPo: c.numeroPo || '', numeroVendor: c.numeroVendor || '',
     dateDebut: c.dateDebut, dateFin: c.dateFin,
     items: itemsFromBudget(detail.budget),
@@ -44,6 +44,7 @@ export default function ContractFormPage({ mode = 'create', contractId, onDone, 
   const [partners, setPartners] = useState(null);
   const [activities, setActivities] = useState(null);
   const [validators, setValidators] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [detail, setDetail] = useState(null);
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -56,6 +57,7 @@ export default function ContractFormPage({ mode = 'create', contractId, onDone, 
   useEffect(() => {
     api.listPartners().then(setPartners).catch(() => setPartners([]));
     api.listActivities().then((a) => setActivities(a.filter((x) => x.active !== false))).catch(() => setActivities([]));
+    api.listProjects().then((p) => setProjects(Array.isArray(p) ? p : (p?.items || []))).catch(() => setProjects([]));
     if (isAmend) api.listValidators().then(setValidators).catch(() => setValidators([]));
     if ((isEdit || isAmend) && contractId) {
       api.getContract(contractId).then((d) => { setDetail(d); setForm(fromDetail(d)); }).catch((e) => setLoadErr(e.message));
@@ -114,6 +116,7 @@ export default function ContractFormPage({ mode = 'create', contractId, onDone, 
     const payload = {
       partnerId: form.partnerId,
       activityIds: form.activityIds,
+      projectId: form.projectId || null,
       numeroFla: form.numeroFla.trim(),
       numeroPo: form.numeroPo.trim(),
       numeroVendor: form.numeroVendor.trim(),
@@ -181,6 +184,11 @@ export default function ContractFormPage({ mode = 'create', contractId, onDone, 
             {err('activityIds') && <span className="field-error">{err('activityIds')}</span>}
             <span className="field-hint">{tr("Configurées dans Paramétrage › Activités (multi-sélection). L'activité de chaque poste se choisit dans le budget.")}</span>
           </div>
+          <div className="span-2"><Field label={tr('Projet')} htmlFor="ct-project" hint={tr('Projet / grant de rattachement (facultatif) — crée le lien Projet ↔ Contrat.')}>
+            <select id="ct-project" className="select" value={form.projectId} onChange={(e) => set({ projectId: e.target.value })}>
+              <option value="">{tr('— Aucun projet')}</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} — ${p.name}` : p.name}</option>)}
+            </select></Field></div>
           <div className="span-2"><Field label={tr('N° FLA')} htmlFor="ct-fla" hint={tr('Field Level Agreement — ex. FLA-2025-AIN-MULTI-003')}>
             <input id="ct-fla" className="input mono" value={form.numeroFla} onChange={(e) => set({ numeroFla: e.target.value })} /></Field></div>
           <Field label={tr('N° PO')} htmlFor="ct-po"><input id="ct-po" className="input mono" value={form.numeroPo} onChange={(e) => set({ numeroPo: e.target.value })} /></Field>

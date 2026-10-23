@@ -32,7 +32,14 @@ async function getProject(tenantId, id) {
     const { rows: needs } = await client.query(
       `SELECT id, title, description, zone, target_population AS "targetPopulation", priority, sort_order AS "sortOrder"
          FROM project_needs WHERE tenant_id = $1 AND project_id = $2 ORDER BY sort_order, created_at`, [tenantId, id]);
-    return { ...project, logframe, needs };
+    // Interliaison : les contrats rattachés à ce projet (lecture seule ici — le rattachement se fait
+    // depuis le contrat). Donne au projet une vue de son volet opérationnel (budget / TPM / conso).
+    const { rows: contracts } = await client.query(
+      `SELECT id, numero, numero_fla AS "numeroFla", partner_name AS "partnerName", status,
+              date_debut AS "dateDebut", date_fin AS "dateFin"
+         FROM contracts WHERE tenant_id = $1 AND project_id = $2
+        ORDER BY date_debut DESC NULLS LAST, numero`, [tenantId, id]);
+    return { ...project, logframe, needs, contracts };
   });
 }
 

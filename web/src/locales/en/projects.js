@@ -1,5 +1,10 @@
 // Projets (docs/SPEC_PROGRAMMES.md — 1re version) : infos de base, cadre logique, besoins.
 export default {
+  '— Aucun projet': '— No project',
+  'Projet / grant de rattachement (facultatif) — crée le lien Projet ↔ Contrat.': 'Project / grant it belongs to (optional) — creates the Project ↔ Contract link.',
+  'Contrats rattachés ({n})': 'Linked contracts ({n})',
+  'N° contrat': 'Contract no.',
+  'Aucun contrat rattaché. Depuis un contrat, choisissez ce projet dans « Projet ».': 'No linked contract. From a contract, pick this project under “Project”.',
   'En cours': 'Active',
   'Suspendu': 'Suspended',
   'Terminé': 'Completed',

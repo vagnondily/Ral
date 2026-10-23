@@ -249,6 +249,7 @@ async function createContract(tenantId, actor, input) {
       numeroFla: input.numeroFla, numeroPo: input.numeroPo, numeroVendor: input.numeroVendor,
       dateDebut: input.dateDebut, dateFin: input.dateFin, createdBy: actor.userId,
       managementFeePct: feePct, periodMonths: d.monthsBetween(input.dateDebut, input.dateFin),
+      projectId: input.projectId || null,
     });
     await repo.setContractActivities(client, tenantId, contractId, activityIds);
     await repo.replaceBudget(client, tenantId, contractId, items);
@@ -279,6 +280,7 @@ async function updateDraft(tenantId, actor, id, input) {
       numeroFla: input.numeroFla || null, numeroPo: input.numeroPo || null, numeroVendor: input.numeroVendor || null,
       dateDebut: input.dateDebut, dateFin: input.dateFin,
       managementFeePct: feePct, periodMonths: d.monthsBetween(input.dateDebut, input.dateFin),
+      projectId: input.projectId || null,
     });
     await repo.setContractActivities(client, tenantId, id, activityIds);
     await repo.replaceBudget(client, tenantId, id, items);
@@ -445,6 +447,7 @@ async function renew(tenantId, actor, id, { newDateFin, numeroFla }) {
       numeroFla: numeroFla || null, numeroPo: contract.numeroPo, numeroVendor: contract.numeroVendor,
       dateDebut, dateFin: newDateFin, createdBy: actor.userId, renewedFromId: id,
       managementFeePct: contract.managementFeePct, periodMonths: d.monthsBetween(dateDebut, newDateFin),
+      projectId: contract.projectId || null, // le renouvellement garde le projet (grant)
     });
     await repo.setContractActivities(client, tenantId, newId, activities.map((a) => a.id));
     await repo.replaceBudget(client, tenantId, newId, items);
