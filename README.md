@@ -32,13 +32,70 @@ En un coup d'œil, de quoi l'application est faite.
 | Frontend — icônes | **lucide-react** | 1.47 | Jeu d'icônes |
 | Frontend — cartographie | **leaflet** | 1.9 | Carte (points, contours de districts) |
 | Frontend — polices | **@fontsource** (Inter, IBM Plex) | 5.3 | Polices empaquetées, sans CDN |
-| Tests | **node:test** (natif) + **supertest** | — | 1 560+ tests unitaires sur la logique métier pure ; tests de routes |
+| Tests | **node:test** (natif) + **supertest** | — | 1 574 tests unitaires sur la logique métier pure ; tests de routes |
 | Lint | **ESLint** (flat config) | 9.39 | `server/` uniquement (voir `server/eslint.config.js`) |
 
 **Ce qui n'est PAS utilisé (volontairement)** : pas de TypeScript (JSDoc + zod à la
 place), pas d'ORM (SQL écrit à la main dans la couche repository), pas de framework
 CSS (design system maison dans `web/src/styles.css`), pas de CDN (tout empaqueté).
 **Détails** : architecture ci-dessous, et `CLAUDE.md` pour les règles du projet.
+
+## Spécifications techniques (fiche de référence)
+
+Les contrats que tout le code respecte, en un seul endroit.
+
+**Architecture**
+- Couches strictes : `routes → controller → service → repository`. Seul le
+  repository écrit du SQL ; les règles métier vivent dans le service, souvent
+  en modules **purs et testés** (`*.domain.js` / `*Math.js` / `consolidation.js`),
+  sans I/O.
+- **Port unique 9000** : en production, l'API sert aussi l'interface web buildée
+  (`web/dist`) sur le même port — un seul processus, sans CORS ni serveur web
+  séparé.
+
+**Multitenant & sécurité**
+- Chaque table métier porte `tenant_id` + **Row-Level Security** Postgres ;
+  toute requête filtre `tenant_id = $1` et tourne dans `withTenantTransaction`
+  (qui pose le GUC `app.tenant_id`, filet de sécurité de RLS).
+- L'API et le worker se connectent comme **`mems2_app`** (`NOSUPERUSER
+  NOBYPASSRLS`) ; migrations et seed comme superutilisateur. Jamais le rôle de
+  l'ancien système (`mems_app`).
+- Une référence entre deux tables du même tenant est aussi vérifiée à l'écriture
+  par le déclencheur `trg_same_tenant`.
+- Authentification **JWT** (jeton 8 h) ; mots de passe **bcrypt** ; en-têtes
+  **helmet** ; validation d'entrée **zod** à la frontière **ET** contraintes en
+  base (CHECK / UNIQUE / FK). Mapping d'erreurs central : 23505→409,
+  23514/23503/22P02→400, corps trop gros→413, JSON invalide→400, sinon 500 sans
+  fuite d'information.
+
+**Données & fiabilité**
+- **Aucune écriture partielle** : toute opération sur plus d'une requête est
+  transactionnelle (BEGIN/COMMIT/ROLLBACK).
+- L'argent est en **centimes entiers**, jamais en flottant ; les figures
+  dérivées sont recalculées côté serveur, jamais lues du client.
+- **Migrations** : exécuteur sans dépendance, suivi par **nom de fichier** dans
+  `schema_migrations` (`001` … `127`).
+- Événements entre modules via **outbox transactionnel** (écrit dans la même
+  transaction que le changement, publié par le worker — livraison au moins une
+  fois).
+
+**Performance & concurrence**
+- Agrégation **en SQL** (`GROUP BY`, `SUM … FILTER`), jamais des boucles JS sur
+  de gros volumes ; écritures **par lot** (une requête multi-lignes). Travail
+  lourd → **worker BullMQ**. Un seul pool `pg` partagé (taille via
+  `PG_POOL_MAX`). Verrous de ligne + contrainte unique comme garde-fou ;
+  écritures idempotentes. Imports Excel protégés (garde de décompression,
+  plafonds mémoire).
+
+**Frontend & i18n**
+- **React 18 + Vite**, routage par hash. Design system maison
+  (`web/src/styles.css`), polices empaquetées (sans CDN). Bilingue **FR / EN**
+  (dictionnaire traduit **par phrase**).
+
+**Qualité (avant toute publication)**
+- `cd server && npm test` : **1 574 tests** sur la logique métier pure ;
+  `npm run lint` propre ; `cd web && npm run build` type-check imports/JSX ;
+  balayage Playwright de chaque écran (0 erreur console/API).
 
 ## Pourquoi cette architecture (fiabilité et maintenabilité d'abord)
 
