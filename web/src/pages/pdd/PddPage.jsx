@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Upload, Download, PackageOpen, Boxes, Layers, AlertTriangle, ChevronLeft, CalendarClock, ChevronRight as GoIcon, CheckCircle2, X } from 'lucide-react';
 import { api } from '../../api/client.js';
-import { Alert, Badge, Button, Card, CardHeader, EmptyState, ExpandButton, IconButton, Skeleton, Stats, Usage } from '../../components/ui.jsx';
+import { Alert, Badge, Button, Card, CardHeader, EmptyState, ExpandButton, IconButton, PageHeader, Skeleton, Stats, Usage } from '../../components/ui.jsx';
 import DataList from '../../components/DataList.jsx';
 import PeriodSelect from '../../components/PeriodSelect.jsx';
 import { usePeriod } from '../../components/PeriodBanner.jsx';
@@ -164,8 +164,8 @@ function DistributionsView({ canEdit, onNavigate }) {
       modality: { label: tr('Modalité'), sortVal: (r) => r.modality || '', csv: (r) => r.modality || '', render: (r) => r.modality || '—' },
       beneficiaries: { label: tr('Bénéficiaires'), num: true, sortVal: (r) => r.beneficiaries || 0, csv: (r) => r.beneficiaries || 0, render: (r) => <span className="tabular">{formatInt(r.beneficiaries || 0)}</span> },
       households: { label: tr('Ménages'), num: true, sortVal: (r) => r.households || 0, csv: (r) => r.households || 0, render: (r) => <span className="tabular">{formatInt(r.households || 0)}</span> },
-      totalFood: { label: tr('Vivres (t)'), num: true, sortVal: (r) => Number(r.totalFood) || 0, csv: (r) => Number(r.totalFood) || 0, render: (r) => <span className="tabular mono">{Number(r.totalFood) ? fmtMt(r.totalFood) : <span className="cell-empty">—</span>}</span> },
-      cashUsd: { label: tr('Cash ($)'), num: true, sortVal: (r) => Number(r.cashUsd) || 0, csv: (r) => Number(r.cashUsd) || 0, render: (r) => <span className="tabular mono">{Number(r.cashUsd) ? fmtUsd(r.cashUsd) : <span className="cell-empty">—</span>}</span> },
+      totalFood: { label: tr('Vivres (t)'), num: true, sortVal: (r) => Number(r.totalFood) || 0, csv: (r) => Number(r.totalFood) || 0, render: (r) => <span className="tabular">{Number(r.totalFood) ? fmtMt(r.totalFood) : <span className="cell-empty">—</span>}</span> },
+      cashUsd: { label: tr('Cash ($)'), num: true, sortVal: (r) => Number(r.cashUsd) || 0, csv: (r) => Number(r.cashUsd) || 0, render: (r) => <span className="tabular">{Number(r.cashUsd) ? fmtUsd(r.cashUsd) : <span className="cell-empty">—</span>}</span> },
     };
     // Une colonne (optionnelle) par denrée — fidèle aux colonnes du classeur.
     for (const cm of foodCommodities) {
@@ -173,7 +173,7 @@ function DistributionsView({ canEdit, onNavigate }) {
         label: cm.label, num: true,
         sortVal: (r) => Number(r.items?.[cm.code]) || 0,
         csv: (r) => Number(r.items?.[cm.code]) || 0,
-        render: (r) => { const q = Number(r.items?.[cm.code]) || 0; return <span className="tabular mono">{q ? mtFmt.format(q).replace(/ /g, ' ') : <span className="cell-empty">—</span>}</span>; },
+        render: (r) => { const q = Number(r.items?.[cm.code]) || 0; return <span className="tabular">{q ? mtFmt.format(q).replace(/ /g, ' ') : <span className="cell-empty">—</span>}</span>; },
       };
     }
     return c;
@@ -200,25 +200,20 @@ function DistributionsView({ canEdit, onNavigate }) {
 
   return (
     <>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">{tr("Distribution d'urgence — distributions")}</h1>
-          <p className="page-desc">{picking
-            ? tr('Choisissez un mois pour ouvrir son plan de distribution (vivres & cash par zone et activité).')
-            : tr('Plan de distribution de la période : table fidèle au classeur, filtrable et exportable.')}</p>
-        </div>
-        <div className="header-actions">
-          <PeriodSelect value={period} onChange={setPeriod} counts={counts} countLabel="{n} ligne(s) de distribution sur la période" latest={latestOf(counts)} allowAll align="right" />
-          {!picking && <Button variant="secondary" icon={ChevronLeft} onClick={() => setPeriod(null)}>{tr('Tous les mois')}</Button>}
-          {canEdit && <>
-            <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={onImport} />
-            <Button variant="ghost" icon={Download} onClick={downloadTemplate}
-              title={tr("Classeur vierge au format exact de l'import (feuille « PDD base » + feuille « Lisez-moi » qui décrit chaque colonne).")}>{tr('Modèle PDD')}</Button>
-            <Button variant="secondary" icon={Upload} loading={busy} onClick={() => fileRef.current?.click()}
-              title={tr('Importe le tableau PDD (feuille « PDD base » du modèle ou tableau du classeur réel) : mois, zone, activité, bénéficiaires, tonnages. Les lignes ignorées sont listées avec leur motif. Réimport idempotent (les mois du fichier sont remplacés).')}>{tr('Importer le PDD')}</Button>
-          </>}
-        </div>
-      </div>
+      <PageHeader title={tr("Distribution d'urgence — distributions")}
+        description={picking
+          ? tr('Choisissez un mois pour ouvrir son plan de distribution (vivres & cash par zone et activité).')
+          : tr('Plan de distribution de la période : table fidèle au classeur, filtrable et exportable.')}>
+        <PeriodSelect value={period} onChange={setPeriod} counts={counts} countLabel="{n} ligne(s) de distribution sur la période" latest={latestOf(counts)} allowAll align="right" />
+        {!picking && <Button variant="secondary" icon={ChevronLeft} onClick={() => setPeriod(null)}>{tr('Tous les mois')}</Button>}
+        {canEdit && <>
+          <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={onImport} />
+          <Button variant="ghost" icon={Download} onClick={downloadTemplate}
+            title={tr("Classeur vierge au format exact de l'import (feuille « PDD base » + feuille « Lisez-moi » qui décrit chaque colonne).")}>{tr('Modèle PDD')}</Button>
+          <Button variant="secondary" icon={Upload} loading={busy} onClick={() => fileRef.current?.click()}
+            title={tr('Importe le tableau PDD (feuille « PDD base » du modèle ou tableau du classeur réel) : mois, zone, activité, bénéficiaires, tonnages. Les lignes ignorées sont listées avec leur motif. Réimport idempotent (les mois du fichier sont remplacés).')}>{tr('Importer le PDD')}</Button>
+        </>}
+      </PageHeader>
 
       {error && <Alert tone="error">{error}</Alert>}
 
@@ -453,7 +448,7 @@ function SynthesisView() {
   if (error) return <Alert tone="error">{error}</Alert>;
   if (!data) return (
     <>
-      <div className="page-header"><div><h1 className="page-title">{tr("Distribution d'urgence — synthèse")}</h1><p className="page-desc">{tr('Chargement…')}</p></div></div>
+      <PageHeader title={tr("Distribution d'urgence — synthèse")} description={tr('Chargement…')} />
       <Card><div className="card-body"><Skeleton height={200} /></div></Card>
     </>
   );
@@ -468,15 +463,10 @@ function SynthesisView() {
 
   return (
     <>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">{tr("Distribution d'urgence — synthèse")}</h1>
-          <p className="page-desc">{tr('Totaux recalculés en direct : par aléa, par mois, par zone (région → district → commune) et par denrée.')}</p>
-        </div>
-        <div className="header-actions">
-          <PeriodSelect value={period} onChange={setPeriod} counts={counts} countLabel="{n} ligne(s) de distribution sur la période" latest={latestOf(counts)} allowAll align="right" />
-        </div>
-      </div>
+      <PageHeader title={tr("Distribution d'urgence — synthèse")}
+        description={tr('Totaux recalculés en direct : par aléa, par mois, par zone (région → district → commune) et par denrée.')}>
+        <PeriodSelect value={period} onChange={setPeriod} counts={counts} countLabel="{n} ligne(s) de distribution sur la période" latest={latestOf(counts)} allowAll align="right" />
+      </PageHeader>
 
       <Stats compact items={[
         { label: tr('Lignes'), value: formatInt(total.lines), foot: period ? periodLabel(period, lang) : tr('Toutes les périodes') },
@@ -498,10 +488,10 @@ function SynthesisView() {
                 {hazards.map((k) => (
                   <tr key={k}>
                     <td><HazardBadge value={k} /></td>
-                    <td className="num mono">{formatInt(byHazard[k].lines)}</td>
-                    <td className="num mono">{formatInt(byHazard[k].beneficiaries)}</td>
-                    <td className="num mono">{byHazard[k].totalFood ? fmtMt(byHazard[k].totalFood) : '—'}</td>
-                    <td className="num mono">{byHazard[k].cashUsd ? fmtUsd(byHazard[k].cashUsd) : '—'}</td>
+                    <td className="num tabular">{formatInt(byHazard[k].lines)}</td>
+                    <td className="num tabular">{formatInt(byHazard[k].beneficiaries)}</td>
+                    <td className="num tabular">{byHazard[k].totalFood ? fmtMt(byHazard[k].totalFood) : '—'}</td>
+                    <td className="num tabular">{byHazard[k].cashUsd ? fmtUsd(byHazard[k].cashUsd) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -518,10 +508,10 @@ function SynthesisView() {
                 {months.map((m) => (
                   <tr key={m}>
                     <td className="tabular">{monthLabel(`${m}-01`.slice(0, 7))}</td>
-                    <td className="num mono">{formatInt(byMonth[m].lines)}</td>
-                    <td className="num mono">{formatInt(byMonth[m].beneficiaries)}</td>
-                    <td className="num mono">{byMonth[m].totalFood ? fmtMt(byMonth[m].totalFood) : '—'}</td>
-                    <td className="num mono">{byMonth[m].cashUsd ? fmtUsd(byMonth[m].cashUsd) : '—'}</td>
+                    <td className="num tabular">{formatInt(byMonth[m].lines)}</td>
+                    <td className="num tabular">{formatInt(byMonth[m].beneficiaries)}</td>
+                    <td className="num tabular">{byMonth[m].totalFood ? fmtMt(byMonth[m].totalFood) : '—'}</td>
+                    <td className="num tabular">{byMonth[m].cashUsd ? fmtUsd(byMonth[m].cashUsd) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -545,11 +535,11 @@ function SynthesisView() {
                         <ExpandButton expanded={rOpen} onClick={() => toggle(rk)} label={R.name} />
                         <strong style={{ marginLeft: 6 }}>{R.name}</strong>
                       </td>
-                      <td className="num mono">{formatInt(R.lines)}</td>
-                      <td className="num mono"><strong>{formatInt(R.beneficiaries)}</strong></td>
-                      <td className="num mono">{formatInt(R.households)}</td>
-                      <td className="num mono">{R.totalFood ? fmtMt(R.totalFood) : '—'}</td>
-                      <td className="num mono">{R.cashUsd ? fmtUsd(R.cashUsd) : '—'}</td>
+                      <td className="num tabular">{formatInt(R.lines)}</td>
+                      <td className="num tabular"><strong>{formatInt(R.beneficiaries)}</strong></td>
+                      <td className="num tabular">{formatInt(R.households)}</td>
+                      <td className="num tabular">{R.totalFood ? fmtMt(R.totalFood) : '—'}</td>
+                      <td className="num tabular">{R.cashUsd ? fmtUsd(R.cashUsd) : '—'}</td>
                     </tr>
                     {rOpen && R.districts.map((D) => {
                       const dk = `d:${R.name}:${D.name}`; const dOpen = open.has(dk);
@@ -560,20 +550,20 @@ function SynthesisView() {
                               <ExpandButton expanded={dOpen} onClick={() => toggle(dk)} label={D.name} />
                               <span style={{ marginLeft: 6 }}>{D.name}</span>
                             </td>
-                            <td className="num mono">{formatInt(D.lines)}</td>
-                            <td className="num mono">{formatInt(D.beneficiaries)}</td>
-                            <td className="num mono">{formatInt(D.households)}</td>
-                            <td className="num mono">{D.totalFood ? fmtMt(D.totalFood) : '—'}</td>
-                            <td className="num mono">{D.cashUsd ? fmtUsd(D.cashUsd) : '—'}</td>
+                            <td className="num tabular">{formatInt(D.lines)}</td>
+                            <td className="num tabular">{formatInt(D.beneficiaries)}</td>
+                            <td className="num tabular">{formatInt(D.households)}</td>
+                            <td className="num tabular">{D.totalFood ? fmtMt(D.totalFood) : '—'}</td>
+                            <td className="num tabular">{D.cashUsd ? fmtUsd(D.cashUsd) : '—'}</td>
                           </tr>
                           {dOpen && D.communes.map((C) => (
                             <tr key={`c:${dk}:${C.name}`} className="subrow">
                               <td style={{ paddingLeft: 56 }} className="muted">{C.name}</td>
-                              <td className="num mono">{formatInt(C.lines)}</td>
-                              <td className="num mono">{formatInt(C.beneficiaries)}</td>
-                              <td className="num mono">{formatInt(C.households)}</td>
-                              <td className="num mono">{C.totalFood ? fmtMt(C.totalFood) : '—'}</td>
-                              <td className="num mono">{C.cashUsd ? fmtUsd(C.cashUsd) : '—'}</td>
+                              <td className="num tabular">{formatInt(C.lines)}</td>
+                              <td className="num tabular">{formatInt(C.beneficiaries)}</td>
+                              <td className="num tabular">{formatInt(C.households)}</td>
+                              <td className="num tabular">{C.totalFood ? fmtMt(C.totalFood) : '—'}</td>
+                              <td className="num tabular">{C.cashUsd ? fmtUsd(C.cashUsd) : '—'}</td>
                             </tr>
                           ))}
                         </React.Fragment>
@@ -599,7 +589,7 @@ function SynthesisView() {
                 return (
                   <tr key={name}>
                     <td><strong>{name}</strong></td>
-                    <td className="num mono">{fmtMt(qty)}</td>
+                    <td className="num tabular">{fmtMt(qty)}</td>
                     <td style={{ minWidth: 160 }}><Usage rate={qty / max} /></td>
                   </tr>
                 );
@@ -662,15 +652,10 @@ function PipelineView({ canEdit }) {
 
   return (
     <>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">{tr("Distribution d'urgence — pipeline")}</h1>
-          <p className="page-desc">{tr('Besoin planifié (tonnages du PDD) confronté au stock disponible, par denrée : écart, couverture et ruptures.')}</p>
-        </div>
-        <div className="header-actions">
-          <PeriodSelect value={period} onChange={setPeriod} counts={counts} countLabel="{n} ligne(s) de distribution sur la période" latest={latestOf(counts)} allowAll align="right" />
-        </div>
-      </div>
+      <PageHeader title={tr("Distribution d'urgence — pipeline")}
+        description={tr('Besoin planifié (tonnages du PDD) confronté au stock disponible, par denrée : écart, couverture et ruptures.')}>
+        <PeriodSelect value={period} onChange={setPeriod} counts={counts} countLabel="{n} ligne(s) de distribution sur la période" latest={latestOf(counts)} allowAll align="right" />
+      </PageHeader>
 
       {error && <Alert tone="error">{error}</Alert>}
 
@@ -726,9 +711,9 @@ function PipelineView({ canEdit }) {
                             <ExpandButton expanded={isOpen} onClick={() => setOpenRow(isOpen ? null : r.commodity)} label={r.commodity} />
                             <strong style={{ marginLeft: 6 }}>{r.commodity}</strong>
                           </td>
-                          <td className="num mono">{fmtMt(r.need)}</td>
-                          <td className="num mono">{fmtMt(r.available)}{r.stockMonth && r.stockMonth !== period.to && <div className="site-meta">{tr('stock au {m}', { m: monthLabel(r.stockMonth) })}</div>}</td>
-                          <td className="num mono">{r.uncovered > 0 ? <span style={{ color: 'var(--red)' }}>{mtFmt.format(r.uncovered)}</span> : '—'}</td>
+                          <td className="num tabular">{fmtMt(r.need)}</td>
+                          <td className="num tabular">{fmtMt(r.available)}{r.stockMonth && r.stockMonth !== period.to && <div className="site-meta">{tr('stock au {m}', { m: monthLabel(r.stockMonth) })}</div>}</td>
+                          <td className="num tabular">{r.uncovered > 0 ? <span style={{ color: 'var(--red)' }}>{mtFmt.format(r.uncovered)}</span> : '—'}</td>
                           <td className="tabular">{tr('{n} / {total} mois', { n: r.shortfallMonths, total: r.months.length })}</td>
                           <td>{r.donor || <span className="cell-empty">—</span>}</td>
                           <td>{r.shortfall
@@ -739,9 +724,9 @@ function PipelineView({ canEdit }) {
                         {isOpen && r.months.map((m) => (
                           <tr key={`${r.commodity}:${m.month}`} className="subrow">
                             <td style={{ paddingLeft: 40 }} className="muted">{monthLabel(m.month)}</td>
-                            <td className="num mono">{fmtMt(m.need)}</td>
-                            <td className="num mono">{fmtMt(m.available)}{m.stockMonth && m.stockMonth !== m.month && <div className="site-meta">{tr('stock au {m}', { m: monthLabel(m.stockMonth) })}</div>}</td>
-                            <td className="num mono">{m.shortfall ? <span style={{ color: 'var(--red)' }}>{mtFmt.format(m.gap)}</span> : mtFmt.format(m.gap)}</td>
+                            <td className="num tabular">{fmtMt(m.need)}</td>
+                            <td className="num tabular">{fmtMt(m.available)}{m.stockMonth && m.stockMonth !== m.month && <div className="site-meta">{tr('stock au {m}', { m: monthLabel(m.stockMonth) })}</div>}</td>
+                            <td className="num tabular">{m.shortfall ? <span style={{ color: 'var(--red)' }}>{mtFmt.format(m.gap)}</span> : mtFmt.format(m.gap)}</td>
                             <td style={{ minWidth: 140 }}><Usage rate={m.coverage} /></td>
                             <td />
                             <td>{m.shortfall ? tr('Rupture') : tr('Couvert')}</td>
@@ -754,8 +739,8 @@ function PipelineView({ canEdit }) {
                   return (
                     <tr key={r.commodity} className={r.shortfall ? 'row-due' : ''}>
                       <td><strong>{r.commodity}</strong></td>
-                      <td className="num mono">{fmtMt(r.need)}</td>
-                      <td className="num mono">
+                      <td className="num tabular">{fmtMt(r.need)}</td>
+                      <td className="num tabular">
                         {canEdit && month
                           ? <input className="input" type="number" min="0" step="0.001" style={{ width: 110, textAlign: 'right' }}
                               value={availVal} onChange={(e) => setDraft({ ...draft, [r.commodity]: { ...d, available: e.target.value } })}
@@ -763,7 +748,7 @@ function PipelineView({ canEdit }) {
                           : fmtMt(r.available)}
                         {r.stockMonth && r.stockMonth !== month && <div className="site-meta">{tr('stock au {m}', { m: monthLabel(`${r.stockMonth}`) })}</div>}
                       </td>
-                      <td className="num mono">{r.shortfall ? <span style={{ color: 'var(--red)' }}>{mtFmt.format(r.gap)}</span> : mtFmt.format(r.gap)}</td>
+                      <td className="num tabular">{r.shortfall ? <span style={{ color: 'var(--red)' }}>{mtFmt.format(r.gap)}</span> : mtFmt.format(r.gap)}</td>
                       <td style={{ minWidth: 140 }}><Usage rate={r.coverage} /></td>
                       <td>
                         {canEdit && month
