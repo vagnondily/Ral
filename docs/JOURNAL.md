@@ -12,6 +12,13 @@
 
 ## État courant
 
+> **23/10 — Correctif backlog : un rapport TECHNIQUE ne s'ouvrait pas (constat lot 8).** ✅ Dans Rapports,
+> le bouton « Ouvrir » n'apparaissait que pour un rapport financier (facture) ; un rapport technique n'avait
+> donc aucun moyen de s'ouvrir. `FactureDrawer` gère pourtant déjà les deux types. Bouton rendu pour les
+> deux (« Ouvrir le rapport » pour le technique). Build vert, tests workflow OK. (Les deux autres constats
+> du lot 8 — « créer un rapport le soumet d'office » et « un rapport soumis peut être supprimé » — touchent
+> l'intention du workflow ; laissés à l'arbitrage du propriétaire plutôt que modifiés à l'aveugle.)
+
 > **23/10 — Module Projets (1re version, demande ; conception SPEC_PROGRAMMES.md).** ✅ L'autre session
 > avait conçu « Programmes & projets » (8 étapes) mais s'est arrêtée ; j'ai livré une première version
 > propre et cohérente. Migration 127 : `projects` (nom, code/WBS, n° grant, n° award, bailleur, zones,

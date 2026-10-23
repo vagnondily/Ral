@@ -428,7 +428,7 @@ export default function ReportsPage({ canEdit, onOpenContract, onNavigate }) {
         {/* Barre d'actions */}
         <div className="data-toolbar">
           <div className="data-toolbar-left">
-            {selected?.kind === 'financier' && <Button size="sm" variant="secondary" icon={ExternalLink} onClick={() => setFacture({ reportId: selected.id })}>{tr('Ouvrir la facture')}</Button>}
+            {selected && <Button size="sm" variant="secondary" icon={ExternalLink} onClick={() => setFacture({ reportId: selected.id })}>{selected.kind === 'financier' ? tr('Ouvrir la facture') : tr('Ouvrir le rapport')}</Button>}
             {selected?.kind === 'financier' && selected?.status === 'valide' && onNavigate && <Button size="sm" variant="secondary" icon={TrendingUp} onClick={() => onNavigate('dashboard', 'consolidation')}>{tr('Voir dans la consolidation')}</Button>}
             {/* Actions calculées par le serveur pour l'utilisateur courant (mêmes règles qu'à l'écriture) :
                 seul l'auteur soumet ; ni le soumetteur ni l'auteur ne valident ou ne rejettent. */}

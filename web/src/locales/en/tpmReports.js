@@ -52,6 +52,7 @@ export default {
   'Aucun taux de change — à saisir dans Paramétrage': 'No exchange rate — enter one in Settings',
   'Aucun taux de change saisi — renseignez-les dans Paramétrage › Taux de change pour afficher les valeurs en dollars.': 'No exchange rates entered — add them in Settings › Exchange rates to display values in dollars.',
   'Ouvrir la facture': 'Open invoice',
+  'Ouvrir le rapport': 'Open report',
   'Voir dans la consolidation': 'View in consolidation',
   'Sites planifiés non réalisés du mois (raisons)': 'Planned but uncompleted sites this month (reasons)',
   'Sélectionner {name}': 'Select {name}',
