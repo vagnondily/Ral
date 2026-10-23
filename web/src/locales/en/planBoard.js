@@ -56,6 +56,11 @@ export default {
   'Reste': 'Remaining',
   'Activité absente du MMR': 'Activity missing from the MMR',
   'Jamais': 'Never',
+  'prévues {m}': 'planned {m}',
+  'collecte de données': 'data collection',
+  'registre': 'registry',
+  'N\'est pas une visite déclarée réalisée : ne compte pas dans « Faites » ni le MMR':
+    'Not a declared completed visit: does not count in “Done” or the MMR',
   'Réalisée{d}': 'Done{d}',
   'Mois inactif : non planifiable': 'Inactive month: cannot be planned',
   'Planifiée et réalisée': 'Planned and done',

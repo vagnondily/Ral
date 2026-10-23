@@ -12,6 +12,17 @@
 
 ## État courant
 
+> **23/10 — RBM › Plan de suivi : clarté « Dernière visite » + « prévue ».** ✅ Deux retours sur la grille.
+> (1) « Dernière visite Fév. 2026 » avec « Faites 0 / MMR 0 % » semblait incohérent : la dernière visite
+> effective peut venir d'une **collecte de données** (reliée au site, sinon à sa commune) ou du **registre**,
+> alors que « Faites »/MMR ne comptent que les **visites déclarées réalisées** (modèle documenté, retour 48,
+> données commune ≠ visite de suivi). La cellule indique désormais la **source** (« collecte de données » /
+> « registre ») avec une info-bulle « ne compte pas dans Faites ni le MMR » — le 0 devient compréhensible.
+> MMR laissé en visites déclarées (une donnée commune ne doit pas créditer un site précis). (2) Le sous-texte
+> « prévue {mois} » n'affichait que la prochaine échéance alors que plusieurs mois sont cochés : il **liste
+> maintenant tous les mois prévus** (« prévues oct., nov. »), cohérent avec les cases. Traductions EN
+> ajoutées. Build vert, 1574 tests, lint propre.
+
 > **23/10 — Affectation & visites : la barre mensuelle = exécution du plan (réalisées ÷ planifiées).** ✅
 > Demande : « le pourcentage ici c'est plan vs achieved ». La barre verte du tableau des mois montrait la
 > couverture des sites (suivis ÷ sites actifs) ; elle montre désormais l'**exécution du plan** = visites

@@ -348,8 +348,15 @@ function PlanTable({ rows, offset, allRows, capacity, yearHasGrid, pending, canE
             <td className="num">{s.done}</td><td className="num">{s.planned}</td>
             <td className={`num ${s.remaining > 0 ? 'pb-rest' : ''}`}>{s.remaining}</td>
             <td>
-              {lastVisit(s) || <span className="muted">{tr('Jamais')}</span>}
-              {s.nextPlannedMonth && <div className="site-meta">{tr('prévue {m}', { m: monthLabel(s.nextPlannedMonth) })}</div>}
+              {lastVisit(s)
+                ? <>{lastVisit(s)}{(s.lastVisitSource === 'donnees' || s.lastVisitSource === 'registre') && <div className="site-meta" title={tr('N\'est pas une visite déclarée réalisée : ne compte pas dans « Faites » ni le MMR')}>{s.lastVisitSource === 'donnees' ? tr('collecte de données') : tr('registre')}</div>}</>
+                : <span className="muted">{tr('Jamais')}</span>}
+              {(() => {
+                const pm = (s.months || []).filter((c) => c.status === 'planifie').map((c) => c.month).sort((a, b) => a - b);
+                if (!pm.length) return null;
+                const txt = pm.map((m) => shortMonth(m)).join(', ');
+                return <div className="site-meta">{pm.length > 1 ? tr('prévues {m}', { m: txt }) : tr('prévue {m}', { m: txt })}</div>;
+              })()}
             </td>
             {MONTHS.map((m) => {
               const cell = (s.months || []).find((x) => x.month === m);
