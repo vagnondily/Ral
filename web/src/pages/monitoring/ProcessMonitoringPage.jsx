@@ -1047,7 +1047,7 @@ function ResultsTab({ form, canEdit, onGoConfig, onChanged, onGoMapping }) {
                 <tr key={b.key || b.bureau}>
                   <td><strong>{b.status ? <CodeLabel row={b} /> : b.bureau}</strong>
                     {b.status === 'non_relie' && <> · <button type="button" className="inline-link" onClick={onGoMapping}>{tr('Relier')}</button></>}</td>
-                  <td className="num mono">{b.submissions}</td><td className="num mono">{b.sites}</td>
+                  <td className="num tabular">{b.submissions}</td><td className="num tabular">{b.sites}</td>
                 </tr>
               ))}
             </tbody>
@@ -1335,7 +1335,7 @@ function IndicatorsConfigCard({ form, canEdit, refreshKey = 0, templateAbove = f
                         {label && label !== i.sourceField && <div className="var-label" title={label}>{label}</div>}
                         {(i.agg === 'percent_value' || i.agg === 'percent_yes') && i.positiveValue ? <div className="site-meta">{tr('compte : {v}', { v: i.positiveValue })}</div> : null}</td>
                       <td className="ind-cfg-agg">{AGG_SHORT[i.agg] ? tr(AGG_SHORT[i.agg]) : i.agg}</td>
-                      <td className="num mono">{i.target ?? <span className="cell-empty">—</span>}</td>
+                      <td className="num tabular">{i.target ?? <span className="cell-empty">—</span>}</td>
                       <td className="nowrap">{i.direction === 'lower_better' ? tr('↓ mieux') : tr('↑ mieux')}</td>
                       <td>{i.templateCode ? <Badge tone="blue" icon={Sparkles}>{tr('modèle')}</Badge> : <Badge tone={null} icon={Pencil}>{tr('manuel')}</Badge>}</td>
                       <td className="col-actions">

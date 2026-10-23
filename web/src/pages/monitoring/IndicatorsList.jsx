@@ -138,7 +138,7 @@ export default function IndicatorsList({ indicators, moduleLabel, toolbarExtra, 
           if (k === 'module') return <td key={k} className="muted">{i.module || '—'}</td>;
           if (k === 'prog') return <td key={k}>{p.has ? <ProgressCell p={p} fill={st.fill} /> : <span className="cell-empty">—</span>}</td>;
           if (k === 'statut') return <td key={k}><StatusBadge def={st} /></td>;
-          if (k === 'base') return <td key={k} className="num mono">{i.base ?? <span className="cell-empty">—</span>}</td>;
+          if (k === 'base') return <td key={k} className="num tabular">{i.base ?? <span className="cell-empty">—</span>}</td>;
           if (k === 'agg') return <td key={k} className="muted">{AGG[i.agg] ? tr(AGG[i.agg]) : i.agg}</td>;
           if (k === 'sens') return <td key={k}>{i.direction === 'lower_better' ? <span className="ind-sens"><TrendingDown size={14} /> {tr('plus bas')}</span> : <span className="ind-sens"><TrendingUp size={14} /> {tr('plus haut')}</span>}</td>;
           if (k === 'source') return <td key={k}><span className="mono ind-sub">{i.sourceField || '—'}</span></td>;

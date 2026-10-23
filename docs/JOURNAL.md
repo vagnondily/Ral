@@ -12,6 +12,16 @@
 
 ## État courant
 
+> **23/10 — Vérification transversale : orphelins + cohérence d'affichage.** ✅ Suite à la demande
+> (« vérifie tous les liaisons, les choses orphelines, le code qui bug ou s'affiche mal, et corrige »).
+> Liaisons nav + API vérifiées propres (9 modules, tous sous-écrans rendus ; chaque `api.X()` a sa méthode
+> client). Fichiers orphelins : `ContractFormDrawer.jsx` (166 l., remplacé par `ContractFormPage.jsx`) et
+> `BudgetMatrix.jsx` (132 l., remplacé par `BudgetItems.jsx`) retirés — aucun import, code mort confirmé ;
+> commentaire de locale obsolète corrigé. `AssignmentPage.jsx` conservé (décision documentée CLAUDE.md).
+> Cohérence d'affichage : 3 chiffres encore en police mono (`num mono`) ramenés à Inter tabulaire
+> (`num tabular`) — IndicatorsList (référence), ProcessMonitoringPage (soumissions/sites, cible), conforme
+> au design (« les chiffres en Inter tabulaire, jamais mono »). Build vert, 1574 tests, lint propre.
+
 > **23/10 — Correctif backlog : un rapport TECHNIQUE ne s'ouvrait pas (constat lot 8).** ✅ Dans Rapports,
 > le bouton « Ouvrir » n'apparaissait que pour un rapport financier (facture) ; un rapport technique n'avait
 > donc aucun moyen de s'ouvrir. `FactureDrawer` gère pourtant déjà les deux types. Bouton rendu pour les

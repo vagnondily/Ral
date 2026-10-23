@@ -332,7 +332,7 @@ export default {
   'Motif': 'Reason',
   "Date d'effet": 'Effective date',
 
-  // ---- Budget par postes / matrice (components/BudgetItems.jsx, BudgetMatrix.jsx)
+  // ---- Budget par postes / matrice (components/BudgetItems.jsx)
   "Sélectionnez d'abord au moins une activité pour saisir le budget.": 'First select at least one activity to enter the budget.',
   'Ligne budgétaire': 'Budget line',
   'Poste (description)': 'Cost item (description)',
