@@ -142,6 +142,7 @@ export default {
   'Placés par leurs collectes': 'Placed from their data collections',
   'Centres des collectes (commune)': 'Commune data-collection centres',
   'Centre du district (visités sans GPS)': 'District centre (visited, no GPS)',
+  'Centre du district (sites sans GPS)': 'District centre (sites without GPS)',
   'Centre du district — sites visités sans GPS': 'District centre — visited sites without GPS',
   'Sites visités sans position': 'Visited sites without a position',
   'Visites réalisées': 'Realised visits',

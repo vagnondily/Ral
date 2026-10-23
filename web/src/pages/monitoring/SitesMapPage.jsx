@@ -23,7 +23,9 @@ const MAP_MAX_SPAN = 36;
 export default function SitesMapPage({ onNavigate, isAdmin = false }) {
   const { tr } = useI18n();
   // Plafond de /api/map/* : 36 mois — une période de session plus longue (budget : 60) est ramenée.
-  const per = usePeriod({ scope: 'analysis', defaultRule: 'data', maxSpan: MAP_MAX_SPAN });
+  // Défaut = MOIS COURANT (les sites actifs sont de ce mois) et non le dernier mois de données
+  // (souvent sans site actif → carte vide). Le repli registre couvre un mois courant sans activation.
+  const per = usePeriod({ scope: 'analysis', defaultRule: 'current', maxSpan: MAP_MAX_SPAN });
   const [data, setData] = useState(null);
   const initial = useMemo(() => ({ theme: 'active', layers: { gps: true, derived: true, communes: true, collect: false } }), []);
 

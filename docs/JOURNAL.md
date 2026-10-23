@@ -12,6 +12,14 @@
 
 ## État courant
 
+> **23/10 — Carte des sites : sites visibles + ouverture sur un mois peuplé (en cours).** 🔄 Retour
+> « les sites ne sont pas dans la carte et la carte est moche ». La carte s'ouvrait sur le dernier mois de
+> DONNÉES (Juin 2026, 0 site actif) → carte vide. Deux premiers correctifs : (1) **défaut = mois courant**
+> (`defaultRule: 'current'`) car les sites actifs sont de ce mois ; (2) le repli **« centre du district »**
+> couvre désormais TOUS les sites ACTIFS sans GPS (avant : seulement les sites visités), en un marqueur
+> agrégé par district — les ~2 600 sites sans coordonnée apparaissent enfin. Reste à faire : repli registre
+> « jamais de carte vide » et embellissement (points pleins, légende, fond). Build vert, 47 tests carte OK.
+
 > **23/10 — RBM › Plan de suivi : lisibilité de la grille (retour « non compréhensible »).** ✅ Quatre points.
 > (1) **Légende manquante** : elle était rendue DANS le cadre défilant (`pb-table-wrap`, overflow+max-height)
 > et disparaissait au défilement — sortie du cadre, elle est désormais une **boîte étiquetée « Légende »**

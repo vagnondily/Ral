@@ -24,8 +24,8 @@ async function points(auth, { period, officeId = null, activity = null, layers, 
   const precise = seesPreciseGps(auth.role);
   const raw = await repo.pointsData(auth.tenantId, { period, officeId, activity, layers, limit, precise, maxAccuracyM: MAX_ACCURACY_M });
   const res = buildPointsResponse(raw, { layers, precise, maxAccuracyM: MAX_ACCURACY_M, limit });
-  // Repli « centre du district » : toujours montrer les sites VISITÉS sans aucune position, au
-  // centre de leur district (centroïde = point d'étiquette du contour fourni). Toujours disponible.
+  // Repli « centre du district » : montrer TOUS les sites ACTIFS sans aucune position, au centre de
+  // leur district (centroïde = point d'étiquette du contour fourni). Toujours disponible.
   if (layers.includes('districts')) {
     res.districts = await districtFallback(auth.tenantId, { period, officeId, activity });
     res.counts.districtCentres = res.districts.length;

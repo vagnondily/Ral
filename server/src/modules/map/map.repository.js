@@ -416,9 +416,10 @@ async function pointsData(tenantId, { period, officeId = null, activity = null, 
 
 /**
  * Repli « centre du district » : sites VISITÉS (visite déclarée OU données reçues) qui n'ont
- * AUCUNE position (pas de GPS du registre), regroupés par district — pour les afficher au centre
- * de leur district quand aucune coordonnée fine n'existe (le centroïde du contour est ajouté par
- * le service). @returns [{ dpcode, name, n, sites:[{id,name,visits}] }]
+ * AUCUNE position (pas de GPS du registre), regroupés par district — pour afficher TOUS les sites
+ * ACTIFS du mois sans coordonnée au centre de leur district (un marqueur agrégé par district, pas
+ * un point par site). Le centroïde du contour est ajouté par le service.
+ * @returns [{ dpcode, name, n, sites:[{id,name,visits}] }]
  */
 async function districtUnplacedTx(tenantId, { period, officeId = null, activity = null }) {
   return withTenantTransaction(tenantId, async (client) => {
@@ -433,7 +434,7 @@ async function districtUnplacedTx(tenantId, { period, officeId = null, activity 
          FROM per_site p
          JOIN sites s ON s.id = p.site_id AND s.tenant_id = $1
          LEFT JOIN admin_areas d ON d.tenant_id = $1 AND d.pcode = p.dpcode AND d.depth = 2
-        WHERE (p.realised_any OR p.realised_data) AND NOT p.has_gps
+        WHERE p.active AND NOT p.has_gps
           AND NULLIF(btrim(p.dpcode), '') IS NOT NULL
         GROUP BY 1`,
       params
