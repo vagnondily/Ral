@@ -85,16 +85,21 @@
 .pb-m.pb-datadone { background: var(--yellow-bg); }
 .pb-m.pb-datadone input { accent-color: var(--yellow, #b7791f); }
 .pb-m.is-pending { background: var(--yellow-bg); }
-.pb-m.is-inactive { background: repeating-linear-gradient(135deg, var(--surface-2) 0 4px, var(--canvas) 4px 8px); }
+/* Mois inactif (non planifiable) : hachure TRÈS légère — recule, ne surcharge pas la grille. */
+.pb-m.is-inactive { background: repeating-linear-gradient(135deg, var(--surface) 0 5px, var(--canvas) 5px 10px); }
+/* Sur-planifié : plus de visites prévues que d'exigées (signalé, pas bloqué). */
+.pb-over { font-weight: 700; color: var(--orange-text); }
 /* Légende du code couleur de la grille. */
-.pb-grid-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 0 0 8px; font-size: 12.5px; color: var(--text-muted); }
+.pb-grid-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 10px 0; padding: 8px 12px; font-size: 12.5px; color: var(--text-muted);
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.pb-grid-legend .pb-legend-title { font-weight: 700; color: var(--text); margin-right: 2px; }
 .pb-grid-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .pb-grid-legend .pb-sw { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--border-strong); }
 .pb-grid-legend .pb-sw-done { background: var(--green-bg); border-color: var(--green); }
 .pb-grid-legend .pb-sw-datadone { background: var(--yellow-bg); border-color: var(--yellow, #b7791f); }
 .pb-grid-legend .pb-sw-planned { background: var(--surface-2); }
 .pb-grid-legend .pb-sw-free { background: var(--surface); }
-.pb-grid-legend .pb-sw-inactive { background: repeating-linear-gradient(135deg, var(--surface-2) 0 3px, var(--canvas) 3px 6px); }
+.pb-grid-legend .pb-sw-inactive { background: repeating-linear-gradient(135deg, var(--surface) 0 3px, var(--canvas) 3px 6px); }
 .pb-table tfoot th, .pb-table tfoot td { position: sticky; bottom: 0; z-index: 1; background: var(--surface); border-top: 2px solid var(--border-strong); }
 .pb-foot-l { text-align: right !important; font-size: 12px; font-weight: 600; color: var(--text-muted); }
 .pb-total { font-variant-numeric: tabular-nums; line-height: 1.1; }

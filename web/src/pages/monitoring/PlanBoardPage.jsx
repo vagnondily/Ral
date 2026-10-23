@@ -238,12 +238,15 @@ export default function PlanBoardPage({ canEdit, embedded = false, initialView =
           {view === 'map' ? <PlanMap sites={filtered} /> : rows.length === 0 ? (
             <p className="pb-empty">{view === 'visited' ? tr('Aucun site visité sur l\'exercice dans ce périmètre.') : tr('Aucun site dans ce périmètre.')}</p>
           ) : (
+            <>
+            {view === 'plan' && <PlanLegend />}
             <div className="table-wrap pb-table-wrap">
               {view === 'plan' && <PlanTable rows={pageRows} offset={(page - 1) * PAGE} allRows={rows} capacity={data.capacity} yearHasGrid={Boolean(data.yearHasGrid)} pending={pending}
                 canEdit={canEdit} selected={selected} onSelect={toggleSel} allSelected={allSelected} onSelectAll={toggleAll} onToggle={toggleMonth} />}
               {view === 'standard' && <StandardTable rows={pageRows} selected={selected} onSelect={toggleSel} allSelected={allSelected} onSelectAll={toggleAll} canEdit={canEdit} />}
               {view === 'visited' && <VisitedTable rows={pageRows} year={year} selected={selected} onSelect={toggleSel} allSelected={allSelected} onSelectAll={toggleAll} canEdit={canEdit} />}
             </div>
+            </>
           )}
           {view !== 'map' && totalPages > 1 && (
             <div className="pager">
@@ -308,19 +311,27 @@ function SelectAllHead({ allSelected, onSelectAll, label }) {
   return <th scope="col" className="pb-cb pb-stick"><input type="checkbox" checked={allSelected} onChange={onSelectAll} aria-label={label} /></th>;
 }
 
+/* Légende de la grille — hors du cadre défilant pour rester toujours visible. */
+function PlanLegend() {
+  const { tr } = useI18n();
+  return (
+    <div className="pb-grid-legend" aria-label={tr('Légende de la grille')}>
+      <span className="pb-legend-title">{tr('Légende')}</span>
+      <span><i className="pb-sw pb-sw-done" /> {tr('Planifiée et réalisée')}</span>
+      <span><i className="pb-sw pb-sw-datadone" /> {tr('Réalisée non planifiée (données)')}</span>
+      <span><i className="pb-sw pb-sw-planned" /> {tr('Planifiée, à faire')}</span>
+      <span><i className="pb-sw pb-sw-free" /> {tr('Non planifiée')}</span>
+      <span><i className="pb-sw pb-sw-inactive" /> {tr('Mois inactif (non planifiable)')}</span>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------- Sites proposés + grille des mois */
 function PlanTable({ rows, offset, allRows, capacity, yearHasGrid, pending, canEdit, selected, onSelect, allSelected, onSelectAll, onToggle }) {
   const { tr } = useI18n();
   const totals = useMemo(() => monthTotals(allRows, capacity), [allRows, capacity]);
   return (
     <>
-    <div className="pb-grid-legend">
-      <span><i className="pb-sw pb-sw-done" /> {tr('Planifiée et réalisée')}</span>
-      <span><i className="pb-sw pb-sw-datadone" /> {tr('Réalisée non planifiée (données)')}</span>
-      <span><i className="pb-sw pb-sw-planned" /> {tr('Planifiée, à faire')}</span>
-      <span><i className="pb-sw pb-sw-free" /> {tr('Non planifiée')}</span>
-      <span><i className="pb-sw pb-sw-inactive" /> {tr('Mois inactif')}</span>
-    </div>
     <table className="table pb-table pb-plan">
       <thead>
         <tr>
@@ -345,7 +356,9 @@ function PlanTable({ rows, offset, allRows, capacity, yearHasGrid, pending, canE
             <TpmZoneCell tpm={s.tpm} months={s.months} />
             <td><PriorityBadge value={s.priority} /></td>
             <td className="num">{s.required == null ? <span className="muted" title={tr('Activité absente du MMR')}>—</span> : s.required}</td>
-            <td className="num">{s.done}</td><td className="num">{s.planned}</td>
+            <td className="num">{s.done}</td>
+            <td className={`num ${s.required != null && s.planned > s.required ? 'pb-over' : ''}`}
+              title={s.required != null && s.planned > s.required ? tr('Sur-planifié : {p} prévues pour {r} exigées', { p: s.planned, r: s.required }) : undefined}>{s.planned}</td>
             <td className={`num ${s.remaining > 0 ? 'pb-rest' : ''}`}>{s.remaining}</td>
             <td>
               {lastVisit(s)
@@ -374,14 +387,19 @@ function PlanTable({ rows, offset, allRows, capacity, yearHasGrid, pending, canE
               const planned = Boolean(cell);
               const realised = declaredDone || hasData;
               const tone = realised ? (planned ? 'is-done' : 'pb-datadone') : (planned ? 'pb-planned' : '');
-              const title = inactive ? (blank ? tr('Mois non renseigné : non planifiable') : tr('Mois inactif : non planifiable'))
+              // Mois inactif SANS visite = non planifiable : cellule vide (pas de case), pour alléger la grille.
+              const emptyInactive = inactive && !planned && !realised;
+              const title = inactive && (planned || realised) ? tr('Visite dans un mois inactif — à déplacer ou effacer')
+                : inactive ? (blank ? tr('Mois non renseigné : non planifiable') : tr('Mois inactif : non planifiable'))
                 : declaredDone ? `${tr('Réalisée{d}', { d: cell.date ? ` (${cell.date})` : '' })}${cell.provider ? ` · ${cell.provider}` : ''}`
                   : hasData ? (planned ? `${tr('Réalisée (données)')}${cell.provider ? ` · ${cell.provider}` : ''}` : tr('Réalisée (données) — non planifiée'))
                     : (cell?.provider ? `${tr('Prévue')} · ${cell.provider}` : undefined);
               return (
                 <td key={m} className={`pb-m ${tone} ${inactive ? 'is-inactive' : ''} ${isPending ? 'is-pending' : ''}`} title={title}>
-                  <input type="checkbox" checked={planned} disabled={!canEdit || inactive || declaredDone} aria-label={label}
-                    onChange={(e) => onToggle(s, m, e.target.checked)} />
+                  {emptyInactive ? null : (
+                    <input type="checkbox" checked={planned} disabled={!canEdit || inactive || declaredDone} aria-label={label}
+                      onChange={(e) => onToggle(s, m, e.target.checked)} />
+                  )}
                 </td>
               );
             })}

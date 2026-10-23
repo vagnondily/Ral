@@ -12,6 +12,17 @@
 
 ## État courant
 
+> **23/10 — RBM › Plan de suivi : lisibilité de la grille (retour « non compréhensible »).** ✅ Quatre points.
+> (1) **Légende manquante** : elle était rendue DANS le cadre défilant (`pb-table-wrap`, overflow+max-height)
+> et disparaissait au défilement — sortie du cadre, elle est désormais une **boîte étiquetée « Légende »**
+> toujours visible au-dessus de la grille. (2) **Cases trop grises** : les mois inactifs SANS visite
+> n'affichent plus de case à cocher (inutile car non planifiable) — gros gain de lisibilité — et la hachure
+> « mois inactif » est très allégée. (3) **Prévues > Exigées** : la cellule « Prévues » est signalée en
+> orange « sur-planifié » avec info-bulle ({p} prévues pour {r} exigées) — signalé, pas bloqué (la logique de
+> planification, testée, est inchangée). (4) **Grille allégée** par les points 1-2 + info-bulle claire sur une
+> visite posée dans un mois inactif (« à déplacer ou effacer »). Aucun changement de calcul ni de logique
+> serveur. Traductions EN ajoutées. Build vert, 1574 tests, lint propre.
+
 > **23/10 — RBM › Plan de suivi : clarté « Dernière visite » + « prévue ».** ✅ Deux retours sur la grille.
 > (1) « Dernière visite Fév. 2026 » avec « Faites 0 / MMR 0 % » semblait incohérent : la dernière visite
 > effective peut venir d'une **collecte de données** (reliée au site, sinon à sa commune) ou du **registre**,
