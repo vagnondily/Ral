@@ -7,6 +7,9 @@ export default {
   // ---- Thèmes, groupes, niveaux (serveur : map/mapThemes.js)
   'Carte du suivi': 'Monitoring map',
   'Sites actifs': 'Active sites',
+  'Sites (registre)': 'Sites (registry)',
+  'Aucun site actif pour « {theme} » sur cette période : les districts sont colorés par le nombre de sites du registre.':
+    'No active site for “{theme}” in this period: districts are coloured by their number of registry sites.',
   'Risque élevé': 'High risk',
   'Couverture': 'Coverage',
   'Planification': 'Planning',

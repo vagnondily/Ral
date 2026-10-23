@@ -90,6 +90,7 @@ export function valueOf(theme, zone) {
     return x.value == null ? null : x.value;
   };
   switch (theme) {
+    case 'sites': return c.sites > 0 ? c.sites : null; // repli « registre » : nombre de sites, actifs ou non
     case 'active': return c.active > 0 ? c.active : null;
     case 'realised': return c.active > 0 ? c.realised : null;
     case 'submissions': return c.submissions > 0 ? c.submissions : null;

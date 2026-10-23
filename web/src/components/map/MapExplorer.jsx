@@ -62,6 +62,10 @@ const useIsPhone = () => {
  *   initial   { theme, officeId, activity, layers } — réglages de départ
  *   onOpenFull(state) — variante compacte : « Ouvrir la carte »
  */
+// Thème de repli « jamais de carte vide » : colore les districts par le nombre de sites du registre
+// (actifs ou non), utilisé quand le thème choisi ne colore aucun district sur la période.
+const REGISTRY_THEME = Object.freeze({ id: 'sites', group: 'registre', label: 'Sites (registre)', kind: 'count', ramp: 'blue' });
+
 export default function MapExplorer({
   variant = 'full', period, initial = {}, onNavigate, onOpenFull, storageKey = 'mems.map.prefs', title,
   isAdmin = false, toolbarExtra = null, periodControl = null, onDataChange,
@@ -118,7 +122,13 @@ export default function MapExplorer({
   useEffect(() => { if (data && onDataChange) onDataChange(data); }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const themes = data ? data.themes : [];
-  const theme = themes.find((t) => t.id === themeId) || themes.find((t) => t.id === 'coverage') || null;
+  const picked = themes.find((t) => t.id === themeId) || themes.find((t) => t.id === 'coverage') || null;
+  // Repli « jamais de carte vide » : si le thème choisi ne colore AUCUN district sur la période mais que
+  // des sites existent au registre, colorer par le nombre de sites (actifs ou non) + note explicite.
+  const pickedColors = !!(data && picked && data.shapes.some((s) => valueOf(picked.id, s) != null));
+  const registryHasSites = !!(data && data.shapes.some((s) => (s.counts && s.counts.sites) > 0));
+  const registryFallback = !!(data && picked && !pickedColors && registryHasSites);
+  const theme = registryFallback ? REGISTRY_THEME : picked;
   const scale = useMemo(() => (theme && data ? scaleFor(theme, data.shapes, { dark }) : null), [theme, data, dark]);
   const periodText = period ? periodLabel(period, lang, { short: true }) : '';
   const multiMonth = period && period.from !== period.to;
@@ -296,6 +306,7 @@ export default function MapExplorer({
   const mapBlock = (
     <div className="mapx-mapcol" ref={colRef}>
       {geoMissing && <Alert tone="warning">{tr('Contours de la carte indisponibles : le classement et le tableau restent exacts.')}</Alert>}
+      {registryFallback && <Alert tone="info">{tr('Aucun site actif pour « {theme} » sur cette période : les districts sont colorés par le nombre de sites du registre.', { theme: tr(picked ? picked.label : '') })}</Alert>}
       <div className="mapx-stage">
         <DistrictMap ref={mapRef} geo={geo} shapes={data.shapes} shapeRegions={data.shapeRegions} theme={theme} scale={scale} dark={dark}
           points={points} pointLayers={pointLayers} showLabels={showLabels} showRegions={showRegions} height={height} padBottom={24}

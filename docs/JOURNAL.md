@@ -12,13 +12,17 @@
 
 ## État courant
 
-> **23/10 — Carte des sites : sites visibles + ouverture sur un mois peuplé (en cours).** 🔄 Retour
-> « les sites ne sont pas dans la carte et la carte est moche ». La carte s'ouvrait sur le dernier mois de
-> DONNÉES (Juin 2026, 0 site actif) → carte vide. Deux premiers correctifs : (1) **défaut = mois courant**
-> (`defaultRule: 'current'`) car les sites actifs sont de ce mois ; (2) le repli **« centre du district »**
-> couvre désormais TOUS les sites ACTIFS sans GPS (avant : seulement les sites visités), en un marqueur
-> agrégé par district — les ~2 600 sites sans coordonnée apparaissent enfin. Reste à faire : repli registre
-> « jamais de carte vide » et embellissement (points pleins, légende, fond). Build vert, 47 tests carte OK.
+> **23/10 — Carte des sites : sites visibles + jamais de carte vide.** ✅ Retour « les sites ne sont pas
+> dans la carte et la carte est moche ». La carte s'ouvrait sur le dernier mois de DONNÉES (Juin 2026,
+> 0 site actif) → carte vide et grise. Correctifs : (1) **défaut = mois courant** (`defaultRule: 'current'`)
+> car les sites actifs sont de ce mois — les points prennent alors leur vrai statut au lieu de « inactif »
+> gris partout ; (2) le repli **« centre du district »** couvre désormais TOUS les sites ACTIFS sans GPS
+> (avant : seulement visités), marqueur agrégé par district — les ~2 600 sites sans coordonnée apparaissent ;
+> (3) **repli « jamais de carte vide »** : si le thème choisi ne colore aucun district sur la période mais
+> que des sites existent au registre, les districts sont colorés par leur **nombre de sites du registre**
+> (thème `sites`, `valueOf`), avec une bande d'info. Résultat : carte peuplée et colorée d'emblée.
+> L'embellissement fin des glyphes de points (restylage) est laissé à une passe ciblée après retour visuel,
+> pour ne pas risquer les tests d'export/légende. Build vert, 1574 tests, lint propre.
 
 > **23/10 — RBM › Plan de suivi : lisibilité de la grille (retour « non compréhensible »).** ✅ Quatre points.
 > (1) **Légende manquante** : elle était rendue DANS le cadre défilant (`pb-table-wrap`, overflow+max-height)
