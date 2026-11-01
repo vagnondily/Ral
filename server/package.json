@@ -41,7 +41,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "eslint": "^9.39.5",
-    "pino-pretty": "^11.2.2",
+    "pino-pretty": "^13.2.0",
     "supertest": "^7.0.0"
   },
   "engines": {
