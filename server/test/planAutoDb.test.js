@@ -163,12 +163,12 @@ test('planification automatique : aperçu, empreinte, application, idempotence, 
     assert.ok(after.length < made7.length, 'les visites du district sont effacées');
     assert.ok(after.some((v) => districtOf.get(v.site_id) !== dist), 'les autres districts restent');
     await service.clearPlanned(T, { year, from: Number(now.slice(5, 7)), to: 12 });
-    // Seules restent les visites d'un mois déjà facturé par leur TPM (jamais effacées, retour 82).
+    // Seules restent les visites d'un mois couvert par une facture de leur TPM (jamais effacées, retour 82) — le
+    // prédicat partagé (INVOICED_SQL : chaque mois d'une facture pluri-mensuelle, migration 108), jamais le seul premier mois.
+    const { INVOICED_SQL } = require('../src/modules/tpm/tpmAttribution.repository');
     const left = (await newVisits()).map((x) => x.id);
     const notInvoiced = left.length ? (await q(
-      `SELECT count(*)::int AS n FROM site_visits v WHERE v.id = ANY($1::uuid[])
-          AND NOT EXISTS (SELECT 1 FROM tpm_reports r WHERE r.tenant_id = v.tenant_id AND r.partner_id = v.provider_id
-                            AND r.period_month = v.period_month AND r.kind = 'financier' AND r.status IN ('soumis', 'valide'))`, [left]))[0].n : 0;
+      `SELECT count(*)::int AS n FROM site_visits v WHERE v.id = ANY($1::uuid[]) AND NOT ${INVOICED_SQL}`, [left]))[0].n : 0;
     assert.equal(notInvoiced, 0, '« Effacer » retire le plan généré sans dates ni agents (hors mois facturés)');
 
     // 4. Demande depuis janvier : mois échus signalés, jamais planifiés.

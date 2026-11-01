@@ -30,7 +30,9 @@ async function sheet(tenantId, id) {
   // « Rapports attendus » et les alertes ; relecture croisée, point 4).
   const month = raw.counts.month;
   const expected = await reportsRepo.expectedReports(tenantId, { period: { from: addMonths(month, -11), to: month }, today: month });
-  return buildSheet(raw, { consolidation: await consolidationByContract(tenantId, month), expected: expectedCountsOf(expected, id) });
+  // Même périmètre que les documents de la fiche : ses factures comme TPM et celles des contrats qu'il tient.
+  const held = (raw.contracts || []).filter((c) => c.holderId === id).map((c) => c.id);
+  return buildSheet(raw, { consolidation: await consolidationByContract(tenantId, month), expected: expectedCountsOf(expected, id, held) });
 }
 
 async function contracts(tenantId, id) {

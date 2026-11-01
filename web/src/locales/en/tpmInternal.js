@@ -152,4 +152,10 @@ export default {
     '“Monitored internally”: visits in the areas of its contracts monitored by the M&E team (contract without a TPM, TPM unavailable or removed with a reason), counted separately from the TPMs’ visits.',
   'Le partenaire n\'est plus un TPM actif (type changé ou fiche désactivée) : visites prévues rendues à leur zone.':
     'The partner is no longer an active TPM (type changed or profile deactivated): planned visits returned to their area.',
+  // Relecture des corrections croisées (fiche retypée, TPM inactif, TPM indisponible)
+  'Ce partenaire n\'est plus un TPM : aucune facture n\'est plus attendue de lui.': 'This partner is no longer a TPM: no invoice is expected from it any more.',
+  'TPM inactifs (mois passés)': 'Inactive TPMs (past months)',
+  'Ce TPM est inactif : sa facture ne peut porter que sur des mois passés.': 'This TPM is inactive: its invoice can only cover past months.',
+  'Ce TPM est inactif : la facture ne peut être soumise que si toute sa période précède le mois courant.': 'This TPM is inactive: the invoice can only be submitted if its whole period is before the current month.',
+  'Ce TPM est déclaré indisponible en {m} : aucun plan de collecte ne peut lui être confié ce mois-là. Choisissez un autre TPM.': 'This TPM is declared unavailable in {m}: no collection plan can be assigned to it that month. Choose another TPM.',
 };

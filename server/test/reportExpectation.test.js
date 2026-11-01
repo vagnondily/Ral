@@ -68,7 +68,7 @@ test('expectedReports : TPM × contrat des contrats, des visites, des factures ;
   const internal = out.rows.find((r) => r.unit.kind === 'interne');
   assert.deepEqual(internal.unit.offices, ['Ambovombe', 'Toliara'], 'qui : l équipe S&E de ces bureaux');
   assert.deepEqual(internal.visits, { planned: 3, realised: 1 });
-  assert.deepEqual(out.rows[0].reports, [{ id: 'r1', status: 'valide', contractLabel: 'FLA-A' }]);
+  assert.deepEqual(out.rows[0].reports, [{ id: 'r1', status: 'valide', contractLabel: 'FLA-A', late: false, autoNotApplicable: false, partnerNotTpm: false }]);
   assert.equal(out.counts.autoNonApplicable, 6);
   assert.equal(out.counts.en_retard, 1);
   assert.equal(out.counts.internal, 1);

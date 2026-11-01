@@ -50,29 +50,43 @@ export function contractOptions(contracts, { month, tpmsOf = () => [], fmtPeriod
 
 /**
  * Groupes, dans l'ordre : « TPM de ce contrat » (un contrat choisi) → « Actifs ce mois-ci » (règle commune
- * « prestataire actif au mois M », retour 30, `isActive`) → les autres. Un groupe sans libellé fourni
- * n'est pas formé.
+ * « prestataire actif au mois M », retour 30, `isActive`) → les autres → « TPM inactifs (mois passés) »
+ * (`inactive` : fiches inactives, proposées par l'appelant pour une facture de mois passés seulement,
+ * décision D-b ; option `active: false`). Un groupe sans libellé fourni n'est pas formé. Un TPM déclaré
+ * indisponible (`offMonths`, décision D-c) le dit dans sa précision (`labels.unavailable(mois)`).
  * @param {{id,name}[]} partners  TPM actifs
  * @param {{ contracts?: object[], contractId?: string, tpmsOf?: Function, isActive?: (id) => boolean,
- *           labels?: { ofContract?: string, active?: string, others?: string, noContract?: string } }} o
+ *           inactive?: {id,name}[], offMonths?: (id) => string[],
+ *           labels?: { ofContract?: string, active?: string, others?: string, noContract?: string, inactive?: string,
+ *                      unavailable?: (months: string[]) => string } }} o
  * @returns {{ options: object[], order: string[] }}
  */
-export function tpmOptions(partners, { contracts = [], contractId = '', tpmsOf = () => [], isActive = null, labels = {} } = {}) {
+export function tpmOptions(partners, {
+  contracts = [], contractId = '', tpmsOf = () => [], isActive = null, inactive = [], offMonths = null, labels = {},
+} = {}) {
   const own = new Set((contractId ? tpmsOf(contractId) || [] : []).map((p) => p.id));
   const byContract = Boolean(contractId && own.size && labels.ofContract);
   const byActivity = Boolean(isActive && labels.active && (partners || []).some((p) => isActive(p.id) && !own.has(p.id)));
-  const grouped = Boolean((byContract || byActivity) && labels.others);
+  const activeIds = new Set((partners || []).map((p) => p.id));
+  const extra = labels.inactive ? (inactive || []).filter((p) => !activeIds.has(p.id)) : [];
+  const grouped = Boolean((byContract || byActivity || extra.length) && labels.others);
   const groupOf = (p) => {
     if (!grouped) return undefined;
     if (byContract && own.has(p.id)) return labels.ofContract;
     if (byActivity && isActive(p.id)) return labels.active;
     return labels.others;
   };
+  const off = (p) => {
+    const ms = (offMonths && offMonths(p.id)) || [];
+    return ms.length && labels.unavailable ? labels.unavailable(ms) : null;
+  };
   const options = (partners || []).map((p) => {
     const mine = (contracts || []).filter((c) => (tpmsOf(c.id) || []).some((x) => x.id === p.id)).map((c) => c.numeroFla || c.numero).filter(Boolean);
-    return { value: p.id, label: p.name, sub: mine.length ? listed(mine) : labels.noContract, group: groupOf(p), keywords: mine };
+    const sub = [mine.length ? listed(mine) : labels.noContract, off(p)].filter(Boolean).join(' · ') || undefined;
+    return { value: p.id, label: p.name, sub, group: groupOf(p), keywords: mine };
   });
-  const order = grouped ? [byContract && labels.ofContract, byActivity && labels.active, labels.others].filter(Boolean) : [];
+  for (const p of extra) options.push({ value: p.id, label: p.name, sub: off(p) || undefined, group: grouped ? labels.inactive : undefined, keywords: [], active: false });
+  const order = grouped ? [byContract && labels.ofContract, byActivity && labels.active, labels.others, extra.length && labels.inactive].filter(Boolean) : [];
   return { options, order };
 }
 
@@ -85,6 +99,19 @@ export function withPartner(head, partnerId, contracts, tpmsOf = () => []) {
   if (head.contractId || !partnerId) return { ...head, partnerId };
   const own = (contracts || []).filter((c) => (tpmsOf(c.id) || []).some((p) => p.id === partnerId));
   return { ...head, partnerId, contractId: own.length === 1 ? own[0].id : '' };
+}
+
+/**
+ * `tpmsOf` sans les TPM déclarés indisponibles ce mois-là (`tpmsOf.offMonths`, décision D-c) : la
+ * planification ne pré-remplit jamais un TPM à qui aucun plan ne peut être confié ce mois (le serveur le
+ * refuserait : 400 tpm_unavailable). Garde `isActive` et `offMonths`.
+ */
+export function availableTpmsOf(tpmsOf) {
+  const isOff = (id) => ((tpmsOf.offMonths && tpmsOf.offMonths(id)) || []).length > 0;
+  const out = (contractId) => (tpmsOf(contractId) || []).filter((p) => !isOff(p.id));
+  out.isActive = tpmsOf.isActive;
+  out.offMonths = tpmsOf.offMonths;
+  return out;
 }
 
 /**

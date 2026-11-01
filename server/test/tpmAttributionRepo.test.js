@@ -578,13 +578,14 @@ test('lien TPM ↔ contrat (U2) : premier plan / facture ou dernier supprimé �
   assert.deepEqual(calls[0].params, [T, YPA, K1], 'lien lu dans le compte du jeton');
 });
 
-test('lien TPM ↔ contrat (re-relecture, point 2 ; r114c, point 3) : le PASSÉ — zones du contrat × mois couverts — ne recalcule que les visites que le lien décide, le courant tout le compte', async () => {
+test('lien TPM ↔ contrat (re-relecture, point 2 ; r114c, point 3 ; r2stamp, points 2 à 4) : le PASSÉ — zones du contrat × mois couverts — ne recalcule que les visites que le lien décide, le courant tout le compte', async () => {
   const calls = [];
+  let exists = false;
   const client = {
     query: async (sql, params) => {
       const q = sql.replace(/\s+/g, ' ').trim();
       calls.push({ sql: q, params });
-      if (/^SELECT EXISTS \(SELECT 1 FROM tpm_collection_plans/.test(q)) return { rows: [{ ok: false }] };
+      if (/^SELECT EXISTS \(SELECT 1 FROM tpm_collection_plans/.test(q)) return { rows: [{ ok: exists }] };
       if (/FROM contracts c WHERE c\.tenant_id = \$1 AND c\.id = \$2/.test(q)) {
         return { rows: [{ status: 'actif', dateDebut: '2020-02-01', dateFin: '2099-12-31', terminationDate: null, monitoring: true }] };
       }
@@ -596,26 +597,45 @@ test('lien TPM ↔ contrat (re-relecture, point 2 ; r114c, point 3) : le PASSÉ 
   const { currentMonth } = require('../src/modules/tpm/rbmMath');
   const today = currentMonth();
   const prev = (() => { const [y, m] = today.split('-').map(Number); const i = y * 12 + m - 2; return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`; })();
-  // Dernier document (mois passé 2020-03) supprimé : visites prévues lues dans les zones du contrat (régions
-  // étendues) × mois couverts ; aucune n'y est : seul le courant est estampillé, pour tout le compte.
+  const readOf = () => calls.find((c) => /^SELECT v\.id, s\.zone_district_id AS "districtId"/.test(c.sql));
+  // DERNIER document (mois 2020-03) supprimé : dès le DÉBUT du contrat (2020-02, relecture r2stamp point 4) —
+  // visites lues dans les zones du contrat (régions étendues), ou estampillées par un TPM dont le lien change
+  // le rôle sur ce contrat (point 3), triées par mois (point 2) ; aucune n'y est : seul le courant est estampillé.
   const r = await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: true, month: '2020-03-01' });
-  const read = calls.find((c) => /^SELECT v\.id, s\.zone_district_id AS "districtId"/.test(c.sql));
+  const read = readOf();
   assert.match(read.sql, /v\.period_month = ANY \(\$3::date\[\]\)/);
-  assert.match(read.sql, /s\.zone_district_id = ANY \(\$2::uuid\[\]\) OR s\.zone_commune_id = ANY \(\$2::uuid\[\]\)/);
+  assert.match(read.sql, /s\.zone_district_id = ANY \(\$2::uuid\[\]\) OR s\.zone_commune_id = ANY \(\$2::uuid\[\]\) OR \(v\.contract_id = \$4::uuid AND v\.provider_id = ANY \(\$5::uuid\[\]\)\)/);
+  assert.match(read.sql, /ORDER BY v\.period_month, v\.id$/);
   assert.deepEqual([...read.params[1]].sort(), ['c1', 'd1', 'd9']);
-  assert.equal(read.params[2][0], '2020-03-01');
+  assert.equal(read.params[2][0], '2020-02-01', 'suppression du dernier document : dès le début du contrat');
   assert.equal(read.params[2][read.params[2].length - 1], `${prev}-01`, 'jusqu au mois précédent');
+  assert.deepEqual([read.params[3], read.params[4]], [K1, []]);
+  assert.ok(calls.findIndex((c) => /^SELECT c\.id, c\.numero, c\.numero_fla/.test(c.sql)) < calls.indexOf(read), 'entrées de la règle lues avant les candidates');
   const stamps = calls.filter((c) => /mems_tpm_stamp/.test(c.sql));
   assert.equal(stamps.length, 1);
   assert.match(stamps[0].sql, /v\.period_month >= \$2::date/);
   assert.equal(stamps[0].params[1], `${today}-01`, 'le courant : tout le compte, dès le mois courant');
   assert.equal(r.changed, 0);
   assert.equal(r.past, null);
-  // Document du mois courant ou à venir : aucune portée passée.
+  // PREMIER document d'un mois passé : jamais avant le document.
+  exists = true; calls.length = 0;
+  await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: false, month: '2020-03-01' });
+  assert.equal(readOf().params[2][0], '2020-03-01', 'création : dès le mois du document');
+  // Premier document du mois courant ou à venir : aucune portée passée.
   calls.length = 0;
-  await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: true, month: '2999-01-01' });
-  assert.ok(!calls.some((c) => /^SELECT v\.id, s\.zone_district_id/.test(c.sql)));
+  await repo.restampIfTpmLinkChangedTx(client, T, { partnerId: YPA, contractId: K1, had: false, month: '2999-01-01' });
+  assert.ok(!readOf());
   assert.deepEqual(calls.filter((c) => /mems_tpm_stamp/.test(c.sql)).map((c) => c.params[1]), [`${today}-01`]);
+});
+
+test('restampChunks (r2stamp, point 2) : un paquet ne mêle jamais deux mois, 500 au plus, ordre gardé', () => {
+  const ids = Array.from({ length: 1203 }, (_, i) => `v${String(i).padStart(4, '0')}`);
+  const monthOf = new Map(ids.map((id, i) => [id, i < 1100 ? '2026-01' : '2026-02']));
+  const chunks = repo.restampChunks(ids, monthOf);
+  assert.deepEqual(chunks.map((c) => c.length), [500, 500, 100, 103]);
+  assert.deepEqual(chunks.flat(), ids);
+  for (const c of chunks) assert.equal(new Set(c.map((id) => monthOf.get(id))).size, 1);
+  assert.deepEqual(repo.restampChunks(ids).map((c) => c.length), [500, 500, 203], 'sans mois : paquets de 500');
 });
 
 test('lien TPM ↔ contrat (r114c, point 3) : visite passée décidée par le lien — ré-estampillée par son identifiant ; lien sans effet — aucune', async () => {

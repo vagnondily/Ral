@@ -172,3 +172,36 @@ test('TPM actifs ce mois-ci en tête (règle « prestataire actif », retour 30)
   const allOwn = m.tpmOptions(partners.slice(0, 1), { contracts: CONTRACTS, contractId: 'k1', tpmsOf, isActive, labels });
   assert.deepEqual(allOwn.order, ['Du contrat', 'Autres'], 'groupe « actifs » vide : pas formé');
 });
+
+test('TPM inactifs (mois passés, D-b) dans leur propre groupe, à la fin ; TPM indisponible marqué dans sa précision (D-c)', async (t) => {
+  const m = await load(t, 'tpmPickers.js'); if (!m) return;
+  const partners = [{ id: 'p1', name: 'Ezaka Conseil' }, { id: 'p2', name: 'Miray Suivi' }];
+  const labels = { ofContract: 'Du contrat', others: 'Autres', noContract: '—', inactive: 'TPM inactifs (mois passés)', unavailable: (ms) => `indisponible : ${ms.join(', ')}` };
+  const offMonths = (id) => (id === 'p2' ? ['2026-12'] : []);
+  const out = m.tpmOptions(partners, { contracts: CONTRACTS, tpmsOf, offMonths, inactive: [{ id: 'old', name: 'Sahy', active: false }, { id: 'p1', name: 'doublon' }], labels });
+  assert.deepEqual(out.order, ['Autres', 'TPM inactifs (mois passés)']);
+  assert.deepEqual(out.options.map((o) => [o.value, o.group, o.active]), [['p1', 'Autres', undefined], ['p2', 'Autres', undefined], ['old', 'TPM inactifs (mois passés)', false]], 'un TPM actif n est jamais repris parmi les inactifs');
+  assert.match(out.options[1].sub, /indisponible : 2026-12$/);
+  // Sans le libellé du groupe (plan de collecte, facture du mois courant) : aucun TPM inactif proposé.
+  assert.deepEqual(m.tpmOptions(partners, { contracts: CONTRACTS, tpmsOf, inactive: [{ id: 'old', name: 'Sahy' }], labels: { others: 'Autres' } }).options.map((o) => o.value), ['p1', 'p2']);
+});
+
+test('plan de collecte (D-c) : un TPM déclaré indisponible ce mois-là n est jamais pré-rempli par le contrat', async (t) => {
+  const m = await load(t, 'tpmPickers.js'); if (!m) return;
+  const of = (id) => tpmsOf(id);
+  of.offMonths = (id) => (id === 'p1' ? ['2026-12'] : []);
+  of.isActive = () => true;
+  const fill = m.availableTpmsOf(of);
+  assert.deepEqual(fill('k1'), [], 'k1 : son seul TPM est indisponible');
+  assert.equal(fill.offMonths, of.offMonths);
+  assert.deepEqual(m.withContract({ partnerId: '', contractId: '' }, 'k1', fill), { partnerId: '', contractId: 'k1' }, 'choix laissé à l utilisateur');
+  assert.deepEqual(m.withContract({ partnerId: '', contractId: '' }, 'k2', fill), { partnerId: 'p2', contractId: 'k2' }, 'TPM disponible : pris');
+  // Le plan l'utilise ; la facture garde la règle du contrat (une facture reste possible, D-c).
+  const plan = fs.readFileSync(webFile('pages/tpm/PlanBudgetDrawer.jsx'), 'utf8');
+  assert.match(plan, /const fillTpmsOf = useMemo\(\(\) => availableTpmsOf\(tpmsOf\), \[tpmsOf\]\);/);
+  assert.match(plan, /withContract\(h, contractId, fillTpmsOf\)/);
+  assert.match(plan, /offMonths: tpmsOf\.offMonths/);
+  const hook = fs.readFileSync(webFile('lib/useContractTpms.js'), 'utf8');
+  assert.match(hook, /tpmsOf\.offMonths = \(partnerId\) => data\.off\.get\(partnerId\) \|\| \[\];/);
+  assert.match(hook, /p\.unavailableMonths/);
+});

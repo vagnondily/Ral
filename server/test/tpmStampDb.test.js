@@ -7,13 +7,15 @@
  *
  *  - Point 13 : le `lock_timeout` de l'appelant survit au verrou d'attribution — lockAttributionTx, la
  *    fonction mems_tpm_stamp (migration 109) et restampVisitsTx le rétablissent, jamais DEFAULT.
- *  - Point 2 : 4 000 visites couvertes par un contrat, passées à mems_tpm_stamp 7 fois de suite dans
- *    UNE session mems2_app (le plan générique de PL/pgSQL arrivait au 6ᵉ appel : plusieurs minutes) :
- *    le 1ᵉʳ appel les ré-estampille toutes (4 000 lignes écrites : leurs déclencheurs — même compte,
- *    clés étrangères — coûtent à eux seuls ~0,7 s), sous 2,5 s ; chacun des 6 suivants relit et
- *    recalcule les 4 000 cellules, sous 1 s (avant la migration 109 : ~1 s puis le plan générique).
- *    Puis le premier document d'un TPM sur ce contrat, pour le plus ancien mois (reports.insertReport) :
- *    les 4 000 visites passées le suivent (paquets de 500).
+ *  - Point 2 (relecture r2stamp, points 1 et 5 : garde STRUCTURELLE, jamais un seuil qui mesure l'état des
+ *    statistiques) : mems_tpm_stamp porte `plan_cache_mode=force_custom_plan` (pg_proc.proconfig : sans lui,
+ *    PL/pgSQL passait au plan générique au 6ᵉ appel d'une session) ; 4 000 visites couvertes par un
+ *    contrat, tables touchées ANALYSÉES d'abord (état des statistiques fixé, celui de la production), puis
+ *    7 appels dans UNE session mems2_app : les appels 6 et 7 au plus 3 fois la médiane des appels 2 à 5,
+ *    et un plafond grossier de 15 s par appel. Mesuré (base analysée, migration 120) : 1ᵉʳ appel ~0,7 à 1 s
+ *    (4 000 lignes écrites et leurs déclencheurs), les suivants 60 à 150 ms. Puis le premier document d'un
+ *    TPM sur ce contrat, pour le plus ancien mois (reports.insertReport) : les 4 000 visites passées le
+ *    suivent (un paquet par mois), sous 30 s.
  *  - Point 3 : contrat KB (district D) suivi par Y ; contrat K4 (commune C de D, titulaire W, TPM),
  *    commencé à M−3 — les visites passées de C, estampillées Y/KB avant K4, sont « en retard » (la
  *    règle dit W/K4) et le passé ne se réécrit pas en silence. Le premier plan de Z sur KB pour M−2 :
@@ -94,6 +96,9 @@ async function cleanup(made) {
   if (made.reports && made.reports.length) await q('DELETE FROM tpm_reports WHERE id = ANY ($1::uuid[])', [made.reports]);
   if (made.plans && made.plans.length) await q('DELETE FROM tpm_collection_plans WHERE id = ANY ($1::uuid[])', [made.plans]);
   for (const k of made.contracts || []) {
+    await q('DELETE FROM tpm_reports WHERE contract_id = $1', [k]); // gabarits restés après un échec
+    await q('DELETE FROM tpm_collection_plans WHERE contract_id = $1', [k]);
+    await q('DELETE FROM site_visits WHERE contract_id = $1', [k]);
     await q('DELETE FROM contract_areas WHERE contract_id = $1', [k]);
     await q('DELETE FROM contract_budget_items WHERE contract_id = $1', [k]);
     await q('DELETE FROM contracts WHERE id = $1', [k]);
@@ -155,6 +160,15 @@ test('point 2 : 4 000 visites couvertes — mems_tpm_stamp 7 fois de suite (mems
            FROM unnest($2::uuid[]) s, generate_series(1, 40) g RETURNING id`, [T, made.sites, `${M}-01`])).map((r) => r.id);
       await q('COMMIT');
       assert.equal(made.visits.length, 4000);
+      // Garde structurelle : la fonction est planifiée à chaque appel avec ses valeurs (migration 109).
+      const [{ conf }] = await q("SELECT proconfig AS conf FROM pg_proc WHERE proname = 'mems_tpm_stamp'");
+      assert.ok((conf || []).includes('plan_cache_mode=force_custom_plan'), `proconfig : ${JSON.stringify(conf)}`);
+      // Migration 120 : l'estimation juste de la politique de sécurité (tenant_id::text) sur ces tables.
+      const [{ n: stx }] = await q("SELECT count(*)::int AS n FROM pg_statistic_ext WHERE stxname LIKE '%\\_tenant\\_text\\_stx'");
+      assert.equal(stx, 12, 'statistiques d expression de la migration 120');
+      // État des statistiques FIXÉ (celui de la production, autovacuum) : tables lues par mems_tpm_cells analysées.
+      await q(`ANALYZE sites, site_visits, contracts, contract_budget_items, contract_areas, admin_areas, partners, partner_types,
+                       tpm_collection_plans, tpm_reports, tpm_zone_overrides, tpm_unavailability`);
 
       // Sept appels de suite dans UNE session du rôle applicatif (RLS) ; tout est annulé ensuite.
       const app = new Client({ connectionString: APP_URL });
@@ -175,17 +189,22 @@ test('point 2 : 4 000 visites couvertes — mems_tpm_stamp 7 fois de suite (mems
         await app.end();
       }
       const all = ms.map(Math.round).join(', ');
-      assert.ok(ms[0] < 2500, `1ᵉʳ appel (4 000 lignes écrites) : ${Math.round(ms[0])} ms (${all} ms)`);
-      for (const [i, t] of ms.entries()) if (i > 0) assert.ok(t < 1000, `appel ${i + 1} : ${Math.round(t)} ms — jamais le plan générique (${all} ms)`);
+      // Relatif, jamais absolu : les appels 6 et 7 (là où le plan générique arrivait) au plus 3 fois la médiane
+      // des appels 2 à 5 (+ 100 ms de marge pour une machine chargée) ; plafond grossier de 15 s par appel.
+      const median = [...ms.slice(1, 5)].sort((x, y) => x - y).slice(1, 3).reduce((x, y) => x + y, 0) / 2;
+      for (const [i, t] of ms.entries()) assert.ok(t < 15000, `appel ${i + 1} : ${Math.round(t)} ms, plafond 15 s (${all} ms)`);
+      for (const i of [5, 6]) {
+        assert.ok(ms[i] <= 3 * median + 100, `appel ${i + 1} : ${Math.round(ms[i])} ms > 3 × médiane des appels 2 à 5 (${Math.round(median)} ms) — plan générique ? (${all} ms)`);
+      }
 
-      // Premier document de P sur K pour le plus ancien mois : les 4 000 visites passées suivent P (paquets de 500).
+      // Premier document de P sur K pour le plus ancien mois : les 4 000 visites passées suivent P (un paquet par mois).
       const t0 = Date.now();
       made.reports.push(await reports.insertReport(T, { partnerId: P, contractId: K, periodMonth: `${addMonth(M, -40)}-01`, kind: 'technique', createdBy: U }));
       const elapsed = Date.now() - t0;
       const [after] = await q(`SELECT count(*) FILTER (WHERE provider_id = $2 AND provider_zone_state = 'contrat' AND contract_id = $3)::int AS n
                                  FROM site_visits WHERE id = ANY ($1::uuid[])`, [made.visits, P, K]);
       assert.equal(after.n, 4000, 'toutes les visites passées suivent le TPM rattaché');
-      assert.ok(elapsed < 10000, `premier document : ${elapsed} ms (mesuré ~2 s)`);
+      assert.ok(elapsed < 30000, `premier document : ${elapsed} ms (mesuré ~1,5 à 3 s ; plafond grossier)`);
     } finally {
       await cleanup(made);
     }
@@ -258,7 +277,98 @@ test('point 3 : passé d un lien — seules les visites que le lien décide ; ja
       made.plans = made.plans.filter((x) => x !== planZ);
       v = await read();
       assert.deepEqual(v, stampedYKB, 'retour : S2 à Y/KB, S jamais touchée');
+      // Relecture r2stamp, point 3 : dernier document de Y supprimé — Y perd son rôle sur KB. S, estampillée
+      // Y/KB (périmée : K4 la décide), est re-dérivée ; S2 suit la règle (KB sans TPM : suivi interne).
+      const planY = made.plans[0];
+      assert.equal(await planning.deletePlan(T, planY, { actorId: U, isAdmin: true }), 'ok');
+      made.plans = [];
+      v = await read();
+      const ruleNoY = await cells();
+      for (const m of months) {
+        assert.deepEqual(v[`S@${m}`], ['contrat', W, K4], `S@${m} : l estampille de Y, qui n est plus le TPM de KB, est re-dérivée`);
+        assert.deepEqual(v[`S2@${m}`], ruleNoY[`S2@${m}`], `S2@${m} : la règle`);
+        assert.notEqual(v[`S2@${m}`][1], Y, `S2@${m} : plus Y`);
+      }
     } finally {
       await cleanup(made);
     }
   });
+
+test('point 3 (relecture r2stamp) : titulaire TPM remplacé par le premier TPM rattaché — ses visites passées périmées sont re-dérivées',
+  { skip: SKIP, timeout: 180000 }, async () => {
+    const planning = require('../src/modules/tpm/planning.repository');
+    const { currentMonth } = require('../src/modules/tpm/rbmMath');
+    const made = { visits: [], sites: [], plans: [], contracts: [], areas: [], partners: [] };
+    try {
+      const M = currentMonth();
+      const A = await makeAreas('Test r2stamp titulaire', 1, true);
+      made.areas = A.ids.slice().reverse();
+      const D = A.D[0]; const C = A.C;
+      const mk = async (name, type) => (await q('INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1, $2, $3) RETURNING id', [T, types[type], name]))[0].id;
+      const Hh = await mk('Test r2stamp titulaire TPM', 'tpm');
+      const Z = await mk('Test r2stamp TPM Z', 'tpm');
+      const W = await mk('Test r2stamp TPM W', 'tpm');
+      made.partners = [Hh, Z, W];
+      // KB : district D, titulaire Hh (un TPM actif) : son TPM, faute de TPM rattaché (D1).
+      const KB = await makeContract('TEST-R2S-KB', { holder: Hh, holderName: 'Test r2stamp titulaire TPM', from: addMonth(M, -8), to: addMonth(M, 6), area: D, path: A.paths[D], depth: 2 });
+      made.contracts.push(KB);
+      const [s1] = await q(`INSERT INTO sites (tenant_id, code, name, zone_district_id, zone_commune_id)
+                            VALUES ($1, 'TEST-R2S-S', 'Site r2stamp commune', $2, $3) RETURNING id`, [T, D, C]);
+      made.sites = [s1.id];
+      const M2 = addMonth(M, -2);
+      [{ id: made.visits[0] }] = await q(`INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, provider_source)
+                                          VALUES ($1, $2, $3, 'Test r2stamp', 'planifie', 'zone') RETURNING id`, [T, s1.id, `${M2}-01`]);
+      const read = async () => { const [r] = await q('SELECT provider_zone_state AS st, provider_id AS p, contract_id AS k FROM site_visits WHERE id = $1', [made.visits[0]]); return [r.st, r.p, r.k]; };
+      assert.deepEqual(await read(), ['contrat', Hh, KB], 'estampillée : le titulaire TPM');
+      // K4 : commune C, titulaire W, dès M−3, posé sans ré-estampille : la visite de C est périmée (la règle dit W/K4).
+      const K4 = await makeContract('TEST-R2S-K4', { holder: W, holderName: 'Test r2stamp TPM W', from: addMonth(M, -3), to: addMonth(M, 6), area: C, path: A.paths[C], depth: 3 });
+      made.contracts.push(K4);
+      assert.deepEqual(await read(), ['contrat', Hh, KB]);
+      // Premier plan de Z sur KB : Z remplace le titulaire Hh comme TPM de KB — l'estampille de Hh est re-dérivée.
+      made.plans.push(await planning.createPlan(T, { partnerId: Z, contractId: KB, periodMonth: `${M2}-01`, title: 'Test r2stamp plan Z', items: [], createdBy: U }));
+      assert.deepEqual(await read(), ['contrat', W, K4], 'Hh n est plus le TPM de KB : la visite suit la règle (K4)');
+    } finally {
+      await cleanup(made);
+    }
+  });
+
+test('point 4 (relecture r2stamp) : suppression des gabarits d un TPM — même état final quel que soit l ordre, le passé revient à la règle',
+  { skip: SKIP, timeout: 240000 }, async () => {
+    const reports = require('../src/modules/tpm/reports.repository');
+    const { currentMonth } = require('../src/modules/tpm/rbmMath');
+    const made = { visits: [], sites: [], reports: [], contracts: [], areas: [], partners: [] };
+    try {
+      const M = currentMonth();
+      const A = await makeAreas('Test r2stamp gabarits');
+      made.areas = A.ids.slice().reverse();
+      const mk = async (name, type) => (await q('INSERT INTO partners (tenant_id, partner_type_id, name) VALUES ($1, $2, $3) RETURNING id', [T, types[type], name]))[0].id;
+      const H = await mk('Test r2stamp mise en oeuvre', 'prestataire');
+      const Z = await mk('Test r2stamp TPM gabarits', 'tpm');
+      made.partners = [H, Z];
+      const K = await makeContract('TEST-R2S-K', { holder: H, holderName: 'Test r2stamp mise en oeuvre', from: addMonth(M, -6), to: addMonth(M, 3), area: A.D[0], path: A.paths[A.D[0]], depth: 2 });
+      made.contracts = [K];
+      const [site] = await q(`INSERT INTO sites (tenant_id, code, name, zone_district_id) VALUES ($1, 'TEST-R2S-G', 'Site r2stamp gabarits', $2) RETURNING id`, [T, A.D[0]]);
+      made.sites = [site.id];
+      const months = [-5, -3, -1, 0].map((n) => addMonth(M, n));
+      made.visits = (await q(`INSERT INTO site_visits (tenant_id, site_id, period_month, activity, status, provider_source)
+                              SELECT $1, $2, m::date, 'Test r2stamp', 'planifie', 'zone' FROM unnest($3::text[]) m RETURNING id`,
+      [T, site.id, months.map((m) => `${m}-01`)])).map((r) => r.id);
+      const read = async () => (await q(`SELECT to_char(period_month, 'YYYY-MM') AS m, provider_zone_state AS st, provider_id AS p FROM site_visits
+                                          WHERE id = ANY ($1::uuid[]) ORDER BY period_month`, [made.visits])).map((r) => `${r.m}:${r.st}:${r.p === Z ? 'Z' : r.p || '-'}`);
+      const initial = await read();
+      assert.ok(initial.every((x) => x.endsWith(':sans_tpm:-')), JSON.stringify(initial));
+      for (const order of ['anciens d abord', 'récents d abord']) {
+        // Gabarits de Z sur K depuis le début du contrat : Z devient le TPM de K pour tous ces mois.
+        await reports.generateMonthlyStubs(T, { contractId: K, partnerId: Z, createdBy: U });
+        assert.ok((await read()).every((x) => x.endsWith(':contrat:Z')), `${order} : toutes suivent Z`);
+        const stubs = (await q('SELECT id FROM tpm_reports WHERE contract_id = $1 ORDER BY period_month', [K])).map((r) => r.id);
+        if (order !== 'anciens d abord') stubs.reverse();
+        for (const id of stubs) assert.equal(await reports.deleteReport(T, id, { actorId: U, isAdmin: true }), 'ok');
+        // Le dernier supprimé (2027-01 ou le plus ancien) : dès le DÉBUT du contrat, jamais seulement son mois.
+        assert.deepEqual(await read(), initial, `${order} : tout revient à la règle (sans TPM)`);
+      }
+    } finally {
+      await cleanup(made);
+    }
+  });
+
