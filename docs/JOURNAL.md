@@ -1171,3 +1171,15 @@ _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot v�
   Escape hatch `CSP_DISABLED=1`. **Vérifiée en servant le build via Express + balayage : 46 écrans × FR/EN,
   0 erreur console** (une violation CSP s'y afficherait). Contrôles : lint ✅, 1 584 tests ✅. Les 6 constats
   de l'audit sont tous traités ; restent les montées de dépendances (Dependabot/CI) et zod v4 (cassant).
+- **01/11 (intégration pp-*)** ✅ **Réintégration contrôlée des corrections post-publication du 21/10.**
+  Les quatre branches `wip/pp-geo`, `wip/pp-ui`, `wip/pp-partners`, `wip/pp-tpm` (25 commits : estampille du
+  passé par paquets mensuels, estampilles périmées d'un TPM qui change de rôle, garde de temps structurelle
+  et migration **120** `tenant_text_statistics`, numéro unique d'un contrat avenant partout, statut affiché
+  des « Factures du mois », TPM inactif qui facture ses mois passés, indisponibilité suivie à la facture,
+  gabarit pluri-mensuel « en retard », suivi interne d'un titulaire, P-code de district qui suit la graphie
+  du site…) fusionnées sur une branche d'intégration coupée du `main` du jour. **Aucun chevauchement de
+  fichier source** avec le travail de l'autre session depuis la base (seul `locales/en/tpmInternal.js`
+  était commun — résolu en union de clés). Migration 120 : `main` l'avait réservée (trou 119 → 121), elle
+  s'y insère sans collision. Contrôles complets : lint ✅, **1 676 tests unitaires / 0 échec** ✅, build ✅,
+  migration neuve (001→127 avec 120) ✅ **et** chemin de mise à jour (120 appliquée en attente sur une base
+  déjà en 127) ✅, `test:db` **55 ✅ / 0 échec / 1 sauté**, balayage **46 écrans × FR / EN, 0 erreur** ✅.
