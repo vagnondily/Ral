@@ -45,7 +45,7 @@ build web. `.github/dependabot.yml` : montées de dépendances hebdomadaires (se
 ## Constats ouverts et suivi
 | # | Gravité | Constat | État |
 |---|---|---|---|
-| 1 | Faible–Moyen | **Pas de révocation de session** : un compte désactivé / rôle abaissé garde son JWT valable jusqu'à expiration (8 h). La reconnexion, elle, est bien refusée. | À traiter (vérifier `active` dans `requireAuth`, cache court ; ou jetons courts) |
+| 1 | Faible–Moyen | **Pas de révocation de session** : un compte désactivé / rôle abaissé garde son JWT valable jusqu'à expiration (8 h). | ✅ Fait (01/11 : contrôle `active`+rôle dans `requireAuth`, cache court, opt-in `SESSION_ACTIVE_CHECK=1`) |
 | 2 | Faible | Gardes de rôle manquantes au niveau route sur approve/reject des contrats (défense en profondeur ; **non exploitable**, le service impose `validatorId === userId`). | ✅ Fait (01/11 : garde `VALIDATE` + test) |
 | 3 | Faible | Énumération de l'état d'un compte au login (pending/désactivé distingués avant la vérification du mot de passe). | À traiter (message générique) |
 | 4 | Faible | Avis `npm audit` serveur : body-parser (DoS), zod v3 (mémoire) — **DoS bornés par la limite 1 Mo** ; zod sans correctif en v3 (migration v4 cassante à planifier). Web : vite/esbuild = **dev uniquement**, absents de la production. | Suivi (CI + Dependabot) |
@@ -62,6 +62,17 @@ build web. `.github/dependabot.yml` : montées de dépendances hebdomadaires (se
 - Gardes de rôle `VALIDATE` (valideur+) sur approuver/rejeter contrat et avenant, avec test de routes (`contractDecisionRoutes.test.js`) — défense en profondeur (le service impose déjà `validatorId === userId`).
 - `jwt.verify` épingle l'algorithme `HS256` (jamais `none` ni asymétrique accepté par erreur).
 - Limiteur de débit par IP sur `/api/auth/register` et `/api/auth/activate` (`SIGNUP_RATE_MAX`, 20/15 min par défaut).
+
+## Fait le 01/11/2026 (3e envoi — révocation de session)
+- **Révocation de session** (`modules/auth/sessionCheck.js`) : `requireAuth` revérifie en base, avec cache
+  court par utilisateur (`SESSION_ACTIVE_TTL_MS`, 30 s par défaut), que le compte est toujours actif et
+  rafraîchit son rôle — un compte désactivé, supprimé ou rétrogradé perd l'accès dans la fenêtre du cache
+  sans attendre l'expiration du jeton. Activable par `SESSION_ACTIVE_CHECK=1` (recommandé en production ;
+  désactivé par défaut pour ne rien changer sans configuration). Base injoignable → repli sur le jeton
+  signé (disponibilité). Invalidation immédiate du cache à la désactivation / changement de rôle /
+  suppression (`users.routes`). Tests : `sessionRevocation.test.js` (unitaire + routes) + vérification en
+  direct (désactivation → 401 dans la fenêtre, réactivation → 200).
+  **Levier complémentaire sans code** : réduire `JWT_EXPIRES_IN` (ex. `1h`) borne aussi la fenêtre.
 
 > Aucun constat n'est une exécution de code à distance ni une fuite de données : ce sont des écarts de
 > durcissement et des DoS déjà bornés par les limites de taille en place.

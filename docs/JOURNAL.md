@@ -1142,3 +1142,12 @@ _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot v�
   l'algorithme `HS256`. Limiteur de débit par IP ajouté sur `/api/auth/register` et `/api/auth/activate`
   (`SIGNUP_RATE_MAX`, 20/15 min). Contrôles : lint ✅, 1 578 tests ✅ (dont 4 nouveaux). `docs/SECURITE.md`
   mis à jour (constats 2 et 6 → faits).
+- **01/11 (3e envoi)** ✅ **Sécurité — révocation de session (constat 1).** `requireAuth` revérifie en
+  base (cache court par utilisateur, `SESSION_ACTIVE_TTL_MS` = 30 s) que le compte est actif et rafraîchit
+  son rôle ; activable par `SESSION_ACTIVE_CHECK=1` (désactivé par défaut, donc aucun changement sans
+  configuration ; base injoignable → repli sur le jeton). Invalidation immédiate à la désactivation /
+  changement de rôle / suppression (`users.routes`). Nouveau module `modules/auth/sessionCheck.js`.
+  Vérifié en direct sur base jetable : désactivation → 401 dans la fenêtre, réactivation → 200. Contrôles :
+  lint ✅, 1 584 tests ✅ (6 nouveaux : `sessionRevocation.test.js`). `docs/SECURITE.md` : constat 1 → fait.
+  Les 6 constats de l'audit sont désormais traités ; restent des options de durcissement (CSP par nonce)
+  et les montées de dépendances suivies par CI/Dependabot.

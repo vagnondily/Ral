@@ -3,6 +3,7 @@ const { unauthorized, forbidden } = require('./errors');
 const {
   normalizeRole, WRITE_ROLES, VALIDATE_ROLES, ADMIN_ROLES, SUPER_ROLES,
 } = require('../modules/common/accessRoles');
+const session = require('../modules/auth/sessionCheck');
 
 /**
  * Verifies the bearer JWT and attaches { userId, tenantId, role } to
@@ -26,10 +27,20 @@ function requireAuth(req, res, next) {
     // algorithme asymétrique accepté par erreur.
     const payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
     req.auth = { userId: payload.sub, tenantId: payload.tenantId, role: normalizeRole(payload.role) };
-    return next();
   } catch {
     return next(unauthorized('Jeton invalide ou expiré'));
   }
+
+  // Révocation de session (opt-in, SESSION_ACTIVE_CHECK=1) : revérifie en base,
+  // avec cache court, que le compte est toujours actif et rafraîchit son rôle.
+  // Base injoignable → on laisse passer (repli sur le jeton signé).
+  if (!session.enabled()) return next();
+  return session.userSessionState(req.auth.userId, req.auth.tenantId).then((st) => {
+    if (st.unknown) return next();
+    if (!st.ok) return next(unauthorized('Session expirée — reconnectez-vous.'));
+    if (st.role) req.auth.role = st.role;
+    return next();
+  }, () => next());
 }
 
 /** Route guard for role-gated actions (e.g. validating a plan). */

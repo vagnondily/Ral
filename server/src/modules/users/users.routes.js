@@ -5,6 +5,7 @@ const { requireAuth, requireRole, ADMIN_ROLES } = require('../../middleware/auth
 const { badRequest, notFound, conflict, forbidden } = require('../../middleware/errors');
 const { ROLES, isAdmin: roleIsAdmin, isSuper, normalizeRole } = require('../common/accessRoles');
 const repo = require('./users.repository');
+const session = require('../auth/sessionCheck');
 
 /**
  * Utilisateurs & accès — admin uniquement. Création/modification des comptes et
@@ -78,6 +79,7 @@ router.patch('/:id', ADMIN, body(updateSchema), asyncHandler(async (req, res) =>
   await assertMayTouchUser(req.auth.role, t(req), req.params.id); // protège un admin/super d'un rôle inférieur
   assertMayManageRole(req.auth.role, req.valid.role);
   if (!(await repo.updateUser(t(req), req.params.id, req.valid))) throw notFound('Utilisateur introuvable');
+  session.invalidate(req.params.id); // désactivation / changement de rôle : effet immédiat
   res.status(204).end();
 }));
 
@@ -100,6 +102,7 @@ router.delete('/:id', ADMIN, asyncHandler(async (req, res) => {
   if (req.params.id === req.auth.userId) throw badRequest('Vous ne pouvez pas supprimer votre propre compte.');
   await assertMayTouchUser(req.auth.role, t(req), req.params.id);
   if (!(await repo.deleteUser(t(req), req.params.id))) throw notFound('Utilisateur introuvable');
+  session.invalidate(req.params.id);
   res.status(204).end();
 }));
 
