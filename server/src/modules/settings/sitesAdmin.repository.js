@@ -17,6 +17,33 @@
 const { withTenantTransaction } = require('../../config/db');
 const { withSubmissionLinks, afterSitesChangedTx, attachUnassignedSitesTx } = require('./placeMatch.repository');
 const { attributeByGps } = require('../common/geoAttribution');
+const progAct = require('../programmes/programmeActivities.service');
+
+/**
+ * Retour 106 : l'activité d'un site et son Activity_tag se CHOISISSENT dans le référentiel
+ * (Paramétrage › Activités). À l'écriture, on les RÉSOUT vers le référentiel — une graphie reconnue
+ * (ancien libellé, code, casse) devient le libellé officiel ; une valeur encore inconnue est
+ * conservée telle quelle (elle apparaît « à classer » dans Paramétrage › Activités, à formaliser via
+ * « Reprendre les libellés ») plutôt que de bloquer l'écriture. L'interface, elle, ne propose QUE la
+ * liste (plus de saisie libre). On ne résout QUE les champs présents (modification partielle) ;
+ * `src` porte les clés du formulaire : `activityTag` (libellé) et `tagCode` (Activity_tag).
+ * @returns {{ activity?: string|null, tagCode?: string|null }}
+ */
+async function resolveActivityFields(client, tenantId, src) {
+  const hasAct = src.activityTag !== undefined;
+  const hasTag = src.tagCode !== undefined;
+  if (!hasAct && !hasTag) return {};
+  const resolver = await progAct.resolverTx(client, tenantId);
+  const out = {};
+  if (hasAct) out.activity = resolver.canonical(src.activityTag); // libellé officiel si reconnu, sinon texte nettoyé (null si vide)
+  if (hasTag) {
+    const code = src.tagCode;
+    const empty = code == null || String(code).trim() === '';
+    const sub = empty ? null : resolver.resolveSub(code);
+    out.tagCode = sub ? sub.code : (empty ? null : String(code).trim());
+  }
+  return out;
+}
 const { summarizeSiteDeletion } = require('./siteDeletion');
 const { normalizePublicId } = require('../common/publicId');
 const mapRepo = require('../map/map.repository');
@@ -139,8 +166,11 @@ async function createSite(tenantId, data) {
   return withSubmissionLinks(tenantId, async (client) => {
     const { rows: dup } = await client.query('SELECT id FROM sites WHERE tenant_id = $1 AND code = $2', [tenantId, code]);
     if (dup.length) { const e = new Error('duplicate'); e.code = 'DUP'; e.siteId = dup[0].id; throw e; }
+    const resolved = await resolveActivityFields(client, tenantId, data);
     const patch = {
-      name: data.localite, activity: data.activityTag, tagCode: data.tagCode,
+      name: data.localite,
+      activity: 'activity' in resolved ? resolved.activity : (data.activityTag || null),
+      tagCode: 'tagCode' in resolved ? resolved.tagCode : (data.tagCode || null),
       fieldOfficeId: data.fieldOfficeId || null, lat: data.lat ?? null, lng: data.lng ?? null,
       region: data.region, district: data.district, commune: data.commune, fokontany: data.fokontany,
     };
@@ -160,8 +190,16 @@ async function createSite(tenantId, data) {
 
 /** Met à jour un site (patch partiel). Renvoie true si trouvé. */
 async function updateSite(tenantId, id, patch) {
-  const { sets, values } = buildSets(patch, 3);
   return withSubmissionLinks(tenantId, async (client) => {
+    // Le formulaire envoie `localite` (nom) et `activityTag` (libellé d'activité) ; les mapper vers
+    // les colonnes `name` / `activity`, et résoudre activité + Activity_tag par le référentiel (106).
+    const resolved = await resolveActivityFields(client, tenantId, patch);
+    const mapped = { ...patch };
+    if ('localite' in mapped) { mapped.name = mapped.localite; delete mapped.localite; }
+    delete mapped.activityTag;
+    if ('activity' in resolved) mapped.activity = resolved.activity;
+    if ('tagCode' in resolved) mapped.tagCode = resolved.tagCode;
+    const { sets, values } = buildSets(mapped, 3);
     if (!sets.length) {
       const { rowCount } = await client.query('SELECT 1 FROM sites WHERE tenant_id = $1 AND id = $2', [tenantId, id]);
       return rowCount > 0;
@@ -353,7 +391,11 @@ async function bulkSites(tenantId, { ids, action, patch = {} }) {
     }
     // 'set' : un seul UPDATE (colonnes absentes du patch inchangées).
     const sets = []; const params = [tenantId, found.map((r) => r.id)];
-    if (patch.activityTag !== undefined) { params.push(patch.activityTag || null); sets.push(`activity = $${params.length}`); }
+    if (patch.activityTag !== undefined) {
+      // Retour 106 : activité résolue par le référentiel (inconnue → 400 avec propositions).
+      const resolved = await resolveActivityFields(client, tenantId, { activityTag: patch.activityTag });
+      params.push(resolved.activity); sets.push(`activity = $${params.length}`);
+    }
     if (patch.fieldOfficeId !== undefined) {
       if (patch.fieldOfficeId) {
         const { rows: fo } = await client.query('SELECT 1 FROM field_offices WHERE tenant_id = $1 AND id = $2', [tenantId, patch.fieldOfficeId]);

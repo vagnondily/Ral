@@ -6,6 +6,7 @@ import Modal from '../../components/Modal.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatInt, monthLabel } from '../../lib/format.js';
+import ActivitySelect, { SubActivitySelect } from '../../components/ActivitySelect.jsx';
 
 /**
  * Registre des sites — page de gestion dédiée (Paramétrage › Sites).
@@ -239,7 +240,6 @@ export default function SitesSection({ isAdmin, onOpenTab, showAdmCodes = true }
 function BulkModal({ kind, ids, offices, onClose, onDone }) {
   const { tr } = useI18n();
   const [value, setValue] = useState('');
-  const [activities, setActivities] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [preview, setPreview] = useState(null); // aperçu de la suppression (retour 89)
@@ -251,11 +251,6 @@ function BulkModal({ kind, ids, offices, onClose, onDone }) {
       .catch((e) => { if (live) setErr(e.message); });
     return () => { live = false; };
   }, [kind, ids]);
-  useEffect(() => {
-    if (kind !== 'activity') return;
-    api.listMmr().then((rows) => setActivities([...new Set(rows.map((r) => String(r.activityCategory || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b))))
-      .catch(() => setActivities([]));
-  }, [kind]);
   async function run() {
     setBusy(true); setErr(null);
     try {
@@ -281,13 +276,8 @@ function BulkModal({ kind, ids, offices, onClose, onDone }) {
       )}>
       {kind === 'delete' && (preview ? <DeletePreview p={preview} /> : !err && <Skeleton height={160} />)}
       {kind === 'activity' && (
-        <Field label={tr('Activité')} hint={tr('Les activités viennent du MMR (Paramétrage › Paramètres MMR).')}>
-          {activities === null ? <Skeleton height={38} /> : (
-            <select className="select" value={value} onChange={(e) => setValue(e.target.value)}>
-              <option value="">{tr('— aucune (retirer l\'activité) —')}</option>
-              {activities.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-          )}
+        <Field label={tr('Activité de programme')} hint={tr('Depuis Paramétrage › Activités.')}>
+          <ActivitySelect value={value} onChange={(label) => setValue(label)} emptyLabel={tr('— aucune (retirer l\'activité) —')} ariaLabel={tr('Activité de programme')} />
         </Field>
       )}
       {kind === 'office' && (
@@ -428,8 +418,16 @@ function SiteFormModal({ site, offices, onClose, onSaved }) {
             {offices.map((o) => <option key={o.id} value={o.id}>{o.name}{o.code ? ` (${o.code})` : ''}</option>)}
           </select>
         </Field>
-        <Field label={tr('Activité (tag)')}><input value={f.activityTag} onChange={set('activityTag')} maxLength={160} /></Field>
-        <Field label={tr('Code tag')}><input value={f.tagCode} onChange={set('tagCode')} maxLength={60} /></Field>
+        {/* Retour 106 : l'activité et sa sous-activité se CHOISISSENT dans le référentiel (Paramétrage ›
+            Activités) — plus de saisie libre. */}
+        <Field label={tr('Activité de programme')} hint={tr('Depuis Paramétrage › Activités.')}>
+          <ActivitySelect value={f.activityTag} onChange={(label) => setF((s) => ({ ...s, activityTag: label }))} ariaLabel={tr('Activité de programme')} />
+        </Field>
+        <Field label={tr('Sous-activité (tag)')}>
+          <SubActivitySelect value={f.tagCode} activityLabel={f.activityTag}
+            onChange={(code, sub) => setF((s) => ({ ...s, tagCode: code, ...(sub && sub.activity ? { activityTag: sub.activity.label } : {}) }))}
+            ariaLabel={tr('Sous-activité (tag)')} />
+        </Field>
         <Field label={tr('Latitude')} hint={tr('Degrés décimaux (ex. -23.12)')}><input type="number" step="any" value={f.lat} onChange={set('lat')} /></Field>
         <Field label={tr('Longitude')}><input type="number" step="any" value={f.lng} onChange={set('lng')} /></Field>
         <Field label={tr('Région')}><input value={f.region} onChange={set('region')} maxLength={120} /></Field>

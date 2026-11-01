@@ -80,6 +80,17 @@ test('changement groupé : activité et bureau en un UPDATE ; bureau inconnu ref
   assert.equal(client.calls.find((c) => c.s.startsWith('UPDATE')).params[2], null, 'vide = activité retirée');
 });
 
+test('mise à jour du registre : localite→name et activityTag→activity (résolus) sont bien écrits (retour 106)', async () => {
+  client = fake({ sites: [{ id: A, name: 'A' }] });
+  const ok = await repo.updateSite(T, A, { localite: 'Nouveau nom', activityTag: 'School meal activities', tagCode: 'GD', lat: -23 });
+  assert.equal(ok, true);
+  const up = client.calls.find((c) => c.s.startsWith('UPDATE sites'));
+  assert.match(up.s, /name = \$/); assert.match(up.s, /activity = \$/); assert.match(up.s, /tag_code = \$/);
+  assert.ok(up.params.includes('Nouveau nom'), 'le nom (localite) est écrit');
+  assert.ok(up.params.includes('School meal activities'), 'l\'activité (activityTag) est écrite');
+  assert.ok(up.params.includes('GD'), 'le tag est écrit');
+});
+
 test('suppression d\'un site : refusée avec les comptes quand il porte des données', async () => {
   client = fake({ sites: [{ id: A, name: 'A' }], linked: { [A]: { submissions: 3 } } });
   const r = await repo.deleteSite(T, A);

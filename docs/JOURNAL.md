@@ -1214,3 +1214,16 @@ _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot v�
   Retour **109 livré**. Retour **106 : le socle** (référentiel + alias + résolution) est posé ; reste à câbler
   le sélecteur `ActivitySelect` sur TOUTES les saisies (sites, MMR, fiches) et à refuser une activité hors
   référentiel — lot suivant.
+- **01/11 (retour 106 — registre des sites)** ✅ **Activité d'un site CHOISIE dans le référentiel.**
+  Suite du 109 : le formulaire du registre (Paramétrage › Sites) et l'action groupée « Changer l'activité »
+  utilisent désormais les sélecteurs `ActivitySelect` / `SubActivitySelect` (activités de programme +
+  Activity_tag) au lieu de champs libres / catégories MMR. Côté serveur (`sitesAdmin.repository`),
+  création / modification / changement groupé **résolvent** l'activité et le tag par le référentiel
+  (`programmeActivities.resolverTx.canonical`) : une graphie reconnue (code, ancien libellé, casse) devient
+  le **libellé officiel** (vérifié en direct : `SMP` → « School meal activities ») ; une valeur encore
+  inconnue est conservée et apparaît « à classer » dans Paramétrage › Activités (à formaliser), jamais un
+  blocage d'écriture. **Correctif au passage** : la mise à jour du registre ignorait `localite` (nom) et
+  `activityTag` (activité) — `buildSets` ne mappait que `activity`/`name` ; désormais mappés, donc l'édition
+  du nom et de l'activité d'un site **persiste** (bug latent). Contrôles : lint ✅, **1 660 tests** ✅ (dont le
+  mapping de mise à jour), `test:db` 55/0/1 ✅, build ✅, balayage 46 × FR/EN 0 erreur ✅. Reste du 106 :
+  mêmes sélecteurs sur le MMR et les fiches de suivi, et résolution à l'import de sites — lot suivant.
