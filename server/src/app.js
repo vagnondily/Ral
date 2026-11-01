@@ -47,9 +47,34 @@ function createApp() {
   // Derrière un proxy (load-balancer, ingress) : req.ip = vrai client (pour le
   // rate-limit et les logs). Nombre de sauts de confiance configurable.
   app.set('trust proxy', Number(process.env.TRUST_PROXY || 1));
-  // CSP désactivée : l'interface (styles en ligne, tuiles de carte externes) a toujours été servie
-  // sans CSP (vite). On garde toutes les autres protections helmet (nosniff, HSTS, frameguard…).
-  app.use(helmet({ contentSecurityPolicy: false }));
+  // Content-Security-Policy (constat 5 de docs/SECURITE.md). Le build Vite ne produit AUCUN script
+  // ni style EN LIGNE (tout en fichiers externes même origine) : on garde donc `script-src 'self'`
+  // STRICT — c'est la vraie protection anti-XSS. Assouplissements limités : styles en ligne (attributs
+  // style de React + Leaflet) ; images self/data/blob/https (favicon data:, tuiles de carte, exports) ;
+  // polices self/data (@fontsource, groupées). `connect-src 'self'` : l'API est servie sur la MÊME
+  // origine en production (les connecteurs de données sortent côté SERVEUR, pas depuis le navigateur).
+  // PAS d'`upgrade-insecure-requests` : l'accès distant documenté se fait en http://SERVEUR:9000.
+  // Désactivable via CSP_DISABLED=1 en cas de régression imprévue. La route des images d'en-tête pose
+  // en plus sa propre CSP `default-src 'none'` (plus stricte, elle prime pour cette route).
+  app.use(helmet({
+    contentSecurityPolicy: process.env.CSP_DISABLED === '1' ? false : {
+      useDefaults: true,
+      directives: {
+        'default-src': ["'self'"],
+        'script-src': ["'self'"],
+        'style-src': ["'self'", "'unsafe-inline'"],
+        'img-src': ["'self'", 'data:', 'blob:', 'https:'],
+        'font-src': ["'self'", 'data:'],
+        'connect-src': ["'self'"],
+        'worker-src': ["'self'", 'blob:'],
+        'object-src': ["'none'"],
+        'base-uri': ["'self'"],
+        'frame-ancestors': ["'self'"],
+        'form-action': ["'self'"],
+        'upgrade-insecure-requests': null,
+      },
+    },
+  }));
   // CORS : origine(s) explicite(s) via CORS_ORIGIN (séparées par des virgules) ;
   // « * » par défaut en dev uniquement. En prod, validateEnv avertit si non fixé.
   const corsOrigin = process.env.CORS_ORIGIN

@@ -1163,3 +1163,11 @@ _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot v�
   temporelle des contrats de démo) — transformé en **saut explicite** quand le gabarit n'est pas présent,
   avec note de suivi. `test:db` désormais **50 : 49 ✅ / 0 échec / 1 sauté**, donc le job CI « serveur base »
   passera. Contrôles : lint ✅, `npm test` 1 584 ✅, `test:db` vert.
+- **01/11 (4e envoi)** ✅ **Sécurité — CSP activée (constat 5, dernier de l'audit).** `server/src/app.js` :
+  Content-Security-Policy stricte — `script-src 'self'` (le build Vite n'a aucun script en ligne, vérifié),
+  `object-src 'none'`, `base-uri`/`frame-ancestors`/`form-action 'self'` ; assouplissements ciblés
+  `style-src 'unsafe-inline'`, `img-src 'self' data: blob: https:` (favicon, tuiles de carte, exports),
+  `font-src 'self' data:`. **Pas** d'`upgrade-insecure-requests` (accès distant en `http://SERVEUR:9000`).
+  Escape hatch `CSP_DISABLED=1`. **Vérifiée en servant le build via Express + balayage : 46 écrans × FR/EN,
+  0 erreur console** (une violation CSP s'y afficherait). Contrôles : lint ✅, 1 584 tests ✅. Les 6 constats
+  de l'audit sont tous traités ; restent les montées de dépendances (Dependabot/CI) et zod v4 (cassant).

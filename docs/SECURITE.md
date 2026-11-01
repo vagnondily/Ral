@@ -56,7 +56,7 @@ build web. `.github/dependabot.yml` : montées de dépendances hebdomadaires (se
 | 2 | Faible | Gardes de rôle manquantes au niveau route sur approve/reject des contrats (défense en profondeur ; **non exploitable**, le service impose `validatorId === userId`). | ✅ Fait (01/11 : garde `VALIDATE` + test) |
 | 3 | Faible | Énumération de l'état d'un compte au login (pending/désactivé distingués avant la vérification du mot de passe). | À traiter (message générique) |
 | 4 | Faible | Avis `npm audit` serveur : body-parser (DoS), zod v3 (mémoire) — **DoS bornés par la limite 1 Mo** ; zod sans correctif en v3 (migration v4 cassante à planifier). Web : vite/esbuild = **dev uniquement**, absents de la production. | Suivi (CI + Dependabot) |
-| 5 | Durcissement | CSP globale désactivée (la route des images pose sa propre CSP stricte). | À envisager (CSP par nonce) |
+| 5 | Durcissement | CSP globale désactivée. | ✅ Fait (01/11 : CSP stricte `script-src 'self'`, vérifiée sur 46 écrans × FR/EN) |
 | 6 | Durcissement | `jwt.verify` sans `algorithms:['HS256']` explicite ; limiteur de débit seulement sur `/login`. | ✅ Fait (01/11 : algorithme épinglé ; limiteur sur `/register` et `/activate`) |
 
 ## Fait le 01/11/2026
@@ -80,6 +80,11 @@ build web. `.github/dependabot.yml` : montées de dépendances hebdomadaires (se
   suppression (`users.routes`). Tests : `sessionRevocation.test.js` (unitaire + routes) + vérification en
   direct (désactivation → 401 dans la fenêtre, réactivation → 200).
   **Levier complémentaire sans code** : réduire `JWT_EXPIRES_IN` (ex. `1h`) borne aussi la fenêtre.
+
+## Fait le 01/11/2026 (4e envoi — CSP)
+- **Content-Security-Policy** activée (`server/src/app.js`) : `script-src 'self'` STRICT (le build Vite ne produit aucun script en ligne), `object-src 'none'`, `base-uri`/`frame-ancestors`/`form-action 'self'` ; assouplissements ciblés `style-src 'unsafe-inline'` (styles React/Leaflet), `img-src 'self' data: blob: https:` (favicon, tuiles de carte, exports), `font-src 'self' data:`. **Pas** d'`upgrade-insecure-requests` (déploiement documenté en `http://SERVEUR:9000`). Escape hatch `CSP_DISABLED=1`. Vérifiée par le balayage : **46 écrans × FR/EN, 0 erreur console** (une violation CSP s'y afficherait). La route des images d'en-tête garde sa CSP `default-src 'none'` (plus stricte).
+
+> **Les 6 constats de l'audit sont désormais traités.** Il ne reste que des montées de dépendances (suivies par Dependabot/CI) et, à terme, la migration zod v4 (cassante).
 
 > Aucun constat n'est une exécution de code à distance ni une fuite de données : ce sont des écarts de
 > durcissement et des DoS déjà bornés par les limites de taille en place.
