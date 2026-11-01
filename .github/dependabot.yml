@@ -1,0 +1,26 @@
+# Suivi automatisé des dépendances (avis de sécurité + montées de version).
+# Dependabot ouvre une pull request par mise à jour ; le CI (ci.yml) la valide.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /server
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      serveur-mineur-correctif:
+        update-types: [minor, patch]
+    labels: [dependencies, serveur]
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      web-mineur-correctif:
+        update-types: [minor, patch]
+    labels: [dependencies, web]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    labels: [dependencies, ci]

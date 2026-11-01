@@ -1,0 +1,93 @@
+# Intégration continue MEMS 2.0 — tests, lint, build et audit des dépendances.
+# Déclenché sur push et pull request. Aucune donnée réelle, aucune publication :
+# tout tourne sur une base PostgreSQL jetable du runner.
+name: CI
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server-unit:
+    name: Serveur — lint + tests unitaires + audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      # Les tests de base (*Db.test.js) se sautent d'eux-mêmes sans MEMS_TEST_DATABASE_URL.
+      - run: npm test
+      # Audit bloquant sur « critical » seulement (les avis « high/moderate » connus — body-parser,
+      # zod v3 — sont suivis à part et atténués par la limite de 1 Mo ; voir docs/SECURITE.md).
+      - name: npm audit (bloque sur critical)
+        run: npm audit --omit=dev --audit-level=critical
+      - name: npm audit (informatif, complet)
+        run: npm audit --omit=dev || true
+
+  server-db:
+    name: Serveur — tests sur base PostgreSQL
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mems_ci_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/mems_ci_test
+      APP_DATABASE_URL: postgres://mems2_app:mems2_app_change_me@localhost:5432/mems_ci_test
+      MEMS_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/mems_ci_test
+      MEMS_TEST_APP_DATABASE_URL: postgres://mems2_app:mems2_app_change_me@localhost:5432/mems_ci_test
+      JWT_SECRET: ci-only-secret-not-used-in-production-32b
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm run migrate
+      - run: npm run seed
+      - run: npm run seed:test
+      - run: npm run test:db
+
+  web-build:
+    name: Web — build (type-check des imports/JSX)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build

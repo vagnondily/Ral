@@ -1,3 +1,6 @@
+# DÉVELOPPEMENT UNIQUEMENT — ne pas utiliser tel quel en production :
+# mots de passe de démonstration, données de seed au démarrage, pas d'auth Redis.
+# La production (Windows/NSSM) est décrite dans README.md ; voir docs/SECURITE.md.
 version: "3.9"
 
 services:
@@ -9,7 +12,7 @@ services:
       POSTGRES_PASSWORD: mems
       POSTGRES_DB: mems2_tpm
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +25,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

@@ -1122,3 +1122,15 @@ _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot v�
 - **⏸️ 13:22 → 17:02** Limite d'usage (vérifications et agent « partenaires » interrompus ; rien de perdu).
 - **17:06** 🔄 Reprise : base et démonstration redémarrées ; l'autre session a publié entre-temps la **hiérarchie des bureaux à 6 niveaux** (migration 117 — elle remplace le travail de `wip/offices`, qui ne sera pas repris). Vérifications : 15 nouveaux points confirmés, répartis — `wip/pp-tpm` (garde de durée du test d'estampille instable dès que la base a des statistiques ; recalcul du passé découpé sans ordre, trop lent sous le verrou ; visites d'un TPM retiré oubliées ; suppression du dernier document qui ne remonte pas assez loin), `wip/pp-geo` (nouveau : un P-code de district resté sur un site corrigé pouvait déplacer tout un district dans les tableaux de bord), et pour l'agent « partenaires » après son envoi en cours : phrase « suit les zones » avec les communes, contrats internes, fiche 360° des brouillons, quatre risques d'interblocage restants (activation des sites, imports du registre, zones d'un contrat). Un défaut de mon script de vérification cachait les points non vérifiés : corrigé en relançant les trois vérifications.
 - **17:36** ⏸️→🔄 Redémarrage du conteneur (agents et processus de test arrêtés ; rien de perdu : le travail des agents est sur disque — `wip/pp-tpm` a déjà poussé localement les points 1 à 6 de la relecture de l'estampille, `wip/pp-partners` a ses corrections en cours non encore commitées). Base PostgreSQL et démonstration (:9000 / :5173) relancées, migrations à jour ; les deux agents reprennent où ils en étaient. `integ/pp` (`0d3b57f` : `main` + les quatre branches de l'envoi suivant) attend leurs envois pour les vérifications complètes.
+- **01/11 13:21** ✅ **Sécurité — audit + durcissement de la chaîne et de la configuration.** Analyse
+  statique + vérifications en direct sur instance d'audit isolée (API/UI en production, rôle restreint,
+  deux tenants). Fondations saines confirmées : isolation RLS (tenant B voit 0 contrat de A ; 404 en
+  IDOR), rôles (lecteur → 403), SSRF (épinglage DNS, blocage privé v4/v6), pas d'injection SQL,
+  neutralisation CSV, service d'images durci, 500 sans fuite, journaux masqués, **aucun secret commité**,
+  **aucune dépendance PHP** (pile 100 % JS/SQL). Livré : intégration continue (`.github/workflows/ci.yml`
+  — lint + tests + base jetable + build + `npm audit` bloquant sur « critical »), suivi des dépendances
+  (`.github/dependabot.yml`), `docker-compose.yml` marqué « développement uniquement » avec PostgreSQL/
+  Redis liés à `127.0.0.1`, et `docs/SECURITE.md` (référence + constats ouverts suivis). Avis `npm audit`
+  = DoS bornés par la limite 1 Mo (vite/esbuild = dev uniquement). Contrôles : lint ✅, 1 574 tests ✅,
+  build ✅. Constats de code à traiter ensuite (révocation de session, gardes de route approve/reject,
+  message de login générique) consignés dans `docs/SECURITE.md`.
