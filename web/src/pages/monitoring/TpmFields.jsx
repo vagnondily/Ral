@@ -92,9 +92,14 @@ export function VisitTpmCell({ visit, canEdit, onEdit }) {
   const internal = !visit.providerId && visitInternal(visit);
   // Visite que personne ne suit : son nom (un seul partout) ; l'état de la zone (« Antérieur à la règle ») en devient l'origine.
   const label = !visit.providerId && !internal ? tr(UNASSIGNED_LABEL) : tr(def.label);
+  // Reprise : « TPM gardé » seulement quand un TPM est enregistré ; sans TPM, l'origine le dit (jamais l'inverse du nom).
+  const repriseOrigin = visit.providerId
+    ? ({ realise: tr('visite réalisée : TPM gardé'), annule: tr('visite annulée : TPM gardé') }[visit.status] || tr('TPM gardé tel qu\'il a été saisi'))
+    : [{ realise: tr('visite réalisée sans TPM enregistré'), annule: tr('visite annulée sans TPM enregistré') }[visit.status] || tr(def.label),
+      visit.contractLabel ? tr('contrat {n}', { n: visit.contractLabel }) : null].filter(Boolean).join(' · ');
   const origin = src === 'visite'
     ? tr('modifié : {r}', { r: visit.providerReason || '' })
-    : src === 'reprise' ? ({ realise: tr('visite réalisée : TPM gardé'), annule: tr('visite annulée : TPM gardé') }[visit.status] || tr('TPM gardé tel qu\'il a été saisi'))
+    : src === 'reprise' ? repriseOrigin
       : internal ? internalWhy(tr, { state: visit.providerZoneState })
         : visit.providerZoneState === 'a_arbitrer' ? tr('plusieurs contrats : choisir')
           : visit.contractLabel ? tr('contrat {n}', { n: visit.contractLabel }) : tr(def.label);

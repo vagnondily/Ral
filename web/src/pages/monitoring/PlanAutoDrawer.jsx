@@ -601,7 +601,7 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
             )}
             {Array.isArray(preview.byTpm) && preview.byTpm.length > 0 && (
               <div style={{ display: 'grid', gap: 6 }}>
-                <span className="muted" style={{ fontSize: 12 }}>{tr('Par unité de suivi (TPM du contrat de la zone ; sans TPM, suivi interne du bureau)')}</span>
+                <span className="muted" style={{ fontSize: 12 }}>{tr('Par unité de suivi — une visite déjà prévue compte pour le TPM qu\'elle porte ; une nouvelle visite prend le TPM du contrat de sa zone, sinon le suivi interne du bureau')}</span>
                 <div style={{ overflowX: 'auto' }}>
                   <table className="table" style={{ background: 'var(--surface)', minWidth: 720 }}>
                     <thead>
@@ -632,7 +632,7 @@ export default function PlanAutoDrawer({ year, sites = [], onClose, onDone }) {
                     </tbody>
                   </table>
                 </div>
-                <span className="muted" style={{ fontSize: 11 }}>{tr('Le TPM d\'un site = celui du contrat de suivi actif de sa zone ; sans TPM (aucun contrat, contrat sans TPM, TPM indisponible), le suivi est interne : équipe S&E du bureau.')}</span>
+                <span className="muted" style={{ fontSize: 11 }}>{tr('Le TPM d\'une nouvelle visite = celui du contrat de suivi actif de la zone du site ; sans TPM (aucun contrat, contrat sans TPM, TPM indisponible), le suivi est interne : équipe S&E du bureau. Une visite déjà prévue compte pour le TPM qu\'elle porte (TPM choisi avec une raison, visite facturée…), sinon pour le suivi interne, même si sa zone dit autre chose.')}</span>
               </div>
             )}
             {peakMonth && Array.isArray(peakMonth.zones) && peakMonth.zones.length > 0 && (

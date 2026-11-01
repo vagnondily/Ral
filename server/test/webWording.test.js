@@ -49,16 +49,20 @@ test('Affectation des TPM : une zone couverte par un contrat SANS TPM le montre 
   assert.equal(en['sans TPM'], 'no TPM');
 });
 
-test('plan auto : la note et l\'en-tête disent la règle du retour 114 (sans TPM — aucun contrat, contrat sans TPM, TPM indisponible — suivi interne), en anglais aussi', async (t) => {
+test('plan auto : la note et l\'en-tête disent la règle du retour 114 (sans TPM — aucun contrat, contrat sans TPM, TPM indisponible — suivi interne) ET qu\'une visite déjà prévue compte pour le TPM qu\'elle porte, en anglais aussi', async (t) => {
   const en = await load(t, 'locales/en.js'); if (!en) return;
   const lit = literals('pages/monitoring/PlanAutoDrawer.jsx');
   assert.ok(!lit.some((s) => /sans contrat, le suivi|sinon bureau\)/.test(s)), 'ancienne règle « sans contrat » seulement');
-  const note = lit.find((s) => s.startsWith('Le TPM d\'un site = '));
+  const note = lit.find((s) => s.startsWith('Le TPM d\'une nouvelle visite = '));
   assert.match(note, /sans TPM \(aucun contrat, contrat sans TPM, TPM indisponible\), le suivi est interne : équipe S&E du bureau\./);
+  assert.match(note, /Une visite déjà prévue compte pour le TPM qu'elle porte/);
   const head = lit.find((s) => s.startsWith('Par unité de suivi'));
-  assert.match(head, /sans TPM, suivi interne du bureau/);
+  assert.match(head, /une visite déjà prévue compte pour le TPM qu'elle porte ; une nouvelle visite prend le TPM du contrat de sa zone, sinon le suivi interne du bureau/);
+  assert.ok(!lit.some((s) => s.startsWith('Le TPM d\'un site = ')), 'plus de règle « zone seule »');
   for (const s of [note, head]) assert.ok(Object.prototype.hasOwnProperty.call(en.default, s), `sans anglais — ${s}`);
   assert.match(en.default[note], /no contract, contract without a TPM, TPM unavailable/);
+  assert.match(en.default[note], /already planned visit counts for the TPM it carries/);
+  assert.match(en.default[head], /already planned visit counts for the TPM it carries/);
   assert.ok(!Object.values(en.default).some((v) => /without a contract, the office monitors it/.test(v)), 'aucune ancienne traduction');
 });
 
@@ -140,4 +144,23 @@ test('Affectation & visites : la tuile « Suivi interne » lit la ligne « Inter
   assert.deepEqual([row.active, row.total], [18, 20]);
   assert.ok(literals('pages/monitoring/FieldVisitsPage.jsx').includes('Équipe S&E (sans TPM, ou TPM retiré avec motif)'));
   assert.equal(en.default['Équipe S&E (sans TPM, ou TPM retiré avec motif)'], 'M&E team (no TPM, or TPM removed with a reason)');
+});
+
+test('visite « reprise » SANS TPM (contrat sans TPM avant la règle) : jamais « TPM gardé » sous « Non affectée » ; origine vraie, en anglais aussi', async (t) => {
+  const w = await load(t, 'lib/tpmAttribution.js'); if (!w) return;
+  const en = (await load(t, 'locales/en.js')).default;
+  // Clé d'origine : avec un TPM « reprise » (TPM saisi avant la règle), sans TPM sa propre clé.
+  assert.equal(w.visitTpmKey({ providerSource: 'reprise', providerId: 'p1' }), 'reprise');
+  assert.equal(w.visitTpmKey({ providerSource: 'reprise', providerId: null }), 'reprise:sans_tpm');
+  const def = w.TPM_VISIT['reprise:sans_tpm'];
+  assert.equal(def.label, 'Saisie avant la règle, sans TPM');
+  assert.ok(def.icon, 'statut = couleur + icône + libellé');
+  assert.equal(w.visitUnassigned({ providerSource: 'reprise', providerId: null, monitoredBy: 'non_affecte' }), true);
+  // La cellule : « TPM gardé » seulement quand un TPM est enregistré.
+  const cell = src('pages/monitoring/TpmFields.jsx');
+  assert.match(cell, /const repriseOrigin = visit\.providerId\n\s+\? \(\{ realise: tr\('visite réalisée : TPM gardé'\)/);
+  assert.match(cell, /: \[\{ realise: tr\('visite réalisée sans TPM enregistré'\), annule: tr\('visite annulée sans TPM enregistré'\) \}/);
+  for (const s of ['visite réalisée sans TPM enregistré', 'visite annulée sans TPM enregistré', 'Saisie avant la règle, sans TPM']) {
+    assert.ok(en[s] && !/kept/.test(en[s]), `anglais — ${s}`);
+  }
 });
