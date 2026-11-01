@@ -169,9 +169,14 @@ function buildSheet(raw, { consolidation, expected = null } = {}) {
       budget: recap,
       visits: {
         month: c.month, assigned: c.visitsAssigned || 0, realised: c.visitsRealised || 0,
-        rate: ratio(c.visitsRealised || 0, c.visitsAssigned || 0), realised12: c.visitsRealised12 || 0, sitesFollowed: c.sitesFollowed || 0,
-        // Visites suivies en interne dans les zones de ses contrats (retour 114) : à part, jamais « affectées ».
-        internal: c.visitsInternal || 0, internalRealised: c.visitsInternalRealised || 0,
+        rate: ratio(c.visitsRealised || 0, c.visitsAssigned || 0),
+        // 12 mois : visites des TPM ET visites suivies en interne de ses zones (dont `internalRealised12`) ;
+        // sites suivis = union des deux (sitesFollowed, compté en SQL).
+        realised12: (c.visitsRealised12 || 0) + (c.visitsInternalRealised12 || 0), internalRealised12: c.visitsInternalRealised12 || 0,
+        sitesFollowed: c.sitesFollowed || 0,
+        // Visites suivies en interne dans les zones de ses contrats (retour 114) : à part, jamais « affectées » ;
+        // `internalReasons` : pourquoi (sans_tpm, indisponible, retire, sans_contrat, district_inconnu → nombre).
+        internal: c.visitsInternal || 0, internalRealised: c.visitsInternalRealised || 0, internalReasons: c.visitsInternalReasons || {},
       },
       submissions: { valid12: c.submissions12 || 0, excluded12: c.submissionsExcluded12 || 0,
         excludedRate: ratio(c.submissionsExcluded12 || 0, (c.submissions12 || 0) + (c.submissionsExcluded12 || 0)) },
@@ -199,29 +204,99 @@ function buildSheet(raw, { consolidation, expected = null } = {}) {
  * Contrats derrière une cellule SUIVIE EN INTERNE (retour 114), tels que la règle d'attribution les
  * nomme (tpmAttribution.resolveCell) — lecture seule, jamais une autre règle : « sans_tpm » → les
  * contrats de suivi sans TPM qui couvrent la zone (`default.noTpm`) ; « indisponible » → les contrats
- * des TPM indisponibles ce mois (candidats du contrat, ou celui de la modification suspendue).
+ * des TPM indisponibles ce mois (candidats du contrat, ou celui de la modification suspendue) ;
+ * « aucun_tpm » (TPM retiré de la zone avec un motif) → les contrats qui donnaient un TPM à la zone.
  * @param {object|null} cell  tpmAttribution.cellForSite(...)
  * @returns {string[]} identifiants de contrats
  */
 function internalCellContracts(cell) {
   if (!cell || !cell.default) return [];
   if (cell.state === 'sans_tpm') return (cell.default.noTpm || []).map((k) => k.contractId);
+  if (cell.state === 'aucun_tpm') return (cell.default.candidates || []).map((c) => c.contractId);
   if (cell.state !== 'indisponible') return [];
   const cands = cell.default.candidates || [];
   const suspended = cell.override && cell.override.providerId;
   return (suspended ? cands.filter((c) => c.providerId === cell.override.providerId) : cands).map((c) => c.contractId);
 }
 
+/** Contrats de suivi qui couvrent la zone ce mois-là selon la règle (cellule par défaut : avec et sans TPM). */
+function zoneContractsOfCell(cell) {
+  const d = cell && cell.default;
+  if (!d) return [];
+  return [...(d.candidates || []).map((c) => c.contractId), ...(d.noTpm || []).map((k) => k.contractId)];
+}
+
 /**
- * Visites suivies en interne dans les zones des contrats TENUS : celles dont la cellule nomme un de ces
- * contrats (internalCellContracts) — non annulées, et parmi elles les réalisées.
- * @param {{ status, cell }[]} visits   visites internes du mois et leur cellule
- * @param {Iterable<string>} heldIds    contrats tenus par le partenaire
+ * Raisons du suivi interne (infobulle de la fiche) : contrat sans TPM, TPM indisponible, TPM retiré avec
+ * un motif (pour la zone, ou pour la visite), et — visites réalisées, estampille figée — aucun contrat de
+ * suivi ou district inconnu au moment de la visite.
  */
-function holderInternalVisits(visits, heldIds) {
+const INTERNAL_REASONS = ['sans_tpm', 'indisponible', 'retire', 'sans_contrat', 'district_inconnu'];
+const REASON_OF_STATE = { sans_tpm: 'sans_tpm', indisponible: 'indisponible', aucun_tpm: 'retire', sans_contrat: 'sans_contrat', district_inconnu: 'district_inconnu' };
+
+/**
+ * Visites SUIVIES EN INTERNE (équipe S&E) des zones des contrats que le partenaire TIENT — groupes
+ * mois × statut × origine × zone lus en SQL, chacun avec sa cellule (règle d'attribution) au mois de la visite :
+ *  - visite de zone PRÉVUE (encore ré-estampillable) : la cellule d'aujourd'hui doit la mettre en interne À
+ *    CAUSE d'un contrat tenu (internalCellContracts) ; raison = état de la cellule ;
+ *  - visite RÉALISÉE : son estampille, figée, fait foi (elle reste interne quand le contrat reçoit son TPM) ;
+ *    elle compte si un contrat tenu couvre sa zone ce mois-là (zoneContractsOfCell) ; raison = état estampillé ;
+ *  - visite mise en interne par un choix de visite (origine « visite », avec motif) : contrat tenu sur sa
+ *    zone ; raison « retire ».
+ * Une visite interne ne porte ni TPM ni contrat (CHECK site_visits_contract_derived_ck) : visitOf ne la voit
+ * jamais, elle est donc comptée à part, sans double compte.
+ * @param {{ month, status, source, zoneState, n, sites?: string[], cell }[]} groups
+ * @param {Iterable<string>} heldIds  contrats tenus par le partenaire
+ * @returns {{ month, status, n, sites: string[], reason }[]}
+ */
+function holderInternalGroups(groups, heldIds) {
   const held = new Set(heldIds);
-  const mine = (visits || []).filter((v) => v.status !== 'annule' && internalCellContracts(v.cell).some((k) => held.has(k)));
-  return { visitsInternal: mine.length, visitsInternalRealised: mine.filter((v) => v.status === 'realise').length };
+  const out = [];
+  for (const g of groups || []) {
+    if (!g || g.status === 'annule') continue;
+    const frozen = g.status === 'realise' || g.source === 'visite';
+    const contracts = frozen ? zoneContractsOfCell(g.cell) : internalCellContracts(g.cell);
+    if (!contracts.some((k) => held.has(k))) continue;
+    const state = g.source === 'visite' ? 'aucun_tpm' : (g.status === 'realise' ? g.zoneState : (g.cell && g.cell.state));
+    out.push({ month: g.month, status: g.status, n: Number(g.n) || 0, sites: g.sites || [], reason: REASON_OF_STATE[state] || 'sans_contrat' });
+  }
+  return out;
+}
+
+/**
+ * Chiffres de la fiche tirés de holderInternalGroups : mois courant (visites, réalisées, raisons) et
+ * 12 derniers mois (réalisées, sites réalisés, pour l'union avec les sites des TPM).
+ * @param {ReturnType<typeof holderInternalGroups>} rows  groupes des 12 derniers mois
+ * @param {string} month  « AAAA-MM »
+ */
+function internalCounts(rows, month) {
+  const reasons = {};
+  let internal = 0; let realised = 0; let realised12 = 0;
+  const sites12 = new Set();
+  for (const r of rows || []) {
+    if (r.status === 'realise') { realised12 += r.n; for (const sid of r.sites) sites12.add(sid); }
+    if (r.month !== month) continue;
+    internal += r.n;
+    if (r.status === 'realise') realised += r.n;
+    reasons[r.reason] = (reasons[r.reason] || 0) + r.n;
+  }
+  return { visitsInternal: internal, visitsInternalRealised: realised, visitsInternalReasons: reasons,
+    visitsInternalRealised12: realised12, internalSites12: [...sites12] };
+}
+
+/**
+ * Suivis effectués par mois (onglet « Suivis effectués ») : visites internes prévues, réalisées et sites
+ * réalisés distincts, à part des visites des TPM.
+ * @returns {{ month, planned, realised, sites }[]} mois croissants
+ */
+function internalByMonth(rows) {
+  const by = new Map();
+  for (const r of rows || []) {
+    if (!by.has(r.month)) by.set(r.month, { month: r.month, planned: 0, realised: 0, sites: new Set() });
+    const m = by.get(r.month);
+    if (r.status === 'realise') { m.realised += r.n; for (const sid of r.sites) m.sites.add(sid); } else m.planned += r.n;
+  }
+  return [...by.values()].sort((a, b) => (a.month < b.month ? -1 : 1)).map((m) => ({ ...m, sites: m.sites.size }));
 }
 
 /**
@@ -289,5 +364,5 @@ function shapeTimeline(rows, { limit = 50 } = {}) {
 
 module.exports = {
   buildSheet, providerListRows, contractRows, budgetRecap, reportSummary, expectedCountsOf, mergeZones, shapeTimeline, EVENT_TEXT,
-  internalCellContracts, holderInternalVisits,
+  internalCellContracts, zoneContractsOfCell, holderInternalGroups, internalCounts, internalByMonth, INTERNAL_REASONS,
 };

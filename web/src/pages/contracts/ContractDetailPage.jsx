@@ -8,16 +8,16 @@ import { Alert, Badge, Button, Card, CardHeader, EmptyState, Skeleton, Usage } f
 import { BudgetItemsView } from '../../components/BudgetItems.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
-import { formatAr, formatDateTime, initials } from '../../lib/format.js';
+import { currentMonth, formatAr, formatDateTime, initials } from '../../lib/format.js';
 import {
   AMENDMENT_STATUS, CONTRACT_STATUS, HISTORY_LABELS, amendmentCode, contractFlags, formatDate, periodLabel, richText,
 } from '../../lib/contracts.js';
 import { SubmitDialog, DecisionDialog, RenewDialog, TerminateDialog } from './ContractDialogs.jsx';
 import DeleteDialog from '../../components/DeleteDialog.jsx';
-import { ROLE_LABELS, contractIdentity, contractNo, internalNo, typeLabelOf } from '../../lib/roles.js';
+import { ROLE_LABELS, contractIdentity, contractNo, contractTpmKind, internalNo, typeLabelOf } from '../../lib/roles.js';
 import '../tpm/partners.css';
 import TpmUnavailabilityBadge from '../../components/TpmUnavailabilityBadge.jsx';
-import { unavailabilityOf } from '../../lib/tpmAttribution.js';
+import { contractZoneFollow, contractZoneFollowText, unavailabilityOf } from '../../lib/tpmAttribution.js';
 import useTpmUnavailability from '../../lib/useTpmUnavailability.js';
 
 const TABS = [
@@ -32,6 +32,7 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
   const toast = useToast();
   const [detail, setDetail] = useState(null);
   const unavailability = useTpmUnavailability(); // retour 114 : TPM indisponibles (ligne « TPM »)
+  const zoneTable = useZoneCellsThisMonth(Boolean(detail && contractTpmKind(detail.contract) === 'tpm' && (detail.areas || []).length), contractId);
   const [history, setHistory] = useState(null);
   const [error, setError] = useState(null);
   const [tab, setTab] = useState('budget');
@@ -130,7 +131,7 @@ export default function ContractDetailPage({ contractId, onBack, onOpen, onEdit,
               <button type="button" className="inline-link" onClick={() => onOpenPartner && c.partnerId && onOpenPartner(c.partnerId)}>{c.partnerName}</button>
               {(c.partnerType || c.partnerTypeLabel) && <span className="muted"> · {tr(typeLabelOf(c.partnerType, c.partnerTypeLabel))}</span>}
             </td></tr>
-            <tr><th>{tr(ROLE_LABELS.tpm)}</th><td><ContractTpm tpm={c.tpm} zones={(detail.areas || []).length} unavailability={unavailability} onOpenPartner={onOpenPartner} /></td></tr>
+            <tr><th>{tr(ROLE_LABELS.tpm)}</th><td><ContractTpm contract={c} zones={detail.areas || []} zoneTable={zoneTable} unavailability={unavailability} onOpenPartner={onOpenPartner} /></td></tr>
             <tr><th>{tr('N° interne')}</th><td className="mono">{c.numero}</td></tr>
             <tr><th>{tr('N° FLA')}</th><td className="mono">{c.numeroFla || '—'}</td></tr>
             <tr><th>{tr('N° PO')}</th><td className="mono">{c.numeroPo || '—'}</td></tr>
@@ -631,32 +632,64 @@ function ForecastTab({ contractId, dateFin }) {
 }
 
 /**
- * TPM du contrat (retour 113) : règle commune du retour 58 — TPM rattaché par un plan de collecte ou
- * une facture, sinon le titulaire s'il est lui-même un TPM ; il suit les zones du contrat, SAUF les mois
- * où il est déclaré indisponible (retour 114, badge « Indisponible … ») : si aucun TPM du contrat n'est
- * disponible ce mois, ses zones sont suivies en interne.
+ * Cellules de l'onglet Affectation des TPM pour le mois courant du SERVEUR (GET /api/tpm/attribution
+ * sur un mois ; `today` de la réponse fait foi : si le mois du navigateur diffère, on relit ce mois-là).
+ * undefined tant que la réponse n'est pas arrivée, null en cas d'erreur (la ligne garde alors la phrase
+ * toujours vraie), jamais bloquant.
  */
-function ContractTpm({ tpm, zones, unavailability, onOpenPartner }) {
+function useZoneCellsThisMonth(enabled, contractId) {
+  const [table, setTable] = useState(undefined);
+  useEffect(() => {
+    setTable(undefined);
+    if (!enabled) return undefined;
+    let alive = true;
+    (async () => {
+      try {
+        const month = currentMonth();
+        let t = await api.tpmAttribution({ period: { from: month, to: month } });
+        if (t && t.today && t.today !== month) t = await api.tpmAttribution({ period: { from: t.today, to: t.today } });
+        if (alive) setTable(t || null);
+      } catch { if (alive) setTable(null); }
+    })();
+    return () => { alive = false; };
+  }, [enabled, contractId]);
+  return table;
+}
+
+/**
+ * TPM du contrat (retour 113) : règle commune du retour 58 — TPM rattaché par un plan de collecte ou
+ * une facture, sinon le titulaire s'il est lui-même un TPM. Même règle que la liste (roles.contractTpmKind) :
+ * « Interne » pour un contrat qui couvre des mois sans TPM, « — » pour un brouillon, un contrat en
+ * validation ou rejeté (il ne couvre aucun mois). Les zones qu'il suit CE MOIS sont lues dans les
+ * cellules de l'onglet Affectation des TPM (modification, indisponibilité, autre contrat compris :
+ * contractZoneFollow), jamais déduites du nombre de zones ; badge « Indisponible … » par TPM (retour 114).
+ */
+function ContractTpm({ contract, zones, zoneTable, unavailability, onOpenPartner }) {
   const { tr } = useI18n();
-  const list = (tpm && tpm.tpms) || [];
-  if (!list.length) {
+  const kind = contractTpmKind(contract);
+  if (kind === 'aucun') {
+    return <span className="muted">— · {tr('aucun mois couvert tant que le contrat n\'est pas actif')}</span>;
+  }
+  if (kind === 'interne') {
     return <span className="muted">{tr('Interne — suivi par l\'équipe S&E tant qu\'aucun TPM n\'est rattaché (un TPM l\'est dès qu\'il a un plan de collecte ou une facture sur ce contrat).')}</span>;
   }
+  const list = contract.tpm.tpms;
   const VIA = { plan: 'plan de collecte', rapport: 'factures et rapports', titulaire: 'son propre contrat' };
-  const offs = list.map((t) => unavailabilityOf(unavailability, t.id));
-  const allOff = offs.every((u) => u && u.current); // aucun TPM disponible ce mois : suivi interne
   return (
     <span>
-      {list.map((t, i) => (
-        <span key={t.id}>{i > 0 && ', '}
-          <button type="button" className="inline-link" onClick={() => onOpenPartner && onOpenPartner(t.id)}>{t.name}</button>
-          {t.via.length > 0 && <span className="muted"> ({t.via.map((v) => tr(VIA[v] || v)).join(', ')})</span>}
-          {offs[i] && <> <TpmUnavailabilityBadge u={offs[i]} /></>}
-        </span>
-      ))}
-      {zones > 0 && (allOff
-        ? <span className="muted"> · {tr('indisponible ce mois : zones en suivi interne')}</span>
-        : <span className="muted"> · {tr(zones > 1 ? 'suit les {n} zones du contrat' : 'suit la zone du contrat', { n: zones })}</span>)}
+      {list.map((t, i) => {
+        const off = unavailabilityOf(unavailability, t.id);
+        return (
+          <span key={t.id}>{i > 0 && ', '}
+            <button type="button" className="inline-link" onClick={() => onOpenPartner && onOpenPartner(t.id)}>{t.name}</button>
+            {t.via.length > 0 && <span className="muted"> ({t.via.map((v) => tr(VIA[v] || v)).join(', ')})</span>}
+            {off && <> <TpmUnavailabilityBadge u={off} /></>}
+          </span>
+        );
+      })}
+      {zones.length > 0 && zoneTable !== undefined && (
+        <span className="muted"> · {contractZoneFollowText(tr, contractZoneFollow(zones, list, zoneTable), contract.id)}</span>
+      )}
     </span>
   );
 }

@@ -11,7 +11,10 @@ import { useI18n } from '../../../lib/i18n.jsx';
 /**
  * Suivis effectués par le prestataire sur une période (12 derniers mois par défaut) :
  * visites de terrain par mois (prévues, réalisées, annulées, sites visités) et formulaires
- * reçus qui lui sont reliés (correspondances des formulaires), par mois et par fiche.
+ * reçus qui lui sont reliés (correspondances des formulaires), par mois et par fiche. Pour un
+ * titulaire, les visites de ses zones suivies EN INTERNE (équipe S&E : contrat sans TPM, TPM
+ * indisponible ou retiré avec motif) forment une colonne à part — la même règle que l'aperçu
+ * (serveur partners.repository.holderInternalGroupsTx), jamais mêlées aux visites des TPM.
  */
 export default function ProviderFollowupsTab({ providerId, onNavigate }) {
   const { tr } = useI18n();
@@ -28,11 +31,18 @@ export default function ProviderFollowupsTab({ providerId, onNavigate }) {
     if (!data || !data.months) return [];
     const v = new Map((data.visits || []).map((x) => [x.month, x]));
     const s = new Map((data.submissions || []).map((x) => [x.month, x]));
-    return data.months.map((m) => ({ month: m, ...(v.get(m) || { planned: 0, realised: 0, cancelled: 0, sites: 0 }), valid: (s.get(m) || {}).valid || 0 }))
-      .filter((r) => r.planned || r.realised || r.cancelled || r.valid).reverse();
+    const n = new Map((data.internal || []).map((x) => [x.month, x]));
+    return data.months.map((m) => {
+      const i = n.get(m) || { planned: 0, realised: 0 };
+      return { month: m, ...(v.get(m) || { planned: 0, realised: 0, cancelled: 0, sites: 0 }), valid: (s.get(m) || {}).valid || 0,
+        internal: i.planned + i.realised, internalRealised: i.realised };
+    }).filter((r) => r.planned || r.realised || r.cancelled || r.valid || r.internal).reverse();
   }, [data]);
-  const total = rows.reduce((a, r) => ({ planned: a.planned + r.planned, realised: a.realised + r.realised, cancelled: a.cancelled + r.cancelled, valid: a.valid + r.valid }),
-    { planned: 0, realised: 0, cancelled: 0, valid: 0 });
+  const anyInternal = rows.some((r) => r.internal);
+  const total = rows.reduce((a, r) => ({ planned: a.planned + r.planned, realised: a.realised + r.realised, cancelled: a.cancelled + r.cancelled, valid: a.valid + r.valid,
+    internal: a.internal + r.internal, internalRealised: a.internalRealised + r.internalRealised }),
+  { planned: 0, realised: 0, cancelled: 0, valid: 0, internal: 0, internalRealised: 0 });
+  const internalCell = (n, r) => (n ? tr('{n} · {r} réalisée(s)', { n: formatInt(n), r: formatInt(r) }) : <span className="cell-empty">0</span>);
 
   const current = period || (data && data.period) || null;
   return (
@@ -54,6 +64,7 @@ export default function ProviderFollowupsTab({ providerId, onNavigate }) {
                   <th scope="col">{tr('Mois')}</th><th scope="col" className="num">{tr('Visites prévues')}</th><th scope="col" className="num">{tr('Réalisées')}</th>
                   <th scope="col" className="num">{tr('Annulées')}</th><th scope="col" className="num">{tr('Exécution du plan')}</th>
                   <th scope="col" className="num">{tr('Sites visités')}</th><th scope="col" className="num">{tr('Formulaires reçus')}</th>
+                  {anyInternal && <th scope="col" className="num">{tr('En suivi interne (équipe S&E)')}</th>}
                 </tr></thead>
                 <tbody>
                   {rows.map((r) => {
@@ -67,6 +78,7 @@ export default function ProviderFollowupsTab({ providerId, onNavigate }) {
                         <td className="num tabular">{exec == null ? <span className="cell-empty">{tr('— aucun plan')}</span> : tr('{p} %', { p: exec })}</td>
                         <td className="num tabular">{r.sites}</td>
                         <td className="num tabular">{formatInt(r.valid)}</td>
+                        {anyInternal && <td className="num tabular">{internalCell(r.internal, r.internalRealised)}</td>}
                       </tr>
                     );
                   })}
@@ -77,10 +89,12 @@ export default function ProviderFollowupsTab({ providerId, onNavigate }) {
                   <td className="num tabular">{total.cancelled}</td>
                   <td className="num tabular">{pct(total.realised, total.planned + total.realised) == null ? '—' : tr('{p} %', { p: pct(total.realised, total.planned + total.realised) })}</td>
                   <td /><td className="num tabular">{formatInt(total.valid)}</td>
+                  {anyInternal && <td className="num tabular">{internalCell(total.internal, total.internalRealised)}</td>}
                 </tr></tfoot>
               </table></div>
             )}
-            <p className="field-hint">{tr('Visites prévues = planifiées + réalisées (les annulées sont exclues) ; exécution du plan = réalisées ÷ prévues.')}</p>
+            <p className="field-hint">{tr('Visites prévues = planifiées + réalisées (les annulées sont exclues) ; exécution du plan = réalisées ÷ prévues.')}
+              {anyInternal && <> {tr('« En suivi interne » : visites des zones de ses contrats suivies par l\'équipe S&E (contrat sans TPM, TPM indisponible ou retiré avec motif), comptées à part des visites des TPM.')}</>}</p>
           </section>
 
           <section aria-labelledby="pv-forms">

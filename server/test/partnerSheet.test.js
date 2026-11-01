@@ -168,21 +168,46 @@ test('changement de rôle : rôle après le patch, vrai changement, `name` dans 
   assert.equal(nameChanges(before, 'ypa'), true, 'la casse est un vrai changement');
 });
 
-test('titulaire : visites suivies en interne de ses zones — la cellule nomme son contrat (sans TPM, ou TPM indisponible)', () => {
-  const { internalCellContracts, holderInternalVisits } = require('../src/modules/partners/partnerSheet');
+test('titulaire : visites suivies en interne de ses zones — prévues par la cellule, réalisées par leur estampille figée', () => {
+  const { internalCellContracts, zoneContractsOfCell, holderInternalGroups, internalCounts, internalByMonth } = require('../src/modules/partners/partnerSheet');
   const sansTpm = { state: 'sans_tpm', default: { noTpm: [{ contractId: 'K' }, { contractId: 'L' }], candidates: [] } };
   const indispo = { state: 'indisponible', default: { candidates: [{ providerId: 'ypa', contractId: 'K' }, { providerId: 'sahy', contractId: 'M' }] }, override: null };
   const suspendue = { state: 'indisponible', default: { candidates: [{ providerId: 'ypa', contractId: 'K' }, { providerId: 'sahy', contractId: 'M' }] }, override: { providerId: 'sahy' } };
+  const retire = { state: 'aucun_tpm', default: { candidates: [{ providerId: 'ypa', contractId: 'K' }] }, override: { providerId: null } };
+  const avecTpm = { state: 'contrat', default: { candidates: [{ providerId: 'x', contractId: 'K' }], noTpm: [] } };
   assert.deepEqual(internalCellContracts(sansTpm), ['K', 'L']);
   assert.deepEqual(internalCellContracts(indispo), ['K', 'M']);
   assert.deepEqual(internalCellContracts(suspendue), ['M'], 'modification suspendue : le contrat du TPM choisi');
-  for (const c of [null, {}, { state: 'contrat', default: { candidates: [{ contractId: 'K' }] } }, { state: 'sans_contrat', default: { noTpm: [] } }]) {
+  assert.deepEqual(internalCellContracts(retire), ['K'], 'TPM retiré de la zone avec un motif : le contrat qui le donnait');
+  for (const c of [null, {}, avecTpm, { state: 'sans_contrat', default: { noTpm: [] } }]) {
     assert.deepEqual(internalCellContracts(c), [], JSON.stringify(c));
   }
-  const visits = [
-    { status: 'planifie', cell: sansTpm }, { status: 'realise', cell: indispo }, { status: 'annule', cell: sansTpm },
-    { status: 'planifie', cell: suspendue }, { status: 'planifie', cell: { state: 'sans_contrat', default: { noTpm: [] } } },
+  assert.deepEqual(zoneContractsOfCell(avecTpm), ['K'], 'contrats de la zone ce mois-là, avec ou sans TPM');
+  assert.deepEqual(zoneContractsOfCell(sansTpm), ['K', 'L']);
+  const g = (o) => ({ month: '2026-10', source: 'zone', n: 1, sites: [], ...o });
+  const groups = [
+    g({ status: 'planifie', cell: sansTpm, n: 2 }),
+    // Réalisée en interne (estampille sans_tpm), puis le contrat a reçu son TPM : elle reste interne (point A).
+    g({ status: 'realise', zoneState: 'sans_tpm', cell: avecTpm, sites: ['s1'] }),
+    g({ status: 'annule', cell: sansTpm }),
+    g({ status: 'planifie', cell: suspendue }), // le contrat du TPM choisi (M) n'est pas tenu
+    g({ status: 'planifie', cell: avecTpm }), // prévue mais la cellule a un TPM : plus interne
+    g({ status: 'planifie', cell: retire }),
+    g({ status: 'planifie', source: 'visite', cell: avecTpm }), // mise en interne pour la visite, avec motif
+    g({ status: 'realise', zoneState: 'indisponible', cell: indispo, month: '2026-09', sites: ['s2', 's1'] }),
+    g({ status: 'realise', zoneState: 'sans_contrat', cell: { state: 'sans_contrat', default: { noTpm: [], candidates: [] } } }), // aucun contrat tenu
   ];
-  assert.deepEqual(holderInternalVisits(visits, ['K']), { visitsInternal: 2, visitsInternalRealised: 1 }, 'annulée et autres contrats exclus');
-  assert.deepEqual(holderInternalVisits(visits, []), { visitsInternal: 0, visitsInternalRealised: 0 });
+  const rows = holderInternalGroups(groups, ['K']);
+  assert.deepEqual(rows.map((r) => [r.month, r.status, r.n, r.reason]), [
+    ['2026-10', 'planifie', 2, 'sans_tpm'], ['2026-10', 'realise', 1, 'sans_tpm'], ['2026-10', 'planifie', 1, 'retire'],
+    ['2026-10', 'planifie', 1, 'retire'], ['2026-09', 'realise', 1, 'indisponible'],
+  ]);
+  assert.deepEqual(holderInternalGroups(groups, []), []);
+  assert.deepEqual(internalCounts(rows, '2026-10'), {
+    visitsInternal: 5, visitsInternalRealised: 1, visitsInternalReasons: { sans_tpm: 3, retire: 2 },
+    visitsInternalRealised12: 2, internalSites12: ['s1', 's2'],
+  });
+  assert.deepEqual(internalByMonth(rows), [
+    { month: '2026-09', planned: 0, realised: 1, sites: 2 }, { month: '2026-10', planned: 4, realised: 1, sites: 1 },
+  ]);
 });

@@ -4,7 +4,7 @@ import { api } from '../../api/client.js';
 import { Alert, Button, EmptyState, Skeleton, StatusBadge } from '../../components/ui.jsx';
 import { useI18n } from '../../lib/i18n.jsx';
 import { formatDateTime, formatInt, shortMonthLabel } from '../../lib/format.js';
-import { TPM_AVAILABILITY, TPM_LOG_ACTION, rangeLabel, tpmStateLabel } from '../../lib/tpmAttribution.js';
+import { TPM_AVAILABILITY, TPM_LOG_ACTION, logLabelText, logReasonText, rangeLabel, tpmStateLabel } from '../../lib/tpmAttribution.js';
 import { ROLE_LABELS } from '../../lib/roles.js';
 import './tpmAttribution.css';
 
@@ -19,6 +19,8 @@ const PAGE = 50;
  */
 export default function TpmAttributionLog({ area, onClearArea }) {
   const { tr } = useI18n();
+  // Raison d'un lot : traduite quand le système l'a écrite (code), telle quelle quand une personne l'a saisie.
+  const reasonOf = (l) => logReasonText(tr, l);
   const [action, setAction] = useState('');
   const [items, setItems] = useState(null);
   const [total, setTotal] = useState(0);
@@ -102,8 +104,8 @@ export default function TpmAttributionLog({ area, onClearArea }) {
                       <td className="tabular tpa-log-when">{formatDateTime(l.changedAt)}</td>
                       <td className="tpa-log-who">{l.changedByName || <span className="muted">{tr('Reprise automatique')}</span>}</td>
                       <td className="nowrap"><StatusBadge def={TPM_LOG_ACTION[l.action]} /></td>
-                      <td className="tpa-log-scope">{l.label}<div className="site-meta">{rangeLabel(l.monthFrom, l.monthTo)}</div></td>
-                      <td className="tpa-reason">{l.reason ? <span className="tpa-reason-text" title={l.reason}>{l.reason}</span> : <span className="cell-empty">—</span>}</td>
+                      <td className="tpa-log-scope">{logLabelText(tr, l)}<div className="site-meta">{rangeLabel(l.monthFrom, l.monthTo)}</div></td>
+                      <td className="tpa-reason">{reasonOf(l) ? <span className="tpa-reason-text" title={reasonOf(l)}>{reasonOf(l)}</span> : <span className="cell-empty">—</span>}</td>
                       <td className="tpa-log-counts tabular">
                         {l.zonesChanged != null && <span>{tr('{n} zone-mois', { n: formatInt(l.zonesChanged) })}</span>}
                         <span>{tr('{n} visite(s)', { n: formatInt(l.visitsUpdated || 0) })}</span>

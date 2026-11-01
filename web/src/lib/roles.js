@@ -84,6 +84,23 @@ export function tpmNames(view) {
   return ((view && view.tpms) || []).map((t) => t.name);
 }
 
+/**
+ * Colonne « TPM » d'un titulaire (liste des partenaires de mise en œuvre) : les TPM de ses contrats
+ * qui couvrent le mois ; « Interne » seulement si l'un de ces contrats n'a pas de TPM (`hasTpm`
+ * faux, serveur contractTpm.partnerContracts) ; aucun contrat qui couvre le mois : « — », jamais
+ * « Interne » pour un contrat qui n'existe pas (même règle que contractTpmKind pour un contrat).
+ * @param {{ heldContracts?: { hasTpm?: boolean }[], tpms?: { name }[] }} p  ligne de /api/partners/providers
+ * @returns {{ names: string[], internal: boolean, none: boolean }}
+ */
+export function holderTpmCell(p) {
+  const held = (p && p.heldContracts) || [];
+  return {
+    names: ((p && p.tpms) || []).map((t) => t.name),
+    internal: held.some((c) => c && c.hasTpm === false),
+    none: held.length === 0,
+  };
+}
+
 /** Statuts d'un contrat qui couvrent des mois (jumeau de tpmAttribution.COVERING_STATUSES, mems_tpm_cells). */
 export const COVERING_CONTRACT_STATUSES = ['actif', 'resilie'];
 

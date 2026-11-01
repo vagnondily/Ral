@@ -45,6 +45,11 @@ test('partenaires vus depuis leurs contrats : contrats tenus, contrats suivis, T
   // Un TPM titulaire de son propre contrat : tenu ET suivi, sans être son propre TPM.
   assert.deepEqual([p.get('sahy').held.length, p.get('sahy').monitored.length, p.get('sahy').tpms.length], [1, 1, 0]);
   assert.deepEqual(p.get('miaro').tpms, []);
+  // Chaque contrat tenu dit s'il a un TPM (« Interne » seulement pour un contrat tenu sans TPM).
+  assert.deepEqual(p.get('aina').held.map((c) => [c.id, c.hasTpm]), [['c1', true]]);
+  assert.deepEqual(p.get('miaro').held.map((c) => [c.id, c.hasTpm]), [['c3', false]]);
+  assert.deepEqual(p.get('sahy').held.map((c) => [c.id, c.hasTpm]), [['c2', true]], 'un TPM titulaire suit son propre contrat');
+  assert.equal('hasTpm' in p.get('rano').monitored[0], false, 'contrats suivis : forme inchangée');
 });
 
 test('n° affiché d\'un contrat : FLA, sinon numéro interne', () => {

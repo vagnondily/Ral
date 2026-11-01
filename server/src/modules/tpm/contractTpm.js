@@ -55,6 +55,8 @@ function contractTpmViews(contracts, links, partners) {
 /**
  * Partenaires vus depuis leurs contrats : pour chacun, les contrats dont il est TITULAIRE et les
  * contrats qu'il SUIT comme TPM (même vue que contractTpmViews), avec les TPM de ses contrats.
+ * Un contrat tenu porte `hasTpm` (le contrat a-t-il un TPM ?) : la liste des titulaires n'écrit
+ * « Interne » que pour un contrat tenu SANS TPM, jamais pour un titulaire sans contrat (« — »).
  * @param {Array<{ id, numero, numeroFla?, partnerId, partnerName, status }>} contracts
  * @param {Map} views  contractTpmViews(...)
  * @returns {Map<string, { held: object[], monitored: object[], tpms: Array<{id, name}> }>}
@@ -70,7 +72,7 @@ function partnerContracts(contracts, views) {
     const v = views.get(c.id) || { state: 'aucun', tpms: [] };
     if (c.partnerId) {
       const e = entry(c.partnerId);
-      e.held.push(short(c));
+      e.held.push({ ...short(c), hasTpm: v.tpms.length > 0 });
       for (const t of v.tpms) if (t.id !== c.partnerId) e.tpms.set(t.id, { id: t.id, name: t.name });
     }
     // Chaque TPM du contrat le SUIT — y compris un TPM titulaire de son propre contrat, qu'il y soit

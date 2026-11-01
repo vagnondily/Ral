@@ -378,8 +378,18 @@ async function withZoneTpm(tenantId, rows, month, { idOf = (r) => r.id } = {}) {
   return list.map((r) => ({ ...r, tpm: cells.get(`${idOf(r)}|${m}`) || null }));
 }
 
+/**
+ * Journal : une raison écrite par le système (code, ou ancienne phrase française) part en `reasonKey`
+ * — l'écran la traduit — et sa `reason` brute est retirée ; une raison saisie reste telle quelle.
+ */
+const withSystemReason = (r) => {
+  const key = rule.systemReasonKey(r.reason);
+  return key ? { ...r, reason: null, reasonKey: key } : r;
+};
+
 async function listLog(tenantId, filters) {
-  return withTenantTransaction(tenantId, (client) => repo.listLogTx(client, tenantId, filters));
+  const out = await withTenantTransaction(tenantId, (client) => repo.listLogTx(client, tenantId, filters));
+  return { ...out, items: (out.items || []).map(withSystemReason) };
 }
 
 module.exports = {
