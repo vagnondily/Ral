@@ -1,7 +1,7 @@
 const { withTenantTransaction } = require('../../config/db');
 const { chunkRows } = require('../../db/batch');
 const { AppError, badRequest, conflict, notFound } = require('../../middleware/errors');
-const { buildPlaceIndex, resolvePath, groupUnmatched, normPlace, parentKeyOf, looksLikePcode, buildOfficeIndex, resolveOffice } = require('../common/placeMatch');
+const { buildPlaceIndex, resolvePath, resolveSitePath, groupUnmatched, normPlace, parentKeyOf, looksLikePcode, buildOfficeIndex, resolveOffice } = require('../common/placeMatch');
 const { detectMapping } = require('../monitoring/memsMapping');
 const { buildSiteIndex, resolveSite, queueKeyOf, isAutomaticSite } = require('../common/siteMatch');
 const { buildPartnerIndex, resolvePartner, buildAgentIndex, resolveAgent } = require('../common/partyMatch');
@@ -98,7 +98,10 @@ const SITE_PLACE = `COALESCE(NULLIF(btrim(s.adm1), ''), NULL) AS adm1,
  * une résolution par combinaison distincte de lieux, puis mise à jour des
  * seuls sites dont le résultat change (unité la plus fine, pcodes, statut), et
  * file « À rapprocher » de la source « sites ». Les noms saisis ne sont jamais
- * modifiés ; un pcode déjà connu n'est jamais remplacé par une absence de code.
+ * modifiés ; un pcode déjà connu n'est jamais remplacé par une absence de code — SAUF le pcode de
+ * DISTRICT, qui suit la graphie du site (common/placeMatch.resolveSitePath) : quand le texte désigne un
+ * district, adm2_pcode = son code, ou aucun (`r2`). Un site déplacé puis corrigé ne garde donc jamais le
+ * code de son ancien district, qui ferait voter toute sa graphie pour ce district (siteActivitySql.sdvote).
  * `restamp: false` : zones des sites recalculées, mais PAS la ré-estampille (qui prend le verrou
  * d'attribution) — afterSitesChangedTx la fait en DERNIER, après les formulaires reçus.
  * @returns {{ sites, combinations, resolved, pending }}
@@ -111,7 +114,9 @@ async function applySitesGeoTx(client, tenantId, { restamp = true } = {}) {
       GROUP BY adm1, adm2, adm3, adm4, p2, p3`, [tenantId]);
   const updates = []; const unmatched = []; let resolved = 0; let pending = 0;
   for (const c of combos) {
-    const path = resolvePath(index, { adm1: c.adm1, adm2: c.adm2, adm3: c.adm3, adm4: c.adm4, pcodes: { adm2: c.p2, adm3: c.p3 } });
+    const path = resolveSitePath(index, { adm1: c.adm1, adm2: c.adm2, adm3: c.adm3, adm4: c.adm4, pcodes: { adm2: c.p2, adm3: c.p3 } });
+    // P-code de district qui suit le texte : réécriture exacte, une absence de code effaçant l'ancien.
+    const r2 = path.districtPcode !== undefined;
     if (path.status === 'resolu') resolved += c.n; else if (path.status !== 'vide') pending += c.n;
     for (const l of path.levels) {
       if (l.status === 'vide' || l.status === 'hors_niveau' || l.status === 'resolu') continue;
@@ -120,18 +125,20 @@ async function applySitesGeoTx(client, tenantId, { restamp = true } = {}) {
     }
     const pc = path.pcodes;
     for (const id of c.ids) {
-      updates.push({ id, area: path.finest ? path.finest.id : null, p1: pc.adm1 || null, p2: pc.adm2 || null, p3: pc.adm3 || null, p4: pc.adm4 || null, status: path.status === 'resolu' ? (path.levels.filter((l) => l.area).pop() || {}).status || 'exact' : path.status });
+      updates.push({ id, area: path.finest ? path.finest.id : null, p1: pc.adm1 || null, p2: r2 ? path.districtPcode : (pc.adm2 || null), p3: pc.adm3 || null, p4: pc.adm4 || null, r2, status: path.status === 'resolu' ? (path.levels.filter((l) => l.area).pop() || {}).status || 'exact' : path.status });
     }
   }
   await updateFromValues(client, tenantId, {
     table: 'sites',
-    cols: [['id', 'uuid'], ['area', 'uuid'], ['p1', 'text'], ['p2', 'text'], ['p3', 'text'], ['p4', 'text'], ['status', 'text']],
-    set: `admin_area_id = v.area, adm1_pcode = COALESCE(v.p1, t.adm1_pcode), adm2_pcode = COALESCE(v.p2, t.adm2_pcode),
+    cols: [['id', 'uuid'], ['area', 'uuid'], ['p1', 'text'], ['p2', 'text'], ['p3', 'text'], ['p4', 'text'], ['r2', 'boolean'], ['status', 'text']],
+    set: `admin_area_id = v.area, adm1_pcode = COALESCE(v.p1, t.adm1_pcode),
+          adm2_pcode = CASE WHEN v.r2 THEN v.p2 ELSE COALESCE(v.p2, t.adm2_pcode) END,
           adm3_pcode = COALESCE(v.p3, t.adm3_pcode), adm4_pcode = COALESCE(v.p4, t.adm4_pcode), geo_status = v.status`,
-    rows: updates, values: (u) => [u.id, u.area, u.p1, u.p2, u.p3, u.p4, u.status],
+    rows: updates, values: (u) => [u.id, u.area, u.p1, u.p2, u.p3, u.p4, u.r2, u.status],
     where: `AND (t.admin_area_id IS DISTINCT FROM v.area OR t.geo_status IS DISTINCT FROM v.status
              OR (v.p3 IS NOT NULL AND t.adm3_pcode IS DISTINCT FROM v.p3) OR (v.p2 IS NOT NULL AND t.adm2_pcode IS DISTINCT FROM v.p2)
-             OR (v.p1 IS NOT NULL AND t.adm1_pcode IS DISTINCT FROM v.p1) OR (v.p4 IS NOT NULL AND t.adm4_pcode IS DISTINCT FROM v.p4))`,
+             OR (v.p1 IS NOT NULL AND t.adm1_pcode IS DISTINCT FROM v.p1) OR (v.p4 IS NOT NULL AND t.adm4_pcode IS DISTINCT FROM v.p4)
+             OR (v.r2 AND t.adm2_pcode IS DISTINCT FROM v.p2))`,
   });
   await syncQueueTx(client, tenantId, 'sites', groupUnmatched(unmatched));
   // Retour 58 : zone de chaque site (district / commune, règle du lot 1b) puis TPM des visites
