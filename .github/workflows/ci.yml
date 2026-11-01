@@ -23,7 +23,7 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -64,7 +64,7 @@ jobs:
       MEMS_TEST_APP_DATABASE_URL: postgres://mems2_app:mems2_app_change_me@localhost:5432/mems_ci_test
       JWT_SECRET: ci-only-secret-not-used-in-production-32b
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -83,7 +83,7 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
