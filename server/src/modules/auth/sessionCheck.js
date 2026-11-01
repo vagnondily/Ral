@@ -17,7 +17,7 @@
  * le jeton signé, comportement d'origine) — une panne de base ne doit pas
  * déconnecter tout le monde ; l'API renvoie déjà 503 ailleurs quand elle est down.
  */
-const { pool } = require('../../config/db');
+const { withTenantTransaction } = require('../../config/db');
 const { normalizeRole } = require('../common/accessRoles');
 
 const TTL_MS = Number(process.env.SESSION_ACTIVE_TTL_MS || 30_000);
@@ -25,19 +25,10 @@ const cache = new Map(); // userId -> { at, state }
 
 /** Lecture en base de l'état courant du compte, sous le GUC tenant (RLS). */
 async function defaultFetchState(userId, tenantId) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+  return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query('SELECT active, status, role FROM users WHERE id = $1', [userId]);
-    await client.query('COMMIT');
     return rows[0] || null; // null = compte introuvable (supprimé)
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 let fetchState = defaultFetchState;

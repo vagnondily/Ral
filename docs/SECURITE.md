@@ -38,6 +38,13 @@ officiel (aucune source git/http/file).
 - **Secrets.** Aucun secret commité (`.env` non suivi).
 
 ## Intégration continue
+
+> Validée localement en rejouant chaque job (01/11). Le job « serveur base » a surfacé 2 tests
+> pré-existants cassés (hors périmètre sécurité, présents sur `7a1825b`) : un test aux rôles obsolètes
+> (`'admin'/'manager'` au lieu du modèle à 5 rôles, migration 119) et un test à précondition temporelle
+> (site à 3 mois de couverture contrat-TPM) — corrigés (le 2ᵉ saute explicitement hors fenêtre). `test:db` :
+> 49 réussis, 0 échec, 1 sauté.
+
 `.github/workflows/ci.yml` : à chaque push / pull request — serveur (lint + tests unitaires + `npm
 audit` bloquant sur « critical »), serveur sur base PostgreSQL jetable (migrate + seed + `test:db`),
 build web. `.github/dependabot.yml` : montées de dépendances hebdomadaires (serveur, web, actions).

@@ -1151,3 +1151,15 @@ _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot v�
   lint ✅, 1 584 tests ✅ (6 nouveaux : `sessionRevocation.test.js`). `docs/SECURITE.md` : constat 1 → fait.
   Les 6 constats de l'audit sont désormais traités ; restent des options de durcissement (CSP par nonce)
   et les montées de dépendances suivies par CI/Dependabot.
+- **01/11 (relecture + validation CI)** ✅ **Vérification « est-ce fait comme il faut » de l'envoi sécurité.**
+  (1) `sessionCheck.defaultFetchState` refait sur le helper **`withTenantTransaction`** (règle 3 de
+  CLAUDE.md) au lieu d'un `BEGIN`/`set_config` manuel ; revérifié en direct (désactivation → 401,
+  réactivation → 200). (2) **J'avais livré `ci.yml` sans exécuter son job base** : en le faisant tourner
+  localement (base jetable, migrate + seed + seed:test + `test:db`), il surfaçait **2 échecs pré-existants**
+  (présents sur `7a1825b`, hors de mon périmètre sécurité) — exactement ce à quoi sert la CI. Corrigés :
+  `tpmLinkLocksDb` cherchait un 2ᵉ valideur parmi `role IN ('admin','manager')`, obsolète depuis le modèle
+  à 5 rôles (migration 119) — élargi à `validator/admin/superuser/manager` ; `tpmInvoicedSpanDb` exigeait
+  (assert) un site à 3 mois consécutifs de couverture contrat-TPM qui n'existe pas tous les mois (fenêtre
+  temporelle des contrats de démo) — transformé en **saut explicite** quand le gabarit n'est pas présent,
+  avec note de suivi. `test:db` désormais **50 : 49 ✅ / 0 échec / 1 sauté**, donc le job CI « serveur base »
+  passera. Contrôles : lint ✅, `npm test` 1 584 ✅, `test:db` vert.

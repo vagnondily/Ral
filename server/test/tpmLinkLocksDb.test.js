@@ -53,7 +53,8 @@ test('lien TPM ↔ contrat × écrivain de contrat sur le même contrat : jamais
     try {
       const [{ id: T }] = await q('SELECT id FROM tenants ORDER BY created_at, id LIMIT 1');
       const [{ id: ADMIN }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND role = 'admin' ORDER BY email LIMIT 1", [T]);
-      const [{ id: VALIDATOR }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND id <> $2 AND role IN ('admin', 'manager') ORDER BY email LIMIT 1", [T, ADMIN]);
+      // Valideur « autre personne » = tout rôle qui valide (modèle à 5 rôles, migration 119 ; + 'manager' hérité).
+      const [{ id: VALIDATOR }] = await q("SELECT id FROM users WHERE tenant_id = $1 AND id <> $2 AND role IN ('validator', 'admin', 'superuser', 'manager') ORDER BY email LIMIT 1", [T, ADMIN]);
       const [{ id: P }] = await q(`SELECT p.id FROM partners p JOIN partner_types t ON t.tenant_id = p.tenant_id AND t.id = p.partner_type_id
                                     WHERE p.tenant_id = $1 AND t.code = 'tpm' AND p.active ORDER BY p.name LIMIT 1`, [T]);
       const [src] = await q(`SELECT id FROM contracts WHERE tenant_id = $1 AND status = 'actif'
