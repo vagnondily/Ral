@@ -16,6 +16,7 @@ const bcrypt = require('bcryptjs');
 const logger = require('../config/logger');
 const { requireConnString, explainConnError } = require('../config/connString');
 const tpmZones = require('../modules/tpm/tpmAttribution.repository');
+const { seedProgrammeReferential } = require('./seedProgrammeActivities');
 
 const PARTNER_TYPES = [
   ['tpm', 'TPM — tierce partie de suivi', 1],
@@ -501,6 +502,11 @@ async function main() {
       if (seededVisitIds.length) await tpmZones.restampVisitsTx(client, tenantId, { visitIds: seededVisitIds });
       await client.query('COMMIT');
     } catch (err) { await client.query('ROLLBACK'); throw err; }
+
+    // Activités de programme (suivi de processus) › sous-activités : référentiel de démonstration,
+    // puis reprise de tout libellé encore inconnu (migration 105) — chaque texte d'activité se résout.
+    const programme = await seedProgrammeReferential(client, tenantId);
+    logger.info(programme, 'seed: activités de programme');
 
     logger.info({ tenantId, admin: 'admin@mems.mg / changeme123', validator: 'validateur@mems.mg / changeme123' }, 'seed complete');
   } finally {

@@ -28,6 +28,7 @@ const alertsRoutes = require('./modules/dashboards/alerts.routes');
 const deletionsRoutes = require('./modules/deletions/deletions.routes');
 const siteRegistryRoutes = require('./modules/settings/sitesAdmin.routes');
 const subActivitiesRoutes = require('./modules/settings/subActivities.routes');
+const programmeActivitiesRoutes = require('./modules/programmes/programmeActivities.routes');
 const mapRoutes = require('./modules/map/map.routes');
 const evaluationRoutes = require('./modules/evaluation/evaluation.routes');
 const trainingsRoutes = require('./modules/trainings/trainings.routes');
@@ -163,6 +164,7 @@ function createApp() {
   app.use('/api/site-registry', siteRegistryRoutes);
   app.use('/api/sub-activities', subActivitiesRoutes);
   app.use('/api/projects', projectsRoutes);
+  app.use('/api/programme-activities', programmeActivitiesRoutes); // retours 106/109 : activités de programme
   app.use('/api/map', mapRoutes);
   app.use('/api/evaluation', evaluationRoutes);
   app.use('/api/trainings', trainingsRoutes);

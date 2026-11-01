@@ -29,6 +29,7 @@ import period from './en/period.js';
 import map from './en/map.js';
 import partners from './en/partners.js';
 import activation from './en/activation.js';
+import activities from './en/activities.js';
 import reportLayout from './en/reportLayout.js';
 import tpmAttribution from './en/tpmAttribution.js';
 import roles from './en/roles.js';
@@ -52,4 +53,6 @@ export default {
   ...roles,
   // Connexion / inscription / accès par écran.
   ...auth,
+  // Retours 106/109 : activités de programme et prestations contractuelles.
+  ...activities,
 };
