@@ -17,13 +17,14 @@
 const { Router } = require('express');
 const { z } = require('zod');
 const asyncHandler = require('../../middleware/asyncHandler');
-const { requireAuth, requireRole } = require('../../middleware/auth');
+const { requireAuth, requireRole, ADMIN_ROLES } = require('../../middleware/auth');
 const { badRequest } = require('../../middleware/errors');
 const service = require('./programmeActivities.service');
 
 const router = Router();
 router.use(requireAuth);
-const ADMIN = requireRole('admin');
+// Écriture réservée à l'administration (admin + super-utilisateur) — modèle à 5 rôles.
+const ADMIN = requireRole(...ADMIN_ROLES);
 const t = (req) => req.auth.tenantId;
 const uid = (req) => req.auth.userId || req.auth.sub;
 
