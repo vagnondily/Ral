@@ -19,14 +19,18 @@ const router = Router();
 router.use(requireAuth);
 
 const blank = (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v);
-const schema = z.object({ office: z.preprocess(blank, z.string().uuid().optional()) });
+const schema = z.object({
+  office: z.preprocess(blank, z.string().uuid().optional()),
+  // Groupe d'activité (clé du découpage par activité) : ne garder que les sites de ce groupe.
+  activity: z.preprocess(blank, z.string().max(200).optional()),
+});
 
 router.get('/', (req, res, next) => {
   try {
     const period = readPeriod(req.query, { required: true, maxSpan: PERIOD_CAPS.facts });
-    const parsed = schema.safeParse({ office: req.query.office });
-    if (!parsed.success) return next(badRequest('Bureau invalide', parsed.error.flatten()));
-    req.valid = { period, officeId: parsed.data.office || null };
+    const parsed = schema.safeParse({ office: req.query.office, activity: req.query.activity });
+    if (!parsed.success) return next(badRequest('Filtre invalide', parsed.error.flatten()));
+    req.valid = { period, officeId: parsed.data.office || null, activity: parsed.data.activity || null };
     return next();
   } catch (e) {
     return next(e);

@@ -1183,3 +1183,17 @@ _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot v�
   s'y insère sans collision. Contrôles complets : lint ✅, **1 676 tests unitaires / 0 échec** ✅, build ✅,
   migration neuve (001→127 avec 120) ✅ **et** chemin de mise à jour (120 appliquée en attente sur une base
   déjà en 127) ✅, `test:db` **55 ✅ / 0 échec / 1 sauté**, balayage **46 écrans × FR / EN, 0 erreur** ✅.
+- **01/11 (retour 102 — filtres du rapportage)** ✅ **Filtre bureau = bureau ET toutes ses antennes à
+  n'importe quel niveau (récursif), partout, + filtres bureau/activité sur le Rapport de synthèse.**
+  Cartographie du flux de filtrage (agent) → le filtre bureau était récursif seulement sur le chemin de
+  couverture principal ; ailleurs (indicateurs de suivi, RBM, plan, visites par TPM) il ne descendait que
+  d'UN niveau d'antenne. Unifié sur la règle commune testée (`officeScopeIds` en JS, sous-requête
+  `WITH RECURSIVE office_tree` en SQL) dans `rbmSummary.scopeSites`, `catalog/coverage.planScope`,
+  `monitoring/indicatorFacts.factFilter` et `field.repository` (visites par TPM). **Preuve chiffrée** : sur
+  une base, un site placé 2 niveaux sous un bureau est compté par le sous-arbre récursif (1) et manqué par
+  l'ancien « un seul niveau » (0). Côté UI, le **Rapport de synthèse** reçoit un filtre **bureau** (sous-arbre)
+  et **activité** câblés à `/api/dashboards/coverage` (activité désormais lue par la route ; le budget reste
+  par contrat, sans dimension bureau/activité). Live : activité « school meal » 1 281 → 824 sites.
+  Contrôles : lint ✅, 1 621 tests ✅ (dont la règle récursive à 3 niveaux et le flux activité), `test:db`
+  55 ✅, build ✅, balayage 46 × FR / EN 0 erreur ✅. Reste du 102 : la période en « mois cochés » (vs plage)
+  — représentation à ajouter plus tard (aujourd'hui plage `du…au…`).

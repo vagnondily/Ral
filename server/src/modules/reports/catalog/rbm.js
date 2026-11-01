@@ -26,7 +26,7 @@ function sitesOf(raw, eff, ctx) {
   const office = eff.office || null;
   return scopeSites(raw || [], {
     officeId: office === 'unlinked' ? 'unlinked' : office && office.startsWith('id:') ? office.slice(3) : null,
-    activity: eff.activity || null, parentOf: ctx.officeParents || new Map(),
+    activity: eff.activity || null, officeList: ctx.officeList || [],
   });
 }
 const asOfMeta = (eff, extra) => ({ asOf: eff.period ? eff.period.to : null, ...extra });

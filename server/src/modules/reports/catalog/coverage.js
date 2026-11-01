@@ -1,5 +1,6 @@
 const { coverageStatus } = require('../../common/coverageStatus');
 const { monthsOf } = require('../../common/period');
+const { officeScopeIds } = require('../../common/officeScope');
 const { boardKpis, rankSites } = require('../../tpm/planBoard');
 const { phrases } = require('../phrases');
 const { col, ratePct, pctOf } = require('./facts');
@@ -215,15 +216,15 @@ const monthsTable = ds('cov.months', {
 });
 
 // ---- Plan de suivi (exercice) ---------------------------------------------------------------
-/** Sites du plan dans le périmètre (bureau MEMS et ses antennes, activité). */
+/** Sites du plan dans le périmètre : bureau MEMS ET toutes ses antennes (récursif, officeScopeIds), activité. */
 function planScope(sites, eff, ctx) {
   const office = eff.office ? eff.office : null;
   const officeId = office && office.startsWith('id:') ? office.slice(3) : null;
-  const parentOf = ctx.officeParents || new Map();
   const act = eff.activity ? String(eff.activity).trim().toLowerCase() : null;
+  const scope = officeId ? officeScopeIds(ctx.officeList || [], officeId) : null;
   return (sites || []).filter((s) => {
-    if (office === 'unlinked' && s.fieldOfficeId) return false;
-    if (officeId && s.fieldOfficeId !== officeId && parentOf.get(s.fieldOfficeId) !== officeId) return false;
+    if (office === 'unlinked') { if (s.fieldOfficeId) return false; }
+    else if (scope && !scope.has(s.fieldOfficeId)) return false;
     if (act && String(s.activity || '').trim().toLowerCase() !== act) return false;
     return true;
   });

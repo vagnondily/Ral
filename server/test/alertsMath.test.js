@@ -245,7 +245,9 @@ test('écrans d\'arrivée : la Synthèse jusqu\'à 12 mois, le Rapport de synth�
   assert.match(cov, /api\.monCoverageDashboard\(period\)/);
   assert.match(cov, /const ANALYSIS_MAX_SPAN = Math\.min\(PERIOD_CAPS\.analysis, PERIOD_CAPS\.facts\);/, 'Couverture & performance : plafond de coverage-dashboard');
   for (const src of [syn, rep, cov]) {
-    assert.match(src, /api\.dashCoverage\(period\)/);
+    // Même mesure (endpoint couverture) + même période ; le Rapport de synthèse y ajoute les filtres
+    // bureau / activité (retour 102), d'où « period, { … } » toléré.
+    assert.match(src, /api\.dashCoverage\(period[,)]/);
     assert.match(src, /tr\('Exécution du plan \(visites\)'\)/);
   }
 });

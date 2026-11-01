@@ -38,11 +38,24 @@ export default function ReportingPage({ onOpenContract }) {
   const [cov, setCov] = useState(undefined); // mesures de couverture : undefined = en cours, null = indisponible
   const [error, setError] = useState(null);
   const [covError, setCovError] = useState(null);
+  // Filtres de la couverture (retour 102) : bureau (lui ET toutes ses antennes) et activité.
+  const [officeId, setOfficeId] = useState('');
+  const [activity, setActivity] = useState('');
+  const [offices, setOffices] = useState([]);
+  const [actOptions, setActOptions] = useState([]);
 
+  // Liste des bureaux pour le filtre (une fois).
+  useEffect(() => {
+    let alive = true;
+    api.listOffices().then((rows) => { if (alive) setOffices(Array.isArray(rows) ? rows : []); }, () => {});
+    return () => { alive = false; };
+  }, []);
+
+  // Budget (consolidation) : par contrat, sans dimension bureau / activité → période seule.
   useEffect(() => {
     if (!ready || !period) return undefined;
     let alive = true;
-    setCons(null); setCov(undefined); setError(null); setCovError(null);
+    setCons(null); setError(null);
     api.consolidation({ period })
       .then((c) => {
         if (!alive) return;
@@ -50,9 +63,22 @@ export default function ReportingPage({ onOpenContract }) {
         try { if (typeof performance !== 'undefined' && performance.mark) performance.mark('period:rendered'); } catch { /* sans incidence */ }
       })
       .catch((e) => alive && setError(e.message));
-    api.dashCoverage(period).then((v) => { if (alive) setCov(v); }, (e) => { if (alive) { setCov(null); setCovError(e.message); } });
     return () => { alive = false; };
   }, [ready, key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Couverture : filtrée par période + bureau (sous-arbre) + activité.
+  useEffect(() => {
+    if (!ready || !period) return undefined;
+    let alive = true;
+    setCov(undefined); setCovError(null);
+    api.dashCoverage(period, { officeId: officeId || undefined, activity: activity || undefined }).then((v) => {
+      if (!alive) return;
+      setCov(v);
+      // Options d'activité stables : prises de la vue NON filtrée par activité.
+      if (!activity) setActOptions((v.byActivity || []).filter((a) => a.key && a.key !== '—').map((a) => ({ key: a.key, label: a.label || a.key })));
+    }, (e) => { if (alive) { setCov(null); setCovError(e.message); } });
+    return () => { alive = false; };
+  }, [ready, key, officeId, activity]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const t = cons?.totals;
   const tp = t?.period;
@@ -95,6 +121,15 @@ export default function ReportingPage({ onOpenContract }) {
         </div>
         <div className="header-actions">
           {ready && <PeriodSelect value={period} onChange={setPeriod} counts={counts} latest={latest} today={today} maxSpan={REPORT_MAX_SPAN} align="right" />}
+          {/* Filtres de la couverture (retour 102) : bureau = lui et toutes ses antennes ; activité. */}
+          <select className="input" aria-label={tr('Bureau')} value={officeId} onChange={(e) => setOfficeId(e.target.value)}>
+            <option value="">{tr('Tous les bureaux')}</option>
+            {offices.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+          <select className="input" aria-label={tr('Activité')} value={activity} onChange={(e) => setActivity(e.target.value)}>
+            <option value="">{tr('Toutes les activités')}</option>
+            {actOptions.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
+          </select>
           <Button variant="secondary" icon={Printer} onClick={() => window.print()}>{tr('Imprimer / PDF')}</Button>
         </div>
       </div>

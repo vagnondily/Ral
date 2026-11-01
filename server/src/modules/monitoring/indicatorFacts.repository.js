@@ -82,7 +82,12 @@ function factFilter(alias, { period, officeKey, partnerId, agentKey, formId, act
     if (officeKey === 'unlinked') parts.push(`${a}field_office_id IS NULL`);
     else if (officeKey.startsWith('id:')) {
       params.push(officeKey.slice(3));
-      parts.push(`${a}field_office_id IN (SELECT o.id FROM field_offices o WHERE o.tenant_id = ${a}tenant_id AND (o.id = $${params.length}::uuid OR o.parent_id = $${params.length}::uuid))`);
+      // Bureau ET toutes ses antennes à n'importe quel niveau (sous-arbre récursif, comme
+      // siteActivitySql.officeTreeSql) — plus un seul niveau de parenté.
+      parts.push(`${a}field_office_id IN (WITH RECURSIVE ot AS (`
+        + `SELECT id FROM field_offices WHERE tenant_id = ${a}tenant_id AND id = $${params.length}::uuid`
+        + ` UNION SELECT f.id FROM field_offices f JOIN ot ON f.parent_id = ot.id WHERE f.tenant_id = ${a}tenant_id`
+        + `) SELECT id FROM ot)`);
     } else {
       if (!office) throw new Error('Filtre bureau : jointure des bureaux requise.');
       params.push(String(officeKey)); parts.push(`${office.key} = $${params.length}`);

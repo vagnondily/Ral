@@ -371,7 +371,7 @@ export const api = {
   // Mesures de couverture d'une période (retour 110) : UNE réponse pour la Synthèse et pour
   // « Couverture & performance » (univers, suivis, exécution, sites prévus, sites à jour, communes,
   // par activité / bureau / district). Bureau facultatif (le bureau et ses antennes).
-  dashCoverage: (period, { officeId } = {}) => request('/api/dashboards/coverage', { query: qs({ ...pq(period), office: officeId }) }),
+  dashCoverage: (period, { officeId, activity } = {}) => request('/api/dashboards/coverage', { query: qs({ ...pq(period), office: officeId, activity }) }),
   // Volume de données par mois + période par défaut (dernier mois substantiel ≤ mois courant).
   monPeriods: (today) => request('/api/monitoring/periods', { query: today ? { today } : undefined }),
   monSubmissions: (period) => request('/api/monitoring/submissions', { query: qs(pq(period)) }),

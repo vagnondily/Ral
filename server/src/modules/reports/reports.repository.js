@@ -121,7 +121,7 @@ async function deleteDocument(tenantId, id, { allowFinal = false } = {}) {
 async function listOffices(tenantId) {
   return withTenantTransaction(tenantId, async (client) => {
     const { rows } = await client.query(
-      `SELECT id, name, parent_id AS "parentId", active FROM field_offices WHERE tenant_id = $1 ORDER BY lower(name)`, [tenantId]);
+      `SELECT id, name, parent_id AS "parentId", national, active FROM field_offices WHERE tenant_id = $1 ORDER BY lower(name)`, [tenantId]);
     return rows;
   });
 }

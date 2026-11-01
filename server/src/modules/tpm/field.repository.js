@@ -1127,7 +1127,14 @@ async function coverageFacts(tenantId, { period: asked = null, officeId = null, 
     const within = monthWithin('v.period_month', period, pp);
     let scope = '';
     if (officeId === 'unlinked') scope += ' AND s.field_office_id IS NULL';
-    else if (officeId) { pp.push(officeId); scope += ` AND (s.field_office_id = $${pp.length}::uuid OR fo.parent_id = $${pp.length}::uuid)`; }
+    else if (officeId) {
+      pp.push(officeId);
+      // Bureau ET toutes ses antennes à n'importe quel niveau (sous-arbre récursif) — plus un seul niveau.
+      scope += ` AND s.field_office_id IN (WITH RECURSIVE ot AS (`
+        + `SELECT id FROM field_offices WHERE tenant_id = $1 AND id = $${pp.length}::uuid`
+        + ` UNION SELECT f.id FROM field_offices f JOIN ot ON f.parent_id = ot.id WHERE f.tenant_id = $1`
+        + `) SELECT id FROM ot)`;
+    }
     if (activity) { pp.push(activity); scope += ` AND lower(btrim(s.activity)) = lower(btrim($${pp.length}::text))`; }
     const { rows: providers } = await client.query(
       `SELECT ${monitorKeySql('v')} AS key, min(p.name) AS label,
@@ -1138,7 +1145,6 @@ async function coverageFacts(tenantId, { period: asked = null, officeId = null, 
               count(DISTINCT v.site_id) FILTER (WHERE v.status = 'realise')::int AS "sitesRealised"
          FROM site_visits v
          JOIN sites s ON s.id = v.site_id AND s.tenant_id = v.tenant_id
-         LEFT JOIN field_offices fo ON fo.id = s.field_office_id AND fo.tenant_id = s.tenant_id
          LEFT JOIN partners p ON p.id = v.provider_id AND p.tenant_id = v.tenant_id
         WHERE v.tenant_id = $1 AND ${within}${scope}
         GROUP BY 1`,

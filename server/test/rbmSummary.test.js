@@ -33,11 +33,28 @@ test('compteurs RBM des écrans : mêmes totaux que la synthèse ; « à suivre 
   assert.equal(rbmCounts(null).total, 0);
 });
 
-test('périmètre : un bureau couvre ses antennes ; « sans bureau » ; activité sans casse', () => {
-  const parentOf = new Map([['ant1', 'bur1'], ['bur1', null], ['bur2', null]]);
-  assert.deepEqual(scopeSites(SITES, { officeId: 'bur1', parentOf }).map((s) => s.id), ['a', 'b']);
-  assert.deepEqual(scopeSites(SITES, { officeId: 'unlinked', parentOf }).map((s) => s.id), ['c']);
-  assert.deepEqual(scopeSites(SITES, { activity: 'CANTINE' }).map((s) => s.id), ['a', 'b', 'd']);
+test('périmètre : un bureau couvre ses antennes À TOUT NIVEAU (récursif) ; « sans bureau » ; activité sans casse', () => {
+  // Chaîne à 3 niveaux : bur1 › ant1 › sub1 (sous-antenne). L'ancienne règle « un seul niveau »
+  // excluait à tort le site de la sous-antenne ; la règle commune officeScopeIds l'inclut.
+  const officeList = [
+    { id: 'bur1', parentId: null, national: false },
+    { id: 'ant1', parentId: 'bur1' },
+    { id: 'sub1', parentId: 'ant1' },
+    { id: 'bur2', parentId: null },
+  ];
+  const sites = [
+    { id: 'a', fieldOfficeId: 'ant1', activity: 'Cantine' },
+    { id: 'b', fieldOfficeId: 'bur1', activity: 'cantine ' },
+    { id: 'c', fieldOfficeId: null, activity: 'Nutrition' },
+    { id: 'd', fieldOfficeId: 'bur2', activity: 'Cantine' },
+    { id: 'e', fieldOfficeId: 'sub1', activity: 'Cantine' }, // 3e niveau sous bur1
+  ];
+  // bur1 couvre ant1 ET sub1 (récursif) : a, b, e — PAS seulement le premier niveau.
+  assert.deepEqual(scopeSites(sites, { officeId: 'bur1', officeList }).map((s) => s.id), ['a', 'b', 'e']);
+  // ant1 couvre lui-même et sa sous-antenne sub1 : a, e.
+  assert.deepEqual(scopeSites(sites, { officeId: 'ant1', officeList }).map((s) => s.id), ['a', 'e']);
+  assert.deepEqual(scopeSites(sites, { officeId: 'unlinked', officeList }).map((s) => s.id), ['c']);
+  assert.deepEqual(scopeSites(sites, { activity: 'CANTINE' }).map((s) => s.id), ['a', 'b', 'd', 'e']);
 });
 
 test('sites à suivre : urgents d\'abord, puis priorité ; zone interdite exclue (suivi à distance)', () => {

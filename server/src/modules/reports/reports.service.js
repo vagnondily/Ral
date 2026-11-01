@@ -36,6 +36,10 @@ async function officeIndex(tenantId) {
     idByName: new Map(rows.map((o) => [String(o.name).trim().toLowerCase(), o.id])),
     nameById: new Map(rows.map((o) => [o.id, o.name])),
     parentById: new Map(rows.map((o) => [o.id, o.parentId || null])),
+    // Liste complète (id, parentId, national) : le filtre bureau du concepteur couvre le bureau ET
+    // TOUTES ses antennes à n'importe quel niveau (common/officeScope.officeScopeIds), comme les
+    // tableaux de bord (siteActivitySql.officeTreeSql) — plus un seul niveau d'antenne.
+    list: rows.map((o) => ({ id: o.id, parentId: o.parentId || null, national: o.national === true })),
   };
 }
 
@@ -296,7 +300,7 @@ async function computeGuarded(tenantId, doc, inst, ctx) {
 
 /** Contexte de rendu : langue, jour, bureaux, calculs partagés. */
 const renderCtx = (offices, opts) => ({
-  lang: langOf(opts), today: today(), officeNames: offices.nameById, officeParents: offices.parentById || new Map(), memo: new Map(), log: opts && opts.log,
+  lang: langOf(opts), today: today(), officeNames: offices.nameById, officeParents: offices.parentById || new Map(), officeList: offices.list || [], memo: new Map(), log: opts && opts.log,
 });
 
 /**

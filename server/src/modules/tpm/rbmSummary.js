@@ -7,20 +7,26 @@
  * field.repository.rbmSitesTx, rien n'est recalculé ici.
  */
 
+const { officeScopeIds } = require('../common/officeScope');
+
 const RISK_LEVELS = ['elevee', 'moyenne', 'faible'];
 const RISK_LABELS = { elevee: 'Élevé', moyenne: 'Moyen', faible: 'Faible' };
 
 /**
- * Sites d'un périmètre : bureau MEMS (lui ou ses antennes) et catégorie d'activité.
+ * Sites d'un périmètre : bureau MEMS (lui ET toutes ses antennes, à n'importe quel niveau) et
+ * catégorie d'activité. Le périmètre du bureau est la règle commune `officeScopeIds` (récursive,
+ * testée) — jamais un seul niveau d'antenne.
  * @param {object[]} sites lignes RBM (fieldOfficeId, activity)
- * @param {{ officeId?: string|null, activity?: string|null, parentOf?: Map<string,string|null> }} scope
- *   officeId 'unlinked' = sites sans bureau ; parentOf : bureau → bureau parent.
+ * @param {{ officeId?: string|null, activity?: string|null, officeList?: object[] }} scope
+ *   officeId 'unlinked' = sites sans bureau ; officeList : [{ id, parentId, national }].
  */
-function scopeSites(sites, { officeId = null, activity = null, parentOf = new Map() } = {}) {
+function scopeSites(sites, { officeId = null, activity = null, officeList = [] } = {}) {
   const act = activity ? String(activity).trim().toLowerCase() : null;
+  // Set du sous-arbre du bureau (ou null = pas de filtre bureau / bureau national = tout).
+  const scope = officeId && officeId !== 'unlinked' ? officeScopeIds(officeList, officeId) : null;
   return (sites || []).filter((s) => {
-    if (officeId === 'unlinked' && s.fieldOfficeId) return false;
-    if (officeId && officeId !== 'unlinked' && s.fieldOfficeId !== officeId && parentOf.get(s.fieldOfficeId) !== officeId) return false;
+    if (officeId === 'unlinked') { if (s.fieldOfficeId) return false; }
+    else if (scope && !scope.has(s.fieldOfficeId)) return false;
     if (act && String(s.activity || '').trim().toLowerCase() !== act) return false;
     return true;
   });
