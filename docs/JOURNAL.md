@@ -1197,3 +1197,20 @@ _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot v�
   Contrôles : lint ✅, 1 621 tests ✅ (dont la règle récursive à 3 niveaux et le flux activité), `test:db`
   55 ✅, build ✅, balayage 46 × FR / EN 0 erreur ✅. Reste du 102 : la période en « mois cochés » (vs plage)
   — représentation à ajouter plus tard (aujourd'hui plage `du…au…`).
+- **01/11 (retours 106/109 — activités)** ✅ **Deux référentiels d'activités DISTINCTS.** Réintégration de
+  `wip/activities` (migration **105**, module `programmes/`, ~3 400 lignes) sur le `main` du jour. Désormais :
+  **(A) Activités de programme** (suivi de processus — « Unconditional resource transfers… », « School meal
+  activities »… , table `programme_activities`) › **sous-activités** (Activity_tag : GD, SMP, PECMAM…,
+  `sub_activities` re-rattachées de (B) vers (A)) › information ; **(B) Prestations contractuelles (FLA)**
+  (Suivi, Ciblage, PDM, Distribution, Évaluation, table `activities` INCHANGÉE — les budgets FLA continuent
+  d'y pointer). Écran Paramétrage › Activités refondu en **deux sections** (`ActivitiesSection.jsx`). Les
+  textes libres existants ne sont pas réécrits : ils sont LUS via `programme_activity_aliases` (clé
+  normalisée) ; bouton « Reprendre les libellés » (idempotent) et reprise au seed. Correctif de
+  compatibilité : écriture ouverte au super-utilisateur (`ADMIN_ROLES`, la branche datait d'avant le modèle
+  à 5 rôles). Migration 105 insérée dans le trou 101→107, vérifiée **neuve** (en séquence) ET **mise à jour**
+  (appliquée en attente sur une base en 127). Contrôles : lint ✅, **1 660 tests** ✅, `test:db` 55/0/1 ✅,
+  test de la migration 105 sur vraie base 5/5 ✅, build ✅, **balayage 46 × FR/EN 0 erreur** ✅. Vérifié en
+  direct : 10 activités de programme (libellés PAM réels) + sous-activités ; (B) toujours les 5 prestations.
+  Retour **109 livré**. Retour **106 : le socle** (référentiel + alias + résolution) est posé ; reste à câbler
+  le sélecteur `ActivitySelect` sur TOUTES les saisies (sites, MMR, fiches) et à refuser une activité hors
+  référentiel — lot suivant.

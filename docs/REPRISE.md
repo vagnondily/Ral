@@ -94,7 +94,7 @@ Tenu à jour à chaque étape ; détail heure par heure dans [`JOURNAL.md`](JOUR
 | `wip/pdd` | oui | Agent : PDD — vue d'ensemble, tableau récapitulatif par mois, date d'ajout (retour 69, migration 100) | ⏸️ arrêté par la limite du 14/10, pas encore relancé |
 | `wip/dash-template` | oui (au fil de l'eau) | Agent : « Couverture & performance du suivi » fidèle à la maquette de l'utilisateur (retours 40, 66, 67, 85, 101 ; migration 101 si besoin) | 🔄 depuis 15/10 ≈ 05:33 |
 | `wip/offices` | oui (au fil de l'eau) | Agent : types de bureau à niveaux facultatifs, périmètre en arbre Région › District › Commune, bureau d'un site déduit des périmètres (retours 105, 106 ; migrations 102–103) | 🔄 depuis 15/10 ≈ 05:39 |
-| `wip/activities` | oui (au fil de l'eau) | Agent : suite du référentiel des activités — **sur la base de `sub_activities` (`101`, publié par l'autre session)** : reprise des libellés existants, listes du référentiel partout, activités inconnues refusées (retours 92, 106 ; migration 105) | ⏸️ arrêté par la limite à ≈ 06:00, à relancer avec la nouvelle base |
+| `wip/activities` | oui | Deux référentiels d'activités (programme + prestations FLA), migration 105 | ✅ **fusionné sur `main` le 01/11** (retour 109) |
 | `claude/zealous-bardeen-p9ozcr` (15/10) | oui | **Autre session** : sous-activités (retour 92, migration 101), zones du contrat enrichies (retour 38), revue du plan de suivi (`docs/REVUE_PLAN_SUIVI.md`), passation (`docs/SESSION_HANDOFF_zealous.md`) | ✅ **fusionnée dans `main`** (PR #3, 10:09 UTC) |
 
 ## 3. Chantiers : en cours et à venir
