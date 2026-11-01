@@ -46,17 +46,22 @@ build web. `.github/dependabot.yml` : montées de dépendances hebdomadaires (se
 | # | Gravité | Constat | État |
 |---|---|---|---|
 | 1 | Faible–Moyen | **Pas de révocation de session** : un compte désactivé / rôle abaissé garde son JWT valable jusqu'à expiration (8 h). La reconnexion, elle, est bien refusée. | À traiter (vérifier `active` dans `requireAuth`, cache court ; ou jetons courts) |
-| 2 | Faible | Gardes de rôle manquantes au niveau route sur approve/reject des contrats (défense en profondeur ; **non exploitable**, le service impose `validatorId === userId`). | À ajouter |
+| 2 | Faible | Gardes de rôle manquantes au niveau route sur approve/reject des contrats (défense en profondeur ; **non exploitable**, le service impose `validatorId === userId`). | ✅ Fait (01/11 : garde `VALIDATE` + test) |
 | 3 | Faible | Énumération de l'état d'un compte au login (pending/désactivé distingués avant la vérification du mot de passe). | À traiter (message générique) |
 | 4 | Faible | Avis `npm audit` serveur : body-parser (DoS), zod v3 (mémoire) — **DoS bornés par la limite 1 Mo** ; zod sans correctif en v3 (migration v4 cassante à planifier). Web : vite/esbuild = **dev uniquement**, absents de la production. | Suivi (CI + Dependabot) |
 | 5 | Durcissement | CSP globale désactivée (la route des images pose sa propre CSP stricte). | À envisager (CSP par nonce) |
-| 6 | Durcissement | `jwt.verify` sans `algorithms:['HS256']` explicite ; limiteur de débit seulement sur `/login`. | À ajouter |
+| 6 | Durcissement | `jwt.verify` sans `algorithms:['HS256']` explicite ; limiteur de débit seulement sur `/login`. | ✅ Fait (01/11 : algorithme épinglé ; limiteur sur `/register` et `/activate`) |
 
 ## Fait le 01/11/2026
 - Intégration continue (`ci.yml`) + suivi des dépendances (`dependabot.yml`).
 - `docker-compose.yml` marqué « développement uniquement » ; ports PostgreSQL/Redis liés à `127.0.0.1`
   (plus exposés au réseau).
 - Ce document.
+
+## Fait le 01/11/2026 (2e envoi — correctifs de code)
+- Gardes de rôle `VALIDATE` (valideur+) sur approuver/rejeter contrat et avenant, avec test de routes (`contractDecisionRoutes.test.js`) — défense en profondeur (le service impose déjà `validatorId === userId`).
+- `jwt.verify` épingle l'algorithme `HS256` (jamais `none` ni asymétrique accepté par erreur).
+- Limiteur de débit par IP sur `/api/auth/register` et `/api/auth/activate` (`SIGNUP_RATE_MAX`, 20/15 min par défaut).
 
 > Aucun constat n'est une exécution de code à distance ni une fuite de données : ce sont des écarts de
 > durcissement et des DoS déjà bornés par les limites de taille en place.

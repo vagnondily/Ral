@@ -1134,3 +1134,11 @@ _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot v�
   = DoS bornés par la limite 1 Mo (vite/esbuild = dev uniquement). Contrôles : lint ✅, 1 574 tests ✅,
   build ✅. Constats de code à traiter ensuite (révocation de session, gardes de route approve/reject,
   message de login générique) consignés dans `docs/SECURITE.md`.
+- **01/11 (2e envoi)** ✅ **Sécurité — correctifs de code (constats 2 et 6).** Gardes de rôle `VALIDATE`
+  (valideur+) ajoutées sur approuver/rejeter contrat et avenant (défense en profondeur : le service
+  imposait déjà `validatorId === userId` ; routes non exploitables avant, mais désormais ceinture-
+  bretelles), avec un test de routes dédié (`contractDecisionRoutes.test.js` : lecteur/éditeur → 403 sans
+  appel du service ; valideur/admin/super/manager → 204 ; sans jeton → 401). `jwt.verify` épingle
+  l'algorithme `HS256`. Limiteur de débit par IP ajouté sur `/api/auth/register` et `/api/auth/activate`
+  (`SIGNUP_RATE_MAX`, 20/15 min). Contrôles : lint ✅, 1 578 tests ✅ (dont 4 nouveaux). `docs/SECURITE.md`
+  mis à jour (constats 2 et 6 → faits).

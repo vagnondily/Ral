@@ -22,7 +22,9 @@ function requireAuth(req, res, next) {
   }
 
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    // Algorithme épinglé (HS256, comme la signature) : jamais `none` ni un
+    // algorithme asymétrique accepté par erreur.
+    const payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
     req.auth = { userId: payload.sub, tenantId: payload.tenantId, role: normalizeRole(payload.role) };
     return next();
   } catch {

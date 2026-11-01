@@ -104,6 +104,19 @@ function createApp() {
   });
   app.use('/api/auth/login', loginLimiter);
 
+  // Auto-inscription et activation : limités par IP (anti-spam de comptes en
+  // attente et anti-devinette de jeton d'activation). Généreux pour ne pas
+  // gêner un usage normal ; compteur partagé via Redis si disponible.
+  const signupLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: Number(process.env.SIGNUP_RATE_MAX || 20),
+    keyGenerator: (req) => req.ip,
+    redis: rlRedis,
+    prefix: 'rl:signup',
+  });
+  app.use('/api/auth/register', signupLimiter);
+  app.use('/api/auth/activate', signupLimiter);
+
   app.use('/api/auth', authRoutes);
   app.use('/api/tpm/reports', tpmReportsRoutes);
   app.use('/api/tpm/consolidation', tpmConsolidationRoutes);

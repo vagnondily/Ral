@@ -1,7 +1,7 @@
 const express = require('express');
 const { Router } = require('express');
 const asyncHandler = require('../../middleware/asyncHandler');
-const { requireAuth, requireRole, WRITE_ROLES } = require('../../middleware/auth');
+const { requireAuth, requireRole, WRITE_ROLES, VALIDATE_ROLES } = require('../../middleware/auth');
 const { badRequest } = require('../../middleware/errors');
 const service = require('./contracts.service');
 const v = require('./contracts.validation');
@@ -12,6 +12,10 @@ const router = Router();
 router.use(requireAuth);
 
 const WRITE = requireRole(...WRITE_ROLES);
+// Statuer (approuver / rejeter) = valideur+. Le service impose déjà que seul le
+// valideur ASSIGNÉ statue (contract.validatorId === actor.userId) ; cette garde
+// de route est la ceinture-bretelles (défense en profondeur).
+const VALIDATE = requireRole(...VALIDATE_ROLES);
 
 /** Validates req[source] with a zod schema; 400 with field details on failure. */
 function body(schema, source = 'body') {
@@ -95,12 +99,12 @@ router.post('/:id/submit', WRITE, body(v.submitSchema), asyncHandler(async (req,
   res.status(204).end();
 }));
 
-router.post('/:id/approve', body(v.decisionSchema), asyncHandler(async (req, res) => {
+router.post('/:id/approve', VALIDATE, body(v.decisionSchema), asyncHandler(async (req, res) => {
   await service.decide(t(req), actor(req), req.params.id, { ...req.valid, approve: true });
   res.status(204).end();
 }));
 
-router.post('/:id/reject', body(v.decisionSchema), asyncHandler(async (req, res) => {
+router.post('/:id/reject', VALIDATE, body(v.decisionSchema), asyncHandler(async (req, res) => {
   await service.decide(t(req), actor(req), req.params.id, { ...req.valid, approve: false });
   res.status(204).end();
 }));
@@ -109,12 +113,12 @@ router.post('/:id/amendments', WRITE, body(v.amendmentSchema), asyncHandler(asyn
   res.status(201).json(await service.requestAmendment(t(req), actor(req), req.params.id, req.valid));
 }));
 
-router.post('/:id/amendments/:amendmentId/approve', body(v.decisionSchema), asyncHandler(async (req, res) => {
+router.post('/:id/amendments/:amendmentId/approve', VALIDATE, body(v.decisionSchema), asyncHandler(async (req, res) => {
   await service.decideAmendment(t(req), actor(req), req.params.id, req.params.amendmentId, { ...req.valid, approve: true });
   res.status(204).end();
 }));
 
-router.post('/:id/amendments/:amendmentId/reject', body(v.decisionSchema), asyncHandler(async (req, res) => {
+router.post('/:id/amendments/:amendmentId/reject', VALIDATE, body(v.decisionSchema), asyncHandler(async (req, res) => {
   await service.decideAmendment(t(req), actor(req), req.params.id, req.params.amendmentId, { ...req.valid, approve: false });
   res.status(204).end();
 }));
