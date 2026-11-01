@@ -91,6 +91,16 @@ async function resolverTx(client, tenantId) {
 }
 
 /**
+ * Libellé officiel d'un texte d'activité (sa propre transaction) : graphie reconnue → libellé du
+ * référentiel ; texte inconnu → nettoyé (conservé, « à classer ») ; vide → null. Retour 106 : une
+ * seule résolution, hors du chemin d'écriture, pour les saisies qui ne tiennent pas un client.
+ */
+async function canonicalLabel(tenantId, text) {
+  if (text == null || cleanLabel(text) === '') return null;
+  return withTenantTransaction(tenantId, async (client) => (await resolverTx(client, tenantId)).canonical(text));
+}
+
+/**
  * Activité de programme d'une saisie : libellé officiel à enregistrer, ou 400 avec propositions.
  * Vide → null (pas d'activité) quand `optional`, sinon 400.
  * @returns {Promise<{ id, label, code } | null>}
@@ -311,6 +321,6 @@ async function reprise(tenantId) {
 }
 
 module.exports = {
-  listForSelect, referential, resolverTx, resolveForWrite, resolveSubForWrite,
+  listForSelect, referential, resolverTx, resolveForWrite, resolveSubForWrite, canonicalLabel,
   createActivity, updateActivity, deleteActivity, mergeActivities, convertToSubActivity, linkLabel, unlinkAlias, reprise,
 };

@@ -1227,3 +1227,14 @@ _Dernière mise à jour : 16/10/2026 — la branche `main` reçoit chaque lot v�
   du nom et de l'activité d'un site **persiste** (bug latent). Contrôles : lint ✅, **1 660 tests** ✅ (dont le
   mapping de mise à jour), `test:db` 55/0/1 ✅, build ✅, balayage 46 × FR/EN 0 erreur ✅. Reste du 106 :
   mêmes sélecteurs sur le MMR et les fiches de suivi, et résolution à l'import de sites — lot suivant.
+- **01/11 (retour 106 — MMR, fiches, import)** ✅ **Activité = le référentiel PARTOUT.** Suite et fin du
+  câblage : le **MMR** (« Nouvelle catégorie ») et la **fiche de suivi** (rattachement + édition) utilisent
+  les sélecteurs du référentiel (`ActivitySelect`) au lieu des catégories MMR / champs libres ; et côté
+  serveur, TOUTE écriture d'activité est résolue au référentiel — **import de sites** (une lecture pour le
+  lot), **MMR** (`upsertMmr`), **fiche** (`monitoring_forms.activity_category`, via `canonicalLabel`) : une
+  graphie reconnue devient le libellé officiel (vérifié en direct : MMR `URT` → « Unconditional resource
+  transfers… », fiche `SMP` → « School meal activities »), une valeur inconnue est conservée « à classer »
+  (jamais un blocage). La validation « catégorie du MMR » des fiches est remplacée par le référentiel.
+  Contrôles : lint ✅, **1 661 tests** ✅, `test:db` 55/0/1 ✅, build ✅, balayage 46 × FR/EN 0 erreur ✅.
+  **Retour 106 terminé** (socle + registre + import + MMR + fiches). Reste possible : le renommage inline
+  d'une catégorie MMR en texte (résolu au serveur de toute façon).

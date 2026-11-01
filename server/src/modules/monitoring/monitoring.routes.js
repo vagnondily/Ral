@@ -10,10 +10,9 @@ const { readSubmissionsBuffer, fileColumns } = require('./submissionsFile');
 const { runCpu } = require('../common/cpuPool');
 const { zipLimitsFromEnv } = require('../common/zipGuard');
 const { validateExpression, functionCatalog } = require('./calcFields');
-const { mmrKey } = require('./indicatorTemplates');
 const dataLinks = require('./dataLinks.service');
 const periodsService = require('./periods.service');
-const settingsRepo = require('../settings/settings.repository');
+const programmeActivities = require('../programmes/programmeActivities.service');
 const { readPeriod } = require('../../middleware/period');
 const { stripGps, seesPreciseGps } = require('../map/submissionGps');
 const { PERIOD_CAPS } = require('../common/periodCaps');
@@ -67,15 +66,10 @@ router.patch('/forms/:id', WRITE, body(z.object({
   activityCategory: z.string().trim().max(160).nullable().optional(),
 })), asyncHandler(async (req, res) => {
   const patch = { ...req.valid };
-  // Activité = une catégorie du MMR (libellé canonique) : c'est elle qui relie la fiche aux sites,
-  // à la couverture et au plan de suivi.
-  if (patch.activityCategory) {
-    const cats = [...new Set((await settingsRepo.listMmr(t(req))).map((m) => String(m.activityCategory || '').trim()).filter(Boolean))];
-    // Même clé que le choix du modèle d'indicateurs (indicatorTemplates.mmrKey : casse, accents, espaces).
-    const hit = cats.find((c) => mmrKey(c) === mmrKey(patch.activityCategory));
-    if (!hit) throw badRequest(`Activité inconnue du MMR : « ${patch.activityCategory} ».`);
-    patch.activityCategory = hit;
-  }
+  // Retour 106 : l'activité d'une fiche est une ACTIVITÉ DE PROGRAMME du référentiel (Paramétrage ›
+  // Activités) — c'est elle qui relie la fiche aux sites, à la couverture et au plan de suivi. On la
+  // résout au libellé officiel (graphie reconnue) ; inconnue conservée (« à classer »).
+  if (patch.activityCategory) patch.activityCategory = await programmeActivities.canonicalLabel(t(req), patch.activityCategory);
   if (patch.activityCategory === '') patch.activityCategory = null;
   if (!(await repo.updateForm(t(req), uuidParam(req.params.id), patch))) throw notFound('Formulaire introuvable');
   res.status(204).end();

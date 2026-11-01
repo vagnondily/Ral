@@ -6,6 +6,7 @@ import { useToast } from '../../components/Toast.jsx';
 import { formatInt, formatLocale } from '../../lib/format.js';
 import { useI18n } from '../../lib/i18n.jsx';
 import { richText } from '../../lib/contracts.js';
+import ActivitySelect from '../../components/ActivitySelect.jsx';
 import {
   INPUT_FIELDS, resolvePlan, summarizePlan, registryCounts, rowErrors, toPayload, isChanged, normCat,
   newMmrRow, missingRegistryCategories,
@@ -398,13 +399,10 @@ export default function MmrSection({ isAdmin }) {
 
           {isAdmin && !scope && (
             <form className="mmr-add" onSubmit={(e) => { e.preventDefault(); addCategory(); }}>
-              <input className="input" list="mmr-suggest" placeholder={tr('Nouvelle catégorie d\'activité…')} value={newCat} onChange={(e) => setNewCat(e.target.value)} aria-label={tr('Nouvelle catégorie')} />
-              <datalist id="mmr-suggest">
-                {[...registryCounts(registry, null).keys()].filter((k) => !plan.some((p) => p.key === k))
-                  .map((k) => registry.find((r) => normCat(r.activity) === k)?.activity || k).map((label) => <option key={label} value={label} />)}
-              </datalist>
+              {/* Retour 106 : la catégorie d'activité se CHOISIT dans le référentiel (Paramétrage › Activités). */}
+              <ActivitySelect value={newCat} onChange={(labelOf) => setNewCat(labelOf)} emptyLabel={tr('Choisir une activité à ajouter…')} ariaLabel={tr('Nouvelle catégorie')} />
               <Button type="submit" variant="secondary" icon={Plus} disabled={!newCat.trim()}>{tr('Ajouter')}</Button>
-              <span className="hint">{tr('Suggestions : activités du référentiel de sites sans paramètre. Le nombre de sites est prérempli.')}</span>
+              <span className="hint">{tr('Activités de programme du référentiel. Le nombre de sites est prérempli.')}</span>
             </form>
           )}
 

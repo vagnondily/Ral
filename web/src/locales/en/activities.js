@@ -175,4 +175,8 @@ export default {
   'Activité requise : choisissez-la dans la liste (Paramétrage › Activités).': 'Activity required: choose it from the list (Settings › Activities).',
   'Suppression impossible : utilisé par {what}.': 'Cannot delete: used by {what}.',
   'Erreur inattendue.': 'Unexpected error.',
+  'Choisir une activité à ajouter…': 'Choose an activity to add…',
+  'Aucune activité dans le référentiel : créez-les d\'abord (Paramétrage › Activités).': 'No activity in the referential: create them first (Settings › Activities).',
+  'Activités de programme du référentiel. Le nombre de sites est prérempli.': 'Programme activities from the referential. The number of sites is prefilled.',
+  'Relie la fiche aux sites de cette activité : couverture, sites actifs et plan de suivi en dépendent. Les activités se définissent dans Paramétrage › Activités.': 'Links the form to the sites of this activity: coverage, active sites and the monitoring plan depend on it. Activities are defined in Settings › Activities.',
 };

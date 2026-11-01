@@ -3,6 +3,7 @@ const places = require('./placeMatch.repository');
 const { badRequest } = require('../../middleware/errors');
 const { roleForUpdateTx, restampIfRoleChangedTx, nameChanges, roleAfter } = require('../partners/partnerRole');
 const { natureOfLevel } = require('../common/officeLevels');
+const progAct = require('../programmes/programmeActivities.service');
 
 /** Configuration registries: partner types, activities, partners (+ TPM
  * agents). All tenant-scoped through withTenantTransaction. */
@@ -418,11 +419,15 @@ async function listMmr(tenantId) {
 async function upsertMmr(tenantId, { fieldOfficeId, activityCategory, operationDuration, numberOfSites, riskLevel, feasible, personsToDeploy, visitsPerDay, workingDays, note }, userId) {
   const officeId = fieldOfficeId || null;
   return withTenantTransaction(tenantId, async (client) => {
+    // Retour 106 : la « Catégorie d'activité » du MMR est une ACTIVITÉ DE PROGRAMME — résolue au libellé
+    // officiel du référentiel (graphie reconnue) ; inconnue conservée (« à classer » dans Paramétrage).
+    const resolver = await progAct.resolverTx(client, tenantId);
+    const cat = resolver.canonical(activityCategory) || activityCategory;
     const existing = await client.query(
       `SELECT id FROM mmr_parameters
         WHERE tenant_id = $1 AND activity_category = $2
           AND field_office_id IS NOT DISTINCT FROM $3`,
-      [tenantId, activityCategory, officeId]
+      [tenantId, cat, officeId]
     );
     const vals = [operationDuration, numberOfSites, riskLevel, feasible ?? null,
       personsToDeploy ?? null, visitsPerDay ?? null, workingDays ?? null, note || null];
@@ -439,7 +444,7 @@ async function upsertMmr(tenantId, { fieldOfficeId, activityCategory, operationD
     const { rows } = await client.query(
       `INSERT INTO mmr_parameters (tenant_id, field_office_id, activity_category, operation_duration, number_of_sites, risk_level, feasible, persons_to_deploy, visits_per_day, working_days, note, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
-      [tenantId, officeId, activityCategory, ...vals, userId]
+      [tenantId, officeId, cat, ...vals, userId]
     );
     return rows[0].id;
   });

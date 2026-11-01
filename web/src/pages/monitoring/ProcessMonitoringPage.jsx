@@ -10,6 +10,7 @@ import { Alert, Badge, Button, Card, CardHeader, EmptyState, Field, IconButton, 
 import { MAPPING_STATUS, DATE_KEYS, dateStats } from '../../lib/mappingWorkflow.js';
 import Modal from '../../components/Modal.jsx';
 import PeriodSelect from '../../components/PeriodSelect.jsx';
+import ActivitySelect from '../../components/ActivitySelect.jsx';
 import { SessionPeriodNote, usePeriod } from '../../components/PeriodBanner.jsx';
 import { periodLabel as labelOfPeriod, single } from '../../lib/period.js';
 import { usePopover } from '../../components/listView.jsx';
@@ -233,8 +234,10 @@ function AttachActivityModal({ form, onClose, onSaved }) {
   const [choice, setChoice] = useState(form.activityCategory || '');
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    api.listMmr().then((rows) => {
-      const list = [...new Set(rows.map((r) => String(r.activityCategory || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    // Retour 106 : les activités proposées viennent du RÉFÉRENTIEL (Paramétrage › Activités), plus du MMR.
+    api.listProgrammeActivities().then((rows) => {
+      const list = (Array.isArray(rows) ? rows : []).filter((a) => a.active !== false && !a.bucket)
+        .map((a) => String(a.label || '').trim()).filter(Boolean).sort((a, b) => a.localeCompare(b));
       setActivities(list);
       if (!form.activityCategory) setChoice(suggestActivity(form, list) || '');
     }).catch((e) => { toast.error(e.message); setActivities([]); });
@@ -255,9 +258,9 @@ function AttachActivityModal({ form, onClose, onSaved }) {
       footer={<><Button variant="secondary" onClick={onClose}>{tr('Annuler')}</Button><Button icon={Check} loading={saving} disabled={!choice} onClick={save}>{tr('Rattacher')}</Button></>}>
       <p className="hint" style={{ marginTop: 0 }}>{tr('L\'activité relie la fiche aux sites de cette activité : la couverture, les sites actifs, le plan de suivi et les rapports en dépendent. Choisissez l\'activité suivie par ce formulaire.')}</p>
       {activities === null ? <Skeleton height={200} /> : activities.length === 0 ? (
-        <Alert tone="warning" icon={AlertTriangle}>{tr('Aucune activité dans le MMR : paramétrez-les d\'abord (Paramétrage › Paramètres MMR).')}</Alert>
+        <Alert tone="warning" icon={AlertTriangle}>{tr('Aucune activité dans le référentiel : créez-les d\'abord (Paramétrage › Activités).')}</Alert>
       ) : (
-        <ul className="pm-pick" role="radiogroup" aria-label={tr('Activités du MMR')}>
+        <ul className="pm-pick" role="radiogroup" aria-label={tr('Activités de programme')}>
           {ordered.map((a) => (
             <li key={a}>
               <button type="button" role="radio" aria-checked={choice === a} className={`pm-pick-item${choice === a ? ' is-selected' : ''}`} onClick={() => setChoice(a)}>
@@ -280,12 +283,7 @@ function FormEditModal({ form, onClose, onSaved }) {
   const [label, setLabel] = useState(form.label);
   const [activity, setActivity] = useState(form.activityCategory || '');
   const [active, setActive] = useState(form.active);
-  const [activities, setActivities] = useState(null);
   const [saving, setSaving] = useState(false);
-  useEffect(() => {
-    api.listMmr().then((rows) => setActivities([...new Set(rows.map((r) => String(r.activityCategory || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b))))
-      .catch(() => setActivities([]));
-  }, []);
   async function save() {
     setSaving(true);
     try {
@@ -299,15 +297,9 @@ function FormEditModal({ form, onClose, onSaved }) {
       footer={<><Button variant="secondary" onClick={onClose}>{tr('Annuler')}</Button><Button icon={Check} loading={saving} disabled={!label.trim()} onClick={save}>{tr('Enregistrer')}</Button></>}>
       <div className="section-gap">
         <Field label={tr('Nom de la fiche')} required><input className="input" value={label} maxLength={160} onChange={(e) => setLabel(e.target.value)} /></Field>
-        <Field label={tr('Activité (MMR)')} hint={tr('Relie la fiche aux sites de cette activité : couverture, sites actifs et plan de suivi en dépendent. Les activités se définissent dans Paramétrage › Paramètres MMR.')}>
-          {activities === null ? <Skeleton height={38} /> : (
-            <select className="select" value={activity} onChange={(e) => setActivity(e.target.value)}>
-              <option value="">{tr('— Non rattachée —')}</option>
-              {activities.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-          )}
+        <Field label={tr('Activité de programme')} hint={tr('Relie la fiche aux sites de cette activité : couverture, sites actifs et plan de suivi en dépendent. Les activités se définissent dans Paramétrage › Activités.')}>
+          <ActivitySelect value={activity} onChange={(labelOf) => setActivity(labelOf)} emptyLabel={tr('— Non rattachée —')} ariaLabel={tr('Activité de programme')} />
         </Field>
-        {activities && activities.length === 0 && <Alert tone="warning" icon={AlertTriangle}>{tr('Aucune activité dans le MMR : paramétrez-les d\'abord (Paramétrage › Paramètres MMR).')}</Alert>}
         <Field label={tr('Statut')}>
           <div className="segmented" role="group" aria-label={tr('Statut')}>
             <button type="button" aria-pressed={active} onClick={() => setActive(true)}>{tr('Active')}</button>

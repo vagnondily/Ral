@@ -29,17 +29,17 @@ const progAct = require('../programmes/programmeActivities.service');
  * `src` porte les clés du formulaire : `activityTag` (libellé) et `tagCode` (Activity_tag).
  * @returns {{ activity?: string|null, tagCode?: string|null }}
  */
-async function resolveActivityFields(client, tenantId, src) {
+async function resolveActivityFields(client, tenantId, src, resolver = null) {
   const hasAct = src.activityTag !== undefined;
   const hasTag = src.tagCode !== undefined;
   if (!hasAct && !hasTag) return {};
-  const resolver = await progAct.resolverTx(client, tenantId);
+  const r = resolver || await progAct.resolverTx(client, tenantId);
   const out = {};
-  if (hasAct) out.activity = resolver.canonical(src.activityTag); // libellé officiel si reconnu, sinon texte nettoyé (null si vide)
+  if (hasAct) out.activity = r.canonical(src.activityTag); // libellé officiel si reconnu, sinon texte nettoyé (null si vide)
   if (hasTag) {
     const code = src.tagCode;
     const empty = code == null || String(code).trim() === '';
-    const sub = empty ? null : resolver.resolveSub(code);
+    const sub = empty ? null : r.resolveSub(code);
     out.tagCode = sub ? sub.code : (empty ? null : String(code).trim());
   }
   return out;
@@ -268,6 +268,9 @@ async function importSites(tenantId, rows) {
     // réel est celui dont le périmètre (Bureaux) couvre la commune, réattribué en fin de lot.
     const { rows: offs } = await client.query('SELECT id, code FROM field_offices WHERE tenant_id = $1', [tenantId]);
     const officeByCode = new Map(offs.map((o) => [String(o.code || '').trim().toLowerCase(), o.id]));
+    // Retour 106 : activité et Activity_tag résolus par le référentiel (une seule lecture pour tout le
+    // lot) — graphie reconnue → libellé officiel ; inconnue conservée (« à classer » dans Paramétrage).
+    const actResolver = await progAct.resolverTx(client, tenantId);
 
     // Identifiant fourni (retours 70 et 64) : seul un identifiant DÉJÀ ATTRIBUÉ par MEMS (classeur
     // exporté puis repris hors ligne) désigne un site à mettre à jour — l'identifiant « S-XXXX-XXXX »
@@ -292,8 +295,11 @@ async function importSites(tenantId, rows) {
       const fieldOfficeId = r.fieldOfficeCode
         ? (officeByCode.get(String(r.fieldOfficeCode).trim().toLowerCase()) || null)
         : undefined;
+      const resolved = await resolveActivityFields(client, tenantId, { activityTag: r.activityTag, tagCode: r.tagCode }, actResolver);
       const patch = {
-        name: r.localite, activity: r.activityTag, tagCode: r.tagCode,
+        name: r.localite,
+        activity: 'activity' in resolved ? resolved.activity : r.activityTag,
+        tagCode: 'tagCode' in resolved ? resolved.tagCode : r.tagCode,
         region: r.region, district: r.district, commune: r.commune, fokontany: r.fokontany,
         lat: r.lat ?? null, lng: r.lng ?? null,
         ...(fieldOfficeId !== undefined ? { fieldOfficeId } : {}),
