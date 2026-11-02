@@ -1,0 +1,9 @@
+/* lot share : version à partager */
+.sh-banner{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap;width:fit-content;max-width:100%;margin:6px 0 2px;padding:4px 10px;border-radius:var(--radius-sm,8px);background:var(--mid-50,#fbf1df);border-left:3px solid var(--mid,#c77d00);color:var(--ink,#141a22);font-size:12.5px;line-height:1.4}
+.sh-banner b{font-weight:650}
+.sh-opts{display:flex;flex-direction:column;gap:6px;margin:4px 0 10px}
+.sh-opt{display:flex;align-items:center;gap:8px;font-size:13.5px}
+.sh-opt input{margin:0;width:16px;height:16px;accent-color:var(--accent,#1366d6)}
+.sh-opt input:disabled+label{color:var(--muted,#596679)}
+@media print{.sh-banner{background:none;border:1px solid #c77d00}}
+.sh-act{align-items:center}

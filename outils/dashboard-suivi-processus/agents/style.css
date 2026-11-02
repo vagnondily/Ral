@@ -1,0 +1,24 @@
+/* Lot agents : une valeur lisible par cellule (taux en gras, base en clair), niveau = couleur + symbole ; détail en infobulle */
+.agx-v{display:inline-flex;align-items:baseline;gap:5px;padding:2px 7px 2px 6px;border-radius:5px;border-left:3px solid transparent;white-space:nowrap;line-height:1.3;cursor:help;font-variant-numeric:tabular-nums}
+.agx-v b{font-weight:600;font-size:12.5px;color:var(--ink)}
+.agx-v small{font-size:11px;color:var(--muted);font-weight:400}
+.agx-good{border-left-color:var(--good);background:rgba(31,138,76,.07)}
+.agx-mid{border-left-color:var(--mid);background:rgba(208,138,0,.11)}
+.agx-bad{border-left-color:var(--bad);background:rgba(194,59,42,.11)}
+.agx-low{border-left:3px dashed var(--na)}.agx-low b{color:var(--muted)}
+.agx-na b{color:var(--muted);font-weight:400;font-style:italic}
+.agx-plain{padding-left:0}
+.agx-p{cursor:help;border-bottom:1px dotted transparent}.agx-p:hover{border-bottom-color:var(--muted)}
+.agx-ag{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.agx-note{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end}
+.agx-h3{margin:18px 0 2px;font-size:13.5px}
+.agx-sub{margin:0 0 6px}
+.agx-line{margin:4px 0 8px;cursor:help}
+.agx-why ul{list-style:none;padding-left:0;margin:0}
+.agx-w{font-size:12px;margin:1px 0;white-space:nowrap}.agx-w-bad{color:var(--bad)}.agx-w-mid{color:#9a6500}.agx-w-low{color:var(--muted)}
+@media (prefers-color-scheme:dark){.agx-w-mid{color:var(--mid)}}
+.agx-det{margin-top:10px}.agx-det summary{cursor:pointer;color:var(--accent);font-size:12.5px;font-weight:600}.agx-det[open] summary{margin-bottom:6px}
+.agx-ct td:nth-child(2){white-space:nowrap}
+.agx-dur .xh-r{grid-template-columns:150px 1fr 130px}
+.agx-xd .tw{max-height:none}
+.xd .xt td{font-size:12.5px}

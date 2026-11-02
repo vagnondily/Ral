@@ -12,6 +12,15 @@
 
 ## État courant
 
+> **02/11 — Archive du dashboard hors ligne « Suivi de processus » v3 (demande du propriétaire).** ✅ Le code de
+> construction du dashboard HTML autonome (outil séparé de MEMS) est archivé dans `outils/dashboard-suivi-processus/` :
+> `build3.js` (correctifs à ancres exactes par lots, empreintes CSP recalculées), lots engine / core / agents / map /
+> planning / overview / pilotage / share / security, tests Playwright (onglets, mise à jour simulée, export aller-retour)
+> et `STYLE.md`. **Aucune donnée** : le fichier d'origine (fiches, noms d'agents, GPS) reste chez le propriétaire (dépôt
+> public) ; contrôle par script : aucun nom d'agent, de site ni d'organisation dans l'archive. Vérifié : l'archive
+> reconstruit à l'identique le fichier livré (v3.2, 12 onglets, 0 erreur, export aller-retour conforme). Aucun fichier
+> de `server/` ni de `web/` modifié (lint serveur propre) ; balayage des écrans MEMS non concerné.
+
 > **23/10 — Correctif backlog : un rapport TECHNIQUE ne s'ouvrait pas (constat lot 8).** ✅ Dans Rapports,
 > le bouton « Ouvrir » n'apparaissait que pour un rapport financier (facture) ; un rapport technique n'avait
 > donc aucun moyen de s'ouvrir. `FactureDrawer` gère pourtant déjà les deux types. Bouton rendu pour les
